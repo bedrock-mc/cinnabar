@@ -3,13 +3,13 @@
 #[path = "../../../tests/it/support/gpu_snapshot.rs"]
 mod gpu_snapshot;
 
+use super::super::*;
 use crate::ui_render::{
     self as ui,
     pipeline::{
         UiPipelineKey, UiPipelineSpecializer, ui_bind_group_layout, ui_pipeline_descriptor,
     },
 };
-use super::super::*;
 use bevy::render::render_resource::Specializer;
 use gpu_snapshot::Gpu;
 use wgpu::util::DeviceExt;

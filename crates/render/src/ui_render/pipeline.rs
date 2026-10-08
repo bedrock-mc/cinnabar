@@ -327,3 +327,63 @@ mod tests {
         }
     }
 }
+
+impl crate::pipeline_warmup::PrewarmPipelines for UiPipeline {
+    /// Covers the HUD pair plus every isolated-model and world-projected depth mode.
+    fn prewarm(
+        &mut self,
+        cache: &PipelineCache,
+        view: crate::pipeline_warmup::WarmView,
+        ids: &mut crate::pipeline_warmup::WarmupIds,
+    ) -> Result<(), BevyError> {
+        let hud = UiPipelineKey {
+            msaa: view.msaa,
+            hdr: view.hdr,
+            invert_blend: false,
+            layer: true,
+            depth_test: false,
+            depth_write: false,
+            isolated_depth: false,
+        };
+        ids.push(self.variants.specialize(cache, hud)?);
+        ids.push(
+            self.variants
+                .specialize(cache, super::overlay::hud_invert_pipeline_key(view.hdr))?,
+        );
+        for depth_test in [false, true] {
+            for depth_write in [false, true] {
+                let model = UiPipelineKey {
+                    depth_test,
+                    depth_write,
+                    isolated_depth: true,
+                    ..hud
+                };
+                ids.push(self.variants.specialize(cache, model)?);
+                ids.push(self.variants.specialize(
+                    cache,
+                    UiPipelineKey {
+                        msaa: Msaa::Off,
+                        invert_blend: true,
+                        layer: false,
+                        ..model
+                    },
+                )?);
+                let world = UiPipelineKey {
+                    layer: false,
+                    depth_test,
+                    depth_write,
+                    ..hud
+                };
+                ids.push(self.variants.specialize(cache, world)?);
+                ids.push(self.variants.specialize(
+                    cache,
+                    UiPipelineKey {
+                        invert_blend: true,
+                        ..world
+                    },
+                )?);
+            }
+        }
+        Ok(())
+    }
+}

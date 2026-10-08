@@ -53,6 +53,7 @@ struct WeatherParamsGpu {
 }
 
 pub(crate) fn install_weather_render(app: &mut App) {
+    crate::pipeline_warmup::register::<WeatherPipeline>(app);
     load_internal_asset!(
         app,
         WEATHER_SHADER_HANDLE,
@@ -514,5 +515,23 @@ mod tests {
         assert_eq!(LAYER_BYTES, 80);
         assert_eq!(PARAMS_BYTES, 32);
         assert_eq!(OCCLUSION_BYTES, 2 * 64 * 64 * 4);
+    }
+}
+
+impl crate::pipeline_warmup::PrewarmPipelines for WeatherPipeline {
+    fn prewarm(
+        &mut self,
+        cache: &PipelineCache,
+        view: crate::pipeline_warmup::WarmView,
+        ids: &mut crate::pipeline_warmup::WarmupIds,
+    ) -> Result<(), BevyError> {
+        ids.push(self.variants.specialize(
+            cache,
+            WeatherPipelineKey {
+                msaa: view.msaa,
+                hdr: view.hdr,
+            },
+        )?);
+        Ok(())
     }
 }

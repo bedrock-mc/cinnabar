@@ -52,6 +52,7 @@ impl Default for CloudVisibility {
 
 const CLOUD_SHADER_HANDLE: Handle<Shader> = uuid_handle!("8dcfe9d0-c182-44cc-ae4c-7e5233b68659");
 pub(crate) fn install_cloud_render(app: &mut App) {
+    crate::pipeline_warmup::register::<CloudPipeline>(app);
     app.init_resource::<CloudVisibility>()
         .add_plugins(ExtractResourcePlugin::<CloudVisibility>::default());
     load_internal_asset!(
@@ -568,3 +569,21 @@ mod tests;
 #[cfg(test)]
 #[path = "cloud_pipeline_tests.rs"]
 mod pipeline_tests;
+
+impl crate::pipeline_warmup::PrewarmPipelines for CloudPipeline {
+    fn prewarm(
+        &mut self,
+        cache: &PipelineCache,
+        view: crate::pipeline_warmup::WarmView,
+        ids: &mut crate::pipeline_warmup::WarmupIds,
+    ) -> Result<(), BevyError> {
+        ids.push(self.variants.specialize(
+            cache,
+            CloudPipelineKey {
+                msaa: view.msaa,
+                hdr: view.hdr,
+            },
+        )?);
+        Ok(())
+    }
+}

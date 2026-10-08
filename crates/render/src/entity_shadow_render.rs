@@ -55,6 +55,7 @@ pub struct EntityShadowRenderPlugin;
 
 impl Plugin for EntityShadowRenderPlugin {
     fn build(&self, app: &mut App) {
+        crate::pipeline_warmup::register::<EntityShadowGpu>(app);
         load_internal_asset!(
             app,
             SHADER,
@@ -215,6 +216,24 @@ impl EntityShadowGpu {
         let id = cache.queue_render_pipeline(pipeline_descriptor(self.layout.clone(), format));
         self.pipelines.push((format, id));
         id
+    }
+}
+
+impl crate::pipeline_warmup::PrewarmPipelines for EntityShadowGpu {
+    /// Uses the view's main texture format, as `prepare_shadow_views` does.
+    fn prewarm(
+        &mut self,
+        cache: &PipelineCache,
+        view: crate::pipeline_warmup::WarmView,
+        ids: &mut crate::pipeline_warmup::WarmupIds,
+    ) -> Result<(), bevy::prelude::BevyError> {
+        let format = if view.hdr {
+            ViewTarget::TEXTURE_FORMAT_HDR
+        } else {
+            TextureFormat::bevy_default()
+        };
+        ids.push(self.pipeline(cache, format));
+        Ok(())
     }
 }
 

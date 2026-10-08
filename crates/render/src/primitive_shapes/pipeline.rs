@@ -369,3 +369,28 @@ impl<P: PhaseItem> RenderCommand<P> for DrawShapeBatch {
 #[cfg(test)]
 #[path = "pipeline_tests.rs"]
 mod tests;
+
+impl crate::pipeline_warmup::PrewarmPipelines for ShapePipeline {
+    fn prewarm(
+        &mut self,
+        cache: &PipelineCache,
+        view: crate::pipeline_warmup::WarmView,
+        ids: &mut crate::pipeline_warmup::WarmupIds,
+    ) -> Result<(), BevyError> {
+        let gamma =
+            crate::chunk::transparent::gamma_pass::admitted(view.hdr, view.msaa, view.enhanced);
+        // Mesh batches draw mode 0; text batches draw modes 1 through 4.
+        for mode in 0..5 {
+            ids.push(self.variants.specialize(
+                cache,
+                Key {
+                    msaa: view.msaa,
+                    hdr: view.hdr,
+                    gamma,
+                    mode,
+                },
+            )?);
+        }
+        Ok(())
+    }
+}
