@@ -71,8 +71,11 @@ pub(crate) fn prepare_ui_resources(
     mut gpu: ResMut<UiGpu>,
     stats: Res<UiRenderStatsResource>,
     tick: SystemChangeTick,
-    profile: Option<Res<profile::UiProfile>>,
-    (coverage, glint): (Option<Res<UiHandCoverage>>, Option<Res<UiGlintSettings>>),
+    (coverage, glint, profile): (
+        Option<Res<UiHandCoverage>>,
+        Option<Res<UiGlintSettings>>,
+        Option<Res<profile::UiProfile>>,
+    ),
 ) {
     let same_device = &gpu.device == render_device.wgpu_device();
     let device_valid =
