@@ -210,14 +210,43 @@ async fn connect_unix(
     Ok(PlatformStream::Unix(stream))
 }
 
+/// Connects, then enlarges the socket buffers as far as the kernel allows; a kernel ceiling
+/// below the target never fails the connection.
 #[cfg(unix)]
 async fn connect_unix_stream(path: &Path) -> io::Result<UnixStream> {
-    use rustix::net::sockopt::{set_socket_recv_buffer_size, set_socket_send_buffer_size};
+    use rustix::net::sockopt::{
+        set_socket_recv_buffer_size, set_socket_send_buffer_size, socket_recv_buffer_size,
+        socket_send_buffer_size,
+    };
 
     let stream = UnixStream::connect(path).await?;
-    set_socket_send_buffer_size(&stream, LOCAL_SOCKET_BUFFER_BYTES)?;
-    set_socket_recv_buffer_size(&stream, LOCAL_SOCKET_BUFFER_BYTES)?;
+    let send = best_effort_buffer_size(
+        |size| set_socket_send_buffer_size(&stream, size).map_err(io::Error::from),
+        socket_send_buffer_size(&stream).unwrap_or(0),
+    );
+    let receive = best_effort_buffer_size(
+        |size| set_socket_recv_buffer_size(&stream, size).map_err(io::Error::from),
+        socket_recv_buffer_size(&stream).unwrap_or(0),
+    );
+    static LOGGED: std::sync::Once = std::sync::Once::new();
+    LOGGED.call_once(|| tracing::debug!(?send, ?receive, "local socket buffer sizes"));
     Ok(stream)
+}
+
+/// Applies the largest size from the target, halving down to `default`, that `set` accepts.
+#[cfg(unix)]
+fn best_effort_buffer_size(
+    mut set: impl FnMut(usize) -> io::Result<()>,
+    default: usize,
+) -> Option<usize> {
+    let mut size = LOCAL_SOCKET_BUFFER_BYTES;
+    while size > default {
+        if set(size).is_ok() {
+            return Some(size);
+        }
+        size /= 2;
+    }
+    None
 }
 
 #[cfg(windows)]
@@ -477,6 +506,34 @@ mod tests {
             #[cfg(target_os = "macos")]
             assert!(size >= super::LOCAL_SOCKET_BUFFER_BYTES);
         }
+    }
+
+    /// A kernel that rejects large buffers gets the largest size it accepts, or none at all,
+    /// and never an error.
+    #[cfg(unix)]
+    #[test]
+    fn rejected_buffer_sizes_fall_back_without_failing() {
+        let ceiling = 1024 * 1024;
+        let mut attempts = Vec::new();
+        let applied = super::best_effort_buffer_size(
+            |size| {
+                attempts.push(size);
+                if size > ceiling {
+                    Err(std::io::Error::from_raw_os_error(55))
+                } else {
+                    Ok(())
+                }
+            },
+            8 * 1024,
+        );
+        assert_eq!(applied, Some(ceiling));
+        assert_eq!(attempts, [4 * ceiling, 2 * ceiling, ceiling]);
+
+        let none = super::best_effort_buffer_size(
+            |_| Err(std::io::Error::from_raw_os_error(55)),
+            8 * 1024,
+        );
+        assert_eq!(none, None);
     }
 
     #[test]
