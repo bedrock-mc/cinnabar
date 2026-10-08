@@ -102,6 +102,19 @@ impl ItemUseRuntime {
             .as_ref()
             .map(|active| (active.started_tick, active.max_ticks))
     }
+
+    /// Remaining fraction of an admitted category cooldown at the completed player tick.
+    pub fn cooldown_progress(&self, cooldown: Cooldown, tick: u64) -> f32 {
+        if cooldown.ticks == 0 {
+            return 0.0;
+        }
+        self.cooldowns
+            .iter()
+            .find(|(category, _)| *category == cooldown.category)
+            .map_or(0.0, |(_, until)| {
+                (until.saturating_sub(tick) as f32 / cooldown.ticks as f32).min(1.0)
+            })
+    }
     /// Predicted crossbow charge for one authoritative inventory revision.
     pub fn predicted_projectile(
         &self,
