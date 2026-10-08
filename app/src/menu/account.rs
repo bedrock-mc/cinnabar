@@ -137,6 +137,7 @@ impl MenuRuntime {
     }
 
     pub(super) fn start_sign_in(&mut self) {
+        self.sign_in_failure = None;
         self.sign_in_requested = true;
         self.sign_in_cancelled = false;
         self.focus_sign_in_prompt();
@@ -160,10 +161,9 @@ impl MenuRuntime {
     fn spawn_sign_in(&mut self) {
         let Some(executable) = core_executable(&self.layout) else {
             self.auth_process = None;
-            self.control_auth = Some(AuthState::Failed(
-                "Sign-in is unavailable. Try again.".into(),
-            ));
-            self.message = Some("Sign-in is unavailable. Try again.".into());
+            let failure = "Sign-in is unavailable. Try again.";
+            self.sign_in_failure = Some(AuthState::Failed(failure.into()));
+            self.message = Some(failure.into());
             return;
         };
         let cache = if self.feeds.account_adding {
@@ -176,10 +176,9 @@ impl MenuRuntime {
             Err(error) => {
                 self.auth_process = None;
                 bevy::log::warn!(%error, "sign-in could not start");
-                self.control_auth = Some(AuthState::Failed(
-                    "Sign-in could not start. Try again.".into(),
-                ));
-                self.message = Some("Sign-in could not start. Try again.".into());
+                let failure = "Sign-in could not start. Try again.";
+                self.sign_in_failure = Some(AuthState::Failed(failure.into()));
+                self.message = Some(failure.into());
             }
         }
     }
@@ -191,7 +190,10 @@ impl MenuRuntime {
             return;
         }
         self.sign_in_browser.poll();
-        if self.auth_restart_requested || self.sign_in_cancelled {
+        if self.auth_restart_requested
+            || self.sign_in_cancelled
+            || self.owned_sign_in_failure().is_some()
+        {
             return;
         }
         let state = select_auth(
@@ -220,6 +222,9 @@ impl MenuRuntime {
         if self.auth_restart_requested {
             return std::borrow::Cow::Borrowed(&AuthState::Checking);
         }
+        if let Some(state) = self.owned_sign_in_failure() {
+            return std::borrow::Cow::Borrowed(state);
+        }
         let state = select_auth(
             self.auth_process.as_ref().map(AuthSupervisor::state),
             self.control_auth.as_ref(),
@@ -233,9 +238,16 @@ impl MenuRuntime {
         )
     }
 
+    /// Interactive failures own presentation; background cache checks leave core status visible.
+    fn owned_sign_in_failure(&self) -> Option<&AuthState> {
+        self.sign_in_failure
+            .as_ref()
+            .filter(|_| self.sign_in_requested || self.feeds.account_adding)
+    }
+
     /// New core prompts start at the primary action; repeated status keeps the selection.
     pub(super) fn apply_control_auth(&mut self, state: AuthState) {
-        if self.sign_in_cancelled {
+        if self.sign_in_cancelled || self.owned_sign_in_failure().is_some() {
             self.control_auth = Some(state);
             return;
         }
@@ -348,6 +360,7 @@ impl MenuRuntime {
     }
 
     pub(super) fn stop_sign_in(&mut self) {
+        self.sign_in_failure = None;
         self.sign_in_requested = false;
         self.sign_in_cancelled = true;
         // Cancellation is sticky. Only the explicit StartSignIn action may
@@ -468,6 +481,52 @@ mod tests {
         drop(menu);
         fs::remove_dir_all(directory).unwrap();
         assert_eq!(focused, Some(MenuAction::CancelSignIn));
+    }
+
+    #[test]
+    fn failed_helper_start_survives_signed_out_core_status() {
+        assert_failed_start_prompt_survives(AuthState::SignedOut);
+    }
+
+    #[test]
+    fn failed_helper_start_survives_authenticated_core_status() {
+        assert_failed_start_prompt_survives(AuthState::Authenticated);
+    }
+
+    /// Core status cannot dismiss a launcher-start failure or restore an unfinished Add account.
+    fn assert_failed_start_prompt_survives(status: AuthState) {
+        for adding in [false, true] {
+            let mut menu = MenuRuntime::new(true, 2, "Offline Player".into());
+            menu.layout.core_executable = menu.layout.user_data_root.join("missing-helper");
+            menu.feeds.account_adding = adding;
+            menu.dialog = adding.then_some(MenuDialog::Accounts);
+            menu.start_sign_in();
+            let failure = menu.current_auth().into_owned();
+            assert!(matches!(failure, AuthState::Failed(_)));
+            menu.apply_control_auth(status.clone());
+            menu.poll_accounts();
+            assert_eq!(menu.current_auth().as_ref(), &failure);
+            assert!(menu.sign_in_requested);
+            assert_eq!(menu.view().focused_action, Some(MenuAction::StartSignIn));
+            assert!(menu.accounts.operation.is_none());
+            assert_eq!(menu.control_auth.as_ref(), Some(&status));
+            let hidden_prompt = AuthState::AwaitingCode {
+                uri: "https://example.invalid".into(),
+                code: "HIDDEN-CODE".into(),
+            };
+            menu.apply_control_auth(hidden_prompt.clone());
+            menu.update_sign_in_browser(false);
+            assert_eq!(
+                menu.sign_in_browser.state(&hidden_prompt),
+                launcher::menu::sign_in::BrowserState::Waiting
+            );
+            menu.apply_control_auth(status.clone());
+            menu.stop_sign_in();
+            assert!(!menu.sign_in_requested);
+            assert_eq!(menu.current_auth().as_ref(), &status);
+            menu.start_sign_in();
+            assert!(matches!(menu.current_auth().as_ref(), AuthState::Failed(_)));
+        }
     }
 
     #[test]

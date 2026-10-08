@@ -167,6 +167,8 @@ pub(crate) struct MenuRuntime {
     sign_in_requested: bool,
     /// Cancellation stays dismissed until the player explicitly starts sign-in again.
     sign_in_cancelled: bool,
+    /// A helper-start failure stays owned by its interactive prompt; only Failed is stored.
+    sign_in_failure: Option<AuthState>,
     #[cfg(feature = "developer-control")]
     sign_in_fixture: Option<developer_control::protocol::SignInFixtureState>,
     /// Developer recordings present placeholder accounts without signing in.

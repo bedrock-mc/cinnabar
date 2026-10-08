@@ -136,6 +136,7 @@ impl MenuRuntime {
             sign_in_browser: Default::default(),
             sign_in_requested: false,
             sign_in_cancelled: false,
+            sign_in_failure: None,
             #[cfg(feature = "developer-control")]
             sign_in_fixture,
             presentation_accounts: false,
