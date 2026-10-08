@@ -483,7 +483,12 @@ impl MenuRuntime {
                         .iter()
                         .map(|choice| MenuAction::SettingsScale(choice.offset)),
                 );
-                actions.push(MenuAction::ToggleRenderMode);
+                if render_model::ENHANCED_RENDERING_ENABLED {
+                    actions.push(MenuAction::ToggleRenderMode);
+                    if self.render_mode == RenderMode::Enhanced {
+                        actions.push(MenuAction::CycleEnhancedQuality);
+                    }
+                }
                 actions
             }
             MenuScreen::AddServer => {

@@ -40,7 +40,7 @@ mod video_settings;
 mod worlds_tab;
 
 use auth::{AuthState, AuthSupervisor};
-use ui::RenderMode;
+use ui::{EnhancedQuality, RenderMode};
 
 pub(crate) use core_process::{CoreProcessGuard, spawn_core_for_address, wait_for_core};
 use core_process::{auth_cache_path, core_executable};
@@ -116,6 +116,8 @@ pub(crate) struct MenuRuntime {
     failed_video_settings_save: Option<video_settings::SavedVideoSettings>,
     render_mode: RenderMode,
     render_mode_request: Option<RenderMode>,
+    enhanced_quality: EnhancedQuality,
+    enhanced_quality_request: Option<EnhancedQuality>,
     vsync_override: Option<bool>,
     display_name: String,
     launcher: bool,
@@ -211,6 +213,13 @@ impl MenuRuntime {
         }
     }
 
+    /// Mirrors applied quality while retaining a pending menu choice.
+    pub(crate) fn sync_enhanced_quality(&mut self, applied: EnhancedQuality) {
+        if self.enhanced_quality_request.is_none() {
+            self.enhanced_quality = applied;
+        }
+    }
+
     /// Shows the VSync toggle locked to a launch-flag override.
     #[must_use]
     pub(crate) const fn with_vsync_override(mut self, vsync: Option<bool>) -> Self {
@@ -221,6 +230,11 @@ impl MenuRuntime {
     /// Consume the pending Video-section change.
     pub(crate) fn take_render_mode_request(&mut self) -> Option<RenderMode> {
         self.render_mode_request.take()
+    }
+
+    /// Consume the pending Enhanced quality change.
+    pub(crate) fn take_enhanced_quality_request(&mut self) -> Option<EnhancedQuality> {
+        self.enhanced_quality_request.take()
     }
 
     /// Return the extension settings file alongside the other user settings.
@@ -320,6 +334,7 @@ impl MenuRuntime {
             gui_scale_choices: self.gui_scale_choices.clone(),
             fullscreen: self.fullscreen,
             render_mode: self.render_mode,
+            enhanced_quality: self.enhanced_quality,
             vsync_override: self.vsync_override,
             display_name: self.display_name.clone(),
             servers: self.servers.clone(),
@@ -703,12 +718,9 @@ impl MenuRuntime {
                 }
             }
             MenuAction::AddBack => self.go_back(),
-            MenuAction::ToggleRenderMode => {
-                if render_model::ENHANCED_RENDERING_ENABLED {
-                    self.render_mode = self.render_mode.toggled();
-                    self.render_mode_request = Some(self.render_mode);
-                }
-            }
+            action @ (MenuAction::ToggleRenderMode
+            | MenuAction::CycleEnhancedQuality
+            | MenuAction::SetEnhancedQuality(_)) => self.activate_enhanced_settings(action),
             // The game menu opened from the death screen returns to it.
             MenuAction::PauseResume if self.death_shown => {
                 self.history.reset(MenuScreen::Death);

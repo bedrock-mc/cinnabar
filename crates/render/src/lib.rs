@@ -32,7 +32,8 @@ mod enhanced;
 #[cfg(all(feature = "enhanced", target_os = "windows"))]
 pub use enhanced::configure_enhanced_shader_compiler;
 pub use enhanced::{
-    EnhancedRenderPlugin, EnhancedRendering, EnhancedShadowDebug, MAX_SHADOW_CASCADES,
+    EnhancedQuality, EnhancedRenderPlugin, EnhancedRendering, EnhancedShadowDebug,
+    MAX_SHADOW_CASCADES,
 };
 mod entity_shadow_render;
 pub use entity_shadow_render::{EntityShadowRenderPlugin, EntityShadowScene};

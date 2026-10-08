@@ -41,6 +41,7 @@ fn native_local_visibility_reprojects_camera_jitter_and_rejects_receiver_changes
     let sampled = wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT;
     let depth = texture(wgpu::TextureFormat::Depth32Float, SIZE, 1, sampled);
     let motion = texture(wgpu::TextureFormat::Rgba16Float, SIZE, 1, sampled);
+    let receiver_normal = texture(wgpu::TextureFormat::Rg16Float, SIZE, 1, sampled);
     let shadow = texture(
         wgpu::TextureFormat::Depth32Float,
         MAP,
@@ -59,10 +60,27 @@ fn native_local_visibility_reprojects_camera_jitter_and_rejects_receiver_changes
         1,
         wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
     );
+    let metadata_output = texture(
+        wgpu::TextureFormat::Rgba16Float,
+        HALF,
+        1,
+        sampled | wgpu::TextureUsages::COPY_SRC,
+    );
+    let metadata_history = texture(
+        wgpu::TextureFormat::Rgba16Float,
+        HALF,
+        1,
+        wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+    );
+    let sun_output = texture(wgpu::TextureFormat::Rgba16Float, HALF, 1, sampled);
+    let sun_output_view = sun_output.create_view(&Default::default());
     let depth_view = depth.create_view(&Default::default());
     let motion_view = motion.create_view(&Default::default());
+    let receiver_normal_view = receiver_normal.create_view(&Default::default());
     let output_view = output.create_view(&Default::default());
     let history_view = history.create_view(&Default::default());
+    let metadata_output_view = metadata_output.create_view(&Default::default());
+    let metadata_history_view = metadata_history.create_view(&Default::default());
     let shadow_view = shadow.create_view(&wgpu::TextureViewDescriptor {
         dimension: Some(wgpu::TextureViewDimension::D2Array),
         ..Default::default()
@@ -89,7 +107,7 @@ fn native_local_visibility_reprojects_camera_jitter_and_rejects_receiver_changes
         usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         mapped_at_creation: false,
     });
-    let mut light_data = bytemuck::cast_slice(&[1u32, MAP, 1, 0]).to_vec();
+    let mut light_data = bytemuck::cast_slice(&[1u32, MAP, 1, 1]).to_vec();
     light_data.extend_from_slice(bytemuck::bytes_of(&[
         [0.0_f32, 0.0, 0.0, 32.0],
         [1.0, 1.0, 1.0, 1.0],
@@ -175,6 +193,26 @@ fn native_local_visibility_reprojects_camera_jitter_and_rejects_receiver_changes
                 binding: 8,
                 resource: wgpu::BindingResource::Sampler(&comparison),
             },
+            wgpu::BindGroupEntry {
+                binding: 9,
+                resource: wgpu::BindingResource::TextureView(&metadata_history_view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 10,
+                resource: wgpu::BindingResource::TextureView(&history_view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 11,
+                resource: wgpu::BindingResource::TextureView(&shadow_view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 12,
+                resource: policy.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 13,
+                resource: wgpu::BindingResource::TextureView(&receiver_normal_view),
+            },
         ],
     });
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -196,11 +234,23 @@ fn native_local_visibility_reprojects_camera_jitter_and_rejects_receiver_changes
             module: &shader,
             entry_point: Some("resolve_local_shadows"),
             compilation_options: Default::default(),
-            targets: &[Some(wgpu::ColorTargetState {
-                format: wgpu::TextureFormat::Rgba16Float,
-                blend: None,
-                write_mask: wgpu::ColorWrites::ALL,
-            })],
+            targets: &[
+                Some(wgpu::ColorTargetState {
+                    format: wgpu::TextureFormat::Rgba16Float,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                }),
+                Some(wgpu::ColorTargetState {
+                    format: wgpu::TextureFormat::Rgba16Float,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                }),
+                Some(wgpu::ColorTargetState {
+                    format: wgpu::TextureFormat::Rgba16Float,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                }),
+            ],
         }),
         primitive: Default::default(),
         depth_stencil: None,
@@ -214,7 +264,8 @@ fn native_local_visibility_reprojects_camera_jitter_and_rejects_receiver_changes
 @group(0) @binding(0) var output:texture_2d<f32>;
 @group(0) @binding(1) var<storage,read_write> results:array<vec4<f32>,64>;
 @group(0) @binding(2) var<uniform> destination:vec4<u32>;
-@compute @workgroup_size(1) fn read_visibility(){results[destination.x]=textureLoad(output,vec2<i32>(destination.yz),0);}
+@group(0) @binding(3) var metadata:texture_2d<f32>;
+@compute @workgroup_size(1) fn read_visibility(){let pixel=vec2<i32>(destination.yz);let visibility=textureLoad(output,pixel,0);let history=textureLoad(metadata,pixel,0);results[destination.x]=vec4(visibility.xy,history.xy);}
 "#.into()),
     });
     let sample_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
@@ -259,6 +310,10 @@ fn native_local_visibility_reprojects_camera_jitter_and_rejects_receiver_changes
                 binding: 2,
                 resource: destination.as_entire_binding(),
             },
+            wgpu::BindGroupEntry {
+                binding: 3,
+                resource: wgpu::BindingResource::TextureView(&metadata_output_view),
+            },
         ],
     });
     let camera =
@@ -298,7 +353,7 @@ fn native_local_visibility_reprojects_camera_jitter_and_rejects_receiver_changes
         queue.write_buffer(
             &policy,
             0,
-            bytemuck::bytes_of(&[f32::from(u8::from(valid)), weight, 0.0, 0.0]),
+            bytemuck::bytes_of(&[f32::from(u8::from(valid)), weight, 0.0, 1.0]),
         );
         queue.write_buffer(
             &destination,
@@ -306,6 +361,20 @@ fn native_local_visibility_reprojects_camera_jitter_and_rejects_receiver_changes
             bytemuck::bytes_of(&[index, x, HALF / 2, 0]),
         );
         let mut encoder = device.create_command_encoder(&Default::default());
+        {
+            let _pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &receiver_normal_view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                ..Default::default()
+            });
+        }
         {
             let _pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -349,15 +418,35 @@ fn native_local_visibility_reprojects_camera_jitter_and_rejects_receiver_changes
         }
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &output_view,
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
+                color_attachments: &[
+                    Some(wgpu::RenderPassColorAttachment {
+                        view: &output_view,
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    }),
+                    Some(wgpu::RenderPassColorAttachment {
+                        view: &metadata_output_view,
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    }),
+                    Some(wgpu::RenderPassColorAttachment {
+                        view: &sun_output_view,
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    }),
+                ],
                 ..Default::default()
             });
             pass.set_pipeline(&pipeline);
@@ -368,6 +457,11 @@ fn native_local_visibility_reprojects_camera_jitter_and_rejects_receiver_changes
             output.as_image_copy(),
             history.as_image_copy(),
             output.size(),
+        );
+        encoder.copy_texture_to_texture(
+            metadata_output.as_image_copy(),
+            metadata_history.as_image_copy(),
+            metadata_output.size(),
         );
         {
             let mut pass = encoder.begin_compute_pass(&Default::default());
@@ -433,6 +527,22 @@ fn native_local_visibility_reprojects_camera_jitter_and_rejects_receiver_changes
             rows_per_image: Some(HALF),
         },
         history.size(),
+    );
+    let mut edge_metadata = vec![[0x3c00_u16, 0x4800, 0, 0]; (HALF * HALF) as usize];
+    for row in edge_metadata.chunks_exact_mut(HALF as usize) {
+        for texel in &mut row[..HALF as usize / 2] {
+            texel[1] = 0x4400;
+        }
+    }
+    queue.write_texture(
+        metadata_history.as_image_copy(),
+        bytemuck::cast_slice(&edge_metadata),
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(HALF * 8),
+            rows_per_image: Some(HALF),
+        },
+        metadata_history.size(),
     );
     let (edge_frame, edge_motion) = camera(0.0, 0.0, 0.0, 0.5, 8.0);
     draw(31, edge_frame, edge_motion, false, true, 8.0, HALF / 2 - 1);

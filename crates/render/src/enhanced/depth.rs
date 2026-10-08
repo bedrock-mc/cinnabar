@@ -66,11 +66,16 @@ pub(super) fn camera_depth(mut descriptor: RenderPipelineDescriptor) -> RenderPi
         }
         .into(),
     );
-    fragment.targets = vec![Some(ColorTargetState {
-        format: TextureFormat::Rgba16Float,
-        blend: None,
-        write_mask: ColorWrites::ALL,
-    })];
+    fragment.targets = [TextureFormat::Rgba16Float, TextureFormat::Rg16Float]
+        .into_iter()
+        .map(|format| {
+            Some(ColorTargetState {
+                format,
+                blend: None,
+                write_mask: ColorWrites::ALL,
+            })
+        })
+        .collect();
     descriptor
 }
 
@@ -147,15 +152,26 @@ impl ViewNode for EnhancedDepthNode {
         let span = diagnostics.time_span(context.command_encoder(), "enhanced camera depth");
         let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
             label: Some("enhanced camera depth"),
-            color_attachments: &[Some(RenderPassColorAttachment {
-                view: &scene.motion_view,
-                depth_slice: None,
-                resolve_target: None,
-                ops: Operations {
-                    load: LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                    store: StoreOp::Store,
-                },
-            })],
+            color_attachments: &[
+                Some(RenderPassColorAttachment {
+                    view: &scene.motion_view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: Operations {
+                        load: LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                        store: StoreOp::Store,
+                    },
+                }),
+                Some(RenderPassColorAttachment {
+                    view: &scene.receiver_normal_view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: Operations {
+                        load: LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                        store: StoreOp::Store,
+                    },
+                }),
+            ],
             depth_stencil_attachment: Some(camera_depth_attachment(&scene.depth_view)),
             timestamp_writes: None,
             occlusion_query_set: None,

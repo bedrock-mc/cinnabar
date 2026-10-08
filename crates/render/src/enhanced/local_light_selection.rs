@@ -1,16 +1,68 @@
 //! Reusable bounded CPU selection and conservative screen-tile admission.
 
 use super::{
-    LIGHT_RADIUS, LightSource, LocalLightSources, MAX_LOCAL_LIGHTS, PreparedInputs, TILE_LIGHTS,
-    TILE_SIDE,
+    LIGHT_RADIUS, LightSource, LocalLightSources, MAX_LOCAL_LIGHTS, MAX_SHADOWED_LIGHTS,
+    PreparedInputs, TILE_LIGHTS, TILE_SIDE,
 };
 use bevy::math::{Vec2, Vec3};
+use std::cmp::Ordering;
+
+const LIGHT_REPLACEMENT_RATIO: f32 = 1.10;
+const SHADOW_REPLACEMENT_RATIO: f32 = 1.25;
+
+fn same_source(left: &LightSource, right: &LightSource) -> bool {
+    left.dimension == right.dimension && left.position == right.position
+}
+
+fn source_order(left: &LightSource, right: &LightSource) -> Ordering {
+    left.position
+        .x
+        .total_cmp(&right.position.x)
+        .then_with(|| left.position.y.total_cmp(&right.position.y))
+        .then_with(|| left.position.z.total_cmp(&right.position.z))
+        .then_with(|| left.level.cmp(&right.level))
+}
+
+fn influence(source: &LightSource, input: &PreparedInputs) -> f32 {
+    f32::from(source.level).powi(2) / source.position.distance_squared(input.camera).max(0.25)
+}
 
 pub(super) fn select(
     candidates: &mut Vec<LightSource>,
     sources: &LocalLightSources,
     input: &PreparedInputs,
 ) {
+    select_biased(candidates, sources, input, &[], true);
+}
+
+pub(super) fn select_retaining_shadows(
+    candidates: &mut Vec<LightSource>,
+    sources: &LocalLightSources,
+    input: &PreparedInputs,
+    owners: &[Option<LightSource>],
+) {
+    select_biased(candidates, sources, input, owners, true);
+}
+
+pub(super) fn select_shadow_pool(
+    candidates: &mut Vec<LightSource>,
+    sources: &LocalLightSources,
+    input: &PreparedInputs,
+    owners: &[Option<LightSource>],
+) {
+    select_biased(candidates, sources, input, owners, false);
+}
+
+fn select_biased(
+    candidates: &mut Vec<LightSource>,
+    sources: &LocalLightSources,
+    input: &PreparedInputs,
+    owners: &[Option<LightSource>],
+    visible_only: bool,
+) {
+    let previous: [Option<LightSource>; MAX_LOCAL_LIGHTS] =
+        std::array::from_fn(|index| candidates.get(index).copied());
+    let mut scores = [0.0; MAX_LOCAL_LIGHTS];
     candidates.clear();
     let Some(dimension) = input.dimension else {
         return;
@@ -20,29 +72,146 @@ pub(super) fn select(
             continue;
         }
         let distance = source.position.distance_squared(input.camera);
-        if distance > (LIGHT_RADIUS + 32.0).powi(2) || tile_bounds(source.position, input).is_none()
+        if distance > (LIGHT_RADIUS + 32.0).powi(2)
+            || (visible_only && tile_bounds(source.position, input).is_none())
         {
             continue;
         }
-        let score = |light: &LightSource| {
-            light.position.distance_squared(input.camera) / f32::from(light.level).powi(2)
+        if let Some(index) = candidates.iter().position(|old| same_source(old, &source)) {
+            if candidates[index].level >= source.level {
+                continue;
+            }
+            scores.copy_within(index + 1..candidates.len(), index);
+            candidates.remove(index);
+        }
+        let retention = if owners.iter().flatten().any(|old| same_source(old, &source)) {
+            SHADOW_REPLACEMENT_RATIO
+        } else if previous
+            .iter()
+            .flatten()
+            .any(|old| same_source(old, &source))
+        {
+            LIGHT_REPLACEMENT_RATIO
+        } else {
+            1.0
         };
-        let compare = |old: &LightSource| {
-            score(old)
-                .total_cmp(&score(&source))
-                .then_with(|| old.position.x.total_cmp(&source.position.x))
-                .then_with(|| old.position.y.total_cmp(&source.position.y))
-                .then_with(|| old.position.z.total_cmp(&source.position.z))
-                .then_with(|| old.level.cmp(&source.level))
-        };
-        let rank = candidates.partition_point(|old| compare(old).is_lt());
+        let score = influence(&source, input) * retention;
+        let mut rank = 0;
+        let mut end = candidates.len();
+        while rank < end {
+            let middle = (rank + end) / 2;
+            let compare = score
+                .total_cmp(&scores[middle])
+                .then_with(|| source_order(&candidates[middle], &source));
+            if compare.is_lt() {
+                rank = middle + 1;
+            } else {
+                end = middle;
+            }
+        }
         if rank < MAX_LOCAL_LIGHTS {
             if candidates.len() == MAX_LOCAL_LIGHTS {
                 candidates.pop();
             }
+            scores.copy_within(rank..candidates.len(), rank + 1);
+            scores[rank] = score;
             candidates.insert(rank, source);
         }
     }
+}
+
+// Keep owner slots until a challenger provides a meaningful influence gain.
+pub(super) fn shadow_owners(
+    candidates: &mut [LightSource],
+    input: &PreparedInputs,
+    owners: &mut [Option<LightSource>; MAX_SHADOWED_LIGHTS],
+    limit: usize,
+) {
+    let limit = limit.min(MAX_SHADOWED_LIGHTS);
+    owners[limit..].fill(None);
+    for owner in owners.iter_mut().take(limit) {
+        *owner = (*owner).and_then(|old| {
+            candidates
+                .iter()
+                .find(|source| same_source(source, &old))
+                .copied()
+        });
+    }
+    for slot in 0..limit {
+        if owners[slot].is_none() {
+            owners[slot] = best_unowned(candidates, input, owners);
+        }
+    }
+    for _ in 0..limit {
+        let Some(challenger) = best_unowned(candidates, input, owners) else {
+            break;
+        };
+        let weakest = (0..limit)
+            .filter(|&slot| owners[slot].is_some())
+            .min_by(|&left, &right| {
+                influence(owners[left].as_ref().unwrap(), input)
+                    .total_cmp(&influence(owners[right].as_ref().unwrap(), input))
+                    .then_with(|| right.cmp(&left))
+            });
+        let Some(slot) = weakest else { break };
+        let incumbent = owners[slot].as_ref().unwrap();
+        if influence(&challenger, input) <= influence(incumbent, input) * SHADOW_REPLACEMENT_RATIO {
+            break;
+        }
+        owners[slot] = Some(challenger);
+    }
+    // The dense shadow prefix matches the receiver-history lanes and atlas slot order.
+    let mut count = 0;
+    for slot in 0..limit {
+        if owners[slot].is_some() {
+            owners.swap(count, slot);
+            count += 1;
+        }
+    }
+    for (slot, owner) in owners.iter().flatten().enumerate() {
+        let index = candidates
+            .iter()
+            .position(|source| same_source(source, owner))
+            .unwrap();
+        candidates.swap(slot, index);
+    }
+    candidates[count..].sort_unstable_by(source_order);
+}
+
+// Offscreen owners keep their atlas lane and enter tiles only where their light sphere projects.
+pub(super) fn admit_shadow_owners(
+    candidates: &mut Vec<LightSource>,
+    owners: &[Option<LightSource>; MAX_SHADOWED_LIGHTS],
+) {
+    for (slot, &owner) in owners.iter().flatten().enumerate() {
+        if let Some(index) = candidates
+            .iter()
+            .position(|source| same_source(source, &owner))
+        {
+            candidates.remove(index);
+        } else if candidates.len() == MAX_LOCAL_LIGHTS {
+            candidates.pop();
+        }
+        candidates.insert(slot, owner);
+    }
+    let count = owners.iter().flatten().count();
+    candidates[count..].sort_unstable_by(source_order);
+}
+
+fn best_unowned(
+    candidates: &[LightSource],
+    input: &PreparedInputs,
+    owners: &[Option<LightSource>],
+) -> Option<LightSource> {
+    candidates
+        .iter()
+        .filter(|source| !owners.iter().flatten().any(|old| same_source(old, source)))
+        .min_by(|left, right| {
+            influence(right, input)
+                .total_cmp(&influence(left, input))
+                .then_with(|| source_order(left, right))
+        })
+        .copied()
 }
 
 fn dimensions(input: &PreparedInputs) -> [u32; 2] {
@@ -103,6 +272,7 @@ pub(super) fn tile_bounds(position: Vec3, input: &PreparedInputs) -> Option<([u3
 
 pub(super) fn tiles(
     candidates: &[LightSource],
+    shadowed_count: usize,
     input: &PreparedInputs,
     words: &mut Vec<u32>,
     scores: &mut Vec<f32>,
@@ -143,6 +313,12 @@ pub(super) fn tiles(
                     (1.0 - (distance_squared / (LIGHT_RADIUS * LIGHT_RADIUS)).powi(2)).max(0.0);
                 let importance =
                     f32::from(source.level).powi(2) * window * window / distance_squared.max(0.25);
+                // Camera tile ranking cannot evict a retained receiver-history owner.
+                let importance = if index < shadowed_count {
+                    f32::INFINITY
+                } else {
+                    importance
+                };
                 let offset = 4 + tile * (TILE_LIGHTS + 1);
                 let count = words[offset] as usize;
                 let rank = (0..count)

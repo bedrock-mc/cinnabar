@@ -33,6 +33,13 @@ fn ao_view_distance(frame: EnhancedFrame, depth: f32) -> f32 {
     return frame.projection.x / max(depth, 1.0e-8);
 }
 
+// Reverse-Z rays preserve small surface differences far from the world origin.
+fn ao_camera_relative_position(frame: EnhancedFrame, uv: vec2<f32>, depth: f32) -> vec3<f32> {
+    let ndc = vec2(2.0 * uv.x - 1.0, 1.0 - 2.0 * uv.y);
+    let ray = frame.world_from_clip * vec4(ndc, 0.0, 1.0);
+    return ray.xyz * ao_view_distance(frame, depth);
+}
+
 // Choosing the closest derivative on each axis keeps foreground silhouettes
 // from turning a background plane's normal toward the foreground object.
 fn ao_surface_normal(
@@ -43,8 +50,8 @@ fn ao_surface_normal(
 ) -> vec3<f32> {
     let texel = 1.0 / vec2<f32>(textureDimensions(depth_texture));
     let centre_uv = ao_texel_uv(depth_texture, uv);
-    let centre = ao_world_position(frame, centre_uv, depth);
-    let view = normalize(frame.camera_time.xyz - centre);
+    let centre = ao_camera_relative_position(frame, centre_uv, depth);
+    let view = normalize(-centre);
     let distance = ao_view_distance(frame, depth);
     let left_uv = clamp(centre_uv - vec2(texel.x, 0.0), texel * 0.5, vec2(1.0) - texel * 0.5);
     let right_uv = clamp(centre_uv + vec2(texel.x, 0.0), texel * 0.5, vec2(1.0) - texel * 0.5);
@@ -62,8 +69,8 @@ fn ao_surface_normal(
     let horizontal_depth = select(left_depth, right_depth, right_error <= left_error);
     let vertical_uv = select(up_uv, down_uv, down_error <= up_error);
     let vertical_depth = select(up_depth, down_depth, down_error <= up_error);
-    var dx = ao_world_position(frame, horizontal_uv, horizontal_depth) - centre;
-    var dy = ao_world_position(frame, vertical_uv, vertical_depth) - centre;
+    var dx = ao_camera_relative_position(frame, horizontal_uv, horizontal_depth) - centre;
+    var dy = ao_camera_relative_position(frame, vertical_uv, vertical_depth) - centre;
     dx *= select(-1.0, 1.0, right_error <= left_error);
     dy *= select(-1.0, 1.0, down_error <= up_error);
     let unnormalized = cross(dx, dy);
@@ -96,6 +103,7 @@ fn horizon_ao(
     uv: vec2<f32>,
     depth: f32,
     pixel: vec2<f32>,
+    geometric_normal: vec3<f32>,
 ) -> f32 {
     if (depth <= 1.0e-8) {
         return 1.0;
@@ -103,7 +111,8 @@ fn horizon_ao(
     let centre_uv = ao_texel_uv(depth_texture, uv);
     let centre = ao_world_position(frame, centre_uv, depth);
     let view = normalize(frame.camera_time.xyz - centre);
-    let normal = ao_surface_normal(frame, depth_texture, centre_uv, depth);
+    let normal = normalize(geometric_normal)
+        * select(-1.0, 1.0, dot(geometric_normal, view) >= 0.0);
     let texel = 1.0 / vec2<f32>(textureDimensions(depth_texture));
     let screen_right = ao_world_position(frame, centre_uv + vec2(texel.x, 0.0), depth) - centre;
     let screen_down = ao_world_position(frame, centre_uv + vec2(0.0, texel.y), depth) - centre;
@@ -177,8 +186,8 @@ fn contact_depth_thickness(travel: f32) -> f32 {
     return 0.08 + travel * 0.04;
 }
 
-// Bilinear confidence keeps a single depth texel entering the ray from switching visibility.
-fn contact_depth_confidence(
+// Keep hit confidence and the refinement bracket on the same continuous depth footprint.
+fn contact_depth_probe(
     frame: EnhancedFrame,
     depth_texture: texture_depth_2d,
     sample_uv: vec2<f32>,
@@ -186,7 +195,7 @@ fn contact_depth_confidence(
     origin: vec3<f32>,
     normal: vec3<f32>,
     travel: f32,
-) -> f32 {
+) -> vec4<f32> {
     let size = vec2<i32>(textureDimensions(depth_texture));
     let coordinate = sample_uv * vec2<f32>(size) - vec2(0.5);
     let base = vec2<i32>(floor(coordinate));
@@ -194,26 +203,65 @@ fn contact_depth_confidence(
     let ray_distance = ao_view_distance(frame, ray_depth);
     let thickness = contact_depth_thickness(travel);
     var confidence = 0.0;
+    var error = 0.0;
+    var coverage = 0.0;
+    var caster_confidence = 0.0;
     for (var y = 0; y < 2; y += 1) {
         for (var x = 0; x < 2; x += 1) {
             let coord = clamp(base + vec2(x, y), vec2(0), size - vec2(1));
             let sampled_depth = textureLoad(depth_texture, coord, 0);
             if (sampled_depth <= 1.0e-8) { continue; }
+            let axis = vec2(select(1.0 - fraction.x, fraction.x, x == 1),
+                select(1.0 - fraction.y, fraction.y, y == 1));
+            let weight = axis.x * axis.y;
             let delta = ray_distance - ao_view_distance(frame, sampled_depth);
-            if (delta <= 0.01 || delta >= thickness) { continue; }
+            coverage += weight;
+            let depth_error = clamp(delta - thickness * 0.5, -CONTACT_REACH, CONTACT_REACH);
+            if (delta <= 0.01) {
+                error += weight * depth_error;
+                continue;
+            }
             let centre_uv = (vec2<f32>(coord) + vec2(0.5)) / vec2<f32>(size);
             let candidate = ao_world_position(frame, centre_uv, sampled_depth);
             let separation = candidate - origin;
-            if (dot(separation, normal) <= 0.01 || dot(separation, separation) > CONTACT_REACH * CONTACT_REACH) {
-                continue;
-            }
-            let axis = vec2(select(1.0 - fraction.x, fraction.x, x == 1),
-                select(1.0 - fraction.y, fraction.y, y == 1));
-            confidence += axis.x * axis.y * smoothstep(0.01, 0.035, delta)
+            let plane_weight = smoothstep(0.005, 0.035, dot(separation, normal));
+            let fade_radius = CONTACT_REACH * 0.85;
+            let range_weight = 1.0 - smoothstep(fade_radius * fade_radius,
+                CONTACT_REACH * CONTACT_REACH, dot(separation, separation));
+            let candidate_weight = plane_weight * range_weight;
+            error += weight * mix(-CONTACT_REACH, depth_error, candidate_weight);
+            caster_confidence += weight * candidate_weight;
+            if (delta >= thickness) { continue; }
+            confidence += weight * plane_weight * range_weight * smoothstep(0.01, 0.035, delta)
                 * (1.0 - smoothstep(thickness * 0.7, thickness, delta));
         }
     }
-    return confidence;
+    return vec4(confidence, select(-CONTACT_REACH, error / max(coverage, 1.0e-5), coverage > 1.0e-5),
+        coverage, caster_confidence);
+}
+
+fn contact_ray_probe(
+    frame: EnhancedFrame,
+    depth_texture: texture_depth_2d,
+    origin: vec3<f32>,
+    normal: vec3<f32>,
+    light: vec3<f32>,
+    travel: f32,
+) -> vec4<f32> {
+    let clip = frame.clip_from_world * vec4(origin + light * travel, 1.0);
+    if (clip.w <= 1.0e-6) { return vec4(0.0, -CONTACT_REACH, 0.0, 0.0); }
+    let ndc = clip.xyz / clip.w;
+    let sample_uv = ndc.xy * vec2(0.5, -0.5) + vec2(0.5);
+    if (any(sample_uv <= vec2(0.0)) || any(sample_uv >= vec2(1.0)) || ndc.z <= 0.0 || ndc.z >= 1.0) {
+        return vec4(0.0, -CONTACT_REACH, 0.0, 0.0);
+    }
+    let probe = contact_depth_probe(frame, depth_texture, sample_uv, ndc.z, origin, normal, travel);
+    let size = vec2<f32>(textureDimensions(depth_texture));
+    let edge_pixels = min(sample_uv, vec2(1.0) - sample_uv) * size;
+    let edge_fade = smoothstep(0.0, 16.0, min(edge_pixels.x, edge_pixels.y));
+    let near_fade = 1.0 - smoothstep(0.9, 1.0, ndc.z);
+    let reach_fade = 1.0 - smoothstep(CONTACT_REACH * 0.65, CONTACT_REACH, travel);
+    return vec4(probe.x * edge_fade * near_fade * reach_fade, probe.yzw);
 }
 
 // Cascade shadows own cast visibility; screen depth adds a bounded local correction.
@@ -223,15 +271,18 @@ fn screen_contact_shadow(
     uv: vec2<f32>,
     depth: f32,
     pixel: vec2<f32>,
+    geometric_normal: vec3<f32>,
 ) -> f32 {
     if (depth <= 1.0e-8 || frame.light_direction.w <= 0.0) {
         return 1.0;
     }
     let centre_uv = ao_texel_uv(depth_texture, uv);
     let centre = ao_world_position(frame, centre_uv, depth);
-    let normal = ao_surface_normal(frame, depth_texture, centre_uv, depth);
     let light = normalize(frame.light_direction.xyz);
-    if (dot(normal, light) <= 0.0) {
+    let normal = normalize(geometric_normal)
+        * select(-1.0, 1.0, dot(geometric_normal, light) >= 0.0);
+    let facing = smoothstep(0.0, 0.15, dot(normal, light));
+    if (facing <= 0.0) {
         return 1.0;
     }
     let origin = centre + normal * 0.03;
@@ -242,60 +293,34 @@ fn screen_contact_shadow(
     }
     var occlusion = 0.0;
     var previous_travel = 0.0;
-    var previous_error = -CONTACT_REACH;
+    var previous = vec4(0.0, -CONTACT_REACH, 0.0, 0.0);
     var refined = false;
     for (var step_index = 0u; step_index < CONTACT_STEPS; step_index += 1u) {
         let travel = (f32(step_index) + 0.5) * CONTACT_REACH / f32(CONTACT_STEPS);
-        let point = origin + light * travel;
-        let clip = frame.clip_from_world * vec4(point, 1.0);
-        if (clip.w <= 1.0e-6) {
-            break;
-        }
-        let ndc = clip.xyz / clip.w;
-        let sample_uv = vec2(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
-        if (any(sample_uv <= vec2(0.0)) || any(sample_uv >= vec2(1.0)) || ndc.z <= 0.0 || ndc.z >= 1.0) {
-            break;
-        }
-        let confidence = contact_depth_confidence(frame, depth_texture, sample_uv, ndc.z, origin, normal, travel);
-        let edge = min(min(sample_uv.x, sample_uv.y), min(1.0 - sample_uv.x, 1.0 - sample_uv.y));
-        let edge_fade = smoothstep(0.0, 0.03, edge);
-        let reach_fade = 1.0 - smoothstep(CONTACT_REACH * 0.65, CONTACT_REACH, travel);
-        occlusion = max(occlusion, confidence * edge_fade * reach_fade);
-        let sampled_depth = ao_depth_at(depth_texture, sample_uv);
-        let delta = select(-CONTACT_REACH, ao_view_distance(frame, ndc.z)
-            - ao_view_distance(frame, sampled_depth), sampled_depth > 1.0e-8);
-        let error = delta - contact_depth_thickness(travel) * 0.5;
-        // Refine the confidence band's centre; its zero-depth edge deliberately has no shadow.
-        if (!refined && previous_error <= 0.0 && error > 0.0) {
-            let candidate = ao_world_position(frame, ao_texel_uv(depth_texture, sample_uv), sampled_depth);
-            let separation = candidate - origin;
-            if (dot(separation, normal) > 0.01 && dot(separation, separation) < CONTACT_REACH * CONTACT_REACH) {
-                refined = true;
-                var lower = previous_travel;
-                var upper = travel;
-                for (var refinement = 0u; refinement < CONTACT_REFINE_STEPS; refinement += 1u) {
-                    let middle = (lower + upper) * 0.5;
-                    let middle_clip = frame.clip_from_world * vec4(origin + light * middle, 1.0);
-                    let middle_ndc = middle_clip.xyz / middle_clip.w;
-                    let middle_uv = middle_ndc.xy * vec2(0.5, -0.5) + vec2(0.5);
-                    let middle_depth = ao_depth_at(depth_texture, middle_uv);
-                    let middle_delta = select(-CONTACT_REACH, ao_view_distance(frame, middle_ndc.z)
-                        - ao_view_distance(frame, middle_depth), middle_depth > 1.0e-8);
-                    let middle_error = middle_delta - contact_depth_thickness(middle) * 0.5;
-                    let middle_confidence = contact_depth_confidence(frame, depth_texture, middle_uv,
-                        middle_ndc.z, origin, normal, middle);
-                    let middle_edge = min(min(middle_uv.x, middle_uv.y), min(1.0 - middle_uv.x, 1.0 - middle_uv.y));
-                    let middle_fade = smoothstep(0.0, 0.03, middle_edge)
-                        * (1.0 - smoothstep(CONTACT_REACH * 0.65, CONTACT_REACH, middle));
-                    occlusion = max(occlusion, middle_confidence * middle_fade);
-                    if (middle_error > 0.0) { upper = middle; }
-                    else { lower = middle; }
-                }
+        let probe = contact_ray_probe(frame, depth_texture, origin, normal, light, travel);
+        occlusion = max(occlusion, probe.x);
+        // Missing depth reduces confidence instead of inventing a fully covered bracket.
+        if (!refined && previous.y <= 0.0 && probe.y > 0.0
+            && min(previous.z, probe.z) > 1.0e-5 && probe.w > 1.0e-5) {
+            refined = true;
+            var lower = previous_travel;
+            var upper = travel;
+            // Admission changes at either endpoint; refinement converges to the coarse samples.
+            let crossing = clamp(-previous.y / max(probe.y - previous.y, 1.0e-5), 0.0, 1.0);
+            let crossing_weight = 4.0 * crossing * (1.0 - crossing);
+            let bracket_confidence = min(previous.z, probe.z)
+                * smoothstep(0.0, 0.25, probe.w) * crossing_weight;
+            for (var refinement = 0u; refinement < CONTACT_REFINE_STEPS; refinement += 1u) {
+                let middle = (lower + upper) * 0.5;
+                let middle_probe = contact_ray_probe(frame, depth_texture, origin, normal, light, middle);
+                occlusion = max(occlusion, middle_probe.x * bracket_confidence);
+                if (middle_probe.y > 0.0) { upper = middle; }
+                else { lower = middle; }
             }
         }
         previous_travel = travel;
-        previous_error = error;
+        previous = probe;
         if (occlusion > 0.995) { break; }
     }
-    return 1.0 - CONTACT_STRENGTH * distance_fade * occlusion;
+    return 1.0 - CONTACT_STRENGTH * distance_fade * facing * occlusion;
 }

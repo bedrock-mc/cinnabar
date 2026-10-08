@@ -123,7 +123,10 @@ fn enhanced_pipelines_compile_through_async_cache() {
         };
         let layout = if let Some(actor) = &actor {
             actor.layout.clone()
-        } else if matches!(fragment, "capture_probe" | "filter_mip") {
+        } else if matches!(
+            fragment,
+            "capture_probe" | "filter_mip" | "cloud_environment"
+        ) {
             vec![super::probes::layout()]
         } else if fragment == "resolve_reflections" {
             vec![super::probes::reflection_resolve_layout()]
@@ -165,6 +168,35 @@ fn enhanced_pipelines_compile_through_async_cache() {
                     vec![]
                 } else if fragment == "resolve_reflections" {
                     vec![Some(super::probes::reflection_resolve_target())]
+                } else if fragment == "resolve_local_shadows" {
+                    vec![
+                        Some(ColorTargetState {
+                            format: TextureFormat::Rgba16Float,
+                            blend: None,
+                            write_mask: ColorWrites::ALL,
+                        }),
+                        Some(ColorTargetState {
+                            format: TextureFormat::Rgba16Float,
+                            blend: None,
+                            write_mask: ColorWrites::ALL,
+                        }),
+                        Some(ColorTargetState {
+                            format: TextureFormat::Rgba16Float,
+                            blend: None,
+                            write_mask: ColorWrites::ALL,
+                        }),
+                    ]
+                } else if motion {
+                    [TextureFormat::Rgba16Float, TextureFormat::Rg16Float]
+                        .into_iter()
+                        .map(|format| {
+                            Some(ColorTargetState {
+                                format,
+                                blend: None,
+                                write_mask: ColorWrites::ALL,
+                            })
+                        })
+                        .collect()
                 } else {
                     vec![Some(ColorTargetState {
                         format: TextureFormat::Rgba16Float,

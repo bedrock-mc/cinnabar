@@ -2,7 +2,7 @@
 #import cinnabar::enhanced_atmosphere::{sky_view_uv,atmosphere_direct_irradiance,cloud_shadow_uv}
 #import cinnabar::enhanced_local_lights::{LocalLight,LightSources,point_attenuation}
 #import cinnabar::enhanced_radiance::voxel_sky_access
-#import cinnabar::enhanced_indirect_trace::{indirect_field,grid_origin,probe_grid_origin,grid_dimensions,grid_contains,grid_cell_index,trace_grid,probe_axes,probe_base,probe_index,probe_radiance_mix}
+#import cinnabar::enhanced_indirect_trace::{indirect_field,grid_origin,probe_grid_origin,grid_dimensions,grid_contains,grid_cell_index,grid_point_is_open,trace_grid,probe_axes,probe_base,probe_index,probe_radiance_mix}
 
 @group(0) @binding(0) var<uniform> gi_frame:EnhancedFrame;
 @group(0) @binding(2) var gi_environment:texture_2d_array<f32>;
@@ -63,6 +63,7 @@ fn shade_bounce(point:vec3<f32>,normal:vec3<f32>,albedo:vec3<f32>,seed:f32,raw_s
 
 @compute @workgroup_size(GI_RAYS)
 fn update_spatial_irradiance(@builtin(workgroup_id) group:vec3<u32>,@builtin(local_invocation_index) lane:u32){
+    let ray_count=select(clamp(gi_range.w,1u,GI_RAYS),GI_RAYS,gi_range.w==0u);
     let index=gi_update_order.indices[gi_range.x+group.x];
     let size=indirect_field.words[2].xyz;
     let cell=vec3(index%size.x,(index/size.x)%size.y,index/(size.x*size.y));
@@ -76,22 +77,18 @@ fn update_spatial_irradiance(@builtin(workgroup_id) group:vec3<u32>,@builtin(loc
         for(var attempt=0u;attempt<7u;attempt+=1u){
             var candidate=probe_position;
             if(attempt>0u){candidate=nominal+probe_axes(attempt-1u);}
-            let voxel=vec3<i32>(floor(candidate-grid_origin()));
-            if(grid_contains(voxel)){
-                let occupancy=indirect_field.words[grid_cell_index(voxel)];
-                if(occupancy.x==1u){probe_position=candidate;probe_valid=1u;break;}
-            }
+            if(grid_point_is_open(candidate)){probe_position=candidate;probe_valid=1u;break;}
         }
         solar_irradiance=atmosphere_direct_irradiance(gi_frame,probe_position);
     }
     workgroupBarrier();
-    let z=1.0-2.0*(f32(lane)+0.5)/f32(GI_RAYS);
+    let z=1.0-2.0*(f32(lane)+0.5)/f32(ray_count);
     let azimuth=f32(lane)*2.39996322973+seed*6.2831853;
     let radius=sqrt(max(1.0-z*z,0.0));
     let direction=vec3(radius*cos(azimuth),z,radius*sin(azimuth));
     ray_direction[lane]=direction;
     ray_radiance[lane]=vec3(0.0);ray_sky[lane]=vec3(0.0);ray_distance[lane]=0.0;
-    if(probe_valid!=0u){
+    if(probe_valid!=0u && lane<ray_count){
         let ray=trace_grid(probe_position,direction,80.0,fract(seed+f32(lane)*0.61803399),false);
         ray_distance[lane]=ray.travel;
         if(ray.status==0u){ray_radiance[lane]=sky_radiance(direction);ray_sky[lane]=ray_radiance[lane];ray_distance[lane]=80.0;}
@@ -119,14 +116,14 @@ fn update_spatial_irradiance(@builtin(workgroup_id) group:vec3<u32>,@builtin(loc
         indirect_field.words[base]=vec4(bitcast<vec3<u32>>(probe_position),select(0u,gi_range.z,probe_valid!=0u));
         for(var face=0u;face<6u;face+=1u){
             let axis=probe_axes(face);var colour=vec3(0.0);var sky_colour=vec3(0.0);var mean=0.0;var second=0.0;var weights=0.0;
-            for(var ray=0u;ray<GI_RAYS;ray+=1u){
+            for(var ray=0u;ray<ray_count;ray+=1u){
                 let weight=max(dot(axis,ray_direction[ray]),0.0);
                 colour+=ray_radiance[ray]*weight;mean+=ray_distance[ray]*weight;
                 sky_colour+=ray_sky[ray]*weight;
                 second+=ray_distance[ray]*ray_distance[ray]*weight;weights+=weight;
             }
-            indirect_field.words[base+1u+face]=bitcast<vec4<u32>>(vec4(colour*(4.0/f32(GI_RAYS)),mean/max(weights,0.001)));
-            indirect_field.words[base+7u+face]=bitcast<vec4<u32>>(vec4(second/max(weights,0.001),sky_colour*(4.0/f32(GI_RAYS))));
+            indirect_field.words[base+1u+face]=bitcast<vec4<u32>>(vec4(colour*(4.0/f32(ray_count)),mean/max(weights,0.001)));
+            indirect_field.words[base+7u+face]=bitcast<vec4<u32>>(vec4(second/max(weights,0.001),sky_colour*(4.0/f32(ray_count))));
         }
     }
 }

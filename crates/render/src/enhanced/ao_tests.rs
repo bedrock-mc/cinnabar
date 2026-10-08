@@ -152,8 +152,8 @@ fn camera_depth_preserves_open_floor_and_occludes_local_creases_and_contacts() {
         var contacts=vec4(0.0);
         for(var rotation=0u;rotation<4u;rotation+=1u){
             local_frame.temporal.x=f32(rotation);
-            contacts[rotation]=screen_contact_shadow(local_frame,depth,uv,d,pixel);
-            visibility+=vec2(horizon_ao(local_frame,depth,uv,d,pixel),contacts[rotation]);
+            contacts[rotation]=screen_contact_shadow(local_frame,depth,uv,d,pixel,vec3(0.0,1.0,0.0));
+            visibility+=vec2(horizon_ao(local_frame,depth,uv,d,pixel,vec3(0.0,1.0,0.0)),contacts[rotation]);
         }
         let normal=ao_surface_normal(frame,depth,uv,d);
         let world=ao_world_position(frame,uv,d);

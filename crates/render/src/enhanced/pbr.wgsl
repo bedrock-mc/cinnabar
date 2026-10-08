@@ -31,6 +31,25 @@ fn material_normal(sampled:vec4<f32>, basis:MaterialBasis)->vec3<f32> {
     return normalize(basis.tangent*xy.x + basis.bitangent*xy.y + basis.normal*z);
 }
 
+// Pixel normal variation broadens unresolved highlights instead of producing sparkles.
+fn material_specular_aa(sampled:vec4<f32>, normal:vec3<f32>)->vec4<f32> {
+    let dx=dpdx(normal);let dy=dpdy(normal);
+    let variance=0.15*(dot(dx,dx)+dot(dy,dy));
+    let roughness=clamp(sampled.z,0.045,1.0);
+    let filtered=pow(clamp(pow(roughness,4.0)+min(2.0*variance,0.12),0.0,1.0),0.25);
+    return vec4(sampled.xy,filtered,sampled.w);
+}
+
+// LabPBR metal IDs and porosity/SSS branches cannot interpolate as continuous channels.
+fn blend_material_sample(a:vec4<f32>,b:vec4<f32>,weight:f32,flags:u32)->vec4<f32> {
+    var result=mix(a,b,weight);
+    if((flags&PBR_REF_LABPBR)!=0u){
+        if(a.x>=230.0/255.0 || b.x>=230.0/255.0){result.x=select(a.x,b.x,weight>=0.5);}
+        if((a.w<=64.0/255.0)!=(b.w<=64.0/255.0)){result.w=select(a.w,b.w,weight>=0.5);}
+    }
+    return result;
+}
+
 fn conductor_fzero(n:vec3<f32>, k:vec3<f32>)->vec3<f32> {
     let lower=n-vec3(1.0); let upper=n+vec3(1.0);
     return (lower*lower+k*k)/(upper*upper+k*k);

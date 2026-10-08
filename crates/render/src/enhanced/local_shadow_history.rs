@@ -1,4 +1,4 @@
-//! Reprojected lamp visibility; moving casters retain short, receiver-owned history.
+//! Reprojected lamp and sunlight visibility share a receiver resolve pass.
 
 use bevy::{
     core_pipeline::FullscreenShader,
@@ -58,6 +58,31 @@ pub(crate) fn layout() -> BindGroupLayoutDescriptor {
             multisampled: false,
         },
         BindingType::Sampler(SamplerBindingType::Comparison),
+        BindingType::Texture {
+            sample_type: TextureSampleType::Float { filterable: true },
+            view_dimension: TextureViewDimension::D2,
+            multisampled: false,
+        },
+        BindingType::Texture {
+            sample_type: TextureSampleType::Float { filterable: true },
+            view_dimension: TextureViewDimension::D2,
+            multisampled: false,
+        },
+        BindingType::Texture {
+            sample_type: TextureSampleType::Depth,
+            view_dimension: TextureViewDimension::D2Array,
+            multisampled: false,
+        },
+        BindingType::Buffer {
+            ty: BufferBindingType::Uniform,
+            has_dynamic_offset: false,
+            min_binding_size: None,
+        },
+        BindingType::Texture {
+            sample_type: TextureSampleType::Float { filterable: true },
+            view_dimension: TextureViewDimension::D2,
+            multisampled: false,
+        },
     ]
     .into_iter()
     .enumerate()
@@ -85,11 +110,23 @@ impl FromWorld for LocalShadowPipeline {
                     fragment: Some(FragmentState {
                         shader: super::LOCAL_SHADOW_HISTORY_SHADER,
                         entry_point: Some("resolve_local_shadows".into()),
-                        targets: vec![Some(ColorTargetState {
-                            format: TextureFormat::Rgba16Float,
-                            blend: None,
-                            write_mask: ColorWrites::ALL,
-                        })],
+                        targets: vec![
+                            Some(ColorTargetState {
+                                format: TextureFormat::Rgba16Float,
+                                blend: None,
+                                write_mask: ColorWrites::ALL,
+                            }),
+                            Some(ColorTargetState {
+                                format: TextureFormat::Rgba16Float,
+                                blend: None,
+                                write_mask: ColorWrites::ALL,
+                            }),
+                            Some(ColorTargetState {
+                                format: TextureFormat::Rgba16Float,
+                                blend: None,
+                                write_mask: ColorWrites::ALL,
+                            }),
+                        ],
                         ..default()
                     }),
                     ..default()
@@ -105,24 +142,36 @@ impl LocalShadowPipeline {
 
 pub(crate) struct LocalShadowHistory {
     pub size: [u32; 2],
+    pub sun: super::sun_shadow_history::SunShadowHistory,
     output: Texture,
     history: Texture,
+    metadata_output: Texture,
+    metadata_history: Texture,
     pub view: TextureView,
+    pub metadata_view: TextureView,
     history_view: TextureView,
+    metadata_history_view: TextureView,
     parameters: Buffer,
     uploaded_parameters: Option<[f32; 4]>,
     #[cfg(test)]
     parameter_uploads: u32,
-    binding_key: Option<(TextureViewId, TextureViewId, TextureViewId, BufferId)>,
+    binding_key: Option<(
+        TextureViewId,
+        TextureViewId,
+        TextureViewId,
+        TextureViewId,
+        TextureViewId,
+        BufferId,
+    )>,
     group: Option<BindGroup>,
-    source: Option<u64>,
+    source: Option<[Option<u64>; super::local_lights::MAX_SHADOWED_LIGHTS]>,
     response_seconds: f32,
     submitted: AtomicBool,
 }
 
 impl LocalShadowHistory {
     pub fn new(device: &RenderDevice, size: [u32; 2]) -> Self {
-        let create = |label, copy| {
+        let create = |label, format, copy| {
             device.create_texture(&TextureDescriptor {
                 label: Some(label),
                 size: Extent3d {
@@ -133,15 +182,35 @@ impl LocalShadowHistory {
                 mip_level_count: 1,
                 sample_count: 1,
                 dimension: TextureDimension::D2,
-                format: TextureFormat::Rgba16Float,
+                format,
                 usage: TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING | copy,
                 view_formats: &[],
             })
         };
-        let output = create("resolved local shadow visibility", TextureUsages::COPY_SRC);
-        let history = create("previous local shadow visibility", TextureUsages::COPY_DST);
+        let output = create(
+            "resolved local shadow visibility",
+            TextureFormat::Rgba16Float,
+            TextureUsages::COPY_SRC,
+        );
+        let history = create(
+            "previous local shadow visibility",
+            TextureFormat::Rgba16Float,
+            TextureUsages::COPY_DST,
+        );
+        let metadata_output = create(
+            "resolved local shadow metadata",
+            TextureFormat::Rgba16Float,
+            TextureUsages::COPY_SRC,
+        );
+        let metadata_history = create(
+            "previous local shadow metadata",
+            TextureFormat::Rgba16Float,
+            TextureUsages::COPY_DST,
+        );
         let view = output.create_view(&default());
+        let metadata_view = metadata_output.create_view(&default());
         let history_view = history.create_view(&default());
+        let metadata_history_view = metadata_history.create_view(&default());
         let parameters = device.create_buffer(&BufferDescriptor {
             label: Some("local shadow history policy"),
             size: 16,
@@ -150,10 +219,15 @@ impl LocalShadowHistory {
         });
         Self {
             size,
+            sun: super::sun_shadow_history::SunShadowHistory::new(device, size),
             output,
             history,
+            metadata_output,
+            metadata_history,
             view,
+            metadata_view,
             history_view,
+            metadata_history_view,
             parameters,
             uploaded_parameters: None,
             #[cfg(test)]
@@ -175,16 +249,32 @@ impl LocalShadowHistory {
         };
     }
 
-    pub fn prepare(&mut self, queue: &RenderQueue, camera_valid: bool, source: u64, delta: f32) {
-        let valid = self.submitted.swap(false, Ordering::Relaxed)
-            && camera_valid
-            && self.source == Some(source);
+    pub fn prepare(
+        &mut self,
+        queue: &RenderQueue,
+        camera_valid: bool,
+        source: [Option<u64>; super::local_lights::MAX_SHADOWED_LIGHTS],
+        delta: f32,
+    ) {
+        let valid = self.submitted.swap(false, Ordering::Relaxed) && camera_valid;
+        let mut lanes = 0u32;
+        let mut retained = 0u32;
+        if valid && let Some(previous) = self.source {
+            for (lane, identity) in source.into_iter().enumerate() {
+                if identity.is_some()
+                    && let Some(old_lane) = previous.iter().position(|old| *old == identity)
+                {
+                    lanes |= (old_lane as u32) << (lane * 2);
+                    retained |= 1 << lane;
+                }
+            }
+        }
         self.source = Some(source);
         let parameters = [
             f32::from(u8::from(valid)),
             update_weight(delta * RESPONSE_SECONDS / self.response_seconds),
-            0.0,
-            0.0,
+            lanes as f32,
+            retained as f32,
         ];
         if self.uploaded_parameters != Some(parameters) {
             queue.write_buffer(&self.parameters, 0, bytemuck::bytes_of(&parameters));
@@ -203,13 +293,22 @@ impl LocalShadowHistory {
         cache: &PipelineCache,
         frame: &Buffer,
         depth: &TextureView,
+        receiver_normal: &TextureView,
         motion: &TextureView,
-        shadow: &TextureView,
+        point_shadow: &TextureView,
+        sun_shadow: &TextureView,
         sources: &Buffer,
         linear: &Sampler,
         comparison: &Sampler,
     ) {
-        let key = (depth.id(), motion.id(), shadow.id(), sources.id());
+        let key = (
+            depth.id(),
+            motion.id(),
+            point_shadow.id(),
+            sun_shadow.id(),
+            receiver_normal.id(),
+            sources.id(),
+        );
         if self.binding_key == Some(key) {
             return;
         }
@@ -235,7 +334,7 @@ impl LocalShadowHistory {
                 },
                 BindGroupEntry {
                     binding: 4,
-                    resource: BindingResource::TextureView(shadow),
+                    resource: BindingResource::TextureView(point_shadow),
                 },
                 BindGroupEntry {
                     binding: 5,
@@ -253,6 +352,26 @@ impl LocalShadowHistory {
                     binding: 8,
                     resource: BindingResource::Sampler(comparison),
                 },
+                BindGroupEntry {
+                    binding: 9,
+                    resource: BindingResource::TextureView(&self.metadata_history_view),
+                },
+                BindGroupEntry {
+                    binding: 10,
+                    resource: BindingResource::TextureView(&self.sun.history_view),
+                },
+                BindGroupEntry {
+                    binding: 11,
+                    resource: BindingResource::TextureView(sun_shadow),
+                },
+                BindGroupEntry {
+                    binding: 12,
+                    resource: self.sun.parameters.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 13,
+                    resource: BindingResource::TextureView(receiver_normal),
+                },
             ],
         ));
         self.binding_key = Some(key);
@@ -264,16 +383,36 @@ impl LocalShadowHistory {
         };
         {
             let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
-                label: Some("resolve dynamic lamp shadows"),
-                color_attachments: &[Some(RenderPassColorAttachment {
-                    view: &self.view,
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: Operations {
-                        load: LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                        store: StoreOp::Store,
-                    },
-                })],
+                label: Some("resolve receiver shadow visibility"),
+                color_attachments: &[
+                    Some(RenderPassColorAttachment {
+                        view: &self.view,
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: Operations {
+                            load: LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                            store: StoreOp::Store,
+                        },
+                    }),
+                    Some(RenderPassColorAttachment {
+                        view: &self.metadata_view,
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: Operations {
+                            load: LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                            store: StoreOp::Store,
+                        },
+                    }),
+                    Some(RenderPassColorAttachment {
+                        view: &self.sun.view,
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: Operations {
+                            load: LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                            store: StoreOp::Store,
+                        },
+                    }),
+                ],
                 ..default()
             });
             pass.set_render_pipeline(pipeline);
@@ -285,6 +424,12 @@ impl LocalShadowHistory {
             self.history.as_image_copy(),
             self.output.size(),
         );
+        context.command_encoder().copy_texture_to_texture(
+            self.metadata_output.as_image_copy(),
+            self.metadata_history.as_image_copy(),
+            self.metadata_output.size(),
+        );
+        self.sun.store(context);
         self.submitted.store(true, Ordering::Relaxed);
     }
 }

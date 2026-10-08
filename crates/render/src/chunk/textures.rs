@@ -51,7 +51,16 @@ impl EnhancedTextureAssets {
 
     #[must_use]
     pub fn authored_layer_count(&self) -> usize {
-        self.color_pages[0].layers as usize
+        self.color_pages
+            .iter()
+            .enumerate()
+            .filter(|(page, _)| {
+                self.texture_refs
+                    .iter()
+                    .any(|&reference| reference != u32::MAX && (reference >> 31) as usize == *page)
+            })
+            .map(|(_, color)| color.layers as usize)
+            .sum()
     }
 }
 

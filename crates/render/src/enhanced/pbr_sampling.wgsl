@@ -1,5 +1,5 @@
 #ifdef ENHANCED
-#import cinnabar::enhanced_pbr::{MaterialBasis,material_basis,material_normal,material_relief_weight,material_relief_ray,PBR_REF_LABPBR}
+#import cinnabar::enhanced_pbr::{MaterialBasis,material_basis,material_normal,material_specular_aa,blend_material_sample,material_relief_weight,material_relief_ray,PBR_REF_LABPBR}
 
 fn authored_material_ref(texture_ref:u32)->u32 {
     return enhanced_texture_refs[(texture_ref>>31u)*2048u+(texture_ref&0x7ffu)];
@@ -62,11 +62,12 @@ fn parallax_direct_visibility(texture_ref:u32,uv:vec2<f32>,dx:vec2<f32>,dy:vec2<
     if(above<=0.0){return 0.0;}
     let ray=-material_relief_ray(direction,basis,weight);
     let height=sample_pbr_texture(true,texture_ref,uv,dx,dy).a;
+    var visibility=1.0;
     for(var step=1u;step<=5u;step+=1u){
         let rise=(1.0-height)*f32(step)/5.0;
         let blocker=sample_pbr_texture(true,texture_ref,uv+ray*rise,dx,dy).a;
-        if(blocker>height+rise+0.03){return 0.0;}
+        visibility=min(visibility,1.0-smoothstep(0.01,0.06,blocker-height-rise));
     }
-    return 1.0;
+    return mix(1.0,visibility,weight);
 }
 #endif

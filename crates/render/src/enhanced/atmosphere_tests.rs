@@ -103,44 +103,90 @@ fn sky_view_coordinates_reconstruct_both_hemispheres() {
 }
 
 #[test]
-fn missing_terrain_reveals_continuous_atmosphere_instead_of_beige_ground() {
+fn finite_world_background_varies_without_changing_physical_downward_transport() {
     let source = r#"
 #import cinnabar::enhanced_common::EnhancedFrame
-#import cinnabar::enhanced_atmosphere::{atmospheric_sky_background,atmosphere_background_ray}
-@group(0) @binding(31) var<storage,read_write> results:array<vec4<f32>,6>;
+#import cinnabar::enhanced_atmosphere::{atmospheric_sky_background,finite_world_sky_ray,finite_world_sky_uv,atmosphere_geometric_horizon,sky_view_uv,sky_view_ray}
+@group(0) @binding(31) var<storage,read_write> results:array<vec4<f32>,12>;
 @compute @workgroup_size(1) fn regression(){
     var frame:EnhancedFrame;
     frame.camera_time=vec4(0.0,64.0,0.0,0.0);
     frame.celestial=vec4(0.0,1.0,0.0,0.0);
     frame.atmosphere.x=1.0;
-    results[0]=vec4(atmospheric_sky_background(frame,normalize(vec3(1.0,-0.12,0.0))),1.0);
-    results[1]=vec4(atmospheric_sky_background(frame,normalize(vec3(1.0,-0.05,0.0))),1.0);
-    results[2]=vec4(atmospheric_sky_background(frame,normalize(vec3(1.0,-0.0046,0.0))),1.0);
-    results[3]=vec4(atmospheric_sky_background(frame,normalize(vec3(1.0,-0.0044,0.0))),1.0);
-    results[4]=vec4(atmosphere_background_ray(frame,vec3(0.0,-1.0,0.0)),1.0);
+    let lower=normalize(vec3(1.0,-0.12,0.0));
+    let grazing=normalize(vec3(1.0,-0.05,0.0));
+    results[0]=vec4(atmospheric_sky_background(frame,finite_world_sky_ray(frame,lower)),1.0);
+    results[1]=vec4(atmospheric_sky_background(frame,finite_world_sky_ray(frame,grazing)),1.0);
+    results[2]=vec4(atmospheric_sky_background(frame,finite_world_sky_ray(frame,normalize(vec3(1.0,-0.0046,0.0)))),1.0);
+    results[3]=vec4(atmospheric_sky_background(frame,finite_world_sky_ray(frame,normalize(vec3(1.0,-0.0044,0.0)))),1.0);
+    results[4]=vec4(finite_world_sky_ray(frame,vec3(0.0,-1.0,0.0)),1.0);
+    results[6]=vec4(atmospheric_sky_background(frame,lower),1.0);
+    results[7]=vec4(atmospheric_sky_background(frame,grazing),1.0);
+    let size=vec2<f32>(SKY_LUT_WIDTH,SKY_LUT_HEIGHT);
+    let horizon=atmosphere_geometric_horizon(frame);
+    let limb=vec3(cos(horizon),sin(horizon),0.0);
+    let horizon_uv=sky_view_uv(limb);
+    let display_uv=finite_world_sky_uv(frame,limb,size);
+    let upper_center=(ceil(display_uv.y*size.y-0.5)+0.5)/size.y;
+    results[8]=vec4(display_uv.y,horizon_uv.y,upper_center,sky_view_ray(vec2(0.5,upper_center)).y);
+    let upper=normalize(vec3(1.0,0.2,0.0));
+    results[9]=vec4(finite_world_sky_uv(frame,upper,size),sky_view_uv(upper));
+    let near_lower=vec3(cos(horizon-0.00001),sin(horizon-0.00001),0.0);
+    let near_upper=vec3(cos(horizon+0.00001),sin(horizon+0.00001),0.0);
+    results[10]=vec4(finite_world_sky_uv(frame,near_lower,size),finite_world_sky_uv(frame,near_upper,size));
+    frame.camera_time.y+=1.0;
+    let next_horizon=atmosphere_geometric_horizon(frame);
+    let next_limb=vec3(cos(next_horizon),sin(next_horizon),0.0);
+    results[11]=vec4(display_uv.y,finite_world_sky_uv(frame,next_limb,size).y,1.0/size.y,sin(horizon));
     frame.atmosphere.x=0.0;
     frame.sky_horizon=vec4(0.4,0.3,0.2,1.0);
     frame.sky_zenith=vec4(0.1,0.2,0.3,1.0);
     results[5]=vec4(atmospheric_sky_background(frame,vec3(0.0,-1.0,0.0)),1.0);
 }
 "#;
-    let Some(values) = execute_calibrated(source, 6) else {
+    let source = source
+        .replace(
+            "SKY_LUT_WIDTH",
+            &super::atmosphere_cache::SKY_LUT_SIZE[0].to_string(),
+        )
+        .replace(
+            "SKY_LUT_HEIGHT",
+            &super::atmosphere_cache::SKY_LUT_SIZE[1].to_string(),
+        );
+    let Some(values) = execute_calibrated(&source, 12) else {
         return;
     };
-    for (a, b) in [(0, 1), (2, 3)] {
-        let change = distance(values[a], values[b]);
-        let magnitude = length(values[a]);
-        assert!(
-            change < magnitude * 0.08,
-            "horizon scattering must stay continuous: {values:?}"
-        );
-    }
+    assert!(
+        distance(values[2], values[3]) < length(values[2]) * 0.08,
+        "the visual extension must stay continuous across the planetary limb: {values:?}"
+    );
+    assert!(
+        distance(values[0], values[1]) > length(values[0]) * 0.08,
+        "the visual extension must not collapse to one tangent haze: {values:?}"
+    );
     assert!(
         values[0][2] > values[0][0],
         "the noon lower hemisphere must retain atmospheric blue, not ground albedo"
     );
     assert!(values[4].iter().all(|channel| channel.is_finite()));
     assert!((length(values[4]) - 1.0).abs() < 0.001);
+    assert!(values[4][1] > 0.0);
+    assert!(length(values[6]) < length(values[0]) * 0.2);
+    assert!(distance(values[6], values[7]) > length(values[6]) * 0.2);
+    assert!(
+        values[8][0] <= values[8][1] - values[11][2] + 0.000001
+            && values[8][2] < values[8][1]
+            && values[8][3] > values[11][3],
+        "display bilinear neighbours must remain above the planetary limb: {values:?}"
+    );
+    for axis in 0..2 {
+        assert!((values[9][axis] - values[9][axis + 2]).abs() < 0.000001);
+        assert!((values[10][axis] - values[10][axis + 2]).abs() < 0.00001);
+    }
+    assert!(
+        (values[11][0] - values[11][1]).abs() < values[11][2] * 0.1,
+        "altitude changes must not select a discrete display row"
+    );
     for (actual, expected) in values[5][..3].iter().zip([0.4, 0.3, 0.2]) {
         assert!((actual - expected).abs() < 0.0001);
     }

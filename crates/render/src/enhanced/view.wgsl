@@ -3,12 +3,13 @@
 #import cinnabar::lighting::lit_colour
 #import cinnabar::enhanced_atmosphere::{environment_sky, sky_view_uv, atmosphere_direct_irradiance,cloud_shadow_uv}
 #import cinnabar::enhanced_environment::{environment_coordinate, environment_specular_weight, environment_diffuse_weight}
-#import cinnabar::enhanced_radiance::{block_illumination, compose_surface_lighting, voxel_sky_access}
+#import cinnabar::enhanced_radiance::{block_illumination, compose_surface_lighting, voxel_sky_access, diffuse_indirect}
 #import cinnabar::enhanced_indirect::spatial_indirect
 #import cinnabar::enhanced_pbr::material_response
 #import cinnabar::enhanced_shadow::sun_shadow_sample
+#import cinnabar::enhanced_sun_shadow_temporal::{sun_shadow_receiver_plane,sun_shadow_history_sample,local_shadow_history_sample}
 #import cinnabar::enhanced_actor_motion::stationary_receiver_motion
-#import cinnabar::enhanced_local_lights::{local_light_count, local_light_index, local_light_direction, local_light_incident, local_light_visibility, local_block_residual}
+#import cinnabar::enhanced_local_lights::{local_light_count, local_light_index, local_light_direction, local_light_incident, local_light_visibility_quality, local_block_residual, capture_light_count, local_light_in_range, capture_block_residual, shadowed_light_count}
 #import cinnabar::enhanced_water::{water_fresnel, ripple_normal, trace_reflection,
     water_refraction, water_caustic, water_transport, water_screen_reflection_weight,
     scene_depth_at, scene_world, water_surface_offset}
@@ -31,10 +32,19 @@
 @group(2) @binding(9) var enhanced_surface_visibility: texture_2d<f32>;
 @group(2) @binding(16) var enhanced_local_shadow_visibility: texture_2d<f32>;
 @group(2) @binding(17) var enhanced_scene_motion: texture_2d<f32>;
+@group(2) @binding(18) var<uniform> enhanced_shadow_frame: EnhancedFrame;
+@group(2) @binding(19) var enhanced_local_shadow_metadata: texture_2d<f32>;
+@group(2) @binding(20) var enhanced_point_shadow_map: texture_depth_2d_array;
+@group(2) @binding(21) var enhanced_sun_shadow_visibility: texture_2d<f32>;
 
 const EMISSIVE_GAIN: f32 = 2.4;
 const MAX_EMISSIVE_RADIANCE: f32 = 12.0;
 const PI: f32 = 3.14159265359;
+
+fn exact_local_visibility(index:u32,world:vec3<f32>,normal:vec3<f32>)->f32 {
+    return local_light_visibility_quality(index,world,normal,enhanced_point_shadow_map,
+        enhanced_shadow_sampler,u32(max(enhanced_shadow_frame.quality.w,0.0)),u32(max(enhanced_shadow_frame.quality.z,0.0)));
+}
 
 fn safe_direction(value: vec3<f32>, fallback: vec3<f32>) -> vec3<f32> {
     let squared = dot(value, value);
@@ -43,30 +53,21 @@ fn safe_direction(value: vec3<f32>, fallback: vec3<f32>) -> vec3<f32> {
 }
 
 fn smooth_local_visibility(index:u32,world:vec3<f32>,normal:vec3<f32>,pixel:vec2<f32>)->f32 {
-    if(index<2u && enhanced_frame.projection.w>0.5 && enhanced_frame.probe.w>=0.0){
+    if(index<shadowed_light_count() && enhanced_frame.projection.w>0.5 && enhanced_frame.probe.w>=0.0){
         let previous=enhanced_frame.previous_clip_from_world*vec4(world,1.0);
         let old_uv=previous.xy/max(previous.w,0.00001)*vec2(0.5,-0.5)+vec2(0.5);
         let motion_size=vec2<i32>(textureDimensions(enhanced_scene_motion));
         let motion=textureLoad(enhanced_scene_motion,clamp(vec2<i32>(pixel),vec2(0),motion_size-vec2(1)),0);
         if(previous.w<=0.0 || !stationary_receiver_motion(motion,old_uv-pixel*enhanced_frame.viewport.zw,enhanced_frame.viewport.xy)){
-            return local_light_visibility(index,world,normal,enhanced_shadow_map,enhanced_shadow_sampler);
+            return exact_local_visibility(index,world,normal);
         }
-        let clip=enhanced_frame.clip_from_world*vec4(world,1.0);
-        let expected=enhanced_frame.projection.x*clip.w/max(clip.z,0.00001);
-        let size=vec2<f32>(textureDimensions(enhanced_local_shadow_visibility));
-        let coordinate=pixel/enhanced_frame.viewport.xy*size-vec2(0.5);
-        let base=floor(coordinate);let fraction=fract(coordinate);
-        var visibility=0.0;var total=0.0;
-        for(var y=0u;y<2u;y+=1u){for(var x=0u;x<2u;x+=1u){
-            let p=clamp(vec2<i32>(base)+vec2(i32(x),i32(y)),vec2(0),vec2<i32>(size)-vec2(1));
-            let sample=textureLoad(enhanced_local_shadow_visibility,p,0);
-            let axis=vec2(select(1.0-fraction.x,fraction.x,x==1u),select(1.0-fraction.y,fraction.y,y==1u));
-            let weight=axis.x*axis.y*select(0.0,exp(-abs(sample.w-expected)/max(0.03,expected*0.005)),sample.z>0.5);
-            visibility+=sample[index]*weight;total+=weight;
-        }}
-        if(total>0.01){return visibility/total;}
+        let plane=sun_shadow_receiver_plane(enhanced_frame.clip_from_world,world,normal);
+        let resolved=local_shadow_history_sample(enhanced_local_shadow_visibility,enhanced_local_shadow_metadata,
+            plane,normal,enhanced_frame.projection.x,enhanced_frame.viewport.xy);
+        if(resolved.confidence>0.999){return resolved.visibility[index];}
+        return mix(exact_local_visibility(index,world,normal),resolved.visibility[index],resolved.confidence);
     }
-    return local_light_visibility(index,world,normal,enhanced_shadow_map,enhanced_shadow_sampler);
+    return exact_local_visibility(index,world,normal);
 }
 
 // Read the palette-derived class, defaulting unknown IDs to ordinary surfaces.
@@ -85,9 +86,9 @@ fn enhanced_physical_atmosphere() -> bool {
 }
 
 fn enhanced_cloud_visibility(world: vec3<f32>) -> f32 {
-    if (enhanced_frame.cloud_shadow.w < 0.5 || enhanced_frame.probe.w < 0.0
-        || world.y >= enhanced_frame.clouds.y + enhanced_frame.clouds.z) { return 1.0; }
-    let uv = cloud_shadow_uv(enhanced_frame,world);
+    if (enhanced_shadow_frame.cloud_shadow.w < 0.5
+        || world.y >= enhanced_shadow_frame.clouds.y + enhanced_shadow_frame.clouds.z) { return 1.0; }
+    let uv = cloud_shadow_uv(enhanced_shadow_frame,world);
     if (!all(uv >= vec2(0.0)) || !all(uv <= vec2(1.0))) { return 1.0; }
     return clamp(textureSampleLevel(enhanced_cloud_shadows, enhanced_linear_sampler, uv, 0.0).r, 0.0, 1.0);
 }
@@ -115,8 +116,21 @@ fn waved_water_position(world: vec3<f32>, top_surface: bool) -> vec3<f32> {
 }
 
 fn shadow_visibility(world: vec3<f32>, normal: vec3<f32>, pixel: vec2<f32>) -> f32 {
-    return sun_shadow_sample(enhanced_frame, enhanced_shadow_map, enhanced_shadow_sampler,
-        world, normal, pixel).x;
+    var resolved=vec2(0.0);
+    if((enhanced_frame.flags.x&FEATURE_SHADOWS)!=0u && enhanced_frame.projection.w>0.5
+        && enhanced_frame.probe.w>=0.0 && enhanced_frame.temporal.w<0.5){
+        let previous=enhanced_frame.previous_clip_from_world*vec4(world,1.0);
+        let old_uv=previous.xy/max(previous.w,0.00001)*vec2(0.5,-0.5)+vec2(0.5);
+        let size=vec2<i32>(textureDimensions(enhanced_scene_motion));
+        let motion=textureLoad(enhanced_scene_motion,clamp(vec2<i32>(pixel),vec2(0),size-vec2(1)),0);
+        if(previous.w>0.0 && stationary_receiver_motion(motion,old_uv-pixel*enhanced_frame.viewport.zw,enhanced_frame.viewport.xy)){
+            let plane=sun_shadow_receiver_plane(enhanced_frame.clip_from_world,world,normal);
+            resolved=sun_shadow_history_sample(enhanced_sun_shadow_visibility,plane,normal,enhanced_frame.projection.x,enhanced_frame.viewport.xy);
+            if(resolved.y>0.999){return resolved.x;}
+        }
+    }
+    let current=sun_shadow_sample(enhanced_shadow_frame,enhanced_shadow_map,enhanced_shadow_sampler,world,normal,pixel).x;
+    return mix(current,resolved.x,resolved.y);
 }
 
 // Boost bright texels of materials whose block states all emit light.
@@ -211,11 +225,12 @@ fn diffuse_sky(normal: vec3<f32>) -> vec3<f32> {
 fn surface_indirect(world: vec3<f32>, normal: vec3<f32>, sky_light: f32, block: vec3<f32>, pixel: vec2<f32>) -> vec3<f32> {
     let sky = diffuse_sky(normal) * sky_light;
     var indirect = sky;
-    if (enhanced_frame.probe.w >= 0.0) {
-        let field = spatial_indirect(world, normal, sky_light, enhanced_frame.camera_time.w);
-        indirect = mix(sky, field.rgb, field.a);
-    }
-    return indirect + max(block, vec3(0.0)) * local_block_residual(world, pixel);
+    let field = spatial_indirect(world, normal, sky_light, enhanced_frame.camera_time.w);
+    indirect = mix(sky, field.rgb, field.a);
+    var residual=1.0;
+    if(enhanced_frame.probe.w<0.0){residual=capture_block_residual(world);}
+    else {residual=local_block_residual(world,pixel);}
+    return indirect + max(block, vec3(0.0)) * residual;
 }
 
 fn reflection_environment(world: vec3<f32>, direction: vec3<f32>, roughness: f32, sky_light: f32) -> vec3<f32> {
@@ -253,23 +268,28 @@ fn foliage_light(albedo: vec3<f32>, normal: vec3<f32>, view: vec3<f32>, light: v
 }
 
 fn local_material_lighting(albedo:vec3<f32>,normal:vec3<f32>,view:vec3<f32>,world:vec3<f32>,pixel:vec2<f32>,roughness:f32,metallic:f32,f0:f32,foliage:bool,block:vec3<f32>)->vec3<f32> {
-    return local_authored_lighting(albedo,normal,view,world,pixel,roughness,metallic,mix(vec3(f0),albedo,metallic),foliage,block);
+    return local_authored_lighting(albedo,normal,normal,view,world,pixel,roughness,metallic,mix(vec3(f0),albedo,metallic),foliage,block);
 }
 
 fn local_surface_lighting(albedo:vec3<f32>,normal:vec3<f32>,view:vec3<f32>,world:vec3<f32>,pixel:vec2<f32>,roughness:f32,metallic:f32,foliage:bool,block:vec3<f32>)->vec3<f32>{
     return local_material_lighting(albedo,normal,view,world,pixel,roughness,metallic,0.04,foliage,block);
 }
 
-fn local_authored_lighting(albedo:vec3<f32>,normal:vec3<f32>,view:vec3<f32>,world:vec3<f32>,pixel:vec2<f32>,roughness:f32,metallic:f32,fzero:vec3<f32>,foliage:bool,block:vec3<f32>)->vec3<f32> {
+fn local_authored_lighting(albedo:vec3<f32>,normal:vec3<f32>,shadow_normal:vec3<f32>,view:vec3<f32>,world:vec3<f32>,pixel:vec2<f32>,roughness:f32,metallic:f32,fzero:vec3<f32>,foliage:bool,block:vec3<f32>)->vec3<f32> {
     var result=vec3(0.0);
-    let count=local_light_count(pixel);
+    let capture=enhanced_frame.probe.w<0.0;
+    var count=0u;
+    if(capture){count=capture_light_count();}
+    else {count=local_light_count(pixel);}
     let block_access=clamp(max(block.r,max(block.g,block.b))*10.0,0.0,1.0);
     for (var slot=0u;slot<count;slot+=1u) {
-        let index=local_light_index(pixel,slot);
+        var index=slot;
+        if(!capture){index=local_light_index(pixel,slot);}
+        if(!local_light_in_range(index,world)){continue;}
         let light=local_light_direction(index,world);
         let incident=local_light_incident(index,world);
         if(max(incident.r,max(incident.g,incident.b))<0.0001){continue;}
-        let visibility=smooth_local_visibility(index,world,normal,pixel);
+        let visibility=smooth_local_visibility(index,world,shadow_normal,pixel);
         let brdf=cook_authored(albedo,normal,view,light,roughness,metallic,fzero);
         result+=select(brdf,foliage_light(albedo,normal,view,light),foliage)*incident*visibility*block_access;
     }
@@ -295,6 +315,13 @@ fn shade_material(
     material_flags: u32,
     material_direct_visibility: f32,
 ) -> vec3<f32> {
+    if (enhanced_frame.projection.w < 0.5 && enhanced_frame.probe.w >= 0.0) {
+        let incident = diffuse_indirect(enhanced_frame, normal, sky_light, lighting);
+        let direct = atmosphere_direct_irradiance(enhanced_frame, world)
+            * max(dot(normal, enhanced_frame.light_direction.xyz), 0.0) * sky_light / PI;
+        return albedo * (incident * ambient_occlusion + direct)
+            + emissive_light(albedo, surface_class);
+    }
     let light = enhanced_frame.light_direction.xyz;
     let foliage = (surface_class & (CLASS_LEAVES | CLASS_PLANT)) != 0u;
     let facing = dot(normal, light);
@@ -352,7 +379,7 @@ fn shade_material(
     let texture_emission = min(albedo * response.emission * 4.5, vec3(MAX_EMISSIVE_RADIANCE));
     return min(
         compose_surface_lighting(indirect, pbr_direct, max(emissive_light(albedo, surface_class), texture_emission), visibility)
-            + local_authored_lighting(surface_albedo,mapped_normal,view,world,pixel,roughness,metallic,f0,foliage,lighting),
+            + local_authored_lighting(surface_albedo,mapped_normal,normal,view,world,pixel,roughness,metallic,f0,foliage,lighting),
         vec3(32.0),
     );
 }
@@ -395,6 +422,10 @@ fn shade_actor_surface(albedo: vec3<f32>, normal: vec3<f32>, world: vec3<f32>, p
     if ((packed_light & 0x80000000u) == 0u) { return albedo; }
     let n = safe_direction(normal, vec3(0.0, 1.0, 0.0));
     let sky = sky_illumination(packed_light);
+    if (enhanced_frame.projection.w < 0.5 && enhanced_frame.probe.w >= 0.0) {
+        return shade_surface(albedo, n, world, pixel, block_illumination(packed_light), sky,
+            1.0, 0u, n, vec3(0.0, 0.0, 0.85));
+    }
     let light = enhanced_frame.light_direction.xyz;
     let view = safe_direction(enhanced_frame.camera_time.xyz - world, n);
     let visibility = shadow_visibility(world, n, pixel) * enhanced_cloud_visibility(world);
@@ -423,7 +454,8 @@ fn shade_water(
 ) -> vec4<f32> {
     let to_camera = enhanced_frame.camera_time.xyz - world;
     let above = dot(to_camera, face_normal) > 0.0;
-    if ((enhanced_frame.flags.x & FEATURE_WATER) == 0u || enhanced_frame.probe.w < 0.0) {
+    if ((enhanced_frame.flags.x & FEATURE_WATER) == 0u || enhanced_frame.probe.w < 0.0
+        || enhanced_frame.projection.w < 0.5) {
         let lit = shade_surface(base, face_normal, world, frag.xy, lighting, sky_light,
             ambient_occlusion, 0u, face_normal, vec3(0.0, 0.0, 0.82));
         return vec4(lit, alpha);

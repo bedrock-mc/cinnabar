@@ -15,14 +15,13 @@ use bevy::{
         render_resource::{
             AddressMode, BindGroup, BindGroupEntry, BindGroupLayoutDescriptor,
             BindGroupLayoutEntry, BindingResource, BindingType, Buffer, BufferBinding,
-            BufferBindingType, BufferDescriptor, BufferUsages, CompareFunction, Extent3d,
+            BufferBindingType, BufferDescriptor, BufferId, BufferUsages, CompareFunction, Extent3d,
             FilterMode, Origin3d, PipelineCache, Sampler, SamplerBindingType, SamplerDescriptor,
             ShaderStages, TexelCopyBufferLayout, TexelCopyTextureInfo, Texture, TextureDescriptor,
             TextureDimension, TextureFormat, TextureSampleType, TextureUsages, TextureView,
             TextureViewDescriptor, TextureViewDimension, TextureViewId,
         },
         renderer::{RenderDevice, RenderQueue},
-        texture::{CachedTexture, TextureCache},
         view::{ExtractedView, ViewTarget},
     },
 };
@@ -124,6 +123,20 @@ pub(crate) fn enhanced_view_layout() -> BindGroupLayoutDescriptor {
             entry(9, fragment, texture(FLOAT, TextureViewDimension::D2)),
             entry(16, fragment, texture(FLOAT, TextureViewDimension::D2)),
             entry(17, fragment, texture(FLOAT, TextureViewDimension::D2)),
+            entry(18, fragment, uniform(FRAME_BYTES, false)),
+            entry(19, fragment, texture(FLOAT, TextureViewDimension::D2)),
+            entry(
+                20,
+                fragment,
+                texture(TextureSampleType::Depth, TextureViewDimension::D2Array),
+            ),
+            entry(21, fragment, texture(FLOAT, TextureViewDimension::D2)),
+            entry(22, fragment, texture(FLOAT, TextureViewDimension::D3)),
+            entry(
+                23,
+                fragment,
+                BindingType::Sampler(SamplerBindingType::Filtering),
+            ),
             entry(
                 10,
                 fragment,
@@ -139,7 +152,9 @@ pub(crate) fn enhanced_view_layout() -> BindGroupLayoutDescriptor {
                 BindingType::Buffer {
                     ty: BufferBindingType::Storage { read_only: true },
                     has_dynamic_offset: false,
-                    min_binding_size: None,
+                    min_binding_size: NonZeroU64::new(
+                        super::local_lights::LOCAL_LIGHT_TILE_MIN_BYTES as u64,
+                    ),
                 },
             ),
             entry(
@@ -222,6 +237,18 @@ pub(crate) fn enhanced_post_layout() -> BindGroupLayoutDescriptor {
                 },
             ),
             entry(13, fragment, texture(FLOAT, TextureViewDimension::D3)),
+            entry(16, fragment, texture(FLOAT, TextureViewDimension::D2)),
+            entry(22, fragment, texture(FLOAT, TextureViewDimension::D3)),
+            entry(
+                23,
+                fragment,
+                BindingType::Sampler(SamplerBindingType::Filtering),
+            ),
+            entry(
+                15,
+                fragment,
+                texture(TextureSampleType::Depth, TextureViewDimension::D2),
+            ),
             entry(
                 14,
                 fragment,
@@ -386,7 +413,7 @@ pub(crate) fn prepare_enhanced_materials(
     gpu.material_identity = Some(identity);
 }
 
-/// Cascaded shadow depth array owned by one view.
+/// Depth array with a shared resolution for one shadow projection family.
 pub(crate) struct ShadowTargets {
     _texture: Texture,
     pub(crate) array: TextureView,
@@ -395,10 +422,10 @@ pub(crate) struct ShadowTargets {
 }
 
 impl ShadowTargets {
-    /// Creates one independently rendered depth layer per cascade.
+    /// Creates one independently rendered depth layer per projection.
     fn new(device: &RenderDevice, resolution: u32, cascades: u32) -> Self {
         let texture = device.create_texture(&TextureDescriptor {
-            label: Some("enhanced cascaded shadow map"),
+            label: Some("enhanced shadow map"),
             size: Extent3d {
                 width: resolution,
                 height: resolution,
@@ -419,7 +446,7 @@ impl ShadowTargets {
         let layers = (0..cascades)
             .map(|layer| {
                 texture.create_view(&TextureViewDescriptor {
-                    label: Some("enhanced shadow cascade view"),
+                    label: Some("enhanced shadow projection view"),
                     dimension: Some(TextureViewDimension::D2),
                     base_array_layer: layer,
                     array_layer_count: Some(1),
@@ -444,16 +471,24 @@ pub(crate) struct EnhancedViewGpu {
     actor_shadow_signature: u64,
     point_shadow_seconds: f32,
     pub(crate) frame: Buffer,
+    frame_data: EnhancedFrameGpu,
+    pub(crate) shadow_submitted: std::sync::Arc<std::sync::atomic::AtomicU64>,
+    pub(crate) capture_parent: Option<Entity>,
+    pub(crate) capture_lighting_ready: bool,
+    pub(crate) capture_shadow_submission:
+        Option<(std::sync::Arc<std::sync::atomic::AtomicU64>, u64)>,
     pub(crate) casters: Buffer,
     pub(crate) depth_caster: Buffer,
     pub(crate) camera_clip: Mat4,
     pub(crate) settings: EnhancedRendering,
     pub(crate) cascades: Vec<CascadeBounds>,
     pub(crate) shadow: Option<ShadowTargets>,
+    pub(crate) point_shadow: Option<ShadowTargets>,
     pub(crate) scene: Option<super::targets::SceneTargets>,
-    pub(crate) shafts: Option<CachedTexture>,
+    pub(crate) shafts: Option<super::targets::EffectTarget>,
     pub(crate) view_bind_group: Option<BindGroup>,
-    view_binding_key: Option<[TextureViewId; 9]>,
+    view_binding_key: Option<[TextureViewId; 12]>,
+    view_buffer_key: Option<(BufferId, BufferId, BufferId)>,
     caster_material_key: Option<TextureViewId>,
     pub(crate) caster_bind_group: Option<BindGroup>,
     pub(crate) depth_bind_group: Option<BindGroup>,
@@ -476,11 +511,20 @@ impl EnhancedViewGpu {
         };
         Self {
             local_lights: super::local_lights::LocalLightView::new(device),
-            indirect: super::indirect::IndirectGridGpu::new(device),
+            indirect: if settings.reflection_capture {
+                super::indirect::IndirectGridGpu::for_capture(device)
+            } else {
+                super::indirect::IndirectGridGpu::new(device)
+            },
             indirect_bind_group: None,
             actor_shadow_signature: 0,
             point_shadow_seconds: f32::NEG_INFINITY,
             frame: buffer("enhanced frame uniform", FRAME_BYTES),
+            frame_data: bytemuck::Zeroable::zeroed(),
+            shadow_submitted: default(),
+            capture_parent: None,
+            capture_lighting_ready: false,
+            capture_shadow_submission: None,
             casters: buffer(
                 "enhanced caster uniforms",
                 CASTER_SLOT_BYTES
@@ -494,10 +538,12 @@ impl EnhancedViewGpu {
             settings,
             cascades: Vec::new(),
             shadow: None,
+            point_shadow: None,
             scene: None,
             shafts: None,
             view_bind_group: None,
             view_binding_key: None,
+            view_buffer_key: None,
             caster_material_key: None,
             caster_bind_group: None,
             depth_bind_group: None,

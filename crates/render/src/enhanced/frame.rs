@@ -3,10 +3,9 @@
 
 use bevy::math::{Mat4, UVec4, Vec3, Vec4};
 
-use super::{EnhancedRendering, MAX_SHADOW_CASCADES};
+use super::{EnhancedQualityBudget, EnhancedRendering, MAX_SHADOW_CASCADES};
 use crate::AtmosphereFrame;
 
-const CLOUD_VIEW_STEPS: u32 = 24;
 /// Calibrated irradiance units shared by surface, sky and cloud lighting.
 pub(crate) const SOLAR_IRRADIANCE: f32 = 3.2;
 pub(crate) const LUNAR_IRRADIANCE: f32 = 0.03;
@@ -22,6 +21,8 @@ const NIGHT_INITIAL_EXPOSURE: f32 = 1.4;
 pub(crate) const SHADOW_CASTER_REACH: f32 = 384.0;
 /// PCSS search/filter border shared with shaders through cascade_depth_scale.w.
 pub(crate) const SHADOW_FILTER_MARGIN_TEXELS: f32 = 10.0;
+const SHADOW_RECEIVER_GUARD_TEXELS: f32 = 1.5;
+const SHADOW_DEPTH_GRID_BLOCKS: f32 = 1.0;
 /// Log/linear blend of the practical split scheme.
 const SPLIT_LAMBDA: f32 = 0.75;
 const FIRST_SPLIT_NEAR: f32 = 0.1;
@@ -46,6 +47,8 @@ pub(crate) struct EnhancedFrameGpu {
     pub(crate) cascade_texel: Vec4,
     /// xyz depth units per block; w shared filter border in shadow texels.
     pub(crate) cascade_depth_scale: Vec4,
+    /// xyz receiver radii; w common physical PCSS border in blocks.
+    pub(crate) cascade_receiver_radius: Vec4,
     /// xyz camera world position, w wrapped seconds.
     pub(crate) camera_time: Vec4,
     /// xyz unit vector toward the shadowing light, w direct strength.
@@ -79,6 +82,8 @@ pub(crate) struct EnhancedFrameGpu {
     pub(crate) probe: Vec4,
     /// xy cloud-shadow centre, z world span, w usable map.
     pub(crate) cloud_shadow: Vec4,
+    /// SSR, directional PCF, blocker and point-shadow filter sample budgets.
+    pub(crate) quality: Vec4,
 }
 
 /// Light-space box used to cull shadow casters for one cascade.
@@ -146,6 +151,16 @@ fn light_view(light_direction: Vec3) -> Mat4 {
     Mat4::look_to_rh(Vec3::ZERO, -light_direction, up)
 }
 
+fn receiver_radius(radius: f32) -> f32 {
+    (radius.max(FIRST_SPLIT_NEAR) * 16.0).ceil() / 16.0
+}
+
+fn shadow_filter_border(receiver_radius: f32, resolution: u32) -> f32 {
+    let denominator =
+        resolution as f32 - 2.0 * (SHADOW_FILTER_MARGIN_TEXELS + SHADOW_RECEIVER_GUARD_TEXELS);
+    2.0 * receiver_radius * SHADOW_FILTER_MARGIN_TEXELS / denominator.max(1.0)
+}
+
 /// Nested receiver spheres share a camera-centred, texel-snapped light basis.
 /// Radial coverage matches the receiver fade and cannot move when the view turns.
 #[must_use]
@@ -155,21 +170,45 @@ pub(crate) fn fit_cascade(
     light_direction: Vec3,
     resolution: u32,
 ) -> CascadeFit {
-    let resolution = resolution.max((2.0 * SHADOW_FILTER_MARGIN_TEXELS + 2.0) as u32);
-    // Keep every receiver inside the filter border, including centre snapping.
-    let radius = (receiver_radius.max(FIRST_SPLIT_NEAR) * 16.0).ceil() / 16.0;
-    let radius =
-        radius * resolution as f32 / (resolution as f32 - 2.0 * SHADOW_FILTER_MARGIN_TEXELS - 1.0);
+    let resolution = resolution
+        .max((2.0 * (SHADOW_FILTER_MARGIN_TEXELS + SHADOW_RECEIVER_GUARD_TEXELS) + 2.0) as u32);
+    let radius = self::receiver_radius(receiver_radius);
+    fit_cascade_with_border(
+        camera,
+        radius,
+        light_direction,
+        resolution,
+        shadow_filter_border(radius, resolution),
+    )
+}
+
+/// Fits a receiver sphere with the complete cascade family's sampling border.
+pub(crate) fn fit_cascade_with_border(
+    camera: Vec3,
+    receiver_radius: f32,
+    light_direction: Vec3,
+    resolution: u32,
+    filter_border: f32,
+) -> CascadeFit {
+    // All cascades cover the same physical filter footprint through handovers.
+    let radius = (receiver_radius + filter_border) * resolution as f32
+        / (resolution as f32 - 2.0 * SHADOW_RECEIVER_GUARD_TEXELS);
     let light_from_world = light_view(light_direction);
     let texel = 2.0 * radius / resolution.max(1) as f32;
     let mut center = light_from_world.transform_point3(camera);
     center.x = (center.x / texel).round() * texel;
     center.y = (center.y / texel).round() * texel;
-    let min = Vec3::new(center.x - radius, center.y - radius, center.z - radius);
+    center.z = (center.z / SHADOW_DEPTH_GRID_BLOCKS).round() * SHADOW_DEPTH_GRID_BLOCKS;
+    let depth_radius = radius + 0.5 * SHADOW_DEPTH_GRID_BLOCKS;
+    let min = Vec3::new(
+        center.x - radius,
+        center.y - radius,
+        center.z - depth_radius,
+    );
     let max = Vec3::new(
         center.x + radius,
         center.y + radius,
-        center.z + radius + SHADOW_CASTER_REACH,
+        center.z + depth_radius + SHADOW_CASTER_REACH,
     );
     // View space looks down -Z, so depth distance is the negated z bound.
     let projection = Mat4::orthographic_rh(min.x, max.x, min.y, max.y, -max.z, -min.z);
@@ -279,9 +318,24 @@ pub(crate) fn build_frame(
         EnhancedRendering::default().shadow_distance
     };
     let splits = cascade_splits(distance, cascades);
-    let mut fits = Vec::with_capacity(cascades as usize);
-    for &far in splits.iter().take(cascades as usize) {
-        fits.push(fit_cascade(view.camera, far, light.direction, resolution));
+    let receiver_radii = splits.map(receiver_radius);
+    let filter_border = shadow_filter_border(receiver_radii[cascades as usize - 1], resolution);
+    let mut fits = Vec::new();
+    if !settings.reflection_capture {
+        fits.reserve(cascades as usize);
+        for (index, &radius) in receiver_radii.iter().take(cascades as usize).enumerate() {
+            fits.push(if index + 1 == cascades as usize {
+                fit_cascade(view.camera, radius, light.direction, resolution)
+            } else {
+                fit_cascade_with_border(
+                    view.camera,
+                    radius,
+                    light.direction,
+                    resolution,
+                    filter_border,
+                )
+            });
+        }
     }
     let mut cascade_clip_from_world = [Mat4::IDENTITY; MAX_SHADOW_CASCADES as usize];
     let mut texel = [0.0; MAX_SHADOW_CASCADES as usize];
@@ -318,6 +372,12 @@ pub(crate) fn build_frame(
             depth_scale[2],
             SHADOW_FILTER_MARGIN_TEXELS,
         ),
+        cascade_receiver_radius: Vec4::new(
+            receiver_radii[0],
+            receiver_radii[1],
+            receiver_radii[2],
+            filter_border,
+        ),
         camera_time: view.camera.extend(view.seconds),
         light_direction: light.direction.extend(light.strength),
         light_colour: light.colour.extend(light.ambient),
@@ -326,7 +386,12 @@ pub(crate) fn build_frame(
         sky_horizon: Vec3::from_array(atmosphere.sky_horizon()).extend(1.0),
         viewport: Vec4::new(width, height, 1.0 / width, 1.0 / height),
         grade: Vec4::new(light.warmth, light.exposure, 0.08, 0.35),
-        flags: UVec4::new(features, cascades, resolution, CLOUD_VIEW_STEPS),
+        flags: UVec4::new(
+            features,
+            cascades,
+            resolution,
+            settings.quality.cloud_steps(),
+        ),
         projection: Vec4::new(view.near, light.solar_source, light.lunar_source, 0.0),
         clouds: Vec4::new(
             (0.18 + 0.52 * light.rain).clamp(0.12, 0.85),
@@ -350,6 +415,7 @@ pub(crate) fn build_frame(
         temporal: Vec4::ZERO,
         probe: view.camera.extend(32.0),
         cloud_shadow: Vec4::ZERO,
+        quality: Vec4::from_array(settings.quality.surface_samples()),
     };
     (frame, fits)
 }
@@ -536,7 +602,7 @@ mod tests {
         };
         let (frame, _) = build_frame(&inputs, &settings, &AtmosphereFrame::default());
         assert_eq!(frame.flags.x & (FEATURE_SHADOWS | FEATURE_SHAFTS), 0);
-        assert_eq!(frame.flags.w, CLOUD_VIEW_STEPS);
+        assert_eq!(frame.flags.w, settings.quality.cloud_steps());
         assert_eq!(frame.projection.y, SOLAR_IRRADIANCE);
         assert_eq!(frame.projection.z, LUNAR_IRRADIANCE);
     }

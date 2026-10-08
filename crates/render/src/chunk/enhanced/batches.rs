@@ -228,7 +228,8 @@ pub(super) fn prepare_enhanced_geometry(
 ) {
     if !views.0.values().any(|view| {
         !view.settings.reflection_capture
-            && (view.scene.is_some() || view.settings.shadows && view.shadow.is_some())
+            && (view.scene.is_some()
+                || view.settings.shadows && (view.shadow.is_some() || view.point_shadow.is_some()))
     }) {
         if !cache.batches.is_empty() {
             cache.batches.clear();
@@ -282,7 +283,7 @@ pub(super) fn prepare_enhanced_geometry(
                     }
                     SubmissionKind::LocalLight(index) => {
                         view.settings.shadows
-                            && view.shadow.is_some()
+                            && view.point_shadow.is_some()
                             && *index < view.local_lights.shadows.len()
                     }
                 }
@@ -309,6 +310,8 @@ pub(super) fn prepare_enhanced_geometry(
                     batch.upload(&device, &queue);
                 }
             }
+        }
+        if view.settings.shadows && view.point_shadow.is_some() {
             for (index, light) in view.local_lights.shadows.iter().enumerate() {
                 let batch = batches
                     .entry((entity, SubmissionKind::LocalLight(index)))

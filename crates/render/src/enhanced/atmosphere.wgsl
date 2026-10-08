@@ -5,6 +5,7 @@
 const ATM_PI: f32 = 3.14159265359;
 const ATM_GROUND_RADIUS: f32 = 6360.0;
 const ATM_TOP_RADIUS: f32 = 6420.0;
+const ATM_MIN_HEIGHT: f32 = 0.002;
 const ATM_RAYLEIGH: vec3<f32> = vec3(0.005802, 0.013558, 0.033100);
 const ATM_MIE_SCATTER: f32 = 0.003996;
 const ATM_MIE_EXTINCT: f32 = 0.004440;
@@ -21,16 +22,42 @@ const ATM_STORM_AEROSOL: f32 = 6.0;
 const ATM_VIEW_STEPS: u32 = 8u;
 const ATM_LIGHT_STEPS: u32 = 6u;
 
+#ifdef ENHANCED
+@group(2) @binding(22) var atmosphere_multiple_texture: texture_3d<f32>;
+@group(2) @binding(23) var atmosphere_multiple_sampler: sampler;
+#else
+@group(0) @binding(22) var atmosphere_multiple_texture: texture_3d<f32>;
+@group(0) @binding(23) var atmosphere_multiple_sampler: sampler;
+#endif
+
+fn atmosphere_multiple_scattering(origin: vec3<f32>, light: vec3<f32>, rain: f32) -> vec3<f32> {
+    let radius = length(origin);
+    let cosine = clamp(dot(origin / radius, light), -1.0, 1.0);
+    let sun = 0.5 + 0.5 * sign(cosine) * sqrt(abs(cosine));
+    let height = sqrt(clamp((radius - ATM_GROUND_RADIUS - ATM_MIN_HEIGHT)
+        / (ATM_TOP_RADIUS - ATM_GROUND_RADIUS - ATM_MIN_HEIGHT), 0.0, 1.0));
+    let size = vec3<f32>(textureDimensions(atmosphere_multiple_texture));
+    let uv = (vec3(sun, height, clamp(rain, 0.0, 1.0)) * (size - vec3(1.0)) + vec3(0.5)) / size;
+    return max(textureSampleLevel(atmosphere_multiple_texture, atmosphere_multiple_sampler, uv, 0.0).rgb, vec3(0.0));
+}
+
+fn sky_view_vertical(elevation: f32) -> f32 {
+    let vertical = sign(elevation) * sqrt(abs(elevation) / (ATM_PI * 0.5));
+    return 0.5 - vertical * 0.5;
+}
+
 fn sky_view_uv(ray: vec3<f32>) -> vec2<f32> {
     return vec2(atan2(ray.z, ray.x) / (2.0 * ATM_PI) + 0.5,
-        acos(clamp(ray.y, -1.0, 1.0)) / ATM_PI);
+        sky_view_vertical(asin(clamp(ray.y, -1.0, 1.0))));
 }
 
 fn sky_view_ray(uv: vec2<f32>) -> vec3<f32> {
     let azimuth = (uv.x - 0.5) * 2.0 * ATM_PI;
-    let elevation = uv.y * ATM_PI;
-    return vec3(cos(azimuth) * sin(elevation), cos(elevation),
-        sin(azimuth) * sin(elevation));
+    let vertical = 1.0 - uv.y * 2.0;
+    // Squared elevation spends the persistent LUT's resolution on horizon gradients.
+    let elevation = sign(vertical) * vertical * vertical * ATM_PI * 0.5;
+    return vec3(cos(azimuth) * cos(elevation), sin(elevation),
+        sin(azimuth) * cos(elevation));
 }
 
 struct AtmosphereIntegral {
@@ -40,7 +67,7 @@ struct AtmosphereIntegral {
 
 // Atmospheric lengths and coefficients use kilometres; world blocks use metres.
 fn atmosphere_position(world: vec3<f32>) -> vec3<f32> {
-    return vec3(0.0, ATM_GROUND_RADIUS + clamp(world.y * 0.001, 0.002, 250.0), 0.0);
+    return vec3(0.0, ATM_GROUND_RADIUS + clamp(world.y * 0.001, ATM_MIN_HEIGHT, 250.0), 0.0);
 }
 
 fn atmosphere_sphere(origin: vec3<f32>, ray: vec3<f32>, radius: f32) -> vec2<f32> {
@@ -167,6 +194,14 @@ fn atmosphere_direct_irradiance(frame: EnhancedFrame, world: vec3<f32>) -> vec3<
         * atmosphere_surface_transport(frame, world, frame.light_direction.xyz);
 }
 
+// Both sources remain continuous when the terrain shadow source changes at dusk.
+fn atmosphere_celestial_irradiance(frame: EnhancedFrame, world: vec3<f32>) -> mat2x3<f32> {
+    let sun = frame.celestial.xyz;
+    return mat2x3(atmosphere_solar_source(frame) * atmosphere_surface_transport(frame, world, sun),
+        atmosphere_lunar_source(frame) * atmosphere_moon_fraction(frame)
+            * atmosphere_surface_transport(frame, world, -sun));
+}
+
 fn atmosphere_integral(
     frame: EnhancedFrame, origin: vec3<f32>, ray: vec3<f32>, entry: f32, end: f32,
 ) -> AtmosphereIntegral {
@@ -183,7 +218,6 @@ fn atmosphere_integral(
     let sun_mie = atmosphere_phase_mie(dot(ray, sun), 0.76);
     let moon_rayleigh = atmosphere_phase_rayleigh(dot(ray, moon));
     let moon_mie = atmosphere_phase_mie(dot(ray, moon), 0.76);
-    let day = smoothstep(-0.14, 0.06, sun.y);
     for (var index = 0u; index < ATM_VIEW_STEPS; index += 1u) {
         let lower = f32(index) / f32(ATM_VIEW_STEPS);
         let upper = f32(index + 1u) / f32(ATM_VIEW_STEPS);
@@ -199,11 +233,9 @@ fn atmosphere_integral(
         let lunar_transport = atmosphere_light_transport(point, moon, rain);
         var source = solar * solar_transport * (rayleigh * sun_rayleigh + mie * sun_mie)
             + lunar * lunar_transport * (rayleigh * moon_rayleigh + mie * moon_mie);
-        // An isotropic second-bounce estimate fills the shadowed sky without a tint ramp.
-        let albedo = (rayleigh + mie) / max(extinction, vec3(1.0e-6));
-        let isotropic = solar * (day * 0.12) + lunar * 0.12;
-        source += isotropic * (rayleigh + mie) / (4.0 * ATM_PI)
-            / max(vec3(1.0) - albedo * 0.25, vec3(0.5));
+        let multiple = solar * atmosphere_multiple_scattering(point, sun, rain)
+            + lunar * atmosphere_multiple_scattering(point, moon, rain);
+        source += multiple * (rayleigh + mie);
         let step_transmittance = exp(-extinction * step);
         result.radiance += result.transmittance * source
             * (vec3(1.0) - step_transmittance) / max(extinction, vec3(1.0e-6));
@@ -212,17 +244,36 @@ fn atmosphere_integral(
     return result;
 }
 
-// Unloaded terrain reveals horizon haze rather than an invented planetary ground surface.
-fn atmosphere_background_ray(frame: EnhancedFrame, ray: vec3<f32>) -> vec3<f32> {
+fn atmosphere_geometric_horizon(frame: EnhancedFrame) -> f32 {
     let radius = length(atmosphere_position(frame.camera_time.xyz));
-    let horizon = -sqrt(max(1.0 - (ATM_GROUND_RADIUS / radius) * (ATM_GROUND_RADIUS / radius), 0.0));
-    let floor = horizon + 0.0002;
-    let delta = ray.y - floor;
-    let elevation = clamp(floor + 0.5 * (delta + sqrt(delta * delta + 0.000144)), -0.9999, 1.0);
-    let horizontal_length = length(ray.xz);
-    let horizontal = select(vec2(1.0, 0.0), ray.xz / max(horizontal_length, 0.0001), horizontal_length > 0.0001);
-    return vec3(horizontal.x * sqrt(max(1.0 - elevation * elevation, 0.0)), elevation,
-        horizontal.y * sqrt(max(1.0 - elevation * elevation, 0.0)));
+    return -acos(clamp(ATM_GROUND_RADIUS / radius, 0.0, 1.0));
+}
+
+fn finite_world_ray_above_horizon(ray: vec3<f32>, horizon: f32) -> vec3<f32> {
+    let direction = normalize(ray);
+    let delta = asin(clamp(direction.y, -1.0, 1.0)) - horizon;
+    if (delta >= 0.0) { return direction; }
+    let elevation = min(horizon - delta, ATM_PI * 0.5);
+    let horizontal_length = length(direction.xz);
+    let horizontal = select(vec2(1.0, 0.0), direction.xz / max(horizontal_length, 0.0001),
+        horizontal_length > 0.0001);
+    return vec3(horizontal.x * cos(elevation), sin(elevation), horizontal.y * cos(elevation));
+}
+
+// Only missing-ground display rays are mirrored; physical transport keeps its direction.
+fn finite_world_sky_ray(frame: EnhancedFrame, ray: vec3<f32>) -> vec3<f32> {
+    return finite_world_ray_above_horizon(ray, atmosphere_geometric_horizon(frame));
+}
+
+// A bilinear neighbour can extend one row past the query; keep display footprints above ground.
+fn finite_world_sky_uv(frame: EnhancedFrame, ray: vec3<f32>, lut_size: vec2<f32>) -> vec2<f32> {
+    let horizon = atmosphere_geometric_horizon(frame);
+    var uv = sky_view_uv(finite_world_ray_above_horizon(ray, horizon));
+    let texel = 1.0 / max(lut_size.y, 1.0);
+    let upper = sky_view_vertical(horizon) - texel;
+    let overlap = max(texel - abs(uv.y - upper), 0.0);
+    uv.y = min(uv.y, upper) - overlap * overlap / (4.0 * texel);
+    return uv;
 }
 
 // Disc-free sky radiance is suitable for a low-resolution sky-view lookup table.
@@ -230,13 +281,16 @@ fn atmospheric_sky_background(frame: EnhancedFrame, ray: vec3<f32>) -> vec3<f32>
     if (frame.atmosphere.x < 0.5) {
         return mix(frame.sky_horizon.rgb, frame.sky_zenith.rgb, max(ray.y, 0.0));
     }
-    let background_ray = atmosphere_background_ray(frame, ray);
+    let background_ray = normalize(ray);
     let origin = atmosphere_position(frame.camera_time.xyz);
     let outer = atmosphere_sphere(origin, background_ray, ATM_TOP_RADIUS);
     if (outer.y <= 0.0) { return vec3(0.0); }
     let entry = max(outer.x, 0.0);
-    let integral = atmosphere_integral(frame, origin, background_ray, entry, outer.y);
-    let airglow = atmosphere_airglow(frame, background_ray);
+    let ground = atmosphere_sphere(origin, background_ray, ATM_GROUND_RADIUS);
+    let ground_hit = ground.x > 0.0;
+    let end = select(outer.y, min(ground.x, outer.y), ground_hit);
+    let integral = atmosphere_integral(frame, origin, background_ray, entry, end);
+    let airglow = atmosphere_airglow(frame, background_ray) * select(1.0, 0.0, ground_hit);
     return max(integral.radiance + airglow * integral.transmittance, vec3(0.0));
 }
 
@@ -316,30 +370,39 @@ fn environment_sky(frame: EnhancedFrame, ray: vec3<f32>) -> vec3<f32> {
     if (frame.atmosphere.x < 0.5) {
         return mix(frame.sky_horizon.rgb, frame.sky_zenith.rgb, max(ray.y, 0.0));
     }
-    let background_ray = atmosphere_background_ray(frame, ray);
-    let height = max(frame.camera_time.y * 0.001, 0.002);
+    let background_ray = normalize(ray);
+    let origin = atmosphere_position(frame.camera_time.xyz);
+    let height = max(length(origin) - ATM_GROUND_RADIUS, 0.0);
     let mu = max(background_ray.y, 0.0);
-    let rayleigh_column = atmosphere_curved_column(height, mu, ATM_RAYLEIGH_HEIGHT);
-    let mie_column = atmosphere_curved_column(height, mu, ATM_MIE_HEIGHT);
+    var rayleigh_column = atmosphere_curved_column(height, mu, ATM_RAYLEIGH_HEIGHT);
+    var mie_column = atmosphere_curved_column(height, mu, ATM_MIE_HEIGHT);
+    let ground = atmosphere_sphere(origin, background_ray, ATM_GROUND_RADIUS);
+    let ground_hit = ground.x > 0.0;
+    if (ground_hit) {
+        rayleigh_column = atmosphere_height_column(height, 0.0, ground.x, ATM_RAYLEIGH_HEIGHT);
+        mie_column = atmosphere_height_column(height, 0.0, ground.x, ATM_MIE_HEIGHT);
+    }
     let rain = clamp(frame.ambient_colour.w, 0.0, 1.0);
     let aerosol = mix(1.0, ATM_STORM_AEROSOL, rain);
     let optical_depth = ATM_RAYLEIGH * rayleigh_column
         + vec3(ATM_MIE_EXTINCT * mie_column * aerosol);
     let sun = frame.celestial.xyz;
-    let light = frame.light_direction.xyz;
-    let transport = atmosphere_surface_transport(frame, frame.camera_time.xyz, light);
-    let day = smoothstep(-0.14, 0.06, sun.y);
-    let scattering = ATM_RAYLEIGH * rayleigh_column
-        * atmosphere_phase_rayleigh(dot(background_ray, light))
-        + vec3(ATM_MIE_SCATTER * mie_column * aerosol)
-        * atmosphere_phase_mie(dot(background_ray, light), 0.6);
-    let solar = atmosphere_solar_source(frame) * day;
-    let direct = scattering * max(frame.light_colour.rgb * frame.light_direction.w, vec3(0.0)) * transport;
-    let diffuse = optical_depth * (solar * 0.02
-        + atmosphere_lunar_source(frame) * atmosphere_moon_fraction(frame) * 0.08);
+    let sources = atmosphere_celestial_irradiance(frame, frame.camera_time.xyz);
+    let cosine = dot(background_ray, sun);
+    let rayleigh = ATM_RAYLEIGH * rayleigh_column;
+    let mie = vec3(ATM_MIE_SCATTER * mie_column * aerosol);
+    let solar_scattering = rayleigh * atmosphere_phase_rayleigh(cosine)
+        + mie * atmosphere_phase_mie(cosine, 0.6);
+    let lunar_scattering = rayleigh * atmosphere_phase_rayleigh(-cosine)
+        + mie * atmosphere_phase_mie(-cosine, 0.6);
+    let direct = solar_scattering * sources[0] + lunar_scattering * sources[1];
+    let diffuse = (rayleigh + mie) * (
+        atmosphere_solar_source(frame) * atmosphere_multiple_scattering(origin, sun, rain)
+        + atmosphere_lunar_source(frame) * atmosphere_moon_fraction(frame)
+            * atmosphere_multiple_scattering(origin, -sun, rain));
     let radiance = (direct + diffuse) * (vec3(1.0) - exp(-optical_depth))
         / max(optical_depth, vec3(1.0e-5));
-    return max(radiance + atmosphere_airglow(frame, background_ray), vec3(0.0));
+    return max(radiance + atmosphere_airglow(frame, background_ray) * select(1.0, 0.0, ground_hit), vec3(0.0));
 }
 
 fn atmospheric_environment(frame: EnhancedFrame, ray: vec3<f32>, roughness: f32) -> vec3<f32> {
@@ -364,7 +427,9 @@ fn atmosphere_height_column(start_y: f32, end_y: f32, distance: f32, scale: f32)
 fn finite_world_haze(frame: EnhancedFrame, world: vec3<f32>) -> f32 {
     if (frame.atmosphere.x < 0.5 || frame.atmosphere.w > 0.5) { return 0.0; }
     let range = max(frame.atmosphere.z, 1.0);
-    return smoothstep(range * 0.86, range, length((world - frame.camera_time.xyz).xz));
+    let start = 0.86;
+    let progress = clamp((length((world - frame.camera_time.xyz).xz) / range - start) / (1.0 - start), 0.0, 1.0);
+    return progress * progress * progress * (progress * (progress * 6.0 - 15.0) + 10.0);
 }
 
 fn cloud_shadow_receiver_height(frame: EnhancedFrame) -> f32 {

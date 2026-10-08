@@ -146,8 +146,8 @@ fn native_preparation_reuses_unchanged_policy_and_rejects_source_camera_and_subm
     let mut history = LocalShadowHistory::new(&device, [8, 8]);
     let prepare = |history: &mut LocalShadowHistory, submitted, camera, source| {
         history.submitted.store(submitted, Ordering::Relaxed);
-        history.prepare(&queue, camera, source, 1.0 / 60.0);
-        history.uploaded_parameters.unwrap()[0]
+        history.prepare(&queue, camera, [Some(source), None, None, None], 1.0 / 60.0);
+        history.uploaded_parameters.unwrap()[3]
     };
     assert_eq!(prepare(&mut history, false, true, 1), 0.0);
     assert_eq!(prepare(&mut history, true, true, 1), 1.0);
@@ -177,5 +177,24 @@ fn native_preparation_reuses_unchanged_policy_and_rejects_source_camera_and_subm
         prepare(&mut history, false, true, 2),
         0.0,
         "unsubmitted frames never retain history"
+    );
+    history.submitted.store(true, Ordering::Relaxed);
+    history.prepare(&queue, true, [Some(2), Some(3), None, None], 1.0 / 60.0);
+    assert_eq!(
+        history.uploaded_parameters.unwrap()[3],
+        1.0,
+        "only the new owner rejects history"
+    );
+    history.submitted.store(true, Ordering::Relaxed);
+    history.prepare(&queue, true, [Some(3), Some(4), None, None], 1.0 / 60.0);
+    let parameters = history.uploaded_parameters.unwrap();
+    assert_eq!(
+        parameters[3], 1.0,
+        "the departed and replacement owners share no visibility"
+    );
+    assert_eq!(
+        parameters[2] as u32 & 3,
+        1,
+        "retained visibility follows the owner to its new dense lane"
     );
 }

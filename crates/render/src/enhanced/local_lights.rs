@@ -1,5 +1,6 @@
 //! Bounded local light selection, tiled admission and cached point-shadow coverage.
 
+use super::EnhancedQuality;
 use bevy::{
     prelude::*,
     render::{
@@ -23,15 +24,36 @@ mod selection;
 mod tests;
 
 pub(crate) const MAX_LOCAL_LIGHTS: usize = 32;
-pub(crate) const MAX_SHADOWED_LIGHTS: usize = 2;
+pub(crate) const MAX_SHADOWED_LIGHTS: usize = 4;
 pub(crate) const POINT_SHADOW_FACES: usize = 6;
 pub(crate) const TILE_SIDE: u32 = 32;
 const TILE_LIGHTS: usize = 8;
-pub(crate) const POINT_SHADOW_RESOLUTION: u32 = 256;
+const TILE_HEADER_BYTES: usize = std::mem::size_of::<[u32; 4]>();
+/// A runtime-array binding includes one word, rounded to the header's WGSL alignment.
+pub(crate) const LOCAL_LIGHT_TILE_MIN_BYTES: usize =
+    (TILE_HEADER_BYTES + std::mem::size_of::<u32>()).next_multiple_of(TILE_HEADER_BYTES);
+#[cfg(test)]
+pub(crate) const POINT_SHADOW_RESOLUTION: u32 = point_shadow_resolution(EnhancedQuality::Balanced);
 pub(crate) const POINT_SHADOW_ANIMATION_INTERVAL: f32 = 1.0 / 15.0;
 pub(crate) const LIGHT_RADIUS: f32 = 12.0;
 const POINT_SHADOW_NEAR: f32 = 0.05;
 const SOURCE_RADIUS: f32 = 0.22;
+
+pub(crate) const fn point_shadow_count(quality: EnhancedQuality) -> usize {
+    match quality {
+        EnhancedQuality::Performance => 1,
+        EnhancedQuality::Balanced => 2,
+        EnhancedQuality::Ultra => MAX_SHADOWED_LIGHTS,
+    }
+}
+
+pub(crate) const fn point_shadow_resolution(quality: EnhancedQuality) -> u32 {
+    match quality {
+        EnhancedQuality::Performance => 128,
+        EnhancedQuality::Balanced => 256,
+        EnhancedQuality::Ultra => 512,
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct LightSource {
@@ -203,9 +225,12 @@ pub(crate) struct LocalLightView {
     upload_valid: bool,
     uploaded_tiles: Vec<u32>,
     candidates: Vec<LightSource>,
+    shadow_candidates: Vec<LightSource>,
     tile_scratch: Vec<u32>,
     tile_scores: Vec<f32>,
     tile_rays: Vec<Vec3>,
+    quality: EnhancedQuality,
+    shadow_owners: [Option<LightSource>; MAX_SHADOWED_LIGHTS],
     prepared: Option<PreparedInputs>,
     pub dirty: bool,
     pub submitted: AtomicBool,
@@ -221,17 +246,44 @@ impl LocalLightView {
     }
     pub(crate) fn shadow_identity(&self) -> u64 {
         let mut hash = DefaultHasher::new();
-        self.prepared.map(|input| input.dimension).hash(&mut hash);
-        for light in self.data.lights.iter().take(MAX_SHADOWED_LIGHTS) {
-            for value in light
-                .position_radius
-                .into_iter()
-                .chain([light.radiance_shadow[3]])
-            {
+        self.prepared.map(|input| input.first_layer).hash(&mut hash);
+        self.shadow_lane_identities().hash(&mut hash);
+        hash.finish()
+    }
+
+    /// Source identities follow emitters when the dense atlas prefix moves between lanes.
+    pub(crate) fn shadow_lane_identities(&self) -> [Option<u64>; MAX_SHADOWED_LIGHTS] {
+        self.shadow_owners.map(|owner| {
+            let source = owner?;
+            let mut hash = DefaultHasher::new();
+            source.dimension.hash(&mut hash);
+            for value in source.position.to_array() {
                 value.to_bits().hash(&mut hash);
             }
+            Some(hash.finish())
+        })
+    }
+
+    pub(crate) fn set_quality(&mut self, quality: EnhancedQuality) {
+        if self.quality == quality {
+            return;
         }
-        hash.finish()
+        self.quality = quality;
+        self.prepared = None;
+        self.dirty = true;
+        self.submitted.store(false, Ordering::Relaxed);
+    }
+
+    pub(crate) fn shadow_count(&self) -> usize {
+        point_shadow_count(self.quality)
+    }
+
+    pub(crate) fn shadow_resolution(&self) -> u32 {
+        point_shadow_resolution(self.quality)
+    }
+
+    pub(crate) fn selected_shadow_count(&self) -> usize {
+        self.shadow_owners.iter().flatten().count()
     }
     pub fn new(device: &RenderDevice) -> Self {
         let buffer = device.create_buffer(&BufferDescriptor {
@@ -242,23 +294,26 @@ impl LocalLightView {
         });
         let tiles = device.create_buffer(&BufferDescriptor {
             label: Some("Enhanced local light tiles"),
-            size: 16,
+            size: LOCAL_LIGHT_TILE_MIN_BYTES as u64,
             usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
         Self {
             buffer,
             tiles,
-            tile_capacity: 16,
+            tile_capacity: LOCAL_LIGHT_TILE_MIN_BYTES,
             shadows: Vec::with_capacity(MAX_SHADOWED_LIGHTS * POINT_SHADOW_FACES),
             data: LocalLightBlock::zeroed(),
             uploaded: LocalLightBlock::zeroed(),
             upload_valid: false,
             uploaded_tiles: Vec::new(),
             candidates: Vec::with_capacity(MAX_LOCAL_LIGHTS),
+            shadow_candidates: Vec::with_capacity(MAX_LOCAL_LIGHTS),
             tile_scratch: Vec::new(),
             tile_scores: Vec::new(),
             tile_rays: Vec::new(),
+            quality: EnhancedQuality::default(),
+            shadow_owners: [None; MAX_SHADOWED_LIGHTS],
             prepared: None,
             dirty: true,
             submitted: AtomicBool::new(false),
@@ -292,9 +347,42 @@ impl LocalLightView {
             first_layer,
         };
         let inputs_changed = self.prepared != Some(inputs);
+        let previous_shadow_identity = self.shadow_identity();
         if inputs_changed {
             self.rebuilds += 1;
-            selection::select(&mut self.candidates, sources, &inputs);
+            let shadow_count = self.shadow_count();
+            let pool_changed = self.prepared.is_none_or(|previous| {
+                previous.lights_revision != inputs.lights_revision
+                    || previous.dimension != inputs.dimension
+                    || previous.camera != inputs.camera
+            });
+            if pool_changed {
+                selection::select_shadow_pool(
+                    &mut self.shadow_candidates,
+                    sources,
+                    &inputs,
+                    &self.shadow_owners[..shadow_count],
+                );
+                selection::shadow_owners(
+                    &mut self.shadow_candidates,
+                    &inputs,
+                    &mut self.shadow_owners,
+                    shadow_count,
+                );
+            }
+            let retained_shadows = &self.shadow_owners[..shadow_count];
+            if retained_shadows.iter().any(Option::is_some) {
+                selection::select_retaining_shadows(
+                    &mut self.candidates,
+                    sources,
+                    &inputs,
+                    retained_shadows,
+                );
+            } else {
+                selection::select(&mut self.candidates, sources, &inputs);
+            }
+            selection::admit_shadow_owners(&mut self.candidates, &self.shadow_owners);
+            let selected_shadow_count = self.selected_shadow_count();
             self.data.lights.fill(LocalLightGpu::zeroed());
             self.shadows.clear();
             for (index, source) in self.candidates.iter().enumerate() {
@@ -304,7 +392,7 @@ impl LocalLightView {
                 self.data.lights[index].radiance_shadow =
                     [strength, strength * 0.68, strength * 0.38, 0.0];
                 self.data.lights[index].shape = [SOURCE_RADIUS, POINT_SHADOW_NEAR, 0.0, 0.0];
-                if index < MAX_SHADOWED_LIGHTS {
+                if index < selected_shadow_count {
                     let layer = first_layer + (index * POINT_SHADOW_FACES) as u32;
                     self.data.lights[index].radiance_shadow[3] = (layer + 1) as f32;
                     for (face, matrix) in point_shadow_matrices(source.position)
@@ -322,6 +410,7 @@ impl LocalLightView {
             }
             selection::tiles(
                 &self.candidates,
+                selected_shadow_count,
                 &inputs,
                 &mut self.tile_scratch,
                 &mut self.tile_scores,
@@ -331,15 +420,15 @@ impl LocalLightView {
         }
         self.data.info = [
             self.candidates.len() as u32,
-            POINT_SHADOW_RESOLUTION,
+            self.shadow_resolution(),
             u32::from(shadow_ready),
-            0,
+            self.selected_shadow_count() as u32,
         ];
         let selected_changed = !self.upload_valid
             || (inputs_changed
                 && (self.uploaded.lights != self.data.lights
                     || self.uploaded.info[0] != self.data.info[0]));
-        self.dirty = selected_changed
+        self.dirty = self.shadow_identity() != previous_shadow_identity
             || sources.revision != self.revision
             || actor_dirty
             || (!was_submitted && self.dirty);
@@ -424,8 +513,8 @@ pub(crate) fn near_actor_signature(
             .hash(&mut hash);
         frame.rig.geometry_revision.hash(&mut hash);
         for row in instance.world_from_actor {
-            for (column, value) in row.into_iter().enumerate() {
-                ((value * if column == 3 { 64.0 } else { 1024.0 }).round() as i32).hash(&mut hash);
+            for value in row {
+                value.to_bits().hash(&mut hash);
             }
         }
         let partial = instance.partial_tick.clamp(0.0, 1.0);
@@ -446,7 +535,7 @@ pub(crate) fn near_actor_signature(
             };
             for (previous, current) in previous.iter().flatten().zip(current.iter().flatten()) {
                 let posed = previous + (current - previous) * partial;
-                ((posed * 1024.0).round() as i32).hash(&mut hash);
+                posed.to_bits().hash(&mut hash);
             }
         }
     }

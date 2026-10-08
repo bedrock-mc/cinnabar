@@ -59,6 +59,7 @@ fn native_forward_local_visibility_owns_full_resolution_stationary_receivers() {
     };
     let motion = texture(wgpu::TextureFormat::Rgba16Float, SIZE, 1);
     let visibility = texture(wgpu::TextureFormat::Rgba16Float, HALF, 1);
+    let metadata = texture(wgpu::TextureFormat::Rgba16Float, HALF, 1);
     let shadow = texture(
         wgpu::TextureFormat::Depth32Float,
         MAP,
@@ -66,6 +67,7 @@ fn native_forward_local_visibility_owns_full_resolution_stationary_receivers() {
     );
     let motion_view = motion.create_view(&Default::default());
     let visibility_view = visibility.create_view(&Default::default());
+    let metadata_view = metadata.create_view(&Default::default());
     let shadow_view = shadow.create_view(&wgpu::TextureViewDescriptor {
         dimension: Some(wgpu::TextureViewDimension::D2Array),
         ..Default::default()
@@ -82,7 +84,7 @@ fn native_forward_local_visibility_owns_full_resolution_stationary_receivers() {
         usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         mapped_at_creation: false,
     });
-    let mut light_data = bytemuck::cast_slice(&[1u32, MAP, 1, 0]).to_vec();
+    let mut light_data = bytemuck::cast_slice(&[1u32, MAP, 1, 1]).to_vec();
     light_data.extend_from_slice(bytemuck::bytes_of(&[
         [0.0_f32, 0.0, 0.0, 32.0],
         [1.0, 1.0, 1.0, 1.0],
@@ -173,7 +175,7 @@ fn native_forward_local_visibility_owns_full_resolution_stationary_receivers() {
                 resource: frame_buffer.as_entire_binding(),
             },
             wgpu::BindGroupEntry {
-                binding: 1,
+                binding: 20,
                 resource: wgpu::BindingResource::TextureView(&shadow_view),
             },
             wgpu::BindGroupEntry {
@@ -191,6 +193,14 @@ fn native_forward_local_visibility_owns_full_resolution_stationary_receivers() {
             wgpu::BindGroupEntry {
                 binding: 17,
                 resource: wgpu::BindingResource::TextureView(&motion_view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 18,
+                resource: frame_buffer.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 19,
+                resource: wgpu::BindingResource::TextureView(&metadata_view),
             },
         ],
     });
@@ -259,7 +269,14 @@ fn native_forward_local_visibility_owns_full_resolution_stationary_receivers() {
             ]),
         );
         let mut encoder = device.create_command_encoder(&Default::default());
-        for (view, clear) in [(&motion_view, motion), (&visibility_view, cached)] {
+        for (view, clear) in [
+            (&motion_view, motion),
+            (&visibility_view, cached),
+            (
+                &metadata_view,
+                cached.map(|value| Vec4::new(value.z, DISTANCE, 0.0, 0.0)),
+            ),
+        ] {
             if let Some(clear) = clear {
                 let _pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {

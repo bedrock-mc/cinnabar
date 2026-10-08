@@ -5,6 +5,16 @@ use crate::{ChunkBiomeTints, ChunkRenderInstance, ChunkTextureAssets};
 use bevy::prelude::*;
 use std::{collections::HashMap, sync::Arc};
 
+const OCCUPIED_BIT: u32 = 1;
+const SURFACE_BIT: u32 = 1 << 1;
+const NORMAL_SHIFT: u32 = 2;
+const SUBCELL_SHIFT: u32 = 8;
+const SUBCELL_MASK_BITS: u32 = 0xff << SUBCELL_SHIFT;
+
+/// Model triangles are inflated slightly in the voxelizer so a sub-block face
+/// cannot disappear solely because it lies on a voxel boundary.
+const MODEL_VOXEL_INFLATION: f32 = 0.08;
+
 pub(crate) struct GeometryChunk {
     key: world::SubChunkKey,
     cubes: Arc<[meshing::PackedQuad]>,
@@ -305,18 +315,62 @@ fn pack_color(rgb: Vec3) -> u32 {
     c.x | c.y << 8 | c.z << 16
 }
 
-fn surface(words: &mut [[u32; 4]], origin: IVec3, world: IVec3, material: Reflectance) {
-    if material.opacity <= 0.01 {
+fn normal_bits(normal: Vec3) -> u32 {
+    let normal = normal.normalize_or_zero();
+    let absolute = normal.abs();
+    let (axis, positive) = if absolute.x >= absolute.y && absolute.x >= absolute.z {
+        (0, normal.x >= 0.0)
+    } else if absolute.y >= absolute.z {
+        (1, normal.y >= 0.0)
+    } else {
+        (2, normal.z >= 0.0)
+    };
+    let direction = (axis * 2 + usize::from(positive)) as u32;
+    (1 << direction) << NORMAL_SHIFT
+}
+
+fn face_normal(face: meshing::Face) -> Vec3 {
+    match face {
+        meshing::Face::NegativeX => -Vec3::X,
+        meshing::Face::PositiveX => Vec3::X,
+        meshing::Face::NegativeY => -Vec3::Y,
+        meshing::Face::PositiveY => Vec3::Y,
+        meshing::Face::NegativeZ => -Vec3::Z,
+        meshing::Face::PositiveZ => Vec3::Z,
+    }
+}
+
+fn surface(
+    words: &mut [[u32; 4]],
+    origin: IVec3,
+    world: IVec3,
+    material: Reflectance,
+    normal: Vec3,
+    subcells: u32,
+) {
+    if material.opacity <= 0.01 || subcells == 0 {
         return;
     }
     if let Some(i) = index(origin, world) {
         let previous = words[i];
         let candidate = [
-            3,
+            OCCUPIED_BIT
+                | SURFACE_BIT
+                | normal_bits(normal)
+                | ((subcells << SUBCELL_SHIFT) & SUBCELL_MASK_BITS),
             pack_color(material.rgb),
             material.opacity.to_bits(),
             material.sky.to_bits(),
         ];
+        let coverage_bits =
+            (previous[0] | candidate[0]) & (SUBCELL_MASK_BITS | (63 << NORMAL_SHIFT));
+        let same_material = previous[1] == candidate[1]
+            && previous[2] == candidate[2]
+            && previous[3] == candidate[3];
+        if same_material {
+            words[i][0] |= coverage_bits;
+            return;
+        }
         // Equal-strength overlaps use a stable tie break rather than chunk iteration order.
         if material.opacity > f32::from_bits(previous[2])
             || material.opacity == f32::from_bits(previous[2])
@@ -324,6 +378,7 @@ fn surface(words: &mut [[u32; 4]], origin: IVec3, world: IVec3, material: Reflec
         {
             words[i] = candidate;
         }
+        words[i][0] |= coverage_bits;
     }
 }
 
@@ -378,6 +433,8 @@ pub(super) fn rebuild(
                         origin,
                         cell + offset,
                         tinted(material, chunk, tints, cell + offset - base),
+                        face_normal(quad.face()),
+                        0xff,
                     );
                 }
             }
@@ -465,36 +522,73 @@ fn sky_access(light: Option<&meshing::PackedQuadLighting>) -> f32 {
 }
 
 fn triangle(words: &mut [[u32; 4]], origin: IVec3, vertices: [Vec3; 3], material: Reflectance) {
-    let minimum = vertices[0]
+    let normal = (vertices[1] - vertices[0])
+        .cross(vertices[2] - vertices[0])
+        .normalize_or_zero();
+    if normal == Vec3::ZERO {
+        return;
+    }
+    let bounds_minimum = vertices[0]
         .min(vertices[1])
         .min(vertices[2])
         .floor()
-        .as_ivec3()
-        .max(origin);
-    let maximum = vertices[0]
+        .as_ivec3();
+    let bounds_maximum = vertices[0]
         .max(vertices[1])
         .max(vertices[2])
         .ceil()
         .as_ivec3()
-        .min(origin + IVec3::from_array(GRID_SIZE.map(|v| v as i32)));
-    for z in minimum.z..maximum.z.max(minimum.z + 1) {
-        for y in minimum.y..maximum.y.max(minimum.y + 1) {
-            for x in minimum.x..maximum.x.max(minimum.x + 1) {
+        .max(bounds_minimum + IVec3::ONE);
+    let minimum = bounds_minimum.max(origin);
+    let maximum = bounds_maximum.min(origin + IVec3::from_array(GRID_SIZE.map(|v| v as i32)));
+    if minimum.cmpge(maximum).any() {
+        return;
+    }
+    for z in minimum.z..maximum.z {
+        for y in minimum.y..maximum.y {
+            for x in minimum.x..maximum.x {
                 let cell = IVec3::new(x, y, z);
-                if triangle_box(vertices, cell.as_vec3() + Vec3::splat(CELL_SIZE * 0.5)) {
-                    surface(words, origin, cell, material);
+                let mut subcells = 0_u32;
+                for subcell in 0..8_u32 {
+                    let sub = Vec3::new(
+                        (subcell & 1) as f32,
+                        ((subcell >> 1) & 1) as f32,
+                        ((subcell >> 2) & 1) as f32,
+                    );
+                    let center = cell.as_vec3() + (sub + Vec3::splat(0.5)) * 0.5;
+                    if triangle_box_inflated(
+                        vertices,
+                        center,
+                        CELL_SIZE * 0.25,
+                        MODEL_VOXEL_INFLATION,
+                    ) {
+                        subcells |= 1 << subcell;
+                    }
+                }
+                if subcells != 0 {
+                    surface(words, origin, cell, material, normal, subcells);
                 }
             }
         }
     }
 }
 
+#[cfg(test)]
 fn triangle_box(vertices: [Vec3; 3], center: Vec3) -> bool {
+    triangle_box_inflated(vertices, center, CELL_SIZE * 0.5, 0.0)
+}
+
+fn triangle_box_inflated(
+    vertices: [Vec3; 3],
+    center: Vec3,
+    half_extent: f32,
+    inflation: f32,
+) -> bool {
     let v = vertices.map(|p| p - center);
     let edges = [v[1] - v[0], v[2] - v[1], v[0] - v[2]];
     let separates = |axis: Vec3| {
         let p = v.map(|v| v.dot(axis));
-        let radius = axis.abs().element_sum() * (CELL_SIZE * 0.5 + 0.0001);
+        let radius = axis.abs().element_sum() * (half_extent + inflation + 0.0001);
         p[0].min(p[1]).min(p[2]) > radius || p[0].max(p[1]).max(p[2]) < -radius
     };
     for axis in [Vec3::X, Vec3::Y, Vec3::Z] {
@@ -571,6 +665,8 @@ mod tests {
                 flags: 0,
                 sky: 1.0,
             },
+            Vec3::Y,
+            0xff,
         );
         surface(
             &mut words,
@@ -582,6 +678,8 @@ mod tests {
                 flags: 0,
                 sky: 1.0,
             },
+            Vec3::Y,
+            0xff,
         );
         assert_eq!(words[HEADER_WORDS][1], 255);
         assert_eq!(f32::from_bits(words[HEADER_WORDS][2]), 1.0);

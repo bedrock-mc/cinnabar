@@ -511,7 +511,9 @@ fn native_spatial_light_preserves_shelter_colour_and_wall_visibility() {
         Some(0),
         1,
     );
-    for _ in 0..PROBE_COUNT.div_ceil(UPDATE_PROBES) {
+    for _ in
+        0..PROBE_COUNT.div_ceil(crate::enhanced::quality::budget(view.quality).irradiance_updates)
+    {
         view.submitted.store(true, Ordering::Relaxed);
         view.prepare(
             &render_queue,

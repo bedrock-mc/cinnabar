@@ -72,7 +72,10 @@ fn generate_noise(@builtin(global_invocation_id) id: vec3<u32>) {
     let detail = periodic_worley(coordinate, 24);
     let billow = coarse * 0.625 + medium * 0.25 + fine * 0.125;
     let shape = clamp((perlin - (1.0 - billow) * 0.35) / 0.65, 0.0, 1.0);
-    textureStore(noise_output, vec3<i32>(id), vec4(shape, medium, fine, detail));
+    let erosion = medium * 0.625 + fine * 0.25 + detail * 0.125;
+    // Regional type uses coarse cells; fine cellular detail remains in the erosion channel.
+    // Alpha carries shape deviation so filtering retains unresolved cloud edges.
+    textureStore(noise_output, vec3<i32>(id), vec4(shape, erosion, coarse, 0.0));
 }
 
 @compute @workgroup_size(CLOUD_NOISE_WORKGROUP, CLOUD_NOISE_WORKGROUP, CLOUD_NOISE_WORKGROUP)
@@ -81,12 +84,17 @@ fn filter_noise(@builtin(global_invocation_id) id: vec3<u32>) {
     if (any(id >= size)) { return; }
     let base = vec3<i32>(id) * 2;
     var average = vec4(0.0);
+    var second_moment = 0.0;
     for (var z = 0; z < 2; z += 1) {
         for (var y = 0; y < 2; y += 1) {
             for (var x = 0; x < 2; x += 1) {
-                average += textureLoad(noise_input, base + vec3(x, y, z), 0);
+                let sample = textureLoad(noise_input, base + vec3(x, y, z), 0);
+                average += sample;
+                second_moment += sample.r * sample.r + sample.a * sample.a;
             }
         }
     }
-    textureStore(noise_output, vec3<i32>(id), average * 0.125);
+    average *= 0.125;
+    average.a = sqrt(max(second_moment * 0.125 - average.r * average.r, 0.0));
+    textureStore(noise_output, vec3<i32>(id), average);
 }

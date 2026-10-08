@@ -3,7 +3,10 @@
 use bevy::math::{UVec4, Vec3, Vec4};
 use wgpu::util::DeviceExt;
 
-use super::frame::{EnhancedFrameGpu, FEATURE_SHADOWS, SHADOW_FILTER_MARGIN_TEXELS, fit_cascade};
+use super::frame::{
+    EnhancedFrameGpu, FEATURE_SHADOWS, SHADOW_FILTER_MARGIN_TEXELS, fit_cascade,
+    fit_cascade_with_border,
+};
 
 const CASTER: &str = r#"
 #import cinnabar::enhanced_common::EnhancedFrame
@@ -71,6 +74,12 @@ fn sample_fixture(
     let mut frame: EnhancedFrameGpu = bytemuck::Zeroable::zeroed();
     frame.cascade_clip_from_world[0] = fit.clip_from_world;
     frame.cascade_texel = Vec4::new(fit.texel_world, 0.0, 0.0, 128.0);
+    frame.cascade_receiver_radius = Vec4::new(
+        64.0,
+        0.0,
+        0.0,
+        fit.texel_world * SHADOW_FILTER_MARGIN_TEXELS,
+    );
     frame.cascade_depth_scale = Vec4::new(
         1.0 / (fit.bounds.max.z - fit.bounds.min.z),
         0.0,
@@ -151,7 +160,7 @@ fn sample_fixture(
             depth_write_enabled: true,
             depth_compare: wgpu::CompareFunction::LessEqual,
             stencil: Default::default(),
-            bias: super::shadows::shadow_raster_bias(),
+            bias: super::shadows::directional_shadow_raster_bias(),
         }),
         multisample: Default::default(),
         multiview: None,
@@ -372,12 +381,14 @@ const TRANSITION_RECEIVER: &str = r#"
 #[test]
 fn translating_across_radial_cascades_blends_visibility_before_the_handoff() {
     let resolution = 256;
-    let near = fit_cascade(Vec3::ZERO, 16.0, Vec3::Y, resolution);
     let far = fit_cascade(Vec3::ZERO, 48.0, Vec3::Y, resolution);
+    let border = far.texel_world * SHADOW_FILTER_MARGIN_TEXELS;
+    let near = fit_cascade_with_border(Vec3::ZERO, 16.0, Vec3::Y, resolution, border);
     let mut frame: EnhancedFrameGpu = bytemuck::Zeroable::zeroed();
     frame.cascade_clip_from_world[0] = near.clip_from_world;
     frame.cascade_clip_from_world[1] = far.clip_from_world;
     frame.cascade_texel = Vec4::new(near.texel_world, far.texel_world, 0.0, 80.0);
+    frame.cascade_receiver_radius = Vec4::new(16.0, 48.0, 0.0, border);
     frame.cascade_depth_scale = Vec4::new(
         1.0 / (near.bounds.max.z - near.bounds.min.z),
         1.0 / (far.bounds.max.z - far.bounds.min.z),

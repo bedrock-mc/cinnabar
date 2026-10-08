@@ -33,7 +33,6 @@ pub(crate) const PROBE_WORDS: usize = 26;
 pub(crate) const INDIRECT_MIN_BYTES: u64 = HEADER_WORDS as u64 * 16;
 pub(crate) const CELL_COUNT: usize = (GRID_SIZE[0] * GRID_SIZE[1] * GRID_SIZE[2]) as usize;
 pub(crate) const PROBE_COUNT: u32 = PROBE_SIZE[0] * PROBE_SIZE[1] * PROBE_SIZE[2];
-const UPDATE_PROBES: u32 = 32;
 const BUFFER_WORDS: usize = HEADER_WORDS + CELL_COUNT + PROBE_COUNT as usize * PROBE_WORDS;
 
 #[derive(Clone, Copy, PartialEq)]
@@ -62,13 +61,27 @@ pub(crate) struct IndirectGridGpu {
     cursor: u32,
     batch: u32,
     relight_again: bool,
+    quality: super::EnhancedQuality,
+    range: Option<[u32; 4]>,
     pub rebuilds: u64,
     pub uploads: u64,
 }
 
 impl IndirectGridGpu {
     pub fn new(device: &RenderDevice) -> Self {
-        let order = probe_update_order();
+        Self::allocate(device, false)
+    }
+
+    pub fn for_capture(device: &RenderDevice) -> Self {
+        Self::allocate(device, true)
+    }
+
+    fn allocate(device: &RenderDevice, capture: bool) -> Self {
+        let order = if capture {
+            vec![0]
+        } else {
+            probe_update_order()
+        };
         Self {
             update_order: device.create_buffer_with_data(&BufferInitDescriptor {
                 label: Some("camera-first irradiance update order"),
@@ -78,7 +91,11 @@ impl IndirectGridGpu {
             order,
             buffer: device.create_buffer(&BufferDescriptor {
                 label: Some("Enhanced spatial irradiance"),
-                size: BUFFER_WORDS as u64 * 16,
+                size: if capture {
+                    INDIRECT_MIN_BYTES
+                } else {
+                    BUFFER_WORDS as u64 * 16
+                },
                 usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             }),
@@ -89,7 +106,7 @@ impl IndirectGridGpu {
                 mapped_at_creation: false,
             }),
             submitted: AtomicBool::new(false),
-            words: vec![[0; 4]; HEADER_WORDS + CELL_COUNT],
+            words: vec![[0; 4]; HEADER_WORDS + if capture { 0 } else { CELL_COUNT }],
             colors: Vec::new(),
             prepared: None,
             lighting: None,
@@ -99,8 +116,20 @@ impl IndirectGridGpu {
             cursor: 0,
             batch: 0,
             relight_again: false,
+            quality: super::EnhancedQuality::default(),
+            range: None,
             rebuilds: 0,
             uploads: 0,
+        }
+    }
+
+    pub fn set_quality(&mut self, quality: super::EnhancedQuality) {
+        if self.quality != quality {
+            self.quality = quality;
+            self.cursor = 0;
+            self.batch = 0;
+            self.relight_again = false;
+            self.submitted.store(false, Ordering::Relaxed);
         }
     }
 
@@ -234,16 +263,23 @@ impl IndirectGridGpu {
             self.lighting = Some(lighting_signature);
         }
         self.batch = if dimension.is_some() {
-            UPDATE_PROBES.min(PROBE_COUNT - self.cursor)
+            super::quality::budget(self.quality)
+                .irradiance_updates
+                .min(PROBE_COUNT - self.cursor)
         } else {
             0
         };
         if self.batch > 0 {
-            queue.write_buffer(
-                &self.parameters,
-                0,
-                bytemuck::cast_slice(&[self.cursor, self.batch, self.epoch, 0]),
-            );
+            let range = [
+                self.cursor,
+                self.batch,
+                self.epoch,
+                super::quality::budget(self.quality).irradiance_rays,
+            ];
+            if self.range != Some(range) {
+                queue.write_buffer(&self.parameters, 0, bytemuck::cast_slice(&range));
+                self.range = Some(range);
+            }
         }
         changed || relight
     }

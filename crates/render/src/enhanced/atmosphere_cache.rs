@@ -4,9 +4,14 @@ use std::sync::Mutex;
 
 use bevy::math::{Vec2, Vec3, Vec3Swizzles, Vec4};
 
-use super::frame::{EnhancedFrameGpu, FEATURE_VOLUMETRIC_CLOUDS};
+use super::{
+    EnhancedQuality,
+    frame::{EnhancedFrameGpu, FEATURE_VOLUMETRIC_CLOUDS},
+    quality::budget,
+};
 
 pub(crate) const SKY_LUT_SIZE: [u32; 2] = [192, 108];
+#[cfg(test)]
 pub(crate) const CLOUD_SHADOW_SIZE: u32 = 128;
 const SKY_DIRECTION_TOLERANCE: f32 = 0.0003;
 const SKY_ALTITUDE_TOLERANCE: f32 = 0.5;
@@ -41,7 +46,7 @@ impl SkyKey {
         }
     }
 
-    fn reusable(self, next: Self) -> bool {
+    fn same_sources(self, next: Self) -> bool {
         if self.overworld != next.overworld {
             return false;
         }
@@ -52,8 +57,71 @@ impl SkyKey {
             && self.rain == next.rain
             && self.source_irradiance == next.source_irradiance
             && self.sky_fill == next.sky_fill
-            && (self.altitude - next.altitude).abs() <= SKY_ALTITUDE_TOLERANCE
-            && self.sun.distance(next.sun) <= SKY_DIRECTION_TOLERANCE
+    }
+
+    fn reusable(self, next: Self) -> bool {
+        self.same_sources(next)
+            && (!self.overworld
+                || ((self.altitude - next.altitude).abs() <= SKY_ALTITUDE_TOLERANCE
+                    && self.sun.distance(next.sun) <= SKY_DIRECTION_TOLERANCE))
+    }
+}
+
+#[derive(Clone, Copy, PartialEq)]
+struct CloudEnvironmentKey {
+    layer: Vec3,
+    position: Vec3,
+    wind: f32,
+    view_steps: u32,
+}
+
+#[derive(Clone, Copy)]
+struct EnvironmentKey {
+    sky: SkyKey,
+    clouds: Option<CloudEnvironmentKey>,
+    seconds: f32,
+    refresh: f32,
+}
+
+impl EnvironmentKey {
+    fn from_frame(frame: &EnhancedFrameGpu, quality: EnhancedQuality) -> Self {
+        let enabled = frame.atmosphere.x > 0.5
+            && frame.flags.x & FEATURE_VOLUMETRIC_CLOUDS != 0
+            && (frame.clouds.x > 0.0 || frame.ambient_colour.w > 0.0);
+        Self {
+            sky: SkyKey::from_frame(frame),
+            clouds: enabled.then_some(CloudEnvironmentKey {
+                layer: frame.clouds.truncate(),
+                position: frame.camera_time.truncate(),
+                wind: frame.clouds.w,
+                view_steps: frame.flags.w,
+            }),
+            seconds: frame.camera_time.w,
+            refresh: budget(quality).cloud_environment_refresh,
+        }
+    }
+
+    fn reusable(self, next: Self) -> bool {
+        if !self.sky.same_sources(next.sky) {
+            return false;
+        }
+        match (self.clouds, next.clouds) {
+            (Some(previous), Some(requested)) => {
+                if previous.layer != requested.layer
+                    || previous.view_steps != requested.view_steps
+                    || self.refresh != next.refresh
+                {
+                    return false;
+                }
+                if previous == requested && self.sky.reusable(next.sky) {
+                    return true;
+                }
+                let elapsed = next.seconds - self.seconds;
+                elapsed >= 0.0 && elapsed < next.refresh
+            }
+            (None, None) => self.sky.reusable(next.sky),
+            _ => false,
+        }
     }
 }
 
@@ -67,14 +135,16 @@ struct CloudShadowKey {
     receiver_height: f32,
     center: Vec2,
     span: f32,
+    resolution: u32,
 }
 
 impl CloudShadowKey {
-    fn from_frame(frame: &EnhancedFrameGpu) -> Self {
+    fn from_frame(frame: &EnhancedFrameGpu, resolution: u32) -> Self {
         Self {
             enabled: frame.atmosphere.x > 0.5
                 && frame.flags.x & FEATURE_VOLUMETRIC_CLOUDS != 0
-                && frame.light_direction.w > 0.0,
+                && frame.light_direction.w > 0.0
+                && (frame.clouds.x > 0.0 || frame.ambient_colour.w > 0.0),
             layer: frame.clouds.truncate(),
             wind: frame.clouds.w,
             rain: frame.ambient_colour.w,
@@ -82,6 +152,7 @@ impl CloudShadowKey {
             receiver_height: frame.camera_time.y.min(frame.clouds.y),
             center: frame.cloud_shadow.truncate().truncate(),
             span: frame.cloud_shadow.z,
+            resolution,
         }
     }
 
@@ -102,6 +173,7 @@ impl CloudShadowKey {
             || self.rain != next.rain
             || self.center != next.center
             || self.span != next.span
+            || self.resolution != next.resolution
             || (self.direction.y > 0.01) != (next.direction.y > 0.01)
         {
             return false;
@@ -116,7 +188,7 @@ impl CloudShadowKey {
         }
         let light_drift = self.projected_layer().distance(next.projected_layer());
         let wind_drift = (self.wind - next.wind).abs() * 2.0;
-        let texel = self.span / CLOUD_SHADOW_SIZE as f32;
+        let texel = self.span / self.resolution.max(1) as f32;
         let slope_change = (self.direction.y - next.direction.y).abs()
             / self.direction.y.max(next.direction.y).max(0.01);
         light_drift + wind_drift < texel * CLOUD_SHADOW_TEXEL_TOLERANCE
@@ -130,16 +202,42 @@ struct AtmosphericKeys {
     rendered_sky: Option<SkyKey>,
     requested_cloud: Option<CloudShadowKey>,
     rendered_cloud: Option<CloudShadowKey>,
+    requested_environment: Option<EnvironmentKey>,
+    rendered_environment: Option<EnvironmentKey>,
+    environment_generation: u64,
 }
 
 #[derive(Default)]
 pub(crate) struct AtmosphereCache(Mutex<AtmosphericKeys>);
 
 impl AtmosphereCache {
+    pub(crate) fn invalidate_radiance(&self) {
+        let mut keys = self.0.lock().expect("atmospheric pass cache");
+        keys.rendered_sky = None;
+        keys.rendered_environment = None;
+    }
+
+    pub(crate) fn invalidate_environment(&self) {
+        self.0
+            .lock()
+            .expect("atmospheric pass cache")
+            .rendered_environment = None;
+    }
+    #[cfg(test)]
     pub(crate) fn prepare(&self, frame: &EnhancedFrameGpu) {
+        self.prepare_with_quality(frame, CLOUD_SHADOW_SIZE, EnhancedQuality::default());
+    }
+
+    pub(crate) fn prepare_with_quality(
+        &self,
+        frame: &EnhancedFrameGpu,
+        resolution: u32,
+        quality: EnhancedQuality,
+    ) {
         let mut keys = self.0.lock().expect("atmospheric pass cache");
         keys.requested_sky = Some(SkyKey::from_frame(frame));
-        keys.requested_cloud = Some(CloudShadowKey::from_frame(frame));
+        keys.requested_cloud = Some(CloudShadowKey::from_frame(frame, resolution));
+        keys.requested_environment = Some(EnvironmentKey::from_frame(frame, quality));
     }
 
     pub(crate) fn sky_needs_update(&self) -> bool {
@@ -158,6 +256,14 @@ impl AtmosphereCache {
         }
     }
 
+    pub(crate) fn environment_needs_update(&self) -> bool {
+        let keys = self.0.lock().expect("atmospheric pass cache");
+        match (keys.rendered_environment, keys.requested_environment) {
+            (Some(rendered), Some(requested)) => !rendered.reusable(requested),
+            _ => true,
+        }
+    }
+
     pub(crate) fn mark_sky_rendered(&self) {
         let mut keys = self.0.lock().expect("atmospheric pass cache");
         keys.rendered_sky = keys.requested_sky;
@@ -168,8 +274,23 @@ impl AtmosphereCache {
         keys.rendered_cloud = keys.requested_cloud;
     }
 
+    pub(crate) fn mark_environment_rendered(&self) {
+        let mut keys = self.0.lock().expect("atmospheric pass cache");
+        keys.rendered_environment = keys.requested_environment;
+        keys.environment_generation = keys.environment_generation.wrapping_add(1);
+    }
+
+    pub(crate) fn environment_generation(&self) -> u64 {
+        self.0
+            .lock()
+            .expect("atmospheric pass cache")
+            .environment_generation
+    }
+
     pub(crate) fn indirect_sources_ready(&self) -> bool {
-        !self.sky_needs_update() && !self.cloud_shadow_needs_update()
+        !self.sky_needs_update()
+            && !self.environment_needs_update()
+            && !self.cloud_shadow_needs_update()
     }
 }
 
@@ -194,10 +315,11 @@ mod tests {
         cache.prepare(frame);
         cache.mark_sky_rendered();
         cache.mark_cloud_shadow_rendered();
+        cache.mark_environment_rendered();
     }
 
     #[test]
-    fn indirect_transport_waits_for_both_current_atmospheric_sources() {
+    fn indirect_transport_waits_for_current_atmosphere_cloud_shadow_and_incident_sky() {
         let cache = AtmosphereCache::default();
         let mut frame = frame();
         cache.prepare(&frame);
@@ -205,11 +327,16 @@ mod tests {
         cache.mark_cloud_shadow_rendered();
         assert!(!cache.indirect_sources_ready());
         cache.mark_sky_rendered();
+        assert!(!cache.indirect_sources_ready());
+        let generation = cache.environment_generation();
+        cache.mark_environment_rendered();
+        assert_eq!(cache.environment_generation(), generation + 1);
         assert!(cache.indirect_sources_ready());
         frame.projection.y += 1.0;
         cache.prepare(&frame);
         assert!(!cache.indirect_sources_ready());
         cache.mark_sky_rendered();
+        cache.mark_environment_rendered();
         assert!(cache.indirect_sources_ready());
     }
 
@@ -223,10 +350,17 @@ mod tests {
         frame.camera_time.x = 3.0;
         frame.camera_time.z = 7.0;
         frame.temporal.x = 12.0;
-        frame.camera_time.w = 40.0;
+        frame.camera_time.w = 0.1;
         frame.viewport = Vec4::new(1920.0, 1080.0, 0.0, 0.0);
         cache.prepare(&frame);
         assert!(!cache.sky_needs_update() && !cache.cloud_shadow_needs_update());
+        assert!(!cache.environment_needs_update());
+        frame.camera_time.w = 40.0;
+        cache.prepare(&frame);
+        assert!(cache.environment_needs_update());
+        cache.mark_environment_rendered();
+        cache.prepare(&frame);
+        assert!(!cache.environment_needs_update());
     }
 
     #[test]
@@ -244,10 +378,13 @@ mod tests {
             change(&mut changed);
             cache.prepare(&changed);
             assert!(cache.sky_needs_update());
+            assert!(cache.environment_needs_update());
             assert!(!cache.cloud_shadow_needs_update());
             cache.mark_sky_rendered();
+            cache.mark_environment_rendered();
             cache.prepare(&changed);
             assert!(!cache.sky_needs_update());
+            assert!(!cache.environment_needs_update());
         }
     }
 
@@ -336,5 +473,16 @@ mod tests {
         changed.light_direction = Vec3::new(1.0, 0.009, 0.0).normalize().extend(1.0);
         cache.prepare(&changed);
         assert!(cache.cloud_shadow_needs_update());
+        changed = frame;
+        changed.flags.x &= !FEATURE_VOLUMETRIC_CLOUDS;
+        cache.prepare(&changed);
+        assert!(cache.environment_needs_update());
+        cache.mark_environment_rendered();
+        changed.clouds.w += 8.0;
+        cache.prepare(&changed);
+        assert!(!cache.environment_needs_update());
+        changed.flags.x |= FEATURE_VOLUMETRIC_CLOUDS;
+        cache.prepare(&changed);
+        assert!(cache.environment_needs_update());
     }
 }

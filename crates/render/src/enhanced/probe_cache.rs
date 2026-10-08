@@ -3,8 +3,6 @@
 use bevy::math::Vec3;
 
 const ALL_FACES: u8 = 0b11_1111;
-pub(super) const REFRESH_INTERVAL: f64 = 0.1;
-pub(super) const ANIMATION_INTERVAL: f64 = 1.0;
 
 #[derive(Clone, Copy)]
 pub(super) struct ProbeLighting {
@@ -40,23 +38,37 @@ pub(super) struct ProbeSchedule {
     cursor: u32,
     next_refresh: f64,
     next_animation: f64,
+    refresh_interval: f64,
+    animation_interval: f64,
     pub next_inputs: f64,
 }
 
 impl Default for ProbeSchedule {
     fn default() -> Self {
+        let budget = super::super::quality::budget(super::super::EnhancedQuality::default());
         Self {
             dirty: ALL_FACES,
             populated: 0,
             cursor: 0,
             next_refresh: 0.0,
             next_animation: 0.0,
+            refresh_interval: budget.reflection_refresh,
+            animation_interval: budget.reflection_animation,
             next_inputs: 0.0,
         }
     }
 }
 
 impl ProbeSchedule {
+    pub fn set_intervals(&mut self, refresh: f64, animation: f64) {
+        if self.refresh_interval != refresh || self.animation_interval != animation {
+            self.refresh_interval = refresh;
+            self.animation_interval = animation;
+            self.next_refresh = 0.0;
+            self.next_animation = 0.0;
+            self.next_inputs = 0.0;
+        }
+    }
     pub fn completed(&mut self, faces: u8) {
         self.dirty &= !(faces & !self.populated);
         self.populated = faces & ALL_FACES;
@@ -76,7 +88,7 @@ impl ProbeSchedule {
     pub fn animate(&mut self, now: f64, animated: bool) {
         if animated && now >= self.next_animation {
             self.invalidate();
-            self.next_animation = now + ANIMATION_INTERVAL;
+            self.next_animation = now + self.animation_interval;
         }
     }
 
@@ -90,7 +102,7 @@ impl ProbeSchedule {
             if self.dirty & bit != 0 {
                 self.dirty &= !bit;
                 self.cursor = (face + 1) % 6;
-                self.next_refresh = now + REFRESH_INTERVAL;
+                self.next_refresh = now + self.refresh_interval;
                 return Some(face);
             }
         }

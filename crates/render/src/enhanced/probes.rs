@@ -18,9 +18,9 @@ use bevy::{
         view::Hdr,
     },
 };
-use probe_cache::{ProbeLighting, ProbeSchedule, REFRESH_INTERVAL};
+use probe_cache::{ProbeLighting, ProbeSchedule};
 use std::{
-    collections::hash_map::DefaultHasher,
+    collections::{HashMap, hash_map::DefaultHasher},
     hash::{Hash, Hasher},
     num::NonZeroU64,
     sync::{
@@ -42,7 +42,10 @@ pub(crate) struct ProbeFace(pub u32);
 pub(crate) struct ProbeOrigin {
     pub position: Vec3,
     pub epoch: u64,
+    pub quality: super::EnhancedQuality,
+    pub(crate) source: Option<Entity>,
     completed_faces: Arc<AtomicU64>,
+    lighting_signature: Arc<AtomicU64>,
 }
 impl ProbeOrigin {
     fn reset_faces(&self) {
@@ -66,6 +69,10 @@ impl ProbeOrigin {
                 (old >> 6 == self.epoch).then_some(old | (1 << face))
             });
     }
+
+    pub(crate) fn publish_lighting_signature(&self, signature: u64) {
+        self.lighting_signature.store(signature, Ordering::Relaxed);
+    }
 }
 #[derive(Resource, Default)]
 struct Cameras {
@@ -76,6 +83,7 @@ struct Cameras {
     material: Option<crate::ChunkTextureAssetIdentity>,
     actor_signature: u64,
     settings: Option<EnhancedRendering>,
+    lighting_signature: u64,
 }
 
 pub(crate) fn install(app: &mut App) {
@@ -114,7 +122,7 @@ fn sync_cameras(
     actors: Option<Res<crate::ActorRenderFrame>>,
     changed_chunks: Query<(), Changed<crate::ChunkRenderInstance>>,
     mut removed_chunks: RemovedComponents<crate::ChunkRenderInstance>,
-    source: Query<(&GlobalTransform, &EnhancedRendering), Without<ProbeFace>>,
+    source: Query<(Entity, &Camera, &GlobalTransform, &EnhancedRendering), Without<ProbeFace>>,
     mut captures: Query<
         (
             &mut Camera,
@@ -126,9 +134,10 @@ fn sync_cameras(
         With<ProbeFace>,
     >,
 ) {
-    let Some((pose, settings)) = source
-        .iter()
-        .find(|(_, s)| !s.reflection_capture && (s.water_reflections || s.physically_based))
+    let Some((source_entity, source_camera, pose, settings)) =
+        source.iter().find(|(_, camera, _, s)| {
+            camera.is_active && !s.reflection_capture && (s.water_reflections || s.physically_based)
+        })
     else {
         for entity in cameras.entities.drain(..) {
             commands.entity(entity).despawn();
@@ -138,16 +147,30 @@ fn sync_cameras(
         }
         cameras.schedule = default();
         cameras.settings = None;
+        if origin.source.take().is_some() {
+            origin.epoch = origin.epoch.wrapping_add(1);
+            origin.reset_faces();
+        }
         return;
     };
+    let source_changed = origin.source != Some(source_entity);
+    origin.source = Some(source_entity);
+    origin.quality = settings.quality;
+    let budget = super::quality::budget(settings.quality);
+    cameras
+        .schedule
+        .set_intervals(budget.reflection_refresh, budget.reflection_animation);
+    let capture_order = source_camera.order.saturating_add(1);
     let now = time.as_ref().map_or(0.0, |time| time.elapsed_secs_f64());
     if changed_chunks.iter().next().is_some() || removed_chunks.read().count() != 0 {
         cameras.schedule.invalidate();
     }
     let material = materials.as_ref().map(|materials| materials.identity());
-    if cameras.material != material || cameras.settings != Some(*settings) {
+    let enhanced = capture_settings(*settings);
+    let inputs_changed = cameras.material != material || cameras.settings != Some(enhanced);
+    if inputs_changed {
         cameras.material = material;
-        cameras.settings = Some(*settings);
+        cameras.settings = Some(enhanced);
         cameras.schedule.invalidate();
     }
     if let Some(atmosphere) = atmosphere {
@@ -177,15 +200,27 @@ fn sync_cameras(
             cameras.actor_signature = signature;
             cameras.schedule.invalidate();
         }
-        cameras.schedule.next_inputs = now + REFRESH_INTERVAL;
+        let lighting_signature = origin.lighting_signature.load(Ordering::Relaxed);
+        if cameras.lighting_signature != lighting_signature {
+            cameras.lighting_signature = lighting_signature;
+            cameras.schedule.invalidate();
+        }
+        cameras.schedule.next_inputs = now + budget.reflection_refresh;
     }
     cameras
         .schedule
         .animate(now, settings.volumetric_clouds || settings.waving);
     let position = pose.translation();
-    let relocated = cameras.entities.is_empty() || should_relocate(origin.position, position);
+    let relocated =
+        cameras.entities.is_empty() || source_changed || should_relocate(origin.position, position);
     if relocated {
         origin.position = position;
+        origin.epoch = origin.epoch.wrapping_add(1);
+        origin.reset_faces();
+        cameras
+            .schedule
+            .relocate(preferred_face(pose.forward().as_vec3()));
+    } else if inputs_changed {
         origin.epoch = origin.epoch.wrapping_add(1);
         origin.reset_faces();
         cameras
@@ -194,7 +229,6 @@ fn sync_cameras(
     }
     cameras.schedule.completed(origin.face_mask());
     let active_face = cameras.schedule.next_face(now);
-    let enhanced = capture_settings(*settings);
     if cameras.entities.is_empty() {
         for face in 0..6 {
             let mut image = Image::new_target_texture(SIZE, SIZE, TextureFormat::Rgba16Float, None);
@@ -212,7 +246,7 @@ fn sync_cameras(
                         ..default()
                     },
                     Camera {
-                        order: 10,
+                        order: capture_order,
                         is_active: active_face == Some(face),
                         ..default()
                     },
@@ -239,6 +273,9 @@ fn sync_cameras(
         }
     }
     for (mut camera, mut transform, mut global, mut capture_settings, face) in &mut captures {
+        if camera.order != capture_order {
+            camera.order = capture_order;
+        }
         let active = active_face == Some(face.0);
         if camera.is_active != active {
             camera.is_active = active;
@@ -275,7 +312,6 @@ fn capture_settings(mut settings: EnhancedRendering) -> EnhancedRendering {
     settings.bloom = false;
     settings.light_shafts = false;
     settings.ssao = false;
-    settings.shadows = false;
     settings.water_reflections = false;
     settings.shadow_debug = super::EnhancedShadowDebug::Off;
     settings
@@ -303,6 +339,14 @@ fn actor_signature(frame: &crate::ActorRenderFrame) -> u64 {
     hash.finish()
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+struct DrawBindingKey {
+    frame: BufferId,
+    source: TextureViewId,
+    depth: TextureViewId,
+    sky: TextureViewId,
+}
+
 #[derive(Resource)]
 pub(crate) struct ProbeGpu {
     pub array: TextureView,
@@ -319,10 +363,15 @@ pub(crate) struct ProbeGpu {
     sky_specular: Vec<TextureView>,
     sky_diffuse: TextureView,
     epoch: AtomicU64,
+    pending_refilter: AtomicU64,
+    draw_groups: Mutex<HashMap<DrawBindingKey, BindGroup>>,
 }
 impl ProbeGpu {
     pub(crate) fn is_current(&self, origin: &ProbeOrigin) -> bool {
-        self.epoch.load(Ordering::Relaxed) == origin.epoch
+        origin.source.is_some()
+            && self.epoch.load(Ordering::Relaxed) == origin.epoch
+            && origin.face_mask() == (1 << CUBE_FACE_COUNT) - 1
+            && self.pending_refilter.load(Ordering::Relaxed) == 0
     }
 }
 impl FromWorld for ProbeGpu {
@@ -460,6 +509,8 @@ impl FromWorld for ProbeGpu {
             sky_specular,
             sky_diffuse,
             epoch: AtomicU64::new(u64::MAX),
+            pending_refilter: AtomicU64::new(0),
+            draw_groups: default(),
         }
     }
 }
@@ -513,6 +564,22 @@ pub(crate) fn layout() -> BindGroupLayoutDescriptor {
         ty: BindingType::Sampler(SamplerBindingType::Filtering),
         count: None,
     });
+    entries.push(BindGroupLayoutEntry {
+        binding: 22,
+        visibility: ShaderStages::FRAGMENT,
+        ty: BindingType::Texture {
+            sample_type: TextureSampleType::Float { filterable: true },
+            view_dimension: TextureViewDimension::D3,
+            multisampled: false,
+        },
+        count: None,
+    });
+    entries.push(BindGroupLayoutEntry {
+        binding: 23,
+        visibility: ShaderStages::FRAGMENT,
+        ty: BindingType::Sampler(SamplerBindingType::Filtering),
+        count: None,
+    });
     BindGroupLayoutDescriptor::new("enhanced probe capture layout", &entries)
 }
 
@@ -520,8 +587,21 @@ pub(crate) fn layout() -> BindGroupLayoutDescriptor {
 pub(crate) struct ProbePipelines {
     capture: CachedRenderPipelineId,
     mip: CachedRenderPipelineId,
+    cloud_sky: CachedRenderPipelineId,
     environment: probe_filter::EnvironmentFilter,
     history: probe_history::ReflectionResolve,
+}
+
+pub(crate) fn prepare_quality(
+    origin: Res<ProbeOrigin>,
+    mut pipelines: ResMut<ProbePipelines>,
+    gpu: Res<ProbeGpu>,
+    queue: Res<bevy::render::renderer::RenderQueue>,
+) {
+    if origin.source.is_none() {
+        gpu.pending_refilter.store(0, Ordering::Relaxed);
+    }
+    pipelines.environment.set_quality(&queue, origin.quality);
 }
 impl FromWorld for ProbePipelines {
     fn from_world(world: &mut World) -> Self {
@@ -548,13 +628,14 @@ impl FromWorld for ProbePipelines {
         Self {
             capture: queue("capture_probe"),
             mip: queue("filter_mip"),
+            cloud_sky: queue("cloud_environment"),
             environment: probe_filter::EnvironmentFilter::new(world),
             history: probe_history::ReflectionResolve::new(world),
         }
     }
 }
 
-/// Copies the persistent sky LUT into the environment array without touching captured faces.
+/// Publishes incident atmosphere and cloud radiance without adding captured geometry bounce.
 pub(crate) fn update_environment_sky(
     context: &mut RenderContext,
     world: &World,
@@ -567,17 +648,25 @@ pub(crate) fn update_environment_sky(
     if !filter.ready(world) {
         return false;
     }
-    if !draw(context, world, frame, source, depth, &gpu.sky_view, false) {
-        return false;
-    }
     if !draw(
         context,
         world,
         frame,
         source,
         depth,
+        &gpu.sky_view,
+        ProbePass::CloudSky,
+    ) {
+        return false;
+    }
+    if !draw(
+        context,
+        world,
+        frame,
+        &gpu.sky_view,
+        depth,
         &gpu.sky_specular[0],
-        false,
+        ProbePass::Copy,
     ) {
         return false;
     }
@@ -602,12 +691,23 @@ pub(crate) fn reflection_resolve_target() -> ColorTargetState {
 /// Advances displayed captures once per rendered main view without rebuilding bind groups.
 pub(crate) fn resolve_reflections(context: &mut RenderContext, world: &World, seconds: f32) {
     let gpu = world.resource::<ProbeGpu>();
-    if !gpu.is_current(world.resource::<ProbeOrigin>()) {
+    let origin = world.resource::<ProbeOrigin>();
+    if origin.source.is_none() || gpu.epoch.load(Ordering::Relaxed) != origin.epoch {
         return;
     }
     let resolve = &world.resource::<ProbePipelines>().history;
     if !resolve.ready(world) {
         return;
+    }
+    let pending = gpu.pending_refilter.load(Ordering::Relaxed);
+    if pending != 0 {
+        let face = pending.trailing_zeros() as usize;
+        let filter = &world.resource::<ProbePipelines>().environment;
+        if filter.capture(context, world, face) {
+            probe_history::publish_initial(context, gpu, face);
+            gpu.pending_refilter
+                .fetch_and(!(1 << face), Ordering::Relaxed);
+        }
     }
     let weights = gpu.history.lock().unwrap().weights(seconds);
     for (face, weight) in weights.into_iter().enumerate() {
@@ -632,9 +732,15 @@ pub(crate) fn filter_mips(
             &views[mip - 1],
             depth,
             &views[mip],
-            false,
+            ProbePass::Copy,
         );
     }
+}
+
+enum ProbePass {
+    Capture,
+    Copy,
+    CloudSky,
 }
 
 fn draw(
@@ -644,63 +750,88 @@ fn draw(
     source: &TextureView,
     depth: &TextureView,
     target: &TextureView,
-    capture: bool,
+    pass: ProbePass,
 ) -> bool {
     let noise = world.resource::<super::cloud_noise::CloudNoiseVolume>();
-    if !noise.ready() {
+    let scattering = world.resource::<super::multiple_scattering::MultipleScattering>();
+    if !noise.ready() || !scattering.ready() {
         return false;
     }
     let cache = world.resource::<PipelineCache>();
     let pipelines = world.resource::<ProbePipelines>();
-    let Some(pipeline) = cache.get_render_pipeline(if capture {
-        pipelines.capture
-    } else {
-        pipelines.mip
+    let Some(pipeline) = cache.get_render_pipeline(match pass {
+        ProbePass::Capture => pipelines.capture,
+        ProbePass::Copy => pipelines.mip,
+        ProbePass::CloudSky => pipelines.cloud_sky,
     }) else {
         return false;
     };
     let gpu = world.resource::<super::gpu::EnhancedGpu>();
-    let sky = world
-        .resource::<super::gpu::EnhancedViews>()
-        .0
-        .values()
-        .find(|view| !view.settings.reflection_capture && view.post.is_some())
+    let views = &world.resource::<super::gpu::EnhancedViews>().0;
+    let bound_view = views.values().find(|view| view.frame.id() == frame.id());
+    let sky_view = bound_view.and_then(|view| {
+        view.capture_parent
+            .and_then(|parent| views.get(&parent))
+            .or(Some(view))
+    });
+    let sky = sky_view
         .and_then(|view| view.post.as_ref())
         .map_or(&gpu.fallback_colour, |post| &post.sky);
-    let group = context.render_device().create_bind_group(
-        "enhanced probe filter",
-        &cache.get_bind_group_layout(&layout()),
-        &[
-            BindGroupEntry {
-                binding: 0,
-                resource: frame.as_entire_binding(),
-            },
-            BindGroupEntry {
-                binding: 1,
-                resource: BindingResource::TextureView(source),
-            },
-            BindGroupEntry {
-                binding: 2,
-                resource: BindingResource::Sampler(&gpu.linear_sampler),
-            },
-            BindGroupEntry {
-                binding: 3,
-                resource: BindingResource::TextureView(depth),
-            },
-            BindGroupEntry {
-                binding: 4,
-                resource: BindingResource::TextureView(sky),
-            },
-            BindGroupEntry {
-                binding: 13,
-                resource: BindingResource::TextureView(&noise.view),
-            },
-            BindGroupEntry {
-                binding: 14,
-                resource: BindingResource::Sampler(&noise.sampler),
-            },
-        ],
-    );
+    let probe = world.resource::<ProbeGpu>();
+    let mut groups = probe.draw_groups.lock().unwrap();
+    let key = DrawBindingKey {
+        frame: frame.id(),
+        source: source.id(),
+        depth: depth.id(),
+        sky: sky.id(),
+    };
+    if groups.len() >= 64 && !groups.contains_key(&key) {
+        groups.clear();
+    }
+    let group = groups.entry(key).or_insert_with(|| {
+        context.render_device().create_bind_group(
+            "enhanced probe filter",
+            &cache.get_bind_group_layout(&layout()),
+            &[
+                BindGroupEntry {
+                    binding: 0,
+                    resource: frame.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 1,
+                    resource: BindingResource::TextureView(source),
+                },
+                BindGroupEntry {
+                    binding: 2,
+                    resource: BindingResource::Sampler(&gpu.linear_sampler),
+                },
+                BindGroupEntry {
+                    binding: 3,
+                    resource: BindingResource::TextureView(depth),
+                },
+                BindGroupEntry {
+                    binding: 4,
+                    resource: BindingResource::TextureView(sky),
+                },
+                BindGroupEntry {
+                    binding: 13,
+                    resource: BindingResource::TextureView(&noise.view),
+                },
+                BindGroupEntry {
+                    binding: 14,
+                    resource: BindingResource::Sampler(&noise.sampler),
+                },
+                BindGroupEntry {
+                    binding: 22,
+                    resource: BindingResource::TextureView(&scattering.view),
+                },
+                BindGroupEntry {
+                    binding: 23,
+                    resource: BindingResource::Sampler(&scattering.sampler),
+                },
+            ],
+        )
+    });
     let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
         label: Some("enhanced reflection capture/filter"),
         color_attachments: &[Some(RenderPassColorAttachment {
@@ -715,7 +846,7 @@ fn draw(
         ..default()
     });
     pass.set_render_pipeline(pipeline);
-    pass.set_bind_group(0, &group, &[]);
+    pass.set_bind_group(0, group, &[]);
     pass.draw(0..3, 0..1);
     true
 }
@@ -728,16 +859,37 @@ pub(crate) fn capture(
     source: &TextureView,
     depth: &TextureView,
 ) {
+    let views = &world.resource::<super::gpu::EnhancedViews>().0;
+    let Some(capture_view) = views.values().find(|view| view.frame.id() == frame.id()) else {
+        return;
+    };
+    if !capture_view.capture_lighting_ready
+        || capture_view
+            .capture_shadow_submission
+            .as_ref()
+            .is_some_and(|(submitted, frame)| submitted.load(Ordering::Relaxed) != *frame)
+    {
+        return;
+    }
     let gpu = world.resource::<ProbeGpu>();
     if !world.resource::<ProbePipelines>().environment.ready(world) {
         return;
     }
     let epoch = world.resource::<ProbeOrigin>().epoch;
     if gpu.epoch.swap(epoch, Ordering::Relaxed) != epoch {
+        gpu.pending_refilter.store(0, Ordering::Relaxed);
         probe_history::reset(context, gpu);
     }
     let views = &gpu.target_faces[face as usize];
-    if draw(context, world, frame, source, depth, &views[0], true) {
+    if draw(
+        context,
+        world,
+        frame,
+        source,
+        depth,
+        &views[0],
+        ProbePass::Capture,
+    ) {
         let complete =
             world
                 .resource::<ProbePipelines>()
@@ -751,15 +903,11 @@ pub(crate) fn capture(
             if previous != (1 << CUBE_FACE_COUNT) - 1
                 && origin.face_mask() == (1 << CUBE_FACE_COUNT) - 1
             {
-                // Earlier lobes must see the newly populated faces before stationary captures stop.
-                let filter = &world.resource::<ProbePipelines>().environment;
-                for other in 0..CUBE_FACE_COUNT as usize {
-                    if other != face as usize {
-                        if filter.capture(context, world, other) {
-                            probe_history::publish(context, gpu, other);
-                        }
-                    }
-                }
+                // Refresh earlier lobes one at a time after the raw cube is complete.
+                gpu.pending_refilter.store(
+                    ((1 << CUBE_FACE_COUNT) - 1) & !(1 << face),
+                    Ordering::Relaxed,
+                );
             }
         }
     }

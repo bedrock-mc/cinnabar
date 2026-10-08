@@ -68,7 +68,7 @@ fn tiles_choose_visible_contributors_instead_of_camera_order_and_reuse_storage()
     let mut candidates = vec![source(Vec3::new(-10.0, 0.0, -14.0), 0); TILE_LIGHTS];
     candidates.push(source(Vec3::new(8.0, 0.0, -24.0), 0));
     let (mut words, mut scores, mut rays) = (Vec::new(), Vec::new(), Vec::new());
-    selection::tiles(&candidates, &input, &mut words, &mut scores, &mut rays);
+    selection::tiles(&candidates, 0, &input, &mut words, &mut scores, &mut rays);
     let right_tile = 4 + (3 * words[0] + 6) as usize * (TILE_LIGHTS + 1);
     let count = words[right_tile] as usize;
     assert!(
@@ -82,7 +82,7 @@ fn tiles_choose_visible_contributors_instead_of_camera_order_and_reuse_storage()
     );
     let pointers = (words.as_ptr(), scores.as_ptr(), rays.as_ptr());
     let reference = words.clone();
-    selection::tiles(&candidates, &input, &mut words, &mut scores, &mut rays);
+    selection::tiles(&candidates, 0, &input, &mut words, &mut scores, &mut rays);
     assert_eq!(words, reference);
     assert_eq!(pointers, (words.as_ptr(), scores.as_ptr(), rays.as_ptr()));
 }
@@ -181,10 +181,10 @@ fn point_shadow_cache_tracks_nearby_interpolated_pose_without_clock_churn() {
     Arc::make_mut(&mut frame.rig.instances)[0].partial_tick = 0.5;
     assert_eq!(near_actor_signature(&frame, &shadows), unchanged);
     Arc::make_mut(&mut frame.rig.instances)[0].world_from_actor[0][3] = 0.001;
-    assert_eq!(
+    assert_ne!(
         near_actor_signature(&frame, &shadows),
         unchanged,
-        "sub-texel drift does not rebuild point maps"
+        "near-emitter motion updates caster coverage even below one world texel"
     );
     Arc::make_mut(&mut frame.rig.current_bones)[0][0][3] = 0.25;
     assert_ne!(

@@ -98,6 +98,11 @@ fn imports(source: &str, seen: &mut BTreeSet<String>) -> String {
                 )
             } else if module.starts_with("cinnabar::enhanced_shadow") {
                 ("shadows", include_str!("../../../src/enhanced/shadow.wgsl"))
+            } else if module.starts_with("cinnabar::enhanced_sun_shadow_temporal") {
+                (
+                    "sun_shadow_temporal",
+                    include_str!("../../../src/enhanced/sun_shadow_temporal.wgsl"),
+                )
             } else if module.starts_with("cinnabar::enhanced_radiance") {
                 (
                     "radiance",
@@ -262,6 +267,10 @@ pub fn composable_sources() -> Vec<(&'static str, String)> {
         (
             "cinnabar::enhanced_shadow",
             include_str!("../../../src/enhanced/shadow.wgsl").to_owned(),
+        ),
+        (
+            "cinnabar::enhanced_sun_shadow_temporal",
+            include_str!("../../../src/enhanced/sun_shadow_temporal.wgsl").to_owned(),
         ),
         (
             "cinnabar::enhanced_radiance",

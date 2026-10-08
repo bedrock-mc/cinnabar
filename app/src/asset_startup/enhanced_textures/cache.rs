@@ -10,11 +10,11 @@ use assets::{TextureArray, TextureMip};
 use pack_compiler::pbr::PbrPack;
 use sha2::{Digest, Sha256};
 
-use super::Source;
+use super::{LOW_PBR_TILE_SIZE, Source};
 
 const CACHE_PATH: &str = ".local/enhanced-pbr.cache";
-// Bumped when grouped format inheritance changes which Java companions are admitted.
-const MAGIC: &[u8; 8] = b"CINPBR03";
+// Includes resolved names, map ownership, and source provenance in the cache contract.
+const MAGIC: &[u8; 8] = b"CINPBR07";
 const MAX_CACHE_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 
 pub(super) struct Payload {
@@ -71,6 +71,7 @@ pub(super) fn fingerprint(
     let mut digest = Sha256::new();
     digest.update(MAGIC);
     digest.update(assets::PBR_TILE_SIZE.to_le_bytes());
+    digest.update(LOW_PBR_TILE_SIZE.to_le_bytes());
     digest.update(assets::PBR_HEIGHT_SCALE.to_bits().to_le_bytes());
     for flag in [
         assets::PBR_REF_COLOR,
@@ -87,8 +88,20 @@ pub(super) fn fingerprint(
     let mut scratch = [0u8; 64 * 1024];
     for pack in packs {
         digest.update(pack.root().to_string_lossy().as_bytes());
-        digest.update([pack.format() as u8, pack.normal_format() as u8]);
+        digest.update([
+            pack.format() as u8,
+            pack.normal_format() as u8,
+            pack.color_style() as u8,
+            u8::from(pack.prefers_complete_material()),
+        ]);
         digest.update(pack.material_group().unwrap_or("").as_bytes());
+        for alias in sources.keys() {
+            digest.update(alias.as_bytes());
+            match pack.terrain_path(alias) {
+                Ok(path) => digest.update(path.unwrap_or("").as_bytes()),
+                Err(error) => digest.update(error.as_bytes()),
+            }
+        }
         let mut paths = Vec::new();
         files(pack.root(), &mut paths)?;
         if paths.len() > 8192 {
@@ -139,17 +152,20 @@ fn word(input: &mut impl Read) -> Option<u32> {
 
 fn array(input: &mut impl Read, remaining: &mut u64) -> Option<TextureArray> {
     let layers = word(input)?;
+    let side = word(input)?;
     let levels = word(input)?;
-    *remaining = remaining.checked_sub(8)?;
+    *remaining = remaining.checked_sub(12)?;
     if layers == 0
         || layers > assets::MAX_TEXTURE_LAYERS as u32
-        || levels != assets::PBR_TILE_SIZE.ilog2() + 1
+        || !side.is_power_of_two()
+        || side > assets::PBR_TILE_SIZE
+        || levels != side.ilog2() + 1
     {
         return None;
     }
     let mut mips = Vec::with_capacity(levels as usize);
     for level in 0..levels {
-        let size = assets::PBR_TILE_SIZE >> level;
+        let size = side >> level;
         let count = (layers as u64)
             .checked_mul(size as u64)?
             .checked_mul(size as u64)?
@@ -202,38 +218,6 @@ pub(super) fn load(key: &[u8; 32]) -> Option<Payload> {
     let mut file = fs::File::open(CACHE_PATH).ok()?;
     let size = file.metadata().ok()?.len();
     let result = decode(&mut file, size, key)?;
-    let mapped = result
-        .references
-        .iter()
-        .filter(|&&value| value != u32::MAX)
-        .count();
-    let normal = result
-        .references
-        .iter()
-        .filter(|&&value| value != u32::MAX && value & assets::PBR_REF_NORMAL != 0)
-        .count();
-    let material = result
-        .references
-        .iter()
-        .filter(|&&value| value != u32::MAX && value & assets::PBR_REF_MATERIAL != 0)
-        .count();
-    let height = result
-        .references
-        .iter()
-        .filter(|&&value| value != u32::MAX && value & assets::PBR_REF_HEIGHT != 0)
-        .count();
-    eprintln!(
-        "loaded cached {}-pixel authored Enhanced terrain: {} mapped texture refs, {} normal, {} material, {} height refs ({} without normal, {} without material, {} without height); {} albedo layers",
-        assets::PBR_TILE_SIZE,
-        mapped,
-        normal,
-        material,
-        height,
-        mapped.saturating_sub(normal),
-        mapped.saturating_sub(material),
-        mapped.saturating_sub(height),
-        result.color[0].layers,
-    );
     Some(result)
 }
 
@@ -247,6 +231,7 @@ fn encode(output: &mut impl Write, key: &[u8; 32], payload: &Payload) -> std::io
         .chain(&payload.material)
     {
         output.write_all(&page.layers.to_le_bytes())?;
+        output.write_all(&page.mips.first().map_or(0, |mip| mip.size).to_le_bytes())?;
         output.write_all(&(page.mips.len() as u32).to_le_bytes())?;
         for mip in &page.mips {
             output.write_all(&mip.rgba8)?;

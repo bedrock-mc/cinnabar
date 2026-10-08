@@ -43,6 +43,11 @@ mod local_lights;
 mod local_shadow_history;
 #[cfg(feature = "enhanced")]
 mod materials;
+#[cfg(feature = "enhanced")]
+mod multiple_scattering;
+mod quality;
+pub(crate) use quality::EnhancedQualityBudget;
+pub use render_api::EnhancedQuality;
 #[cfg(all(test, feature = "enhanced"))]
 mod pbr_tests;
 #[cfg(feature = "enhanced")]
@@ -61,6 +66,8 @@ mod shadow_tests;
 mod shadows;
 #[cfg(feature = "enhanced")]
 mod snapshot;
+#[cfg(feature = "enhanced")]
+mod sun_shadow_history;
 #[cfg(feature = "enhanced")]
 mod targets;
 #[cfg(feature = "enhanced")]
@@ -107,6 +114,8 @@ const ENHANCED_VIEW_SHADER_HANDLE: Handle<Shader> =
 const ENHANCED_CASTER_SHADER_HANDLE: Handle<Shader> =
     uuid_handle!("c4e81f23-7a9d-4b6e-8f10-5a3c2d1e9b73");
 const SHADOW_SHADER: Handle<Shader> = uuid_handle!("a899424b-ce44-4087-af6b-b267fdcf6967");
+const SUN_SHADOW_TEMPORAL_SHADER: Handle<Shader> =
+    uuid_handle!("3c89a6de-826f-45d4-a9f5-737e768793b4");
 const RADIANCE_SHADER: Handle<Shader> = uuid_handle!("e4a3a72c-cfd4-490a-bdae-1b780573965a");
 const WATER_SHADER: Handle<Shader> = uuid_handle!("aec26144-3c2c-4b2e-a2e5-0518527c3030");
 const ENVIRONMENT_SHADER: Handle<Shader> = uuid_handle!("8ffec817-4d44-4ec2-b78c-a187a067bef4");
@@ -140,6 +149,7 @@ const ENHANCED_POST_SHADER_HANDLE: Handle<Shader> =
 #[derive(Component, ExtractComponent, Clone, Copy, Debug, PartialEq)]
 #[require(Msaa::Off, bevy::render::camera::TemporalJitter)]
 pub struct EnhancedRendering {
+    pub quality: EnhancedQuality,
     pub shadows: bool,
     pub shadow_resolution: u32,
     /// Sun shadow cascades, clamped to `2..=MAX_SHADOW_CASCADES`.
@@ -180,11 +190,14 @@ pub const MAX_SHADOW_CASCADES: u32 = 3;
 
 impl Default for EnhancedRendering {
     fn default() -> Self {
+        let quality = EnhancedQuality::default();
+        let (shadow_resolution, shadow_distance) = quality.shadow_settings();
         Self {
+            quality,
             shadows: true,
-            shadow_resolution: 1024,
-            shadow_cascades: 3,
-            shadow_distance: 96.0,
+            shadow_resolution,
+            shadow_cascades: MAX_SHADOW_CASCADES,
+            shadow_distance,
             bloom: true,
             light_shafts: true,
             waving: true,
@@ -222,6 +235,12 @@ pub(crate) fn load_shader_imports(app: &mut App) {
         app,
         SHADOW_SHADER,
         "shadow.wgsl",
+        crate::shader_safety::from_wgsl
+    );
+    load_internal_asset!(
+        app,
+        SUN_SHADOW_TEMPORAL_SHADER,
+        "sun_shadow_temporal.wgsl",
         crate::shader_safety::from_wgsl
     );
     load_internal_asset!(
@@ -374,6 +393,12 @@ impl Plugin for EnhancedRenderPlugin {
         );
         load_internal_asset!(
             app,
+            multiple_scattering::MULTIPLE_SCATTER_SHADER,
+            "multiple_scattering.wgsl",
+            multiple_scattering::shader
+        );
+        load_internal_asset!(
+            app,
             INDIRECT_COMPUTE_SHADER,
             "indirect_compute.wgsl",
             crate::shader_safety::from_wgsl
@@ -390,9 +415,11 @@ impl Plugin for EnhancedRenderPlugin {
             .add_systems(
                 Render,
                 (
+                    probes::prepare_quality,
                     local_lights::collect_sources,
                     indirect::collect_geometry,
                     prepare_cloud_noise,
+                    multiple_scattering::prepare,
                     prepare_enhanced_materials,
                     prepare_enhanced_views,
                 )
@@ -416,6 +443,7 @@ impl Plugin for EnhancedRenderPlugin {
         render_app
             .init_resource::<EnhancedGpu>()
             .init_resource::<cloud_noise::CloudNoiseVolume>()
+            .init_resource::<multiple_scattering::MultipleScattering>()
             .init_resource::<indirect::IndirectPipelines>()
             .init_resource::<EnhancedPostPipelines>()
             .init_resource::<EnhancedShadowPipelines>()

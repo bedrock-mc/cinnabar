@@ -26,6 +26,13 @@ fn execute_internal(source: &str, result_count: usize, clouds: bool) -> Option<V
     }))
     .expect("Enhanced lighting regression device");
     let source = shader_source::composed(source, &[]);
+    let module = naga::front::wgsl::parse_str(&source).expect("composed regression shader");
+    let uses_scattering = module.global_variables.iter().any(|(_, variable)| {
+        variable
+            .binding
+            .as_ref()
+            .is_some_and(|binding| binding.group == 0 && binding.binding == 22)
+    });
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("production Enhanced regression functions"),
         source: wgpu::ShaderSource::Wgsl(source.into()),
@@ -52,6 +59,8 @@ fn execute_internal(source: &str, result_count: usize, clouds: bool) -> Option<V
     });
     let mut encoder = device.create_command_encoder(&Default::default());
     let noise = clouds.then(|| super::cloud_fixture::generate(&device, &mut encoder));
+    let scattering =
+        uses_scattering.then(|| super::multiple_scattering::fixture(&device, &mut encoder));
     let mut entries = vec![wgpu::BindGroupEntry {
         binding: 31,
         resource: output.as_entire_binding(),
@@ -63,6 +72,16 @@ fn execute_internal(source: &str, result_count: usize, clouds: bool) -> Option<V
         });
         entries.push(wgpu::BindGroupEntry {
             binding: 14,
+            resource: wgpu::BindingResource::Sampler(sampler),
+        });
+    }
+    if let Some((view, sampler)) = &scattering {
+        entries.push(wgpu::BindGroupEntry {
+            binding: 22,
+            resource: wgpu::BindingResource::TextureView(view),
+        });
+        entries.push(wgpu::BindGroupEntry {
+            binding: 23,
             resource: wgpu::BindingResource::Sampler(sampler),
         });
     }

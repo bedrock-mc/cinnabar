@@ -8,7 +8,6 @@ use bevy::{
 };
 use std::num::NonZeroU64;
 
-const FILTER_SAMPLES: u32 = 48;
 pub(super) const DIFFUSE_MIP: u32 = (MIPS - 1) / 2;
 pub(super) const ARRAY_LAYERS: u32 = 2 * CUBE_FACE_COUNT + 3;
 pub(super) const SKY_DIFFUSE_LAYER: u32 = ARRAY_LAYERS - 3;
@@ -52,6 +51,8 @@ pub(super) struct EnvironmentFilter {
     diffuse: Vec<BindGroup>,
     sky_specular: Vec<BindGroup>,
     sky_diffuse: BindGroup,
+    parameters: Vec<Buffer>,
+    samples: u32,
 }
 
 impl EnvironmentFilter {
@@ -78,17 +79,21 @@ impl EnvironmentFilter {
             }),
             ..default()
         });
-        let group = |face: u32, roughness: f32, mode: u32| {
-            let parameters = device.create_buffer_with_data(&BufferInitDescriptor {
+        let samples = super::super::quality::budget(super::super::EnhancedQuality::default())
+            .reflection_samples;
+        let mut parameters = Vec::new();
+        let mut group = |face: u32, roughness: f32, mode: u32| {
+            let parameter = device.create_buffer_with_data(&BufferInitDescriptor {
                 label: Some("environment convolution parameters"),
                 contents: bytemuck::bytes_of(&[
                     face as f32,
                     roughness,
                     mode as f32,
-                    FILTER_SAMPLES as f32,
+                    samples as f32,
                 ]),
-                usage: BufferUsages::UNIFORM,
+                usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
             });
+            parameters.push(parameter.clone());
             device.create_bind_group(
                 "cached environment convolution",
                 &cache.get_bind_group_layout(&layout()),
@@ -103,7 +108,7 @@ impl EnvironmentFilter {
                     },
                     BindGroupEntry {
                         binding: 2,
-                        resource: parameters.as_entire_binding(),
+                        resource: parameter.as_entire_binding(),
                     },
                     BindGroupEntry {
                         binding: 3,
@@ -128,6 +133,22 @@ impl EnvironmentFilter {
                 .map(|mip| group(0, mip as f32 / (MIPS - 1) as f32, 2))
                 .collect(),
             sky_diffuse: group(0, 1.0, 3),
+            parameters,
+            samples,
+        }
+    }
+
+    pub fn set_quality(
+        &mut self,
+        queue: &bevy::render::renderer::RenderQueue,
+        quality: super::super::EnhancedQuality,
+    ) {
+        let samples = super::super::quality::budget(quality).reflection_samples;
+        if self.samples != samples {
+            for parameter in &self.parameters {
+                queue.write_buffer(parameter, 12, bytemuck::bytes_of(&(samples as f32)));
+            }
+            self.samples = samples;
         }
     }
 

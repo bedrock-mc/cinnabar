@@ -8,6 +8,7 @@
 #endif
 #ifdef ENHANCED_MOTION
 #import cinnabar::enhanced_actor_motion::{submitted_actor_position, submitted_surface_motion}
+#import cinnabar::enhanced_common::encode_geometric_normal
 #endif
 
 struct GeometrySpan {
@@ -299,10 +300,15 @@ fn actor_surface_color(input: VertexOutput, front: bool) -> vec4<f32> {
 
 #ifdef ENHANCED_SHADOW
 #ifdef ENHANCED_MOTION
+struct CameraSurface {
+    @location(0) motion: vec4<f32>,
+    @location(1) normal: vec2<f32>,
+}
 @fragment
-fn actor_fragment_motion(input: VertexOutput, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {
+fn actor_fragment_motion(input: VertexOutput, @builtin(front_facing) front: bool) -> CameraSurface {
     let color = actor_surface_color(input, front);
-    return submitted_surface_motion(input.current_clip, input.previous_clip, input.motion_valid != 0u);
+    let normal = select(-input.world_normal, input.world_normal, front);
+    return CameraSurface(submitted_surface_motion(input.current_clip, input.previous_clip, input.motion_valid != 0u), encode_geometric_normal(normal));
 }
 #endif
 @fragment

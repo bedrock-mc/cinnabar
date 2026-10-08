@@ -235,6 +235,10 @@ pub(super) fn publish(context: &mut RenderContext, gpu: &super::ProbeGpu, face: 
     if !gpu.history.lock().unwrap().target_changed(face) {
         return;
     }
+    publish_initial(context, gpu, face);
+}
+
+pub(super) fn publish_initial(context: &mut RenderContext, gpu: &super::ProbeGpu, face: usize) {
     let mut copy = |layer: u32, mip: u32| {
         let origin = Origin3d {
             x: 0,

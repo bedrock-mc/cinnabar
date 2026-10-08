@@ -3,6 +3,7 @@
 mod account_icon;
 mod button;
 mod controls;
+mod enhanced;
 mod gui_scale;
 mod layout;
 mod picker;
@@ -304,7 +305,7 @@ impl Content<'_, '_> {
             + extra;
         let b = [self.span[0], self.y, self.span[1], self.y + height];
         let is_switch = action.is_some_and(|action| match action {
-            MenuAction::SettingsFullscreen(_) => true,
+            MenuAction::SettingsFullscreen(_) | MenuAction::ToggleRenderMode => true,
             MenuAction::SettingsOption(index, _) => SETTINGS_OPTIONS
                 .get(usize::from(index))
                 .is_some_and(|option| matches!(option.kind, SettingKind::Toggle)),

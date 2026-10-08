@@ -6,9 +6,13 @@ use std::{
 use image::{DynamicImage, ImageBuffer, Rgba, RgbaImage};
 use serde_json::Value;
 
-use super::{PBR_REF_COLOR, PBR_REF_NORMAL, PbrFormat, PbrPack, PbrSurface, PbrTexture, decode};
+use super::{
+    PBR_REF_COLOR, PBR_REF_NORMAL, PbrFormat, PbrPack, PbrSurface, PbrTexture, PbrTextureSource,
+    decode,
+};
 
 mod names;
+pub(super) mod terrain;
 
 const IMAGE_BYTES_LIMIT: u64 = 64 * 1024 * 1024;
 const JSON_BYTES_LIMIT: u64 = 1024 * 1024;
@@ -20,8 +24,10 @@ pub(super) fn declared_format(root: &Path) -> PbrFormat {
     ] {
         if let Ok(text) = fs::read_to_string(root.join(relative)) {
             for line in text.lines().map(str::trim) {
-                if let Some(value) = line.strip_prefix("format=") {
-                    return PbrFormat::parse(value).unwrap_or_default();
+                if let Some((key, value)) = line.split_once('=')
+                    && key.trim() == "format"
+                {
+                    return PbrFormat::parse(value.trim()).unwrap_or_default();
                 }
             }
         }
@@ -155,6 +161,7 @@ fn layer(
     value: &Value,
     channels: usize,
     allowed: &[u8],
+    source: &mut Option<PathBuf>,
 ) -> Result<RgbaImage, String> {
     if let Some(pixel) = uniform(value, channels)? {
         return Ok(solid(pixel));
@@ -181,6 +188,7 @@ fn layer(
         })
         .find(|path| path.is_file())
         .ok_or_else(|| format!("texture set cannot find {reference} in its defining pack"))?;
+    *source = Some(path.clone());
     image(&path, allowed)
 }
 
@@ -188,8 +196,9 @@ fn read_json(path: &Path) -> Result<Value, String> {
     if fs::metadata(path).map_err(|error| error.to_string())?.len() > JSON_BYTES_LIMIT {
         return Err("texture metadata exceeds byte limit".to_owned());
     }
-    serde_json::from_slice(&fs::read(path).map_err(|error| error.to_string())?)
-        .map_err(|error| error.to_string())
+    let bytes = fs::read(path).map_err(|error| error.to_string())?;
+    let bytes = bytes.strip_prefix(b"\xef\xbb\xbf").unwrap_or(&bytes);
+    serde_json::from_slice(&assets::strip_json_comments(bytes)).map_err(|error| error.to_string())
 }
 
 fn texture_set(pack: &PbrPack, path: &Path) -> Result<PbrTexture, String> {
@@ -206,6 +215,16 @@ fn texture_set(pack: &PbrPack, path: &Path) -> Result<PbrTexture, String> {
     {
         return Err("texture set defines both MER and MERS".to_owned());
     }
+    let mut source = PbrTextureSource {
+        color: None,
+        normal: None,
+        material: None,
+        height: None,
+        native_color_size: [0; 2],
+        native_normal_size: [0; 2],
+        native_material_size: [0; 2],
+        color_style: pack.color_style,
+    };
     let color = layer(
         pack,
         path,
@@ -213,7 +232,9 @@ fn texture_set(pack: &PbrPack, path: &Path) -> Result<PbrTexture, String> {
             .ok_or_else(|| "texture set has no color".to_owned())?,
         4,
         &[3, 4],
+        &mut source.color,
     )?;
+    source.native_color_size = [color.width(), color.height()];
     let mut flags = PBR_REF_COLOR;
     let normal = if let Some(value) = set.get("normal") {
         if value
@@ -224,7 +245,7 @@ fn texture_set(pack: &PbrPack, path: &Path) -> Result<PbrTexture, String> {
         }
         flags |= PBR_REF_NORMAL;
         let (normal, normal_flags) = decode::normal(
-            layer(pack, path, value, 3, &[3, 4])?,
+            layer(pack, path, value, 3, &[3, 4], &mut source.normal)?,
             PbrFormat::Legacy,
             pack.normal_format,
         );
@@ -234,11 +255,17 @@ fn texture_set(pack: &PbrPack, path: &Path) -> Result<PbrTexture, String> {
         solid([128, 128, 255, 128])
     };
     let material = if let Some(value) = set.get("metalness_emissive_roughness_subsurface") {
-        let (material, material_flags) = decode::mer(layer(pack, path, value, 4, &[4])?, true);
+        let (material, material_flags) = decode::mer(
+            layer(pack, path, value, 4, &[4], &mut source.material)?,
+            true,
+        );
         flags |= material_flags;
         material
     } else if let Some(value) = set.get("metalness_emissive_roughness") {
-        let (material, material_flags) = decode::mer(layer(pack, path, value, 3, &[3, 4])?, false);
+        let (material, material_flags) = decode::mer(
+            layer(pack, path, value, 3, &[3, 4], &mut source.material)?,
+            false,
+        );
         flags |= material_flags;
         material
     } else {
@@ -246,8 +273,10 @@ fn texture_set(pack: &PbrPack, path: &Path) -> Result<PbrTexture, String> {
     };
     let height = set
         .get("heightmap")
-        .map(|value| layer(pack, path, value, 1, &[1]))
+        .map(|value| layer(pack, path, value, 1, &[1], &mut source.height))
         .transpose()?;
+    source.native_normal_size = [normal.width(), normal.height()];
+    source.native_material_size = [material.width(), material.height()];
     Ok(PbrTexture {
         surface: PbrSurface {
             color,
@@ -257,6 +286,7 @@ fn texture_set(pack: &PbrPack, path: &Path) -> Result<PbrTexture, String> {
         },
         timeline: Vec::new(),
         height,
+        source,
     })
 }
 
@@ -294,69 +324,110 @@ fn animation(path: &Path) -> Result<Vec<u32>, String> {
 }
 
 pub(super) fn load(packs: &[PbrPack], alias: &str) -> Result<Option<PbrTexture>, String> {
+    let prefer_complete = packs.iter().any(PbrPack::prefers_complete_material);
+    let mut fallback = None;
     for owner in packs {
+        let alias = owner.terrain_path(alias)?.unwrap_or(alias);
         if let Some(path) = json_path(owner, alias) {
-            return texture_set(owner, &path).map(Some);
+            let texture = texture_set(owner, &path)?;
+            if !prefer_complete || texture.has_complete_material() {
+                return Ok(Some(texture));
+            }
+            if fallback.is_none() {
+                fallback = Some(texture);
+            }
+            continue;
         }
         let Some(color_path) = find(owner, alias, "") else {
             continue;
         };
         let color = image(&color_path, &[3, 4])?;
-        let companions = packs.iter().filter(|pack| {
-            pack.root == owner.root
-                || owner
+        let map_alias = color_path
+            .strip_prefix(owner.root.join("assets/minecraft"))
+            .or_else(|_| color_path.strip_prefix(&owner.root))
+            .map_err(|_| "authored color path escapes its pack")?
+            .with_extension("")
+            .to_string_lossy()
+            .replace('\\', "/");
+        let companions = std::iter::once(owner).chain(packs.iter().filter(|pack| {
+            pack.root != owner.root
+                && owner
                     .group
                     .as_ref()
                     .is_some_and(|group| pack.group.as_ref() == Some(group))
-        });
+        }));
         let companions = companions.collect::<Vec<_>>();
         let mut flags = PBR_REF_COLOR;
         let normal_source = companions.iter().find_map(|pack| {
-            find(pack, alias, "_normal")
+            find(pack, &map_alias, "_normal")
+                .filter(|path| *path != color_path)
                 .map(|path| (*pack, path, PbrFormat::Legacy))
                 .or_else(|| {
                     effective_format(owner, pack)
-                        .map(|format| find(pack, alias, "_n").map(|path| (*pack, path, format)))
+                        .map(|format| {
+                            find(pack, &map_alias, "_n")
+                                .filter(|path| *path != color_path)
+                                .map(|path| (*pack, path, format))
+                        })
                         .flatten()
                 })
         });
-        let normal = if let Some((pack, path, format)) = normal_source {
+        let normal = if let Some((pack, path, format)) = &normal_source {
             let (normal, normal_flags) =
-                decode::normal(image(&path, &[3, 4])?, format, pack.normal_format);
+                decode::normal(image(path, &[3, 4])?, *format, pack.normal_format);
             flags |= PBR_REF_NORMAL | normal_flags;
             normal
         } else {
             solid([128, 128, 255, 128])
         };
         let material_source = companions.iter().find_map(|pack| {
-            find(pack, alias, "_mers")
+            find(pack, &map_alias, "_mers")
                 .map(|path| (path, true, None))
-                .or_else(|| find(pack, alias, "_mer").map(|path| (path, false, None)))
+                .or_else(|| find(pack, &map_alias, "_mer").map(|path| (path, false, None)))
                 .or_else(|| {
                     effective_format(owner, pack)
                         .map(|format| {
-                            find(pack, alias, "_s").map(|path| (path, false, Some(format)))
+                            find(pack, &map_alias, "_s").map(|path| (path, false, Some(format)))
                         })
                         .flatten()
                 })
         });
-        let material = if let Some((path, subsurface, format)) = material_source {
-            let raw = image(&path, if subsurface { &[4] } else { &[3, 4] })?;
+        let material = if let Some((path, subsurface, format)) = &material_source {
+            let allowed: &[u8] = if format.is_some() {
+                &[1, 2, 3, 4]
+            } else if *subsurface {
+                &[4]
+            } else {
+                &[3, 4]
+            };
+            let raw = image(path, allowed)?;
             let (material, material_flags) = match format {
-                Some(format) => decode::specular(raw, format),
-                None => decode::mer(raw, subsurface),
+                Some(format) => decode::specular(raw, *format),
+                None => decode::mer(raw, *subsurface),
             };
             flags |= material_flags;
             material
         } else {
             solid([0, 0, 255, 0])
         };
-        let height = companions
-            .iter()
-            .find_map(|pack| find(pack, alias, "_h").or_else(|| find(pack, alias, "_heightmap")))
-            .map(|path| image(&path, &[1, 3, 4]))
+        let height_path = companions.iter().find_map(|pack| {
+            find(pack, &map_alias, "_h").or_else(|| find(pack, &map_alias, "_heightmap"))
+        });
+        let height = height_path
+            .as_ref()
+            .map(|path| image(path, &[1, 2, 3, 4]))
             .transpose()?;
-        return Ok(Some(PbrTexture {
+        let source = PbrTextureSource {
+            color: Some(color_path.clone()),
+            normal: normal_source.map(|(_, path, _)| path),
+            material: material_source.map(|(path, _, _)| path),
+            height: height_path,
+            native_color_size: [color.width(), color.height()],
+            native_normal_size: [normal.width(), normal.height()],
+            native_material_size: [material.width(), material.height()],
+            color_style: owner.color_style,
+        };
+        let texture = PbrTexture {
             surface: PbrSurface {
                 color,
                 normal,
@@ -365,9 +436,16 @@ pub(super) fn load(packs: &[PbrPack], alias: &str) -> Result<Option<PbrTexture>,
             },
             timeline: animation(&color_path)?,
             height,
-        }));
+            source,
+        };
+        if !prefer_complete || texture.has_complete_material() {
+            return Ok(Some(texture));
+        }
+        if fallback.is_none() {
+            fallback = Some(texture);
+        }
     }
-    Ok(None)
+    Ok(fallback)
 }
 
 /// A declared format applies to a grouped material set, so a companion pack

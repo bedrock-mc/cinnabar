@@ -3,7 +3,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use pack_compiler::pbr::{PbrFormat, PbrNormalFormat, PbrPack};
+use pack_compiler::pbr::{PbrColorStyle, PbrFormat, PbrNormalFormat, PbrPack};
 use serde::Deserialize;
 
 const LOCAL_CONFIG: &str = ".local/enhanced-pbr.json";
@@ -12,6 +12,8 @@ const LOCAL_CONFIG: &str = ".local/enhanced-pbr.json";
 #[serde(deny_unknown_fields)]
 struct Config {
     packs: Vec<Pack>,
+    #[serde(default)]
+    complete_material: bool,
 }
 
 #[derive(Deserialize)]
@@ -21,6 +23,7 @@ struct Pack {
     format: Option<String>,
     group: Option<String>,
     normal_format: Option<String>,
+    color_style: Option<String>,
 }
 
 fn configuration(bytes: &[u8], parent: &Path) -> Result<Vec<PbrPack>, String> {
@@ -48,7 +51,18 @@ fn configuration(bytes: &[u8], parent: &Path) -> Result<Vec<PbrPack>, String> {
                 })
                 .transpose()?
                 .unwrap_or_default();
-            let parsed = PbrPack::new(path, format).with_normal_format(normal_format);
+            let color_style = pack
+                .color_style
+                .map(|value| {
+                    PbrColorStyle::parse(&value)
+                        .ok_or_else(|| format!("unknown color style {value}"))
+                })
+                .transpose()?
+                .unwrap_or_default();
+            let parsed = PbrPack::new(path, format)
+                .with_normal_format(normal_format)
+                .with_color_style(color_style)
+                .with_complete_material_preference(config.complete_material);
             Ok(match pack.group {
                 Some(group) => parsed.with_group(group),
                 None => parsed,
@@ -65,7 +79,7 @@ pub(super) fn selected_packs() -> Option<Vec<PbrPack>> {
                 .split([';', '\n'])
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
-                .map(|value| PbrPack::new(value, None).with_group("environment selection"))
+                .map(|value| PbrPack::new(value, None))
                 .collect()
         } else {
             let path = Path::new(LOCAL_CONFIG);

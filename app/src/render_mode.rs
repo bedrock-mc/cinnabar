@@ -16,7 +16,7 @@ use bevy::{
     prelude::*,
     render::{render_resource::TextureUsages, view::Hdr},
 };
-use render::{EnhancedRenderPlugin, EnhancedRendering, EnhancedShadowDebug};
+use render::{EnhancedQuality, EnhancedRenderPlugin, EnhancedRendering, EnhancedShadowDebug};
 use render_model::ENHANCED_RENDERING_ENABLED;
 use serde::{Deserialize, Serialize};
 use ui::RenderMode;
@@ -54,10 +54,12 @@ pub(crate) struct RenderModeUpdateSet;
 #[derive(Serialize, Deserialize)]
 struct GraphicsFile {
     render_mode: String,
+    #[serde(default)]
+    enhanced_quality: Option<String>,
 }
 
-/// Saved mode, or `None` when the file is absent, oversized, or unreadable.
-pub(crate) fn load_render_mode(path: &Path) -> Option<RenderMode> {
+/// Missing quality in older files uses Balanced without losing the mode.
+fn load_graphics_settings(path: &Path) -> Option<(RenderMode, EnhancedQuality)> {
     let mut bytes = Vec::new();
     fs::File::open(path)
         .ok()?
@@ -68,11 +70,17 @@ pub(crate) fn load_render_mode(path: &Path) -> Option<RenderMode> {
         return None;
     }
     let file = serde_json::from_slice::<GraphicsFile>(&bytes).ok()?;
-    RenderMode::parse(&file.render_mode)
+    Some((
+        RenderMode::parse(&file.render_mode)?,
+        file.enhanced_quality
+            .as_deref()
+            .and_then(EnhancedQuality::parse)
+            .unwrap_or_default(),
+    ))
 }
 
 /// Atomically replace the small graphics extension settings file.
-pub(crate) fn save_render_mode(path: &Path, mode: RenderMode) -> Result<()> {
+fn save_graphics_settings(path: &Path, mode: RenderMode, quality: EnhancedQuality) -> Result<()> {
     if let Some(parent) = path
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
@@ -81,10 +89,24 @@ pub(crate) fn save_render_mode(path: &Path, mode: RenderMode) -> Result<()> {
     }
     let bytes = serde_json::to_vec_pretty(&GraphicsFile {
         render_mode: mode.as_str().to_owned(),
+        enhanced_quality: Some(quality.as_str().to_owned()),
     })?;
     let temp = path.with_extension("json.tmp");
     fs::write(&temp, bytes).with_context(|| format!("write {}", temp.display()))?;
     fs::rename(&temp, path).with_context(|| format!("replace {}", path.display()))
+}
+
+#[cfg(test)]
+fn load_render_mode(path: &Path) -> Option<RenderMode> {
+    load_graphics_settings(path).map(|saved| saved.0)
+}
+
+#[cfg(test)]
+fn save_render_mode(path: &Path, mode: RenderMode) -> Result<()> {
+    let quality = load_graphics_settings(path)
+        .map(|saved| saved.1)
+        .unwrap_or_default();
+    save_graphics_settings(path, mode, quality)
 }
 
 /// CLI beats environment beats the saved file. Attributable evidence runs
@@ -127,15 +149,20 @@ struct RenderModeConfig {
     cli: Option<RenderMode>,
     attributable: bool,
     path: Option<PathBuf>,
+    quality_override: Option<EnhancedQuality>,
 }
 
 impl Plugin for RenderModePlugin {
     fn build(&self, app: &mut App) {
+        let quality_override = std::env::var("CINNABAR_ENHANCED_QUALITY")
+            .ok()
+            .and_then(|value| EnhancedQuality::parse(&value));
         app.add_plugins(EnhancedRenderPlugin)
             .insert_resource(RenderModeConfig {
                 cli: self.cli,
                 attributable: self.attributable,
                 path: None,
+                quality_override,
             })
             .init_resource::<DebugTimeOverride>()
             .add_systems(Startup, seed_render_mode)
@@ -162,29 +189,48 @@ fn seed_render_mode(
     mut settings: ResMut<RuntimeSettings>,
 ) {
     config.path = menu.map(|menu| menu.graphics_file());
-    let saved = config.path.as_deref().and_then(load_render_mode);
+    let saved = config.path.as_deref().and_then(load_graphics_settings);
     let mode = startup_render_mode(
         config.cli,
         std::env::var_os(RENDER_MODE_ENV).as_deref(),
-        saved,
+        saved.map(|saved| saved.0),
         config.attributable,
     );
-    set_render_mode(&mut settings, mode);
+    let quality = if config.attributable {
+        EnhancedQuality::default()
+    } else {
+        config
+            .quality_override
+            .or(saved.map(|saved| saved.1))
+            .unwrap_or_default()
+    };
+    set_graphics_settings(&mut settings, mode, quality);
 }
 
 /// Update the shared settings authority only when the choice changes.
-fn set_render_mode(settings: &mut RuntimeSettings, mode: RenderMode) {
+fn set_graphics_settings(
+    settings: &mut RuntimeSettings,
+    mode: RenderMode,
+    quality: EnhancedQuality,
+) {
     let mode = if ENHANCED_RENDERING_ENABLED {
         mode
     } else {
         RenderMode::Vanilla
     };
     let (_, current) = settings.user_settings_update();
-    if current.video.render_mode != mode {
+    if current.video.render_mode != mode || current.video.enhanced_quality != quality {
         let mut next = current.clone();
         next.video.render_mode = mode;
+        next.video.enhanced_quality = quality;
         settings.replace_user_settings(next);
     }
+}
+
+#[cfg(test)]
+fn set_render_mode(settings: &mut RuntimeSettings, mode: RenderMode) {
+    let quality = settings.user_settings_update().1.video.enhanced_quality;
+    set_graphics_settings(settings, mode, quality);
 }
 
 /// Persist menu changes and keep the displayed toggle synchronized.
@@ -196,15 +242,25 @@ fn apply_menu_render_mode(
     let Some(mut menu) = menu else {
         return;
     };
-    if let Some(mode) = menu.take_render_mode_request() {
-        set_render_mode(&mut settings, mode);
+    let mode_request = menu.take_render_mode_request();
+    let quality_request = menu.take_enhanced_quality_request();
+    if mode_request.is_some() || quality_request.is_some() {
+        let current = settings.user_settings_update().1.video;
+        set_graphics_settings(
+            &mut settings,
+            mode_request.unwrap_or(current.render_mode),
+            quality_request.unwrap_or(current.enhanced_quality),
+        );
+        let applied = settings.user_settings_update().1.video;
         if let Some(path) = &config.path
-            && let Err(error) = save_render_mode(path, mode)
+            && let Err(error) =
+                save_graphics_settings(path, applied.render_mode, applied.enhanced_quality)
         {
-            warn!(?error, "render mode could not be saved");
+            warn!(?error, "graphics settings could not be saved");
         }
     }
     menu.sync_render_mode(settings.user_settings_update().1.video.render_mode);
+    menu.sync_enhanced_quality(settings.user_settings_update().1.video.enhanced_quality);
 }
 
 /// Original depth usage, restored when opting out of Enhanced.
@@ -215,7 +271,7 @@ struct VanillaDepthUsage(Camera3dDepthTextureUsage);
 type RenderModeCameraQuery = (
     Entity,
     Write<Camera3d>,
-    Has<EnhancedRendering>,
+    Option<Write<EnhancedRendering>>,
     Option<Read<VanillaDepthUsage>>,
 );
 
@@ -225,9 +281,10 @@ fn apply_render_mode_to_cameras(
     settings: Res<RuntimeSettings>,
     mut cameras: Query<RenderModeCameraQuery, With<FlyCamera>>,
 ) {
-    let enhanced = ENHANCED_RENDERING_ENABLED
-        && settings.user_settings_update().1.video.render_mode == RenderMode::Enhanced;
-    for (entity, mut camera, has_enhanced, vanilla_depth) in &mut cameras {
+    let video = settings.user_settings_update().1.video;
+    let enhanced = ENHANCED_RENDERING_ENABLED && video.render_mode == RenderMode::Enhanced;
+    for (entity, mut camera, current_enhanced, vanilla_depth) in &mut cameras {
+        let has_enhanced = current_enhanced.is_some();
         if enhanced != has_enhanced {
             if enhanced {
                 let original = camera.depth_texture_usages;
@@ -236,7 +293,7 @@ fn apply_render_mode_to_cameras(
                     | TextureUsages::COPY_SRC)
                     .into();
                 commands.entity(entity).insert((
-                    EnhancedRendering::default(),
+                    EnhancedRendering::for_quality(video.enhanced_quality),
                     Hdr,
                     VanillaDepthUsage(original),
                 ));
@@ -252,6 +309,15 @@ fn apply_render_mode_to_cameras(
                     VanillaDepthUsage,
                 )>();
             }
+        } else if enhanced
+            && let Some(mut current) = current_enhanced
+            && current.quality != video.enhanced_quality
+        {
+            let shadow_debug = current.shadow_debug;
+            *current = EnhancedRendering {
+                shadow_debug,
+                ..EnhancedRendering::for_quality(video.enhanced_quality)
+            };
         }
     }
 }

@@ -99,7 +99,12 @@ pub(super) fn variants() -> Vec<Variant> {
             false,
         ));
     }
-    for fragment in ["capture_probe", "filter_mip", "resolve_reflections"] {
+    for fragment in [
+        "capture_probe",
+        "filter_mip",
+        "cloud_environment",
+        "resolve_reflections",
+    ] {
         result.push((
             fragment,
             shader_source::composed(include_str!("probe.wgsl"), &[]),
@@ -167,7 +172,9 @@ pub(super) fn variant_shader(name: &str) -> bevy::prelude::Shader {
         "model" | "model_motion" => include_str!("../model.wgsl"),
         "liquid" => include_str!("../liquid.wgsl"),
         "actor" | "actor_motion" => include_str!("../actor.wgsl"),
-        "capture_probe" | "filter_mip" | "resolve_reflections" => include_str!("probe.wgsl"),
+        "capture_probe" | "filter_mip" | "resolve_reflections" | "cloud_environment" => {
+            include_str!("probe.wgsl")
+        }
         "prefilter_environment" => include_str!("probe_filter.wgsl"),
         "resolve_local_shadows" => include_str!("local_shadow_history.wgsl"),
         _ => include_str!("post.wgsl"),
@@ -277,7 +284,10 @@ fn build_native_pipelines() {
         };
         let descriptors = if let Some(actor) = &actor {
             actor.layout.clone()
-        } else if matches!(fragment, "capture_probe" | "filter_mip") {
+        } else if matches!(
+            fragment,
+            "capture_probe" | "filter_mip" | "cloud_environment"
+        ) {
             vec![super::probes::layout()]
         } else if fragment == "resolve_local_shadows" {
             vec![super::local_shadow_history::layout()]
@@ -317,15 +327,49 @@ fn build_native_pipelines() {
             label: Some(name),
             source: wgpu::ShaderSource::Naga(std::borrow::Cow::Owned(native_module(name, shadow))),
         });
-        let targets = [Some(if fragment == "resolve_reflections" {
-            super::probes::reflection_resolve_target()
+        let targets = if fragment == "resolve_local_shadows" {
+            vec![
+                Some(wgpu::ColorTargetState {
+                    format: wgpu::TextureFormat::Rgba16Float,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                }),
+                Some(wgpu::ColorTargetState {
+                    format: wgpu::TextureFormat::Rgba16Float,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                }),
+                Some(wgpu::ColorTargetState {
+                    format: wgpu::TextureFormat::Rgba16Float,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                }),
+            ]
+        } else if motion {
+            [
+                wgpu::TextureFormat::Rgba16Float,
+                wgpu::TextureFormat::Rg16Float,
+            ]
+            .into_iter()
+            .map(|format| {
+                Some(wgpu::ColorTargetState {
+                    format,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                })
+            })
+            .collect()
         } else {
-            wgpu::ColorTargetState {
-                format: wgpu::TextureFormat::Rgba16Float,
-                blend: None,
-                write_mask: wgpu::ColorWrites::ALL,
-            }
-        })];
+            vec![Some(if fragment == "resolve_reflections" {
+                super::probes::reflection_resolve_target()
+            } else {
+                wgpu::ColorTargetState {
+                    format: wgpu::TextureFormat::Rgba16Float,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                }
+            })]
+        };
         let _pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some(name),
             layout: Some(&layout),
@@ -395,6 +439,35 @@ fn build_native_pipelines() {
         let error = bevy::tasks::block_on(device.pop_error_scope());
         assert!(error.is_none(), "{entry}: {error:?}");
     }
+    let descriptor = super::multiple_scattering::generation_layout();
+    let group = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some(descriptor.label.as_ref()),
+        entries: &descriptor.entries,
+    });
+    let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("Enhanced atmospheric transfer production layout"),
+        bind_group_layouts: &[&group],
+        push_constant_ranges: &[],
+    });
+    let source = shader_source::composed_module(
+        &super::multiple_scattering::shader_source(include_str!("multiple_scattering.wgsl")),
+        &[],
+    );
+    device.push_error_scope(wgpu::ErrorFilter::Validation);
+    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("Enhanced atmospheric transfer"),
+        source: wgpu::ShaderSource::Naga(std::borrow::Cow::Owned(source)),
+    });
+    let _pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+        label: Some("generate_multiple_scattering"),
+        layout: Some(&layout),
+        module: &shader,
+        entry_point: Some("generate_multiple_scattering"),
+        compilation_options: Default::default(),
+        cache: None,
+    });
+    let error = bevy::tasks::block_on(device.pop_error_scope());
+    assert!(error.is_none(), "atmospheric transfer: {error:?}");
 }
 
 // Night and brightness darken the lightmap, never the open-sky gate on direct moonlight.

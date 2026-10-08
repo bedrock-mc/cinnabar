@@ -122,6 +122,8 @@ pub enum MenuAction {
     SettingsResetChat,
     SettingsAdvancedGraphics,
     ToggleRenderMode,
+    CycleEnhancedQuality,
+    SetEnhancedQuality(ui::EnhancedQuality),
     PauseResume,
     PauseDisconnect,
     PauseSettings,

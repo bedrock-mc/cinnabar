@@ -9,15 +9,16 @@ use bevy::{
         diagnostic::RecordDiagnostics,
         render_graph::{NodeRunError, RenderGraphContext, RenderLabel, ViewNode},
         render_resource::{
-            BindGroup, BindGroupEntry, BindingResource, BlendState, CachedRenderPipelineId,
-            ColorTargetState, ColorWrites, FragmentState, LoadOp, Operations, PipelineCache,
-            RenderPassColorAttachment, RenderPassDescriptor, RenderPipelineDescriptor, StoreOp,
-            TextureView,
+            BindGroup, BindGroupEntry, BindingResource, BlendState, Buffer, BufferId,
+            CachedRenderPipelineId, ColorTargetState, ColorWrites, FragmentState, LoadOp,
+            Operations, PipelineCache, RenderPassColorAttachment, RenderPassDescriptor,
+            RenderPipelineDescriptor, StoreOp, TextureView, TextureViewId,
         },
         renderer::{RenderContext, RenderDevice},
         view::{ViewDepthTexture, ViewTarget},
     },
 };
+use std::{collections::HashMap, sync::Mutex};
 
 use super::{
     ENHANCED_POST_SHADER_HANDLE, EnhancedRendering,
@@ -99,21 +100,42 @@ pub(crate) fn lighting_ready(world: &World) -> bool {
         && world
             .resource::<super::cloud_noise::CloudNoiseVolume>()
             .ready()
+        && world
+            .resource::<super::multiple_scattering::MultipleScattering>()
+            .ready()
 }
 
 struct PostInputs<'a> {
-    frame: BindingResource<'a>,
+    frame: &'a Buffer,
     source: &'a TextureView,
     opaque: &'a TextureView,
     shafts: &'a TextureView,
     depth: &'a TextureView,
+    opaque_depth: &'a TextureView,
     shadow: &'a TextureView,
     history: &'a TextureView,
     effects: &'a TextureView,
     sky: &'a TextureView,
-    exposure: BindingResource<'a>,
+    exposure: &'a Buffer,
     motion: &'a TextureView,
+    receiver_normal: &'a TextureView,
     noise: &'a super::cloud_noise::CloudNoiseVolume,
+    scattering: &'a super::multiple_scattering::MultipleScattering,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+struct PostBindingKey {
+    buffers: [BufferId; 2],
+    textures: [TextureViewId; 13],
+}
+
+#[derive(Default)]
+pub(crate) struct PostBindings(Mutex<HashMap<PostBindingKey, BindGroup>>);
+
+impl PostBindings {
+    pub(crate) fn clear(&self) {
+        self.0.lock().expect("Enhanced post bindings").clear();
+    }
 }
 
 /// Binds this view and the post-process inputs.
@@ -121,74 +143,118 @@ fn post_bind_group(
     device: &RenderDevice,
     cache: &PipelineCache,
     gpu: &EnhancedGpu,
+    bindings: &PostBindings,
     inputs: PostInputs,
 ) -> BindGroup {
-    device.create_bind_group(
-        "enhanced post bind group",
-        &cache.get_bind_group_layout(&enhanced_post_layout()),
-        &[
-            BindGroupEntry {
-                binding: 0,
-                resource: inputs.frame,
-            },
-            BindGroupEntry {
-                binding: 1,
-                resource: BindingResource::TextureView(inputs.source),
-            },
-            BindGroupEntry {
-                binding: 2,
-                resource: BindingResource::Sampler(&gpu.linear_sampler),
-            },
-            BindGroupEntry {
-                binding: 3,
-                resource: BindingResource::TextureView(inputs.opaque),
-            },
-            BindGroupEntry {
-                binding: 4,
-                resource: BindingResource::TextureView(inputs.shafts),
-            },
-            BindGroupEntry {
-                binding: 5,
-                resource: BindingResource::TextureView(inputs.depth),
-            },
-            BindGroupEntry {
-                binding: 6,
-                resource: BindingResource::TextureView(inputs.shadow),
-            },
-            BindGroupEntry {
-                binding: 7,
-                resource: BindingResource::Sampler(&gpu.shadow_sampler),
-            },
-            BindGroupEntry {
-                binding: 8,
-                resource: BindingResource::TextureView(inputs.history),
-            },
-            BindGroupEntry {
-                binding: 9,
-                resource: BindingResource::TextureView(inputs.effects),
-            },
-            BindGroupEntry {
-                binding: 10,
-                resource: BindingResource::TextureView(inputs.sky),
-            },
-            BindGroupEntry {
-                binding: 11,
-                resource: inputs.exposure,
-            },
-            BindGroupEntry {
-                binding: 12,
-                resource: BindingResource::TextureView(inputs.motion),
-            },
-            BindGroupEntry {
-                binding: 13,
-                resource: BindingResource::TextureView(&inputs.noise.view),
-            },
-            BindGroupEntry {
-                binding: 14,
-                resource: BindingResource::Sampler(&inputs.noise.sampler),
-            },
+    let key = PostBindingKey {
+        buffers: [inputs.frame.id(), inputs.exposure.id()],
+        textures: [
+            inputs.source.id(),
+            inputs.opaque.id(),
+            inputs.shafts.id(),
+            inputs.depth.id(),
+            inputs.opaque_depth.id(),
+            inputs.shadow.id(),
+            inputs.history.id(),
+            inputs.effects.id(),
+            inputs.sky.id(),
+            inputs.motion.id(),
+            inputs.noise.view.id(),
+            inputs.receiver_normal.id(),
+            inputs.scattering.view.id(),
         ],
-    )
+    };
+    let mut bindings = bindings.0.lock().expect("Enhanced post bindings");
+    if bindings.len() >= 32 && !bindings.contains_key(&key) {
+        bindings.clear();
+    }
+    bindings
+        .entry(key)
+        .or_insert_with(|| {
+            device.create_bind_group(
+                "enhanced post bind group",
+                &cache.get_bind_group_layout(&enhanced_post_layout()),
+                &[
+                    BindGroupEntry {
+                        binding: 0,
+                        resource: inputs.frame.as_entire_binding(),
+                    },
+                    BindGroupEntry {
+                        binding: 1,
+                        resource: BindingResource::TextureView(inputs.source),
+                    },
+                    BindGroupEntry {
+                        binding: 2,
+                        resource: BindingResource::Sampler(&gpu.linear_sampler),
+                    },
+                    BindGroupEntry {
+                        binding: 3,
+                        resource: BindingResource::TextureView(inputs.opaque),
+                    },
+                    BindGroupEntry {
+                        binding: 4,
+                        resource: BindingResource::TextureView(inputs.shafts),
+                    },
+                    BindGroupEntry {
+                        binding: 5,
+                        resource: BindingResource::TextureView(inputs.depth),
+                    },
+                    BindGroupEntry {
+                        binding: 6,
+                        resource: BindingResource::TextureView(inputs.shadow),
+                    },
+                    BindGroupEntry {
+                        binding: 7,
+                        resource: BindingResource::Sampler(&gpu.shadow_sampler),
+                    },
+                    BindGroupEntry {
+                        binding: 8,
+                        resource: BindingResource::TextureView(inputs.history),
+                    },
+                    BindGroupEntry {
+                        binding: 9,
+                        resource: BindingResource::TextureView(inputs.effects),
+                    },
+                    BindGroupEntry {
+                        binding: 10,
+                        resource: BindingResource::TextureView(inputs.sky),
+                    },
+                    BindGroupEntry {
+                        binding: 11,
+                        resource: inputs.exposure.as_entire_binding(),
+                    },
+                    BindGroupEntry {
+                        binding: 12,
+                        resource: BindingResource::TextureView(inputs.motion),
+                    },
+                    BindGroupEntry {
+                        binding: 13,
+                        resource: BindingResource::TextureView(&inputs.noise.view),
+                    },
+                    BindGroupEntry {
+                        binding: 14,
+                        resource: BindingResource::Sampler(&inputs.noise.sampler),
+                    },
+                    BindGroupEntry {
+                        binding: 15,
+                        resource: BindingResource::TextureView(inputs.opaque_depth),
+                    },
+                    BindGroupEntry {
+                        binding: 16,
+                        resource: BindingResource::TextureView(inputs.receiver_normal),
+                    },
+                    BindGroupEntry {
+                        binding: 22,
+                        resource: BindingResource::TextureView(&inputs.scattering.view),
+                    },
+                    BindGroupEntry {
+                        binding: 23,
+                        resource: BindingResource::Sampler(&inputs.scattering.sampler),
+                    },
+                ],
+            )
+        })
+        .clone()
 }
 
 /// Draws one fullscreen pass.
@@ -301,19 +367,23 @@ impl ViewNode for EnhancedLightingNode {
                 &device,
                 cache,
                 gpu,
+                &post.bindings,
                 PostInputs {
                     noise: world.resource::<super::cloud_noise::CloudNoiseVolume>(),
-                    frame: state.frame.as_entire_binding(),
+                    scattering: world.resource::<super::multiple_scattering::MultipleScattering>(),
+                    frame: &state.frame,
                     source: black,
                     opaque: black,
                     shafts: black,
                     depth: &scene.depth_view,
+                    opaque_depth: &scene.depth_view,
                     shadow,
                     history: black,
                     effects,
                     sky,
-                    exposure: state.exposure.value.as_entire_binding(),
+                    exposure: &state.exposure.value,
                     motion: &scene.motion_view,
+                    receiver_normal: &scene.receiver_normal_view,
                 },
             )
         };
@@ -329,6 +399,9 @@ impl ViewNode for EnhancedLightingNode {
                 sky,
                 &group,
             );
+            post.atmosphere_cache.mark_sky_rendered();
+        }
+        if post.atmosphere_cache.environment_needs_update() {
             if super::probes::update_environment_sky(
                 context,
                 world,
@@ -336,7 +409,7 @@ impl ViewNode for EnhancedLightingNode {
                 &post.sky,
                 &scene.depth_view,
             ) {
-                post.atmosphere_cache.mark_sky_rendered();
+                post.atmosphere_cache.mark_environment_rendered();
             }
         }
         if post.atmosphere_cache.cloud_shadow_needs_update() {
@@ -415,22 +488,32 @@ impl ViewNode for EnhancedSkyNode {
             context.render_device(),
             cache,
             gpu,
+            &post.bindings,
             PostInputs {
                 noise: world.resource::<super::cloud_noise::CloudNoiseVolume>(),
-                frame: state.frame.as_entire_binding(),
+                scattering: world.resource::<super::multiple_scattering::MultipleScattering>(),
+                frame: &state.frame,
                 source: black,
                 opaque: black,
                 shafts: black,
                 depth: depth.view(),
+                opaque_depth: state
+                    .scene
+                    .as_ref()
+                    .map_or(&gpu.fallback_depth, |scene| &scene.depth_view),
                 shadow,
                 history: black,
                 effects: &post.effects,
                 sky: &post.sky,
-                exposure: state.exposure.value.as_entire_binding(),
+                exposure: &state.exposure.value,
                 motion: state
                     .scene
                     .as_ref()
                     .map_or(black, |scene| &scene.motion_view),
+                receiver_normal: state
+                    .scene
+                    .as_ref()
+                    .map_or(black, |scene| &scene.receiver_normal_view),
             },
         );
         fullscreen_pass(
@@ -489,16 +572,19 @@ impl ViewNode for EnhancedPostNode {
         if settings.reflection_capture {
             return Ok(());
         }
+        if !lighting_ready(world) {
+            return Ok(());
+        }
         let Some(post_targets) = &state.post else {
             return Ok(());
         };
         let (
-            Some(shafts),
+            shafts,
             Some(composite),
             Some(_sky),
             Some(_cloud_shadow),
             Some(_effects),
-            Some(temporal),
+            temporal,
             Some(present),
             Some(_background),
         ) = (
@@ -514,6 +600,11 @@ impl ViewNode for EnhancedPostNode {
         else {
             return Ok(());
         };
+        if (state.shafts.is_some() && shafts.is_none())
+            || (settings.temporal_aa && temporal.is_none())
+        {
+            return Ok(());
+        }
         if !target.is_hdr() {
             return Ok(());
         }
@@ -532,29 +623,41 @@ impl ViewNode for EnhancedPostNode {
                 &device,
                 cache,
                 gpu,
+                &post_targets.bindings,
                 PostInputs {
                     noise: world.resource::<super::cloud_noise::CloudNoiseVolume>(),
-                    frame: state.frame.as_entire_binding(),
+                    scattering: world.resource::<super::multiple_scattering::MultipleScattering>(),
+                    frame: &state.frame,
                     source,
                     opaque: state.scene.as_ref().map_or(black, |scene| &scene.mips[0]),
                     shafts,
                     depth: depth.view(),
+                    opaque_depth: state
+                        .scene
+                        .as_ref()
+                        .map_or(&gpu.fallback_depth, |scene| &scene.depth_view),
                     shadow,
                     history,
                     effects,
                     sky,
-                    exposure: state.exposure.value.as_entire_binding(),
+                    exposure: &state.exposure.value,
                     motion: state
                         .scene
                         .as_ref()
                         .map_or(black, |scene| &scene.motion_view),
+                    receiver_normal: state
+                        .scene
+                        .as_ref()
+                        .map_or(black, |scene| &scene.receiver_normal_view),
                 },
             )
         };
         let clear = LoadOp::Clear(wgpu::Color::TRANSPARENT);
 
-        let shaft_view = state.shafts.as_ref().map(|texture| &texture.default_view);
-        if let Some(shaft_view) = shaft_view {
+        let shaft_view = state.shafts.as_ref().map(|texture| &texture.view);
+        if let Some(shaft_view) = shaft_view
+            && let Some(shafts) = shafts
+        {
             let group = bind(black, black, black, black, black);
             fullscreen_pass(
                 context,
@@ -594,31 +697,32 @@ impl ViewNode for EnhancedPostNode {
             composite,
             &group,
         );
-        let index = state.history.index as usize % 2;
-        let group = bind(
-            &post_targets.composite,
-            black,
-            &post_targets.history_views[1 - index],
-            &post_targets.effects,
-            black,
-        );
-        fullscreen_pass(
-            context,
-            world,
-            "enhanced temporal resolve",
-            &post_targets.history_views[index],
-            clear,
-            temporal,
-            &group,
-        );
+        let resolved = if settings.temporal_aa
+            && let Some(temporal) = temporal
+        {
+            let index = state.history.index as usize % 2;
+            let group = bind(
+                &post_targets.composite,
+                black,
+                &post_targets.history_views[1 - index],
+                &post_targets.effects,
+                black,
+            );
+            fullscreen_pass(
+                context,
+                world,
+                "enhanced temporal resolve",
+                &post_targets.history_views[index],
+                clear,
+                temporal,
+                &group,
+            );
+            &post_targets.history_views[index]
+        } else {
+            &post_targets.composite
+        };
         let post = target.post_process_write();
-        let group = bind(
-            &post_targets.history_views[index],
-            black,
-            black,
-            black,
-            black,
-        );
+        let group = bind(resolved, black, black, black, black);
         fullscreen_pass(
             context,
             world,

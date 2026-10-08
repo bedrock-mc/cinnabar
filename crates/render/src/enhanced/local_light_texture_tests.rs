@@ -432,7 +432,7 @@ fn native_point_shadow_face_and_embedded_viewport_reject_occluded_receivers() {
     source.chunks.insert(
         Entity::from_bits(1),
         vec![LightSource {
-            position: Vec3::new(0.0, 0.0, -8.0),
+            position: Vec3::new(0.0, 0.0, -24.0),
             level: 15,
             dimension: 0,
         }],
@@ -508,5 +508,38 @@ fn native_point_shadow_face_and_embedded_viewport_reject_occluded_receivers() {
         (view.rebuilds, view.uploads),
         counts,
         "geometry-only changes reuse source and tile GPU bytes"
+    );
+    let identities = view.shadow_lane_identities();
+    let pool = (
+        view.shadow_candidates.as_ptr(),
+        view.shadow_candidates.clone(),
+    );
+    view.submitted.store(true, Ordering::Relaxed);
+    view.prepare(
+        &render_device,
+        &render_queue,
+        &source,
+        Some(0),
+        Vec3::ZERO,
+        clip * Mat4::from_rotation_y(std::f32::consts::PI),
+        [256, 256],
+        0,
+        false,
+        true,
+    );
+    assert_eq!(
+        view.shadow_lane_identities(),
+        identities,
+        "camera turns preserve shadow ownership"
+    );
+    assert_eq!(view.shadow_candidates.as_ptr(), pool.0);
+    assert_eq!(view.shadow_candidates, pool.1);
+    assert_eq!(
+        view.data.info[3], 1,
+        "offscreen owners remain in the dense atlas prefix"
+    );
+    assert!(
+        !view.dirty,
+        "turning alone does not recapture a lamp's static world"
     );
 }

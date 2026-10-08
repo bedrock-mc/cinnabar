@@ -2,7 +2,6 @@
 #import cinnabar::enhanced_common::EnhancedFrame
 #import cinnabar::enhanced_atmosphere::environment_sky
 
-const SSR_TAPS: u32 = 40u;
 const SSR_DISTANCE: f32 = 72.0;
 const WATER_ABSORPTION: vec3<f32> = vec3(0.34, 0.105, 0.055);
 const WATER_SCATTERING_ALBEDO: vec3<f32> = vec3(0.025, 0.13, 0.18);
@@ -186,11 +185,12 @@ fn trace_reflection(frame: EnhancedFrame, colour: texture_2d<f32>, depth_map: te
     let pixel_length = max(pixel_delta.x, pixel_delta.y);
     if (!(pixel_length > 1.0 && pixel_length < 1.0e10)) { return vec4(0.0); }
     // Screen-space steps interpolate NDC depth, avoiding exponential jumps in world space.
-    let stride = max(1.0 / pixel_length, end_fraction / f32(SSR_TAPS));
+    let taps = select(40u, u32(clamp(frame.quality.x, 8.0, 64.0)), frame.quality.x > 0.0);
+    let stride = max(1.0 / pixel_length, end_fraction / f32(taps));
     var previous_fraction = 0.0;
     var previous_delta = -1.0;
     var fraction = stride * (0.5 + jitter * 0.5);
-    for (var march = 0u; march < SSR_TAPS; march += 1u) {
+    for (var march = 0u; march < taps; march += 1u) {
         if (fraction > end_fraction) { break; }
         let probe = start + delta * fraction;
         if (!valid_scene_uv(probe)) { break; }
@@ -222,15 +222,30 @@ fn trace_reflection(frame: EnhancedFrame, colour: texture_2d<f32>, depth_map: te
                         * f32(textureNumLevels(colour) - 1u);
                     let sample = filtered_scene_colour(frame, colour, depth_map, hit.xy, hit_depth);
                     var radiance = sample.rgb;
+                    var footprint_coverage = sample.a;
                     if (mip > 0.5 && sample.a > 0.999) {
-                        radiance = textureSampleLevel(colour, linear_sampler, hit.xy, mip).rgb;
+                        // A colour mip may include geometry across a depth edge.
+                        let radius = exp2(mip) * 0.75 / vec2<f32>(textureDimensions(colour));
+                        for (var corner = 0u; corner < 4u; corner += 1u) {
+                            let offset = vec2(select(-1.0, 1.0, (corner & 1u) != 0u),
+                                select(-1.0, 1.0, (corner & 2u) != 0u));
+                            let sample_uv = hit.xy + radius * offset;
+                            var coverage = 0.0;
+                            if (all(sample_uv > vec2(0.0)) && all(sample_uv < vec2(1.0))) {
+                                coverage = water_depth_weight(near, hit_depth, scene_depth_at(depth_map, sample_uv));
+                            }
+                            footprint_coverage = min(footprint_coverage, coverage);
+                        }
+                        if (footprint_coverage > 0.95) {
+                            radiance = textureSampleLevel(colour, linear_sampler, hit.xy, mip).rgb;
+                        }
                     }
                     let edge = min(min(hit.x, 1.0 - hit.x), min(hit.y, 1.0 - hit.y));
                     let confidence = water_ssr_hit_confidence(
                         edge,
                         travel,
                         roughness,
-                        sample.a,
+                        footprint_coverage,
                         behind,
                         thickness,
                     );

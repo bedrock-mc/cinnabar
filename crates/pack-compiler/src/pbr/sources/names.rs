@@ -2,7 +2,11 @@ use std::path::Path;
 
 fn java_name(stem: &str) -> String {
     fn wood(name: &str) -> &str {
-        if name == "big_oak" { "dark_oak" } else { name }
+        match name {
+            "big_oak" | "roofed_oak" => "dark_oak",
+            "wood" => "oak",
+            _ => name,
+        }
     }
     for (prefix, suffix) in [
         ("concrete_powder_", "concrete_powder"),
@@ -11,9 +15,23 @@ fn java_name(stem: &str) -> String {
         ("stained_glass_", "stained_glass"),
         ("glass_pane_top_", "stained_glass_pane_top"),
         ("glass_", "stained_glass"),
+        ("hardened_clay_stained_", "terracotta"),
+        ("glazed_terracotta_", "glazed_terracotta"),
     ] {
         if let Some(color) = stem.strip_prefix(prefix) {
+            let color = if color == "silver" {
+                "light_gray"
+            } else {
+                color
+            };
             return format!("{color}_{suffix}");
+        }
+    }
+    if let Some(value) = stem.strip_prefix("door_") {
+        for (ending, face) in [("_lower", "bottom"), ("_upper", "top")] {
+            if let Some(name) = value.strip_suffix(ending) {
+                return format!("{}_door_{face}", wood(name));
+            }
         }
     }
     if let Some(value) = stem.strip_prefix("log_") {
@@ -32,10 +50,20 @@ fn java_name(stem: &str) -> String {
             return format!("{}_{suffix}", wood(value));
         }
     }
+    if stem.ends_with("_log_side") {
+        return stem.trim_end_matches("_side").to_owned();
+    }
+    if let Some(name) = stem.strip_suffix("_door_lower") {
+        return format!("{name}_door_bottom");
+    }
+    if let Some(name) = stem.strip_suffix("_stem_side") {
+        return format!("{name}_stem");
+    }
     match stem {
         "grass_carried" | "grass_top" => "grass_block_top",
         "grass_side" | "grass_side_carried" => "grass_block_side",
         "grass_side_overlay" => "grass_block_side_overlay",
+        "grass_side_snow" => "grass_block_snow",
         "grass_path_top" => "dirt_path_top",
         "grass_path_side" => "dirt_path_side",
         "stonebrick" => "stone_bricks",
@@ -54,6 +82,32 @@ fn java_name(stem: &str) -> String {
         "stone_granite" => "granite",
         "stone_diorite" => "diorite",
         "stone_andesite" => "andesite",
+        "stone_granite_smooth" => "polished_granite",
+        "stone_diorite_smooth" => "polished_diorite",
+        "stone_andesite_smooth" => "polished_andesite",
+        "stone_slab_top" => "smooth_stone",
+        "stone_slab_side" => "smooth_stone_slab_side",
+        "rail_normal" => "rail",
+        "rail_normal_turned" => "rail_corner",
+        "rail_golden" => "powered_rail",
+        "rail_golden_powered" => "powered_rail_on",
+        "rail_activator" => "activator_rail",
+        "rail_activator_powered" => "activator_rail_on",
+        "rail_detector" => "detector_rail",
+        "rail_detector_powered" => "detector_rail_on",
+        "ice_packed" => "packed_ice",
+        "sponge_wet" => "wet_sponge",
+        "trapdoor" => "oak_trapdoor",
+        "nether_brick" => "nether_bricks",
+        "red_nether_brick" => "red_nether_bricks",
+        "end_bricks" => "end_stone_bricks",
+        "prismarine_dark" => "dark_prismarine",
+        "prismarine_rough" => "prismarine",
+        "hardened_clay" => "terracotta",
+        "crimson_log_side" => "crimson_stem",
+        "crimson_log_top" => "crimson_stem_top",
+        "bamboo_leaf" => "bamboo_large_leaves",
+        "bamboo_small_leaf" => "bamboo_small_leaves",
         "quartz_block_side" => "quartz_block_side",
         "quartz_block_lines" => "quartz_pillar",
         "quartz_block_lines_top" => "quartz_pillar_top",
@@ -82,7 +136,22 @@ pub(super) fn variants(alias: &str) -> Vec<String> {
         alias.replace("textures/blocks/", "textures/block/"),
         alias.replace("textures/block/", "textures/blocks/"),
     ];
-    result.push(format!("textures/block/{java}"));
+    let directory = if alias.starts_with("textures/items/") {
+        "item"
+    } else {
+        "block"
+    };
+    result.push(format!("textures/{directory}/{java}"));
+    result.push(format!("textures/{directory}s/{java}"));
+    if stem == "tallgrass" {
+        result.push("textures/block/short_grass".to_owned());
+    }
+    if stem == "snow" {
+        result.push("textures/blocks/snow_block".to_owned());
+    }
+    if java == "stripped_crimson_stem_top" {
+        result.push("textures/block/stripped_crimson_log_top".to_owned());
+    }
     if java.starts_with("sandstone") {
         result.push(format!(
             "textures/block/{}",

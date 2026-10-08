@@ -1,18 +1,17 @@
-//! Optional 512-pixel authored terrain materials; the compiled carrier owns identity and timing.
+//! Optional authored terrain materials; the compiled carrier owns identity and timing.
 
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    sync::Arc,
-};
+use std::{collections::BTreeMap, sync::Arc};
 
 use assets::{MaterialKeys, NO_ANIMATION, RuntimeAssets, TextureArray, TextureMip, TextureRef};
 use image::{ImageBuffer, Rgba};
 use pack_compiler::pbr::{PbrMipLayer, PbrPack, PbrSurface, build_pbr_mips, load_pbr_texture};
 
+mod audit;
 mod cache;
 mod config;
 
 const REF_FALLBACK: u32 = u32::MAX;
+const LOW_PBR_TILE_SIZE: u32 = assets::TILE_SIZE * 2;
 
 #[derive(Clone, Copy)]
 struct Source {
@@ -90,17 +89,17 @@ fn sources(runtime: &RuntimeAssets, keys: &MaterialKeys) -> BTreeMap<String, Vec
 }
 
 struct Page {
+    size: u32,
     layers: u32,
     data: Vec<Vec<u8>>,
 }
 
 impl Page {
-    fn new() -> Self {
+    fn new(size: u32) -> Self {
         Self {
+            size,
             layers: 0,
-            data: (0..=assets::PBR_TILE_SIZE.ilog2())
-                .map(|_| Vec::new())
-                .collect(),
+            data: (0..=size.ilog2()).map(|_| Vec::new()).collect(),
         }
     }
     fn append(&mut self, mips: &[TextureMip]) {
@@ -117,7 +116,7 @@ impl Page {
                 .into_iter()
                 .enumerate()
                 .map(|(level, data)| TextureMip {
-                    size: assets::PBR_TILE_SIZE >> level,
+                    size: self.size >> level,
                     rgba8: data.into_boxed_slice(),
                 })
                 .collect::<Vec<_>>()
@@ -126,7 +125,7 @@ impl Page {
     }
 }
 
-fn fallback() -> PbrMipLayer {
+fn fallback(size: u32) -> PbrMipLayer {
     let image = |pixel| ImageBuffer::from_pixel(1, 1, Rgba(pixel));
     build_pbr_mips(
         &PbrSurface {
@@ -135,90 +134,79 @@ fn fallback() -> PbrMipLayer {
             material: image([0, 0, 255, 0]),
             flags: 0,
         },
-        assets::PBR_TILE_SIZE,
+        size,
         false,
     )
     .expect("constant authored fallback is valid")
 }
 
-fn one_page(mips: Box<[TextureMip]>) -> TextureArray {
-    TextureArray { layers: 1, mips }
-}
-
-fn load(groups: BTreeMap<String, Vec<Source>>, packs: &[PbrPack]) -> Option<cache::Payload> {
-    let catalog_aliases = groups.len();
-    let mut colors = Page::new();
-    let mut normals = Page::new();
-    let mut materials = Page::new();
+fn load(
+    groups: BTreeMap<String, Vec<Source>>,
+    packs: &[PbrPack],
+) -> (Option<cache::Payload>, Vec<audit::Alias>) {
+    let pages = || {
+        [
+            Page::new(assets::PBR_TILE_SIZE),
+            Page::new(LOW_PBR_TILE_SIZE),
+        ]
+    };
+    let mut colors = pages();
+    let mut normals = pages();
+    let mut materials = pages();
     let mut references = vec![REF_FALLBACK; assets::MAX_TEXTURE_PAGES * assets::MAX_TEXTURE_LAYERS];
-    let mut authored_normals = BTreeSet::new();
-    let mut authored_materials = BTreeSet::new();
-    let mut authored_heights = BTreeSet::new();
-    let mut loaded_aliases = 0_usize;
-    let mut missing_color_aliases = 0;
-    let mut aliases_with_normals = 0;
-    let mut aliases_with_materials = 0;
-    let mut aliases_with_heights = 0;
-    let mut errors = 0;
+    let mut audit_aliases = Vec::with_capacity(groups.len());
     for (alias, sources) in groups {
+        let mut audit_alias = audit::Alias::new(alias.clone(), sources.len());
         let texture = match load_pbr_texture(packs, &alias) {
-            Ok(Some(texture)) => {
-                loaded_aliases += 1;
-                if texture.flags() & assets::PBR_REF_NORMAL != 0 {
-                    aliases_with_normals += 1;
-                }
-                if texture.flags() & assets::PBR_REF_MATERIAL != 0 {
-                    aliases_with_materials += 1;
-                }
-                if texture.has_height_map() {
-                    aliases_with_heights += 1;
-                }
-                texture
-            }
+            Ok(Some(texture)) => texture,
             Ok(None) => {
-                missing_color_aliases += 1;
+                audit_alias.missing = true;
+                audit_alias.fallback = true;
+                audit_aliases.push(audit_alias);
                 continue;
             }
             Err(error) => {
-                errors += 1;
                 eprintln!("Enhanced PBR {alias}: {error}; retained carrier fallback");
+                audit_alias.error = true;
+                audit_alias.fallback = true;
+                audit_aliases.push(audit_alias);
                 continue;
             }
         };
+        audit_alias.apply_source(&texture);
+        let target_page = usize::from(texture.native_frame_size() <= LOW_PBR_TILE_SIZE);
+        let tile_size = colors[target_page].size;
+        audit_alias.upload_tile_size = Some(tile_size);
         let mut completed = BTreeMap::new();
         for source in sources {
             let key = (source.frame, source.count, source.cutout);
             let encoded = if let Some(&reference) = completed.get(&key) {
                 reference
             } else {
-                if colors.layers >= assets::MAX_TEXTURE_LAYERS as u32 {
+                if colors[target_page].layers >= assets::MAX_TEXTURE_LAYERS as u32 {
+                    audit_alias.fallback = true;
                     break;
                 }
                 let mip = texture
                     .frame(source.frame, source.count)
-                    .and_then(|frame| build_pbr_mips(&frame, assets::PBR_TILE_SIZE, source.cutout));
+                    .and_then(|frame| build_pbr_mips(&frame, tile_size, source.cutout));
                 let mip = match mip {
                     Ok(mip) => mip,
                     Err(error) => {
-                        errors += 1;
                         eprintln!("Enhanced PBR {alias} frame {}: {error}", source.frame);
+                        audit_alias.error = true;
                         continue;
                     }
                 };
-                let layer = colors.layers;
-                let reference = TextureRef::new(0, layer).ok()?.raw() | mip.flags;
-                colors.append(&mip.color);
-                normals.append(&mip.normal);
-                materials.append(&mip.material);
-                if mip.flags & assets::PBR_REF_NORMAL != 0 {
-                    authored_normals.insert(layer);
-                }
-                if mip.flags & assets::PBR_REF_MATERIAL != 0 {
-                    authored_materials.insert(layer);
-                }
-                if mip.flags & assets::PBR_REF_HEIGHT != 0 {
-                    authored_heights.insert(layer);
-                }
+                let layer = colors[target_page].layers;
+                let Ok(texture_ref) = TextureRef::new(target_page as u32, layer) else {
+                    audit_alias.error = true;
+                    continue;
+                };
+                let reference = texture_ref.raw() | mip.flags;
+                colors[target_page].append(&mip.color);
+                normals[target_page].append(&mip.normal);
+                materials[target_page].append(&mip.material);
                 completed.insert(key, reference);
                 reference
             };
@@ -226,53 +214,84 @@ fn load(groups: BTreeMap<String, Vec<Source>>, packs: &[PbrPack]) -> Option<cach
             let layer = (source.texture & 0x7ff) as usize;
             if page < assets::MAX_TEXTURE_PAGES {
                 references[page * assets::MAX_TEXTURE_LAYERS + layer] = encoded;
+                audit_alias.apply_reference(encoded);
+            } else {
+                audit_alias.fallback = true;
             }
         }
+        audit_alias.finish();
+        audit_aliases.push(audit_alias);
     }
-    if colors.layers == 0 {
-        eprintln!(
-            "Enhanced authored terrain: no color maps matched ({missing_color_aliases} of {catalog_aliases} catalog aliases; {errors} invalid sources)"
-        );
-        return None;
+    if colors.iter().all(|page| page.layers == 0) {
+        return (None, audit_aliases);
     }
-    let mapped_texture_refs = references
-        .iter()
-        .filter(|&&value| value != REF_FALLBACK)
-        .count();
-    eprintln!(
-        "Enhanced authored terrain: {loaded_aliases}/{catalog_aliases} color aliases, {mapped_texture_refs} mapped texture refs, {} albedo layers at {}x{}; {aliases_with_normals} normal, {aliases_with_materials} material, {aliases_with_heights} height aliases; {} normal, {} material, {} height layers; {} without normal, {} without material, {} without height; {missing_color_aliases} missing colors, {errors} skipped invalid sources",
-        colors.layers,
-        assets::PBR_TILE_SIZE,
-        assets::PBR_TILE_SIZE,
-        authored_normals.len(),
-        authored_materials.len(),
-        authored_heights.len(),
-        loaded_aliases.saturating_sub(aliases_with_normals),
-        loaded_aliases.saturating_sub(aliases_with_materials),
-        loaded_aliases.saturating_sub(aliases_with_heights),
-    );
-    let fallback = fallback();
-    Some(cache::Payload {
-        color: [colors.finish(), one_page(fallback.color)],
-        normal: [normals.finish(), one_page(fallback.normal)],
-        material: [materials.finish(), one_page(fallback.material)],
-        references: references.into_boxed_slice(),
-    })
+    for index in 0..2 {
+        if colors[index].layers == 0 {
+            let fallback = fallback(colors[index].size);
+            colors[index].append(&fallback.color);
+            normals[index].append(&fallback.normal);
+            materials[index].append(&fallback.material);
+        }
+    }
+    (
+        Some(cache::Payload {
+            color: colors.map(Page::finish),
+            normal: normals.map(Page::finish),
+            material: materials.map(Page::finish),
+            references: references.into_boxed_slice(),
+        }),
+        audit_aliases,
+    )
 }
 
 pub(crate) fn load_optional_enhanced_textures(
     runtime: &RuntimeAssets,
     keys: &MaterialKeys,
 ) -> Option<Arc<render::EnhancedTextureAssets>> {
-    let packs = config::selected_packs()?;
+    let packs: Vec<_> = config::selected_packs()?
+        .into_iter()
+        .map(|pack| pack.with_terrain_aliases(keys.aliases()))
+        .collect();
     let groups = sources(runtime, keys);
     let fingerprint = cache::fingerprint(&packs, &groups);
     if let Some(key) = fingerprint.as_ref() {
-        if let Some(cached) = cache::load(key).and_then(cache::Payload::into_assets) {
-            return Some(Arc::new(cached));
+        if let Some(mut report) = audit::load(key)
+            && let Some(cached) = cache::load(key)
+        {
+            report.source = "cached_with_provenance".to_owned();
+            report.print();
+            if let Some(cached) = cached.into_assets() {
+                return Some(Arc::new(cached));
+            }
         }
     }
-    let payload = load(groups, &packs)?;
+    let (payload, aliases) = load(groups, &packs);
+    let report = audit::Report::decoded(
+        &fingerprint.unwrap_or([0; 32]),
+        aliases,
+        payload.as_ref().map_or(0, |payload| {
+            payload
+                .references
+                .iter()
+                .filter(|&&reference| reference != REF_FALLBACK)
+                .count()
+        }),
+        payload.as_ref().map_or(0, |payload| {
+            payload
+                .references
+                .iter()
+                .filter(|&&reference| reference != REF_FALLBACK)
+                .map(|reference| (reference >> 31, reference & 0x7ff))
+                .collect::<std::collections::BTreeSet<_>>()
+                .len() as u32
+        }),
+        payload.as_ref().map(|payload| {
+            std::array::from_fn(|index| payload.color[index].mips.first().map_or(0, |mip| mip.size))
+        }),
+    );
+    report.print();
+    audit::save(&report);
+    let payload = payload?;
     if let Some(key) = fingerprint.as_ref() {
         cache::save(key, &payload);
     }

@@ -4,6 +4,7 @@
 #endif
 #ifdef ENHANCED_MOTION
 #import cinnabar::enhanced_actor_motion::submitted_surface_motion
+#import cinnabar::enhanced_common::encode_geometric_normal
 #endif
 #import bevy_render::view::View
 #import cinnabar::biome_tint::{blended_biome_tint, blended_biome_tint_gamma}
@@ -490,8 +491,11 @@ fn fragment(
     var material_mer_sample=sample_pbr_texture(false,in.current_texture,material_uv,dx,dy);
     if (in.frame_blend>0.0) {
         material_normal_sample=mix(material_normal_sample,sample_pbr_texture(true,in.next_texture,material_uv,dx,dy),in.frame_blend);
-        material_mer_sample=mix(material_mer_sample,sample_pbr_texture(false,in.next_texture,material_uv,dx,dy),in.frame_blend);
+        material_mer_sample=blend_material_sample(material_mer_sample,sample_pbr_texture(false,in.next_texture,material_uv,dx,dy),in.frame_blend,
+            select(0u,authored_material_ref(in.current_texture),authored_material_ref(in.current_texture)!=0xffffffffu));
     }
+    let shading_normal=material_normal(material_normal_sample,basis);
+    material_mer_sample=material_specular_aa(material_mer_sample,shading_normal);
     let shaded = shade_material(
         colour.rgb,
         in.normal,
@@ -501,7 +505,7 @@ fn fragment(
         in.sky_light,
         in.ambient_occlusion * material_normal_sample.b,
         in.surface_class,
-        material_normal(material_normal_sample,basis),
+        shading_normal,
         material_mer_sample,
         select(0u,authored_material_ref(in.current_texture),authored_material_ref(in.current_texture)!=0xffffffffu),
         parallax_direct_visibility(in.current_texture,material_uv,dx,dy,enhanced_light_direction(),basis,distance(view.world_position,in.world_position),
@@ -536,8 +540,11 @@ fn fragment_blend(
     var material_mer_sample=sample_pbr_texture(false,in.current_texture,in.uv,dx,dy);
     if (in.frame_blend>0.0) {
         material_normal_sample=mix(material_normal_sample,sample_pbr_texture(true,in.next_texture,in.uv,dx,dy),in.frame_blend);
-        material_mer_sample=mix(material_mer_sample,sample_pbr_texture(false,in.next_texture,in.uv,dx,dy),in.frame_blend);
+        material_mer_sample=blend_material_sample(material_mer_sample,sample_pbr_texture(false,in.next_texture,in.uv,dx,dy),in.frame_blend,
+            select(0u,authored_material_ref(in.current_texture),authored_material_ref(in.current_texture)!=0xffffffffu));
     }
+    let shading_normal=material_normal(material_normal_sample,basis);
+    material_mer_sample=material_specular_aa(material_mer_sample,shading_normal);
     let shaded = shade_material(
         colour.rgb,
         in.normal,
@@ -547,7 +554,7 @@ fn fragment_blend(
         in.sky_light,
         in.ambient_occlusion * material_normal_sample.b,
         in.surface_class,
-        material_normal(material_normal_sample,basis),
+        shading_normal,
         material_mer_sample,
         select(0u,authored_material_ref(in.current_texture),authored_material_ref(in.current_texture)!=0xffffffffu),
         1.0,
@@ -581,12 +588,16 @@ fn fragment_shadow(in: VertexOutput, @builtin(front_facing) front: bool) {
     if (caster_excludes_emitter(in.world_position)) { discard; }
 }
 #ifdef ENHANCED_MOTION
+struct CameraSurface {
+    @location(0) motion: vec4<f32>,
+    @location(1) normal: vec2<f32>,
+}
 @fragment
-fn fragment_motion(in: VertexOutput, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {
+fn fragment_motion(in: VertexOutput, @builtin(front_facing) front: bool) -> CameraSurface {
     shadow_coverage(in, front);
     let current_uv = (in.clip_position.xy - view.viewport.xy) / view.viewport.zw;
     let clip = vec4(current_uv * vec2(2.0, -2.0) + vec2(-1.0, 1.0), 0.0, 1.0);
-    return submitted_surface_motion(clip, in.previous_clip, caster_history_valid());
+    return CameraSurface(submitted_surface_motion(clip, in.previous_clip, caster_history_valid()), encode_geometric_normal(in.normal));
 }
 #endif
 #endif

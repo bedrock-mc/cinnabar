@@ -6,12 +6,14 @@
 mod actor_lighting;
 pub mod primitive_shapes;
 mod publication;
+mod quality;
 mod skin;
 
 pub use actor_lighting::{ACTOR_SHADE_COEFFICIENTS, fancy_actor_shade};
 pub use publication::{
     PublicationAllowance, PublicationPermit, PublicationPermitStage, PublicationServiceConfig,
 };
+pub use quality::EnhancedQuality;
 pub use skin::{
     CLASSIC_SKIN_SIDE, MAX_CLASSIC_SKIN_SIDE, MAX_SKIN_ANIMATION_LAYERS, MAX_STANDARD_SKIN_SIDE,
     SkinRgba8, expand_legacy_skin_rgba8,

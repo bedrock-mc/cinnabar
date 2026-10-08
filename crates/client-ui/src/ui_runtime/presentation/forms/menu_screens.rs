@@ -702,6 +702,7 @@ pub(super) fn action_for(view: &MenuView, region: &HitRegion) -> Option<MenuActi
             .or_else(|| super::settings_reset::action(view, region))
             .or_else(|| super::settings_keys::action(region))
             .or_else(|| super::settings_controls::action(view, region))
+            .or_else(|| super::enhanced_setting::action(view, region))
     {
         return Some(action);
     }
@@ -788,9 +789,6 @@ pub(super) fn action_for(view: &MenuView, region: &HitRegion) -> Option<MenuActi
 }
 
 fn toggle_action(view: &MenuView, region: &HitRegion) -> Option<MenuAction> {
-    if let Some(action) = super::enhanced_setting::action(view, region) {
-        return Some(action);
-    }
     match region.control_name.as_deref()?.trim_start_matches('#') {
         "full_screen" if view.screen == MenuScreen::Settings => {
             Some(MenuAction::SettingsFullscreen(!view.fullscreen))

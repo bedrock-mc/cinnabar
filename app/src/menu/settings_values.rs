@@ -51,6 +51,31 @@ pub(crate) const VOLUME_SLIDERS: [(&str, Option<AudioCategory>); 11] = [
     (super::settings_options::VOLUME_SETTINGS[10], None),
 ];
 impl MenuRuntime {
+    /// Routes extension edits through the saved graphics request.
+    pub(super) fn activate_enhanced_settings(&mut self, action: super::MenuAction) {
+        if !render_model::ENHANCED_RENDERING_ENABLED {
+            return;
+        }
+        match action {
+            super::MenuAction::ToggleRenderMode => {
+                self.render_mode = self.render_mode.toggled();
+                self.render_mode_request = Some(self.render_mode);
+            }
+            action if self.render_mode == ui::RenderMode::Enhanced => {
+                let quality = match action {
+                    super::MenuAction::CycleEnhancedQuality => self.enhanced_quality.next(),
+                    super::MenuAction::SetEnhancedQuality(quality) => quality,
+                    _ => return,
+                };
+                if self.enhanced_quality != quality {
+                    self.enhanced_quality = quality;
+                    self.enhanced_quality_request = Some(quality);
+                }
+            }
+            _ => {}
+        }
+    }
+
     /// A capture's fixed CLI scale, cleared when the native option is changed.
     pub(crate) fn gui_scale_preference(&self) -> Option<u8> {
         self.gui_scale_preference

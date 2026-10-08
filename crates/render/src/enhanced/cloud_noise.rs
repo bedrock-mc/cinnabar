@@ -1,4 +1,4 @@
-//! Persistent tileable cloud noise and its filtered three-dimensional mip chain.
+//! Persistent tileable cloud noise with shape deviation in its filtered mip chain.
 
 use bevy::{
     asset::uuid_handle,

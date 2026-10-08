@@ -4,6 +4,7 @@
 #endif
 #ifdef ENHANCED_MOTION
 #import cinnabar::enhanced_actor_motion::submitted_surface_motion
+#import cinnabar::enhanced_common::encode_geometric_normal
 #endif
 #import bevy_render::view::View
 #import cinnabar::biome_tint::{blended_biome_tint, blended_biome_tint_gamma, uniform_biome_tint_gamma}
@@ -588,10 +589,12 @@ fn shade_cube(in: VertexOutput, sampled: vec4<f32>,
     if (in.frame_blend > 0.0) {
         pbr_normal_sample = mix(pbr_normal_sample,
             sample_pbr_texture(true, in.next_texture, material_uv, uv_dx, uv_dy), in.frame_blend);
-        pbr_mer_sample = mix(pbr_mer_sample,
-            sample_pbr_texture(false, in.next_texture, material_uv, uv_dx, uv_dy), in.frame_blend);
+        pbr_mer_sample = blend_material_sample(pbr_mer_sample,
+            sample_pbr_texture(false, in.next_texture, material_uv, uv_dx, uv_dy), in.frame_blend,
+            select(0u,authored_material_ref(in.current_texture),authored_material_ref(in.current_texture)!=0xffffffffu));
     }
     let shading_normal=material_normal(pbr_normal_sample,basis);
+    pbr_mer_sample=material_specular_aa(pbr_mer_sample,shading_normal);
     let colour = apply_material_tint(
         sampled,
         in.material_flags,
@@ -649,12 +652,16 @@ fn fragment_shadow(in: VertexOutput, @builtin(front_facing) front: bool) {
     if (caster_excludes_emitter(in.world_position)) { discard; }
 }
 #ifdef ENHANCED_MOTION
+struct CameraSurface {
+    @location(0) motion: vec4<f32>,
+    @location(1) normal: vec2<f32>,
+}
 @fragment
-fn fragment_motion(in: VertexOutput, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {
+fn fragment_motion(in: VertexOutput, @builtin(front_facing) front: bool) -> CameraSurface {
     shadow_coverage(in, front);
     let current_uv = (in.clip_position.xy - view.viewport.xy) / view.viewport.zw;
     let clip = vec4(current_uv * vec2(2.0, -2.0) + vec2(-1.0, 1.0), 0.0, 1.0);
-    return submitted_surface_motion(clip, in.previous_clip, caster_history_valid());
+    return CameraSurface(submitted_surface_motion(clip, in.previous_clip, caster_history_valid()), encode_geometric_normal(in.normal));
 }
 #endif
 #endif
