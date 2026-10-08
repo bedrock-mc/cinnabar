@@ -511,6 +511,13 @@ struct Ledger<'a> {
     starved: Option<ActorLifetimeId>,
 }
 
+fn hold_pose_history(state: &mut ActorRigState) {
+    state.previous.clone_from(&state.current);
+    if let Some(frame) = state.render_frame.as_mut() {
+        frame.hold_motion();
+    }
+}
+
 impl Ledger<'_> {
     fn take_reset_generation(&mut self) -> u64 {
         let generation = *self.next_reset_generation;
@@ -534,7 +541,7 @@ impl Ledger<'_> {
             Step::Hold => {}
             Step::GeometryOnly => {
                 if self.advance_history {
-                    state.previous.clone_from(&state.current);
+                    hold_pose_history(state);
                 }
                 if state.reset_pending {
                     state.reset_pending = false;
@@ -546,7 +553,7 @@ impl Ledger<'_> {
             Step::Culled => {
                 state.culled = true;
                 if self.advance_history {
-                    state.previous.clone_from(&state.current);
+                    hold_pose_history(state);
                 }
                 state.completed_tick = self.tick;
             }
@@ -555,7 +562,7 @@ impl Ledger<'_> {
                     self.starve(job.lifetime);
                     // A frozen tick holds the pose instead of replaying the last change.
                     if self.advance_history {
-                        state.previous.clone_from(&state.current);
+                        hold_pose_history(state);
                     }
                     return;
                 };
@@ -574,7 +581,7 @@ impl Ledger<'_> {
                             EvalError::Invalid => self.freeze(),
                         }
                         if self.advance_history {
-                            job.state.previous.clone_from(&job.state.current);
+                            hold_pose_history(job.state);
                         }
                     }
                 }

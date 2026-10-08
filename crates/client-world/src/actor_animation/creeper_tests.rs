@@ -39,7 +39,8 @@ fn assert_installed_creeper_samples(powered: bool) {
         return;
     };
     let assets = Arc::new(RuntimeEntityAssets::decode(&std::fs::read(path).unwrap()).unwrap());
-    let mut store = crate::actor_store::ActorStore::new_with_entity_assets(1, 0, assets);
+    let mut store =
+        crate::actor_store::ActorStore::new_with_entity_assets(1, 0, Arc::clone(&assets));
     store.apply(
         1,
         1,
@@ -67,7 +68,23 @@ fn assert_installed_creeper_samples(powered: bool) {
         }),
     );
     store.advance_interpolation_ticks(2);
-    let tick = store.actor_rig(1).unwrap().completed_tick;
+    let rig = store.actor_rig(1).unwrap();
+    let body = rig
+        .bone_names
+        .iter()
+        .position(|name| name.as_ref() == "body")
+        .unwrap();
+    let exact = store.render_frame(0.0).layers(1).unwrap();
+    let drawn = if exact[0].pose.is_empty() {
+        &rig.previous[body]
+    } else {
+        &exact[0].previous_pose[body]
+    };
+    assert_eq!(
+        drawn.axis_scale, rig.current[body].axis_scale,
+        "zero fraction must sample the same swelling as the completed tick"
+    );
+    let tick = rig.completed_tick;
     let early = store.render_frame(0.25).layers(1).unwrap().into_owned();
     let late = store.render_frame(0.75).layers(1).unwrap().into_owned();
     assert_ne!(
@@ -126,6 +143,53 @@ fn assert_installed_creeper_samples(powered: bool) {
             expected,
             "swelling must retain tick interpolation for head motion"
         );
+    }
+    let mut actor = store.get(1).unwrap().clone();
+    let mut animation = ActorAnimationStore::with_assets(assets);
+    animation.insert(1, 0, &actor);
+    animation.advance_tick(
+        &HashMap::from([(1, actor.clone())]),
+        None,
+        None,
+        true,
+        true,
+        |_| ActorTickContext::default(),
+    );
+    actor.pitch = -30.0;
+    animation.advance_tick(
+        &HashMap::from([(1, actor.clone())]),
+        None,
+        None,
+        true,
+        true,
+        |_| ActorTickContext::default(),
+    );
+    assert_ne!(
+        animation.get(1).unwrap().previous[head].rotation,
+        animation.get(1).unwrap().current[head].rotation
+    );
+    animation.schedule.world_budget = 0;
+    animation.advance_tick(
+        &HashMap::from([(1, actor.clone())]),
+        None,
+        None,
+        true,
+        true,
+        |_| ActorTickContext::default(),
+    );
+    let held = animation.get(1).unwrap();
+    assert_eq!(held.previous[head].rotation, held.current[head].rotation);
+    for alpha in [0.0, 0.25, 0.75] {
+        let mut remaining = MAX_MOLANG_OPS_PER_RENDER_FRAME;
+        let layers = animation
+            .render_layers(&actor, alpha, [0.0; 2], [0.0; 3], &mut remaining, false)
+            .unwrap();
+        for layer in layers.render.iter().filter(|layer| !layer.pose.is_empty()) {
+            assert_eq!(
+                layer.previous_pose[head].rotation, layer.pose[head].rotation,
+                "frozen motion must stay held while swelling is sampled"
+            );
+        }
     }
     store.apply(
         1,

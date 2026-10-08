@@ -58,6 +58,18 @@ pub(super) struct FrameState {
     pub swell_layers: BTreeMap<u32, SwellPoses>,
 }
 
+impl FrameState {
+    pub(super) fn hold_motion(&mut self) {
+        for poses in self
+            .swell_poses
+            .iter_mut()
+            .chain(self.swell_layers.values_mut())
+        {
+            poses.previous.clone_from(&poses.current);
+        }
+    }
+}
+
 #[derive(Debug)]
 pub(super) struct SwellPoses {
     pub previous: Vec<pose::LocalDelta>,
@@ -139,8 +151,11 @@ impl ActorAnimationStore {
             render: Cow::Borrowed(state.render.as_slice()),
             skin: Cow::Borrowed(state.skin_layers.as_slice()),
         };
-        let Some(frame) = state.render_frame.as_ref().filter(|_| {
-            (partial_tick > 0.0 || state.samples_camera_poses || state.samples_swing_poses)
+        let Some(frame) = state.render_frame.as_ref().filter(|frame| {
+            (partial_tick > 0.0
+                || state.samples_camera_poses
+                || state.samples_swing_poses
+                || (frame.swell_poses.is_some() && actor.creeper_swell_changes()))
                 && *remaining_ops > 0
                 && (!state.culled || state.samples_camera_poses)
                 && !state.reset_pending
