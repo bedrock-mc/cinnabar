@@ -2,10 +2,9 @@
 //! six-face cube array, so the view is an exact perspective cube.
 //!
 //! It is opaque and draws in the main opaque pass: world passes queue nothing
-//! while it shows, so the menu's scene is one pass and FXAA is off.
+//! while it shows, so the menu's scene uses one pass.
 use crate::panorama::PanoramaScene;
 use bevy::{
-    anti_alias::fxaa::Fxaa,
     asset::{load_internal_asset, uuid_handle},
     core_pipeline::core_3d::{CORE_3D_DEPTH_FORMAT, Opaque3d, Opaque3dBatchSetKey, Opaque3dBinKey},
     ecs::{
@@ -69,10 +68,6 @@ struct Installed;
 
 fn install(app: &mut App) {
     app.init_resource::<PanoramaScene>();
-    if !app.world().contains_resource::<Installed>() {
-        app.insert_resource(Installed)
-            .add_systems(PostUpdate, sync_scene_antialiasing);
-    }
     let Some(render_app) = app.get_sub_app(RenderApp) else {
         return;
     };
@@ -100,16 +95,6 @@ fn install(app: &mut App) {
                 queue_panorama.in_set(RenderSystems::Queue),
             ),
         );
-}
-
-/// FXAA only smooths 3D edges; with no world under the UI it would only soften the panorama.
-fn sync_scene_antialiasing(scene: Res<PanoramaScene>, mut cameras: Query<&mut Fxaa>) {
-    let enabled = scene.game_visible();
-    for mut fxaa in &mut cameras {
-        if fxaa.enabled != enabled {
-            fxaa.enabled = enabled;
-        }
-    }
 }
 
 #[derive(Resource)]
@@ -524,36 +509,5 @@ mod review_tests {
         let descriptor = fixture::queued_descriptor(&mut cache, id);
         let target = descriptor.fragment.as_ref().unwrap().targets[0].as_ref();
         assert_eq!(target.unwrap().blend, None);
-    }
-
-    /// FXAA follows whether a 3D scene is under the UI.
-    #[test]
-    fn fxaa_is_off_while_no_world_is_drawn() {
-        let mut app = App::new();
-        app.init_resource::<PanoramaScene>()
-            .add_systems(Update, sync_scene_antialiasing);
-        let camera = app.world_mut().spawn(Fxaa::default()).id();
-        let enabled = |app: &App| app.world().get::<Fxaa>(camera).unwrap().enabled;
-        app.update();
-        assert!(enabled(&app));
-        app.world_mut()
-            .resource_mut::<PanoramaScene>()
-            .set_game_visible(false);
-        app.update();
-        assert!(!enabled(&app));
-        app.world_mut()
-            .resource_mut::<PanoramaScene>()
-            .set_game_visible(true);
-        app.world_mut()
-            .resource_mut::<PanoramaScene>()
-            .show(Some(render_model::PanoramaView {
-                yaw_radians: 0.0,
-                pitch_radians: 0.0,
-                vertical_fov_radians: 1.0,
-                aspect: 1.0,
-                tint: [0.0; 4],
-            }));
-        app.update();
-        assert!(!enabled(&app));
     }
 }

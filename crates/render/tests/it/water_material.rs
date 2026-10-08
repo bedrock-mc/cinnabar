@@ -1,13 +1,15 @@
 //! Actual ordinary water fragments over a submerged receiver, not alpha strings.
 use crate::gpu_snapshot;
+use crate::material_shader;
 use crate::shader_source;
 
 use gpu_snapshot::{Draw, Gpu, RasterState};
 
 #[test]
-#[ignore = "requires a native GPU adapter; run explicitly on a GPU host"]
 fn water_fragment_preserves_submerged_receiver_and_native_gamma_lighting() {
-    let gpu = Gpu::new().expect("native GPU");
+    let Some(gpu) = Gpu::for_fixture("water material sampling") else {
+        return;
+    };
     let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
         label: Some("water straight-alpha colour witness"),
         size: wgpu::Extent3d {
@@ -18,7 +20,7 @@ fn water_fragment_preserves_submerged_receiver_and_native_gamma_lighting() {
         mip_level_count: 1,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Rgba8UnormSrgb,
+        format: wgpu::TextureFormat::Rgba8Unorm,
         usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
         view_formats: &[],
     });
@@ -92,11 +94,11 @@ fn water_fragment_preserves_submerged_receiver_and_native_gamma_lighting() {
                     resource: view.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
-                    binding: 4,
+                    binding: material_shader::NATIVE_LEAF_TEXTURE_BINDINGS[0],
                     resource: wgpu::BindingResource::TextureView(&atlas),
                 },
                 wgpu::BindGroupEntry {
-                    binding: 5,
+                    binding: material_shader::NATIVE_LEAF_TEXTURE_BINDINGS[1],
                     resource: wgpu::BindingResource::TextureView(&atlas),
                 },
                 wgpu::BindGroupEntry {

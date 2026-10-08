@@ -1,5 +1,5 @@
 //! Nonblocking GPU timing sums elapsed pass latencies, including overlap and gaps, not active work.
-//! Metal times owned passes and the stock opaque pass; whole-frame, FXAA and shared draw categories stay absent.
+//! Metal times owned passes and the stock opaque pass; whole-frame and shared draw categories stay absent.
 
 mod categories;
 mod health;
@@ -96,6 +96,7 @@ fn timed_nodes() -> Vec<(InternedRenderLabel, RuntimeStage)> {
     use crate::ui_render::{UiOverlayLabel, UiWorldLabel, overlay::UiOverlayPostLabel};
     let mut nodes = vec![
         (Node3d::MainOpaquePass.intern(), RuntimeStage::GpuOpaque),
+        (Node3d::EndMainPass.intern(), RuntimeStage::GpuBlit),
         (
             crate::chunk::TerrainPassLabel.intern(),
             RuntimeStage::GpuOpaque,
@@ -128,7 +129,9 @@ fn timed_nodes() -> Vec<(InternedRenderLabel, RuntimeStage)> {
 }
 
 fn wrap_timed_nodes(world: &mut World) {
-    let mut replacement = categories::replacement(world).or_else(|| opaque::replacement(world));
+    let mut replacement = categories::replacement(world);
+    let categories = replacement.is_some();
+    replacement = replacement.or_else(|| opaque::replacement(world));
     let Some(mut graphs) = world.get_resource_mut::<RenderGraph>() else {
         return;
     };
@@ -142,7 +145,7 @@ fn wrap_timed_nodes(world: &mut World) {
         // Replacing the node alone preserves its slots and edges.
         let mut inner = std::mem::replace(&mut state.node, Box::new(EmptyNode));
         if label == Node3d::MainOpaquePass.intern()
-            && categories::replaceable(&*inner)
+            && categories::replaceable(&*inner, categories)
             && let Some(replacement) = replacement.take()
         {
             inner = replacement;

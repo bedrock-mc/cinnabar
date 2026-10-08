@@ -375,14 +375,22 @@ fn build_chunk_texture_assets(
         max_dimension_2d: device_limits.max_texture_dimension_2d,
     };
     let mut upload_plans = Vec::with_capacity(2);
+    let mut terrain_pages = Vec::with_capacity(2);
     for texture in bound_pages {
         let tile_size = texture.mips.first().map_or(0, |mip| mip.size);
         if let Err(error) = limits.validate(texture.layers, tile_size) {
             bevy::log::error!(?error, "chunk texture page exceeds adapter limits");
             return None;
         }
+        let texture = match assets::rebuild_legacy_terrain_mips(texture) {
+            Ok(texture) => texture,
+            Err(error) => {
+                bevy::log::error!(?error, "invalid terrain mip source");
+                return None;
+            }
+        };
         let plans =
-            match plan_texture_mip_uploads(texture, RenderDevice::align_copy_bytes_per_row(1)) {
+            match plan_texture_mip_uploads(&texture, RenderDevice::align_copy_bytes_per_row(1)) {
                 Ok(plans) => plans,
                 Err(error) => {
                     bevy::log::error!(?error, "invalid chunk texture-page upload layout");
@@ -390,7 +398,9 @@ fn build_chunk_texture_assets(
                 }
             };
         upload_plans.push(plans);
+        terrain_pages.push(texture);
     }
+    let bound_pages = [&terrain_pages[0], &terrain_pages[1]];
 
     let material_words = assets
         .assets()
@@ -544,21 +554,14 @@ fn build_chunk_texture_assets(
     Some((prepared, stats))
 }
 
+/// Array layers repeat atlas tiles without changing vanilla's texel or mip filtering.
 pub(in crate::chunk) fn chunk_sampler_descriptor() -> SamplerDescriptor<'static> {
     SamplerDescriptor {
         label: Some("global chunk repeat sampler"),
         address_mode_u: AddressMode::Repeat,
         address_mode_v: AddressMode::Repeat,
         address_mode_w: AddressMode::Repeat,
-        // Vanilla's native 16x16 texels stay crisp when enlarged. Minification
-        // remains linear across the independently generated mip chain to avoid
-        // shimmering in distant geometry. Anisotropy stays disabled because
-        // wgpu requires linear magnification when anisotropy is greater than 1.
-        mag_filter: FilterMode::Nearest,
-        min_filter: FilterMode::Linear,
-        mipmap_filter: FilterMode::Linear,
-        anisotropy_clamp: 1,
-        ..Default::default()
+        ..crate::material_shader::native_leaf_sampler_descriptor()
     }
 }
 

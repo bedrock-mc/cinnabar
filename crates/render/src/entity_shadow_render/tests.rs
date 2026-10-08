@@ -88,36 +88,41 @@ fn the_instance_buffer_grows_to_fit_and_an_empty_frame_draws_nothing() {
     assert_eq!(world.resource::<EntityShadowGpu>().count, 0);
 }
 
-/// Overlapping volumes must not darken twice, and each pixel shades from the back faces once.
+/// Every supported count uses per-sample depth and an overlap stencil, with no colour input.
 #[test]
-fn pipeline_replaces_colour_from_back_faces_and_keeps_alpha() {
+fn pipeline_multiplies_colour_once_per_sample_and_keeps_alpha() {
     let gpu = EntityShadowGpu::new(&noop_world().resource::<RenderDevice>().clone());
-    for (format, gamma) in [
-        (TextureFormat::Rgba8UnormSrgb, true),
-        (ViewTarget::TEXTURE_FORMAT_HDR, false),
-    ] {
-        let descriptor = pipeline_descriptor(gpu.layout.clone(), format);
-        let target = descriptor.fragment.as_ref().unwrap().targets[0]
-            .clone()
-            .unwrap();
-        assert_eq!(target.blend, None);
-        assert_eq!(target.write_mask, ColorWrites::COLOR);
-        assert_eq!(descriptor.primitive.cull_mode, Some(Face::Front));
-        assert!(descriptor.depth_stencil.is_none());
-        let defines_gamma = descriptor
-            .fragment
-            .unwrap()
-            .shader_defs
-            .iter()
-            .any(|def| matches!(def, bevy::shader::ShaderDefVal::Bool(name, true) if name == "GAMMA_TARGET"));
-        assert_eq!(defines_gamma, gamma);
+    for format in [TextureFormat::Rgba8Unorm, ViewTarget::TEXTURE_FORMAT_HDR] {
+        for samples in [1, 2, 4, 8] {
+            let descriptor = pipeline_descriptor(
+                gpu.layouts[usize::from(samples > 1)].clone(),
+                format,
+                samples,
+            );
+            let target = descriptor.fragment.as_ref().unwrap().targets[0]
+                .as_ref()
+                .unwrap();
+            let blend = target.blend.unwrap();
+            assert_eq!(blend.color.src_factor, BlendFactor::Zero);
+            assert_eq!(blend.color.dst_factor, BlendFactor::Src);
+            assert_eq!(target.write_mask, ColorWrites::COLOR);
+            assert_eq!(descriptor.multisample.count, samples);
+            assert_eq!(descriptor.primitive.cull_mode, Some(Face::Front));
+            let stencil = descriptor.depth_stencil.unwrap();
+            assert_eq!(stencil.format, TextureFormat::Stencil8);
+            assert_eq!(stencil.stencil.back.compare, CompareFunction::NotEqual);
+            assert_eq!(stencil.stencil.back.pass_op, StencilOperation::Replace);
+        }
     }
 }
+
+#[path = "coverage_tests.rs"]
+mod coverage;
 
 #[test]
 fn shader_parameter_block_matches_the_rust_layout() {
     let source =
-        crate::shader_source::standalone(include_str!("../entity_shadow.wgsl"), &["GAMMA_TARGET"]);
+        crate::shader_source::standalone(include_str!("../entity_shadow.wgsl"), &["MULTISAMPLED"]);
     let module = naga::front::wgsl::parse_str(&source).expect("entity shadow shader parses");
     let mut layouter = naga::proc::Layouter::default();
     layouter.update(module.to_ctx()).unwrap();
@@ -131,6 +136,21 @@ fn shader_parameter_block_matches_the_rust_layout() {
         layouter[params].size as usize,
         size_of::<EntityShadowParams>()
     );
+}
+
+#[test]
+fn shadow_depth_variants_validate_without_resolving_scene_colour() {
+    for definitions in [&[][..], &["MULTISAMPLED"][..]] {
+        let source =
+            crate::shader_source::standalone(include_str!("../entity_shadow.wgsl"), definitions);
+        let module = naga::front::wgsl::parse_str(&source).unwrap();
+        naga::valid::Validator::new(
+            naga::valid::ValidationFlags::all(),
+            naga::valid::Capabilities::all(),
+        )
+        .validate(&module)
+        .unwrap();
+    }
 }
 
 #[test]

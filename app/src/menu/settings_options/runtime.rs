@@ -14,6 +14,14 @@ use crate::{menu::MenuRuntime, settings_runtime::RuntimeSettings};
 const SETTINGS_RETRY: Duration = Duration::from_secs(1);
 
 impl MenuRuntime {
+    /// Shares the renderer's sample-count intersection with the Video slider and settings handoff.
+    pub(crate) fn sync_anti_aliasing_support(&mut self, support: ui::AntiAliasingSupport) {
+        if self.settings_options.anti_aliasing_support() != support {
+            Arc::make_mut(&mut self.settings_options).set_anti_aliasing_support(support);
+            self.settings_apply = true;
+        }
+    }
+
     /// Persists slot equipment without republishing unrelated video/input preferences.
     pub(crate) fn set_emote_slot_preferences(
         &mut self,

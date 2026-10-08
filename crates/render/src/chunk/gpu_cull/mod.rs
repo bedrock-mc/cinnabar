@@ -144,12 +144,13 @@ impl GpuCullQueue<'_, '_> {
         &mut self,
         entity: Entity,
         view: &ExtractedView,
+        msaa: Msaa,
         solid: (CachedRenderPipelineId, DrawFunctionId),
     ) -> Option<bool> {
         let wants = self
             .direct_state
             .as_deref()
-            .is_some_and(|state| state.wants_verdict(entity, view));
+            .is_some_and(|state| state.wants_verdict(entity, view, msaa));
         Some(
             self.direct
                 .as_deref_mut()?

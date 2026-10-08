@@ -166,15 +166,14 @@ impl Specializer<RenderPipeline> for ChunkPipelineSpecializer {
         descriptor: &mut RenderPipelineDescriptor,
     ) -> Result<Canonical<Self::Key>, BevyError> {
         descriptor.multisample.count = key.msaa.samples();
-        let native_gamma = !key.hdr
-            && key.msaa == Msaa::Off
-            && !(render_model::ENHANCED_RENDERING_ENABLED && key.enhanced)
-            && descriptor
-                .fragment
-                .as_ref()
-                .unwrap()
-                .shader_defs
-                .contains(&"NATIVE_GAMMA_BLEND".into());
+        let native_gamma =
+            super::super::transparent::gamma_pass::admitted(key.hdr, key.msaa, key.enhanced)
+                && descriptor
+                    .fragment
+                    .as_ref()
+                    .unwrap()
+                    .shader_defs
+                    .contains(&"NATIVE_GAMMA_BLEND".into());
         if !native_gamma {
             descriptor
                 .fragment

@@ -1,6 +1,46 @@
 use assets::{build_legacy_terrain_mip_chain, build_texture_mip_chain};
 
 #[test]
+fn terrain_array_rebuild_preserves_layers_and_does_not_mutate_shared_art() {
+    let base = [
+        [0; 4], [255; 4], [0; 4], [0; 4], [120; 4], [120; 4], [120; 4], [120; 4],
+    ]
+    .concat();
+    let texture = assets::TextureArray {
+        layers: 2,
+        mips: vec![assets::TextureMip {
+            size: 2,
+            rgba8: base.clone().into_boxed_slice(),
+        }]
+        .into_boxed_slice(),
+    };
+    let native = assets::rebuild_legacy_terrain_mips(&texture).unwrap();
+    assert_eq!(native.layers, texture.layers);
+    assert_eq!(native.mips[0], texture.mips[0]);
+    assert_eq!(
+        native.mips[1].rgba8.as_ref(),
+        &[63, 63, 63, 63, 120, 120, 120, 120]
+    );
+    assert_eq!(texture.mips.len(), 1);
+    assert_eq!(texture.mips[0].rgba8.as_ref(), base);
+}
+
+#[test]
+fn terrain_array_rebuild_rejects_malformed_layers() {
+    for layers in [0, 2, u32::MAX] {
+        let texture = assets::TextureArray {
+            layers,
+            mips: vec![assets::TextureMip {
+                size: 1,
+                rgba8: vec![0; 4].into_boxed_slice(),
+            }]
+            .into_boxed_slice(),
+        };
+        assert!(assets::rebuild_legacy_terrain_mips(&texture).is_err());
+    }
+}
+
+#[test]
 fn native_terrain_mips_average_unassociated_byte_rgba_and_truncate() {
     let base = [
         [0, 0, 0, 0],
