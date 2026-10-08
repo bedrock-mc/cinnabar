@@ -104,6 +104,7 @@ pub(in super::super) fn capture(
         .is_none_or(|mode| mode.shows_hotbar());
     let mut paint = HudPaint {
         effects: effects(runtime, now_tick),
+        hotbar_cooldowns: frame.hotbar_cooldowns,
         // The third-person preference never overrides the spectator gate.
         crosshair: sheet
             .filter(|_| {
@@ -319,48 +320,78 @@ fn armor(runtime: &UiRuntime, rows: &HeartRows) -> Vec<Cell> {
         .collect()
 }
 
-/// Right-to-left from the control's position, shaking on empty saturation.
-fn hunger(runtime: &UiRuntime, now_tick: Option<u64>) -> Vec<Cell> {
+/// Hunger artwork is shared across controls; each renderer supplies its own update count.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct HungerPaint {
+    current: u32,
+    saturation_empty: bool,
+    sprites: Option<[&'static str; 3]>,
+}
+
+impl HungerPaint {
+    /// Texture candidates do not depend on a control's animation phase.
+    pub fn textures(&self) -> impl Iterator<Item = &str> {
+        self.sprites.iter().flatten().copied()
+    }
+
+    /// Generate both layers at the same icon offset without allocating a row.
+    pub fn cells(&self, updates: u64) -> impl Iterator<Item = Cell> + '_ {
+        let shaking = hunger_shakes(self.saturation_empty, self.current, updates);
+        (0..10u32).flat_map(move |index| {
+            let Some([background, full, half]) = self.sprites else {
+                return [None, None].into_iter().flatten();
+            };
+            let y = if shaking {
+                hunger_shake_offset(index, updates)
+            } else {
+                0.0
+            };
+            let at = [-8.0 - index as f32 * 8.0, y];
+            let foreground = match self.current.saturating_sub(index * 2) {
+                0 => None,
+                1 => Some(half),
+                _ => Some(full),
+            };
+            [
+                Some(Cell::icon(at, background)),
+                foreground.map(|texture| Cell::icon(at, texture)),
+            ]
+            .into_iter()
+            .flatten()
+        })
+    }
+
+    /// Whether survival or mount visibility removed this row.
+    #[cfg(test)]
+    pub fn is_empty(&self) -> bool {
+        self.sprites.is_none()
+    }
+}
+
+/// Capture hunger textures and authoritative food state independently of packet timing.
+fn hunger(runtime: &UiRuntime, now_tick: Option<u64>) -> HungerPaint {
     let Some(hunger) = runtime.hud().hunger() else {
-        return Vec::new();
+        return HungerPaint::default();
     };
     let current = u32::from(hunger.current()).div_ceil(u32::from(hunger.scale()).max(1));
-    let (background, full, half) = if runtime.gameplay_hud().hunger_effect_active(now_tick) {
-        (
+    let roles = if runtime.gameplay_hud().hunger_effect_active(now_tick) {
+        [
             HudTextureRole::HungerEffectBackground,
             HudTextureRole::HungerEffectFull,
             HudTextureRole::HungerEffectHalf,
-        )
+        ]
     } else {
-        (
+        [
             HudTextureRole::HungerBackground,
             HudTextureRole::HungerFull,
             HudTextureRole::HungerHalf,
-        )
+        ]
     };
-    let tick = now_tick.unwrap_or(0);
-    // Without a server clock there is no tick to pulse on, so no shake.
-    let shaking = now_tick.is_some()
-        && hunger_shakes(runtime.gameplay_hud().saturation_empty(), current, tick);
-    let mut cells = Vec::new();
-    for index in 0..10u32 {
-        let shake = if shaking {
-            hunger_shake_offset(index, tick)
-        } else {
-            0.0
-        };
-        let at = [-8.0 - index as f32 * 8.0, shake];
-        cells.push(Cell::icon(at, path(background)));
-        let role = match current.saturating_sub(index * 2) {
-            0 => None,
-            1 => Some(half),
-            _ => Some(full),
-        };
-        if let Some(role) = role {
-            cells.push(Cell::icon(at, path(role)));
-        }
+    HungerPaint {
+        current,
+        saturation_empty: runtime.gameplay_hud().saturation_empty(),
+        sprites: Some(roles.map(path)),
     }
-    cells
 }
 
 /// Mount hearts replace the hunger row while riding, capped at 30 over three rows.

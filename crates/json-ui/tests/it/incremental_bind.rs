@@ -15,6 +15,28 @@ use json_ui::{
 };
 use serde_json::Value;
 
+/// Independent control trees have distinct opaque lifetimes but identical presentation.
+fn presentation_tree(tree: &ResolvedControl) -> ResolvedControl {
+    let mut tree = tree.clone();
+    tree.properties.remove(json_ui::CUSTOM_CONTROL_INSTANCE_KEY);
+    tree.children = tree.children.iter().map(presentation_tree).collect();
+    tree
+}
+
+/// Compare emitted presentation without replacing the live tree or its cached identities.
+fn presentation_nodes(nodes: &[json_ui::DrawNode]) -> Vec<json_ui::DrawNode> {
+    nodes
+        .iter()
+        .cloned()
+        .map(|mut node| {
+            if let json_ui::Draw::Custom { data, .. } = &mut node.draw {
+                data.remove(json_ui::CUSTOM_CONTROL_INSTANCE_KEY);
+            }
+            node
+        })
+        .collect()
+}
+
 /// A named model edit and the subtree it should dirty.
 type Change<T> = (&'static str, &'static str, fn(&mut T));
 
@@ -100,10 +122,17 @@ impl<'c> Pair<'c> {
             }
             None => bind_incremental(&self.tree, &data, &library(cache), state),
         };
-        assert!(bound == expected, "{step}: bound trees differ");
+        assert!(
+            presentation_tree(&bound) == presentation_tree(&expected),
+            "{step}: bound presentation differs"
+        );
         let render = render_bound_cached(bound, ROOT, &env, &ViewState::default(), measures);
         let cold = render_bound(expected, ROOT, &env, &ViewState::default());
-        assert_eq!(render.nodes, cold.nodes, "{step}: draws differ");
+        assert_eq!(
+            presentation_nodes(&render.nodes),
+            presentation_nodes(&cold.nodes),
+            "{step}: draws differ"
+        );
         assert_eq!(render.hits, cold.hits, "{step}: hit regions differ");
         assert_eq!(render.report, cold.report, "{step}: reports differ");
         assert_eq!(

@@ -49,8 +49,9 @@ pub use anim::{
     NodeAnim, Written,
 };
 pub use bind::{
-    BindState, CollectionItem, ControlLibrary, DataSource, EmptyLibrary, FactoryItem, bind,
-    bind_incremental, bind_reporting, bind_shared, bind_stateful, rebind, scoped_key,
+    BindState, CUSTOM_CONTROL_INSTANCE_KEY, CollectionItem, ControlLibrary, DataSource,
+    EmptyLibrary, FactoryItem, bind, bind_incremental, bind_reporting, bind_shared, bind_stateful,
+    rebind, scoped_key,
 };
 pub use catalog::{Catalog, LoadError, RawControl};
 pub use component::{

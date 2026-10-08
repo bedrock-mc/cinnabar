@@ -89,8 +89,9 @@ mod workers;
 
 pub use client_world::ingestion::WorldStreamError;
 use client_world::ingestion::{
-    BlockMutationBatch, CommitStep, DecodeCommit, DecodeCompletion, DecodeIds, DecodeJob,
-    PreparedSubChunkResult, PreparedWorldEvent, QueuedDecodeJob, dimension_slots,
+    BlockMutationBatch, CommitBudget, CommitStep, DecodeCommit, DecodeCompletion, DecodeIds,
+    DecodeJob, Footprint, LaneContext, PreparedSubChunkResult, PreparedWorldEvent, QueuedDecodeJob,
+    dimension_slots,
 };
 use column_set::ColumnSubChunkSet;
 use helpers::*;
@@ -128,6 +129,15 @@ const UNSENT_COLUMN_GRACE: Duration = Duration::from_secs(1);
 const MAX_STAGED_MESH_COMPLETIONS: usize = 256;
 const MAX_STAGED_MESH_BYTES: u64 = 32 * 1024 * 1024;
 const MAX_PENDING_SCHEDULER_SCANS_PER_POLL: usize = 128;
+/// Block batches within both bounds prepare on the commit thread.
+const INLINE_BLOCK_MUTATION_SUB_CHUNKS: usize = 4;
+const INLINE_BLOCK_MUTATION_UPDATES: usize = 64;
+/// Jobs one urgent pass may dispatch outside the poll.
+const URGENT_DISPATCH_BUDGET: usize = 4;
+/// Results one urgent pass may accept outside the poll.
+const URGENT_RESULTS_PER_PASS: usize = 16;
+/// Cooperative time for one urgent pass outside the poll, so it never sweeps a backlog.
+const URGENT_PASS_BUDGET: Duration = Duration::from_millis(1);
 const MAX_PENDING_MESH_QUEUE_WORK_PER_POLL: usize = MAX_PENDING_MESH_CHANGES;
 pub const MAX_IN_FLIGHT_LIGHT_JOBS: usize = 32;
 const MIN_EFFECTIVE_LIGHT_JOB_CAP: usize = 2;
@@ -307,6 +317,10 @@ pub struct WorldStream {
     /// has no view to wait for until the server publishes one.
     startup_terrain_announced: bool,
     seasonal_foliage: seasonal_foliage::SeasonalFoliage,
+    /// Dimension at the newest admitted wire position; commits may still lag behind it.
+    ingress_dimension: i32,
+    /// Terrain ordered behind full decode admission, prepared once capacity frees.
+    deferred_ingress: VecDeque<(u64, WorldEvent, Option<Bytes>)>,
     pending_decode: VecDeque<QueuedDecodeJob>,
     in_flight_decode_jobs: usize,
     predictions: prediction::DeferredPredictions,
@@ -342,9 +356,15 @@ pub struct WorldStream {
     arrival_cohort: Option<residency::ArrivalCohort>,
     poll_deadline: Option<Instant>,
     frame_deadline: Option<Instant>,
+    /// Camera the last poll ordered work by, reused by urgent passes between polls.
+    last_camera_position: [f32; 3],
+    /// A live block change left urgent light or mesh work to dispatch.
+    urgent_work_due: bool,
     /// Per-frame ingress, commit and scheduling allocation.
     poll_budget: Duration,
     polling: bool,
+    /// The poll's one heavy commit allowed past its deadline is still unspent.
+    poll_heavy_guarantee: bool,
     publication_allowance: Option<PublicationAllowance>,
     mesh_changes: MeshChangeQueue,
     publisher: cohort::PublisherScope,

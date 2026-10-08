@@ -327,3 +327,41 @@ func TestSignedOutAddressedNetherNetDialPresentsAnIdentity(t *testing.T) {
 	}
 	_ = conn.Close()
 }
+
+// A RakNet server that never answers fails the join instead of waiting on the caller's context.
+func TestDialTransportBoundsSilentRakNetServer(t *testing.T) {
+	silent, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer silent.Close()
+	go func() {
+		buffer := make([]byte, 2048)
+		for {
+			if _, _, err := silent.ReadFrom(buffer); err != nil {
+				return
+			}
+		}
+	}()
+
+	started := time.Now()
+	result := make(chan error, 1)
+	go func() {
+		conn, err := dialTransportWithin(context.Background(), minecraft.RakNet{}, silent.LocalAddr().String(), 200*time.Millisecond)
+		if conn = usableTransport(conn); conn != nil {
+			_ = conn.Close()
+		}
+		result <- err
+	}()
+	select {
+	case err := <-result:
+		if !errors.Is(err, context.DeadlineExceeded) || !strings.Contains(err.Error(), "did not accept") {
+			t.Fatalf("dial error = %v, want the connect budget to expire", err)
+		}
+		if elapsed := time.Since(started); elapsed > 5*time.Second {
+			t.Fatalf("dial took %s", elapsed)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("dial to a silent server never failed")
+	}
+}

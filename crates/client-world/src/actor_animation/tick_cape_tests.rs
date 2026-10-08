@@ -26,6 +26,30 @@ fn advance(
 }
 
 #[test]
+fn java_pose_retains_only_explicitly_tagged_spear_postures() {
+    for (identifier, is_spear) in [
+        ("test:authored_weapon", true),
+        ("test:kinetic_blade", false),
+        ("minecraft:iron_spear", false),
+    ] {
+        let (actor, mut store) = fixture();
+        let motion = advance(
+            &actor,
+            &mut store,
+            ActorTickContext {
+                main_hand: Some(identifier.into()),
+                main_hand_is_spear: is_spear,
+                main_hand_kinetic: Some(Default::default()),
+                ..Default::default()
+            },
+        );
+        assert_eq!(motion.vanilla_posture, is_spear, "{identifier}");
+        let unequipped = advance(&actor, &mut store, ActorTickContext::default());
+        assert!(!unequipped.vanilla_posture);
+    }
+}
+
+#[test]
 fn cape_bob_reads_native_motion_and_decays_after_remote_interpolation_clears_it() {
     let (mut actor, mut store) = fixture();
     actor.velocity = [5.0, 0.0, 0.0];

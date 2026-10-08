@@ -5,6 +5,11 @@ use crate::{
 };
 
 impl ActorStore {
+    /// The newest sequence the store applied; it rejects anything at or below it.
+    pub(crate) const fn latest_sequence(&self) -> u64 {
+        self.latest_sequence
+    }
+
     pub(crate) fn ridden_unique_id(&self, rider_unique_id: i64) -> Option<i64> {
         self.rider_to_ridden.get(&rider_unique_id).copied()
     }
@@ -154,6 +159,13 @@ impl ActorStore {
     }
     pub(crate) fn item_max_use_ticks(&self, identifier: &str) -> Option<u32> {
         self.items.max_use_ticks(identifier)
+    }
+    /// Retrieves the item's effective attack facts without guessing from its name.
+    pub(crate) fn item_attack_timing(
+        &self,
+        identifier: &str,
+    ) -> Option<&protocol::ItemAttackTiming> {
+        self.items.attack_timing(identifier)
     }
     pub(crate) fn len(&self) -> usize {
         self.actors.len()

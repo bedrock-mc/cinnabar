@@ -264,6 +264,7 @@ struct ActorRigState {
     skin_layers: Vec<SkinRenderLayer>,
     variables: MolangVariables,
     replay: Option<replay::Replay>,
+    complete_spear_variables: bool,
     samples_render_frames: bool,
     samples_camera_poses: bool,
     samples_swing_poses: bool,
@@ -703,7 +704,11 @@ impl ActorAnimationStore {
                 &state.variables,
                 state.completed_tick.saturating_sub(state.lifetime_epoch),
             )
-            .with_input(state.history.back().copied()),
+            .with_input(state.history.back().copied())
+            .with_item_context(
+                state.render_frame.as_ref().map(|frame| &frame.context),
+                state.complete_spear_variables,
+            ),
             java: state.java.motion,
             java_equipped: state.java.equipped(),
         })
@@ -824,6 +829,7 @@ mod geometry;
 mod horse;
 mod hud;
 mod java;
+mod spear;
 pub use java::{JavaHeldItem, JavaMotion, java_mounted_body_yaw, java_walked_distance};
 mod motion;
 mod particles;

@@ -2,7 +2,8 @@
 //! (hearts, armor, hunger, bubbles, mount hearts and jump bar, hotbar slot art,
 //! status effects, the crosshair) draw at their control's position, as the
 //! client's renderers do, so a pack that moves the control moves the art. What
-//! each draws is captured once per frame into [`HudPaint`]. Native cells obey
+//! each draws is captured once per frame into [`HudPaint`]; hunger motion is
+//! updated per control when painted. Native cells obey
 //! the control's inherited clip and viewport.
 
 use std::collections::BTreeMap;
@@ -11,11 +12,17 @@ use serde_json::Value;
 use ui::UiVisual;
 
 use super::Painter;
-use crate::ui_runtime::presentation::hud_layout::HeartPaint;
+use crate::ui_runtime::presentation::hud_layout::{HeartPaint, HungerPaint};
+
+mod hunger_animation;
+pub(in crate::ui_runtime::presentation) use hunger_animation::HungerAnimation;
 
 const CROSSHAIR_TEXTURE: &str = "textures/ui/cross_hair";
 const CROSSHAIR_SIDE: f32 = 16.0;
+pub(in super::super) const HUNGER_RENDERER: &str = "hunger_renderer";
 
+#[cfg(test)]
+mod cooldown_tests;
 #[cfg(test)]
 mod crosshair_tests;
 
@@ -71,13 +78,14 @@ pub struct HudPaint {
     /// Relative to the armor control's top-left, above the heart rows.
     pub armor: Vec<Cell>,
     /// Relative to the hunger control's position, which is the row's right end.
-    pub hunger: Vec<Cell>,
+    pub hunger: HungerPaint,
     pub bubbles: Vec<Cell>,
     pub mount_hearts: Vec<Cell>,
     /// Relative to the effects control's top-right corner.
     pub effects: Vec<Cell>,
     /// Jump-bar background and fill (with its filled GUI width) over the XP bar.
     pub mount_jump: Option<(SheetSprite, SheetSprite, f32)>,
+    pub hotbar_cooldowns: [f32; 9],
     pub crosshair: Option<SheetSprite>,
     pub crosshair_blend: ui::UiBlendMode,
     pub custom_crosshair: Option<ui::mod_hud::Crosshair>,
@@ -88,7 +96,6 @@ impl HudPaint {
     pub fn textures(&self) -> impl Iterator<Item = &str> {
         [
             &self.armor,
-            &self.hunger,
             &self.bubbles,
             &self.mount_hearts,
             &self.effects,
@@ -97,6 +104,7 @@ impl HudPaint {
         .flatten()
         .flat_map(|cell| cell.preferred.into_iter().chain([cell.texture]))
         .chain(self.hearts.textures())
+        .chain(self.hunger.textures())
         .chain(SLOT_ART)
         .chain(self.crosshair.into_iter().flat_map(|_| {
             [
@@ -111,6 +119,7 @@ impl HudPaint {
 pub(super) fn paint(
     painter: &mut Painter<'_>,
     hud: &HudPaint,
+    key: &str,
     renderer: &str,
     data: &BTreeMap<String, Value>,
     dest: [f32; 4],
@@ -128,7 +137,20 @@ pub(super) fn paint(
             return true;
         }
         "armor_renderer" => (&hud.armor, top_left),
-        "hunger_renderer" => (&hud.hunger, top_left),
+        HUNGER_RENDERER => {
+            let updates = painter.art.hunger_update.map_or(1, |advance| {
+                advance(
+                    key,
+                    data.get(json_ui::CUSTOM_CONTROL_INSTANCE_KEY)
+                        .and_then(Value::as_u64),
+                )
+            });
+            let visible = visible_bounds(painter);
+            for cell in hud.hunger.cells(updates) {
+                paint_cell(painter, &cell, top_left, visible, alpha);
+            }
+            return true;
+        }
         "bubbles_renderer" => (&hud.bubbles, top_left),
         "horse_heart_renderer" => (&hud.mount_hearts, top_left),
         "mob_effects_renderer" => (&hud.effects, [dest[2], dest[1]]),
@@ -182,9 +204,37 @@ pub(super) fn paint(
             }
             return true;
         }
+        "hotbar_cooldown_renderer" => {
+            let index = data
+                .get("#collection_index")
+                .and_then(Value::as_f64)
+                .filter(|index| (0.0..9.0).contains(index) && index.fract() == 0.0)
+                .map(|index| index as usize);
+            if let Some(progress) = index.and_then(|index| hud.hotbar_cooldowns.get(index))
+                && progress.is_finite()
+                && *progress > 0.0
+            {
+                let px = painter.px;
+                let side = 16.0;
+                let left = (dest[0] + dest[2] - side * px) * 0.5;
+                let top = (dest[1] + dest[3] - side * px) * 0.5;
+                let progress = progress.min(1.0);
+                let start = (side * (1.0 - progress)).floor();
+                let height = (side * progress).ceil();
+                let _ = painter.solid(
+                    [
+                        left,
+                        top + start * px,
+                        left + side * px,
+                        top + (start + height) * px,
+                    ],
+                    alpha([255, 255, 255, 127]),
+                );
+            }
+            return true;
+        }
         // Renderers with no Cinnabar state draw nothing, as with no data.
-        "hotbar_cooldown_renderer"
-        | "dash_renderer"
+        "dash_renderer"
         | "locator_bar"
         | "vignette_renderer"
         | "progress_indicator_renderer"

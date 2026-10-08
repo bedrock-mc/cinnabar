@@ -84,6 +84,8 @@ impl ActorStore {
                     actor.advance_movement_interpolation();
                     actor.advance_creeper_swell();
                     actor.status.tick();
+                    let using_item = actor.is_using_item();
+                    actor.status.advance_kinetic_hit(using_item);
                 }
                 self.seat_riders();
             }
@@ -180,6 +182,12 @@ impl ActorStore {
                     .as_deref()
                     .and_then(|identifier| items.max_use_ticks(identifier))
                     .unwrap_or(0);
+                let attack = main_hand.as_deref().and_then(|id| items.attack_timing(id));
+                let main_hand_kinetic = attack.and_then(|attack| attack.kinetic_weapon);
+                let main_hand_is_spear = attack.is_some_and(|attack| attack.is_spear);
+                let main_hand_swing_seconds = attack
+                    .and_then(|attack| attack.swing_duration_ticks)
+                    .map(|ticks| ticks as f32 * crate::ACTOR_TICK_DURATION.as_secs_f32());
                 let kind_of = |unique_id: &i64| {
                     unique_to_runtime
                         .get(unique_id)
@@ -223,6 +231,9 @@ impl ActorStore {
                             .map_or(0, |equipment| equipment.selected_slot)
                     },
                     main_hand_max_use_ticks,
+                    main_hand_kinetic,
+                    main_hand_is_spear,
+                    main_hand_swing_seconds,
                     off_hand: held(protocol::ActorHandedness::Left),
                     ridden: rider_to_ridden
                         .get(&actor.unique_id)

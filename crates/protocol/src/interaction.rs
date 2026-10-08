@@ -368,6 +368,46 @@ pub fn click_air_packet(
     .into())
 }
 
+/// Reports an item-directed attack, including its world-space aim and current cooldown.
+pub fn use_item_as_attack_packet(
+    request: HeldItemRequest,
+    direction: [f32; 3],
+    on_cooldown: bool,
+) -> Result<crate::Packet, BlockUsePacketError> {
+    if !direction.into_iter().all(f32::is_finite) {
+        return Err(BlockUsePacketError::NonFiniteRelativeHit);
+    }
+    let click =
+        std::array::from_fn::<_, 3, _>(|axis| request.player_position[axis] + direction[axis]);
+    if !click.into_iter().all(f32::is_finite) {
+        return Err(BlockUsePacketError::NonFiniteRelativeHit);
+    }
+    let mut packet = click_air_packet(request, None)?;
+    let valentine::bedrock::version::v1_26_51::McpePacketData::InventoryTransactionPacket(
+        transaction,
+    ) = &mut packet.data
+    else {
+        unreachable!("click-air builder always produces an inventory transaction");
+    };
+    let InventoryTransactionPacketTransaction::ItemUseInventoryTransaction(transaction) =
+        &mut transaction.transaction
+    else {
+        unreachable!("click-air builder always produces an item-use transaction");
+    };
+    transaction.action_type = ItemUseInventoryTransactionActionType::Useasattack;
+    transaction.click_position = Vec3 {
+        x: click[0],
+        y: click[1],
+        z: click[2],
+    };
+    transaction.client_cooldown_state = if on_cooldown {
+        ItemUseInventoryTransactionClientCooldownState::On
+    } else {
+        ItemUseInventoryTransactionClientCooldownState::Off
+    };
+    Ok(packet)
+}
+
 /// Native action aim rotation runs for actor attacks and held-item releases.
 #[must_use]
 pub fn is_aim_assist_rotation_action(packet: &crate::Packet) -> bool {
@@ -381,6 +421,9 @@ pub fn is_aim_assist_rotation_action(packet: &crate::Packet) -> bool {
         }
         InventoryTransactionPacketTransaction::ItemUseOnActorInventoryTransaction(transaction) => {
             transaction.action_type == ItemUseOnActorInventoryTransactionActionType::Attack
+        }
+        InventoryTransactionPacketTransaction::ItemUseInventoryTransaction(transaction) => {
+            transaction.action_type == ItemUseInventoryTransactionActionType::Useasattack
         }
         _ => false,
     }

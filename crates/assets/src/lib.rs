@@ -36,6 +36,7 @@ mod model;
 mod ogg;
 mod particle;
 mod physics_registry;
+mod potion;
 mod provenance;
 mod registry;
 mod runtime;
@@ -50,6 +51,8 @@ mod ui;
 pub mod vanilla_pack;
 mod vanilla_refs;
 mod weather_textures;
+
+pub use potion::vanilla_potion_variant;
 
 pub use hud_extras::{
     HUD_EXTRA_SIDE, HUD_EXTRAS_MAGIC, HUD_EXTRAS_VERSION, HudExtraRole, HudExtras, HudExtrasError,
@@ -162,12 +165,14 @@ pub use entity::{
 pub use entity::{PACK_EQUIPMENT_INDEX_BASE, PACK_RIG_ID_BASE};
 pub use environment_settings::{CloudQuality, EnvironmentQualitySettings, PrecipitationQuality};
 pub use equipment::{
-    ArmorSlot, AttachablePose, AttachablePoseBone, DEFAULT_LEATHER_RGB, EQUIPMENT_CARRIER_MAGIC,
-    EQUIPMENT_CARRIER_VERSION, EquipmentBinding, EquipmentCategory, EquipmentReference,
-    EquipmentTexture, EquipmentTransform, ItemUseDuration, MAX_EQUIPMENT_BINDINGS,
-    MAX_EQUIPMENT_CARRIER_BYTES, MAX_EQUIPMENT_IDENTIFIER_BYTES, MAX_EQUIPMENT_PIXEL_BYTES,
-    MAX_EQUIPMENT_TEXTURE_SIDE, MAX_EQUIPMENT_TEXTURES, RuntimeEquipmentCatalog, color_mask_texel,
-    encode_equipment_catalog, encode_equipment_catalog_full,
+    ArmorSlot, AttachablePose, AttachablePoseBone, CompiledItemAttackCooldown,
+    CompiledItemAttackTiming, CompiledKineticWeaponTiming, DEFAULT_LEATHER_RGB,
+    EQUIPMENT_CARRIER_MAGIC, EQUIPMENT_CARRIER_VERSION, EquipmentBinding, EquipmentCategory,
+    EquipmentReference, EquipmentTexture, EquipmentTransform, ItemUseDuration,
+    MAX_EQUIPMENT_BINDINGS, MAX_EQUIPMENT_CARRIER_BYTES, MAX_EQUIPMENT_IDENTIFIER_BYTES,
+    MAX_EQUIPMENT_PIXEL_BYTES, MAX_EQUIPMENT_TEXTURE_SIDE, MAX_EQUIPMENT_TEXTURES,
+    RuntimeEquipmentCatalog, color_mask_texel, encode_equipment_catalog,
+    encode_equipment_catalog_full, encode_equipment_catalog_with_attack_timings,
     encode_equipment_catalog_with_textures,
 };
 pub use error::AssetError;

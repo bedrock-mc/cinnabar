@@ -4,6 +4,7 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::hash::{BuildHasherDefault, Hasher};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde_json::Value;
 
@@ -71,9 +72,19 @@ pub struct BindState {
     pub(super) built: Vec<u64>,
 }
 
+/// Allocate an opaque lifetime identity only when a custom control is created.
+pub(super) fn new_custom_instance() -> u64 {
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    NEXT.fetch_add(1, Ordering::Relaxed)
+}
+
 /// One control's memory.
 #[derive(Clone, Debug, Default)]
 pub(super) struct Retained {
+    /// Survives hidden subtrees and refreshes, but never a destroyed control.
+    pub(super) custom_instance: Option<u64>,
+    /// Binding, component, or visibility state owns the bag instead of fresh literals.
+    pub(super) keep_bag: bool,
     pub(super) incarnation: Option<u64>,
     pub(super) parent_incarnation: Option<u64>,
     pub(super) bag: BTreeMap<String, Scalar>,

@@ -264,7 +264,7 @@ fn authority_and_context_changes_publish_only_at_finalize() {
 }
 
 #[test]
-fn settings_validation_is_bounded_and_atomic() {
+fn one_key_publishes_edges_for_each_action_sharing_it() {
     let chord = empty_chord(PhysicalControl::KeyboardUsage(0x04));
     let bindings = vec![
         ActionBinding {
@@ -278,16 +278,35 @@ fn settings_validation_is_bounded_and_atomic() {
             chord,
         },
     ];
-    assert_eq!(
-        ControlSettings::new(bindings, 1.0, 1.0, 1.0, false, false, 0.1, 0.1),
-        Err(BindingError::Conflict {
-            context: InputContext::Gameplay,
-            chord,
-            first: Action::MoveLeft,
-            second: Action::MoveRight,
-        })
-    );
+    let settings = ControlSettings::new(bindings, 1.0, 1.0, 1.0, false, false, 0.1, 0.1).unwrap();
+    let mut router = SemanticInputRouter::default();
+    router.replace_bindings(settings).unwrap();
+    let frame = DeviceFrame {
+        keyboard_mouse: Some(KeyboardMouseFrame {
+            activity_sequence: 1,
+            keys: vec![0x04],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    router.route(frame.clone()).unwrap();
+    let pressed = router.finalize().unwrap();
+    router.route(frame).unwrap();
+    let held = router.finalize().unwrap();
+    router.route(Default::default()).unwrap();
+    let released = router.finalize().unwrap();
+    for action in [Action::MoveLeft, Action::MoveRight] {
+        assert!(pressed.phases[action as usize].pressed);
+        assert!(pressed.phases[action as usize].held);
+        assert!(!held.phases[action as usize].pressed);
+        assert!(held.phases[action as usize].held);
+        assert!(released.phases[action as usize].released);
+        assert!(!released.phases[action as usize].held);
+    }
+}
 
+#[test]
+fn settings_validation_is_bounded_and_atomic() {
     assert!(matches!(
         ControlSettings::new(
             vec![ActionBinding {
