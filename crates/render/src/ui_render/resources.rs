@@ -71,7 +71,11 @@ pub(crate) fn prepare_ui_resources(
     mut gpu: ResMut<UiGpu>,
     stats: Res<UiRenderStatsResource>,
     tick: SystemChangeTick,
-    (coverage, glint): (Option<Res<UiHandCoverage>>, Option<Res<UiGlintSettings>>),
+    (coverage, glint, staging): (
+        Option<Res<UiHandCoverage>>,
+        Option<Res<UiGlintSettings>>,
+        Option<Res<crate::upload_staging::BufferUploadStaging>>,
+    ),
 ) {
     let same_device = &gpu.device == render_device.wgpu_device();
     let device_valid =
@@ -123,7 +127,12 @@ pub(crate) fn prepare_ui_resources(
             let _span =
                 bevy::log::info_span!("ui.viewport_write", bytes = size_of::<UiViewportUniform>())
                     .entered();
-            render_queue.write_buffer(viewport_buffer, 0, bytemuck::bytes_of(uniform));
+            crate::upload_staging::write_batch(
+                staging.as_deref(),
+                &render_device,
+                &render_queue,
+                &[(&*viewport_buffer, 0, bytemuck::bytes_of(uniform))],
+            );
         },
     );
     if let Some(previous) = gpu.last_admitted_revision {
