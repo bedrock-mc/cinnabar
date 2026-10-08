@@ -129,8 +129,11 @@ pub struct UiPresentationRuntime {
     last_frame: Option<frame::BuiltFrame>,
     /// Scene assembly keeps its capacity across unchanged frames and failed builds.
     assembly_nodes: Vec<UiNode>,
+    retained_menu: Option<forms::RetainedMenu>,
     #[cfg(test)]
     tree_builds: usize,
+    #[cfg(test)]
+    oreui_paints: usize,
     scoreboard: PresentedScoreboardCache,
     scoreboard_owner_names: ScoreboardOwnerNameAuthority,
     debug_lines: Option<DebugLines>,
@@ -193,7 +196,7 @@ pub struct UiPresentationRuntime {
     missing_icons: std::sync::Mutex<std::collections::HashSet<String>>,
     /// The hotbar last logged: each slot's identifier and whether it had an icon.
     logged_hotbar: [Option<(Arc<str>, bool)>; 9],
-    menu_view: Option<MenuView>,
+    menu_view: Option<Arc<MenuView>>,
     menu_hit_targets: Vec<(MenuAction, UiRect)>,
     menu_skin_thumbnail_indices: Vec<usize>,
     menu_cape_thumbnail_indices: Vec<usize>,

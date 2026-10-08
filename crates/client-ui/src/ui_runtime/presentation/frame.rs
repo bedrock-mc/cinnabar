@@ -44,6 +44,8 @@ impl UiPresentationRuntime {
         physical_size: [u32; 2],
         dpi_scale: DpiScale,
     ) -> Result<UiRenderInput, UiPresentationError> {
+        #[cfg(feature = "tracy")]
+        let _build_span = bevy::log::info_span!("ui.build").entered();
         dynamic_textures::observe_session(self, runtime.session_id());
         session_icons::observe(self, runtime.session_icons());
         self.observe_server_ui(runtime.server_ui());
@@ -52,6 +54,19 @@ impl UiPresentationRuntime {
         if self.menu_artwork_loader.poll() {
             self.rebuild_dynamic_textures();
         }
+        self.menu_seconds = now_millis as f64 / 1_000.0;
+        self.configure_oreui_motion();
+        if let Some(view) = &self.menu_view {
+            self.menu_scrolls.configure_motion(
+                view.settings_options.value("screen_animations") != 0,
+                self.menu_seconds,
+            );
+        }
+        let frame = (physical_size, dpi_scale.get(), self.safe_area);
+        if let Some(input) = self.retained_menu_input(runtime, frame) {
+            return Ok(input);
+        }
+        self.retained_menu = None;
         let logical_width = physical_size[0] as f32 / dpi_scale.get();
         let logical_height = physical_size[1] as f32 / dpi_scale.get();
         let metrics =
@@ -81,8 +96,6 @@ impl UiPresentationRuntime {
             let stack = runtime.scenes_in(player_runtime, host, &self.screen_settings());
             let scenes = stack.visible(false);
             self.begin_form_frame();
-            self.menu_seconds = now_millis as f64 / 1_000.0;
-            self.configure_oreui_motion();
             let open: Vec<Scene> = stack.scenes().iter().map(|scene| scene.key).collect();
             self.scene_clocks.observe(&open, self.menu_seconds);
             let mut menu_hit_targets = Vec::new();
@@ -277,12 +290,13 @@ impl UiPresentationRuntime {
             self.apply_gui_models(&mut nodes);
             // Unchanged nodes build the same frame unless §k text re-rolls its glyphs, so tree,
             // layout and draw-list construction are skipped.
-            let frame = (physical_size, dpi_scale.get(), safe_area);
             if let (Some(last), Some(input)) = (&self.last_frame, &self.last_input)
                 && last.same(frame, &self.textures, &nodes)
             {
                 self.menu_hit_targets = menu_hit_targets;
-                return Ok(input.clone());
+                let input = input.clone();
+                self.remember_menu(runtime, frame);
+                return Ok(input);
             }
             #[cfg(feature = "tracy")]
             let _span = bevy::log::info_span!("ui.geometry_rebuild").entered();
@@ -304,6 +318,8 @@ impl UiPresentationRuntime {
             {
                 self.tree_builds += 1;
             }
+            #[cfg(feature = "tracy")]
+            let _layout_span = bevy::log::info_span!("ui.layout_publish").entered();
             let mut tree = UiTree::new(nodes.clone()).map_err(UiPresentationError::Tree)?;
             tree.layout(viewport, UiScale::default(), safe_area)
                 .map_err(UiPresentationError::Tree)?;
@@ -326,6 +342,7 @@ impl UiPresentationRuntime {
             .map_err(UiPresentationError::Adapter)?;
             let input = self.stabilize_revision(input);
             self.menu_hit_targets = menu_hit_targets;
+            self.remember_menu(runtime, frame);
             Ok(input)
         })();
         self.assembly_nodes = nodes;

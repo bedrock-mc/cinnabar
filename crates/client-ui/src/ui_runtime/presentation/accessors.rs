@@ -14,7 +14,12 @@ impl UiPresentationRuntime {
             requests.set_locale(view.settings_options.language().unwrap_or(""));
         }
         self.poll_font_fallback();
-        self.menu_view = view;
+        if let (Some(current), Some(incoming)) = (&self.menu_view, &view)
+            && current.as_ref() == incoming
+        {
+            return;
+        }
+        self.menu_view = view.map(Arc::new);
     }
 
     pub fn hit_test_menu(&self, position: UiPoint) -> Option<MenuAction> {

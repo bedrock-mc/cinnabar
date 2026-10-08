@@ -139,6 +139,23 @@ fn all_option_families_round_trip_and_reject_unknown_fields() {
     assert!(SettingsOptions::decode(b"broken").is_none());
 }
 
+/// Fresh user settings and the FOV slider must start from the same vanilla default.
+#[test]
+fn fresh_settings_use_the_field_of_view_slider_default() {
+    let slider = &SETTINGS_OPTIONS[index("field_of_view")];
+    assert_eq!(
+        ui::UserSettings::default().video.horizontal_fov_degrees,
+        slider.default as f32
+    );
+    assert_eq!(
+        SettingsOptions::default()
+            .user_settings()
+            .video
+            .horizontal_fov_degrees,
+        ui::UserSettings::default().video.horizontal_fov_degrees
+    );
+}
+
 #[test]
 fn remapped_keyboard_controls_reach_gameplay_and_survive_reload() {
     let mut settings = SettingsOptions::default();

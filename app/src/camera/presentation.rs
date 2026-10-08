@@ -5,7 +5,7 @@ use super::{
 };
 use crate::{
     local_player::LocalViewPose,
-    movement::{LocalPhysicsController, PhysicsCollisionRegistries},
+    movement::{LocalMovementSpeedAuthority, LocalPhysicsController, PhysicsCollisionRegistries},
     runtime::world::ClientWorld,
     semantic_controls::SemanticInputSnapshot,
 };
@@ -21,6 +21,7 @@ pub(crate) fn collect_fov_inputs(
     settings: Res<CameraSettingsAuthority>,
     ui: Option<Res<UiRuntime>>,
     physics: Option<Res<LocalPhysicsController>>,
+    movement_speed: Option<Res<LocalMovementSpeedAuthority>>,
     inputs: ResMut<CameraFovInputs>,
 ) {
     client_presentation::camera::presentation::collect_fov_inputs(
@@ -30,6 +31,7 @@ pub(crate) fn collect_fov_inputs(
         physics
             .as_deref()
             .map(|value| value as &dyn client_presentation::observations::PhysicsObservation),
+        movement_speed.and_then(|speed| speed.current()),
         inputs,
     );
 }

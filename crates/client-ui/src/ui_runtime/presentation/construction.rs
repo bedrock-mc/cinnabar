@@ -60,8 +60,11 @@ impl UiPresentationRuntime {
             last_input: None,
             last_frame: None,
             assembly_nodes: Vec::new(),
+            retained_menu: None,
             #[cfg(test)]
             tree_builds: 0,
+            #[cfg(test)]
+            oreui_paints: 0,
             scoreboard: PresentedScoreboardCache::default(),
             scoreboard_owner_names: ScoreboardOwnerNameAuthority::default(),
             debug_lines: None,
