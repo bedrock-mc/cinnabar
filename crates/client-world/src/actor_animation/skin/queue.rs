@@ -338,10 +338,10 @@ impl SkinPreparationQueue {
             unchanged,
         } in completed.sources
         {
-            if let Some(previous) = &previous {
-                if let Some(entry) = self.entries.get_mut(&(Arc::as_ptr(previous) as usize)) {
-                    entry.in_flight_references -= 1;
-                }
+            if let Some(previous) = &previous
+                && let Some(entry) = self.entries.get_mut(&(Arc::as_ptr(previous) as usize))
+            {
+                entry.in_flight_references -= 1;
             }
             retired.extend(self.settle(source, outcome, previous, unchanged));
         }

@@ -25,7 +25,7 @@ HEADINGS = {label: heading for label, heading, _ in CATEGORIES}
 DISPLAY_ORDER = ["new", "fix", "performance"]
 DEFAULT_LABEL = "new"
 EMBED_LIMIT = 4096  # Discord's embed description cap
-COLOR = 0x4E5058  # neutral slate
+COLOR = 0x2EC4B6  # teal, complementing the red logo
 ENTRY = re.compile(r"^\* (?P<title>.+?) by @\S+ in (?P<url>https://\S+/pull/(?P<number>\d+))\s*$")
 PREFIX = re.compile(r"^\w+(\([^)]*\))?!?:\s*")
 
