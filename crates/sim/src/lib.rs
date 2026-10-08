@@ -23,10 +23,11 @@ pub use fluid::sample_actor_liquids;
 pub use math::{Vec3, minecraft_cos, minecraft_sin, view_direction};
 pub use prediction::{MotionOverlay, PredictionError, PredictionHistory, ReplayResult};
 pub use simulator::{
-    AxisCollisions, ControlledTickResult, JUMP_DELAY_TICKS, MAX_BLOCK_SAMPLES_PER_TICK,
-    MovementEffects, MovementEnvironment, MovementInput, MovementMode, NORMAL_GRAVITY, PlayerState,
-    ProcessedControls, SPRINT_SPEED_MULTIPLIER, SimulationError, Simulator, TICKS_PER_SECOND,
-    TickResult, pose_fits, sample_liquid_submersion, sample_water_head,
+    AxisCollisions, ControlledTickResult, DEFAULT_MOVEMENT_SPEED, JUMP_DELAY_TICKS,
+    MAX_BLOCK_SAMPLES_PER_TICK, MAX_SAFE_LIQUID_VELOCITY, MovementEffects, MovementEnvironment,
+    MovementInput, MovementMode, NORMAL_GRAVITY, PlayerState, ProcessedControls,
+    SPRINT_SPEED_MULTIPLIER, SimulationError, Simulator, TICKS_PER_SECOND, TickResult, pose_fits,
+    sample_liquid_submersion, sample_water_head,
 };
 pub use world::{
     BlockHit, BlockPhysicsFacts, BlockPhysicsFlags, BlockPhysicsSample, CameraBlockHit,

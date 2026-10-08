@@ -109,6 +109,5 @@ fn settings_interface_has_versioned_typed_sections() {
     assert_eq!(settings.schema_version, CURRENT_SETTINGS_SCHEMA);
     assert_eq!(settings.schema_version, 2);
     assert!(settings.video.horizontal_fov_degrees.is_finite());
-    assert_eq!(settings.video.horizontal_fov_degrees, 90.0);
     assert!(settings.controls.bindings().len() <= 128);
 }

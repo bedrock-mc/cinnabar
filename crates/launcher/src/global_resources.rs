@@ -21,7 +21,7 @@ pub enum Action {
 }
 
 /// Immutable view of the staged selection and worker status.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Snapshot {
     /// Generation of the indexed pack lists, independent of presentation updates.
     pub revision: u64,

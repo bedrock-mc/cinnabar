@@ -675,3 +675,114 @@ fn private_use_codepoints_hit_the_replacement_until_a_sheet_supplies_them() {
     assert_eq!(glyph.bounds_64[2] - glyph.bounds_64[0], 4 * 2 * 64);
     assert_eq!(base.glyph('\u{e001}'), None);
 }
+#[test]
+fn single_line_reuses_normalization_and_clipping_without_new_shaping() {
+    let font = font([0x41; 32]);
+    let mut cache = TextLayoutCache::new(128, 1024 * 1024);
+    let request = TextLayoutRequest {
+        text: "  A\tB\nA ",
+        style: TextStyle::default(),
+        width_64: 4096,
+        line_height_64: 64,
+        baseline_64: 0,
+        scale: UiScale::default(),
+        font: &font,
+        wrap: Default::default(),
+    };
+    let full = cache.single_line(request, 4096).unwrap();
+    assert_eq!(
+        full.glyphs()
+            .iter()
+            .map(|g| g.codepoint)
+            .collect::<String>(),
+        "A B A"
+    );
+    let clipped = cache.single_line(request, 128).unwrap();
+    assert!(clipped.size_64()[0] <= 128);
+    assert!(clipped.glyphs().len() < full.glyphs().len());
+    let shapes = cache.built_layout_count();
+    for _ in 0..10 {
+        assert!(Arc::ptr_eq(
+            &cache.single_line(request, 128).unwrap(),
+            &clipped
+        ));
+        assert!(Arc::ptr_eq(
+            &cache.single_line(request, 4096).unwrap(),
+            &full
+        ));
+    }
+    assert_eq!(cache.built_layout_count(), shapes);
+    assert!(cache.single_line(request, 0).unwrap().glyphs().is_empty());
+}
+
+#[test]
+fn single_line_results_share_the_bounded_cache_and_validate_style() {
+    let font = font([0x42; 32]);
+    let mut cache = TextLayoutCache::new(2, 64 * 1024);
+    let request = TextLayoutRequest {
+        text: "A B A",
+        style: TextStyle::default(),
+        width_64: 4096,
+        line_height_64: 64,
+        baseline_64: 0,
+        scale: UiScale::default(),
+        font: &font,
+        wrap: Default::default(),
+    };
+    for width in 0..512 {
+        cache.single_line(request, width).unwrap();
+    }
+    assert!(cache.len() <= 2);
+    assert!(cache.retained_bytes() <= 64 * 1024);
+    assert!(matches!(
+        cache.single_line(
+            TextLayoutRequest {
+                line_height_64: 0,
+                ..request
+            },
+            128
+        ),
+        Err(TextError::ZeroLineHeight)
+    ));
+    let oversized = "A".repeat(ui::UiLimits::MAX_TEXT_BYTES + 1);
+    assert!(matches!(
+        cache.single_line(
+            TextLayoutRequest {
+                text: &oversized,
+                ..request
+            },
+            128
+        ),
+        Err(TextError::TextBytesExceeded { .. })
+    ));
+}
+
+#[test]
+fn single_line_preserves_labels_with_large_raw_whitespace() {
+    let font = font([0x43; 32]);
+    let mut cache = TextLayoutCache::new(128, 1024 * 1024);
+    let text = format!("{}A", " ".repeat(ui::UiLimits::MAX_TEXT_BYTES + 1));
+    let request = TextLayoutRequest {
+        text: &text,
+        style: TextStyle::default(),
+        width_64: 4096,
+        line_height_64: 64,
+        baseline_64: 0,
+        scale: UiScale::default(),
+        font: &font,
+        wrap: Default::default(),
+    };
+    let layout = cache.single_line(request, 4096).unwrap();
+    assert_eq!(
+        layout
+            .glyphs()
+            .iter()
+            .map(|g| g.codepoint)
+            .collect::<String>(),
+        "A"
+    );
+    assert!(Arc::ptr_eq(
+        &layout,
+        &cache.single_line(request, 4096).unwrap()
+    ));
+}
