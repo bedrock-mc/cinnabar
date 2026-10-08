@@ -1,5 +1,5 @@
 use std::sync::{
-    Arc, Mutex,
+    Arc, Mutex, OnceLock,
     atomic::{AtomicBool, Ordering},
 };
 
@@ -313,12 +313,12 @@ impl VisibilityFrameProbe {
 #[derive(Debug, Default)]
 struct VisibilityDiagnosticsState {
     snapshot: VisibilityDiagnosticSnapshot,
-    graphics_adapter: Option<GraphicsAdapterMetadata>,
 }
 
 #[derive(Resource, Clone, Default)]
 pub struct VisibilityDiagnostics {
     inner: Arc<Mutex<VisibilityDiagnosticsState>>,
+    graphics_adapter: Arc<OnceLock<GraphicsAdapterMetadata>>,
 }
 
 impl VisibilityDiagnostics {
@@ -332,11 +332,13 @@ impl VisibilityDiagnostics {
 
     #[must_use]
     pub fn graphics_adapter(&self) -> Option<GraphicsAdapterMetadata> {
-        self.inner
-            .lock()
-            .unwrap_or_else(|poison| poison.into_inner())
-            .graphics_adapter
-            .clone()
+        self.graphics_adapter_ref().cloned()
+    }
+
+    /// Borrows immutable device metadata without copying strings or locking frame statistics.
+    #[must_use]
+    pub fn graphics_adapter_ref(&self) -> Option<&GraphicsAdapterMetadata> {
+        self.graphics_adapter.get()
     }
 
     pub(crate) fn publish(&self, snapshot: VisibilityDiagnosticSnapshot) -> bool {
@@ -352,15 +354,7 @@ impl VisibilityDiagnostics {
     }
 
     pub(crate) fn publish_graphics_adapter(&self, metadata: GraphicsAdapterMetadata) -> bool {
-        let mut current = self
-            .inner
-            .lock()
-            .unwrap_or_else(|poison| poison.into_inner());
-        if current.graphics_adapter.is_some() {
-            return false;
-        }
-        current.graphics_adapter = Some(metadata);
-        true
+        self.graphics_adapter.set(metadata).is_ok()
     }
 }
 
@@ -601,6 +595,13 @@ mod tests {
                 ..metadata.clone()
             })
         );
+        let shared = diagnostics.clone();
+        let before = crate::alloc_count::thread_allocations();
+        let first = diagnostics.graphics_adapter_ref().unwrap();
+        let second = shared.graphics_adapter_ref().unwrap();
+        let allocations = crate::alloc_count::thread_allocations() - before;
+        assert!(std::ptr::eq(first, second));
+        assert_eq!(allocations, 0);
         assert_eq!(diagnostics.graphics_adapter(), Some(metadata));
         assert_eq!(
             diagnostics.snapshot(),
