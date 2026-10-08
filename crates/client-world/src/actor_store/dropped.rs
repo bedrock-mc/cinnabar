@@ -162,7 +162,7 @@ impl ActorStore {
             view.position = std::array::from_fn(|axis| {
                 view.position[axis] + (target[axis] - view.position[axis]) * progress
             });
-            view.render_scale *= 1.0 - progress;
+            view.render_scale = 1.0 - progress;
             Some(view)
         }));
         views.sort_unstable_by_key(|view| view.runtime_id);

@@ -146,7 +146,11 @@ fn pickup_flight_survives_immediate_authoritative_removal() {
         half_tick.position,
         std::array::from_fn(|axis| origin[axis] + (target[axis] - origin[axis]) * progress)
     );
-    assert_eq!(half_tick.render_scale, 2.0 * (1.0 - progress));
+    assert_eq!(
+        half_tick.render_scale,
+        1.0 - progress,
+        "pickup scale replaces the source actor's scale metadata"
+    );
     store.advance_interpolation_ticks(u32::from(super::super::PICKUP_DURATION_TICKS));
     assert!(store.dropped_items(0.0).is_empty());
 }

@@ -1764,7 +1764,8 @@ RVAs are 1.26.50.26 Windows client; `mac 0x10…` addresses are the 26.30 macOS 
   `src/__recovered/ItemRenderer.cpp`, `0x05e54ba0`, translates bob before scaling;
   current `src/__unmapped/05.cpp`, `0x05e54570`, translates each stack copy before
   multiplying matrix basis columns by actor scale, leaving translation unchanged.
-  Pickup shrink therefore preserves bob/lift and copy spread, including the
+  Pickup draw assigns the complement directly, replacing source scale metadata.
+  Its shrink therefore preserves bob/lift and copy spread, including the
   cube route `0x05e53930` that calls the same item-group renderer.
 - # Native dropped-item rendering
 - Current `ItemActor` constructor sets the

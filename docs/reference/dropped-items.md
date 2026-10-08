@@ -103,7 +103,8 @@ rounding is not claimed bit-identical.
 
 Pickup feedback owns a copied item presentation independently of server removal.
 It flies for three ticks with squared progress toward the collector's native origin
-minus 0.6 on Y and shrinks its meshes by the remaining progress. Bob, block lift
+minus 0.6 on Y and sets mesh scale to the remaining progress, replacing source
+scale metadata. Bob, block lift
 and stack-copy spread retain their ordinary translations during the flight.
 The pickup event commits one
 pack-routed `pop` sound even if removal arrives in the same batch. A version-matched
