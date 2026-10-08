@@ -38,6 +38,7 @@ impl MenuRuntime {
             address: self.address.as_str().to_owned(),
             port: self.port.as_str().to_owned(),
             message: self.message.clone(),
+            death_reason: String::new(),
             gui_scale_offset: self.gui_scale_display_offset,
             gui_scale_choices: self.gui_scale_choices.clone(),
             fullscreen: self.fullscreen,

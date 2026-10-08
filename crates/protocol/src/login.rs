@@ -757,6 +757,7 @@ fn decode_world_raw_with(
     if !matches!(
         raw.id,
         McpePacketName::TextPacket
+            | McpePacketName::DeathInfoPacket
             | McpePacketName::CommandOutputPacket
             | McpePacketName::PlayStatusPacket
             | McpePacketName::SetHealthPacket

@@ -12,6 +12,7 @@ use valentine::bedrock::version::v1_26_51::{
 };
 
 mod commands;
+mod death;
 mod forms;
 mod text;
 
@@ -20,6 +21,8 @@ pub use commands::{
     ChatAutocompleteCatalog, ChatAutocompleteCatalogError, ChatAutocompleteCompletion,
     CommandParam, CommandParamKind, CommandSpec, CommandTreeEvent, CompletionContext,
 };
+pub use death::DeathInfoEvent;
+pub(crate) use death::normalize_death_info;
 
 pub use forms::{
     CustomForm, CustomFormElement, CustomFormValue, ElementMenuForm, FormButtonImage, FormKind,
@@ -146,6 +149,7 @@ pub fn command_request_packet(command: &str) -> crate::Packet {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum UiEvent {
+    DeathInfo(DeathInfoEvent),
     ShowCredits(crate::ShowCreditsEvent),
     Text(TextEvent),
     CommandOutput(CommandOutputEvent),

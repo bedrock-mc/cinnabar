@@ -664,6 +664,29 @@ fn append_item_new_prefix(body: &mut BytesMut, extra_length: u32) {
 }
 
 #[test]
+fn death_information_reaches_world_ui_from_raw_transport() {
+    let session = BedrockSession { shield_item_id: 0 };
+    let packet: Packet = valentine::bedrock::version::v1_26_51::DeathInfoPacket {
+        death_cause_attack_name: "death.attack.mob".into(),
+        death_cause_message_list: vec!["Alex".into(), "%entity.zombie.name".into()],
+    }
+    .into();
+    let mut batch = crate::encode(&packet, &session).unwrap();
+    batch.advance(1);
+    let raw = decode_packet_raw(&mut batch).unwrap();
+    let event = decode_world_raw_with(raw, 0, |raw| raw.decode(&session)).unwrap();
+    assert_eq!(
+        event,
+        Some(WorldEvent::Ui(crate::UiEvent::DeathInfo(
+            crate::DeathInfoEvent {
+                message: "death.attack.mob".into(),
+                parameters: vec![Arc::from("Alex"), Arc::from("%entity.zombie.name")].into(),
+            }
+        )))
+    );
+}
+
+#[test]
 fn allowlisted_world_packet_is_decoded_and_normalized() {
     let session = BedrockSession { shield_item_id: 0 };
     let packet: Packet = UpdateBlockPacket {

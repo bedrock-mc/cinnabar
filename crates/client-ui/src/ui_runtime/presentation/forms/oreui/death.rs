@@ -4,7 +4,7 @@
 
 use super::super::super::UiPresentationError;
 use super::paint::Canvas;
-use super::theme::{HEADER3, TEXT};
+use super::theme::{BODY, HEADER3, TEXT};
 use super::widgets::{Variant, button};
 use crate::menu::{MenuAction, MenuScreen, MenuView};
 
@@ -55,6 +55,16 @@ pub(super) fn draw(
         TEXT,
         true,
     )?;
+    let reason_top = title_top + title_height + canvas.r(1.0);
+    let reason_bounds = [
+        width * 0.15,
+        reason_top,
+        width * 0.85,
+        reason_top + height * 0.2,
+    ];
+    let clip = canvas.begin_clip(reason_bounds)?;
+    canvas.text_centred(&view.death_reason, reason_bounds, BODY, TEXT, true)?;
+    canvas.end_clip(clip);
     let buttons_top = title_top + title_height + free * 0.5;
     button(
         canvas,

@@ -7,6 +7,7 @@ pub mod chat_completion;
 pub mod chat_send;
 pub mod crafting_observation;
 pub mod credits;
+mod death;
 pub mod emotes;
 pub mod presentation_snapshot;
 pub use inventory::CraftingPreview;
@@ -151,6 +152,7 @@ pub struct UiRuntime {
     chat_focused: bool,
     inventory_open: bool,
     hud: HudStore,
+    death_reason: Arc<str>,
     toast_display_millis: u64,
     chat: ChatStore,
     scoreboards: ScoreboardStore,
@@ -234,6 +236,7 @@ impl UiRuntime {
             loading_screen: false,
             hurt_pending: false,
             hud: HudStore::default(),
+            death_reason: Arc::from(""),
             toast_display_millis: ui::TOAST_DISPLAY_MILLIS,
             chat: ChatStore::default(),
             scoreboards: ScoreboardStore::default(),
@@ -618,6 +621,7 @@ impl UiRuntime {
         self.known_player_names.clear();
         self.player_list_held = false;
         self.hud.clear();
+        self.death_reason = Arc::from("");
         self.chat.clear();
         self.scoreboards.clear();
         self.boss_bars.clear();
@@ -745,135 +749,6 @@ impl UiRuntime {
             consumes_text: false,
             requested_context: InputContext::Gameplay,
         }
-    }
-
-    pub fn apply(
-        &mut self,
-        player_runtime: &mut player_state::PlayerState,
-        envelope: SequencedUiEvent,
-    ) -> Result<UiApplyOutcome, UiRuntimeError> {
-        self.validate_identity(
-            envelope.session_id,
-            envelope.fifo_sequence,
-            envelope.local_millis,
-            envelope.server_tick,
-        )?;
-        let timed_event = matches!(
-            envelope.event,
-            UiEvent::Text(_)
-                | UiEvent::CommandOutput(_)
-                | UiEvent::RawText(_)
-                | UiEvent::Title(_)
-                | UiEvent::Hud(_)
-        );
-        if timed_event && envelope.server_tick.is_some() {
-            return Err(UiRuntimeError::TimedEventRequiresLocalClock {
-                fifo_sequence: envelope.fifo_sequence,
-            });
-        }
-        let event_millis = envelope.local_millis;
-        let outcome = match envelope.event {
-            UiEvent::Text(event) => self.apply_text(event, envelope.fifo_sequence, event_millis)?,
-            UiEvent::CommandOutput(event) => {
-                self.apply_command_output(event, envelope.fifo_sequence, event_millis)?
-            }
-            UiEvent::RawText(event) if event.document.has_unresolved_components() => {
-                // Score/selector/translation components resolve against the
-                // retained authoritative state; every degradation is counted
-                // and presented per the vanilla rules, never as JSON.
-                let resolved = self.resolve_raw_text(&event.document);
-                let mut text = event.text;
-                text.message = Arc::from(resolved.text);
-                self.apply_resolved_text(text, envelope.fifo_sequence, event_millis)?
-            }
-            UiEvent::RawText(event) => {
-                self.apply_resolved_text(event.text, envelope.fifo_sequence, event_millis)?
-            }
-            UiEvent::Title(mut event)
-                if event
-                    .document
-                    .as_ref()
-                    .is_some_and(|document| document.has_unresolved_components()) =>
-            {
-                let document = event.document.clone().expect("guard checked the document");
-                let resolved = self.resolve_raw_text(&document);
-                event.text = Arc::from(resolved.text);
-                self.apply_title(event, envelope.fifo_sequence, event_millis)?;
-                UiApplyOutcome::Applied
-            }
-            UiEvent::Title(event) => {
-                self.apply_title(event, envelope.fifo_sequence, event_millis)?;
-                UiApplyOutcome::Applied
-            }
-            UiEvent::Hud(event) => {
-                self.apply_hud(event, envelope.fifo_sequence, event_millis)?;
-                UiApplyOutcome::Applied
-            }
-            UiEvent::ChatAutocomplete(event) => {
-                self.chat_autocomplete_catalog
-                    .apply(event)
-                    .map_err(UiRuntimeError::ChatAutocompleteCatalog)?;
-                UiApplyOutcome::Applied
-            }
-            UiEvent::AvailableCommands(event) => {
-                self.chat_autocomplete_catalog.apply_commands(event);
-                UiApplyOutcome::Applied
-            }
-            UiEvent::Objective(event) => scoreboard_adapter::apply_outcome(
-                self.scoreboards
-                    .apply(envelope.fifo_sequence, scoreboard_adapter::objective(event))
-                    .map_err(UiRuntimeError::RetainedUiSequence)?,
-            ),
-            UiEvent::Score(event) => scoreboard_adapter::apply_outcome(
-                self.scoreboards
-                    .apply(envelope.fifo_sequence, scoreboard_adapter::score(event))
-                    .map_err(UiRuntimeError::RetainedUiSequence)?,
-            ),
-            UiEvent::Boss(event) => self.apply_boss(envelope.fifo_sequence, event)?,
-            UiEvent::GameMode(event) => self.apply_game_mode_update(player_runtime, event.update),
-            // Targeted mode updates must pass the world stream's local-unique-ID
-            // admission first; a direct UI injection cannot establish that identity.
-            UiEvent::PlayerGameMode { .. } => {
-                self.gameplay_hud.note_odd_hud_packet();
-                UiApplyOutcome::IgnoredByReceiveStore
-            }
-            UiEvent::DefaultGameMode(event) => {
-                self.apply_default_game_mode_update(player_runtime, event.update)
-            }
-            UiEvent::HudRules(rules) => {
-                self.apply_hud_rules(rules);
-                UiApplyOutcome::Applied
-            }
-            UiEvent::SleepStatus(event) => self.apply_sleep_status(&event),
-            UiEvent::ShowCredits(event) => {
-                self.credits
-                    .open(event.runtime_id, envelope.fifo_sequence, event_millis);
-                UiApplyOutcome::Applied
-            }
-            UiEvent::Form(event) => {
-                bevy::log::info!(
-                    target: "server_form",
-                    form_id = event.form_id,
-                    kind = ?event.kind,
-                    title = ?event.title,
-                    "form received"
-                );
-                self.forms.admit(
-                    event,
-                    envelope.fifo_sequence,
-                    self.session_id,
-                    self.chat_focused || self.inventory_open,
-                );
-                UiApplyOutcome::Applied
-            }
-        };
-        self.last_fifo_sequence = Some(envelope.fifo_sequence);
-        self.last_local_millis = Some(envelope.local_millis);
-        if let Some(server_tick) = envelope.server_tick {
-            self.last_server_tick = Some(server_tick);
-            self.observe_presentation_tick(server_tick, envelope.local_millis);
-        }
-        Ok(outcome)
     }
 
     /// Applies an editor command and advances completion state only when its contents change.

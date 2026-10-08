@@ -6616,3 +6616,11 @@ catalog identifier and duration once in that frame; idle and cancellation send
 no start packet. Marketplace clip ownership/playback, remote custom-emote
 synchronization, and the complete villager trade UI remain incomplete. These
 producer fixes do not close those parity gates.
+
+## Death-screen reasons
+
+The dedicated server death-information packet supplies the localized reason to
+the death screen independently of chat. Reasons survive either arrival order
+around zero health and clear on authoritative health recovery or session replacement.
+Matched native geometry, the radial vignette and hardcore variants remain incomplete;
+this packet-to-screen fix does not close the broader death-screen parity gate.

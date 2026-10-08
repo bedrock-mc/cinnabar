@@ -2,12 +2,149 @@
 
 use std::sync::Arc;
 
-use protocol::{CommandOutputEvent, HudEvent, TextEvent, TextKind, TitleAction, TitleEvent};
+use protocol::{
+    CommandOutputEvent, HudEvent, TextEvent, TextKind, TitleAction, TitleEvent, UiEvent,
+};
 use ui::{BoundedStat, ChatApplyResult, ChatMessage, ChatMessageKind, TitleDurations, Toast};
 
-use super::{UiApplyOutcome, UiRuntime, UiRuntimeError, hud_adapter};
+use super::{
+    SequencedUiEvent, UiApplyOutcome, UiRuntime, UiRuntimeError, hud_adapter, scoreboard_adapter,
+};
 
 impl UiRuntime {
+    /// Applies one session- and sequence-validated UI event.
+    pub fn apply(
+        &mut self,
+        player_runtime: &mut player_state::PlayerState,
+        envelope: SequencedUiEvent,
+    ) -> Result<UiApplyOutcome, UiRuntimeError> {
+        self.validate_identity(
+            envelope.session_id,
+            envelope.fifo_sequence,
+            envelope.local_millis,
+            envelope.server_tick,
+        )?;
+        let timed_event = matches!(
+            envelope.event,
+            UiEvent::Text(_)
+                | UiEvent::CommandOutput(_)
+                | UiEvent::RawText(_)
+                | UiEvent::Title(_)
+                | UiEvent::Hud(_)
+        );
+        if timed_event && envelope.server_tick.is_some() {
+            return Err(UiRuntimeError::TimedEventRequiresLocalClock {
+                fifo_sequence: envelope.fifo_sequence,
+            });
+        }
+        let event_millis = envelope.local_millis;
+        let outcome = match envelope.event {
+            UiEvent::DeathInfo(event) => {
+                self.apply_death_info(event);
+                UiApplyOutcome::Applied
+            }
+            UiEvent::Text(event) => self.apply_text(event, envelope.fifo_sequence, event_millis)?,
+            UiEvent::CommandOutput(event) => {
+                self.apply_command_output(event, envelope.fifo_sequence, event_millis)?
+            }
+            UiEvent::RawText(event) if event.document.has_unresolved_components() => {
+                // Score/selector/translation components resolve against the
+                // retained authoritative state; every degradation is counted
+                // and presented per the vanilla rules, never as JSON.
+                let resolved = self.resolve_raw_text(&event.document);
+                let mut text = event.text;
+                text.message = Arc::from(resolved.text);
+                self.apply_resolved_text(text, envelope.fifo_sequence, event_millis)?
+            }
+            UiEvent::RawText(event) => {
+                self.apply_resolved_text(event.text, envelope.fifo_sequence, event_millis)?
+            }
+            UiEvent::Title(mut event)
+                if event
+                    .document
+                    .as_ref()
+                    .is_some_and(|document| document.has_unresolved_components()) =>
+            {
+                let document = event.document.clone().expect("guard checked the document");
+                let resolved = self.resolve_raw_text(&document);
+                event.text = Arc::from(resolved.text);
+                self.apply_title(event, envelope.fifo_sequence, event_millis)?;
+                UiApplyOutcome::Applied
+            }
+            UiEvent::Title(event) => {
+                self.apply_title(event, envelope.fifo_sequence, event_millis)?;
+                UiApplyOutcome::Applied
+            }
+            UiEvent::Hud(event) => {
+                self.apply_hud(event, envelope.fifo_sequence, event_millis)?;
+                UiApplyOutcome::Applied
+            }
+            UiEvent::ChatAutocomplete(event) => {
+                self.chat_autocomplete_catalog
+                    .apply(event)
+                    .map_err(UiRuntimeError::ChatAutocompleteCatalog)?;
+                UiApplyOutcome::Applied
+            }
+            UiEvent::AvailableCommands(event) => {
+                self.chat_autocomplete_catalog.apply_commands(event);
+                UiApplyOutcome::Applied
+            }
+            UiEvent::Objective(event) => scoreboard_adapter::apply_outcome(
+                self.scoreboards
+                    .apply(envelope.fifo_sequence, scoreboard_adapter::objective(event))
+                    .map_err(UiRuntimeError::RetainedUiSequence)?,
+            ),
+            UiEvent::Score(event) => scoreboard_adapter::apply_outcome(
+                self.scoreboards
+                    .apply(envelope.fifo_sequence, scoreboard_adapter::score(event))
+                    .map_err(UiRuntimeError::RetainedUiSequence)?,
+            ),
+            UiEvent::Boss(event) => self.apply_boss(envelope.fifo_sequence, event)?,
+            UiEvent::GameMode(event) => self.apply_game_mode_update(player_runtime, event.update),
+            // Targeted mode updates must pass the world stream's local-unique-ID
+            // admission first; a direct UI injection cannot establish that identity.
+            UiEvent::PlayerGameMode { .. } => {
+                self.gameplay_hud.note_odd_hud_packet();
+                UiApplyOutcome::IgnoredByReceiveStore
+            }
+            UiEvent::DefaultGameMode(event) => {
+                self.apply_default_game_mode_update(player_runtime, event.update)
+            }
+            UiEvent::HudRules(rules) => {
+                self.apply_hud_rules(rules);
+                UiApplyOutcome::Applied
+            }
+            UiEvent::SleepStatus(event) => self.apply_sleep_status(&event),
+            UiEvent::ShowCredits(event) => {
+                self.credits
+                    .open(event.runtime_id, envelope.fifo_sequence, event_millis);
+                UiApplyOutcome::Applied
+            }
+            UiEvent::Form(event) => {
+                bevy::log::info!(
+                    target: "server_form",
+                    form_id = event.form_id,
+                    kind = ?event.kind,
+                    title = ?event.title,
+                    "form received"
+                );
+                self.forms.admit(
+                    event,
+                    envelope.fifo_sequence,
+                    self.session_id,
+                    self.chat_focused || self.inventory_open,
+                );
+                UiApplyOutcome::Applied
+            }
+        };
+        self.last_fifo_sequence = Some(envelope.fifo_sequence);
+        self.last_local_millis = Some(envelope.local_millis);
+        if let Some(server_tick) = envelope.server_tick {
+            self.last_server_tick = Some(server_tick);
+            self.observe_presentation_tick(server_tick, envelope.local_millis);
+        }
+        Ok(outcome)
+    }
     pub(super) fn apply_text(
         &mut self,
         mut event: TextEvent,
@@ -169,6 +306,7 @@ impl UiRuntime {
                 match u16::try_from(health) {
                     Ok(health) => {
                         let maximum = health.max(20);
+                        self.clear_death_reason_on_recovery(BoundedStat::new(health, maximum));
                         self.hud.set_health(BoundedStat::new(health, maximum));
                     }
                     Err(_) => self.gameplay_hud.note_odd_hud_packet(),

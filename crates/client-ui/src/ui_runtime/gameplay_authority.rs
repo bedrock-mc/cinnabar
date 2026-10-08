@@ -313,6 +313,7 @@ impl UiRuntime {
             self.last_health_drop_millis = Some(envelope.local_millis);
             self.note_player_hurt();
         }
+        self.clear_death_reason_on_recovery(health);
         self.hud
             .set_stats(health, hunger, self.hud.armor(), self.hud.air());
         self.hud.set_absorption(absorption);

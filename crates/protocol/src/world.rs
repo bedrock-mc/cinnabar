@@ -379,6 +379,9 @@ pub fn into_world_event(
             WorldEvent::Abilities(crate::permissions::normalize_abilities(packet.data))
         }
         McpePacketData::TextPacket(packet) => WorldEvent::Ui(normalize_text(*packet)?),
+        McpePacketData::DeathInfoPacket(packet) => {
+            WorldEvent::Ui(crate::ui::normalize_death_info(packet)?)
+        }
         McpePacketData::CommandOutputPacket(packet) => {
             WorldEvent::Ui(crate::ui::normalize_command_output(*packet)?)
         }

@@ -118,8 +118,8 @@ widgets, one file per screen) and `crates/client-ui/src/ui_runtime/oreui_assets.
   artwork, core fonts and CPU distance fields are integrated; locale shaping, hidden-tab
   animation resumption and matched captures remain open; see `../plan.md`.
 - Bed: text colour and secondary-button theme colours (unrecovered).
-- Death: the radial vignette (drawn as nested bands), title and button placement, the missing
-  death message and hardcore variant.
+- Death: the radial vignette (drawn as nested bands), title, reason and button placement,
+  and hardcore variant still need matched native captures.
 - Profile: the vanilla card, Overview and Stats layout is implemented. Matched vanilla
   captures, full navigation, screenshot persistence, privacy/offline distinctions and achievement
   reward/progress metadata remain incomplete; see `profile-parity.md` and `../plan.md`.

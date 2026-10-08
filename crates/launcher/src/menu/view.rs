@@ -373,6 +373,8 @@ pub struct MenuView {
     pub address: String,
     pub port: String,
     pub message: Option<String>,
+    /// Localized server-authored reason projected by the gameplay UI.
+    pub death_reason: String,
     pub gui_scale_offset: i8,
     pub gui_scale_choices: Vec<ui::DesktopGuiScaleChoice>,
     pub fullscreen: bool,
@@ -584,6 +586,7 @@ impl MenuView {
             address: String::new(),
             port: String::new(),
             message: None,
+            death_reason: String::new(),
             gui_scale_offset: 0,
             gui_scale_choices: ui::DesktopGuiScale::for_window([1, 1]).choices().collect(),
             fullscreen: false,

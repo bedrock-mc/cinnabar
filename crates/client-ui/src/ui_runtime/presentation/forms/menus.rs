@@ -53,6 +53,9 @@ impl UiPresentationRuntime {
             return Ok(Vec::new());
         };
         self.begin_menu_caret(Arc::make_mut(&mut view));
+        if view.screen == crate::menu::MenuScreen::Death {
+            Arc::make_mut(&mut view).death_reason = runtime.death_reason().to_owned();
+        }
         let shown = view.as_ref();
         self.menu_scrolls.begin_frame(format!(
             "{:?}/{:?}/{:?}/{}",
