@@ -868,6 +868,24 @@ fn carrier_v4_accepts_exact_animation_and_controller_bounds() {
 }
 
 #[test]
+fn carrier_v4_accepts_the_animation_channels_of_a_large_server_pack() {
+    // A merged server pack observed in the field carries 112,093 channels.
+    const SERVER_PACK_CHANNELS: usize = 112_093;
+    let mut compiled = carrier_v4_fixture();
+    compiled.animation_channels = (0..SERVER_PACK_CHANNELS)
+        .map(|index| EntityAnimationChannel {
+            bone_name: None,
+            first_keyframe: u32::from(index != 0),
+            keyframe_count: u32::from(index == 0),
+            rotation_relative_to_entity: false,
+            ..compiled.animation_channels[0].clone()
+        })
+        .collect();
+    compiled.animation_clips[0].channel_count = SERVER_PACK_CHANNELS as u32;
+    assert!(compiled.validate().is_ok());
+}
+
+#[test]
 fn carrier_v4_rejects_animation_and_controller_limits_plus_one() {
     let mut cases = Vec::new();
     let mut compiled = carrier_v4_fixture();
