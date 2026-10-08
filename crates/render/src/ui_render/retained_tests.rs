@@ -1,6 +1,8 @@
 //! Retained UI preparation regression and timing fixture.
+use super::resources::prepare_ui_resources;
 use super::*;
 use bevy::ecs::system::RunSystemOnce;
+use render_model::UiScissor;
 
 /// Builds a large immutable HUD in the no-op renderer.
 fn retained_world() -> World {
@@ -71,50 +73,93 @@ fn retained_publication_rejects_conflicting_identity_and_missing_buffers() {
     assert_eq!(world.resource::<UiGpu>().accepted_revision, None);
 }
 
+/// Replay diagnostics retain the same static viewport and geometry upload behavior.
 #[test]
-fn unchanged_prepared_ui_submits_no_uploads() {
-    let mut world = retained_world();
-    world.insert_resource(profile::UiProfile::with_baseline_replay(false));
-    for _ in 0..32 {
-        world.run_system_once(prepare_ui_resources).unwrap();
+fn unchanged_prepared_ui_submits_no_uploads_in_either_replay_mode() {
+    for baseline_replay in [false, true] {
+        let mut world = retained_world();
+        world.insert_resource(profile::UiProfile::with_baseline_replay(baseline_replay));
+        for _ in 0..32 {
+            world.run_system_once(prepare_ui_resources).unwrap();
+        }
+        assert_eq!(
+            world.resource::<profile::UiProfile>().submitted_uploads(),
+            [[0; 3]; 2],
+            "unchanged UI must not upload in replay mode {baseline_replay}"
+        );
     }
-    assert_eq!(
-        world.resource::<profile::UiProfile>().submitted_uploads(),
-        [[0; 3]; 2],
-        "an unchanged publication must not write geometry, textures or viewport bytes"
-    );
 }
 
 #[test]
-fn diagnostic_baseline_reproduces_unchanged_viewport_uploads() {
-    const FRAMES: u64 = 32;
+fn retained_publication_plans_no_vertex_or_index_uploads() {
     let mut world = retained_world();
-    world.insert_resource(profile::UiProfile::with_baseline_replay(true));
-    for _ in 0..FRAMES {
-        world.run_system_once(prepare_ui_resources).unwrap();
-    }
-    assert_eq!(
-        world.resource::<profile::UiProfile>().submitted_uploads(),
-        [
-            [0, 0, FRAMES],
-            [0, 0, FRAMES * size_of::<UiViewportUniform>() as u64]
-        ]
-    );
+    let input = world
+        .resource::<UiRenderSceneResource>()
+        .input
+        .as_ref()
+        .unwrap()
+        .clone();
+    let mut gpu = world.resource_mut::<UiGpu>();
+    let before = crate::alloc_count::thread_allocations();
+    let plan = gpu.uploads.plan(&input, false, false);
+    let allocations = crate::alloc_count::thread_allocations() - before;
+    assert!(plan.vertices.is_empty());
+    assert!(plan.indices.is_empty());
+    assert_eq!(allocations, 0);
 }
 
-/// Measures the actual preparation system with an unchanged publication.
+/// The actual preparation system leaves the static viewport buffer untouched after admission.
 #[test]
-#[ignore = "release performance measurement"]
-fn frame_cost_bench_retained_ui_preparation() {
+fn retained_publication_does_not_upload_an_unused_viewport_clock() {
     let mut world = retained_world();
-    let system = world.register_system(prepare_ui_resources);
-    let started = std::time::Instant::now();
-    for _ in 0..2_000 {
-        world.run_system(system).unwrap();
+    let writes = world.resource::<UiGpu>().viewport_uploads.writes;
+    let geometry_writes = world.resource::<UiGpu>().geometry_writes;
+    for _ in 0..3 {
+        world.run_system_once(prepare_ui_resources).unwrap();
     }
-    eprintln!(
-        "RETAINED_UI_BENCH vertices=60000 indices=90000 frames=2000 ms={:.3}",
-        started.elapsed().as_secs_f64() * 1000.0
-    );
-    assert_eq!(world.resource::<UiGpu>().accepted_revision, Some(1));
+    assert_eq!(world.resource::<UiGpu>().viewport_uploads.writes, writes);
+    assert_eq!(geometry_writes, [1, 1]);
+    assert_eq!(world.resource::<UiGpu>().geometry_writes, geometry_writes);
+}
+
+/// Incoming glint selects its current phase immediately, then leaving it restores static retention.
+#[test]
+fn retained_publication_switches_glint_uniforms_on_the_incoming_frame() {
+    let mut world = retained_world();
+    let stats = world.resource::<UiRenderStatsResource>().clone();
+    let mut input = (**world
+        .resource::<UiRenderSceneResource>()
+        .input
+        .as_ref()
+        .unwrap())
+    .clone();
+    let initial_writes = world.resource::<UiGpu>().viewport_uploads.writes;
+    world.resource_mut::<UiGpu>().started =
+        std::time::Instant::now() - std::time::Duration::from_secs(40);
+    for (revision, enabled) in [(2, true), (3, false)] {
+        input.revision = revision;
+        let mut vertices = input.vertices.to_vec();
+        vertices[0].style_flags = if enabled {
+            render_model::UI_STYLE_GLINT
+        } else {
+            0
+        };
+        input.vertices = vertices.into();
+        world
+            .resource_mut::<UiRenderSceneResource>()
+            .publish(input.clone(), &stats)
+            .unwrap();
+        world.run_system_once(prepare_ui_resources).unwrap();
+        let gpu = world.resource::<UiGpu>();
+        assert_eq!(gpu.animated, enabled);
+        assert_eq!(
+            gpu.viewport_uploads.writes,
+            initial_writes + revision as usize - 1
+        );
+    }
+    let writes = world.resource::<UiGpu>().viewport_uploads.writes;
+    for _ in 0..3 {
+        world.run_system_once(prepare_ui_resources).unwrap();
+    }
+    assert_eq!(world.resource::<UiGpu>().viewport_uploads.writes, writes);
 }

@@ -439,3 +439,6 @@ fn settings_first_frame_publishes_navigation_and_edit_controls() {
         );
     }
 }
+
+#[path = "menu_work_probe.rs"]
+mod work_probe;

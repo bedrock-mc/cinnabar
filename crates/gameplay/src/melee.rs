@@ -44,7 +44,7 @@ pub fn java_swing_duration(effects: MiningEffects) -> i32 {
 mod swing;
 pub use swing::SwingTracker;
 
-/// The unsent tick and local state one attack press resolves against.
+/// The tick and local state one attack press resolves against.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PressContext {
     pub tick: u64,
@@ -78,6 +78,12 @@ pub struct MeleeRuntime {
 impl MeleeRuntime {
     pub const fn actor_in_front(&self) -> bool {
         self.actor_in_front
+    }
+
+    /// An attack press not yet resolved; a use press waits for it, as an attack handled first
+    /// holds off the use.
+    pub const fn press_pending(&self) -> bool {
+        self.latched_press
     }
 
     /// Whether a recent attack still suppresses block use.
@@ -159,6 +165,19 @@ impl MeleeRuntime {
             self.defer(input_frame);
         }
         sample
+    }
+
+    /// A latched actor attack resolves in its own frame when no unsent tick exists, as vanilla
+    /// handles the press before the next tick instead of waiting for it.
+    pub fn between_ticks_attack(
+        &self,
+        crosshair: Crosshair,
+        movement: &crate::movement::MovementTicker,
+    ) -> Option<crate::movement::InteractionSample> {
+        if !self.latched_press || !matches!(crosshair, Crosshair::Actor(_)) {
+            return None;
+        }
+        movement.between_ticks_sample()
     }
 
     /// Resolves at most one latched press into packets; a held button never re-attacks.

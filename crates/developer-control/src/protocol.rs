@@ -88,6 +88,18 @@ pub enum WheelUnit {
     Pixel,
 }
 
+/// Fixed presentation states for hidden sign-in captures; no account material is accepted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SignInFixtureState {
+    Waiting,
+    Opened,
+    BrowserFailed,
+    Success,
+    Expired,
+    Error,
+}
+
 /// Synthetic input. Controls are vanilla binding names (`key.jump`, `key.hotbar.1`), Bevy
 /// key names as mods bind them (`Digit1`, `KeyF`, `F8`), or `MouseLeft`/`MouseRight`/...
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
@@ -193,6 +205,14 @@ pub enum Command {
     CameraRelease,
     /// Installs or removes an original local cape for animation captures.
     TestCape {
+        enabled: bool,
+    },
+    /// Changes a placeholder sign-in fixture enabled at hidden-client startup.
+    SignInFixture {
+        state: SignInFixtureState,
+    },
+    /// Presents a signed-in launcher with placeholder accounts; nothing signs in or is saved.
+    TestAccounts {
         enabled: bool,
     },
     State,

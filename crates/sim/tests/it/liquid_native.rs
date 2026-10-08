@@ -227,3 +227,183 @@ fn swimming_surface_guard_uses_primary_material_and_still_allows_diving() {
         assert_eq!(output.velocity.y, retained);
     }
 }
+
+struct Lava;
+
+impl CollisionWorld for Lava {
+    fn collision_boxes(&self, _query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
+        Ok(CollisionQuery::synthetic(Vec::new()))
+    }
+
+    fn block_physics(&self, block: [i32; 3]) -> Result<BlockPhysicsSample, WorldQueryError> {
+        let mut sample = Submerged.block_physics(block)?;
+        sample.layers[0].flags = BlockPhysicsFlags::LAVA;
+        Ok(sample)
+    }
+}
+
+/// Forward travel from rest for one tick, returning the post-drag forward velocity.
+fn forward_velocity(input: MovementInput, world: &impl CollisionWorld) -> f32 {
+    let mut state = PlayerState::new(Vec3::new(0.5, 5.0, 0.5));
+    state.swim_amount = 1.0;
+    state.swim_pose_active = input.mode == MovementMode::Swimming;
+    let output = Simulator::default()
+        .tick(
+            &mut state,
+            MovementInput {
+                forward: 1.0,
+                ..input
+            },
+            world,
+        )
+        .unwrap();
+    output.velocity.z as f32
+}
+
+/// Water and lava travel take their base speed from the liquid movement attributes.
+#[test]
+fn liquid_travel_reads_the_liquid_movement_attributes() {
+    let impulse = 1.0_f32 * 0.98;
+    let water = forward_velocity(
+        MovementInput {
+            underwater_movement_speed: Some(0.05),
+            ..MovementInput::default()
+        },
+        &Submerged,
+    );
+    assert_eq!(water, impulse * 0.05 * 0.8);
+    let lava = forward_velocity(
+        MovementInput {
+            lava_movement_speed: Some(0.05),
+            ..MovementInput::default()
+        },
+        &Lava,
+    );
+    assert_eq!(lava, impulse * 0.05 * 0.5);
+}
+
+/// A dolphin-boosted swimmer travels at `base * 2 * (level / 3 * 0.3 + 0.7)` and
+/// keeps the plain water drag instead of Depth Strider's blend.
+#[test]
+fn dolphin_boost_scales_swim_speed_and_skips_depth_strider_drag() {
+    let impulse = 1.0_f32 * 0.98;
+    for (depth_strider, scale) in [(0_u8, 0.7_f32), (3, 1.0)] {
+        let boosted = MovementInput {
+            mode: MovementMode::Swimming,
+            depth_strider,
+            effects: sim::MovementEffects {
+                dolphin_boost: true,
+                ..sim::MovementEffects::default()
+            },
+            ..MovementInput::default()
+        };
+        let speed = 0.02_f32 * 2.0 * ((f32::from(depth_strider) / 3.0) * 0.3 + 0.7);
+        assert!((speed - 0.04 * scale).abs() < 1.0e-6);
+        assert_eq!(
+            forward_velocity(boosted, &Submerged),
+            impulse * speed * 0.8,
+            "depth strider {depth_strider}"
+        );
+        // Outside the swimming pose the boost does not apply.
+        let walking = MovementInput {
+            mode: MovementMode::Walking,
+            ..boosted
+        };
+        let plain = MovementInput {
+            effects: sim::MovementEffects::default(),
+            ..walking
+        };
+        assert_eq!(
+            forward_velocity(walking, &Submerged),
+            forward_velocity(plain, &Submerged)
+        );
+    }
+}
+
+/// Water, or dry ground when `water` is false, above a floor whose top is `floor`.
+struct Floored {
+    floor: Option<f64>,
+    water: bool,
+}
+
+impl CollisionWorld for Floored {
+    fn collision_boxes(&self, query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
+        Ok(CollisionQuery::synthetic(
+            self.floor
+                .map(|top| {
+                    Aabb::new(
+                        Vec3::new(-1.0e6, top - 1.0, -1.0e6),
+                        Vec3::new(1.0e6, top, 1.0e6),
+                    )
+                })
+                .filter(|floor| floor.intersects(query))
+                .into_iter()
+                .collect(),
+        ))
+    }
+
+    fn block_physics(&self, block: [i32; 3]) -> Result<BlockPhysicsSample, WorldQueryError> {
+        let mut sample = Submerged.block_physics(block)?;
+        if !self.water {
+            sample.layers[0].flags = BlockPhysicsFlags::default();
+            sample.layers[0].fluid_height_blocks = 0.0;
+        }
+        Ok(sample)
+    }
+}
+
+/// A large movement attribute keeps Depth Strider water travel inside every
+/// simulator query budget, while dry ground applies it unchanged.
+#[test]
+fn depth_strider_water_travel_stays_simulable_with_a_large_movement_attribute() {
+    for floor in [Some(5.0), None] {
+        for depth_strider in 1..=3 {
+            for sprinting in [true, false] {
+                let mut state = PlayerState::new(Vec3::new(0.5, 5.0, 0.5));
+                state.on_ground = floor.is_some();
+                let input = MovementInput {
+                    forward: 1.0,
+                    strafe: 1.0,
+                    yaw_degrees: 45.0,
+                    sprinting,
+                    depth_strider,
+                    movement_speed: Some(20.0),
+                    liquid_contact_height: Some(f64::from(sim::PLAYER_HEIGHT as f32)),
+                    ..MovementInput::default()
+                };
+                let world = Floored { floor, water: true };
+                for tick in 0..300 {
+                    Simulator::default()
+                        .tick(&mut state, input, &world)
+                        .unwrap_or_else(|error| {
+                            panic!(
+                                "floor {floor:?} level {depth_strider} sprint {sprinting} tick {tick}: {error}"
+                            )
+                        });
+                }
+            }
+        }
+    }
+
+    let land = |speed: f64| {
+        let mut state = PlayerState::new(Vec3::new(0.5, 5.0, 0.5));
+        state.on_ground = true;
+        Simulator::default()
+            .tick(
+                &mut state,
+                MovementInput {
+                    forward: 1.0,
+                    movement_speed: Some(speed),
+                    ..MovementInput::default()
+                },
+                &Floored {
+                    floor: Some(5.0),
+                    water: false,
+                },
+            )
+            .unwrap()
+            .velocity
+            .z
+    };
+    assert_eq!(land(2.0), 2.0 * land(1.0));
+}

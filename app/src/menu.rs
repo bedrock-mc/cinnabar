@@ -19,9 +19,14 @@ mod flow_tests;
 mod focus;
 pub(crate) mod inbox;
 mod input;
+mod invite;
+mod join_requests;
+pub(crate) use join_requests::open_join_requests_from_key;
 pub(crate) mod launcher_account;
 mod launcher_core;
+pub(crate) use launcher_core::target_for;
 mod navigation;
+mod presence_targets;
 #[cfg(test)]
 mod server_input_tests;
 pub(crate) mod server_trust;
@@ -33,10 +38,13 @@ mod settings_paths;
 pub(crate) mod settings_storage;
 pub(crate) mod settings_support;
 mod settings_values;
-mod sign_in_popup;
+mod sign_in_browser;
+#[cfg(feature = "developer-control")]
+mod sign_in_fixture;
 #[cfg(test)]
 mod transfer_follow_tests;
-mod video_settings;
+pub(crate) mod video_settings;
+mod view;
 mod worlds_tab;
 
 use auth::{AuthState, AuthSupervisor};
@@ -153,8 +161,18 @@ pub(crate) struct MenuRuntime {
     local_ui: worlds_tab::LocalWorldsUi,
     /// Sign-in state reported by the core's account control, when bound.
     control_auth: Option<AuthState>,
-    /// The device code whose sign-in page was last opened, so each code opens once.
-    sign_in_page_code: Option<String>,
+    /// Tracks the current browser handoff and suppresses repeated automatic opens.
+    sign_in_browser: sign_in_browser::SignInBrowser,
+    /// Interactive prompts take focus; cached validation keeps the home status label.
+    sign_in_requested: bool,
+    /// Cancellation stays dismissed until the player explicitly starts sign-in again.
+    sign_in_cancelled: bool,
+    /// A helper-start failure stays owned by its interactive prompt; only Failed is stored.
+    sign_in_failure: Option<AuthState>,
+    #[cfg(feature = "developer-control")]
+    sign_in_fixture: Option<developer_control::protocol::SignInFixtureState>,
+    /// Developer recordings present placeholder accounts without signing in.
+    presentation_accounts: bool,
     sign_out_requested: bool,
     accounts: accounts::Manager,
     /// Marketplace actions waiting for the store driver.
@@ -192,6 +210,10 @@ pub(crate) struct MenuRuntime {
     local_world_joined: bool,
     local_world_active: bool,
     feeds: MenuFeeds,
+    /// The pause screen's invite screen and the invites it queued.
+    invite: invite::InviteUi,
+    /// Discord join requests waiting for the host's answer.
+    join_requests: join_requests::JoinRequestUi,
 }
 
 /// Session requests raised by menu actions, for the session controller to take.
@@ -232,11 +254,12 @@ impl MenuRuntime {
         self.visible
     }
 
-    /// Settings retains the background of the launcher or world beneath it.
+    /// Settings retains the background of the launcher or world beneath it; pause, its invite
+    /// screen and death keep the world visible.
     pub(crate) fn uses_panorama(&self) -> bool {
         self.visible
             && match self.screen {
-                MenuScreen::Pause | MenuScreen::Death => false,
+                MenuScreen::Pause | MenuScreen::Death | MenuScreen::Invite => false,
                 MenuScreen::Settings | MenuScreen::DressingRoom => !self.over_world(),
                 _ => true,
             }
@@ -279,85 +302,6 @@ impl MenuRuntime {
             self.settings_slider_pointer = None;
             self.settings_slider_hovered = None;
             self.dialog = None;
-        }
-    }
-
-    pub(crate) fn view(&self) -> MenuView {
-        // A sign-in in flight outranks the core's report, which outranks a finished helper.
-        let supervisor = self
-            .auth_process
-            .as_ref()
-            .map(|process| process.state().clone());
-        let auth_state = match (supervisor, self.control_auth.clone()) {
-            (Some(state @ (AuthState::Checking | AuthState::AwaitingCode { .. })), _) => state,
-            (_, Some(control)) => control,
-            (supervisor, None) => supervisor.unwrap_or(AuthState::SignedOut),
-        };
-        let catalog_loading = matches!(
-            &auth_state,
-            AuthState::Checking | AuthState::AwaitingCode { .. }
-        ) || (auth_state == AuthState::Authenticated
-            && (!self.catalog_started || self.catalog_process.is_some()));
-        MenuView {
-            visible: self.visible,
-            over_world: self.over_world(),
-            screen: self.screen,
-            focused_action: self.focus_actions().get(self.focused).copied(),
-            hovered: self.hovered,
-            pressed: self.pressed,
-            navigation_focus_visible: self.input_mode.navigation(),
-            gamepad_input: self.input_mode.gamepad(),
-            server_tab: self.server_tab,
-            profile_tab: self.profile_tab,
-            dialog: self.dialog,
-            field: self.field,
-            caret: self.caret(),
-            name: self.name.as_str().to_owned(),
-            address: self.address.as_str().to_owned(),
-            port: self.port.as_str().to_owned(),
-            message: self.message.clone(),
-            gui_scale_offset: self.gui_scale_display_offset,
-            gui_scale_choices: self.gui_scale_choices.clone(),
-            fullscreen: self.fullscreen,
-            render_mode: self.render_mode,
-            vsync_override: self.vsync_override,
-            display_name: self.display_name.clone(),
-            servers: self.servers.clone(),
-            featured: self.featured.clone(),
-            realms: self.realms.clone(),
-            friends: self.friends.clone(),
-            featured_icon: None,
-            realm_icon: None,
-            friend_icon: None,
-            saved_icon: None,
-            profile_icon: None,
-            catalog_loading,
-            catalog_message: self.catalog_message.clone(),
-            auth_state,
-            connecting: self.is_connecting(),
-            settings_section: self.settings_section,
-            dressing_room: self.dressing_room.clone(),
-            player_skin: Some(self.player_skin.standard_skin()),
-            player_skin_model: self.player_skin.model(),
-            disconnect_message: self.disconnect_message.clone(),
-            editing: self.editing,
-            local_worlds: self.local_worlds.clone(),
-            local: self.local_view(),
-            settings_options: std::sync::Arc::clone(&self.settings_options),
-            storage: std::sync::Arc::clone(&self.storage),
-            settings_dropdown: self.settings_dropdown,
-            settings_scale_picker: self.settings_scale_picker,
-            settings_control_activation: self.settings_control_activation,
-            settings_control_activation_navigation: self.settings_control_activation_navigation,
-            settings_slider_pointer: self.settings_slider_pointer,
-            settings_slider_hovered: self.settings_slider_hovered,
-            settings_slider_selected: self.settings_slider_selected,
-            language_choices: std::sync::Arc::clone(&self.language_choices),
-            key_remap: self.key_remap,
-            settings_advanced_graphics: self.settings_advanced_graphics,
-            feeds: self.feeds.clone(),
-            store: self.store_snapshot.clone(),
-            global_resources: self.global_resources.clone(),
         }
     }
 
@@ -538,7 +482,11 @@ impl MenuRuntime {
     }
 
     pub(crate) fn activate(&mut self, action: MenuAction) {
-        if self.skin_editor_blocks(action) {
+        #[cfg(feature = "developer-control")]
+        if self.activate_sign_in_fixture(action) {
+            return;
+        }
+        if self.skin_editor_blocks(action) || self.presentation_blocks(action) {
             return;
         }
         if self.account_change_pending()
@@ -606,11 +554,15 @@ impl MenuRuntime {
                 self.catalog_message = None;
             }
             MenuAction::StartSignIn => self.start_sign_in(),
+            MenuAction::OpenSignInLink => self.update_sign_in_browser(true),
             MenuAction::CancelSignIn => {
                 if self.feeds.account_adding {
                     self.cancel_add_account();
                 } else {
                     self.stop_sign_in();
+                }
+                if self.dialog == Some(MenuDialog::Accounts) {
+                    self.dialog = None;
                 }
             }
             MenuAction::PlayAddServer => {
@@ -683,7 +635,11 @@ impl MenuRuntime {
                         self.message =
                             Some("That friend world has no stable Xbox identity.".to_owned());
                     } else {
-                        self.request_connect(format!("friend_xuid/{}", friend.xuid));
+                        self.request_connect(format!(
+                            "{}{}",
+                            launcher::menu::FRIEND_ADDRESS_PREFIX,
+                            friend.xuid
+                        ));
                     }
                 }
             }
@@ -779,6 +735,8 @@ impl MenuRuntime {
             }
             MenuAction::LocalWorld(action) => self.queue_local_action(action),
             MenuAction::ServerTrust(trusted) => self.answer_server_trust(trusted),
+            MenuAction::Invite(action) => self.activate_invite(action),
+            MenuAction::JoinRequest(accept) => self.answer_join_request(accept),
         }
     }
 
@@ -905,6 +863,10 @@ pub(crate) fn drive_menu_services(
     mut local_skin: Option<ResMut<crate::player_skin::LocalPlayerSkin>>,
     network: Option<Res<crate::runtime::network::NetworkHandle>>,
 ) {
+    #[cfg(feature = "developer-control")]
+    if menu.fixture_active() {
+        return;
+    }
     menu.poll_dressing_room(
         local_skin.as_deref_mut(),
         &mut client_world,

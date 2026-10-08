@@ -1,29 +1,45 @@
-//! Retains the exact viewport bytes already written to the GPU.
+//! Retained viewport bytes and the clock used only by visible item glint.
 
-use super::shader::UiViewportUniform;
+use super::{glint::UiGlintSettings, shader::UiViewportUniform};
 
+/// Keeps the last uniform submitted to the renderer's existing viewport buffer.
 #[derive(Default)]
-pub(super) struct ViewportUniformCache(Option<UiViewportUniform>);
+pub(super) struct ViewportUploads {
+    last: Option<UiViewportUniform>,
+    #[cfg(test)]
+    pub(super) writes: usize,
+}
 
-impl ViewportUniformCache {
-    /// Returns changed GPU bytes, keeping unused animation time fixed when no glint draws.
-    pub(super) fn update(
+impl ViewportUploads {
+    /// Samples an active glint clock and dispatches changed viewport bytes without allocating.
+    pub(super) fn upload(
         &mut self,
-        mut viewport: UiViewportUniform,
+        size: [u32; 2],
+        glint: UiGlintSettings,
         animated: bool,
-    ) -> Option<UiViewportUniform> {
-        if !animated {
-            viewport.time_seconds = 0.0;
+        clock: impl FnOnce() -> f32,
+        write: impl FnOnce(&UiViewportUniform),
+    ) -> bool {
+        let time_seconds = if animated && glint.strength != 0.0 && glint.speed != 0.0 {
+            glint.animation_seconds(clock())
+        } else {
+            0.0
+        };
+        let uniform = UiViewportUniform {
+            viewport_size: [size[0] as f32, size[1] as f32],
+            time_seconds,
+            glint_strength: glint.strength,
+        };
+        if self.last.as_ref() == Some(&uniform) {
+            return false;
         }
-        if self
-            .0
-            .as_ref()
-            .is_some_and(|held| bytemuck::bytes_of(held) == bytemuck::bytes_of(&viewport))
+        #[cfg(test)]
         {
-            return None;
+            self.writes += 1;
         }
-        self.0 = Some(viewport);
-        Some(viewport)
+        write(&uniform);
+        self.last = Some(uniform);
+        true
     }
 }
 
@@ -31,65 +47,128 @@ impl ViewportUniformCache {
 mod tests {
     use super::*;
 
-    /// Builds a valid uniform whose time may change without affecting static UI pixels.
-    fn uniform(time_seconds: f32) -> UiViewportUniform {
-        UiViewportUniform {
-            viewport_size: [1920.0, 1080.0],
-            time_seconds,
-            glint_strength: super::super::UiGlintSettings::default().strength,
+    /// An unchanged static UI neither samples its unused clock nor dispatches another upload.
+    #[test]
+    fn unused_viewport_clock_does_not_dispatch_uploads() {
+        let mut uploads = ViewportUploads::default();
+        let mut dispatched = 0;
+        uploads.upload(
+            [1920, 1080],
+            UiGlintSettings::default(),
+            false,
+            || panic!("static UI sampled the animation clock"),
+            |_| dispatched += 1,
+        );
+        let before = crate::alloc_count::thread_allocations();
+        for _ in 0..10 {
+            uploads.upload(
+                [1920, 1080],
+                UiGlintSettings::default(),
+                false,
+                || panic!("static UI sampled the animation clock"),
+                |_| dispatched += 1,
+            );
         }
+        let allocations = crate::alloc_count::thread_allocations() - before;
+        assert_eq!(allocations, 0);
+        assert_eq!(dispatched, 1, "unchanged viewport uploaded");
+        assert_eq!(uploads.writes, dispatched);
     }
 
+    /// Resizing and strength changes invalidate the retained uniform once each.
     #[test]
-    fn static_ui_writes_once_despite_elapsed_time() {
-        let mut cache = ViewportUniformCache::default();
-        let first = cache.update(uniform(1.0), false).unwrap();
-        assert_eq!(first.time_seconds, 0.0);
-        let warm_writes = [1.0, 2.0, 30.0, 3600.0]
-            .into_iter()
-            .filter(|time| cache.update(uniform(*time), false).is_some())
-            .count();
-        assert_eq!(warm_writes, 0);
-    }
-
-    #[test]
-    fn resize_and_glint_strength_write_once_per_change() {
-        let mut cache = ViewportUniformCache::default();
-        assert!(cache.update(uniform(1.0), false).is_some());
-        let mut viewport = uniform(2.0);
-        viewport.viewport_size[0] *= 2.0;
-        assert!(cache.update(viewport, false).is_some());
-        assert!(cache.update(viewport, false).is_none());
-        viewport.glint_strength *= 0.5;
-        assert!(cache.update(viewport, false).is_some());
-        assert!(cache.update(viewport, false).is_none());
-    }
-
-    #[test]
-    fn glint_animates_and_stopping_it_resets_time_once() {
-        let mut cache = ViewportUniformCache::default();
-        assert!(cache.update(uniform(1.0), false).is_some());
-        for time in [1.0, 2.0, 3.0] {
-            let written = cache.update(uniform(time), true).unwrap();
-            assert_eq!(written.time_seconds, time);
-            assert!(cache.update(uniform(time), true).is_none());
+    fn viewport_resize_and_settings_publish_once() {
+        let mut uploads = ViewportUploads::default();
+        let mut observed = Vec::new();
+        for (size, strength) in [
+            ([800, 600], 1.0),
+            ([1024, 768], 1.0),
+            ([1024, 768], 0.5),
+            ([1024, 768], 0.5),
+        ] {
+            let glint = UiGlintSettings {
+                strength,
+                speed: 1.0,
+            };
+            uploads.upload(
+                size,
+                glint,
+                false,
+                || panic!("unused clock"),
+                |value| observed.push(*value),
+            );
         }
-        assert_eq!(cache.update(uniform(4.0), false).unwrap().time_seconds, 0.0);
-        assert!(cache.update(uniform(5.0), false).is_none());
-        assert_eq!(cache.update(uniform(6.0), true).unwrap().time_seconds, 6.0);
+        assert_eq!(observed.len(), 3);
+        assert_eq!(observed[1].viewport_size, [1024.0, 768.0]);
+        assert_eq!(observed[2].glint_strength, 0.5);
     }
 
+    /// Glint uses the current global phase while the retained UI publication stays unchanged.
     #[test]
-    fn gpu_bytes_retain_float_bit_patterns() {
-        let mut cache = ViewportUniformCache::default();
-        let mut viewport = uniform(0.0);
-        viewport.glint_strength = f32::from_bits(0x7fc0_0001);
-        assert!(cache.update(viewport, false).is_some());
-        assert!(cache.update(viewport, false).is_none());
-        viewport.glint_strength = -0.0;
-        assert!(cache.update(viewport, false).is_some());
-        viewport.glint_strength = 0.0;
-        assert!(cache.update(viewport, false).is_some());
-        assert!(cache.update(viewport, false).is_none());
+    fn active_glint_keeps_animating_without_a_ui_publication() {
+        let mut uploads = ViewportUploads::default();
+        let mut phases = Vec::new();
+        let glint = UiGlintSettings {
+            strength: 1.0,
+            speed: 0.5,
+        };
+        uploads.upload(
+            [800, 600],
+            glint,
+            false,
+            || panic!("unused clock"),
+            |value| phases.push(value.time_seconds),
+        );
+        for elapsed in [40.0, 42.0, 42.0] {
+            uploads.upload(
+                [800, 600],
+                glint,
+                true,
+                || elapsed,
+                |value| phases.push(value.time_seconds),
+            );
+        }
+        uploads.upload(
+            [800, 600],
+            glint,
+            false,
+            || panic!("unused clock"),
+            |value| phases.push(value.time_seconds),
+        );
+        uploads.upload(
+            [800, 600],
+            glint,
+            true,
+            || 60.0,
+            |value| phases.push(value.time_seconds),
+        );
+        assert_eq!(phases, [0.0, 20.0, 21.0, 0.0, 30.0]);
+    }
+
+    /// Disabled or stationary glint does not consume a clock or upload unchanged bytes.
+    #[test]
+    fn disabled_and_stationary_glint_skip_clock_work() {
+        for glint in [
+            UiGlintSettings {
+                strength: 0.0,
+                speed: 1.0,
+            },
+            UiGlintSettings {
+                strength: 1.0,
+                speed: 0.0,
+            },
+        ] {
+            let mut uploads = ViewportUploads::default();
+            for _ in 0..10 {
+                uploads.upload(
+                    [800, 600],
+                    glint,
+                    true,
+                    || panic!("inactive glint sampled the clock"),
+                    |value| assert_eq!(value.time_seconds, 0.0),
+                );
+            }
+            assert_eq!(uploads.writes, 1);
+        }
     }
 }

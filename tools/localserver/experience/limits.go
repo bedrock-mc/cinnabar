@@ -56,6 +56,16 @@ const maxNeighborEventsPerTick = 64
 // dropLogInterval is how often, at most, an Experience's dropped events are logged.
 const dropLogInterval = time.Second
 
+// provisionalFocusRange is the farthest, in blocks from a player's eyes to the block's centre,
+// that a player's focus counts. PROVISIONAL, labeled incomplete in plan.md. Vanilla closes a
+// block container screen when the player is farther than its pick range from the block,
+// comparing the squared distance from the player's eye position to the block's centre. That
+// range has one constant for touch input, one for another input mode, and otherwise one for
+// survival and one for creative. Those constants are not yet known, so the value is still
+// Dragonfly's survival reach for using a block, and one range serves every input mode and game
+// mode.
+const provisionalFocusRange = 8.0
+
 // The commit check enforces these runtime limits again. Each must equal its Rust constant, which
 // TestCommitLimitsMatchRust checks against the limits fixture.
 const (

@@ -3,10 +3,10 @@
 //! presses to the module, an opened world is joined through the launcher core
 //! and closed when its session ends, and the pause menu pauses it.
 
-use protocol::world_control::{Difficulty, GameMode};
+use protocol::world_control::{Backend, Difficulty, GameMode};
 
 use super::{MenuAction, MenuField, MenuRuntime, MenuScreen};
-use crate::local_worlds::{Input, LocalWorlds, Progress, Screen, Tab, WorldsView};
+use crate::local_worlds::{Input, LocalWorlds, Progress, Screen, WorldsView};
 
 pub(crate) use launcher::menu::worlds_tab::LocalWorldAction;
 use launcher::menu::worlds_tab::world_card;
@@ -21,6 +21,17 @@ pub(super) struct LocalWorldsUi {
     pub(super) seed: ui::ChatEditor,
     /// The world being joined, for the loading screen's connect stage.
     joining: Option<String>,
+    /// The joined world runs on the dedicated server, which the core hosts for Xbox friends.
+    hosted: bool,
+    /// The open world's player limit, as its server reported it.
+    max_players: Option<u32>,
+}
+
+impl LocalWorldsUi {
+    /// Local preparation progress covers standalone prompts and owns their input.
+    pub(super) fn progress_open(&self) -> bool {
+        self.view.progress.is_some()
+    }
 }
 
 impl Default for LocalWorldsUi {
@@ -31,6 +42,8 @@ impl Default for LocalWorldsUi {
             name: super::input::field_editor(MenuField::WorldName),
             seed: super::input::field_editor(MenuField::WorldSeed),
             joining: None,
+            hosted: false,
+            max_players: None,
         }
     }
 }
@@ -82,13 +95,11 @@ impl MenuRuntime {
             view = worlds.menu().view();
         }
         if let Some(id) = worlds.take_ready() {
-            let name = worlds
-                .menu()
-                .worlds()
-                .iter()
-                .find(|world| world.id == id)
-                .map_or(id, |world| world.name.clone());
-            self.request_local_world_join(name);
+            let world = worlds.menu().worlds().iter().find(|world| world.id == id);
+            let hosted = world.is_some_and(|world| world.backend == Backend::Bds);
+            let name = world.map_or(id, |world| world.name.clone());
+            self.request_local_world_join(name, hosted);
+            self.local_ui.max_players = worlds.menu().max_players();
         }
         if self.local_world_joined && self.is_connecting() {
             let name = self.local_ui.joining.as_deref().unwrap_or_default();
@@ -106,9 +117,13 @@ impl MenuRuntime {
                 worlds.leave_world();
                 self.local_world_joined = false;
                 self.local_ui.joining = None;
+                self.local_ui.hosted = false;
+                self.local_ui.max_players = None;
             }
         }
-        worlds.set_pause_menu(active && self.visible && self.screen == MenuScreen::Pause);
+        // The invite screen opens over the pause screen, which stays up beneath it.
+        let paused = matches!(self.screen, MenuScreen::Pause | MenuScreen::Invite);
+        worlds.set_pause_menu(active && self.visible && paused);
     }
 
     /// The local-world screens' state for the menu view, with the fields' live text.
@@ -218,28 +233,12 @@ impl MenuRuntime {
         }
         match view.screen {
             Screen::List | Screen::Opening | Screen::BackendPrompt => None,
-            Screen::Create => match view.tab {
-                Tab::General => local(&[
-                    A::Create,
-                    A::Tab(Tab::Advanced),
-                    A::NameField,
-                    A::GameMode(GameMode::Survival),
-                    A::GameMode(GameMode::Creative),
-                    A::Difficulty(Difficulty::Peaceful),
-                    A::Difficulty(Difficulty::Easy),
-                    A::Difficulty(Difficulty::Normal),
-                    A::Difficulty(Difficulty::Hard),
-                ]),
-                Tab::Advanced => local(&[
-                    A::Create,
-                    A::Tab(Tab::General),
-                    A::SeedField,
-                    A::Backend(protocol::world_control::Backend::Dragonfly),
-                    A::Backend(protocol::world_control::Backend::Bds),
-                    A::Flat(false),
-                    A::Flat(true),
-                ]),
-            },
+            Screen::Create => Some(
+                A::creation_focus(view)
+                    .into_iter()
+                    .map(MenuAction::LocalWorld)
+                    .collect(),
+            ),
             Screen::Edit => local(&[
                 A::PlayFromEdit,
                 A::NameField,
@@ -263,16 +262,39 @@ impl MenuRuntime {
         }
     }
 
-    fn request_local_world_join(&mut self, name: String) {
+    pub(super) fn request_local_world_join(&mut self, name: String, hosted: bool) {
         self.stop_catalog();
         self.local_world_joined = true;
         self.local_ui.joining = Some(name.clone());
+        self.local_ui.hosted = hosted;
         self.intents.join = Some(crate::session::JoinIntent {
             address: name,
             auth_cache: None,
             local_world: true,
         });
         self.show_connecting();
+    }
+
+    /// The open world is hosted for Xbox friends under the signed-in account.
+    pub(super) fn hosting_world(&self) -> bool {
+        self.local_ui.hosted && !self.feeds.profile.xuid.is_empty()
+    }
+
+    /// The address Discord friends join the open world by, while the core hosts it for Xbox
+    /// friends under the signed-in account.
+    pub(crate) fn hosted_world_address(&self) -> Option<String> {
+        self.hosting_world().then(|| {
+            format!(
+                "{}{}",
+                launcher::menu::FRIEND_ADDRESS_PREFIX,
+                self.feeds.profile.xuid
+            )
+        })
+    }
+
+    /// The hosted world's player limit, for the Discord card's party size.
+    pub(crate) fn hosted_world_max_players(&self) -> Option<u32> {
+        self.local_ui.max_players.filter(|_| self.hosting_world())
     }
 }
 
@@ -340,7 +362,7 @@ mod tests {
     fn a_local_world_session_closes_the_world_when_it_ends() {
         let mut menu = MenuRuntime::new(true, 2, "Steve".to_owned());
         let mut worlds = LocalWorlds::default();
-        menu.request_local_world_join("Home".to_owned());
+        menu.request_local_world_join("Home".to_owned(), false);
         assert!(
             menu.intents
                 .join
@@ -357,6 +379,37 @@ mod tests {
         menu.intents.join = None;
         menu.sync_local_worlds(&mut worlds, false);
         assert!(!menu.local_world_active && !menu.local_world_joined);
+    }
+
+    #[test]
+    fn only_a_dedicated_server_world_with_a_signed_in_host_is_joinable_and_only_while_open() {
+        let mut menu = MenuRuntime::new(true, 2, "Steve".to_owned());
+        let mut worlds = LocalWorlds::default();
+        menu.request_local_world_join("Home".to_owned(), true);
+        assert_eq!(menu.hosted_world_address(), None, "no signed-in XUID yet");
+        menu.feeds.profile.xuid = "2535400000000001".to_owned();
+        assert_eq!(
+            menu.hosted_world_address(),
+            Some(format!(
+                "{}2535400000000001",
+                launcher::menu::FRIEND_ADDRESS_PREFIX
+            ))
+        );
+        menu.request_local_world_join("Flat".to_owned(), false);
+        assert_eq!(
+            menu.hosted_world_address(),
+            None,
+            "dragonfly worlds are not hosted"
+        );
+        menu.request_local_world_join("Home".to_owned(), true);
+        menu.sync_local_worlds(&mut worlds, false);
+        menu.intents.join = None;
+        menu.sync_local_worlds(&mut worlds, false);
+        assert_eq!(
+            menu.hosted_world_address(),
+            None,
+            "the closed world is no longer hosted"
+        );
     }
 
     /// Create-screen presses reach the module, and typed text lands in its form before submit.

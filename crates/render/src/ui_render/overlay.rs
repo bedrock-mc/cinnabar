@@ -1,4 +1,5 @@
 //! Ordered world-projected UI and depth-free HUD overlay with exact hand coverage.
+use super::pipeline::{UiPipeline, UiPipelineKey};
 use super::*;
 use super::{
     damage::UiDamage,
@@ -824,6 +825,9 @@ mod review_tests {
     use super::*;
     #[test]
     fn review_render_hud_invert_uses_the_resolved_scene_sample_count() {
+        use super::super::pipeline::{
+            UiPipelineSpecializer, ui_bind_group_layout, ui_pipeline_descriptor,
+        };
         let mut descriptor = ui_pipeline_descriptor(ui_bind_group_layout());
         UiPipelineSpecializer
             .specialize(hud_invert_pipeline_key(false), &mut descriptor)

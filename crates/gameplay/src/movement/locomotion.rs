@@ -143,6 +143,10 @@ impl ModeTracker {
         self.mode
     }
 
+    pub(super) const fn fall_fly_ticks(&self) -> u32 {
+        self.fall_fly_ticks
+    }
+
     pub(super) fn contact_height(&self) -> f64 {
         self.mode.hitbox_height(self.sneaking)
     }

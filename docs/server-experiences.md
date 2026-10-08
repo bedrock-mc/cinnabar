@@ -22,9 +22,10 @@ an error. The app negotiates only after consent, but never downloads or starts a
 bundle without `CINNABAR_DEV_SERVER_EXPERIENCES=1`. Without that switch, its hello
 advertises an empty capability set and it never sends `ready`.
 
-With the switch, the developer app advertises `ui`, `messaging`, `scene` and
-`media`. The UI adapter renders bounded labels in a separate JSON-UI area. It
-denies modal screens and input. Scene objects are validated, but only quads whose
+With the switch, the developer app advertises `ui`, `modal_ui`, `input`,
+`messaging`, `scene` and `media`. The UI adapter renders bounded labels in a
+separate JSON-UI area and draws a bundle's signed JSON-UI templates as a modal over
+gameplay (see "Modal screens"). Scene objects are validated, but only quads whose
 texture names one of the bundle's playing media descriptors are drawn; see
 [Developer media path](#developer-media-path). A data-only bundle is accepted
 without a component, but its media is not automatically played.
@@ -88,10 +89,11 @@ quotes, backslashes and control characters as `serde_json` does. Verify roundtri
 bytes against the Rust contract before publishing a signer in another language.
 Unsigned outer wrappers do not require canonical object order, but reject unknown
 fields. `cinnabar-cxb write-fixtures <dir>` writes golden offer, marker, hello,
-accept, ready, envelope, channel and manifest documents with their signatures from
-fixed seeds into `tools/localserver/extension/testdata`; a Rust test keeps them
-current and verifies them with this crate. The Go package `tools/localserver/extension`
-decodes, re-encodes and re-signs every one of them byte for byte (`go test ./extension`).
+accept, ready, epoch, envelope, fragment, channel and manifest documents, v1 and v2
+forms both, with their signatures from fixed seeds into
+`tools/localserver/extension/testdata`; a Rust test keeps them current and verifies them
+with this crate. The Go package `tools/localserver/extension` decodes, re-encodes,
+re-fragments and re-signs every one of them byte for byte (`go test ./extension`).
 
 ## Deployment advertisement
 
@@ -145,14 +147,23 @@ or hot update. Key changes require user approval. Updates take effect on rejoin.
    offers with a different key. Rejoining with a broader scope prompts again.
 4. After approval, send `{"kind":"hello","body":<Hello>}`. `Hello` fields are
    `version`, `api`, `capabilities`, `offer_digest`, `client_challenge`,
-   `connection`, `subclient`. API version is currently 1. Challenge and connection
+   `connection`, `subclient`, then `wire`. `version` stays 1, the handshake's own
+   version; API version is currently 1. `wire` lists the envelope versions the
+   client speaks and its ceilings: `{"versions":[1,2],"limits":{"max_fragment_bytes":…,
+   "max_message_bytes":…,"max_reassembly_bytes":…}}`, the versions an ascending set.
+   A v1 client's Hello has no `wire` member at all. Challenge and connection
    are independently random 32-byte values. Capabilities are coarse; no account,
    machine ID, filesystem path or hardware inventory is sent.
 5. Reply on that same live Bedrock connection with
    `{"kind":"accept","body":<signed document>}`. The signed `Accept` fields
    are `hello`, `server_challenge`, `session`, `audience`, `offer_digest`,
-   `revision`, `expires_unix`. Echo the **whole** hello, unchanged. Server challenge
-   and session are fresh 32-byte values. Expiration cannot exceed the offer's.
+   `revision`, `expires_unix`, then `wire`. Echo the **whole** hello, unchanged. Server
+   challenge and session are fresh 32-byte values. Expiration cannot exceed the offer's.
+   `wire` selects `{"version":2,"limits":{…}}`: a version the Hello lists other than 1,
+   with every limit nonzero, no higher than the Hello's, and fragment ≤ message ≤
+   reassembly. A server selects v1 by leaving `wire` out, which is also the only
+   answer to a Hello without `wire`; the session then keeps the v1 form and limits
+   byte for byte. The selection is signed, so it cannot be downgraded in transit.
 6. The client accepts once, within the handshake timeout. A wrong key, challenge,
    destination, scope digest, revision, connection or expiration revokes this
    extension. It does not disconnect ordinary play.
@@ -166,7 +177,29 @@ or hot update. Key changes require user approval. Updates take effect on rejoin.
 
 The `disabled` control tag is reserved. The client does not need to send it to
 revoke authority. No fallback relies on receiving a final message from a crashed
-or disconnected client. There is no auto-restart after a trap or protocol failure.
+or disconnected client. A protocol failure or a helper that dies ends the session's
+runtime with no restart, as before.
+
+A failed client part callback does not. The developer helper (`mod-host server-helper`,
+helper IPC protocol 2, which the client and its helper share) answers a callback that
+traps, runs out of fuel, panics or breaks a host rule with a failure reply naming the
+bundle, the callback (`init`, `dispatch`, `action` or `epoch`), the kind (`fuel`,
+`panic`, `trap`, `refused` or `startup`) and a reason of at most
+`MAX_FAILURE_REASON_BYTES`: the error chain with the guest backtrace, control characters
+removed, and the fuel it consumed. A committed reply also carries its callback's fuel,
+which the client logs at debug level with the bundle and callback, and
+`mod_host::server::BundleHost::last_fuel_used` reports the same in process. The callback
+publishes nothing and the helper runs on a fresh instance of the
+component, so the guest's memory starts over; the helper says so on its stderr. The
+client logs each failure at WARN and counts it as a strike; `MAX_GUEST_STRIKES` within
+`GUEST_STRIKE_WINDOW_MS` (`server_experience::policy`, mirroring the server adapter's
+`strikeLimit` and `strikeWindow`, which a test checks) stop that client part, as does a
+failed start such as a missing import. A stopped part's helper, contributions and later
+messages are dropped, the trusted status names it ("Cinnabar: <bundle> client part
+stopped after repeated errors. F9: disable server code"), and the session and the other
+parts go on. The helper's stderr reaches the client's log, each line cut to
+`MAX_LOG_LINE_BYTES` and at most `MAX_LOG_LINES_PER_SECOND` lines a second, the rest
+counted.
 
 Trust lives in `server-experiences.json` alongside the existing menu settings.
 Fields are `disabled`, `media_muted`, `media_autoplay`, `pins`. A pin contains
@@ -206,7 +239,7 @@ fields, in canonical order, are:
 
 - `version`, `api`, `id`, `publisher_key`, `package_version`;
 - `permissions`, `component` (indexed portable Wasm path, or `null`);
-- `channels`, `actions`, `files`.
+- `channels`, `actions`, `templates` (omitted when empty), `files`.
 
 `files` lists every other ZIP entry exactly once. Each entry has `path`, `bytes`,
 `sha256`. The manifest does not index itself. Check the outer digest, publisher
@@ -217,17 +250,23 @@ signed deployment revision. Dependencies must be bundled into the component;
 there is no runtime package dependency loader.
 
 `actions` is a set of declared action IDs; it grants no keyboard access by itself.
-`channels` declares positional schemas (see below). JSON-UI templates, scene assets,
-posters and media descriptors may be indexed, but their presence alone does not
-make an unimplemented presentation adapter available.
+`channels` declares positional schemas (see below). `templates` is the set of JSON-UI
+files (`ui/<name>.json`, each also in `files`) the modal may open; files under
+`textures/` are PNG images and their JSON sidecars the screens may draw. Scene
+assets, posters and media descriptors may be indexed, but their presence alone does
+not make an unimplemented presentation adapter available.
 
 `cinnabar-cxb` (`tools/cxb`) is the publisher tool. `keygen <file>` writes a new raw
 32-byte Ed25519 seed as one line of lowercase hex and never replaces a file.
-`build --manifest <toml|json> --component <wasm> --publisher-seed <file> --out
-<x.cxb>` reads `id`, `package_version`, `permissions`, `channels` and `actions` from
-the manifest source, componentizes a core module as `mod-host pack` does, stores
-it as `component.wasm`, signs the manifest and checks the archive with this
-crate's verifier before writing it. It prints the bundle's `sha256` and `bytes`.
+`build --experience <experience.toml> --component <wasm> --publisher-seed <file> --out
+<x.cxb>` reads the Experience's `experience.toml`
+([experience-runtime.md](experience-runtime.md#artifact)): its `id`, its `version` as
+`package_version`, and from its `[client]` table `permissions`, `channels`, `actions`,
+`templates` and `textures`. Any other key of `[client]` is refused, and a file without the table
+declares no client part; the server keys and `[files]` are the runtime's. Each template and
+texture is read beside `experience.toml` at its bundle path. It componentizes a core module as
+`mod-host pack` does, stores it as `component.wasm`, signs the manifest and checks the archive
+with this crate's verifier before writing it. It prints the bundle's `sha256` and `bytes`.
 Entries are stored with a fixed timestamp, so equal inputs give an equal digest.
 
 The cache is under the install layout's per-user
@@ -259,14 +298,29 @@ version, session, connection, subclient, bundle, generation,
 channel, schema, sequence, world_epoch, payload
 ```
 
-All route values must match the live grant and ready record. Generation is 1 for
-this preview; there is no in-place reload. The server must use the ready epoch.
-A dimension/epoch change currently revokes the preview until rejoin instead of
-attempting partial resynchronization.
+All route values must match the live grant and ready record; `version` is the
+Accept's selected wire version. Generation is 1 for this preview; there is no
+in-place reload. Envelopes carry the current world epoch: Ready's at first.
+
+On wire v1 a dimension/epoch change revokes the preview until rejoin. On wire v2
+the client keeps its runtime and, once Ready has gone out, sends
+`{"kind":"epoch","body":{"session":…,"world_epoch":…}}` with a strictly greater
+epoch ahead of every later send, and calls each guest's `epoch()`. Both sequences
+continue. From then on the client sends the new epoch, the server must too, and
+either side drops and counts envelopes of an epoch it has left while their sequence
+numbers stay spent. A callback that began before the change still publishes; its
+sends carry the epoch it began in. An epoch control that names another session, does
+not move forward, arrives before Ready or inside a fragmented message is a
+violation.
+
+On the server, the guest's `client-message` and `epoch` callbacks (server WIT 0.4)
+get the snapshot of the player's focus, the Experience block the player last used,
+so a client part's action can change that block's data and resend its state
+([experience-runtime.md](experience-runtime.md#wit-and-semantics)).
 
 Each manifest channel contains `id`, `schema` (u16), `direction` (`to_client` or
 `to_server`), and `fields`. IDs must start with the owning package ID plus `.`.
-A channel/schema pair is unique. A payload is an ordered array of typed scalars:
+A channel/schema pair is unique. A payload is an ordered array of typed values:
 
 | Field declaration | Payload value |
 | --- | --- |
@@ -274,16 +328,40 @@ A channel/schema pair is unique. A payload is an ordered array of typed scalars:
 | `{"type":"integer","min":0,"max":100}` | `{"type":"integer","value":42}` |
 | `{"type":"text","max_bytes":64}` | `{"type":"text","value":"hello"}` |
 | `{"type":"choice","variants":3}` | `{"type":"choice","value":0}` |
+| `{"type":"list","item":<field>,"max_items":16}` | `{"type":"list","value":[<value>…]}` |
+| `{"type":"record","fields":[<field>…]}` | `{"type":"record","value":[<value>…]}` |
 
-Text length is UTF-8 bytes. Choice values are zero-based. No opaque arbitrary
-Bedrock packet payload is exposed. The host validates outgoing records against
-`to_server` schemas and incoming records against `to_client` schemas.
+Text length is UTF-8 bytes. Choice values are zero-based. A list holds at most
+`max_items` values of its item type; a record holds exactly one value per field, in
+order. Lists and records nest at most `MAX_FIELD_DEPTH` deep, a top-level one being
+level 1, and a record has at most `MAX_CHANNEL_FIELDS` fields; bundle verification
+refuses other declarations. Validation stays positional and total: every nested
+value is checked against its declaration. No opaque arbitrary Bedrock packet payload
+is exposed. The host validates outgoing records against `to_server` schemas and
+incoming records against `to_client` schemas. A guest's `messaging.send` is checked
+when it is made, against its channel's schema and the session's message limit
+(`MAX_PAYLOAD_BYTES` on wire v1, the Accept's `max_message_bytes` on v2); a send that
+fails is an error returned to the guest and never reaches the wire.
+
+A payload's JSON may be at most `max_fragment_bytes` inline. On wire v2 a longer one,
+up to `max_message_bytes`, travels as ordered fragments that share the message's
+header and sequence number: the envelope's `payload` member is replaced by
+`"fragment":{"index":i,"count":n,"data":"…"}`, where `data` is the next run of the
+payload JSON's text, cut at the last character boundary within `max_fragment_bytes`,
+and `n` is at least 2. The receiver takes fragments of one message in order, with
+nothing between them, buffers at most `max_message_bytes` of data and keeps the
+carrier bytes of its undelivered messages, the open one included, within
+`max_reassembly_bytes`; then it validates the whole record. The host ceilings are
+`MAX_PAYLOAD_BYTES`, `MAX_MESSAGE_BYTES` and `MAX_QUEUE_BYTES`. A sender spends the
+rate of a whole message at once: a message whose fragments would exceed the
+receiver's remaining rate is not sent at all.
 
 Charge bytes/messages before JSON parsing, then check identity, sequence, schema
 and queue bounds. Unknown schema revisions are counted and skipped while consuming
-their sequence. Replays, gaps, invalid known records and queue overflow quarantine
-the optional channel. There is no unreliable lane, retransmission or snapshot
-request in this preview; the server must fall back rather than expect recovery.
+their sequence. Replays, gaps, invalid known records, malformed, interleaved,
+duplicated or over-budget fragments and queue overflow quarantine the optional
+channel. There is no unreliable lane, retransmission or snapshot request in this
+preview; the server must fall back rather than expect recovery.
 
 Inbound extension events share the existing ordered world publication stream.
 Only committed UI events enter the experience controller. Stale dimension work
@@ -297,19 +375,94 @@ pending until all bundles finish initialization.
 ## Host capabilities and containment
 
 The component world is `server-bundle` in
-[`extension.wit`](../crates/mod-api/wit/extension.wit). Its imported interfaces use
-`cinnabar:server-experience@1.0.0`, defined in
-[`capabilities.wit`](../crates/mod-api/wit/deps/server-experience/capabilities.wit).
-Guests export `init()` and `dispatch(channel, record-json)`.
+[`client.wit`](../crates/experience-sdk/wit/client/client.wit), whose package keeps the name
+`cinnabar:extension@0.1.0` it had in `mod-api`; `experience-sdk`'s `client` feature generates the
+guest's bindings and `mod-host` the host's from that one file. Its imported interfaces use
+`cinnabar:server-experience@1.2.0`, defined in
+[`capabilities.wit`](../crates/experience-sdk/wit/client/deps/server-experience/capabilities.wit).
+Guests export `init()`, `dispatch(channel, record-json)`, `action(id,
+collection-index)`, `epoch()`, `modal-resized(size)`, `text-changed(control, text)` and
+`secondary-action(id, collection-index)`.
+A component built against 1.0.0 or 1.1.0 still links (its imports resolve to the 1.2.0
+host by semver): one built against 1.0.0 exports only `init` and `dispatch`, and the host
+skips `action`, `epoch` and 1.2's callbacks for it; one built against 1.1.0 also exports
+`action` and `epoch`, and the host skips 1.2's callbacks for it, so a 1.1 bundle only
+ever receives primary presses. 1.1's two callbacks and 1.2's three are each exported all
+or none. SP5's planned `items.lookup(id)` (item icons and
+names) is to join 1.2 as an import of its own, which leaves components built against 1.2
+now linking.
 
 | Permission | Host contract | App adapter today |
 | --- | --- | --- |
 | `ui` | Set/remove an owned label by ID | Bounded label preview through JSON-UI |
-| `modal_ui` | Open an owned signed JSON template | Denied |
-| `input` | Query a declared, host-delivered action edge | Always false; no focus adapter |
+| `modal_ui` | Open/switch/close a signed template; bind collections and values | Modal over gameplay through the JSON-UI engine |
+| `input` | Receive a declared action or edit box text from the focused modal; `pressed` during an action | Modal button presses on release; edit box text |
 | `messaging` | Send a signed typed channel record | Connected to the existing packet send FIFO |
 | `scene` | Put/remove a declarative quad, mesh or particle object | Media-textured quads drawn as emissive screens; other objects ignored |
 | `media` | Control an indexed media descriptor | Developer decoder process, see below |
+
+### Modal screens
+
+`ui.open-screen(some(path))` opens a template from the manifest's `templates` (any other
+path is refused); opening another replaces it, and `none` or `ui.close-screen()` closes
+it. Escape also closes it. The template `ui/<name>.json` must declare the bundle's
+namespace (its id with every character outside `[a-z0-9_]` as `_`), which may not be a
+vanilla namespace, and the modal draws its control `<namespace>.<name>`. All of a
+bundle's templates load together, so screens may use each other's controls. Templates
+are strict JSON and may use any vanilla control: they resolve against the vanilla
+catalog as the UI carrier ships it, never a server resource pack's JSON-UI and never
+Cinnabar's trusted catalogs; a `name@ns.base` or `@ns.name` reference to a control the
+vanilla pack lacks is refused, and a refused template ends the client part. Textures
+resolve against the bundle's `textures/` files, then the vanilla carrier, item icons and
+the local vanilla pack; server-pack textures, URLs and paths that leave `textures/`
+draw nothing. Bundle images share four 256-pixel atlas pages; a larger one is shrunk.
+
+The modal draws only when no other screen (chat, inventory, form, menu, loading) is up,
+below toasts and the trusted running indicator. While drawn it owns the pointer and the
+keyboard (the cursor is released and gameplay sees no input), and F9 still revokes.
+
+Data binds through the engine's own `#name` bindings:
+
+- `ui.set-value(name, value)` sets a global binding (`binding_type` global): `boolean`,
+  `integer`, `number`, `text` (formatting codes allowed) or `numbers` (up to four, for
+  `#color` `[r,g,b,a]`, `#offset`, `#nineslice_size`, a grid's dimension binding).
+  Through `binding_name_override` a value drives any bindable property the engine
+  supports: `#visible`, `#enabled`, `#alpha`, `#clip_ratio` (progress), `#texture`,
+  `#color`, `#toggle_state`, `#slider_value`, `#text_alignment`, `#offset`,
+  `#size_binding_x/y`, `#maximum_grid_items`, `#collection_length` and label text.
+- `ui.set-collection(name, rows-json)` replaces collection `name` for factories, grids
+  and stack panels that name it (`collection_name`, `binding_type` collection). Rows are
+  a JSON array of objects from `#name` to a value in the same encoding as channel leaves,
+  `{"type":"bool|integer|number|text|numbers","value":…}`, so each row can carry its own
+  text, texture path, count or visibility.
+- A button whose `$pressed_button_name` is a declared manifest action delivers
+  `action(id, collection-index)` on release, with the row of its nearest collection, if
+  the bundle holds `input`; other presses do nothing. A secondary press (a right click)
+  released over the control it began on delivers `secondary-action(id, collection-index)`
+  (1.2) when the control maps `button.menu_secondary_select` to a declared action, as
+  vanilla's slot buttons map it to their `$pressed_button_name`; `action` stays the primary
+  press, and `input.pressed(id)` reports either one during its callback.
+- `ui.modal-size()` (1.2) returns the drawn modal's root size in GUI units, the units a
+  `"100%"` root panel of the template gets, as the engine lays out vanilla screens
+  (window content over the GUI scale), and `scale`, the window's logical pixels per GUI
+  unit; `none` until it is drawn and while it is closed. `modal-resized(size)` is delivered
+  when the modal is first drawn after opening and on each change (a window resize or a
+  GUI scale change), the latest replacing one still waiting, so a guest can lay out its
+  rows and columns for the space it has.
+- Edit boxes (vanilla `text_edit_box`, an `edit_box` control) work as on vanilla
+  screens, driven by the engine's input components: a press selects one, typing,
+  Backspace, Enter and Ctrl+V edit it within its `max_length`, a press elsewhere, Enter or
+  Escape deselects it, and Escape closes the modal only when no box was selected. A box
+  whose `text_box_name` is a declared manifest action delivers `text-changed(control,
+  text)` (1.2) with its whole text, if the bundle holds `input`; edits coalesce to the
+  latest text per box. `ui.set-text(control, text)` (1.2) sets the boxes named `control`,
+  cut to their `max_length`, without delivering `text-changed`, and the user's later
+  typing stands. Edit text holds at most `MAX_EDIT_TEXT_BYTES` and no control characters
+  but line breaks.
+
+Bound data outlives switching and closing the screen. Limits (`policy.rs`): 32
+templates of at most 256 KiB, 256 texture files of at most 4 MiB, 32 collections of at
+most 4096 rows and 32 fields, 256 values, and the 112 KiB transaction.
 
 Scene transforms are position xyz, normalized quaternion xyzw, positive scale xyz.
 A quad declares an owned texture and size; a mesh an owned asset and triangle

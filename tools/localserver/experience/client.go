@@ -47,6 +47,26 @@ func (h *Host) DeliverClientMessage(player *world.EntityHandle, exp, channel str
 	}
 }
 
+// DeliverEpoch queues the epoch callback of the Experience exp, whose client part that player
+// runs moved to a new world epoch and kept running, without blocking, so the Experience can
+// resend its state. Like a client message, the callback runs in the world that player is in when
+// its turn comes, with no snapshot, and commits like any other. It reports false when the epoch
+// was dropped: the Host does not run exp, has closed, or the Experience's queue is full.
+func (h *Host) DeliverEpoch(player *world.EntityHandle, exp string) bool {
+	d, ok := h.dispatchers[exp]
+	if !ok || h.closed.Load() {
+		return false
+	}
+	call := &EpochCall{Player: player.UUID().String()}
+	select {
+	case d.events <- event{actor: player, call: Call{Epoch: call}}:
+		return true
+	default:
+		h.drop(d)
+		return false
+	}
+}
+
 // sendClient sends a committed client message of the Experience d to player, or counts it as
 // dropped: on a channel that the Experience's client part does not declare, or not sent by the
 // server half, typically because player has no active client part.

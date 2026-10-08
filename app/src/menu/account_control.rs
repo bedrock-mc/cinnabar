@@ -75,6 +75,14 @@ pub(crate) trait AccountControl {
     }
     /// Answers trust prompt `id`.
     fn answer_server_trust(&mut self, _id: u64, _trusted: bool) {}
+    /// Asks `friends_people.v1` for the account's Xbox friends off the frame.
+    fn request_people(&mut self) {}
+    /// The friends the last request listed, or `Err` when it failed.
+    fn people(&mut self) -> Option<Result<Vec<launcher::menu::invite::Friend>, ()>> {
+        None
+    }
+    /// Sends each friend an invite to the hosted world through `world_invite.v1`, off the frame.
+    fn send_invites(&mut self, _xuids: Vec<String>) {}
 }
 
 impl MenuRuntime {
@@ -223,11 +231,11 @@ impl MenuRuntime {
             self.feeds.server_trust = asked;
         }
         if let Some(status) = control.account_status() {
-            self.control_auth = Some(status);
+            self.apply_control_auth(status);
         }
         while let Some(event) = control.poll_event() {
             match event {
-                AccountEvent::Auth(state) => self.control_auth = Some(state),
+                AccountEvent::Auth(state) => self.apply_control_auth(state),
                 AccountEvent::Disconnected { reason } => {
                     self.disconnect_message = Some(super::disconnect::from_server(&reason));
                 }
@@ -237,6 +245,7 @@ impl MenuRuntime {
             control.sign_out();
             self.finish_sign_out();
         }
+        self.sync_invites(control);
     }
 
     /// Sign out without a launcher core: the saved tokens are removed here.
@@ -410,6 +419,7 @@ mod tests {
                 world_name: "Base".into(),
                 members: "1 players".into(),
                 xuid: "1".into(),
+                max_members: 0,
             }])
         }
         fn sign_out(&mut self) -> bool {
@@ -684,5 +694,34 @@ mod tests {
         assert!(control.signed_out);
         assert!(menu.friends.is_empty());
         assert_eq!(menu.view().screen, super::super::MenuScreen::Profile);
+    }
+
+    #[test]
+    fn a_join_to_a_featured_server_carries_its_logo_however_the_address_is_written() {
+        let mut menu = MenuRuntime::new(true, 2, "Steve".to_owned());
+        menu.featured = vec![MenuServerCard {
+            name: "The Hive".into(),
+            address: "geo.hivebedrock.network".into(),
+            caption: String::new(),
+            image_path: String::new(),
+            icon: None,
+        }];
+        menu.feeds.details.insert(
+            "geo.hivebedrock.network".into(),
+            ServerDetails {
+                logo_url: "https://cdn.example/hive.png".into(),
+                ..Default::default()
+            },
+        );
+        let badge = menu
+            .featured_badge("geo.hivebedrock.network:19132")
+            .unwrap();
+        assert_eq!(
+            (badge.image_url.as_str(), badge.name.as_str()),
+            ("https://cdn.example/hive.png", "The Hive")
+        );
+        assert!(menu.featured_badge("play.example.net").is_none());
+        menu.feeds.details.clear();
+        assert!(menu.featured_badge("geo.hivebedrock.network").is_none());
     }
 }

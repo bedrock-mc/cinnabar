@@ -1,6 +1,7 @@
 use protocol::ActorAttribute;
 
 const SPRINT_MODIFIER_ID: &str = "d208fc00-42aa-4aad-9276-d5446530de43";
+pub const AIR_DRAG_MODIFIER_ATTRIBUTE: &str = "minecraft:air_drag_modifier";
 
 /// Retains effective current and identifies the packet's native sprint modifier.
 /// A packet without it replaces any locally predicted modifier. Ambiguous or

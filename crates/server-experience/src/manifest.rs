@@ -143,7 +143,69 @@ pub struct Manifest {
     pub component: Option<String>,
     pub channels: Vec<crate::wire::Channel>,
     pub actions: BTreeSet<String>,
+    /// JSON-UI files the modal may open, each also indexed in `files`. Omitted when empty, so a
+    /// manifest without screens keeps its canonical bytes.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub templates: BTreeSet<String>,
     pub files: Vec<ContentFile>,
+}
+
+impl Manifest {
+    /// Bounds the modal screen files: every template is an indexed `ui/<name>.json`, and every
+    /// image under `textures/` is a bounded PNG.
+    pub fn validate_screens(&self) -> Result<()> {
+        ensure!(self.templates.len() <= MAX_TEMPLATES, "too many templates");
+        for template in &self.templates {
+            ensure!(template_root(template).is_some(), "invalid template path");
+            ensure!(
+                self.files
+                    .iter()
+                    .any(|file| &file.path == template && file.bytes <= MAX_TEMPLATE_BYTES as u64),
+                "template missing from index or too large"
+            );
+        }
+        let mut textures = 0;
+        for file in self
+            .files
+            .iter()
+            .filter(|file| file.path.starts_with(TEXTURE_DIR))
+        {
+            let image = file.path.ends_with(".png") && file.bytes <= MAX_TEXTURE_BYTES as u64;
+            let sidecar = file.path.ends_with(".json") && file.bytes <= MAX_TEMPLATE_BYTES as u64;
+            ensure!(image || sidecar, "invalid texture file");
+            textures += 1;
+        }
+        ensure!(textures <= MAX_TEXTURES, "too many textures");
+        Ok(())
+    }
+}
+
+/// Where a bundle keeps the images its screens may draw.
+pub const TEXTURE_DIR: &str = "textures/";
+
+/// The control a template file opens as: `ui/terminal.json` opens `terminal` of the bundle's
+/// namespace. `None` for a path that is not one `ui/` file with a JSON-UI name.
+pub fn template_root(path: &str) -> Option<&str> {
+    let name = path.strip_prefix("ui/")?.strip_suffix(".json")?;
+    (!name.is_empty()
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_'))
+    .then_some(name)
+}
+
+/// The JSON-UI namespace every template of bundle `id` declares: the id with each character a
+/// JSON-UI name cannot hold replaced by `_`.
+pub fn template_namespace(id: &str) -> String {
+    id.chars()
+        .map(|c| {
+            if c.is_ascii_lowercase() || c.is_ascii_digit() {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
 }
 
 /// Restricts identifiers to an unambiguous, portable owned namespace.
@@ -162,7 +224,12 @@ pub fn plain_text(text: &str, limit: usize) -> bool {
 
 /// Lists only capabilities with application adapters in this developer preview.
 pub fn implemented_permissions() -> BTreeSet<Permission> {
-    BTreeSet::from([Permission::Ui, Permission::Messaging])
+    BTreeSet::from([
+        Permission::Ui,
+        Permission::ModalUi,
+        Permission::Input,
+        Permission::Messaging,
+    ])
 }
 
 /// What the developer client advertises: the above plus media playback onto scene quads.

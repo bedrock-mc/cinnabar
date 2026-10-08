@@ -18,9 +18,9 @@ use bevy::{
         ButtonInput, Entity, KeyCode, Local, MessageReader, MouseButton, Query, Res, ResMut,
         Resource, Single, With,
     },
-    window::{CursorOptions, PrimaryWindow, Window},
+    window::{CursorGrabMode, CursorOptions, PrimaryWindow, Window},
 };
-use ui::{ChatClipboard, ChatEditor, UiPoint};
+use ui::{ChatClipboard, ChatEditor, ToastPress, UiPoint};
 
 use super::{
     MAX_SERVER_ADDRESS_BYTES, MAX_SERVER_NAME_BYTES, MAX_SERVER_PORT_BYTES, MenuField, MenuRuntime,
@@ -536,6 +536,19 @@ pub(crate) fn drive_menu_input(
             menu.open_pause();
             crate::camera::release_cursor(&mut cursor);
             keys.reset_all();
+        } else if cursor.grab_mode == CursorGrabMode::None
+            && mouse_buttons.just_pressed(MouseButton::Left)
+            && window
+                .cursor_position()
+                .and_then(|position| UiPoint::new(position.x, position.y).ok())
+                .and_then(|point| presentation.toast_press_at(point))
+                == Some(ToastPress::JoinRequests)
+        {
+            // A free cursor pressing the join request toast opens its popup, and nothing beneath;
+            // the held press is not a new one for the menu.
+            menu.open_join_requests();
+            menu.pointer_down = true;
+            mouse_buttons.reset(MouseButton::Left);
         }
         return;
     }
@@ -554,6 +567,10 @@ pub(crate) fn drive_menu_input(
     let gameplay_pending = menu.gameplay_return_pending();
     modifiers.capture_pressed(&keys);
     crate::camera::release_cursor(&mut cursor);
+    // The join request popup takes the keyboard from any box focused beneath it.
+    if menu.join_request_prompted() {
+        menu.field = None;
+    }
     let native_settings = presentation.uses_oreui_settings();
     let pointer = window
         .cursor_position()
@@ -938,6 +955,10 @@ pub(crate) fn drive_menu_input(
 impl MenuRuntime {
     /// A selected vanilla edit box consumes cancel before the screen handles it.
     fn go_back_from_input(&mut self) {
+        if self.sign_in_focus().is_some() || self.join_request_prompted() {
+            self.go_back();
+            return;
+        }
         if self.clear_settings_slider_selection() {
             return;
         }
@@ -963,3 +984,6 @@ mod gui_scale_drag_tests;
 
 #[cfg(test)]
 mod settings_slider_tests;
+
+#[cfg(test)]
+mod sign_in_tests;

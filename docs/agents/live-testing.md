@@ -207,8 +207,8 @@ once per second. Metal timings retain the latency and invalid-pair limitations
 above; a missing category is not a zero-cost pass. Pair this diagnostic with query
 health and repeat the ordinary capture without it before making a performance claim.
 With these diagnostics enabled, `RUST_MCBE_GPU_UI_BASELINE=1` selects the previous
-replay policy: retain identical revisions, fully redraw newer publications, and
-upload the original viewport uniform every frame. Use this same-binary control
+replay policy: retain identical revisions and fully redraw newer publications.
+Both modes retain unchanged viewport uniforms. Use this same-binary control
 for matched comparisons, with equal warm-up and alternating run order. The switch
 is sampled at startup and has no effect without UI diagnostics.
 

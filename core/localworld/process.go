@@ -51,6 +51,7 @@ func (r ProcessRunner) Start(ctx context.Context, spec StartSpec) (Instance, err
 		"-game-mode", spec.World.GameMode,
 		"-difficulty", spec.World.Difficulty,
 		"-generator", spec.World.Generator,
+		"-allow-cheats="+strconv.FormatBool(spec.World.AllowCheats),
 		"-seed", strconv.FormatInt(spec.World.Seed, 10),
 	)
 	cmd.Env = append(os.Environ(), r.Env...)

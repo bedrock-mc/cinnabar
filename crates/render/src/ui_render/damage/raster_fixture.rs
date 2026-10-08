@@ -3,7 +3,12 @@
 #[path = "../../../tests/it/support/gpu_snapshot.rs"]
 mod gpu_snapshot;
 
-use super::super::super as ui;
+use super::super::super::{
+    self as ui,
+    pipeline::{
+        UiPipelineKey, UiPipelineSpecializer, ui_bind_group_layout, ui_pipeline_descriptor,
+    },
+};
 use super::super::*;
 use bevy::render::render_resource::Specializer;
 use gpu_snapshot::Gpu;
@@ -27,15 +32,14 @@ fn pipeline(
     depth: (bool, bool),
     clear: bool,
 ) -> wgpu::RenderPipeline {
-    let ui =
-        super::super::super::ui_pipeline_descriptor(super::super::super::ui_bind_group_layout());
+    let base = ui_pipeline_descriptor(ui_bind_group_layout());
     let descriptor = if clear {
         ui::composite::clear_pipeline_descriptor()
     } else {
-        let mut descriptor = ui.clone();
-        ui::UiPipelineSpecializer
+        let mut descriptor = base.clone();
+        UiPipelineSpecializer
             .specialize(
-                ui::UiPipelineKey {
+                UiPipelineKey {
                     msaa: ui::Msaa::Off,
                     hdr: false,
                     invert_blend: false,
@@ -49,7 +53,7 @@ fn pipeline(
             .unwrap();
         descriptor
     };
-    let buffer = &ui.vertex.buffers[0];
+    let buffer = &base.vertex.buffers[0];
     let buffers = [wgpu::VertexBufferLayout {
         array_stride: buffer.array_stride,
         step_mode: buffer.step_mode,
@@ -127,7 +131,7 @@ impl Raster {
     /// Skips only a missing native adapter; all shader, device and rendering errors remain failures.
     pub(super) fn new(input: &UiRenderInput) -> Option<Self> {
         let gpu = Gpu::for_fixture("retained UI damage exact pixel parity")?;
-        let entries = super::super::super::ui_bind_group_layout();
+        let entries = ui_bind_group_layout();
         let bindings = gpu
             .device
             .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {

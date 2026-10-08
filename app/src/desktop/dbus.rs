@@ -28,9 +28,8 @@ const RESPONSE_QUEUE: usize = 64;
 
 type Results = HashMap<String, OwnedValue>;
 
-/// Opens `uri` in the desktop's default handler, as `xdg-open` would; a dismissed app chooser
-/// counts as handled so callers do not retry elsewhere.
-pub(crate) fn open_uri(uri: &str) -> zbus::Result<()> {
+/// Opens `uri` in the desktop's default handler; `false` means the chooser was dismissed.
+pub(crate) fn open_uri(uri: &str) -> zbus::Result<bool> {
     let (code, _) = request(
         "org.freedesktop.portal.OpenURI",
         "OpenURI",
@@ -41,8 +40,9 @@ pub(crate) fn open_uri(uri: &str) -> zbus::Result<()> {
     opened(code)
 }
 
-fn opened(code: u32) -> zbus::Result<()> {
-    response("OpenURI", code).map(|_| ())
+/// Preserves cancellation so each caller can report it without retrying another handler.
+fn opened(code: u32) -> zbus::Result<bool> {
+    response("OpenURI", code)
 }
 
 /// Returns the chosen local file; `None` when the user dismissed the chooser.
@@ -236,9 +236,9 @@ mod tests {
     }
 
     #[test]
-    fn open_uri_treats_a_dismissed_chooser_as_handled_and_failures_as_errors() {
-        assert!(opened(0).is_ok());
-        assert!(opened(1).is_ok());
+    fn open_uri_preserves_cancellation_and_failures() {
+        assert!(opened(0).unwrap());
+        assert!(!opened(1).unwrap());
         assert!(opened(2).is_err());
     }
 

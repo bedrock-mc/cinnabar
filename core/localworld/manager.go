@@ -37,6 +37,8 @@ type Status struct {
 	Setup          *SetupStatus `json:"setup,omitempty"` // dedicated-server acquisition, when configured
 	// BackendUnavailableReason mirrors Setup's docker_missing / docker_not_running.
 	BackendUnavailableReason string `json:"backend_unavailable_reason,omitempty"`
+	// MaxPlayers is the running server's player limit, the host included; zero when unknown.
+	MaxPlayers int `json:"max_players,omitempty"`
 }
 
 // StartSpec identifies the world a Runner must host.
@@ -65,7 +67,6 @@ type Runner interface {
 // Manager owns the store and at most one running local world.
 type Manager struct {
 	setup       Setup            // nil when no dedicated-server backend is configured
-	autoBackend bool             // Prefs re-probes may change the default backend
 	unavailable map[string]error // backends that cannot host worlds here, with the operator-facing reason
 	store       *Store
 	runner      Runner
@@ -97,20 +98,24 @@ func (m *Manager) setState(state State) {
 	m.changed = make(chan struct{})
 }
 
+// Running reports the open world while its server runs, and a channel closed on the next
+// lifecycle change.
+func (m *Manager) Running() (world World, running bool, changed <-chan struct{}) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.world, m.state == StateRunning, m.changed
+}
+
 func (m *Manager) idleLocked() {
 	m.world, m.inst, m.paused, m.failure, m.cancelStart = World{}, nil, false, "", nil
 	m.setState(StateIdle)
 }
 
 // SetSetup attaches the dedicated-server installer whose status is reported and whose EULA gates BDS worlds.
-// Each detection result that becomes current re-points the default backend.
 func (m *Manager) SetSetup(setup Setup) {
 	m.setup = setup
 	setup.OnDetected(m.runtimeDetected)
 }
-
-// SetAutoBackend lets a Docker re-probe change the default backend (false when the operator forced one).
-func (m *Manager) SetAutoBackend(auto bool) { m.autoBackend = auto }
 
 // SetUnavailable marks backend as unable to host worlds; Create refuses it, logging reason.
 func (m *Manager) SetUnavailable(backend string, reason error) {
@@ -129,27 +134,19 @@ func (m *Manager) AcceptEULA() error {
 }
 
 // Prefs applies update (re-probing Docker first when asked) and returns the saved preferences.
-// A re-probe only changes the default backend of worlds created afterwards; saved worlds keep theirs.
 func (m *Manager) Prefs(ctx context.Context, update PrefsUpdate) (Prefs, error) {
 	if update.Redetect && m.setup != nil {
 		m.setup.Redetect(ctx)
 	}
-	if update.DockerPromptDismissed == nil {
+	if update.DockerPromptDismissed == nil && update.CreationBackend == nil && update.CreationGenerator == nil {
 		return m.store.Prefs(), nil
 	}
 	return m.store.UpdatePrefs(update)
 }
 
-// runtimeDetected points the default backend at a fresh probe's result, unless the operator forced one.
+// runtimeDetected records availability without changing any server choice.
 func (m *Manager) runtimeDetected(info RuntimeInfo) {
 	m.log.Info("local world runtime detected", "bds_runtime", info.Kind, "reason", info.Reason)
-	if m.autoBackend {
-		backend := DefaultBackend(info)
-		m.store.SetDefaultBackend(backend)
-		if reason := m.unavailable[backend]; reason != nil {
-			m.log.Error("default local world backend is unavailable", "backend", backend, "error", reason)
-		}
-	}
 }
 
 // Runners routes a world to the runner of its backend.
@@ -166,23 +163,22 @@ func (r Runners) Start(ctx context.Context, spec StartSpec) (Instance, error) {
 func (m *Manager) List() ([]World, error) { return m.store.List() }
 
 // Create saves a new world; a BDS world is refused where BDS cannot run.
-// Unless Dragonfly was asked for, it first waits out a runtime detection in flight, so no world is saved
-// against a guessed backend.
+// BDS creation waits for runtime detection; the operator default is resolved before that decision.
 func (m *Manager) Create(spec Spec) (World, error) {
 	normalized, err := spec.normalize()
 	if err != nil {
 		return World{}, err
 	}
-	if m.setup != nil && normalized.Backend != BackendDragonfly {
+	if normalized.Backend == "" {
+		normalized.Backend = m.store.DefaultBackend()
+	}
+	if m.setup != nil && normalized.Backend == BackendBDS {
 		ctx, cancel := context.WithTimeout(context.Background(), m.runtimeWait)
 		err := m.setup.AwaitRuntime(ctx)
 		cancel()
 		if err != nil {
 			return World{}, ErrRuntimePending
 		}
-	}
-	if normalized.Backend == "" {
-		normalized.Backend = m.store.DefaultBackend()
 	}
 	if reason := m.unavailable[normalized.Backend]; reason != nil {
 		m.log.Error("cannot create local world", "backend", normalized.Backend, "error", reason)
@@ -215,6 +211,9 @@ func (m *Manager) Status() Status {
 	m.mu.Lock()
 	status := Status{State: m.state, WorldID: m.world.ID, Backend: m.world.Backend, Paused: m.paused, Error: m.failure}
 	status.PauseSupported = m.inst == nil || canPause(m.inst)
+	if limited, ok := m.inst.(interface{ MaxPlayers() int }); ok {
+		status.MaxPlayers = limited.MaxPlayers()
+	}
 	m.mu.Unlock()
 	if m.setup != nil {
 		setup := m.setup.Status()

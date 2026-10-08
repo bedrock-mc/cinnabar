@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -280,5 +281,97 @@ func TestCancellationDuringSignInCompletionIsNotReportedAsSuccess(t *testing.T) 
 	events := decodeEvents(t, output.Bytes())
 	if last := events[len(events)-1]; err == nil || last.Kind != "error" || last.Stage != "cancelled" {
 		t.Fatalf("Run err=%v last event=%+v, want a cancelled sign-in", err, last)
+	}
+}
+
+func TestDeviceCodeExpiryReportsSafeRetryMessage(t *testing.T) {
+	const secret = "provider-secret-sentinel"
+	past := time.Unix(1, 0)
+	future := time.Unix(1<<32, 0)
+	cases := []struct {
+		name       string
+		expiry     time.Time
+		tokenError error
+		deadline   time.Time
+		wantExpiry bool
+		cancelled  bool
+	}{
+		{name: "provider expiry", tokenError: &oauth2.RetrieveError{ErrorCode: "expired_token", ErrorDescription: secret}, wantExpiry: true},
+		{name: "wrapped provider expiry", tokenError: fmt.Errorf("%s: %w", secret, &oauth2.RetrieveError{ErrorCode: "expired_token", Body: []byte(secret)}), wantExpiry: true},
+		{name: "device deadline", expiry: past, tokenError: context.DeadlineExceeded, wantExpiry: true},
+		{name: "deadline without expiry", tokenError: context.DeadlineExceeded},
+		{name: "deadline before expiry", expiry: future, tokenError: context.DeadlineExceeded},
+		{name: "parent deadline before device deadline", expiry: past, deadline: time.Unix(0, 0), tokenError: context.DeadlineExceeded},
+		{name: "provider denied", expiry: future, tokenError: &oauth2.RetrieveError{ErrorCode: "access_denied", ErrorDescription: secret}},
+		{name: "provider expiry text", tokenError: errors.New("expired_token " + secret)},
+		{name: "cancelled expired code", tokenError: &oauth2.RetrieveError{ErrorCode: "expired_token"}, cancelled: true},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := context.Background()
+			if !test.deadline.IsZero() {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithDeadline(ctx, test.deadline)
+				defer cancel()
+			}
+			if test.cancelled {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithCancel(ctx)
+				cancel()
+			}
+			var output bytes.Buffer
+			err := Run(ctx, Config{
+				Path: filepath.Join(t.TempDir(), "token.json"), Writer: &output,
+				CachedSource: func(ctx context.Context, config authcache.Config) (oauth2.TokenSource, error) {
+					_, err := config.Request(ctx, io.Discard)
+					return nil, err
+				},
+				DeviceAuth: func(context.Context) (*oauth2.DeviceAuthResponse, error) {
+					return &oauth2.DeviceAuthResponse{VerificationURI: "https://login.example.test/device", UserCode: "ABCD-1234", Expiry: test.expiry}, nil
+				},
+				DeviceToken: func(context.Context, *oauth2.DeviceAuthResponse) (*oauth2.Token, error) {
+					return nil, test.tokenError
+				},
+			})
+			if err == nil {
+				t.Fatal("Run() succeeded")
+			}
+			events := decodeEvents(t, output.Bytes())
+			last := events[len(events)-1]
+			wantStage := "device_code"
+			wantMessage := "Microsoft sign-in did not complete. Try again."
+			if test.wantExpiry {
+				wantMessage = "Your sign-in code expired. Try again."
+			}
+			if test.cancelled {
+				wantStage, wantMessage = "cancelled", "Sign-in was cancelled."
+			}
+			if last.Kind != "error" || last.Stage != wantStage || last.Message != wantMessage {
+				t.Fatalf("terminal event = %#v, want %s error with %q", last, wantStage, wantMessage)
+			}
+			if strings.Contains(output.String(), secret) || strings.Contains(err.Error(), secret) {
+				t.Fatal("provider error detail leaked")
+			}
+		})
+	}
+}
+
+func TestDeviceFlowExpiryDoesNotRetainProviderError(t *testing.T) {
+	const secret = "provider-secret-sentinel"
+	flow := DeviceFlow{
+		Authorize: func(context.Context) (*oauth2.DeviceAuthResponse, error) {
+			return &oauth2.DeviceAuthResponse{VerificationURI: "https://login.example.test/device", UserCode: "ABCD-1234"}, nil
+		},
+		Token: func(context.Context, *oauth2.DeviceAuthResponse) (*oauth2.Token, error) {
+			return nil, &oauth2.RetrieveError{ErrorCode: "expired_token", ErrorDescription: secret, Body: []byte(secret)}
+		},
+	}
+	_, err := flow.Request(context.Background(), func(*oauth2.DeviceAuthResponse) error { return nil })
+	var providerError *oauth2.RetrieveError
+	if !errors.Is(err, errDeviceAuthorization) || !errors.Is(err, errDeviceCodeExpired) {
+		t.Fatalf("device flow error = %v, want controlled device expiry", err)
+	}
+	if strings.Contains(err.Error(), secret) || errors.As(err, &providerError) {
+		t.Fatal("device flow retained provider error details")
 	}
 }

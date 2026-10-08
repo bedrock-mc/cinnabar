@@ -28,6 +28,7 @@ mod menu_title;
 #[cfg(test)]
 mod ownership_tests;
 mod pack_catalog;
+mod pixel_snap;
 mod rounded;
 mod vector_icons;
 pub(super) use pack_catalog::layer_pack_catalog;
@@ -380,6 +381,23 @@ impl FormEngine {
         render_with(self.art(), inputs, out, art, None, draw)
     }
 
+    /// [`Self::draw`] over `textures` instead of the engine's own sources.
+    pub(super) fn draw_with<R: Borrow<FormRender>>(
+        &self,
+        textures: &TextureSet,
+        art: ScreenArt<'_>,
+        inputs: EngineInputs<'_>,
+        out: EngineOutput<'_>,
+        draw: impl FnOnce(&LayoutEnv, [f64; 2]) -> Option<R>,
+    ) -> Result<Option<EngineFrame>, UiPresentationError> {
+        let sources = Art {
+            assets: &self.assets,
+            set: textures,
+            animator: &self.animator,
+        };
+        render_with(sources, inputs, out, art, None, draw)
+    }
+
     /// Render an allow-listed screen against `data` under `view`; `art` backs its custom renderers.
     #[allow(clippy::too_many_arguments)]
     pub(super) fn render_screen<'a>(
@@ -524,19 +542,35 @@ fn render_with<R: Borrow<FormRender>>(
         panel: render
             .root_panel
             .map(|rect| [rect.x, rect.y, rect.w, rect.h]),
-        edit_texts: edit_texts(&render.hits, &render.nodes, origin[0], px),
+        edit_texts: edit_texts(
+            &render.hits,
+            &render.nodes,
+            origin[0],
+            [inputs.metrics.gui_scale, px],
+        ),
     }))
 }
 
-/// Each edit box's text label as laid out: where it starts, its scale and font.
-fn edit_texts(hits: &[HitRegion], nodes: &[DrawNode], left: f32, px: f32) -> Vec<EditText> {
+/// Each edit box's text label as painted: where it starts, its scale and font; `pixels` and
+/// `px` are the physical and logical pixels per GUI unit.
+fn edit_texts(
+    hits: &[HitRegion],
+    nodes: &[DrawNode],
+    left: f32,
+    [pixels, px]: [f32; 2],
+) -> Vec<EditText> {
     hits.iter()
         .filter_map(|region| {
             let (target, _) = region.widget.edit.as_ref()?.text_target.as_ref()?;
             nodes.iter().find_map(|node| match &node.draw {
                 Draw::Text { scale, options, .. } if node.key == *target => Some(EditText {
                     key: region.key.clone(),
-                    left: left + node.dest.x as f32 * px,
+                    left: left
+                        + pixel_snap::positioned(
+                            [node.dest.x, node.dest.y, node.dest.w, node.dest.h],
+                            pixels,
+                            px,
+                        )[0],
                     scale: *scale,
                     font: options.font_type.clone(),
                 }),
@@ -625,6 +659,26 @@ impl Painter<'_> {
         ]
     }
 
+    /// `rect` as logical bounds on whole physical pixels, where vanilla places
+    /// an image ([`pixel_snap`]).
+    fn snapped(&self, rect: &RectOut) -> [f32; 4] {
+        pixel_snap::snapped(
+            [rect.x, rect.y, rect.w, rect.h],
+            self.metrics.gui_scale,
+            self.px,
+        )
+    }
+
+    /// `rect` as logical bounds moved to a whole physical pixel, where vanilla
+    /// places text ([`pixel_snap`]).
+    fn positioned(&self, rect: &RectOut) -> [f32; 4] {
+        pixel_snap::positioned(
+            [rect.x, rect.y, rect.w, rect.h],
+            self.metrics.gui_scale,
+            self.px,
+        )
+    }
+
     fn id(&mut self) -> UiNodeId {
         let id = UiNodeId::new(*self.next);
         *self.next = self.next.saturating_add(1);
@@ -681,7 +735,11 @@ impl Painter<'_> {
             "gradient_renderer" => Some((self.gradient(data, &alpha)?, dest)),
             "animated_gif_renderer" => self.animated_gif(data, dest, &alpha),
             "profile_image_renderer" => {
-                let portrait = self.art.portrait?;
+                // A friend row names its own gamerpic; elsewhere it is the player's.
+                let portrait = match data.get("#profile_image_options") {
+                    Some(serde_json::Value::String(path)) => *self.art.images?.get(path)?,
+                    _ => self.art.portrait?,
+                };
                 Some((
                     UiVisual::Sprite {
                         texture_page: portrait.page,
@@ -800,7 +858,11 @@ impl Painter<'_> {
             Some(&self.textures),
         );
         let clip = self.logical(&drawn.clip);
-        let dest = self.logical(&drawn.dest);
+        let dest = if matches!(node.draw, Draw::Text { .. }) {
+            self.positioned(&drawn.dest)
+        } else {
+            self.snapped(&drawn.dest)
+        };
         let opacity = drawn.opacity;
         if self
             .edit

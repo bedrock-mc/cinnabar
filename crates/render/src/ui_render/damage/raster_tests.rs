@@ -86,7 +86,9 @@ impl Raster {
             pass.set_vertex_buffer(0, vertices.slice(..));
             pass.set_index_buffer(indices.slice(..), wgpu::IndexFormat::Uint32);
             pass.set_bind_group(0, &self.binding, &[]);
-            pass.set_pipeline(&self.materials[usize::from(mode.1) * 2 + usize::from(mode.2)]);
+            pass.set_pipeline(
+                &self.materials[usize::from(mode.1 != 0) * 2 + usize::from(mode.2 != 0)],
+            );
             for batch in batches {
                 let Some(rect) = super::super::layer::clipped_scissor(batch.scissor, damage) else {
                     continue;

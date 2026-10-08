@@ -15,7 +15,11 @@
 - Create New World uses native panels, installed preview/category artwork and independent scrolling.
   General/Advanced changes animate their contents. Unsupported categories, Hardcore and Realm
   creation remain disabled. Backend defaults to Dragonfly or offers BDS with Docker detection;
-  generator selection independently offers Normal (Vanilla) and Flat. Template navigation works.
+  generator selection independently offers Infinite and Flat. The General page also exposes seed and
+  command permission, and persists the last server/terrain choice. Unavailable BDS stays disabled
+  with a reason; runtime detection never changes the chosen server. Void is not supported by both
+  local backends. Template navigation works. BDS owner-only command grants are unit tested; live
+  native/container owner and guest permission checks remain incomplete.
 - Dragonfly Normal uses the pinned owner-requested vanilla-gen dependency with the saved signed
   seed for all three dimensions. New worlds use its spawn; reopening retains saved spawn/chunks.
   Normal supports saved overworld pre-generation and four chunk workers by default; see
@@ -100,8 +104,15 @@
   placement line, and use fresh ray segments to continue beyond ledges or upward.
 - Repeats use resolved movement and stance; transactions carry their trigger,
   start/stop actions, local outcome, click position and survival inventory delta.
+- Presses resolve when they arrive and held repeats only on frames that simulate a tick,
+  both before the frame's physics and from the last completed tick's end state, so the next
+  tick's movement collides with a placed block. Incomplete: a frame
+  that simulates two ticks resolves build actions only before the first.
 - Deterministic gameplay and wire tests cover ledges, jump bridging, towering,
   backward sneak bridging, failed attempts and refused transport.
+- Provisional: slot or item changes preserve the held placement line and repeat
+  schedule. Native slot-change callbacks and their effect on retained history,
+  orientation and timing remain unverified; this does not close the hotbar-switch gate.
 - Incomplete: complete runtime block-property and custom block-placer admission,
   item-specific replacement/state rules and live vanilla/server acceptance remain open. No
   complete placement parity or performance gate is closed by these tests.
@@ -143,7 +154,9 @@
   historical remote geometry during catch-up, and fire-resistance lava fog remain
   owner limitations. Legacy education photography output is unsupported. Packaged
   boom/shake/collision defaults and highlight sampler need pinned-version witnesses.
-  Existing gameplay FOV magnitude approximations remain separate incomplete work.
+  The gameplay FOV multiplier follows vanilla (speed ratio, slowness, flying, bow,
+  spyglass); the swim-speed factor, underwater narrowing and final [5, 130] clamp are
+  still incomplete.
   Finite block sampling is bounded to 4,096 rays. None closes a full parity gate.
 - Touched-crate checks and directly affected regressions pass. A headless macOS
   local-server run at 1280×720 captured named/inline splines, local-body visibility,
@@ -1750,7 +1763,7 @@ not established by the pack binding names. See the settings audit below.
   world-edit/Experiments, Party, several account/help submenus, reset flows and
   hardware/flight-dependent controls remain incomplete.
 - Numeric defaults/ranges are provisional unless a source explicitly states them.
-  The pack confirms chat notification 10s and toast notification 3s defaults. Mouse sensitivity (default 0.5 over 0..1) and its look curve match the current client. Other vanilla option defaults remain unconfirmed. FOV, gamma, controller/touch sensitivities, FPS limits and added boolean defaults therefore
+  The pack confirms chat notification 10s and toast notification 3s defaults. Mouse sensitivity (default 0.5 over 0..1) and its look curve match the current client, as does field of view (default 60, range 30..110). Other vanilla option defaults remain unconfirmed. Gamma, controller/touch sensitivities, FPS limits and added boolean defaults therefore
   require further current-client evidence; they must not be described as vanilla.
 - Offline carrier gallery, geometry and option-family tests provide local evidence,
   not a retail visual acceptance. Focus/hover/pressed, scrolling, all modal flows,
@@ -4926,6 +4939,11 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
   Glide travel, firework glide boosts (replayed from their stamped tick), glide start/stop and
   the seven-tick flight double-tap follow the identified vanilla systems; the held-jump glide
   lift gated by an unidentified movement ability and geyser boosts remain incomplete.
+  Water and lava travel read the underwater and lava movement attributes, and a swimmer's
+  dolphin boost scales speed and drag as vanilla does; riptide launches remain unimplemented.
+  Incomplete safety bound (a known divergence; vanilla is unbounded): Depth Strider's water-speed
+  blend target is clamped so the steady water velocity stays inside the simulator's block-sampling
+  budget. Land movement speed is not clamped.
   Honey jump/slide, soul speed and depth
   strider coefficients are provisional (honey and soul speed have no public value). Riding
   suspends player physics and streams steering input with boat paddle flags; rider seat
@@ -5715,6 +5733,12 @@ no longer needs RUST_MCBE_TELEPORT_ACK; that opt-in still enables unverified ext
 - Production remote execution must remain unavailable until restricted helpers,
   compiler limits and media decoding pass independent cross-platform validation.
 - See `docs/server-experiences.md` for the client implementation and remaining gates.
+- Provisional, labeled incomplete: server WIT 0.4 focus snapshots stop counting when the
+  player is farther than `provisionalFocusRange` (`tools/localserver/experience/limits.go`,
+  Dragonfly's survival block reach). Vanilla closes a block container screen beyond the
+  player's pick range (per input mode, survival or creative), measured squared from the
+  player's eyes to the block centre; the range constants are not yet known. Replace the
+  constant with those values, per game mode, once they are known.
 
 - Implemented client preview: admitted marker, signed session challenge, scoped trust
   JSON-UI, HTTPS/hash cache, bounded ordered ScriptMessage records, versioned WIT,

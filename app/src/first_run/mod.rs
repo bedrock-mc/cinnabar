@@ -27,7 +27,6 @@ use status::{Phase, Status};
 pub(crate) use window::{SETUP_FLAG, run_setup_process};
 
 const CONSENT_ENV: &str = "CINNABAR_ACCEPT_MOJANG_EULA";
-const TITLE: &str = "Cinnabar first-time setup";
 const CONSENT_BODY: &str = "Cinnabar needs Minecraft's official sample resource pack. It is downloaded from Mojang's public release (a large one-time download), converted on this computer, and never redistributed by Cinnabar.\n\nContinuing confirms you accept the Minecraft EULA (https://www.minecraft.net/eula). Setup runs once and takes a few minutes.";
 const EULA_URL: &str = "https://www.minecraft.net/eula";
 
@@ -107,6 +106,13 @@ fn reporter<'a>(
     }
 }
 
+fn setup_title(override_title: Option<&str>) -> String {
+    format!(
+        "{} first-time setup",
+        launcher::window_title(override_title)
+    )
+}
+
 /// The native-dialog flow, used when no setup window can open.
 fn ensure_with(
     layout: &InstallLayout,
@@ -116,6 +122,7 @@ fn ensure_with(
     if !needs_preparation(layout) {
         return Ok(Outcome::NotNeeded);
     }
+    let title = setup_title(std::env::var("CINNABAR_WINDOW_TITLE").ok().as_deref());
     let mut report = reporter(layout, |_| {});
     report(Status::new(
         Phase::AwaitingConsent,
@@ -124,7 +131,7 @@ fn ensure_with(
         "Waiting for consent",
     ));
     if !env_consent && !consent_recorded(layout) {
-        match prompter.confirm(TITLE, CONSENT_BODY) {
+        match prompter.confirm(&title, CONSENT_BODY) {
             Consent::Accepted => {}
             Consent::Declined => {
                 report(Status::failed("Declined", "setup declined"));
@@ -137,7 +144,7 @@ fn ensure_with(
                      {CONSENT_ENV}=1 to accept the Minecraft EULA ({EULA_URL})."
                 );
                 report(Status::failed("No consent prompt", &message));
-                prompter.alert(TITLE, &message);
+                prompter.alert(&title, &message);
                 bail!("{message}");
             }
         }
@@ -145,7 +152,7 @@ fn ensure_with(
     let is_update = updating(layout);
     record_consent(layout)?;
     prompter.info(
-        TITLE,
+        &title,
         if is_update {
             "Updating game assets for this version of Cinnabar. This takes a few minutes."
         } else {
@@ -154,13 +161,13 @@ fn ensure_with(
     );
     match prepare(layout, &AtomicBool::new(false), &mut report) {
         Ok(()) => {
-            prompter.info(TITLE, "Setup finished. Starting Cinnabar.");
+            prompter.info(&title, "Setup finished. Starting Cinnabar.");
             Ok(Outcome::Prepared)
         }
         Err(error) => {
             let message = format!("{error:#}");
             prompter.alert(
-                TITLE,
+                &title,
                 &format!(
                     "Setup failed: {message}\n\nDetails: {}",
                     layout.log_dir().join("first-run.log").display()

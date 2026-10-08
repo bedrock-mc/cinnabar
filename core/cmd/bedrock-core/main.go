@@ -129,7 +129,7 @@ func parseFlags(args []string, stderr io.Writer) (options, error) {
 	flags.BoolVar(&opts.upstreamClientCache, "upstream-client-cache", false, "advertise client-cache capability upstream; enable only when the connecting client owns a verified blob cache")
 	flags.StringVar(&opts.localWorldsDir, "local-worlds-dir", "", "enable local single-player worlds stored in this directory (requires -control-status)")
 	flags.StringVar(&opts.localServerBin, "local-server-bin", "", "local world server binary (default: bedrock-local-server beside the core)")
-	flags.StringVar(&opts.localBackend, "local-backend", "auto", "default backend for new local worlds: auto (BDS where available, else dragonfly), bds or dragonfly")
+	flags.StringVar(&opts.localBackend, "local-backend", "auto", "default backend for new local worlds: auto (dragonfly), bds or dragonfly")
 	flags.StringVar(&opts.bdsDir, "bds-dir", "", "directory for downloaded Bedrock Dedicated Server builds (default: bds beside the worlds directory)")
 	flags.StringVar(&opts.bdsVersion, "bds-version", "", "exact Bedrock Dedicated Server build to download (the client passes its target manifest's server_version)")
 	flags.StringVar(&opts.bdsImage, "bds-image", "", "digest-pinned container image that runs the Linux Bedrock Dedicated Server where no native build exists")
@@ -137,7 +137,7 @@ func parseFlags(args []string, stderr io.Writer) (options, error) {
 		&opts.bdsMaxPlayers,
 		"bds-max-players",
 		0,
-		"maximum players in a local Bedrock Dedicated Server (zero uses the single-player default)",
+		"maximum players in a local Bedrock Dedicated Server (zero uses vanilla's hosted-world limit)",
 	)
 	flags.IntVar(&opts.bdsHostPort, "bds-host-port", 0,
 		fmt.Sprintf("local BDS loopback host port (zero selects an available port; conventional port is %d)", localworld.DefaultBDSPort))
@@ -333,6 +333,7 @@ func runWithResourcePackCacheFactory(
 	}
 	var localWorlds *localworld.Manager
 	var localTarget proxy.LocalTargetFunc
+	var localHostConnected func(context.Context, string, string) error
 	if opts.localWorldsDir != "" {
 		localWorlds, err = openLocalWorlds(opts, logger)
 		if err != nil {
@@ -342,6 +343,7 @@ func runWithResourcePackCacheFactory(
 			return err
 		}
 		localTarget = localWorlds.ConnectionTarget
+		localHostConnected = localWorlds.GrantHost
 	}
 	var resourcePackAdmissionUpdate func(proxy.ResourcePackAdmissionSnapshot)
 	var connectProgress func(proxy.ConnectProgress)
@@ -352,11 +354,26 @@ func runWithResourcePackCacheFactory(
 	if statusStore != nil {
 		if localWorlds != nil {
 			// Opening a local world supersedes any pending transfer or selected upstream.
-			controlServer.SetWorlds(control.WithOpenHook(localWorlds, func() {
+			worlds := control.WithOpenHook(localWorlds, func() {
 				transfers.Clear()
 				selector.Set("")
 				statusStore.ClearTransfer()
-			}))
+			})
+			if account != nil {
+				hosting := &friendHosting{account: account, worlds: localWorlds, target: localTarget, log: logger}
+				hostingCtx, stopHosting := context.WithCancel(ctx)
+				hostingDone := make(chan struct{})
+				go func() {
+					defer close(hostingDone)
+					hosting.run(hostingCtx)
+				}()
+				defer func() {
+					stopHosting()
+					<-hostingDone
+				}()
+				worlds = control.WithInvites(worlds, hosting.Invite)
+			}
+			controlServer.SetWorlds(worlds)
 		}
 		artworkDir, cacheFile := filepath.Join(opts.socketDir, "artwork"), ""
 		if dir := authSibling(opts.authCache, "catalog-cache"); dir != "" {
@@ -401,6 +418,7 @@ func runWithResourcePackCacheFactory(
 		Selector:            selector,
 		OnDisconnect:        onDisconnect,
 		LocalTarget:         localTarget,
+		LocalHostConnected:  localHostConnected,
 		ResourcePackCache:   resourcePackCache,
 		ResourcePackAdmission: func(snapshot proxy.ResourcePackAdmissionSnapshot) {
 			logger.Info("RESOURCE_PACK_ADMISSION",

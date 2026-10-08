@@ -76,6 +76,10 @@ func (r BDSRunner) Start(ctx context.Context, spec StartSpec) (Instance, error) 
 	if err := linkWorld(link, worldDir); err != nil {
 		return nil, err
 	}
+	if err := resetBDSPermissions(installDir); err != nil {
+		unlinkWorld(link)
+		return nil, err
+	}
 	props := serverProperties(spec, portOf(address), maxPlayers, r.LANVisible)
 	if err := os.WriteFile(filepath.Join(installDir, "server.properties"), props, 0o600); err != nil {
 		unlinkWorld(link)
@@ -94,7 +98,7 @@ func (r BDSRunner) Start(ctx context.Context, spec StartSpec) (Instance, error) 
 		unlinkWorld(link)
 		return nil, err
 	}
-	wrapped := &bdsInstance{Instance: inst, cleanup: func() { unlinkWorld(link) }}
+	wrapped := &bdsInstance{Instance: inst, cleanup: func() { unlinkWorld(link) }, maxPlayers: maxPlayers}
 	if r.LANVisible {
 		wrapped.lanAddress = bdsLANAddress(0)
 	}
@@ -111,9 +115,13 @@ type bdsInstance struct {
 	cleanup    func()
 	once       sync.Once
 	lanAddress string
+	maxPlayers int
 }
 
 func (b *bdsInstance) LANAddress() string { return b.lanAddress }
+
+// MaxPlayers is the server's player limit, the host included.
+func (b *bdsInstance) MaxPlayers() int { return b.maxPlayers }
 
 func (b *bdsInstance) cleanupOnce() { b.once.Do(b.cleanup) }
 
@@ -155,7 +163,8 @@ func serverProperties(spec StartSpec, port, maxPlayers int, lanVisible bool) []b
 		{"gamemode", w.GameMode},
 		{"force-gamemode", "false"},
 		{"difficulty", w.Difficulty},
-		{"allow-cheats", "false"},
+		{"allow-cheats", strconv.FormatBool(w.AllowCheats)},
+		{"default-player-permission-level", permissionMember},
 		{"max-players", strconv.Itoa(maxPlayers)},
 		{"online-mode", "false"},
 		{"allow-list", "false"},
@@ -205,3 +214,5 @@ func unlinkWorld(link string) {
 		_ = os.Remove(link)
 	}
 }
+
+const permissionMember = "member"

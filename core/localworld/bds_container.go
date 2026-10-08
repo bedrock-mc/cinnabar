@@ -194,7 +194,8 @@ func containerArgs(spec StartSpec, image, version, installDir string, hostPort, 
 	for _, kv := range [][2]string{
 		{"EULA", "TRUE"}, {"VERSION", version}, {"DIRECT_DOWNLOAD_URL", fmt.Sprintf(directURLFormat, "linux", version)},
 		{"SERVER_NAME", sanitizeProperty(w.Name)},
-		{"GAMEMODE", w.GameMode}, {"DIFFICULTY", w.Difficulty}, {"ALLOW_CHEATS", "false"},
+		{"GAMEMODE", w.GameMode}, {"DIFFICULTY", w.Difficulty}, {"ALLOW_CHEATS", strconv.FormatBool(w.AllowCheats)},
+		{"DEFAULT_PLAYER_PERMISSION_LEVEL", permissionMember},
 		{"MAX_PLAYERS", strconv.Itoa(maxPlayers)}, {"ONLINE_MODE", "false"}, {"ALLOW_LIST", "false"},
 		{"LEVEL_NAME", w.ID}, {"LEVEL_SEED", strconv.FormatInt(w.Seed, 10)}, {"LEVEL_TYPE", levelType},
 		{"VIEW_DISTANCE", strconv.Itoa(view)}, {"TICK_DISTANCE", strconv.Itoa(clampInt(view, 4, 12))},
@@ -275,6 +276,9 @@ func (r BDSRunner) startContainer(ctx context.Context, spec StartSpec) (Instance
 		return nil, err
 	}
 	installDir := filepath.Dir(binary)
+	if err := resetBDSPermissions(installDir); err != nil {
+		return nil, err
+	}
 	version := filepath.Base(installDir)
 	if err := linkVersionedBinary(binary, version); err != nil {
 		return nil, err
@@ -302,7 +306,7 @@ func (r BDSRunner) startContainer(ctx context.Context, spec StartSpec) (Instance
 		_ = r.dockerCmd(context.Background(), "rm", "-f", name).Run()
 		return nil, err
 	}
-	wrapped := &containerInstance{Instance: inst, runner: r, name: name}
+	wrapped := &containerInstance{Instance: inst, runner: r, name: name, maxPlayers: maxPlayers}
 	go func() {
 		<-inst.Done()
 		wrapped.cleanupOnce()
@@ -313,10 +317,14 @@ func (r BDSRunner) startContainer(ctx context.Context, spec StartSpec) (Instance
 // containerInstance stops the container gracefully (BDS saves on SIGTERM) and always removes it.
 type containerInstance struct {
 	Instance
-	runner BDSRunner
-	name   string
-	once   sync.Once
+	runner     BDSRunner
+	name       string
+	once       sync.Once
+	maxPlayers int
 }
+
+// MaxPlayers is the server's player limit, the host included.
+func (c *containerInstance) MaxPlayers() int { return c.maxPlayers }
 
 func (c *containerInstance) LANAddress() string {
 	if !c.runner.LANVisible {

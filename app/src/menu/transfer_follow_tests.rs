@@ -306,11 +306,12 @@ fn a_core_that_exits_early_fails_the_join_promptly() {
     }
     // Frames wait for the exit, so a launch slowed by load cannot let the start deadline win.
     let spawned = std::time::Instant::now();
-    while !app
-        .world_mut()
-        .resource_mut::<SessionController>()
-        .core_mut()
-        .exited()
+    while app.world().resource::<MenuRuntime>().is_connecting()
+        && !app
+            .world_mut()
+            .resource_mut::<SessionController>()
+            .core_mut()
+            .exited()
     {
         assert!(
             spawned.elapsed() < std::time::Duration::from_secs(60),

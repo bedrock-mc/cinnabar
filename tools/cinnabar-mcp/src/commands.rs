@@ -8,7 +8,7 @@ use std::{
 
 use developer_control::{
     camera::CameraPath,
-    protocol::{Command, Condition, InputCommand, RecordSettings},
+    protocol::{Command, Condition, InputCommand, RecordSettings, SignInFixtureState},
 };
 use serde_json::{Value, json};
 
@@ -77,21 +77,35 @@ pub fn command(
                 (Command::CameraPath(path), CALL_TIMEOUT)
             }
         }
-        "test_cape" => {
+        "test_cape" | "test_accounts" => {
             #[derive(serde::Deserialize)]
             #[serde(deny_unknown_fields)]
-            struct Cape {
+            struct Toggle {
                 enabled: bool,
             }
-            let cape: Cape = parse(arguments, "test cape")?;
+            let Toggle { enabled } = parse(arguments, name)?;
+            let command = if name == "test_cape" {
+                Command::TestCape { enabled }
+            } else {
+                Command::TestAccounts { enabled }
+            };
+            (command, CALL_TIMEOUT)
+        }
+        "state" => (Command::State, CALL_TIMEOUT),
+        "sign_in_fixture" => {
+            #[derive(serde::Deserialize)]
+            #[serde(deny_unknown_fields)]
+            struct Fixture {
+                state: SignInFixtureState,
+            }
+            let fixture: Fixture = parse(arguments, "sign-in fixture")?;
             (
-                Command::TestCape {
-                    enabled: cape.enabled,
+                Command::SignInFixture {
+                    state: fixture.state,
                 },
                 CALL_TIMEOUT,
             )
         }
-        "state" => (Command::State, CALL_TIMEOUT),
         "wait_for" => {
             let condition: Condition = parse(
                 arguments

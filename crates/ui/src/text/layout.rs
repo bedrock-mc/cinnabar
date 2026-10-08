@@ -170,6 +170,17 @@ struct Lines<'a> {
     ellipsized: bool,
 }
 
+/// `offset_64` truncated to whole steps of `grid_65536`, back in 1/64 pixels to the nearest unit;
+/// zero leaves it exact. Offsets are never negative, so truncation is a floor.
+fn snap_to_grid(offset_64: i64, grid_65536: u32) -> i64 {
+    if grid_65536 == 0 {
+        return offset_64;
+    }
+    let grid = i64::from(grid_65536);
+    let steps = offset_64 * 1024 / grid;
+    (steps * grid + 512).div_euclid(1024)
+}
+
 impl Lines<'_> {
     fn glyph(&self, codepoint: char, style: TextStyle) -> Result<Glyph, TextError> {
         let (source, resolved, metrics) = resolve_glyph(self.request.font, codepoint)?;
@@ -406,7 +417,8 @@ impl Lines<'_> {
                 let offset = if factor == 0 {
                     0
                 } else {
-                    (i64::from(self.request.width_64) - width).max(0) * factor / 2
+                    let exact = (i64::from(self.request.width_64) - width).max(0) * factor / 2;
+                    snap_to_grid(exact, self.request.wrap.align_grid_65536)
                 };
                 maximum_width_64 = maximum_width_64.max(offset + width);
                 offset

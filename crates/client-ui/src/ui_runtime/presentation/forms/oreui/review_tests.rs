@@ -55,6 +55,7 @@ fn friends_view() -> MenuView {
             world_name: "World".into(),
             members: "1/8".into(),
             xuid: index.to_string(),
+            max_members: 8,
         })
         .collect();
     view
@@ -175,6 +176,7 @@ fn review_short_world_settings_are_scrollable() {
         game_mode: GameMode::Survival,
         generator: Generator::Flat,
         difficulty: Difficulty::Normal,
+        allow_cheats: false,
         backend: Backend::Dragonfly,
         seed: 1,
         created_unix: 0,

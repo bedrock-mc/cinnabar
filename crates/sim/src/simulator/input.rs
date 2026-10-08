@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::{MovementEffects, MovementMode, SimulationError};
+use super::{MovementEffects, MovementMode, SimulationError, VerticalPhysics};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -53,6 +53,12 @@ pub struct MovementInput {
     /// preceding flying state keeps toggle ticks and correction replay aligned.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub liquid_flow_enabled: Option<bool>,
+    /// Effective `minecraft:underwater_movement` current; `None` selects its vanilla default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub underwater_movement_speed: Option<f64>,
+    /// Effective `minecraft:lava_movement` current; `None` selects its vanilla default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lava_movement_speed: Option<f64>,
     /// Depth Strider level on the boots; scales water travel toward ground travel.
     #[serde(default, skip_serializing_if = "is_zero_level")]
     pub depth_strider: u8,
@@ -71,6 +77,8 @@ pub struct MovementInput {
     /// Ability flight speed; `None` selects the vanilla default. Read only when flying.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fly_speed: Option<f64>,
+    #[serde(default, skip_serializing_if = "VerticalPhysics::is_default")]
+    pub vertical_physics: VerticalPhysics,
 }
 
 impl MovementInput {
@@ -119,14 +127,28 @@ pub(super) fn validate(input: MovementInput) -> Result<(), SimulationError> {
         return Err(SimulationError::InvalidLiquidContactHeight);
     }
     if input
+        .vertical_physics
+        .air_drag_modifier
+        .is_some_and(|modifier| !modifier.is_finite())
+    {
+        return Err(SimulationError::NonFiniteInput {
+            field: "air_drag_modifier",
+        });
+    }
+    if input
         .item_use_movement_modifier
         .is_some_and(|value| !value.is_finite() || !(0.0..=1.0).contains(&value))
     {
         return Err(SimulationError::InvalidItemUseMovementModifier);
     }
-    if input
-        .movement_speed
-        .is_some_and(|value| !value.is_finite() || value < 0.0)
+    if [
+        input.movement_speed,
+        input.underwater_movement_speed,
+        input.lava_movement_speed,
+    ]
+    .into_iter()
+    .flatten()
+    .any(|value| !value.is_finite() || value < 0.0)
     {
         return Err(SimulationError::InvalidMovementSpeed);
     }

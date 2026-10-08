@@ -249,43 +249,76 @@ fn retained_world_form_draws_controls_above_their_panel_backgrounds() {
 }
 
 #[test]
-fn advanced_world_form_exposes_backend_and_generator_separately() {
+fn general_world_form_exposes_independent_choices_and_disables_unavailable_bds() {
     use protocol::world_control::{Backend, UnavailableReason};
     let mut view = MenuView::new(true, "Fixture".into());
-    view.local.tab = Tab::Advanced;
     view.local.bds_unavailable = Some(UnavailableReason::DockerMissing);
-    for backend in [Backend::Dragonfly, Backend::Bds] {
-        view.local.create.backend = backend;
-        let (_, hits, nodes) = paint(Default::default(), |canvas| {
-            draw(canvas, &view, [1280.0, 900.0], Screen::Create).unwrap();
+    for available in [false, true] {
+        view.local.bds_can_run = available;
+        let (_, hits, _) = paint(Default::default(), |canvas| {
+            draw(canvas, &view, [1280.0, 2400.0], Screen::Create).unwrap();
         });
         for action in [
             A::Backend(Backend::Dragonfly),
-            A::Backend(Backend::Bds),
             A::Flat(false),
             A::Flat(true),
+            A::SeedField,
+            A::Cheats(true),
         ] {
-            assert!(hits.iter().any(|(found, _)| *found == local(action)));
+            assert!(
+                hits.iter().any(|(found, _)| *found == local(action)),
+                "missing {action:?}"
+            );
         }
-        let text: String = nodes
-            .iter()
-            .filter_map(|node| match node.visual() {
-                ui::UiVisual::Text { layout, .. } => Some(
-                    layout
-                        .glyphs()
-                        .iter()
-                        .map(|g| g.codepoint)
-                        .collect::<String>(),
-                ),
-                _ => None,
-            })
-            .collect::<Vec<_>>()
-            .join("")
-            .replace(' ', "");
-        assert!(text.contains("Worldgenerator"));
         assert_eq!(
-            text.contains("BDSneedsDockeronMac"),
-            backend == Backend::Bds
+            hits.iter()
+                .any(|(found, _)| *found == local(A::Backend(Backend::Bds))),
+            available
+        );
+        assert_eq!(
+            hits.iter()
+                .any(|(found, _)| *found == local(A::RedetectBds)),
+            !available
+        );
+    }
+}
+
+#[test]
+fn keyboard_and_controller_focus_reveal_the_server_choice_after_scrolling() {
+    use protocol::world_control::Backend;
+    for gamepad in [false, true] {
+        let mut runtime = UiPresentationRuntime::new(fixture_font()).unwrap();
+        let mut view = MenuView::new(true, "Fixture".into());
+        view.screen = crate::menu::MenuScreen::Play;
+        view.local.screen = Screen::Create;
+        view.focused_action = Some(local(A::Backend(Backend::Dragonfly)));
+        view.navigation_focus_visible = true;
+        view.gamepad_input = gamepad;
+        let metrics =
+            TextMetrics::for_viewport([1280, 720], ui::DpiScale::new(1.0).unwrap(), Some(2));
+        let hits = runtime
+            .append_oreui_screen(
+                &view,
+                &mut Vec::new(),
+                &mut 1,
+                metrics,
+                [1280.0, 720.0],
+                None,
+                &|_| None,
+            )
+            .unwrap()
+            .unwrap();
+        let target = hits
+            .iter()
+            .find(|(action, _)| Some(*action) == view.focused_action)
+            .unwrap()
+            .1;
+        assert!(target.min().y() >= 0.0 && target.max().y() <= 720.0);
+        assert!(
+            !runtime
+                .form_presentation
+                .menu_focus
+                .contains(&local(A::Backend(Backend::Bds)))
         );
     }
 }
