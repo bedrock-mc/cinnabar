@@ -45,6 +45,23 @@ pub(super) fn fixture_with_appearance(
     ),
     Arc<assets::RuntimeEntityAssets>,
 ) {
+    fixture_with_binding(main, clock, animated, true)
+}
+
+fn fixture_with_binding(
+    main: Option<&str>,
+    clock: bool,
+    animated: bool,
+    bound: bool,
+) -> (
+    (
+        WorldStream,
+        EquipmentRuntime,
+        ActorArtworkPages,
+        ActorEquipmentInput,
+    ),
+    Arc<assets::RuntimeEntityAssets>,
+) {
     let geometry = serde_json::json!({"format_version":"1.12.0","minecraft:geometry":[{
         "description":{"identifier":"geometry.player_test","texture_width":64,"texture_height":64},
         "bones":[{"name":"head","pivot":[0,24,0]}, {"name":"body","pivot":[0,24,0]},
@@ -53,6 +70,14 @@ pub(super) fn fixture_with_appearance(
             {"name":"leftleg","pivot":[-2,12,0]}, {"name":"rightItem","parent":"rightarm","pivot":[4,12,0]},
             {"name":"leftItem","parent":"leftarm","pivot":[-4,12,0]}]
     }]});
+    let mut item_geometry = serde_json::json!({"format_version":"1.16.0","minecraft:geometry":[{
+        "description":{"identifier":"geometry.item_test","texture_width":16,"texture_height":16},
+        "bones":[{"name":"item","pivot":[0,0,0],"cubes":[{"origin":[0,0,0],"size":[1,1,1],"uv":[0,0]}]}]
+    }]});
+    if bound {
+        item_geometry["minecraft:geometry"][0]["bones"][0]["binding"] =
+            "q.item_slot_to_bone_name(c.item_slot)".into();
+    }
     let mut png = std::io::Cursor::new(Vec::new());
     image::RgbaImage::from_pixel(16, 16, image::Rgba([255; 4]))
         .write_to(&mut png, image::ImageFormat::Png)
@@ -61,7 +86,7 @@ pub(super) fn fixture_with_appearance(
         ("entity/player.json".into(), br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"minecraft:player","materials":{"default":"entity"},"textures":{"default":"textures/test"},"geometry":{"default":"geometry.player_test"},"animations":{"swing":"animation.player_test.swing"},"scripts":{"animate":["swing"]},"render_controllers":["controller.render.test"]}}}"#.to_vec()),
         ("models/entity/player.geo.json".into(), geometry.to_string().into_bytes()),
         ("animations/player.animation.json".into(), br#"{"format_version":"1.8.0","animations":{"animation.player_test.swing":{"loop":true,"bones":{"rightarm":{"rotation":["variable.attack_time * 80.0",0,0]},"leftarm":{"rotation":["variable.attack_time * 60.0",0,0]}}}}}"#.to_vec()),
-        ("models/entity/item.geo.json".into(), br#"{"format_version":"1.12.0","minecraft:geometry":[{"description":{"identifier":"geometry.item_test","texture_width":16,"texture_height":16},"bones":[{"name":"item","pivot":[0,0,0],"cubes":[{"origin":[0,0,0],"size":[1,1,1],"uv":[0,0]}]}]}]}"#.to_vec()),
+        ("models/entity/item.geo.json".into(), item_geometry.to_string().into_bytes()),
         ("attachables/shield.json".into(), br#"{"format_version":"1.10.0","minecraft:attachable":{"description":{"identifier":"minecraft:shield","materials":{"default":"entity_alphatest"},"textures":{"default":"textures/test"},"geometry":{"default":"geometry.item_test"},"render_controllers":["controller.render.test"]}}}"#.to_vec()),
         ("render_controllers/test.json".into(), br#"{"format_version":"1.8.0","render_controllers":{"controller.render.test":{"geometry":"Geometry.default","materials":[{"*":"Material.default"}],"textures":["Texture.default"]}}}"#.to_vec()),
         ("textures/test.png".into(), png.into_inner()),
@@ -335,6 +360,69 @@ fn native_hand_arm_samples_the_physics_swing_without_mutating_committed_poses() 
 #[test]
 fn native_hand_attachable_parent_samples_the_physics_swing_without_mutating_committed_poses() {
     assert_sampled(true);
+}
+
+#[test]
+fn native_hand_unbound_attachables_keep_actor_frame_during_owner_swing() {
+    for java_mode in [false, true] {
+        for off_hand in [false, true] {
+            let ((mut stream, mut equipment, artwork, mut input), _) = fixture_with_binding(
+                (!off_hand).then_some("minecraft:shield"),
+                false,
+                false,
+                false,
+            );
+            if off_hand {
+                input.off = Some(crate::presentation::equipment::WornItem {
+                    identifier: "minecraft:shield".into(),
+                    metadata: 0,
+                    damage: None,
+                    dye_rgb: None,
+                    enchanted: false,
+                    kind: HeldKind::Sprite,
+                });
+            }
+            stream.sync_local_swing(client_world::LocalSwingProgress {
+                bedrock: [0.25, 0.5],
+                java: [0.25, 0.5],
+                frame_alpha: Some(0.75),
+            });
+            stream.advance_actor_interpolation_frame(0);
+            let rig = stream.authority().actor_rig(1).unwrap();
+            let mut cache = java::HandCache::default();
+            cache.remember(&rig, input.main.as_ref());
+            let result = hand_source_for_mode(
+                &stream,
+                &mut equipment,
+                &artwork,
+                &input,
+                &mut cache,
+                0.1,
+                java_mode,
+            );
+            let arm = rig
+                .bone_names
+                .iter()
+                .position(|name| name.as_ref() == if off_hand { "leftarm" } else { "rightarm" })
+                .unwrap();
+            let degrees: f32 = if off_hand { 60.0 } else { 80.0 };
+            let expected = Quat::from_rotation_x(-(0.25 + 0.25 * 0.75) * degrees.to_radians());
+            assert!(
+                Quat::from_array(result.presentation.submission.input.current_bones[arm].rotation)
+                    .abs_diff_eq(expected, 1e-5),
+                "the owner arm must have a sampled swing"
+            );
+            let item = &result.items[usize::from(off_hand)]
+                .as_ref()
+                .expect("unbound attachable")
+                .0;
+            assert!(
+                Quat::from_array(item.presentation.submission.input.current_bones[0].rotation)
+                    .abs_diff_eq(Quat::IDENTITY, 1e-5),
+                "an unmatched root must retain the actor frame instead of the swinging hand"
+            );
+        }
+    }
 }
 
 #[test]
