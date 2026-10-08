@@ -19,6 +19,7 @@ const PLACEMENT_ACTOR_EPSILON: f64 = 1.0e-5;
 const REPLACEABLE_BLOCKS: &[&str] = &[
     "minecraft:air",
     "minecraft:short_grass",
+    "minecraft:red_shrub",
     "minecraft:tall_grass",
     "minecraft:fern",
     "minecraft:large_fern",
@@ -148,7 +149,11 @@ pub const fn placement_cell(clicked: [i32; 3], face: u8) -> [i32; 3] {
 pub type BoxBounds = ([f64; 3], [f64; 3]);
 
 /// Whether a block-local box placed in `cell` overlaps an actor box.
-fn overlaps(cell: [i32; 3], (local_min, local_max): BoxBounds, (min, max): BoxBounds) -> bool {
+pub(crate) fn overlaps(
+    cell: [i32; 3],
+    (local_min, local_max): BoxBounds,
+    (min, max): BoxBounds,
+) -> bool {
     (0..3).all(|axis| {
         let low = f64::from(cell[axis]) + local_min[axis] + PLACEMENT_ACTOR_EPSILON;
         let high = f64::from(cell[axis]) + local_max[axis] - PLACEMENT_ACTOR_EPSILON;
@@ -181,9 +186,7 @@ impl UseSurroundings {
     /// The cell a placement fills: the clicked block when it is replaceable,
     /// otherwise the neighbor across the clicked face.
     pub fn destination(&self, clicked: [i32; 3], face: u8) -> ([i32; 3], bool) {
-        let replaceable = |identifier: Option<&str>| {
-            identifier.is_some_and(|identifier| REPLACEABLE_BLOCKS.contains(&identifier))
-        };
+        let replaceable = |identifier: Option<&str>| identifier.is_some_and(is_replaceable);
         if replaceable(self.clicked_identifier.as_deref()) {
             (clicked, true)
         } else {
@@ -191,6 +194,11 @@ impl UseSurroundings {
             (cell, replaceable(self.neighbor_identifier.as_deref()))
         }
     }
+}
+
+/// Classifies a destination with the inherited replacement list.
+fn is_replaceable(identifier: &str) -> bool {
+    REPLACEABLE_BLOCKS.contains(&identifier)
 }
 
 /// The local outcome of one click, which sets the prediction flag and swing.
@@ -534,21 +542,7 @@ pub fn toggled_states(
     Some(states)
 }
 
-/// The store id a placement predicts locally, when its placed state is certain.
-pub fn predicted_placement(
-    collisions: &PhysicsCollisionRegistries,
-    stream: &impl crate::GameplayWorld,
-    item_block: i32,
-) -> Option<u32> {
-    let resolved = held_block_store_id(stream, item_block)?;
-    let mode = stream.network_id_mode();
-    placement_state_is_certain(
-        collisions.block_is_full_cube(mode, resolved),
-        collisions.block_canonical_state(mode, resolved),
-        collisions.block_identifier(mode, resolved),
-    )
-    .then_some(resolved)
-}
+pub use crate::placement_prediction::{PlacementContext, PredictedPlacement, predicted_placement};
 
 pub fn held_block_store_id(stream: &impl crate::GameplayWorld, item_block: i32) -> Option<u32> {
     // Vanilla block-item descriptors preserve all runtime-id bits.
@@ -559,23 +553,6 @@ pub fn held_block_store_id(stream: &impl crate::GameplayWorld, item_block: i32) 
     }
     let resolved = stream.resolve_block_network_id(block);
     (resolved != stream.air_block_id()).then_some(resolved)
-}
-
-/// Only a stateless full cube places as the held state itself: oriented, sized
-/// and merging blocks resolve their state from the click, which is not modelled.
-/// Vanilla offsets a nonreplaceable clicked block even when it has the same
-/// type as the held cube, then sets the block locally.
-pub fn placement_state_is_certain(
-    full_cube: bool,
-    canonical_state: Option<&str>,
-    placed_identifier: Option<&str>,
-) -> bool {
-    let stateless = canonical_state
-        .and_then(|state| {
-            serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(state).ok()
-        })
-        .is_some_and(|states| states.is_empty());
-    full_cube && stateless && placed_identifier.is_some()
 }
 
 /// A successful hold starts once, then swings before its transaction and inventory delta.

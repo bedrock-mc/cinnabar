@@ -42,6 +42,12 @@ struct InteractionBlock {
     full_cube: bool,
     build_intention: bool,
     tags: Arc<[Arc<str>]>,
+    connections: Option<(
+        assets::ModelFamily,
+        assets::ContributorRole,
+        bool,
+        Option<u32>,
+    )>,
 }
 
 type InteractionBlocks = BTreeMap<u32, InteractionBlock>;
@@ -67,6 +73,7 @@ pub struct PhysicsCollisionRegistries {
     interleave_supported: bool,
     canonical_states: BTreeMap<u32, Arc<str>>,
     hashed_canonical_states: BTreeMap<u32, Arc<str>>,
+    state_ids: BTreeMap<Arc<str>, BTreeMap<String, (u32, u32)>>,
     max_vanilla_sort_key: u64,
     custom_block_physics: Option<CustomBlockPhysics>,
     /// Hashes this session added to `hashed`, dropped when the next session begins.
@@ -172,6 +179,7 @@ impl PhysicsCollisionRegistries {
         let mut hashed_interaction_blocks = BTreeMap::new();
         let mut canonical_states = BTreeMap::new();
         let mut hashed_canonical_states = BTreeMap::new();
+        let mut state_ids: BTreeMap<Arc<str>, BTreeMap<String, (u32, u32)>> = BTreeMap::new();
         let mut max_vanilla_sort_key = 0;
         let mut vanilla_runs: Vec<(u64, Arc<str>, u32)> = Vec::new();
         let mut custom_block_physics = None;
@@ -197,12 +205,31 @@ impl PhysicsCollisionRegistries {
                 full_cube,
                 build_intention: tags::has_build_intention(record),
                 tags: native_block_tags(record),
+                connections: Some((
+                    record.model_family,
+                    record.contributor_role,
+                    record
+                        .flags
+                        .contains(assets::BlockFlags::OCCLUDES_FULL_FACE),
+                    record.model_state.get(assets::ModelStateField::Orientation),
+                )),
             };
             interaction_blocks.insert(record.sequential_id, binding.clone());
             hashed_interaction_blocks.insert(record.network_hash, binding);
             let state: Arc<str> = Arc::from(record.canonical_state.as_ref());
             canonical_states.insert(record.sequential_id, Arc::clone(&state));
             hashed_canonical_states.insert(record.network_hash, state);
+            if let Ok(states) = serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(
+                &record.canonical_state,
+            ) {
+                state_ids
+                    .entry(Arc::from(record.name.as_ref()))
+                    .or_default()
+                    .insert(
+                        serde_json::to_string(&states).expect("block state JSON is serializable"),
+                        (record.sequential_id, record.network_hash),
+                    );
+            }
             let register = |registry: &mut CollisionRegistry, runtime_id, boxes: Vec<Aabb>| {
                 registry.register_primitives(
                     runtime_id,
@@ -272,6 +299,7 @@ impl PhysicsCollisionRegistries {
             vanilla_runs,
             canonical_states,
             hashed_canonical_states,
+            state_ids,
             max_vanilla_sort_key,
             custom_block_physics,
             session_hashes: Vec::new(),
@@ -321,6 +349,7 @@ impl PhysicsCollisionRegistries {
                         full_cube: effective.collides && effective.collision_boxes.is_none(),
                         build_intention: false,
                         tags: Arc::clone(&block.tags),
+                        connections: None,
                     },
                 );
                 let boxes = custom_block_boxes(&effective);
@@ -398,6 +427,7 @@ impl PhysicsCollisionRegistries {
                             full_cube: effective.collides && effective.collision_boxes.is_none(),
                             build_intention: false,
                             tags: Arc::clone(&block.tags),
+                            connections: None,
                         },
                     );
                     apply_selection(&mut self.hashed, state.hash, effective.selection);
@@ -423,23 +453,12 @@ impl PhysicsCollisionRegistries {
         identifier: &str,
         states: &serde_json::Map<String, serde_json::Value>,
     ) -> Option<u32> {
-        let (names, canonical) = match mode {
-            assets::NetworkIdMode::Sequential => (&self.interaction_blocks, &self.canonical_states),
-            assets::NetworkIdMode::Hashed => (
-                &self.hashed_interaction_blocks,
-                &self.hashed_canonical_states,
-            ),
-        };
-        names
-            .iter()
-            .filter(|(_, block)| block.identifier.as_ref() == identifier)
-            .find(|(runtime_id, _)| {
-                canonical.get(runtime_id).is_some_and(|state| {
-                    serde_json::from_str::<serde_json::Map<_, _>>(state)
-                        .is_ok_and(|parsed| &parsed == states)
-                })
-            })
-            .map(|(runtime_id, _)| *runtime_id)
+        let key = serde_json::to_string(states).ok()?;
+        let &(sequential, hashed) = self.state_ids.get(identifier)?.get(&key)?;
+        Some(match mode {
+            assets::NetworkIdMode::Sequential => sequential,
+            assets::NetworkIdMode::Hashed => hashed,
+        })
     }
 
     /// Whether `runtime_id` is a cube-model block with one full collision box.
@@ -449,6 +468,24 @@ impl PhysicsCollisionRegistries {
             assets::NetworkIdMode::Hashed => &self.hashed_interaction_blocks,
         };
         map.get(&runtime_id).is_some_and(|block| block.full_cube)
+    }
+
+    /// Borrows the registry facts used by the renderer's neighbor connection predicates.
+    pub fn block_connection_facts(
+        &self,
+        mode: assets::NetworkIdMode,
+        runtime_id: u32,
+    ) -> Option<(
+        assets::ModelFamily,
+        assets::ContributorRole,
+        bool,
+        Option<u32>,
+    )> {
+        let map = match mode {
+            assets::NetworkIdMode::Sequential => &self.interaction_blocks,
+            assets::NetworkIdMode::Hashed => &self.hashed_interaction_blocks,
+        };
+        map.get(&runtime_id)?.connections
     }
 
     /// The registry's canonical state JSON for `runtime_id`, when it is a registered state.

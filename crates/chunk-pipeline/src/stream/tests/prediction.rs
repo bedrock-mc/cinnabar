@@ -78,11 +78,19 @@ fn publish_local_mesh_work(
 ) -> Vec<WorldMeshChange> {
     let deadline = Instant::now() + Duration::from_secs(5);
     let mut changes = Vec::new();
+    let mut polls = 0;
+    let mut mesh_dispatches = 0;
+    let mut mesh_results = 0;
+    let mut decode_results = 0;
     while Instant::now() < deadline {
         // Exercise the production local worker/poll path. Unrelated border
         // meshes may still await their own neighbourhood; only the placed
         // cell's current generation establishes this contract.
-        stream.poll(camera_position, usize::MAX);
+        let work = stream.poll(camera_position, usize::MAX);
+        polls += 1;
+        mesh_dispatches += work.mesh_jobs_dispatched;
+        mesh_results += work.mesh_results;
+        decode_results += work.decoded_results;
         changes.extend(stream.take_mesh_changes());
         if changes.iter().any(|change| match change {
             WorldMeshChange::Upsert {
@@ -96,11 +104,112 @@ fn publish_local_mesh_work(
                 ..
             } => *key == target && *actual == generation,
         }) {
+            eprintln!(
+                "local mesh publication: polls={polls}, mesh_dispatches={mesh_dispatches}, mesh_results={mesh_results}, decode_results={decode_results}"
+            );
             return changes;
         }
         std::thread::yield_now();
     }
     panic!("predicted mesh generation was not published before the bounded deadline");
+}
+
+/// A server-selected alternative state replaces a prediction without acceptance bookkeeping.
+#[test]
+fn a_different_server_state_replaces_a_predicted_state() {
+    let mut stream = fixture();
+    let position = [3, 200, 3];
+    assert!(stream.predict_block(position, 0, 1));
+    assert_eq!(block(&stream, position), Some(1));
+    server_update(&mut stream, 2, position, 0);
+    complete_pending_decode_jobs(&mut stream);
+    assert_eq!(block(&stream, position), Some(0));
+}
+
+/// Exercises real non-cube model publication when a local world carrier is available.
+#[test]
+fn placed_family_models_publish_urgent_meshes_without_server_acceptance() {
+    let Some(path) = std::env::var_os("CINNABAR_TEST_WORLD_CARRIER") else {
+        eprintln!(
+            "missing fixture: CINNABAR_TEST_WORLD_CARRIER; skipping real placement model publication"
+        );
+        return;
+    };
+    let assets = Arc::new(RuntimeAssets::decode(&std::fs::read(path).unwrap()).unwrap());
+    let records = assets::read_registry_for_protocol(
+        assets::pinned_block_registry_bytes(),
+        assets::active_content_registry_protocol(),
+    )
+    .unwrap();
+    let air = assets.air_network_id(NetworkIdMode::Sequential).unwrap();
+    let mut stream = WorldStream::new_with_assets(
+        WorldBootstrap {
+            local_player_unique_id: 1,
+            local_player_runtime_id: 1,
+            dimension: 0,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: air,
+            block_network_ids_are_hashes: false,
+        },
+        assets,
+        [0.0; 3],
+        None,
+    );
+    for (index, (x, z)) in (-1..=1)
+        .flat_map(|x| (-1..=1).map(move |z| (x, z)))
+        .enumerate()
+    {
+        stream
+            .submit(
+                index as u64 + 1,
+                WorldEvent::LevelChunk(LevelChunkEvent {
+                    dimension: 0,
+                    x,
+                    z,
+                    mode: LevelChunkMode::Inline { count: 1 },
+                    payload: column_payload(),
+                }),
+            )
+            .unwrap();
+    }
+    complete_pending_decode_jobs(&mut stream);
+    for name in [
+        "minecraft:oak_log",
+        "minecraft:oak_slab",
+        "minecraft:trapdoor",
+        "minecraft:hopper",
+        "minecraft:torch",
+        "minecraft:stone_button",
+        "minecraft:lantern",
+        "minecraft:white_carpet",
+        "minecraft:oak_fence",
+        "minecraft:glass_pane",
+        "minecraft:snow_layer",
+    ] {
+        let record = records
+            .iter()
+            .find(|record| record.name.as_ref() == name)
+            .unwrap();
+        let position: [i32; 3] = [3, 200, 3];
+        let key = SubChunkKey::new(0, 0, position[1].div_euclid(16), 0);
+        assert!(stream.predict_block(position, 0, record.sequential_id));
+        assert_eq!(block(&stream, position), Some(record.sequential_id));
+        let generation = stream.revisions.dirty(key).unwrap().revision;
+        let changes = publish_local_mesh_work(
+            &mut stream,
+            position.map(|axis| axis as f32),
+            key,
+            generation,
+        );
+        assert!(
+            changes.iter().any(|change| matches!(change,
+            WorldMeshChange::Upsert { key: changed, generation: actual, urgent: true, .. }
+                if *changed == key && *actual == generation)),
+            "{name}"
+        );
+        eprintln!("predicted family model: {name}; server acceptance events=0");
+    }
 }
 
 /// Placement publishes a renderable mesh without any server acceptance event,

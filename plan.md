@@ -6563,3 +6563,16 @@ one authored panel, and the MegaSMP tutorial remains retained with its detailed
 Orebits glyph. The user confirms the rebuilt client looks correct. Required
 touched-crate checks and the canonical developer-control build pass; release
 hardware budgets and matched-version pixel comparison remain incomplete.
+
+## Local placement prediction
+
+- Pillars, slab halves and matching doubles, trapdoors, hoppers, supported attachments,
+  colored carpets, fence/pane connections and stacking existing snow resolve locally.
+- Placement parity remains incomplete for stairs, general directional blocks, two-cell blocks,
+  stacking candles/pickles, walls, rails, redstone, vines, signs and substrate-sensitive plants.
+  Unknown states and support shapes stay server-confirmed. See
+  [local placement rules](docs/reference/block-placement-prediction.md).
+- Non-air replacement is server-confirmed; complete replacement-component classification and
+  its effective placement face are incomplete. Clicked-cell selection retains the existing rule.
+- Same-frame visibility and rendered neighbor/correction behavior still need headless captures;
+  this work does not close a visual or frame-budget gate.
