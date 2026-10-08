@@ -1,6 +1,25 @@
 //! Converts stored values into the existing subsystem settings.
-use super::{ANIMATIONS_OPTION, MOTION_BLUR_OPTION, MOUSE_SENSITIVITY_OPTION, SettingsOptions};
+use std::num::NonZeroU16;
+
+use super::{
+    ANIMATIONS_OPTION, FRAME_RATE_AUTOMATIC, FRAME_RATE_UNLIMITED, MOTION_BLUR_OPTION,
+    MOUSE_SENSITIVITY_OPTION, SettingsOptions,
+};
+use render_api::FrameRateLimit;
 use semantic_input::PerspectiveMode;
+
+/// The limit a stored `max_framerate` slider value selects.
+#[must_use]
+pub fn frame_rate_limit(value: i32) -> FrameRateLimit {
+    match value {
+        FRAME_RATE_AUTOMATIC => FrameRateLimit::Automatic,
+        FRAME_RATE_UNLIMITED.. => FrameRateLimit::Unlimited,
+        fixed => u16::try_from(fixed)
+            .ok()
+            .and_then(NonZeroU16::new)
+            .map_or(FrameRateLimit::Automatic, FrameRateLimit::Fixed),
+    }
+}
 
 impl SettingsOptions {
     /// Builds the existing subsystem settings from the controller's saved values.
@@ -17,8 +36,7 @@ impl SettingsOptions {
         settings.controls.invert_gamepad_y = self.value("controller_invert_y_axis") != 0;
         settings.video.camera_shake = self.value("camera_shake") != 0;
         settings.video.damage_bob = self.value("damage_bob") as f32 / 100.0;
-        settings.video.frame_cap =
-            (self.value("max_framerate") != 0).then(|| self.value("max_framerate") as u16);
+        settings.video.frame_rate_limit = frame_rate_limit(self.value("max_framerate"));
         settings.video.vsync = self.value("vsync") != 0;
         settings.video.anti_aliasing_samples = self.value("msaa") as u32;
         settings.video.motion_blur =
