@@ -130,21 +130,30 @@ impl BrowserActors {
         let catalog = assets::RuntimeActorCatalog::decode(actor_bytes, &entities)
             .map_err(|error| error.to_string())?;
         let mut world_entities = BTreeMap::new();
-        for binding in catalog.bindings() {
-            let Some(symbol) = entities.symbols().get(binding.entity_symbol as usize) else {
-                continue;
-            };
+        for (symbol, binding) in crate::browser_entity_catalog::world_entity_bindings(
+            entities.symbols(),
+            catalog.bindings(),
+        ) {
             if world_entities.contains_key(symbol.identifier.as_ref()) {
                 continue;
             }
             let Some(geometry) = entities.geometries().get(binding.geometry as usize) else {
                 continue;
             };
-            let rig = register_rig(
+            // Optional catalog rigs follow native admission; required player rigs above stay strict.
+            let Ok(prepared) = render_model::entity_geometry(
+                &entities,
+                binding.geometry as usize,
+                render_model::pack_rig_id(binding.geometry_candidate),
+            ) else {
+                continue;
+            };
+            let rig = register_geometry(
                 &mut scene,
                 &entities,
                 &geometry.identifier,
-                render_model::pack_rig_id(binding.geometry_candidate),
+                binding.geometry as usize,
+                prepared,
             )?;
             world_entities.insert(symbol.identifier.to_string(), rig);
         }
@@ -567,6 +576,17 @@ fn register_rig(
         as usize;
     let geometry = render_model::entity_geometry(assets, index, id)
         .map_err(|e| format!("compiled geometry {identifier}: {e:?}"))?;
+    register_geometry(scene, assets, identifier, index, geometry)
+}
+
+fn register_geometry(
+    scene: &mut ActorRenderScene,
+    assets: &RuntimeEntityAssets,
+    identifier: &str,
+    index: usize,
+    geometry: ActorRigGeometry,
+) -> Result<Rig, String> {
+    let id = geometry.id;
     let source = Arc::new(protocol::SkinGeometrySource {
         resource_patch: serde_json::json!({"geometry": {"default": identifier}})
             .to_string()
