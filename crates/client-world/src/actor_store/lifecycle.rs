@@ -97,6 +97,7 @@ impl ActorStore {
             players: HashMap::new(),
             unlisted_players: HashMap::new(),
             animation,
+            ready_appearances: Default::default(),
             items: crate::item::ItemStateStore::diagnostic(),
             actions: crate::action::RemoteActionStore::diagnostic(),
             remote_state_excluded_runtime_id: None,
@@ -299,6 +300,7 @@ impl ActorStore {
         self.synthetic_local_skin_pending = false;
         self.retained_player_skin_bytes = 0;
         self.animation.clear();
+        self.ready_appearances = Default::default();
         self.items.clear();
         self.actions.clear();
         self.status_notices.clear();
@@ -329,6 +331,7 @@ impl ActorStore {
         self.synthetic_local_skin_pending = false;
         self.prune_unlisted_players();
         self.animation.clear();
+        self.ready_appearances = Default::default();
         self.items.clear_actor_state();
         self.actions.clear();
         self.status_notices.clear();
