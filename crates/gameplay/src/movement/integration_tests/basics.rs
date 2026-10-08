@@ -713,3 +713,78 @@ fn build_actions_observe_the_end_state_of_the_previous_tick() {
     let sent = ticker.pre_tick_sample().unwrap();
     assert_eq!((sent.tick, sent.delta), (1_002, [0.12, 0.3332, 0.0]));
 }
+
+/// A send the transport refuses returns to the queue without losing its predecessor.
+#[test]
+fn a_refused_send_keeps_the_pre_tick_state_of_the_restored_tick() {
+    let mut ticker = MovementTicker::default();
+    ticker.reset(7, 1_000, [1.0, 64.0, 2.0]);
+    ticker.set_source(MovementSource::Physics);
+    ticker
+        .enqueue_completed_physics(completed_sample(1_001, [1.2, 64.0, 2.0]))
+        .unwrap();
+    flush_player_auth_inputs(&mut ticker, 1, Some(evidence_context()), |_, _| {
+        Ok::<_, &'static str>(())
+    })
+    .unwrap();
+    ticker
+        .enqueue_completed_physics(completed_sample(1_002, [1.4, 64.0, 2.0]))
+        .unwrap();
+    let before = ticker.pre_tick_sample().unwrap();
+    assert_eq!(before.tick, 1_001);
+    for _ in 0..2 {
+        assert!(
+            flush_player_auth_inputs(&mut ticker, 1, Some(evidence_context()), |_, _| Err(
+                "full"
+            ))
+            .is_err()
+        );
+        assert_eq!(ticker.pre_tick_sample(), Some(before));
+    }
+}
+
+/// A queue that resumes right after the corrected tick reads the corrected anchor.
+#[test]
+fn a_replayed_correction_keeps_its_anchor_as_the_pre_tick_state() {
+    for (queued_ms, queued_after) in [(100, 1), (50, 0)] {
+        let mut physics = LocalPhysicsController::default();
+        physics.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
+        let frame = physics.advance_with_context(
+            Duration::from_millis(queued_ms),
+            forward_physics_input(),
+            PhysicsSampleContext::default(),
+            &VersionedFloor(1),
+        );
+        let mut ticker = MovementTicker::default();
+        ticker.reset(7, 100, [0.0, 2.620_01, 0.0]);
+        ticker.set_source(MovementSource::Physics);
+        for sample in frame.samples {
+            ticker.enqueue_completed_physics(sample).unwrap();
+        }
+        ticker.pop_pending().unwrap();
+        reconcile_candidate_physics_correction(
+            &mut ticker,
+            &mut physics,
+            [0.25, 2.620_01, 0.0],
+            101,
+            true,
+            PhysicsCorrectionMode::ReplayIfRetained,
+            &VersionedFloor(1),
+        )
+        .unwrap();
+        assert_eq!(ticker.pending_samples().len(), queued_after);
+        if queued_after == 0 {
+            let next = physics.advance_with_context(
+                Duration::from_millis(50),
+                forward_physics_input(),
+                PhysicsSampleContext::default(),
+                &VersionedFloor(1),
+            );
+            for sample in next.samples {
+                ticker.enqueue_completed_physics(sample).unwrap();
+            }
+        }
+        let anchor = ticker.pre_tick_sample().unwrap();
+        assert_eq!((anchor.tick, anchor.position), (101, [0.25, 2.620_01, 0.0]));
+    }
+}

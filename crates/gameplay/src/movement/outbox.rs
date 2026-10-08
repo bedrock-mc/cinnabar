@@ -299,26 +299,52 @@ impl MovementTicker {
     /// The end state of the tick before the newest unsent tick. Vanilla runs build
     /// actions before each simulation tick, so they observe this state, not the newest.
     pub fn pre_tick_sample(&self) -> Option<UnsentSampleView> {
-        let newest = self.outbox.back()?.snapshot.tick;
-        let previous = self
-            .outbox
+        let previous = self.outbox.back()?.snapshot.tick.checked_sub(1)?;
+        let tick_of = |sample: &&super::QueuedPhysicsSample| sample.snapshot.tick == previous;
+        self.outbox
             .iter()
             .rev()
-            .nth(1)
+            .skip(1)
+            .find(tick_of)
             .map(UnsentSampleView::from_queued)
-            .or(self.prior_tick_end)?;
-        (previous.tick.checked_add(1) == Some(newest)).then_some(previous)
+            .or_else(|| {
+                [self.prior_tick_end, self.prior_tick_before]
+                    .into_iter()
+                    .flatten()
+                    .find(|view| view.tick == previous)
+            })
+            .or_else(|| {
+                self.pending_sends
+                    .iter()
+                    .map(|pending| &pending.sample)
+                    .find(tick_of)
+                    .map(UnsentSampleView::from_queued)
+            })
+    }
+
+    /// Retains a departing tick and its predecessor, so a restored send keeps both.
+    pub(super) fn note_departed_tick(&mut self, view: UnsentSampleView) {
+        if self.prior_tick_end.is_none_or(|end| end.tick < view.tick) {
+            self.prior_tick_before = self.prior_tick_end;
+        }
+        self.prior_tick_end = Some(view);
+    }
+
+    /// Replaces the retained end states with one known tick-end state.
+    pub(super) fn set_prior_tick_end(&mut self, view: Option<UnsentSampleView>) {
+        self.prior_tick_end = view;
+        self.prior_tick_before = None;
     }
 
     /// An anchor places the player with cleared motion at the last completed tick.
     pub(super) fn anchor_prior_tick_end(&mut self, position: [f32; 3]) {
-        self.prior_tick_end = Some(UnsentSampleView {
+        self.set_prior_tick_end(Some(UnsentSampleView {
             tick: self.completed_tick(),
             position,
             delta: [0.0; 3],
             displacement: [0.0; 3],
             sneaking: false,
-        });
+        }));
     }
 
     /// A frame-time interaction once every completed tick is on the wire: it reports the
@@ -510,7 +536,7 @@ impl MovementTicker {
             pending.retry_after_cancellation = false;
         }
         self.sent_history.clear();
-        self.prior_tick_end = None;
+        self.set_prior_tick_end(None);
         self.refresh_outbox_reconciliation();
     }
 }

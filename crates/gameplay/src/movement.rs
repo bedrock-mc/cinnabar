@@ -156,6 +156,8 @@ pub struct MovementTicker {
     held_release: Option<outbox::HeldRelease>,
     /// End state of the newest tick no longer queued, or of the latest anchor.
     prior_tick_end: Option<UnsentSampleView>,
+    /// The departed tick before `prior_tick_end`.
+    prior_tick_before: Option<UnsentSampleView>,
 }
 
 #[cfg(test)]
@@ -199,6 +201,7 @@ impl MovementTicker {
             mining_epoch_publisher,
             held_release: None,
             prior_tick_end: None,
+            prior_tick_before: None,
         }
     }
 
@@ -440,7 +443,7 @@ impl MovementTicker {
     #[must_use]
     fn pop_pending(&mut self) -> Option<QueuedPhysicsSample> {
         let sample = self.outbox.pop_front()?;
-        self.prior_tick_end = Some(UnsentSampleView::from_queued(&sample));
+        self.note_departed_tick(UnsentSampleView::from_queued(&sample));
         Some(sample)
     }
 
@@ -889,10 +892,17 @@ impl MovementTicker {
                     .outbox
                     .front()
                     .map_or(self.next_tick, |queued| queued.snapshot.tick);
-                self.prior_tick_end = rebuilt
+                let anchor = plan
+                    .corrected_sample
+                    .as_ref()
+                    .map(|sample| (sample, input_flags(sample, plan.anchor_input)));
+                let predecessor = rebuilt
                     .iter()
+                    .map(|(sample, flags)| (*sample, *flags))
+                    .chain(anchor)
                     .find(|(sample, _)| sample.tick.saturating_add(1) == boundary)
-                    .map(|(sample, flags)| UnsentSampleView::from_replayed(sample, *flags));
+                    .map(|(sample, flags)| UnsentSampleView::from_replayed(sample, flags));
+                self.set_prior_tick_end(predecessor);
                 Ok(())
             }
         }

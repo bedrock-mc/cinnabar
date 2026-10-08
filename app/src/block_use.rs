@@ -35,18 +35,44 @@ pub(crate) use gameplay::block_use::{
 
 /// Bevy resource adapter for the gameplay block_use owner.
 #[derive(Resource, Debug, Default)]
-pub(crate) struct BlockUseRuntime(gameplay::block_use::BlockUseRuntime);
+pub(crate) struct BlockUseRuntime {
+    owner: gameplay::block_use::BlockUseRuntime,
+    /// The latest pick taken before this frame's physics.
+    previous_pick: Option<FramePick>,
+}
 impl std::ops::Deref for BlockUseRuntime {
     type Target = gameplay::block_use::BlockUseRuntime;
     /// Borrows the gameplay owner at the existing ordered system boundary.
     fn deref(&self) -> &Self::Target {
-        &self.0
+        &self.owner
     }
 }
 impl std::ops::DerefMut for BlockUseRuntime {
     /// Mutates the gameplay owner without duplicating its state.
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
+        &mut self.owner
+    }
+}
+
+/// One frame's eye ray; vanilla builds from the picks of the frames before each tick.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct FramePick {
+    session_generation: u64,
+    actor_session_id: u64,
+    origin: bevy::prelude::Vec3,
+    direction: bevy::prelude::Vec3,
+}
+
+impl BlockUseRuntime {
+    /// Returns the previous frame's pick and keeps this frame's for the next tick.
+    pub(crate) fn retain_pick(&mut self, origin: &InteractionOriginSnapshot) -> Option<FramePick> {
+        let current = origin.outbound_ray().map(|ray| FramePick {
+            session_generation: ray.session_generation(),
+            actor_session_id: ray.actor_session_id(),
+            origin: ray.origin(),
+            direction: ray.direction(),
+        });
+        std::mem::replace(&mut self.previous_pick, current)
     }
 }
 #[derive(SystemParam)]
@@ -73,6 +99,7 @@ pub(crate) fn produce_block_use(
     mut item_use: ResMut<crate::item_use::ItemUseRuntime>,
     movement: Res<MovementTicker>,
 ) {
+    let pick = runtime.retain_pick(&context.origin);
     swings.sync_ticks(
         movement.interaction_authority_identity(),
         movement.completed_tick(),
@@ -154,8 +181,8 @@ pub(crate) fn produce_block_use(
             (input.authority_generation, input.frame_sequence),
             movement.interaction_authority_identity().1,
             &runtime,
-            state.delta,
-            state.sneaking,
+            pick,
+            &state,
         ),
         context.client_world.stream.as_ref(),
     ) else {

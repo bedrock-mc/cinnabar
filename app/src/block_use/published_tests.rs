@@ -100,6 +100,9 @@ fn fixture() -> (World, client_session::CapturedPackets) {
         .unwrap();
     let mut origin = InteractionOriginSnapshot::default();
     origin.publish_from_local_player_frame(&carrier);
+    // The frame before this one picked along the same ray.
+    let mut block_use = BlockUseRuntime::default();
+    block_use.retain_pick(&origin);
     let mut player = crate::player_runtime::PlayerRuntime::new(7);
     player
         .facts
@@ -154,7 +157,7 @@ fn fixture() -> (World, client_session::CapturedPackets) {
         .advance_by(Duration::from_millis(1_000));
     world.init_resource::<Messages<crate::audio::LocalBlockCue>>();
     world.insert_resource(player);
-    world.init_resource::<BlockUseRuntime>();
+    world.insert_resource(block_use);
     world.init_resource::<SwingTracker>();
     world.init_resource::<crate::item_use::ItemUseRuntime>();
     world.insert_resource(movement);
@@ -294,4 +297,54 @@ fn a_block_press_reports_the_position_before_the_newest_tick() {
         })
         .collect();
     assert_eq!(positions, [before]);
+}
+
+/// Placement casts the pick of the frame before the tick, not this frame's post-tick view.
+#[test]
+fn a_block_press_casts_the_pick_taken_before_the_tick() {
+    use protocol::wire::valentine::bedrock::version::v1_26_51::{
+        InventoryTransactionPacketTransaction, McpePacketData,
+    };
+    let (mut world, mut captured) = fixture();
+    let stream = world.resource::<crate::runtime::world::ClientWorld>();
+    let stream = stream.stream.as_ref().unwrap();
+    let (actor_session_id, fifo_sequence) = (
+        stream.authority().actor_session_id(),
+        stream.committed_sequence(),
+    );
+    let eye = Vec3::new(4.5, 2.5, 8.5);
+    let mut carrier = crate::local_player::LocalPlayerFrameCarrier::default();
+    carrier
+        .publish(crate::local_player::LocalPlayerFrameSample {
+            session_generation: 7,
+            actor_session_id,
+            fifo_sequence,
+            physics_tick: 101,
+            perspective: semantic_input::PerspectiveMode::FirstPerson,
+            world_collision_identity: gameplay::test_support::survival_mining::completed(101)
+                .world_identity,
+            pose: Transform::from_translation(eye),
+            eye,
+            feet: eye - Vec3::Y * 1.62,
+            rotation: Quat::from_rotation_x(std::f32::consts::FRAC_PI_2),
+        })
+        .unwrap();
+    world
+        .resource_mut::<InteractionOriginSnapshot>()
+        .publish_from_local_player_frame(&carrier);
+    world.run_system_cached(produce_block_use).unwrap();
+    let targets: Vec<_> = captured
+        .drain()
+        .into_iter()
+        .filter_map(|packet| match packet.data {
+            McpePacketData::InventoryTransactionPacket(tx) => match tx.transaction {
+                InventoryTransactionPacketTransaction::ItemUseInventoryTransaction(tx) => {
+                    Some([tx.position.x, tx.position.y, tx.position.z])
+                }
+                _ => None,
+            },
+            _ => None,
+        })
+        .collect();
+    assert_eq!(targets, [[4, 2, 6]]);
 }

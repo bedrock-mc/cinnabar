@@ -6,7 +6,7 @@ use gameplay::{
 };
 use sim::CollisionWorld;
 
-/// Recasts the current ray and resolves the held support without reusing stale block evidence.
+/// Recasts the pre-tick frame pick against the current world and resolves the held support.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn observe_use_target(
     player_runtime: &crate::player_runtime::PlayerRuntime,
@@ -16,8 +16,8 @@ pub(super) fn observe_use_target(
     input_authority: (std::num::NonZeroU64, u64),
     position_authority_generation: u64,
     runtime: &BlockUseRuntime,
-    velocity: [f32; 3],
-    sneaking: bool,
+    pick: Option<FramePick>,
+    state: &gameplay::movement::UnsentSampleView,
 ) -> Option<FrozenBlockObservation> {
     let reach = if survival {
         survival_reach(input_mode)
@@ -26,11 +26,16 @@ pub(super) fn observe_use_target(
     };
     let stream = context.client_world.stream.as_ref()?;
     let ray = context.origin.outbound_ray()?;
+    let pick = pick.filter(|pick| {
+        pick.session_generation == ray.session_generation()
+            && pick.actor_session_id == ray.actor_session_id()
+    })?;
+    let (velocity, sneaking) = (state.delta, state.sneaking);
     let actor = pick_actor(
         stream.authority().remote_actors(),
         context.ui.gameplay_hud().mount_unique_id(),
-        ray.origin().to_array(),
-        ray.direction().to_array(),
+        pick.origin.to_array(),
+        pick.direction.to_array(),
         reach,
     );
     let selection = verified_use_selection(player_runtime, &context.ui)?;
@@ -43,7 +48,7 @@ pub(super) fn observe_use_target(
             )
         })
         .and_then(|_| runtime.intention.first_world_hit());
-    let observed = crate::interaction_authority::observe_block_ray_using(
+    let mut observed = crate::interaction_authority::observe_block_ray_using(
         &context.origin,
         &context.ui,
         &context.client_world,
@@ -55,13 +60,31 @@ pub(super) fn observe_use_target(
             input_authority,
             position_authority_generation,
         ),
-        |world, origin, direction, reach| {
+        |world, _, _, reach| {
+            let vector = |value: bevy::prelude::Vec3| {
+                sim::Vec3::new(f64::from(value.x), f64::from(value.y), f64::from(value.z))
+            };
+            let (origin, direction) = (vector(pick.origin), vector(pick.direction));
             let hit = world.block_interaction_ray_current(origin, direction, reach)?;
-            let actor = match classify(actor, hit.as_ref().map(|hit| hit.distance), reach) {
+            let mut actor = match classify(actor, hit.as_ref().map(|hit| hit.distance), reach) {
                 Crosshair::Actor(actor) => Some(actor),
                 _ => None,
             };
-            let block = if actor.is_none() { hit.as_ref() } else { None };
+            let mut block = if actor.is_none() { hit.as_ref() } else { None };
+            // The refreshed pick is out of reach when its point lies beyond reach of the
+            // pre-tick eye; block hits measure from the block centre.
+            let picked = actor
+                .map(|actor| actor.point.map(f64::from))
+                .or_else(|| block.map(|hit| hit.block_pos.map(|axis| f64::from(axis) + 0.5)));
+            if picked.is_some_and(|point| {
+                (0..3)
+                    .map(|axis| (point[axis] - f64::from(state.position[axis])).powi(2))
+                    .sum::<f64>()
+                    > reach * reach
+            }) {
+                actor = None;
+                block = None;
+            }
             let endpoint = actor.map_or_else(
                 || {
                     block.map_or(origin + direction * reach, |hit| {
@@ -129,5 +152,7 @@ pub(super) fn observe_use_target(
     )
     .ok()
     .flatten()?;
+    observed.ray.origin = pick.origin.to_array();
+    observed.ray.direction = pick.direction.to_array();
     gameplay::interaction_authority::within_pick_range(&observed).then_some(observed)
 }

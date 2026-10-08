@@ -2959,6 +2959,17 @@ Files: `docs/reference/held-block-placement.md`, `crates/gameplay/src/block_use.
   (`0x28d3ed0`) copies StateVector position into the transaction: all end-of-previous-tick
   values. No input-mode or touch-option branch exists in the continuation path; only
   `getPickRange` varies by input mode.
+- Pick used by those build actions: 26.30 `MinecraftGame::tickInput` lambda
+  (`handheld/src-client/common/client/game/MinecraftGame.cpp:240293`) appends each frame's
+  hit and liquid hit to HitResultComponent through `HitResultSystem::tickPlayerInput`
+  (`by-owner/h/HitResultSystem.cpp:1`); `HitResultSystem::tick` clears it after the sim
+  tick. `_tickBuildAction` re-clips each stored ray from its stored start
+  (`HitResultUtils::refreshHitResult`, `by-owner/h/HitResultUtils.cpp:6`, 267) and
+  `trimHitResult` (current artifact 6 RVA `0xfe80b0`) turns the hit into a miss when its
+  point (block centre `+0.5`, actor hit point) is farther than pick range from the camera
+  actor's StateVector position, i.e. the pre-tick eye. Cinnabar keeps the previous frame's
+  presented ray (`app/src/block_use.rs` `FramePick`); it casts one stored frame per tick
+  where vanilla walks every frame pick since the last tick.
 
 - Primary current evidence: Lens artifact 6, normalized build `1.26.50.26`,
   source-backed `artifact_function` reads at RVAs `0x28b63a0`

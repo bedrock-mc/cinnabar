@@ -199,6 +199,8 @@ pub(super) struct PhysicsCorrectionPlan {
     pub(super) final_tick: u64,
     pub(super) final_position: [f32; 3],
     pub(super) anchor_input: super::encoding::HeldInput,
+    /// The corrected tick's own end state; replayed samples start after it.
+    pub(super) corrected_sample: Option<PhysicsMovementSample>,
     pub(super) replayed_samples: Vec<PhysicsMovementSample>,
 }
 
