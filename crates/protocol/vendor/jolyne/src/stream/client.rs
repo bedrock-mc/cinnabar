@@ -2884,25 +2884,27 @@ impl<T: Transport> BedrockStream<StartGame, Client, T> {
 impl<T: Transport> BedrockStream<Play, Client, T> {
     /// Completes spawn once terrain is ready and the owner closes the loading screen.
     pub async fn finish_loading(&mut self) -> Result<(), JolyneError> {
-        let Some(runtime_entity_id) = self.state.pending_initialization.take() else {
-            return Ok(());
-        };
-        self.transport
-            .send_batch(&[
-                McpePacket::from(ServerboundLoadingScreenPacket {
-                    loading_screen_packet_type:
-                        ServerboundLoadingScreenPacketLoadingScreenPacketType::Endloadingscreen,
-                    loading_screen_id: None,
-                }),
-                McpePacket::from(SetLocalPlayerAsInitializedPacket {
-                    player_id: ActorRuntimeId {
-                        actor_runtime_id: runtime_entity_id,
-                    },
-                }),
-            ])
-            .await?;
+        let packets = self.take_finish_loading_packets();
+        self.transport.send_batch(&packets).await
+    }
 
-        Ok(())
+    /// Takes the one-shot loading-end and initialization packets for a caller that batches them.
+    pub fn take_finish_loading_packets(&mut self) -> Vec<McpePacket> {
+        let Some(runtime_entity_id) = self.state.pending_initialization.take() else {
+            return Vec::new();
+        };
+        vec![
+            McpePacket::from(ServerboundLoadingScreenPacket {
+                loading_screen_packet_type:
+                    ServerboundLoadingScreenPacketLoadingScreenPacketType::Endloadingscreen,
+                loading_screen_id: None,
+            }),
+            McpePacket::from(SetLocalPlayerAsInitializedPacket {
+                player_id: ActorRuntimeId {
+                    actor_runtime_id: runtime_entity_id,
+                },
+            }),
+        ]
     }
 
     /// Receive the next packet with only its header decoded.

@@ -4,7 +4,7 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
-#[cfg(windows)]
+#[cfg(any(windows, test))]
 use tokio::net::TcpStream;
 #[cfg(unix)]
 use tokio::net::UnixStream;
@@ -21,6 +21,10 @@ const GAME_WINDOWS_ENDPOINT_NAME: &str = "game.addr";
 const CONTROL_WINDOWS_ENDPOINT_NAME: &str = "control.addr";
 #[cfg(any(windows, test))]
 const MAX_WINDOWS_PUBLICATION_BYTES: usize = 128;
+/// Lets one large batch cross the local Unix socket in a single write; macOS defaults to 8 KiB,
+/// which splits it and delays the frames queued behind it.
+#[cfg(unix)]
+const LOCAL_SOCKET_BUFFER_BYTES: usize = 4 * 1024 * 1024;
 
 #[derive(Clone, Copy)]
 pub(crate) enum EndpointKind {
@@ -51,6 +55,37 @@ pub(crate) enum PlatformStream {
     Unix(UnixStream),
     #[cfg(windows)]
     Tcp(TcpStream),
+}
+
+pub(crate) enum PlatformReadHalf {
+    #[cfg(unix)]
+    Unix(tokio::net::unix::OwnedReadHalf),
+    #[cfg(windows)]
+    Tcp(tokio::net::tcp::OwnedReadHalf),
+}
+
+pub(crate) enum PlatformWriteHalf {
+    #[cfg(unix)]
+    Unix(tokio::net::unix::OwnedWriteHalf),
+    #[cfg(windows)]
+    Tcp(tokio::net::tcp::OwnedWriteHalf),
+}
+
+impl PlatformStream {
+    pub(crate) fn into_split(self) -> (PlatformReadHalf, PlatformWriteHalf) {
+        match self {
+            #[cfg(unix)]
+            Self::Unix(stream) => {
+                let (read, write) = stream.into_split();
+                (PlatformReadHalf::Unix(read), PlatformWriteHalf::Unix(write))
+            }
+            #[cfg(windows)]
+            Self::Tcp(stream) => {
+                let (read, write) = stream.into_split();
+                (PlatformReadHalf::Tcp(read), PlatformWriteHalf::Tcp(write))
+            }
+        }
+    }
 }
 
 #[cfg(any(unix, test))]
@@ -171,8 +206,18 @@ async fn connect_unix(
             "Unix socket is not owned by the current user",
         ));
     }
-    let stream = UnixStream::connect(&path).await.map_err(BridgeError::Io)?;
+    let stream = connect_unix_stream(&path).await.map_err(BridgeError::Io)?;
     Ok(PlatformStream::Unix(stream))
+}
+
+#[cfg(unix)]
+async fn connect_unix_stream(path: &Path) -> io::Result<UnixStream> {
+    use rustix::net::sockopt::{set_socket_recv_buffer_size, set_socket_send_buffer_size};
+
+    let stream = UnixStream::connect(path).await?;
+    set_socket_send_buffer_size(&stream, LOCAL_SOCKET_BUFFER_BYTES)?;
+    set_socket_recv_buffer_size(&stream, LOCAL_SOCKET_BUFFER_BYTES)?;
+    Ok(stream)
 }
 
 #[cfg(windows)]
@@ -197,8 +242,18 @@ async fn connect_windows(
         .await
         .map_err(|source| endpoint_read(&path, source))?;
     let address = parse_windows_publication(&path, &publication)?;
-    let stream = TcpStream::connect(address).await.map_err(BridgeError::Io)?;
+    let stream = connect_loopback_tcp(address)
+        .await
+        .map_err(BridgeError::Io)?;
     Ok(PlatformStream::Tcp(stream))
+}
+
+/// Every frame is a whole batch, so Nagle would only hold a burst's second frame for an ACK.
+#[cfg(any(windows, test))]
+async fn connect_loopback_tcp(address: std::net::SocketAddrV4) -> io::Result<TcpStream> {
+    let stream = TcpStream::connect(address).await?;
+    stream.set_nodelay(true)?;
+    Ok(stream)
 }
 
 /// Reads an endpoint publication before validating its canonical address.
@@ -323,6 +378,54 @@ impl AsyncWrite for PlatformStream {
     }
 }
 
+impl AsyncRead for PlatformReadHalf {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buffer: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        match self.get_mut() {
+            #[cfg(unix)]
+            Self::Unix(half) => Pin::new(half).poll_read(cx, buffer),
+            #[cfg(windows)]
+            Self::Tcp(half) => Pin::new(half).poll_read(cx, buffer),
+        }
+    }
+}
+
+impl AsyncWrite for PlatformWriteHalf {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buffer: &[u8],
+    ) -> Poll<Result<usize, io::Error>> {
+        match self.get_mut() {
+            #[cfg(unix)]
+            Self::Unix(half) => Pin::new(half).poll_write(cx, buffer),
+            #[cfg(windows)]
+            Self::Tcp(half) => Pin::new(half).poll_write(cx, buffer),
+        }
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
+        match self.get_mut() {
+            #[cfg(unix)]
+            Self::Unix(half) => Pin::new(half).poll_flush(cx),
+            #[cfg(windows)]
+            Self::Tcp(half) => Pin::new(half).poll_flush(cx),
+        }
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
+        match self.get_mut() {
+            #[cfg(unix)]
+            Self::Unix(half) => Pin::new(half).poll_shutdown(cx),
+            #[cfg(windows)]
+            Self::Tcp(half) => Pin::new(half).poll_shutdown(cx),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #[cfg(windows)]
@@ -338,6 +441,42 @@ mod tests {
         let bytes = super::read_windows_publication(&mut reader).await.unwrap();
         assert_eq!(bytes.len(), super::MAX_WINDOWS_PUBLICATION_BYTES + 1);
         assert_eq!(reader.position(), bytes.len() as u64);
+    }
+
+    #[tokio::test]
+    async fn loopback_tcp_connection_disables_nagle() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let std::net::SocketAddr::V4(address) = listener.local_addr().unwrap() else {
+            unreachable!("bound to an IPv4 loopback address")
+        };
+
+        let stream = super::connect_loopback_tcp(address).await.unwrap();
+
+        assert!(stream.nodelay().unwrap());
+    }
+
+    /// The client end must not keep macOS's 8 KiB Unix socket buffers.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn unix_connection_uses_large_socket_buffers() {
+        use rustix::net::sockopt::{socket_recv_buffer_size, socket_send_buffer_size};
+
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("game.sock");
+        let _listener = tokio::net::UnixListener::bind(&path).unwrap();
+        let untuned = tokio::net::UnixStream::connect(&path).await.unwrap();
+
+        let tuned = super::connect_unix_stream(&path).await.unwrap();
+
+        for read in [
+            socket_send_buffer_size::<&tokio::net::UnixStream>,
+            socket_recv_buffer_size,
+        ] {
+            let size = read(&tuned).unwrap();
+            assert!(size > read(&untuned).unwrap());
+            #[cfg(target_os = "macos")]
+            assert!(size >= super::LOCAL_SOCKET_BUFFER_BYTES);
+        }
     }
 
     #[test]

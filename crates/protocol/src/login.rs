@@ -22,10 +22,12 @@ use crate::{
 
 mod boundary;
 mod latency_probe;
+mod outbound;
 mod packet_trace;
 mod raw_equipment;
 use boundary::boundary_wakeup;
 pub use latency_probe::network_stack_latency_reply;
+pub use outbound::PlayOutbound;
 pub use packet_trace::PacketIdTraceSnapshot;
 use packet_trace::PacketIdTraceState;
 #[cfg(test)]
@@ -441,8 +443,8 @@ impl<T: Transport> PlaySession<T> {
                     .as_mut()
                     .expect("the status packet came from a pending cache delivery")
                     .status_send_in_flight = true;
-                // SocketTransport retains an accepted frame until that exact frame flushes.
-                // Transfer ownership before awaiting so cancellation cannot logically resend it.
+                // SocketTransport accepts a frame on its first poll. Transfer ownership before
+                // awaiting so cancellation cannot logically resend it.
                 if let Err(error) = self.send(status_packet).await {
                     self.reset_blob_cache_pending();
                     return Err(error);

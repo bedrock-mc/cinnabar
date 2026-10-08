@@ -16,7 +16,7 @@ tokio.workspace = true
 tokio-util = { workspace = true, features = ["codec"] }
 
 [target.'cfg(unix)'.dependencies]
-rustix = { version = "1", default-features = false, features = ["process"] }
+rustix = { version = "1", default-features = false, features = ["net", "process", "std"] }
 sha2.workspace = true
 
 [dev-dependencies]

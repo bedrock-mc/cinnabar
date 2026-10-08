@@ -53,6 +53,11 @@ impl<S: State, R: Role, T: Transport> BedrockStream<S, R, T> {
         self.transport
     }
 
+    /// Returns the underlying transport.
+    pub fn transport(&self) -> &BedrockTransport<T> {
+        &self.transport
+    }
+
     /// Returns a reference to the current state.
     pub fn state(&self) -> &S {
         &self.state

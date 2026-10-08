@@ -11,7 +11,7 @@ pub mod raknet;
 #[cfg(feature = "nethernet")]
 pub mod nethernet;
 
-pub use inner::BedrockTransport;
+pub use inner::{BatchEncoder, BedrockTransport};
 
 #[cfg(feature = "raknet")]
 pub use raknet::RakNetTransport;

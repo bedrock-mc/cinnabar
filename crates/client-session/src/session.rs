@@ -3,7 +3,7 @@ use std::{
     path::PathBuf,
     sync::{
         Arc, Mutex,
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
     thread::{self, JoinHandle},
     time::{Duration, Instant},
@@ -259,6 +259,8 @@ fn wrap_inbound_world_event(
 #[derive(Debug)]
 enum NetworkCommand {
     FinishLoading,
+    /// Ends the frame: everything queued since the previous flush leaves as one batch.
+    FlushFrame,
     Send {
         packet: Packet,
         sub_chunk: Option<SubChunkRequestSend>,
@@ -327,14 +329,36 @@ pub struct NetworkHandle<P = ()> {
     thread: Option<JoinHandle<()>>,
     readiness_ingress: Arc<ReadinessIngressCounter>,
     experience_gate: Arc<experience::ExperienceGate>,
+    unflushed: AtomicBool, // a packet was queued since the last frame flush
 }
 
 impl<P> NetworkHandle<P> {
     /// Queues the readiness boundary after the loading screen can close.
     pub fn finish_loading(&self) -> bool {
-        self.commands
+        let queued = self
+            .commands
             .try_send(NetworkCommand::FinishLoading)
-            .is_ok()
+            .is_ok();
+        self.mark_unflushed(queued);
+        queued
+    }
+
+    /// Ends the frame's batch, as vanilla does once per update; a frame that queued nothing
+    /// sends nothing. A full queue keeps the batch open for the next frame.
+    pub fn flush_frame(&self) {
+        let _ = self.flush_latency_reply();
+        if self.unflushed.swap(false, Ordering::AcqRel)
+            && let Err(mpsc::error::TrySendError::Full(_)) =
+                self.commands.try_send(NetworkCommand::FlushFrame)
+        {
+            self.unflushed.store(true, Ordering::Release);
+        }
+    }
+
+    fn mark_unflushed(&self, queued: bool) {
+        if queued {
+            self.unflushed.store(true, Ordering::Release);
+        }
     }
 
     /// A live Bevy app still owns a network resource while it is sitting at
@@ -474,6 +498,7 @@ impl<P> NetworkHandle<P> {
                 interaction: None,
             });
         }
+        self.mark_unflushed(true);
         Ok(())
     }
 
@@ -534,27 +559,31 @@ impl<P> NetworkHandle<P> {
                 BatchSendError::Closed => PacketSendError::Closed(packet),
             });
         }
-        self.commands
-            .try_send(NetworkCommand::Send {
-                packet,
-                sub_chunk,
-                chat,
-                physics,
-                physics_reanchor,
-                interaction,
-            })
-            .map_err(|error| match error {
-                mpsc::error::TrySendError::Full(NetworkCommand::Send { packet, .. }) => {
-                    PacketSendError::Full(packet)
-                }
-                mpsc::error::TrySendError::Closed(NetworkCommand::Send { packet, .. }) => {
-                    PacketSendError::Closed(packet)
-                }
-                mpsc::error::TrySendError::Full(NetworkCommand::FinishLoading)
-                | mpsc::error::TrySendError::Closed(NetworkCommand::FinishLoading) => {
-                    unreachable!("only packet commands are submitted here")
-                }
-            })
+        let queued = self.commands.try_send(NetworkCommand::Send {
+            packet,
+            sub_chunk,
+            chat,
+            physics,
+            physics_reanchor,
+            interaction,
+        });
+        self.mark_unflushed(queued.is_ok());
+        queued.map_err(|error| match error {
+            mpsc::error::TrySendError::Full(NetworkCommand::Send { packet, .. }) => {
+                PacketSendError::Full(packet)
+            }
+            mpsc::error::TrySendError::Closed(NetworkCommand::Send { packet, .. }) => {
+                PacketSendError::Closed(packet)
+            }
+            mpsc::error::TrySendError::Full(
+                NetworkCommand::FinishLoading | NetworkCommand::FlushFrame,
+            )
+            | mpsc::error::TrySendError::Closed(
+                NetworkCommand::FinishLoading | NetworkCommand::FlushFrame,
+            ) => {
+                unreachable!("only packet commands are submitted here")
+            }
+        })
     }
 
     pub fn shutdown(&mut self) {
@@ -602,6 +631,7 @@ fn empty_network_channels<P>() -> (NetworkHandle<P>, watch::Receiver<u64>) {
             thread: None,
             readiness_ingress: Arc::new(ReadinessIngressCounter::default()),
             experience_gate: Arc::default(),
+            unflushed: AtomicBool::new(false),
         },
         physics_reanchor_rx,
     )
@@ -617,8 +647,13 @@ impl<P> Drop for NetworkHandle<P> {
 mod start;
 pub use start::spawn_network;
 
+/// The inbound half of a play session; its write half runs on its own task.
 trait NetworkSession: Send {
     type Error: std::fmt::Display + Send;
+    type Outbound: OutboundSession;
+
+    /// Detaches the write half before the pump starts.
+    fn outbound(&mut self) -> Result<Self::Outbound, Self::Error>;
 
     fn receive_world_event(
         &mut self,
@@ -634,16 +669,6 @@ trait NetworkSession: Send {
                 .await
                 .map(InboundWorldEvent::Event)
         }
-    }
-
-    fn send_packet(
-        &mut self,
-        packet: Packet,
-    ) -> impl Future<Output = Result<(), Self::Error>> + Send;
-
-    /// Completes initialization after presentation reports terrain readiness.
-    fn finish_loading(&mut self) -> impl Future<Output = Result<(), Self::Error>> + Send {
-        async { Ok(()) }
     }
 
     fn decode_error_count(&self) -> u64;
@@ -677,6 +702,11 @@ trait NetworkSession: Send {
 
 impl NetworkSession for protocol::PlaySession {
     type Error = protocol::ProtocolError;
+    type Outbound = protocol::PlayOutbound;
+
+    fn outbound(&mut self) -> Result<Self::Outbound, Self::Error> {
+        protocol::PlaySession::outbound(self)
+    }
 
     fn receive_world_event(
         &mut self,
@@ -694,17 +724,6 @@ impl NetworkSession for protocol::PlaySession {
             InboundWorldEvent::Event,
             |event, payload| InboundWorldEvent::LevelChunk { event, payload },
         )
-    }
-
-    fn send_packet(
-        &mut self,
-        packet: Packet,
-    ) -> impl Future<Output = Result<(), Self::Error>> + Send {
-        self.send(packet)
-    }
-
-    fn finish_loading(&mut self) -> impl Future<Output = Result<(), Self::Error>> + Send {
-        protocol::PlaySession::finish_loading(self)
     }
 
     fn decode_error_count(&self) -> u64 {
@@ -853,7 +872,9 @@ mod experience;
 mod forms;
 pub(crate) mod handle_state;
 mod latency_reply;
+mod outbound;
 use bootstrap::{send_startup_failure, start_game_inventory_authority, start_game_item_registry};
+use outbound::*;
 mod pump;
 use pump::*;
 mod pump_runtime;

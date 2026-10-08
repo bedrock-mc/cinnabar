@@ -1,12 +1,15 @@
+use std::io;
 use std::pin::Pin;
+use std::sync::{Arc, OnceLock};
 use std::task::{Context, Poll};
 
 use bytes::{Bytes, BytesMut};
-use futures::{Sink, Stream};
-use tokio_util::codec::{Decoder, Encoder, Framed, LengthDelimitedCodec};
+use futures::{Sink, SinkExt, Stream};
+use tokio::sync::mpsc;
+use tokio_util::codec::{Decoder, Encoder, Framed, FramedRead, FramedWrite, LengthDelimitedCodec};
 
-use crate::endpoint::PlatformStream;
-use crate::{BridgeError, MAX_FRAME_LEN};
+use crate::BridgeError;
+use crate::endpoint::{PlatformReadHalf, PlatformStream, PlatformWriteHalf};
 
 pub(crate) struct BridgeCodec {
     inner: LengthDelimitedCodec,
@@ -17,7 +20,7 @@ pub(crate) struct BridgeCodec {
 impl BridgeCodec {
     #[cfg(test)]
     pub(crate) fn new() -> Self {
-        Self::with_max(MAX_FRAME_LEN)
+        Self::with_max(crate::MAX_FRAME_LEN)
     }
 
     pub(crate) fn with_max(maximum: usize) -> Self {
@@ -108,13 +111,92 @@ pub struct FramedStream {
 }
 
 impl FramedStream {
-    pub(crate) fn new(stream: PlatformStream) -> Self {
-        Self::with_max(stream, MAX_FRAME_LEN)
-    }
-
     pub(crate) fn with_max(stream: PlatformStream, maximum: usize) -> Self {
         Self {
             inner: Framed::new(stream, BridgeCodec::with_max(maximum)),
+        }
+    }
+}
+
+/// Splits a fresh stream so a spawned writer task owns its write half.
+///
+/// Requires a Tokio runtime. The writer exits once every [`FrameQueue`] clone is dropped.
+pub(crate) fn queued(stream: PlatformStream, maximum: usize) -> (FramedReader, FrameQueue) {
+    let (read, write) = stream.into_split();
+    let (frames, queued) = mpsc::unbounded_channel();
+    let failure = Arc::new(OnceLock::new());
+    tokio::spawn(write_queued_frames(
+        FramedWrite::new(write, BridgeCodec::with_max(maximum)),
+        queued,
+        Arc::clone(&failure),
+    ));
+    (
+        FramedReader {
+            inner: FramedRead::new(read, BridgeCodec::with_max(maximum)),
+        },
+        FrameQueue {
+            frames,
+            failure,
+            maximum,
+        },
+    )
+}
+
+/// The read half of a queued game connection.
+pub struct FramedReader {
+    inner: FramedRead<PlatformReadHalf, BridgeCodec>,
+}
+
+impl Stream for FramedReader {
+    type Item = Result<Bytes, BridgeError>;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        Pin::new(&mut self.get_mut().inner).poll_next(cx)
+    }
+}
+
+/// Queues whole frames for one connection's writer task; every clone shares one FIFO.
+#[derive(Clone)]
+pub struct FrameQueue {
+    frames: mpsc::UnboundedSender<Bytes>,
+    failure: Arc<OnceLock<String>>,
+    maximum: usize,
+}
+
+impl FrameQueue {
+    /// Accepts `frame` to be written after every frame queued before it, without waiting.
+    pub fn send(&self, frame: Bytes) -> Result<(), BridgeError> {
+        validate_frame_length(frame.len(), self.maximum)?;
+        self.frames.send(frame).map_err(|_| {
+            let reason = self
+                .failure
+                .get()
+                .map_or("bridge writer stopped", String::as_str);
+            BridgeError::Io(io::Error::new(io::ErrorKind::BrokenPipe, reason.to_owned()))
+        })
+    }
+}
+
+/// Writes queued frames in order, coalescing whatever is already queued into one flush.
+async fn write_queued_frames(
+    mut writer: FramedWrite<PlatformWriteHalf, BridgeCodec>,
+    mut frames: mpsc::UnboundedReceiver<Bytes>,
+    failure: Arc<OnceLock<String>>,
+) {
+    while let Some(frame) = frames.recv().await {
+        let mut written = writer.feed(frame).await;
+        while written.is_ok()
+            && let Ok(frame) = frames.try_recv()
+        {
+            written = writer.feed(frame).await;
+        }
+        let flushed = match written {
+            Ok(()) => writer.flush().await,
+            Err(error) => Err(error),
+        };
+        if let Err(error) = flushed {
+            let _ = failure.set(error.to_string());
+            return;
         }
     }
 }
@@ -154,6 +236,32 @@ mod tests {
 
     use super::{BridgeCodec, validate_frame_length};
     use crate::{BridgeError, MAX_FRAME_LEN};
+
+    /// Clones of the queue share one writer that keeps the order frames were accepted in,
+    /// while the read half keeps receiving.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn queued_connection_writes_in_acceptance_order_while_reading() {
+        use futures::StreamExt;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let (local, mut peer) = tokio::net::UnixStream::pair().unwrap();
+        let (mut reader, queue) =
+            super::queued(crate::endpoint::PlatformStream::Unix(local), MAX_FRAME_LEN);
+        peer.write_all(&wire_frame(&[2])).await.unwrap();
+        let session = queue.clone();
+        queue.send(Bytes::from_static(&[3])).unwrap();
+        session.send(Bytes::from_static(&[4])).unwrap();
+        queue.send(Bytes::from_static(&[5])).unwrap();
+
+        assert_eq!(&reader.next().await.unwrap().unwrap()[..], [2]);
+        let mut written = [0; 15];
+        peer.read_exact(&mut written).await.unwrap();
+        let mut expected = wire_frame(&[3]);
+        expected.extend_from_slice(&wire_frame(&[4]));
+        expected.extend_from_slice(&wire_frame(&[5]));
+        assert_eq!(&written[..], &expected[..]);
+    }
 
     fn wire_frame(payload: &[u8]) -> BytesMut {
         let mut wire = BytesMut::with_capacity(4 + payload.len());
