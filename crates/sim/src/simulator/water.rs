@@ -150,8 +150,7 @@ pub(super) fn climb_out(
         )
     };
     let probe = Aabb::new(translated(aabb.min), translated(aabb.max));
-    let (liquid, mut identity) =
-        super::environment::contains_liquid(world, probe, samples)?;
+    let (liquid, mut identity) = super::environment::contains_liquid(world, probe, samples)?;
     if !liquid {
         let occupied = super::collision::has_collision(world, probe)?;
         identity = identity.merge(&occupied.identity)?;

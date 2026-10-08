@@ -115,6 +115,7 @@ fn turn_banks_toward_the_horizontal_motion() {
     // The view's horizontal length is the table cosine of the pitch, not exactly cos 60°.
     let horizontal = sim::minecraft_cos(f64::from(60.0 * DEGREES_TO_RADIANS)) as f32;
     let lifted = turn(-60.0, [1.0, 0.0, 1.0]);
+    let horizontal = sim::view_direction(-60.0, 0.0).z as f32;
     assert!(
         close(lifted, (horizontal / 2.0_f32.sqrt()).acos().to_degrees()),
         "{lifted}"

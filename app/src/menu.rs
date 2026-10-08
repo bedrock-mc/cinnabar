@@ -41,7 +41,7 @@ mod settings_values;
 mod sign_in_popup;
 #[cfg(test)]
 mod transfer_follow_tests;
-mod video_settings;
+pub(crate) mod video_settings;
 mod worlds_tab;
 
 use auth::{AuthState, AuthSupervisor};

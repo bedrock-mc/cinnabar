@@ -3,7 +3,7 @@
 use super::*;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(in super::super) enum Appearance {
+pub enum Appearance {
     #[default]
     Default,
     Dark,
@@ -73,11 +73,13 @@ const DARK_ITEM: Role = Role {
 const DARK_BACKDROP_VISIBILITY_PERCENT: u16 = 40;
 
 impl Appearance {
-    pub(in super::super) fn from_dark(dark: bool) -> Self {
+    /// Selects the saved menu appearance without loading a resource pack.
+    pub fn from_dark(dark: bool) -> Self {
         if dark { Self::Dark } else { Self::Default }
     }
 
-    pub(in super::super) fn role(self, role: Role) -> Role {
+    /// Maps a semantic control role to the selected appearance.
+    pub fn role(self, role: Role) -> Role {
         if self == Self::Default {
             return role;
         }
@@ -92,7 +94,8 @@ impl Appearance {
         }
     }
 
-    pub(in super::super) fn backdrop(self, mut color: Rgba) -> Rgba {
+    /// Dims scenery while preserving the overlay tint.
+    pub fn backdrop(self, mut color: Rgba) -> Rgba {
         if self == Self::Dark && color[3] > 0 {
             let visible = u16::from(255 - color[3]) * DARK_BACKDROP_VISIBILITY_PERCENT / 100;
             color[3] = 255 - visible as u8;
@@ -100,7 +103,8 @@ impl Appearance {
         color
     }
 
-    pub(in super::super) fn surface(self, color: Rgba) -> Rgba {
+    /// Maps solid surfaces while retaining their original opacity.
+    pub fn surface(self, color: Rgba) -> Rgba {
         if self == Self::Default {
             return color;
         }
@@ -122,7 +126,8 @@ impl Appearance {
         [target[0], target[1], target[2], alpha]
     }
 
-    pub(in super::super) fn ink(self, color: Rgba) -> Rgba {
+    /// Keeps foreground text readable on the selected appearance.
+    pub fn ink(self, color: Rgba) -> Rgba {
         if self == Self::Default {
             return color;
         }
