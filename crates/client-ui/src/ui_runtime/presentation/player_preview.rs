@@ -115,8 +115,14 @@ impl UiPresentationRuntime {
         let catalog = self.equipment_catalog.as_deref();
         let armor = armor.map(|worn| {
             let (identifier, dye) = worn?;
-            let binding = catalog?.binding(identifier)?;
-            let texture = catalog?.texture(&binding.texture.identifier)?;
+            let catalog = self
+                .gui_models
+                .pack_equipment
+                .catalog()
+                .filter(|pack| pack.binding(identifier).is_some())
+                .or(catalog)?;
+            let binding = catalog.binding(identifier)?;
+            let texture = catalog.texture(&binding.texture.identifier)?;
             // Undyed leather takes the default dye colour.
             let tint = dye
                 .or_else(|| identifier.contains("leather").then_some(LEATHER_RGB))
@@ -435,10 +441,7 @@ pub(super) fn render_body_with_cape(
     }
     for (slot, texture) in gear.armor.iter().enumerate() {
         if let Some(texture) = texture {
-            let size = [f32::from(texture.width), f32::from(texture.height)];
-            draw(&equipment::armor_vertices(slot, size), &|uv| {
-                texture.sample(uv)
-            });
+            draw(&equipment::armor_vertices(slot), &|uv| texture.sample(uv));
         }
     }
     if let Some(item) = &gear.held {

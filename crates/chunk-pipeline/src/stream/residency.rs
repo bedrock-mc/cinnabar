@@ -286,7 +286,7 @@ impl WorldStream {
         match (self.publisher.radius_chunks, self.chunk_radius) {
             (Some(publisher), Some(chunk)) => publisher.min(chunk),
             (Some(radius), None) | (None, Some(radius)) => radius,
-            (None, None) => PHASE0_MAX_VIEW_RADIUS_CHUNKS,
+            (None, None) => render_api::UNGRANTED_VIEW_RADIUS_CHUNKS,
         }
         .clamp(0, PHASE0_MAX_VIEW_RADIUS_CHUNKS)
     }

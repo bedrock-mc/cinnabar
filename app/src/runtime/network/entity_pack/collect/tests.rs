@@ -2,6 +2,100 @@ use std::io::Write;
 
 use serde_json::json;
 
+#[test]
+fn resource_pack_texture_only_armor_inherits_its_vanilla_attachable() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::create_dir(root.path().join("attachables")).unwrap();
+    let path = "attachables/fixture.player.json";
+    let attachable = json!({"minecraft:attachable":{"description":{
+        "identifier":"fixture:armor.player", "item":{"fixture:armor":"1"},
+        "textures":{"default":"textures/models/armor/fixture"},
+        "geometry":{"default":"geometry.fixture.armor"},
+        "render_controllers":["controller.render.armor"]
+    }}});
+    std::fs::write(
+        root.path().join(path),
+        serde_json::to_vec(&attachable).unwrap(),
+    )
+    .unwrap();
+    let texture = "textures/models/armor/fixture.png";
+    let view =
+        resource_pack::LayeredPackView::tracked(super::super::super::pack_reload_tests::stack(&[
+            (texture, b"pack pixels"),
+        ]));
+    let files = super::collect_files(&view, None, Some(root.path()));
+    assert!(
+        files.iter().any(|(name, bytes)| name.as_ref() == path
+            && serde_json::from_slice::<serde_json::Value>(bytes).unwrap() == attachable),
+        "texture-only packs must retain the base attachable that uses their image"
+    );
+    assert!(
+        files
+            .iter()
+            .any(|(name, bytes)| name.as_ref() == texture && bytes == b"pack pixels")
+    );
+    let reads = view.dependencies().unwrap().snapshot();
+    assert!(reads.contains(&resource_pack::PackDependency::Directory(
+        "textures/".into()
+    )));
+    assert!(reads.iter().any(|dependency| matches!(dependency,
+        resource_pack::PackDependency::File { path, .. } if path == texture
+    )));
+    let tga_view =
+        resource_pack::LayeredPackView::new(super::super::super::pack_reload_tests::stack(&[(
+            "textures/models/armor/fixture.tga",
+            b"TGA pack pixels",
+        )]));
+    let tga_files = super::collect_files(&tga_view, None, Some(root.path()));
+    assert!(tga_files.iter().any(|(name, _)| name.as_ref() == path));
+    assert!(
+        tga_files
+            .iter()
+            .any(|(name, bytes)| name.ends_with(".tga") && bytes == b"TGA pack pixels")
+    );
+    let empty =
+        resource_pack::LayeredPackView::new(super::super::super::pack_reload_tests::stack(&[]));
+    assert!(
+        !super::collect_files(&empty, None, Some(root.path()))
+            .iter()
+            .any(|(name, _)| name.starts_with("attachables/")),
+        "removing the texture removes the pack binding"
+    );
+}
+
+#[test]
+fn authored_attachable_keeps_precedence_over_texture_only_inheritance() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::create_dir(root.path().join("attachables")).unwrap();
+    let native = json!({"minecraft:attachable":{"description":{
+        "identifier":"fixture:armor.player", "item":{"fixture:armor":"1"},
+        "textures":{"default":"textures/models/armor/fixture"}
+    }}});
+    std::fs::write(
+        root.path().join("attachables/native.player.json"),
+        native.to_string(),
+    )
+    .unwrap();
+    // The authored definition binds the same item under a different definition id and path.
+    let authored = json!({"minecraft:attachable":{"description":{
+        "identifier":"fixture:custom", "item":{"fixture:armor":"1"},
+        "textures":{"default":"textures/models/armor/custom"}
+    }}})
+    .to_string();
+    let view =
+        resource_pack::LayeredPackView::tracked(super::super::super::pack_reload_tests::stack(&[
+            ("attachables/custom.json", authored.as_bytes()),
+            ("textures/models/armor/fixture.tga", b"pack pixels"),
+        ]));
+    let files = super::collect_files(&view, None, Some(root.path()));
+    let attachables = files
+        .iter()
+        .filter(|(path, _)| path.starts_with("attachables/"))
+        .collect::<Vec<_>>();
+    assert_eq!(attachables.len(), 1);
+    assert_eq!(attachables[0].0.as_ref(), "attachables/custom.json");
+}
+
 fn archive(id: u128, material: serde_json::Value) -> protocol::ResourcePackArchive {
     let id = format!("00000000-0000-0000-0000-{id:012x}");
     let manifest = json!({"format_version":2,"header":{"uuid":id,"version":[1,0,0]},

@@ -118,10 +118,68 @@ fn crosshair_uses_the_pack_texture_without_a_ui_override() {
 }
 
 #[test]
+fn resource_pack_icons_sheet_replaces_the_crosshair() {
+    let role = assets::HudTextureRole::Crosshair;
+    for scale in [1, 2] {
+        let [native_width, native_height] = assets::HUD_ICONS_SHEET_SIZE;
+        let mut png = Vec::new();
+        image::RgbaImage::from_pixel(
+            native_width * scale,
+            native_height * scale,
+            image::Rgba([22, 33, 44, 255]),
+        )
+        .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+        .unwrap();
+        let mut engine = engine(&[(role.source_path().into(), png)]);
+        if scale > 1 {
+            // Oversized artwork upgrades the bounded atlas preview to a full-size page.
+            engine
+                .textures
+                .set_full_res(std::collections::HashMap::from([(
+                    "textures/gui/icons".into(),
+                    crate::ui_runtime::presentation::IconRef {
+                        page: 4,
+                        uv: [
+                            0,
+                            0,
+                            (native_width * scale) as u16,
+                            (native_height * scale) as u16,
+                        ],
+                        glint: false,
+                    },
+                )]));
+        }
+        let (nodes, px) = draw(&engine, true, ui::UiBlendMode::Invert);
+        let node = nodes
+            .iter()
+            .find(|node| matches!(node.visual(), UiVisual::InvertedSprite { .. }))
+            .expect("crosshair");
+        let UiVisual::InvertedSprite { texture_page, uv } = node.visual() else {
+            unreachable!()
+        };
+        assert_eq!(
+            *texture_page,
+            if scale == 1 { 3 } else { 4 },
+            "pack icons sheet replaces the carrier crop"
+        );
+        let [_, _, width, height] = role.source_crop().unwrap();
+        assert_eq!(
+            [uv[2] - uv[0], uv[3] - uv[1]],
+            [(width * scale) as u16, (height * scale) as u16]
+        );
+        assert_eq!(node.bounds().width(), width as f32 * px);
+    }
+}
+
+#[test]
 fn crosshair_missing_or_invalid_texture_keeps_the_builtin_hud_sprite() {
     for files in [
         Vec::new(),
         vec![(format!("{CROSSHAIR_TEXTURE}.png"), vec![0])],
+        vec![(
+            assets::HudTextureRole::Crosshair.source_path().into(),
+            vec![0],
+        )],
     ] {
         let engine = engine(&files);
         let (nodes, _) = draw(&engine, true, ui::UiBlendMode::Invert);

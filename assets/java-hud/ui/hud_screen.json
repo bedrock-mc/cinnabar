@@ -67,7 +67,7 @@
         }
       },
       { "java_level@hud.java_level_number": {} },
-      { "java_hotbar@hud.java_hotbar": {} },
+      { "hotbar_panel@hud.hotbar_panel": {} },
       { "java_offhand@hud.java_offhand_slot": {} },
       {
         "item_text_factory": {
@@ -164,23 +164,9 @@
     ]
   },
 
-  // 182x22 at the bottom edge: start cap, nine 20x22 cells, end cap.
-  "java_hotbar": {
-    "type": "stack_panel",
-    "orientation": "horizontal",
-    "size": [ 182, 22 ],
-    "anchor_from": "bottom_middle",
-    "anchor_to": "bottom_middle",
+  // Inherit the native panel so pack patches reach the built-in hotbar too.
+  "hotbar_panel": {
     "$hotbar_collection_name": "hotbar_items",
-    "controls": [
-      { "hotbar_start_cap@hud.hotbar_start_cap": {} },
-      {
-        "hotbar_grid@hud.hotbar_grid": {
-          "size": [ 180, 22 ]
-        }
-      },
-      { "hotbar_end_cap@hud.hotbar_end_cap": {} }
-    ],
     "bindings": [
       {
         "binding_name": "#hotbar_visible",
