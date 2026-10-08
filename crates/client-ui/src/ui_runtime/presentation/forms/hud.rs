@@ -23,7 +23,7 @@ use super::engine::{EngineInputs, EngineOutput, ScreenArt};
 use crate::ui_runtime::UiRuntime;
 
 #[cfg(test)]
-mod hunger_tests;
+mod hunger_control_tests;
 #[cfg(test)]
 mod visibility_tests;
 
@@ -96,7 +96,6 @@ struct Laid {
     px: f32,
     language: [usize; 3],
     render: FormRender,
-    hunger_visible: bool,
 }
 
 impl CachedScreen {
@@ -234,17 +233,10 @@ impl CachedScreen {
                 }
             };
             self.passes += 1;
-            let render = render_bound_cached(bound, root, env, view, &mut self.measures);
-            let hunger_visible = render.nodes.iter().any(|node| {
-                node.alpha > 0.0
-                    && node.shown(view)
-                    && matches!(&node.draw, json_ui::Draw::Custom { renderer, .. } if renderer == super::hud_renderers::HUNGER_RENDERER)
-            });
             self.laid = Some(Laid {
                 reference: reference.to_owned(),
                 catalog: Arc::clone(catalog),
-                render,
-                hunger_visible,
+                render: render_bound_cached(bound, root, env, view, &mut self.measures),
                 data,
                 view: view.clone(),
                 root,
@@ -272,43 +264,10 @@ pub(super) struct HudScreens {
     model: Option<HudModel>,
     opacity: Option<i32>,
     data: Arc<DataSource>,
-    hunger_session: Option<u64>,
-    hunger_updates: u64,
+    hunger_animation: super::hud_renderers::HungerAnimation,
 }
 
 impl HudScreens {
-    /// Prepare the next hunger update; commit it only if the bound renderer is visible.
-    #[allow(clippy::too_many_arguments)]
-    fn capture_status(
-        &mut self,
-        crosshair: bool,
-        player: &player_state::PlayerState,
-        runtime: &UiRuntime,
-        frame: &HudFrame,
-        sheet: Option<&super::super::HudTexturePages>,
-        options: &crate::menu::settings_options::SettingsOptions,
-    ) -> super::hud_renderers::HudPaint {
-        if self.hunger_session != Some(runtime.session_id()) {
-            self.hunger_session = Some(runtime.session_id());
-            self.hunger_updates = 0;
-        }
-        let updates = self.hunger_updates.wrapping_add(u64::from(!crosshair));
-        hud_layout::capture_hud_paint(player, runtime, frame, sheet, options, updates)
-    }
-
-    /// Keep hidden hunger controls and crosshair passes from advancing the pulse.
-    fn finish_status(&mut self, crosshair: bool) {
-        if !crosshair
-            && self
-                .hud
-                .laid
-                .as_ref()
-                .is_some_and(|laid| laid.hunger_visible)
-        {
-            self.hunger_updates = self.hunger_updates.wrapping_add(1);
-        }
-    }
-
     /// Preserve bindings while relaying out screens for a changed texture pack.
     pub(super) fn invalidate_textures(&mut self) {
         self.hud.invalidate_textures();
@@ -401,23 +360,29 @@ impl UiPresentationRuntime {
             .hud
             .clocks
             .extend(self.scene_clock.clone());
-        let paint = self.form_presentation.hud.capture_status(
-            crosshair,
+        let catalog = Arc::clone(renderer.catalog());
+        self.form_presentation
+            .hud
+            .hunger_animation
+            .begin(runtime.session_id(), &catalog);
+        let paint = hud_layout::capture_hud_paint(
             player_runtime,
             runtime,
             &frame,
             self.hud_textures.as_ref(),
             &self.form_presentation.chat.settings.options,
         );
-        let catalog = Arc::clone(renderer.catalog());
         let px = metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
         let translate = |key: &str| runtime.translation(key);
         let screens = &mut self.form_presentation.hud;
         let preview_view = std::cell::Cell::new(None);
+        let hunger_animation = std::cell::RefCell::new(&mut screens.hunger_animation);
+        let advance_hunger = |key: &str| hunger_animation.borrow_mut().advance(key);
         let art = ScreenArt {
             icons: &icons,
             now: now_millis as f64 / 1_000.0,
             hud: Some(&paint),
+            hunger_update: Some(&advance_hunger),
             preview: frame.player_preview,
             preview_view: Some(&preview_view),
             clocks: Some(&screens.clocks),
@@ -443,7 +408,7 @@ impl UiPresentationRuntime {
             next: &mut *next,
             overlay: &[],
         };
-        let painted = renderer.draw(art, inputs, out, |env, root| {
+        renderer.draw(art, inputs, out, |env, root| {
             screen.render(
                 reference,
                 &catalog,
@@ -453,9 +418,6 @@ impl UiPresentationRuntime {
                 env,
             )
         })?;
-        if painted.is_some() {
-            screens.finish_status(crosshair);
-        }
         if let Some(view) = preview_view.get() {
             self.player_preview_view = view;
         }
