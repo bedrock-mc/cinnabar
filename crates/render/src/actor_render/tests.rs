@@ -343,6 +343,33 @@ fn actor_shader_parses_as_wgsl() {
     .expect("shared fog and native multitexture varyings validate together");
 }
 
+#[test]
+fn actor_material_sampling_needs_no_uniform_fragment_control_flow() {
+    let module = naga::front::wgsl::parse_str(&standalone_actor_shader_source())
+        .expect("actor shader parses");
+    let levels: Vec<_> = module
+        .functions
+        .iter()
+        .map(|(_, function)| function)
+        .chain(module.entry_points.iter().map(|entry| &entry.function))
+        .flat_map(|function| function.expressions.iter())
+        .filter_map(|(_, expression)| match expression {
+            naga::Expression::ImageSample { level, .. } => Some(level),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        !levels.is_empty(),
+        "actor material textures must be sampled"
+    );
+    assert!(
+        levels
+            .iter()
+            .all(|level| matches!(level, naga::SampleLevel::Zero | naga::SampleLevel::Exact(_))),
+        "single-mip actor textures must not require derivatives in material branches"
+    );
+}
+
 // A binding the fragment stage reads must be visible to it, or pipeline creation fails validation.
 #[test]
 fn fragment_view_reads_are_visible_to_the_fragment_stage() {

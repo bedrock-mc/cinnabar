@@ -245,8 +245,8 @@ fn actor_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @l
     if (multitexture_material) {
         // Native llama:entity_multitexture has three samplers, no ALPHA_TEST and no blend.
         // Coverage never comes from the base alpha; overlay alpha weights RGB instead.
-        let tex1 = tint_to_gamma(textureSample(skins, skin_sampler, uv, i32(input.multitexture_layers.x)));
-        let tex2 = tint_to_gamma(textureSample(skins, skin_sampler, uv, i32(input.multitexture_layers.y)));
+        let tex1 = tint_to_gamma(textureSampleLevel(skins, skin_sampler, uv, i32(input.multitexture_layers.x), 0.0));
+        let tex2 = tint_to_gamma(textureSampleLevel(skins, skin_sampler, uv, i32(input.multitexture_layers.y), 0.0));
         color = vec4(mix(mix(color.rgb, tex1.rgb, tex1.a), tex2.rgb, tex2.a), color.a);
     }
     // Actor/Entity overlays blend BEFORE the shaded lightmap product. Vertex
