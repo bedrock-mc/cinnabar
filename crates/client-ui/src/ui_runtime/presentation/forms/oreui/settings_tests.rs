@@ -792,6 +792,52 @@ fn settings_choice_rows_select_their_own_values() {
 }
 
 #[test]
+fn native_video_settings_exposes_motion_blur_and_edits_all_presets() {
+    use crate::menu::settings_options::MOTION_BLUR_OPTION;
+
+    for size in [[640.0, 720.0], [1280.0, 720.0]] {
+        let mut view = settings_view("video_forced_index");
+        let index = option_index(MOTION_BLUR_OPTION.name);
+        assert_eq!(
+            view.settings_options.user_settings().video.motion_blur,
+            ui::MotionBlurQuality::Off
+        );
+        let offsets = centered_option(&view, index, size);
+        for preset in ui::MotionBlurQuality::ALL {
+            view.settings_dropdown = None;
+            let mut frame = paint(&view, size, offsets.clone());
+            let dropdown = MenuAction::SettingsDropdown(index as u16);
+            if let Some(bounds) = frame
+                .hits
+                .iter()
+                .find_map(|(action, bounds)| (*action == dropdown).then_some(*bounds))
+            {
+                assert_eq!(hit(&frame.hits, centre(bounds)), Some(dropdown));
+                view.settings_dropdown = Some(index as u16);
+                frame = paint(&view, size, offsets.clone());
+            }
+            let expected = MenuAction::SettingsOption(index as u16, preset.index());
+            let bounds = frame
+                .hits
+                .iter()
+                .find_map(|(action, bounds)| (*action == expected).then_some(*bounds))
+                .expect("every Motion Blur preset must be selectable in the active Video page");
+            let Some(MenuAction::SettingsOption(selected, value)) =
+                hit(&frame.hits, centre(bounds))
+            else {
+                panic!("Motion Blur choice must edit a persisted option");
+            };
+            assert_eq!(selected, index as u16);
+            Arc::make_mut(&mut view.settings_options).set(usize::from(selected), value);
+            assert_eq!(
+                view.settings_options.user_settings().video.motion_blur,
+                preset
+            );
+        }
+    }
+}
+
+#[test]
 fn settings_sliders_reach_both_limits_and_choose_the_nearest_stop() {
     let size = [1280.0, 720.0];
     for (section, name) in [

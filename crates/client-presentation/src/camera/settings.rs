@@ -17,6 +17,7 @@ pub struct CameraSettingsAuthority {
     generation: u64,
     horizontal_fov_degrees: f32,
     anti_aliasing_samples: u32,
+    motion_blur: ui::MotionBlurQuality,
     perspective: PerspectiveMode,
     configured_perspective: PerspectiveMode,
     pub(super) freelook: bool,
@@ -80,6 +81,7 @@ impl Default for CameraSettingsAuthority {
             generation: 0,
             horizontal_fov_degrees: settings.video.horizontal_fov_degrees,
             anti_aliasing_samples: settings.video.anti_aliasing_samples,
+            motion_blur: settings.video.motion_blur,
             perspective: settings.gameplay.default_perspective,
             configured_perspective: settings.gameplay.default_perspective,
             freelook: false,
@@ -114,6 +116,7 @@ impl CameraSettingsAuthority {
         self.generation = generation;
         self.horizontal_fov_degrees = fov;
         self.anti_aliasing_samples = settings.video.anti_aliasing_samples;
+        self.motion_blur = settings.video.motion_blur;
         if self.configured_perspective != settings.gameplay.default_perspective {
             self.configured_perspective = settings.gameplay.default_perspective;
             self.perspective = self.configured_perspective;
@@ -133,6 +136,11 @@ impl CameraSettingsAuthority {
     /// Returns the requested sample count; the renderer clamps it to device support.
     pub const fn anti_aliasing_samples(&self) -> u32 {
         self.anti_aliasing_samples
+    }
+
+    /// Returns the optional camera-only motion blur quality.
+    pub const fn motion_blur(&self) -> ui::MotionBlurQuality {
+        self.motion_blur
     }
 
     /// The Bedrock FOV setting is vertical for a full-window viewport. The

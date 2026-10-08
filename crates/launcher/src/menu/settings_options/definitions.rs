@@ -40,6 +40,32 @@ pub const ANIMATION_CHOICES: &[SettingChoice] = &[
 pub const ANIMATIONS_OPTION: SettingDefinition =
     dropdown("animations", "Animations", ANIMATION_CHOICES, 0);
 
+pub const MOTION_BLUR_CHOICES: &[SettingChoice] = &[
+    SettingChoice {
+        name: "motion_blur_radio_off",
+        label: ui::MotionBlurQuality::Off.label(),
+    },
+    SettingChoice {
+        name: "motion_blur_radio_low",
+        label: ui::MotionBlurQuality::Low.label(),
+    },
+    SettingChoice {
+        name: "motion_blur_radio_medium",
+        label: ui::MotionBlurQuality::Medium.label(),
+    },
+    SettingChoice {
+        name: "motion_blur_radio_high",
+        label: ui::MotionBlurQuality::High.label(),
+    },
+];
+
+pub const MOTION_BLUR_OPTION: SettingDefinition = dropdown(
+    "motion_blur",
+    "Motion Blur",
+    MOTION_BLUR_CHOICES,
+    ui::MotionBlurQuality::Off.index(),
+);
+
 /// Publishes the client's state to Discord Rich Presence.
 pub const DISCORD_PRESENCE_OPTION: SettingDefinition =
     toggle("discord_presence", "Discord Rich Presence", true);
@@ -259,6 +285,7 @@ pub const SETTINGS_OPTIONS: &[SettingDefinition] = &[
         ui::ANTI_ALIASING_SAMPLE_COUNTS[ui::ANTI_ALIASING_SAMPLE_COUNTS.len() - 1] as i32,
         ui::DEFAULT_ANTI_ALIASING_SAMPLES as i32,
     ),
+    MOTION_BLUR_OPTION,
     // Vanilla keeps this out of retail menus (persisted `gfx_vsync`, on); see plan.md.
     toggle("vsync", "options.vsync", true),
     slider(

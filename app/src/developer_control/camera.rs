@@ -58,6 +58,9 @@ pub(super) fn start(world: &mut World, path: CameraPath) -> Result<Value, String
     if previously_hid != hid_hand {
         set_hand_hidden(world, hid_hand);
     }
+    if let Some(mut view) = world.get_resource_mut::<crate::local_player::LocalViewPose>() {
+        view.reanchor_camera();
+    }
     world.insert_resource(ScriptedCamera {
         path,
         started: None,
@@ -71,6 +74,9 @@ pub(super) fn release(world: &mut World) -> Result<Value, String> {
     let Some(scripted) = world.remove_resource::<ScriptedCamera>() else {
         return Ok(json!({ "released": false }));
     };
+    if let Some(mut view) = world.get_resource_mut::<crate::local_player::LocalViewPose>() {
+        view.reanchor_camera();
+    }
     if scripted.hid_hand {
         set_hand_hidden(world, false);
     }

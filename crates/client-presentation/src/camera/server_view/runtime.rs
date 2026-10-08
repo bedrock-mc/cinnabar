@@ -197,6 +197,7 @@ pub struct ServerCameraView {
     skips: ServerCameraSkips,
     last_sequence: u64,
     seen_resets: u64,
+    camera_reanchor_epoch: u64,
 }
 
 impl ServerCameraView {
@@ -208,6 +209,11 @@ impl ServerCameraView {
     #[must_use]
     pub const fn last_sequence(&self) -> u64 {
         self.last_sequence
+    }
+
+    /// Identifies discontinuous server camera pose or projection changes.
+    pub const fn camera_reanchor_epoch(&self) -> u64 {
+        self.camera_reanchor_epoch
     }
 
     /// Restarts sequence tracking and drops state when the retained queue was reset upstream.
@@ -226,6 +232,7 @@ impl ServerCameraView {
             overrides: vec![PresetOverrides::default(); self.presets.len()],
             skips: self.skips,
             seen_resets: self.seen_resets,
+            camera_reanchor_epoch: self.camera_reanchor_epoch.wrapping_add(1),
             ..Self::default()
         };
         self.prepare_presets();
@@ -361,7 +368,11 @@ impl ServerCameraView {
             return;
         }
         if let Some(spline) = &mut self.spline {
+            let finished = spline.is_finished();
             spline.advance(delta_seconds);
+            if !finished && spline.is_finished() {
+                self.camera_reanchor_epoch = self.camera_reanchor_epoch.wrapping_add(1);
+            }
         }
         if let Some(pose) = &mut self.pose {
             pose.elapsed = (pose.elapsed + delta_seconds).min(pose.duration.max(0.0));
@@ -380,6 +391,10 @@ impl ServerCameraView {
     pub fn apply(&mut self, sequence: u64, event: &CameraEvent, context: &ViewContext<'_>) {
         sim::minecraft_sin(0.0);
         self.last_sequence = self.last_sequence.max(sequence);
+        let previous_pose = self.current_pose(context);
+        let previous_fov = self
+            .fov_override_degrees(context.base_fov)
+            .unwrap_or(context.base_fov);
         match event {
             CameraEvent::Presets(presets) => {
                 self.presets = Arc::clone(presets);
@@ -392,6 +407,14 @@ impl ServerCameraView {
             CameraEvent::Switch(_) => self.skips.legacy_switch += 1,
             CameraEvent::Shake(shake) => self.apply_shake(shake),
             CameraEvent::Instruction(instruction) => self.apply_instruction(instruction, context),
+        }
+        if previous_pose != self.current_pose(context)
+            || previous_fov
+                != self
+                    .fov_override_degrees(context.base_fov)
+                    .unwrap_or(context.base_fov)
+        {
+            self.camera_reanchor_epoch = self.camera_reanchor_epoch.wrapping_add(1);
         }
     }
 
@@ -883,5 +906,9 @@ mod tests;
 #[cfg(test)]
 #[path = "options_tests.rs"]
 mod options_tests;
+
+#[cfg(test)]
+#[path = "reanchor_tests.rs"]
+mod reanchor_tests;
 
 mod targeting;

@@ -121,7 +121,11 @@ impl ServerCameraView {
                     .unwrap()
                     .translation
             };
+            let snapping = focus.awaits_snap();
             if focus.advance(seconds, position, (context.actors)(focus.actor)) {
+                if self.active_preset_index == Some(index) && snapping && !focus.awaits_snap() {
+                    self.camera_reanchor_epoch = self.camera_reanchor_epoch.wrapping_add(1);
+                }
                 self.overrides[index].focus = Some(focus);
             } else {
                 self.release_focus(index, focus.last_rotation());

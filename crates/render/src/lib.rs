@@ -48,6 +48,7 @@ pub use media_screen::{
 mod material_shader;
 mod mod_render;
 pub use mod_render::{MAX_BLOCK_HIGHLIGHTS, ModPassLabel, ModRenderPlugin, ModRenderScene};
+pub mod motion_blur;
 mod nametag_render;
 pub use nametag_render::NametagSceneResource;
 mod native_sunlight;

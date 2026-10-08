@@ -99,6 +99,10 @@ impl TargetFocus {
         true
     }
 
+    pub fn awaits_snap(&self) -> bool {
+        self.settings.snap_to_target && !self.acquired
+    }
+
     /// Preserves the last rendered target orientation after the actor is removed.
     pub fn last_rotation(&self) -> Quat {
         self.current
