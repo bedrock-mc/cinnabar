@@ -126,14 +126,20 @@
 - Unchanged hand and cloud uniforms, inactive portals and empty item scenes skip
   redundant staging work. Regression tests assert allocations, writes and retained
   buffers; hardware captures measure elapsed time separately.
-- Incomplete: the large synthetic local terrain fixture is a diagnostic workload,
-  not vanilla terrain generation or the populated-lobby/flight release replay.
-  Hidden-window measurements do not establish displayed FPS. Shared-pass GPU
-  categories, exact per-item costs and complete long-stall attribution remain open.
-  Earlier captures reach 87 ms; later Tracy captures reproduce 100–187 ms stalls
-  with waiting observed at main/render handoff. Exact CPU/wait time and a short
-  native GPU regression remain unresolved. See [frame breakdown evidence](docs/evidence/frame-breakdown.md)
-  and [Tracy attribution](docs/evidence/frame-breakdown-tracy.md).
+- Recurring hand, UI viewport and particle writes share bounded retained GPU
+  staging. Allocation regressions cover real Metal owners; lifecycle and byte-order
+  tests cover asynchronous reuse and fallback. Attach-only native samples confirm
+  staging-allocation mutex contention, drawable waits and scheduler delays.
+- Incomplete: the synthetic fixed-camera fixture is not the populated-lobby/flight
+  release replay; hidden frames do not establish displayed FPS. Three paired runs
+  at each resolution reduce measured maxima but do not consistently improve p99.
+  A separate pooled-upload run still exceeds 100 ms with no staging fallback.
+  Drawable/present dependencies, remaining lock owners, retirement costs and
+  complete long-stall attribution remain open. Shared-pass GPU categories, exact
+  per-item costs and native GPU regression validation also remain unqualified.
+  See [pooled-upload evidence](docs/evidence/render-stall-pooling.md),
+  [frame breakdown evidence](docs/evidence/frame-breakdown.md) and
+  [Tracy attribution](docs/evidence/frame-breakdown-tracy.md).
 
 ## Camera packets and aim assist
 

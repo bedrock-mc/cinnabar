@@ -183,12 +183,53 @@ impl SceneTarget {
 /// Registers the retained main attachment before any consumer prepares its view resources.
 pub(crate) fn install(app: &mut App) {
     app.add_systems(Last, admit_copy_destination);
-    app.sub_app_mut(RenderApp).add_systems(
-        Render,
+    app.sub_app_mut(RenderApp)
+        .init_resource::<WithheldSamples>()
+        .add_systems(Render, render_systems());
+}
+
+/// Allocates the shared attachment in place of Bevy's multisampled colour target.
+fn render_systems() -> bevy::ecs::schedule::ScheduleConfigs<bevy::ecs::system::ScheduleSystem> {
+    use bevy::render::view::prepare_view_targets;
+    (
+        withhold_view_samples
+            .in_set(RenderSystems::ManageViews)
+            .before(prepare_view_targets),
+        restore_view_samples
+            .in_set(RenderSystems::ManageViews)
+            .after(prepare_view_targets),
         prepare_scene_targets
             .in_set(RenderSystems::PrepareResources)
-            .after(bevy::render::view::prepare_view_targets),
-    );
+            .after(prepare_view_targets),
+    )
+        .into_configs()
+}
+
+/// 3D sample counts hidden from Bevy's view-target allocation for the current frame.
+#[derive(Resource, Default)]
+struct WithheldSamples(Vec<(Entity, Msaa)>);
+
+/// Bevy's view target then keeps only single-sample textures; `SceneTarget` owns the samples.
+fn withhold_view_samples(
+    mut withheld: ResMut<WithheldSamples>,
+    mut views: Query<(Entity, &mut Msaa), With<Camera3d>>,
+) {
+    withheld.0.clear();
+    for (entity, mut msaa) in &mut views {
+        if *msaa != Msaa::Off {
+            withheld.0.push((entity, *msaa));
+            *msaa = Msaa::Off;
+        }
+    }
+}
+
+/// Restores sample counts before depth, pipelines and the shared attachment read them.
+fn restore_view_samples(mut withheld: ResMut<WithheldSamples>, mut views: Query<&mut Msaa>) {
+    for (entity, samples) in withheld.0.drain(..) {
+        if let Ok(mut msaa) = views.get_mut(entity) {
+            *msaa = samples;
+        }
+    }
 }
 
 /// The AA-off path transfers encoded bytes into Bevy's post-processing image.

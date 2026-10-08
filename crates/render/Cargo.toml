@@ -33,6 +33,7 @@ wgpu.workspace = true
 sha2 = { workspace = true, features = ["asm"] }
 
 [dev-dependencies]
+wgpu = { workspace = true, features = ["counters"] }
 pack-compiler = { path = "../pack-compiler" }
 image.workspace = true
 naga = { version = "27.0.3", features = ["wgsl-in", "wgsl-out"] }

@@ -217,6 +217,7 @@ impl HandRigScene {
 
 fn install(app: &mut App) {
     app.init_resource::<HandRigScene>();
+    crate::upload_staging::install(app);
     crate::pipeline_warmup::register::<HandRigGpu>(app);
     crate::lighting::install(app);
     let Some(render_app) = app.get_sub_app(RenderApp) else {

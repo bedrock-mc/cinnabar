@@ -403,3 +403,104 @@ fn main_attachment_nodes_preserve_graph_dependencies() {
     assert!(finish.node::<ViewNodeRunner<nodes::SceneFinish>>().is_ok());
     assert_eq!(finish.edges.input_edges().len(), 1);
 }
+
+/// An MSAA view keeps exactly one multisampled colour texture: the shared scene attachment.
+#[test]
+fn msaa_view_allocates_one_multisampled_colour_target() {
+    use bevy::{
+        camera::{
+            CameraOutputMode, ClearColorConfig, MsaaWriteback, NormalizedRenderTarget, RenderTarget,
+        },
+        render::{
+            camera::ExtractedCamera,
+            render_graph::RenderSubGraph,
+            texture::{OutputColorAttachment, TextureCache},
+            view::{
+                ExtractedView, RetainedViewEntity, ViewTargetAttachments, prepare_view_targets,
+            },
+        },
+    };
+    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+        backends: wgpu::Backends::NOOP,
+        backend_options: wgpu::BackendOptions {
+            noop: wgpu::NoopBackendOptions { enable: true },
+            ..Default::default()
+        },
+        ..Default::default()
+    });
+    let adapter = bevy::tasks::block_on(instance.request_adapter(&Default::default())).unwrap();
+    let (device, _) = bevy::tasks::block_on(adapter.request_device(&Default::default())).unwrap();
+    let device = RenderDevice::from(device);
+    let mut world = World::new();
+    let world = &mut world;
+    world.insert_resource(device.clone());
+    let output = device.create_texture(&TextureDescriptor {
+        label: Some("scene sample ownership output"),
+        size: size(),
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: TextureDimension::D2,
+        format: TextureFormat::Bgra8UnormSrgb,
+        usage: TextureUsages::RENDER_ATTACHMENT,
+        view_formats: &[],
+    });
+    let target: NormalizedRenderTarget =
+        RenderTarget::Window(bevy::window::WindowRef::Entity(Entity::PLACEHOLDER))
+            .normalize(None)
+            .unwrap();
+    let mut attachments = ViewTargetAttachments::default();
+    attachments.insert(
+        target.clone(),
+        OutputColorAttachment::new(output.create_view(&Default::default()), output.format()),
+    );
+    world.insert_resource(attachments);
+    world.insert_resource(TextureCache::default());
+    world.insert_resource(ClearColor::default());
+    world.init_resource::<WithheldSamples>();
+    let view = world
+        .spawn((
+            Camera3d::default(),
+            ExtractedCamera {
+                target: Some(target),
+                physical_viewport_size: Some(UVec2::new(size().width, size().height)),
+                physical_target_size: Some(UVec2::new(size().width, size().height)),
+                viewport: None,
+                render_graph: Core3d.intern(),
+                order: 0,
+                output_mode: CameraOutputMode::default(),
+                msaa_writeback: MsaaWriteback::default(),
+                clear_color: ClearColorConfig::default(),
+                sorted_camera_index_for_target: 0,
+                exposure: 1.0,
+                hdr: false,
+            },
+            ExtractedView {
+                retained_view_entity: RetainedViewEntity::new(Entity::PLACEHOLDER.into(), None, 1),
+                clip_from_view: Mat4::IDENTITY,
+                world_from_view: GlobalTransform::default(),
+                clip_from_world: None,
+                hdr: false,
+                viewport: UVec4::new(0, 0, size().width, size().height),
+                color_grading: Default::default(),
+                invert_culling: false,
+            },
+            CameraMainTextureUsages::default(),
+            Msaa::Sample4,
+        ))
+        .id();
+    let mut schedule = Render::base_schedule();
+    schedule.add_systems((
+        prepare_view_targets.in_set(RenderSystems::ManageViews),
+        render_systems(),
+    ));
+    schedule.run(world);
+    let view = world.entity(view);
+    assert_eq!(view.get::<Msaa>(), Some(&Msaa::Sample4));
+    assert!(
+        view.get::<ViewTarget>()
+            .unwrap()
+            .sampled_main_texture()
+            .is_none()
+    );
+    assert_eq!(view.get::<SceneTarget>().unwrap().texture.sample_count(), 4);
+}
