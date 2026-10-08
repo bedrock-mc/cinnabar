@@ -50,6 +50,7 @@ mod screen_actions;
 mod screens_tests;
 #[cfg(test)]
 mod server_menu_tests;
+mod settling;
 mod windows;
 
 use cells::{Cell, CellSurface, Cells};
@@ -62,6 +63,7 @@ pub use queue::MAX_PENDING_REQUESTS;
 use queue::PendingRequest;
 pub use response::StackResponseOverlay;
 pub use screen_actions::ScreenCraft;
+use settling::SettlingWindow;
 
 use helpers::valid_raw_window_id;
 
@@ -210,8 +212,8 @@ pub struct PlayerInventoryLedger {
     personal_lifecycle_failed: bool,
     /// An open press made while a close is unsent or unacknowledged; opens once it settles.
     held_open: Option<u64>,
-    /// An acknowledged personal close whose requests still await answers; they stay current.
-    settling_personal: Option<u64>,
+    /// Acknowledged closes whose requests still await answers; they stay current.
+    settling: VecDeque<SettlingWindow>,
     storage: Option<StorageWindow>,
     pending_closes: VecDeque<PendingClose>,
     player_resync_required: bool,
@@ -246,7 +248,7 @@ impl Default for PlayerInventoryLedger {
             personal: None,
             personal_lifecycle_failed: false,
             held_open: None,
-            settling_personal: None,
+            settling: VecDeque::new(),
             storage: None,
             pending_closes: VecDeque::new(),
             player_resync_required: false,
@@ -627,7 +629,7 @@ impl PlayerInventoryLedger {
     pub fn poll_timeout(&mut self, now_millis: u64) -> bool {
         let personal_expired = self.poll_personal_timeout(now_millis);
         self.expire_overdue_requests(now_millis);
-        self.finish_settled_personal_close();
+        self.finish_settled_closes();
         personal_expired
     }
 
@@ -666,7 +668,7 @@ impl PlayerInventoryLedger {
         self.pending_closes.clear();
         self.personal = None;
         self.held_open = None;
-        self.settling_personal = None;
+        self.settling.clear();
         self.abandon_requests(|_| true);
         self.finish_closing();
     }
@@ -752,9 +754,35 @@ impl PlayerInventoryLedger {
     }
 
     fn discard_storage(&mut self) {
+        self.discard_storage_window();
+        self.clear_storage_inputs();
+    }
+
+    /// Our acknowledged close keeps the window's unanswered requests correlated.
+    fn acknowledge_storage_close(&mut self, server_initiated: bool) {
+        let Some(storage) = self.storage.as_ref() else {
+            return;
+        };
+        let window = SettlingWindow::Storage {
+            generation: storage.generation,
+            identity: storage.identity,
+        };
+        if !server_initiated && storage.closing && self.has_unanswered(window) {
+            self.discard_storage_window();
+            self.retain_settling(window);
+            self.refold();
+        } else {
+            self.close_storage();
+        }
+    }
+
+    fn discard_storage_window(&mut self) {
         self.storage = None;
         self.enchant_options = None;
         self.confirmed.clear_storage();
+    }
+
+    fn clear_storage_inputs(&mut self) {
         self.clear_crafting();
         if self.confirmed.get(Cell::Cursor).is_some() {
             self.player_resync_required = true;
@@ -771,16 +799,10 @@ impl PlayerInventoryLedger {
             ) => generation,
             _ => return,
         };
-        // Our close leaves before its returns are answered, so an acknowledgement can
-        // overtake them; they still settle against this generation afterwards.
-        if retain_confirmed_cursor
-            && self.queue.iter().any(|pending| {
-                pending.personal_generation == Some(generation)
-                    && pending.state == InventoryPendingState::AwaitingResponse
-            })
-        {
+        let window = SettlingWindow::Personal(generation);
+        if retain_confirmed_cursor && self.has_unanswered(window) {
             self.personal = None;
-            self.settling_personal = Some(generation);
+            self.retain_settling(window);
             self.refold();
             return;
         }
@@ -791,26 +813,6 @@ impl PlayerInventoryLedger {
         self.abandon_requests(|pending| pending.personal_generation == Some(generation));
         self.personal = None;
         self.clear_window_inputs(retain_confirmed_cursor);
-    }
-
-    /// Releases an acknowledged close once its last request settles; a reopened
-    /// window owns the inputs by then.
-    pub(super) fn finish_settled_personal_close(&mut self) {
-        let Some(generation) = self.settling_personal else {
-            return;
-        };
-        if self
-            .queue
-            .iter()
-            .any(|pending| pending.personal_generation == Some(generation))
-        {
-            return;
-        }
-        self.settling_personal = None;
-        if self.personal.is_none() {
-            let retain_confirmed_cursor = !self.cursor_resync_required;
-            self.clear_window_inputs(retain_confirmed_cursor);
-        }
     }
 
     fn clear_window_inputs(&mut self, retain_confirmed_cursor: bool) {

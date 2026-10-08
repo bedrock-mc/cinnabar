@@ -693,6 +693,42 @@ fn closing_a_crafting_screen_returns_inputs_before_close_admission() {
     );
 }
 
+/// A workbench close acknowledgement that overtakes its return still lets the return apply.
+#[test]
+fn workbench_close_ack_before_the_return_response_applies_the_return() {
+    let mut workbench = ledger(WORKBENCH_WINDOW_TYPE);
+    workbench.apply(&craft_slot(36, stack(COBBLE, 201, 1)));
+    workbench.request_storage_close();
+    let request = workbench.newest_request().unwrap().request_id;
+    assert!(workbench.mark_transport_enqueued(10));
+    assert!(workbench.mark_transport_enqueued(11));
+    workbench.apply(&InventoryEvent::Close(protocol::ContainerCloseEvent {
+        container: ContainerIdentity::window(3),
+        window_type: WORKBENCH_WINDOW_TYPE,
+        server_initiated: false,
+    }));
+    assert!(workbench.storage_generation().is_none());
+    respond(
+        &mut workbench,
+        request,
+        &[
+            (CONTAINER_NAME_CRAFT_INPUT, 36, 0, -1),
+            (
+                protocol::CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY,
+                0,
+                1,
+                201,
+            ),
+        ],
+    );
+    assert_eq!(
+        workbench.displayed_stack(0).map(|stack| stack.count),
+        Some(1)
+    );
+    assert!(workbench.target_stack(InventoryTarget::Craft(36)).is_none());
+    assert!(!workbench.resync_required());
+}
+
 #[test]
 fn ordinary_block_identity_does_not_make_a_crafting_ingredient_unplain() {
     let catalog = catalog();

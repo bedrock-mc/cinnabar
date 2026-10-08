@@ -40,7 +40,7 @@ impl PlayerInventoryLedger {
         }
         self.admit(event);
         self.refold();
-        self.finish_settled_personal_close();
+        self.finish_settled_closes();
         self.resume_held_open();
     }
 
@@ -56,7 +56,7 @@ impl PlayerInventoryLedger {
                 {
                     self.queue.clear();
                     self.personal = None;
-                    self.settling_personal = None;
+                    self.settling.clear();
                     self.confirmed.set(Cell::Cursor, None);
                     self.player_resync_required = false;
                     self.cursor_resync_required = false;
@@ -120,7 +120,7 @@ impl PlayerInventoryLedger {
                     close.container.window_id == Some(storage.window_id)
                         && close.window_type == storage.window_type
                 }) {
-                    self.close_storage();
+                    self.acknowledge_storage_close(close.server_initiated);
                 }
             }
             InventoryEvent::Content(content) => self.apply_content(content),
@@ -432,7 +432,13 @@ impl PlayerInventoryLedger {
             }
             return;
         }
-        self.abandon_requests(|pending| pending.storage_generation.is_some());
+        // A closed window still settling keeps its requests; only the replaced one's go.
+        let settling = self.settling_storage_generations();
+        self.abandon_requests(|pending| {
+            pending
+                .storage_generation
+                .is_some_and(|generation| !settling.contains(&generation))
+        });
         let Some(window_id) = open.container.window_id else {
             return;
         };

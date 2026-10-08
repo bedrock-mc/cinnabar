@@ -12,6 +12,9 @@ use crate::InventorySession;
 
 use super::*;
 
+#[path = "settling_tests.rs"]
+mod settling_tests;
+
 fn stack(stack_network_id: i32, count: u16) -> NetworkItemStack {
     NetworkItemStack {
         network_id: 6,
