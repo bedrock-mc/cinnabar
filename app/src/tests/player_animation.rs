@@ -1039,11 +1039,18 @@ fn animated_skin_uses_its_own_rectangular_texture_geometry_and_uv_frame() {
 
 /// Replays the pinned carrier's real blink controller into the animated face UV frame.
 #[test]
-#[ignore = "requires the installed pinned runtime carriers"]
 fn persona_face_blinks_with_the_pinned_runtime_controller() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..");
+    let path = root.join(crate::asset_startup::DEFAULT_ASSET_PATH);
+    if !path.is_file() {
+        eprintln!(
+            "skipping persona_face_blinks_with_the_pinned_runtime_controller: missing pinned runtime fixture {}",
+            path.display()
+        );
+        return;
+    }
     let loaded = crate::asset_startup::load_runtime_assets(crate::asset_startup::AssetSelection {
-        path: root.join(crate::asset_startup::DEFAULT_ASSET_PATH),
+        path,
         source: crate::asset_startup::AssetPathSource::CommandLine,
     })
     .unwrap();
