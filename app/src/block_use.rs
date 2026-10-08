@@ -57,6 +57,8 @@ impl std::ops::DerefMut for BlockUseRuntime {
 /// One frame's eye ray; vanilla builds from the picks of the frames before each tick.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct FramePick {
+    /// Movement authority when the pick was taken; a correction or reanchor retires it.
+    authority: (u64, u64),
     session_generation: u64,
     actor_session_id: u64,
     origin: bevy::prelude::Vec3,
@@ -64,15 +66,22 @@ pub(crate) struct FramePick {
 }
 
 impl BlockUseRuntime {
-    /// Returns the previous frame's pick and keeps this frame's for the next tick.
-    pub(crate) fn retain_pick(&mut self, origin: &InteractionOriginSnapshot) -> Option<FramePick> {
+    /// Returns the previous frame's pick, if taken under `authority`, and keeps this
+    /// frame's for the next tick.
+    pub(crate) fn retain_pick(
+        &mut self,
+        origin: &InteractionOriginSnapshot,
+        authority: (u64, u64),
+    ) -> Option<FramePick> {
         let current = origin.outbound_ray().map(|ray| FramePick {
+            authority,
             session_generation: ray.session_generation(),
             actor_session_id: ray.actor_session_id(),
             origin: ray.origin(),
             direction: ray.direction(),
         });
         std::mem::replace(&mut self.previous_pick, current)
+            .filter(|previous| previous.authority == authority)
     }
 }
 #[derive(SystemParam)]
@@ -99,7 +108,7 @@ pub(crate) fn produce_block_use(
     mut item_use: ResMut<crate::item_use::ItemUseRuntime>,
     movement: Res<MovementTicker>,
 ) {
-    let pick = runtime.retain_pick(&context.origin);
+    let pick = runtime.retain_pick(&context.origin, movement.interaction_authority_identity());
     swings.sync_ticks(
         movement.interaction_authority_identity(),
         movement.completed_tick(),
@@ -169,6 +178,10 @@ pub(crate) fn produce_block_use(
     };
     if context.melee.blocks_use_at(clock.now_millis) {
         runtime.clear_press();
+        return;
+    }
+    // A press or repeat waits for a pick taken under the current movement authority.
+    if pick.is_none() {
         return;
     }
     let input_mode = protocol_input_mode(input.input_mode);

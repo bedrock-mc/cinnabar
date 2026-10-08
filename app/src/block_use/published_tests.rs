@@ -102,7 +102,7 @@ fn fixture() -> (World, client_session::CapturedPackets) {
     origin.publish_from_local_player_frame(&carrier);
     // The frame before this one picked along the same ray.
     let mut block_use = BlockUseRuntime::default();
-    block_use.retain_pick(&origin);
+    block_use.retain_pick(&origin, movement.interaction_authority_identity());
     let mut player = crate::player_runtime::PlayerRuntime::new(7);
     player
         .facts
@@ -372,7 +372,54 @@ fn a_moving_press_measures_reach_from_the_pre_tick_eye() {
             .unwrap();
     }
     let ahead = frame_origin(&world, Vec3::new(4.5, 2.5, 12.3), Quat::IDENTITY);
-    world.resource_mut::<BlockUseRuntime>().retain_pick(&ahead);
+    let authority = world
+        .resource::<MovementTicker>()
+        .interaction_authority_identity();
+    world
+        .resource_mut::<BlockUseRuntime>()
+        .retain_pick(&ahead, authority);
     world.run_system_cached(produce_block_use).unwrap();
     assert_eq!(transaction_targets(&mut captured), [[4, 2, 6]]);
+}
+
+/// A correction between frames retires the pre-correction pick; the press waits for a
+/// pick taken under the new authority instead of using the old eye ray.
+#[test]
+fn a_press_after_a_correction_does_not_reuse_the_earlier_pick() {
+    let (mut world, mut captured) = fixture();
+    let position = world
+        .resource::<MovementTicker>()
+        .newest_unsent_sample()
+        .unwrap()
+        .position;
+    let mut movement = world.resource_mut::<MovementTicker>();
+    movement.reanchor_surface_spawn(101, position);
+    let mut sample = gameplay::test_support::survival_mining::completed(102);
+    sample.position = position;
+    movement.enqueue_completed_physics(sample).unwrap();
+    let looking_up = frame_origin(
+        &world,
+        Vec3::new(4.5, 2.5, 8.5),
+        Quat::from_rotation_x(std::f32::consts::FRAC_PI_2),
+    );
+    world.insert_resource(looking_up);
+    world.run_system_cached(produce_block_use).unwrap();
+    assert!(transaction_targets(&mut captured).is_empty());
+    assert_eq!(
+        world
+            .resource::<BlockUseRuntime>()
+            .due(
+                true,
+                102,
+                RepeatClock {
+                    now_millis: 1_000,
+                    sneaking: false,
+                    speed: 0.0,
+                    survival: true,
+                }
+            )
+            .map(|(trigger, _)| trigger),
+        Some(protocol::ItemUseTrigger::PlayerInput),
+        "the press stays pending"
+    );
 }
