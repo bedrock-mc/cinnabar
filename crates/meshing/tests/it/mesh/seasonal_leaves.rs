@@ -52,6 +52,10 @@ fn seasonal_leaf_fixture_with_metadata(metadata: u32) -> RuntimeAssets {
     let mut stone = leaf;
     stone.flags = BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE;
     stone.variant = 0;
+    let mut stone_material = Material::unvaried();
+    stone_material.flags = metadata & assets::MATERIAL_FLAG_ISOTROPIC;
+    stone.faces = [materials.len() as u32; Face::ALL.len()];
+    materials.push(stone_material);
     let mut snow = stone;
     snow.flags = BlockFlags::CUBE_GEOMETRY;
     snow.variant = assets::BLOCK_VISUAL_VARIANT_TOP_SNOW;
@@ -156,11 +160,15 @@ fn seasonal_leaf_layered_chunk(mode: NetworkIdMode, layers: &[&[([u8; 3], usize)
 fn native_leaf_faces_keep_block_local_uvs_and_clamped_edges_on_every_face() {
     for flags in [
         assets::MATERIAL_FLAG_NATIVE_LEAF_COLOUR,
-        assets::MATERIAL_FLAG_NATIVE_LEAF_COLOUR | assets::MATERIAL_FLAG_LEAF_ISOTROPIC,
+        assets::MATERIAL_FLAG_NATIVE_LEAF_COLOUR | assets::MATERIAL_FLAG_ISOTROPIC,
     ] {
         let assets = seasonal_leaf_fixture_with_metadata(flags);
         for mode in [NetworkIdMode::Sequential, NetworkIdMode::Hashed] {
-            let air = if mode == NetworkIdMode::Hashed { 0x10000 } else { 0 };
+            let air = if mode == NetworkIdMode::Hashed {
+                0x10000
+            } else {
+                0
+            };
             let placements = (5..9)
                 .flat_map(|x| (5..9).map(move |z| ([x, 8, z], 1)))
                 .collect::<Vec<_>>();
@@ -172,12 +180,54 @@ fn native_leaf_faces_keep_block_local_uvs_and_clamped_edges_on_every_face() {
                 &MeshNeighbourhood::new(&chunk),
             );
             assert!(!mesh.cube_quads().is_empty());
-            assert!(mesh.cube_quads().iter().all(|quad| quad.width() == 1 && quad.height() == 1));
+            assert!(
+                mesh.cube_quads()
+                    .iter()
+                    .all(|quad| quad.width() == 1 && quad.height() == 1)
+            );
             for face in Face::ALL {
                 assert!(mesh.cube_quads().iter().any(|quad| quad.face() == face));
             }
             // The ordinary carried leaf material must not inherit metadata.
             assert_eq!(assets.materials()[1].flags & flags, 0);
+        }
+    }
+}
+
+#[test]
+fn isotropic_ordinary_cube_faces_keep_independent_positions_and_repeatable_meshes() {
+    let placements = (5..9)
+        .flat_map(|x| (5..9).map(move |z| ([x, 8, z], 2)))
+        .collect::<Vec<_>>();
+    for mode in [NetworkIdMode::Sequential, NetworkIdMode::Hashed] {
+        let air = if mode == NetworkIdMode::Hashed {
+            0x10000
+        } else {
+            0
+        };
+        let classifier = BlockClassifier::new(air);
+        let chunk = seasonal_leaf_chunk(mode, &placements);
+        let neighbourhood = MeshNeighbourhood::new(&chunk);
+        for flags in [0, assets::MATERIAL_FLAG_ISOTROPIC] {
+            let assets = seasonal_leaf_fixture_with_metadata(flags);
+            let mesh = mesh_sub_chunk_in_neighbourhood(&classifier, &assets, mode, &neighbourhood);
+            let repeated =
+                mesh_sub_chunk_in_neighbourhood(&classifier, &assets, mode, &neighbourhood);
+            assert_eq!(mesh.cube_quads(), repeated.cube_quads());
+            let top = mesh
+                .cube_quads()
+                .iter()
+                .filter(|quad| quad.face() == Face::PositiveY)
+                .collect::<Vec<_>>();
+            if flags != 0 {
+                assert_eq!(top.len(), placements.len());
+                assert!(
+                    top.iter()
+                        .all(|quad| quad.width() == 1 && quad.height() == 1)
+                );
+            } else {
+                assert!(top.iter().any(|quad| quad.width() > 1 || quad.height() > 1));
+            }
         }
     }
 }

@@ -12,6 +12,8 @@ mod anvil;
 mod dragon_egg;
 #[path = "tests/grass_side_mips.rs"]
 mod grass_side_mips;
+#[path = "tests/isotropic.rs"]
+mod isotropic;
 #[path = "tests/lantern.rs"]
 mod lantern;
 

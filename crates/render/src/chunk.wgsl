@@ -1,4 +1,4 @@
-#import cinnabar::material::{MaterialGpu, materials, positional_material, material_face_is_visible, material_uses_native_leaf_colour, material_uses_overlay_mask, material_leaf_uv_flags, material_leaf_shade}
+#import cinnabar::material::{MaterialGpu, materials, positional_material, material_face_is_visible, material_uses_native_leaf_colour, material_uses_overlay_mask, material_uv_flags, material_leaf_shade}
 #ifdef ENHANCED_SHADOW
 #import cinnabar::enhanced_caster::caster_clip
 #endif
@@ -265,7 +265,7 @@ fn cube_vertex(vertex_index: u32, instance_index: u32) -> VertexOutput {
 #ifdef ENHANCED_SHADOW
     out.clip_position = caster_clip(world_position, quad.material_id, 1.0);
 #endif
-    let uv_flags = material_leaf_uv_flags(material.flags, chunk_origin.value.xyz + vec3<i32>(local_origin));
+    let uv_flags = material_uv_flags(material.flags, chunk_origin.value.xyz + vec3<i32>(local_origin));
     out.uv = greedy_uv(face, corner, width, height, uv_flags);
     out.current_texture = animation_sample.current_texture;
     out.normal = face_normal(face);
