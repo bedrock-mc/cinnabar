@@ -199,6 +199,8 @@ pub(super) struct PhysicsCorrectionPlan {
     pub(super) final_tick: u64,
     pub(super) final_position: [f32; 3],
     pub(super) anchor_input: super::encoding::HeldInput,
+    /// The corrected tick's own end state; replayed samples start after it.
+    pub(super) corrected_sample: Option<PhysicsMovementSample>,
     pub(super) replayed_samples: Vec<PhysicsMovementSample>,
 }
 
@@ -421,6 +423,14 @@ impl LocalPhysicsController {
     ) {
         self.reanchor_network_position(network_position, tick, on_ground);
         self.discard_next_elapsed = self.is_active();
+    }
+
+    /// Fixed ticks a frame of `elapsed` would complete, without advancing the clock.
+    pub fn ticks_due(&self, elapsed: Duration) -> u64 {
+        if self.state.is_none() || self.discard_next_elapsed {
+            return 0;
+        }
+        fixed_ticks::whole_ticks(self.accumulated_seconds + elapsed.as_secs_f64())
     }
 
     pub fn advance(

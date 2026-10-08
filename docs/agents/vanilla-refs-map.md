@@ -2972,7 +2972,44 @@ was not used as version evidence.
 Files: `docs/reference/held-block-placement.md`, `crates/gameplay/src/block_use.rs`,
 `crates/gameplay/src/block_use/intention.rs`, `crates/gameplay/src/block_use/packets.rs`,
 `crates/gameplay/src/block_use/stopping.rs`, `app/src/block_use.rs`,
-`app/src/block_use/target.rs`, `crates/protocol/src/interaction.rs`.
+`app/src/block_use/target.rs`, `crates/protocol/src/interaction.rs`,
+`crates/gameplay/src/movement.rs`, `crates/gameplay/src/movement/outbox.rs`.
+
+- Evaluation order (pre-tick state, `MovementTicker::pre_tick_sample`): current artifact 6
+  `FUN_146788250` (RVA `0x6788250`, `__unmapped/06.cpp:1373205`) walks the player's
+  HitResultComponent (type hash `0x5af5cf0e`) pairs and calls `_tickBuildAction` `0x67883a0`
+  (first pair with flag true). Its shape matches 26.30 `ClientInstance::onBeforeSimTick`
+  (mac `0x102334b90`; thunk `0x102335480` sits at GameCallbacks vtable slot `+0x20`,
+  before `onTick` at `+0x28`, vtable `0x110b29500`). 26.30 `Minecraft::update`
+  (`by-owner/m/Minecraft.cpp:1504–1507` and `1544–1547`) calls that callback and then
+  `GameSession::tick` once per simulated tick, so build actions precede the tick's
+  movement and its PlayerAuthInput. At that point `continueBuildBlockAction`
+  (`0x28b63a0`) reads StateVector posDelta (`+0x218` -> `+0x18`), `continueBuildBlock`
+  (`0x28b66b0`) reads PostTickPositionDeltaComponent (`0xf96968b0`) and the
+  ActorDataFlag sneaking bit (`0xc67426f3`, byte `& 2`), and the build callback
+  (`0x28d3ed0`) copies StateVector position into the transaction: all end-of-previous-tick
+  values. No input-mode or touch-option branch exists in the continuation path; only
+  `getPickRange` varies by input mode.
+- Attack versus use in one frame (`app/src/block_use.rs`, `crates/gameplay/src/melee.rs`
+  `press_pending`): 26.30 `MinecraftInputHandler::_registerInputHandlers` press lambdas
+  (`support/std/__func--bc8d9908b204/d.cpp:49315` attack, `b.cpp:48297` use; current
+  artifact 6 `FUN_144a69a00`/`FUN_144a69b00`) set the single in-progress intention through
+  `ClientInstance::resetBai` (vtable `+0x9e0`) and call `handleBuildAction` at once.
+  `handleBuildAction` (`by-owner/c/ClientInputCallbacks.cpp:5337`) reads a next-action time
+  (`+0xbd8`) and, after an actor attack or an item use, sets it to now + 200 ms (`+0xbe0`);
+  the build/use branch requires now to be past it. Whichever press is handled first wins and
+  holds the other off; Cinnabar handles a same-frame attack first.
+- Pick used by those build actions: 26.30 `MinecraftGame::tickInput` lambda
+  (`handheld/src-client/common/client/game/MinecraftGame.cpp:240293`) appends each frame's
+  hit and liquid hit to HitResultComponent through `HitResultSystem::tickPlayerInput`
+  (`by-owner/h/HitResultSystem.cpp:1`); `HitResultSystem::tick` clears it after the sim
+  tick. `_tickBuildAction` re-clips each stored ray from its stored start
+  (`HitResultUtils::refreshHitResult`, `by-owner/h/HitResultUtils.cpp:6`, 267) and
+  `trimHitResult` (current artifact 6 RVA `0xfe80b0`) turns the hit into a miss when its
+  point (block centre `+0.5`, actor hit point) is farther than pick range from the camera
+  actor's StateVector position, i.e. the pre-tick eye. Cinnabar keeps the previous frame's
+  presented ray (`app/src/block_use.rs` `FramePick`); it casts one stored frame per tick
+  where vanilla walks every frame pick since the last tick.
 
 - Primary current evidence: Lens artifact 6, normalized build `1.26.50.26`,
   source-backed `artifact_function` reads at RVAs `0x28b63a0`

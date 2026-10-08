@@ -17,7 +17,7 @@ use sim::PaletteWorld;
 use crate::{
     interaction_authority::FrozenBlockObservation,
     local_player::InteractionOriginSnapshot,
-    melee::{MeleeRuntime, SwingTracker, obstructs_placement, swing_duration},
+    melee::{MeleeRuntime, SwingTracker, obstructs_placement},
     menu::MenuRuntime,
     mining::{
         FrozenMiningSelection, creative_reach, protocol_input_mode, survival_reach,
@@ -35,19 +35,66 @@ pub(crate) use gameplay::block_use::{
 
 /// Bevy resource adapter for the gameplay block_use owner.
 #[derive(Resource, Debug, Default)]
-pub(crate) struct BlockUseRuntime(gameplay::block_use::BlockUseRuntime);
+pub(crate) struct BlockUseRuntime {
+    owner: gameplay::block_use::BlockUseRuntime,
+    /// The latest published frame pick; build actions run before the next publication.
+    previous_pick: Option<FramePick>,
+}
 impl std::ops::Deref for BlockUseRuntime {
     type Target = gameplay::block_use::BlockUseRuntime;
     /// Borrows the gameplay owner at the existing ordered system boundary.
     fn deref(&self) -> &Self::Target {
-        &self.0
+        &self.owner
     }
 }
 impl std::ops::DerefMut for BlockUseRuntime {
     /// Mutates the gameplay owner without duplicating its state.
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
+        &mut self.owner
     }
+}
+
+/// One frame's eye ray; vanilla builds from the picks of the frames before each tick.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct FramePick {
+    /// Movement authority when the pick was taken; a correction or reanchor retires it.
+    authority: (u64, u64),
+    session_generation: u64,
+    actor_session_id: u64,
+    origin: bevy::prelude::Vec3,
+    direction: bevy::prelude::Vec3,
+}
+
+impl BlockUseRuntime {
+    /// Keeps this frame's published pick for the build actions before the next tick.
+    pub(crate) fn retain_pick(
+        &mut self,
+        origin: &InteractionOriginSnapshot,
+        authority: (u64, u64),
+    ) {
+        self.previous_pick = origin.outbound_ray().map(|ray| FramePick {
+            authority,
+            session_generation: ray.session_generation(),
+            actor_session_id: ray.actor_session_id(),
+            origin: ray.origin(),
+            direction: ray.direction(),
+        });
+    }
+
+    /// The retained pick, if it was taken under `authority`.
+    fn pick(&self, authority: (u64, u64)) -> Option<FramePick> {
+        self.previous_pick
+            .filter(|previous| previous.authority == authority)
+    }
+}
+
+/// Retains each frame's published (and assisted) pick for the next tick's build actions.
+pub(crate) fn retain_block_use_pick(
+    origin: Res<InteractionOriginSnapshot>,
+    movement: Res<MovementTicker>,
+    mut runtime: ResMut<BlockUseRuntime>,
+) {
+    runtime.retain_pick(&origin, movement.interaction_authority_identity());
 }
 #[derive(SystemParam)]
 pub(crate) struct BlockUseContext<'w, 's> {
@@ -72,7 +119,12 @@ pub(crate) fn produce_block_use(
     mut swings: ResMut<SwingTracker>,
     mut item_use: ResMut<crate::item_use::ItemUseRuntime>,
     movement: Res<MovementTicker>,
+    physics: Option<Res<crate::movement::LocalPhysicsController>>,
 ) {
+    let pick = runtime.pick(movement.interaction_authority_identity());
+    if context.input.phase(Action::Use).pressed {
+        runtime.forget_press_resolution();
+    }
     swings.sync_ticks(
         movement.interaction_authority_identity(),
         movement.completed_tick(),
@@ -114,32 +166,44 @@ pub(crate) fn produce_block_use(
     ) {
         return;
     }
+    // An attack in the same frame is handled first: the use waits until melee resolves it,
+    // and an actor hit then holds the use off for the post-attack window.
+    if context.input.phase(Action::Attack).pressed || context.melee.press_pending() {
+        return;
+    }
     let Some(selection) = verified_use_selection(&player_runtime, &context.ui) else {
         // Unconfirmed inventory suspends attempts while preserving the held action.
         return;
     };
     runtime.selection_changed(&selection);
-    // Frames between physics ticks have no unsent tick; a press waits for one.
-    let Some(sample) = movement.newest_unsent_sample() else {
+    // Vanilla builds before each simulation tick, from the last completed tick's end state;
+    // this runs before the frame's physics, so a placed block is in the world the tick sees.
+    let Some(state) = movement.build_action_state() else {
         return;
     };
-    let clock = RepeatClock::for_game_mode(
+    let tick = state.tick.saturating_add(1);
+    let clock = RepeatClock::for_state(
         u64::try_from(context.time.elapsed().as_millis()).unwrap_or(u64::MAX),
-        sample.sneaking,
-        sample
-            .displacement
-            .map(|axis| axis * sim::TICKS_PER_SECOND as f32)
-            .into_iter()
-            .map(|axis| axis * axis)
-            .sum::<f32>()
-            .sqrt(),
+        &state,
         game_mode,
     );
-    let Some((trigger, due)) = runtime.due(use_phase.held, sample.tick, clock) else {
+    let Some((trigger, due)) = runtime.due(use_phase.held, tick, clock) else {
         return;
     };
+    // Presses resolve at once; held repeats wait for a frame that simulates the next tick.
+    if trigger == ItemUseTrigger::SimulationTick
+        && !physics.as_deref().is_some_and(|physics| {
+            gameplay::movement::frame_simulates_tick(physics, &movement, context.time.delta())
+        })
+    {
+        return;
+    }
     if context.melee.blocks_use_at(clock.now_millis) {
         runtime.clear_press();
+        return;
+    }
+    // A press or repeat waits for a pick taken under the current movement authority.
+    if pick.is_none() {
         return;
     }
     let input_mode = protocol_input_mode(input.input_mode);
@@ -152,12 +216,12 @@ pub(crate) fn produce_block_use(
             (input.authority_generation, input.frame_sequence),
             movement.interaction_authority_identity().1,
             &runtime,
-            sample.delta,
-            sample.sneaking,
+            pick,
+            &state,
         ),
         context.client_world.stream.as_ref(),
     ) else {
-        runtime.record(trigger, due, sample.tick, LocalUse::Nothing, clock);
+        runtime.record(trigger, due, tick, LocalUse::Nothing, clock);
         return;
     };
     let server_selection = observed.selection.clone();
@@ -169,7 +233,7 @@ pub(crate) fn produce_block_use(
     observed.selection = runtime
         .inventory
         .selection(&server_selection, inventory_revision);
-    let surroundings = use_surroundings(&context, &observed, sample.position, sample.sneaking);
+    let surroundings = use_surroundings(&context, &observed, state.position, state.sneaking);
     let local_use = LocalUse::resolve(
         &observed.selection.item,
         observed.target.position,
@@ -177,7 +241,7 @@ pub(crate) fn produce_block_use(
         &surroundings,
         &caps,
     );
-    if !runtime.may_attempt(sample.tick, local_use, &swings) {
+    if !runtime.may_attempt(tick, local_use, &swings) {
         return;
     }
     let (destination, _) = surroundings.destination(observed.target.position, observed.target.face);
@@ -201,15 +265,14 @@ pub(crate) fn produce_block_use(
     // Only block items keep using while held.
     if trigger == ItemUseTrigger::SimulationTick && observed.selection.item.block_runtime_id() == 0
     {
-        runtime.record(trigger, due, sample.tick, LocalUse::Nothing, clock);
+        runtime.record(trigger, due, tick, LocalUse::Nothing, clock);
         return;
     }
-    let duration = swing_duration(
-        context
-            .effects
-            .mining_tick(sample.tick, movement.completed_tick())
-            .0,
-    );
+    // The tick has not simulated yet, so its swing reads the effects in force before it.
+    let swing_effects = context
+        .effects
+        .mining_tick(tick, movement.completed_tick())
+        .0;
     let Some(block_network_id) = stream.block_network_id(observed.target.runtime_id) else {
         return;
     };
@@ -228,14 +291,14 @@ pub(crate) fn produce_block_use(
     let mut before_swing = swings.clone();
     let packets = use_packets(
         (&observed, block_network_id),
-        sample.position,
+        state.position,
         trigger,
         local_use,
         start_destination,
         change.clone(),
         local_runtime_id,
-        |tick| swings.try_swing(tick, duration),
-        sample.tick,
+        |tick| swings.try_swing_before_tick(tick, swing_effects),
+        tick,
     );
     let result = (!packets.is_empty()).then(|| context.network.send_inventory_packets(packets));
     let sent = matches!(result, Some(Ok(())));
@@ -251,15 +314,15 @@ pub(crate) fn produce_block_use(
                             .collisions
                             .block_has_build_intention(stream.network_id_mode(), block)
                     }),
-            sample.sneaking,
+            state.sneaking,
             std::array::from_fn(|axis| {
                 observed.target.position[axis] as f32 + observed.target.relative_hit[axis]
             }),
         );
     }
-    if !runtime.admit(trigger, due, sample.tick, local_use, clock, sent) {
+    if !runtime.admit(trigger, due, tick, local_use, clock, sent) {
         runtime.refuse_transport(
-            sample.tick,
+            tick,
             local_use,
             matches!(result, Some(Err(client_session::BatchSendError::Full))),
         );

@@ -80,6 +80,12 @@ impl MeleeRuntime {
         self.actor_in_front
     }
 
+    /// An attack press not yet resolved; a use press waits for it, as an attack handled first
+    /// holds off the use.
+    pub const fn press_pending(&self) -> bool {
+        self.latched_press
+    }
+
     /// Whether a recent attack still suppresses block use.
     pub fn blocks_use_at(&self, now_millis: u64) -> bool {
         self.last_attack_millis.is_some_and(|attack| {

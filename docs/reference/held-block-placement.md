@@ -8,6 +8,7 @@ remain subject to each item's placement rules.
 | Vanilla rules | Behaviour |
 | --- | --- |
 | First press | Attempt the fresh clicked block and face immediately. Start a new hold with no previous success or line. |
+| Evaluation order | A press resolves when its input arrives, before the frame's ticks; held repeats run once per simulation tick, before that tick's movement. Velocity, resolved motion, sneaking, the reported player position and the player's box come from the previous tick's end state, and a placed block is in the world that tick's movement collides with. The pick is the eye ray of the frame before the tick, recast against the current world; a hit farther than reach from the pre-tick eye (measured to a block's centre) counts as a miss. |
 | Repeats | Refresh the world pick each simulation tick. An attempt is due only when elapsed time is strictly greater than the repeat delay; this is not a fixed tick count. |
 | Slow delay | 300 ms while sneaking, interacting with a block, or placing before a line has been established. At 20 Hz and an exactly aligned timestamp, the first due opportunity is tick 7. |
 | Ordinary delay | 200 ms while still. While moving, truncate `min(900 / speed, 180)` milliseconds, where speed is the length of the actual post-tick movement delta multiplied by 20. Every noncreative mode has a 100 ms minimum. |
