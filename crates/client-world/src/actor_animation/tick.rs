@@ -195,6 +195,7 @@ pub(super) fn advance_motion(
         held_slot: context.main_hand_slot,
         riding: context.is_riding,
         vanilla_posture: swim_amount > 0.0
+            || context.main_hand_is_spear
             || query::actor_flag(actor, query::FLAG_GLIDING)
             || query::actor_flag(actor, crate::actor_store::ACTOR_FLAG_CRAWLING)
             || query::actor_flag(actor, query::FLAG_EMOTING)
