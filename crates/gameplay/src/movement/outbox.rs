@@ -74,6 +74,41 @@ pub(super) struct HeldRelease {
     facing_sent: bool,
 }
 
+/// Recent tick-end states by tick, fed wherever a tick completes, is replayed or is
+/// anchored; transport hand-offs never move them.
+#[derive(Debug, Clone)]
+pub(super) struct TickEnds(std::collections::VecDeque<UnsentSampleView>);
+
+/// The predecessor is the only state read; a few spare entries absorb replays.
+const TICK_END_CAPACITY: usize = 8;
+
+impl Default for TickEnds {
+    fn default() -> Self {
+        Self(std::collections::VecDeque::with_capacity(TICK_END_CAPACITY))
+    }
+}
+
+impl TickEnds {
+    /// Records a tick's end state; it supersedes that tick and any later ones.
+    pub(super) fn record(&mut self, view: UnsentSampleView) {
+        while self.0.back().is_some_and(|last| last.tick >= view.tick) {
+            self.0.pop_back();
+        }
+        if self.0.len() == TICK_END_CAPACITY {
+            self.0.pop_front();
+        }
+        self.0.push_back(view);
+    }
+
+    pub(super) fn get(&self, tick: u64) -> Option<UnsentSampleView> {
+        self.0.iter().rev().find(|view| view.tick == tick).copied()
+    }
+
+    pub(super) fn clear(&mut self) {
+        self.0.clear();
+    }
+}
+
 /// The reported pose at the end of one completed tick.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct UnsentSampleView {
@@ -112,7 +147,7 @@ impl UnsentSampleView {
         )
     }
 
-    fn from_parts(
+    pub(super) fn from_parts(
         tick: u64,
         position: [f32; 3],
         delta: [f32; 3],
@@ -300,51 +335,19 @@ impl MovementTicker {
     /// actions before each simulation tick, so they observe this state, not the newest.
     pub fn pre_tick_sample(&self) -> Option<UnsentSampleView> {
         let previous = self.outbox.back()?.snapshot.tick.checked_sub(1)?;
-        let tick_of = |sample: &&super::QueuedPhysicsSample| sample.snapshot.tick == previous;
-        self.outbox
-            .iter()
-            .rev()
-            .skip(1)
-            .find(tick_of)
-            .map(UnsentSampleView::from_queued)
-            .or_else(|| {
-                [self.prior_tick_end, self.prior_tick_before]
-                    .into_iter()
-                    .flatten()
-                    .find(|view| view.tick == previous)
-            })
-            .or_else(|| {
-                self.pending_sends
-                    .iter()
-                    .map(|pending| &pending.sample)
-                    .find(tick_of)
-                    .map(UnsentSampleView::from_queued)
-            })
+        self.tick_ends.get(previous)
     }
 
-    /// Retains a departing tick and its predecessor, so a restored send keeps both.
-    pub(super) fn note_departed_tick(&mut self, view: UnsentSampleView) {
-        if self.prior_tick_end.is_none_or(|end| end.tick < view.tick) {
-            self.prior_tick_before = self.prior_tick_end;
-        }
-        self.prior_tick_end = Some(view);
-    }
-
-    /// Replaces the retained end states with one known tick-end state.
-    pub(super) fn set_prior_tick_end(&mut self, view: Option<UnsentSampleView>) {
-        self.prior_tick_end = view;
-        self.prior_tick_before = None;
-    }
-
-    /// An anchor places the player with cleared motion at the last completed tick.
-    pub(super) fn anchor_prior_tick_end(&mut self, position: [f32; 3]) {
-        self.set_prior_tick_end(Some(UnsentSampleView {
+    /// An anchor restarts the timeline with cleared motion at the last completed tick.
+    pub(super) fn anchor_tick_end(&mut self, position: [f32; 3]) {
+        self.tick_ends.clear();
+        self.tick_ends.record(UnsentSampleView {
             tick: self.completed_tick(),
             position,
             delta: [0.0; 3],
             displacement: [0.0; 3],
             sneaking: false,
-        }));
+        });
     }
 
     /// A frame-time interaction once every completed tick is on the wire: it reports the
@@ -536,7 +539,6 @@ impl MovementTicker {
             pending.retry_after_cancellation = false;
         }
         self.sent_history.clear();
-        self.set_prior_tick_end(None);
         self.refresh_outbox_reconciliation();
     }
 }

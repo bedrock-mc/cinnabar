@@ -154,10 +154,8 @@ pub struct MovementTicker {
     epoch_publisher: watch::Sender<u64>,
     mining_epoch_publisher: watch::Sender<u64>,
     held_release: Option<outbox::HeldRelease>,
-    /// End state of the newest tick no longer queued, or of the latest anchor.
-    prior_tick_end: Option<UnsentSampleView>,
-    /// The departed tick before `prior_tick_end`.
-    prior_tick_before: Option<UnsentSampleView>,
+    /// Recent tick-end states, the single source of build actions' pre-tick state.
+    tick_ends: outbox::TickEnds,
 }
 
 #[cfg(test)]
@@ -200,8 +198,7 @@ impl MovementTicker {
             epoch_publisher,
             mining_epoch_publisher,
             held_release: None,
-            prior_tick_end: None,
-            prior_tick_before: None,
+            tick_ends: outbox::TickEnds::default(),
         }
     }
 
@@ -233,7 +230,7 @@ impl MovementTicker {
         self.terminal_drain = false;
         self.pending_control_fence = false;
         self.pending_teleport_ack = None;
-        self.anchor_prior_tick_end(initial_position);
+        self.anchor_tick_end(initial_position);
     }
 
     pub fn deactivate(&mut self) {
@@ -248,6 +245,7 @@ impl MovementTicker {
         self.terminal_drain = false;
         self.pending_control_fence = false;
         self.pending_teleport_ack = None;
+        self.tick_ends.clear();
     }
 
     /// Latches a remote-initiated close of an active, authorized physics
@@ -291,7 +289,7 @@ impl MovementTicker {
         }
         self.terminal_drain = false;
         self.pending_control_fence = false;
-        self.anchor_prior_tick_end(self.previous_position);
+        self.anchor_tick_end(self.previous_position);
     }
 
     pub fn snap_non_authoritative_anchor(&mut self, tick: u64, position: [f32; 3]) {
@@ -304,7 +302,7 @@ impl MovementTicker {
         self.previous_input = HeldInput::default();
         self.outbox.clear();
         self.sent_history.clear();
-        self.anchor_prior_tick_end(position);
+        self.anchor_tick_end(position);
     }
 
     pub fn enqueue_completed_physics(
@@ -391,6 +389,7 @@ impl MovementTicker {
         }
         self.position_authority_changed();
         self.source = MovementSource::FreeCamera;
+        self.tick_ends.clear();
         self.outbox.clear();
         self.sent_history.clear();
         self.outbox_reconciliation = MovementOutboxReconciliation::NotAuthoritative;
@@ -427,6 +426,13 @@ impl MovementTicker {
         self.next_tick = self.next_tick.saturating_add(1);
         self.previous_position = sample.position;
         self.previous_input = current_input;
+        self.tick_ends.record(UnsentSampleView::from_parts(
+            snapshot.tick,
+            snapshot.position,
+            snapshot.delta,
+            sample.movement,
+            snapshot.flags,
+        ));
         snapshot
     }
 
@@ -442,9 +448,7 @@ impl MovementTicker {
 
     #[must_use]
     fn pop_pending(&mut self) -> Option<QueuedPhysicsSample> {
-        let sample = self.outbox.pop_front()?;
-        self.note_departed_tick(UnsentSampleView::from_queued(&sample));
-        Some(sample)
+        self.outbox.pop_front()
     }
 
     fn sent_confirmation(&self, tick: u64) -> Option<PhysicsCorrectionConfirmation> {
@@ -608,7 +612,7 @@ impl MovementTicker {
         self.previous_input = HeldInput::default();
         self.outbox.clear();
         self.sent_history.clear();
-        self.anchor_prior_tick_end(position);
+        self.anchor_tick_end(position);
         self.refresh_outbox_reconciliation();
     }
 
@@ -798,7 +802,7 @@ impl MovementTicker {
                 self.previous_position = plan.final_position;
                 self.outbox.clear();
                 self.sent_history.clear();
-                self.anchor_prior_tick_end(plan.final_position);
+                self.anchor_tick_end(plan.final_position);
                 Ok(())
             }
             PhysicsCorrectionOutcome::Replayed { .. } => {
@@ -888,21 +892,18 @@ impl MovementTicker {
                 }
                 self.previous_position = plan.final_position;
                 self.previous_input = previous_input;
-                let boundary = self
-                    .outbox
-                    .front()
-                    .map_or(self.next_tick, |queued| queued.snapshot.tick);
+                // The corrected anchor and every replayed tick, queued or transport-owned.
                 let anchor = plan
                     .corrected_sample
                     .as_ref()
                     .map(|sample| (sample, input_flags(sample, plan.anchor_input)));
-                let predecessor = rebuilt
-                    .iter()
-                    .map(|(sample, flags)| (*sample, *flags))
-                    .chain(anchor)
-                    .find(|(sample, _)| sample.tick.saturating_add(1) == boundary)
-                    .map(|(sample, flags)| UnsentSampleView::from_replayed(sample, flags));
-                self.set_prior_tick_end(predecessor);
+                for (sample, flags) in anchor
+                    .into_iter()
+                    .chain(rebuilt.iter().map(|(sample, flags)| (*sample, *flags)))
+                {
+                    self.tick_ends
+                        .record(UnsentSampleView::from_replayed(sample, flags));
+                }
                 Ok(())
             }
         }
