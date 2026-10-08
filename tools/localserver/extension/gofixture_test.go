@@ -1,6 +1,7 @@
 package extension
 
 import (
+	"bytes"
 	"flag"
 	"os"
 	"path/filepath"
@@ -16,10 +17,10 @@ var updateGoFixtures = flag.Bool("update-go-fixtures", false, "rewrite testdata/
 // tools/cxb/tests/fixtures.rs.
 var goFixtureDir = filepath.Join("testdata", "go")
 
-// The server half's marker, its Accept for a developer client's Hello and its first envelope after
-// that client's Ready are checked in, deterministic for a fixed clock and randomness, so the Rust
-// test can run them through the client's own verifiers. Regenerate with
-// `go test ./extension -run TestGoFixturesAreCurrent -update-go-fixtures`.
+// The server half's marker, its Accept for a developer client's v2 Hello and its first envelopes
+// after that client's Ready, the second a list in fragments, are checked in, deterministic for a
+// fixed clock and randomness, so the Rust test can run them through the client's own verifiers.
+// Regenerate with `go test ./extension -run TestGoFixturesAreCurrent -update-go-fixtures`.
 func TestGoFixturesAreCurrent(t *testing.T) {
 	f := newConn(t, nil)
 	h := f.hello()
@@ -30,13 +31,18 @@ func TestGoFixturesAreCurrent(t *testing.T) {
 	if !f.s.Send(f.player, f.manifest.ID, toClient.ID, toClient.Schema, []experience.Scalar{integer(42)}) {
 		t.Fatal("the envelope was not sent")
 	}
+	items := f.itemsChannel()
+	if !f.s.Send(f.player, f.manifest.ID, items.ID, items.Schema, itemsRecord(120)) {
+		t.Fatal("the fragmented list was not sent")
+	}
 	out := f.carrier()
 	files := map[string][]byte{
-		"marker.json":             f.encode(f.s.Marker()),
-		"hello_message.json":      f.encode(Control{Hello: &h}),
-		"accept_message.json":     out[0],
-		"ready_message.json":      f.encode(Control{Ready: &r}),
-		"envelope_to_client.json": out[1],
+		"marker.json":              f.encode(f.s.Marker()),
+		"hello_message.json":       f.encode(Control{Hello: &h}),
+		"accept_message.json":      out[0],
+		"ready_message.json":       f.encode(Control{Ready: &r}),
+		"envelope_to_client.json":  out[1],
+		"fragments_to_client.json": []byte("[" + string(bytes.Join(out[2:], []byte(","))) + "]"),
 	}
 	if *updateGoFixtures {
 		if err := os.RemoveAll(goFixtureDir); err != nil {

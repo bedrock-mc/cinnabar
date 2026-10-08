@@ -211,6 +211,10 @@ pub enum Command {
     SignInFixture {
         state: SignInFixtureState,
     },
+    /// Presents a signed-in launcher with placeholder accounts; nothing signs in or is saved.
+    TestAccounts {
+        enabled: bool,
+    },
     State,
     WaitFor {
         condition: Condition,

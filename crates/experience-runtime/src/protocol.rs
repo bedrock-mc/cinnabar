@@ -10,12 +10,13 @@ use serde::{Deserialize, Serialize};
 
 use crate::hex;
 use crate::limits::{
-    MAX_BLOCK_DATA_BYTES, MAX_CLIENT_SENDS, MAX_FRAME_BYTES, MAX_REASON_BYTES, MAX_STAGED_OPS,
-    MAX_TELL_BYTES, MAX_TELLS,
+    MAX_BLOCK_DATA_BYTES, MAX_CLIENT_SEND_BYTES, MAX_CLIENT_SENDS, MAX_FRAME_BYTES,
+    MAX_REASON_BYTES, MAX_STAGED_OPS, MAX_TELL_BYTES, MAX_TELLS, MAX_VALUE_DEPTH,
 };
 
-/// 2 added the `client_message` call and the `send_client` op.
-pub const PROTOCOL_VERSION: u32 = 2;
+/// 2 added the `client_message` call and the `send_client` op; 3 the `epoch` call and list and
+/// record values; 4 the `focus` of those calls and of `loaded`.
+pub const PROTOCOL_VERSION: u32 = 4;
 
 const _: () = assert!(MAX_FRAME_BYTES <= u32::MAX as usize);
 
@@ -78,7 +79,8 @@ pub struct Change {
     pub previous_data: Option<String>,
 }
 
-/// One field of a client-channel record, in the form the client part's wire protocol gives it.
+/// One value of a client-channel record, in the form the client part's wire protocol gives it: a
+/// leaf, or a list or record of values.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(
     tag = "type",
@@ -91,6 +93,10 @@ pub enum Scalar {
     Integer(i64),
     Text(String),
     Choice(u16),
+    /// The items of a list field, all of its one item type.
+    List(Vec<Scalar>),
+    /// One value per field of a record field, in order.
+    Record(Vec<Scalar>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -111,13 +117,21 @@ pub enum Call {
         pos: BlockPos,
         neighbor: BlockPos,
     },
-    /// `player`'s client part sent `payload` on `channel`. The callback's actor is `player`, and
-    /// its snapshot is empty.
+    /// `player`'s client part sent `payload` on `channel`. The callback's actor is `player`. With
+    /// `focus`, the block of `player`'s focus, its snapshot is the one an interaction with that
+    /// block would have; without, it is empty.
     ClientMessage {
         player: String,
         channel: String,
         schema: u16,
         payload: Vec<Scalar>,
+        focus: Option<BlockPos>,
+    },
+    /// `player`'s client part moved to a new world epoch and kept running. The callback's actor
+    /// is `player`, and its snapshot is that of `focus` like a client message's.
+    Epoch {
+        player: String,
+        focus: Option<BlockPos>,
     },
 }
 
@@ -237,11 +251,14 @@ pub enum Outcome {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Response {
+    /// `focus` is set when the Experience's world takes its player's focus in client messages
+    /// and epochs; the adapter gives none to one that does not.
     Loaded {
         protocol: u32,
         id: String,
         version: String,
         blocks: Vec<BlockDef>,
+        focus: bool,
     },
     LoadFailed {
         reason: String,
@@ -309,8 +326,9 @@ pub fn read_frame<T: DeserializeOwned>(r: &mut impl Read) -> io::Result<Option<T
         .map_err(|err| io::Error::new(ErrorKind::InvalidData, err))
 }
 
-/// Constants the Go adapter must agree with: the frame limit, the protocol version, and the
-/// limits its commit check enforces again.
+/// Constants the Go adapter must agree with: the frame limit, the protocol version, the limits
+/// its commit check enforces again, and the client message limits that must fit the client wire
+/// protocol's.
 #[derive(Serialize)]
 struct Limits {
     max_frame_bytes: usize,
@@ -320,6 +338,8 @@ struct Limits {
     max_tells: usize,
     max_tell_bytes: usize,
     max_client_sends: usize,
+    max_client_send_bytes: usize,
+    max_value_depth: usize,
 }
 
 /// Every protocol enum string, so the Go adapter can check its sets against Rust.
@@ -400,14 +420,29 @@ pub fn fixtures() -> Vec<(&'static str, String)> {
         call,
     };
     let result = |seq: u64, outcome: Outcome| Response::Result { seq, outcome };
-    // Every scalar type; the integer is beyond what a JSON double holds exactly.
+    // Every scalar type, the integer beyond what a JSON double holds exactly, and a list of
+    // records, one of them empty, next to an empty list.
     let record = vec![
         Scalar::Bool(true),
         Scalar::Integer(-9_007_199_254_740_993),
         Scalar::Text("ME Controller \"linked\"".to_owned()),
         Scalar::Choice(2),
+        Scalar::List(vec![
+            Scalar::Record(vec![
+                Scalar::Text("minecraft:iron_ingot".to_owned()),
+                Scalar::Integer(64),
+            ]),
+            Scalar::Record(Vec::new()),
+        ]),
+        Scalar::List(Vec::new()),
     ];
-    let mut client_message = callback(
+    let without_snapshot = |mut request: Request| {
+        if let Request::Callback { snapshot, .. } = &mut request {
+            snapshot.clear();
+        }
+        request
+    };
+    let client_message = without_snapshot(callback(
         5,
         Some(player),
         Call::ClientMessage {
@@ -415,11 +450,18 @@ pub fn fixtures() -> Vec<(&'static str, String)> {
             channel: "benergistics.ack".to_owned(),
             schema: 1,
             payload: record.clone(),
+            focus: None,
+        },
+    ));
+    // An epoch with its player's focus has the snapshot of an interaction with that block.
+    let epoch = callback(
+        6,
+        Some(player),
+        Call::Epoch {
+            player: player.to_owned(),
+            focus: Some(controller),
         },
     );
-    if let Request::Callback { snapshot, .. } = &mut client_message {
-        snapshot.clear();
-    }
     let texture = |slot: &str, file: &str| Texture {
         slot: slot.to_owned(),
         path: format!("/srv/experiences/benergistics/assets/{file}"),
@@ -490,6 +532,7 @@ pub fn fixtures() -> Vec<(&'static str, String)> {
             )),
         ),
         ("request_callback_client_message", pretty(&client_message)),
+        ("request_callback_epoch", pretty(&epoch)),
         ("request_shutdown", pretty(&Request::Shutdown {})),
         (
             "response_loaded",
@@ -514,6 +557,7 @@ pub fn fixtures() -> Vec<(&'static str, String)> {
                         mining: Mining::Unbreakable {},
                     },
                 ],
+                focus: true,
             }),
         ),
         (
@@ -583,6 +627,8 @@ pub fn fixtures() -> Vec<(&'static str, String)> {
                 max_tells: MAX_TELLS,
                 max_tell_bytes: MAX_TELL_BYTES,
                 max_client_sends: MAX_CLIENT_SENDS,
+                max_client_send_bytes: MAX_CLIENT_SEND_BYTES,
+                max_value_depth: MAX_VALUE_DEPTH,
             }),
         ),
         (

@@ -4,24 +4,25 @@
 //! and `channel_*.json` file holds the exact bytes the client produces or accepts: compact
 //! serde_json with no trailing newline. `*_payload.json` is the signed byte string,
 //! `*_signed.json` the SignedDocument over it and `*_message.json` the control message carried in
-//! a ScriptMessage. `test_seeds.json`, `constants.json`, `enums.json` and `digests.json` are
-//! pretty-printed facts about them.
+//! a ScriptMessage. `fragments_*.json` is a JSON array of the carrier messages that one wire v2
+//! message is split into, each exactly as sent. `test_seeds.json`, `constants.json`,
+//! `enums.json` and `digests.json` are pretty-printed facts about them.
 
 use std::{
     collections::{BTreeMap, BTreeSet},
     path::Path,
 };
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, ensure};
 use serde::Serialize;
 use server_experience::{
     bundle::MANIFEST_PATH,
     crypto::{self, ACCEPT_DOMAIN, MANIFEST_DOMAIN, OFFER_DOMAIN},
     manifest::{Offer, PackageOffer, Permission, Scope, implemented_permissions},
-    negotiation::{Accept, Hello, Marker},
+    negotiation::{Accept, Hello, Limits, Marker, Wire, WireOffer},
     policy,
     session::Control,
-    wire::{Channel, Direction, Envelope, Field, Scalar},
+    wire::{self, Channel, Direction, Envelope, Field, Fragment, Scalar},
 };
 
 use crate::{
@@ -39,8 +40,14 @@ const ORIGIN: &str = "https://cxb.example";
 const REVISION: u64 = 7;
 const EXPIRES_UNIX: u64 = 1_800_000_000;
 const WORLD_EPOCH: u64 = 3;
+/// 2^53 + 1, the epoch after a dimension change: a decoder that goes through floats fails.
+const NEXT_WORLD_EPOCH: u64 = 9_007_199_254_740_993;
 /// Above `i32::MAX`, so a narrower integer anywhere shows up as a mismatch.
 const COUNT: i64 = 3_000_000_000;
+/// Items in the fragmented list: more than two fragments' worth at the host's limits.
+const FRAGMENTED_ITEMS: usize = 150;
+/// The fixture bundle's one JSON-UI template.
+const TEMPLATE_PATH: &str = "ui/terminal.json";
 /// The smallest valid component: the preamble alone.
 const COMPONENT: &[u8] = b"\0asm\x0d\0\x01\0";
 /// Characters JSON encoders disagree on: HTML, controls, DEL, line separators, BOM, astral.
@@ -87,10 +94,13 @@ struct Constants {
     accept_domain: &'static str,
     manifest_domain: &'static str,
     wire_version: u16,
+    max_wire_version: u16,
     api_version: u16,
     initial_bundle_generation: u64,
     max_marker_bytes: usize,
     max_payload_bytes: usize,
+    max_message_bytes: usize,
+    max_queue_bytes: usize,
     max_envelope_bytes: usize,
     max_messages_per_second: u64,
     max_bytes_per_second: u64,
@@ -101,6 +111,7 @@ struct Constants {
     max_expanded_bytes: u64,
     max_channels: usize,
     max_channel_fields: usize,
+    max_field_depth: usize,
     max_identifier_bytes: usize,
     max_fallback_bytes: usize,
     max_url_bytes: usize,
@@ -161,6 +172,7 @@ pub fn generate() -> Result<Fixtures> {
     let offer_document = crypto::sign(&offer, OFFER_DOMAIN, &server)?;
     let offer_payload = crypto::unhex(&offer_document.payload)?;
     let offer_digest = crypto::digest(&offer_payload);
+    // A v1 client's Hello; a v2 client's adds the versions and ceilings it offers.
     let hello = Hello {
         version: policy::WIRE_VERSION,
         api: policy::API_VERSION,
@@ -169,6 +181,14 @@ pub fn generate() -> Result<Fixtures> {
         client_challenge: crypto::hex(&pattern(0x40)),
         connection: crypto::hex(&pattern(0x60)),
         subclient: 0,
+        wire: None,
+    };
+    let hello_v2 = Hello {
+        wire: Some(WireOffer {
+            versions: (policy::WIRE_VERSION..=policy::MAX_WIRE_VERSION).collect(),
+            limits: Limits::host(),
+        }),
+        ..hello.clone()
     };
     let session = crypto::hex(&pattern(0xa0));
     let accept = Accept {
@@ -179,9 +199,21 @@ pub fn generate() -> Result<Fixtures> {
         offer_digest,
         revision: offer.revision,
         expires_unix: offer.expires_unix - 1800,
+        wire: None,
+    };
+    let v2 = Wire {
+        version: policy::MAX_WIRE_VERSION,
+        limits: Limits::host(),
+    };
+    let accept_v2 = Accept {
+        hello: hello_v2.clone(),
+        wire: Some(v2),
+        ..accept.clone()
     };
     let accept_document = crypto::sign(&accept, ACCEPT_DOMAIN, &server)?;
     let accept_payload = crypto::unhex(&accept_document.payload)?;
+    let accept_v2_document = crypto::sign(&accept_v2, ACCEPT_DOMAIN, &server)?;
+    let accept_v2_payload = crypto::unhex(&accept_v2_document.payload)?;
     let manifest_payload = crypto::unhex(&built.manifest.payload)?;
     let ready = Control::Ready {
         session: session.clone(),
@@ -190,8 +222,12 @@ pub fn generate() -> Result<Fixtures> {
         permissions: BTreeMap::from([(PACKAGE.to_owned(), implemented_permissions())]),
         world_epoch: WORLD_EPOCH,
     };
-    let envelope = |channel: &str, schema: u16, sequence: u64, payload: Vec<Scalar>| Envelope {
-        version: policy::WIRE_VERSION,
+    let epoch = Control::Epoch {
+        session: session.clone(),
+        world_epoch: NEXT_WORLD_EPOCH,
+    };
+    let envelope = |version: u16, channel: &str, schema, sequence, payload| Envelope {
+        version,
         session: session.clone(),
         connection: hello.connection.clone(),
         subclient: hello.subclient,
@@ -225,6 +261,7 @@ pub fn generate() -> Result<Fixtures> {
         ],
     };
     let all_scalars = envelope(
+        policy::WIRE_VERSION,
         "all_fields",
         all_fields.schema,
         2,
@@ -236,8 +273,52 @@ pub fn generate() -> Result<Fixtures> {
             Scalar::Choice(u16::MAX - 1),
         ],
     );
-    let to_client = envelope("controller", 1, 1, vec![Scalar::Integer(COUNT)]);
-    let to_server = envelope("ack", 1, 1, vec![Scalar::Integer(COUNT)]);
+    let items = items_channel();
+    let small_list = envelope(
+        policy::MAX_WIRE_VERSION,
+        "items",
+        items.schema,
+        1,
+        vec![
+            Scalar::List(vec![
+                item("minecraft:stone", COUNT, TEXT, vec![(false, 3), (true, 0)]),
+                item("benergistics:controller", 0, "", Vec::new()),
+            ]),
+            Scalar::Record(Vec::new()),
+        ],
+    );
+    let large_list = envelope(
+        policy::MAX_WIRE_VERSION,
+        "items",
+        items.schema,
+        2,
+        vec![
+            Scalar::List(fragmented_items()?),
+            Scalar::Record(Vec::new()),
+        ],
+    );
+    let fragments = wire::encode(&large_list, &v2)?
+        .iter()
+        .map(|bytes| serde_json::from_slice(bytes))
+        .collect::<Result<Vec<Fragment>, _>>()?;
+    ensure!(
+        fragments.len() > 2,
+        "the fragmented list fits two fragments"
+    );
+    let to_client = envelope(
+        policy::WIRE_VERSION,
+        "controller",
+        1,
+        1,
+        vec![Scalar::Integer(COUNT)],
+    );
+    let to_server = envelope(
+        policy::WIRE_VERSION,
+        "ack",
+        1,
+        1,
+        vec![Scalar::Integer(COUNT)],
+    );
     let files = vec![
         ("test_seeds.json", pretty(&seeds(&server, &publisher))?),
         ("constants.json", pretty(&constants()?)?),
@@ -247,6 +328,7 @@ pub fn generate() -> Result<Fixtures> {
             pretty(&BTreeMap::from([
                 ("offer_payload.json", crypto::digest(&offer_payload)),
                 ("accept_payload.json", crypto::digest(&accept_payload)),
+                ("accept_v2_payload.json", crypto::digest(&accept_v2_payload)),
                 ("manifest_payload.json", crypto::digest(&manifest_payload)),
             ]))?,
         ),
@@ -264,13 +346,28 @@ pub fn generate() -> Result<Fixtures> {
             "hello_message.json",
             serde_json::to_vec(&Control::Hello(hello))?,
         ),
+        ("hello_v2_payload.json", serde_json::to_vec(&hello_v2)?),
+        (
+            "hello_v2_message.json",
+            serde_json::to_vec(&Control::Hello(hello_v2))?,
+        ),
         ("accept_payload.json", accept_payload),
         ("accept_signed.json", serde_json::to_vec(&accept_document)?),
         (
             "accept_message.json",
             serde_json::to_vec(&Control::Accept(accept_document))?,
         ),
+        ("accept_v2_payload.json", accept_v2_payload),
+        (
+            "accept_v2_signed.json",
+            serde_json::to_vec(&accept_v2_document)?,
+        ),
+        (
+            "accept_v2_message.json",
+            serde_json::to_vec(&Control::Accept(accept_v2_document))?,
+        ),
         ("ready_message.json", serde_json::to_vec(&ready)?),
+        ("epoch_message.json", serde_json::to_vec(&epoch)?),
         ("envelope_to_client.json", serde_json::to_vec(&to_client)?),
         ("envelope_to_server.json", serde_json::to_vec(&to_server)?),
         (
@@ -280,6 +377,15 @@ pub fn generate() -> Result<Fixtures> {
         (
             "envelope_all_scalar_types.json",
             serde_json::to_vec(&all_scalars)?,
+        ),
+        ("channel_list_record.json", serde_json::to_vec(&items)?),
+        (
+            "envelope_v2_list_record.json",
+            serde_json::to_vec(&small_list)?,
+        ),
+        (
+            "fragments_v2_list_record.json",
+            serde_json::to_vec(&fragments)?,
         ),
         ("manifest_payload.json", manifest_payload),
         ("manifest_signed.json", serde_json::to_vec(&built.manifest)?),
@@ -300,7 +406,87 @@ pub fn write(dir: &Path) -> Result<()> {
     Ok(())
 }
 
-/// The M0 client part: one counter to the client, its acknowledgement back.
+/// A terminal's item list, nested to `MAX_FIELD_DEPTH`: (id, count, name, [(flag, choice)]),
+/// then an empty record.
+fn items_channel() -> Channel {
+    let flags = Field::List {
+        item: Box::new(Field::Record {
+            fields: vec![Field::Bool, Field::Choice { variants: 4 }],
+        }),
+        max_items: 8,
+    };
+    Channel {
+        id: format!("{PACKAGE}.items"),
+        schema: 1,
+        direction: Direction::ToClient,
+        fields: vec![
+            Field::List {
+                item: Box::new(Field::Record {
+                    fields: vec![
+                        Field::Text { max_bytes: 96 },
+                        Field::Integer {
+                            min: 0,
+                            max: i64::MAX,
+                        },
+                        Field::Text { max_bytes: 1024 },
+                        flags,
+                    ],
+                }),
+                max_items: 4096,
+            },
+            Field::Record { fields: Vec::new() },
+        ],
+    }
+}
+
+fn item(id: &str, count: i64, name: &str, flags: Vec<(bool, u16)>) -> Scalar {
+    Scalar::Record(vec![
+        Scalar::Text(id.to_owned()),
+        Scalar::Integer(count),
+        Scalar::Text(name.to_owned()),
+        Scalar::List(
+            flags
+                .into_iter()
+                .map(|(flag, choice)| {
+                    Scalar::Record(vec![Scalar::Bool(flag), Scalar::Choice(choice)])
+                })
+                .collect(),
+        ),
+    ])
+}
+
+/// Items with multi-byte names, the first padded so the first fragment's cut falls inside a
+/// character and has to move back to its start.
+fn fragmented_items() -> Result<Vec<Scalar>> {
+    let items = |pad: usize| {
+        (0..FRAGMENTED_ITEMS)
+            .map(|i| {
+                let pad = if i == 0 {
+                    "x".repeat(pad)
+                } else {
+                    String::new()
+                };
+                let name = format!("{pad}Certus Quartz Crystal \u{e9}\u{1f600} #{i}");
+                item(
+                    &format!("ae2:item_{i}"),
+                    i as i64,
+                    &name,
+                    vec![(i % 2 == 0, (i % 4) as u16)],
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    (0..256)
+        .map(items)
+        .find(|items| {
+            serde_json::to_string(&[Scalar::List(items.clone()), Scalar::Record(Vec::new())])
+                .is_ok_and(|json| !json.is_char_boundary(policy::MAX_PAYLOAD_BYTES))
+        })
+        .context("no padding puts a cut inside a character")
+}
+
+/// The M0 client part: one counter to the client, its acknowledgement back, and the
+/// terminal's item list and screen.
 fn source() -> Source {
     let counter = |name: &str, direction| Channel {
         id: format!("{PACKAGE}.{name}"),
@@ -311,6 +497,7 @@ fn source() -> Source {
             max: u32::MAX.into(),
         }],
     };
+    let template = format!(r#"{{"namespace":"{PACKAGE}","terminal":{{"type":"panel"}}}}"#);
     Source {
         id: PACKAGE.to_owned(),
         package_version: "0.1.0".to_owned(),
@@ -318,8 +505,12 @@ fn source() -> Source {
         channels: vec![
             counter("controller", Direction::ToClient),
             counter("ack", Direction::ToServer),
+            items_channel(),
         ],
         actions: BTreeSet::new(),
+        templates: BTreeSet::from([TEMPLATE_PATH.to_owned()]),
+        files: BTreeMap::from([(TEMPLATE_PATH.to_owned(), template.into_bytes())]),
+        ..Source::default()
     }
 }
 
@@ -346,10 +537,13 @@ fn constants() -> Result<Constants> {
         accept_domain: domain(ACCEPT_DOMAIN)?,
         manifest_domain: domain(MANIFEST_DOMAIN)?,
         wire_version: policy::WIRE_VERSION,
+        max_wire_version: policy::MAX_WIRE_VERSION,
         api_version: policy::API_VERSION,
         initial_bundle_generation: policy::INITIAL_BUNDLE_GENERATION,
         max_marker_bytes: policy::MAX_MARKER_BYTES,
         max_payload_bytes: policy::MAX_PAYLOAD_BYTES,
+        max_message_bytes: policy::MAX_MESSAGE_BYTES,
+        max_queue_bytes: policy::MAX_QUEUE_BYTES,
         max_envelope_bytes: protocol::MAX_EXPERIENCE_ENVELOPE_BYTES,
         max_messages_per_second: policy::MAX_MESSAGES_PER_SECOND,
         max_bytes_per_second: policy::MAX_BYTES_PER_SECOND,
@@ -360,6 +554,7 @@ fn constants() -> Result<Constants> {
         max_expanded_bytes: policy::MAX_EXPANDED_BYTES,
         max_channels: policy::MAX_CHANNELS,
         max_channel_fields: policy::MAX_CHANNEL_FIELDS,
+        max_field_depth: policy::MAX_FIELD_DEPTH,
         max_identifier_bytes: policy::MAX_IDENTIFIER_BYTES,
         max_fallback_bytes: policy::MAX_FALLBACK_BYTES,
         max_url_bytes: policy::MAX_URL_BYTES,

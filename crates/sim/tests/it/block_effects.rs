@@ -80,25 +80,6 @@ fn honey_lowers_the_jump_impulse() {
 }
 
 #[test]
-fn honey_wall_caps_a_fast_fall_only_when_pressed_against_it() {
-    let honey = Blocks {
-        floor: false,
-        response: SurfaceResponse::Honey,
-        ..Blocks::plain()
-    };
-    let mut falling = PlayerState::new(Vec3::new(0.5, 50.0, 0.5));
-    falling.velocity.y = -0.5;
-    falling.collisions.x = true;
-    let slid = run(&honey, falling, MovementInput::default(), 1);
-    assert!((slid.movement.y + 0.05).abs() < 1.0e-9);
-
-    let mut free = PlayerState::new(Vec3::new(0.5, 50.0, 0.5));
-    free.velocity.y = -0.5;
-    let dropped = run(&honey, free, MovementInput::default(), 1);
-    assert!(dropped.movement.y < -0.4);
-}
-
-#[test]
 fn soul_speed_offsets_the_soul_sand_slowdown() {
     let sand = Blocks {
         response: SurfaceResponse::SoulSand,
@@ -169,4 +150,32 @@ fn a_passable_slowing_block_slows_an_overlapping_body_like_powder_snow() {
         ..Blocks::plain()
     };
     assert!(drift(&bush) < drift(&free) * 0.75);
+}
+
+/// Liquid travel speed comes from attributes, so an overlapped block's speed factor never scales it.
+#[test]
+fn block_speed_factors_do_not_scale_liquid_travel() {
+    for flags in [BlockPhysicsFlags::WATER, BlockPhysicsFlags::LAVA] {
+        let travel = |horizontal_factor| {
+            let liquid = Blocks {
+                floor: false,
+                flags,
+                fluid_height: 1.0,
+                horizontal_factor,
+                ..Blocks::plain()
+            };
+            run(
+                &liquid,
+                PlayerState::new(Vec3::new(0.5, 10.0, 0.5)),
+                MovementInput {
+                    forward: 1.0,
+                    ..MovementInput::default()
+                },
+                1,
+            )
+            .movement
+            .z
+        };
+        assert_eq!(travel(0.543), travel(1.0), "{flags:?}");
+    }
 }

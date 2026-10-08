@@ -139,6 +139,20 @@ fn dispatch(world: &mut World) {
                 .ok_or_else(|| "the launcher menu is unavailable".to_owned())
                 .and_then(|mut menu| menu.apply_sign_in_fixture(state))
                 .map(|()| json!({ "fixture": state })),
+            Command::TestAccounts { enabled } => {
+                if let Some(mut menu) = world.get_resource_mut::<crate::menu::MenuRuntime>() {
+                    if menu.set_presentation_accounts(enabled) {
+                        Ok(json!({ "test_accounts": enabled }))
+                    } else {
+                        Err(
+                            "test_accounts needs a signed-out install with no sign-in under way"
+                                .into(),
+                        )
+                    }
+                } else {
+                    Err("the launcher menu is unavailable".into())
+                }
+            }
             Command::CameraPath(path) => camera::start(world, path),
             Command::CameraRelease => camera::release(world),
             Command::State => Ok(state::snapshot(world)),

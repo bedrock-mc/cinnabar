@@ -29,7 +29,6 @@ impl LocalPhysicsController {
             self.previous_jump_held = false;
             self.jump_edge_pending = false;
             self.input_edges = Default::default();
-            self.fly_toggle_pending = false;
             self.processed_jump_arc_active = false;
             self.modes.reset();
             self.last_environment = sim::MovementEnvironment::default();

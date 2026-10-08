@@ -241,9 +241,10 @@ animated rig remotes use. All three below flow from that.
 - Third-person boom collapses onto the player (camera reads as "too close"): the collision
   avoidance fails closed to radius 0 when the sweep errors or hits geometry; boom radius 4.0
   is itself vanilla-correct. Model height is correct — this is distance only (MED, confirmed live).
-- Dynamic FOV (sprint/speed/slowness/flying/bow/spyglass 0.1, tick smoothing, FOV-effects scale), walk view-bob,
+- Dynamic FOV multiplier follows vanilla (movement-speed ratio, slowness, flying, bow, spyglass 0.1, tick smoothing);
+  swim-speed factor, underwater narrowing and the final [5, 130] clamp are missing. Walk view-bob,
   hurt tilt, nausea/portal wobble, server shake and `CameraInstruction` set/clear/fade/FOV are implemented
-  presentation-only under `app/src/camera/`; every magnitude, curve and sign is provisional *(measure)* (MED).
+  presentation-only under `app/src/camera/`; their magnitudes, curves and signs are provisional *(measure)* (MED).
 - Screen overlays (pumpkin blur, spyglass scope, portal, freezing, suffocation, fire, server fade) draw in a dedicated
   pass (`ScreenOverlayRenderPlugin`); pumpkin and spyglass use the vanilla PNGs when found and procedural art
   otherwise; portal, fire and freezing are procedural, suffocation is a flat tint, and the vignette stays with the
@@ -252,7 +253,7 @@ animated rig remotes use. All three below flow from that.
   spline instructions, blindness/darkness/night-vision consumers (`VisionEffects`), first-person hand consumer of
   `FirstPersonHandMotion` (MED).
 - Look sensitivity now follows a provisional slider curve, gamepad look is frame-rate normalized, optional
-  cinematic smoothing; pitch clamp 89.9 vs 90 and FOV range/default still *(measure)* (MED).
+  cinematic smoothing; pitch clamp 89.9 vs 90 still *(measure)*; FOV default 60 and range 30..110 match vanilla (MED).
 
 ## Movement / physics / controls (Bedrock target)
 Core physics binary-confirmed correct (gravity/drag/friction/jump/speed). Gaps:

@@ -138,6 +138,7 @@ impl MenuRuntime {
             sign_in_cancelled: false,
             #[cfg(feature = "developer-control")]
             sign_in_fixture,
+            presentation_accounts: false,
             sign_out_requested: false,
             accounts: Default::default(),
             store_actions: Vec::new(),
@@ -169,6 +170,8 @@ impl MenuRuntime {
             local_world_joined: false,
             local_world_active: false,
             feeds: initial.feeds,
+            invite: Default::default(),
+            join_requests: Default::default(),
         }
     }
 }

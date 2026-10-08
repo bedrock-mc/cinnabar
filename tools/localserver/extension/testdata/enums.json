@@ -9,6 +9,8 @@
   ],
   "implemented_permissions": [
     "ui",
+    "modal_ui",
+    "input",
     "messaging"
   ],
   "directions": [

@@ -42,6 +42,7 @@ fn tools_list_names_every_tool() {
             "camera_path",
             "test_cape",
             "sign_in_fixture",
+            "test_accounts",
             "state",
             "wait_for",
             "screenshot",
@@ -210,6 +211,9 @@ fn pointer_wheel_and_cape_tools_preserve_arguments() {
     let (command, _) =
         commands::command("test_cape", &json!({"enabled": true}), repo, repo).unwrap();
     assert_eq!(command, Command::TestCape { enabled: true });
+    let (command, _) =
+        commands::command("test_accounts", &json!({"enabled": false}), repo, repo).unwrap();
+    assert_eq!(command, Command::TestAccounts { enabled: false });
     assert!(
         commands::command(
             "test_cape",

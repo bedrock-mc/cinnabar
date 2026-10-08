@@ -77,14 +77,20 @@ func startMedia(cfg settings, log *slog.Logger) (*extension.MediaServer, error) 
 	return media, nil
 }
 
-// deliverClientMessages passes each client part message to the Experience whose id is the bundle
-// id, as that player's callback; a player who has left, or a server without that Experience,
-// drops it.
-func deliverClientMessages(ext *extension.Server, players func(uuid.UUID) (*world.EntityHandle, bool), host *experience.Host, log *slog.Logger) {
+// deliverClientPartEvents passes each client part message, and each world epoch change that a
+// client part kept running through, to the Experience whose id is the bundle id, as that
+// player's callback; a player who has left, or a server without that Experience, drops it.
+func deliverClientPartEvents(ext *extension.Server, players func(uuid.UUID) (*world.EntityHandle, bool), host *experience.Host, log *slog.Logger) {
 	ext.OnClientMessage(func(player uuid.UUID, exp, channel string, schema uint16, payload []experience.Scalar) {
 		handle, ok := players(player)
 		if !ok || host == nil || !host.DeliverClientMessage(handle, exp, channel, schema, payload) {
 			log.Debug("client part message dropped", "experience", exp, "channel", channel, "schema", schema)
+		}
+	})
+	ext.OnEpoch(func(player uuid.UUID, exp string) {
+		handle, ok := players(player)
+		if !ok || host == nil || !host.DeliverEpoch(handle, exp) {
+			log.Debug("client part epoch dropped", "experience", exp)
 		}
 	})
 }

@@ -201,7 +201,7 @@ impl MenuRuntime {
         if let AuthState::AwaitingCode { code, .. } = state {
             #[cfg(not(test))]
             self.sign_in_browser
-                .open(code, explicit, crate::desktop::open_with_default);
+                .open(code, explicit, crate::desktop::open_sign_in_link);
             #[cfg(test)]
             self.sign_in_browser.open(code, explicit, |_| true);
         }

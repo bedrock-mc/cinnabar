@@ -1,5 +1,5 @@
 //! Converts stored values into the existing subsystem settings.
-use super::{ANIMATIONS_OPTION, SettingsOptions};
+use super::{ANIMATIONS_OPTION, MOUSE_SENSITIVITY_OPTION, SettingsOptions};
 use semantic_input::PerspectiveMode;
 
 impl SettingsOptions {
@@ -26,7 +26,7 @@ impl SettingsOptions {
         settings.video.outline_selection = self.value("classic_box_selection") != 0;
         settings.video.fov_effects_scale = self.value("field_of_view_toggle") as f32;
         settings.controls.mouse_sensitivity =
-            (self.value("keyboard_mouse_sensitivity") as f32 / 50.0).max(0.01);
+            self.value(MOUSE_SENSITIVITY_OPTION.name) as f32 / MOUSE_SENSITIVITY_OPTION.max as f32;
         settings.controls.invert_mouse_y = self.value("keyboard_mouse_invert_y_axis") != 0;
         settings.gameplay.always_sprint = self.value("always_sprint") != 0;
         settings.gameplay.default_perspective = match self.value("third_person") {

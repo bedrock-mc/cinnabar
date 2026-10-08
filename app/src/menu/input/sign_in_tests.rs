@@ -112,3 +112,43 @@ fn completed_add_account_prompt_keeps_cancel_above_a_hidden_editor() {
     assert!(menu.sign_in_cancelled);
     assert!(menu.dressing_room.editor.is_some());
 }
+
+#[test]
+fn settings_refresh_keeps_sign_in_focus_before_geometry_arrives() {
+    let mut menu = MenuRuntime::new(true, 2, "Offline Player".into());
+    menu.screen = MenuScreen::Settings;
+    menu.apply_control_auth(AuthState::AwaitingCode {
+        uri: "https://example.invalid".into(),
+        code: "TEST-CODE".into(),
+    });
+    let actions = [
+        MenuAction::CancelSignIn,
+        MenuAction::OpenSignInLink,
+        MenuAction::CancelSignIn,
+    ];
+    for _ in 0..3 {
+        menu.refresh_settings_focus(actions);
+        assert_eq!(menu.view().focused_action, Some(MenuAction::OpenSignInLink));
+    }
+    menu.focused = 1;
+    for _ in 0..3 {
+        menu.refresh_settings_focus(actions);
+        assert_eq!(menu.view().focused_action, Some(MenuAction::CancelSignIn));
+    }
+}
+
+#[test]
+fn pending_join_request_defers_input_until_sign_in_closes() {
+    let mut menu = MenuRuntime::new(true, 2, "Offline Player".into());
+    menu.push_join_request(1, "Alex".into(), std::time::Duration::ZERO);
+    menu.apply_control_auth(AuthState::AwaitingCode {
+        uri: "https://example.invalid".into(),
+        code: "TEST-CODE".into(),
+    });
+    assert!(!menu.join_request_prompted());
+    assert_eq!(menu.view().focused_action, Some(MenuAction::OpenSignInLink));
+    menu.go_back_from_input();
+    assert_eq!(menu.current_auth().as_ref(), &AuthState::SignedOut);
+    assert!(menu.join_request_prompted());
+    assert_eq!(menu.take_join_reply(), None);
+}

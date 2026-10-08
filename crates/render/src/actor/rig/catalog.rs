@@ -10,8 +10,8 @@ use std::{
 
 use super::{
     ActorRigGeometry, ActorRigGeometryError, ActorRigGeometrySpan, ActorRigVertex, EntityRigId,
-    MAX_ACTOR_RIG_VERTICES,
 };
+use render_model::MAX_ACTOR_CATALOG_VERTICES;
 
 #[path = "catalog/pages.rs"]
 mod pages;
@@ -103,12 +103,20 @@ pub(super) struct GeometryCatalog {
     pub(super) vertices: ActorRigVertexSegments,
     page_fingerprints: Vec<u64>,
     pub(super) revision: u64,
+    pub(super) maximum_vertices: usize,
 }
 
 impl GeometryCatalog {
     /// Places immutable geometry pages consecutively without copying their vertices.
     pub(super) fn layout(
+        geometries: BTreeMap<EntityRigId, ActorRigGeometry>,
+    ) -> Result<Self, ActorRigGeometryError> {
+        Self::layout_with_limit(geometries, MAX_ACTOR_CATALOG_VERTICES)
+    }
+
+    pub(super) fn layout_with_limit(
         mut geometries: BTreeMap<EntityRigId, ActorRigGeometry>,
+        maximum_vertices: usize,
     ) -> Result<Self, ActorRigGeometryError> {
         for geometry in geometries.values_mut() {
             geometry.revalidate()?;
@@ -121,7 +129,7 @@ impl GeometryCatalog {
         for (id, geometry) in &mut geometries {
             let page = pages.intern(&geometry.vertices);
             if page == offsets.len() {
-                if len + geometry.vertices.len() > MAX_ACTOR_RIG_VERTICES {
+                if geometry.vertices.len() > maximum_vertices.saturating_sub(len) {
                     return Err(ActorRigGeometryError::CatalogCapacity);
                 }
                 offsets.push(len);
@@ -148,6 +156,7 @@ impl GeometryCatalog {
             },
             page_fingerprints: pages.fingerprints,
             revision,
+            maximum_vertices,
         })
     }
 
@@ -158,10 +167,10 @@ impl GeometryCatalog {
         for geometry in geometries.values() {
             let page = pages.intern(&geometry.vertices);
             if used.insert(page) {
-                len += geometry.vertices.len();
-                if len > MAX_ACTOR_RIG_VERTICES {
+                if geometry.vertices.len() > self.maximum_vertices.saturating_sub(len) {
                     return false;
                 }
+                len += geometry.vertices.len();
             }
         }
         true
@@ -190,10 +199,10 @@ impl GeometryCatalog {
             let page = pages.intern(&geometry.vertices);
             geometry.vertices = Arc::clone(&pages.pages[page]);
             if used.insert(page) {
-                live_len += geometry.vertices.len();
-                if live_len > MAX_ACTOR_RIG_VERTICES {
+                if geometry.vertices.len() > self.maximum_vertices.saturating_sub(live_len) {
                     return Err(ActorRigGeometryError::CatalogCapacity);
                 }
+                live_len += geometry.vertices.len();
             }
             let index = match indices.get(id) {
                 Some(&index) => index as usize,
@@ -227,7 +236,7 @@ impl GeometryCatalog {
         let mut relocate = false;
         for &page in order.iter().filter(|&&page| page >= retained_count) {
             let count = pages.pages[page].len();
-            if let Some(offset) = vacant_range(&occupied, count) {
+            if let Some(offset) = vacant_range(&occupied, count, self.maximum_vertices) {
                 occupied.insert(offset, count);
                 page_offsets[page] = offset;
             } else {
@@ -274,7 +283,11 @@ impl GeometryCatalog {
 }
 
 /// Finds the first contiguous unused address range within the existing vertex ceiling.
-fn vacant_range(occupied: &BTreeMap<usize, usize>, count: usize) -> Option<usize> {
+fn vacant_range(
+    occupied: &BTreeMap<usize, usize>,
+    count: usize,
+    maximum_vertices: usize,
+) -> Option<usize> {
     let mut start = 0;
     for (&offset, &len) in occupied {
         if offset >= start + count {
@@ -282,7 +295,7 @@ fn vacant_range(occupied: &BTreeMap<usize, usize>, count: usize) -> Option<usize
         }
         start = start.max(offset + len);
     }
-    (start + count <= MAX_ACTOR_RIG_VERTICES).then_some(start)
+    (start + count <= maximum_vertices).then_some(start)
 }
 
 /// Hashes initial page contents in the same order as the former contiguous layout.

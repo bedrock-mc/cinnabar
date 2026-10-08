@@ -47,10 +47,10 @@ fn water_acceleration_multiplies_effective_level_before_division() {
     ] {
         let input = super::MovementInput {
             movement_speed: Some(speed),
+            depth_strider: level,
             ..Default::default()
         };
-        let effective = super::depth_strider_level(level, grounded);
-        let actual = super::water_travel_speed(&input, 1.0, effective);
+        let actual = super::water_travel_speed(&input, grounded);
         assert_eq!((actual as f32).to_bits(), expected);
     }
 }

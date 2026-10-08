@@ -99,6 +99,10 @@ fn pointer_wheel_and_test_cape_parse_from_wire() {
         parse(json!({"cmd": "test_cape", "enabled": false})).unwrap(),
         Command::TestCape { enabled: false }
     );
+    assert_eq!(
+        parse(json!({"cmd": "test_accounts", "enabled": true})).unwrap(),
+        Command::TestAccounts { enabled: true }
+    );
 }
 
 #[test]
