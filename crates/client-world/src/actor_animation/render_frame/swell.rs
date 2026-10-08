@@ -134,17 +134,17 @@ impl SwellSampling {
         &self,
         assets: &RuntimeEntityAssets,
         names: &[Box<str>],
-        clips: &[tick::WeightedClip],
+        clips: impl IntoIterator<Item = tick::WeightedClip>,
         geometry: Option<u32>,
     ) -> Vec<[u8; 3]> {
         let mut mask = vec![[0; 3]; names.len()];
         for weighted in clips {
             let weighted = match geometry {
-                Some(geometry) => match render::clip_for_layer(assets, *weighted, geometry) {
+                Some(geometry) => match render::clip_for_layer(assets, weighted, geometry) {
                     Some(weighted) => weighted,
                     None => continue,
                 },
-                None => *weighted,
+                None => weighted,
             };
             let Some(clip) = assets.animation_clips().get(weighted.clip) else {
                 continue;

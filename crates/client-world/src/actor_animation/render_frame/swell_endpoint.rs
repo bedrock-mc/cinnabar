@@ -49,9 +49,11 @@ impl SwellMotion {
                 &evaluator,
                 &mut variables,
                 state,
-                &self.clips,
-                &self.clocks,
-                &self.controllers,
+                clips::ClipHistory {
+                    clips: &self.clips,
+                    clocks: &self.clocks,
+                    controllers: &self.controllers,
+                },
                 state.swell_sampling.as_deref(),
                 budget,
             )?

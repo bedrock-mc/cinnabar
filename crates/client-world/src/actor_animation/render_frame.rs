@@ -314,9 +314,11 @@ impl ActorAnimationStore {
                 &evaluator,
                 &mut variables,
                 state,
-                &frame.motion.clips,
-                &state.clip_clocks,
-                &state.controllers,
+                clips::ClipHistory {
+                    clips: &frame.motion.clips,
+                    clocks: &state.clip_clocks,
+                    controllers: &state.controllers,
+                },
                 state.swell_sampling.as_deref().filter(|_| swell_changed),
                 &mut budget,
             ) else {
@@ -364,7 +366,21 @@ impl ActorAnimationStore {
         let sampled_swell_mask = (sampled_clips.is_some() || endpoints.is_some())
             .then_some(state.swell_sampling.as_ref())
             .flatten()
-            .map(|sampling| sampling.mask(assets, &state.bone_names, clips, None));
+            .map(|sampling| {
+                sampling.mask(
+                    assets,
+                    &state.bone_names,
+                    clips
+                        .iter()
+                        .chain(
+                            endpoints
+                                .as_ref()
+                                .map_or(&[][..], |(previous, _)| previous.clips.as_slice()),
+                        )
+                        .copied(),
+                    None,
+                )
+            });
         let swell_previous = if let Some((previous, _)) = endpoints.as_mut() {
             let Some(history) = frame.swell_poses.as_ref() else {
                 return Some(completed());
@@ -458,7 +474,19 @@ impl ActorAnimationStore {
                             .then_some(state.swell_sampling.as_ref())
                             .flatten()
                             .map(|sampling| {
-                                sampling.mask(assets, &skeleton.names, clips, Some(geometry))
+                                sampling.mask(
+                                    assets,
+                                    &skeleton.names,
+                                    clips
+                                        .iter()
+                                        .chain(
+                                            endpoints.as_ref().map_or(&[][..], |(previous, _)| {
+                                                previous.clips.as_slice()
+                                            }),
+                                        )
+                                        .copied(),
+                                    Some(geometry),
+                                )
                             });
                         let previous_local = if let (Some(history), Some((previous, _))) =
                             (frame.swell_layers.get(&geometry), endpoints.as_ref())

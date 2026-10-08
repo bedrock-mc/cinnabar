@@ -1,17 +1,26 @@
 //! Presentation sampling against frozen completed animation state.
 use super::*;
 
+pub(super) struct ClipHistory<'a> {
+    pub clips: &'a [tick::WeightedClip],
+    pub clocks: &'a super::super::clock::ClipClocks,
+    pub controllers: &'a [ControllerState],
+}
+
 /// Resamples weights on scratch controllers without committing transitions or advancing clip clocks.
 pub(super) fn sample(
     evaluator: &evaluation::Evaluator<'_>,
     variables: &mut MolangVariables,
     state: &ActorRigState,
-    previous: &[tick::WeightedClip],
-    clocks: &super::super::clock::ClipClocks,
-    controllers: &[ControllerState],
+    history: ClipHistory<'_>,
     swelling: Option<&swell::SwellSampling>,
     budget: &mut EvalBudget<'_>,
 ) -> Result<Vec<tick::WeightedClip>, EvalError> {
+    let ClipHistory {
+        clips: previous,
+        clocks,
+        controllers,
+    } = history;
     let mut controllers = controllers.to_vec();
     let mut clips = tick::selection::select(
         evaluator,

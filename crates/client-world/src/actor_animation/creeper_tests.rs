@@ -346,9 +346,11 @@ fn pack_swell_fixture(
     swell_time: bool,
 ) -> crate::actor_store::ActorStore {
     pack_swell_fixture_with(
-        pre_animation,
-        property,
-        variable,
+        AuthoredSwellChannel {
+            pre_animation: pre_animation,
+            property: property,
+            variable: variable,
+        },
         weighted_query_channel,
         alternate,
         ticks,
@@ -357,16 +359,25 @@ fn pack_swell_fixture(
     )
 }
 
-fn pack_swell_fixture_with(
+struct AuthoredSwellChannel {
     pre_animation: bool,
     property: assets::EntityAnimationProperty,
     variable: bool,
+}
+
+fn pack_swell_fixture_with(
+    channel: AuthoredSwellChannel,
     weighted_query_channel: Option<bool>,
     alternate: bool,
     ticks: u32,
     swell_time: bool,
     edit: impl FnOnce(&mut assets::CompiledEntityAssets),
 ) -> crate::actor_store::ActorStore {
+    let AuthoredSwellChannel {
+        pre_animation,
+        property,
+        variable,
+    } = channel;
     let mut compiled = super::attachable::tests::compiled_fixture();
     compiled.sources[1].path = "entity/creeper.json".into();
     compiled.symbols[4].kind = assets::EntityAssetKind::Entity;
@@ -724,9 +735,11 @@ fn swell_driven_clip_time_samples_fraction_without_advancing_tick_clock() {
 #[test]
 fn cumulative_swell_clock_reuses_the_pre_update_baseline() {
     let store = pack_swell_fixture_with(
-        false,
-        assets::EntityAnimationProperty::Translation,
-        false,
+        AuthoredSwellChannel {
+            pre_animation: false,
+            property: assets::EntityAnimationProperty::Translation,
+            variable: false,
+        },
         None,
         false,
         7,
@@ -771,9 +784,11 @@ fn cumulative_swell_clock_reuses_the_pre_update_baseline() {
 fn swell_and_motion_share_one_axis_without_losing_motion_history() {
     for operation in [MolangOp::Add, MolangOp::Multiply] {
         let store = pack_swell_fixture_with(
-            true,
-            assets::EntityAnimationProperty::Translation,
-            true,
+            AuthoredSwellChannel {
+                pre_animation: true,
+                property: assets::EntityAnimationProperty::Translation,
+                variable: true,
+            },
             None,
             false,
             7,
@@ -820,9 +835,11 @@ fn swell_and_motion_share_one_axis_without_losing_motion_history() {
 #[test]
 fn swell_on_an_alternate_only_bone_samples_the_frame_fraction() {
     let store = pack_swell_fixture_with(
-        false,
-        assets::EntityAnimationProperty::Translation,
-        false,
+        AuthoredSwellChannel {
+            pre_animation: false,
+            property: assets::EntityAnimationProperty::Translation,
+            variable: false,
+        },
         None,
         true,
         8,
@@ -896,13 +913,37 @@ fn deactivated_swell_weights_remove_retained_channel_values() {
 
 #[test]
 fn swell_weights_retain_each_endpoint_controller_state() {
-    let store = pack_swell_fixture_with(
-        false,
-        assets::EntityAnimationProperty::Translation,
-        false,
+    let store = swell_controller_fixture(3, 0.12, false);
+    let tick = store.actor_rig(1).unwrap().completed_tick;
+    for alpha in [0.0, 0.25, 0.75, 1.0] {
+        let layers = store.render_frame(alpha).layers(1).unwrap();
+        let swell = (2.0 + alpha) / crate::actor_store::creeper::SWELL_FULL_TICKS;
+        assert!(
+            (layers[0].previous_pose[0].translation_scale[0] + swell * swell).abs() < 1e-6,
+            "previous endpoint keeps its earlier controller state"
+        );
+        assert!(
+            (layers[0].pose[0].translation_scale[0] + (swell + 1.0) * swell).abs() < 1e-6,
+            "current endpoint keeps its transitioned controller state"
+        );
+    }
+    assert_eq!(store.actor_rig(1).unwrap().completed_tick, tick);
+}
+
+fn swell_controller_fixture(
+    ticks: u32,
+    threshold: f32,
+    deactivate: bool,
+) -> crate::actor_store::ActorStore {
+    pack_swell_fixture_with(
+        AuthoredSwellChannel {
+            pre_animation: false,
+            property: assets::EntityAnimationProperty::Translation,
+            variable: false,
+        },
         None,
         false,
-        3,
+        ticks,
         false,
         |compiled| {
             use assets::*;
@@ -966,10 +1007,14 @@ fn swell_weights_retain_each_endpoint_controller_state() {
             compiled.molang_ops = vec![
                 MolangOp::LoadQuery(4),
                 MolangOp::LoadQuery(4),
-                MolangOp::Push(scalar(1.0)),
-                MolangOp::Add,
+                MolangOp::Push(scalar(if deactivate { 0.0 } else { 1.0 })),
+                if deactivate {
+                    MolangOp::Multiply
+                } else {
+                    MolangOp::Add
+                },
                 MolangOp::LoadQuery(3),
-                MolangOp::Push(scalar(0.12)),
+                MolangOp::Push(scalar(threshold)),
                 MolangOp::Greater,
             ]
             .into();
@@ -1043,19 +1088,23 @@ fn swell_weights_retain_each_endpoint_controller_state() {
             }]
             .into();
         },
-    );
-    let tick = store.actor_rig(1).unwrap().completed_tick;
-    for alpha in [0.0, 0.25, 0.75, 1.0] {
+    )
+}
+
+#[test]
+fn previous_controller_can_activate_a_swell_channel_at_the_frame_fraction() {
+    let store = swell_controller_fixture(2, 0.07, true);
+    for alpha in [0.25, 0.5, 0.75] {
         let layers = store.render_frame(alpha).layers(1).unwrap();
-        let swell = (2.0 + alpha) / crate::actor_store::creeper::SWELL_FULL_TICKS;
+        let swell = (1.0 + alpha) / crate::actor_store::creeper::SWELL_FULL_TICKS;
         assert!(
             (layers[0].previous_pose[0].translation_scale[0] + swell * swell).abs() < 1e-6,
-            "previous endpoint keeps its earlier controller state"
+            "newly active previous-endpoint channels join the mask: alpha {alpha}, value {}, swell {swell}",
+            layers[0].previous_pose[0].translation_scale[0]
         );
-        assert!(
-            (layers[0].pose[0].translation_scale[0] + (swell + 1.0) * swell).abs() < 1e-6,
-            "current endpoint keeps its transitioned controller state"
+        assert_eq!(
+            layers[0].pose[0].translation_scale[0], 0.0,
+            "transitioned zero-weight current state stays at rest"
         );
     }
-    assert_eq!(store.actor_rig(1).unwrap().completed_tick, tick);
 }

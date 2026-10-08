@@ -547,7 +547,7 @@ pub(super) fn evaluate_state(
             mask: state.swell_sampling.as_ref().unwrap().mask(
                 assets,
                 &state.bone_names,
-                &weighted_clips,
+                weighted_clips.iter().copied(),
                 None,
             ),
         });
@@ -563,7 +563,7 @@ pub(super) fn evaluate_state(
                         mask: state.swell_sampling.as_ref().unwrap().mask(
                             assets,
                             &state.layer_skeletons[&geometry].as_ref().unwrap().names,
-                            &weighted_clips,
+                            weighted_clips.iter().copied(),
                             Some(geometry),
                         ),
                     },
