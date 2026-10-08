@@ -100,7 +100,7 @@ impl UiPresentationRuntime {
                 .active(self.menu_seconds)
         {
             self.retainable_menu(runtime)
-                .and_then(|_| self.menu_view.as_ref())
+                .and(self.menu_view.as_ref())
                 .map(Arc::clone)
         } else {
             None
