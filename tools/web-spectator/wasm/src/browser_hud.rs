@@ -21,7 +21,10 @@ use view_presentation::{
     ui_atlas::HudTexturePages,
 };
 
-use super::browser_model::{Fighter, Item};
+use super::{
+    browser_hud_playback::BrowserHudPlayback,
+    browser_model::{Fighter, Item},
+};
 
 pub(super) struct BrowserHud {
     catalog: Catalog,
@@ -34,12 +37,8 @@ pub(super) struct BrowserHud {
     ui_first_page: u16,
     solid_page: u16,
     layouts: RefCell<TextLayoutCache>,
-    cached: Option<(HudModel, [u32; 2], Vec<DrawNode>)>,
-    animator: json_ui::Animator,
-    title_request: Option<(String, String, u64)>,
+    playback: BrowserHudPlayback,
     generation: u64,
-    health: Option<(String, f32)>,
-    last_health_drop_millis: Option<u64>,
     nametag_atlas: NametagAtlas,
 }
 
@@ -101,14 +100,15 @@ impl BrowserHud {
                 ui::DEFAULT_TEXT_CACHE_ENTRIES,
                 ui::DEFAULT_TEXT_CACHE_BYTES,
             )),
-            cached: None,
-            animator: json_ui::Animator::default(),
-            title_request: None,
+            playback: BrowserHudPlayback::default(),
             generation: 0,
-            health: None,
-            last_health_drop_millis: None,
             nametag_atlas: NametagAtlas::default(),
         })
+    }
+
+    /// Discards retained presentation history at a replay seek or timeline change.
+    pub(super) fn reset(&mut self) {
+        self.playback.reset();
     }
 
     /// The native billboard atlas shares the same compiled font and layout cache as the HUD.
@@ -139,30 +139,11 @@ impl BrowserHud {
         let Some((fighter, pov)) =
             fighter.and_then(|fighter| fighter.pov.as_ref().map(|pov| (fighter, pov)))
         else {
-            self.health = None;
-            self.last_health_drop_millis = None;
-            self.title_request = None;
-            self.animator.end_frame();
+            self.playback.clear_fighter();
             return self.publish(Vec::new(), viewport);
         };
-        if self.health.as_ref().is_none_or(|(id, _)| id != &fighter.id) {
-            self.cached = None;
-            self.animator = json_ui::Animator::default();
-        }
-        if self
-            .health
-            .as_ref()
-            .is_some_and(|(id, health)| id == &fighter.id && fighter.health < *health)
-        {
-            self.last_health_drop_millis = Some(now_millis);
-        } else if self
-            .health
-            .as_ref()
-            .is_some_and(|(id, _)| id != &fighter.id)
-        {
-            self.last_health_drop_millis = None;
-        }
-        self.health = Some((fighter.id.clone(), fighter.health));
+        self.playback
+            .observe_fighter(&fighter.id, fighter.health, now_millis);
         let slot = |item: Option<&Item>, selected: bool, drawn: &mut Vec<IconRef>| -> HudSlot {
             let icon = item.and_then(|item| {
                 self.icons
@@ -232,14 +213,20 @@ impl BrowserHud {
             }),
             ..HudModel::default()
         };
-        model.title = pov.hud.title.as_ref().map(|title| {
-            let creation_id = self
-                .title_request
+        let title_creation_id = self.playback.title_creation_id(
+            &fighter.id,
+            pov.hud
+                .title
                 .as_ref()
-                .filter(|(id, updated, _)| id == &fighter.id && updated == &title.updated_at)
-                .map_or(self.generation, |(_, _, sequence)| *sequence);
-            self.title_request = Some((fighter.id.clone(), title.updated_at.clone(), creation_id));
-            json_ui::HudTitle {
+                .map(|title| title.updated_at.as_str()),
+            self.generation,
+        );
+        model.title = pov
+            .hud
+            .title
+            .as_ref()
+            .zip(title_creation_id)
+            .map(|(title, creation_id)| json_ui::HudTitle {
                 creation_id,
                 title: title.text.clone(),
                 subtitle: title.subtitle.clone(),
@@ -248,13 +235,10 @@ impl BrowserHud {
                 fade_out: f64::from(title.fade_out_ticks.max(0)) / 20.0,
                 background_alpha: 0.0,
                 born: timestamp_seconds(&title.updated_at, now_millis),
-            }
-        });
-        if model.title.is_none() {
-            self.title_request = None;
-        }
+            });
         let context = json_ui::hud_context(&Context::retail(false));
         if self
+            .playback
             .cached
             .as_ref()
             .is_none_or(|(cached, size, _)| cached != &model || *size != viewport)
@@ -295,7 +279,7 @@ impl BrowserHud {
                 .ok_or_else(|| format!("authored HUD screen {reference} is missing"))?;
                 nodes.extend(screen.nodes);
             }
-            self.cached = Some((model.clone(), viewport, nodes));
+            self.playback.cached = Some((model.clone(), viewport, nodes));
         }
         let tick = now_millis / 50;
         let effects = pov
@@ -329,7 +313,7 @@ impl BrowserHud {
             effects: &effects,
             now_tick: Some(tick),
             now_millis,
-            last_health_drop_millis: self.last_health_drop_millis,
+            last_health_drop_millis: self.playback.last_health_drop_millis,
             first_person: true,
             hotbar_allowed: true,
             survival_stats_visible: true,
@@ -355,12 +339,18 @@ impl BrowserHud {
             px,
             solid_page: self.solid_page,
             icons: &drawn_icons,
-            animator: &mut self.animator,
+            animator: &mut self.playback.animator,
             nodes: Vec::new(),
             clip: [0.0, 0.0, viewport[0] as f32, viewport[1] as f32],
             next: 1,
         };
-        for node in &self.cached.as_ref().expect("HUD layout installed").2 {
+        for node in &self
+            .playback
+            .cached
+            .as_ref()
+            .expect("HUD layout installed")
+            .2
+        {
             painter.paint(node, &paint, &clocks, now_millis as f64 / 1_000.0)?;
         }
         painter.animator.take_events();

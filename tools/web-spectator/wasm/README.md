@@ -113,6 +113,11 @@ axis and 64 MiB of packed mesh output. GPU publication uses the native bounded
 queue with at most eight uploads/eight MiB per frame. Terrain meshes once per
 arena; live frames update fighters and HUD without remeshing it.
 
+An arena's `id` matches the frame's `arenaId`; snapshots from another arena
+do not alter its terrain. Omitted IDs retain the active-arena behavior.
+Reloading the active arena restores its current block overrides immediately,
+including during paused playback without another frame.
+
 The older `mesh_arena(json)` binding still returns nine-float flat triangle
 vertices as a diagnostic geometry tool. The website viewer does not use it.
 

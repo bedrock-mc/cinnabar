@@ -17,6 +17,9 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
 
+[dev-dependencies]
+json-ui = { path = "../../../crates/json-ui" }
+
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 client-world = { path = "../../../crates/client-world" }
 gameplay = { path = "../../../crates/gameplay" }

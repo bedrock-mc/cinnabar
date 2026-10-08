@@ -124,8 +124,8 @@ impl Frame {
             }
         }
         if frame.fighters.len() > 32
-            || frame.id.len() > 128
-            || frame.arena_id.len() > 128
+            || frame.id.len() > crate::model::MAX_SCENE_ID_BYTES
+            || frame.arena_id.len() > crate::model::MAX_SCENE_ID_BYTES
             || frame.updated_at.len() > 64
         {
             return Err("spectator frame exceeds fighter or identity limits".into());

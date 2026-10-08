@@ -21,6 +21,7 @@ pub(super) fn prepare(
 }
 
 pub(super) struct TerrainScene {
+    arena_id: Option<String>,
     world: ChunkStore,
     keys: BTreeSet<SubChunkKey>,
     original: BTreeMap<[i32; 3], u32>,
@@ -57,12 +58,34 @@ impl TerrainScene {
                 .map_err(|error| format!("invalid arena block batch: {error}"))?;
         }
         Ok(Self {
+            arena_id: arena.id.clone(),
             world,
             keys,
             original: BTreeMap::new(),
             current: BTreeMap::new(),
             bounds: arena.bounds,
         })
+    }
+    /// Prepares a replacement for the current frame without publishing partial terrain.
+    pub(super) fn from_frame(
+        arena: &Arena,
+        assets: &TerrainAssets,
+        frame: Option<&crate::browser_model::Frame>,
+    ) -> Result<Self, String> {
+        let mut scene = Self::new(arena, assets)?;
+        if let Some(frame) = frame
+            && scene.matches_frame(frame)
+        {
+            scene.update_blocks(&frame.blocks, assets)?;
+        }
+        Ok(scene)
+    }
+
+    /// Descriptors without an identity retain the legacy active-arena behavior.
+    pub(super) fn matches_frame(&self, frame: &crate::browser_model::Frame) -> bool {
+        self.arena_id
+            .as_ref()
+            .is_none_or(|id| id == &frame.arena_id)
     }
     pub(super) fn initial(
         &self,
@@ -77,6 +100,16 @@ impl TerrainScene {
         blocks: &[crate::browser_model::SceneBlock],
         assets: &TerrainAssets,
     ) -> Result<VecDeque<(SubChunkKey, ChunkMesh)>, String> {
+        let affected = self.update_blocks(blocks, assets)?;
+        mesh_keys(&self.world, affected, assets, true)
+    }
+
+    /// Updates cumulative overrides independently of mesh publication.
+    fn update_blocks(
+        &mut self,
+        blocks: &[crate::browser_model::SceneBlock],
+        assets: &TerrainAssets,
+    ) -> Result<BTreeSet<SubChunkKey>, String> {
         let entries = blocks
             .iter()
             .map(|block| crate::model::PaletteEntry {
@@ -146,7 +179,7 @@ impl TerrainScene {
             }
         }
         self.current = next;
-        mesh_keys(&self.world, affected, assets, true)
+        Ok(affected)
     }
 }
 fn mesh_keys(

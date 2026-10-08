@@ -3,6 +3,7 @@ use serde_json::{Map, Value};
 
 pub(super) const MAX_BLOCKS: usize = 1_000_000;
 pub(super) const MAX_PALETTE: usize = assets::MAX_TEXTURE_LAYERS;
+pub(super) const MAX_SCENE_ID_BYTES: usize = 128;
 const MAX_JSON_BYTES: usize = 32 * 1024 * 1024;
 const MAX_COORDINATE: i32 = 1_000_000;
 // Bound each axis as well as total blocks to limit sparse-scene preparation.
@@ -10,6 +11,8 @@ const MAX_AXIS_EXTENT: i32 = 1024;
 
 #[derive(Deserialize)]
 pub(super) struct Arena {
+    #[serde(default)]
+    pub(super) id: Option<String>,
     pub(super) palette: Vec<PaletteEntry>,
     pub(super) blocks: Vec<[i32; 4]>,
     pub(super) bounds: [i32; 6],
@@ -40,6 +43,13 @@ impl Arena {
     }
 
     pub(super) fn validate(&self) -> Result<(), String> {
+        if self
+            .id
+            .as_ref()
+            .is_some_and(|id| id.len() > MAX_SCENE_ID_BYTES)
+        {
+            return Err("arena identity exceeds the browser limit".into());
+        }
         if self.blocks.len() > MAX_BLOCKS {
             return Err("arena exceeds the one-million-block browser limit".into());
         }

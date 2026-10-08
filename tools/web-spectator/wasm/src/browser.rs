@@ -317,7 +317,18 @@ impl Viewer {
     /// Validates the canonical block states and meshes with native Cinnabar assets.
     pub fn set_arena(&self, input: &str) -> Result<(), String> {
         let arena = Arena::parse(input)?;
-        let terrain_scene = terrain_runtime::TerrainScene::new(&arena, &self.terrain)?;
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| "spectator state is unavailable")?;
+        if state.error.is_some() {
+            return Err("spectator renderer has stopped".into());
+        }
+        let terrain_scene = terrain_runtime::TerrainScene::from_frame(
+            &arena,
+            &self.terrain,
+            state.current.as_ref(),
+        )?;
         let meshes = terrain_scene.initial(&self.terrain)?;
         *self
             .terrain_scene
@@ -328,13 +339,6 @@ impl Viewer {
             (arena.bounds[1] + arena.bounds[4]) as f32 * 0.5,
             (arena.bounds[2] + arena.bounds[5]) as f32 * 0.5,
         );
-        let mut state = self
-            .state
-            .lock()
-            .map_err(|_| "spectator state is unavailable")?;
-        if state.error.is_some() {
-            return Err("spectator renderer has stopped".into());
-        }
         state.terrain_updates.clear();
         state.arena = Some(ArenaPublication { meshes, center });
         Ok(())
@@ -360,15 +364,14 @@ impl Viewer {
         {
             return Err("spectator frame belongs to a different duel".into());
         }
-        if state
-            .current
-            .as_ref()
-            .is_none_or(|current| current.blocks != frame.blocks)
-            && let Some(terrain) = self
-                .terrain_scene
-                .lock()
-                .map_err(|_| "arena state is unavailable")?
-                .as_mut()
+        if state.current.as_ref().is_none_or(|current| {
+            current.arena_id != frame.arena_id || current.blocks != frame.blocks
+        }) && let Some(terrain) = self
+            .terrain_scene
+            .lock()
+            .map_err(|_| "arena state is unavailable")?
+            .as_mut()
+            && terrain.matches_frame(&frame)
         {
             for (key, mesh) in terrain.apply(&frame.blocks, &self.terrain)? {
                 state.terrain_updates.retain(|(pending, _)| *pending != key);
@@ -796,6 +799,7 @@ fn update_viewer(
         && frame.replay_epoch != runtime.replay_epoch
     {
         runtime.camera_motion.reset();
+        runtime.hud.reset();
         runtime.replay_epoch = frame.replay_epoch;
     }
     let current = state.current.as_ref();

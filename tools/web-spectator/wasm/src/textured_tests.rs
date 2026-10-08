@@ -158,3 +158,96 @@ fn replay_seek_restores_removed_blocks_and_cross_boundary_faces() {
     );
     assert!(scene.apply(&[], &assets).unwrap().is_empty());
 }
+
+/// Models a committed replay snapshot, including its cumulative block overrides.
+fn frame_for(arena_id: &str, blocks: serde_json::Value) -> crate::browser_model::Frame {
+    crate::browser_model::Frame::parse(
+        &json!({"id":"recording", "arenaId":arena_id,
+            "updatedAt":"2026-10-08T12:00:00Z", "players":[],
+            "replayPlaying":false, "blocks":blocks})
+        .to_string(),
+    )
+    .unwrap()
+}
+
+#[test]
+fn terrain_reload_retains_unchanged_paused_snapshot_without_another_frame() {
+    let arena = Arena::parse(
+        &json!({"id":"arena", "palette":[{"name":"minecraft:air"},{"name":"minecraft:stone"}],
+        "blocks":[[-1,0,0,1],[0,0,0,1]],"bounds":[-1,0,0,0,0,0]})
+        .to_string(),
+    )
+    .unwrap();
+    let assets = diagnostic_assets(&arena);
+    let frame = frame_for(
+        "arena",
+        json!([{"position":[0,0,0],"name":"minecraft:air"}]),
+    );
+    let mut original = terrain_runtime::TerrainScene::new(&arena, &assets).unwrap();
+    original.apply(&frame.blocks, &assets).unwrap();
+    let before = original.initial(&assets).unwrap();
+    let mut reloaded =
+        terrain_runtime::TerrainScene::from_frame(&arena, &assets, Some(&frame)).unwrap();
+    let after = reloaded.initial(&assets).unwrap();
+    assert_eq!(
+        after.len(),
+        before.len(),
+        "removed subchunk must stay removed after reload"
+    );
+    assert_eq!(after[0].0, before[0].0);
+    assert_eq!(
+        after[0].1.quad_count(),
+        6,
+        "neighbour faces must remain exposed"
+    );
+    assert!(
+        reloaded.apply(&frame.blocks, &assets).unwrap().is_empty(),
+        "repeated snapshot must already be applied"
+    );
+    assert_eq!(
+        reloaded
+            .apply(&[], &assets)
+            .unwrap()
+            .iter()
+            .map(|(_, mesh)| mesh.quad_count())
+            .sum::<usize>(),
+        10,
+        "removing the override restores the reloaded arena baseline"
+    );
+}
+
+#[test]
+fn terrain_first_arena_applies_a_frame_received_before_its_descriptor() {
+    let arena = Arena::parse(
+        &json!({"id":"arena", "palette":[{"name":"minecraft:air"},{"name":"minecraft:stone"}],
+        "blocks":[[0,0,0,1]],"bounds":[0,0,0,0,0,0]})
+        .to_string(),
+    )
+    .unwrap();
+    let assets = diagnostic_assets(&arena);
+    let frame = frame_for(
+        "arena",
+        json!([{"position":[0,0,0],"name":"minecraft:air"}]),
+    );
+    let scene = terrain_runtime::TerrainScene::from_frame(&arena, &assets, Some(&frame)).unwrap();
+    assert!(scene.initial(&assets).unwrap().is_empty());
+}
+
+#[test]
+fn terrain_replacement_does_not_apply_another_arenas_snapshot() {
+    let arena = Arena::parse(
+        &json!({"id":"new", "palette":[{"name":"minecraft:air"},{"name":"minecraft:stone"}],
+        "blocks":[[0,0,0,1]],"bounds":[0,0,0,0,0,0]})
+        .to_string(),
+    )
+    .unwrap();
+    let assets = diagnostic_assets(&arena);
+    let old = frame_for(
+        "old",
+        json!([{"position":[100,0,0],"name":"minecraft:air"}]),
+    );
+    let scene = terrain_runtime::TerrainScene::from_frame(&arena, &assets, Some(&old)).unwrap();
+    assert!(!scene.matches_frame(&old));
+    assert!(scene.matches_frame(&frame_for("new", json!([]))));
+    assert_eq!(scene.initial(&assets).unwrap()[0].1.quad_count(), 6);
+}

@@ -7,6 +7,8 @@
 #[cfg(any(target_arch = "wasm32", test))]
 mod browser_entity_catalog;
 #[cfg(any(target_arch = "wasm32", test))]
+mod browser_hud_playback;
+#[cfg(any(target_arch = "wasm32", test))]
 mod browser_interpolation;
 #[cfg(any(target_arch = "wasm32", test))]
 // Host interpolation tests parse the same model without using graphics-only fields.
