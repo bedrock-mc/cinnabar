@@ -5,7 +5,7 @@ struct Exposure {
 }
 @group(0) @binding(0) var scene: texture_2d<f32>;
 @group(0) @binding(1) var scene_sampler: sampler;
-@group(0) @binding(2) var depth: DEPTH_TEXTURE_TYPE;
+@group(0) @binding(2) var depth: texture_depth_2d;
 @group(0) @binding(3) var<uniform> exposure: Exposure;
 
 @vertex

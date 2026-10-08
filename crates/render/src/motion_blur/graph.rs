@@ -9,7 +9,7 @@ use bevy::{
         },
         render_resource::*,
         renderer::RenderContext,
-        view::{ExtractedView, ViewDepthTexture, ViewTarget},
+        view::{ViewDepthTexture, ViewTarget},
     },
 };
 
@@ -88,14 +88,13 @@ impl ViewNode for MotionBlurNode {
         &'static ViewTarget,
         &'static crate::scene_target::SceneTarget,
         &'static ViewDepthTexture,
-        &'static ExtractedView,
     );
 
     fn run(
         &self,
         _graph: &mut RenderGraphContext,
         context: &mut RenderContext,
-        (_, state, target, scene, depth, view): QueryItem<Self::ViewQuery>,
+        (_, state, target, scene, depth): QueryItem<Self::ViewQuery>,
         world: &World,
     ) -> Result<(), NodeRunError> {
         if !state.active {
@@ -144,7 +143,7 @@ impl ViewNode for MotionBlurNode {
             ),
             occlusion_query_set: None,
         });
-        let viewport = view.viewport;
+        let viewport = state.viewport();
         pass.set_viewport(
             viewport.x as f32,
             viewport.y as f32,

@@ -116,13 +116,15 @@ impl Plugin for FlyCameraPlugin {
                     presentation::advance_presentation_state,
                     presentation::update_screen_overlays,
                     presentation::apply_camera_presentation,
-                    motion_blur::apply_camera_motion_blur,
                     overlay_publish::publish_screen_overlays,
                     facts::diagnose_portal,
                 )
                     .chain()
                     .after(resolve_camera_pose)
                     .in_set(ClientFrameSet::Camera),
+                motion_blur::apply_camera_motion_blur
+                    .after(ClientFrameSet::Camera)
+                    .before(ClientFrameSet::Interaction),
             ),
         );
         #[cfg(feature = "local-mods")]

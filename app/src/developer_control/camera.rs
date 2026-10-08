@@ -44,6 +44,7 @@ pub(super) fn configure(app: &mut App) {
         Update,
         drive_camera
             .after(ClientFrameSet::Camera)
+            .before(client_presentation::camera::motion_blur::apply_camera_motion_blur)
             .before(ClientFrameSet::Interaction),
     );
 }
@@ -94,6 +95,7 @@ fn set_hand_hidden(world: &mut World, hidden: bool) {
 fn drive_camera(
     time: Res<Time>,
     scripted: Option<ResMut<ScriptedCamera>>,
+    view: Option<ResMut<crate::local_player::LocalViewPose>>,
     mut cameras: Query<(&mut Transform, &mut Projection), With<FlyCamera>>,
 ) {
     let Some(mut scripted) = scripted else {
@@ -101,10 +103,16 @@ fn drive_camera(
     };
     let now = time.elapsed_secs();
     let started = *scripted.started.get_or_insert(now);
+    let previous = scripted.elapsed;
     scripted.elapsed = now - started;
     let Some(sample) = scripted.path.sample(scripted.elapsed) else {
         return;
     };
+    if scripted.path.crossed_cut(previous, scripted.elapsed)
+        && let Some(mut view) = view
+    {
+        view.reanchor_camera();
+    }
     for (mut transform, mut projection) in &mut cameras {
         *transform = Transform::from_translation(Vec3::from_array(sample.position))
             .with_rotation(bedrock_camera_rotation(sample.yaw, sample.pitch));
@@ -113,3 +121,6 @@ fn drive_camera(
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

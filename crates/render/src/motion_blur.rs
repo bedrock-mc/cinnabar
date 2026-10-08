@@ -1,11 +1,11 @@
 //! Optional camera exposure, using scene depth without object motion vectors.
 
+#[cfg(test)]
+mod extraction_tests;
 mod graph;
 mod history;
 mod pipeline;
 mod prepare;
-#[cfg(test)]
-mod extraction_tests;
 #[cfg(test)]
 mod raster_tests;
 #[cfg(test)]
@@ -63,14 +63,11 @@ impl Plugin for CameraMotionBlurPlugin {
 }
 
 fn shader_source(source: &str, multisampled: bool) -> String {
-    source.replace(
-        "DEPTH_TEXTURE_TYPE",
-        if multisampled {
-            "texture_depth_multisampled_2d"
-        } else {
-            "texture_depth_2d"
-        },
-    )
+    if multisampled {
+        source.replace("texture_depth_2d", "texture_depth_multisampled_2d")
+    } else {
+        source.to_owned()
+    }
 }
 
 /// All transparent passes use the same readiness decision, including stationary and reset frames.
@@ -94,10 +91,13 @@ pub(crate) fn applies(world: &World, entity: Entity) -> bool {
             .is_some()
 }
 
+type MainCameras<'w, 's> =
+    Query<'w, 's, (RenderEntity, Option<&'static CameraMotionBlur>), With<Camera3d>>;
+
 /// Camera entities are already synchronized; setting changes retain their scene and depth targets.
 fn extract_settings(
     mut commands: Commands,
-    cameras: Extract<Query<(RenderEntity, Option<&CameraMotionBlur>), With<Camera3d>>>,
+    cameras: Extract<MainCameras>,
     mut settings: Query<&mut CameraMotionBlur>,
 ) {
     for (entity, desired) in &cameras {

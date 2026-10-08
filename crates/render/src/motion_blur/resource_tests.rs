@@ -19,7 +19,7 @@ use bevy::{
     },
 };
 
-fn fixture() -> (App, Entity) {
+pub(super) fn fixture() -> (App, Entity) {
     let (mut app, retained) = crate::queue_review_support::app();
     let world = app.world_mut();
     let entity = retained.main_entity.id();

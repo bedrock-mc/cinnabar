@@ -18,6 +18,10 @@ pub(super) struct CameraHistory {
 }
 
 impl CameraHistory {
+    pub fn viewport(&self) -> UVec4 {
+        self.viewport
+    }
+
     pub fn new(
         clip_from_world: Mat4,
         world_from_view: Mat4,
