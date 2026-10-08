@@ -84,4 +84,43 @@ mod tests {
             ui::DEFAULT_ANTI_ALIASING_SAMPLES as i32
         );
     }
+
+    #[test]
+    fn smaa_defaults_off_round_trips_independently_of_msaa_and_resets_with_video() {
+        let smaa = SETTINGS_OPTIONS
+            .iter()
+            .position(|option| option.name == super::super::SMAA_OPTION.name)
+            .unwrap();
+        let default = SettingsOptions::decode(br#"{"values":{"msaa":4}}"#).unwrap();
+        assert_eq!(
+            default.user_settings().video.smaa_mode,
+            ui::DEFAULT_SMAA_MODE
+        );
+        let motion_blur = SETTINGS_OPTIONS
+            .iter()
+            .position(|option| option.name == super::super::MOTION_BLUR_OPTION.name)
+            .unwrap();
+        for samples in ui::ANTI_ALIASING_SAMPLE_COUNTS {
+            for mode in [ui::SmaaMode::Off, ui::SmaaMode::Smaa] {
+                for blur in ui::MotionBlurQuality::ALL {
+                    let mut settings = SettingsOptions::default();
+                    settings.set(index(), samples as i32);
+                    settings.set(smaa, mode as i32);
+                    settings.set(motion_blur, blur.index());
+                    let loaded =
+                        SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
+                    assert_eq!(loaded.user_settings().video.smaa_mode, mode);
+                    assert_eq!(loaded.user_settings().video.anti_aliasing_samples, samples);
+                    assert_eq!(loaded.user_settings().video.motion_blur, blur);
+                }
+            }
+        }
+        let mut enabled = SettingsOptions::default();
+        enabled.set(smaa, ui::SmaaMode::Smaa as i32);
+        assert!(enabled.reset_group(super::super::SettingsGroup::Video));
+        assert_eq!(
+            enabled.user_settings().video.smaa_mode,
+            ui::DEFAULT_SMAA_MODE
+        );
+    }
 }

@@ -437,7 +437,7 @@ impl Content<'_, '_> {
                         .word("options.renderDistanceFormat")
                         .replace("%s", &value.to_string()),
                     "max_framerate" if value == 0 => self.word("options.framerateLimit.max"),
-                    "max_framerate" => value.to_string(),
+                    "max_framerate" | "msaa" => value.to_string(),
                     _ => format!("{value}%"),
                 };
                 let amount = self.canvas.measure(&shown, BODY)?;
@@ -452,11 +452,23 @@ impl Content<'_, '_> {
                     TEXT,
                     false,
                 )?;
-                let actions: Vec<_> = (option.min..=option.max)
-                    .step_by(option.step as usize)
-                    .map(|value| MenuAction::SettingsOption(index as u16, value))
-                    .collect();
-                let selected = ((value - option.min) / option.step) as usize;
+                let actions: Vec<_> = if name == "msaa" {
+                    self.view
+                        .settings_options
+                        .anti_aliasing_support()
+                        .counts()
+                        .map(|samples| MenuAction::SettingsOption(index as u16, samples as i32))
+                        .collect()
+                } else {
+                    (option.min..=option.max)
+                        .step_by(option.step as usize)
+                        .map(|value| MenuAction::SettingsOption(index as u16, value))
+                        .collect()
+                };
+                let selected = actions
+                    .iter()
+                    .position(|action| *action == MenuAction::SettingsOption(index as u16, value))
+                    .unwrap_or(0);
                 controls::slider(
                     self.canvas,
                     self.view,

@@ -147,6 +147,37 @@ fn motion_blur_off_allocates_no_view_resources_and_releases_enabled_resources() 
 }
 
 #[test]
+fn motion_blur_prepares_both_scene_colours_before_smaa_flips() {
+    let (mut app, entity) = fixture();
+    let world = app.world_mut();
+    world.entity_mut(entity).insert(CameraMotionBlur {
+        exposure_seconds: 0.01,
+        delta_seconds: 0.01,
+        samples: 7,
+        reset_epoch: 0,
+    });
+    world
+        .run_system_once(super::prepare::prepare_views)
+        .unwrap();
+    let target = world.get::<ViewTarget>(entity).unwrap();
+    let views = [
+        target.main_texture_view().id(),
+        target.main_texture_other_view().id(),
+    ];
+    let depth = world.get::<ViewDepthTexture>(entity).unwrap().view().id();
+    let state = world.get::<BlurView>(entity).unwrap();
+    for source in views {
+        assert!(state.binding(source, depth).is_some());
+    }
+    target.post_process_write();
+    assert!(
+        state
+            .binding(target.main_texture_view().id(), depth)
+            .is_some()
+    );
+}
+
+#[test]
 fn motion_blur_repeated_specialization_reuses_pipelines_without_allocating() {
     let (mut app, _) = crate::queue_review_support::app();
     let world = app.world_mut();

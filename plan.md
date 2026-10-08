@@ -1,3 +1,16 @@
+## Optional spatial anti-aliasing and cutout coverage
+
+- Capability-aware MSAA remains the primary setting with its existing default. Spatial
+  anti-aliasing is an independent Off/SMAA option, defaulting to Off.
+- Spatial SMAA uses world-depth discontinuities and continuous-slope rejection before world
+  text, hands and HUD drawing. It uses no temporal samples or colour edge detection.
+- Multisampled cutouts integrate nearest alpha contours across a one-pixel band. Covered RGB stays
+  nearest; newly covered transparent texels use the nearest covered neighbour's colour.
+  Single-sample thresholds, opaque/translucent passes, shadows and entity depth passes are unchanged.
+- Alpha-contour reconstruction is an extra visual policy, labelled incomplete for exact-version
+  vanilla coverage parity. Matched hardware performance and native foliage comparison remain
+  incomplete; no parity or performance gate closes from these changes.
+
 ## Optional camera motion blur
 
 - Video offers Off (default), Low, Medium and High camera exposure. This is an owner-authorized

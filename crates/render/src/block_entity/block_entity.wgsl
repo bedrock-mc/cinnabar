@@ -1,7 +1,12 @@
 #import bevy_render::view::View
 #import cinnabar::lighting::{actor_lighting, actor_distance_fog, tint_to_gamma, tint_to_linear}
+#ifdef ALPHA_TO_COVERAGE
+#import cinnabar::lighting::{cutout_alpha_2d}
+#endif
 
 // Packed Rust BlockEntityVertex: position, atlas UV, RGBA, world normal, actor light.
+const BLOCK_ENTITY_ALPHA_THRESHOLD: f32 = 0.5;
+
 @group(0) @binding(0) var<uniform> view: View;
 @group(0) @binding(1) var<storage, read> vertex_words: array<u32>;
 @group(0) @binding(2) var atlas: texture_2d<f32>;
@@ -101,17 +106,24 @@ fn selection_line_fragment(input: SelectionLineOutput) -> @location(0) vec4<f32>
 
 @fragment
 fn block_entity_solid(input: VertexOutput) -> @location(0) vec4<f32> {
-    let texel = textureSample(atlas, atlas_sampler, input.uv);
-    if (texel.a < 0.5) {
+    var texel = textureSample(atlas, atlas_sampler, input.uv);
+#ifdef ALPHA_TO_COVERAGE
+    let cutout = cutout_alpha_2d(atlas, input.uv, dpdx(input.uv), dpdy(input.uv), texel, BLOCK_ENTITY_ALPHA_THRESHOLD);
+    let coverage = cutout.coverage;
+    if (texel.a < BLOCK_ENTITY_ALPHA_THRESHOLD && coverage > 0.0) { texel = cutout.colour; }
+#else
+    if (texel.a < BLOCK_ENTITY_ALPHA_THRESHOLD) {
         discard;
     }
+    let coverage = 1.0;
+#endif
     if (input.actor_light != 0u) {
         // Native mob_head:entity_alphatest uses Fancy world-normal shading and
         // the shared lightmap, composed in gamma before the output transfer.
         let gamma = tint_to_gamma(texel).rgb * input.color.rgb * input.native_lighting;
-        return tint_to_linear(vec4(actor_distance_fog(gamma, input.world_position, view.world_position), 1.0));
+        return tint_to_linear(vec4(actor_distance_fog(gamma, input.world_position, view.world_position), coverage));
     }
-    return vec4(texel.rgb * input.color.rgb, 1.0);
+    return vec4(texel.rgb * input.color.rgb, coverage);
 }
 
 @fragment

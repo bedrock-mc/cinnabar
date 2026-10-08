@@ -5,9 +5,14 @@
 #import bevy_render::view::View
 #import cinnabar::biome_tint::{blended_biome_tint, blended_biome_tint_gamma, uniform_biome_tint_gamma}
 #import cinnabar::lighting::{light_ao_factor, light_colour, lit_colour, material_ambient_occlusion, material_face_shade, tint_to_gamma, tint_to_linear, terrain_light_levels, terrain_light_colour}
+#ifdef ALPHA_TO_COVERAGE
+#import cinnabar::lighting::{CutoutSample, cutout_alpha_array, cutout_mix}
+#endif
 #ifdef ENHANCED
 #import cinnabar::enhanced_view::{sky_illumination, material_class, shade_surface, waved_position}
 #endif
+
+const TERRAIN_ALPHA_THRESHOLD: f32 = 0.5;
 
 struct PackedQuad {
     geometry: u32,
@@ -424,16 +429,48 @@ fn fragment(in: VertexOutput, @builtin(front_facing) front: bool) -> @location(0
     let uv_dx = dpdx(in.uv);
     let uv_dy = dpdy(in.uv);
     if (!material_face_is_visible(in.material_flags, front)) { discard; }
-    let sampled = sample_cube_texture(in, uv_dx, uv_dy);
-    if ((in.material_flags & (1u << 8u)) != 0u && sampled.a < 0.5) {
+    var sampled = sample_cube_texture(in, uv_dx, uv_dy);
+#ifndef ALPHA_TO_COVERAGE
+    if ((in.material_flags & (1u << 8u)) != 0u && sampled.a < TERRAIN_ALPHA_THRESHOLD) {
         discard;
     }
+#endif
+#ifdef ALPHA_TO_COVERAGE
+    var coverage = 1.0;
+    if ((in.material_flags & (1u << 8u)) != 0u) {
+        var cutout = cube_alpha_footprint(in.current_texture, in.uv, uv_dx, uv_dy, sampled, in.material_flags);
+        if (in.frame_blend > 0.0) {
+            cutout = cutout_mix(cutout, cube_alpha_footprint(in.next_texture, in.uv, uv_dx, uv_dy, sampled, in.material_flags), in.frame_blend);
+        }
+        coverage = cutout.coverage;
+        if (sampled.a < TERRAIN_ALPHA_THRESHOLD && coverage > 0.0) { sampled = cutout.colour; }
+    }
+#endif
 #ifdef OPAQUE_OVERDRAW
     return vec4(1.0);
 #else
-    return shade_cube(in, sampled);
+    let shaded = shade_cube(in, sampled);
+#ifdef ALPHA_TO_COVERAGE
+    return vec4(shaded.rgb, coverage);
+#else
+    return shaded;
+#endif
 #endif
 }
+
+#ifdef ALPHA_TO_COVERAGE
+// Coverage reads the same page and layer as the nearest RGB texture sample.
+fn cube_alpha_footprint(texture_ref: u32, uv: vec2<f32>, dx: vec2<f32>, dy: vec2<f32>, sampled: vec4<f32>, flags: u32) -> CutoutSample {
+    let layer = i32(texture_ref & 0x7ffu);
+#ifdef ENHANCED
+    if ((texture_ref >> 31u) == 0u) { return cutout_alpha_array(block_textures_page_0, uv, layer, dx, dy, sampled, true, TERRAIN_ALPHA_THRESHOLD); }
+    return cutout_alpha_array(block_textures_page_1, uv, layer, dx, dy, sampled, true, TERRAIN_ALPHA_THRESHOLD);
+#else
+    if ((texture_ref >> 31u) == 0u) { return cutout_alpha_array(native_leaf_textures_page_0, uv, layer, dx, dy, sampled, !material_uses_native_leaf_colour(flags), TERRAIN_ALPHA_THRESHOLD); }
+    return cutout_alpha_array(native_leaf_textures_page_1, uv, layer, dx, dy, sampled, !material_uses_native_leaf_colour(flags), TERRAIN_ALPHA_THRESHOLD);
+#endif
+}
+#endif
 
 // Single-sided opaque runs: back-face culling and the mesher's material partition
 // stand in for both discards, keeping early depth and hidden-surface removal.
@@ -522,6 +559,6 @@ fn fragment_shadow(in: VertexOutput, @builtin(front_facing) front: bool) {
     if (in.frame_blend > 0.0) {
         sampled = mix(sampled, sample_material_texture_ref(in.next_texture, in.uv, dx, dy, in.material_flags), in.frame_blend);
     }
-    if ((in.material_flags & (1u << 8u)) != 0u && sampled.a < 0.5) { discard; }
+    if ((in.material_flags & (1u << 8u)) != 0u && sampled.a < TERRAIN_ALPHA_THRESHOLD) { discard; }
 }
 #endif

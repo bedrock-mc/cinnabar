@@ -663,6 +663,21 @@ fn plugin_spawns_camera_and_auto_fly_uses_delta_seconds() {
         .single(app.world())
         .unwrap();
     assert_eq!(msaa.samples(), ui::DEFAULT_ANTI_ALIASING_SAMPLES);
+    let smaa = app
+        .world_mut()
+        .query_filtered::<&bevy::anti_alias::smaa::Smaa, (With<Camera3d>, With<FlyCamera>)>()
+        .iter(app.world())
+        .count();
+    assert_eq!(smaa, 0);
+    let camera3d = app
+        .world_mut()
+        .query_filtered::<&Camera3d, With<FlyCamera>>()
+        .single(app.world())
+        .unwrap();
+    assert!(
+        bevy::render::render_resource::TextureUsages::from(camera3d.depth_texture_usages)
+            .contains(bevy::render::render_resource::TextureUsages::TEXTURE_BINDING)
+    );
     let fxaa = app
         .world_mut()
         .query_filtered::<&Fxaa, (With<Camera3d>, With<FlyCamera>)>()

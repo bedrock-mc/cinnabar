@@ -397,7 +397,10 @@ fn packed_chunk_shader_parses_and_validates() {
         1
     );
     assert!(shader.contains("material_flags & (1u << 8u)"));
-    assert!(shader.contains("sampled.a < 0.5"));
+    assert_eq!(
+        shader_source::alpha_discard_threshold(&shader, "fragment"),
+        Some(0.5)
+    );
     assert_eq!(shader.matches("discard;").count(), 2);
     assert!(shader.contains("material_flags & 0x30u"));
     assert!(shader.contains("fn material_uses_overlay_mask(flags: u32)"));
@@ -408,7 +411,6 @@ fn packed_chunk_shader_parses_and_validates() {
     )));
     assert!(shader.contains("mix(sampled.rgb, tinted, sampled.a)"));
     assert!(shader.contains("in.biome_record,"));
-    assert!(shader.contains("if ((in.material_flags & (1u << 8u)) != 0u && sampled.a < 0.5) {"));
     assert!(shader.contains("greedy_uv"));
     assert!(shader.contains("var<storage, read> biome_records: array<u32>"));
     assert!(shader.contains("var<storage, read> biome_tints: array<BiomeTintGpu>"));

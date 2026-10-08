@@ -2,7 +2,7 @@
 
 #[cfg(test)]
 mod extraction_tests;
-mod graph;
+pub(crate) mod graph;
 mod history;
 mod pipeline;
 mod prepare;

@@ -701,7 +701,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         })
         .set(render_plugin())
         .set(crate::thread_budget::ThreadBudget::task_pool_plugin())
-        // Vanilla resolves multisampled geometry without a screen-space AA filter.
+        // The world camera installs only the opt-in depth-based spatial filter.
         .disable::<AntiAliasPlugin>()
         // The launcher owns the production process lifecycle. Keeping the
         // OS default SIGINT action also preserves a real developer escape
@@ -899,6 +899,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         render::BlockEntityRenderPlugin,
         render::EntityShadowRenderPlugin,
     ));
+    app.add_plugins(render::DepthSmaaPlugin);
     app.add_plugins(crate::render_mode::RenderModePlugin::new(
         args.render_mode,
         diagnostics_enabled,
