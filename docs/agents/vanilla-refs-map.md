@@ -1,10 +1,3 @@
-## crates/inventory/src/furnace_recipes.rs; crates/client-ui/src/ui_runtime/presentation/forms/furnace_book.rs
-
-- Current `mcsrc-1.26.50/current/1.26.50.26/src/__unmapped/07.cpp` canonical model bodies `0x0742ed00` and `0x0742f710` retain station recipe results, deduplicate result items, and create food/items/blocks/search filtered containers. The category counts read by current `FurnaceContainerManagerController` are food `0x240`, blocks `0x244`, items `0x248`; food precedes block placement capability, then other items.
-- Current `FurnaceContainerManagerModel::setIsFiltering` (`0x074319d0`) updates all four recipe collections. Controller callbacks `0x07744560` through `0x077448f0` project category visibility; `0x07748bd0` and `0x07748c40` offset later tabs by the missing category widths.
-- Current furnace background binding `0x07745570` uses plain, disabled-red, and expandable-group textures. Selection body `0x0db5b060` in `src/__unmapped/0d.cpp` chooses a supplied ingredient alternative and transfers its stacks to input slot zero. Expanded alternatives and the ghost/deselection branches remain incomplete in our panel. Older named controller bodies are navigation only; no Lens executable is available for native replay.
-- Pinned `ui/furnace_screen.json`, `ui/blast_furnace_screen.json` and `ui/smoker_screen.json` own layout, category radio indexes, filter name, recipe collection and cell art bindings.
-
 ## crates/client-ui/src/ui_runtime/presentation/forms/oreui/world_settings/; widgets/choice.rs
 
 - Owner-supplied Create New World reference (2026-10-06) shows a neutral80 sidebar, 16:9 forest/river
@@ -530,6 +523,13 @@ RVAs are 1.26.50.26 Windows client; `mac 0x10…` addresses are the 26.30 macOS 
 - Current 1.26.50.26 `CraftingContainerManagerModel::setIsFiltering`, canonical
   `src/__recovered/CraftingContainerManagerModel.cpp`, indexed at `0x0391bea0`,
   updates each category's item filter rather than copying recipe rows between tabs.
+
+## crates/inventory/src/furnace_recipes.rs; crates/client-ui/src/ui_runtime/presentation/forms/furnace_book.rs
+
+- Current `mcsrc-1.26.50/current/1.26.50.26/src/__unmapped/07.cpp` canonical model bodies `0x0742ed00` and `0x0742f710` retain station recipe results, deduplicate result items, and create food/items/blocks/search filtered containers. The category counts read by current `FurnaceContainerManagerController` are food `0x240`, blocks `0x244`, items `0x248`; food precedes block placement capability, then other items.
+- Current `FurnaceContainerManagerModel::setIsFiltering` (`0x074319d0`) updates all four recipe collections. Controller callbacks `0x07744560` through `0x077448f0` project category visibility; `0x07748bd0` and `0x07748c40` offset later tabs by the missing category widths.
+- Current furnace background binding `0x07745570` uses plain, disabled-red, and expandable-group textures. Selection body `0x0db5b060` in `src/__unmapped/0d.cpp` chooses a supplied ingredient alternative and transfers its stacks to input slot zero. Expanded alternatives and the ghost/deselection branches remain incomplete in our panel. Older named controller bodies are navigation only; no Lens executable is available for native replay.
+- Pinned `ui/furnace_screen.json`, `ui/blast_furnace_screen.json` and `ui/smoker_screen.json` own layout, category radio indexes, filter name, recipe collection and cell art bindings.
 
 ## crates/inventory/src/screen_recipes.rs
 - Current 1.26.50.26 `FUN_1439196b0`, canonical `src/__unmapped/03.cpp`,
