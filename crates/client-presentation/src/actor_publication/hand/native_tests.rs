@@ -604,7 +604,7 @@ fn assert_attachable_readiness_clock(changed: bool) {
             prepared_actor_artwork: &mut prepared_artwork,
         },
         swing,
-        |_, _, _| false,
+        |_, _, _, _| false,
         params.get_mut(&mut world),
     );
     let scene = world.resource::<render::HandRigScene>();
