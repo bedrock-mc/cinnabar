@@ -408,7 +408,7 @@ fn propagate(
                 let dependency = pop(1) || control;
                 let target = usize::from(target);
                 let end = ops[pc + 1..target].iter().fold(target, |end, op| {
-                    if let MolangOp::Jump(next) = op {
+                    if let MolangOp::Jump(next) | MolangOp::LoopBreak(next) = op {
                         end.max(usize::from(*next))
                     } else {
                         end

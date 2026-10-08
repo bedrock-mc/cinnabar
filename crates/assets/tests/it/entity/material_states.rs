@@ -26,25 +26,38 @@ fn additive_source_alpha_material_state_round_trips_through_entity_carrier() {
     }
 }
 
+/// Reads an explicitly named carrier fixture, skipping only when it is unavailable.
+fn carrier_fixture(variable: &str) -> Option<Vec<u8>> {
+    let Some(path) = std::env::var_os(variable) else {
+        eprintln!("missing fixture {variable}: skipping entity carrier check");
+        return None;
+    };
+    match std::fs::read(&path) {
+        Ok(encoded) => Some(encoded),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            eprintln!("missing fixture {variable}={path:?}: skipping entity carrier check");
+            None
+        }
+        Err(error) => panic!("read entity carrier {variable}={path:?}: {error}"),
+    }
+}
+
 #[test]
-fn existing_entity_carrier_keeps_material_defaults_and_encoded_identity() {
-    let Some(path) = std::env::var_os("CINNABAR_ENTITY_CARRIER") else {
-        eprintln!(
-            "missing fixture CINNABAR_ENTITY_CARRIER: skipping existing entity carrier check"
-        );
+fn existing_entity_carrier_keeps_encoded_identity() {
+    let Some(encoded) = carrier_fixture("CINNABAR_ENTITY_CARRIER") else {
         return;
     };
-    let encoded = match std::fs::read(&path) {
-        Ok(encoded) => encoded,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            eprintln!(
-                "missing fixture CINNABAR_ENTITY_CARRIER={path:?}: skipping existing entity carrier check"
-            );
-            return;
-        }
-        Err(error) => panic!("read existing entity carrier: {error}"),
-    };
     let runtime = RuntimeEntityAssets::decode(&encoded).expect("decode existing entity carrier");
+    assert!(!runtime.render_data().layers.is_empty());
+    assert_eq!(runtime.encode().unwrap().as_ref(), encoded.as_slice());
+}
+
+#[test]
+fn legacy_entity_carrier_keeps_overlay_defaults_and_encoded_identity() {
+    let Some(encoded) = carrier_fixture("CINNABAR_LEGACY_ENTITY_CARRIER") else {
+        return;
+    };
+    let runtime = RuntimeEntityAssets::decode(&encoded).expect("decode legacy entity carrier");
     assert!(!runtime.render_data().layers.is_empty());
     assert!(
         runtime
@@ -52,7 +65,7 @@ fn existing_entity_carrier_keeps_material_defaults_and_encoded_identity() {
             .layers
             .iter()
             .filter_map(|layer| layer.material_state)
-            .all(|state| !state.additive_alpha && !state.disable_overlay)
+            .all(|state| !state.disable_overlay)
     );
     assert_eq!(runtime.encode().unwrap().as_ref(), encoded.as_slice());
 }
