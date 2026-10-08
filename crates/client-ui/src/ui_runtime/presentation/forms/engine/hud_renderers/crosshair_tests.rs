@@ -264,15 +264,21 @@ fn cosmetic_crosshair_replaces_only_visible_cursor_art_and_restores_on_clear() {
             ..Default::default()
         };
         let (custom, _) = draw_custom(&engine, true, ui::UiBlendMode::Invert, Some(spec.clone()));
-        assert_eq!(custom.len(), 1);
-        assert!(matches!(custom[0].visual(), ui::UiVisual::Mesh(_)));
-        let bounds = custom[0].bounds();
+        let painted: Vec<_> = custom
+            .iter()
+            .filter(|node| !matches!(node.visual(), UiVisual::None))
+            .collect();
+        assert_eq!(painted.len(), 1, "custom cursor paints one visual");
+        assert!(matches!(painted[0].visual(), ui::UiVisual::Mesh(_)));
+        let bounds = painted[0].bounds();
         assert_eq!((bounds.min().x() + bounds.max().x()) * 0.5, 640.);
         assert_eq!((bounds.min().y() + bounds.max().y()) * 0.5, 360.);
         assert!(
             draw_custom(&engine, false, ui::UiBlendMode::Invert, Some(spec))
                 .0
-                .is_empty()
+                .iter()
+                .all(|node| matches!(node.visual(), UiVisual::None)),
+            "a hidden native cursor also hides the custom cursor"
         );
         assert!(
             draw_custom(&engine, true, ui::UiBlendMode::Invert, None).0 == vanilla,
