@@ -2,6 +2,59 @@ use super::*;
 use semantic_input::{InputContext, PhysicalControl};
 
 #[test]
+fn perspective_and_hotbar_can_share_a_key_across_remaps_reset_and_reload() {
+    let mut settings = SettingsOptions::default();
+    let perspective = KEY_BINDINGS
+        .iter()
+        .position(|(action, _)| *action == semantic_input::Action::CyclePerspective)
+        .unwrap();
+    let hotbar = KEY_BINDINGS
+        .iter()
+        .position(|(action, _)| *action == semantic_input::Action::Hotbar1)
+        .unwrap();
+    let digit = settings.key_control(hotbar).unwrap();
+    let letter = PhysicalControl::KeyboardUsage(0x15);
+    assert!(settings.remap(hotbar, letter));
+    assert!(settings.remap(perspective, digit));
+    assert!(settings.remap(hotbar, digit));
+    assert!(settings.remap(hotbar, letter));
+    assert!(settings.reset_key(hotbar));
+    let loaded = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
+    assert_eq!(loaded.key_control(perspective), Some(digit));
+    assert_eq!(loaded.key_control(hotbar), Some(digit));
+    let mut router = semantic_input::SemanticInputRouter::default();
+    router.replace_bindings(loaded.controls().unwrap()).unwrap();
+    router
+        .route(semantic_input::DeviceFrame {
+            keyboard_mouse: Some(semantic_input::KeyboardMouseFrame {
+                keys: vec![match digit {
+                    PhysicalControl::KeyboardUsage(usage) => usage,
+                    _ => panic!("hotbar keyboard default must be a key"),
+                }],
+                activity_sequence: 1,
+                ..Default::default()
+            }),
+            ..Default::default()
+        })
+        .unwrap();
+    let pressed = router.finalize().unwrap();
+    for action in [
+        semantic_input::Action::CyclePerspective,
+        semantic_input::Action::Hotbar1,
+    ] {
+        assert!(pressed.phases[action as usize].pressed);
+    }
+    router.route(Default::default()).unwrap();
+    let released = router.finalize().unwrap();
+    for action in [
+        semantic_input::Action::CyclePerspective,
+        semantic_input::Action::Hotbar1,
+    ] {
+        assert_eq!(released.phases[action as usize], Default::default());
+    }
+}
+
+#[test]
 fn existing_f_binding_survives_freelook_default() {
     let settings =
         SettingsOptions::decode(br#"{"keys":{"key.drop":9,"key.inventory":12}}"#).unwrap();
@@ -67,8 +120,7 @@ fn open_notification_defaults_to_n_and_remaps_across_reload() {
         settings.named_key_control(OPEN_NOTIFICATION_KEY),
         Some(PhysicalControl::KeyboardUsage(0x11))
     );
-    // Another action's key is refused; a free one sticks and reaches the router.
-    assert!(!settings.remap(row, PhysicalControl::KeyboardUsage(0x08)));
+    assert!(settings.remap(row, PhysicalControl::KeyboardUsage(0x08)));
     assert!(settings.remap(row, PhysicalControl::KeyboardUsage(0x0f)));
     let loaded = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
     assert_eq!(
@@ -172,7 +224,7 @@ fn remapped_keyboard_controls_reach_gameplay_and_survive_reload() {
         == semantic_input::Action::MoveForward
         && binding.context == InputContext::Gameplay
         && binding.chord.control == new_key));
-    assert!(!settings.remap(index, PhysicalControl::KeyboardUsage(0x16)));
+    assert!(settings.remap(index, PhysicalControl::KeyboardUsage(0x16)));
     settings.reset_key(index);
     assert_eq!(
         settings.key_control(index),
@@ -192,7 +244,7 @@ fn settings_file_replacement_round_trips() {
 }
 
 #[test]
-fn reset_conflict_preserves_every_saved_mapping() {
+fn reset_restores_a_shared_default_without_changing_other_actions() {
     let mut settings = SettingsOptions::default();
     let forward = KEY_BINDINGS
         .iter()
@@ -205,9 +257,9 @@ fn reset_conflict_preserves_every_saved_mapping() {
     let default_forward = settings.key_control(forward).unwrap();
     assert!(settings.remap(forward, PhysicalControl::KeyboardUsage(0x0c)));
     assert!(settings.remap(backward, default_forward));
-    let before = settings.clone();
-    assert!(!settings.reset_key(forward));
-    assert_eq!(settings, before);
+    assert!(settings.reset_key(forward));
+    assert_eq!(settings.key_control(forward), Some(default_forward));
+    assert_eq!(settings.key_control(backward), Some(default_forward));
 }
 
 #[test]
@@ -273,7 +325,7 @@ fn gamepad_remaps_reach_router_and_reset_independently() {
 }
 
 #[test]
-fn resetting_a_ui_key_preserves_remaps_when_its_default_was_reassigned() {
+fn resetting_a_ui_key_keeps_another_action_on_the_shared_default() {
     use super::EXTRA_KEYS;
     let mut settings = SettingsOptions::default();
     let inventory = KEY_BINDINGS.len()
@@ -287,10 +339,14 @@ fn resetting_a_ui_key_preserves_remaps_when_its_default_was_reassigned() {
         .unwrap();
     assert!(settings.remap(inventory, PhysicalControl::KeyboardUsage(0x0c)));
     assert!(settings.remap(attack, PhysicalControl::KeyboardUsage(0x08)));
-    assert!(!settings.reset_key(inventory));
+    assert!(settings.reset_key(inventory));
     assert_eq!(
         settings.key_control(inventory),
-        Some(PhysicalControl::KeyboardUsage(0x0c))
+        Some(PhysicalControl::KeyboardUsage(0x08))
+    );
+    assert_eq!(
+        settings.key_control(attack),
+        settings.key_control(inventory)
     );
 }
 
@@ -352,11 +408,15 @@ fn outline_selection_reaches_render_settings_after_persistence() {
 }
 
 #[test]
-fn loaded_supplemental_bindings_cannot_conflict_with_gameplay_controls() {
+fn loaded_supplemental_bindings_can_share_gameplay_controls() {
     let loaded = SettingsOptions::decode(br#"{"keys":{"key.inventory":257}}"#).unwrap();
     assert_eq!(
         loaded.named_key_control("key.inventory"),
-        SettingsOptions::default().named_key_control("key.inventory")
+        Some(PhysicalControl::MouseButton(1))
+    );
+    assert_eq!(
+        loaded.named_key_control("key.attack"),
+        loaded.named_key_control("key.inventory")
     );
 }
 

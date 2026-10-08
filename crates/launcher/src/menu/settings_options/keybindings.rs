@@ -61,7 +61,7 @@ impl SettingsOptions {
                 && decode_control(*code).is_some_and(|control| Some(control) == default)
         })
     }
-    /// Validates stored controls with the same device and collision rules as interactive remapping.
+    /// Validates stored controls with the same device rules as interactive remapping.
     pub fn stored_bindings_valid(&self) -> bool {
         self.controls().is_ok()
             && (0..KEY_BINDINGS.len() + EXTRA_KEYS.len())
@@ -75,10 +75,8 @@ impl SettingsOptions {
                     let Some(code) = self.keys.get(&name) else {
                         return true;
                     };
-                    decode_control(*code).is_some_and(|control| {
-                        is_gamepad(control) == (index >= GAMEPAD_OFFSET)
-                            && !self.binding_conflicts(index, self.swap_gamepad_control(control))
-                    })
+                    decode_control(*code)
+                        .is_some_and(|control| is_gamepad(control) == (index >= GAMEPAD_OFFSET))
                 })
     }
 
@@ -164,9 +162,6 @@ impl SettingsOptions {
         let Some(code) = encode_control(self.swap_gamepad_control(control)) else {
             return false;
         };
-        if self.binding_conflicts(index, control) {
-            return false;
-        }
         let previous = self.keys.insert(name.to_owned(), code);
         if self.controls().is_err() {
             match previous {
@@ -182,35 +177,13 @@ impl SettingsOptions {
         true
     }
 
-    /// Rejects collisions across semantic actions and host-owned UI actions on one device.
-    fn binding_conflicts(&self, index: usize, control: PhysicalControl) -> bool {
-        let indices = if index >= GAMEPAD_OFFSET {
-            GAMEPAD_OFFSET..GAMEPAD_OFFSET + GAMEPAD_BINDINGS.len() + EXTRA_GAMEPAD.len()
-        } else {
-            0..KEY_BINDINGS.len() + EXTRA_KEYS.len()
-        };
-        indices.into_iter().any(|other| {
-            other != index
-                && (self.key_control(other) == Some(control)
-                    || self.binding(other).is_some_and(|(name, _, _)| {
-                        self.secondary_key_control(&name) == Some(control)
-                    }))
-        })
-    }
-
     /// Restores one action's default control while preserving other remaps.
     pub fn reset_key(&mut self, index: usize) -> bool {
         let Some((name, _, _)) = self.binding(index) else {
             return false;
         };
         let previous = self.keys.remove(&name);
-        if (self.controls().is_err()
-            || self
-                .key_control(index)
-                .is_some_and(|control| self.binding_conflicts(index, control))
-            || self
-                .secondary_key_control(&name)
-                .is_some_and(|control| self.binding_conflicts(index, control)))
+        if self.controls().is_err()
             && let Some(previous) = previous
         {
             self.keys.insert(name.to_owned(), previous);

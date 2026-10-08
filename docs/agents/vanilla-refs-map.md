@@ -3645,3 +3645,16 @@ Files: `docs/reference/held-block-placement.md`, `crates/gameplay/src/block_use.
   `geometry.the_entity`. A fixed 151-actor loopback scene keeps the late actor in
   its authored frustum while a camera turn admits the background crowd; the old
   128-body gates remove that otherwise visible actor.
+
+## Shared remappable control bindings
+
+- `crates/launcher/src/menu/settings_options/keybindings.rs` and
+  `crates/input/src/binding.rs` allow multiple remappable actions on one control;
+  resetting an action restores its default without clearing another action.
+- Current 1.26.50.26 canonical `src/__unmapped/05.cpp`, `FUN_1456460b0`
+  (RVA `0x056460b0`), checks an existing key's remappable/alternate flags before
+  refusing a capture. An occupied remappable key follows the same assignment
+  dispatch as an unused key. Older named `ControlsSettingsScreenController`
+  `_mapRawInputToLayout` (`0x02917690`) identifies the matching dispatch;
+  `KeyboardRemappingLayout::setMappingWithRawInput` (`0x02dae7c0`) replaces
+  the selected action's key list and preserves other actions.
