@@ -118,6 +118,8 @@ pub fn legacy_particle_effect(particle_type: i32) -> Option<&'static str> {
 /// What a level event asks the particle system to do.
 #[derive(Clone, Debug, PartialEq)]
 pub enum LevelParticle {
+    /// Dragon egg teleport trail, with the packed source-to-destination block offset decoded.
+    DragonEggTeleport { displacement: [i32; 3] },
     Named {
         effect: &'static str,
         spell_color: Option<[f32; 4]>,
@@ -198,6 +200,19 @@ pub fn classify_level_event(event_id: i32, data: i32) -> Option<LevelParticle> {
             spell_color: Some(argb(data)),
         }),
         2003 => named("eyeofender_death_explode_particle"),
+        2010 => {
+            let bits = data as u32;
+            Some(LevelParticle::DragonEggTeleport {
+                displacement: std::array::from_fn(|axis| {
+                    let magnitude = ((bits >> (16 - axis * 8)) & 0xff) as i32;
+                    if bits & (1 << (24 + axis)) == 0 {
+                        -magnitude
+                    } else {
+                        magnitude
+                    }
+                }),
+            })
+        }
         2004 => named("mob_block_spawn_emitter"),
         2005 => named("crop_growth_emitter"),
         2007 => named("death_explosion_emitter"),
