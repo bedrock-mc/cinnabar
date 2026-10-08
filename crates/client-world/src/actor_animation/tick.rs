@@ -531,6 +531,7 @@ pub(super) fn evaluate_state(
                 assets,
                 &state.bone_names,
                 &weighted_clips,
+                None,
             ),
         });
         frame.swell_layers = swell_layers
@@ -545,6 +546,7 @@ pub(super) fn evaluate_state(
                             assets,
                             &state.layer_skeletons[&geometry].as_ref().unwrap().names,
                             &weighted_clips,
+                            Some(geometry),
                         ),
                     },
                 )

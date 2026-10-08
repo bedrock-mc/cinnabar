@@ -159,6 +159,32 @@ pub(super) fn sample(
     Ok(())
 }
 
+/// Evaluates a presentation-dependent clock update on scratch clip data only.
+pub(super) fn sample_update(
+    evaluator: &Evaluator<'_>,
+    variables: &mut MolangVariables,
+    weighted: &mut WeightedClip,
+    budget: &mut EvalBudget<'_>,
+) -> Result<(), EvalError> {
+    let clip = evaluator
+        .assets
+        .animation_clips()
+        .get(weighted.clip)
+        .ok_or(EvalError::Invalid)?;
+    if let Some(expression) = clip.anim_time_update {
+        let evaluator = Evaluator {
+            anim_time: Some(weighted.time),
+            ..*evaluator
+        };
+        let time = evaluator.number(expression as usize, variables, 0.0, budget)?;
+        if !time.is_finite() {
+            return Err(EvalError::Invalid);
+        }
+        weighted.time = wrapped_time(clip, time);
+    }
+    Ok(())
+}
+
 /// Ordinary clips derive their fixed-step time from their controller's entry tick.
 fn elapsed_time(evaluator: &Evaluator<'_>, started_tick: u64, basis: Basis) -> f32 {
     let tick = (if basis == Basis::Lifetime {

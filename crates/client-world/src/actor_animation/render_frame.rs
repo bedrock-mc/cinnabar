@@ -132,13 +132,17 @@ pub(super) fn carry_swell_history(
 }
 
 impl SwellPoses {
-    fn sample(&self, current: &mut [pose::LocalDelta]) -> Vec<pose::LocalDelta> {
+    fn sample(
+        &self,
+        current: &mut [pose::LocalDelta],
+        mask: Option<&[[u8; 3]]>,
+    ) -> Vec<pose::LocalDelta> {
         let mut previous = self.previous.clone();
         for (((sample, completed), previous), mask) in current
             .iter_mut()
             .zip(&self.current)
             .zip(&mut previous)
-            .zip(&self.mask)
+            .zip(mask.unwrap_or(&self.mask))
         {
             for (axis, bits) in mask.iter().enumerate() {
                 if bits & swell::TRANSLATION != 0 {
@@ -250,10 +254,21 @@ impl ActorAnimationStore {
             return Some(completed());
         }
         tick::set_item_rotation_factor(&layout.engine, &mut variables);
-        let sampled_clips = if swing_changed {
-            let Ok(clips) =
-                clips::sample(&evaluator, &mut variables, state, &frame.clips, &mut budget)
-            else {
+        let sampled_clips = if swing_changed
+            || (swell_changed
+                && state
+                    .swell_sampling
+                    .as_ref()
+                    .is_some_and(|sampling| sampling.samples_clips()))
+        {
+            let Ok(clips) = clips::sample(
+                &evaluator,
+                &mut variables,
+                state,
+                &frame.clips,
+                state.swell_sampling.as_deref().filter(|_| swell_changed),
+                &mut budget,
+            ) else {
                 return Some(completed());
             };
             Some(clips)
@@ -279,6 +294,10 @@ impl ActorAnimationStore {
         } else {
             None
         };
+        let sampled_swell_mask = sampled_clips
+            .as_ref()
+            .and_then(|_| state.swell_sampling.as_ref())
+            .map(|sampling| sampling.mask(assets, &state.bone_names, clips, None));
         let swell_previous = if swell_changed && !state.samples_camera_poses && !swing_changed {
             let Some(history) = frame.swell_poses.as_ref() else {
                 return Some(completed());
@@ -286,7 +305,7 @@ impl ActorAnimationStore {
             let Some(local) = sampled_local.as_mut() else {
                 return Some(completed());
             };
-            let previous = history.sample(local);
+            let previous = history.sample(local, sampled_swell_mask.as_deref());
             state.compose(&previous).map(Arc::<[BoneTransform]>::from)
         } else {
             None
@@ -348,11 +367,17 @@ impl ActorAnimationStore {
                         let Some(Some(skeleton)) = state.layer_skeletons.get(&geometry) else {
                             return Some(completed());
                         };
+                        let sampled_mask = sampled_clips
+                            .as_ref()
+                            .and_then(|_| state.swell_sampling.as_ref())
+                            .map(|sampling| {
+                                sampling.mask(assets, &skeleton.names, clips, Some(geometry))
+                            });
                         let previous_local = if swell_previous.is_some() {
                             frame
                                 .swell_layers
                                 .get(&geometry)
-                                .map(|history| history.sample(&mut local))
+                                .map(|history| history.sample(&mut local, sampled_mask.as_deref()))
                         } else {
                             None
                         };

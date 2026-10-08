@@ -141,13 +141,7 @@ pub(super) fn sample_layer_local(
     let assets = evaluator.assets;
     let mapped: Vec<_> = clips
         .iter()
-        .filter_map(|weighted| {
-            let symbol = assets.animation_clips().get(weighted.clip)?.symbol;
-            Some(super::tick::WeightedClip {
-                clip: assets.clip_for_geometry(symbol, geometry)? as usize,
-                ..*weighted
-            })
-        })
+        .filter_map(|weighted| clip_for_layer(assets, *weighted, geometry))
         .collect();
     // Keyframe scripts already ran for the rig; scratch variables keep their writes isolated.
     let mut scratch = variables.clone();
@@ -160,6 +154,18 @@ pub(super) fn sample_layer_local(
         budget,
     )?;
     Ok(local)
+}
+
+pub(super) fn clip_for_layer(
+    assets: &RuntimeEntityAssets,
+    weighted: super::tick::WeightedClip,
+    geometry: u32,
+) -> Option<super::tick::WeightedClip> {
+    let symbol = assets.animation_clips().get(weighted.clip)?.symbol;
+    Some(super::tick::WeightedClip {
+        clip: assets.clip_for_geometry(symbol, geometry)? as usize,
+        ..weighted
+    })
 }
 
 /// The pose of a layer that draws the rig's own geometry, shared by every such layer.

@@ -333,6 +333,18 @@ fn authored_swell_fixture(
     property: assets::EntityAnimationProperty,
     variable: bool,
 ) -> crate::actor_store::ActorStore {
+    pack_swell_fixture(pre_animation, property, variable, None, false, 3, false)
+}
+
+fn pack_swell_fixture(
+    pre_animation: bool,
+    property: assets::EntityAnimationProperty,
+    variable: bool,
+    weighted_query_channel: Option<bool>,
+    alternate: bool,
+    ticks: u32,
+    swell_time: bool,
+) -> crate::actor_store::ActorStore {
     let mut compiled = super::attachable::tests::compiled_fixture();
     compiled.sources[1].path = "entity/creeper.json".into();
     compiled.symbols[4].kind = assets::EntityAssetKind::Entity;
@@ -404,6 +416,99 @@ fn authored_swell_fixture(
         ];
     }
 
+    if let Some(query_channel) = weighted_query_channel {
+        compiled.rig_animations[0].weight = Some(0);
+        if !query_channel {
+            compiled.animation_keyframes[0].expressions = [None; 3];
+            compiled.animation_keyframes[0].value[0] =
+                assets::EntityGeometryScalar::new(1.0).unwrap();
+        }
+    }
+    if swell_time {
+        let scalar = |value| assets::EntityGeometryScalar::new(value).unwrap();
+        compiled.animation_clips[0].anim_time_update = Some(0);
+        compiled.animation_clips[0].length_seconds = scalar(1.0);
+        let mut key = compiled.animation_keyframes[0];
+        key.value = [scalar(0.0); 3];
+        key.expressions = [None; 3];
+        compiled.animation_keyframes = vec![
+            key,
+            assets::EntityAnimationKeyframe {
+                time_seconds: scalar(1.0),
+                value: [scalar(1.0), scalar(0.0), scalar(0.0)],
+                ..key
+            },
+        ]
+        .into_boxed_slice();
+        compiled.animation_channels[0].keyframe_count = 2;
+    }
+    if alternate {
+        let mut geometry = compiled.geometries[0].clone();
+        geometry.identifier = "geometry.title".into();
+        let root = geometry.bones[0].clone();
+        let mut child = root.clone();
+        child.name = "child".into();
+        child.parent = Some(root.name.clone());
+        geometry.bones = vec![child, root].into_boxed_slice();
+        let mut symbols = compiled.symbols.into_vec();
+        symbols.insert(
+            2,
+            assets::EntityAssetSymbol {
+                kind: assets::EntityAssetKind::Geometry,
+                identifier: geometry.identifier.clone(),
+                source_index: geometry.source_index,
+                dependencies: Box::new([]),
+            },
+        );
+        compiled.symbols = symbols.into_boxed_slice();
+        let mut geometries = compiled.geometries.into_vec();
+        geometries.push(geometry);
+        compiled.geometries = geometries.into_boxed_slice();
+        compiled.rig_bindings[0].render_controller = 4;
+        compiled.animation_clips[0].symbol = 3;
+        let clip = compiled.animation_clips[0];
+        compiled.animation_clips = vec![
+            clip,
+            assets::EntityAnimationClip {
+                geometry: Some(1),
+                first_channel: 1,
+                ..clip
+            },
+        ]
+        .into_boxed_slice();
+        let mut channel = compiled.animation_channels[0].clone();
+        channel.bone = 1;
+        channel.first_keyframe = 1;
+        compiled.animation_channels =
+            vec![compiled.animation_channels[0].clone(), channel].into_boxed_slice();
+        compiled.animation_keyframes = compiled.animation_keyframes.repeat(2).into_boxed_slice();
+        let layer = compiled.render.layers[0];
+        compiled.render.layers = vec![
+            layer,
+            assets::EntityRenderLayer {
+                first_slot: 1,
+                geometry_count: 1,
+                ..layer
+            },
+        ]
+        .into_boxed_slice();
+        let slot = compiled.render.slots[0];
+        compiled.render.slots = vec![
+            slot,
+            assets::EntityRenderSlot {
+                first_candidate: 1,
+                ..slot
+            },
+        ]
+        .into_boxed_slice();
+        compiled.render.candidates = compiled.render.candidates.repeat(2).into_boxed_slice();
+        compiled.render.geometries = vec![assets::EntityRenderGeometry {
+            geometry: 1,
+            condition: None,
+        }]
+        .into_boxed_slice();
+    }
+
     let assets = Arc::new(RuntimeEntityAssets::from_compiled(compiled).unwrap());
     let mut store = crate::actor_store::ActorStore::new_with_entity_assets(1, 0, assets);
     store.apply(
@@ -432,7 +537,7 @@ fn authored_swell_fixture(
             links: Arc::from([]),
         }),
     );
-    store.advance_interpolation_ticks(3);
+    store.advance_interpolation_ticks(ticks);
     store
 }
 
@@ -503,4 +608,92 @@ fn swell_script_preserves_an_independent_motion_variable_channel() {
             rig.current[0].translation_scale[1]
         );
     }
+}
+
+#[test]
+fn swell_weights_sample_query_and_constant_channels_at_frame_fraction() {
+    for query_channel in [true, false] {
+        let store = pack_swell_fixture(
+            false,
+            assets::EntityAnimationProperty::Translation,
+            false,
+            Some(query_channel),
+            false,
+            3,
+            false,
+        );
+        for alpha in [0.25, 0.5, 0.75] {
+            let swell = (2.0 + alpha) / crate::actor_store::creeper::SWELL_FULL_TICKS;
+            let expected = if query_channel { swell * swell } else { swell };
+            let layers = store.render_frame(alpha).layers(1).unwrap();
+            for pose in [&layers[0].previous_pose[0], &layers[0].pose[0]] {
+                assert!((pose.translation_scale[0] + expected).abs() < 1e-6);
+            }
+        }
+    }
+}
+
+#[test]
+fn swell_layers_follow_geometry_specific_bone_order() {
+    let store = pack_swell_fixture(
+        false,
+        assets::EntityAnimationProperty::Translation,
+        false,
+        None,
+        true,
+        3,
+        false,
+    );
+    for alpha in [0.25, 0.5, 0.75] {
+        let layers = store.render_frame(alpha).layers(1).unwrap();
+        assert_eq!(layers.len(), 2);
+        let expected = -(2.0 + alpha) / crate::actor_store::creeper::SWELL_FULL_TICKS;
+        for pose in [&layers[1].previous_pose[1], &layers[1].pose[1]] {
+            assert!((pose.translation_scale[0] - expected).abs() < 1e-6);
+        }
+    }
+}
+
+#[test]
+fn swell_weight_can_activate_a_clip_between_zero_weight_ticks() {
+    let store = pack_swell_fixture(
+        false,
+        assets::EntityAnimationProperty::Translation,
+        false,
+        Some(false),
+        false,
+        1,
+        false,
+    );
+    let tick = store.actor_rig(1).unwrap().completed_tick;
+    for alpha in [0.25, 0.5, 0.75] {
+        let layers = store.render_frame(alpha).layers(1).unwrap();
+        let expected = -alpha / crate::actor_store::creeper::SWELL_FULL_TICKS;
+        for pose in [&layers[0].previous_pose[0], &layers[0].pose[0]] {
+            assert!((pose.translation_scale[0] - expected).abs() < 1e-6);
+        }
+    }
+    assert_eq!(store.actor_rig(1).unwrap().completed_tick, tick);
+}
+
+#[test]
+fn swell_driven_clip_time_samples_fraction_without_advancing_tick_clock() {
+    let store = pack_swell_fixture(
+        false,
+        assets::EntityAnimationProperty::Translation,
+        false,
+        None,
+        false,
+        3,
+        true,
+    );
+    let tick = store.actor_rig(1).unwrap().completed_tick;
+    for alpha in [0.25, 0.5, 0.75] {
+        let layers = store.render_frame(alpha).layers(1).unwrap();
+        let expected = -(2.0 + alpha) / crate::actor_store::creeper::SWELL_FULL_TICKS;
+        for pose in [&layers[0].previous_pose[0], &layers[0].pose[0]] {
+            assert!((pose.translation_scale[0] - expected).abs() < 1e-6);
+        }
+    }
+    assert_eq!(store.actor_rig(1).unwrap().completed_tick, tick);
 }
