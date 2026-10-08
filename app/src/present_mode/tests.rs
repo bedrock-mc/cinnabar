@@ -23,7 +23,7 @@ fn attributable_runs_and_explicit_flags_lock_the_requested_policy() {
         (
             PresentModeRuntime::from_startup(false, true, false, false),
             PresentModePreference::NoVsync,
-            PresentMode::Immediate,
+            PresentMode::Fifo,
         ),
         (
             PresentModeRuntime::from_startup(false, false, true, false),
@@ -70,8 +70,12 @@ fn spawn_primary_window(app: &mut App) {
 }
 
 fn publish_vsync(app: &mut App, vsync: bool) {
+    publish_video(app, |video| video.vsync = vsync);
+}
+
+fn publish_video(app: &mut App, edit: impl FnOnce(&mut ui::VideoSettings)) {
     let mut settings = ui::UserSettings::default();
-    settings.video.vsync = vsync;
+    edit(&mut settings.video);
     app.world_mut()
         .resource_mut::<RuntimeSettings>()
         .replace_user_settings(settings);
@@ -104,23 +108,49 @@ fn toggling_the_user_setting_switches_the_present_mode_live() {
 
     publish_vsync(&mut app, false);
     assert_eq!(preference(&app), PresentModePreference::NoVsync);
-    assert_eq!(primary_present_mode(&mut app), PresentMode::Immediate);
+    assert_eq!(primary_present_mode(&mut app), PresentMode::Fifo);
 
     publish_vsync(&mut app, true);
     assert_eq!(preference(&app), PresentModePreference::Auto);
     assert_eq!(primary_present_mode(&mut app), PresentMode::Fifo);
 }
 
-/// The fallback request before the probe is replaced by the surface's best advertised mode.
+/// The pre-probe FIFO request is replaced by Mailbox once the surface offers it for a limit
+/// above the display's refresh.
 #[test]
-fn a_completed_probe_moves_vsync_off_to_the_advertised_mode() {
+fn a_completed_probe_moves_an_outpacing_limit_to_mailbox() {
     let mut app = vsync_app(PresentModeRuntime::from_startup(false, false, false, false));
-    publish_vsync(&mut app, false);
-    assert_eq!(primary_present_mode(&mut app), PresentMode::Immediate);
+    publish_video(&mut app, |video| {
+        video.vsync = false;
+        video.frame_rate_limit = render_api::FrameRateLimit::Unlimited;
+    });
+    assert_eq!(primary_present_mode(&mut app), PresentMode::Fifo);
 
     publish_capabilities(&app, MAILBOX_ONLY);
     app.update();
     assert_eq!(primary_present_mode(&mut app), PresentMode::Mailbox);
+}
+
+/// `--no-vsync` and the VSync setting mean the same tear-free path; nothing a player can set
+/// requests Immediate.
+#[test]
+fn no_launch_flag_or_setting_requests_immediate() {
+    for (no_vsync, vsync) in [(true, true), (false, false), (false, true)] {
+        let mut app = vsync_app(PresentModeRuntime::from_startup(
+            false, no_vsync, false, false,
+        ));
+        publish_capabilities(&app, METAL);
+        for limit in [
+            render_api::FrameRateLimit::Automatic,
+            render_api::FrameRateLimit::Unlimited,
+        ] {
+            publish_video(&mut app, |video| {
+                video.vsync = vsync;
+                video.frame_rate_limit = limit;
+            });
+            assert_ne!(primary_present_mode(&mut app), PresentMode::Immediate);
+        }
+    }
 }
 
 /// An unrelated settings revision must not drop an applied driver remedy.
@@ -198,7 +228,7 @@ fn a_setting_update_retries_until_the_primary_window_exists() {
     let runtime = app.world().resource::<PresentModeRuntime>();
     assert_eq!(runtime.observed_settings_generation(), 1);
     assert_eq!(runtime.policy.preference(), PresentModePreference::NoVsync);
-    assert_eq!(primary_present_mode(&mut app), PresentMode::Immediate);
+    assert_eq!(primary_present_mode(&mut app), PresentMode::Fifo);
 }
 
 #[test]
@@ -283,7 +313,9 @@ fn an_adopted_driver_remedy_stays_applied_through_the_render_feedback_loop() {
 #[test]
 fn the_capability_selected_mode_is_published_with_the_window_request() {
     let mut app = vsync_app(PresentModeRuntime::from_startup(false, true, false, false));
-    app.update();
+    publish_video(&mut app, |video| {
+        video.frame_rate_limit = render_api::FrameRateLimit::Unlimited;
+    });
     let policy = app.world().resource::<PresentModeRuntime>().policy();
     assert_eq!(policy.selection(), None);
 
@@ -291,4 +323,34 @@ fn the_capability_selected_mode_is_published_with_the_window_request() {
     app.update();
     assert_eq!(policy.selection(), Some(PresentModeKind::Mailbox));
     assert_eq!(primary_present_mode(&mut app), PresentMode::Mailbox);
+}
+
+/// VSync off stays tear-free on a surface without Mailbox, and Mailbox only serves a limit
+/// that outpaces the display.
+#[test]
+fn vsync_off_never_requests_immediate() {
+    let mut app = vsync_app(PresentModeRuntime::from_startup(false, false, false, false));
+    publish_capabilities(&app, METAL);
+    for limit in [
+        render_api::FrameRateLimit::Automatic,
+        render_api::FrameRateLimit::Unlimited,
+    ] {
+        publish_video(&mut app, |video| {
+            video.vsync = false;
+            video.frame_rate_limit = limit;
+        });
+        assert_eq!(
+            primary_present_mode(&mut app),
+            PresentMode::Fifo,
+            "{limit:?}"
+        );
+    }
+    publish_capabilities(&app, MAILBOX_ONLY);
+    publish_video(&mut app, |video| {
+        video.vsync = false;
+        video.frame_rate_limit = render_api::FrameRateLimit::Unlimited;
+    });
+    assert_eq!(primary_present_mode(&mut app), PresentMode::Mailbox);
+    publish_video(&mut app, |video| video.vsync = false);
+    assert_eq!(primary_present_mode(&mut app), PresentMode::Fifo);
 }

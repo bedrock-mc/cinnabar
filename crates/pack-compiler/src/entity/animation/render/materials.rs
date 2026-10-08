@@ -86,6 +86,9 @@ impl MaterialStates {
         for fields in chain.into_iter().rev() {
             apply(fields, &mut state)?;
         }
+        // Native JSON actors select the transparent pass before legacy ALPHA_TEST;
+        // that Actor shader pass preserves sampled opacity without a cutout discard.
+        state.alpha_test &= !state.blend;
         Some(state)
     }
 }
@@ -108,6 +111,12 @@ fn builtin(name: &str) -> Option<EntityRenderMaterialState> {
         }
         "experience_orb" => state.alpha_test = true,
         "entity_alphablend" | "slime_outer" => state.blend = true,
+        "breeze_wind" => {
+            state.alpha_test = true;
+            state.blend = true;
+            state.cull = false;
+            state.depth_write = false;
+        }
         _ => return None,
     }
     Some(state)

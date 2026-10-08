@@ -9,6 +9,7 @@ struct Policy {
     multitexture_sources: Vec<Source>,
     multitexture_entities: Vec<Source>,
     multitexture_controllers: Vec<Source>,
+    blended_sources: Vec<Source>,
 }
 
 #[derive(serde::Deserialize)]
@@ -26,6 +27,13 @@ pub fn native_actor_texture_uses_color_mask(source: &EntityAssetSource) -> bool 
 /// Native three-sampler texture admission, independently pinned from dye masks.
 pub fn native_actor_texture_uses_multitexture(source: &EntityAssetSource) -> bool {
     matches(&policy().multitexture_sources, source)
+}
+
+/// Native rasters with an identified material that preserves fractional alpha.
+pub fn native_actor_texture_preserves_fractional_alpha(source: &EntityAssetSource) -> bool {
+    native_actor_texture_uses_color_mask(source)
+        || native_actor_texture_uses_multitexture(source)
+        || matches(&policy().blended_sources, source)
 }
 
 /// Only the witnessed vanilla entity/controller pair can group texture slots. Reusing the
@@ -98,6 +106,18 @@ mod tests {
                 source_sha256: [0; 32],
             };
             assert!(!native_actor_texture_uses_multitexture(&source));
+        }
+    }
+
+    #[test]
+    fn similarly_named_custom_rasters_cannot_claim_native_blended_alpha() {
+        for witness in &policy().blended_sources {
+            let source = EntityAssetSource {
+                path: witness.path.clone(),
+                source_bytes: 0,
+                source_sha256: [0; 32],
+            };
+            assert!(!native_actor_texture_preserves_fractional_alpha(&source));
         }
     }
 }
