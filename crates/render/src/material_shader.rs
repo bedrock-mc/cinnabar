@@ -74,8 +74,8 @@ pub(crate) fn source(source: &str) -> String {
             &format!("{}u", assets::MATERIAL_FLAG_OVERLAY_MASK),
         )
         .replace(
-            "MATERIAL_LEAF_ISOTROPIC_FLAG",
-            &format!("{}u", assets::MATERIAL_FLAG_LEAF_ISOTROPIC),
+            "MATERIAL_ISOTROPIC_FLAG",
+            &format!("{}u", assets::MATERIAL_FLAG_ISOTROPIC),
         )
         .replace(
             "MATERIAL_LEAF_AO_EXPONENT_MASK",

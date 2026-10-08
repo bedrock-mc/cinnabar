@@ -113,6 +113,7 @@ fn world_flags(original: u32, seasonal: u32, deep: bool) -> u32 {
         & !(MATERIAL_FLAG_ALPHA_BLEND
             | MATERIAL_FLAG_ALPHA_CUTOUT
             | MATERIAL_FLAG_TWO_SIDED
+            | assets::MATERIAL_FLAG_ISOTROPIC
             | assets::MATERIAL_LEAF_METADATA_MASK))
         | seasonal
         | MATERIAL_FLAG_NATIVE_LEAF_COLOUR

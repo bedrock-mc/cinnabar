@@ -72,8 +72,8 @@ pub const MATERIAL_FLAG_EXPOSED_FOLIAGE: u32 = 1 << 13;
 pub const MATERIAL_FLAG_TWO_SIDED: u32 = 1 << 14;
 /// World leaf RGB follows native UNORM material, lighting and fog composition.
 pub const MATERIAL_FLAG_NATIVE_LEAF_COLOUR: u32 = 1 << 15;
-/// Applies the pack-authored positional quarter-turn to this world leaf face.
-pub const MATERIAL_FLAG_LEAF_ISOTROPIC: u32 = 1 << 16;
+/// Applies the pack-authored positional quarter-turn to this world cube face.
+pub const MATERIAL_FLAG_ISOTROPIC: u32 = 1 << 16;
 /// Omits ambient occlusion while preserving solved block and sky light.
 pub const MATERIAL_FLAG_DISABLE_AO: u32 = 1 << 25;
 /// Omits the directional face coefficient while preserving the lightmap.
@@ -84,8 +84,7 @@ pub const MATERIAL_LEAF_AO_EXPONENT_MAX: u32 = u8::MAX as u32;
 pub const MATERIAL_LEAF_AO_EXPONENT_MASK: u32 =
     MATERIAL_LEAF_AO_EXPONENT_MAX << MATERIAL_LEAF_AO_EXPONENT_SHIFT;
 pub const MATERIAL_LEAF_AO_EXPONENT_SCALE: u32 = 100;
-pub const MATERIAL_LEAF_METADATA_MASK: u32 =
-    MATERIAL_FLAG_LEAF_ISOTROPIC | MATERIAL_LEAF_AO_EXPONENT_MASK;
+pub const MATERIAL_LEAF_METADATA_MASK: u32 = MATERIAL_LEAF_AO_EXPONENT_MASK;
 
 /// Decodes admitted pack-authored hundredths, without changing the native default.
 #[must_use]
@@ -109,6 +108,7 @@ pub const MATERIAL_FLAGS_MASK: u32 = MATERIAL_FLAG_UV_MASK
     | MATERIAL_FLAG_EXPOSED_FOLIAGE
     | MATERIAL_FLAG_TWO_SIDED
     | MATERIAL_FLAG_NATIVE_LEAF_COLOUR
+    | MATERIAL_FLAG_ISOTROPIC
     | MATERIAL_LEAF_METADATA_MASK
     | MATERIAL_FLAG_DISABLE_AO
     | MATERIAL_FLAG_DISABLE_FACE_DIMMING;

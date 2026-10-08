@@ -1376,6 +1376,9 @@ RVAs are 1.26.50.26 Windows client; `mac 0x10…` addresses are the 26.30 macOS 
 - // truncates RGB to bytes before LightTexture::getColorForUV reads them.
 
 ## crates/render/src/material.wgsl
+- Cube face isotropy uses the current canonical 1.26.50.26 `06a0f830` Up and
+  adjacent face bodies in `src/__unmapped/06.cpp`: floored block position,
+  wrapping 32-bit mix, bits 24–25, native rotation codes `[0, 1, 3, 2]`.
 - // enabled by BlockGraphics' pack-authored isotropic mask.
 - // AmbientOcclusionCalculator raises the four-sample average * face
 
