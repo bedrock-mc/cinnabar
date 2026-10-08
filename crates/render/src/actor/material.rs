@@ -49,7 +49,7 @@ mod tests {
 
     #[test]
     fn authored_actor_states_roundtrip_without_changing_the_shader_kind() {
-        for bits in 0..128 {
+        for bits in 0..256 {
             let expected = EntityRenderMaterialState {
                 alpha_test: bits & 1 != 0,
                 cull: bits & 2 != 0,
@@ -58,6 +58,7 @@ mod tests {
                 emissive: bits & 16 != 0,
                 additive: bits & 32 != 0,
                 additive_alpha: bits & 64 != 0,
+                disable_overlay: bits & 128 != 0,
             };
             let material = ActorMaterial {
                 kind: assets::EntityRenderMaterial::Default,

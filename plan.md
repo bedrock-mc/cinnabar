@@ -1442,8 +1442,9 @@ layers count every texel), unsampled ones are cleared, and the body route takes
 only the first unconditional controller's art. The pinned pack now binds the
 creeper and admits two NPC skins; blaze, spider, cave spider, enderman and drowned
 still fall back because sampled texels carry unverified fractional-alpha material
-semantics. Creeper ignition/defuse visuals and the charged aura material remain
-incomplete pending rendered comparisons.
+semantics. Creeper ignition/defuse visual acceptance remains incomplete pending
+rendered comparisons. The charged aura material fallback is provisional; exact
+target material equivalence remains incomplete.
 
 Ordinary terrain-blend model/water faces now share the current native perspective
 metric; ordinary Ice and water use

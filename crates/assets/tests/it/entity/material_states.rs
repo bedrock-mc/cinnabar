@@ -5,7 +5,9 @@ use super::suite::carrier_v4_fixture;
 #[test]
 fn additive_source_alpha_material_state_round_trips_through_entity_carrier() {
     let mut compiled = carrier_v4_fixture();
-    for additive_alpha in [false, true] {
+    for (additive_alpha, disable_overlay) in
+        [(false, false), (false, true), (true, false), (true, true)]
+    {
         let state = EntityRenderMaterialState {
             cull: false,
             blend: true,
@@ -13,6 +15,7 @@ fn additive_source_alpha_material_state_round_trips_through_entity_carrier() {
             emissive: true,
             additive: true,
             additive_alpha,
+            disable_overlay,
             ..Default::default()
         };
         compiled.render.layers[0].material_state = Some(state);
@@ -49,7 +52,7 @@ fn existing_entity_carrier_keeps_material_defaults_and_encoded_identity() {
             .layers
             .iter()
             .filter_map(|layer| layer.material_state)
-            .all(|state| !state.additive_alpha)
+            .all(|state| !state.additive_alpha && !state.disable_overlay)
     );
     assert_eq!(runtime.encode().unwrap().as_ref(), encoded.as_slice());
 }

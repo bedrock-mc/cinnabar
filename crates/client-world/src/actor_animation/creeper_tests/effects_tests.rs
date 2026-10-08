@@ -32,11 +32,13 @@ fn swell_conditional_return_controls_later_assignments_at_the_frame_fraction() {
             .into_boxed_slice();
             compiled.molang_expressions = [(0, 12, 2), (12, 1, 1)]
                 .into_iter()
-                .map(|(first_op, op_count, max_stack)| assets::CompiledMolangExpression {
-                    first_op,
-                    op_count,
-                    max_stack,
-                })
+                .map(
+                    |(first_op, op_count, max_stack)| assets::CompiledMolangExpression {
+                        first_op,
+                        op_count,
+                        max_stack,
+                    },
+                )
                 .collect::<Vec<_>>()
                 .into_boxed_slice();
             compiled.animation_keyframes[0].expressions = [Some(1), None, None];

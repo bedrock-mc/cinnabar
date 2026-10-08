@@ -105,6 +105,7 @@ fn actor_vertex(
     out.surface = 0u;
     out.multitexture_layers = vec2(instance_words[instance_base + 25u], instance_words[instance_base + 26u]);
     out.material = instance_words[instance_base + 27u];
+    if ((out.material & ACTOR_MATERIAL_DISABLE_OVERLAY_FLAG) != 0u) { out.overlay = vec4(0.0); }
     if ((out.material & ACTOR_MATERIAL_KIND_MASK) == ACTOR_MATERIAL_GLINT) { out.multitexture_layers.x = instance_index; }
     out.dissolve_multiplier = word_f32(instance_base + 28u);
     let light_color_multiplier = word_f32(instance_base + 29u);
