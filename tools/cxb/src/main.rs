@@ -5,7 +5,7 @@ use cinnabar_cxb::{bundle, fixtures, keys, media, seed_cache};
 use server_experience::crypto;
 
 const USAGE: &str = "usage: cinnabar-cxb keygen <seed-file>
-       cinnabar-cxb build --manifest <toml|json> --component <wasm> --publisher-seed <seed-file> --out <bundle.cxb> [--assets <dir>]
+       cinnabar-cxb build --experience <experience.toml> --component <wasm> --publisher-seed <seed-file> --out <bundle.cxb> [--assets <dir>]
        cinnabar-cxb media --webm <in.webm> --url <https url> --id <media id> --poster <bundle path> --out-webm <file> --out-descriptor <file>
        cinnabar-cxb seed-cache --cxb <bundle.cxb> --user-data <dir>
        cinnabar-cxb write-fixtures <dir>";
@@ -16,27 +16,27 @@ fn main() -> Result<()> {
     match args.as_slice() {
         ["keygen", path] => println!("public_key={}", keys::generate(Path::new(path))?),
         ["build", flags @ ..] => {
-            const NAMES: [&str; 4] = ["--manifest", "--component", "--publisher-seed", "--out"];
-            let ([manifest, component, seed, out], assets) = if flags.len() == 2 * (NAMES.len() + 1)
-            {
-                let [manifest, component, seed, out, assets] = options(
-                    flags,
-                    [
-                        "--manifest",
-                        "--component",
-                        "--publisher-seed",
-                        "--out",
-                        "--assets",
-                    ],
-                )?;
-                (
-                    [manifest, component, seed, out],
-                    bundle::read_assets(Path::new(assets))?,
-                )
-            } else {
-                (options(flags, NAMES)?, Vec::new())
-            };
-            let source = bundle::Source::read(Path::new(manifest))?;
+            const NAMES: [&str; 4] = ["--experience", "--component", "--publisher-seed", "--out"];
+            let ([experience, component, seed, out], assets) =
+                if flags.len() == 2 * (NAMES.len() + 1) {
+                    let [experience, component, seed, out, assets] = options(
+                        flags,
+                        [
+                            "--experience",
+                            "--component",
+                            "--publisher-seed",
+                            "--out",
+                            "--assets",
+                        ],
+                    )?;
+                    (
+                        [experience, component, seed, out],
+                        bundle::read_assets(Path::new(assets))?,
+                    )
+                } else {
+                    (options(flags, NAMES)?, Vec::new())
+                };
+            let source = bundle::Source::read(Path::new(experience))?;
             let wasm = std::fs::read(component).with_context(|| format!("reading {component}"))?;
             let built = bundle::build(source, &wasm, &assets, &keys::read(Path::new(seed))?)?;
             std::fs::write(out, &built.bytes).with_context(|| format!("writing {out}"))?;

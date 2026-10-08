@@ -229,7 +229,7 @@ fn movement_authority_retains_effective_current_and_identifies_only_native_sprin
             .unwrap();
         assert_eq!(stream.local_movement_speed(), Some(f64::from(current)));
         assert!(matches!(stream.take_committed_controls().as_slice(), [
-                CommittedControlEvent::LocalMovementSpeed { current: value, sprint_modifier, .. }
+                CommittedControlEvent::LocalMovementSpeed { current: Some(value), sprint_modifier, .. }
             ] if *value == f64::from(current) && *sprint_modifier == expected_modifier));
     };
     let factor = Some(1.0 + modifier.amount);
@@ -328,8 +328,10 @@ fn local_movement_authority_commits_in_fifo_order_and_accepts_zero_updates() {
             CommittedControlEvent::LocalMovementSpeed {
                 sequence: 2,
                 dimension: 0,
-                current: 0.0,
+                current: Some(0.0),
                 sprint_modifier: None,
+                underwater: None,
+                lava: None,
                 tick: 2,
             }
         ]
