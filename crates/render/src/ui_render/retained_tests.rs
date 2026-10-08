@@ -1,6 +1,8 @@
 //! Retained UI preparation regression and timing fixture.
+use super::resources::prepare_ui_resources;
 use super::*;
 use bevy::ecs::system::RunSystemOnce;
+use render_model::UiScissor;
 
 /// Builds a large immutable HUD in the no-op renderer.
 fn retained_world() -> World {
@@ -103,4 +105,57 @@ fn retained_publication_plans_no_vertex_or_index_uploads() {
     assert!(plan.vertices.is_empty());
     assert!(plan.indices.is_empty());
     assert_eq!(allocations, 0);
+}
+
+/// The actual preparation system leaves the static viewport buffer untouched after admission.
+#[test]
+fn retained_publication_does_not_upload_an_unused_viewport_clock() {
+    let mut world = retained_world();
+    let writes = world.resource::<UiGpu>().viewport_uploads.writes;
+    for _ in 0..3 {
+        world.run_system_once(prepare_ui_resources).unwrap();
+    }
+    assert_eq!(world.resource::<UiGpu>().viewport_uploads.writes, writes);
+}
+
+/// Incoming glint selects its current phase immediately, then leaving it restores static retention.
+#[test]
+fn retained_publication_switches_glint_uniforms_on_the_incoming_frame() {
+    let mut world = retained_world();
+    let stats = world.resource::<UiRenderStatsResource>().clone();
+    let mut input = (**world
+        .resource::<UiRenderSceneResource>()
+        .input
+        .as_ref()
+        .unwrap())
+    .clone();
+    let initial_writes = world.resource::<UiGpu>().viewport_uploads.writes;
+    world.resource_mut::<UiGpu>().started =
+        std::time::Instant::now() - std::time::Duration::from_secs(40);
+    for (revision, enabled) in [(2, true), (3, false)] {
+        input.revision = revision;
+        let mut vertices = input.vertices.to_vec();
+        vertices[0].style_flags = if enabled {
+            render_model::UI_STYLE_GLINT
+        } else {
+            0
+        };
+        input.vertices = vertices.into();
+        world
+            .resource_mut::<UiRenderSceneResource>()
+            .publish(input.clone(), &stats)
+            .unwrap();
+        world.run_system_once(prepare_ui_resources).unwrap();
+        let gpu = world.resource::<UiGpu>();
+        assert_eq!(gpu.animated, enabled);
+        assert_eq!(
+            gpu.viewport_uploads.writes,
+            initial_writes + revision as usize - 1
+        );
+    }
+    let writes = world.resource::<UiGpu>().viewport_uploads.writes;
+    for _ in 0..3 {
+        world.run_system_once(prepare_ui_resources).unwrap();
+    }
+    assert_eq!(world.resource::<UiGpu>().viewport_uploads.writes, writes);
 }
