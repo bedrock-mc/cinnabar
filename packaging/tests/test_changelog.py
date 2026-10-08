@@ -26,6 +26,10 @@ class ChangelogTest(unittest.TestCase):
             "perf: share light and mesh dispatch snapshots": "performance",
             "chore(go): repin gophertunnel fork": "internal",
             "Revert \"Make local world choices independent\"": "internal",
+            "Restore dev's verify gate (camera re-exports, clippy)": "internal",
+            "Fix data race in packet-delay flush test fake": "internal",
+            "Remove leftover merge markers from the vanilla refs map": "internal",
+            "Fix 17 gameplay, UI and rendering bugs": "fix",
             "Something unusual": changelog.DEFAULT_LABEL,
         }
         for title, label in cases.items():

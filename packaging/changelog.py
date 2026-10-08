@@ -36,8 +36,14 @@ def plain_title(title: str) -> str:
     return text[:1].upper() + text[1:]
 
 
+# Work players can't see, wherever it appears in a title.
+INTERNAL_TERMS = r"\b(ci|clippy|lint|verify gate|test fakes?|fixtures?|refs map|merge markers)\b"
+
+
 def classify(title: str) -> str:
     """Returns the category label a PR title implies."""
+    if re.search(INTERNAL_TERMS, title, re.I):
+        return "internal"
     for label, _, pattern in CATEGORIES:
         if re.match(pattern, title, re.I) or re.match(pattern, plain_title(title), re.I):
             return label
