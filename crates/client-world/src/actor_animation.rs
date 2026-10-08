@@ -844,7 +844,7 @@ pub use attachable::{
     AttachableAnimationInput, AttachableBoneParent, AttachableRigSnapshot, AttachablesRuntime,
 };
 pub use evaluation::ActorAnimationVariables;
-use evaluation::{EngineSlots, Evaluator, MolangVariables, VariableLayout};
+use evaluation::{EngineSlots, Evaluator, MolangValue, MolangVariables, VariableLayout};
 use geometry::{collect_controllers, resolve_binding, resolve_bones, skeleton};
 pub use motion::ACTOR_SWING_TICKS;
 use motion::{MotionInput, MotionState};

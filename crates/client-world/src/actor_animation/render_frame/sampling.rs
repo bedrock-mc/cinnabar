@@ -117,7 +117,70 @@ pub(super) fn pose_expressions(
         expressions.extend(rig.initialize);
         expressions.extend(rig.scale_expressions.into_iter().flatten());
     }
+    let (selection, mut clips) = topology_expressions(assets, geometry, controllers);
+    expressions.extend(selection);
+    let geometries = assets
+        .render_layers(rig)
+        .iter()
+        .flat_map(|layer| {
+            let first = layer.first_geometry as usize;
+            assets.render_data().geometries[first..first + usize::from(layer.geometry_count)]
+                .iter()
+                .map(|choice| choice.geometry)
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    let mapped = clips
+        .iter()
+        .flat_map(|&clip| {
+            let symbol = assets.animation_clips()[clip].symbol;
+            geometries
+                .iter()
+                .filter_map(move |&geometry| assets.clip_for_geometry(symbol, geometry))
+        })
+        .map(|clip| clip as usize)
+        .collect::<Vec<_>>();
+    clips.extend(mapped);
+    for clip in clips {
+        let Some(clip) = assets.animation_clips().get(clip) else {
+            continue;
+        };
+        expressions.extend(clip.anim_time_update);
+        let first = clip.first_channel as usize;
+        for channel in &assets.animation_channels()[first..first + clip.channel_count as usize] {
+            let first = channel.first_keyframe as usize;
+            for key in &assets.animation_keyframes()[first..first + channel.keyframe_count as usize]
+            {
+                expressions.extend(key.expressions.into_iter().flatten());
+            }
+        }
+    }
+    expressions.sort_unstable();
+    expressions.dedup();
+    expressions
+}
+
+/// Controller traversal and clocks precede bone channels on one variable stream.
+pub(super) fn selection_expressions(
+    assets: &RuntimeEntityAssets,
+    geometry: usize,
+    controllers: &[ControllerState],
+) -> Vec<u32> {
+    let (mut expressions, clips) = topology_expressions(assets, geometry, controllers);
+    expressions.extend(
+        clips
+            .into_iter()
+            .filter_map(|clip| assets.animation_clips()[clip].anim_time_update),
+    );
+    expressions
+}
+
+fn topology_expressions(
+    assets: &RuntimeEntityAssets,
+    geometry: usize,
+    controllers: &[ControllerState],
+) -> (Vec<u32>, std::collections::BTreeSet<usize>) {
     let mut clips = std::collections::BTreeSet::new();
+    let mut expressions = Vec::new();
     if let Some(geometry) = assets.rig_geometries().get(geometry) {
         let first = geometry.first_animation as usize;
         for binding in
@@ -159,42 +222,5 @@ pub(super) fn pose_expressions(
             }
         }
     }
-    let geometries = assets
-        .render_layers(rig)
-        .iter()
-        .flat_map(|layer| {
-            let first = layer.first_geometry as usize;
-            assets.render_data().geometries[first..first + usize::from(layer.geometry_count)]
-                .iter()
-                .map(|choice| choice.geometry)
-        })
-        .collect::<std::collections::BTreeSet<_>>();
-    let mapped = clips
-        .iter()
-        .flat_map(|&clip| {
-            let symbol = assets.animation_clips()[clip].symbol;
-            geometries
-                .iter()
-                .filter_map(move |&geometry| assets.clip_for_geometry(symbol, geometry))
-        })
-        .map(|clip| clip as usize)
-        .collect::<Vec<_>>();
-    clips.extend(mapped);
-    for clip in clips {
-        let Some(clip) = assets.animation_clips().get(clip) else {
-            continue;
-        };
-        expressions.extend(clip.anim_time_update);
-        let first = clip.first_channel as usize;
-        for channel in &assets.animation_channels()[first..first + clip.channel_count as usize] {
-            let first = channel.first_keyframe as usize;
-            for key in &assets.animation_keyframes()[first..first + channel.keyframe_count as usize]
-            {
-                expressions.extend(key.expressions.into_iter().flatten());
-            }
-        }
-    }
-    expressions.sort_unstable();
-    expressions.dedup();
-    expressions
+    (expressions, clips)
 }

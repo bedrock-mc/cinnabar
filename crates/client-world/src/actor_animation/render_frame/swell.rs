@@ -13,6 +13,9 @@ pub(in crate::actor_animation) struct SwellSampling {
     weighted_symbols: BTreeSet<u32>,
     timed_symbols: BTreeSet<u32>,
     render_writes: bool,
+    queries: BTreeSet<u32>,
+    properties: bool,
+    selection_effects: bool,
 }
 
 impl SwellSampling {
@@ -32,6 +35,40 @@ impl SwellSampling {
         }) {
             return None;
         }
+        let mut queries = BTreeSet::new();
+        let mut properties = false;
+        for &expression in &expressions {
+            for op in ops(assets, expression) {
+                let symbol = match op {
+                    MolangOp::LoadQuery(symbol) => Some(*symbol),
+                    MolangOp::CallQuery(call) if call.arguments == 0 => Some(call.symbol),
+                    MolangOp::CallQuery(call) => {
+                        properties |= assets
+                            .molang_symbols()
+                            .get(call.symbol as usize)
+                            .is_some_and(|s| s.identifier.as_ref() == "query.property");
+                        None
+                    }
+                    _ => None,
+                };
+                if let Some(symbol) = symbol
+                    && assets
+                        .molang_symbols()
+                        .get(symbol as usize)
+                        .is_some_and(|s| {
+                            !matches!(
+                                s.identifier.as_ref(),
+                                "query.swell_amount"
+                                    | "query.anim_time"
+                                    | "query.all_animations_finished"
+                                    | "query.any_animation_finished"
+                            )
+                        })
+                {
+                    queries.insert(symbol);
+                }
+            }
+        }
         let mut variables = BTreeSet::new();
         loop {
             let before = variables.len();
@@ -49,12 +86,14 @@ impl SwellSampling {
                     MolangOp::LoadQuery(symbol) => is_swell(assets, *symbol),
                     MolangOp::CallQuery(call) => is_swell(assets, call.symbol),
                     MolangOp::LoadVariable(symbol) => variables.contains(symbol),
+                    MolangOp::LoadThis => true,
                     MolangOp::Coalesce(branch) => variables.contains(&branch.symbol),
                     _ => false,
                 })
             })
             .collect::<BTreeSet<_>>();
         let mut weighted_symbols = BTreeSet::new();
+        let geometry_index = geometry;
         let geometry = &assets.rig_geometries()[geometry];
         let first = geometry.first_animation as usize;
         for binding in
@@ -105,6 +144,10 @@ impl SwellSampling {
                 }
             }
         }
+        let selection_effects =
+            super::sampling::selection_expressions(assets, geometry_index, controllers)
+                .into_iter()
+                .any(|expression| has_effects(assets, expression));
         let timed_symbols = assets
             .animation_clips()
             .iter()
@@ -116,17 +159,30 @@ impl SwellSampling {
             .collect();
         let render_writes = super::sampling::render_controller_expressions(assets, rig)
             .into_iter()
-            .any(|expression| {
-                ops(assets, expression)
-                    .iter()
-                    .any(|op| matches!(op, MolangOp::StoreVariable(_)))
-            });
+            .any(|expression| has_effects(assets, expression));
         Some(Arc::new(Self {
             render_writes,
+            queries,
+            properties,
+            selection_effects,
             expressions,
             weighted_symbols,
             timed_symbols,
         }))
+    }
+
+    pub(in crate::actor_animation) fn freeze_queries(
+        &self,
+        evaluator: &evaluation::Evaluator<'_>,
+    ) -> Vec<(u32, MolangValue)> {
+        self.queries
+            .iter()
+            .map(|&symbol| (symbol, evaluator.query(symbol, &[])))
+            .collect()
+    }
+
+    pub(in crate::actor_animation) fn samples_properties(&self) -> bool {
+        self.properties
     }
 
     /// Authored render assignments must retain each selected geometry endpoint's inputs.
@@ -135,7 +191,9 @@ impl SwellSampling {
     }
 
     pub(in crate::actor_animation) fn samples_clips(&self) -> bool {
-        !self.weighted_symbols.is_empty() || !self.timed_symbols.is_empty()
+        self.selection_effects
+            || !self.weighted_symbols.is_empty()
+            || !self.timed_symbols.is_empty()
     }
 
     pub(super) fn samples_time(&self, assets: &RuntimeEntityAssets, clip: usize) -> bool {
@@ -285,7 +343,8 @@ fn propagate(assets: &RuntimeEntityAssets, expression: u32, variables: &mut BTre
             dependency
         };
         match *op {
-            MolangOp::Push(_) | MolangOp::PushString(_) | MolangOp::LoadThis => stack.push(control),
+            MolangOp::Push(_) | MolangOp::PushString(_) => stack.push(control),
+            MolangOp::LoadThis => stack.push(true),
             MolangOp::LoadQuery(symbol) => stack.push(control || is_swell(assets, symbol)),
             MolangOp::LoadVariable(symbol) => stack.push(control || variables.contains(&symbol)),
             MolangOp::CallQuery(call) => {
@@ -363,4 +422,11 @@ fn propagate(assets: &RuntimeEntityAssets, expression: u32, variables: &mut BTre
             pending.push((pc + 1, stack, controls));
         }
     }
+}
+
+fn has_effects(assets: &RuntimeEntityAssets, expression: u32) -> bool {
+    ops(assets, expression).iter().any(|op| {
+        matches!(op, MolangOp::StoreVariable(_))
+            || matches!(op, MolangOp::Call(function) if function.is_random())
+    })
 }

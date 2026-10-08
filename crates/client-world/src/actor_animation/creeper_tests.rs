@@ -941,6 +941,15 @@ fn swell_controller_fixture(
     threshold: f32,
     deactivate: bool,
 ) -> crate::actor_store::ActorStore {
+    swell_controller_fixture_with(ticks, threshold, deactivate, |_| {})
+}
+
+fn swell_controller_fixture_with(
+    ticks: u32,
+    threshold: f32,
+    deactivate: bool,
+    edit: impl FnOnce(&mut assets::CompiledEntityAssets),
+) -> crate::actor_store::ActorStore {
     pack_swell_fixture_with(
         AuthoredSwellChannel {
             pre_animation: false,
@@ -1093,6 +1102,7 @@ fn swell_controller_fixture(
                 order: 0,
             }]
             .into();
+            edit(compiled);
         },
     )
 }
@@ -1364,7 +1374,7 @@ fn swell_weight_and_clock_assignments_publish_without_advancing_state() {
             },
         );
         let tick = store.actor_rig(1).unwrap().completed_tick;
-        for alpha in [0.0, 0.5, 1.0, 0.5] {
+        for alpha in [0.25, 0.5, 1.0, 0.5] {
             let amount = (2.0 + alpha) / crate::actor_store::creeper::SWELL_FULL_TICKS;
             let layers = store.render_frame(alpha).layers(1).unwrap();
             assert!(
@@ -1529,7 +1539,7 @@ fn swell_render_controller_writes_feed_selected_geometry_channels() {
         },
     );
     let tick = store.actor_rig(1).unwrap().completed_tick;
-    for alpha in [0.0, 0.5, 1.0, 0.5] {
+    for alpha in [0.25, 0.5, 1.0, 0.5] {
         let amount = (2.0 + alpha) / crate::actor_store::creeper::SWELL_FULL_TICKS;
         let layers = store.render_frame(alpha).layers(1).unwrap();
         for endpoint in [&layers[1].previous_pose[1], &layers[1].pose[1]] {
@@ -1609,4 +1619,405 @@ fn swell_render_writes_keep_each_geometry_motion_endpoint() {
             );
         }
     }
+}
+
+#[test]
+fn swell_endpoint_retains_controller_entry_and_exit_assignments_after_pre_animation() {
+    for weighted in [false, true] {
+        let mut store = swell_controller_fixture_with(3, 0.12, false, |compiled| {
+            let scalar = |value| assets::EntityGeometryScalar::new(value).unwrap();
+            let mut symbols = compiled.molang_symbols.to_vec();
+            symbols.push(assets::MolangSymbol {
+                kind: assets::MolangSymbolKind::Variable,
+                identifier: "variable.factor".into(),
+            });
+            compiled.molang_symbols = symbols.into_boxed_slice();
+            let mut ops = compiled.molang_ops.to_vec();
+            ops.extend([
+                MolangOp::Push(scalar(1.0)),
+                MolangOp::StoreVariable(5),
+                MolangOp::Push(scalar(0.0)),
+                MolangOp::Push(scalar(2.0)),
+                MolangOp::StoreVariable(5),
+                MolangOp::Push(scalar(0.0)),
+                MolangOp::Push(scalar(3.0)),
+                MolangOp::StoreVariable(5),
+                MolangOp::Push(scalar(0.0)),
+                MolangOp::LoadQuery(4),
+                MolangOp::LoadVariable(5),
+                MolangOp::Multiply,
+            ]);
+            compiled.molang_ops = ops.into_boxed_slice();
+            let mut expressions = compiled.molang_expressions.to_vec();
+            expressions.extend([(7, 3, 1), (10, 3, 1), (13, 3, 1), (16, 3, 2)].map(
+                |(first_op, op_count, max_stack)| assets::CompiledMolangExpression {
+                    first_op,
+                    op_count,
+                    max_stack,
+                },
+            ));
+            compiled.molang_expressions = expressions.into_boxed_slice();
+            compiled.rig_bindings[0].pre_animation = Some(3);
+            compiled.controller_states[0].on_exit = Some(4);
+            compiled.controller_states[1].on_entry = Some(5);
+            compiled.animation_keyframes[0].expressions = [Some(6), None, None];
+            for animation in &mut compiled.controller_animations {
+                animation.weight = weighted.then_some(0);
+            }
+        });
+        for (before, after) in [(1.0, 3.0), (3.0, 1.0)] {
+            let tick = store.actor_rig(1).unwrap().completed_tick;
+            let amount = (tick as f32 - 1.0 + 0.5) / crate::actor_store::creeper::SWELL_FULL_TICKS;
+            let factor = if weighted { amount * amount } else { amount };
+            let layers = store.render_frame(0.5).layers(1).unwrap();
+            for (pose, multiplier) in [
+                (&layers[0].previous_pose[0], before),
+                (&layers[0].pose[0], after),
+            ] {
+                assert!(
+                    (pose.translation_scale[0] + factor * multiplier).abs() < 1e-6,
+                    "entry/exit writes follow pre-animation at their endpoint"
+                );
+            }
+            store.advance_interpolation_ticks(1);
+        }
+    }
+}
+
+#[test]
+fn swell_endpoint_retains_ordinary_actor_hurt_query_history() {
+    let mut store = pack_swell_fixture_with(
+        AuthoredSwellChannel {
+            pre_animation: false,
+            property: assets::EntityAnimationProperty::Translation,
+            variable: false,
+        },
+        None,
+        false,
+        0,
+        false,
+        |compiled| {
+            compiled.molang_symbols = [
+                (assets::MolangSymbolKind::Name, "wield"),
+                (assets::MolangSymbolKind::Query, "query.hurt_time"),
+                (assets::MolangSymbolKind::Query, "query.swell_amount"),
+            ]
+            .into_iter()
+            .map(|(kind, identifier)| assets::MolangSymbol {
+                kind,
+                identifier: identifier.into(),
+            })
+            .collect::<Vec<_>>()
+            .into_boxed_slice();
+            compiled.molang_ops = vec![
+                MolangOp::LoadQuery(2),
+                MolangOp::LoadQuery(1),
+                MolangOp::Add,
+            ]
+            .into_boxed_slice();
+            compiled.molang_expressions[0].op_count = 3;
+            compiled.molang_expressions[0].max_stack = 2;
+        },
+    );
+    store.apply(
+        1,
+        2,
+        protocol::ActorEvent::Status(protocol::ActorStatusEvent {
+            runtime_id: 1,
+            kind: protocol::ActorStatusKind::Hurt,
+            data: 0,
+        }),
+    );
+    store.advance_interpolation_ticks(2);
+    let hurt = f32::from(store.get(1).unwrap().status.hurt_time);
+    let layers = store.render_frame(0.5).layers(1).unwrap();
+    let amount = 1.5 / crate::actor_store::creeper::SWELL_FULL_TICKS;
+    for (pose, value) in [
+        (&layers[0].previous_pose[0], hurt + 1.0),
+        (&layers[0].pose[0], hurt),
+    ] {
+        assert!(
+            (pose.translation_scale[0] + amount + value).abs() < 1e-6,
+            "ordinary hurt query stays at its pose endpoint"
+        );
+    }
+}
+
+#[test]
+fn swell_dependencies_flow_through_this_into_later_bones() {
+    let store = pack_swell_fixture_with(
+        AuthoredSwellChannel {
+            pre_animation: false,
+            property: assets::EntityAnimationProperty::Translation,
+            variable: false,
+        },
+        None,
+        false,
+        3,
+        false,
+        |compiled| {
+            let scalar = |value| assets::EntityGeometryScalar::new(value).unwrap();
+            let mut symbols = compiled.molang_symbols.to_vec();
+            symbols.push(assets::MolangSymbol {
+                kind: assets::MolangSymbolKind::Variable,
+                identifier: "variable.copy".into(),
+            });
+            compiled.molang_symbols = symbols.into_boxed_slice();
+            let mut second = compiled.geometries[0].bones[0].clone();
+            second.name = "second".into();
+            compiled.geometries[0].bones =
+                vec![compiled.geometries[0].bones[0].clone(), second].into_boxed_slice();
+            compiled.molang_ops = vec![
+                MolangOp::LoadQuery(1),
+                MolangOp::LoadThis,
+                MolangOp::StoreVariable(2),
+                MolangOp::Push(scalar(0.0)),
+                MolangOp::LoadVariable(2),
+            ]
+            .into_boxed_slice();
+            compiled.molang_expressions = [(0, 1), (1, 3), (4, 1)]
+                .into_iter()
+                .map(|(first_op, op_count)| assets::CompiledMolangExpression {
+                    first_op,
+                    op_count,
+                    max_stack: 1,
+                })
+                .collect::<Vec<_>>()
+                .into_boxed_slice();
+            let original = compiled.animation_channels[0].clone();
+            compiled.animation_channels = (0..3)
+                .map(|index| assets::EntityAnimationChannel {
+                    bone: u32::from(index == 2),
+                    first_keyframe: index,
+                    ..original.clone()
+                })
+                .collect::<Vec<_>>()
+                .into_boxed_slice();
+            let key = compiled.animation_keyframes[0];
+            compiled.animation_keyframes = (0..3)
+                .map(|index| assets::EntityAnimationKeyframe {
+                    expressions: [Some(index), None, None],
+                    ..key
+                })
+                .collect::<Vec<_>>()
+                .into_boxed_slice();
+            compiled.animation_clips[0].channel_count = 3;
+        },
+    );
+    let layers = store.render_frame(0.5).layers(1).unwrap();
+    for pose in [&layers[0].previous_pose[1], &layers[0].pose[1]] {
+        assert!(
+            (pose.translation_scale[0] + 2.5 / crate::actor_store::creeper::SWELL_FULL_TICKS).abs()
+                < 1e-6,
+            "this-derived assignments reach later bones"
+        );
+    }
+}
+
+#[test]
+fn swell_shared_clock_updates_execute_once_per_endpoint() {
+    let store = pack_swell_fixture_with(
+        AuthoredSwellChannel {
+            pre_animation: false,
+            property: assets::EntityAnimationProperty::Translation,
+            variable: false,
+        },
+        None,
+        false,
+        3,
+        true,
+        |compiled| {
+            compiled.molang_symbols = [
+                (assets::MolangSymbolKind::Name, "other"),
+                (assets::MolangSymbolKind::Name, "wield"),
+                (assets::MolangSymbolKind::Query, "query.swell_amount"),
+                (assets::MolangSymbolKind::Variable, "variable.counter"),
+            ]
+            .into_iter()
+            .map(|(kind, identifier)| assets::MolangSymbol {
+                kind,
+                identifier: identifier.into(),
+            })
+            .collect::<Vec<_>>()
+            .into_boxed_slice();
+            compiled.molang_ops = vec![
+                MolangOp::LoadVariable(3),
+                MolangOp::LoadQuery(2),
+                MolangOp::Add,
+                MolangOp::StoreVariable(3),
+                MolangOp::LoadVariable(3),
+                MolangOp::LoadVariable(3),
+            ]
+            .into_boxed_slice();
+            compiled.molang_expressions = [(0, 5, 2), (5, 1, 1)]
+                .into_iter()
+                .map(
+                    |(first_op, op_count, max_stack)| assets::CompiledMolangExpression {
+                        first_op,
+                        op_count,
+                        max_stack,
+                    },
+                )
+                .collect::<Vec<_>>()
+                .into_boxed_slice();
+            let binding = compiled.rig_animations[0];
+            compiled.rig_animations = vec![
+                assets::EntityRigAnimationBinding { name: 0, ..binding },
+                assets::EntityRigAnimationBinding {
+                    name: 1,
+                    order: 1,
+                    ..binding
+                },
+            ]
+            .into_boxed_slice();
+            compiled.rig_geometries[0].animation_count = 2;
+            compiled.render.layers[0].color = Some([1; 4]);
+        },
+    );
+    let completed = store.actor_rig(1).unwrap().render[0].color[0];
+    for alpha in [0.25, 0.5, 1.0, 0.5] {
+        let layers = store.render_frame(alpha).layers(1).unwrap();
+        let expected = completed + alpha / crate::actor_store::creeper::SWELL_FULL_TICKS;
+        assert!(
+            (layers[0].color[0] - expected).abs() < 1e-6,
+            "duplicate clock references publish one update: {} expected {} completed {} alpha {}",
+            layers[0].color[0],
+            expected,
+            completed,
+            alpha
+        );
+        assert!(
+            (layers[0].pose[0].translation_scale[0] + 2.0 * expected).abs() < 1e-6,
+            "duplicate references share the same sampled time"
+        );
+    }
+    assert_eq!(store.actor_rig(1).unwrap().render[0].color[0], completed);
+}
+
+#[test]
+fn swell_keyframe_random_draw_precedes_the_render_random_draw() {
+    let store = pack_swell_fixture_with(
+        AuthoredSwellChannel {
+            pre_animation: false,
+            property: assets::EntityAnimationProperty::Translation,
+            variable: false,
+        },
+        None,
+        false,
+        3,
+        false,
+        |compiled| {
+            let scalar = |value| assets::EntityGeometryScalar::new(value).unwrap();
+            let mut symbols = compiled.molang_symbols.to_vec();
+            symbols.push(assets::MolangSymbol {
+                kind: assets::MolangSymbolKind::Variable,
+                identifier: "variable.random".into(),
+            });
+            compiled.molang_symbols = symbols.into_boxed_slice();
+            compiled.molang_ops = vec![
+                MolangOp::Push(scalar(0.0)),
+                MolangOp::Push(scalar(1.0)),
+                MolangOp::Call(assets::MolangFunction::Random),
+                MolangOp::StoreVariable(2),
+                MolangOp::LoadQuery(1),
+                MolangOp::LoadVariable(2),
+                MolangOp::Multiply,
+                MolangOp::Push(scalar(0.0)),
+                MolangOp::Push(scalar(1.0)),
+                MolangOp::Call(assets::MolangFunction::Random),
+            ]
+            .into_boxed_slice();
+            compiled.molang_expressions = [(0, 7, 2), (7, 3, 2)]
+                .into_iter()
+                .map(
+                    |(first_op, op_count, max_stack)| assets::CompiledMolangExpression {
+                        first_op,
+                        op_count,
+                        max_stack,
+                    },
+                )
+                .collect::<Vec<_>>()
+                .into_boxed_slice();
+            compiled.render.layers[0].color = Some([1; 4]);
+        },
+    );
+    let completed = store.actor_rig(1).unwrap().render[0].color;
+    for alpha in [0.25, 0.5, 1.0, 0.5] {
+        assert_eq!(
+            store.render_frame(alpha).layers(1).unwrap()[0].color,
+            completed,
+            "body and render share one scratch random sequence"
+        );
+    }
+    assert_eq!(store.actor_rig(1).unwrap().render[0].color, completed);
+}
+
+fn assert_swell_stage_assignments(scale: bool) {
+    let store = pack_swell_fixture_with(
+        AuthoredSwellChannel {
+            pre_animation: false,
+            property: assets::EntityAnimationProperty::Translation,
+            variable: false,
+        },
+        None,
+        false,
+        3,
+        false,
+        |compiled| {
+            let scalar = |value| assets::EntityGeometryScalar::new(value).unwrap();
+            let mut symbols = compiled.molang_symbols.to_vec();
+            symbols.push(assets::MolangSymbol {
+                kind: assets::MolangSymbolKind::Variable,
+                identifier: "variable.factor".into(),
+            });
+            compiled.molang_symbols = symbols.into_boxed_slice();
+            compiled.molang_ops = vec![
+                MolangOp::LoadQuery(1),
+                MolangOp::LoadVariable(2),
+                MolangOp::Multiply,
+                MolangOp::Push(scalar(2.0)),
+                MolangOp::StoreVariable(2),
+                MolangOp::Push(scalar(if scale { 1.0 } else { 0.0 })),
+                MolangOp::Push(scalar(1.0)),
+                MolangOp::StoreVariable(2),
+                MolangOp::Push(scalar(0.0)),
+            ]
+            .into_boxed_slice();
+            compiled.molang_expressions = [(0, 3, 2), (3, 3, 1), (6, 3, 1)]
+                .map(
+                    |(first_op, op_count, max_stack)| assets::CompiledMolangExpression {
+                        first_op,
+                        op_count,
+                        max_stack,
+                    },
+                )
+                .into();
+            compiled.rig_bindings[0].pre_animation = Some(2);
+            if scale {
+                compiled.rig_bindings[0].scale_expressions = Some([1; 4]);
+            } else {
+                compiled.animation_clips[0].anim_time_update = Some(1);
+            }
+        },
+    );
+    for alpha in [0.25, 0.5, 1.0] {
+        let layers = store.render_frame(alpha).layers(1).unwrap();
+        let expected = -2.0 * (2.0 + alpha) / crate::actor_store::creeper::SWELL_FULL_TICKS;
+        for pose in [&layers[0].previous_pose[0], &layers[0].pose[0]] {
+            assert!(
+                (pose.translation_scale[0] - expected).abs() < 1e-6,
+                "assignments preceding bones retain their authored stage"
+            );
+        }
+    }
+}
+
+#[test]
+fn swell_channels_retain_assignments_from_ordinary_clocks() {
+    assert_swell_stage_assignments(false);
+}
+
+#[test]
+fn swell_channels_retain_assignments_from_rig_scale() {
+    assert_swell_stage_assignments(true);
 }

@@ -4,6 +4,8 @@ use super::*;
 #[derive(Clone, Debug, Default)]
 pub(in crate::actor_animation) struct SwellMotion {
     pub variables: MolangVariables,
+    pub queries: Vec<(u32, MolangValue)>,
+    pub actor: Option<Arc<ActorSnapshot>>,
     pub context: ActorTickContext,
     pub input: ActorTickInput,
     pub anim_tick: u64,
@@ -11,6 +13,7 @@ pub(in crate::actor_animation) struct SwellMotion {
     pub clips: Vec<tick::WeightedClip>,
     pub clocks: super::super::clock::ClipClocks,
     pub controllers: Vec<ControllerState>,
+    pub journal: tick::controller::ControllerJournal,
 }
 
 pub(super) struct SwellEndpoint<'a> {
@@ -34,16 +37,24 @@ impl SwellMotion {
             anim_tick: self.anim_tick,
             life_tick: self.life_tick,
             swell_amount: Some(amount),
+            query_history: Some(&self.queries),
+            actor: self.actor.as_deref().unwrap_or(base.actor),
             ..base
         };
         let mut variables = self.variables.clone();
         if let Some(script) = evaluator.assets.rig_bindings()[state.rig_binding].pre_animation {
             evaluator.run(script as usize, &mut variables, 0.0, budget)?;
         }
-        tick::set_item_rotation_factor(&evaluator.layout.engine, &mut variables);
         if publish {
             variables.capture_writes();
         }
+        tick::evaluate_scale(
+            &evaluator,
+            &evaluator.assets.rig_bindings()[state.rig_binding],
+            &mut variables,
+            budget,
+        )?;
+        tick::set_item_rotation_factor(&evaluator.layout.engine, &mut variables);
         let clips = if state
             .swell_sampling
             .as_ref()
@@ -57,11 +68,13 @@ impl SwellMotion {
                     clips: &self.clips,
                     clocks: &self.clocks,
                     controllers: &self.controllers,
+                    journal: &self.journal,
                 },
                 state.swell_sampling.as_deref(),
                 budget,
             )?
         } else {
+            self.journal.apply(&mut variables)?;
             self.clips.clone()
         };
         Ok(SwellEndpoint {

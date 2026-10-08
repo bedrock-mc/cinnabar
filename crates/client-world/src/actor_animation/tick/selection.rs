@@ -9,10 +9,18 @@ pub(in crate::actor_animation) fn select(
     clip_clocks: &super::super::clock::ClipClocks,
     geometry_binding: usize,
     blink_controller: Option<usize>,
+    journal: &mut super::controller::ControllerJournal,
+    replay: bool,
+    record: bool,
     budget: &mut EvalBudget<'_>,
 ) -> Result<Vec<WeightedClip>, EvalError> {
     let assets = evaluator.assets;
     let mut weighted_clips = Vec::new();
+    let mut visits = if record || replay {
+        vec![0; controllers.len()]
+    } else {
+        Vec::new()
+    };
     let candidate = assets
         .rig_geometries()
         .get(geometry_binding)
@@ -67,6 +75,9 @@ pub(in crate::actor_animation) fn select(
                     clip_clocks,
                     clips: &mut weighted_clips,
                     budget,
+                    journal,
+                    replay,
+                    visits: &mut visits,
                 };
                 walk.evaluate(binding.controller as usize, weight, 0)?;
             }
@@ -84,6 +95,9 @@ pub(in crate::actor_animation) fn select(
             clip_clocks,
             clips: &mut weighted_clips,
             budget,
+            journal,
+            replay,
+            visits: &mut visits,
         }
         .evaluate(controller, 1.0, 0)?;
     }

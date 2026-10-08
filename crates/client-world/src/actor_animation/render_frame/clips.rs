@@ -5,6 +5,7 @@ pub(super) struct ClipHistory<'a> {
     pub clips: &'a [tick::WeightedClip],
     pub clocks: &'a super::super::clock::ClipClocks,
     pub controllers: &'a [ControllerState],
+    pub journal: &'a tick::controller::ControllerJournal,
 }
 
 /// Resamples weights on scratch controllers without committing transitions or advancing clip clocks.
@@ -20,7 +21,9 @@ pub(super) fn sample(
         clips: previous,
         clocks,
         controllers,
+        journal,
     } = history;
+    let mut journal = journal.clone();
     let mut controllers = controllers.to_vec();
     let mut clips = tick::selection::select(
         evaluator,
@@ -29,6 +32,9 @@ pub(super) fn sample(
         clocks,
         state.geometry_binding,
         super::super::skin_layers::blink_controller(evaluator.assets, state),
+        &mut journal,
+        swelling.is_some(),
+        false,
         budget,
     )?;
     clips.extend(
@@ -38,9 +44,21 @@ pub(super) fn sample(
             .copied(),
     );
     super::super::clock::sample(evaluator, clocks, &mut clips, budget)?;
+    let mut sampled_times = BTreeMap::new();
     for weighted in &mut clips {
-        if swelling.is_some_and(|sampling| sampling.samples_time(evaluator.assets, weighted.clip)) {
-            super::super::clock::sample_update(evaluator, variables, weighted, clocks, budget)?;
+        if swelling.is_some()
+            && weighted.weight >= f32::EPSILON
+            && evaluator.assets.animation_clips()[weighted.clip]
+                .anim_time_update
+                .is_some()
+        {
+            let key = (weighted.clip, weighted.started_tick, weighted.clock);
+            if let Some(&time) = sampled_times.get(&key) {
+                weighted.time = time;
+            } else {
+                super::super::clock::sample_update(evaluator, variables, weighted, clocks, budget)?;
+                sampled_times.insert(key, weighted.time);
+            }
         }
         if !swelling.is_some_and(|sampling| sampling.samples_time(evaluator.assets, weighted.clip))
             && let Some(old) = previous.iter().find(|old| {

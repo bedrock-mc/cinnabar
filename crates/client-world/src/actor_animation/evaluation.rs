@@ -219,6 +219,7 @@ pub(super) struct MolangVariables {
     values: Vec<Option<MolangValue>>,
     temps: Vec<Option<MolangValue>>,
     random: u64,
+    random_draws: u64,
     capture_writes: bool,
     writes: Vec<u64>,
 }
@@ -292,21 +293,99 @@ impl<'a> ActorAnimationVariables<'a> {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 enum Place {
     Variable(usize),
     Temporary(usize),
 }
 
+#[derive(Clone, Debug, Default)]
+pub(super) struct MolangEffects {
+    writes: Vec<(Place, Option<MolangValue>)>,
+    random_draws: u64,
+}
+
+pub(super) struct EffectsCapture {
+    enabled: bool,
+    writes: Vec<u64>,
+    random_draws: u64,
+}
+
+impl MolangEffects {
+    pub(super) fn is_empty(&self) -> bool {
+        self.writes.is_empty() && self.random_draws == 0
+    }
+
+    pub(super) fn apply(&self, variables: &mut MolangVariables) -> Result<(), EvalError> {
+        for (place, value) in &self.writes {
+            if let Some(value) = value {
+                variables.store(*place, value.clone())?;
+            } else {
+                *variables.entry(*place).ok_or(EvalError::Invalid)? = None;
+            }
+        }
+        for _ in 0..self.random_draws {
+            variables.next_random();
+        }
+        Ok(())
+    }
+}
+
 impl MolangVariables {
+    pub(super) fn begin_effects(&mut self) -> EffectsCapture {
+        let capture = EffectsCapture {
+            enabled: self.capture_writes,
+            writes: std::mem::take(&mut self.writes),
+            random_draws: self.random_draws,
+        };
+        self.capture_writes = true;
+        capture
+    }
+
+    pub(super) fn finish_effects(&mut self, capture: EffectsCapture) -> MolangEffects {
+        let mut effects = MolangEffects {
+            random_draws: self.random_draws.wrapping_sub(capture.random_draws),
+            ..Default::default()
+        };
+        for (word, &bits) in self.writes.iter().enumerate() {
+            let mut bits = bits;
+            while bits != 0 {
+                let slot = word * u64::BITS as usize + bits.trailing_zeros() as usize;
+                bits &= bits - 1;
+                let place = if slot < self.values.len() {
+                    Place::Variable(slot)
+                } else {
+                    Place::Temporary(slot - self.values.len())
+                };
+                let value = match place {
+                    Place::Variable(slot) => &self.values[slot],
+                    Place::Temporary(slot) => &self.temps[slot],
+                };
+                effects.writes.push((place, value.clone()));
+            }
+        }
+        let mut writes = capture.writes;
+        if capture.enabled {
+            writes.resize(writes.len().max(self.writes.len()), 0);
+            for (target, bits) in writes.iter_mut().zip(&self.writes) {
+                *target |= bits;
+            }
+        }
+        self.writes = writes;
+        self.capture_writes = capture.enabled;
+        effects
+    }
+
     /// Records authored assignments after endpoint pre-animation without copying frozen inputs.
     pub(super) fn capture_writes(&mut self) {
         self.capture_writes = true;
         self.writes.clear();
     }
 
-    /// Publishes authored side effects to matching slots without replacing untouched values or RNG.
+    /// Publishes authored side effects to matching slots without replacing untouched values; random draws continue on the same stream.
     pub(super) fn publish_writes(&self, target: &mut Self) {
+        target.random = self.random;
+        target.random_draws = self.random_draws;
         for (word, &bits) in self.writes.iter().enumerate() {
             let mut bits = bits;
             while bits != 0 {
@@ -429,6 +508,7 @@ impl MolangVariables {
         state ^= state >> 7;
         state ^= state << 17;
         self.random = state;
+        self.random_draws = self.random_draws.wrapping_add(1);
         (state >> 40) as f32 / (1_u64 << 24) as f32
     }
 }
@@ -459,6 +539,7 @@ pub(super) struct Evaluator<'a> {
     /// The clip clock while its time expression or bone channels are evaluated.
     pub(super) anim_time: Option<f32>,
     pub(super) swell_amount: Option<f32>,
+    pub(super) query_history: Option<&'a [(u32, MolangValue)]>,
     pub(super) life_tick: u64,
     /// Whether all and any animations of the controller state being left have finished.
     pub(super) finished: (bool, bool),
@@ -714,7 +795,14 @@ impl Evaluator<'_> {
             .ok_or(EvalError::Invalid)
     }
 
-    fn query(&self, symbol: u32, arguments: &[MolangValue]) -> MolangValue {
+    pub(super) fn query(&self, symbol: u32, arguments: &[MolangValue]) -> MolangValue {
+        if self.program.is_none()
+            && arguments.is_empty()
+            && let Some(history) = self.query_history
+            && let Ok(slot) = history.binary_search_by_key(&symbol, |(symbol, _)| *symbol)
+        {
+            return history[slot].1.clone();
+        }
         let Some(symbol) = self.symbols().get(symbol as usize) else {
             return MolangValue::Number(0.0);
         };
