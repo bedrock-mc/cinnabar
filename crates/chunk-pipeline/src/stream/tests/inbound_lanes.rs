@@ -209,3 +209,73 @@ fn randomized_interleavings_match_strict_fifo_world_state() {
         }
     }
 }
+
+/// A crack admitted after a delayed dimension change belongs to the new dimension's column,
+/// so it waits for that column's chunk instead of overtaking it and being dropped.
+#[test]
+fn crack_after_a_delayed_dimension_change_waits_for_its_new_column() {
+    let mut stream = WorldStream::new_with_assets(
+        WorldBootstrap {
+            local_player_unique_id: 1,
+            local_player_runtime_id: 1,
+            dimension: 0,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 2,
+            block_network_ids_are_hashes: false,
+        },
+        Arc::new(non_default_air_runtime_assets()),
+        [0.0; 3],
+        None,
+    );
+    let solid_column = |dimension: i32, y: i8| {
+        let mut payload = vec![9, 1, y as u8, 1, 0];
+        payload.extend(biome_payload(dimension, 1));
+        WorldEvent::LevelChunk(LevelChunkEvent {
+            dimension,
+            x: 0,
+            z: 0,
+            mode: LevelChunkMode::Inline { count: 1 },
+            payload,
+        })
+    };
+    stream.submit(1, solid_column(0, -4)).unwrap();
+    stream
+        .submit(
+            2,
+            WorldEvent::ChangeDimension(ChangeDimensionEvent {
+                dimension: 1,
+                ..Default::default()
+            }),
+        )
+        .unwrap();
+    stream.submit(3, solid_column(1, 0)).unwrap();
+    stream
+        .submit(
+            4,
+            WorldEvent::BlockCrack(BlockCrackEvent {
+                position: [0, 0, 0],
+                action: BlockCrackAction::Start {
+                    progress_per_tick: 7,
+                },
+            }),
+        )
+        .unwrap();
+    let old_dimension = take_decode_job(
+        &mut stream,
+        |job| matches!(job, super::DecodeJob::InlineLevelChunk { event, .. } if event.dimension == 0),
+    );
+    complete_decode_job(&mut stream, old_dimension);
+    stream.apply_ready();
+    assert!(
+        stream.order.is_finished(2),
+        "the dimension change committed"
+    );
+    assert!(
+        !stream.order.is_finished(4),
+        "the crack waits for its column"
+    );
+    complete_pending_decode_jobs(&mut stream);
+    assert_eq!(stream.current_dimension(), 1);
+    assert_eq!(stream.block_crack_snapshot().status.active, 1);
+}

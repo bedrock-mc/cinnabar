@@ -396,3 +396,29 @@ fn randomized_interleavings_match_strict_wire_order() {
         }
     }
 }
+
+/// Sustained light traffic behind one stuck decode retains bounded bookkeeping, so each
+/// commit's scan stays flat.
+#[test]
+fn finished_light_traffic_behind_a_stuck_decode_stays_bounded() {
+    let mut state = OrderedCommitState::new(1);
+    admit(&mut state, 1, level_chunk(0), false);
+    for sequence in 2..=10_001 {
+        admit(&mut state, sequence, actor_move(9), true);
+        assert_eq!(commit_one(&mut state), Some(sequence));
+        assert!(state.retained_sequence_records() <= 2);
+    }
+    assert_eq!(state.committed_sequence(), 0);
+    assert_eq!(state.committed_past_chunk_data(), 10_001);
+    assert_eq!(state.next_sequence(), 1);
+    state
+        .insert_ready(1, PreparedWorldEvent::CommitOnly)
+        .unwrap();
+    assert_eq!(commit_one(&mut state), Some(1));
+    assert_eq!(state.committed_sequence(), 10_001);
+    assert_eq!(state.retained_sequence_records(), 0);
+    assert!(matches!(
+        state.validate_sequence(5_000),
+        Err(WorldStreamError::DuplicateOrPast { .. })
+    ));
+}

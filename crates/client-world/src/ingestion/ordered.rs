@@ -67,7 +67,6 @@ enum Slot {
     Ready(PreparedWorldEvent),
     /// Popped: applying, a partial batch, or a block decode fence.
     Active,
-    Finished,
 }
 
 #[derive(Debug)]
@@ -98,7 +97,12 @@ impl CommitBudget {
 pub struct OrderedCommitState {
     /// Lowest unfinished sequence; everything below it has finished.
     frontier: u64,
+    /// Admitted, unfinished events only, so scans never touch completed work.
     entries: BTreeMap<u64, Entry>,
+    /// Finished runs above the frontier as `start -> end`, merged when adjacent. Runs are
+    /// separated by unfinished or unadmitted sequences, so they never outnumber `entries`
+    /// by more than one.
+    finished: BTreeMap<u64, u64>,
     unfinished: usize,
     light: usize,
     heavy: usize,
@@ -119,6 +123,7 @@ impl OrderedCommitState {
         Self {
             frontier: first_sequence,
             entries: BTreeMap::new(),
+            finished: BTreeMap::new(),
             unfinished: 0,
             light: 0,
             heavy: 0,
@@ -137,12 +142,22 @@ impl OrderedCommitState {
     pub fn next_sequence(&self) -> u64 {
         let mut expected = self.frontier;
         for (&sequence, entry) in self.entries.range(self.frontier..) {
+            expected = self.finished_through(expected).saturating_add(1);
             if sequence != expected || matches!(entry.slot, Slot::Waiting | Slot::Ready(_)) {
                 return expected.min(sequence);
             }
             expected = sequence.saturating_add(1);
         }
-        expected
+        self.finished_through(expected).saturating_add(1)
+    }
+
+    /// The last sequence of the finished run starting at `from`, or `from - 1` when `from`
+    /// has not finished.
+    fn finished_through(&self, from: u64) -> u64 {
+        match self.finished.range(..=from).next_back() {
+            Some((_, &end)) if end >= from => end,
+            _ => from.saturating_sub(1),
+        }
     }
 
     /// Whether this sequence's mutation reads as complete to frontier observers.
@@ -150,7 +165,6 @@ impl OrderedCommitState {
     /// partial batches between steps stay fenced.
     fn reads_committed(&self, sequence: u64, entry: &Entry) -> bool {
         match entry.slot {
-            Slot::Finished => true,
             Slot::Active => {
                 self.applying == Some(sequence) && self.block_update_range_end.is_none()
             }
@@ -174,19 +188,20 @@ impl OrderedCommitState {
     fn frontier_where(&self, passes: impl Fn(&Footprint) -> bool) -> u64 {
         let mut committed = self.frontier.saturating_sub(1);
         for (&sequence, entry) in self.entries.range(self.frontier..) {
+            committed = self.finished_through(committed.saturating_add(1));
             if sequence != committed.saturating_add(1)
                 || !(self.reads_committed(sequence, entry) || passes(&entry.footprint))
             {
-                break;
+                return committed;
             }
             committed = sequence;
         }
-        committed
+        self.finished_through(committed.saturating_add(1))
     }
 
     /// Rejects replayed sequences before any admission or request reservation changes.
     pub fn validate_sequence(&self, sequence: u64) -> Result<(), WorldStreamError> {
-        if sequence < self.frontier || self.entries.contains_key(&sequence) {
+        if self.is_finished(sequence) || self.entries.contains_key(&sequence) {
             return Err(WorldStreamError::DuplicateOrPast {
                 sequence,
                 next: self.frontier,
@@ -318,9 +333,7 @@ impl OrderedCommitState {
     /// Rolls back admission when preparing an accepted event cannot be queued.
     pub fn cancel_admission(&mut self, sequence: u64) {
         if let Some(entry) = self.entries.remove(&sequence) {
-            if !matches!(entry.slot, Slot::Finished) {
-                self.unfinished -= 1;
-            }
+            self.unfinished -= 1;
             self.release_held(entry.held);
         }
     }
@@ -448,7 +461,7 @@ impl OrderedCommitState {
         self.earlier.clear();
         let mut expected = self.frontier;
         for (&sequence, entry) in self.entries.range(self.frontier..) {
-            if sequence != expected {
+            if sequence != self.finished_through(expected).saturating_add(1) {
                 self.earlier.add_unknown();
             }
             if self.earlier.is_barrier() {
@@ -456,7 +469,6 @@ impl OrderedCommitState {
             }
             expected = sequence.saturating_add(1);
             match &entry.slot {
-                Slot::Finished => continue,
                 Slot::Ready(event)
                     if (budget.heavy || !(entry.footprint.heavy || entry.footprint.barrier))
                         && self.kind_is_free(event)
@@ -545,35 +557,46 @@ impl OrderedCommitState {
 
     /// Finishes a whole merged event range, then advances the contiguous frontier.
     fn release_range(&mut self, start: u64, end: u64) {
+        let mut released = false;
         for sequence in start..=end {
-            let Some(entry) = self.entries.get_mut(&sequence) else {
+            let Some(entry) = self.entries.remove(&sequence) else {
                 continue;
             };
-            if matches!(entry.slot, Slot::Finished) {
-                continue;
-            }
-            entry.slot = Slot::Finished;
-            let held = std::mem::replace(&mut entry.held, Held::Released);
             self.unfinished -= 1;
-            self.release_held(held);
+            self.release_held(entry.held);
+            released = true;
         }
-        while let Some(entry) = self.entries.first_entry()
-            && *entry.key() == self.frontier
-            && matches!(entry.get().slot, Slot::Finished)
+        if !released {
+            return;
+        }
+        // Merge with the runs ending just before and starting just after this one.
+        let mut run = (start, end);
+        if let Some((&before, &before_end)) = self.finished.range(..start).next_back()
+            && before_end.saturating_add(1) >= start
         {
-            entry.remove();
-            self.frontier = self.frontier.saturating_add(1);
+            self.finished.remove(&before);
+            run = (before, run.1.max(before_end));
+        }
+        if let Some(after_end) = self.finished.remove(&run.1.saturating_add(1)) {
+            run.1 = after_end;
+        }
+        if run.0 <= self.frontier {
+            self.frontier = run.1.saturating_add(1);
+        } else {
+            self.finished.insert(run.0, run.1);
         }
     }
 
     /// Whether this sequence's whole mutation has finished.
     #[must_use]
     pub fn is_finished(&self, sequence: u64) -> bool {
-        sequence < self.frontier
-            || self
-                .entries
-                .get(&sequence)
-                .is_some_and(|entry| matches!(entry.slot, Slot::Finished))
+        sequence < self.frontier || self.finished_through(sequence) >= sequence
+    }
+
+    /// Unfinished entries plus finished runs: everything the state retains per sequence.
+    #[cfg(test)]
+    pub(crate) fn retained_sequence_records(&self) -> usize {
+        self.entries.len() + self.finished.len()
     }
 
     /// Returns the currently admitted, unfinished event count.

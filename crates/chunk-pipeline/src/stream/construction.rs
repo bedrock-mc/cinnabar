@@ -96,6 +96,7 @@ impl WorldStream {
             classifier: BlockClassifier::new(air_network_id),
             startup_terrain_announced: true,
             seasonal_foliage: seasonal_foliage::SeasonalFoliage::default(),
+            ingress_dimension: bootstrap.dimension,
             deferred_ingress: VecDeque::new(),
             pending_decode: VecDeque::new(),
             in_flight_decode_jobs: 0,
@@ -195,7 +196,7 @@ impl WorldStream {
         LaneContext {
             local_runtime_id: self.authority.local_player_runtime_id(),
             local_unique_id: self.authority.local_player_unique_id(),
-            dimension: self.authority.current_dimension(),
+            dimension: self.ingress_dimension,
         }
     }
 
@@ -208,6 +209,9 @@ impl WorldStream {
         self.order.validate_sequence(sequence)?;
         self.promote_deferred_ingress();
         let footprint = client_world::ingestion::classify(&event, self.lane_context());
+        if let WorldEvent::ChangeDimension(change) = &event {
+            self.ingress_dimension = change.dimension;
+        }
         // Submit-time preparation keeps wire order, so later terrain and definitions queue
         // behind deferred terrain; session events commit past it.
         let ordered_preparation = footprint.heavy
