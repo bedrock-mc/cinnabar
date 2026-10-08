@@ -150,7 +150,6 @@ impl PlayerInventoryLedger {
             }
         }
         self.refold();
-        self.reconcile_crafting_close();
         self.finish_closing();
         true
     }
