@@ -476,6 +476,14 @@
 - Incomplete live visual acceptance: an in-game pass on the M3 Pro (no pop-in, no wrongly
   hidden terrain) and live `gpu_opaque` and render CPU stage captures are pending.
 
+## Bounded lighting CPU work
+
+- Retained-support early exits and section packing preserve light/provenance output;
+  [remote CPU evidence](docs/evidence/lighting-cpu-work.md) records workload, allocation
+  and queue measurements alongside independent regression oracles.
+- Incomplete: these synthetic solver diagnostics do not close native vanilla parity,
+  release frame, join or streaming gates; target-hardware captures remain required.
+
 ## Headless chunk cost baselines
 
 - Criterion exercises production palette/column decode, light solves, cube/biome
