@@ -3,8 +3,9 @@
 //! The main thread hands frame N to the render thread at the end of an update, then would start
 //! N+1 at once and block at the next handoff until N finishes rendering, so N+1's input goes stale
 //! by that whole wait. After each handoff this delays the next update until the predicted render
-//! completion less the predicted main-thread time and a safety margin, from recent frame history.
-//! Render time includes drawable acquisition, so swapchain backpressure is folded in.
+//! completion less the predicted main-thread time and a safety margin, from recent frame history,
+//! or until that frame actually finishes if sooner. Render time includes drawable acquisition, so
+//! swapchain backpressure is folded in.
 
 use std::{
     sync::{Arc, Mutex, PoisonError},
@@ -31,15 +32,14 @@ const HISTORY: usize = 32;
 const MIN_SAMPLES: usize = 8;
 /// Typical durations; the margin absorbs ordinary jitter on both sides.
 const MEDIAN: usize = HISTORY / 2;
-/// Longest sleep between main-thread task checks while waiting.
+/// Longest sleep between checks for render completion and main-thread tasks while waiting.
 const WAIT_SLICE: Duration = Duration::from_micros(250);
 
 /// Wall time and blocking for the pacer; tests substitute a deterministic clock.
 pub(crate) trait PacingClock: Send + Sync + 'static {
     fn now(&self) -> Instant;
-    /// Blocks until `deadline`, calling `tick` to run main-thread render tasks; `tick` returns
-    /// whether it ran one.
-    fn wait_until(&self, deadline: Instant, tick: &mut dyn FnMut() -> bool);
+    /// Blocks until `deadline` or until `done` returns true; `done` also runs main-thread tasks.
+    fn wait_until(&self, deadline: Instant, done: &mut dyn FnMut() -> bool);
 }
 
 struct SystemClock;
@@ -49,15 +49,13 @@ impl PacingClock for SystemClock {
         Instant::now()
     }
 
-    fn wait_until(&self, deadline: Instant, tick: &mut dyn FnMut() -> bool) {
-        loop {
+    fn wait_until(&self, deadline: Instant, done: &mut dyn FnMut() -> bool) {
+        while !done() {
             let now = Instant::now();
             if now >= deadline {
                 return;
             }
-            if !tick() {
-                std::thread::sleep((deadline - now).min(WAIT_SLICE));
-            }
+            std::thread::sleep((deadline - now).min(WAIT_SLICE));
         }
     }
 }
@@ -71,6 +69,19 @@ struct History {
 }
 
 impl History {
+    /// Starts over from `sample` when it is under half or over double the median, so stale
+    /// history never outlives a step change.
+    fn record(&mut self, sample: Duration) {
+        if self
+            .quantile(MEDIAN)
+            .is_some_and(|median| sample * 2 < median || sample > median * 2)
+        {
+            self.len = 0;
+            self.next = 0;
+        }
+        self.push(sample);
+    }
+
     fn push(&mut self, sample: Duration) {
         self.samples[self.next] = sample;
         self.next = (self.next + 1) % HISTORY;
@@ -114,6 +125,9 @@ struct PacerState {
     update_started: Option<Instant>,
     /// When the render thread began its current frame.
     render_started: Option<Instant>,
+    /// Frames handed to the render thread and frames it has finished; it renders them in order.
+    handed: u64,
+    finished: u64,
 }
 
 /// Shared between the main-thread handoff and the render thread's frame markers.
@@ -152,14 +166,9 @@ impl InputPacer {
             state
                 .model
                 .render
-                .push(now.saturating_duration_since(started));
+                .record(now.saturating_duration_since(started));
+            state.finished += 1;
         }
-    }
-
-    /// Records a render frame measured elsewhere, as the render thread's markers would.
-    #[cfg(test)]
-    pub(crate) fn record_render(&self, elapsed: Duration) {
-        self.state().model.render.push(elapsed);
     }
 
     /// Runs Bevy's handoff, then waits until the next update should sample input.
@@ -172,16 +181,17 @@ impl InputPacer {
         let ready = self.clock.now();
         inner(main, render);
         let handed = self.clock.now();
-        let (update_started, delay) = {
+        let (update_started, delay, handed_frame) = {
             let mut state = self.state();
+            state.handed += 1;
             let update_started = state.update_started.take();
             if let Some(started) = update_started {
                 state
                     .model
                     .main
-                    .push(ready.saturating_duration_since(started));
+                    .record(ready.saturating_duration_since(started));
             }
-            (update_started, state.model.delay())
+            (update_started, state.model.delay(), state.handed)
         };
         let profiler = main.get_resource::<RuntimeStageProfiler>().cloned();
         if let (Some(profiler), Some(started)) = (&profiler, update_started) {
@@ -200,8 +210,11 @@ impl InputPacer {
             .get_resource::<MainThreadExecutor>()
             .map(|executor| executor.0.clone());
         let ticker = executor.as_deref().and_then(|executor| executor.ticker());
-        let mut tick = || ticker.as_ref().is_some_and(|ticker| ticker.try_tick());
-        self.clock.wait_until(handed + delay, &mut tick);
+        let mut done = || {
+            while ticker.as_ref().is_some_and(|ticker| ticker.try_tick()) {}
+            self.state().finished >= handed_frame
+        };
+        self.clock.wait_until(handed + delay, &mut done);
         if let Some(profiler) = profiler {
             profiler.record(
                 RuntimeStage::InputPacingWait,

@@ -2,10 +2,13 @@ use super::*;
 use bevy::app::SubApp;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-/// Advances only when the simulated frame works or waits.
+type Event = Box<dyn FnOnce() + Send>;
+
+/// Advances only when the simulated frame works or waits, firing scheduled events on the way.
 struct FakeClock {
     base: Instant,
     nanos: AtomicU64,
+    events: Mutex<Vec<(Instant, Event)>>,
 }
 
 impl FakeClock {
@@ -13,17 +16,43 @@ impl FakeClock {
         Arc::new(Self {
             base: Instant::now(),
             nanos: AtomicU64::new(0),
+            events: Mutex::default(),
         })
     }
 
+    fn schedule(&self, at: Instant, event: impl FnOnce() + Send + 'static) {
+        self.events.lock().unwrap().push((at, Box::new(event)));
+    }
+
+    fn next_event(&self, until: Instant) -> Option<Instant> {
+        let events = self.events.lock().unwrap();
+        events
+            .iter()
+            .map(|(at, _)| *at)
+            .filter(|at| *at <= until)
+            .min()
+    }
+
+    fn set(&self, time: Instant) {
+        let target = u64::try_from(time.saturating_duration_since(self.base).as_nanos()).unwrap();
+        self.nanos.fetch_max(target, Ordering::SeqCst);
+    }
+
     fn advance(&self, by: Duration) {
-        self.nanos
-            .fetch_add(u64::try_from(by.as_nanos()).unwrap(), Ordering::SeqCst);
+        self.advance_to(self.now() + by);
     }
 
     fn advance_to(&self, time: Instant) {
-        let target = u64::try_from(time.saturating_duration_since(self.base).as_nanos()).unwrap();
-        self.nanos.fetch_max(target, Ordering::SeqCst);
+        while let Some(at) = self.next_event(time) {
+            self.set(at);
+            let event = {
+                let mut events = self.events.lock().unwrap();
+                let index = events.iter().position(|(when, _)| *when == at).unwrap();
+                events.swap_remove(index).1
+            };
+            event();
+        }
+        self.set(time);
     }
 }
 
@@ -32,8 +61,13 @@ impl PacingClock for FakeClock {
         self.base + Duration::from_nanos(self.nanos.load(Ordering::SeqCst))
     }
 
-    fn wait_until(&self, deadline: Instant, _tick: &mut dyn FnMut() -> bool) {
-        self.advance_to(deadline);
+    fn wait_until(&self, deadline: Instant, done: &mut dyn FnMut() -> bool) {
+        while !done() {
+            match self.next_event(deadline) {
+                Some(at) => self.advance_to(at),
+                None => return self.advance_to(deadline),
+            }
+        }
     }
 }
 
@@ -55,6 +89,8 @@ struct Extracted {
     update: usize,
     sampled_at: Instant,
     extracted_at: Instant,
+    /// When the frame handed off in this update finished rendering.
+    rendered_at: Instant,
 }
 
 struct Run {
@@ -94,22 +130,25 @@ fn run(main: &[Duration], render: &[Duration], enabled: bool) -> Run {
         pacer.clone(),
         render.to_vec(),
     );
-    let mut in_flight: Option<(Instant, Duration)> = None;
+    let mut in_flight: Option<Instant> = None;
     render_thread.set_extract(move |main: &mut World, _: &mut World| {
         // Bevy's handoff blocks until the previous frame finishes rendering.
-        if let Some((done, elapsed)) = in_flight.take() {
+        if let Some(done) = in_flight.take() {
             handoff_clock.advance_to(done);
-            handoff_pacer.record_render(elapsed);
         }
         let look = main.resource::<Look>();
         let now = handoff_clock.now();
+        let rendered_at = now + durations[look.update - 1];
         sink.lock().unwrap().push(Extracted {
             update: look.update,
             sampled_at: look.sampled_at.unwrap(),
             extracted_at: now,
+            rendered_at,
         });
-        let elapsed = durations[look.update - 1];
-        in_flight = Some((now + elapsed, elapsed));
+        handoff_pacer.render_started();
+        let finished = handoff_pacer.clone();
+        handoff_clock.schedule(rendered_at, move || finished.render_finished());
+        in_flight = Some(rendered_at);
     });
     app.insert_sub_app(RenderExtractApp, render_thread);
     app.add_plugins(InputPacingPlugin::with_pacer(pacer));
@@ -212,4 +251,22 @@ fn recorded_jitter_keeps_input_fresh_without_costing_throughput() {
         span(&paced),
         span(&unpaced)
     );
+}
+
+#[test]
+fn a_render_slowdown_ending_never_holds_input_past_completion() {
+    let main = vec![ms(1.0); 64];
+    let render: Vec<_> = (0..64)
+        .map(|frame| if frame < 32 { ms(30.0) } else { ms(1.0) })
+        .collect();
+    let paced = run(&main, &render, true);
+    for (index, pair) in paced.extracted.windows(2).enumerate().skip(32) {
+        let resumed_by = pair[0].extracted_at.max(pair[0].rendered_at);
+        assert!(
+            pair[1].sampled_at <= resumed_by,
+            "update {} waited {:?} past its handed frame's completion",
+            index + 2,
+            pair[1].sampled_at - resumed_by
+        );
+    }
 }
