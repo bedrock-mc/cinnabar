@@ -35,17 +35,23 @@ use textures::{UiGpuTextures, prepare_ui_bind_group};
 mod batches;
 #[path = "ui_render/composite.rs"]
 pub(crate) mod composite;
+#[path = "ui_render/damage.rs"]
+mod damage;
 #[path = "ui_render/glint.rs"]
 mod glint;
 #[cfg(test)]
 #[path = "ui_render/harness.rs"]
 pub(crate) mod harness;
+#[path = "ui_render/layer.rs"]
+mod layer;
 #[path = "ui_render/model_depth.rs"]
 mod model_depth;
 #[path = "ui_render/overlay.rs"]
 pub(crate) mod overlay;
 #[path = "ui_render/pipeline.rs"]
 pub(crate) mod pipeline;
+#[path = "ui_render/profile.rs"]
+pub(crate) mod profile;
 #[path = "ui_render/resources.rs"]
 pub(crate) mod resources;
 #[path = "ui_render/shader.rs"]
@@ -104,6 +110,7 @@ fn install_ui_render(app: &mut App) {
         return;
     }
     crate::pipeline_warmup::register::<pipeline::UiPipeline>(app);
+    crate::pipeline_warmup::register::<composite::UiCompositePipeline>(app);
     let stats = app.world().resource::<UiRenderStatsResource>().clone();
     app.add_plugins((
         ExtractResourcePlugin::<UiRenderSceneResource>::default(),
@@ -134,6 +141,7 @@ fn install_ui_render(app: &mut App) {
                 queue_ui_overlay.in_set(RenderSystems::Queue),
             ),
         );
+    profile::install(app.sub_app_mut(RenderApp));
     install_overlay_graph(app.sub_app_mut(RenderApp).world_mut());
 }
 

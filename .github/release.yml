@@ -1,0 +1,12 @@
+changelog:
+  categories:
+    - title: ✨ New
+      labels: [new]
+    - title: 🛠 Fixes
+      labels: [fix]
+    - title: ⚡ Performance
+      labels: [performance]
+    - title: 🔧 Internal
+      labels: [internal]
+    - title: Other changes
+      labels: ["*"]
