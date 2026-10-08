@@ -23,17 +23,10 @@ For the 1.26.50.26 client:
   rotates about the part pivot. Children retain their authored pivots and
   animation frames.
 
-## Vanilla resource witness
+## Scope
 
-The installed iOS vanilla pack is 1.26.51, a near-version resource witness,
-not an identical-version executable acceptance artifact. Base model archive
-`vanilla/__brarchive/models/entity.brarchive`, SHA-256
-`e64e48cdfcdecd587e0af787f4b8493875e788fa23ab0d122e35af7c8c99ef4f`,
-has `fox.geo.json` at payload offset 65179, length 1723. It declares the body and
-tail binds above. Modern replacements in `vanilla_1.21.90` and `vanilla_1.26.10`
-retain the adult identifier, pivots and cube shapes but omit the bind fields.
-No later installed pack replaces the fox model. The baby model is independently
-authored in `baby_fox.geo.json` and has no inherited adult binds.
+The adult body and tail retain the cube binds above when a replacement omits
+them. The baby model in `baby_fox.geo.json` has no inherited adult binds.
 
 The correction applies only in vanilla compilation to the exact adult sample
 path, identifier and source SHA-256. Its digest is declared once in
