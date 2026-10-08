@@ -28,6 +28,7 @@ struct AtmosphereUniform {
 @group(0) @binding(6) var block_sampler: sampler;
 @group(0) @binding(NATIVE_LEAF_TEXTURE_BINDING_0) var terrain_gamma_page_0: texture_2d_array<f32>;
 @group(0) @binding(NATIVE_LEAF_TEXTURE_BINDING_1) var terrain_gamma_page_1: texture_2d_array<f32>;
+@group(0) @binding(NATIVE_LEAF_SAMPLER_BINDING) var model_sampler: sampler;
 @group(0) @binding(9) var<storage, read> animations: array<AnimationGpu>;
 @group(0) @binding(10) var<storage, read> animation_frames: array<u32>;
 @group(0) @binding(11) var<uniform> clock: AnimationClockGpu;
@@ -65,6 +66,9 @@ struct VertexOutput {
 }
 
 struct FrameSample { current: u32, next: u32, blend: f32 }
+// Visibility also carries the admitted tile policy without another interpolator.
+const MODEL_VISIBLE: u32 = 1u;
+const MODEL_BOUNDED_TILE: u32 = 2u;
 
 fn invisible_vertex() -> VertexOutput {
     var invisible: VertexOutput;
@@ -257,7 +261,7 @@ fn vertex(
     out.biome_record = u32(origin.value.w);
     out.next_texture = frame.next;
     out.frame_blend = frame.blend;
-    out.visible = is_visible;
+    out.visible = is_visible | select(0u, MODEL_BOUNDED_TILE, is_bamboo && is_visible != 0u);
     // Vanilla uses white top vertices and RGB 0x0f on the reverse
     // plane. Apply it after sampling, without another 8-bit atlas quantization.
     let pad_shade = select(1.0, 15.0 / 255.0, out.normal.y < 0.0);
@@ -331,14 +335,33 @@ fn sample_ref(texture_ref: u32, uv: vec2<f32>, dx: vec2<f32>, dy: vec2<f32>) -> 
     let layer = i32(texture_ref & 0x7ffu);
 #ifdef ENHANCED
     if ((texture_ref >> 31u) == 0u) {
-        return textureSampleGrad(block_textures_page_0, block_sampler, uv, layer, dx, dy);
+        return textureSampleGrad(block_textures_page_0, model_sampler, uv, layer, dx, dy);
     }
-    return textureSampleGrad(block_textures_page_1, block_sampler, uv, layer, dx, dy);
+    return textureSampleGrad(block_textures_page_1, model_sampler, uv, layer, dx, dy);
 #else
     if ((texture_ref >> 31u) == 0u) {
-        return textureSampleGrad(terrain_gamma_page_0, block_sampler, uv, layer, dx, dy);
+        return textureSampleGrad(terrain_gamma_page_0, model_sampler, uv, layer, dx, dy);
     }
-    return textureSampleGrad(terrain_gamma_page_1, block_sampler, uv, layer, dx, dy);
+    return textureSampleGrad(terrain_gamma_page_1, model_sampler, uv, layer, dx, dy);
+#endif
+}
+
+// Bamboo's atlas rectangle includes replicated border texels. Other model UVs retain their addressing.
+fn sample_model_ref(in: VertexOutput, texture_ref: u32, dx: vec2<f32>, dy: vec2<f32>) -> vec4<f32> {
+    if ((in.visible & MODEL_BOUNDED_TILE) != 0u) {
+        return sample_ref(texture_ref, in.uv, dx, dy);
+    }
+    let layer = i32(texture_ref & 0x7ffu);
+#ifdef ENHANCED
+    if ((texture_ref >> 31u) == 0u) {
+        return textureSampleGrad(block_textures_page_0, block_sampler, in.uv, layer, dx, dy);
+    }
+    return textureSampleGrad(block_textures_page_1, block_sampler, in.uv, layer, dx, dy);
+#else
+    if ((texture_ref >> 31u) == 0u) {
+        return textureSampleGrad(terrain_gamma_page_0, block_sampler, in.uv, layer, dx, dy);
+    }
+    return textureSampleGrad(terrain_gamma_page_1, block_sampler, in.uv, layer, dx, dy);
 #endif
 }
 
@@ -382,9 +405,9 @@ fn fragment(
     let dx = dpdx(in.uv);
     let dy = dpdy(in.uv);
     // Both views already hold the working colour space, so frames blend before the alpha test.
-    var sampled = sample_ref(in.current_texture, in.uv, dx, dy);
+    var sampled = sample_model_ref(in, in.current_texture, dx, dy);
     if (in.frame_blend > 0.0) {
-        sampled = mix(sampled, sample_ref(in.next_texture, in.uv, dx, dy), in.frame_blend);
+        sampled = mix(sampled, sample_model_ref(in, in.next_texture, dx, dy), in.frame_blend);
     }
     if (sampled.a < 0.5) { discard; }
 #ifdef OPAQUE_OVERDRAW
@@ -418,9 +441,9 @@ fn fragment_blend(
     if (!front_facing && in.two_sided == 0u) { discard; }
     let dx = dpdx(in.uv);
     let dy = dpdy(in.uv);
-    var sampled = sample_ref(in.current_texture, in.uv, dx, dy);
+    var sampled = sample_model_ref(in, in.current_texture, dx, dy);
     if (in.frame_blend > 0.0) {
-        sampled = mix(sampled, sample_ref(in.next_texture, in.uv, dx, dy), in.frame_blend);
+        sampled = mix(sampled, sample_model_ref(in, in.next_texture, dx, dy), in.frame_blend);
     }
     // The background is fogged by the same transfer, so preserving source
     // alpha composes to one fog application instead of double-counting it.
@@ -452,9 +475,9 @@ fn fragment_blend(
 fn fragment_shadow(in: VertexOutput) {
     let dx = dpdx(in.uv);
     let dy = dpdy(in.uv);
-    var sampled = sample_ref(in.current_texture, in.uv, dx, dy);
+    var sampled = sample_model_ref(in, in.current_texture, dx, dy);
     if (in.frame_blend > 0.0) {
-        sampled = mix(sampled, sample_ref(in.next_texture, in.uv, dx, dy), in.frame_blend);
+        sampled = mix(sampled, sample_model_ref(in, in.next_texture, dx, dy), in.frame_blend);
     }
     if (sampled.a < 0.5 || in.visible == 0u) { discard; }
 }

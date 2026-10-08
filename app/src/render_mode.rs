@@ -17,7 +17,7 @@ use bevy::{
     render::{render_resource::TextureUsages, view::Hdr},
 };
 use render::{EnhancedRenderPlugin, EnhancedRendering};
-use render_model::ENHANCED_RENDERING_ENABLED;
+use render_model::enhanced_rendering_enabled;
 use serde::{Deserialize, Serialize};
 use ui::RenderMode;
 
@@ -70,7 +70,7 @@ pub(crate) fn startup_render_mode(
     saved: Option<RenderMode>,
     attributable: bool,
 ) -> RenderMode {
-    if !ENHANCED_RENDERING_ENABLED {
+    if !enhanced_rendering_enabled() {
         return RenderMode::Vanilla;
     }
     if let Some(mode) = cli {
@@ -144,7 +144,7 @@ fn seed_render_mode(
 
 /// Update the shared settings authority only when the choice changes.
 fn set_render_mode(settings: &mut RuntimeSettings, mode: RenderMode) {
-    let mode = if ENHANCED_RENDERING_ENABLED {
+    let mode = if enhanced_rendering_enabled() {
         mode
     } else {
         RenderMode::Vanilla
@@ -195,7 +195,7 @@ fn apply_render_mode_to_cameras(
     settings: Res<RuntimeSettings>,
     mut cameras: Query<RenderModeCameraQuery, With<FlyCamera>>,
 ) {
-    let enhanced = ENHANCED_RENDERING_ENABLED
+    let enhanced = enhanced_rendering_enabled()
         && settings.user_settings_update().1.video.render_mode == RenderMode::Enhanced;
     for (entity, mut camera, has_enhanced, vanilla_depth) in &mut cameras {
         if enhanced != has_enhanced {
@@ -226,7 +226,7 @@ fn sync_enhanced_bloom(
     cameras: Query<(Entity, &EnhancedRendering, Has<Bloom>), With<FlyCamera>>,
 ) {
     for (entity, enhanced, has_bloom) in &cameras {
-        let bloom = ENHANCED_RENDERING_ENABLED && enhanced.bloom;
+        let bloom = enhanced_rendering_enabled() && enhanced.bloom;
         if bloom == has_bloom {
             continue;
         }

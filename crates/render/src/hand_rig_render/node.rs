@@ -59,7 +59,7 @@ impl ViewNode for HandRigViewNode {
             return Ok(());
         }
         let final_world_draw =
-            !(render_model::ENHANCED_RENDERING_ENABLED && enhanced) && msaa.samples() > 1;
+            !(render_model::enhanced_rendering_enabled() && enhanced) && msaa.samples() > 1;
         let attachments = [Some(if final_world_draw {
             scene_target.final_attachment(target.main_texture_view())
         } else {

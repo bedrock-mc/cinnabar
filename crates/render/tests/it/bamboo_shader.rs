@@ -163,6 +163,11 @@ fn bamboo_offsets_do_not_rotate_enhanced_surface_normals() {
             "case {case}: offset must not become rotation"
         );
         assert_eq!(values[case * 2][3], 1.0, "fixture vertex must be visible");
+        assert_eq!(
+            values[case * 2 + 1][3],
+            if case < 4 { 1.0 } else { 0.0 },
+            "only admitted bamboo selects bounded tile sampling"
+        );
         if case < 4 {
             let x = world::bamboo::OFFSET_MIN
                 + case as f32 * world::bamboo::OFFSET_SPAN
@@ -204,8 +209,8 @@ const WITNESS: &str = r#"
 @group(0) @binding(31) var<storage, read_write> results: array<vec4<f32>>;
 @compute @workgroup_size(1) fn witness(@builtin(global_invocation_id) id: vec3<u32>) {
     let vertex = model_vertex(0u, id.x);
-    results[id.x * 2u] = vec4(vertex.normal, f32(vertex.visible));
-    results[id.x * 2u + 1u] = vec4(vertex.world_position, 1.0);
+    results[id.x * 2u] = vec4(vertex.normal, f32(vertex.visible & MODEL_VISIBLE));
+    results[id.x * 2u + 1u] = vec4(vertex.world_position, f32((vertex.visible & MODEL_BOUNDED_TILE) != 0u));
 }
 @vertex fn normal_vertex(@builtin(vertex_index) index: u32) -> VertexOutput {
     let corners = array(vec2(0.0,0.0),vec2(1.0,0.0),vec2(1.0,1.0),vec2(0.0,1.0));

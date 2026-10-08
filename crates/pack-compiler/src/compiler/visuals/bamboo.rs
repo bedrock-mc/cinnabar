@@ -6,7 +6,7 @@ use super::dispatcher::CompileRuleResult;
 use super::geometry::cuboid_quads;
 
 pub(in crate::compiler) fn is_record(record: &RegistryRecord) -> bool {
-    record.name.as_ref() == "minecraft:bamboo"
+    record.name.as_ref() == assets::bamboo::BLOCK_NAME
 }
 
 pub(in crate::compiler) fn compile_rule(
@@ -21,35 +21,14 @@ pub(in crate::compiler) fn compile_rule(
     {
         return Ok(CompileRuleResult::NoMatch);
     }
-    let Ok(state) = serde_json::from_str::<serde_json::Value>(&record.canonical_state) else {
+    let Some(state) = assets::bamboo::BambooState::from_record(record) else {
         return Ok(CompileRuleResult::Reject);
     };
-    let Some(state) = state.as_object().filter(|state| state.len() == 3) else {
-        return Ok(CompileRuleResult::Reject);
-    };
-    if state
-        .get("age_bit")
-        .and_then(|value| super::state::exact_tagged_byte(value, 1))
-        .is_none()
-    {
-        return Ok(CompileRuleResult::Reject);
-    }
-    let width = match state
-        .get("bamboo_stalk_thickness")
-        .and_then(super::state::exact_tagged_string)
-    {
-        Some("thin") => 32,
-        Some("thick") => 48,
-        _ => return Ok(CompileRuleResult::Reject),
-    };
-    let (leaf_size, selector) = match state
-        .get("bamboo_leaf_size")
-        .and_then(super::state::exact_tagged_string)
-    {
-        Some("no_leaves") => (0, BlockFace::South),
-        Some("small_leaves") => (1, BlockFace::South),
-        Some("large_leaves") => (2, BlockFace::Up),
-        _ => return Ok(CompileRuleResult::Reject),
+    let width = if state.thick { 48 } else { 32 };
+    let (leaf_size, selector) = match state.leaves {
+        assets::bamboo::LeafSize::None => (0, BlockFace::South),
+        assets::bamboo::LeafSize::Small => (1, BlockFace::South),
+        assets::bamboo::LeafSize::Large => (2, BlockFace::Up),
     };
     let stem = inputs
         .material(record, BlockFace::North)

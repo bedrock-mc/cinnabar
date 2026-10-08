@@ -10,6 +10,8 @@ tracy = ["bevy/trace", "dep:tracy-client"]
 publication-test-support = []
 # Compiles the hard-disabled Enhanced renderer.
 enhanced = []
+# Enables bounded development captures while the production switch stays disabled.
+enhanced-diagnostics = ["enhanced", "render-model/enhanced-diagnostics"]
 
 [dependencies]
 tracy-client = { version = "=0.18.4", default-features = false, features = ["enable", "only-localhost", "ondemand"], optional = true }

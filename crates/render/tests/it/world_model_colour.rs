@@ -100,6 +100,10 @@ fn snow_and_other_world_models_use_native_terrain_colour_at_day_and_night() {
                 resource: wgpu::BindingResource::TextureView(&atlas),
             },
             wgpu::BindGroupEntry {
+                binding: crate::material_shader::NATIVE_LEAF_SAMPLER_BINDING,
+                resource: wgpu::BindingResource::Sampler(&sampler),
+            },
+            wgpu::BindGroupEntry {
                 binding: 6,
                 resource: wgpu::BindingResource::Sampler(&sampler),
             },

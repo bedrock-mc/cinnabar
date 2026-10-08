@@ -21,8 +21,11 @@ mod actor_rig;
 mod actor_sidedness;
 mod actor_skin_classes;
 mod atmosphere;
+#[cfg(feature = "enhanced-diagnostics")]
+mod bamboo_enhanced_scene;
 mod bamboo_overlay_depth;
 mod bamboo_shader;
+mod bamboo_texture_filtering;
 mod biome_shader;
 mod biome_tint_bounds;
 mod block_selection;

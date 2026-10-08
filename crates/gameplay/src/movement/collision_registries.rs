@@ -254,7 +254,7 @@ impl PhysicsCollisionRegistries {
                 sequential.set_door_state(record.sequential_id, door.clone());
                 hashed.set_door_state(record.network_hash, door);
             }
-            if record.name.as_ref() == "minecraft:bamboo" {
+            if assets::bamboo::BambooState::from_record(record).is_some() {
                 sequential.set_bamboo_column_offset(record.sequential_id);
                 hashed.set_bamboo_column_offset(record.network_hash);
             }

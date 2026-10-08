@@ -19,6 +19,7 @@ test = false
 default = ["acceptance"]
 acceptance = ["dep:acceptance"]
 enhanced = ["render/enhanced"]
+enhanced-diagnostics = ["enhanced", "developer-control", "acceptance", "render/enhanced-diagnostics"]
 # Honours CINNABAR_MOD_COMPONENT by running a local Wasmtime component.
 local-mods = ["mod-host/execution"]
 # Loopback control endpoint for scripted driving and recording; never in release builds.

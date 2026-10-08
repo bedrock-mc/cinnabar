@@ -23,7 +23,7 @@ mod snapshot;
 mod validation;
 
 #[cfg(feature = "enhanced")]
-use render_model::ENHANCED_RENDERING_ENABLED;
+use render_model::enhanced_rendering_enabled;
 
 use bevy::{
     asset::{load_internal_asset, uuid_handle},
@@ -151,7 +151,7 @@ impl<P: bevy::render::render_phase::PhaseItem, const I: usize>
 #[cfg(feature = "enhanced")]
 impl Plugin for EnhancedRenderPlugin {
     fn build(&self, app: &mut App) {
-        if !ENHANCED_RENDERING_ENABLED {
+        if !enhanced_rendering_enabled() {
             return;
         }
         load_shader_imports(app);
@@ -176,7 +176,7 @@ impl Plugin for EnhancedRenderPlugin {
     }
 
     fn finish(&self, app: &mut App) {
-        if !ENHANCED_RENDERING_ENABLED {
+        if !enhanced_rendering_enabled() {
             return;
         }
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {

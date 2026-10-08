@@ -7,6 +7,8 @@ pub use legacy_terrain::{build_legacy_terrain_mip_chain, rebuild_legacy_terrain_
 
 pub const TILE_SIZE: u32 = 16;
 pub const MIP_COUNT: u32 = 5;
+/// Mip levels admitted by the pinned vanilla terrain atlas, including its base.
+pub const VANILLA_TERRAIN_MIP_COUNT: u32 = 4;
 /// Largest square layer a runtime overlay page may use.
 pub const MAX_TILE_SIZE: u32 = 256;
 const ALPHA_TEST_THRESHOLD: u8 = 128;
