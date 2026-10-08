@@ -1,15 +1,5 @@
 use super::*;
 
-fn finalize_interaction_packet(
-    packet: Packet,
-    interaction: Option<InteractionPacketGuard>,
-) -> Packet {
-    match interaction {
-        Some(guard) => guard.sanitize(packet),
-        None => packet,
-    }
-}
-
 struct NetworkPumpRuntime<F, W> {
     readiness_ingress: Arc<ReadinessIngressCounter>,
     experience_gate: Arc<experience::ExperienceGate>,
@@ -51,8 +41,8 @@ pub(super) async fn run_network_pump_with_trace<S, F, W>(
     trace: (F, W),
 ) where
     S: NetworkSession,
-    F: FnMut(u64, &Packet) -> Option<String>,
-    W: FnMut(&str),
+    F: FnMut(u64, &Packet) -> Option<String> + Send + 'static,
+    W: FnMut(&str) + Send + 'static,
 {
     let (trace_line, write_trace) = trace;
     run_network_pump_with_readiness_ingress_and_trace(
@@ -74,7 +64,10 @@ pub(super) async fn run_network_pump_with_trace<S, F, W>(
 }
 
 #[allow(clippy::too_many_arguments)] // Keep the distinct transport endpoints explicit.
-pub(super) async fn run_network_pump_with_readiness_ingress<S: NetworkSession, P>(
+pub(super) async fn run_network_pump_with_readiness_ingress<
+    S: NetworkSession,
+    P: Send + 'static,
+>(
     session: S,
     sequencer: NetworkSequencer,
     command_rx: mpsc::Receiver<NetworkCommand>,
@@ -109,26 +102,60 @@ pub(super) async fn run_network_pump_with_readiness_ingress<S: NetworkSession, P
 async fn run_network_pump_with_readiness_ingress_and_trace<S, F, W, P>(
     mut session: S,
     mut sequencer: NetworkSequencer,
-    mut command_rx: mpsc::Receiver<NetworkCommand>,
+    command_rx: mpsc::Receiver<NetworkCommand>,
     control_event_tx: mpsc::Sender<NetworkControlEvent<P>>,
     world_event_tx: mpsc::Sender<WorldIngress>,
     mut shutdown_rx: watch::Receiver<bool>,
     runtime: NetworkPumpRuntime<F, W>,
 ) where
     S: NetworkSession,
-    F: FnMut(u64, &Packet) -> Option<String>,
-    W: FnMut(&str),
+    F: FnMut(u64, &Packet) -> Option<String> + Send + 'static,
+    W: FnMut(&str) + Send + 'static,
+    P: Send + 'static,
 {
     let NetworkPumpRuntime {
         readiness_ingress,
         experience_gate,
-        mut trace_line,
-        mut write_trace,
+        trace_line,
+        write_trace,
         observation,
     } = runtime;
+    let outbound = match session.outbound() {
+        Ok(outbound) => outbound,
+        Err(error) => {
+            let _ = send_control_event_or_cancel(
+                &control_event_tx,
+                &mut shutdown_rx,
+                NetworkControlEvent::Failed {
+                    message: error.to_string(),
+                    decode_error_count: session.decode_error_count(),
+                    server_disconnect: session.take_server_disconnect(),
+                    origin: NetworkFailureOrigin::Startup,
+                },
+            )
+            .await;
+            return;
+        }
+    };
+    let (hooks, mut hook_rx) = mpsc::unbounded_channel();
+    let _outbound_task = OutboundTask(tokio::spawn(run_outbound(OutboundRuntime {
+        outbound,
+        commands: command_rx,
+        control_event_tx: control_event_tx.clone(),
+        hooks,
+        shutdown_rx: shutdown_rx.clone(),
+        experience_gate: Arc::clone(&experience_gate),
+        trace_line,
+        write_trace,
+        fast_transfer_action_marker: observation.fast_transfer_action_marker,
+    })));
+    // Holds the command receiver after a write failure until the terminal event is queued.
+    let mut _failed_commands = None;
+    // Between arming a transfer trace and its write result, nothing inbound is decoded, so
+    // the transfer barrier lands exactly at the write.
+    let mut awaiting_traced_write = false;
     let experience_start = Instant::now();
     let mut experience_rate = None;
-    let mut pump_preference = NetworkPumpPreference::Inbound;
     let mut pending_world_event = None;
     let mut last_blob_cache_stats = None;
     if session.blob_cache_enabled() {
@@ -184,234 +211,109 @@ async fn run_network_pump_with_readiness_ingress_and_trace<S, F, W, P>(
     }
 
     loop {
-        match wait_for_network_work_or_cancel(
-            wait_for_world_side_work(
-                &mut session,
-                sequencer.current_dimension(),
-                &world_event_tx,
-                pending_world_event.is_some(),
-            ),
-            command_rx.recv(),
-            &mut shutdown_rx,
-            &mut pump_preference,
-        )
-        .await
-        {
+        let inbound = async {
+            if awaiting_traced_write {
+                std::future::pending().await
+            } else {
+                wait_for_world_side_work(
+                    &mut session,
+                    sequencer.current_dimension(),
+                    &world_event_tx,
+                    pending_world_event.is_some(),
+                )
+                .await
+            }
+        };
+        match wait_for_network_work_or_cancel(inbound, hook_rx.recv(), &mut shutdown_rx).await {
             NetworkPumpWork::Shutdown => break,
-            NetworkPumpWork::Command(command) => match command {
-                Some(NetworkCommand::FinishLoading) => {
-                    if let Some(Err(error)) =
-                        wait_for_send_or_cancel(session.finish_loading(), &mut shutdown_rx).await
-                    {
-                        let _ = send_control_event_or_cancel(
-                            &control_event_tx,
-                            &mut shutdown_rx,
-                            NetworkControlEvent::Failed {
-                                message: error.to_string(),
-                                decode_error_count: session.decode_error_count(),
-                                server_disconnect: session.take_server_disconnect(),
-                                origin: NetworkFailureOrigin::Send,
-                            },
-                        )
-                        .await;
-                        return;
-                    }
+            NetworkPumpWork::Hook(None | Some(PumpHook::CommandsClosed)) => break,
+            NetworkPumpWork::Hook(Some(PumpHook::BeginTrace(armed))) => {
+                session.begin_packet_id_trace();
+                awaiting_traced_write = true;
+                let _ = armed.send(());
+            }
+            NetworkPumpWork::Hook(Some(PumpHook::TracedWriteSettled)) => {
+                awaiting_traced_write = false;
+            }
+            NetworkPumpWork::Hook(Some(PumpHook::FastTransferSent(chat))) => {
+                session.arm_blob_cache_reset_for_fast_transfer();
+                if let Some(pending) = pending_world_event.take()
+                    && !send_event_or_cancel(&world_event_tx, &mut shutdown_rx, pending).await
+                {
+                    return;
                 }
-                Some(NetworkCommand::Send {
-                    packet,
-                    sub_chunk,
-                    chat,
-                    physics,
-                    physics_reanchor,
-                    interaction,
-                }) => {
-                    if protocol::is_experience_packet(&packet) && !experience_gate.enabled() {
-                        continue;
-                    }
-                    if let (Some(identity), Some(reanchor)) = (physics, physics_reanchor.as_ref())
-                        && *reanchor.borrow() != identity.reanchor_epoch
-                    {
-                        if !send_control_event_or_cancel(
-                            &control_event_tx,
-                            &mut shutdown_rx,
-                            NetworkControlEvent::PhysicsPacketCancelled {
-                                identity,
-                                definitely_unsent: true,
-                            },
-                        )
-                        .await
-                        {
-                            return;
-                        }
-                        continue;
-                    }
-                    let packet = finalize_interaction_packet(packet, interaction);
-                    // Every physics trace is formatted from the final packet
-                    // after interaction sanitization and published in socket-write
-                    // order only after that write succeeds.
-                    let movement_trace_line = physics
-                        .and_then(|identity| trace_line(identity.session_generation, &packet));
-                    let trace_armed = chat.is_some_and(|chat| chat.fast_transfer_action.is_some());
-                    if trace_armed {
-                        session.begin_packet_id_trace();
-                    }
-                    // Command dequeue is the last point where a physics packet is
-                    // provably unsent. Once the socket write starts, let it finish:
-                    // racing a reanchor against an in-flight write cannot establish
-                    // whether the server observed the old packet, and cancelling it
-                    // here used to disable production movement on routine corrections.
-                    let send_outcome =
-                        wait_for_send_or_cancel(session.send_packet(packet), &mut shutdown_rx)
-                            .await;
-                    match send_outcome {
-                        None => {
-                            if trace_armed {
-                                session.cancel_packet_id_trace();
-                            }
-                            if *shutdown_rx.borrow() {
-                                break;
-                            }
-                        }
-                        Some(Ok(())) => {
-                            if let Some(line) = movement_trace_line {
-                                write_trace(&line);
-                            }
-                            if trace_armed {
-                                session.arm_blob_cache_reset_for_fast_transfer();
-                            }
-                            if let Some(identity) = physics
-                                && !send_control_event_or_cancel(
-                                    &control_event_tx,
-                                    &mut shutdown_rx,
-                                    NetworkControlEvent::PhysicsPacketSent { identity },
-                                )
-                                .await
-                            {
-                                return;
-                            }
-                            if let Some(marker) = chat.and_then(|chat| {
-                                let marker_name = observation.fast_transfer_action_marker?;
-                                chat.fast_transfer_action.map(|action| {
-                                    let sent_unix_ms = std::time::SystemTime::now()
-                                        .duration_since(std::time::UNIX_EPOCH)
-                                        .map(|duration| {
-                                            u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
-                                        })
-                                        .unwrap_or(0);
-                                    action.marker(
-                                        marker_name,
-                                        chat.session,
-                                        chat.sequence,
-                                        sent_unix_ms,
-                                    )
-                                })
-                            }) {
-                                write_stdout_marker(&mut std::io::stdout().lock(), &marker);
-                            }
-                            if let Some(sub_chunk) = sub_chunk {
-                                let sent_at = Instant::now();
-                                if !send_control_event_or_cancel(
-                                    &control_event_tx,
-                                    &mut shutdown_rx,
-                                    NetworkControlEvent::SubChunkRequestSent {
-                                        chunk: sub_chunk.chunk,
-                                        base_sub_chunk_y: sub_chunk.base_sub_chunk_y,
-                                        count: sub_chunk.count,
-                                        sent_at,
-                                    },
-                                )
-                                .await
-                                {
-                                    return;
-                                }
-                            }
-                            if let Some(chat) =
-                                chat.filter(|chat| chat.fast_transfer_action.is_some())
-                            {
-                                if let Some(pending) = pending_world_event.take()
-                                    && !send_event_or_cancel(
-                                        &world_event_tx,
-                                        &mut shutdown_rx,
-                                        pending,
-                                    )
-                                    .await
-                                {
-                                    return;
-                                }
-                                let barrier = sequencer.wrap_fast_transfer_barrier(chat.sequence);
-                                if !send_event_or_cancel(&world_event_tx, &mut shutdown_rx, barrier)
-                                    .await
-                                {
-                                    return;
-                                }
-                            }
-                            if let Some(chat) = chat
-                                && !send_control_event_or_cancel(
-                                    &control_event_tx,
-                                    &mut shutdown_rx,
-                                    NetworkControlEvent::ChatPacketSent {
-                                        session: chat.session,
-                                        sequence: chat.sequence,
-                                    },
-                                )
-                                .await
-                            {
-                                return;
-                            }
-                        }
-                        Some(Err(error)) => {
-                            if trace_armed {
-                                session.cancel_packet_id_trace();
-                            }
-                            if let Some(transfer) = session.take_server_transfer() {
-                                end_pump_with_transfer(
-                                    &session,
-                                    pending_world_event.take(),
-                                    transfer,
-                                    &world_event_tx,
-                                    &control_event_tx,
-                                    &mut shutdown_rx,
-                                )
-                                .await;
-                                return;
-                            }
-                            let server_disconnect = session.take_server_disconnect();
-                            if let Some(chat) = chat {
-                                let _ = send_control_event_or_cancel(
-                                    &control_event_tx,
-                                    &mut shutdown_rx,
-                                    NetworkControlEvent::ChatPacketSendFailed {
-                                        session: chat.session,
-                                        sequence: chat.sequence,
-                                        message: error.to_string(),
-                                    },
-                                )
-                                .await;
-                            }
-                            emit_network_pump_terminal_marker(
-                                "send",
-                                &error.to_string(),
-                                session.decode_error_count(),
-                                server_disconnect.as_ref(),
-                            );
-                            send_final_blob_cache_telemetry(&session, &control_event_tx).await;
-                            let _ = send_control_event_or_cancel(
-                                &control_event_tx,
-                                &mut shutdown_rx,
-                                NetworkControlEvent::Failed {
-                                    message: error.to_string(),
-                                    decode_error_count: session.decode_error_count(),
-                                    server_disconnect,
-                                    origin: NetworkFailureOrigin::Send,
-                                },
-                            )
-                            .await;
-                            return;
-                        }
-                    }
+                let barrier = sequencer.wrap_fast_transfer_barrier(chat.sequence);
+                if !send_event_or_cancel(&world_event_tx, &mut shutdown_rx, barrier).await {
+                    return;
                 }
-                None => break,
-            },
+                if !send_control_event_or_cancel(
+                    &control_event_tx,
+                    &mut shutdown_rx,
+                    NetworkControlEvent::ChatPacketSent {
+                        session: chat.session,
+                        sequence: chat.sequence,
+                    },
+                )
+                .await
+                {
+                    return;
+                }
+            }
+            NetworkPumpWork::Hook(Some(PumpHook::SendFailed {
+                message,
+                chats,
+                trace_armed,
+                commands,
+            })) => {
+                _failed_commands = Some(commands);
+                if trace_armed {
+                    session.cancel_packet_id_trace();
+                }
+                if let Some(transfer) = session.take_server_transfer() {
+                    end_pump_with_transfer(
+                        &session,
+                        pending_world_event.take(),
+                        transfer,
+                        &world_event_tx,
+                        &control_event_tx,
+                        &mut shutdown_rx,
+                    )
+                    .await;
+                    return;
+                }
+                let server_disconnect = session.take_server_disconnect();
+                for chat in chats {
+                    let _ = send_control_event_or_cancel(
+                        &control_event_tx,
+                        &mut shutdown_rx,
+                        NetworkControlEvent::ChatPacketSendFailed {
+                            session: chat.session,
+                            sequence: chat.sequence,
+                            message: message.clone(),
+                        },
+                    )
+                    .await;
+                }
+                emit_network_pump_terminal_marker(
+                    "send",
+                    &message,
+                    session.decode_error_count(),
+                    server_disconnect.as_ref(),
+                );
+                send_final_blob_cache_telemetry(&session, &control_event_tx).await;
+                let _ = send_control_event_or_cancel(
+                    &control_event_tx,
+                    &mut shutdown_rx,
+                    NetworkControlEvent::Failed {
+                        message,
+                        decode_error_count: session.decode_error_count(),
+                        server_disconnect,
+                        origin: NetworkFailureOrigin::Send,
+                    },
+                )
+                .await;
+                return;
+            }
             NetworkPumpWork::Inbound(WorldSideWork::Capacity(Ok(permit))) => {
                 let pending = pending_world_event
                     .take()

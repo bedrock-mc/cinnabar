@@ -1,9 +1,7 @@
 //! Native close-time return-to-player, then Drop of any remainder.
 //!
 //! Vanilla returns every return-on-close input and the cursor to the player,
-//! dropping what does not fit.
-//! Close transport waits for our retained sparse requests to settle; that
-//! bounded admission policy is not a claim about native packet timing.
+//! dropping what does not fit, then flushes those requests and the close together.
 
 use protocol::StackRequestAction;
 
@@ -15,7 +13,7 @@ use super::helpers::request_slot;
 use super::overlay::DeltaGroup;
 use super::registry::{OccupiedStackRelation, entry_capacity};
 use super::{
-    InventoryGestureError, PLAYER_INVENTORY_SLOT_COUNT, PendingClose, PendingCloseOwner,
+    InventoryGestureError, InventoryPendingState, PLAYER_INVENTORY_SLOT_COUNT,
     PlayerInventoryLedger,
 };
 
@@ -146,29 +144,12 @@ impl PlayerInventoryLedger {
         Ok(())
     }
 
-    pub(super) fn close_ready(&self, close: PendingClose) -> bool {
-        if !close.returning_inputs {
-            return true;
-        }
-        !self.close_requests_pending(close.owner)
-            && self.confirmed.get(Cell::Cursor).is_none()
-            && self
-                .crafting_grid()
-                .slots()
-                .all(|slot| self.confirmed.get(Cell::Craft(slot)).is_none())
-    }
-
-    fn close_requests_pending(&self, owner: PendingCloseOwner) -> bool {
-        self.queue.iter().any(|request| match owner {
-            PendingCloseOwner::Personal(generation) => {
-                request.personal_generation == Some(generation)
-            }
-            PendingCloseOwner::Storage => self
-                .storage
-                .as_ref()
-                .is_some_and(|storage| request.storage_generation == Some(storage.generation)),
-            PendingCloseOwner::Cleanup => false,
-        })
+    /// A close follows every gesture still waiting for transport, so the server
+    /// applies the returns first; it never waits for their answers.
+    pub(super) fn close_ready(&self) -> bool {
+        !self
+            .gestures()
+            .any(|request| request.state == InventoryPendingState::AwaitingTransport)
     }
 
     pub(super) fn close_return_needed(&self) -> bool {
@@ -184,63 +165,8 @@ impl PlayerInventoryLedger {
             })
     }
 
-    /// Refused or incomplete return answers leave real backing inputs. Reopen
-    /// the retained surface rather than sending Close and erasing those items.
-    pub(super) fn reconcile_crafting_close(&mut self) {
-        let failed: Vec<PendingClose> = self
-            .pending_closes
-            .iter()
-            .copied()
-            .filter(|close| {
-                close.returning_inputs
-                    && !self.close_requests_pending(close.owner)
-                    && !self.close_ready(*close)
-            })
-            .collect();
-        for close in failed {
-            self.pending_closes
-                .retain(|pending| pending.owner != close.owner);
-            match close.owner {
-                PendingCloseOwner::Personal(generation) => {
-                    if let Some(super::PersonalWindow::Closing {
-                        generation: current,
-                        window_id,
-                        window_type,
-                        ..
-                    }) = self.personal
-                        && current == generation
-                    {
-                        self.personal = Some(super::PersonalWindow::Open {
-                            generation,
-                            window_id,
-                            window_type,
-                        });
-                    }
-                }
-                PendingCloseOwner::Storage => {
-                    if let Some(storage) = &mut self.storage {
-                        storage.closing = false;
-                    }
-                }
-                PendingCloseOwner::Cleanup => {}
-            }
-            tracing::warn!(target: "bedrock_client::inventory_requests",
-                "inventory close cancelled: server did not return every input");
-        }
-    }
-
-    pub(super) fn retain_close_returns(&mut self, owner: PendingCloseOwner) {
-        if let Some(close) = self
-            .pending_closes
-            .iter_mut()
-            .find(|close| close.owner == owner)
-        {
-            close.returning_inputs = true;
-        }
-    }
-
     pub(super) fn note_close_return_failure(&self, error: InventoryGestureError) {
         tracing::warn!(target: "bedrock_client::inventory_requests",
-            ?error, "inventory close deferred: inputs could not be returned");
+            ?error, "inventory closed without returning its inputs");
     }
 }
