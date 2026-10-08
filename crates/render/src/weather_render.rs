@@ -506,18 +506,6 @@ impl<P: PhaseItem> RenderCommand<P> for DrawWeather {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::{LAYER_BYTES, OCCLUSION_BYTES, PARAMS_BYTES};
-
-    #[test]
-    fn gpu_records_match_the_wgsl_layouts() {
-        assert_eq!(LAYER_BYTES, 80);
-        assert_eq!(PARAMS_BYTES, 32);
-        assert_eq!(OCCLUSION_BYTES, 2 * 64 * 64 * 4);
-    }
-}
-
 impl crate::pipeline_warmup::PrewarmPipelines for WeatherPipeline {
     fn prewarm(
         &mut self,
@@ -533,5 +521,17 @@ impl crate::pipeline_warmup::PrewarmPipelines for WeatherPipeline {
             },
         )?);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{LAYER_BYTES, OCCLUSION_BYTES, PARAMS_BYTES};
+
+    #[test]
+    fn gpu_records_match_the_wgsl_layouts() {
+        assert_eq!(LAYER_BYTES, 80);
+        assert_eq!(PARAMS_BYTES, 32);
+        assert_eq!(OCCLUSION_BYTES, 2 * 64 * 64 * 4);
     }
 }

@@ -116,6 +116,11 @@
 
 ## Frame attribution and unchanged GPU uploads
 
+- Idle native metadata publication no longer dispatches through the main thread.
+  macOS frame workers use interactive scheduling; bounded-load diagnostics show
+  more render-work headroom. Unloaded tail results remain adverse and unexplained:
+  the hitch and 120 Hz display gates remain incomplete. See
+  [frame-pacing evidence](docs/evidence/zeqa-frame-pacing.md).
 - Opt-in Tracy spans cover Bevy and owned streaming/render work; Metal pass
   durations are delayed plots. macOS zones alone cannot separate preemption from waits.
 - Per-packet ingress admission preserves queued events when consumer fan-out fills
@@ -475,6 +480,14 @@
   submitting what it hides.
 - Incomplete live visual acceptance: an in-game pass on the M3 Pro (no pop-in, no wrongly
   hidden terrain) and live `gpu_opaque` and render CPU stage captures are pending.
+
+## Bounded lighting CPU work
+
+- Retained-support early exits and section packing preserve light/provenance output;
+  [remote CPU evidence](docs/evidence/lighting-cpu-work.md) records workload, allocation
+  and queue measurements alongside independent regression oracles.
+- Incomplete: these synthetic solver diagnostics do not close native vanilla parity,
+  release frame, join or streaming gates; target-hardware captures remain required.
 
 ## Headless chunk cost baselines
 
