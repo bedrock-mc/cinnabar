@@ -143,7 +143,7 @@ fn geometry_fixture() -> CompiledEntityAssets {
     compiled
 }
 
-fn inherited_geometry_fixture() -> CompiledEntityAssets {
+pub(super) fn inherited_geometry_fixture() -> CompiledEntityAssets {
     let mut compiled = geometry_fixture();
     compiled.sources = vec![
         compiled.sources[0].clone(),
@@ -1172,30 +1172,4 @@ fn render_layers_round_trip_and_reject_invalid_indices() {
     let mut bad_pattern = compiled;
     bad_pattern.render.visibility[0].pattern = "Root".into();
     assert!(entity::encode_entity_blob(&bad_pattern).is_err());
-}
-
-/// Both admission paths retain the selected parent graph and clones share it unchanged.
-#[test]
-fn admitted_geometry_parents_are_shared_and_match_the_decoded_catalog() {
-    let compiled = inherited_geometry_fixture();
-    let encoded = encode_entity_blob(&compiled).unwrap();
-    let admitted = RuntimeEntityAssets::from_compiled(compiled).unwrap();
-    let decoded = RuntimeEntityAssets::decode(&encoded).unwrap();
-    assert_eq!(admitted.geometry_parents(), &[None, Some(0)]);
-    assert_eq!(decoded.geometry_parents(), admitted.geometry_parents());
-    let cloned = admitted.clone();
-    assert!(std::ptr::eq(
-        cloned.geometry_parents(),
-        admitted.geometry_parents()
-    ));
-}
-
-/// A compiled catalog and a decode of its carrier must be indistinguishable, identity included.
-#[test]
-fn encoded_admission_reports_the_identity_of_its_carrier() {
-    let (admitted, blob) =
-        RuntimeEntityAssets::from_compiled_encoded(inherited_geometry_fixture()).unwrap();
-    let decoded = RuntimeEntityAssets::decode(&blob.unwrap()).unwrap();
-    assert!(admitted.carrier_identity().is_some());
-    assert_eq!(format!("{admitted:?}"), format!("{decoded:?}"));
 }

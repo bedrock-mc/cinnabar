@@ -11,5 +11,7 @@ mod controller_blend;
 mod material_states;
 #[path = "entity/review_regressions.rs"]
 mod review_regressions;
+#[path = "entity/runtime_admission.rs"]
+mod runtime_admission;
 #[path = "entity/suite.rs"]
 mod suite;
