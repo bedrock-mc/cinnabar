@@ -448,8 +448,8 @@ in the component's registration/set grants. Neither operation reads player data,
 changes input, nor sends packets. Existing `set-label` remains available without
 this grant. All HUD writes share an eight-call callback budget.
 
-Card data contains `cards`, each with a unique `id`, `title`, `rows`, and optional
-`anchor`, `offset`, and `scale`. Anchors are `top_left`, `top_right`, `bottom_left`,
+Card data contains `cards`, each with a unique `id`, `rows`, and optional
+`title`, `anchor`, `offset`, `scale`, `position`, and `background_opacity`. Anchors are `top_left`, `top_right`, `bottom_left`,
 and `bottom_right`; offsets are GUI pixels from that corner. Negative offsets
 move inward from right/bottom corners. Scale is 0.5–2 and scales card text, icons,
 and geometry together. Each row has `label`, `value`, and optional `item`
@@ -458,7 +458,13 @@ and geometry together. Each row has `label`, `value`, and optional `item`
 unknown effect IDs leave the icon empty rather than guessing.
 Item art follows the current session's resource-pack icons and normal item atlas;
 unknown item identities draw no substituted item. Cards are 148 GUI pixels wide,
-and their height is `(22 + 20 * rows) * scale`.
+and their height is `(22 + 20 * rows) * scale` with a title, or
+`(4 + 20 * rows) * scale` when the title is absent or empty. Background opacity
+is 0–1 (default 0.82) and affects only the card surface, preserving foreground
+text, icons and progress bars. An optional normalized `position: [x, y]` in
+0–1 overrides corner placement: each axis is a fraction of available travel
+(viewport minus scaled card size), keeping moved cards visible across resizing.
+Legacy anchor/offset placement remains exact until a card is moved.
 
 Crosshair data supports `shape` (`cross`, `dot`, `circle`), `size` (cross arm
 length or circle/dot radius), `gap` (cross center clearance), `thickness`, `color`,
@@ -475,3 +481,27 @@ during loading, and when the player or server hides the HUD. Text/value updates
 reuse the retained host JSON-UI template while its geometry is unchanged.
 The settings panel now accepts at most 64 controls; existing category and page
 navigation keeps controls reachable when they exceed the viewport.
+
+With both `hud` and `controls` grants, `hud.open-editor(json)` opens a native
+JSON-UI layout editor from the current focused personal panel. The request is
+bounded HUD preview data and can include cards disabled during gameplay.
+`editor_label` names a preview independently of its optional gameplay title.
+Optional `reset_anchor` and `reset_offset` supply factory placement without
+changing the current preview. These fields affect only the layout editor.
+
+The editor captures native pointer dragging, clamps cards to the available
+viewport, supports one-pixel arrow nudges, and offers optional eight-GUI-pixel
+grid snapping. Save (or Enter) returns all card IDs and their optional normalized
+positions through `hud.read-editor-result()`. The typed result has `saved`,
+`reset`, and `placements`; `reset` indicates that Reset was used in this draft.
+Reset clears positions and uses the supplied factory anchors/offsets while
+preserving scale and opacity. Cancel (or Escape) returns `saved: false` and no
+placements, so the guest leaves its preferences untouched. Save and Cancel return
+to the personal panel, which retains exclusive gameplay input ownership.
+
+A result stays stable for the callback and is consumed only after a successful
+callback reads it. The app delivers it only to the requesting component, even
+when another component publishes the gameplay HUD. Focus loss, a different live
+session, another screen, a guest trap, reload, or unload cancels pointer capture
+and the draft. The host has no preference-file authority through this API;
+components may persist accepted placements with the existing settings grant.

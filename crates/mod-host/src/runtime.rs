@@ -107,6 +107,15 @@ impl State {
 }
 
 impl cinnabar::extension::hud::Host for State {
+    fn open_editor(&mut self, json: String) -> Result<Result<(), String>> {
+        hud::open_editor(self, json)
+    }
+
+    fn read_editor_result(
+        &mut self,
+    ) -> Result<Result<Option<cinnabar::extension::hud::EditorResult>, String>> {
+        hud::read_editor_result(self)
+    }
     fn set_content(&mut self, json: String) -> Result<Result<(), String>> {
         hud::set_content(self, json)
     }
@@ -337,6 +346,14 @@ impl Instance {
 
     pub(super) fn hud(&self) -> Option<&ui::mod_hud::Hud> {
         self.store.data().hud.content.as_ref()
+    }
+
+    pub(super) fn take_hud_editor_request(&mut self) -> Option<ui::mod_hud::Hud> {
+        self.store.data_mut().hud.editor_request.take()
+    }
+
+    pub(super) fn deliver_hud_editor_result(&mut self, result: ui::mod_hud::EditorResult) {
+        self.store.data_mut().hud.editor_result = Some(result);
     }
 
     pub(super) fn crosshair(&self) -> Option<&ui::mod_hud::Crosshair> {

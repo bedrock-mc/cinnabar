@@ -344,6 +344,13 @@ pub(super) fn prepare_mod_input(
         || ui.ui_focused(&player),
         |menu| presentation.base_absorbs_gameplay_input(&player, &ui, menu),
     );
+    super::hud_editor::guard(
+        &mut extension,
+        &mut presentation,
+        Some(ui.session_id()),
+        focused,
+        absorbed,
+    );
     let was_open = physical.panel_owned;
     let owner = extension.panel_owner();
     let mut open = extension.host(owner).panel_open() && presentation.mod_panel_open();
@@ -410,6 +417,7 @@ pub(super) fn prepare_mod_input(
             physical.left_held,
         ));
     }
+    super::hud_editor::collect(&mut extension, &mut presentation);
     let events = events
         .into_iter()
         .take(ui::mod_panel::MAX_PANEL_CONTROLS)

@@ -56,6 +56,8 @@ const DEMO_KEY: KeyCode = KeyCode::F8;
 const RELOAD_INTERVAL: Duration = Duration::from_millis(500);
 
 #[cfg(feature = "local-mods")]
+mod hud_editor;
+#[cfg(feature = "local-mods")]
 mod multi;
 #[cfg(feature = "local-mods")]
 mod registration;
@@ -83,6 +85,7 @@ struct ModRuntime {
     registration_identity: Option<[u8; 32]>,
     registration_request: Option<(u64, String)>,
     suspended: bool,
+    hud_editor_owner: Option<hud_editor::Owner>,
 }
 
 /// Installs the developer extension only when its component path is explicit.
@@ -187,6 +190,7 @@ fn configure_set(app: &mut App, mods: Vec<(std::path::PathBuf, ModGrants)>) {
             registration_identity: None,
             registration_request: None,
             suspended: false,
+            hud_editor_owner: None,
         })
         .init_resource::<interaction::ModInteraction>();
     if controls && let Some(path) = std::env::var_os(font::FONT_ENV) {
@@ -289,6 +293,12 @@ fn drive_mod(
             match extension.host_mut(index).reload_if_changed() {
                 // A new instance never sees cues from before it existed.
                 Ok(true) => {
+                    if extension
+                        .hud_editor_owner
+                        .is_some_and(|owner| owner.host == index)
+                    {
+                        hud_editor::cancel(&mut extension, &mut presentation, false);
+                    }
                     if let Some(cues) = outputs.2.as_mut() {
                         cues.0.clear();
                     }
@@ -383,6 +393,13 @@ fn drive_mod(
         extension.host_mut(owner).set_panel_open(false);
     }
     presentation.set_mod_panel_open(extension.host(owner).panel_open());
+    let editor_session = gameplay.hud_editor_session(&ui);
+    hud_editor::publish(
+        &mut extension,
+        &mut presentation,
+        editor_session,
+        focused || driven.is_some(),
+    );
 }
 
 /// Granted commands travel the session-fenced UI packet lane as vanilla command requests.
