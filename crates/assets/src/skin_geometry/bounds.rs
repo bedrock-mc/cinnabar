@@ -22,6 +22,22 @@ impl Default for SkinGeometryBounds {
 }
 
 impl SkinGeometryBounds {
+    /// Reads the geometry description's native visibility dimensions and offset.
+    #[must_use]
+    pub fn from_description(description: &Value) -> Option<Self> {
+        parse(description)
+    }
+
+    pub(crate) fn has_valid_dimensions(self) -> bool {
+        let dimensions = [self.half_extents[0] * 2.0, self.half_extents[1] * 2.0];
+        self.half_extents[0] == self.half_extents[2]
+            && dimensions.iter().all(|dimension| {
+                dimension.is_finite()
+                    && f64::from(*dimension) >= MIN_VISIBLE_DIMENSION
+                    && f64::from(*dimension) <= MAX_VISIBLE_DIMENSION
+            })
+    }
+
     /// Positions the box at the actor's feet using the shared conservative scale policy.
     pub fn at(self, feet: [f32; 3], scale: f32) -> ([f32; 3], [f32; 3]) {
         let scale = if scale.is_finite() {

@@ -94,6 +94,35 @@ struct Slider {
 }
 
 impl Transitions {
+    /// Settled launcher frames can be reused without stopping finite control motion.
+    pub(in crate::ui_runtime::presentation) fn active(&self, seconds: f64) -> bool {
+        self.motion.active(seconds)
+            || self.effects.active(seconds)
+            || self.resources.active(seconds)
+            || self.switches.values().any(|s| s.position.active(seconds))
+            || self
+                .sliders
+                .values()
+                .any(|s| s.active && seconds - s.started < s.duration)
+            || self
+                .presses
+                .iter()
+                .any(|p| seconds - p.started < SELECT_PRESS_DURATION)
+            || [
+                self.selected_icon,
+                self.play_icon,
+                self.inbox_icon,
+                self.world_icon,
+            ]
+            .into_iter()
+            .flatten()
+            .any(|(_, start)| seconds - start < ICON_HIGHLIGHT_DURATION)
+            || self
+                .server_icon
+                .is_some_and(|(_, start)| seconds - start < ICON_HIGHLIGHT_DURATION)
+            || self.server_list.captured()
+    }
+
     pub(in crate::ui_runtime::presentation) fn configure_motion(&mut self, enabled: bool) {
         if enabled != self.motion.enabled() {
             self.switches.clear();

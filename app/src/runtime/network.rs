@@ -391,6 +391,7 @@ pub(crate) fn receive_network_events(
                         "skipped malformed server block definitions"
                     );
                 }
+                stream.set_server_animation_compiler(server_animation::compile_stop);
                 stream.set_world_default_game_mode(world_default_game_mode);
                 stream.set_display_interval(display_interval);
                 stream.begin_frame_work();
@@ -915,6 +916,7 @@ mod glyph_sheets;
 mod inventory;
 mod item_diagnostics;
 mod item_icons;
+mod server_animation;
 pub(crate) use item_icons::set_vanilla_item_paths;
 #[cfg(test)]
 mod local_pack;

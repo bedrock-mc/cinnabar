@@ -86,6 +86,12 @@ func (store *Store) read(id string) (World, error) {
 	if world.Backend == "" {
 		world.Backend = BackendDragonfly // worlds saved before backends existed
 	}
+	if world.Generator == "" {
+		world.Generator = GeneratorFlat // the original local server created flat worlds
+		if world.Backend == BackendBDS {
+			world.Generator = GeneratorNormal
+		}
+	}
 	return world, nil
 }
 

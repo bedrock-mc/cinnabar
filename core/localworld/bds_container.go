@@ -302,7 +302,7 @@ func (r BDSRunner) startContainer(ctx context.Context, spec StartSpec) (Instance
 		_ = r.dockerCmd(context.Background(), "rm", "-f", name).Run()
 		return nil, err
 	}
-	wrapped := &containerInstance{Instance: inst, runner: r, name: name}
+	wrapped := &containerInstance{Instance: inst, runner: r, name: name, maxPlayers: maxPlayers}
 	go func() {
 		<-inst.Done()
 		wrapped.cleanupOnce()
@@ -313,10 +313,14 @@ func (r BDSRunner) startContainer(ctx context.Context, spec StartSpec) (Instance
 // containerInstance stops the container gracefully (BDS saves on SIGTERM) and always removes it.
 type containerInstance struct {
 	Instance
-	runner BDSRunner
-	name   string
-	once   sync.Once
+	runner     BDSRunner
+	name       string
+	once       sync.Once
+	maxPlayers int
 }
+
+// MaxPlayers is the server's player limit, the host included.
+func (c *containerInstance) MaxPlayers() int { return c.maxPlayers }
 
 func (c *containerInstance) LANAddress() string {
 	if !c.runner.LANVisible {

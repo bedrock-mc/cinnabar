@@ -12,7 +12,7 @@
 
 use std::sync::Arc;
 
-use crate::bind::{CollectionItem, ControlLibrary, DataSource, bind};
+use crate::bind::{BindState, CollectionItem, ControlLibrary, DataSource, bind_stateful};
 use crate::catalog::Catalog;
 use crate::emit::{DrawNode, RectOut, emit};
 use crate::input::{HitRegion, global_mapping, hit_regions};
@@ -521,7 +521,8 @@ impl ControlLibrary for CachedLibrary<'_> {
 }
 
 /// Resolve the model's template and bind it against the mapped data source,
-/// returning the baked tree. `None` when the template reference is unknown.
+/// returning the baked tree. `None` when the template is unknown or a binding
+/// budget would omit part of the form.
 pub fn bind_form(
     model: &FormModel,
     catalog: &Catalog,
@@ -537,6 +538,21 @@ pub fn bind_form_over(
     context: &Context,
     components: &crate::Components,
 ) -> Option<ResolvedControl> {
+    let capacity = crate::bind::feed::MAX_FACTORY_ITEMS;
+    let within_capacity = match model {
+        FormModel::Action(form) => form.elements.len() <= capacity,
+        FormModel::Custom(form) => {
+            form.elements.len() <= capacity
+                && form.elements.iter().all(|element| match element {
+                    CustomElement::Dropdown { options, .. } => options.len() <= capacity,
+                    _ => true,
+                })
+        }
+        FormModel::Modal(_) => true,
+    };
+    if !within_capacity {
+        return None;
+    }
     let context = form_context(model, context);
     let mut data = form_data_source(model);
     data.set_components(components.clone());
@@ -556,7 +572,9 @@ pub fn bind_form_over(
         catalog,
         context: &context,
     };
-    Some(bind(&root, &data, &library))
+    let mut state = BindState::new();
+    let (bound, _) = bind_stateful(&Arc::new(root), &data, &library, &mut state);
+    (!state.node_budget_exceeded).then_some(bound)
 }
 
 /// Render a form with no interaction state.

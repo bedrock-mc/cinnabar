@@ -224,6 +224,7 @@ fn mutate(model: &mut HudModel, rng: &mut Rng, now: f64) -> &'static str {
         }
         6 => {
             model.title = rng.chance(70).then(|| HudTitle {
+                creation_id: now.to_bits(),
                 title: format!("§6Round {}", rng.below(9)),
                 subtitle: if rng.chance(50) {
                     "go".into()

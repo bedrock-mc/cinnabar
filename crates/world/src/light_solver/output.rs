@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, sync::Arc};
 
-use crate::{LightChannel, SubChunkKey, SubChunkLight};
+use crate::{LightChannel, SUB_CHUNK_SIDE, SubChunkKey, SubChunkLight, light::PACKED_LIGHT_BYTES};
 
 use super::{
     cache::DensePositionSet,
@@ -145,42 +145,131 @@ impl<'a> MutableOutput<'a> {
         direct_sky: DensePositionSet,
         stats: LightSolveStats,
     ) -> LightSolveOutput {
-        let mut sub_chunks = BTreeMap::<SubChunkKey, SubChunkLight>::new();
-        for position in self.bounds.positions() {
-            let index = self
-                .index(position)
-                .expect("bounded positions always have a dense light index");
-            if !self.known[index] {
-                continue;
+        let mut sub_chunks = BTreeMap::new();
+        let (min, _) = split_position(self.bounds.dimension, self.bounds.min);
+        let (max, _) = split_position(self.bounds.dimension, self.bounds.max);
+        for x in min.x..=max.x {
+            for y in min.y..=max.y {
+                for z in min.z..=max.z {
+                    let key = SubChunkKey::new(self.bounds.dimension, x, y, z);
+                    if let Some(light) = self.pack_section(key) {
+                        sub_chunks.insert(key, Arc::new(light));
+                    }
+                }
             }
-            let (key, [x, y, z]) = split_position(self.bounds.dimension, position);
-            let light = sub_chunks
-                .entry(key)
-                .or_insert_with(|| SubChunkLight::dark(self.generation));
-            for channel in [LightChannel::Block, LightChannel::Sky] {
-                light
-                    .set_deferred(
-                        channel,
-                        x,
-                        y,
-                        z,
-                        self.values[index][light_channel_index(channel)],
-                    )
-                    .expect("solver only emits validated nibble values");
-            }
-        }
-        for light in sub_chunks.values_mut() {
-            light.canonicalize();
         }
         LightSolveOutput {
             dimension: self.bounds.dimension,
             bounds: self.bounds,
-            sub_chunks: sub_chunks
-                .into_iter()
-                .map(|(key, light)| (key, Arc::new(light)))
-                .collect(),
+            sub_chunks,
             direct_sky,
             stats,
+        }
+    }
+
+    fn pack_section(&self, key: SubChunkKey) -> Option<SubChunkLight> {
+        let side = SUB_CHUNK_SIDE as i32;
+        let extent = side - 1;
+        let origin = BlockPos::new(key.x * side, key.y * side, key.z * side);
+        let min = BlockPos::new(
+            self.bounds.min.x.max(origin.x),
+            self.bounds.min.y.max(origin.y),
+            self.bounds.min.z.max(origin.z),
+        );
+        let max = BlockPos::new(
+            self.bounds.max.x.min(origin.x + extent),
+            self.bounds.max.y.min(origin.y + extent),
+            self.bounds.max.z.min(origin.z + extent),
+        );
+        let mut block = [0; PACKED_LIGHT_BYTES];
+        let mut sky = [0; PACKED_LIGHT_BYTES];
+        let mut any_known = false;
+        for x in min.x..=max.x {
+            for y in min.y..=max.y {
+                let start = self
+                    .index(BlockPos::new(x, y, min.z))
+                    .expect("clipped section rows stay inside the solve bounds");
+                let local_y = (y - origin.y) as usize;
+                let row = ((x - origin.x) as usize) << 7 | (local_y >> 1);
+                let shift = (local_y & 1) * 4;
+                for (offset, z) in (min.z..=max.z).enumerate() {
+                    let index = start + offset;
+                    if !self.known[index] {
+                        continue;
+                    }
+                    any_known = true;
+                    let packed_index = row | (((z - origin.z) as usize) << 3);
+                    let [block_value, sky_value] = self.values[index];
+                    block[packed_index] |= block_value << shift;
+                    sky[packed_index] |= sky_value << shift;
+                }
+            }
+        }
+        any_known.then(|| SubChunkLight::from_packed(block, sky, self.generation))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn section_packing_matches_scalar_writes_for_partial_bounds_and_unknowns() {
+        let cases = [
+            (BlockPos::new(0, 0, 0), BlockPos::new(15, 15, 15)),
+            (BlockPos::new(-17, -3, -19), BlockPos::new(18, 20, 1)),
+            (
+                BlockPos::new(i32::MIN, i32::MIN, i32::MIN),
+                BlockPos::new(i32::MIN + 2, i32::MIN + 3, i32::MIN + 4),
+            ),
+            (
+                BlockPos::new(i32::MAX - 2, i32::MAX - 3, i32::MAX - 4),
+                BlockPos::new(i32::MAX, i32::MAX, i32::MAX),
+            ),
+        ];
+        for (min, max) in cases {
+            for pattern in 0..4 {
+                let bounds = LightBounds::new(-3, min, max).unwrap();
+                let volume = bounds.volume().unwrap();
+                let mut scratch = MutableOutputScratch::default();
+                let output = MutableOutput::new(bounds, 137, volume, &mut scratch);
+                let mut expected = BTreeMap::new();
+                for (index, position) in bounds.positions().enumerate() {
+                    let known = match pattern {
+                        0 | 3 => true,
+                        1 => index % 5 != 0 && position.x.div_euclid(16) % 2 == 0,
+                        _ => false,
+                    };
+                    let values = if pattern == 3 {
+                        [0; 2]
+                    } else {
+                        [((index * 7 + 3) & 15) as u8, ((index / 3 + 5) & 15) as u8]
+                    };
+                    output.values[index] = values;
+                    output.known[index] = known;
+                    if !known {
+                        continue;
+                    }
+                    let (key, [x, y, z]) = split_position(bounds.dimension, position);
+                    let light = expected
+                        .entry(key)
+                        .or_insert_with(|| SubChunkLight::dark(137));
+                    for (channel, value) in [
+                        (LightChannel::Block, values[0]),
+                        (LightChannel::Sky, values[1]),
+                    ] {
+                        light.set(channel, x, y, z, value).unwrap();
+                    }
+                }
+                let frozen = output.freeze(
+                    DensePositionSet::new(bounds, volume),
+                    LightSolveStats::default(),
+                );
+                assert_eq!(frozen.sub_chunks.len(), expected.len());
+                for (key, light) in expected {
+                    assert_eq!(frozen.sub_chunks[&key].as_ref(), &light);
+                }
+            }
         }
     }
 }

@@ -100,8 +100,15 @@
   placement line, and use fresh ray segments to continue beyond ledges or upward.
 - Repeats use resolved movement and stance; transactions carry their trigger,
   start/stop actions, local outcome, click position and survival inventory delta.
+- Presses resolve when they arrive and held repeats only on frames that simulate a tick,
+  both before the frame's physics and from the last completed tick's end state, so the next
+  tick's movement collides with a placed block. Incomplete: a frame
+  that simulates two ticks resolves build actions only before the first.
 - Deterministic gameplay and wire tests cover ledges, jump bridging, towering,
   backward sneak bridging, failed attempts and refused transport.
+- Provisional: slot or item changes preserve the held placement line and repeat
+  schedule. Native slot-change callbacks and their effect on retained history,
+  orientation and timing remain unverified; this does not close the hotbar-switch gate.
 - Incomplete: complete runtime block-property and custom block-placer admission,
   item-specific replacement/state rules and live vanilla/server acceptance remain open. No
   complete placement parity or performance gate is closed by these tests.
@@ -109,6 +116,11 @@
 
 ## Frame attribution and unchanged GPU uploads
 
+- Idle native metadata publication no longer dispatches through the main thread.
+  macOS frame workers use interactive scheduling; bounded-load diagnostics show
+  more render-work headroom. Unloaded tail results remain adverse and unexplained:
+  the hitch and 120 Hz display gates remain incomplete. See
+  [frame-pacing evidence](docs/evidence/zeqa-frame-pacing.md).
 - Opt-in Tracy spans cover Bevy and owned streaming/render work; Metal pass
   durations are delayed plots. macOS zones alone cannot separate preemption from waits.
 - Per-packet ingress admission preserves queued events when consumer fan-out fills
@@ -119,14 +131,32 @@
 - Unchanged hand and cloud uniforms, inactive portals and empty item scenes skip
   redundant staging work. Regression tests assert allocations, writes and retained
   buffers; hardware captures measure elapsed time separately.
-- Incomplete: the large synthetic local terrain fixture is a diagnostic workload,
-  not vanilla terrain generation or the populated-lobby/flight release replay.
-  Hidden-window measurements do not establish displayed FPS. Shared-pass GPU
-  categories, exact per-item costs and complete long-stall attribution remain open.
-  Earlier captures reach 87 ms; later Tracy captures reproduce 100–187 ms stalls
-  with waiting observed at main/render handoff. Exact CPU/wait time and a short
-  native GPU regression remain unresolved. See [frame breakdown evidence](docs/evidence/frame-breakdown.md)
-  and [Tracy attribution](docs/evidence/frame-breakdown-tracy.md).
+- Actor publication retains native skin pixels and unchanged GPU artwork. Bounded worker
+  batches prepare custom models while replacements retain the last complete profile.
+  Prepared meshes retain validation and vertex fingerprints across catalog publication.
+  Deterministic tests cover admission, reuse, stale completions and indexed lookup work;
+  see [actor burst evidence](docs/evidence/actor-burst-preparation.md).
+- Incomplete actor-join acceptance: readiness-gated first appearance remains provisional.
+  Models exceeding the preparation mesh budget use the default rig until their source
+  changes or the session resets; exact appearance under that limit remains an open gate.
+  First GPU uploads, pipeline compilation, UI publication and exact page comparisons
+  remain cold costs. Synthetic crowds and headless screenshots do not
+  establish native first-appearance timing, join latency, no-pop-in acceptance or release
+  frame budgets; those gates remain open.
+- Recurring hand, UI viewport and particle writes share bounded retained GPU
+  staging. Allocation regressions cover real Metal owners; lifecycle and byte-order
+  tests cover asynchronous reuse and fallback. Attach-only native samples confirm
+  staging-allocation mutex contention, drawable waits and scheduler delays.
+- Incomplete: the synthetic fixed-camera fixture is not the populated-lobby/flight
+  release replay; hidden frames do not establish displayed FPS. Three paired runs
+  at each resolution reduce measured maxima but do not consistently improve p99.
+  A separate pooled-upload run still exceeds 100 ms with no staging fallback.
+  Drawable/present dependencies, remaining lock owners, retirement costs and
+  complete long-stall attribution remain open. Shared-pass GPU categories, exact
+  per-item costs and native GPU regression validation also remain unqualified.
+  See [pooled-upload evidence](docs/evidence/render-stall-pooling.md),
+  [frame breakdown evidence](docs/evidence/frame-breakdown.md) and
+  [Tracy attribution](docs/evidence/frame-breakdown-tracy.md).
 
 ## Camera packets and aim assist
 
@@ -143,7 +173,11 @@
   historical remote geometry during catch-up, and fire-resistance lava fog remain
   owner limitations. Legacy education photography output is unsupported. Packaged
   boom/shake/collision defaults and highlight sampler need pinned-version witnesses.
-  Existing gameplay FOV magnitude approximations remain separate incomplete work.
+  The gameplay FOV multiplier follows vanilla (speed ratio, slowness, flying, bow,
+  spyglass); the swim-speed factor and underwater narrowing remain incomplete.
+  Gameplay angles provisionally apply the [5, 130] bound after effects, preserving
+  authored camera overrides. Incomplete: the exact-version final-angle rule and
+  live post-death distortion acceptance are unverified.
   Finite block sampling is bounded to 4,096 rays. None closes a full parity gate.
 - Touched-crate checks and directly affected regressions pass. A headless macOS
   local-server run at 1280×720 captured named/inline splines, local-body visibility,
@@ -446,6 +480,14 @@
   submitting what it hides.
 - Incomplete live visual acceptance: an in-game pass on the M3 Pro (no pop-in, no wrongly
   hidden terrain) and live `gpu_opaque` and render CPU stage captures are pending.
+
+## Bounded lighting CPU work
+
+- Retained-support early exits and section packing preserve light/provenance output;
+  [remote CPU evidence](docs/evidence/lighting-cpu-work.md) records workload, allocation
+  and queue measurements alongside independent regression oracles.
+- Incomplete: these synthetic solver diagnostics do not close native vanilla parity,
+  release frame, join or streaming gates; target-hardware captures remain required.
 
 ## Headless chunk cost baselines
 
@@ -1750,7 +1792,7 @@ not established by the pack binding names. See the settings audit below.
   world-edit/Experiments, Party, several account/help submenus, reset flows and
   hardware/flight-dependent controls remain incomplete.
 - Numeric defaults/ranges are provisional unless a source explicitly states them.
-  The pack confirms chat notification 10s and toast notification 3s defaults. Mouse sensitivity (default 0.5 over 0..1) and its look curve match the current client. Other vanilla option defaults remain unconfirmed. FOV, gamma, controller/touch sensitivities, FPS limits and added boolean defaults therefore
+  The pack confirms chat notification 10s and toast notification 3s defaults. Mouse sensitivity (default 0.5 over 0..1) and its look curve match the current client, as does field of view (default 60, range 30..110). Other vanilla option defaults remain unconfirmed. Gamma, controller/touch sensitivities, FPS limits and added boolean defaults therefore
   require further current-client evidence; they must not be described as vanilla.
 - Offline carrier gallery, geometry and option-family tests provide local evidence,
   not a retail visual acceptance. Focus/hover/pressed, scrolling, all modal flows,
@@ -4926,6 +4968,11 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
   Glide travel, firework glide boosts (replayed from their stamped tick), glide start/stop and
   the seven-tick flight double-tap follow the identified vanilla systems; the held-jump glide
   lift gated by an unidentified movement ability and geyser boosts remain incomplete.
+  Water and lava travel read the underwater and lava movement attributes, and a swimmer's
+  dolphin boost scales speed and drag as vanilla does; riptide launches remain unimplemented.
+  Incomplete safety bound (a known divergence; vanilla is unbounded): Depth Strider's water-speed
+  blend target is clamped so the steady water velocity stays inside the simulator's block-sampling
+  budget. Land movement speed is not clamped.
   Honey jump/slide, soul speed and depth
   strider coefficients are provisional (honey and soul speed have no public value). Riding
   suspends player physics and streams steering input with boat paddle flags; rider seat
@@ -5715,6 +5762,12 @@ no longer needs RUST_MCBE_TELEPORT_ACK; that opt-in still enables unverified ext
 - Production remote execution must remain unavailable until restricted helpers,
   compiler limits and media decoding pass independent cross-platform validation.
 - See `docs/server-experiences.md` for the client implementation and remaining gates.
+- Provisional, labeled incomplete: server WIT 0.4 focus snapshots stop counting when the
+  player is farther than `provisionalFocusRange` (`tools/localserver/experience/limits.go`,
+  Dragonfly's survival block reach). Vanilla closes a block container screen beyond the
+  player's pick range (per input mode, survival or creative), measured squared from the
+  player's eyes to the block centre; the range constants are not yet known. Replace the
+  constant with those values, per game mode, once they are known.
 
 - Implemented client preview: admitted marker, signed session challenge, scoped trust
   JSON-UI, HTTPS/hash cache, bounded ordered ScriptMessage records, versioned WIT,
@@ -6248,7 +6301,33 @@ hands, matching the existing world equipment fallback. Inventory banners retain 
 colored model icon. Exact native 3D held-banner geometry and patterns remain incomplete;
 the fallback availability regression is fixed, but it does not close that parity gate.
 
-### Crosshair preferences
+## Image clarity and multisampling
+
+Desktop rendering removes FXAA and defaults to two MSAA coverage samples when supported,
+matching the inspected Windows raster setting. Retail, mobile and console defaults remain
+unverified. Video's Anti-Aliasing slider exposes only supported sample counts.
+Terrain uses point-filtered texels, linear mip interpolation and byte-space atlas mips.
+See [the Vanilla rules](docs/reference/rendering.md) for established behavior and evidence
+limits. These changes do not close the cross-platform rendering parity gate.
+
+Opaque, cutout, transparent, sky, world text and hand geometry now retain their original color
+samples in one shared attachment. Compatible views preserve encoded blending without scene
+copies. The last ordinary hand-rig draw resolves and discards the samples; an end-of-main-pass
+resolve covers views without that draw. Shadows use per-sample depth and an overlap stencil,
+and Hi-Z directly reduces the original depth samples. Single-sample post consumers resolve
+only when needed. Real GPU coverage fixtures distinguish this path from resolved-color
+reconstruction, including partially covered silhouettes and overlapping shadows.
+
+Enhanced remains disabled by its existing GPU-fault kill switch. Its MSAA attachment and
+post-chain changes receive compile and shader checks only; no live Enhanced acceptance is
+claimed, and this work does not remove that switch.
+
+Matched native screenshots, material-specific actor/item mip policies, custom-pack mip-level
+limits, console/mobile defaults and texel anti-aliasing remain unverified. Mac headless
+captures and focused GPU tests cannot qualify Intel-integrated performance, other native
+platforms, release streaming or hitch budgets. Those acceptance gates remain open.
+
+## Crosshair preferences
 
 Video settings expose Third Person Crosshair (off by default) and Invert
 Crosshair Colors (on by default). Both persist and reset with Video settings.
@@ -6279,13 +6358,189 @@ does not close the broader native body-motion or live visual parity gate. See
 
 ## Server pack compatibility
 
-Galaxite's full-block geometry, large actor models, custom hotbar/held items and
-source-pixel form borders render in a 1920×1080, DPI 1 macOS/Metal hidden-client pass. Item registries retain
-numeric aliases and populated definitions accompanying empty declarations.
+Galaxite's full-block geometry, composite Battle Pass models, translucent podium
+glows, state-filtered path borders, correctly lit benches, custom hotbar/held items
+and source-pixel form borders render in a 1920×1080, DPI 1 macOS/Metal hidden-client
+pass. Custom geometry preserves explicit absorption and its legacy type-light flag.
+Item registries retain numeric aliases and populated definitions accompanying empty declarations.
 Zeqa equipment sources and dynamic UI textures retain bounded native dimensions;
 rejected UI publications preserve the previous catalog and retry pending artwork.
 
 Incomplete: merging multiple different populated component definitions, unrestricted
-pack-size parity, exact native frame comparisons and release hardware budgets remain
-open. Two terrain texture keys absent from the served Galaxite stack still report
-diagnostic textures; this compatibility work does not close those parity gates.
+pack-size parity, ordinary actor endpoint lighting, exact native frame comparisons
+and release hardware budgets remain open. Two terrain texture keys absent from the
+served Galaxite stack still report diagnostic textures; this compatibility work does not close those parity gates.
+
+Follow-up compatibility covers client-authoritative inventory opening and transfers,
+authored entity visibility bounds, filtered HUD control messages, and multipart
+custom-block collision admission. Collision lists retain at most 256
+primitives. Per-state collision and selection overrides now resolve once at session
+admission and register in both network-ID spaces. Captured bottom/top slab fixtures
+match their authored geometry heights and retain stationary support for 100 ticks.
+Arbitrary collision transformations remain incomplete. The definition tree
+coalesces Float and Double tags, so exact rejection of Double-only collision fields
+remains incomplete. Unbound looping effects now stop emission after their first
+active/sleep cycle and let existing particles drain; bound effects can restart
+until their owner disappears. The actual captured gem effect passes this lifecycle
+regression. A 1920×1080 macOS/Metal replay of one unbound gem packet shows three
+gems at 0.267 seconds and none at 3 seconds. The live lobby sequence and apparent
+slab/stair hovering still require emitter and support-position evidence. None of these reports is cleared by the earlier lobby
+render pass.
+
+Client-authoritative inventory follow-up: ordinary moves, splits, swaps, quick
+moves and drops use normal old/new-descriptor transactions; successful transport
+commits local cells and later authoritative Slot/Content updates correct them.
+A 1280×720, DPI 1 macOS/Metal loopback pass opens personal inventory four times
+and chests twice. Its independent server validates old descriptors and item
+conservation before accepting six normal take/swap/place transactions, with no
+sparse requests or rejections. Reopened screens retain the final server cells
+and an empty cursor. Public-server game acceptance remains separate.
+Incomplete: legacy crafting/creative actions, semantic merging of nonplain item
+user data, arbitrary open-window normal-transaction corrections, and a separate
+native client-mode Open/Close acknowledgement contract remain unimplemented or
+unverified. These changes do not close general inventory parity or the live
+server acceptance gate.
+
+Server audio follow-up registers definitions without a total decoded-pack cutoff
+and decodes selected files on demand with a bounded cache and persistent worker
+pool. Waveform-only replacements remain available. Incomplete: true incremental
+streaming, unsupported audio codecs, unrestricted pack-size parity and matched
+live Galaxite playback timing remain open; mixer tests alone do not close those
+parity gates.
+
+HUD trigger follow-up preserves raw messages for server factories while applying
+authored visibility to ordinary chat, title and action-bar controls. Aseprite
+sidecars retain their frame coordinates and durations independently of image
+residency. Offline 1280×720, DPI 1 published frames cover Galaxite static,
+jumpscare and lighting effects, including changing noise frames, authored loop
+durations and mapping source coordinates into resized atlas placements.
+Incomplete: exhaustive authored effect variants, matched live game-mode sequencing
+and hardware frame budgets remain open.
+
+Live follow-up confirms custom sound playback. The latest user test reports the
+earlier actor, HUD, collision and inventory bugs fixed, including the actual
+Galaxite death animation. Matched native pixel comparisons remain separate.
+
+HUD compatibility now retains the native nested title/subtitle override paths,
+answers empty title strings during blank frames, and schedules a pending authored
+visibility transition even when controller input is unchanged. A valid cached
+MineVille pack fixture publishes one unclipped top-center tutorial panel, preserves
+it across unrelated titles, and draws no raw markers or secondary note/minimap
+labels. Settled unchanged HUD frames remain cached. The exact cached MegaSMP UI
+revision now retains its first document's partial output after a syntax error,
+matching vanilla's resource merge behavior. Unread controls remain absent, later
+malformed overlays are skipped, and trailing commas still report errors. The
+unmodified pack fixture changes from a missing tutorial to one retained panel;
+six document regressions cover first, later, null and independent-path reads.
+A 1920×1080 macOS/Metal client replay renders the colored tutorial at top center
+and retains it through a later title. Matched live gameplay comparisons remain
+incomplete.
+
+The exact admitted Hive overlay now gives each title creation fresh binding
+state, while unrelated and nested retained controls keep their saved values.
+Completed-group visibility expressions preserve their following conditions.
+The original pack's offline replay switches between one authored modal and one
+ordinary title, then repeats and clears the modal without stale labels. The
+MegaSMP tutorial remains retained through those lifecycle changes. A 1920×1080,
+DPI 1 macOS/Metal loopback replay of the unchanged admitted Hive UI renders one
+legible purple death header with its shadow and one body line, with no oversized
+fallback or stale labels. Repeating the title preserves that result; clearing it
+removes the panel, and ordinary titles still render once. Geometry, clipping,
+layering and colors were inspected in fresh frames. Required touched-crate checks
+and the canonical developer-control build pass. Public-match title sequencing and
+matched-version pixel comparisons remain open.
+
+Server-selected animation follow-up retains named clips that an entity does not
+alias, binds shared channels by model bone name, and preserves packet transition,
+stop expression/version and outgoing blend fields. Domain regressions cover
+starting the pose, finished-query timing, timed stop blending and local actor
+selection. Existing actor animation clocks and poses remain green. The offline
+Battle Pass camera-edge witness changes from no draw with default bounds to a
+visible draw with authored bounds at the same camera; Entity close-up bounds also
+retain the draw with its origin behind the camera.
+Rendered offline Entity fixtures now cover the server-selected death motion,
+close camera orbits, and moving spawn/despawn poses with the actual pack geometry
+and materials. The first-person jumpscare exposed a separate late-activation
+clock error; direct players now pause and resume applied time independently of
+owner age, with render-delta regressions. Held root placement also preserves the
+owner actor frame for unbound roots and the matching owner matrix for named roots.
+A fresh 1920×1080 macOS/Metal replay shows the actual jumpscare rising at screen
+center, changing pose, approaching the camera and lowering at its authored endpoint.
+Arbitrary expression parents, independent bindings on parented bones,
+independent instances of a shared clip, default controller-player pause,
+version-specific Molang grammar differences and matched live sequencing remain
+incomplete. The user reports the earlier live rendering bugs fixed. A fresh
+1920×1080, DPI 1 Metal replay also retains the Entity across two enclosed rooms
+and close oblique views through a 145-frame camera crossing. The latest live
+test reopened angle-dependent Entity visibility: the small-room witness did not
+cover a crowded map's actor admission. The crowded replay below covers that
+separate failure; broader animation contracts remain incomplete.
+
+The standard world camera now uses vanilla's 0.025-block near plane, shared with
+first-person rendering and boom clearance. The former renderer default of 0.1
+clipped nearby geometry and let sprint-FOV near-plane corners cross a wall even
+when the player collision box stayed outside it. Two presentation spawn
+regressions fail before the correction: a wall at collision clearance intersects
+the near rectangle, and geometry 0.05 blocks ahead is clipped. Setting the
+perspective distance also updates its explicit clip plane; all 188 camera tests
+pass. The static hand fallback uses the same near distance, with its reverse-Z
+regression failing before the change and passing afterward. Fresh 1920×1080,
+DPI 1 Metal before/after frames reproduce the wall hole with the former near
+plane, then retain continuous wall geometry throughout a 93-frame contact run.
+The same replay reproduces post-death radial distortion through the gameplay FOV
+modifier before the angle correction; afterward its perspective stays bounded.
+The user confirms the actual post-death distortion is fixed. The exact-version
+final-angle reference gap remains open separately from these functional results.
+
+Server packs now choose a device-compatible authored subpack when the server
+leaves its selection blank or selects an unsupported option. Legacy manifest
+memory requirements convert to performance tiers before selection; supported
+explicit choices and explicit global root selections stay intact. The actual
+Fonts archive now admits its detailed U+E141 Orebits glyph page on this device
+instead of the Lite dot. The former conversion and server admission both have
+failing-before regressions; all 52 resource-pack unit tests and its integration
+test pass. Fresh 1920×1080, DPI 1 Metal sidebar frames replace the Lite dot with
+the detailed purple coin, with readable text and unchanged sidebar placement.
+The tutorial stays legible at top center through a later title. Matched-version
+pixel comparison remains open. The user reports the remaining live bugs fixed
+after testing the rebuilt client.
+
+The live angle-dependent Entity disappearance has a separate actor admission
+cause. A 151-actor Metal scene retains the focal actor in authority and inside
+both camera frusta, but turning admits more map actors and drops its draw at the
+former player-body limit. Resource-pack artwork now uses the shared render arenas
+independently of player texture residency; shared skins stay usable when distinct
+skin residency fills, and invisible routes do not reserve a skin. Six admission
+and overflow regressions fail before the change and pass afterward. The existing
+fixed instance, pose and distinct-skin resource policies remain incomplete
+relative to dynamic actor collection. A fresh 1920×1080, DPI 1 Metal replay keeps
+all 151 qualifying actors and the focal Entity across the crowded camera turn,
+where the before frame admitted only 128 and lost the focal draw. Authored
+geometry, material, pose and bounds remain unchanged. Both endpoint frames and
+the intervening camera-crossing recording were inspected; the user also reports
+the remaining live rendering bugs fixed.
+
+The rejected Hive menu is a well-formed button collection above the former menu
+limit. Packet-bounded menus now retain every label, image and response index;
+custom-form and NPC bounds retain their separate contracts. Engine factory and
+node budgets reject a whole form instead of publishing a shorter button list.
+Rejected binding attempts retain their input identity until model, components or
+catalog changes. Protocol, full-hierarchy and final-button response regressions
+pass. A fresh 1920×1080, DPI 1, GUI scale 2 Metal replay renders the complete
+300-button menu, scrolls to button 299 and submits index 299 to an independent
+loopback server. The response closes the form; labels, images and hover feedback
+remain legible. The user reports the remaining live UI bugs fixed. Larger
+hierarchy admission remains an incomplete implementation resource policy.
+
+Zeqa's ordinary title patches inherited the built-in HUD's extra text scaling.
+The first authored ordinary-title override now inherits the vanilla definition;
+custom title factories and later server edits retain their priority. Layout,
+layer-order and indexed-document regressions pass, including the reproduced
+title/subtitle overlap. Exact admitted Hive and retained tutorial baselines are
+checked separately. Fresh 1920×1080, DPI 1, GUI scale 2 Metal frames of Zeqa's
+unchanged admitted pack show its title at twice the subtitle height with a clear
+vertical gap. The original Hive ordinary/death/repeat/clear sequence still renders
+one authored panel, and the MegaSMP tutorial remains retained with its detailed
+Orebits glyph. The user confirms the rebuilt client looks correct. Required
+touched-crate checks and the canonical developer-control build pass; release
+hardware budgets and matched-version pixel comparison remain incomplete.

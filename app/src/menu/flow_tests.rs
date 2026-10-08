@@ -141,20 +141,87 @@ fn add_server_focus_skips_disabled_actions_and_tracks_the_footer_order() {
     );
 }
 
-// A new device code opens the pre-filled sign-in page once; repeats of that code do not.
 #[test]
-fn sign_in_page_opens_once_per_device_code() {
-    let mut menu = MenuRuntime::new(true, 2, "Steve".to_owned());
-    let awaiting = |code: &str| super::AuthState::AwaitingCode {
-        uri: "https://www.microsoft.com/link".to_owned(),
-        code: code.to_owned(),
-    };
-    menu.control_auth = Some(awaiting("JS6SVMLR"));
-    menu.open_sign_in_page();
-    assert_eq!(menu.sign_in_page_code.as_deref(), Some("JS6SVMLR"));
-    menu.control_auth = Some(awaiting("NEWCODE1"));
-    menu.open_sign_in_page();
-    assert_eq!(menu.sign_in_page_code.as_deref(), Some("NEWCODE1"));
+fn device_code_focus_starts_on_open_link_and_error_focus_starts_on_retry() {
+    let mut menu = MenuRuntime::new(true, 2, "Offline Player".into());
+    for mode in [
+        super::input::MenuInputMode::Keyboard,
+        super::input::MenuInputMode::Gamepad,
+    ] {
+        menu.input_mode = mode;
+        for screen in [MenuScreen::Home, MenuScreen::Settings, MenuScreen::Store] {
+            menu.screen = screen;
+            menu.settings_focus = vec![MenuAction::Navigate(MenuScreen::Home)];
+            let bounds = ui::UiRect::new(
+                ui::UiPoint::new(0.0, 0.0).unwrap(),
+                ui::UiPoint::new(100.0, 100.0).unwrap(),
+            )
+            .unwrap();
+            menu.refresh_settings_focus_geometry(
+                &[],
+                &[launcher::menu::view::SettingsFocusLandmark {
+                    id: 0,
+                    parent: None,
+                    bounds,
+                    scroll_axis: None,
+                    delegate: None,
+                    delegate_landmark: None,
+                    remember: false,
+                    trap: false,
+                    focus_control_disabled: false,
+                }],
+            );
+            for dialog in [None, Some(super::MenuDialog::Accounts)] {
+                menu.dialog = dialog;
+                menu.feeds.account_adding = dialog.is_some();
+                menu.sign_in_requested = true;
+                menu.control_auth = Some(super::AuthState::Checking);
+                assert_eq!(menu.focus_actions(), vec![MenuAction::CancelSignIn]);
+                menu.control_auth = Some(super::AuthState::AwaitingCode {
+                    uri: "https://example.invalid".into(),
+                    code: "TEST-CODE".into(),
+                });
+                assert_eq!(menu.view().focused_action, Some(MenuAction::OpenSignInLink));
+                assert!(menu.view().navigation_focus_visible);
+                assert_eq!(
+                    menu.view().gamepad_input,
+                    matches!(mode, super::input::MenuInputMode::Gamepad)
+                );
+                menu.move_directional_focus(launcher::menu::view::SettingsFocusAxis::Vertical, 1);
+                assert_eq!(menu.view().focused_action, Some(MenuAction::CancelSignIn));
+                menu.move_directional_focus(launcher::menu::view::SettingsFocusAxis::Vertical, -1);
+                menu.control_auth = Some(super::AuthState::Failed(
+                    "Your sign-in code expired. Try again.".into(),
+                ));
+                assert_eq!(menu.view().focused_action, Some(MenuAction::StartSignIn));
+            }
+        }
+    }
+}
+
+#[test]
+fn disconnect_controls_keep_focus_over_a_pending_sign_in() {
+    let mut menu = MenuRuntime::new(true, 2, "Offline Player".into());
+    menu.control_auth = Some(super::AuthState::AwaitingCode {
+        uri: "https://example.invalid".into(),
+        code: "TEST-CODE".into(),
+    });
+    menu.disconnect_message = Some("Offline error".into());
+    assert!(!menu.focus_actions().contains(&MenuAction::OpenSignInLink));
+    assert!(!menu.view().sign_in_prompt_open());
+}
+
+#[test]
+fn back_cancels_the_device_prompt_before_screen_navigation() {
+    let mut menu = MenuRuntime::new(true, 2, "Offline Player".into());
+    menu.control_auth = Some(super::AuthState::AwaitingCode {
+        uri: "https://example.invalid".into(),
+        code: "TEST-CODE".into(),
+    });
+    menu.go_back();
+    assert_eq!(menu.view().auth_state, super::AuthState::SignedOut);
+    assert_eq!(menu.screen(), MenuScreen::Home);
+    assert!(!menu.auth_restart_requested);
 }
 
 const KICK: &str =

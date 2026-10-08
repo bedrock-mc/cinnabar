@@ -5,6 +5,7 @@ use super::*;
 #[derive(Debug)]
 pub(super) struct UiAnimationState {
     controllers: Vec<ControllerState>,
+    pub(super) server_animations: Vec<server_animation::Controller>,
     clip_clocks: clock::ClipClocks,
     variables: MolangVariables,
     initialized: bool,
@@ -15,6 +16,7 @@ impl UiAnimationState {
     /// Lends the HUD's script state to the shared evaluator, preserving the world state.
     fn swap_with(&mut self, state: &mut ActorRigState) {
         std::mem::swap(&mut self.controllers, &mut state.controllers);
+        std::mem::swap(&mut self.server_animations, &mut state.server_animations);
         std::mem::swap(&mut self.clip_clocks, &mut state.clip_clocks);
         std::mem::swap(&mut self.variables, &mut state.variables);
         std::mem::swap(&mut self.initialized, &mut state.initialized);
@@ -47,6 +49,7 @@ pub(super) fn evaluate(
     let initialize_replay = replay_context.is_some();
     let mut ui = existing.unwrap_or_else(|| UiAnimationState {
         controllers: state.controllers.clone(),
+        server_animations: state.server_animations.clone(),
         clip_clocks: original
             .map_or(&state.clip_clocks, |replay| &replay.clocks)
             .clone(),

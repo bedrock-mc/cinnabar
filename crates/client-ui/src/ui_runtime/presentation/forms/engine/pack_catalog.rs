@@ -2,6 +2,7 @@ use super::hud_renderers;
 use json_ui::Catalog;
 
 mod chat;
+mod titles;
 
 #[cfg(test)]
 mod tests;
@@ -13,7 +14,12 @@ pub(in crate::ui_runtime::presentation::forms) fn layer_pack_catalog(
 ) -> Catalog {
     let builtin = hud_renderers::with_java_hud(base);
     let mut catalog = builtin.clone();
+    let mut native_titles = false;
     for files in layers {
+        if !native_titles && titles::authored(&catalog, files) {
+            titles::restore(&mut catalog, base);
+            native_titles = true;
+        }
         catalog.apply_pack(
             files
                 .iter()

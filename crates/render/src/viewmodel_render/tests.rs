@@ -137,7 +137,7 @@ fn neutral_shader_validates_and_has_private_projection_abi() {
 
 #[test]
 fn hand_attachment_specialization_matches_hdr_and_msaa_without_world_depth() {
-    for samples in [1, 4] {
+    for samples in [1, 2, 4, 8] {
         for hdr in [false, true] {
             let pipeline = specialized_hand_pipeline(hand_layout(), samples, hdr);
             assert_eq!(pipeline.multisample.count, samples);
@@ -377,9 +377,17 @@ fn both_actual_plugin_orders_install_one_hand_and_one_hud_node() {
         app.insert_resource(Assets::<Shader>::default())
             .insert_sub_app(RenderApp, render_app);
         if hand_first {
-            app.add_plugins((ViewmodelRenderPlugin, crate::ui_render::UiRenderPlugin));
+            app.add_plugins((
+                ViewmodelRenderPlugin,
+                crate::HandRigRenderPlugin,
+                crate::ui_render::UiRenderPlugin,
+            ));
         } else {
-            app.add_plugins((crate::ui_render::UiRenderPlugin, ViewmodelRenderPlugin));
+            app.add_plugins((
+                crate::ui_render::UiRenderPlugin,
+                crate::HandRigRenderPlugin,
+                ViewmodelRenderPlugin,
+            ));
         }
         app.finish();
         install_hand_graph(app.sub_app_mut(RenderApp).world_mut());
@@ -397,6 +405,15 @@ fn both_actual_plugin_orders_install_one_hand_and_one_hud_node() {
         );
         let hand = graph.get_node_state(HandLabel).unwrap();
         assert_eq!(hand.edges.input_edges().len(), 1);
-        assert_eq!(hand.edges.output_edges().len(), 1);
+        assert_eq!(hand.edges.output_edges().len(), 2);
+        let rig = graph
+            .get_node_state(crate::hand_rig_render::HandRigLabel)
+            .unwrap();
+        assert!(
+            hand.edges
+                .output_edges()
+                .iter()
+                .any(|edge| edge.get_input_node() == rig.label)
+        );
     }
 }

@@ -40,10 +40,12 @@ pub enum Action {
     UiTabPrevious,
     PlayerList,
     Freelook,
+    /// Vanilla's "Open Notification": opens what the showing toast offers.
+    InteractWithToast,
 }
 
 impl Action {
-    pub const COUNT: usize = 37;
+    pub const COUNT: usize = 38;
 
     pub(crate) const ALL: [Self; Self::COUNT] = [
         Self::MoveForward,
@@ -83,6 +85,7 @@ impl Action {
         Self::UiTabPrevious,
         Self::PlayerList,
         Self::Freelook,
+        Self::InteractWithToast,
     ];
 
     pub(crate) const fn is_ui_preview(self) -> bool {
@@ -105,6 +108,7 @@ impl Action {
         matches!(
             self,
             Self::CyclePerspective
+                | Self::InteractWithToast
                 | Self::Menu
                 | Self::Back
                 | Self::Hotbar1

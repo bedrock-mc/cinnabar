@@ -20,6 +20,8 @@ pub struct OcclusionBasis {
     /// Origin and size inside the depth target; resizing changes which pixels the depth covers.
     pub viewport: [u32; 4],
     pub depth_size: [u32; 2],
+    /// A changed coverage pattern voids verdicts computed from the old depth samples.
+    pub depth_samples: u32,
     /// Bumped whenever resident geometry may have uncovered something.
     pub world: u64,
 }

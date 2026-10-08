@@ -20,7 +20,7 @@ use bevy::{
 };
 
 use super::GpuTimestamps;
-use crate::RuntimeStage;
+use crate::{RuntimeStage, scene_target::SceneTarget};
 
 #[cfg(test)]
 mod tests;
@@ -44,13 +44,18 @@ pub(super) fn replacement(world: &mut World) -> Option<Box<dyn Node>> {
     {
         return None;
     }
-    Some(Box::new(ViewNodeRunner::new(OpaqueCategoryNode, world)))
+    let scene = crate::scene_target::opaque_pass(world);
+    Some(Box::new(ViewNodeRunner::new(
+        OpaqueCategoryNode { scene },
+        world,
+    )))
 }
 
-/// Leaves any opaque node installed by another renderer unchanged.
-pub(super) fn replaceable(node: &dyn Node) -> bool {
+/// Leaves other renderers' opaque nodes unchanged; only category splitting also owns the scene pass.
+pub(super) fn replaceable(node: &dyn Node, categories: bool) -> bool {
     node.downcast_ref::<ViewNodeRunner<MainOpaquePass3dNode>>()
         .is_some()
+        || (categories && crate::scene_target::is_opaque_pass(node))
 }
 
 /// Mesh, alpha-mask and skybox phases retain Bevy's complete original implementation.
@@ -116,16 +121,26 @@ fn draw_bins<'w>(
     Ok(())
 }
 
-struct OpaqueCategoryNode;
+struct OpaqueCategoryNode {
+    /// Draws unsplittable phases when the view renders into shared scene samples.
+    scene: Box<dyn Node>,
+}
 
 impl ViewNode for OpaqueCategoryNode {
-    type ViewQuery = <MainOpaquePass3dNode as ViewNode>::ViewQuery;
+    type ViewQuery = (
+        <MainOpaquePass3dNode as ViewNode>::ViewQuery,
+        Option<&'static SceneTarget>,
+    );
+
+    fn update(&mut self, world: &mut World) {
+        self.scene.update(world);
+    }
 
     fn run<'w>(
         &self,
         graph: &mut RenderGraphContext,
         context: &mut RenderContext<'w>,
-        view: QueryItem<'w, '_, Self::ViewQuery>,
+        (view, scene): QueryItem<'w, '_, Self::ViewQuery>,
         world: &'w World,
     ) -> Result<(), NodeRunError> {
         let (camera, extracted, target, depth, sky_pipeline, sky_group, _, resolution_override) =
@@ -134,11 +149,13 @@ impl ViewNode for OpaqueCategoryNode {
         let alpha = world.get_resource::<ViewBinnedRenderPhases<AlphaMask3d>>();
         let phases = phases.and_then(|phases| phases.get(&extracted.retained_view_entity));
         let alpha = alpha.and_then(|phases| phases.get(&extracted.retained_view_entity));
+        // The shared scene pass never draws a skybox.
+        let sky = scene.is_none() && (sky_pipeline.is_some() || sky_group.is_some());
         let (Some(phase), Some(alpha)) = (phases, alpha) else {
-            return super::opaque::OpaqueTimingNode.run(graph, context, view, world);
+            return self.fallback(graph, context, view, scene, world);
         };
-        if !admitted(phase, alpha, sky_pipeline.is_some() || sky_group.is_some()) {
-            return super::opaque::OpaqueTimingNode.run(graph, context, view, world);
+        if !admitted(phase, alpha, sky) {
+            return self.fallback(graph, context, view, scene, world);
         }
         let functions = world.resource::<DrawFunctions<Opaque3d>>();
         let groups = {
@@ -149,7 +166,10 @@ impl ViewNode for OpaqueCategoryNode {
         };
         let view_entity = graph.view_entity();
         // Claim clear ownership before later graph nodes request these attachments.
-        let mut color = target.get_color_attachment();
+        let mut color = scene.map_or_else(
+            || target.get_color_attachment(),
+            |scene| scene.color_attachment(target, false),
+        );
         let mut depth = depth.get_attachment(StoreOp::Store);
         context.add_command_buffer_generation_task(move |device| {
             let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
@@ -196,5 +216,22 @@ impl ViewNode for OpaqueCategoryNode {
             encoder.finish()
         });
         Ok(())
+    }
+}
+
+impl OpaqueCategoryNode {
+    /// Runs the view's ordinary opaque pass in one timed render pass.
+    fn fallback<'w>(
+        &self,
+        graph: &mut RenderGraphContext,
+        context: &mut RenderContext<'w>,
+        view: QueryItem<'w, '_, <MainOpaquePass3dNode as ViewNode>::ViewQuery>,
+        scene: Option<&SceneTarget>,
+        world: &'w World,
+    ) -> Result<(), NodeRunError> {
+        if scene.is_some() {
+            return self.scene.run(graph, context, world);
+        }
+        super::opaque::OpaqueTimingNode.run(graph, context, view, world)
     }
 }

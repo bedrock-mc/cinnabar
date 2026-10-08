@@ -249,6 +249,46 @@ mod tests {
         (path.into(), text.as_bytes().to_vec())
     }
 
+    #[test]
+    fn server_animation_without_entity_alias_keeps_its_named_bones() {
+        let geometry = json!({"format_version":"1.12.0","minecraft:geometry":[{
+            "description":{"identifier":"geometry.fixture"},
+            "bones":[{"name":"head"},{"name":"body"}]
+        }]});
+        let entity = json!({"format_version":"1.10.0","minecraft:client_entity":{
+            "description":{"identifier":"fixture:model",
+                "geometry":{"default":"geometry.fixture"}}
+        }});
+        let animation = json!({"format_version":"1.8.0","animations":{
+            "animation.fixture.server":{"animation_length":2.0,"bones":{
+                "body":{"position":[0,16,0]},"absent":{"rotation":[90,0,0]}
+            }}
+        }});
+        let compiled = compile_entity_pack(vec![
+            file("entity/fixture.json", &entity.to_string()),
+            file("models/entity/fixture.geo.json", &geometry.to_string()),
+            file("animations/fixture.json", &animation.to_string()),
+        ])
+        .unwrap()
+        .unwrap();
+        let runtime = assets::RuntimeEntityAssets::from_compiled(compiled.assets).unwrap();
+        let symbol = runtime
+            .symbols()
+            .iter()
+            .position(|symbol| symbol.identifier.as_ref() == "animation.fixture.server")
+            .unwrap() as u32;
+        let clip = runtime
+            .clip_for_geometry(symbol, 0)
+            .expect("the server may select an animation absent from the entity's aliases");
+        assert_eq!(
+            runtime.animation_clips()[clip as usize]
+                .length_seconds
+                .get(),
+            2.0
+        );
+        assert_eq!(runtime.animation_clips()[clip as usize].channel_count, 2);
+    }
+
     // Bad and out-of-family files are dropped and counted; nothing usable yields None.
     #[test]
     fn unusable_sources_are_skipped_and_counted() {

@@ -76,7 +76,8 @@ pub(super) struct FormCache {
     model: FormModel,
     components: json_ui::Components,
     catalog: Arc<Catalog>,
-    bound: ResolvedControl,
+    /// A rejected bind retains its input key without publishing a partial tree.
+    bound: Option<ResolvedControl>,
     laid: Option<LaidForm>,
     /// The screen's Escape target; flattening the screen per frame deep-clones pack controls.
     screen_cancel: Option<String>,
@@ -269,17 +270,14 @@ impl FormEngine {
         if !current {
             self.passes[0] += 1;
             let components = &view.components;
-            self.cache =
-                bind_form_over(model, &self.catalog, &self.context, components).map(|bound| {
-                    FormCache {
-                        components: components.clone(),
-                        model: model.clone(),
-                        catalog: Arc::clone(&self.catalog),
-                        bound,
-                        laid: None,
-                        screen_cancel: json_ui::form_screen_cancel(&self.catalog),
-                    }
-                });
+            self.cache = Some(FormCache {
+                components: components.clone(),
+                model: model.clone(),
+                catalog: Arc::clone(&self.catalog),
+                bound: bind_form_over(model, &self.catalog, &self.context, components),
+                laid: None,
+                screen_cancel: json_ui::form_screen_cancel(&self.catalog),
+            });
         }
         let px = inputs.metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
         let text = inputs.language;
@@ -313,9 +311,10 @@ impl FormEngine {
                         && laid.font == font
                 });
                 if !fresh {
+                    let bound = cache.bound.clone()?;
                     *passes += 1;
                     let measures = &mut Default::default();
-                    let render = render_bound_gated(cache.bound.clone(), root, env, view, measures);
+                    let render = render_bound_gated(bound, root, env, view, measures);
                     cache.laid = Some(LaidForm {
                         view: view.clone(),
                         root,
@@ -379,6 +378,23 @@ impl FormEngine {
         draw: impl FnOnce(&LayoutEnv, [f64; 2]) -> Option<R>,
     ) -> Result<Option<EngineFrame>, UiPresentationError> {
         render_with(self.art(), inputs, out, art, None, draw)
+    }
+
+    /// [`Self::draw`] over `textures` instead of the engine's own sources.
+    pub(super) fn draw_with<R: Borrow<FormRender>>(
+        &self,
+        textures: &TextureSet,
+        art: ScreenArt<'_>,
+        inputs: EngineInputs<'_>,
+        out: EngineOutput<'_>,
+        draw: impl FnOnce(&LayoutEnv, [f64; 2]) -> Option<R>,
+    ) -> Result<Option<EngineFrame>, UiPresentationError> {
+        let sources = Art {
+            assets: &self.assets,
+            set: textures,
+            animator: &self.animator,
+        };
+        render_with(sources, inputs, out, art, None, draw)
     }
 
     /// Render an allow-listed screen against `data` under `view`; `art` backs its custom renderers.
@@ -718,7 +734,11 @@ impl Painter<'_> {
             "gradient_renderer" => Some((self.gradient(data, &alpha)?, dest)),
             "animated_gif_renderer" => self.animated_gif(data, dest, &alpha),
             "profile_image_renderer" => {
-                let portrait = self.art.portrait?;
+                // A friend row names its own gamerpic; elsewhere it is the player's.
+                let portrait = match data.get("#profile_image_options") {
+                    Some(serde_json::Value::String(path)) => *self.art.images?.get(path)?,
+                    _ => self.art.portrait?,
+                };
                 Some((
                     UiVisual::Sprite {
                         texture_page: portrait.page,

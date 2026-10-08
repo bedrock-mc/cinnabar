@@ -1,4 +1,6 @@
+use super::EquipmentRuntime;
 use bevy::prelude::{PerspectiveProjection, Projection, Transform, Vec3};
+use std::sync::Arc;
 
 /// Every actor the renderer can draw is animated: the guard-banded view admits a superset.
 #[test]
@@ -360,10 +362,8 @@ fn local_jump_body_tracks_camera_render_sample_in_both_third_person_views() {
     }
 }
 
-/// A server pack's glint replaces the startup glint for the session; disconnect restores it.
-#[test]
-fn session_pack_glint_replaces_the_startup_glint_until_disconnect() {
-    use std::sync::Arc;
+/// Original equipment pixels and geometry with a distinct startup glint.
+fn equipment_pack_fixture() -> (Arc<assets::SessionEntityPack>, render::ActorArtworkPages) {
     let png = |rgba: [u8; 4], width, height| {
         let mut bytes = std::io::Cursor::new(Vec::new());
         image::RgbaImage::from_pixel(width, height, image::Rgba(rgba))
@@ -417,12 +417,94 @@ fn session_pack_glint_replaces_the_startup_glint_until_disconnect() {
         height: 1,
         rgba8: Arc::from([1, 2, 3, 255]),
     });
+    (Arc::new(pack), startup)
+}
+
+#[test]
+fn worker_prepares_equipment_pages_and_glint_before_publication() {
+    let (pack, startup) = equipment_pack_fixture();
+    let (base, source) = (startup.clone(), pack.clone());
+    let prepared = std::thread::spawn(move || {
+        crate::prepared_actor_artwork::PreparedActorArtwork::new(&base, &source)
+    })
+    .join()
+    .unwrap();
+    let pages = prepared.pages_for(&startup, &pack).unwrap();
+    let catalog = pack.equipment.as_ref().unwrap();
+    let (expected, _) = startup
+        .clone()
+        .with_equipment_rasters(&EquipmentRuntime::pack_rasters(catalog));
+    let expected = expected.with_actor_glint(EquipmentRuntime::actor_glint(catalog).unwrap());
+    assert_eq!(
+        pages.pages().len(),
+        expected.pages().len(),
+        "worker must prepare equipment pixels too"
+    );
+    assert_eq!(pages.pages(), expected.pages());
+    assert_eq!(
+        pages.actor_glint().unwrap().rgba8,
+        expected.actor_glint().unwrap().rgba8
+    );
+    let resources =
+        crate::prepared_actor_artwork::session_resources(&startup, Some(&pack), Some(&prepared));
+    assert!(matches!(resources, std::borrow::Cow::Borrowed(_)));
+    let mesh = &resources.equipment[0];
+    let mut scene = render::ActorRenderScene::default();
+    let mut ready = super::SessionGeometryReady::default();
+    super::apply_session_pack(
+        &mut scene,
+        &resources,
+        Some(&pack),
+        None,
+        &mut ready,
+        None,
+        None,
+    );
+    assert!(ready.entities && ready.equipment);
+    assert!(scene.contains_geometry(mesh.id));
+    let published = scene
+        .frame()
+        .rig
+        .geometry_vertices
+        .segments
+        .iter()
+        .find(|published| published.as_ref() == mesh.vertices.as_ref())
+        .expect("equipment vertices are present in the published catalog");
+    assert!(
+        resources
+            .entities
+            .iter()
+            .chain(&resources.equipment)
+            .any(|worker| Arc::ptr_eq(published, &worker.vertices)),
+        "content interning must retain an existing worker allocation"
+    );
+    for (worker, published) in pages
+        .pages()
+        .iter()
+        .zip(scene.frame().artwork_pages().pages())
+    {
+        assert!(Arc::ptr_eq(
+            &worker.shared_pixels(),
+            &published.shared_pixels()
+        ));
+    }
+    let again = prepared.pages_for(&startup, &pack).unwrap();
+    for (first, next) in pages.pages().iter().zip(again.pages()) {
+        assert!(Arc::ptr_eq(&first.shared_pixels(), &next.shared_pixels()));
+    }
+}
+
+/// A server pack's glint replaces the startup glint for the session; disconnect restores it.
+#[test]
+fn session_pack_glint_replaces_the_startup_glint_until_disconnect() {
+    let (pack, startup) = equipment_pack_fixture();
     let mut scene = render::ActorRenderScene::default();
     let mut ready = super::SessionGeometryReady::default();
     let glint = |pages: &render::ActorArtworkPages| pages.actor_glint().unwrap().rgba8.to_vec();
+    let resources = crate::prepared_actor_artwork::session_resources(&startup, Some(&pack), None);
     let (session, ..) = super::apply_session_pack(
         &mut scene,
-        startup.clone(),
+        &resources,
         Some(&pack),
         None,
         &mut ready,
@@ -431,8 +513,16 @@ fn session_pack_glint_replaces_the_startup_glint_until_disconnect() {
     );
     assert_eq!(glint(&session.unwrap()), [90, 20, 200, 255]);
     assert_eq!(glint(scene.frame().artwork_pages()), [90, 20, 200, 255]);
-    let (restored, ..) =
-        super::apply_session_pack(&mut scene, startup, None, None, &mut ready, None, None);
+    let restored_resources = crate::prepared_actor_artwork::session_resources(&startup, None, None);
+    let (restored, ..) = super::apply_session_pack(
+        &mut scene,
+        &restored_resources,
+        None,
+        None,
+        &mut ready,
+        None,
+        None,
+    );
     assert!(restored.is_none());
     assert_eq!(glint(scene.frame().artwork_pages()), [1, 2, 3, 255]);
 }

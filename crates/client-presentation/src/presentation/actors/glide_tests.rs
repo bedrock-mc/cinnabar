@@ -7,7 +7,7 @@ use protocol::{ActorEvent, ActorMetadataValue, ActorSpawnEvent, WorldBootstrap, 
 const GLIDING: u64 = 1 << 32;
 
 /// A player admitted through the public event path, moving at `velocity` with `flags`.
-fn player(velocity: [f32; 3], flags: u64) -> ActorSnapshot {
+pub(super) fn player(velocity: [f32; 3], flags: u64) -> ActorSnapshot {
     let mut world = WorldAuthority::new(
         WorldBootstrap {
             local_player_unique_id: 1,
@@ -112,9 +112,11 @@ fn turn_banks_toward_the_horizontal_motion() {
     assert!(close(turn(0.0, [0.5, 0.0, 0.5]), 45.0));
     assert!(close(turn(0.0, [-0.5, 0.0, 0.5]), -45.0));
     assert!(close(turn(0.0, [1.0, 0.0, 0.0]), 90.0));
+    // The view's horizontal length is the table cosine of the pitch, not exactly cos 60°.
     let lifted = turn(-60.0, [1.0, 0.0, 1.0]);
+    let horizontal = sim::view_direction(-60.0, 0.0).z as f32;
     assert!(
-        close(lifted, (0.5 / 2.0_f32.sqrt()).acos().to_degrees()),
+        close(lifted, (horizontal / 2.0_f32.sqrt()).acos().to_degrees()),
         "{lifted}"
     );
     assert_eq!(turn(0.0, [0.05, 0.0, 1.0]), 0.0);

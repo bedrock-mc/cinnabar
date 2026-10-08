@@ -80,6 +80,7 @@ fn install(app: &mut App) {
         "dropped_item.wgsl",
         crate::shader_safety::from_wgsl
     );
+    crate::pipeline_warmup::register::<ItemPipeline>(app);
     crate::install_opaque_phase_reset(app.sub_app_mut(RenderApp));
     app.sub_app_mut(RenderApp)
         .insert_resource(Installed)
@@ -790,5 +791,23 @@ mod tests {
                 .visibility
                 .contains(ShaderStages::FRAGMENT)
         );
+    }
+}
+
+impl crate::pipeline_warmup::PrewarmPipelines for ItemPipeline {
+    fn prewarm(
+        &mut self,
+        cache: &PipelineCache,
+        view: crate::pipeline_warmup::WarmView,
+        ids: &mut crate::pipeline_warmup::WarmupIds,
+    ) -> Result<(), BevyError> {
+        ids.push(self.variants.specialize(
+            cache,
+            ItemPipelineKey {
+                msaa: view.msaa,
+                hdr: view.hdr,
+            },
+        )?);
+        Ok(())
     }
 }

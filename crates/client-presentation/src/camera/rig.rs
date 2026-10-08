@@ -1,13 +1,11 @@
 //! Perspective placement and allocation-free boom collision.
 
 use bevy::{log::debug, prelude::*};
+use render_api::CAMERA_NEAR_PLANE_BLOCKS;
 use semantic_input::PerspectiveMode;
 use sim::{CollisionWorld, LenientSkipCounts, Vec3 as SimVec3};
 
-use super::{
-    CameraRig, THIRD_PERSON_COLLISION_EPSILON_BLOCKS, THIRD_PERSON_COLLISION_RADIUS_BLOCKS,
-    THIRD_PERSON_RADIUS_BLOCKS,
-};
+use super::{CameraRig, THIRD_PERSON_COLLISION_RADIUS_BLOCKS, THIRD_PERSON_RADIUS_BLOCKS};
 
 /// Computes preset placement before the collision stage shortens its boom.
 #[must_use]
@@ -96,7 +94,7 @@ pub(super) fn sweep_boom(
     let sweep = SimVec3::new(f64::from(delta.x), f64::from(delta.y), f64::from(delta.z));
     let radius = f64::from(THIRD_PERSON_COLLISION_RADIUS_BLOCKS);
     let distance = f64::from(delta.length());
-    let near_clip = f64::from(THIRD_PERSON_COLLISION_EPSILON_BLOCKS);
+    let near_clip = f64::from(CAMERA_NEAR_PLANE_BLOCKS);
     let mut safe_distance = distance;
     let mut skipped = LenientSkipCounts::default();
     for corner in 0..8 {

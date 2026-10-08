@@ -3,6 +3,20 @@ use serde_json::json;
 use super::*;
 use crate::camera::Easing;
 
+#[test]
+fn sign_in_fixture_accepts_only_fixed_states_without_account_data() {
+    assert_eq!(
+        parse(json!({ "cmd": "sign_in_fixture", "state": "opened" })).unwrap(),
+        Command::SignInFixture {
+            state: SignInFixtureState::Opened
+        }
+    );
+    assert!(
+        parse(json!({ "cmd": "sign_in_fixture", "state": "opened", "code": "secret" })).is_err()
+    );
+    assert!(parse(json!({ "cmd": "sign_in_fixture", "state": "real_account" })).is_err());
+}
+
 fn parse(value: serde_json::Value) -> Result<Command, String> {
     let mut value = value;
     value["token"] = json!("t");
@@ -84,6 +98,10 @@ fn pointer_wheel_and_test_cape_parse_from_wire() {
     assert_eq!(
         parse(json!({"cmd": "test_cape", "enabled": false})).unwrap(),
         Command::TestCape { enabled: false }
+    );
+    assert_eq!(
+        parse(json!({"cmd": "test_accounts", "enabled": true})).unwrap(),
+        Command::TestAccounts { enabled: true }
     );
 }
 

@@ -134,7 +134,7 @@ fn assert_native_body_sample(equipment_parent: bool, case: BodyCase) {
                     prepared_actor_artwork: &mut prepared_artwork,
                 },
                 Some(swing),
-                |_, _, _| false,
+                |_, _, _, _| false,
                 params.get_mut(&mut world),
             );
             let rig = stream.authority().actor_rig(1).unwrap();

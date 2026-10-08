@@ -74,7 +74,7 @@ pub(crate) fn pattern_texture(gpu: &Gpu) -> wgpu::TextureView {
         mip_level_count: 1,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Rgba8UnormSrgb,
+        format: wgpu::TextureFormat::Rgba8Unorm,
         usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
         view_formats: &[],
     });
@@ -183,8 +183,6 @@ fn culled_solid_runs_match_the_two_sided_discard_path_from_every_side() {
             (1, quad_buffer.as_entire_binding()),
             (2, origin.as_entire_binding()),
             (3, materials.as_entire_binding()),
-            (4, wgpu::BindingResource::TextureView(&atlas)),
-            (5, wgpu::BindingResource::TextureView(&atlas)),
             (6, wgpu::BindingResource::Sampler(&sampler)),
             (7, records.as_entire_binding()),
             (8, tints.as_entire_binding()),

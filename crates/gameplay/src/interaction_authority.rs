@@ -28,12 +28,17 @@ const SERVER_PICK_SLACK: f64 = 0.5;
 /// Only touch reach (6.7 survival, 12 creative) equals the server's range, so only
 /// touch picks can exceed its corner check; those are dropped too.
 pub fn within_pick_range(observed: &FrozenBlockObservation) -> bool {
+    within_pick_range_of(observed, observed.ray.origin)
+}
+
+/// The pick range check measured from `eye` rather than the ray's origin.
+pub fn within_pick_range_of(observed: &FrozenBlockObservation, eye: [f32; 3]) -> bool {
     let distance_squared = |offset: f64| {
         observed
             .target
             .position
             .into_iter()
-            .zip(observed.ray.origin)
+            .zip(eye)
             .map(|(block, eye)| (f64::from(block) + offset - f64::from(eye)).powi(2))
             .sum::<f64>()
     };

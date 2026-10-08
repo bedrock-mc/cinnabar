@@ -1,6 +1,176 @@
 use super::*;
 use bevy::render::render_resource::DepthBiasState;
 
+pub(super) struct UiPipelineSpecializer;
+
+#[derive(Resource)]
+pub(super) struct UiPipeline {
+    pub(super) variants: Variants<RenderPipeline, UiPipelineSpecializer>,
+    pub(super) bind_group_layout: BindGroupLayoutDescriptor,
+}
+
+impl FromWorld for UiPipeline {
+    fn from_world(_world: &mut World) -> Self {
+        let bind_group_layout = ui_bind_group_layout();
+        let descriptor = ui_pipeline_descriptor(bind_group_layout.clone());
+        Self {
+            variants: Variants::new(UiPipelineSpecializer, descriptor),
+            bind_group_layout,
+        }
+    }
+}
+
+/// Declares the shared viewport, texture-page and sampler bindings.
+pub(crate) fn ui_bind_group_layout() -> BindGroupLayoutDescriptor {
+    BindGroupLayoutDescriptor::new(
+        "shared UI bind group layout",
+        &[
+            BindGroupLayoutEntry {
+                binding: 0,
+                // The fragment stage reads the glint clock.
+                visibility: ShaderStages::VERTEX_FRAGMENT,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: BufferSize::new(size_of::<UiViewportUniform>() as u64),
+                },
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                binding: 1,
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Texture {
+                    sample_type: TextureSampleType::Float { filterable: true },
+                    view_dimension: TextureViewDimension::D2Array,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                binding: 2,
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Sampler(SamplerBindingType::Filtering),
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                binding: 3,
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Sampler(SamplerBindingType::Filtering),
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                binding: 4,
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: BufferSize::new(16),
+                },
+                count: None,
+            },
+        ],
+    )
+}
+
+/// The premultiplied-alpha blend state shared by every UI quad except the
+/// crosshair.
+pub(crate) fn ui_alpha_blend_state() -> BlendState {
+    let blend = BlendComponent {
+        src_factor: BlendFactor::One,
+        dst_factor: BlendFactor::OneMinusSrcAlpha,
+        operation: BlendOperation::Add,
+    };
+    BlendState {
+        color: blend,
+        alpha: blend,
+    }
+}
+
+/// The classic crosshair invert: color = src*(1-dst) + dst*(1-src), so the
+/// white cross reads against any background; alpha passes the source through.
+pub(crate) fn ui_invert_blend_state() -> BlendState {
+    BlendState {
+        color: BlendComponent {
+            src_factor: BlendFactor::OneMinusDst,
+            dst_factor: BlendFactor::OneMinusSrc,
+            operation: BlendOperation::Add,
+        },
+        alpha: BlendComponent {
+            src_factor: BlendFactor::One,
+            dst_factor: BlendFactor::Zero,
+            operation: BlendOperation::Add,
+        },
+    }
+}
+
+/// Builds the retained UI shader pipeline before per-view specialization.
+pub(crate) fn ui_pipeline_descriptor(
+    bind_group_layout: BindGroupLayoutDescriptor,
+) -> RenderPipelineDescriptor {
+    RenderPipelineDescriptor {
+        label: Some("shared retained UI overlay pipeline".into()),
+        layout: vec![bind_group_layout],
+        vertex: VertexState {
+            shader: UI_SHADER_HANDLE,
+            entry_point: Some("ui_vertex".into()),
+            buffers: vec![VertexBufferLayout {
+                array_stride: size_of::<UiRenderVertex>() as u64,
+                step_mode: VertexStepMode::Vertex,
+                attributes: vec![
+                    VertexAttribute {
+                        format: VertexFormat::Float32x4,
+                        offset: std::mem::offset_of!(UiRenderVertex, position) as u64,
+                        shader_location: 0,
+                    },
+                    VertexAttribute {
+                        format: VertexFormat::Float32x2,
+                        offset: std::mem::offset_of!(UiRenderVertex, uv) as u64,
+                        shader_location: 1,
+                    },
+                    VertexAttribute {
+                        format: VertexFormat::Unorm8x4,
+                        offset: std::mem::offset_of!(UiRenderVertex, color) as u64,
+                        shader_location: 2,
+                    },
+                    VertexAttribute {
+                        format: VertexFormat::Uint32,
+                        offset: std::mem::offset_of!(UiRenderVertex, style_flags) as u64,
+                        shader_location: 3,
+                    },
+                    VertexAttribute {
+                        format: VertexFormat::Float32,
+                        offset: std::mem::offset_of!(UiRenderVertex, alpha_cutoff) as u64,
+                        shader_location: 4,
+                    },
+                    VertexAttribute {
+                        format: VertexFormat::Float32,
+                        offset: std::mem::offset_of!(UiRenderVertex, model_light) as u64,
+                        shader_location: 5,
+                    },
+                    VertexAttribute {
+                        format: VertexFormat::Float32x4,
+                        offset: std::mem::offset_of!(UiRenderVertex, overlay_color) as u64,
+                        shader_location: 6,
+                    },
+                ],
+            }],
+            ..default()
+        },
+        fragment: Some(FragmentState {
+            shader: UI_SHADER_HANDLE,
+            entry_point: Some("ui_fragment".into()),
+            targets: vec![Some(ColorTargetState {
+                format: TextureFormat::bevy_default(),
+                blend: Some(ui_alpha_blend_state()),
+                write_mask: ColorWrites::ALL,
+            })],
+            ..default()
+        }),
+        depth_stencil: None,
+        ..default()
+    }
+}
+
 // Vanilla environmental text: native constant bias -32.
 // The same override zeros slope/clamp. Native LessEqual uses standard Z;
 // our GreaterEqual reverse-Z comparison reverses the bias sign to retain the toward-eye shift.
@@ -155,5 +325,65 @@ mod tests {
                 );
             }
         }
+    }
+}
+
+impl crate::pipeline_warmup::PrewarmPipelines for UiPipeline {
+    /// Covers the HUD pair plus every isolated-model and world-projected depth mode.
+    fn prewarm(
+        &mut self,
+        cache: &PipelineCache,
+        view: crate::pipeline_warmup::WarmView,
+        ids: &mut crate::pipeline_warmup::WarmupIds,
+    ) -> Result<(), BevyError> {
+        let hud = UiPipelineKey {
+            msaa: view.msaa,
+            hdr: view.hdr,
+            invert_blend: false,
+            layer: true,
+            depth_test: false,
+            depth_write: false,
+            isolated_depth: false,
+        };
+        ids.push(self.variants.specialize(cache, hud)?);
+        ids.push(
+            self.variants
+                .specialize(cache, super::overlay::hud_invert_pipeline_key(view.hdr))?,
+        );
+        for depth_test in [false, true] {
+            for depth_write in [false, true] {
+                let model = UiPipelineKey {
+                    depth_test,
+                    depth_write,
+                    isolated_depth: true,
+                    ..hud
+                };
+                ids.push(self.variants.specialize(cache, model)?);
+                ids.push(self.variants.specialize(
+                    cache,
+                    UiPipelineKey {
+                        msaa: Msaa::Off,
+                        invert_blend: true,
+                        layer: false,
+                        ..model
+                    },
+                )?);
+                let world = UiPipelineKey {
+                    layer: false,
+                    depth_test,
+                    depth_write,
+                    ..hud
+                };
+                ids.push(self.variants.specialize(cache, world)?);
+                ids.push(self.variants.specialize(
+                    cache,
+                    UiPipelineKey {
+                        invert_blend: true,
+                        ..world
+                    },
+                )?);
+            }
+        }
+        Ok(())
     }
 }

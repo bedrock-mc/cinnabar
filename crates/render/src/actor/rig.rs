@@ -510,7 +510,6 @@ impl ActorRigFrameBuilder {
             let identity = submission.input.identity;
             (identity.layer, page_of(&identity), submission.input.rig)
         });
-        let mut body_count = 0usize;
         for submission in ordered.drain(..) {
             if let Err(error) = eligibility::validate_input(&submission) {
                 error.count(&mut rejects);
@@ -519,10 +518,7 @@ impl ActorRigFrameBuilder {
             if !actor_rig_submission_is_visible(&submission, view) {
                 continue;
             }
-            let is_body = submission.input.identity.layer == ACTOR_LAYER_BODY;
-            if instances.len() == MAX_ACTOR_RENDER_INSTANCES
-                || (is_body && body_count == MAX_RENDERED_PLAYERS)
-            {
+            if instances.len() == MAX_ACTOR_RENDER_INSTANCES {
                 rejects.actor_capacity = rejects.actor_capacity.saturating_add(1);
                 continue;
             }
@@ -604,7 +600,6 @@ impl ActorRigFrameBuilder {
                     1.0
                 },
             });
-            body_count += usize::from(is_body);
             manifest.push(ActorDrawManifestEntry {
                 identity: submission.input.identity,
                 rig: submission.input.rig,

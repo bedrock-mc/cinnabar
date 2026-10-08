@@ -13,7 +13,7 @@ use std::{ffi::OsStr, fs, sync::Arc};
 
 use anyhow::{Context, Result, bail};
 use bevy::{
-    anti_alias::{AntiAliasPlugin, fxaa::FxaaPlugin},
+    anti_alias::AntiAliasPlugin,
     app::TerminalCtrlCHandlerPlugin,
     prelude::{
         App, ClearColor, Color, DefaultPlugins, First, IntoScheduleConfigs, Last, PluginGroup,
@@ -235,7 +235,7 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
         )
         .add_systems(
             Update,
-            (publish_local_player_frame, publish_interaction_origin, crate::camera::aim_assist::publish_assisted_interaction, crate::camera::aim_highlight::publish)
+            (publish_local_player_frame, publish_interaction_origin, crate::camera::aim_assist::publish_assisted_interaction, crate::camera::aim_highlight::publish, crate::block_use::retain_block_use_pick)
                 .chain()
                 .in_set(LocalPlayerFrameSet::Interaction)
                 .in_set(ClientFrameSet::Interaction),
@@ -263,6 +263,15 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
                 .after(ClientFrameSet::SemanticFinalize)
                 .before(ClientFrameSet::ActorPreparation),
         )
+        // Build actions resolve before the tick they precede, so its movement sees the block.
+        .add_systems(
+            Update,
+            produce_block_use
+                .after(ClientFrameSet::SemanticFinalize)
+                .after(crate::hotbar::select_hotbar_slot)
+                .after(reconcile_world_stream_before_physics)
+                .before(ClientFrameSet::Physics),
+        )
         .add_systems(
             Update,
             (observe_mount_jump_input, prepare_ui_runtime)
@@ -285,7 +294,6 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
                 crate::runtime::telemetry::discard_completed_movement_evidence,
                 produce_melee,
                 produce_survival_mining,
-                produce_block_use,
                 crate::item_use::produce_item_use,
                 send_player_auth_inputs,
                 crate::pick_block::produce_pick_block,
@@ -422,7 +430,9 @@ fn bind_direct_session_directory(
 pub fn run(args: args::ClientArgs) -> Result<()> {
     args.validate_acceptance_support(cfg!(feature = "acceptance"))?;
     #[cfg(feature = "developer-control")]
-    crate::developer_control::prepare_native_application()?;
+    crate::developer_control::prepare_native_application(
+        args.address.is_some() || args.socket_dir_explicit,
+    )?;
     crate::thread_budget::ThreadBudget::configure_global_rayon();
     // Declared first so it drops last: every spawned child is gone before `run` returns or unwinds.
     let _children = crate::lifecycle::children::StopOnDrop;
@@ -692,9 +702,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         })
         .set(render_plugin())
         .set(crate::thread_budget::ThreadBudget::task_pool_plugin())
-        // Cinnabar uses FXAA without Bevy's TAA/SMAA/CAS bundle. The TAA
-        // graph requires post-process nodes that are intentionally absent
-        // from this compact custom renderer.
+        // Vanilla resolves multisampled geometry without a screen-space AA filter.
         .disable::<AntiAliasPlugin>()
         // The launcher owns the production process lifecycle. Keeping the
         // OS default SIGINT action also preserves a real developer escape
@@ -706,7 +714,8 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         ..default()
     });
     app.add_plugins(plugins);
-    app.add_plugins(FxaaPlugin);
+    #[cfg(target_os = "macos")]
+    crate::thread_budget::ThreadBudget::configure_render_thread(&mut app);
     app.add_systems(Update, crate::window_icon::apply);
     app.add_plugins(crate::local_worlds::LocalWorldsPlugin);
     app.add_plugins(crate::hud_tools::HudToolsPlugin {

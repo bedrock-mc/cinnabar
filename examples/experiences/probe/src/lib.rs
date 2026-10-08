@@ -1,20 +1,29 @@
 //! Test guest for the Experience runtime. `on-interact` selects a behavior by
 //! `pos.x`; every other position it touches is relative to the interacted block
 //! `p`, and `up` is the block above it. World errors are told by their WIT
-//! kebab-case names. `client-message` tries a block read and write, which its
-//! callback refuses, echoes the message back to the sender's client part and
-//! tells what happened.
+//! kebab-case names. `client-message` reads the block of its player's focus and
+//! writes its data, or without a focus tries the same at the origin, which its
+//! callback refuses; it echoes the message back to the sender's client part and
+//! tells what happened. `epoch` does the same read and write, resends a short
+//! item list and tells what happened. Its channels come from its
+//! `experience.toml`.
 
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use experience_sdk::{
+use experience_sdk::Value;
+use experience_sdk::server::{
     BlockChange, BlockDef, BlockPos, Callback, Experience, Face, GuestError, LogLevel, Mining,
-    PlayerId, Scalar, TextureBinding, WorldError, log,
+    PlayerId, TextureBinding, WorldError, log, nodes,
 };
 
+/// The declarations of `experience.toml`, which `build.rs` writes.
+mod experience {
+    experience_sdk::include_declarations!();
+}
+
+use experience::channels;
+
 const COUNTER: &str = "probe:counter";
-/// The client channel that x=19 sends the counter on.
-const COUNTER_CHANNEL: &str = "probe.counter";
 const AIR: &str = "minecraft:air";
 const NIL_PLAYER: &str = "00000000-0000-0000-0000-000000000000";
 const MIB: usize = 1 << 20;
@@ -77,16 +86,21 @@ impl Experience for Probe {
         player: PlayerId,
         channel: String,
         schema: u16,
-        payload: Vec<Scalar>,
+        payload: Vec<Value>,
     ) -> Result<(), GuestError> {
-        let origin = BlockPos { x: 0, y: 64, z: 0 };
-        let read = id_or_error(ctx.get_block(origin));
-        let write = outcome(ctx.set_block(origin, COUNTER));
-        let echo = outcome(ctx.send_client(&player, &channel, schema, &payload));
+        let access = world_access(ctx);
         let fields = payload.len();
-        let text =
-            format!("client {channel} {schema} {fields} read {read} write {write} echo {echo}");
+        let echo = outcome(ctx.send_client(&player, &channel, schema, &nodes(payload)));
+        let text = format!("client {channel} {schema} {fields} {access} echo {echo}");
         let _ = ctx.tell(&player, &text);
+        Ok(())
+    }
+
+    fn epoch(ctx: &Callback, player: PlayerId) -> Result<(), GuestError> {
+        let access = world_access(ctx);
+        let channel = channels::ITEMS;
+        let send = outcome(ctx.send_client(&player, channel.id, channel.schema, &nodes(items(2))));
+        let _ = ctx.tell(&player, &format!("epoch {access} send {send}"));
         Ok(())
     }
 }
@@ -104,7 +118,9 @@ fn interact(ctx: &Callback, player: &str, p: BlockPos) -> Result<(), GuestError>
         1 => {
             let _ = ctx.set_block_data(p, Some(&[1]));
             tell("staged");
-            let _ = ctx.send_client(player, COUNTER_CHANNEL, 1, &[Scalar::Integer(1)]);
+            let channel = channels::COUNTER;
+            let record = nodes(vec![Value::Integer(1)]);
+            let _ = ctx.send_client(player, channel.id, channel.schema, &record);
             // Lowers to the Wasm `unreachable` instruction.
             std::process::abort();
         }
@@ -173,30 +189,63 @@ fn interact(ctx: &Callback, player: &str, p: BlockPos) -> Result<(), GuestError>
         18 => return Err(GuestError::Rejected("€".repeat(2 * MIB / 3))),
         19 => match next_count(ctx, p) {
             Ok(n) => {
-                let value = Scalar::Integer(n.into());
-                let sent = outcome(ctx.send_client(player, COUNTER_CHANNEL, 1, &[value]));
+                let channel = channels::COUNTER;
+                let record = nodes(vec![Value::Integer(n.into())]);
+                let sent = outcome(ctx.send_client(player, channel.id, channel.schema, &record));
                 tell(&format!("count {n} {sent}"));
             }
             Err(error) => tell(&format!("error {}", error.name())),
         },
         20 => tell(outcome(ctx.send_client(
             NIL_PLAYER,
-            COUNTER_CHANNEL,
-            1,
+            channels::COUNTER.id,
+            channels::COUNTER.schema,
             &[],
         ))),
         21 => {
-            let text = Scalar::Text("x".repeat(MIB));
+            let text = Value::Text("x".repeat(MIB));
             tell(outcome(ctx.send_client(
                 player,
-                COUNTER_CHANNEL,
-                1,
-                &[text],
+                channels::COUNTER.id,
+                channels::COUNTER.schema,
+                &nodes(vec![text]),
             )));
         }
+        22 => {
+            let channel = channels::ITEMS;
+            let record = nodes(items(400));
+            let sent = outcome(ctx.send_client(player, channel.id, channel.schema, &record));
+            tell(&format!("items {sent}"));
+        }
+        23 => tell(&format!("focus {}", describe(ctx.focus()))),
         x => return Err(GuestError::Rejected(format!("no probe behavior for x={x}"))),
     }
     Ok(())
+}
+
+/// The focus, and a block read and a data write at it, or at the origin without one, as
+/// `focus {x y z|none} read {id|error} write {outcome}`; a callback without a snapshot refuses
+/// both.
+fn world_access(ctx: &Callback) -> String {
+    let focus = ctx.focus();
+    let target = focus.unwrap_or(BlockPos { x: 0, y: 64, z: 0 });
+    let read = id_or_error(ctx.get_block(target));
+    let write = outcome(ctx.set_block_data(target, Some(&[1])));
+    format!("focus {} read {read} write {write}", describe(focus))
+}
+
+/// `x y z`, or `none`.
+fn describe(pos: Option<BlockPos>) -> String {
+    pos.map_or_else(
+        || "none".to_owned(),
+        |BlockPos { x, y, z }| format!("{x} {y} {z}"),
+    )
+}
+
+/// An item list of `count` entries: one list of records, each an index and a name.
+fn items(count: i64) -> Vec<Value> {
+    let item = |i: i64| Value::Record(vec![Value::Integer(i), Value::Text(format!("item {i}"))]);
+    vec![Value::List((0..count).map(item).collect())]
 }
 
 /// Describes [`next_count`]: `count {n}`, or `error {name}` if a call failed.

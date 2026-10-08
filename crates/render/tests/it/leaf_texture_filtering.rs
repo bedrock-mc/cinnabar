@@ -24,44 +24,14 @@ struct Case {
     blend: f32,
 }
 
-fn gamma_to_linear(value: f32) -> f32 {
-    if value <= 0.04045 {
-        value / 12.92
-    } else {
-        ((value + 0.055) / 1.055).powf(2.4)
-    }
-}
-
-fn linear_to_gamma(value: f32) -> f32 {
-    if value <= 0.0031308 {
-        value * 12.92
-    } else {
-        1.055 * value.powf(1.0 / 2.4) - 0.055
-    }
-}
-
-fn sampled_channel(page: u32, layer: u32, channel: usize, native: bool, minified: bool) -> f32 {
-    let convert = |value| {
-        let gamma = f32::from(value) / 255.0;
-        if native {
-            gamma
-        } else {
-            gamma_to_linear(gamma)
-        }
-    };
-    let base = BASE[page as usize][layer as usize];
+/// Models point texels and linear interpolation between encoded mip levels.
+fn sampled_channel(page: u32, layer: u32, channel: usize, minified: bool) -> f32 {
+    let base = f32::from(BASE[page as usize][layer as usize][0][channel]) / 255.0;
     if !minified {
-        return convert(base[0][channel]);
+        return base;
     }
-    // UV .4 selects the first texel with native point filtering; the unchanged
-    // bilinear sRGB path weights the second texel .3. LOD .5 blends mip levels.
-    let level0 = if native {
-        convert(base[0][channel])
-    } else {
-        convert(base[0][channel]) * 0.7 + convert(base[1][channel]) * 0.3
-    };
-    let level1 = convert(MIP[page as usize][layer as usize][channel]);
-    (level0 + level1) * 0.5
+    let mip = f32::from(MIP[page as usize][layer as usize][channel]) / 255.0;
+    (base + mip) * 0.5
 }
 
 fn texture(gpu: &Gpu, page: usize) -> wgpu::Texture {
@@ -118,18 +88,13 @@ fn texture(gpu: &Gpu, page: usize) -> wgpu::Texture {
 }
 
 #[test]
-#[ignore = "requires a native GPU adapter; run explicitly on a GPU host"]
-fn leaf_unorm_views_filter_both_pages_layers_and_frame_mix_without_changing_srgb_materials() {
-    let gpu = Gpu::new().expect("this fixture requires a native GPU adapter");
+fn terrain_unorm_views_filter_both_pages_layers_and_frame_mix() {
+    let Some(gpu) = Gpu::for_fixture("terrain texture filtering") else {
+        return;
+    };
     assert!(material_shader::chunk_atlas_views_fit(&gpu.device.limits()));
     let textures =
         std::array::from_fn::<_, { assets::MAX_TEXTURE_PAGES }, _>(|page| texture(&gpu, page));
-    let views = textures.each_ref().map(|texture| {
-        texture.create_view(&wgpu::TextureViewDescriptor {
-            dimension: Some(wgpu::TextureViewDimension::D2Array),
-            ..Default::default()
-        })
-    });
     let native_views = textures.each_ref().map(|texture| {
         texture.create_view(&wgpu::TextureViewDescriptor {
             format: Some(wgpu::TextureFormat::Rgba8Unorm),
@@ -139,7 +104,7 @@ fn leaf_unorm_views_filter_both_pages_layers_and_frame_mix_without_changing_srgb
     });
     let sampler = gpu.device.create_sampler(&wgpu::SamplerDescriptor {
         mag_filter: wgpu::FilterMode::Nearest,
-        min_filter: wgpu::FilterMode::Linear,
+        min_filter: wgpu::FilterMode::Nearest,
         mipmap_filter: wgpu::FilterMode::Linear,
         ..Default::default()
     });
@@ -211,14 +176,6 @@ fn leaf_unorm_views_filter_both_pages_layers_and_frame_mix_without_changing_srgb
             vertices: 0..3,
             bindings: &[
                 wgpu::BindGroupEntry {
-                    binding: 4,
-                    resource: wgpu::BindingResource::TextureView(&views[0]),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 5,
-                    resource: wgpu::BindingResource::TextureView(&views[1]),
-                },
-                wgpu::BindGroupEntry {
                     binding: 6,
                     resource: wgpu::BindingResource::Sampler(&sampler),
                 },
@@ -246,15 +203,10 @@ fn leaf_unorm_views_filter_both_pages_layers_and_frame_mix_without_changing_srgb
     for (index, case) in cases.iter().enumerate() {
         let offset = (((index / 4 * 64 + 32) * 256) + index % 4 * 64 + 32) * 4;
         for channel in 0..3 {
-            let current =
-                sampled_channel(case.page, case.layer, channel, case.native, case.minified);
-            let next = sampled_channel(1, 0, channel, case.native, case.minified);
+            let current = sampled_channel(case.page, case.layer, channel, case.minified);
+            let next = sampled_channel(1, 0, channel, case.minified);
             let value = current * (1.0 - case.blend) + next * case.blend;
-            let gamma = if case.native {
-                value
-            } else {
-                linear_to_gamma(value)
-            };
+            let gamma = value;
             let expected = (gamma.clamp(0.0, 1.0) * 255.0).round() as u8;
             assert!(
                 pixels[offset + channel].abs_diff(expected) <= 2,
@@ -267,9 +219,10 @@ fn leaf_unorm_views_filter_both_pages_layers_and_frame_mix_without_changing_srgb
 }
 
 #[test]
-#[ignore = "requires a native GPU adapter; run explicitly on a GPU host"]
 fn native_leaf_point_mip_filter_preserves_alpha_without_changing_carried_mips() {
-    let gpu = Gpu::new().expect("this fixture requires a native GPU adapter");
+    let Some(gpu) = Gpu::for_fixture("terrain texture filtering") else {
+        return;
+    };
     assert!(material_shader::chunk_atlas_views_fit(&gpu.device.limits()));
     let mut base = vec![0; 4 * 4 * 4];
     for y in 0..2 {
@@ -318,10 +271,6 @@ fn native_leaf_point_mip_filter_preserves_alpha_without_changing_carried_mips() 
             },
         );
     }
-    let srgb = texture.create_view(&wgpu::TextureViewDescriptor {
-        dimension: Some(wgpu::TextureViewDimension::D2Array),
-        ..Default::default()
-    });
     let unorm = texture.create_view(&wgpu::TextureViewDescriptor {
         dimension: Some(wgpu::TextureViewDimension::D2Array),
         format: Some(wgpu::TextureFormat::Rgba8Unorm),
@@ -329,7 +278,7 @@ fn native_leaf_point_mip_filter_preserves_alpha_without_changing_carried_mips() 
     });
     let sampler = gpu.device.create_sampler(&wgpu::SamplerDescriptor {
         mag_filter: wgpu::FilterMode::Nearest,
-        min_filter: wgpu::FilterMode::Linear,
+        min_filter: wgpu::FilterMode::Nearest,
         mipmap_filter: wgpu::FilterMode::Nearest,
         ..Default::default()
     });
@@ -345,14 +294,6 @@ fn native_leaf_point_mip_filter_preserves_alpha_without_changing_carried_mips() 
             fragment: "mip_fragment",
             vertices: 0..3,
             bindings: &[
-                wgpu::BindGroupEntry {
-                    binding: 4,
-                    resource: wgpu::BindingResource::TextureView(&srgb),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 5,
-                    resource: wgpu::BindingResource::TextureView(&srgb),
-                },
                 wgpu::BindGroupEntry {
                     binding: 6,
                     resource: wgpu::BindingResource::Sampler(&sampler),
@@ -418,6 +359,6 @@ struct FilterCase { refs_flags: vec4<u32>, uv_grad_blend: vec4<f32>, }
     if (material_uses_native_leaf_colour(witness.refs_flags.z)) {
         return vec4(native_leaf_colour(sampled.rgb, vec3(1.0), 1.0, vec3(1.0), vec3(0.0), 0.0), 1.0);
     }
-    return vec4(sampled.rgb, 1.0);
+    return vec4(tint_to_linear(sampled).rgb, 1.0);
 }
 "#;

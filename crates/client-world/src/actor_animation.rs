@@ -14,7 +14,7 @@ use crate::actor_store::ActorSnapshot;
 /// Simulation tick duration used by actor clocks and Molang time queries.
 pub use world::TICK_DURATION as ACTOR_TICK_DURATION;
 
-pub const MAX_RUNTIME_BONES_PER_RIG: usize = 96;
+pub const MAX_RUNTIME_BONES_PER_RIG: usize = assets::MAX_ENTITY_GEOMETRY_BONES;
 const ANIMATION_TICK_SECONDS: f32 = ACTOR_TICK_DURATION.as_secs_f32();
 pub const MAX_CONTROLLER_TRANSITIONS_PER_TICK: usize = 8;
 pub const MAX_MOLANG_OPS_PER_ACTOR_TICK: usize = 4_096;
@@ -72,6 +72,8 @@ pub struct ActorRigSnapshot<'a> {
     pub bone_names: &'a [Box<str>],
     /// The skin model the pose drives, instead of the rig's geometry.
     pub skin_geometry: Option<&'a Arc<assets::SkinGeometry>>,
+    /// Immutable worker-built vertices matching `skin_geometry`; absent when that mesh is invalid.
+    pub skin_mesh: Option<&'a render_model::ActorRigGeometry>,
     pub skin_layers: &'a [SkinRenderLayer],
     /// Swing and equip progress at the previous and current completed tick.
     pub hand: [HandPhase; 2],
@@ -174,6 +176,7 @@ pub struct ActorAnimationStats {
     pub actor_budget_exhaustions: u64,
     pub world_budget_exhaustions: u64,
     pub frozen_actors: u64,
+    pub invalid_server_stop_expressions: u64,
     pub unrigged_spawns: u64, // spawns with entity assets loaded but no compiled rig
     pub invalid_skin_geometries: u64, // skin models that fell back to the default geometry
 }
@@ -184,7 +187,9 @@ pub(crate) struct ActorAnimationStore {
     layout: Arc<VariableLayout>,
     /// The session's server-pack entity catalog, in its own index space; its entities win.
     pack: Option<PackCatalog>,
+    server_compiler: Option<ServerAnimationCompiler>,
     rigs: BTreeMap<ActorLifetimeId, ActorRigState>,
+    skin_preparation: skin::SkinPreparationQueue,
     runtime_to_lifetime: HashMap<u64, ActorLifetimeId>,
     /// First actor the world budget skipped last tick, where the next tick starts.
     first_starved: Option<ActorLifetimeId>,
@@ -229,6 +234,7 @@ struct ActorRigState {
     /// Skeletons of the geometries render controllers draw instead of the rig's, by geometry.
     layer_skeletons: BTreeMap<u32, Option<Arc<render::LayerSkeleton>>>,
     controllers: Vec<ControllerState>,
+    server_animations: Vec<server_animation::Controller>,
     clip_clocks: clock::ClipClocks,
     previous: Vec<BoneTransform>,
     current: Vec<BoneTransform>,
@@ -332,6 +338,7 @@ struct EvaluatedState {
     render: Option<Vec<RenderTextureLayer>>,
     scale: Option<[f32; 4]>,
     controllers: Vec<ControllerState>,
+    server_animations: Vec<server_animation::Controller>,
     clip_clocks: clock::ClipClocks,
     variables: MolangVariables,
     render_frame: Option<render_frame::FrameState>,
@@ -404,7 +411,9 @@ impl ActorAnimationStore {
             ),
             assets,
             pack: None,
+            server_compiler: None,
             rigs: BTreeMap::new(),
+            skin_preparation: skin::SkinPreparationQueue::default(),
             runtime_to_lifetime: HashMap::new(),
             first_starved: None,
             local_motion_authority: None,
@@ -426,8 +435,13 @@ impl ActorAnimationStore {
         });
     }
 
+    pub(crate) fn set_server_animation_compiler(&mut self, compiler: ServerAnimationCompiler) {
+        self.server_compiler = Some(compiler);
+    }
+
     pub(crate) fn clear(&mut self) {
         self.rigs.clear();
+        self.skin_preparation = skin::SkinPreparationQueue::default();
         self.local_motion_authority = None;
         self.runtime_to_lifetime.clear();
         self.completed_tick = 0;
@@ -664,7 +678,12 @@ impl ActorAnimationStore {
             body_yaw: state.motion.body_yaw,
             render: &state.render,
             bone_names: state.posed_bone_names(),
-            skin_geometry: state.skin_skeleton().map(|skeleton| &skeleton.geometry),
+            skin_geometry: state
+                .skin_skeleton()
+                .map(|skeleton| &skeleton.prepared.geometry),
+            skin_mesh: state
+                .skin_skeleton()
+                .and_then(|skeleton| skeleton.prepared.mesh.as_ref()),
             skin_layers: &state.skin_layers,
             hand: state.hand_phases(),
             item_animation: state.hand_phases().map(ItemAnimationState::from),
@@ -693,7 +712,9 @@ impl ActorAnimationStore {
         targets: impl Fn(&[Box<str>], &[BoneTransform]) -> Option<Vec<Option<BoneTransform>>>,
     ) -> Option<Vec<SkinRenderLayer>> {
         let state = self.rigs.get(self.runtime_to_lifetime.get(&runtime_id)?)?;
-        let skeletons = state.skin_skeleton().map_or(&[][..], |skin| &skin.layers);
+        let skeletons = state
+            .skin_skeleton()
+            .map_or(&[][..], |skin| &skin.prepared.layers);
         state
             .skin_layers
             .iter()
@@ -807,12 +828,17 @@ mod render;
 mod render_frame;
 pub use render_frame::{ActorRenderFrame, ActorRenderLayers};
 mod replay;
+mod server_animation;
+pub use server_animation::ServerAnimationCompiler;
 mod schedule;
 mod skin;
 mod skin_layers;
+mod skin_preparation;
 mod tick;
 mod view;
-pub use attachable::{AttachableAnimationInput, AttachableRigSnapshot, AttachablesRuntime};
+pub use attachable::{
+    AttachableAnimationInput, AttachableBoneParent, AttachableRigSnapshot, AttachablesRuntime,
+};
 pub use evaluation::ActorAnimationVariables;
 use evaluation::{EngineSlots, Evaluator, MolangVariables, VariableLayout};
 use geometry::{collect_controllers, resolve_binding, resolve_bones, skeleton};
@@ -834,6 +860,9 @@ mod local_motion_tests;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod server_tests;
 
 #[cfg(test)]
 mod hurt_tests;

@@ -2,6 +2,53 @@ use semantic_input::{ControlSettings, PerspectiveMode};
 
 pub const CURRENT_SETTINGS_SCHEMA: u32 = 2;
 pub const DEFAULT_OUTLINE_SELECTION: bool = true;
+/// Vanilla's field-of-view option: default and slider range in degrees.
+pub const DEFAULT_FOV_DEGREES: i32 = 60;
+pub const MIN_FOV_DEGREES: i32 = 30;
+pub const MAX_FOV_DEGREES: i32 = 110;
+
+/// Desktop vanilla starts with two coverage samples per pixel.
+pub const DEFAULT_ANTI_ALIASING_SAMPLES: u32 = 2;
+/// Sample counts represented by the rendering backend's camera settings.
+pub const ANTI_ALIASING_SAMPLE_COUNTS: [u32; 4] = [1, 2, 4, 8];
+
+/// The intersection of color and depth sample counts supported by the active device.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct AntiAliasingSupport(u32);
+
+impl Default for AntiAliasingSupport {
+    fn default() -> Self {
+        Self::from_counts(ANTI_ALIASING_SAMPLE_COUNTS)
+    }
+}
+
+impl AntiAliasingSupport {
+    /// Always retains single sampling and drops counts the camera cannot represent.
+    pub fn from_counts(counts: impl IntoIterator<Item = u32>) -> Self {
+        Self(counts.into_iter().fold(1, |mask, count| {
+            mask | if ANTI_ALIASING_SAMPLE_COUNTS.contains(&count) {
+                count
+            } else {
+                0
+            }
+        }))
+    }
+
+    /// Lists supported slider stops in increasing quality order.
+    pub fn counts(self) -> impl DoubleEndedIterator<Item = u32> {
+        ANTI_ALIASING_SAMPLE_COUNTS
+            .into_iter()
+            .filter(move |count| self.0 & count != 0)
+    }
+
+    /// Keeps a saved preference within the device's supported sample counts.
+    pub fn select(self, requested: u32) -> u32 {
+        self.counts()
+            .rev()
+            .find(|count| *count <= requested)
+            .unwrap_or(1)
+    }
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct UserSettings {
@@ -28,6 +75,7 @@ pub struct VideoSettings {
     pub fullscreen: bool,
     pub frame_cap: Option<u16>,
     pub vsync: bool,
+    pub anti_aliasing_samples: u32,
     pub ui_scale: f32,
     pub render_distance_chunks: u8,
     pub brightness: f32,
@@ -48,10 +96,11 @@ pub struct VideoSettings {
 impl Default for VideoSettings {
     fn default() -> Self {
         Self {
-            horizontal_fov_degrees: 90.0,
+            horizontal_fov_degrees: DEFAULT_FOV_DEGREES as f32,
             fullscreen: false,
             frame_cap: None,
             vsync: true,
+            anti_aliasing_samples: DEFAULT_ANTI_ALIASING_SAMPLES,
             ui_scale: 1.0,
             render_distance_chunks: 16,
             brightness: 0.5,
@@ -134,5 +183,20 @@ mod tests {
         }
         assert_eq!(RenderMode::parse(" ENHANCED "), Some(RenderMode::Enhanced));
         assert_eq!(RenderMode::parse("shaders"), None);
+    }
+}
+
+#[cfg(test)]
+mod antialiasing_tests {
+    use super::*;
+
+    #[test]
+    fn antialiasing_support_keeps_only_usable_stops_and_falls_back_downward() {
+        let support = AntiAliasingSupport::from_counts([0, 3, 4, 8, 16]);
+        assert_eq!(support.counts().collect::<Vec<_>>(), [1, 4, 8]);
+        assert_eq!(support.select(DEFAULT_ANTI_ALIASING_SAMPLES), 1);
+        assert_eq!(support.select(7), 4);
+        assert_eq!(support.select(32), 8);
+        assert_eq!(AntiAliasingSupport::from_counts([]).select(0), 1);
     }
 }

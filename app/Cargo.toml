@@ -26,7 +26,7 @@ developer-control = ["dep:developer-control", "dep:objc2", "dep:objc2-app-kit"]
 # Records Bevy schedules, systems, render graph, submission and presentation spans.
 frame-trace = ["bevy/trace_chrome", "bevy/debug"]
 # Live CPU attribution through Bevy and the owned streaming/render hot paths.
-tracy = ["bevy/trace", "bevy/debug", "dep:tracing-tracy", "chunk-pipeline/tracy", "render/tracy"]
+tracy = ["bevy/trace", "bevy/debug", "dep:tracing-tracy", "chunk-pipeline/tracy", "render/tracy", "client-ui/tracy"]
 # Compiles the offline pack reports and benchmarks into the test build.
 reports = []
 
@@ -50,6 +50,7 @@ assets = { path = "../crates/assets" }
 bevy.workspace = true
 crossbeam-channel = "0.5"
 ctrlc = { version = "3.4", features = ["termination"] }
+gilrs = "0.11.2"
 fontdue = { version = "0.9.3", default-features = false, features = ["std"] }
 chunk-pipeline = { path = "../crates/chunk-pipeline" }
 client-world = { path = "../crates/client-world" }
@@ -63,6 +64,7 @@ resource-pack = { path = "../crates/resource-pack" }
 server-experience = { path = "../crates/server-experience" }
 rayon.workspace = true
 render = { path = "../crates/render" }
+render-api = { path = "../crates/render-api" }
 render-model = { path = "../crates/render-model" }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 semantic-input = { path = "../crates/input" }
@@ -82,6 +84,7 @@ world = { path = "../crates/world" }
 rustix = { version = "1", default-features = false, features = ["fs", "process", "std", "stdio"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2"
 objc2 = { version = "0.6", optional = true }
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSMenu", "NSResponder", "NSRunningApplication"], optional = true }
 

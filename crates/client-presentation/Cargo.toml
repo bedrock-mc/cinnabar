@@ -38,6 +38,7 @@ sha2.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
+zip = { version = "7", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 pack-compiler = { path = "../pack-compiler" }
 chunk-pipeline = { path = "../chunk-pipeline", features = ["publication-test-support"] }
 render = { path = "../render", features = ["publication-test-support"] }

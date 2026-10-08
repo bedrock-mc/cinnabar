@@ -6,6 +6,75 @@ use crate::ui_runtime::presentation::{
     forms::{ServerUiPack, pack_harness, tests::mini_engine_presentation},
 };
 
+#[test]
+fn complete_large_menu_final_button_sends_its_original_wire_index() {
+    for count in [257usize, 300] {
+        let mut player_runtime = player_state::PlayerState::new(1);
+        let labels: Vec<_> = (0..count).map(|index| format!("Choice {index}")).collect();
+        let labels: Vec<_> = labels.iter().map(String::as_str).collect();
+        let mut runtime = pack_harness::action_form(&mut player_runtime, "Menu", &labels);
+        let mut presentation = mini_engine_presentation();
+        presentation
+            .build(
+                &player_runtime,
+                &runtime,
+                0,
+                [1280, 65_536],
+                ui::DpiScale::new(1.0).unwrap(),
+            )
+            .unwrap();
+        let identity = runtime.server_forms().active().unwrap().identity;
+        let frame = presentation.form_engine_frame(identity).unwrap().clone();
+        assert_eq!(frame.hits.len(), count);
+        let last = frame
+            .hits
+            .iter()
+            .find(|hit| hit.collection_index == Some(count - 1))
+            .unwrap();
+        let cursor = UiPoint::new(
+            frame.origin[0] + (last.rect.x + 1.0) as f32 * frame.scale,
+            frame.origin[1] + (last.rect.y + 1.0) as f32 * frame.scale,
+        )
+        .unwrap();
+        assert!(last.contains(frame.to_virtual(cursor)));
+        for down in [true, false] {
+            drive(
+                &mut runtime,
+                &frame,
+                EngineInput {
+                    cursor: Some(cursor),
+                    keys: &ButtonInput::default(),
+                    pointer: PointerButtons {
+                        pressed: down,
+                        released: !down,
+                        held: down,
+                    },
+                    pointer_edges: vec![down],
+                    wheel: Vec::new(),
+                    typed: Vec::new(),
+                    now: if down { 0.0 } else { 0.01 },
+                    animator: None,
+                },
+            );
+        }
+        let mut sent = Vec::new();
+        assert!(
+            super::super::flush_form_response(&mut runtime, |packet| {
+                sent.push(packet);
+                Ok(())
+            })
+            .unwrap()
+        );
+        assert_eq!(
+            sent,
+            vec![protocol::modal_form_submit_response(
+                identity.form_id,
+                protocol::ModalFormResponseSelection::ButtonIndex((count - 1) as u32)
+            )]
+        );
+    }
+}
+
 /// Supplies a synthetic screen-level cancel mapping above the rendered content subtree.
 /// The inherited screen and form buttons exercise the real JSON-UI presentation without assets.
 fn cancel_presentation() -> UiPresentationRuntime {

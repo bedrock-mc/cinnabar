@@ -88,24 +88,51 @@ impl CommittedGameplayState<'_> {
             dimension,
             current,
             sprint_modifier,
+            underwater,
+            lava,
+            air_drag_modifier,
             tick,
         } = control
         {
-            if self.speed.apply(
-                self.session_generation,
-                sequence,
-                dimension,
-                current,
-                sprint_modifier,
-            ) && self.movement.physics_is_authorized()
-                && let Some((rewind, speed)) =
+            // Every attribute edit shares the packet's stamp, so one replay covers them.
+            let mut rewind = None;
+            if let Some(current) = current
+                && self.speed.apply(
+                    self.session_generation,
+                    sequence,
+                    dimension,
+                    current,
+                    sprint_modifier,
+                )
+                && self.movement.physics_is_authorized()
+                && let Some((edited, speed)) =
                     self.physics
                         .retime_movement_speed(tick, current, sprint_modifier)
             {
                 self.speed.adopt_replayed_speed(speed);
-                if let Some(rewind) = rewind {
-                    replay_timeline_edit(self.movement, self.physics, rewind, world);
-                }
+                rewind = edited;
+            }
+            if (underwater.is_some() || lava.is_some())
+                && let Some(speeds) = self.speed.apply_liquid(
+                    self.session_generation,
+                    sequence,
+                    dimension,
+                    underwater,
+                    lava,
+                )
+                && self.movement.physics_is_authorized()
+                && let Some(edited) = self.physics.retime_liquid_movement_speeds(tick, speeds)
+            {
+                rewind = Some(rewind.map_or(edited, |earlier: u64| earlier.min(edited)));
+            }
+            if let Some(current) = air_drag_modifier
+                && self.movement.physics_is_authorized()
+                && let Some(edited) = self.physics.retime_air_drag_modifier(tick, current)
+            {
+                rewind = Some(rewind.map_or(edited, |earlier: u64| earlier.min(edited)));
+            }
+            if let Some(rewind) = rewind {
+                replay_timeline_edit(self.movement, self.physics, rewind, world);
             }
             return ControlDisposition::Handled;
         }
@@ -128,25 +155,29 @@ impl CommittedGameplayState<'_> {
             return ControlDisposition::Environment;
         }
         if let CommittedControlEvent::LocalMovementBoost { sequence, event } = control {
-            // Vanilla predicts a firework's glide boost from the tick the server
-            // stamped, so the boost enters retained inputs and replays from there.
-            if event.kind == protocol::MovementEffectKind::GlideBoost {
+            // Vanilla predicts a boost from the tick the server stamped, so it
+            // enters retained inputs and replays from there.
+            if let Some(boost) = movement::MovementBoost::from_kind(event.kind) {
                 let span = movement::BoostSpan::from_wire(event.duration_ticks);
                 let mut remaining = Some(span);
                 if self.movement.physics_is_authorized() {
-                    let retime = self.physics.retime_glide_boost(event.tick, span);
+                    let retime = self.physics.retime_movement_boost(boost, event.tick, span);
                     remaining = retime.remaining;
                     // A failed replay boosted no past tick: undo the history edit
                     // so only the live span carries the boost.
                     if let Some(rewind) = retime.rewind
                         && !replay_timeline_edit(self.movement, self.physics, rewind, world)
                     {
-                        self.physics.revert_glide_boost(retime);
+                        self.physics.revert_movement_boost(retime);
                         remaining = Some(span);
                     }
                 }
-                self.effects
-                    .set_glide_boost(self.session_generation, sequence, remaining);
+                self.effects.set_movement_boost(
+                    self.session_generation,
+                    sequence,
+                    boost,
+                    remaining,
+                );
             }
             return ControlDisposition::Handled;
         }

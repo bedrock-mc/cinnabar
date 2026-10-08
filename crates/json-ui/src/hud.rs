@@ -71,6 +71,8 @@ pub struct Timed {
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct HudTitle {
+    /// Identity of the controller request that created this title.
+    pub creation_id: u64,
     pub title: String,
     pub subtitle: String,
     pub fade_in: f64,
@@ -298,16 +300,30 @@ fn slot_item(slot: &HudSlot) -> CollectionItem {
 mod tests;
 
 fn titles(data: &mut DataSource, model: &HudModel) {
+    data.set_global(
+        "#hud_title_text_string",
+        Scalar::Text(
+            model
+                .title
+                .as_ref()
+                .map_or_else(String::new, |title| title.title.clone()),
+        ),
+    );
+    data.set_global(
+        "#hud_subtitle_text_string",
+        Scalar::Text(
+            model
+                .title
+                .as_ref()
+                .map_or_else(String::new, |title| title.subtitle.clone()),
+        ),
+    );
     if let Some(title) = &model.title {
-        data.set_global("#hud_title_text_string", Scalar::Text(title.title.clone()));
-        data.set_global(
-            "#hud_subtitle_text_string",
-            Scalar::Text(title.subtitle.clone()),
-        );
         data.set_factory(
             "hud_title_text_factory",
             vec![
                 FactoryItem::new("hud_title_text", 0.0)
+                    .identified(title.creation_id)
                     .clocked(TITLE_CLOCK)
                     .named("hud_title_text")
                     .var("title_fade_in_time", Value::from(title.fade_in))

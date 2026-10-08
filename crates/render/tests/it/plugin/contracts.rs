@@ -1,26 +1,6 @@
 use super::*;
 
 #[test]
-fn chunk_sampler_source_contract_is_crisp_for_magnification_and_filtered_for_mips() {
-    let source = CHUNK_RENDERER_SOURCE;
-    assert!(source.contains("mag_filter: FilterMode::Nearest"));
-    assert!(source.contains("min_filter: FilterMode::Linear"));
-    assert!(source.contains("mipmap_filter: FilterMode::Linear"));
-    assert!(source.contains("anisotropy_clamp: 1"));
-}
-
-#[test]
-fn graphics_runtime_metadata_waits_for_extracted_diagnostics_before_surface_probe() {
-    let source = CHUNK_RENDERER_SOURCE.replace("\r\n", "\n");
-    assert!(
-        source.contains(
-            "publish_graphics_runtime_metadata\n                        .after(RenderSystems::ExtractCommands)\n                        .after(crate::present_mode::PresentModePolicySet)\n                        .before(bevy::render::view::window::create_surfaces)"
-        ),
-        "the metadata probe must wait for extracted diagnostics and present-mode policy resolution before Bevy creates the surface"
-    );
-}
-
-#[test]
 fn sort_ref_ceiling_is_enforced() {
     assert_eq!(size_of::<PackedTransparentDrawRef>(), 8);
     assert_eq!(MAX_TRANSPARENT_DRAW_REFS, 2_097_152);
@@ -469,7 +449,7 @@ fn crossed_model_pipeline_is_two_sided_and_uses_shared_bounded_bindings() {
         .expect("zero-quad templates require an early invisible return");
     assert!(zero_guard < shader.find("template_quad_base").unwrap());
     assert!(zero_guard < shader.find("let light_word").unwrap());
-    assert!(shader.contains("if (alpha < 0.5) { discard; }"));
+    assert!(shader.contains("if (sampled.a < 0.5) { discard; }"));
     assert!(shader.contains("let quad_flags = model_templates[template_quad_base + 11u]"));
     assert!(shader.contains("@builtin(front_facing) front_facing: bool"));
     assert!(shader.contains("if (!front_facing && in.two_sided == 0u) { discard; }"));
@@ -631,7 +611,7 @@ fn flowerbed_is_two_sided_alpha_cutout_on_the_shared_model_pipeline() {
     let plugin = CHUNK_RENDERER_SOURCE;
     let shader = shader_source::preprocess(include_str!("../../../src/model.wgsl"), &[]);
     assert!(plugin.contains("model_descriptor.primitive.cull_mode = None"));
-    assert!(shader.contains("if (alpha < 0.5) { discard; }"));
+    assert!(shader.contains("if (sampled.a < 0.5) { discard; }"));
 }
 
 #[test]

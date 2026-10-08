@@ -89,6 +89,11 @@ pub(super) struct Tween {
 }
 
 impl Tween {
+    /// Time still changes this channel until its target is reached.
+    pub(in crate::ui_runtime::presentation) fn active(self, seconds: f64) -> bool {
+        self.from != self.target && seconds - self.started < self.duration
+    }
+
     pub(super) fn at(value: f32) -> Self {
         Self {
             from: value,
@@ -151,6 +156,19 @@ impl Default for Motion {
 }
 
 impl Motion {
+    /// Retention waits for every mounted control and entrance to settle.
+    pub(in crate::ui_runtime::presentation) fn active(&self, seconds: f64) -> bool {
+        self.enabled
+            && (self
+                .controls
+                .iter()
+                .any(|c| c.channels.iter().any(|t| t.active(seconds)))
+                || self.entrances.iter().any(|e| {
+                    e.started
+                        .is_some_and(|start| seconds - start < ENTRANCE_SECONDS)
+                }))
+    }
+
     pub(super) fn configure(&mut self, enabled: bool) {
         if self.enabled != enabled {
             self.primed = false;

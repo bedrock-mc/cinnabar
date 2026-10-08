@@ -84,7 +84,7 @@ fn native_this_includes_the_contribution_from_an_earlier_channel() {
         EntityAnimationProperty::Translation,
         [1.0, -24.0, 0.0],
     );
-    let mut target_channel = compiled.animation_channels[0];
+    let mut target_channel = compiled.animation_channels[0].clone();
     target_channel.first_keyframe = 1;
     let mut frames = vec![EntityAnimationKeyframe {
         time_seconds: scalar(0.0),
@@ -96,6 +96,7 @@ fn native_this_includes_the_contribution_from_an_earlier_channel() {
     compiled.animation_keyframes = frames.into();
     compiled.animation_channels = vec![
         EntityAnimationChannel {
+            bone_name: None,
             bone: 0,
             property: EntityAnimationProperty::Translation,
             first_keyframe: 0,

@@ -112,10 +112,9 @@ pub fn solve_light_with_scratch<A: LightBlockAccess, P: LightReadAccess>(
             let old = output.get_at_index(index, channel);
             let base = local_base(blocks, index, channel, profile)?;
             if old == 0
-                || old
-                    <= supported_prior_level(
-                        blocks, prior, bounds, position, index, channel, profile,
-                    )?
+                || prior_supports_level(
+                    blocks, prior, bounds, position, index, channel, profile, old,
+                )?
             {
                 continue;
             }
@@ -288,9 +287,9 @@ fn local_base<A: LightBlockAccess>(
     }
 }
 
-/// Finds old support while mapping each interior neighbour only once.
+/// Stops once cached neighbour support reaches the retained light level.
 #[allow(clippy::too_many_arguments)]
-fn supported_prior_level<A: LightBlockAccess, P: LightReadAccess>(
+fn prior_supports_level<A: LightBlockAccess, P: LightReadAccess>(
     blocks: &CachedLightBlockAccess<'_, A>,
     prior: &CachedLightReadAccess<'_, P>,
     bounds: LightBounds,
@@ -298,15 +297,31 @@ fn supported_prior_level<A: LightBlockAccess, P: LightReadAccess>(
     index: usize,
     channel: LightChannel,
     profile: DimensionLightProfile,
-) -> Result<u8, LightSolveError> {
+    required: u8,
+) -> Result<bool, LightSolveError> {
     let Some(filter) = blocks.sample_at_index(index).filter() else {
-        return Ok(0);
+        return Ok(false);
     };
-    let mut supported = local_base(blocks, index, channel, profile)?;
-    if channel == LightChannel::Sky && !profile.allows_sky() {
-        return Ok(supported);
+    if local_base(blocks, index, channel, profile)? >= required {
+        return Ok(true);
     }
-    for offset in NEIGHBOURS {
+    if channel == LightChannel::Sky && !profile.allows_sky() {
+        return Ok(false);
+    }
+    // Direct sky commonly has its full support immediately above the retained cell.
+    let neighbours = if channel == LightChannel::Sky {
+        [
+            NEIGHBOURS[3],
+            NEIGHBOURS[0],
+            NEIGHBOURS[1],
+            NEIGHBOURS[2],
+            NEIGHBOURS[4],
+            NEIGHBOURS[5],
+        ]
+    } else {
+        NEIGHBOURS
+    };
+    for offset in neighbours {
         let Some(neighbour) = position.checked_offset(offset) else {
             continue;
         };
@@ -332,16 +347,19 @@ fn supported_prior_level<A: LightBlockAccess, P: LightReadAccess>(
             };
             (level, direct_sky)
         };
-        supported = supported.max(incoming_level(
+        if incoming_level(
             neighbour_level,
             filter,
             channel,
             profile,
             offset,
             direct_sky,
-        ));
+        ) >= required
+        {
+            return Ok(true);
+        }
     }
-    Ok(supported)
+    Ok(false)
 }
 
 fn incoming_level(
@@ -543,3 +561,7 @@ pub(super) fn enqueue_counted(
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[path = "support_tests.rs"]
+mod tests;

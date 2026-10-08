@@ -1,4 +1,4 @@
-//! Opt-in, process-once structural observation; never retains server text.
+//! Opt-in, process-once rejected-form observation; never retains server text.
 use std::{
     ffi::OsStr,
     sync::{
@@ -117,8 +117,11 @@ enum Summary {
 }
 
 fn inspect(enabled: bool, claimed: &AtomicBool, event: &FormRequestEvent) -> Option<Summary> {
-    // Disabled observation does not inspect the document or allocate a parser.
-    if !enabled || claimed.swap(true, Ordering::AcqRel) {
+    // Supported forms preserve the one-shot budget without inspecting the document.
+    if !enabled
+        || !matches!(event.model, ServerFormModel::Unsupported(_))
+        || claimed.swap(true, Ordering::AcqRel)
+    {
         return None;
     }
     if !bounded(&event.json) {
@@ -270,11 +273,11 @@ impl<'de> Visitor<'de> for Seed {
                         other_keys: button.other_keys,
                     };
                 }
-                node.shape.entries = (node.shape.entries + 1).min(protocol::MAX_FORM_BUTTONS + 1);
+                node.shape.entries = (node.shape.entries + 1).min(protocol::MAX_FORM_JSON_BYTES);
             }
         } else {
             while seq.next_element::<IgnoredAny>()?.is_some() {
-                node.shape.entries = (node.shape.entries + 1).min(protocol::MAX_FORM_BUTTONS + 1);
+                node.shape.entries = (node.shape.entries + 1).min(protocol::MAX_FORM_JSON_BYTES);
             }
         }
         Ok(node)
@@ -282,7 +285,7 @@ impl<'de> Visitor<'de> for Seed {
     fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Node, A::Error> {
         let mut node = self.node(Kind::Object);
         while let Some(key) = map.next_key_seed(KeySeed)? {
-            node.shape.entries = (node.shape.entries + 1).min(protocol::MAX_FORM_BUTTONS + 1);
+            node.shape.entries = (node.shape.entries + 1).min(protocol::MAX_FORM_JSON_BYTES);
             match (self.0, key) {
                 (Mode::Form | Mode::Button | Mode::Image, Key::Type) => {
                     let value = map.next_value_seed(Seed(Mode::Type))?;
@@ -326,7 +329,7 @@ impl<'de> Visitor<'de> for Seed {
                     node.shape.rawtext_entries = value.shape.entries;
                 }
                 _ => {
-                    node.other_keys = (node.other_keys + 1).min(protocol::MAX_FORM_BUTTONS + 1);
+                    node.other_keys = (node.other_keys + 1).min(protocol::MAX_FORM_JSON_BYTES);
                     map.next_value::<IgnoredAny>()?;
                 }
             }

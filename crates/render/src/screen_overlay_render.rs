@@ -77,6 +77,7 @@ fn install(app: &mut App) {
     if render_app.world().contains_resource::<Installed>() {
         return;
     }
+    crate::pipeline_warmup::register::<OverlayPipeline>(app);
     app.add_plugins(ExtractResourcePlugin::<ScreenOverlayScene>::default());
     load_internal_asset!(
         app,
@@ -447,7 +448,11 @@ impl Specializer<RenderPipeline> for OverlayPipelineSpecializer {
         key: Self::Key,
         descriptor: &mut RenderPipelineDescriptor,
     ) -> Result<Canonical<Self::Key>, BevyError> {
-        descriptor.multisample.count = key.msaa.samples();
+        descriptor.multisample.count = if key.after_hand {
+            1
+        } else {
+            key.msaa.samples()
+        };
         if key.after_hand {
             descriptor.depth_stencil = None;
         }
@@ -585,7 +590,7 @@ pub(crate) fn draw_before_hud(
     ) else {
         return;
     };
-    let attachments = [Some(target.get_color_attachment())];
+    let attachments = [Some(target.get_unsampled_color_attachment())];
     let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
         label: Some("camera effects before HUD"),
         color_attachments: &attachments,
@@ -691,7 +696,7 @@ mod tests {
         let mut cache = app.world_mut().resource_mut::<PipelineCache>();
         let descriptor = crate::queue_review_support::queued_descriptor(&mut cache, id);
         assert!(descriptor.depth_stencil.is_none());
-        assert_eq!(descriptor.multisample.count, 4);
+        assert_eq!(descriptor.multisample.count, 1);
         assert_eq!(
             descriptor.fragment.as_ref().unwrap().targets[0]
                 .as_ref()
@@ -733,5 +738,26 @@ mod review_tests {
             .set_layers([], 0.0);
         app.world_mut().run_system_once(queue_overlay).unwrap();
         assert!(fixture::items(&app, view).is_empty());
+    }
+}
+
+impl crate::pipeline_warmup::PrewarmPipelines for OverlayPipeline {
+    fn prewarm(
+        &mut self,
+        cache: &PipelineCache,
+        view: crate::pipeline_warmup::WarmView,
+        ids: &mut crate::pipeline_warmup::WarmupIds,
+    ) -> Result<(), BevyError> {
+        for after_hand in [false, true] {
+            ids.push(self.variants.specialize(
+                cache,
+                OverlayPipelineKey {
+                    msaa: view.msaa,
+                    hdr: view.hdr,
+                    after_hand,
+                },
+            )?);
+        }
+        Ok(())
     }
 }

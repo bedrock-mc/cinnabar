@@ -14,10 +14,14 @@ impl ActorStore {
         let ActorKind::Player { uuid, .. } = &actor.kind else {
             return None;
         };
-        self.players
-            .get(uuid)
-            .or_else(|| self.unlisted_players.get(uuid))
-            .filter(|profile| profile.unique_id == actor.unique_id)
+        let profile = if self.animation.has_skin_preparation() {
+            self.ready_appearances.profiles.get(uuid)
+        } else {
+            self.players
+                .get(uuid)
+                .or_else(|| self.unlisted_players.get(uuid))
+        };
+        profile.filter(|profile| profile.unique_id == actor.unique_id)
     }
 
     pub(crate) fn actor_display_name(&self, unique_id: i64) -> Option<std::sync::Arc<str>> {
@@ -63,6 +67,14 @@ impl ActorStore {
         names
     }
 
+    /// How many players [`Self::player_list_usernames`] would list, without allocating.
+    pub(crate) fn player_list_count(&self) -> usize {
+        self.players
+            .values()
+            .filter(|profile| !profile.username.is_empty())
+            .count()
+    }
+
     pub(crate) fn render_players(
         &self,
         excluded_runtime_id: Option<u64>,
@@ -75,6 +87,9 @@ impl ActorStore {
                 let ActorKind::Player { .. } = &actor.kind else {
                     return None;
                 };
+                if !self.appearance_ready(actor) {
+                    return None;
+                }
                 let profile = self.player_profile(actor.runtime_id);
                 Some((actor, profile))
             })
@@ -147,7 +162,9 @@ impl ActorStore {
         self.actors.values()
     }
     pub(crate) fn actor_rig(&self, runtime_id: u64) -> Option<ActorRigSnapshot<'_>> {
-        self.animation.get(runtime_id)
+        self.appearance_ready(self.actors.get(&runtime_id)?)
+            .then(|| self.animation.get(runtime_id))
+            .flatten()
     }
     pub(crate) fn render_frame(&self, partial_tick: f32) -> crate::ActorRenderFrame<'_> {
         crate::ActorRenderFrame::new(self, partial_tick)
@@ -192,7 +209,11 @@ impl ActorStore {
         self.animation.retargeted_layers(runtime_id, alpha, targets)
     }
     pub(crate) fn actor_rigs(&self) -> impl Iterator<Item = ActorRigSnapshot<'_>> {
-        self.animation.snapshots()
+        self.animation.snapshots().filter(|rig| {
+            self.actors
+                .get(&rig.actor.runtime_id)
+                .is_some_and(|actor| self.appearance_ready(actor))
+        })
     }
     pub(crate) fn actor_particle_controllers(
         &self,

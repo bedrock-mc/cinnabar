@@ -44,7 +44,7 @@ pub use correction_shape::{
     reconcile_prediction_correction, reconcile_timeline_rewind,
 };
 pub use diagnostics::{CorrectionKind, note_correction, note_motion};
-pub use effects::{BoostSpan, LocalMovementEffectTimeline, MiningEffects};
+pub use effects::{BoostSpan, LocalMovementEffectTimeline, MiningEffects, MovementBoost};
 use encoding::{HeldInput, input_flags, normalize_move_vector};
 use evidence::PhysicsTickSampleEvidence;
 pub use evidence::{PhysicsTickEvidence, PhysicsTickEvidenceContext};
@@ -54,7 +54,7 @@ pub use outbox::OUTBOX_CAPACITY;
 #[cfg(any(test, feature = "test-support"))]
 pub use outbox::flush_player_auth_inputs;
 pub use outbox::{
-    InteractionPacketGuard, MovementOutboxReconciliation, UnsentSampleView,
+    InteractionPacketGuard, InteractionSample, MovementOutboxReconciliation, UnsentSampleView,
     flush_player_auth_inputs_guarded,
 };
 use physics::PhysicsCorrectionConfirmation;
@@ -154,6 +154,8 @@ pub struct MovementTicker {
     epoch_publisher: watch::Sender<u64>,
     mining_epoch_publisher: watch::Sender<u64>,
     held_release: Option<outbox::HeldRelease>,
+    /// Recent tick-end states, the single source of build actions' pre-tick state.
+    tick_ends: outbox::TickEnds,
 }
 
 #[cfg(test)]
@@ -196,6 +198,7 @@ impl MovementTicker {
             epoch_publisher,
             mining_epoch_publisher,
             held_release: None,
+            tick_ends: outbox::TickEnds::default(),
         }
     }
 
@@ -227,6 +230,7 @@ impl MovementTicker {
         self.terminal_drain = false;
         self.pending_control_fence = false;
         self.pending_teleport_ack = None;
+        self.anchor_tick_end(initial_position);
     }
 
     pub fn deactivate(&mut self) {
@@ -241,6 +245,7 @@ impl MovementTicker {
         self.terminal_drain = false;
         self.pending_control_fence = false;
         self.pending_teleport_ack = None;
+        self.tick_ends.clear();
     }
 
     /// Latches a remote-initiated close of an active, authorized physics
@@ -284,6 +289,7 @@ impl MovementTicker {
         }
         self.terminal_drain = false;
         self.pending_control_fence = false;
+        self.anchor_tick_end(self.previous_position);
     }
 
     pub fn snap_non_authoritative_anchor(&mut self, tick: u64, position: [f32; 3]) {
@@ -296,6 +302,7 @@ impl MovementTicker {
         self.previous_input = HeldInput::default();
         self.outbox.clear();
         self.sent_history.clear();
+        self.anchor_tick_end(position);
     }
 
     pub fn enqueue_completed_physics(
@@ -382,6 +389,7 @@ impl MovementTicker {
         }
         self.position_authority_changed();
         self.source = MovementSource::FreeCamera;
+        self.tick_ends.clear();
         self.outbox.clear();
         self.sent_history.clear();
         self.outbox_reconciliation = MovementOutboxReconciliation::NotAuthoritative;
@@ -418,6 +426,13 @@ impl MovementTicker {
         self.next_tick = self.next_tick.saturating_add(1);
         self.previous_position = sample.position;
         self.previous_input = current_input;
+        self.tick_ends.record(UnsentSampleView::from_parts(
+            snapshot.tick,
+            snapshot.position,
+            snapshot.delta,
+            sample.movement,
+            snapshot.flags,
+        ));
         snapshot
     }
 
@@ -597,6 +612,7 @@ impl MovementTicker {
         self.previous_input = HeldInput::default();
         self.outbox.clear();
         self.sent_history.clear();
+        self.anchor_tick_end(position);
         self.refresh_outbox_reconciliation();
     }
 
@@ -786,6 +802,7 @@ impl MovementTicker {
                 self.previous_position = plan.final_position;
                 self.outbox.clear();
                 self.sent_history.clear();
+                self.anchor_tick_end(plan.final_position);
                 Ok(())
             }
             PhysicsCorrectionOutcome::Replayed { .. } => {
@@ -875,6 +892,18 @@ impl MovementTicker {
                 }
                 self.previous_position = plan.final_position;
                 self.previous_input = previous_input;
+                // The corrected anchor and every replayed tick, queued or transport-owned.
+                let anchor = plan
+                    .corrected_sample
+                    .as_ref()
+                    .map(|sample| (sample, input_flags(sample, plan.anchor_input)));
+                for (sample, flags) in anchor
+                    .into_iter()
+                    .chain(rebuilt.iter().map(|(sample, flags)| (*sample, *flags)))
+                {
+                    self.tick_ends
+                        .record(UnsentSampleView::from_replayed(sample, flags));
+                }
                 Ok(())
             }
         }
@@ -931,7 +960,10 @@ mod zeqa_tests;
 pub use teleport_ack::TELEPORT_ACK_ADMITTED_TICK_BUDGET;
 
 mod frame;
-pub use frame::{LocomotionState, PhysicsFrameHold, PhysicsFrameInput, wire_head_yaw, wire_yaw};
+pub use frame::{
+    LocomotionState, PhysicsFrameHold, PhysicsFrameInput, frame_simulates_tick, wire_head_yaw,
+    wire_yaw,
+};
 
 #[cfg(test)]
 mod input_state_tests;

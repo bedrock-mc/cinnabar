@@ -141,7 +141,7 @@ pub fn advance_actor_frame(
         let artwork_timer = profiler
             .as_deref()
             .map(|profiler| profiler.time(RuntimeStage::ActorArtworkSetup));
-        let pages = crate::prepared_actor_artwork::session_pages(
+        let resources = crate::prepared_actor_artwork::session_resources(
             &artwork,
             pack.as_ref(),
             client_world.prepared_actor_artwork.as_deref(),
@@ -150,7 +150,7 @@ pub fn advance_actor_frame(
         // Always republished: presentation selects from these pages, the scene validates them.
         let (effective, staged, locations) = apply_session_pack(
             &mut scene,
-            pages,
+            &resources,
             pack.as_deref(),
             staged,
             pack_geometry_ready,
@@ -302,6 +302,11 @@ pub fn advance_actor_frame(
                 &input.local_equipment,
             );
             let (consume_ticks, item_animation) = hand_use(stream, step.partial_tick);
+            let item_animation =
+                item_animation.map(|input| client_world::AttachableAnimationInput {
+                    delta_seconds: Some(time.delta_secs()),
+                    ..input
+                });
             *captured_hand_use = (consume_ticks, item_animation);
             *hand_key = hand::source_key(stream, consume_ticks, item_animation, step.partial_tick);
             equipment.begin_hand_readiness();
@@ -359,7 +364,7 @@ pub(super) fn register_player_skin(
     let Some(geometry) = rig.skin_geometry else {
         return;
     };
-    let id = cache.rig(geometry, |built| {
+    let id = cache.rig(geometry, rig.skin_mesh, |built| {
         if let Some(equipment) = equipment.as_deref_mut() {
             equipment.register_skin_rig(
                 built.id,

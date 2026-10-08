@@ -159,8 +159,16 @@ interface camera {
     set-preserve-teleport-rotation: func(enabled: bool) -> result<_, string>;
 }
 
+/// Opt-in item-use policy; requires the explicit item-use grant.
+interface item-use {
+    /// Renew each gameplay frame. Skips only the air-use rearm delay; item cooldowns and tick admission remain intact.
+    /// Omission, no gameplay frame, and failed callbacks restore vanilla timing.
+    set-delay-fix: func(enabled: bool) -> result<_, string>;
+}
+
 /// Experimental developer contract; no WASI or ambient operating-system access.
 world extension {
+    import item-use;
     import camera;
     import hud;
     import input;
@@ -174,16 +182,4 @@ world extension {
     export init: func();
     /// Bounded frame callback used to measure the spike's crossing cost.
     export frame: func();
-}
-
-/// Server-scoped component; optional grants return denial through these imports.
-world server-bundle {
-    import cinnabar:server-experience/ui@1.0.0;
-    import cinnabar:server-experience/input@1.0.0;
-    import cinnabar:server-experience/messaging@1.0.0;
-    import cinnabar:server-experience/scene@1.0.0;
-    import cinnabar:server-experience/media@1.0.0;
-    export init: func();
-    /// A typed message or host-owned input edge; no raw packet or keyboard data.
-    export dispatch: func(channel: string, record-json: list<u8>);
 }

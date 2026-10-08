@@ -171,6 +171,7 @@ fn load_then_callback_round_trip() {
             id: loaded.manifest.id,
             version: loaded.manifest.version,
             blocks: loaded.blocks,
+            focus: loaded.focus,
         }
     );
     session.send(&interact(0));

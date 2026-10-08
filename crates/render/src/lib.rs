@@ -56,12 +56,16 @@ pub use native_sunlight::AtmosphereViewInputs;
 mod panorama;
 mod panorama_render;
 mod particle_render;
+mod pipeline_warmup;
+pub use pipeline_warmup::PipelineWarmupReadiness;
 mod present_mode;
 mod primitive_shapes;
 pub use primitive_shapes::{PrimitiveShapesRenderPlugin, PrimitiveShapesScene};
 mod runtime_profile;
 mod runtime_profile_slow;
 mod runtime_profile_trace;
+mod scene_sampling;
+mod scene_target;
 mod screen_fire;
 mod screen_overlay;
 mod screen_overlay_portal;
@@ -72,6 +76,9 @@ mod shader_safety;
 mod shader_source;
 mod surface_lifecycle;
 mod ui_render;
+#[cfg(all(test, target_os = "macos"))]
+mod upload_allocation_tests;
+mod upload_staging;
 mod viewmodel;
 mod viewmodel_render;
 

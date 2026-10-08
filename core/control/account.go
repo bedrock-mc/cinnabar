@@ -113,7 +113,7 @@ type emptyResultV1 struct {
 
 func isServiceMethod(method string) bool {
 	switch method {
-	case methodRealmsList, methodFriendsList, methodConnect, methodAccountStatus, methodSignOut, methodEvents, methodServerTrust:
+	case methodRealmsList, methodFriendsList, methodFriendsPeople, methodConnect, methodAccountStatus, methodSignOut, methodEvents, methodServerTrust:
 		return true
 	}
 	return isScreenMethod(method)
@@ -263,6 +263,19 @@ func (server *Server) serveService(conn net.Conn, id uint64, method string, raw 
 			friends = []catalog.Friend{}
 		}
 		return reply.ok(friendsResultV1{SchemaVersion: 1, Friends: friends})
+	case methodFriendsPeople:
+		people, supported := services.(PeopleServices)
+		if len(raw) != 0 {
+			return reply.invalid()
+		}
+		if !supported {
+			return reply.fail(codeServicesDisabled, "Launcher services unavailable")
+		}
+		list, err := people.People(ctx)
+		if err != nil {
+			return failService(err)
+		}
+		return reply.ok(peopleResult(list))
 	case methodConnect:
 		var params struct {
 			Kind  *string `json:"kind"`
