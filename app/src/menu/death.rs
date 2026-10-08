@@ -37,10 +37,14 @@ impl MenuRuntime {
     }
 
     /// Opens the route and starts the server-requested immediate respawn once.
-    pub(crate) fn open_death_with_rules(&mut self, immediate_respawn: bool) {
-        if self.open_death() && immediate_respawn {
+    pub(crate) fn open_death_with_rules(&mut self, immediate_respawn: bool) -> bool {
+        if !self.open_death() {
+            return false;
+        }
+        if immediate_respawn {
             self.activate(MenuAction::Respawn);
         }
+        true
     }
 
     /// Retires presentation and unsent requests when the session ends or recovers.

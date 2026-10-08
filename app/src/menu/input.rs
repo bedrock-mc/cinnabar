@@ -1,3 +1,4 @@
+mod death;
 mod preview;
 mod remapping;
 mod server_list;
@@ -441,17 +442,17 @@ pub(crate) fn drive_menu_input(
                 .collect()
         })
         .unwrap_or_default();
-    // Authoritative death and recovery advance even while the window is unfocused.
-    if let Some(health) = runtime.as_ref().and_then(|runtime| runtime.hud().health()) {
-        if health.current() == 0 {
-            menu.open_death_with_rules(
-                runtime
-                    .as_ref()
-                    .is_some_and(|runtime| runtime.immediate_respawn()),
-            );
-        } else {
-            menu.note_player_alive();
-        }
+    if gui_scale_drag.observe_death(
+        runtime.as_deref(),
+        &mut menu,
+        &mut presentation,
+        &mut keyboard_messages,
+    ) {
+        *modifiers = MenuModifiers::default();
+        keys.reset_all();
+        mouse_buttons.reset_all();
+        crate::camera::release_cursor(&mut cursor);
+        return;
     }
     if runtime.as_ref().is_some_and(|runtime| {
         runtime.credits().owns_input()
@@ -991,3 +992,6 @@ mod settings_slider_tests;
 
 #[cfg(test)]
 mod sign_in_tests;
+
+#[cfg(test)]
+mod death_tests;
