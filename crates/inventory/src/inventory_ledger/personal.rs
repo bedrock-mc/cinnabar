@@ -133,13 +133,11 @@ impl PlayerInventoryLedger {
                     ..
                 }
         ) {
-            match self.return_crafting_on_close() {
-                Ok(returning) => returning,
-                Err(error) => {
-                    self.note_close_return_failure(error);
-                    return;
-                }
-            }
+            // Vanilla always closes; inputs it cannot return wait for the server's restatement.
+            self.return_crafting_on_close().unwrap_or_else(|error| {
+                self.note_close_return_failure(error);
+                true
+            })
         } else {
             false
         };

@@ -210,6 +210,8 @@ pub struct PlayerInventoryLedger {
     personal_lifecycle_failed: bool,
     /// An open press made while a close is unsent or unacknowledged; opens once it settles.
     held_open: Option<u64>,
+    /// An acknowledged personal close whose requests still await answers; they stay current.
+    settling_personal: Option<u64>,
     storage: Option<StorageWindow>,
     pending_closes: VecDeque<PendingClose>,
     player_resync_required: bool,
@@ -244,6 +246,7 @@ impl Default for PlayerInventoryLedger {
             personal: None,
             personal_lifecycle_failed: false,
             held_open: None,
+            settling_personal: None,
             storage: None,
             pending_closes: VecDeque::new(),
             player_resync_required: false,
@@ -624,6 +627,7 @@ impl PlayerInventoryLedger {
     pub fn poll_timeout(&mut self, now_millis: u64) -> bool {
         let personal_expired = self.poll_personal_timeout(now_millis);
         self.expire_overdue_requests(now_millis);
+        self.finish_settled_personal_close();
         personal_expired
     }
 
@@ -662,6 +666,7 @@ impl PlayerInventoryLedger {
         self.pending_closes.clear();
         self.personal = None;
         self.held_open = None;
+        self.settling_personal = None;
         self.abandon_requests(|_| true);
         self.finish_closing();
     }
@@ -694,13 +699,11 @@ impl PlayerInventoryLedger {
         let returning = if window_type == WORKBENCH_WINDOW_TYPE
             || self.authority == Some(InventoryAuthority::Client)
         {
-            match self.return_crafting_on_close() {
-                Ok(returning) => returning,
-                Err(error) => {
-                    self.note_close_return_failure(error);
-                    return;
-                }
-            }
+            // Vanilla always closes; inputs it cannot return wait for the server's restatement.
+            self.return_crafting_on_close().unwrap_or_else(|error| {
+                self.note_close_return_failure(error);
+                true
+            })
         } else {
             false
         };
@@ -768,12 +771,49 @@ impl PlayerInventoryLedger {
             ) => generation,
             _ => return,
         };
+        // Our close leaves before its returns are answered, so an acknowledgement can
+        // overtake them; they still settle against this generation afterwards.
+        if retain_confirmed_cursor
+            && self.queue.iter().any(|pending| {
+                pending.personal_generation == Some(generation)
+                    && pending.state == InventoryPendingState::AwaitingResponse
+            })
+        {
+            self.personal = None;
+            self.settling_personal = Some(generation);
+            self.refold();
+            return;
+        }
         // The cursor is session-owned rather than window-owned. Only a
         // settled cursor may survive the acknowledgement of our own close.
         let retain_confirmed_cursor =
             retain_confirmed_cursor && self.queue.is_empty() && !self.cursor_resync_required;
         self.abandon_requests(|pending| pending.personal_generation == Some(generation));
         self.personal = None;
+        self.clear_window_inputs(retain_confirmed_cursor);
+    }
+
+    /// Releases an acknowledged close once its last request settles; a reopened
+    /// window owns the inputs by then.
+    pub(super) fn finish_settled_personal_close(&mut self) {
+        let Some(generation) = self.settling_personal else {
+            return;
+        };
+        if self
+            .queue
+            .iter()
+            .any(|pending| pending.personal_generation == Some(generation))
+        {
+            return;
+        }
+        self.settling_personal = None;
+        if self.personal.is_none() {
+            let retain_confirmed_cursor = !self.cursor_resync_required;
+            self.clear_window_inputs(retain_confirmed_cursor);
+        }
+    }
+
+    fn clear_window_inputs(&mut self, retain_confirmed_cursor: bool) {
         self.clear_crafting();
         if !retain_confirmed_cursor {
             self.drop_confirmed_cursor();

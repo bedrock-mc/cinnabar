@@ -40,6 +40,7 @@ impl PlayerInventoryLedger {
         }
         self.admit(event);
         self.refold();
+        self.finish_settled_personal_close();
         self.resume_held_open();
     }
 
@@ -55,6 +56,7 @@ impl PlayerInventoryLedger {
                 {
                     self.queue.clear();
                     self.personal = None;
+                    self.settling_personal = None;
                     self.confirmed.set(Cell::Cursor, None);
                     self.player_resync_required = false;
                     self.cursor_resync_required = false;

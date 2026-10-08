@@ -770,14 +770,15 @@ fn close_drops_only_the_remainder_when_the_player_inventory_is_full() {
     assert!(ledger.confirmed.get(Cell::Craft(28)).is_some());
 }
 
+/// An input that cannot be returned never keeps the screen open; the ledger keeps the item.
 #[test]
-fn invalid_close_input_identity_keeps_the_grid_and_the_screen_open() {
+fn invalid_close_input_identity_still_closes_and_keeps_the_grid() {
     let mut ledger = ledger(PERSONAL_INVENTORY_WINDOW_TYPE);
     ledger.apply(&craft_slot(28, stack(LOG, 0, 8)));
     ledger.request_personal_close();
-    assert!(ledger.personal_inventory_desired_open());
+    assert!(!ledger.personal_inventory_desired_open());
     assert_eq!(ledger.pending_request_count(), 0);
-    assert!(ledger.pending_closes.is_empty());
+    assert_eq!(ledger.pending_closes.len(), 1);
     assert_eq!(
         ledger
             .target_stack(InventoryTarget::Craft(28))
@@ -818,7 +819,21 @@ fn refused_close_return_after_the_close_preserves_the_ingredient() {
     }));
     assert!(!ledger.personal_inventory_desired_open());
     assert!(ledger.confirmed.get(Cell::Craft(28)).is_some());
+
+    // The stranded ingredient awaits the server, but the reopened screen still closes.
     assert!(ledger.request_personal_open(42));
+    assert!(ledger.mark_transport_enqueued(20));
+    ledger.apply(&InventoryEvent::Open(ContainerOpenEvent {
+        container: ContainerIdentity::window(3),
+        window_type: PERSONAL_INVENTORY_WINDOW_TYPE,
+        position: [0, 64, 0],
+        runtime_entity_id: -1,
+    }));
+    assert!(ledger.personal_inventory_desired_open());
+    ledger.request_personal_close();
+    assert!(!ledger.personal_inventory_desired_open());
+    let (close, _) = ledger.pending_batch().unwrap().unwrap();
+    assert_eq!(format!("{:?}", close.header.id), "ContainerClosePacket");
 }
 
 #[test]

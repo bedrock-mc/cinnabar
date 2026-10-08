@@ -872,6 +872,32 @@ fn open_pressed_during_a_close_is_held_until_the_close_settles() {
     assert_eq!(flushed_packet_names(&mut session, 22), ["InteractPacket"]);
 }
 
+/// A close acknowledgement that overtakes its return's answer still lets the return settle.
+#[test]
+fn close_ack_before_the_return_response_keeps_the_return_correlated() {
+    let mut ledger = ledger_with_slot_zero();
+    acknowledge_personal_open(&mut ledger, 2);
+    ledger.begin_click(0).unwrap();
+    assert!(ledger.mark_transport_enqueued(20));
+    accept_cursor_move(&mut ledger, -3, false);
+    ledger.request_personal_close();
+    assert!(ledger.mark_transport_enqueued(30));
+    assert!(ledger.mark_transport_enqueued(31));
+
+    ledger.apply(&InventoryEvent::Close(ContainerCloseEvent {
+        container: ContainerIdentity::window(2),
+        window_type: NO_CONTAINER_WINDOW_TYPE,
+        server_initiated: false,
+    }));
+    assert!(!ledger.personal_inventory_desired_open());
+    accept_cursor_move(&mut ledger, -5, true);
+
+    assert_eq!(ledger.pending_state(), None);
+    assert!(ledger.cursor_stack().is_none());
+    assert_eq!(ledger.displayed_stack(0).map(|s| s.count), Some(32));
+    assert!(!ledger.resync_required());
+}
+
 #[test]
 fn unsent_and_admitted_cursor_mutations_are_retained_for_close_cleanup() {
     let mut unsent = ledger_with_slot_zero();

@@ -174,10 +174,12 @@ impl PlayerInventoryLedger {
     pub(super) fn request_is_current(&self, request: &PendingRequest) -> bool {
         request.session_generation == self.session_generation
             && request.personal_generation.is_none_or(|generation| {
-                self.personal
-                    .as_ref()
-                    .map(super::personal::PersonalWindow::generation)
-                    == Some(generation)
+                self.settling_personal == Some(generation)
+                    || self
+                        .personal
+                        .as_ref()
+                        .map(super::personal::PersonalWindow::generation)
+                        == Some(generation)
             })
             && request.storage_generation.is_none_or(|generation| {
                 self.storage.as_ref().map(|storage| storage.generation) == Some(generation)
