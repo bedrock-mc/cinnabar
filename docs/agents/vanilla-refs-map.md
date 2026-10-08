@@ -3645,3 +3645,27 @@ Files: `docs/reference/held-block-placement.md`, `crates/gameplay/src/block_use.
   `geometry.the_entity`. A fixed 151-actor loopback scene keeps the late actor in
   its authored frustum while a camera turn admits the background crowd; the old
   128-body gates remove that otherwise visible actor.
+
+
+## Bamboo stalk and radial leaf visuals
+
+- `crates/pack-compiler/src/compiler/visuals/bamboo.rs` owns the separate stem
+  and leaf selectors, thickness bounds, and small/large radial leaf topology.
+  Current 1.26.50.26 canonical `src/__unmapped/06.cpp`, `FUN_146a5d440`
+  (1753381 onward), calls stem helper `FUN_146ab94f0` (1797959 onward).
+  The stem uses graphics selector 2 on all six surfaces; leaf sizes 1/2 use
+  selectors 3/1. The current body confirms four leaf quads per leafy state.
+- Installed iOS 1.26.51.01 arm64 stalk `0x10486c84c` and stem helper
+  `0x1048a95e4` retain that structure. Read-only instruction measurements give
+  widths 1/8 and 3/16, stem UV stride 3/16, cap U 13/16, bottom V 1/4,
+  small leaf UV boundaries 1/8, 7/16, 9/16, 7/8 and large boundaries
+  0, 7/16, 9/16, 1. These resolve nearby-version numeric data only: the current
+  exported globals remain unavailable, so exact target admission stays open.
+- `crates/meshing/src/bamboo.rs` follows current position hash, seed mixing,
+  and xoroshiro128++ in `src/__unmapped/0a.cpp`, `FUN_14ab8efd0` (2018342).
+  Installed arm64 `0x10bb8af58` independently confirms signed-coordinate RNG
+  samples for ordinary coordinates. Its narrowed X product diverges at i32
+  extrema; our wide hash follows the current canonical body. Pinned protocol-2193
+  physics seeds independently confirm both widths
+  and origin bounds (.31666666, .38333333), matching a 16-step [-1/4, 1/4]
+  X/Z offset and zero Y. Default component admission still needs direct proof.

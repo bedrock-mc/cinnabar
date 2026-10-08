@@ -39,6 +39,14 @@ pub(crate) fn source(source: &str) -> String {
         .replace("ACTOR_MATERIAL_CULL_FLAG", &format!("{}u", assets::EntityRenderMaterialState::CULL))
         .replace("ACTOR_MATERIAL_EMISSIVE_FLAG", &format!("{}u", assets::EntityRenderMaterialState::EMISSIVE))
         .replace("ACTOR_ALPHA_TEST_THRESHOLD", &format!("{:?}", assets::ENTITY_ALPHA_TEST_THRESHOLD))
+        .replace("MODEL_BAMBOO_FLAG", &format!("{}u", assets::MODEL_TEMPLATE_FLAG_BAMBOO))
+        .replace("// BAMBOO_CONSTANTS", &format!(
+            "const BAMBOO_OFFSET_MIN: f32 = {:?};\nconst BAMBOO_OFFSET_STEP: f32 = {:?};\nconst BAMBOO_STEM_UV_STRIDE: f32 = {:?};\nconst BAMBOO_LEAF_PLANE_INSET: f32 = {:?};",
+            meshing::bamboo::OFFSET_MIN,
+            meshing::bamboo::OFFSET_SPAN / (meshing::bamboo::OFFSET_STEPS - 1) as f32,
+            meshing::bamboo::STEM_UV_STRIDE,
+            meshing::bamboo::LEAF_PLANE_INSET,
+        ))
         .replace("MODEL_LILY_PAD_FLAG", &format!("{}u", assets::MODEL_TEMPLATE_FLAG_LILY_PAD))
         .replace("MATERIAL_DISABLE_AO_FLAG", &format!("{}u", assets::MATERIAL_FLAG_DISABLE_AO))
         .replace("MATERIAL_DISABLE_FACE_DIMMING_FLAG", &format!("{}u", assets::MATERIAL_FLAG_DISABLE_FACE_DIMMING))

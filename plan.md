@@ -6519,3 +6519,11 @@ one authored panel, and the MegaSMP tutorial remains retained with its detailed
 Orebits glyph. The user confirms the rebuilt client looks correct. Required
 touched-crate checks and the canonical developer-control build pass; release
 hardware budgets and matched-version pixel comparison remain incomplete.
+
+
+Bamboo visuals remain incomplete. A dedicated stalk/leaf model now separates the
+stem selector from the small/large leaf selectors, with thickness-dependent stalk
+bounds and position-dependent stem UVs and column offsets. Current pinned physics
+seeds confirm both widths and the origin offsets. Exact target-version atlas and
+random-offset component admission still need verification, followed by rendered
+directional and state checks; this work does not close the bamboo parity gate.
