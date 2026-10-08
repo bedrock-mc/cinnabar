@@ -17,6 +17,8 @@ pub const ENDPOINT_ENV: &str = "CINNABAR_DEVELOPER_CONTROL";
 pub const WINDOW_SIZE_ENV: &str = "CINNABAR_WINDOW_SIZE";
 /// `1` creates the window hidden, for headless capture.
 pub const HIDDEN_WINDOW_ENV: &str = "CINNABAR_HIDDEN_WINDOW";
+/// Enables placeholder sign-in captures in a hidden developer client.
+pub const SIGN_IN_FIXTURE_ENV: &str = "CINNABAR_SIGN_IN_FIXTURE";
 /// Endpoint files live here under the install's `.local` data root.
 pub const ENDPOINT_DIR: &str = "developer-control";
 

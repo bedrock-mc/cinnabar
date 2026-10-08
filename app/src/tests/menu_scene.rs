@@ -182,8 +182,8 @@ fn menu_input_leak_animated_hand_obeys_pack_visibility_and_restores_after_settin
         .unwrap();
     world.run_system_cached(prepare_actor_render_frame).unwrap();
     assert!(
-        !world.resource::<render::HandRigScene>().is_active(),
-        "Settings clears the hand"
+        world.resource::<render::HandRigScene>().is_active(),
+        "Settings opened from pause retains the live world hand"
     );
     world.resource_mut::<MenuRuntime>().set_visible(false);
     world

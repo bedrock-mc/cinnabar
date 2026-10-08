@@ -533,6 +533,7 @@ fn development_layout_in(root: &Path) -> crate::install_layout::InstallLayout {
         crate::install_layout::Platform::Linux,
         &crate::install_layout::InstallEnvironment {
             executable: root.join("target/debug/bedrock-client"),
+            user_root: None,
             home: Some(root.join("home")),
             local_app_data: None,
             xdg_config_home: None,

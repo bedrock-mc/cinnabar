@@ -39,7 +39,6 @@ impl LocalPhysicsController {
             let previous_jump_held = self.previous_jump_held;
             let jump_edge_pending = self.jump_edge_pending;
             let input_edges = self.input_edges;
-            let fly_toggle_pending = self.fly_toggle_pending;
             let modes = self.modes;
             self.reanchor_network_position_before_advance(network_position, tick, on_ground);
             // As in vanilla, MovePlayer changes spatial state without resetting
@@ -47,7 +46,6 @@ impl LocalPhysicsController {
             self.previous_jump_held = previous_jump_held;
             self.jump_edge_pending = jump_edge_pending;
             self.input_edges = input_edges;
-            self.fly_toggle_pending = fly_toggle_pending;
             self.modes = modes;
             if let Some(state) = self.state.as_mut() {
                 state.jump_delay = jump_delay;
@@ -63,6 +61,7 @@ impl LocalPhysicsController {
                 final_tick: tick,
                 final_position: network_position,
                 anchor_input: super::super::encoding::HeldInput::default(),
+                corrected_sample: None,
                 replayed_samples: Vec::new(),
             });
         }
@@ -345,7 +344,7 @@ impl LocalPhysicsController {
             .back()
             .map_or(anchor_controller.environment, |frame| frame.environment);
         self.controller_history = controller_frames;
-        let corrected_world_identity = {
+        let (corrected_world_identity, corrected_sample) = {
             let corrected_sample = self
                 .sample_history
                 .iter_mut()
@@ -359,7 +358,10 @@ impl LocalPhysicsController {
                     corrected_collisions.x || corrected_collisions.z;
                 corrected_sample.vertical_collision = corrected_collisions.y;
             }
-            corrected_sample.world_identity.clone()
+            (
+                corrected_sample.world_identity.clone(),
+                corrected_sample.clone(),
+            )
         };
 
         self.refresh_motion_ticks();
@@ -406,6 +408,7 @@ impl LocalPhysicsController {
             final_tick,
             final_position,
             anchor_input,
+            corrected_sample: Some(corrected_sample),
             replayed_samples,
         })
     }

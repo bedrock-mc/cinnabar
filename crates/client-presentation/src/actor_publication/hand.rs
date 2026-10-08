@@ -318,17 +318,17 @@ pub(super) fn source(
     equipment: &mut EquipmentRuntime,
     cache: &mut java::HandCache,
 ) -> Option<HandSource> {
-    if java_mode {
-        if let Some(source) = java::hand_source(
+    if java_mode
+        && let Some(source) = java::hand_source(
             HandInputs {
                 presentation: inputs.presentation.clone(),
                 ..inputs
             },
             equipment,
             cache,
-        ) {
-            return Some(source);
-        }
+        )
+    {
+        return Some(source);
     }
     let runtime_id = inputs.presentation.submission.input.identity.runtime_id;
     let hand = inputs.stream.authority().actor_rig(runtime_id).map_or(
@@ -347,6 +347,8 @@ pub(super) fn source(
     vanilla_hand_source(inputs, equipment, hand, &mut cache.native_pose)
 }
 
+type AnimationFrameKey = (u32, Option<u32>, u32, bool);
+
 /// Local hand source inputs whose changes require reselection after interaction admission.
 #[derive(PartialEq)]
 pub(super) struct SourceKey {
@@ -357,7 +359,7 @@ pub(super) struct SourceKey {
     sampled_swing: [f32; 2],
     sampled_body_yaw: f32,
     equipped: Option<client_world::JavaHeldItem>,
-    use_frame: (Option<u32>, Option<(u32, Option<u32>, u32, bool)>),
+    use_frame: (Option<u32>, Option<AnimationFrameKey>),
 }
 
 /// Retains unchanged hand layers while admitted actions update their sampled swing and equip.

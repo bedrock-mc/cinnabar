@@ -94,10 +94,13 @@ fn pending_transport_correction_keeps_the_presented_view_without_advancing_autho
             Update,
             super::super::advance_local_physics.after(reconcile_world_stream_before_physics),
         );
-    app.world_mut()
-        .resource_mut::<Time<Real>>()
-        .advance_by(Duration::from_millis(125));
-    app.update();
+    // Two ticks and half of the next; each render frame stays within vanilla's 0.1 s clamp.
+    for millis in [100, 25] {
+        app.world_mut()
+            .resource_mut::<Time<Real>>()
+            .advance_by(Duration::from_millis(millis));
+        app.update();
+    }
     let before = *app.world().resource::<LocalViewPose>();
     let tick = app
         .world()
@@ -175,12 +178,21 @@ fn pending_transport_correction_keeps_the_presented_view_without_advancing_autho
             .resource::<MovementTicker>()
             .can_advance_physics_frame()
     );
+    // The retained half-tick plus two half-ticks advances once, then samples its decay.
+    let half_tick = Duration::from_secs_f64(0.5 / sim::TICKS_PER_SECOND as f64);
     for _ in 0..2 {
         app.world_mut()
             .resource_mut::<Time<Real>>()
-            .advance_by(Duration::from_millis(25));
+            .advance_by(half_tick);
         app.update();
     }
+    let physics = app.world().resource::<LocalPhysicsController>();
+    assert_eq!(physics.state().unwrap().tick, tick + 1);
+    assert!(
+        (physics.tick_alpha() - 0.5).abs() < 1.0e-6,
+        "{}",
+        physics.tick_alpha()
+    );
     let view = app.world().resource::<LocalViewPose>();
     assert!(view.eye_translation().x > before.eye_translation().x);
     assert!(view.eye_translation().x < position[0]);

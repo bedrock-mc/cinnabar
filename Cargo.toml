@@ -14,6 +14,7 @@ members = [
     "crates/experience-sdk",
     "crates/experience-runtime",
     "examples/experiences/probe",
+    "examples/experiences/terminal-client",
     "crates/input",
     "crates/developer-control",
     "crates/json-ui",
@@ -54,7 +55,7 @@ members = [
 resolver = "3"
 
 [workspace.package]
-version = "0.1.11"
+version = "0.1.12"
 edition = "2024"
 rust-version = "1.93.1"
 

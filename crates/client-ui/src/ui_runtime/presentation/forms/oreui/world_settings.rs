@@ -1,7 +1,7 @@
 //! The local-world routes 1.26.50 draws with OreUI: Create New World (`/create-new-world`),
 //! Edit world (`/edit-world`) and Create From Template (`/start-from-template`). Each is the
 //! header with back, a side menu in four of twelve columns (preview, hero button, tab list)
-//! and the tab's controls in eight. Only the tabs whose settings the core applies are shown.
+//! and the tab's controls in eight. Unsupported settings remain visibly disabled.
 
 use protocol::world_control::{Difficulty, GameMode, Generator};
 
@@ -9,18 +9,30 @@ use super::super::super::UiPresentationError;
 use super::grid::{Grid, space};
 use super::paint::{Bounds, Canvas};
 use super::theme::{
-    BODY, CAPTION, DESTRUCTIVE, EDGE, NEUTRAL100, SECONDARY_BUTTON, TEXT, TEXT_DIMMER, TEXT_DIMMEST,
+    BODY, BORDER, CAPTION, DESTRUCTIVE, EDGE, SECONDARY_BUTTON, TEXT, TEXT_DIMMER, TEXT_DIMMEST,
 };
-use super::widgets::{Variant, button, header, panel, row, screen_overlay, segmented, text_field};
+use super::widgets::{
+    Variant, button, header, panel, row, screen_overlay, segmented, text_field_on_panel,
+};
 use crate::local_worlds::{
     Screen, Tab, WorldsView, difficulty_description, difficulty_label, game_mode_description,
     game_mode_label, world_type_label,
 };
 use crate::menu::{LocalWorldAction as A, MenuAction, MenuField, MenuView};
 
+mod advanced;
+mod general;
+mod sections;
+mod sidebar;
+mod templates;
+
 const FIELD: f32 = 4.8;
 const CONTROL: f32 = 4.4;
 
+#[cfg(test)]
+mod tests;
+
+/// Wraps a world-form action for shared menu navigation.
 fn local(action: A) -> MenuAction {
     MenuAction::LocalWorld(action)
 }
@@ -33,7 +45,7 @@ pub(super) fn route(screen: Screen, view: &WorldsView) -> Option<Screen> {
         Screen::BackendPrompt
             if view
                 .prompt
-                .is_some_and(|p| p.blocking == crate::local_worlds::PromptFor::CreateDefault) =>
+                .is_some_and(|p| p.blocking == crate::local_worlds::PromptFor::CreateBds) =>
         {
             Some(Screen::Create)
         }
@@ -64,93 +76,57 @@ pub(super) fn draw(
     let side = grid.span(side.0, side.1);
     let content = grid.span(content.0, content.1);
     let bottom = height - space(canvas, 2);
-    let span = grid.span(0, if grid.narrow { 8 } else { 12 });
-    let scroll = canvas.begin_scroll("world_settings_body", [span[0], top, span[1], bottom])?;
-    top -= scroll.offset;
-    let local_view = &view.local;
-    let result = match route {
-        Screen::Templates => {
-            let mut y = top;
-            button(
-                canvas,
-                view,
-                [side[0], y, side[1], y + canvas.r(CONTROL)],
-                Variant::Primary,
-                "Create new world",
-                Some(local(A::BeginCreate)),
-            )?;
-            y += canvas.r(CONTROL) + space(canvas, 2);
-            tab_row(canvas, view, side, y, "Owned by me (0)", true, None)?;
-            templates_empty(canvas, view, [content[0], top, content[1], bottom])
-        }
-        Screen::Edit => {
-            let y = side_preview(canvas, side, top)?;
-            button(
-                canvas,
-                view,
-                [side[0], y, side[1], y + canvas.r(5.6)],
-                Variant::Hero,
-                "Play",
-                Some(local(A::PlayFromEdit)),
-            )?;
-            let y = y + canvas.r(5.6) + space(canvas, 2);
-            tab_row(canvas, view, side, y, "General", true, None)?;
-            edit_general(
-                canvas,
-                view,
-                local_view,
-                [content[0], top, content[1], bottom],
-            )
-        }
-        _ => {
-            let y = side_preview(canvas, side, top)?;
-            button(
-                canvas,
-                view,
-                [side[0], y, side[1], y + canvas.r(5.6)],
-                Variant::Hero,
-                "Create",
-                Some(local(A::Create)),
-            )?;
-            let mut y = y + canvas.r(5.6) + space(canvas, 2);
-            for (label, tab) in [("General", Tab::General), ("Advanced", Tab::Advanced)] {
-                let selected = local_view.tab == tab;
-                y = tab_row(
-                    canvas,
-                    view,
-                    side,
-                    y,
-                    label,
-                    selected,
-                    Some(local(A::Tab(tab))),
-                )?;
-            }
-            let area = [content[0], top, content[1], bottom];
-            match local_view.tab {
-                Tab::General => create_general(canvas, view, local_view, area),
-                Tab::Advanced => create_advanced(canvas, view, local_view, area),
-            }
+    if route == Screen::Templates {
+        let span = grid.span(0, if grid.narrow { 8 } else { 12 });
+        let scroll = canvas.begin_scroll("world_templates", [span[0], top, span[1], bottom])?;
+        top -= scroll.offset;
+        button(
+            canvas,
+            view,
+            [side[0], top, side[1], top + canvas.r(CONTROL)],
+            Variant::Primary,
+            "Create new world",
+            Some(local(A::BeginCreate)),
+        )?;
+        tab_row(
+            canvas,
+            view,
+            side,
+            top + canvas.r(CONTROL) + space(canvas, 2),
+            "Owned by me (0)",
+            true,
+            None,
+        )?;
+        templates::draw(canvas, view, [content[0], top, content[1], bottom])?;
+        return canvas.end_scroll_to_fit(scroll);
+    }
+    canvas.settings_scrollbars = true;
+    sidebar::draw(
+        canvas,
+        view,
+        [side[0], top, side[1], bottom],
+        route,
+        grid.narrow,
+    )?;
+    let key = match (route, view.local.tab) {
+        (Screen::Edit, _) => "world_edit_general",
+        (_, Tab::General) => "world_create_general",
+        (_, Tab::Advanced) => "world_create_advanced",
+    };
+    let scroll = canvas.begin_scroll(key, [content[0], top, content[1], bottom])?;
+    let entrance = canvas.begin_entrance(super::motion::Surface::WorldTab(route, view.local.tab));
+    let area = [content[0], top - scroll.offset, content[1], bottom];
+    let end = if route == Screen::Edit {
+        general::edit(canvas, view, &view.local, area)?
+    } else {
+        match view.local.tab {
+            Tab::General => general::create(canvas, view, &view.local, area)?,
+            Tab::Advanced => advanced::draw(canvas, view, &view.local, area)?,
         }
     };
-    result?;
-    canvas.end_scroll_to_fit(scroll)
-}
-
-/// The 16:9 world preview at the top of the side menu; returns the y below it.
-fn side_preview(
-    canvas: &mut Canvas<'_>,
-    side: [f32; 2],
-    top: f32,
-) -> Result<f32, UiPresentationError> {
-    let preview = [
-        side[0],
-        top,
-        side[1],
-        top + (side[1] - side[0]) * 9.0 / 16.0,
-    ];
-    canvas.fill(preview, NEUTRAL100)?;
-    canvas.frame(preview, EDGE, [0x1e, 0x1e, 0x1f, 255])?;
-    Ok(preview[3] + space(canvas, 2))
+    canvas.frame([content[0], area[1], content[1], end], EDGE, BORDER)?;
+    canvas.end_entrance(entrance, size)?;
+    canvas.end_scroll(scroll, end - area[1])
 }
 
 /// One side-menu tab row; returns the y below it.
@@ -190,7 +166,7 @@ fn label(
     Ok(y + height + space(canvas, 1))
 }
 
-/// A description under a control; returns the y below plus the gap to the next control.
+/// A description under a control; returns its bottom edge.
 fn caption(
     canvas: &mut Canvas<'_>,
     text: &str,
@@ -205,9 +181,10 @@ fn caption(
         TEXT_DIMMEST,
         false,
     )?;
-    Ok(y + height + space(canvas, 4))
+    Ok(y + height)
 }
 
+/// Draws the name field and its validation feedback.
 fn name_field(
     canvas: &mut Canvas<'_>,
     view: &MenuView,
@@ -218,14 +195,14 @@ fn name_field(
     let y = label(canvas, "World name", area, y)?;
     let focused = view.field == Some(MenuField::WorldName);
     let b = [area[0], y, area[2], y + canvas.r(FIELD)];
-    text_field(
+    text_field_on_panel(
         canvas,
         view,
         b,
         name,
         "My World",
         focused,
-        local(A::NameField),
+        Some(local(A::NameField)),
     )?;
     let mut y = b[3] + space(canvas, 1);
     if let Some(error) = view.local.form_error {
@@ -238,9 +215,10 @@ fn name_field(
             false,
         )?;
     }
-    Ok(y + space(canvas, 3))
+    Ok(y)
 }
 
+/// Draws the available game modes and their selected description.
 fn game_modes(
     canvas: &mut Canvas<'_>,
     view: &MenuView,
@@ -260,20 +238,17 @@ fn game_modes(
             )
         })
         .collect();
-    segmented(
-        canvas,
-        view,
-        [area[0], y, area[2], y + canvas.r(5.2)],
-        &options,
-    )?;
+    let height = choice_height(canvas, area, &options)?;
+    segmented(canvas, view, [area[0], y, area[2], y + height], &options)?;
     caption(
         canvas,
         game_mode_description(current),
         area,
-        y + canvas.r(5.2) + space(canvas, 2),
+        y + height + space(canvas, 2),
     )
 }
 
+/// Draws the difficulty choices and selected description.
 fn difficulties(
     canvas: &mut Canvas<'_>,
     view: &MenuView,
@@ -297,216 +272,26 @@ fn difficulties(
         )
     })
     .collect();
-    segmented(
-        canvas,
-        view,
-        [area[0], y, area[2], y + canvas.r(5.2)],
-        &options,
-    )?;
+    let height = choice_height(canvas, area, &options)?;
+    segmented(canvas, view, [area[0], y, area[2], y + height], &options)?;
     caption(
         canvas,
         difficulty_description(current),
         area,
-        y + canvas.r(5.2) + space(canvas, 2),
+        y + height + space(canvas, 2),
     )
 }
 
-fn create_general(
+/// Keeps each segmented choice tall enough for wrapped labels.
+fn choice_height(
     canvas: &mut Canvas<'_>,
-    view: &MenuView,
-    local_view: &WorldsView,
     area: Bounds,
-) -> Result<(), UiPresentationError> {
-    let form = &local_view.create;
-    let y = name_field(canvas, view, &form.name, area, area[1])?;
-    // New worlds offer Survival and Creative; Adventure appears when editing.
-    let y = game_modes(
-        canvas,
-        view,
-        &[GameMode::Survival, GameMode::Creative],
-        form.game_mode,
-        area,
-        y,
-    )?;
-    difficulties(canvas, view, form.difficulty, area, y)?;
-    Ok(())
-}
-
-fn create_advanced(
-    canvas: &mut Canvas<'_>,
-    view: &MenuView,
-    local_view: &WorldsView,
-    area: Bounds,
-) -> Result<(), UiPresentationError> {
-    let form = &local_view.create;
-    let y = label(canvas, "World seed", area, area[1])?;
-    let button_width = canvas.r(12.0).min((area[2] - area[0]) * 0.3);
-    let field = [
-        area[0],
-        y,
-        area[2] - button_width - space(canvas, 1),
-        y + canvas.r(FIELD),
-    ];
-    let focused = view.field == Some(MenuField::WorldSeed);
-    text_field(
-        canvas,
-        view,
-        field,
-        &form.seed_text,
-        "3257840388504953787",
-        focused,
-        local(A::SeedField),
-    )?;
-    // Seed templates are a Marketplace list the core cannot serve.
-    button(
-        canvas,
-        view,
-        [field[2] + space(canvas, 1), y, area[2], field[3]],
-        Variant::Secondary,
-        "Templates",
-        None,
-    )?;
-    let y = caption(
-        canvas,
-        "Guides the algorithm that magically creates your world",
-        area,
-        field[3] + space(canvas, 1),
-    )?;
-    // Vanilla's World type control (Infinite / Flat / Void for editor projects) sits here; the two
-    // types this build creates carry the owner's labels naming their server.
-    let y = label(canvas, "World type", area, y)?;
-    let options: Vec<_> = [Generator::Normal, Generator::Flat]
-        .iter()
-        .map(|generator| {
-            (
-                world_type_label(*generator),
-                local(A::Flat(*generator == Generator::Flat)),
-                form.generator == *generator,
-            )
-        })
-        .collect();
-    segmented(
-        canvas,
-        view,
-        [area[0], y, area[2], y + canvas.r(5.2)],
-        &options,
-    )?;
-    let description = match (form.generator, local_view.bds_can_run) {
-        (Generator::Flat, _) => "A flat world to build up or mine down into",
-        (Generator::Normal, true) => {
-            "Vanilla terrain and mobs on the official Bedrock Dedicated Server"
-        }
-        (Generator::Normal, false) => {
-            "Vanilla terrain and mobs on the official Bedrock Dedicated Server, which needs Docker on \
-             this computer"
-        }
-    };
-    caption(
-        canvas,
-        description,
-        area,
-        y + canvas.r(5.2) + space(canvas, 2),
-    )?;
-    Ok(())
-}
-
-fn edit_general(
-    canvas: &mut Canvas<'_>,
-    view: &MenuView,
-    local_view: &WorldsView,
-    area: Bounds,
-) -> Result<(), UiPresentationError> {
-    let Some(edit) = &local_view.edit else {
-        return Ok(());
-    };
-    let y = name_field(canvas, view, &edit.name, area, area[1])?;
-    let y = game_modes(
-        canvas,
-        view,
-        &[GameMode::Survival, GameMode::Creative, GameMode::Adventure],
-        edit.game_mode,
-        area,
-        y,
-    )?;
-    let y = difficulties(canvas, view, edit.difficulty, area, y)?;
-    let y = match &local_view.edited {
-        // Fixed when the world was created.
-        Some(world) => {
-            let y = label(canvas, "World type", area, y)?;
-            let height = canvas.text(
-                world_type_label(world.generator),
-                [area[0], y],
-                area[2] - area[0],
-                BODY,
-                TEXT_DIMMER,
-                false,
-            )?;
-            y + height + space(canvas, 4)
-        }
-        None => y,
-    };
-    let y = label(canvas, "File management", area, y)?;
-    let half = (area[2] - area[0] - space(canvas, 2)) * 0.5;
-    button(
-        canvas,
-        view,
-        [area[0], y, area[0] + half, y + canvas.r(CONTROL)],
-        Variant::Destructive,
-        "Delete world",
-        Some(local(A::Delete)),
-    )?;
-    if let Some(world) = &local_view.edited {
-        let details = format!(
-            "Size: {} - Last saved: {}",
-            crate::menu::file_size(world.size_bytes),
-            crate::menu::civil_date(world.last_played_unix.max(world.created_unix)),
-        );
-        canvas.text(
-            &details,
-            [area[0], y + canvas.r(CONTROL) + space(canvas, 1)],
-            area[2] - area[0],
-            CAPTION,
-            TEXT_DIMMEST,
-            false,
-        )?;
+    options: &[(&str, MenuAction, bool)],
+) -> Result<f32, UiPresentationError> {
+    let width = (area[2] - area[0]) / options.len().max(1) as f32;
+    let mut height = canvas.r(5.6);
+    for (label, _, _) in options {
+        height = height.max(super::widgets::choice_height(canvas, label, width)?);
     }
-    Ok(())
-}
-
-/// "Owned by me" with nothing owned: vanilla's no-content message and the Marketplace way out.
-fn templates_empty(
-    canvas: &mut Canvas<'_>,
-    view: &MenuView,
-    area: Bounds,
-) -> Result<(), UiPresentationError> {
-    let card = [area[0], area[1], area[2], area[1] + canvas.r(22.0)];
-    panel(canvas, card)?;
-    let pad = space(canvas, 4);
-    let inner = [card[0] + pad, card[1] + pad, card[2] - pad, card[3] - pad];
-    canvas.text_centred(
-        "You don\u{2019}t own any content... yet!",
-        [inner[0], inner[1], inner[2], inner[1] + canvas.r(2.4)],
-        SECONDARY_BUTTON,
-        TEXT,
-        false,
-    )?;
-    let body = "Explore thousands of original worlds, templates, and skins on Marketplace \u{2014} or import your own.";
-    canvas.text(
-        body,
-        [inner[0], inner[1] + canvas.r(3.6)],
-        inner[2] - inner[0],
-        CAPTION,
-        TEXT_DIMMER,
-        false,
-    )?;
-    let width = canvas.r(24.0).min(inner[2] - inner[0]);
-    let left = (inner[0] + inner[2] - width) * 0.5;
-    button(
-        canvas,
-        view,
-        [left, inner[3] - canvas.r(CONTROL), left + width, inner[3]],
-        Variant::Primary,
-        "Go to Marketplace",
-        Some(MenuAction::Store(crate::store::OPEN)),
-    )
+    Ok(height)
 }

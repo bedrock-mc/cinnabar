@@ -129,7 +129,7 @@ fn ui_input() -> render_model::UiRenderInput {
 fn recurring_ui_viewport_updates_allocate_no_gpu_staging_buffers() {
     use crate::ui_render::{
         UiGlintSettings, UiRenderPlugin, UiRenderSceneResource, UiRenderStatsResource,
-        prepare_ui_resources,
+        resources::prepare_ui_resources,
     };
     let Some(mut app) = app(UiRenderPlugin) else {
         return;

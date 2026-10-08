@@ -26,21 +26,21 @@ func allFields(t *testing.T) (Channel, Record) {
 // declared type and range, and at most MaxPayloadBytes of encoded record.
 func TestChannelValidateMirrorsClient(t *testing.T) {
 	channel, record := allFields(t)
-	if err := channel.Validate(record, ToClient); err != nil {
+	if err := channel.Validate(record, ToClient, MaxPayloadBytes); err != nil {
 		t.Fatalf("the fixture record: %v", err)
 	}
-	if err := channel.Validate(record, ToServer); err == nil {
+	if err := channel.Validate(record, ToServer, MaxPayloadBytes); err == nil {
 		t.Error("a to_client channel validated a to_server record")
 	}
-	if err := channel.Validate(record[:len(record)-1], ToClient); err == nil {
+	if err := channel.Validate(record[:len(record)-1], ToClient, MaxPayloadBytes); err == nil {
 		t.Error("a record with a field missing validated")
 	}
-	if err := channel.Validate(append(record[:len(record):len(record)], boolean(true)), ToClient); err == nil {
+	if err := channel.Validate(append(record[:len(record):len(record)], boolean(true)), ToClient, MaxPayloadBytes); err == nil {
 		t.Error("a record with an extra field validated")
 	}
 	invalid := channel
 	invalid.ID = "Benergistics.all_fields"
-	if err := invalid.Validate(record, ToClient); err == nil {
+	if err := invalid.Validate(record, ToClient, MaxPayloadBytes); err == nil {
 		t.Error("a channel whose id is no identifier validated")
 	}
 
@@ -48,7 +48,7 @@ func TestChannelValidateMirrorsClient(t *testing.T) {
 		BoolField{}, IntegerField{Min: -2, Max: 5}, TextField{MaxBytes: 3}, ChoiceField{Variants: 2},
 	}}
 	valid := Record{boolean(false), integer(-2), text("é."), choice(1)}
-	if err := bounded.Validate(valid, ToServer); err != nil {
+	if err := bounded.Validate(valid, ToServer, MaxPayloadBytes); err != nil {
 		t.Fatalf("a record at every bound: %v", err)
 	}
 	for _, c := range []struct {
@@ -69,7 +69,7 @@ func TestChannelValidateMirrorsClient(t *testing.T) {
 	} {
 		changed := append(Record(nil), valid...)
 		changed[c.at] = c.value
-		if err := bounded.Validate(changed, ToServer); (err == nil) != c.ok {
+		if err := bounded.Validate(changed, ToServer, MaxPayloadBytes); (err == nil) != c.ok {
 			t.Errorf("%s: %v, want valid %v", c.name, err, c.ok)
 		}
 	}
@@ -83,12 +83,12 @@ func TestChannelFieldLimit(t *testing.T) {
 		channel.Fields = append(channel.Fields, BoolField{})
 		record = append(record, boolean(true))
 	}
-	if err := channel.Validate(record, ToClient); err != nil {
+	if err := channel.Validate(record, ToClient, MaxPayloadBytes); err != nil {
 		t.Fatalf("%d fields: %v", MaxChannelFields, err)
 	}
 	channel.Fields = append(channel.Fields, BoolField{})
 	record = append(record, boolean(true))
-	if err := channel.Validate(record, ToClient); err == nil {
+	if err := channel.Validate(record, ToClient, MaxPayloadBytes); err == nil {
 		t.Fatalf("%d fields validated", MaxChannelFields+1)
 	}
 }
@@ -102,13 +102,13 @@ func TestChannelPayloadLimit(t *testing.T) {
 		t.Fatal(err)
 	}
 	room := MaxPayloadBytes - len(empty)
-	if err := channel.Validate(Record{text(strings.Repeat("a", room))}, ToClient); err != nil {
+	if err := channel.Validate(Record{text(strings.Repeat("a", room))}, ToClient, MaxPayloadBytes); err != nil {
 		t.Fatalf("a record of exactly MaxPayloadBytes: %v", err)
 	}
-	if err := channel.Validate(Record{text(strings.Repeat("a", room+1))}, ToClient); err == nil {
+	if err := channel.Validate(Record{text(strings.Repeat("a", room+1))}, ToClient, MaxPayloadBytes); err == nil {
 		t.Fatal("a record one byte over MaxPayloadBytes validated")
 	}
-	if err := channel.Validate(Record{text(strings.Repeat(`"`, room/2+1))}, ToClient); err == nil {
+	if err := channel.Validate(Record{text(strings.Repeat(`"`, room/2+1))}, ToClient, MaxPayloadBytes); err == nil {
 		t.Fatal("a record whose escapes exceed MaxPayloadBytes validated")
 	}
 }
@@ -172,6 +172,7 @@ func goldenGrant(t *testing.T) (*Grant, uint64) {
 		Session:    accept.Session,
 		Connection: accept.Hello.Connection,
 		Subclient:  accept.Hello.Subclient,
+		Wire:       v1Wire,
 		Recipients: map[string]Recipient{manifest.ID: {
 			Permissions: ready.Ready.Permissions[manifest.ID],
 			Channels:    manifest.Channels,
@@ -271,8 +272,8 @@ func TestIngressRejects(t *testing.T) {
 	}
 }
 
-// An unknown (channel, schema) and an envelope of another world epoch are skipped and counted but
-// consume their sequence number, as Rust's ingress and peek do.
+// An unknown (channel, schema) and an envelope of another world epoch are skipped and counted
+// apart but consume their sequence number, as Rust's ingress and peek do.
 func TestIngressSkipsUnknownSchemaAndStaleEpoch(t *testing.T) {
 	grant, epoch := goldenGrant(t)
 	ingress := NewIngress(ToServer, 0)
@@ -290,8 +291,8 @@ func TestIngressSkipsUnknownSchemaAndStaleEpoch(t *testing.T) {
 			t.Fatalf("sequence %d: %v, %v; want it skipped", sequence+1, envelope, err)
 		}
 	}
-	if ingress.Skipped != 3 {
-		t.Fatalf("skipped %d, want 3", ingress.Skipped)
+	if ingress.Skipped != 2 || ingress.Stale != 1 {
+		t.Fatalf("skipped %d and stale %d, want 2 and 1", ingress.Skipped, ingress.Stale)
 	}
 	data := encodeEnvelope(t, func(e *Envelope) { e.Sequence = 4 })
 	if envelope, err := ingress.Receive(data, 0, epoch, grant); err != nil || envelope == nil {

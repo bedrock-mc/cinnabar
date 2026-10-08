@@ -130,7 +130,7 @@ fn release_local_terrain(wait_for_actor_pipelines: bool) {
                 visible_rendered: 0,
                 cohort: None,
                 render_work_drained: false,
-                actor_pipelines_ready: !wait_for_actor_pipelines || frame_generation >= 12,
+                pipelines_ready: !wait_for_actor_pipelines || frame_generation >= 12,
                 now: Duration::from_millis(200),
             },
         );

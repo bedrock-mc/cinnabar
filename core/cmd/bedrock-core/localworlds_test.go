@@ -141,3 +141,15 @@ func TestBDSDefaultDoesNotRequireDragonflyBinary(t *testing.T) {
 		t.Fatalf("saved %v", worlds)
 	}
 }
+
+func TestStartupServerChoiceDoesNotDependOnRuntimeDetection(t *testing.T) {
+	for _, flag := range []string{"", "auto", localworld.BackendDragonfly, localworld.BackendBDS} {
+		expected := localworld.BackendDragonfly
+		if flag == localworld.BackendBDS {
+			expected = flag
+		}
+		if got := defaultBackend(flag); got != expected {
+			t.Fatalf("defaultBackend(%q) = %q", flag, got)
+		}
+	}
+}

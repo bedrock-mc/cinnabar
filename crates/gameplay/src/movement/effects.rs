@@ -72,6 +72,80 @@ struct ActiveEffect {
     sequence: u64,
 }
 
+/// Server-predicted movement boosts the simulator reads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MovementBoost {
+    Glide,
+    Dolphin,
+}
+
+impl MovementBoost {
+    #[must_use]
+    pub const fn from_kind(kind: protocol::MovementEffectKind) -> Option<Self> {
+        match kind {
+            protocol::MovementEffectKind::GlideBoost => Some(Self::Glide),
+            protocol::MovementEffectKind::DolphinBoost => Some(Self::Dolphin),
+            protocol::MovementEffectKind::GeyserBoost
+            | protocol::MovementEffectKind::Unknown(_) => None,
+        }
+    }
+
+    const fn index(self) -> usize {
+        match self {
+            Self::Glide => 0,
+            Self::Dolphin => 1,
+        }
+    }
+
+    /// This boost's lane in the simulator's per-tick effects.
+    pub fn flag(self, effects: &mut MovementEffects) -> &mut bool {
+        match self {
+            Self::Glide => &mut effects.glide_boost,
+            Self::Dolphin => &mut effects.dolphin_boost,
+        }
+    }
+}
+
+/// How long a server-predicted movement boost lasts from the next simulated tick.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BoostSpan {
+    Ticks(u32),
+    Unbounded,
+}
+
+impl BoostSpan {
+    /// Vanilla reads -1 as unbounded and lower durations as zero; a zero-tick
+    /// boost still reaches the next simulated tick before it expires.
+    #[must_use]
+    pub fn from_wire(duration_ticks: i32) -> Self {
+        match duration_ticks {
+            -1 => Self::Unbounded,
+            ticks => Self::Ticks(u32::try_from(ticks).unwrap_or(0).max(1)),
+        }
+    }
+
+    /// Whether the boost covers the `index`th tick after it starts, counting from one.
+    #[must_use]
+    pub fn covers(self, index: u64) -> bool {
+        match self {
+            Self::Ticks(ticks) => index <= u64::from(ticks),
+            Self::Unbounded => true,
+        }
+    }
+
+    /// The span left after `elapsed` ticks, if any.
+    #[must_use]
+    pub fn after(self, elapsed: u64) -> Option<Self> {
+        match self {
+            Self::Ticks(ticks) => u64::from(ticks)
+                .checked_sub(elapsed)
+                .filter(|left| *left > 0)
+                .map(|left| Self::Ticks(left as u32)),
+            Self::Unbounded => Some(Self::Unbounded),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct MiningEffects {
     pub haste: Option<i32>,
@@ -98,6 +172,7 @@ pub struct LocalMovementEffectTimeline {
     session_generation: u64,
     last_sequence: Option<u64>,
     active: [Option<ActiveEffect>; TRACKED_EFFECT_COUNT],
+    boosts: [Option<BoostSpan>; 2],
     diagnostics: MovementEffectDiagnostics,
     recent_mining: [(MiningEffects, MiningEffects); super::MAX_LOCAL_PHYSICS_TICKS_PER_FRAME],
     recent_tick_count: usize,
@@ -108,6 +183,7 @@ impl LocalMovementEffectTimeline {
         self.session_generation = session_generation;
         self.last_sequence = None;
         self.active = [None; TRACKED_EFFECT_COUNT];
+        self.boosts = [None; 2];
         self.diagnostics = MovementEffectDiagnostics::default();
         self.recent_tick_count = 0;
     }
@@ -162,6 +238,27 @@ impl LocalMovementEffectTimeline {
         }
     }
 
+    /// Replaces a boost the next simulated tick sees, after any rewind consumed part of it.
+    pub fn set_movement_boost(
+        &mut self,
+        session_generation: u64,
+        sequence: u64,
+        boost: MovementBoost,
+        remaining: Option<BoostSpan>,
+    ) {
+        if session_generation != self.session_generation
+            || self
+                .last_sequence
+                .is_some_and(|last_sequence| sequence <= last_sequence)
+        {
+            self.diagnostics.stale_or_wrong_session =
+                self.diagnostics.stale_or_wrong_session.saturating_add(1);
+            return;
+        }
+        self.last_sequence = Some(sequence);
+        self.boosts[boost.index()] = remaining;
+    }
+
     /// Wire amplifiers of the effects that scale destroy speed.
     pub fn mining_effects(&self) -> MiningEffects {
         let amplifier =
@@ -203,11 +300,16 @@ impl LocalMovementEffectTimeline {
             slow_falling: self.active[TrackedEffect::SlowFalling.index()].is_some(),
             weaving: self.active[TrackedEffect::Weaving.index()].is_some(),
             blindness: self.active[TrackedEffect::Blindness.index()].is_some(),
+            glide_boost: self.boosts[MovementBoost::Glide.index()].is_some(),
+            dolphin_boost: self.boosts[MovementBoost::Dolphin.index()].is_some(),
         }
     }
 
     fn consume_successful_tick(&mut self) {
         let before = self.mining_effects();
+        for boost in &mut self.boosts {
+            *boost = boost.and_then(|span| span.after(1));
+        }
         for active in &mut self.active {
             let Some(effect) = active else {
                 continue;
@@ -296,6 +398,34 @@ mod tests {
         timeline.apply(1, 4, event);
         timeline.begin_session(2);
         assert!(timeline.snapshot().is_empty());
+    }
+
+    /// A glide boost covers exactly its duration in ticks; zero still covers one tick.
+    #[test]
+    fn glide_boost_covers_its_duration_in_successful_ticks() {
+        for (duration, ticks) in [(3, 3), (0, 1), (-7, 1)] {
+            let mut timeline = LocalMovementEffectTimeline::default();
+            timeline.begin_session(1);
+            timeline.set_movement_boost(
+                1,
+                1,
+                MovementBoost::Glide,
+                Some(BoostSpan::from_wire(duration)),
+            );
+            for _ in 0..ticks {
+                assert!(timeline.snapshot().glide_boost, "{duration}");
+                timeline.commit_successful_tick();
+            }
+            assert!(!timeline.snapshot().glide_boost, "{duration}");
+        }
+        let mut timeline = LocalMovementEffectTimeline::default();
+        timeline.begin_session(1);
+        timeline.set_movement_boost(1, 1, MovementBoost::Dolphin, Some(BoostSpan::from_wire(-1)));
+        for _ in 0..100 {
+            timeline.commit_successful_tick();
+        }
+        assert!(timeline.snapshot().dolphin_boost);
+        assert!(!timeline.snapshot().glide_boost);
     }
 
     #[test]

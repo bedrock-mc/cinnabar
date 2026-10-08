@@ -92,6 +92,7 @@ fn install(app: &mut App) {
             BLOCK_SELECTION_VERTICES_PER_EDGE,
         )
     });
+    crate::pipeline_warmup::register::<BlockEntityPipeline>(app);
     crate::install_opaque_phase_reset(app.sub_app_mut(RenderApp));
     app.sub_app_mut(RenderApp)
         .insert_resource(BlockEntityRenderInstalled)
@@ -965,3 +966,29 @@ mod tests {
         assert!(list.buffer.is_none() && list.bind_group.is_none());
     }
 }
+
+impl crate::pipeline_warmup::PrewarmPipelines for BlockEntityPipeline {
+    fn prewarm(
+        &mut self,
+        cache: &PipelineCache,
+        view: crate::pipeline_warmup::WarmView,
+        ids: &mut crate::pipeline_warmup::WarmupIds,
+    ) -> Result<(), BevyError> {
+        use PipelineMode::*;
+        for mode in [Solid, Overlay, Outline, Crack, Portal, Additive] {
+            ids.push(self.variants.specialize(
+                cache,
+                BlockEntityPipelineKey {
+                    mode,
+                    msaa: view.msaa,
+                    hdr: view.hdr,
+                },
+            )?);
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+#[path = "gpu/prewarm_tests.rs"]
+mod prewarm_tests;

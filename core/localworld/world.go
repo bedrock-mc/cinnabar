@@ -19,7 +19,6 @@ var (
 
 	ErrEULARequired       = errors.New("the Minecraft EULA must be accepted before the server is downloaded")
 	ErrBackendUnavailable = errors.New("world backend is not available on this platform")
-	ErrVanillaNeedsBDS    = errors.New("default worlds need Bedrock Dedicated Server; create a superflat world instead")
 	ErrDockerNotRunning   = errors.New("Docker is not running")
 	ErrRuntimePending     = errors.New("still checking whether Docker is running; try again")
 )
@@ -31,11 +30,11 @@ const (
 	GameModeCreative  = "creative"
 	GameModeAdventure = "adventure"
 
-	GeneratorNormal = "normal" // vanilla terrain; BDS only
+	GeneratorNormal = "normal"
 	GeneratorFlat   = "flat"
 
 	BackendBDS       = "bds"       // Bedrock Dedicated Server: vanilla worldgen and mobs
-	BackendDragonfly = "dragonfly" // superflat only, where BDS does not run
+	BackendDragonfly = "dragonfly" // built-in server
 
 	DifficultyPeaceful = "peaceful"
 	DifficultyEasy     = "easy"
@@ -50,6 +49,7 @@ type World struct {
 	GameMode       string `json:"game_mode"`
 	Generator      string `json:"generator"`
 	Difficulty     string `json:"difficulty"`
+	AllowCheats    bool   `json:"allow_cheats"`
 	Backend        string `json:"backend"`
 	Seed           int64  `json:"seed"`
 	CreatedUnix    int64  `json:"created_unix"`
@@ -66,12 +66,13 @@ type Update struct {
 
 // Spec is the user-chosen settings of a new world; empty fields take defaults and a nil Seed is random.
 type Spec struct {
-	Name       string `json:"name"`
-	GameMode   string `json:"game_mode,omitempty"`
-	Generator  string `json:"generator,omitempty"`
-	Difficulty string `json:"difficulty,omitempty"`
-	Backend    string `json:"backend,omitempty"` // empty takes BDS for normal worlds, else the store default
-	Seed       *int64 `json:"seed,omitempty"`
+	Name        string `json:"name"`
+	GameMode    string `json:"game_mode,omitempty"`
+	Generator   string `json:"generator,omitempty"`
+	Difficulty  string `json:"difficulty,omitempty"`
+	AllowCheats bool   `json:"allow_cheats,omitempty"`
+	Backend     string `json:"backend,omitempty"` // empty takes the store default
+	Seed        *int64 `json:"seed,omitempty"`
 }
 
 func oneOf(value, fallback string, allowed ...string) (string, error) {
@@ -120,12 +121,6 @@ func (spec Spec) normalize() (Spec, error) {
 	}
 	if spec.Backend, err = oneOf(spec.Backend, "", BackendBDS, BackendDragonfly); err != nil {
 		return Spec{}, err
-	}
-	if spec.Generator == GeneratorNormal {
-		if spec.Backend == BackendDragonfly {
-			return Spec{}, ErrVanillaNeedsBDS
-		}
-		spec.Backend = BackendBDS
 	}
 	return spec, nil
 }

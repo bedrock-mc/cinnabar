@@ -4,6 +4,14 @@ use std::borrow::Cow;
 
 type RenderPose = Arc<[render_model::RenderBoneTransform]>;
 
+struct NativePoseInput {
+    consume: Option<u32>,
+    animation: Option<client_world::AttachableAnimationInput<'static>>,
+    alpha: f32,
+    camera: Option<([f32; 2], [f32; 3])>,
+    sample_skin: bool,
+}
+
 #[derive(PartialEq)]
 struct PoseKey {
     source: Option<SourceKey>,
@@ -53,9 +61,17 @@ impl NativePoseCache {
         alpha: f32,
         camera: Option<([f32; 2], [f32; 3])>,
     ) {
-        if let Some([previous, current]) =
-            self.sample_with_skin(stream, presentation, None, None, alpha, camera, true)
-        {
+        if let Some([previous, current]) = self.sample_with_skin(
+            stream,
+            presentation,
+            NativePoseInput {
+                consume: None,
+                animation: None,
+                alpha,
+                camera,
+                sample_skin: true,
+            },
+        ) {
             presentation.submission.input.previous_bones = previous;
             presentation.submission.input.current_bones = current;
         }
@@ -74,11 +90,13 @@ impl NativePoseCache {
         self.sample_with_skin(
             stream,
             presentation,
-            consume,
-            animation,
-            alpha,
-            camera,
-            false,
+            NativePoseInput {
+                consume,
+                animation,
+                alpha,
+                camera,
+                sample_skin: false,
+            },
         )
     }
 
@@ -87,12 +105,15 @@ impl NativePoseCache {
         &mut self,
         stream: &WorldStream,
         presentation: &ActorRigPresentation,
-        consume: Option<u32>,
-        animation: Option<client_world::AttachableAnimationInput<'static>>,
-        alpha: f32,
-        camera: Option<([f32; 2], [f32; 3])>,
-        sample_skin: bool,
+        input: NativePoseInput,
     ) -> Option<[RenderPose; 2]> {
+        let NativePoseInput {
+            consume,
+            animation,
+            alpha,
+            camera,
+            sample_skin,
+        } = input;
         let runtime_id = presentation.submission.input.identity.runtime_id;
         let rig = stream.authority().actor_rig(runtime_id)?;
         let key = PoseKey {

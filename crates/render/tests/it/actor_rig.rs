@@ -85,10 +85,20 @@ fn shader_layouts_are_exact_and_the_dual_pose_arena_is_bounded() {
         size_of::<ActorGpuInstance>(),
         render::ACTOR_GPU_INSTANCE_WORDS * 4
     );
-    assert_eq!(MAX_RENDER_BONES_PER_ACTOR, 96);
     assert_eq!(
-        MAX_ACTOR_BONE_ARENA_BYTES,
-        MAX_ACTOR_RENDER_INSTANCES * MAX_RENDER_BONES_PER_ACTOR * 2 * 48
+        MAX_RENDER_BONES_PER_ACTOR,
+        assets::MAX_ENTITY_GEOMETRY_BONES
+    );
+    assert!(
+        MAX_ACTOR_BONE_ARENA_BYTES
+            >= MAX_RENDER_BONES_PER_ACTOR * 2 * size_of::<RenderBoneTransform>()
+    );
+    assert!(
+        MAX_ACTOR_BONE_ARENA_BYTES
+            < MAX_ACTOR_RENDER_INSTANCES
+                * MAX_RENDER_BONES_PER_ACTOR
+                * 2
+                * size_of::<RenderBoneTransform>()
     );
 }
 

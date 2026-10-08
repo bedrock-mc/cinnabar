@@ -50,6 +50,7 @@ mod material_variations;
 mod mod_render;
 mod model_tint_raster;
 mod native_sky;
+mod oreui_font;
 mod plugin;
 mod portal_overlay;
 mod present_mode_policy;

@@ -265,17 +265,18 @@ fn assert_native_body_sample(equipment_parent: bool, case: BodyCase) {
                 );
             }
             let mut repeated = presentation.clone();
-            let mut state = world.resource_mut::<super::super::ActorFrameState>();
-            let work = state.java_hand.native_pose.sample_work;
-            assert_eq!(work.0, 1, "only the native body consumer samples the frame");
-            let allocations = crate::test_allocations::count();
-            state
-                .java_hand
-                .native_pose
-                .apply_body(&stream, &mut repeated, actor_alpha, camera);
-            assert_eq!(state.java_hand.native_pose.sample_work, work);
-            assert_eq!(crate::test_allocations::count(), allocations);
-            drop(state);
+            {
+                let mut state = world.resource_mut::<super::super::ActorFrameState>();
+                let work = state.java_hand.native_pose.sample_work;
+                assert_eq!(work.0, 1, "only the native body consumer samples the frame");
+                let allocations = crate::test_allocations::count();
+                state
+                    .java_hand
+                    .native_pose
+                    .apply_body(&stream, &mut repeated, actor_alpha, camera);
+                assert_eq!(state.java_hand.native_pose.sample_work, work);
+                assert_eq!(crate::test_allocations::count(), allocations);
+            }
             let unchanged = stream.authority().actor_rig(1).unwrap();
             assert_eq!(
                 (

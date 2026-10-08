@@ -33,7 +33,6 @@ fn loading_keeps_destination_stationary_and_input_ticks_contiguous() {
         analogue_move_vector: [1.0, 1.0],
         mode_intent: ModeIntent {
             can_fly: true,
-            fly_toggle: true,
             ..ModeIntent::default()
         },
         ..PhysicsSampleContext::default()

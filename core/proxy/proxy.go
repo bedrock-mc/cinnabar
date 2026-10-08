@@ -52,7 +52,9 @@ type Config struct {
 	// LocalTarget, when set, is asked per connection for a local server address; ok=false
 	// falls back to Upstream. Upstream may then be empty.
 	LocalTarget LocalTargetFunc
-	PacketDelay *PacketDelay
+	// LocalHostConnected grants host permissions after the ordinary local client joins its managed world.
+	LocalHostConnected func(context.Context, string, string) error
+	PacketDelay        *PacketDelay
 	// ServerTrust, when set, decides whether to join NetherNet servers reached by address.
 	ServerTrust minecraft.ServerTrust
 }
@@ -102,7 +104,7 @@ func Serve(ctx context.Context, cfg Config) (err error) {
 	online := func(ctx context.Context) (*resolvedUpstreamTarget, error) {
 		return dial(ctx, cfg.Upstream)
 	}
-	prepared.dialTarget = consumeTransferOnDial(prepared.dialTarget, transfers)
+	prepared.dialTarget = grantLocalHostOnDial(consumeTransferOnDial(prepared.dialTarget, transfers), cfg.LocalHostConnected)
 	prepared.resolveTarget = withPendingTransfer(transfers, dial, withSelectedTarget(cfg.Selector, dial, withLocalTarget(cfg.LocalTarget, online)))
 	listener, err := localListenConfig(func(ctx context.Context, conn *minecraft.Conn) error {
 		selected, pinned := conn.Proto(), minecraft.DefaultProtocol
@@ -613,10 +615,8 @@ func pumpPacketsWithDelay(ctx context.Context, delay *PacketDelay, source, desti
 	}()
 	var upstreamIdentity login.IdentityData
 	if fromDownstream {
-		// The Rust client connects to this listener with authentication disabled;
-		// its login identity is only a local transport identity. The authenticated
-		// upstream Conn is the single canonical account identity that the remote
-		// server validates chat against.
+		// Local logins carry a transport identity; the upstream connection owns
+		// the server's canonical player identity.
 		if identitySession, ok := destination.(interface {
 			IdentityData() login.IdentityData
 		}); ok {
@@ -624,8 +624,8 @@ func pumpPacketsWithDelay(ctx context.Context, delay *PacketDelay, source, desti
 		}
 	}
 	var inspect func(uint32) bool
-	if upstreamIdentity.DisplayName != "" {
-		inspect = isText
+	if upstreamIdentity.DisplayName != "" || upstreamIdentity.Identity != "" {
+		inspect = func(id uint32) bool { return inspectsUpstreamIdentity(id, upstreamIdentity) }
 	}
 	var ownID, session uint64
 	if fromDownstream && delay != nil {
@@ -635,7 +635,7 @@ func pumpPacketsWithDelay(ctx context.Context, delay *PacketDelay, source, desti
 			session = sessions[0]
 		}
 		inspect = func(id uint32) bool {
-			if upstreamIdentity.DisplayName != "" && isText(id) {
+			if inspectsUpstreamIdentity(id, upstreamIdentity) {
 				return true
 			}
 			if !isOwnMovement(id) {
@@ -676,19 +676,28 @@ func pumpPacketsWithDelay(ctx context.Context, delay *PacketDelay, source, desti
 	}
 }
 
-func isText(id uint32) bool { return id == packet.IDText }
+func inspectsUpstreamIdentity(id uint32, identity login.IdentityData) bool {
+	switch id {
+	case packet.IDText:
+		return identity.DisplayName != ""
+	case packet.IDPlayerSkin:
+		return identity.Identity != ""
+	default:
+		return false
+	}
+}
 
 // forwardPacket writes raw's received bytes unless the proxy rewrote one of its decoded packets.
 func forwardPacket(destination packetSession, raw minecraft.RawPacket, identity login.IdentityData) error {
 	rewritten := len(raw.Decoded) > 1
 	for _, value := range raw.Decoded {
-		rewritten = rewritten || normalizeUpstreamChatIdentity(value, identity) != value
+		rewritten = rewritten || normalizeUpstreamIdentity(value, identity) != value
 	}
 	if !rewritten {
 		return destination.WritePacketRaw(raw.Data)
 	}
 	for _, value := range raw.Decoded {
-		if err := destination.WritePacket(normalizeUpstreamChatIdentity(value, identity)); err != nil {
+		if err := destination.WritePacket(normalizeUpstreamIdentity(value, identity)); err != nil {
 			return err
 		}
 	}
@@ -829,16 +838,27 @@ func (reader *packetReader) flushDestination() error {
 	return attributeRelayError(reader.destination.Flush(), !reader.upstream)
 }
 
-func normalizeUpstreamChatIdentity(value packet.Packet, identity login.IdentityData) packet.Packet {
-	text, ok := value.(*packet.Text)
-	if !ok || text.TextType != packet.TextTypeChat || identity.DisplayName == "" {
+func normalizeUpstreamIdentity(value packet.Packet, identity login.IdentityData) packet.Packet {
+	switch value := value.(type) {
+	case *packet.Text:
+		if value.TextType != packet.TextTypeChat || identity.DisplayName == "" {
+			return value
+		}
+		rewritten := *value
+		rewritten.SourceName = identity.DisplayName
+		rewritten.XUID = identity.XUID
+		return &rewritten
+	case *packet.PlayerSkin:
+		canonical, err := uuid.Parse(identity.Identity)
+		if err != nil || value.UUID == canonical {
+			return value
+		}
+		rewritten := *value
+		rewritten.UUID = canonical
+		return &rewritten
+	default:
 		return value
 	}
-
-	rewritten := *text
-	rewritten.SourceName = identity.DisplayName
-	rewritten.XUID = identity.XUID
-	return &rewritten
 }
 
 // callSafely contains boundary callback panics without formatting potentially sensitive values.

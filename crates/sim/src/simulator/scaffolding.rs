@@ -3,10 +3,98 @@ use crate::{
     ProvenancedCollider, WorldQueryError,
 };
 
+use super::environment::SampledEnvironment;
+
 /// How far below a scaffolding top the feet may sit and still stand on it.
 const TOP_TOLERANCE: f32 = 1.0e-6;
+/// Vertical speed of both the held-jump ascent and the sneak descent.
+pub(super) const CLIMB_SPEED: f64 = 0.15;
 
-/// Scaffolding is solid only under the feet of a player who is not descending.
+/// Scaffolding facts of the body footprint at the feet layer and the layer below it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(super) struct ScaffoldingContact {
+    /// Scaffolding at the feet layer.
+    pub inside: bool,
+    /// Scaffolding at the layer below the feet.
+    pub over: bool,
+    /// Lower-layer scaffolding resting on a block other than air or water.
+    pub over_descending: bool,
+}
+
+/// Scans every footprint column at the feet layer and, while sneaking (the only
+/// time it matters), the layer below and its support. Fresh reads merge into the
+/// tick identity. Feet-layer support is never read: inside scaffolding already
+/// admits the ascent.
+pub(super) fn sample_contact(
+    world: &(impl CollisionWorld + ?Sized),
+    player: Aabb,
+    sneaking: bool,
+    sampled: &mut SampledEnvironment,
+) -> Result<ScaffoldingContact, WorldQueryError> {
+    let floor = |value: f64| (value as f32).floor() as i32;
+    let feet = floor(player.min.y);
+    let below = ((player.min.y as f32) - 1.0).floor() as i32;
+    let mut contact = ScaffoldingContact::default();
+    for x in floor(player.min.x)..=floor(player.max.x) {
+        for z in floor(player.min.z)..=floor(player.max.z) {
+            for (y, layer_over) in [(feet, false), (below, true)] {
+                if layer_over && !sneaking {
+                    continue;
+                }
+                if !primary(world, sampled, [x, y, z])?
+                    .flags
+                    .contains(BlockPhysicsFlags::SCAFFOLDING)
+                {
+                    continue;
+                }
+                if layer_over {
+                    contact.over = true;
+                    contact.over_descending |= rests_on_support(world, sampled, [x, y - 1, z])?;
+                } else {
+                    contact.inside = true;
+                }
+            }
+        }
+    }
+    Ok(contact)
+}
+
+fn primary(
+    world: &(impl CollisionWorld + ?Sized),
+    sampled: &mut SampledEnvironment,
+    block: [i32; 3],
+) -> Result<crate::BlockPhysicsFacts, WorldQueryError> {
+    let (facts, fresh) = sampled.primary(world, block)?;
+    if let Some(fresh) = fresh {
+        sampled.identity = sampled.identity.merge(&fresh)?;
+    }
+    Ok(facts)
+}
+
+/// Whether the block under a scaffold is anything but air or (flowing) water.
+fn rests_on_support(
+    world: &(impl CollisionWorld + ?Sized),
+    sampled: &mut SampledEnvironment,
+    block: [i32; 3],
+) -> Result<bool, WorldQueryError> {
+    let facts = primary(world, sampled, block)?;
+    let water = facts.flags.contains(BlockPhysicsFlags::WATER)
+        && !matches!(
+            facts.surface_response,
+            crate::SurfaceResponse::BubbleUp | crate::SurfaceResponse::BubbleDown
+        );
+    let air = match world.primary_is_air(block)? {
+        Some(air) => {
+            sampled.identity = sampled.identity.merge(&air.identity)?;
+            air.value
+        }
+        // Without material identity, air is the bare passable fact set.
+        None => facts.flags == BlockPhysicsFlags::PASSABLE,
+    };
+    Ok(!air && !water)
+}
+
+/// Scaffolding is solid only under the feet of a player not descending through it.
 pub(super) struct ScaffoldingView<'a, W> {
     inner: &'a W,
     player: Aabb,
@@ -74,6 +162,13 @@ impl<W: CollisionWorld> CollisionWorld for ScaffoldingView<'_, W> {
 
     fn block_physics(&self, block: [i32; 3]) -> Result<BlockPhysicsSample, WorldQueryError> {
         self.inner.block_physics(block)
+    }
+
+    fn primary_is_air(
+        &self,
+        block: [i32; 3],
+    ) -> Result<Option<CollisionQuery<bool>>, WorldQueryError> {
+        self.inner.primary_is_air(block)
     }
 }
 

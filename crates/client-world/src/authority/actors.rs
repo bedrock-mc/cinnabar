@@ -22,6 +22,10 @@ impl WorldAuthority {
     pub fn player_list_usernames(&self) -> Vec<std::sync::Arc<str>> {
         self.actors.player_list_usernames()
     }
+    /// How many players are on the player list, without allocating.
+    pub fn player_count(&self) -> usize {
+        self.actors.player_list_count()
+    }
     /// The authoritative `(current, maximum)` health of the actor with this
     /// unique id, if it is known and well-formed.
     pub fn actor_health_by_unique(&self, unique_id: i64) -> Option<(f32, f32)> {
@@ -137,6 +141,18 @@ impl WorldAuthority {
             self.local_player_unique_id,
             feed,
         );
+    }
+
+    /// Replaces the local appearance while preserving the server's roster identity.
+    pub fn update_local_player_skin(&mut self, skin: protocol::PlayerSkin) -> bool {
+        let Some(actor) = self.actors.get(self.local_player_runtime_id) else {
+            return false;
+        };
+        let protocol::ActorKind::Player { uuid, .. } = &actor.kind else {
+            return false;
+        };
+        let uuid = *uuid;
+        self.actors.apply_skin_update(uuid, skin) == crate::actor_store::ActorApplyResult::Updated
     }
     /// Starts the local player's arm swing, which the server never echoes back to its owner.
     /// Starts the local arm swing lasting `ticks`, the duration its packet guard used.

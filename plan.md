@@ -1,3 +1,71 @@
+## OreUI menus, appearance and motion
+
+- Home, Pause, Play, Inbox, world creation, Accounts and confirmation dialogs use shared OreUI
+  panels and controls. Home keeps the shipped title above Play and character cards, with compact
+  utility actions and versions from their canonical sources. Commerce actions remain quiet.
+- Persistent Dark Mode defaults off, updates immediately and strengthens backdrop dimming.
+  Optional Screen animations controls quick hover/press feedback, selection, glimmers, text edits,
+  screen changes, modal exits, pack accordions, scrolling and interpolated loading progress. Selected
+  segmented choices remain lowered; hit targets remain stable and input applies immediately.
+- Server views preserve service catalog groups, artwork, descriptions, activities and available
+  counts. Exact ping is optional. Collapse state and drag-reordered sections persist; custom servers
+  use the owner's requested label. Resource-pack controls and loading stages retain surrounding UI.
+- Dimension travel names the destination, uses its block icon and the owner's private runtime
+  background beneath a strong tint. Ordinary terrain loading retains its approved neutral treatment.
+- Create New World uses native panels, installed preview/category artwork and independent scrolling.
+  General/Advanced changes animate their contents. Unsupported categories, Hardcore and Realm
+  creation remain disabled. Backend defaults to Dragonfly or offers BDS with Docker detection;
+  generator selection independently offers Infinite and Flat. The General page also exposes seed and
+  command permission, and persists the last server/terrain choice. Unavailable BDS stays disabled
+  with a reason; runtime detection never changes the chosen server. Void is not supported by both
+  local backends. Template navigation works. BDS owner-only command grants are unit tested; live
+  native/container owner and guest permission checks remain incomplete.
+- Dragonfly Normal uses the pinned owner-requested vanilla-gen dependency with the saved signed
+  seed for all three dimensions. New worlds use its spawn; reopening retains saved spawn/chunks.
+  Normal supports saved overworld pre-generation and four chunk workers by default; see
+  [generation measurements](docs/evidence/local-world-generation.md). Bedrock generation parity
+  and join/streaming budgets remain incomplete.
+- Dressing Room persists classic/slim skins and independent capes, imports and item edits. Home
+  and Pause previews support rotation and pointer tracking. Cape attachment uses its own shoulders.
+- Cropped cape imports pad the 46×22 layout at supported texture scales with transparent pixels,
+  preserving texels and private source files. This custom import extension leaves native cape
+  gallery parity incomplete.
+- These layouts, appearance and custom motion are owner-authorized extensions. Matching-version
+  native UI parity remains open for responsive controls, rich Inbox templates and unsupported world
+  settings. Preview drag gain is provisional. The chosen normal generator targets Java-style
+  terrain; Bedrock terrain, structures and mobs remain unverified. No performance gate closes.
+
+## OreUI Unicode fallback
+
+- Native language labels and server text resolve missing glyphs from installed locale-specific Noto
+  faces. Primary Latin glyph metrics and the HUD font remain unchanged. Mixed runs retain their
+  own sampling and em scale. Language names and common server symbols are warmed at startup.
+- Additional characters compile off-thread into shared bounded pages; requests deduplicate,
+  unsupported characters do not displace valid glyphs and failed updates preserve the valid cache.
+  Locale changes invalidate the fallback. Unchanged publications retain texture payload ownership.
+- Atlas bounds reject oversized glyphs and aggregate raster overflow before allocation. Multi-page
+  glyph/page order stays consistent. Reserved fallback storage leaves the ordinary UI budget available
+  for native controls and icons. Text coverage and opaque model color masks use independent flags.
+- Full script substitution, bidirectional shaping and low-size fallback raster parity remain open.
+
+## OreUI verification
+
+- The original Japanese-label failure, texture-budget rejection and colliding rendering flags were
+  reproduced before their fixes. Regression checks cover language names, small-cap MOTDs, uncached
+  glyph publication, cache recovery, bounds, texture ownership, control input, focus and navigation.
+- Touched Rust crates compile with tests and developer-control enabled. Focused UI, font, input,
+  loading, carrier and world checks pass. Core and local-server Go suites pass, including generator
+  selection and saved-world reopening. Incoming cursor-return behavior is preserved.
+- Owner reviews accepted Home, Pause, Inbox, world creation, server layouts and animation direction.
+  Prior macOS/Metal captures verify menu previews at 2048×1152 and Retina 2560×1440.
+- Final macOS/Metal pass at 2560×1440 physical, 1280×720 logical, DPI 2: primary and CJK language
+  labels, styled server MOTDs, dark Home and Quit legibility, geometry, clipping, layering and colors
+  were inspected. Mouse Cancel, Escape and keyboard Cancel work; focus remains inside the modal.
+  The final build also verifies restored native Play/settings/status icons, server symbols and the
+  latest merged input. User language, appearance and section preferences were preserved.
+- The final integrated rebuild repeats the native language/Home/Quit review with readable Japanese,
+  Korean and Chinese labels, intact artwork, working modal Cancel and confirmed shutdown.
+
 ## Movement and input audit fixes
 
 - Input packets retain digital buttons and raw jump/sneak events separately from
@@ -36,8 +104,15 @@
   placement line, and use fresh ray segments to continue beyond ledges or upward.
 - Repeats use resolved movement and stance; transactions carry their trigger,
   start/stop actions, local outcome, click position and survival inventory delta.
+- Presses resolve when they arrive and held repeats only on frames that simulate a tick,
+  both before the frame's physics and from the last completed tick's end state, so the next
+  tick's movement collides with a placed block. Incomplete: a frame
+  that simulates two ticks resolves build actions only before the first.
 - Deterministic gameplay and wire tests cover ledges, jump bridging, towering,
   backward sneak bridging, failed attempts and refused transport.
+- Provisional: slot or item changes preserve the held placement line and repeat
+  schedule. Native slot-change callbacks and their effect on retained history,
+  orientation and timing remain unverified; this does not close the hotbar-switch gate.
 - Incomplete: complete runtime block-property and custom block-placer admission,
   item-specific replacement/state rules and live vanilla/server acceptance remain open. No
   complete placement parity or performance gate is closed by these tests.
@@ -85,7 +160,9 @@
   historical remote geometry during catch-up, and fire-resistance lava fog remain
   owner limitations. Legacy education photography output is unsupported. Packaged
   boom/shake/collision defaults and highlight sampler need pinned-version witnesses.
-  Existing gameplay FOV magnitude approximations remain separate incomplete work.
+  The gameplay FOV multiplier follows vanilla (speed ratio, slowness, flying, bow,
+  spyglass); the swim-speed factor, underwater narrowing and final [5, 130] clamp are
+  still incomplete.
   Finite block sampling is bounded to 4,096 rays. None closes a full parity gate.
 - Touched-crate checks and directly affected regressions pass. A headless macOS
   local-server run at 1280×720 captured named/inline splines, local-body visibility,
@@ -222,6 +299,33 @@
   acceptance remains pending. Regressions are
   authored but unrun at the owner's request. The inspection build is running
   after the requested relaunch. Changes are local and uncommitted; nothing is pushed.
+## OreUI Settings
+
+- Global Resources is an owner-requested design exception using expandable OreUI pack cards,
+  imported thumbnails, priority actions and a native variant picker. Vanilla Textures is always
+  the immutable base of the displayed stack. Apply tracks staged edits against the acknowledged
+  running stack; finished work clears its transient status. Rendered verification is pending.
+- Controller uses its native category image; category selection plays the 500ms highlight.
+  Account uses the authenticated gamerpic or the signed-out silhouette. Sidebar bevels and
+  detail-row top/bottom edges now retain their native state roles and group boundaries.
+  The integrated Settings regressions and installed-font tests pass. The visible macOS client
+  runs with rebuilt block assets; fresh local-world frames confirm textured terrain. These
+  follow-up changes remain uncommitted, and matched Settings visual acceptance remains open.
+- Settings now uses the native OreUI shell, category sidebar, grouped descriptions, right-side
+  switches, filled sliders, inline choices, and independent panel scrollbars.
+- Shared launcher options, key remapping, language, accounts, packs and storage retain their
+  existing actions. Keyboard focus includes rows below the viewport and reveals them; resize
+  clamps scroll positions before painting. Always Sprint and VSync remain user extensions.
+- Regression tests reproduce legacy routing and unreachable offscreen focus. Rendered macOS
+  acceptance is pending; this does not close the Settings parity gate.
+- Incomplete: native options without a host model, controller binding glyphs, account management
+  actions/confirmations, Touch/Party/subscription services, and native storage subroutes.
+  Runtime vanilla artwork and core font faces are integrated, with native metrics, tracking,
+  kerning, CPU distance-field rasterization, coverage shading, control states and
+  pointer/navigation timelines. Locale shaping and hidden-tab animation resumption still
+  need native witnesses; disabled narration focus awaits a UI narration host. Matched visual
+  acceptance remains open. Reference facts are tracked in
+  [OreUI](docs/oreui.md).
 
 ## Distant grass sides
 
@@ -1665,7 +1769,7 @@ not established by the pack binding names. See the settings audit below.
   world-edit/Experiments, Party, several account/help submenus, reset flows and
   hardware/flight-dependent controls remain incomplete.
 - Numeric defaults/ranges are provisional unless a source explicitly states them.
-  The pack confirms chat notification 10s and toast notification 3s defaults. Current vanilla option defaults remain unconfirmed. FOV, gamma, sensitivities, FPS limits and added boolean defaults therefore
+  The pack confirms chat notification 10s and toast notification 3s defaults. Mouse sensitivity (default 0.5 over 0..1) and its look curve match the current client, as does field of view (default 60, range 30..110). Other vanilla option defaults remain unconfirmed. Gamma, controller/touch sensitivities, FPS limits and added boolean defaults therefore
   require further current-client evidence; they must not be described as vanilla.
 - Offline carrier gallery, geometry and option-family tests provide local evidence,
   not a retail visual acceptance. Focus/hover/pressed, scrolling, all modal flows,
@@ -4832,14 +4936,20 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
   See `docs/reference/flight-control-corrections.md` and
   `docs/reference/liquid-movement.md`, `docs/reference/liquid-currents.md` and
   `docs/reference/swimming-trigger.md` for identified
-  bodies and boundaries. Touch and stalled-entry swim predicates, the seven-tick flight
-  trigger versus our wall-time approximation,
+  bodies and boundaries. Touch and stalled-entry swim predicates,
   unregistered flow materials and specialized directional/waterlogged flow faces,
   specialized jump paths, bubble columns, custom movement components and
   complete waterlogged/surface behavior remain open. Controlled live results are recorded
   separately; source-derived regressions alone close no acceptance gate. Wire edges for
   swim/glide/crawl/fly and `PersistSneak` still need complete native input comparisons.
-  Glide retains the public movement-physics notes' provisional BedSim equations.
+  Glide travel, firework glide boosts (replayed from their stamped tick), glide start/stop and
+  the seven-tick flight double-tap follow the identified vanilla systems; the held-jump glide
+  lift gated by an unidentified movement ability and geyser boosts remain incomplete.
+  Water and lava travel read the underwater and lava movement attributes, and a swimmer's
+  dolphin boost scales speed and drag as vanilla does; riptide launches remain unimplemented.
+  Incomplete safety bound (a known divergence; vanilla is unbounded): Depth Strider's water-speed
+  blend target is clamped so the steady water velocity stays inside the simulator's block-sampling
+  budget. Land movement speed is not clamped.
   Honey jump/slide, soul speed and depth
   strider coefficients are provisional (honey and soul speed have no public value). Riding
   suspends player physics and streams steering input with boat paddle flags; rider seat
@@ -5629,6 +5739,12 @@ no longer needs RUST_MCBE_TELEPORT_ACK; that opt-in still enables unverified ext
 - Production remote execution must remain unavailable until restricted helpers,
   compiler limits and media decoding pass independent cross-platform validation.
 - See `docs/server-experiences.md` for the client implementation and remaining gates.
+- Provisional, labeled incomplete: server WIT 0.4 focus snapshots stop counting when the
+  player is farther than `provisionalFocusRange` (`tools/localserver/experience/limits.go`,
+  Dragonfly's survival block reach). Vanilla closes a block container screen beyond the
+  player's pick range (per input mode, survival or creative), measured squared from the
+  player's eyes to the block centre; the range constants are not yet known. Replace the
+  constant with those values, per game mode, once they are known.
 
 - Implemented client preview: admitted marker, signed session challenge, scoped trust
   JSON-UI, HTTPS/hash cache, bounded ordered ScriptMessage records, versioned WIT,
@@ -6105,6 +6221,16 @@ directly to remote dev; the affected gate and new unit regressions were not run.
 Native hat geometry, other block-entity materials and full version-matched
 rendering parity remain open gates.
 
+## Servers catalogue and classic OreUI view
+
+The classic Servers feed now retains ranked featured and creator groups, localized descriptions,
+tagged logos/banners/activity artwork and real pong MOTDs. The detail pane renders its populated
+sections with independent scrolling and quick optional selection/glimmer motion. Regression
+checks cover grouping, rank zero, image roles, selection across catalogue reorder, detail content
+and bounded artwork packing. Integrated visible macOS review is in progress. Version-matched
+native acceptance, narrow metadata layout, full-capacity badges and server notification panels
+remain incomplete; this work does not close those parity gates.
+
 ## Freelook extension
 
 Freelook is a requested Cinnabar extension, not vanilla behavior. Hold its configurable
@@ -6180,3 +6306,16 @@ and Java torso turning uses matching committed local ticks. Incomplete: native
 player body-turn timing remains on the provisional actor motion model. This work
 does not close the broader native body-motion or live visual parity gate. See
 `docs/reference/swing-duration.md` and `docs/reference/actor-animation-clocks.md`.
+
+## Server pack compatibility
+
+Galaxite's full-block geometry, large actor models, custom hotbar/held items and
+source-pixel form borders render in a 1920×1080, DPI 1 macOS/Metal hidden-client pass. Item registries retain
+numeric aliases and populated definitions accompanying empty declarations.
+Zeqa equipment sources and dynamic UI textures retain bounded native dimensions;
+rejected UI publications preserve the previous catalog and retry pending artwork.
+
+Incomplete: merging multiple different populated component definitions, unrestricted
+pack-size parity, exact native frame comparisons and release hardware budgets remain
+open. Two terrain texture keys absent from the served Galaxite stack still report
+diagnostic textures; this compatibility work does not close those parity gates.

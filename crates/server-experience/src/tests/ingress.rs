@@ -11,13 +11,21 @@ fn channel_field_count_uses_the_shared_contract_limit() {
     };
     let mut payload = vec![wire::Scalar::Bool(true); policy::MAX_CHANNEL_FIELDS];
     channel
-        .validate(&payload, wire::Direction::ToClient)
+        .validate(
+            &payload,
+            wire::Direction::ToClient,
+            policy::MAX_PAYLOAD_BYTES,
+        )
         .unwrap();
     channel.fields.push(wire::Field::Bool);
     payload.push(wire::Scalar::Bool(true));
     assert!(
         channel
-            .validate(&payload, wire::Direction::ToClient)
+            .validate(
+                &payload,
+                wire::Direction::ToClient,
+                policy::MAX_PAYLOAD_BYTES,
+            )
             .is_err()
     );
 }
@@ -43,6 +51,7 @@ fn overlapping_package_names_do_not_share_permissions_or_channel_schemas() {
         connection: "connection".into(),
         subclient: 0,
         expires_unix: 1500,
+        wire: negotiation::Wire::v1(),
     };
     let channel = wire::Channel {
         id: "a.b.events".into(),
@@ -53,8 +62,10 @@ fn overlapping_package_names_do_not_share_permissions_or_channel_schemas() {
     let capabilities = runtime::Capabilities {
         scope: grant.offer.offer.scope.clone(),
         assets: BTreeSet::new(),
+        templates: BTreeSet::new(),
         channels: vec![channel],
         actions: BTreeSet::new(),
+        max_message_bytes: grant.wire.limits.max_message_bytes,
     };
     let mut parent = capabilities.clone();
     parent.channels.clear();

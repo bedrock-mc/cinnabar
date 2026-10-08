@@ -23,7 +23,6 @@ use super::{
     server_view::{ActorView, ServerCameraView, ViewContext},
 };
 
-const EFFECT_ID_SPEED: i32 = 1;
 const EFFECT_ID_SLOWNESS: i32 = 2;
 const EFFECT_ID_NAUSEA: i32 = 9;
 const EFFECT_ID_BLINDNESS: i32 = 15;
@@ -62,33 +61,44 @@ impl Default for FirstPersonHandMotion {
     }
 }
 
+/// `movement_speed` is the effective movement-speed attribute, when one has been received.
 pub fn collect_fov_inputs(
     input: crate::observations::InputObservation<'_>,
     settings: Res<CameraSettingsAuthority>,
     ui: Option<&client_ui::ui_runtime::UiRuntime>,
     physics: Option<&dyn crate::observations::PhysicsObservation>,
+    movement_speed: Option<f64>,
     mut inputs: ResMut<CameraFovInputs>,
 ) {
-    inputs.sprinting = physics
+    let sprinting = physics
         .and_then(|physics| physics.latest_sneak_sprint())
         .map_or_else(
             || input.phase(Action::Sprint).held && input.movement()[1] > 0.0,
             |(_, sprinting)| sprinting,
         );
+    // Before any attribute update the default attribute carries only the local sprint modifier.
+    inputs.movement_speed = movement_speed
+        .filter(|speed| speed.is_finite())
+        .map_or_else(
+            || {
+                let factor = if sprinting {
+                    sim::SPRINT_SPEED_MULTIPLIER as f32
+                } else {
+                    1.0
+                };
+                sim::DEFAULT_MOVEMENT_SPEED as f32 * factor
+            },
+            |speed| speed as f32,
+        );
     inputs.fov_effects_scale = settings.feel().fov_effects_scale;
-    let (mut speed, mut slowness) = (0, 0);
-    if let Some(ui) = ui {
-        for effect in ui.gameplay_hud().effects() {
-            let levels = u32::try_from(effect.amplifier.saturating_add(1)).unwrap_or(0);
-            match effect.effect_id {
-                EFFECT_ID_SPEED => speed = speed.max(levels),
-                EFFECT_ID_SLOWNESS => slowness = slowness.max(levels),
-                _ => {}
-            }
-        }
-    }
-    inputs.speed_levels = speed;
-    inputs.slowness_levels = slowness;
+    inputs.slowness_amplifier = ui.and_then(|ui| {
+        ui.gameplay_hud()
+            .effects()
+            .iter()
+            .filter(|effect| effect.effect_id == EFFECT_ID_SLOWNESS)
+            .map(|effect| effect.amplifier)
+            .max()
+    });
 }
 
 #[allow(clippy::too_many_arguments)]

@@ -384,7 +384,7 @@ pub(super) fn join_kind(address: &str, local_world: bool) -> launcher::menu::vie
 
 /// The `connect.v1` target for a menu address (the proxy's realm and friend
 /// prefixes, else a server that gets the default port when it names none).
-pub(super) fn target_for(address: &str) -> ConnectTarget {
+pub(crate) fn target_for(address: &str) -> ConnectTarget {
     let address = address.trim();
     if let Some(id) = address.strip_prefix(launcher::menu::EXPERIENCE_ADDRESS_PREFIX) {
         return ConnectTarget::Gathering(id.to_owned());
@@ -392,7 +392,7 @@ pub(super) fn target_for(address: &str) -> ConnectTarget {
     if let Some(id) = address.strip_prefix("realm_id/") {
         return ConnectTarget::Realm(id.to_owned());
     }
-    if let Some(xuid) = address.strip_prefix("friend_xuid/") {
+    if let Some(xuid) = address.strip_prefix(launcher::menu::FRIEND_ADDRESS_PREFIX) {
         return ConnectTarget::Friend(xuid.to_owned());
     }
     let has_port = address.rsplit_once(':').is_some_and(|(host, port)| {

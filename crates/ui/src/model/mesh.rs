@@ -67,6 +67,20 @@ impl fmt::Display for UiMeshError {
 impl std::error::Error for UiMeshError {}
 
 impl UiMesh {
+    /// Fades vertex tint while retaining topology and texture bindings.
+    pub fn with_opacity(mut self, opacity: f32) -> Self {
+        let opacity = if opacity.is_finite() {
+            opacity.clamp(0.0, 1.0)
+        } else {
+            1.0
+        };
+        if opacity < 1.0 {
+            for vertex in Arc::make_mut(&mut self.vertices) {
+                vertex.color[3] = (f32::from(vertex.color[3]) * opacity).round() as u8;
+            }
+        }
+        self
+    }
     pub fn new(
         vertices: Arc<[UiMeshVertex]>,
         indices: Arc<[u32]>,

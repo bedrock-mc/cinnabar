@@ -26,9 +26,10 @@ pub(crate) use skin_update::normalize_skin_update;
 mod status;
 use skin::normalize_player_skin;
 pub use skin::{
-    CLASSIC_SKIN_SIDE, CapeImage, MAX_CLASSIC_SKIN_SIDE, MAX_SKIN_ANIMATION_LAYERS,
-    MAX_SKIN_GEOMETRY_SOURCE_BYTES, PlayerSkin, PlayerSkinUnavailable, SkinAnimation,
-    SkinAnimationKind, SkinGeometrySource, SkinRgba8, StandardSkin, expand_legacy_skin_rgba8,
+    CAPE_DIMENSIONS, CLASSIC_SKIN_SIDE, CapeImage, MAX_CLASSIC_SKIN_SIDE,
+    MAX_SKIN_ANIMATION_LAYERS, MAX_SKIN_GEOMETRY_SOURCE_BYTES, PlayerSkin, PlayerSkinUnavailable,
+    SkinAnimation, SkinAnimationKind, SkinGeometrySource, SkinRgba8, StandardSkin,
+    expand_legacy_skin_rgba8, normalize_classic_skin_rgba8,
 };
 pub use status::{ActorStatusEvent, ActorStatusKind, ActorTakeItemEvent};
 pub(crate) use status::{
@@ -67,6 +68,10 @@ const ACTOR_DATA_ID_FLAGS: u32 = 0;
 /// gophertunnel be6713da4dc051a4197f897d04835e89e9c54321
 /// `minecraft/protocol/entity_metadata.go`: `EntityDataKeyFlagsTwo` (92).
 const ACTOR_DATA_ID_FLAGS_EXTENDED: u32 = 92;
+
+/// Actor-data id of the third actor flag word (flags 128 and up), also
+/// delivered as `FlagsExtended`.
+pub const ACTOR_DATA_ID_FLAGS_THIRD: u32 = 139;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ActorKind {
@@ -902,11 +907,11 @@ fn normalize_metadata(
                         payload.value.z,
                     ])
                 }
-                // The two actor flag words are ordinary Int64 payloads on the
-                // wire; only their id distinguishes them from a plain long.
+                // The actor flag words are ordinary Int64 payloads on the wire;
+                // only their id distinguishes them from a plain long.
                 DataItemEntryPayload::DataItemInt64Payload(payload) => match key {
                     ACTOR_DATA_ID_FLAGS => ActorMetadataValue::Flags(payload.value as u64),
-                    ACTOR_DATA_ID_FLAGS_EXTENDED => {
+                    ACTOR_DATA_ID_FLAGS_EXTENDED | ACTOR_DATA_ID_FLAGS_THIRD => {
                         ActorMetadataValue::FlagsExtended(payload.value as u64)
                     }
                     _ => ActorMetadataValue::Long(payload.value),

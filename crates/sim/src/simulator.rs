@@ -5,6 +5,7 @@ mod environment;
 mod flight;
 mod immobile;
 mod input;
+mod inside;
 mod mode;
 #[cfg(test)]
 mod numeric_tests;
@@ -21,7 +22,7 @@ use collision::{clip_sneak_edge, resolve_motion};
 use environment::sample;
 
 pub use controls::{ControlledTickResult, ProcessedControls};
-pub use effects::MovementEffects;
+pub use effects::{MovementEffects, VerticalPhysics};
 pub use environment::MAX_BLOCK_SAMPLES_PER_TICK;
 pub use input::MovementInput;
 pub use mode::{MovementMode, pose_fits};
@@ -38,8 +39,24 @@ const DEFAULT_AIR_FRICTION: f64 = 0.91;
 const NORMAL_GRAVITY_MULTIPLIER: f64 = 0.98;
 pub const NORMAL_GRAVITY: f64 = 0.08;
 const STEP_HEIGHT: f64 = 0.5625;
-const DEFAULT_MOVEMENT_SPEED: f64 = 0.1;
+/// Player movement-speed attribute before any modifier.
+pub const DEFAULT_MOVEMENT_SPEED: f64 = 0.1;
 const DEFAULT_AIR_SPEED: f64 = 0.02;
+/// Largest per-tick liquid velocity whose diagonal sweep, with the standing
+/// liquid-sensing pose and up to unit vertical speed, fits the 64-cell block
+/// sampling budget beside the liquid-exit probe: 1.4 blocks per horizontal axis.
+pub const MAX_SAFE_LIQUID_VELOCITY: f64 = 1.4 * std::f64::consts::SQRT_2;
+/// Incomplete safety bound; vanilla leaves Depth Strider's blend target unbounded.
+/// The worst steady water velocity is about 1.32 targets (effective level 2,
+/// sprint drag blended to 0.664), so the target keeps a tenth of headroom.
+const MAX_DEPTH_STRIDER_WATER_TARGET: f32 = (MAX_SAFE_LIQUID_VELOCITY / (1.32 * 1.1)) as f32;
+/// Default `minecraft:underwater_movement` and `minecraft:lava_movement` value.
+const DEFAULT_LIQUID_MOVEMENT_SPEED: f64 = 0.02;
+/// Swimming with a dolphin boost doubles water travel speed.
+const DOLPHIN_SWIM_SPEED_MULTIPLIER: f32 = 2.0;
+// A boosted swimmer's speed scales by `level / 3 * 0.3 + 0.7` instead of Depth Strider's blend.
+const BOOSTED_DEPTH_STRIDER_SCALE: f32 = 0.3;
+const BOOSTED_SWIM_BASE_SCALE: f32 = 0.7;
 const SPRINT_AIR_SPEED: f64 = 0.026;
 /// Native total/current sprint attribute modifier, applied once on sprint entry.
 pub const SPRINT_SPEED_MULTIPLIER: f64 = 1.3;
@@ -55,23 +72,14 @@ pub const JUMP_DELAY_TICKS: u8 = 10;
 const COLLISION_EPSILON: f64 = f32::EPSILON as f64;
 /// `bedsim v0.1.3` `ClimbSpeed`, vanilla's ladder ascent speed.
 const CLIMB_SPEED: f64 = 0.2;
-// Provisional block-modifier and enchantment coefficients with no bedsim oracle;
-// each needs independent measurement.
-const HONEY_JUMP_FACTOR: f64 = 0.5;
-const HONEY_SLIDE_TRIGGER: f64 = -0.13;
-const HONEY_SLIDE_SPEED: f64 = -0.05;
+/// Jump power scale for blocks that prevent jumping (honey).
+const HONEY_JUMP_FACTOR: f32 = 0.6;
 const SOUL_SAND_ACCELERATION_FRICTION: f32 = 1.225;
 const GROUND_BASE_FRICTION: f32 = 0.546_000_06;
 const DEPTH_STRIDER_MAX_LEVEL: u8 = 3;
 const WATER_DRAG: f64 = 0.8;
 /// Ground drag depth strider blends water drag toward (default ground friction times air friction).
 const DEPTH_STRIDER_TARGET_DRAG: f64 = GROUND_BASE_FRICTION as f64;
-/// Provisional scaffolding sneak-descent speed; needs independent measurement.
-const SCAFFOLDING_SNEAK_DESCENT: f64 = 0.15;
-/// `bedsim v0.1.3` `walkOnBlock` damps slime by `0.4 + |yMov| * 0.2`. It only
-/// runs on ticks whose resolved vertical movement is exactly zero, so `yMov` is
-/// zero and the factor collapses to its constant term.
-const SLIME_WALK_DAMPING: f64 = 0.4;
 /// Restitution ignores descents below the ordinary gravity step.
 const MIN_REBOUND_SPEED: f32 = 0.080_000_12;
 // Known modelling limitation: bedsim distinguishes `state.Sneaking` (the
@@ -99,13 +107,16 @@ impl Simulator {
         sneaking: bool,
         world: &(impl CollisionWorld + ?Sized),
     ) -> Result<crate::CollisionQuery<MovementEnvironment>, crate::WorldQueryError> {
-        let sampled = sample(
+        let height = mode.hitbox_height(sneaking);
+        let mut sampled = sample(world, position, Vec3::ZERO, height, None)?;
+        // Only the feet layer feeds the published environment.
+        sampled.movement.in_scaffolding = scaffolding::sample_contact(
             world,
-            position,
-            Vec3::ZERO,
-            mode.hitbox_height(sneaking),
-            None,
-        )?;
+            Aabb::player_with_height_at(position, height),
+            false,
+            &mut sampled,
+        )?
+        .inside;
         Ok(crate::CollisionQuery {
             value: sampled.movement,
             identity: sampled.identity,
@@ -125,6 +136,18 @@ impl Simulator {
 
     /// Advances the same transactional tick and publishes its primary controls.
     pub fn tick_with_controls(
+        &self,
+        state: &mut PlayerState,
+        input: MovementInput,
+        world: &impl CollisionWorld,
+    ) -> Result<ControlledTickResult, SimulationError> {
+        let rotation = [input.pitch_degrees as f32, input.yaw_degrees as f32];
+        let output = self.advance(state, input, world)?;
+        state.previous_rotation = Some(rotation);
+        Ok(output)
+    }
+
+    fn advance(
         &self,
         state: &mut PlayerState,
         input: MovementInput,
@@ -194,22 +217,45 @@ impl Simulator {
         } else {
             None
         };
+        let scaffold = scaffolding::sample_contact(
+            world,
+            Aabb::player_with_height_at(next.position, input.mode.hitbox_height(input.sneaking)),
+            input.sneaking,
+            &mut sampled,
+        )?;
+        sampled.movement.in_scaffolding = scaffold.inside;
+        // Sneaking over supported scaffolding descends through it at a fixed speed.
+        sampled.descend_through =
+            input.mode != MovementMode::Riding && input.sneaking && scaffold.over_descending;
+        if sampled.descend_through {
+            next.velocity.y = -scaffolding::CLIMB_SPEED;
+        }
         let jump_suppressed = water::jump_suppressed(input.mode, next.swim_amount, head_in_water);
+        // The scaffold ascent precedes every other jump response.
+        let scaffold_jump = input.jumping
+            && input.mode != MovementMode::Flying
+            && !jump_suppressed
+            && !sampled.descend_through
+            && scaffold.inside;
         if input.jumping && input.mode != MovementMode::Flying {
             if jump_suppressed {
                 if sampled.movement.in_water {
                     next.velocity.y = 0.0;
                 }
+            } else if scaffold_jump {
+                next.velocity.y = scaffolding::CLIMB_SPEED;
+                next.jump_delay = JUMP_DELAY_TICKS;
             } else if sampled.movement.in_water || sampled.movement.in_lava {
                 water::jump(&mut next.velocity.y);
             }
         }
         // Vanilla selects water travel by the previous tick's in-water flag,
         // independent of the retained swimming pose on a dry low ceiling.
-        if matches!(
-            input.mode,
-            MovementMode::Gliding | MovementMode::Flying | MovementMode::Riding
-        ) || (input.mode == MovementMode::Swimming && sampled.movement.in_water)
+        // Water and lava travel also take precedence over gliding.
+        let liquid = sampled.movement.in_water || sampled.movement.in_lava;
+        if matches!(input.mode, MovementMode::Flying | MovementMode::Riding)
+            || (input.mode == MovementMode::Gliding && !liquid)
+            || (input.mode == MovementMode::Swimming && sampled.movement.in_water)
         {
             return travel::tick_mode(
                 next,
@@ -227,14 +273,14 @@ impl Simulator {
             DEFAULT_AIR_FRICTION
         };
         let depth_strider = depth_strider_level(input.depth_strider, grounded_at_start);
+        // Liquid and ground speeds come from attributes and friction only; block
+        // speed factors never scale the acceleration.
         let relative_speed = if sampled.movement.in_water {
-            water_travel_speed(
-                &input,
-                sampled.movement.horizontal_speed_factor,
-                depth_strider,
-            )
+            water_travel_speed(&input, grounded_at_start)
         } else if sampled.movement.in_lava {
-            f64::from(DEFAULT_AIR_SPEED as f32 * sampled.movement.horizontal_speed_factor as f32)
+            input
+                .lava_movement_speed
+                .unwrap_or(DEFAULT_LIQUID_MOVEMENT_SPEED)
         } else if grounded_at_start {
             ground_relative_speed(input, &sampled)
         } else if input.sprinting {
@@ -251,14 +297,19 @@ impl Simulator {
             relative_speed,
         );
 
+        // A held jump on a climbable feet cell climbs instead: no ground jump,
+        // sprint impulse, jump delay or start-jump report.
+        let climb_jump = input.jumping && !scaffold_jump && sampled.movement.on_climbable;
         let jump_initiated = input.jump_pressed
+            && !scaffold_jump
+            && !climb_jump
             && !jump_suppressed
             && next.on_ground
             && next.jump_delay == 0
             && !sampled.movement.in_water
             && !sampled.movement.in_lava;
         if jump_initiated {
-            let honey = if sampled.movement.surface_response == crate::SurfaceResponse::Honey {
+            let honey = if sampled.honey_jump {
                 HONEY_JUMP_FACTOR
             } else {
                 1.0
@@ -268,7 +319,7 @@ impl Simulator {
                 .jump_boost
                 .map_or(0.0, |amplifier| 0.1_f32 * (amplifier as f32 + 1.0));
             next.velocity.y = f64::from(
-                (next.velocity.y as f32).max((DEFAULT_JUMP_HEIGHT as f32 + boost) * honey as f32),
+                (next.velocity.y as f32).max((DEFAULT_JUMP_HEIGHT as f32 + boost) * honey),
             );
             next.jump_delay = JUMP_DELAY_TICKS;
             if input.sprinting {
@@ -282,23 +333,16 @@ impl Simulator {
             }
         }
 
-        if sampled.movement.on_climbable || sampled.movement.in_scaffolding {
+        if sampled.movement.on_climbable {
             next.velocity.y = next.velocity.y.max(-CLIMB_SPEED);
             // `bedsim v0.1.3` `simulateMovement` ascends a climbable block on a
             // held jump *or* on the previous tick's horizontal collision, which
-            // is how walking into a ladder climbs it. Scaffolding has no bedsim
-            // oracle, so it keeps the held-jump-only clause it already had.
-            let wall_climb =
-                sampled.movement.on_climbable && (retained_collisions.x || retained_collisions.z);
-            if input.jumping || wall_climb {
+            // is how walking into a ladder climbs it.
+            let wall_climb = retained_collisions.x || retained_collisions.z;
+            if climb_jump || wall_climb {
                 next.velocity.y = CLIMB_SPEED;
-            } else if input.sneaking {
-                // Sneaking descends scaffolding but holds position on a ladder.
-                if sampled.movement.in_scaffolding {
-                    next.velocity.y = -SCAFFOLDING_SNEAK_DESCENT;
-                } else if next.velocity.y < 0.0 {
-                    next.velocity.y = 0.0;
-                }
+            } else if input.sneaking && next.velocity.y < 0.0 {
+                next.velocity.y = 0.0;
             }
         }
         if sampled.movement.in_water || sampled.movement.in_lava {
@@ -308,39 +352,28 @@ impl Simulator {
             next.velocity.y =
                 f64::from(next.velocity.y as f32 * (sampled.movement.vertical_speed_factor) as f32);
         }
-        if sampled.movement.in_cobweb {
-            let (horizontal, vertical) = if input.effects.weaving {
-                (0.5, 0.25)
-            } else {
-                (0.25, 0.05)
-            };
-            next.velocity.x = f64::from(next.velocity.x as f32 * (horizontal) as f32);
-            next.velocity.y = f64::from(next.velocity.y as f32 * (vertical) as f32);
-            next.velocity.z = f64::from(next.velocity.z as f32 * (horizontal) as f32);
-        } else if sampled.movement.in_powder_snow {
-            next.velocity.x = f64::from(
-                next.velocity.x as f32 * (sampled.movement.horizontal_speed_factor) as f32,
-            );
-            next.velocity.y =
-                f64::from(next.velocity.y as f32 * (sampled.movement.vertical_speed_factor) as f32);
-            next.velocity.z = f64::from(
-                next.velocity.z as f32 * (sampled.movement.horizontal_speed_factor) as f32,
-            );
+        let stuck = inside::stuck_multiplier(&sampled, &input);
+        if let Some(multiplier) = stuck {
+            inside::slow_request(&mut next.velocity, multiplier);
         }
-        if sampled.movement.surface_response == crate::SurfaceResponse::Honey
-            && !grounded_at_start
-            && (retained_collisions.x || retained_collisions.z)
-            && next.velocity.y < HONEY_SLIDE_TRIGGER
-        {
-            next.velocity.y = HONEY_SLIDE_SPEED;
-        }
-        let mut identity = sampled.identity;
-        if input.sneaking
-            && input.mode != MovementMode::Crawling
-            && grounded_at_start
-            && next.velocity.y <= 0.0
-        {
-            let (clipped, edge_identity) = clip_sneak_edge(world, next.position, next.velocity)?;
+        let mut identity = sampled.identity.clone();
+        // Edge avoidance shortens only the move request; velocity keeps each
+        // unclipped axis and loses an axis only once its clip reaches zero.
+        let mut edge_velocity = None;
+        if input.sneaking && input.mode != MovementMode::Crawling && grounded_at_start {
+            let (clipped, edge_identity) = clip_sneak_edge(
+                world,
+                next.position,
+                next.velocity,
+                input.mode.hitbox_height(input.sneaking),
+            )?;
+            let mut retained = next.velocity;
+            for axis in [0, 2] {
+                if (clipped[axis] as f32).abs() <= COLLISION_EPSILON as f32 {
+                    retained[axis] = 0.0;
+                }
+            }
+            edge_velocity = Some(retained);
             next.velocity = clipped;
             if let Some(edge_identity) = edge_identity {
                 identity = identity.merge(&edge_identity)?;
@@ -356,7 +389,7 @@ impl Simulator {
                     next.position,
                     input.mode.hitbox_height(input.sneaking),
                 ),
-                input.sneaking,
+                sampled.descend_through,
             ),
             next.position,
             next.velocity,
@@ -365,11 +398,14 @@ impl Simulator {
         )?;
         identity = identity.merge(&motion.identity)?;
         next.position = motion.position;
-        next.on_ground = motion.stepped
-            || (motion.collisions.y && next.velocity.y < 0.0)
-            || (grounded_at_start
-                && !motion.collisions.y
-                && next.velocity.y.abs() <= COLLISION_EPSILON);
+        // Ground comes only from a vertical collision under a downward request,
+        // so a step taken while rising leaves the ground; a free move keeps it
+        // only for an exactly zero vertical request.
+        next.on_ground = if motion.collisions.y {
+            pre_collision_velocity.y < 0.0
+        } else {
+            grounded_at_start && pre_collision_velocity.y == 0.0
+        };
 
         let landing_surface = if motion.collisions.y && pre_collision_velocity.y < 0.0 {
             let surface = if let Some(block) = motion.support {
@@ -391,19 +427,12 @@ impl Simulator {
             sampled.movement.surface_response
         };
 
-        // `bedsim v0.1.3` applies `walkOnBlock` to the resolved velocity before
-        // publishing this tick's movement, so the damping is visible in both.
-        let mut resolved = motion.resolved;
-        if resolved.y == 0.0
-            && next.on_ground
-            && !input.sneaking
-            && landing_surface == crate::SurfaceResponse::Slime
-        {
-            resolved.x = f64::from(resolved.x as f32 * (SLIME_WALK_DAMPING) as f32);
-            resolved.z = f64::from(resolved.z as f32 * (SLIME_WALK_DAMPING) as f32);
+        next.movement = motion.resolved;
+        next.velocity = motion.resolved;
+        if let Some(retained) = edge_velocity {
+            next.velocity.x = retained.x;
+            next.velocity.z = retained.z;
         }
-        next.movement = resolved;
-        next.velocity = resolved;
         if motion.stepped {
             next.velocity.y = 0.0;
         }
@@ -423,6 +452,10 @@ impl Simulator {
         }
         if motion.collisions.z {
             next.velocity.z = 0.0;
+        }
+        // A slowed move leaves no residual velocity.
+        if stuck.is_some() {
+            next.velocity = Vec3::ZERO;
         }
 
         let liquid_ledge_exit = (sampled.movement.in_water || sampled.movement.in_lava)
@@ -446,15 +479,8 @@ impl Simulator {
         if auto_climb {
             next.velocity.y = CLIMB_SPEED;
         }
-        if sampled.movement.in_cobweb {
-            next.velocity = Vec3::ZERO;
-            effects::apply_vertical(
-                &mut next.velocity.y,
-                input.effects,
-                NORMAL_GRAVITY,
-                NORMAL_GRAVITY_MULTIPLIER,
-            );
-        } else if sampled.movement.in_water || sampled.movement.in_lava {
+        let vertical = input.vertical_physics;
+        if sampled.movement.in_water || sampled.movement.in_lava {
             // When both liquid facts overlap, the pinned v0.1.5 slice follows
             // water travel rather than composing water gravity with lava drag.
             if sampled.movement.in_water {
@@ -473,7 +499,10 @@ impl Simulator {
             };
             effects::apply_vertical(&mut next.velocity.y, input.effects, gravity, 1.0);
         } else {
-            let gravity = if input.effects.slow_falling && next.velocity.y < 0.0 {
+            let gravity = if sampled.descend_through && (scaffold.inside || scaffold.over) {
+                // Descending through scaffolding keeps only the vertical drag.
+                0.0
+            } else if input.effects.slow_falling && next.velocity.y < 0.0 {
                 0.01
             } else {
                 NORMAL_GRAVITY
@@ -481,11 +510,15 @@ impl Simulator {
             effects::apply_vertical(
                 &mut next.velocity.y,
                 input.effects,
-                if auto_climb { 0.0 } else { gravity },
+                if auto_climb {
+                    0.0
+                } else {
+                    vertical.gravity(gravity)
+                },
                 if auto_climb {
                     1.0
                 } else {
-                    NORMAL_GRAVITY_MULTIPLIER
+                    f64::from(vertical.vertical_drag_retention())
                 },
             );
             next.velocity.x = effects::damp_horizontal(next.velocity.x, friction as f32);
@@ -504,15 +537,31 @@ impl Simulator {
                 state.position.y,
                 next.position.y,
                 &mut next.velocity,
-                sampled.block_samples,
+                &mut sampled.block_samples,
             )?;
             identity = identity.merge(&exit.identity)?;
         }
-        match sampled.movement.surface_response {
-            crate::SurfaceResponse::BubbleUp => next.velocity.y = next.velocity.y.max(0.1),
-            crate::SurfaceResponse::BubbleDown => next.velocity.y = next.velocity.y.min(-0.1),
-            _ => {}
+        if next.on_ground {
+            let standing = inside::primary(
+                world,
+                &mut sampled,
+                &mut identity,
+                environment::block_below(next.position)?,
+            )?;
+            inside::stand_on(
+                &mut next.velocity,
+                standing.surface_response,
+                input.sneaking,
+            );
         }
+        inside::after_move(
+            world,
+            motion.aabb,
+            &mut next.velocity,
+            &input,
+            &mut sampled,
+            &mut identity,
+        )?;
         next.jump_delay = next.jump_delay.saturating_sub(1);
         next.collisions = motion.collisions;
 
@@ -535,16 +584,34 @@ impl Simulator {
     }
 }
 
-/// Vanilla water travel speed: the water base blended toward the ground
-/// movement speed, multiplying the effective enchantment level before division.
-fn water_travel_speed(
-    input: &MovementInput,
-    horizontal_speed_factor: f64,
-    depth_strider: f64,
-) -> f64 {
-    let base = DEFAULT_AIR_SPEED as f32 * horizontal_speed_factor as f32;
-    let ground = effective_movement_speed(input);
-    f64::from(base + ((ground - base) * depth_strider as f32) / f32::from(DEPTH_STRIDER_MAX_LEVEL))
+/// Vanilla water travel speed from the underwater movement attribute. Depth
+/// Strider blends it toward the ground speed, multiplying the effective level
+/// before division; a dolphin-boosted swimmer scales it instead.
+fn water_travel_speed(input: &MovementInput, grounded: bool) -> f64 {
+    let base = input
+        .underwater_movement_speed
+        .unwrap_or(DEFAULT_LIQUID_MOVEMENT_SPEED) as f32;
+    let multiplier = swim_speed_multiplier(input);
+    let max_level = f32::from(DEPTH_STRIDER_MAX_LEVEL);
+    if multiplier > 1.0 {
+        let level = f32::from(input.depth_strider.min(DEPTH_STRIDER_MAX_LEVEL));
+        return f64::from(
+            base * multiplier
+                * ((level / max_level) * BOOSTED_DEPTH_STRIDER_SCALE + BOOSTED_SWIM_BASE_SCALE),
+        );
+    }
+    let depth_strider = depth_strider_level(input.depth_strider, grounded) as f32;
+    let ground = effective_movement_speed(input).min(MAX_DEPTH_STRIDER_WATER_TARGET);
+    f64::from(base + ((ground - base) * depth_strider) / max_level)
+}
+
+/// Swimming with a dolphin boost doubles water speed and disables Depth Strider's drag blend.
+fn swim_speed_multiplier(input: &MovementInput) -> f32 {
+    if input.mode == MovementMode::Swimming && input.effects.dolphin_boost {
+        DOLPHIN_SWIM_SPEED_MULTIPLIER
+    } else {
+        1.0
+    }
 }
 
 /// Caps Depth Strider's level and halves it while airborne, before interpolation.
@@ -588,7 +655,7 @@ fn apply_relative_movement(
 
 /// Uses the current ground-speed ratio; Soul Speed removes only the terrain penalty here.
 fn ground_relative_speed(input: MovementInput, sampled: &environment::SampledEnvironment) -> f64 {
-    let soul_sand = sampled.movement.surface_response == crate::SurfaceResponse::SoulSand;
+    let soul_sand = sampled.friction_surface == crate::SurfaceResponse::SoulSand;
     let mut acceleration_friction = sampled.friction as f32;
     if soul_sand && input.soul_speed == 0 {
         acceleration_friction *= SOUL_SAND_ACCELERATION_FRICTION;
@@ -599,12 +666,8 @@ fn ground_relative_speed(input: MovementInput, sampled: &environment::SampledEnv
     } else {
         GROUND_BASE_FRICTION / drag
     };
-    let mut speed = effective_movement_speed(&input);
-    speed = speed * ratio * ratio * ratio;
-    if !soul_sand {
-        speed *= sampled.movement.horizontal_speed_factor as f32;
-    }
-    f64::from(speed)
+    let speed = effective_movement_speed(&input);
+    f64::from(speed * ratio * ratio * ratio)
 }
 
 /// Rounds the control impulse before the relative-movement calculation.

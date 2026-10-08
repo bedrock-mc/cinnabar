@@ -120,6 +120,24 @@ impl SwingTracker {
 
     /// Attempts both native animations independently; the result admits the Bedrock wire packet.
     pub fn try_swing(&mut self, tick: u64, duration: i32) -> bool {
+        self.try_swing_guarded(tick, duration, None)
+    }
+
+    /// Attempts a swing for the tick about to simulate, which has no guard history yet: both
+    /// durations come from the effects in force before it.
+    pub fn try_swing_before_tick(
+        &mut self,
+        tick: u64,
+        effects: crate::movement::MiningEffects,
+    ) -> bool {
+        self.try_swing_guarded(
+            tick,
+            swing_duration(effects),
+            Some(java_swing_duration(effects)),
+        )
+    }
+
+    fn try_swing_guarded(&mut self, tick: u64, duration: i32, java_guard: Option<i32>) -> bool {
         if self.authority.is_none() && self.attempted_tick.is_some_and(|previous| tick < previous) {
             *self = Self::default();
         }
@@ -144,7 +162,11 @@ impl SwingTracker {
             .filter(|_| replay)
             .map_or(duration, |(_, values)| values[0]);
         let java_duration = deferred.filter(|_| replay).map_or_else(
-            || self.guard_java_duration(tick).unwrap_or(duration),
+            || {
+                java_guard
+                    .or_else(|| self.guard_java_duration(tick))
+                    .unwrap_or(duration)
+            },
             |(_, values)| values[1],
         );
         let bedrock = self.states[0].try_start(duration);
@@ -265,7 +287,8 @@ impl SwingTracker {
                 next = last.saturating_add(1);
             }
             if next <= target {
-                for tick in next..=target.min(self.history_end.unwrap()) {
+                let recorded_ticks = next..=target.min(self.history_end.unwrap());
+                for tick in recorded_ticks {
                     let distance = (self.history_end.unwrap() - tick) as usize;
                     let durations = self.history[distance];
                     self.advance_states(1, [durations.0, durations.1]);
@@ -324,6 +347,41 @@ impl SwingTracker {
         self.prior_tick_states = self.states.clone();
         for (state, duration) in self.states.iter_mut().zip(durations) {
             state.advance(1, duration);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SwingTracker;
+    use crate::movement::MiningEffects;
+
+    /// With Conduit Power, pre-tick swings keep the Java duration for the Java animation and
+    /// the shortened Bedrock duration for the wire swing.
+    #[test]
+    fn pre_tick_swings_keep_the_java_duration_under_conduit_power() {
+        let conduit = MiningEffects {
+            conduit_power: Some(1),
+            ..Default::default()
+        };
+        let mut pre_tick = SwingTracker::default();
+        let mut java = SwingTracker::default();
+        let mut bedrock = SwingTracker::default();
+        for tick in 100..120 {
+            let admitted = pre_tick.try_swing_before_tick(tick, conduit);
+            java.try_swing(tick, 6);
+            assert_eq!(admitted, bedrock.try_swing(tick, 4), "tick {tick}");
+            let progress = pre_tick.published_progress(tick);
+            assert_eq!(
+                progress.java,
+                java.published_progress(tick).java,
+                "tick {tick}"
+            );
+            assert_eq!(
+                progress.bedrock,
+                bedrock.published_progress(tick).bedrock,
+                "tick {tick}"
+            );
         }
     }
 }

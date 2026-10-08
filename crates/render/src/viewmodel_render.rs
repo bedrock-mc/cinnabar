@@ -42,6 +42,7 @@ impl Plugin for ViewmodelRenderPlugin {
 fn install(app: &mut App) {
     app.init_resource::<ViewmodelScene>()
         .init_resource::<ViewmodelCompletionGate>();
+    crate::pipeline_warmup::register::<HandGpu>(app);
     let Some(render_app) = app.get_sub_app(RenderApp) else {
         return;
     };
@@ -595,5 +596,27 @@ fn submit_completion(
             gate.reject(token);
         }
         bevy::log::warn!(?error, "hand completion polling failed");
+    }
+}
+
+impl crate::pipeline_warmup::PrewarmPipelines for HandGpu {
+    fn prewarm(
+        &mut self,
+        cache: &PipelineCache,
+        view: crate::pipeline_warmup::WarmView,
+        ids: &mut crate::pipeline_warmup::WarmupIds,
+    ) -> Result<(), BevyError> {
+        let layout = &self.layout;
+        let samples = view.msaa.samples();
+        let id = memoized_hand_pipeline(&mut self.pipeline_variants, samples, view.hdr, || {
+            cache.queue_render_pipeline(specialized_hand_pipeline(
+                layout.clone(),
+                samples,
+                view.hdr,
+            ))
+        })
+        .ok_or("unsupported hand pipeline sample count")?;
+        ids.push(id);
+        Ok(())
     }
 }

@@ -153,6 +153,7 @@ impl Plugin for ParticleRenderPlugin {
             "particles.wgsl",
             crate::shader_safety::from_wgsl
         );
+        crate::pipeline_warmup::register::<ParticlePipeline>(app);
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
             return;
         };
@@ -642,5 +643,26 @@ impl<P: PhaseItem, const ADDITIVE: bool> RenderCommand<P> for DrawParticleRange<
         }
         pass.draw(0..6, range);
         RenderCommandResult::Success
+    }
+}
+
+impl crate::pipeline_warmup::PrewarmPipelines for ParticlePipeline {
+    fn prewarm(
+        &mut self,
+        cache: &PipelineCache,
+        view: crate::pipeline_warmup::WarmView,
+        ids: &mut crate::pipeline_warmup::WarmupIds,
+    ) -> Result<(), BevyError> {
+        for additive in [false, true] {
+            ids.push(self.variants.specialize(
+                cache,
+                ParticlePipelineKey {
+                    msaa: view.msaa,
+                    hdr: view.hdr,
+                    additive,
+                },
+            )?);
+        }
+        Ok(())
     }
 }

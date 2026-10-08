@@ -30,6 +30,12 @@ pub(crate) use gameplay::item_use::{
 };
 use gameplay::item_use::{QUICK_CHARGE_ENCHANTMENT_ID, admit_on_tick};
 
+/// A successful extension request is valid only in its originating world scope.
+#[derive(Resource, Debug, Default)]
+pub(crate) struct ModItemUsePolicy {
+    pub scope: Option<(u64, i32)>,
+}
+
 /// Bevy resource adapter for the gameplay item_use owner.
 #[derive(Resource, Debug, Default, Clone)]
 pub(crate) struct ItemUseRuntime(gameplay::item_use::ItemUseRuntime);
@@ -283,6 +289,7 @@ fn needs_met(
 #[derive(SystemParam)]
 pub(crate) struct ItemUseContext<'w, 's> {
     input: Res<'w, SemanticInputSnapshot>,
+    delay_fix: Option<Res<'w, ModItemUsePolicy>>,
     ui: Res<'w, UiRuntime>,
     menu: Res<'w, MenuRuntime>,
     windows: Query<'w, 's, &'static Window, With<PrimaryWindow>>,
@@ -337,6 +344,18 @@ pub(crate) fn produce_item_use(
     if !admitted {
         runtime.cancel_pending_input();
     }
+    let scope = context.client_world.stream.as_ref().map(|stream| {
+        let authority = stream.authority();
+        (authority.actor_session_id(), authority.current_dimension())
+    });
+    runtime.set_delay_fix(
+        admitted
+            && scope.is_some()
+            && context
+                .delay_fix
+                .as_ref()
+                .is_some_and(|policy| policy.scope == scope),
+    );
     runtime.observe_press(admitted && use_phase.pressed);
     movement.send_held_release(|packets| context.network.send_inventory_packets(packets));
     if movement.has_held_release() {
@@ -353,6 +372,10 @@ pub(crate) fn produce_item_use(
     let Some(sample) = movement.newest_unsent_sample() else {
         return;
     };
+    // One press resolves once: item use waits while block use still holds it.
+    if context.block_use.press_pending() {
+        return;
+    }
     let now_millis = u64::try_from(context.time.elapsed().as_millis()).unwrap_or(u64::MAX);
     let air_use = selected_air_use_with_projectile(
         &player_runtime,
@@ -390,7 +413,7 @@ pub(crate) fn produce_item_use(
         inventory_revision,
         charge_projectile: loading_projectile(&player_runtime, stream, &context.ui, creative),
         press_consumed: context.melee.blocks_use_at(now_millis)
-            || context.block_use.interacted_at(sample.tick),
+            || context.block_use.press_interacted(),
     };
     if let Some(reason) = runtime.press_drop_reason(&frame) {
         crate::movement::note_click_drop("use", reason);

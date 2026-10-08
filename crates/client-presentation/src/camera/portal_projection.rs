@@ -272,7 +272,9 @@ mod tests {
             .world_mut()
             .spawn((FlyCamera::default(), Projection::default()))
             .id();
-        app.world_mut().resource_mut::<CameraFovInputs>().sprinting = true;
+        app.world_mut()
+            .resource_mut::<CameraFovInputs>()
+            .movement_speed = 0.13;
         app.world_mut()
             .resource_mut::<Time>()
             .advance_by(std::time::Duration::from_secs(1));

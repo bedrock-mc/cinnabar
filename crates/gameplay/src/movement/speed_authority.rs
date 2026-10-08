@@ -1,5 +1,12 @@
+use sim::MAX_SAFE_LIQUID_VELOCITY;
+
 /// Largest effective speed that stays inside the collision query extent.
 const MAX_SIMULABLE_MOVEMENT_SPEED: f64 = sim::MAX_COLLISION_QUERY_EXTENT / 4.0;
+/// Sprint drag 0.9 settles water velocity at nine accelerations and a dolphin
+/// boost doubles them, with a tenth of headroom for liquid currents.
+pub(crate) const MAX_SIMULABLE_UNDERWATER_SPEED: f64 = MAX_SAFE_LIQUID_VELOCITY / 20.0;
+/// Lava's 0.5 drag settles at one acceleration, again with headroom for currents.
+pub(crate) const MAX_SIMULABLE_LAVA_SPEED: f64 = MAX_SAFE_LIQUID_VELOCITY / 1.1;
 
 /// Attribute current and the native sprint modifier currently installed on it.
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
@@ -91,6 +98,16 @@ pub struct LocalMovementSpeedAuthority {
     dimension: i32,
     last_sequence: Option<u64>,
     speed: EffectiveMovementSpeed,
+    /// Liquid speed attributes share the movement attribute's packet, so they order separately.
+    last_liquid_sequence: Option<u64>,
+    liquid: LiquidMovementSpeeds,
+}
+
+/// Effective underwater and lava movement attribute currents; `None` keeps the vanilla default.
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
+pub(crate) struct LiquidMovementSpeeds {
+    pub underwater: Option<f64>,
+    pub lava: Option<f64>,
 }
 
 impl LocalMovementSpeedAuthority {
@@ -100,6 +117,8 @@ impl LocalMovementSpeedAuthority {
         self.dimension = dimension;
         self.last_sequence = None;
         self.speed = EffectiveMovementSpeed::default();
+        self.last_liquid_sequence = None;
+        self.liquid = LiquidMovementSpeeds::default();
     }
 
     /// Clears speed authority when the active session changes dimension.
@@ -110,6 +129,53 @@ impl LocalMovementSpeedAuthority {
         self.dimension = dimension;
         self.last_sequence = None;
         self.speed = EffectiveMovementSpeed::default();
+        self.last_liquid_sequence = None;
+        self.liquid = LiquidMovementSpeeds::default();
+    }
+
+    /// Accepts the next valid liquid attribute update; returns the values it adopted.
+    pub(crate) fn apply_liquid(
+        &mut self,
+        session_id: u64,
+        sequence: u64,
+        dimension: i32,
+        underwater: Option<f64>,
+        lava: Option<f64>,
+    ) -> Option<LiquidMovementSpeeds> {
+        if session_id != self.session_id
+            || dimension != self.dimension
+            || self
+                .last_liquid_sequence
+                .is_some_and(|last| sequence <= last)
+        {
+            return None;
+        }
+        self.last_liquid_sequence = Some(sequence);
+        let admitted = |name, value: Option<f64>, maximum: f64| {
+            value.filter(|current| {
+                let valid = (0.0..=maximum).contains(current);
+                if !valid {
+                    super::diagnostics::note_skipped_authority(name, *current);
+                }
+                valid
+            })
+        };
+        let update = LiquidMovementSpeeds {
+            underwater: admitted(
+                "underwater_movement",
+                underwater,
+                MAX_SIMULABLE_UNDERWATER_SPEED,
+            ),
+            lava: admitted("lava_movement", lava, MAX_SIMULABLE_LAVA_SPEED),
+        };
+        self.liquid.underwater = update.underwater.or(self.liquid.underwater);
+        self.liquid.lava = update.lava.or(self.liquid.lava);
+        Some(update)
+    }
+
+    /// Liquid speed attributes for the simulator input.
+    pub(crate) const fn liquid(&self) -> LiquidMovementSpeeds {
+        self.liquid
     }
 
     /// Accepts the next valid attribute update for the active session and dimension.

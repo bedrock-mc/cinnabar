@@ -36,6 +36,40 @@ func TestOpaqueOverdrawSettingsAreOptInAndRepeatable(t *testing.T) {
 	}
 }
 
+func TestOpaqueOverdrawTakesPrecedenceOverNormalGeneration(t *testing.T) {
+	s, err := parseSettings([]string{
+		"-dir", "fixture", "-addr", "127.0.0.1:0", "-generator", "normal", "-opaque-overdraw",
+	}, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var conf server.Config
+	generators, err := s.configureGenerators(&conf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer generators.close()
+	if len(generators) != 0 || conf.Generator != nil {
+		t.Fatal("opaque-overdraw fixture initialized normal generators or their spawn source")
+	}
+	s.configureOpaqueOverdraw(&conf)
+	g, ok := conf.Generator(world.Overworld).(opaqueOverdrawGenerator)
+	if !ok {
+		t.Fatal("opaque-overdraw fixture lost precedence in the overworld")
+	}
+	for _, dim := range []world.Dimension{world.Nether, world.End} {
+		if _, ok := conf.Generator(dim).(world.NopGenerator); !ok {
+			t.Fatalf("opaque-overdraw fixture lost precedence in %v", dim)
+		}
+	}
+	w := world.Config{Synchronous: true, Provider: world.NopProvider{}, Generator: g}.New()
+	defer w.Close()
+	s.applyTo(w)
+	if w.Spawn() != g.DefaultSpawn(world.Overworld) {
+		t.Fatalf("spawn = %v, want fixture spawn", w.Spawn())
+	}
+}
+
 func TestOpaqueOverdrawIncludesFoliageAndSealedCave(t *testing.T) {
 	counts := map[string]int{}
 	for x := -32; x < 0; x++ {

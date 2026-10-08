@@ -24,7 +24,7 @@ pub struct SavedServer {
 pub struct LocalWorldCard {
     pub name: String,
     pub game_mode: String,
-    /// The owner's world type label (Normal (BDS) or Flat (Dragonfly)).
+    /// The saved world generator label.
     pub world_type: String,
     pub date: String,
     pub size: String,
@@ -67,6 +67,9 @@ pub struct MenuRealmCard {
 /// Marks a featured address as an experience's ID, joined when selected.
 pub const EXPERIENCE_ADDRESS_PREFIX: &str = "gathering/";
 
+/// Marks an address as the friend world hosted by this XUID.
+pub const FRIEND_ADDRESS_PREFIX: &str = "friend_xuid/";
+
 /// Whether the server at `address` can be pinged; an experience has no server until joined.
 pub fn pingable(address: &str) -> bool {
     !address.starts_with(EXPERIENCE_ADDRESS_PREFIX)
@@ -75,6 +78,7 @@ pub fn pingable(address: &str) -> bool {
 /// A featured server's info-panel details; artwork is a local cached path.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ServerDetails {
+    pub group: String,
     /// Live experience count; only positive values are shown in its details panel.
     pub player_count: Option<i64>,
     pub description: String,
@@ -84,6 +88,8 @@ pub struct ServerDetails {
     pub news: String,
     pub screenshots: Vec<String>,
     pub games: Vec<MenuGameCard>,
+    /// The server's remote HTTPS logo, which Discord Rich Presence shows by URL.
+    pub logo_url: String,
 }
 
 /// One game a featured server advertises.
@@ -326,8 +332,9 @@ impl MenuFeeds {
 }
 
 /// One server's pong: `online` is false when it did not answer.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct PingInfo {
+    pub motd: String,
     pub online: bool,
     pub players: u32,
     pub max_players: u32,
@@ -340,9 +347,11 @@ pub struct MenuFriendCard {
     pub world_name: String,
     pub members: String,
     pub xuid: String,
+    /// The world's player limit; zero when the host did not publish one.
+    pub max_members: u32,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct MenuView {
     pub visible: bool,
     /// The menu opened over the session's world rather than the launcher's.
@@ -351,6 +360,9 @@ pub struct MenuView {
     pub focused_action: Option<MenuAction>,
     pub hovered: Option<MenuAction>,
     pub pressed: Option<MenuAction>,
+    /// Keyboard and gamepad focus draws an outline; pointer focus still navigates.
+    pub navigation_focus_visible: bool,
+    pub gamepad_input: bool,
     pub server_tab: MenuServerTab,
     pub profile_tab: super::ProfileTab,
     pub dialog: Option<MenuDialog>,
@@ -362,7 +374,7 @@ pub struct MenuView {
     pub port: String,
     pub message: Option<String>,
     pub gui_scale_offset: i8,
-    pub gui_scale_choices: Vec<i8>,
+    pub gui_scale_choices: Vec<ui::DesktopGuiScaleChoice>,
     pub fullscreen: bool,
     pub render_mode: ui::RenderMode,
     /// Session VSync forced by a launch flag; the saved toggle is shown locked to it.
@@ -380,8 +392,15 @@ pub struct MenuView {
     pub catalog_loading: bool,
     pub catalog_message: Option<String>,
     pub auth_state: AuthState,
+    /// Result of handing the current sign-in code to the default browser.
+    pub sign_in_browser: super::sign_in::BrowserState,
+    /// Interactive sign-in may show waiting and recovery prompts over the current route.
+    pub sign_in_requested: bool,
     pub connecting: bool,
     pub settings_section: u8,
+    pub dressing_room: std::sync::Arc<crate::dressing_room::DressingRoomView>,
+    pub player_skin: Option<protocol::StandardSkin>,
+    pub player_skin_model: crate::dressing_room::SkinModel,
     pub global_resources: std::sync::Arc<crate::global_resources::Snapshot>,
     /// Why the last session ended, shown until acknowledged.
     pub disconnect_message: Option<String>,
@@ -393,12 +412,62 @@ pub struct MenuView {
     pub settings_options: std::sync::Arc<super::settings_options::SettingsOptions>,
     pub storage: std::sync::Arc<super::settings_storage::StorageView>,
     pub settings_dropdown: Option<u16>,
+    pub settings_scale_picker: bool,
+    /// Last interactive settings activation and its monotonic input revision.
+    pub settings_control_activation: Option<(MenuAction, u64)>,
+    pub settings_control_activation_navigation: bool,
+    /// Continuous pointer position remains independent of the persisted slider step.
+    pub settings_slider_pointer: Option<SettingsSliderPointer>,
+    pub settings_slider_hovered: Option<u16>,
+    pub settings_slider_selected: Option<u16>,
     pub key_remap: Option<u16>,
     pub settings_advanced_graphics: bool,
     pub language_choices: std::sync::Arc<[(String, String)]>,
     pub feeds: MenuFeeds,
     /// The Marketplace's state while its screen is up.
     pub store: Option<std::sync::Arc<crate::store::StoreSnapshot>>,
+    /// The open local world is hosted for Xbox friends, so the pause screen offers invites.
+    pub hosting: bool,
+    /// The invite screen's friends and picks while it is up.
+    pub invite: Option<std::sync::Arc<super::invite::InviteState>>,
+    /// Who sent the oldest open Discord join request.
+    pub join_request: Option<String>,
+}
+
+/// An active settings slider retains the unrounded pointer fraction.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SettingsSliderPointer {
+    pub option: u16,
+    pub fraction: f32,
+    pub mouse_input: bool,
+}
+
+/// A control's complete layout bounds, retained even outside a scroll viewport.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SettingsFocusTarget {
+    pub action: MenuAction,
+    pub bounds: ui::UiRect,
+    pub landmark: Option<u16>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SettingsFocusAxis {
+    Horizontal,
+    Vertical,
+}
+
+/// Directional navigation enters a landmark through its remembered or delegated control.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SettingsFocusLandmark {
+    pub id: u16,
+    pub parent: Option<u16>,
+    pub bounds: ui::UiRect,
+    pub scroll_axis: Option<SettingsFocusAxis>,
+    pub delegate: Option<MenuAction>,
+    pub delegate_landmark: Option<u16>,
+    pub remember: bool,
+    pub trap: bool,
+    pub focus_control_disabled: bool,
 }
 
 /// The focused text field's caret.
@@ -447,6 +516,7 @@ impl From<CatalogFriend> for MenuFriendCard {
             world_name: friend.world_name,
             members,
             xuid: friend.xuid,
+            max_members: u32::try_from(friend.max_members).unwrap_or(0),
         }
     }
 }
@@ -457,9 +527,33 @@ impl MenuView {
         self.feeds.server_trust.as_ref().filter(|_| self.connecting)
     }
 
+    /// The oldest Discord join request's sender, asked in a popup once no other popup is up.
+    pub fn join_request_prompt(&self) -> Option<&str> {
+        self.join_request.as_deref().filter(|_| {
+            self.dialog.is_none()
+                && !self.sign_in_prompt_open()
+                && self.server_trust_prompt().is_none()
+        })
+    }
+
     /// Whether a popup draws over the screen and takes its input.
     pub fn popup_open(&self) -> bool {
-        self.dialog.is_some() || self.server_trust_prompt().is_some()
+        self.dialog.is_some()
+            || self.sign_in_prompt_open()
+            || self.server_trust_prompt().is_some()
+            || self.join_request.is_some()
+            || self.dressing_room.editor.is_some()
+    }
+
+    /// The standalone sign-in prompt replaces the route until it finishes or is cancelled.
+    pub fn sign_in_prompt_open(&self) -> bool {
+        self.dialog.is_none()
+            && !self.connecting
+            && self.local.progress.is_none()
+            && self.disconnect_message.is_none()
+            && (matches!(self.auth_state, AuthState::AwaitingCode { .. })
+                || (self.sign_in_requested
+                    && matches!(self.auth_state, AuthState::Checking | AuthState::Failed(_))))
     }
 
     /// Whether the launcher is waiting for the player to complete device-code sign-in.
@@ -476,6 +570,8 @@ impl MenuView {
             focused_action: Some(MenuAction::Navigate(MenuScreen::Home)),
             hovered: None,
             pressed: None,
+            navigation_focus_visible: true,
+            gamepad_input: false,
             server_tab: MenuServerTab::Featured,
             profile_tab: super::ProfileTab::default(),
             dialog: None,
@@ -489,7 +585,7 @@ impl MenuView {
             port: String::new(),
             message: None,
             gui_scale_offset: 0,
-            gui_scale_choices: vec![0],
+            gui_scale_choices: ui::DesktopGuiScale::for_window([1, 1]).choices().collect(),
             fullscreen: false,
             render_mode: ui::RenderMode::Vanilla,
             vsync_override: None,
@@ -506,8 +602,13 @@ impl MenuView {
             catalog_loading: false,
             catalog_message: None,
             auth_state: AuthState::SignedOut,
+            sign_in_browser: Default::default(),
+            sign_in_requested: false,
             connecting: false,
             settings_section: 0,
+            dressing_room: Default::default(),
+            player_skin: None,
+            player_skin_model: Default::default(),
             global_resources: Default::default(),
             disconnect_message: None,
             editing: None,
@@ -516,11 +617,48 @@ impl MenuView {
             settings_options: Default::default(),
             storage: Default::default(),
             settings_dropdown: None,
+            settings_scale_picker: false,
+            settings_control_activation: None,
+            settings_control_activation_navigation: false,
+            settings_slider_pointer: None,
+            settings_slider_hovered: None,
+            settings_slider_selected: None,
             key_remap: None,
             settings_advanced_graphics: false,
             language_choices: Default::default(),
             feeds: Default::default(),
             store: None,
+            hosting: false,
+            invite: None,
+            join_request: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn standalone_sign_in_defers_join_requests_until_it_closes() {
+        let mut view = MenuView::new(true, "Offline Player".into());
+        view.join_request = Some("Placeholder friend".into());
+        for state in [
+            AuthState::AwaitingCode {
+                uri: "https://example.invalid".into(),
+                code: "TEST-CODE".into(),
+            },
+            AuthState::Checking,
+            AuthState::Failed("Try again.".into()),
+        ] {
+            view.sign_in_requested = true;
+            view.auth_state = state;
+            assert!(view.sign_in_prompt_open());
+            assert_eq!(view.join_request_prompt(), None);
+            assert_eq!(view.join_request.as_deref(), Some("Placeholder friend"));
+        }
+        view.sign_in_requested = false;
+        view.auth_state = AuthState::SignedOut;
+        assert_eq!(view.join_request_prompt(), Some("Placeholder friend"));
     }
 }

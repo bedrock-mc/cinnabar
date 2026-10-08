@@ -40,7 +40,7 @@ pub(super) fn append(
         MenuScreen::Servers => servers::append(
             view, nodes, hits, next_id, layouts, font, metrics, solid_page, content,
         ),
-        MenuScreen::Profile => secondary::profile(
+        MenuScreen::Profile | MenuScreen::DressingRoom => secondary::profile(
             view, nodes, hits, next_id, layouts, font, metrics, solid_page, content,
         ),
         MenuScreen::Settings => secondary::settings(
@@ -49,7 +49,8 @@ pub(super) fn append(
         MenuScreen::AddServer => secondary::add_server(
             view, nodes, hits, next_id, layouts, font, metrics, solid_page, content,
         ),
-        MenuScreen::Pause => secondary::pause(
+        // Without the engine there is no invite screen; the pause screen stands in for it.
+        MenuScreen::Pause | MenuScreen::Invite => secondary::pause(
             view, nodes, hits, next_id, layouts, font, metrics, solid_page, content,
         ),
         MenuScreen::Death => secondary::death(

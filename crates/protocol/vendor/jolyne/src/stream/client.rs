@@ -137,6 +137,15 @@ pub struct ClientSkin {
     pub width: u32,
     pub height: u32,
     pub arm_size: String,
+    pub cape: Option<ClientCape>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ClientCape {
+    pub rgba8: Vec<u8>,
+    pub width: u32,
+    pub height: u32,
+    pub id: String,
 }
 
 #[derive(Debug, Clone)]

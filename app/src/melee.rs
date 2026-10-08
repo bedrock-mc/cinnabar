@@ -154,13 +154,22 @@ pub(crate) fn produce_melee(
         return;
     };
     runtime.observe_crosshair(crosshair);
+    // An actor attack leaves in its own frame; an aim-assist facing needs an unsent tick to carry it.
+    let between_ticks = crate::camera::aim_assist::action_rotation(&context.aim, &context.camera)
+        .is_none()
+        .then(|| runtime.between_ticks_attack(crosshair, &movement))
+        .flatten();
     // Fresh block presses wait for a tick committed in this frame.
-    let sample = runtime.press_sample(
-        crosshair,
-        &movement,
-        context.effects.recent_tick_count(),
-        input.frame_sequence,
-    );
+    let sample = between_ticks.or_else(|| {
+        runtime
+            .press_sample(
+                crosshair,
+                &movement,
+                context.effects.recent_tick_count(),
+                input.frame_sequence,
+            )
+            .map(Into::into)
+    });
     let Some(sample) = sample else {
         return;
     };

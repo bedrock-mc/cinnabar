@@ -55,6 +55,7 @@ fn friends_view() -> MenuView {
             world_name: "World".into(),
             members: "1/8".into(),
             xuid: index.to_string(),
+            max_members: 8,
         })
         .collect();
     view
@@ -92,7 +93,7 @@ fn review_inbox_list_registers_its_full_scroll_extent() {
         })
         .collect();
     let (scrolls, _, _) = paint(HashMap::new(), |c| {
-        inbox::draw(c, &view, [1280.0, 720.0]).unwrap()
+        inbox::draw(c, &view, [1280.0, 720.0], &|_| None).unwrap()
     });
     assert!(scrolls.iter().any(|area| area.max > 0.0));
 }
@@ -175,6 +176,7 @@ fn review_short_world_settings_are_scrollable() {
         game_mode: GameMode::Survival,
         generator: Generator::Flat,
         difficulty: Difficulty::Normal,
+        allow_cheats: false,
         backend: Backend::Dragonfly,
         seed: 1,
         created_unix: 0,

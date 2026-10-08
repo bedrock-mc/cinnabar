@@ -1,39 +1,75 @@
-//! The OreUI design system, drawn in our own code, and the screens 26.30 shows
-//! with OreUI by default (`docs/oreui.md`). The dev-only local-originals mode
-//! swaps in the install's icon and border sprites for side-by-side comparison.
+//! The OreUI design system, drawn in our own code, and the screens vanilla shows
+//! with OreUI by default (`docs/oreui.md`). Installed icon and control artwork
+//! is read at runtime.
 
 mod accounts;
+mod add_server;
+mod artwork_runtime;
+mod bed_runtime;
 mod bedtime;
+#[cfg(test)]
+mod dark_mode_tests;
 mod death;
+#[cfg(test)]
+mod destructive_tests;
+mod dressing_room;
+mod exit;
+mod focus;
 mod friends;
 mod grid;
+mod home;
 mod icons;
 mod inbox;
 mod loading;
+mod loading_runtime;
 mod modal;
+mod motion;
 mod paint;
+mod pause;
 mod play;
 mod play_realms;
 mod play_servers;
+pub(in crate::ui_runtime::presentation) use play_servers::animated_server_details;
 mod profile;
+mod progress;
+mod radio;
 #[cfg(test)]
 mod review_tests;
-mod theme;
+#[cfg(test)]
+mod route_tests;
+mod screen_runtime;
+mod scroll_focus;
+mod settings;
+#[cfg(test)]
+mod settings_tests;
+mod sidebar;
+use crate::oreui_theme as theme;
+mod transitions;
 mod widgets;
 mod world_settings;
 
+#[cfg(test)]
 use std::sync::Arc;
 
-use render_model::{UiRenderTextureArray, UiTexturePage};
-use ui::{UiNode, UiPoint, UiRect};
+#[cfg(test)]
+use ui::UiNode;
+use ui::{UiPoint, UiRect};
 
 pub use bedtime::BedHit;
+#[cfg(test)]
 use paint::Canvas;
 pub use paint::Originals;
+pub(super) use transitions::Transitions;
 
-use super::super::{TextMetrics, UiPresentationError, UiPresentationRuntime};
+pub(super) struct CharacterPreview {
+    pub(super) control: paint::Bounds,
+    pub(super) clip: paint::Bounds,
+}
+
+#[cfg(test)]
+use super::super::{TextMetrics, UiPresentationRuntime};
+#[cfg(test)]
 use crate::menu::{MenuAction, MenuScreen, MenuView, auth::AuthState};
-use crate::ui_runtime::oreui_assets::{OREUI_PAGE_SIDE, OreUiImages};
 
 /// Which look OreUI screens draw with.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -44,199 +80,9 @@ pub enum Look {
     Originals,
 }
 
-impl UiPresentationRuntime {
-    /// Packs the dev-mode originals into a texture page; `CINNABAR_OREUI_LOOK=drawn`
-    /// keeps the drawn look selected for comparison.
-    pub fn enable_oreui_originals(&mut self, images: OreUiImages) -> Result<(), String> {
-        let page = UiTexturePage::owned([OREUI_PAGE_SIDE, OREUI_PAGE_SIDE], images.rgba.into())
-            .map_err(|error| format!("{error:?}"))?;
-        let dynamic_start = self.textures.dynamic_start();
-        let first = u16::try_from(dynamic_start).map_err(|_| "texture page overflow".to_owned())?;
-        let mut pages = self.textures.pages()[..dynamic_start].to_vec();
-        pages.push(page);
-        pages.extend_from_slice(&self.textures.pages()[dynamic_start..]);
-        let textures = UiRenderTextureArray::with_source_identity(
-            pages,
-            dynamic_start + 1,
-            self.textures.static_identity(),
-        )
-        .map_err(|error| format!("{error:?}"))?;
-        self.textures = Arc::new(textures);
-        if let Some(engine) = self.form_presentation.engine.as_mut() {
-            engine.textures.server_page = (self.textures.dynamic_start()
-                + super::super::dynamic_textures::SERVER_UI_PAGE)
-                as u16;
-        }
-        self.preview_dirty = true;
-        self.menu_artwork_dirty = true;
-        self.rebuild_dynamic_textures();
-        let drawn = std::env::var("CINNABAR_OREUI_LOOK").is_ok_and(|look| look == "drawn");
-        self.form_presentation.oreui_look = if drawn { Look::Drawn } else { Look::Originals };
-        self.form_presentation.oreui_originals = Some(Arc::new(Originals {
-            page: first,
-            sprites: images.sprites,
-            loading_frames: images.loading_frames,
-        }));
-        Ok(())
-    }
-
-    /// Draws `view` as an OreUI screen when 26.30 shows it with OreUI by
-    /// default; `Ok(None)` leaves it to JSON-UI.
-    #[allow(clippy::too_many_arguments)]
-    pub(super) fn append_oreui_screen(
-        &mut self,
-        view: &MenuView,
-        nodes: &mut Vec<UiNode>,
-        next: &mut u32,
-        metrics: TextMetrics,
-        size: [f32; 2],
-        portrait: Option<super::super::IconRef>,
-    ) -> Result<Option<Vec<(MenuAction, UiRect)>>, UiPresentationError> {
-        // A launcher dialog draws over the OreUI screen instead.
-        let covered = view.connecting
-            || view.local.progress.is_some()
-            || view.disconnect_message.is_some()
-            || matches!(view.auth_state, AuthState::AwaitingCode { .. });
-        let screen = view.screen;
-        if covered
-            || !matches!(
-                screen,
-                MenuScreen::Death
-                    | MenuScreen::Profile
-                    | MenuScreen::Inbox
-                    | MenuScreen::Friends
-                    | MenuScreen::Play
-                    | MenuScreen::Social
-                    | MenuScreen::Servers
-            )
-        {
-            return Ok(None);
-        }
-        let originals = self
-            .form_presentation
-            .oreui_originals
-            .clone()
-            .filter(|_| self.form_presentation.oreui_look == Look::Originals);
-        let offsets = self.menu_scrolls.offsets().clone();
-        let mut canvas = Canvas::new(
-            nodes,
-            next,
-            &mut self.layouts,
-            &self.font,
-            metrics,
-            self.solid_texture_page,
-            originals.as_deref(),
-        );
-        canvas.offsets = offsets;
-        canvas.seconds = self.menu_seconds;
-        match screen {
-            MenuScreen::Death => {
-                canvas.bundle = theme::Bundle::Gameplay;
-                death::draw(&mut canvas, view, size)?
-            }
-            MenuScreen::Profile => {
-                profile::draw(&mut canvas, view, size, portrait, &self.menu_artwork.refs)?
-            }
-            MenuScreen::Inbox => inbox::draw(&mut canvas, view, size)?,
-            MenuScreen::Play | MenuScreen::Social | MenuScreen::Servers => {
-                match world_settings::route(view.local.screen, &view.local) {
-                    Some(route) => world_settings::draw(&mut canvas, view, size, route)?,
-                    None => play::draw(&mut canvas, view, size, &self.menu_artwork.refs)?,
-                }
-                if let Some(dialog) = modal::local_world_modal(&view.local) {
-                    modal::draw(&mut canvas, view, size, &dialog)?;
-                }
-            }
-            _ => friends::draw(&mut canvas, view, size)?,
-        }
-        let (hits, scrolls, spots) = (canvas.hits, canvas.scrolls, canvas.spots);
-        self.menu_scrolls.set_areas(scrolls);
-        self.add_menu_text_spots(spots);
-        Ok(Some(hits))
-    }
-}
-
 /// The bed screen's last hit rects (window-logical) and the tracked pointer.
 #[derive(Default)]
 pub(super) struct BedScreen {
     hits: Vec<(BedHit, UiRect)>,
     pointer: Option<UiPoint>,
-}
-
-impl UiPresentationRuntime {
-    /// Draws the OreUI bed screen while the player lies in bed.
-    pub(in super::super) fn append_bed_screen(
-        &mut self,
-        runtime: &crate::ui_runtime::UiRuntime,
-        nodes: &mut Vec<UiNode>,
-        next: &mut u32,
-        metrics: TextMetrics,
-        size: [f32; 2],
-        now_millis: u64,
-    ) -> Result<(), UiPresentationError> {
-        let bed = &mut self.form_presentation.bed;
-        let Some(elapsed) = self.hud_frame.sleep.asleep_for(now_millis) else {
-            bed.hits.clear();
-            return Ok(());
-        };
-        let hovered = bed.pointer.and_then(|point| {
-            bed.hits
-                .iter()
-                .find_map(|(hit, bounds)| bounds.contains(point).then_some(*hit))
-        });
-        let state = bedtime::Bedtime {
-            elapsed,
-            // The local player is on the list too.
-            remote_players: runtime.known_player_names().len() > 1,
-            thunderstorm: self.hud_frame.thunderstorm,
-            status: runtime.sleep_status(),
-            hovered,
-            pressed: None,
-        };
-        let mut canvas = Canvas::new(
-            nodes,
-            next,
-            &mut self.layouts,
-            &self.font,
-            metrics,
-            self.solid_texture_page,
-            None,
-        );
-        canvas.bundle = theme::Bundle::Gameplay;
-        let hits = bedtime::draw(&mut canvas, &state, size)?;
-        let [left, top] = [self.safe_area.left(), self.safe_area.top()];
-        self.form_presentation.bed.hits = hits
-            .into_iter()
-            .filter_map(|(hit, bounds)| {
-                let min = bounds.min();
-                let max = bounds.max();
-                super::super::rect(min.x() + left, min.y() + top, max.x() + left, max.y() + top)
-                    .ok()
-                    .map(|bounds| (hit, bounds))
-            })
-            .collect();
-        Ok(())
-    }
-
-    /// What a press at the window-logical `position` hits on the bed screen.
-    pub fn hit_test_bed(&self, position: UiPoint) -> Option<BedHit> {
-        self.form_presentation
-            .bed
-            .hits
-            .iter()
-            .find_map(|(hit, bounds)| bounds.contains(position).then_some(*hit))
-    }
-
-    /// Track the pointer for next frame's hover state.
-    pub fn set_bed_pointer(&mut self, position: Option<UiPoint>) {
-        self.form_presentation.bed.pointer = position;
-    }
-}
-
-#[cfg(test)]
-impl UiPresentationRuntime {
-    /// The bed screen's hit rects from the last frame.
-    pub fn bed_hits(&self) -> &[(BedHit, UiRect)] {
-        &self.form_presentation.bed.hits
-    }
 }

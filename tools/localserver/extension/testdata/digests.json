@@ -1,5 +1,6 @@
 {
-  "accept_payload.json": "c98693279749a38f183490bcbc71901dcaff3d144a5cf46ea06eb15e7c842859",
-  "manifest_payload.json": "6bb4f3f7919f2ba49e1cffd538c3d0dbecb33462a6492ace6fb43399317a68f5",
-  "offer_payload.json": "428dcd6997f3049927eb410299f42e0a5c1be87126a76d2556c3ec7587f686e3"
+  "accept_payload.json": "371df595046da952bef93dc0ae958fdf14bd0a280419377e4fe442188df7e462",
+  "accept_v2_payload.json": "3c6284b837f51bd7c19cadbd2522821594b5b59f00e31982439c2f70feb7ac0f",
+  "manifest_payload.json": "148aff792050447506418df2d94fb8f979c7f245abc4dfac9e1a0ea73888abbe",
+  "offer_payload.json": "0a88d0cf9c1d90273b94193bd14b60a1c9d7faa333a19507b4430201727d41d5"
 }

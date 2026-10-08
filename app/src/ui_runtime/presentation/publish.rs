@@ -44,6 +44,7 @@ type PublishExtras<'w> = (
     Option<Res<'w, crate::movement::PhysicsCollisionRegistries>>,
     Option<Res<'w, render::RuntimeStageProfiler>>,
     Option<Res<'w, render::ActorPipelineReadiness>>,
+    Option<Res<'w, render::PipelineWarmupReadiness>>,
     Option<Res<'w, crate::camera::ServerCameraView>>,
     (
         Res<'w, crate::runtime::network::ActorFramePartialTick>,
@@ -83,6 +84,7 @@ pub(crate) fn prepare_ui_runtime(
         collisions,
         profiler,
         actor_pipelines,
+        warmed_pipelines,
         server_camera,
         (
             actor_partial,
@@ -142,33 +144,49 @@ pub(crate) fn prepare_ui_runtime(
             cohort: frame_poll.cohort,
             render_work_drained: render_queue.retained_len() == 0
                 && upload_acknowledgements.is_empty(),
-            actor_pipelines_ready: actor_pipelines
+            pipelines_ready: actor_pipelines
                 .as_ref()
-                .is_none_or(|ready| ready.is_ready()),
+                .is_none_or(|ready| ready.is_ready())
+                && warmed_pipelines
+                    .as_ref()
+                    .is_none_or(|ready| ready.is_ready()),
             now: time.elapsed(),
         },
     );
     runtime.expire_gameplay_effects(now_millis);
     let stream = client_world.stream.as_ref();
     let menu_skin = menu_runtime.player_skin();
-    let skin = player_preview::local_preview_skin(
-        stream,
-        &render_model::ActorSkinPixels {
-            width: menu_skin.width,
-            height: menu_skin.height,
-            rgba8: menu_skin.rgba8.clone(),
-        },
-    );
-    let pose = player_preview::PlayerPreviewPose::of_local_player(stream);
+    presentation.set_menu_preview_skin(&menu_skin.standard_skin());
+    let own_pixels = render_model::ActorSkinPixels {
+        width: menu_skin.width,
+        height: menu_skin.height,
+        rgba8: menu_skin.rgba8.clone(),
+    };
+    let skin = if menu_runtime.is_visible() {
+        player_preview::local_preview_skin(None, &own_pixels)
+    } else {
+        player_preview::local_preview_skin(stream, &own_pixels)
+    };
+    let dressing_room =
+        menu_runtime.is_visible() && menu_runtime.screen() == crate::menu::MenuScreen::DressingRoom;
+    let pose = if dressing_room {
+        player_preview::PlayerPreviewPose::default()
+    } else {
+        player_preview::PlayerPreviewPose::of_local_player(stream)
+    };
     // The model wears the local player's armor and held item.
-    presentation.dress_player_preview(&player_runtime, &runtime, |stack| {
-        client_world
-            .stream
-            .as_ref()?
-            .authority()
-            .canonical_item_stack(stack)?
-            .identifier
-    });
+    if dressing_room {
+        presentation.set_player_preview_gear([None; 4], None);
+    } else {
+        presentation.dress_player_preview(&player_runtime, &runtime, |stack| {
+            client_world
+                .stream
+                .as_ref()?
+                .authority()
+                .canonical_item_stack(stack)?
+                .identifier
+        });
+    }
     let doll_state = client_world
         .stream
         .as_ref()
@@ -337,9 +355,7 @@ pub(crate) fn prepare_ui_runtime(
     presentation.set_chat_settings_snapshot(menu_runtime.settings_snapshot());
     let menu_view = menu_runtime.is_visible().then(|| {
         let mut view = menu_runtime.view();
-        presentation.sync_menu_artwork(
-            client_ui::ui_runtime::presentation::menu_artwork::view_paths(&view),
-        );
+        presentation.sync_menu_artwork_view(&view);
         for server in view.featured.iter_mut() {
             server.icon = presentation.menu_artwork_icon(&server.image_path);
         }

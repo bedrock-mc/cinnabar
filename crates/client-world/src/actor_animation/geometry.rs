@@ -368,7 +368,13 @@ pub(super) fn reselect_geometry(
     budget: &mut EvalBudget<'_>,
 ) {
     let _ = reselect_geometry_with_checkpoint(
-        assets, layout, state, actor, context, budget, false, None,
+        assets,
+        layout,
+        state,
+        actor,
+        context,
+        budget,
+        GeometrySelectionMode::Live,
     );
 }
 
@@ -381,7 +387,15 @@ pub(super) fn reselect_geometry_preview(
     context: &ActorTickContext,
     budget: &mut EvalBudget<'_>,
 ) -> Option<GeometryCheckpoint> {
-    reselect_geometry_with_checkpoint(assets, layout, state, actor, context, budget, true, None)
+    reselect_geometry_with_checkpoint(
+        assets,
+        layout,
+        state,
+        actor,
+        context,
+        budget,
+        GeometrySelectionMode::Preview,
+    )
 }
 
 /// Reselects late local geometry from the original authored variables of this completed tick.
@@ -401,9 +415,15 @@ pub(super) fn reselect_geometry_replay(
         actor,
         context,
         budget,
-        false,
-        Some(tick),
+        GeometrySelectionMode::Replay(tick),
     );
+}
+
+#[derive(Clone, Copy)]
+enum GeometrySelectionMode {
+    Live,
+    Preview,
+    Replay(u64),
 }
 
 /// Shares normal geometry selection while optionally preserving its replaced state.
@@ -414,25 +434,17 @@ fn reselect_geometry_with_checkpoint(
     actor: &ActorSnapshot,
     context: &ActorTickContext,
     budget: &mut EvalBudget<'_>,
-    preview: bool,
-    replay_tick: Option<u64>,
+    mode: GeometrySelectionMode,
 ) -> Option<GeometryCheckpoint> {
-    let Some(rig) = assets.rig_bindings().get(state.rig_binding) else {
-        return None;
-    };
+    let rig = assets.rig_bindings().get(state.rig_binding)?;
     if rig.geometry_count < 2 {
         return None;
     }
     let first = rig.first_geometry as usize;
-    let Some(candidates) = assets
+    let candidates = assets
         .rig_geometries()
-        .get(first..first + usize::from(rig.geometry_count))
-    else {
-        return None;
-    };
-    let Some(input) = state.history.back().copied() else {
-        return None;
-    };
+        .get(first..first + usize::from(rig.geometry_count))?;
+    let input = state.history.back().copied()?;
     let evaluator = Evaluator {
         assets,
         layout,
@@ -446,15 +458,16 @@ fn reselect_geometry_with_checkpoint(
         bones: &state.bones,
         bone_names: &state.bone_names,
     };
-    let mut variables = replay_tick
-        .and_then(|tick| state.replay_at(tick))
+    let replay = match mode {
+        GeometrySelectionMode::Replay(tick) => state.replay_at(tick),
+        GeometrySelectionMode::Live | GeometrySelectionMode::Preview => None,
+    };
+    let mut variables = replay
         .map_or(&state.variables, |replay| &replay.variables)
         .clone();
     let mut selected = first;
     for (offset, candidate) in candidates.iter().enumerate().skip(1) {
-        let Some(condition) = candidate.condition else {
-            return None;
-        };
+        let condition = candidate.condition?;
         match evaluator.run(condition as usize, &mut variables, 0.0, budget) {
             Ok(value) if value.truthy() => {
                 selected = first + offset;
@@ -473,34 +486,24 @@ fn reselect_geometry_with_checkpoint(
     {
         return None;
     }
-    let Some((bones, bone_names)) = resolve_bones(assets, candidate.geometry as usize) else {
-        return None;
-    };
-    let Some(pose) = compose_pose(&bones, &[]) else {
-        return None;
-    };
+    let (bones, bone_names) = resolve_bones(assets, candidate.geometry as usize)?;
+    let pose = compose_pose(&bones, &[])?;
     let controller_first = candidate.first_controller as usize;
-    let Some(bindings) = assets
+    let bindings = assets
         .rig_controllers()
-        .get(controller_first..controller_first + usize::from(candidate.controller_count))
-    else {
-        return None;
-    };
+        .get(controller_first..controller_first + usize::from(candidate.controller_count))?;
     let mut controllers = Vec::new();
     for binding in bindings {
-        if collect_controllers(assets, binding.controller as usize, 0, &mut controllers).is_none() {
-            return None;
-        }
+        collect_controllers(assets, binding.controller as usize, 0, &mut controllers)?;
     }
     let rig_id = if state.pack {
         assets::PACK_RIG_ID_BASE.checked_add(selected as u32)
     } else {
         Some(selected as u32)
     };
-    let Some(rig_id) = rig_id else {
-        return None;
-    };
-    let checkpoint = preview.then(|| GeometryCheckpoint::capture(state));
+    let rig_id = rig_id?;
+    let checkpoint =
+        matches!(mode, GeometrySelectionMode::Preview).then(|| GeometryCheckpoint::capture(state));
     state.rig = EntityRigId(rig_id);
     state.samples_camera_poses = super::render_frame::camera::needs_camera_sampling(
         assets,

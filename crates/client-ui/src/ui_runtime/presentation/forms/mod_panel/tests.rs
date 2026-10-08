@@ -5,6 +5,7 @@ use ui::DpiScale;
 
 pub(super) fn panel() -> Panel {
     Panel {
+        theme: Default::default(),
         style: Default::default(),
         title: "Personal controls".into(),
         toggle_key: "ShiftRight".into(),
@@ -807,4 +808,92 @@ fn smallest_compact_viewport_keeps_four_category_targets_and_close_usable() {
     let close = point(&presentation, "mod.close", 0.5);
     presentation.mod_panel_events(close, true, true);
     assert!(!presentation.mod_panel_open());
+}
+
+#[test]
+fn monochrome_theme_uses_exact_palette_for_both_layouts() {
+    use super::widgets::Palette;
+    let mut spec = panel();
+    spec.sections = vec![ui::mod_panel::Section {
+        icon: ui::mod_panel::Icon::Settings,
+        id: "visual".into(),
+        label: "Visual".into(),
+        category: "Visual".into(),
+        toggle: Some("enabled".into()),
+        controls: vec!["strength".into(), "mode".into(), "binding".into()],
+    }];
+    for style in [
+        ui::mod_panel::Style::Standard,
+        ui::mod_panel::Style::Compact,
+    ] {
+        spec.style = style;
+        for dark in [true, false] {
+            spec.dark = dark;
+            let original = spec.clone();
+            spec.theme = ui::mod_panel::Theme::Monochrome;
+            let palette = Palette::for_panel(&spec);
+            let rgb = |hex: u32| {
+                [
+                    f64::from((hex >> 16) & 255) / 255.,
+                    f64::from((hex >> 8) & 255) / 255.,
+                    f64::from(hex & 255) / 255.,
+                    1.,
+                ]
+            };
+            assert_eq!(palette.background, rgb(0x191719));
+            assert_eq!(palette.card, rgb(0x242124));
+            assert_eq!(palette.raised, rgb(0x302c30));
+            assert_eq!(palette.border, rgb(0x454045));
+            assert_eq!(palette.text, rgb(0xf6f4f6));
+            assert_eq!(palette.muted, rgb(0xc7bfc7));
+            assert_eq!(palette.accent, palette.text);
+            if original.theme != spec.theme {
+                assert!(!super::template::same_shape(&original, &spec));
+            }
+            let mut presentation = mini_engine_presentation();
+            presentation.set_mod_panel(Some(&spec)).unwrap();
+            presentation.set_mod_panel_open(true);
+            let rendered = frame(&mut presentation, [1024, 768]);
+            assert!(!rendered.vertices.is_empty());
+            for color in [
+                [0x19, 0x17, 0x19, 255],
+                [0x24, 0x21, 0x24, 255],
+                [0xf6, 0xf4, 0xf6, 255],
+            ] {
+                assert!(
+                    rendered.vertices.iter().any(|vertex| vertex.color == color),
+                    "missing palette color {color:?} for {style:?}"
+                );
+            }
+            let selected = point(&presentation, "mod.category:0", 0.92);
+            let image = snapshot::rasterize(&rendered);
+            assert_eq!(
+                image.get_pixel(selected[0] as u32, selected[1] as u32).0,
+                [0x30, 0x2c, 0x30, 255],
+                "selected navigation must use the monochrome raised color for {style:?}"
+            );
+            spec.theme = ui::mod_panel::Theme::Default;
+        }
+    }
+}
+
+#[test]
+fn theme_defaults_for_existing_panels_and_validates_new_names() {
+    let mut value = serde_json::to_value(panel()).unwrap();
+    value.as_object_mut().unwrap().remove("theme");
+    assert_eq!(
+        serde_json::from_value::<Panel>(value.clone())
+            .unwrap()
+            .theme,
+        ui::mod_panel::Theme::Default
+    );
+    value["theme"] = serde_json::json!("monochrome");
+    assert_eq!(
+        serde_json::from_value::<Panel>(value.clone())
+            .unwrap()
+            .theme,
+        ui::mod_panel::Theme::Monochrome
+    );
+    value["theme"] = serde_json::json!("unknown");
+    assert!(serde_json::from_value::<Panel>(value).is_err());
 }

@@ -229,33 +229,27 @@ fn production_client_systems_are_members_of_the_behavioral_sets() {
     assert!(
         schedule_precedes(
             graph,
-            system_node(graph, produce_survival_mining, "produce_survival_mining"),
             system_node(graph, produce_block_use, "produce_block_use"),
+            system_node(graph, advance_local_physics, "advance_local_physics"),
+        ) && schedule_precedes(
+            graph,
+            system_node(graph, produce_block_use, "produce_block_use"),
+            system_node(graph, produce_item_use, "produce_item_use"),
         ),
-        "mining arbitration must precede provisional block-use production",
+        "build actions must resolve before the tick's movement and before air use",
     );
     assert!(
         schedule_precedes(
             graph,
-            system_node(graph, produce_block_use, "produce_block_use"),
-            system_node(graph, produce_item_use, "produce_item_use"),
-        ) && schedule_precedes(
-            graph,
             system_node(graph, produce_item_use, "produce_item_use"),
             system_node(graph, send_player_auth_inputs, "send_player_auth_inputs"),
         ),
-        "block and air use must attach before the candidate packet is sent",
+        "air use must attach before the candidate packet is sent",
     );
     assert_system_in_stage(
         graph,
         produce_survival_mining,
         "produce_survival_mining",
-        ClientFrameSet::NetworkSend,
-    );
-    assert_system_in_stage(
-        graph,
-        produce_block_use,
-        "produce_block_use",
         ClientFrameSet::NetworkSend,
     );
     assert_system_in_stage(

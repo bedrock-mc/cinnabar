@@ -6,7 +6,7 @@ use crate::semantic_controls::{
     SemanticTouchTargets,
 };
 use crate::settings_runtime::RuntimeSettings;
-use bevy::prelude::*;
+use bevy::{prelude::*, window::PrimaryWindow};
 
 pub use client_presentation::camera::{
     AUTO_FLY_MAX_HORIZONTAL_BLOCKS, AUTO_FLY_PERIOD_SECONDS, AutoFly, CameraFeelSettings,
@@ -164,6 +164,7 @@ pub(crate) fn update_look(
         Option<Res<crate::menu::MenuRuntime>>,
         Option<Res<fov::CameraFovInputs>>,
     ),
+    window: Option<Single<&Window, With<PrimaryWindow>>>,
     input: Res<SemanticInputSnapshot>,
     auto_fly: Res<AutoFly>,
     settings: ResMut<CameraSettingsAuthority>,
@@ -185,6 +186,7 @@ pub(crate) fn update_look(
             }),
             spyglass.1,
         ),
+        window.map_or(0, |window| window.physical_width()),
         client_presentation::observations::InputObservation(input.snapshot()),
         auto_fly,
         settings,

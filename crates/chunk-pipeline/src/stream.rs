@@ -281,9 +281,9 @@ impl SchedulerView {
 }
 
 use model::{
-    CorrelatedSubChunkAttempts, MeshCompletion, NormalizationErrorReason, PendingMesh,
-    PendingSubChunk, PendingSubChunkColumn, RetrySchedule, RevisionTracker, queue_wait,
-    split_block_update,
+    CorrelatedSubChunkAttempts, MeshChangeQueue, MeshCompletion, NormalizationErrorReason,
+    PendingMesh, PendingSubChunk, PendingSubChunkColumn, RetrySchedule, RevisionTracker,
+    queue_wait, split_block_update,
 };
 
 pub use block_cracks::{
@@ -346,7 +346,7 @@ pub struct WorldStream {
     poll_budget: Duration,
     polling: bool,
     publication_allowance: Option<PublicationAllowance>,
-    mesh_changes: VecDeque<WorldMeshChange>,
+    mesh_changes: MeshChangeQueue,
     publisher: cohort::PublisherScope,
     chunk_radius: Option<i32>,
     last_retention_center: Option<ChunkKey>,

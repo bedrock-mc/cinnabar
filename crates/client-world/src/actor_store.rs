@@ -48,6 +48,8 @@ pub(crate) const ACTOR_FLAG_IMMOBILE: u32 = 16;
 const ACTOR_FLAG_GLIDING: u32 = 32;
 pub(crate) const ACTOR_FLAG_CRAWLING: u32 = 114;
 pub(crate) const ACTOR_FLAG_SITTING: u32 = 24;
+const ACTOR_FLAG_HAS_GRAVITY: u32 = 49;
+const ACTOR_FLAG_USES_UNIFORM_AIR_DRAG: u32 = 128;
 
 const SLEEPING_PLAYER_NETWORK_OFFSET: f32 = 0.2;
 const FALLING_BLOCK_NETWORK_OFFSET: f32 = 0.5;
@@ -137,7 +139,8 @@ impl ActorSnapshot {
     }
 
     /// Vanilla velocity units (blocks/tick) for tick-driven engine animation.
-    pub(crate) fn native_velocity(&self) -> [f32; 3] {
+    #[must_use]
+    pub fn native_velocity(&self) -> [f32; 3] {
         self.status.native_velocity
     }
 
@@ -256,6 +259,7 @@ impl ActorSnapshot {
             float_properties: HashMap::new(),
             status: ActorStatus {
                 native_velocity: feed.velocity,
+                fall_fly_ticks: feed.fall_fly_ticks,
                 ..ActorStatus::default()
             },
             dragon_animation: None,
@@ -264,11 +268,12 @@ impl ActorSnapshot {
         snapshot
     }
 
-    /// Overwrites the primary-word flags the client predicts itself: sneak, sprint, swim and
-    /// predicted item use. Shield blocking stays server-owned.
+    /// Overwrites the primary-word flags the client predicts itself: sneak, sprint, swim, glide
+    /// and predicted item use. Shield blocking stays server-owned.
     fn apply_local_flags(&mut self, feed: &LocalPlayerFeed) {
         self.set_flag(ACTOR_FLAG_SNEAKING, feed.sneaking);
         self.set_flag(ACTOR_FLAG_SPRINTING, feed.sprinting);
+        self.set_flag(ACTOR_FLAG_GLIDING, feed.gliding);
         // Sprinting in water is swimming; the water sample lags one frame.
         let in_water = self.status.fluid.is_some_and(|(water, _)| water);
         self.set_flag(ACTOR_FLAG_SWIMMING, feed.sprinting && in_water);
@@ -407,6 +412,11 @@ impl ActorSnapshot {
     }
 
     #[must_use]
+    pub fn is_gliding(&self) -> bool {
+        self.flag(ACTOR_FLAG_GLIDING)
+    }
+
+    #[must_use]
     pub fn is_sleeping(&self) -> bool {
         self.player_is_sleeping()
     }
@@ -538,10 +548,12 @@ pub struct MovementFlagUpdate {
     pub gliding: Option<bool>,
     pub swimming: Option<bool>,
     pub crawling: Option<bool>,
+    pub has_gravity: Option<bool>,
+    pub uniform_air_drag: Option<bool>,
 }
 
 impl MovementFlagUpdate {
-    /// Reads the flag words from `metadata`; `None` when neither word is present.
+    /// Reads the flag words from `metadata`; `None` when no word is present.
     #[must_use]
     pub fn from_metadata(metadata: &[protocol::ActorMetadata]) -> Option<Self> {
         let word = |key| {
@@ -554,19 +566,16 @@ impl MovementFlagUpdate {
                 _ => None,
             })
         };
-        let primary = word(0);
-        let extended = word(EXTENDED_FLAGS_METADATA_KEY);
-        if primary.is_none() && extended.is_none() {
+        let words = [
+            word(0),
+            word(EXTENDED_FLAGS_METADATA_KEY),
+            word(protocol::ACTOR_DATA_ID_FLAGS_THIRD),
+        ];
+        if words.iter().all(Option::is_none) {
             return None;
         }
-        let bit = |bit: u32| {
-            let (flags, bit) = if bit < 64 {
-                (primary, bit)
-            } else {
-                (extended, bit - 64)
-            };
-            flags.map(|flags| flags & (1_u64 << bit) != 0)
-        };
+        let bit =
+            |bit: u32| words[(bit / 64) as usize].map(|flags| flags & (1_u64 << (bit % 64)) != 0);
         Some(Self {
             immobile: bit(ACTOR_FLAG_IMMOBILE),
             sneaking: bit(ACTOR_FLAG_SNEAKING),
@@ -574,6 +583,8 @@ impl MovementFlagUpdate {
             gliding: bit(ACTOR_FLAG_GLIDING),
             swimming: bit(ACTOR_FLAG_SWIMMING),
             crawling: bit(ACTOR_FLAG_CRAWLING),
+            has_gravity: bit(ACTOR_FLAG_HAS_GRAVITY),
+            uniform_air_drag: bit(ACTOR_FLAG_USES_UNIFORM_AIR_DRAG),
         })
     }
 }
@@ -594,6 +605,10 @@ pub struct LocalPlayerFeed {
     pub on_ground: bool,
     /// Active flight from the client's completed movement mode, rather than server abilities.
     pub flying: bool,
+    /// Predicted elytra glide; overrides the streamed gliding flag on the local rig.
+    pub gliding: bool,
+    /// Consecutive completed gliding ticks, which ease the body into its glide tilt.
+    pub fall_fly_ticks: u32,
     /// Look-input yaw driving the body target, not the camera boom.
     pub yaw: f32,
     pub head_yaw: f32,

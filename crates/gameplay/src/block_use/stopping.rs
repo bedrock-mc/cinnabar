@@ -133,7 +133,7 @@ mod tests {
     }
 
     #[test]
-    fn selection_stop_preserves_a_press_latched_between_physics_ticks() {
+    fn selection_changes_preserve_a_press_latched_between_physics_ticks() {
         let mut runtime = BlockUseRuntime::default();
         let stack = protocol::NetworkItemStack::empty();
         let item =
@@ -151,8 +151,7 @@ mod tests {
         assert!(runtime.observe_use(true, true, false, true));
         selection.slot = 1;
         assert!(runtime.selection_changed(&selection));
-        runtime.stop_packets(42, false);
-        assert!(runtime.admit_stop(true));
+        assert!(!runtime.stopping());
         let clock = RepeatClock {
             now_millis: 1_000,
             sneaking: false,

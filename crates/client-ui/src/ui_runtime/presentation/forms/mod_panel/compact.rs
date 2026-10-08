@@ -27,7 +27,9 @@ pub(super) fn catalog(
     let height = layout.height(page) + 10.;
     let palette = Palette::for_panel(spec);
     let mut outer = palette;
-    if spec.dark {
+    if spec.theme == ui::mod_panel::Theme::Monochrome {
+        outer.card = palette.background;
+    } else if spec.dark {
         outer.card = [0.10, 0.13, 0.18, 0.95];
     }
     let mut controls = vec![named(
@@ -229,7 +231,9 @@ fn navigation(spec: &Panel, layout: &Layout<'_>, category: usize, palette: Palet
                     palette.accent,
                 ),
             ));
-            let fill = if spec.dark {
+            let fill = if spec.theme == ui::mod_panel::Theme::Monochrome {
+                palette.raised
+            } else if spec.dark {
                 [0.22, 0.12, 0.14, 0.98]
             } else {
                 [1., 0.88, 0.86, 1.]

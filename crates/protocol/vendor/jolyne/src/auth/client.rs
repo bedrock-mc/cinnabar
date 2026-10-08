@@ -208,10 +208,10 @@ struct ClientDataPayload {
 }
 
 /// Generates a minimal valid skin resource patch JSON.
-fn generate_skin_resource_patch() -> String {
+fn generate_skin_resource_patch(arm_size: &str) -> String {
     let json = serde_json::json!({
         "geometry": {
-            "default": "geometry.humanoid.custom"
+            "default": if arm_size == "slim" { "geometry.humanoid.customSlim" } else { "geometry.humanoid.custom" }
         }
     });
     STANDARD.encode(json.to_string().as_bytes())
@@ -235,6 +235,21 @@ fn client_data_skin_fields(
             64,
             "wide".to_string(),
         ),
+    }
+}
+
+fn client_data_cape_fields(
+    skin: Option<&crate::stream::client::ClientSkin>,
+) -> (String, String, u32, u32, bool) {
+    match skin.and_then(|skin| skin.cape.as_ref()) {
+        Some(cape) => (
+            STANDARD.encode(&cape.rgba8),
+            cape.id.clone(),
+            cape.width,
+            cape.height,
+            true,
+        ),
+        None => (String::new(), String::new(), 0, 0, false),
     }
 }
 
@@ -463,15 +478,17 @@ fn generate_chain_internal(
     // The GDK Windows client reports Win32 with a lowercase-hex device ID; BDS 1.26.5x
     // drops logins that claim the retired Win10 platform.
     let device_id = Uuid::new_v4().simple().to_string();
+    let (cape_data, cape_id, cape_image_width, cape_image_height, cape_on_classic_skin) =
+        client_data_cape_fields(skin);
 
     let client_claims = ClientDataPayload {
         animated_image_data: vec![],
-        arm_size,
-        cape_data: "".into(),
-        cape_id: "".into(),
-        cape_image_height: 0,
-        cape_image_width: 0,
-        cape_on_classic_skin: false,
+        arm_size: arm_size.clone(),
+        cape_data,
+        cape_id,
+        cape_image_height,
+        cape_image_width,
+        cape_on_classic_skin,
         client_random_id: (rand::random::<u64>() & 0x7FFFFFFFFFFFFFFF) as i64,
         compatible_with_client_side_chunk_gen: true,
         current_input_mode: 1, // Mouse/Keyboard
@@ -505,7 +522,7 @@ fn generate_chain_internal(
         skin_id: format!("{}.Custom", uuid),
         skin_image_height,
         skin_image_width,
-        skin_resource_patch: generate_skin_resource_patch(),
+        skin_resource_patch: generate_skin_resource_patch(&arm_size),
         third_party_name: display_name.into(),
         third_party_name_only: false,
         trusted_skin: false,
@@ -552,15 +569,17 @@ fn generate_client_data_token(
     let (skin_data_b64, skin_image_width, skin_image_height, arm_size) =
         client_data_skin_fields(skin);
     let device_id = Uuid::new_v4().to_string();
+    let (cape_data, cape_id, cape_image_width, cape_image_height, cape_on_classic_skin) =
+        client_data_cape_fields(skin);
 
     let client_claims = ClientDataPayload {
         animated_image_data: vec![],
-        arm_size,
-        cape_data: "".into(),
-        cape_id: "".into(),
-        cape_image_height: 0,
-        cape_image_width: 0,
-        cape_on_classic_skin: false,
+        arm_size: arm_size.clone(),
+        cape_data,
+        cape_id,
+        cape_image_height,
+        cape_image_width,
+        cape_on_classic_skin,
         client_random_id: (rand::random::<u64>() & 0x7FFFFFFFFFFFFFFF) as i64,
         compatible_with_client_side_chunk_gen: true,
         current_input_mode: 1,
@@ -594,7 +613,7 @@ fn generate_client_data_token(
         skin_id: format!("{}.Custom", uuid),
         skin_image_height,
         skin_image_width,
-        skin_resource_patch: generate_skin_resource_patch(),
+        skin_resource_patch: generate_skin_resource_patch(&arm_size),
         third_party_name: display_name.into(),
         third_party_name_only: false,
         trusted_skin: false,
@@ -636,6 +655,12 @@ mod skin_upload_tests {
             width: 64,
             height: 64,
             arm_size: "slim".to_string(),
+            cape: Some(crate::stream::client::ClientCape {
+                width: 64,
+                height: 32,
+                rgba8: vec![42; 64 * 32 * 4],
+                id: "fixture-cape".to_owned(),
+            }),
         };
         let (_, client_jwt) =
             generate_self_signed_chain(&key, "Skinned", Uuid::new_v4(), Some(&skin)).unwrap();
@@ -647,6 +672,21 @@ mod skin_upload_tests {
         assert_eq!(claims["SkinImageWidth"].as_u64(), Some(64));
         assert_eq!(claims["SkinImageHeight"].as_u64(), Some(64));
         assert_eq!(claims["ArmSize"].as_str(), Some("slim"));
+        let patch = STANDARD
+            .decode(claims["SkinResourcePatch"].as_str().unwrap())
+            .unwrap();
+        let patch: serde_json::Value = serde_json::from_slice(&patch).unwrap();
+        assert_eq!(patch["geometry"]["default"], "geometry.humanoid.customSlim");
+        assert_eq!(
+            STANDARD
+                .decode(claims["CapeData"].as_str().unwrap())
+                .unwrap(),
+            skin.cape.as_ref().unwrap().rgba8
+        );
+        assert_eq!(claims["CapeImageWidth"], 64);
+        assert_eq!(claims["CapeImageHeight"], 32);
+        assert_eq!(claims["CapeId"], "fixture-cape");
+        assert_eq!(claims["CapeOnClassicSkin"], true);
     }
 
     #[test]
@@ -660,5 +700,8 @@ mod skin_upload_tests {
             .expect("placeholder SkinData decodes");
         assert_eq!(decoded, vec![255u8; 64 * 64 * 4]);
         assert_eq!(claims["ArmSize"].as_str(), Some("wide"));
+        assert_eq!(claims["CapeData"], "");
+        assert_eq!(claims["CapeImageWidth"], 0);
+        assert_eq!(claims["CapeOnClassicSkin"], false);
     }
 }

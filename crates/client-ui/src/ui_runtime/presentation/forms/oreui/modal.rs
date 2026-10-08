@@ -6,14 +6,17 @@
 use std::borrow::Cow;
 
 use super::super::super::UiPresentationError;
+use super::focus;
 use super::icons::{self, Icon};
+use super::motion::{Kind, Surface, opacity};
 use super::paint::{Bounds, Canvas};
 use super::theme::{
-    BEVEL_DARK, BEVEL_LIGHT, BODY, BORDER, CAPTION, EDGE, NEUTRAL, NEUTRAL80, NEUTRAL100, OUTLINE,
-    OVERLAY_MODAL, Rgba, TEXT,
+    BEVEL_DARK, BEVEL_LIGHT, BODY, BORDER, CAPTION, EDGE, MENU_ITEM, NEUTRAL, NEUTRAL80,
+    NEUTRAL100, OUTLINE, OVERLAY_MODAL, Rgba, TEXT,
 };
-use super::widgets::{Interaction, MenuItem, Variant, button, menu_item};
+use super::widgets::{MenuItem, Variant, button, menu_item};
 use crate::local_worlds::{PromptButton, Screen, WorldsView};
+use crate::menu::view::SettingsFocusAxis;
 use crate::menu::{LocalWorldAction, MenuAction, MenuView};
 
 /// One modal; a button without an action draws disabled.
@@ -48,6 +51,9 @@ const PAD: f32 = 1.6;
 /// The overlay's padding above and below the panel.
 const MARGIN: f32 = 1.2;
 
+#[cfg(test)]
+mod tests;
+
 /// Where the keyboard-focused menu item lies unscrolled, for scrolling it into view.
 pub(super) struct FocusedItem {
     pub(super) bounds: Bounds,
@@ -65,8 +71,28 @@ pub(super) fn draw(
     size: [f32; 2],
     modal: &Modal<'_>,
 ) -> Result<Option<FocusedItem>, UiPresentationError> {
+    draw_inner(canvas, view, size, modal, false)
+}
+
+/// Pickers dismiss when the player presses outside the panel.
+pub(super) fn draw_picker(
+    canvas: &mut Canvas<'_>,
+    view: &MenuView,
+    size: [f32; 2],
+    modal: &Modal<'_>,
+) -> Result<Option<FocusedItem>, UiPresentationError> {
+    draw_inner(canvas, view, size, modal, true)
+}
+
+fn draw_inner(
+    canvas: &mut Canvas<'_>,
+    view: &MenuView,
+    size: [f32; 2],
+    modal: &Modal<'_>,
+    dismiss_overlay: bool,
+) -> Result<Option<FocusedItem>, UiPresentationError> {
     canvas.hits.clear();
-    canvas.fill([0.0, 0.0, size[0], size[1]], OVERLAY_MODAL)?;
+    canvas.overlay(size, OVERLAY_MODAL)?;
     let edge = canvas.r(EDGE);
     let width = canvas.r(MAX_WIDTH).min(size[0]);
     let pad = canvas.r(PAD);
@@ -89,7 +115,12 @@ pub(super) fn draw(
     } else {
         0.0
     };
-    let room = size[1] - canvas.r(MARGIN) * 2.0 - edge * 2.0 - header - tray;
+    let overlap = if dismiss_overlay && list > 0.0 {
+        edge
+    } else {
+        0.0
+    };
+    let room = size[1] - canvas.r(MARGIN) * 2.0 - edge * 2.0 - header - tray + overlap;
     let room = room.max(0.0);
     let item = canvas.r(ITEM);
     // An overflowing menu shows whole items less half of one, so a cut row signals scrolling.
@@ -98,13 +129,65 @@ pub(super) fn draw(
     } else {
         (list + text).min(room)
     };
-    let height = edge * 2.0 + header + content + tray;
+    let height = edge * 2.0 + header + content + tray - overlap;
     let left = (size[0] - width) * 0.5;
     let top = ((size[1] - height) * 0.5).max(0.0);
     let panel = [left, top, left + width, top + height];
+    let native_picker = dismiss_overlay && canvas.capture_focus;
+    let picker_focus = if native_picker {
+        canvas.clear_focus_geometry();
+        let parent = canvas.begin_focus_region(focus::PICKER, panel, None, true)?;
+        canvas.focus_trap();
+        canvas.focus_delegate(
+            modal.items.iter().find_map(|item| {
+                (item.selected && item.enabled)
+                    .then_some(item.action)
+                    .flatten()
+            }),
+            None,
+        );
+        Some(parent)
+    } else {
+        None
+    };
+    if dismiss_overlay && let Some(close) = modal.close {
+        let capture = canvas.capture_focus;
+        canvas.capture_focus = false;
+        for bounds in [
+            [0.0, 0.0, size[0], panel[1]],
+            [0.0, panel[3], size[0], size[1]],
+            [0.0, panel[1], panel[0], panel[3]],
+            [panel[2], panel[1], size[0], panel[3]],
+        ] {
+            if bounds[2] > bounds[0] && bounds[3] > bounds[1] {
+                canvas.hit(close, bounds)?;
+            }
+        }
+        canvas.capture_focus = capture;
+    }
+    let entrance = canvas.begin_entrance(Surface::Dialog(dialog_id(modal.title)));
     canvas.fill(panel, BORDER)?;
     let x = [left + edge, left + width - edge];
-    let header_bottom = title_bar(canvas, view, [x[0], top + edge, x[1]], modal)?;
+    let header_focus = if native_picker {
+        Some(canvas.begin_focus_region(
+            focus::PICKER_HEADER,
+            [x[0], top + edge, x[1], top + edge + header],
+            None,
+            false,
+        )?)
+    } else {
+        None
+    };
+    let header_bottom = title_bar(
+        canvas,
+        view,
+        [x[0], top + edge, x[1]],
+        modal,
+        !dismiss_overlay || !view.gamepad_input,
+    )?;
+    if let Some(parent) = header_focus {
+        canvas.end_focus_region(parent);
+    }
     let content_bottom = header_bottom + content;
     if tray > 0.0 {
         let b = [x[0], content_bottom, x[1], content_bottom + tray];
@@ -118,9 +201,32 @@ pub(super) fn draw(
         }
     }
     if content <= 0.0 {
+        if let Some(parent) = picker_focus {
+            canvas.end_focus_region(parent);
+        }
+        canvas.end_entrance(entrance, size)?;
         return Ok(None);
     }
     let viewport = [x[0], header_bottom, x[1], content_bottom];
+    let list_focus = if native_picker {
+        let parent = canvas.begin_focus_region(focus::PICKER_BODY, viewport, None, false)?;
+        canvas.disable_focus_delegation();
+        Some(parent)
+    } else {
+        None
+    };
+    let scroll_focus = if native_picker {
+        let parent = canvas.begin_focus_region(
+            focus::PICKER_SCROLL,
+            viewport,
+            Some(SettingsFocusAxis::Vertical),
+            false,
+        )?;
+        canvas.disable_focus_delegation();
+        Some(parent)
+    } else {
+        None
+    };
     let focused = modal
         .items
         .iter()
@@ -142,7 +248,7 @@ pub(super) fn draw(
             menu_item(canvas, view, [x[0], row, x[1], row + item], entry)?;
             row += item;
         }
-        canvas.fill([x[0], row, x[1], row + edge], BORDER)?;
+        canvas.fill([x[0], row, x[1], row + edge], MENU_ITEM.border)?;
         y += list;
     }
     if text > 0.0 {
@@ -157,6 +263,22 @@ pub(super) fn draw(
         )?;
     }
     canvas.end_scroll(scroll, list + text)?;
+    if let Some(parent) = scroll_focus {
+        canvas.end_focus_region(parent);
+    }
+    if let Some(parent) = list_focus {
+        canvas.end_focus_region(parent);
+    }
+    if overlap > 0.0 {
+        canvas.fill(
+            [x[0], content_bottom - overlap, x[1], content_bottom],
+            BORDER,
+        )?;
+    }
+    if let Some(parent) = picker_focus {
+        canvas.end_focus_region(parent);
+    }
+    canvas.end_entrance(entrance, size)?;
     Ok(focused)
 }
 
@@ -166,6 +288,7 @@ fn title_bar(
     view: &MenuView,
     [left, top, right]: [f32; 3],
     modal: &Modal<'_>,
+    show_close: bool,
 ) -> Result<f32, UiPresentationError> {
     let bar = [left, top, right, top + canvas.r(HEADER)];
     canvas.fill(bar, NEUTRAL.fill)?;
@@ -183,7 +306,7 @@ fn title_bar(
         NEUTRAL.text,
         false,
     )?;
-    if let Some(close) = modal.close {
+    if show_close && let Some(close) = modal.close {
         let b = [
             right - inset - cell,
             top + inset,
@@ -196,20 +319,18 @@ fn title_bar(
 }
 
 /// The header's X: a neutral cell that lightens on hover and rings when focused.
-fn close_button(
+pub(super) fn close_button(
     canvas: &mut Canvas<'_>,
     view: &MenuView,
     b: Bounds,
     action: MenuAction,
 ) -> Result<(), UiPresentationError> {
-    let state = Interaction::of(view, Some(action));
-    if state.pressed {
-        canvas.fill(b, NEUTRAL.pressed)?;
-    } else if state.hovered {
-        canvas.fill(b, NEUTRAL.hovered)?;
-    }
-    if state.focused {
-        canvas.frame(b, EDGE, OUTLINE)?;
+    let state = canvas.interaction(view, Some(action));
+    let motion = canvas.feedback(state, true, false, Kind::Surface);
+    let role = canvas.role(NEUTRAL);
+    canvas.fill(b, motion.color([0; 4], role.hovered, role.pressed))?;
+    if motion.focus > 0.0 {
+        canvas.frame(b, EDGE, opacity(OUTLINE, motion.focus))?;
     }
     let [w, h] = Icon::Cross.texels();
     let texel = canvas.r(EDGE);
@@ -223,6 +344,13 @@ fn close_button(
 
 fn local(action: LocalWorldAction) -> Option<MenuAction> {
     Some(MenuAction::LocalWorld(action))
+}
+
+pub(super) fn dialog_id(title: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hash = std::collections::hash_map::DefaultHasher::new();
+    title.hash(&mut hash);
+    hash.finish()
 }
 
 /// The modal a local-world state shows, if any.
@@ -271,7 +399,7 @@ pub(super) fn local_world_modal(view: &WorldsView) -> Option<Modal<'_>> {
                     .iter()
                     .map(|button| {
                         let variant = match button {
-                            PromptButton::CreateFlat | PromptButton::Retry => Variant::Primary,
+                            PromptButton::UseDragonfly | PromptButton::Retry => Variant::Primary,
                             _ => Variant::Secondary,
                         };
                         (

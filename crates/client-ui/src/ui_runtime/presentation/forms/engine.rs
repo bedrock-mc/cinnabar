@@ -24,12 +24,16 @@ mod formatting_colors;
 pub mod hud_renderers;
 mod item_renderer;
 mod menu_renderers;
+mod menu_title;
+#[cfg(test)]
+mod ownership_tests;
 mod pack_catalog;
+mod pixel_snap;
 mod rounded;
 mod vector_icons;
 pub(super) use pack_catalog::layer_pack_catalog;
 pub(super) mod host_edit;
-pub(super) mod screen_cache;
+mod screen_cache;
 mod text_paint;
 use super::server_pack::{ServerAtlas, ServerUiPack};
 use super::textures::{TextureSet, Textures};
@@ -55,6 +59,7 @@ pub struct FormEngine {
     pub(super) server_pages: Vec<render_model::UiTexturePage>,
     /// The runtime pack last applied, compared by identity.
     server_source: Option<Arc<ServerUiPack>>,
+    menu_title_source: menu_title::TitleSource,
     /// The last form's bound tree and laid-out output, reused while unchanged.
     pub(super) cache: Option<FormCache>,
     /// Resolve+bind and layout passes run, for cache tests and profiling.
@@ -113,6 +118,8 @@ impl FormEngine {
         super::credits_screen::extend_catalog(&mut catalog);
         let vanilla = Arc::new(catalog);
         let base = Arc::new(hud_renderers::with_java_hud(&vanilla));
+        let context = super::menu_screens::retail_context();
+        let menu_title_source = menu_title::TitleSource::new(&base, &context);
         Self {
             textures: TextureSet::new(first_page).with_carrier(Arc::clone(&assets)),
             assets,
@@ -121,7 +128,8 @@ impl FormEngine {
             screens: screen_cache::ScreenCache::default(),
             vanilla,
             base,
-            context: super::menu_screens::retail_context(),
+            context,
+            menu_title_source,
             server_pages: Vec::new(),
             server_source: None,
             cache: None,
@@ -237,6 +245,7 @@ impl FormEngine {
 
     /// Publishes a worker-resolved catalog and retires caches holding the previous one.
     pub(super) fn install_pack_catalog(&mut self, catalog: Arc<Catalog>) {
+        self.menu_title_source = menu_title::TitleSource::new(&catalog, &self.context);
         self.formatting_palette = formatting_colors::from_catalog(&catalog);
         self.catalog = catalog;
         self.cache = None;
@@ -329,11 +338,6 @@ impl FormEngine {
         &self.assets
     }
 
-    /// Lay `screen` out off-thread; false keeps the previous screen visible until ready.
-    pub(super) fn prepare(&self, screen: screen_cache::Prepared) -> bool {
-        self.screens.prepare(screen, self)
-    }
-
     pub(super) fn splash(&self, translate: &dyn Fn(&str) -> Option<Arc<str>>) -> Option<&str> {
         self.splash
             .get_or_init(|| menu_renderers::pick_splash(&self.assets, translate))
@@ -375,6 +379,23 @@ impl FormEngine {
         draw: impl FnOnce(&LayoutEnv, [f64; 2]) -> Option<R>,
     ) -> Result<Option<EngineFrame>, UiPresentationError> {
         render_with(self.art(), inputs, out, art, None, draw)
+    }
+
+    /// [`Self::draw`] over `textures` instead of the engine's own sources.
+    pub(super) fn draw_with<R: Borrow<FormRender>>(
+        &self,
+        textures: &TextureSet,
+        art: ScreenArt<'_>,
+        inputs: EngineInputs<'_>,
+        out: EngineOutput<'_>,
+        draw: impl FnOnce(&LayoutEnv, [f64; 2]) -> Option<R>,
+    ) -> Result<Option<EngineFrame>, UiPresentationError> {
+        let sources = Art {
+            assets: &self.assets,
+            set: textures,
+            animator: &self.animator,
+        };
+        render_with(sources, inputs, out, art, None, draw)
     }
 
     /// Render an allow-listed screen against `data` under `view`; `art` backs its custom renderers.
@@ -455,6 +476,7 @@ fn render_with<R: Borrow<FormRender>>(
         .nodes
         .iter()
         .chain(out.overlay)
+        .filter(|node| !art.omits(node))
         .filter_map(|node| match &node.draw {
             Draw::Sprite { texture, .. } => Some(texture.as_str()),
             Draw::Custom { renderer, .. } if renderer == tooltip::RENDERER => {
@@ -505,7 +527,7 @@ fn render_with<R: Borrow<FormRender>>(
     };
     let view = art.view;
     for node in render.nodes.iter().chain(out.overlay) {
-        if view.is_none_or(|view| node.shown(view)) {
+        if !art.omits(node) && view.is_none_or(|view| node.shown(view)) {
             painter.paint(node)?;
         }
     }
@@ -520,19 +542,35 @@ fn render_with<R: Borrow<FormRender>>(
         panel: render
             .root_panel
             .map(|rect| [rect.x, rect.y, rect.w, rect.h]),
-        edit_texts: edit_texts(&render.hits, &render.nodes, origin[0], px),
+        edit_texts: edit_texts(
+            &render.hits,
+            &render.nodes,
+            origin[0],
+            [inputs.metrics.gui_scale, px],
+        ),
     }))
 }
 
-/// Each edit box's text label as laid out: where it starts, its scale and font.
-fn edit_texts(hits: &[HitRegion], nodes: &[DrawNode], left: f32, px: f32) -> Vec<EditText> {
+/// Each edit box's text label as painted: where it starts, its scale and font; `pixels` and
+/// `px` are the physical and logical pixels per GUI unit.
+fn edit_texts(
+    hits: &[HitRegion],
+    nodes: &[DrawNode],
+    left: f32,
+    [pixels, px]: [f32; 2],
+) -> Vec<EditText> {
     hits.iter()
         .filter_map(|region| {
             let (target, _) = region.widget.edit.as_ref()?.text_target.as_ref()?;
             nodes.iter().find_map(|node| match &node.draw {
                 Draw::Text { scale, options, .. } if node.key == *target => Some(EditText {
                     key: region.key.clone(),
-                    left: left + node.dest.x as f32 * px,
+                    left: left
+                        + pixel_snap::positioned(
+                            [node.dest.x, node.dest.y, node.dest.w, node.dest.h],
+                            pixels,
+                            px,
+                        )[0],
                     scale: *scale,
                     font: options.font_type.clone(),
                 }),
@@ -546,6 +584,8 @@ fn edit_texts(hits: &[HitRegion], nodes: &[DrawNode], left: f32, px: f32) -> Vec
 /// the tooltip pointer (virtual px), the fade clock (s), HUD state, artwork and gamerpic.
 #[derive(Clone, Copy, Default)]
 pub(super) struct ScreenArt<'a> {
+    /// Native replacements retain the pack's backdrop while omitting the replaced controls.
+    pub(super) omit_controls: &'a [&'a str],
     pub(super) icons: &'a [IconRef],
     /// Icons an `#item_id_aux` renderer names, by that value.
     pub(super) id_aux: &'a [(i64, IconRef)],
@@ -555,6 +595,10 @@ pub(super) struct ScreenArt<'a> {
     pub(super) tooltip: Option<&'a str>,
     /// Where a drawn player renderer records how it wants the model posed.
     pub(super) preview_view: Option<&'a std::cell::Cell<Option<PreviewView>>>,
+    pub(super) preview_control: Option<
+        &'a std::cell::Cell<Option<super::super::player_preview::controller::PreviewControl>>,
+    >,
+    pub(super) preview_rotation: f32,
     pub(super) preview: Option<IconRef>,
     pub(super) pointer: Option<[f32; 2]>,
     pub(super) now: f64,
@@ -566,6 +610,16 @@ pub(super) struct ScreenArt<'a> {
     pub(super) splash: Option<&'a str>,
     pub(super) credits: Option<&'a super::credits_screen::CreditsPaint>,
     pub(super) edit: Option<host_edit::Feedback>,
+}
+
+impl ScreenArt<'_> {
+    fn omits(&self, node: &DrawNode) -> bool {
+        self.omit_controls.iter().any(|name| {
+            node.key
+                .split('/')
+                .any(|part| part.split(['[', '~']).next() == Some(*name))
+        })
+    }
 }
 
 /// Where a render writes its retained nodes, plus caller nodes painted on top (the held stack).
@@ -603,6 +657,26 @@ impl Painter<'_> {
             (rect.x + rect.w) as f32 * px,
             (rect.y + rect.h) as f32 * px,
         ]
+    }
+
+    /// `rect` as logical bounds on whole physical pixels, where vanilla places
+    /// an image ([`pixel_snap`]).
+    fn snapped(&self, rect: &RectOut) -> [f32; 4] {
+        pixel_snap::snapped(
+            [rect.x, rect.y, rect.w, rect.h],
+            self.metrics.gui_scale,
+            self.px,
+        )
+    }
+
+    /// `rect` as logical bounds moved to a whole physical pixel, where vanilla
+    /// places text ([`pixel_snap`]).
+    fn positioned(&self, rect: &RectOut) -> [f32; 4] {
+        pixel_snap::positioned(
+            [rect.x, rect.y, rect.w, rect.h],
+            self.metrics.gui_scale,
+            self.px,
+        )
     }
 
     fn id(&mut self) -> UiNodeId {
@@ -661,7 +735,11 @@ impl Painter<'_> {
             "gradient_renderer" => Some((self.gradient(data, &alpha)?, dest)),
             "animated_gif_renderer" => self.animated_gif(data, dest, &alpha),
             "profile_image_renderer" => {
-                let portrait = self.art.portrait?;
+                // A friend row names its own gamerpic; elsewhere it is the player's.
+                let portrait = match data.get("#profile_image_options") {
+                    Some(serde_json::Value::String(path)) => *self.art.images?.get(path)?,
+                    _ => self.art.portrait?,
+                };
                 Some((
                     UiVisual::Sprite {
                         texture_page: portrait.page,
@@ -780,7 +858,11 @@ impl Painter<'_> {
             Some(&self.textures),
         );
         let clip = self.logical(&drawn.clip);
-        let dest = self.logical(&drawn.dest);
+        let dest = if matches!(node.draw, Draw::Text { .. }) {
+            self.positioned(&drawn.dest)
+        } else {
+            self.snapped(&drawn.dest)
+        };
         let opacity = drawn.opacity;
         if self
             .edit

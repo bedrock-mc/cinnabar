@@ -27,16 +27,35 @@ var goldens = map[string]func() Document{
 	"marker.json":                    func() Document { return new(Marker) },
 	"hello_payload.json":             func() Document { return new(Hello) },
 	"hello_message.json":             func() Document { return new(Control) },
+	"hello_v2_payload.json":          func() Document { return new(Hello) },
+	"hello_v2_message.json":          func() Document { return new(Control) },
 	"accept_payload.json":            func() Document { return new(Accept) },
 	"accept_signed.json":             func() Document { return new(SignedDocument) },
 	"accept_message.json":            func() Document { return new(Control) },
+	"accept_v2_payload.json":         func() Document { return new(Accept) },
+	"accept_v2_signed.json":          func() Document { return new(SignedDocument) },
+	"accept_v2_message.json":         func() Document { return new(Control) },
 	"ready_message.json":             func() Document { return new(Control) },
+	"epoch_message.json":             func() Document { return new(Control) },
 	"envelope_to_client.json":        func() Document { return new(Envelope) },
 	"envelope_to_server.json":        func() Document { return new(Envelope) },
 	"envelope_all_scalar_types.json": func() Document { return new(Envelope) },
 	"channel_all_field_types.json":   func() Document { return new(Channel) },
+	"channel_list_record.json":       func() Document { return new(Channel) },
+	"envelope_v2_list_record.json":   func() Document { return new(Envelope) },
+	"fragments_v2_list_record.json":  func() Document { return new(fragments) },
 	"manifest_payload.json":          func() Document { return new(Manifest) },
 	"manifest_signed.json":           func() Document { return new(SignedDocument) },
+}
+
+// fragments is a Rust Vec<wire::Fragment>: the carrier messages of one fragmented message.
+type fragments []Fragment
+
+func (f fragments) appendJSON(b []byte) ([]byte, error) { return list[Fragment](f).appendJSON(b) }
+
+func (f *fragments) decodeJSON(r *reader) (err error) {
+	*f, err = readList[Fragment](r)
+	return err
 }
 
 // fixture reads one file that `cinnabar-cxb write-fixtures` wrote.
@@ -108,20 +127,22 @@ func TestGoldensRoundTrip(t *testing.T) {
 // The scalars decode to what experience.Scalar's own encoding/json decoder reads, so the round
 // trip is not an identity on escaped text or a detour through float64.
 func TestGoldenScalarsDecodeToRustValues(t *testing.T) {
-	data := fixture(t, "envelope_all_scalar_types.json")
-	var envelope Envelope
-	decodeGolden(t, "envelope_all_scalar_types.json", &envelope)
-	var plain struct {
-		Payload []experience.Scalar `json:"payload"`
-	}
-	if err := json.Unmarshal(data, &plain); err != nil {
-		t.Fatal(err)
-	}
-	if len(plain.Payload) == 0 {
-		t.Fatal("the fixture holds no scalars")
-	}
-	if !reflect.DeepEqual(envelope.Payload, plain.Payload) {
-		t.Fatalf("decoded %s, experience.Scalar decodes %s", describe(envelope.Payload), describe(plain.Payload))
+	for _, name := range []string{"envelope_all_scalar_types.json", "envelope_v2_list_record.json"} {
+		data := fixture(t, name)
+		var envelope Envelope
+		decodeGolden(t, name, &envelope)
+		var plain struct {
+			Payload []experience.Scalar `json:"payload"`
+		}
+		if err := json.Unmarshal(data, &plain); err != nil {
+			t.Fatal(err)
+		}
+		if len(plain.Payload) == 0 {
+			t.Fatalf("%s holds no scalars", name)
+		}
+		if !reflect.DeepEqual(envelope.Payload, plain.Payload) {
+			t.Fatalf("%s decoded %s, experience.Scalar decodes %s", name, describe(envelope.Payload), describe(plain.Payload))
+		}
 	}
 }
 
@@ -138,6 +159,10 @@ func describe(scalars []experience.Scalar) string {
 			out = append(out, strconv.Quote(*s.Text))
 		case s.Choice != nil:
 			out = append(out, "choice "+strconv.FormatUint(uint64(*s.Choice), 10))
+		case s.List != nil:
+			out = append(out, "list "+describe(*s.List))
+		case s.Record != nil:
+			out = append(out, "record "+describe(*s.Record))
 		default:
 			out = append(out, "empty")
 		}
@@ -205,6 +230,7 @@ type signedGolden struct {
 var signedGoldens = []signedGolden{
 	{"offer_payload.json", "offer_signed.json", OfferDomain, MaxMarkerBytes / 2, true, func() Document { return new(Offer) }},
 	{"accept_payload.json", "accept_signed.json", AcceptDomain, MaxPayloadBytes, true, func() Document { return new(Accept) }},
+	{"accept_v2_payload.json", "accept_v2_signed.json", AcceptDomain, MaxPayloadBytes, true, func() Document { return new(Accept) }},
 	{"manifest_payload.json", "manifest_signed.json", ManifestDomain, MaxMarkerBytes / 2, false, func() Document { return new(Manifest) }},
 }
 
@@ -289,10 +315,13 @@ func TestConstantsMatchRust(t *testing.T) {
 		"accept_domain":             AcceptDomain,
 		"manifest_domain":           ManifestDomain,
 		"wire_version":              WireVersion,
+		"max_wire_version":          MaxWireVersion,
 		"api_version":               APIVersion,
 		"initial_bundle_generation": InitialBundleGeneration,
 		"max_marker_bytes":          MaxMarkerBytes,
 		"max_payload_bytes":         MaxPayloadBytes,
+		"max_message_bytes":         MaxMessageBytes,
+		"max_queue_bytes":           MaxQueueBytes,
 		"max_envelope_bytes":        MaxEnvelopeBytes,
 		"max_messages_per_second":   MaxMessagesPerSecond,
 		"max_bytes_per_second":      MaxBytesPerSecond,
@@ -303,6 +332,7 @@ func TestConstantsMatchRust(t *testing.T) {
 		"max_expanded_bytes":        MaxExpandedBytes,
 		"max_channels":              MaxChannels,
 		"max_channel_fields":        MaxChannelFields,
+		"max_field_depth":           MaxFieldDepth,
 		"max_identifier_bytes":      MaxIdentifierBytes,
 		"max_fallback_bytes":        MaxFallbackBytes,
 		"max_url_bytes":             MaxURLBytes,

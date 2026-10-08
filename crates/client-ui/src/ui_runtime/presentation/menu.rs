@@ -54,7 +54,10 @@ pub(super) fn append_menu_nodes(
         CANVAS,
     );
 
-    let content = if matches!(view.screen, MenuScreen::Pause | MenuScreen::Death) {
+    let content = if matches!(
+        view.screen,
+        MenuScreen::Pause | MenuScreen::Death | MenuScreen::Invite
+    ) {
         ContentArea {
             left: 0.0,
             top: 0.0,
@@ -738,6 +741,7 @@ const fn screen_title(screen: MenuScreen) -> &'static str {
         MenuScreen::Social => "Friends & Social",
         MenuScreen::Servers => "Servers",
         MenuScreen::Profile => "Profile & Character",
+        MenuScreen::DressingRoom => "Dressing Room",
         MenuScreen::Settings => "Settings",
         MenuScreen::AddServer => "Add server",
         MenuScreen::Pause => "Game menu",
@@ -745,6 +749,7 @@ const fn screen_title(screen: MenuScreen) -> &'static str {
         MenuScreen::Inbox => "Inbox",
         MenuScreen::Friends => "Friends",
         MenuScreen::Store => "Marketplace",
+        MenuScreen::Invite => "Invite to Game",
     }
 }
 

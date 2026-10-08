@@ -258,20 +258,39 @@ fn rejected_equipment_retries_while_accepted_entities_stay_shared() {
     scene.replace_pack_entities(Some(&entities)).unwrap();
     scene.reset();
     let filler_count =
-        render_model::MAX_ACTOR_RIG_VERTICES - scene.frame().rig.geometry_vertices.len();
+        render_model::MAX_ACTOR_CATALOG_VERTICES - scene.frame().rig.geometry_vertices.len();
     scene.replace_pack_entities(None).unwrap();
-    let filler_id = render_model::item_mesh_rig_id(0);
-    let filler = |count| {
+    let filler = |slot, count| {
         render_model::ActorRigGeometry::new(
-            filler_id,
-            vec![render_model::ActorRigVertex::default(); count],
+            render_model::item_mesh_rig_id(slot),
+            vec![
+                render_model::ActorRigVertex {
+                    position: [slot as f32 + 1.0; 3],
+                    ..render_model::ActorRigVertex::default()
+                };
+                count
+            ],
             vec![[0.0; 3]],
         )
         .unwrap()
     };
-    scene.insert_geometry(filler(filler_count)).unwrap();
+    let fillers = (0..filler_count)
+        .step_by(render_model::MAX_ACTOR_RIG_VERTICES)
+        .enumerate()
+        .map(|(slot, start)| {
+            filler(
+                u32::try_from(slot).unwrap(),
+                (filler_count - start).min(render_model::MAX_ACTOR_RIG_VERTICES),
+            )
+        })
+        .collect();
+    scene.insert_geometries(fillers).unwrap();
     let mut world = session_world(pack, artwork, scene);
     let original = publish(&mut world);
+    assert_eq!(
+        original.rig.geometry_vertices.len(),
+        render_model::MAX_ACTOR_CATALOG_VERTICES
+    );
     assert!(
         world
             .resource::<ActorRenderScene>()
@@ -298,7 +317,7 @@ fn rejected_equipment_retries_while_accepted_entities_stay_shared() {
     );
     world
         .resource_mut::<ActorRenderScene>()
-        .insert_geometry(filler(3))
+        .insert_geometry(filler(0, 3))
         .unwrap();
     world.resource_mut::<ClientWorld>().session_items = Some(Arc::new(SessionItems {
         components: Arc::default(),

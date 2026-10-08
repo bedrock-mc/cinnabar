@@ -109,12 +109,12 @@ fn tab_focus_and_edit_destination_stay_in_lockstep() {
         app.world().resource::<MenuRuntime>().view().field,
         Some(MenuField::Name)
     );
-    app.world_mut()
-        .resource_mut::<MenuRuntime>()
-        .activate(MenuAction::AddSave);
+    for _ in 0..3 {
+        press_key(&mut app, window, KeyCode::Tab, None);
+    }
     press_key(&mut app, window, KeyCode::KeyZ, Some("z"));
     let view = app.world().resource::<MenuRuntime>().view();
-    assert_eq!(view.focused_action, Some(MenuAction::AddSave));
+    assert_eq!(view.focused_action, Some(MenuAction::AddBack));
     assert_eq!(view.field, None);
     assert_eq!(view.name, "a");
     app.world_mut()
@@ -143,7 +143,7 @@ fn tab_focus_and_edit_destination_stay_in_lockstep() {
     app.world_mut()
         .resource_mut::<MenuRuntime>()
         .activate(MenuAction::AddName);
-    for _ in 0..3 {
+    for _ in 0..4 {
         press_key(&mut app, window, KeyCode::Tab, None);
     }
     let view = app.world().resource::<MenuRuntime>().view();
@@ -324,9 +324,12 @@ fn arrows_move_focus_when_no_text_box_is_focused() {
     app.world_mut()
         .resource_mut::<MenuRuntime>()
         .activate(MenuAction::PlayAddServer);
-    app.world_mut()
-        .resource_mut::<MenuRuntime>()
-        .activate(MenuAction::AddSave);
+    for _ in 0..3 {
+        press_key(&mut app, window, KeyCode::Tab, None);
+    }
+    let view = app.world().resource::<MenuRuntime>().view();
+    assert_eq!(view.focused_action, Some(MenuAction::AddBack));
+    assert_eq!(view.field, None);
     press_key(&mut app, window, KeyCode::ArrowLeft, None);
     let view = app.world().resource::<MenuRuntime>().view();
     assert_eq!(view.focused_action, Some(MenuAction::AddPort));

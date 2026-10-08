@@ -136,6 +136,7 @@ impl Painter<'_> {
         dest: [f32; 4],
         alpha: &dyn Fn([u8; 4]) -> [u8; 4],
     ) -> Option<(UiVisual, [f32; 4])> {
+        let preview = self.art.preview?;
         let (view, frame) = crate::ui_runtime::presentation::player_preview::renderer_frame(
             renderer,
             data,
@@ -143,10 +144,23 @@ impl Painter<'_> {
             self.px,
             self.art.pointer,
         );
+        let view = view.with_menu_rotation(self.art.preview_rotation);
         if let Some(request) = self.art.preview_view {
             request.set(Some(view));
         }
-        let preview = self.art.preview?;
+        if let Some(control) = self.art.preview_control
+            && data.get("rotation").and_then(Value::as_str) == Some("gesture_x")
+        {
+            control.set(Some(
+                crate::ui_runtime::presentation::player_preview::controller::PreviewControl {
+                    bounds: crate::ui_runtime::presentation::rect(
+                        dest[0], dest[1], dest[2], dest[3],
+                    )
+                    .ok()?,
+                    gui_pixel: self.px,
+                },
+            ));
+        }
         Some((
             UiVisual::Sprite {
                 texture_page: preview.page,

@@ -24,7 +24,7 @@ impl WorldStream {
     }
 
     pub fn take_mesh_changes(&mut self) -> Vec<WorldMeshChange> {
-        let changes = self.mesh_changes.drain(..).collect::<Vec<_>>();
+        let changes = self.mesh_changes.drain().collect::<Vec<_>>();
         self.stats.phase2_stages.mesh_changes_dequeued = self
             .stats
             .phase2_stages
@@ -62,13 +62,29 @@ impl WorldStream {
         if self.mesh_changes.len() >= MAX_PENDING_MESH_CHANGES {
             return Err(change);
         }
-        self.mesh_changes.push_front(change);
-        self.stats.phase2_stages.mesh_changes_queued = self
-            .stats
-            .phase2_stages
-            .mesh_changes_queued
-            .saturating_add(1);
+        let superseded = self.mesh_changes.push_front(change);
+        self.count_queued_mesh_change(superseded);
         Ok(())
+    }
+    pub(super) fn queue_mesh_change(&mut self, change: WorldMeshChange) {
+        let superseded = self.mesh_changes.push(change);
+        self.count_queued_mesh_change(superseded);
+    }
+    /// A superseded change counts as dequeued so queued minus dequeued stays the pending count.
+    fn count_queued_mesh_change(&mut self, superseded: bool) {
+        let stages = &mut self.stats.phase2_stages;
+        stages.mesh_changes_queued = stages.mesh_changes_queued.saturating_add(1);
+        self.count_discarded_mesh_changes(usize::from(superseded));
+    }
+    pub(super) fn retain_mesh_changes(&mut self, keep: impl FnMut(&WorldMeshChange) -> bool) {
+        let discarded = self.mesh_changes.retain(keep);
+        self.count_discarded_mesh_changes(discarded);
+    }
+    fn count_discarded_mesh_changes(&mut self, discarded: usize) {
+        let stages = &mut self.stats.phase2_stages;
+        stages.mesh_changes_dequeued = stages
+            .mesh_changes_dequeued
+            .saturating_add(discarded as u64);
     }
     pub fn acknowledge_mesh_upload(
         &mut self,
@@ -192,6 +208,12 @@ impl WorldStream {
     /// first-person hand read a driven rig instead of a static fallback.
     pub fn sync_local_player_pose(&mut self, feed: &LocalPlayerFeed) {
         self.authority.sync_local_player_pose(feed)
+    }
+
+    /// Publishes a client-selected appearance against the retained local player profile.
+    pub fn update_local_player_skin(&mut self, profile: &client_world::PlayerProfile) -> bool {
+        self.authority
+            .update_local_player_skin(profile.skin.clone())
     }
     /// Starts the local player's arm swing, which the server never echoes back to its owner.
     /// Starts the local arm swing lasting `ticks`, the duration its packet guard used.
