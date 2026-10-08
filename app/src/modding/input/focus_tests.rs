@@ -153,3 +153,121 @@ fn unfocused_stop_and_toggle_keys_preserve_editor_and_do_not_replay_on_regain() 
         }]
     );
 }
+
+fn hud_editor_app() -> (App, Entity) {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("hud-editor.component.wat");
+    let mut host = mod_host::ModHost::load_snapshot_with_grants(
+        &path,
+        fixture().as_bytes(),
+        mod_host::ModGrants {
+            hud: true,
+            controls: true,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    host.set_panel_open(true);
+    let player = crate::player_runtime::PlayerRuntime::new(1);
+    let ui = UiRuntime::new(1);
+    let mut presentation = mini_engine_presentation();
+    presentation.set_mod_panel(host.panel()).unwrap();
+    presentation.set_mod_panel_open(true);
+    let preview:ui::mod_hud::Hud=serde_json::from_str(r#"{"cards":[{"id":"equipment","position":[0.5,0.5],"rows":[{"label":"Helmet","value":"85%"}]}]}"#).unwrap();
+    presentation.open_mod_hud_editor(&preview).unwrap();
+    render(&mut presentation, &player, &ui);
+    let mut app = App::new();
+    app.add_message::<KeyboardInput>()
+        .add_message::<MouseButtonInput>()
+        .init_resource::<ButtonInput<KeyCode>>()
+        .init_resource::<ButtonInput<MouseButton>>()
+        .init_resource::<AccumulatedMouseMotion>()
+        .insert_resource(player)
+        .insert_resource(ui)
+        .insert_resource(presentation)
+        .insert_resource(ModRuntime {
+            host,
+            companions: Vec::new(),
+            label: None,
+            label_inputs: Vec::new(),
+            label_rebuilds: 0,
+            render_sources: Vec::new(),
+            render_merge: Default::default(),
+            last_reload: std::time::Instant::now(),
+            controls: mod_host::empty_controls(),
+            reload_on_main: false,
+            registration_identity: None,
+            registration_request: None,
+            suspended: false,
+            hud_editor_owner: Some(super::super::hud_editor::Owner {
+                host: 0,
+                session: 1,
+            }),
+        })
+        .add_systems(Update, prepare_mod_input);
+    let mut window = Window {
+        focused: true,
+        ..Default::default()
+    };
+    window.set_cursor_position(Some(Vec2::new(640., 360.)));
+    let entity = app
+        .world_mut()
+        .spawn((window, CursorOptions::default(), PrimaryWindow))
+        .id();
+    (app, entity)
+}
+
+#[test]
+fn hud_drag_released_outside_window_does_not_resume_on_pointer_reentry() {
+    let (mut app, entity) = hud_editor_app();
+    app.world_mut()
+        .resource_mut::<ButtonInput<MouseButton>>()
+        .press(MouseButton::Left);
+    app.world_mut().write_message(MouseButtonInput {
+        button: MouseButton::Left,
+        state: ButtonState::Pressed,
+        window: entity,
+    });
+    app.update();
+    app.world_mut()
+        .get_mut::<Window>(entity)
+        .unwrap()
+        .set_cursor_position(None);
+    app.world_mut().write_message(MouseButtonInput {
+        button: MouseButton::Left,
+        state: ButtonState::Released,
+        window: entity,
+    });
+    app.update();
+    app.world_mut()
+        .get_mut::<Window>(entity)
+        .unwrap()
+        .set_cursor_position(Some(Vec2::new(1100., 640.)));
+    app.update();
+    let mut presentation = app.world_mut().resource_mut::<UiPresentationRuntime>();
+    presentation.mod_panel_key("Enter", None);
+    let result = presentation.take_mod_hud_editor_result().unwrap();
+    assert!(result.saved);
+    assert_eq!(result.placements[0].position, Some([0.5, 0.5]));
+}
+
+#[test]
+fn hud_editor_focus_and_session_loss_cancel_draft_and_release_world_input_ownership() {
+    for focus_loss in [false, true] {
+        let (mut app, entity) = hud_editor_app();
+        app.update();
+        if focus_loss {
+            app.world_mut().get_mut::<Window>(entity).unwrap().focused = false;
+        } else {
+            app.world_mut().resource_mut::<UiRuntime>().begin_session(2);
+        }
+        app.update();
+        let p = app.world().resource::<UiPresentationRuntime>();
+        assert!(!p.mod_hud_editor_open());
+        assert!(!p.mod_panel_open());
+        let runtime = app.world().resource::<ModRuntime>();
+        assert!(runtime.hud_editor_owner.is_none());
+        assert!(!runtime.host.panel_open());
+        assert!(!runtime.controls.panel_open);
+    }
+}

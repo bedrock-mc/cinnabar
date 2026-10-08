@@ -7262,6 +7262,7 @@ dependencies = [
  "render-api",
  "semantic-input",
  "serde",
+ "serde_json",
  "sha2",
 ]
 

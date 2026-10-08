@@ -11,3 +11,6 @@ render-api = { path = "../render-api" }
 semantic-input = { path = "../input" }
 sha2.workspace = true
 serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+serde_json.workspace = true

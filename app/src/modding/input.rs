@@ -407,15 +407,17 @@ pub(super) fn prepare_mod_input(
     let was_held = mouse
         .as_ref()
         .is_some_and(|buttons| buttons.just_pressed(MouseButton::Left));
-    if open
-        && focused
-        && let Some(position) = window.cursor_position()
-    {
-        events.extend(presentation.mod_panel_events(
-            position.to_array(),
-            was_held,
-            physical.left_held,
-        ));
+    if open && focused {
+        if let Some(position) = window.cursor_position() {
+            events.extend(presentation.mod_panel_events(
+                position.to_array(),
+                was_held,
+                physical.left_held,
+            ));
+        } else if !physical.left_held {
+            // A release outside the window must end capture before a later pointer re-entry.
+            presentation.cancel_mod_panel_pointer_input();
+        }
     }
     super::hud_editor::collect(&mut extension, &mut presentation);
     let events = events
