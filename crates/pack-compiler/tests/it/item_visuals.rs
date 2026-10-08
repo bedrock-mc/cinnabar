@@ -378,30 +378,20 @@ fn all_reviewed_defaults_emit_canonical_keys_without_auxiliary_metadata_routes()
 }
 
 #[test]
-fn native_seed_components_use_item_sprites_instead_of_the_crop_they_place() {
+fn default_item_bindings_preserve_sprite_pixels_through_carrier_round_trip() {
     let pack = item_pack(false);
     let bindings: serde_json::Value = serde_json::from_slice(include_bytes!(
         "../../../assets/data/default-sprite-bindings-1.26.50.json"
     ))
     .unwrap();
-    let seeds = bindings["routes"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .filter(|row| {
-            row["evidence_file"]
-                .as_str()
-                .unwrap()
-                .starts_with("native/")
-        })
-        .collect::<Vec<_>>();
+    let routes = bindings["routes"].as_array().unwrap();
     assert!(
-        seeds
+        routes
             .iter()
             .any(|row| row["identifier"] == "minecraft:wheat_seeds")
     );
     let mut atlas = serde_json::Map::new();
-    for row in &seeds {
+    for row in routes {
         let alias = row["default_alias"].as_str().unwrap();
         let path = format!("textures/items/{alias}");
         atlas.insert(alias.to_owned(), serde_json::json!({"textures": path}));
@@ -424,7 +414,7 @@ fn native_seed_components_use_item_sprites_instead_of_the_crop_they_place() {
         assets::RuntimeEntityAssets::decode(&encode_entity_blob(&entity).unwrap()).unwrap();
     let icons = compile_icon_assets(pack.path(), MANIFEST).unwrap();
     let catalog = RuntimeIconCatalog::decode(&icons.bytes).unwrap();
-    for row in seeds {
+    for row in routes {
         let identifier = row["identifier"].as_str().unwrap();
         let alias = row["default_alias"].as_str().unwrap();
         assert!(matches!(
