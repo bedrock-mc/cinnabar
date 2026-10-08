@@ -535,3 +535,6 @@ fn held_placement_intention_uses_the_held_block_family_in_both_id_spaces() {
     }
     assert!(!registry.block_has_build_intention(assets::NetworkIdMode::Sequential, u32::MAX));
 }
+
+#[path = "tests/placement.rs"]
+mod placement;

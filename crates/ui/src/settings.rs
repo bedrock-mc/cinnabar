@@ -9,6 +9,7 @@ pub const MAX_FOV_DEGREES: i32 = 110;
 
 /// Desktop vanilla starts with two coverage samples per pixel.
 pub const DEFAULT_ANTI_ALIASING_SAMPLES: u32 = 2;
+pub const DEFAULT_RENDER_DISTANCE_CHUNKS: u8 = 16;
 /// Sample counts represented by the rendering backend's camera settings.
 pub const ANTI_ALIASING_SAMPLE_COUNTS: [u32; 4] = [1, 2, 4, 8];
 
@@ -163,7 +164,7 @@ impl Default for VideoSettings {
             anti_aliasing_samples: DEFAULT_ANTI_ALIASING_SAMPLES,
             motion_blur: MotionBlurQuality::default(),
             ui_scale: 1.0,
-            render_distance_chunks: 16,
+            render_distance_chunks: DEFAULT_RENDER_DISTANCE_CHUNKS,
             brightness: 0.5,
             render_mode: RenderMode::Vanilla,
             fov_effects_scale: 1.0,

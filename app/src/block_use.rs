@@ -1,8 +1,8 @@
 //! Block use as standalone click-block transactions on the press and while held.
 //!
 //! The local use outcome (interaction, placement or nothing) decides the
-//! transaction's prediction and swing. A placement or switch toggle whose state
-//! is certain is also applied locally; the server's block updates stay authoritative. Air
+//! transaction's prediction and swing. A validated placement or switch toggle
+//! is also applied locally; the server's block updates stay authoritative. Air
 //! use lives in `item_use`.
 
 use bevy::{
@@ -16,7 +16,7 @@ use sim::PaletteWorld;
 
 use crate::{
     interaction_authority::FrozenBlockObservation,
-    local_player::InteractionOriginSnapshot,
+    local_player::{InteractionOriginSnapshot, LocalViewPose},
     melee::{MeleeRuntime, SwingTracker, obstructs_placement},
     menu::MenuRuntime,
     mining::{
@@ -100,6 +100,7 @@ pub(crate) fn retain_block_use_pick(
 pub(crate) struct BlockUseContext<'w, 's> {
     input: Res<'w, SemanticInputSnapshot>,
     origin: Res<'w, InteractionOriginSnapshot>,
+    view: Res<'w, LocalViewPose>,
     ui: Res<'w, UiRuntime>,
     menu: Res<'w, MenuRuntime>,
     windows: Query<'w, 's, &'static Window, With<PrimaryWindow>>,
@@ -234,27 +235,42 @@ pub(crate) fn produce_block_use(
         .inventory
         .selection(&server_selection, inventory_revision);
     let surroundings = use_surroundings(&context, &observed, state.position, state.sneaking);
-    let local_use = LocalUse::resolve(
+    let mut local_use = LocalUse::resolve(
         &observed.selection.item,
         observed.target.position,
         observed.target.face,
         &surroundings,
         &caps,
     );
-    if !runtime.may_attempt(tick, local_use, &swings) {
-        return;
-    }
-    let (destination, _) = surroundings.destination(observed.target.position, observed.target.face);
-    let predicted = (local_use == LocalUse::Place)
+    let placement = (caps.can_build && local_use != LocalUse::Interact)
         .then(|| {
             predicted_placement(
                 &context.collisions,
                 stream,
                 observed.selection.item.block_runtime_id(),
+                &observed,
+                &surroundings,
+                *context.view,
             )
         })
-        .flatten()
-        .map(|block| (destination, block));
+        .flatten();
+    if placement.is_some() && observed.selection.item.count() > 0 {
+        local_use = LocalUse::Place;
+    }
+    if !runtime.may_attempt(tick, local_use, &swings) {
+        return;
+    }
+    let destination = placement.map_or_else(
+        || {
+            surroundings
+                .destination(observed.target.position, observed.target.face)
+                .0
+        },
+        |placement| placement.position,
+    );
+    let predicted = placement
+        .filter(|_| local_use == LocalUse::Place)
+        .map(|placement| (placement.position, placement.block));
     let predicted = predicted.or_else(|| {
         (local_use == LocalUse::Interact)
             .then(|| predicted_toggle(&context.collisions, stream, observed.target.runtime_id))
@@ -509,11 +525,37 @@ fn predicted_placement(
     collisions: &PhysicsCollisionRegistries,
     stream: &chunk_pipeline::WorldStream,
     item_block: i32,
-) -> Option<u32> {
+    observed: &FrozenBlockObservation,
+    surroundings: &UseSurroundings,
+    view: LocalViewPose,
+) -> Option<gameplay::block_use::PredictedPlacement> {
+    let mode = stream.network_id_mode();
+    let world = PaletteWorld::new(
+        stream.collision_store(),
+        collisions.registry(mode),
+        stream.current_dimension(),
+    );
+    let range = stream
+        .authority()
+        .dimension_range(stream.current_dimension())?;
+    let (yaw, pitch, _) = view.rotation().to_euler(bevy::math::EulerRot::YXZ);
     gameplay::block_use::predicted_placement(
         collisions,
-        &crate::movement::GameplayWorldView(stream),
-        item_block,
+        mode,
+        held_block_store_id(stream, item_block)?,
+        &world,
+        &gameplay::block_use::PlacementContext {
+            clicked: observed.target.position,
+            input: gameplay::placement_state::PlacementInput {
+                face: observed.target.face,
+                click_position: observed.target.relative_hit,
+                yaw: gameplay::movement::wire_yaw(180.0 - yaw.to_degrees()),
+                pitch: -pitch.to_degrees(),
+            },
+            surroundings,
+            build_height: range.base_sub_chunk_y * 16
+                ..(range.base_sub_chunk_y + range.sub_chunk_count as i32) * 16,
+        },
     )
 }
 /// Resolves an item block through the production gameplay boundary.

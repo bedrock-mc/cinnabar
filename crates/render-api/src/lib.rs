@@ -17,8 +17,8 @@ pub use skin::{
     SkinRgba8, expand_legacy_skin_rgba8,
 };
 
-/// Maximum view radius supported by the initial world streaming pipeline.
-pub const PHASE0_MAX_VIEW_RADIUS_CHUNKS: i32 = 16;
+/// Largest render distance the client offers and requests; the server grant still bounds streaming.
+pub const PHASE0_MAX_VIEW_RADIUS_CHUNKS: i32 = 255;
 
 /// Near clipping distance shared by world and first-person camera projections.
 pub const CAMERA_NEAR_PLANE_BLOCKS: f32 = 0.025;

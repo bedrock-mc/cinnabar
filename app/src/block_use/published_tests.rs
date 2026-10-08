@@ -136,6 +136,7 @@ fn fixture() -> (World, client_session::CapturedPackets) {
     world
         .insert_resource(crate::semantic_controls::SemanticInputSnapshot::from_finalized(snapshot));
     world.insert_resource(origin);
+    world.insert_resource(LocalViewPose::new(eye, Quat::IDENTITY));
     world.insert_resource(input);
     world.insert_resource(ui);
     world.insert_resource(crate::menu::MenuRuntime::new(

@@ -5,7 +5,7 @@ use sha2::{Digest, Sha256};
 
 use super::{
     BlockUseRuntime, LocalUse, RepeatClock, UseSurroundings, placement_cell,
-    placement_state_is_certain, repeat_interval_millis, toggled_states, use_packets,
+    repeat_interval_millis, toggled_states, use_packets,
 };
 use client_world::game_mode_capabilities::GameModeCapabilities;
 
@@ -220,25 +220,6 @@ fn placement_obstruction_uses_the_placed_shape_and_resolved_cell() {
     assert_eq!(stone.destination([2, 64, 0], 4), ([1, 64, 0], true));
 }
 
-/// Only a known stateless full cube uses its held state without click-dependent resolution.
-#[test]
-fn only_certain_placement_states_are_predicted() {
-    let stone = Some("minecraft:stone");
-    assert!(placement_state_is_certain(true, Some("{}"), stone,));
-    assert!(!placement_state_is_certain(
-        true,
-        Some(r#"{"pillar_axis":"y"}"#),
-        Some("minecraft:oak_log"),
-    ));
-    assert!(!placement_state_is_certain(
-        false,
-        Some("{}"),
-        Some("minecraft:glass_pane"),
-    ));
-    assert!(!placement_state_is_certain(true, None, stone));
-    assert!(!placement_state_is_certain(true, Some("{}"), None));
-}
-
 /// A full cube does not merge into the clicked cube; its placement is just as certain.
 #[test]
 fn a_stateless_cube_predicts_when_the_clicked_block_is_the_same_kind() {
@@ -252,11 +233,6 @@ fn a_stateless_cube_predicts_when_the_clicked_block_is_the_same_kind() {
         LocalUse::Place
     );
     assert_eq!(around.destination(clicked, 1), ([2, 64, 0], true));
-    assert!(placement_state_is_certain(
-        true,
-        Some("{}"),
-        Some(cobblestone)
-    ));
 }
 
 /// Trapdoors and levers flip, buttons press once, and two-part switches are left to the server.
