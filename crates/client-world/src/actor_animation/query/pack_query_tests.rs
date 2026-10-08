@@ -14,6 +14,7 @@ fn read(context: &ActorTickContext, name: &str, arguments: &[MolangValue]) -> f3
             context,
             anim_tick: 0,
             anim_time: None,
+            swell_amount: None,
             life_tick: 0,
             finished: (false, false),
             bones: &[],

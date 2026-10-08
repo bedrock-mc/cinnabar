@@ -322,6 +322,7 @@ pub(super) fn evaluate_state(
         context,
         anim_tick,
         anim_time: None,
+        swell_amount: None,
         life_tick,
         finished: (false, false),
         bones: state.posed_bones(),
@@ -372,14 +373,25 @@ pub(super) fn evaluate_state(
     }
     variables.clear_temporaries();
     variables.clear(engine.first_person_item_rotation_factor);
+    let samples_swell = actor.is_creeper() && state.swell_sampling.is_some();
     let mut render_frame = (state.samples_render_frames
+        || samples_swell
         || (state.samples_swing_poses && state.local_swing.is_some()))
     .then(|| super::render_frame::FrameState {
-        variables: variables.clone(),
-        context: context.clone(),
-        input,
-        anim_tick,
-        clips: Vec::new(),
+        motion: super::render_frame::swell_endpoint::SwellMotion {
+            variables: variables.clone(),
+            context: context.clone(),
+            input,
+            anim_tick,
+            life_tick,
+            clips: Vec::new(),
+            clocks: BTreeMap::new(),
+            controllers: Vec::new(),
+        },
+        previous_motion: None,
+        swell_poses: None,
+        swell_layers: BTreeMap::new(),
+        swelling: [actor.creeper_swell_amount(context.frame_alpha); 2],
     });
     if let Some(script) = rig.pre_animation {
         evaluator.run(script as usize, &mut variables, 0.0, budget)?;
@@ -470,10 +482,21 @@ pub(super) fn evaluate_state(
         super::clock::sample(&evaluator, previous_clocks, &mut weighted_clips, budget)?;
         previous_clocks.clone()
     };
-    if (state.samples_camera_poses || (state.samples_swing_poses && state.local_swing.is_some()))
+    if (state.samples_camera_poses
+        || samples_swell
+        || (state.samples_swing_poses && state.local_swing.is_some()))
         && let Some(frame) = render_frame.as_mut()
     {
-        frame.clips.clone_from(&weighted_clips);
+        frame.motion.clips.clone_from(&weighted_clips);
+        if samples_swell
+            && state
+                .swell_sampling
+                .as_ref()
+                .is_some_and(|s| s.samples_clips())
+        {
+            frame.motion.clocks.clone_from(&clip_clocks);
+            frame.motion.controllers.clone_from(&controllers);
+        }
     }
     let local = sample_clips(
         &evaluator,
@@ -485,6 +508,7 @@ pub(super) fn evaluate_state(
     )?;
     let pose = state.compose(&local).ok_or(EvalError::Invalid)?;
     // Render selection must not freeze the pose when it alone exceeds the budget.
+    let mut swell_layers = BTreeMap::new();
     let render = super::render::evaluate_render(
         &evaluator,
         &mut variables,
@@ -508,12 +532,45 @@ pub(super) fn evaluate_state(
             &state.layer_skeletons,
             &weighted_clips,
             &mut layers,
+            samples_swell.then_some(&mut swell_layers),
             budget,
         );
         layers
     });
     let skin_layers =
         super::skin_layers::evaluate(state, &evaluator, &variables, &local, render.as_deref());
+    if samples_swell && let Some(frame) = render_frame.as_mut() {
+        frame.swell_poses = Some(super::render_frame::SwellPoses {
+            previous: Vec::new(),
+            previous_mask: Vec::new(),
+            current: local,
+            mask: state.swell_sampling.as_ref().unwrap().mask(
+                assets,
+                &state.bone_names,
+                weighted_clips.iter().copied(),
+                None,
+            ),
+        });
+        frame.swell_layers = swell_layers
+            .into_iter()
+            .map(|(geometry, local)| {
+                (
+                    geometry,
+                    super::render_frame::SwellPoses {
+                        previous: Vec::new(),
+                        previous_mask: Vec::new(),
+                        current: local,
+                        mask: state.swell_sampling.as_ref().unwrap().mask(
+                            assets,
+                            &state.layer_skeletons[&geometry].as_ref().unwrap().names,
+                            weighted_clips.iter().copied(),
+                            Some(geometry),
+                        ),
+                    },
+                )
+            })
+            .collect();
+    }
     Ok(EvaluatedState {
         pose,
         skin_layers,

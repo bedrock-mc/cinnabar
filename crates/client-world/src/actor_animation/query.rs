@@ -104,8 +104,7 @@ const KEY_SWELL: u32 = 19;
 pub(super) const FLAG_STANDING: u32 = 39;
 pub(super) const FLAG_SWIMMING: u32 = 57;
 
-// Fuse ticks a swell is normalised by; needs independent measurement.
-const SWELL_FULL_TICKS: f32 = 28.0;
+use crate::actor_store::creeper::SWELL_FULL_TICKS;
 
 // Actors that swim in place, so airborne means in water; without a fluid sample this stands in
 // for the fish-on-land flop.
@@ -139,6 +138,7 @@ pub(super) struct QueryInputs<'a> {
     pub(super) context: &'a ActorTickContext,
     pub(super) anim_tick: u64,
     pub(super) anim_time: Option<f32>,
+    pub(super) swell_amount: Option<f32>,
     pub(super) life_tick: u64,
     /// Whether all and any animations of the controller state being left have finished.
     pub(super) finished: (bool, bool),
@@ -298,6 +298,9 @@ fn number(evaluator: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) ->
     if name == "is_grazing" && actor.is_horse() {
         return truth(super::horse::is_grazing(actor));
     }
+    if name == "swelling_dir" && actor.is_creeper() {
+        return actor.creeper_swelling_direction();
+    }
     if let Some((_, bit)) = FLAG_QUERIES.iter().find(|(query, _)| *query == name) {
         return truth(actor_flag(actor, *bit));
     }
@@ -393,6 +396,9 @@ fn number(evaluator: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) ->
         // Ticks stand in for the world clock; only the phase between actors differs.
         "time_stamp" => evaluator.life_tick as f32,
         "has_target" => truth(has_target(actor)),
+        "swell_amount" if actor.is_creeper() => evaluator
+            .swell_amount
+            .unwrap_or_else(|| actor.creeper_swell_amount(context.frame_alpha)),
         "swell_amount" => metadata_number(actor, KEY_SWELL)
             .map_or(0.0, |swell| (swell / SWELL_FULL_TICKS).max(0.0)),
         // Wither armor shows below half health.

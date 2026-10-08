@@ -202,6 +202,7 @@ impl VariableLayout {
             values: vec![None; self.variable_count],
             temps: vec![None; self.temp_count],
             random: seed | 1,
+            ..Default::default()
         }
     }
 
@@ -218,6 +219,8 @@ pub(super) struct MolangVariables {
     values: Vec<Option<MolangValue>>,
     temps: Vec<Option<MolangValue>>,
     random: u64,
+    capture_writes: bool,
+    writes: Vec<u64>,
 }
 
 /// Borrowed owner script values, copied by name when an item uses another asset catalog.
@@ -289,12 +292,52 @@ impl<'a> ActorAnimationVariables<'a> {
     }
 }
 
+#[derive(Clone, Copy)]
 enum Place {
     Variable(usize),
     Temporary(usize),
 }
 
 impl MolangVariables {
+    /// Records authored assignments after endpoint pre-animation without copying frozen inputs.
+    pub(super) fn capture_writes(&mut self) {
+        self.capture_writes = true;
+        self.writes.clear();
+    }
+
+    /// Publishes authored side effects to matching slots without replacing untouched values or RNG.
+    pub(super) fn publish_writes(&self, target: &mut Self) {
+        for (word, &bits) in self.writes.iter().enumerate() {
+            let mut bits = bits;
+            while bits != 0 {
+                let slot = word * u64::BITS as usize + bits.trailing_zeros() as usize;
+                bits &= bits - 1;
+                if slot < self.values.len() {
+                    target.values[slot].clone_from(&self.values[slot]);
+                } else {
+                    let slot = slot - self.values.len();
+                    target.temps[slot].clone_from(&self.temps[slot]);
+                }
+            }
+        }
+    }
+
+    fn store(&mut self, place: Place, value: MolangValue) -> Result<(), EvalError> {
+        *self.entry(place).ok_or(EvalError::Invalid)? = Some(value);
+        if self.capture_writes {
+            let slot = match place {
+                Place::Variable(slot) => slot,
+                Place::Temporary(slot) => self.values.len() + slot,
+            };
+            let word = slot / u64::BITS as usize;
+            if self.writes.len() <= word {
+                self.writes.resize(word + 1, 0);
+            }
+            self.writes[word] |= 1 << (slot % u64::BITS as usize);
+        }
+        Ok(())
+    }
+
     pub(super) fn copy_named_from(
         &mut self,
         target: &[assets::MolangSymbol],
@@ -367,6 +410,7 @@ impl MolangVariables {
             values: vec![None; count],
             temps: Vec::new(),
             random: 1,
+            ..Default::default()
         }
     }
 
@@ -414,6 +458,7 @@ pub(super) struct Evaluator<'a> {
     pub(super) anim_tick: u64,
     /// The clip clock while its time expression or bone channels are evaluated.
     pub(super) anim_time: Option<f32>,
+    pub(super) swell_amount: Option<f32>,
     pub(super) life_tick: u64,
     /// Whether all and any animations of the controller state being left have finished.
     pub(super) finished: (bool, bool),
@@ -534,7 +579,7 @@ impl Evaluator<'_> {
                 MolangOp::StoreVariable(symbol) => {
                     let value = pop(stack)?;
                     let place = self.layout.place(symbol).ok_or(EvalError::Invalid)?;
-                    *variables.entry(place).ok_or(EvalError::Invalid)? = Some(value);
+                    variables.store(place, value)?;
                 }
                 MolangOp::Coalesce(branch) => {
                     let place = self.layout.place(branch.symbol).ok_or(EvalError::Invalid)?;
@@ -679,6 +724,7 @@ impl Evaluator<'_> {
             context: self.context,
             anim_tick: self.anim_tick,
             anim_time: self.anim_time,
+            swell_amount: self.swell_amount,
             life_tick: self.life_tick,
             finished: self.finished,
             bones: self.bones,

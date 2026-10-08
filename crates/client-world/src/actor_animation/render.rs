@@ -53,6 +53,7 @@ pub(super) fn bind_attachable_roots(state: &mut ActorRigState, owner_names: &[Bo
 }
 
 /// The rig whose render controllers are evaluated.
+#[derive(Clone, Copy)]
 pub(super) struct RenderRig<'a> {
     pub binding: usize,
     /// Geometry the rig itself draws.
@@ -93,6 +94,7 @@ pub(super) fn pose_layers(
     skeletons: &BTreeMap<u32, Option<Arc<LayerSkeleton>>>,
     clips: &[super::tick::WeightedClip],
     layers: &mut [RenderTextureLayer],
+    mut locals: Option<&mut BTreeMap<u32, Vec<pose::LocalDelta>>>,
     budget: &mut EvalBudget<'_>,
 ) {
     for index in 0..layers.len() {
@@ -107,8 +109,15 @@ pub(super) fn pose_layers(
             .find(|earlier| earlier.geometry == Some(geometry))
         {
             Some(earlier) => Some(Arc::clone(&earlier.pose)),
-            None => sample_layer_pose(evaluator, variables, skeletons, clips, geometry, budget)
+            None => sample_layer_local(evaluator, variables, skeletons, clips, geometry, budget)
                 .ok()
+                .and_then(|local| {
+                    let pose = compose_pose(&skeleton.bones, &local).map(Arc::from);
+                    if let Some(locals) = locals.as_deref_mut() {
+                        locals.insert(geometry, local);
+                    }
+                    pose
+                })
                 .or_else(|| compose_pose(&skeleton.bones, &[]).map(Arc::from)),
         };
         if let Some(pose) = pose {
@@ -117,15 +126,15 @@ pub(super) fn pose_layers(
     }
 }
 
-/// Samples a selected geometry without mutating the rig's variables or masking a failed pose.
-pub(super) fn sample_layer_pose(
+/// Samples a selected geometry without mutating the rig variables.
+pub(super) fn sample_layer_local(
     evaluator: &Evaluator<'_>,
     variables: &MolangVariables,
     skeletons: &BTreeMap<u32, Option<Arc<LayerSkeleton>>>,
     clips: &[super::tick::WeightedClip],
     geometry: u32,
     budget: &mut EvalBudget<'_>,
-) -> Result<Arc<[BoneTransform]>, EvalError> {
+) -> Result<Vec<pose::LocalDelta>, EvalError> {
     let skeleton = skeletons
         .get(&geometry)
         .and_then(Option::as_ref)
@@ -133,13 +142,7 @@ pub(super) fn sample_layer_pose(
     let assets = evaluator.assets;
     let mapped: Vec<_> = clips
         .iter()
-        .filter_map(|weighted| {
-            let symbol = assets.animation_clips().get(weighted.clip)?.symbol;
-            Some(super::tick::WeightedClip {
-                clip: assets.clip_for_geometry(symbol, geometry)? as usize,
-                ..*weighted
-            })
-        })
+        .filter_map(|weighted| clip_for_layer(assets, *weighted, geometry))
         .collect();
     // Keyframe scripts already ran for the rig; scratch variables keep their writes isolated.
     let mut scratch = variables.clone();
@@ -151,9 +154,19 @@ pub(super) fn sample_layer_pose(
         &mapped,
         budget,
     )?;
-    compose_pose(&skeleton.bones, &local)
-        .map(Arc::from)
-        .ok_or(EvalError::Invalid)
+    Ok(local)
+}
+
+pub(super) fn clip_for_layer(
+    assets: &RuntimeEntityAssets,
+    weighted: super::tick::WeightedClip,
+    geometry: u32,
+) -> Option<super::tick::WeightedClip> {
+    let symbol = assets.animation_clips().get(weighted.clip)?.symbol;
+    Some(super::tick::WeightedClip {
+        clip: assets.clip_for_geometry(symbol, geometry)? as usize,
+        ..weighted
+    })
 }
 
 /// The pose of a layer that draws the rig's own geometry, shared by every such layer.
