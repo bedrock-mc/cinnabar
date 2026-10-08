@@ -1,3 +1,5 @@
+# Get-Phase2CacheBoundaryEvidence validates historical core markers and reports
+# missing instrumentation without inventing packet counts for current builds.
 function Get-Phase2CacheBoundaryEvidence {
     param([Parameter(Mandatory = $true)][string]$CoreLogPath)
 
@@ -12,6 +14,12 @@ function Get-Phase2CacheBoundaryEvidence {
         [Text.RegularExpressions.RegexOptions]::CultureInvariant -bor
             [Text.RegularExpressions.RegexOptions]::Multiline
     ).Count
+    if ($markerCount -eq 0) {
+        return [pscustomobject][ordered]@{
+            classification = 'unavailable'
+            reason = 'core_boundary_marker_not_recorded'
+        }
+    }
     if ($markerCount -ne 1) {
         throw 'PHASE2_CACHE_BOUNDARY requires exactly one summary marker'
     }
@@ -84,6 +92,11 @@ function Assert-Phase2CacheBoundaryConsistency {
         [Parameter(Mandatory = $true)][AllowNull()]$BoundaryEvidence
     )
 
+    if ($null -eq $BoundaryEvidence -or [string]$BoundaryEvidence.classification -cnotin @(
+        'cache_backed', 'negotiation_failure', 'server_ordinary_despite_cache_capability'
+    )) {
+        throw 'Cache boundary evidence is unavailable or invalid; binding acceptance requires independent packet-route evidence'
+    }
     $cachedRoutes = [uint64]$BoundaryEvidence.cached_level_chunks +
         [uint64]$BoundaryEvidence.cached_sub_chunks
     $boundaryCacheBacked = [string]$BoundaryEvidence.classification -ceq 'cache_backed' -and

@@ -9,6 +9,7 @@ import (
 	"runtime"
 
 	"github.com/hashimthearab/rust-mcbe/core/localworld"
+	"github.com/hashimthearab/rust-mcbe/core/proxy"
 )
 
 const localServerName = "bedrock-local-server"
@@ -33,6 +34,14 @@ func detectRuntime(ctx context.Context, opts options) localworld.RuntimeInfo {
 	return localworld.DetectRuntime(ctx, opts.docker)
 }
 
+// startupRuntime is the runtime known without waiting on Docker; pending means a background probe must settle it.
+func startupRuntime(opts options) (info localworld.RuntimeInfo, pending bool) {
+	if opts.localBackend == "dragonfly" || localworld.PlatformSupportsBDS() {
+		return detectRuntime(context.Background(), opts), false
+	}
+	return localworld.RuntimeInfo{Kind: localworld.RuntimeContainer, Reason: "checking Docker"}, true
+}
+
 // defaultBackend resolves -local-backend; auto picks BDS when it can run natively or in a container.
 func defaultBackend(flag string, info localworld.RuntimeInfo) string {
 	if flag == "auto" || flag == "" {
@@ -42,9 +51,10 @@ func defaultBackend(flag string, info localworld.RuntimeInfo) string {
 }
 
 // openLocalWorlds builds the manager with a dragonfly runner (when its binary exists) and a BDS runner.
-// The dragonfly binary is required, and its absence fatal, only when it is the default backend.
+// The dragonfly binary is required, and its absence fatal, only when it is the default backend at startup;
+// otherwise Dragonfly worlds are refused.
 func openLocalWorlds(opts options, logger *slog.Logger) (*localworld.Manager, error) {
-	runtimeInfo := detectRuntime(context.Background(), opts)
+	runtimeInfo, pending := startupRuntime(opts)
 	backend := defaultBackend(opts.localBackend, runtimeInfo)
 	binary := opts.localServerBin
 	if binary == "" {
@@ -54,10 +64,14 @@ func openLocalWorlds(opts options, logger *slog.Logger) (*localworld.Manager, er
 		}
 	}
 	runners := localworld.Runners{}
+	var missingDragonfly error
 	if info, err := os.Stat(binary); err == nil && !info.IsDir() {
 		runners[localworld.BackendDragonfly] = localworld.ProcessRunner{Binary: binary, Log: logger}
-	} else if backend == localworld.BackendDragonfly {
-		return nil, fmt.Errorf("local world server binary not found at %s; build it with `make local-server`", binary)
+	} else {
+		missingDragonfly = fmt.Errorf("local world server binary not found at %s; build it with `make local-server`", binary)
+		if backend == localworld.BackendDragonfly {
+			return nil, missingDragonfly
+		}
 	}
 	store, err := localworld.OpenStore(opts.localWorldsDir)
 	if err != nil {
@@ -71,10 +85,25 @@ func openLocalWorlds(opts options, logger *slog.Logger) (*localworld.Manager, er
 	provisioner := &localworld.Provisioner{Root: bdsDir, Version: opts.bdsVersion, Log: logger}
 	provisioner.SetRuntime(runtimeInfo)
 	provisioner.SetDetector(func(ctx context.Context) localworld.RuntimeInfo { return detectRuntime(ctx, opts) })
-	runners[localworld.BackendBDS] = localworld.BDSRunner{Provisioner: provisioner, Log: logger, Docker: opts.docker, Image: opts.bdsImage}
+	maxPlayers := opts.bdsMaxPlayers
+	if maxPlayers == 0 {
+		// Room for friends joining the hosted world, as vanilla allows.
+		maxPlayers = proxy.FriendWorldMaxPlayers
+	}
+	runners[localworld.BackendBDS] = localworld.BDSRunner{
+		Provisioner: provisioner, Log: logger, Docker: opts.docker, Image: opts.bdsImage,
+		MaxPlayers: maxPlayers, HostPort: opts.bdsHostPort, LANVisible: opts.bdsLANVisible, LANHostPort: opts.bdsLANHostPort,
+	}
 	manager := localworld.NewManager(store, runners, logger)
+	if missingDragonfly != nil {
+		// Docker detection may still settle on Dragonfly; its worlds are then refused, not saved unopenable.
+		manager.SetUnavailable(localworld.BackendDragonfly, missingDragonfly)
+	}
 	manager.SetSetup(provisioner)
 	manager.SetAutoBackend(opts.localBackend == "auto" || opts.localBackend == "")
 	logger.Info("local worlds enabled", "dir", opts.localWorldsDir, "default_backend", backend, "bds_runtime", runtimeInfo.Kind, "reason", runtimeInfo.Reason)
+	if pending {
+		provisioner.DetectInBackground(runtimeInfo)
+	}
 	return manager, nil
 }

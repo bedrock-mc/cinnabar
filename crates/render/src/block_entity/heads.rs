@@ -185,7 +185,20 @@ impl HeadModel {
         let floor = if align_floor {
             boxes
                 .iter()
-                .map(|head_box| head_box.spec.origin[1])
+                .flat_map(|head_box| {
+                    let spec = head_box.spec;
+                    (0..8).map(move |corner| {
+                        let point = Vec3::from_array(std::array::from_fn(|axis| {
+                            spec.origin[axis]
+                                + if corner & (1 << axis) == 0 {
+                                    -spec.inflate
+                                } else {
+                                    spec.size[axis] + spec.inflate
+                                }
+                        }));
+                        head_box.matrix.transform_point3(point).y
+                    })
+                })
                 .fold(f32::MAX, f32::min)
         } else {
             0.0
@@ -237,9 +250,12 @@ mod tests {
     ) -> EntityGeometryBone {
         EntityGeometryBone {
             name: name.into(),
+            binding: None,
+            texture_meshes: Box::new([]),
             parent: parent.map(Into::into),
             pivot: None,
             rotation: None,
+            bind_pose_rotation: None,
             mirror: None,
             inflate: None,
             never_render: None,
@@ -250,6 +266,7 @@ mod tests {
 
     fn geometry(bones: Vec<EntityGeometryBone>) -> EntityGeometry {
         EntityGeometry {
+            visible_bounds: None,
             identifier: "geometry.test".into(),
             inherits: None,
             source_index: 0,
@@ -302,5 +319,31 @@ mod tests {
             )
             .is_none()
         );
+    }
+    #[test]
+    fn review_render_rotated_inflated_head_sits_on_floor() {
+        let mut cube = cube([0.0, 1.0, 0.0], [1.0; 3]);
+        cube.rotation = [scalar(180.0), scalar(0.0), scalar(0.0)];
+        cube.inflate = scalar(0.25);
+        let model = HeadModel::build(&geometry(vec![bone("head", None, vec![cube])]), 1.0).unwrap();
+        let head = &model.boxes[0];
+        let mut bottom = f32::MAX;
+        for x in [
+            head.spec.origin[0] - head.spec.inflate,
+            head.spec.origin[0] + head.spec.size[0] + head.spec.inflate,
+        ] {
+            for y in [
+                head.spec.origin[1] - head.spec.inflate,
+                head.spec.origin[1] + head.spec.size[1] + head.spec.inflate,
+            ] {
+                for z in [
+                    head.spec.origin[2] - head.spec.inflate,
+                    head.spec.origin[2] + head.spec.size[2] + head.spec.inflate,
+                ] {
+                    bottom = bottom.min(head.matrix.transform_point3(Vec3::new(x, y, z)).y);
+                }
+            }
+        }
+        assert!(bottom.abs() < 1.0e-5, "bottom {bottom}");
     }
 }

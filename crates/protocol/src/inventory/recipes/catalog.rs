@@ -17,7 +17,7 @@ struct CatalogEntries {
     _permit: Permit,
 }
 
-/// Pure protocol state; this tranche does not activate an app recipe consumer.
+/// Admitted wire recipes and their retained lifetime credits.
 #[derive(Debug, Default, Clone)]
 pub struct RecipeCatalog {
     session: u64,
@@ -89,7 +89,8 @@ impl RecipeCatalog {
     pub fn revision(&self) -> u64 {
         self.revision
     }
-    pub(in crate::inventory) fn session(&self) -> u64 {
+    /// The session whose admitted wire recipes this catalog retains.
+    pub fn session(&self) -> u64 {
         self.session
     }
     pub fn is_available(&self) -> bool {
@@ -100,16 +101,8 @@ impl RecipeCatalog {
         let index = entries.binary_search_by_key(&id, |entry| entry.id).ok()?;
         entries[index].handle.clone()
     }
-    pub(super) fn supported_recipes(&self) -> impl Iterator<Item = &super::model::Recipe> {
-        self.storage
-            .iter()
-            .flat_map(|storage| &storage.entries)
-            .filter_map(|entry| entry.handle.as_ref().map(RecipeHandle::recipe))
-            .filter(|recipe| recipe.is_personal_named())
-    }
-
     /// Every retained crafting-table recipe, any shape.
-    pub(super) fn crafting_recipes(&self) -> impl Iterator<Item = &RecipeHandle> {
+    pub fn crafting_recipes(&self) -> impl Iterator<Item = &RecipeHandle> {
         self.storage
             .iter()
             .flat_map(|storage| &storage.entries)

@@ -6,11 +6,13 @@ use crate::{
         CameraPose, LocalPlayerFrameCarrier, LocalViewPose, publish_local_player_frame,
         resolve_camera_pose,
     },
-    local_player_camera_receipt::{CameraPublicationAttempt, begin_camera_publication_attempt},
     movement::{LocalPhysicsController, PhysicsCollisionRegistries},
     runtime::world::ClientWorld,
 };
 use bevy::prelude::*;
+use client_presentation::local_player_camera_receipt::{
+    CameraPublicationAttempt, begin_camera_publication_attempt,
+};
 use std::{path::Path, sync::Arc, time::Duration};
 
 struct EmptyWorld;
@@ -24,7 +26,7 @@ impl sim::CollisionWorld for EmptyWorld {
 }
 fn camera_app() -> App {
     let mut world = ClientWorld::new(Arc::new(assets::RuntimeAssets::diagnostic()));
-    world.stream = Some(client_world::WorldStream::new(protocol::WorldBootstrap {
+    world.stream = Some(chunk_pipeline::WorldStream::new(protocol::WorldBootstrap {
         dimension: 0,
         local_player_runtime_id: 1,
         local_player_unique_id: 1,
@@ -198,7 +200,7 @@ fn session_removal_and_real_physics_reset_withhold_receipt_until_valid_observati
 struct ReplaceAfterWriter(bool);
 fn replace_after_writer(mut flag: ResMut<ReplaceAfterWriter>, mut world: ResMut<ClientWorld>) {
     if std::mem::take(&mut flag.0) {
-        world.stream = Some(client_world::WorldStream::new(protocol::WorldBootstrap {
+        world.stream = Some(chunk_pipeline::WorldStream::new(protocol::WorldBootstrap {
             dimension: 0,
             local_player_runtime_id: 1,
             local_player_unique_id: 1,

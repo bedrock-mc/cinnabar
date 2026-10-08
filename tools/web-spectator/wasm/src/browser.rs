@@ -18,12 +18,12 @@ use bevy::{
 };
 // Bevy's derive manifest resolver does not inspect target-specific dependencies.
 use bevy::ecs as bevy_ecs;
-use meshing::{ChunkMesh, biome::PackedBiomeRecord};
+use meshing::{ChunkMesh, PackedBiomeRecord};
 use render::{
     ActorPresentationGate, ActorRenderFrame, ActorRenderPlugin, ChunkBiomeTints,
     ChunkRenderApplySet, ChunkRenderPlugin, ChunkRenderQueue, ChunkTextureAssets,
     ChunkUploadBudget, ChunkUploadPriority, PresentedFrameGate, RenderViewCohort, UiRenderPlugin,
-    UiRenderScene, UiRenderStats, VisibilityDiagnostics, VisibilityDiagnosticsInput,
+    UiRenderSceneResource, UiRenderStatsResource, VisibilityDiagnostics, VisibilityDiagnosticsInput,
 };
 use wasm_bindgen::prelude::*;
 use world::SubChunkKey;
@@ -89,7 +89,7 @@ struct ViewerState {
     skins: VecDeque<SkinUpload>,
     geometry_uploads: VecDeque<(String, String, String)>,
     cape_uploads: VecDeque<SkinUpload>,
-    animation_uploads: VecDeque<(String, render_data::SkinAnimation)>,
+    animation_uploads: VecDeque<(String, protocol::SkinAnimation)>,
     listener_position: [f32; 3],
     listener_right: [f32; 3],
     ready: bool,
@@ -123,14 +123,14 @@ struct ViewerCamera;
 struct ViewerOutput<'w> {
     queue: ResMut<'w, ChunkRenderQueue>,
     actors: ResMut<'w, ActorRenderFrame>,
-    ui: ResMut<'w, UiRenderScene>,
-    stats: Res<'w, UiRenderStats>,
+    ui: ResMut<'w, UiRenderSceneResource>,
+    stats: Res<'w, UiRenderStatsResource>,
     presented: Res<'w, PresentedFrameGate>,
     hands: ResMut<'w, render::HandRigScene>,
     tints: Res<'w, ChunkBiomeTints>,
     visibility: Res<'w, VisibilityDiagnostics>,
     actor_presented: Res<'w, ActorPresentationGate>,
-    nametags: ResMut<'w, render::NametagScene>,
+    nametags: ResMut<'w, render::NametagSceneResource>,
     particles: ResMut<'w, render::ParticleGpuFrame>,
     items: ResMut<'w, render::DroppedItemScene>,
 }
@@ -152,7 +152,7 @@ fn gpu_requirements_for(terrain: &TerrainAssets) -> GpuRequirements {
             .max()
             .unwrap_or(1),
         max_storage_buffers_per_shader_stage:
-            render::required_chunk_storage_buffers_per_shader_stage(),
+            render::required_vertex_storage_buffers(),
     }
 }
 
@@ -463,9 +463,9 @@ impl Viewer {
             return Err("invalid persona animation".into());
         }
         let kind = match kind {
-            0 => render_data::SkinAnimationKind::Face,
-            1 => render_data::SkinAnimationKind::Body32,
-            2 => render_data::SkinAnimationKind::Body128,
+            0 => protocol::SkinAnimationKind::Face,
+            1 => protocol::SkinAnimationKind::Body32,
+            2 => protocol::SkinAnimationKind::Body128,
             _ => return Err("invalid persona animation kind".into()),
         };
         let mut state = self
@@ -480,7 +480,7 @@ impl Viewer {
         }
         state.animation_uploads.push_back((
             player_id.into(),
-            render_data::SkinAnimation {
+            protocol::SkinAnimation {
                 kind,
                 width,
                 height,
@@ -611,10 +611,10 @@ fn spawn_camera(mut commands: Commands, window: Single<&Window, With<PrimaryWind
         Tonemapping::None,
         Projection::Perspective(PerspectiveProjection {
             far: 2048.0,
-            fov: render::camera::horizontal_fov_to_vertical(
-                render::camera::DEFAULT_HORIZONTAL_FOV_RADIANS,
-                window.width() / window.height(),
-            ),
+            fov: view_presentation::camera::projection_fov_radians(ui::DEFAULT_FOV_DEGREES as f32),
+            aspect_ratio: view_presentation::camera::projection_aspect(window.width(), window.height()),
+            near: render_api::CAMERA_NEAR_PLANE_BLOCKS,
+            near_clip_plane: Vec4::new(0.0, 0.0, -1.0, -render_api::CAMERA_NEAR_PLANE_BLOCKS),
             ..default()
         }),
         Transform::from_xyz(20.0, 18.0, 20.0).looking_at(Vec3::ZERO, Vec3::Y),
@@ -659,7 +659,7 @@ fn update_viewer(
     if state.error.is_some() {
         runtime.camera_motion.reset();
         *actors = ActorRenderFrame::default();
-        *nametags = render::NametagScene::default();
+        **nametags = render_model::NametagScene::default();
         state.diagnostics.nametag_records = 0;
         hands.clear();
         items.clear();
@@ -672,7 +672,7 @@ fn update_viewer(
     if state.current.is_none() || state.received.elapsed() > std::time::Duration::from_secs(5) {
         runtime.camera_motion.reset();
         *actors = ActorRenderFrame::default();
-        *nametags = render::NametagScene::default();
+        **nametags = render_model::NametagScene::default();
         state.diagnostics.nametag_records = 0;
         hands.clear();
         items.clear();
@@ -825,10 +825,11 @@ fn update_viewer(
                 });
             let base = Transform {
                 translation: position.unwrap_or(target) + Vec3::Y * pov.eye_height,
-                rotation: render::bedrock_camera_rotation(yaw, pitch),
+                rotation: view_presentation::camera::bedrock_camera_rotation(yaw, pitch),
                 ..Transform::IDENTITY
             };
-            let (posed, motion) = runtime.camera_motion.update(fighter, base);
+            let speed = current.map_or(1.0, Frame::visual_speed);
+            let (posed, motion) = runtime.camera_motion.update(fighter, base, speed);
             **camera = posed;
             hand_motion = motion;
         }
@@ -877,7 +878,7 @@ fn update_viewer(
                         .as_ref()
                         .map_or(fighter.position, |motion| motion.position(fighter)),
                 );
-                render::player_nametag_anchor(
+                view_presentation::nametags::player_nametag_anchor(
                     &fighter.name,
                     feet,
                     camera.translation,
@@ -885,7 +886,7 @@ fn update_viewer(
                 )
             })
             .collect::<Vec<_>>();
-        *nametags = runtime.hud.nametag_scene(&anchors);
+        **nametags = runtime.hud.nametag_scene(&anchors);
     }
     let hud_fighter = if matches!(state.camera.mode, CameraMode::Pov) {
         fighter
@@ -900,14 +901,15 @@ fn update_viewer(
         state.error = Some("spectator perspective projection is unavailable".into());
         return;
     };
-    perspective.fov = render::camera::horizontal_fov_to_vertical(
-        if matches!(state.camera.mode, CameraMode::Pov) {
-            POV_HORIZONTAL_FOV_RADIANS
-        } else {
-            render::camera::DEFAULT_HORIZONTAL_FOV_RADIANS
-        },
-        window.width() / window.height(),
-    );
+    perspective.aspect_ratio =
+        view_presentation::camera::projection_aspect(window.width(), window.height());
+    perspective.fov = if matches!(state.camera.mode, CameraMode::Pov) {
+        let vertical =
+            2.0 * ((POV_HORIZONTAL_FOV_RADIANS * 0.5).tan() / perspective.aspect_ratio).atan();
+        view_presentation::camera::projection_fov_radians(vertical.to_degrees())
+    } else {
+        view_presentation::camera::projection_fov_radians(ui::DEFAULT_FOV_DEGREES as f32)
+    };
     *hands = runtime
         .actors
         .update_hands(hud_fighter, partial, perspective.fov, hand_motion);

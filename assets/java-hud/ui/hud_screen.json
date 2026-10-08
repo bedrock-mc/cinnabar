@@ -1,9 +1,13 @@
-// Cinnabar's built-in Java-styled HUD: the bottom layer of the pack stack.
-// Positions and timings follow Java Edition's Gui (hotbar, status rows, XP
-// bar, chat, titles, action bar, boss bars, effects); art stays vanilla
-// Bedrock. Withdrawn wherever a server pack ships its own hud_screen.json.
+// Cinnabar's built-in Java-look HUD sits below server UI packs.
+// Layout follows the accepted HUD styling exception; art comes from vanilla Bedrock.
 {
   "namespace": "hud",
+
+  "hud_screen": {
+    "render_only_when_topmost": false,
+    "$additional_screen_content": "hud.java_chat_overlay",
+    "$cinnabar_additional_content|default": "common.base_screen_empty_panel"
+  },
 
   "centered_gui_elements_at_bottom_middle": {
     "type": "panel",
@@ -71,9 +75,8 @@
           "size": [ "100%", 0 ],
           "anchor_from": "bottom_middle",
           "anchor_to": "bottom_middle",
-          "offset": [ 0, -36 ],
           "control_ids": {
-            "item_text": "@hud.item_name_text_root",
+            "item_text": "@hud.java_item_name_text",
             "jukebox_text": "@hud.jukebox_popup_text"
           }
         }
@@ -126,7 +129,7 @@
   // Green level number outlined in black, its top 35 GUI px above the bottom.
   "java_level_number": {
     "type": "panel",
-    "size": [ "100%c", "100%c" ],
+    "size": [ "100%cm", "100%cm" ],
     "anchor_from": "bottom_middle",
     "anchor_to": "top_middle",
     "offset": [ 0, -35 ],
@@ -251,6 +254,13 @@
     "$durability_bar_offset": [ 0.5, 5.5 ]
   },
 
+  // Factory creations are siblings of the factory, so its offset does not
+  // position them. Keep the hotbar clearance on the spawned item root; the
+  // native template still owns centering, text binding and fade animations.
+  "java_item_name_text@hud.item_name_text_root": {
+    "offset": [ 0, -36 ]
+  },
+
   // The selected-item name clears the status rows by 14 GUI px in survival.
   "item_name_text_root/item_text_aligner/survival_buffer": {
     "size": [ "100%sm", 14 ]
@@ -298,19 +308,31 @@
             { "number_of_days_played@hud.number_of_days_played": {} }
           ]
         }
-      },
-      {
-        "java_chat": {
-          "type": "panel",
-          "size": [ 330, 90 ],
-          "anchor_from": "bottom_left",
-          "anchor_to": "bottom_left",
-          "offset": [ 0, -40 ],
-          "controls": [
-            { "chat_panel@hud.chat_panel": {} }
-          ]
-        }
       }
+    ]
+  },
+
+  "java_chat": {
+    "type": "panel",
+    "size": [ "$cinnabar_chat_width", 90 ],
+    "max_size": [ "100%", "100%" ],
+    "anchor_from": "bottom_left",
+    "anchor_to": "bottom_left",
+    "offset": [ 0, "$cinnabar_chat_history_bottom" ],
+    "controls": [ { "chat_panel@hud.chat_panel": {} } ],
+    "bindings": [
+      { "binding_name": "#hud_visible", "binding_name_override": "#visible", "binding_type": "global" },
+      { "binding_name": "#hud_alpha", "binding_name_override": "#alpha", "binding_type": "global" },
+      { "binding_name": "#hud_propagate_alpha", "binding_name_override": "#propagateAlpha", "binding_type": "global" }
+    ]
+  },
+
+  "java_chat_overlay": {
+    "type": "panel",
+    "size": [ "100%", "100%" ],
+    "controls": [
+      { "server_additional_content@$cinnabar_additional_content": {} },
+      { "cinnabar_chat@hud.java_chat": {} }
     ]
   },
 
@@ -378,60 +400,73 @@
     "factory": {
       "name": "hud_title_text_factory",
       "control_ids": {
-        "hud_title_text": "hud_title_text@hud.java_title_text"
+        "hud_title_text": "hud_title_text@hud.hud_title_text"
       }
     }
   },
 
-  "java_title_text": {
+  "hud_title_text": {
     "type": "panel",
     "size": [ "100%", "100%" ],
+    "offset": [ 0, 0 ],
     "layer": 1,
     "alpha": "@hud.anim_title_text_alpha_in",
     "propagate_alpha": true,
     "controls": [
       {
-        "title": {
-          "type": "label",
-          "anchor_from": "center",
-          "anchor_to": "top_middle",
-          "offset": [ 0, -40 ],
-          "text": "#text",
-          "color": "$title_command_text_color",
-          "font_scale_factor": 4.0,
-          "shadow": true,
-          "localize": false,
-          "layer": 31,
-          "text_alignment": "center",
-          "bindings": [
-            {
-              "binding_name": "#hud_title_text_string",
-              "binding_name_override": "#text",
-              "binding_type": "global"
+        "title_frame": {
+          "type": "panel",
+          "size": [ "100%", "100%" ],
+          "controls": [ {
+            "title": {
+              "type": "label",
+              "anchor_from": "center",
+              "anchor_to": "top_middle",
+              "offset": [ 0, -40 ],
+              "text": "#text",
+              "color": "$title_command_text_color",
+              "font_scale_factor": 4.0,
+              "shadow": true,
+              "localize": false,
+              "layer": 31,
+              "text_alignment": "center",
+              "bindings": [
+                {
+                  "binding_name": "#hud_title_text_string",
+                  "binding_name_override": "#text",
+                  "binding_type": "global"
+                }
+              ]
             }
-          ]
+          } ]
         }
       },
       {
-        "subtitle": {
-          "type": "label",
-          "anchor_from": "center",
-          "anchor_to": "top_middle",
-          "offset": [ 0, 10 ],
-          "text": "#text",
-          "color": "$title_command_text_color",
-          "font_scale_factor": 2.0,
-          "shadow": true,
-          "localize": false,
-          "layer": 31,
-          "text_alignment": "center",
-          "bindings": [
-            {
-              "binding_name": "#hud_subtitle_text_string",
-              "binding_name_override": "#text",
-              "binding_type": "global"
+        "subtitle_frame": {
+          "type": "panel",
+          "size": [ "100%", "100%" ],
+          "controls": [ {
+            "subtitle": {
+              "type": "label",
+              "anchor_from": "center",
+              "anchor_to": "top_middle",
+              "offset": [ 0, 10 ],
+              "text": "#text",
+              "color": "$title_command_text_color",
+              "font_scale_factor": 2.0,
+              "shadow": true,
+              "localize": false,
+              "layer": 31,
+              "text_alignment": "center",
+              "bindings": [
+                {
+                  "binding_name": "#hud_subtitle_text_string",
+                  "binding_name_override": "#text",
+                  "binding_type": "global"
+                }
+              ]
             }
-          ]
+          } ]
         }
       }
     ]
@@ -444,13 +479,15 @@
     "factory": {
       "name": "hud_actionbar_text_factory",
       "control_ids": {
-        "hud_actionbar_text": "hud_actionbar_text@hud.java_actionbar_text"
+        "hud_actionbar_text": "hud_actionbar_text@hud.hud_actionbar_text"
       }
     }
   },
 
-  "java_actionbar_text": {
+  "hud_actionbar_text": {
     "type": "label",
+    "size": [ "default", "default" ],
+    "controls": [],
     "anchor_from": "bottom_middle",
     "anchor_to": "top_middle",
     "offset": [ 0, -72 ],
@@ -521,7 +558,10 @@
     ]
   },
 
+  // Bars 19 GUI px apart: the bound dimensions, each cell a bar's height.
   "root_panel/boss_health_panel/boss_hud_panel/boss_health_grid": {
+    "grid_fill_direction": "none",
+    "size": [ 182, "100%c" ],
     "offset": [ 0, 3 ]
   }
 }

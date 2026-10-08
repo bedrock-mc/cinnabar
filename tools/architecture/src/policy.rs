@@ -18,6 +18,8 @@ pub(super) struct Policy {
     pub(super) crate_rules: Vec<CrateRule>,
     #[serde(default)]
     pub(super) markers: Vec<MarkerRule>,
+    #[serde(default)]
+    pub(super) module_boundaries: Vec<ModuleBoundary>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -47,6 +49,15 @@ pub(super) struct CrateRule {
     pub(super) allowed_dependencies: Vec<String>,
     #[serde(default)]
     pub(super) forbidden_dependencies: Vec<String>,
+    /// Reject every dependency, including external and development dependencies.
+    #[serde(default)]
+    pub(super) dependency_free: bool,
+    /// Reject these packages through local dependency paths, including this crate's tests.
+    #[serde(default)]
+    pub(super) forbidden_transitive_dependencies: Vec<String>,
+    /// Fixture features must stay off defaults and production dependency declarations.
+    #[serde(default)]
+    pub(super) test_support_features: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -64,4 +75,27 @@ pub(super) enum MarkerKind {
     LogOnly,
     HarnessOnly,
     EnvironmentVariable,
+}
+
+/// Production module paths and authoritative owned types forbidden at one boundary.
+#[derive(Debug, Deserialize)]
+pub(super) struct ModuleBoundary {
+    pub(super) path: String,
+    #[serde(default)]
+    pub(super) forbidden_modules: Vec<String>,
+    /// Root module names forbidden through crate-relative paths, including super paths.
+    #[serde(default)]
+    pub(super) forbidden_crate_modules: Vec<String>,
+    #[serde(default)]
+    pub(super) forbidden_owned_types: Vec<String>,
+    #[serde(default)]
+    pub(super) ownership_exceptions: Vec<OwnershipException>,
+}
+
+/// A named immutable presentation snapshot may own a copy of one specific type.
+#[derive(Debug, Deserialize)]
+pub(super) struct OwnershipException {
+    pub(super) path: String,
+    pub(super) owner: String,
+    pub(super) owned_type: String,
 }

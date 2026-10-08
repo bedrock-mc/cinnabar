@@ -1,6 +1,6 @@
 //! Shared production commit-to-input authority registrations.
 use super::*;
-use crate::runtime::world::drain_committed_ui_before_authority;
+use crate::runtime::world::{advance_dimension_transfer, drain_committed_ui_before_authority};
 
 pub(crate) fn configure_client_frame_schedule(app: &mut App) {
     app.configure_sets(
@@ -17,6 +17,7 @@ pub(crate) fn configure_client_frame_schedule(app: &mut App) {
             ClientFrameSet::ActorPreparation,
             ClientFrameSet::UiPreparation,
             ClientFrameSet::NetworkSend,
+            ClientFrameSet::ActorFinalization,
             ClientFrameSet::ActorPublication,
             ClientFrameSet::UiPublication,
         )
@@ -25,12 +26,12 @@ pub(crate) fn configure_client_frame_schedule(app: &mut App) {
 }
 
 pub(crate) fn configure_client_authority_systems(app: &mut App) {
-    app.add_message::<crate::runtime::audio::SequencedAudioEvent>()
+    app.add_plugins(client_presentation::ClientPresentationPlugin)
+        .add_message::<client_presentation::audio_ingress::SequencedAudioEvent>()
         .add_message::<bevy::input::mouse::MouseWheel>()
         .init_resource::<WorldStreamFramePoll>()
-        .init_resource::<crate::runtime::network::ActorFramePartialTick>()
-        .init_resource::<crate::runtime::network::PreparedActorPublication>()
-        .init_resource::<crate::ui_runtime::presentation::PreparedUiPublication>()
+        .init_resource::<client_ui::ui_runtime::presentation::PreparedUiPublication>()
+        .init_resource::<crate::ui_runtime::emotes::EmoteInputConsumed>()
         .add_systems(
             Update,
             (drive_gameplay_touch_targets, collect_raw_input)
@@ -44,28 +45,38 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
         .add_systems(
             Update,
             (
-                drive_sign_editor,
-                drive_server_form_input,
-                drive_chat_ui_actions,
+                crate::ui_runtime::scene_stack::close_scenes_on_player_hurt,
+                drive_sign_editor.run_if(crate::server_experiences::input::ordinary_input),
+                drive_server_form_input.run_if(crate::server_experiences::input::ordinary_input),
+                crate::ui_runtime::emotes::drive_emote_input,
+                drive_chat_ui_actions.run_if(crate::server_experiences::input::ordinary_input),
                 drain_inventory_authority,
-                drive_chat_keyboard_input,
+                drive_chat_keyboard_input.run_if(crate::server_experiences::input::ordinary_input),
                 crate::fullscreen::toggle_fullscreen_hotkey,
                 drive_menu_input,
                 crate::fullscreen::apply_runtime_fullscreen_setting,
                 crate::ui_runtime::presentation::apply_gui_scale_setting,
                 crate::menu::persist_video_settings,
-                drive_inventory_ui_actions,
-                drive_menu_connection,
+                drive_inventory_ui_actions.run_if(crate::server_experiences::input::ordinary_input),
+                drive_menu_services,
+                drive_session,
+                crate::settings_runtime::apply_window_settings,
+                crate::settings_runtime::apply_render_distance,
                 crate::store::drive_store,
                 synchronize_semantic_input_authority,
-                drive_world_inventory_keys,
+                drive_world_inventory_keys.run_if(crate::server_experiences::input::ordinary_input),
             )
                 .chain()
                 .in_set(ClientFrameSet::UiAuthority),
         )
         .add_systems(
             Update,
-            finalize_semantic_input_after_ui_authority.in_set(ClientFrameSet::SemanticFinalize),
+            (
+                finalize_semantic_input_after_ui_authority,
+                crate::ui_runtime::emotes::cancel_emote_from_gameplay,
+            )
+                .chain()
+                .in_set(ClientFrameSet::SemanticFinalize),
         )
         .add_systems(
             Update,
@@ -73,6 +84,13 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
                 .after(receive_network_events)
                 .before(drain_committed_ui_before_authority)
                 .before(ClientFrameSet::UiAuthority)
+                .before(ClientFrameSet::Physics),
+        )
+        .add_systems(
+            Update,
+            advance_dimension_transfer
+                .after(reconcile_world_stream_before_physics)
+                .after(ClientFrameSet::UiAuthority)
                 .before(ClientFrameSet::Physics),
         )
         .add_systems(

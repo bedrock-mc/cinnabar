@@ -6,7 +6,11 @@ import (
 	"errors"
 	"flag"
 	"io"
+	"log/slog"
+	"os"
 	"path/filepath"
+	"runtime"
+	"runtime/debug"
 	"strings"
 	"testing"
 	"time"
@@ -472,5 +476,94 @@ func assertTextInOrder(t *testing.T, text string, parts ...string) {
 			t.Fatalf("output missing %q after byte %d:\n%s", part, position, text)
 		}
 		position += next + len(part)
+	}
+}
+
+// Runtime limits apply by default and never override an explicit environment choice.
+func TestConfigureRuntimeRespectsEnvironmentOverrides(t *testing.T) {
+	procs, limit := runtime.GOMAXPROCS(0), debug.SetMemoryLimit(-1)
+	t.Cleanup(func() {
+		runtime.GOMAXPROCS(procs)
+		debug.SetMemoryLimit(limit)
+	})
+	configureRuntime(func(string) string { return "" })
+	if got, want := runtime.GOMAXPROCS(0), min(coreMaxProcs, runtime.NumCPU()); got != want {
+		t.Fatalf("GOMAXPROCS = %d, want %d", got, want)
+	}
+	if got := debug.SetMemoryLimit(-1); got != coreMemoryLimit {
+		t.Fatalf("memory limit = %d, want %d", got, coreMemoryLimit)
+	}
+	runtime.GOMAXPROCS(procs)
+	debug.SetMemoryLimit(limit)
+	configureRuntime(func(string) string { return "set" })
+	if runtime.GOMAXPROCS(0) != procs || debug.SetMemoryLimit(-1) != limit {
+		t.Fatal("explicit GOMAXPROCS/GOMEMLIMIT were overridden")
+	}
+}
+
+func TestMain(m *testing.M) {
+	startVerifierPreload = func(context.Context, *slog.Logger) func() { return func() {} }
+	keepAccountFresh = func(*authcache.Account, context.Context) {}
+	os.Exit(m.Run())
+}
+
+// The account-independent verifier warms at core start even with nobody signed in.
+func TestRunPreloadsVerifierSignedOut(t *testing.T) {
+	previous := startVerifierPreload
+	defer func() { startVerifierPreload = previous }()
+	var started, stopped int
+	startVerifierPreload = func(context.Context, *slog.Logger) func() {
+		started++
+		return func() { stopped++ }
+	}
+	err := run(context.Background(), []string{"-socket-dir", "run", "-upstream", "localhost:19132"}, io.Discard, io.Discard,
+		func(context.Context, authcache.Config) (oauth2.TokenSource, error) {
+			t.Fatal("signed-out core called the auth source")
+			return nil, nil
+		},
+		func(context.Context, proxy.Config) error {
+			if started != 1 {
+				t.Fatal("proxy started before the verifier preload")
+			}
+			return nil
+		})
+	if err != nil || started != 1 || stopped != 1 {
+		t.Fatalf("run err=%v preload started=%d stopped=%d", err, started, stopped)
+	}
+}
+
+// A signed-in core refreshes its service token for as long as the account is live.
+func TestRunSignedInKeepsTheAccountFresh(t *testing.T) {
+	previous := keepAccountFresh
+	defer func() { keepAccountFresh = previous }()
+	refreshing := make(chan *authcache.Account, 1)
+	keepAccountFresh = func(account *authcache.Account, ctx context.Context) {
+		refreshing <- account
+		for !account.Closed() && ctx.Err() == nil {
+			time.Sleep(time.Millisecond)
+		}
+	}
+	source := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "sentinel"})
+	err := run(context.Background(), []string{"-socket-dir", "run", "-upstream", "zeqa.net:19132", "-auth-cache", "token.json"}, io.Discard, io.Discard,
+		func(context.Context, authcache.Config) (oauth2.TokenSource, error) { return source, nil },
+		func(_ context.Context, cfg proxy.Config) error {
+			if account := <-refreshing; account != cfg.Account {
+				t.Fatal("refresher serves a different account than the proxy")
+			}
+			return nil
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A trust file without the control endpoint would silently skip the question, so it is refused.
+func TestServerTrustFileRequiresControlStatus(t *testing.T) {
+	if _, err := parseFlags([]string{"-server-trust-file", "trust.json"}, io.Discard); err == nil {
+		t.Fatal("server-trust-file without control-status was accepted")
+	}
+	opts, err := parseFlags([]string{"-control-status", "-server-trust-file", "trust.json"}, io.Discard)
+	if err != nil || opts.serverTrustFile != "trust.json" {
+		t.Fatalf("parseFlags = %+v, %v", opts.serverTrustFile, err)
 	}
 }

@@ -1,7 +1,7 @@
-pub(crate) mod actors;
-pub(crate) mod cape;
-pub(crate) mod entity_layers;
-pub(crate) mod equipment;
-pub(crate) mod skin_layers;
-pub(crate) mod skin_rig;
+//! App adapters for presentation observations.
+pub(crate) use client_presentation::presentation::equipment;
+#[cfg(test)]
+pub(crate) use client_presentation::presentation::{
+    actors, cape, entity_layers, skin_layers, skin_rig,
+};
 pub(crate) mod viewmodel;

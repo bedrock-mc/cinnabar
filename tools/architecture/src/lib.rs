@@ -7,6 +7,7 @@ use std::{
 mod completion_plan;
 mod dependencies;
 mod markers;
+mod modules;
 mod paths;
 mod policy;
 mod sources;
@@ -47,6 +48,7 @@ pub fn check_repository(root: &Path, policy_path: &Path) -> Result<Vec<String>, 
     check_artifacts(root, &policy, &files, &mut diagnostics);
     check_sources(root, &policy, &files, &mut diagnostics)?;
     check_dependencies(root, &policy, &mut diagnostics)?;
+    modules::check_modules(root, &policy, &files, &mut diagnostics)?;
     check_markers(root, &policy, &files, &mut diagnostics)?;
     diagnostics.sort();
     diagnostics.dedup();

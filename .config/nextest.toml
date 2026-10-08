@@ -1,0 +1,5 @@
+# Streaming tests that assert progress within a deadline run alone, so concurrent test processes
+# can't starve their workers.
+[[profile.default.overrides]]
+filter = 'package(chunk-pipeline) & test(/^stream::tests::(streaming_harness|light_scheduler::backlog)::/)'
+threads-required = "num-test-threads"

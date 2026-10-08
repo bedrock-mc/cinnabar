@@ -15,8 +15,16 @@ use sha2::{Digest, Sha256};
 
 use crate::AssetError;
 
+mod block;
+pub use block::{
+    BLOCK_ITEM_FACE_SIDE, BLOCK_ITEM_SHEET_GRID, BLOCK_ITEM_SHEET_SIZE, IconBlockSheet,
+    MAX_ICON_BLOCK_SHEETS, compose_block_item_sheet,
+};
+
 pub const ICON_CARRIER_MAGIC: [u8; 8] = *b"MCBEICO1";
 pub const ICON_CARRIER_VERSION: u32 = 1;
+const BLOCK_ICON_CARRIER_MAGIC: [u8; 8] = *b"MCBEICO2";
+const BLOCK_ICON_CARRIER_VERSION: u32 = 2;
 /// One sprite per compiled item visual at most.
 pub const MAX_ICON_SPRITES: usize = crate::item::MAX_ITEM_VISUALS;
 /// One entry per item visual plus one per alias at most.
@@ -51,6 +59,7 @@ pub struct RuntimeIconCatalog {
     source_manifest_sha256: [u8; 32],
     sprites: Arc<[IconSprite]>,
     entries: Arc<[IconEntry]>,
+    block_sheets: Arc<[IconBlockSheet]>,
 }
 
 impl std::fmt::Debug for RuntimeIconCatalog {
@@ -59,6 +68,7 @@ impl std::fmt::Debug for RuntimeIconCatalog {
             .debug_struct("RuntimeIconCatalog")
             .field("sprites", &self.sprites.len())
             .field("entries", &self.entries.len())
+            .field("block_sheets", &self.block_sheets.len())
             .finish_non_exhaustive()
     }
 }
@@ -68,15 +78,20 @@ impl RuntimeIconCatalog {
         if bytes.len() > MAX_ICON_CARRIER_BYTES {
             return Err(invalid("icon carrier exceeds bound"));
         }
-        if bytes.len() < HEADER_BYTES + HASH_BYTES
-            || bytes[..8] != ICON_CARRIER_MAGIC
-            || read_u32(bytes, 8)? != ICON_CARRIER_VERSION
+        if bytes.len() < HEADER_BYTES + HASH_BYTES {
+            return Err(invalid("unsupported icon carrier header"));
+        }
+        let carried = bytes[..8] == BLOCK_ICON_CARRIER_MAGIC
+            && read_u32(bytes, 8)? == BLOCK_ICON_CARRIER_VERSION;
+        if !carried
+            && (bytes[..8] != ICON_CARRIER_MAGIC || read_u32(bytes, 8)? != ICON_CARRIER_VERSION)
         {
             return Err(invalid("unsupported icon carrier header"));
         }
         let sprite_count = read_u32(bytes, 12)? as usize;
         let entry_count = read_u32(bytes, 16)? as usize;
-        if read_u32(bytes, 20)? != 0 {
+        let block_sheet_count = read_u32(bytes, 20)? as usize;
+        if !carried && block_sheet_count != 0 {
             return Err(invalid("noncanonical icon carrier padding"));
         }
         let source_manifest_sha256 = read_array::<32>(bytes, 24)?;
@@ -84,6 +99,7 @@ impl RuntimeIconCatalog {
             .map_err(|_| invalid("icon carrier payload exceeds platform"))?;
         if sprite_count > MAX_ICON_SPRITES
             || entry_count > MAX_ICON_ENTRIES
+            || block_sheet_count > MAX_ICON_BLOCK_SHEETS
             || payload_end < HEADER_BYTES
             || bytes.len()
                 != payload_end
@@ -154,6 +170,15 @@ impl RuntimeIconCatalog {
                 sprite,
             });
         }
+        let mut block_sheets = Vec::with_capacity(block_sheet_count);
+        for _ in 0..block_sheet_count {
+            block_sheets.push(IconBlockSheet {
+                visual: crate::BlockVisualId(read_u32(bytes, cursor)?),
+                sprite: read_u32(bytes, cursor + 4)?,
+            });
+            cursor += 8;
+        }
+        block::validate(&block_sheets, &sprites)?;
         if cursor != payload_end {
             return Err(invalid("trailing icon carrier payload"));
         }
@@ -161,6 +186,7 @@ impl RuntimeIconCatalog {
             source_manifest_sha256,
             sprites: sprites.into(),
             entries: entries.into(),
+            block_sheets: block_sheets.into(),
         })
     }
 
@@ -177,6 +203,12 @@ impl RuntimeIconCatalog {
     #[must_use]
     pub fn entries(&self) -> &[IconEntry] {
         &self.entries
+    }
+
+    /// Native carried faces, already resolved from the pack's item-specific texture colors.
+    #[must_use]
+    pub fn block_sheets(&self) -> &[IconBlockSheet] {
+        &self.block_sheets
     }
 
     /// The sprite for one `(identifier, metadata)` item-visual key, falling
@@ -216,9 +248,21 @@ pub fn encode_icon_catalog(
     sprites: &[IconSprite],
     entries: &[IconEntry],
 ) -> Result<Vec<u8>, AssetError> {
+    encode_icon_catalog_with_block_sheets(source_manifest_sha256, sprites, entries, &[])
+}
+
+/// Extends the provenance-pinned sprite pool with held-block face-sheet bindings.
+/// An empty binding table retains the legacy sprite-only carrier layout.
+pub fn encode_icon_catalog_with_block_sheets(
+    source_manifest_sha256: [u8; 32],
+    sprites: &[IconSprite],
+    entries: &[IconEntry],
+    block_sheets: &[IconBlockSheet],
+) -> Result<Vec<u8>, AssetError> {
     if sprites.len() > MAX_ICON_SPRITES || entries.len() > MAX_ICON_ENTRIES {
         return Err(invalid("icon sprite or entry count exceeds bound"));
     }
+    block::validate(block_sheets, sprites)?;
     let mut payload = Vec::new();
     for sprite in sprites {
         if sprite.width == 0
@@ -229,9 +273,27 @@ pub fn encode_icon_catalog(
         {
             return Err(invalid("icon sprite dimensions or pixels exceed bounds"));
         }
-        payload.extend_from_slice(&sprite.width.to_le_bytes());
-        payload.extend_from_slice(&sprite.height.to_le_bytes());
-        payload.extend_from_slice(&sprite.rgba8);
+        crate::encoding::append_bounded(
+            &mut payload,
+            &sprite.width.to_le_bytes(),
+            MAX_ICON_CARRIER_BYTES,
+            HEADER_BYTES + HASH_BYTES,
+        )
+        .ok_or_else(|| invalid("icon carrier exceeds bound"))?;
+        crate::encoding::append_bounded(
+            &mut payload,
+            &sprite.height.to_le_bytes(),
+            MAX_ICON_CARRIER_BYTES,
+            HEADER_BYTES + HASH_BYTES,
+        )
+        .ok_or_else(|| invalid("icon carrier exceeds bound"))?;
+        crate::encoding::append_bounded(
+            &mut payload,
+            &sprite.rgba8,
+            MAX_ICON_CARRIER_BYTES,
+            HEADER_BYTES + HASH_BYTES,
+        )
+        .ok_or_else(|| invalid("icon carrier exceeds bound"))?;
     }
     let mut previous: Option<(&str, u32)> = None;
     for entry in entries {
@@ -245,21 +307,67 @@ pub fn encode_icon_catalog(
         {
             return Err(invalid("icon entries are not strictly sorted"));
         }
-        payload.extend_from_slice(&(entry.identifier.len() as u16).to_le_bytes());
-        payload.extend_from_slice(entry.identifier.as_bytes());
-        payload.extend_from_slice(&entry.metadata.to_le_bytes());
-        payload.extend_from_slice(&entry.sprite.to_le_bytes());
+        crate::encoding::append_bounded(
+            &mut payload,
+            &(entry.identifier.len() as u16).to_le_bytes(),
+            MAX_ICON_CARRIER_BYTES,
+            HEADER_BYTES + HASH_BYTES,
+        )
+        .ok_or_else(|| invalid("icon carrier exceeds bound"))?;
+        crate::encoding::append_bounded(
+            &mut payload,
+            entry.identifier.as_bytes(),
+            MAX_ICON_CARRIER_BYTES,
+            HEADER_BYTES + HASH_BYTES,
+        )
+        .ok_or_else(|| invalid("icon carrier exceeds bound"))?;
+        crate::encoding::append_bounded(
+            &mut payload,
+            &entry.metadata.to_le_bytes(),
+            MAX_ICON_CARRIER_BYTES,
+            HEADER_BYTES + HASH_BYTES,
+        )
+        .ok_or_else(|| invalid("icon carrier exceeds bound"))?;
+        crate::encoding::append_bounded(
+            &mut payload,
+            &entry.sprite.to_le_bytes(),
+            MAX_ICON_CARRIER_BYTES,
+            HEADER_BYTES + HASH_BYTES,
+        )
+        .ok_or_else(|| invalid("icon carrier exceeds bound"))?;
         previous = Some((entry.identifier.as_ref(), entry.metadata));
+    }
+    for sheet in block_sheets {
+        crate::encoding::append_bounded(
+            &mut payload,
+            &sheet.visual.0.to_le_bytes(),
+            MAX_ICON_CARRIER_BYTES,
+            HEADER_BYTES + HASH_BYTES,
+        )
+        .ok_or_else(|| invalid("icon carrier exceeds bound"))?;
+        crate::encoding::append_bounded(
+            &mut payload,
+            &sheet.sprite.to_le_bytes(),
+            MAX_ICON_CARRIER_BYTES,
+            HEADER_BYTES + HASH_BYTES,
+        )
+        .ok_or_else(|| invalid("icon carrier exceeds bound"))?;
     }
     let payload_end = HEADER_BYTES
         .checked_add(payload.len())
         .filter(|end| end + HASH_BYTES <= MAX_ICON_CARRIER_BYTES)
         .ok_or_else(|| invalid("icon carrier exceeds bound"))?;
     let mut bytes = vec![0u8; HEADER_BYTES];
-    bytes[..8].copy_from_slice(&ICON_CARRIER_MAGIC);
-    bytes[8..12].copy_from_slice(&ICON_CARRIER_VERSION.to_le_bytes());
+    let (magic, version) = if block_sheets.is_empty() {
+        (ICON_CARRIER_MAGIC, ICON_CARRIER_VERSION)
+    } else {
+        (BLOCK_ICON_CARRIER_MAGIC, BLOCK_ICON_CARRIER_VERSION)
+    };
+    bytes[..8].copy_from_slice(&magic);
+    bytes[8..12].copy_from_slice(&version.to_le_bytes());
     bytes[12..16].copy_from_slice(&(sprites.len() as u32).to_le_bytes());
     bytes[16..20].copy_from_slice(&(entries.len() as u32).to_le_bytes());
+    bytes[20..24].copy_from_slice(&(block_sheets.len() as u32).to_le_bytes());
     bytes[24..56].copy_from_slice(&source_manifest_sha256);
     bytes[56..64].copy_from_slice(&(payload_end as u64).to_le_bytes());
     bytes.extend_from_slice(&payload);

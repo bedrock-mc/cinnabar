@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"time"
 
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
 	"github.com/sandertv/gophertunnel/minecraft/auth"
@@ -18,7 +19,10 @@ import (
 
 const maxEventBytes = 4096
 
-var errDeviceAuthorization = errors.New("device authorization failed")
+var (
+	errDeviceAuthorization = errors.New("device authorization failed")
+	errDeviceCodeExpired   = errors.New("device code expired")
+)
 
 // Config supplies the cache and injectable authentication operations.
 type Config struct {
@@ -28,7 +32,12 @@ type Config struct {
 	DeviceToken  func(context.Context, *oauth2.DeviceAuthResponse) (*oauth2.Token, error)
 	Refresh      func(*oauth2.Token, io.Writer) oauth2.TokenSource
 	CachedSource func(context.Context, authcache.Config) (oauth2.TokenSource, error)
+	// CompleteSignIn caches what a join needs beyond the OAuth token; nil skips it.
+	CompleteSignIn func(ctx context.Context, path string, source oauth2.TokenSource) error
 }
+
+// completeSignInTimeout bounds the service exchange; a failure leaves it to the first join.
+const completeSignInTimeout = 30 * time.Second
 
 type event struct {
 	Version         int    `json:"v"`
@@ -53,36 +62,20 @@ func Run(ctx context.Context, config Config) error {
 	if err := emit(writer, event{Version: 1, Kind: "checking_cache"}); err != nil {
 		return err
 	}
-	deviceAuth := config.DeviceAuth
-	if deviceAuth == nil {
-		deviceAuth = auth.AndroidConfig.DeviceAuth
-	}
-	deviceToken := config.DeviceToken
-	if deviceToken == nil {
-		deviceToken = auth.AndroidConfig.DeviceAccessToken
-	}
 	refresh := config.Refresh
 	if refresh == nil {
 		refresh = auth.AndroidConfig.RefreshTokenSourceWriter
 	}
 	acquired := false
 	request := func(ctx context.Context, _ io.Writer) (*oauth2.Token, error) {
-		response, err := deviceAuth(ctx)
+		token, err := (DeviceFlow{Authorize: config.DeviceAuth, Token: config.DeviceToken}).Request(ctx, func(response *oauth2.DeviceAuthResponse) error {
+			return emit(writer, event{
+				Version: 1, Kind: "device_code", VerificationURI: response.VerificationURI,
+				UserCode: response.UserCode,
+			})
+		})
 		if err != nil {
-			return nil, fmt.Errorf("%w: start", errDeviceAuthorization)
-		}
-		if err := validatePrompt(response); err != nil {
-			return nil, fmt.Errorf("%w: invalid prompt", errDeviceAuthorization)
-		}
-		if err := emit(writer, event{
-			Version: 1, Kind: "device_code", VerificationURI: response.VerificationURI,
-			UserCode: response.UserCode,
-		}); err != nil {
-			return nil, fmt.Errorf("%w: publish prompt", errDeviceAuthorization)
-		}
-		token, err := deviceToken(ctx, response)
-		if err != nil {
-			return nil, fmt.Errorf("%w: complete", errDeviceAuthorization)
+			return nil, err
 		}
 		acquired = true
 		return token, nil
@@ -91,7 +84,7 @@ func Run(ctx context.Context, config Config) error {
 	if source == nil {
 		source = authcache.Source
 	}
-	_, err := source(ctx, authcache.Config{
+	signedIn, err := source(ctx, authcache.Config{
 		Path: config.Path, Writer: io.Discard, Request: request, Refresh: refresh,
 	})
 	if err != nil {
@@ -101,6 +94,10 @@ func Run(ctx context.Context, config Config) error {
 			stage = "device_code"
 			message = "Microsoft sign-in did not complete. Try again."
 		}
+		if errors.Is(err, errDeviceCodeExpired) {
+			stage = "device_code"
+			message = "Your sign-in code expired. Try again."
+		}
 		if errors.Is(ctx.Err(), context.Canceled) {
 			stage, message = "cancelled", "Sign-in was cancelled."
 		}
@@ -109,6 +106,15 @@ func Run(ctx context.Context, config Config) error {
 	method := "cached"
 	if acquired {
 		method = "device_code"
+	}
+	if config.CompleteSignIn != nil {
+		exchange, cancel := context.WithTimeout(ctx, completeSignInTimeout)
+		_ = config.CompleteSignIn(exchange, config.Path, signedIn)
+		cancel()
+		// A completion failure leaves the exchange to the first join; a cancelled sign-in is not success.
+		if ctx.Err() != nil {
+			return fail(writer, "cancelled", "Sign-in was cancelled.")
+		}
 	}
 	return emit(writer, event{Version: 1, Kind: "authenticated", Method: method})
 }

@@ -1,8 +1,9 @@
 //! Bounded adapters for canonical actor-animation persona layer snapshots.
-use actor_animation::SkinRenderLayer;
+use client_world::SkinRenderLayer;
+use render_model::{EntityRigId, RenderBoneTransform, equipment::EquipmentRaster};
 use render::{
     ActorArtworkLocation, ActorArtworkPages, ActorRenderIdentity, ActorRenderScene,
-    ActorRigSubmission, EntityRigId, EquipmentRaster, RenderBoneTransform,
+    ActorRigSubmission,
 };
 use std::{
     collections::{BTreeMap, HashMap},
@@ -68,17 +69,16 @@ impl PersonaLayers {
                     if self.rigs.len() >= 192 {
                         continue;
                     }
-                    let rig = render::skin_rig_id(1024 + self.rigs.len() as u32);
-                    let Ok(geometry) = render::skin_geometry(&layer.geometry, rig) else {
-                        continue;
-                    };
+                    let rig = render_model::skin_rig_id(1024 + self.rigs.len() as u32);
+                    let Some(mut geometry) = layer.mesh.clone() else { continue; };
+                    geometry.id = rig;
                     if scene.insert_geometry(geometry).is_err() {
                         continue;
                     }
                     self.rigs.insert(layer.geometry.digest, rig);
                     rig
                 };
-                let convert=|bones:&[actor_animation::BoneTransform]|->Option<Arc<[RenderBoneTransform]>> {
+                let convert=|bones:&[client_world::BoneTransform]|->Option<Arc<[RenderBoneTransform]>> {
     let mut result=bones.iter().map(|b|RenderBoneTransform::from_model_space_scaled(b.rotation,b.translation_scale,b.axis_scale)).collect::<Option<Vec<_>>>()?;
     for &i in layer.hidden_bones.iter() {if let Some(b)=result.get_mut(i as usize){b.translation_scale=[0.0;4];}}
     Some(result.into())
@@ -90,7 +90,7 @@ impl PersonaLayers {
                 };
                 let mut submission = body.clone();
                 submission.input.identity.layer =
-                    render::cape::ACTOR_LAYER_CAPE + 1 + layer.image.kind.slot() as u8;
+                    view_presentation::cape::ACTOR_LAYER_CAPE + 1 + layer.image.kind.slot() as u8;
                 submission.input.rig = rig;
                 submission.input.previous_bones = previous;
                 submission.input.current_bones = current;

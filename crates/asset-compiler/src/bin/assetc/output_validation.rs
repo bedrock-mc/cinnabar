@@ -10,8 +10,8 @@ pub(super) fn validate_output_bundle(blob: &Path, report: &Path) -> Result<(), A
     let normalized_report = normalized_absolute(report)?;
     if paths_alias(&normalized_blob, &normalized_report)
         || paths_alias(
-            &canonicalized_location(&normalized_blob)?,
-            &canonicalized_location(&normalized_report)?,
+            &canonicalized_location(&absolute_path(blob)?)?,
+            &canonicalized_location(&absolute_path(report)?)?,
         )
     {
         return Err(output_alias_error(blob));
@@ -64,8 +64,9 @@ fn output_alias_error(path: &Path) -> AssetError {
     }
 }
 
-fn normalized_absolute(path: &Path) -> Result<PathBuf, AssetError> {
-    let absolute = if path.is_absolute() {
+/// Makes a path absolute without changing filesystem traversal semantics.
+fn absolute_path(path: &Path) -> Result<PathBuf, AssetError> {
+    Ok(if path.is_absolute() {
         path.to_path_buf()
     } else {
         std::env::current_dir()
@@ -74,7 +75,12 @@ fn normalized_absolute(path: &Path) -> Result<PathBuf, AssetError> {
                 source,
             })?
             .join(path)
-    };
+    })
+}
+
+/// Normalizes lexical aliases as an additional conservative comparison.
+fn normalized_absolute(path: &Path) -> Result<PathBuf, AssetError> {
+    let absolute = absolute_path(path)?;
     let mut normalized = PathBuf::new();
     for component in absolute.components() {
         match component {
@@ -139,4 +145,18 @@ fn paths_alias(left: &Path, right: &Path) -> bool {
     left.to_string_lossy()
         .to_lowercase()
         .eq(&right.to_string_lossy().to_lowercase())
+}
+
+#[cfg(all(test, unix))]
+mod review_tests {
+    use super::*;
+    #[test]
+    fn review_absent_destinations_resolve_symlinks_before_parent_traversal() {
+        let root = tempfile::tempdir().unwrap();
+        let real = root.path().join("real");
+        fs::create_dir_all(real.join("child")).unwrap();
+        let link = root.path().join("alias");
+        std::os::unix::fs::symlink(real.join("child"), &link).unwrap();
+        assert!(validate_output_bundle(&real.join("bundle"), &link.join("../bundle")).is_err());
+    }
 }

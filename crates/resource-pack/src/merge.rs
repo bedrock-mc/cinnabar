@@ -21,7 +21,7 @@ fn fold(merged: &mut Map<String, Value>, object: Map<String, Value>) {
             continue;
         }
         if merged.len() >= MAX_MERGED_ENTRIES && !merged.contains_key(&key) {
-            break;
+            continue;
         }
         merged.insert(key, value);
     }
@@ -174,5 +174,21 @@ mod tests {
         let names: Vec<_> = files.iter().map(|(name, _)| name.as_str()).collect();
         assert_eq!(names, ["ui/a.json", "ui/b.json"]);
         assert_eq!(&*files[0].1, b"{\"t\":1}");
+    }
+}
+
+#[cfg(test)]
+mod review_tests {
+    use super::*;
+    #[test]
+    fn review_full_maps_still_accept_higher_layer_replacements() {
+        let mut merged: Map<String, Value> = (0..MAX_MERGED_ENTRIES - 1)
+            .map(|i| (format!("key{i}"), Value::Null))
+            .collect();
+        merged.insert("z".into(), Value::from("old"));
+        let object = serde_json::from_str(r#"{"a_new":0,"z":"new"}"#).unwrap();
+        fold(&mut merged, object);
+        assert_eq!(merged["z"], "new");
+        assert_eq!(merged.len(), MAX_MERGED_ENTRIES);
     }
 }

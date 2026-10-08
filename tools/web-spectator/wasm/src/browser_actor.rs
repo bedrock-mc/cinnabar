@@ -2,38 +2,41 @@
 //! Geometry, skin normalization, armor UVs and artwork pages retain native owners.
 
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::BTreeMap,
     sync::Arc,
 };
 
 use assets::{EquipmentCategory, RuntimeEntityAssets, RuntimeEquipmentCatalog, RuntimeIconCatalog};
-use bevy::math::{Mat4, Vec3};
+use bevy::math::Mat4;
 use render::{
-    ActorArtworkLocation, ActorArtworkPages, ActorRenderFrame, ActorRenderIdentity,
-    ActorRenderScene, ActorRigFrameBuilder, ActorRigGeometry, ActorRigRenderInput, ActorRigRoute,
-    ActorRigSubmission, ActorSkinPixels, EntityRigId, EquipmentRaster, HandItemAtlas, HandRigLight,
+    ActorArtworkLocation, ActorArtworkPages, ActorRenderIdentity,
+    ActorRenderScene, ActorRigFrameBuilder, ActorRigRenderInput, ActorRigRoute,
+    ActorRigSubmission, HandItemAtlas, HandRigLight,
     HandRigScene,
 };
 use sha2::{Digest, Sha256};
+use render_api::SkinRgba8;
+use render_model::{ActorRigGeometry, ActorSkinPixels, EntityRigId, equipment::EquipmentRaster};
 
-use super::browser_model::{Fighter, Frame, Item};
-use render::equipment_display::{self, FirstPersonArms, FirstPersonShape};
-use render::equipment_sprite_atlas::{Placement, SpriteAtlas};
+use super::browser_model::{Fighter, Item};
+use view_presentation::equipment_display::{self, FirstPersonArms, FirstPersonShape};
+use view_presentation::equipment_sprite_atlas::{Placement, SpriteAtlas};
 
 mod animation;
 mod persona;
+mod update;
 use animation::NativeAnimator;
 
 const MAX_BROWSER_SKINS: usize = 64;
 
 struct Skin {
-    pixels: Arc<[u8]>,
+    pixels: SkinRgba8,
     slim: bool,
 }
 struct Rig {
     id: EntityRigId,
     names: Vec<Box<str>>,
-    source: Arc<render_data::SkinGeometrySource>,
+    source: Arc<protocol::SkinGeometrySource>,
     geometry: ActorRigGeometry,
     bounds: assets::SkinGeometryBounds,
 }
@@ -49,10 +52,10 @@ pub(super) struct BrowserActors {
     skins: BTreeMap<String, Skin>,
     custom: BTreeMap<String, Rig>,
     next_custom: u32,
-    cape_rig: Option<render::cape::CapeRig>,
-    capes: BTreeMap<String, Arc<[u8]>>,
+    cape_rig: Option<view_presentation::cape::CapeRig>,
+    capes: BTreeMap<String, SkinRgba8>,
     skin_keys: Vec<String>,
-    skin_pixels: Arc<[u8]>,
+    render_skins: Vec<SkinRgba8>,
     generation: u64,
     icons: RuntimeIconCatalog,
     placements: Vec<Option<Placement>>,
@@ -86,7 +89,7 @@ impl BrowserActors {
         }
         let mut scene = ActorRenderScene::with_runtime_entity_assets(&entities)
             .map_err(|e| format!("compiled actor geometry: {e:?}"))?;
-        let cape_rig = render::cape::CapeRig::resolve(&entities);
+        let cape_rig = view_presentation::cape::CapeRig::resolve(&entities);
         if let Some(rig) = &cape_rig {
             scene
                 .insert_geometry(rig.geometry.clone())
@@ -96,15 +99,15 @@ impl BrowserActors {
             &mut scene,
             &entities,
             "geometry.humanoid.custom",
-            render::skin_rig_id(0),
+            render_model::skin_rig_id(0),
         )?;
-        let slim = render::find_geometry_index(&entities, "geometry.humanoid.customSlim")
+        let slim = render_model::find_geometry_index(&entities, "geometry.humanoid.customSlim")
             .map(|_| {
                 register_rig(
                     &mut scene,
                     &entities,
                     "geometry.humanoid.customSlim",
-                    render::skin_rig_id(1),
+                    render_model::skin_rig_id(1),
                 )
             })
             .transpose()?;
@@ -115,7 +118,7 @@ impl BrowserActors {
             {
                 continue;
             }
-            let Some(index) = render::find_geometry_index(&entities, &binding.geometry.identifier)
+            let Some(index) = render_model::find_geometry_index(&entities, &binding.geometry.identifier)
             else {
                 continue;
             };
@@ -123,11 +126,11 @@ impl BrowserActors {
                 &mut scene,
                 &entities,
                 &binding.geometry.identifier,
-                render::equipment_rig_id(index),
+                render_model::equipment_rig_id(index),
             )?;
             armor.insert(binding.geometry.identifier.to_string(), rig);
         }
-        let catalog = assets::RuntimeActorCatalog::decode(actor_bytes, entity_bytes)
+        let catalog = assets::RuntimeActorCatalog::decode(actor_bytes, &entities)
             .map_err(|error| error.to_string())?;
         let mut world_entities = BTreeMap::new();
         for binding in catalog.bindings() {
@@ -144,7 +147,7 @@ impl BrowserActors {
                 &mut scene,
                 &entities,
                 &geometry.identifier,
-                render::pack_rig_id(binding.geometry_candidate),
+                render_model::pack_rig_id(binding.geometry_candidate),
             )?;
             world_entities.insert(symbol.identifier.to_string(), rig);
         }
@@ -188,7 +191,7 @@ impl BrowserActors {
             cape_rig,
             capes: BTreeMap::new(),
             skin_keys: Vec::new(),
-            skin_pixels: Arc::from([]),
+            render_skins: Vec::new(),
             generation: 0,
             icons,
             placements: atlas.placements,
@@ -215,7 +218,7 @@ impl BrowserActors {
         if slim && self.slim.is_none() {
             return Err("compiled slim player geometry is missing".into());
         }
-        let pixels = render::normalize_actor_skin(&ActorSkinPixels {
+        let pixels = render_model::normalize_actor_skin(&ActorSkinPixels {
             width,
             height,
             rgba8: rgba8.into(),
@@ -253,11 +256,11 @@ impl BrowserActors {
                 return Err("canonical cape geometry unavailable".into());
             }
             let pixels =
-                render::cape::cape_layer(width, height, &pixels).ok_or("invalid cape raster")?;
+                view_presentation::cape::cape_layer(width, height, &pixels).ok_or("invalid cape raster")?;
             if self.capes.len() >= MAX_BROWSER_SKINS && !self.capes.contains_key(id) {
                 return Err("cape cache is full".into());
             }
-            self.capes.insert(id.into(), pixels);
+            self.capes.insert(id.into(), SkinRgba8::new(pixels));
         }
         self.skin_keys.clear();
         Ok(())
@@ -266,7 +269,7 @@ impl BrowserActors {
     pub(super) fn set_animation(
         &mut self,
         id: &str,
-        image: render_data::SkinAnimation,
+        image: protocol::SkinAnimation,
     ) -> Result<(), String> {
         let rig = self
             .custom
@@ -278,7 +281,7 @@ impl BrowserActors {
         if animations.len() > 3 {
             return Err("too many persona layers".into());
         }
-        rig.source = Arc::new(render_data::SkinGeometrySource {
+        rig.source = Arc::new(protocol::SkinGeometrySource {
             resource_patch: Arc::clone(&rig.source.resource_patch),
             geometry_data: Arc::clone(&rig.source.geometry_data),
             animations: animations.into(),
@@ -305,15 +308,15 @@ impl BrowserActors {
                 return Err("custom geometry cache is full".into());
             }
             {
-                let id = render::skin_rig_id(self.next_custom);
+                let id = render_model::skin_rig_id(self.next_custom);
                 self.next_custom += 1;
                 id
             }
         };
         let geometry =
-            render::skin_geometry(&model, index).map_err(|e| format!("skin rig: {e:?}"))?;
+            render_model::skin_geometry(&model, index).map_err(|e| format!("skin rig: {e:?}"))?;
         let names = model.bones.iter().map(|bone| bone.name.clone()).collect();
-        let source = Arc::new(render_data::SkinGeometrySource {
+        let source = Arc::new(protocol::SkinGeometrySource {
             resource_patch: Arc::from(patch),
             geometry_data: Arc::from(data),
             animations: Arc::from([]),
@@ -335,305 +338,6 @@ impl BrowserActors {
         Ok(())
     }
 
-    pub(super) fn update(
-        &mut self,
-        current: &Frame,
-        previous: Option<&Frame>,
-        partial_tick: f32,
-        hidden_player: Option<&str>,
-        view_rotation: [f32; 2],
-        view_position: [f32; 3],
-    ) -> ActorRenderFrame {
-        self.generation = self.generation.wrapping_add(1).max(1);
-        let fraction = if partial_tick.is_finite() {
-            partial_tick.clamp(0.0, 1.0)
-        } else {
-            1.0
-        };
-        let classic = Arc::clone(&self.classic.source);
-        let slim_source = self.slim.as_ref().map(|rig| Arc::clone(&rig.source));
-        let skins = &self.skins;
-        let custom = &self.custom;
-        self.animator.advance(
-            current,
-            previous,
-            fraction,
-            animation::AnimationView {
-                hidden_player,
-                rotation: view_rotation,
-                position: view_position,
-            },
-            &self.equipment,
-            |id| {
-                skins.get(id).map(|skin| {
-                    if let Some(rig) = custom.get(id) {
-                        return Arc::clone(&rig.source);
-                    }
-                    if skin.slim {
-                        slim_source.as_ref().unwrap_or(&classic).clone()
-                    } else {
-                        classic.clone()
-                    }
-                })
-            },
-        );
-        let animation_fraction = self.animator.partial_tick();
-        let visible = current
-            .fighters
-            .iter()
-            .filter(|fighter| !fighter.dead && hidden_player != Some(fighter.id.as_str()))
-            .filter_map(|fighter| {
-                let key = fighter.id.as_str();
-                self.skins
-                    .get(key)
-                    .map(|skin| (fighter, key.to_owned(), skin.slim))
-            })
-            .collect::<Vec<_>>();
-        let keys = visible
-            .iter()
-            .map(|(_, key, _)| key.clone())
-            .collect::<Vec<_>>();
-        if self.skin_keys != keys {
-            let mut pixels = Vec::new();
-            for key in &keys {
-                pixels.extend_from_slice(&self.skins[key].pixels);
-            }
-            for key in &keys {
-                if let Some(cape) = self.capes.get(key) {
-                    pixels.extend_from_slice(cape);
-                }
-            }
-            self.skin_pixels = pixels.into();
-            self.skin_keys = keys.clone();
-        }
-        let mut submissions = Vec::new();
-        let mut persona_selections = Vec::new();
-        let mut assignments = HashMap::new();
-        for (layer, (fighter, _, slim)) in visible.iter().enumerate() {
-            let rig = if let Some(rig) = self.custom.get(&fighter.id) {
-                rig
-            } else if *slim {
-                self.slim.as_ref().unwrap_or(&self.classic)
-            } else {
-                &self.classic
-            };
-            let old = previous
-                .and_then(|frame| {
-                    frame
-                        .fighters
-                        .iter()
-                        .find(|old| old.id == fighter.id && old.dead == fighter.dead)
-                })
-                .unwrap_or(fighter);
-            let Some(animated) = self.animator.pose(&fighter.id, rig.id, &rig.names) else {
-                continue;
-            };
-            let previous_bones = animated.previous;
-            let current_bones = animated.current;
-            let identity = ActorRenderIdentity {
-                session_id: hash_id(&current.id),
-                dimension: 0,
-                runtime_id: hash_id(&fighter.id),
-                spawn_revision: 1,
-                ingress_sequence: self.generation,
-                source_tick: Some(self.generation),
-                movement_revision: self.generation,
-                pose_generation: animated.completed_tick,
-                layer: render::ACTOR_LAYER_BODY,
-            };
-            let yaw_delta =
-                (animated.body_yaw - animated.previous_body_yaw + 180.0).rem_euclid(360.0) - 180.0;
-            let position =
-                Vec3::from_array(old.position).lerp(Vec3::from_array(fighter.position), fraction);
-            let body = ActorRigSubmission {
-                culling_bounds: rig.bounds,
-                input: ActorRigRenderInput {
-                    identity,
-                    rig: rig.id,
-                    previous_bones,
-                    current_bones,
-                    completed_tick: animated.completed_tick,
-                    reset_generation: animated.reset_generation,
-                },
-                world_from_actor: equipment_display::rig_world_from_actor(
-                    position.to_array(),
-                    animated.previous_body_yaw + yaw_delta * animation_fraction,
-                    animated.scale,
-                ),
-                texture_layer: layer as u32,
-                route: ActorRigRoute::Compiled,
-                tint: 0,
-                overlay_rgba8: animated.overlay,
-                uv_anim: render::IDENTITY_UV_ANIM,
-                light: render::pack_actor_light(0, 15),
-            };
-            if let Some(equipment) = &fighter.equipment {
-                for (slot, item) in equipment.armour.iter().enumerate() {
-                    let Some(item) = item else {
-                        continue;
-                    };
-                    let Some(binding) = self.equipment.binding(&item.name) else {
-                        continue;
-                    };
-                    let Some(armor) = self.armor.get(binding.geometry.identifier.as_ref()) else {
-                        continue;
-                    };
-                    let Some(location) = self
-                        .textures
-                        .get(binding.texture.identifier.as_ref())
-                        .copied()
-                    else {
-                        continue;
-                    };
-                    let map = render::armor_bone_map(&armor.names, &rig.names);
-                    let mut armor_body = body.clone();
-                    armor_body.input.identity.layer = equipment_display::LAYER_HELMET + slot as u8;
-                    armor_body.input.rig = armor.id;
-                    armor_body.input.previous_bones =
-                        render::armor_remap_pose(&map, &body.input.previous_bones).into();
-                    armor_body.input.current_bones =
-                        render::armor_remap_pose(&map, &body.input.current_bones).into();
-                    armor_body.texture_layer = location.layer();
-                    armor_body.tint = if binding.material.contains("leather") {
-                        render::pack_armor_tint(
-                            item.color
-                                .as_deref()
-                                .and_then(parse_rgb)
-                                .unwrap_or(render::DEFAULT_LEATHER_RGB),
-                        )
-                    } else {
-                        0
-                    };
-                    assignments.insert(armor_body.input.identity, location);
-                    submissions.push(armor_body);
-                }
-            }
-            if let (Some(cape), Some(_pixels)) = (&self.cape_rig, self.capes.get(&fighter.id)) {
-                let offset = keys[..layer]
-                    .iter()
-                    .filter(|key| self.capes.contains_key(*key))
-                    .count();
-                let mut submission = body.clone();
-                submission.input.identity.layer = render::cape::ACTOR_LAYER_CAPE;
-                submission.input.rig = cape.id;
-                submission.input.previous_bones =
-                    render::cape::cape_pose(cape, &rig.names, &body.input.previous_bones);
-                submission.input.current_bones =
-                    render::cape::cape_pose(cape, &rig.names, &body.input.current_bones);
-                submission.texture_layer = (keys.len() + offset) as u32;
-                submission.tint = 0;
-                submission.overlay_rgba8 = 0;
-                submissions.push(submission);
-            }
-            let hand_bones = ["rightItem", "leftItem"].map(|name| {
-                rig.names
-                    .iter()
-                    .position(|bone| bone.eq_ignore_ascii_case(name))
-            });
-            if let Some(equipment) = &fighter.equipment {
-                for (hand, item) in [&equipment.main_hand, &equipment.off_hand]
-                    .into_iter()
-                    .enumerate()
-                {
-                    if let Some(item) = item
-                        && let Some((layer, location)) = self.held_layer(
-                            &body,
-                            item,
-                            hand_bones[hand],
-                            equipment_display::LAYER_MAIN_HAND + hand as u8,
-                        )
-                    {
-                        assignments.insert(layer.input.identity, location);
-                        submissions.push(layer);
-                    }
-                }
-            }
-            persona_selections.push((body.clone(), self.animator.skin_layers(&fighter.id)));
-            submissions.push(body);
-        }
-        for entity in &current.entities {
-            let Some(rig) = self.entities.get(&entity.kind) else {
-                continue;
-            };
-            let Some(location) = self.artwork.route(rig.id) else {
-                continue;
-            };
-            let Some(animated) = self.animator.pose(&entity.id, rig.id, &rig.names) else {
-                continue;
-            };
-            let old = previous
-                .and_then(|frame| {
-                    frame
-                        .entities
-                        .iter()
-                        .find(|old| old.id == entity.id && old.kind == entity.kind)
-                })
-                .unwrap_or(entity);
-            let position =
-                Vec3::from_array(old.position).lerp(Vec3::from_array(entity.position), fraction);
-            let identity = ActorRenderIdentity {
-                session_id: hash_id(&current.id),
-                dimension: 0,
-                runtime_id: hash_id(&entity.id),
-                spawn_revision: 1,
-                ingress_sequence: self.generation,
-                source_tick: Some(self.generation),
-                movement_revision: self.generation,
-                pose_generation: animated.completed_tick,
-                layer: render::ACTOR_LAYER_BODY,
-            };
-            let kind = render_data::ActorKind::Entity {
-                identifier: entity.kind.as_str().into(),
-            };
-            let yaw = if render_data::actor_is_billboard(&kind) {
-                180.0
-            } else if render_data::target_rotation_is_absolute(&kind) {
-                0.0
-            } else {
-                animated.body_yaw
-            };
-            assignments.insert(identity, location);
-            submissions.push(ActorRigSubmission {
-                culling_bounds: assets::SkinGeometryBounds::default(),
-                input: ActorRigRenderInput {
-                    identity,
-                    rig: rig.id,
-                    previous_bones: animated.previous,
-                    current_bones: animated.current,
-                    completed_tick: animated.completed_tick,
-                    reset_generation: animated.reset_generation,
-                },
-                world_from_actor: equipment_display::rig_world_from_actor(
-                    position.to_array(),
-                    yaw,
-                    animated.scale,
-                ),
-                texture_layer: location.layer(),
-                route: ActorRigRoute::Compiled,
-                tint: 0,
-                overlay_rgba8: animated.overlay,
-                uv_anim: render::IDENTITY_UV_ANIM,
-                light: render::pack_actor_light(0, 15),
-            });
-        }
-        self.persona.apply(
-            &mut self.scene,
-            &self.artwork,
-            &persona_selections,
-            &mut submissions,
-            &mut assignments,
-        );
-        self.scene
-            .update_rigs_with_artwork(
-                animation_fraction,
-                None,
-                submissions,
-                Arc::clone(&self.skin_pixels),
-                &assignments,
-            )
-            .clone()
-    }
-
     fn mesh_for(&mut self, item: &Item) -> Option<(EntityRigId, ActorArtworkLocation)> {
         let index = self
             .icons
@@ -651,13 +355,13 @@ impl BrowserActors {
             return None;
         }
         let sprite = self.icons.sprites().get(index)?;
-        let vertices = render::held_sprite_vertices(
+        let vertices = render_model::held_sprite_vertices(
             usize::from(sprite.width),
             usize::from(sprite.height),
             &sprite.rgba8,
             placement.uv_rect(),
         )?;
-        let id = render::item_mesh_rig_id(index as u32);
+        let id = render_model::item_mesh_rig_id(index as u32);
         let geometry = ActorRigGeometry::new(id, vertices, vec![[0.0; 3]]).ok()?;
         self.scene.insert_geometry(geometry.clone()).ok()?;
         self.hand_builder.insert_geometry(geometry).ok()?;
@@ -675,11 +379,11 @@ impl BrowserActors {
         let bone = bone?;
         let (mesh, location) = self.mesh_for(item)?;
         let display =
-            equipment_display::held_sprite_display(equipment_display::is_hand_equipped(&item.name));
+            render_model::equipment::held_sprite_display(render_model::equipment::is_hand_equipped(&item.name));
         let previous =
-            equipment_display::attach_to_bone(*body.input.previous_bones.get(bone)?, display)?;
+            render_model::equipment::attach_to_bone(*body.input.previous_bones.get(bone)?, display)?;
         let current =
-            equipment_display::attach_to_bone(*body.input.current_bones.get(bone)?, display)?;
+            render_model::equipment::attach_to_bone(*body.input.current_bones.get(bone)?, display)?;
         let mut held = body.clone();
         held.input.identity.layer = layer;
         held.input.rig = mesh;
@@ -707,7 +411,7 @@ impl BrowserActors {
         let Some(skin) = self.skins.get(&fighter.id) else {
             return scene;
         };
-        let skin_pixels = Arc::clone(&skin.pixels);
+        let skin_pixels = skin.pixels.clone();
         let rig = if let Some(rig) = self.custom.get(&fighter.id) {
             rig
         } else if skin.slim {
@@ -732,6 +436,7 @@ impl BrowserActors {
             layer: render::ACTOR_LAYER_BODY,
         };
         let body = ActorRigSubmission {
+            material: render::ActorMaterial::default(),
             culling_bounds: assets::SkinGeometryBounds::default(),
             input: ActorRigRenderInput {
                 identity,
@@ -767,18 +472,18 @@ impl BrowserActors {
         if let Some(item) = main
             && let Some((mesh, location)) = self.mesh_for(item)
         {
-            let consume = render_data::item_use::is_consumed(&item.name)
+            let consume = gameplay::item_use::classify::is_consumed(&item.name)
                 .then(|| animation::use_ticks(&self.equipment, &item.name))
                 .flatten();
             let hand = equipment_display::hand_progress(
-                animated.hand,
+                animated.hand.map(|hand| equipment_display::HandProgress { attack_time: hand.attack_time, arm_height: hand.arm_height, use_ticks: hand.use_ticks }),
                 consume,
                 partial_tick.clamp(0.0, 1.0),
             );
             if let Some(bone) =
                 equipment_display::view_bone(equipment_display::first_person_display(
                     FirstPersonShape::Sprite {
-                        mirrored_art: equipment_display::is_mirrored_art(&item.name),
+                        mirrored_art: render_model::equipment::is_rod(&item.name),
                     },
                     hand,
                 ))
@@ -836,12 +541,12 @@ impl BrowserActors {
                 block_level: 0,
                 sky_level: 15,
                 daylight: 1.0,
-                pad: 0,
+                ..HandRigLight::default()
             },
             fov_radians,
             generation,
         ) {
-            scene.set_item_atlas(item_atlas);
+            scene.set_item_atlases([item_atlas, None]);
         }
         scene
     }
@@ -853,19 +558,19 @@ fn register_rig(
     identifier: &str,
     id: EntityRigId,
 ) -> Result<Rig, String> {
-    let index = render::find_geometry_index(assets, identifier)
+    let index = render_model::find_geometry_index(assets, identifier)
         .ok_or_else(|| format!("compiled geometry {identifier} is missing"))?
         as usize;
-    let geometry = render::entity_geometry(assets, index, id)
+    let geometry = render_model::entity_geometry(assets, index, id)
         .map_err(|e| format!("compiled geometry {identifier}: {e:?}"))?;
-    let source = Arc::new(render_data::SkinGeometrySource {
+    let source = Arc::new(protocol::SkinGeometrySource {
         resource_patch: serde_json::json!({"geometry": {"default": identifier}})
             .to_string()
             .into(),
         geometry_data: Arc::from(""),
         animations: Arc::from([]),
     });
-    let names = render::geometry_bone_names(assets, index)
+    let names = render_model::geometry_bone_names(assets, index)
         .ok_or_else(|| format!("compiled geometry {identifier} has no bone names"))?;
     scene
         .insert_geometry(geometry.clone())

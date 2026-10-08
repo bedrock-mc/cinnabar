@@ -394,9 +394,18 @@ fn diff_control(
     let empty = Map::new();
     let before = before.as_object().unwrap_or(&empty);
     let after = after.as_object().unwrap_or(&empty);
+    if before.contains_key("modifications")
+        && (before.get("modifications") != after.get("modifications")
+            || before.get("controls") != after.get("controls"))
+    {
+        return after.clone();
+    }
     let mut partial = Map::new();
     let mut modifications = Vec::new();
-    for (key, value) in after.iter().filter(|(key, _)| *key != "controls") {
+    for (key, value) in after
+        .iter()
+        .filter(|(key, _)| *key != "controls" && *key != "modifications")
+    {
         match (before.get(key), value) {
             (Some(old), _) if old == value => {}
             (Some(Value::Array(old)), Value::Array(new))
@@ -440,7 +449,14 @@ fn diff_control(
         (None, None) => {}
     }
     if !modifications.is_empty() {
+        if let Some(Value::Array(authored)) = after.get("modifications") {
+            modifications.extend(authored.iter().cloned());
+        }
         partial.insert("modifications".into(), Value::Array(modifications));
+    } else if before.get("modifications") != after.get("modifications")
+        && let Some(authored) = after.get("modifications")
+    {
+        partial.insert("modifications".into(), authored.clone());
     }
     partial
 }

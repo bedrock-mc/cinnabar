@@ -1,4 +1,8 @@
+use super::resource_geometry::PreparedResourceGeometry;
 use crate::chunk::*;
+
+#[cfg(test)]
+mod water_tint_tests;
 
 #[derive(Clone, PartialEq, Eq)]
 pub(in crate::chunk) struct ChunkBindGroupBuffers {
@@ -25,9 +29,13 @@ pub(in crate::chunk) struct MaterialGpu {
     pub(in crate::chunk) texture: u32,
     pub(in crate::chunk) flags: u32,
     pub(in crate::chunk) animation: u32,
+    pub(in crate::chunk) variation_start: u32,
+    pub(in crate::chunk) variation_count: u32,
+    pub(in crate::chunk) variation_weight: u32,
 }
 
-pub(in crate::chunk) const _: () = assert!(std::mem::size_of::<MaterialGpu>() == 12);
+pub(in crate::chunk) const _: () =
+    assert!(std::mem::size_of::<MaterialGpu>() == assets::MATERIAL_BYTES);
 
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -36,11 +44,12 @@ pub(in crate::chunk) struct AnimationGpu {
     pub(in crate::chunk) frame_count: u32,
     pub(in crate::chunk) ticks_per_frame: u32,
     pub(in crate::chunk) flags: u32,
+    pub(in crate::chunk) uv_scale: f32,
 }
 
-pub(in crate::chunk) const _: () = assert!(std::mem::size_of::<AnimationGpu>() == 16);
+pub(in crate::chunk) const _: () = assert!(std::mem::size_of::<AnimationGpu>() == 5 * 4);
 
-#[repr(C)]
+#[repr(C, align(16))]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub(in crate::chunk) struct BiomeTintGpu {
     pub(in crate::chunk) grass: u32,
@@ -51,9 +60,11 @@ pub(in crate::chunk) struct BiomeTintGpu {
     pub(in crate::chunk) water: u32,
     pub(in crate::chunk) flags: u32,
     pub(in crate::chunk) water_opacity: f32,
+    pub(in crate::chunk) seasonal_foliage: [[f32; 4]; assets::SEASONAL_FOLIAGE_COUNT],
 }
 
-pub(in crate::chunk) const _: () = assert!(std::mem::size_of::<BiomeTintGpu>() == 32);
+pub(in crate::chunk) const _: () =
+    assert!(std::mem::size_of::<BiomeTintGpu>() == 8 * 4 + assets::SEASONAL_FOLIAGE_COUNT * 16);
 
 pub(in crate::chunk) fn pack_linear_rgb10(rgb: [f32; 3]) -> u32 {
     let component = |value: f32| {
@@ -75,9 +86,21 @@ pub(in crate::chunk) fn prepare_biome_tint_entries(entries: &[BiomeTint]) -> Vec
             birch: pack_linear_rgb10(entry.birch),
             evergreen: pack_linear_rgb10(entry.evergreen),
             dry_foliage: pack_linear_rgb10(entry.dry_foliage),
-            water: pack_linear_rgb10(entry.water),
+            // Native water tint is RGB8. Linear RGB10 loses several dark-blue
+            // palette bytes before the ordinary liquid colour is quantized.
+            water: u32::from_le_bytes(
+                Color::linear_rgb(entry.water[0], entry.water[1], entry.water[2])
+                    .to_srgba()
+                    .to_u8_array(),
+            ),
             flags: entry.flags,
             water_opacity: entry.water_opacity,
+            seasonal_foliage: entry.seasonal_foliage.map(|rgb| {
+                // Seasonal world colours can exceed one; only the CPU
+                // particle path clamps doubled palette samples in native.
+                let [r, g, b] = rgb.map(|channel| if channel.is_finite() { channel } else { 0.0 });
+                [r, g, b, 1.0]
+            }),
         })
         .collect()
 }
@@ -137,7 +160,9 @@ pub(in crate::chunk) struct PreparedChunkTextureAssets {
     pub(in crate::chunk) model_template_buffer: Buffer,
     pub(in crate::chunk) _textures: [Texture; 2],
     pub(in crate::chunk) views: [TextureView; 2],
+    pub(in crate::chunk) native_leaf_views: [TextureView; assets::MAX_TEXTURE_PAGES],
     pub(in crate::chunk) sampler: Sampler,
+    pub(in crate::chunk) native_leaf_sampler: Sampler,
 }
 
 #[derive(Resource)]
@@ -165,11 +190,22 @@ pub(in crate::chunk) fn prepare_chunk_animation_clock(
     render_queue.write_buffer(&gpu_clock.buffer, 0, bytemuck::bytes_of(&*clock));
 }
 
+type PreparedReplacement = (
+    PreparedChunkTextureAssets,
+    ChunkTextureUploadStats,
+    Option<PreparedResourceGeometry>,
+);
+
+type PendingTextures = std::sync::Mutex<std::sync::mpsc::Receiver<Option<PreparedReplacement>>>;
+
 #[derive(Resource, Default)]
 pub(in crate::chunk) struct ChunkGpuTextureAssets {
     pub(in crate::chunk) attempted_identity: Option<ChunkTextureAssetIdentity>,
     pub(in crate::chunk) _attempted_assets: Option<Arc<RuntimeAssets>>,
     pub(in crate::chunk) prepared: Option<PreparedChunkTextureAssets>,
+    pending: Option<PendingTextures>,
+    pending_identity: Option<ChunkTextureAssetIdentity>,
+    staged: Option<PreparedReplacement>,
 }
 
 #[derive(Resource, Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -182,34 +218,137 @@ pub struct ChunkTextureUploadStats {
     pub padded_upload_bytes: u64,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(in crate::chunk) fn prepare_chunk_texture_assets(
+    mut commands: Commands,
+    instances: Query<(Entity, &ChunkRenderInstance)>,
+    views: Query<(Entity, &ExtractedView), With<ExtractedCamera>>,
+    mut arena: ResMut<ChunkGpuArena>,
     assets: Res<ChunkTextureAssets>,
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
     mut gpu_assets: ResMut<ChunkGpuTextureAssets>,
     mut stats: ResMut<ChunkTextureUploadStats>,
+    reload: Res<ChunkTextureReload>,
 ) {
     let identity = assets.identity();
-    if !texture_asset_needs_rebuild(gpu_assets.attempted_identity, identity) {
+    let completed = gpu_assets.pending.as_ref().and_then(|pending| {
+        match pending
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .try_recv()
+        {
+            Ok(result) => Some(result),
+            Err(std::sync::mpsc::TryRecvError::Empty) => None,
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => Some(None),
+        }
+    });
+    if let Some(completed) = completed {
+        gpu_assets.pending = None;
+        if let Some(pending) = gpu_assets.pending_identity.take() {
+            reload.finish(pending, completed.is_some());
+        }
+        gpu_assets.staged = completed;
+    }
+    let requested = reload.requested();
+    if gpu_assets.staged.as_ref().is_some_and(|(prepared, _, _)| {
+        prepared.identity != identity
+            && requested
+                .as_ref()
+                .is_none_or(|candidate| candidate.identity() != prepared.identity)
+    }) {
+        gpu_assets.staged = None;
+    }
+    if gpu_assets
+        .staged
+        .as_ref()
+        .is_some_and(|(prepared, _, _)| prepared.identity == identity)
+    {
+        let (prepared, uploaded, geometry) =
+            gpu_assets.staged.take().expect("matching staged atlas");
+        if let Some(geometry) = geometry
+            && !geometry.publish(&mut commands, &instances, &mut arena)
+        {
+            reload.finish(identity, false);
+            gpu_assets.attempted_identity = Some(identity);
+            bevy::log::warn!("discarding resource geometry with retired chunk keys");
+            return;
+        }
+        reload.published();
+        gpu_assets.prepared = Some(prepared);
+        gpu_assets.attempted_identity = Some(identity);
+        gpu_assets._attempted_assets = Some(Arc::clone(assets.assets()));
+        *stats = uploaded;
+    }
+    // Bootstrap may publish without an optional reload transaction.
+    if texture_asset_needs_rebuild(gpu_assets.attempted_identity, identity) {
+        gpu_assets.attempted_identity = Some(identity);
+        gpu_assets._attempted_assets = Some(Arc::clone(assets.assets()));
+        if let Some((prepared, uploaded)) =
+            build_chunk_texture_assets(&assets, &render_device, &render_queue)
+        {
+            gpu_assets.prepared = Some(prepared);
+            *stats = uploaded;
+        }
+    }
+    let Some(candidate) = requested else {
+        return;
+    };
+    if candidate.identity() == identity
+        || gpu_assets.pending.is_some()
+        || reload.status(candidate.identity()).is_some()
+    {
         return;
     }
-    gpu_assets.attempted_identity = Some(identity);
-    gpu_assets._attempted_assets = Some(Arc::clone(assets.assets()));
+    let device = render_device.clone();
+    let queue = render_queue.clone();
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    gpu_assets.pending_identity = Some(candidate.identity());
+    gpu_assets.pending = Some(std::sync::Mutex::new(receiver));
+    let geometry = reload.geometry();
+    let view = views
+        .iter()
+        .min_by_key(|(entity, _)| *entity)
+        .map(|(entity, view)| super::resource_sorts::ResourceView {
+            entity,
+            transform: view.world_from_view,
+        });
+    std::thread::spawn(move || {
+        let result =
+            build_chunk_texture_assets(&candidate, &device, &queue).and_then(|(atlas, stats)| {
+                let geometry = match geometry {
+                    Some(instances) => Some(PreparedResourceGeometry::build(
+                        &instances, candidate, device, queue, view,
+                    )?),
+                    None => None,
+                };
+                Some((atlas, stats, geometry))
+            });
+        let _ = sender.send(result);
+    });
+}
 
+/// Builds replacement GPU tables off the render thread, retaining the previous generation until ready.
+fn build_chunk_texture_assets(
+    assets: &ChunkTextureAssets,
+    render_device: &RenderDevice,
+    render_queue: &RenderQueue,
+) -> Option<(PreparedChunkTextureAssets, ChunkTextureUploadStats)> {
+    let identity = assets.identity();
     let pages = assets.assets().texture_pages();
     let Some(page_bindings) = plan_texture_page_bindings(pages.len()) else {
         bevy::log::error!(
             page_count = pages.len(),
             "chunk assets require one or two texture pages"
         );
-        return;
+        return None;
     };
     let diagnostic_fallback = if page_bindings.contains(&TexturePageBinding::DiagnosticFallback) {
         match diagnostic_texture_page(&pages[0].texture) {
             Ok(texture) => Some(texture),
             Err(error) => {
                 bevy::log::error!(?error, "invalid diagnostic texture-page fallback");
-                return;
+                return None;
             }
         }
     } else {
@@ -222,34 +361,46 @@ pub(in crate::chunk) fn prepare_chunk_texture_assets(
             .expect("binding plan includes a diagnostic fallback"),
     });
     let device_limits = render_device.limits();
-    if device_limits.max_sampled_textures_per_shader_stage < 2 {
+    if !crate::material_shader::chunk_atlas_views_fit(&device_limits) {
         bevy::log::error!(
             supported = device_limits.max_sampled_textures_per_shader_stage,
-            "chunk renderer requires two sampled texture bindings"
+            supported_group_entries = device_limits.max_bindings_per_bind_group,
+            required = crate::material_shader::CHUNK_SAMPLED_TEXTURE_BINDINGS,
+            "chunk renderer requires sRGB and native leaf views of each texture page"
         );
-        return;
+        return None;
     }
     let limits = TextureArrayLimits {
         max_layers: device_limits.max_texture_array_layers,
         max_dimension_2d: device_limits.max_texture_dimension_2d,
     };
     let mut upload_plans = Vec::with_capacity(2);
+    let mut terrain_pages = Vec::with_capacity(2);
     for texture in bound_pages {
         let tile_size = texture.mips.first().map_or(0, |mip| mip.size);
         if let Err(error) = limits.validate(texture.layers, tile_size) {
             bevy::log::error!(?error, "chunk texture page exceeds adapter limits");
-            return;
+            return None;
         }
+        let texture = match assets::rebuild_legacy_terrain_mips(texture) {
+            Ok(texture) => texture,
+            Err(error) => {
+                bevy::log::error!(?error, "invalid terrain mip source");
+                return None;
+            }
+        };
         let plans =
-            match plan_texture_mip_uploads(texture, RenderDevice::align_copy_bytes_per_row(1)) {
+            match plan_texture_mip_uploads(&texture, RenderDevice::align_copy_bytes_per_row(1)) {
                 Ok(plans) => plans,
                 Err(error) => {
                     bevy::log::error!(?error, "invalid chunk texture-page upload layout");
-                    return;
+                    return None;
                 }
             };
         upload_plans.push(plans);
+        terrain_pages.push(texture);
     }
+    let bound_pages = [&terrain_pages[0], &terrain_pages[1]];
 
     let material_words = assets
         .assets()
@@ -259,6 +410,9 @@ pub(in crate::chunk) fn prepare_chunk_texture_assets(
             texture: material.texture.raw(),
             flags: material.flags,
             animation: material.animation,
+            variation_start: material.variation_start,
+            variation_count: material.variation_count,
+            variation_weight: material.variation_weight,
         })
         .collect::<Vec<_>>();
     let animation_words = assets
@@ -270,6 +424,7 @@ pub(in crate::chunk) fn prepare_chunk_texture_assets(
             frame_count: animation.frame_count,
             ticks_per_frame: animation.ticks_per_frame,
             flags: animation.flags,
+            uv_scale: 1.0 / animation.replicate as f32,
         })
         .collect::<Vec<_>>();
     let animation_frame_words = assets
@@ -303,7 +458,7 @@ pub(in crate::chunk) fn prepare_chunk_texture_assets(
             device_limits.max_storage_buffer_binding_size,
         ) {
             bevy::log::error!(label, bytes, "chunk asset table exceeds adapter limits");
-            return;
+            return None;
         }
     }
     let material_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
@@ -316,6 +471,7 @@ pub(in crate::chunk) fn prepare_chunk_texture_assets(
         frame_count: 1,
         ticks_per_frame: 1,
         flags: 0,
+        uv_scale: 1.0,
     }];
     let animation_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
         label: Some("global chunk animations"),
@@ -342,22 +498,38 @@ pub(in crate::chunk) fn prepare_chunk_texture_assets(
         usage: BufferUsages::STORAGE,
     });
     let (texture_0, view_0, padded_0) = upload_texture_page(
-        &render_device,
-        &render_queue,
+        render_device,
+        render_queue,
         bound_pages[0],
         &upload_plans[0],
         "global chunk texture page 0",
     );
     let (texture_1, view_1, padded_1) = upload_texture_page(
-        &render_device,
-        &render_queue,
+        render_device,
+        render_queue,
         bound_pages[1],
         &upload_plans[1],
         "global chunk texture page 1",
     );
+    // Current atlas upload retains RGBA8_UNORM.
+    // A view of each existing allocation preserves gamma-space filtering for
+    // world leaves without duplicating texture memory or changing other art.
+    let native_leaf_views = [&texture_0, &texture_1].map(|texture| {
+        texture.create_view(&TextureViewDescriptor {
+            label: Some("native world leaf atlas view"),
+            format: Some(TextureFormat::Rgba8Unorm),
+            dimension: Some(TextureViewDimension::D2Array),
+            ..Default::default()
+        })
+    });
     let sampler = render_device.create_sampler(&chunk_sampler_descriptor());
+    let native_leaf_sampler =
+        render_device.create_sampler(&crate::material_shader::native_leaf_sampler_descriptor());
 
-    stats.upload_count = 1;
+    let mut stats = ChunkTextureUploadStats {
+        upload_count: 1,
+        ..Default::default()
+    };
     stats.material_bytes = material_bytes as u64;
     stats.animation_bytes = animation_bytes as u64;
     stats.animation_frame_bytes = animation_frame_bytes as u64;
@@ -367,7 +539,7 @@ pub(in crate::chunk) fn prepare_chunk_texture_assets(
         .map(|mip| mip.rgba8.len() as u64)
         .sum();
     stats.padded_upload_bytes = padded_0.saturating_add(padded_1);
-    gpu_assets.prepared = Some(PreparedChunkTextureAssets {
+    let prepared = PreparedChunkTextureAssets {
         identity,
         material_buffer,
         animation_buffer,
@@ -375,25 +547,21 @@ pub(in crate::chunk) fn prepare_chunk_texture_assets(
         model_template_buffer,
         _textures: [texture_0, texture_1],
         views: [view_0, view_1],
+        native_leaf_views,
+        native_leaf_sampler,
         sampler,
-    });
+    };
+    Some((prepared, stats))
 }
 
+/// Array layers repeat atlas tiles without changing vanilla's texel or mip filtering.
 pub(in crate::chunk) fn chunk_sampler_descriptor() -> SamplerDescriptor<'static> {
     SamplerDescriptor {
         label: Some("global chunk repeat sampler"),
         address_mode_u: AddressMode::Repeat,
         address_mode_v: AddressMode::Repeat,
         address_mode_w: AddressMode::Repeat,
-        // Vanilla's native 16x16 texels stay crisp when enlarged. Minification
-        // remains linear across the independently generated mip chain to avoid
-        // shimmering in distant geometry. Anisotropy stays disabled because
-        // wgpu requires linear magnification when anisotropy is greater than 1.
-        mag_filter: FilterMode::Nearest,
-        min_filter: FilterMode::Linear,
-        mipmap_filter: FilterMode::Linear,
-        anisotropy_clamp: 1,
-        ..Default::default()
+        ..crate::material_shader::native_leaf_sampler_descriptor()
     }
 }
 
@@ -455,7 +623,7 @@ pub(in crate::chunk) fn upload_texture_page(
         dimension: TextureDimension::D2,
         format: TextureFormat::Rgba8UnormSrgb,
         usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
-        view_formats: &[],
+        view_formats: &[TextureFormat::Rgba8Unorm],
     });
     let mut padded_upload_bytes = 0_u64;
     for (mip, plan) in texture_array.mips.iter().zip(upload_plans) {
@@ -649,6 +817,18 @@ pub(in crate::chunk) fn prepare_chunk_bind_group(
             BindGroupEntry {
                 binding: 15,
                 resource: atmosphere.buffer.as_entire_binding(),
+            },
+            BindGroupEntry {
+                binding: crate::material_shader::NATIVE_LEAF_TEXTURE_BINDINGS[0],
+                resource: BindingResource::TextureView(&texture_assets.native_leaf_views[0]),
+            },
+            BindGroupEntry {
+                binding: crate::material_shader::NATIVE_LEAF_TEXTURE_BINDINGS[1],
+                resource: BindingResource::TextureView(&texture_assets.native_leaf_views[1]),
+            },
+            BindGroupEntry {
+                binding: crate::material_shader::NATIVE_LEAF_SAMPLER_BINDING,
+                resource: BindingResource::Sampler(&texture_assets.native_leaf_sampler),
             },
         ],
     );

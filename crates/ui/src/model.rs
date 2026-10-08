@@ -9,8 +9,12 @@ use std::{
 use crate::{TextLayout, UiAction, UiLimits, UiPoint, UiRect, UiScale};
 
 mod draw;
+mod mesh;
+mod projection;
 
 use draw::{emit_visual, is_empty};
+pub use mesh::{UiMesh, UiMeshBatch, UiMeshError, UiMeshVertex};
+pub use projection::UiWorldProjection;
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct UiNodeId(u32);
@@ -41,6 +45,8 @@ pub enum UiBlendMode {
 pub enum UiVisual {
     #[default]
     None,
+    /// Direct geometry at this control's authored draw position, with private model depth.
+    Mesh(Arc<UiMesh>),
     Solid {
         texture_page: u16,
         color: [u8; 4],
@@ -65,6 +71,20 @@ pub enum UiVisual {
         texture_page: u16,
         uv: [u16; 4],
         color: [u8; 4],
+    },
+    /// A sprite whose vertices carry [`UI_STYLE_GRAYSCALE`]/[`UI_STYLE_BILINEAR`].
+    StyledSprite {
+        texture_page: u16,
+        uv: [u16; 4],
+        color: [u8; 4],
+        style: u8,
+    },
+    /// A solid rect blending `colors[0]` into `colors[1]` top to bottom (or left
+    /// to right when `horizontal`).
+    Gradient {
+        texture_page: u16,
+        colors: [[u8; 4]; 2],
+        horizontal: bool,
     },
     /// A sprite drawn with the invert blend instead of alpha compositing.
     InvertedSprite {
@@ -108,6 +128,7 @@ pub struct UiNode {
     navigation_order: Option<u32>,
     clip_children: bool,
     visual: UiVisual,
+    world_projection: Option<UiWorldProjection>,
 }
 
 impl UiNode {
@@ -120,6 +141,7 @@ impl UiNode {
             navigation_order: None,
             clip_children: false,
             visual: UiVisual::None,
+            world_projection: None,
         }
     }
 
@@ -140,6 +162,26 @@ impl UiNode {
 
     pub fn with_visual(mut self, visual: UiVisual) -> Self {
         self.visual = visual;
+        self
+    }
+
+    /// Repositions a node while preserving its visual, clipping and input metadata.
+    pub fn with_bounds(mut self, bounds: UiRect) -> Self {
+        self.bounds = bounds;
+        self
+    }
+
+    /// Reparents a retained visual into a new tree without copying its artwork.
+    pub fn with_identity(mut self, id: UiNodeId, parent: Option<UiNodeId>) -> Self {
+        self.id = id;
+        self.parent = parent;
+        self
+    }
+
+    /// Draws local font/geometry coordinates through a world transform instead of HUD layout.
+    /// Projection is per node; safe-area offsets, GUI scale and parent clips do not apply.
+    pub fn with_world_projection(mut self, projection: UiWorldProjection) -> Self {
+        self.world_projection = Some(projection);
         self
     }
 
@@ -244,13 +286,28 @@ impl UiFrame {
 
 /// Vertex style bit asking the renderer to draw the enchantment glint.
 pub const UI_STYLE_GLINT: u8 = 1 << 1;
+/// Vertex style bit for JSON-UI `grayscale` sprites.
+pub const UI_STYLE_GRAYSCALE: u8 = 1 << 2;
+/// Vertex style bit for JSON-UI `bilinear` sprites.
+pub const UI_STYLE_BILINEAR: u8 = 1 << 3;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct UiVertex {
+    /// Logical screen XY multiplied by clip W; ordinary HUD coordinates have W=1.
     pub position: [f32; 2],
-    pub uv: [u16; 2],
+    /// Homogeneous clip Z and W; HUD vertices use 0 and 1 respectively.
+    pub clip_z: f32,
+    pub clip_w: f32,
+    pub uv: [f32; 2],
     pub color: [u8; 4],
+    /// Interpolated linear model lighting, kept separate from authored sRGB tint.
+    pub model_light: f32,
+    /// Native entity overlay RGB and mix amount, separate from vertex alpha.
+    pub overlay_color: [f32; 4],
     pub style_flags: u8,
+    pub alpha_test: bool,
+    /// Explicit sampled-texture cutoff; negative disables this material override.
+    pub alpha_cutoff: f32,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -258,6 +315,11 @@ pub struct UiDrawBatch {
     pub texture_page: u16,
     pub clip: UiRect,
     pub blend: UiBlendMode,
+    pub depth_test: bool,
+    pub depth_write: bool,
+    pub world_projection: bool,
+    /// One model control's private depth lifetime; never the world depth buffer.
+    pub isolated_depth_scope: Option<u32>,
     pub index_range: Range<u32>,
 }
 
@@ -273,6 +335,8 @@ pub struct UiDrawList {
 /// same-width obfuscation pools and the frame seed that animates `§k` runs.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct TextEffects<'a> {
+    /// The active pack's formatting table; geometry remains reusable across palette changes.
+    pub palette: Option<&'a crate::FormattingPalette>,
     pub obfuscation_seed: u64,
     pub obfuscation: Option<&'a crate::ObfuscationGlyphs>,
 }
@@ -298,6 +362,8 @@ pub enum UiError {
     DrawByteLimitExceeded { actual: usize, limit: usize },
     DrawIndexOverflow,
     DrawAllocationFailed,
+    InvalidWorldProjection { node: UiNodeId },
+    MeshWorldProjectionConflict { node: UiNodeId },
 }
 
 impl fmt::Display for UiError {
@@ -332,6 +398,15 @@ impl UiTree {
         let mut by_id = BTreeMap::new();
         for node in nodes {
             let id = node.id;
+            if node.world_projection.is_some() && matches!(node.visual, UiVisual::Mesh(_)) {
+                return Err(UiError::MeshWorldProjectionConflict { node: id });
+            }
+            if node
+                .world_projection
+                .is_some_and(|projection| !projection.is_valid())
+            {
+                return Err(UiError::InvalidWorldProjection { node: id });
+            }
             if by_id.insert(id, node).is_some() {
                 return Err(UiError::DuplicateNodeId { id });
             }
@@ -426,7 +501,11 @@ impl UiTree {
                 .parent
                 .and_then(|parent| bounds.get(&parent).copied())
                 .map_or(content.min(), UiRect::min);
-            let scaled = scale_rect(node.bounds, origin, scale.get())?;
+            let scaled = if node.world_projection.is_some() {
+                node.bounds
+            } else {
+                scale_rect(node.bounds, origin, scale.get())?
+            };
             bounds.insert(id, scaled);
             effective_clips.insert(id, clip);
             draw_order.push(id);
@@ -590,11 +669,21 @@ impl UiTree {
             let bounds = frame
                 .bounds(id)
                 .ok_or(UiError::MissingLayoutBounds { node: id })?;
+            let clip = match node.world_projection {
+                Some(projection) => projection
+                    .viewport_clip()
+                    .map_err(|_| UiError::InvalidWorldProjection { node: id })?,
+                None => clip,
+            };
             if !is_empty(clip) {
                 emit_visual(
                     &node.visual,
                     bounds,
-                    clip,
+                    draw::DrawSpace {
+                        clip,
+                        projection: node.world_projection.as_ref(),
+                        node: id,
+                    },
                     effects,
                     &mut vertices,
                     &mut indices,
@@ -675,12 +764,29 @@ impl UiTree {
     }
 
     fn draw_counts(&self) -> Result<(usize, usize, usize), UiError> {
+        let mut mesh_vertices = 0usize;
+        let mut mesh_indices = 0usize;
+        let mut mesh_batches = 0usize;
         let quads = self.nodes.values().try_fold(0usize, |total, node| {
             let count = match &node.visual {
                 UiVisual::None => 0,
+                UiVisual::Mesh(mesh) => {
+                    mesh_vertices = mesh_vertices
+                        .checked_add(mesh.indices().len())
+                        .ok_or(UiError::DrawIndexOverflow)?;
+                    mesh_indices = mesh_indices
+                        .checked_add(mesh.indices().len())
+                        .ok_or(UiError::DrawIndexOverflow)?;
+                    mesh_batches = mesh_batches
+                        .checked_add(mesh.batches().len())
+                        .ok_or(UiError::DrawIndexOverflow)?;
+                    0
+                }
                 UiVisual::Solid { .. }
                 | UiVisual::Sprite { .. }
                 | UiVisual::GlintSprite { .. }
+                | UiVisual::StyledSprite { .. }
+                | UiVisual::Gradient { .. }
                 | UiVisual::RotatedSprite { .. }
                 | UiVisual::InvertedSprite { .. } => 1,
                 UiVisual::Text { layout, shadow, .. }
@@ -705,21 +811,33 @@ impl UiTree {
             };
             total.checked_add(count).ok_or(UiError::DrawIndexOverflow)
         })?;
-        let vertices = quads.checked_mul(4).ok_or(UiError::DrawIndexOverflow)?;
+        let vertices = quads
+            .checked_mul(4)
+            .and_then(|count| count.checked_add(mesh_vertices))
+            .ok_or(UiError::DrawIndexOverflow)?;
         if vertices > UiLimits::MAX_UI_VERTICES {
             return Err(UiError::VertexLimitExceeded {
                 actual: vertices,
                 limit: UiLimits::MAX_UI_VERTICES,
             });
         }
-        let indices = quads.checked_mul(6).ok_or(UiError::DrawIndexOverflow)?;
+        let indices = quads
+            .checked_mul(6)
+            .and_then(|count| count.checked_add(mesh_indices))
+            .ok_or(UiError::DrawIndexOverflow)?;
         if indices > UiLimits::MAX_UI_INDICES {
             return Err(UiError::IndexLimitExceeded {
                 actual: indices,
                 limit: UiLimits::MAX_UI_INDICES,
             });
         }
-        Ok((quads, vertices, indices))
+        Ok((
+            quads
+                .checked_add(mesh_batches)
+                .ok_or(UiError::DrawIndexOverflow)?,
+            vertices,
+            indices,
+        ))
     }
 }
 

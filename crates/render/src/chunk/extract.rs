@@ -9,10 +9,14 @@ pub(in crate::chunk) fn install_chunk_extraction(app: &mut App) {
     app.add_plugins(SyncComponentPlugin::<ChunkRenderInstance>::default())
         .add_plugins((
             ExtractResourcePlugin::<ChunkTextureAssets>::default(),
+            ExtractResourcePlugin::<ChunkTextureReload>::default(),
             ExtractResourcePlugin::<ChunkAnimationClock>::default(),
             ExtractResourcePlugin::<ChunkBiomeTints>::default(),
             ExtractResourcePlugin::<ChunkUploadBudget>::default(),
             ExtractResourcePlugin::<ChunkGpuRemovalQueue>::default(),
+            ExtractResourcePlugin::<
+                crate::dropped_item_render::terrain_items::ImmediateTerrainMeshPublications,
+            >::default(),
             ExtractResourcePlugin::<TransparentWitnessRequest>::default(),
             ExtractResourcePlugin::<ModelWitnessRequest>::default(),
             ExtractResourcePlugin::<VisibilityDiagnosticsInput>::default(),

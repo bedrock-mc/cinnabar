@@ -7,6 +7,42 @@ use valentine::protocol::wire;
 use super::{decode_world_raw_with, skip_semantic_world_error};
 use crate::{Packet, ProtocolError, WorldEvent};
 
+#[test]
+fn world_clock_registry_packet_is_allowlisted_at_raw_ingress() {
+    use valentine::bedrock::version::v1_26_51::{
+        SyncWorldClocksPacket, SyncWorldClocksPacketData,
+        SyncWorldClocksPacketPayloadInitializeRegistryData, WorldClockData,
+    };
+    let session = BedrockSession { shield_item_id: 0 };
+    let packet: Packet = SyncWorldClocksPacket {
+        data: SyncWorldClocksPacketData::InitializeRegistryData(
+            SyncWorldClocksPacketPayloadInitializeRegistryData {
+                clock_data: vec![WorldClockData {
+                    id: 31,
+                    name: crate::OVERWORLD_CLOCK_NAME.into(),
+                    time: 18_000,
+                    is_paused: true,
+                    ..Default::default()
+                }],
+            },
+        ),
+    }
+    .into();
+    let mut batch = crate::encode(&packet, &session).expect("encode clock witness");
+    batch.advance(1);
+    let raw = decode_packet_raw(&mut batch).expect("raw clock witness");
+    assert_eq!(
+        decode_world_raw_with(raw, 0, |raw| raw.decode(&session)).expect("clock ingress"),
+        Some(WorldEvent::WorldClocks(vec![
+            crate::WorldClockUpdateEvent::Initialize(crate::WorldClockDefinition {
+                id: 31,
+                time: 18_000,
+                paused: true,
+            })
+        ]))
+    );
+}
+
 /// Builds one raw packet frame around a test-owned body.
 fn raw_packet(id: McpePacketName, body: &[u8]) -> RawPacket {
     let mut payload = BytesMut::new();

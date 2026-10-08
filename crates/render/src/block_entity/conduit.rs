@@ -3,6 +3,7 @@
 //! Box sizes follow the conduit textures (6x6x6 shell, 8x8x8 cage, 16x16x16 wind cube); wind
 //! frame timing, wind spin, bob and eye size need native measurement.
 
+use assets::block_entity_geometry as geometry;
 use bevy::math::{Mat4, Vec3};
 
 use super::{
@@ -24,11 +25,12 @@ const WIND_TICKS_PER_FRAME: f64 = 2.0;
 /// The rect of wind frame `frame` in a strip placed at `strip`; `frame` wraps.
 #[must_use]
 pub fn wind_frame_rect(strip: AtlasRect, frame: u32) -> AtlasRect {
+    let height = strip.height / WIND_FRAMES as f32;
     AtlasRect {
         x: strip.x,
-        y: strip.y + WIND_FRAME_ROWS * (frame % WIND_FRAMES) as f32,
+        y: strip.y + height * (frame % WIND_FRAMES) as f32,
         width: strip.width,
-        height: WIND_FRAME_ROWS,
+        height,
     }
 }
 
@@ -56,12 +58,12 @@ pub(super) fn emit(
     };
     let center = model_matrix(block, [0.5, 0.0, 0.5], 0.0)
         * Mat4::from_translation(Vec3::new(0.0, ACTIVE_HEIGHT_PIXELS + bob, 0.0));
-    if let Some(shell) = atlas.texture("textures/blocks/conduit_base", [24.0, 12.0]) {
+    if let Some(shell) = atlas.texture(geometry::CONDUIT_TEXTURE.0, geometry::CONDUIT_TEXTURE.1) {
         builder.cuboid(
             Layer::Solid,
             &shell,
             center,
-            BoxSpec::new([-3.0, -3.0, -3.0], [6.0, 6.0, 6.0], [0.0, 0.0]),
+            BoxSpec::from(geometry::CONDUIT_SHELL),
             WHITE,
         );
     }
@@ -139,5 +141,18 @@ mod tests {
             wind_frame_rect(strip, 0)
         );
         assert_eq!(wind_frame_rect(strip, 1).height, 32.0);
+    }
+    #[test]
+    fn review_render_wind_uses_replacement_frame_height() {
+        let strip = AtlasRect {
+            x: 5.0,
+            y: 7.0,
+            width: 128.0,
+            height: WIND_FRAMES as f32 * 64.0,
+        };
+        let frame = wind_frame_rect(strip, 3);
+        assert_eq!(frame.y, 7.0 + 3.0 * 64.0);
+        assert_eq!(frame.height, 64.0);
+        assert_eq!(wind_frame_rect(strip, WIND_FRAMES + 3), frame);
     }
 }

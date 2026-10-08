@@ -1,39 +1,1574 @@
+## OreUI menus, appearance and motion
+
+- Home, Pause, Play, Inbox, world creation, Accounts and confirmation dialogs use shared OreUI
+  panels and controls. Home keeps the shipped title above Play and character cards, with compact
+  utility actions and versions from their canonical sources. Commerce actions remain quiet.
+- Persistent Dark Mode defaults off, updates immediately and strengthens backdrop dimming.
+  Optional Screen animations controls quick hover/press feedback, selection, glimmers, text edits,
+  screen changes, modal exits, pack accordions, scrolling and interpolated loading progress. Selected
+  segmented choices remain lowered; hit targets remain stable and input applies immediately.
+- Server views preserve service catalog groups, artwork, descriptions, activities and available
+  counts. Exact ping is optional. Collapse state and drag-reordered sections persist; custom servers
+  use the owner's requested label. Resource-pack controls and loading stages retain surrounding UI.
+- Dimension travel names the destination, uses its block icon and the owner's private runtime
+  background beneath a strong tint. Ordinary terrain loading retains its approved neutral treatment.
+- Create New World uses native panels, installed preview/category artwork and independent scrolling.
+  General/Advanced changes animate their contents. Unsupported categories, Hardcore and Realm
+  creation remain disabled. Backend defaults to Dragonfly or offers BDS with Docker detection;
+  generator selection independently offers Normal (Vanilla) and Flat. Template navigation works.
+- Dragonfly Normal uses the pinned owner-requested vanilla-gen dependency with the saved signed
+  seed for all three dimensions. New worlds use its spawn; reopening retains saved spawn/chunks.
+  Normal supports saved overworld pre-generation and four chunk workers by default; see
+  [generation measurements](docs/evidence/local-world-generation.md). Bedrock generation parity
+  and join/streaming budgets remain incomplete.
+- Dressing Room persists classic/slim skins and independent capes, imports and item edits. Home
+  and Pause previews support rotation and pointer tracking. Cape attachment uses its own shoulders.
+- Cropped cape imports pad the 46×22 layout at supported texture scales with transparent pixels,
+  preserving texels and private source files. This custom import extension leaves native cape
+  gallery parity incomplete.
+- These layouts, appearance and custom motion are owner-authorized extensions. Matching-version
+  native UI parity remains open for responsive controls, rich Inbox templates and unsupported world
+  settings. Preview drag gain is provisional. The chosen normal generator targets Java-style
+  terrain; Bedrock terrain, structures and mobs remain unverified. No performance gate closes.
+
+## OreUI Unicode fallback
+
+- Native language labels and server text resolve missing glyphs from installed locale-specific Noto
+  faces. Primary Latin glyph metrics and the HUD font remain unchanged. Mixed runs retain their
+  own sampling and em scale. Language names and common server symbols are warmed at startup.
+- Additional characters compile off-thread into shared bounded pages; requests deduplicate,
+  unsupported characters do not displace valid glyphs and failed updates preserve the valid cache.
+  Locale changes invalidate the fallback. Unchanged publications retain texture payload ownership.
+- Atlas bounds reject oversized glyphs and aggregate raster overflow before allocation. Multi-page
+  glyph/page order stays consistent. Reserved fallback storage leaves the ordinary UI budget available
+  for native controls and icons. Text coverage and opaque model color masks use independent flags.
+- Full script substitution, bidirectional shaping and low-size fallback raster parity remain open.
+
+## OreUI verification
+
+- The original Japanese-label failure, texture-budget rejection and colliding rendering flags were
+  reproduced before their fixes. Regression checks cover language names, small-cap MOTDs, uncached
+  glyph publication, cache recovery, bounds, texture ownership, control input, focus and navigation.
+- Touched Rust crates compile with tests and developer-control enabled. Focused UI, font, input,
+  loading, carrier and world checks pass. Core and local-server Go suites pass, including generator
+  selection and saved-world reopening. Incoming cursor-return behavior is preserved.
+- Owner reviews accepted Home, Pause, Inbox, world creation, server layouts and animation direction.
+  Prior macOS/Metal captures verify menu previews at 2048×1152 and Retina 2560×1440.
+- Final macOS/Metal pass at 2560×1440 physical, 1280×720 logical, DPI 2: primary and CJK language
+  labels, styled server MOTDs, dark Home and Quit legibility, geometry, clipping, layering and colors
+  were inspected. Mouse Cancel, Escape and keyboard Cancel work; focus remains inside the modal.
+  The final build also verifies restored native Play/settings/status icons, server symbols and the
+  latest merged input. User language, appearance and section preferences were preserved.
+- The final integrated rebuild repeats the native language/Home/Quit review with readable Japanese,
+  Korean and Chinese labels, intact artwork, working modal Cancel and confirmed shutdown.
+
+## Movement and input audit fixes
+
+- Input packets retain digital buttons and raw jump/sneak events separately from
+  requested controls and resulting actor state. Opposing keys remain visible,
+  brief taps survive tickless frames, and retries and rewinds preserve the input
+  captured for each tick. Sprint admission includes direction, stall and
+  seven-tick double-tap checks retained through replay;
+  forced crouching does not invent a held sneak button. Blindness participates
+  in sprint admission; Swift Sneak scales crouch input from equipped leggings.
+  Consumed controller taps do not steal fresh keyboard movement on the next frame.
+- Physics uses the selected collision support for landing responses and the
+  near-feet material for travel friction. Auto-climb, levitation, restitution
+  thresholds and per-axis horizontal epsilon handling follow vanilla tick order.
+- Prediction corrections replay regardless of distance. Nonzero future ticks
+  attach to the current captured frame for a later rewind; zero ticks and ticks
+  older than retained history are discarded. MovePlayer teleports keep their
+  separate distance rule. Deferred corrections clear old collision flags before
+  replay so a relocation cannot invent a ladder climb. If replay cannot query
+  terrain, its fallback preserves later retained server positions and motion.
+  Unstamped or expired reset corrections keep their incoming destination.
+- Validation: 267 simulator tests, 69 semantic-input tests, 345 movement tests
+  and 16 focused client tests pass. The touched-crate compile check includes
+  tests and the client app. The architecture check passes. Regression tests
+  reproduced the stale collision and controller handoff bugs before their fixes.
+- Full parity remains incomplete: vehicle prediction, special-block and glide
+  coverage, equipment-dependent powder snow, dynamic actor sizes,
+  touch layouts, independent orientation, prediction-sync metadata and exact
+  loading/stall timing still require matched fixtures. Paired retail-client
+  packet captures and live server verification have not been completed, so this
+  work does not establish universal vanilla parity or identify a specific ban's
+  cause. Existing provisional behavior below stays provisional.
+
+## Held block placement
+
+- Ordinary block holds now retain successful destinations, establish an adjacent
+  placement line, and use fresh ray segments to continue beyond ledges or upward.
+- Repeats use resolved movement and stance; transactions carry their trigger,
+  start/stop actions, local outcome, click position and survival inventory delta.
+- Presses resolve when they arrive and held repeats only on frames that simulate a tick,
+  both before the frame's physics and from the last completed tick's end state, so the next
+  tick's movement collides with a placed block. Incomplete: a frame
+  that simulates two ticks resolves build actions only before the first.
+- Deterministic gameplay and wire tests cover ledges, jump bridging, towering,
+  backward sneak bridging, failed attempts and refused transport.
+- Provisional: slot or item changes preserve the held placement line and repeat
+  schedule. Native slot-change callbacks and their effect on retained history,
+  orientation and timing remain unverified; this does not close the hotbar-switch gate.
+- Incomplete: complete runtime block-property and custom block-placer admission,
+  item-specific replacement/state rules and live vanilla/server acceptance remain open. No
+  complete placement parity or performance gate is closed by these tests.
+- Vanilla rules: [held block placement](docs/reference/held-block-placement.md).
+
+## Frame attribution and unchanged GPU uploads
+
+- Idle native metadata publication no longer dispatches through the main thread.
+  macOS frame workers use interactive scheduling; bounded-load diagnostics show
+  more render-work headroom. Unloaded tail results remain adverse and unexplained:
+  the hitch and 120 Hz display gates remain incomplete. See
+  [frame-pacing evidence](docs/evidence/zeqa-frame-pacing.md).
+- Opt-in Tracy spans cover Bevy and owned streaming/render work; Metal pass
+  durations are delayed plots. macOS zones alone cannot separate preemption from waits.
+- Per-packet ingress admission preserves queued events when consumer fan-out fills
+  headroom; regression tests cover resumption and zero steady-state drain allocations.
+- Named schedule traces and bounded frame recordings separate main work, render
+  handoff, drawable acquisition, command submission and presentation. Metal
+  timestamp queries use owned render passes and leave uncovered stages absent.
+- Unchanged hand and cloud uniforms, inactive portals and empty item scenes skip
+  redundant staging work. Regression tests assert allocations, writes and retained
+  buffers; hardware captures measure elapsed time separately.
+- Actor publication retains native skin pixels and unchanged GPU artwork. Bounded worker
+  batches prepare custom models while replacements retain the last complete profile.
+  Prepared meshes retain validation and vertex fingerprints across catalog publication.
+  Deterministic tests cover admission, reuse, stale completions and indexed lookup work;
+  see [actor burst evidence](docs/evidence/actor-burst-preparation.md).
+- Incomplete actor-join acceptance: readiness-gated first appearance remains provisional.
+  Models exceeding the preparation mesh budget use the default rig until their source
+  changes or the session resets; exact appearance under that limit remains an open gate.
+  First GPU uploads, pipeline compilation, UI publication and exact page comparisons
+  remain cold costs. Synthetic crowds and headless screenshots do not
+  establish native first-appearance timing, join latency, no-pop-in acceptance or release
+  frame budgets; those gates remain open.
+- Recurring hand, UI viewport and particle writes share bounded retained GPU
+  staging. Allocation regressions cover real Metal owners; lifecycle and byte-order
+  tests cover asynchronous reuse and fallback. Attach-only native samples confirm
+  staging-allocation mutex contention, drawable waits and scheduler delays.
+- Incomplete: the synthetic fixed-camera fixture is not the populated-lobby/flight
+  release replay; hidden frames do not establish displayed FPS. Three paired runs
+  at each resolution reduce measured maxima but do not consistently improve p99.
+  A separate pooled-upload run still exceeds 100 ms with no staging fallback.
+  Drawable/present dependencies, remaining lock owners, retirement costs and
+  complete long-stall attribution remain open. Shared-pass GPU categories, exact
+  per-item costs and native GPU regression validation also remain unqualified.
+  See [pooled-upload evidence](docs/evidence/render-stall-pooling.md),
+  [frame breakdown evidence](docs/evidence/frame-breakdown.md) and
+  [Tracy attribution](docs/evidence/frame-breakdown-tracy.md).
+
+## Camera packets and aim assist
+
+- Packet admission covers spline registries/instructions, aim presets, commands
+  and actor-priority updates. Semantic errors are skipped and counted; malformed
+  framing remains fatal. See the [Vanilla rules](docs/reference/camera.md).
+- Preset inheritance, starting values, offsets, target tracking, camera collision,
+  easing, fade, shake, FOV, listener and presentation capabilities have regressions.
+  Named and inline splines have independent progress/rotation tracks. Aim selection
+  uses retained physics-tick poses, item categories, priorities and visibility,
+  with separate interaction direction and action-triggered rotation.
+- Incomplete parity: animated attachment anchors, additional actor hitboxes,
+  complete native block tags, touch pick-range remapping, equal-score actor order,
+  historical remote geometry during catch-up, and fire-resistance lava fog remain
+  owner limitations. Legacy education photography output is unsupported. Packaged
+  boom/shake/collision defaults and highlight sampler need pinned-version witnesses.
+  The gameplay FOV multiplier follows vanilla (speed ratio, slowness, flying, bow,
+  spyglass); the swim-speed factor and underwater narrowing remain incomplete.
+  Gameplay angles provisionally apply the [5, 130] bound after effects, preserving
+  authored camera overrides. Incomplete: the exact-version final-angle rule and
+  live post-death distortion acceptance are unverified.
+  Finite block sampling is bounded to 4,096 rays. None closes a full parity gate.
+- Touched-crate checks and directly affected regressions pass. A headless macOS
+  local-server run at 1280×720 captured named/inline splines, local-body visibility,
+  hand suppression, aim highlighting and clear/restoration. The 484-frame clip and
+  state snapshots are outside git; camera and aim semantic-skip counters stayed zero.
+  Matching-version native comparison, physical controller/touch testing and the
+  three-run hardware performance qualification remain untested.
+
+## Java 1.7 animations
+
+- Owner-mandated default, selected live from Video › Animations (persisted): Java 1.7 or
+  Bedrock. Saved toggle choices migrate without changing the selected mode. Rules and frame mapping:
+  [Java 1.7 animations](docs/reference/java-1-7-animations.md).
+- First person: Java's item stacks (swing; equip with the old item through the dip and the
+  re-equip after a placement; eat/drink; sword block with block-hitting; bow draw and pull
+  frames; rods), the empty-hand arm, view bob, sneak eye height, hurt/death roll and arm sway. Third person: Java's
+  biped pose, body yaw, limb swing with the hurt flail, held-item grips, the cape's chasing
+  swing and the sneak drops; armour flashes red, held items do not.
+- Every hurt event immediately resets the limb boost, including consecutive hits; movement
+  still contributes to the phase, and death alone does not trigger a flail.
+  Fourteen focused hurt tests pass. macOS/Metal captures at 1920×1080, DPI 1, GUI scale 2
+  verify single and repeated hits, walking while hurt, and recovery to idle.
+- Worn elytra retains authored wing poses and glint in both modes, suppresses the separate cape,
+  and uses the cape texture when present. Native controller blend composition stays intact.
+- Golden tests assert composed stacks and projected arm, item and cape points against Java's
+  calls.
+- Review corrections: local head sampling stays in the current render frame; cape and camera
+  motion use native velocity, health and riding state. Retained items keep their own use
+  clocks through swaps, authored first-person rigs retain ownership, and raster depth stays
+  one sixteenth at any texture size. Emote skin layers follow the sampled body pose.
+  Unchanged render layers sharing geometry retain their own completed pose allocations.
+- Focused regression suites and touched-crate checks pass. Windows/DX12 headless captures
+  exercise held-item swaps, use, both third-person views, cape motion and local emotes.
+- Incomplete: swimming, crawling, gliding, sleeping and emoting stay vanilla (Java 1.7 has
+  none); held attachables Java never had, the third-person bow pull frames and cast-rod item
+  stay vanilla. Unclassified mounts retain ordinary player body yaw.
+- First-person items and the empty arm use Java's fixed directional lights and gamma-space
+  colour multiplication, including normal rescaling during bow stretch. World lightmap
+  colours still follow Bedrock; full-frame lighting parity remains open.
+- Living mount heading and active creative-flight cape phase now use their own observed
+  state, with regression witnesses for wraparound, live local look, dismounting, phase
+  freezing and walking resumption. Fixed Java 1.7.10 model/matrix fixtures and Windows
+  rendered motion checks validate the covered state product; full game-frame pixel
+  equality, lighting and the retained vanilla exceptions above are not asserted.
+  Local swing effects are live; remote swings retain the six-tick default.
+- Validation after integrating concurrent PR changes: 802 animation-suite tests pass,
+  touched-crate checks and the optimized Windows build pass with sccache. Native fixtures
+  cover 42 pose/transform states and 20 exact use clocks. Fresh hidden DX12 captures verify
+  flight-phase freezing/resumption, living/nonliving mounted views, yaw wraparound,
+  dismounting, item use/swaps, both third-person views and local emotes. Full-client pixel
+  and performance parity are not asserted.
+
+## Compatibility landing
+
+- Education construction terrain restores allow, deny and all border wall states
+  from the pinned current palette, using the textures already in the fetched pack.
+  Collision and light read the pinned metadata sources; no guessed shapes or
+  sequential palette IDs are added. Linux captures at 1280×720 with GUI scale 2
+  show textured allow/deny cubes and connected border shapes. Broader Education
+  parity remains incomplete.
+
+- The owner accepted the final live macOS Metal build and authorized landing the
+  accumulated server compatibility changes. Formatting and architecture checks
+  pass. Known test compilation errors were corrected; further local tests and
+  waiting for CI were explicitly waived by the owner. Validation is incomplete.
+- Earlier entries record the state when each fix was introduced. Native parity
+  and performance limits marked incomplete below remain open.
+
+## Variable-named form buttons
+
+- CubeCraft's Free For All cards use a variable child key containing both an
+  instance name and a template reference. The resolver previously kept that
+  string as a name, dropping the inherited button border, caption and input.
+- Vanilla substitutes the key before splitting its name and template; the
+  resolver now does so while preserving inline overrides. A regression covers
+  the resulting instance name, button type, inherited children and overrides.
+- The canonical client build passes. A minimal reproduction changes from an
+  untyped child without descendants to the named button and its two children.
+  Captured form definitions with representative menu contents emit all four
+  borders, captions and button click regions.
+- The owner accepted the actual form's rendered result in the live macOS Metal
+  inspection build. The regression covers named inheritance and input ownership;
+  this compatibility acceptance does not close the broader native parity gates.
+
+## Cube overlay materials and scoreboard glyphs
+
+- The live CubeCraft comparison shows floating models and the empty hand, but
+  the central cube's overlays obscure its yellow base at distance and the VIP
+  scoreboard icon falls back to a tiny glyph. After the requested relaunch,
+  a fresh client capture shows the colored VIP icon. User acceptance of the
+  cube and glyph rendering remains pending.
+- Admitted reflection materials request inherited emissive shading and One/One
+  additive blending. Those contracts now survive compilation and GPU submission;
+  controller illumination multipliers also apply to unlit layers. Pipeline
+  warming adds four additive raster contracts and reuses shader-only variants.
+- The valid VIP icon U+E250 was dropped when earlier large duplicate glyphs
+  exhausted the atlas. Exact raster reuse and height-first packing retain all
+  768 captured cells within the existing eight pages, preserving each scalar's
+  metrics, colors and lookup priority.
+- Incomplete: sampler addressing, the sheen's mask behavior, wider blend factor
+  pairs, and exact matching-version built-in material registration remain open.
+  Regressions are authored but unrun at the owner's request. The canonical client
+  build passes, and the inspection client is running after the requested
+  relaunch. Changes are local and uncommitted; nothing is pushed.
+
+## Empty boss-text HUD slots
+
+- A captured server HUD uses eight fixed boss-text slots. Missing collection
+  values left unused backgrounds visible, stacking into a black patch above XP.
+  Vanilla supplies an empty name and false registration for absent entries;
+  the HUD controller now supplies those defaults.
+- The captured-pack offline draw reproduces all eight overlapping backgrounds
+  before the fix. A retained-binding regression covers empty, unrelated, matching
+  and cleared names. It is authored but unrun at the owner's request.
+- The canonical client build passes. The captured-pack offline draw removes all
+  eight unused backgrounds and preserves the XP number and outline.
+  Incomplete: live acceptance remains pending. The updated inspection client is
+  running after the requested restart. Changes are local and uncommitted;
+  nothing is pushed.
+
+## Server-pack actors and conditional forms
+
+- Captured CubeCraft definitions exposed rejected actor queries that discarded
+  complete pre-animation scripts, leaving dynamic models at zero scale and player
+  animation inactive. Camera-distance ranges, declared properties, armor slots
+  and default swing duration now evaluate through the shared actor query context.
+- The installed vanilla layer supplies actor rasters omitted by server packs,
+  preserving server artwork precedence. Collection factories use their authored
+  control-id arrays after view bindings settle, including nested factories.
+- Incomplete: custom item swing-duration overrides and the vanilla guard for
+  extremely narrow camera-distance ranges remain unimplemented or unverified.
+  The integrated Rust client build passes; the user's live screenshots show
+  floating models and the first-person hand. Selector and player animation
+  acceptance remains pending. Regressions are
+  authored but unrun at the owner's request. The inspection build is running
+  after the requested relaunch. Changes are local and uncommitted; nothing is pushed.
+## OreUI Settings
+
+- Global Resources is an owner-requested design exception using expandable OreUI pack cards,
+  imported thumbnails, priority actions and a native variant picker. Vanilla Textures is always
+  the immutable base of the displayed stack. Apply tracks staged edits against the acknowledged
+  running stack; finished work clears its transient status. Rendered verification is pending.
+- Controller uses its native category image; category selection plays the 500ms highlight.
+  Account uses the authenticated gamerpic or the signed-out silhouette. Sidebar bevels and
+  detail-row top/bottom edges now retain their native state roles and group boundaries.
+  The integrated Settings regressions and installed-font tests pass. The visible macOS client
+  runs with rebuilt block assets; fresh local-world frames confirm textured terrain. These
+  follow-up changes remain uncommitted, and matched Settings visual acceptance remains open.
+- Settings now uses the native OreUI shell, category sidebar, grouped descriptions, right-side
+  switches, filled sliders, inline choices, and independent panel scrollbars.
+- Shared launcher options, key remapping, language, accounts, packs and storage retain their
+  existing actions. Keyboard focus includes rows below the viewport and reveals them; resize
+  clamps scroll positions before painting. Always Sprint and VSync remain user extensions.
+- Regression tests reproduce legacy routing and unreachable offscreen focus. Rendered macOS
+  acceptance is pending; this does not close the Settings parity gate.
+- Incomplete: native options without a host model, controller binding glyphs, account management
+  actions/confirmations, Touch/Party/subscription services, and native storage subroutes.
+  Runtime vanilla artwork and core font faces are integrated, with native metrics, tracking,
+  kerning, CPU distance-field rasterization, coverage shading, control states and
+  pointer/navigation timelines. Locale shaping and hidden-tab animation resumption still
+  need native witnesses; disabled narration focus awaits a UI narration host. Matched visual
+  acceptance remains open. Reference facts are tracked in
+  [OreUI](docs/oreui.md).
+
+## Distant grass sides
+
+- Grass sides' tint-mask tiles take vanilla's atlas mips (byte-space box averages of the
+  original tile), so the dirt stored under alpha zero no longer turns black at distance.
+- The user confirmed distant grass sides in a live macOS build.
+- Incomplete: a server pack that replaces an overlay-masked texture still gets the runtime block
+  overlay's alpha-weighted mips.
+
+## Block selection outlines and visual bounds
+
+- At the owner's request, untouched and older settings select the native black
+  outline instead of the filled highlight. Explicit Outline Selection choices
+  retain the native two-mode rendering contract.
+- Regular outlines retain the twelve unexpanded bounds edges in a dedicated
+  opaque, unlit, depth-writing pass. Unchanged targets retain their geometry and
+  upload revision across camera movement.
+- The live outline was too faint. A Metal rendering diagnostic confirms FXAA
+  dilutes thin black lines more strongly on diagonals. GPU expansion now supplies
+  consistent two-physical-pixel coverage. This is provisional compensation for
+  Cinnabar's FXAA; matching vanilla sample anti-aliasing and stroke coverage
+  remains incomplete.
+- Fence and wall selection use visual bounds independently of taller movement
+  collision. Wall heights currently follow the pinned visible models.
+- Incomplete parity: exact wall selection insets, the matching-version material
+  depth offset, scaled deferred outlines and platform-specific factory defaults
+  remain unverified. The material witness is from the neighbouring installed client.
+- The visibility update's Rust client build passes. The production stroke shader
+  renders on Metal and retains dark pixels through FXAA at horizontal, vertical
+  and diagonal angles. The user accepts its live visibility; regression tests are
+  authored but unrun at the owner's request. Latest dev changes are merged
+  locally; the updated test client is running for manual inspection. Visibility edits are
+  uncommitted; no push.
+
+## Custom climbing-vine facing
+
+- Vanilla's `query.block_property` and `query.block_state` read the same named
+  block state. Both spellings, including their `q.` forms, are now admitted by
+  custom-block permutation and bone-visibility evaluation.
+- Hive's four climbing-vine states previously all kept their base orientation
+  because their facing conditions used the rejected query alias. Their authored
+  quarter-turn transformations now reach model compilation.
+- The Rust client build passes. Named-state and four-orientation runtime
+  regressions are authored but unrun at the owner's request. Live orientation
+  acceptance remains incomplete; the inspection build is ready, and the existing
+  game remains open. Changes are uncommitted; no push.
+
+## Chat ownership and first-person shadows
+
+- At the owner's request, built-in chat owns its screen, autocomplete and HUD
+  history even when server packs replace their layouts. Chat-derived ordinary
+  history factories are suppressed; other server HUD widgets retain pack priority.
+- Local player shadows now follow the actor frame's drawn bodies, suppressing
+  the caster in first person and retaining it in third person.
+- Animated loading strips wait for settled artwork instead of drawing a
+  downsampled preview. Large custom strips retain the existing size-cap
+  approximation; exact large-image animation parity remains incomplete.
+- The integrated Rust client and Go core builds pass. Incomplete acceptance:
+  regressions are authored but unrun at the owner's request; live inspection
+  is still pending.
+
+## NetherNet server trust
+
+- Plain-http NetherNet joins ask vanilla's first-use trust question through the JSON-UI modal
+  popup, with the keys stored as vanilla stores them. Provisional deviation: an answer that takes
+  longer than 5 s redials the server with the trusted key, because a dedicated server drops an
+  idle negotiation within about ten seconds; vanilla's handling of a slow answer is unconfirmed.
+
+## Servers tab experiences
+
+- The Servers tab lists the ServerTab layout's experiences, joined by experience ID. The Go core
+  now consumes typed player counts, using the service client's five-minute cache and retaining
+  the last successful values on refresh failure. Counts are requested for visible experience
+  details on an independent worker, so Home cannot delay them; background layout reads do not
+  request them. The existing selected-details binding shows only positive counts as plain
+  decimal numbers, without capacity or digit grouping.
+- Incomplete parity: the OreUI experience banner still needs its count badge wired by its screen
+  owner; this change only supplies data and existing JSON-UI bindings. The menu rereads counts
+  through its independent featured worker every 30 seconds; exact refresh dispatch timing remains
+  unverified. Listing-only experience details still need their linked detail page. No visual or
+  performance gate is closed.
+
+## Friends tab worlds
+
+- Friends' worlds follow the vanilla list rule (`p2p.World.Listed`): members and a host, the player's
+  own session only for a Realm, broadcast 3/4 always and 2 for friends. Incomplete parity: friends'
+  Realm and experience sessions are left out because joining them from the friends tab is not
+  implemented.
+
+## Server-directed local immobility
+
+- Committed local metadata now retains the server's immobile flag independently
+  of spatial anchors. Each frozen tick clears velocity and physical jumping,
+  suppresses travel/gravity and anchor depenetration, and preserves position,
+  grounded state, collision flags, look and input intent. Explicit clears and
+  session replacement release the flag; teleports do not.
+- Prediction retains the flag per tick, including delayed metadata edits and
+  correction replay. F3 and developer state queries expose the current flag.
+- Incomplete acceptance: regression tests are authored but remain unrun at the
+  user's request. The local Rust build passes; no live freeze/release witness
+  has been captured. The reported SkyWars ban does not prove its cause.
+  Pose selection with unavailable terrain retains the preceding inferred mode;
+  exact native fallback and packet scheduling remain open parity details.
+
+## Entity shadows
+
+- Vanilla blob shadows: a 13-sided volume under each caster darkens the opaque surface inside it
+  by the encoded-colour multiplier (0.7 grey with a sky tint), once however many overlap. One
+  instanced draw after opaque geometry; casters and parameters upload only when they change.
+- Caster rules (radius table, babies, slimes, projectiles, burning, invisible, dead, submerged,
+  riders, ghast drops) follow [the vanilla rules](docs/reference/entity-shadows.md).
+- Rigged casters follow the actor frame's drawn bodies. Incomplete parity: sign shadows are not
+  drawn; the breathing point, item and local volume culling and
+  camera-inside behaviour are provisional. Native side-by-side
+  comparison is pending.
+
+## Configured inventory hotbar swaps
+
+- User-requested inventory shortcut: the configured hotbar key swaps the hovered cell directly with that hotbar slot.
+- Keyboard and mouse remaps share gameplay's saved bindings; replaced number keys no longer perform swaps.
+- Local prediction updates both cells immediately without an inventory transition animation or a server round trip.
+- Focused text fields retain input ownership. Installed Windows input acceptance is pending.
+
+## Read-back terrain occlusion on direct-draw devices
+
+- Metal (any direct-draw device with compute) never draws indirectly. While the view holds
+  still and a verdict could change, solid terrain draws in its own pass ahead of other opaque
+  draws; a Hi-Z of that depth tests every resident slot and the occluded bits come back
+  through a small readback ring that drops frames rather than wait. Opaque streams of a slot
+  are skipped once two consecutive verdicts agree under the same eye, orientation,
+  projection, viewport, depth size and geometry; any translation or turn (the near plane swings and can
+  clip a near occluder), sub-chunk removal or replacement, cave or tint change voids them.
+  `RUST_MCBE_CPU_CULLING=1` turns it off.
+- Offscreen tests: kernel bits match a CPU Hi-Z reference; replayed paths (flick, strafe past
+  a pillar, wall edit, a turn that clips a wall just beyond the near plane) never skip a
+  sub-chunk that shows pixels while a stale-verdict policy does; the walled scene stops
+  submitting what it hides.
+- Incomplete live visual acceptance: an in-game pass on the M3 Pro (no pop-in, no wrongly
+  hidden terrain) and live `gpu_opaque` and render CPU stage captures are pending.
+
+## Bounded lighting CPU work
+
+- Retained-support early exits and section packing preserve light/provenance output;
+  [remote CPU evidence](docs/evidence/lighting-cpu-work.md) records workload, allocation
+  and queue measurements alongside independent regression oracles.
+- Incomplete: these synthetic solver diagnostics do not close native vanilla parity,
+  release frame, join or streaming gates; target-hardware captures remain required.
+
+## Headless chunk cost baselines
+
+- Criterion exercises production palette/column decode, light solves, cube/biome
+  meshing, bounded ingress-to-CPU-publication bursts, idle polls and metadata scans.
+- Fixtures validate decoded cells, lighting, exposed faces and drained stream state.
+  Benchmark fixtures run on the pinned toolchain without local carriers.
+- The largest fixture stores 871 sections in 218 target columns, with preloaded
+  implicit-air neighbours. It is synthetic, not a replay of the reported FPS drop.
+- Initial Windows/i9-14900HX baseline: pinned Rust, optimized bench profile, 100 samples
+  per case. Burst point estimates for 4/16/64/871 stored sections are
+  14.53/19.24/35.82/257.54 ms; the 871 estimate interval is 253.87–261.76 ms.
+  Radius-16 metadata scan is 1.33 ms; mixed cube mesh is 0.50 ms; full light solves
+  are 0.40–0.48 ms. Local Criterion data is saved as `chunks` under `target/criterion/`.
+- Moving-FPS fixes on top of incremental cave visibility and column residency: trailing-row
+  eviction finds tracked columns one key per column, retires mesh records by key, and dirties
+  neighbours per column, so its cost follows the retired edge rather than the view. The
+  per-frame world-stream allocation is half the display interval, between 1 and 3 ms, so a
+  streaming backlog cannot halve high refresh rates. Chunk uploads merge abutting arena
+  writes into one staged write per run. The F3 overlay keeps its bindings and layout and
+  rebinds only changed lines.
+- Light/mesh job inputs retain immutable section/column handles without allocation;
+  light workers reuse scratch and dispatches publish in batches. Snapshot benchmarks and
+  in-flight edit tests cover capture cost, unchanged payloads and stale-result rejection.
+- Incomplete: sustained high-refresh release streaming throughput is unverified; whole-frame
+  UI rebuilds on any change remain. Cave camera crossings reuse reached exits after a bounded
+  exact proof; streamed additions survive journal rollover. Destructive graph changes and inconclusive proofs still rebuild synchronously.
+  No parity or performance gate is claimed; commands and boundaries are in the README.
+
+## GPU terrain culling with Hi-Z occlusion
+
+- On Vulkan/DX12 with native multi-draw-indirect-count, opaque terrain (solid runs, cutout,
+  models, depth-writing liquid) is culled by a compute pass over persistent per-slot records:
+  frustum, cave visibility, facing runs and a two-phase depth-pyramid test, drawn from
+  compacted slot-ordered args. Metal reads occlusion back instead (above); GL and probe
+  frames keep the CPU path.
+- Offscreen GPU tests match Bevy's visible sets, the CPU reference args, a conservative Hi-Z
+  against rendered ids, and the CPU path's pixels from a stale history.
+- Incomplete live visual acceptance: a rendered-frame pass on Vulkan and DX12 is pending,
+  as is a GPU pass-time measurement once per-pass timestamps land.
+
+## Menu frame passes and retained memory
+
+- The HUD composites after FXAA, inside the output pass; FXAA is off with no world drawn.
+- The panorama draws opaque in the main pass; a static menu frame is two fullscreen passes.
+- Font pages are coverage bytes on CPU and GPU; the transparent ref buffer grows on demand;
+  JSON-UI caches evict least recently used entries.
+- Incomplete visual acceptance: a rendered menu and HUD frame (text sharpness, panorama,
+  crosshair, screen overlays) on the target platform is pending.
+
+## Solid terrain back-face culling
+
+- Single-sided opaque cube quads draw in per-face runs with back-face culling and no
+  fragment discard; only runs that can face the camera are submitted. Alpha-tested and
+  two-sided quads keep the cull-none discard pipeline.
+- An offscreen GPU test matches the culled path pixel-for-pixel against the discard path.
+- Incomplete live visual acceptance: a rendered-frame pass on the target platforms is pending.
+
+## Held cube item consistency
+
+- Cube admission now ignores unrelated gameplay flags and terrain occlusion.
+- Authored carried faces fall back to ordinary pack faces; transparent cube templates
+  and cutout/blended sheets retain block geometry in both hands.
+- First-person material modes preserve ice blending and cutout holes.
+- Regressions reproduce the previous gameplay-flag, alpha and missing-sheet failures.
+- Rebuilt macOS/Metal frames show cube geometry; the user confirmed the live fix.
+- Non-cube, animated and high-resolution carried geometry parity remains open.
+- Vanilla rules: [held block items](docs/reference/held-block-items.md).
+
+## Flower-pot floor and lily-pad atlas tint
+
+- Flower pots now add the dirt surface four pixels above the block base, below the rim.
+- The pot body remains provisional fallback geometry; full current-version visual parity is incomplete.
+- Literal lily-pad atlas tint survives raster-only resource-pack replacement. A higher catalog can replace or clear it.
+- The current vanilla pack supplies a fixed green atlas multiplier, rather than biome tint.
+- Regression tests reproduce the missing floor and ignored pack tint. Installed Windows visual acceptance is pending.
+
+## Java-style Tab player list
+
+- User-requested HUD extension: hold Tab for the authoritative online roster.
+- Compact centered columns, bounded to 80 players with an explicit overflow count.
+- Roster changes refresh cached JSON-UI; Tab release, focus loss and menus hide it.
+- Input, rendered collection, focus/release, roster refresh and cache tests passed.
+- Incomplete live Windows acceptance: installed-client Tab capture pending.
+
+## Barrier selection visibility
+
+- User-requested correction: suppress barrier highlights/outlines outside Creative.
+- Preserve barrier collision, picking and normal block selection in both ID spaces.
+- Incomplete native parity: selection eligibility inspected; remaining comparison
+  service unavailable. Windows rendered barrier acceptance pending.
+
+## Always Sprint keyboard/mouse extension
+
+- Optional custom setting, off by default, persisted with the existing settings registry.
+- Forward movement requests normal sprint; sneak, hunger and other restrictions still apply.
+- Auth-input sprint flags remain derived from the completed physics state.
+- Windows official install: Keyboard & Mouse rendered at a 1280×720 client area; label and toggle are legible, aligned and unclipped. Enabled preference persisted during user interaction. Live user movement acceptance remains pending.
+
+## VSync video toggle
+
+- User-requested deviation: retail vanilla has no VSync menu control (it persists `gfx_vsync`,
+  default on; the three-way `vsync_dropdown` exists only in the non-publish Debug section).
+- Toggle follows Max Framerate in the advanced video options, labelled `options.vsync`, default
+  on, persisted with the settings registry and applied live.
+- On keeps the automatic present-mode policy and its DX12 remedy; off requests AutoNoVsync
+  (Immediate, else Mailbox). `--vsync`, `--no-vsync` and evidence runs pin the session and show
+  the toggle locked to that state. Incomplete: rendered Video-screen acceptance pending.
+
+## Unfilled sub-chunk slots light as air
+
+- Probable cause of reported dark corners on distant stepped terrain: a requested sub-chunk
+  whose retries ended without data stayed unknown, so the column below lost its sky light.
+- Vanilla leaves such a slot empty and lights it as air; the slot is now known air, and a
+  column settled this way no longer blocks its neighbours' first light.
+- Streaming terrace regressions cover both. Incomplete live visual acceptance: a rendered
+  far-terrain frame is pending, as is a check against the open Lifeboat zero-skylight trace.
+
 # Rust Bedrock Client (Bevy + Go Core) — Master Implementation Plan
+
+2026-10-05 falling blocks and beds follow-up — **User-accepted local build**:
+
+- Synchronized source/landing updates retain signed actor identity and notification
+  flags, respect cached-column ordering, and fence visibility on mesh publication.
+  Source removal and landing placement now work in the actual BDS client.
+- Falling light skips matching opaque block types instead of sampling their dark
+  interiors. The bed foot uses the authored vertical texture orientation; all
+  sixteen item dyes retain distinct atlas sprites despite sharing a placed block.
+- Focused regressions failed before each correction and now pass. The canonical
+  macOS/Metal client and carriers were rebuilt; the user accepts bed appearance and
+  falling source/landing behavior. Creative, OP and cheats are enabled on BDS.
+- Falling visibility switches in the same render frame as source removal and
+  landing placement; first appearances queue from the current scene. Twenty
+  focused handoff regressions pass, and the rebuilt macOS/Metal BDS client received
+  the user's in-game acceptance. Full local falling gravity, collision and drag
+  parity remains incomplete; existing wire interpolation stays.
+
+2026-10-05 integration — **User approved landing; latest dev synchronized**:
+the user accepts the final portal, End, bed and falling-block behavior. All nineteen
+affected Rust crates compile with tests; formatting, architecture and targeted
+registry checks pass. The full PR CI matrix gates landing. Remaining parity
+qualifications below stay open; this acceptance does not establish the release
+frame-budget or identical-version pixel gates.
+
+2026-10-04 End test v22 follow-up — **Local test build ready, uncommitted/unpushed**:
+
+- XP colour samples current lifetime and partial ticks, including culled actors and
+  animation-budget starvation. Wire interpolation duration and completion flags now
+  survive normalization; a bounded queued target preserves completion ordering.
+  The client-world suite passed 298 tests with eight existing ignores; all three
+  subsequent installed-orb colour regressions passed after the final lifetime fix.
+- Sprite rigs sample the current camera between ticks and retain independently
+  authored opposing faces. Four Metal sidedness regressions passed; fresh snowball,
+  pearl and XP frames at exact upward/downward pitch show complete sprites.
+- Beds compile the pinned authored model and render once from the head block with
+  both halves' light. Six bed tests passed. Fresh Metal red/white galleries and the
+  actual BDS platform show a mattress, pillow, blanket and wooden legs.
+- Falling blocks retain variant metadata, full block geometry and packet-centred
+  placement, including stepped dragon eggs. Spawn and movement no longer disagree
+  by half a block. Egg, sand and gravel Metal galleries use the production mesh.
+- Credits include separated file sections and refresh the current local player's
+  name. Fifteen credits tests and the committed identity regression passed. Fresh
+  JSON-UI Metal frames show logo spacing, name substitution and input-revealed Skip.
+  Skip already followed the native input/reveal timeout; it was not made permanent.
+- Missing biome samples above the Nether height use the dimension's fallback biome.
+  A failing-before regression now passes, and the actual client above the BDS roof
+  retains Nether fog without blue sky or clouds.
+- Boss UI dispatch waits for its authoritative actor before acknowledging the
+  server subscription, and local actor loss retires the bar without a synthetic
+  wire Hide reply. Seventeen committed-UI regressions pass. A live timing failure
+  exposed the missing admission gate. Fresh BDS acceptance confirms a full-health
+  End bar with its matching dragon actor and no bar after returning to the Overworld.
+- The canonical dev client and required carriers were rebuilt. Formatting,
+  architecture and diff checks passed. The owned BDS test world was backed up and
+  reset on its original seed, then restored with portals, Creative, OP and cheats.
+  The live End has a full-health dragon; the persistent client is back at the
+  Overworld test platform for user testing.
+
+Incomplete parity gates: live moving-XP and full credits return/input acceptance;
+the native ForceMove distance/destination-column gate; coupled falling-block
+gravity, collision, drag and lighting; independent current-version confirmation of
+the numerical credits section gap and all bed directions. The credits gap retains
+the identified older reference value with current section construction verified.
+No frame-budget or full-workspace verification claim is made by this local build.
+
+2026-10-04 F5 head flick correction — **Incomplete visual/native acceptance**:
+first-person and third-person pose histories are separated at the view switch.
+A local-only pose refresh handles frames without a tick, preserves simulation
+and animation time, and invalidates bone conversion caches. Two synthetic
+regressions cover tick and between-tick switches; Windows verification is pending.
+
+2026-10-04 user-requested custom emotes — **Incomplete native/Lunar parity**:
+the native four-slot JSON-UI wheel and remappable emote control select an original,
+local-only Twerk dance with a faster user-requested loop. The owned clip preserves skin
+hierarchy and clothing; render-time body and player-preview sampling leave the
+native first-person hand and remote actor animations intact. Slot preferences
+persist through Change Emotes, and gameplay input cancels playback. Identified
+native references, the public product visual reference, and remaining parity
+limits are recorded in [docs/reference/emote-wheel.md](docs/reference/emote-wheel.md).
+Exact Lunar keyframes/assets and full native animation parity are not verified.
+The revised clip follows the reference video's deeper squat and hip pulse,
+retargets both native and independent skin joints, and anchors foot centers.
+The pelvis rocks under steady shoulders/head, avoiding a whole-body jumping
+pulse; stance compensation keeps foot centers fixed on all three axes.
+The user rejected that first steady-head revision as still looking like a crouch.
+The next local revision increases the hip thrust, reduces the base torso lean,
+adds alternating torso twist and brings the hands closer to the thighs. It
+retains rigid legs on unsupported custom models. The latest local revision adds
+temporary thigh/shin joints to classic cuboid skins only during playback, crops
+their existing UVs, and bends the knees with a planted-foot two-segment solve.
+Stopping playback restores the original mesh/pose; native hand, remote actors
+and simulation skeletons remain unchanged. Eleven animation tests pass;
+exact Lunar/native parity remains incomplete.
+The user accepted the installed knee revision; the next local adjustment speeds
+up playback and increases vertical pelvis travel while keeping shoulders/head
+steady and foot centers planted. The user accepted the installed faster motion.
+The accompanying foot correction adds emote-only ankle joints, keeps the entire
+sole level, and anchors all four sole corners rather than only the foot center.
+The user reported an exposed ankle seam. The next local mesh correction embeds
+the ankle inside overlapping, original-textured foot/shin volumes; the timing
+and pelvis motion remain unchanged. The user accepted the installed correction on Windows.
+Focused checks pass: 480 JSON-UI tests, four saved-binding/slot tests, eleven
+animation tests, eleven emote UI tests and twenty-five app emote checks. The
+1280x720 software-rendered wheel/equip frames were inspected for readable text
+and geometry. The user accepted the installed wheel and knee revision; the
+latest ankle-seam correction is user-accepted on Windows. The animation
+revision is being integrated with current dev for the requested direct push.
+Strict affected-package clippy passes. Required affected verification reaches
+the existing ice/water liquid-face test failure after formatting, architecture
+and compilation pass; that meshing regression is outside this change.
+2026-10-04 F3 diagnostics (user-accepted developer feature): the supplied Java
+19w05a screenshot is the requested styling reference. F3 is available by default,
+hidden at startup, and the window title contains only the shared product name.
+JSON-UI draws player/world/movement/render/queue diagnostics and target-state
+rows during gameplay; other screens hide the overlay without resetting F3.
+Coordinates use player feet, including third person. A fixed row budget keeps
+font size stable as values change; text sits one GUI pixel lower in each strip.
+Live data refreshes every frame at the user's request; FPS and frame timing use
+a short aggregation window. Data meanings and styling are documented in
+`docs/reference/f3-debug-overlay.md`; this does not close a Bedrock parity gate.
+The updated client built and joined an isolated offline BDS world on local port
+19132 as DebugTest. The user accepts the rendered follow-up on macOS/Metal at
+2560x1440 physical resolution, DPI 2, GUI scale 5. Before the final cadence change,
+all eight focused JSON-UI overlay tests, formatting and architecture checks passed.
+The user requests latest-dev integration, no further tests and direct publication
+to dev. The final cadence change and integration have no new test-green claim.
+All local test services started for this feature are stopped.
+
+2026-10-04 Lifeboat server forms (compatibility acceptance passed): creation-body
+values, ordered button roles, trailing-close predicates, relative references and
+evaluated grid capacities now follow the native contracts. Descriptions and
+action/header controls render; eight minigame cards fit with the sidebar and
+without extra scroll rows. All 487 JSON-UI tests and the installed server-pack
+layout test pass. A fresh optimized macOS/Metal frame confirms the selector;
+the user tested Lifeboat and accepted the complete result for direct publication.
+See [the form evidence](docs/evidence/lifeboat-forms.md). Broader UI typography and
+performance parity remain open.
+
+2026-10-04 Lifeboat session palette repair (compatibility acceptance passed): a fresh
+join reproduces gray terrain and blocked movement with coherent carriers. The
+remote palette must omit vanilla data-driven definitions absent from StartGame;
+the full carrier admitted 98 extra types and shifted wire air by 1,181 states.
+Session admission now maps wire IDs to stable carrier IDs and converts outgoing
+block interactions back to wire IDs. Inventory, falling-block visuals and block
+sounds resolve retained wire identities at their consumers. Regression coverage
+includes partial/full admission, custom insertion, session replacement and raw
+descriptor preservation. See [the session evidence](docs/evidence/lifeboat-offline.md).
+The optimized macOS/Metal client passed a 300-second lobby run with walking,
+strafing and jumping. A second join opened and answered the Navigator menu,
+completed `/transfer sm3`, walked/jumped in Survival Mode and opened its book
+menu. Neither run disconnected or reported decode errors.
+This does not close broader native timing or rendering parity gates.
+
+2026-10-04 Lifeboat skylight investigation (historical, superseded for this session): the supplied session
+trace confirms zero solved sky light but does not identify the blocked input.
+Offline chunk-pipeline fixtures already produce sky light 15 when inline upper
+slots are omitted, both over empty space and over opaque terrain. Limited and
+limitless request fixtures also pass with all-air, empty-success and
+out-of-bounds replies. These fixtures do not reproduce the reported failure;
+no lighting behavior has been changed and the parity gate remains open.
+The trace's `Air` samples describe the camera's non-liquid medium, not the
+block's identity or light filter. Its sampled stale jobs were rejected because
+their revisions changed. An offline capture of the failing column's packet
+mode, palette and contents, or equivalent block/filter and column-light
+diagnostics, is still needed to distinguish a missing sky source from filtering
+above or at the sampled cells. No public server or account was used.
+2026-10-04 fox rendering checkpoint: the pinned adult fox sample now retains
+the native inherited body and tail cube bind rotations. Vanilla uses hierarchy
+lookup and separate cube-bind transforms; the installed near-version native pack
+supplies the retained angles.
+The repair is restricted by source path, identifier and digest, preserving baby
+geometry, child pivots and custom sources. The corrected entity/actor/equipment
+carriers and fresh Metal client show normal adult red/arctic bodies and tails;
+the user accepts the live standing gallery, with baby foxes retained. Focused
+pinned-source and mesh regressions passed, including a failing-before mesh
+witness. Formatting, architecture and affected compilation passed; the final
+test run was stopped at the user's explicit request to skip further tests and
+push directly to dev. Extended poses/transitions and exact-version native
+side-by-side acceptance remain incomplete. See `docs/reference/fox-rendering.md`.
+
+2026-10-04 portal and End follow-up (in progress, uncommitted): latest
+origin/dev `800fa170f` is integrated, preserving the accepted Nether portal and
+End portal frame/surface fixes. Camera, movement and network behavior follows
+the new crate ownership. The dedicated surface draw now uses the updated packed
+vertex format and retains shared world-light bindings. Client compilation and 33
+post-integration portal regressions pass. Fresh assets include the expanded dragon
+rig and complete animation script. The default client build and compilation without
+acceptance features pass. No task changes are committed or pushed.
+
+The user accepts Nether rendering, particles, overlay, hand rendering and prompt
+travel, plus raised End frame eyes and the layered portal surface. Rules and
+verification limits are in `docs/evidence/nether-portal-native-reference.md` and
+`docs/evidence/end-portal-native-reference.md`. The scoped pre-integration compiler,
+client and block-entity suite passed 269 tests; fresh macOS/Metal frames verified
+frame eyes, empty/filled contrast and animated starfield depth. Fast transfer
+acknowledges the committed flush immediately and releases after decoded collision,
+presented footing and a fresh GPU frame. Exact native loading/cooldown behavior,
+identical-version visual comparisons and release performance remain incomplete.
+
+End sky fog modulation and sixteen repeats per face pass three tests, including
+two GPU regressions. The rebuilt Metal client joins BDS and the user confirms
+the dragon and crystals now appear, while rejecting the wing shape, healing beam
+appearance and clouds in the End. These follow-up corrections are in progress;
+cloud admission now excludes both the End and Nether and clears stale view records;
+six cloud regressions pass. The downloaded dragon's child joint pivots now retain
+their relative frames. Compiler, 48-tick animated hinge and emitted-membrane
+regressions pass after reproducing detached wings before the fix. Entity and actor
+carriers are rebuilt. Isolated Metal inspection covers six views and four flap poses;
+the user identified reversed left-wing cutouts in those frames. The bottom box-face
+V direction is wrong; its source-verified correction and opposing-face alpha checks
+now pass all eighteen geometry regressions. Twenty-four new isolated Metal frames
+confirm matching cutouts above and below both wings. The fresh v18 client compiled
+and joined the saved BDS world; its architecture check passed. Scoped clippy exposed
+an existing horse modulo lint, now replaced with its equivalent integer method;
+the final scoped all-target rerun passes. No publication or identical-version live
+visual acceptance is claimed.
+Healing beams preserve strip-triangle texture interpolation while scrolling;
+three renderer regressions pass. Owner-light publication reproduced its scalar
+fallback mismatch and is corrected; seven publication tests pass. Exact native
+beam AABB light sampling remains incomplete; publication shares body sampling.
+The End still selects the ordinary lightmap, with a darker floor than its dedicated
+formula; the required tint and ramp inputs remain unverified. Exact End lighting
+and healing-beam brightness stay open.
+Expanded neck and tail
+segments, fixed-tick flap/history, full animation-script admission, healing-beam
+selection, death particles, lingering breath clouds and fireball trails pass their
+owner regressions: 249 client-world tests, 185 compiler unit tests and two dragon
+compiler fixtures. App dimension, respawn and loading filters pass 31, eight and
+twelve tests respectively. Normal dragon breath's status-event consumer, native
+wall-contact flap slowdown and exact-version comparisons
+remain incomplete.
+
+The user expands the follow-up to dragon death animation, sounds and End credits,
+and requests the next test launch only after these flows have been checked. The
+fixed-tick death counter, cumulative lift and dragon-specific pose now pass their
+regressions. Authored frame-alpha sampling retains unclamped dissolve multipliers
+without advancing simulation or random state. Material draws preserve the ordered
+depth-mask and equal-depth body passes. The v19 live smoke exposed a missing vertex
+invariance guarantee for the equal-depth pass; its failing-before compiled shader
+contract now passes with all six shader checks. Actual Metal regressions reject solid
+backfaces while retaining both authored membrane faces and their separate lighting.
+The first real death preview exposed a missing fractional-alpha mask: compiler and
+carrier validation now admit it from the shared compiled material contract without
+changing its pixels or borrowing color-mask semantics. Both failing-before artwork
+fixtures pass; the actor artwork suite passes 19 tests, with three existing optional
+fixtures still ignored. Rebuilt actor art and 48 isolated Metal death frames show
+the rising, speckled body and expected final disappearance; 24 refreshed ordinary
+frames preserve complete, matching wing membranes above and below.
+
+Dragon death audio follows the server cue rather than an early local duplicate.
+Fixed-tick synchronized queues retain actor lifetime and dimension fences; a
+failing-before app schedule regression now delivers released audio in the actor
+completion frame exactly once. The actual pinned death sample decodes through the
+production voice, preserving native request-gain clamping before alternative gain.
+Explosion previews use the real carrier, simulation, atlas and Metal shader; their
+sprite frames advance and both effects expire. Exact attenuation, native mixer/DSP
+timing and independent waveform comparison remain incomplete.
+
+ShowCredits decoding, modal input, timed Skip, scroll/fade, session fences and
+backpressured completion pass focused checks. Completion uses the current local
+actor identity. Credits presentation keys caches and hit regions by session and
+sequence. Real Metal frames exposed inherited bundle tooltips and a missing title
+request; strict visibility bindings and the normal bounded artwork path correct
+both. All twelve credits checks pass. Fresh macOS/Metal frames at 1280x720, DPI 2,
+show the runtime Minecraft title, formatted/obfuscated text, wrapping, clipping,
+aligned names and headings, and timed Skip. Credits music retains queued ownership
+and music-only transitions; four scheduler/fade checks pass. Runtime OGG collection
+is corrected and the production voice produces a valid credits excerpt. The pinned
+sample pack lacks credits text and music; private runtime supplementation uses the
+installed near-version pack and stays outside git. Exact-version content and heading
+colors, native audio fade sample timing and live end-return acceptance remain open.
+
+Death-ray geometry and additive composition are implemented and provisional. Some
+geometry constants and material state are verified only for a nearby version;
+version-matched comparison remains incomplete. Frame publication, retirement,
+geometry, normalized fan axes and additive/depth behavior pass focused regressions.
+Fresh production Metal frames show the white/magenta fans, growth and final fade.
+These isolated body, particle, ray, audio and UI witnesses do not replace a live BDS
+death/return sequence or identical-version native acceptance. Final scoped all-target
+lint, formatting, architecture and diff checks pass. The UI renderer suite passes
+50 tests with two existing benchmark ignores; all twelve credits checks pass again
+after integration. The canonical v19 build joined the saved BDS world with Creative,
+OP and cheats confirmed, then closed cleanly for the vertex-invariance correction.
+The final canonical v20 rebuild passes, as do the shader follow-up lint, architecture
+and formatting checks. Its 24 alive and 48 death Metal frames are freshly regenerated
+with the invariant shader. The v20 live client joined the preserved BDS world and
+released loading after terrain presentation; BDS confirms Creative, OP and cheats.
+The equal-depth warning is absent from that live log. The v20 client is now closed
+for the next dev integration and End follow-up build. Nothing is committed or pushed
+for this task.
+
+The v21 follow-up integrates the latest dev fire renderer and rebuilds its carriers.
+The reported persistent explosion route selected a looping effect; scalar huge
+explosions now select the source-identified finite emitter. Actual simulation and
+fresh production Metal frames confirm sprite progression and retirement. Scalar
+snowball impacts now select runtime item fragments, mask the packed particle type,
+honor one fragment per received event, and use the native item spread radius. Four
+particle controls and the app routing regression pass after reproducing the wrong
+explosion, spread and multiplied count. General Molang initialization blocks and
+the broader legacy particle table remain incomplete.
+
+End-return ingress previously excluded ShowCredits in raw cached-session traffic;
+the corrected ingress, completion wire encoding and credits UI checks pass. Boss
+subscription Add/Remove responses are now queued through the session-fenced
+transport, with ordered retry under backpressure. The native server can omit dragon
+removal broadcasts without the Add registration. Removal ignores unused invalid
+presentation fields, and retained HUD removal, reply lifecycle and wire checks pass.
+Live dragon-death, boss removal and exit-portal return acceptance remain open until
+the saved BDS world is exercised with the new client.
+
+Dragon eggs now compile the native eight stepped boxes, rather than an ordinary
+cube, with a failing-before geometry witness and twelve compiler checks passing.
+XP investigation found an extra world half-turn that makes the authored single
+textured face point away from the live camera. The corrected installed-carrier
+regression passes four yaw/pitch headings after reproducing the inverted face.
+XP sprite selection now reads only native Int metadata; its failing-before control
+and the ordinary value-band check pass. Fresh production Metal frames show all
+eleven crisp orb sprites with the actual live camera query. Exact between-tick
+billboard sampling, End lighting, beam AABB light sampling and the previously
+recorded identical-version gates remain open.
+
+The canonical v21 debug build passes, along with focused snowball, explosion,
+credits, boss UI/wire/app/session, orb, portal overlay GPU and shader checks.
+Formatting, architecture and diff checks pass. It is running through a persistent
+Orca terminal in the preserved official BDS world. BDS confirms PortalDimTest is
+Creative and OP with cheats enabled for this live session. A fresh macOS/Metal
+1280x720 gameplay capture shows loaded terrain, the accepted portal/frame art,
+legible HUD and normal hand, with no GPU validation errors in the live log. The
+user's live End death/return and egg appearance checks remain pending. These task
+changes remain uncommitted and unpushed.
+
+The official BDS test world has cheats, OP and creative mode enabled. A private
+loopback UDP relay bypasses stalled Docker Desktop port forwarding for this world;
+other running test services are untouched. Separate server-authored
+WorldCorruption shutdowns remain unresolved, including one without a dimension
+transfer; existing saved worlds are preserved. Four earlier debug transfers
+completed in 1.142, 0.439, 0.829 and 0.369 seconds. These observations and user
+acceptance close the reported slow-travel regression, not whole-client parity.
+
+2026-10-03 current checkpoint (in progress; locally committed, not pushed):
+accumulated work and follow-up fixes are committed through `97dccfb3`, including
+the dev integration through `58141bc6` and its chunk-pipeline and pack-compiler
+ownership split and frame diagnostics. Origin/dev `a1c5880d` is integrated
+with the Profile and Marketplace changes; `d2a51dac` is also integrated.
+The subsequent `8d3ca7c5` update is integrated in `f024d9ec`. Final verification and a fresh post-integration live frame
+remain required. A render binding contract still referenced the old app module
+after its extraction; its assertion now targets the actual render-setup owner.
+The user accepts the rebuilt night snow-layer colour and actor corrections.
+Current snow layers route through ordinary terrain into AO/flat lighting. The real model-fragment Metal regression reproduced
+white snow at 101 versus native 33 before the fix; actual ordinary entry points
+now pass day/night/fog/animation/AO witnesses, and a fresh canonical live frame
+retains dark purple snow and readable terrain. Enhanced is unchanged.
+Players and mobs now use native gamma material order, byte-truncated bilinear
+light-table sampling and vertex-stage posed-normal shading. The actual actor
+fragment GPU witness passes all 36 cases; the canonical client rebuilt and the
+user accepts the live actor correction. FancyOff, dimension shade signs and
+exact pinned native galleries remain separate incomplete gates. For the new
+pale snow-layer edge report, TopSnow uses zero light dampening
+and non-solid shading at every height. Registry regeneration changes exactly
+the 16 snow states and preserves their emission. Native AO now
+drives distinct centre/tangential sample planes; full snow remains geometrically
+occluding but not solid for AO. The mesh regressions and 225 meshing tests pass.
+Ordinary terrain now interpolates light levels before fragment-stage bilinear
+lookup; actual cube/model GPU witnesses fail before and pass after the change.
+The `/15` shader lookup contract is corroborated by installed near-version
+Metal, not a pinned-version shader dump; exact-version parity remains incomplete.
+Actor `/16`, Enhanced and the existing valid-water witness are unchanged.
+The corrected carrier and canonical integrated client rebuilt. A fresh Metal
+shoreline frame at 1280x752 shows coherent snow top/side shading without the
+reported pale bands; the user manually confirms the snow looks perfect.
+This closes the reported edge regression, not exact-version/whole-renderer
+parity. The full verification gate and direct-dev publication remain pending.
+The later isolated bright snow face is reproduced with a covered emitting
+brown mushroom: our all-storage emitter query sets snow's directional shading
+bit, while native AO/flat lighting reads the rendered block’s emission. Cube and model
+lighting now carry the rendered contributor's admission separately from solved
+physical emission. The failing-before regression covers all snow heights,
+both storage orders, both network modes and direct/cached routes. Covered
+mushroom emission and real emitting-surface shading are retained. The canonical
+integrated client rebuilt and the user accepts the live mushroom correction.
+Final integrated checks remain pending; it is not pushed. The previous final
+gate reached clippy and failed on test-only unnecessary Vecs and a duplicate
+dead-code attribute after upstream integration; these are repaired and the
+complete gate still needs its successful final run.
+The new opaque ice/dark shoreline wedge report has a real carrier witness:
+ice was CUTOUT despite source alpha 190/255. Vanilla ice selects
+layer 3, inherited color is RGBA (1,1,1,1), and ordinary cube AO is retained. Reviewed ice/frosted-ice rules now supersede stale fallback
+geometry and alpha metadata; unrelated provisional families are unchanged.
+Real registry identities reproduce wrong CUTOUT and zero transparent mesh faces
+before the fix; compiler and meshing suites now pass. The rebuilt pinned carrier
+has BLEND ice and frosted-ice materials and preserves source alpha. Existing AO,
+transparent depth writes, daytime/nighttime and snow behavior are unchanged.
+Fresh canonical live shoreline acceptance and final integrated checks remain
+open; this does not claim whole-renderer or exact-version gallery parity.
+The user rejects the first ice frame: restoring BLEND alone was insufficient.
+The shipped LREG also incorrectly gave ordinary ice and all four frosted ages
+filter 15. The constructor defaults are filter zero; packed ice
+deliberately remains 15. A shipped-registry shoreline solver witness reproduces
+zero sky inside and below ice before the fix, and now preserves direct sky 15
+and sheltered lateral sky 14. Exactly five light records are regenerated with
+coherent manifest pins, leaving snow, packed/blue ice, texture alpha and AO
+unchanged. The world carrier is rebuilt; fresh client/frame and final integrated
+verification remain pending. This follow-up is not pushed or visually accepted.
+Separate incomplete partial-face parity: vanilla bilinearly evaluates
+AO colour at actual face bounds while assigning light records by full corner
+topology. The current midpoint-based corner selection does not close that gate;
+it is not bundled into this emitter-identity fix.
+The export-test allocator abort has a narrow initialized-cache representation
+fix; its 13 library and nine unchanged export tests, plus ten serial reruns,
+pass. The Go registry suite, vet, Rust light-registry tests and focused render
+CPU/actor GPU suites pass. These are focused results, not the final integrated
+gate. Direct-dev publication is still pending, without a PR or video.
+
+2026-10-03 night/weather integration checkpoint (local, not pushed): ordinary
+ambient admission and separate terrain skyDarken are rebuilt and the app suite
+passes2296 tests,25 ignored. Fresh Metal frames show readable dark canopy/logs,
+neutral gray snow sky and retained clear daytime rendering. A later user frame
+still shows snow-layer faces too bright relative to ordinary cubes; that route
+remains open, so publication is held. The full workspace gate passed formatting,
+architecture and compile, then stopped at jsonui-editor export SIGABRT; it is
+not reported green. Remote dev advanced again to52196199 while tests ran and
+will be integrated before final verification/publication. Both server cycles
+were restored true and the unchanged BDS remains on127.0.0.1:19132. No video.
+
+2026-10-03 final sync and handoff (in progress; local, uncommitted, not pushed):
+remote dev is integrated through `e0349351`, including the newly merged plant
+first-hit/destroy-effects and HUD owning-rig fixes. Local snow/shrub bounds,
+ambient foliage and inherited animal bind metadata remain intact. The user
+confirmed daytime grass and leaves look correct after the alpha-mask repair,
+but the matched nighttime fixture is still too dark: shaded canopy, logs and
+ground lose visible detail. Night lighting remains open and publication is
+held pending its native lightmap input audit and live recheck; daytime
+acceptance does not close the broader exact-version foliage gates below.
+The canonical client and Go core rebuilt successfully after this final sync.
+BDS is running on loopback 19132 with eight slots for manual testing. Fresh
+integrated verification passed formatting, architecture and workspace check;
+the app suite exposed one drag-gesture reset regression (2293 passed, one
+failed, 25 ignored). Fresh presses now cancel stale distribution before slot
+collection; a subsequent app suite passed (2296 passed, 25 ignored), before
+the final night/weather publisher changes and last dev sync. The final gate
+must still be rerun. At the user's explicit request,
+publication will be a direct commit
+to dev, without a PR or recording. Existing local frame/source witnesses and
+the manual acceptance are retained; no Mojang assets enter git.
+
+2026-10-03 nighttime and snow-sky follow-up (in progress; uncommitted, not
+pushed): both native and Rust brightness are 50%. The vanilla caller
+enables the two ambient .96*C+.03 stages in the lightmap; our publisher
+incorrectly left that flag false. Its new publisher regression failed before
+the repair. Native skyDarken also has a distinct
+.2 night floor and +.2 twilight bias, weathered by precipitation fog and
+interpolated thunder. Terrain now receives that separate input; the accepted
+clear-sky/cloud curve is unchanged. Snowy skies now receive the omitted native
+rain admission (current rain>.2) and fog*4 pull toward day-weighted
+.5 gray, before thunder and camera glare. These are the vanilla 1.26.50.26 constants. Current rain stays
+separate from interpolated rain; the CPU view composes the gray target through
+the linear thunder transform before glare, retaining the 128-byte GPU ABI.
+Live BDS time query and Rust extrapolation agreed at daytime18149. A live rebuilt
+night/day/snow comparison and fresh final verification are required. Minor
+native byte-lightmap quantization and fragment lightmap interpolation remain
+independent incomplete parity gates; they are not called fixed by this repair.
+
+2026-10-03 dev integration and grass-side regression (in progress; local,
+uncommitted, not pushed): preserved all local parity work in a recoverable
+snapshot and fast-forwarded to remote dev `7251e86e` (377 commits). Rendering,
+seasonal admission and the live split-gesture fixes are integrated with its
+new render-api/player-runtime/inventory owners. The user confirmed the leaf
+regression fixed but reported olive grass-side dirt. The new gamma cube path
+had dropped the side's alpha tint-mask contract. The atlas overlay and installed near-version 1.26.51.01 opaque RenderChunk Metal use gamma RGB mixing by source alpha and opaque output. The actual GPU
+regression failed before the repair (alpha-zero dirt channel 73 vs 93).
+The shader now masks biome tint without altering leaf lighting/filtering,
+carried/model routes or snowy grass variants. Fresh affected verification
+and canonical live grass/leaf acceptance are required before pushing; the
+older test totals below are pre-sync evidence, not verification of this merge.
+
+### Profile 1.26.50 (incomplete parity acceptance, 2026-10-03)
+
+Profile now has vanilla responsive card/tab geometry, independent scrolling,
+Overview friend/follower and Minecraft achievement summaries, completed achievement
+ordering, and populated Stats. The Go core builds the Xbox statistics and achievement
+requests, persona avatar and featured gallery requests; authored fixtures verify the
+contracts without owner-account requests. Missing values remain unavailable rather
+than invented zeros. Exact references are in `docs/profile-parity.md`.
+
+Full 1:1 parity remains incomplete. Dressing Room has no persona destination or hanger
+icon; screenshot gallery counts and navigation need local gallery persistence;
+followers and achievement detail destinations are missing. Minecraft suggestion order,
+persona achievement rewards and progress are not supplied by the Xbox achievement
+collection and need the additional native metadata path. Offline, privacy and user-not-found
+failures still share a generic error because the feed does not yet preserve their native
+classification. Runtime reference artwork and the exact loading animation require the
+optional OreUI originals directory; normal mode retains diagnostic fallbacks. English
+formatting needs integration with the locale system. Native fixture frames are not matched
+vanilla captures, and no overall visual parity gate is closed. No live server, remote
+machine or owner's authenticated service request was used for verification.
+
+2026-10-04 Profile loading recovery: direct-address and external-socket startup
+now have an account core; Profile opens/refetches independently of Home and
+other catalogs. Missing workers, failed control calls and withheld replies end
+in the existing unavailable/Retry state. Socket fixtures reproduce the old
+stuck state and verify recovery without an owner-account request. The local
+60-second RPC bound is transport protection, not vanilla timing parity.
+Per-request diagnostics report fixed outcomes with rate limits and no account
+material. Native privacy/offline classification and a separate permissions
+facet remain incomplete; see `docs/profile-parity.md` for references.
+
+2026-10-03 Realms add/join: incomplete. The OreUI control has no action because
+the account control surface only lists and connects to existing Realms. Joining
+by invite or code and creating a Realm need a supported backend operation and a
+version-matched native flow reference before the button can perform that work.
+This does not close the Realm management parity gate.
+
+2026-10-03 overlapping crafting ingredients: native parity remains incomplete.
+Consume requests now find a complete assignment for recipes the existing matcher
+accepts, including overlapping tags and specific items. Ordinary and craft-all
+requests are covered by regressions. The exact native assignment order for custom
+overlapping ingredients still needs a vanilla client controller reference;
+this fix does not close the crafting parity gate.
+
+2026-10-03 leaf density, atmosphere and daylight-clock audit (in progress;
+local, uncommitted, not pushed): current vanilla leaf blocks and
+non-seasonal leaves select an opaque deep layer from the six primary
+neighbours, while outer fancy leaves remain two-sided cutouts. Shared planes
+follow current occluder. Generated world-only selectors retain covered,
+exposed, deep and outer leaves without changing inventory art; world carrier
+version 12 rejects former selectors/mips and missing leaf face metadata. Native world palette channels
+are doubled without clamping (installed near-version RenderChunk Metal), unlike
+the particle consumer. The seasonal GPU palette now preserves extended
+float values. World-only UNORM views preserve native gamma-space filtering,
+without another allocation/upload or changing carried/nonleaf SRGB sampling.
+Vanilla atlas mip generation uses
+direct byte-space box averages from the original image at every mip, without
+premultiplication or coverage correction. The former mip producer weakened
+fully covered alpha255 to170; in the audited spruce bilinear footprint it
+reduced cutoff coverage from native79% to21%. Separate/deduplicated world leaf
+layers now preserve native mips and clone animation timelines, with original
+shared/carried bytes unchanged and all page/timeline bounds enforced. Four CPU,
+four compiler and two real GPU sampling regressions pass. Installed near-version
+1.26.51.01 RenderChunk Metal corroborates cutoff.5 and the gamma palette/output;
+active A2C/MSAA and broader cached-solid occluder equivalence remain open.
+Server-pack replacement leaves still use the shared old mip producer in
+block_overlay.rs; that independent route is incomplete. The MCBEAS12 canonical
+rebuild has now been compared live against installed near-version vanilla at two
+fixed angles of the reported spruce fixture; exact-version foliage parity stays
+open, independently of this regression check.
+
+The user's latest matched spruce views also identified missing shading, face
+orientation and sampler contracts. Vanilla shade brightness
+assigns primary leaves/emitting blocks .2 independently of cached solid occlusion.
+Vanilla ambient occlusion averages outward/side/diagonal shade and raises
+average*face-coefficient to the authored exponent before vertex interpolation;
+solid side tests alone decide the diagonal fallback. Direct/cached lighting
+regressions and all 134 mesh tests pass with leaf shade admission. Current cube tessellation reverses opposing face U axes, Down V, and applies pack-authored
+isotropic rotations with wrapping world coordinates. The compiler now carries
+per-face isotropic flags and AO exponents (pinned spruce .80); carried choices
+remain unchanged. Unsupported custom exponents fail explicitly rather than
+silently quantizing; arbitrary custom exponent support remains incomplete.
+Leaf quads stay block-local to preserve rotations and clamped texture edges.
+The atlas binding uses Dragon 0x155; conversion to the native D3D sampler selects nearest min/mag, linear mip and clamp UVW. The
+leaf-only sampler reuses the existing UNORM views with no texture allocation.
+Ordinary cube lighting also now follows the native gamma product: exact atlas
+creation/upload and installed near-version opaque RenderChunk
+Metal corroborate that this is not a leaf-only exception. Ordinary cube input
+is converted back from the retained sRGB sampler before lighting; carried,
+model, actor, UI and enhanced routes remain untouched. Broader nonleaf atlas
+mip/filter parity and fragment lightmap-UV interpolation remain incomplete.
+Integrated native sampler/colour/UV GPU and shader-isolation tests pass. The
+canonical debug client and assets were rebuilt and restarted; fresh unpaused
+Mac/Metal frames at two authoritative matching cameras show the backing log now
+dark, with coherent canopy shading/orientation and substantially closer density.
+Evidence is local in `.local/dev/leaf-native-v12-acceptance.md`; different window
+aspects and installed native 1.26.51.01 are recorded, not called pixel-identical
+or version-exact acceptance. Server time/weather cycles have been restored.
+The full verification rerun caught an exact-float assertion in the falling-leaf
+white-colour test (one ULP below one after sRGB transfer); it now checks the
+clamp and one-ULP bound without changing production colour code. The subsequent
+app suite passed (2280 tests, 23 ignored); the remaining workspace and doc-tests
+passed separately (4502 tests, 67 ignored, exit 0). Full verify-affected returned
+exit 1 for the protocol offline transfer harness's transient ConnectionClosed;
+both immediate exact-test reruns passed without a protocol implementation change.
+Formatting and architecture rechecks passed. Final workspace/all-target clippy
+with -D warnings and the last GPU filtering/plugin test rerun passed (exit 0),
+as did the canonical client rebuild after lint-only cleanup. Broad foliage
+density/colour gates stay open.
+
+The first sky slice follows vanilla's
+Y256/radius2000 decagon fan, the orbital builder's fixed UV basis and
+28.08/18.924-degree sun/moon diameters, renderSunAndMoon's sampled
+alpha/rain scaling, and installed Stars' blend. Real GPU tests cover these
+contracts. Star brightness uses the native trig lookup and weather-before-clamp order. Current getSunIntensity and the
+camera callers establish narrow camera-alignment glare (.9 threshold), broad
+fog/sunrise alignment (.35), full-precision trig and independent weather-fog
+attenuation. Sky/cloud colour subtract narrow glare*.2, not rain*.2. Air fog
+uses the separate precipitation-lattice accumulator, fullcosf day brightness,
+RG.94+.06 / B.91+.09 night floors and broad sunrise blend, without a guessed
+thunder tint. The WeatherRenderer accumulator starts at zero, updates previousRain*.5 across27 admitting biome cells, clamps
+sum*.2 then smooths .99/.01 at20Hz. Unknown climates are skipped;
+mixed rain/snow float addition order and custom-dimension weather admission
+remain incomplete. Camera-local ambient exposure/collector remains incomplete.
+Classic cloud tessellation now follows vanilla's finite64-cell window,
+per-texel RGBA, outward face winding and native back-face culling. Vanilla uses RGB-only writes and strict reverse-Z Greater.
+Fancy selects alpha blend/depth-write off.
+Current preRenderParameters supplies distance coefficient1; camera adjustment subtracts its piecewise margin (256blocks ->240), minimum40. Classic
+DistanceControl reads that scalar unchanged, not quality*3. Conditional platform
+caps remain an admission gap. Eight real GPU/cloud contract tests and ten
+cloud-config tests pass. Exact gamma render-target blending for clouds/stars and
+live matched-view acceptance remain open. LevelRenderer's local cloud clock is separate from named
+daylight and starts at zero. Session
+recreation mapping and bounded stall catch-up remain provisional.
+
+SyncWorldClocks is decoded and admitted using its generated packet ID, then
+published in FIFO row order. Native clock registration and lookup use the pre-registered hashed Overworld identity; names
+cannot redirect it. Signed time, independent pause and equal-integer updates
+are retained. StartGame elapsed world age is no longer used as daylight:
+vanilla stores it separately from registry clock state. Five protocol
+and 39 app environment tests pass after the canonical-ID fix, including local
+renderer-clock independence. Native client simulation tick/pause/stall cadence,
+cycle-disabled bootstrap linkage remain open. The canonical offline BDS run
+and user testing confirmed clock updates; diagnostics retain the named clock
+anchor, including doDaylightCycle=false, independently of local cloud motion.
+
+2026-10-02 creative inventory disconnect follow-up (test-green; local,
+uncommitted): synced remote `dev` at `f3dbc76a` while preserving the local
+rendering/BDS changes. The failed session ended on a remote NetherNet channel
+close, not a Rust panic. Vanilla's creative
+item-creation request and its result action declare the
+selected catalog prototype before transferring a full stack. Our creative path
+sent an empty result list. Two regressions failed against that implementation;
+the request now retains the catalog item's identity, count, aux, block runtime
+id and user data. The user confirmed the crash is gone; the rebuilt offline BDS
+session logged Accepted creative takes, placements and gathers. This does not
+close general creative-inventory parity; final integrated verification remains open.
+
+2026-10-02 incremental inventory dragging, spawn eggs and baby polar bears
+(in progress; local, uncommitted, not pushed): primary/secondary drags now apply
+and rebalance each newly visited cell before release, preserving destination
+baselines and chaining pending request IDs. This matches vanilla’s incremental split behaviour.
+The before-fix pointer regression failed; 215 inventory-focused tests then passed.
+Spawn eggs resolve actor spawn_egg declarations to item routes; all 86 pinned
+retail eggs passed the in-memory compiled-icon lookup. Legacy controller aliases
+are lowered to controller__<alias> by upgrade_v1_8_to_v1_10, preventing an adult move clip bypassing the pinned polar-bear
+!query.is_baby gate. Three roots tests, 33 entity integration tests and the real
+pinned polar regression passed. Canonical carriers/client and held-button/live
+visual acceptance remain open. Modern stair corner/raw-direction handling and
+snowy-leaf conditions/falling-leaf particles are additional in-progress gates.
+
+2026-10-02 follow-up inventory/rendering regressions (local, uncommitted,
+not pushed): BDS accepted the first two drag slots, then rejected a third-slot
+request with status 50: its second Place named the first donor's positive ID as
+the new destination ID. Vanilla `_transfer` opens/closes an
+individual item-stack request scope when no outer scope is active; split
+handling has no outer scope. Rebalancing now stages one request per transfer,
+binding the next transfer to the prior sparse-cell request ID. Whole-hover
+admission is atomic on queue/identity failure. Retained cursor remainder excludes
+items added from outside the gesture; failed or interrupted drags are cancelled.
+Native container canSet restrictions and contribution correction/clamping remain
+incomplete. On 2026-10-03 the user tested the canonical build and confirmed
+multi-slot splitting works. The same offline BDS session recorded 199 Accepted
+inventory responses, with no rejected response during that test. This closes the
+reported multi-slot regression, not the broader container parity gates.
+
+Trader llama adult rasters were rejected for fractional alpha and native three
+samplers were incorrectly drawn independently. Content-pinned material policy
+and one GPU three-sampler draw now implement the native RGB mixes; exact pinned
+controller/texture witnesses and installed 1.26.51 material/shader (near-version)
+are distinguished. Pinned adult/baby x four variants, raster admission and shader
+validation pass; live geometry/depth/material acceptance remains open. Snow-top
+crack/highlight bias now follows model winding, and stair overlays use resolved
+variant rotation. Current Bush and DeadBush bounds have focused tests.
+Native stair wire outlines intentionally remain full cubes. Fence/gate outline
+height, plant random-offset and cutout-highlight parity remain incomplete.
+
+2026-10-03 animal/foliage follow-up (local, uncommitted, not pushed): native
+same-identifier geometry history retains the llama body's older cube-only +90 X
+bind when the modern downloaded sample omits it. Geometry loading uses missing-field fallback and inherits older definitions;
+the exact current bones-parser behaviour remains unconfirmed. The repair is source-digest pinned,
+does not rotate the bone or its children, and preserves custom/explicit binds.
+Pinned sample and torso bounds regressions pass. The canonical debug build includes rebuilt carriers; the user confirmed llamas and polar bears now render
+correctly. The pinned baby-bear runtime test confirms its separate model, body
+rest pose and adult-animation gate. This closes those reported regressions, not
+general animal parity. The newly reported missing wolf tail is caused by absent
+`query.tail_angle`, not missing geometry. Its local implementation follows the
+vanilla wolf tail-angle behaviour: angry overrides tame,
+otherwise tame health fraction or the wild angle, in radians without frame
+interpolation. Four focused query tests and one pinned-carrier full-pose test
+pass (wild, tame/full and half health, angry and baby). This fix is not yet in
+the running build and its live rendering gate remains open. Missing/invalid
+tame HEALTH and custom actor identifiers use a finite conservative fallback;
+those incomplete inputs do not establish broader native query parity.
+
+2026-10-02 snowy leaves/ambient foliage (in progress; local, uncommitted,
+not pushed): current vanilla seasonal palette generation and native
+foliage policy route covered/exposed species cells separately. World leaf
+materials now retain that distinction without changing carried leaf art. Live
+biome data carries snow_foliage and optional maximum snow accumulation; invalid
+optional maxima are counted/skipped, not fatal. Palette snow blending and
+half-intensity RGBA8 quantization follow the native consumer. Full-height
+shelter snapshots and lower-column invalidation are bounded by resident world
+data; TopSnow delegates a non-air extra layer's replaceability before testing
+its own layer height, while uncovered eight-layer snow shelters. Shared tests
+cover uniform/mixed primary and extra storage, cross-section shelters and carried
+leaf isolation. This gate is
+INCOMPLETE: the current eligibility uses base biome temperature, not the native
+altitude/regional noise and generator/version-dependent threshold; general
+replaceable-block coverage beyond the identified native ground plants
+and liquids is not complete. The user confirmed native leaves gradually whiten
+as weather changes. The vanilla client row update’s weather-driven accumulation/melt and native previous/current rain tick
+samples are implemented and test-green, but not yet running. Palette-only GPU
+refresh keeps dense biome IDs and mesh identity unchanged. Built-in Overworld
+weather admission is constructor-backed; custom dimension admission, climate-row
+deduplication/cap handling and the renderer's lifetime across reconnects remain
+incomplete. Positional climate is a separate eligibility gate, not an input to
+this native row-update formula. Registry/dimension changes preserve the clock;
+fresh-session clock reset is provisional until native renderer recreation is proved.
+Vanilla leaf ambient particle sampling, independent fixed-tick
+cadence and cached biome-tinted emission are in the canonical build above and
+passed 18 focused tests; live visibility is still open. Specialized leaf families
+and broader block animate-tick callbacks remain incomplete. Falling-leaf parity
+is not closed by seasonal palette tests. A read-only emission audit corroborated
+manual position plus authored shape,
+so the current caller's block-center and pinned shape offsets were not changed.
+Opt-in bounded DEBUG admission counters distinguish samples, eligible leaves,
+roll hits, below-material admission, returned emitter IDs and a lower bound on
+actual particle-count increases. Their instrumented adaptive-sampler workload
+is diagnostic evidence, not an uninstrumented performance/parity witness.
+
+2026-10-04 horse rendering: vanilla compilation now selects the greatest compatible
+client-entity minimum before rig/artwork binding, instead of filename order. The
+pinned adult and foal models preserve their neck, head and hip transforms and
+saddle/rein visibility. Horse rearing, grazing, mouth and tail variables now read
+their native tick/state inputs. Regression fixtures reproduced the obsolete-model
+and missing-rearing failures, then passed with the rebuilt carrier and runtime.
+Metal gallery frames show connected adults/foals and correct tack; the user accepted
+horses and pigs. Pig hips match the authored model, including its slight rear-leg
+overhang. Full native render-time sampling, the complete horse state product,
+session-pack version selection and equal-minimum merging remain incomplete; this
+closes the reported model defect, not the broad animal parity gate. See
+`docs/reference/horse-rendering.md` for the vanilla rules and supported scope.
+
+2026-10-03 Enhanced rendering: hard-disabled after macOS GPU page faults and a
+WindowServer watchdog panic. The fixed renderer switch blocks plugin setup,
+Enhanced shader specialization and effect passes. The toggle is hidden, and saved
+settings, environment and CLI requests resolve to Vanilla. The GPU fault remains
+unresolved; Enhanced visual and performance gates remain incomplete.
+The disable was inspected on macOS 26.5.1/Metal at 2560x1440 content pixels
+(Retina 2x, automatic GUI scale), using the rebuilt client and a saved Enhanced
+preference. Home and Video settings remained legible with normal geometry,
+clipping, layering and colours; the Enhanced control was absent. Settings clicks,
+scrolling, hover focus and Escape navigation worked. This checks the disable,
+not gameplay performance or the unresolved GPU fault.
+
+2026-10-02 native comparison follow-up (in progress; local and uncommitted,
+not pushed): both real Minecraft and Rust now join the same offline official BDS
+world through NetherNet, with the conventional loopback endpoint retained.
+Rust's production LAN route uses advertised offline admission and the server
+nonce; actual Minecraft Login/spawn passes. Anonymous HTTP still correctly
+fails server identity policy. The user confirmed thin-block picking, covered
+vegetation and the earlier snow fixes, but reported missing seed sprites,
+ordinary grass sides under snow, detached pig bodies and flashing lake water.
+The seed crosswalk now records four explicit components from the installed
+iOS 1.26.51 item archive; vanilla loads component icons
+during item client initialization. This is labeled a near-version asset witness, not an
+exact-version executable gate. Seed sprite/carrier tests pass. Missing cube
+pivots now use the uninflated box center in both entity and skin parsing, matching
+vanilla geometry parsing and the official schema; real pig/cow/sheep model tests
+pass. Rebuilt carriers and live Metal/Retina frames show seeds in the inventory,
+hotbar and hand, connected cold pig/cow bodies, and snowy grass sides. Vanilla
+grass selects the alternate side for TopSnow,
+Snow and PowderSnow directly above; per-coordinate greedy merging and upper
+sub-chunk invalidation retain that choice. Server-pack alternate remapping and
+the complete animal/state product remain incomplete.
+Water fixes distinguish transparent full-cube liquid obstacles from air samples and retain native terrain
+depth writes/RGB-only writes (with the installed 1.26.51 material as a near-version witness). A real frame-order hazard
+was also found: Queue captured old water partitions before PrepareResources
+replaced their snapshot. Geometry and both sort publications now precede Queue;
+the production schedule regression checks deferred allocations and four changing
+partitions through draw. The integrated lake regression now passes actual
+sideways movement and several corrected camera angles on official BDS: ordinary
+ice and water retain their surfaces, with zero address/reference/segment-budget
+fallbacks in the mixed-order diagnostics. Final-build input/captures also verify
+seed icons through inventory close/reopen, and a controlled plain-grass -> snow
+-> plain-grass fixture verifies both sides of the live material update. Standalone Go tests, vet and the actual Rust
+offline-core login harness pass after recording an already-pinned transitive
+dependency in core's own module files; no dependency version changed. The latest
+water-integrated build passes the complete Rust workspace suite (including
+required native Enhanced GPU tests), strict all-target Clippy, formatting and
+architecture. This same live build completed ten minutes of advancing Metal frames without a new GPU
+report; this is smoke evidence, not permanent stability or performance acceptance.
+The broader animal gallery found sheep rejected by the binary-alpha actor-art
+filter: their native low-alpha dye-mask texels are not opacity. The content-pinned
+native mask route now passes focused tests, the complete integrated workspace,
+strict Clippy, architecture and the actual rebuilt-carrier page regression. Live
+baby faces are visible, but the user caught a still-missing adult face before
+visual acceptance: the legacy wool geometry's derived head replaces rather than
+appends the sheared base head's cubes. Vanilla geometry parsing appends cubes unless reset is authored. The shared inherited-cube
+merge fix and adult face/snout live acceptance remain in progress. Native sheep
+dye palette, complete gamma/lighting/overlay order and arbitrary RGBA zero-sentinel
+handling remain incomplete.
+The creeper drew blue: one alpha-8 texel outside every face of `creeper.png` failed
+the binary-alpha actor-art filter, and the body route then fell through to the
+`query.is_powered` armor overlay's `creeper_armor.png`. Fractional alpha is now
+rejected only on texels a drawing geometry can point-sample (scrolling `uv_anim`
+layers count every texel), unsampled ones are cleared, and the body route takes
+only the first unconditional controller's art. The pinned pack now binds the
+creeper and admits two NPC skins; blaze, spider, cave spider, enderman and drowned
+still fall back because sampled texels carry unverified fractional-alpha material
+semantics. Live visual acceptance of the creeper is pending.
+
+Ordinary terrain-blend model/water faces now share the current native perspective
+metric; ordinary Ice and water use
+layer 3. A per-chunk combined draw
+planner retains exact uploaded model-order witnesses, including candidate-arena
+entity remapping, and indexes the committed water snapshot. It emits contiguous
+runs without per-face phase items or a shader fork. Safety policy limits new CPU
+planning to the existing per-frame reference count and all mixed draws to 4,096
+segments per frame; the CPU limit is separate from the shared GPU upload budget.
+The exceptional separate-stream fallback remains incomplete. Full native parity
+is not claimed: deferred/enhanced water's separate layer, orthographic ordering,
+reverse-winding distance bias and face culling, native equal-distance enumeration,
+global inter-chunk ordering, complex noncube motion barriers and the complete
+shader/fog/flow-UV contract remain open. The reported moving-camera lake regression
+passes; this does not close these wider parity gates.
+
+2026-10-02 live snow/plant/animal follow-up (in progress; local, uncommitted,
+not pushed): the integrated client was reopened on the existing offline official
+BDS world. The reported fern/short-grass/flower/mushroom diagnostic cubes have
+valid compiled crossed models; the contributor resolver rejected native covered
+TopSnow plus vegetation as conflicting solids. A bounded two-contributor path
+now retains snow occlusion and the plant's own render layer. Vanilla snow layers use terrain tessellation and separate visual bounds.
+Separate vanilla selection bounds now target passable plants and thin snow
+without changing movement collision. Selection random offsets remain incomplete.
+Animal fixes now retain cube-local bind-pose rotations and include native bone
+defaults in Molang `this`. The polar-bear sample omission is repaired only for
+the exact pinned source digest: the installed iOS 1.26.51 archive is a near-version
+asset witness; the transform contract follows current 1.26.50.26 behaviour. The full Rust
+workspace suite (including Enhanced GPU validation), strict all-target Clippy,
+formatting and architecture pass, and required carriers/canonical client were
+rebuilt. An MCBEENT4 bounded preflight regression found during integration is
+fixed and its actual rebuilt carrier round-trip passes. Live frames/input remain
+pending; no visual or stability gate closes. Local BDS now has an explicit
+fixed host-port option for the requested conventional port. HTTP NetherNet
+responds but the actual identityless transport probe is rejected with native
+error 37 despite offline mode; this is not successful offline acceptance. The
+documented LAN signaling path is under investigation, with discovery mapping
+kept on loopback and separated from real Minecraft's occupied discovery port.
+The Rust client remains closed; all changes are uncommitted and the existing
+world is retained.
+
+2026-10-02 Enhanced startup crash: incomplete. Offline native Metal validation
+passes a populated graph and 120-frame lobby actor replay, but the reported
+post-join crash is not reproduced. See `docs/reference/enhanced-startup-validation.md`.
+
+2026-10-02 dev resync (test-green uncommitted, not pushed): fast-forwarded `dev`
+from `a1b0e289` through upstream `502ee525` and restored the uncommitted snow,
+GPU-safety and BDS multiplayer fixes. The block-entity shader conflict retains
+upstream's selection extraction/opaque-phase reset and the checked constructor.
+A recovery stash preserves the pre-sync work. Focused tests, the full workspace
+suite (requiring the new native offscreen Enhanced GPU test), formatting,
+strict all-target Clippy and architecture pass. Runtime assets and the canonical
+client were rebuilt. The game was not relaunched; the previous native smoke
+witness does not validate this newly integrated build. Snow's blended fallback
+and height-aware face culling are corrected, but the full native angle gallery
+and covered-vegetation parity remain incomplete. No visual or stability gate closes.
+
+2026-10-02 macOS stability (in progress; no acceptance gate closed): repeated
+Apple M3 Pro/macOS 26.3 GPU events attribute firmware-detected lockups to
+`bedrock-client`; subsequent WindowServer watchdog panics and AGX-blocked
+threads explain the whole-host freezes. Cinnabar's custom shader constructors
+now enable Bevy/wgpu runtime bounds and loop checks instead of the unchecked
+default. The shared biome shader bounds its data-driven loop by the existing
+CPU lattice limit and guards descriptor/payload/lattice spans and weights.
+Metal uses the existing validated direct chunk draw path until indirect
+submission clears a native stability gate. These are concrete safety fixes
+and an isolation workaround, not proof of which GPU command caused the hangs.
+Focused tests, the full workspace suite, formatting, strict all-target Clippy,
+architecture, Go tests/vet and the canonical rebuild pass. A bounded native
+Metal/Retina BDS smoke run exercises actual walking, server camera corrections
+and chunk loads with report/frame/memory monitoring. Prolonged repeated-session
+stability and isolated causal attribution remain required.
+Snow geometry/material corrections and BDS multiplayer changes remain local
+while this stability gate takes priority. See docs/reviews/macos-gpu-lockup.md.
+
+2026-10-01 Enhanced rendering: opt-in non-parity extension; Vanilla remains the
+persisted default. This work never closes a vanilla parity gate. T0 adds the
+setting, camera marker and pipeline key isolation. Visual acceptance and all
+subsequent effect/performance gates remain incomplete. T1 adds HDR, Bevy bloom,
+sun-driven grading, an ACES-fit curve and palette-derived emissive surfaces.
+T2 adds two default texel-snapped shadow cascades with alpha-tested terrain/model
+casters and sky-light-gated PCF receivers. Actors do not cast/receive yet.
+T3 enables half-resolution, 16-step shadow-map shafts and matching main/caster
+foliage wind plus surface water displacement. T4 adds opaque colour/depth snapshots and water SSR with Schlick Fresnel,
+analytic ripples, sun glints and depth absorption. Offscreen reflections use sky
+fallback. T5 GTAO/TAA/motion vectors are deferred. Native visual calibration and
+60-fps performance acceptance remain incomplete.
 
 Current execution order: [playable multiplayer track](docs/tracking/playable-multiplayer.md).
 This preserves the full scope below; historical snapshots are not current runtime acceptance.
 
-2026-10-01 web spectator: optional read-only extension under
-`tools/web-spectator`, runs the actual renderer library through browser WASM
-and WebGPU. The native GPU plugins/shaders own terrain, compiled actor rigs,
-armor, held items, main-hand POV and JSON-UI HUD; JavaScript supplies snapshots,
-skins and camera choices. The portable compiled animator uses the native fixed
-20 Hz Molang, motion, swing/hurt and item-use owners with streamed observations.
-POV camera/hand motion uses the native walk bob, turn spring and hurt tilt;
-damage direction is unavailable, so actual-age events use directionless tilt.
-Camera and hand projection share the native aspect-correct conversion. Orbit
-and follow retain the native default horizontal FOV; the website spectator POV
-uses a wider 110-degree horizontal FOV for viewing close-range combat. This
-viewer preference does not change the native client's camera default.
-Public fighter names use the shared native nameplate raster/layout owner and
-billboard GPU pass, preserving default distance and sneaking visibility policy.
-Its glyph raster observes exclusive texel-edge UVs; dirty atlas cells use
-bounded, mapped GPU staging storage instead of the browser texture-write path
-that read back actor vertex words despite correct submitted RGBA pixels.
-Terrain uses the canonical version-matched registry, runtime vanilla carrier,
-palette-native store and full 26-neighbour cube/model/liquid mesher. Runtime
-carriers are prepared with existing asset compiler owners (including official
-stock player geometry in `models/mobs.json`) and served as
-immutable mounted artifacts, never committed Mojang payloads. Each viewer
-document owns its Winit event loop; iframe removal disposes its rendering state.
-The earlier named-flat-color geometry binding remains diagnostic only and is
-not a fallback. No browser game login, lobby/FFA map, gameplay input or
-per-viewer desktop client is included. Incomplete: streamed biome/light/weather
-inputs, directed camera damage, complete first-person appearance and
-version-matched native visual/performance parity. WebGPU unsupported devices
-receive an explicit error. This extension closes no vanilla parity gate.
-Build/runtime admission limits and the JS contract are documented in
-`tools/web-spectator/wasm/README.md`.
+2026-10-01 home promo: incomplete. The gathering query now uses the desktop
+`Windows10`/`Win32` identity, and downloaded badges bind `RawPath`. Empty button
+labels use vanilla's localization fallback. Messaging sends the selected UI
+language as `Accept-Language`. The offline fixture is authored; a recorded
+response, the exact current public-config request and complete gathering click
+behavior remain unverified. No visual parity gate is closed. See
+[the investigation](docs/home-promo-investigation.md).
+2026-10-01 world lighting (incomplete): the classic RGB table now has the current
+vanilla composition, gamma, night-vision normalization and darkness subtraction,
+shared by terrain, actors, items and hands. Current dimension-ramp dispatch,
+the ambient-adjustment caller flag, effect-duration envelopes, conduit dispatch
+and material color-space conversion remain unverified. The existing sky-darken
+and effect-envelope inputs remain provisional. Offline GPU evidence is not a
+native visual parity gate. AO now uses channel maxima, the conditional diagonal, the opaque-block shade
+curve, emitting/ordinary face factors and inset model planes. Full current
+shade/solid-render property export, component exponents, dimension shading modes
+and box-average interpolation remain incomplete. The full audit work is in
+progress on fix/world-lighting.
+
+2026-10-02 inventory model quality (implemented, upstream-integrated and live-checked): vanilla
+GUI block/shield and live-player renderers submit geometry at their controls' scale,
+not enlarged fixed 16/32/64-pixel item thumbnails or a 96x112 player raster. The new
+bounded JSON-UI mesh path uses original carried/material/skin/armor texels, native
+projection and face colours, sampled material alpha cutoffs and isolated player
+model depth. Flat pixel-art sprites remain point sampled. GUI poses are no longer
+rounded to whole pixels or quarter/half-degree steps, and the player's Fancy light
+formula is a float separate from byte colour/tint. The follow-up replaces preview
+GUI-icon planes with actual six-face cubes, extruded sprites and literal authored
+held models, using native hand pivots and both inventory hands. Tooltip layout now
+uses the native runtime purpleBorder nine-slice, mouse overflow rules, text offset
+and pitch; original floating-point texel UVs preserve extrusion side centers.
+The reported flat held-thumbnail and plain-tooltip regressions passed fresh
+macOS/Metal Retina-2 rendered-frame checks against offline official BDS. The
+first live offhand Shield exposed a missing expression-bound ModelPart origin;
+the correction now passes both hand poses and real-carrier tests.
+Integration retains upstream's gamma-space UI layer, font/animation paths and
+independently inherited image/sidecar overrides. Stateful inventory/HUD providers
+explicitly clear empty icon bindings so compact icon tables cannot leave duplicate
+items behind; moving between hands and repeated reopening passed the live rerun.
+After integrating upstream dev through 0979ff22, focused tests, the full workspace
+suite, formatting, strict workspace Clippy, the architecture gate, Go tests and
+Go vet passed, and the canonical client/core were rebuilt and live-tested.
+No complete native parity gate is closed.
+Special GUI block shapes, custom/persona/slim
+geometry and animation/held-model layers, native glint/material/color formats,
+hardware sample coverage and controlled matching vanilla frames remain incomplete.
+See docs/reference/inventory-gui-geometry.md, player-preview-rendering.md and
+inventory-hover-tooltip.md for the native contracts and exact build/frame evidence.
+
+2026-10-02 dev integration: the first-person item/block/attachable, grass material,
+arrow, name-tag, crouch/shield, offhand, inventory reopen, game-mode and inventory
+reconciliation corrections below are integrated with the upstream `dev` branch.
+The canonical macOS/Metal Retina-2 client was exercised against regenerated,
+offline loopback vanilla BDS. Offhand take/place and subsequent moves, repeated
+drop/pickup with fresh stack IDs, whole-stack drops, three inventory reopen
+cycles, and persistent charged-arrow inventory icons passed live acceptance.
+The full workspace suite (four test threads), formatting, strict all-target
+Clippy, architecture gate, Go tests and Go vet passed locally. Source records
+retain the tested executable hashes and frame identities; private runtime
+payloads remain outside git. Historical local/uncommitted statements below
+describe their original snapshots, not this integrated revision's Git state.
+All explicitly incomplete native visual/material, arbitrary-container and
+lifecycle parity gates remain open; this is not full vanilla-parity closure.
 
 2026-10-01 menu scene ownership: gameplay input uses the screen absorption policy;
 world queues and both first-person paths obey game visibility. Pack flags retain
@@ -41,14 +1576,58 @@ vanilla defaults and inheritance. The existing full-screen Settings panorama als
 suppresses gameplay. Incomplete: a version-matched native comparison of the menu
 background stack and hand appearance; offline snapshots do not close that gate.
 References and the raw-input audit: `docs/parity/menu-scene-policy.md`.
+2026-10-01 mesh backlog: worker admission keeps a bounded queue beyond one worker wave;
+light changes coalesce into one pending successor even while cancelled work retires.
+Current-light halo checks, cancellation and output memory reservations remain required.
+Retired sessions no longer repeat their last publication backlog in later frames.
+See [offline investigation](docs/reviews/mesh-stall.md) for commit attribution and vanilla
+references. Incomplete: exact native rebuild timing, release frame spikes and network
+latency acceptance. Offline drains do not close those gates.
+
+2026-10-01 JSON-UI layout: sizes, anchors, stack/grid/scroll and clipping follow
+the 26.30 layout rules (`docs/tracking/vanilla-parity-gaps.md`). Texture paths
+match exactly as the client's asset index does; an unresolved one draws the
+default white texture tinted by `color` (vanilla's `textures/ui/White`). Not
+live-accepted. Provisional, labeled incomplete: chat autocomplete rows sit at
+the top of their grid because the client answers no `#get_grid_size`, so whatever pads them is unidentified; `size`
+animations scale draws at paint time instead of relaying out each tick.
+
+2026-10-04 chat editing: physical modifiers survive input suppression, and
+select-all/copy/paste use the shared editor. Selected text now reaches the
+existing inversion painter through the authored edit target and clipping panel.
+Provisional, labeled incomplete: exact Windows Bedrock selection tint/blend
+parity remains unverified; visible selection alone does not close that gate.
+
+2026-10-01 JSON-UI control rendering: images follow 1.26.50 `SpriteComponent`
+(keep_ratio on by default, fill, uv/uv_size defaults, control nine-slice, tiled
+axes and scale, clip direction none by default with pixel-perfect snapping),
+labels follow `TextComponent` (0.5/1/2/4 font sizes, line padding, locked
+colour/alpha, hyphen chops, per-line alignment, `...` truncation) and UI blends
+in sRGB-encoded values through an offscreen layer. Not live-accepted.
+Provisional, labeled incomplete: `grayscale` uses Rec. 601 luma (retail
+material not inspected); placeholder hiding ignores focus; `enable_profanity_filter` reaches the host but selects nothing.
+2026-10-01 resource packs (in progress, not parity-accepted): Global Resources imports
+optional packs above the pinned base and below world/server packs. Applying resource
+changes in a live world is an intentional Cinnabar extension; vanilla forbids it.
+Worker preparation and revision-stamped publication preserve the connection.
+Resident block geometry, biome records and transparent draw references now stage
+with the atlas; GPU-wide atomicity still needs a native pass, including non-block
+uploads. Actual compiler reads drive subscriber invalidation. Immutable imported
+revisions, pack thumbnails, automatic hardware tiers, item metadata sprites and
+named bitmap/outline fonts are implemented but not parity-accepted.
+Incomplete: native frame/GPU/process-memory acceptance, full remote gates,
+TTFMSDF/precomputed MSDF rendering, contextual item icon routes, verified retail
+missing-icon fallback, and native font alias/metric comparison. Outline MSDF
+fonts currently use provisional alpha rasterization. No visual gate is closed.
+See [continuation references](docs/resource-pack-continuation-references.md) and
+[original resource-pack references](docs/resource-pack-references.md).
 
 2026-10-01 chunk streaming: missing-column deadlines are local. New data in the
 current publisher cohort keeps its quiet deadline active; duplicate and foreign
 traffic cannot renew it. Requested neighbours still block and receive priority.
 Provisional, labeled incomplete: the existing one-second fallback for unannounced
 missing columns remains a Cinnabar approximation, not a vanilla parity gate.
-Lens reconstructed client 1.26.50.26 `LevelBuilder::tryRebuild` (RVA 0x04fb7530)
-uses a radius-16 X/Z availability check (0x0319db50, 0x0319d850, 0x0319d450):
+Vanilla chunk rebuilds use a radius-16 X/Z availability check:
 all nine eligible horizontal columns are required, with no timeout exception.
 No new provisional geometry or lighting path is introduced here.
 2026-10-01 modding: Cinnabar extension, disabled by default. The developer-only
@@ -61,47 +1640,269 @@ and native visual/performance
 acceptance. Only explicitly selected local developer components are supported;
 do not treat this as admission for untrusted downloaded mods. See
 `docs/modding-spike.md` for the executable sample and offline evidence harness.
-2026-10-01 world lighting (incomplete): the classic RGB table now has the current
-Lens composition, gamma, night-vision normalization and darkness subtraction,
-shared by terrain, actors, items and hands. Current dimension-ramp dispatch,
-the ambient-adjustment caller flag, effect-duration envelopes, conduit dispatch
-and material color-space conversion remain unverified. The existing sky-darken
-and effect-envelope inputs remain provisional. Offline GPU evidence is not a
-native visual parity gate. AO now uses channel maxima, the conditional diagonal, the opaque-block shade
-curve, emitting/ordinary face factors and inset model planes. Full current
-shade/solid-render property export, component exponents, dimension shading modes
-and box-average interpolation remain incomplete. The full audit work is in
-progress on fix/world-lighting.
+
+2026-10-04 modding gameplay API: experimental, non-parity extension. Separate,
+default-denied grants expose bounded current-frame remote player snapshots and
+transactional local actor rotation after physical look and before movement.
+Focus, input authority, cursor capture, session presence and camera ownership
+gate the app adapter. Incomplete: server policy negotiation, user-facing grant
+and revocation UI, production API stability, native multiplayer acceptance and
+cross-platform runtime acceptance. Loaded player data is not line-of-sight or
+visibility evidence. No aim-assist algorithm is installed and no vanilla parity
+gate is closed; see `docs/modding-spike.md` for the contract and opt-in switches.
+
+2026-10-01 crouch, shield and crossbow follow-up: the local camera now consumes
+the native 0.35-block crouch offset, half-blended once per completed tick and
+interpolated per frame. Local actor feet, interaction eye and network anchor are
+kept distinct. Crossbow full-charge prediction persists per exact stack/slot
+write revision; a fresh loaded click clears it immediately, and every addressed
+authoritative write wins, even if byte-identical. Owner hand-item predicates now
+expose both real hands to held attachable queries. The owner accepted crouch
+camera, shield animation and crossbow charging. The canonical macOS/Metal Retina
+build joined regenerated offline vanilla BDS; fresh frames show dual-hand
+shields, shield inventory icons and loaded-arrow crossbow icons in the HUD and
+reopened inventory. Survival/creative updates consume server confirmations and
+change the UI without reconnecting. Provisional, labeled incomplete: crossbow
+predicted NBT/inventory observer reconstruction, full load/fire/native-frame
+comparisons, sleep/riding camera offsets, shield damage/cooldown/patterned/glint
+parity and nonzero-tick game-mode historical replay. Native `query.blocking` reads metadata flag 72,
+not the sneak key; the pinned Dragonfly fixture does not implement shield blocking.
+No synthetic blocking flag or server-incompatible crossbow transaction is used
+to mask fixture limitations. See [camera](docs/reference/crouch-camera.md) and
+[crossbow](docs/reference/crossbow-use.md) rules. Local, uncommitted.
+
+2026-10-01 destruction particles: ordinary block-break events now use the native
+100-piece default, cube-root intensity and effect-local strict pre-spawn limits.
+The native bottom-texture path selects untinted dirt for grass, replacing the
+old green top-face heuristic. Focused particle tests pass; the owner manually
+accepted block breaking. A controlled native grass/dirt frame comparison remains
+pending. Provisional, labeled incomplete: destruction-component
+overrides, special block/UV variant branches, seasonal colors, legacy Terrain
+events and native crack bounds/cadence. No complete particle parity gate is closed;
+see [vanilla rules](docs/reference/block-break-particles.md). Local, uncommitted.
+
+2026-10-01 actor name tags: native-port correction in progress. World-plane projection,
+eye-facing cubic-angle billboard, fixed font-pixel world size, ten-pixel line pitch,
+independent line centering, full multiline 0.25-black plate, multiline world lift and
+0.125-alpha depth-tested sneaking text follow vanilla behaviour. Player tags use synced name metadata, not just their spawn username; scores share
+the same path and honor the native ten-block score gate. Provisional, labeled incomplete:
+exact matched shader-pack/sampler/alpha-target state, explicit orientation/backface/custom color
+branches, filtered names, mounted/riding anchor offsets and missing-data height/range
+defaults need native witnesses. Crosshair picking still inherits the existing provisional
+selection-shape/reach implementation. Name-tag rendering uses plate no-depth-write,
+text depth-write, glyph alpha testing and the runtime environmental-text bias override. The final debug build has a live Zeqa/Metal rendering
+smoke pass at Retina scale 2; controlled near/far drift, sneak/occlusion/clipping and
+version-matched native frame comparisons remain pending. Workspace tests, formatting,
+strict Clippy and the architecture gate pass locally. Changes are uncommitted. No name-tag
+visual parity gate is closed; see [vanilla rules](docs/reference/nametag-rendering.md).
+
+2026-10-01 first-person item rendering: ordinary icons and opaque full-cube blocks now use
+their separate native camera-space stacks, not the third-person grip on the avatar's
+`rightItem` bone. Camera anchor/yaw/scale, cube centering and idle/swing/equip composition
+follow vanilla behaviour. The owner reports ordinary
+icons render correctly. The block routing/avatar-scale regressions fail before the fix and
+pass afterward; the owner has now manually tested and accepted the held-block pose.
+Provisional, labeled incomplete: native sine-table rounding, non-cube block geometry,
+custom block display transforms, exact held-block face lighting/material state,
+item-specific legacy use/mirrored-art branches, custom render offsets and remaining
+attachable variants. No complete first-person visual parity gate is closed; see
+[vanilla rules](docs/reference/first-person-items.md).
+
+2026-10-01 held bow: vanilla modern attachable routing is implemented locally.
+Authored texture meshes, first-person scripts/controllers, owner animation variables,
+per-frame pose evaluation and native bow/crossbow frame timing replace the accidental
+third-person sprite grip. The same pipeline consumes trident/shield authored transforms;
+these variants are not all live-accepted. Workspace tests, formatting, strict Clippy and
+architecture checks pass; canonical carriers and debug executable are rebuilt. Live
+macOS/Metal Retina-scale-2 frames verify actual server-supplied bow idle, partial/full
+draw, release and return to standby in an isolated fixed-lighting loopback world.
+This is functional rendering/input acceptance, not a matched native frame comparison.
+The vanilla one-time session item-registry initialization also prevents a later
+empty/custom table from erasing item identities. Provisional, labeled incomplete: multilayer
+materials, custom binding parents, full offhand cached-stack equivalence,
+nonuniform scale shear and the separate legacy/custom item paths. Changes are uncommitted;
+no complete first-person parity gate is closed. See
+[attachable rules](docs/reference/held-attachables.md).
+
+2026-10-04 end crystals and respawn anchors: crystal artwork now bakes native
+alpha-test coverage instead of dropping the whole rig over fractional texels;
+the pack supplies nested frame rotation, bobbing and base visibility. Native
+target-metadata beams use interpolated endpoints, taper, gradient and UV scroll.
+Anchor glowstone use selects click-block interaction at every charge, without
+adjacent-block prediction; charge, spawn and explosion effects remain authoritative.
+Affected-crate compile checks, test suites and formatting pass locally, including
+the application suite (2,252 passed, zero failures). No changes were pushed.
+Provisional, labeled incomplete: material evidence is from adjacent installed
+versions; no fresh target-platform rendered-frame comparison has been performed.
+General actor material propagation and exact per-frame nonlinear Molang remain
+open. Non-glowstone fallback at an already-selected Nether spawn needs retained
+spawn-block authority. No complete visual or interaction parity gate is closed.
+See [vanilla rules](docs/reference/end-crystal-respawn-anchor.md).
+
+2026-10-01 arrow entity rendering: native per-face UV defaults now use face
+dimensions, including fractional sizes, instead of a one-by-one texel region.
+The vanilla arrow's alpha-test/no-cull material samples its authored plane
+from both sides. Its animation receives absolute actor yaw, without the mob
+body-turn root or head/body clamp. Focused render and query regressions pass;
+changes are local and uncommitted, pending fresh flight/embedded-arrow frames.
+Provisional, labeled incomplete: the current carrier lacks general authored
+render-controller materials, so the no-cull correction is scoped to logically
+bound vanilla-arrow geometry. Native signed Shake-event state, positive-only
+tick countdown and Molang query are implemented; exact render-time frame-alpha
+queries, including nonlinear impact shake, remain missing. No arrow visual
+parity gate is closed;
+see [vanilla rules](docs/reference/arrow-rendering.md).
+
+2026-10-01 carried grass correction: the inventory thumbnail and held cube share the
+pack's carried face pixels, with alpha-mask overlay tint and opaque output following the
+matched C++ texture-atlas path. Grass is no longer unresolved. Compiler/carrier/runtime
+regressions and the workspace, formatting, strict Clippy and architecture checks pass.
+Live macOS/Metal frames at Retina scale 2 verify the hand, hotbar and open-inventory icon:
+green top/fringe, opaque brown soil, no missing geometry or clipped slot art. Changes are
+local and uncommitted. Provisional inventory shading and the broader material/display
+parity gaps above remain incomplete; see [vanilla rules](docs/reference/carried-block-textures.md).
 
 2026-09-30 menus: settings open the legacy JSON screen as retail does (the OreUI
 "/settings" route sits behind the off-by-default `mc-new-settings-screen` flight);
-unbound `$vars` in `ignored`/`requires` read as null like `UIEval::evalVariable`.
+unbound `$vars` in `ignored`/`requires` read as null, as in vanilla.
 Provisional, labeled incomplete: the OreUI scroll thumb's look and shrinking a
 long side-menu label to fit are approximations (no OreUI stylesheet on hand), and
-unbacked settings show fixed vanilla defaults.
+unbacked settings originally showed fixed host values; their vanilla defaults were
+not established by the pack binding names. See the settings audit below.
 
-2026-09-28 inventory and crafting: the ledger follows the owner's Lunar engine
-(pipelined in-order requests, prediction groups, vanilla container addressing),
-with 2x2 and crafting-table crafting, creative take, number-key swap and drops;
-not live-accepted. Provisional, labeled incomplete: item tag membership comes
+2026-10-01 settings audit — incomplete (the Settings completion gate remains open):
+
+- The legacy desktop host includes migrated JSON tabs. Selector controls use the
+  pack's 30px height, without its optional 25px spatial-pattern spacer. The current
+  controller derives this flag from realm state and `mc-disable-settings-spatial-pattern-fix`;
+  the retail flight assignment is unverified. Compact spacing is provisional.
+- Persisted controller-name options now feed camera/input, ten mixer categories,
+  GUI scale, fullscreen/FPS pacing, language and live chunk-radius requests. Keyboard
+  capture covers the existing semantic gameplay actions; raw inventory/chat/drop
+  keys and controller rebinding are incomplete. Duplicate-key rejection and key
+  display strings are not established vanilla behavior.
+- UI only, system missing: gamma, smooth lighting, leaves, fancy skies,
+  particle toggles, most advanced graphics, paperdoll toggles, screen
+  animation, auto-jump, spyglass dampening, controller cursor
+  options, narration/subtitles, glint settings, Creator diagnostics and
+  script options, tutorial/profile preferences and several chat presentation options.
+  These values persist but do not close runtime parity gates.
+- Global Resources provides empty pack collections as a clean integration hook;
+  the pack-list controller belongs to the resource-pack work. Storage actions,
+  world-edit/Experiments, Party, several account/help submenus, reset flows and
+  hardware/flight-dependent controls remain incomplete.
+- Numeric defaults/ranges are provisional unless a source explicitly states them.
+  The pack confirms chat notification 10s and toast notification 3s defaults. Mouse sensitivity (default 0.5 over 0..1) and its look curve match the current client, as does field of view (default 60, range 30..110). Other vanilla option defaults remain unconfirmed. Gamma, controller/touch sensitivities, FPS limits and added boolean defaults therefore
+  require further current-client evidence; they must not be described as vanilla.
+- Offline carrier gallery, geometry and option-family tests provide local evidence,
+  not a retail visual acceptance. Focus/hover/pressed, scrolling, all modal flows,
+  runtime option effects and flight/platform visibility still need full acceptance.
+
+2026-10-01 inventory reconciliation: the current native sparse-container audit
+replaces delta replay over mutable backing truth with absolute request-owned cell
+snapshots. Changed and emptied cells can be addressed by prior odd negative
+request IDs; responses use requested-slot history and retire only their own
+active predictions. This also repairs the offhand-empty push arriving before an
+accepted offhand-to-cursor response: the accepted transfer is not applied twice
+and cannot incorrectly put the cursor into global recovery. The previously
+ignored normal InventoryTransaction receive path now writes full final stacks
+(including new IDs and NBT) through ledger, HUD, crafting and identity consumers.
+The canonical macOS/Metal Retina-2 offline vanilla-BDS run passed two dirt
+drop/pickup/drop cycles, a whole-stack diamond drop/pickup and further move,
+the six-step offhand regression, and three inventory close/reopen cycles.
+Native references and bounded acceptance records:
+[sparse prediction](docs/reference/inventory-sparse-prediction.md) and
+[normal transactions](docs/reference/inventory-normal-transactions.md).
+Provisional, labeled incomplete: arbitrary open-window normal transactions,
+deferred UI output-50 actions, full native lifecycle recovery, and charged
+offhand attachable context. Focused tests and the full workspace, formatting,
+strict Clippy and architecture checks pass locally; this is part of the dev
+integration recorded above.
+
+2026-09-28 inventory and crafting: 2x2 and crafting-table crafting, creative take,
+number-key swap and drops are implemented. The older delta/prediction-group
+ledger model is superseded by the native sparse-container audit above.
+Provisional, labeled incomplete: item tag membership comes
 from Dragonfly's table and registry-declared tags are read from
 `components.item_tags` without a live capture; the workbench layout, shift-click
 destinations, drop bindings and CraftResultsDeprecated contents need
 independent confirmation; armor/offhand placement is server-decided;
 drag-distribute, double-click collect and workstation windows are missing.
 
+2026-10-04 mob walking clocks: the compiler and runtime now preserve vanilla
+`anim_time_update`, so quadruped/chicken leg phase follows modified distance moved
+instead of elapsed seconds. Scripted clocks retain previous time, pause at zero
+weight, reset with their controller state, and share one evaluation across model
+layers. Zero-length procedural clips keep their unbounded clocks; finite timelines
+use the verified native endpoint/loop/hold rules. The entity carrier version changes
+to invalidate old compiled catalogs. Source and remaining limitations are recorded in
+[actor animation clocks](docs/reference/actor-animation-clocks.md). The client and
+carriers were rebuilt on published `dev` base `a2a8b6cf`; the user manually tested
+the macOS Metal client against the existing offline BDS and accepted the mob feet
+movement. The original worktree was based on stale `main`; it was updated before
+this accepted test. Final automated verification remains incomplete: the user
+requested skipping tests and pushing after manual acceptance. This does not close
+the broader actor animation parity gate. Incomplete:
+ordinary actor Molang still evaluates on fixed ticks and interpolates completed bone
+poses, whereas vanilla samples interpolated motion queries during render evaluation;
+start/loop delays and shared-clip instance identity remain unported.
+
+2026-10-04 sneaking head rotation: the compiler now retains the vanilla bone
+`relative_to.rotation` setting, and pose composition keeps the pivot parented while
+using the entity frame for the bone's rotation and scale. The player head no longer
+inherits the root's crouch tilt. Entity, artwork and equipment carriers were rebuilt;
+the user manually tested the macOS Metal client in the existing offline BDS world
+and accepted the fix. Compiler/carrier, transform and player-animation regressions
+passed before integration; the affected core crates passed strict Clippy and the
+architecture gate passed. App-inclusive Clippy encountered two pre-existing renderer
+warnings. Latest `dev` was integrated, and further tests and the normal PR/CI gate
+were skipped at the user's explicit request to push directly to `dev`.
+[Rotation-frame behavior](docs/reference/actor-rotation-frames.md) records the fix.
+The broader actor-animation parity gate remains incomplete.
+
 2026-09-28 actor animation: remote players and mobs animate through the vanilla
 controllers with full Molang evaluation; not visually accepted (facing, box-UV
 side faces and limb swing need a native capture). Provisional, labeled
 incomplete: motion-model constants, the 6-tick swing, the look clamp, gliding
-divisor, baby leg-speed factor, seeded variables and Molang math tolerances need
+divisor, seeded variables and Molang math tolerances need
 independent measurement; `loop` is capped at 1024 (vanilla has no cap); undefined
 variables read 0; non-uniform parent scale over rotated children is approximated
-without shear; `->`/`for_each` take their empty path; head `relative_to`, blend
-transitions and per-axis rotation objects are missing; `query.anim_time` reads the unwrapped
-clip clock; queries without retained data read idle values; held items and most mob
+without shear; `->`/`for_each` take their empty path; blend
+transitions and per-axis rotation objects are missing; queries without retained data read idle values; held items and most mob
 artwork are deferred. A first-person held item with no drawable layer shows the
 bare swinging arm instead (vanilla always draws the item).
+
+2026-10-01 placement prediction correction: stateless full cubes no longer lose local
+prediction when held and clicked block types match. Retained signed block-ID fields preserve
+unsigned wire hash bits for both prediction and collision checks; empty/air/uninitialized IDs
+remain rejected. The matching native placement and correction paths ground this change; see
+[vanilla rules](docs/reference/block-placement-prediction.md). Regressions reproduce both old
+blockers, and the local lighting/meshing test publishes an urgent placement mesh without a
+server acceptance event, then removes it on authoritative correction. Focused tests,
+workspace all-target tests, formatting, strict Clippy and architecture checks pass locally.
+The canonical debug build is rebuilt; changes are uncommitted. An 800-ms delayed loopback
+session now has a controlled grass-on-grass witness: the predicted block is visible in a
+PNG written 226 ms after right-click and persists in the post-reply frame. The selected
+grass item's hand, hotbar and open-inventory visuals also render. This is live functional
+acceptance of the reported bugs, not complete native placement parity.
+
+2026-10-03 instant block destroys: the pick registry now separates movement
+collision from vanilla visual bounds for grass, flowers, saplings, bushes,
+mushrooms, reeds, crops, nether sprouts and torches. A first-hit zero-hardness completion
+retains its block id for local break particles and sound; incoming effect echoes
+share the existing bounded echo ledger. The negotiated block-action/item-use
+routing and authoritative server correction remain in place. Focused offline
+regressions cover both runtime-id spaces, both breaking authorities, prediction,
+and completion effects. General pick-shape coverage (including vines and corals), cutout highlight masks and live visual parity remain incomplete; no
+visual or live-server parity gate is closed here.
+
+2026-10-02 block selection: gameplay picks now publish the native black wire box
+when Outline Selection is enabled and a brightened model overlay when it is off.
+This omission also exists at 199e0856; it is not a regression in the first-parent
+history since that commit. Offline GPU regressions cover both depth-tested passes
+and clearing a lost target. Native visual parity remains incomplete: the existing
+pick-shape coverage is incomplete for non-colliding blocks, and cutout texture masks are not
+yet carried into the highlight overlay. No live visual gate is closed here.
 
 2026-09-30 block interaction: breaks (every game mode, both block-breaking
 authorities; Creative repeats while held), stateless full-cube placements and
@@ -109,8 +1910,8 @@ trapdoor/lever/button uses are predicted locally and replaced by the server's
 block updates; Build, Mine and DoorsAndSwitches/OpenContainers gate separately.
 Not live-accepted. Provisional, labeled incomplete: oriented, sized and merging
 placements and door/fence-gate uses are not predicted; the pick ray uses
-collision boxes, not vanilla selection shapes, so non-colliding plants cannot be
-targeted; Adventure CanDestroy/CanPlaceOn are not modelled; MineBlock requests
+collision boxes outside the vanilla plant and torch selection bindings;
+other non-colliding pick shapes remain incomplete; Adventure CanDestroy/CanPlaceOn are not modelled; MineBlock requests
 cover recognized tools only; the standalone CreativeDestroyBlock and
 DenyDestroyBlock PlayerActionPackets the reference appears to send are not sent
 until a capture confirms their routing.
@@ -127,12 +1928,136 @@ need independent measurement; replaceable, interactive and unpickable-entity
 lists are local choices. A vanilla packet capture must still confirm the attack
 swing count.
 
+2026-10-05 dimension transfer: one coordinator waits for the server acknowledgement
+and destination's loaded area before sending the local acknowledgement. Stationary
+input ticks continue while prediction is held. Loading-screen IDs survive retries;
+LoadingEnd waits for the JSON-UI loading presentation and a fresh destination frame.
+Session height definitions also govern destination probes and synced-block admission.
+Provisional, labeled incomplete: the local readiness delay uses a later app frame;
+the vanilla readiness updater's exact scheduling clock remains unverified.
+The user reports the Hive test account is unbanned; renewed live acceptance after
+integrating current dev is in progress. Loading UI and Hive gameplay parity gates
+remain open until their corresponding acceptance checks complete.
+The renewed join exposed omitted legacy block texture bindings and three actor
+catalog capacity failures. Their captured-stack and lower-owner regressions pass:
+all artwork bindings publish, and exact shared geometry fits the existing vertex
+budget. A live Metal pass restored the lobby floors and custom NPCs; title panels,
+holograms, plant lighting and lamps still failed visual inspection. Complete model
+chains, authored light filters, material states, selector capacity and active-registry
+hay admission pass their focused regressions, with a fresh client pass pending.
+General custom AO exponents, exact blend defaults, custom shader defines and
+cross-family transparent ordering remain incomplete. The latest live session ended
+with an opaque server disconnect after roughly 23 minutes; disconnect acceptance
+remains open. The inspection build received another opaque server kick after
+roughly nine minutes with zero decode errors. Targeted-entity F3 diagnostics
+pass their regressions. The user
+identified the sheep as zero-scale floating-text hosts. Scale zero now suppresses
+their bodies while retaining names. Ordinary SDR title panels blend encoded
+destination colors; a fresh Metal frame shows dark panels and no floating sheep.
+Enhanced/HDR/MSAA actor blending and exact cross-family order remain incomplete.
+Standing and hanging lantern body, cap and handle measurements use a near-version
+native witness. Their geometry, UVs and lighting remain fallback support pending
+exact current-version verification. NPC controller particle routing and alpha-first
+hex tint decoding pass owner and app route regressions; user frames show NPC
+particles. Authored emitter lifetimes now survive ten minutes and remain bounded
+by actor/state teardown and admission limits. Unsupported locators and initialization
+scripts remain incomplete. Actor raster pipelines prewarm during loading; the
+loading gate holds until their compilation completes. Focused regressions pass;
+this inspection build does not establish frame-budget or session acceptance.
+See `docs/evidence/hive-connection.md` for the functional checks.
+
+2026-10-05 custom actor interaction: omitted collision dimensions independently
+retain generic actor defaults, and server scale multiplies the physical box once.
+Regressions reproduce a custom NPC miss and verify its attack target and world-space
+hit point. F3 shows effective hitbox dimensions; attack logs distinguish the picked
+target, packet kinds and transport admission. The user's live Hive check reached
+game selection and a destination lobby; logs picked selectors with server scale
+applied. Post-fix actor tests remain deferred at the user's request.
+Provisional, incomplete: zero scale currently produces a point box before pick-radius
+inflation; the native positive minimum dimension remains unverified. Definition-specific
+collision defaults, authored picking-box collections and invalid-dimension behavior
+remain incomplete.
+
+2026-10-05 server HUD composition: partial server edits overlay the built-in HUD
+without withdrawing its whole namespace. Regressions reproduce top-left chat and
+item-name overlap while preserving explicit server anchor overrides. Live Hive
+inspection confirmed bottom chat, but found suggestions near the screen top;
+the autocomplete grid now derives its height from its collection so short lists
+stay next to the editor. Transfers have a separate loading presentation that
+suppresses the join animation while retaining destination text and backdrop.
+Provisional, incomplete: the ordinary no-bar policy is supported by current
+handler initialization and a near-version native dispatch witness; exact current
+dispatch and a fresh live check remain outstanding. New chat/loading regressions
+are authored but unrun at the user's request. Native
+`#item_name_text_offset` controller binding remains
+incomplete; this correction preserves the approved built-in pack geometry.
+
+2026-10-05 custom actor lens materials: the Murder Mystery lens overrides its body's
+wildcard material with `slime_outer`. The compiler previously ignored bone-specific
+rules, drawing both coincident opposing lens faces with the body material. Per-bone
+last-match routing now retains authored visibility and alternate/inherited geometry;
+the glass uses blending, culling and depth writes. The patch is uncommitted and its
+three regressions remain unrun at the user's request. No extra depth bias is warranted.
+Incomplete: broader native
+pattern semantics, dynamic material arrays, custom shader defines, and the strict
+default actor depth comparison remain unverified or unsupported. A rebuilt Metal
+inspection still flickered in the lens and game titles. Frame camera-position sampling
+now refreshes the body and controller-selected geometry poses; two regressions are
+authored but unrun at the user's request. Those changes alone did not resolve flicker.
+Actor queueing also used the preceding frame's span indices before preparation
+replaced the spans and GPU buffers. Preparation now precedes queueing, while binding
+creation remains after view uniforms. Two behavioral regressions are authored but
+unrun at the user's request. The user confirmed that movement flicker is resolved
+in the rebuilt Metal client on Hive. Latest dev through
+`41c72fb3d` is merged locally; inspection fixes are uncommitted and nothing was pushed.
+
+2026-10-05 custom actor panel UVs: finite normalized cube UV corners now clamp to
+the image bounds before interpolation, matching vanilla. The Bridge title panel's
+overflowing face UVs previously stretched transparent corner pixels across its
+right side. Three focused regressions cover full-width coverage, signed flips and
+box UVs; they remain unrun at the user's request. The Rust client rebuilt successfully.
+The user confirmed the correction works after relaunch. It remains uncommitted.
+
+2026-10-05 actor name-tag bold and backgrounds: server bold markers were retained
+but atlas rasterization ignored them, while shared layout omitted bold advances.
+The open-font route now shares a one-design-pixel bold offset across layout,
+UI drawing and atlas rasterization, including spaces and shifted ink bounds.
+Ordinary SDR name tags join encoded-color transparency without changing the
+0.25-black plate opacity or depth order. Provisional, labeled incomplete: exact
+current final text attachment dispatch, native Unicode/forced-Unicode adaptation,
+HDR and MSAA. Near-version shaders corroborate encoded text output. Focused
+regressions are authored but unrun at the user's request. Local and uncommitted;
+the fresh rendered comparison remains pending, with no parity gate closed.
+The Rust build succeeded and the fresh Metal client is running on Hive. A visible
+frame confirms world/actor/name-tag rendering without logged shader validation
+errors; the upgrade NPC's native comparison remains pending with the user.
+
+The subsequent user check exposed split bold strokes. Name-tag CPU sampling
+treated exclusive glyph rectangle ends as inclusive, pulling transparent padding
+into the glyph. Sampling now matches the compiled and runtime-sheet UV contract;
+empty source rectangles draw no ink. A private diagnostic from the loaded font
+reproduces the split title and confirms continuous stems after correction.
+Regression cases are authored but unrun at the user's request. Fresh rendered
+acceptance remains pending; the compiled-font adaptation of native Unicode and
+TrueType half-offset drawing is still explicitly incomplete. Local, uncommitted.
+The corrected Rust build passed and is running on Hive. A fresh Metal frame
+renders the current game lobby; the user's close title comparison remains pending.
+
+2026-10-05 server sidebar placement: a full-screen server scoreboard replacement
+retained the built-in HUD's asymmetric outer anchors and moved Hive's level row
+down by half the viewport. Symmetric vanilla outer anchors now preserve the
+server's top-right placement; adjusted inner positioning retains the compact
+built-in sidebar. Chat styling and server precedence remain unchanged. Regression
+cases are authored but unrun at the user's request. Local, uncommitted; the fresh
+game-lobby comparison remains pending.
+
 2026-09-27 chunk decode parity: chunk payload contents now follow the 26.30 client's
 lenient stream decode (palette clamp and index zeroing, zero-fill past the end,
 null biome slots, per-entity tail skips, unknown ids to air/default biome, inline
 slots `i & 0xff`, unsent inline slots known air). Provisional, labeled incomplete:
 legacy sub-chunk versions 0/2–7 decode as air (no legacy id table), persistent
-palette entries resolve to air (no name/state lookup), and block-entity id and
+palettes now resolve exact current name/state identities; legacy state upgrades,
+default-state reconciliation and unknown-property handling remain incomplete. Block-entity id and
 block-actor-type checks are not emulated. StartGame custom blocks are known only
 when every custom name sorts after vanilla in sequential mode (Lifeboat's case);
 they collide as full cubes with stone's surface facts and render as diagnostic
@@ -1063,7 +2988,7 @@ Phase status at this audit:
 
 | Gate | Accurate state |
 |---|---|
-| Phase 2.5 biome blending | Open: source-backed 3D lattice cache port is local; graphics dispatch, native boundary comparison and live acceptance remain incomplete |
+| Phase 2.5 biome blending | Open: vanilla 3D lattice cache port is local; graphics dispatch, native boundary comparison and live acceptance remain incomplete |
 | Phase 2.6 visual coverage | Open: the production carrier has zero diagnostic states, but 2,397 non-air states across 487 names use an explicitly provisional vanilla fallback. This removes pink vanilla blocks without claiming exact geometry/UV parity; each fallback remains an open acceptance item |
 | Phase 2.7 lighting/sky/fog/clouds | Open: the cloud evidence sub-gate is complete, but calibrated atmosphere parity, native cloud/celestial comparison, and the <=2 s teleport-remesh gate remain open |
 | Phase 3 movement | Packet/simulation foundations plus the reviewed PR #6 input-parity and correction/acceptance lanes are integrated through merge `a9593e7`. Implementation and deterministic verification are complete, but native/live, performance, and touch-parity acceptance remain open. By owner decision touch is deprioritized and does not gate Phase 3 acceptance; the scenario records it as deferred rather than satisfied. Production outbound `Physics` transmission remains intentionally disabled pending a separate reviewed change |
@@ -1456,6 +3381,11 @@ Scope: block registry + block-state → model/texture mapping (generated export 
     face-specific lighting, a shared bounded/no-cull direct+MDI GPU path, and an
     exhaustive hash-bound gallery; assets 112, render 102, world 51, client 187,
     acceptance, strict Clippy, and final independent re-review are green.
+    Wheat's later farmland reproduction exposed the generic cross as incorrect:
+    its eight stages now use four native quarter-position rows with a -1/16 Y
+    offset and their original pinned sprites. Compiler and subchunk-boundary
+    regressions pass; see `docs/reference/farmland-rendering.md`. This does not
+    establish native geometry parity for the other generic Crop families.
   - [x] Mesh animated, biome-tinted water from the shared bounded palette
     snapshot. Task 12 preserves all 16 water depth/falling states, vanilla-like
     weighted four-corner surfaces, diagonal and cross-subchunk influence,
@@ -1828,8 +3758,9 @@ Scope: block registry + block-state → model/texture mapping (generated export 
         GPU-completed model-stream witnesses with stable generation/ref counts
         and zero contamination counters.
     - [x] Exact farmland family implementation: all eight canonical
-      `minecraft:farmland` states (sequential IDs 6,122-6,129) now require the
-      complete exact `moisturized_amount:int 0..7` product, formula IDs,
+      `minecraft:farmland` states now require the
+      complete exact `moisturized_amount:int 0..7` product and unique identities
+      from the target registry (see `docs/reference/farmland-rendering.md`),
       Primary/Cuboid ownership, empty flags/coverage, exact shape-43 collision,
       and literal untinted side/top routes. Native 1.26.33.1 evidence binds
       amount zero to dry terrain-array index 1 and amounts one through seven to
@@ -1843,6 +3774,8 @@ Scope: block registry + block-state → model/texture mapping (generated export 
         1, and 7 native viewpoints in Cinnabar and require two consecutive
         exact GPU-completed model-stream witnesses with stable generation/ref
         counts and zero contamination counters.
+        The October 4 macOS Metal manual check confirms that farmland and the
+        corrected wheat model render correctly; the user approved this fix.
     - [ ] Slab/stair native and packed-GPU live acceptance: capture all five
       fixed Cinnabar poses through native `%TEMP%` screenshots and require two
       consecutive exact GPU-completed model-stream witnesses. Automated gallery
@@ -2223,7 +4156,7 @@ Scope: block registry + block-state → model/texture mapping (generated export 
     inventory (`literal::is_default_invisible`). Incomplete: vanilla also tessellates barriers
     and light blocks as camera-facing sprites (`materials/barrier.material`) and structure voids
     as cube faces into their own terrain layers, drawn only while a creative local player's
-    selected item is that block (`LevelRendererCamera::render`); those layers are not built.
+    selected item is that block; those layers are not built.
 - [ ] **2.7 Client lighting and atmosphere.** `P2.7-ATMOSPHERE` Block/sky flood fill, baked vertex
   light and day/night, then sky, fog, and clouds; finish the Phase 2 parity and
   teleport-remesh acceptance gates.
@@ -2564,7 +4497,7 @@ store it only under the user's temporary directory, inspect that file, and never
   - [ ] Mesh neighbourhood gate, provisional and labeled incomplete: a resident
     mesh waits while any of its 26 neighbours is owed (requested, or unsent in
     the announced Euclidean disk while its cohort made new progress within 1 s).
-    Current Lens 1.26.50.26 evidence instead requires eligible horizontal columns
+    Current vanilla behaviour instead requires eligible horizontal columns
     before rebuilding; the historical missing-column claim is superseded. The
     1 s quiet fallback remains provisional, with no native reference.
     `streaming_harness` checks slow delivery for transient geometry and dark seams.
@@ -2688,7 +4621,7 @@ store it only under the user's temporary directory, inspect that file, and never
   - [ ] Apply the 26.30/1.26.50 `Clouds` material and cloud renderer values: one
     `clouds.png` texel per 16x16 blocks (4,096-block period), a 4-block slab at
     192.33, baked face shade (top 1, bottom 0.75, x sides 0.925), the
-    `getCloudColor` day/weather/sunrise colour with alpha 0.7, drift 0.02
+    vanilla day/weather/sunrise cloud colour with alpha 0.7, drift 0.02
     blocks/tick toward -X, and the 0.9D-1.9D distance fade with no fog. Landed
     provisionally: the pre-Caves-and-Cliffs 128 height, thunder mixing, the
     sunrise darkening term, above/below face flags and the quality/weather lerp
@@ -2730,15 +4663,15 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
   remain required before Phase 3 is complete. Freecam remains a non-authoritative mode and
   must be network-silent.
 
-- [x] **3.2a Current-BDS movement reconciliation correction.** A recovered
-  Bedrock 1.16.201 `ServerPlayer` path initially suggested that takeoff should
+- [x] **3.2a Current-BDS movement reconciliation correction.** Older
+  Bedrock 1.16.201 `ServerPlayer` behaviour initially suggested that takeoff should
   switch to air acceleration and drag before horizontal travel. A strict
   server-authoritative BDS 1.26.32.2 run disproved that as the target-version
   contract: over the six ticks ending at the jump apex, the server advanced
   `0.85394` blocks, matching the pinned bedsim ground-takeoff/ground-drag
   ordering rather than the provisional air-first result (`0.75231`, corrected
   by `0.10162`). The simulator therefore retains its checksum-bound bedsim
-  equations; the older recovered implementation is not used as a current
+  equations; the older implementation is not used as a current
   vanilla authority.
   The same strict run exposed the actual live defect: every retained
   `CorrectPlayerMovePrediction` rebuilt its tick from position-only state,
@@ -2997,12 +4930,50 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
   Touch parity remains an explicit open closure item. Its owner-deprioritized witness does
   not gate the Phase 3 scenario verdict, and a passing candidate run does not close touch.
   **Provisional (incomplete, closes no acceptance gate):** sprint latch/double-tap/toggle
-  options, forced sneak and crawl under low ceilings, ability flight, pose-swimming and elytra
-  gliding are client-selected simulator modes whose coefficients (fly/swim/glide constants,
-  double-tap window, scaffolding descent) have no oracle and need native measurement. Wire
-  edges for swim/glide/crawl/fly and `PersistSneak`/`Ascend`/`Descend` semantics are unverified
-  against a native client. Flight, swim and glide follow the public movement-physics notes'
-  BedSim candidates (still unvalidated for 1.26.30). Honey jump/slide, soul speed and depth
+  options, forced sneak and crawl under low ceilings, mode entry/exit timing, elytra
+  gliding, the double-tap window and scaffolding descent still need native measurement.
+  **Flight and liquid correction (2026-10-04, full parity gate remains incomplete):**
+  vanilla applies independent flight vertical drag,
+  creative hover before movement, sprint water drag, independent water vertical drag,
+  held liquid ascent/descent and swimming pitch steering. The simulator now implements
+  those ordinary-player paths with behavior regressions. Keyboard input now
+  carries the missing processed `WantUp`/`WantDown` lanes read by the current server
+  movement handler; in-session position snaps preserve the locomotion tracker. Swimming
+  upward steering samples the primary liquid material at the tick-captured pose eye anchor.
+  Desktop swim entry now checks head water and view direction; continuation follows the
+  native input, hunger, surface and standing-space conditions rather than requiring sprint
+  or forward input. Body sensing uses the current position and previous pose. Liquid ledge
+  escape uses the resolved pose box for swimming as well as ordinary water/lava travel,
+  and retained dry swimming uses ordinary travel. Prediction and correction replay retain
+  the native swim blend and previous pose flag, with blend updates before swim triggers and
+  transition jump suppression. Standing-space probes use the native box inset.
+  Liquid prediction now derives current vectors from palette liquid depths and native
+  material/face facts, including lower-neighbor gradients and falling-water pull. It
+  uses native cell order, float normalization and water/lava impulses before jump and
+  travel, with the preceding flying flag suppressing flow. Historical world snapshots
+  retain the same current query during correction replay. The integrated client builds;
+  tests and the affected verification suite were skipped at the user's request. The
+  user accepted flight, swimming transitions and flowing-water movement in the rebuilt
+  macOS/Metal client on the local BDS listening on 19132. This manual acceptance covers
+  the reported movement defects; the broader parity boundaries below remain incomplete.
+  See `docs/reference/flight-control-corrections.md` and
+  `docs/reference/liquid-movement.md`, `docs/reference/liquid-currents.md` and
+  `docs/reference/swimming-trigger.md` for identified
+  bodies and boundaries. Touch and stalled-entry swim predicates,
+  unregistered flow materials and specialized directional/waterlogged flow faces,
+  specialized jump paths, bubble columns, custom movement components and
+  complete waterlogged/surface behavior remain open. Controlled live results are recorded
+  separately; source-derived regressions alone close no acceptance gate. Wire edges for
+  swim/glide/crawl/fly and `PersistSneak` still need complete native input comparisons.
+  Glide travel, firework glide boosts (replayed from their stamped tick), glide start/stop and
+  the seven-tick flight double-tap follow the identified vanilla systems; the held-jump glide
+  lift gated by an unidentified movement ability and geyser boosts remain incomplete.
+  Water and lava travel read the underwater and lava movement attributes, and a swimmer's
+  dolphin boost scales speed and drag as vanilla does; riptide launches remain unimplemented.
+  Incomplete safety bound (a known divergence; vanilla is unbounded): Depth Strider's water-speed
+  blend target is clamped so the steady water velocity stays inside the simulator's block-sampling
+  budget. Land movement speed is not clamped.
+  Honey jump/slide, soul speed and depth
   strider coefficients are provisional (honey and soul speed have no public value). Riding
   suspends player physics and streams steering input with boat paddle flags; rider seat
   following, client-predicted vehicles (`IsInClientPredictedVehicle`), horse jump wire
@@ -3013,17 +4984,14 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
   crates/assets/data/block-physics-v2168.sha256 -physics-v2168-breg <v2168 BREG>
   -physics-v2168-manifest <manifest> -pmmp <pmmp root> -prismarine <prismarine root>` and
   fix any count or provenance mismatch it reports for `minecraft:sweet_berry_bush`.
-  Client-predicted vehicles, precisely: the 26.30 reconstruction shows vanilla registers
-  boat and horse "client predicted" systems (`SetIsClientPredictedBoatSystem`,
-  `SetIsClientPredictedHorseSystem`) plus boat paddle/move/friction systems, and a boat's
-  friction comes from the block under it. It does NOT contain the predicate that sets the
-  predicted state, the boat paddle/turn/acceleration coefficients (all in unresolved global
-  constants), or the horse travel coefficients, so no vehicle simulator was built and no
-  value guessed. Missing before it can be built: (1) the predicate and the input-to-vehicle
+  Client-predicted vehicles, precisely: vanilla registers
+  boat and horse "client predicted" systems plus boat paddle/move/friction systems, and a boat's
+  friction comes from the block under it. The predicate that sets the predicted state, the boat paddle/turn/acceleration
+  coefficients, and the horse travel coefficients remain unknown, so no vehicle
+  simulator was built and no value guessed. Missing before it can be built: (1) the predicate and the input-to-vehicle
   mapping, (2) boat and horse constants measured from a native client, (3) vehicle position,
   delta and rotation carried by `PlayerAuthInputSnapshot` (not yet in the snapshot type).
-  `ClientMovementPredictionSync` is sent (fields from the reconstruction's sender and the
-  pinned gophertunnel) after a server correction is applied, at most once per second, and is
+  `ClientMovementPredictionSync` is sent (fields match vanilla and the pinned gophertunnel) after a server correction is applied, at most once per second, and is
   skipped (counted, debug-logged) while any of the six attribute-map values is unset;
   live-test gate item: confirm anti-cheat servers accept the sync; the
   vanilla timer interval, the attribute names for friction/bounciness/air drag (sent as
@@ -3137,6 +5105,9 @@ and dropped-item rendering, paper-doll first-person arm/held item.
   Capture bounded native visual and packet/pose evidence.
 
 - [ ] **4.5 Held items, actions, dropped items, and viewmodel.** `P4.5-ITEM-ACTIONS`
+  - [ ] Pickup sound and the three-tick copied-item flight survive immediate server
+    removal. The squared trajectory and collector offset follow the current vanilla
+    rules; a version-matched rendered comparison remains incomplete.
   - [x] Render supported ordinary opaque full-cube held blocks using the current
     selected stack, world materials, and session-bound local presentation authority.
     A live controlled check covered Stone, distinct crafting-table faces, empty-slot
@@ -3145,6 +5116,11 @@ and dropped-item rendering, paper-doll first-person arm/held item.
     This is a static geometry slice, not complete item, pose, animation, lighting,
     or matched retail visual parity. Tinted, animated, partial, and unsupported
     items remain on the existing fallback path.
+  - [ ] Server custom opaque cubes now use the shared block-item face sheets for
+    inventory and held rendering. Preserving higher-resolution custom face textures
+    is incomplete: the sheet builder currently selects the mip matching
+    `BLOCK_ITEM_FACE_SIDE`. Custom shapes, tinting, animation, and matched retail
+    visual parity remain incomplete as well.
 
 ## Phase 5 — Interaction, inventory, UI
 
@@ -3221,8 +5197,8 @@ remains pending measured timing.
 `hud.hud_screen` and `hud_crosshair.hud_crosshair_screen` through the JSON-UI
 engine over the session's pack stack, so server packs restyle it as on Bedrock.
 The Java look ships as the built-in pack `assets/java-hud` under every server
-pack; for any namespace a server pack restyles (`hud`, `scoreboard`), its files
-are withdrawn so the pack gets vanilla beneath it. The JSON-UI carrier is now a
+pack. Partial server definitions overlay that layer; authored server replacements
+and positioning take priority. The JSON-UI carrier is now a
 required startup carrier. Native renderers (hearts, armor, hunger, bubbles,
 mount hearts/jump, slot art, effects, crosshair) keep Java behavior at their
 controls. Container, inventory, creative and book screens draw through the engine
@@ -3363,15 +5339,15 @@ water-bucket identifier has no alias to its existing water sprite. A verified
 modern-name-to-atlas mapping, compiler/resolver/icon tests, and native icon
 acceptance remain open; this does not require a block-thumbnail renderer.
 The crosswalk is now `crates/assets/data/legacy-icon-routes-26.30.tsv`: every
-`setIconIfLegacy` call in the 26.30 client's `VanillaItems::initClientData`, plus
-potion icons by aux, each row citing its call site. Still open: cooked foods and
+legacy icon assignment the 26.30 client makes during item initialization, plus
+potion icons by aux. Still open: cooked foods and
 other 1.10 JSON items (icon from resource-pack data), spawn eggs (per-entity
 map), bow/crossbow draw frames, animated compass/clock frames, trimmed armor and
 broken elytra overrides, and native icon acceptance.
 Block items (provisional, incomplete): an item the retail client gives a legacy
 icon, or one placing a differently named block, keeps its sprite over its block
 route. Flat-shape blocks (cross plants, torches, rails, panes, ladders, lanterns,
-candles, chains) draw `BlockItem::getIconInfo`'s icon: carried texture, else
+candles, chains) draw vanilla's block-item icon: carried texture, else
 texture, down face. Other non-cube shapes draw their isolated world template (a
 wall item shows post plus east/west arms, a fence post plus arms); leaves draw
 their carried cube. Retail block items missing from the Dragonfly route table
@@ -3382,8 +5358,8 @@ Shape classification, stair orientation and GUI shading are unverified against
 the retail GUI tessellator.
 Server item components (StartGame registry) drive display names, rarity and
 hover colours, durability maxima, stack-merge capacity, held grip, wearable
-slots and use durations. Item glint (provisional): stacks `Item::isGlint`
-marks (an `ench` list, the glint component, always-glinting vanilla items)
+slots and use durations. Item glint (provisional): stacks vanilla
+marks as glinting (an `ench` list, the glint component, always-glinting vanilla items)
 draw a procedural scrolling purple overlay in HUD and JSON-UI item cells, not
 the retail glint texture; held items and the item viewmodel do not glint.
 `minecraft:render_offsets` is not applied.
@@ -3430,8 +5406,7 @@ gates.
   keyboard/controller/touch navigation, and response routing. This is the prerequisite for
   Lunar ClickUI compatibility.
   Status: server resource-pack UI now reaches the JSON-UI form engine (per-layer `ui/*.json`
-  merge, `$screen_content` routing, expression, view-binding, and factory rules taken from the
-  26.30 reconstruction), with a resolve/layout cache and raw-edge pointer input. Checked only in
+  merge, `$screen_content` routing, expression, view-binding, and vanilla factory rules), with a resolve/layout cache and raw-edge pointer input. Checked only in
   tests against local pack fixtures, not against a live vanilla capture; the virtual-root scale
   constants, per-visual-line label alignment, and image aspect defaults remain unconfirmed.
 - [ ] **5.7 UI parity and performance acceptance.** `P5.7-PARITY-PERF` Compare matching vanilla reference views at
@@ -3443,7 +5418,7 @@ gates.
 
   Desktop GUI scale modifier and fullscreen/F11 wiring are implemented,
   including preference persistence. The modifier range and scale rule use the
-  Lens 26.30 desktop reference and the controls use the pinned vanilla JSON UI;
+  vanilla desktop behaviour and the controls use the pinned vanilla JSON UI;
   see [desktop video settings evidence](docs/evidence/desktop-video-settings.md).
   **Incomplete parity:** the transferred behavior has not been compared with a
   version-matched native client. The settings context selects the pinned pack's
@@ -3463,10 +5438,14 @@ system from Phase 2 must have been built pack-stack-aware); disconnect screens w
 reasons; auth/device-code UX polish. Optional stretch: Lunar module toggles surfaced in-client
 via control channel (v1.x, not v1).
 
-- **Marketplace rows — provisional, incomplete.** Layout rows carry catalog queries, not offers;
-  core fills each from its first query via `marketplace.Query.SearchFilter` onto PlayFab
-  `Catalog/Search`, whose vanilla request body is unconfirmed, and rows have no continuation
-  source yet (no "See All"). Does not close the store parity gate (`docs/marketplace-services.md`).
+- **Marketplace rows — provisional, incomplete.** The home is the `storeRoot` known page. Curated rows carry
+  their offers inline; `StoreRow` and `HeroRow` draw vanilla's pre-content-card cards, as the live session
+  config sends no `contentCardStyles` (the client's content-card flight is not read). Query rows are filled
+  from their first query via `marketplace.Query.SearchFilter` onto PlayFab `Catalog/Search`, whose vanilla
+  request body is unconfirmed. Not drawn yet: `PromoBanner`, `NavButtonRow`, `CoinBundleRow`, the `Layout`
+  top-bar row, offer type badges (icon overlays), the rating count beside the average, and the row's "See
+  All" tile and page (the item list's `linksTo`). Does not close the store parity gate
+  (`docs/marketplace-services.md`).
 
 ## Phase 7 — Local worlds on dragonfly
 
@@ -3479,6 +5458,12 @@ dragonfly's generation and mob AI parity gaps are accepted, not chased.
 Status: provisional (see `docs/local-worlds.md`): BDS 1.26.52.3 (native, or the manifest-pinned container on macOS) for default worlds, dragonfly for Flat worlds; menu create/edit/delete/templates and staged loading are built. Live-verified on macOS through the core's control channel (create, staged open, spawn, server-side teleport and client fall, pause, close with no orphan); the menu click-through and on-screen input were not exercised (locked screen), and the create screen lacks vanilla's Multiplayer, Cheats and pack tabs, so no acceptance gate is closed.
 
 ## Phase 8 — Audio, polish, packaging
+
+**World-drop audio:** successful world-input single and whole-stack drops now
+emit one local `drop.slot` cue through the active pack, without waiting for or
+repeating server replies. Failed and inventory-screen drops stay silent on this
+route. See [the rules and regressions](docs/reference/item-drop-audio.md).
+Matched-version live audio acceptance remains incomplete.
 
 Scope: audio via bevy_audio/kira — sound events mapped through `sound_definitions.json`,
 positional sounds, music/ambient (asset-availability audit from Phase 2 decides
@@ -3504,10 +5489,19 @@ manual ticks and barriers cover idle delivery, coalescing, and failure attributi
 
 Rust forwards startup Transfer as a typed reconnect event. The startup contract is
 radius → loading-start → local presentation readiness → loading-end → initialized, with
-an actual Rust-through-core order fixture. See [the reconstruction evidence](docs/core-join-startup.md).
+an actual Rust-through-core order fixture. See [the vanilla startup rules](docs/core-join-startup.md).
 **Incomplete parity:** the existing terrain presentation thresholds, consent UI, dimension
 transitions, and matched retail/live visual and timing evidence remain open. This packet-order
 correction does not close those broader gates. No live server was used for these corrections.
+**Dragonfly join (provisional, incomplete):** Dragonfly streams no terrain until initialized, which
+deadlocked the gate. A session whose server sent no terrain before spawn now releases once received
+work drains. The vanilla zero-terrain completion path is unconfirmed: see the open questions
+in [the join evidence](docs/core-join-startup.md). StartGame's vanilla data-driven
+definitions are retained separately from server custom visuals: the complete carrier holds their
+states, but remote sessions admit them only when StartGame supplies their definitions.
+The namespace distinguishes vanilla definitions from server custom blocks; the presence of
+`vanilla_block_data` alone does not. A server
+block's own item (no components, no item version) stacks to `Item`'s default 64.
 
 ---
 
@@ -3592,19 +5586,35 @@ grass/foliage/water; sky, fog, and clouds; chunk streaming/eviction tied to
 deferred; chests/signs receive static models in this phase. The Phase 0 performance budget
 carries forward, with full remesh of view distance after teleport ≤ 2 seconds.
 
+
+### Settings chat popup follow-up (incomplete)
+
+The native chat gear now opens `chat_settings.chat_settings_popup` from the carrier.
+Persisted mute, color, typeface, font size, spacing, duration and opacity reach the chat
+presentation; emote mute, TTS and mentions color remain UI only because those systems
+are missing. The compiled open font remains the repository's accepted font deviation.
+Font size 5–20/default 10 and spacing 0–100/default 0 are provisional host
+ranges, not confirmed vanilla defaults. The scale mapping is size / 10 and
+spacing is truncated to one decimal plus 0.001.
+Smooth font controls hide for zh_TW, zh_CN, ko_KR and ja_JP. Color defaults (white/yellow),
+typeface default still need current-controller confirmation.
+Do not close the exact chat parity gate from these provisional values.
+Pack controls: `ui/chat_settings_menu_screen.json:68,139,272,299`. The chat settings
+controller binds these controls and retrieves their options. Seven colors use the
+vanilla indexed palette order.
 ### Projectile rendering fixes (incomplete parity)
 
 The `fix/projectile-render` investigation fixes item-icon carrier admission and
 resolution, sprite UV eligibility, arrow face UV defaults and neutral-profile plane
 backs, projectile world yaw, and remote motion retention/initial arrow orientation.
-See `docs/projectile-rendering.md` for Lens citations and failing-first regressions.
+See `docs/projectile-rendering.md` for vanilla rules and failing-first regressions.
 Offline frame coverage does not close the native projectile gate. Exact projectile
 lerp steps, stuck-state/shake runtime, tipped-arrow behavior, target materials and
 lighting, and AddActor velocity-only launch remain open. No live connection was used.
 
 ## Biome boundary cache port (2026-10-01)
 
-Incomplete parity work on `fix/biome-blend`: the reconstructed 1.26.50.26
+Incomplete parity work on `fix/biome-blend`: the vanilla
 lattice cache replaces the provisional CPU box/shader separable kernels,
 including vertical neighbours and inverse-distance weights. Evidence and
 remaining questions are in `docs/biome-blending.md`. This does not close
@@ -3612,30 +5622,123 @@ P2.5-NATIVE-BIOME: tint-specific dispatch, graphics-setting selection, native
 neighbour-arrival remeshing and the owner's live screenshot attribution remain
 unverified. CPU palette previews are not native or GPU acceptance.
 
+Windows DX12 debug builds remain incomplete: FXC's unoptimized compilation of the
+generated biome lookup table exceeds its temporary-register limit. The GPU bounds
+regression uses optimized shaders with backend validation enabled, matching release
+shader compilation. Supporting unoptimized FXC shaders still needs a table-layout
+change; the bounds regression does not close that follow-up.
+
+
+### World-lighting follow-up (incomplete parity)
+
+The shared RGB lightmap implements the vanilla composition and effect formulas.
+Current dimension ramps/dispatch, ambient flags, sky-darken input and effect envelopes
+remain unverified. AO uses channel maxima and the default shade curve, but registry
+shade/solid-render properties, component exponents and special dimension/unshaded
+routes remain incomplete. Inset sampling does not implement the separate box-average
+route. These corrections do not close RM-01–04 or AO-02–04 in full.
+
+State emission now uses the current trial-spawner, vault, anchor and sensor accessors.
+The light registry and target bindings are rebuilt; complete dynamic-emitter parity
+still needs copper-bulb constructor constants, cauldron identity and sensor emission dispatch.
+Default shaded grass uses the reference packed-byte transform. Water surface opacity
+is retained as a vertex byte through the biome carrier and GPU blending. Its final
+texture-alpha multiplication and special neighboring-material side factor remain
+provisional until the material route is resolved. Swamp grass retains row 255 and
+uses the current seed-2345 float simplex sampler at absolute world positions; native
+color/blending comparison remains open. None of these changes closes a native gate.
+
+The star field now draws seed-10842 candidate quads with the reference radius,
+size, alpha and draw consumption. It remains incomplete: float trigonometry is
+used in place of the runtime sine table, and current sky rotation/material blend
+state still need verification. This does not close RM-05's numeric/native gate.
+
+Top-boundary sky seeds now reach known occupied cells and use the solver's destination
+filter. LP-05 remains incomplete: normal/render packet heightmaps, custom dimension
+bounds and initialization before the upper-neighbor readiness gate are still missing.
+
+RM-06 and GEO-01 remain partial as recorded in the continuations below. GEO-02–04
+remain open: isotropic face rotation, complete repeater/comparator geometry and
+per-species offsets are not implemented. The isotropic hash needs face-to-UV fixtures.
+RM-07, RM-09 and RM-10 retain their older-reference-only status. Offline tests and GPU
+captures are local evidence; they do not close native visual or shader-performance gates.
+
+### Settings desktop continuation (incomplete parity)
+
+The desktop host now consumes Hide HUD, Hide Hand (animated and fallback paths),
+player-name visibility, panorama speed, cloud visibility, darkness strength, HUD
+opacity and HUD text-background opacity. Focus-loss pause reads its saved setting;
+explicit pause-menu state remains authoritative. These are runtime adapters, not a
+closed visual or numeric-default parity gate.
+
+References: P:ui/settings_sections/general_section.json:3302,3332,3374,3407,3544,3636;
+P:ui/hud_screen.json:3556–3569.
+Vanilla option numeric defaults remain provisional pending current-client confirmation. Cloud and hand preferences do not modify the JSON-UI engine.
+
+Desktop continuation also wires section reset confirmations (Video, Accessibility and
+Audio), each using the existing option registry; spyglass turn scaling, secondary
+Enter for Chat until that binding is remapped, notification duration and the Creator
+chat coordinate copy/paste header. These changes remain incomplete parity until the
+full gates and rendered evidence pass. Registered provisional defaults remain
+provisional after a reset; a working consumer does not establish a vanilla default.
+
+Sources: P:ui/settings_sections/general_section.json:3000–4058,4738–5506;
+P:ui/chat_screen.json:740–904. Spyglass item damping is 0.05.
+The coordinate-copy toast behaviour remains unconfirmed. Full Keyboard's alternate layout and smooth rotation rate,
+Safe Zone, glint defaults, world Experiments and several unsupported subsystem
+controls remain open. JSON-UI engine changes remain on the separate branch.
+
+Glint accessibility factors now reach the existing UI item renderer: strength scales
+its additive RGB, and speed scales elapsed time before the procedural phases.
+The procedural glint appearance
+and phase periods remain provisional; this adapter does not establish texture,
+world-item, or entity-glint parity. Current vanilla option defaults/ranges remain open.
+
 ## Terrain particle texture repair (2026-10-01)
 
 Incomplete parity work on `fix/break-particles`: particle level events need the
 same wire-to-internal block palette remap as chunk data. The ordinary destruction
 texture comes from the resolved down face; biome tint is a separate block policy.
-References: Lens 1.26.50.26, artifact 6, RVAs `0x4e95ee0` and `0x4e96080`;
-R:l/LevelRendererPlayer.cpp:24894; R:b/BlockDestructionParticlesComponent.cpp:32;
-the pinned pack's `particles/block_destruct.json`.
+Pack definition: `particles/block_destruct.json`.
 
 The exact particle parity gate stays open for destruction texture/count overrides,
 weighted texture variations, non-cube crack AABBs, mining hit cadence, seasonal tint
-and native ambient lighting. Particles now consume the shared atmosphere daylight
-state rather than deriving a separate sun-angle value.
+and native ambient lighting. The October 4 correction below replaces the separate
+particle brightness approximation with the native RGB lightmap composition.
 Landing and sprint dust are not wired by the current particle adapter. Rain splash
 uses the static particle sprite sheet, as the pinned `particles/rain_splash.json`
 defines. Offline tests or previews do not close the target-platform visual gate;
 no live server connection is authorized for this work.
+
+### Dark item/particle correction (2026-10-04, live accepted)
+
+User-authorized offline BDS testing exposed an extra sRGB encoding of dropped-item
+lighting and a separate scalar particle brightness floor. Items now compose gamma
+texture/tint/overlay and the native byte-quantized `/16` RGB lookup before the final
+Bevy linear-output conversion. Lit particles consume that same world lightmap;
+unlit effects keep their bypass. Sources and remaining item shade/AABB, particle
+solid-neighbor and fog boundaries are recorded in
+[item-particle-lighting.md](docs/reference/item-particle-lighting.md).
+
+The user accepted dropped items, particles and survival mining on macOS/Metal,
+Retina 2× with the rebuilt client. During the earlier test, survival was
+incorrectly taking the creative mining route because Instabuild overrode game mode.
+Vanilla selects creative destruction from the creative game mode, not that
+ability; the narrow capability correction and transition regression are recorded in
+[game-mode-updates.md](docs/reference/game-mode-updates.md). This does not close
+broader ability-layer refresh or historical replay parity. The focused particle
+tests (59), client-world tests (198), and native GPU color regression (60 draws in
+one test) passed. The user explicitly requested stopping the queued verification,
+skipping further checks and pushing directly to remote `dev`; the full pre-push
+gate and PR/CI merge gate were waived, not completed. Complete item/particle
+parity remains open.
 
 ### Zeqa correction audit (2026-10-01, incomplete)
 
 The October 1 trace contains 34 committed corrections. The audit in
 `docs/evidence/2026-10-01-zeqa-movement.md` compares each authoritative position
 with the originally transmitted input, not a prediction already changed by replay.
-Current-client Lens evidence supports these fixes: player corrections preserve look;
+These fixes follow current vanilla behaviour: player corrections preserve look;
 PosDelta carries end-of-tick velocity; zero-stamped SetActorMotion changes live
 velocity without a replay overlay; Jumping follows held processed input and
 StartJumping follows actual initiation; keyboard raw diagonal movement is normalized and analogue axes stay zero;
@@ -3653,11 +5756,90 @@ No live server connection was made. Use RUST_MCBE_MOVEMENT_TRACE=1 for outbound 
 and the new unthrottled inbound movement and latency-fence records. Normal MovePlayer acknowledgement
 no longer needs RUST_MCBE_TELEPORT_ACK; that opt-in still enables unverified extra routes.
 
+## Cinnabar extension: server experiences (incomplete; not vanilla parity)
+
+- Discovery, signed session negotiation, scoped consent, hashed bundle delivery,
+  capability hosting and synchronized media are an opt-in Cinnabar extension.
+- This branch is code-only. Local compilation and regression validation are now
+  authorized; no vanilla, visual, performance or containment gate is closed.
+- Production remote execution must remain unavailable until restricted helpers,
+  compiler limits and media decoding pass independent cross-platform validation.
+- See `docs/server-experiences.md` for the client implementation and remaining gates.
+- Provisional, labeled incomplete: server WIT 0.4 focus snapshots stop counting when the
+  player is farther than `provisionalFocusRange` (`tools/localserver/experience/limits.go`,
+  Dragonfly's survival block reach). Vanilla closes a block container screen beyond the
+  player's pick range (per input mode, survival or creative), measured squared from the
+  player's eyes to the block centre; the range constants are not yet known. Replace the
+  constant with those values, per game mode, once they are known.
+
+- Implemented client preview: admitted marker, signed session challenge, scoped trust
+  JSON-UI, HTTPS/hash cache, bounded ordered ScriptMessage records, versioned WIT,
+  transactional developer helpers, and off-thread WebM/media output primitives.
+- Incomplete: restricted production helpers/compiler limits; optional-pack provenance;
+  full JSON-UI screens and input focus; scene/material adapters; live native media
+  routing, shared surface binding, device clock, applied drift correction and fast
+  seeking/looping. Production never sends readiness or starts a bundle. Developer
+  readiness grants only UI labels and typed messaging.
+- The MP4/H.264/AAC platform decoder is an unavailable trait stub. Native AV1/Opus
+  decoding is an optional compiled feature, but workers remain unavailable until
+  a helper enforces a process memory ceiling. No SDK or server-side integration
+  was written. The existing Cargo.lock passes the locked workspace check.
+
+### Review hardening and local validation
+
+- ZIP bundles use only the bounded final directory and validated local entries;
+  streaming decompression cannot retry earlier directories. Unsupported compression,
+  extra metadata, ZIP64 and streaming data descriptors are rejected before decoding.
+- Native media workers stay unavailable until an enforced process memory ceiling
+  exists. Sticky reader faults prevent download or integrity errors becoming EOF.
+- Host staging reserves the complete serialized transaction, including its owner,
+  epoch, wrapper and command separators. Identifier, channel-field, initial bundle
+  generation and widget text limits use shared policy constants.
+- Regression tests cover an oversized earlier ZIP64 directory behind a malformed
+  final AES entry, extra metadata, oversized EBML declarations, demuxer I/O failure
+  at an element boundary, exact transaction/IPC limits and channel field limits.
+- All Cargo validation below ran locally through the owner's `cslot` limiter.
+  No dependency or lockfile update was needed. These checks passed:
+  - `cargo check --workspace --all-targets --locked`
+  - `cargo test -p server-experience -p mod-host --locked` (31 and 13 tests)
+  - `cargo test -p server-experience -p mod-host --features server-experience/developer-media --locked`
+    (34 and 13 tests)
+  - `cargo test -p bedrock-client --locked` (unit, integration and documentation tests)
+  - `cargo clippy --workspace --all-targets --features server-experience/developer-media --locked -- -D warnings`
+  - `cargo run -p architecture --locked -- check --root . --policy tools/architecture/policy.toml`
+- `cargo fmt --all`, the formatting check and `git diff --check` passed. Production
+  containment, media integration and vanilla parity gates remain open.
+
+### PR #34 review fixes and local validation (2026-10-02)
+
+- Fixed all ten review findings: consent clears raw mouse-button messages through
+  dismissal; the controller follows the committed UI drain; initializers share
+  callback slices, retain bounded sends and publish readiness before those sends;
+  reliable events wait for idle helpers and available callback fuel.
+- Media grants now bind the verified archive digest. Applied controls retain their
+  accepted timestamp frontier, clock probes survive delayed or unsolicited replies,
+  and the PCM presentation queue enforces the decoder packet frame ceiling.
+- Added regressions for next-frame input replay, schedule ordering, same-frame
+  dimension revocation, staggered initialization, four-component startup, burst
+  delivery, signed revision substitution, timestamp reversal, delayed probes and
+  maximum-sized PCM blocks. Reconciled the preview documentation with the branch's
+  recorded validation and existing lockfile additions.
+- Local checks passed through the owner's `cslot` limiter:
+  - `cargo check --workspace --all-targets --locked`
+  - `cargo test -p server-experience -p bedrock-client --locked` (35 server-experience
+    tests; 1,879 client unit tests passed and 16 were ignored; client integration
+    and documentation tests passed)
+  - `cargo test -p server-experience --features developer-media --locked` (38 tests)
+  - `cargo clippy --workspace --all-targets --features server-experience/developer-media --locked -- -D warnings`
+  - `cargo run -p architecture --locked -- check --root . --policy tools/architecture/policy.toml`
+- `cargo fmt --all`, the formatting check and `git diff --check` passed. No new
+  dependency or lockfile update was needed. Production containment, live media,
+  visual, performance and vanilla parity gates remain open. No remote build or
+  live client/server session was used.
 ### Movement audit continuation (2026-10-01, incomplete)
 
 `fix/zeqa-corrections` merged `origin/dev-sonnet` at `473cec0e`. Ordinary steering
-now follows current-client f32 sin/cos products (Lens 1.26.50.26 RVA `0x99cc8b0`;
-`R:d/DefaultMoveSystems.cpp:32`). Historical Go fixtures remain comparison data,
+now follows current-client f32 sin/cos products. Historical Go fixtures remain comparison data,
 not a bit-exact vanilla oracle. Position, collision and other travel arithmetic
 still retain f64; the D01 parity gate remains open. Prediction-sync payload
 sources, historical-world replay, custom dimensions, fluid currents, special
@@ -3666,51 +5848,719 @@ Grounded liquids now select liquid acceleration/ascent; soul sand uses native
 acceleration friction, with Soul Speed removing that penalty. Sneak edge clipping
 runs to supported motion or zero. Prediction sync waits 200 fresh ticks, and live
 and replay packets use actual jump initiation. Server flight-off is authoritative.
-Web slowdown applies once and honors Weaving. Client ContainerClose sends type -9
-(Lens `0x4f32090`; `R:l/LocalPlayer.cpp:5095`) while the ledger retains its real type.
+Web slowdown applies once and honors Weaving. Client ContainerClose sends type -9 while the ledger retains its real type.
 No live or visual acceptance gate is closed by these changes.
 
-### World-lighting follow-up (incomplete parity)
+2026-10-02 RM-06 continuation (incomplete): atmosphere carriers retain initial
+fog and transition timing. The current 27-position biome layer blends distance,
+RGB and transition fields with missing-entry coverage. Water transitions blend
+initial color/start/end using the minimum-clamped two-stage timeline, replacing
+the fixed endpoint multiplier. Server-directed layers, frame smoothing and depth
+adjustments remain incomplete. Pack definition: `fogs/default_fog_setting.json`.
 
-The shared RGB lightmap implements the recovered composition and effect formulas.
-Current dimension ramps/dispatch, ambient flags, sky-darken input and effect envelopes
-remain unverified. AO uses channel maxima and the default shade curve, but registry
-shade/solid-render properties, component exponents and special dimension/unshaded
-routes remain incomplete. Inset sampling does not implement the separate box-average
-route. These corrections do not close RM-01–04 or AO-02–04 in full.
+2026-10-02 GEO-01 continuation (incomplete): nested weighted texture paths are
+kept separate from state arrays and carried to cube, model and liquid shaders.
+Selection uses wrapping absolute block coordinates; weighted cube faces cannot
+merge across cells. Carrier material records now retain selector ranges and
+normalized weights; old world carriers require `make assets`. Server material
+replacement clears the replaced selector. Variant flags must match the selector's
+rendering path; string and object paths retain their distinct default weights.
+Variant tint/UV extension metadata
+is rejected explicitly pending a matching material route, so full pack-semantic
+and native visual parity remain open. Pinned terrain_texture.json
+ordinary arrays (including repeater/comparator) remain state selectors.
 
-State emission now uses the current trial-spawner, vault, anchor and sensor accessors.
-The light registry and target bindings are rebuilt; complete dynamic-emitter parity
-still needs copper-bulb constructor constants, cauldron identity and sensor vtable binding.
-Default shaded grass uses the reference packed-byte transform. Water surface opacity
-is retained as a vertex byte through the biome carrier and GPU blending. Its final
-texture-alpha multiplication and special neighboring-material side factor remain
-provisional until the material route is resolved. Swamp grass retains row 255 and
-uses the current seed-2345 float simplex sampler at absolute world positions; native
-color/blending comparison remains open. None of these changes closes a native gate.
+### Numeric continuation (2026-10-02, incomplete D01)
 
-The star field now draws seed-10842 candidate quads with the reference radius,
-size, alpha and draw consumption. It remains incomplete: float trigonometry is
-used in place of the runtime sine table, and current sky rotation/material blend
-state still need verification. This does not close RM-05's numeric/native gate.
+Walking vectors, collision arithmetic, AABB centers, jump impulses, gravity and drag
+now round at f32 operations. Motion remains independent of the rounded final position. Sprint jumps use native float
+indices and table initialization by `sinf(index / 10430.378f)`. Exact angle and distant-position
+witnesses cover these changes. D01 remains incomplete: the non-walking travel models
+and exhaustive Windows-versus-host sinf bit equivalence still need validation.
+Water acceleration now multiplies the effective Depth Strider level before dividing by
+its maximum.
+Collision flags use the native float epsilon, with exact boundary witnesses.
 
-Top-boundary sky seeds now reach known occupied cells and use the solver's destination
-filter. LP-05 remains incomplete: normal/render packet heightmaps, custom dimension
-bounds and initialization before the upper-neighbor readiness gate are still missing.
+### Registry collision continuation (2026-10-02)
 
-RM-06 and GEO-01–04 remain open: fog layers/transitions, weighted texture alternatives,
-isotropic face rotation, complete repeater/comparator geometry and per-species offsets
-are not implemented here. The recovered isotropic hash still needs face-to-UV fixtures.
-RM-07, RM-09 and RM-10 retain their older-reference-only status. Offline tests and GPU
-captures are local evidence; they do not close native visual or shader-performance gates.
+Doors now resolve facing/open from the lower half and hinge from the upper half;
+missing pairs use the native default plane. Current planes are 0.1825 blocks thick. Stair collision reads the
+current registry corner state; the older
+neighbor-derived algorithm is not substituted for it.
+Scaffold support uses the stable registry unit cube and the native pre-move top/contact
+conditions. Registry
+coverage includes both runtime-ID modes and all stair corners/halves. Scaffold movement
+coefficients, powder-snow equipment behavior and broader interaction parity remain open.
+
+### Historical replay continuation (2026-10-02, incomplete INT-10)
+
+Palette prediction frames now retain immutable block pages, load state, registry data
+and collision revisions. Replays use each frame's world even after live edits or unloads.
+Controller frames retain mode intent, input edges, requested controls, mode state and
+environment; corrected ticks re-evaluate pose and repeated jumps and preserve retimed
+server overrides. Tests cover changed ceilings, changed correction anchors and repeated
+replays. Vanilla uses history-based component replay; these tests verify our implementation, not complete native parity.
+Anchor depenetration remains provisional (INT-10), and full component coverage and the
+memory/performance cost of retained world metadata still need validation.
+
+### Liquid contact continuation (2026-10-02, incomplete D08–D11)
+
+Liquid contact now uses the current native water/lava shrink vectors, including low-pose
+center clamping and material-cell tests independent of fluid surface height. Contact boundary witnesses
+and the complete simulator suite pass. Currents, complete swimming travel/drag, liquid
+attributes and exits remain open. The 49-scenario, 1,112-tick Go differential changes
+from 22 to 19 scenarios above 1e-5 or with flag differences, and from 49 to 41 scenarios
+with any exact difference. This comparison is not a native parity acceptance gate.
+
+### Inventory batching continuation (2026-10-02, incomplete serverbound parity)
+
+Ready ledger requests now share one ItemStackRequest packet, retaining each request's
+ID, ordered actions and text-filter origin. Transport refusal leaves the entire batch
+unsent; successful admission advances all included requests together. Empty batches
+emit no packet. The existing
+window-control priority is retained. Native tick/flush phase, cross-family packet batching,
+vehicle prediction, interaction models and emote/spin/flight input ownership remain open.
+### Mesh streaming follow-up (incomplete native acceptance)
+
+The offline load/teleport and burst fixtures exercise separate decode, light and mesh
+queues, bounded frame service and coalesced invalidations. Pool sizes, service shares
+and OS priority mappings are Cinnabar implementation choices; exact current-client
+scheduling parity remains incomplete. Native release frame and network-latency
+acceptance remains open. See `docs/reviews/mesh-stall-followup.md` for the references
+and local regression measurements.
+
+### Inventory/HUD correction continuation (2026-10-02, incomplete general parity)
+
+Selected-item text now positions its spawned Java-look factory root above the
+hotbar, retaining the inherited Bedrock label and animation. Bare block stacks
+can split/restack without rejecting nonzero block identity; ingredient plainness
+no longer requires zero aux/block identity. Supported recipe shapes are retained
+independently of discovery metadata, including high-bit result block identities.
+Personal/workbench closes explicitly return crafting inputs and cursor items to
+player inventory, dropping only overflow, with sparse dependency preservation
+and rejected-return recovery. References and scoped acceptance are in
+`docs/reference/selected-item-hud-label.md`, `inventory-block-restacking.md`,
+`inventory-recipe-admission.md` and `inventory-crafting-close.md`.
+
+Scoped offline BDS acceptance exercises split/restack, manual 2×2 and workbench
+crafts, input/cursor returns and repeated reopen with server-verified counts.
+Rendered survival/creative selected-name geometry is inspected at the owner's
+Retina scale. See `docs/reviews/inventory-hud-crafting-fixes.md` for exact builds,
+local evidence paths and verification state.
+
+Full structural-NBT merge parity, descriptor-dependent capacity/variant rules,
+limited-crafting/unlocked-recipe client gating, recipe-book discovery state,
+arbitrary container return flags and exact native close/flush timing remain open.
+These corrections do not close the overall Phase 5 inventory parity gate.
+
+### Zeqa regression follow-up (incomplete visual/performance acceptance)
+
+Nametag phase traversal, omitted catalog plane backs, active player appearance
+lifetime, and matrices cached across rig replacement have focused corrections.
+The supplied offline witnesses do not close the live form layout/FPS, missing
+hotbar icons, all nametag size/garbling symptoms, or RustMCBE stretched-limb gates.
+The player-body report omits equipment and GPU execution. See
+`docs/reference/zeqa-regression-investigation.md` for source boundaries, vanilla
+references, PNG evidence and the limitations of the capture.
+
+### JSON-UI review follow-up (incomplete live form acceptance)
+
+Review corrections cover untrusted animation graphs, expanded widget component
+bags, native form titles, screen cancellation, Drop remapping, recipe icons and
+perspective settings. An open form also remeasures when its session font changes.
+The captured Spirit Bundle witness exercises late pack installation and texture
+residency, but the black rectangle, floating labels and live FPS loss remain
+unproven. No live visual/performance gate is closed; see
+`docs/reference/jsonui-review-fixes.md`.
+## Go core simplification (2026-10-02)
+
+The core's packet-decoding diagnostic observers for cache boundaries, loading order,
+and form schemas are removed. The proxy still forwards packet batches and retains
+resource-pack progress and admission status used by the client. Historical cache
+boundary logs remain readable by the acceptance scripts. Current diagnostic runs
+record missing boundary instrumentation as unavailable, with an explicit finding;
+they do not satisfy an independent cache-route proof or a completed Lunar prerequisite.
+Replacement live evidence is still needed before closing the cache-streaming parity gate.
+
+Authentication and pack caches now trust the user's configuration directory, while
+retaining atomic publication, file leases, credential binding and quota eviction.
+New credentials remain private on Unix and Windows. Account methods reject calls
+after close, and sign-out takes the same leases as token refreshes. The active
+sign-in keeps a stable cache generation across refreshes; a replacement sign-in
+ends the old account runtime before it can adopt the new credentials. The active
+catalog exporter and native Windows/Linux BDS installer remain supported. Resource
+packs still pass through the Go cache and retain their client progress reporting.
+### Astra UX follow-up (incomplete live performance/parity acceptance)
+
+Real-carrier Bevy input now exercises all Add/Edit server fields, persistence and
+queued endpoints; Inbox summaries stay within their cards. Startup accepts lit,
+meshed, upload-acknowledged near terrain plus a later GPU frame without waiting
+for distant replies. The optional OreUI static page now rebases loading fallbacks,
+and unchanged GUI skins reuse their digest. See `docs/parity/server-info-input.md`,
+`docs/core-join-startup.md`, `docs/parity/loading-textures.md` and
+`docs/parity/menu-frame-cost.md` for references, tests and measured boundaries.
+
+The supplied post-pack Zeqa page-grid corruption and 6 FPS, the owner's menu FPS,
+and the minutes-long live BDS join did not reproduce offline. Native Metal frames
+were rendered and inspected, but the native window capture integration returned
+`cgWindowNotFound`. Release/live acceptance remains open; these local changes do
+not close it. No live server connection was made.
+
+### HUD paper doll and menu follow-up (incomplete parity acceptance)
+
+The HUD now dispatches its pack-authored live player control through the shared
+GUI model pipeline, with native trigger timers, settings and a full-body pose
+when the camera is in first person. Home exposes its player and Profile control;
+menu doll framing uses the native model origin. Marketplace ribbon fields now
+survive the core feed, and Inbox has categories, dated sections, read state and
+confirmed deletion. See `docs/reference/hud-paper-doll.md` for exact source
+references, offline evidence and limitations.
+
+HUD frame interpolation, full persona layers, vehicle rendering,
+matched pause/inventory pixel captures and complete Inbox settings/rich-message
+behavior remain incomplete. The owner's stretched-model bug has no reproduced
+failing geometry witness. These changes do not close any overall visual or live
+performance parity gate. No live server or remote machine was used.
+### Burning camera and HUD doll (accepted fix; overall parity incomplete)
+
+The camera effect now uses vanilla's open fire cube, down-face sprite,
+point sampling, tint/alpha and render order. The active pinned registry protocol
+selects fire, and admitted pack animation frames share the terrain clock.
+The HUD doll uses its separate native flame atlas, collision-box geometry,
+per-draw animation and controller overlay, including the swimming translation
+and extinguishing fade. References: `docs/reference/camera-fire.md` and
+`docs/reference/hud-paper-doll.md`.
+
+Focused fire, shader, UI adapter and UI renderer tests pass, including a physical
+Metal GPU readback for cube orientation, open top, pixel edges and animation.
+The active-protocol admission regression and architecture/fmt checks pass.
+Affected production-library clippy passes with two existing unrelated terrain
+lint categories exempted; the unmodified all-target baseline also has unrelated
+terrain-test and source-inclusion warnings. No full workspace sweep was run.
+
+On 2026-10-04, the user manually accepted the camera overlay and burning doll in
+the rebuilt ordinary-mode Mac client (Apple M3 Pro/Metal, Retina display,
+1280-by-720 logical content window). This closes the reported haze/missing-doll
+defect. The installed native app is a near-version witness, not an exact-version
+capture; broad rendering, persona and live HUD pack-refresh parity remain open.
+World fire is tracked separately below.
+
+### World fire (accepted geometry and smoke; parity incomplete)
+
+World fire now uses vanilla's eight supported sloped quads, their height,
+both independently phased face textures, side
+attachments and ceiling slopes. Signed world-position parity selects attached
+texture/UV variants. The camera keeps its separate down-face binding. Native
+terrain-layer routing proves double-sided cutout rendering with depth writes,
+white vertices and sampled center-cell light without directional shade or AO.
+Reference: `docs/reference/block-fire.md`.
+
+Eleven focused compiler/admission/carrier tests and four meshing tests pass,
+including malformed topology groups, all attachment masks, negative-position
+UV parity and support across a sub-chunk boundary. Ordinary fire's native
+ambient callback now emits runtime-pack smoke from the existing fixed-tick
+sampler. Its six smoke tests and ten existing ambient tests pass. App unit-test
+compilation required a temporary adapter/import correction in the pre-existing
+movement owner tests; that unrelated file was restored byte-for-byte afterward.
+The client and asset compiler build, updated local carrier compilation,
+formatting and architecture checks pass. Affected production-library clippy
+passes with the two previously recorded app lint-category exemptions.
+
+On 2026-10-04, the rebuilt debug client was inspected on Apple M3 Pro/Metal,
+ordinary vanilla mode, a Retina display and a 1280-by-720 logical content window.
+Front, oblique and different animation frames show the tall eight-plane enclosure
+on netherrack, transparent flame edges, original orange/white texels and rising
+black/gray smoke. A separate live frame confirms blue soul fire on soul sand;
+its lowered model now retains the independently proven native support fact.
+These checks resolve the reported low crossed-plane block-fire defect.
+The fixture fixes noon/clear weather, a flat world and camera eye positions
+`(.5,-58.38,-3)` / `(3,-58.38,-2)` / `(3.5,-58.38,-3)`, with unchanged client FOV.
+An ignored local loopback server supplies those states through the pinned
+protocol; it is a test-data supplier, not a vanilla behavior reference.
+Docker's console API stalled, so the saved BDS world was preserved and this
+fixture supplied final captures. Keyboard focus/input parity was not closed.
+Captures and fixture code remain local and outside git.
+
+The complete support/flammability admission inventory remains incomplete.
+Wool's nonzero catch component, glass and soul-sand support, leaf support rejection
+and partial block orientation have identified references. Ordinary cube support still uses
+a provisional native-default fallback; legacy wood/leaves catch components are
+unadmitted. This does not close attached-fire parity. Fixed-point carrier geometry
+quantizes native float coordinates to 1/256 block. Exact current shader cutoff,
+matched-version live frames, soul-fire smoke and ambient crackle audio remain
+open; none is silently treated as verified.
+
+The user accepted block fire and requested a direct push to `dev` with further
+verification skipped. Integration preserves `dev`'s world ownership and HUD
+emote support; smoke sampling follows its Bevy-free particle owner. The checks
+and live captures above precede that integration. Post-integration builds,
+tests and the affected-verification command were skipped at the user's request.
+
+# Optional cloud texture safety
+
+Optional resource-pack cloud masks outside the current mesher's fixed dimensions
+retain the startup cloud texture instead of panicking during live application.
+Other supported pack textures still apply. High-resolution pack clouds remain
+incomplete; this fallback does not close the native cloud parity gate.
+
+### Ordinary water rendering continuation (incomplete parity acceptance)
+
+Current-client liquid tessellation does not use terrain ambient occlusion;
+its side and bottom faces repeat one outward light sample. The top still uses our
+existing sample admission and maximum until vanilla’s independent brightness-admission property can be carried: native smooth top lighting rounds
+four samples from the above plane, not terrain's maximum or solid-render gate.
+
+Ordinary transparent alpha distance now derives independently of profile fog and
+cloud fade from the current camera and uniform producers.
+The above-water formula uses the builder's adjusted render-distance input. Native
+optional platform-cap admission and the underwater/no-FrameBuilder branch remain
+incomplete; these changes do not close the overall water visual parity gate.
+
+Ordinary blended terrain now preserves the native gamma/UNORM framebuffer blend
+(RendererSettings, format mapping 0x57, RenderChunk Transparent Metal)
+without reordering the shared transparent phase. Native liquid inward winding and
+selective reverse-face admission follow vanilla: original
+faces use CW, exposed tops and primary-air sides admit the flagged reverse face,
+and bottoms do not. Production GPU geometry, material and six-face raster tests
+pass. Mixed terrain's segment cap now uses the existing bounded reference budget
+instead of falling back at 4,096 segments in an ordinary ocean view.
+
+Live user checks accept flowing water over ice and its previous flicker fix.
+Nighttime ocean visibility is reported correct; daytime submerged scenery is
+still too dark. Both clients use 50% brightness. The visual gate remains open
+while tracing native client skylight mode/heightmaps and submerged receiver light;
+no speculative global opacity or brightness adjustment closes this gate.
+
+The follow-up traced the actual current WATER draw, not just camera fields:
+MeshContext.x is zero, and the uploaded
+FogAndDistanceControl.w comes from the camera distance scalar minus seven.
+Confirmed chunk radius is stored on the native Player with one extra chunk; after the native camera margin, a confirmed ten-chunk radius uses
+160 blocks, not 144. Classic water side/bottom contacts are suppressed whenever
+the neighbour's primary block is non-Air, including non-solid plants
+and transparent cubes. Focused camera, contact and liquid raster tests pass.
+
+Daytime-depth investigation found a separate registry mismatch in the final
+native registrations, which override constructor defaults. Current concrete
+BaseGameVersion >= native compatibility gate 1.21.130 sets still water's filter
+to one, while flowing water stays at two. Ice and
+all frosted ages finish at three, not their constructor zero.
+The current light projection and rebuilt local world carrier now use those
+values. Shipped-carrier regressions verify every water depth/falling state and
+the full eight-deep ocean column: still water retains sky seven at the floor's
+outward sample instead of zero. Ordinary Fancy still seeds from the normal
+water-including heightmap; no shader brightness workaround
+was added. The Go and Rust focused tests pass, and the user has accepted the
+rebuilt daytime ocean visibility. The live StartGame version is `*`: current
+parser marks byte seven as wildcard, and final registration
+jumps directly to filter one for that wildcard. Only concrete older versions
+retain filter two; dynamic compatibility selection for those remains incomplete.
+Ice/water edge appearance and lily-pad rendering are new open visual gates;
+the accepted daylight lighting values remain unchanged while tracing them.
+
+### Ocean rendering checkpoint (2026-10-04; incomplete ice acceptance)
+
+The user has accepted lily pads in the live macOS Metal ocean world. Current
+native tessellation supplies two opposite planes at 1/64 block, with
+the position-hashed rotation and pack-authored fixed tint retained. The copied
+material does not recolour shared atlas images; the underside applies native
+15/255 shading continuously in the shader. Focused compiler, meshing, shader
+and Metal rotation tests pass. The rebuilt carrier and canonical Rust client
+were exercised on the original BDS seed -7289507175626565880 on UDP 19132.
+
+Native transparent cubes now reverse U on opposing faces and V on the bottom. Native transparent sorting packs the emitted-vertex centroid in
+chunk-local space to ten bits at 1/32-block precision.
+The ordering metric now reproduces that packing without altering geometry.
+Four regressions failed before the change and all eight focused metric tests
+pass afterward. This is a vanilla ordering correction, not evidence
+that the user's ice-edge artifact is resolved.
+
+The latest paired live screenshots still show extra bright upright ice faces
+through the foreground ice next to the ocean. A separate user witness shows
+angle-dependent dark bands on opaque blocks at straight-on views. Both remain
+open and under investigation; ordinary ice opacity, accepted water lighting,
+and accepted lily-pad appearance have not been adjusted to conceal them.
+The user explicitly requests publishing this checkpoint directly to dev before
+continuing those fixes. This checkpoint does not close full rendering parity.
+
+### Fish visibility and animation correction (2026-10-04; incomplete full parity)
+
+Native Cube setup offsets the drawable fin UV rectangles into the
+texture even when their unused unfolded box origin is negative. Actor artwork
+admission now accounts for the collapsed axis and cube/bone inflation, allowing
+cod, salmon, pufferfish and both tropical body geometries into the carrier.
+Native tropical variable update supplies the Base/Pattern selection
+from streamed Int variant metadata before pack evaluation. Behavior and
+remaining limits are in [fish-rendering.md](docs/reference/fish-rendering.md).
+
+The shared liquid probe now samples native shrunken body bounds against material
+cells, preserving the last valid sample when world data is unavailable. This
+removes false dry transitions that triggered a 90-degree land-flop roll in water.
+Native fish tick and variable updater now supply the retained
+current/previous phase that the authored swimming body/tail channels require.
+Spawn/motion vectors and interpolation follow the native velocity
+path, separate from displacement-derived movement queries.
+
+UV, pinned carrier, tropical selection, body-probe and fish-phase regressions
+pass. The complete client-world suite passed with 214 tests and eight ignored;
+the separate pinned pose check passed for all four fish families. The production
+client built successfully, and the user confirmed that fish look correct in the
+fresh macOS Metal client with ordinary controls and vanilla rendering.
+At the user's request, remaining verification and tests after integrating latest
+dev are skipped, and this correction is published directly to dev.
+Tropical two-sampler color composition, fractional-alpha pattern art, native
+intermediate-frame query sampling and full animation/material parity remain
+incomplete; this does not close those gates.
+
+### Placed player skull lighting (Zeno visual acceptance)
+
+Vanilla's skull renderer reads light at the placed skull's integer
+BlockPos, samples the RGB lightmap at /16 coordinates,
+and submits the `mob_head.skinning` material. Player skulls now retain those
+coordinates, emit rotated world normals for both layers, and use the shared
+actor lighting and gamma-domain composition. This replaces the scalar terrain
+light/face coefficients that could turn the skull completely black.
+Vanilla rules and the focused mesh/Metal witnesses are recorded in
+`docs/reference/player-skull-lighting.md`.
+
+The first corrected live build still failed the user's check. Further investigation
+also found that the existing carrier rendered current head names as terrain
+fallback models, and description required the legacy SkullType NBT instead of
+selecting by the backing block.
+Current head identities now share one mapping, compile without terrain geometry,
+and select their block-actor model even with missing/stale SkullType.
+
+Zeno's affected heads are custom blocks. Their network light component is the
+compound `{lightLevel: 0}`. The old decoder discarded that zero and the overlay
+defaulted to filter 15, removing the skylight sampled by their inset geometry.
+The native decoder uses the compound field. Dampening now
+retains `lightLevel`; emission retains its distinct `emission` field, with
+network-NBT and explicit-zero overlay regressions.
+
+The user confirmed that skulls render perfectly on `zenomc.org:19132` Zeno
+Practice in the freshly rebuilt Rust client on macOS/Metal with ordinary
+controls. The initially selected `:19197` external BDS and freecam run do not
+count as acceptance. Seven focused Metal shader/readback tests
+passed, including day/night/torch/darkness, rotation, alpha cutoff and the legacy
+scalar path. The final client build passed. The user explicitly requested stopping
+all task background processes, skipping the remaining verification and pushing
+directly to remote dev; the affected gate and new unit regressions were not run.
+Native hat geometry, other block-entity materials and full version-matched
+rendering parity remain open gates.
+
+## Servers catalogue and classic OreUI view
+
+The classic Servers feed now retains ranked featured and creator groups, localized descriptions,
+tagged logos/banners/activity artwork and real pong MOTDs. The detail pane renders its populated
+sections with independent scrolling and quick optional selection/glimmer motion. Regression
+checks cover grouping, rank zero, image roles, selection across catalogue reorder, detail content
+and bounded artwork packing. Integrated visible macOS review is in progress. Version-matched
+native acceptance, narrow metadata layout, full-capacity badges and server notification panels
+remain incomplete; this work does not close those parity gates.
+
+## Freelook extension
+
+Freelook is a requested Cinnabar extension, not vanilla behavior. Hold its configurable
+Keyboard & Mouse binding (default F) to orbit a collision-resolved third-person camera
+while retaining gameplay facing, movement and interaction direction. Release, UI focus
+or window focus loss returns to the prior perspective. Windows/DX12 1280x720 hidden
+capture verifies the Freelook/F settings row. Routed tests cover independent rotation,
+release/focus restoration, persistence and existing-F migration. A manual in-world
+orbit acceptance pass remains incomplete.
+
+## Desktop chat web links
+
+- Requested desktop extension: recognize HTTP(S) links locally in displayed chat,
+  including bare web domains, and require an in-game Open/Cancel prompt before
+  handing a selected URL to the default browser. Chat messages and server packets
+  are unchanged. This Java-style interaction is not a closed Bedrock parity gate.
+
+## Worn elytra glint acceptance
+
+Actor glint uses the vanilla raster, two centered UV rotations and independently
+wrapping scrolls. Exact 1.26.50 glint pixel comparison and enhanced graphics glint
+remain incomplete and do not close the rendering parity gate.
+
+## Server primitive shapes
+
+The retained renderer and packet pipeline implement the six Script API debug shapes. See
+[the Vanilla rules](docs/reference/primitive-shapes.md) for packet patches, geometry, text,
+attachment and distance rules. Lifetime deliberately follows server removal packets: the
+version-matched client does not autonomously expire a shape from its time-left metadata.
+
+The parity gate remains incomplete. Shared-kind draws do not reproduce native equal-priority
+sorting for overlapping coplanar shapes, and batched text does not preserve every per-shape
+alpha overlap. Parsed debug text also lacks invalidation when only input mode or interaction
+model changes; the shared text resolver does not expose those signals. The finite text atlas
+remains an implementation resource bound. The debug material witness is a nearby patch version; a matched native visual comparison remains open.
+The 1920×1080 headless macOS/Metal local gallery verifies all six kinds, text background,
+color updates, actor following without instance rebuilds, and complete removal.
+Synthetic CPU/upload benchmarks and this gallery do not qualify the release hardware frame,
+streaming or hitch budgets, or establish native 100k-shape performance.
+
+## Entity-only held item geometry
+
+Block items without a cube sheet retain their compiled icon in both player-preview
+hands, matching the existing world equipment fallback. Inventory banners retain their
+colored model icon. Exact native 3D held-banner geometry and patterns remain incomplete;
+the fallback availability regression is fixed, but it does not close that parity gate.
+
+## Image clarity and multisampling
+
+Desktop rendering removes FXAA and defaults to two MSAA coverage samples when supported,
+matching the inspected Windows raster setting. Retail, mobile and console defaults remain
+unverified. Video's Anti-Aliasing slider exposes only supported sample counts.
+Terrain uses point-filtered texels, linear mip interpolation and byte-space atlas mips.
+See [the Vanilla rules](docs/reference/rendering.md) for established behavior and evidence
+limits. These changes do not close the cross-platform rendering parity gate.
+
+Opaque, cutout, transparent, sky, world text and hand geometry now retain their original color
+samples in one shared attachment. Compatible views preserve encoded blending without scene
+copies. The last ordinary hand-rig draw resolves and discards the samples; an end-of-main-pass
+resolve covers views without that draw. Shadows use per-sample depth and an overlap stencil,
+and Hi-Z directly reduces the original depth samples. Single-sample post consumers resolve
+only when needed. Real GPU coverage fixtures distinguish this path from resolved-color
+reconstruction, including partially covered silhouettes and overlapping shadows.
+
+Enhanced remains disabled by its existing GPU-fault kill switch. Its MSAA attachment and
+post-chain changes receive compile and shader checks only; no live Enhanced acceptance is
+claimed, and this work does not remove that switch.
+
+Matched native screenshots, material-specific actor/item mip policies, custom-pack mip-level
+limits, console/mobile defaults and texel anti-aliasing remain unverified. Mac headless
+captures and focused GPU tests cannot qualify Intel-integrated performance, other native
+platforms, release streaming or hitch budgets. Those acceptance gates remain open.
+
+## Crosshair preferences
+
+Video settings expose Third Person Crosshair (off by default) and Invert
+Crosshair Colors (on by default). Both persist and reset with Video settings.
+The third-person option covers both camera directions; spectator and Hide HUD
+still suppress the crosshair. Color inversion uses the existing scene blend,
+and turning it off preserves the selected pack texture with ordinary blending.
+Nine focused crosshair tests pass, covering persistence, Video reset, live
+visibility/blend changes, hidden HUD, spectator mode, scaling, and pack textures.
+A macOS/Metal client pass at 1920×1080, DPI 1, GUI scale 2 verified centered
+geometry, scene-dependent inverted colors versus plain white, both third-person
+views, F1 visibility, and legible unclipped settings with working pointer focus
+and immediate toggle updates. This verifies the preferences, not broader HUD parity.
+
+
+## Absorption HUD limits
+
+Absorption uses the local attribute's current points and the vanilla JSON-UI native
+heart renderer. Incomplete: the retained HUD stat supports at most 65,535 current
+points and health containers remain capped at six rows. Larger valid values are
+skipped or bounded; this change does not close an unrestricted custom-health or
+visual-comparison parity gate. See `docs/reference/absorption-hearts.md` for the rules.
+
+Local swing publication: duration and progress tests cover both animation modes,
+and Java torso turning uses matching committed local ticks. Incomplete: native
+player body-turn timing remains on the provisional actor motion model. This work
+does not close the broader native body-motion or live visual parity gate. See
+`docs/reference/swing-duration.md` and `docs/reference/actor-animation-clocks.md`.
+
+## Server pack compatibility
+
+Galaxite's full-block geometry, composite Battle Pass models, translucent podium
+glows, state-filtered path borders, correctly lit benches, custom hotbar/held items
+and source-pixel form borders render in a 1920×1080, DPI 1 macOS/Metal hidden-client
+pass. Custom geometry preserves explicit absorption and its legacy type-light flag.
+Item registries retain numeric aliases and populated definitions accompanying empty declarations.
+Zeqa equipment sources and dynamic UI textures retain bounded native dimensions;
+rejected UI publications preserve the previous catalog and retry pending artwork.
+
+Incomplete: merging multiple different populated component definitions, unrestricted
+pack-size parity, ordinary actor endpoint lighting, exact native frame comparisons
+and release hardware budgets remain open. Two terrain texture keys absent from the
+served Galaxite stack still report diagnostic textures; this compatibility work does not close those parity gates.
+
+Follow-up compatibility covers client-authoritative inventory opening and transfers,
+authored entity visibility bounds, filtered HUD control messages, and multipart
+custom-block collision admission. Collision lists retain at most 256
+primitives. Per-state collision and selection overrides now resolve once at session
+admission and register in both network-ID spaces. Captured bottom/top slab fixtures
+match their authored geometry heights and retain stationary support for 100 ticks.
+Arbitrary collision transformations remain incomplete. The definition tree
+coalesces Float and Double tags, so exact rejection of Double-only collision fields
+remains incomplete. Unbound looping effects now stop emission after their first
+active/sleep cycle and let existing particles drain; bound effects can restart
+until their owner disappears. The actual captured gem effect passes this lifecycle
+regression. A 1920×1080 macOS/Metal replay of one unbound gem packet shows three
+gems at 0.267 seconds and none at 3 seconds. The live lobby sequence and apparent
+slab/stair hovering still require emitter and support-position evidence. None of these reports is cleared by the earlier lobby
+render pass.
+
+Client-authoritative inventory follow-up: ordinary moves, splits, swaps, quick
+moves and drops use normal old/new-descriptor transactions; successful transport
+commits local cells and later authoritative Slot/Content updates correct them.
+A 1280×720, DPI 1 macOS/Metal loopback pass opens personal inventory four times
+and chests twice. Its independent server validates old descriptors and item
+conservation before accepting six normal take/swap/place transactions, with no
+sparse requests or rejections. Reopened screens retain the final server cells
+and an empty cursor. Public-server game acceptance remains separate.
+Incomplete: legacy crafting/creative actions, semantic merging of nonplain item
+user data, arbitrary open-window normal-transaction corrections, and a separate
+native client-mode Open/Close acknowledgement contract remain unimplemented or
+unverified. These changes do not close general inventory parity or the live
+server acceptance gate.
+
+Server audio follow-up registers definitions without a total decoded-pack cutoff
+and decodes selected files on demand with a bounded cache and persistent worker
+pool. Waveform-only replacements remain available. Incomplete: true incremental
+streaming, unsupported audio codecs, unrestricted pack-size parity and matched
+live Galaxite playback timing remain open; mixer tests alone do not close those
+parity gates.
+
+HUD trigger follow-up preserves raw messages for server factories while applying
+authored visibility to ordinary chat, title and action-bar controls. Aseprite
+sidecars retain their frame coordinates and durations independently of image
+residency. Offline 1280×720, DPI 1 published frames cover Galaxite static,
+jumpscare and lighting effects, including changing noise frames, authored loop
+durations and mapping source coordinates into resized atlas placements.
+Incomplete: exhaustive authored effect variants, matched live game-mode sequencing
+and hardware frame budgets remain open.
+
+Live follow-up confirms custom sound playback. The latest user test reports the
+earlier actor, HUD, collision and inventory bugs fixed, including the actual
+Galaxite death animation. Matched native pixel comparisons remain separate.
+
+HUD compatibility now retains the native nested title/subtitle override paths,
+answers empty title strings during blank frames, and schedules a pending authored
+visibility transition even when controller input is unchanged. A valid cached
+MineVille pack fixture publishes one unclipped top-center tutorial panel, preserves
+it across unrelated titles, and draws no raw markers or secondary note/minimap
+labels. Settled unchanged HUD frames remain cached. The exact cached MegaSMP UI
+revision now retains its first document's partial output after a syntax error,
+matching vanilla's resource merge behavior. Unread controls remain absent, later
+malformed overlays are skipped, and trailing commas still report errors. The
+unmodified pack fixture changes from a missing tutorial to one retained panel;
+six document regressions cover first, later, null and independent-path reads.
+A 1920×1080 macOS/Metal client replay renders the colored tutorial at top center
+and retains it through a later title. Matched live gameplay comparisons remain
+incomplete.
+
+The exact admitted Hive overlay now gives each title creation fresh binding
+state, while unrelated and nested retained controls keep their saved values.
+Completed-group visibility expressions preserve their following conditions.
+The original pack's offline replay switches between one authored modal and one
+ordinary title, then repeats and clears the modal without stale labels. The
+MegaSMP tutorial remains retained through those lifecycle changes. A 1920×1080,
+DPI 1 macOS/Metal loopback replay of the unchanged admitted Hive UI renders one
+legible purple death header with its shadow and one body line, with no oversized
+fallback or stale labels. Repeating the title preserves that result; clearing it
+removes the panel, and ordinary titles still render once. Geometry, clipping,
+layering and colors were inspected in fresh frames. Required touched-crate checks
+and the canonical developer-control build pass. Public-match title sequencing and
+matched-version pixel comparisons remain open.
+
+Server-selected animation follow-up retains named clips that an entity does not
+alias, binds shared channels by model bone name, and preserves packet transition,
+stop expression/version and outgoing blend fields. Domain regressions cover
+starting the pose, finished-query timing, timed stop blending and local actor
+selection. Existing actor animation clocks and poses remain green. The offline
+Battle Pass camera-edge witness changes from no draw with default bounds to a
+visible draw with authored bounds at the same camera; Entity close-up bounds also
+retain the draw with its origin behind the camera.
+Rendered offline Entity fixtures now cover the server-selected death motion,
+close camera orbits, and moving spawn/despawn poses with the actual pack geometry
+and materials. The first-person jumpscare exposed a separate late-activation
+clock error; direct players now pause and resume applied time independently of
+owner age, with render-delta regressions. Held root placement also preserves the
+owner actor frame for unbound roots and the matching owner matrix for named roots.
+A fresh 1920×1080 macOS/Metal replay shows the actual jumpscare rising at screen
+center, changing pose, approaching the camera and lowering at its authored endpoint.
+Arbitrary expression parents, independent bindings on parented bones,
+independent instances of a shared clip, default controller-player pause,
+version-specific Molang grammar differences and matched live sequencing remain
+incomplete. The user reports the earlier live rendering bugs fixed. A fresh
+1920×1080, DPI 1 Metal replay also retains the Entity across two enclosed rooms
+and close oblique views through a 145-frame camera crossing. The latest live
+test reopened angle-dependent Entity visibility: the small-room witness did not
+cover a crowded map's actor admission. The crowded replay below covers that
+separate failure; broader animation contracts remain incomplete.
+
+The standard world camera now uses vanilla's 0.025-block near plane, shared with
+first-person rendering and boom clearance. The former renderer default of 0.1
+clipped nearby geometry and let sprint-FOV near-plane corners cross a wall even
+when the player collision box stayed outside it. Two presentation spawn
+regressions fail before the correction: a wall at collision clearance intersects
+the near rectangle, and geometry 0.05 blocks ahead is clipped. Setting the
+perspective distance also updates its explicit clip plane; all 188 camera tests
+pass. The static hand fallback uses the same near distance, with its reverse-Z
+regression failing before the change and passing afterward. Fresh 1920×1080,
+DPI 1 Metal before/after frames reproduce the wall hole with the former near
+plane, then retain continuous wall geometry throughout a 93-frame contact run.
+The same replay reproduces post-death radial distortion through the gameplay FOV
+modifier before the angle correction; afterward its perspective stays bounded.
+The user confirms the actual post-death distortion is fixed. The exact-version
+final-angle reference gap remains open separately from these functional results.
+
+Server packs now choose a device-compatible authored subpack when the server
+leaves its selection blank or selects an unsupported option. Legacy manifest
+memory requirements convert to performance tiers before selection; supported
+explicit choices and explicit global root selections stay intact. The actual
+Fonts archive now admits its detailed U+E141 Orebits glyph page on this device
+instead of the Lite dot. The former conversion and server admission both have
+failing-before regressions; all 52 resource-pack unit tests and its integration
+test pass. Fresh 1920×1080, DPI 1 Metal sidebar frames replace the Lite dot with
+the detailed purple coin, with readable text and unchanged sidebar placement.
+The tutorial stays legible at top center through a later title. Matched-version
+pixel comparison remains open. The user reports the remaining live bugs fixed
+after testing the rebuilt client.
+
+The live angle-dependent Entity disappearance has a separate actor admission
+cause. A 151-actor Metal scene retains the focal actor in authority and inside
+both camera frusta, but turning admits more map actors and drops its draw at the
+former player-body limit. Resource-pack artwork now uses the shared render arenas
+independently of player texture residency; shared skins stay usable when distinct
+skin residency fills, and invisible routes do not reserve a skin. Six admission
+and overflow regressions fail before the change and pass afterward. The existing
+fixed instance, pose and distinct-skin resource policies remain incomplete
+relative to dynamic actor collection. A fresh 1920×1080, DPI 1 Metal replay keeps
+all 151 qualifying actors and the focal Entity across the crowded camera turn,
+where the before frame admitted only 128 and lost the focal draw. Authored
+geometry, material, pose and bounds remain unchanged. Both endpoint frames and
+the intervening camera-crossing recording were inspected; the user also reports
+the remaining live rendering bugs fixed.
+
+The rejected Hive menu is a well-formed button collection above the former menu
+limit. Packet-bounded menus now retain every label, image and response index;
+custom-form and NPC bounds retain their separate contracts. Engine factory and
+node budgets reject a whole form instead of publishing a shorter button list.
+Rejected binding attempts retain their input identity until model, components or
+catalog changes. Protocol, full-hierarchy and final-button response regressions
+pass. A fresh 1920×1080, DPI 1, GUI scale 2 Metal replay renders the complete
+300-button menu, scrolls to button 299 and submits index 299 to an independent
+loopback server. The response closes the form; labels, images and hover feedback
+remain legible. The user reports the remaining live UI bugs fixed. Larger
+hierarchy admission remains an incomplete implementation resource policy.
+
+Zeqa's ordinary title patches inherited the built-in HUD's extra text scaling.
+The first authored ordinary-title override now inherits the vanilla definition;
+custom title factories and later server edits retain their priority. Layout,
+layer-order and indexed-document regressions pass, including the reproduced
+title/subtitle overlap. Exact admitted Hive and retained tutorial baselines are
+checked separately. Fresh 1920×1080, DPI 1, GUI scale 2 Metal frames of Zeqa's
+unchanged admitted pack show its title at twice the subtitle height with a clear
+vertical gap. The original Hive ordinary/death/repeat/clear sequence still renders
+one authored panel, and the MegaSMP tutorial remains retained with its detailed
+Orebits glyph. The user confirms the rebuilt client looks correct. Required
+touched-crate checks and the canonical developer-control build pass; release
+hardware budgets and matched-version pixel comparison remain incomplete.
+
 
 ## Website duel replays: parity checks still open
 
 The replay branch records complete bounded public duel snapshots at 20 Hz,
 including fighters, frozen appearances, inventory/HUD, projectiles/items, changed
 blocks, particles and sound triggers. Independent compressed chunks, asset sharing,
-and oldest-first 25 GB retention are implemented. In-game playback uses native
-Bedrock presentation; website playback uses canonical Cinnabar render assets.
+and oldest-first 25 GB retention are implemented. Browser playback consumes current
+native Cinnabar animation, terrain, equipment, cape, particle and item owners.
+
+The viewer preserves scene alpha beneath the inverted crosshair, uses a 110-degree
+horizontal POV field of view, and admits server scoreboard glyphs beyond the
+vanilla row width cap. Rejected exports discard only their named recording;
+unrelated matches continue capturing.
 
 Browser fidelity checks remain open for cape/persona layers, terrain/item-textured
 particle variants and contextual particle collision. Sound loop-count semantics

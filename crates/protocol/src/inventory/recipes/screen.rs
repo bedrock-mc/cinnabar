@@ -4,10 +4,7 @@
 use std::sync::Arc;
 
 use super::crafting::RecipeOutput;
-use super::item_tags::vanilla_tag_contains;
 
-/// Ingredient metadata that accepts any item metadata.
-const ANY_AUX: u16 = 32767;
 /// Retained screen recipes; extras are dropped.
 pub(super) const MAX_SCREEN_RECIPES: usize = 8_192;
 
@@ -25,19 +22,6 @@ pub struct ScreenIngredient {
     pub name: Arc<str>,
     pub tag: bool,
     pub aux: u16,
-}
-
-impl ScreenIngredient {
-    /// Whether an item with `identifier`, `metadata` and the registry's `tags` fits.
-    #[must_use]
-    pub fn accepts(&self, identifier: &str, metadata: u32, tags: &[Arc<str>]) -> bool {
-        if self.tag {
-            tags.iter().any(|tag| **tag == *self.name)
-                || vanilla_tag_contains(&self.name, identifier) == Some(true)
-        } else {
-            *self.name == *identifier && (self.aux == ANY_AUX || u32::from(self.aux) == metadata)
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -39,6 +39,8 @@ pub(crate) struct Artifact {
 #[derive(Deserialize, Serialize)]
 struct Stamp {
     checked_at: u64,
+    #[serde(default)]
+    current: String,
 }
 
 /// Manifest platform key, matching the release pipeline's artifact names.
@@ -68,10 +70,18 @@ fn stamp_path(layout: &InstallLayout) -> PathBuf {
 
 /// Last recorded verdict, if a newer build was found.
 pub(crate) fn available(layout: &InstallLayout) -> Option<UpdateNotice> {
-    let bytes = fs::read(layout.user_data_root.join("update/available.json")).ok()?;
+    read_available(
+        &layout.user_data_root.join("update"),
+        env!("CARGO_PKG_VERSION"),
+    )
+}
+
+/// Reads a cached verdict only for the running client version.
+fn read_available(directory: &Path, current: &str) -> Option<UpdateNotice> {
+    let bytes = fs::read(directory.join("available.json")).ok()?;
     serde_json::from_slice::<UpdateNotice>(&bytes)
         .ok()
-        .filter(|notice| notice.available)
+        .filter(|notice| notice.available && notice.current == current)
 }
 
 fn manifest_url(layout: &InstallLayout) -> Option<String> {
@@ -97,6 +107,7 @@ pub(crate) fn check_in_background(layout: &InstallLayout) {
     let last = fs::read(&stamp)
         .ok()
         .and_then(|bytes| serde_json::from_slice::<Stamp>(&bytes).ok())
+        .filter(|stamp| stamp.current == env!("CARGO_PKG_VERSION"))
         .map(|stamp| stamp.checked_at);
     if !due(last, now_secs()) {
         return;
@@ -138,6 +149,7 @@ fn record(directory: &Path, notice: &UpdateNotice) {
     let _ = fs::create_dir_all(directory);
     if let Ok(bytes) = serde_json::to_vec(&Stamp {
         checked_at: now_secs(),
+        current: notice.current.clone(),
     }) {
         let _ = fs::write(directory.join("last-check.json"), bytes);
     }
@@ -154,6 +166,21 @@ fn record(directory: &Path, notice: &UpdateNotice) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn review_upgrading_invalidates_cached_update_notices() {
+        let dir = std::env::temp_dir().join(format!("cinnabar-old-update-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            dir.join("available.json"),
+            br#"{"available":true,"current":"old","latest":"new"}"#,
+        )
+        .unwrap();
+        assert!(read_available(&dir, "old").is_some());
+        let notice = read_available(&dir, "new");
+        fs::remove_dir_all(dir).unwrap();
+        assert!(notice.is_none());
+    }
 
     #[test]
     fn platform_keys_match_the_release_artifact_names() {

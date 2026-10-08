@@ -4,7 +4,12 @@ use std::{collections::HashMap, sync::Arc};
 
 use super::{EntityRigId, RenderBoneTransform, affine_matrix};
 
-type CachedMatrices = (Arc<[RenderBoneTransform]>, Vec<[[f32; 4]; 3]>, u64);
+type CachedMatrices = (
+    Arc<[RenderBoneTransform]>,
+    Vec<[[f32; 4]; 3]>,
+    u64,
+    Vec<[f32; 3]>,
+);
 
 /// Bone matrices of recently drawn poses keyed by pose allocation and geometry: every frame of
 /// a tick shares a pose, so its matrices are computed once.
@@ -23,6 +28,25 @@ impl PoseMatrixCache {
         self.entries.retain(|_, entry| entry.2 >= oldest);
     }
 
+    /// Validates a pose without changing cache ownership or frame counters.
+    pub(super) fn pose_is_valid(
+        &self,
+        pose: &Arc<[RenderBoneTransform]>,
+        geometry: EntityRigId,
+        pivots: &[[f32; 3]],
+    ) -> bool {
+        let key = (Arc::as_ptr(pose).cast::<u8>() as usize, geometry);
+        if let Some(entry) = self.entries.get(&key)
+            && Arc::ptr_eq(&entry.0, pose)
+            && entry.3.as_slice() == pivots
+        {
+            return true;
+        }
+        pose.iter().enumerate().all(|(index, transform)| {
+            affine_matrix(*transform, pivots.get(index).copied().unwrap_or([0.0; 3])).is_some()
+        })
+    }
+
     /// [`append_pose_matrices`] through the cache.
     pub(super) fn append(
         &mut self,
@@ -34,6 +58,7 @@ impl PoseMatrixCache {
         let key = (Arc::as_ptr(pose).cast::<u8>() as usize, geometry);
         if let Some(entry) = self.entries.get_mut(&key)
             && Arc::ptr_eq(&entry.0, pose)
+            && entry.3.as_slice() == pivots
         {
             entry.2 = self.frame;
             arena.extend_from_slice(&entry.1);
@@ -43,8 +68,15 @@ impl PoseMatrixCache {
         if !append_pose_matrices(arena, pose, pivots) {
             return false;
         }
-        self.entries
-            .insert(key, (Arc::clone(pose), arena[start..].to_vec(), self.frame));
+        self.entries.insert(
+            key,
+            (
+                Arc::clone(pose),
+                arena[start..].to_vec(),
+                self.frame,
+                pivots.to_vec(),
+            ),
+        );
         true
     }
 }

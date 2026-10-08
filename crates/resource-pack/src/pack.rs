@@ -23,17 +23,19 @@ pub(crate) struct EntryIndex {
 }
 
 /// One admitted archive. Bytes stay compressed (and encrypted, if they were);
-/// files are inflated and decrypted per read, so plaintext never persists.
+/// files are inflated and decrypted per read, so the pack retains no plaintext.
+#[derive(Clone)]
 pub struct ValidatedPack {
     pub(crate) pack_id: Uuid,
     pub(crate) version: Box<str>,
     pub(crate) sub_pack_name: Box<str>,
     pub(crate) archive_bytes: usize,
+    pub(crate) declared_bytes: u64,
     pub(crate) zip: PackZip,
     pub(crate) files: HashMap<Box<str>, EntryIndex>,
     pub(crate) folded: HashMap<Box<str>, Box<str>>,
     pub(crate) file_order: Box<[Box<str>]>,
-    pub(crate) keys: Box<[ContentKey]>,
+    pub(crate) keys: Arc<[ContentKey]>,
     pub(crate) physical_entry_count: usize,
     pub(crate) skipped_entries: usize,
 }
@@ -101,7 +103,8 @@ impl ValidatedPack {
         })
     }
 
-    pub(crate) fn read_file_with_limit(
+    /// Reads one layer with a subscriber-specific uncompressed byte limit.
+    pub fn read_file_with_limit(
         &self,
         path: &str,
         limit: u64,
@@ -200,6 +203,46 @@ impl std::fmt::Debug for ValidatedPackStack {
 }
 
 impl ValidatedPackStack {
+    /// Combines optional layers in increasing precedence, sharing archive bytes.
+    pub fn compose(lower: &Self, higher: &Self) -> Result<Self, AdmissionError> {
+        use crate::{
+            MAX_DECLARED_BYTES_PER_STACK, MAX_ENTRIES_PER_STACK, MAX_PACKS, MAX_STACK_ARCHIVE_BYTES,
+        };
+        let layers = lower.packs.iter().chain(higher.packs.iter());
+        if layers.clone().count() > MAX_PACKS {
+            return Err(AdmissionError::TooManyPacks);
+        }
+        if layers.clone().map(|pack| pack.archive_bytes).sum::<usize>() > MAX_STACK_ARCHIVE_BYTES {
+            return Err(AdmissionError::StackArchiveTooLarge);
+        }
+        if layers
+            .clone()
+            .map(ValidatedPack::entry_count)
+            .sum::<usize>()
+            > MAX_ENTRIES_PER_STACK
+        {
+            return Err(AdmissionError::TooManyStackEntries);
+        }
+        if layers.clone().map(|pack| pack.declared_bytes).sum::<u64>()
+            > MAX_DECLARED_BYTES_PER_STACK
+        {
+            return Err(AdmissionError::StackDeclaredSizeTooLarge);
+        }
+        let offset = lower.packs.len() + lower.rejections.len();
+        let rejections = lower
+            .rejections
+            .iter()
+            .copied()
+            .chain(higher.rejections.iter().map(|rejection| PackRejection {
+                stack_index: offset + rejection.stack_index,
+                reason: rejection.reason,
+            }))
+            .collect();
+        Ok(Self {
+            packs: layers.cloned().collect(),
+            rejections,
+        })
+    }
     #[must_use]
     pub fn packs(&self) -> &[ValidatedPack] {
         &self.packs

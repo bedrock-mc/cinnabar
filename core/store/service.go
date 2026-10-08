@@ -36,9 +36,6 @@ func (c *Client) sessionConfig(ctx context.Context) (*marketplace.SessionConfig,
 	}
 	c.mu.Lock()
 	c.config, c.configAt = cfg, c.cfg.Now()
-	if cfg.UserListsVersion != "" && c.lists == "" {
-		c.lists = cfg.UserListsVersion
-	}
 	c.mu.Unlock()
 	return cfg, nil
 }
@@ -84,11 +81,8 @@ func (c *Client) loadInventory(ctx context.Context, force bool) (*inventoryCache
 			break
 		}
 	}
+	fresh.version = c.cfg.Market.InventoryVersion()
 	c.mu.Lock()
-	if inventory.ETag != "" {
-		c.etag = inventory.ETag
-	}
-	fresh.version = c.etag
 	c.inventory = fresh
 	c.mu.Unlock()
 	return fresh, nil
@@ -127,14 +121,9 @@ func (c *Client) Entitlements(ctx context.Context, offset, limit int, refresh bo
 // RefreshInventory asks the service to rebuild the account's inventory. It is best effort: a failure
 // leaves the next inventory read to return whatever the service has.
 func (c *Client) RefreshInventory(ctx context.Context) {
-	version, err := c.cfg.Market.RefreshInventory(ctx)
-	if err != nil {
-		return
+	if _, err := c.cfg.Market.RefreshInventory(ctx); err == nil {
+		c.invalidateInventory()
 	}
-	c.mu.Lock()
-	c.etag = version
-	c.inventory = nil
-	c.mu.Unlock()
 }
 
 // MoreOffers loads the next items of a row from its continuation token.
@@ -142,27 +131,25 @@ func (c *Client) MoreOffers(ctx context.Context, token string) (RowMore, error) 
 	if !ValidContinuation(token) {
 		return RowMore{}, ErrInvalidRequest
 	}
-	if _, err := c.loadInventory(ctx, false); err != nil {
-		return RowMore{}, err
-	}
-	c.mu.Lock()
-	version := c.etag
-	c.mu.Unlock()
-	items, next, err := c.cfg.Market.ContinueRow(ctx, token, version)
+	items, next, err := c.continueRow(ctx, token)
 	if err != nil {
 		return RowMore{}, err
 	}
-	more := RowMore{Offers: []Offer{}}
+	more := RowMore{}
+	more.Offers, _ = c.offers(items, maxRowOffers)
 	if ValidContinuation(next) {
 		more.Continuation = next
 	}
-	for i := range items {
-		if offer, ok := offerFromMarketItem(&items[i]); ok && len(more.Offers) < maxRowOffers {
-			offer.Owned = c.owned(offer.ID)
-			more.Offers = append(more.Offers, offer)
-		}
-	}
 	return more, nil
+}
+
+// continueRow loads the items after token, a row's or a search's continuation, with the inventory
+// loaded so they can be marked owned.
+func (c *Client) continueRow(ctx context.Context, token string) ([]marketplace.Item, string, error) {
+	if _, err := c.loadInventory(ctx, false); err != nil {
+		return nil, "", err
+	}
+	return c.cfg.Market.ContinueRow(ctx, token, c.cfg.Market.InventoryVersion())
 }
 
 // owned reports whether the offer id is in the cached inventory; false when the inventory is unknown.
@@ -174,16 +161,6 @@ func (c *Client) owned(id string) bool {
 	}
 	_, ok := c.inventory.set[strings.ToLower(id)]
 	return ok
-}
-
-// markOwned annotates offers from the inventory, loading it when absent; a failed load leaves them unowned.
-func (c *Client) markOwned(ctx context.Context, offers []Offer) {
-	if _, err := c.loadInventory(ctx, false); err != nil {
-		return
-	}
-	for i := range offers {
-		offers[i].Owned = c.owned(offers[i].ID)
-	}
 }
 
 var errNoOffer = errors.New("store: offer not found")

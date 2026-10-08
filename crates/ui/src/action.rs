@@ -72,7 +72,8 @@ pub enum PointerPhase {
 pub struct UiLimits;
 
 impl UiLimits {
-    pub const MAX_NODES: usize = 16_384;
+    // The complete Settings screen builds ~17k nodes; vertex and draw-list limits bound memory.
+    pub const MAX_NODES: usize = 65_536;
     pub const MAX_TEXT_BYTES: usize = 16_384;
     pub const MAX_FOCUSABLE: usize = 4_096;
     pub const MAX_CLIP_DEPTH: usize = 32;

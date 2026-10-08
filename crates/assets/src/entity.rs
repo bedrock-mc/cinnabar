@@ -1,23 +1,39 @@
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 
 use crate::AssetError;
 use crate::item::{ItemVisualAlias, ItemVisualDefinition};
 
+mod geometry;
+mod molang_program;
+mod server_animation;
+pub use molang_program::MolangProgram;
+#[path = "entity/inherited_cubes.rs"]
+mod inherited_cubes;
+pub use geometry::{EntityGeometry, EntityGeometryBounds, EntityGeometryInheritance};
+mod source_paths;
+#[path = "entity/texture_mesh.rs"]
+mod texture_mesh;
 #[path = "entity/v4.rs"]
 mod v4;
+pub use source_paths::{
+    ACTOR_GLINT_TEXTURE_IDENTIFIER, BED_GEOMETRY_IDENTIFIER, CAPE_GEOMETRY_IDENTIFIER,
+    ELYTRA_GEOMETRY_IDENTIFIER, LEGACY_ENTITY_GEOMETRY_PATH,
+};
+use source_paths::{validate_relative_path, validate_symbol_source};
+pub use texture_mesh::{EntityGeometryTextureMesh, MAX_ENTITY_GEOMETRY_TEXTURE_MESHES};
 
 use v4::validate_extended_payload;
 #[allow(unused_imports)]
 pub use v4::{
-    CompiledMolangExpression, EntityAnimationChannel, EntityAnimationClip,
-    EntityAnimationController, EntityAnimationInterpolation, EntityAnimationKeyframe,
-    EntityAnimationLoop, EntityAnimationProperty, EntityAssetSummary, EntityControllerAnimation,
-    EntityControllerAnimationTarget, EntityControllerState, EntityControllerTransition,
-    EntityRenderCandidate, EntityRenderData, EntityRenderGeometry, EntityRenderLayer,
-    EntityRenderSlot, EntityRenderVisibility, EntityRigAnimationBinding, EntityRigBinding,
+    CompiledMolangExpression, ENTITY_ALPHA_TEST_THRESHOLD, EntityAnimationChannel,
+    EntityAnimationClip, EntityAnimationController, EntityAnimationInterpolation,
+    EntityAnimationKeyframe, EntityAnimationLoop, EntityAnimationProperty, EntityAssetSummary,
+    EntityControllerAnimation, EntityControllerAnimationTarget, EntityControllerState,
+    EntityControllerTransition, EntityRenderCandidate, EntityRenderData, EntityRenderGeometry,
+    EntityRenderLayer, EntityRenderMaterial, EntityRenderMaterialState, EntityRenderSlot,
+    EntityRenderVisibility, EntityRigAnimationBinding, EntityRigBinding,
     EntityRigControllerBinding, EntityRigFallback, EntityRigGeometryBinding,
     MAX_ENTITY_ANIMATION_CHANNELS, MAX_ENTITY_ANIMATION_CLIPS, MAX_ENTITY_ANIMATION_KEYFRAMES,
     MAX_ENTITY_CONTROLLER_ANIMATIONS, MAX_ENTITY_CONTROLLER_NESTING, MAX_ENTITY_CONTROLLER_STATES,
@@ -30,11 +46,12 @@ pub use v4::{
     MAX_MOLANG_OPS_PER_EXPRESSION, MAX_MOLANG_QUERY_ARGUMENTS, MAX_MOLANG_STACK_DEPTH,
     MAX_MOLANG_STRING_BYTES, MOLANG_QUERIES, MolangBranch, MolangCall, MolangCollection,
     MolangCollectionItem, MolangEaseCurve, MolangEaseMode, MolangFunction, MolangOp, MolangSymbol,
-    MolangSymbolKind, molang_call, molang_program_stack,
+    MolangSymbolKind, entity_render_pattern_matches, molang_call, molang_program_stack,
 };
 
 pub const ENTITY_BLOB_MAGIC: [u8; 8] = *b"MCBEENT3";
-pub const ENTITY_BLOB_VERSION: u32 = 6;
+/// Includes authored clip clocks; invalidates catalogs compiled before `anim_time_update` support.
+pub const ENTITY_BLOB_VERSION: u32 = 8;
 /// Actor rig id ranges (a rig id is a `u32`):
 /// - `0..PACK_RIG_ID_BASE`: vanilla catalog rig-geometry bindings, and from `0x2000_0000`
 ///   the catalog geometries render controllers draw beside the rig (`0x2000_0000 + index`).
@@ -54,13 +71,11 @@ pub const MAX_ENTITY_DEPENDENCIES: usize = 512;
 pub const MAX_ENTITY_ASSET_PATH_BYTES: usize = 512;
 pub const MAX_ENTITY_IDENTIFIER_BYTES: usize = 512;
 pub const MAX_ENTITY_SOURCE_BYTES: usize = 8 * 1024 * 1024;
-/// Legacy vanilla player models outside the modern entity geometry directory.
-pub const ENTITY_STOCK_GEOMETRY_SOURCE: &str = "models/mobs.json";
 pub const MAX_ENTITY_TOTAL_SOURCE_BYTES: usize = 512 * 1024 * 1024;
 pub const MAX_ENTITY_CATALOG_BYTES: usize = 512 * 1024 * 1024;
 pub const MAX_ENTITY_GEOMETRIES: usize = 4_096;
-pub const MAX_ENTITY_GEOMETRY_BONES: usize = 512;
-pub const MAX_ENTITY_GEOMETRY_CUBES: usize = 8_192;
+pub const MAX_ENTITY_GEOMETRY_BONES: usize = 2_048;
+pub const MAX_ENTITY_GEOMETRY_CUBES: usize = 32_768;
 pub const MAX_ENTITY_GEOMETRY_NAME_BYTES: usize = 256;
 pub const MAX_ENTITY_TEXTURE_DIMENSION: u16 = 16_384;
 pub const MAX_ENTITY_GEOMETRY_SCALAR: f32 = 1_048_576.0;
@@ -79,6 +94,7 @@ pub enum EntityAssetKind {
     AnimationController = 4,
     RenderController = 5,
     Texture = 6,
+    Attachable = 7,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
@@ -123,7 +139,9 @@ pub struct EntityAssetSymbol {
     pub dependencies: Box<[EntityDependency]>,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+#[derive(
+    Clone, Copy, Debug, Default, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize,
+)]
 #[serde(transparent)]
 pub struct EntityGeometryScalar(u32);
 
@@ -162,6 +180,19 @@ pub struct EntityGeometryCube {
 }
 
 impl EntityGeometryCube {
+    /// Native Geometry cube rotations use the uninflated box center when no pivot is authored.
+    /// Vanilla bone parsing and the geometry 1.21 schema agree.
+    #[must_use]
+    pub fn default_rotation_pivot(
+        origin: [EntityGeometryScalar; 3],
+        size: [EntityGeometryScalar; 3],
+    ) -> Option<[EntityGeometryScalar; 3]> {
+        let center: [f32; 3] =
+            std::array::from_fn(|axis| origin[axis].get() + size[axis].get() * 0.5);
+        let [x, y, z] = center.map(EntityGeometryScalar::new);
+        Some([x?, y?, z?])
+    }
+
     /// Default UV sizes for north, south, east, west, up and down faces.
     #[must_use]
     pub fn face_uv_dimensions(&self) -> [[f32; 2]; 6] {
@@ -202,29 +233,21 @@ pub struct EntityGeometryBone {
     pub parent: Option<Box<str>>,
     pub pivot: Option<[EntityGeometryScalar; 3]>,
     pub rotation: Option<[EntityGeometryScalar; 3]>,
+    /// Rotation baked into this part's cubes, independently of the animated bone frame.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bind_pose_rotation: Option<[EntityGeometryScalar; 3]>,
     pub mirror: Option<bool>,
     pub inflate: Option<EntityGeometryScalar>,
     pub never_render: Option<bool>,
     pub reset: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub binding: Option<Box<str>>,
+    #[serde(
+        default,
+        skip_serializing_if = "<[EntityGeometryTextureMesh]>::is_empty"
+    )]
+    pub texture_meshes: Box<[EntityGeometryTextureMesh]>,
     pub cubes: Box<[EntityGeometryCube]>,
-}
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct EntityGeometry {
-    pub identifier: Box<str>,
-    pub inherits: Option<EntityGeometryInheritance>,
-    pub source_index: u32,
-    pub texture_width: u16,
-    pub texture_height: u16,
-    pub bones: Box<[EntityGeometryBone]>,
-}
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct EntityGeometryInheritance {
-    pub identifier: Box<str>,
-    pub resolution: EntityDependencyResolution,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -283,13 +306,18 @@ struct EntityCatalogPayload {
     render: EntityRenderData,
 }
 
+/// An encoded entity carrier payload.
+pub type EntityCarrierBlob = Box<[u8]>;
+
 #[derive(Clone, Debug)]
 pub struct RuntimeEntityAssets {
+    carrier_identity: Option<[u8; 32]>, // SHA-256 of the decoded carrier file
     source_manifest_sha256: [u8; 32],
     block_visual_count: u32,
     sources: Arc<[EntityAssetSource]>,
     symbols: Arc<[EntityAssetSymbol]>,
     geometries: Arc<[EntityGeometry]>,
+    geometry_parents: Arc<[Option<usize>]>,
     animation_clips: Arc<[EntityAnimationClip]>,
     animation_channels: Arc<[EntityAnimationChannel]>,
     animation_keyframes: Arc<[EntityAnimationKeyframe]>,
@@ -351,9 +379,8 @@ impl RuntimeEntityAssets {
             return Err(invalid("noncanonical MCBEENT4 section layout"));
         }
         let payload_end = HEADER_BYTES + payload_bytes;
-        if Sha256::digest(&bytes[..payload_end]).as_slice() != &bytes[payload_end..] {
-            return Err(invalid("MCBEENT4 envelope hash mismatch"));
-        }
+        let identity = crate::encoding::sealed_identity(bytes, payload_end)
+            .ok_or_else(|| invalid("MCBEENT4 envelope hash mismatch"))?;
         let payload_counts = v4::payload_counts(&bytes[HEADER_BYTES..payload_end])
             .map_err(|_| invalid("invalid MCBEENT4 catalog count preflight"))?;
         if payload_counts
@@ -403,18 +430,37 @@ impl RuntimeEntityAssets {
             item_visual_aliases: payload.item_visual_aliases,
             render: payload.render,
         };
-        Self::from_compiled(compiled)
+        Ok(Self {
+            carrier_identity: Some(identity),
+            ..Self::from_compiled(compiled)?
+        })
+    }
+
+    /// [`Self::from_compiled`] plus the catalog's carrier encoding, if it has one. The identity then
+    /// matches what a decode of that encoding reports.
+    pub fn from_compiled_encoded(
+        compiled: CompiledEntityAssets,
+    ) -> Result<(Self, Option<EntityCarrierBlob>), AssetError> {
+        use sha2::{Digest, Sha256};
+        let blob = encode_entity_blob(&compiled).ok();
+        let assets = Self {
+            carrier_identity: blob.as_deref().map(|blob| Sha256::digest(blob).into()),
+            ..Self::from_compiled(compiled)?
+        };
+        Ok((assets, blob))
     }
 
     /// Validates a compiled catalog and wraps it without a blob round trip.
     pub fn from_compiled(compiled: CompiledEntityAssets) -> Result<Self, AssetError> {
-        validate_compiled(&compiled)?;
+        let geometry_parents = validate_compiled(&compiled)?;
         Ok(Self {
+            carrier_identity: None,
             source_manifest_sha256: compiled.source_manifest_sha256,
             block_visual_count: compiled.block_visual_count,
             sources: Arc::from(compiled.sources),
             symbols: Arc::from(compiled.symbols),
             geometries: Arc::from(compiled.geometries),
+            geometry_parents: Arc::from(geometry_parents),
             animation_clips: Arc::from(compiled.animation_clips),
             animation_channels: Arc::from(compiled.animation_channels),
             animation_keyframes: Arc::from(compiled.animation_keyframes),
@@ -435,6 +481,12 @@ impl RuntimeEntityAssets {
             item_visual_aliases: Arc::from(compiled.item_visual_aliases),
             render: Arc::new(compiled.render),
         })
+    }
+
+    /// The SHA-256 of the carrier this was decoded from or encoded as; `None` for a bare compiled catalog.
+    #[must_use]
+    pub const fn carrier_identity(&self) -> Option<[u8; 32]> {
+        self.carrier_identity
     }
 
     #[must_use]
@@ -462,6 +514,12 @@ impl RuntimeEntityAssets {
         &self.geometries
     }
 
+    /// Selected inheritance parents validated when this immutable catalog was admitted.
+    #[must_use]
+    pub fn geometry_parents(&self) -> &[Option<usize>] {
+        &self.geometry_parents
+    }
+
     #[must_use]
     pub fn geometry_candidates(&self, identifier: &str) -> &[EntityGeometry] {
         let start = self
@@ -487,7 +545,7 @@ pub fn encode_entity_blob(compiled: &CompiledEntityAssets) -> Result<Box<[u8]>, 
     v4::encode_compiled(compiled)
 }
 
-fn validate_compiled(compiled: &CompiledEntityAssets) -> Result<(), AssetError> {
+fn validate_compiled(compiled: &CompiledEntityAssets) -> Result<Box<[Option<usize>]>, AssetError> {
     if compiled.source_manifest_sha256 == [0; 32]
         || compiled.sources.is_empty()
         || compiled.sources.len() > MAX_ENTITY_ASSET_SOURCES
@@ -554,12 +612,14 @@ fn validate_compiled(compiled: &CompiledEntityAssets) -> Result<(), AssetError> 
         }
         previous_symbol = Some(key);
     }
-    validate_geometries(compiled)?;
+    let parents = validate_geometries(compiled)?;
     validate_extended_payload(compiled)?;
-    Ok(())
+    Ok(parents)
 }
 
-fn validate_geometries(compiled: &CompiledEntityAssets) -> Result<(), AssetError> {
+fn validate_geometries(
+    compiled: &CompiledEntityAssets,
+) -> Result<Box<[Option<usize>]>, AssetError> {
     if compiled.geometries.len() > MAX_ENTITY_GEOMETRIES {
         return Err(invalid("entity geometry count exceeds bound"));
     }
@@ -605,10 +665,13 @@ fn validate_geometries(compiled: &CompiledEntityAssets) -> Result<(), AssetError
         {
             return Err(invalid("invalid or unordered entity geometry payload"));
         }
+        if let Some(bounds) = geometry.visible_bounds {
+            bounds.validate()?;
+        }
         validate_geometry_bones(&geometry.bones, geometry.inherits.is_some())?;
         previous = Some(key);
     }
-    validate_entity_geometry_inheritance(&compiled.geometries).map(|_| ())
+    validate_entity_geometry_inheritance(&compiled.geometries)
 }
 
 /// Validates deterministic catalog inheritance selection and inherited bone parents.
@@ -752,7 +815,13 @@ fn validate_geometry_bones(
     allow_inherited_parent: bool,
 ) -> Result<(), AssetError> {
     let mut total_cubes = 0usize;
+    let mut total_texture_meshes = 0usize;
     for bone in bones {
+        total_texture_meshes = total_texture_meshes
+            .checked_add(bone.texture_meshes.len())
+            .filter(|count| *count <= MAX_ENTITY_GEOMETRY_TEXTURE_MESHES)
+            .ok_or_else(|| invalid("entity geometry texture mesh count exceeds bound"))?;
+        texture_mesh::validate(bone)?;
         validate_geometry_name(&bone.name)?;
         if let Some(parent) = &bone.parent {
             validate_geometry_name(parent)?;
@@ -769,6 +838,9 @@ fn validate_geometry_bones(
             validate_scalars(pivot)?;
         }
         if let Some(rotation) = &bone.rotation {
+            validate_scalars(rotation)?;
+        }
+        if let Some(rotation) = &bone.bind_pose_rotation {
             validate_scalars(rotation)?;
         }
         if let Some(inflate) = bone.inflate {
@@ -883,45 +955,6 @@ const fn dependency_asset_kind(kind: EntityDependencyKind) -> EntityAssetKind {
         EntityDependencyKind::RenderController => EntityAssetKind::RenderController,
         EntityDependencyKind::Texture => EntityAssetKind::Texture,
     }
-}
-
-fn validate_symbol_source(kind: EntityAssetKind, path: &str) -> Result<(), AssetError> {
-    let matches = match kind {
-        EntityAssetKind::Entity => path.starts_with("entity/") && path.ends_with(".json"),
-        EntityAssetKind::Geometry => {
-            (path.starts_with("models/entity/") && path.ends_with(".json"))
-                || path == ENTITY_STOCK_GEOMETRY_SOURCE
-        }
-        EntityAssetKind::Animation => path.starts_with("animations/") && path.ends_with(".json"),
-        EntityAssetKind::AnimationController => {
-            path.starts_with("animation_controllers/") && path.ends_with(".json")
-        }
-        EntityAssetKind::RenderController => {
-            path.starts_with("render_controllers/") && path.ends_with(".json")
-        }
-        EntityAssetKind::Texture => {
-            path.starts_with("textures/") && (path.ends_with(".png") || path.ends_with(".tga"))
-        }
-    };
-    if matches {
-        Ok(())
-    } else {
-        Err(invalid("entity symbol kind does not match its source path"))
-    }
-}
-
-fn validate_relative_path(path: &str) -> Result<(), AssetError> {
-    if path.is_empty()
-        || path.len() > MAX_ENTITY_ASSET_PATH_BYTES
-        || path.starts_with('/')
-        || path.contains('\\')
-        || path
-            .split('/')
-            .any(|part| part.is_empty() || part == "." || part == "..")
-    {
-        return Err(invalid("entity source path is unsafe or exceeds its bound"));
-    }
-    Ok(())
 }
 
 fn validate_identifier(identifier: &str) -> Result<(), AssetError> {

@@ -10,10 +10,13 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/df-mc/go-nethernet/discovery"
 )
 
 const (
@@ -40,9 +43,78 @@ func (r BDSRunner) pinnedImage() (string, error) {
 }
 
 func (r BDSRunner) dockerCmd(ctx context.Context, args ...string) *exec.Cmd {
-	cmd := exec.CommandContext(ctx, r.dockerBin(), args...)
-	cmd.Env = append(os.Environ(), r.Env...)
+	return dockerCommand(ctx, r.dockerBin(), r.Env, args...)
+}
+
+// dockerDirs are where Docker Desktop, Homebrew and OrbStack put the CLI; a Finder-launched app's PATH has none.
+func dockerDirs(home string) []string {
+	dirs := []string{"/usr/local/bin", "/opt/homebrew/bin"}
+	if home != "" {
+		dirs = append(dirs, filepath.Join(home, ".docker", "bin"))
+	}
+	dirs = append(dirs, "/Applications/Docker.app/Contents/Resources/bin")
+	if home != "" {
+		dirs = append(dirs, filepath.Join(home, ".orbstack", "bin"))
+	}
+	return dirs
+}
+
+// findDocker returns the CLI's absolute path from PATH, else from dirs; a name with a separator is used as given.
+func findDocker(name string, dirs []string) (string, bool) {
+	if path, err := exec.LookPath(name); err == nil {
+		if abs, err := filepath.Abs(path); err == nil {
+			return abs, true
+		}
+		return path, true
+	}
+	if strings.ContainsAny(name, `/\`) {
+		return "", false
+	}
+	for _, dir := range dirs {
+		candidate := filepath.Join(dir, name)
+		if info, err := os.Stat(candidate); err == nil && info.Mode().IsRegular() && info.Mode().Perm()&0o111 != 0 {
+			return candidate, true
+		}
+	}
+	return "", false
+}
+
+func lookupDocker(name string) (string, bool) {
+	home, _ := os.UserHomeDir()
+	return findDocker(name, dockerDirs(home))
+}
+
+// dockerCommand runs docker by absolute path with its folder first on PATH, where its credential helpers live.
+func dockerCommand(ctx context.Context, docker string, env []string, args ...string) *exec.Cmd {
+	bin, found := lookupDocker(docker)
+	if !found {
+		bin = docker
+	}
+	cmd := exec.CommandContext(ctx, bin, args...)
+	cmd.Env = append(os.Environ(), env...)
+	if found {
+		cmd.Env = append(cmd.Env, "PATH="+prependPath(filepath.Dir(bin), envValue(cmd.Env, "PATH")))
+	}
 	return cmd
+}
+
+func prependPath(dir, path string) string {
+	if path == "" {
+		return dir
+	}
+	return dir + string(os.PathListSeparator) + path
+}
+
+// envValue is key's last value in env, as exec resolves duplicates; Windows names are case-insensitive.
+func envValue(env []string, key string) string {
+	value := ""
+	for _, kv := range env {
+		name, v, ok := strings.Cut(kv, "=")
+		if ok && (name == key || runtime.GOOS == "windows" && strings.EqualFold(name, key)) {
+			value = v
+		}
+	}
+	return value
 }
 
 func containerName(worldID string) string { return "cinnabar-bds-" + worldID }
@@ -98,10 +170,10 @@ func (r BDSRunner) ensureImage(ctx context.Context, image string) error {
 	return nil
 }
 
-// containerArgs builds `docker run`: loopback-only UDP mapping, the host-provisioned install as /data (the
+// containerArgs builds `docker run`: loopback-only HTTP and UDP mappings, the host-provisioned install as /data (the
 // image skips its own download when bedrock_server-<version> is present), the world folder bind-mounted into
 // the server's worlds directory, and the EULA acknowledged (callers check acceptance first).
-func containerArgs(spec StartSpec, image, version, installDir string, hostPort, maxPlayers int) []string {
+func containerArgs(spec StartSpec, image, version, installDir string, hostPort, maxPlayers int, lanVisible bool, lanHostPort int) []string {
 	w := spec.World
 	levelType := "DEFAULT"
 	if w.Generator == GeneratorFlat {
@@ -110,9 +182,14 @@ func containerArgs(spec StartSpec, image, version, installDir string, hostPort, 
 	view := clampInt(orDefault(spec.Options.ViewDistance, defaultBDSView), 5, 32)
 	args := []string{
 		"run", "--rm", "--name", containerName(w.ID), "--platform", "linux/amd64",
-		"-p", fmt.Sprintf("127.0.0.1:%d:19132/udp", hostPort),
+		"-p", fmt.Sprintf("%s:%d:%d/tcp", localServerHost, hostPort, bdsContainerHTTPPort),
+		"-p", fmt.Sprintf("%s:%s:%s/udp", localServerHost, udpPortRange(hostPort, maxPlayers), udpPortRange(bdsContainerUDPPort, maxPlayers)),
+		"--health-cmd", fmt.Sprintf("curl --fail --silent http://%s:%d/v1/join > /dev/null", localServerHost, bdsContainerHTTPPort),
 		"-v", installDir + ":/data",
 		"-v", filepath.Join(spec.Dir, "db") + ":/data/worlds/" + w.ID,
+	}
+	if lanVisible {
+		args = append(args, "-p", fmt.Sprintf("%s:%d:%d/udp", localServerHost, orDefault(lanHostPort, discovery.DefaultPort), discovery.DefaultPort))
 	}
 	for _, kv := range [][2]string{
 		{"EULA", "TRUE"}, {"VERSION", version}, {"DIRECT_DOWNLOAD_URL", fmt.Sprintf(directURLFormat, "linux", version)},
@@ -122,8 +199,9 @@ func containerArgs(spec StartSpec, image, version, installDir string, hostPort, 
 		{"LEVEL_NAME", w.ID}, {"LEVEL_SEED", strconv.FormatInt(w.Seed, 10)}, {"LEVEL_TYPE", levelType},
 		{"VIEW_DISTANCE", strconv.Itoa(view)}, {"TICK_DISTANCE", strconv.Itoa(clampInt(view, 4, 12))},
 		{"PLAYER_IDLE_TIMEOUT", "0"},
-		// 1.26.5x defaults to NetherNet; the core dials RakNet. LAN visibility would also bind 19132.
-		{"TRANSPORT", "raknet"}, {"ENABLE_LAN_VISIBILITY", "false"},
+		{"TRANSPORT", string(TransportNetherNetHTTP)}, {"SERVER_PORT", strconv.Itoa(bdsContainerHTTPPort)},
+		{"SERVER_IP", "0.0.0.0"}, {"SERVER_UDP_PORTS", bdsUDPMapping(hostPort, bdsContainerUDPPort, maxPlayers)},
+		{"ENABLE_LAN_VISIBILITY", strconv.FormatBool(lanVisible)},
 		{"ENABLE_BDS_V6BIND_FIX", "TRUE"}, // the image's shim for IPv6 binds Docker cannot serve
 	} {
 		args = append(args, "-e", kv[0]+"="+kv[1])
@@ -204,13 +282,18 @@ func (r BDSRunner) startContainer(ctx context.Context, spec StartSpec) (Instance
 	if err := os.MkdirAll(filepath.Join(spec.Dir, "db"), 0o700); err != nil {
 		return nil, fmt.Errorf("localworld: create world folder: %w", err)
 	}
-	address, err := freeLoopbackAddress()
+	address, err := freeBDSAddress(maxPlayers, r.HostPort)
 	if err != nil {
 		return nil, err
 	}
+	if r.LANVisible {
+		if err := checkBDSLANPort(portOf(address), maxPlayers, orDefault(r.LANHostPort, discovery.DefaultPort)); err != nil {
+			return nil, err
+		}
+	}
 	name := containerName(spec.World.ID)
 	_ = r.dockerCmd(ctx, "rm", "-f", name).Run() // a leftover from a crashed core
-	cmd := r.dockerCmd(context.Background(), containerArgs(spec, image, version, installDir, portOf(address), maxPlayers)...)
+	cmd := r.dockerCmd(context.Background(), containerArgs(spec, image, version, installDir, portOf(address), maxPlayers, r.LANVisible, r.LANHostPort)...)
 	inst, err := launch(ctx, launchSpec{
 		cmd: cmd, address: address, log: log.With("component", "bds-container", "world", spec.World.ID), timeout: timeout,
 		ready: func(line string) bool { return strings.Contains(line, bdsReadyMarker) },
@@ -219,7 +302,7 @@ func (r BDSRunner) startContainer(ctx context.Context, spec StartSpec) (Instance
 		_ = r.dockerCmd(context.Background(), "rm", "-f", name).Run()
 		return nil, err
 	}
-	wrapped := &containerInstance{Instance: inst, runner: r, name: name}
+	wrapped := &containerInstance{Instance: inst, runner: r, name: name, maxPlayers: maxPlayers}
 	go func() {
 		<-inst.Done()
 		wrapped.cleanupOnce()
@@ -230,9 +313,20 @@ func (r BDSRunner) startContainer(ctx context.Context, spec StartSpec) (Instance
 // containerInstance stops the container gracefully (BDS saves on SIGTERM) and always removes it.
 type containerInstance struct {
 	Instance
-	runner BDSRunner
-	name   string
-	once   sync.Once
+	runner     BDSRunner
+	name       string
+	once       sync.Once
+	maxPlayers int
+}
+
+// MaxPlayers is the server's player limit, the host included.
+func (c *containerInstance) MaxPlayers() int { return c.maxPlayers }
+
+func (c *containerInstance) LANAddress() string {
+	if !c.runner.LANVisible {
+		return ""
+	}
+	return bdsLANAddress(c.runner.LANHostPort)
 }
 
 func (c *containerInstance) cleanupOnce() {

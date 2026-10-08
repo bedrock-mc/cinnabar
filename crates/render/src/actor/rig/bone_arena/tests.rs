@@ -1,11 +1,10 @@
-use bevy::platform::time::Instant;
-
 use super::*;
 use crate::actor::rig::{
     ActorDrawManifestEntry, ActorGpuInstance, ActorRenderIdentity, ActorRigFrameBuilder,
     ActorRigGeometry, ActorRigRejects, ActorRigRenderFrame, ActorRigRenderInput, ActorRigRoute,
-    ActorRigSubmission, EntityRigId, UNIT_AXIS_SCALE,
+    ActorRigSubmission, EntityRigId,
 };
+use render_model::UNIT_AXIS_SCALE;
 use std::sync::Arc;
 
 /// Creates a finite pose with rotation, translation and nonuniform scale.
@@ -34,6 +33,7 @@ fn reference_matrices(
 /// Creates a complete actor submission without any equipment or asset dependency.
 fn submission(runtime_id: u64, bones: usize) -> ActorRigSubmission {
     ActorRigSubmission {
+        material: Default::default(),
         culling_bounds: Default::default(),
         input: ActorRigRenderInput {
             identity: ActorRenderIdentity {
@@ -68,6 +68,72 @@ fn submission(runtime_id: u64, bones: usize) -> ActorRigSubmission {
 }
 
 #[test]
+fn actor_pose_accepts_models_above_the_player_skin_bone_limit() {
+    let count = assets::MAX_SKIN_GEOMETRY_BONES + 1;
+    let geometry = ActorRigGeometry::synthetic_cuboid(EntityRigId(3), [0.0; 3], [1.0; 3], count)
+        .expect("an actor model has a separate bone contract from a player skin");
+    let mut builder = ActorRigFrameBuilder::new([geometry]).unwrap();
+    let frame = builder.build(0.5, None, [submission(1, count)]);
+    assert_eq!(frame.instances.len(), 1);
+    assert_eq!(frame.previous_bones.len(), count);
+    assert_eq!(frame.current_bones.len(), count);
+    assert_eq!(frame.rejects, ActorRigRejects::default());
+}
+
+#[test]
+fn large_actor_models_share_the_bounded_pose_arena() {
+    let bones = render_model::MAX_RENDER_BONES_PER_ACTOR;
+    let capacity = crate::actor::MAX_ACTOR_POSE_BONES / bones;
+    assert!(capacity < render_model::MAX_RENDERED_PLAYERS);
+    let geometry =
+        ActorRigGeometry::synthetic_cuboid(EntityRigId(3), [0.0; 3], [1.0; 3], bones).unwrap();
+    let mut builder = ActorRigFrameBuilder::new([geometry]).unwrap();
+    let frame = builder.build(
+        0.5,
+        None,
+        (1..=capacity + 1).map(|id| submission(id as u64, bones)),
+    );
+    assert_eq!(frame.instances.len(), capacity);
+    assert_eq!(frame.rejects.bone_capacity, 1);
+    assert_eq!(frame.rejects.actor_capacity, 0);
+    assert!(
+        (frame.previous_bones.len() + frame.current_bones.len()) * crate::ACTOR_BONE_MATRIX_BYTES
+            <= crate::MAX_ACTOR_BONE_ARENA_BYTES
+    );
+}
+
+#[test]
+fn actor_bodies_use_the_shared_instance_arena_above_the_player_skin_budget() {
+    let count = render_model::MAX_RENDERED_PLAYERS + 1;
+    let geometry =
+        ActorRigGeometry::synthetic_cuboid(EntityRigId(3), [0.0; 3], [1.0; 3], 1).unwrap();
+    let mut builder = ActorRigFrameBuilder::new([geometry]).unwrap();
+    let frame = builder.build(0.5, None, (1..=count).map(|id| submission(id as u64, 1)));
+    assert_eq!(frame.instances.len(), count);
+    assert_eq!(frame.rejects, ActorRigRejects::default());
+    assert_eq!(
+        frame.manifest.last().unwrap().identity.runtime_id,
+        count as u64
+    );
+}
+
+#[test]
+fn shared_instance_arena_still_bounds_body_admission() {
+    let count = crate::actor::MAX_ACTOR_RENDER_INSTANCES;
+    let geometry =
+        ActorRigGeometry::synthetic_cuboid(EntityRigId(3), [0.0; 3], [1.0; 3], 1).unwrap();
+    let mut builder = ActorRigFrameBuilder::new([geometry]).unwrap();
+    let frame = builder.build(
+        0.5,
+        None,
+        (1..=count + 1).map(|id| submission(id as u64, 1)),
+    );
+    assert_eq!(frame.instances.len(), count);
+    assert_eq!(frame.rejects.actor_capacity, 1);
+    assert_eq!(frame.rejects.bone_capacity, 0);
+}
+
+#[test]
 fn append_preserves_existing_matrices_and_reuses_the_final_arena_allocation() {
     let mut arena = Vec::with_capacity(100);
     arena.push([[5.0; 4]; 3]);
@@ -79,6 +145,24 @@ fn append_preserves_existing_matrices_and_reuses_the_final_arena_allocation() {
     assert_eq!(arena.capacity(), capacity);
     assert_eq!(arena[0], [[5.0; 4]; 3]);
     assert_eq!(arena[1..], reference);
+}
+
+#[test]
+fn draw_light_multiplier_keeps_finite_values_and_defaults_non_finite_inputs() {
+    let geometry =
+        ActorRigGeometry::synthetic_cuboid(EntityRigId(3), [0.0; 3], [1.0; 3], 1).unwrap();
+    let mut builder = ActorRigFrameBuilder::new([geometry]).unwrap();
+    assert_eq!(ActorGpuInstance::default().light_color_multiplier, 1.0);
+    for value in [-0.25, 0.5, 1.8, f32::NAN, f32::INFINITY] {
+        let mut input = submission(1, 1);
+        input.material.light_color_multiplier = value;
+        let frame = builder.build(0.5, None, [input]);
+        assert_eq!(frame.instances.len(), 1);
+        assert_eq!(
+            frame.instances[0].light_color_multiplier,
+            if value.is_finite() { value } else { 1.0 }
+        );
+    }
 }
 
 #[test]
@@ -124,6 +208,7 @@ fn complete_frames_match_reference_matrices_and_invalid_actors_leave_no_arena_ho
         current_bones.extend(reference_matrices(&input.input.current_bones, &pivots).unwrap());
         let instance_index = instances.len() as u32;
         instances.push(ActorGpuInstance {
+            glint: input.material.glint.parameters(),
             world_from_actor: input.world_from_actor,
             previous_bone_base: base,
             current_bone_base: base,
@@ -135,6 +220,10 @@ fn complete_frames_match_reference_matrices_and_invalid_actors_leave_no_arena_ho
             uv_anim: input.uv_anim,
             light: input.light,
             overlay_rgba8: input.overlay_rgba8,
+            multitexture_layers: [u32::MAX; 2],
+            material: input.material.kind as u32,
+            dissolve_multiplier: input.material.dissolve_multiplier,
+            light_color_multiplier: input.material.light_color_multiplier,
         });
         manifest.push(ActorDrawManifestEntry {
             identity: input.input.identity,
@@ -165,6 +254,65 @@ fn complete_frames_match_reference_matrices_and_invalid_actors_leave_no_arena_ho
         },
     };
     assert_eq!(builder.build(0.5, None, inputs), expected);
+}
+
+#[test]
+fn replacing_geometry_rebinds_a_cached_pose_to_its_new_pivots() {
+    let id = EntityRigId(3);
+    let geometry = ActorRigGeometry::synthetic_cuboid(id, [0.0; 3], [1.0; 3], 1).unwrap();
+    let mut builder = ActorRigFrameBuilder::new([geometry.clone()]).unwrap();
+    let input = submission(1, 1);
+    let before = builder.build(0.5, None, [input.clone()]);
+    let mut replacement = geometry;
+    replacement.bone_pivots = Arc::from([[0.25, 1.5, -0.5]]);
+    builder.insert_geometry(replacement.clone()).unwrap();
+    let after = builder.build(0.5, None, [input.clone()]);
+    assert_ne!(before.current_bones, after.current_bones);
+    assert_eq!(
+        after.current_bones.as_ref(),
+        reference_matrices(&input.input.current_bones, &replacement.bone_pivots).unwrap()
+    );
+    assert_eq!(
+        after.previous_bones.as_ref(),
+        reference_matrices(&input.input.previous_bones, &replacement.bone_pivots).unwrap()
+    );
+}
+
+#[test]
+fn combined_session_pack_replacement_rebinds_cached_poses_to_new_pivots() {
+    for id in [
+        render_model::pack_rig_id(0),
+        render_model::pack_equipment_rig_id(0),
+    ] {
+        let geometry = ActorRigGeometry::synthetic_cuboid(id, [0.0; 3], [1.0; 3], 1).unwrap();
+        let mut builder = ActorRigFrameBuilder::new([geometry.clone()]).unwrap();
+        let mut input = submission(1, 1);
+        input.input.rig = id;
+        let before = builder.build(0.5, None, [input.clone()]);
+        let mut replacement = geometry;
+        replacement.bone_pivots = Arc::from([[0.25, 1.5, -0.5]]);
+        let (entities, equipment) = if id == render_model::pack_rig_id(0) {
+            (vec![replacement.clone()], Vec::new())
+        } else {
+            (Vec::new(), vec![replacement.clone()])
+        };
+        assert_eq!(
+            builder.replace_session_pack_geometries(entities, equipment),
+            (Ok(()), Ok(()))
+        );
+        let after = builder.build(0.5, None, [input.clone()]);
+        assert_ne!(before.current_bones, after.current_bones, "rig {id:?}");
+        assert_eq!(
+            after.current_bones.as_ref(),
+            reference_matrices(&input.input.current_bones, &replacement.bone_pivots).unwrap(),
+            "rig {id:?}"
+        );
+        assert_eq!(
+            after.previous_bones.as_ref(),
+            reference_matrices(&input.input.previous_bones, &replacement.bone_pivots).unwrap(),
+            "rig {id:?}"
+        );
+    }
 }
 
 #[test]
@@ -199,7 +347,7 @@ fn frame_cost_bench_actor_bone_arena_50x64() {
             [true, false]
         };
         for optimized in order {
-            let started = Instant::now();
+            let started = bevy::platform::time::Instant::now();
             let mut valid = true;
             for _ in 0..50 {
                 let mut previous_arena = Vec::new();
@@ -241,4 +389,55 @@ fn frame_cost_bench_actor_bone_arena_50x64() {
         samples[0][5].as_secs_f64() * 1e3,
         samples[1][5].as_secs_f64() * 1e3,
     );
+}
+
+#[test]
+fn review_render_pose_cache_accounts_for_changed_bone_pivots() {
+    let pose: Arc<[RenderBoneTransform]> = Arc::from([bone(0)]);
+    let mut cache = PoseMatrixCache::default();
+    let mut old = Vec::new();
+    assert!(cache.append(&mut old, &pose, EntityRigId(3), &[[0.0; 3]]));
+    let pivots = [[1.0, 2.0, 3.0]];
+    let expected = reference_matrices(&pose, &pivots).unwrap();
+    let mut actual = Vec::new();
+    assert!(cache.append(&mut actual, &pose, EntityRigId(3), &pivots));
+    assert_eq!(actual, expected);
+    assert_ne!(actual, old);
+}
+
+#[test]
+fn draw_readiness_shares_rejections_without_changing_frame_or_cache_state() {
+    let geometry =
+        ActorRigGeometry::synthetic_cuboid(EntityRigId(3), [0.0; 3], [1.0; 3], 1).unwrap();
+    let mut builder = ActorRigFrameBuilder::new([geometry]).unwrap();
+    let good = submission(1, 1);
+    assert!(builder.can_draw_submission(&good));
+    assert_eq!(builder.frame_generation, 0);
+    assert!(builder.matrices.entries.is_empty());
+    assert_eq!(builder.build(0.0, None, [good.clone()]).instances.len(), 1);
+    for change in 0..5 {
+        let generation = builder.frame_generation;
+        let cached = builder.matrices.entries.len();
+        let mut bad = good.clone();
+        match change {
+            0 => bad.route = ActorRigRoute::NoDraw,
+            1 => bad.input.rig = EntityRigId(u32::MAX),
+            2 => bad.input.reset_generation = u64::MAX,
+            3 => bad.world_from_actor[0][0] = f32::NAN,
+            _ => {
+                let mut bone = bone(0);
+                bone.rotation = [0.0; 4];
+                bad.input.current_bones = Arc::from([bone]);
+            }
+        }
+        let allocated = crate::alloc_count::thread_allocations();
+        assert!(!builder.can_draw_submission(&bad));
+        assert_eq!(crate::alloc_count::thread_allocations() - allocated, 0);
+        assert_eq!(builder.frame_generation, generation);
+        assert_eq!(builder.matrices.entries.len(), cached);
+        assert!(builder.build(0.0, None, [bad]).instances.is_empty());
+    }
+    builder.frame_generation = u64::MAX;
+    assert!(!builder.can_draw_submission(&good));
+    assert!(builder.build(0.0, None, [good]).instances.is_empty());
 }

@@ -4,8 +4,17 @@ use std::sync::Arc;
 use sha2::{Digest, Sha256};
 
 use crate::{AssetError, RuntimeEntityAssets};
+mod color_mask;
+mod dissolve;
 mod eligibility;
-pub use eligibility::neutral_actor_geometry_uvs_are_supported;
+pub use color_mask::{
+    native_actor_texture_uses_color_mask, native_actor_texture_uses_multitexture,
+    native_actor_uses_multitexture,
+};
+pub use dissolve::actor_dissolve_mask_sources;
+pub use eligibility::{
+    neutral_actor_geometry_sampled_texels, neutral_actor_geometry_uvs_are_supported,
+};
 
 pub const ACTOR_CARRIER_MAGIC: [u8; 8] = *b"MCBEACT3";
 pub const ACTOR_CARRIER_VERSION: u32 = 3;
@@ -18,6 +27,7 @@ pub const MAX_ACTOR_BINDINGS: usize = 4096;
 /// A server pack's entity art fits whole (Zeqa's is 47 MiB); past it rasters are halved.
 pub const MAX_ACTOR_PIXEL_BYTES: usize = 256 * 1024 * 1024;
 pub const MAX_ACTOR_CARRIER_BYTES: usize = MAX_ACTOR_PIXEL_BYTES + 1024 * 1024;
+const MAX_ACTOR_MATERIAL_BYTES: usize = 128;
 const HEADER: usize = 128;
 const HASH: usize = 32;
 const POLICY: &[u8] = include_bytes!("../data/neutral-actor-materials-v1.json");
@@ -65,6 +75,8 @@ pub struct RuntimeActorCatalog {
     entity_identity: [u8; 32],
     textures: Arc<[ActorTexture]>,
     bindings: Arc<[ActorArtworkBinding]>,
+    color_mask_textures: Arc<[bool]>,
+    multitexture_textures: Arc<[bool]>,
 }
 
 pub fn neutral_actor_material_is_supported(name: &str) -> bool {
@@ -81,7 +93,8 @@ pub fn neutral_actor_material_is_supported(name: &str) -> bool {
 }
 
 impl RuntimeActorCatalog {
-    pub fn decode(bytes: &[u8], entity_bytes: &[u8]) -> Result<Self, AssetError> {
+    /// Decodes a carrier compiled against exactly the carrier `entities` was decoded from.
+    pub fn decode(bytes: &[u8], entities: &RuntimeEntityAssets) -> Result<Self, AssetError> {
         if bytes.len() < HEADER + HASH || bytes.len() > MAX_ACTOR_CARRIER_BYTES {
             return Err(invalid("actor carrier size exceeds bounds"));
         }
@@ -108,11 +121,10 @@ impl RuntimeActorCatalog {
             .ok_or_else(|| invalid("actor carrier layout is invalid"))?;
         if Sha256::digest(&bytes[..end]).as_slice() != &bytes[end..]
             || policy != <[u8; 32]>::from(Sha256::digest(POLICY))
-            || entity_identity != <[u8; 32]>::from(Sha256::digest(entity_bytes))
+            || entities.carrier_identity() != Some(entity_identity)
         {
             return Err(invalid("actor carrier identity mismatch"));
         }
-        let entities = RuntimeEntityAssets::decode(entity_bytes)?;
         if manifest != entities.source_manifest_sha256() {
             return Err(invalid("actor entity manifest mismatch"));
         }
@@ -151,7 +163,7 @@ impl RuntimeActorCatalog {
                 _ => return Err(invalid("unknown actor pose mode")),
             };
             let length = cursor.u16()? as usize;
-            if length == 0 || length > 128 {
+            if length == 0 || length > MAX_ACTOR_MATERIAL_BYTES {
                 return Err(invalid("actor material name exceeds bound"));
             }
             let material = std::str::from_utf8(cursor.take(length)?)
@@ -171,12 +183,30 @@ impl RuntimeActorCatalog {
         if cursor.offset != end {
             return Err(invalid("actor carrier has trailing payload"));
         }
-        validate(&textures, &bindings, &entities)?;
+        validate(&textures, &bindings, entities, PixelHashes::Sealed)?;
+        let color_mask_textures = textures
+            .iter()
+            .map(|texture| {
+                native_actor_texture_uses_color_mask(&entities.sources()[texture.source as usize])
+            })
+            .collect::<Vec<_>>()
+            .into();
+        let multitexture_textures = textures
+            .iter()
+            .map(|texture| {
+                native_actor_texture_uses_multitexture(&entities.sources()[texture.source as usize])
+            })
+            .collect::<Vec<_>>()
+            .into();
         Ok(Self {
-            identity: Sha256::digest(bytes).into(),
+            identity: bytes[end..]
+                .try_into()
+                .expect("sealed trailer is a SHA-256"),
             entity_identity,
             textures: textures.into(),
             bindings: bindings.into(),
+            color_mask_textures,
+            multitexture_textures,
         })
     }
 
@@ -188,6 +218,20 @@ impl RuntimeActorCatalog {
     }
     pub fn textures(&self) -> &[ActorTexture] {
         &self.textures
+    }
+    /// Whether this exact raster uses the witnessed native alpha-as-color-mask material.
+    pub fn texture_uses_color_mask(&self, texture: usize) -> bool {
+        self.color_mask_textures
+            .get(texture)
+            .copied()
+            .unwrap_or(false)
+    }
+    /// Whether this exact raster belongs to the witnessed three-sampler material profile.
+    pub fn texture_uses_multitexture(&self, texture: usize) -> bool {
+        self.multitexture_textures
+            .get(texture)
+            .copied()
+            .unwrap_or(false)
     }
     pub fn bindings(&self) -> &[ActorArtworkBinding] {
         &self.bindings
@@ -214,7 +258,7 @@ pub fn encode_actor_catalog(
     bindings: &[ActorArtworkBinding],
 ) -> Result<Vec<u8>, AssetError> {
     let entities = RuntimeEntityAssets::decode(entity_bytes)?;
-    validate(textures, bindings, &entities)?;
+    validate(textures, bindings, &entities, PixelHashes::Check)?;
     let mut bytes = Vec::with_capacity(HEADER);
     bytes.extend_from_slice(&ACTOR_CARRIER_MAGIC);
     bytes.extend_from_slice(&ACTOR_CARRIER_VERSION.to_le_bytes());
@@ -244,7 +288,9 @@ pub fn encode_actor_catalog(
         ] {
             bytes.extend_from_slice(&value.to_le_bytes());
         }
-        bytes.extend_from_slice(&(binding.material.len() as u16).to_le_bytes());
+        let length = u16::try_from(binding.material.len())
+            .map_err(|_| invalid("actor material name exceeds bound"))?;
+        bytes.extend_from_slice(&length.to_le_bytes());
         bytes.extend_from_slice(binding.material.as_bytes());
     }
     let length = bytes.len() - HEADER;
@@ -257,16 +303,25 @@ pub fn encode_actor_catalog(
     Ok(bytes)
 }
 
+/// Whether per-texture pixel digests are rehashed; a decoded carrier's trailer already seals them.
+#[derive(Clone, Copy, PartialEq)]
+enum PixelHashes {
+    Check,
+    Sealed,
+}
+
 fn validate(
     textures: &[ActorTexture],
     bindings: &[ActorArtworkBinding],
     entities: &RuntimeEntityAssets,
+    pixel_hashes: PixelHashes,
 ) -> Result<(), AssetError> {
     if textures.len() > MAX_ACTOR_TEXTURES || bindings.len() > MAX_ACTOR_BINDINGS {
         return Err(invalid("actor catalog counts exceed bounds"));
     }
     let mut total = 0usize;
     let mut seen_sources = std::collections::BTreeSet::new();
+    let dissolve_masks = actor_dissolve_mask_sources(entities.render_data());
     for texture in textures {
         let length = pixel_length(texture.width, texture.height)?;
         total = total
@@ -280,11 +335,15 @@ fn validate(
         if !source.path.starts_with("textures/")
             || !(source.path.ends_with(".png") || source.path.ends_with(".tga"))
             || texture.rgba8.len() != length
-            || texture.pixel_sha256 != <[u8; 32]>::from(Sha256::digest(&texture.rgba8))
-            || texture
-                .rgba8
-                .chunks_exact(4)
-                .any(|pixel| !matches!(pixel[3], 0 | 255))
+            || (pixel_hashes == PixelHashes::Check
+                && texture.pixel_sha256 != <[u8; 32]>::from(Sha256::digest(&texture.rgba8)))
+            || (!native_actor_texture_uses_color_mask(source)
+                && !native_actor_texture_uses_multitexture(source)
+                && !dissolve_masks.contains(&texture.source)
+                && texture
+                    .rgba8
+                    .chunks_exact(4)
+                    .any(|pixel| !matches!(pixel[3], 0 | 255)))
             || !seen_sources.insert(texture.source)
         {
             return Err(invalid("actor pixels or raster provenance are invalid"));
@@ -310,7 +369,7 @@ fn validate(
             || !candidates.contains(&binding.geometry_candidate)
             || binding.render_controller != rig.render_controller
             || binding.geometry != geometry_binding.geometry
-            || binding.material.is_empty()
+            || !valid_material_name(&binding.material)
             || !neutral_actor_geometry_uvs_are_supported(
                 entities.geometries(),
                 binding.geometry as usize,
@@ -370,5 +429,26 @@ impl<'a> Cursor<'a> {
 fn invalid(detail: &str) -> AssetError {
     AssetError::InvalidCompiledAssets {
         detail: detail.into(),
+    }
+}
+
+/// Checks the material name admitted by an actor carrier binding.
+fn valid_material_name(name: &str) -> bool {
+    !name.is_empty() && name.len() <= MAX_ACTOR_MATERIAL_BYTES
+}
+
+#[cfg(test)]
+mod review_tests {
+    use super::*;
+    #[test]
+    fn review_actor_materials_follow_the_decoder_byte_bound() {
+        assert!(valid_material_name(&"a".repeat(MAX_ACTOR_MATERIAL_BYTES)));
+        assert!(!valid_material_name(
+            &"a".repeat(MAX_ACTOR_MATERIAL_BYTES + 1)
+        ));
+        assert!(!valid_material_name(
+            &"é".repeat(MAX_ACTOR_MATERIAL_BYTES / 2 + 1)
+        ));
+        assert!(!valid_material_name(&"a".repeat(65_536)));
     }
 }

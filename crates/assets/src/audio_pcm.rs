@@ -283,11 +283,9 @@ impl RuntimeAudioPcm {
         {
             return Err(invalid("exact binding"));
         }
-        if bytes[hash_offset..] != Sha256::digest(&bytes[..hash_offset])[..]
-            || Sha256::digest(&bytes[pcm_start..hash_offset])[..] != expected.pcm_sha256()
-        {
-            return Err(invalid("envelope or independently expected PCM hash"));
-        }
+        let carrier_sha256 = crate::encoding::sealed_identity(bytes, hash_offset)
+            .filter(|_| Sha256::digest(&bytes[pcm_start..hash_offset])[..] == expected.pcm_sha256())
+            .ok_or_else(|| invalid("envelope or independently expected PCM hash"))?;
         let mut samples = Vec::new();
         samples
             .try_reserve_exact(pcm_len / 2)
@@ -300,7 +298,7 @@ impl RuntimeAudioPcm {
         Ok(Self {
             identity: expected.clone(),
             samples: samples.into(),
-            carrier_sha256: Sha256::digest(bytes).into(),
+            carrier_sha256,
         })
     }
     pub fn identifier(&self) -> &str {

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -185,4 +186,192 @@ func errString(err error) string {
 		return ""
 	}
 	return err.Error()
+}
+
+func TestDeviceFlowNeverPollsAnUnsafeOrUnpublishedPrompt(t *testing.T) {
+	for _, unsafe := range []bool{false, true} {
+		flow := DeviceFlow{
+			Authorize: func(context.Context) (*oauth2.DeviceAuthResponse, error) {
+				response := &oauth2.DeviceAuthResponse{VerificationURI: "https://login.example.test", UserCode: "SAFE"}
+				if unsafe {
+					response.UserCode = "bad\ncode"
+				}
+				return response, nil
+			},
+			Token: func(context.Context, *oauth2.DeviceAuthResponse) (*oauth2.Token, error) {
+				t.Fatal("polled before a valid prompt was published")
+				return nil, nil
+			},
+		}
+		_, err := flow.Request(context.Background(), func(*oauth2.DeviceAuthResponse) error {
+			if unsafe {
+				t.Fatal("published an unsafe prompt")
+			}
+			return errors.New("writer failed with secret provider data")
+		})
+		if !errors.Is(err, errDeviceAuthorization) || strings.Contains(err.Error(), "secret") {
+			t.Fatalf("device flow error = %v", err)
+		}
+	}
+}
+
+// Sign-in completes the join prerequisites before reporting success, and never after a failed sign-in.
+func TestSignInCompletesJoinPrerequisitesBeforeReportingSuccess(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "auth", "token.json")
+	var output bytes.Buffer
+	var completed []string
+	err := Run(context.Background(), Config{
+		Path: path, Writer: &output, Refresh: staticRefresh,
+		DeviceAuth: func(context.Context) (*oauth2.DeviceAuthResponse, error) {
+			return &oauth2.DeviceAuthResponse{VerificationURI: "https://login.example.test/device", UserCode: "ABCD-1234"}, nil
+		},
+		DeviceToken: func(context.Context, *oauth2.DeviceAuthResponse) (*oauth2.Token, error) {
+			return validToken("access", "refresh"), nil
+		},
+		CompleteSignIn: func(_ context.Context, completedPath string, source oauth2.TokenSource) error {
+			if token, err := source.Token(); err != nil || token.AccessToken != "access" {
+				t.Fatal("sign-in completion did not receive the signed-in source")
+			}
+			if strings.Contains(output.String(), "authenticated") {
+				t.Fatal("success was reported before sign-in completion")
+			}
+			completed = append(completed, completedPath)
+			return errors.New("exchange unavailable")
+		},
+	})
+	if err != nil || len(completed) != 1 || completed[0] != path {
+		t.Fatalf("Run err=%v completions=%v", err, completed)
+	}
+	if events := decodeEvents(t, output.Bytes()); events[len(events)-1].Kind != "authenticated" {
+		t.Fatal("a failed exchange blocked sign-in")
+	}
+	err = Run(context.Background(), Config{
+		Path: filepath.Join(t.TempDir(), "token.json"), Writer: io.Discard,
+		DeviceAuth: func(context.Context) (*oauth2.DeviceAuthResponse, error) {
+			return nil, errors.New("declined")
+		},
+		CompleteSignIn: func(context.Context, string, oauth2.TokenSource) error {
+			t.Fatal("a failed sign-in ran its completion")
+			return nil
+		},
+	})
+	if err == nil {
+		t.Fatal("declined sign-in succeeded")
+	}
+}
+
+// Cancelling sign-in while its completion runs reports cancellation, never success.
+func TestCancellationDuringSignInCompletionIsNotReportedAsSuccess(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	var output bytes.Buffer
+	err := Run(ctx, Config{
+		Path: filepath.Join(t.TempDir(), "token.json"), Writer: &output, Refresh: staticRefresh,
+		DeviceAuth: func(context.Context) (*oauth2.DeviceAuthResponse, error) {
+			return &oauth2.DeviceAuthResponse{VerificationURI: "https://login.example.test/device", UserCode: "ABCD-1234"}, nil
+		},
+		DeviceToken: func(context.Context, *oauth2.DeviceAuthResponse) (*oauth2.Token, error) {
+			return validToken("access", "refresh"), nil
+		},
+		CompleteSignIn: func(exchange context.Context, _ string, _ oauth2.TokenSource) error {
+			cancel()
+			<-exchange.Done()
+			return exchange.Err()
+		},
+	})
+	events := decodeEvents(t, output.Bytes())
+	if last := events[len(events)-1]; err == nil || last.Kind != "error" || last.Stage != "cancelled" {
+		t.Fatalf("Run err=%v last event=%+v, want a cancelled sign-in", err, last)
+	}
+}
+
+func TestDeviceCodeExpiryReportsSafeRetryMessage(t *testing.T) {
+	const secret = "provider-secret-sentinel"
+	past := time.Unix(1, 0)
+	future := time.Unix(1<<32, 0)
+	cases := []struct {
+		name       string
+		expiry     time.Time
+		tokenError error
+		deadline   time.Time
+		wantExpiry bool
+		cancelled  bool
+	}{
+		{name: "provider expiry", tokenError: &oauth2.RetrieveError{ErrorCode: "expired_token", ErrorDescription: secret}, wantExpiry: true},
+		{name: "wrapped provider expiry", tokenError: fmt.Errorf("%s: %w", secret, &oauth2.RetrieveError{ErrorCode: "expired_token", Body: []byte(secret)}), wantExpiry: true},
+		{name: "device deadline", expiry: past, tokenError: context.DeadlineExceeded, wantExpiry: true},
+		{name: "deadline without expiry", tokenError: context.DeadlineExceeded},
+		{name: "deadline before expiry", expiry: future, tokenError: context.DeadlineExceeded},
+		{name: "parent deadline before device deadline", expiry: past, deadline: time.Unix(0, 0), tokenError: context.DeadlineExceeded},
+		{name: "provider denied", expiry: future, tokenError: &oauth2.RetrieveError{ErrorCode: "access_denied", ErrorDescription: secret}},
+		{name: "provider expiry text", tokenError: errors.New("expired_token " + secret)},
+		{name: "cancelled expired code", tokenError: &oauth2.RetrieveError{ErrorCode: "expired_token"}, cancelled: true},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := context.Background()
+			if !test.deadline.IsZero() {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithDeadline(ctx, test.deadline)
+				defer cancel()
+			}
+			if test.cancelled {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithCancel(ctx)
+				cancel()
+			}
+			var output bytes.Buffer
+			err := Run(ctx, Config{
+				Path: filepath.Join(t.TempDir(), "token.json"), Writer: &output,
+				CachedSource: func(ctx context.Context, config authcache.Config) (oauth2.TokenSource, error) {
+					_, err := config.Request(ctx, io.Discard)
+					return nil, err
+				},
+				DeviceAuth: func(context.Context) (*oauth2.DeviceAuthResponse, error) {
+					return &oauth2.DeviceAuthResponse{VerificationURI: "https://login.example.test/device", UserCode: "ABCD-1234", Expiry: test.expiry}, nil
+				},
+				DeviceToken: func(context.Context, *oauth2.DeviceAuthResponse) (*oauth2.Token, error) {
+					return nil, test.tokenError
+				},
+			})
+			if err == nil {
+				t.Fatal("Run() succeeded")
+			}
+			events := decodeEvents(t, output.Bytes())
+			last := events[len(events)-1]
+			wantStage := "device_code"
+			wantMessage := "Microsoft sign-in did not complete. Try again."
+			if test.wantExpiry {
+				wantMessage = "Your sign-in code expired. Try again."
+			}
+			if test.cancelled {
+				wantStage, wantMessage = "cancelled", "Sign-in was cancelled."
+			}
+			if last.Kind != "error" || last.Stage != wantStage || last.Message != wantMessage {
+				t.Fatalf("terminal event = %#v, want %s error with %q", last, wantStage, wantMessage)
+			}
+			if strings.Contains(output.String(), secret) || strings.Contains(err.Error(), secret) {
+				t.Fatal("provider error detail leaked")
+			}
+		})
+	}
+}
+
+func TestDeviceFlowExpiryDoesNotRetainProviderError(t *testing.T) {
+	const secret = "provider-secret-sentinel"
+	flow := DeviceFlow{
+		Authorize: func(context.Context) (*oauth2.DeviceAuthResponse, error) {
+			return &oauth2.DeviceAuthResponse{VerificationURI: "https://login.example.test/device", UserCode: "ABCD-1234"}, nil
+		},
+		Token: func(context.Context, *oauth2.DeviceAuthResponse) (*oauth2.Token, error) {
+			return nil, &oauth2.RetrieveError{ErrorCode: "expired_token", ErrorDescription: secret, Body: []byte(secret)}
+		},
+	}
+	_, err := flow.Request(context.Background(), func(*oauth2.DeviceAuthResponse) error { return nil })
+	var providerError *oauth2.RetrieveError
+	if !errors.Is(err, errDeviceAuthorization) || !errors.Is(err, errDeviceCodeExpired) {
+		t.Fatalf("device flow error = %v, want controlled device expiry", err)
+	}
+	if strings.Contains(err.Error(), secret) || errors.As(err, &providerError) {
+		t.Fatal("device flow retained provider error details")
+	}
 }

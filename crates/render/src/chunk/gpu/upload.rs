@@ -1,6 +1,9 @@
 use crate::chunk::*;
+use meshing::liquid::LIQUID_FACE_INSET;
 mod arena_writes;
 mod lighting;
+#[cfg(test)]
+mod liquid_tests;
 mod model_draw_bases;
 mod publication_removals;
 use arena_writes::ArenaWrites;
@@ -16,6 +19,13 @@ type ChangedChunkInstances<'w, 's> =
 pub(in crate::chunk) struct ChunkInstanceQueries<'w, 's> {
     queries: ParamSet<'w, 's, (AllChunkInstances<'w, 's>, ChangedChunkInstances<'w, 's>)>,
 }
+#[derive(SystemParam)]
+pub(in crate::chunk) struct ChunkUploadPublication<'w> {
+    acknowledgements: Res<'w, ChunkUploadAcknowledgements>,
+    gpu_removals: Res<'w, ChunkGpuRemovalQueue>,
+    terrain_generations:
+        Option<ResMut<'w, crate::dropped_item_render::terrain_items::TerrainItemMeshGenerations>>,
+}
 #[allow(clippy::too_many_arguments)]
 pub(in crate::chunk) fn prepare_gpu_chunks(
     mut commands: Commands,
@@ -27,21 +37,25 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
     mut upload_stats: ResMut<ChunkGpuUploadStats>,
     biome_tints: Res<ChunkBiomeTints>,
     texture_assets: Res<ChunkTextureAssets>,
-    acknowledgements: Res<ChunkUploadAcknowledgements>,
-    gpu_removals: Res<ChunkGpuRemovalQueue>,
+    publication: ChunkUploadPublication,
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
     retirement_fence: Res<TransparentRetirementFence>,
     mut fairness: ResMut<GpuUpdateFairness>,
     profiler: Option<Res<RuntimeStageProfiler>>,
 ) {
+    let ChunkUploadPublication {
+        acknowledgements,
+        gpu_removals,
+        mut terrain_generations,
+    } = publication;
     let _timer = profiler
         .as_deref()
         .map(|profiler| profiler.time(RuntimeStage::GpuPreparation));
     release_completed_transparent_retirements(&mut arena, retirement_fence.completed_epoch());
     let active_tint_identity = biome_tints.table_identity();
     let tint_identity_changed = fairness.last_tint_identity != Some(active_tint_identity);
-    let candidates = if tint_identity_changed {
+    let candidates = if tint_identity_changed || fairness.recover_untracked {
         instances
             .queries
             .p0()
@@ -89,7 +103,13 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
     );
 
     arena.pending_removals.extend(removed_instances.read());
-    prepare_publication_removals(&mut arena, *budget, &gpu_removals, &acknowledgements);
+    let retirement_pressure = prepare_publication_removals(
+        &mut arena,
+        *budget,
+        &gpu_removals,
+        &acknowledgements,
+        terrain_generations.as_deref_mut(),
+    );
 
     let mut writes = ArenaWrites::default();
     let mut applied_tokens = Vec::new();
@@ -114,6 +134,13 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
         let Ok((_, instance)) = all_instances.get(entity) else {
             continue;
         };
+        let old = arena.allocations.get(&entity).cloned();
+        // Deferred removals already occupy resident GPU ranges. Do not admit
+        // more fresh chunks while completion cannot make retirement room.
+        // Replacements still use their ordinary bounded COW admission below.
+        if retirement_pressure && old.is_none() {
+            continue;
+        }
         let instance_bytes = chunk_instance_upload_byte_len(instance);
         if !validate_partitioned_model_streams(
             &instance.model_refs,
@@ -127,7 +154,6 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
             bevy::log::error!("sub-chunk model streams are not an exact material partition");
             continue;
         }
-        let old = arena.allocations.get(&entity).cloned();
         let required = match u32::try_from(instance.cube_quads.len()) {
             Ok(required) => required,
             Err(_) => {
@@ -173,6 +199,12 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
             bevy::log::error!("sub-chunk liquid-lighting stream exceeds the u32 instance range");
             continue;
         };
+        if liquid_required != liquid_lighting_required {
+            bevy::log::error!(
+                "sub-chunk liquid-lighting count must exactly match the liquid-quad count"
+            );
+            continue;
+        }
         let biome_words = if biome_record_is_fallback(&instance.biome) {
             Vec::new()
         } else {
@@ -440,6 +472,9 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
             generation: instance.generation,
             tint_identity: instance.tint_identity,
             quad_range,
+            cube_layout: instance
+                .cube_layout
+                .checked(&instance.cube_quads, texture_assets.assets().materials()),
             cube_lighting_range: cube_lighting_range.clone(),
             model_range,
             model_lighting_range,
@@ -503,6 +538,9 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
     let applied_at = Instant::now();
     for (key, token, uploaded_bytes) in applied_tokens {
         acknowledgements.complete_with_bytes(key, token, applied_at, uploaded_bytes);
+        if let Some(terrain) = terrain_generations.as_deref_mut() {
+            terrain.record(key, token.generation);
+        }
     }
     for permit in applied_publication_permits {
         let retired = permit.retire();
@@ -565,18 +603,26 @@ pub(in crate::chunk) fn liquid_quad_centroid(
     let origin = quad.origin();
     let heights = quad.heights();
     let average_height = heights.into_iter().map(f32::from).sum::<f32>() / (4.0 * 255.0);
+    let top_inset = if quad.has_top_height_inset() {
+        LIQUID_FACE_INSET
+    } else {
+        0.0
+    };
     let mut centroid = [
         chunk_origin[0] as f32 + f32::from(origin[0]) + 0.5,
         chunk_origin[1] as f32 + f32::from(origin[1]) + average_height,
         chunk_origin[2] as f32 + f32::from(origin[2]) + 0.5,
     ];
     match quad.face() {
-        Face::NegativeX => centroid[0] -= 0.5,
-        Face::PositiveX => centroid[0] += 0.5,
+        Face::NegativeX => centroid[0] -= 0.5 - LIQUID_FACE_INSET,
+        Face::PositiveX => centroid[0] += 0.5 - LIQUID_FACE_INSET,
         Face::NegativeY => centroid[1] = chunk_origin[1] as f32 + f32::from(origin[1]),
-        Face::PositiveY => {}
-        Face::NegativeZ => centroid[2] -= 0.5,
-        Face::PositiveZ => centroid[2] += 0.5,
+        Face::PositiveY => centroid[1] -= top_inset,
+        Face::NegativeZ => centroid[2] -= 0.5 - LIQUID_FACE_INSET,
+        Face::PositiveZ => centroid[2] += 0.5 - LIQUID_FACE_INSET,
+    }
+    if !matches!(quad.face(), Face::NegativeY | Face::PositiveY) {
+        centroid[1] -= top_inset * 0.5;
     }
     centroid
 }

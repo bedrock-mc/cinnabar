@@ -88,7 +88,13 @@ impl NbtReader<'_> {
         let mut value = 0_u64;
         for index in 0..max_bytes {
             let byte = self.u8()?;
-            value |= u64::from(byte & 0x7f) << (index * 7);
+            let bits = if max_bytes == 5 { u32::BITS } else { u64::BITS };
+            let shift = index * 7;
+            let payload = u64::from(byte & 0x7f);
+            if shift >= bits as usize || payload > (u64::MAX >> (u64::BITS - bits)) >> shift {
+                return None;
+            }
+            value |= payload << shift;
             if byte & 0x80 == 0 {
                 return Some(value);
             }
@@ -164,5 +170,25 @@ impl NbtReader<'_> {
             }
             _ => return None,
         })
+    }
+}
+
+#[cfg(test)]
+mod review_tests {
+    use super::*;
+    #[test]
+    fn review_nbt_varints_reject_unused_high_bits() {
+        let bytes = [10, 0, 9, 1, 120, 1, 128, 128, 128, 128, 16, 0];
+        assert!(read_root(&bytes).is_none());
+        let mut reader = NbtReader {
+            bytes: &[128, 128, 128, 128, 128, 128, 128, 128, 128, 2],
+            position: 0,
+        };
+        assert!(reader.var_u64(10).is_none());
+        let mut valid = NbtReader {
+            bytes: &[255, 255, 255, 255, 255, 255, 255, 255, 255, 1],
+            position: 0,
+        };
+        assert_eq!(valid.var_u64(10), Some(u64::MAX));
     }
 }

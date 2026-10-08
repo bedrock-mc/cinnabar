@@ -1,21 +1,44 @@
 [workspace]
 members = [
     "app",
+    "crates/acceptance",
+    "crates/diagnostics",
     "crates/asset-compiler",
-    "crates/actor-animation",
     "crates/assets",
     "crates/bridge",
     "crates/client-world",
+    "crates/gameplay",
+    "crates/client-session",
+    "crates/chunk-pipeline",
+    "crates/pack-compiler",
+    "crates/experience-sdk",
+    "crates/experience-runtime",
+    "examples/experiences/probe",
+    "examples/experiences/terminal-client",
     "crates/input",
+    "crates/developer-control",
     "crates/json-ui",
     "crates/meshing",
     "crates/mod-api",
     "crates/mod-host",
+    "crates/mod-render",
+    "crates/particles",
     "examples/mods/hello",
+    "examples/mods/time-changer",
+    "examples/mods/render-sample",
     "crates/protocol",
     "crates/resource-pack",
+    "crates/server-experience",
     "crates/render",
-    "crates/render-data",
+    "crates/render-api",
+    "crates/render-model",
+    "crates/inventory",
+    "crates/launcher",
+    "crates/rich-presence",
+    "crates/client-ui",
+    "crates/client-presentation",
+    "crates/view-presentation",
+    "crates/player-state",
     "crates/sim",
     "crates/ui",
     "crates/world",
@@ -26,25 +49,61 @@ members = [
     "tools/phase2-evidence",
     "tools/jsonui-editor",
     "tools/jsonui-mcp",
+    "tools/mcp-stdio",
+    "tools/cinnabar-mcp",
+    "tools/cxb",
     "tools/web-spectator/wasm",
 ]
 resolver = "3"
 
 [workspace.package]
-version = "0.1.0"
+version = "0.1.12"
 edition = "2024"
 rust-version = "1.93.1"
 
 [workspace.dependencies]
-bevy = { version = "=0.18.1", default-features = false }
-tokio = "1.52"
+# One feature set per heavy dependency: any per-crate difference rebuilds it and every dependent.
+# wayland/x11 only select winit backends on Linux; winit ignores them on other targets.
+bevy = { version = "=0.18.1", default-features = false, features = [
+    "bevy_anti_alias",
+    "bevy_asset",
+    "bevy_camera",
+    "bevy_color",
+    "bevy_core_pipeline",
+    "bevy_image",
+    "bevy_log",
+    "bevy_mesh",
+    "bevy_post_process",
+    "bevy_render",
+    "bevy_shader",
+    "bevy_window",
+    "bevy_winit",
+    "gamepad",
+    "keyboard",
+    "mouse",
+    "multi_threaded",
+    "std",
+    "wayland",
+    "x11",
+    "webgpu",
+] }
+# The noop backend only runs when an instance explicitly enables it (render tests).
+wgpu = { version = "27.0.1", default-features = false, features = ["noop", "wgsl"] }
+image = { version = "0.25", default-features = false, features = ["bmp", "gif", "jpeg", "png", "tga"] }
+tokio = { version = "1.52", features = ["fs", "io-util", "macros", "net", "rt", "rt-multi-thread", "sync", "time"] }
 tokio-util = "0.7"
 bytes = "1"
 futures = "0.3"
 anyhow = "1"
 thiserror = "2"
+tracing = "0.1"
 rayon = "1.11"
+criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
+sha2 = "=0.10.9"
 uuid = { version = "1", features = ["v4"] }
+wasmtime = { version = "=36.0.16", default-features = false, features = ["component-model", "cranelift", "runtime", "std", "wat"] }
+wit-bindgen = "=0.57.1"
+wit-component = "=0.247.0"
 
 
 [profile.dev]
@@ -56,3 +115,10 @@ opt-level = 3
 [profile.release]
 codegen-units = 1
 lto = "thin"
+
+# `make play`: release speed with parallel codegen and incremental rebuilds; shipped builds use release.
+[profile.play]
+inherits = "release"
+codegen-units = 16
+lto = false
+incremental = true

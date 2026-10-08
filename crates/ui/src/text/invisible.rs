@@ -24,6 +24,7 @@ pub(super) fn is_invisible(character: char) -> bool {
                 | 0xffa0
                 | 0xfff9..=0xfffb
                 | 0xe0000..=0xe007f
+                | 0xe0100..=0xe01ef
         )
 }
 
@@ -34,7 +35,15 @@ mod tests {
     #[test]
     fn format_and_control_characters_are_invisible() {
         for character in [
-            '\u{200b}', '\u{200d}', '\u{fe0f}', '\u{feff}', '\t', '\u{7f}', '\u{85}',
+            '\u{e0100}',
+            '\u{e01ef}',
+            '\u{200b}',
+            '\u{200d}',
+            '\u{fe0f}',
+            '\u{feff}',
+            '\t',
+            '\u{7f}',
+            '\u{85}',
         ] {
             assert!(is_invisible(character), "{character:?}");
         }

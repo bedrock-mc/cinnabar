@@ -1,14 +1,36 @@
 use crate::chunk::*;
 
-const MODEL_TEMPLATE_BINDING_BUDGET: u32 = 8;
-const MODEL_VERTEX_STORAGE_BINDINGS: u32 = 8;
-const _: () = assert!(MODEL_VERTEX_STORAGE_BINDINGS <= MODEL_TEMPLATE_BINDING_BUDGET);
+mod terrain_blend;
+
+// Packed liquid corners run opposite to cube/model corners. Native's outward
+// winding is preserved without reversing the index buffer shared with cubes.
+const LIQUID_FRONT_FACE: bevy::render::render_resource::FrontFace =
+    bevy::render::render_resource::FrontFace::Cw;
+
+/// Minimum vertex storage slots required by the shared world layout.
+pub fn required_vertex_storage_buffers() -> u32 {
+    chunk_bind_group_layout()
+        .entries
+        .iter()
+        .filter(|entry| {
+            entry.visibility.contains(ShaderStages::VERTEX)
+                && matches!(
+                    entry.ty,
+                    BindingType::Buffer {
+                        ty: BufferBindingType::Storage { .. },
+                        ..
+                    }
+                )
+        })
+        .count() as u32
+}
 
 pub(in crate::chunk) struct ChunkPipelineSpecializer;
 
 #[derive(Resource)]
 pub(in crate::chunk) struct ChunkPipeline {
     pub(in crate::chunk) variants: Variants<RenderPipeline, ChunkPipelineSpecializer>,
+    pub(in crate::chunk) solid_variants: Variants<RenderPipeline, ChunkPipelineSpecializer>,
     pub(in crate::chunk) model_variants: Variants<RenderPipeline, ChunkPipelineSpecializer>,
     pub(in crate::chunk) transparent_model_variants:
         Variants<RenderPipeline, ChunkPipelineSpecializer>,
@@ -17,202 +39,9 @@ pub(in crate::chunk) struct ChunkPipeline {
     pub(in crate::chunk) bind_group_layout: BindGroupLayoutDescriptor,
 }
 
-/// Device admission uses the actual native binding layout rather than a copied limit.
-#[must_use]
-pub fn required_chunk_storage_buffers_per_shader_stage() -> u32 {
-    let entries = chunk_bind_group_layout_entries();
-    [
-        ShaderStages::VERTEX,
-        ShaderStages::FRAGMENT,
-        ShaderStages::COMPUTE,
-    ]
-    .into_iter()
-    .map(|stage| {
-        entries
-            .iter()
-            .filter(|entry| {
-                entry.visibility.intersects(stage)
-                    && matches!(
-                        entry.ty,
-                        BindingType::Buffer {
-                            ty: BufferBindingType::Storage { .. },
-                            ..
-                        }
-                    )
-            })
-            .count() as u32
-    })
-    .max()
-    .unwrap_or(0)
-}
-
-fn chunk_bind_group_layout_entries() -> [BindGroupLayoutEntry; 16] {
-    [
-        BindGroupLayoutEntry {
-            binding: 0,
-            visibility: ShaderStages::VERTEX_FRAGMENT,
-            ty: BindingType::Buffer {
-                ty: BufferBindingType::Uniform,
-                has_dynamic_offset: true,
-                min_binding_size: Some(ViewUniform::min_size()),
-            },
-            count: None,
-        },
-        BindGroupLayoutEntry {
-            binding: 1,
-            visibility: ShaderStages::VERTEX,
-            ty: BindingType::Buffer {
-                ty: BufferBindingType::Storage { read_only: true },
-                has_dynamic_offset: false,
-                min_binding_size: None,
-            },
-            count: None,
-        },
-        BindGroupLayoutEntry {
-            binding: 2,
-            visibility: ShaderStages::VERTEX,
-            ty: BindingType::Buffer {
-                ty: BufferBindingType::Storage { read_only: true },
-                has_dynamic_offset: false,
-                min_binding_size: None,
-            },
-            count: None,
-        },
-        BindGroupLayoutEntry {
-            binding: 3,
-            visibility: ShaderStages::VERTEX,
-            ty: BindingType::Buffer {
-                ty: BufferBindingType::Storage { read_only: true },
-                has_dynamic_offset: false,
-                min_binding_size: None,
-            },
-            count: None,
-        },
-        BindGroupLayoutEntry {
-            binding: 4,
-            visibility: ShaderStages::FRAGMENT,
-            ty: BindingType::Texture {
-                sample_type: TextureSampleType::Float { filterable: true },
-                view_dimension: TextureViewDimension::D2Array,
-                multisampled: false,
-            },
-            count: None,
-        },
-        BindGroupLayoutEntry {
-            binding: 5,
-            visibility: ShaderStages::FRAGMENT,
-            ty: BindingType::Texture {
-                sample_type: TextureSampleType::Float { filterable: true },
-                view_dimension: TextureViewDimension::D2Array,
-                multisampled: false,
-            },
-            count: None,
-        },
-        BindGroupLayoutEntry {
-            binding: 6,
-            visibility: ShaderStages::FRAGMENT,
-            ty: BindingType::Sampler(SamplerBindingType::Filtering),
-            count: None,
-        },
-        BindGroupLayoutEntry {
-            binding: 7,
-            visibility: ShaderStages::VERTEX_FRAGMENT,
-            ty: BindingType::Buffer {
-                ty: BufferBindingType::Storage { read_only: true },
-                has_dynamic_offset: false,
-                min_binding_size: None,
-            },
-            count: None,
-        },
-        BindGroupLayoutEntry {
-            binding: 8,
-            visibility: ShaderStages::VERTEX_FRAGMENT,
-            ty: BindingType::Buffer {
-                ty: BufferBindingType::Storage { read_only: true },
-                has_dynamic_offset: false,
-                min_binding_size: None,
-            },
-            count: None,
-        },
-        BindGroupLayoutEntry {
-            binding: 9,
-            visibility: ShaderStages::VERTEX,
-            ty: BindingType::Buffer {
-                ty: BufferBindingType::Storage { read_only: true },
-                has_dynamic_offset: false,
-                min_binding_size: None,
-            },
-            count: None,
-        },
-        BindGroupLayoutEntry {
-            binding: 10,
-            visibility: ShaderStages::VERTEX,
-            ty: BindingType::Buffer {
-                ty: BufferBindingType::Storage { read_only: true },
-                has_dynamic_offset: false,
-                min_binding_size: None,
-            },
-            count: None,
-        },
-        BindGroupLayoutEntry {
-            binding: 11,
-            visibility: ShaderStages::VERTEX,
-            ty: BindingType::Buffer {
-                ty: BufferBindingType::Uniform,
-                has_dynamic_offset: false,
-                min_binding_size: Some(ChunkAnimationClock::min_size()),
-            },
-            count: None,
-        },
-        BindGroupLayoutEntry {
-            binding: 12,
-            visibility: ShaderStages::VERTEX,
-            ty: BindingType::Buffer {
-                ty: BufferBindingType::Storage { read_only: true },
-                has_dynamic_offset: false,
-                min_binding_size: None,
-            },
-            count: None,
-        },
-        BindGroupLayoutEntry {
-            binding: 13,
-            visibility: ShaderStages::VERTEX,
-            ty: BindingType::Buffer {
-                ty: BufferBindingType::Storage { read_only: true },
-                has_dynamic_offset: false,
-                min_binding_size: None,
-            },
-            count: None,
-        },
-        BindGroupLayoutEntry {
-            binding: 14,
-            visibility: ShaderStages::VERTEX,
-            ty: BindingType::Buffer {
-                ty: BufferBindingType::Storage { read_only: true },
-                has_dynamic_offset: false,
-                min_binding_size: None,
-            },
-            count: None,
-        },
-        BindGroupLayoutEntry {
-            binding: 15,
-            visibility: ShaderStages::FRAGMENT,
-            ty: BindingType::Buffer {
-                ty: BufferBindingType::Uniform,
-                has_dynamic_offset: false,
-                min_binding_size: Some(AtmosphereFrame::min_size()),
-            },
-            count: None,
-        },
-    ]
-}
-
 impl FromWorld for ChunkPipeline {
     fn from_world(_world: &mut World) -> Self {
-        let bind_group_layout = BindGroupLayoutDescriptor::new(
-            "chunk vertex-pulling bind group layout",
-            &chunk_bind_group_layout_entries(),
-        );
+        let bind_group_layout = chunk_bind_group_layout();
         let descriptor = RenderPipelineDescriptor {
             label: Some("packed chunk pipeline".into()),
             layout: vec![bind_group_layout.clone(), crate::lighting::layout()],
@@ -223,6 +52,7 @@ impl FromWorld for ChunkPipeline {
             },
             fragment: Some(FragmentState {
                 shader: CHUNK_SHADER_HANDLE,
+                entry_point: Some("fragment".into()),
                 targets: vec![Some(ColorTargetState {
                     format: TextureFormat::bevy_default(),
                     blend: None,
@@ -231,7 +61,9 @@ impl FromWorld for ChunkPipeline {
                 ..default()
             }),
             primitive: PrimitiveState {
-                cull_mode: Some(CullFace::Back),
+                // Native cutout leaves disable culling; opaque/deep faces keep
+                // their single-sided policy through the material fragment gate.
+                cull_mode: None,
                 ..default()
             },
             depth_stencil: Some(DepthStencilState {
@@ -257,6 +89,15 @@ impl FromWorld for ChunkPipeline {
             .expect("model fragment")
             .entry_point = Some("fragment".into());
         model_descriptor.primitive.cull_mode = None;
+        // Single-sided opaque cube runs: hardware culling replaces both fragment discards.
+        let mut solid_descriptor = descriptor.clone();
+        solid_descriptor.label = Some("packed solid chunk pipeline".into());
+        solid_descriptor.primitive.cull_mode = Some(bevy::render::render_resource::Face::Back);
+        solid_descriptor
+            .fragment
+            .as_mut()
+            .expect("solid fragment")
+            .entry_point = Some("fragment_solid".into());
         let mut transparent_model_descriptor = model_descriptor.clone();
         transparent_model_descriptor.label = Some("packed transparent model pipeline".into());
         let transparent_model_fragment = transparent_model_descriptor
@@ -264,15 +105,7 @@ impl FromWorld for ChunkPipeline {
             .as_mut()
             .expect("transparent model fragment");
         transparent_model_fragment.entry_point = Some("fragment_blend".into());
-        transparent_model_fragment.targets[0]
-            .as_mut()
-            .expect("transparent model colour target")
-            .blend = Some(BlendState::ALPHA_BLENDING);
-        transparent_model_descriptor
-            .depth_stencil
-            .as_mut()
-            .expect("transparent model depth state")
-            .depth_write_enabled = false;
+        terrain_blend::apply(&mut transparent_model_descriptor);
         let mut liquid_descriptor = descriptor.clone();
         liquid_descriptor.label = Some("packed transparent liquid pipeline".into());
         liquid_descriptor.vertex.shader = LIQUID_SHADER_HANDLE;
@@ -287,21 +120,9 @@ impl FromWorld for ChunkPipeline {
             .as_mut()
             .expect("liquid fragment")
             .entry_point = Some("fragment".into());
-        liquid_descriptor.fragment.as_mut().unwrap().targets[0]
-            .as_mut()
-            .unwrap()
-            .blend = Some(BlendState::ALPHA_BLENDING);
-        liquid_descriptor
-            .depth_stencil
-            .as_mut()
-            .expect("liquid depth state")
-            .depth_write_enabled = false;
-        liquid_descriptor
-            .depth_stencil
-            .as_mut()
-            .expect("liquid depth state")
-            .depth_compare = CompareFunction::GreaterEqual;
+        terrain_blend::apply(&mut liquid_descriptor);
         liquid_descriptor.primitive.cull_mode = None;
+        liquid_descriptor.primitive.front_face = LIQUID_FRONT_FACE;
         let mut depth_liquid_descriptor = descriptor.clone();
         depth_liquid_descriptor.label = Some("packed depth-writing liquid pipeline".into());
         depth_liquid_descriptor.vertex.shader = LIQUID_SHADER_HANDLE;
@@ -313,8 +134,10 @@ impl FromWorld for ChunkPipeline {
         depth_fragment.shader = LIQUID_SHADER_HANDLE;
         depth_fragment.entry_point = Some("fragment_depth".into());
         depth_liquid_descriptor.primitive.cull_mode = None;
+        depth_liquid_descriptor.primitive.front_face = LIQUID_FRONT_FACE;
         Self {
             variants: Variants::new(ChunkPipelineSpecializer, descriptor),
+            solid_variants: Variants::new(ChunkPipelineSpecializer, solid_descriptor),
             model_variants: Variants::new(ChunkPipelineSpecializer, model_descriptor),
             transparent_model_variants: Variants::new(
                 ChunkPipelineSpecializer,
@@ -331,6 +154,7 @@ impl FromWorld for ChunkPipeline {
 pub(in crate::chunk) struct ChunkPipelineKey {
     pub(in crate::chunk) msaa: Msaa,
     pub(in crate::chunk) hdr: bool,
+    pub(in crate::chunk) enhanced: bool,
 }
 
 impl Specializer<RenderPipeline> for ChunkPipelineSpecializer {
@@ -342,14 +166,353 @@ impl Specializer<RenderPipeline> for ChunkPipelineSpecializer {
         descriptor: &mut RenderPipelineDescriptor,
     ) -> Result<Canonical<Self::Key>, BevyError> {
         descriptor.multisample.count = key.msaa.samples();
+        let native_gamma =
+            super::super::transparent::gamma_pass::admitted(key.hdr, key.msaa, key.enhanced)
+                && descriptor
+                    .fragment
+                    .as_ref()
+                    .unwrap()
+                    .shader_defs
+                    .contains(&"NATIVE_GAMMA_BLEND".into());
+        if !native_gamma {
+            descriptor
+                .fragment
+                .as_mut()
+                .unwrap()
+                .shader_defs
+                .retain(|definition| definition != &"NATIVE_GAMMA_BLEND".into());
+        }
         descriptor.fragment.as_mut().unwrap().targets[0]
             .as_mut()
             .unwrap()
             .format = if key.hdr {
             ViewTarget::TEXTURE_FORMAT_HDR
+        } else if native_gamma {
+            TextureFormat::bevy_default().remove_srgb_suffix()
         } else {
             TextureFormat::bevy_default()
         };
+        #[cfg(feature = "enhanced")]
+        if render_model::ENHANCED_RENDERING_ENABLED && key.enhanced {
+            descriptor
+                .layout
+                .push(crate::enhanced::enhanced_view_layout());
+            descriptor.vertex.shader_defs.push("ENHANCED".into());
+            descriptor
+                .fragment
+                .as_mut()
+                .unwrap()
+                .shader_defs
+                .push("ENHANCED".into());
+        }
         Ok(key)
+    }
+}
+
+/// Shared vertex-pulling bindings used by world rendering and shadow casters.
+pub(crate) fn chunk_bind_group_layout() -> BindGroupLayoutDescriptor {
+    BindGroupLayoutDescriptor::new(
+        "chunk vertex-pulling bind group layout",
+        &[
+            BindGroupLayoutEntry {
+                binding: 0,
+                visibility: ShaderStages::VERTEX_FRAGMENT,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Uniform,
+                    has_dynamic_offset: true,
+                    min_binding_size: Some(ViewUniform::min_size()),
+                },
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                binding: 1,
+                visibility: ShaderStages::VERTEX,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                binding: 2,
+                visibility: ShaderStages::VERTEX,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                binding: 3,
+                visibility: ShaderStages::VERTEX,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                binding: 4,
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Texture {
+                    sample_type: TextureSampleType::Float { filterable: true },
+                    view_dimension: TextureViewDimension::D2Array,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                binding: 5,
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Texture {
+                    sample_type: TextureSampleType::Float { filterable: true },
+                    view_dimension: TextureViewDimension::D2Array,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                binding: 6,
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Sampler(SamplerBindingType::Filtering),
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                binding: 7,
+                visibility: ShaderStages::VERTEX_FRAGMENT,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                binding: 8,
+                visibility: ShaderStages::VERTEX_FRAGMENT,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                binding: 9,
+                visibility: ShaderStages::VERTEX,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                binding: 10,
+                visibility: ShaderStages::VERTEX,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                binding: 11,
+                visibility: ShaderStages::VERTEX,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: Some(ChunkAnimationClock::min_size()),
+                },
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                binding: 12,
+                visibility: ShaderStages::VERTEX,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                binding: 13,
+                visibility: ShaderStages::VERTEX,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                binding: 14,
+                visibility: ShaderStages::VERTEX,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                binding: 15,
+                visibility: ShaderStages::VERTEX_FRAGMENT,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: Some(AtmosphereFrame::min_size()),
+                },
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                binding: crate::material_shader::NATIVE_LEAF_TEXTURE_BINDINGS[0],
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Texture {
+                    sample_type: TextureSampleType::Float { filterable: true },
+                    view_dimension: TextureViewDimension::D2Array,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                binding: crate::material_shader::NATIVE_LEAF_TEXTURE_BINDINGS[1],
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Texture {
+                    sample_type: TextureSampleType::Float { filterable: true },
+                    view_dimension: TextureViewDimension::D2Array,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                binding: crate::material_shader::NATIVE_LEAF_SAMPLER_BINDING,
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Sampler(SamplerBindingType::Filtering),
+                count: None,
+            },
+        ],
+    )
+}
+
+#[cfg(test)]
+mod enhanced_tests {
+    use super::*;
+
+    /// Recreates the vanilla specialization before the Enhanced extension.
+    fn vanilla_descriptor(msaa: Msaa, hdr: bool) -> RenderPipelineDescriptor {
+        let mut descriptor = RenderPipelineDescriptor {
+            fragment: Some(FragmentState {
+                targets: vec![Some(ColorTargetState {
+                    format: TextureFormat::bevy_default(),
+                    blend: None,
+                    write_mask: ColorWrites::ALL,
+                })],
+                ..default()
+            }),
+            ..default()
+        };
+        descriptor.multisample.count = msaa.samples();
+        descriptor.fragment.as_mut().unwrap().targets[0]
+            .as_mut()
+            .unwrap()
+            .format = if hdr {
+            ViewTarget::TEXTURE_FORMAT_HDR
+        } else {
+            TextureFormat::bevy_default()
+        };
+        descriptor
+    }
+
+    #[test]
+    fn disabled_enhanced_keeps_vanilla_descriptor_and_shader_defs_identical() {
+        for msaa in [Msaa::Off, Msaa::Sample2, Msaa::Sample4, Msaa::Sample8] {
+            for hdr in [false, true] {
+                let mut before = vanilla_descriptor(Msaa::Off, false);
+                ChunkPipelineSpecializer
+                    .specialize(
+                        ChunkPipelineKey {
+                            msaa,
+                            hdr,
+                            enhanced: false,
+                        },
+                        &mut before,
+                    )
+                    .unwrap();
+                let mut after = vanilla_descriptor(Msaa::Off, false);
+                ChunkPipelineSpecializer
+                    .specialize(
+                        ChunkPipelineKey {
+                            msaa,
+                            hdr,
+                            enhanced: true,
+                        },
+                        &mut after,
+                    )
+                    .unwrap();
+                assert_eq!(format!("{before:?}"), format!("{after:?}"));
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod review_tests {
+    use super::*;
+    #[test]
+    fn review_render_storage_budget_covers_the_actual_layout() {
+        let count = chunk_bind_group_layout()
+            .entries
+            .iter()
+            .filter(|entry| {
+                entry.visibility.contains(ShaderStages::VERTEX)
+                    && matches!(
+                        entry.ty,
+                        BindingType::Buffer {
+                            ty: BufferBindingType::Storage { .. },
+                            ..
+                        }
+                    )
+            })
+            .count() as u32;
+        assert!(
+            count <= required_vertex_storage_buffers(),
+            "layout needs {count} vertex storage slots"
+        );
+    }
+}
+
+#[cfg(test)]
+#[path = "contract_tests.rs"]
+mod contract_tests;
+
+impl crate::pipeline_warmup::PrewarmPipelines for ChunkPipeline {
+    fn prewarm(
+        &mut self,
+        cache: &PipelineCache,
+        view: crate::pipeline_warmup::WarmView,
+        ids: &mut crate::pipeline_warmup::WarmupIds,
+    ) -> Result<(), BevyError> {
+        let key = ChunkPipelineKey {
+            msaa: view.msaa,
+            hdr: view.hdr,
+            enhanced: view.enhanced,
+        };
+        for variants in [
+            &mut self.variants,
+            &mut self.solid_variants,
+            &mut self.model_variants,
+            &mut self.transparent_model_variants,
+            &mut self.liquid_variants,
+            &mut self.depth_liquid_variants,
+        ] {
+            ids.push(variants.specialize(cache, key)?);
+        }
+        Ok(())
     }
 }

@@ -50,19 +50,10 @@ the generator is incomplete:
 - `unloaded_boundary`: the Rust fail-closed error contract is not a bedsim `TickResult`.
 
 Because both sides model a scenario world as homogeneous, these fixtures witness each stratum's
-force law, not the block-sampling extent. bedsim samples climbability at the feet block while
-`crates/sim` unions flags across the swept volume; that difference is unwitnessed here. bedsim
-also re-resolves the supporting block after collision before applying `walkOnBlock`, while
-`crates/sim` retains the start-of-tick sampled surface response. Homogeneous scenario worlds
-cannot witness that ordering difference either, so it remains part of native/BDS acceptance.
+force law, not the block-sampling extent; both sample climbability at the feet block.
 
 ### Movement constants that remain unproven
 
-- **Honey** keeps `horizontal_speed_factor = 0.4`, a Java Edition value, because bedsim v0.1.3
-  implements no honey stratum and no Bedrock oracle exists to correct it against. It is named
-  `unprovenHoneySpeedQ1E8` in `tools/registrygen/physics.go` and is deliberately not aliased
-  onto soul sand's corrected value. Replace it once an authoritative Bedrock reference is
-  identified.
 - **Soul sand** previously carried the same Java `0.4`. It is now `0.543` from bedsim's
   `simulation.go`, applied at the identical point in the force law. This changed the compiled
   carrier, so `crates/assets/data/block-physics-v1001.sha256` moved from `1e903b92…` to
@@ -95,7 +86,7 @@ recomputed from an anchor. The rule is:
   `0.000017`–`0.000124`. An open jump stayed within
   `0.000015`–`0.000126` through takeoff, apex, landing, and continued travel.
   The same run confirmed the pinned bedsim takeoff/drag ordering; an older
-  recovered 1.16.201 path is not a version-matched authority.
+  1.16.201 behavior is not a version-matched authority.
 
 ## Remaining features
 

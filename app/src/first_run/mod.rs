@@ -1,15 +1,13 @@
 //! First-run preparation of the Mojang-derived asset carriers, which installers never ship.
 //!
-//! Runs before the game window: consent, a download of the pinned public pack, then `assetc`. A
-//! setup window in a child process shows it; without one, native dialogs do. Progress is mirrored
-//! to `logs/first-run-status.json`.
+//! Runs before the game window: consent, a download of the pinned public pack, then one
+//! `assetc prepare`. A setup window in a child process shows it; without one, native dialogs do.
+//! Progress is mirrored to `logs/first-run-status.json`.
 
 mod download;
-mod plan;
 mod prepare;
 mod runner;
 mod screen;
-mod stamp;
 mod status;
 #[cfg(test)]
 mod test_support;
@@ -22,14 +20,13 @@ use sha2::{Digest, Sha256};
 
 use crate::{
     install_layout::InstallLayout,
-    native_dialog::{NativePrompter, Prompter},
+    native_dialog::{Consent, NativePrompter, Prompter},
 };
 use prepare::prepare;
 use status::{Phase, Status};
 pub(crate) use window::{SETUP_FLAG, run_setup_process};
 
 const CONSENT_ENV: &str = "CINNABAR_ACCEPT_MOJANG_EULA";
-const TITLE: &str = "Cinnabar first-time setup";
 const CONSENT_BODY: &str = "Cinnabar needs Minecraft's official sample resource pack. It is downloaded from Mojang's public release (a large one-time download), converted on this computer, and never redistributed by Cinnabar.\n\nContinuing confirms you accept the Minecraft EULA (https://www.minecraft.net/eula). Setup runs once and takes a few minutes.";
 const EULA_URL: &str = "https://www.minecraft.net/eula";
 
@@ -61,7 +58,7 @@ pub(crate) fn ensure_prepared(layout: &InstallLayout) -> Result<Outcome> {
 /// An unreadable kit counts as needing preparation, which then reports it.
 fn needs_preparation(layout: &InstallLayout) -> bool {
     layout.is_installed()
-        && !prepare::selection(layout).is_ok_and(|(_, selection)| selection.is_current())
+        && !prepare::selection(layout).is_ok_and(|selection| selection.is_current())
 }
 
 /// An earlier set exists, so this run updates rather than sets up.
@@ -109,6 +106,13 @@ fn reporter<'a>(
     }
 }
 
+fn setup_title(override_title: Option<&str>) -> String {
+    format!(
+        "{} first-time setup",
+        launcher::window_title(override_title)
+    )
+}
+
 /// The native-dialog flow, used when no setup window can open.
 fn ensure_with(
     layout: &InstallLayout,
@@ -118,6 +122,7 @@ fn ensure_with(
     if !needs_preparation(layout) {
         return Ok(Outcome::NotNeeded);
     }
+    let title = setup_title(std::env::var("CINNABAR_WINDOW_TITLE").ok().as_deref());
     let mut report = reporter(layout, |_| {});
     report(Status::new(
         Phase::AwaitingConsent,
@@ -125,14 +130,29 @@ fn ensure_with(
         0,
         "Waiting for consent",
     ));
-    if !env_consent && !consent_recorded(layout) && !prompter.confirm(TITLE, CONSENT_BODY) {
-        report(Status::failed("Declined", "setup declined"));
-        return Ok(Outcome::Quit);
+    if !env_consent && !consent_recorded(layout) {
+        match prompter.confirm(&title, CONSENT_BODY) {
+            Consent::Accepted => {}
+            Consent::Declined => {
+                report(Status::failed("Declined", "setup declined"));
+                return Ok(Outcome::Quit);
+            }
+            Consent::Unavailable => {
+                let message = format!(
+                    "Setup needs your consent, but no setup window, dialog or terminal could \
+                     ask for it. Install zenity or kdialog, or start Cinnabar with \
+                     {CONSENT_ENV}=1 to accept the Minecraft EULA ({EULA_URL})."
+                );
+                report(Status::failed("No consent prompt", &message));
+                prompter.alert(&title, &message);
+                bail!("{message}");
+            }
+        }
     }
     let is_update = updating(layout);
     record_consent(layout)?;
     prompter.info(
-        TITLE,
+        &title,
         if is_update {
             "Updating game assets for this version of Cinnabar. This takes a few minutes."
         } else {
@@ -141,13 +161,13 @@ fn ensure_with(
     );
     match prepare(layout, &AtomicBool::new(false), &mut report) {
         Ok(()) => {
-            prompter.info(TITLE, "Setup finished. Starting Cinnabar.");
+            prompter.info(&title, "Setup finished. Starting Cinnabar.");
             Ok(Outcome::Prepared)
         }
         Err(error) => {
             let message = format!("{error:#}");
             prompter.alert(
-                TITLE,
+                &title,
                 &format!(
                     "Setup failed: {message}\n\nDetails: {}",
                     layout.log_dir().join("first-run.log").display()
@@ -159,101 +179,4 @@ fn ensure_with(
 }
 
 #[cfg(test)]
-mod tests {
-    use std::{cell::Cell, path::PathBuf};
-
-    use super::*;
-    use crate::install_layout::{InstallEnvironment, Platform};
-    use test_support::Dir;
-
-    struct Fake {
-        accept: bool,
-        asked: Cell<u32>,
-    }
-
-    impl Prompter for Fake {
-        fn confirm(&self, _: &str, _: &str) -> bool {
-            self.asked.set(self.asked.get() + 1);
-            self.accept
-        }
-        fn info(&self, _: &str, _: &str) {}
-        fn alert(&self, _: &str, _: &str) {}
-    }
-
-    pub(super) fn installed_layout(data: &Dir, executable: &str) -> InstallLayout {
-        InstallLayout::resolve(
-            Platform::Linux,
-            &InstallEnvironment {
-                executable: PathBuf::from(executable),
-                home: Some(PathBuf::from("/home/dev")),
-                local_app_data: None,
-                xdg_config_home: Some(data.path().join("cfg")),
-                xdg_data_home: Some(data.path().join("data")),
-                xdg_runtime_dir: None,
-            },
-        )
-        .unwrap()
-        .with_prepared_assets()
-    }
-
-    #[test]
-    fn development_layout_needs_no_preparation() {
-        let data = Dir::new("dev");
-        let layout = installed_layout(&data, "/work/cinnabar/target/release/bedrock-client");
-        let fake = Fake {
-            accept: false,
-            asked: Cell::new(0),
-        };
-        assert_eq!(
-            ensure_with(&layout, &fake, false).unwrap(),
-            Outcome::NotNeeded
-        );
-        assert_eq!(fake.asked.get(), 0);
-    }
-
-    #[test]
-    fn declined_consent_quits_without_running_anything() {
-        let data = Dir::new("decline");
-        let layout = installed_layout(&data, "/nonexistent/opt/cinnabar/bin/bedrock-client");
-        let fake = Fake {
-            accept: false,
-            asked: Cell::new(0),
-        };
-        assert_eq!(ensure_with(&layout, &fake, false).unwrap(), Outcome::Quit);
-        assert!(!consent_marker(&layout).exists());
-    }
-
-    #[test]
-    fn recorded_consent_to_the_same_terms_is_not_asked_again() {
-        let data = Dir::new("consent");
-        let layout = installed_layout(&data, "/nonexistent/opt/cinnabar/bin/bedrock-client");
-        let fake = Fake {
-            accept: false,
-            asked: Cell::new(0),
-        };
-        record_consent(&layout).unwrap();
-        let _ = ensure_with(&layout, &fake, false);
-        assert_eq!(fake.asked.get(), 0);
-        // Consent recorded for other terms (or by an older build) asks again.
-        fs::write(consent_marker(&layout), b"accepted\n").unwrap();
-        assert_eq!(ensure_with(&layout, &fake, false).unwrap(), Outcome::Quit);
-        assert_eq!(fake.asked.get(), 1);
-    }
-
-    #[test]
-    fn missing_kit_is_reported_after_consent_and_recorded() {
-        let data = Dir::new("nokit");
-        let layout = installed_layout(&data, "/nonexistent/opt/cinnabar/bin/bedrock-client");
-        let fake = Fake {
-            accept: true,
-            asked: Cell::new(0),
-        };
-        let error = ensure_with(&layout, &fake, false).unwrap_err();
-        assert!(format!("{error:#}").contains("preparation kit"));
-        let status = fs::read_to_string(layout.log_dir().join("first-run-status.json")).unwrap();
-        assert!(status.contains("\"failed\"") && status.contains("preparation kit"));
-        // Consent is remembered, so the retry does not prompt again.
-        let _ = ensure_with(&layout, &fake, false);
-        assert_eq!(fake.asked.get(), 1);
-    }
-}
+mod tests;

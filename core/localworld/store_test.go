@@ -146,3 +146,42 @@ func TestListReportsWorldSize(t *testing.T) {
 		t.Fatalf("size persisted: %s", raw)
 	}
 }
+
+func TestStoreKeepsBackendAndGeneratorIndependent(t *testing.T) {
+	store := newTestStore(t)
+	for _, backend := range []string{BackendDragonfly, BackendBDS} {
+		for _, generator := range []string{GeneratorNormal, GeneratorFlat} {
+			world, err := store.Create(Spec{Name: "Independent", Backend: backend, Generator: generator})
+			if err != nil {
+				t.Fatalf("%s/%s: %v", backend, generator, err)
+			}
+			saved, err := store.Get(world.ID)
+			if err != nil || saved.Backend != backend || saved.Generator != generator {
+				t.Fatalf("saved %s/%s = %+v, %v", backend, generator, saved, err)
+			}
+		}
+	}
+}
+
+// Worlds saved before the generator field existed must still list and open.
+func TestLegacyWorldWithoutGeneratorGetsBackendDefault(t *testing.T) {
+	store := newTestStore(t)
+	for _, tc := range []struct{ backend, want string }{{"", GeneratorFlat}, {BackendBDS, GeneratorNormal}} {
+		world, err := store.Create(Spec{Name: "legacy"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		meta := filepath.Join(store.root, world.ID, metaFile)
+		raw := `{"id":"` + world.ID + `","name":"legacy","backend":"` + tc.backend + `"}`
+		if err := os.WriteFile(meta, []byte(raw), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		got, err := store.Get(world.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Generator != tc.want {
+			t.Fatalf("backend %q: generator = %q, want %q", tc.backend, got.Generator, tc.want)
+		}
+	}
+}

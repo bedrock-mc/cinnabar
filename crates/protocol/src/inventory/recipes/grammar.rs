@@ -96,32 +96,39 @@ fn output(reader: &mut Reader<'_>) -> ReadResult<Option<Output>> {
     // The existing validator is unchanged. The candidate accepts only the
     // independently parsed no-NBT/no-place/no-break envelope, or absent data.
     let empty = super::canonical_empty_extra(extra);
+    // Block items carry negative network ids; only 0 (air) makes nothing.
     Ok(
-        (id > 0 && (1..=255).contains(&count) && aux <= u16::MAX as u32 && block >= 0 && empty)
-            .then_some(Output {
+        (id != 0 && (1..=255).contains(&count) && aux <= u16::MAX as u32 && empty).then_some(
+            Output {
                 id,
                 aux: aux as u16,
                 count: count as u8,
-                block: block as u32,
+                // The recipe descriptor transports block identity as signed
+                // ZigZag32; inventory item descriptors retain its raw u32 bits.
+                // Hashed block identities may have bit 31 set.
+                block: u32::from_ne_bytes(block.to_ne_bytes()),
                 empty_envelope: !extra.is_empty(),
-            }),
+            },
+        ),
     )
 }
 
-fn unlock(reader: &mut Reader<'_>) -> ReadResult<bool> {
+fn unlock(reader: &mut Reader<'_>) -> ReadResult<()> {
     if reader.byte()? == 0 {
-        return Ok(true);
+        return Ok(());
     }
-    let context = reader.int()?;
-    let mut unlocked = context == 1;
+    // Discovery requirements belong to the recipe book/unlocked-recipe state,
+    // not recipe admission. Native manual crafting checks unlock authority only
+    // under the limited-crafting rules. Retain the recipe and traverse these
+    // optional fields with the same bounds, without declaring it unlocked.
+    reader.int()?;
     if reader.byte()? != 0 {
         let count = reader.count(64)?;
-        unlocked &= count == 0;
         for _ in 0..count {
             ingredient(reader)?;
         }
     }
-    Ok(unlocked)
+    Ok(())
 }
 
 fn normal<'a>(
@@ -172,7 +179,7 @@ fn normal<'a>(
     let block = reader.string()?;
     let priority = reader.int()?;
     let mirror = shaped && reader.byte()? != 0;
-    valid &= unlock(reader)?;
+    unlock(reader)?;
     let id = reader.uint()?;
     valid &= id != 0;
     let screen_kind = match block {

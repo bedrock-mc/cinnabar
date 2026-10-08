@@ -1,0 +1,69 @@
+package cinnabar:server-experience@1.2.0;
+
+/// Host-owned JSON-UI widgets and the bundle's signed modal screens.
+interface ui {
+    /// A value bound into a screen property, in the forms the JSON-UI engine's bindings read:
+    /// `numbers` carries arrays such as a colour `[r, g, b, a]` or an offset `[x, y]`.
+    variant value {
+        boolean(bool),
+        integer(s64),
+        number(f64),
+        text(string),
+        numbers(list<f64>),
+    }
+
+    set-widget: func(id: string, text: string) -> result<_, string>;
+    /// Opens (or switches to) a template the manifest indexes under `templates`, as a modal
+    /// over gameplay; `none` closes the modal.
+    open-screen: func(template: option<string>) -> result<_, string>;
+    @since(version = 1.1.0)
+    close-screen: func() -> result<_, string>;
+    /// Replaces a collection's rows: a JSON array of objects mapping a `#binding` name to a value
+    /// (`{"type":"bool|integer|number|text|numbers","value":…}`).
+    @since(version = 1.1.0)
+    set-collection: func(name: string, rows-json: list<u8>) -> result<_, string>;
+    /// Binds one `#binding` name for the whole screen.
+    @since(version = 1.1.0)
+    set-value: func(name: string, value: value) -> result<_, string>;
+
+    /// The size the open modal lays out in, as the vanilla screens' root does: `width` and
+    /// `height` in GUI units, and `scale`, the window's logical pixels per GUI unit (the GUI
+    /// scale).
+    @since(version = 1.2.0)
+    record gui-size {
+        width: f64,
+        height: f64,
+        scale: f64,
+    }
+
+    /// This bundle's open modal's size, once it has been drawn; `none` while it is closed or not
+    /// drawn yet. `modal-resized` reports each change.
+    @since(version = 1.2.0)
+    modal-size: func() -> option<gui-size>;
+    /// Sets the text of the open modal's edit boxes (`text_edit_box`) whose `text_box_name` is
+    /// `control`, as typing would leave it but cut to the box's `max_length`; it does not deliver
+    /// `text-changed`. The text holds no control characters other than line breaks.
+    @since(version = 1.2.0)
+    set-text: func(control: string, text: string) -> result<_, string>;
+}
+
+/// Named actions, available only while the host grants focus.
+interface input {
+    pressed: func(action: string) -> bool;
+}
+
+/// The host validates each record against its signed channel schema.
+interface messaging {
+    send: func(channel: string, schema: u16, record-json: list<u8>) -> result<_, string>;
+}
+
+/// Retained presentation objects; no ECS, shaders or graphics API handles.
+interface scene {
+    put: func(id: u32, object-json: option<list<u8>>) -> result<_, string>;
+}
+
+/// Media IDs reference signed descriptors, never guest-selected URLs.
+interface media {
+    enum operation { prepare, play, pause, seek, stop }
+    control: func(id: string, op: operation, position-ms: u64) -> result<_, string>;
+}

@@ -14,6 +14,15 @@ pub const CLOUD_TOP_Y: f32 = CLOUD_UNDERSIDE_Y + CLOUD_THICKNESS_BLOCKS;
 pub const MAX_CLOUD_QUADS: usize = (CLOUD_MASK_SIZE as usize * CLOUD_MASK_SIZE as usize / 2) * 6;
 pub const MAX_CLOUD_BYTES: usize = MAX_CLOUD_QUADS * size_of::<PackedCloudQuad>();
 
+/// Vanilla's cloud tessellation colour bake, before conversion
+/// to RGBA8. Keep the separate native additions: their f32 rounding is observable
+/// when the tessellator truncates the shaded channel back to a byte.
+#[must_use]
+pub fn cloud_face_shade(normal: [f32; 3]) -> f32 {
+    let [x, y, z] = normal.map(|axis| if axis.is_finite() { axis } else { 0.0 });
+    (z * z * 0.1 + ((y + 1.0) * 0.5 * 0.55 - x * x * 0.1) + 0.45 + 0.30).clamp(0.0, 1.0)
+}
+
 const MASK_SIDE: usize = CLOUD_MASK_SIZE as usize;
 const MASK_WORDS: usize = MASK_SIDE / u64::BITS as usize;
 const CLOUD_VERTICAL_EXTENT: u16 = CLOUD_THICKNESS_BLOCKS as u16;
@@ -231,7 +240,7 @@ pub fn cloud_instance_origins(camera_xz: [f64; 2], offset_blocks: f64) -> [[f32;
     origins
 }
 
-fn validate_texture(texture: &AtmosphereTexture) -> Result<(), CloudMeshError> {
+pub(crate) fn validate_texture(texture: &AtmosphereTexture) -> Result<(), CloudMeshError> {
     if texture.role != AtmosphereRole::Clouds {
         return Err(CloudMeshError::WrongRole {
             actual: texture.role,

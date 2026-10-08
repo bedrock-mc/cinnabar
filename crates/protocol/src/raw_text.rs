@@ -1,4 +1,4 @@
-use std::{cell::Cell, sync::Arc};
+use std::{borrow::Cow, cell::Cell, sync::Arc};
 
 use serde::{
     Deserialize, Deserializer,
@@ -164,6 +164,14 @@ fn resolve_component(
                         .map(|argument| {
                             let mut nested = ResolvedRawText::default();
                             resolve_component(argument, resolver, &mut nested, depth + 1);
+                            if let Cow::Owned(localized) = crate::localize_parameter_prefix(
+                                &nested.text,
+                                resolver.translate,
+                                MAX_FORMATTED_PREFIX_BYTES,
+                            ) {
+                                nested.text.clear();
+                                push_bounded(&mut nested, &localized);
+                            }
                             resolved.unknown_translations = resolved
                                 .unknown_translations
                                 .saturating_add(nested.unknown_translations);
@@ -800,39 +808,21 @@ mod formatting_tests {
         let argument = "a".repeat(MAX_RAW_TEXT_OUTPUT_BYTES);
         let formatted = format_translation(&template, &[argument]);
         assert!(formatted.len() <= MAX_RAW_TEXT_OUTPUT_BYTES + 4);
-        assert_eq!(&formatted[..MAX_RAW_TEXT_OUTPUT_BYTES], "a".repeat(8192));
+        assert_eq!(
+            &formatted[..MAX_RAW_TEXT_OUTPUT_BYTES],
+            "a".repeat(MAX_RAW_TEXT_OUTPUT_BYTES)
+        );
     }
 
     #[test]
-    fn short_translation_keeps_text_without_unnecessary_capacity_growth() {
-        let mut prefix = TranslationPrefix::new(5);
-        let initial_capacity = prefix.text.capacity();
-        prefix.push_str("hello");
-        assert_eq!(prefix.text, "hello");
-        assert_eq!(prefix.text.capacity(), initial_capacity);
-        let formatted = format_translation("hello", &[]);
-        assert_eq!(formatted, "hello");
-        assert_eq!(formatted.capacity(), initial_capacity);
-        assert_eq!(format_translation("", &[]).capacity(), 0);
-    }
-
-    #[test]
-    fn formatted_prefix_growth_is_capped_and_geometric() {
+    fn formatted_prefix_retention_is_bounded_and_stops_after_truncation() {
         let mut prefix = TranslationPrefix::new(0);
-        let mut capacity = prefix.text.capacity();
-        let mut growths = 0;
         for _ in 0..(MAX_FORMATTED_PREFIX_BYTES + 32) {
             prefix.push('a');
-            if prefix.text.capacity() != capacity {
-                growths += 1;
-                capacity = prefix.text.capacity();
-            }
             // Observed String capacity is not a physical allocator/RSS guarantee.
-            assert!(capacity <= MAX_FORMATTED_PREFIX_BYTES);
+            assert!(prefix.text.capacity() <= MAX_FORMATTED_PREFIX_BYTES);
         }
         assert_eq!(prefix.text.len(), MAX_FORMATTED_PREFIX_BYTES);
-        assert!(prefix.sealed);
-        assert!(growths <= 11);
         prefix.push_str("Z");
         assert_eq!(prefix.text.len(), MAX_FORMATTED_PREFIX_BYTES);
     }

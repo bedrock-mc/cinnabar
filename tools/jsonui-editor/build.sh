@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Builds the static JSON-UI editor site into OUT (default target/jsonui-editor-site).
-# Usage: build.sh [OUT] [MONOCRAFT_TTF]
+# Usage: build.sh [OUT] [CINNANGLES_SANS_TTF]
 # Needs the wasm32-unknown-unknown target and the wasm-bindgen CLI whose version
-# Cargo.lock pins. Without a Monocraft source the site measures text with a fallback.
+# Cargo.lock pins. Without a Cinnangles Sans source the site measures text with a fallback.
 set -euo pipefail
 
 here="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
@@ -49,16 +49,15 @@ cp -R "$here/examples/." "$out/examples/"
     printf '\n  }\n}\n'
 ) > "$out/examples/files.json"
 
-# Monocraft (OFL-1.1), compiled by the client's own font compiler.
+# Cinnangles Sans, compiled by the client's own font compiler.
 if [[ -n "$font" ]]; then
     scratch="$(mktemp -d)"
     trap 'rm -rf "$scratch"' EXIT
     "$cargo" run --locked --quiet -p asset-compiler --bin assetc --manifest-path "$repo/Cargo.toml" -- \
-        outline-font-assets --primary-only --font "$font" \
-        --source-manifest "$repo/assets/ui-font-source.json" \
-        --out "$scratch/monocraft.mcbefont" --report "$scratch/report.json"
-    cp "$scratch/monocraft.mcbefont" "$out/monocraft.mcbefont"
-    cp "$scratch/ui-font-notices.txt" "$out/monocraft-notices.txt"
+        font-assets --font "$font" \
+        --source-manifest "$repo/assets/cinnangles-sans-source.json" \
+        --out "$scratch/cinnangles-sans.mcbefont" --report "$scratch/report.json"
+    cp "$scratch/cinnangles-sans.mcbefont" "$out/cinnangles-sans.mcbefont"
 fi
 
 bash "$here/check-site.sh" "$out"

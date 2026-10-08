@@ -6,36 +6,36 @@ rust-version.workspace = true
 publish = false
 
 [features]
-publication-test-support = ["wgpu/noop"]
+tracy = ["bevy/trace", "dep:tracy-client"]
+publication-test-support = []
+# Compiles the hard-disabled Enhanced renderer.
+enhanced = []
 
 [dependencies]
+tracy-client = { version = "=0.18.4", default-features = false, features = ["enable", "only-localhost", "ondemand"], optional = true }
+mod-api = { path = "../mod-api" }
+mod-render = { path = "../mod-render" }
 assets = { path = "../assets" }
-bevy = { workspace = true, default-features = false, features = [
-    "bevy_asset",
-    "bevy_camera",
-    "bevy_color",
-    "bevy_core_pipeline",
-    "bevy_image",
-    "bevy_log",
-    "bevy_mesh",
-    "bevy_render",
-    "bevy_shader",
-    "multi_threaded",
-    "std",
-] }
+bevy.workspace = true
 bytemuck = { version = "1", features = ["derive"] }
-render-data = { path = "../render-data" }
-ui = { path = "../ui" }
+render-api = { path = "../render-api" }
+render-model = { path = "../render-model" }
 meshing = { path = "../meshing" }
+particles = { path = "../particles" }
 rayon.workspace = true
 serde_json = "1"
-sha2 = "0.10"
+sha2.workspace = true
 world = { path = "../world" }
-wgpu = { version = "27.0.1", default-features = false }
+wgpu.workspace = true
+
+# ARM hardware dispatch keeps identical digests and falls back on CPUs without SHA2.
+[target.'cfg(target_arch = "aarch64")'.dependencies]
+sha2 = { workspace = true, features = ["asm"] }
 
 [dev-dependencies]
-asset-compiler = { path = "../asset-compiler" }
-image = { version = "0.25", default-features = false, features = ["png"] }
-naga = { version = "27.0.3", features = ["wgsl-in"] }
+wgpu = { workspace = true, features = ["counters"] }
+pack-compiler = { path = "../pack-compiler" }
+image.workspace = true
+naga = { version = "27.0.3", features = ["wgsl-in", "wgsl-out"] }
+naga_oil = "0.20"
 tempfile = "3"
-wgpu = { version = "27.0.1", default-features = false, features = ["noop"] }

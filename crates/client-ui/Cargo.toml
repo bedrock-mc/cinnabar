@@ -1,0 +1,46 @@
+[package]
+name = "client-ui"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[features]
+test-support = []
+tracy = []
+
+[dependencies]
+anyhow.workspace = true
+arboard = { version = "3", default-features = false }
+assets = { path = "../assets" }
+bevy.workspace = true
+chunk-pipeline = { path = "../chunk-pipeline" }
+client-world = { path = "../client-world" }
+render-api = { path = "../render-api" }
+render-model = { path = "../render-model" }
+view-presentation = { path = "../view-presentation" }
+player-state = { path = "../player-state" }
+launcher = { path = "../launcher" }
+inventory = { path = "../inventory" }
+json-ui = { path = "../json-ui" }
+protocol = { path = "../protocol" }
+semantic-input = { path = "../input" }
+ui = { path = "../ui" }
+world = { path = "../world" }
+server-experience = { path = "../server-experience" }
+image.workspace = true
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2.workspace = true
+thiserror.workspace = true
+crossbeam-channel = "0.5"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+url = "2"
+rayon.workspace = true
+tokio.workspace = true
+resource-pack = { path = "../resource-pack" }
+
+[dev-dependencies]
+mod-host = { path = "../mod-host" }
+pack-compiler = { path = "../pack-compiler" }
+zip = { version = "7", default-features = false, features = ["deflate-flate2-zlib-rs"] }

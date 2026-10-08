@@ -18,8 +18,13 @@ serde_json = "1"
 sha2 = "0.10"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-actor-animation = { path = "../../../crates/actor-animation" }
-render-data = { path = "../../../crates/render-data" }
+client-world = { path = "../../../crates/client-world" }
+gameplay = { path = "../../../crates/gameplay" }
+protocol = { path = "../../../crates/protocol" }
+particles = { path = "../../../crates/particles" }
+render-api = { path = "../../../crates/render-api" }
+render-model = { path = "../../../crates/render-model" }
+view-presentation = { path = "../../../crates/view-presentation" }
 wasm-bindgen = "=0.2.126"
 js-sys = "0.3"
 render = { path = "../../../crates/render" }

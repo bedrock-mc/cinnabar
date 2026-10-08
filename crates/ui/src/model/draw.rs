@@ -1,18 +1,27 @@
-use crate::{BedrockColor, GlyphQuad, UiLimits, UiPoint, UiRect};
+use crate::{BedrockColor, GlyphQuad, TEXT_BOLD_OFFSET_64, UiLimits, UiPoint, UiRect};
 
-use super::{TextEffects, TextShadow, UiBlendMode, UiDrawBatch, UiError, UiVertex, UiVisual};
+use super::{
+    TextEffects, TextShadow, UI_STYLE_BILINEAR, UiBlendMode, UiDrawBatch, UiError, UiVertex,
+    UiVisual, UiWorldProjection,
+};
+
+mod mesh;
+
+#[derive(Clone, Copy)]
+pub(super) struct DrawSpace<'a> {
+    pub(super) clip: UiRect,
+    pub(super) projection: Option<&'a UiWorldProjection>,
+    pub(super) node: super::UiNodeId,
+}
 
 /// Design-pixel lean of an italic glyph's top edge, scaled by the layout
 /// scale. Native visual confirmation pending.
 const ITALIC_SHEAR_PX: f32 = 1.0;
-/// Design-pixel offset of bold's second, emboldening copy, scaled by the
-/// layout scale. Native visual confirmation pending.
-const BOLD_OFFSET_PX: f32 = 1.0;
 
 pub(super) fn emit_visual(
     visual: &UiVisual,
     bounds: UiRect,
-    clip: UiRect,
+    clip: DrawSpace<'_>,
     effects: TextEffects<'_>,
     vertices: &mut Vec<UiVertex>,
     indices: &mut Vec<u32>,
@@ -20,6 +29,7 @@ pub(super) fn emit_visual(
 ) -> Result<(), UiError> {
     match visual {
         UiVisual::None => Ok(()),
+        UiVisual::Mesh(mesh) => mesh::emit_mesh(mesh, bounds, clip, vertices, indices, batches),
         UiVisual::Solid {
             texture_page,
             color,
@@ -69,6 +79,64 @@ pub(super) fn emit_visual(
                 *texture_page,
                 *color,
                 style,
+                UiBlendMode::Alpha,
+                clip,
+                vertices,
+                indices,
+                batches,
+            )
+        }
+        UiVisual::Gradient {
+            texture_page,
+            colors: [from, to],
+            horizontal,
+        } => {
+            if is_empty(bounds) {
+                return Ok(());
+            }
+            let corners = if *horizontal {
+                [*from, *to, *to, *from]
+            } else {
+                [*from, *from, *to, *to]
+            };
+            emit_colored_quad(
+                [
+                    [bounds.min().x(), bounds.min().y()],
+                    [bounds.max().x(), bounds.min().y()],
+                    [bounds.max().x(), bounds.max().y()],
+                    [bounds.min().x(), bounds.max().y()],
+                ],
+                [[0, 0], [1, 0], [1, 1], [0, 1]],
+                *texture_page,
+                corners,
+                0,
+                UiBlendMode::Alpha,
+                clip,
+                vertices,
+                indices,
+                batches,
+            )
+        }
+        UiVisual::StyledSprite {
+            texture_page,
+            uv,
+            color,
+            style,
+        } => {
+            if is_empty(bounds) {
+                return Ok(());
+            }
+            emit_quad(
+                bounds,
+                [
+                    [uv[0], uv[1]],
+                    [uv[2], uv[1]],
+                    [uv[2], uv[3]],
+                    [uv[0], uv[3]],
+                ],
+                *texture_page,
+                *color,
+                *style,
                 UiBlendMode::Alpha,
                 clip,
                 vertices,
@@ -190,7 +258,7 @@ fn emit_text(
     shadow: TextShadow,
     rotation: Option<Rotation>,
     bounds: UiRect,
-    clip: UiRect,
+    clip: DrawSpace<'_>,
     effects: TextEffects<'_>,
     vertices: &mut Vec<UiVertex>,
     indices: &mut Vec<u32>,
@@ -223,7 +291,7 @@ fn emit_text(
             if is_empty(glyph_bounds) {
                 continue;
             }
-            let glyph_color = style_color(glyph.style.color, color);
+            let glyph_color = style_color(glyph.style.color, color, effects.palette);
             let glyph_color = if shadowed {
                 shadow_color(glyph_color)
             } else {
@@ -237,12 +305,17 @@ fn emit_text(
             } else {
                 0.0
             };
-            let bold_offset = glyph.style.bold.then_some(BOLD_OFFSET_PX * scale);
+            let bold_offset = glyph
+                .style
+                .bold
+                .then_some(TEXT_BOLD_OFFSET_64 as f32 / 64.0 * scale);
             emit_text_glyph(
                 glyph_bounds,
                 uv,
                 page,
                 glyph_color,
+                (u8::from(glyph.linear_sampling) * UI_STYLE_BILINEAR)
+                    | glyph.rendering.style_flags(),
                 shear,
                 bold_offset,
                 rotation,
@@ -297,10 +370,11 @@ fn emit_text_glyph(
     uv: [u16; 4],
     page: u16,
     color: [u8; 4],
+    style_flags: u8,
     shear: f32,
     bold_offset: Option<f32>,
     rotation: Option<Rotation>,
-    clip: UiRect,
+    clip: DrawSpace<'_>,
     vertices: &mut Vec<UiVertex>,
     indices: &mut Vec<u32>,
     batches: &mut Vec<UiDrawBatch>,
@@ -328,7 +402,7 @@ fn emit_text_glyph(
             uv_corners,
             page,
             color,
-            0,
+            style_flags,
             UiBlendMode::Alpha,
             clip,
             vertices,
@@ -347,7 +421,7 @@ fn emit_quad(
     color: [u8; 4],
     style_flags: u8,
     blend: UiBlendMode,
-    clip: UiRect,
+    clip: DrawSpace<'_>,
     vertices: &mut Vec<UiVertex>,
     indices: &mut Vec<u32>,
     batches: &mut Vec<UiDrawBatch>,
@@ -381,7 +455,7 @@ fn emit_rotated_quad(
     angle_radians: f32,
     style_flags: u8,
     blend: UiBlendMode,
-    clip: UiRect,
+    clip: DrawSpace<'_>,
     vertices: &mut Vec<UiVertex>,
     indices: &mut Vec<u32>,
     batches: &mut Vec<UiDrawBatch>,
@@ -431,7 +505,35 @@ fn emit_positioned_quad(
     color: [u8; 4],
     style_flags: u8,
     blend: UiBlendMode,
-    clip: UiRect,
+    clip: DrawSpace<'_>,
+    vertices: &mut Vec<UiVertex>,
+    indices: &mut Vec<u32>,
+    batches: &mut Vec<UiDrawBatch>,
+) -> Result<(), UiError> {
+    emit_colored_quad(
+        positions,
+        uv,
+        texture_page,
+        [color; 4],
+        style_flags,
+        blend,
+        clip,
+        vertices,
+        indices,
+        batches,
+    )
+}
+
+/// [`emit_positioned_quad`] with a colour per corner.
+#[allow(clippy::too_many_arguments)]
+fn emit_colored_quad(
+    positions: [[f32; 2]; 4],
+    uv: [[u16; 2]; 4],
+    texture_page: u16,
+    colors: [[u8; 4]; 4],
+    style_flags: u8,
+    blend: UiBlendMode,
+    clip: DrawSpace<'_>,
     vertices: &mut Vec<UiVertex>,
     indices: &mut Vec<u32>,
     batches: &mut Vec<UiDrawBatch>,
@@ -457,24 +559,45 @@ fn emit_positioned_quad(
         });
     }
     let base = u32::try_from(vertices.len()).map_err(|_| UiError::DrawIndexOverflow)?;
-    vertices.extend(
-        positions
-            .into_iter()
-            .zip(uv)
-            .map(|(position, uv)| UiVertex {
-                position,
-                uv,
-                color,
-                style_flags,
-            }),
-    );
+    for ((position, uv), color) in positions.into_iter().zip(uv).zip(colors) {
+        let (position, clip_z, clip_w) = match clip.projection {
+            Some(projection) => projection
+                .project(position)
+                .ok_or(UiError::DrawIndexOverflow)?,
+            None => (position, 0.0, 1.0),
+        };
+        vertices.push(UiVertex {
+            position,
+            clip_z,
+            clip_w,
+            uv: uv.map(f32::from),
+            color,
+            style_flags,
+            alpha_test: clip
+                .projection
+                .is_some_and(|projection| projection.alpha_test),
+            alpha_cutoff: -1.0,
+            model_light: 1.0,
+            overlay_color: [0.0; 4],
+        });
+    }
     indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
     let start = u32::try_from(indices.len() - 6).map_err(|_| UiError::DrawIndexOverflow)?;
     let end = u32::try_from(indices.len()).map_err(|_| UiError::DrawIndexOverflow)?;
     if let Some(batch) = batches.last_mut()
         && batch.texture_page == texture_page
-        && batch.clip == clip
+        && batch.clip == clip.clip
         && batch.blend == blend
+        && batch.depth_test
+            == clip
+                .projection
+                .is_some_and(|projection| projection.depth_test)
+        && batch.depth_write
+            == clip
+                .projection
+                .is_some_and(|projection| projection.depth_write)
+        && batch.world_projection == clip.projection.is_some()
+        && batch.isolated_depth_scope.is_none()
         && batch.index_range.end == start
     {
         batch.index_range.end = end;
@@ -492,8 +615,16 @@ fn emit_positioned_quad(
     }
     batches.push(UiDrawBatch {
         texture_page,
-        clip,
+        clip: clip.clip,
         blend,
+        depth_test: clip
+            .projection
+            .is_some_and(|projection| projection.depth_test),
+        depth_write: clip
+            .projection
+            .is_some_and(|projection| projection.depth_write),
+        world_projection: clip.projection.is_some(),
+        isolated_depth_scope: None,
         index_range: start..end,
     });
     Ok(())
@@ -504,8 +635,13 @@ fn shadow_color(color: [u8; 4]) -> [u8; 4] {
     [color[0] >> 2, color[1] >> 2, color[2] >> 2, color[3]]
 }
 
-fn style_color(style: BedrockColor, base: [u8; 4]) -> [u8; 4] {
-    let Some(rgb) = style.rgb() else {
+/// Replaces RGB from the active formatting table while preserving the label alpha.
+fn style_color(
+    style: BedrockColor,
+    base: [u8; 4],
+    palette: Option<&crate::FormattingPalette>,
+) -> [u8; 4] {
+    let Some(rgb) = palette.map_or_else(|| style.rgb(), |palette| palette.rgb(style)) else {
         return base;
     };
     [rgb[0], rgb[1], rgb[2], base[3]]

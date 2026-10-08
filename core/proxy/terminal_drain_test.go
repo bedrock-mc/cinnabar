@@ -35,7 +35,7 @@ func TestRelayDrainsClosedUpstream(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 			defer cancel()
 			done := make(chan error, 1)
-			go func() { done <- relayPackets(ctx, down, up) }()
+			go func() { done <- relayWithSessions(ctx, down, up) }()
 			<-up.failed
 			want := []packet.Packet{relayFixtureStartup()[0], &packet.Transfer{Address: "next.example.test", Port: 19133}}
 			if sameBatch {
@@ -67,7 +67,7 @@ func TestRelayCancellationUnblocksUpstreamDrain(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan error, 1)
-	go func() { done <- relayPackets(ctx, down, up) }()
+	go func() { done <- relayWithSessions(ctx, down, up) }()
 	<-up.failed
 	cancel()
 	select {

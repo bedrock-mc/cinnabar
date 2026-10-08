@@ -2,7 +2,7 @@
 
 /// Converts the wire milliseconds into vanilla's fixed-width nanosecond value.
 /// The native packet reader multiplies by one million; its writer emits that
-/// value unchanged (1.26.50.26: 0x043b62a0, 0x042efda0).
+/// value unchanged.
 #[must_use]
 pub const fn scaled_creation_time(creation_time: u64) -> u64 {
     creation_time.wrapping_mul(1_000_000)

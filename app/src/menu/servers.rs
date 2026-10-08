@@ -24,6 +24,8 @@ pub(crate) const MAX_SAVED_SERVER_FILE_BYTES: usize = 64 * 1024;
 /// Result of reading the saved-server file.
 pub(crate) struct LoadedServers {
     pub(crate) servers: Vec<SavedServer>,
+    /// False when this load never obtained authority to replace the existing file.
+    pub(crate) allow_writes: bool,
     /// Set when the previous file was unreadable and was moved aside.
     pub(crate) recovery_message: Option<String>,
 }
@@ -41,6 +43,7 @@ pub(crate) fn load_servers(path: &Path) -> LoadedServers {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             return LoadedServers {
                 servers: Vec::new(),
+                allow_writes: true,
                 recovery_message: None,
             };
         }
@@ -50,6 +53,7 @@ pub(crate) fn load_servers(path: &Path) -> LoadedServers {
         Err(error) => {
             return LoadedServers {
                 servers: Vec::new(),
+                allow_writes: false,
                 recovery_message: Some(format!("Saved servers could not be read: {error}")),
             };
         }
@@ -61,6 +65,7 @@ pub(crate) fn load_servers(path: &Path) -> LoadedServers {
         Ok(servers) if servers.len() <= MAX_SAVED_SERVERS && servers.iter().all(schema_valid) => {
             LoadedServers {
                 servers,
+                allow_writes: true,
                 recovery_message: None,
             }
         }
@@ -83,6 +88,7 @@ fn quarantine_invalid(path: &Path) -> LoadedServers {
     match quarantine(path) {
         Ok(quarantine_path) => LoadedServers {
             servers: Vec::new(),
+            allow_writes: true,
             recovery_message: Some(format!(
                 "Saved servers were unreadable; moved to {}",
                 quarantine_path.display()
@@ -90,6 +96,7 @@ fn quarantine_invalid(path: &Path) -> LoadedServers {
         },
         Err(_) => LoadedServers {
             servers: Vec::new(),
+            allow_writes: false,
             recovery_message: Some(
                 "Saved servers were unreadable and could not be moved aside".to_owned(),
             ),
@@ -215,10 +222,12 @@ pub(crate) struct ServerWriter {
     jobs: Option<crossbeam_channel::Sender<Job>>,
     errors: crossbeam_channel::Receiver<String>,
     worker: Option<std::thread::JoinHandle<()>>,
+    allow_writes: bool,
 }
 
 impl ServerWriter {
-    pub(crate) fn new(path: PathBuf) -> Self {
+    /// Keeps failed-load snapshots read-only so they cannot overwrite recoverable data.
+    pub(crate) fn new(path: PathBuf, allow_writes: bool) -> Self {
         let (jobs, queue) = crossbeam_channel::unbounded::<Job>();
         let (report, errors) = crossbeam_channel::unbounded();
         let worker = std::thread::Builder::new()
@@ -252,6 +261,7 @@ impl ServerWriter {
             jobs: Some(jobs),
             errors,
             worker,
+            allow_writes,
         }
     }
 
@@ -259,9 +269,15 @@ impl ServerWriter {
     /// through [`Self::take_error`].
     pub(crate) fn save(&self, servers: &[SavedServer]) -> Result<()> {
         validate(servers)?;
-        if let Some(jobs) = &self.jobs {
-            let _ = jobs.send(Job::Save(servers.to_vec()));
+        if !self.allow_writes {
+            bail!("saved servers are read-only because their original file could not be recovered");
         }
+        let jobs = self
+            .jobs
+            .as_ref()
+            .context("saved-server writer has stopped")?;
+        jobs.send(Job::Save(servers.to_vec()))
+            .context("saved-server writer has stopped")?;
         Ok(())
     }
 
@@ -288,6 +304,27 @@ impl Drop for ServerWriter {
         drop(self.jobs.take());
         if let Some(worker) = self.worker.take() {
             let _ = worker.join();
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_stopped_server_writer_refuses_saves() {
+        for disconnected in [false, true] {
+            let (send, receive) = crossbeam_channel::unbounded();
+            drop(receive);
+            let (_, errors) = crossbeam_channel::unbounded();
+            let writer = ServerWriter {
+                jobs: disconnected.then_some(send),
+                errors,
+                worker: None,
+                allow_writes: true,
+            };
+            assert!(writer.save(&[]).is_err());
         }
     }
 }

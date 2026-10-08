@@ -19,9 +19,10 @@ use crate::runtime::phase3_evidence::{
 use crate::semantic_controls::{
     SemanticInputAuthorityFrame, SemanticInputRuntime, SemanticTouchTargets,
 };
-use crate::ui_runtime::UiRuntime;
 use bevy::math::Mat4;
-use render::{ActorCullView, ActorRenderScene, ActorRenderSource, MAX_RENDERED_PLAYERS};
+use client_ui::ui_runtime::UiRuntime;
+use render::{ActorCullView, ActorRenderScene, ActorRenderSource};
+use render_model::MAX_RENDERED_PLAYERS;
 use semantic_input::{
     Action, ControlSettings, ControllerFrame, DeviceFrame, InputContext, KeyboardMouseFrame,
     ReleaseReason, TouchContact,
@@ -55,12 +56,14 @@ fn frozen_local_player_sample_for(
     let rotation = Quat::from_euler(bevy::math::EulerRot::YXZ, 0.8, -0.25, 0.0);
     LocalPlayerFrameSample {
         session_generation: 7,
+        actor_session_id: 3,
         fifo_sequence: 41,
         physics_tick: 900,
         perspective,
         world_collision_identity: frozen_collision_identity(),
         pose: perspective_pose(eye, rotation, perspective),
         eye,
+        feet: eye - Vec3::Y * protocol::PLAYER_NETWORK_OFFSET,
         rotation,
     }
 }
@@ -71,3 +74,21 @@ fn frozen_local_player_sample() -> LocalPlayerFrameSample {
 
 include!("camera/correction_and_evidence.rs");
 include!("camera/presentation_and_input.rs");
+include!("camera/crouch.rs");
+
+#[test]
+fn review_overflowing_quaternion_norm_is_rejected_without_publication() {
+    let mut carrier = LocalPlayerFrameCarrier::default();
+    let original = frozen_local_player_sample();
+    carrier.publish(original.clone()).unwrap();
+    let before = carrier.clone();
+    let invalid = Quat::from_xyzw(f32::MAX, f32::MAX, f32::MAX, f32::MAX);
+    let mut sample = original;
+    sample.rotation = invalid;
+    assert!(carrier.publish(sample).is_err());
+    assert_eq!(carrier, before);
+    let mut pose = LocalViewPose::default();
+    let before = pose;
+    pose.set_rotation(invalid);
+    assert_eq!(pose, before);
+}

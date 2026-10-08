@@ -38,6 +38,9 @@ fn dump_local_pack() {
         local_pack_view("CINNABAR_SERVER_PACK"),
         std::env::var_os("CINNABAR_DUMP_DIR"),
     ) else {
+        eprintln!(
+            "skipping dump_local_pack: fixture unavailable; offline pack export; requires CINNABAR_SERVER_PACK and CINNABAR_DUMP_DIR"
+        );
         return;
     };
     for path in view.list("") {

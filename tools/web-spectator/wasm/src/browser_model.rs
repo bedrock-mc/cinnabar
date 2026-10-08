@@ -36,11 +36,22 @@ pub(super) struct Frame {
 }
 
 impl Frame {
+    pub(super) fn visual_speed(&self) -> f32 {
+        if self.replay_playing == Some(false) {
+            0.0
+        } else {
+            self.replay_speed.unwrap_or(1.0).clamp(0.25, 2.0)
+        }
+    }
+
     pub(super) fn parse(input: &str) -> Result<Self, String> {
         if input.len() > 1024 * 1024 {
             return Err("spectator frame exceeds 1 MiB".into());
         }
         let frame: Self = serde_json::from_str(input).map_err(|error| error.to_string())?;
+        if frame.replay_speed.is_some_and(|speed| !speed.is_finite()) {
+            return Err("spectator replay speed is invalid".into());
+        }
         if frame.entities.len() > 256 || frame.events.len() > 512 || frame.blocks.len() > 8192 {
             return Err("spectator world state exceeds admission limits".into());
         }
@@ -381,5 +392,25 @@ impl SceneEntity {
             hurt_id: None,
             pov: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Frame;
+
+    #[test]
+    fn solo_frames_accept_nil_team_scores_but_reject_invalid_scores() {
+        let mut frame = serde_json::json!({"id":"duel", "updatedAt":"2026-10-08T12:00:00Z", "arenaId":"arena", "mode":"NoDebuff", "players":[], "teamWins":null});
+        assert!(
+            Frame::parse(&frame.to_string())
+                .unwrap()
+                .team_wins
+                .is_empty()
+        );
+        frame["teamWins"] = serde_json::json!([1, 0]);
+        assert_eq!(Frame::parse(&frame.to_string()).unwrap().team_wins, [1, 0]);
+        frame["teamWins"] = serde_json::json!(["invalid"]);
+        assert!(Frame::parse(&frame.to_string()).is_err());
     }
 }

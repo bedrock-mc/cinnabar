@@ -5,19 +5,17 @@ edition.workspace = true
 rust-version.workspace = true
 publish = false
 
-[features]
-publication-test-support = []
-
 [dependencies]
-actor-animation = { path = "../actor-animation" }
 assets = { path = "../assets" }
-crossbeam-channel = "0.5"
 bytes.workspace = true
 hashbrown = "0.16"
-meshing = { path = "../meshing" }
 protocol = { path = "../protocol" }
-render-data = { path = "../render-data" }
 rayon.workspace = true
-sha2 = "0.10"
+render-model = { path = "../render-model" }
+tracing.workspace = true
+sha2.workspace = true
 thiserror.workspace = true
 world = { path = "../world" }
+
+[dev-dependencies]
+protocol = { path = "../protocol", features = ["wire-test-support"] }

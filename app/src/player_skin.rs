@@ -1,8 +1,4 @@
-//! The local player's own skin, loaded once at startup from `<assets>/skin/player.png`.
-//!
-//! Cosmetic and non-fatal: any load failure logs once and falls back to the vanilla default
-//! skin (see `render::default_actor_skin_rgba8`). The same bytes back both the ClientData login
-//! upload and the local body / HUD paperdoll render.
+//! The selected classic skin shared by login, menu previews and the local player.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -12,18 +8,20 @@ use sha2::{Digest, Sha256};
 
 use crate::install_layout::InstallLayout;
 
-const DEFAULT_ARM_SIZE: &str = "wide";
+pub(crate) mod catalog;
 
 /// The local player's client-authored skin and stable local uuid. Cheap to clone (Arc-backed):
 /// `local_uuid` keys the synthetic self profile the client-world stream inserts when the server
 /// never echoes the local player onto the player list.
 #[derive(Debug, Clone, Resource)]
 pub(crate) struct LocalPlayerSkin {
-    pub rgba8: Arc<[u8]>,
+    pub rgba8: protocol::SkinRgba8,
     pub width: u32,
     pub height: u32,
     pub arm_size: Arc<str>,
     pub local_uuid: [u8; 16],
+    pub geometry: Option<Arc<protocol::SkinGeometrySource>>,
+    pub cape: Option<protocol::CapeImage>,
 }
 
 impl LocalPlayerSkin {
@@ -31,8 +29,8 @@ impl LocalPlayerSkin {
     #[must_use]
     pub fn load(layout: &InstallLayout, display_name: &str) -> Self {
         let path = layout.player_skin_asset();
-        let (rgba8, side) = match load_normalized_skin(&path) {
-            Ok(pixels) => pixels,
+        let (rgba8, side, has_asset) = match load_normalized_skin(&path) {
+            Ok((rgba8, side)) => (rgba8, side, true),
             Err(reason) => {
                 bevy::log::warn!(
                     path = %path.display(),
@@ -40,12 +38,31 @@ impl LocalPlayerSkin {
                     "local player skin unavailable; using the default skin"
                 );
                 (
-                    render::default_actor_skin_rgba8(),
+                    render_model::default_actor_skin_rgba8(),
                     protocol::CLASSIC_SKIN_SIDE,
+                    false,
                 )
             }
         };
-        Self::from_rgba8(rgba8, side, display_name)
+        let mut skin = Self::from_rgba8(rgba8, side, display_name);
+        let catalog = catalog::load(layout, &skin);
+        let selected = catalog.selected_skin().and_then(|selected| {
+            if !has_asset && selected.id == "current" {
+                catalog
+                    .skins
+                    .iter()
+                    .find(|entry| entry.id.starts_with("vanilla:"))
+                    .or(Some(selected))
+            } else {
+                Some(selected)
+            }
+        });
+        if let Some(selected) = selected {
+            let mut active = selected.skin.clone();
+            active.cape = catalog.selected_cape().map(|entry| entry.cape.clone());
+            skin.set_selection(&active, selected.model);
+        }
+        skin
     }
 
     /// A default-skinned identity, for construction sites without a loaded PNG (e.g. tests).
@@ -53,19 +70,20 @@ impl LocalPlayerSkin {
     #[must_use]
     pub fn generated_default(display_name: &str) -> Self {
         Self::from_rgba8(
-            render::default_actor_skin_rgba8(),
+            render_model::default_actor_skin_rgba8(),
             protocol::CLASSIC_SKIN_SIDE,
             display_name,
         )
     }
 
     /// Keeps classic upload dimensions independent of the renderer's larger shared array.
-    fn from_rgba8(packed: Arc<[u8]>, side: usize, display_name: &str) -> Self {
+    fn from_rgba8(packed: protocol::SkinRgba8, side: usize, display_name: &str) -> Self {
         let mut rgba8 = Vec::with_capacity(side * side * 4);
         for y in 0..side {
             for x in 0..side {
-                let source = (y * render::STANDARD_SKIN_SIDE / side * render::STANDARD_SKIN_SIDE
-                    + x * render::STANDARD_SKIN_SIDE / side)
+                let source = (y * render_model::STANDARD_SKIN_SIDE / side
+                    * render_model::STANDARD_SKIN_SIDE
+                    + x * render_model::STANDARD_SKIN_SIDE / side)
                     * 4;
                 rgba8.extend_from_slice(&packed[source..source + 4]);
             }
@@ -74,21 +92,60 @@ impl LocalPlayerSkin {
             rgba8: rgba8.into(),
             width: side as u32,
             height: side as u32,
-            arm_size: Arc::from(DEFAULT_ARM_SIZE),
+            arm_size: Arc::from(launcher::dressing_room::SkinModel::Classic.arm_size()),
             local_uuid: stable_local_uuid(display_name),
+            geometry: None,
+            cape: None,
         }
     }
 
     /// The per-frame render skin for the local body and HUD paperdoll.
     #[must_use]
     pub fn player_skin(&self) -> protocol::PlayerSkin {
-        protocol::PlayerSkin::Standard(protocol::StandardSkin {
-            geometry: None,
-            cape: None,
+        protocol::PlayerSkin::Standard(self.standard_skin())
+    }
+
+    pub(crate) fn standard_skin(&self) -> protocol::StandardSkin {
+        protocol::StandardSkin {
+            geometry: self.geometry.clone(),
+            cape: self.cape.clone(),
             width: self.width,
             height: self.height,
-            rgba8: Arc::clone(&self.rgba8),
-        })
+            rgba8: self.rgba8.clone(),
+        }
+    }
+
+    pub(crate) fn model(&self) -> launcher::dressing_room::SkinModel {
+        if self.arm_size.as_ref() == launcher::dressing_room::SkinModel::Slim.arm_size() {
+            launcher::dressing_room::SkinModel::Slim
+        } else {
+            launcher::dressing_room::SkinModel::Classic
+        }
+    }
+
+    pub(crate) fn set_selection(
+        &mut self,
+        skin: &protocol::StandardSkin,
+        model: launcher::dressing_room::SkinModel,
+    ) {
+        self.rgba8 = skin.rgba8.clone();
+        self.width = skin.width;
+        self.height = skin.height;
+        self.geometry = skin.geometry.clone();
+        self.cape = skin.cape.clone();
+        self.arm_size = Arc::from(model.arm_size());
+    }
+
+    /// Overrides only the rendered cape for developer recordings; login identity stays intact.
+    #[cfg(feature = "developer-control")]
+    pub(crate) fn set_test_cape(&mut self, cape: Option<protocol::CapeImage>) {
+        self.cape = cape;
+    }
+
+    /// Selects the developer appearance ahead of any echoed server profile while enabled.
+    #[cfg(feature = "developer-control")]
+    pub(crate) fn recording_cape_enabled(&self) -> bool {
+        self.cape.is_some()
     }
 
     /// The login upload payload; allocates the byte copy the JWT encoder needs.
@@ -99,21 +156,31 @@ impl LocalPlayerSkin {
             width: self.width,
             height: self.height,
             arm_size: self.arm_size.to_string(),
+            cape: self
+                .cape
+                .as_ref()
+                .filter(|cape| cape.is_valid())
+                .map(|cape| protocol::ClientCape {
+                    rgba8: cape.rgba8.to_vec(),
+                    width: cape.width,
+                    height: cape.height,
+                    id: protocol::cape_content_id(cape),
+                }),
         }
     }
 }
 
 /// Packs supported source pixels, retaining a legal classic size for the login upload.
-fn load_normalized_skin(path: &Path) -> Result<(Arc<[u8]>, usize), String> {
+fn load_normalized_skin(path: &Path) -> Result<(protocol::SkinRgba8, usize), String> {
     let image = image::open(path).map_err(|error| error.to_string())?;
     let rgba = image.to_rgba8();
     let (width, height) = (rgba.width(), rgba.height());
-    let pixels = render::ActorSkinPixels {
+    let pixels = render_model::ActorSkinPixels {
         width,
         height,
-        rgba8: Arc::from(rgba.into_raw()),
+        rgba8: rgba.into_raw().into(),
     };
-    render::normalize_actor_skin(&pixels)
+    render_model::normalize_actor_skin(&pixels)
         .map(|pixels| {
             (
                 pixels,
@@ -144,10 +211,10 @@ mod tests {
     fn packed_resolution_does_not_change_classic_login_dimensions() {
         let side = protocol::MAX_CLASSIC_SKIN_SIDE;
         let original: Arc<[u8]> = (0..side * side * 4).map(|value| value as u8).collect();
-        let packed = render::normalize_actor_skin(&render::ActorSkinPixels {
+        let packed = render_model::normalize_actor_skin(&render_model::ActorSkinPixels {
             width: side as u32,
             height: side as u32,
-            rgba8: Arc::clone(&original),
+            rgba8: Arc::clone(&original).into(),
         })
         .unwrap();
         let skin = LocalPlayerSkin::from_rgba8(packed, side, "fixture").to_client_skin();

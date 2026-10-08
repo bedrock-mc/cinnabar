@@ -3,7 +3,7 @@ use std::cell::Cell;
 use assets::{MODEL_QUAD_FLAG_FACE_MASK, ModelQuad, NetworkIdMode, RuntimeAssets, VisualKind};
 use world::{MeshDependencyMask, MeshNeighbourhood, SubChunk};
 
-use crate::{BlockClassifier, Face, PackedQuadLighting};
+use crate::{BlockClassifier, ContributorResolver, Face, PackedQuadLighting};
 
 /// Temporary Phase 2.6 light inputs. Phase 2.7 replaces only these inputs.
 pub const PHASE26_BLOCK_LIGHT: u8 = 0;
@@ -117,17 +117,41 @@ pub fn bake_quad_lighting_with_sampler<S: MeshLightSampler + ?Sized>(
         block,
         face,
         positions,
+        surface_emits(classifier, assets, network_id_mode, neighbourhood, block),
     )
 }
 
 /// Occlusion and light lookups shared by the direct and cached bake paths.
 pub(crate) trait LightingInputs {
+    /// Native cached solid-render bit, independent of geometric face coverage.
     fn occludes(&self, coordinate: [i32; 3]) -> bool;
-    fn sample(&self, coordinate: [i32; 3]) -> MeshLightSample;
-    /// Selects the emitting-block directional shade branch.
-    fn emits(&self, _coordinate: [i32; 3]) -> bool {
-        false
+    /// Native shade brightness is 0.2 for leaves, emitting blocks and solid
+    /// render blocks; only the last group also blocks diagonal light sampling.
+    fn shade_darkened(&self, coordinate: [i32; 3]) -> bool {
+        self.occludes(coordinate)
     }
+    fn sample(&self, coordinate: [i32; 3]) -> MeshLightSample;
+}
+
+fn surface_emits(
+    classifier: &BlockClassifier,
+    assets: &RuntimeAssets,
+    network_id_mode: NetworkIdMode,
+    neighbourhood: &MeshNeighbourhood<'_>,
+    coordinate: [i32; 3],
+) -> bool {
+    let Some((chunk, local)) = neighbourhood.block_source(coordinate) else {
+        return false;
+    };
+    ContributorResolver::resolve_direct(*classifier, assets, network_id_mode, chunk, local)
+        .primary_network_value()
+        .is_some_and(|id| {
+            assets
+                .resolve(network_id_mode, id)
+                .light_properties()
+                .emission()
+                > 0
+        })
 }
 
 struct DirectInputs<'a, 'n, S: MeshLightSampler + ?Sized> {
@@ -140,7 +164,7 @@ struct DirectInputs<'a, 'n, S: MeshLightSampler + ?Sized> {
 
 impl<S: MeshLightSampler + ?Sized> LightingInputs for DirectInputs<'_, '_, S> {
     fn occludes(&self, coordinate: [i32; 3]) -> bool {
-        sample_occludes(
+        sample_solid_render(
             self.classifier,
             self.assets,
             self.network_id_mode,
@@ -149,21 +173,23 @@ impl<S: MeshLightSampler + ?Sized> LightingInputs for DirectInputs<'_, '_, S> {
         )
     }
 
-    fn emits(&self, coordinate: [i32; 3]) -> bool {
+    fn shade_darkened(&self, coordinate: [i32; 3]) -> bool {
+        if self.occludes(coordinate) {
+            return true;
+        }
         let Some((chunk, local)) = self.neighbourhood.block_source(coordinate) else {
             return false;
         };
-        (0..chunk.storages().len()).any(|layer| {
-            chunk
-                .runtime_id(layer, local[0], local[1], local[2])
-                .is_some_and(|id| {
-                    self.assets
-                        .resolve(self.network_id_mode, id)
-                        .light_properties()
-                        .emission()
-                        > 0
-                })
-        })
+        chunk
+            .runtime_id(0, local[0], local[1], local[2])
+            .filter(|&id| !self.classifier.is_air(id))
+            .is_some_and(|id| {
+                let visual = self.assets.resolve(self.network_id_mode, id);
+                // Vanilla shade brightness: leaf models and light emitters count,
+                // whatever their solidity.
+                visual.flags().contains(assets::BlockFlags::LEAF_MODEL)
+                    || visual.light_properties().emission() > 0
+            })
     }
 
     fn sample(&self, coordinate: [i32; 3]) -> MeshLightSample {
@@ -175,7 +201,7 @@ const HALO_SIDE: usize = 18;
 const HALO_VOLUME: usize = HALO_SIDE * HALO_SIDE * HALO_SIDE;
 const HALO_WORDS: usize = HALO_VOLUME.div_ceil(64);
 
-/// Per-mesh memo of light samples and full-face occluders over the one-block
+/// Per-mesh memo of light samples and native solid-render bits over the one-block
 /// halo, filled lazily so sparse sub-chunks resolve only what their faces touch.
 pub(crate) struct MeshLightingCache<'a, 'n, S: MeshLightSampler + ?Sized> {
     direct: DirectInputs<'a, 'n, S>,
@@ -183,6 +209,8 @@ pub(crate) struct MeshLightingCache<'a, 'n, S: MeshLightSampler + ?Sized> {
     light_known: [Cell<u64>; HALO_WORDS],
     occluder_known: [Cell<u64>; HALO_WORDS],
     occluders: [Cell<u64>; HALO_WORDS],
+    shade_known: [Cell<u64>; HALO_WORDS],
+    darkened_shades: [Cell<u64>; HALO_WORDS],
 }
 
 impl<'a, 'n, S: MeshLightSampler + ?Sized> MeshLightingCache<'a, 'n, S> {
@@ -205,6 +233,8 @@ impl<'a, 'n, S: MeshLightSampler + ?Sized> MeshLightingCache<'a, 'n, S> {
             light_known: [const { Cell::new(0) }; HALO_WORDS],
             occluder_known: [const { Cell::new(0) }; HALO_WORDS],
             occluders: [const { Cell::new(0) }; HALO_WORDS],
+            shade_known: [const { Cell::new(0) }; HALO_WORDS],
+            darkened_shades: [const { Cell::new(0) }; HALO_WORDS],
         }
     }
 }
@@ -224,8 +254,18 @@ impl<S: MeshLightSampler + ?Sized> LightingInputs for MeshLightingCache<'_, '_, 
         self.occluders[word].get() & bit != 0
     }
 
-    fn emits(&self, coordinate: [i32; 3]) -> bool {
-        self.direct.emits(coordinate)
+    fn shade_darkened(&self, coordinate: [i32; 3]) -> bool {
+        let Some(index) = halo_index(coordinate) else {
+            return self.direct.shade_darkened(coordinate);
+        };
+        let (word, bit) = (index / 64, 1_u64 << (index % 64));
+        if self.shade_known[word].get() & bit == 0 {
+            if self.direct.shade_darkened(coordinate) {
+                self.darkened_shades[word].set(self.darkened_shades[word].get() | bit);
+            }
+            self.shade_known[word].set(self.shade_known[word].get() | bit);
+        }
+        self.darkened_shades[word].get() & bit != 0
     }
 
     fn sample(&self, coordinate: [i32; 3]) -> MeshLightSample {
@@ -255,24 +295,64 @@ pub(crate) fn bake_quad<I: LightingInputs + ?Sized>(
     block: [i32; 3],
     face: Face,
     positions: [[i16; 3]; 4],
+    emitting_block: bool,
 ) -> PackedQuadLighting {
-    bake_quad_with(inputs, block, face, positions, false)
+    bake_quad_with(inputs, block, face, positions, false, emitting_block)
 }
 
-/// `own_cell_if_occluded` lights a face against an opaque neighbour from its own cell.
+/// Current liquid tessellation never applies terrain AO;
+/// sides and the bottom repeat one outward-cell sample across the whole face.
+pub(crate) fn bake_liquid_quad<I: LightingInputs + ?Sized>(
+    inputs: &I,
+    block: [i32; 3],
+    face: Face,
+    positions: [[i16; 3]; 4],
+) -> PackedQuadLighting {
+    if face != Face::PositiveY {
+        return lighting_at(inputs.sample(add_normal(block, face_basis(face).0)));
+    }
+    // Incomplete top-light parity: native averages four admitted samples in the
+    // y+1 plane, rounding each channel. Admission uses a per-block property > 0.5,
+    // which is not carried by LightingInputs and is not the solid-render bit
+    // (ordinary ice is non-solid but retains 0.0 here). Preserve the existing
+    // top light/admission until that independent native property is available.
+    let top = bake_quad_in_plane(inputs, block, face, positions, false, true, false);
+    PackedQuadLighting::new(top.samples().map(|sample| sample & 0x00ff))
+}
+
+/// Templates check their bounds; cube faces are known to lie on a block boundary.
 pub(crate) fn bake_quad_with<I: LightingInputs + ?Sized>(
     inputs: &I,
     block: [i32; 3],
     face: Face,
     positions: [[i16; 3]; 4],
-    own_cell_if_occluded: bool,
+    check_bounds: bool,
+    emitting_block: bool,
+) -> PackedQuadLighting {
+    bake_quad_in_plane(
+        inputs,
+        block,
+        face,
+        positions,
+        check_bounds,
+        false,
+        emitting_block,
+    )
+}
+
+fn bake_quad_in_plane<I: LightingInputs + ?Sized>(
+    inputs: &I,
+    block: [i32; 3],
+    face: Face,
+    positions: [[i16; 3]; 4],
+    check_bounds: bool,
+    liquid_outward_center: bool,
+    emitting_block: bool,
 ) -> PackedQuadLighting {
     let (normal, tangent_a, tangent_b) = face_basis(face);
     let outward = add_normal(block, normal);
-    // A face against an opaque neighbour (a vine on a log) takes the light of its own cell,
-    // as the neighbour holds none.
     let axis = normal.iter().position(|&n| n != 0).expect("face axis");
-    let boundary = !own_cell_if_occluded
+    let boundary = !check_bounds
         || positions.iter().all(|p| {
             let position = f32::from(p[axis]) / 256.0;
             if normal[axis] < 0 {
@@ -281,22 +361,27 @@ pub(crate) fn bake_quad_with<I: LightingInputs + ?Sized>(
                 position >= 0.9995
             }
         });
-    let light_normal = if own_cell_if_occluded && (!boundary || inputs.occludes(outward)) {
-        [0; 3]
+    // Vanilla moves only the center light sample when the OWN block's
+    // cached solid bit is set. Tangential AO/light samples follow boundary alone.
+    let light_origin = if boundary && (liquid_outward_center || inputs.occludes(block)) {
+        outward
     } else {
-        normal
+        block
     };
-    let light_origin = add_normal(block, light_normal);
-    let emitter = u16::from(inputs.emits(block)) << 11;
-    let shade_face = u8::from(inputs.occludes(outward));
+    let plane_normal = if boundary { normal } else { [0; 3] };
+    // Native AO/flat tessellation reads the rendered block’s emission
+    // from the rendered contributor, not the union of colocated storage layers.
+    // Solved light samples still include every contributor's physical emission.
+    let emitter = u16::from(emitting_block) << 11;
+    let shade_face = u8::from(inputs.shade_darkened(outward));
     let samples = positions.map(|position| {
         let sign_a = corner_sign(position[tangent_a]);
         let sign_b = corner_sign(position[tangent_b]);
-        let side_a = offset(block, light_normal, tangent_a, sign_a, None);
-        let side_b = offset(block, light_normal, tangent_b, sign_b, None);
+        let side_a = offset(block, plane_normal, tangent_a, sign_a, None);
+        let side_b = offset(block, plane_normal, tangent_b, sign_b, None);
         let corner = offset(
             block,
-            light_normal,
+            plane_normal,
             tangent_a,
             sign_a,
             Some((tangent_b, sign_b)),
@@ -304,29 +389,18 @@ pub(crate) fn bake_quad_with<I: LightingInputs + ?Sized>(
         let solid_a = inputs.occludes(side_a);
         let solid_b = inputs.occludes(side_b);
         let blocked_diagonal = solid_a && solid_b;
-        let ao = if blocked_diagonal {
-            3
-        } else {
-            u8::from(solid_a) + u8::from(solid_b) + u8::from(inputs.occludes(corner))
-        };
-        let light_side_a = offset(block, light_normal, tangent_a, sign_a, None);
-        let light_side_b = offset(block, light_normal, tangent_b, sign_b, None);
-        let light_corner = if blocked_diagonal {
-            light_side_a
-        } else {
-            offset(
-                block,
-                light_normal,
-                tangent_a,
-                sign_a,
-                Some((tangent_b, sign_b)),
-            )
-        };
+        // Vanilla ambient occlusion averages four independent 0.2/1 shade samples. Its diagonal fallback
+        // uses the solid-render bits, not those shade samples: two leaves may
+        // darken the vertex while still admitting the diagonal's light.
+        let shade_diagonal = if blocked_diagonal { side_a } else { corner };
+        let ao = u8::from(inputs.shade_darkened(side_a))
+            + u8::from(inputs.shade_darkened(side_b))
+            + u8::from(inputs.shade_darkened(shade_diagonal));
         let light = maximum_light([
             inputs.sample(light_origin),
-            inputs.sample(light_side_a),
-            inputs.sample(light_side_b),
-            inputs.sample(light_corner),
+            inputs.sample(side_a),
+            inputs.sample(side_b),
+            inputs.sample(shade_diagonal),
         ]);
         pack_sample(light.block(), light.sky(), ao + shade_face) | emitter
     });
@@ -384,6 +458,7 @@ pub fn bake_template_lighting_with_sampler<S: MeshLightSampler + ?Sized>(
         block,
         template_id,
         rotation,
+        surface_emits(classifier, assets, network_id_mode, neighbourhood, block),
     )
 }
 
@@ -393,11 +468,17 @@ pub(crate) fn bake_template<I: LightingInputs + ?Sized>(
     block: [i32; 3],
     template_id: u32,
     rotation: u32,
+    emitting_block: bool,
 ) -> Option<Vec<PackedQuadLighting>> {
     let template = assets.model_templates().get(template_id as usize)?;
     let start = template.quad_start as usize;
     let end = start.checked_add(template.quad_count as usize)?;
     let quads = assets.model_quads().get(start..end)?;
+    // Current lily tessellator reads light at the pad's own cell.
+    // Neither neighbor AO nor terrain's underside face coefficient is applied.
+    if template.flags & assets::MODEL_TEMPLATE_FLAG_LILY_PAD != 0 {
+        return Some(vec![lighting_at(inputs.sample(block)); quads.len()]);
+    }
     Some(
         quads
             .iter()
@@ -412,9 +493,52 @@ pub(crate) fn bake_template<I: LightingInputs + ?Sized>(
                             quad.positions
                                 .map(|position| rotate_model_position(position, rotation)),
                             true,
+                            emitting_block,
                         )
                     },
                 )
+            })
+            .collect(),
+    )
+}
+
+/// Nether portals take vanilla's flat lighting path: boundary-adjacent light, own light
+/// on inset faces, no AO, and the registered emission as a per-face minimum.
+pub(crate) fn bake_portal_template<I: LightingInputs + ?Sized>(
+    inputs: &I,
+    assets: &RuntimeAssets,
+    block: [i32; 3],
+    template_id: u32,
+    emission: u8,
+) -> Option<Vec<PackedQuadLighting>> {
+    let template = assets.model_templates().get(template_id as usize)?;
+    let start = template.quad_start as usize;
+    let end = start.checked_add(template.quad_count as usize)?;
+    let quads = assets.model_quads().get(start..end)?;
+    Some(
+        quads
+            .iter()
+            .map(|quad| {
+                let sample_position = model_quad_face(*quad, 0).map_or(block, |face| {
+                    let (normal, _, _) = face_basis(face);
+                    let axis = normal.iter().position(|&n| n != 0).expect("face axis");
+                    let boundary = quad.positions.iter().all(|position| {
+                        if normal[axis] < 0 {
+                            position[axis] <= 0
+                        } else {
+                            position[axis] >= 256
+                        }
+                    });
+                    if boundary {
+                        add_normal(block, normal)
+                    } else {
+                        block
+                    }
+                });
+                let sample = inputs.sample(sample_position);
+                let packed = pack_sample(sample.block().max(emission), sample.sky(), 0)
+                    | (u16::from(emission > 0) << 11);
+                PackedQuadLighting::new([packed; 4])
             })
             .collect(),
     )
@@ -440,7 +564,13 @@ pub fn mesh_dependency_mask(
                 VisualKind::Liquid => mask.liquid = true,
                 VisualKind::Diagnostic | VisualKind::Invisible => {}
             }
-            if mask.diagonal_ao && mask.liquid {
+            if assets.resolve(network_id_mode, network_value).variant()
+                & assets::BLOCK_VISUAL_VARIANT_SEASONAL_LEAF
+                != 0
+            {
+                mask.seasonal_foliage = true;
+            }
+            if mask.diagonal_ao && mask.liquid && mask.seasonal_foliage {
                 return mask;
             }
         }
@@ -468,7 +598,7 @@ const fn pack_sample(block: u8, sky: u8, ao: u8) -> u16 {
     (block as u16) | ((sky as u16) << 4) | ((ao as u16) << 8)
 }
 
-fn sample_occludes(
+fn sample_solid_render(
     classifier: &BlockClassifier,
     assets: &RuntimeAssets,
     network_id_mode: NetworkIdMode,
@@ -482,9 +612,14 @@ fn sample_occludes(
         sub_chunk
             .runtime_id(layer, local[0], local[1], local[2])
             .is_some_and(|network_value| {
-                !classifier.is_air(network_value)
-                    && assets
-                        .resolve(network_id_mode, network_value)
+                if classifier.is_air(network_value) {
+                    return false;
+                }
+                let visual = assets.resolve(network_id_mode, network_value);
+                // TopSnow's constructor clears solid-render for
+                // every height. Its height-7 face coverage still culls geometry.
+                visual.variant() != assets::BLOCK_VISUAL_VARIANT_TOP_SNOW
+                    && visual
                         .flags()
                         .contains(assets::BlockFlags::OCCLUDES_FULL_FACE)
             })
@@ -582,6 +717,14 @@ const fn rotate_model_position([x, y, z]: [i16; 3], rotation: u32) -> [i16; 3] {
 }
 
 #[cfg(test)]
+#[path = "lighting/native_planes.rs"]
+mod native_planes;
+
+#[cfg(test)]
+#[path = "lighting/native_liquid.rs"]
+mod native_liquid;
+
+#[cfg(test)]
 mod tests {
     use super::{
         HALO_VOLUME, LightingInputs, MeshLightSample, bake_quad, bake_quad_with, halo_index,
@@ -589,11 +732,13 @@ mod tests {
     use crate::Face;
 
     /// A log to the west (opaque, unlit) beside an open cell lit at block 9, sky 12.
-    struct VineOnLog;
+    struct VineOnLog {
+        own_solid: bool,
+    }
 
     impl LightingInputs for VineOnLog {
         fn occludes(&self, coordinate: [i32; 3]) -> bool {
-            coordinate[0] < 0
+            coordinate[0] < 0 || (coordinate == [0, 0, 0] && self.own_solid)
         }
 
         fn sample(&self, coordinate: [i32; 3]) -> MeshLightSample {
@@ -609,8 +754,21 @@ mod tests {
     #[test]
     fn attached_model_face_samples_its_own_cell() {
         let positions = [[0, 0, 0], [0, 0, 256], [0, 256, 256], [0, 256, 0]];
-        let attached = bake_quad_with(&VineOnLog, [0, 0, 0], Face::NegativeX, positions, true);
-        let plain = bake_quad(&VineOnLog, [0, 0, 0], Face::NegativeX, positions);
+        let attached = bake_quad_with(
+            &VineOnLog { own_solid: false },
+            [0, 0, 0],
+            Face::NegativeX,
+            positions,
+            true,
+            false,
+        );
+        let plain = bake_quad(
+            &VineOnLog { own_solid: true },
+            [0, 0, 0],
+            Face::NegativeX,
+            positions,
+            false,
+        );
         assert_eq!(attached.samples()[0] & 0xff, 9 | (12 << 4));
         assert_eq!(plain.samples()[0] & 0xff, 0);
     }

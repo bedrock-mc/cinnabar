@@ -244,7 +244,7 @@ impl TerrainScene {
     }
 }
 #[cfg(target_arch = "wasm32")]
-impl render::ParticleWorld for SceneParticleWorld<'_> {
+impl particles::ParticleWorld for SceneParticleWorld<'_> {
     fn solid_boxes(&self, min: [f32; 3], max: [f32; 3], out: &mut Vec<[f32; 6]>) {
         if !min.iter().chain(max.iter()).all(|value| value.is_finite()) {
             return;
@@ -309,7 +309,7 @@ impl render::ParticleWorld for SceneParticleWorld<'_> {
     fn light(&self, _block: [i32; 3]) -> (u8, u8) {
         (0, 15)
     }
-    fn fluid(&self, _block: [i32; 3]) -> render::ParticleFluid {
-        render::ParticleFluid::None
+    fn fluid(&self, _block: [i32; 3]) -> particles::Fluid {
+        particles::Fluid::None
     }
 }

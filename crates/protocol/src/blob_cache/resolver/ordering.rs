@@ -61,18 +61,27 @@ pub(super) fn ready_value_columns(value: &ResolverReady) -> Vec<ColumnKey> {
             }))
         }
         WorldEvent::BlockUpdates(events) => {
-            stable_unique_columns(events.iter().map(|event| ColumnKey {
-                dimension: event.dimension,
-                x: event.position[0].div_euclid(16),
-                z: event.position[2].div_euclid(16),
-            }))
+            stable_unique_columns(events.iter().map(block_update_column))
         }
+        WorldEvent::SyncedBlockUpdates(events) => stable_unique_columns(
+            events
+                .iter()
+                .map(|event| block_update_column(&event.update)),
+        ),
         WorldEvent::BlockEntityUpdate(event) => vec![ColumnKey {
             dimension: event.dimension,
             x: event.position[0].div_euclid(16),
             z: event.position[2].div_euclid(16),
         }],
         _ => Vec::new(),
+    }
+}
+
+fn block_update_column(event: &crate::BlockUpdateEvent) -> ColumnKey {
+    ColumnKey {
+        dimension: event.dimension,
+        x: event.position[0].div_euclid(16),
+        z: event.position[2].div_euclid(16),
     }
 }
 

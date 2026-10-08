@@ -74,11 +74,11 @@ use valentine::bedrock::version::v1_26_51::{
     BlockPos, CerealizerNetworkItemStackDescriptorSerializedData, ClientCacheMissResponsePacket,
     CorrectPlayerMovePredictionPacket, EnumsAnimatePacketPayloadAction as AnimatePacketAction,
     EnumsPlayerRespawnState as RespawnPacketState, EnumsTextPacketType, GameRule,
-    GameRuleRuleValue, GameRulesChangedPacket, GameRulesChangedPacketData, ItemRegistryPacket,
-    LevelChunkPacket, LevelChunkPacketPayloadSubChunkMetadata, LevelEventPacket, McpePacketName,
-    MissingBlobData, MobEquipmentPacket, MovePlayerPacket, PlaySoundPacket, PlayerInputTick,
-    RespawnPacket, SetTimePacket, TextPacket, TextPacketBody, TextPacketPayloadMessageOnly,
-    UpdateBlockPacket, Vec2, Vec3,
+    GameRuleRuleValue, GameRulesChangedPacket, GameRulesChangedPacketData, LevelChunkPacket,
+    LevelChunkPacketPayloadSubChunkMetadata, LevelEventPacket, McpePacketName, MissingBlobData,
+    MobEquipmentPacket, MovePlayerPacket, PlaySoundPacket, PlayerInputTick, RespawnPacket,
+    SetTimePacket, TextPacket, TextPacketBody, TextPacketPayloadMessageOnly, UpdateBlockPacket,
+    Vec2, Vec3,
 };
 
 #[test]
@@ -893,7 +893,7 @@ fn allowlisted_actor_packet_is_materialized_and_normalized() {
 #[test]
 fn allowlisted_item_and_action_packets_are_materialized_and_normalized() {
     let session = BedrockSession { shield_item_id: 0 };
-    let packets: [Packet; 5] = [
+    let packets: [Packet; 4] = [
         AddPlayerPacket {
             target_runtime_id: ActorRuntimeId {
                 actor_runtime_id: 42,
@@ -901,7 +901,6 @@ fn allowlisted_item_and_action_packets_are_materialized_and_normalized() {
             ..Default::default()
         }
         .into(),
-        ItemRegistryPacket::default().into(),
         MobEquipmentPacket {
             target_runtime_id: ActorRuntimeId {
                 actor_runtime_id: 42,
@@ -1072,6 +1071,7 @@ fn absolute_actor_move_uses_bedrock_varuint_and_raw_byte_rotations() {
             teleported: true,
             player_mode: None,
             source_tick: None,
+            interpolation: Default::default(),
         }))
     );
 }

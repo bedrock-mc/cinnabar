@@ -1,0 +1,9 @@
+{
+  "type": "result",
+  "seq": 3,
+  "outcome": {
+    "type": "failed",
+    "kind": "fuel",
+    "reason": "callback exhausted its fuel"
+  }
+}

@@ -1,0 +1,59 @@
+# JSON-UI review corrections
+
+The supplied JSON-UI findings 1–4 and UI/app findings 1, 2 and 4 are reproducible.
+Tests first observed the animation panic, missed component writes, absent title
+labels, missing Escape event, stale recipe icon and camera reset. The input test
+captures the real Drop setting and reopens the inventory before checking both Q
+and R, including the Ctrl modifier.
+
+The corrections reject authored internal animation programs and validate their
+indices, share instance keys between binding and layout, seed vanilla creation
+bags with form titles, restore the saved screen cancel route after unconsumed
+Escape, suppress the unbound physical Q shortcut, explicitly clear recipe icons,
+and apply perspective only when its configured option changes.
+
+The vanilla pack is the read-only pinned `v1.26.50.4/full/resource_pack` under
+the installed bedrock-samples tree.
+
+## Vanilla rules
+
+| Rule | Behaviour |
+| --- | --- |
+| Animation construction | Read resolved animation definitions. `ui/server_form.json` and `ui/ui_common.json` use authored animation references, not the engine’s serialized `anim_graph`. The animation option `wait_until_rendered_to_play` is recognized. |
+| Instance bags | Read `collection_index` into the instance component and process control property bags. `ui/server_form.json:118` creates dynamic buttons through a factory. |
+| Title creation | Set `#title_text` in custom/action factory creation bags. `ui/server_form.json:41` selects `#title_text` with a `none` binding. |
+| Cancel routing | `ui/server_form.json:11` maps `button.menu_cancel` to `button.menu_exit` on the enclosing screen. A consuming inner control retains priority over screen cancel. |
+| Drop remapping | Replace the key vector with the newly captured key and route the inventory Drop action (`menu_inventory_drop`). |
+| Recipe cells | `ui/ui_common.json:3946` binds `#item_renderer_data`; draw from the current control property bag. Do not retain a previous row’s renderer index. |
+| Perspective | Register a callback on the perspective option and apply the camera change only when that option changes. |
+| Font measurement | Use the same current font for both measured text and drawing. `ui/ui_template_dialogs.json:9` defines the standard title label; the accepted open-font deviation still requires shared installed metrics. |
+
+These rules do not establish a vanilla frame-time budget for the captured shop.
+
+## Live form investigation (incomplete)
+
+An independently reproduced defect keeps an open form's cached geometry after a
+session font is installed or removed. Its layout cache omitted font identity.
+The late-font test observes one new layout per font change and no further layouts
+while that font is stable. Offline PNGs compare the same open form before and
+after installing deliberately different glyph metrics. This defect is fixed;
+its connection to the owner's black rectangle or FPS report is unproven.
+
+The exact captured Spirit Bundle request is also replayed before installing its
+UI pack. The test waits for the button/backdrop textures to become resident,
+finishes artwork preparation, checks that purple bundle pixels reach the published
+pages, then compares all published page identities and layout pass counts across
+later frames. These witnesses exercise the real carrier and captured pack. They
+do not connect to a server or exercise GPU submission.
+
+The existing byte-artwork cache already keys decoded images by payload hash.
+Pack replacement clears the form binding/layout cache; decoded atlas textures
+have header dimensions before pixel residency, and URL completion changes the
+form image model. No additional texture churn or per-frame relayout defect is
+established by source inspection alone. The captured request uses pack paths;
+it does not establish a failure of the live URL downloader.
+
+The reported black artwork, floating labels and 110-to-41 FPS loss remain open.
+No live visual or performance parity gate is closed. Captures and before/after
+PNGs remain outside git. The focused tests and final local gate are reported
+with the final committed HEAD.

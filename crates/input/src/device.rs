@@ -8,12 +8,21 @@ pub const MAX_TOUCH_CONTROLS: usize = 64;
 
 use crate::ModifierChord;
 
+/// Button events since the previous frame, including a complete tap within one frame.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ButtonEdges<T> {
+    pub pressed: Vec<T>,
+    pub released: Vec<T>,
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct KeyboardMouseFrame {
     /// Last change stamp from one translator-wide monotonically increasing counter.
     pub activity_sequence: u64,
     pub keys: Vec<u16>,
     pub mouse_buttons: Vec<u8>,
+    pub key_edges: ButtonEdges<u16>,
+    pub mouse_edges: ButtonEdges<u8>,
     pub mouse_motion: [f32; 2],
     pub modifiers: ModifierChord,
 }
@@ -26,6 +35,7 @@ pub struct ControllerFrame {
     /// Left X/Y, right X/Y, trigger axes, then two reserved portable axes.
     pub axes: [f32; 8],
     pub buttons: Vec<u8>,
+    pub button_edges: ButtonEdges<u8>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -213,37 +223,44 @@ impl DeviceFrame {
             });
         }
         if let Some(keyboard) = &self.keyboard_mouse {
-            if keyboard.keys.len() > MAX_KEYBOARD_KEYS {
-                return Err(FrameError::TooManyKeyboardKeys {
-                    actual: keyboard.keys.len(),
-                    maximum: MAX_KEYBOARD_KEYS,
-                });
+            for keys in [
+                &keyboard.keys,
+                &keyboard.key_edges.pressed,
+                &keyboard.key_edges.released,
+            ] {
+                if keys.len() > MAX_KEYBOARD_KEYS {
+                    return Err(FrameError::TooManyKeyboardKeys {
+                        actual: keys.len(),
+                        maximum: MAX_KEYBOARD_KEYS,
+                    });
+                }
+                if keys.iter().any(|code| !(0x04..=0xe7).contains(code)) {
+                    return Err(FrameError::UnknownPhysicalCode);
+                }
+                if let Some(code) = first_duplicate(keys) {
+                    return Err(FrameError::DuplicateKeyboardUsage(code));
+                }
             }
-            if keyboard.mouse_buttons.len() > MAX_MOUSE_BUTTONS {
-                return Err(FrameError::TooManyMouseButtons {
-                    actual: keyboard.mouse_buttons.len(),
-                    maximum: MAX_MOUSE_BUTTONS,
-                });
+            for buttons in [
+                &keyboard.mouse_buttons,
+                &keyboard.mouse_edges.pressed,
+                &keyboard.mouse_edges.released,
+            ] {
+                if buttons.len() > MAX_MOUSE_BUTTONS {
+                    return Err(FrameError::TooManyMouseButtons {
+                        actual: buttons.len(),
+                        maximum: MAX_MOUSE_BUTTONS,
+                    });
+                }
+                if buttons.iter().any(|button| !(1..=8).contains(button)) {
+                    return Err(FrameError::UnknownPhysicalCode);
+                }
+                if let Some(button) = first_duplicate(buttons) {
+                    return Err(FrameError::DuplicateMouseButton(button));
+                }
             }
             if keyboard.mouse_motion.iter().any(|axis| !axis.is_finite()) {
                 return Err(FrameError::NonFiniteAxis);
-            }
-            if keyboard
-                .keys
-                .iter()
-                .any(|code| !(0x04..=0xe7).contains(code))
-                || keyboard
-                    .mouse_buttons
-                    .iter()
-                    .any(|button| !(1..=8).contains(button))
-            {
-                return Err(FrameError::UnknownPhysicalCode);
-            }
-            if let Some(code) = first_duplicate(&keyboard.keys) {
-                return Err(FrameError::DuplicateKeyboardUsage(code));
-            }
-            if let Some(button) = first_duplicate(&keyboard.mouse_buttons) {
-                return Err(FrameError::DuplicateMouseButton(button));
             }
         }
         for (index, controller) in self.controllers.iter().enumerate() {
@@ -256,21 +273,27 @@ impl DeviceFrame {
             if controller.axes.iter().any(|axis| !axis.is_finite()) {
                 return Err(FrameError::NonFiniteAxis);
             }
-            if controller.buttons.len() > MAX_CONTROLLER_BUTTONS {
-                return Err(FrameError::TooManyControllerButtons {
-                    device_id: controller.device_id,
-                    actual: controller.buttons.len(),
-                    maximum: MAX_CONTROLLER_BUTTONS,
-                });
-            }
-            if controller.buttons.iter().any(|button| *button > 31) {
-                return Err(FrameError::UnknownPhysicalCode);
-            }
-            if let Some(button) = first_duplicate(&controller.buttons) {
-                return Err(FrameError::DuplicateControllerButton {
-                    device_id: controller.device_id,
-                    button,
-                });
+            for buttons in [
+                &controller.buttons,
+                &controller.button_edges.pressed,
+                &controller.button_edges.released,
+            ] {
+                if buttons.len() > MAX_CONTROLLER_BUTTONS {
+                    return Err(FrameError::TooManyControllerButtons {
+                        device_id: controller.device_id,
+                        actual: buttons.len(),
+                        maximum: MAX_CONTROLLER_BUTTONS,
+                    });
+                }
+                if buttons.iter().any(|button| *button > 31) {
+                    return Err(FrameError::UnknownPhysicalCode);
+                }
+                if let Some(button) = first_duplicate(buttons) {
+                    return Err(FrameError::DuplicateControllerButton {
+                        device_id: controller.device_id,
+                        button,
+                    });
+                }
             }
         }
         for (index, contact) in self.touches.iter().enumerate() {

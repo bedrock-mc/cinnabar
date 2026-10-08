@@ -4,17 +4,17 @@ use std::{
     path::Path,
 };
 
-use asset_compiler::{
-    AnimationInventory, AtmosphereCompileOptions, CompileReferenceOutcome, FontCompileError,
-    compile_atmosphere_assets_with_options, compile_entity_assets_with_report, compile_fonts,
-    compile_pack_with_material_keys, compile_vanilla_entity_refs, inspect_animation_inventory,
-};
 use assets::{
     AssetError, AtmosphereRole, BlobProvenance, EntityAssetSource, EntityAssetSymbol,
     ItemVisualDefinitionRoute, MATERIAL_FLAG_ALPHA_CUTOUT, encode_atmosphere_blob, encode_blob,
     encode_entity_blob, read_biome_registry, write_blob_atomic,
 };
 use clap::Parser;
+use pack_compiler::{
+    AnimationInventory, AtmosphereCompileOptions, CompileReferenceOutcome, FontCompileError,
+    compile_atmosphere_assets_with_options, compile_entity_assets_with_report, compile_fonts,
+    compile_pack_with_material_keys, compile_vanilla_entity_refs, inspect_animation_inventory,
+};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
@@ -30,6 +30,8 @@ mod audio_pcm_command;
 mod block_entity_command;
 #[path = "assetc/cli.rs"]
 mod cli;
+#[path = "assetc/command_outputs.rs"]
+mod command_outputs;
 #[path = "assetc/equipment_command.rs"]
 mod equipment_command;
 #[path = "assetc/font_command.rs"]
@@ -40,14 +42,23 @@ mod hud_command;
 mod icon_command;
 #[path = "assetc/lang_command.rs"]
 mod lang_command;
+#[path = "assetc/output_bundle.rs"]
+mod output_bundle;
+use output_bundle::write_output_bundle;
 #[path = "assetc/output_validation.rs"]
 mod output_validation;
 #[path = "assetc/particle_command.rs"]
 mod particle_command;
+#[path = "assetc/prepare.rs"]
+mod prepare;
+#[path = "assetc/prepare_plan.rs"]
+mod prepare_plan;
 #[path = "assetc/registry_version.rs"]
 mod registry_version;
 #[path = "assetc/ui_command.rs"]
 mod ui_command;
+#[path = "assetc/vanilla_pack_command.rs"]
+mod vanilla_pack_command;
 
 use audio_bank_command::compile_audio_bank_command;
 use audio_command::compile_audio_assets_command;
@@ -164,7 +175,13 @@ struct FontAssetCounts {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    match Cli::parse().command {
+    run(Cli::parse().command)
+}
+
+/// Dispatches a parsed command after its inputs and destinations are checked.
+fn run(command: Command) -> Result<(), Box<dyn std::error::Error>> {
+    command_outputs::validate_command_outputs(&command)?;
+    match command {
         Command::Atmosphere {
             pack,
             source_manifest,
@@ -206,11 +223,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Command::FontAssets {
             pack,
+            font,
+            glyph_pack,
+            compact_pages,
             source_manifest,
             out,
             report,
         } => {
-            compile_font_assets_command(&pack, &source_manifest, &out, &report)?;
+            compile_font_assets_command(
+                pack.as_deref(),
+                font.as_deref(),
+                font_command::PostprocessOptions {
+                    glyph_pack: glyph_pack.as_deref(),
+                    compact_pages,
+                },
+                &source_manifest,
+                &out,
+                &report,
+            )?;
         }
         Command::HudAssets {
             pack,
@@ -221,11 +251,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             compile_hud_assets_command(&pack, &source_manifest, &out, &report)?;
         }
         Command::HudExtrasAssets { pack, out } => {
-            asset_compiler::compile_hud_extras_to_file(&pack, &out)?;
+            pack_compiler::compile_hud_extras_to_file(&pack, &out)?;
             println!("compiled HUD extras to {}", out.display());
         }
         Command::WeatherAssets { pack, out } => {
-            asset_compiler::compile_weather_textures_to_file(&pack, &out)?;
+            pack_compiler::compile_weather_textures_to_file(&pack, &out)?;
             println!("compiled weather textures to {}", out.display());
         }
         Command::ActorAssets {
@@ -328,8 +358,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             compile_outline_font_assets_command(
                 &font,
                 fallback_font.as_deref(),
-                font_command::Options {
-                    primary_only,
+                primary_only,
+                font_command::PostprocessOptions {
                     glyph_pack: glyph_pack.as_deref(),
                     compact_pages,
                 },
@@ -390,12 +420,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 biome_registry_sha256: Sha256::digest(&biome_registry_bytes).into(),
             };
             let blob = encode_blob(&compiled)?;
-            write_blob_atomic(&out, &blob)?;
-            // Sidecar for runtime retexturing; a stale or absent one only disables that.
-            write_blob_atomic(
-                &out.with_extension("matkeys.json"),
-                &material_keys.to_json(compiled.materials.len() as u32),
-            )?;
+            write_output_bundle(&[
+                (&out, &blob),
+                (
+                    &command_outputs::material_keys_output(&out),
+                    &material_keys.to_json(compiled.materials.len() as u32),
+                ),
+            ])?;
             let cutout_materials = compiled
                 .materials
                 .iter()
@@ -414,6 +445,33 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 compiled.biomes.rules.len(),
                 out.display()
             );
+        }
+        Command::Prepare {
+            root,
+            kit,
+            workspace,
+            out,
+            only,
+            check,
+            json,
+            accept_eula,
+            clouds_override,
+        } => prepare::prepare(prepare::Options {
+            root,
+            kit,
+            workspace,
+            out,
+            only,
+            check,
+            json,
+            accept_eula,
+            clouds_override,
+        })?,
+        Command::VanillaPack {
+            source_manifest,
+            accept_eula,
+        } => {
+            vanilla_pack_command::acquire(&source_manifest, &std::env::current_dir()?, accept_eula)?
         }
         Command::AnimationInventory {
             pack,
@@ -474,7 +532,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn compile_font_assets_command(
-    pack: &Path,
+    pack: Option<&Path>,
+    font: Option<&Path>,
+    options: font_command::PostprocessOptions<'_>,
     source_manifest: &Path,
     out: &Path,
     report: &Path,
@@ -492,22 +552,36 @@ fn compile_font_assets_command(
             }
         })?;
     let source_manifest_sha256 = assets::canonical_source_manifest_sha256(&manifest_bytes);
-    let compiled = compile_fonts(pack)?;
+    let compiled = match (pack, font) {
+        (Some(pack), None) => compile_fonts(pack)?,
+        (None, Some(font)) => font_command::compile_pinned(font, &source, source_manifest_sha256)?,
+        _ => return Err("font-assets takes exactly one of --pack or --font".into()),
+    };
     if compiled.report.source_manifest_sha256 != source_manifest_sha256 {
         return Err(FontCompileError::SourceManifestMismatch.into());
     }
-    write_compiled_font_assets(source, source_manifest_sha256, compiled, out, report)
+    let compiled = font_command::postprocess(compiled, options)?;
+    write_compiled_font_assets(source, source_manifest_sha256, compiled, out, report, &[])
 }
 
 fn compile_outline_font_assets_command(
     font: &Path,
     fallback: Option<&Path>,
-    options: font_command::Options<'_>,
+    primary_only: bool,
+    options: font_command::PostprocessOptions<'_>,
     source_manifest: &Path,
     out: &Path,
     report: &Path,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    font_command::compile(font, fallback, options, source_manifest, out, report)
+    font_command::compile(
+        font,
+        fallback,
+        primary_only,
+        options,
+        source_manifest,
+        out,
+        report,
+    )
 }
 
 fn required_u32(value: &serde_json::Value, field: &str) -> Result<u32, Box<dyn std::error::Error>> {
@@ -521,9 +595,10 @@ fn required_u32(value: &serde_json::Value, field: &str) -> Result<u32, Box<dyn s
 fn write_compiled_font_assets(
     source: serde_json::Value,
     source_manifest_sha256: [u8; 32],
-    compiled: asset_compiler::CompiledFontCarrier,
+    compiled: pack_compiler::CompiledFontCarrier,
     out: &Path,
     report: &Path,
+    sidecars: &[(&Path, &[u8])],
 ) -> Result<(), Box<dyn std::error::Error>> {
     if compiled.report.source_manifest_sha256 != source_manifest_sha256 {
         return Err(FontCompileError::SourceManifestMismatch.into());
@@ -547,8 +622,12 @@ fn write_compiled_font_assets(
         })?;
     report_bytes.push(b'\n');
     validate_output_bundle(out, report)?;
-    write_blob_atomic(out, &compiled.bytes)?;
-    write_blob_atomic(report, &report_bytes)?;
+    let mut outputs = vec![
+        (out, compiled.bytes.as_ref()),
+        (report, report_bytes.as_slice()),
+    ];
+    outputs.extend_from_slice(sidecars);
+    write_output_bundle(&outputs)?;
     println!(
         "compiled {} bitmap-font glyphs across {} pages to {} and {}",
         report_data.counts.glyphs,
@@ -664,11 +743,12 @@ fn compile_entity_assets_command(
         })?;
     report_bytes.push(b'\n');
     validate_output_bundle(out, report)?;
-    write_blob_atomic(out, &blob)?;
-    write_blob_atomic(report, &report_bytes)?;
-    // Sidecar for session-time server-pack entities that reference vanilla definitions.
     let refs = compile_vanilla_entity_refs(pack)?;
-    write_blob_atomic(&out.with_extension("vanillarefs.json"), &refs.to_json())?;
+    write_output_bundle(&[
+        (out, &blob),
+        (report, &report_bytes),
+        (&command_outputs::entity_refs_output(out), &refs.to_json()),
+    ])?;
     println!(
         "compiled {} entity authority sources, {} symbols, {} dependencies, {} geometries, {} bones, and {} cubes to {} and {}",
         report_data.counts.sources,
@@ -740,8 +820,7 @@ where
         })?;
     report_bytes.push(b'\n');
     validate_output_bundle(out, report)?;
-    write_blob_atomic(out, &blob)?;
-    write_blob_atomic(report, &report_bytes)?;
+    write_output_bundle(&[(out, &blob), (report, &report_bytes)])?;
     println!(
         "compiled {} pinned atmosphere textures to {} and {}",
         report_data.textures.len(),
@@ -820,6 +899,9 @@ fn read_bounded_with_limit(
     Ok(bytes)
 }
 
+#[cfg(test)]
+#[path = "../../build_support/lockfile.rs"]
+mod lockfile;
 #[cfg(test)]
 #[path = "assetc/tests.rs"]
 mod tests;

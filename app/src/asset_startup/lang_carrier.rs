@@ -19,7 +19,7 @@ use super::{
     AssetStartupError, DEFAULT_ASSET_PATH, canonical_source_manifest_sha256, format_sha256,
 };
 
-pub const LANG_ASSETS_FILENAME: &str = "vanilla-v1.mcbelang";
+pub const LANG_ASSETS_FILENAME: &str = assets::carriers::LANG.output;
 pub const LANG_ASSETS_COMPILE_COMMAND: &str = "make lang-assets";
 const LANG_ASSETS_REPORT_FILENAME: &str = "lang-assets.json";
 const MAX_LANG_ASSET_BLOB_BYTES: u64 = 8 * 1024 * 1024;
@@ -86,7 +86,7 @@ pub fn load_active_language(
 
 /// The UI language: `requested`, else the environment locale, else `en_US`.
 #[must_use]
-fn active_language(requested: Option<&str>) -> String {
+pub(crate) fn active_language(requested: Option<&str>) -> String {
     let from_env = ["LC_ALL", "LC_MESSAGES", "LANG"]
         .iter()
         .filter_map(|name| std::env::var(name).ok())

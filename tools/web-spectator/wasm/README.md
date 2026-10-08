@@ -48,8 +48,8 @@ Neither this target nor a successful screenshot closes a vanilla parity gate.
 POV camera and hands use the same native walk bob, turn spring and damage tilt
 owners. Damage-direction packets are not in the stream, so committed hurt
 events use native directionless tilt at their actual age.
-The camera uses Cinnabar's default horizontal field of view and shared
-aspect-correct conversion; the hand pass receives that actual projection FOV.
+Orbit and follow use Cinnabar's current default projection. POV uses a 110-degree
+horizontal field of view; the hand pass receives the resulting vertical FOV.
 Browser redraws follow the native continuous Winit/AutoVsync path instead of
 a 34 ms reactive timer. The 10 Hz stream is sampled between committed poses:
 positions stay aligned across actors, follow/orbit targets and nameplates, while
@@ -138,6 +138,7 @@ hash on demand, after the viewer enables sound.
 
 Remaining parity work is tracked in plan.md; a compiled viewer is not a visual
 parity result.
+
 ## Server font sheets and compact carriers
 
 The native HUD uses the authenticated font carrier for both ordinary text and

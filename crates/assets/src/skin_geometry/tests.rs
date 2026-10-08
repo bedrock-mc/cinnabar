@@ -2,6 +2,74 @@ use super::*;
 
 const PATCH: &str = r#"{"geometry":{"default":"geometry.npc"}}"#;
 
+fn bounded_inheritance_source(child_bones: serde_json::Value) -> String {
+    let cube = serde_json::json!({"origin":[0,0,0],"size":[1,1,1]});
+    serde_json::json!({
+        "format_version":"1.8.0",
+        "geometry.base":{"bones":[{
+            "name":"head","cubes":vec![cube; MAX_SKIN_GEOMETRY_CUBES]
+        }]},
+        "geometry.npc:geometry.base":{"bones":child_bones}
+    })
+    .to_string()
+}
+
+#[test]
+fn inherited_skin_cube_budget_rejects_additive_and_new_bone_overflow() {
+    for name in ["HEAD", "body"] {
+        let source = bounded_inheritance_source(serde_json::json!([{
+            "name":name,"cubes":[{"origin":[0,0,0],"size":[1,1,1]}]
+        }]));
+        assert_eq!(
+            parse_skin_geometry(PATCH, &source),
+            Err(SkinGeometryError::TooManyCubes)
+        );
+    }
+}
+
+#[test]
+fn explicit_reset_releases_inherited_skin_cube_budget_before_append() {
+    let cube = serde_json::json!({"origin":[0,0,0],"size":[1,1,1]});
+    let source = bounded_inheritance_source(serde_json::json!([
+        {"name":"head","reset":true,"cubes":[cube.clone()]},
+        {"name":"body","cubes":vec![cube; MAX_SKIN_GEOMETRY_CUBES - 1]}
+    ]));
+    let model = parse_skin_geometry(PATCH, &source).unwrap().unwrap();
+    assert_eq!(model.bones[0].cubes.len(), 1);
+    assert_eq!(model.bones[1].cubes.len(), MAX_SKIN_GEOMETRY_CUBES - 1);
+    let mut later: serde_json::Value = serde_json::from_str(&source).unwrap();
+    later["geometry.later:geometry.npc"] = serde_json::json!({"bones":[{
+        "name":"head","cubes":[{"origin":[0,0,0],"size":[1,1,1]}]
+    }]});
+    assert_eq!(
+        parse_skin_geometry(
+            r#"{"geometry":{"default":"geometry.later"}}"#,
+            &later.to_string()
+        ),
+        Err(SkinGeometryError::TooManyCubes),
+        "a parent's reset is not applied to a later child"
+    );
+}
+
+#[test]
+fn rotated_skin_cubes_use_the_same_uninflated_default_pivot_as_entity_models() {
+    let data = r#"{"format_version":"1.21.0","minecraft:geometry":[{
+        "description":{"identifier":"geometry.npc","texture_width":64,"texture_height":64},
+        "bones":[{"name":"body","cubes":[
+            {"origin":[2,3,4],"size":[6,8,10],"rotation":[17,23,31],"inflate":5},
+            {"origin":[2,3,4],"size":[6,8,10],"rotation":[17,23,31],"pivot":[0,0,0]}
+        ]}]}]}"#;
+    let geometry = parse_skin_geometry(PATCH, data).unwrap().unwrap();
+    assert_eq!(
+        geometry.bones[0].cubes[0].pivot.map(|value| value.get()),
+        [5.0, 7.0, 9.0]
+    );
+    assert_eq!(
+        geometry.bones[0].cubes[1].pivot,
+        [EntityGeometryScalar::ZERO; 3]
+    );
+}
+
 #[test]
 fn modern_and_inherited_legacy_models_keep_authored_visibility_bounds() {
     let modern = r#"{"format_version":"1.12.0","minecraft:geometry":[{"description":{"identifier":"geometry.npc","visible_bounds_width":3,"visible_bounds_height":4,"visible_bounds_offset":[0,2,0]},"bones":[{"name":"body"}]}]}"#;
@@ -82,7 +150,9 @@ fn legacy_inheritance_overlays_within_the_skin_json() {
             {"name":"hat","reset":true}]}}"#;
     let geometry = parse_skin_geometry(PATCH, data).unwrap().unwrap();
     assert_eq!(geometry.bones.len(), 3);
-    assert_eq!(geometry.bones[1].cubes[0].size[0].get(), 10.0);
+    assert_eq!(geometry.bones[1].cubes.len(), 2);
+    assert_eq!(geometry.bones[1].cubes[0].size[0].get(), 8.0);
+    assert_eq!(geometry.bones[1].cubes[1].size[0].get(), 10.0);
     assert!(
         geometry.bones[2].cubes.is_empty(),
         "reset hides the inherited hat"
@@ -132,4 +202,15 @@ fn unusable_models_are_rejected() {
         parse_skin_geometry(PATCH, "not json"),
         Err(SkinGeometryError::Json)
     );
+}
+
+#[test]
+fn review_malformed_siblings_do_not_hide_a_usable_skin_geometry() {
+    for siblings in [
+        serde_json::json!([{}, {"description":{"identifier":"geometry.npc"},"bones":[{"name":"body"}]}]),
+        serde_json::json!([{"description":{"identifier":"geometry.npc"},"bones":[{"name":"body"}]}, {}]),
+    ] {
+        let source = serde_json::json!({"minecraft:geometry":siblings}).to_string();
+        assert!(parse_skin_geometry(PATCH, &source).unwrap().is_some());
+    }
 }

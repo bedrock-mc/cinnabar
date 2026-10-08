@@ -1,22 +1,22 @@
-//! Native status sprite selection and timing policy.
+//! Native HUD sprite tables and timing.
 
 use super::{HeartVariant, HudEffect};
 use assets::HudTextureRole;
 
 /// Damage blink: hearts flash for one second, alternating every 150 ms
 /// (the reference alternates every 3 ticks for 20 ticks).
-pub const DAMAGE_FLASH_WINDOW_MILLIS: u64 = 1_000;
-pub const DAMAGE_FLASH_PHASE_MILLIS: u64 = 150;
+pub(super) const DAMAGE_FLASH_WINDOW_MILLIS: u64 = 1_000;
+pub(super) const DAMAGE_FLASH_PHASE_MILLIS: u64 = 150;
 /// Effects blink through their final 10 s (200 ticks).
-pub const EFFECT_BLINK_TICKS: u64 = 200;
+pub(super) const EFFECT_BLINK_TICKS: u64 = 200;
 /// Row cap for pathological health maxima: six stacked rows (60 hearts).
-pub const MAX_HEART_ROWS: u16 = 6;
+pub(super) const MAX_HEART_ROWS: u16 = 6;
 /// The reference caps mount hearts at 30.
-pub const MAX_MOUNT_HEARTS: u16 = 30;
+pub(super) const MAX_MOUNT_HEARTS: u16 = 30;
 /// Pinned harmful effect ids (Bedrock ids; poison family, wither, darkness,
 /// slowness, mining fatigue, instant damage, nausea, blindness, hunger,
 /// weakness, levitation, bad omen). Everything else sits on the beneficial row.
-pub const HARMFUL_EFFECT_IDS: [i32; 13] = [2, 4, 7, 9, 15, 17, 18, 19, 20, 24, 25, 28, 30];
+pub(super) const HARMFUL_EFFECT_IDS: [i32; 13] = [2, 4, 7, 9, 15, 17, 18, 19, 20, 24, 25, 28, 30];
 /// Bedrock effect id -> carried icon role, pinned to the id table verified
 /// against gophertunnel (1-27) and PocketMine (28-30). Fatal poison presents
 /// with poison's icon as in the vanilla client. Unknown ids return `None` and
@@ -56,7 +56,7 @@ pub fn effect_icon_role(effect_id: i32) -> Option<HudTextureRole> {
 
 /// `Some(true)` while the damage blink shows the flash sprites, `Some(false)`
 /// during the off phase, `None` outside the blink window.
-pub fn damage_flash_phase(drop_millis: Option<u64>, now_millis: u64) -> Option<bool> {
+pub(super) fn damage_flash_phase(drop_millis: Option<u64>, now_millis: u64) -> Option<bool> {
     let elapsed = now_millis.saturating_sub(drop_millis?);
     if elapsed >= DAMAGE_FLASH_WINDOW_MILLIS {
         return None;
@@ -64,7 +64,7 @@ pub fn damage_flash_phase(drop_millis: Option<u64>, now_millis: u64) -> Option<b
     Some((elapsed / DAMAGE_FLASH_PHASE_MILLIS).is_multiple_of(2))
 }
 
-pub fn heart_role(
+pub(super) fn heart_role(
     variant: HeartVariant,
     flash: Option<bool>,
     filled_halves: u32,
@@ -103,7 +103,7 @@ const BLINK_CENTER: f32 = 0.75;
 
 /// Alpha for an effect entry: solid normally; through the final ten seconds it pulses on a fixed
 /// period with a swing that widens as the effect runs out.
-pub fn effect_blink_alpha(effect: &HudEffect, now_tick: Option<u64>) -> u8 {
+pub(super) fn effect_blink_alpha(effect: &HudEffect, now_tick: Option<u64>) -> u8 {
     let Some(remaining) = effect.remaining_ticks(now_tick) else {
         return 255;
     };

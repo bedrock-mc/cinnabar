@@ -113,6 +113,10 @@ fn diagnostic_assets(arena: &Arena) -> TerrainAssets {
         runtime: Arc::new(runtime),
         canonical: Arc::new(canonical),
         air: 0,
+        #[cfg(target_arch = "wasm32")]
+        collision_records: Arc::from([]),
+        #[cfg(target_arch = "wasm32")]
+        collision_halo: [[0, 0]; 3],
     }
 }
 

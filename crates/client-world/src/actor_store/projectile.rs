@@ -5,6 +5,7 @@ impl ActorStore {
     pub(crate) fn apply_motion(&mut self, sequence: u64, event: protocol::ActorMotionEvent) {
         if let Some(actor) = self.actors.get_mut(&event.actor_runtime_id) {
             actor.velocity = event.motion;
+            actor.status.native_velocity = event.motion;
             actor.movement_revision = sequence;
             let arrow = matches!(&actor.kind, ActorKind::Entity { identifier }
                 if identifier.as_ref() == "minecraft:arrow");

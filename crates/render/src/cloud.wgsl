@@ -1,4 +1,5 @@
 #import bevy_render::view::View
+#import cinnabar::lighting::{tint_to_linear}
 
 struct AtmosphereUniform {
     sun_direction_daylight: vec4<f32>,
@@ -11,88 +12,37 @@ struct AtmosphereUniform {
     sky_extra: vec4<f32>,
 }
 
-struct PackedCloudQuad {
-    bounds: u32,
-    face_and_axis: u32,
+struct ViewportCloudQuad {
+    cell: vec2<i32>,
+    face: u32,
+    colour: u32,
+}
+
+struct NativeCloudUniform {
+    // Native CPU colour and tessellator bytes are gamma-space.
+    colour: vec4<f32>,
+    // Cell blocks, underside Y, top Y, texture world period; Rust owns them.
+    geometry: vec4<f32>,
 }
 
 @group(0) @binding(0) var<uniform> view: View;
 @group(0) @binding(1) var<uniform> atmosphere: AtmosphereUniform;
-@group(0) @binding(2) var<storage, read> cloud_records: array<PackedCloudQuad>;
+@group(0) @binding(2) var<storage, read> cloud_records: array<ViewportCloudQuad>;
+@group(0) @binding(3) var<uniform> native_cloud: NativeCloudUniform;
 
-// Vanilla 26.30 cloud layer: one `clouds.png` texel spans 16x16 blocks, the slab is four
-// blocks thick at 192.33, faces carry the tessellator's baked shade, and alpha fades by
-// distance. There is no fog and no directional light.
-const CLOUD_UNDERSIDE_Y: f32 = 192.33;
-const CLOUD_TOP_Y: f32 = 196.33;
-const CLOUD_CELL_BLOCKS: f32 = 16.0;
-const CLOUD_TEXTURE_WORLD_PERIOD: f32 = 4096.0;
-const FACE_DOWN: u32 = 0u;
-const FACE_UP: u32 = 1u;
-const FACE_NORTH: u32 = 2u;
-const FACE_SOUTH: u32 = 3u;
-const FACE_WEST: u32 = 4u;
-const RAIN_CLOUD_COLOUR: vec3<f32> = vec3(191.0 / 255.0);
-const THUNDER_CLOUD_COLOUR: vec3<f32> = vec3(30.0 / 255.0);
-const WEATHER_COLOUR_CONTRIBUTION: f32 = 0.95;
-const CLOUD_ALPHA: f32 = 0.7;
-const CLOUD_FADE_START: f32 = 0.9;
-const CLOUD_SUNRISE_WEIGHT: f32 = 0.35;
-const TAU: f32 = 6.2831855;
+const FACE_DOWN: u32 = CLOUD_FACE_DOWN_VALUE;
+const FACE_UP: u32 = CLOUD_FACE_UP_VALUE;
+const FACE_NORTH: u32 = CLOUD_FACE_NORTH_VALUE;
+const FACE_SOUTH: u32 = CLOUD_FACE_SOUTH_VALUE;
+const FACE_WEST: u32 = CLOUD_FACE_WEST_VALUE;
+const FACE_EAST: u32 = CLOUD_FACE_EAST_VALUE;
+const CLOUD_FADE_START: f32 = CLOUD_FADE_START_VALUE;
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
-    @location(0) world_position: vec3<f32>,
-    @location(1) @interpolate(flat) normal: vec3<f32>,
+    @location(0) colour: vec4<f32>,
 }
 
-fn face_normal(face: u32) -> vec3<f32> {
-    if (face == FACE_DOWN) {
-        return vec3(0.0, -1.0, 0.0);
-    }
-    if (face == FACE_UP) {
-        return vec3(0.0, 1.0, 0.0);
-    }
-    if (face == FACE_NORTH) {
-        return vec3(0.0, 0.0, -1.0);
-    }
-    if (face == FACE_SOUTH) {
-        return vec3(0.0, 0.0, 1.0);
-    }
-    if (face == FACE_WEST) {
-        return vec3(-1.0, 0.0, 0.0);
-    }
-    return vec3(1.0, 0.0, 0.0);
-}
-
-// Mirrors `atmosphere::cloud_face_shade`.
-fn face_shade(normal: vec3<f32>) -> f32 {
-    return clamp(
-        0.55 * 0.5 * (normal.y + 1.0) - 0.1 * normal.x * normal.x + 0.1 * normal.z * normal.z + 0.75,
-        0.0,
-        1.0,
-    );
-}
-
-// Mirrors `atmosphere::cloud_colour`.
-fn cloud_colour() -> vec3<f32> {
-    let rain_colour = mix(
-        vec3(1.0),
-        RAIN_CLOUD_COLOUR,
-        clamp(atmosphere.sky_zenith_rain.w, 0.0, 1.0) * WEATHER_COLOUR_CONTRIBUTION,
-    );
-    let weather_colour = mix(
-        rain_colour,
-        THUNDER_CLOUD_COLOUR,
-        clamp(atmosphere.sky_horizon_thunder.w, 0.0, 1.0) * WEATHER_COLOUR_CONTRIBUTION,
-    );
-    let brightness = clamp(2.0 * cos(TAU * atmosphere.sky_extra.y) + 0.5, 0.0, 1.0);
-    let base = weather_colour * vec3(0.9 * brightness + 0.1, 0.9 * brightness + 0.1, 0.85 * brightness + 0.15);
-    let weight = clamp(atmosphere.sunrise_band.w, 0.0, 1.0) * CLOUD_SUNRISE_WEIGHT;
-    return max(atmosphere.sunrise_band.rgb * weight + base * (1.0 - weight), vec3(0.0));
-}
-
-// Mirrors `atmosphere::cloud_distance_fade`.
 fn distance_fade(world_distance: f32) -> f32 {
     let fade_distance = atmosphere.fog_end_time.w;
     if (fade_distance <= 0.0) {
@@ -112,73 +62,84 @@ fn corner_uv(corner_index: u32) -> vec2<f32> {
     )[corner_index];
 }
 
-fn reconstruct_local_position(record: PackedCloudQuad, corner: vec2<f32>) -> vec3<f32> {
-    let axis0_start = f32(record.bounds & 0xffu);
-    let axis1_start = f32((record.bounds >> 8u) & 0xffu);
-    let axis0_extent = f32(((record.bounds >> 16u) & 0xffu) + 1u);
-    let axis1_extent = f32(((record.bounds >> 24u) & 0xffu) + 1u);
-    let face = record.face_and_axis & 0x7u;
-
-    let x = mix(axis0_start, axis0_start + axis0_extent, corner.x);
-    let z = mix(axis1_start, axis1_start + axis1_extent, corner.y);
+fn face_corner_uv(face: u32, corner_index: u32) -> vec2<f32> {
+    // GlobalQuadIndexBuffer triangulates native four-vertex quads.
+    let quad_vertex = array<u32, 6>(1u, 2u, 0u, 0u, 2u, 3u)[corner_index];
+    let corner = array<vec2<f32>, 4>(
+        vec2(0.0, 0.0), vec2(1.0, 0.0),
+        vec2(1.0, 1.0), vec2(0.0, 1.0),
+    )[quad_vertex];
+    // Vanilla's exact face sequences preserve both outward
+    // winding and the diagonal over which native vertex fade interpolates.
     if (face == FACE_DOWN) {
-        return vec3(x, CLOUD_UNDERSIDE_Y, z);
+        return vec2(1.0 - corner.y, corner.x);
     }
     if (face == FACE_UP) {
-        return vec3(x, CLOUD_TOP_Y, z);
+        return corner.yx;
     }
+    if (face == FACE_NORTH || face == FACE_EAST) {
+        return vec2(corner.x, 1.0 - corner.y);
+    }
+    return corner;
+}
 
-    let run = mix(axis0_start, axis0_start + axis0_extent, corner.x);
-    let y = mix(CLOUD_UNDERSIDE_Y, CLOUD_TOP_Y, corner.y);
-    if (face == FACE_NORTH) {
-        return vec3(run, y, axis1_start);
+fn reconstruct_world_position(record: ViewportCloudQuad, corner: vec2<f32>) -> vec3<f32> {
+    let cell = vec2<f32>(record.cell);
+    let lower_y = native_cloud.geometry.y;
+    let upper_y = native_cloud.geometry.z;
+    var local_position: vec3<f32>;
+    if (record.face == FACE_DOWN) {
+        local_position = vec3(cell.x + corner.x, lower_y, cell.y + corner.y);
+    } else if (record.face == FACE_UP) {
+        local_position = vec3(cell.x + corner.x, upper_y, cell.y + corner.y);
+    } else {
+        let y = mix(lower_y, upper_y, corner.y);
+        if (record.face == FACE_NORTH) {
+            local_position = vec3(cell.x + corner.x, y, cell.y);
+        } else if (record.face == FACE_SOUTH) {
+            local_position = vec3(cell.x + corner.x, y, cell.y + 1.0);
+        } else if (record.face == FACE_WEST) {
+            local_position = vec3(cell.x, y, cell.y + corner.x);
+        } else {
+            local_position = vec3(cell.x + 1.0, y, cell.y + corner.x);
+        }
     }
-    if (face == FACE_SOUTH) {
-        return vec3(run, y, axis1_start);
-    }
-    if (face == FACE_WEST) {
-        return vec3(axis1_start, y, run);
-    }
-    return vec3(axis1_start, y, run);
+    return vec3(
+        local_position.x * native_cloud.geometry.x + atmosphere.fog_end_time.z * native_cloud.geometry.w,
+        local_position.y,
+        local_position.z * native_cloud.geometry.x,
+    );
+}
+
+fn native_cloud_vertex_colour(record: ViewportCloudQuad, world_position: vec3<f32>) -> vec4<f32> {
+    let baked = vec4(
+        f32(record.colour & 0xffu),
+        f32((record.colour >> 8u) & 0xffu),
+        f32((record.colour >> 16u) & 0xffu),
+        f32((record.colour >> 24u) & 0xffu),
+    ) / 255.0;
+    var colour = baked * native_cloud.colour;
+    // Current Clouds material fades the per-texel vertices, not the fragment.
+    colour.a *= distance_fade(distance(world_position, view.world_position));
+    return colour;
 }
 
 @vertex
-fn cloud_vertex(
-    @builtin(vertex_index) vertex_index: u32,
-    @builtin(instance_index) instance_index: u32,
-) -> VertexOutput {
+fn cloud_vertex(@builtin(vertex_index) vertex_index: u32) -> VertexOutput {
     let quad_index = vertex_index / 6u;
     let corner_index = vertex_index % 6u;
     let record = cloud_records[quad_index];
-    let local_position = reconstruct_local_position(record, corner_uv(corner_index));
-
-    let cloud_texture_offset = atmosphere.fog_end_time.z * CLOUD_TEXTURE_WORLD_PERIOD;
-    let center_x = floor((view.world_position.x - cloud_texture_offset) / CLOUD_TEXTURE_WORLD_PERIOD)
-        * CLOUD_TEXTURE_WORLD_PERIOD + cloud_texture_offset;
-    let center_z = floor(view.world_position.z / CLOUD_TEXTURE_WORLD_PERIOD)
-        * CLOUD_TEXTURE_WORLD_PERIOD;
-    let instance_column = i32(instance_index % 3u) - 1;
-    let instance_row = i32(instance_index / 3u) - 1;
-    let instance_origin = vec2(
-        center_x + f32(instance_column) * CLOUD_TEXTURE_WORLD_PERIOD,
-        center_z + f32(instance_row) * CLOUD_TEXTURE_WORLD_PERIOD,
+    let world_position = reconstruct_world_position(record, face_corner_uv(record.face, corner_index));
+    return VertexOutput(
+        view.clip_from_world * vec4(world_position, 1.0),
+        native_cloud_vertex_colour(record, world_position),
     );
-    let world_position = vec3(
-        local_position.x * CLOUD_CELL_BLOCKS + instance_origin.x,
-        local_position.y,
-        local_position.z * CLOUD_CELL_BLOCKS + instance_origin.y,
-    );
-
-    var out: VertexOutput;
-    out.position = view.clip_from_world * vec4(world_position, 1.0);
-    out.world_position = world_position;
-    out.normal = face_normal(record.face_and_axis & 0x7u);
-    return out;
 }
 
 @fragment
 fn cloud_fragment(in: VertexOutput) -> @location(0) vec4<f32> {
-    let colour = cloud_colour() * face_shade(in.normal);
-    let alpha = CLOUD_ALPHA * distance_fade(distance(in.world_position, view.world_position));
-    return vec4(colour, alpha);
+    // Interpolate native gamma vertex colour first; Bevy's sRGB target performs
+    // the inverse transfer on write. Render-target blend-space parity is a
+    // separate gate, not an invented cloud fog/light pass.
+    return tint_to_linear(in.colour);
 }

@@ -8,14 +8,14 @@ The manifest also records the explicit Rust target triple and Git commit and
 stages `THIRD_PARTY_NOTICES.md` beside the platform resources.
 
 The tool accepts `DIST_PLATFORM=windows`, `linux`, or `macos`. Override
-`DIST_CLIENT`, `DIST_CORE`, `ASSET_BLOB` (its parent directory supplies the
-carrier set), `PHYSICS_REGISTRY`, or `DIST_OUT` when staging synthetic fixtures
-or a different local build. `DIST_TARGET`, `DIST_GIT_COMMIT`, and `DIST_NOTICES`
+`DIST_CLIENT`, `DIST_CORE`, `PHYSICS_REGISTRY`, or `DIST_OUT` when staging
+synthetic fixtures or a different local build; the carriers come from the
+compiled-asset directory (`dist-local --assets` overrides it). `DIST_TARGET`, `DIST_GIT_COMMIT`, and `DIST_NOTICES`
 are explicit inputs as well. The output directory must not already exist.
 
 The staging boundary is deliberately narrow: every input must be a bounded
 regular file reached without symlinks, destinations come from a fixed platform
-table, required carrier names are explicit, collisions and parent traversal are
+table, required carrier names come from the carrier table (`assets::carriers`), collisions and parent traversal are
 rejected, and paths that look like credential material are refused. The command
 does not fetch assets, discover credentials, or include authentication state.
 Inputs are copied through opened handles whose regular-file identity is checked

@@ -1,0 +1,21 @@
+{
+  "repository": "bedrock-mc/cinnabar",
+  "checksums": "SHA256SUMS.txt",
+  "assets": {
+    "linux": {
+      "x86_64": "Cinnabar-x86_64.AppImage"
+    },
+    "windows": {
+      "x86_64": "Cinnabar-x64-setup.exe"
+    },
+    "macos": {
+      "arm64": "Cinnabar-arm64.dmg",
+      "x86_64": "Cinnabar-x86_64.dmg"
+    }
+  },
+  "additional_assets": [
+    "Cinnabar-x64.msi"
+  ],
+  "install_script": "install.sh",
+  "update_manifest": "update-stable.json"
+}

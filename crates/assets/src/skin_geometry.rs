@@ -45,8 +45,18 @@ impl SkinGeometry {
         if geometry.inherits.is_some() {
             return None;
         }
+        if geometry.bones.len() > MAX_SKIN_GEOMETRY_BONES
+            || geometry
+                .bones
+                .iter()
+                .map(|bone| bone.cubes.len())
+                .sum::<usize>()
+                > MAX_SKIN_GEOMETRY_CUBES
+        {
+            return None;
+        }
         let source = serde_json::to_string(geometry).ok()?;
-        finish(
+        let mut skin = finish(
             geometry.identifier.to_string(),
             Some(geometry.texture_width),
             Some(geometry.texture_height),
@@ -55,7 +65,9 @@ impl SkinGeometry {
             "",
             &source,
         )
-        .ok()
+        .ok()?;
+        skin.visible_bounds = geometry.visible_bounds.map(|bounds| bounds.as_bounds());
+        Some(skin)
     }
 }
 
@@ -130,6 +142,7 @@ pub fn parse_skin_geometry_layer(
     let mut visible_bounds = None;
     let mut bones: Vec<EntityGeometryBone> = Vec::new();
     let mut poly_meshes = Vec::new();
+    let mut cube_count = 0;
     for entry in chain.iter().rev() {
         texture_width = entry.texture_width.or(texture_width);
         texture_height = entry.texture_height.or(texture_height);
@@ -140,12 +153,25 @@ pub fn parse_skin_geometry_layer(
                 .position(|bone| bone.name.eq_ignore_ascii_case(&child.name))
             {
                 Some(index) => {
-                    overlay_bone(&mut bones[index], child);
+                    let other_cubes = cube_count - bones[index].cubes.len();
+                    cube_count = other_cubes
+                        + overlay_bone(
+                            &mut bones[index],
+                            child,
+                            MAX_SKIN_GEOMETRY_CUBES - other_cubes,
+                        )?;
                     if mesh.is_some() || child.reset == Some(true) {
                         poly_meshes[index] = mesh.clone();
                     }
                 }
                 None => {
+                    cube_count = cube_count
+                        .checked_add(child.cubes.len())
+                        .filter(|count| *count <= MAX_SKIN_GEOMETRY_CUBES)
+                        .ok_or(SkinGeometryError::TooManyCubes)?;
+                    if bones.len() >= MAX_SKIN_GEOMETRY_BONES {
+                        return Err(SkinGeometryError::TooManyBones);
+                    }
                     bones.push(child.clone());
                     poly_meshes.push(mesh.clone());
                 }
@@ -241,8 +267,12 @@ fn parse_geometries(root: &Value) -> Option<Vec<ParsedGeometry>> {
     let mut parsed = Vec::new();
     if let Some(modern) = root.get("minecraft:geometry").and_then(Value::as_array) {
         for geometry in modern {
-            let description = geometry.get("description")?;
-            let identifier = description.get("identifier")?.as_str()?;
+            let Some(description) = geometry.get("description") else {
+                continue;
+            };
+            let Some(identifier) = description.get("identifier").and_then(Value::as_str) else {
+                continue;
+            };
             // Modern formats dropped inheritance; vanilla skips such an entry.
             if identifier.contains(':') {
                 continue;
@@ -337,11 +367,14 @@ fn bones(value: Option<&Value>) -> Vec<EntityGeometryBone> {
                     .map(Into::into),
                 pivot: vector(bone.get("pivot")),
                 rotation: vector(bone.get("rotation")),
+                bind_pose_rotation: vector(bone.get("bind_pose_rotation")),
                 // Cubes carry the resolved mirror and inflate; the bone keeps none of its own.
                 mirror: None,
                 inflate: None,
                 never_render: bone.get("neverRender").and_then(Value::as_bool),
                 reset: bone.get("reset").and_then(Value::as_bool),
+                binding: None,
+                texture_meshes: Box::new([]),
                 cubes: cubes.into(),
             })
         })
@@ -373,7 +406,8 @@ fn cube_from(
     Some(EntityGeometryCube {
         origin,
         size,
-        pivot: vector(cube.get("pivot")).unwrap_or(zero),
+        pivot: vector(cube.get("pivot"))
+            .or_else(|| EntityGeometryCube::default_rotation_pivot(origin, size))?,
         rotation: vector(cube.get("rotation")).unwrap_or(zero),
         uv: match cube.get("uv") {
             Some(Value::Object(faces)) => face_uvs(faces)?,
@@ -413,7 +447,14 @@ fn face_uvs(faces: &Map<String, Value>) -> Option<EntityGeometryUv> {
     .then_some(EntityGeometryUv::Faces(uvs))
 }
 
-fn overlay_bone(base: &mut EntityGeometryBone, child: &EntityGeometryBone) {
+fn overlay_bone(
+    base: &mut EntityGeometryBone,
+    child: &EntityGeometryBone,
+    maximum_cubes: usize,
+) -> Result<usize, SkinGeometryError> {
+    let cube_count = base
+        .append_inherited_cubes(child, maximum_cubes)
+        .ok_or(SkinGeometryError::TooManyCubes)?;
     if child.parent.is_some() {
         base.parent.clone_from(&child.parent);
     }
@@ -426,12 +467,7 @@ fn overlay_bone(base: &mut EntityGeometryBone, child: &EntityGeometryBone) {
     if child.never_render.is_some() {
         base.never_render = child.never_render;
     }
-    if child.reset == Some(true) {
-        base.cubes = Box::default();
-    }
-    if !child.cubes.is_empty() {
-        base.cubes.clone_from(&child.cubes);
-    }
+    Ok(cube_count)
 }
 
 #[cfg(test)]

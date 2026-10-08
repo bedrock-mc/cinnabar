@@ -2,8 +2,7 @@
 //! mapped onto the `#bindings`, collections, and factory-created controls the
 //! vanilla `hud_screen.json`, `scoreboards.json`, and `hud_crosshair_overlay.json`
 //! read, as the client's HUD and scoreboard screen controllers feed them.
-//! Binding and property-bag names are read from those files and the 26.30
-//! reconstruction of the HUD screen controller.
+//! Binding and property-bag names match those files and the vanilla HUD controller.
 
 use serde_json::Value;
 
@@ -72,6 +71,8 @@ pub struct Timed {
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct HudTitle {
+    /// Identity of the controller request that created this title.
+    pub creation_id: u64,
     pub title: String,
     pub subtitle: String,
     pub fade_in: f64,
@@ -199,6 +200,7 @@ pub fn hud_data_source(model: &HudModel) -> DataSource {
                 FactoryItem::new("item_text", 0.0)
                     .clocked(ITEM_NAME_CLOCK)
                     .named("item_name_text")
+                    .var("localize", Value::Bool(false))
                     .var("show_survival_padding", Value::Bool(model.survival_ui))
                     .var("show_text_background", Value::Bool(false))
                     .var("item_text_background_alpha", Value::from(0.0)),
@@ -264,7 +266,14 @@ pub fn hud_data_source(model: &HudModel) -> DataSource {
 }
 
 fn slot_item(slot: &HudSlot) -> CollectionItem {
-    let mut item = CollectionItem::default()
+    CollectionItem::default()
+        // Retained bindings keep an unanswered value. Null explicitly clears
+        // our optional icon reference; it is not a native numeric item sentinel.
+        .with(
+            "#item_renderer_data",
+            slot.icon
+                .map_or(Scalar::Json(Value::Null), |icon| Scalar::Num(icon as f64)),
+        )
         .with("#slot_selected", Scalar::Bool(slot.selected))
         .with(
             "#inventory_stack_count",
@@ -284,24 +293,37 @@ fn slot_item(slot: &HudSlot) -> CollectionItem {
             "#item_durability_current_amount",
             Scalar::Num(slot.durability.unwrap_or(1.0).clamp(0.0, 1.0) * 1000.0),
         )
-        .with("#item_storage_visible", Scalar::Bool(false));
-    if let Some(icon) = slot.icon {
-        item = item.with("#item_renderer_data", Scalar::Num(icon as f64));
-    }
-    item
+        .with("#item_storage_visible", Scalar::Bool(false))
 }
 
+#[cfg(test)]
+mod tests;
+
 fn titles(data: &mut DataSource, model: &HudModel) {
+    data.set_global(
+        "#hud_title_text_string",
+        Scalar::Text(
+            model
+                .title
+                .as_ref()
+                .map_or_else(String::new, |title| title.title.clone()),
+        ),
+    );
+    data.set_global(
+        "#hud_subtitle_text_string",
+        Scalar::Text(
+            model
+                .title
+                .as_ref()
+                .map_or_else(String::new, |title| title.subtitle.clone()),
+        ),
+    );
     if let Some(title) = &model.title {
-        data.set_global("#hud_title_text_string", Scalar::Text(title.title.clone()));
-        data.set_global(
-            "#hud_subtitle_text_string",
-            Scalar::Text(title.subtitle.clone()),
-        );
         data.set_factory(
             "hud_title_text_factory",
             vec![
                 FactoryItem::new("hud_title_text", 0.0)
+                    .identified(title.creation_id)
                     .clocked(TITLE_CLOCK)
                     .named("hud_title_text")
                     .var("title_fade_in_time", Value::from(title.fade_in))
@@ -382,8 +404,30 @@ fn sidebar(data: &mut DataSource, sidebar: Option<&Sidebar>) {
     );
 }
 
+/// A `#rrggbb` tint as the `[r, g, b, a]` array a colour binding answers; other
+/// text stays text.
+fn color_array(color: &str) -> Scalar {
+    match crate::emit::color_value(&Value::String(color.to_owned())) {
+        Some(rgba) => Scalar::Json(Value::Array(
+            rgba.iter()
+                .map(|channel| Value::from(f64::from(*channel) / 255.0))
+                .collect(),
+        )),
+        None => Scalar::Text(color.to_owned()),
+    }
+}
+
 fn boss_bars(data: &mut DataSource, bars: &[BossBar]) {
     data.set_grid_dimensions("#boss_grid_dimension", [1, bars.len() as u32]);
+    // Fixed-capacity grids still query unused boss slots.
+    data.set_collection_defaults(
+        "boss_bars",
+        [
+            ("#bar_visible".to_owned(), Scalar::Bool(false)),
+            ("#bossName".to_owned(), Scalar::Text(String::new())),
+        ]
+        .into(),
+    );
     data.set_collection(
         "boss_bars",
         bars.iter()
@@ -395,7 +439,7 @@ fn boss_bars(data: &mut DataSource, bars: &[BossBar]) {
                         "#progress_percentage",
                         Scalar::Num(1.0 - bar.progress.clamp(0.0, 1.0)),
                     )
-                    .with("#bar_color", Scalar::Text(bar.color.clone()))
+                    .with("#bar_color", color_array(&bar.color))
                     .with("#bar_notches", Scalar::Num(f64::from(bar.notches)))
             })
             .collect(),

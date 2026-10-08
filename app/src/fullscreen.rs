@@ -5,7 +5,7 @@
 
 use bevy::{
     input::{ButtonState, keyboard::KeyboardInput},
-    prelude::{Entity, KeyCode, Local, MessageReader, Query, ResMut, With},
+    prelude::{Entity, Local, MessageReader, Query, ResMut, With},
     window::{MonitorSelection, PrimaryWindow, Window, WindowMode},
 };
 
@@ -23,11 +23,19 @@ pub(crate) fn toggle_fullscreen_hotkey(
         keyboard.clear();
         return;
     };
+    if !window.visible {
+        keyboard.clear();
+        return;
+    }
     let toggles = keyboard
         .read()
         .filter(|input| {
             input.window == entity
-                && input.key_code == KeyCode::F11
+                && crate::menu::settings_options::binding_key(
+                    Some(&menu),
+                    "key.fullscreen",
+                    input.key_code,
+                )
                 && input.state == ButtonState::Pressed
                 && !input.repeat
         })
@@ -54,6 +62,10 @@ pub(crate) fn apply_runtime_fullscreen_setting(
     let Ok(mut window) = windows.single_mut() else {
         return;
     };
+    // A hidden capture window keeps its requested size and leaves the saved preference alone.
+    if !window.visible {
+        return;
+    }
     if let Some(fullscreen) = menu.take_fullscreen_change() {
         set_fullscreen(&mut window, fullscreen);
         record_fullscreen(&mut settings, fullscreen);

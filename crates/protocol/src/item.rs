@@ -1,4 +1,7 @@
-use std::{collections::HashSet, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use bytes::{Buf, Bytes, BytesMut};
 use sha2::{Digest, Sha256};
@@ -14,6 +17,8 @@ use valentine::bedrock::{
 
 use crate::inventory::{InventoryPacketError, VerifiedNetworkItemStack};
 
+#[cfg(test)]
+mod animation_tests;
 mod components;
 mod display;
 mod icons;
@@ -442,6 +447,9 @@ pub enum ActorActionKind {
     Custom {
         animation: Arc<str>,
         controller: Arc<str>,
+        next_state: Arc<str>,
+        stop_expression: Arc<str>,
+        stop_expression_version: i32,
     },
     Ignored {
         action_id: u8,
@@ -468,7 +476,7 @@ pub enum ItemPacketError {
     TooManyRegistryEntries { count: usize, max: usize },
     #[error("item identifier has {bytes} UTF-8 bytes, exceeding {max}")]
     ItemIdentifierTooLong { bytes: usize, max: usize },
-    #[error("item registry contains duplicate identifier or network ID")]
+    #[error("item registry contains duplicate network ID")]
     DuplicateRegistryEntry,
     #[error("item network ID {0} is invalid")]
     InvalidItemNetworkId(i32),
@@ -662,8 +670,7 @@ pub(crate) fn normalize_item_registry(
             max: MAX_ITEM_REGISTRY_ENTRIES,
         });
     }
-    let mut identifiers = HashSet::with_capacity(packet.item_data.len());
-    let mut network_ids = HashSet::with_capacity(packet.item_data.len());
+    let mut network_ids = HashMap::with_capacity(packet.item_data.len());
     let mut entries = Vec::with_capacity(packet.item_data.len());
     for item in packet.item_data {
         if item.item_name.len() > MAX_ACTION_IDENTIFIER_BYTES {
@@ -673,9 +680,6 @@ pub(crate) fn normalize_item_registry(
             });
         }
         let network_id = i32::from(item.item_id);
-        if !identifiers.insert(item.item_name.clone()) || !network_ids.insert(network_id) {
-            return Err(ItemPacketError::DuplicateRegistryEntry);
-        }
         validate_registry_nbt(&item.item_component_data)?;
         let component_bytes = encode_extra(&item.item_component_data)?;
         let version = match item.item_version {
@@ -691,7 +695,7 @@ pub(crate) fn normalize_item_registry(
         } else {
             registry_capacity::negotiated_max_stack_size(&component_bytes)
         };
-        entries.push(ItemRegistryEntry {
+        let entry = ItemRegistryEntry {
             identifier: Arc::from(item.item_name),
             network_id,
             component_based: item.is_component_based,
@@ -704,7 +708,27 @@ pub(crate) fn normalize_item_registry(
             } else {
                 Arc::from([])
             },
-        });
+        };
+        if let Some(&previous) = network_ids.get(&network_id) {
+            let current: &mut ItemRegistryEntry = &mut entries[previous];
+            if *current == entry {
+                continue;
+            }
+            if current.identifier != entry.identifier
+                || current.version != entry.version
+                || current.component_based != entry.component_based
+                || (!current.canonical_empty_component_data
+                    && !entry.canonical_empty_component_data)
+            {
+                return Err(ItemPacketError::DuplicateRegistryEntry);
+            }
+            if current.canonical_empty_component_data {
+                *current = entry;
+            }
+        } else {
+            network_ids.insert(network_id, entries.len());
+            entries.push(entry);
+        }
     }
     Ok(ItemActorEvent::Registry(ItemRegistryEvent {
         entries: Arc::from(entries),
@@ -840,6 +864,9 @@ pub(crate) fn normalize_animate_entity(
         kind: ActorActionKind::Custom {
             animation: Arc::from(packet.m_animation),
             controller: Arc::from(packet.m_controller),
+            next_state: Arc::from(packet.m_next_state),
+            stop_expression: Arc::from(packet.m_stop_expression),
+            stop_expression_version: packet.m_stop_expression_version,
         },
         data: packet.m_blend_out_time,
         swing_source: None,

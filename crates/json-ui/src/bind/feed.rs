@@ -8,9 +8,11 @@ use std::sync::Arc;
 
 use serde_json::Value;
 
-use super::{Binder, Node, Scope, Src};
+use super::bag::Bag;
+use super::spec::{Binding, Kind};
+use super::{Binder, Node, Scope, Src, with_index};
 use crate::predicate::Scalar;
-use crate::tree::{ControlRef, ResolvedControl};
+use crate::tree::{ControlRef, Factory, ResolvedControl};
 
 /// One control a screen controller asked a named factory to create: the
 /// `control_ids` entry, the instance name, the `$vars` it resolves with, the `#`
@@ -29,6 +31,8 @@ pub struct FactoryItem {
     /// A caller clock holding the creation time instead of `born`, so the
     /// control can restart its fade without the screen re-binding.
     pub clock: Option<String>,
+    /// Distinguishes a replacement control from an update to its property bag.
+    pub instance_id: Option<u64>,
 }
 
 impl FactoryItem {
@@ -42,6 +46,12 @@ impl FactoryItem {
 
     pub fn named(mut self, name: impl Into<String>) -> Self {
         self.name = Some(name.into());
+        self
+    }
+
+    /// Keep this creation's bindings until the caller supplies another identity.
+    pub fn identified(mut self, instance_id: u64) -> Self {
+        self.instance_id = Some(instance_id);
         self
     }
 
@@ -71,22 +81,15 @@ impl FactoryItem {
 }
 
 impl<'a> Binder<'a> {
-    /// The `[columns, rows]` the screen answers a grid's `grid_dimension_binding` with.
-    pub(super) fn bound_dimensions(&self, control: &ResolvedControl) -> Option<[u32; 2]> {
-        let name = control
-            .properties
-            .get("grid_dimension_binding")
-            .and_then(Value::as_str)?;
-        self.data.grid_dimensions.get(name).copied()
-    }
-
     /// The items a screen fed to this control's named factory.
     pub(super) fn feed(&self, control: &ResolvedControl) -> Option<&'a [FactoryItem]> {
         let name = control.factory.as_ref()?.name.as_deref()?;
         self.data.factories.get(name).map(Vec::as_slice)
     }
 
-    /// One control per fed item, newest `max_children_size` kept.
+    /// One control per fed item, oldest first: a `control_name` template as
+    /// declared, else the item's `control_ids` entry with its own and the
+    /// captured variables; an id the factory lacks creates nothing.
     pub(super) fn expand_feed(
         &mut self,
         control: &ResolvedControl,
@@ -96,24 +99,31 @@ impl<'a> Binder<'a> {
         let Some(factory) = control.factory.clone() else {
             return Vec::new();
         };
-        let skip = factory
-            .max_children_size
-            .map_or(0, |max| items.len().saturating_sub(max));
         let mut nodes = Vec::new();
-        for item in &items[skip..] {
-            let Some(reference) = factory
-                .control_ids
-                .get(&item.control_id)
-                .or(factory.control_name.as_ref())
-                .cloned()
-            else {
+        let mut siblings = crate::layout::SiblingKeys::default();
+        for item in items.iter().take(MAX_FACTORY_ITEMS) {
+            if !self.can_create() {
+                break;
+            }
+            let (reference, vars) = match &factory.control_name {
+                Some(template) => (template.clone(), BTreeMap::new()),
+                None => match factory.control_ids.get(&item.control_id) {
+                    Some(reference) => (reference.clone(), factory.creation_vars(&item.vars)),
+                    None => continue,
+                },
+            };
+            let Some(inner) = self.expansion_scope(scope, &reference) else {
                 continue;
             };
-            let Some(resolved) = self.resolve_scoped(&reference, control, &item.vars) else {
+            let Some(resolved) = self.resolve_scoped(&reference, control, &vars) else {
                 continue;
             };
+            let name = item
+                .name
+                .clone()
+                .or_else(|| factory.instance_names.get(&item.control_id).cloned());
             let instance = Src::root(resolved).patched(|patch| {
-                patch.name.clone_from(&item.name);
+                patch.name.clone_from(&name);
                 patch
                     .properties
                     .insert(crate::anim::BORN_KEY.to_owned(), Value::from(item.born));
@@ -125,9 +135,18 @@ impl<'a> Binder<'a> {
                 }
             });
             // The item's property bag is readable throughout the created subtree.
-            let mut item_scope = scope.clone();
+            let mut item_scope = inner;
+            item_scope.incarnation = Some(super::state::key_hash(
+                item_scope.incarnation.unwrap_or(super::state::KEY_ROOT),
+                &item
+                    .instance_id
+                    .unwrap_or(item.born.to_bits())
+                    .to_le_bytes(),
+            ));
             if let Some((collection, index)) = &item.cursor {
-                item_scope.indices.insert(collection.clone(), *index);
+                std::sync::Arc::make_mut(&mut item_scope.cursor)
+                    .indices
+                    .insert(collection.clone(), *index as i64);
             }
             let mut values = (*item_scope.values).clone();
             values.extend(
@@ -136,7 +155,77 @@ impl<'a> Binder<'a> {
                     .map(|(name, value)| (name.clone(), value.clone())),
             );
             item_scope.values = std::sync::Arc::new(values);
-            nodes.push(self.build(instance, &item_scope));
+            let repeat = siblings.repeat(
+                instance.name(),
+                instance.prop("collection_index").and_then(Value::as_u64),
+            );
+            nodes.push(self.build(instance, &item_scope, repeat));
+        }
+        nodes
+    }
+
+    /// One control per collection item: a bound `#collection_length` decides
+    /// the count, else the screen's collection, else the literal length.
+    pub(super) fn expand_factory(
+        &mut self,
+        control: &ResolvedControl,
+        node: &Node,
+        scope: &Scope,
+    ) -> Vec<Node> {
+        let Some(factory) = &control.factory else {
+            return Vec::new();
+        };
+        let collection = collection_name(control);
+        let key = collection.map(|collection| self.collection_key(collection, scope));
+        let supplied = key.as_ref().and_then(|key| self.data.collections.get(key));
+        let roles: Vec<Option<String>> = match node.native.collection_length.as_ref() {
+            // A bound count takes each instance's role from its supplied item.
+            Some(length) => bound_roles(length, factory)
+                .into_iter()
+                .enumerate()
+                .map(|(index, role)| role.or_else(|| supplied?.get(index)?.role.clone()))
+                .collect(),
+            None => match supplied {
+                Some(items) => items.iter().map(|item| item.role.clone()).collect(),
+                None => unsupplied_roles(factory, &node.own),
+            },
+        };
+        let mut nodes = Vec::with_capacity(roles.len());
+        for (index, role) in roles.iter().enumerate() {
+            if !self.can_create() {
+                break;
+            }
+            let role = role.as_deref();
+            let Some(reference) = select_control(factory, role) else {
+                self.note(format!(
+                    "{}: factory has no control for role {role:?}",
+                    control.name
+                ));
+                continue;
+            };
+            let reference = reference.clone();
+            let vars = match factory.control_name {
+                Some(_) => BTreeMap::new(),
+                None => factory.creation_vars(&BTreeMap::new()),
+            };
+            let Some(inner) = self.expansion_scope(scope, &reference) else {
+                continue;
+            };
+            let Some(resolved) = self.resolve_scoped(&reference, control, &vars) else {
+                self.note(format!(
+                    "{}: factory control {reference} unresolved",
+                    control.name
+                ));
+                continue;
+            };
+            let child_scope = match (collection, &key) {
+                (Some(collection), Some(key)) => inner.enter(collection, key.clone(), index),
+                _ => inner,
+            };
+            let instance = Src::root(resolved).patched(|patch| {
+                patch.name = role.and_then(|role| factory.instance_names.get(role).cloned());
+            });
+            nodes.push(self.build(with_index(instance, index), &child_scope, 0));
         }
         nodes
     }
@@ -173,10 +262,7 @@ impl<'a> Binder<'a> {
             );
             vars
         };
-        let resolved = self
-            .lib
-            .resolve_with(reference, &cache_key.1, &vars)
-            .map(Arc::new);
+        let resolved = self.lib.resolve_shared(reference, &cache_key.1, &vars);
         self.resolved_with.insert(cache_key, resolved.clone());
         resolved
     }
@@ -190,5 +276,75 @@ fn factory_scope(control: &ResolvedControl) -> BTreeMap<String, Value> {
             .map(|(name, value)| (name.clone(), value.clone()))
             .collect(),
         _ => BTreeMap::new(),
+    }
+}
+
+/// Most instances a factory makes from a bound or literal count.
+pub(crate) const MAX_FACTORY_ITEMS: usize = 4096;
+
+/// Roles for a bound `#collection_length`: one per control id, or that many
+/// of a `control_name` template.
+fn bound_roles(length: &Value, factory: &Factory) -> Vec<Option<String>> {
+    let cap = factory.max_children_size.unwrap_or(MAX_FACTORY_ITEMS);
+    match length {
+        Value::Array(ids) => ids
+            .iter()
+            .take(cap)
+            .map(|id| id.as_str().map(str::to_owned))
+            .collect(),
+        other => {
+            let count = other.as_i64().unwrap_or(0).max(0) as usize;
+            vec![None; count.min(cap)]
+        }
+    }
+}
+
+/// Roles for a collection the screen does not supply, from a literal
+/// `#collection_length`: an array of control ids makes one instance per id; a
+/// number makes that many only for a `control_name` template.
+fn unsupplied_roles(factory: &Factory, own: &Bag) -> Vec<Option<String>> {
+    match own.get("#collection_length") {
+        Some(Scalar::Json(Value::Array(ids))) => ids
+            .iter()
+            .take(MAX_FACTORY_ITEMS)
+            .map(|id| id.as_str().map(str::to_owned))
+            .collect(),
+        Some(length) if factory.control_name.is_some() => {
+            let count = length.as_number().unwrap_or(0.0).max(0.0) as usize;
+            vec![None; count.min(MAX_FACTORY_ITEMS)]
+        }
+        _ => Vec::new(),
+    }
+}
+
+/// A control's `collection_name`; an empty one declares no collection.
+pub(super) fn collection_name(control: &ResolvedControl) -> Option<&str> {
+    let name = control.properties.get("collection_name")?.as_str()?;
+    (!name.is_empty()).then_some(name)
+}
+
+pub(super) fn is_collection_factory(control: &ResolvedControl) -> bool {
+    control.factory.is_some()
+        && (collection_name(control).is_some()
+            || control.control_type.as_deref() == Some("collection_panel"))
+}
+
+/// A collection factory whose roles must wait for a view's property-bag write.
+pub(super) fn factory_awaits_views(control: &ResolvedControl, bindings: &[Binding]) -> bool {
+    is_collection_factory(control)
+        && bindings.iter().any(|binding| {
+            matches!(&binding.kind, Kind::View { target, .. } if target == "#collection_length")
+        })
+}
+
+/// The control a collection item creates: the template, else its role's entry
+/// (an item without a role takes the first); a role the factory lacks creates nothing.
+fn select_control<'a>(factory: &'a Factory, role: Option<&str>) -> Option<&'a ControlRef> {
+    if let Some(template) = &factory.control_name {
+        return Some(template);
+    }
+    match role {
+        Some(role) => factory.control_ids.get(role),
+        None => factory.control_ids.values().next(),
     }
 }

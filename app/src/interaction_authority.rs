@@ -12,97 +12,25 @@ use crate::{
     mining::{FrozenMiningFrame, FrozenMiningRay, FrozenMiningSelection, FrozenMiningTarget},
     movement::PhysicsCollisionRegistries,
     runtime::world::ClientWorld,
-    ui_runtime::UiRuntime,
 };
+use client_ui::ui_runtime::UiRuntime;
 
-/// Render frames a deferred press may wait for fresh evidence without outliving a stalled simulation.
-pub(crate) const MAX_PENDING_INTERACTION_FRAMES: u64 = 32;
-
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) struct FrozenBlockObservation {
-    pub(crate) frame: FrozenMiningFrame,
-    pub(crate) ray: FrozenMiningRay,
-    pub(crate) reach: f64,
-    pub(crate) input_mode: PlayerInputMode,
-    pub(crate) selection: FrozenMiningSelection,
-    pub(crate) target: FrozenMiningTarget,
-}
-
-/// Server-side pick checks measure to the block's minimum corner with this slack
-/// over the game-mode pick range. Needs independent measurement.
-const SERVER_PICK_SLACK: f64 = 0.5;
-
-/// Vanilla limits a pick by the eye-to-block-centre distance, not the ray length.
-///
-/// Only touch reach (6.7 survival, 12 creative) equals the server's range, so only
-/// touch picks can exceed its corner check; those are dropped too.
-pub(crate) fn within_pick_range(observed: &FrozenBlockObservation) -> bool {
-    let distance_squared = |offset: f64| {
-        observed
-            .target
-            .position
-            .into_iter()
-            .zip(observed.ray.origin)
-            .map(|(block, eye)| (f64::from(block) + offset - f64::from(eye)).powi(2))
-            .sum::<f64>()
-    };
-    let corner_limit = observed.reach + SERVER_PICK_SLACK;
-    distance_squared(0.5) <= observed.reach * observed.reach
-        && (observed.input_mode != PlayerInputMode::Touch
-            || distance_squared(0.0) <= corner_limit * corner_limit)
-}
-
-#[cfg(test)]
-impl FrozenBlockObservation {
-    /// A top-face hit on `position` holding `item` in slot 2.
-    pub(crate) fn fixture(
-        position: [i32; 3],
-        face: u8,
-        item: protocol::VerifiedNetworkItemStack,
-    ) -> Self {
-        let identity = sim::CollisionQuery::synthetic(()).identity;
-        Self {
-            frame: FrozenMiningFrame {
-                session_generation: 7,
-                position_authority_generation: 0,
-                input_authority_generation: NonZeroU64::MIN,
-                input_frame_sequence: 1,
-                fifo_sequence: 1,
-                physics_tick: 101,
-                pose_generation: 1,
-            },
-            ray: FrozenMiningRay {
-                origin: [0.5, 65.62, 0.5],
-                direction: [0.0, -1.0, 0.0],
-                movement_world_identity: identity.clone(),
-                world_identity: identity.clone(),
-            },
-            reach: 5.7,
-            input_mode: PlayerInputMode::Mouse,
-            selection: FrozenMiningSelection { slot: 2, item },
-            target: FrozenMiningTarget {
-                position,
-                face,
-                relative_hit: [0.5, 1.0, 0.5],
-                runtime_id: 9,
-                identity,
-            },
-        }
-    }
-}
+pub(crate) use gameplay::interaction_authority::{FrozenBlockObservation, within_pick_range};
 
 /// Whether a frozen ray still belongs to the live network session.
 ///
 /// Events committed after the freeze (actor movement, chat) do not stale it: the ray is cast
 /// against the current world, whose inspected revisions the observation records. The stream's
-/// actor-session id is a process-wide counter, not the network session generation, so it is
-/// never compared with the ray's.
+/// actor-session id is a separate process-wide counter, not the network session generation;
+/// each is checked against the matching authority captured by the ray.
 pub(crate) fn ray_is_current(
     ray: &crate::local_player::FrozenInteractionOrigin,
     ui_session: u64,
-    stream: &client_world::WorldStream,
+    stream: &chunk_pipeline::WorldStream,
 ) -> bool {
-    ray.session_generation() == ui_session && ray.fifo_sequence() <= stream.committed_sequence()
+    ray.session_generation() == ui_session
+        && ray.actor_session_id() == stream.authority().actor_session_id()
+        && ray.fifo_sequence() <= stream.committed_sequence()
 }
 
 /// The ray or world evidence behind a block observation is stale or unreadable.
@@ -131,6 +59,34 @@ pub(crate) fn observe_block_ray(
     selection: FrozenMiningSelection,
     input: (PlayerInputMode, f64, (NonZeroU64, u64), u64),
 ) -> Result<Option<FrozenBlockObservation>, BlockRayUnavailable> {
+    observe_block_ray_using(
+        origin,
+        ui,
+        client_world,
+        collisions,
+        selection,
+        input,
+        |world, origin, direction, reach| {
+            world.block_interaction_ray_current(origin, direction, reach)
+        },
+    )
+}
+
+/// Freezes a current observation after the owning interaction chooses its support target.
+pub(crate) fn observe_block_ray_using(
+    origin: &InteractionOriginSnapshot,
+    ui: &UiRuntime,
+    client_world: &ClientWorld,
+    collisions: &PhysicsCollisionRegistries,
+    selection: FrozenMiningSelection,
+    input: (PlayerInputMode, f64, (NonZeroU64, u64), u64),
+    choose: impl FnOnce(
+        &PaletteWorld<'_>,
+        Vec3,
+        Vec3,
+        f64,
+    ) -> Result<Option<sim::BlockHit>, sim::WorldQueryError>,
+) -> Result<Option<FrozenBlockObservation>, BlockRayUnavailable> {
     let (
         input_mode,
         reach,
@@ -150,8 +106,7 @@ pub(crate) fn observe_block_ray(
         collisions.registry(stream.network_id_mode()),
         stream.current_dimension(),
     );
-    let Some(hit) = world
-        .block_interaction_ray_current(vector(ray.origin()), vector(ray.direction()), reach)
+    let Some(hit) = choose(&world, vector(ray.origin()), vector(ray.direction()), reach)
         .map_err(|_| BlockRayUnavailable)?
     else {
         return Ok(None);
@@ -190,11 +145,48 @@ pub(crate) fn observe_block_ray(
 }
 
 #[cfg(test)]
+/// A top-face hit on `position` holding `item` in slot 2.
+pub(crate) fn fixture(
+    position: [i32; 3],
+    face: u8,
+    item: protocol::VerifiedNetworkItemStack,
+) -> FrozenBlockObservation {
+    let identity = sim::CollisionQuery::synthetic(()).identity;
+    FrozenBlockObservation {
+        frame: FrozenMiningFrame {
+            session_generation: 7,
+            position_authority_generation: 0,
+            input_authority_generation: NonZeroU64::MIN,
+            input_frame_sequence: 1,
+            fifo_sequence: 1,
+            physics_tick: 101,
+            pose_generation: 1,
+        },
+        ray: FrozenMiningRay {
+            origin: [0.5, 65.62, 0.5],
+            direction: [0.0, -1.0, 0.0],
+            movement_world_identity: identity.clone(),
+            world_identity: identity.clone(),
+        },
+        reach: 5.7,
+        input_mode: PlayerInputMode::Mouse,
+        selection: FrozenMiningSelection { slot: 2, item },
+        target: FrozenMiningTarget {
+            position,
+            face,
+            relative_hit: [0.5, 1.0, 0.5],
+            runtime_id: 9,
+            identity,
+        },
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
-    fn stream() -> client_world::WorldStream {
-        client_world::WorldStream::new(protocol::WorldBootstrap {
+    fn stream() -> chunk_pipeline::WorldStream {
+        chunk_pipeline::WorldStream::new(protocol::WorldBootstrap {
             dimension: 0,
             local_player_runtime_id: 42,
             local_player_unique_id: 1,
@@ -205,18 +197,24 @@ mod tests {
         })
     }
 
-    fn ray(session: u64, fifo_sequence: u64) -> crate::local_player::FrozenInteractionOrigin {
+    fn ray(
+        session: u64,
+        actor_session_id: u64,
+        fifo_sequence: u64,
+    ) -> crate::local_player::FrozenInteractionOrigin {
         let mut carrier = crate::local_player::LocalPlayerFrameCarrier::default();
         let identity = sim::CollisionQuery::synthetic(()).identity;
         carrier
             .publish(crate::local_player::LocalPlayerFrameSample {
                 session_generation: session,
+                actor_session_id,
                 fifo_sequence,
                 physics_tick: 100,
                 perspective: semantic_input::PerspectiveMode::FirstPerson,
                 world_collision_identity: identity,
                 pose: bevy::prelude::Transform::default(),
                 eye: bevy::prelude::Vec3::new(0.0, 71.62, 0.0),
+                feet: bevy::prelude::Vec3::new(0.0, 70.0, 0.0),
                 rotation: bevy::prelude::Quat::IDENTITY,
             })
             .unwrap();
@@ -232,8 +230,9 @@ mod tests {
     fn a_ray_survives_later_commits_and_reconnects_but_not_a_session_change() {
         let _earlier = stream();
         let mut stream = stream();
-        let session = stream.actor_session_id() + 5;
-        let frozen = ray(session, stream.committed_sequence());
+        let actor_session_id = stream.authority().actor_session_id();
+        let session = actor_session_id + 5;
+        let frozen = ray(session, actor_session_id, stream.committed_sequence());
         stream
             .submit(
                 stream.committed_sequence() + 1,
@@ -246,9 +245,38 @@ mod tests {
             )
             .unwrap();
         assert!(stream.committed_sequence() > frozen.fifo_sequence());
-        assert_ne!(stream.actor_session_id(), session);
+        assert_ne!(stream.authority().actor_session_id(), session);
         assert!(ray_is_current(&frozen, session, &stream));
         assert!(!ray_is_current(&frozen, session + 1, &stream));
+        assert!(!ray_is_current(&frozen, session, &self::stream()));
+        assert!(!ray_is_current(
+            &ray(session, actor_session_id, stream.committed_sequence() + 1),
+            session,
+            &stream,
+        ));
+    }
+
+    #[test]
+    fn connection_and_actor_sessions_are_independent() {
+        let stream = stream();
+        let actor_session_id = stream.authority().actor_session_id();
+        let connection_session = actor_session_id + 1;
+        let frozen = ray(
+            connection_session,
+            actor_session_id,
+            stream.committed_sequence(),
+        );
+        assert_eq!(frozen.session_generation(), connection_session);
+        assert_eq!(frozen.actor_session_id(), actor_session_id);
+        assert!(ray_is_current(&frozen, connection_session, &stream));
+
+        // Matching a stream must not make a retired connection's ray current.
+        let retired = ray(
+            actor_session_id,
+            actor_session_id,
+            stream.committed_sequence(),
+        );
+        assert!(!ray_is_current(&retired, connection_session, &stream));
     }
 
     fn at(position: [i32; 3], input_mode: PlayerInputMode, reach: f64) -> FrozenBlockObservation {
@@ -258,7 +286,7 @@ mod tests {
         FrozenBlockObservation {
             input_mode,
             reach,
-            ..FrozenBlockObservation::fixture(position, 1, item)
+            ..fixture(position, 1, item)
         }
     }
 
@@ -289,3 +317,6 @@ mod tests {
         )));
     }
 }
+
+#[cfg(test)]
+mod correction_tests;

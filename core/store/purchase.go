@@ -6,7 +6,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/sandertv/gophertunnel/minecraft/service/marketplace"
 )
 
@@ -126,19 +125,13 @@ func (c *Client) sendPurchase(ctx context.Context, r PurchaseRequest) (PurchaseR
 	if err != nil {
 		return PurchaseResult{}, ErrInvalidRequest
 	}
-	correlation := uuid.NewString()
-	id := c.cfg.Identity
 	sent, err := c.cfg.Market.PurchaseVirtual(ctx, marketplace.Purchase{
 		OfferID: r.OfferID, StoreID: r.StoreID, Amount: amount, UnitDurationSeconds: r.UnitDurationSeconds,
-		Tags: marketplace.CustomTags{
-			ClientID: id.DeviceID, DeviceSessionID: c.cfg.Market.SessionID(), CorrelationID: correlation, TitleID: id.TitleID,
-			BuildPlat: id.BuildPlatform, EditionType: id.EditionType, Seq: c.seq.Add(1), DnAPlat: id.DNAPlatform, Xuid: id.XUID,
-		},
 	})
 	if err != nil {
 		return PurchaseResult{}, err // not sent
 	}
-	res := PurchaseResult{CorrelationID: correlation, HTTPStatus: sent.StatusCode, InventoryVersion: sent.InventoryETag}
+	res := PurchaseResult{CorrelationID: sent.CorrelationID, HTTPStatus: sent.StatusCode, InventoryVersion: sent.InventoryETag}
 	switch sent.Outcome {
 	case marketplace.PurchaseSucceeded:
 		res.Status = PurchaseOK
@@ -153,11 +146,6 @@ func (c *Client) sendPurchase(ctx context.Context, r PurchaseRequest) (PurchaseR
 		res.Status = PurchaseUnknown
 		c.invalidateInventory()
 		return res, nil
-	}
-	if sent.InventoryETag != "" {
-		c.mu.Lock()
-		c.etag = sent.InventoryETag
-		c.mu.Unlock()
 	}
 	if res.Status == PurchaseOK || res.Status == PurchaseStaleState {
 		c.invalidateInventory()

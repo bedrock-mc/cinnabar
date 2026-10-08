@@ -104,6 +104,22 @@ fn catalog() -> ChatAutocompleteCatalog {
     catalog
 }
 
+#[test]
+fn command_names_match_substrings_case_insensitively() {
+    let catalog = catalog();
+    let completion = catalog.complete("/MODE", 5).unwrap();
+    assert_eq!(completion.suggestions.as_ref(), [Arc::from("/gamemode")]);
+    let completion = catalog.complete("/iv", 3).unwrap();
+    assert_eq!(completion.suggestions.as_ref(), [Arc::from("/give")]);
+    assert!(
+        catalog
+            .complete("/unavailable", 12)
+            .unwrap()
+            .suggestions
+            .is_empty()
+    );
+}
+
 fn suggest(catalog: &ChatAutocompleteCatalog, input: &str) -> Vec<String> {
     complete(catalog, input, CompletionContext::default()).0
 }
@@ -123,7 +139,11 @@ fn complete(
 #[test]
 fn command_names_and_aliases_complete_with_the_slash() {
     let catalog = catalog();
-    assert_eq!(suggest(&catalog, "/g"), ["/gamemode", "/give", "/gm"]);
+    assert_eq!(
+        suggest(&catalog, "/g"),
+        ["/flag", "/gamemode", "/give", "/gm"]
+    );
+    assert_eq!(suggest(&catalog, "/m"), ["/gamemode", "/gm"]);
     assert_eq!(suggest(&catalog, "/GAME"), ["/gamemode"]);
     assert!(suggest(&catalog, "plain chat").is_empty());
 }
@@ -175,12 +195,19 @@ fn permission_level_hides_commands_above_the_local_level() {
         players: &[],
         command_permission: Some(0),
     };
-    assert!(complete(&catalog, "/o", low).0.is_empty());
+    assert_eq!(complete(&catalog, "/o", low).0, ["/gamemode"]);
+    assert_eq!(complete(&catalog, "/p", low).0, ["/warp"]);
+    assert_eq!(complete(&catalog, "/op ", low), (Vec::new(), None));
     let admin = CompletionContext {
         command_permission: Some(2),
         ..low
     };
-    assert_eq!(complete(&catalog, "/o", admin).0, ["/op"]);
+    assert_eq!(complete(&catalog, "/o", admin).0, ["/gamemode", "/op"]);
+    assert_eq!(complete(&catalog, "/p", admin).0, ["/op", "/warp"]);
+    assert_eq!(
+        complete(&catalog, "/op ", admin).1.as_deref(),
+        Some("/op <player>")
+    );
 }
 
 #[test]

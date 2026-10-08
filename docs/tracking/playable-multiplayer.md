@@ -52,8 +52,7 @@ asset-acquisition tests passed. The implementation commit was verified on
 checks do not close the remaining native or feature gates.
 
 Native Windows/DX12 checks used the optimized debug executable based on
-`0d182c105d7860685f6944cc8ad883c1c7ed96fe` plus local changes, SHA-256
-`70eb16c739d3032a9b9e869563e21bf927b4050e156951d3982398d8c6462aad`.
+`0d182c105d7860685f6944cc8ad883c1c7ed96fe` plus local changes.
 At 1280x720 client size, scale 1, GUI scale 2: launcher clicks, inventory open/close,
 chat focus/dismissal (no public message sent), one-press pause, disconnect to zero
 rendered chunks, and fresh rejoin were observed on `mco.lbsg.net:19132`.
@@ -87,8 +86,6 @@ Published through `e175556d61a09b8aa9d3d847712a3d273169fe9f`:
 
 A fresh Windows/DX12 run against BDS 1.26.40.8 rendered a 314-column cohort and
 drained pending/in-flight lighting, meshing, and upload work. The optimized debug
-client SHA-256 was
-`5b4fb031fca9fe30fb476b5b093aa58c2d23efc0a45ad4a37884f59a4a0079ec`;
 client size was 1280x720 with GUI scale 2 and a 60 FPS cap. This is not release
 performance acceptance or proof that the intermittent Lifeboat stall is cured.
 
@@ -99,9 +96,7 @@ fixtures from the pinned Go codec. Both new tests failed before the repair and
 passed afterward; the full protocol suite, strict protocol lint, formatting,
 architecture, and fixture-generator tests/vet passed. Independent review approved
 the complete wire repair. A fresh native BDS 1.26.40.8 kick reached the client
-with the exact message and `Kicked` reason, with zero decode errors. The rebuilt
-optimized debug client SHA-256 was
-`b81c554afe835712f74f2f15d0b039995676e335f56dd0dc1b72deb83a3c4407`.
+with the exact message and `Kicked` reason, with zero decode errors.
 This CLI-mode test does not close launcher return-screen or hidden-screen UI
 behavior. The relay's additional distinct-pump-error regression passed 100
 repetitions; the full Go core tests/vet also passed after the follow-up.
@@ -198,8 +193,7 @@ nine client container-address tests cover decoded updates reaching selected-stac
 authority. Default-descriptor Content was observed directly from BDS; matching Slot
 coverage is constructed, not a claimed live packet capture.
 
-A fresh Windows/DX12 run against BDS 1.26.40.8 used the production client SHA-256
-`323040d042894ffac4d5e49c059e4d2fd57d3be713ce1519dc78926f9fd0294e` and the normal
+A fresh Windows/DX12 run against BDS 1.26.40.8 used the production client and the normal
 Go core, at 1280x720, platform scale 1 and GUI scale 2. One captured mouse click
 emitted a combined block/item interaction at tick 825. A server-side block query
 confirmed air at the stone target; the rendered hole and the player's one-block
@@ -213,8 +207,7 @@ did not display the known stack/count, and a two-click inventory transfer did no
 establish successful management. Menu keyboard/clipboard and bounded HUD toast
 checks passed earlier; a later kick retest exposed a closed-send/recovery race.
 The independently approved repair is integrated in `4f4c335c`. A fresh Windows/DX12
-run at the same size/scales used production client SHA-256
-`e8bd10aeada174f57808c435c792a1266e2c242bfcc800b641a6f268f1ac8283` and the normal
+run at the same size/scales used production client and the normal
 Go core. It survived two BDS kicks with a successful rejoin between them, showed
 both complete three-line server reasons inside their expanded panels, reset to zero
 chunks, and exited cleanly through keyboard confirmation. Both disconnects had zero

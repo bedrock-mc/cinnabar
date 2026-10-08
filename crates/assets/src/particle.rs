@@ -18,6 +18,8 @@ pub const MAX_PARTICLE_KEY_BYTES: usize = 256;
 pub const MAX_PARTICLE_TEXTURE_SIDE: u32 = 1024;
 pub const MAX_PARTICLE_EFFECT_BYTES: usize = 512 * 1024;
 pub const MAX_PARTICLE_CARRIER_BYTES: usize = 32 * 1024 * 1024;
+/// Native actor flame rendering samples this vertically stacked square-frame texture.
+pub const ACTOR_FLAME_TEXTURE: &str = "textures/flame_atlas";
 
 const HEADER_BYTES: usize = 72;
 const HASH_BYTES: usize = 32;
@@ -237,9 +239,27 @@ pub fn encode_particle_catalog(
             return Err(invalid("particle textures are not strictly sorted"));
         }
         write_key(&mut payload, &texture.path)?;
-        payload.extend_from_slice(&(texture.width as u16).to_le_bytes());
-        payload.extend_from_slice(&(texture.height as u16).to_le_bytes());
-        payload.extend_from_slice(&texture.rgba8);
+        crate::encoding::append_bounded(
+            &mut payload,
+            &(texture.width as u16).to_le_bytes(),
+            MAX_PARTICLE_CARRIER_BYTES,
+            HEADER_BYTES + HASH_BYTES,
+        )
+        .ok_or_else(|| invalid("particle carrier exceeds bound"))?;
+        crate::encoding::append_bounded(
+            &mut payload,
+            &(texture.height as u16).to_le_bytes(),
+            MAX_PARTICLE_CARRIER_BYTES,
+            HEADER_BYTES + HASH_BYTES,
+        )
+        .ok_or_else(|| invalid("particle carrier exceeds bound"))?;
+        crate::encoding::append_bounded(
+            &mut payload,
+            &texture.rgba8,
+            MAX_PARTICLE_CARRIER_BYTES,
+            HEADER_BYTES + HASH_BYTES,
+        )
+        .ok_or_else(|| invalid("particle carrier exceeds bound"))?;
         previous = Some(&texture.path);
     }
     let mut previous: Option<&str> = None;
@@ -251,8 +271,20 @@ pub fn encode_particle_catalog(
             return Err(invalid("particle effects are not strictly sorted"));
         }
         write_key(&mut payload, &effect.identifier)?;
-        payload.extend_from_slice(&(effect.bytes.len() as u32).to_le_bytes());
-        payload.extend_from_slice(&effect.bytes);
+        crate::encoding::append_bounded(
+            &mut payload,
+            &(effect.bytes.len() as u32).to_le_bytes(),
+            MAX_PARTICLE_CARRIER_BYTES,
+            HEADER_BYTES + HASH_BYTES,
+        )
+        .ok_or_else(|| invalid("particle carrier exceeds bound"))?;
+        crate::encoding::append_bounded(
+            &mut payload,
+            &effect.bytes,
+            MAX_PARTICLE_CARRIER_BYTES,
+            HEADER_BYTES + HASH_BYTES,
+        )
+        .ok_or_else(|| invalid("particle carrier exceeds bound"))?;
         previous = Some(&effect.identifier);
     }
     let payload_end = HEADER_BYTES
@@ -334,8 +366,20 @@ fn write_key(payload: &mut Vec<u8>, key: &str) -> Result<(), AssetError> {
     if key.is_empty() || key.len() > MAX_PARTICLE_KEY_BYTES {
         return Err(invalid("particle carrier key length is out of bounds"));
     }
-    payload.extend_from_slice(&(key.len() as u16).to_le_bytes());
-    payload.extend_from_slice(key.as_bytes());
+    crate::encoding::append_bounded(
+        payload,
+        &(key.len() as u16).to_le_bytes(),
+        MAX_PARTICLE_CARRIER_BYTES,
+        HEADER_BYTES + HASH_BYTES,
+    )
+    .ok_or_else(|| invalid("particle carrier exceeds bound"))?;
+    crate::encoding::append_bounded(
+        payload,
+        key.as_bytes(),
+        MAX_PARTICLE_CARRIER_BYTES,
+        HEADER_BYTES + HASH_BYTES,
+    )
+    .ok_or_else(|| invalid("particle carrier exceeds bound"))?;
     Ok(())
 }
 

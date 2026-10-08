@@ -4,7 +4,7 @@ use valentine::bedrock::version::v1_26_51::{
     ActorEventPacket, AddItemActorPacket, EnumsActorEvent, TakeItemActorPacket,
 };
 
-use super::{normalize_metadata, validate_finite};
+use super::{ITEM_ACTOR_NETWORK_OFFSET, normalize_metadata, validate_finite};
 use crate::{ActorEvent, ActorKind, ActorPacketError, ActorSpawnEvent, item::normalize_item};
 
 /// Server-announced actor events the client visualises; ids with no client-side visual are dropped.
@@ -18,6 +18,8 @@ pub enum ActorStatusKind {
     TamingFailed,
     /// Successful taming: heart particles.
     TamingSucceeded,
+    /// Native event 39 assigns the signed payload to the actor's shake countdown.
+    Shake,
     ShakeWetness,
     EatGrass,
     LoveHearts,
@@ -86,7 +88,13 @@ pub(crate) fn normalize_add_item_actor(
         kind: ActorKind::Entity {
             identifier: Arc::from("minecraft:item"),
         },
-        position: [packet.position.x, packet.position.y, packet.position.z],
+        // Vanilla passes the network position
+        // unchanged. Our store retains feet; dropped rendering restores it explicitly.
+        position: [
+            packet.position.x,
+            packet.position.y - ITEM_ACTOR_NETWORK_OFFSET,
+            packet.position.z,
+        ],
         velocity: [packet.velocity.x, packet.velocity.y, packet.velocity.z],
         pitch: 0.0,
         yaw: 0.0,
@@ -108,6 +116,7 @@ pub(crate) fn normalize_actor_event(packet: ActorEventPacket) -> Option<ActorEve
         EnumsActorEvent::Death | EnumsActorEvent::InstantDeath => ActorStatusKind::Death,
         EnumsActorEvent::TamingFailed => ActorStatusKind::TamingFailed,
         EnumsActorEvent::TamingSucceeded => ActorStatusKind::TamingSucceeded,
+        EnumsActorEvent::Shake => ActorStatusKind::Shake,
         EnumsActorEvent::ShakeWetness => ActorStatusKind::ShakeWetness,
         EnumsActorEvent::EatGrass => ActorStatusKind::EatGrass,
         EnumsActorEvent::LoveHearts | EnumsActorEvent::InLoveHearts => ActorStatusKind::LoveHearts,
@@ -139,6 +148,8 @@ pub(crate) fn normalize_actor_event(packet: ActorEventPacket) -> Option<ActorEve
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bytes::BytesMut;
+    use valentine::bedrock::codec::BedrockCodec;
 
     fn packet(event_id: EnumsActorEvent) -> ActorEventPacket {
         let mut packet = ActorEventPacket::default();
@@ -184,11 +195,46 @@ mod tests {
     }
 
     #[test]
+    fn shake_preserves_the_server_signed_countdown_without_a_default_duration() {
+        for data in [i32::MIN, -1, 0, 1, 12, i32::MAX] {
+            let mut packet = packet(EnumsActorEvent::Shake);
+            packet.data = data;
+            assert_eq!(
+                normalize_actor_event(packet),
+                Some(ActorEvent::Status(ActorStatusEvent {
+                    runtime_id: 9,
+                    kind: ActorStatusKind::Shake,
+                    data,
+                }))
+            );
+        }
+    }
+
+    #[test]
+    fn shake_wire_roundtrips_signed_data_and_rejects_every_truncated_body() {
+        for data in [i32::MIN, -1, 0, 12, i32::MAX] {
+            let mut packet = packet(EnumsActorEvent::Shake);
+            packet.data = data;
+            let mut encoded = BytesMut::new();
+            packet.encode(&mut encoded).unwrap();
+            let encoded = encoded.freeze();
+            let decoded = ActorEventPacket::decode(&mut encoded.clone(), ()).unwrap();
+            assert_eq!(
+                normalize_actor_event(decoded),
+                normalize_actor_event(packet)
+            );
+            for end in 0..encoded.len() {
+                assert!(ActorEventPacket::decode(&mut encoded.slice(..end), ()).is_err());
+            }
+        }
+    }
+
+    #[test]
     fn add_item_actor_spawns_a_fixed_identifier_item_entity() {
         let mut packet = valentine::bedrock::version::v1_26_51::AddItemActorPacket::default();
         packet.target_actor_id.actor_unique_id = -5;
         packet.target_runtime_id.actor_runtime_id = 12;
-        packet.position.y = 64.0;
+        packet.position.y = 64.0 + ITEM_ACTOR_NETWORK_OFFSET;
         let Ok(ActorEvent::Spawn(spawn)) = normalize_add_item_actor(packet, 0) else {
             panic!("item actor spawn");
         };
@@ -198,6 +244,21 @@ mod tests {
             crate::ActorKind::Entity { identifier } if identifier.as_ref() == "minecraft:item"
         ));
         assert_eq!(spawn.position[1], 64.0);
+    }
+
+    #[test]
+    fn add_item_wire_origin_is_normalized_to_collision_feet_once() {
+        let mut packet = AddItemActorPacket::default();
+        packet.position.x = 1.0;
+        packet.position.y = 64.0 + ITEM_ACTOR_NETWORK_OFFSET;
+        packet.position.z = 3.0;
+        let mut bytes = BytesMut::new();
+        packet.encode(&mut bytes).unwrap();
+        let packet = AddItemActorPacket::decode(&mut bytes.freeze(), ()).unwrap();
+        let ActorEvent::Spawn(spawn) = normalize_add_item_actor(packet, 0).unwrap() else {
+            panic!("expected item spawn");
+        };
+        assert_eq!(spawn.position, [1.0, 64.0, 3.0]);
     }
 
     #[test]

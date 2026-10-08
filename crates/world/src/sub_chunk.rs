@@ -22,6 +22,11 @@ pub trait BlockIds {
 
     /// Returns the id itself when the registry knows it, otherwise air.
     fn resolve(&self, network_id: u32) -> u32;
+
+    /// Resolves a persistent name/state entry; unavailable registries use air.
+    fn resolve_persistent(&self, _entry: &crate::NbtCompound) -> u32 {
+        self.air()
+    }
 }
 
 /// Keeps every network id; for decoders whose callers own id resolution.
@@ -180,9 +185,13 @@ fn read_block_storage(reader: &mut Reader<'_>, ids: &dyn BlockIds) -> PalettedSt
     let persistent = header & 1 == 0;
     let entry = |reader: &mut Reader<'_>| {
         if persistent {
-            // Provisional: vanilla resolves persistent entries by name and states.
-            reader.skip_nbt_compound();
-            ids.air()
+            let input = reader.remaining();
+            let consumed = crate::block_entity::lenient_nbt_len(input);
+            reader.read_exact(consumed);
+            crate::BlockEntityNbt::decode_prefix(&input[..consumed])
+                .ok()
+                .and_then(|(nbt, _)| nbt.parse())
+                .map_or_else(|| ids.air(), |entry| ids.resolve_persistent(&entry))
         } else {
             ids.resolve(reader.read_var_i32() as u32)
         }
@@ -282,11 +291,6 @@ impl<'a> Reader<'a> {
             }
         }
         0
-    }
-
-    /// Skips one network NBT root the way vanilla's lenient NBT read does.
-    pub(crate) fn skip_nbt_compound(&mut self) {
-        self.position += crate::block_entity::lenient_nbt_len(self.remaining());
     }
 }
 

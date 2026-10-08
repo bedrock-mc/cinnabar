@@ -188,6 +188,7 @@ fn strict_reports_all_reachable_stair_topology_materials_and_animations() {
         texture: TextureRef::new(0, 7).unwrap(),
         flags: 0,
         animation: NO_ANIMATION,
+        ..assets::Material::unvaried()
     });
     let runtime = strict_runtime(
         &records,

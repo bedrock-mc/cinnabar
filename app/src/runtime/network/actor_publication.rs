@@ -1,937 +1,365 @@
-mod commit;
-pub(crate) use commit::{PreparedActorPublication, publish_actor_render_frame};
-
-use std::sync::Arc;
-
-use bevy::{
-    ecs::system::SystemParam,
-    math::Mat4,
-    prelude::{Local, Projection, Res, ResMut, Resource, Time},
-    time::Real,
-};
-use client_world::{LocalItemUse, LocalPlayerFeed, WorldStream};
-use render::{
-    ActorCullView, ActorMainWitness, ActorRenderScene, ActorRigFrameBuilder, ActorRigSubmission,
-    HandItemAtlas, HandRigLight, HandRigScene, MAX_ACTOR_RENDER_DISTANCE_BLOCKS,
-};
-
-use super::{
-    ActorFrameClock, ActorPresentationState, authoritative_local_actor_eye,
-    dropped_items::DroppedItemPublisher, publish_local_actor_visibility,
-};
+//! Captures pre-send observations and finalizes poses after local interaction admission.
 use crate::{
-    melee::SwingTracker,
-    presentation::actors::{
-        ActorRigPresentation, local_actor_presentation_for_visibility,
-        local_diagnostic_presentation, select_actor_presentations_for_view,
-    },
-    presentation::equipment::{
-        EquipmentPresentation, EquipmentRuntime, FirstPersonArms, FirstPersonHand, FirstPersonItem,
-        StagedSessionIcons, local_input, remote_input,
-    },
+    movement::{LocalPhysicsController, MovementTicker, PhysicsCollisionRegistries},
+    player_runtime::PlayerRuntime,
     runtime::world::ClientWorld,
 };
+use bevy::time::Real;
+use bevy::{ecs::system::SystemParam, prelude::*};
+use client_presentation::actor_publication::{ActorFrameInput, ActorWorld};
+pub(crate) use client_presentation::actor_publication::{
+    ActorFramePartialTick, HandRigBuilder, publish_actor_render_frame,
+};
+use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
 
-/// The frame fraction the actor rigs interpolate at, for overlays anchored to actors.
-#[derive(Resource, Default)]
-pub(crate) struct ActorFramePartialTick(pub(crate) f32);
-
-/// The local player's own first-person rig, built as a single instance placed in camera space.
-#[derive(Resource)]
-pub(crate) struct HandRigBuilder(pub(crate) ActorRigFrameBuilder);
-
-impl HandRigBuilder {
-    pub(crate) fn from_runtime_assets(
-        assets: &assets::RuntimeEntityAssets,
-    ) -> anyhow::Result<Self> {
-        ActorRigFrameBuilder::from_runtime_assets(assets)
-            .map(Self)
-            .map_err(|error| {
-                anyhow::anyhow!("prepare validated first-person hand rig geometry: {error:?}")
-            })
-    }
-}
-
-/// Vertical FOV of the first-person pass; underwater and death-camera narrowing are not modelled.
-pub(crate) const HAND_FOV_DEGREES: f32 = 70.0;
-
-/// Vanilla draws the first-person rig in view space as a zero-yaw actor, feet one eye height
-/// below the camera; the pack's first-person arm offsets are authored for that facing.
-fn hand_camera_from_rig(scale: f32, motion: Mat4) -> [[f32; 4]; 3] {
-    render::equipment_display::hand_camera_from_rig(
-        scale,
-        crate::local_player::LOCAL_AVATAR_EYE_HEIGHT_BLOCKS,
-        motion,
-    )
-}
-
-/// Rebuilds the scene's pack geometry and artwork for a new session, or restores the
-/// startup artwork when a pack session ends.
-fn apply_session_pack(
-    scene: &mut ActorRenderScene,
-    base: &render::ActorArtworkPages,
-    pack: Option<&super::entity_pack::SessionEntityPack>,
-    session_icons: Option<StagedSessionIcons>,
-    effective: &mut Option<render::ActorArtworkPages>,
-    equipment: Option<&mut EquipmentRuntime>,
-) -> (
-    Option<StagedSessionIcons>,
-    Vec<Option<render::ActorArtworkLocation>>,
-) {
-    if let Err(error) = scene.replace_pack_entities(pack.map(|pack| &*pack.assets)) {
-        bevy::log::warn!(?error, "server pack entity geometry was not applied");
-    }
-    let mut pages = match pack {
-        Some(pack) => base
-            .clone()
-            .with_pack_artwork(&pack.textures, &pack.bindings),
-        None => base.clone(),
-    };
-    let mut layer = None;
-    let mut geometries = Vec::new();
-    if let Some(pack) = pack
-        && let Some(catalog) = &pack.equipment
-    {
-        let (extended, locations) =
-            pages.with_equipment_rasters(&EquipmentRuntime::pack_rasters(catalog));
-        pages = extended;
-        geometries = EquipmentRuntime::pack_geometries(&pack.assets, catalog);
-        layer = Some((Arc::clone(&pack.assets), Arc::clone(catalog), locations));
-    }
-    if let Err(error) = scene.replace_pack_equipment(geometries) {
-        bevy::log::warn!(?error, "server pack equipment geometry was not applied");
-    }
-    if let Some(equipment) = equipment {
-        equipment.set_pack_layer(layer);
-    }
-    let mut icon_locations = Vec::new();
-    if let Some(icons) = &session_icons {
-        let (extended, locations) = pages.with_equipment_rasters(icons.rasters());
-        pages = extended;
-        icon_locations = locations;
-    }
-    scene.configure_artwork(pages.clone());
-    *effective = (pack.is_some() || session_icons.is_some()).then_some(pages);
-    (session_icons, icon_locations)
-}
-
+/// App-owned inputs borrowed only while this frame's presentation is prepared.
 #[derive(SystemParam)]
-pub(crate) struct ActorFramePublication<'w, 's> {
-    client_world: ResMut<'w, ClientWorld>,
-    time: Res<'w, Time<Real>>,
-    scene: ResMut<'w, ActorRenderScene>,
-    prepared: ResMut<'w, PreparedActorPublication>,
-    published_session: Local<'s, Option<u64>>,
-    actor_clock: Local<'s, ActorFrameClock>,
-    presentation: ActorPresentationState<'w, 's>,
-    artwork: Res<'w, render::ActorArtworkPages>,
-    /// The startup artwork plus the session's server-pack pages; `None` in a vanilla session.
-    session_artwork: Local<'s, Option<render::ActorArtworkPages>>,
-    cape_state: Local<'s, crate::presentation::cape::CapeState>,
-    skin_rigs: Local<'s, crate::presentation::skin_rig::SkinRigCache>,
-    skin_layers: Local<'s, crate::presentation::skin_layers::SkinLayerCache>,
-    poses: Local<'s, crate::presentation::actors::PoseConversions>,
-    layer_poses: Local<'s, crate::presentation::entity_layers::LayerPoseCache>,
-    hand_builder: ResMut<'w, HandRigBuilder>,
-    hand_scene: ResMut<'w, HandRigScene>,
-    hand_revision: Local<'s, u64>,
-    local_skin: Res<'w, crate::player_skin::LocalPlayerSkin>,
-    swings: Option<ResMut<'w, SwingTracker>>,
-    hand_motion: Option<Res<'w, crate::camera::FirstPersonHandMotion>>,
-    equipment: Option<ResMut<'w, EquipmentRuntime>>,
-    ui: Option<Res<'w, crate::ui_runtime::UiRuntime>>,
+pub(crate) struct ActorObservations<'w> {
+    world: ResMut<'w, ClientWorld>,
+    player: Res<'w, PlayerRuntime>,
+    physics: Res<'w, LocalPhysicsController>,
+    view: Res<'w, crate::local_player::LocalViewPose>,
+    skin: Res<'w, crate::player_skin::LocalPlayerSkin>,
+    settings: Res<'w, crate::camera::CameraSettingsAuthority>,
+    effects: Option<Res<'w, crate::movement::LocalMovementEffectTimeline>>,
+    ui: Option<Res<'w, UiRuntime>>,
     menu: Option<Res<'w, crate::menu::MenuRuntime>>,
-    ui_presentation: Option<Res<'w, crate::ui_runtime::presentation::UiPresentationRuntime>>,
-    collisions: Option<Res<'w, crate::movement::PhysicsCollisionRegistries>>,
+    ui_presentation: Option<Res<'w, UiPresentationRuntime>>,
+    collisions: Option<Res<'w, PhysicsCollisionRegistries>>,
     item_use: Option<Res<'w, crate::item_use::ItemUseRuntime>>,
-    dropped_items: DroppedItemPublisher<'w, 's>,
+    input: Option<Res<'w, crate::semantic_controls::SemanticInputSnapshot>>,
+    movement: Option<Res<'w, MovementTicker>>,
+    time: Res<'w, Time<Real>>,
     profiler: Option<Res<'w, render::RuntimeStageProfiler>>,
-    partial_tick: ResMut<'w, ActorFramePartialTick>,
-    cave: Option<Res<'w, crate::runtime::visibility::CaveVisibilityCache>>,
 }
 
-/// Captures this frame's actor inputs before outbound interactions can change them.
-pub(crate) fn prepare_actor_render_frame(params: ActorFramePublication) {
-    let ActorFramePublication {
-        mut client_world,
-        time,
-        mut scene,
-        mut prepared,
-        mut published_session,
-        mut actor_clock,
-        presentation,
-        artwork,
-        mut session_artwork,
-        mut cape_state,
-        mut skin_rigs,
-        mut skin_layers,
-        mut poses,
-        mut layer_poses,
-        mut hand_builder,
-        mut hand_scene,
-        mut hand_revision,
-        local_skin,
-        mut swings,
-        hand_motion,
-        mut equipment,
-        collisions,
-        item_use,
+/// Captures live owners and advances actors before UI and interaction picking.
+pub(crate) fn advance_actor_frame(
+    observations: ActorObservations,
+    params: client_presentation::actor_publication::ActorFramePublication,
+    mut java_blocking: Local<bool>,
+) {
+    let ActorObservations {
+        mut world,
+        player,
+        physics,
+        view,
+        skin,
+        settings,
+        effects,
         ui,
         menu,
         ui_presentation,
-        mut dropped_items,
+        collisions,
+        item_use,
+        input,
+        movement,
+        time,
         profiler,
-        mut partial_tick,
-        cave,
-    } = params;
+    } = observations;
     let _timer = profiler
         .as_deref()
         .map(|profiler| profiler.time(render::RuntimeStage::ActorPublication));
-    let ActorPresentationState {
-        avatar,
-        mut local_visibility,
-        settings,
-        view,
-        local_physics,
-        camera,
-    } = presentation;
-    let session_id = client_world
-        .stream
-        .as_ref()
-        .map(WorldStream::actor_session_id);
-    if *published_session != session_id {
-        scene.reset();
-        actor_clock.reset();
-        *skin_layers = Default::default();
-        *published_session = session_id;
-        if let Some(stream) = client_world.stream.as_mut() {
-            stream.set_actor_seat_defaults(super::seat_defaults::seat_defaults());
-        }
-        let pack = session_id.and_then(|_| client_world.pack_entities.clone());
-        let items = session_id.and_then(|_| client_world.session_items.clone());
-        let staged = StagedSessionIcons::stage(items.as_deref());
-        let (staged, locations) = if pack.is_some() || staged.is_some() || session_artwork.is_some()
-        {
-            apply_session_pack(
-                &mut scene,
-                &artwork,
-                pack.as_deref(),
-                staged,
-                &mut session_artwork,
-                equipment.as_deref_mut(),
-            )
-        } else {
-            (None, Vec::new())
-        };
-        if let Some(equipment) = equipment.as_deref_mut() {
-            equipment.set_session_items(items.as_deref(), staged, locations);
-        }
-    }
-    let artwork = session_artwork.as_ref().unwrap_or(&artwork);
-    let step = actor_clock.advance(time.delta());
-    partial_tick.0 = step.partial_tick;
-    skin_rigs.begin_frame();
-    poses.begin_frame();
-    if let Some(equipment) = equipment.as_deref_mut() {
-        equipment.begin_frame();
-    }
-    layer_poses.begin_frame();
-    let first_person = settings.perspective() == semantic_input::PerspectiveMode::FirstPerson;
-    let item_use = client_world
-        .stream
-        .as_ref()
-        .zip(ui.as_deref())
-        .zip(item_use.as_deref())
-        .map_or(LocalItemUse::Unpredicted, |((stream, ui), item_use)| {
-            item_use.local_item_use(stream, ui)
-        });
-    let mut local_feed = build_local_player_feed(
-        &local_physics,
-        view.rotation(),
-        first_person,
-        &local_skin,
-        item_use,
-    );
-    if let (Some(feed), Some(stream)) = (local_feed.as_mut(), client_world.stream.as_ref()) {
-        // The local player's held items are client-owned; the rig's item queries read them here.
-        let input = local_input(stream, ui.as_deref(), stream.local_player_runtime_id());
-        feed.main_hand = input.main.map(|item| item.identifier);
-        feed.off_hand = input.off.map(|item| item.identifier);
-    }
-    if let Some(stream) = client_world.stream.as_mut() {
-        if let Some(equipment) = equipment.as_deref() {
-            stream.set_item_use_durations(equipment.item_use_durations());
-        }
-        // Feed the client-authored local pose before the tick advance and rig read so the
-        // local body/hand are driven by the shared rig, not the static fallback.
-        if let Some(feed) = &local_feed {
-            stream.sync_local_player_pose(feed);
-        }
-        // Attacks, mining and use swing the local arm at once; the server echoes no swing.
-        if let Some(ticks) = swings.as_deref_mut().and_then(SwingTracker::take_started) {
-            stream.start_local_player_swing(ticks);
-        }
-        let (yaw, pitch, _) = view.rotation().to_euler(bevy::math::EulerRot::YXZ);
-        stream.set_actor_camera_rotation([
-            -pitch.to_degrees(),
-            (180.0 - yaw.to_degrees()).rem_euclid(360.0),
-        ]);
-        if let Ok((transform, _)) = camera.single() {
-            stream.set_actor_camera_position(transform.translation.to_array());
-        }
-        stream.set_actor_animation_view(
-            camera
-                .single()
-                .ok()
-                .and_then(|(transform, projection)| animation_view(transform, projection)),
-        );
-        let _animation = profiler
+    let stream = world.stream.as_ref();
+    let local_equipment = stream.map_or_else(Default::default, |stream| {
+        client_presentation::presentation::equipment::local_input(
+            &player,
+            stream,
+            ui.as_deref(),
+            stream.local_player_runtime_id(),
+        )
+    });
+    // Java blocks with a sword while use is held; Bedrock never flags that use.
+    let java_sword = settings.feel().java_animations
+        && local_equipment
+            .main
+            .as_ref()
+            .is_some_and(|item| render_model::java_animation::is_java_sword(&item.identifier));
+    let blocking = java_sword
+        && input
             .as_deref()
-            .map(|profiler| profiler.time(render::RuntimeStage::ActorAnimation));
-        // Fluid and bed state is tick state; a frame without a tick would resample the same.
-        if step.ticks > 0
-            && let Some(collisions) = collisions.as_deref()
-        {
-            super::actor_sampling::sample_actor_world_state(stream, collisions);
+            .is_some_and(|input| input.phase(semantic_input::Action::Use).held);
+    let local_use = if blocking {
+        client_world::LocalItemUse::Using
+    } else {
+        match stream.zip(ui.as_deref()).zip(item_use.as_deref()) {
+            Some(((stream, ui), item_use)) => item_use.local_item_use(&player, stream, ui),
+            None => client_world::LocalItemUse::Unpredicted,
         }
-        stream.advance_actor_interpolation_frame(step.ticks);
-    }
-    let authoritative_subject_eye = authoritative_local_actor_eye(
-        local_physics.render_eye_position(),
-        client_world
-            .stream
-            .as_ref()
-            .map(|stream| stream.resolved_server_position().position),
-    );
-    publish_local_actor_visibility(
-        &avatar,
-        settings.perspective(),
-        authoritative_subject_eye,
+    };
+    // Ending a block clears the use flag it raised, whatever the hand holds next.
+    let local_use =
+        if (java_sword || *java_blocking) && local_use == client_world::LocalItemUse::Unpredicted {
+            client_world::LocalItemUse::Idle
+        } else {
+            local_use
+        };
+    *java_blocking = blocking;
+    let mut local_feed = client_presentation::actor_feed::build_local_player_feed(
+        &*physics,
         view.rotation(),
-        &mut local_visibility,
+        false,
+        settings.feel().view_bobbing,
+        skin.local_uuid,
+        || skin.player_skin(),
+        local_use,
     );
-    // Vanilla projects the hand with its own fixed FOV, ignoring the FOV option and modifiers.
-    let hand_camera_fov = camera
-        .single()
-        .ok()
-        .filter(|(_, projection)| matches!(projection, Projection::Perspective(_)))
-        .map(|_| HAND_FOV_DEGREES.to_radians());
-    let preparation = profiler
-        .as_deref()
-        .map(|profiler| profiler.time(render::RuntimeStage::ActorPreparation));
-    let cull_view = camera
-        .single()
-        .ok()
-        .map(|(transform, projection)| ActorCullView {
-            clip_from_world: projection.get_clip_from_view() * transform.to_matrix().inverse(),
-            camera_position: transform.translation,
-            max_distance: MAX_ACTOR_RENDER_DISTANCE_BLOCKS,
-        });
-    // Registered together below: each registration rebuilds and re-uploads the whole catalog.
-    let mut new_geometries = Vec::new();
-    let (local_runtime_id, actor_session_id, dimension, remotes, canonical_local, unrigged_actors) =
-        client_world
-            .stream
-            .as_ref()
-            .map(|stream| {
-                let local_runtime_id = stream.local_player_runtime_id();
-                let mut remotes = Vec::with_capacity(stream.actor_count());
-                let mut canonical_local = None;
-                let mut rigged = 0;
-                for rig in stream.actor_rigs() {
-                    rigged += 1;
-                    let Some(actor) = stream.actor(rig.actor.runtime_id) else {
-                        continue;
-                    };
-                    // Culled before any per-actor work; the local rig also drives the hand.
-                    if rig.actor.runtime_id != local_runtime_id
-                        && !crate::presentation::actors::rig_may_be_visible(
-                            &rig,
-                            actor,
-                            step.partial_tick,
-                            cull_view,
-                            |low, high| {
-                                cave.as_deref().is_some_and(|cave| {
-                                    cave.hides_box(
-                                        stream.current_dimension(),
-                                        stream.connectivity_generation(),
-                                        |key| stream.has_sub_chunk_connectivity(key),
-                                        low,
-                                        high,
-                                    )
-                                })
-                            },
-                        )
-                    {
-                        continue;
-                    }
-                    let profile = stream.actor_player_profile(rig.actor.runtime_id);
-                    let presentation = if matches!(actor.kind, protocol::ActorKind::Player { .. }) {
-                        crate::presentation::actors::actor_rig_presentation_cached(
-                            &rig,
-                            actor,
-                            profile,
-                            step.partial_tick,
-                            &mut poses,
-                        )
-                        .map(|mut presentation| {
-                            if let Some(geometry) = rig.skin_geometry {
-                                // The pose drives the skin's own bones, so only its model fits.
-                                match skin_rigs.rig(geometry, |built| {
-                                    if let Some(equipment) = equipment.as_deref_mut() {
-                                        equipment.register_skin_rig(
-                                            built.id,
-                                            geometry
-                                                .bones
-                                                .iter()
-                                                .map(|bone| bone.name.clone())
-                                                .collect(),
-                                        );
-                                    }
-                                    new_geometries.push(built);
-                                }) {
-                                    Some(id) => presentation.submission.input.rig = id,
-                                    None => {
-                                        presentation.submission.route =
-                                            render::ActorRigRoute::NoDraw;
-                                    }
-                                }
-                            }
-                            presentation
-                        })
-                    } else {
-                        crate::presentation::actors::entity_rig_presentation_cached(
-                            &rig,
-                            actor,
-                            artwork,
-                            step.partial_tick,
-                            Some(&mut poses),
-                        )
-                    };
-                    let Some(presentation) = presentation else {
-                        continue;
-                    };
-                    if rig.actor.runtime_id == local_runtime_id {
-                        canonical_local = Some(presentation);
-                    } else {
-                        remotes.push(presentation);
-                    }
-                }
-                (
-                    local_runtime_id,
-                    stream.actor_session_id(),
-                    stream.current_dimension(),
-                    remotes,
-                    canonical_local,
-                    stream.actor_count().saturating_sub(rigged),
-                )
-            })
-            .unwrap_or((0, 0, 0, Vec::new(), None, 0));
-    // First person draws the player's own rig near the camera: the visible arms with every other
-    // bone hidden, and a drawable held item on the posed `rightItem` bone. Anything not covered
-    // (an undrawable item) leaves the CPU viewmodel in charge.
-    let hand_source: Option<HandSource> = if first_person
-        && crate::screen_policy::renders_game(
+    if let Some(feed) = &mut local_feed {
+        #[cfg(feature = "developer-control")]
+        {
+            feed.prefer_client_skin = skin.recording_cape_enabled();
+        }
+        feed.main_hand_slot = player.selected_hotbar_slot().unwrap_or(0);
+        feed.main_hand_stack_id = player
+            .selected_stack()
+            .map(|stack| stack.stack_network_id)
+            .filter(|id| *id > 0);
+        let mining_effects = effects
+            .as_deref()
+            .map_or_else(Default::default, |effects| effects.mining_effects());
+        feed.bedrock_swing_ticks = gameplay::melee::swing_duration(mining_effects);
+        feed.java_swing_ticks = gameplay::melee::java_swing_duration(mining_effects);
+    }
+    let input = ActorFrameInput {
+        local_feed,
+        predicted_eye: physics.render_eye_position(),
+        predicted_feet: physics.render_feet_position(),
+        local_equipment,
+        swing_progress: None,
+        renders_game: crate::screen_policy::renders_game(
+            &player,
             ui.as_deref(),
             menu.as_deref(),
             ui_presentation.as_deref(),
-        ) {
-        canonical_local.clone().and_then(|presentation| {
-            let stream = client_world.stream.as_ref()?;
-            let equipment = equipment.as_deref_mut()?;
-            let input = local_input(stream, ui.as_deref(), local_runtime_id);
-            let consume_ticks = ui
-                .as_deref()
-                .and_then(|ui| crate::item_use::consume_ticks(stream, ui));
-            let hand = stream.actor_rig(local_runtime_id).map_or(
-                FirstPersonHand {
-                    swing: 0.0,
-                    equip: 1.0,
-                    consume: None,
-                },
-                |rig| hand_progress(rig.hand, consume_ticks, step.partial_tick),
-            );
-            let item = input.main.as_ref().and_then(|item| {
-                let FirstPersonItem { layer, view_space } =
-                    equipment.first_person_item(&presentation.submission, item, hand)?;
-                let page = usize::from(layer.location.page()).checked_sub(1)?;
-                let page = artwork.pages().get(page)?;
-                let (width, height) = page.dimensions();
-                let atlas = HandItemAtlas {
-                    width,
-                    height,
-                    layers: page.layers(),
-                    rgba8: page.shared_pixels(),
-                };
-                Some((layer, atlas, view_space))
-            });
-            // Provisional: vanilla draws every held item; an undrawable one shows the bare arm.
-            let arms = FirstPersonArms::for_hands(
-                input.main.as_ref().map(|item| item.identifier.as_ref()),
-                input.off.as_ref().map(|item| item.identifier.as_ref()),
-            )
-            .with_undrawn_main(item.is_some());
-            let body = equipment.mask_first_person(&presentation.submission, arms);
-            (body.is_some() || item.is_some()).then_some(HandSource {
-                presentation,
-                body,
-                item,
-                motion: hand_motion
-                    .as_deref()
-                    .map_or(Mat4::IDENTITY, hand_motion_matrix),
-            })
-        })
-    } else {
-        None
-    };
-    let visibility_snapshot = local_visibility.snapshot().copied();
-    let (local_visible, local) = visibility_snapshot.map_or((false, None), |visibility| {
-        if visibility.runtime_id() != local_runtime_id {
-            return (false, None);
-        }
-        // The driven rig already carries the motion model's body yaw and head-over-body split,
-        // so it is placed by its own transform. The static diagnostic is only a pre-rig fallback.
-        let local = canonical_local.or_else(|| {
-            let (yaw, pitch, _) = visibility.rotation().to_euler(bevy::math::EulerRot::YXZ);
-            let yaw_degrees = (180.0 - yaw.to_degrees()).rem_euclid(360.0);
-            let pitch_degrees = -pitch.to_degrees();
-            let mut position = visibility.eye();
-            position.y -= crate::local_player::LOCAL_AVATAR_EYE_HEIGHT_BLOCKS;
-            let diagnostic = local_diagnostic_presentation(
-                actor_session_id,
-                dimension,
-                visibility.runtime_id(),
-                visibility.pose_generation(),
-                position.to_array(),
-                yaw_degrees,
-                pitch_degrees,
-            );
-            local_actor_presentation_for_visibility(
-                local_runtime_id,
-                visibility.runtime_id(),
-                None,
-                diagnostic,
-                yaw_degrees,
-            )
-        });
-        (visibility.visible(), local)
-    });
-    // The visibility override rebuilds the local transform, so re-apply the death tip-over.
-    let local_death = client_world
-        .stream
-        .as_ref()
-        .and_then(|stream| stream.actor(local_runtime_id))
-        .and_then(|actor| actor.status.death_progress(step.partial_tick));
-    let local = local.map(|mut local| {
-        local.submission.world_from_actor = crate::presentation::actors::death_tilted(
-            local.submission.world_from_actor,
-            local_death,
-        );
-        local
-    });
-    let camera_position = cull_view
-        .as_ref()
-        .map(|view| view.camera_position.to_array());
-    let mut batch = select_actor_presentations_for_view(
-        local_runtime_id,
-        local_visible,
-        local,
-        remotes,
-        cull_view,
-    );
-    if let Some(stream) = client_world.stream.as_ref() {
-        crate::presentation::actors::light_bodies(&mut batch, stream);
-    }
-    if let (Some(stream), Some(cape)) = (
-        client_world.stream.as_ref(),
-        cape_state.rig(client_world.entity_assets.as_deref()),
-    ) {
-        if !scene.contains_geometry(cape.id) {
-            let _ = scene.insert_geometry(cape.geometry.clone());
-        }
-        crate::presentation::cape::apply_capes(
-            &mut batch,
-            cape,
-            |runtime_id| stream.actor_rig(runtime_id),
-            |runtime_id| stream.actor_player_profile(runtime_id),
-        );
-    }
-    let selected_count = batch.submissions.len();
-    if let (Some(equipment), Some(stream)) =
-        (equipment.as_deref_mut(), client_world.stream.as_ref())
-    {
-        // Equipment rides each selected body's pose, so culled bodies never build layers.
-        let bodies = batch.submissions.clone();
-        for body in &bodies {
-            let runtime_id = body.input.identity.runtime_id;
-            let input = if runtime_id == local_runtime_id {
-                local_input(stream, ui.as_deref(), runtime_id)
-            } else {
-                remote_input(stream, runtime_id)
-            };
-            for layer in equipment.layers_for(body, &input) {
-                batch
-                    .artwork
-                    .insert(layer.submission.input.identity, layer.location);
-                batch.submissions.push(layer.submission);
-            }
-        }
-    }
-    // After equipment, which rides the rig's own model even when a controller draws another.
-    if let Some(stream) = client_world.stream.as_ref() {
-        crate::presentation::entity_layers::apply_render_layers_cached(
-            &mut batch,
-            |runtime_id| stream.actor_rig(runtime_id),
-            artwork,
-            &mut layer_poses,
-        );
-    }
-    if let Some(stream) = client_world.stream.as_ref()
-        && let Some(pages) = skin_layers.apply(
-            &mut batch,
-            artwork,
-            |runtime_id| stream.actor_rig(runtime_id),
-            &mut skin_rigs,
-            |geometry| new_geometries.push(geometry),
-        )
-    {
-        scene.configure_artwork(pages);
-    }
-    // Hiding skin layers keeps armor and held items visible.
-    if let Some(stream) = client_world.stream.as_ref() {
-        for submission in &mut batch.submissions {
-            let identity = submission.input.identity;
-            if (identity.layer == render::ACTOR_LAYER_BODY
-                || identity.layer == crate::presentation::cape::ACTOR_LAYER_CAPE
-                || crate::presentation::skin_layers::is_skin_layer(identity.layer)
-                || identity.layer >= crate::presentation::entity_layers::ACTOR_LAYER_TEXTURE_BASE)
-                && stream
-                    .actor(identity.runtime_id)
-                    .is_some_and(|actor| actor.is_invisible())
-            {
-                submission.route = render::ActorRigRoute::NoDraw;
-            }
-        }
-    }
-    if let Some(equipment) = equipment.as_deref_mut() {
-        new_geometries.extend(equipment.take_pending_geometries());
-    }
-    drop(preparation);
-    {
-        let _rig_build = profiler
+        ),
+        custom_emote: ui
             .as_deref()
-            .map(|profiler| profiler.time(render::RuntimeStage::ActorRigBuild));
-        register_geometries(&mut hand_builder.0, &mut scene, new_geometries);
+            .and_then(|ui| ui.emotes().playback())
+            .map(|playback| {
+                let now = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
+                (playback.emote, playback.elapsed(now))
+            }),
+        hide_hand: menu.as_ref().is_some_and(|menu| {
+            let settings = menu.settings_snapshot().0;
+            !client_presentation::presentation::visibility::GameplayOverlayVisibility::new(
+                settings.value("hide_hud") != 0,
+                settings.value("hide_hand") != 0,
+            )
+            .hand
+        }),
+    };
+    if let Some(stream) = world.stream.as_mut() {
+        stream.set_local_motion_authority(
+            movement
+                .as_deref()
+                .filter(|movement| movement.physics_is_authorized())
+                .map(|movement| movement.interaction_authority_identity()),
+        );
     }
-    prepared.0 = Some(commit::PendingActorPublication {
-        batch,
-        partial_tick: step.partial_tick,
-        witness: ActorMainWitness {
-            local_snapshot: visibility_snapshot.is_some(),
-            local_visible,
-            expected_runtime_id: local_runtime_id,
-            visibility_runtime_id: visibility_snapshot.map_or(0, |snapshot| snapshot.runtime_id()),
-            selected_count,
-            local_route: None,
-            frame_instances: 0,
-            frame_manifest: 0,
-            skin_bytes: 0,
-            rejects: Default::default(),
-            unrigged_actors,
+    let ClientWorld {
+        stream,
+        entity_assets,
+        pack_entities,
+        session_items,
+        prepared_actor_artwork,
+        ..
+    } = &mut *world;
+    client_presentation::actor_publication::advance_actor_frame(
+        ActorWorld {
+            stream: stream.as_mut(),
+            collisions: collisions
+                .as_deref()
+                .map(|value| value as &dyn client_presentation::observations::CollisionLookup),
+            entity_assets: entity_assets.as_deref(),
+            pack_entities: pack_entities.clone(),
+            session_items: session_items.clone(),
+            prepared_actor_artwork,
         },
-    });
-    let hand_light = client_world.stream.as_ref().map_or(
-        HandRigLight {
-            block_level: 0,
-            sky_level: 0,
-            daylight: 1.0,
-            pad: 0,
-        },
+        input,
         |stream| {
-            let (block, sky) = authoritative_subject_eye
-                .map_or((0, 0), |eye| stream.light_level_at(eye.to_array()));
-            HandRigLight {
-                block_level: u32::from(block),
-                sky_level: u32::from(sky),
-                // Reserved legacy field; the hand samples the shared world lightmap.
-                daylight: 1.0,
-                pad: 0,
+            if let Some(collisions) = collisions.as_deref() {
+                client_presentation::actor_sampling::sample_actor_world_state(stream, collisions);
             }
         },
-    );
-    dropped_items.publish(
-        client_world.stream.as_ref(),
-        camera_position,
-        step.partial_tick,
-    );
-    publish_hand_rig(
-        &mut hand_builder.0,
-        &mut hand_scene,
-        &mut hand_revision,
-        hand_source,
-        hand_camera_fov,
-        hand_light,
-        step.partial_tick,
+        |stream, partial_tick| {
+            let consume = ui
+                .as_deref()
+                .and_then(|_| crate::item_use::consume_ticks(&player, stream));
+            let animation = ui
+                .as_deref()
+                .zip(item_use.as_deref())
+                .map(|(ui, use_runtime)| {
+                    use_runtime.render_input(
+                        &player,
+                        stream,
+                        ui,
+                        movement
+                            .as_deref()
+                            .map_or(0, |movement| movement.completed_tick()),
+                        partial_tick,
+                    )
+                });
+            (consume, animation)
+        },
+        params,
     );
 }
 
-/// Rigs this far outside the view on every side still animate, so only a turn faster than this
-/// in one tick shows a rig its held pose for that tick.
-const ANIMATION_GUARD_DEGREES: f32 = 30.0;
-
-/// The camera's frustum widened by the guard band, with the render distances.
-fn animation_view(
-    transform: &bevy::prelude::Transform,
-    projection: &Projection,
-) -> Option<client_world::ActorAnimationView> {
-    let Projection::Perspective(perspective) = projection else {
-        return None;
-    };
-    let (guard, limit) = (ANIMATION_GUARD_DEGREES.to_radians(), 85f32.to_radians());
-    let half_vertical = perspective.fov * 0.5;
-    let half_horizontal = (half_vertical.tan() * perspective.aspect_ratio).atan();
-    let (half_vertical, half_horizontal) = (
-        (half_vertical + guard).min(limit),
-        (half_horizontal + guard).min(limit),
-    );
-    let clip = Mat4::perspective_infinite_reverse_rh(
-        half_vertical * 2.0,
-        half_horizontal.tan() / half_vertical.tan(),
-        perspective.near,
-    ) * transform.to_matrix().inverse();
-    let [x, y, z, w] = [0, 1, 2, 3].map(|row| clip.row(row));
-    let planes = [w + x, w - x, w + y, w - y, z, w - z].map(|plane| plane.to_array());
-    planes
-        .iter()
-        .flatten()
-        .all(|value| value.is_finite())
-        .then(|| client_world::ActorAnimationView {
-            planes,
-            camera: transform.translation.to_array(),
-            player_distance: MAX_ACTOR_RENDER_DISTANCE_BLOCKS,
-            entity_radius: render::ACTOR_CANDIDATE_RADIUS_BLOCKS,
-        })
+/// Gameplay clocks borrowed only after the interaction owners have admitted this frame's actions.
+#[derive(SystemParam)]
+pub(crate) struct ActorFinalObservations<'w> {
+    world: ResMut<'w, ClientWorld>,
+    physics: Res<'w, LocalPhysicsController>,
+    effects: Option<Res<'w, crate::movement::LocalMovementEffectTimeline>>,
+    swings: Option<ResMut<'w, crate::melee::SwingTracker>>,
+    movement: Option<Res<'w, MovementTicker>>,
+    collisions: Option<Res<'w, PhysicsCollisionRegistries>>,
+    cave: Option<Res<'w, crate::runtime::visibility::CaveVisibilityCache>>,
 }
 
-/// Registers new skin models and item meshes in both rig catalogs with one rebuild each; if a
-/// batch is refused, each is tried alone so a rejected mesh only leaves that model undrawn.
-fn register_geometries(
-    hand: &mut ActorRigFrameBuilder,
-    scene: &mut ActorRenderScene,
-    geometries: Vec<render::ActorRigGeometry>,
+/// Consumes admitted local ticks and builds their final poses with the pre-send capture.
+pub(crate) fn prepare_actor_render_frame(
+    observations: ActorFinalObservations,
+    params: client_presentation::actor_publication::ActorFramePublication,
 ) {
-    if geometries.is_empty() {
-        return;
-    }
-    if hand.insert_geometries(geometries.clone()).is_err() {
-        for geometry in geometries.iter().cloned() {
-            let _ = hand.insert_geometry(geometry);
+    let ActorFinalObservations {
+        mut world,
+        physics,
+        effects,
+        mut swings,
+        movement,
+        collisions,
+        cave,
+    } = observations;
+    let stream = world.stream.as_ref();
+    let swing_progress = stream.and_then(|_| {
+        let movement = movement.as_deref()?;
+        let swings = swings.as_deref_mut()?;
+        if let Some(effects) = effects.as_deref() {
+            swings.sync_ticks(
+                movement.interaction_authority_identity(),
+                movement.completed_tick(),
+                effects,
+            );
         }
+        let mut progress = swings.published_progress(movement.completed_tick());
+        progress.frame_alpha = Some(physics.tick_alpha());
+        Some(progress)
+    });
+    if let (Some(stream), Some(movement), Some(swings)) = (
+        world.stream.as_mut(),
+        movement
+            .as_deref()
+            .filter(|movement| movement.physics_is_authorized()),
+        swings.as_deref(),
+    ) {
+        let alpha = physics.tick_alpha();
+        let samples = swings
+            .committed_samples()
+            .filter_map(|(tick, mut progress)| {
+                let sample = physics.sample_at(tick)?;
+                progress.frame_alpha = Some(alpha);
+                Some(client_world::LocalSwingMotionSample {
+                    tick,
+                    delta: sample.movement,
+                    yaw: sample.yaw,
+                    progress,
+                })
+            });
+        stream.sync_local_swing_motion(movement.interaction_authority_identity(), samples);
     }
-    if scene.insert_geometries(geometries.clone()).is_err() {
-        for geometry in geometries {
-            let _ = scene.insert_geometry(geometry);
-        }
-    }
+    let ClientWorld {
+        stream,
+        entity_assets,
+        pack_entities,
+        session_items,
+        prepared_actor_artwork,
+        ..
+    } = &mut *world;
+    client_presentation::actor_publication::prepare_actor_render_frame(
+        ActorWorld {
+            stream: stream.as_mut(),
+            collisions: collisions
+                .as_deref()
+                .map(|value| value as &dyn client_presentation::observations::CollisionLookup),
+            entity_assets: entity_assets.as_deref(),
+            pack_entities: pack_entities.clone(),
+            session_items: session_items.clone(),
+            prepared_actor_artwork,
+        },
+        swing_progress,
+        |stream, camera, low, high| {
+            cave.as_deref().is_some_and(|cave| {
+                cave.hides_box(
+                    crate::runtime::telemetry::camera_sub_chunk_key(
+                        stream.current_dimension(),
+                        Vec3::from_array(camera),
+                    ),
+                    stream.connectivity_generation(),
+                    |key| stream.has_sub_chunk_connectivity(key),
+                    low,
+                    high,
+                )
+            })
+        },
+        params,
+    );
 }
 
-/// Builds and publishes the local player's first-person rig for the near-camera pass, or clears
-/// it when not in first person, when the look FOV is unavailable, or when no skin resolved.
-fn publish_hand_rig(
-    builder: &mut ActorRigFrameBuilder,
-    scene: &mut HandRigScene,
-    revision: &mut u64,
-    source: Option<HandSource>,
-    fov_radians: Option<f32>,
-    light: HandRigLight,
-    partial_tick: f32,
+/// Publishes entity-shadow casters for the bodies this frame drew.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn publish_entity_shadows(
+    world: Res<ClientWorld>,
+    player: Res<PlayerRuntime>,
+    partial_tick: Res<ActorFramePartialTick>,
+    local: Res<crate::local_player::LocalAvatarVisibilityCarrier>,
+    camera: Query<(&Transform, &Projection), With<crate::camera::FlyCamera>>,
+    frame: Res<render::ActorRenderFrame>,
+    mut drawn: Local<Vec<u64>>,
+    mut staging: Local<Vec<render_model::EntityShadow>>,
+    scene: Option<ResMut<render::EntityShadowScene>>,
 ) {
-    let (Some(source), Some(fov)) = (source, fov_radians) else {
-        scene.clear();
+    let Some(mut scene) = scene else {
         return;
     };
-    let Some(skin) = source.presentation.skin_rgba8.clone() else {
-        scene.clear();
-        return;
-    };
-    let placement = hand_camera_from_rig(source.presentation.authored_scale, source.motion);
-    let mut submissions = Vec::new();
-    if let Some(mut body) = source.body {
-        body.world_from_actor = placement;
-        // The hand skin is a single-layer array; the third-person layer index does not apply.
-        body.texture_layer = 0;
-        submissions.push(body);
-    }
-    let mut atlas = None;
-    if let Some((layer, item_atlas, view_space)) = source.item {
-        let mut item = layer.submission;
-        item.world_from_actor = if view_space {
-            view_placement(source.motion)
-        } else {
-            placement
-        };
-        item.texture_layer = layer.location.layer() | HAND_ITEM_LAYER_FLAG;
-        submissions.push(item);
-        atlas = Some(item_atlas);
-    }
-    let frame = builder.build(partial_tick, None, submissions);
-    *revision = revision.wrapping_add(1).max(1);
-    if scene.publish(frame, skin, light, fov, *revision) {
-        scene.set_item_atlas(atlas);
-    }
-}
-
-use render::equipment_display::hand_view_placement as view_placement;
-
-use render::equipment_display::hand_progress;
-
-/// What the first-person pass draws: arm-masked body pose and/or a held item with its atlas page
-/// and whether its bone is in camera space.
-struct HandSource {
-    presentation: ActorRigPresentation,
-    body: Option<ActorRigSubmission>,
-    item: Option<(EquipmentPresentation, HandItemAtlas, bool)>,
-    /// View-space hurt tilt, walk bob and sway applied before the rig placement.
-    motion: Mat4,
-}
-
-/// Vanilla's hand stack order: hurt tilt, walk bob, then sway about X and Y.
-fn hand_motion_matrix(motion: &crate::camera::FirstPersonHandMotion) -> Mat4 {
-    motion.matrix()
-}
-
-/// Marks an instance's texture layer as an item-atlas layer for the first-person shader.
-use render::HAND_ITEM_LAYER_FLAG;
-
-/// Builds this frame's client-authored local-player feed from the predicted physics state and
-/// the look pose. The yaw/pitch come from the look input (`LocalViewPose`), never the boomed
-/// third-person camera. Returns `None` before physics or on any non-finite value.
-fn build_local_player_feed(
-    physics: &crate::movement::LocalPhysicsController,
-    look: bevy::math::Quat,
-    first_person: bool,
-    local_skin: &crate::player_skin::LocalPlayerSkin,
-    item_use: LocalItemUse,
-) -> Option<LocalPlayerFeed> {
-    let state = physics.state()?;
-    let (yaw, pitch, _) = look.to_euler(bevy::math::EulerRot::YXZ);
-    let yaw_degrees = (180.0 - yaw.to_degrees()).rem_euclid(360.0);
-    let pitch_degrees = -pitch.to_degrees();
-    let position = [
-        state.position.x as f32,
-        state.position.y as f32,
-        state.position.z as f32,
-    ];
-    let velocity = [
-        state.velocity.x as f32,
-        state.velocity.y as f32,
-        state.velocity.z as f32,
-    ];
-    if !position
-        .iter()
-        .chain(&velocity)
-        .chain(&[yaw_degrees, pitch_degrees])
-        .all(|value| value.is_finite())
-    {
-        return None;
-    }
-    let (sneaking, sprinting) = physics.latest_sneak_sprint().unwrap_or_default();
-    Some(LocalPlayerFeed {
-        // A real player-list echo overrides this; without one, the stream backs the local body
-        // with the client's own uploaded skin under this stable local uuid.
-        uuid: local_skin.local_uuid,
-        username: std::sync::Arc::from(""),
-        skin: local_skin.player_skin(),
-        position,
-        velocity,
-        on_ground: state.on_ground,
-        yaw: yaw_degrees,
-        head_yaw: yaw_degrees,
-        pitch: pitch_degrees,
-        main_hand: None,
-        off_hand: None,
-        teleported: false,
-        first_person,
-        sneaking,
-        sprinting,
-        item_use,
-    })
+    let stream = world.stream.as_ref();
+    let local = stream.map(|stream| {
+        let runtime_id = stream.local_player_runtime_id();
+        client_presentation::entity_shadows::LocalShadowSource {
+            runtime_id,
+            visible: local.snapshot().is_some_and(|visibility| {
+                visibility.runtime_id() == runtime_id && visibility.visible()
+            }),
+            feet: local
+                .snapshot()
+                .filter(|visibility| visibility.runtime_id() == runtime_id)
+                .map(|visibility| visibility.feet().to_array()),
+            spectator: player
+                .facts
+                .game_mode_capabilities()
+                .is_some_and(|caps| !caps.visible),
+        }
+    });
+    let view = camera
+        .single()
+        .ok()
+        .map(|(transform, projection)| render::ActorCullView {
+            clip_from_world: projection.get_clip_from_view() * transform.to_matrix().inverse(),
+            camera_position: transform.translation,
+            max_distance: render::MAX_ACTOR_RENDER_DISTANCE_BLOCKS,
+        });
+    client_presentation::entity_shadows::drawn_bodies(&frame, &mut drawn);
+    client_presentation::entity_shadows::publish_entity_shadows(
+        stream,
+        partial_tick.0,
+        local,
+        view,
+        &drawn,
+        &mut staging,
+        &mut scene,
+    );
 }
 
 #[cfg(test)]
-mod tests {
-    use bevy::prelude::{PerspectiveProjection, Projection, Transform, Vec3};
-
-    /// Every actor the renderer can draw is animated: the guard-banded view admits a superset.
-    #[test]
-    fn the_animation_view_admits_everything_the_render_cull_draws() {
-        let camera =
-            Transform::from_xyz(3.0, 70.0, -2.0).looking_at(Vec3::new(20.0, 64.0, 9.0), Vec3::Y);
-        let projection = Projection::Perspective(PerspectiveProjection {
-            fov: 70f32.to_radians(),
-            aspect_ratio: 16.0 / 9.0,
-            ..Default::default()
-        });
-        let view = super::animation_view(&camera, &projection).unwrap();
-        let cull = render::ActorCullView {
-            clip_from_world: projection.get_clip_from_view() * camera.to_matrix().inverse(),
-            camera_position: camera.translation,
-            max_distance: render::MAX_ACTOR_RENDER_DISTANCE_BLOCKS,
-        };
-        let (mut drawn, mut held) = (0, 0);
-        for x in (-60..=60).step_by(3) {
-            for z in (-60..=60).step_by(3) {
-                for (y, scale) in [(60.0, 1.0), (64.0, 0.01), (75.0, 3.0)] {
-                    let feet = [x as f32, y, z as f32];
-                    if render::actor_bounds_are_visible(feet, scale, Default::default(), Some(cull))
-                    {
-                        drawn += 1;
-                        assert!(
-                            view.admits(feet, scale, false, Default::default()),
-                            "{feet:?} x{scale}"
-                        );
-                    } else if !view.admits(feet, scale, false, Default::default()) {
-                        held += 1;
-                    }
-                }
-            }
-        }
-        assert!(drawn > 100 && held > 100, "drawn={drawn} held={held}");
-    }
-
-    use client_world::HandPhase;
-
-    // The swing wraps forward from its last tick to rest, and an eat use counts from its first
-    // using tick only while the rig reports the use.
-    #[test]
-    fn hand_progress_interpolates_the_swing_forward_and_counts_the_use() {
-        let phase = |attack_time, arm_height, use_ticks| HandPhase {
-            attack_time,
-            arm_height,
-            use_ticks,
-        };
-        let hand = super::hand_progress([phase(5.0 / 6.0, 0.6, 0), phase(0.0, 1.0, 0)], None, 0.5);
-        assert!((hand.swing - 11.0 / 12.0).abs() < 1e-6);
-        assert!((hand.equip - 0.8).abs() < 1e-6);
-        assert_eq!(hand.consume, None);
-        let eating = super::hand_progress([phase(0.0, 1.0, 3), phase(0.0, 1.0, 4)], Some(32), 0.25);
-        assert_eq!(eating.consume, Some((3.25, 32.0)));
-        let idle = super::hand_progress([phase(0.0, 1.0, 0), phase(0.0, 1.0, 0)], Some(32), 0.25);
-        assert_eq!(idle.consume, None);
-    }
-
-    // The pack's first-person arm offset sits behind the model's left side; vanilla's facing puts
-    // that ahead of the view and to its right.
-    #[test]
-    fn first_person_arm_offset_lands_ahead_and_right_of_the_camera() {
-        let rows = super::hand_camera_from_rig(0.9375, bevy::math::Mat4::IDENTITY);
-        let arm = [-8.5 / 16.0, 12.0 / 16.0, 12.0 / 16.0];
-        let camera: [f32; 3] = std::array::from_fn(|row| {
-            (0..3).map(|axis| rows[row][axis] * arm[axis]).sum::<f32>() + rows[row][3]
-        });
-        assert!(
-            camera[0] > 0.0 && camera[1] < 0.0 && camera[2] < 0.0,
-            "{camera:?}"
-        );
-    }
-}
+#[path = "actor_publication/tests/custom_emotes.rs"]
+mod custom_emotes;

@@ -26,7 +26,7 @@ pub use scene::{Frame, LaidBox, Session, View};
 pub fn context_presets() -> serde_json::Value {
     use json_ui::Context;
     use serde_json::json;
-    // `SceneFactory::_createSafeZoneSizeVar` with a full safe zone: a zero
+    // Vanilla's safe-zone size variable with a full safe zone: a zero
     // extent on the inset axis, `100%` on the other.
     let vars = |context: Context| {
         let context = context

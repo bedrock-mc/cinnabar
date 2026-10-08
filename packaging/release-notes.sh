@@ -34,8 +34,8 @@ else
     printf -- '- macOS: open the DMG for your Mac (arm64 for Apple silicon, x86_64 for Intel) and drag Cinnabar to Applications.\n'
 fi
 if [[ "${WINDOWS_SIGNED:-}" != true ]]; then
-    printf -- '- Windows (unsigned build): run `Cinnabar-x64.msi`; if SmartScreen warns, choose More info → Run anyway.\n'
+    printf -- '- Windows (unsigned build): run `Cinnabar-x64-setup.exe`; if SmartScreen warns, choose More info → Run anyway.\n'
 else
-    printf -- '- Windows: run `Cinnabar-x64.msi`.\n'
+    printf -- '- Windows: run `Cinnabar-x64-setup.exe`.\n'
 fi
 printf '\nVerify downloads against `SHA256SUMS.txt`.\n'

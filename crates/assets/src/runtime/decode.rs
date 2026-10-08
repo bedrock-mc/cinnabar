@@ -1,8 +1,6 @@
-use sha2::{Digest, Sha256};
-
 use super::RuntimeAssets;
 use crate::model::{
-    MODEL_QUAD_FLAG_TWO_SIDED, model_template_flags_are_valid,
+    MODEL_QUAD_FLAG_TWO_SIDED, covered_grass_variant_is_valid, model_template_flags_are_valid,
     transparent_cube_quad_geometry_is_valid,
 };
 use crate::{
@@ -12,12 +10,12 @@ use crate::{
     MAX_BIOME_NAME_BYTES, MAX_BIOME_NAMES_BYTES, MAX_BIOME_RULES, MAX_MATERIALS, MAX_MODEL_QUADS,
     MAX_MODEL_TEMPLATES, MAX_TEXTURE_LAYERS, MAX_TEXTURE_PAGES, MIP_COUNT,
     MODEL_TEMPLATE_FLAG_COMPOUND_NEXT, MODEL_TEMPLATE_FLAG_FENCE_NETHER,
-    MODEL_TEMPLATE_FLAG_FENCE_WOOD, MODEL_TEMPLATE_FLAG_GATE_AXIS_X,
-    MODEL_TEMPLATE_FLAG_GATE_AXIS_Z, MODEL_TEMPLATE_FLAG_KELP, MODEL_TEMPLATE_FLAG_PANE,
-    MODEL_TEMPLATE_FLAG_STAIR, MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE, Material, ModelQuad,
-    ModelTemplate, NO_ANIMATION, NO_MODEL_TEMPLATE, TILE_SIZE, TINT_MAP_BYTES, TINT_MAP_COUNT,
-    TINT_MAP_SIZE, TextureArray, TextureMip, TexturePage, TextureRef, TintSource, VisualKind,
-    VisualSupport,
+    MODEL_TEMPLATE_FLAG_FENCE_WOOD, MODEL_TEMPLATE_FLAG_FIRE, MODEL_TEMPLATE_FLAG_GATE_AXIS_X,
+    MODEL_TEMPLATE_FLAG_GATE_AXIS_Z, MODEL_TEMPLATE_FLAG_KELP, MODEL_TEMPLATE_FLAG_LILY_PAD,
+    MODEL_TEMPLATE_FLAG_PANE, MODEL_TEMPLATE_FLAG_SNOW_LAYER, MODEL_TEMPLATE_FLAG_STAIR,
+    MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE, Material, ModelQuad, ModelTemplate, NO_ANIMATION,
+    NO_MODEL_TEMPLATE, TILE_SIZE, TINT_MAP_BYTES, TINT_MAP_COUNT, TINT_MAP_SIZE, TextureArray,
+    TextureMip, TexturePage, TextureRef, TintSource, VisualKind, VisualSupport,
     biome::{BIOME_RULE_FLAGS_MASK, validate_biome_assets},
     blob::{
         ANIMATION_BYTES, BIOME_RULE_BYTES, FRAME_BYTES, HASH_BYTES, HASH_ENTRY_BYTES, HEADER_BYTES,
@@ -31,14 +29,20 @@ use crate::{
 use std::sync::atomic::AtomicU64;
 
 impl RuntimeAssets {
-    /// Validates the complete `MCBEAS07` envelope, its embedded source
+    /// Validates the complete world-carrier envelope, its embedded source
     /// provenance, and every cross-reference before allocating tables.
     pub fn decode(bytes: &[u8]) -> Result<Self, AssetError> {
+        Self::decode_sealed(bytes).map(|(assets, _)| assets)
+    }
+
+    /// [`Self::decode`], also returning the SHA-256 of the whole carrier from its envelope check.
+    pub fn decode_sealed(bytes: &[u8]) -> Result<(Self, [u8; 32]), AssetError> {
         let header = Header::decode(bytes)?;
         let provenance = decode_provenance(bytes)?;
         header.validate_layout(bytes)?;
         let sections = header.sections(bytes);
-        validate_hash(bytes, header.offsets[12])?;
+        let identity = crate::encoding::sealed_identity(bytes, header.offsets[12])
+            .ok_or_else(|| invalid("compiled asset SHA-256 mismatch"))?;
         let page_meta = validate_pages(
             sections[7],
             sections[8],
@@ -46,12 +50,14 @@ impl RuntimeAssets {
             header.offsets[8],
         )?;
         validate_fixed(&header, &sections, &page_meta)?;
+        let materials = decode_materials(sections[2])?;
+        crate::material_variations::validate(&materials)?;
         let biomes = decode_biomes(sections[9], sections[10], sections[11])?;
-        Ok(Self {
+        let assets = Self {
             visuals: decode_visuals(sections[0])?,
             light_properties: decode_light_properties(sections[0]),
             hashed: decode_hashes(sections[1]),
-            materials: decode_materials(sections[2])?,
+            materials,
             model_templates: decode_templates(sections[3]),
             model_quads: decode_quads(sections[4]),
             animations: decode_animations(sections[5]),
@@ -60,7 +66,8 @@ impl RuntimeAssets {
             biomes,
             provenance,
             missing: AtomicU64::new(0),
-        })
+        };
+        Ok((assets, identity))
     }
 }
 
@@ -94,16 +101,16 @@ struct Header {
 impl Header {
     fn decode(bytes: &[u8]) -> Result<Self, AssetError> {
         if bytes.len() < HEADER_BYTES + HASH_BYTES {
-            return Err(invalid("truncated MCBEAS07 blob"));
+            return Err(invalid("truncated world asset blob"));
         }
         if bytes[..8] != BLOB_MAGIC {
-            return Err(invalid("invalid MCBEAS07 magic"));
+            return Err(invalid("invalid world asset magic"));
         }
         if u32_at(bytes, 8) != BLOB_VERSION
             || u32_at(bytes, 12) != TILE_SIZE
             || u32_at(bytes, 16) != MIP_COUNT
         {
-            return Err(invalid("unsupported MCBEAS07 header"));
+            return Err(invalid("unsupported world asset header"));
         }
         if u32_at(bytes, 52) != TINT_MAP_COUNT as u32 || u32_at(bytes, 56) != TINT_MAP_SIZE {
             return Err(invalid("invalid tint-map dimensions"));
@@ -233,12 +240,10 @@ fn validate_pages(
             checked_add(total, meta.length, "page relative offset")
         })?;
         let relative_end = checked_add(relative_offset, length, "page relative end")?;
-        let data = payload
+        // The envelope seals the page; the encoder writes its digest.
+        payload
             .get(relative_offset..relative_end)
             .ok_or_else(|| invalid("texture page exceeds payload section"))?;
-        if Sha256::digest(data).as_slice() != &record[32..64] {
-            return Err(invalid("texture page SHA-256 mismatch"));
-        }
         metas.push(PageMeta {
             layers,
             relative_offset,
@@ -276,6 +281,9 @@ fn validate_fixed(
             return Err(invalid("visual flags are invalid"));
         }
         let kind = VisualKind::from_raw(record[25])?;
+        if !covered_grass_variant_is_valid(kind, u32_at(record, 40), header.counts[2]) {
+            return Err(invalid("visual has invalid covered-grass material"));
+        }
         let contributor_role = ContributorRole::read(record[26])?;
         let support = VisualSupport::from_raw(record[28])?;
         if record[29..32] != [0; 3] {
@@ -332,7 +340,8 @@ fn validate_fixed(
             let connected_flag = template_flags
                 & (MODEL_TEMPLATE_FLAG_PANE
                     | MODEL_TEMPLATE_FLAG_FENCE_WOOD
-                    | MODEL_TEMPLATE_FLAG_FENCE_NETHER);
+                    | MODEL_TEMPLATE_FLAG_FENCE_NETHER
+                    | MODEL_TEMPLATE_FLAG_FIRE);
             if connected_flag != 0 {
                 let Some(base_index) = connected_bases
                     .iter()
@@ -390,6 +399,8 @@ fn validate_fixed(
         if index == 0
             && (texture != TextureRef::DIAGNOSTIC
                 || flags != 0
+                || u32_at(record, 16) != 0
+                || u32_at(record, 20) != 0
                 || u32_at(record, 8) != NO_ANIMATION)
         {
             return Err(invalid("material zero is not diagnostic"));
@@ -398,10 +409,12 @@ fn validate_fixed(
     let mut quad = 0usize;
     for record in sections[3].chunks_exact(TEMPLATE_BYTES) {
         if u32_at(record, 0) as usize != quad
-            || u32_at(record, 4) > 32
+            || u32_at(record, 4) as usize > crate::MAX_MODEL_TEMPLATE_QUADS
             || !model_template_flags_are_valid(u32_at(record, 8))
             || (u32_at(record, 8) & MODEL_TEMPLATE_FLAG_KELP != 0 && u32_at(record, 4) != 6)
             || (u32_at(record, 8) == MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE && u32_at(record, 4) != 6)
+            || (u32_at(record, 8) == MODEL_TEMPLATE_FLAG_SNOW_LAYER && u32_at(record, 4) != 6)
+            || (u32_at(record, 8) == MODEL_TEMPLATE_FLAG_LILY_PAD && u32_at(record, 4) != 2)
         {
             return Err(invalid("template spans are noncanonical"));
         }
@@ -544,10 +557,10 @@ fn runtime_compound_tails(bytes: &[u8]) -> Result<Vec<bool>, AssetError> {
             return Err(invalid("compound template head has no quads"));
         }
         let Some(tail) = records.get(index + 1) else {
-            return Err(invalid("compound template pair is truncated"));
+            return Err(invalid("compound template chain is truncated"));
         };
-        if u32_at(tail, 8) != 0 {
-            return Err(invalid("compound continuation is not a plain template"));
+        if !matches!(u32_at(tail, 8), 0 | MODEL_TEMPLATE_FLAG_COMPOUND_NEXT) {
+            return Err(invalid("compound continuation has incompatible flags"));
         }
         if u32_at(tail, 4) == 0 {
             return Err(invalid("compound continuation has no quads"));
@@ -593,6 +606,19 @@ fn runtime_connected_bases(bytes: &[u8]) -> Result<Vec<(usize, u32)>, AssetError
             }
             bases.push((index, flag));
             index += 17;
+        } else if flag == MODEL_TEMPLATE_FLAG_FIRE {
+            let Some(group) = records.get(index..index + crate::FIRE_TEMPLATE_COUNT as usize)
+            else {
+                return Err(invalid("fire template group is truncated"));
+            };
+            if group.iter().enumerate().any(|(offset, record)| {
+                u32_at(record, 8) != flag
+                    || u32_at(record, 4) != crate::fire_template_quad_count(offset as u32)
+            }) {
+                return Err(invalid("fire template group is noncanonical"));
+            }
+            bases.push((index, flag));
+            index += crate::FIRE_TEMPLATE_COUNT as usize;
         } else {
             index += 1;
         }
@@ -655,12 +681,15 @@ fn decode_hashes(bytes: &[u8]) -> Box<[(u32, u32)]> {
 }
 fn decode_materials(bytes: &[u8]) -> Result<Box<[Material]>, AssetError> {
     bytes
-        .chunks_exact(12)
+        .chunks_exact(MATERIAL_BYTES)
         .map(|r| {
             Ok(Material {
                 texture: TextureRef::from_raw(u32_at(r, 0))?,
                 flags: u32_at(r, 4),
                 animation: u32_at(r, 8),
+                variation_start: u32_at(r, 12),
+                variation_count: u32_at(r, 16),
+                variation_weight: u32_at(r, 20),
             })
         })
         .collect::<Result<Vec<_>, _>>()
@@ -831,12 +860,6 @@ fn decode_biomes(
     Ok(result)
 }
 
-fn validate_hash(bytes: &[u8], payload: usize) -> Result<(), AssetError> {
-    if Sha256::digest(&bytes[..payload]).as_slice() != &bytes[payload..] {
-        return Err(invalid("compiled asset SHA-256 mismatch"));
-    }
-    Ok(())
-}
 fn texture_byte_length(layers: usize) -> Result<usize, AssetError> {
     let mut total = 0;
     for level in 0..MIP_COUNT {

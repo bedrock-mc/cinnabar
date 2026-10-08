@@ -6,7 +6,7 @@ site="$1"
 here="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 expected="$(
     printf '%s\n' .nojekyll index.html style.css app.js pkg/jsonui_editor.js pkg/jsonui_editor_bg.wasm \
-        monocraft.mcbefont monocraft-notices.txt examples/files.json
+        cinnangles-sans.mcbefont examples/files.json
     (cd "$here/examples" && find . -type f | sed 's|^\./|examples/|')
 )"
 status=0

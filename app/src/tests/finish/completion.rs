@@ -224,8 +224,10 @@ fn start_game_anchor_tracks_fifo_move_correction_and_dimension_before_surface_re
     let change = protocol::ChangeDimensionEvent {
         dimension: 1,
         position: [240.75, 82.0, -17.25],
+        ..Default::default()
     };
     let dimension_control = CommittedControlEvent::ChangeDimension {
+        sequence: 9,
         change,
         resolved: client_world::ResolvedServerPosition {
             position: change.position,
@@ -459,15 +461,13 @@ fn clearing_a_stale_bridge_endpoint_lets_the_wait_observe_a_fresh_bind() {
 #[test]
 fn a_launcher_session_failure_returns_to_the_menu_instead_of_exiting() {
     let mut menu = crate::menu::MenuRuntime::new(true, 2, "Tester".to_owned());
-    menu.mark_connecting();
-    assert!(menu.is_connecting());
+    menu.show_connecting();
 
     assert!(
         menu.absorb_session_failure("bridge connection failed: Connection refused (os error 61)"),
         "the launcher must take ownership of a failed join"
     );
 
-    assert!(!menu.is_connecting());
     assert!(menu.is_visible(), "a failed join must land back on the menu");
     let error = menu
         .view()
@@ -480,7 +480,7 @@ fn a_launcher_session_failure_returns_to_the_menu_instead_of_exiting() {
 #[test]
 fn a_direct_address_session_failure_still_exits_the_process() {
     let mut menu = crate::menu::MenuRuntime::new(false, 2, "Tester".to_owned());
-    menu.mark_connecting();
+    menu.show_connecting();
 
     assert!(
         !menu.absorb_session_failure("network session failed: bridge closed"),

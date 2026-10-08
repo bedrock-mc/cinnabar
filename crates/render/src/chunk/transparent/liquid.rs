@@ -14,15 +14,20 @@ pub(in crate::chunk) fn transparent_frame_draws(
     let active = arena
         .allocations
         .iter()
-        .map(|(&entity, allocation)| (entity, &allocation.gpu));
+        .map(|(&entity, allocation)| (entity, &allocation.gpu, true));
     let retired = arena
         .retired_allocations
         .iter()
-        .map(|allocation| (allocation.entity, &allocation.identity));
+        .map(|allocation| (allocation.entity, &allocation.identity, false));
     active
         .chain(retired)
-        .filter_map(|(entity, allocation)| {
-            transparent_snapshot_references_allocation(snapshot, allocation).then_some((
+        .filter_map(|(entity, allocation, active)| {
+            (if active {
+                transparent_snapshot_references_resident_allocation(snapshot, allocation)
+            } else {
+                transparent_snapshot_references_allocation(snapshot, allocation)
+            })
+            .then_some((
                 entity,
                 FrameAllocationIdentity {
                     entity,
@@ -52,18 +57,22 @@ pub(in crate::chunk) fn transparent_frame_draw_for_range(
     let active = arena
         .allocations
         .iter()
-        .map(|(&entity, allocation)| (entity, &allocation.gpu));
+        .map(|(&entity, allocation)| (entity, &allocation.gpu, true));
     let retired = arena
         .retired_allocations
         .iter()
-        .map(|allocation| (allocation.entity, &allocation.identity));
+        .map(|allocation| (allocation.entity, &allocation.identity, false));
     active
         .chain(retired)
-        .find(|(_, allocation)| {
+        .find(|(_, allocation, active)| {
             allocation.metadata_index == metadata_index
-                && transparent_snapshot_references_allocation(snapshot, allocation)
+                && if *active {
+                    transparent_snapshot_references_resident_allocation(snapshot, allocation)
+                } else {
+                    transparent_snapshot_references_allocation(snapshot, allocation)
+                }
         })
-        .map(|(entity, allocation)| {
+        .map(|(entity, allocation, _)| {
             (
                 entity,
                 FrameAllocationIdentity {

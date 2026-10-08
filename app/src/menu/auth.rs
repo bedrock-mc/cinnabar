@@ -21,14 +21,7 @@ const MAX_LINE_BYTES: usize = 4096;
 const EVENT_CAPACITY: usize = 8;
 const AUTH_SUCCESS_EXIT_GRACE: Duration = Duration::from_millis(500);
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) enum AuthState {
-    SignedOut,
-    Checking,
-    AwaitingCode { uri: String, code: String },
-    Authenticated,
-    Failed(String),
-}
+pub(crate) use launcher::menu::auth::AuthState;
 
 #[derive(Debug, Deserialize)]
 #[serde(tag = "event", deny_unknown_fields)]
@@ -275,6 +268,14 @@ impl AuthSupervisor {
         }
         if let Some(child) = self.child.as_ref() {
             child.kill();
+        }
+    }
+
+    /// Explicit cancellation dismisses an error after preserving it during helper cleanup.
+    pub(crate) fn cancel_prompt(&mut self) {
+        self.request_cancel();
+        if matches!(self.state, AuthState::Failed(_)) {
+            self.state = AuthState::SignedOut;
         }
     }
 
@@ -727,6 +728,150 @@ mod tests {
             thread::sleep(Duration::from_millis(5));
         }
         assert!(supervisor.reaped.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn retry_waits_for_helper_cleanup_with_a_preparing_prompt() {
+        use super::super::{MenuAction, MenuRuntime};
+        let (child, directory) = event_child_holding(&[]);
+        let mut supervisor = AuthSupervisor::from_child(child).unwrap();
+        supervisor.state = AuthState::Failed("Try again.".into());
+        supervisor.terminal = true;
+        let mut menu = MenuRuntime::new(true, 2, "Offline Player".into());
+        menu.auth_process = Some(supervisor);
+        menu.sign_in_requested = true;
+        menu.control_auth = Some(AuthState::Authenticated);
+        menu.start_sign_in();
+        assert!(menu.auth_restart_requested);
+        assert_eq!(menu.view().auth_state, AuthState::Checking);
+        assert_eq!(menu.view().focused_action, Some(MenuAction::CancelSignIn));
+        drop(menu);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn a_failed_prompt_survives_stale_core_status_until_explicit_cancel() {
+        use super::super::{MenuAction, MenuRuntime};
+        let (child, directory) = event_child_holding(&[]);
+        let mut supervisor = AuthSupervisor::from_child(child).unwrap();
+        supervisor.state = AuthState::Failed("Your sign-in code expired. Try again.".into());
+        supervisor.terminal = true;
+        let mut menu = MenuRuntime::new(true, 2, "Offline Player".into());
+        menu.auth_process = Some(supervisor);
+        menu.sign_in_requested = true;
+        menu.control_auth = Some(AuthState::SignedOut);
+        assert!(matches!(menu.view().auth_state, AuthState::Failed(_)));
+        assert_eq!(menu.view().focused_action, Some(MenuAction::StartSignIn));
+        menu.activate(MenuAction::CancelSignIn);
+        assert_eq!(menu.view().auth_state, AuthState::SignedOut);
+        drop(menu);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn cancelled_completed_add_account_does_not_validate_a_missing_main_cache() {
+        use super::super::{MenuAction, MenuDialog, MenuRuntime};
+        let (child, directory) = event_child_holding(&[]);
+        let mut supervisor = AuthSupervisor::from_child(child).unwrap();
+        supervisor.state = AuthState::Authenticated;
+        supervisor.terminal = true;
+        let mut menu = MenuRuntime::new(true, 2, "Offline Player".into());
+        menu.auth_process = Some(supervisor);
+        menu.feeds.account_adding = true;
+        menu.accounts.pending_ready = true;
+        menu.dialog = Some(MenuDialog::Accounts);
+        menu.activate(MenuAction::CancelSignIn);
+        menu.account_operation_job()();
+        menu.poll_accounts();
+        assert!(menu.auth_process.is_none());
+        assert!(menu.launcher_auth_cache().is_none());
+        assert_eq!(menu.current_auth().as_ref(), &AuthState::SignedOut);
+        drop(menu);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn cancelled_cache_validation_cannot_offer_another_device_code() {
+        use super::super::MenuRuntime;
+        let (child, directory) = event_child_holding(&[]);
+        let mut supervisor = AuthSupervisor::from_child(child).unwrap();
+        supervisor.state = AuthState::AwaitingCode {
+            uri: "https://example.invalid".into(),
+            code: "TEST-CODE".into(),
+        };
+        let mut menu = MenuRuntime::new(true, 2, "Offline Player".into());
+        menu.auth_process = Some(supervisor);
+        menu.auth_attempted = true;
+        menu.sign_in_cancelled = true;
+        menu.poll_catalog(true);
+        let supervisor = menu.auth_process.as_ref().unwrap();
+        assert!(supervisor.cancel_requested);
+        assert_eq!(supervisor.state(), &AuthState::SignedOut);
+        assert!(!menu.view().popup_open());
+        drop(menu);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn profile_sign_in_focus_outranks_stale_control_auth() {
+        use super::super::{MenuAction, MenuRuntime, MenuScreen};
+
+        for state in [
+            AuthState::Checking,
+            AuthState::AwaitingCode {
+                uri: "https://example.invalid/device".into(),
+                code: "FIXTURE".into(),
+            },
+        ] {
+            for control in [AuthState::SignedOut, AuthState::Authenticated] {
+                let (child, directory) = event_child_holding(&[]);
+                let mut supervisor = AuthSupervisor::from_child(child).unwrap();
+                supervisor.state = state.clone();
+                let mut menu = MenuRuntime::new(true, 2, "Fixture Player".into());
+                menu.screen = MenuScreen::Profile;
+                menu.auth_process = Some(supervisor);
+                menu.sign_in_requested = true;
+                menu.control_auth = Some(control);
+                menu.feeds.profile.loaded = true;
+                menu.feeds.profile.friends = Some(1);
+                assert_eq!(menu.view().auth_state, state);
+                let actions = menu.focus_actions();
+                let expected = if matches!(state, AuthState::AwaitingCode { .. }) {
+                    vec![MenuAction::OpenSignInLink, MenuAction::CancelSignIn]
+                } else {
+                    vec![MenuAction::CancelSignIn]
+                };
+                assert_eq!(actions, expected);
+                // The previous signed-out Profile action occupied index one.
+                menu.focused = 1;
+                menu.activate_focused();
+                let supervisor = menu.auth_process.as_ref().unwrap();
+                assert!(supervisor.cancel_requested);
+                assert_eq!(supervisor.state(), &AuthState::SignedOut);
+                assert!(!menu.auth_restart_requested);
+                drop(menu);
+                fs::remove_dir_all(directory).unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn profile_sign_in_focus_outranks_stale_control_auth_and_resets_transition() {
+        use super::super::{MenuRuntime, MenuScreen};
+
+        let (child, directory) = event_child_holding(&[]);
+        let supervisor = AuthSupervisor::from_child(child).unwrap();
+        let mut menu = MenuRuntime::new(true, 2, "Fixture Player".into());
+        menu.screen = MenuScreen::Profile;
+        menu.auth_process = Some(supervisor);
+        menu.sign_in_requested = true;
+        menu.focused = 1;
+        menu.start_sign_in();
+        assert_eq!(menu.focused, 0);
+        assert!(menu.auth_restart_requested);
+        assert!(menu.auth_process.as_ref().unwrap().cancel_requested);
+        drop(menu);
+        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]

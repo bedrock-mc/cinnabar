@@ -7,6 +7,7 @@ import (
 	"net"
 
 	"github.com/hashimthearab/rust-mcbe/core/store"
+	"github.com/sandertv/gophertunnel/minecraft/service/marketplace"
 )
 
 const (
@@ -23,7 +24,7 @@ const (
 	codePurchaseReused = -32032
 	codeStoreNotFound  = -32033
 
-	defaultStorePage = "store"
+	defaultStorePage = marketplace.PageStoreRoot
 )
 
 // Marketplace is the Minecraft Marketplace service behind the store_* methods; *store.Session implements it.
@@ -59,13 +60,6 @@ func (server *Server) marketplaceService() Marketplace {
 	server.mu.Lock()
 	defer server.mu.Unlock()
 	return server.marketplace
-}
-
-type storeResponse struct {
-	JSONRPC string         `json:"jsonrpc"`
-	ID      uint64         `json:"id"`
-	Result  any            `json:"result,omitempty"`
-	Error   *responseError `json:"error,omitempty"`
 }
 
 type storeHomeResultV1 struct {
@@ -109,33 +103,33 @@ type storePurchaseResultV1 struct {
 }
 
 func (server *Server) serveStore(conn net.Conn, id uint64, method string, raw json.RawMessage) error {
-	fail := func(code int, message string) error {
-		return server.writeResponse(conn, storeResponse{JSONRPC: "2.0", ID: id, Error: &responseError{Code: code, Message: message}})
-	}
-	ok := func(result any) error {
-		return server.writeResponse(conn, storeResponse{JSONRPC: "2.0", ID: id, Result: result})
-	}
-	invalid := func() error { return fail(-32602, "Invalid params") }
+	reply := responseWriter{server: server, conn: conn, id: id}
+
 	market := server.marketplaceService()
 	if market == nil {
-		return fail(codeServicesDisabled, "Launcher services unavailable")
+		return reply.fail(codeServicesDisabled, "Launcher services unavailable")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), serviceCallTimeout)
 	defer cancel()
 	failStore := func(err error) error {
 		switch {
 		case errors.Is(err, ErrSignedOut):
-			return fail(codeSignedOut, "Not signed in")
+			return reply.fail(codeSignedOut, "Not signed in")
 		case errors.Is(err, store.ErrInvalidRequest), errors.Is(err, store.ErrImageRejected):
-			return invalid()
+			return reply.invalid()
 		case errors.Is(err, store.ErrPurchaseBusy):
-			return fail(codePurchaseBusy, "Purchase in progress")
+			return reply.fail(codePurchaseBusy, "Purchase in progress")
 		case errors.Is(err, store.ErrPurchaseReused):
-			return fail(codePurchaseReused, "Purchase id reused")
-		case errors.Is(err, store.ErrUnknownPage):
-			return fail(codeStoreNotFound, "Unknown page")
+			return reply.fail(codePurchaseReused, "Purchase id reused")
+		case errors.Is(err, marketplace.ErrUnknownPage):
+			server.logServiceFailure(method, err) // names the page keys the session config offers
+			return reply.fail(codeStoreNotFound, "Unknown page")
 		}
-		return fail(codeServiceFailed, "Service unavailable")
+		// Thumbnail misses are per image and bounded by the client; everything else names why the store failed.
+		if method != methodStoreImage {
+			server.logServiceFailure(method, err)
+		}
+		return reply.fail(codeServiceFailed, "Service unavailable")
 	}
 	switch method {
 	case methodStoreHome:
@@ -143,7 +137,7 @@ func (server *Server) serveStore(conn net.Conn, id uint64, method string, raw js
 			Page *string `json:"page"`
 		}
 		if len(raw) != 0 && !decodeParams(raw, &params) {
-			return invalid()
+			return reply.invalid()
 		}
 		page := defaultStorePage
 		if params.Page != nil {
@@ -157,21 +151,17 @@ func (server *Server) serveStore(conn net.Conn, id uint64, method string, raw js
 			result.Rows = []store.Row{}
 		}
 		result = fitPage(result)
-		return ok(storeHomeResultV1{SchemaVersion: 1, Page: result})
+		return reply.ok(storeHomeResultV1{SchemaVersion: 1, Page: result})
 	case methodStoreSearch:
 		var params struct {
 			Term         string `json:"term"`
-			Filter       string `json:"filter"`
-			OrderBy      string `json:"order_by"`
-			Count        int    `json:"count"`
 			Continuation string `json:"continuation"`
 		}
 		if !decodeParams(raw, &params) {
-			return invalid()
+			return reply.invalid()
 		}
 		result, err := market.Search(ctx, store.SearchQuery{
-			Term: params.Term, Filter: params.Filter, OrderBy: params.OrderBy,
-			Count: params.Count, Continuation: params.Continuation,
+			Term: params.Term, Continuation: params.Continuation,
 		})
 		if err != nil {
 			return failStore(err)
@@ -180,22 +170,22 @@ func (server *Server) serveStore(conn net.Conn, id uint64, method string, raw js
 			result.Offers = []store.Offer{}
 		}
 		result = fitSearch(result)
-		return ok(storeSearchResultV1{SchemaVersion: 1, SearchResults: result})
+		return reply.ok(storeSearchResultV1{SchemaVersion: 1, SearchResults: result})
 	case methodStoreOffer:
 		var params struct {
 			OfferID *string `json:"offer_id"`
 		}
 		if !decodeParams(raw, &params) || params.OfferID == nil || !store.ValidOfferID(*params.OfferID) {
-			return invalid()
+			return reply.invalid()
 		}
 		result, err := market.Offer(ctx, *params.OfferID)
 		if err != nil {
 			return failStore(err)
 		}
-		return ok(storeOfferResultV1{SchemaVersion: 1, Offer: result})
+		return reply.ok(storeOfferResultV1{SchemaVersion: 1, Offer: result})
 	case methodStoreBalance:
 		if len(raw) != 0 {
-			return invalid()
+			return reply.invalid()
 		}
 		balances, err := market.Balances(ctx)
 		if err != nil {
@@ -204,7 +194,7 @@ func (server *Server) serveStore(conn net.Conn, id uint64, method string, raw js
 		if balances == nil {
 			balances = []store.Balance{}
 		}
-		return ok(storeBalanceResultV1{SchemaVersion: 1, Balances: balances})
+		return reply.ok(storeBalanceResultV1{SchemaVersion: 1, Balances: balances})
 	case methodStoreEntitlements:
 		var params struct {
 			Offset  int  `json:"offset"`
@@ -212,20 +202,20 @@ func (server *Server) serveStore(conn net.Conn, id uint64, method string, raw js
 			Refresh bool `json:"refresh"`
 		}
 		if len(raw) != 0 && !decodeParams(raw, &params) {
-			return invalid()
+			return reply.invalid()
 		}
 		result, err := market.Entitlements(ctx, params.Offset, params.Limit, params.Refresh)
 		if err != nil {
 			return failStore(err)
 		}
 		result.Owned = fitOwned(result.Owned)
-		return ok(storeEntitlementsResultV1{SchemaVersion: 1, Entitlements: result})
+		return reply.ok(storeEntitlementsResultV1{SchemaVersion: 1, Entitlements: result})
 	case methodStoreRowMore:
 		var params struct {
 			Continuation *string `json:"continuation"`
 		}
 		if !decodeParams(raw, &params) || params.Continuation == nil || !store.ValidContinuation(*params.Continuation) {
-			return invalid()
+			return reply.invalid()
 		}
 		result, err := market.MoreOffers(ctx, *params.Continuation)
 		if err != nil {
@@ -234,19 +224,19 @@ func (server *Server) serveStore(conn net.Conn, id uint64, method string, raw js
 		if result.Offers == nil {
 			result.Offers = []store.Offer{}
 		}
-		return ok(storeRowMoreResultV1{SchemaVersion: 1, RowMore: result})
+		return reply.ok(storeRowMoreResultV1{SchemaVersion: 1, RowMore: result})
 	case methodStoreImage:
 		var params struct {
 			URL *string `json:"url"`
 		}
 		if !decodeParams(raw, &params) || params.URL == nil {
-			return invalid()
+			return reply.invalid()
 		}
 		result, err := market.Image(ctx, *params.URL)
 		if err != nil {
 			return failStore(err)
 		}
-		return ok(storeImageResultV1{SchemaVersion: 1, Image: result})
+		return reply.ok(storeImageResultV1{SchemaVersion: 1, Image: result})
 	case methodStorePurchase:
 		var params struct {
 			PurchaseID          *string `json:"purchase_id"`
@@ -259,7 +249,7 @@ func (server *Server) serveStore(conn net.Conn, id uint64, method string, raw js
 		}
 		if !decodeParams(raw, &params) || params.PurchaseID == nil || params.OfferID == nil ||
 			params.Currency == nil || params.Amount == nil || params.Confirmed == nil || !*params.Confirmed {
-			return invalid()
+			return reply.invalid()
 		}
 		result, err := market.Purchase(ctx, store.PurchaseRequest{
 			PurchaseID: *params.PurchaseID, OfferID: *params.OfferID, StoreID: params.StoreID,
@@ -269,9 +259,9 @@ func (server *Server) serveStore(conn net.Conn, id uint64, method string, raw js
 		if err != nil {
 			return failStore(err)
 		}
-		return ok(storePurchaseResultV1{SchemaVersion: 1, PurchaseResult: result})
+		return reply.ok(storePurchaseResultV1{SchemaVersion: 1, PurchaseResult: result})
 	}
-	return fail(-32601, "Method not found")
+	return reply.fail(-32601, "Method not found")
 }
 
 // frameBudget leaves headroom under MaxFrameLen for the envelope.

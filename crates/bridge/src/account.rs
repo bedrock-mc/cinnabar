@@ -65,6 +65,8 @@ pub struct FeaturedGame {
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
 pub struct FeaturedServer {
     #[serde(default)]
+    pub group: String,
+    #[serde(default)]
     pub name: String,
     #[serde(default)]
     pub address: String,
@@ -79,30 +81,14 @@ pub struct FeaturedServer {
     #[serde(default)]
     pub logo: Artwork,
     #[serde(default)]
+    pub background: Artwork,
+    #[serde(default)]
     pub screenshots: Vec<Artwork>,
     #[serde(default)]
     pub games: Vec<FeaturedGame>,
-}
-
-/// A community gathering; the core joins it by `id` only when the player connects.
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
-pub struct Gathering {
+    /// The experience's service count, absent until it is available.
     #[serde(default)]
-    pub id: String,
-    #[serde(default)]
-    pub name: String,
-    #[serde(default)]
-    pub caption: String,
-    #[serde(default)]
-    pub description: String,
-    #[serde(default)]
-    pub creator: String,
-    #[serde(default)]
-    pub image: Artwork,
-    #[serde(default)]
-    pub start_unix: i64,
-    #[serde(default)]
-    pub end_unix: i64,
+    pub player_count: Option<i64>,
 }
 
 /// The signed-in account as the start and profile screens show it.
@@ -115,6 +101,14 @@ pub struct Profile {
     #[serde(default)]
     pub gamerpic: Artwork,
     #[serde(default)]
+    pub avatar: Artwork,
+    #[serde(default)]
+    pub avatar_error: bool,
+    #[serde(default)]
+    pub featured_screenshot: Artwork,
+    #[serde(default)]
+    pub featured_screenshot_error: bool,
+    #[serde(default)]
     pub real_name: String,
     #[serde(default)]
     pub presence_text: String,
@@ -125,6 +119,44 @@ pub struct Profile {
     pub friends: Option<u32>,
     #[serde(default)]
     pub followers: Option<u32>,
+    #[serde(default)]
+    pub statistics: Option<ProfileStatistics>,
+    #[serde(default)]
+    pub achievements: Option<ProfileAchievements>,
+}
+
+/// The four Xbox title statistics vanilla requests for a player profile.
+/// Numeric strings preserve the service's precision; absent values are unavailable.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+pub struct ProfileStatistics {
+    pub minutes_played: Option<String>,
+    pub blocks_broken: Option<String>,
+    pub mobs_defeated: Option<String>,
+    pub distance_travelled: Option<String>,
+}
+
+/// The account's achievement summary for the authenticated Minecraft title.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+pub struct ProfileAchievements {
+    pub unlocked: u32,
+    pub total: u32,
+    pub current_gamerscore: Option<i64>,
+    pub max_gamerscore: Option<i64>,
+    pub entries: Vec<ProfileAchievement>,
+}
+
+/// Xbox achievement data; game-specific suggested order remains optional.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+pub struct ProfileAchievement {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub image: Artwork,
+    pub gamerscore: Option<i64>,
+    pub locked: bool,
+    #[serde(default)]
+    pub date_unlocked: String,
+    pub suggested_order: Option<u32>,
 }
 
 /// The start screen's service data: messaging surfaces, inbox counts,
@@ -148,6 +180,12 @@ pub struct Home {
 /// One player-messaging message; `surface` places it (`PlayButton`, `InboxMessage`, ...).
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
 pub struct Message {
+    #[serde(default)]
+    pub colors: std::collections::BTreeMap<String, [u8; 3]>,
+    #[serde(default)]
+    pub received: String,
+    #[serde(default)]
+    pub sender: String,
     #[serde(default)]
     pub id: String,
     #[serde(default)]
@@ -198,8 +236,19 @@ pub struct MessageButton {
     pub action: String,
 }
 
+/// Per-category service totals can include messages outside the loaded page.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+pub struct InboxCategory {
+    #[serde(default, rename = "type")]
+    pub kind: String,
+    #[serde(default)]
+    pub unread: u32,
+}
+
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
 pub struct Inbox {
+    #[serde(default)]
+    pub categories: Vec<InboxCategory>,
     #[serde(default)]
     pub total: u32,
     #[serde(default)]
@@ -293,6 +342,17 @@ pub struct Friend {
     pub address: Option<String>,
 }
 
+/// One Xbox friend of the signed-in account; `xuid` addresses their game invite.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+pub struct Person {
+    pub xuid: String,
+    pub gamertag: String,
+    #[serde(default)]
+    pub online: bool,
+    #[serde(default)]
+    pub gamerpic: Artwork,
+}
+
 /// Where the next client connection goes.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ConnectTarget {
@@ -302,7 +362,7 @@ pub enum ConnectTarget {
     Realm(String),
     /// A friend's XUID from [`Friend::xuid`].
     Friend(String),
-    /// A gathering's experience ID from [`Gathering::id`].
+    /// A featured experience's ID, from a `gathering/<id>` featured server address.
     Gathering(String),
 }
 
@@ -370,6 +430,16 @@ pub struct Events {
     /// Live while the core prepares a join; gone once it hands the session to the client.
     #[serde(default)]
     pub connect: Option<ConnectProgress>,
+    /// The join's pending question whether to trust a NetherNet server.
+    #[serde(default)]
+    pub server_trust: Option<ServerTrustPrompt>,
+}
+
+/// Asks whether to trust the NetherNet server at `url`, answered with [`answer_server_trust`].
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
+pub struct ServerTrustPrompt {
+    pub id: u64,
+    pub url: String,
 }
 
 /// The core's stage of preparing a join, and its pack download counts.
@@ -445,6 +515,11 @@ struct FriendsBody {
 }
 
 #[derive(Deserialize)]
+struct PeopleBody {
+    friends: Vec<Person>,
+}
+
+#[derive(Deserialize)]
 struct AccountBody {
     account: Account,
 }
@@ -453,12 +528,6 @@ struct AccountBody {
 struct FeaturedBody {
     #[serde(default)]
     servers: Vec<FeaturedServer>,
-}
-
-#[derive(Deserialize)]
-struct GatheringsBody {
-    #[serde(default)]
-    gatherings: Vec<Gathering>,
 }
 
 #[derive(Deserialize)]
@@ -517,6 +586,12 @@ pub async fn list_friends(socket_dir: &Path) -> Result<Vec<Friend>, BridgeError>
     Ok(body.friends)
 }
 
+/// Lists the account's Xbox friends, online first.
+pub async fn list_people(socket_dir: &Path) -> Result<Vec<Person>, BridgeError> {
+    let body: PeopleBody = call::<_, ()>(socket_dir, "friends_people.v1", None).await?;
+    Ok(body.friends)
+}
+
 /// Selects the upstream for the next game-socket connection.
 pub async fn connect_target(socket_dir: &Path, target: &ConnectTarget) -> Result<(), BridgeError> {
     call::<Empty, _>(socket_dir, "connect.v1", Some(target.params())).await?;
@@ -542,14 +617,34 @@ pub async fn poll_events(socket_dir: &Path) -> Result<Events, BridgeError> {
 
 /// Lists the featured servers.
 pub async fn list_featured_servers(socket_dir: &Path) -> Result<Vec<FeaturedServer>, BridgeError> {
-    let body: FeaturedBody = call::<_, ()>(socket_dir, "featured_servers.v1", None).await?;
-    Ok(body.servers)
+    featured_servers(socket_dir, None).await
 }
 
-/// Lists the community gatherings.
-pub async fn list_gatherings(socket_dir: &Path) -> Result<Vec<Gathering>, BridgeError> {
-    let body: GatheringsBody = call::<_, ()>(socket_dir, "gatherings.v1", None).await?;
-    Ok(body.gatherings)
+#[derive(Serialize)]
+struct FeaturedParams {
+    include_player_counts: bool,
+}
+
+/// Reads featured details with live counts while an experience's details are visible.
+pub async fn list_featured_servers_with_counts(
+    socket_dir: &Path,
+) -> Result<Vec<FeaturedServer>, BridgeError> {
+    featured_servers(
+        socket_dir,
+        Some(FeaturedParams {
+            include_player_counts: true,
+        }),
+    )
+    .await
+}
+
+/// Uses the existing featured feed with an optional request for experience counts.
+async fn featured_servers(
+    socket_dir: &Path,
+    params: Option<FeaturedParams>,
+) -> Result<Vec<FeaturedServer>, BridgeError> {
+    let body: FeaturedBody = call(socket_dir, "featured_servers.v1", params).await?;
+    Ok(body.servers)
 }
 
 /// Addresses one `ping.v1` request may carry (the core's `catalog.MaxPingTargets`);
@@ -576,6 +671,28 @@ pub async fn home(socket_dir: &Path) -> Result<Home, BridgeError> {
     Ok(body.home)
 }
 
+#[derive(Serialize)]
+struct ServerTrustAnswer {
+    id: u64,
+    trusted: bool,
+}
+
+#[derive(Deserialize)]
+struct ServerTrustBody {
+    answered: bool,
+}
+
+/// Answers trust prompt `id`; `false` when it was no longer pending.
+pub async fn answer_server_trust(
+    socket_dir: &Path,
+    id: u64,
+    trusted: bool,
+) -> Result<bool, BridgeError> {
+    let params = ServerTrustAnswer { id, trusted };
+    let body: ServerTrustBody = call(socket_dir, "server_trust_answer.v1", Some(params)).await?;
+    Ok(body.answered)
+}
+
 /// Reports one messaging event (impression, click, dismiss, ...).
 pub async fn report_message_event(
     socket_dir: &Path,
@@ -597,7 +714,7 @@ mod tests {
 
     #[test]
     fn connect_params_match_the_wire_contract() {
-        let encoded = serde_json::to_string(&Request {
+        let encoded = serde_json::to_value(&Request {
             jsonrpc: "2.0",
             id: 1,
             method: "connect.v1",
@@ -606,19 +723,22 @@ mod tests {
         .expect("encode");
         assert_eq!(
             encoded,
-            r#"{"jsonrpc":"2.0","id":1,"method":"connect.v1","params":{"kind":"realm","value":"42"}}"#
+            serde_json::json!({"jsonrpc":"2.0","id":1,"method":"connect.v1","params":{"kind":"realm","value":"42"}})
         );
-        let raknet = serde_json::to_string(&ConnectTarget::RakNet("a:1".into()).params());
+        let raknet = serde_json::to_value(ConnectTarget::RakNet("a:1".into()).params());
         assert_eq!(
             raknet.expect("encode"),
-            r#"{"kind":"raknet","value":"a:1"}"#
+            serde_json::json!({"kind":"raknet","value":"a:1"})
         );
-        let friend = serde_json::to_string(&ConnectTarget::Friend("9".into()).params());
-        assert_eq!(friend.expect("encode"), r#"{"kind":"friend","value":"9"}"#);
-        let gathering = serde_json::to_string(&ConnectTarget::Gathering("e".into()).params());
+        let friend = serde_json::to_value(ConnectTarget::Friend("9".into()).params());
+        assert_eq!(
+            friend.expect("encode"),
+            serde_json::json!({"kind":"friend","value":"9"})
+        );
+        let gathering = serde_json::to_value(ConnectTarget::Gathering("e".into()).params());
         assert_eq!(
             gathering.expect("encode"),
-            r#"{"kind":"gathering","value":"e"}"#
+            serde_json::json!({"kind":"gathering","value":"e"})
         );
     }
 
@@ -643,6 +763,19 @@ mod tests {
     }
 
     #[test]
+    fn parses_people_with_presence_and_cached_gamerpics() {
+        let people = br#"{"jsonrpc":"2.0","id":1,"result":{"schema_version":1,"friends":[
+            {"xuid":"2535400000000001","gamertag":"Alex","online":true,
+             "gamerpic":{"url":"https://images.example.test/a","path":"/art/people/a.img"}},
+            {"xuid":"2535400000000002","gamertag":"Bea","gamerpic":{}}]}}"#;
+        let body: PeopleBody = parse_response(people).expect("people");
+        assert_eq!(body.friends.len(), 2);
+        assert!(body.friends[0].online && !body.friends[1].online);
+        assert_eq!(body.friends[0].gamerpic.path, "/art/people/a.img");
+        assert_eq!(body.friends[1].gamerpic, Artwork::default());
+    }
+
+    #[test]
     fn parses_account_and_events() {
         let account = br#"{"jsonrpc":"2.0","id":1,"result":{"schema_version":1,
             "account":{"state":"awaiting_code","verification_uri":"https://x.test/l","user_code":"AB12"}}}"#;
@@ -662,7 +795,27 @@ mod tests {
         let quiet: Events = parse_response(quiet).expect("quiet");
         assert_eq!(quiet.auth.state, AuthState::Offline);
         assert!(quiet.disconnect.is_none() && quiet.transfer.is_none());
-        assert!(quiet.connect.is_none());
+        assert!(quiet.connect.is_none() && quiet.server_trust.is_none());
+    }
+
+    #[test]
+    fn parses_a_pending_server_trust_prompt() {
+        let events = br#"{"jsonrpc":"2.0","id":1,"result":{"schema_version":1,
+            "auth":{"state":"signed_in"},"server_trust":{"id":3,"url":"http://127.0.0.1:19132"}}}"#;
+        let events: Events = parse_response(events).expect("events");
+        assert_eq!(
+            events.server_trust,
+            Some(ServerTrustPrompt {
+                id: 3,
+                url: "http://127.0.0.1:19132".into()
+            })
+        );
+        let answer = serde_json::to_value(ServerTrustAnswer {
+            id: 3,
+            trusted: true,
+        })
+        .expect("answer");
+        assert_eq!(answer, serde_json::json!({"id": 3, "trusted": true}));
     }
 
     // Omitted counts read as zero and an unknown stage reads as connecting.
@@ -706,25 +859,43 @@ mod tests {
     }
 
     #[test]
+    fn featured_player_counts_preserve_missing_zero_and_signed_values() {
+        for (payload, expected) in [
+            (r#"{}"#, None),
+            (r#"{"player_count":null}"#, None),
+            (r#"{"player_count":0}"#, Some(0)),
+            (r#"{"player_count":-1}"#, Some(-1)),
+            (r#"{"player_count":12345}"#, Some(12_345)),
+        ] {
+            let server: FeaturedServer = serde_json::from_str(payload).expect("featured server");
+            assert_eq!(server.player_count, expected);
+        }
+    }
+
+    #[test]
     fn screen_feeds_parse_leniently() {
         let featured = br#"{"jsonrpc":"2.0","id":1,"result":{"schema_version":1,"servers":[
             {"name":"S","address":"a.test:19132","logo":{"url":"https://a.test/l.png"},
+             "background":{"path":"/art/bg.img"},
              "games":[{"title":"Skywars"}],"future":true},{}]}}"#;
         let body: FeaturedBody = parse_response(featured).expect("featured");
         assert_eq!(body.servers.len(), 2);
         assert_eq!(body.servers[0].logo.url, "https://a.test/l.png");
+        assert_eq!(body.servers[0].background.path, "/art/bg.img");
         assert_eq!(body.servers[0].games[0].title, "Skywars");
-        let gatherings = br#"{"jsonrpc":"2.0","id":1,"result":{"schema_version":1}}"#;
-        assert!(
-            parse_response::<GatheringsBody>(gatherings)
-                .expect("gatherings")
-                .gatherings
-                .is_empty()
-        );
         let profile = br#"{"jsonrpc":"2.0","id":1,"result":{"schema_version":1,
             "profile":{"gamertag":"Steve","xuid":"1","gamerpic":{"path":"/art/p.img"}}}}"#;
         let body: ProfileBody = parse_response(profile).expect("profile");
         assert_eq!(body.profile.gamerpic.path, "/art/p.img");
+        assert!(body.profile.statistics.is_none());
+        let profile = br#"{"jsonrpc":"2.0","id":1,"result":{"schema_version":1,
+            "profile":{"statistics":{"minutes_played":"120.5","blocks_broken":"0"}}}}"#;
+        let body: ProfileBody = parse_response(profile).expect("profile statistics");
+        let statistics = body.profile.statistics.expect("loaded statistics");
+        assert_eq!(statistics.minutes_played.as_deref(), Some("120.5"));
+        assert_eq!(statistics.blocks_broken.as_deref(), Some("0"));
+        assert!(statistics.mobs_defeated.is_none());
+        assert!(statistics.distance_travelled.is_none());
         let realm = br#"{"jsonrpc":"2.0","id":1,"result":{"schema_version":1,"realms":[
             {"name":"R","state":"OPEN","target":"realm_id/7","online_players":2,"max_players":10}]}}"#;
         let body: RealmsBody = parse_response(realm).expect("realm");
@@ -734,11 +905,11 @@ mod tests {
     #[test]
     fn ping_params_and_results_match_the_wire_contract() {
         let addresses = vec!["a.test:19132".to_owned()];
-        let encoded = serde_json::to_string(&PingParams {
+        let encoded = serde_json::to_value(&PingParams {
             addresses: &addresses,
         })
         .expect("encode");
-        assert_eq!(encoded, r#"{"addresses":["a.test:19132"]}"#);
+        assert_eq!(encoded, serde_json::json!({"addresses":["a.test:19132"]}));
         let reply = br#"{"jsonrpc":"2.0","id":1,"result":{"schema_version":1,"servers":[
             {"address":"a.test:19132","online":true,"players":3,"max_players":20,"ping_ms":41}]}}"#;
         let body: PingBody = parse_response(reply).expect("ping");
@@ -762,8 +933,8 @@ mod tests {
             ..MessageEvent::default()
         };
         assert_eq!(
-            serde_json::to_string(&event).expect("encode"),
-            r#"{"event_type":"Impression","instance_id":"i"}"#
+            serde_json::to_value(&event).expect("encode"),
+            serde_json::json!({"event_type":"Impression","instance_id":"i"})
         );
     }
 

@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, sync::Arc};
 
-use assets::{EntityAssetKind, ItemActionPhase, RuntimeEntityAssets};
+use assets::{ItemActionPhase, RuntimeEntityAssets};
 use protocol::{ActorActionEvent, ActorActionKind};
 
 use crate::{ActorLifetimeId, EntityRigId};
@@ -48,6 +48,7 @@ pub struct RemoteActionSnapshot {
 #[derive(Debug)]
 pub(crate) struct RemoteActionStore {
     assets: Option<Arc<RuntimeEntityAssets>>,
+    pack: Option<Arc<RuntimeEntityAssets>>,
     timelines: BTreeMap<ActorLifetimeId, Vec<RemoteActionSnapshot>>,
     accepted_this_tick: usize,
     stats: RemoteActionStats,
@@ -65,10 +66,16 @@ impl RemoteActionStore {
     fn new(assets: Option<Arc<RuntimeEntityAssets>>) -> Self {
         Self {
             assets,
+            pack: None,
             timelines: BTreeMap::new(),
             accepted_this_tick: 0,
             stats: RemoteActionStats::default(),
         }
+    }
+
+    /// Retains the owning catalog for tagged server-pack rig IDs.
+    pub(crate) fn set_pack(&mut self, assets: Option<Arc<RuntimeEntityAssets>>) {
+        self.pack = assets;
     }
 
     pub(crate) fn clear(&mut self) {
@@ -186,55 +193,20 @@ impl RemoteActionStore {
     }
 
     fn fallback(&self, kind: &ActorActionKind, rig: Option<EntityRigId>) -> RemoteActionFallback {
-        let ActorActionKind::Custom {
-            animation,
-            controller,
-        } = kind
-        else {
+        let ActorActionKind::Custom { animation, .. } = kind else {
             return RemoteActionFallback::None;
         };
-        let available = self.assets.as_ref().is_some_and(|assets| {
-            let Some(geometry) = rig.and_then(|rig| assets.rig_geometries().get(rig.0 as usize))
-            else {
-                return false;
-            };
-            let animation_first = geometry.first_animation as usize;
-            let animation_end = animation_first.saturating_add(geometry.animation_count as usize);
-            let animation_available = assets
-                .rig_animations()
-                .get(animation_first..animation_end)
-                .is_some_and(|bindings| {
-                    bindings.iter().any(|binding| {
-                        assets
-                            .animation_clips()
-                            .get(binding.clip as usize)
-                            .and_then(|clip| assets.symbols().get(clip.symbol as usize))
-                            .is_some_and(|symbol| {
-                                symbol.kind == EntityAssetKind::Animation
-                                    && symbol.identifier.as_ref() == animation.as_ref()
-                            })
-                    })
-                });
-            let controller_first = geometry.first_controller as usize;
-            let controller_end =
-                controller_first.saturating_add(geometry.controller_count as usize);
-            let controller_available = controller.is_empty()
-                || assets
-                    .rig_controllers()
-                    .get(controller_first..controller_end)
-                    .is_some_and(|bindings| {
-                        bindings.iter().any(|binding| {
-                            assets
-                                .controllers()
-                                .get(binding.controller as usize)
-                                .and_then(|compiled| assets.symbols().get(compiled.symbol as usize))
-                                .is_some_and(|symbol| {
-                                    symbol.kind == EntityAssetKind::AnimationController
-                                        && symbol.identifier.as_ref() == controller.as_ref()
-                                })
-                        })
-                    });
-            animation_available && controller_available
+        let catalog = rig.and_then(|rig| {
+            if let Some(index) = rig.0.checked_sub(assets::PACK_RIG_ID_BASE) {
+                self.pack.as_ref().map(|assets| (assets, index))
+            } else {
+                self.assets.as_ref().map(|assets| (assets, rig.0))
+            }
+        });
+        let available = catalog.is_some_and(|(assets, index)| {
+            assets
+                .server_animation_clip(index as usize, animation)
+                .is_some()
         });
         if available {
             RemoteActionFallback::None

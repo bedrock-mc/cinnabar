@@ -1,12 +1,11 @@
 use super::{FormTransportError, flush_form_response};
-use crate::{
-    runtime::network::{NetworkHandle, PacketSendError},
-    ui_runtime::UiRuntime,
-};
+use crate::runtime::network::{NetworkHandle, PacketSendError};
 use bevy::prelude::{Res, ResMut};
+use client_ui::ui_runtime::UiRuntime;
 
 pub(crate) fn flush_server_form_network(
     mut runtime: ResMut<UiRuntime>,
+    player: Res<crate::player_runtime::PlayerRuntime>,
     network: Res<NetworkHandle>,
     menu: Option<Res<crate::menu::MenuRuntime>>,
 ) {
@@ -15,20 +14,39 @@ pub(crate) fn flush_server_form_network(
     if network.closed_command_has_pending_control() {
         return;
     }
+    let _ = runtime.flush_boss_responses(|packet| {
+        network
+            .send_form_packet(session, packet)
+            .map_err(|error| match error {
+                PacketSendError::Full(_) => FormTransportError::Full,
+                PacketSendError::Closed(_) => FormTransportError::Closed,
+            })
+    });
+    let runtime_id = runtime.local_runtime_id(&player);
+    let credits_completed = runtime.credits_mut().flush(runtime_id, |packet| {
+        network
+            .send_form_packet(session, packet)
+            .map_err(|error| match error {
+                PacketSendError::Full(_) => FormTransportError::Full,
+                PacketSendError::Closed(_) => FormTransportError::Closed,
+            })
+    });
+    if matches!(credits_completed, Ok(true)) {
+        bevy::log::info!(session, ?runtime_id, "credits completion queued for server");
+    }
+    if runtime.credits().owns_input() {
+        return;
+    }
     // Opening settings in a session asks the server for its settings form once.
     let in_settings = menu.as_ref().is_some_and(|menu| {
         menu.is_visible() && menu.screen() == crate::menu::MenuScreen::Settings
     });
     let store = runtime.server_forms_mut();
-    if !in_settings {
-        store.settings_requested = false;
-    } else if !store.settings_requested
-        && network
+    store.flush_settings_request(in_settings, || {
+        network
             .send_form_packet(session, protocol::server_settings_request_packet())
             .is_ok()
-    {
-        store.settings_requested = true;
-    }
+    });
     let _ = flush_form_response(&mut runtime, |packet| {
         network
             .send_form_packet(session, packet)
@@ -38,3 +56,6 @@ pub(crate) fn flush_server_form_network(
             })
     });
 }
+
+#[cfg(test)]
+mod tests;

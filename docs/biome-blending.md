@@ -1,47 +1,20 @@
 # Biome tint sampling evidence
 
-Reference: Lens reconstructed client **1.26.50.26**, artifact **6**.
-The addresses below are artifact RVAs, not addresses in the 26.30 analysis image.
-Read with `artifact_function(artifact_id=6, rva=...)`.
+## Vanilla rules
 
-- `0x1de5f30`, `LatticePointColorCache::buildLatticePoints`: seven points per
-  axis, spaced four blocks apart, covering offsets -12 through +12 from the
-  cache origin. The raw and canonical views agree.
-- `0x1de6110`: each point counts the 27 biome samples at offsets -4, 0, +4
-  in X, Y and Z. It retains the four most frequent biome IDs. Each retained
-  count is divided by all 27 samples; discarded IDs are not renormalized.
-- `0x1de69b0`, `LatticePointColorCache::sampleColor`: takes an integer
-  `BlockPos`, finds the eight nearest points from 27 candidates, and weights
-  each by `1 / (distance + epsilon)`, then divides by the sum of those weights.
-  Equal-distance candidates retain the X/Y/Z traversal order. The Z indexing
-  adds one lattice step relative to the loop variable, so the actual candidates
-  are symmetric on all axes.
-  Candidate cell division truncates toward zero relative to the cache origin.
-- `0x1ef8770`, `RenderChunkShared::startRebuild`: writes the cache origin as
-  the render chunk's minimum block position plus eight on each axis. This is
-  the geometry field passed to the snapshot and lattice builder by `0x1ee0990`.
-- `read_data(artifact="6", address="0x14ffab690", type="f32")` gives epsilon
-  **1.1920928955078125e-7**, exactly `f32::EPSILON`.
-- `0x31aba00`: builds the biome snapshot at four-block spacing within radius
-  16. Its entries start at zero; an absent chunk leaves a zero biome ID.
-- `0x1ee0990`, `RenderChunkBuilder::build`: installs that snapshot and builds
-  the lattice cache. Cache selection is conditional on a virtual capability
-  query. Its identity has not been resolved to a user graphics setting.
-- `0x1de75a0` has a direct grass-colour path when the cache is disabled and
-  otherwise calls the lattice sampler. `0x6a89ae0` calls it with a block
-  position and tint method 5. This proves block-position sampling for that
-  caller, not every grass, foliage or water tessellation route.
-- `0x1dda240` installs tint strategies 1–4 with foliage palette callbacks,
-  5 with `0x1dfa500` (grass), and 6 with `0x1dfa6b0` (water). The latter two
-  query the supplied lattice under the same capability test; otherwise they
-  read per-column colours. `0x1df9eb0` sends all four foliage kinds through the
-  lattice unless seasonal tinting applies. Its fallback averages an offset
-  list through `0x731d3d0`; that list's shape remains unresolved.
-- `0x6a2f110` queries a vine's tint once at its integer block position before
-  writing vertex colours. This corroborates block-position queries for foliage.
-- `0x1dccd10` is a separate grass averaging path: 25 horizontal samples spaced
-  four blocks apart, at the supplied Y. It must not be confused with the
-  lattice cache. The graphics mode selecting it is still unresolved.
+| Rule | Behaviour |
+| --- | --- |
+| Lattice points | Seven points per axis, spaced four blocks apart, cover offsets -12 through +12 from the cache origin. |
+| Biome counts | Each point counts 27 samples at offsets -4, 0, +4 in X, Y and Z and retains the four most frequent IDs. Divide each retained count by all 27 samples without renormalizing discarded IDs. |
+| Sampling | For an integer `BlockPos`, choose the eight nearest points from 27 candidates and weight each by `1 / (distance + epsilon)`, divided by the weight sum. Equal distances retain X/Y/Z traversal order. Z indexing adds one lattice step, so candidates are symmetric on all axes. Cell division truncates toward zero relative to the cache origin. |
+| Cache origin | The render chunk's minimum block position plus eight on each axis is passed to the snapshot and lattice builder. |
+| Epsilon | **1.1920928955078125e-7**, exactly `f32::EPSILON`. |
+| Snapshot | Four-block spacing within radius 16; entries start at zero and absent chunks leave a zero biome ID. |
+| Cache selection | The builder installs the snapshot and lattice cache under a capability query whose mapping to a user graphics setting remains unresolved. |
+| Grass | A direct colour path is used when the cache is disabled, otherwise the lattice sampler is used. A tint-method-5 caller samples at a block position; this does not establish every grass, foliage or water route. |
+| Tint strategies | Strategies 1–4 use foliage palette callbacks, 5 grass, and 6 water. Grass and water query the lattice under the same capability test or read per-column colours. All four foliage kinds use the lattice unless seasonal tinting applies; the fallback averages an unresolved offset list. |
+| Vines | Query tint once at the integer block position before writing vertex colours. |
+| Separate grass average | A separate path averages 25 horizontal samples at four-block spacing and the supplied Y. Its graphics-mode selection remains unresolved. |
 
 ## Cinnabar change and limits
 

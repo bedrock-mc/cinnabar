@@ -164,7 +164,11 @@ impl ModelWitnessEvidence {
         let Some(current) = acknowledgement.model_witness.as_ref().filter(|current| {
             current.revision == request.revision
                 && current.request_hash == request.request_hash
-                && current.manifest.len() == request.keys.len()
+                && current
+                    .manifest
+                    .iter()
+                    .map(|record| record.key)
+                    .eq(request.keys.iter().copied())
                 && current.is_exact()
         }) else {
             state.first = None;

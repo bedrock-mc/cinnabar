@@ -7,7 +7,13 @@
   "archive_sha256": "c0b6151f5f9a0c31ebe3c909dfc82d97f12473ed2c6e039aa7e22d667042026c",
   "atlas_sha256": "b203a6a4daef52efe98a1e7569a1b69ac7c1a08ca824e8556d141be34233107a",
   "retail_allowlist_sha256": "6f186e8f781c611722cd28ece47f643112732a89e18cd9beab9d414243750821",
-  "coverage": "Explicit default icon bindings only; bundle auxiliary states, legacy implicit routes, metadata selection, dynamic icons and display transforms are not established.",
+  "coverage": "Explicit default icon bindings from the pinned samples and the identified native item-component witness; bundle auxiliary states, legacy implicit routes, metadata selection, dynamic icons and display transforms are not established.",
+  "native_item_witness": {
+    "app_version": "1.26.50.4",
+    "archive": "native/vanilla/__brarchive/items.brarchive",
+    "archive_sha256": "4bdd2215697112998ca185186305c24b9848bd196099a42c17d03a1d027c9eb4",
+    "version_relation": "Version-matched runtime resource-pack witness. Explicit food and seed icon components are omitted from the sample behavior definitions."
+  },
   "routes": [
     {
       "identifier": "minecraft:apple",
@@ -15,6 +21,27 @@
       "atlas_variant": 0,
       "evidence_file": "behavior_pack/items/apple.json",
       "evidence_sha256": "afa76c2146b710d9cf5bf379c916912cb326c1de4dcf651be165994474ff077c"
+    },
+    {
+      "identifier": "minecraft:baked_potato",
+      "default_alias": "potato_baked",
+      "atlas_variant": 0,
+      "evidence_file": "native/vanilla/__brarchive/items.brarchive#baked_potato.json",
+      "evidence_sha256": "7aaca245a05f4690bdce74b5d9ad42da0e5abd7938237e66d90e1fc9dcbd2555"
+    },
+    {
+      "identifier": "minecraft:beef",
+      "default_alias": "beef_raw",
+      "atlas_variant": 0,
+      "evidence_file": "native/vanilla/__brarchive/items.brarchive#beef.json",
+      "evidence_sha256": "fe9516e0b23755f1a9bda232b34a6a74f900246132a4bf60153cc4320a9a2d7d"
+    },
+    {
+      "identifier": "minecraft:beetroot_seeds",
+      "default_alias": "seeds_beetroot",
+      "atlas_variant": 0,
+      "evidence_file": "native/vanilla/__brarchive/items.brarchive#beetroot_seeds.json",
+      "evidence_sha256": "ce48ae4eb86699bfe098f46002c2879873e0efce06b6561fd7387ff75f006853"
     },
     {
       "identifier": "minecraft:black_bundle",
@@ -52,6 +79,41 @@
       "evidence_sha256": "ea9aa8bc235bc4de48fad1a43e6c66ffdcc0a3418cdefc9a77fa384725a42b4e"
     },
     {
+      "identifier": "minecraft:chicken",
+      "default_alias": "chicken_raw",
+      "atlas_variant": 0,
+      "evidence_file": "native/vanilla/__brarchive/items.brarchive#chicken.json",
+      "evidence_sha256": "b65f065d4701be5ecc597e77c9f498812914060ebde1762ecf991b02781639c5"
+    },
+    {
+      "identifier": "minecraft:cooked_beef",
+      "default_alias": "beef_cooked",
+      "atlas_variant": 0,
+      "evidence_file": "native/vanilla/__brarchive/items.brarchive#cooked_beef.json",
+      "evidence_sha256": "6d2350697a6c22c759c01e1640b773d0756b8d5c5b9f047f70df6178c041b7e0"
+    },
+    {
+      "identifier": "minecraft:cooked_chicken",
+      "default_alias": "chicken_cooked",
+      "atlas_variant": 0,
+      "evidence_file": "native/vanilla/__brarchive/items.brarchive#cooked_chicken.json",
+      "evidence_sha256": "ff807b40957a43d6a3c567079c40923cc9a5ba19f1710c099c0c1cfbf5d98043"
+    },
+    {
+      "identifier": "minecraft:cooked_porkchop",
+      "default_alias": "porkchop_cooked",
+      "atlas_variant": 0,
+      "evidence_file": "native/vanilla/__brarchive/items.brarchive#cooked_porkchop.json",
+      "evidence_sha256": "7e67900beec96b7112b0c77c9d0cf418f5629a00e15343d7f9c7f4efcd28a6a1"
+    },
+    {
+      "identifier": "minecraft:cooked_rabbit",
+      "default_alias": "rabbit_cooked",
+      "atlas_variant": 0,
+      "evidence_file": "native/vanilla/__brarchive/items.brarchive#cooked_rabbit.json",
+      "evidence_sha256": "8eb91d1827bbd53572445ed9d3667d8f9485c80779042ef004dc9453dd4fe97c"
+    },
+    {
       "identifier": "minecraft:copper_spear",
       "default_alias": "copper_spear",
       "atlas_variant": 0,
@@ -71,6 +133,13 @@
       "atlas_variant": 0,
       "evidence_file": "behavior_pack/items/diamond_spear.json",
       "evidence_sha256": "09c111c9a3500ec861da414e097e590012f6d8be0a4446f82171416a8e9bfd56"
+    },
+    {
+      "identifier": "minecraft:golden_carrot",
+      "default_alias": "carrot_golden",
+      "atlas_variant": 0,
+      "evidence_file": "native/vanilla/__brarchive/items.brarchive#golden_carrot.json",
+      "evidence_sha256": "e13040d2a59d7e4a43a9b5cf9c636a7402516f060dfbe23974d33d405f960e1c"
     },
     {
       "identifier": "minecraft:golden_spear",
@@ -129,6 +198,13 @@
       "evidence_sha256": "ca6d56043bbababff4fcd232b5e16106586589f70c6b4fd8e947cee0f4372a7b"
     },
     {
+      "identifier": "minecraft:melon_seeds",
+      "default_alias": "seeds_melon",
+      "atlas_variant": 0,
+      "evidence_file": "native/vanilla/__brarchive/items.brarchive#melon_seeds.json",
+      "evidence_sha256": "e2c7b97b330e2f9d2df0ee988e5481d94bbf3d0299ee54c8438e2b9949df9b91"
+    },
+    {
       "identifier": "minecraft:netherite_spear",
       "default_alias": "netherite_spear",
       "atlas_variant": 0,
@@ -157,6 +233,27 @@
       "evidence_sha256": "55e08e5f55f2af0965a9d6dfa569956c72920345cdbd71de47a3fb5e90d91b8e"
     },
     {
+      "identifier": "minecraft:poisonous_potato",
+      "default_alias": "potato_poisonous",
+      "atlas_variant": 0,
+      "evidence_file": "native/vanilla/__brarchive/items.brarchive#poisonous_potato.json",
+      "evidence_sha256": "56722f28cc4f78d7b361c0086ce31d38592291f5a839c275e633ea59c7507f69"
+    },
+    {
+      "identifier": "minecraft:porkchop",
+      "default_alias": "porkchop_raw",
+      "atlas_variant": 0,
+      "evidence_file": "native/vanilla/__brarchive/items.brarchive#porkchop.json",
+      "evidence_sha256": "9db649574eaaeb8fe2a6055dbd789c23d2ecb46f68e60e76c0b009bc0ae23d11"
+    },
+    {
+      "identifier": "minecraft:pumpkin_seeds",
+      "default_alias": "seeds_pumpkin",
+      "atlas_variant": 0,
+      "evidence_file": "native/vanilla/__brarchive/items.brarchive#pumpkin_seeds.json",
+      "evidence_sha256": "8d0e3fffb0127e40b1cacad85c0ef264b4a6eb32f5bf9785f8415021f954d3ed"
+    },
+    {
       "identifier": "minecraft:purple_bundle",
       "default_alias": "bundle_purple",
       "atlas_variant": 0,
@@ -183,6 +280,13 @@
       "atlas_variant": 0,
       "evidence_file": "behavior_pack/items/trial_key.json",
       "evidence_sha256": "a7dc3a72cab144a48a19955446d5ef032fa9a13d4d64d4b0d99d382adaf3961b"
+    },
+    {
+      "identifier": "minecraft:wheat_seeds",
+      "default_alias": "seeds_wheat",
+      "atlas_variant": 0,
+      "evidence_file": "native/vanilla/__brarchive/items.brarchive#wheat_seeds.json",
+      "evidence_sha256": "eb925569c5b84df43717297af2490bda293284ed4659e6f96b127c249dcf43ed"
     },
     {
       "identifier": "minecraft:white_bundle",

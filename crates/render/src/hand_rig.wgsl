@@ -1,7 +1,7 @@
-#import cinnabar::lighting::{lit_colour, light_colour}
+#import cinnabar::lighting::{lit_colour, light_colour, native_light_texel, tint_to_gamma, tint_to_linear}
 
 // Near-camera first-person rig pass. It reuses the actor rig's packed storage layout
-// (ActorGpuInstance as 20 words, ActorRigVertex as 11 words, bones as 3x vec4 rows) so the
+// (Rust-strided instances and vertices, bones as 3x vec4 rows) so the
 // same CPU buffers feed both paths; only the view is hand-local and the fragment is lit.
 
 struct HandView {
@@ -25,6 +25,13 @@ struct HandLight {
     sky_level: u32,
     daylight: f32,
     pad: u32,
+    java_lights: array<vec4<f32>, 2>,
+    java_normal_axes: array<vec4<f32>, 3>,
+}
+
+struct HandMaterial {
+    texture_flags: vec4<u32>,
+    layer_mask: vec4<u32>,
 }
 
 @group(0) @binding(0) var<uniform> view: HandView;
@@ -35,10 +42,11 @@ struct HandLight {
 @group(0) @binding(5) var<storage, read> current_bones: array<BoneMatrix>;
 @group(0) @binding(6) var skins: texture_2d_array<f32>;
 @group(0) @binding(7) var skin_sampler: sampler;
-@group(0) @binding(8) var<uniform> material_class: vec4<u32>;
+@group(0) @binding(8) var<uniform> hand_material: HandMaterial;
 @group(0) @binding(9) var<uniform> hand_light: HandLight;
 // Instances whose texture layer has its top bit set sample this equipment atlas page instead.
 @group(0) @binding(10) var item_atlas: texture_2d_array<f32>;
+@group(0) @binding(11) var offhand_atlas: texture_2d_array<f32>;
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
@@ -46,6 +54,7 @@ struct VertexOutput {
     @location(1) @interpolate(flat) skin_layer: u32,
     @location(2) @interpolate(flat) valid: u32,
     @location(3) back_uv: vec2<f32>,
+    @location(4) @interpolate(flat) shade: f32,
 }
 
 fn word_f32(index: u32) -> f32 {
@@ -71,12 +80,26 @@ fn transform_point(matrix: BoneMatrix, point: vec3<f32>) -> vec3<f32> {
     );
 }
 
+// Rescale inverse-transpose normals by the native model's inverse Z-row length.
+fn java_normal(matrix: mat3x3<f32>, normal: vec3<f32>, reference: vec3<f32>) -> vec3<f32> {
+    let cofactors = mat3x3(cross(matrix[1], matrix[2]), cross(matrix[2], matrix[0]), cross(matrix[0], matrix[1]));
+    let orientation = sign(dot(matrix[0], cofactors[0]));
+    return (cofactors * normal) * orientation / max(length(cofactors * reference), 1.0e-20);
+}
+
+// Java's two directional lights share diffuse 0.6 and ambient 0.4, without specular.
+fn java_shade(normal: vec3<f32>) -> f32 {
+    let first = max(dot(normal, hand_light.java_lights[0].xyz), 0.0);
+    let second = max(dot(normal, hand_light.java_lights[1].xyz), 0.0);
+    return min(0.4 + 0.6 * (first + second), 1.0);
+}
+
 @vertex
 fn hand_vertex(
     @builtin(vertex_index) vertex_index: u32,
     @builtin(instance_index) instance_index: u32,
 ) -> VertexOutput {
-    let instance_base = instance_index * 25u;
+    let instance_base = instance_index * ACTOR_GPU_INSTANCE_WORDS;
     let previous_bone_base = instance_words[instance_base + 12u];
     let current_bone_base = instance_words[instance_base + 13u];
     let geometry_id = instance_words[instance_base + 14u];
@@ -86,6 +109,7 @@ fn hand_vertex(
 
     var out: VertexOutput;
     out.skin_layer = texture_layer;
+    out.shade = 1.0;
     if (vertex_index >= span.vertex_count) {
         out.position = vec4(2.0, 2.0, 2.0, 1.0);
         out.uv = vec2(0.0);
@@ -94,7 +118,7 @@ fn hand_vertex(
         return out;
     }
 
-    let vertex_base = (span.first_vertex + vertex_index) * 11u;
+    let vertex_base = (span.first_vertex + vertex_index) * ACTOR_RIG_VERTEX_WORDS;
     let local = vec3(
         bitcast<f32>(vertex_words[vertex_base]),
         bitcast<f32>(vertex_words[vertex_base + 1u]),
@@ -119,6 +143,21 @@ fn hand_vertex(
         1.0,
     );
     out.position = view.clip_from_hand * world;
+    if (hand_light.java_lights[0].w != 0.0) {
+        let previous_matrix = previous_bones[previous_bone_base + bone_index];
+        let current_matrix = current_bones[current_bone_base + bone_index];
+        let bone = transpose(mat3x3(
+            mix(previous_matrix.row_0.xyz, current_matrix.row_0.xyz, partial_tick),
+            mix(previous_matrix.row_1.xyz, current_matrix.row_1.xyz, partial_tick),
+            mix(previous_matrix.row_2.xyz, current_matrix.row_2.xyz, partial_tick),
+        ));
+        let placement = transpose(mat3x3(instance_row(instance_base, 0u).xyz, instance_row(instance_base, 1u).xyz, instance_row(instance_base, 2u).xyz));
+        let normal = vec3(bitcast<f32>(vertex_words[vertex_base + 3u]), bitcast<f32>(vertex_words[vertex_base + 4u]), bitcast<f32>(vertex_words[vertex_base + 5u]));
+        let item = (texture_layer & hand_material.texture_flags.x) != 0u;
+        let offhand = (texture_layer & hand_material.texture_flags.y) != 0u;
+        let light_index = select(0u, select(1u, 2u, offhand), item);
+        out.shade = java_shade(java_normal(placement * bone, normal, hand_light.java_normal_axes[light_index].xyz));
+    }
     out.valid = 1u;
     return out;
 }
@@ -128,16 +167,27 @@ fn hand_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @lo
     if (input.valid == 0u) {
         discard;
     }
-    if (!front && input.back_uv.x < -1.0e8) {
+    let cutout = (input.skin_layer & hand_material.texture_flags.w) != 0u;
+    let reverse_cube = !front && input.back_uv.x < -1.0e8;
+    if (reverse_cube && !cutout) {
         discard;
     }
-    let uv = select(input.back_uv, input.uv, front);
-    let skin_color = textureSample(skins, skin_sampler, uv, i32(input.skin_layer & 0x7fffffffu));
-    let item_color = textureSample(item_atlas, skin_sampler, uv, i32(input.skin_layer & 0x7fffffffu));
-    let color = select(skin_color, item_color, (input.skin_layer & 0x80000000u) != 0u);
-    if ((material_class.x == 0u && color.a < 0.1) || (material_class.x == 1u && color.a == 0.0)) {
+    let uv = select(input.back_uv, input.uv, front || reverse_cube);
+    let layer = i32(input.skin_layer & hand_material.layer_mask.x);
+    let skin_color = textureSample(skins, skin_sampler, uv, layer);
+    let main_color = textureSample(item_atlas, skin_sampler, uv, layer);
+    let off_color = textureSample(offhand_atlas, skin_sampler, uv, layer);
+    let item_color = select(main_color, off_color, (input.skin_layer & hand_material.texture_flags.y) != 0u);
+    let is_item = (input.skin_layer & hand_material.texture_flags.x) != 0u;
+    let color = select(skin_color, item_color, is_item);
+    if ((!is_item || cutout) && color.a < 0.5) {
         discard;
     }
-    let lit = lit_colour(color.rgb, light_colour(hand_light.block_level | (hand_light.sky_level << 4u)));
-    return vec4(lit, color.a);
+    let sample = hand_light.block_level | (hand_light.sky_level << 4u);
+    var lit = lit_colour(color.rgb, light_colour(sample));
+    if (hand_light.java_lights[0].w != 0.0) {
+        lit = tint_to_linear(vec4(tint_to_gamma(color).rgb * input.shade * native_light_texel(sample), 1.0)).rgb;
+    }
+    let blend = is_item && (input.skin_layer & hand_material.texture_flags.z) != 0u;
+    return vec4(lit, select(1.0, color.a, blend));
 }

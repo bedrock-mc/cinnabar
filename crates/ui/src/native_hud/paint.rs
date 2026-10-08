@@ -2,43 +2,22 @@
 //! (hearts, armor, hunger, bubbles, mount hearts and jump bar, hotbar slot art,
 //! status effects, the crosshair) draw at their control's position, as the
 //! client's renderers do, so a pack that moves the control moves the art. What
-//! each draws is captured once per frame into [`HudPaint`] with Java Edition
-//! behavior (row layout, jitter, blink) per the HUD exception.
+//! each draws is captured once per frame into [`HudPaint`]. Native cells obey
+//! the control's inherited clip and viewport.
 
+use super::HeartPaint;
 use crate::UiVisual;
 
-/// Sprite resolution and retained drawing supplied by the native or browser presentation.
+pub const CROSSHAIR_TEXTURE: &str = "textures/ui/cross_hair";
+pub const CROSSHAIR_SIDE: f32 = 16.0;
+
+/// Resolves full sprites and emits retained geometry in the caller's active clip.
 pub trait HudPaintTarget {
     fn gui_pixel_scale(&self) -> f32;
+    fn visible_bounds(&self) -> [f32; 4];
     fn sprite(&self, path: &str, color: [u8; 4]) -> Option<UiVisual>;
     fn push(&mut self, visual: UiVisual, bounds: [f32; 4]);
     fn solid(&mut self, bounds: [f32; 4], color: [u8; 4]);
-}
-
-/// Native item durability track and fill, at the authored progress control.
-pub fn paint_progress(
-    painter: &mut impl HudPaintTarget,
-    dest: [f32; 4],
-    fraction: f64,
-    color: Option<[u8; 4]>,
-    alpha: &dyn Fn([u8; 4]) -> [u8; 4],
-) {
-    let fraction = fraction.clamp(0.0, 1.0);
-    let track = [dest[0], dest[1], dest[2], dest[3] + (dest[3] - dest[1])];
-    painter.solid(track, alpha([0, 0, 0, 255]));
-    let width = (dest[2] - dest[0]) * fraction as f32;
-    painter.solid(
-        [dest[0], dest[1], dest[0] + width, dest[3]],
-        alpha(color.unwrap_or_else(|| durability_color(fraction))),
-    );
-}
-
-/// The native durability hue, green at full durability and red when worn.
-fn durability_color(fraction: f64) -> [u8; 4] {
-    let hue = (fraction / 3.0) * 6.0;
-    let x = (1.0 - (hue % 2.0 - 1.0).abs()) as f32;
-    let (r, g) = if hue < 1.0 { (1.0, x) } else { (x, 1.0) };
-    [(r * 255.0) as u8, (g * 255.0) as u8, 0, 255]
 }
 
 /// One sprite a renderer draws, relative to its control's origin, in GUI px.
@@ -89,7 +68,7 @@ pub struct SheetSprite {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct HudPaint {
     /// Relative to the heart control's top-left; rows grow upward.
-    pub hearts: Vec<Cell>,
+    pub hearts: HeartPaint,
     /// Relative to the armor control's top-left, above the heart rows.
     pub armor: Vec<Cell>,
     /// Relative to the hunger control's position, which is the row's right end.
@@ -101,13 +80,13 @@ pub struct HudPaint {
     /// Jump-bar background and fill (with its filled GUI width) over the XP bar.
     pub mount_jump: Option<(SheetSprite, SheetSprite, f32)>,
     pub crosshair: Option<SheetSprite>,
+    pub crosshair_blend: crate::UiBlendMode,
 }
 
 impl HudPaint {
     /// Every texture path the renderers may draw this frame, pack overrides included.
     pub fn textures(&self) -> impl Iterator<Item = &str> {
         [
-            &self.hearts,
             &self.armor,
             &self.hunger,
             &self.bubbles,
@@ -117,7 +96,9 @@ impl HudPaint {
         .into_iter()
         .flatten()
         .flat_map(|cell| cell.preferred.into_iter().chain([cell.texture]))
+        .chain(self.hearts.textures())
         .chain(SLOT_ART)
+        .chain(self.crosshair.map(|_| CROSSHAIR_TEXTURE))
     }
 }
 
@@ -133,7 +114,18 @@ pub fn paint(
 ) -> bool {
     let top_left = [dest[0], dest[1]];
     let cells = match renderer {
-        "heart_renderer" => (&hud.hearts, top_left),
+        "heart_renderer" => {
+            let visible = visible_bounds(painter);
+            if visible[0] < visible[2] && visible[1] < visible[3] {
+                for cell in hud
+                    .hearts
+                    .visible_cells(top_left, painter.gui_pixel_scale(), visible)
+                {
+                    paint_cell(painter, &cell, top_left, visible, alpha);
+                }
+            }
+            return true;
+        }
         "armor_renderer" => (&hud.armor, top_left),
         "hunger_renderer" => (&hud.hunger, top_left),
         "bubbles_renderer" => (&hud.bubbles, top_left),
@@ -165,7 +157,7 @@ pub fn paint(
         }
         // The built-in Java pack's notched boss-bar overlay.
         "java_boss_notches" => {
-            let notches = bar_notches.min(64);
+            let notches = bar_notches;
             let width = dest[2] - dest[0];
             let px = painter.gui_pixel_scale();
             for notch in 1..notches {
@@ -176,7 +168,7 @@ pub fn paint(
         }
         "cursor_renderer" => {
             if let Some(sprite) = hud.crosshair {
-                crosshair(painter, sprite, dest);
+                crosshair(painter, sprite, dest, hud.crosshair_blend);
             }
             return true;
         }
@@ -187,28 +179,53 @@ pub fn paint(
         | "vignette_renderer"
         | "progress_indicator_renderer"
         | "camera_renderer"
-        | "hud_player_renderer"
         | "editor_gizmo_renderer"
         | "editor_compass_renderer"
         | "editor_volume_highlight_renderer" => return true,
         _ => return false,
     };
     let (cells, origin) = cells;
-    let px = painter.gui_pixel_scale();
-    for cell in cells {
-        let x = origin[0] + cell.at[0] * px;
-        let y = origin[1] + cell.at[1] * px;
-        let bounds = [x, y, x + cell.size[0] * px, y + cell.size[1] * px];
-        let color = alpha([255, 255, 255, cell.alpha]);
-        let visual = cell
-            .preferred
-            .and_then(|path| painter.sprite(path, color))
-            .or_else(|| painter.sprite(cell.texture, color));
-        if let Some(visual) = visual {
-            painter.push(visual, bounds);
+    let visible = visible_bounds(painter);
+    if visible[0] < visible[2] && visible[1] < visible[3] {
+        for cell in cells {
+            paint_cell(painter, cell, origin, visible, alpha);
         }
     }
     true
+}
+
+/// Intersects the inherited clip with the physical viewport.
+fn visible_bounds(painter: &impl HudPaintTarget) -> [f32; 4] {
+    painter.visible_bounds()
+}
+
+/// Emits one cell only when its animated bounds intersect the visible region.
+fn paint_cell(
+    painter: &mut impl HudPaintTarget,
+    cell: &Cell,
+    origin: [f32; 2],
+    visible: [f32; 4],
+    alpha: &dyn Fn([u8; 4]) -> [u8; 4],
+) {
+    let px = painter.gui_pixel_scale();
+    let x = origin[0] + cell.at[0] * px;
+    let y = origin[1] + cell.at[1] * px;
+    let bounds = [x, y, x + cell.size[0] * px, y + cell.size[1] * px];
+    if bounds[2] <= visible[0]
+        || bounds[3] <= visible[1]
+        || bounds[0] >= visible[2]
+        || bounds[1] >= visible[3]
+    {
+        return;
+    }
+    let color = alpha([255, 255, 255, cell.alpha]);
+    let visual = cell
+        .preferred
+        .and_then(|path| painter.sprite(path, color))
+        .or_else(|| painter.sprite(cell.texture, color));
+    if let Some(visual) = visual {
+        painter.push(visual, bounds);
+    }
 }
 
 /// The hotbar slot background for the cell the control's collection index names.
@@ -238,14 +255,41 @@ fn sheet(
     painter.push(visual, bounds);
 }
 
-/// The 15x15 inverting crosshair centred in the control.
-fn crosshair(painter: &mut impl HudPaintTarget, sprite: SheetSprite, dest: [f32; 4]) {
-    let side = 15.0 * painter.gui_pixel_scale();
+/// Centers the pack crosshair or built-in art with the selected color blending.
+fn crosshair(
+    painter: &mut impl HudPaintTarget,
+    sprite: SheetSprite,
+    dest: [f32; 4],
+    blend: crate::UiBlendMode,
+) {
+    let (sprite, gui_side) = match painter.sprite(CROSSHAIR_TEXTURE, [255; 4]) {
+        Some(UiVisual::Sprite {
+            texture_page, uv, ..
+        }) => (
+            SheetSprite {
+                page: texture_page,
+                uv,
+            },
+            CROSSHAIR_SIDE,
+        ),
+        _ => (
+            sprite,
+            assets::HudTextureRole::Crosshair.expected_size()[0] as f32,
+        ),
+    };
+    let side = gui_side * painter.gui_pixel_scale();
     let x = (dest[0] + dest[2] - side) * 0.5;
     let y = (dest[1] + dest[3] - side) * 0.5;
-    let visual = UiVisual::InvertedSprite {
-        texture_page: sprite.page,
-        uv: sprite.uv,
+    let visual = match blend {
+        crate::UiBlendMode::Invert => UiVisual::InvertedSprite {
+            texture_page: sprite.page,
+            uv: sprite.uv,
+        },
+        crate::UiBlendMode::Alpha => UiVisual::Sprite {
+            texture_page: sprite.page,
+            uv: sprite.uv,
+            color: [255; 4],
+        },
     };
     painter.push(visual, [x, y, x + side, y + side]);
 }

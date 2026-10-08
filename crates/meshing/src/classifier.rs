@@ -23,4 +23,16 @@ impl BlockClassifier {
     pub const fn is_air(self, runtime_id: u32) -> bool {
         runtime_id == self.air_network_id
     }
+
+    /// Proves every layer samples registry air, including a zero-storage payload.
+    #[must_use]
+    pub fn is_sub_chunk_air(self, sub_chunk: &world::SubChunk) -> bool {
+        sub_chunk.storages().iter().all(|storage| {
+            storage
+                .palette()
+                .values()
+                .iter()
+                .all(|&runtime_id| self.is_air(runtime_id))
+        })
+    }
 }

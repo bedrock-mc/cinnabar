@@ -91,13 +91,20 @@ impl NbtCompound {
         self.0.insert(key.into(), value);
     }
 
-    /// Encodes this compound as a NetworkLittleEndian root with an empty name.
-    #[must_use]
-    pub fn encode_root(&self) -> Vec<u8> {
+    /// Checks whether the owned tree can be represented without changing tag types.
+    fn validate_encoding(&self) -> Result<(), &'static str> {
+        self.0
+            .values()
+            .try_for_each(|value| value.validate_encoding(1))
+    }
+
+    /// Encodes a root, rejecting mixed list tags or excessive nesting.
+    pub fn encode_root(&self) -> Result<Vec<u8>, &'static str> {
+        self.validate_encoding()?;
         let mut out = vec![10];
         write_string(&mut out, "");
         self.write_payload(&mut out);
-        out
+        Ok(out)
     }
 
     fn write_payload(&self, out: &mut Vec<u8>) {
@@ -115,6 +122,32 @@ impl NbtCompound {
 }
 
 impl NbtValue {
+    /// Checks nested list tag homogeneity before the encoder writes any bytes.
+    fn validate_encoding(&self, depth: usize) -> Result<(), &'static str> {
+        if depth > MAX_NBT_DEPTH
+            || (matches!(self, Self::List(_) | Self::Compound(_)) && depth >= MAX_NBT_DEPTH)
+        {
+            return Err("NBT encoding exceeds its depth bound");
+        }
+        match self {
+            Self::List(items) => {
+                if let Some(first) = items.first()
+                    && items.iter().any(|item| item.tag() != first.tag())
+                {
+                    return Err("NBT list elements have different tag types");
+                }
+                items
+                    .iter()
+                    .try_for_each(|value| value.validate_encoding(depth + 1))
+            }
+            Self::Compound(compound) => compound
+                .0
+                .values()
+                .try_for_each(|value| value.validate_encoding(depth + 1)),
+            _ => Ok(()),
+        }
+    }
+
     const fn tag(&self) -> u8 {
         match self {
             Self::Byte(_) => 1,
@@ -389,9 +422,38 @@ mod tests {
             NbtValue::List(vec![NbtValue::Int(3), NbtValue::Int(-4)]),
         );
         root.insert("ints", NbtValue::IntArray(vec![1, -2, 300]));
-        let bytes = root.encode_root();
+        let bytes = root.encode_root().unwrap();
         let (nbt, used) = BlockEntityNbt::decode_prefix(&bytes).unwrap();
         assert_eq!(used, bytes.len());
         assert_eq!(nbt.parse().unwrap(), root);
+    }
+}
+
+#[cfg(test)]
+mod review_tests {
+    use super::*;
+    #[test]
+    fn review_heterogeneous_lists_cannot_be_encoded() {
+        let mut root = NbtCompound::default();
+        root.insert(
+            "values",
+            NbtValue::List(vec![NbtValue::Byte(1), NbtValue::Int(2)]),
+        );
+        assert!(root.encode_root().is_err());
+    }
+
+    #[test]
+    fn review_encoding_depth_matches_the_wire_decoder_bound() {
+        let mut root = NbtCompound::default();
+        for _ in 1..MAX_NBT_DEPTH {
+            let mut parent = NbtCompound::default();
+            parent.insert("nested", NbtValue::Compound(root));
+            root = parent;
+        }
+        let bytes = root.encode_root().unwrap();
+        assert!(BlockEntityNbt::decode_prefix(&bytes).is_ok());
+        let mut parent = NbtCompound::default();
+        parent.insert("nested", NbtValue::Compound(root));
+        assert!(parent.encode_root().is_err());
     }
 }

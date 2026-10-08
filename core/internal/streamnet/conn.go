@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"os"
 	"sync"
 )
 
@@ -131,7 +130,10 @@ func (c *FramedConn) readFrame() ([]byte, error) {
 	}
 	payload := make([]byte, int(length))
 	if _, err := io.ReadFull(c.Conn, payload); err != nil {
-		return nil, fmt.Errorf("streamnet: read frame payload: %w", classifyTerminalError(err))
+		if errors.Is(err, io.EOF) {
+			err = io.ErrUnexpectedEOF
+		}
+		return nil, fmt.Errorf("streamnet: read frame payload: %w", err)
 	}
 	return payload, nil
 }
@@ -172,61 +174,6 @@ func (c *FramedConn) Write(b []byte) (int, error) {
 	}
 	return n, nil
 }
-
-func classifyTerminalError(err error) error {
-	if err == nil || errors.Is(err, net.ErrClosed) {
-		return err
-	}
-	if isEntirelyTerminal(err) {
-		return &terminalError{cause: err}
-	}
-	return err
-}
-
-func isEntirelyTerminal(err error) bool {
-	if err == nil {
-		return false
-	}
-	if terminal, ok := err.(interface{ TerminalClose() bool }); ok && terminal.TerminalClose() {
-		return true
-	}
-	if joined, ok := err.(interface{ Unwrap() []error }); ok {
-		children := joined.Unwrap()
-		if len(children) == 0 {
-			return false
-		}
-		for _, child := range children {
-			if !isEntirelyTerminal(child) {
-				return false
-			}
-		}
-		return true
-	}
-	if wrapped, ok := err.(interface{ Unwrap() error }); ok {
-		if child := wrapped.Unwrap(); child != nil {
-			return isEntirelyTerminal(child)
-		}
-	}
-	return errors.Is(err, io.EOF) ||
-		errors.Is(err, io.ErrUnexpectedEOF) ||
-		errors.Is(err, io.ErrClosedPipe) ||
-		errors.Is(err, os.ErrClosed) ||
-		isPlatformTerminalError(err)
-}
-
-type terminalError struct {
-	cause error
-}
-
-func (err *terminalError) Error() string { return err.cause.Error() }
-func (err *terminalError) Unwrap() error { return err.cause }
-func (err *terminalError) Is(target error) bool {
-	return target == net.ErrClosed || errors.Is(err.cause, target)
-}
-
-// TerminalClose reports that this error is a positively identified terminal local transport failure.
-// The exported marker method allows other packages to classify the wrapper without depending on its type.
-func (err *terminalError) TerminalClose() bool { return true }
 
 func validateFrameLength(length int) error {
 	if length < 0 {

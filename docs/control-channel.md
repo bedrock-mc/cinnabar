@@ -17,12 +17,11 @@ upstream text. Rust clients: `crates/bridge`, re-exported by `protocol::launcher
 | `sign_out.v1` | none | `account`; deletes cached tokens |
 | `events.v1` | none | `auth`, `disconnect?`, `transfer?`, `pack_download?` |
 | `featured_servers.v1` | none | `servers: [{name, address, caption, description?, news_title?, news?, logo, screenshots, games}]` |
-| `gatherings.v1` | none | `gatherings: [{id, name, caption, description?, creator?, address?, image, start_unix?, end_unix?}]` |
 | `profile.v1` | none | `profile: {gamertag, xuid, gamerpic, real_name?, presence_text?, gamerscore, friends, followers}` |
 | `home.v1` | none | `home: {messages, inbox, treatments, realm_invites, live_events, persona_head}` |
 | `message_event.v1` | `event_type`, `instance_id?`, `report_id?`, `button_id?` | empty |
 | `ping.v1` | `addresses` (at most 64) | `servers: [{address, online, players, max_players, ping_ms, motd?}]` |
-| `store_home.v1` | `page?` (known page, default `store`) | `page: {id, rows: [{id?, title?, kind?, offers}], inventory_version?, truncated?}` |
+| `store_home.v1` | `page?` (session-config `knownPages` name, default `home`) | `page: {id, rows: [{id?, title?, kind?, offers}], inventory_version?, truncated?}` |
 | `store_search.v1` | `term`, `filter`, `order_by`, `count` (<=50), `continuation` | `offers`, `continuation?`, `truncated?` |
 | `store_offer.v1` | `offer_id` | `offer`: offer plus `description`, `screenshot_urls`, `platforms` |
 | `store_balance.v1` | none | `balances: [{currency, amount}]` |

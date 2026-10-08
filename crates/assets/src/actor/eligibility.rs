@@ -98,13 +98,7 @@ pub fn neutral_actor_geometry_uvs_are_supported(
     };
     let width = f32::from(geometry.texture_width);
     let height = f32::from(geometry.texture_height);
-    if width == 0.0 || height == 0.0 {
-        return false;
-    }
-    let Ok(parents) = validate_entity_geometry_inheritance(geometries) else {
-        return false;
-    };
-    let rectangle = |origin: [f32; 2], size: [f32; 2]| {
+    for_each_uv_rectangle(geometries, index, &mut |origin, size| {
         origin
             .into_iter()
             .zip(size)
@@ -117,6 +111,59 @@ pub fn neutral_actor_geometry_uvs_are_supported(
                     && (0.0..=bound).contains(&first)
                     && (0.0..=bound).contains(&last)
             })
+    })
+}
+
+/// Row-major texels of a `width` x `height` raster that the faces of `index` and its ancestors
+/// can sample under point sampling; `None` when its UVs are not
+/// [supported](neutral_actor_geometry_uvs_are_supported).
+pub fn neutral_actor_geometry_sampled_texels(
+    geometries: &[EntityGeometry],
+    index: usize,
+    width: u16,
+    height: u16,
+) -> Option<Vec<bool>> {
+    if !neutral_actor_geometry_uvs_are_supported(geometries, index) {
+        return None;
+    }
+    let geometry = &geometries[index];
+    let scale = [
+        f32::from(width) / f32::from(geometry.texture_width),
+        f32::from(height) / f32::from(geometry.texture_height),
+    ];
+    let (columns, rows) = (usize::from(width), usize::from(height));
+    let mut sampled = vec![false; columns * rows];
+    for_each_uv_rectangle(geometries, index, &mut |origin, size| {
+        let [(left, right), (top, bottom)] = [0, 1].map(|axis| {
+            let ends = [origin[axis], origin[axis] + size[axis]].map(|end| end * scale[axis]);
+            let limit = [columns, rows][axis];
+            // Supported rectangles lie within the declared size, so these casts cannot wrap.
+            let first = (ends[0].min(ends[1]).floor() as usize).min(limit);
+            (first, (ends[0].max(ends[1]).ceil() as usize).min(limit))
+        });
+        for row in top..bottom {
+            sampled[row * columns + left..row * columns + right].fill(true);
+        }
+        true
+    });
+    Some(sampled)
+}
+
+/// Calls `visit` with each cube's UV `(origin, size)` rectangle, ancestors included, in
+/// declared texture units; false when the geometry is malformed or `visit` rejects a rectangle.
+fn for_each_uv_rectangle(
+    geometries: &[EntityGeometry],
+    index: usize,
+    visit: &mut dyn FnMut([f32; 2], [f32; 2]) -> bool,
+) -> bool {
+    let Some(geometry) = geometries.get(index) else {
+        return false;
+    };
+    if geometry.texture_width == 0 || geometry.texture_height == 0 {
+        return false;
+    }
+    let Ok(parents) = validate_entity_geometry_inheritance(geometries) else {
+        return false;
     };
     let mut current = index;
     for _ in 0..=geometries.len() {
@@ -125,7 +172,11 @@ pub fn neutral_actor_geometry_uvs_are_supported(
         };
         // Ancestor cubes are checked conservatively even when later overridden.
         // This may reject unused art; it cannot admit an unverified wrap route.
-        for cube in geometry.bones.iter().flat_map(|bone| bone.cubes.iter()) {
+        for (bone, cube) in geometry
+            .bones
+            .iter()
+            .flat_map(|bone| bone.cubes.iter().map(move |cube| (bone, cube)))
+        {
             let [x, y, z] = cube.size.map(|value| value.get());
             if [x, y, z]
                 .iter()
@@ -135,13 +186,24 @@ pub fn neutral_actor_geometry_uvs_are_supported(
             }
             let valid = match &cube.uv {
                 EntityGeometryUv::Box(origin) => {
-                    // Camera-facing item planes only expose the north rectangle.
-                    let envelope = if z == 0.0 {
-                        [x, y]
+                    // Box side UVs and top/bottom U coordinates include depth. Fish
+                    // fins have negative origins in unused, degenerate faces.
+                    // Validate the faces with area, not the entire unfolded box.
+                    let [x_uv, y_uv, z_uv] = [x, y, z].map(f32::trunc);
+                    let [u, v] = origin.map(|value| value.get());
+                    let inflate =
+                        cube.inflate.get() + bone.inflate.map_or(0.0, |inflate| inflate.get());
+                    let (origin, envelope) = if x + 2.0 * inflate == 0.0 {
+                        ([u, v + z_uv], [2.0 * z_uv, y_uv])
+                    } else if y + 2.0 * inflate == 0.0 {
+                        ([u + z_uv, v], [2.0 * x_uv, z_uv])
+                    } else if z + 2.0 * inflate == 0.0 {
+                        // Preserve the camera-facing item plane's north rectangle.
+                        ([u, v], [x_uv, y_uv])
                     } else {
-                        [2.0 * x + 2.0 * z, y + z]
+                        ([u, v], [2.0 * x_uv + 2.0 * z_uv, y_uv + z_uv])
                     };
-                    rectangle(origin.map(|value| value.get()), envelope)
+                    visit(origin, envelope)
                 }
                 EntityGeometryUv::Faces(faces) => [
                     &faces.north,
@@ -155,7 +217,7 @@ pub fn neutral_actor_geometry_uvs_are_supported(
                 .zip(cube.face_uv_dimensions())
                 .all(|(face, dimensions)| {
                     face.as_ref().is_none_or(|face| {
-                        rectangle(
+                        visit(
                             face.uv.map(|value| value.get()),
                             face.uv_size
                                 .map_or(dimensions, |size| size.map(|value| value.get())),

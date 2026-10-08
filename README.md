@@ -7,11 +7,14 @@ A Bedrock client written in Rust (Bevy/wgpu), targeting vanilla parity with the 
 in `assets/bedrock-target.json`. A small Go core handles Microsoft sign-in and upstream
 networking.
 
-<img width="2534" height="1446" alt="Cinnabar in game" src="https://github.com/user-attachments/assets/836cb337-3876-4b31-a97e-9cfb25227b11" />
+[![Discord](https://img.shields.io/badge/Discord-Join%20us-5865F2?logo=discord&logoColor=white)](https://discord.gg/MeEz7BEHcM)
+[![Website](https://img.shields.io/badge/Website-cinnabar.restartfu.com-B22222)](https://cinnabar.restartfu.com/)
+
+<img width="1282" height="752" alt="image" src="https://github.com/user-attachments/assets/ca040799-e00e-4a6e-85f8-a0e28af6ea72" />
 
 ## Download
 
-Builds of `main` for macOS, Windows and Linux: [nightly](https://github.com/bedrock-mc/cinnabar/releases/tag/nightly).
+Daily builds of `dev` for macOS, Windows and Linux: [nightly](https://github.com/bedrock-mc/cinnabar/releases/tag/nightly).
 Stable: [latest release](https://github.com/bedrock-mc/cinnabar/releases/latest). First launch fetches
 the vanilla resource pack after you accept the Minecraft EULA; the release notes cover unsigned builds.
 
@@ -24,6 +27,8 @@ make play
 This downloads and compiles the vanilla assets on first run (and whenever they're stale), builds
 the Go core, and opens the launcher menu. The first sign-in prints a Microsoft device code; the
 token is cached in `.local/auth/`, which holds private credentials, so never share or commit it.
+`make play` builds with the fast `play` profile (parallel codegen, incremental rebuilds, sccache when
+installed); `make play PROFILE=release` builds the fully optimised shipped binary.
 
 To join one server directly without the menu, run the core and client in two terminals:
 
@@ -32,8 +37,42 @@ make core UPSTREAM=zeqa.net:19132
 make client
 ```
 
-`make help` lists every target. On Debian/Ubuntu, install `libwayland-dev` first; Linux picks
+`make help` lists every target. On Debian/Ubuntu, install `libwayland-dev` and `libudev-dev` first; Linux picks
 Wayland or X11 automatically.
+
+## Discord presence
+
+Discord presence is enabled by default using the built-in application; turn it off with
+**Discord Rich Presence** in Video settings. To use another application, set
+`CINNABAR_DISCORD_APPLICATION_ID` to its numeric Application ID before launching. No bot token or
+client secret is needed. Setting the override to `0` disables presence entirely.
+
+With the Discord desktop app running and activity sharing enabled, presence shows menus (also while
+joining, so the in-world card is not held behind Discord's update rate limit),
+`Playing on host:port`, `Singleplayer: <world>`, or a Realm, friend's world or experience without
+its identifier, plus the original app icon served from GitHub. On a featured server the server's
+own logo sits in the card's corner. The timer counts the current session in game and the launch
+otherwise. Updates run over local IPC, reconnect automatically and follow Discord's rate limit. The
+card never shows account details, Realm IDs or friend XUIDs.
+
+While you play on a server, an experience, a friend's world or your own hosted world, Discord
+friends can join you from your profile or a chat invite. The destination travels only in Discord's
+join secret, and the joining client accepts only addresses it would itself publish. A friend's world
+still needs the joiner to see it through Xbox, as in vanilla. Realms and Flat worlds are not
+joinable. Cinnabar registers itself with Discord on each launch (`discord-<id>` in
+`HKCU\Software\Classes` on Windows, a `.desktop` handler on Linux, Discord's `games` folder on
+macOS) so an accepted invite starts the game when it is closed.
+
+When a Discord user asks to join, a toast names them while you play and stays until you answer or
+Discord closes the request, giving way to server toasts in between. Press **Open Notification**
+(N by default, remappable in Controls), press the toast with a free cursor, or open the pause
+screen to answer in vanilla's popup, which the launcher menus show directly. Accepting sends them
+Discord's invite.
+
+A Normal (dedicated-server) local world is hosted for Xbox friends while it is open, as vanilla
+hosts worlds: it appears in friends' Friends tab (friends of friends may join, up to 8 players),
+and the pause screen's friends button opens vanilla's Invite to Game screen. Each joiner must log
+in with Xbox Live and present the one-time nonce the session issued them.
 
 ## Beyond vanilla
 
@@ -42,11 +81,11 @@ below is opt-in and off unless you, or the server you join, turn it on.
 
 | | What it is | Status |
 | --- | --- | --- |
-| **Cinnabar Experiences** | A Roblox-style engine. Servers ship sandboxed client code that can replace the UI, rendering, input and game logic, turning a server into an entirely different game. | In progress: [#34](https://github.com/bedrock-mc/cinnabar/pull/34) |
-| **Video streaming** | Servers can stream video with its own synced audio onto in-world screens, blocks, entities and UI. Video loads over HTTPS from any static host or CDN, not through the game connection. It's built into the client, so no server code is needed. | In progress: [#34](https://github.com/bedrock-mc/cinnabar/pull/34) |
+| **Cinnabar Experiences** | A Roblox-style engine. Servers ship sandboxed client code that can replace the UI, rendering, input and game logic, turning a server into an entirely different game. | Preview, off by default: [docs/server-experiences.md](docs/server-experiences.md) |
+| **Video streaming** | Servers can stream video with its own synced audio onto in-world screens, blocks, entities and UI. Video loads over HTTPS from any static host or CDN, not through the game connection. It's built into the client, so no server code is needed. | Preview, off by default: [docs/server-experiences.md](docs/server-experiences.md) |
 | **Mods** | Client mods as WebAssembly components with versioned, capability-scoped APIs. Each mod runs sandboxed with no file, network or account access, and hot-reloads. A crashing mod is disabled instead of taking down the client. | Developer preview: [docs/modding-spike.md](docs/modding-spike.md) |
 | **Mod marketplace** | Browse, install and update mods from inside Cinnabar. | Coming soon |
-| **Live resource packs** | Add, remove or reorder resource packs without leaving the world. | In progress |
+| **Live resource packs** | Add, remove or reorder resource packs without leaving the world. | Available |
 
 ## How it fits together
 
@@ -81,27 +120,37 @@ Mojang assets are never committed or embedded. `make assets` fetches Mojang's of
 | `crates/asset-compiler` | `assetc`, which compiles the vanilla pack into the runtime carriers. |
 | `crates/assets` | Readers for pack sources and compiled carriers. |
 | `crates/bridge` | The local stream between the client and the Go core. |
-| `crates/client-world` | Client game state: actors, items, block entities and the packet stream. |
+| `crates/client-world` | Authoritative world state, actors, items, decoding and ordered commits. |
+| `crates/chunk-pipeline` | Terrain residency, mesh scheduling and bounded publication. |
+| `crates/experience-runtime`, `crates/experience-sdk` | Runs a server Experience out of process; the guest SDK generated from `wit/server.wit`. |
 | `crates/input` | Device-independent input actions. |
+| `crates/inventory` | Engine-independent inventory authority, prediction, crafting and commands. |
 | `crates/json-ui` | Parser, resolver and layout engine for vanilla JSON-UI. |
 | `crates/meshing` | CPU geometry for chunks, liquids, biomes and clouds. |
 | `crates/mod-api` | Experimental guest SDK generated from the extension WIT contract. |
 | `crates/mod-host` | Opt-in WASM component spike with bounded HUD and input imports. |
+| `crates/pack-compiler` | Reusable pack compilation for runtime loading and `assetc`. |
+| `crates/particles` | Engine-independent particle simulation: effects, Molang emitters and triggers. |
 | `crates/protocol` | Bedrock packet definitions and codec. |
 | `crates/render` | Chunk and entity rendering on Bevy/wgpu. |
+| `crates/render-api` | Engine-independent contracts between world publication and rendering. |
 | `crates/resource-pack` | Admission and decryption of server resource packs. |
+| `crates/server-experience` | Opt-in Cinnabar extension negotiation; vanilla login and packet IDs are unchanged. |
 | `crates/sim` | Deterministic Bedrock movement simulation. |
 | `crates/ui` | Renderer-independent UI primitives and text layout. |
 | `crates/world` | Palette-native chunk and world model. |
 | `tools/architecture` | Architecture gate: line limits, dependency rules, markers. |
+| `tools/cxb` | Publisher tooling for server Experiences: seeds, `.cxb` bundles, cache seeding. |
 | `tools/jsonui-editor` | Browser JSON-UI editor on the client's own engine, live at <https://bedrock-mc.github.io/cinnabar/>. |
 | `tools/jsonui-mcp` | The same editor core as an MCP server: resolve, validate, lay out, render and export packs. |
 | `tools/devtool` | `verify-affected`, which tests only what a change touches. |
 | `tools/dist` | Stages distributable bundles. |
 | `tools/phase2-evidence`, `tools/visualcoverage` | Frozen evidence replays from earlier milestones. |
 
-The [modding spike](docs/modding-spike.md) is a disabled-by-default Cinnabar extension.
-Its sample lives in `examples/mods/hello`; it does not change the Bedrock wire protocol.
+The [modding spike](docs/modding-spike.md) is a disabled-by-default Cinnabar extension; its
+samples are `examples/mods/hello` and `examples/mods/time-changer`, and `examples/experiences/probe`
+is the Experience runtime's test guest. None change the Bedrock wire protocol. The crate layering
+plan is in `docs/architecture/`.
 
 | Go package (`core/`) | What it does |
 | --- | --- |
@@ -109,9 +158,56 @@ Its sample lives in `examples/mods/hello`; it does not change the Bedrock wire p
 | `proxy` | Upstream session, resource-pack download and packet relay. |
 | `authflow`, `authcache` | Microsoft device sign-in and token cache. |
 | `catalog`, `store`, `launcher`, `control` | Menu data: featured servers, Realms, friends, marketplace. |
-| `localworld` | Local worlds on BDS (a container on macOS). |
+| `localworld` | Local worlds on BDS (a container on macOS); `proxy` hosts open ones for Xbox friends. |
 | `packcache` | On-disk cache of server packs. |
 | `update` | Signed update checks. |
+
+## Headless chunk benchmarks
+
+Criterion covers palette/column decode, full light solves, cube meshing, biome records,
+bounded streaming bursts, dispatch-input capture, settled polling and metadata-only cohort
+scans. Fixtures are synthetic and require no carriers, server, window or GPU.
+
+```sh
+cargo bench --locked -p world -p meshing -p chunk-pipeline --features chunk-pipeline/benchmark-support --bench chunk_costs -- --test
+cargo bench --locked -p world -p meshing -p chunk-pipeline --features chunk-pipeline/benchmark-support --bench chunk_costs -- --save-baseline chunks
+```
+
+Use the repository-pinned toolchain and the shared build-slot limiter described in
+[the workflow](docs/agents/multi-agent-workflow.md). Run measurements without competing
+builds or gameplay. Append a name filter, such as `stored_sections/871`, to select a
+workload; subsequent runs can use `--baseline chunks` for comparison. Results stay
+under the ignored `target/criterion/`.
+
+The 871 fixture means **stored sections**, packed into 218 columns, not 871 columns.
+Streaming setup preloads an implicit-air boundary through ordinary ingress, excluding
+absent-neighbour grace waits from timing. Timed work includes bounded byte submission,
+decode/commit, lighting, meshing, worker waits and CPU publication acknowledgements;
+stream construction, boundary setup and teardown are excluded. Polling is unpaced.
+Preflight CPU-step percentiles are not game-frame percentiles. Metadata scans have
+no terrain. Resident-slot and stale-work counters include boundary setup; production
+logs remain enabled. Decode and meshing timings include output destruction.
+
+`pipeline/dispatch_inputs` captures 4/16/64/871 overlapping light or mesh inputs,
+including handle release but excluding worker scheduling and execution. Its
+`DISPATCH_INPUTS` records count allocations on the dispatch thread. The `_reused`
+light cases retain worker scratch between solves; completed output remains owned.
+
+`flight_costs` streams procedurally generated terrain (dirt over ore-flecked stone with
+sealed caves) into a settled radius-10 or radius-16 view while the camera flies along +X.
+Each 240 Hz frame submits the server's position, view centre and new columns, polls, and
+acknowledges meshes. The flight cases report main-thread stream time per frame, and the
+preflight line prints its p50, p99 and maximum. Eviction cases time only the server
+position update that retires the trailing row. Cave cases time one full
+connectivity search from the surface and from a sealed pocket.
+
+```sh
+cargo bench --locked -p world -p meshing -p chunk-pipeline --features chunk-pipeline/benchmark-support --bench flight_costs
+```
+
+These are CPU baselines, not join-time or FPS evidence. They omit socket framing,
+real server terrain, GPU preparation/uploads/draws and the rest of the Bevy frame.
+Native performance acceptance still follows [live testing](docs/agents/live-testing.md).
 
 ## JSON-UI editor
 
@@ -125,21 +221,19 @@ stdio MCP server:
 ```json
 { "mcpServers": { "jsonui": {
   "command": "/path/to/cinnabar/target/debug/jsonui-mcp",
-  "args": ["--font", "/path/to/cinnabar/.local/assets/compiled/ui-monocraft-v1.mcbefont"]
+  "args": ["--font", "/path/to/cinnabar/.local/assets/compiled/ui-cinnangles-sans-v1.mcbefont"]
 } } }
 ```
 
 ## Development
 
-Before pushing, run what CI runs:
+Work lands through pull requests into `dev`, whose CI runs the full matrix; `main` is the release
+line. Before pushing, check only what your change affects:
 
 ```sh
-cargo fmt --all --check
-cargo clippy --workspace --all-targets --locked -- -D warnings
-cargo run -p architecture -- check --root . --policy tools/architecture/policy.toml
-cargo test --workspace --locked
-go test ./core/...
+cargo run -p devtool --locked -- verify-affected --base origin/dev
 ```
 
-`cargo run -p devtool --locked -- verify-affected --base origin/main` runs only the affected
-packages. Contributor and agent rules live in `AGENTS.md` and `docs/agents/`.
+It runs fmt, the architecture gate, clippy and tests for the affected crates, `go test` and
+`go vet` for changed Go modules, and the packaging tests when `packaging/` changes. Contributor and
+agent rules live in `AGENTS.md` and `docs/agents/`.

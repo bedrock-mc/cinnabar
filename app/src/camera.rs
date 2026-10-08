@@ -1,462 +1,39 @@
-use std::f32::consts::TAU;
-
-use bevy::{
-    anti_alias::fxaa::Fxaa,
-    core_pipeline::tonemapping::Tonemapping,
-    input::{
-        mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll},
-        touch::Touches,
-    },
-    log::debug,
-    prelude::*,
-    window::{CursorGrabMode, CursorOptions, PrimaryWindow, Window},
-};
-use semantic_input::{Action, PerspectiveMode};
-use sim::{Aabb, CollisionWorld, LenientCollisionBoxes, LenientSkipCounts, Vec3 as SimVec3};
-use ui::UserSettings;
-
+//! Composition and observations for the presentation-owned camera.
 use crate::app::ClientFrameSet;
-use crate::local_player::{
-    CameraPose, InteractionOriginSnapshot, LocalAvatarPresentation, LocalAvatarVisibilityCarrier,
-    LocalPlayerFrameCarrier, LocalViewPose, resolve_camera_pose,
-};
+use crate::local_player::{LocalViewPose, resolve_camera_pose};
 use crate::semantic_controls::{
     PendingDeviceFrame, SemanticInputRuntime, SemanticInputSnapshot, SemanticRouteState,
     SemanticTouchTargets,
 };
 use crate::settings_runtime::RuntimeSettings;
+use bevy::{prelude::*, window::PrimaryWindow};
 
-mod bob;
-mod easing;
-mod facts;
-mod fov;
-mod hurt;
-mod look;
-mod overlay;
-mod overlay_publish;
-mod presentation;
-mod server_view;
-mod shake;
-
-pub use bob::{HandSwayState, ViewEffect, WalkBobState, walk_bob_effect};
-pub use fov::{CameraFovInputs, CameraFovState, SPYGLASS_FOV_MODIFIER};
-pub use hurt::{CameraHurtState, LocalHurtEvent};
-pub use overlay::{
-    HeadMedium, OverlayKind, OverlayLayer, PortalProgress, ScreenEffectInputs, ScreenOverlays,
-    VisionEffects, compute_overlays,
+pub use client_presentation::camera::{
+    AUTO_FLY_MAX_HORIZONTAL_BLOCKS, AUTO_FLY_PERIOD_SECONDS, AutoFly, CameraFeelSettings,
+    CameraFovInputs, CameraFovState, CameraPresentationPlugin, CameraRig, CameraSettingsAuthority,
+    CameraSettingsError, FlyCamera, FlyCameraUpdateSet, HeadMedium, OverlayKind, OverlayLayer,
+    PITCH_LIMIT, PortalProgress, SPYGLASS_FOV_MODIFIER, ScreenEffectFacts, ScreenEffectInputs,
+    ScreenOverlays, ServerCameraSkips, ServerCameraView, THIRD_PERSON_COLLISION_RADIUS_BLOCKS,
+    THIRD_PERSON_RADIUS_BLOCKS, VisionEffects, auto_fly_offset, collision_safe_perspective_pose,
+    compute_overlays, input_is_active, look_angles, look_at_target, next_perspective,
+    perspective_pose, release_cursor, spawn_fly_camera, unavailable_world_perspective_pose,
+    update_camera_fov,
 };
-pub use presentation::{FirstPersonHandMotion, ScreenEffectFacts};
-pub use render::camera::{DEFAULT_HORIZONTAL_FOV_RADIANS, horizontal_fov_to_vertical};
-pub use server_view::{ServerCameraSkips, ServerCameraView};
+use client_presentation::camera::{antialiasing, fov, look, overlay_publish};
+pub use view_presentation::camera::{
+    CameraHurtState, FirstPersonHandMotion, HandSwayState, LocalHurtEvent, ViewEffect,
+    WalkBobState, projection_fov_radians, walk_bob_effect,
+};
+pub(crate) mod aim_assist;
+pub(crate) mod aim_highlight;
+mod facts;
+mod focus;
+mod presentation;
 
-pub const PITCH_LIMIT: f32 = 89.9_f32.to_radians();
-/// Radius declared by the pinned `minecraft:camera_orbit` vanilla presets.
-pub const THIRD_PERSON_RADIUS_BLOCKS: f32 = 4.0;
-pub const THIRD_PERSON_COLLISION_RADIUS_BLOCKS: f32 = 0.2;
-pub const THIRD_PERSON_COLLISION_EPSILON_BLOCKS: f32 = 0.001;
-const _: () = assert!(THIRD_PERSON_COLLISION_EPSILON_BLOCKS > 0.0);
-
-pub const AUTO_FLY_PERIOD_SECONDS: f32 = 24.0;
-pub const AUTO_FLY_MAX_HORIZONTAL_BLOCKS: f32 = 128.0;
-const AUTO_FLY_RADIUS_BLOCKS: f32 = AUTO_FLY_MAX_HORIZONTAL_BLOCKS * 0.5;
-const AUTO_FLY_VERTICAL_BLOCKS: f32 = 8.0;
-
-/// Marks and configures the app's player-attached camera rig.
-#[derive(Component, Debug, Clone, Copy)]
-pub struct FlyCamera {
-    pub speed: f32,
-}
-
-/// Completes cursor, look, and movement updates before systems sample the
-/// camera's final transform for the current frame.
+/// Optional developer camera input, after physical look and before movement.
+#[cfg(feature = "local-mods")]
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct FlyCameraUpdateSet;
-
-impl Default for FlyCamera {
-    fn default() -> Self {
-        Self { speed: 24.0 }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CameraSettingsError {
-    StaleGeneration { previous: u64, actual: u64 },
-    NonFiniteFov,
-    FovOutOfRange,
-}
-
-/// App-owned handoff from retained menu settings to the live camera.
-///
-/// Replacements are monotonic and atomic, so a stale UI frame or malformed
-/// value cannot partially change the FOV or perspective.
-#[derive(Resource, Debug, Clone, Copy)]
-pub struct CameraSettingsAuthority {
-    generation: u64,
-    horizontal_fov_degrees: f32,
-    perspective: PerspectiveMode,
-    feel: CameraFeelSettings,
-}
-
-/// Camera feel toggles and scales mirrored from retained settings, already sanitized.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct CameraFeelSettings {
-    pub fov_effects_scale: f32,
-    pub distortion_scale: f32,
-    pub view_bobbing: bool,
-    pub cinematic_camera: bool,
-    pub mouse_sensitivity: f32,
-    pub gamepad_look_sensitivity: f32,
-    pub touch_look_sensitivity: f32,
-}
-
-impl CameraFeelSettings {
-    fn from_settings(settings: &UserSettings) -> Self {
-        let unit = |value: f32| {
-            if value.is_finite() {
-                value.clamp(0.0, 1.0)
-            } else {
-                1.0
-            }
-        };
-        Self {
-            fov_effects_scale: unit(settings.video.fov_effects_scale),
-            distortion_scale: unit(settings.video.distortion_scale),
-            view_bobbing: settings.video.view_bobbing,
-            cinematic_camera: settings.video.cinematic_camera,
-            mouse_sensitivity: settings.controls.mouse_sensitivity,
-            gamepad_look_sensitivity: settings.controls.gamepad_look_sensitivity,
-            touch_look_sensitivity: settings.controls.touch_look_sensitivity,
-        }
-    }
-
-    /// The router's linear look multiplier for the controlling device.
-    #[must_use]
-    pub fn look_multiplier(&self, mode: semantic_input::InputMode) -> f32 {
-        match mode {
-            semantic_input::InputMode::KeyboardMouse => self.mouse_sensitivity,
-            semantic_input::InputMode::GamePad => self.gamepad_look_sensitivity,
-            semantic_input::InputMode::Touch => self.touch_look_sensitivity,
-        }
-    }
-}
-
-impl Default for CameraSettingsAuthority {
-    fn default() -> Self {
-        let settings = UserSettings::default();
-        Self {
-            generation: 0,
-            horizontal_fov_degrees: settings.video.horizontal_fov_degrees,
-            perspective: settings.gameplay.default_perspective,
-            feel: CameraFeelSettings::from_settings(&settings),
-        }
-    }
-}
-
-impl CameraSettingsAuthority {
-    pub fn replace(
-        &mut self,
-        generation: u64,
-        settings: &UserSettings,
-    ) -> Result<(), CameraSettingsError> {
-        if generation <= self.generation {
-            return Err(CameraSettingsError::StaleGeneration {
-                previous: self.generation,
-                actual: generation,
-            });
-        }
-        let fov = settings.video.horizontal_fov_degrees;
-        if !fov.is_finite() {
-            return Err(CameraSettingsError::NonFiniteFov);
-        }
-        if !(30.0..=120.0).contains(&fov) {
-            return Err(CameraSettingsError::FovOutOfRange);
-        }
-        self.generation = generation;
-        self.horizontal_fov_degrees = fov;
-        self.perspective = settings.gameplay.default_perspective;
-        self.feel = CameraFeelSettings::from_settings(settings);
-        Ok(())
-    }
-
-    #[must_use]
-    pub const fn generation(&self) -> u64 {
-        self.generation
-    }
-
-    #[must_use]
-    pub const fn horizontal_fov_degrees(&self) -> f32 {
-        self.horizontal_fov_degrees
-    }
-
-    #[must_use]
-    pub const fn perspective(&self) -> PerspectiveMode {
-        self.perspective
-    }
-
-    #[must_use]
-    pub const fn feel(&self) -> &CameraFeelSettings {
-        &self.feel
-    }
-
-    fn cycle_perspective(&mut self) {
-        self.perspective = next_perspective(self.perspective);
-    }
-
-    pub(crate) fn reset_perspective(&mut self) {
-        self.perspective = PerspectiveMode::FirstPerson;
-    }
-}
-
-#[must_use]
-pub const fn next_perspective(current: PerspectiveMode) -> PerspectiveMode {
-    match current {
-        PerspectiveMode::FirstPerson => PerspectiveMode::ThirdPersonBack,
-        PerspectiveMode::ThirdPersonBack => PerspectiveMode::ThirdPersonFront,
-        PerspectiveMode::ThirdPersonFront => PerspectiveMode::FirstPerson,
-    }
-}
-
-#[must_use]
-pub fn perspective_look_delta(delta: Vec2, perspective: PerspectiveMode) -> Vec2 {
-    // The pinned third_person_front preset declares invert_x_input=true;
-    // neither first person nor the rear orbit does.
-    if perspective == PerspectiveMode::ThirdPersonFront {
-        Vec2::new(-delta.x, delta.y)
-    } else {
-        delta
-    }
-}
-
-/// Computes the unobstructed vanilla preset pose.
-///
-/// This function deliberately does not shorten the third-person boom: that
-/// requires a world collision query and must be applied by a separate,
-/// authoritative camera-avoidance stage rather than guessed here.
-#[must_use]
-pub fn perspective_pose(
-    subject_translation: Vec3,
-    subject_rotation: Quat,
-    perspective: PerspectiveMode,
-) -> Transform {
-    let forward = subject_rotation * Vec3::NEG_Z;
-    match perspective {
-        PerspectiveMode::FirstPerson => Transform {
-            translation: subject_translation,
-            rotation: subject_rotation,
-            ..default()
-        },
-        PerspectiveMode::ThirdPersonBack => {
-            let translation = subject_translation - forward * THIRD_PERSON_RADIUS_BLOCKS;
-            Transform {
-                translation,
-                rotation: subject_rotation,
-                ..default()
-            }
-        }
-        PerspectiveMode::ThirdPersonFront => {
-            let horizontal_forward = Vec3::new(forward.x, 0.0, forward.z).normalize_or_zero();
-            let horizontal_forward = if horizontal_forward == Vec3::ZERO {
-                Vec3::NEG_Z
-            } else {
-                horizontal_forward
-            };
-            let translation = subject_translation + horizontal_forward * THIRD_PERSON_RADIUS_BLOCKS;
-            Transform::from_translation(translation)
-                .looking_at(subject_translation, subject_rotation * Vec3::Y)
-        }
-    }
-}
-
-/// Resolves the third-person camera boom against collision data.
-///
-/// The camera is a radius-0.2 axis-aligned point sweep. The query is
-/// camera-lenient: unknown runtime ids and unloaded cells are skipped, so the
-/// boom stops at known solid geometry rather than collapsing onto the subject
-/// near custom blocks or chunk edges. A genuinely malformed query leaves the
-/// full preset boom rather than gluing the camera to the model.
-#[must_use]
-pub fn collision_safe_perspective_pose(
-    subject_translation: Vec3,
-    subject_rotation: Quat,
-    perspective: PerspectiveMode,
-    world: &impl CollisionWorld,
-) -> Transform {
-    let mut pose = perspective_pose(subject_translation, subject_rotation, perspective);
-    if perspective == PerspectiveMode::FirstPerson {
-        return pose;
-    }
-
-    let delta = pose.translation - subject_translation;
-    let origin = SimVec3::new(
-        f64::from(subject_translation.x),
-        f64::from(subject_translation.y),
-        f64::from(subject_translation.z),
-    );
-    let sweep = SimVec3::new(f64::from(delta.x), f64::from(delta.y), f64::from(delta.z));
-    let radius = f64::from(THIRD_PERSON_COLLISION_RADIUS_BLOCKS);
-    let camera = Aabb::new(
-        origin - SimVec3::new(radius, radius, radius),
-        origin + SimVec3::new(radius, radius, radius),
-    );
-    let LenientCollisionBoxes { value, skipped } = world
-        .collision_boxes_camera_lenient(camera.swept(sweep))
-        .unwrap_or_default();
-    let fraction = value
-        .into_iter()
-        .filter_map(|collision| segment_entry_fraction(origin, sweep, collision.grown(radius)))
-        .fold(1.0_f64, f64::min);
-    if fraction < 1.0 {
-        let hit_distance = f64::from(delta.length()) * fraction;
-        let safe_distance =
-            (hit_distance - f64::from(THIRD_PERSON_COLLISION_EPSILON_BLOCKS)).max(0.0);
-        pose.translation = subject_translation + delta.normalize_or_zero() * safe_distance as f32;
-    }
-    record_boom_telemetry(pose.translation.distance(subject_translation), skipped);
-    pose
-}
-
-/// Bounded boom telemetry: logs only when the resolved radius bucket or skip
-/// tally changes, so a steady third-person view logs once, not every frame.
-fn record_boom_telemetry(radius: f32, skipped: LenientSkipCounts) {
-    use std::sync::atomic::{AtomicU32, Ordering};
-    static LAST_STATE: AtomicU32 = AtomicU32::new(u32::MAX);
-
-    let bucket = (radius.clamp(0.0, THIRD_PERSON_RADIUS_BLOCKS) * 4.0).round() as u32;
-    let unknown = skipped.unknown_runtime_id.min(0xFF);
-    let unloaded = skipped.unloaded_chunk.min(0xFF);
-    let state = bucket | (unknown << 16) | (unloaded << 24);
-    if LAST_STATE.swap(state, Ordering::Relaxed) == state {
-        return;
-    }
-    debug!(
-        boom_radius = radius,
-        skipped_unknown_runtime_id = skipped.unknown_runtime_id,
-        skipped_unloaded_chunk = skipped.unloaded_chunk,
-        "third-person camera boom resolved"
-    );
-}
-
-/// Fails closed when no collision world is available. A third-person boom is
-/// never exposed through unloaded space; presentation remains at the eye until
-/// authoritative collision data arrives.
-#[must_use]
-pub fn unavailable_world_perspective_pose(
-    subject_translation: Vec3,
-    subject_rotation: Quat,
-    _perspective: PerspectiveMode,
-) -> Transform {
-    Transform {
-        translation: subject_translation,
-        rotation: subject_rotation,
-        ..default()
-    }
-}
-
-fn segment_entry_fraction(origin: SimVec3, delta: SimVec3, bounds: Aabb) -> Option<f64> {
-    let mut entry = 0.0_f64;
-    let mut exit = 1.0_f64;
-    for axis in 0..3 {
-        if delta[axis].abs() <= f64::EPSILON {
-            if origin[axis] < bounds.min[axis] || origin[axis] > bounds.max[axis] {
-                return None;
-            }
-            continue;
-        }
-        let first = (bounds.min[axis] - origin[axis]) / delta[axis];
-        let second = (bounds.max[axis] - origin[axis]) / delta[axis];
-        entry = entry.max(first.min(second));
-        exit = exit.min(first.max(second));
-        if entry > exit {
-            return None;
-        }
-    }
-    (exit >= 0.0 && entry <= 1.0).then_some(entry.clamp(0.0, 1.0))
-}
-
-/// Enables deterministic camera movement for `--auto-fly` acceptance runs.
-#[derive(Resource, Debug, Clone, Copy)]
-pub struct AutoFly {
-    enabled: bool,
-    capture_pending: bool,
-    presentation_paused: bool,
-    path_anchor: Option<Vec3>,
-    last_path_position: Option<Vec3>,
-    look_target: Option<Vec3>,
-    elapsed_seconds: f32,
-}
-
-impl AutoFly {
-    #[must_use]
-    pub const fn new(enabled: bool) -> Self {
-        Self::with_startup_capture(enabled, enabled)
-    }
-
-    #[must_use]
-    pub(crate) const fn with_startup_capture(enabled: bool, capture_pending: bool) -> Self {
-        Self {
-            enabled,
-            capture_pending,
-            presentation_paused: false,
-            path_anchor: None,
-            last_path_position: None,
-            look_target: None,
-            elapsed_seconds: 0.0,
-        }
-    }
-
-    #[must_use]
-    const fn presentation_paused(&self) -> bool {
-        self.presentation_paused
-    }
-    #[must_use]
-    pub const fn enabled(&self) -> bool {
-        self.enabled
-    }
-    #[must_use]
-    pub(crate) const fn controls_acceptance_camera(&self) -> bool {
-        self.enabled || self.presentation_paused
-    }
-
-    pub fn set_look_target(&mut self, target: Vec3) {
-        self.look_target = Some(target);
-    }
-
-    pub(crate) fn pause_for_stable_presentation(&mut self) {
-        if self.enabled {
-            self.enabled = false;
-            self.presentation_paused = true;
-        }
-    }
-
-    pub(crate) fn resume_after_stable_presentation(&mut self) {
-        if self.presentation_paused {
-            self.enabled = true;
-            self.presentation_paused = false;
-        }
-    }
-}
-
-#[must_use]
-pub fn auto_fly_offset(seconds: f32) -> Vec3 {
-    let phase = seconds.rem_euclid(AUTO_FLY_PERIOD_SECONDS) / AUTO_FLY_PERIOD_SECONDS;
-    let angle = phase * TAU;
-    Vec3::new(
-        AUTO_FLY_RADIUS_BLOCKS * (angle.cos() - 1.0),
-        AUTO_FLY_VERTICAL_BLOCKS * (angle * 2.0).sin(),
-        AUTO_FLY_RADIUS_BLOCKS * angle.sin(),
-    )
-}
-
-#[must_use]
-pub fn look_at_target(position: Vec3, target: Vec3) -> Quat {
-    if position.distance_squared(target) <= f32::EPSILON {
-        return Quat::IDENTITY;
-    }
-    Transform::from_translation(position)
-        .looking_at(target, Vec3::Y)
-        .rotation
-}
-
+pub(crate) struct ModCameraInputSet;
 /// Spawns and drives one [`Camera3d`] fly camera.
 pub struct FlyCameraPlugin {
     auto_fly: bool,
@@ -486,90 +63,82 @@ impl Default for FlyCameraPlugin {
 
 impl Plugin for FlyCameraPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<ButtonInput<KeyCode>>()
-            .init_resource::<ButtonInput<MouseButton>>()
-            .init_resource::<AccumulatedMouseMotion>()
-            .init_resource::<AccumulatedMouseScroll>()
-            .init_resource::<Touches>()
-            .insert_resource(AutoFly::with_startup_capture(
-                self.auto_fly,
-                self.capture_on_start,
-            ))
-            .init_resource::<CameraSettingsAuthority>()
-            .init_resource::<CameraFovInputs>()
-            .init_resource::<CameraFovState>()
-            .init_resource::<look::LookSmoother>()
-            .init_resource::<facts::ItemUseClock>()
-            .init_resource::<WalkBobState>()
-            .init_resource::<HandSwayState>()
-            .init_resource::<CameraHurtState>()
-            .init_resource::<ServerCameraView>()
-            .init_resource::<PortalProgress>()
-            .init_resource::<HeadMedium>()
-            .init_resource::<VisionEffects>()
-            .init_resource::<ScreenOverlays>()
-            .init_resource::<ScreenEffectFacts>()
-            .init_resource::<FirstPersonHandMotion>()
-            .init_resource::<LocalViewPose>()
-            .init_resource::<CameraPose>()
-            .init_resource::<InteractionOriginSnapshot>()
-            .init_resource::<LocalPlayerFrameCarrier>()
-            .init_resource::<LocalAvatarPresentation>()
-            .init_resource::<LocalAvatarVisibilityCarrier>()
-            .init_resource::<SemanticInputRuntime>()
-            .init_resource::<SemanticInputSnapshot>()
-            .init_resource::<PendingDeviceFrame>()
-            .init_resource::<SemanticRouteState>()
-            .init_resource::<SemanticTouchTargets>()
-            .init_resource::<RuntimeSettings>()
-            .add_systems(
-                Startup,
-                (spawn_fly_camera, overlay_publish::load_overlay_textures),
-            )
-            .configure_sets(
-                Update,
-                FlyCameraUpdateSet
-                    .after(ClientFrameSet::SemanticFinalize)
-                    .before(ClientFrameSet::Physics),
-            )
-            .add_systems(
-                Update,
+        focus::install(app);
+        app.add_plugins(CameraPresentationPlugin {
+            auto_fly: self.auto_fly,
+            capture_on_start: self.capture_on_start,
+        })
+        .init_resource::<client_presentation::aim_assist::ServerAimAssist>()
+        .init_resource::<client_presentation::aim_assist::AimAssistFrame>()
+        .init_resource::<SemanticInputRuntime>()
+        .init_resource::<SemanticInputSnapshot>()
+        .init_resource::<PendingDeviceFrame>()
+        .init_resource::<SemanticRouteState>()
+        .init_resource::<SemanticTouchTargets>()
+        .init_resource::<RuntimeSettings>()
+        .add_systems(
+            Startup,
+            (
+                spawn_fly_camera,
+                overlay_publish::load_overlay_textures,
+                aim_highlight::load_base_textures,
+            ),
+        )
+        .configure_sets(
+            Update,
+            FlyCameraUpdateSet
+                .after(ClientFrameSet::SemanticFinalize)
+                .before(ClientFrameSet::Physics),
+        )
+        .add_systems(
+            Update,
+            (
                 (
-                    (
-                        apply_runtime_camera_settings,
-                        presentation::collect_fov_inputs,
-                        facts::collect_screen_effect_facts,
-                        update_camera_fov,
-                    )
-                        .chain()
-                        .after(ClientFrameSet::SemanticFinalize)
-                        .before(FlyCameraUpdateSet),
-                    (
-                        update_cursor_capture,
-                        update_perspective,
-                        update_look,
-                        update_movement,
-                    )
-                        .chain()
-                        .in_set(FlyCameraUpdateSet),
-                    (
-                        presentation::advance_presentation_state,
-                        presentation::update_screen_overlays,
-                        overlay_publish::publish_screen_overlays,
-                        presentation::apply_camera_presentation,
-                    )
-                        .chain()
-                        .after(resolve_camera_pose)
-                        .in_set(ClientFrameSet::Camera),
-                ),
-            );
+                    apply_runtime_camera_settings,
+                    antialiasing::apply_camera_antialiasing,
+                    presentation::collect_fov_inputs,
+                    facts::collect_screen_effect_facts,
+                )
+                    .chain()
+                    .after(ClientFrameSet::SemanticFinalize)
+                    .before(FlyCameraUpdateSet),
+                // After camera input, so a rig committed this frame sets this frame's FOV.
+                update_camera_fov
+                    .after(FlyCameraUpdateSet)
+                    .before(ClientFrameSet::Camera),
+                (
+                    update_cursor_capture,
+                    update_perspective,
+                    update_look,
+                    update_movement,
+                )
+                    .chain()
+                    .in_set(FlyCameraUpdateSet),
+                (
+                    facts::collect_portal_contact,
+                    presentation::advance_presentation_state,
+                    presentation::update_screen_overlays,
+                    presentation::apply_camera_presentation,
+                    overlay_publish::publish_screen_overlays,
+                    facts::diagnose_portal,
+                )
+                    .chain()
+                    .after(resolve_camera_pose)
+                    .in_set(ClientFrameSet::Camera),
+            ),
+        );
+        #[cfg(feature = "local-mods")]
+        app.configure_sets(
+            Update,
+            ModCameraInputSet
+                .in_set(FlyCameraUpdateSet)
+                .after(update_look)
+                .before(update_movement),
+        );
     }
 }
 
-fn window_aspect(window: &Window) -> f32 {
-    window.resolution.width() / window.resolution.height()
-}
-
+/// Forwards each retained settings revision to the camera authority once.
 fn apply_runtime_camera_settings(
     runtime: Res<RuntimeSettings>,
     mut camera: ResMut<CameraSettingsAuthority>,
@@ -579,69 +148,89 @@ fn apply_runtime_camera_settings(
         let _ = camera.replace(generation, settings);
     }
 }
-
-fn spawn_fly_camera(
-    mut commands: Commands,
-    window: Single<&Window, With<PrimaryWindow>>,
-    settings: Res<CameraSettingsAuthority>,
-    view: Res<LocalViewPose>,
-) {
-    let camera = FlyCamera::default();
-    commands.spawn((
-        Camera3d::default(),
-        // Multisampled presentation is not portable: Depth32Float rejects some
-        // sample counts on macOS, and Bevy/wgpu's DX12 resolve path presents a
-        // black frame on affected adapters. FXAA retains edge smoothing without
-        // a multisampled color/depth target or backend-specific resolve step.
-        Msaa::Off,
-        Fxaa::default(),
-        Projection::Perspective(PerspectiveProjection {
-            fov: horizontal_fov_to_vertical(
-                settings.horizontal_fov_degrees().to_radians(),
-                window_aspect(&window),
-            ),
-            ..default()
-        }),
-        Tonemapping::None,
-        camera,
-        perspective_pose(
-            view.eye_translation(),
-            view.rotation(),
-            settings.perspective(),
-        ),
-    ));
-}
-
-fn update_camera_fov(
-    window: Single<&Window, With<PrimaryWindow>>,
-    settings: Res<CameraSettingsAuthority>,
-    time: Res<Time>,
-    inputs: Res<CameraFovInputs>,
-    mut fov_state: ResMut<CameraFovState>,
-    server: Res<ServerCameraView>,
-    mut cameras: Query<&mut Projection, With<FlyCamera>>,
-) {
-    let modifier = fov_state.advance(inputs.target_modifier(), time.delta_secs());
-    let base = settings.horizontal_fov_degrees();
-    let horizontal_degrees = server.fov_override_degrees(base).unwrap_or(base * modifier);
-    let vertical =
-        horizontal_fov_to_vertical(horizontal_degrees.to_radians(), window_aspect(&window));
-    for mut projection in &mut cameras {
-        if let Projection::Perspective(perspective) = projection.as_mut() {
-            perspective.fov = vertical;
-        }
-    }
-}
-
-fn update_perspective(
+/// Borrows current owner facts and forwards them at the existing system boundary.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn update_perspective(
     input: Res<SemanticInputSnapshot>,
-    mut settings: ResMut<CameraSettingsAuthority>,
+    settings: ResMut<CameraSettingsAuthority>,
 ) {
-    if !input.phase(Action::CyclePerspective).pressed {
-        return;
-    }
-    settings.cycle_perspective();
+    client_presentation::camera::update_perspective(
+        client_presentation::observations::InputObservation(input.snapshot()),
+        settings,
+    );
 }
+
+/// Borrows current owner facts and forwards them at the existing system boundary.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn update_look(
+    spyglass: (
+        Option<Res<crate::menu::MenuRuntime>>,
+        Option<Res<fov::CameraFovInputs>>,
+    ),
+    window: Option<Single<&Window, With<PrimaryWindow>>>,
+    input: Res<SemanticInputSnapshot>,
+    auto_fly: Res<AutoFly>,
+    settings: ResMut<CameraSettingsAuthority>,
+    time: Res<Time>,
+    smoother: ResMut<look::LookSmoother>,
+    view: ResMut<LocalViewPose>,
+    server: Option<ResMut<ServerCameraView>>,
+) {
+    client_presentation::camera::update_look(
+        (
+            spyglass.0.as_ref().map_or(0.0, |menu| {
+                menu.spyglass_damping(
+                    input
+                        .snapshot()
+                        .map_or(semantic_input::InputMode::KeyboardMouse, |snapshot| {
+                            snapshot.input_mode
+                        }),
+                )
+            }),
+            spyglass.1,
+        ),
+        window.map_or(0, |window| window.physical_width()),
+        client_presentation::observations::InputObservation(input.snapshot()),
+        auto_fly,
+        settings,
+        time,
+        smoother,
+        view,
+        server,
+    );
+}
+
+/// Borrows current owner facts and forwards them at the existing system boundary.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn update_movement(
+    input: Res<SemanticInputSnapshot>,
+    time: Res<Time>,
+    auto_fly: ResMut<AutoFly>,
+    local_physics: Option<Res<crate::movement::LocalPhysicsController>>,
+    camera: Single<&FlyCamera>,
+    view: ResMut<LocalViewPose>,
+) {
+    client_presentation::camera::update_movement(
+        client_presentation::observations::InputObservation(input.snapshot()),
+        time,
+        auto_fly,
+        local_physics
+            .as_deref()
+            .map(|value| value as &dyn client_presentation::observations::PhysicsObservation),
+        camera,
+        view,
+    );
+}
+/// Present while a developer controller drives input; the window then counts as focused and
+/// captured without touching the OS cursor.
+#[derive(Resource, Debug, Default)]
+#[cfg_attr(
+    not(feature = "developer-control"),
+    allow(dead_code, reason = "inserted only by the developer control endpoint")
+)]
+pub(crate) struct DrivenInput;
+
+pub(crate) use focus::{mouse_input_active, update_cursor_capture};
 
 #[cfg(test)]
 pub(crate) fn movement_axes(keys: &ButtonInput<KeyCode>) -> Vec3 {
@@ -657,186 +246,6 @@ pub(crate) fn movement_axes(keys: &ButtonInput<KeyCode>) -> Vec3 {
 #[cfg(test)]
 fn axis(positive: bool, negative: bool) -> f32 {
     f32::from(u8::from(positive)) - f32::from(u8::from(negative))
-}
-
-pub(crate) fn look_angles(
-    yaw: f32,
-    pitch: f32,
-    mouse_delta: Vec2,
-    sensitivity: Vec2,
-) -> (f32, f32) {
-    let yaw = yaw - mouse_delta.x * sensitivity.x;
-    let pitch = (pitch - mouse_delta.y * sensitivity.y).clamp(-PITCH_LIMIT, PITCH_LIMIT);
-    (yaw, pitch)
-}
-
-pub(crate) fn input_is_active(window: &Window, cursor: &CursorOptions) -> bool {
-    window.focused && cursor.grab_mode == CursorGrabMode::Locked && !cursor.visible
-}
-
-fn capture_cursor(cursor: &mut CursorOptions) {
-    cursor.grab_mode = CursorGrabMode::Locked;
-    cursor.visible = false;
-}
-
-fn release_cursor(cursor: &mut CursorOptions) {
-    cursor.grab_mode = CursorGrabMode::None;
-    cursor.visible = true;
-}
-
-fn clear_controller_input(
-    keys: &mut ButtonInput<KeyCode>,
-    mouse_buttons: &mut ButtonInput<MouseButton>,
-    mouse_motion: &mut AccumulatedMouseMotion,
-) {
-    keys.reset_all();
-    mouse_buttons.reset_all();
-    mouse_motion.delta = Vec2::ZERO;
-}
-
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn update_cursor_capture(
-    window: Single<(&Window, &mut CursorOptions), With<PrimaryWindow>>,
-    mut keys: ResMut<ButtonInput<KeyCode>>,
-    mut mouse_buttons: ResMut<ButtonInput<MouseButton>>,
-    mut mouse_motion: ResMut<AccumulatedMouseMotion>,
-    mut auto_fly: ResMut<AutoFly>,
-    ui: Option<Res<crate::ui_runtime::UiRuntime>>,
-    menu: Option<Res<crate::menu::MenuRuntime>>,
-    presentation: Option<Res<crate::ui_runtime::presentation::UiPresentationRuntime>>,
-) {
-    let (window, mut cursor) = window.into_inner();
-
-    // Focus loss has priority over every capture request, including auto-fly.
-    if !window.focused {
-        release_cursor(&mut cursor);
-        clear_controller_input(&mut keys, &mut mouse_buttons, &mut mouse_motion);
-        auto_fly.capture_pending = false;
-        return;
-    }
-
-    if crate::screen_policy::absorbs_input(ui.as_deref(), menu.as_deref(), presentation.as_deref())
-    {
-        release_cursor(&mut cursor);
-        clear_controller_input(&mut keys, &mut mouse_buttons, &mut mouse_motion);
-        auto_fly.capture_pending = false;
-        return;
-    }
-
-    // Escape also wins if it arrives in the same frame as a left click.
-    if keys.just_pressed(KeyCode::Escape) {
-        release_cursor(&mut cursor);
-        clear_controller_input(&mut keys, &mut mouse_buttons, &mut mouse_motion);
-        auto_fly.capture_pending = false;
-        return;
-    }
-
-    let recapture_click =
-        !input_is_active(window, &cursor) && mouse_buttons.just_pressed(MouseButton::Left);
-    if recapture_click || auto_fly.capture_pending {
-        capture_cursor(&mut cursor);
-        if recapture_click {
-            // The click that transitions from an absolute UI cursor to
-            // captured gameplay input is UI authority, not an attack. Remove
-            // its held state so it cannot become gameplay input on the next
-            // scheduled sample; the platform must deliver a later physical
-            // release and press before attack can rearm.
-            mouse_buttons.release(MouseButton::Left);
-            mouse_motion.delta = Vec2::ZERO;
-        }
-        auto_fly.capture_pending = false;
-    }
-}
-
-fn update_look(
-    input: Res<SemanticInputSnapshot>,
-    auto_fly: Res<AutoFly>,
-    settings: Res<CameraSettingsAuthority>,
-    time: Res<Time>,
-    mut smoother: ResMut<look::LookSmoother>,
-    mut view: ResMut<LocalViewPose>,
-) {
-    if auto_fly.presentation_paused() {
-        return;
-    }
-    let mode = input
-        .snapshot()
-        .map_or(semantic_input::InputMode::KeyboardMouse, |snapshot| {
-            snapshot.input_mode
-        });
-    let dt = time.delta_secs();
-    let raw = Vec2::from_array(input.look_delta()) * look::analog_frame_scale(mode, dt);
-    let look_delta = if settings.feel().cinematic_camera {
-        smoother.filter(raw, dt)
-    } else {
-        smoother.reset();
-        raw
-    };
-    if look_delta == Vec2::ZERO {
-        return;
-    }
-
-    let (yaw, pitch, roll) = view.rotation().to_euler(EulerRot::YXZ);
-    let delta = perspective_look_delta(look_delta, settings.perspective());
-    let scale = look::radians_per_routed_unit(settings.feel().look_multiplier(mode));
-    let (yaw, pitch) = look_angles(yaw, pitch, delta, Vec2::splat(scale));
-    view.set_rotation(Quat::from_euler(EulerRot::YXZ, yaw, pitch, roll));
-}
-
-fn update_movement(
-    input: Res<SemanticInputSnapshot>,
-    time: Res<Time>,
-    mut auto_fly: ResMut<AutoFly>,
-    local_physics: Option<Res<crate::movement::LocalPhysicsController>>,
-    camera: Single<&FlyCamera>,
-    mut view: ResMut<LocalViewPose>,
-) {
-    if auto_fly.presentation_paused() {
-        return;
-    }
-    if auto_fly.enabled() {
-        let externally_moved = auto_fly
-            .last_path_position
-            .is_some_and(|last| last.distance_squared(view.eye_translation()) > 0.01);
-        if externally_moved || auto_fly.path_anchor.is_none() {
-            auto_fly.path_anchor = Some(view.eye_translation());
-            auto_fly.elapsed_seconds = 0.0;
-        }
-        auto_fly.elapsed_seconds =
-            (auto_fly.elapsed_seconds + time.delta_secs()).rem_euclid(AUTO_FLY_PERIOD_SECONDS);
-        let next = auto_fly.path_anchor.expect("auto-fly anchor initialized")
-            + auto_fly_offset(auto_fly.elapsed_seconds);
-        view.set_eye_translation(next);
-        if let Some(target) = auto_fly.look_target {
-            view.set_rotation(look_at_target(next, target));
-        }
-        auto_fly.last_path_position = Some(next);
-        return;
-    }
-
-    if local_physics.is_some_and(|physics| physics.is_active()) {
-        return;
-    }
-
-    let movement = input.movement();
-    let axes = Vec3::new(
-        movement[0],
-        f32::from(u8::from(input.phase(Action::Jump).held))
-            - f32::from(u8::from(input.phase(Action::Sneak).held)),
-        movement[1],
-    );
-    let axes = axes.normalize_or_zero();
-    if axes == Vec3::ZERO {
-        return;
-    }
-
-    let (yaw, _, _) = view.rotation().to_euler(EulerRot::YXZ);
-    let yaw_rotation = Quat::from_rotation_y(yaw);
-    let right = yaw_rotation * Vec3::X;
-    let forward = yaw_rotation * Vec3::NEG_Z;
-    let direction = (right * axes.x + Vec3::Y * axes.y + forward * axes.z).normalize_or_zero();
-    let next = view.eye_translation() + direction * camera.speed * time.delta_secs();
-    view.set_eye_translation(next);
 }
 
 #[cfg(test)]

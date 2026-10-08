@@ -190,9 +190,12 @@ try {
         $publicationSequence.FirstStalledStage -cne 'none') {
         throw "binding $Mode evidence retained first stalled stage $($publicationSequence.FirstStalledStage)"
     }
-    Assert-Phase2CacheBoundaryConsistency -Server $Server `
-        -ClientBlobCacheRoute $publicationSequence.ClientBlobCacheRoute `
-        -BoundaryEvidence $manifest.cache_boundary_evidence
+    $boundaryUnavailable = [string]$manifest.cache_boundary_evidence.classification -ceq 'unavailable'
+    if ($Mode -cne 'Diagnostic' -or -not $boundaryUnavailable) {
+        Assert-Phase2CacheBoundaryConsistency -Server $Server `
+            -ClientBlobCacheRoute $publicationSequence.ClientBlobCacheRoute `
+            -BoundaryEvidence $manifest.cache_boundary_evidence
+    }
     $manifest.status = 'passed'
     $manifest.join_milliseconds = $joinMilliseconds
     $manifest.diagnostic_complete = ($Mode -eq 'Diagnostic')
@@ -201,6 +204,7 @@ try {
     $manifest.client_blob_cache_route = $publicationSequence.ClientBlobCacheRoute
     $manifest.first_stalled_stage = $publicationSequence.FirstStalledStage
     $manifest.findings = @($publicationSequence.Findings)
+    if ($boundaryUnavailable) { $manifest.findings += 'cache_boundary_evidence_unavailable' }
     $manifest.metrics_evidence = [pscustomobject][ordered]@{ status = 'passed'; reason = $null }
     $manifest.resources_evidence = [pscustomobject][ordered]@{ status = 'passed'; reason = $null }
     $manifest | Add-Member -MemberType NoteProperty -Name final_publication -Value $evidence.publication -Force

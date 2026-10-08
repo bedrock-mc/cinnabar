@@ -105,23 +105,13 @@ pub struct StoreSearchResults {
     pub truncated: bool,
 }
 
-/// A catalog search; empty fields are omitted.
+/// A store search, or its continuation; empty fields are omitted.
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct StoreSearch {
     #[serde(skip_serializing_if = "String::is_empty")]
     pub term: String,
     #[serde(skip_serializing_if = "String::is_empty")]
-    pub filter: String,
-    #[serde(skip_serializing_if = "String::is_empty")]
-    pub order_by: String,
-    #[serde(skip_serializing_if = "is_zero")]
-    pub count: u32,
-    #[serde(skip_serializing_if = "String::is_empty")]
     pub continuation: String,
-}
-
-fn is_zero(value: &u32) -> bool {
-    *value == 0
 }
 
 /// One virtual currency balance.
@@ -393,8 +383,8 @@ mod tests {
         let pending = PendingPurchase::for_offer(&offer, &price).expect("priced");
         let confirmed = pending.confirm("0123456789abcdef".into());
         assert_eq!(
-            serde_json::to_string(&confirmed).expect("encode"),
-            r#"{"purchase_id":"0123456789abcdef","offer_id":"o1","store_id":"s1","currency":"mc","amount":"320","confirmed":true}"#
+            serde_json::to_value(&confirmed).expect("encode"),
+            serde_json::json!({"purchase_id":"0123456789abcdef","offer_id":"o1","store_id":"s1","currency":"mc","amount":"320","confirmed":true})
         );
         let free = StorePrice {
             currency: "mc".into(),
@@ -407,12 +397,11 @@ mod tests {
     fn search_omits_empty_fields() {
         let search = StoreSearch {
             term: "castle".into(),
-            count: 12,
             ..StoreSearch::default()
         };
         assert_eq!(
-            serde_json::to_string(&search).expect("encode"),
-            r#"{"term":"castle","count":12}"#
+            serde_json::to_value(&search).expect("encode"),
+            serde_json::json!({"term":"castle"})
         );
     }
 

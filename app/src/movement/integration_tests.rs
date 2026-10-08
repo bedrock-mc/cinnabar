@@ -1,16 +1,14 @@
 use std::time::{Duration, Instant};
 
-use super::runtime_system::physics_authority_fault_for_frame;
 use super::{
-    LocalPhysicsController, MAX_LOCAL_PHYSICS_TICKS_PER_FRAME, MovementOutboxReconciliation,
-    MovementSendError, MovementSource, MovementTicker, OUTBOX_CAPACITY, PhysicsAuthorityFault,
-    PhysicsAuthorityGate, PhysicsCollisionRegistries, PhysicsCorrectionMode,
-    PhysicsCorrectionOutcome, PhysicsMovementSample, PhysicsSampleContext,
-    PhysicsTickEvidenceContext, ProcessedMovementState, flush_player_auth_inputs,
-    physics_movement_input, reconcile_candidate_physics_correction, reconcile_timeline_rewind,
+    LocalPhysicsController, MovementOutboxReconciliation, MovementSource, MovementTicker,
+    PhysicsAuthorityGate, PhysicsCorrectionMode, PhysicsCorrectionOutcome, PhysicsMovementSample,
+    PhysicsSampleContext, PhysicsTickEvidenceContext, ProcessedMovementState,
+    flush_player_auth_inputs, reconcile_candidate_physics_correction,
 };
-use assets::{BlockPhysicsFlags, NetworkIdMode, RegistryRecord, read_registry_for_protocol};
-use protocol::{PlayerInputFlags, PlayerInputMode};
+use assets::{BlockPhysicsFlags, RegistryRecord};
+use gameplay::movement::coordination::physics_authority_fault_for_frame;
+use protocol::PlayerInputMode;
 use sha2::{Digest, Sha256};
 use sim::{
     Aabb, CollisionIdSpace, CollisionQuery, CollisionRegistryIdentity, CollisionWorld,
@@ -28,6 +26,7 @@ use crate::{
 #[path = "transport_tests.rs"]
 mod transport_tests;
 
+/// Supplies the immutable publication facts for a completed movement tick.
 pub(super) fn evidence_context() -> PhysicsTickEvidenceContext {
     PhysicsTickEvidenceContext {
         fifo_sequence: 40,
@@ -45,6 +44,7 @@ pub(super) fn evidence_context() -> PhysicsTickEvidenceContext {
     }
 }
 
+/// Supplies one versioned collision identity for the adapter fixtures.
 fn fixture_world_identity(seed: u8) -> WorldCollisionIdentity {
     WorldCollisionIdentity::new(
         CollisionRegistryIdentity {
@@ -57,6 +57,7 @@ fn fixture_world_identity(seed: u8) -> WorldCollisionIdentity {
     .unwrap()
 }
 
+/// Builds a completed tick without a live world or transport.
 fn completed_sample(tick: u64, position: [f32; 3]) -> PhysicsMovementSample {
     PhysicsMovementSample {
         tick,
@@ -72,7 +73,7 @@ fn completed_sample(tick: u64, position: [f32; 3]) -> PhysicsMovementSample {
         camera_orientation: [0.0, 0.0, 1.0],
         jumping: false,
         sneaking: false,
-        sneak_button: false,
+        input: Default::default(),
         sprinting: false,
         input_mode: PlayerInputMode::Mouse,
         grounded_before_tick: false,
@@ -85,6 +86,7 @@ fn completed_sample(tick: u64, position: [f32; 3]) -> PhysicsMovementSample {
     }
 }
 
+/// Retains admitted future ticks so app adapters can exercise correction cancellation.
 fn replay_with_admitted_future_ticks(
     mut ticker: MovementTicker,
 ) -> (
@@ -145,11 +147,127 @@ fn replay_with_admitted_future_ticks(
     (ticker, physics, admitted)
 }
 
+struct Floor;
+
+impl CollisionWorld for Floor {
+    fn collision_boxes(&self, query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
+        let floor = Aabb::new(Vec3::new(-64.0, 0.0, -64.0), Vec3::new(64.0, 1.0, 64.0));
+        Ok(CollisionQuery::synthetic(
+            floor
+                .intersects(query)
+                .then_some(floor)
+                .into_iter()
+                .collect(),
+        ))
+    }
+}
+
+pub(super) struct VersionedFloor(pub(super) u8);
+
+impl CollisionWorld for VersionedFloor {
+    fn collision_boxes(&self, query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
+        let floor = Aabb::new(Vec3::new(-64.0, 0.0, -64.0), Vec3::new(64.0, 1.0, 64.0));
+        Ok(CollisionQuery {
+            value: floor
+                .intersects(query)
+                .then_some(floor)
+                .into_iter()
+                .collect(),
+            identity: fixture_world_identity(self.0),
+        })
+    }
+
+    fn block_physics(&self, block: [i32; 3]) -> Result<sim::BlockPhysicsSample, WorldQueryError> {
+        let mut sample = Floor.block_physics(block)?;
+        sample.identity = fixture_world_identity(self.0);
+        Ok(sample)
+    }
+}
+
+/// Supplies the forward input used by reconciliation fixtures.
+pub(super) fn forward_physics_input() -> MovementInput {
+    MovementInput {
+        forward: 1.0,
+        yaw_degrees: 180.0,
+        ..MovementInput::default()
+    }
+}
+
+/// Runs a fixed amount of simulation independently of render frame rate.
+fn physics_after_one_second(frame_rate: u32) -> LocalPhysicsController {
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position([0.0, 2.620_01, 0.0], 0, true);
+    let mut elapsed = Duration::ZERO;
+    for frame in 0..frame_rate {
+        let delta = if frame + 1 == frame_rate {
+            Duration::from_secs(1) - elapsed
+        } else {
+            Duration::from_secs_f64(1.0 / f64::from(frame_rate))
+        };
+        elapsed += delta;
+        let result = physics.advance(delta, forward_physics_input(), &Floor);
+        assert!(result.blocked.is_none());
+    }
+    physics
+}
+
+/// Encodes physics records bound to the checked-in block registry.
+pub(super) fn synthetic_preg(breg: &[u8], records: &[RegistryRecord]) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    bytes.extend_from_slice(b"PREG1001");
+    bytes
+        .extend_from_slice(&crate::asset_startup::active_content_registry_protocol().to_le_bytes());
+    bytes.extend_from_slice(&u32::try_from(records.len()).unwrap().to_le_bytes());
+    bytes.extend_from_slice(&Sha256::digest(breg));
+    for record in records {
+        bytes.extend_from_slice(&record.sequential_id.to_le_bytes());
+        bytes.extend_from_slice(&record.network_hash.to_le_bytes());
+        bytes.push(u8::try_from(record.collision_seed.boxes.len()).unwrap());
+        bytes.push(if record.collision_seed.boxes.is_empty() {
+            BlockPhysicsFlags::PASSABLE.bits()
+        } else {
+            0
+        });
+        bytes.extend_from_slice(&[0, 0]);
+        bytes.extend_from_slice(&60_000_000_u32.to_le_bytes());
+        bytes.extend_from_slice(&100_000_000_u32.to_le_bytes());
+        bytes.extend_from_slice(&100_000_000_u32.to_le_bytes());
+        bytes.extend_from_slice(&0_i32.to_le_bytes());
+        for shape in &record.collision_seed.boxes {
+            for coordinate in [
+                shape.min_x,
+                shape.min_y,
+                shape.min_z,
+                shape.max_x,
+                shape.max_y,
+                shape.max_z,
+            ] {
+                bytes.extend_from_slice(&coordinate.to_le_bytes());
+            }
+        }
+    }
+    let digest = Sha256::digest(&bytes);
+    bytes.extend_from_slice(&digest);
+    bytes
+}
+
+#[derive(Default)]
+struct DeferredCollisionWorld {
+    available: std::cell::Cell<bool>,
+}
+
+impl CollisionWorld for DeferredCollisionWorld {
+    fn collision_boxes(&self, query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
+        if !self.available.get() {
+            return Err(WorldQueryError::UnloadedChunk(world::ChunkKey::new(
+                0, 0, 0,
+            )));
+        }
+        Floor.collision_boxes(query)
+    }
+}
+
+use crate::runtime::phase3_evidence::Phase3EvidenceEmitter;
 include!("integration_tests/basics.rs");
-include!("integration_tests/replay_controls.rs");
 include!("integration_tests/replay_retry.rs");
-include!("integration_tests/authority_reanchor.rs");
 include!("integration_tests/simulation.rs");
-include!("integration_tests/vector_carriers.rs");
-include!("integration_tests/timeline.rs");
-include!("integration_tests/connected_shapes.rs");

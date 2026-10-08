@@ -298,6 +298,26 @@ fn validate_physics(physics: BlockPhysicsFacts, line: usize) -> Result<(), Confo
 }
 
 impl CollisionWorld for ScenarioWorld {
+    /// Scenario colliders all carry the fixture's one homogeneous material.
+    fn collision_boxes_with_provenance(
+        &self,
+        query: Aabb,
+    ) -> Result<CollisionQuery<Vec<crate::ProvenancedCollider>>, WorldQueryError> {
+        let boxes = self.collision_boxes(query)?;
+        Ok(CollisionQuery {
+            value: boxes
+                .value
+                .into_iter()
+                .map(|aabb| crate::ProvenancedCollider {
+                    aabb,
+                    block: Some(self.origin),
+                    runtime_id: None,
+                })
+                .collect(),
+            identity: boxes.identity,
+        })
+    }
+
     fn collision_boxes(&self, query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
         if self.unloaded {
             return Err(WorldQueryError::UnloadedChunk(ChunkKey::new(0, 2, 3)));

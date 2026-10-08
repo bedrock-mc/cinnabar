@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/df-mc/dragonfly/server/world"
+	"github.com/hashimthearab/rust-mcbe/tools/registrygen/internal/targetpin"
 )
 
 // The protocol-2193 physics projection reuses the reviewed protocol-1001
@@ -19,15 +20,15 @@ import (
 // fact payloads of the protocol-1001 record each state was projected from,
 // including verbatim collision seeds. Legacy and connection-reduced states keep
 // their protocol-1001 name and its pinned PMMP friction row; reviewed twins
-// read the row of the twin whose facts they carry. Reserved identities keep the
-// exact protocol-1001 neutral treatment: treat-as-air passables with default
-// factors and no fluid.
+// read the row of the twin whose facts they carry. Reserved identities stay
+// collision-free passables with default factors and no fluid, but carry the
+// vanilla default block friction every reserved block uses, so a friction probe
+// that lands on one does not slide.
 
 const (
 	v2193PhysicsOutputPath    = "crates/assets/data/block-physics-v2193.bin"
 	v2193PhysicsBREGInputPath = "crates/assets/data/block-registry-v2193.bin"
-	v2193PhysicsBREGSHA256    = v2193FoundationBlockSHA256
-	v2193PhysicsReservedCount = 662
+	v2193PhysicsReservedCount = 662 - v2193EducationStateCount
 )
 
 func writeV2193PhysicsProjection(bregPath, pmmpRoot, prismarineRoot, outputPath, shaOutputPath, manifestPath string) error {
@@ -41,8 +42,12 @@ func writeV2193PhysicsProjection(bregPath, pmmpRoot, prismarineRoot, outputPath,
 	if len(data) > 128<<20 {
 		return errors.New("v2193 physics-binding BREG exceeds 128 MiB")
 	}
-	if actual := fmt.Sprintf("%x", sha256.Sum256(data)); actual != v2193PhysicsBREGSHA256 {
-		return fmt.Errorf("pinned protocol-2193 block registry SHA-256 %s does not match %s", actual, v2193PhysicsBREGSHA256)
+	blockHash, err := targetpin.BlockHash()
+	if err != nil {
+		return err
+	}
+	if actual := fmt.Sprintf("%x", sha256.Sum256(data)); actual != blockHash {
+		return fmt.Errorf("pinned protocol-2193 block registry SHA-256 %s does not match %s", actual, blockHash)
 	}
 	if pmmpRoot == "" || prismarineRoot == "" {
 		return errors.New("v2193 physics projection requires the pinned PMMP and Prismarine sources")
@@ -141,7 +146,7 @@ func projectV2193PhysicsRecords(records []Record, sources PhysicsSourceCatalog) 
 			physics[index] = PhysicsRecord{
 				SequentialID:        record.SequentialID,
 				NetworkHash:         record.NetworkHash,
-				FrictionQ1E8:        defaultSpeedQ1E8,
+				FrictionQ1E8:        defaultFrictionQ1E8,
 				HorizontalSpeedQ1E8: defaultSpeedQ1E8,
 				VerticalSpeedQ1E8:   defaultSpeedQ1E8,
 				Flags:               physicsFlagPassable,
@@ -164,8 +169,15 @@ func crossCheckV2193PhysicsManifest(payload []byte) error {
 	if manifest.Projection.DeniedCount != v2193PhysicsReservedCount {
 		return fmt.Errorf("v2193 projection manifest denies %d states, want exactly %d", manifest.Projection.DeniedCount, v2193PhysicsReservedCount)
 	}
-	if manifest.Output.SHA256 != v2193PhysicsBREGSHA256 {
-		return fmt.Errorf("v2193 projection manifest binds BREG SHA-256 %q, want %q", manifest.Output.SHA256, v2193PhysicsBREGSHA256)
+	if manifest.Projection.EducationStates != v2193EducationStateCount {
+		return fmt.Errorf("v2193 projection manifest has %d Education states, want %d", manifest.Projection.EducationStates, v2193EducationStateCount)
+	}
+	blockHash, err := targetpin.BlockHash()
+	if err != nil {
+		return err
+	}
+	if manifest.Output.SHA256 != blockHash {
+		return fmt.Errorf("v2193 projection manifest binds BREG SHA-256 %q, want %q", manifest.Output.SHA256, blockHash)
 	}
 	return nil
 }

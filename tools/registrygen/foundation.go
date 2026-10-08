@@ -12,10 +12,6 @@ import (
 
 const maxFoundationBytes = 16 * 1024
 
-const (
-	v2193FoundationBlockSHA256 = "04984b63037cda766e9a41b81bb1314e0c649b6f999bb27d56730decb3c7be53"
-)
-
 type FoundationStatus string
 
 const (
@@ -173,11 +169,15 @@ func validateFoundationFields(foundation registryFoundation) error {
 		if foundation.ProjectionBindings.Biome.SHA256 != "e3ba3d96a66fa49b3b7d94ae6b67b4cc5d8961789c91275080d3922909b25c2a" {
 			return errors.New("ready registry foundation must preserve the exact biome projection binding")
 		}
+		blockHash, err := targetpin.BlockHash()
+		if err != nil {
+			return err
+		}
 		lightHash, err := targetpin.LightHash()
 		if err != nil {
 			return err
 		}
-		if foundation.ProjectionBindings.Block.SHA256 != v2193FoundationBlockSHA256 ||
+		if foundation.ProjectionBindings.Block.SHA256 != blockHash ||
 			foundation.ProjectionBindings.Light.SHA256 != lightHash {
 			return errors.New("ready registry foundation must bind the exact block and light projections")
 		}

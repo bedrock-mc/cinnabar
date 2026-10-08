@@ -70,7 +70,8 @@ impl BlobCacheResolver {
         let evictions = {
             let mut store = self.cache.lock();
             let newly_admitted = validate_delta(&store, &unique)?;
-            store.entries.reserve(newly_admitted);
+            let available = MAX_CLIENT_BLOB_CACHE_ENTRIES.saturating_sub(store.entries.len());
+            store.entries.reserve(newly_admitted.min(available));
             let before = store.entries.len();
             for (hash, payload) in &unique {
                 insert_verified(&mut store, self.cache.limits, *hash, payload)?;
@@ -115,6 +116,14 @@ fn validate_delta(store: &CacheStore, unique: &[(u64, Vec<u8>)]) -> Result<usize
             }
             new_entries += 1;
         }
+    }
+    let pinned_entries = store
+        .entries
+        .keys()
+        .filter(|hash| store.pins.contains_key(hash))
+        .count();
+    if pinned_entries.saturating_add(new_entries) > MAX_CLIENT_BLOB_CACHE_ENTRIES {
+        return Err(BlobCacheError::CacheEntryPressure);
     }
     Ok(new_entries)
 }

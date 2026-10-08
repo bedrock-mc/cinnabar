@@ -9,8 +9,14 @@ use bevy::render::{
     renderer::{RenderDevice, RenderQueue},
 };
 
-use crate::ui::UiRenderRejectReason;
-use crate::{UiTextureCatalog, UiTextureLocation, UiTexturePage, UiTexturePlan};
+use bevy::prelude::{Res, ResMut};
+use bevy::render::render_resource::{BindGroupEntry, BindingResource, PipelineCache};
+use render_model::UiRenderRejectReason;
+
+use super::{UiGpu, pipeline::UiPipeline};
+use render_model::{
+    UiTextureCatalog, UiTextureFormat, UiTextureLocation, UiTexturePage, UiTexturePlan,
+};
 
 /// Observes schedule-separated device-resource changes, not arbitrary context IDs.
 pub(crate) struct DeviceObservation {
@@ -42,6 +48,8 @@ impl DeviceObservation {
 pub(super) struct GpuBucket {
     pub(super) texture: Texture,
     pub(super) view: TextureView,
+    /// `x` is 1 for a coverage bucket, which the shader samples as white with that alpha.
+    pub(super) format_uniform: bevy::render::render_resource::Buffer,
     pub(super) bind_group: Option<BindGroup>,
 }
 
@@ -57,10 +65,6 @@ impl TextureUploadState {
         if self
             .static_identity
             .is_some_and(|id| id != catalog.static_identity())
-            || self
-                .plan
-                .as_ref()
-                .is_some_and(|plan| plan != catalog.plan())
         {
             return Err(UiRenderRejectReason::TextureIdentityConflict {
                 identity: catalog.static_identity(),
@@ -71,7 +75,9 @@ impl TextureUploadState {
             .iter()
             .enumerate()
             .filter_map(|(index, page)| {
-                (self.uploaded.get(index) != Some(&page.identity())).then_some(index)
+                (self.plan.as_ref().is_none_or(|plan| plan != catalog.plan())
+                    || self.uploaded.get(index) != Some(&page.identity()))
+                .then_some(index)
             })
             .collect())
     }
@@ -95,9 +101,7 @@ impl TextureUploadState {
         self.uploaded
             .extend(catalog.pages().iter().map(UiTexturePage::identity));
         self.static_identity = Some(catalog.static_identity());
-        if self.plan.is_none() {
-            self.plan = Some(catalog.plan().clone());
-        }
+        self.plan = Some(catalog.plan().clone());
         Ok(())
     }
 }
@@ -113,7 +117,7 @@ pub(super) struct UiGpuTextures {
 }
 
 impl UiGpuTextures {
-    pub(super) fn allocated_buckets(&self) -> &[crate::UiTextureBucket] {
+    pub(super) fn allocated_buckets(&self) -> &[render_model::UiTextureBucket] {
         self.allocation_plan
             .as_ref()
             .map_or(&[], |plan| plan.buckets())
@@ -136,6 +140,7 @@ impl UiGpuTextures {
         catalog: &UiTextureCatalog,
         device: &RenderDevice,
         queue: &RenderQueue,
+        profile: Option<&super::profile::UiProfile>,
     ) -> Result<(), UiRenderRejectReason> {
         let limits = device.limits();
         catalog.plan().validate_device(
@@ -145,37 +150,53 @@ impl UiGpuTextures {
         if self
             .allocation_identity
             .is_some_and(|id| id != catalog.static_identity())
-            || self
-                .allocation_plan
-                .as_ref()
-                .is_some_and(|plan| plan != catalog.plan())
         {
             return Err(UiRenderRejectReason::TextureIdentityConflict {
                 identity: catalog.static_identity(),
             });
         }
+        let resized = self
+            .allocation_plan
+            .as_ref()
+            .is_some_and(|plan| plan != catalog.plan());
         if self.allocation_identity.is_some()
+            && !resized
             && (self.buckets.len() != catalog.plan().buckets().len()
                 || self.locations != catalog.plan().locations())
         {
             return Err(UiRenderRejectReason::InvalidTextureExtent);
         }
         let dirty = self.state.dirty(catalog)?;
-        let format = TextureFormat::Rgba8UnormSrgb.guaranteed_format_features(device.features());
-        if !format
-            .allowed_usages
-            .contains(TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST)
-            || !format
-                .flags
-                .contains(wgpu::TextureFormatFeatureFlags::FILTERABLE)
-        {
-            return Err(UiRenderRejectReason::InvalidTextureExtent);
+        for format in [TextureFormat::Rgba8Unorm, TextureFormat::R8Unorm] {
+            let format = format.guaranteed_format_features(device.features());
+            if !format
+                .allowed_usages
+                .contains(TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST)
+                || !format
+                    .flags
+                    .contains(wgpu::TextureFormatFeatureFlags::FILTERABLE)
+            {
+                return Err(UiRenderRejectReason::InvalidTextureExtent);
+            }
         }
         // All catalog and per-device admission checks precede allocation/writes.
+        if resized {
+            self.buckets.clear();
+            self.locations.clear();
+            self.state = TextureUploadState::default();
+        }
         if self.buckets.is_empty() {
             self.allocation_identity = Some(catalog.static_identity());
             self.allocation_plan = Some(catalog.plan().clone());
             for bucket in catalog.plan().buckets() {
+                #[cfg(feature = "tracy")]
+                let _span = bevy::log::info_span!(
+                    "ui.texture_allocate",
+                    width = bucket.dimensions[0],
+                    height = bucket.dimensions[1],
+                    layers = bucket.layers,
+                )
+                .entered();
                 let texture = device.create_texture(&TextureDescriptor {
                     label: Some("bounded UI dimension bucket"),
                     size: Extent3d {
@@ -186,7 +207,10 @@ impl UiGpuTextures {
                     mip_level_count: 1,
                     sample_count: 1,
                     dimension: TextureDimension::D2,
-                    format: TextureFormat::Rgba8UnormSrgb,
+                    format: match bucket.format {
+                        UiTextureFormat::Rgba8 => TextureFormat::Rgba8Unorm,
+                        UiTextureFormat::Coverage => TextureFormat::R8Unorm,
+                    },
                     usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
                     view_formats: &[],
                 });
@@ -195,9 +219,18 @@ impl UiGpuTextures {
                     dimension: Some(TextureViewDimension::D2Array),
                     ..Default::default()
                 });
+                let coverage = u32::from(bucket.format == UiTextureFormat::Coverage);
+                let format_uniform = device.create_buffer_with_data(
+                    &bevy::render::render_resource::BufferInitDescriptor {
+                        label: Some("UI bucket page format"),
+                        contents: bytemuck::cast_slice(&[coverage, 0, 0, 0]),
+                        usage: bevy::render::render_resource::BufferUsages::UNIFORM,
+                    },
+                );
                 self.buckets.push(GpuBucket {
                     texture,
                     view,
+                    format_uniform,
                     bind_group: None,
                 });
             }
@@ -213,6 +246,22 @@ impl UiGpuTextures {
         let buckets = &self.buckets;
         self.state.execute(catalog, &dirty, |_, page, location| {
             let [width, height] = page.dimensions();
+            #[cfg(feature = "tracy")]
+            let _span = bevy::log::info_span!(
+                "ui.texture_write",
+                bucket = location.bucket,
+                layer = location.layer,
+                width,
+                height,
+                bytes = page.pixels().len(),
+            )
+            .entered();
+            if let Some(profile) = profile {
+                profile.record_upload(
+                    super::profile::UploadKind::Texture,
+                    page.pixels().len() as u64,
+                );
+            }
             queue.write_texture(
                 TexelCopyTextureInfo {
                     texture: &buckets[location.bucket].texture,
@@ -227,7 +276,7 @@ impl UiGpuTextures {
                 page.pixels(),
                 TexelCopyBufferLayout {
                     offset: 0,
-                    bytes_per_row: Some(width * 4),
+                    bytes_per_row: Some(width * page.format().bytes_per_texel() as u32),
                     rows_per_image: Some(height),
                 },
                 Extent3d {
@@ -238,6 +287,52 @@ impl UiGpuTextures {
             );
             Ok::<(), UiRenderRejectReason>(())
         })
+    }
+}
+
+/// Bind each page bucket with the viewport and both samplers once the frame is accepted.
+pub(super) fn prepare_ui_bind_group(
+    render_device: Res<RenderDevice>,
+    pipeline_cache: Res<PipelineCache>,
+    pipeline: Res<UiPipeline>,
+    mut gpu: ResMut<UiGpu>,
+) {
+    if gpu.accepted_revision.is_none() || &gpu.device != render_device.wgpu_device() {
+        return;
+    }
+    let viewport = gpu.viewport_buffer.clone();
+    let sampler = gpu.sampler.clone();
+    let linear_sampler = gpu.linear_sampler.clone();
+    for bucket in &mut gpu.textures.buckets {
+        if bucket.bind_group.is_some() {
+            continue;
+        }
+        bucket.bind_group = Some(render_device.create_bind_group(
+            "shared retained UI bind group",
+            &pipeline_cache.get_bind_group_layout(&pipeline.bind_group_layout),
+            &[
+                BindGroupEntry {
+                    binding: 0,
+                    resource: viewport.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 1,
+                    resource: BindingResource::TextureView(&bucket.view),
+                },
+                BindGroupEntry {
+                    binding: 2,
+                    resource: BindingResource::Sampler(&sampler),
+                },
+                BindGroupEntry {
+                    binding: 3,
+                    resource: BindingResource::Sampler(&linear_sampler),
+                },
+                BindGroupEntry {
+                    binding: 4,
+                    resource: bucket.format_uniform.as_entire_binding(),
+                },
+            ],
+        ));
     }
 }
 
@@ -298,6 +393,84 @@ mod tests {
             1,
         )
         .unwrap()
+    }
+
+    #[test]
+    fn local_font_replacement_writes_one_reserved_page_without_static_reallocation() {
+        use render_model::{
+            MAX_UI_DYNAMIC_PAGES, UI_DYNAMIC_PAGE_SIDE, UI_FALLBACK_FONT_PAGE_OFFSET,
+            UI_FALLBACK_FONT_PAGE_SIDE, UI_LOCAL_FONT_PAGE_OFFSET, UI_LOCAL_FONT_PAGE_SIDE,
+        };
+
+        let page = |side, value| {
+            UiTexturePage::owned(
+                [side; 2],
+                vec![value; side as usize * side as usize * 4].into(),
+            )
+            .unwrap()
+        };
+        let fallback = UiTexturePage::coverage(
+            [UI_FALLBACK_FONT_PAGE_SIDE; 2],
+            vec![0; (UI_FALLBACK_FONT_PAGE_SIDE * UI_FALLBACK_FONT_PAGE_SIDE) as usize].into(),
+        )
+        .unwrap();
+        let mut pages = vec![page(1, 255)];
+        pages.extend((0..MAX_UI_DYNAMIC_PAGES).map(|offset| {
+            if offset >= UI_FALLBACK_FONT_PAGE_OFFSET {
+                return fallback.clone();
+            }
+            page(
+                if offset == UI_LOCAL_FONT_PAGE_OFFSET {
+                    UI_LOCAL_FONT_PAGE_SIDE
+                } else {
+                    UI_DYNAMIC_PAGE_SIDE
+                },
+                0,
+            )
+        }));
+        let base = UiTextureCatalog::new(pages, 1).unwrap();
+        let mut state = TextureUploadState::default();
+        let dirty = state.dirty(&base).unwrap();
+        state
+            .execute(&base, &dirty, |_, _, _| Ok::<_, ()>(()))
+            .unwrap();
+        let mut current = base.clone();
+        for offset in [
+            UI_LOCAL_FONT_PAGE_OFFSET,
+            UI_FALLBACK_FONT_PAGE_OFFSET,
+            MAX_UI_DYNAMIC_PAGES - 1,
+        ] {
+            let mut replacement = current.pages()[current.dynamic_start()..].to_vec();
+            replacement[offset] = if offset == UI_LOCAL_FONT_PAGE_OFFSET {
+                page(UI_LOCAL_FONT_PAGE_SIDE, 41)
+            } else {
+                UiTexturePage::coverage(
+                    [UI_FALLBACK_FONT_PAGE_SIDE; 2],
+                    vec![41; (UI_FALLBACK_FONT_PAGE_SIDE * UI_FALLBACK_FONT_PAGE_SIDE) as usize]
+                        .into(),
+                )
+                .unwrap()
+            };
+            current = current.replace_dynamic(replacement).unwrap();
+            assert_eq!(current.static_identity(), base.static_identity());
+            assert_eq!(current.plan(), base.plan());
+            let target = base.dynamic_start() + offset;
+            assert_eq!(state.dirty(&current).unwrap(), [target]);
+            let mut written = Vec::new();
+            state
+                .execute(&current, &[target], |index, page, _| {
+                    written.push(index);
+                    assert_eq!(page.format(), base.pages()[target].format());
+                    assert_eq!(page.pixels().len(), base.pages()[target].pixels().len());
+                    Ok::<_, ()>(())
+                })
+                .unwrap();
+            assert_eq!(written, [target]);
+            assert!(state.dirty(&current).unwrap().is_empty());
+        }
+        let mut wrong = base.pages()[base.dynamic_start()..].to_vec();
+        wrong[UI_LOCAL_FONT_PAGE_OFFSET] = page(UI_DYNAMIC_PAGE_SIDE, 0);
+        assert!(base.replace_dynamic(wrong).is_err());
     }
 
     #[test]
@@ -370,19 +543,201 @@ mod tests {
         ));
         let catalog = catalog(0);
         let mut gpu = UiGpuTextures::default();
-        gpu.prepare(&catalog, &device, &queue).unwrap();
+        gpu.prepare(&catalog, &device, &queue, None).unwrap();
         assert_eq!(gpu.buckets.len(), 2);
         assert!(gpu.state.dirty(&catalog).unwrap().is_empty());
         assert!(gpu.resident(&catalog));
         let changed_generation =
             UiTextureCatalog::with_source_identity(catalog.pages().to_vec(), 1, [7; 32]).unwrap();
-        assert!(gpu.prepare(&changed_generation, &device, &queue).is_err());
+        assert!(
+            gpu.prepare(&changed_generation, &device, &queue, None)
+                .is_err()
+        );
         assert_eq!(gpu.buckets.len(), 2);
         gpu.buckets.pop();
         assert!(!gpu.resident(&catalog));
         for _ in 0..10 {
-            assert!(gpu.prepare(&catalog, &device, &queue).is_err());
+            assert!(gpu.prepare(&catalog, &device, &queue, None).is_err());
             assert_eq!(gpu.buckets.len(), 1);
         }
+    }
+
+    #[test]
+    fn ui_model_resize_rebuilds_uploads_and_never_retains_old_bucket_bindings() {
+        use super::super::{
+            UiGpu, UiRenderInput, UiRenderScene, UiRenderSceneResource, UiRenderStatsResource,
+        };
+        use bevy::ecs::system::RunSystemOnce;
+        use render_model::{
+            UI_DYNAMIC_PAGE_SIDE, UI_MODEL_ATLAS_PAGE_OFFSET, UI_MODEL_ATLAS_SIDE,
+            UI_PLAYER_SKIN_PAGE_OFFSET,
+        };
+
+        let small = UiTexturePage::owned(
+            [UI_DYNAMIC_PAGE_SIDE; 2],
+            vec![0; (UI_DYNAMIC_PAGE_SIDE * UI_DYNAMIC_PAGE_SIDE * 4) as usize].into(),
+        )
+        .unwrap();
+        let mut pages = vec![UiTexturePage::owned([1; 2], vec![255; 4].into()).unwrap()];
+        pages.extend(vec![small; UI_MODEL_ATLAS_PAGE_OFFSET + 1]);
+        let base = UiTextureCatalog::new(pages, 1).unwrap();
+        let mut replacements = base.pages()[base.dynamic_start()..].to_vec();
+        let skin_side = render_api::CLASSIC_SKIN_SIDE as u32;
+        replacements[UI_PLAYER_SKIN_PAGE_OFFSET] = UiTexturePage::owned(
+            [skin_side; 2],
+            vec![7; (skin_side * skin_side * 4) as usize].into(),
+        )
+        .unwrap();
+        replacements[UI_MODEL_ATLAS_PAGE_OFFSET] = UiTexturePage::owned(
+            [UI_MODEL_ATLAS_SIDE; 2],
+            vec![11; (UI_MODEL_ATLAS_SIDE * UI_MODEL_ATLAS_SIDE * 4) as usize].into(),
+        )
+        .unwrap();
+        let resized = base.replace_dynamic(replacements).unwrap();
+        assert_eq!(base.static_identity(), resized.static_identity());
+        let mut world = super::super::ordered_command_tests::binding_world();
+        let input = |revision, catalog| UiRenderInput {
+            revision,
+            viewport_size: [64; 2],
+            safe_area: [0; 4],
+            vertices: std::sync::Arc::from([]),
+            indices: std::sync::Arc::from([]),
+            batches: std::sync::Arc::from([]),
+            textures: std::sync::Arc::new(catalog),
+        };
+        let mut scene = UiRenderScene::default();
+        scene
+            .publish(
+                input(1, base.clone()),
+                world.resource::<UiRenderStatsResource>(),
+            )
+            .unwrap();
+        world.insert_resource(UiRenderSceneResource(scene.clone()));
+        world
+            .run_system_once(super::super::resources::prepare_ui_resources)
+            .unwrap();
+        world
+            .run_system_once(super::super::prepare_ui_bind_group)
+            .unwrap();
+        let initial_textures = world
+            .resource::<UiGpu>()
+            .textures
+            .buckets
+            .iter()
+            .map(|bucket| bucket.texture.id())
+            .collect::<Vec<_>>();
+        assert!(
+            world
+                .resource::<UiGpu>()
+                .textures
+                .buckets
+                .iter()
+                .all(|b| b.bind_group.is_some())
+        );
+
+        scene
+            .publish(
+                input(2, resized.clone()),
+                world.resource::<UiRenderStatsResource>(),
+            )
+            .unwrap();
+        world.insert_resource(UiRenderSceneResource(scene.clone()));
+        world
+            .run_system_once(super::super::resources::prepare_ui_resources)
+            .unwrap();
+        let gpu = world.resource::<UiGpu>();
+        assert_eq!(gpu.accepted_revision, Some(2));
+        assert!(gpu.textures.resident(&resized));
+        assert!(
+            gpu.textures
+                .buckets
+                .iter()
+                .all(|bucket| bucket.bind_group.is_none())
+        );
+        assert!(
+            gpu.textures
+                .buckets
+                .iter()
+                .all(|bucket| !initial_textures.contains(&bucket.texture.id()))
+        );
+        assert_eq!(gpu.textures.bytes, resized.plan().bytes());
+        assert_eq!(gpu.textures.locations, resized.plan().locations());
+        world
+            .run_system_once(super::super::prepare_ui_bind_group)
+            .unwrap();
+        assert!(
+            world
+                .resource::<UiGpu>()
+                .textures
+                .buckets
+                .iter()
+                .all(|b| b.bind_group.is_some())
+        );
+
+        scene
+            .publish(
+                input(3, base.clone()),
+                world.resource::<UiRenderStatsResource>(),
+            )
+            .unwrap();
+        world.insert_resource(UiRenderSceneResource(scene));
+        world
+            .run_system_once(super::super::resources::prepare_ui_resources)
+            .unwrap();
+        let gpu = world.resource::<UiGpu>();
+        assert_eq!(gpu.accepted_revision, Some(3));
+        assert!(gpu.textures.resident(&base));
+        assert!(
+            gpu.textures
+                .buckets
+                .iter()
+                .all(|bucket| bucket.bind_group.is_none())
+        );
+    }
+
+    #[test]
+    fn ui_model_plan_change_requires_all_writes_and_commits_only_after_complete_issuance() {
+        use render_model::{UI_DYNAMIC_PAGE_SIDE, UI_PLAYER_SKIN_PAGE_OFFSET};
+        let mut pages = vec![catalog(0).pages()[0].clone()];
+        pages.extend(vec![
+            catalog(0).pages()[1].clone();
+            UI_PLAYER_SKIN_PAGE_OFFSET + 1
+        ]);
+        let base = UiTextureCatalog::new(pages, 1).unwrap();
+        let mut replacements = base.pages()[1..].to_vec();
+        let side = render_api::CLASSIC_SKIN_SIDE as u32;
+        replacements[UI_PLAYER_SKIN_PAGE_OFFSET] =
+            UiTexturePage::owned([side; 2], vec![0; (side * side * 4) as usize].into()).unwrap();
+        let resized = base.replace_dynamic(replacements).unwrap();
+        let mut state = TextureUploadState::default();
+        state
+            .execute(&base, &state.dirty(&base).unwrap(), |_, _, _| {
+                Ok::<_, ()>(())
+            })
+            .unwrap();
+        let all = state.dirty(&resized).unwrap();
+        assert_eq!(all, (0..resized.pages().len()).collect::<Vec<_>>());
+        assert!(
+            state
+                .execute(&resized, &all, |index, _, _| if index == 1 {
+                    Err(())
+                } else {
+                    Ok(())
+                })
+                .is_err()
+        );
+        assert_eq!(state.plan.as_ref(), Some(base.plan()));
+        assert_eq!(state.dirty(&resized).unwrap(), all);
+        let mut issued = Vec::new();
+        state
+            .execute(&resized, &all, |index, page, location| {
+                issued.push((index, page.dimensions(), location));
+                Ok::<_, ()>(())
+            })
+            .unwrap();
+        assert_eq!(issued[1].1, [UI_DYNAMIC_PAGE_SIDE; 2]);
+        assert_eq!(issued[2].1, [side; 2]);
+        assert!(state.dirty(&resized).unwrap().is_empty());
+        assert_eq!(state.plan.as_ref(), Some(resized.plan()));
     }
 }

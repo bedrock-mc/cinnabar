@@ -1,8 +1,172 @@
 {
   "schema": 1,
   "profile": "neutral_unlit_binary_alpha_two_sided",
-  "material_names": ["entity_alphatest", "tadpole"],
+  "material_names": [
+    "entity_alphatest",
+    "tadpole"
+  ],
   "public_material_version": "1.26.33.01",
   "public_material_sha256": "6b481fb5ba8ffff97c6222c37e379e34a03e04ebad42566c5d85e207af010272",
-  "limitations": "Neutral engine support only. Target-version lighting, tint, overlay and fractional-alpha material parity remain unverified."
+  "limitations": "Neutral engine support only. Target-version lighting, tint, overlay and arbitrary fractional-alpha material parity remain unverified. Content-pinned sheep and llama sources use separately witnessed native color-mask and three-sampler materials. The native sheep dye palette callback, arbitrary custom-material composition and independent server-pack sampler overrides remain incomplete. Installed material/shader evidence is near-version, not an exact target-binary witness.",
+  "native_reference": {
+    "runtime_version": "1.26.51",
+    "material_sha256": "f5c38e892b88d991212b637d686d1a37eb4ffdde0d0494b02f6918e14928e966",
+    "fragment_sha256": "056f225da55a2a168cf170b0ec24f7019d8d65e455fd06ca14036e7a682e11ef"
+  },
+  "color_mask_reference": {
+    "material": "sheep:entity_change_color",
+    "contract": "USE_COLOR_MASK interpolates the RGB dye multiplier by raster alpha. No alpha test or blending; alpha is a color mask, not opacity. Near-version installed vanilla runtime witness."
+  },
+  "color_mask_sources": [
+    {
+      "path": "textures/entity/sheep/sheep.tga",
+      "source_sha256": "15307393a12a984adfcad8cbd9a5666d1d1e775d36ec4cbac3193208b70ea86d"
+    },
+    {
+      "path": "textures/entity/sheep/sheep_baby.tga",
+      "source_sha256": "f0c8abac2d79f9145d3f94cbaf256564bc5447b766ef76e6db81078f202c1bcf"
+    }
+  ],
+  "multitexture_reference": {
+    "material": "llama:entity_multitexture",
+    "contract": "USE_MULTITEXTURE samples three textures on the same normalized UV. RGB first interpolates base toward texture1 by texture1 alpha, then toward texture2 by texture2 alpha; base alpha is retained. Llama has no ALPHA_TEST, COLOR_SECOND_TEXTURE or blending. Near-version installed runtime witness; pinned controller/texture sources identify the current vanilla route."
+  },
+  "multitexture_sources": [
+    {
+      "path": "textures/entity/llama/decor/decor_black.png",
+      "source_sha256": "b8f24d91a4c1008280e065ad90f6e4efa72ff4c5895a2aa6943cd88195337137"
+    },
+    {
+      "path": "textures/entity/llama/decor/decor_blue.png",
+      "source_sha256": "f736338bca231eadc17377608225de3264aa2e443b5596bbb108042bdc4b358e"
+    },
+    {
+      "path": "textures/entity/llama/decor/decor_brown.png",
+      "source_sha256": "0fda12fc67ef661c8ca4ec8bc37980726bdc31ebe410c36c2b538086871b98a5"
+    },
+    {
+      "path": "textures/entity/llama/decor/decor_cyan.png",
+      "source_sha256": "ab563ea8f05619dbdf5e2986ccde660b6aaaf2a8ec61f9e1f1ec67f77b9d11e0"
+    },
+    {
+      "path": "textures/entity/llama/decor/decor_gray.png",
+      "source_sha256": "a004df4756f4936b09cb38b850e8b676ba78052118e02eaa1a1826c1adf8bfd4"
+    },
+    {
+      "path": "textures/entity/llama/decor/decor_green.png",
+      "source_sha256": "d6cdc14d6eb8ca61442d936fc9ad5f68e692a0734751b033344d6f494a347a7c"
+    },
+    {
+      "path": "textures/entity/llama/decor/decor_light_blue.png",
+      "source_sha256": "653e27e287b0fff361f9cef54c51053966ec2569e27bdf177ccb32544a9f534b"
+    },
+    {
+      "path": "textures/entity/llama/decor/decor_lime.png",
+      "source_sha256": "ca27849ad7a08fd0164fcb2fe5e8e4ed2c65830713552b79de65512d00216719"
+    },
+    {
+      "path": "textures/entity/llama/decor/decor_magenta.png",
+      "source_sha256": "acd214fa113e82401ab26a151f88b34c83d2c615af67dba83d8688f40c802f8a"
+    },
+    {
+      "path": "textures/entity/llama/decor/decor_none.png",
+      "source_sha256": "60c24910ae826a29132ba84cf4f3b2c1adaffe923710261c18f5e4ffeb59a128"
+    },
+    {
+      "path": "textures/entity/llama/decor/decor_orange.png",
+      "source_sha256": "5d18e6dfadebe9ce71344161b647b7e61724f1f84145e4b46729bcdd37c727d1"
+    },
+    {
+      "path": "textures/entity/llama/decor/decor_pink.png",
+      "source_sha256": "331749831bf70f78193f6d256772dc04eabd1ade913b5d61ec3cfae6bd676311"
+    },
+    {
+      "path": "textures/entity/llama/decor/decor_purple.png",
+      "source_sha256": "d19dc55940f84c6d2ac3dfa4ff00748a52119c18db8359ad9ed6a42ce656f7b4"
+    },
+    {
+      "path": "textures/entity/llama/decor/decor_red.png",
+      "source_sha256": "1bc8633ff19d66b555d8e8429bfead2f3e398b45ff3f7b5927c67e3250502274"
+    },
+    {
+      "path": "textures/entity/llama/decor/decor_silver.png",
+      "source_sha256": "891d090949c7a90f76548ba8c52429b387f787edfce9f6780ff593860c900402"
+    },
+    {
+      "path": "textures/entity/llama/decor/decor_white.png",
+      "source_sha256": "dde347fa3a7063a34df975cc53f3762f287a2c0804e2535bd72009631318b28c"
+    },
+    {
+      "path": "textures/entity/llama/decor/decor_yellow.png",
+      "source_sha256": "375373501fa13811d54fbdb66d3ff001586e859c08baedb172afb53726b9d74d"
+    },
+    {
+      "path": "textures/entity/llama/decor/trader_llama_decor.png",
+      "source_sha256": "7da0b93d4ba3d6c2d845801dda01140dbf14cd7ce080625cdaf7b0a9fe7ca5ff"
+    },
+    {
+      "path": "textures/entity/llama/llama.png",
+      "source_sha256": "fe6ed6ce7b279f4f8c4878e3662e53723de27dcc2e65177e7a47a51dd886d4bd"
+    },
+    {
+      "path": "textures/entity/llama/llama_brown.png",
+      "source_sha256": "1e31fda6b89265347ee83c7aee8916424a57de2c2e68deb5bce708eab25ffb00"
+    },
+    {
+      "path": "textures/entity/llama/llama_brown_baby.png",
+      "source_sha256": "a3ac6bee01c8e63a5593bd6e638c84d134ed30fdbd834a0c3141b38a8b65b007"
+    },
+    {
+      "path": "textures/entity/llama/llama_creamy.png",
+      "source_sha256": "2dedcdd22bf8cb5a9a3929f5486d35015d65223d5c2cae877a047c9f001e810a"
+    },
+    {
+      "path": "textures/entity/llama/llama_creamy_baby.png",
+      "source_sha256": "017e67696b183adf10f522dde4be0a7e7f84ef39615b0db707e0c8ac17f65437"
+    },
+    {
+      "path": "textures/entity/llama/llama_gray.png",
+      "source_sha256": "96ef32b196dda8b6c4abac199a26155262fff68359bfb6d9eb545f8386bb89b4"
+    },
+    {
+      "path": "textures/entity/llama/llama_gray_baby.png",
+      "source_sha256": "bd7dfa516b09a5d3d311cc6ed701788a856078ad93821e5dfda9c8180d81d802"
+    },
+    {
+      "path": "textures/entity/llama/llama_white.png",
+      "source_sha256": "4093bba96c50eb66f449cea795c82d17a59d0fceb1061a2c732f104ba68cde17"
+    },
+    {
+      "path": "textures/entity/llama/llama_white_baby.png",
+      "source_sha256": "8eaa3de43ad7ff8ecf18eee5100c0b33d74eb3934e06af78cc1b4596ee9d0f41"
+    },
+    {
+      "path": "textures/entity/llama/trader_llama_baby.png",
+      "source_sha256": "0696e59dc649c7d08b2dcdb0e37c6f19e381144985c1582fbdb9bd720a05d7f2"
+    }
+  ],
+  "multitexture_entities": [
+    {
+      "path": "entity/llama.entity.json",
+      "source_sha256": "1a426bb342a58e7ac6c2c61d683837c45ae580d51550632749fa472077d165a8"
+    },
+    {
+      "path": "entity/llama.v1.0.entity.json",
+      "source_sha256": "db079a7fe4defe4c8af06887b06bcd504a07346c6519cc6160cddf56a9b2aa10"
+    },
+    {
+      "path": "entity/trader_llama.entity.json",
+      "source_sha256": "38b2753f906c0c0f4491e31eb24d5bf483faa989c6ad0b0c5448680ae0050358"
+    }
+  ],
+  "multitexture_controllers": [
+    {
+      "path": "render_controllers/llama.v2.render_controllers.json",
+      "source_sha256": "0f4ca44dfcffe15cdceb83d56763dff220a54323242ce10d903d763deda6e46e"
+    },
+    {
+      "path": "render_controllers/llama.render_controllers.json",
+      "source_sha256": "93c59934127fd40a1dac9dd8037cc33786b0d75bb4bdbf6a23a8da5246ffde22"
+    }
+  ]
 }

@@ -1,13 +1,18 @@
-use crate::{Aabb, CollisionWorld, Vec3, WorldCollisionIdentity, WorldQueryError};
+use crate::{
+    Aabb, CollisionWorld, ProvenancedCollider, Vec3, WorldCollisionIdentity, WorldQueryError,
+};
 
 use super::{AxisCollisions, COLLISION_EPSILON, STEP_HEIGHT};
 
 #[derive(Debug, Clone)]
 pub(super) struct ResolvedMotion {
+    pub aabb: Aabb,
     pub resolved: Vec3,
+    pub position: Vec3,
     pub collisions: AxisCollisions,
     pub identity: WorldCollisionIdentity,
     pub stepped: bool,
+    pub support: Option<[i32; 3]>,
 }
 
 pub(super) fn resolve_motion(
@@ -25,8 +30,8 @@ pub(super) fn resolve_motion(
     let normal_y_collision = normal.y != velocity.y;
     let on_ground = was_on_ground || (normal_y_collision && velocity.y < 0.0);
 
-    let (resolved_box, stepped) = if on_ground && normal_horizontal_collision {
-        // Like `AutoStepSystem::getMaxCollisionVolume`, cover the raised path too.
+    let (resolved_box, resolved, stepped, support) = if on_ground && normal_horizontal_collision {
+        // As vanilla's step-up collision volume does, cover the raised path too.
         let envelope = bounded_collision_boxes(
             world,
             start.swept(Vec3::new(velocity.x, STEP_HEIGHT, velocity.z)),
@@ -37,38 +42,55 @@ pub(super) fn resolve_motion(
         identity = identity.merge(&step_query.identity)?;
         let step_blocked = !step_query.value.is_empty();
         if !step_blocked && step.horizontal_length_squared() > normal.horizontal_length_squared() {
-            (step_box, true)
+            (
+                step_box,
+                step,
+                true,
+                supporting_block(step_box, &envelope.value),
+            )
         } else {
-            (normal_box, false)
+            (
+                normal_box,
+                normal,
+                false,
+                supporting_block(normal_box, &colliders.value),
+            )
         }
     } else {
-        (normal_box, false)
+        (
+            normal_box,
+            normal,
+            false,
+            supporting_block(normal_box, &colliders.value),
+        )
     };
 
     let end_position = Vec3::new(
-        (resolved_box.min.x + resolved_box.max.x) * 0.5,
+        f64::from((resolved_box.min.x as f32 + resolved_box.max.x as f32) * 0.5),
         resolved_box.min.y,
-        (resolved_box.min.z + resolved_box.max.z) * 0.5,
+        f64::from((resolved_box.min.z as f32 + resolved_box.max.z as f32) * 0.5),
     );
-    let resolved = end_position - position;
     Ok(ResolvedMotion {
+        aabb: resolved_box,
         resolved,
+        position: end_position,
         collisions: AxisCollisions {
-            x: (velocity.x - resolved.x).abs() >= COLLISION_EPSILON,
-            y: (velocity.y - resolved.y).abs() >= COLLISION_EPSILON,
-            z: (velocity.z - resolved.z).abs() >= COLLISION_EPSILON,
+            x: (velocity.x as f32 - resolved.x as f32).abs() > COLLISION_EPSILON as f32,
+            y: (velocity.y as f32 - resolved.y as f32).abs() > COLLISION_EPSILON as f32,
+            z: (velocity.z as f32 - resolved.z as f32).abs() > COLLISION_EPSILON as f32,
         },
         identity,
         stepped,
+        support,
     })
 }
 
 fn bounded_collision_boxes(
     world: &impl CollisionWorld,
     query: Aabb,
-) -> Result<crate::CollisionQuery<Vec<Aabb>>, WorldQueryError> {
+) -> Result<crate::CollisionQuery<Vec<ProvenancedCollider>>, WorldQueryError> {
     crate::world::validate_collision_query(query)?;
-    world.collision_boxes(query)
+    world.collision_boxes_with_provenance(query)
 }
 
 /// Queries whether a bounded volume is occupied while preserving the exact
@@ -82,28 +104,30 @@ pub(super) fn has_collision(
         value: colliders
             .value
             .into_iter()
-            .any(|shape| shape.intersects(query)),
+            .any(|shape| shape.aabb.intersects(query)),
         identity: colliders.identity,
     })
 }
 
+/// Shortens the horizontal move request until the current pose's box keeps support within a step below.
 pub(super) fn clip_sneak_edge(
     world: &impl CollisionWorld,
     position: Vec3,
     velocity: Vec3,
+    height: f64,
 ) -> Result<(Vec3, Option<WorldCollisionIdentity>), WorldQueryError> {
-    const OFFSET: f64 = 0.05;
-    let full_player = Aabb::player_at(position);
+    const OFFSET: f64 = 0.05_f32 as f64;
+    let full_player = Aabb::player_with_height_at(position, height);
     let player = Aabb::new(
         Vec3::new(
-            full_player.min.x + 0.025,
+            f64::from(full_player.min.x as f32 + 0.025_f32),
             full_player.min.y,
-            full_player.min.z + 0.025,
+            f64::from(full_player.min.z as f32 + 0.025_f32),
         ),
         Vec3::new(
-            full_player.max.x - 0.025,
+            f64::from(full_player.max.x as f32 - 0.025_f32),
             full_player.max.y,
-            full_player.max.z - 0.025,
+            f64::from(full_player.max.z as f32 - 0.025_f32),
         ),
     );
     crate::world::validate_collision_query(player.swept(velocity))?;
@@ -124,7 +148,7 @@ pub(super) fn clip_sneak_edge(
             clipped[axis] = reduce_toward_zero(clipped[axis], OFFSET);
         }
     }
-    while clipped.x != 0.0 && clipped.z != 0.0 {
+    while clipped.x != 0.0 || clipped.z != 0.0 {
         let query = bounded_collision_boxes(
             world,
             player.translated(Vec3::new(clipped.x, -STEP_HEIGHT * 1.01, clipped.z)),
@@ -146,18 +170,22 @@ fn reduce_toward_zero(value: f64, offset: f64) -> f64 {
     if value.abs() <= offset {
         0.0
     } else {
-        value - value.signum() * offset
+        f64::from(value as f32 - value.signum() as f32 * offset as f32)
     }
 }
 
-fn resolve_axes_reverse(start: Aabb, velocity: Vec3, colliders: &[Aabb]) -> (Aabb, Vec3) {
+fn resolve_axes_reverse(
+    start: Aabb,
+    velocity: Vec3,
+    colliders: &[ProvenancedCollider],
+) -> (Aabb, Vec3) {
     let mut current = start;
     let mut resolved = Vec3::ZERO;
     for axis in [1, 0, 2] {
         let mut axis_velocity = Vec3::ZERO;
         axis_velocity[axis] = velocity[axis];
         for collider in colliders.iter().rev().copied() {
-            axis_velocity = current.clip_against(collider, axis_velocity);
+            axis_velocity = current.clip_against(collider.aabb, axis_velocity);
         }
         // Per-axis resolution moves only along `axis`. From a fully embedded
         // start `clip_against` returns a minimal-translation ejection on the
@@ -189,11 +217,11 @@ fn clamp_toward_zero(value: f64, limit: f64) -> f64 {
     }
 }
 
-fn resolve_step(start: Aabb, velocity: Vec3, colliders: &[Aabb]) -> (Aabb, Vec3) {
+fn resolve_step(start: Aabb, velocity: Vec3, colliders: &[ProvenancedCollider]) -> (Aabb, Vec3) {
     let mut current = start;
     let mut up = Vec3::new(0.0, STEP_HEIGHT, 0.0);
     for collider in colliders.iter().copied() {
-        up = current.clip_against(collider, up);
+        up = current.clip_against(collider.aabb, up);
     }
     current = current.translated(up);
 
@@ -202,7 +230,7 @@ fn resolve_step(start: Aabb, velocity: Vec3, colliders: &[Aabb]) -> (Aabb, Vec3)
         let mut axis_velocity = Vec3::ZERO;
         axis_velocity[axis] = velocity[axis];
         for collider in colliders.iter().copied() {
-            axis_velocity = current.clip_against(collider, axis_velocity);
+            axis_velocity = current.clip_against(collider.aabb, axis_velocity);
         }
         current = current.translated(axis_velocity);
         horizontal += axis_velocity;
@@ -210,8 +238,36 @@ fn resolve_step(start: Aabb, velocity: Vec3, colliders: &[Aabb]) -> (Aabb, Vec3)
 
     let mut down = up * -1.0;
     for collider in colliders.iter().copied() {
-        down = current.clip_against(collider, down);
+        down = current.clip_against(collider.aabb, down);
     }
     current = current.translated(down);
     (current, horizontal + up + down)
+}
+
+/// Selects the highest collider center below the feet plane, then the closest.
+/// Exact ties retain the first shape; missing provenance stays unknown.
+fn supporting_block(player: Aabb, colliders: &[ProvenancedCollider]) -> Option<[i32; 3]> {
+    let center = |min: f64, max: f64| (max as f32 - min as f32) * 0.5_f32 + min as f32;
+    let feet = [
+        center(player.min.x, player.max.x),
+        player.min.y as f32 - 0.2_f32,
+        center(player.min.z, player.max.z),
+    ];
+    let mut nearest: Option<(&ProvenancedCollider, f32, f32)> = None;
+    for collider in colliders {
+        let bounds = collider.aabb;
+        let dx = center(bounds.min.x, bounds.max.x) - feet[0];
+        let dy = center(bounds.min.y, bounds.max.y) - feet[1];
+        let dz = center(bounds.min.z, bounds.max.z) - feet[2];
+        let gap = -dy;
+        let distance = dz * dz + dy * dy + dx * dx;
+        if gap >= 0.0
+            && nearest.is_none_or(|(_, best_gap, best_distance)| {
+                gap < best_gap || (gap == best_gap && distance < best_distance)
+            })
+        {
+            nearest = Some((collider, gap, distance));
+        }
+    }
+    nearest.and_then(|(collider, _, _)| collider.block)
 }

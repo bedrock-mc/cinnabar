@@ -76,7 +76,7 @@ func TestRekeyFallbackRealRegistriesAreFullFidelity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, err := os.ReadFile(filepath.Join(root, "crates", "asset-compiler", "data", "vanilla-fallback-v1001.bin"))
+	input, err := os.ReadFile(filepath.Join(root, "crates", "pack-compiler", "data", "vanilla-fallback-v1001.bin"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -233,7 +233,7 @@ func TestCheckedInV2193FallbackInventoryIsRekeyedAndHashBound(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, err := os.ReadFile(filepath.Join(root, "crates", "asset-compiler", "data", "vanilla-fallback-v1001.bin"))
+	input, err := os.ReadFile(filepath.Join(root, "crates", "pack-compiler", "data", "vanilla-fallback-v1001.bin"))
 	if err != nil {
 		t.Fatal(err)
 	}

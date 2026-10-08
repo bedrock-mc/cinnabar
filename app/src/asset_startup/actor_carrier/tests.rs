@@ -1,4 +1,5 @@
 use super::*;
+use crate::asset_startup::test_carriers::synthetic_entity_blob;
 
 struct Directory(PathBuf);
 impl Directory {
@@ -24,36 +25,38 @@ impl Drop for Directory {
     }
 }
 
+fn decoded_entities(seed: u8) -> assets::RuntimeEntityAssets {
+    assets::RuntimeEntityAssets::decode(&synthetic_entity_blob(seed)).unwrap()
+}
+
 #[test]
 fn required_actor_carrier_absence_and_size_failure_name_rebuild_command() {
     let directory = Directory::new();
     let world = directory.0.join("world.mcbea");
-    let entity = directory.0.join("entity.mcbeent");
-    let error = read_coherent_actor_assets(&world, &entity, [1; 32]).unwrap_err();
+    let entities = decoded_entities(0);
+    let error = read_coherent_actor_assets(&world, &entities).unwrap_err();
     assert!(error.to_string().contains(ACTOR_ASSETS_FILENAME));
     assert!(error.to_string().contains("make actor-assets"));
     let file = std::fs::File::create(actor_asset_path(&world)).unwrap();
     file.set_len(assets::MAX_ACTOR_CARRIER_BYTES as u64 + 1)
         .unwrap();
-    let error = read_coherent_actor_assets(&world, &entity, [1; 32]).unwrap_err();
+    let error = read_coherent_actor_assets(&world, &entities).unwrap_err();
     assert!(error.to_string().contains("exceeds startup byte bound"));
     assert!(error.to_string().contains("make actor-assets"));
 }
 
 #[test]
-fn startup_rejects_parent_replacement_between_entity_and_actor_load() {
+fn actor_carrier_compiled_against_another_entity_carrier_fails_closed() {
     let directory = Directory::new();
     let world = directory.0.join("world.mcbea");
-    let entity = directory.0.join("entity.mcbeent");
-    std::fs::write(actor_asset_path(&world), b"invalid carrier").unwrap();
-    std::fs::write(&entity, b"replaced parent").unwrap();
-    let error =
-        read_coherent_actor_assets(&world, &entity, Sha256::digest(b"original parent").into())
-            .unwrap_err();
+    let actor = assets::encode_actor_catalog(&synthetic_entity_blob(0), &[], &[]).unwrap();
+    std::fs::write(actor_asset_path(&world), actor).unwrap();
+    assert!(read_coherent_actor_assets(&world, &decoded_entities(0)).is_ok());
+    let error = read_coherent_actor_assets(&world, &decoded_entities(1)).unwrap_err();
     assert!(
         error
             .to_string()
-            .contains("entity carrier changed during startup")
+            .contains("actor carrier identity mismatch")
     );
     assert!(error.to_string().contains("make actor-assets"));
 }

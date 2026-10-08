@@ -11,6 +11,7 @@ on:
       - crates/assets/**
       - crates/input/**
       - crates/asset-compiler/**
+      - crates/pack-compiler/**
       - assets/ui-font-source.json
       - scripts/fetch-ui-font.sh
       - Cargo.toml

@@ -1,13 +1,65 @@
-#[path = "../src/ui.rs"]
-pub mod ui;
-#[path = "../src/ui_textures.rs"]
-pub mod ui_textures;
-pub use ui_textures::{
-    UiTextureBucket, UiTextureCatalog, UiTextureLocation, UiTexturePage, UiTexturePlan,
-};
+#[path = "../src/alloc_count.rs"]
+mod alloc_count;
+
+#[path = "it/support/gpu_snapshot.rs"]
+mod gpu_snapshot;
+
+#[path = "../src/material_shader.rs"]
+#[allow(dead_code, reason = "shared checked shader constructor dependencies")]
+mod material_shader;
+#[path = "../src/pipeline_warmup.rs"]
+#[allow(dead_code, reason = "shared pipeline warmup")]
+mod pipeline_warmup;
+#[path = "../src/scene_target.rs"]
+#[allow(
+    dead_code,
+    reason = "shared world attachment contract for projected UI"
+)]
+mod scene_target;
+#[path = "../src/shader_safety.rs"]
+#[allow(dead_code, reason = "shared checked shader constructors")]
+mod shader_safety;
 #[path = "../src/ui_render.rs"]
 pub mod ui_render;
+#[path = "../src/upload_staging.rs"]
+mod upload_staging;
 
+// This standalone UI fixture installs no camera-effect scene. Production's
+// post-hand camera pass is exercised by the render library and live client.
+mod screen_overlay_render {
+    pub(crate) fn draw_before_hud(
+        _: bevy::prelude::Entity,
+        _: &bevy::render::view::ViewTarget,
+        _: &bevy::render::camera::ExtractedCamera,
+        _: Option<&bevy::camera::MainPassResolutionOverride>,
+        _: &mut bevy::render::renderer::RenderContext,
+        _: &bevy::prelude::World,
+    ) {
+    }
+}
+
+mod gpu_timing {
+    /// Diagnostics stay disabled in the standalone UI fixture.
+    pub(crate) fn ui_profiling_requested() -> bool {
+        false
+    }
+    /// The standalone UI fixture has no diagnostic query ring.
+    pub(crate) fn ui_pass_timestamps(
+        _: &bevy::prelude::World,
+        _: render::RuntimeStage,
+    ) -> Option<wgpu::RenderPassTimestampWrites<'_>> {
+        None
+    }
+    /// The isolated UI fixture installs no GPU timing query ring.
+    pub(crate) fn render_pass_timestamps(
+        _: &bevy::prelude::World,
+        _: render::RuntimeStage,
+    ) -> Option<wgpu::RenderPassTimestampWrites<'_>> {
+        None
+    }
+}
+
+use render::{EnhancedRendering, RuntimeStage};
 use std::sync::Arc;
 
 use bevy::{
@@ -23,14 +75,14 @@ use bevy::{
         renderer::{RenderDevice, RenderQueue, WgpuWrapper},
     },
 };
-use ui::{
+use render_model::{
     MAX_UI_INDICES, UiRenderBatch, UiRenderInput, UiRenderRejectReason, UiRenderScene,
-    UiRenderStats, UiRenderTextureArray, UiRenderVertex, UiScissor,
+    UiRenderStats, UiRenderTextureArray, UiRenderVertex, UiScissor, UiTexturePage,
 };
-use ui_render::{
-    UiRenderHarness, UiRenderPlugin, prepare_ui_resources, ui_bind_group_layout,
-    ui_pipeline_descriptor,
-};
+use ui_render::harness::UiRenderHarness;
+use ui_render::pipeline::{ui_bind_group_layout, ui_pipeline_descriptor};
+use ui_render::resources::prepare_ui_resources;
+use ui_render::{UiRenderPlugin, UiRenderSceneResource, UiRenderStatsResource};
 
 #[test]
 fn repeated_draw_lists_reuse_shared_gpu_resources_and_preserve_batch_order() {
@@ -51,8 +103,8 @@ fn repeated_draw_lists_reuse_shared_gpu_resources_and_preserve_batch_order() {
 
 #[test]
 fn shader_parses_and_declares_premultiplied_texture_sampling() {
-    let source = include_str!("../src/ui.wgsl");
-    let module = naga::front::wgsl::parse_str(source).unwrap();
+    let source = ui_render::shader::source(include_str!("../src/ui.wgsl"));
+    let module = naga::front::wgsl::parse_str(&source).unwrap();
     naga::valid::Validator::new(
         naga::valid::ValidationFlags::all(),
         naga::valid::Capabilities::all(),
@@ -60,14 +112,46 @@ fn shader_parses_and_declares_premultiplied_texture_sampling() {
     .validate(&module)
     .unwrap();
     assert!(source.contains("textureSample"));
-    assert!(source.contains("sample.rgb * sample.a"));
+    assert!(source.contains("model_rgb * sample.a * straight_color.a"));
     assert!(source.contains("viewport_size"));
+    assert!(source.contains(&format!(
+        "const STYLE_ALPHA_TEST: u32 = {}u;",
+        render_model::UI_STYLE_ALPHA_TEST
+    )));
+    assert!(source.contains("sample.a < 0.5"));
+    assert!(source.find("discard;").unwrap() < source.find("let alpha =").unwrap());
+    let (_, viewport) = module
+        .types
+        .iter()
+        .find(|(_, ty)| ty.name.as_deref() == Some("UiViewport"))
+        .unwrap();
+    let naga::TypeInner::Struct { members, span } = &viewport.inner else {
+        panic!("UI viewport must remain a uniform struct");
+    };
+    assert_eq!(*span, 16);
+    assert_eq!(members[2].name.as_deref(), Some("glint_strength"));
+    assert_eq!(members[2].offset, 12);
+}
+
+// The UI layer composites over the scene in sRGB-encoded values.
+#[test]
+fn composite_shader_blends_in_gamma_space() {
+    let source = include_str!("../src/ui_composite.wgsl");
+    let module = naga::front::wgsl::parse_str(source).unwrap();
+    naga::valid::Validator::new(
+        naga::valid::ValidationFlags::all(),
+        naga::valid::Capabilities::all(),
+    )
+    .validate(&module)
+    .unwrap();
+    assert!(source.contains("ui.rgb + linear_to_srgb(under.rgb) * (1.0 - ui.a)"));
 }
 
 #[test]
 fn pipeline_is_one_depth_neutral_premultiplied_overlay_family() {
     let layout = ui_bind_group_layout();
-    assert_eq!(layout.entries.len(), 3);
+    // Viewport, pages, the nearest and `bilinear` samplers, and the page format.
+    assert_eq!(layout.entries.len(), 5);
     let descriptor = ui_pipeline_descriptor(layout);
     assert!(
         descriptor.depth_stencil.is_none(),
@@ -82,6 +166,165 @@ fn pipeline_is_one_depth_neutral_premultiplied_overlay_family() {
     assert_eq!(blend.color.dst_factor, BlendFactor::OneMinusSrcAlpha);
     assert_eq!(blend.alpha.src_factor, BlendFactor::One);
     assert_eq!(blend.alpha.dst_factor, BlendFactor::OneMinusSrcAlpha);
+}
+
+#[test]
+fn homogeneous_world_vertices_validate_without_dividing_at_the_camera() {
+    let mut input = fixture_draw_list(1);
+    let mut vertices = input.vertices.to_vec();
+    vertices[0].clip_w = 0.0;
+    vertices[1].clip_w = -1.0;
+    vertices[2].clip_z = 0.25;
+    input.vertices = vertices.clone().into();
+    let mut batches = input.batches.to_vec();
+    batches[0] = batches[0].with_depth_test(true);
+    batches[1] = batches[1].with_world_projection(true);
+    input.batches = batches.into();
+    input.validate().unwrap();
+    vertices[0].clip_w = f32::NAN;
+    input.vertices = vertices.into();
+    assert_eq!(input.validate(), Err(UiRenderRejectReason::NonFiniteVertex));
+}
+
+#[test]
+fn ui_model_depth_scopes_are_ordered_private_and_cannot_reenter_after_overlay() {
+    let mut input = fixture_draw_list(1);
+    let mut batches = input.batches.to_vec();
+    batches[0] = batches[0]
+        .with_depth_test(true)
+        .with_depth_write(true)
+        .with_isolated_depth_scope(Some(7));
+    batches[1] = batches[1]
+        .with_depth_test(true)
+        .with_isolated_depth_scope(Some(7));
+    input.batches = batches.clone().into();
+    input.validate().unwrap();
+    assert_eq!(input.batches[0].world_projection, 0);
+    batches[0].world_projection = 1;
+    input.batches = batches.clone().into();
+    assert_eq!(
+        input.validate(),
+        Err(UiRenderRejectReason::UnsupportedWorldProjection { batch: 0 })
+    );
+    batches[0].world_projection = 0;
+    batches[1] = batches[1]
+        .with_depth_test(false)
+        .with_world_projection(false)
+        .with_isolated_depth_scope(None);
+    batches[2] = batches[2].with_isolated_depth_scope(Some(7));
+    input.batches = batches.into();
+    assert_eq!(
+        input.validate(),
+        Err(UiRenderRejectReason::InvalidIsolatedDepthScope { batch: 2 })
+    );
+}
+
+#[test]
+fn ui_model_material_cutoff_is_finite_and_independent_of_glyph_half_alpha() {
+    let mut input = fixture_draw_list(1);
+    let mut vertices = input.vertices.to_vec();
+    vertices[0].alpha_cutoff = 0.1;
+    input.vertices = vertices.clone().into();
+    input.validate().unwrap();
+    vertices[0].alpha_cutoff = f32::NAN;
+    input.vertices = vertices.into();
+    assert_eq!(input.validate(), Err(UiRenderRejectReason::NonFiniteVertex));
+    let source = ui_render::shader::source(include_str!("../src/ui.wgsl"));
+    assert!(source.contains("if input.alpha_cutoff >= 0.0"));
+    assert!(source.contains("sample.a < input.alpha_cutoff"));
+    assert!(source.contains("else if (input.style_flags & STYLE_ALPHA_TEST)"));
+}
+
+#[test]
+fn ui_model_light_preserves_float_vertex_values_and_rejects_invalid_multipliers() {
+    let mut input = fixture_draw_list(1);
+    let mut vertices = input.vertices.to_vec();
+    vertices[0].model_light = 0.718_629;
+    input.vertices = vertices.clone().into();
+    input.validate().unwrap();
+    assert_eq!(
+        input.vertices[0].model_light.to_bits(),
+        0.718_629_f32.to_bits()
+    );
+    for value in [f32::NAN, f32::INFINITY, -0.1] {
+        vertices[0].model_light = value;
+        input.vertices = vertices.clone().into();
+        assert_eq!(input.validate(), Err(UiRenderRejectReason::NonFiniteVertex));
+    }
+    let source = ui_render::shader::source(include_str!("../src/ui.wgsl"));
+    assert!(source.contains("@location(5) model_light: f32"));
+    assert!(source.contains("straight_color.a * input.model_light"));
+}
+
+#[test]
+fn ui_model_fire_overlay_is_float_and_rejects_non_finite_channels() {
+    let mut input = fixture_draw_list(1);
+    let mut vertices = input.vertices.to_vec();
+    vertices[0].overlay_color = [0.8, 0.248_176, 0.0, 0.7];
+    input.vertices = vertices.clone().into();
+    input.validate().unwrap();
+    assert_eq!(input.vertices[0].overlay_color, vertices[0].overlay_color);
+    for channel in 0..4 {
+        vertices[0].overlay_color[channel] = f32::NAN;
+        input.vertices = vertices.clone().into();
+        assert_eq!(input.validate(), Err(UiRenderRejectReason::NonFiniteVertex));
+        vertices[0].overlay_color[channel] = 0.0;
+    }
+}
+
+#[test]
+fn ui_model_uv_keeps_native_side_pixel_centers_without_rounding_or_half_texel_shift() {
+    let mut input = fixture_draw_list(1);
+    let mut vertices = input.vertices.to_vec();
+    vertices[0].uv = [8.5, 4.5];
+    input.vertices = vertices.clone().into();
+    input.validate().unwrap();
+    assert_eq!(input.vertices[0].uv, [8.5, 4.5]);
+    vertices[0].uv[1] = f32::NAN;
+    input.vertices = vertices.into();
+    assert_eq!(input.validate(), Err(UiRenderRejectReason::NonFiniteVertex));
+    let source = ui_render::shader::source(include_str!("../src/ui.wgsl"));
+    assert!(source.contains("@location(1) uv: vec2<f32>"));
+    assert!(source.contains("output.uv = uv;"));
+    assert!(source.contains("let normalized_uv = input.uv / dimensions;"));
+}
+
+#[test]
+fn world_depth_and_projection_batch_modes_are_validated_separately() {
+    let mut input = fixture_draw_list(1);
+    let mut batches = input.batches.to_vec();
+    batches[0].depth_test = 2;
+    input.batches = batches.clone().into();
+    assert_eq!(
+        input.validate(),
+        Err(UiRenderRejectReason::UnsupportedDepthTest { batch: 0 })
+    );
+    batches[0].depth_test = 1;
+    input.batches = batches.clone().into();
+    assert_eq!(
+        input.validate(),
+        Err(UiRenderRejectReason::UnsupportedWorldProjection { batch: 0 })
+    );
+    batches[0].world_projection = 1;
+    batches[1] = batches[1].with_depth_write(true);
+    input.batches = batches.clone().into();
+    input.validate().unwrap();
+    batches[1].depth_write = 2;
+    input.batches = batches.clone().into();
+    assert_eq!(
+        input.validate(),
+        Err(UiRenderRejectReason::UnsupportedDepthWrite { batch: 1 })
+    );
+    batches[1].depth_write = 1;
+    batches[1].world_projection = 0;
+    input.batches = batches.clone().into();
+    assert_eq!(
+        input.validate(),
+        Err(UiRenderRejectReason::UnsupportedWorldProjection { batch: 1 })
+    );
+    batches[1].world_projection = 1;
+    input.batches = batches.into();
+    input.validate().unwrap();
 }
 
 #[test]
@@ -205,12 +448,12 @@ fn render_preparation_updates_main_world_observable_stats() {
     let mut app = app_with_noop_render_sub_app();
     app.add_plugins(UiRenderPlugin);
     app.finish();
-    let stats = app.world().resource::<UiRenderStats>().clone();
+    let stats = app.world().resource::<UiRenderStatsResource>().clone();
     app.world_mut()
-        .resource_mut::<UiRenderScene>()
+        .resource_mut::<UiRenderSceneResource>()
         .publish(fixture_draw_list(21), &stats)
         .unwrap();
-    let scene = app.world().resource::<UiRenderScene>().clone();
+    let scene = app.world().resource::<UiRenderSceneResource>().clone();
 
     let render_app = app.sub_app_mut(RenderApp);
     render_app.world_mut().insert_resource(scene);
@@ -220,7 +463,7 @@ fn render_preparation_updates_main_world_observable_stats() {
         .run_system_once(prepare_ui_resources)
         .unwrap();
 
-    let observed = app.world().resource::<UiRenderStats>().snapshot();
+    let observed = app.world().resource::<UiRenderStatsResource>().snapshot();
     assert_eq!(observed.accepted_revision, Some(21));
     assert_eq!(observed.uploaded_vertices, 12);
     assert_eq!(observed.uploaded_indices, 18);
@@ -233,12 +476,14 @@ fn current_device_loss_or_invalid_scene_withholds_old_prepared_draws() {
     let mut app = app_with_noop_render_sub_app();
     app.add_plugins(UiRenderPlugin);
     app.finish();
-    let stats = app.world().resource::<UiRenderStats>().clone();
+    let stats = app.world().resource::<UiRenderStatsResource>().clone();
     let render_app = app.sub_app_mut(RenderApp);
     render_app.world_mut().run_schedule(RenderStartup);
     let mut scene = UiRenderScene::default();
     scene.publish(fixture_draw_list(1), &stats).unwrap();
-    render_app.world_mut().insert_resource(scene.clone());
+    render_app
+        .world_mut()
+        .insert_resource(UiRenderSceneResource(scene.clone()));
     render_app
         .world_mut()
         .run_system_once(prepare_ui_resources)
@@ -247,7 +492,9 @@ fn current_device_loss_or_invalid_scene_withholds_old_prepared_draws() {
     let mut invalid = fixture_draw_list(1);
     invalid.indices = vec![u32::MAX].into();
     scene.input = Some(Arc::new(invalid));
-    render_app.world_mut().insert_resource(scene);
+    render_app
+        .world_mut()
+        .insert_resource(UiRenderSceneResource(scene));
     render_app
         .world_mut()
         .run_system_once(prepare_ui_resources)
@@ -256,7 +503,9 @@ fn current_device_loss_or_invalid_scene_withholds_old_prepared_draws() {
     assert_eq!(stats.snapshot().draw_calls, 0);
     let mut scene = UiRenderScene::default();
     scene.publish(fixture_draw_list(3), &stats).unwrap();
-    render_app.world_mut().insert_resource(scene);
+    render_app
+        .world_mut()
+        .insert_resource(UiRenderSceneResource(scene));
     render_app
         .world_mut()
         .run_system_once(prepare_ui_resources)
@@ -299,12 +548,12 @@ fn cloned_device_resource_replacement_on_empty_frame_stays_invalid_until_startup
     let mut app = app_with_noop_render_sub_app();
     app.add_plugins(UiRenderPlugin);
     app.finish();
-    let stats = app.world().resource::<UiRenderStats>().clone();
+    let stats = app.world().resource::<UiRenderStatsResource>().clone();
     let render_app = app.sub_app_mut(RenderApp);
     render_app.world_mut().run_schedule(RenderStartup);
     render_app
         .world_mut()
-        .insert_resource(UiRenderScene::default());
+        .insert_resource(UiRenderSceneResource::default());
     let device = render_app.world().resource::<RenderDevice>().clone();
     render_app.world_mut().increment_change_tick();
     render_app.world_mut().insert_resource(device);
@@ -314,7 +563,9 @@ fn cloned_device_resource_replacement_on_empty_frame_stays_invalid_until_startup
         .unwrap();
     let mut scene = UiRenderScene::default();
     scene.publish(fixture_draw_list(1), &stats).unwrap();
-    render_app.world_mut().insert_resource(scene);
+    render_app
+        .world_mut()
+        .insert_resource(UiRenderSceneResource(scene));
     for _ in 0..10 {
         render_app
             .world_mut()
@@ -333,16 +584,17 @@ fn cloned_device_resource_replacement_on_empty_frame_stays_invalid_until_startup
 
 #[test]
 fn same_revision_requires_exact_accepted_publication_not_equivalent_catalog() {
-    use bevy::render::extract_resource::ExtractResource;
     let mut app = app_with_noop_render_sub_app();
     app.add_plugins(UiRenderPlugin);
     app.finish();
-    let stats = app.world().resource::<UiRenderStats>().clone();
+    let stats = app.world().resource::<UiRenderStatsResource>().clone();
     let render_app = app.sub_app_mut(RenderApp);
     render_app.world_mut().run_schedule(RenderStartup);
     let mut scene = UiRenderScene::default();
     scene.publish(fixture_draw_list(1), &stats).unwrap();
-    render_app.world_mut().insert_resource(scene.clone());
+    render_app
+        .world_mut()
+        .insert_resource(UiRenderSceneResource(scene.clone()));
     render_app
         .world_mut()
         .run_system_once(prepare_ui_resources)
@@ -354,7 +606,7 @@ fn same_revision_requires_exact_accepted_publication_not_equivalent_catalog() {
         assert!(Arc::ptr_eq(scene.input.as_ref().unwrap(), &publication));
         render_app
             .world_mut()
-            .insert_resource(UiRenderScene::extract_resource(&scene));
+            .insert_resource(UiRenderSceneResource(scene.clone()));
         render_app
             .world_mut()
             .run_system_once(prepare_ui_resources)
@@ -369,7 +621,9 @@ fn same_revision_requires_exact_accepted_publication_not_equivalent_catalog() {
     let mut malformed = original.as_ref().clone();
     malformed.indices = vec![u32::MAX].into();
     scene.input = Some(Arc::new(malformed));
-    render_app.world_mut().insert_resource(scene.clone());
+    render_app
+        .world_mut()
+        .insert_resource(UiRenderSceneResource(scene.clone()));
     render_app
         .world_mut()
         .run_system_once(prepare_ui_resources)
@@ -379,7 +633,9 @@ fn same_revision_requires_exact_accepted_publication_not_equivalent_catalog() {
     conflicting.viewport_size = [65, 64];
     conflicting.validate().unwrap();
     scene.input = Some(Arc::new(conflicting));
-    render_app.world_mut().insert_resource(scene.clone());
+    render_app
+        .world_mut()
+        .insert_resource(UiRenderSceneResource(scene.clone()));
     for _ in 0..10 {
         render_app
             .world_mut()
@@ -394,7 +650,9 @@ fn same_revision_requires_exact_accepted_publication_not_equivalent_catalog() {
     }
     let conflict = Arc::clone(scene.input.as_ref().unwrap());
     scene.input = Some(Arc::clone(&original));
-    render_app.world_mut().insert_resource(scene.clone());
+    render_app
+        .world_mut()
+        .insert_resource(UiRenderSceneResource(scene.clone()));
     render_app
         .world_mut()
         .run_system_once(prepare_ui_resources)
@@ -407,7 +665,9 @@ fn same_revision_requires_exact_accepted_publication_not_equivalent_catalog() {
     let expired = Arc::downgrade(&original);
     drop(original);
     scene.input = Some(conflict);
-    render_app.world_mut().insert_resource(scene.clone());
+    render_app
+        .world_mut()
+        .insert_resource(UiRenderSceneResource(scene.clone()));
     assert!(
         expired.upgrade().is_none(),
         "no pixel publication history is retained by renderer"
@@ -421,13 +681,17 @@ fn same_revision_requires_exact_accepted_publication_not_equivalent_catalog() {
         assert_eq!(stats.snapshot().draw_calls, 0);
     }
     scene.input = None;
-    render_app.world_mut().insert_resource(scene.clone());
+    render_app
+        .world_mut()
+        .insert_resource(UiRenderSceneResource(scene.clone()));
     render_app
         .world_mut()
         .run_system_once(prepare_ui_resources)
         .unwrap();
     scene.input = Some(Arc::new(fixture_draw_list(0)));
-    render_app.world_mut().insert_resource(scene.clone());
+    render_app
+        .world_mut()
+        .insert_resource(UiRenderSceneResource(scene.clone()));
     render_app
         .world_mut()
         .run_system_once(prepare_ui_resources)
@@ -443,7 +707,7 @@ fn same_revision_requires_exact_accepted_publication_not_equivalent_catalog() {
     scene.publish(fixture_draw_list(2), &stats).unwrap();
     render_app
         .world_mut()
-        .insert_resource(UiRenderScene::extract_resource(&scene));
+        .insert_resource(UiRenderSceneResource(scene.clone()));
     render_app
         .world_mut()
         .run_system_once(prepare_ui_resources)
@@ -459,7 +723,7 @@ fn same_revision_requires_exact_accepted_publication_not_equivalent_catalog() {
     fresh_scene.publish(fixture_draw_list(1), &stats).unwrap();
     render_app
         .world_mut()
-        .insert_resource(UiRenderScene::extract_resource(&fresh_scene));
+        .insert_resource(UiRenderSceneResource(fresh_scene.clone()));
     render_app
         .world_mut()
         .run_system_once(prepare_ui_resources)
@@ -475,9 +739,14 @@ fn fixture_draw_list(revision: u64) -> UiRenderInput {
     let vertices = (0..12)
         .map(|index| UiRenderVertex {
             position: [index as f32, index as f32 + 0.5],
-            uv: [index as u16, index as u16],
+            clip_z: 0.0,
+            clip_w: 1.0,
+            uv: [index as f32, index as f32],
             color: [255, 128, 64, 192],
             style_flags: 0,
+            alpha_cutoff: -1.0,
+            model_light: 1.0,
+            overlay_color: [0.0; 4],
         })
         .collect::<Vec<_>>()
         .into();
@@ -488,21 +757,21 @@ fn fixture_draw_list(revision: u64) -> UiRenderInput {
             UiScissor::new(0, 0, 64, 64),
             0,
             6,
-            render::UI_BLEND_ALPHA,
+            render_model::UI_BLEND_ALPHA,
         ),
         UiRenderBatch::new(
             0,
             UiScissor::new(4, 5, 20, 21),
             6,
             6,
-            render::UI_BLEND_INVERT,
+            render_model::UI_BLEND_INVERT,
         ),
         UiRenderBatch::new(
             1,
             UiScissor::new(0, 0, 64, 64),
             12,
             6,
-            render::UI_BLEND_ALPHA,
+            render_model::UI_BLEND_ALPHA,
         ),
     ]
     .into();
@@ -574,6 +843,15 @@ fn ui_only_plugin_never_registers_a_duplicate_transparent_draw() {
             .get_node_state(ui_render::UiOverlayLabel)
             .is_ok()
     );
+    assert!(
+        app.sub_app(RenderApp)
+            .world()
+            .resource::<RenderGraph>()
+            .get_sub_graph(Core3d)
+            .unwrap()
+            .get_node_state(ui_render::UiWorldLabel)
+            .is_ok()
+    );
 }
 
 struct TestTransparentDraw;
@@ -643,7 +921,7 @@ fn empty_overlay_never_selects_retained_pipeline_after_target_change() {
         UiScissor::new(0, 0, 64, 64),
         0,
         6,
-        render::UI_BLEND_ALPHA,
+        render_model::UI_BLEND_ALPHA,
     );
     let mut entries = BTreeMap::new();
     // Target specialization keys represent the retained pipeline pair's actual
@@ -686,7 +964,13 @@ fn current_hand_coverage_omits_only_its_quad_and_missing_stale_coverage_keeps_cp
     let view = Entity::from_raw_u32(0).unwrap();
     let main = Entity::from_raw_u32(1).unwrap();
     let coverage = UiHandCoverage::default();
-    let batch = UiRenderBatch::new(1, UiScissor::new(2, 3, 4, 5), 0, 18, render::UI_BLEND_ALPHA);
+    let batch = UiRenderBatch::new(
+        1,
+        UiScissor::new(2, 3, 4, 5),
+        0,
+        18,
+        render_model::UI_BLEND_ALPHA,
+    );
     assert!(coverage.range(view, main, Some(7), &[batch], 18).is_none());
     coverage.clear();
     coverage.record(view, main, 7, 6, 1);
@@ -711,7 +995,7 @@ fn current_hand_coverage_omits_only_its_quad_and_missing_stale_coverage_keeps_cp
     assert_eq!(retained_batch_ranges(&batch, None), [Some(0..18), None]);
     assert_eq!(batch.texture_page, 1);
     assert_eq!(batch.scissor, UiScissor::new(2, 3, 4, 5));
-    assert_eq!(batch.blend_mode, render::UI_BLEND_ALPHA);
+    assert_eq!(batch.blend_mode, render_model::UI_BLEND_ALPHA);
 }
 
 #[test]
@@ -721,13 +1005,15 @@ fn actual_prepare_clears_hand_coverage_on_unchanged_empty_and_rejected_input() {
     let mut app = app_with_noop_render_sub_app();
     app.add_plugins(UiRenderPlugin);
     app.finish();
-    let stats = app.world().resource::<UiRenderStats>().clone();
+    let stats = app.world().resource::<UiRenderStatsResource>().clone();
     let render = app.sub_app_mut(RenderApp);
     render.world_mut().run_schedule(RenderStartup);
     let mut scene = UiRenderScene::default();
     let input = fixture_draw_list(1);
     scene.publish(input.clone(), &stats).unwrap();
-    render.world_mut().insert_resource(scene.clone());
+    render
+        .world_mut()
+        .insert_resource(UiRenderSceneResource(scene.clone()));
     render
         .world_mut()
         .run_system_once(prepare_ui_resources)
@@ -749,7 +1035,9 @@ fn actual_prepare_clears_hand_coverage_on_unchanged_empty_and_rejected_input() {
             invalid.indices = Arc::from([u32::MAX]);
             scene.input = Some(Arc::new(invalid));
         }
-        render.world_mut().insert_resource(scene.clone());
+        render
+            .world_mut()
+            .insert_resource(UiRenderSceneResource(scene.clone()));
         render
             .world_mut()
             .run_system_once(prepare_ui_resources)
@@ -778,4 +1066,24 @@ impl bevy::render::render_phase::Draw<Transparent3d> for TestTransparentDraw {
     ) -> Result<(), bevy::render::render_phase::DrawError> {
         Ok(())
     }
+}
+
+#[test]
+fn review_render_rejection_does_not_forget_static_texture_identity() {
+    let mut scene = UiRenderScene::default();
+    let stats = UiRenderStats::default();
+    scene.publish(fixture_draw_list(30), &stats).unwrap();
+    let mut conflicting = fixture_draw_list(31);
+    conflicting.textures = Arc::new(
+        UiRenderTextureArray::new(
+            vec![UiTexturePage::owned([1, 1], vec![0; 4].into()).unwrap(); 2],
+            2,
+        )
+        .unwrap(),
+    );
+    assert!(scene.publish(conflicting.clone(), &stats).is_err());
+    assert!(scene.publish(conflicting.clone(), &stats).is_err());
+    conflicting.revision += 1;
+    assert!(scene.publish(conflicting, &stats).is_err());
+    scene.publish(fixture_draw_list(33), &stats).unwrap();
 }

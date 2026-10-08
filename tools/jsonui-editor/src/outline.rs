@@ -293,7 +293,22 @@ impl Parser<'_> {
             .and_then(|digits| u32::from_str_radix(digits, 16).ok())
             .ok_or_else(|| self.error("invalid \\u escape"))?;
         self.pos += 4;
-        Ok(char::from_u32(hex).unwrap_or('\u{fffd}'))
+        let scalar = if (0xd800..=0xdbff).contains(&hex) {
+            if self.source.get(self.pos + 1..self.pos + 3) != Some("\\u") {
+                return Err(self.error("missing low surrogate"));
+            }
+            let low = self
+                .source
+                .get(self.pos + 3..self.pos + 7)
+                .and_then(|digits| u32::from_str_radix(digits, 16).ok())
+                .filter(|low| (0xdc00..=0xdfff).contains(low))
+                .ok_or_else(|| self.error("invalid low surrogate"))?;
+            self.pos += 6;
+            0x10000 + ((hex - 0xd800) << 10) + low - 0xdc00
+        } else {
+            hex
+        };
+        char::from_u32(scalar).ok_or_else(|| self.error("unpaired surrogate"))
     }
 
     fn number(&mut self) -> Result<(), SyntaxError> {
@@ -340,5 +355,23 @@ mod tests {
         let source = "{\n  \"a\": 1\n  \"b\": 2\n}";
         let error = parse(source).unwrap_err();
         assert_eq!(line_col(source, error.offset), (2, 2));
+    }
+}
+
+#[cfg(test)]
+mod review_tests {
+    #[test]
+    fn review_supplementary_unicode_escapes_round_trip_and_unpaired_ones_fail() {
+        assert_eq!(
+            crate::export::parse(r#"{"text":"\uD83D\uDE00"}"#).unwrap()["text"],
+            "😀"
+        );
+        for bad in [
+            r#"{"text":"\uD83D"}"#,
+            r#"{"text":"\uDE00"}"#,
+            r#"{"text":"\uD83D\u0041"}"#,
+        ] {
+            assert!(crate::export::parse(bad).is_none());
+        }
     }
 }

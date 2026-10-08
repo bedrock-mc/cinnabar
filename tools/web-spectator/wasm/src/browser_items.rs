@@ -1,8 +1,9 @@
 //! Dropped inventory sprites retain the native extruded mesh and artwork path.
 use crate::browser_model::Frame;
 use assets::RuntimeIconCatalog;
-use render::{DroppedItemInstance, DroppedItemModel, DroppedItemScene, DroppedItemSprite};
+use render::{DroppedItemInstance, DroppedItemModel, DroppedItemScene};
 use std::{collections::BTreeMap, sync::Arc};
+use render_model::DroppedItemSprite;
 
 pub(super) struct BrowserItems {
     icons: RuntimeIconCatalog,
@@ -60,7 +61,7 @@ impl BrowserItems {
             let model = if let Some(model) = self.keys.get(&key) {
                 *model
             } else {
-                let cube = item.block.as_ref().and_then(|block| {
+                let block_model = item.block.as_ref().and_then(|block| {
                     let entry = crate::model::PaletteEntry {
                         name: block.name.clone(),
                         states: block.states.clone(),
@@ -69,14 +70,17 @@ impl BrowserItems {
                         .ok()?
                         .first()
                         .copied()?;
-                    render::dropped_block_cube(&self.terrain, assets::NetworkIdMode::Sequential, id)
+                    render_model::dropped_item_block_cube(&self.terrain, assets::NetworkIdMode::Sequential, id, render::MAX_ITEM_SPRITE_SIDE)
+                        .map(|cube| (DroppedItemModel::Cube(cube), 6))
+                        .or_else(|| render_model::dropped_item_block_model(&self.terrain, assets::NetworkIdMode::Sequential, id, render::MAX_ITEM_SPRITE_SIDE)
+                            .map(|model| { let layers = model.materials.len(); (DroppedItemModel::Block(model), layers) }))
                 });
-                let model = if let Some(cube) = cube.filter(|_| {
-                    self.models.len() < 128 && self.model_layers + 6 < render::MAX_ITEM_LAYERS
+                let model = if let Some((block, layers)) = block_model.filter(|(_, layers)| {
+                    self.models.len() < 128 && self.model_layers + layers <= render::MAX_ITEM_LAYERS
                 }) {
                     let index = self.models.len() as u32;
-                    self.models.push(DroppedItemModel::Cube(cube));
-                    self.model_layers += 6;
+                    self.models.push(block);
+                    self.model_layers += layers;
                     self.shared = Arc::from(self.models.as_slice());
                     self.revision = self.revision.wrapping_add(1);
                     Some(index)
@@ -114,7 +118,7 @@ impl BrowserItems {
             };
             let cube_kind = matches!(
                 self.models.get(model as usize),
-                Some(DroppedItemModel::Cube(_))
+                Some(DroppedItemModel::Cube(_) | DroppedItemModel::Block(_))
             );
             let old = previous
                 .and_then(|frame| frame.entities.iter().find(|old| old.id == entity.id))

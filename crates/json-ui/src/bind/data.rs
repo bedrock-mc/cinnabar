@@ -1,7 +1,7 @@
 //! The screen data source a form binds against: globals, collections and
 //! named-factory feeds a screen controller supplies.
 
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, sync::Arc};
 
 use super::FactoryItem;
 use crate::predicate::Scalar;
@@ -31,21 +31,46 @@ impl CollectionItem {
     }
 }
 
+/// An immutable collection whose unchanged publications compare in constant time.
+#[derive(Clone, Debug)]
+pub(super) struct SharedCollection(Arc<[CollectionItem]>);
+
+impl PartialEq for SharedCollection {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0) || self.0 == other.0
+    }
+}
+
+impl std::ops::Deref for SharedCollection {
+    type Target = [CollectionItem];
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 /// The screen data source a form binds against: `global` values and named
 /// collections.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct DataSource {
+    /// Native creation values inherited by the screen's created subtree.
+    pub(super) creation_values: Arc<BTreeMap<String, Scalar>>,
     pub(super) globals: BTreeMap<String, Scalar>,
-    pub(super) collections: BTreeMap<String, Vec<CollectionItem>>,
+    /// Controller answers selected by the originating control's `#index` bag value.
+    pub(super) indexed_globals: BTreeMap<usize, BTreeMap<String, Scalar>>,
+    pub(super) collections: BTreeMap<String, SharedCollection>,
+    /// Values the controller writes straight into named controls' bags.
+    pub(super) controls: BTreeMap<String, BTreeMap<String, Scalar>>,
+    pub(super) collection_defaults: BTreeMap<String, BTreeMap<String, Scalar>>,
     /// Controls created through named factories (`chat_item_factory`, …).
     pub(super) factories: BTreeMap<String, Vec<FactoryItem>>,
-    /// `[columns, rows]` a `grid_dimension_binding` reads.
-    pub(super) grid_dimensions: BTreeMap<String, [u32; 2]>,
     /// Screen-controller semantics: an unbound `#name` reads as `false` rather
     /// than leaving the template's literal in place.
     pub(super) strict: bool,
     /// The control id a screen's collection-less `factory` instantiates.
     pub(super) factory_id: Option<String>,
+    /// What the screen's components wrote into their controls' bags.
+    pub(super) components: crate::component::Components,
 }
 
 impl DataSource {
@@ -53,9 +78,43 @@ impl DataSource {
         Self::default()
     }
 
+    /// Bind over what the screen's components wrote into their bags.
+    pub fn set_components(&mut self, components: crate::component::Components) {
+        self.components = components;
+    }
+
     /// Set a `global` binding value, keyed with its leading `#`.
     pub fn set_global(&mut self, name: impl Into<String>, value: Scalar) {
         self.globals.insert(name.into(), value);
+    }
+
+    /// Answer a global binding on controls whose own property bag has `#index`.
+    /// Missing indexed answers fall back to the ordinary screen-wide global.
+    pub fn set_indexed_global(&mut self, index: usize, name: impl Into<String>, value: Scalar) {
+        self.indexed_globals
+            .entry(index)
+            .or_default()
+            .insert(name.into(), value);
+    }
+
+    pub(super) fn global(&self, index: Option<usize>, name: &str) -> Option<&Scalar> {
+        index
+            .and_then(|index| self.indexed_globals.get(&index)?.get(name))
+            .or_else(|| self.globals.get(name))
+    }
+
+    /// Fill the native creation bag read throughout the created screen subtree.
+    pub fn set_creation_value(&mut self, name: impl Into<String>, value: Scalar) {
+        Arc::make_mut(&mut self.creation_values).insert(name.into(), value);
+    }
+
+    /// Write `name` into the bag of every control named `control` on each
+    /// refresh, as a screen controller fills a dialog's source panel.
+    pub fn set_control_value(&mut self, control: &str, name: impl Into<String>, value: Scalar) {
+        self.controls
+            .entry(control.to_owned())
+            .or_default()
+            .insert(name.into(), value);
     }
 
     /// Read unbound globals as `false`, as a screen controller answers bindings
@@ -71,6 +130,16 @@ impl DataSource {
             .insert(format!("#radio:{toggle_name}"), Scalar::Num(index as f64));
     }
 
+    /// Publish `values` in the bag of controls named `name`, as their components
+    /// do (a scroll view's `#scrolled_to_end`), for `view` bindings to read.
+    pub fn set_control_values(
+        &mut self,
+        name: impl Into<String>,
+        values: BTreeMap<String, Scalar>,
+    ) {
+        self.controls.entry(name.into()).or_default().extend(values);
+    }
+
     /// Select the `control_ids` entry a collection-less factory instantiates, as a
     /// screen controller picks its content (`long_form`, `custom_form`).
     pub fn set_factory_id(&mut self, id: impl Into<String>) {
@@ -79,7 +148,22 @@ impl DataSource {
 
     /// Replace a named collection's per-index items.
     pub fn set_collection(&mut self, name: impl Into<String>, items: Vec<CollectionItem>) {
-        self.collections.insert(name.into(), items);
+        self.set_shared_collection(name, items.into());
+    }
+
+    /// Reuse an unchanged collection without copying its item bags.
+    pub fn set_shared_collection(&mut self, name: impl Into<String>, items: Arc<[CollectionItem]>) {
+        self.collections
+            .insert(name.into(), SharedCollection(items));
+    }
+
+    /// Answer collection bindings when their indexed item is absent, without creating a row.
+    pub fn set_collection_defaults(
+        &mut self,
+        name: impl Into<String>,
+        values: BTreeMap<String, Scalar>,
+    ) {
+        self.collection_defaults.insert(name.into(), values);
     }
 
     /// The controls the factory named `name` holds, oldest first.
@@ -87,9 +171,14 @@ impl DataSource {
         self.factories.insert(name.into(), items);
     }
 
-    /// Answer a `grid_dimension_binding` named `name` (with its `#`).
+    /// Answer the global a `grid_dimension_binding` named `name` (with its `#`)
+    /// binds, as vanilla's screen controller does: a `[columns, rows]` array.
     pub fn set_grid_dimensions(&mut self, name: impl Into<String>, dimensions: [u32; 2]) {
-        self.grid_dimensions.insert(name.into(), dimensions);
+        let [columns, rows] = dimensions;
+        self.globals.insert(
+            name.into(),
+            Scalar::Json(serde_json::json!([columns, rows])),
+        );
     }
 
     /// Replace the list a collection named `name` reads while inside item `index` of the enclosing
@@ -101,12 +190,14 @@ impl DataSource {
         name: &str,
         items: Vec<CollectionItem>,
     ) {
-        self.collections
-            .insert(scoped_key(parent_key, index, name), items);
+        self.collections.insert(
+            scoped_key(parent_key, index, name),
+            SharedCollection(items.into()),
+        );
     }
 
     pub(super) fn collection_len(&self, name: &str) -> usize {
-        self.collections.get(name).map_or(0, Vec::len)
+        self.collections.get(name).map_or(0, |items| items.len())
     }
 }
 

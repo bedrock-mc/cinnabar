@@ -151,3 +151,7 @@ exit 0
 } finally {
     Remove-Item -LiteralPath $testRoot -Recurse -Force
 }
+
+# Expected native failures leave LASTEXITCODE nonzero. GitHub's pwsh wrapper
+# propagates it, so report success only after every assertion and cleanup passed.
+exit 0

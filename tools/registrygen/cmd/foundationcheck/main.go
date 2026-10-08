@@ -180,11 +180,15 @@ func validate(value manifest) error {
 		if value.ProjectionBindings.Biome.SHA256 != "e3ba3d96a66fa49b3b7d94ae6b67b4cc5d8961789c91275080d3922909b25c2a" {
 			return errors.New("ready foundation must preserve the exact biome projection binding")
 		}
+		blockHash, err := targetpin.BlockHash()
+		if err != nil {
+			return err
+		}
 		lightHash, err := targetpin.LightHash()
 		if err != nil {
 			return err
 		}
-		if value.ProjectionBindings.Block.SHA256 != "04984b63037cda766e9a41b81bb1314e0c649b6f999bb27d56730decb3c7be53" ||
+		if value.ProjectionBindings.Block.SHA256 != blockHash ||
 			value.ProjectionBindings.Light.SHA256 != lightHash {
 			return errors.New("ready foundation must bind the exact block and light projections")
 		}

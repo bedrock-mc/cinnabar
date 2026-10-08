@@ -117,8 +117,8 @@ impl Canvas {
         if w == 0.0 || h == 0.0 {
             return;
         }
-        let (u0, v0) = (f32::from(v[0].uv[0]), f32::from(v[0].uv[1]));
-        let (u1, v1) = (f32::from(v[2].uv[0]), f32::from(v[2].uv[1]));
+        let (u0, v0) = (v[0].uv[0], v[0].uv[1]);
+        let (u1, v1) = (v[2].uv[0], v[2].uv[1]);
         let [left, right] = span(x0.min(x1), x0.max(x1), clip[0], clip[2]);
         let [top, bottom] = span(y0.min(y1), y0.max(y1), clip[1], clip[3]);
         let color = v[0].color;
@@ -163,8 +163,8 @@ impl Canvas {
                 }) else {
                     continue;
                 };
-                let u = (0..3).map(|k| w[k] * f32::from(v[k].uv[0])).sum();
-                let t = (0..3).map(|k| w[k] * f32::from(v[k].uv[1])).sum();
+                let u = (0..3).map(|k| w[k] * v[k].uv[0]).sum();
+                let t = (0..3).map(|k| w[k] * v[k].uv[1]).sum();
                 let texel = texture.sample(u, t);
                 let at = y as usize * self.width as usize + x as usize;
                 blend_into(&mut self.pixels[at], texel, v[0].color, blend);

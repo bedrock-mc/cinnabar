@@ -41,28 +41,27 @@ pub enum HeartVariant {
     Frozen,
 }
 
-/// Authoritative effects drive the same presentation in native and streamed HUDs.
-/// Freezing wins over wither, then poison (including fatal poison).
+/// Heart presentation follows the current authoritative effect order.
 #[must_use]
 pub fn heart_variant(effects: &[HudEffect], now_tick: Option<u64>, freezing: f32) -> HeartVariant {
-    if freezing >= 1.0 {
-        return HeartVariant::Frozen;
-    }
-    let mut variant = HeartVariant::Normal;
-    for effect in effects
-        .iter()
-        .filter(|effect| effect.visible_at_tick(now_tick))
-    {
+    let mut variant = if freezing >= 1.0 {
+        HeartVariant::Frozen
+    } else {
+        HeartVariant::Normal
+    };
+    for effect in effects {
+        if !effect.visible_at_tick(now_tick) {
+            continue;
+        }
         match effect.effect_id {
-            20 => return HeartVariant::Withered,
-            19 | 25 => variant = HeartVariant::Poisoned,
+            20 => variant = HeartVariant::Withered,
+            19 | 25 => return HeartVariant::Poisoned,
             _ => {}
         }
     }
     variant
 }
 
-/// Bedrock's regeneration effect bobs the heart row.
 #[must_use]
 pub fn regeneration_active(effects: &[HudEffect], now_tick: Option<u64>) -> bool {
     effects
@@ -70,7 +69,6 @@ pub fn regeneration_active(effects: &[HudEffect], now_tick: Option<u64>) -> bool
         .any(|effect| effect.effect_id == 10 && effect.visible_at_tick(now_tick))
 }
 
-/// Bedrock's hunger effect recolors the hunger row.
 #[must_use]
 pub fn hunger_effect_active(effects: &[HudEffect], now_tick: Option<u64>) -> bool {
     effects

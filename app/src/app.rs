@@ -1,48 +1,46 @@
-use std::{ffi::OsStr, fs, path::Path, sync::Arc};
+#[cfg(feature = "acceptance")]
+use crate::acceptance::{
+    model_witness::poll_model_witness_request,
+    transparent_witness::poll_transparent_witness_request,
+};
+#[cfg(feature = "acceptance")]
+use crate::runtime::phase3_evidence::{
+    Phase3EvidenceEmitter, Phase3EvidenceIdentitySource, emit_phase3_evidence,
+};
+#[cfg(feature = "acceptance")]
+use crate::runtime::shutdown::finish_acceptance_run;
+use std::{ffi::OsStr, fs, sync::Arc};
 
 use anyhow::{Context, Result, bail};
 use bevy::{
-    anti_alias::{AntiAliasPlugin, fxaa::FxaaPlugin},
+    anti_alias::AntiAliasPlugin,
     app::TerminalCtrlCHandlerPlugin,
     prelude::{
         App, ClearColor, Color, DefaultPlugins, First, IntoScheduleConfigs, Last, PluginGroup,
         Resource, SystemSet, Update, Window, default,
     },
-    render::{
-        RenderPlugin,
-        diagnostic::RenderDiagnosticsPlugin,
-        settings::{Backends, RenderCreation, WgpuSettings},
-    },
+    render::{diagnostic::RenderDiagnosticsPlugin, settings::Backends},
     window::WindowPlugin,
 };
-use client_world::PublicationServiceConfig;
+use chunk_pipeline::PublicationServiceConfig;
 use render::{
     ActorRenderPlugin, ActorRenderScene, AtmosphereFrame, AtmospherePlugin,
     AtmosphereTextureAssets, ChunkRenderApplySet, ChunkRenderPlugin, ChunkTextureAssets,
     RuntimeStageProfiler, UiRenderPlugin, VisibilityDiagnosticsInput,
 };
-use sha2::{Digest, Sha256};
+mod startup;
 
-use crate::acceptance::{
-    markers::{SHUTDOWN_COMPLETED, requested_present_mode},
-    world_ready::emit_world_ready,
-};
+#[cfg(feature = "acceptance")]
+use crate::acceptance::world_ready::emit_world_ready;
 use crate::{
-    acceptance::{
-        AcceptanceRun,
-        model_witness::{ModelWitnessFileSource, poll_model_witness_request},
-        transparent_witness::{TransparentWitnessFileSource, poll_transparent_witness_request},
-    },
     args,
-    asset_startup::{
-        LoadedAssetKind, load_runtime_assets, require_hud_assets, require_icon_assets,
-        select_asset_path_from_environment,
-    },
+    asset_startup::{LoadedAssetKind, select_asset_path_from_environment},
     block_use::{BlockUseRuntime, produce_block_use},
     camera::{FlyCameraPlugin, FlyCameraUpdateSet},
     environment::{
         self, EnvironmentContext, EnvironmentProfileRoute, WeatherState, WorldClock,
         update_atmosphere_frame, update_lightning, update_precipitation_scene,
+        update_seasonal_foliage,
     },
     install_layout::InstallLayout,
     local_player::{
@@ -51,33 +49,26 @@ use crate::{
     },
     melee::{MeleeRuntime, SwingTracker, produce_melee},
     menu::{
-        CoreProcessGuard, MenuRuntime, drive_menu_connection, drive_menu_input,
-        follow_server_transfer, recover_menu_session_failure, spawn_core_for_address,
-        wait_for_core,
+        CoreProcessGuard, MenuRuntime, drive_menu_input, drive_menu_services,
+        spawn_core_for_address, wait_for_core,
     },
-    metrics::MetricsCollector,
     movement::{
         LocalMovementEffectTimeline, LocalMovementSpeedAuthority, LocalPhysicsController,
-        PhysicsAuthorityGate, PhysicsCollisionRegistries, advance_local_physics,
-        send_movement_prediction_sync,
+        PhysicsAuthorityGate, advance_local_physics, send_movement_prediction_sync,
     },
     present_mode::{PresentModeRuntime, apply_runtime_vsync_setting},
     runtime::{
         endpoint::{preflight_bridge_endpoint, resolve_socket_dir},
         network::{
-            NetworkConfig, NetworkHandle, ResourcePackAdmissionState, prepare_actor_render_frame,
-            publish_actor_render_frame, receive_network_events, spawn_network,
-        },
-        phase3_evidence::{
-            Phase3EvidenceEmitter, Phase3EvidenceIdentitySource, emit_phase3_evidence,
+            NetworkConfig, NetworkHandle, ResourcePackAdmissionState, advance_actor_frame,
+            prepare_actor_render_frame, publish_actor_render_frame, publish_entity_shadows,
+            receive_network_events, spawn_network,
         },
         publication::{PublicationController, begin_publication_frame},
-        shutdown::{
-            exit_on_fatal_runtime_error, exit_on_window_close_requested, finish_acceptance_run,
-        },
+        shutdown::{exit_on_fatal_runtime_error, exit_on_window_close_requested},
         telemetry::{
             AcceptanceRuntimeConfig, frame_limited_winit_settings, publish_runtime_stage_profile,
-            record_metrics_and_title, send_player_auth_inputs, update_visibility_diagnostics,
+            record_metrics, send_player_auth_inputs, update_visibility_diagnostics,
         },
         visibility::{
             AppMetrics, CaveVisibilityCache, DiagnosticQuads, apply_added_chunk_visibility,
@@ -93,22 +84,29 @@ use crate::{
         collect_raw_input, finalize_semantic_input_after_ui_authority, route_semantic_input,
         synchronize_semantic_input_authority,
     },
+    session::{SessionController, drive_session, follow_server_transfer, recover_session_failure},
     session_cleanup::{ScopedSessionDirectory, reclaim_stale_session_directories},
     survival_mining::{SurvivalMiningRuntime, produce_survival_mining},
     ui_runtime::{
-        UiRuntime, drain_inventory_authority, drive_chat_keyboard_input, drive_chat_ui_actions,
+        drain_inventory_authority, drive_chat_keyboard_input, drive_chat_ui_actions,
         drive_inventory_ui_actions, drive_server_form_input, drive_sign_editor,
         drive_world_inventory_keys, flush_chat_network, flush_inventory_network,
         flush_server_form_network,
         gameplay_touch::drive_gameplay_touch_targets,
         presentation::{
-            UiPresentationRuntime, drive_menu_panorama, observe_mount_jump_input,
-            prepare_ui_runtime, publish_ui_runtime,
+            drive_menu_panorama, observe_mount_jump_input, prepare_ui_runtime, publish_ui_runtime,
         },
     },
 };
+use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
+use diagnostics::markers::{SHUTDOWN_COMPLETED, requested_present_mode};
+use diagnostics::metrics::MetricsCollector;
 
+#[cfg(feature = "acceptance")]
 use crate::acceptance::model_witness::drive_model_witness;
+
+mod render_setup;
+use render_setup::render_plugin;
 
 const PHYSICS_REGISTRY_SHA256: &str =
     include_str!("../../crates/assets/data/block-physics-v2193.sha256");
@@ -151,24 +149,49 @@ pub(crate) enum ClientFrameSet {
     ActorPreparation,
     UiPreparation,
     NetworkSend,
+    ActorFinalization,
     ActorPublication,
     UiPublication,
 }
 
+/// Registers the production actor observation and publication boundaries.
+pub(crate) fn configure_actor_render_systems(app: &mut App) {
+    app.init_resource::<client_presentation::actor_publication::ActorFrameState>()
+        .add_systems(
+            Update,
+            advance_actor_frame.in_set(ClientFrameSet::ActorPreparation),
+        )
+        .add_systems(
+            Update,
+            prepare_actor_render_frame.in_set(ClientFrameSet::ActorFinalization),
+        )
+        .add_systems(
+            Update,
+            (publish_actor_render_frame, publish_entity_shadows)
+                .chain()
+                .in_set(ClientFrameSet::ActorPublication),
+        );
+}
+
 pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
+    #[cfg(not(feature = "acceptance"))]
+    app.init_resource::<crate::acceptance::AcceptanceRun>();
+    #[cfg(feature = "acceptance")]
+    app.init_resource::<Phase3EvidenceEmitter>();
+    app.init_resource::<crate::runtime::network::PackReload>();
     configure_client_authority_systems(app);
+    configure_actor_render_systems(app);
     crate::audio::configure(app);
     app.init_resource::<BlockUseRuntime>()
         .init_resource::<crate::item_use::ItemUseRuntime>()
         .init_resource::<SurvivalMiningRuntime>()
         .init_resource::<MeleeRuntime>()
         .init_resource::<SwingTracker>()
-        .init_resource::<Phase3EvidenceEmitter>()
-        .init_resource::<crate::server_camera::ServerCameraInstructions>()
+        .init_resource::<client_presentation::server_camera::ServerCameraInstructions>()
         .init_resource::<crate::session_audio::SessionAudio>()
         .init_resource::<crate::named_audio::NamedAudio>()
         .init_resource::<crate::audio::AudioEngine>()
-        .init_resource::<crate::local_player_camera_receipt::CameraPublicationAttempt>()
+        .init_resource::<client_presentation::local_player_camera_receipt::CameraPublicationAttempt>()
         .add_systems(
             Update,
             receive_network_events
@@ -184,9 +207,9 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
             Update,
             crate::session_audio::drain_sequenced_audio_into_session
                 .after(reconcile_world_stream_before_physics)
-                .after(drive_menu_connection)
+                .after(drive_session)
                 .after(follow_server_transfer)
-                .after(recover_menu_session_failure),
+                .after(recover_session_failure),
         )
         .add_systems(
             Update,
@@ -203,7 +226,7 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
         .add_systems(
             Update,
             (
-                crate::local_player_camera_receipt::begin_camera_publication_attempt,
+                client_presentation::local_player_camera_receipt::begin_camera_publication_attempt,
                 resolve_camera_pose,
             )
                 .chain()
@@ -212,7 +235,7 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
         )
         .add_systems(
             Update,
-            (publish_local_player_frame, publish_interaction_origin)
+            (publish_local_player_frame, publish_interaction_origin, crate::camera::aim_assist::publish_assisted_interaction, crate::camera::aim_highlight::publish, crate::block_use::retain_block_use_pick)
                 .chain()
                 .in_set(LocalPlayerFrameSet::Interaction)
                 .in_set(ClientFrameSet::Interaction),
@@ -230,23 +253,24 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
                 .after(publish_local_player_frame)
                 .after(drive_world_stream)
                 .after(reconcile_world_stream_before_physics)
-                .after(drive_menu_connection)
+                .after(drive_session)
                 .after(follow_server_transfer)
-                .after(recover_menu_session_failure),
-        )
-        .add_systems(
-            Update,
-            prepare_actor_render_frame.in_set(ClientFrameSet::ActorPreparation),
-        )
-        .add_systems(
-            Update,
-            publish_actor_render_frame.in_set(ClientFrameSet::ActorPublication),
+                .after(recover_session_failure),
         )
         .add_systems(
             Update,
             crate::hotbar::select_hotbar_slot
                 .after(ClientFrameSet::SemanticFinalize)
-                .before(ClientFrameSet::UiPreparation),
+                .before(ClientFrameSet::ActorPreparation),
+        )
+        // Build actions resolve before the tick they precede, so its movement sees the block.
+        .add_systems(
+            Update,
+            produce_block_use
+                .after(ClientFrameSet::SemanticFinalize)
+                .after(crate::hotbar::select_hotbar_slot)
+                .after(reconcile_world_stream_before_physics)
+                .before(ClientFrameSet::Physics),
         )
         .add_systems(
             Update,
@@ -264,10 +288,12 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
             Update,
             (
                 flush_inventory_network,
+                #[cfg(feature = "acceptance")]
                 emit_phase3_evidence,
+                #[cfg(not(feature = "acceptance"))]
+                crate::runtime::telemetry::discard_completed_movement_evidence,
                 produce_melee,
                 produce_survival_mining,
-                produce_block_use,
                 crate::item_use::produce_item_use,
                 send_player_auth_inputs,
                 crate::pick_block::produce_pick_block,
@@ -278,28 +304,30 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
 }
 
 pub(crate) fn configure_acceptance_finish_system(app: &mut App) {
+    #[cfg(feature = "acceptance")]
     app.add_systems(
         Update,
         finish_acceptance_run
             .after(ClientFrameSet::NetworkSend)
             .after(ClientFrameSet::UiPublication)
-            .after(record_metrics_and_title),
-    )
-    // The launcher gets first refusal on a fatal session error, so a failed
-    // join returns to the menu instead of ending the process. This has to sit
-    // after the failure is recorded (network drain) and before both systems
-    // that act on it. The transfer follower runs first so a server-directed
-    // move is classified as a replacement handoff, not a failure.
-    .add_systems(
-        Update,
-        (follow_server_transfer, recover_menu_session_failure)
-            .chain()
-            .after(receive_network_events)
-            .after(ClientFrameSet::NetworkSend)
-            .after(ClientFrameSet::UiPublication)
-            .before(exit_on_fatal_runtime_error)
-            .before(finish_acceptance_run),
+            .after(record_metrics)
+            .after(recover_session_failure),
     );
+    app
+        // The launcher gets first refusal on a fatal session error, so a failed
+        // join returns to the menu instead of ending the process. This has to sit
+        // after the failure is recorded (network drain) and before both systems
+        // that act on it. The transfer follower runs first so a server-directed
+        // move is classified as a replacement handoff, not a failure.
+        .add_systems(
+            Update,
+            (follow_server_transfer, recover_session_failure)
+                .chain()
+                .after(receive_network_events)
+                .after(ClientFrameSet::NetworkSend)
+                .after(ClientFrameSet::UiPublication)
+                .before(exit_on_fatal_runtime_error),
+        );
 }
 
 pub(crate) fn configure_client_runtime_frame_systems(app: &mut App) {
@@ -329,50 +357,30 @@ pub(crate) fn configure_client_runtime_frame_systems(app: &mut App) {
                 flush_chat_network.before(ClientFrameSet::UiPreparation),
                 flush_server_form_network.in_set(ClientFrameSet::NetworkSend),
                 exit_on_fatal_runtime_error,
+                #[cfg(feature = "acceptance")]
                 poll_transparent_witness_request,
+                #[cfg(feature = "acceptance")]
                 poll_model_witness_request,
                 update_camera_medium,
                 update_atmosphere_frame,
+                update_seasonal_foliage,
+                crate::environment::log_world_lighting,
                 update_precipitation_scene,
                 update_lightning,
                 refresh_cave_visibility,
                 update_visibility_diagnostics.after(ChunkRenderApplySet),
+                #[cfg(feature = "acceptance")]
                 emit_world_ready,
+                #[cfg(feature = "acceptance")]
                 drive_model_witness,
                 apply_runtime_vsync_setting,
-                record_metrics_and_title,
+                record_metrics,
                 publish_runtime_stage_profile,
             )
                 .chain()
                 .after(FlyCameraUpdateSet),
         )
         .add_systems(Last, arm_shutdown_watchdog);
-}
-
-fn read_verified_physics_registry(
-    path: &Path,
-    expected_sha256: &str,
-    expected_protocol: u32,
-) -> Result<Vec<u8>> {
-    let bytes = fs::read(path).with_context(|| {
-        format!(
-            "read required protocol-{expected_protocol} physics registry {}; {}",
-            path.display(),
-            PHYSICS_REGISTRY_GENERATION_GUIDANCE
-        )
-    })?;
-    let actual_sha256 = format!("{:x}", Sha256::digest(&bytes));
-    let expected_sha256 = expected_sha256.trim();
-    if actual_sha256 != expected_sha256 {
-        bail!(
-            "protocol-{expected_protocol} physics registry {} is stale or corrupt: expected sha256 {}, got {}; {}",
-            path.display(),
-            expected_sha256,
-            actual_sha256,
-            PHYSICS_REGISTRY_GENERATION_GUIDANCE
-        );
-    }
-    Ok(bytes)
 }
 
 pub(crate) fn preferred_render_backends(explicit: Option<&OsStr>) -> Option<Backends> {
@@ -419,24 +427,22 @@ fn bind_direct_session_directory(
     Ok(ScopedSessionDirectory::none())
 }
 
-fn render_plugin() -> RenderPlugin {
-    let mut settings = WgpuSettings::default();
-    if let Some(backends) = preferred_render_backends(std::env::var_os("WGPU_BACKEND").as_deref()) {
-        settings.backends = Some(backends);
-    }
-    RenderPlugin {
-        render_creation: RenderCreation::Automatic(settings),
-        ..default()
-    }
-}
-
 pub fn run(args: args::ClientArgs) -> Result<()> {
+    args.validate_acceptance_support(cfg!(feature = "acceptance"))?;
+    #[cfg(feature = "developer-control")]
+    crate::developer_control::prepare_native_application(
+        args.address.is_some() || args.socket_dir_explicit,
+    )?;
+    crate::thread_budget::ThreadBudget::configure_global_rayon();
     // Declared first so it drops last: every spawned child is gone before `run` returns or unwinds.
     let _children = crate::lifecycle::children::StopOnDrop;
     crate::lifecycle::children::install_exit_hooks();
     UiRuntime::configure_crafting_observation(args.address.as_deref());
     render::ViewmodelCompletionGate::configure_observation(args.address.as_deref());
     let layout = InstallLayout::discover().context("resolve install and user runtime layout")?;
+    let global_pack_root = layout.global_resource_packs_dir();
+    crate::runtime::network::set_compile_cache_dir(layout.compiled_pack_cache_dir());
+    crate::runtime::network::entity_pack::set_vanilla_pack_dir(layout.vanilla_pack_dir());
     // Reclaim leftovers of crashed earlier sessions before this process
     // binds anything new; failures are logged and never fatal.
     reclaim_stale_session_directories(&layout);
@@ -459,8 +465,12 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let mut core_process = CoreProcessGuard::default();
     let selected_assets =
         select_asset_path_from_environment(args.assets.as_deref(), &layout.world_assets());
-    let loaded_assets =
-        load_runtime_assets(selected_assets).context("load startup block assets")?;
+    let carriers = startup::load_startup_carriers(selected_assets, &layout.physics_registry);
+    let startup::CoreCarriers {
+        assets: loaded_assets,
+        actor: actor_catalog,
+        equipment: equipment_catalog,
+    } = carriers.core.context("load startup block assets")?;
     if let Some(notice) = &loaded_assets.notice {
         eprintln!("{notice}");
     } else if loaded_assets.kind == LoadedAssetKind::CompiledBlob {
@@ -482,94 +492,46 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     eprintln!("{}", loaded_assets.entities.startup_summary());
     eprintln!("{}", loaded_assets.fonts.startup_summary());
     let entity_runtime = Arc::clone(loaded_assets.entities.runtime());
-    let actor_artwork = crate::asset_startup::require_actor_artwork(
-        &loaded_assets.selected_path,
-        &loaded_assets.entities,
-    )
-    .context("load exact entity-linked neutral actor artwork")?;
+    crate::runtime::network::set_vanilla_item_paths(&entity_runtime);
+    let actor_catalog = actor_catalog.context("load exact entity-linked neutral actor artwork")?;
+    let actor_artwork = crate::asset_startup::actor_artwork(&actor_catalog, &entity_runtime);
     let hand_geometry = render::ViewmodelGeometry::from_runtime(&entity_runtime, &actor_artwork);
-    let hud_assets = require_hud_assets(&loaded_assets.selected_path)
+    let hud_assets = carriers
+        .hud
         .context("load pinned official Mojang sample HUD carrier")?;
     eprintln!("{}", hud_assets.startup_summary());
-    let icon_assets = require_icon_assets(
-        &loaded_assets.selected_path,
-        crate::asset_startup::vanilla_source_manifest_json(),
-    )
-    .context("load pinned official Mojang sample item-icon carrier")?;
+    let icon_assets = carriers
+        .icons
+        .context("load pinned official Mojang sample item-icon carrier")?;
     eprintln!("{}", icon_assets.startup_summary());
     // Optional: without the carrier, held items still draw as sprites and worn armor is skipped.
-    let equipment_catalog = crate::asset_startup::load_optional_equipment_assets(
-        &loaded_assets.selected_path,
-        &loaded_assets.entities,
-    );
     let (equipment_runtime, actor_artwork, equipment_geometries) =
         crate::presentation::equipment::EquipmentRuntime::build(
             Arc::clone(&entity_runtime),
             equipment_catalog.clone(),
             Arc::clone(icon_assets.runtime()),
             Some(Arc::clone(&loaded_assets.runtime)),
-            crate::asset_startup::load_optional_block_entity_assets(&loaded_assets.selected_path),
+            carriers.block_entities.clone(),
             actor_artwork,
         );
-    let lang_assets = crate::asset_startup::require_lang_assets(
-        &loaded_assets.selected_path,
-        crate::asset_startup::vanilla_source_manifest_json(),
-    )
-    .context("load pinned official Mojang sample localization carrier")?;
+    let lang_assets = carriers
+        .lang
+        .context("load pinned official Mojang sample localization carrier")?;
     eprintln!("{}", lang_assets.startup_summary());
+    let saved_settings = crate::menu::settings_options::SettingsOptions::load(
+        &layout
+            .server_file()
+            .with_file_name(crate::menu::settings_options::SETTINGS_FILE),
+    );
     let active_lang = crate::asset_startup::load_active_language(
         &loaded_assets.selected_path,
-        args.language.as_deref(),
+        args.language.as_deref().or(saved_settings.language()),
     );
-    // The sound-definition catalog binds optionally (VPA-017): absence falls
-    // back to a bounded empty catalog with this one-time notice, while a
-    // present-but-invalid carrier fails startup closed above through the
-    // typed error naming the exact path and rebuild command.
-    let loaded_audio = match crate::asset_startup::load_audio_assets(&loaded_assets.selected_path) {
-        Ok(Some(loaded)) => {
-            eprintln!("{}", loaded.startup_summary());
-            Some(loaded)
-        }
-        Ok(None) => {
-            eprintln!(
-                "{}",
-                crate::asset_startup::audio_assets_missing_notice(
-                    &crate::asset_startup::audio_asset_path(&loaded_assets.selected_path)
-                )
-            );
-            None
-        }
-        Err(error) => {
-            return Err(anyhow::Error::new(error))
-                .context("load optional pinned sound-definition carrier");
-        }
-    };
-    let pcm = crate::asset_startup::load_audio_pcm_assets(
-        &loaded_assets.selected_path,
-        loaded_audio.as_ref(),
-    )
-    .context("load optional reviewed finite PCM carrier")?;
-    let audio_catalog = loaded_audio.map(|loaded| loaded.into_runtime());
-    // The sound bank binds optionally: absence or damage leaves playback silent, never fatal.
-    let sound_bank = match crate::audio::SoundBank::open(
-        &crate::audio::sound_bank_path(&loaded_assets.selected_path),
-        audio_catalog.clone(),
-    ) {
-        Ok(Some(bank)) => {
-            eprintln!("loaded sound bank ({} sound files)", bank.file_count());
-            Some(bank)
-        }
-        Ok(None) => {
-            eprintln!(
-                "optional sound bank was not found; run `make audio-bank` (or `make assets`) to enable playback"
-            );
-            None
-        }
-        Err(error) => {
-            eprintln!("sound bank unusable, audio stays silent: {error}");
-            None
-        }
-    };
+    let startup::AudioCarriers {
+        catalog: audio_catalog,
+        pcm,
+        sound_bank,
+    } = carriers.audio?;
     let audio_device = if pcm.is_some() || sound_bank.is_some() {
         crate::named_audio::AudioDevice::open_default_once()
     } else {
@@ -579,21 +541,16 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let named_audio =
         crate::named_audio::NamedAudio::new(if sound_bank.is_some() { None } else { pcm });
     let audio_engine = crate::audio::AudioEngine::new(sound_bank);
-    let particle_assets = crate::particles::load_optional_carrier(&loaded_assets.selected_path);
+    let particle_assets = carriers.particles;
     let particle_icons = crate::particles::ParticleIcons(Arc::clone(icon_assets.runtime()));
     let mut block_entity_scene =
-        crate::block_entities::load_block_entity_scene(&loaded_assets.selected_path);
+        crate::block_entities::block_entity_scene(carriers.block_entities.as_deref());
     block_entity_scene.install_entity_assets(&entity_runtime);
-    // Spawner mobs read the actor catalog; without it cages stay empty.
-    match crate::asset_startup::require_actor_assets(
-        &loaded_assets.selected_path,
-        &loaded_assets.entities,
-    ) {
-        Ok(catalog) => block_entity_scene.install_mob_assets(&entity_runtime, &catalog),
-        Err(error) => eprintln!("spawner mobs unavailable: {error}"),
-    }
+    block_entity_scene.install_mob_assets(&entity_runtime, &actor_catalog);
     let font_runtime = loaded_assets.fonts.into_runtime();
     let block_entity_font = Arc::clone(&font_runtime);
+    let font_runtime =
+        crate::asset_startup::oreui_fonts::install(font_runtime, &layout.resource_root);
     let mut ui_presentation = UiPresentationRuntime::with_hud_and_icons(
         font_runtime,
         hud_assets.into_runtime(),
@@ -601,24 +558,37 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     )
     .context("prepare bounded font, HUD, and item-icon texture arrays for UI rendering")?;
     // The gameplay HUD draws through the JSON-UI engine, so its carrier is required.
-    let ui_assets =
-        crate::ui_runtime::json_ui_assets::require_ui_assets(&loaded_assets.selected_path)?;
+    let ui_assets = carriers.ui?;
     ui_presentation
         .enable_json_ui(ui_assets)
         .map_err(|reason| anyhow::anyhow!("JSON-UI engine failed to start: {reason}"))?;
+    let ui_catalog = crate::runtime::network::PackUiCatalog(
+        ui_presentation
+            .pack_catalog_base()
+            .context("JSON-UI engine is missing its carrier catalog")?,
+    );
     ui_presentation.set_form_texture_fallbacks(&entity_runtime, layout.vanilla_pack_dir());
-    // Dev-only: CINNABAR_OREUI_LOCAL_ASSETS compares OreUI against the install's originals.
-    if let Some(images) = crate::ui_runtime::oreui_assets::load_optional_oreui_images()
+    // Installed OreUI artwork is discovered and decoded once for every native screen.
+    if let Some(images) = client_ui::ui_runtime::oreui_assets::load_optional_oreui_images()
         && let Err(reason) = ui_presentation.enable_oreui_originals(images)
     {
         eprintln!("OreUI originals disabled ({reason})");
     }
     ui_presentation.set_equipment_catalog(equipment_catalog);
+    ui_presentation
+        .set_gui_models(&loaded_assets.runtime, &entity_runtime)
+        .context("prepare native GUI model geometry and original texture pages")?;
+    ui_presentation
+        .set_gui_fire_texture(
+            particle_assets
+                .as_deref()
+                .and_then(|assets| assets.texture(assets::ACTOR_FLAME_TEXTURE)),
+        )
+        .context("prepare native HUD actor flame texture frames")?;
     ui_presentation.set_gui_scale_preference(args.gui_scale);
     ui_presentation.set_safe_area(crate::ui_runtime::presentation::platform_safe_area_insets());
     let (atmosphere_runtime, atmosphere_identity) = loaded_assets.atmosphere.into_parts();
-    let weather_textures =
-        environment::load_optional_weather_textures(&loaded_assets.selected_path);
+    let weather_textures = carriers.weather;
     let runtime_assets = loaded_assets.runtime;
     let asset_metrics = loaded_assets.metrics;
     let mut actor_render_scene = ActorRenderScene::with_runtime_entity_assets_and_equipment(
@@ -628,34 +598,18 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     .map_err(|error| {
         anyhow::anyhow!("prepare validated runtime entity geometry for actor rendering: {error:?}")
     })?;
+    crate::runtime::network::set_base_actor_artwork(actor_artwork.clone(), entity_runtime.clone());
     actor_render_scene.configure_artwork(actor_artwork.clone());
     // A dedicated single-instance builder for the local player's first-person rig, sharing the
     // same validated geometry catalog as the third-person actor pass.
     let hand_rig_builder =
         crate::runtime::network::HandRigBuilder::from_runtime_assets(&entity_runtime)?;
-    // One shared authority drives both startup registry gates: the
-    // world-carrier provenance pins and this physics binding both derive
-    // their protocol expectation from it, so a partially flipped carrier set
-    // fails closed here instead of aliasing live block identities.
-    let expected_protocol = crate::asset_startup::active_content_registry_protocol();
-    let collision_breg = crate::asset_startup::pinned_block_registry_bytes();
-    let collision_preg = read_verified_physics_registry(
-        &layout.physics_registry,
-        PHYSICS_REGISTRY_SHA256,
-        expected_protocol,
-    )?;
-    let collision_registries = PhysicsCollisionRegistries::bind_coherent_assets(
-        collision_breg,
-        &collision_preg,
-        &layout.physics_registry,
-        &loaded_assets.selected_path,
-        expected_protocol,
-    )
-    .context("decode and bind the active-content-protocol collision registries")?;
+    let collision_registries = carriers.collision?;
     eprintln!(
         "loaded {} authoritative collision records for local physics",
         collision_registries.available_record_count()
     );
+    #[cfg(feature = "acceptance")]
     let phase3_identity_source = args
         .phase3_evidence_target
         .map(|target| {
@@ -677,6 +631,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
             address,
             None,
             client_blob_cache.enables_upstream_client_cache(),
+            false,
         )
         .with_context(|| format!("spawn Go core for direct connection to {address}"))?;
         core_process.replace(child);
@@ -698,6 +653,8 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
             display_name: args.display_name.clone(),
             client_blob_cache: client_blob_cache.cache(),
             player_skin: local_player_skin.clone(),
+            actor_artwork: Some(actor_artwork.clone()),
+            ui_catalog: Some(ui_catalog.0.clone()),
         })
         .context("spawn Bedrock network worker")
         {
@@ -719,6 +676,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let present_mode_runtime =
         PresentModeRuntime::from_startup(args.force_vsync, args.no_vsync, diagnostics_enabled);
     let present_mode_policy = present_mode_runtime.policy();
+    let vsync_override = present_mode_runtime.vsync_override();
     let runtime_config = AcceptanceRuntimeConfig {
         build_profile: if cfg!(debug_assertions) {
             "debug"
@@ -728,41 +686,44 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     };
     let shutdown_watchdog = ShutdownWatchdog::process(SHUTDOWN_WATCHDOG_TIMEOUT);
 
+    let primary_window = Window {
+        title: launcher::window_title(std::env::var("CINNABAR_WINDOW_TITLE").ok().as_deref()),
+        present_mode,
+        ..default()
+    };
+    #[cfg(feature = "developer-control")]
+    let primary_window = crate::developer_control::primary_window(primary_window);
     let mut app = App::new();
     configure_client_frame_schedule(&mut app);
-    app.add_plugins(
-        DefaultPlugins
-            .set(WindowPlugin {
-                primary_window: Some(Window {
-                    title: if connection_requested {
-                        "Rust MCBE | connecting".to_owned()
-                    } else {
-                        "Rust MCBE | Cinnabar".to_owned()
-                    },
-                    present_mode,
-                    ..default()
-                }),
-                ..default()
-            })
-            .set(render_plugin())
-            // Cinnabar uses FXAA without Bevy's TAA/SMAA/CAS bundle. The TAA
-            // graph requires post-process nodes that are intentionally absent
-            // from this compact custom renderer.
-            .disable::<AntiAliasPlugin>()
-            // The launcher owns the production process lifecycle. Keeping the
-            // OS default SIGINT action also preserves a real developer escape
-            // hatch if graceful Bevy teardown is wedged.
-            .disable::<TerminalCtrlCHandlerPlugin>(),
-    );
-    app.add_plugins(FxaaPlugin);
+    let plugins = DefaultPlugins
+        .set(WindowPlugin {
+            primary_window: Some(primary_window),
+            ..default()
+        })
+        .set(render_plugin())
+        .set(crate::thread_budget::ThreadBudget::task_pool_plugin())
+        // Vanilla resolves multisampled geometry without a screen-space AA filter.
+        .disable::<AntiAliasPlugin>()
+        // The launcher owns the production process lifecycle. Keeping the
+        // OS default SIGINT action also preserves a real developer escape
+        // hatch if graceful Bevy teardown is wedged.
+        .disable::<TerminalCtrlCHandlerPlugin>();
+    #[cfg(feature = "tracy")]
+    let plugins = plugins.set(bevy::log::LogPlugin {
+        custom_layer: crate::tracy::layer,
+        ..default()
+    });
+    app.add_plugins(plugins);
+    #[cfg(target_os = "macos")]
+    crate::thread_budget::ThreadBudget::configure_render_thread(&mut app);
+    app.add_systems(Update, crate::window_icon::apply);
     app.add_plugins(crate::local_worlds::LocalWorldsPlugin);
     app.add_plugins(crate::hud_tools::HudToolsPlugin {
         screenshots_dir: layout.screenshots_dir(),
         debug_overlay: args.dev_debug_overlay,
     });
-    if !connection_requested {
-        app.init_resource::<crate::menu::LauncherCoreSlot>();
-    }
+    // Account feeds also serve Profile in direct-address and external-socket runs.
+    app.init_resource::<crate::menu::LauncherCoreSlot>();
     app.add_plugins(render::Dx12PresentModePolicyPlugin::new(
         present_mode_policy,
     ));
@@ -782,7 +743,8 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     .insert_resource(shutdown_watchdog.clone())
     .insert_resource(TeardownWatchdog(shutdown_watchdog.clone()))
     .insert_resource(present_mode_runtime)
-    .insert_resource(core_process)
+    .insert_resource(SessionController::new(core_process).with_address(args.address.as_deref()))
+    .insert_resource(ui_catalog)
     .insert_resource(client_blob_cache)
     .insert_resource(network)
     .insert_resource(ResourcePackAdmissionState::default())
@@ -793,13 +755,18 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     ))
     .insert_resource({
         let mut ui_runtime = UiRuntime::new(0);
+        if let Some(address) = &args.address {
+            ui_runtime.experiences.select_destination(address);
+        }
         ui_runtime.set_lang_catalog(lang_assets.into_runtime());
         ui_runtime.set_active_language(active_lang);
         ui_runtime
     })
+    .insert_resource(crate::player_runtime::PlayerRuntime::new(0))
     .insert_resource(ui_presentation)
     .insert_resource(WorldClock::default())
     .insert_resource(WeatherState::default())
+    .init_resource::<environment::WeatherTickFrame>()
     .insert_resource(environment::CameraMediumState::default())
     .insert_resource(environment::LightningFlashState::default())
     .insert_resource(EnvironmentContext::default())
@@ -813,13 +780,20 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         PhysicsAuthorityGate::ProductionEnabled
     })
     .insert_resource(local_player_skin.clone())
-    .insert_resource(MenuRuntime::new_with_layout(
-        !connection_requested,
-        args.gui_scale,
-        args.display_name.clone(),
-        layout,
-        local_player_skin,
-    ))
+    .insert_resource(
+        MenuRuntime::new_with_layout(
+            !connection_requested,
+            args.gui_scale,
+            args.display_name.clone(),
+            layout,
+            local_player_skin,
+        )
+        .with_language_assets(
+            loaded_assets.selected_path.clone(),
+            args.language.as_deref(),
+        )
+        .with_vsync_override(vsync_override),
+    )
     .init_resource::<crate::menu::MenuClipboard>()
     .insert_resource(crate::session_audio::SessionAudioCatalog(audio_catalog))
     .insert_resource(named_audio)
@@ -834,6 +808,12 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     .insert_resource(hand_rig_builder)
     .insert_resource(AtmosphereFrame::default())
     .insert_resource(weather_textures)
+    .insert_resource(
+        crate::runtime::network::reload_environment::EnvironmentBase::new(
+            AtmosphereTextureAssets::new(atmosphere_runtime.clone(), atmosphere_identity),
+            particle_assets.clone(),
+        ),
+    )
     .insert_resource(AtmosphereTextureAssets::new(
         atmosphere_runtime,
         atmosphere_identity,
@@ -861,26 +841,43 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     .insert_resource(block_entity_scene)
     .insert_resource(PublicationController::new(
         PublicationServiceConfig::PHASE2_GATE,
-    ))
-    .insert_resource(TransparentWitnessFileSource::new(
-        args.transparent_witness_request,
-    ))
-    .insert_resource(ModelWitnessFileSource::new(args.model_witness_request))
-    .insert_resource(AcceptanceRun::new(
-        args.acceptance_seconds,
-        args.metrics_out,
-        args.full_view_teleport_gate,
-        args.require_transparent_presentation,
     ));
-    if stage_profile_enabled {
+    #[cfg(feature = "acceptance")]
+    app.add_plugins(acceptance::AcceptancePlugin {
+        seconds: args.acceptance_seconds,
+        metrics_out: args.metrics_out,
+        full_view_teleport_gate: args.full_view_teleport_gate,
+        require_transparent_presentation: args.require_transparent_presentation,
+        transparent_witness_request: args.transparent_witness_request,
+        model_witness_request: args.model_witness_request,
+    });
+    {
         const MAIN_FRAME: usize = render::RuntimeStage::MainFrame as usize;
-        app.insert_resource(RuntimeStageProfiler::new(true))
-            .init_resource::<render::RuntimeStageSpans>()
-            .add_systems(First, render::begin_stage_span::<MAIN_FRAME>)
-            .add_systems(
-                Last,
-                render::end_stage_span::<MAIN_FRAME>.after(arm_shutdown_watchdog),
-            );
+        app.insert_resource(RuntimeStageProfiler::for_gameplay(
+            stage_profile_enabled,
+            std::env::var_os(crate::acceptance::markers::STAGE_PROFILE_FRAMES)
+                .map(std::path::PathBuf::from),
+        ))
+        .init_resource::<render::RuntimeStageSpans>()
+        .add_plugins(render::GpuTimingPlugin)
+        .add_systems(
+            First,
+            (
+                crate::runtime::frame_profile::track_frame_interval,
+                crate::runtime::frame_profile::trace_frame_focus,
+                render::begin_stage_span::<MAIN_FRAME>,
+            )
+                .chain(),
+        )
+        .add_systems(
+            Last,
+            (
+                render::end_stage_span::<MAIN_FRAME>,
+                crate::runtime::frame_profile::flush_trace_on_exit,
+            )
+                .chain()
+                .after(arm_shutdown_watchdog),
+        );
     }
     app.add_plugins((
         ActorRenderPlugin,
@@ -897,29 +894,46 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         render::HandRigRenderPlugin,
         render::DroppedItemRenderPlugin,
         render::ScreenOverlayRenderPlugin,
+        render::AimAssistHighlightPlugin,
         render::ParticleRenderPlugin,
         render::BlockEntityRenderPlugin,
+        render::EntityShadowRenderPlugin,
+    ));
+    app.add_plugins(crate::render_mode::RenderModePlugin::new(
+        args.render_mode,
+        diagnostics_enabled,
     ));
     app.add_plugins(render::PanoramaRenderPlugin);
     if let Some(particle_assets) = &particle_assets {
-        app.insert_resource(render::ParticleSystem::from_assets(particle_assets));
+        app.insert_resource(render::ParticleSimulation(
+            particles::ParticleSystem::from_assets(particle_assets),
+        ));
     }
     app.insert_resource(particle_icons);
     crate::particles::configure_particles(&mut app);
     crate::block_entities::configure(&mut app, block_entity_font);
+    crate::block_selection::configure(&mut app);
+    crate::primitive_shapes::configure(&mut app);
     app.init_resource::<crate::presentation::viewmodel::HandAdapter>();
     if let Some(geometry) = hand_geometry {
         app.insert_resource(geometry);
     }
+    #[cfg(feature = "acceptance")]
     if let Some(identity) = phase3_identity_source {
         app.insert_resource(identity);
     }
+    crate::global_resources::configure(&mut app, global_pack_root, args.import_packs);
     configure_client_production_frame_systems(&mut app);
     configure_client_runtime_frame_systems(&mut app);
     crate::modding::configure_from_environment(&mut app);
+    #[cfg(feature = "developer-control")]
+    crate::developer_control::configure(&mut app);
+    crate::server_experiences::configure(&mut app);
+    crate::discord_presence::configure(&mut app);
     configure_acceptance_finish_system(&mut app);
 
     let exit = app.run();
+    crate::discord_presence::shutdown(&mut app);
     if let Some(mut network) = app.world_mut().remove_resource::<NetworkHandle>() {
         network.shutdown();
     }

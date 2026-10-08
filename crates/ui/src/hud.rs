@@ -8,7 +8,7 @@ pub const DEFAULT_TITLE_FADE_OUT_TICKS: u32 = 20;
 
 /// A server toast's slide in, time on screen (the notification-duration
 /// option's default, slide-in included) and slide out, from 26.30's
-/// `ToastMessage` defaults and `ToastManager`.
+/// toast defaults.
 pub const TOAST_SLIDE_IN_MILLIS: u64 = 500;
 pub const TOAST_DISPLAY_MILLIS: u64 = 3_000;
 pub const TOAST_SLIDE_OUT_MILLIS: u64 = 400;
@@ -21,6 +21,15 @@ pub struct BoundedStat {
 }
 
 impl BoundedStat {
+    /// Absorption displays rounded-up current points; its attribute range does not size the HUD.
+    pub fn from_absorption_points(current: f32) -> Option<Self> {
+        if !current.is_finite() || current < 0.0 || current > u16::MAX as f32 {
+            return None;
+        }
+        let points = current.ceil() as u16;
+        Self::new(points, points.max(1))
+    }
+
     pub const fn new(current: u16, maximum: u16) -> Option<Self> {
         if maximum == 0 || current > maximum {
             return None;
@@ -136,6 +145,13 @@ impl TimedText {
     }
 }
 
+/// What pressing a toast opens, through vanilla's `button.toast_interaction`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ToastPress {
+    /// The host's open Discord join requests.
+    JoinRequests,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Toast {
     pub title: Arc<str>,
@@ -171,15 +187,46 @@ impl Toast {
 
     /// How far it has slid onto the screen, `0.0..=1.0`.
     pub fn slide(&self, now_millis: u64) -> f32 {
-        let shown = now_millis.saturating_sub(self.started_millis);
-        let left = self.expires_millis.saturating_sub(now_millis);
-        let fraction = |part: u64, whole: u64| (part as f32 / whole as f32).min(1.0);
-        fraction(shown, TOAST_SLIDE_IN_MILLIS).min(fraction(left, TOAST_SLIDE_OUT_MILLIS))
+        slide_between(self.started_millis, self.expires_millis, now_millis)
     }
 
     fn retained_bytes(&self) -> usize {
         self.title.len() + self.message.len()
     }
+}
+
+/// How far a toast on screen from `started` to `expires` has slid in at `now`.
+fn slide_between(started: u64, expires: u64, now: u64) -> f32 {
+    let shown = now.saturating_sub(started);
+    let left = expires.saturating_sub(now);
+    let fraction = |part: u64, whole: u64| (part as f32 / whole as f32).min(1.0);
+    fraction(shown, TOAST_SLIDE_IN_MILLIS).min(fraction(left, TOAST_SLIDE_OUT_MILLIS))
+}
+
+/// A client toast that stands while its cause lasts, giving way to queued toasts and returning
+/// after them.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StandingToast {
+    /// Its cause: standing again for the same cause keeps it on screen.
+    pub id: u64,
+    pub title: Arc<str>,
+    pub message: Arc<str>,
+    pub press: ToastPress,
+    pub since_millis: u64,
+    /// When its cause ends and it slides out.
+    pub until_millis: u64,
+}
+
+/// The toast on screen at an instant.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ShownToast<'a> {
+    pub title: &'a str,
+    pub message: &'a str,
+    pub press: Option<ToastPress>,
+    /// When this showing began sliding in.
+    pub started_millis: u64,
+    /// How far it has slid onto the screen, `0.0..=1.0`.
+    pub slide: f32,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -236,6 +283,9 @@ pub struct HudStore {
     durations: TitleDurations,
     toasts: VecDeque<Toast>,
     toast_retained_bytes: usize,
+    /// When the last queued toast left the screen.
+    queue_ended_millis: u64,
+    standing: Option<StandingToast>,
     player_status: Option<HudPlayerStatus>,
 }
 
@@ -374,14 +424,17 @@ impl HudStore {
     }
 
     pub fn push_toast(&mut self, mut toast: Toast) -> usize {
-        // It waits for the toast ahead of it, keeping its own duration.
+        let duration = toast.expires_millis.saturating_sub(toast.started_millis);
+        // It waits for the toast ahead of it, keeping its own duration; a standing toast on
+        // screen slides out first.
         if let Some(ahead) = self.toasts.back()
             && ahead.expires_millis > toast.started_millis
         {
-            let duration = toast.expires_millis.saturating_sub(toast.started_millis);
             toast.started_millis = ahead.expires_millis;
-            toast.expires_millis = ahead.expires_millis.saturating_add(duration);
+        } else if self.standing_shown_at(toast.started_millis) {
+            toast.started_millis = toast.started_millis.saturating_add(TOAST_SLIDE_OUT_MILLIS);
         }
+        toast.expires_millis = toast.started_millis.saturating_add(duration);
         let bytes = toast.retained_bytes();
         if bytes > MAX_TOAST_RETAINED_BYTES {
             return 0;
@@ -427,14 +480,95 @@ impl HudStore {
         }
         // Toasts show one after another, so expiry is monotone from the front.
         while let Some(front) = self.toasts.front() {
-            if front.visible_at(now_millis) {
+            if now_millis < front.expires_millis {
                 break;
             }
             let removed = self.toasts.pop_front().expect("front checked above");
+            self.queue_ended_millis = self.queue_ended_millis.max(removed.expires_millis);
             self.toast_retained_bytes = self
                 .toast_retained_bytes
                 .saturating_sub(removed.retained_bytes());
         }
+        if self.standing.as_ref().is_some_and(|toast| {
+            now_millis >= toast.until_millis.saturating_add(TOAST_SLIDE_OUT_MILLIS)
+        }) {
+            self.standing = None;
+        }
+    }
+
+    pub const fn standing_toast(&self) -> Option<&StandingToast> {
+        self.standing.as_ref()
+    }
+
+    /// Stands `toast` in place of any other; standing again for the same cause before it ends
+    /// keeps it on screen.
+    pub fn stand_toast(&mut self, mut toast: StandingToast) {
+        if let Some(current) = &self.standing
+            && current.id == toast.id
+            && toast.since_millis < current.until_millis
+        {
+            toast.since_millis = current.since_millis;
+        }
+        self.standing = Some(toast);
+    }
+
+    /// Ends the standing toast's stay at `now_millis`, so it slides out from there.
+    pub fn retire_standing_toast(&mut self, now_millis: u64) {
+        if let Some(toast) = &mut self.standing {
+            toast.until_millis = toast.until_millis.min(now_millis);
+        }
+    }
+
+    /// The toast on screen at `now_millis`: a queued toast in its turn, else the standing one.
+    pub fn showing_toast(&self, now_millis: u64) -> Option<ShownToast<'_>> {
+        if let Some(toast) = self
+            .toasts
+            .iter()
+            .find(|toast| toast.visible_at(now_millis))
+        {
+            return Some(ShownToast {
+                title: &toast.title,
+                message: &toast.message,
+                press: None,
+                started_millis: toast.started_millis,
+                slide: toast.slide(now_millis),
+            });
+        }
+        let (toast, entered, leaves) = self.standing_window(now_millis)?;
+        (entered <= now_millis && now_millis < leaves).then(|| ShownToast {
+            title: &toast.title,
+            message: &toast.message,
+            press: Some(toast.press),
+            started_millis: entered,
+            slide: slide_between(entered, leaves, now_millis),
+        })
+    }
+
+    /// The standing toast's stay around `now_millis`: it enters after the last queued toast to
+    /// leave by then and leaves for the next one or when its cause ends.
+    fn standing_window(&self, now_millis: u64) -> Option<(&StandingToast, u64, u64)> {
+        let toast = self.standing.as_ref()?;
+        let entered = self
+            .toasts
+            .iter()
+            .map(|queued| queued.expires_millis)
+            .filter(|ended| *ended <= now_millis)
+            .fold(self.queue_ended_millis.max(toast.since_millis), u64::max);
+        let leaves = self
+            .toasts
+            .iter()
+            .map(|queued| queued.started_millis)
+            .filter(|starts| *starts >= entered)
+            .fold(
+                toast.until_millis.saturating_add(TOAST_SLIDE_OUT_MILLIS),
+                u64::min,
+            );
+        Some((toast, entered, leaves))
+    }
+
+    fn standing_shown_at(&self, now_millis: u64) -> bool {
+        self.standing_window(now_millis)
+            .is_some_and(|(_, entered, leaves)| entered <= now_millis && now_millis < leaves)
     }
 
     pub fn view_nodes(&self, now_millis: u64) -> Box<[HudViewNode]> {
@@ -489,14 +623,22 @@ impl HudStore {
     }
 }
 
+/// Formats a scaled stat with up to five decimal places, trimming trailing zeroes.
 fn format_stat_value(value: u16, scale: u16) -> String {
     let whole = value / scale;
-    let remainder = value % scale;
+    let mut remainder = u32::from(value % scale);
     if remainder == 0 {
         return whole.to_string();
     }
-    let width = scale.ilog10() as usize;
-    let mut fraction = format!("{remainder:0width$}");
+    let mut fraction = String::new();
+    for _ in 0..5 {
+        remainder *= 10;
+        fraction.push(char::from(b'0' + (remainder / u32::from(scale)) as u8));
+        remainder %= u32::from(scale);
+        if remainder == 0 {
+            break;
+        }
+    }
     while fraction.ends_with('0') {
         fraction.pop();
     }
