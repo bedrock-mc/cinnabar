@@ -4,7 +4,9 @@ use super::*;
 fn gamma_target_admission_is_narrow() {
     assert!(admitted(false, Msaa::Off, false));
     assert!(!admitted(true, Msaa::Off, false));
-    assert!(!admitted(false, Msaa::Sample4, false));
+    for msaa in [Msaa::Off, Msaa::Sample2, Msaa::Sample4, Msaa::Sample8] {
+        assert!(admitted(false, msaa, false));
+    }
     assert_eq!(
         admitted(false, Msaa::Off, true),
         !render_model::ENHANCED_RENDERING_ENABLED

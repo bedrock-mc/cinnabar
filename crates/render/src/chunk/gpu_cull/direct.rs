@@ -224,13 +224,18 @@ impl DirectOcclusion {
     }
 
     /// Whether a verdict for `view` could change what it skips; a settled still view needs none.
-    pub(in crate::chunk) fn wants_verdict(&self, entity: Entity, view: &ExtractedView) -> bool {
+    pub(in crate::chunk) fn wants_verdict(
+        &self,
+        entity: Entity,
+        view: &ExtractedView,
+        msaa: Msaa,
+    ) -> bool {
         !self.last_view.is_some_and(|(last_entity, last)| {
             last_entity == entity
                 && OcclusionBasis {
                     depth_size: last.depth_size,
                     world: last.world,
-                    ..view_basis(view)
+                    ..view_basis(view, msaa.samples())
                 } == last
                 && self.history.settled(&last)
         })
@@ -417,7 +422,7 @@ pub(super) fn prepare_direct_occlusion(
     let current = OcclusionBasis {
         depth_size: size.map_or([0; 2], |size| [size.width, size.height]),
         world: occlusion.history.world(),
-        ..view_basis(extracted)
+        ..view_basis(extracted, msaa.samples())
     };
     occlusion.skip_view = Some(queued.entity);
     occlusion.last_view = Some((queued.entity, current));
@@ -537,13 +542,14 @@ pub(super) fn submit_direct_occlusion(mut occlusion: ResMut<DirectOcclusion>) {
 }
 
 /// The view's pose half of a verdict basis; depth size and world come from prepare.
-pub(super) fn view_basis(view: &ExtractedView) -> OcclusionBasis {
+pub(super) fn view_basis(view: &ExtractedView, depth_samples: u32) -> OcclusionBasis {
     OcclusionBasis {
         eye: view.world_from_view.translation().to_array(),
         view_rotation: view.world_from_view.affine().matrix3.to_cols_array(),
         clip_from_view: view.clip_from_view.to_cols_array(),
         viewport: view.viewport.to_array(),
         depth_size: [0; 2],
+        depth_samples,
         world: 0,
     }
 }
@@ -579,6 +585,7 @@ impl ViewNode for TerrainPassNode {
     type ViewQuery = (
         &'static ExtractedCamera,
         &'static ViewTarget,
+        &'static crate::scene_target::SceneTarget,
         &'static ViewDepthTexture,
         Option<&'static MainPassResolutionOverride>,
     );
@@ -587,9 +594,10 @@ impl ViewNode for TerrainPassNode {
         &self,
         graph: &mut RenderGraphContext,
         render_context: &mut RenderContext<'w>,
-        (camera, target, depth, resolution_override): (
+        (camera, target, scene_target, depth, resolution_override): (
             &'w ExtractedCamera,
             &'w ViewTarget,
+            &'w crate::scene_target::SceneTarget,
             &'w ViewDepthTexture,
             Option<&'w MainPassResolutionOverride>,
         ),
@@ -607,7 +615,7 @@ impl ViewNode for TerrainPassNode {
         {
             let mut pass = render_context.begin_tracked_render_pass(RenderPassDescriptor {
                 label: Some("terrain solid pass"),
-                color_attachments: &[Some(target.get_color_attachment())],
+                color_attachments: &[Some(scene_target.color_attachment(target, false))],
                 depth_stencil_attachment: Some(depth.get_attachment(StoreOp::Store)),
                 timestamp_writes: crate::gpu_timing::render_pass_timestamps(
                     world,

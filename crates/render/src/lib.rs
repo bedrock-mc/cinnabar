@@ -64,6 +64,8 @@ pub use primitive_shapes::{PrimitiveShapesRenderPlugin, PrimitiveShapesScene};
 mod runtime_profile;
 mod runtime_profile_slow;
 mod runtime_profile_trace;
+mod scene_sampling;
+mod scene_target;
 mod screen_fire;
 mod screen_overlay;
 mod screen_overlay_portal;

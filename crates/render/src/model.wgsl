@@ -25,6 +25,8 @@ struct AtmosphereUniform {
 @group(0) @binding(4) var block_textures_page_0: texture_2d_array<f32>;
 @group(0) @binding(5) var block_textures_page_1: texture_2d_array<f32>;
 @group(0) @binding(6) var block_sampler: sampler;
+@group(0) @binding(NATIVE_LEAF_TEXTURE_BINDING_0) var terrain_gamma_page_0: texture_2d_array<f32>;
+@group(0) @binding(NATIVE_LEAF_TEXTURE_BINDING_1) var terrain_gamma_page_1: texture_2d_array<f32>;
 @group(0) @binding(9) var<storage, read> animations: array<AnimationGpu>;
 @group(0) @binding(10) var<storage, read> animation_frames: array<u32>;
 @group(0) @binding(11) var<uniform> clock: AnimationClockGpu;
@@ -313,32 +315,19 @@ fn tinted(sampled: vec4<f32>, flags: u32, record: u32, position: vec3<f32>, worl
     return vec4(sampled.rgb * blended_biome_tint(tint_kind, flags, record, position, world_origin).rgb, sampled.a);
 }
 
-// Samples retained atlas RGB without doing colour work before the alpha test.
-fn sample_raw_ref(texture_ref: u32, uv: vec2<f32>, dx: vec2<f32>, dy: vec2<f32>) -> vec4<f32> {
-    let layer = i32(texture_ref & 0x7ffu);
-    var sampled: vec4<f32>;
-    if ((texture_ref >> 31u) == 0u) {
-        sampled = textureSampleGrad(block_textures_page_0, block_sampler, uv, layer, dx, dy);
-    } else {
-        sampled = textureSampleGrad(block_textures_page_1, block_sampler, uv, layer, dx, dy);
-    }
-    return sampled;
-}
-
-// Decode each animation frame before interpolation to retain native gamma blending.
-fn decode_sample(sampled: vec4<f32>) -> vec4<f32> {
-#ifdef ENHANCED
-    return sampled;
-#else
-    // Ordinary RenderChunk samples a UNORM atlas. Undo our retained sRGB
-    // view before animation-frame interpolation as well as terrain lighting.
-    return tint_to_gamma(sampled);
-#endif
-}
-
-// Translucent models retain their complete colour and alpha sample.
 fn sample_ref(texture_ref: u32, uv: vec2<f32>, dx: vec2<f32>, dy: vec2<f32>) -> vec4<f32> {
-    return decode_sample(sample_raw_ref(texture_ref, uv, dx, dy));
+    let layer = i32(texture_ref & 0x7ffu);
+#ifdef ENHANCED
+    if ((texture_ref >> 31u) == 0u) {
+        return textureSampleGrad(block_textures_page_0, block_sampler, uv, layer, dx, dy);
+    }
+    return textureSampleGrad(block_textures_page_1, block_sampler, uv, layer, dx, dy);
+#else
+    if ((texture_ref >> 31u) == 0u) {
+        return textureSampleGrad(terrain_gamma_page_0, block_sampler, uv, layer, dx, dy);
+    }
+    return textureSampleGrad(terrain_gamma_page_1, block_sampler, uv, layer, dx, dy);
+#endif
 }
 
 fn distance_fog_amount(world_position: vec3<f32>) -> f32 {
@@ -380,21 +369,15 @@ fn fragment(
     if (!front_facing && in.two_sided == 0u) { discard; }
     let dx = dpdx(in.uv);
     let dy = dpdy(in.uv);
-    let current = sample_raw_ref(in.current_texture, in.uv, dx, dy);
-    var next = current;
-    var alpha = current.a;
+    // Both views already hold the working colour space, so frames blend before the alpha test.
+    var sampled = sample_ref(in.current_texture, in.uv, dx, dy);
     if (in.frame_blend > 0.0) {
-        next = sample_raw_ref(in.next_texture, in.uv, dx, dy);
-        alpha = mix(current.a, next.a, in.frame_blend);
+        sampled = mix(sampled, sample_ref(in.next_texture, in.uv, dx, dy), in.frame_blend);
     }
-    if (alpha < 0.5) { discard; }
+    if (sampled.a < 0.5) { discard; }
 #ifdef OPAQUE_OVERDRAW
     return vec4(1.0);
 #else
-    var sampled = decode_sample(current);
-    if (in.frame_blend > 0.0) {
-        sampled = mix(sampled, decode_sample(next), in.frame_blend);
-    }
 #ifdef ENHANCED
     let colour = tinted(sampled, in.material_flags, in.biome_record, in.local_position, in.world_origin);
     let shaded = shade_surface(

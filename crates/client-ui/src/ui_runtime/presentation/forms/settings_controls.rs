@@ -34,9 +34,24 @@ pub(super) fn bind_values(
                 data.set_global(format!("#{}", option.name), Scalar::Bool(value != 0));
             }
             SettingKind::Slider => {
-                let fraction = f64::from(value - option.min) / f64::from(option.max - option.min);
-                data.set_global(format!("#{}", option.name), Scalar::Num(fraction));
-                data.set_global(format!("#{}_steps", option.name), Scalar::Num(1.0));
+                let (position, steps) = if option.name == "msaa" {
+                    let counts: Vec<_> = options.anti_aliasing_support().counts().collect();
+                    let selected = counts
+                        .iter()
+                        .position(|count| *count == value as u32)
+                        .unwrap_or(0);
+                    (selected as f64, counts.len() as f64)
+                } else {
+                    (
+                        f64::from(value - option.min) / f64::from(option.max - option.min),
+                        1.0,
+                    )
+                };
+                data.set_global(format!("#{}", option.name), Scalar::Num(position));
+                data.set_global(format!("#{}_steps", option.name), Scalar::Num(steps));
+                if option.name == "msaa" {
+                    data.set_global("#msaa_enabled", Scalar::Bool(steps > 1.0));
+                }
                 let shown = display_value(option, value, translate);
                 data.set_global(
                     format!("#{}_text_value", option.name),
@@ -80,6 +95,7 @@ fn bind_visibility(view: &MenuView, data: &mut DataSource, translate: &dyn Fn(&s
         "#keyboard_show_standard_keyboard_options",
         "#gui_scale_visible",
         "#show_render_distance",
+        "#show_msaa",
         "#max_framerate_slider_visible",
         "#advanced_graphics_options_button_visible",
     ] {
@@ -123,7 +139,7 @@ fn display_value(
     translate: &dyn Fn(&str) -> String,
 ) -> String {
     match option.name {
-        "field_of_view" | "gui_scale" => value.to_string(),
+        "field_of_view" | "gui_scale" | "msaa" => value.to_string(),
         "max_framerate" if value == 0 => translate("options.framerateLimit.max"),
         "max_framerate" => value.to_string(),
         "render_distance" => {
@@ -168,7 +184,10 @@ pub(super) fn action_values(options: &SettingsOptions, region: &HitRegion) -> Op
 }
 
 /// Enumerate slider stops from the same range used for validation and persistence.
-pub(super) fn slider_actions(region: &HitRegion) -> Option<Vec<MenuAction>> {
+pub(super) fn slider_actions(
+    options: &SettingsOptions,
+    region: &HitRegion,
+) -> Option<Vec<MenuAction>> {
     if region.kind != HitKind::Slider {
         return None;
     }
@@ -177,6 +196,15 @@ pub(super) fn slider_actions(region: &HitRegion) -> Option<Vec<MenuAction>> {
         .iter()
         .enumerate()
         .find(|(_, option)| option.name == name && matches!(option.kind, SettingKind::Slider))?;
+    if option.name == "msaa" {
+        return Some(
+            options
+                .anti_aliasing_support()
+                .counts()
+                .map(|samples| MenuAction::SettingsOption(index as u16, samples as i32))
+                .collect(),
+        );
+    }
     Some(
         (option.min..=option.max)
             .step_by(option.step as usize)

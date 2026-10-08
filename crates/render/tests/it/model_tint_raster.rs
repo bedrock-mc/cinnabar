@@ -174,7 +174,7 @@ fn atlas(gpu: &Gpu) -> wgpu::TextureView {
         mip_level_count: 1,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Rgba8UnormSrgb,
+        format: wgpu::TextureFormat::Rgba8Unorm,
         usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
         view_formats: &[],
     });
@@ -407,8 +407,14 @@ fn model_tint_pixels_match_fragment_biome_reference() {
         (0, view.as_entire_binding()),
         (2, origins.as_entire_binding()),
         (3, materials.as_entire_binding()),
-        (4, wgpu::BindingResource::TextureView(&atlas)),
-        (5, wgpu::BindingResource::TextureView(&atlas)),
+        (
+            crate::material_shader::NATIVE_LEAF_TEXTURE_BINDINGS[0],
+            wgpu::BindingResource::TextureView(&atlas),
+        ),
+        (
+            crate::material_shader::NATIVE_LEAF_TEXTURE_BINDINGS[1],
+            wgpu::BindingResource::TextureView(&atlas),
+        ),
         (6, wgpu::BindingResource::Sampler(&sampler)),
         (7, records.as_entire_binding()),
         (8, tints.as_entire_binding()),
@@ -445,10 +451,13 @@ fn model_tint_pixels_match_fragment_biome_reference() {
                 };
                 let expected = raster(&gpu, &reference, "raster_model_vertex", &draws);
                 let actual = raster(&gpu, &candidate, "raster_model_vertex", &draws);
+                // The flat vertex tint and the per-fragment reference may round one unit apart.
                 let mismatch = expected
                     .chunks_exact(4)
                     .zip(actual.chunks_exact(4))
-                    .filter(|(left, right)| left != right)
+                    .filter(|(left, right)| {
+                        left.iter().zip(*right).any(|(l, r)| l.abs_diff(*r) > 1)
+                    })
                     .count();
                 assert_eq!(
                     mismatch, 0,
@@ -522,16 +531,13 @@ fn ordinary_world_model_gamma_colour(in: VertexOutput, sampled_gamma: vec4<f32>)
 "#;
 
 const REFERENCE_FRAGMENT: &str = r#"
-// Each frame enters gamma RGB before frame interpolation, retaining its sampled alpha.
+// Each frame samples encoded gamma RGB before frame interpolation, retaining its alpha.
 fn reference_sample_ref(texture_ref: u32, uv: vec2<f32>, dx: vec2<f32>, dy: vec2<f32>) -> vec4<f32> {
     let layer = i32(texture_ref & 0x7ffu);
-    var sampled: vec4<f32>;
     if ((texture_ref >> 31u) == 0u) {
-        sampled = textureSampleGrad(block_textures_page_0, block_sampler, uv, layer, dx, dy);
-    } else {
-        sampled = textureSampleGrad(block_textures_page_1, block_sampler, uv, layer, dx, dy);
+        return textureSampleGrad(terrain_gamma_page_0, block_sampler, uv, layer, dx, dy);
     }
-    return tint_to_gamma(sampled);
+    return textureSampleGrad(terrain_gamma_page_1, block_sampler, uv, layer, dx, dy);
 }
 
 // Samples and mixes full frame colour before rejecting uncovered fragments.

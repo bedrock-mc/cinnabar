@@ -177,3 +177,27 @@ fn primitive_text_material_modes_keep_depth_background_and_facing() {
         );
     }
 }
+
+#[test]
+fn shapes_and_text_preserve_the_scene_sample_count_in_each_material_mode() {
+    for msaa in [Msaa::Off, Msaa::Sample2, Msaa::Sample4, Msaa::Sample8] {
+        for mode in 0..=4 {
+            for hdr in [false, true] {
+                let mut pipeline = descriptor();
+                ShapeSpecializer
+                    .specialize(
+                        Key {
+                            msaa,
+                            hdr,
+                            gamma: !hdr,
+                            mode,
+                        },
+                        &mut pipeline,
+                    )
+                    .unwrap();
+                assert_eq!(pipeline.multisample.count, msaa.samples());
+                assert_eq!(pipeline.depth_stencil.unwrap().format, CORE_3D_DEPTH_FORMAT);
+            }
+        }
+    }
+}

@@ -1,7 +1,6 @@
 use std::f32::consts::PI;
 
 use bevy::{
-    anti_alias::fxaa::Fxaa,
     core_pipeline::tonemapping::Tonemapping,
     input::{
         mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll},
@@ -17,6 +16,7 @@ use crate::local_player::{
     LocalPlayerFrameCarrier, LocalViewPose,
 };
 
+pub mod antialiasing;
 mod bob;
 mod controls;
 mod easing;
@@ -118,13 +118,12 @@ pub fn spawn_fly_camera(
     window: Single<&Window, With<PrimaryWindow>>,
     settings: Res<CameraSettingsAuthority>,
     view: Res<LocalViewPose>,
+    support: Res<antialiasing::CameraAntiAliasingSupport>,
 ) {
     let camera = FlyCamera::default();
     commands.spawn((
         Camera3d::default(),
-        // FXAA avoids unsupported depth sample counts and broken DX12 multisample resolves.
-        Msaa::Off,
-        Fxaa::default(),
+        support.msaa(settings.anti_aliasing_samples()),
         Projection::Perspective(PerspectiveProjection {
             fov: projection_fov_radians(settings.horizontal_fov_degrees()),
             aspect_ratio: window_aspect(&window),
@@ -159,6 +158,7 @@ impl Plugin for CameraPresentationPlugin {
                 self.capture_on_start,
             ))
             .init_resource::<CameraSettingsAuthority>()
+            .init_resource::<antialiasing::CameraAntiAliasingSupport>()
             .init_resource::<CameraFovInputs>()
             .init_resource::<CameraFovState>()
             .init_resource::<look::LookSmoother>()
@@ -180,6 +180,9 @@ impl Plugin for CameraPresentationPlugin {
             .init_resource::<LocalPlayerFrameCarrier>()
             .init_resource::<LocalAvatarPresentation>()
             .init_resource::<LocalAvatarVisibilityCarrier>();
+    }
+    fn finish(&self, app: &mut App) {
+        antialiasing::install_device_support(app);
     }
 }
 
