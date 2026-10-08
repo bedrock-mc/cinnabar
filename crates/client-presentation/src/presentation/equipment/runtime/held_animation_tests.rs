@@ -358,3 +358,106 @@ fn installed_bow_third_person_uses_authored_texture_mesh_and_wield_pose() {
         "the third-person bow must retain its authored wield channels on the owner's hand"
     );
 }
+
+#[test]
+fn custom_wearable_model_draws_only_in_its_effective_armor_slot() {
+    let (mut runtime, _) = pack_runtime(held_pack());
+    let body = player_body(&mut runtime);
+    let owner = owner();
+    let names = ["rightItem".into()];
+    let rig = owner_rig(&owner, &names);
+    let items = super::session_items(
+        vec![(
+            "test:held",
+            protocol::ItemComponents {
+                wearable_slot: Some("slot.armor.head".into()),
+                ..Default::default()
+            },
+        )],
+        vec![],
+    );
+    runtime.set_session_items(Some(&items), None, Vec::new());
+    let animation = EquipmentAnimation {
+        owner: &owner,
+        rig: &rig,
+        frame_alpha: 0.5,
+        delta_seconds: client_world::ACTOR_TICK_DURATION.as_secs_f32(),
+    };
+    let mut input = held("test:held");
+    assert!(
+        runtime
+            .layers_for(&body, &input, Some(animation))
+            .is_empty(),
+        "a custom wearable must not draw its worn geometry in the hand"
+    );
+    input.armor[0] = input.main.take();
+    assert_eq!(runtime.layers_for(&body, &input, Some(animation)).len(), 1);
+    input.armor[1] = input.armor[0].take();
+    assert!(
+        runtime
+            .layers_for(&body, &input, Some(animation))
+            .is_empty(),
+        "the model must not draw in another armor slot"
+    );
+}
+
+#[test]
+fn third_person_authored_offset_tracks_the_drawn_rotating_parent() {
+    let (mut runtime, _) = pack_runtime(held_pack());
+    let mut body = player_body(&mut runtime);
+    let owner = owner();
+    let names = ["rightItem".into()];
+    let rig = owner_rig(&owner, &names);
+    let hand = [
+        "root",
+        "body",
+        "head",
+        "rightArm",
+        "leftArm",
+        "rightItem",
+        "leftItem",
+    ]
+    .iter()
+    .position(|name| *name == "rightItem")
+    .unwrap();
+    let mut previous = body.input.previous_bones.to_vec();
+    previous[hand].rotation = Quat::IDENTITY.to_array();
+    previous[hand].translation_scale = [0.2, 0.8, -0.3, 1.0];
+    let mut current = previous.clone();
+    current[hand].rotation = Quat::from_rotation_z(1.5).to_array();
+    current[hand].translation_scale = [0.6, 0.4, 0.2, 1.0];
+    current[hand].axis_scale = [1.5, 0.75, 1.0, 1.0];
+    body.input.previous_bones = previous.into();
+    body.input.current_bones = current.into();
+    let vertex = Vec3::new(0.2, 0.1, 0.05);
+    let authored_vertex = vertex + Vec3::new(-2.0, 3.0, 4.0) / 16.0;
+    let transform = |pose: render_model::RenderBoneTransform, vertex: Vec3| {
+        Vec3::from_slice(&pose.translation_scale[..3])
+            + Quat::from_array(pose.rotation)
+                * (vertex * Vec3::from_slice(&pose.axis_scale[..3]) * pose.translation_scale[3])
+    };
+    for alpha in [0.25, 0.5, 0.75] {
+        let layers = runtime.layers_for(
+            &body,
+            &held("test:held"),
+            Some(EquipmentAnimation {
+                owner: &owner,
+                rig: &rig,
+                frame_alpha: alpha,
+                delta_seconds: client_world::ACTOR_TICK_DURATION.as_secs_f32(),
+            }),
+        );
+        assert_eq!(layers.len(), 1);
+        let equipment = &layers[0].submission.input;
+        let drawn_item = transform(equipment.previous_bones[0], vertex)
+            .lerp(transform(equipment.current_bones[0], vertex), alpha);
+        let drawn_parent = transform(body.input.previous_bones[hand], authored_vertex).lerp(
+            transform(body.input.current_bones[hand], authored_vertex),
+            alpha,
+        );
+        assert!(
+            drawn_item.abs_diff_eq(drawn_parent, 1e-5),
+            "authored offset drifted from the drawn parent at {alpha}: {drawn_item:?} vs {drawn_parent:?}"
+        );
+    }
+}

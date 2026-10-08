@@ -333,9 +333,9 @@ impl EquipmentRuntime {
                         .filter(|_| {
                             self.binding_source(&item.identifier)
                                 .and_then(|(catalog, _)| {
-                                    catalog
-                                        .binding(&item.identifier)
-                                        .map(|binding| binding.category)
+                                    catalog.binding(&item.identifier).map(|binding| {
+                                        self.effective_category(&item.identifier, binding.category)
+                                    })
                                 })
                                 .is_some_and(|category| {
                                     matches!(
@@ -698,29 +698,36 @@ impl PoseMemo {
     }
 
     /// Samples placed channels without allocating when the published pose is unchanged.
-    pub(super) fn sample(
+    pub(super) fn sample_pair(
         &mut self,
         body: &ActorRigSubmission,
         layer: u8,
         len: usize,
-        mut transform: impl FnMut(usize) -> Option<RenderBoneTransform>,
-    ) -> Option<RenderPose> {
+        mut transform: impl FnMut(usize, usize) -> Option<RenderBoneTransform>,
+    ) -> Option<[RenderPose; 2]> {
         let key = (body.input.identity.runtime_id, layer);
-        let retained = self.entries.get(&key).and_then(|(poses, _)| {
-            let pose = &poses[1];
-            (pose.len() == len && (0..len).all(|index| transform(index) == Some(pose[index])))
-                .then(|| Arc::clone(pose))
-        });
-        let pose = match retained {
-            Some(pose) => pose,
-            None => (0..len)
-                .map(&mut transform)
-                .collect::<Option<Vec<_>>>()?
-                .into(),
-        };
-        self.entries
-            .insert(key, ([Arc::clone(&pose), Arc::clone(&pose)], self.frame));
-        Some(pose)
+        let old = self.entries.get(&key).map(|entry| entry.0.clone());
+        let mut sampled: [Option<RenderPose>; 2] = [None, None];
+        for endpoint in 0..2 {
+            let retained = sampled[0]
+                .iter()
+                .chain(old.iter().flatten())
+                .find(|pose| {
+                    pose.len() == len
+                        && (0..len).all(|index| transform(endpoint, index) == Some(pose[index]))
+                })
+                .cloned();
+            sampled[endpoint] = Some(match retained {
+                Some(pose) => pose,
+                None => (0..len)
+                    .map(|index| transform(endpoint, index))
+                    .collect::<Option<Vec<_>>>()?
+                    .into(),
+            });
+        }
+        let poses = sampled.map(Option::unwrap);
+        self.entries.insert(key, (poses.clone(), self.frame));
+        Some(poses)
     }
 
     /// Shared allocations holding `poses` (previous, current) for `body`'s `layer`.

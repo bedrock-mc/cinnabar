@@ -451,6 +451,10 @@ RVAs are 1.26.50.26 Windows client; `mac 0x10…` addresses are the 26.30 macOS 
   `context.is_first_person` to zero, copies matching owner bone matrices, clears
   their default TRS and applies the attachable animation component. The draw
   consumer is `01.cpp:2546380–2546509` and `FUN_141e86370`.
+- Equipment admission uses the effective wearable slot already consumed by worn
+  publication. Third-person authored placement composes against both owner pose
+  endpoints so `crates/render/src/actor.wgsl` blends the same transformed parent
+  vertices; first-person placement retains its sampled owner frame.
 - Pinned pack `attachables/bow.json`, `animations/bow.animation.json` and
   `models/entity/bow.geo.json` own the third-person wield channels, standby
   texture mesh and rightitem attachment. `entity/skeleton.entity.json`,
