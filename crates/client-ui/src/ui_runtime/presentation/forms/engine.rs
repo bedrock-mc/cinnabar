@@ -580,6 +580,9 @@ fn edit_texts(
         .collect()
 }
 
+/// Advance an admitted hunger control and return its render-update count.
+type HungerUpdate<'a> = &'a dyn Fn(&str, Option<u64>) -> u64;
+
 /// Caller art the custom renderers draw: `#item_renderer_data` icons, the player preview,
 /// the tooltip pointer (virtual px), the fade clock (s), HUD state, artwork and gamerpic.
 #[derive(Clone, Copy, Default)]
@@ -606,7 +609,7 @@ pub(super) struct ScreenArt<'a> {
     pub(super) clocks: Option<&'a std::collections::BTreeMap<String, f64>>,
     pub(super) hud: Option<&'a hud_renderers::HudPaint>,
     /// Per-control updates advance only when a hunger renderer reaches painting.
-    pub(super) hunger_update: Option<&'a dyn Fn(&str, Option<u64>) -> u64>,
+    pub(super) hunger_update: Option<HungerUpdate<'a>>,
     pub(super) images: Option<&'a std::collections::HashMap<String, IconRef>>,
     pub(super) portrait: Option<IconRef>,
     pub(super) splash: Option<&'a str>,

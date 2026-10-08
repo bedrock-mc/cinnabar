@@ -400,7 +400,7 @@ impl<'a> Binder<'a> {
         }
         let for_children = declaration.bags.children(&scope.for_children);
         let parent = scope.retained_parent;
-        let created = retained.is_none();
+        let created = retained.as_ref().is_none_or(|memory| !memory.keep_bag);
         let mut memory = retained.unwrap_or_default();
         memory.parent = parent;
         memory.parent_incarnation = scope.retained_incarnation;
@@ -488,9 +488,10 @@ impl<'a> Binder<'a> {
         let visible = native.visible(control);
         let awaits_views =
             grid_awaits_views(control, &bindings) || factory_awaits_views(control, &bindings);
-        // Custom renderer lifetimes and binding memory survive hidden subtrees.
-        let retained =
-            custom || !bindings.is_empty() || !native.props.is_empty() || !visible || had_published;
+        memory.keep_bag =
+            !bindings.is_empty() || !native.props.is_empty() || !visible || had_published;
+        // A renderer lifetime survives refreshes without freezing literal bags.
+        let retained = custom || memory.keep_bag;
         if retained {
             child_scope.retained_parent = key;
             child_scope.retained_incarnation = child_scope.incarnation;

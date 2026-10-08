@@ -83,6 +83,8 @@ pub(super) fn new_custom_instance() -> u64 {
 pub(super) struct Retained {
     /// Survives hidden subtrees and refreshes, but never a destroyed control.
     pub(super) custom_instance: Option<u64>,
+    /// Binding, component, or visibility state owns the bag instead of fresh literals.
+    pub(super) keep_bag: bool,
     pub(super) incarnation: Option<u64>,
     pub(super) parent_incarnation: Option<u64>,
     pub(super) bag: BTreeMap<String, Scalar>,
