@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use inventory::inventory_ledger::{PLAYER_INVENTORY_SLOT_COUNT, StackResponseOverlay};
 use protocol::{
     ActorEffectAction, ActorEffectEvent, ContainerIdentity, InventoryContentEvent, InventoryEvent,
     InventorySlotEvent, NetworkItemStack, SlotIdentity, WorldBootstrap,
@@ -67,7 +68,7 @@ fn snapshots_preserve_unknown_empty_and_present_inventory_and_gear() {
     assert!(empty.inventory.iter().all(|slot| !slot.known));
     assert!(empty.armor.iter().all(|slot| !slot.known));
     assert!(!empty.offhand.known);
-    let mut slots = vec![NetworkItemStack::empty(); inventory::PLAYER_INVENTORY_SLOT_COUNT];
+    let mut slots = vec![NetworkItemStack::empty(); PLAYER_INVENTORY_SLOT_COUNT];
     slots[0] = stack("minecraft:arrow", 16);
     slots[9] = stack("minecraft:arrow", 23);
     player.inventory.ledger_mut().apply(&content(0, slots));
@@ -117,7 +118,7 @@ fn durability_corrections_win_and_custom_or_invalid_data_is_not_invented() {
         &authority,
         player.inventory.ledger(),
         &helmet,
-        Some(&inventory::StackResponseOverlay {
+        Some(&StackResponseOverlay {
             durability_correction: Some(11),
             ..Default::default()
         }),

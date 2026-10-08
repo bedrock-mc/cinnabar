@@ -2,7 +2,10 @@
 
 use client_ui::ui_runtime::UiRuntime;
 use client_world::WorldAuthority;
-use inventory::{InventoryTarget, PlayerInventorySlot};
+use inventory::{
+    PlayerInventorySlot,
+    inventory_ledger::{InventoryTarget, PLAYER_INVENTORY_SLOT_COUNT, StackResponseOverlay},
+};
 use mod_host::{PlayerStateEffect, PlayerStateItem, PlayerStateSlot, PlayerStateSnapshot};
 
 /// Capture one connected session; no data survives an owner/session mismatch.
@@ -18,7 +21,7 @@ pub(super) fn snapshot(
     }
     let ledger = player.inventory.ledger();
     let selected = player.selected_stack_snapshot();
-    let inventory = (0..inventory::PLAYER_INVENTORY_SLOT_COUNT)
+    let inventory = (0..PLAYER_INVENTORY_SLOT_COUNT)
         .map(|slot| {
             let state = selected
                 .as_ref()
@@ -92,7 +95,7 @@ fn project_slot(
     authority: &WorldAuthority,
     ledger: &inventory::PlayerInventoryLedger,
     state: PlayerInventorySlot<'_>,
-    overlay: Option<&inventory::StackResponseOverlay>,
+    overlay: Option<&StackResponseOverlay>,
 ) -> PlayerStateSlot {
     match state {
         PlayerInventorySlot::Unknown => PlayerStateSlot {
@@ -117,7 +120,7 @@ fn project_item(
     authority: &WorldAuthority,
     ledger: &inventory::PlayerInventoryLedger,
     stack: &protocol::NetworkItemStack,
-    overlay: Option<&inventory::StackResponseOverlay>,
+    overlay: Option<&StackResponseOverlay>,
 ) -> Option<PlayerStateItem> {
     let canonical = authority.canonical_item_stack(stack)?;
     let identifier = canonical.identifier.filter(|identifier| {
