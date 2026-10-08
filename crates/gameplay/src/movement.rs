@@ -288,6 +288,7 @@ impl MovementTicker {
         }
         self.terminal_drain = false;
         self.pending_control_fence = false;
+        self.anchor_prior_tick_end(self.previous_position);
     }
 
     pub fn snap_non_authoritative_anchor(&mut self, tick: u64, position: [f32; 3]) {
