@@ -1,11 +1,14 @@
 use super::{evaluation::MolangValue, *};
 
+mod potion;
 mod wolf;
 
 #[cfg(test)]
 mod fish_tests;
 #[cfg(test)]
 mod pack_query_tests;
+#[cfg(test)]
+mod potion_tests;
 #[cfg(test)]
 mod tropical_fish_tests;
 
@@ -300,6 +303,11 @@ fn number(evaluator: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) ->
     }
     if let Some((_, bit)) = FLAG_QUERIES.iter().find(|(query, _)| *query == name) {
         return truth(actor_flag(actor, *bit));
+    }
+    if name == "variant"
+        && let Some(variant) = potion::variant(actor)
+    {
+        return variant;
     }
     if let Some(key) = integer_query_key(name) {
         return metadata_number(actor, key).unwrap_or(0.0);

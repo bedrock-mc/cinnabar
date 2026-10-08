@@ -951,6 +951,12 @@ eleven crisp orb sprites with the actual live camera query. Exact between-tick
 billboard sampling, End lighting, beam AABB light sampling and the previously
 recorded identical-version gates remain open.
 
+Thrown splash and lingering potion appearance now reads each projectile's own
+short auxiliary value and shares the reviewed item sprite routes. Known potion
+routes agree with the pinned effect texture arrays; the current native potion
+table constructor and auxiliary values without reviewed routes remain incomplete.
+This correction does not close the broader actor parity gate.
+
 The canonical v21 debug build passes, along with focused snowball, explosion,
 credits, boss UI/wire/app/session, orb, portal overlay GPU and shader checks.
 Formatting, architecture and diff checks pass. It is running through a persistent

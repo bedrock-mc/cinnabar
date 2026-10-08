@@ -36,6 +36,7 @@ mod model;
 mod ogg;
 mod particle;
 mod physics_registry;
+mod potion;
 mod provenance;
 mod registry;
 mod runtime;
@@ -50,6 +51,8 @@ mod ui;
 pub mod vanilla_pack;
 mod vanilla_refs;
 mod weather_textures;
+
+pub use potion::vanilla_potion_variant;
 
 pub use hud_extras::{
     HUD_EXTRA_SIDE, HUD_EXTRAS_MAGIC, HUD_EXTRAS_VERSION, HudExtraRole, HudExtras, HudExtrasError,
