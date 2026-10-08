@@ -70,6 +70,13 @@ impl MenuRuntime {
 
     /// Returns to the screen below; an in-game root closes the menu.
     pub(super) fn go_back(&mut self) {
+        if !self.is_connecting()
+            && matches!(self.dialog, None | Some(super::MenuDialog::Accounts))
+            && self.sign_in_focus().is_some()
+        {
+            self.activate(MenuAction::CancelSignIn);
+            return;
+        }
         // Back on a join request's popup declines it, as vanilla's modal escape.
         if self.join_request_prompted() {
             self.answer_join_request(false);

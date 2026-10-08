@@ -116,10 +116,7 @@ fn menu_states_open_their_vanilla_screens() {
         uri: "https://x".into(),
         code: "ABC".into(),
     };
-    assert_eq!(
-        reference(&code),
-        Some("xbl_console_signin.xbl_console_signin")
-    );
+    assert_eq!(reference(&code), Some("start.start_screen"));
 }
 
 /// A local world's loading screen wins over the plain connecting screen and cancels the open.

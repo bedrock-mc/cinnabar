@@ -52,7 +52,9 @@ type Config struct {
 	// LocalTarget, when set, is asked per connection for a local server address; ok=false
 	// falls back to Upstream. Upstream may then be empty.
 	LocalTarget LocalTargetFunc
-	PacketDelay *PacketDelay
+	// LocalHostConnected grants host permissions after the ordinary local client joins its managed world.
+	LocalHostConnected func(context.Context, string, string) error
+	PacketDelay        *PacketDelay
 	// ServerTrust, when set, decides whether to join NetherNet servers reached by address.
 	ServerTrust minecraft.ServerTrust
 }
@@ -102,7 +104,7 @@ func Serve(ctx context.Context, cfg Config) (err error) {
 	online := func(ctx context.Context) (*resolvedUpstreamTarget, error) {
 		return dial(ctx, cfg.Upstream)
 	}
-	prepared.dialTarget = consumeTransferOnDial(prepared.dialTarget, transfers)
+	prepared.dialTarget = grantLocalHostOnDial(consumeTransferOnDial(prepared.dialTarget, transfers), cfg.LocalHostConnected)
 	prepared.resolveTarget = withPendingTransfer(transfers, dial, withSelectedTarget(cfg.Selector, dial, withLocalTarget(cfg.LocalTarget, online)))
 	listener, err := localListenConfig(func(ctx context.Context, conn *minecraft.Conn) error {
 		selected, pinned := conn.Proto(), minecraft.DefaultProtocol

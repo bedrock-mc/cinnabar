@@ -105,6 +105,7 @@ impl MenuRuntime {
     /// Whether the popup is up: the menu shows and no other popup outranks it.
     pub(super) fn join_request_prompted(&self) -> bool {
         self.visible
+            && self.sign_in_focus().is_none()
             && self.dialog.is_none()
             && !(self.is_connecting() && self.feeds.server_trust.is_some())
             && self.join_requests.requests.current().is_some()

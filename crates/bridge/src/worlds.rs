@@ -62,6 +62,8 @@ pub struct World {
     pub generator: Generator,
     pub difficulty: Difficulty,
     #[serde(default)]
+    pub allow_cheats: bool,
+    #[serde(default)]
     pub backend: Backend,
     pub seed: i64,
     pub created_unix: i64,
@@ -89,6 +91,7 @@ pub struct NewWorld {
     pub game_mode: GameMode,
     pub generator: Generator,
     pub difficulty: Difficulty,
+    pub allow_cheats: bool,
     /// `None` takes the core's default for this machine.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub backend: Option<Backend>,
@@ -191,6 +194,10 @@ pub struct WorldStatus {
 pub struct Prefs {
     #[serde(default)]
     pub docker_prompt_dismissed: bool,
+    #[serde(default)]
+    pub creation_backend: Option<Backend>,
+    #[serde(default)]
+    pub creation_generator: Option<Generator>,
 }
 
 /// Changes to [`Prefs`]; `redetect` re-probes for Docker before the core replies.
@@ -198,6 +205,10 @@ pub struct Prefs {
 pub struct PrefsUpdate {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub docker_prompt_dismissed: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub creation_backend: Option<Backend>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub creation_generator: Option<Generator>,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub redetect: bool,
 }
@@ -470,7 +481,7 @@ mod tests {
         .expect("encode");
         assert_eq!(
             random,
-            serde_json::json!({"name":"a","game_mode":"survival","generator":"normal","difficulty":"normal"})
+            serde_json::json!({"name":"a","game_mode":"survival","generator":"normal","difficulty":"normal","allow_cheats":false})
         );
         let zero = serde_json::to_value(&NewWorld {
             name: "a".into(),
@@ -506,7 +517,8 @@ mod tests {
         assert_eq!(
             result.prefs,
             Some(Prefs {
-                docker_prompt_dismissed: true
+                docker_prompt_dismissed: true,
+                ..Default::default()
             })
         );
         let status = require_status(result).expect("status");
@@ -559,6 +571,7 @@ mod tests {
         let prefs = serde_json::to_value(PrefsUpdate {
             docker_prompt_dismissed: Some(true),
             redetect: true,
+            ..Default::default()
         })
         .expect("encode");
         assert_eq!(

@@ -430,7 +430,9 @@ fn bind_direct_session_directory(
 pub fn run(args: args::ClientArgs) -> Result<()> {
     args.validate_acceptance_support(cfg!(feature = "acceptance"))?;
     #[cfg(feature = "developer-control")]
-    crate::developer_control::prepare_native_application()?;
+    crate::developer_control::prepare_native_application(
+        args.address.is_some() || args.socket_dir_explicit,
+    )?;
     crate::thread_budget::ThreadBudget::configure_global_rayon();
     // Declared first so it drops last: every spawned child is gone before `run` returns or unwinds.
     let _children = crate::lifecycle::children::StopOnDrop;
