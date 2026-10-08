@@ -73,6 +73,14 @@ struct BindGroupKey {
     depth: Option<TextureViewId>,
 }
 
+impl crate::pipeline_warmup::PendingPipelines for PassGpu {
+    fn pending(&self) -> bool {
+        self.pipelines
+            .values()
+            .any(|state| matches!(state, PipelineState::Creating(_)))
+    }
+}
+
 impl PassGpu {
     /// Drops pipelines whose pass revision is no longer in the scene.
     pub(crate) fn retain_pipelines(&mut self, scene: &ModRenderScene) {
@@ -378,11 +386,14 @@ fn prepare(
         });
     for (entity, view, target, _) in &views {
         let format = target.main_texture_format();
+        // Disabled passes compile too, so enabling one never compiles on first sight.
+        for pass in &scene.passes {
+            gpu.ensure_pipeline(&device, &cache, pass, format);
+        }
         for (slot, pass) in scene.passes.iter().enumerate() {
             if !pass.enabled {
                 continue;
             }
-            gpu.ensure_pipeline(&device, &cache, pass, format);
             let uniform = frame_uniform(
                 view,
                 time.elapsed_secs_wrapped(),

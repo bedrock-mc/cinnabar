@@ -17,7 +17,7 @@ use bevy::{
         },
         render_phase::DrawFunctionId,
         render_resource::{CachedRenderPipelineId, RenderPassDescriptor, StoreOp, TextureViewId},
-        renderer::{RenderContext, render_system},
+        renderer::RenderContext,
         view::ViewDepthTexture,
     },
 };
@@ -402,12 +402,7 @@ pub(super) fn prepare_direct_occlusion(
         &mut hidden,
     );
     occlusion.upload(&device, &queue);
-    {
-        #[cfg(feature = "tracy")]
-        let _span =
-            bevy::log::info_span!("terrain.occlusion_poll", frame = occlusion.frame).entered();
-        let _ = device.poll(PollType::Poll);
-    }
+    // Readbacks mapped by the previous frame's device poll.
     occlusion.apply_verdicts();
 
     let Some(queued) = frame.view else {
@@ -718,9 +713,7 @@ pub(super) fn install(render_app: &mut SubApp, device: &RenderDevice) {
                     .in_set(RenderSystems::PrepareResources)
                     .after(prepare_gpu_chunks)
                     .after(bevy::core_pipeline::core_3d::prepare_core_3d_depth_textures),
-                submit_direct_occlusion
-                    .in_set(RenderSystems::Render)
-                    .after(render_system),
+                submit_direct_occlusion.in_set(crate::device_poll::FrameSubmissions),
             ),
         );
     install_graph(render_app.world_mut());
