@@ -60,6 +60,10 @@ enum Held {
 }
 
 #[derive(Debug)]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "Keeping prepared events inline avoids an allocation for each ordered packet"
+)]
 enum Slot {
     /// Admitted; its prepared event has not arrived.
     Waiting,
