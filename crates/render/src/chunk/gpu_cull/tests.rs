@@ -4,7 +4,6 @@ use super::model::{
 };
 use super::slots::{CullSlots, cull_record, quad_bounds};
 use super::*;
-use bevy::platform::time::Instant;
 
 const SIDE: i32 = world::SUB_CHUNK_SIDE as i32;
 
