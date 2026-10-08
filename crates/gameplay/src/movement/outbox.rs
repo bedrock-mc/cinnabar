@@ -74,15 +74,6 @@ pub(super) struct HeldRelease {
     facing_sent: bool,
 }
 
-/// Tick-bound action flags set before their tick was built.
-#[derive(Debug, Clone, Copy)]
-pub(super) struct NextTickFlags {
-    /// Session and position authority; a reanchor retires the latch.
-    authority: (u64, u64),
-    tick: u64,
-    flags: protocol::PlayerInputFlags,
-}
-
 /// Recent tick-end states by tick, fed wherever a tick completes, is replayed or is
 /// anchored; transport hand-offs never move them.
 #[derive(Debug, Clone)]
@@ -485,29 +476,13 @@ impl MovementTicker {
         if tick != self.next_tick || !self.physics_is_authorized() {
             return false;
         }
-        let latched = self
-            .next_tick_flags
-            .filter(|latched| {
-                latched.authority == self.interaction_authority_identity() && latched.tick == tick
-            })
-            .map_or(protocol::PlayerInputFlags::NONE, |latched| latched.flags);
-        self.next_tick_flags = Some(NextTickFlags {
-            authority: self.interaction_authority_identity(),
-            tick,
-            flags: latched | flag,
-        });
+        self.next_tick_flags |= flag;
         true
     }
 
-    /// Flags latched for the tick being built; a latch from another authority or tick is dropped.
+    /// Action flags for the tick being built; corrections keep them, authority changes drop them.
     pub(super) fn take_next_tick_flags(&mut self) -> protocol::PlayerInputFlags {
-        self.next_tick_flags
-            .take()
-            .filter(|latched| {
-                latched.authority == self.interaction_authority_identity()
-                    && latched.tick == self.next_tick
-            })
-            .map_or(protocol::PlayerInputFlags::NONE, |latched| latched.flags)
+        std::mem::replace(&mut self.next_tick_flags, protocol::PlayerInputFlags::NONE)
     }
 
     /// Attaches one destroy tick to its exact unsent sample; it is committed from then on.
@@ -550,9 +525,17 @@ impl MovementTicker {
             .for_each(|pending| pending.sample.mining = None);
     }
 
+    /// A correction revokes in-flight interactions but keeps the player's pending action flags.
+    pub(super) fn correction_authority_changed(&mut self) {
+        let flags = self.take_next_tick_flags();
+        self.position_authority_changed();
+        self.next_tick_flags = flags;
+    }
+
     /// Invalidates every transport-owned sample after a position-authority
     /// change and publishes the new epoch atomically with that invalidation.
     pub(super) fn position_authority_changed(&mut self) {
+        self.next_tick_flags = protocol::PlayerInputFlags::NONE;
         self.reanchor_epoch = self.reanchor_epoch.wrapping_add(1);
         self.epoch_publisher.send_if_modified(|published| {
             if *published == self.reanchor_epoch {
