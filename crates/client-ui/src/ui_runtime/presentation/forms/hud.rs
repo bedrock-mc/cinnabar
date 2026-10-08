@@ -23,6 +23,8 @@ use super::engine::{EngineInputs, EngineOutput, ScreenArt};
 use crate::ui_runtime::UiRuntime;
 
 #[cfg(test)]
+mod hunger_tests;
+#[cfg(test)]
 mod visibility_tests;
 
 /// The built-in Java-styled HUD pack: `(pack path, namespace, bytes)`, layered
@@ -262,9 +264,32 @@ pub(super) struct HudScreens {
     model: Option<HudModel>,
     opacity: Option<i32>,
     data: Arc<DataSource>,
+    hunger_session: Option<u64>,
+    hunger_updates: u64,
 }
 
 impl HudScreens {
+    /// Advance hunger motion once per visible HUD render, independently of packet clocks.
+    #[allow(clippy::too_many_arguments)]
+    fn capture_status(
+        &mut self,
+        crosshair: bool,
+        player: &player_state::PlayerState,
+        runtime: &UiRuntime,
+        frame: &HudFrame,
+        sheet: Option<&super::super::HudTexturePages>,
+        options: &crate::menu::settings_options::SettingsOptions,
+    ) -> super::hud_renderers::HudPaint {
+        if self.hunger_session != Some(runtime.session_id()) {
+            self.hunger_session = Some(runtime.session_id());
+            self.hunger_updates = 0;
+        }
+        if !crosshair && player.facts.survival_stats_visible() {
+            self.hunger_updates = self.hunger_updates.wrapping_add(1);
+        }
+        hud_layout::capture_hud_paint(player, runtime, frame, sheet, options, self.hunger_updates)
+    }
+
     /// Preserve bindings while relaying out screens for a changed texture pack.
     pub(super) fn invalidate_textures(&mut self) {
         self.hud.invalidate_textures();
@@ -299,6 +324,21 @@ impl UiPresentationRuntime {
             .options
             .value("hide_hud")
             != 0
+        {
+            return Ok(true);
+        }
+        let context = super::chat_position::context(
+            hud_context(renderer.context()),
+            &self.form_presentation.chat.settings.options,
+        );
+        let reference = if crosshair {
+            CROSSHAIR_SCREEN
+        } else {
+            HUD_SCREEN
+        };
+        if !renderer
+            .scene_settings(reference, &context)
+            .renders(crosshair || !runtime.chat_focused())
         {
             return Ok(true);
         }
@@ -342,15 +382,12 @@ impl UiPresentationRuntime {
             .hud
             .clocks
             .extend(self.scene_clock.clone());
-        let paint = hud_layout::capture_hud_paint(
+        let paint = self.form_presentation.hud.capture_status(
+            crosshair,
             player_runtime,
             runtime,
             &frame,
             self.hud_textures.as_ref(),
-            &self.form_presentation.chat.settings.options,
-        );
-        let context = super::chat_position::context(
-            hud_context(renderer.context()),
             &self.form_presentation.chat.settings.options,
         );
         let catalog = Arc::clone(renderer.catalog());
@@ -367,17 +404,11 @@ impl UiPresentationRuntime {
             clocks: Some(&screens.clocks),
             ..ScreenArt::default()
         };
-        let (reference, screen) = if crosshair {
-            (CROSSHAIR_SCREEN, &mut screens.crosshair)
+        let screen = if crosshair {
+            &mut screens.crosshair
         } else {
-            (HUD_SCREEN, &mut screens.hud)
+            &mut screens.hud
         };
-        if !renderer
-            .scene_settings(reference, &context)
-            .renders(crosshair || !runtime.chat_focused())
-        {
-            return Ok(true);
-        }
         let inputs = EngineInputs {
             layouts: &mut self.layouts,
             font: &self.font,

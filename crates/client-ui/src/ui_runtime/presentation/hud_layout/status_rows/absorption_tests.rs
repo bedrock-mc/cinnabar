@@ -47,6 +47,7 @@ fn painted(player: &player_state::PlayerState, runtime: &UiRuntime) -> HudPaint 
         &HudFrame::default(),
         None,
         &Default::default(),
+        0,
     )
 }
 

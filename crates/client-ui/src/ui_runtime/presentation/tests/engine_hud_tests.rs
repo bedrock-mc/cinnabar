@@ -274,6 +274,7 @@ fn crosshair_is_first_person_only_and_mode_gated() {
             presentation.hud_frame(),
             presentation.hud_textures.as_ref(),
             &Default::default(),
+            0,
         )
     };
     assert!(
@@ -357,6 +358,7 @@ fn game_mode_matrix_gates_each_surface_exactly() {
             presentation.hud_frame(),
             None,
             &Default::default(),
+            0,
         );
         // Background plus icon for the one effect.
         assert_eq!(paint.effects.len(), 2, "{mode:?}");
@@ -527,7 +529,14 @@ fn heart_variants_mount_rows_air_and_armor_follow_authoritative_state() {
     full_stats(&mut player_runtime, &mut runtime, 1);
     let frame = first_person();
     let paint = |runtime: &UiRuntime, frame: &HudFrame| {
-        hud_layout::capture_hud_paint(&player_runtime, runtime, frame, None, &Default::default())
+        hud_layout::capture_hud_paint(
+            &player_runtime,
+            runtime,
+            frame,
+            None,
+            &Default::default(),
+            0,
+        )
     };
     let baseline = paint(&runtime, &frame);
     assert!(
@@ -596,6 +605,7 @@ fn nonstandard_health_maximum_renders_stacked_rows_like_the_reference() {
         &HudFrame::default(),
         None,
         &Default::default(),
+        0,
     );
     let rows: std::collections::BTreeSet<i64> =
         paint.hearts.iter().map(|cell| cell.at[1] as i64).collect();
@@ -739,6 +749,7 @@ fn mount_jump_bar_replaces_the_experience_row_while_riding() {
         presentation.hud_frame(),
         presentation.hud_textures.as_ref(),
         &Default::default(),
+        0,
     );
     let (_, _, filled) = paint.mount_jump.expect("jump bar");
     assert_eq!(filled, 91.0);

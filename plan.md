@@ -5160,6 +5160,10 @@ UI remain Bedrock/resource-pack-driven. The current text/panel renderer is an
 incomplete scaffold until the full state matrix and native/live comparison gates
 below are green. See `AGENTS.md` for the repository-wide gameplay-HUD exception.
 
+Hunger shakes use renderer-local updates and neutral/upward offsets, independent of
+food packet ticks. The complete native HUD motion gallery, including heart timing,
+remains incomplete; this correction does not close the Phase 5.7 parity gate.
+
 **Bounded native HUD tranche (2026-07-19):** the protocol-1001 carrier and
 retained presentation now provide provenance-pinned health, hunger, armor, air,
 hotbar, selected-slot, chat, and scoreboard data paths. Survival geometry is

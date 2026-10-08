@@ -95,6 +95,7 @@ pub(in super::super) fn capture(
     frame: &HudFrame,
     sheet: Option<&HudTexturePages>,
     options: &crate::menu::settings_options::SettingsOptions,
+    hunger_updates: u64,
 ) -> HudPaint {
     use crate::menu::settings_options::{INVERT_CROSSHAIR_OPTION, THIRD_PERSON_CROSSHAIR_OPTION};
     let now_tick = runtime.estimated_server_tick(frame.now_millis);
@@ -127,7 +128,7 @@ pub(in super::super) fn capture(
     }
     match frame.mount_health {
         Some(health) => paint.mount_hearts = mount_hearts(health),
-        None => paint.hunger = hunger(runtime, now_tick),
+        None => paint.hunger = hunger(runtime, now_tick, hunger_updates),
     }
     paint.bubbles = bubbles(runtime);
     if let (Some(charge), Some(sheet)) = (frame.mount_jump, sheet) {
@@ -320,7 +321,7 @@ fn armor(runtime: &UiRuntime, rows: &HeartRows) -> Vec<Cell> {
 }
 
 /// Right-to-left from the control's position, shaking on empty saturation.
-fn hunger(runtime: &UiRuntime, now_tick: Option<u64>) -> Vec<Cell> {
+fn hunger(runtime: &UiRuntime, now_tick: Option<u64>, updates: u64) -> Vec<Cell> {
     let Some(hunger) = runtime.hud().hunger() else {
         return Vec::new();
     };
@@ -338,14 +339,11 @@ fn hunger(runtime: &UiRuntime, now_tick: Option<u64>) -> Vec<Cell> {
             HudTextureRole::HungerHalf,
         )
     };
-    let tick = now_tick.unwrap_or(0);
-    // Without a server clock there is no tick to pulse on, so no shake.
-    let shaking = now_tick.is_some()
-        && hunger_shakes(runtime.gameplay_hud().saturation_empty(), current, tick);
+    let shaking = hunger_shakes(runtime.gameplay_hud().saturation_empty(), current, updates);
     let mut cells = Vec::new();
     for index in 0..10u32 {
         let shake = if shaking {
-            hunger_shake_offset(index, tick)
+            hunger_shake_offset(index, updates)
         } else {
             0.0
         };
