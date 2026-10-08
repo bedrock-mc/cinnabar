@@ -30,6 +30,8 @@ pub struct ActorStatusNotice {
     pub position: [f32; 3],
     /// Bounding-box height, when the actor streams one.
     pub height: Option<f32>,
+    /// Eating attachment for Feed; actor feet for other kinds.
+    pub eating_position: [f32; 3],
 }
 
 /// A dropped item flying to the actor that collected it.
@@ -139,6 +141,18 @@ impl ActorStatus {
 }
 
 impl ActorSnapshot {
+    fn eating_position(&self) -> [f32; 3] {
+        let mut position = self.position;
+        position[1] += self.network_position_offset();
+        if matches!(self.kind, protocol::ActorKind::Player { .. }) {
+            let offset = super::placement::seat_world_offset([0.0, -0.2, 0.2], self.head_yaw);
+            for (component, offset) in position.iter_mut().zip(offset) {
+                *component += offset;
+            }
+        }
+        position
+    }
+
     /// Marks the actor dead when its health attribute reaches zero and alive when it recovers.
     pub(super) fn sync_status_from_health(&mut self) {
         let Some(health) = self.attributes.get("minecraft:health") else {
@@ -178,6 +192,11 @@ impl ActorStore {
                 data: event.data,
                 position: actor.position,
                 height: actor.bounding_box().map(|(min, max)| max[1] - min[1]),
+                eating_position: if event.kind == ActorStatusKind::Feed {
+                    actor.eating_position()
+                } else {
+                    actor.position
+                },
             });
         }
         match event.kind {
@@ -247,6 +266,38 @@ impl ActorStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn eating_attachment_follows_head_yaw_and_preserves_the_event_pose() {
+        for (yaw, horizontal) in [(0.0, [0.0, 0.2]), (90.0, [-0.2, 0.0]), (180.0, [0.0, -0.2])] {
+            let protocol::ActorEvent::Spawn(mut player) = spawn() else {
+                unreachable!()
+            };
+            player.kind = protocol::ActorKind::Player {
+                uuid: [0; 16],
+                username: "test".into(),
+            };
+            player.position = [1.0, 64.0, 3.0];
+            player.head_yaw = yaw;
+            player.pitch = 60.0;
+            let mut store = ActorStore::new(1, 0);
+            store.apply(1, 1, protocol::ActorEvent::Spawn(player));
+            store.apply(1, 2, status(ActorStatusKind::Feed));
+            store.actors.get_mut(&7).unwrap().position = [9.0; 3];
+            let notices = store.take_status_notices();
+            let expected = [
+                1.0 + horizontal[0],
+                64.0 + protocol::PLAYER_NETWORK_OFFSET - 0.2,
+                3.0 + horizontal[1],
+            ];
+            for (actual, expected) in notices[0].eating_position.into_iter().zip(expected) {
+                assert!(
+                    (actual - expected).abs() < 0.00001,
+                    "{actual} != {expected}"
+                );
+            }
+        }
+    }
 
     #[test]
     fn hurt_counts_down_and_death_saturates() {
