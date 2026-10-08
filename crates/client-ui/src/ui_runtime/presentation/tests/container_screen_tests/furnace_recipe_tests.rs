@@ -157,6 +157,10 @@ fn furnace_recipe_panel_lists_outputs_and_routes_filter_tabs_and_search() {
         Some(installed),
         "furnace artwork refreshes when the presentation installs the announced source"
     );
+    super::super::super::forms::furnace_book::assert_empty_search_clears_grid(
+        &player,
+        &mut runtime,
+    );
     runtime.screen_state_mut().search.clear();
     let Some(mut presentation) =
         engine_presentation_with(super::super::super::forms::pack_harness::font())

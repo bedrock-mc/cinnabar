@@ -2,9 +2,13 @@
 
 mod cache;
 mod projection;
+#[cfg(test)]
+mod tests;
 pub(super) use cache::FurnaceBookCache;
 pub(crate) use projection::ProjectionCache;
 pub use projection::{Entries, entries, icons, projection};
+#[cfg(test)]
+pub(in crate::ui_runtime::presentation) use tests::assert_empty_search_clears_grid;
 
 use json_ui::{Context, DataSource, HitKind, HitRegion, Scalar};
 use protocol::{NetworkItemStack, ScreenRecipe, WindowKind};
@@ -137,6 +141,10 @@ pub(super) fn data(
     if !shown {
         return;
     }
+    data.set_collection_defaults(
+        "recipe_book",
+        [("#recipe_book_total_items".into(), Scalar::Num(0.0))].into(),
+    );
     icons.extend_from_slice(&publication.icons);
     data.set_shared_collection("recipe_book", std::sync::Arc::clone(&publication.rows));
 }
