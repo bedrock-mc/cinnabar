@@ -56,10 +56,20 @@ pub(super) struct FrameState {
     pub clips: Vec<tick::WeightedClip>,
     pub swell_poses: Option<SwellPoses>,
     pub swell_layers: BTreeMap<u32, SwellPoses>,
+    /// Swell samples used by the retained motion endpoints.
+    pub swelling: [f32; 2],
 }
 
 impl FrameState {
+    fn needs_swell_sampling(&self, actor: &ActorSnapshot) -> bool {
+        self.swell_poses.is_some()
+            && (actor.creeper_swell_changes()
+                || self.swelling[0] != self.swelling[1]
+                || actor.creeper_swell_amount(self.context.frame_alpha) != self.swelling[1])
+    }
+
     pub(super) fn hold_motion(&mut self) {
+        self.swelling[0] = self.swelling[1];
         for poses in self
             .swell_poses
             .iter_mut()
@@ -95,6 +105,9 @@ pub(super) fn carry_swell_history(
             next.previous.clone_from(&next.current);
         }
     }
+    next.swelling[0] = previous.as_ref().map_or(next.swelling[1], |frame| {
+        frame.swelling[usize::from(advance)]
+    });
     let mut previous = previous;
     if let Some(body) = next.swell_poses.as_mut() {
         carry(
@@ -155,7 +168,7 @@ impl ActorAnimationStore {
             (partial_tick > 0.0
                 || state.samples_camera_poses
                 || state.samples_swing_poses
-                || (frame.swell_poses.is_some() && actor.creeper_swell_changes()))
+                || frame.needs_swell_sampling(actor))
                 && *remaining_ops > 0
                 && (!state.culled || state.samples_camera_poses)
                 && !state.reset_pending
@@ -173,7 +186,7 @@ impl ActorAnimationStore {
             .map(|progress| progress.bedrock_progress(partial_tick));
         let swing_changed = state.samples_swing_poses
             && swing.is_some_and(|value| value != frame.input.attack_time);
-        let swell_changed = frame.swell_poses.is_some() && actor.creeper_swell_changes();
+        let swell_changed = frame.needs_swell_sampling(actor);
         if !state.samples_render_frames && !swing_changed && !swell_changed {
             return Some(completed());
         }

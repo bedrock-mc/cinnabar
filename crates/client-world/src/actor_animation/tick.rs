@@ -384,6 +384,7 @@ pub(super) fn evaluate_state(
         clips: Vec::new(),
         swell_poses: None,
         swell_layers: BTreeMap::new(),
+        swelling: [actor.creeper_swell_amount(context.frame_alpha); 2],
     });
     if let Some(script) = rig.pre_animation {
         evaluator.run(script as usize, &mut variables, 0.0, budget)?;

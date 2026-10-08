@@ -191,6 +191,32 @@ fn assert_installed_creeper_samples(powered: bool) {
             );
         }
     }
+    let mut steps = 0;
+    while store.get(1).unwrap().creeper_swell_changes() {
+        store.advance_interpolation_ticks(1);
+        steps += 1;
+        assert!(steps < 100, "swelling must reach a stable cap");
+    }
+    let capped = store.actor_rig(1).unwrap();
+    for alpha in [0.0, 0.25, 0.75] {
+        let layers = store.render_frame(alpha).layers(1).unwrap();
+        let previous = if layers[0].previous_pose.is_empty() {
+            &capped.previous[body]
+        } else {
+            &layers[0].previous_pose[body]
+        };
+        assert_eq!(
+            pose::total_scale(previous),
+            pose::total_scale(&capped.current[body]),
+            "the first steady fuse tick must hold its capped scale"
+        );
+        if powered {
+            assert_eq!(
+                pose::total_scale(&layers[1].previous_pose[body]),
+                pose::total_scale(&capped.current[body])
+            );
+        }
+    }
     store.apply(
         1,
         3,
@@ -205,7 +231,34 @@ fn assert_installed_creeper_samples(powered: bool) {
             properties: Arc::from([]),
         }),
     );
-    store.advance_interpolation_ticks(40);
+    store.advance_interpolation_ticks(1);
+    steps = 0;
+    while store.get(1).unwrap().creeper_swell_changes() {
+        store.advance_interpolation_ticks(1);
+        steps += 1;
+        assert!(steps < 100, "defusing must reach a stable rest pose");
+    }
+    let defused = store.actor_rig(1).unwrap();
+    for alpha in [0.0, 0.25, 0.75] {
+        let layers = store.render_frame(alpha).layers(1).unwrap();
+        let previous = if layers[0].previous_pose.is_empty() {
+            &defused.previous[body]
+        } else {
+            &layers[0].previous_pose[body]
+        };
+        assert_eq!(
+            pose::total_scale(previous),
+            pose::total_scale(&defused.rest[body]),
+            "the first steady defused tick must hold its rest scale"
+        );
+        if powered {
+            assert_eq!(
+                pose::total_scale(&layers[1].previous_pose[body]),
+                pose::total_scale(&defused.rest[body])
+            );
+        }
+    }
+    store.advance_interpolation_ticks(1);
     let completed = store.actor_rig(1).unwrap().render;
     for alpha in [0.25, 0.75] {
         let layers = store.render_frame(alpha).layers(1).unwrap();
@@ -220,5 +273,49 @@ fn assert_installed_creeper_samples(powered: bool) {
             layers[0].pose.is_empty() && layers[0].previous_pose.is_empty(),
             "unchanged swelling must reuse tick-owned poses"
         );
+    }
+    store.apply(
+        1,
+        4,
+        protocol::ActorEvent::Metadata(protocol::ActorMetadataUpdateEvent {
+            dimension: 0,
+            runtime_id: 1,
+            tick: 0,
+            metadata: Arc::from([protocol::ActorMetadata {
+                key: 0,
+                value: ActorMetadataValue::Flags((1 << 10) | if powered { 1 << 9 } else { 0 }),
+            }]),
+            properties: Arc::from([]),
+        }),
+    );
+    store.advance_interpolation_ticks(10);
+    store.apply(
+        1,
+        5,
+        protocol::ActorEvent::Status(protocol::ActorStatusEvent {
+            runtime_id: 1,
+            kind: protocol::ActorStatusKind::Death,
+            data: 0,
+        }),
+    );
+    let dying = store.actor_rig(1).unwrap();
+    for alpha in [0.0, 0.25, 0.75] {
+        let layers = store.render_frame(alpha).layers(1).unwrap();
+        let previous = if layers[0].previous_pose.is_empty() {
+            &dying.previous[body]
+        } else {
+            &layers[0].previous_pose[body]
+        };
+        assert_eq!(
+            pose::total_scale(previous),
+            pose::total_scale(&dying.rest[body]),
+            "death clears swelling before another animation tick"
+        );
+        if powered {
+            assert_eq!(
+                pose::total_scale(&layers[1].previous_pose[body]),
+                pose::total_scale(&dying.rest[body])
+            );
+        }
     }
 }
