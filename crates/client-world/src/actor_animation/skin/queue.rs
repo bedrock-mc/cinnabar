@@ -114,6 +114,10 @@ impl Drop for SkinPreparationQueue {
 }
 
 impl SkinPreparationQueue {
+    pub(in crate::actor_animation) fn is_pending(&self) -> bool {
+        self.receiver.is_some() || !self.queued.is_empty()
+    }
+
     /// Drains at most one bounded batch and retires pointers absent from the last complete pass.
     pub(in crate::actor_animation) fn begin_frame(&mut self) {
         self.frame = self.frame.wrapping_add(1);
@@ -339,8 +343,8 @@ impl SkinPreparationQueue {
     }
 
     /// Explicit test synchronization observes completed work without asserting elapsed time.
-    #[cfg(any(test, feature = "appearance-test-support"))]
-    pub(in crate::actor_animation) fn finish_for_test(&mut self) {
+    #[cfg(test)]
+    pub(in crate::actor_animation) fn finish_fixture_batch(&mut self) {
         let Some(receiver) = self.receiver.take() else {
             return;
         };

@@ -215,7 +215,7 @@ fn queued_appearance_does_not_publish_new_pixels_before_model_readiness() {
 fn queued_replacement_retains_the_complete_previous_appearance() {
     let mut store = profile_store(1);
     store.advance_interpolation_ticks(1);
-    store.finish_appearance_preparation_for_test();
+    store.finish_appearance_fixture_batch();
     store.advance_interpolation_ticks(1);
     let previous = store.player_profile(1).unwrap().clone();
     let previous_model = Arc::clone(store.actor_rig(1).unwrap().skin_geometry.unwrap());
@@ -233,7 +233,7 @@ fn queued_replacement_retains_the_complete_previous_appearance() {
         &previous_model,
         store.actor_rig(1).unwrap().skin_geometry.unwrap()
     ));
-    store.finish_appearance_preparation_for_test();
+    store.finish_appearance_fixture_batch();
     store.advance_interpolation_frame(0);
     assert_eq!(
         store.player_profile(1),
@@ -262,5 +262,5 @@ fn cleared_session_cannot_publish_an_old_appearance_completion() {
 fn warm_source(store: &mut ActorAnimationStore, source: &Arc<SkinGeometrySource>) {
     store.request_skin_preparation(source);
     store.submit_skin_preparation();
-    store.finish_skin_preparation_for_test();
+    store.finish_skin_fixture_batch();
 }
