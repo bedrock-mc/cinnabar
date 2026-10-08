@@ -89,16 +89,11 @@ impl InventoryPointer {
         }
         if frame.primary_released || frame.secondary_released {
             let released_primary = frame.primary_released;
+            // The press already acted on the first cell; release only ends a split.
             if let Some(drag) = self.drag.take() {
                 if released_primary != drag.secondary {
                     if drag.cells.len() >= 2 {
                         actions.push(PointerAction::EndDistribute);
-                    } else if let Some(hit) = drag.cells.first().copied().or(frame.hit) {
-                        actions.push(if drag.secondary {
-                            PointerAction::SecondaryClick(hit)
-                        } else {
-                            PointerAction::Click(hit)
-                        });
                     }
                 } else {
                     self.drag = Some(drag);
@@ -120,9 +115,8 @@ impl InventoryPointer {
                     secondary: true,
                     cells: vec![hit],
                 });
-            } else {
-                actions.push(PointerAction::SecondaryClick(hit));
             }
+            actions.push(PointerAction::SecondaryClick(hit));
         }
         actions
     }
@@ -142,14 +136,15 @@ impl InventoryPointer {
         } else if double && frame.holding && draggable(hit) {
             self.last_primary = None;
             actions.push(PointerAction::Gather);
-        } else if frame.holding && draggable(hit) {
-            // A single cell acts on release; visiting a second starts live splits.
-            self.distribution = None;
-            self.drag = Some(Drag {
-                secondary: false,
-                cells: vec![hit],
-            });
         } else {
+            // Vanilla places on the press; visiting a second cell turns it into a live split.
+            if frame.holding && draggable(hit) {
+                self.distribution = None;
+                self.drag = Some(Drag {
+                    secondary: false,
+                    cells: vec![hit],
+                });
+            }
             actions.push(PointerAction::Click(hit));
         }
     }
@@ -175,19 +170,31 @@ mod tests {
         }
     }
 
+    /// A held-stack press places in its own frame; the release adds nothing.
     #[test]
-    fn single_cell_release_is_a_click() {
-        let mut pointer = InventoryPointer::default();
-        let press = PointerFrame {
-            primary_pressed: true,
-            ..frame(Some(A), 0)
-        };
-        assert!(pointer.step(press).is_empty());
-        let release = PointerFrame {
-            primary_released: true,
-            ..frame(Some(A), 10)
-        };
-        assert_eq!(pointer.step(release), vec![PointerAction::Click(A)]);
+    fn held_stack_press_clicks_before_release() {
+        for secondary in [false, true] {
+            let mut pointer = InventoryPointer::default();
+            let press = PointerFrame {
+                primary_pressed: !secondary,
+                secondary_pressed: secondary,
+                ..frame(Some(A), 0)
+            };
+            assert_eq!(
+                pointer.step(press),
+                vec![if secondary {
+                    PointerAction::SecondaryClick(A)
+                } else {
+                    PointerAction::Click(A)
+                }]
+            );
+            let release = PointerFrame {
+                primary_released: !secondary,
+                secondary_released: secondary,
+                ..frame(Some(A), 10)
+            };
+            assert!(pointer.step(release).is_empty());
+        }
     }
 
     #[test]
@@ -291,7 +298,7 @@ mod tests {
             primary_pressed: true,
             ..frame(Some(A), 900)
         };
-        assert!(pointer.step(late).is_empty());
+        assert_eq!(pointer.step(late), vec![PointerAction::Click(A)]);
     }
 
     #[test]
@@ -366,14 +373,17 @@ mod tests {
                 primary_pressed: true,
                 ..frame(Some(A), 0)
             });
-            assert!(
-                pointer
-                    .step(PointerFrame {
-                        primary_pressed: !secondary,
-                        secondary_pressed: secondary,
-                        ..frame(Some(B), 500)
-                    })
-                    .is_empty()
+            assert_eq!(
+                pointer.step(PointerFrame {
+                    primary_pressed: !secondary,
+                    secondary_pressed: secondary,
+                    ..frame(Some(B), 500)
+                }),
+                vec![if secondary {
+                    PointerAction::SecondaryClick(B)
+                } else {
+                    PointerAction::Click(B)
+                }]
             );
             assert_eq!(
                 pointer.step(frame(Some(c), 505)),

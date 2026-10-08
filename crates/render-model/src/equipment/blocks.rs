@@ -139,7 +139,10 @@ pub fn overlay_sheet(overlay: &BlockOverlay, visual: usize) -> Option<IconSprite
 
 /// Preserves face alpha; unresolved world tint and animation require authored carried faces.
 fn face_tile(material: &Material, texture: &TextureArray, mip: &TextureMip) -> Option<IconSprite> {
-    if material.flags & !(assets::MATERIAL_FLAG_ALPHA_BLEND | assets::MATERIAL_FLAG_ALPHA_CUTOUT)
+    if material.flags
+        & !(assets::MATERIAL_FLAG_ALPHA_BLEND
+            | assets::MATERIAL_FLAG_ALPHA_CUTOUT
+            | assets::MATERIAL_FLAG_ISOTROPIC)
         != 0
         || material.animation != NO_ANIMATION
         || mip.size as usize != TILE

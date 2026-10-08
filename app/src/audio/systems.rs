@@ -32,7 +32,10 @@ pub(crate) fn configure(app: &mut App) {
                 drive_local_motion,
                 drive_ambience,
                 drive_weather_and_particles,
-                drive_block_cues,
+                // Local break and place cues play in the frame that predicts them.
+                drive_block_cues
+                    .after(crate::survival_mining::produce_survival_mining)
+                    .after(crate::block_use::produce_block_use),
                 drive_consume_audio,
                 drive_actor_audio,
                 pump_audio.after(crate::app::ClientFrameSet::Camera),

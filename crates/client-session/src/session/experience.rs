@@ -104,20 +104,23 @@ mod tests {
 
     impl super::super::NetworkSession for RecordingSession {
         type Error = String;
+        type Outbound = super::super::tests::PacketOutbound<String>;
+
+        /// Captures the same generated encoding used by the ordinary transport.
+        fn outbound(&mut self) -> Result<Self::Outbound, String> {
+            let sent = std::sync::Arc::clone(&self.0);
+            Ok(super::super::tests::PacketOutbound::new(move |packet| {
+                let session = protocol::BedrockSession { shield_item_id: 0 };
+                sent.lock()
+                    .unwrap()
+                    .push(protocol::encode(&packet, &session).unwrap());
+                std::future::ready(Ok(()))
+            }))
+        }
 
         /// Keeps this fixture strictly offline and outbound-only.
         async fn receive_world_event(&mut self, _: i32) -> Result<WorldEvent, String> {
             std::future::pending().await
-        }
-
-        /// Captures the same generated encoding used by the ordinary transport.
-        async fn send_packet(&mut self, packet: protocol::Packet) -> Result<(), String> {
-            let session = protocol::BedrockSession { shield_item_id: 0 };
-            self.0
-                .lock()
-                .unwrap()
-                .push(protocol::encode(&packet, &session).unwrap());
-            Ok(())
         }
 
         /// This fixture never decodes network input.
@@ -141,7 +144,7 @@ mod tests {
             .iter()
             .map(|packet| protocol::encode(packet, &session).unwrap())
             .collect();
-        let (commands, receiver) = mpsc::channel(4);
+        let (commands, receiver) = mpsc::channel(5);
         for packet in packets
             .into_iter()
             .chain([protocol::experience_packet(b"must not escape".to_vec()).unwrap()])
@@ -157,6 +160,7 @@ mod tests {
                 })
                 .unwrap();
         }
+        commands.try_send(NetworkCommand::FlushFrame).unwrap();
         drop(commands);
         let (control, _control_rx) = mpsc::channel(4);
         let (world, _world_rx) = mpsc::channel(4);

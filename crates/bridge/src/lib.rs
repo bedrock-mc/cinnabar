@@ -21,7 +21,8 @@ pub use account::{
     poll_events, profile, report_message_event, sign_out,
 };
 pub use error::BridgeError;
-pub use framed::FramedStream;
+pub(crate) use framed::FramedStream;
+pub use framed::{FrameQueue, FramedReader};
 pub use packet_delay::{
     PacketDelayLease, RelayedPosition, packet_delay_with_position, set_packet_delay,
 };
@@ -58,10 +59,12 @@ pub fn control_endpoint_path(socket_dir: &Path) -> std::path::PathBuf {
 /// Largest payload accepted by the local bridge framing protocol.
 pub const MAX_FRAME_LEN: usize = 64 * 1024 * 1024;
 
-/// Connects to the local Go core endpoint published in `socket_dir`.
-pub async fn connect(socket_dir: &Path) -> anyhow::Result<FramedStream> {
+/// Connects to the local Go core game endpoint published in `socket_dir`.
+///
+/// A spawned writer task owns the write half, so sends never wait on a read in progress.
+pub async fn connect(socket_dir: &Path) -> anyhow::Result<(FramedReader, FrameQueue)> {
     let stream = endpoint::connect(socket_dir, endpoint::EndpointKind::Game).await?;
-    Ok(FramedStream::new(stream))
+    Ok(framed::queued(stream, MAX_FRAME_LEN))
 }
 
 #[cfg(test)]
@@ -69,22 +72,20 @@ mod tests {
     use std::path::Path;
 
     use bytes::Bytes;
-    use futures::{Sink, Stream};
+    use futures::Stream;
 
-    use super::{BridgeError, FramedStream, connect};
+    use super::{BridgeError, FrameQueue, FramedReader, connect};
 
-    fn assert_transport<T>()
+    fn assert_transport<R, W>()
     where
-        T: Stream<Item = Result<Bytes, BridgeError>>
-            + Sink<Bytes, Error = BridgeError>
-            + Unpin
-            + Send,
+        R: Stream<Item = Result<Bytes, BridgeError>> + Unpin + Send,
+        W: Clone + Send + Sync,
     {
     }
 
     #[test]
     fn public_transport_contract_is_stable() {
-        assert_transport::<FramedStream>();
+        assert_transport::<FramedReader, FrameQueue>();
         let _ = connect;
     }
 

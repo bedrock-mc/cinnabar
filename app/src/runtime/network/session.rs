@@ -1,7 +1,9 @@
 //! Bevy ownership and presentation hooks for the session domain.
 
 use super::resource_packs::PackApplication;
-use bevy::prelude::{Deref, DerefMut, Resource};
+use bevy::app::{App, Last, MainScheduleOrder};
+use bevy::ecs::schedule::ScheduleLabel;
+use bevy::prelude::{Deref, DerefMut, Res, Resource};
 use std::path::PathBuf;
 
 pub use client_session::{
@@ -94,6 +96,25 @@ impl NetworkHandle {
     pub(crate) fn stub_capturing_packets() -> (Self, client_session::CapturedPackets) {
         let (handle, packets) = client_session::NetworkHandle::stub_capturing_packets();
         (handle.into(), packets)
+    }
+}
+
+/// Runs once per frame after `Last`, where vanilla flushes its batched peer at the end of its
+/// update: every packet the frame queued leaves in one batch.
+#[derive(ScheduleLabel, Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct NetworkFrameFlush;
+
+pub(crate) fn configure_network_frame_flush(app: &mut App) {
+    app.init_schedule(NetworkFrameFlush);
+    app.world_mut()
+        .resource_mut::<MainScheduleOrder>()
+        .insert_after(Last, NetworkFrameFlush);
+    app.add_systems(NetworkFrameFlush, flush_network_frame);
+}
+
+fn flush_network_frame(network: Option<Res<NetworkHandle>>) {
+    if let Some(network) = network {
+        network.flush_frame();
     }
 }
 

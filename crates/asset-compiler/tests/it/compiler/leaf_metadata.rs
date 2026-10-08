@@ -93,7 +93,7 @@ fn pack_authored_leaf_face_metadata_survives_world_groups_and_runtime_only() {
                 _ => false,
             };
             assert_eq!(
-                world.flags & assets::MATERIAL_FLAG_LEAF_ISOTROPIC != 0,
+                world.flags & assets::MATERIAL_FLAG_ISOTROPIC != 0,
                 isotropic
             );
             assert_eq!(
@@ -119,7 +119,7 @@ fn pack_authored_leaf_face_metadata_survives_world_groups_and_runtime_only() {
         assert_eq!(encode_blob(&reordered).unwrap(), baseline);
     }
     let carried = compiled.visuals[0].faces[0] as usize;
-    compiled.materials[carried].flags |= assets::MATERIAL_FLAG_LEAF_ISOTROPIC;
+    compiled.materials[carried].flags |= 80 << assets::MATERIAL_LEAF_AO_EXPONENT_SHIFT;
     assert!(
         encode_blob(&compiled).is_err(),
         "world-only metadata must require the native leaf material flag"

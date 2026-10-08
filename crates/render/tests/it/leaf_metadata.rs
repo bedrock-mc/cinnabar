@@ -18,22 +18,26 @@ fn native_rotation(position: [i32; 3]) -> u32 {
 }
 
 #[test]
-#[ignore = "requires a native GPU adapter; run explicitly on a GPU host"]
 fn gpu_native_rotation_and_ao_exponent_follow_signed_world_positions_and_pack_flags() {
-    let gpu = Gpu::new().expect("this fixture requires a native GPU adapter");
+    let Some(gpu) = Gpu::for_fixture(
+        "gpu_native_rotation_and_ao_exponent_follow_signed_world_positions_and_pack_flags",
+    ) else {
+        return;
+    };
     let native = assets::MATERIAL_FLAG_NATIVE_LEAF_COLOUR;
-    let isotropic = assets::MATERIAL_FLAG_LEAF_ISOTROPIC;
+    let isotropic = assets::MATERIAL_FLAG_ISOTROPIC;
     // The pinned spruce definition authors exponent .80. Encoding is shared
     // with the compiler rather than repeating the shift/mask in the shader.
     let exponent = 80 << assets::MATERIAL_LEAF_AO_EXPONENT_SHIFT;
     let mut cases = Vec::new();
     let mut rotations_seen = [false; 4];
-    for x in -17..-1 {
+    for x in -17..-5 {
         let position = [x, 69, -124];
         let rotation = native_rotation(position);
         rotations_seen[rotation as usize] = true;
         for flags in [
             native | isotropic | exponent,
+            isotropic,
             native | exponent,
             0,
             native | isotropic | 1,
@@ -99,7 +103,7 @@ struct LeafMetadataCase { position_flags: vec4<u32>, shade: vec4<f32>, }
     let index = min(u32(position.y)/32u * 8u + u32(position.x)/32u, arrayLength(&cases)-1u);
     let witness = cases[index];
     let flags = witness.position_flags.w;
-    let rotation = material_leaf_uv_flags(flags, bitcast<vec3<i32>>(witness.position_flags.xyz)) & 3u;
+    let rotation = material_uv_flags(flags, bitcast<vec3<i32>>(witness.position_flags.xyz)) & 3u;
     return vec4(f32(rotation)/3.0, material_leaf_shade(witness.shade.x, flags), 0.0, 1.0);
 }
 "#;

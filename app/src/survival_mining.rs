@@ -1,5 +1,6 @@
 //! Hold-to-mine for every game mode: one destroy state-machine step per completed
-//! physics tick. Creative and zero-hardness destroys complete on their start tick.
+//! physics tick. Creative and zero-hardness destroys complete on their start tick, and a
+//! press between ticks removes the block in its own frame.
 //!
 //! Completion, timed from the provisional destroy table, removes the block locally
 //! as vanilla's local destroy does; inbound block updates stay authoritative and
@@ -144,35 +145,39 @@ pub(crate) fn produce_survival_mining(
     let network = &context.network;
     let client_world = &mut context.client_world;
     let completed_tick = movement.completed_tick();
+    let authority = authority.unwrap_or(BlockBreakingAuthority::Server);
+    let mut swing = |tick| {
+        if let Some(local_runtime_id) = local_runtime_id
+            && swings.try_swing(
+                tick,
+                swing_duration(context.effects.mining_tick(tick, completed_tick).0),
+            )
+        {
+            let _ = network.send_inventory_packet(protocol::swing_arm_packet(
+                local_runtime_id,
+                protocol::SwingSource::Mine,
+            ));
+        }
+    };
+    let mut predict_break = |position| {
+        if let Some(stream) = client_world.stream.as_mut() {
+            let air = stream.air_block_id();
+            stream.predict_block(position, 0, air);
+        }
+    };
+    runtime.break_on_press(&movement, input, authority, &mut swing, &mut predict_break);
     let unsent = runtime.step_ticks(
         &mut movement,
         input,
-        authority.unwrap_or(BlockBreakingAuthority::Server),
-        |tick| {
-            if let Some(local_runtime_id) = local_runtime_id
-                && swings.try_swing(
-                    tick,
-                    swing_duration(context.effects.mining_tick(tick, completed_tick).0),
-                )
-            {
-                let _ = network.send_inventory_packet(protocol::swing_arm_packet(
-                    local_runtime_id,
-                    protocol::SwingSource::Mine,
-                ));
-            }
-        },
+        authority,
+        &mut swing,
         |slot, damage| {
             player_runtime
                 .inventory
                 .ledger_mut()
                 .begin_mining_request(slot, damage)
         },
-        |position| {
-            if let Some(stream) = client_world.stream.as_mut() {
-                let air = stream.air_block_id();
-                stream.predict_block(position, 0, air);
-            }
-        },
+        &mut predict_break,
     );
     for request_id in unsent {
         player_runtime
