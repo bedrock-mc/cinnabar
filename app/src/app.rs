@@ -235,7 +235,7 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
         )
         .add_systems(
             Update,
-            (publish_local_player_frame, publish_interaction_origin, crate::camera::aim_assist::publish_assisted_interaction, crate::camera::aim_highlight::publish)
+            (publish_local_player_frame, publish_interaction_origin, crate::camera::aim_assist::publish_assisted_interaction, crate::camera::aim_highlight::publish, crate::block_use::retain_block_use_pick)
                 .chain()
                 .in_set(LocalPlayerFrameSet::Interaction)
                 .in_set(ClientFrameSet::Interaction),
@@ -263,6 +263,15 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
                 .after(ClientFrameSet::SemanticFinalize)
                 .before(ClientFrameSet::ActorPreparation),
         )
+        // Build actions resolve before the tick they precede, so its movement sees the block.
+        .add_systems(
+            Update,
+            produce_block_use
+                .after(ClientFrameSet::SemanticFinalize)
+                .after(crate::hotbar::select_hotbar_slot)
+                .after(reconcile_world_stream_before_physics)
+                .before(ClientFrameSet::Physics),
+        )
         .add_systems(
             Update,
             (observe_mount_jump_input, prepare_ui_runtime)
@@ -285,7 +294,6 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
                 crate::runtime::telemetry::discard_completed_movement_evidence,
                 produce_melee,
                 produce_survival_mining,
-                produce_block_use,
                 crate::item_use::produce_item_use,
                 send_player_auth_inputs,
                 crate::pick_block::produce_pick_block,

@@ -264,6 +264,8 @@ pub struct BlockUseRuntime {
     last_attempt_tick: Option<u64>,
     /// Tick whose block interaction consumes the item-use press.
     interacted_tick: Option<u64>,
+    /// The latest press was resolved as a block interaction.
+    press_interacted: bool,
     position_authority: Option<(u64, u64)>,
     pub intention: BuildIntention,
     selected_item: Option<(u8, i32, i32)>,
@@ -434,6 +436,21 @@ impl BlockUseRuntime {
         self.interacted_tick == Some(tick)
     }
 
+    /// A press block use has latched but not yet resolved; item use waits for it.
+    pub const fn press_pending(&self) -> bool {
+        self.latched_press
+    }
+
+    /// Whether the latest press was resolved as a block interaction, consuming it.
+    pub const fn press_interacted(&self) -> bool {
+        self.press_interacted
+    }
+
+    /// A new press edge starts without the previous press's resolution.
+    pub fn forget_press_resolution(&mut self) {
+        self.press_interacted = false;
+    }
+
     /// Records an attempt. As in vanilla, a failed repeat keeps its schedule, so it
     /// retries (and resends its transaction) on the next tick.
     pub fn record(
@@ -447,8 +464,11 @@ impl BlockUseRuntime {
         self.rejected_tick = None;
         self.latched_press = false;
         self.last_attempt_tick = Some(tick);
-        if trigger == ItemUseTrigger::PlayerInput && local_use == LocalUse::Interact {
-            self.interacted_tick = Some(tick);
+        if trigger == ItemUseTrigger::PlayerInput {
+            self.press_interacted = local_use == LocalUse::Interact;
+            if self.press_interacted {
+                self.interacted_tick = Some(tick);
+            }
         }
         if local_use == LocalUse::Nothing {
             return;

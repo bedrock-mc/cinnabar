@@ -37,10 +37,8 @@ pub(crate) use gameplay::block_use::{
 #[derive(Resource, Debug, Default)]
 pub(crate) struct BlockUseRuntime {
     owner: gameplay::block_use::BlockUseRuntime,
-    /// The latest pick taken before this frame's physics.
+    /// The latest published frame pick; build actions run before the next publication.
     previous_pick: Option<FramePick>,
-    /// Tick whose press waits for a valid pick; item use defers the same press.
-    awaiting_pick: Option<u64>,
 }
 impl std::ops::Deref for BlockUseRuntime {
     type Target = gameplay::block_use::BlockUseRuntime;
@@ -68,28 +66,35 @@ pub(crate) struct FramePick {
 }
 
 impl BlockUseRuntime {
-    /// Returns the previous frame's pick, if taken under `authority`, and keeps this
-    /// frame's for the next tick.
+    /// Keeps this frame's published pick for the build actions before the next tick.
     pub(crate) fn retain_pick(
         &mut self,
         origin: &InteractionOriginSnapshot,
         authority: (u64, u64),
-    ) -> Option<FramePick> {
-        let current = origin.outbound_ray().map(|ray| FramePick {
+    ) {
+        self.previous_pick = origin.outbound_ray().map(|ray| FramePick {
             authority,
             session_generation: ray.session_generation(),
             actor_session_id: ray.actor_session_id(),
             origin: ray.origin(),
             direction: ray.direction(),
         });
-        std::mem::replace(&mut self.previous_pick, current)
-            .filter(|previous| previous.authority == authority)
     }
 
-    /// Whether the press on `tick` still waits for block targeting.
-    pub(crate) fn awaiting_pick_at(&self, tick: u64) -> bool {
-        self.awaiting_pick == Some(tick)
+    /// The retained pick, if it was taken under `authority`.
+    fn pick(&self, authority: (u64, u64)) -> Option<FramePick> {
+        self.previous_pick
+            .filter(|previous| previous.authority == authority)
     }
+}
+
+/// Retains each frame's published (and assisted) pick for the next tick's build actions.
+pub(crate) fn retain_block_use_pick(
+    origin: Res<InteractionOriginSnapshot>,
+    movement: Res<MovementTicker>,
+    mut runtime: ResMut<BlockUseRuntime>,
+) {
+    runtime.retain_pick(&origin, movement.interaction_authority_identity());
 }
 #[derive(SystemParam)]
 pub(crate) struct BlockUseContext<'w, 's> {
@@ -115,8 +120,10 @@ pub(crate) fn produce_block_use(
     mut item_use: ResMut<crate::item_use::ItemUseRuntime>,
     movement: Res<MovementTicker>,
 ) {
-    let pick = runtime.retain_pick(&context.origin, movement.interaction_authority_identity());
-    runtime.awaiting_pick = None;
+    let pick = runtime.pick(movement.interaction_authority_identity());
+    if context.input.phase(Action::Use).pressed {
+        runtime.forget_press_resolution();
+    }
     swings.sync_ticks(
         movement.interaction_authority_identity(),
         movement.completed_tick(),
@@ -168,14 +175,12 @@ pub(crate) fn produce_block_use(
     {
         return;
     }
-    // Frames between physics ticks have no unsent tick; a press waits for one.
-    let Some(tick) = movement.newest_unsent_sample().map(|sample| sample.tick) else {
+    // Vanilla builds before each simulation tick, from the last completed tick's end state;
+    // this runs before the frame's physics, so a placed block is in the world the tick sees.
+    let Some(state) = movement.build_action_state() else {
         return;
     };
-    // Vanilla builds before each simulation tick, from the previous tick's end state.
-    let Some(state) = movement.pre_tick_sample() else {
-        return;
-    };
+    let tick = state.tick.saturating_add(1);
     let clock = RepeatClock::for_state(
         u64::try_from(context.time.elapsed().as_millis()).unwrap_or(u64::MAX),
         &state,
@@ -190,9 +195,6 @@ pub(crate) fn produce_block_use(
     }
     // A press or repeat waits for a pick taken under the current movement authority.
     if pick.is_none() {
-        if trigger == ItemUseTrigger::PlayerInput {
-            runtime.awaiting_pick = Some(tick);
-        }
         return;
     }
     let input_mode = protocol_input_mode(input.input_mode);

@@ -171,8 +171,10 @@ fn fixture() -> (World, client_session::CapturedPackets) {
     (world, captured)
 }
 
+/// A press resolves before the next tick simulates, even when the last completed tick's
+/// swing has already been published; its swing precedes its transaction.
 #[test]
-fn fresh_block_use_waits_for_an_unpublished_tick_before_queueing_or_allocating_requests() {
+fn a_fresh_press_resolves_for_the_tick_after_the_last_completed_one() {
     let (mut world, mut captured) = fixture();
     let authority = world
         .resource::<MovementTicker>()
@@ -184,74 +186,8 @@ fn fresh_block_use_waits_for_an_unpublished_tick_before_queueing_or_allocating_r
     );
     world.resource_mut::<SwingTracker>().published_progress(101);
     world.run_system_cached(produce_block_use).unwrap();
-    assert!(
-        captured.drain().is_empty(),
-        "a fresh block interaction must wait past a published unsent tick"
-    );
-    assert_eq!(
-        world
-            .resource_mut::<crate::item_use::ItemUseRuntime>()
-            .next_legacy_request_id(),
-        -4
-    );
-    assert!(
-        world
-            .resource::<BlockUseRuntime>()
-            .due(
-                true,
-                101,
-                RepeatClock {
-                    now_millis: 1_000,
-                    sneaking: false,
-                    speed: 0.0,
-                    survival: true,
-                }
-            )
-            .is_some(),
-        "waiting leaves the block press pending"
-    );
-}
-
-#[test]
-fn a_deferred_fresh_block_press_sends_on_the_next_unpublished_tick() {
-    let (mut world, mut captured) = fixture();
-    let authority = world
-        .resource::<MovementTicker>()
-        .interaction_authority_identity();
-    world.resource_mut::<SwingTracker>().sync_ticks(
-        authority,
-        101,
-        &gameplay::movement::LocalMovementEffectTimeline::default(),
-    );
-    world.resource_mut::<SwingTracker>().published_progress(101);
-    world.run_system_cached(produce_block_use).unwrap();
-    assert!(captured.drain().is_empty());
-    let mut sample = gameplay::test_support::survival_mining::completed(102);
-    sample.position = world
-        .resource::<MovementTicker>()
-        .newest_unsent_sample()
-        .unwrap()
-        .position;
-    world
-        .resource_mut::<MovementTicker>()
-        .enqueue_completed_physics(sample)
-        .unwrap();
-    let snapshot = world
-        .resource_mut::<crate::semantic_controls::SemanticInputRuntime>()
-        .route_and_finalize(semantic_input::DeviceFrame {
-            keyboard_mouse: Some(semantic_input::KeyboardMouseFrame {
-                mouse_buttons: vec![2],
-                ..Default::default()
-            }),
-            ..Default::default()
-        })
-        .unwrap();
-    assert!(!snapshot.phases[Action::Use as usize].pressed);
-    world
-        .insert_resource(crate::semantic_controls::SemanticInputSnapshot::from_finalized(snapshot));
-    world.run_system_cached(produce_block_use).unwrap();
-    let packets = captured.drain();
-    let ids: Vec<_> = packets
+    let ids: Vec<_> = captured
+        .drain()
         .iter()
         .map(|packet| format!("{:?}", packet.header.id))
         .collect();
@@ -264,9 +200,9 @@ fn a_deferred_fresh_block_press_sends_on_the_next_unpublished_tick() {
     assert!(world.resource::<BlockUseRuntime>().interacted_at(102));
 }
 
-/// A press resolves before the newest tick's movement, so it reports the previous tick's position.
+/// A press reports the end position of the last completed tick, which precedes its tick.
 #[test]
-fn a_block_press_reports_the_position_before_the_newest_tick() {
+fn a_block_press_reports_the_last_completed_position() {
     use protocol::wire::valentine::bedrock::version::v1_26_51::{
         InventoryTransactionPacketTransaction, McpePacketData,
     };
@@ -276,8 +212,9 @@ fn a_block_press_reports_the_position_before_the_newest_tick() {
         .newest_unsent_sample()
         .unwrap()
         .position;
+    let moved = [before[0] + 0.25, before[1], before[2]];
     let mut sample = gameplay::test_support::survival_mining::completed(102);
-    sample.position = [before[0] + 0.25, before[1], before[2]];
+    sample.position = moved;
     world
         .resource_mut::<MovementTicker>()
         .enqueue_completed_physics(sample)
@@ -296,7 +233,7 @@ fn a_block_press_reports_the_position_before_the_newest_tick() {
             _ => None,
         })
         .collect();
-    assert_eq!(positions, [before]);
+    assert_eq!(positions, [moved]);
 }
 
 /// Publishes one frame's eye ray for the fixture session.
@@ -363,14 +300,12 @@ fn a_block_press_casts_the_pick_taken_before_the_tick() {
 #[test]
 fn a_moving_press_measures_reach_from_the_pre_tick_eye() {
     let (mut world, mut captured) = fixture();
-    for (tick, z) in [(102, 12.0), (103, 12.6)] {
-        let mut sample = gameplay::test_support::survival_mining::completed(tick);
-        sample.position = [4.5, 2.5, z];
-        world
-            .resource_mut::<MovementTicker>()
-            .enqueue_completed_physics(sample)
-            .unwrap();
-    }
+    let mut sample = gameplay::test_support::survival_mining::completed(102);
+    sample.position = [4.5, 2.5, 12.0];
+    world
+        .resource_mut::<MovementTicker>()
+        .enqueue_completed_physics(sample)
+        .unwrap();
     let ahead = frame_origin(&world, Vec3::new(4.5, 2.5, 12.3), Quat::IDENTITY);
     let authority = world
         .resource::<MovementTicker>()
@@ -488,11 +423,135 @@ fn a_press_waiting_for_a_pick_is_not_resolved_as_item_use() {
     let mut sample = gameplay::test_support::survival_mining::completed(102);
     sample.position = position;
     movement.enqueue_completed_physics(sample).unwrap();
+    // Each frame resolves build actions, publishes its pick, then resolves air use.
     for _ in 0..2 {
         world.run_system_cached(produce_block_use).unwrap();
+        world
+            .run_system_cached(crate::block_use::retain_block_use_pick)
+            .unwrap();
         world
             .run_system_cached(crate::item_use::produce_item_use)
             .unwrap();
     }
     assert_eq!(transaction_targets(&mut captured), [[4, 2, 6]]);
+}
+
+/// A placement resolves before the tick that walks into its cell, so that tick's movement
+/// collides with the placed block instead of reporting the player inside it.
+#[test]
+fn a_placement_before_the_tick_blocks_movement_into_its_cell() {
+    let (mut world, mut captured) = fixture();
+    let records = assets::read_registry_for_protocol(
+        assets::pinned_block_registry_bytes(),
+        assets::active_content_registry_protocol(),
+    )
+    .unwrap();
+    let stone = records
+        .iter()
+        .find(|record| record.name.as_ref() == "minecraft:stone")
+        .unwrap()
+        .sequential_id;
+    let start = [4.5, 2.620_01, 8.32];
+    {
+        let mut client_world = world.resource_mut::<crate::runtime::world::ClientWorld>();
+        let stream = client_world.stream.as_mut().unwrap();
+        let floor = (3..=5)
+            .flat_map(|x| (6..=9).map(move |z| [x, 0, z]))
+            .map(|position| protocol::BlockUpdateEvent {
+                dimension: 0,
+                position,
+                layer: 0,
+                network_id: stone,
+            })
+            .collect();
+        stream
+            .submit(3, protocol::WorldEvent::BlockUpdates(floor))
+            .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while stream.committed_sequence() < 3 {
+            stream.poll(start, 0);
+            assert!(Instant::now() < deadline, "floor did not commit");
+            std::thread::yield_now();
+        }
+    }
+    world.resource_scope(|world, mut ui: Mut<UiRuntime>| {
+        let mut player = world.resource_mut::<crate::player_runtime::PlayerRuntime>();
+        let extra_data: std::sync::Arc<[u8]> = std::sync::Arc::from([]);
+        ui.inventory_ledger_mut(&mut player)
+            .apply(&InventoryEvent::Slot(InventorySlotEvent {
+                identity: SlotIdentity {
+                    container: ContainerIdentity {
+                        window_id: Some(0),
+                        slot_type: None,
+                        dynamic_id: None,
+                    },
+                    slot: 0,
+                },
+                stack: protocol::NetworkItemStack {
+                    network_id: 1,
+                    metadata: 0,
+                    stack_network_id: 5,
+                    count: 64,
+                    nbt_digest: <sha2::Sha256 as sha2::Digest>::digest(&extra_data).into(),
+                    block_runtime_id: i32::try_from(stone).unwrap(),
+                    extra_data,
+                },
+                storage_item: None,
+            }));
+    });
+    let mut movement = world.resource_mut::<MovementTicker>();
+    movement.reset(7, 100, start);
+    let authority = movement.interaction_authority_identity();
+    let mut physics = crate::movement::LocalPhysicsController::default();
+    physics.reanchor_network_position(start, 100, true);
+    world.insert_resource(physics);
+    // The previous frame looked down at the floor ahead; walking forward faces it.
+    let eye = Vec3::from_array(start);
+    let looking_down = frame_origin(&world, eye, Quat::from_rotation_x(-1.103));
+    world
+        .resource_mut::<BlockUseRuntime>()
+        .retain_pick(&looking_down, authority);
+    world.insert_resource(crate::local_player::LocalViewPose::new(eye, Quat::IDENTITY));
+    world.insert_resource(crate::camera::AutoFly::new(false));
+    #[cfg(feature = "acceptance")]
+    world.insert_resource(crate::acceptance::AcceptanceRun::new(
+        None, None, false, false,
+    ));
+    #[cfg(not(feature = "acceptance"))]
+    world.init_resource::<crate::acceptance::AcceptanceRun>();
+    world.init_resource::<crate::movement::LocalMovementSpeedAuthority>();
+    let snapshot = world
+        .resource_mut::<crate::semantic_controls::SemanticInputRuntime>()
+        .route_and_finalize(semantic_input::DeviceFrame {
+            keyboard_mouse: Some(semantic_input::KeyboardMouseFrame {
+                keys: vec![0x1a],
+                mouse_buttons: vec![2],
+                ..Default::default()
+            }),
+            ..Default::default()
+        })
+        .unwrap();
+    assert!(snapshot.movement[1] > 0.0, "the fixture walks forward");
+    world
+        .insert_resource(crate::semantic_controls::SemanticInputSnapshot::from_finalized(snapshot));
+
+    world.run_system_cached(produce_block_use).unwrap();
+    assert_eq!(transaction_targets(&mut captured), [[4, 0, 7]]);
+    world
+        .resource_mut::<Time<Real>>()
+        .advance_by(Duration::from_millis(50));
+    world
+        .run_system_cached(crate::movement::advance_local_physics)
+        .unwrap();
+    let moved = world
+        .resource::<MovementTicker>()
+        .newest_unsent_sample()
+        .unwrap();
+    assert_eq!(moved.tick, 101);
+    // The placed cell spans z 7..8; the player's half-width box stops at its face.
+    assert!(moved.position[2] < start[2], "the tick walked forward");
+    assert!(
+        moved.position[2] - sim::PLAYER_WIDTH as f32 * 0.5 >= 8.0 - 1.0e-4,
+        "movement collided with the placed block: {moved:?}"
+    );
 }

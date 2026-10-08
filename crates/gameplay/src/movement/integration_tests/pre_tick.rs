@@ -1,69 +1,60 @@
-// Pre-tick state for build actions across every path that completes, moves or replays ticks.
+// The state build actions observe before the next tick, across every path that completes,
+// moves or replays ticks.
 
-/// Build actions precede each simulation tick, so they read the previous tick's end state.
+/// Build actions precede each simulation tick, so they read the last completed tick's end.
 #[test]
-fn build_actions_observe_the_end_state_of_the_previous_tick() {
+fn build_actions_observe_the_end_state_of_the_last_completed_tick() {
     let mut ticker = MovementTicker::default();
     ticker.reset(7, 1_000, [1.0, 64.0, 2.0]);
     ticker.set_source(MovementSource::Physics);
-    let mut ground = completed_sample(1_001, [1.2, 64.0, 2.0]);
-    ground.velocity = [0.12, -0.0784, 0.0];
-    ticker.enqueue_completed_physics(ground).unwrap();
-    let anchored = ticker.pre_tick_sample().unwrap();
+    let anchored = ticker.build_action_state().unwrap();
     assert_eq!(
         (anchored.tick, anchored.position, anchored.delta),
         (1_000, [1.0, 64.0, 2.0], [0.0; 3])
     );
-    let mut jump = completed_sample(1_002, [1.4, 64.42, 2.0]);
-    jump.velocity = [0.12, 0.3332, 0.0];
-    ticker.enqueue_completed_physics(jump).unwrap();
-    let queued = ticker.pre_tick_sample().unwrap();
+    let mut ground = completed_sample(1_001, [1.2, 64.0, 2.0]);
+    ground.velocity = [0.12, -0.0784, 0.0];
+    ticker.enqueue_completed_physics(ground).unwrap();
+    let queued = ticker.build_action_state().unwrap();
     assert_eq!(
         (queued.tick, queued.position, queued.delta),
         (1_001, [1.2, 64.0, 2.0], [0.12, -0.0784, 0.0])
     );
     ticker.pop_pending().unwrap();
-    assert_eq!(ticker.pre_tick_sample(), Some(queued));
-    ticker.pop_pending().unwrap();
-    assert_eq!(ticker.pre_tick_sample(), None);
-    ticker
-        .enqueue_completed_physics(completed_sample(1_003, [1.6, 64.2, 2.0]))
-        .unwrap();
-    let sent = ticker.pre_tick_sample().unwrap();
-    assert_eq!((sent.tick, sent.delta), (1_002, [0.12, 0.3332, 0.0]));
+    assert_eq!(ticker.build_action_state(), Some(queued));
+    let mut jump = completed_sample(1_002, [1.4, 64.42, 2.0]);
+    jump.velocity = [0.12, 0.3332, 0.0];
+    ticker.enqueue_completed_physics(jump).unwrap();
+    let jumped = ticker.build_action_state().unwrap();
+    assert_eq!((jumped.tick, jumped.delta), (1_002, [0.12, 0.3332, 0.0]));
 }
 
-/// A send the transport refuses returns to the queue without losing its predecessor.
+/// A send the transport refuses returns to the queue without moving the observed state.
 #[test]
-fn a_refused_send_keeps_the_pre_tick_state_of_the_restored_tick() {
+fn a_refused_send_keeps_the_build_action_state() {
     let mut ticker = MovementTicker::default();
     ticker.reset(7, 1_000, [1.0, 64.0, 2.0]);
     ticker.set_source(MovementSource::Physics);
-    ticker
-        .enqueue_completed_physics(completed_sample(1_001, [1.2, 64.0, 2.0]))
-        .unwrap();
-    flush_player_auth_inputs(&mut ticker, 1, Some(evidence_context()), |_, _| {
-        Ok::<_, &'static str>(())
-    })
-    .unwrap();
-    ticker
-        .enqueue_completed_physics(completed_sample(1_002, [1.4, 64.0, 2.0]))
-        .unwrap();
-    let before = ticker.pre_tick_sample().unwrap();
-    assert_eq!(before.tick, 1_001);
+    for tick in [1_001, 1_002] {
+        ticker
+            .enqueue_completed_physics(completed_sample(tick, [1.2, 64.0, 2.0]))
+            .unwrap();
+    }
+    let before = ticker.build_action_state().unwrap();
+    assert_eq!(before.tick, 1_002);
     for _ in 0..2 {
         assert!(
-            flush_player_auth_inputs(&mut ticker, 1, Some(evidence_context()), |_, _| Err("full"))
+            flush_player_auth_inputs(&mut ticker, 2, Some(evidence_context()), |_, _| Err("full"))
                 .is_err()
         );
-        assert_eq!(ticker.pre_tick_sample(), Some(before));
+        assert_eq!(ticker.build_action_state(), Some(before));
     }
 }
 
-/// A queue that resumes right after the corrected tick reads the corrected anchor.
+/// A replay rewrites the observed state; with no replayed ticks it is the corrected anchor.
 #[test]
-fn a_replayed_correction_keeps_its_anchor_as_the_pre_tick_state() {
-    for (queued_ms, queued_after) in [(100, 1), (50, 0)] {
+fn a_replayed_correction_rewrites_the_build_action_state() {
+    for (queued_ms, replayed) in [(100, true), (50, false)] {
         let mut physics = LocalPhysicsController::default();
         physics.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
         let frame = physics.advance_with_context(
@@ -78,6 +69,7 @@ fn a_replayed_correction_keeps_its_anchor_as_the_pre_tick_state() {
         for sample in frame.samples {
             ticker.enqueue_completed_physics(sample).unwrap();
         }
+        let before = ticker.build_action_state().unwrap();
         ticker.pop_pending().unwrap();
         reconcile_candidate_physics_correction(
             &mut ticker,
@@ -89,57 +81,48 @@ fn a_replayed_correction_keeps_its_anchor_as_the_pre_tick_state() {
             &VersionedFloor(1),
         )
         .unwrap();
-        assert_eq!(ticker.pending_samples().len(), queued_after);
-        if queued_after == 0 {
-            let next = physics.advance_with_context(
-                Duration::from_millis(50),
-                forward_physics_input(),
-                PhysicsSampleContext::default(),
-                &VersionedFloor(1),
-            );
-            for sample in next.samples {
-                ticker.enqueue_completed_physics(sample).unwrap();
-            }
+        let after = ticker.build_action_state().unwrap();
+        assert_eq!(after.tick, before.tick);
+        if replayed {
+            assert_ne!(after.position, before.position);
+        } else {
+            assert_eq!(after.position, [0.25, 2.620_01, 0.0]);
         }
-        let anchor = ticker.pre_tick_sample().unwrap();
-        assert_eq!((anchor.tick, anchor.position), (101, [0.25, 2.620_01, 0.0]));
     }
 }
 
-/// A cancelled transport-owned replay tick returns to the queue with the corrected
-/// anchor, then its own replayed state, as predecessors.
+/// Cancelled transport-owned replay ticks return to the queue; the replayed state stays.
 #[test]
-fn restored_replay_sends_keep_their_replayed_predecessors() {
+fn restored_replay_sends_keep_the_replayed_build_action_state() {
     let (mut ticker, _physics, admitted) =
         replay_with_admitted_future_ticks(MovementTicker::default());
-    assert!(ticker.resolve_cancelled_physics_send(admitted[0], true));
-    let anchor = ticker.pre_tick_sample().unwrap();
-    assert_eq!((anchor.tick, anchor.position), (101, [0.25, 2.620_01, 0.0]));
+    let replayed = ticker.build_action_state().unwrap();
+    for identity in admitted {
+        assert!(ticker.resolve_cancelled_physics_send(identity, true));
+    }
     let restored = ticker.newest_unsent_sample().unwrap();
-    assert!(ticker.resolve_cancelled_physics_send(admitted[1], true));
-    let replayed = ticker.pre_tick_sample().unwrap();
-    assert_eq!((replayed.tick, replayed.position), (102, restored.position));
+    assert_eq!(
+        (replayed.tick, replayed.position),
+        (restored.tick, restored.position)
+    );
+    assert_eq!(ticker.build_action_state(), Some(replayed));
 }
 
 /// A teleport snap restarts the timeline from the snapped pose with cleared motion.
 #[test]
-fn a_snapped_correction_is_the_next_tick_pre_tick_state() {
+fn a_snapped_correction_is_the_build_action_state() {
     let mut physics = LocalPhysicsController::default();
     physics.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
     let mut ticker = MovementTicker::default();
     ticker.reset(7, 100, [0.0, 2.620_01, 0.0]);
     ticker.set_source(MovementSource::Physics);
-    let advance = |physics: &mut LocalPhysicsController| {
-        physics
-            .advance_with_context(
-                Duration::from_millis(50),
-                forward_physics_input(),
-                PhysicsSampleContext::default(),
-                &VersionedFloor(1),
-            )
-            .samples
-    };
-    for sample in advance(&mut physics) {
+    let frame = physics.advance_with_context(
+        Duration::from_millis(50),
+        forward_physics_input(),
+        PhysicsSampleContext::default(),
+        &VersionedFloor(1),
+    );
+    for sample in frame.samples {
         ticker.enqueue_completed_physics(sample).unwrap();
     }
     ticker.pop_pending().unwrap();
@@ -156,25 +139,16 @@ fn a_snapped_correction_is_the_next_tick_pre_tick_state() {
     let PhysicsCorrectionOutcome::Snapped { tick } = outcome else {
         panic!("snap correction");
     };
-    // The snapped clock may need more than one frame to complete its next tick.
-    for _ in 0..4 {
-        for sample in advance(&mut physics) {
-            ticker.enqueue_completed_physics(sample).unwrap();
-        }
-        if ticker.newest_unsent_sample().is_some() {
-            break;
-        }
-    }
-    let snapped = ticker.pre_tick_sample().unwrap();
+    let snapped = ticker.build_action_state().unwrap();
     assert_eq!(
         (snapped.tick, snapped.position, snapped.delta),
         (tick, [8.0, 71.620_01, 9.0], [0.0; 3])
     );
 }
 
-/// A respawn or dimension reanchor is the predecessor of the first following tick.
+/// A respawn or dimension reanchor is the state the following tick's build actions read.
 #[test]
-fn a_surface_reanchor_is_the_next_tick_pre_tick_state() {
+fn a_surface_reanchor_is_the_build_action_state() {
     let mut ticker = MovementTicker::default();
     ticker.reset(7, 1_000, [1.0, 64.0, 2.0]);
     ticker.set_source(MovementSource::Physics);
@@ -184,19 +158,16 @@ fn a_surface_reanchor_is_the_next_tick_pre_tick_state() {
             .unwrap();
     }
     ticker.reanchor_surface_spawn(1_005, [30.0, 80.0, -4.0]);
-    ticker
-        .enqueue_completed_physics(completed_sample(1_006, [30.0, 80.0, -4.0]))
-        .unwrap();
-    let anchored = ticker.pre_tick_sample().unwrap();
+    let anchored = ticker.build_action_state().unwrap();
     assert_eq!(
         (anchored.tick, anchored.position, anchored.delta),
         (1_005, [30.0, 80.0, -4.0], [0.0; 3])
     );
 }
 
-/// Ticks withheld during a respawn search still end in a state the next tick follows.
+/// Ticks withheld during a respawn search still end in a state build actions read.
 #[test]
-fn a_withheld_respawn_tick_is_the_next_tick_pre_tick_state() {
+fn a_withheld_respawn_tick_is_the_build_action_state() {
     let mut ticker = MovementTicker::default();
     ticker.reset(7, 1_000, [1.0, 64.0, 2.0]);
     ticker.set_source(MovementSource::Physics);
@@ -207,10 +178,7 @@ fn a_withheld_respawn_tick_is_the_next_tick_pre_tick_state() {
     ticker
         .withhold_respawn_input(completed_sample(1_002, [5.0, 70.0, 5.0]))
         .unwrap();
-    ticker
-        .enqueue_completed_physics(completed_sample(1_003, [5.0, 70.0, 5.0]))
-        .unwrap();
-    let withheld = ticker.pre_tick_sample().unwrap();
+    let withheld = ticker.build_action_state().unwrap();
     assert_eq!(
         (withheld.tick, withheld.position),
         (1_002, [5.0, 70.0, 5.0])
@@ -227,12 +195,10 @@ fn deactivation_forgets_tick_end_states() {
         .enqueue_completed_physics(completed_sample(1_001, [1.0, 64.0, 2.0]))
         .unwrap();
     ticker.deactivate();
+    assert_eq!(ticker.build_action_state(), None);
     ticker.reset(8, 2_000, [3.0, 64.0, 3.0]);
     ticker.set_source(MovementSource::Physics);
-    ticker
-        .enqueue_completed_physics(completed_sample(2_001, [3.0, 64.0, 3.0]))
-        .unwrap();
-    let anchored = ticker.pre_tick_sample().unwrap();
+    let anchored = ticker.build_action_state().unwrap();
     assert_eq!(
         (anchored.tick, anchored.position),
         (2_000, [3.0, 64.0, 3.0])

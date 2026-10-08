@@ -372,8 +372,8 @@ pub(crate) fn produce_item_use(
     let Some(sample) = movement.newest_unsent_sample() else {
         return;
     };
-    // One press resolves once: it waits while block targeting waits for a valid pick.
-    if context.block_use.awaiting_pick_at(sample.tick) {
+    // One press resolves once: item use waits while block use still holds it.
+    if context.block_use.press_pending() {
         return;
     }
     let now_millis = u64::try_from(context.time.elapsed().as_millis()).unwrap_or(u64::MAX);
@@ -413,7 +413,7 @@ pub(crate) fn produce_item_use(
         inventory_revision,
         charge_projectile: loading_projectile(&player_runtime, stream, &context.ui, creative),
         press_consumed: context.melee.blocks_use_at(now_millis)
-            || context.block_use.interacted_at(sample.tick),
+            || context.block_use.press_interacted(),
     };
     if let Some(reason) = runtime.press_drop_reason(&frame) {
         crate::movement::note_click_drop("use", reason);

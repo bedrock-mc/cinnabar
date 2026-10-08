@@ -331,11 +331,13 @@ impl MovementTicker {
         self.outbox.back().map(UnsentSampleView::from_queued)
     }
 
-    /// The end state of the tick before the newest unsent tick. Vanilla runs build
-    /// actions before each simulation tick, so they observe this state, not the newest.
-    pub fn pre_tick_sample(&self) -> Option<UnsentSampleView> {
-        let previous = self.outbox.back()?.snapshot.tick.checked_sub(1)?;
-        self.tick_ends.get(previous)
+    /// The end state of the last completed tick. Vanilla runs build actions before each
+    /// simulation tick, so the next tick's build actions observe this state.
+    pub fn build_action_state(&self) -> Option<UnsentSampleView> {
+        if !self.physics_is_authorized() {
+            return None;
+        }
+        self.tick_ends.get(self.completed_tick())
     }
 
     /// An anchor restarts the timeline with cleared motion at the last completed tick.

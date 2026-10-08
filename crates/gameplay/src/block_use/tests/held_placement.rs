@@ -442,8 +442,8 @@ fn a_repeat_due_on_the_jump_tick_extends_the_bridge_instead_of_stacking() {
         } else {
             [0.12, -0.0784, 0.0]
         };
-        advance(&mut ticker, tick, eye, velocity);
-        let state = ticker.pre_tick_sample().unwrap();
+        // The build action resolves before this tick simulates.
+        let state = ticker.build_action_state().unwrap();
         let hit = if tick == 1 { side } else { top };
         if let Some((position, _)) = step(
             &mut runtime,
@@ -455,6 +455,7 @@ fn a_repeat_due_on_the_jump_tick_extends_the_bridge_instead_of_stacking() {
         ) {
             placed.push((tick, position));
         }
+        advance(&mut ticker, tick, eye, velocity);
     }
     assert_eq!(placed, [(1, [0, 63, 0]), (8, [1, 63, 0])]);
 }
@@ -466,6 +467,8 @@ fn held_cadence_uses_the_motion_of_the_previous_tick() {
     ticker.reset(7, 0, [0.5, 65.62, 0.5]);
     ticker.set_source(MovementSource::Physics);
     advance(&mut ticker, 1, [0.75, 65.62, 0.5], [0.25, 0.0, 0.0]);
+    // Tick 2's build action reads tick 1's motion; the stop simulated on tick 2 is later.
+    let state = ticker.build_action_state().unwrap();
     advance(&mut ticker, 2, [0.75, 65.62, 0.5], [0.0; 3]);
     let mut runtime = BlockUseRuntime::default();
     runtime.intention.record(
@@ -484,7 +487,6 @@ fn held_cadence_uses_the_motion_of_the_previous_tick() {
         false,
         [1.5, 64.0, 0.5],
     );
-    let state = ticker.pre_tick_sample().unwrap();
     let clock =
         |now_millis| RepeatClock::for_state(now_millis, &state, Some(PlayerGameMode::Survival));
     runtime.record(
