@@ -9,7 +9,7 @@ use super::{
 // bone's default position.
 pub const MODEL_PART_ORIGIN_Y: f32 = assets::gui_item::SHIELD_MODEL_PART_HEIGHT;
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub(super) struct LocalDelta {
     pub(super) translation: [f32; 3],
     pub(super) rotation: [f32; 3],

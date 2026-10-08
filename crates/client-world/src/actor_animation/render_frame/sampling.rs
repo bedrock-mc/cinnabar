@@ -58,6 +58,23 @@ pub(in crate::actor_animation) fn needs_frame_sampling(
     assets: &RuntimeEntityAssets,
     binding: usize,
 ) -> bool {
+    uses_render_query(assets, binding, |name| {
+        matches!(name, "query.frame_alpha" | "query.life_time")
+    })
+}
+
+pub(in crate::actor_animation) fn needs_swell_sampling(
+    assets: &RuntimeEntityAssets,
+    binding: usize,
+) -> bool {
+    uses_render_query(assets, binding, |name| name == "query.swell_amount")
+}
+
+fn uses_render_query(
+    assets: &RuntimeEntityAssets,
+    binding: usize,
+    query: impl Fn(&str) -> bool,
+) -> bool {
     render_expressions(assets, binding)
         .into_iter()
         .any(|expression| {
@@ -80,12 +97,7 @@ pub(in crate::actor_animation) fn needs_frame_sampling(
                 assets
                     .molang_symbols()
                     .get(symbol as usize)
-                    .is_some_and(|symbol| {
-                        matches!(
-                            symbol.identifier.as_ref(),
-                            "query.frame_alpha" | "query.life_time" | "query.swell_amount"
-                        )
-                    })
+                    .is_some_and(|symbol| query(symbol.identifier.as_ref()))
             })
         })
 }

@@ -54,6 +54,10 @@ impl ActorSnapshot {
         (previous + (f32::from(swell.current) - previous) * partial_tick) / SWELL_FULL_TICKS
     }
 
+    pub(crate) fn creeper_swell_changes(&self) -> bool {
+        self.status.creeper_swell.previous != self.status.creeper_swell.current
+    }
+
     pub(crate) fn creeper_swelling_direction(&self) -> f32 {
         f32::from(self.status.creeper_swell.direction)
     }

@@ -54,6 +54,13 @@ pub(super) struct FrameState {
     pub input: ActorTickInput,
     pub anim_tick: u64,
     pub clips: Vec<tick::WeightedClip>,
+    pub swell_poses: Option<SwellPoses>,
+}
+
+#[derive(Debug)]
+pub(super) struct SwellPoses {
+    pub previous: Vec<pose::LocalDelta>,
+    pub current: Vec<pose::LocalDelta>,
 }
 
 impl ActorAnimationStore {
@@ -94,7 +101,8 @@ impl ActorAnimationStore {
             .map(|progress| progress.bedrock_progress(partial_tick));
         let swing_changed = state.samples_swing_poses
             && swing.is_some_and(|value| value != frame.input.attack_time);
-        if !state.samples_render_frames && !swing_changed {
+        let swell_changed = frame.swell_poses.is_some() && actor.creeper_swell_changes();
+        if !state.samples_render_frames && !swing_changed && !swell_changed {
             return Some(completed());
         }
         let pose_inputs_changed = camera_rotation != frame.context.camera_rotation
@@ -150,7 +158,9 @@ impl ActorAnimationStore {
             None
         };
         let clips = sampled_clips.as_deref().unwrap_or(&frame.clips);
-        let sampled_local = if (state.samples_camera_poses && pose_inputs_changed) || swing_changed
+        let mut sampled_local = if (state.samples_camera_poses && pose_inputs_changed)
+            || swing_changed
+            || swell_changed
         {
             let Ok(local) = pose::sample_clips(
                 &evaluator,
@@ -163,6 +173,27 @@ impl ActorAnimationStore {
                 return Some(completed());
             };
             Some(local)
+        } else {
+            None
+        };
+        let swell_previous = if swell_changed && !state.samples_camera_poses && !swing_changed {
+            let Some(history) = frame.swell_poses.as_ref() else {
+                return Some(completed());
+            };
+            let Some(local) = sampled_local.as_mut() else {
+                return Some(completed());
+            };
+            let mut previous = history.previous.clone();
+            for ((sample, current), previous) in
+                local.iter_mut().zip(&history.current).zip(&mut previous)
+            {
+                // Swelling changes scale; ordinary motion retains both completed tick poses.
+                previous.scale = sample.scale;
+                sample.translation = current.translation;
+                sample.rotation = current.rotation;
+                sample.rotation_relative_to_entity = current.rotation_relative_to_entity;
+            }
+            state.compose(&previous).map(Arc::<[BoneTransform]>::from)
         } else {
             None
         };
@@ -227,7 +258,10 @@ impl ActorAnimationStore {
                 (None, _) => None,
             };
             if let Some(pose) = sampled {
-                layer.previous_pose = Arc::clone(&pose);
+                layer.previous_pose = swell_previous
+                    .as_ref()
+                    .filter(|_| layer.geometry.is_none())
+                    .map_or_else(|| Arc::clone(&pose), Arc::clone);
                 layer.pose = pose;
             } else if let Some(previous) = previous {
                 layer.previous_pose = Arc::clone(&previous.previous_pose);

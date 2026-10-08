@@ -169,7 +169,6 @@ fn camera_expression(assets: &RuntimeEntityAssets, index: usize, swing: bool) ->
                         matches!(
                             symbol.identifier.as_ref(),
                             "query.camera_distance_range_lerp"
-                                | "query.swell_amount"
                                 | "query.camera_rotation"
                                 | "query.distance_from_camera"
                                 | "query.rotation_to_camera"

@@ -69,4 +69,64 @@ fn installed_creeper_samples_pack_swelling_and_flash_between_ticks() {
     assert_eq!(late[0].overlay, [1.0, 1.0, 1.0, 0.5]);
     assert_eq!(store.actor_rig(1).unwrap().completed_tick, tick);
     assert_eq!(early, store.render_frame(0.25).layers(1).unwrap().as_ref());
+    store.apply(
+        1,
+        2,
+        protocol::ActorEvent::Move(protocol::ActorMoveEvent {
+            dimension: 0,
+            runtime_id: 1,
+            position: [Some(1.0), None, None],
+            position_origin: protocol::ActorPositionOrigin::Feet,
+            pitch: Some(30.0),
+            yaw: None,
+            head_yaw: None,
+            on_ground: Some(true),
+            teleported: false,
+            player_mode: None,
+            source_tick: None,
+            interpolation: Default::default(),
+        }),
+    );
+    store.advance_interpolation_ticks(1);
+    let rig = store.actor_rig(1).unwrap();
+    let head = rig
+        .bone_names
+        .iter()
+        .position(|name| name.as_ref() == "head")
+        .unwrap();
+    assert_ne!(rig.previous[head].rotation, rig.current[head].rotation);
+    let expected = [rig.previous[head].rotation, rig.current[head].rotation];
+    for alpha in [0.25, 0.75] {
+        let layers = store.render_frame(alpha).layers(1).unwrap();
+        assert_eq!(
+            [
+                layers[0].previous_pose[head].rotation,
+                layers[0].pose[head].rotation
+            ],
+            expected,
+            "swelling must retain tick interpolation for head motion"
+        );
+    }
+    store.apply(
+        1,
+        3,
+        protocol::ActorEvent::Metadata(protocol::ActorMetadataUpdateEvent {
+            dimension: 0,
+            runtime_id: 1,
+            tick: 0,
+            metadata: Arc::from([protocol::ActorMetadata {
+                key: 0,
+                value: ActorMetadataValue::Flags(0),
+            }]),
+            properties: Arc::from([]),
+        }),
+    );
+    store.advance_interpolation_ticks(40);
+    for alpha in [0.25, 0.75] {
+        let layers = store.render_frame(alpha).layers(1).unwrap();
+        assert!(
+            layers[0].pose.is_empty() && layers[0].previous_pose.is_empty(),
+            "unchanged swelling must reuse tick-owned poses"
+        );
+    }
 }

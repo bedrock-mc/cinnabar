@@ -372,7 +372,9 @@ pub(super) fn evaluate_state(
     }
     variables.clear_temporaries();
     variables.clear(engine.first_person_item_rotation_factor);
+    let samples_swell = actor.is_creeper() && state.samples_swell_poses;
     let mut render_frame = (state.samples_render_frames
+        || samples_swell
         || (state.samples_swing_poses && state.local_swing.is_some()))
     .then(|| super::render_frame::FrameState {
         variables: variables.clone(),
@@ -380,6 +382,7 @@ pub(super) fn evaluate_state(
         input,
         anim_tick,
         clips: Vec::new(),
+        swell_poses: None,
     });
     if let Some(script) = rig.pre_animation {
         evaluator.run(script as usize, &mut variables, 0.0, budget)?;
@@ -470,7 +473,9 @@ pub(super) fn evaluate_state(
         super::clock::sample(&evaluator, previous_clocks, &mut weighted_clips, budget)?;
         previous_clocks.clone()
     };
-    if (state.samples_camera_poses || (state.samples_swing_poses && state.local_swing.is_some()))
+    if (state.samples_camera_poses
+        || samples_swell
+        || (state.samples_swing_poses && state.local_swing.is_some()))
         && let Some(frame) = render_frame.as_mut()
     {
         frame.clips.clone_from(&weighted_clips);
@@ -514,6 +519,12 @@ pub(super) fn evaluate_state(
     });
     let skin_layers =
         super::skin_layers::evaluate(state, &evaluator, &variables, &local, render.as_deref());
+    if samples_swell && let Some(frame) = render_frame.as_mut() {
+        frame.swell_poses = Some(super::render_frame::SwellPoses {
+            previous: Vec::new(),
+            current: local,
+        });
+    }
     Ok(EvaluatedState {
         pose,
         skin_layers,

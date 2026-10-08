@@ -267,6 +267,7 @@ struct ActorRigState {
     samples_render_frames: bool,
     samples_camera_poses: bool,
     samples_swing_poses: bool,
+    samples_swell_poses: bool,
     render_frame: Option<render_frame::FrameState>,
     initialized: bool,
     /// Outside the animation view at its last tick, holding its pose.

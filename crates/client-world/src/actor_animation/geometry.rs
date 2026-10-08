@@ -176,6 +176,10 @@ pub(super) fn resolve_binding(
             || super::render_frame::sampling::needs_frame_sampling(assets, rig_binding),
         samples_camera_poses,
         samples_swing_poses,
+        samples_swell_poses: super::render_frame::sampling::needs_swell_sampling(
+            assets,
+            rig_binding,
+        ),
         render_frame: None,
         clip_clocks: BTreeMap::new(),
         initialized: false,
@@ -523,6 +527,8 @@ fn reselect_geometry_with_checkpoint(
         selected,
         &controllers,
     );
+    state.samples_swell_poses =
+        super::render_frame::sampling::needs_swell_sampling(assets, state.rig_binding);
     state.samples_render_frames = state.samples_camera_poses
         || super::render_frame::sampling::needs_frame_sampling(assets, state.rig_binding);
     state.geometry_binding = selected;
