@@ -96,8 +96,9 @@ fn output(reader: &mut Reader<'_>) -> ReadResult<Option<Output>> {
     // The existing validator is unchanged. The candidate accepts only the
     // independently parsed no-NBT/no-place/no-break envelope, or absent data.
     let empty = super::canonical_empty_extra(extra);
+    // Block items carry negative network ids; only 0 (air) makes nothing.
     Ok(
-        (id > 0 && (1..=255).contains(&count) && aux <= u16::MAX as u32 && empty).then_some(
+        (id != 0 && (1..=255).contains(&count) && aux <= u16::MAX as u32 && empty).then_some(
             Output {
                 id,
                 aux: aux as u16,

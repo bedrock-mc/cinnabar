@@ -441,7 +441,7 @@ pub(super) fn hand_pipeline_descriptor(
     }
 }
 
-/// Publishes hand coverage only after its encoded draw reaches the device queue.
+/// Publishes hand coverage once the frame's device poll sees its encoded draw complete.
 pub(super) fn submit_completion(
     device: Res<RenderDevice>,
     queue: Res<RenderQueue>,
@@ -484,14 +484,5 @@ pub(super) fn submit_completion(
             if token.is_some() { 2 } else { 3 },
             token.or(gpu.token),
         );
-    }
-    #[cfg(feature = "tracy")]
-    let _span = bevy::log::info_span!("viewmodel.completion_poll").entered();
-    if let Err(error) = device.poll(PollType::Poll) {
-        ViewmodelCompletionGate::observe_stage(4, 4, token);
-        if let Some(token) = token {
-            gate.reject(token);
-        }
-        bevy::log::warn!(?error, "hand completion polling failed");
     }
 }

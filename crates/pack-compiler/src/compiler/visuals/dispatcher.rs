@@ -110,6 +110,7 @@ struct VisualCompiler {
     transparent_cube_templates: BTreeMap<[u32; 6], u32>,
     portal_templates: BTreeMap<[u32; 6], u32>,
     dragon_egg_templates: BTreeMap<[u32; 6], u32>,
+    anvil_templates: BTreeMap<super::anvil::TemplateKey, u32>,
     end_portal_frame_templates: BTreeMap<super::end_portal_frame::TemplateKey, u32>,
     flowerbed_templates: BTreeMap<[u32; 4], u32>,
     slab_templates: BTreeMap<[u32; 7], u32>,
@@ -157,6 +158,15 @@ impl VisualCompiler {
             return Ok(CompileRuleResult::Compiled(visual));
         }
 
+        ordered_rule!(super::anvil::compile_rule(
+            record,
+            inputs,
+            &mut self.anvil_templates,
+            &mut ModelStorage {
+                templates: &mut self.model_templates,
+                quads: &mut self.model_quads,
+            },
+        ));
         ordered_rule!(super::dragon_egg::compile_rule(
             record,
             inputs,

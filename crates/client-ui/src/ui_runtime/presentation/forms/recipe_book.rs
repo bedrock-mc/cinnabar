@@ -177,6 +177,10 @@ pub(super) fn book_data(
     if !shown {
         return;
     }
+    data.set_collection_defaults(
+        COLLECTION,
+        [("#recipe_book_total_items".into(), Scalar::Num(0.0))].into(),
+    );
     if BookCache::reuse(player_runtime, cache, runtime, frame, icons, data) {
         return;
     }
