@@ -14,14 +14,13 @@ pub use client_presentation::camera::{
     CameraSettingsAuthority, CameraSettingsError, FirstPersonHandMotion, FlyCamera,
     FlyCameraUpdateSet, HandSwayState, HeadMedium, LocalHurtEvent, OverlayKind, OverlayLayer,
     PITCH_LIMIT, PortalProgress, SPYGLASS_FOV_MODIFIER, ScreenEffectFacts, ScreenEffectInputs,
-    ScreenOverlays, ServerCameraSkips, ServerCameraView, THIRD_PERSON_COLLISION_EPSILON_BLOCKS,
-    THIRD_PERSON_COLLISION_RADIUS_BLOCKS, THIRD_PERSON_RADIUS_BLOCKS, ViewEffect, VisionEffects,
-    WalkBobState, auto_fly_offset, collision_safe_perspective_pose, compute_overlays,
-    input_is_active, look_angles, look_at_target, next_perspective, perspective_pose,
-    projection_fov_radians, release_cursor, spawn_fly_camera, unavailable_world_perspective_pose,
-    update_camera_fov, walk_bob_effect,
+    ScreenOverlays, ServerCameraSkips, ServerCameraView, THIRD_PERSON_COLLISION_RADIUS_BLOCKS,
+    THIRD_PERSON_RADIUS_BLOCKS, ViewEffect, VisionEffects, WalkBobState, auto_fly_offset,
+    collision_safe_perspective_pose, compute_overlays, input_is_active, look_angles,
+    look_at_target, next_perspective, perspective_pose, projection_fov_radians, release_cursor,
+    spawn_fly_camera, unavailable_world_perspective_pose, update_camera_fov, walk_bob_effect,
 };
-use client_presentation::camera::{fov, look, overlay_publish};
+use client_presentation::camera::{antialiasing, fov, look, overlay_publish};
 pub(crate) mod aim_assist;
 pub(crate) mod aim_highlight;
 mod facts;
@@ -93,6 +92,7 @@ impl Plugin for FlyCameraPlugin {
             (
                 (
                     apply_runtime_camera_settings,
+                    antialiasing::apply_camera_antialiasing,
                     presentation::collect_fov_inputs,
                     facts::collect_screen_effect_facts,
                 )

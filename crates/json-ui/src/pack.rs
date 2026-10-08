@@ -52,7 +52,7 @@ impl Catalog {
 
     /// Overlay a resource pack's ui files (pack-relative paths). As the vanilla
     /// client does, only paths some `_ui_defs.json` lists load, in sorted order;
-    /// malformed files are skipped and recorded, never fatal.
+    /// first-file partial values are retained and invalid later files are skipped.
     pub fn apply_pack<'a>(&mut self, files: impl IntoIterator<Item = (&'a str, &'a [u8])>) {
         let files: BTreeMap<&str, &[u8]> = files.into_iter().collect();
         if let Some(bytes) = files.get(GLOBALS)
@@ -87,35 +87,69 @@ impl Catalog {
         &self,
         files: impl IntoIterator<Item = (&'a str, &'a [u8])>,
     ) -> std::collections::BTreeSet<String> {
+        let mut namespaces = std::collections::BTreeSet::new();
+        self.visit_overlay_documents(files, |namespace, _| {
+            namespaces.insert(namespace.to_owned());
+        });
+        namespaces
+    }
+
+    /// Authored control paths in the accepted, indexed documents of a pack layer.
+    pub fn overlay_controls<'a>(
+        &self,
+        files: impl IntoIterator<Item = (&'a str, &'a [u8])>,
+    ) -> std::collections::BTreeSet<crate::ControlRef> {
+        let mut controls = std::collections::BTreeSet::new();
+        self.visit_overlay_documents(files, |namespace, object| {
+            controls.extend(
+                object
+                    .iter()
+                    .filter(|(key, body)| key.as_str() != "namespace" && body.is_object())
+                    .map(|(key, _)| crate::ControlRef::new(namespace, split_key(key).0)),
+            );
+        });
+        controls
+    }
+
+    fn visit_overlay_documents<'a>(
+        &self,
+        files: impl IntoIterator<Item = (&'a str, &'a [u8])>,
+        mut visit: impl FnMut(&str, &Map<String, Value>),
+    ) {
         let files: BTreeMap<&str, &[u8]> = files.into_iter().collect();
         let declared = files
             .get(UI_DEFS)
             .and_then(|bytes| Self::declared_paths(bytes).ok())
             .unwrap_or_default();
-        files
-            .into_iter()
-            .filter(|(path, _)| {
-                (self.lists(path) || declared.iter().any(|entry| entry == path))
-                    && *path != GLOBALS
-                    && *path != UI_DEFS
-            })
-            .filter_map(
-                |(path, bytes)| match json5::parse(&String::from_utf8_lossy(bytes)) {
-                    Ok(Value::Object(object)) => match object.get("namespace") {
-                        Some(Value::String(namespace)) => Some(namespace.clone()),
-                        _ => self.file_namespace(path).map(str::to_owned),
-                    },
-                    _ => None,
-                },
-            )
-            .collect()
+        for (path, bytes) in files {
+            if !(self.lists(path) || declared.iter().any(|entry| entry == path))
+                || path == GLOBALS
+                || path == UI_DEFS
+                || self.file_failed(path)
+            {
+                continue;
+            }
+            let (value, error) = json5::parse_partial(&String::from_utf8_lossy(bytes));
+            if error.is_some() && self.has_file(path) {
+                continue;
+            }
+            if let Value::Object(object) = value
+                && let Some(namespace) = object
+                    .get("namespace")
+                    .and_then(Value::as_str)
+                    .or_else(|| self.file_namespace(path))
+            {
+                visit(namespace, &object);
+            }
+        }
     }
 
     pub(crate) fn merge_overlay_file(&mut self, entry: &str, text: &str) {
-        let object = match json5::parse(text) {
-            Ok(Value::Object(object)) => object,
-            Ok(_) => return self.note(format!("pack {entry}: top level is not an object")),
-            Err(error) => return self.note(format!("pack {entry}: parse error ({error})")),
+        let Some(value) = self.read_document(entry, text) else {
+            return;
+        };
+        let Value::Object(object) = value else {
+            return self.note(format!("pack {entry}: top level is not an object"));
         };
         // A file overriding a vanilla path may omit the namespace it extends.
         let namespace = match object.get("namespace") {

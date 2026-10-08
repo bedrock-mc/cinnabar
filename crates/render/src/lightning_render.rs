@@ -33,6 +33,7 @@ const LIGHTNING_SHADER_HANDLE: Handle<Shader> =
 const RECORD_BYTES: usize = std::mem::size_of::<BoltRecord>();
 
 pub(crate) fn install_lightning_render(app: &mut App) {
+    crate::pipeline_warmup::register::<LightningPipeline>(app);
     load_internal_asset!(
         app,
         LIGHTNING_SHADER_HANDLE,
@@ -376,5 +377,23 @@ mod review_tests {
         assert_ne!(items[0].distance, items[1].distance);
         assert_eq!(items[0].batch_range, 0..1);
         assert_eq!(items[1].batch_range, 1..2);
+    }
+}
+
+impl crate::pipeline_warmup::PrewarmPipelines for LightningPipeline {
+    fn prewarm(
+        &mut self,
+        cache: &PipelineCache,
+        view: crate::pipeline_warmup::WarmView,
+        ids: &mut crate::pipeline_warmup::WarmupIds,
+    ) -> Result<(), BevyError> {
+        ids.push(self.variants.specialize(
+            cache,
+            LightningPipelineKey {
+                msaa: view.msaa,
+                hdr: view.hdr,
+            },
+        )?);
+        Ok(())
     }
 }

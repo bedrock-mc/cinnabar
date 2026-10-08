@@ -11,14 +11,15 @@
   `YK` defaults to onRole primary/offRole secondary; selection lowers its face by 0.4rem and draws
   a centered 4.8rem bottom marker. `wX` uses `FX` below 15rem per option; Cinnabar's compact choices
   still wrap instead. `O_` uses `hardcore-heart-engraved-75556ce94d9bfdecca12.png` on its thumb.
-- Create controls use the installed `data/resource_packs/oreui/texts/en_US.lang` General labels,
-  Advanced seed/world-type descriptions and Cheats activation label. The installed bundle remains
-  `1.26.51.01`; matching-version `1.26.50` responsive layout acceptance remains open. Putting terrain,
-  seed, cheats and the Cinnabar Server control on General is the owner-requested creation extension.
 - The owner's quick motion and subdued commerce remain intentional deviations. Unimplemented
   categories/Hardcore/Realm creation are disabled, so this visual pass cannot close full parity.
 
 # Vanilla reference map
+
+## crates/client-world/src/actor_animation.rs; crates/client-world/src/actor_animation/geometry/large_rig_tests.rs
+
+- Owner-supplied 1.26.50 Galaxite comparison on 2026-10-07 shows the complete Battle Pass display: characters, furniture and a vehicle beside the GEMS entrance. The served `entity/battlepass_display.entity.json` selects `geometry.battlepass_display`, whose authored geometry contains 190 bones. Native rendering of that composite disproves a player-skin-sized 96-bone runtime limit for custom entities.
+- `reference/26.30/src/by-owner/g/Geometry.cpp`, `Geometry::_parseBones`, iterates the authored bone array and grows its part collection. This older implementation corroborates dynamic entity skeletons; the owner screenshot and matching served geometry supply the version-matched witness. Cinnabar's shared entity-geometry bound is a resource policy, not a claimed native maximum, and the player-skin admission bound remains independent.
 
 ## app/src/runtime/network/block_overlay.rs; app/src/runtime/network/block_overlay/tests/builtins.rs
 
@@ -405,6 +406,8 @@ RVAs are 1.26.50.26 Windows client; `mac 0x10…` addresses are the 26.30 macOS 
 - Gameplay FOV multiplier, 1.26.50.26 Windows client `LocalPlayer::getFieldOfViewModifier` (RVA 0x04f33260; macOS 1.26.30 0x103d20270 with symbols). Returns 1.0 when the gameplay-FOV toggle is off, except the first-person scoping override 0.1 (`0x14ffab644`). Otherwise base 1.0, or 1.1 (`0x1500b53d0`) when the resolved Flying ability is set. Without a slowness effect in slot 2: `base * ((movementSpeedCurrent / walkSpeedAbility) * 1.2 + 1.0) * 0.5` (`0x14ffab6dc`, `0x14fea4060`, `0x14fec3380`); MOVEMENT_SPEED current is AttributeInstance +0x7c. With slowness the speed term is skipped: `base * max(amplifier * -0.1 + 1.0, 0.01)` (`0x14ffab670`, `0x1500c2b70`). Then ×1.1 when SwimSpeedMultiplierComponent > 1 (not tracked by Cinnabar), then bow `(useTicks/20)^2` → 0.85 above 1, else `max(t,0) * -0.15 + 1` (`0x14ffa90dc`, `0x14ffab6d0`, `0x150077af4`).
 - Ability lookups walk AbilitiesComponent's six layer slots from the highest (+0x4c8) down and take the first slot whose ability type is not Unset; Flying is ability 9 (+0x6c), WalkSpeed ability 14 (+0xa8).
 - Smoothing: LevelRendererPlayer tick (RVA 0x04e6bad0) stores the previous value then `cur += (target - cur) * 0.5`. macOS `LevelRendererPlayer::getFov` (0x1043a8820) multiplies the option angle by the frame-interpolated value, ×60/70 underwater when the toggle is on, clamps to [5, 130] and scales by the normalized viewport; the 1.26.50 equivalent of that tail was not located.
+- Current CameraAPI dispatch in `current/1.26.50.26/src/__unmapped/07.cpp` around line 274969 identifies gameplay FOV as `FUN_144e81cc0` (RVA 0x04e81cc0), but its canonical body incorrectly has a void return and omits the final arithmetic. The matching executable previously recorded in the private transfer is unavailable, so that exact-version angle tail remains unverified.
+- Near-version iOS 1.26.51.01 primary executable `com.mojang.minecraftpe.app/minecraftpe`: the corresponding gameplay getter at VA 0x1052aa89c reads FOV option 0x2f, multiplies by the interpolated gameplay modifier, applies underwater/death changes, then clamps to 5°/130° at 0x1052aaa64–0x1052aaa78 before normalized viewport scaling at 0x1052aaa80–0x1052aaaa0. This corroborates the 26.30 bound and supports the explicitly provisional gameplay-angle fix in `camera/portal_projection.rs`; it does not verify the preview target's tail or live post-death symptom.
 - Option defaults, macOS 1.26.30 `OptionRegistry::_registerOptions`: `gfx_field_of_view` FloatOption 0x32 default 60, range 30..110 (0x10d9b2f94, 0x10d9b2f9c, 0x10dcc6bb0); `gfx_field_of_view_toggle` BoolOption default true. 1.26.50 `OptionRegistry::_registerOptions` (RVA 0x0239ba00) registers the FOV as option 0x2f with the same values.
 
 ## crates/client-presentation/src/camera/bob.rs
@@ -431,6 +434,14 @@ RVAs are 1.26.50.26 Windows client; `mac 0x10…` addresses are the 26.30 macOS 
 
 ## crates/client-presentation/src/presentation/equipment/runtime/modern.rs
 - /// Native setupAttachableNoChecks copies the parent's complete matrix before the held
+- `AttachableRigSnapshot::bone_parent` and `parent_for_root`: current 1.26.50.26
+  `src/__unmapped/01.cpp:2547160–2547490` distinguishes unmatched actor roots,
+  matching owner names and expression bindings. The first-person actor pass uses
+  the shared owner model frame (`04.cpp:2626841–2626993`,
+  `05.cpp:2402720–2402766`). Both ordinary and attachable final draws seed neutral
+  geometry-root matrices (`01.cpp:2545432–2545478,2550801–2551140`);
+  bound orientations substitute their stored owner matrix. Near-version named
+  counterpart: `reference/26.30/src/by-owner/d/DataDrivenModel.cpp:8811–8840`.
 
 ## crates/client-ui/src/sound_requests.rs
 - /// `min_seconds_between_plays` (`SoundComponent`).
@@ -1253,6 +1264,10 @@ RVAs are 1.26.50.26 Windows client; `mac 0x10…` addresses are the 26.30 macOS 
 ## crates/protocol/src/ui/forms.rs
 - // ServerFormBindingInformation::createBindingData
 - // normalizes both representations through the same image value. Absent
+- Current `1.26.50.26/src/__unmapped/05.cpp`, `FUN_1454fd8b0` (`ServerFormBindingInformation::createBindingData`): menu entries are visited to collection end without a 256-item ceiling; ordered buttons retain their zero-based `option_index`. Menu count admission is governed by the packet envelope, independently of custom-form control budgets.
+
+## crates/json-ui/src/form.rs
+- The same current menu binding reference visits complete collections. Rendering preserves every admitted menu entry and selection index; existing factory and resolved-tree safety budgets reject a whole form rather than publish a shortened menu.
 
 ## crates/protocol/src/world/clocks.rs
 - /// The vanilla clock consumed by Level::getTime and the atmosphere renderer.
@@ -1646,6 +1661,15 @@ RVAs are 1.26.50.26 Windows client; `mac 0x10…` addresses are the 26.30 macOS 
 - The native query getters use render interpolation fraction `alpha`:
 - phase input but does not implement these native render-time getters. No teleport distance cutoff
 - or teleport-specific native animation reset was established by this investigation.
+- `crates/client-world/src/actor_animation/clock.rs`, `attachable.rs`, and
+  `crates/client-presentation/src/actor_publication/preparation.rs`: direct clip
+  application accumulates the prior stored time by the render delta, pauses below
+  effective float epsilon and retains completion across resumes. Current
+  1.26.50.26 `src/__unmapped/02.cpp:177659` retains the default expression
+  `query.anim_time + query.delta_time`. Near-version
+  `reference/26.30/src/by-owner/a/ActorSkeletalAnimationPlayer.cpp:400–508`
+  checks effective weight before assigning stored time, uses sticky completion and
+  holds at the declared endpoint; `897–915` resets player time and completion.
 
 ## docs/reference/arrow-rendering.md
 - # Native arrow entity rendering
@@ -3103,6 +3127,87 @@ Files: `docs/reference/held-block-placement.md`, `crates/gameplay/src/block_use.
   `LegacySetItemSlots` through `sendItem`/`sendInv`; `server/session/player.go:258–277`
   sends `InventorySlot`/`InventoryContent`, not `ItemStackResponse`.
 
+## Image clarity: AA settings and texture sampling
+
+- `docs/reference/rendering.md`, `crates/ui/src/settings.rs`, and
+  `crates/launcher/src/menu/settings_options/antialiasing.rs`: reference
+  `by-owner/m/MinecraftOptionValue.cpp:601–819`, `getDefaultMSAA`, returns 1 for
+  `(isEduMode && getOSVersion == 3)` or `getPlatformType == 1`, otherwise 2.
+  AppPlatform vtable at `0x110a25370`, slots `0x978`, `0x7f8`, `0x6b0`, maps those
+  calls to `isEduMode`, `getOSVersion`, `getPlatformType`; OSX platform type is 0.
+  `by-owner/a/AppPlatform.cpp:7733–7738` returns class1 in the base implementation;
+  `AppPlatform_OSX.cpp:2216–2221` returns class0. Base `getOSVersion` returns0 and
+  `isEduMode` returns1, so the inspected OSX Education default is2. No current
+  Android/iOS/console override or platform-class enum mapping was established.
+  `getSupportedMSAAValues` at lines823–1200 reads renderer capability values and
+  conditionally filters counts greater than 4. The exact memory-field identity of
+  that additional filter and current mobile/console defaults remain unverified.
+- Current Windows artifact 6 default: source-backed `0x10fe1d0` matches the shared
+  getter above and occupies slot `+0x20` in the MinecraftOptionValue vtable
+  `0x15009fdb0`; supported counts and the named setter occupy `+0x28` and `+0x30`.
+  Its machine code calls AppPlatform slots `+0x988`, `+0x810`, `+0x6b8` for the
+  Education, OS and platform-class branches, then returns integer 1 or integer 2.
+  Startup `0x7fc90` installs GameCorePC vtable `0x14ffa3430`; its identity is
+  corroborated by slots `+0x278`, `+0x280`, `+0xab8` pointing to the source-backed
+  `AppPlatform_GameCorePC::pickImage`, `pickFile`, `_initializeFileStorageAreas`.
+  All three default-relevant slots point to `0x76d40`, a return-zero stub. The
+  current Windows platform therefore selects 2, not the shared class 1 branch.
+- Current Windows registration at `0x23b6a18–0x23b6b45` constructs `gfx_msaa` /
+  `options.msaa`, obtains supported counts through option-value slot `+0x28`,
+  then passes slot `+0x20`'s integer result unchanged as the default argument to
+  `0x9b87f0`. This was checked in bounded machine code because the large enclosing
+  registration function has no local readable body. Source-backed `0x9b87f0`
+  retains an available default, otherwise chooses the nearest supported integer,
+  and stores that result as current and default values; it does not exponentiate.
+  Current supported-count getter `0x10fe760` reads raw renderer capability bytes,
+  called here with its additional count-filter flag false, and falls back to `[1]`
+  if no counts are available. This establishes a requested Windows raster default
+  of 2 physical samples, subject to capabilities, not an unconditional default of 1.
+- Current client artifact6 `0x10fee60`, source-backed
+  `MinecraftOptionValue::setMSAAValue`, validates positive powers of two, snaps
+  unsupported integral input to the closest power of two, and updates the framebuilder.
+  Together with the registration above this confirms raw physical sample counts.
+- `crates/client-ui/src/ui_runtime/presentation/forms/settings_controls.rs`:
+  `resource_pack/ui/settings_sections/general_section.json:4090–4108`, `msaa_slider`,
+  binds `#msaa`, `#msaa_steps`, `#msaa_text_value`, `#msaa_slider_label`, `#show_msaa`.
+  `resource_pack/texts/en_US.lang:7286–7289` supplies the Anti-Aliasing and Texel
+  Anti-Aliasing labels. Reference `SettingsRegistryBuilderContext.cpp:4283–4290`
+  returns false from `supportsTexelAntiAliasing`; `MinecraftOptionValue.cpp:519–599`
+  enables its shared default for platform type2. Shader and retail platform scope
+  are not established by these controls alone.
+- `crates/client-presentation/src/camera/antialiasing.rs` and the world graph:
+  current source-backed artifact6 `PlayerRenderView::_declarePasses`, `0x70883f0`,
+  creates `gameplay_color_resolve` and `resolve_msaa_color_before_postprocess`.
+  Reference `by-owner/p/PlayerRenderView.cpp:780–825` confirms that resolve stage.
+  Exact per-platform hand/UI AA boundaries still need matched capture evidence.
+- Terrain filtering: reference `BgfxFrameExtractor--a8eeb08c13c5.cpp:25285–25322`
+  binds `atlasSampler=0x155` to terrain; lines25368–25377 bind `0x685` to the lightmap.
+  `TextureHelpers.cpp:210–293` maps sampler fields to bgfx flags, with predefined
+  point/linear/anisotropic values at lines303–374. Thus terrain is point min/mag,
+  linear mip, with no anisotropy. Current artifact6 `0x68e09d0` is indexed as the
+  matching terrain insertion function but its implementation was unavailable.
+- Entity/hand scope: reference `BgfxFrameExtractor--a8eeb08c13c5.cpp:10860–10861`
+  reads actor sampler from the material; lines3321–3328 bind `WrapPoint` to the
+  ordinary `RenderItemInHandDescription` color texture. This does not establish
+  every specialized entity/item mip-loading policy. UI shader evidence already
+  recorded under inventory geometry is near-patch, not exact target-version proof.
+- Terrain mip construction uses the existing current `TextureAtlas::updateTextureAtUVs`
+  and `_buildAtlasMips` mappings above. Vanilla pack `textures/terrain_texture.json`
+  declares `num_mip_levels: 4`; `textures/item_texture.json` omits that property.
+
+- Independent current-client cross-check: artifact 6 `0x628fe10` is source-backed
+  canonical code matching reference `cg::RenderMaterialBase::modifyDefines`,
+  `by-owner/r/RenderMaterialBase--9e9191dd757d.cpp:1946–2144`. Its configuration
+  independently adds `MSAA_FRAMEBUFFER_ENABLED` and `TEXEL_AA_FEATURE`, and removes
+  `ALPHA_TO_COVERAGE` when that capability is disabled. This establishes separate
+  material feature gates, not the texel shader algorithm or platform defaults.
+- Platform evidence limit: the inspected catalog contains Windows amd64 clients
+  1.26.33.01, 1.26.50.26 and 1.26.60.21 plus BDS, with no Android, iOS or console
+  artifacts. The named 26.30 platform overrides contain `AppPlatform_osx` only;
+  current source and symbol searches did not recover `getDefaultMSAA`,
+  `getPlatformType` or `supportsTexelAntiAliasing`. Shared platform-class branches
+  therefore do not independently verify retail defaults on those platforms.
+
 ## Absorption hearts
 
 - `crates/client-ui/src/ui_runtime/hud_adapter.rs`, `crates/ui/src/hud.rs`, and
@@ -3148,3 +3253,395 @@ Files: `docs/reference/held-block-placement.md`, `crates/gameplay/src/block_use.
   records and lets a populated definition refine a canonical empty declaration
   only when name, ID, version and component-based status agree. Conflicting
   identities and two differing populated definitions remain unsupported.
+
+## Authored additive actor materials
+
+- `crates/pack-compiler/src/entity/animation/render/materials.rs`,
+  `crates/assets/src/entity/v4/render.rs` and
+  `crates/render/src/actor/material.rs` retain independently inherited source
+  and destination blending factors. A child overriding `blendSrc` to
+  `SourceAlpha` while retaining destination `One` stays additive and weights
+  only its source contribution.
+- Retail 1.26.50.26 `current/1.26.50.26/src/__unmapped/05.cpp` material blend
+  parsing near lines 515740–515775 writes `blendSrc` and `blendDst` independently;
+  absent explicit alpha factors, an overridden RGB factor also updates the
+  corresponding alpha factor. The Galaxite authored `materials/entity.material`
+  defines its emissive glow child with this source-only override, with blending,
+  disabled culling and disabled depth writes inherited from its parent.
+- The pinned runtime pack's `materials/entity.material` declares
+  `skeleton:entity_alphatest` without overrides. Server source sets without that
+  definition keep the same double-sided alpha-test contract through the compiler
+  builtin, including the ordinary `.skinning` variant.
+
+## Actor render light sampling (pending)
+
+- Pending: actor presentation currently reuses the query sample; endpoint sampling
+  remains incomplete. `crates/client-world/src/actor_store` lighting and
+  client-presentation `light_bodies`: current 1.26.50.26 `src/__unmapped/02.cpp:228229–228731`,
+  `FUN_14213d220` (RVA `0x0213d220`), corroborates the ordinary actor shader
+  contract. It floors actor-position X/Z and samples AABB maximum Y plus
+  `0.01`, then minimum Y when their floored cells differ. Block and sky light
+  each take the maximum across those points, preserving the caller's minimum
+  block brightness. This differs from the `Actor::getBrightness` query's
+  `0.66`-height sample.
+- Current `src/__unmapped/03.cpp:282008–282067`, `FUN_14319f150`
+  (RVA `0x0319f150`), returns sky then block brightness bytes and applies its
+  minimum-brightness argument to block light. The top call supplies the actor
+  floor, while the bottom call supplies zero. The shared constant
+  `0x1500c2b70` is `0.00999999978`; near-version
+  `reference/26.30/src/by-owner/a/ActorShaderManager.cpp:600–865`
+  independently identifies the same AABB endpoint contract.
+
+## Versioned custom block bone visibility
+
+- `crates/protocol/src/world/custom_blocks.rs` and its tests retain versioned
+  network expression nodes before state-dependent bone filtering, while keeping
+  direct scalar forms and the existing bounded map admission.
+- Retail 1.26.50.26 `src/__unmapped/0a.cpp:1984217–1984252` registers geometry's
+  `bone_visibility` field. Near-version
+  `reference/26.30/src/by-owner/b/BlockGeometryDescription.cpp:1930–1970` identifies
+  its legacy expression map; `reference/26.30/src/by-owner/e/ExpressionNodeSerializer.cpp:77–164`
+  retains the expression string and Molang version for nonconstant nodes, while
+  constants use the numeric variant. A live StartGame definition confirms these
+  versioned values arrive as compounds with `expression` and `version` fields.
+
+## Custom geometry default light absorption
+
+- `crates/protocol/src/world/custom_blocks.rs` retains geometry's
+  `useBlockTypeLightAbsorption` flag and resolves missing explicit absorption;
+  `app/src/runtime/network/block_overlay.rs` consumes that value, and its
+  permutation resolver replaces the flag together with geometry. Explicit
+  dampening wins. Geometry without the legacy flag absorbs zero light;
+  geometryless or legacy geometry uses the base type absorption.
+- Current 1.26.50.26 `src/__unmapped/0a.cpp:1098669–1098752`,
+  `FUN_14a636c60` (RVA `0x0a636c60`), identifies finalization order: state
+  dampening, type dampening, then the geometry flag or base type fallback.
+  `src/__unmapped/0a.cpp:1987910–1987955`, `FUN_14ab61cb0`
+  (RVA `0x0ab61cb0`), names `useBlockTypeLightAbsorption` at geometry offset
+  `0x41`; absent/wrong-type flags are false. Near-version
+  `reference/26.30/src/by-owner/b/BlockComponentDirectData.cpp:103–126`
+  explicitly writes zero in the nonlegacy geometry branch, and
+  `BlockGeometryDescription.cpp:3915–3930` identifies the same network flag.
+
+## Authored HUD chat trigger visibility
+
+- `crates/client-ui/src/ui_runtime/presentation/forms/engine/pack_catalog/chat.rs`
+  retains server visibility bindings on the built-in ordinary chat controls.
+  Message collections remain complete for independent server HUD factories.
+- The admitted Galaxite pack stack's `layer-0018/ui/hud_screen.json` appends a
+  `hud.chat_label` visibility predicate excluding the `ui.` prefix range.
+  `layer-0017/ui/halloween/jumpscare.json` and `static.json` consume the same
+  `chat_text_grid` through `chat_item_factory`, using `ui.jumpscare` and
+  `ui.static` as effect triggers rather than visible chat history.
+
+## Custom block collision primitive lists
+
+- `crates/protocol/src/world/custom_blocks.rs` retains each network collision
+  primitive, its enable flag, and the existing origin/size compatibility form.
+  `crates/gameplay/src/movement/collision_registries.rs` registers the same
+  independent primitives in sequential and hashed identity spaces. Default
+  selection uses those primitives rather than a filled bounding union.
+- Current 1.26.50.26 `src/__unmapped/0a.cpp:1098190–1098377`,
+  `FUN_14a6360b0`, writes `enabled` and the `boxes` list with six named corner
+  coordinates. `src/__unmapped/0a.cpp:1098436–1098568`, `FUN_14a636790`, reads
+  compound entries and defaults absent coordinate fields to zero. An empty
+  primitive list defaults to a full cube during component initialization.
+- `src/__unmapped/0a.cpp:1097727–1097923`, `FUN_14a635610`, normalizes and
+  orders the bounds, reflects X about the block center, and retains every
+  primitive. Near-version
+  `reference/26.30/src/by-owner/b/BlockCollisionBoxDescription.cpp:240–617`
+  identifies the same initialization contract. The current
+  [collision component documentation](https://learn.microsoft.com/en-us/minecraft/creator/reference/content/blockreference/examples/blockcomponents/minecraftblock_collision_box?view=minecraft-bedrock-stable)
+  confirms multipart shapes and the 24-sixteenth Y ceiling from 1.26.0.
+
+## Regular entity geometry visibility bounds
+
+- `crates/assets/src/entity/geometry.rs`,
+  `crates/pack-compiler/src/entity/geometry.rs`, and
+  `crates/client-world/src/actor_animation/{view,schedule}.rs` retain authored
+  model visibility bounds independently of the network collision dimensions.
+  The admitted Galaxite `models/entity/battlepass_display.geo.json` supplies
+  width 17, height 7.5, and offset `[0,3.25,0]`; a tiny collision box does not
+  replace this render box.
+- Current 1.26.50.26 `src/__unmapped/06.cpp:1831614–1831658` reads the authored
+  dimensions and offset; `1833870` serializes those fields. Near-version
+  `reference/26.30/src/by-owner/g/GeometryGroup.cpp:5183–5206` identifies their
+  clamp/default contract. `a/ActorRenderer.cpp:2064–2104,2349–2389,2546–2740`
+  constructs the axis-aligned center/half-extents box, scales and translates it
+  with actor movement, and does not rotate it by actor yaw. Replacement skins
+  retain their own model's visibility box.
+
+## Client-authoritative inventory transactions
+
+- `crates/inventory/src/inventory_ledger/legacy.rs` and
+  `crates/protocol/src/inventory/legacy.rs` serialize each balanced ordinary
+  mutation as old/new container descriptors, without sparse request stamping.
+  Player, armor, offhand and UI inventories retain their native window IDs;
+  an opened storage window uses its assigned ID and content-order slots.
+- Current 1.26.50.26 `src/__recovered/TransactionOffhandUtils.cpp:1–55`
+  (`0x028d7820`) constructs container-source actions from old/new stacks, with
+  player window 0 or offhand window 119 and offhand slot 0.
+  `src/__unmapped/00.cpp:409435` (`0x001e2c70`) constructs an action's complete
+  old/new descriptors. `00.cpp:440530–440625` (`0x002173b0`) supplies a dropped
+  item's balancing source 2, window -1, slot 0, random flag, and empty-to-item
+  descriptor leg.
+- Near-version `reference/26.30/src/by-owner/i/InventoryTransactionManager.cpp:1–84`
+  accumulates changed actions until quantities balance, sends and clears the
+  normal transaction. `ItemStackNetManagerClient.cpp:1884–1900` admits this
+  manager when item-stack networking is disabled.
+  `by-owner/c/ClientInputCallbacks.cpp:743–885` retains Interact action 6 and
+  the local actor runtime ID for ordinary personal-inventory opening. This
+  change preserves the existing Open/Close acknowledgement path; no separate
+  client-mode acknowledgement contract has been established.
+
+
+## Authored title and action-bar HUD controls
+
+- `crates/json-ui/src/bind/{feed,reuse,state}.rs` and
+  `crates/client-ui/src/ui_runtime/presentation/forms/hud.rs` retain factory
+  state by creation identity. Current 1.26.50.26
+  `src/__unmapped/05.cpp:1165110–1165310` creates each pending title through
+  `hud_title_text_factory` with name/control ID `hud_title_text` and an
+  exclusive property. `04.cpp:2133810–2133820` dispatches that property to
+  `2139892–2140190`, removing same-name existing controls from the parent
+  before the new creation. A replacement's `once` bindings run afresh; sibling
+  controls and ordinary updates to the same creation keep their state.
+- The admitted Hive `ui/hud_screen.json` replaces `hud_title_text_area` with
+  its own named factory. Its info modal has a title label and title shadow
+  bound once, plus a continuously bound subtitle body. Replaying an ordinary
+  title followed by a flagged modal title identifies stale header state in a
+  reused factory subtree; the packet sequence distinguishes equal-time
+  replacements.
+- `crates/json-ui/src/predicate/token.rs` keeps the remaining operators after
+  a completed group's surplus close. Current `src/__recovered/UIEval.cpp`
+  (`UIEval::evalExpression`, lines 100–125, 407–428 and 492–508) advances a
+  fresh closing byte as a pending token and skips it when its next delimiter
+  is a space; adjoining bare text belongs to that discarded token. For example,
+  `(true))and false` leaves adjacent operands and evaluates to JSON null.
+  The EOF materialization path at lines 514–600 keeps a final nonempty pending
+  substring, including its closing prefix: `(true))discarded` also leaves
+  adjacent operands, whereas a final closing byte alone adds no operand.
+  A close terminating a real token pops its frame immediately; a fresh close
+  stays pending even within an open outer frame. A subsequent closing delimiter
+  discards that pending token and closes the remaining frame. The existing
+  bounded leading-close and empty-frame safeguards are not identified by this
+  witness; the native pop path itself has no corresponding underflow guard.
+  `src/__unmapped/00.cpp:842893–842974` passes the resolved source
+  expression unchanged; `04.cpp:2247690–2247693` uses that path for view-binding
+  source properties. The admitted Hive info-title predicate contains this
+  separator before `and`; the remaining exclusion condition still evaluates.
+
+- `assets/java-hud/ui/hud_screen.json` keeps the canonical title and action-bar
+  control identities, so higher-priority server definitions replace or hide
+  the same controls consumed by the ordinary HUD factories.
+- Installed version-matched `ui/hud_screen.json:3398–3428` maps
+  `hud_title_text_factory` to `hud.hud_title_text` and
+  `hud_actionbar_text_factory` to `hud.hud_actionbar_text`.
+- Admitted Galaxite `layer-0018/ui/hud_screen.json` appends title text and view
+  bindings that hide the `ui.` prefix range, and applies an equivalent
+  action-bar variable predicate. Those inputs remain available to independent
+  server effect factories while their ordinary text controls are hidden.
+
+- Installed `ui/hud_screen.json:2267–2385` retains `title_frame/title` and
+  `subtitle_frame/subtitle` below `hud_title_text`. The built-in HUD exposes
+  those same override paths so server frame replacement removes the original
+  labels rather than drawing beside them.
+- `crates/client-ui/src/ui_runtime/presentation/forms/engine/pack_catalog/titles.rs`
+  restores the ordinary title definition before its first admitted server edit,
+  while preserving already-authored factory areas and all later layer edits.
+  The installed version-matched `ui/hud_screen.json:2267–2385` uses a vertical
+  stack with naturally sized title/subtitle frames; its labels have font sizes
+  `extra_large` and `large` without independent scale factors. Current
+  1.26.50.26 `src/__unmapped/04.cpp:2253059–2253083` in `FUN_144d64a60`
+  reads font size and scale factor as separate properties. Admitted Zeqa
+  `stack-0031/layer-0001/ui/hud_screen.json:208–224` patches those native labels
+  to `large` and `medium`. The previous built-in factors 4/2 multiplied those
+  native size changes. The unchanged pack loopback before-frame at GUI scale 2
+  reproduces title/subtitle overlap; the regression checks native scale and
+  placement plus layered factory preservation.
+- Current 1.26.50.26 `src/__recovered/DataBindingComponent.cpp:64–72` records
+  each visibility-conditioned binding's previous control flag before applying
+  it. `src/__unmapped/05.cpp:16395–16406` runs bindings on the normal UI update,
+  including a visibility transition left by the preceding view notification.
+  `crates/json-ui/src/bind/{reuse,state}.rs` and the HUD cache retain that pending
+  refresh independently of controller input changes.
+- Current `src/__unmapped/05.cpp:1171955–1171967` answers the title-string hash
+  `0x26874c54` by copying the stored string into the requested bag property;
+  `1170942–1170954` does the same for subtitle hash `0x8c0610a2`.
+  `05.cpp:991176–991240` resets both strings to empty. The controller answers
+  those empty strings while no title is displayed.
+- Cached MineVille `ui/mineville/templates/title.json` retains matching title
+  payloads through `visibility_changed`, then exposes their marker-free text
+  through `titles/objective.json`; unrelated later titles do not replace it.
+  The cached MegaSMP version's `ui/mineville/hud.json` has a trailing-comma parse
+  failure. Its namespace, root panel and tutorial control precede that error.
+  Native PlayCover 1.26.51.01's immediately captured MegaSMP UI 26.7.25 cache has
+  byte-identical `_ui_defs.json`, `hud_screen.json` and `mineville/hud.json`;
+  the corresponding native frame displays the tutorial panel.
+- Current `src/__unmapped/0f.cpp:1665549–1665598` initializes the UI reader with
+  comments allowed and strict-root disabled. `1666337–1666780` rejects trailing
+  array commas; its first array-token scan accepts comments before an empty
+  array. Object members and array elements receive partially read child values
+  before error propagation (`1666609–1666618`, `1666719–1666774`).
+- `0f.cpp:1667838–1667852` copies the partial root value into the output before
+  checking reader errors. `00.cpp:846707–846728`, `850813–850817` parses the first
+  UI resource directly into the stored result and leaves it intact on failure,
+  without processing later layers. Failed later resources instead discard their
+  temporary values (`847135–847143`). `crates/json-ui/src/{json5,catalog,pack}.rs`
+  retains that distinction per resource path, including a valid first null root.
+  The exact cached MegaSMP fixture verifies one retained, marker-free tutorial
+  panel; the encrypted Hive overlay still requires an admitted plaintext witness.
+
+## Authored HUD effect texture timelines
+
+- `crates/client-ui/src/ui_runtime/presentation/forms/server_pack/frame_sidecars.rs`
+  and `textures.rs` retain shared Aseprite frame metadata independently of image
+  residency and pass it to `crates/json-ui/src/anim/paint.rs`.
+- The admitted Galaxite `layer-0017/ui/halloween/{static,jumpscare}.json`
+  consumes raw `chat_text_grid` rows and selects the corresponding noise-sheet
+  controls. `halloween.json` consumes raw action-bar input for its lighting
+  controls. Hidden ordinary text does not discard those factory inputs.
+- `textures/ui/aseprite/static.json` supplies ten 50 ms frames; `glitch.json`
+  supplies eleven 50 ms frames. Their frame coordinates refer to the original
+  sheet pixels. The existing `UIAsepriteFlipbook::tick` contract indexed above
+  selects the containing duration span and wraps at the authored total.
+- The offline published-frame fixture applies raw protocol text/action-bar
+  events, samples frame zero, frame two and loop repetition, then checks source
+  frame coordinates mapped into the current atlas placement. Other authored
+  effect variants and live game-mode sequencing remain outside this witness.
+
+## Sound registration and deferred waveform loading
+
+- `crates/client-presentation/src/audio/server.rs` registers all admitted
+  definitions independently of waveform decoding, with stack precedence and
+  case-insensitive archive lookup. `audio/bank.rs` loads a selected waveform on
+  bounded background workers and caches decoded PCM on demand.
+- Current 1.26.50.26 `src/__unmapped/03.cpp:1698058`
+  (`0x03a02390`) iterates sound-definition resources from the end of the pack
+  stack and rejects duplicate lower-priority definitions independently of PCM.
+  `src/__unmapped/04.cpp:1580329` (`0x049741b0`) registers sound events.
+- `src/__unmapped/0c.cpp:1442322` (`0x0c7fc870`) chooses a weighted alternative
+  before requesting `_loadSoundAsync`. `0c.cpp:1446905` (`0x0c8042e0`)
+  loads audio-provider bytes and creates the sound on its worker path; streamed
+  playback has a separate branch.
+
+## Server-selected actor animation states
+
+- `crates/protocol/src/item.rs` retains AnimateEntity's animation, controller,
+  next state, stop expression/version and outgoing blend duration.
+- `crates/pack-compiler/src/entity/animation.rs` retains globally named server
+  clips without requiring an entity alias. Optional channel bone names bind that
+  shared clip to each model; missing model bones are skipped.
+- `crates/client-world/src/actor_animation/server_animation.rs` shares pose and
+  Molang budgets with authored animation, resets clocks on playback, evaluates
+  stop expressions against the selected state's clip, and blends its outgoing
+  pose before entering the named next state.
+- Current 1.26.50.26 `src/__unmapped/01.cpp:845858–845895` edits global
+  animation-controller data from the packet fields, then starts the named state.
+  `src/__recovered/AnimationComponent.cpp:308–700` owns those state definitions.
+- The 26.30 owner reconstruction `src/by-owner/c/ClientNetworkHandler.cpp:22111–22600`
+  resolves authored entity aliases before the global animation group.
+  `src/by-owner/a/AnimationComponent.cpp:1725–2330` adds a transition only for a
+  nonempty stop expression, retains its version and next-state name, and assigns
+  the state's outgoing blend duration; `2628–2875` restarts playback clocks.
+- Admitted Galaxite `layer-0017/entity/mobs/the_entity.entity.json` does not alias
+  `animation.the_entity.kill`. `animations/the_entity.animation.json` supplies
+  that 3.36-second clip. Its separate first-person jumpscare attachable has a
+  1.25-second held clip; verifying one does not verify the other.
+
+- `crates/client-world/src/actor_animation/evaluation.rs`, `tick.rs`, and `attachable/owner_reference_tests.rs`: Bedrock 1.26.50 item rendering sets `context.owning_entity` to a typed live actor reference alongside item-slot and first-person context. Matching references permit owner queries; numeric operands do not act as references. Witness: `mcsrc-1.26.50/current/1.26.50.26/src/__unmapped/01.cpp:2546615–2546725`; runtime pack `attachables/entity_jumpscare.attachable.json` and `attachables/statue_jumpscare.attachable.json` use that reference for their activation flags.
+
+## Custom state collision and targeting components
+
+- `crates/protocol/src/world/custom_blocks.rs` retains physical components in
+  each ordered permutation; `crates/client-session/src/block_physics.rs`
+  resolves the same palette-state conditions as terrain once per session.
+  `crates/gameplay/src/movement/collision_registries.rs` registers the resulting
+  state-specific primitive and selection sets in both ID spaces.
+- Near-version `reference/26.30/src/by-owner/b/BlockComponentDirectData.cpp:41–61`
+  (`_finalizeInit`) selects state-component storage before the block-type base
+  collision and selection components. `BlockCollisionBoxComponent.cpp:32–97`
+  retains the individual authored collision primitives.
+- Current component and permutation contract:
+  https://learn.microsoft.com/en-us/minecraft/creator/documents/multi-blocks?view=minecraft-bedrock-stable
+  and
+  https://learn.microsoft.com/en-us/minecraft/creator/reference/content/blockreference/examples/blockstatesandpermutations?view=minecraft-bedrock-stable .
+- Admitted Galaxite `smooth_path_slab` uses a bottom-half base box and an
+  upper-half condition override; `large_snow_bricks_slab` also overrides double
+  states to a full cube. Their `slab_bottom.geo.json` and `slab_top.geo.json`
+  cube tops are respectively 0.5 and 1.0 blocks. This closes the decoded
+  per-state support mismatch, independently of the live hovering report.
+
+## Particle lifetime restart ownership
+
+- `crates/particles/src/emitter.rs` expires an unbound looping emitter at the
+  first complete active/sleep cycle; live particles drain independently. A
+  repeating reset requires a valid actor binding. Removing that owner stops new
+  emission without clearing its live particles.
+- Current 1.26.50.26 `src/__unmapped/02.cpp:683577–683672`
+  (`0x02438ed0`) combines component restart permission with a valid entity
+  binding on non-initial resets. The update at `684730–684783`
+  (`0x0243a750`) resets when active plus sleep time ends. Creation at
+  `697984` (`0x0244ea20`) explicitly performs an initial reset.
+- Current packet handling `src/__unmapped/01.cpp:862627–862940`
+  (`0x014ed540`) creates an independent unbound emitter for actor ID -1, or
+  binds it to a resolved actor. The allocator at `02.cpp:697504–697675`
+  creates a fresh emitter; matching identifiers and positions are not deduped.
+- Current animation events `src/__unmapped/00.cpp:368100–368248`
+  (`0x001adf70`) bind only when the authored animation event requests it.
+  The looping component parser defaults absent sleep to zero at
+  `06.cpp:2125281–2125430`; its reset hook at `2125430–2125460`
+  (`0x06ca6a30`) returns restart permission.
+- The admitted `galaxite:gem_bag_particle` effect uses active time 1, steady
+  emission 20/s and particle lifetime 1–1.4s. Its unbound packet emitters must
+  therefore stop restarting after that first cycle, independently of later
+  identical spawn packets.
+
+## World camera near clipping
+- `crates/render-api/src/lib.rs`, `crates/client-presentation/src/camera.rs`, camera/rig.rs, `crates/render/src/hand_rig_render.rs` and viewmodel.rs: current 1.26.50.26 CameraDefinition constructor `FUN_147d820a0` (`__unmapped/07.cpp:2080102`) initializes literal `0x3ccccccd42a00000` plus `0x451c4000`, yielding FOV80, near0.025 and far2500. Definition adapter `FUN_1409762c0` (`__unmapped/00.cpp:1808358`) writes near to CameraComponent+0x54. `LevelRendererPlayer::setupCamera`, `FUN_144e948a0` (`__unmapped/04.cpp:2448738`), reads +0x54 with far+0x58 into the world perspective depth coefficients. This is the ordinary world projection consumer; the near literal requires no unresolved executable data lookup. Shared camera near-plane distance also supplies the already verified boom clearance and first-person projection.
+
+## Device-compatible server subpacks
+
+- `crates/resource-pack/src/subpacks.rs`, `manifest.rs`, `import.rs` and
+  `parser.rs` share manifest memory conversion and subpack selection;
+  `crates/client-session/src/pack_preparation.rs` applies physical RAM to
+  server admission. Explicit global root selection remains a separate choice.
+- Current 1.26.50.26 `src/__unmapped/00.cpp:614633–614652`,
+  `FUN_140308da0`, yields tiers 0–5 at strict physical-memory boundaries
+  2, 4, 6, 8 and 12 GiB. Near-version
+  `reference/26.30/src/by-owner/h/HardwareMemoryTierUtilImpl.cpp:1–19`
+  identifies the same utility.
+- Current `src/__unmapped/01.cpp:1993030–1993340`,
+  `FUN_141b23a30`, reads legacy `memory_tier` before modern
+  `memory_performance_tier`. The former uses thresholds 11, 12, 18, 24 and
+  32; the latter clamps to 0–5. Installed 1.26.51.01 arm64 legacy manifest
+  reader at `0x10c8f0e50`, branch `0x10c8f4750–0x10c8f4800`, reads the
+  `__const` table at `0x10f03f278`: `(32,5), (24,4), (18,3), (12,2),
+  (11,1), (0,0)`, resolving the current reader's `UNK_1500d1974` table.
+- Current `FUN_141b4c260`, `01.cpp:2015673–2015805`, chooses the last
+  highest authored tier when no subpack is selected. The stack-packet handler
+  calls `FUN_14169e5f0` at `819884`; that method at `1170537–1170583`
+  invokes `FUN_141b50a60` (`2018816–2018897`) to keep a supported explicit
+  selection or replace an unsupported one with the last highest compatible
+  tier. Near-version `ClientNetworkHandler.cpp:5095` identifies this call as
+  `ResourcePackManager::ensureSupportedSubpacks`.
+- The actual admitted Fonts pack has Lite legacy tier 0 and Full legacy tier
+  12. Its U+E141 cell contains respectively 2×2 and 8×8 ink in 1024² and
+  4096² pages. Existing private-use glyph sizing keeps one GUI pixel per
+  source texel, independently of page resolution; `BitmapFont` current
+  `04.cpp:2036717–2037109` retains that private-use scale.
+
+## Actor instance and skin-budget admission
+
+- `crates/client-presentation/src/presentation/actors.rs` reserves player texture
+  families independently of resource-pack artwork; `crates/render/src/actor/rig.rs`
+  applies the shared instance and pose arenas without a separate player-count body gate.
+- Current 1.26.50.26 `src/__unmapped/04.cpp:2414793–2416195`,
+  `FUN_144e53ff0` (`queueRenderEntities` collector RTTI), traverses the candidate
+  and player vectors to their actual ends. The collector at
+  `04.cpp:2494219–2494315`, `FUN_144ede080`, appends actor records with dynamic
+  vector growth; it does not impose a 128-body limit.
+- The cached Galaxite `entity/mobs/the_entity.entity.json` selects
+  `geometry.the_entity`. A fixed 151-actor loopback scene keeps the late actor in
+  its authored frustum while a camera turn admits the background crowd; the old
+  128-body gates remove that otherwise visible actor.

@@ -237,6 +237,7 @@ fn basis_view(camera: &Camera, world: u64, size: [u32; 2]) -> OcclusionBasis {
         clip_from_view: camera.clip_from_view.to_cols_array(),
         viewport: [0, 0, size[0], size[1]],
         depth_size: size,
+        depth_samples: 1,
         world,
     }
 }

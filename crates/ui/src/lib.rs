@@ -45,8 +45,9 @@ pub use scoreboard::{
     ScoreboardProjection, ScoreboardStore,
 };
 pub use settings::{
-    CURRENT_SETTINGS_SCHEMA, DEFAULT_FOV_DEGREES, DEFAULT_OUTLINE_SELECTION, GameplaySettings,
-    MAX_FOV_DEGREES, MIN_FOV_DEGREES, RenderMode, UserSettings, VideoSettings,
+    ANTI_ALIASING_SAMPLE_COUNTS, AntiAliasingSupport, CURRENT_SETTINGS_SCHEMA,
+    DEFAULT_ANTI_ALIASING_SAMPLES, DEFAULT_FOV_DEGREES, DEFAULT_OUTLINE_SELECTION,
+    GameplaySettings, MAX_FOV_DEGREES, MIN_FOV_DEGREES, RenderMode, UserSettings, VideoSettings,
 };
 pub use text::{
     BedrockColor, FONT_ASCENT_TEXELS, FONT_DESIGN_PIXEL_TEXELS, FONT_INK_TEXELS, FormattingPalette,

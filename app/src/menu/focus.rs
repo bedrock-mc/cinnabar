@@ -177,8 +177,9 @@ impl MenuRuntime {
             && let Some(option) = settings_options::SETTINGS_OPTIONS.get(usize::from(index))
         {
             let value = self.settings_options.get(usize::from(index));
-            let next = value
-                .saturating_add(direction * option.step)
+            let next = self
+                .settings_options
+                .offset_value(usize::from(index), direction)
                 .clamp(option.min, option.max);
             if next != value {
                 self.activate_from_navigation(MenuAction::SettingsOption(index, next));

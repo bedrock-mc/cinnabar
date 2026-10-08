@@ -8,7 +8,7 @@ fn geometry_specialized_animation_instances_round_trip() {
     let mut compiled = carrier_v4_fixture();
     let geometry = compiled.geometries[0].clone();
     let clip = compiled.animation_clips[0];
-    let channel = compiled.animation_channels[0];
+    let channel = compiled.animation_channels[0].clone();
     let keyframe = compiled.animation_keyframes[0];
     let mut symbols = compiled
         .symbols
@@ -76,8 +76,9 @@ fn geometry_specialized_animation_instances_round_trip() {
         .collect();
     compiled.animation_channels = (0..clip_count)
         .map(|index| entity::EntityAnimationChannel {
+            bone_name: None,
             first_keyframe: index as u32,
-            ..channel
+            ..channel.clone()
         })
         .collect();
     compiled.animation_keyframes = vec![keyframe; clip_count].into_boxed_slice();

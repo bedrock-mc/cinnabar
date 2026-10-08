@@ -311,6 +311,14 @@ impl WorldAuthority {
     ) -> Option<&ActorEquipmentSnapshot> {
         self.actors.equipment_in_hand(runtime_id, hand)
     }
+    /// Installs the compiler receiving each packet stop expression and its declared version.
+    pub fn set_server_animation_compiler(
+        &mut self,
+        compiler: crate::actor_animation::ServerAnimationCompiler,
+    ) {
+        self.actors.set_server_animation_compiler(compiler);
+    }
+
     /// Item use durations (ticks by identifier) that drive `query.main_hand_item_max_duration`.
     /// Layers the session's server-pack entity catalog over the vanilla one; its entities
     /// win by identifier for actors spawned afterwards.

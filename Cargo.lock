@@ -668,6 +668,7 @@ dependencies = [
  "raw-window-handle",
  "rayon",
  "render",
+ "render-api",
  "render-model",
  "reqwest",
  "resource-pack",
@@ -2015,6 +2016,7 @@ dependencies = [
  "thiserror 2.0.18",
  "ui",
  "world",
+ "zip",
 ]
 
 [[package]]
@@ -2025,6 +2027,7 @@ dependencies = [
  "bytes",
  "crossbeam-channel",
  "image",
+ "pack-compiler",
  "protocol",
  "resource-pack",
  "serde_json",

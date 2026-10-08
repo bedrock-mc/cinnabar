@@ -860,6 +860,7 @@ pub(crate) fn drive_menu_services(
     mut local_worlds: Option<ResMut<crate::local_worlds::LocalWorlds>>,
     audio_settings: Option<ResMut<crate::audio::AudioSettings>>,
     settings: Option<ResMut<crate::settings_runtime::RuntimeSettings>>,
+    antialiasing: Option<Res<client_presentation::camera::antialiasing::CameraAntiAliasingSupport>>,
     mut local_skin: Option<ResMut<crate::player_skin::LocalPlayerSkin>>,
     network: Option<Res<crate::runtime::network::NetworkHandle>>,
 ) {
@@ -877,6 +878,9 @@ pub(crate) fn drive_menu_services(
     menu.poll_saves();
     menu.poll_accounts();
     menu.sync_audio_settings(audio_settings);
+    if let Some(support) = antialiasing {
+        menu.sync_anti_aliasing_support(support.0);
+    }
     menu.sync_user_settings(settings);
     menu.sync_language(&mut runtime);
     let in_session = client_world.stream.is_some();

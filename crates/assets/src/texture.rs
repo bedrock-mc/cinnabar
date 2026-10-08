@@ -3,7 +3,7 @@ use std::collections::BTreeSet;
 use crate::AssetError;
 
 mod legacy_terrain;
-pub use legacy_terrain::build_legacy_terrain_mip_chain;
+pub use legacy_terrain::{build_legacy_terrain_mip_chain, rebuild_legacy_terrain_mips};
 
 pub const TILE_SIZE: u32 = 16;
 pub const MIP_COUNT: u32 = 5;

@@ -2,8 +2,8 @@
 
 use crate::{
     AdmissionError, MAX_ARCHIVE_BYTES, MAX_DECLARED_BYTES_PER_PACK, MAX_FILE_BYTES,
-    MAX_MANIFEST_BYTES, MAX_PACKS, MAX_SUBPACKS,
-    library::{ImportReport, InstalledPack, LibraryError, Subpack},
+    MAX_MANIFEST_BYTES, MAX_PACKS,
+    library::{ImportReport, InstalledPack, LibraryError},
     manifest::{Version, read_manifest},
     normalize_jsonc,
     parser::{
@@ -217,6 +217,7 @@ fn read_candidate(
         "",
         bytes.clone(),
         None,
+        None,
     )?;
     if let Ok(Some(language)) =
         validated.read_file_with_limit("texts/en_US.lang", MAX_MANIFEST_BYTES as u64)
@@ -262,7 +263,7 @@ fn read_metadata(bytes: &[u8]) -> Result<Option<InstalledPack>, LibraryError> {
         .ok_or(AdmissionError::InvalidVersion)?
         .0;
     let version_text = version.map(|part| part.to_string()).join(".");
-    read_manifest(bytes, id, &version_text)?;
+    let manifest = read_manifest(bytes, id, &version_text)?;
     let min_engine_version = if header["min_engine_version"].is_null() {
         None
     } else {
@@ -272,35 +273,13 @@ fn read_metadata(bytes: &[u8]) -> Result<Option<InstalledPack>, LibraryError> {
                 .0,
         )
     };
-    let subpacks = root["subpacks"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .take(MAX_SUBPACKS)
-        .filter_map(|pack| {
-            let folder = pack["folder_name"].as_str()?;
-            if folder.is_empty() || folder == "." || folder == ".." || folder.contains(['/', '\\'])
-            {
-                return None;
-            }
-            Some(Subpack {
-                folder: folder.into(),
-                name: pack["name"].as_str().unwrap_or(folder).into(),
-                memory_tier: pack["memory_tier"]
-                    .as_u64()
-                    .or_else(|| pack["memory_performance_tier"].as_u64())
-                    .and_then(|value| value.try_into().ok())
-                    .unwrap_or_default(),
-            })
-        })
-        .collect();
     Ok(Some(InstalledPack {
         id,
         version,
         name: header["name"].as_str().unwrap_or("Resource pack").into(),
         description: header["description"].as_str().unwrap_or_default().into(),
         min_engine_version,
-        subpacks,
+        subpacks: manifest.subpacks,
         revision: 0,
     }))
 }

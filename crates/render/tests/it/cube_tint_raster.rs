@@ -102,8 +102,8 @@ fn material_flags() -> [u32; COLUMNS] {
     .map(|flags| flags | assets::MATERIAL_FLAG_TWO_SIDED)
 }
 
-/// Retains the ordinary and native texture views and samplers used by real leaf draws.
-fn atlas(gpu: &Gpu) -> [wgpu::TextureView; 2] {
+/// Ordinary terrain samples the encoded-byte view of the sRGB atlas.
+fn atlas(gpu: &Gpu) -> wgpu::TextureView {
     let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
         label: Some("cube tint raster atlas"),
         size: wgpu::Extent3d {
@@ -138,16 +138,10 @@ fn atlas(gpu: &Gpu) -> [wgpu::TextureView; 2] {
         },
         texture.size(),
     );
-    [
-        wgpu::TextureFormat::Rgba8UnormSrgb,
-        wgpu::TextureFormat::Rgba8Unorm,
-    ]
-    .map(|format| {
-        texture.create_view(&wgpu::TextureViewDescriptor {
-            format: Some(format),
-            dimension: Some(wgpu::TextureViewDimension::D2Array),
-            ..Default::default()
-        })
+    texture.create_view(&wgpu::TextureViewDescriptor {
+        format: Some(wgpu::TextureFormat::Rgba8Unorm),
+        dimension: Some(wgpu::TextureViewDimension::D2Array),
+        ..Default::default()
     })
 }
 
@@ -400,7 +394,7 @@ fn render_fixture(cache_admission: bool) {
         bytemuck::cast_slice(&render::LightmapInputs::default().build()),
         uniform,
     );
-    let [atlas, native_atlas] = atlas(&gpu);
+    let native_atlas = atlas(&gpu);
     let sampler = gpu.device.create_sampler(&Default::default());
     let native_sampler = gpu
         .device
@@ -410,8 +404,6 @@ fn render_fixture(cache_admission: bool) {
         (1, quads.as_entire_binding()),
         (2, origins.as_entire_binding()),
         (3, materials.as_entire_binding()),
-        (4, wgpu::BindingResource::TextureView(&atlas)),
-        (5, wgpu::BindingResource::TextureView(&atlas)),
         (6, wgpu::BindingResource::Sampler(&sampler)),
         (7, records.as_entire_binding()),
         (8, tints.as_entire_binding()),

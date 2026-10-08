@@ -103,6 +103,37 @@ fn large_actor_models_share_the_bounded_pose_arena() {
 }
 
 #[test]
+fn actor_bodies_use_the_shared_instance_arena_above_the_player_skin_budget() {
+    let count = render_model::MAX_RENDERED_PLAYERS + 1;
+    let geometry =
+        ActorRigGeometry::synthetic_cuboid(EntityRigId(3), [0.0; 3], [1.0; 3], 1).unwrap();
+    let mut builder = ActorRigFrameBuilder::new([geometry]).unwrap();
+    let frame = builder.build(0.5, None, (1..=count).map(|id| submission(id as u64, 1)));
+    assert_eq!(frame.instances.len(), count);
+    assert_eq!(frame.rejects, ActorRigRejects::default());
+    assert_eq!(
+        frame.manifest.last().unwrap().identity.runtime_id,
+        count as u64
+    );
+}
+
+#[test]
+fn shared_instance_arena_still_bounds_body_admission() {
+    let count = crate::actor::MAX_ACTOR_RENDER_INSTANCES;
+    let geometry =
+        ActorRigGeometry::synthetic_cuboid(EntityRigId(3), [0.0; 3], [1.0; 3], 1).unwrap();
+    let mut builder = ActorRigFrameBuilder::new([geometry]).unwrap();
+    let frame = builder.build(
+        0.5,
+        None,
+        (1..=count + 1).map(|id| submission(id as u64, 1)),
+    );
+    assert_eq!(frame.instances.len(), count);
+    assert_eq!(frame.rejects.actor_capacity, 1);
+    assert_eq!(frame.rejects.bone_capacity, 0);
+}
+
+#[test]
 fn append_preserves_existing_matrices_and_reuses_the_final_arena_allocation() {
     let mut arena = Vec::with_capacity(100);
     arena.push([[5.0; 4]; 3]);

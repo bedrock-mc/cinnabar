@@ -16,6 +16,8 @@ pub struct AttachableAnimationInput<'a> {
     pub worn: bool,
     pub is_paperdoll: bool,
     pub frame_alpha: f32,
+    /// Elapsed render time for clip application; absent inputs use the actor timestep.
+    pub delta_seconds: Option<f32>,
     pub animation_frame: u32,
     /// Owner's elapsed main-hand use ticks, also visible to offhand attachables.
     pub use_elapsed_ticks: Option<u32>,
@@ -51,6 +53,7 @@ pub(crate) struct AttachableQueryContext {
     pub worn: bool,
     pub is_paperdoll: bool,
     pub frame_alpha: f32,
+    pub delta_seconds: Option<f32>,
     pub animation_frame: u32,
     pub use_elapsed_ticks: Option<u32>,
     pub max_use_ticks: u32,
@@ -66,6 +69,44 @@ pub struct AttachableRigSnapshot<'a> {
     pub render: &'a [RenderTextureLayer],
     pub scale: f32,
     pub axis_scale: [f32; 3],
+    bones: &'a [RuntimeBone],
+    layer_skeletons: &'a BTreeMap<u32, Option<Arc<render::LayerSkeleton>>>,
+}
+
+/// The skeletal frame inherited by an attachable root and all its descendants.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum AttachableBoneParent<'a> {
+    Actor,
+    OwnerNamed(&'a str),
+    BindingExpression,
+}
+
+impl<'a> AttachableRigSnapshot<'a> {
+    /// Resolves the selected geometry's root without allocating or copying its pose.
+    pub fn bone_parent(&self, geometry: u32, index: usize) -> Option<AttachableBoneParent<'a>> {
+        let (bones, names) = if geometry == self.geometry {
+            (self.bones, self.bone_names)
+        } else {
+            let skeleton = self.layer_skeletons.get(&geometry)?.as_ref()?;
+            (skeleton.bones.as_slice(), skeleton.names.as_slice())
+        };
+        let mut root = index;
+        for _ in 0..bones.len() {
+            let bone = bones.get(root)?;
+            if let Some(parent) = bone.parent {
+                root = parent;
+                continue;
+            }
+            return Some(match bone.attachable_root {
+                AttachableRootFrame::Actor => AttachableBoneParent::Actor,
+                AttachableRootFrame::MatchingOwnerName => {
+                    AttachableBoneParent::OwnerNamed(names.get(root)?)
+                }
+                AttachableRootFrame::BindingExpression => AttachableBoneParent::BindingExpression,
+            });
+        }
+        None
+    }
 }
 
 #[derive(Debug)]
@@ -211,6 +252,9 @@ impl AttachablesRuntime {
             worn: input.worn,
             is_paperdoll: input.is_paperdoll,
             frame_alpha,
+            delta_seconds: input
+                .delta_seconds
+                .filter(|delta| delta.is_finite() && *delta >= 0.0),
             animation_frame: input.animation_frame,
             use_elapsed_ticks: input.use_elapsed_ticks,
             max_use_ticks: input.max_use_ticks,
@@ -360,3 +404,15 @@ pub(in crate::actor_animation) mod tests;
 #[cfg(test)]
 #[path = "attachable/preview_tests.rs"]
 mod preview_tests;
+
+#[cfg(test)]
+#[path = "attachable/owner_reference_tests.rs"]
+mod owner_reference_tests;
+
+#[cfg(test)]
+#[path = "attachable/activation_clock_tests.rs"]
+mod activation_clock_tests;
+
+#[cfg(test)]
+#[path = "attachable/parent_frame_tests.rs"]
+mod parent_frame_tests;

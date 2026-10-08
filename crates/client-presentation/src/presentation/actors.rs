@@ -482,10 +482,8 @@ pub fn select_actor_presentations_for_view(
         .then_some(local)
         .flatten()
         .filter(|local| local.submission.input.identity.runtime_id == local_runtime_id);
-    let mut selected = Vec::with_capacity(MAX_RENDERED_PLAYERS);
-    let mut drawable_count = 0usize;
+    let mut selected = Vec::with_capacity(latest.len() + usize::from(local.is_some()));
     if let Some(local) = local {
-        drawable_count = 1;
         selected.push(local);
     }
     for remote in latest {
@@ -493,12 +491,9 @@ pub fn select_actor_presentations_for_view(
             selected.push(remote);
             continue;
         }
-        if drawable_count == MAX_RENDERED_PLAYERS
-            || !actor_rig_submission_is_visible(&remote.submission, view)
-        {
+        if !actor_rig_submission_is_visible(&remote.submission, view) {
             continue;
         }
-        drawable_count += 1;
         selected.push(remote);
     }
 
@@ -507,6 +502,11 @@ pub fn select_actor_presentations_for_view(
     let mut skin_layer_of = HashMap::<SkinRgba8, usize>::new();
     let mut submissions = Vec::with_capacity(selected.len());
     for mut presentation in selected {
+        if presentation.submission.route == ActorRigRoute::NoDraw {
+            presentation.submission.texture_layer = u32::MAX;
+            submissions.push(presentation.submission);
+            continue;
+        }
         if let Some(location) = presentation.artwork {
             artwork.insert(presentation.submission.input.identity, location);
             submissions.push(presentation.submission);
@@ -518,10 +518,22 @@ pub fn select_actor_presentations_for_view(
             submissions.push(presentation.submission);
             continue;
         };
-        let layer = *skin_layer_of.entry(skin).or_insert_with_key(|skin| {
-            skin_families.push(skin.clone());
-            skin_families.len() - 1
-        });
+        let layer = match skin_layer_of.entry(skin) {
+            std::collections::hash_map::Entry::Occupied(layer) => *layer.get(),
+            std::collections::hash_map::Entry::Vacant(layer)
+                if skin_families.len() < MAX_RENDERED_PLAYERS =>
+            {
+                let index = skin_families.len();
+                skin_families.push(layer.key().clone());
+                *layer.insert(index)
+            }
+            std::collections::hash_map::Entry::Vacant(_) => {
+                presentation.submission.route = ActorRigRoute::NoDraw;
+                presentation.submission.texture_layer = u32::MAX;
+                submissions.push(presentation.submission);
+                continue;
+            }
+        };
         presentation.submission.texture_layer =
             u32::try_from(layer).expect("actor skin family count is bounded");
         submissions.push(presentation.submission);
@@ -744,6 +756,9 @@ fn player_route_and_skin(
 
 #[cfg(test)]
 mod glide_tests;
+
+#[cfg(test)]
+mod selection_tests;
 
 #[cfg(test)]
 mod death_tests {

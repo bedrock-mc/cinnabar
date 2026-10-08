@@ -65,6 +65,7 @@ pub(in crate::actor_animation) fn compiled_fixture() -> CompiledEntityAssets {
         sources,
         symbols,
         geometries: vec![EntityGeometry {
+            visible_bounds: None,
             identifier: "geometry.item".into(),
             inherits: None,
             source_index: 2,
@@ -100,6 +101,7 @@ pub(in crate::actor_animation) fn compiled_fixture() -> CompiledEntityAssets {
         }]
         .into_boxed_slice(),
         animation_channels: vec![EntityAnimationChannel {
+            bone_name: None,
             bone: 0,
             property: EntityAnimationProperty::Translation,
             first_keyframe: 0,
@@ -529,6 +531,7 @@ fn attachable_queries_are_remaining_ticks_without_changing_entity_units() {
         is_paperdoll: false,
         frame_alpha: 0.5,
         animation_frame: 3,
+        delta_seconds: None,
         use_elapsed_ticks: Some(5),
         max_use_ticks: 100,
         owner_life_tick: 10,
@@ -845,7 +848,7 @@ fn standby_and_three_pulling_frames_choose_matching_geometry_texture_and_pose() 
     compiled.rig_bindings[0].entity_symbol = 10;
     compiled.rig_bindings[0].render_controller = 5;
     let clip = compiled.animation_clips[0];
-    let channel = compiled.animation_channels[0];
+    let channel = compiled.animation_channels[0].clone();
     let keyframe = compiled.animation_keyframes[0];
     compiled.animation_clips = (0..4)
         .map(|frame| EntityAnimationClip {
@@ -858,8 +861,9 @@ fn standby_and_three_pulling_frames_choose_matching_geometry_texture_and_pose() 
         .into_boxed_slice();
     compiled.animation_channels = (0..4)
         .map(|frame| EntityAnimationChannel {
+            bone_name: None,
             first_keyframe: frame,
-            ..channel
+            ..channel.clone()
         })
         .collect::<Vec<_>>()
         .into_boxed_slice();

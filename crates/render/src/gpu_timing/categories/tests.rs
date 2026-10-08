@@ -219,3 +219,14 @@ fn category_profiling_disables_overlapping_in_pass_draw_spans() {
         .unwrap();
     assert!(!world.resource::<GpuTimestamps>().draw_spans);
 }
+
+/// Only opt-in category splitting may take over the shared-scene opaque pass.
+#[test]
+fn only_category_profiling_replaces_the_scene_opaque_pass() {
+    let mut world = World::new();
+    let scene = crate::scene_target::opaque_pass(&mut world);
+    assert!(replaceable(&*scene, true));
+    assert!(!replaceable(&*scene, false));
+    let stock = ViewNodeRunner::new(MainOpaquePass3dNode, &mut world);
+    assert!(replaceable(&stock, false));
+}

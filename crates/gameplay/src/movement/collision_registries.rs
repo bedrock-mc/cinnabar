@@ -312,15 +312,18 @@ impl PhysicsCollisionRegistries {
             let vanilla_before = self.vanilla_runs.get(after).map_or(first, |run| run.2);
             let earlier_customs = next - first;
             runs.push((vanilla_before + earlier_customs, block.state_count, next));
-            let binding = InteractionBlock {
-                identifier: Arc::clone(&block.name),
-                full_cube: block.collides && block.collision_box.is_none(),
-                build_intention: false,
-                tags: Arc::clone(&block.tags),
-            };
-            for _ in 0..block.state_count {
-                self.interaction_blocks.insert(next, binding.clone());
-                let boxes = custom_block_box(block);
+            for state in 0..block.state_count {
+                let effective = block.physics_for_state(state);
+                self.interaction_blocks.insert(
+                    next,
+                    InteractionBlock {
+                        identifier: Arc::clone(&block.name),
+                        full_cube: effective.collides && effective.collision_boxes.is_none(),
+                        build_intention: false,
+                        tags: Arc::clone(&block.tags),
+                    },
+                );
+                let boxes = custom_block_boxes(&effective);
                 self.sequential
                     .register_primitives(
                         next,
@@ -333,7 +336,7 @@ impl PhysicsCollisionRegistries {
                         physics.surface_response,
                     )
                     .ok()?;
-                apply_selection(&mut self.sequential, next, block);
+                apply_selection(&mut self.sequential, next, effective.selection);
                 next = next.checked_add(1)?;
             }
         }
@@ -368,11 +371,12 @@ impl PhysicsCollisionRegistries {
         }
         let physics = self.custom_block_physics?;
         for block in custom.blocks.iter() {
-            for state in block.hashed_states() {
+            for (index, state) in block.hashed_states().into_iter().enumerate() {
                 if self.hashed.contains_runtime_id(state.hash) {
                     continue;
                 }
-                let boxes = custom_block_box(block);
+                let effective = block.physics_for_state(index as u32);
+                let boxes = custom_block_boxes(&effective);
                 if self
                     .hashed
                     .register_primitives(
@@ -391,12 +395,12 @@ impl PhysicsCollisionRegistries {
                         state.hash,
                         InteractionBlock {
                             identifier: Arc::clone(&block.name),
-                            full_cube: block.collides && block.collision_box.is_none(),
+                            full_cube: effective.collides && effective.collision_boxes.is_none(),
                             build_intention: false,
                             tags: Arc::clone(&block.tags),
                         },
                     );
-                    apply_selection(&mut self.hashed, state.hash, block);
+                    apply_selection(&mut self.hashed, state.hash, effective.selection);
                     self.session_hashes.push(state.hash);
                 }
             }
@@ -501,21 +505,33 @@ impl PhysicsCollisionRegistries {
     }
 }
 
-/// The block's collision shape: none when disabled, else its box or a full cube.
-fn custom_block_box(block: &protocol::CustomBlock) -> Option<Aabb> {
-    if !block.collides {
-        return None;
-    }
-    Some(
-        block
-            .collision_box
-            .map_or_else(|| collision_box_to_aabb(FULL_CUBE), box_to_aabb),
-    )
+/// Yields every authored primitive, or the full-cube default, when collision is enabled.
+fn custom_block_boxes(block: &protocol::CustomBlockPhysics) -> impl Iterator<Item = Aabb> + '_ {
+    let defaults = block
+        .collision_boxes
+        .is_none()
+        .then(|| collision_box_to_aabb(FULL_CUBE));
+    defaults
+        .into_iter()
+        .chain(
+            block
+                .collision_boxes
+                .as_deref()
+                .unwrap_or_default()
+                .iter()
+                .copied()
+                .map(box_to_aabb),
+        )
+        .filter(move |_| block.collides)
 }
 
 /// Applies the block's selection box to a registered state's pick ray.
-fn apply_selection(registry: &mut CollisionRegistry, id: u32, block: &protocol::CustomBlock) {
-    let shapes = match block.selection {
+fn apply_selection(
+    registry: &mut CollisionRegistry,
+    id: u32,
+    selection: protocol::CustomSelection,
+) {
+    let shapes = match selection {
         protocol::CustomSelection::Default => return,
         protocol::CustomSelection::Disabled => Vec::new(),
         protocol::CustomSelection::Box(shape) => vec![box_to_aabb(shape)],

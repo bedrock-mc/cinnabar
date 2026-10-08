@@ -127,9 +127,10 @@ fn cases() -> Vec<Case> {
 }
 
 #[test]
-#[ignore = "requires a native GPU adapter; run explicitly on a GPU host"]
 fn native_cube_and_leaf_pixels_match_gamma_products_without_changing_carried_colour() {
-    let gpu = Gpu::new().expect("this fixture requires a native GPU adapter");
+    let Some(gpu) = Gpu::for_fixture("native terrain colour") else {
+        return;
+    };
     assert!(material_shader::chunk_atlas_views_fit(&gpu.device.limits()));
     let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
         label: Some("leaf sRGB input witness"),
@@ -163,10 +164,6 @@ fn native_cube_and_leaf_pixels_match_gamma_products_without_changing_carried_col
         },
         texture.size(),
     );
-    let view = texture.create_view(&wgpu::TextureViewDescriptor {
-        dimension: Some(wgpu::TextureViewDimension::D2Array),
-        ..Default::default()
-    });
     let native_view = texture.create_view(&wgpu::TextureViewDescriptor {
         format: Some(wgpu::TextureFormat::Rgba8Unorm),
         dimension: Some(wgpu::TextureViewDimension::D2Array),
@@ -202,14 +199,6 @@ fn native_cube_and_leaf_pixels_match_gamma_products_without_changing_carried_col
             fragment: "leaf_witness_fragment",
             vertices: 0..3,
             bindings: &[
-                wgpu::BindGroupEntry {
-                    binding: 4,
-                    resource: wgpu::BindingResource::TextureView(&view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 5,
-                    resource: wgpu::BindingResource::TextureView(&view),
-                },
                 wgpu::BindGroupEntry {
                     binding: 6,
                     resource: wgpu::BindingResource::Sampler(&sampler),
@@ -304,7 +293,7 @@ struct LeafWitnessCase {
     if (witness.route.x != 0u) {
         return native_cube_colour(sampled, flags, witness.tint_ao.rgb, witness.tint_ao.w, witness.light_flags.rgb, witness.fog_amount.rgb, witness.fog_amount.w);
     }
-    let lit = lit_colour(sampled.rgb * tint_to_linear(vec4(witness.tint_ao.rgb, 1.0)).rgb, witness.light_flags.rgb * witness.tint_ao.w);
+    let lit = lit_colour(tint_to_linear(sampled).rgb * tint_to_linear(vec4(witness.tint_ao.rgb, 1.0)).rgb, witness.light_flags.rgb * witness.tint_ao.w);
     return vec4(mix(lit, witness.fog_amount.rgb, witness.fog_amount.w), 1.0);
 }
 "#;

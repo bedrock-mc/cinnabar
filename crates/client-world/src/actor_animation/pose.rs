@@ -44,6 +44,7 @@ pub(super) fn sample_clips(
     evaluator: &Evaluator<'_>,
     variables: &mut MolangVariables,
     bones: &[RuntimeBone],
+    bone_names: &[Box<str>],
     clips: &[WeightedClip],
     budget: &mut EvalBudget<'_>,
 ) -> Result<Vec<LocalDelta>, EvalError> {
@@ -84,7 +85,12 @@ pub(super) fn sample_clips(
             .ok_or(EvalError::Invalid)?;
         let length = clip.length_seconds.get();
         // A clip's own clock starts when its controller state was entered.
-        let clip_tick = evaluator.anim_tick.saturating_sub(weighted.started_tick);
+        let clip_tick = (if weighted.clock == super::clock::Basis::Lifetime {
+            evaluator.life_tick
+        } else {
+            evaluator.anim_tick
+        })
+        .saturating_sub(weighted.started_tick);
         let evaluator = &Evaluator {
             anim_tick: clip_tick,
             anim_time: Some(weighted.time),
@@ -105,23 +111,25 @@ pub(super) fn sample_clips(
         // An override clip first restores every bone it animates to its whole default pose.
         if clip.override_previous {
             for channel in channels {
-                *pose
-                    .get_mut(channel.bone as usize)
-                    .ok_or(EvalError::Invalid)? = LocalDelta::default();
+                let Some(index) = channel_bone(channel, bone_names) else {
+                    continue;
+                };
+                *pose.get_mut(index).ok_or(EvalError::Invalid)? = LocalDelta::default();
             }
         }
         for channel in channels {
             budget.charge_work()?;
-            let bone = pose
-                .get_mut(channel.bone as usize)
-                .ok_or(EvalError::Invalid)?;
+            let Some(index) = channel_bone(channel, bone_names) else {
+                continue;
+            };
+            let bone = pose.get_mut(index).ok_or(EvalError::Invalid)?;
             // Native blending retains the greatest frame setting across active clips.
             bone.rotation_relative_to_entity |= channel.rotation_relative_to_entity;
             let current = bone.property(channel.property);
             // `this` reads the bone orientation, not an animation-only delta. The
             // bone's defaults are copied into that orientation before channels add their values.
-            let defaults = default_channel(bones, channel.bone as usize, channel.property)
-                .ok_or(EvalError::Invalid)?;
+            let defaults =
+                default_channel(bones, index, channel.property).ok_or(EvalError::Invalid)?;
             let this = std::array::from_fn(|axis| match channel.property {
                 EntityAnimationProperty::Scale => defaults[axis] * current[axis],
                 _ => defaults[axis] + current[axis],
@@ -146,6 +154,13 @@ pub(super) fn sample_clips(
         compose_blend(&mut local, sides, blend.amount);
     }
     Ok(local)
+}
+
+fn channel_bone(channel: &assets::EntityAnimationChannel, names: &[Box<str>]) -> Option<usize> {
+    match &channel.bone_name {
+        Some(name) => names.iter().position(|candidate| candidate == name),
+        None => Some(channel.bone as usize),
+    }
 }
 
 /// Lerps the outgoing and incoming poses, rotating the short way round, then adds translation

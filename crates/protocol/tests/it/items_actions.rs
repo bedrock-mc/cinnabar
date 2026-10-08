@@ -263,6 +263,9 @@ fn animate_entity_retains_one_bounded_custom_action_for_all_targets() {
         ActorActionKind::Custom {
             animation: "animation.test.attack".into(),
             controller: "controller.animation.test".into(),
+            next_state: "default".into(),
+            stop_expression: "query.any_animation_finished".into(),
+            stop_expression_version: 1,
         }
     );
 }

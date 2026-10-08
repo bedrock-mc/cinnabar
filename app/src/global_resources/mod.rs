@@ -1,7 +1,7 @@
 //! Global pack management. Live application is a Cinnabar extension to Bedrock.
 
 mod icons;
-mod memory;
+pub(crate) mod memory;
 mod picker;
 mod worker;
 

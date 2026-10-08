@@ -92,6 +92,7 @@ impl Plugin for UiRenderPlugin {
 struct UiRenderInstalled;
 
 fn install_ui_render(app: &mut App) {
+    crate::upload_staging::install(app);
     app.init_resource::<UiRenderSceneResource>()
         .init_resource::<UiGlintSettings>()
         .init_resource::<UiRenderStatsResource>();
@@ -102,6 +103,7 @@ fn install_ui_render(app: &mut App) {
         install_overlay_graph(app.sub_app_mut(RenderApp).world_mut());
         return;
     }
+    crate::pipeline_warmup::register::<pipeline::UiPipeline>(app);
     let stats = app.world().resource::<UiRenderStatsResource>().clone();
     app.add_plugins((
         ExtractResourcePlugin::<UiRenderSceneResource>::default(),

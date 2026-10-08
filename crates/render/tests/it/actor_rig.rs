@@ -176,19 +176,19 @@ fn culling_precedes_actor_and_bone_arena_reservation() {
 fn shared_geometry_is_not_duplicated_per_actor_and_overflow_is_deterministic() {
     let mut builder = ActorRigFrameBuilder::new([geometry()]).unwrap();
     let geometry_vertex_count = builder.geometry_vertices().len();
-    let actors = (0..MAX_RENDERED_PLAYERS + 2)
+    let actors = (0..MAX_ACTOR_RENDER_INSTANCES + 2)
         .rev()
         .map(|index| submission(index as u64 + 1, 1));
 
     let frame = builder.build(0.25, None, actors);
 
-    assert_eq!(frame.instances.len(), MAX_RENDERED_PLAYERS);
+    assert_eq!(frame.instances.len(), MAX_ACTOR_RENDER_INSTANCES);
     assert_eq!(frame.rejects.actor_capacity, 2);
     assert_eq!(frame.geometry_vertices.len(), geometry_vertex_count);
     assert_eq!(frame.manifest.first().unwrap().identity.runtime_id, 1);
     assert_eq!(
         frame.manifest.last().unwrap().identity.runtime_id,
-        MAX_RENDERED_PLAYERS as u64
+        MAX_ACTOR_RENDER_INSTANCES as u64
     );
 }
 

@@ -288,10 +288,13 @@ pub(crate) fn prepare_actor_render_frame(
             prepared_actor_artwork,
         },
         swing_progress,
-        |stream, low, high| {
+        |stream, camera, low, high| {
             cave.as_deref().is_some_and(|cave| {
                 cave.hides_box(
-                    stream.current_dimension(),
+                    crate::runtime::telemetry::camera_sub_chunk_key(
+                        stream.current_dimension(),
+                        Vec3::from_array(camera),
+                    ),
                     stream.connectivity_generation(),
                     |key| stream.has_sub_chunk_connectivity(key),
                     low,

@@ -1,5 +1,6 @@
 use super::{
     graph::{EnhancedHandLabel, EnhancedHandRigLabel, install_graph},
+    hand_layer::EnhancedHandCompositeLabel,
     post::EnhancedPostLabel,
     *,
 };
@@ -96,7 +97,18 @@ fn enhanced_views_bloom_and_grade_the_world_before_hand_and_ui() {
         assert!(reaches(graph, EnhancedPostLabel, post), "{post:?}");
         assert!(reaches(graph, post, Node3d::Tonemapping), "{post:?}");
     }
-    // The HUD composites after every post-process, FXAA included, and before the output.
+    assert!(reaches(graph, EnhancedHandLabel, EnhancedHandRigLabel));
+    assert!(reaches(
+        graph,
+        EnhancedHandRigLabel,
+        EnhancedHandCompositeLabel
+    ));
+    assert!(reaches(
+        graph,
+        EnhancedHandCompositeLabel,
+        Node3d::Tonemapping
+    ));
+    // The single-sample HUD follows the completed hand layer and post-processing.
     let hud = overlay::UiOverlayPostLabel;
     assert!(reaches(graph, EnhancedPostLabel, hud.clone()));
     assert!(reaches(

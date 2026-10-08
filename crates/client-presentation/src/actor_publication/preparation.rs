@@ -302,6 +302,11 @@ pub fn advance_actor_frame(
                 &input.local_equipment,
             );
             let (consume_ticks, item_animation) = hand_use(stream, step.partial_tick);
+            let item_animation =
+                item_animation.map(|input| client_world::AttachableAnimationInput {
+                    delta_seconds: Some(time.delta_secs()),
+                    ..input
+                });
             *captured_hand_use = (consume_ticks, item_animation);
             *hand_key = hand::source_key(stream, consume_ticks, item_animation, step.partial_tick);
             equipment.begin_hand_readiness();

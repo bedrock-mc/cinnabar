@@ -166,15 +166,14 @@ impl Specializer<RenderPipeline> for ChunkPipelineSpecializer {
         descriptor: &mut RenderPipelineDescriptor,
     ) -> Result<Canonical<Self::Key>, BevyError> {
         descriptor.multisample.count = key.msaa.samples();
-        let native_gamma = !key.hdr
-            && key.msaa == Msaa::Off
-            && !(render_model::ENHANCED_RENDERING_ENABLED && key.enhanced)
-            && descriptor
-                .fragment
-                .as_ref()
-                .unwrap()
-                .shader_defs
-                .contains(&"NATIVE_GAMMA_BLEND".into());
+        let native_gamma =
+            super::super::transparent::gamma_pass::admitted(key.hdr, key.msaa, key.enhanced)
+                && descriptor
+                    .fragment
+                    .as_ref()
+                    .unwrap()
+                    .shader_defs
+                    .contains(&"NATIVE_GAMMA_BLEND".into());
         if !native_gamma {
             descriptor
                 .fragment
@@ -491,3 +490,29 @@ mod review_tests {
 #[cfg(test)]
 #[path = "contract_tests.rs"]
 mod contract_tests;
+
+impl crate::pipeline_warmup::PrewarmPipelines for ChunkPipeline {
+    fn prewarm(
+        &mut self,
+        cache: &PipelineCache,
+        view: crate::pipeline_warmup::WarmView,
+        ids: &mut crate::pipeline_warmup::WarmupIds,
+    ) -> Result<(), BevyError> {
+        let key = ChunkPipelineKey {
+            msaa: view.msaa,
+            hdr: view.hdr,
+            enhanced: view.enhanced,
+        };
+        for variants in [
+            &mut self.variants,
+            &mut self.solid_variants,
+            &mut self.model_variants,
+            &mut self.transparent_model_variants,
+            &mut self.liquid_variants,
+            &mut self.depth_liquid_variants,
+        ] {
+            ids.push(variants.specialize(cache, key)?);
+        }
+        Ok(())
+    }
+}

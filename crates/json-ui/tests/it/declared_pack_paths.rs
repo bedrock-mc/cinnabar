@@ -113,3 +113,33 @@ fn malformed_index_does_not_admit_custom_paths() {
     assert!(catalog.lookup("custom", "slot").is_none());
     assert!(!catalog.diagnostics().is_empty());
 }
+
+#[test]
+fn overlay_control_paths_follow_accepted_indexes_and_inherited_namespaces() {
+    let catalog = base();
+    let files = [
+        (
+            "ui/inventory.json",
+            br#"{"screen/label":{"font_size":"large"},"broken":7}"#.as_slice(),
+        ),
+        (
+            "ui/unlisted.json",
+            br#"{"namespace":"unlisted","title":{}}"#.as_slice(),
+        ),
+    ];
+    let paths = catalog.overlay_controls(files);
+    assert_eq!(
+        paths,
+        [json_ui::ControlRef::new("crafting", "screen/label")]
+            .into_iter()
+            .collect()
+    );
+    assert!(
+        catalog
+            .overlay_controls([(
+                "ui/inventory.json",
+                br#"{"screen":{},"broken":[1,]}"#.as_slice()
+            )])
+            .is_empty()
+    );
+}

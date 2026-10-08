@@ -13,6 +13,9 @@ use super::{
     projection_fov_radians, window_aspect,
 };
 
+const MIN_GAMEPLAY_FOV_DEGREES: f32 = 5.0;
+const MAX_GAMEPLAY_FOV_DEGREES: f32 = 130.0;
+
 /// Native rotates an X-axis scale around (0, 1, 1), then reverses the rotation.
 /// The distortion setting changes the scale; it does not fade the portal texture.
 pub(super) fn portal_distortion(
@@ -120,10 +123,11 @@ pub fn update_camera_fov(
         1.0
     };
     let base = settings.horizontal_fov_degrees();
+    let gameplay_fov = (base * modifier).clamp(MIN_GAMEPLAY_FOV_DEGREES, MAX_GAMEPLAY_FOV_DEGREES);
     let rig_delta = settings.rig().map_or(0.0, |rig| rig.fov_delta_degrees);
     let fov_degrees = server
         .fov_override_degrees(base)
-        .unwrap_or(base * modifier + rig_delta);
+        .unwrap_or(gameplay_fov + rig_delta);
     for mut projection in &mut cameras {
         let perspective = match projection.as_mut() {
             Projection::Perspective(perspective) => Some(perspective),
@@ -256,6 +260,144 @@ mod tests {
         assert!(matches!(projection, Projection::Perspective(_)));
         assert_eq!(projection.get_clip_from_view(), original);
     }
+
+    fn fov_app(degrees: f32, inputs: CameraFovInputs) -> (App, Entity) {
+        let mut settings = ui::UserSettings::default();
+        settings.video.horizontal_fov_degrees = degrees;
+        let mut authority = CameraSettingsAuthority::default();
+        authority.replace(1, &settings).unwrap();
+        let mut app = App::new();
+        app.init_resource::<Time>()
+            .insert_resource(authority)
+            .insert_resource(inputs)
+            .init_resource::<CameraFovState>()
+            .init_resource::<ServerCameraView>()
+            .add_systems(Update, update_camera_fov);
+        app.world_mut().spawn((Window::default(), PrimaryWindow));
+        let camera = app
+            .world_mut()
+            .spawn((FlyCamera::default(), Projection::default()))
+            .id();
+        app.world_mut()
+            .resource_mut::<Time>()
+            .advance_by(std::time::Duration::from_secs(1));
+        (app, camera)
+    }
+
+    fn world_fov(app: &App, camera: Entity) -> f32 {
+        match app.world().get::<Projection>(camera).unwrap() {
+            Projection::Perspective(projection) => projection.fov,
+            Projection::Custom(custom) => custom.get::<PortalProjection>().unwrap().perspective.fov,
+            Projection::Orthographic(_) => panic!("perspective expected"),
+        }
+    }
+
+    #[test]
+    fn gameplay_fov_stays_bounded_after_large_speed_and_slowness_changes() {
+        for (degrees, inputs, expected) in [
+            (
+                100.0,
+                CameraFovInputs {
+                    movement_speed: 0.3,
+                    ..Default::default()
+                },
+                130.0_f32,
+            ),
+            (
+                30.0,
+                CameraFovInputs {
+                    slowness_amplifier: Some(20),
+                    ..Default::default()
+                },
+                5.0_f32,
+            ),
+        ] {
+            let (mut app, camera) = fov_app(degrees, inputs);
+            app.update();
+            let projection = app.world().get::<Projection>(camera).unwrap();
+            assert!((world_fov(&app, camera) - expected.to_radians()).abs() < 1e-6);
+            assert!(
+                (projection.get_clip_from_view().y_axis.y
+                    - (expected.to_radians() * 0.5).tan().recip())
+                .abs()
+                    < 1e-5
+            );
+            assert_eq!(
+                first_person_hand_fov(projection),
+                Some(crate::actor_publication::HAND_FOV_DEGREES.to_radians())
+            );
+        }
+    }
+
+    #[test]
+    fn gameplay_fov_bound_preserves_custom_projection_and_restores_normal_speed() {
+        let (mut app, camera) = fov_app(
+            100.0,
+            CameraFovInputs {
+                movement_speed: 0.3,
+                ..Default::default()
+            },
+        );
+        apply_distortion(
+            app.world_mut()
+                .get_mut::<Projection>(camera)
+                .unwrap()
+                .as_mut(),
+            portal_distortion(1.0, 4.0, false, 1.0),
+        );
+        app.update();
+        assert!((world_fov(&app, camera).to_degrees() - 130.0).abs() < 1e-4);
+        *app.world_mut().resource_mut::<CameraFovInputs>() = CameraFovInputs::default();
+        app.update();
+        assert!((world_fov(&app, camera).to_degrees() - 110.0).abs() < 1e-3);
+        assert!(matches!(
+            app.world().get::<Projection>(camera).unwrap(),
+            Projection::Custom(_)
+        ));
+    }
+
+    #[test]
+    fn gameplay_fov_bound_keeps_authored_rig_and_server_overrides() {
+        use crate::camera::ViewContext;
+        use protocol::{CameraEvent, CameraFovInstruction, CameraInstructionEvent};
+        let (mut app, camera) = fov_app(
+            100.0,
+            CameraFovInputs {
+                movement_speed: 0.3,
+                ..Default::default()
+            },
+        );
+        app.world_mut()
+            .resource_mut::<CameraSettingsAuthority>()
+            .set_rig(Some(super::super::CameraRig {
+                offset: Vec3::ZERO,
+                roll_radians: 0.0,
+                fov_delta_degrees: 15.0,
+            }));
+        app.update();
+        assert!((world_fov(&app, camera).to_degrees() - 145.0).abs() < 1e-4);
+        app.world_mut().resource_mut::<ServerCameraView>().apply(
+            1,
+            &CameraEvent::Instruction(Box::new(CameraInstructionEvent {
+                fov: Some(CameraFovInstruction {
+                    degrees: 50.0,
+                    ease_time_seconds: 0.0,
+                    ease_type: Arc::from("linear"),
+                    clear: false,
+                }),
+                ..Default::default()
+            })),
+            &ViewContext {
+                base: Transform::IDENTITY,
+                subject: Transform::IDENTITY,
+                base_fov: 100.0,
+                actors: &|_| None,
+            },
+        );
+        app.update();
+        assert!((world_fov(&app, camera).to_degrees() - 50.0).abs() < 1e-4);
+    }
+
     #[test]
     fn free_camera_suppresses_gameplay_fov_and_clear_restores_the_retained_modifier() {
         use crate::camera::server_view::ViewContext;

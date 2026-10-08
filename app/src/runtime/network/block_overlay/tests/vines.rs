@@ -13,6 +13,7 @@ fn custom_block_property_alias_applies_each_facing_permutation() {
                 }]),
                 permutations: (1..4)
                     .map(|facing| CustomPermutation {
+                        physical: Default::default(),
                         condition: format!("{spelling}('custom:facing_direction') == {facing}")
                             .into(),
                         components: turn(facing),
@@ -70,6 +71,7 @@ fn block_property_permutations_rotate_each_runtime_vine_state() {
             }]),
             permutations: [(1, 2), (2, 1), (3, 3)]
                 .map(|(facing, quarters)| CustomPermutation {
+                    physical: Default::default(),
                     condition: format!(
                         "query.block_property('custom:facing_direction') == {facing}"
                     )

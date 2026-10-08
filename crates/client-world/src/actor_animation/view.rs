@@ -1,11 +1,14 @@
 use assets::SkinGeometryBounds;
 
 impl super::ActorRigSnapshot<'_> {
-    /// Uses the skin's declared visibility box when its own model replaces the player rig.
+    /// Uses the displayed model's authored visibility box independently of collision metadata.
     #[must_use]
     pub fn culling_bounds(&self) -> SkinGeometryBounds {
-        self.skin_geometry
-            .and_then(|geometry| geometry.visible_bounds)
+        if let Some(geometry) = self.skin_geometry {
+            return geometry.visible_bounds.unwrap_or_default();
+        }
+        self.geometry_source()
+            .and_then(|(assets, geometry)| assets.geometry_visible_bounds(geometry))
             .unwrap_or_default()
     }
 }
@@ -24,7 +27,7 @@ pub struct ActorAnimationView {
 }
 
 impl ActorAnimationView {
-    /// Keeps authored skin bounds inside the guard-banded animation frustum.
+    /// Keeps authored model bounds inside the guard-banded animation frustum.
     #[must_use]
     pub fn admits(
         &self,

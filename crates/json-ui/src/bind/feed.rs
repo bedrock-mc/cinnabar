@@ -31,6 +31,8 @@ pub struct FactoryItem {
     /// A caller clock holding the creation time instead of `born`, so the
     /// control can restart its fade without the screen re-binding.
     pub clock: Option<String>,
+    /// Distinguishes a replacement control from an update to its property bag.
+    pub instance_id: Option<u64>,
 }
 
 impl FactoryItem {
@@ -44,6 +46,12 @@ impl FactoryItem {
 
     pub fn named(mut self, name: impl Into<String>) -> Self {
         self.name = Some(name.into());
+        self
+    }
+
+    /// Keep this creation's bindings until the caller supplies another identity.
+    pub fn identified(mut self, instance_id: u64) -> Self {
+        self.instance_id = Some(instance_id);
         self
     }
 
@@ -128,6 +136,13 @@ impl<'a> Binder<'a> {
             });
             // The item's property bag is readable throughout the created subtree.
             let mut item_scope = inner;
+            item_scope.incarnation = Some(super::state::key_hash(
+                item_scope.incarnation.unwrap_or(super::state::KEY_ROOT),
+                &item
+                    .instance_id
+                    .unwrap_or(item.born.to_bits())
+                    .to_le_bytes(),
+            ));
             if let Some((collection, index)) = &item.cursor {
                 std::sync::Arc::make_mut(&mut item_scope.cursor)
                     .indices

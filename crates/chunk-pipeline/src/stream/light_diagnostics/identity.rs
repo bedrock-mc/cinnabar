@@ -195,11 +195,12 @@ mod tests {
         stream.set_sequential_id_remap(assets::SequentialIdRemap::new([(3, 2, 10)]));
         stream.set_light_diagnostic_custom_blocks(CustomBlocks {
             blocks: Arc::from([CustomBlock {
+                state_physics: Default::default(),
                 name: Arc::from("test:roof"),
                 tags: Default::default(),
                 state_count: 2,
                 collides: true,
-                collision_box: None,
+                collision_boxes: None,
                 selection: CustomSelection::Default,
                 visual: Arc::new(CustomBlockVisuals {
                     state_axes: Box::new([CustomStateAxis {

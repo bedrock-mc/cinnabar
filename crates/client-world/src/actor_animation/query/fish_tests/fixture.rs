@@ -42,6 +42,7 @@ pub(super) fn assets(identifier: &str) -> Arc<RuntimeEntityAssets> {
     let geometries = ["geometry.fish.a", "geometry.fish.b"]
         .into_iter()
         .map(|identifier| EntityGeometry {
+            visible_bounds: None,
             identifier: identifier.into(),
             inherits: None,
             source_index: 1,

@@ -5,6 +5,7 @@ pub(super) struct UiWorldNode;
 
 type UiViewQuery = (
     &'static ViewTarget,
+    &'static crate::scene_target::SceneTarget,
     &'static MainEntity,
     &'static ExtractedCamera,
     Option<&'static ViewDepthTexture>,
@@ -28,7 +29,7 @@ impl ViewNode for UiWorldNode {
 fn draw_ui_view(
     graph: &mut RenderGraphContext,
     context: &mut RenderContext,
-    (target, _, camera, depth, resolution_override): QueryItem<UiViewQuery>,
+    (target, scene_target, _, camera, depth, resolution_override): QueryItem<UiViewQuery>,
     world: &World,
 ) -> Result<(), NodeRunError> {
     let (Some(gpu), Some(pipeline_cache)) = (
@@ -72,7 +73,7 @@ fn draw_ui_view(
         let matches_depth = |batch: &UiRenderBatch| {
             (batch.depth_test != 0, batch.depth_write != 0) == (depth_test, depth_write)
         };
-        let depth = depth.filter(|depth| world_depth_compatible(depth, target));
+        let depth = depth.filter(|depth| world_depth_compatible(depth, scene_target));
         let pair = if depth_test || depth_write {
             depth.and_then(|_| {
                 gpu.world_view_pipelines
@@ -96,7 +97,7 @@ fn draw_ui_view(
             {}
             continue;
         };
-        let attachments = [Some(target.get_color_attachment())];
+        let attachments = [Some(scene_target.color_attachment(target, false))];
         let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
             label: Some("retained world-projected UI"),
             color_attachments: &attachments,
@@ -155,10 +156,11 @@ fn draw_ui_view(
 }
 
 /// Only bind depth with the owning color target's dimensions and sample count.
-fn world_depth_compatible(depth: &ViewDepthTexture, target: &ViewTarget) -> bool {
-    let color = target
-        .sampled_main_texture()
-        .unwrap_or_else(|| target.main_texture());
+fn world_depth_compatible(
+    depth: &ViewDepthTexture,
+    target: &crate::scene_target::SceneTarget,
+) -> bool {
+    let color = &target.texture;
     depth.texture.format() == CORE_3D_DEPTH_FORMAT
         && depth.texture.sample_count() == color.sample_count()
         && depth.texture.size() == color.size()

@@ -95,7 +95,7 @@ fn builtin(name: &str) -> Option<EntityRenderMaterialState> {
     match name {
         "entity" | "entity_static" => {}
         "entity_nocull" => state.cull = false,
-        "entity_alphatest" => {
+        "entity_alphatest" | "skeleton" => {
             state.alpha_test = true;
             state.cull = false;
         }
@@ -160,16 +160,24 @@ fn apply(fields: &Map<String, Value>, state: &mut EntityRenderMaterialState) -> 
     let destination = fields.get("blendDst").and_then(Value::as_str);
     if source.is_some() || destination.is_some() {
         let inherited = if state.additive {
-            ("One", "One")
+            (
+                if state.additive_alpha {
+                    "SourceAlpha"
+                } else {
+                    "One"
+                },
+                "One",
+            )
         } else {
             ("SourceAlpha", "OneMinusSrcAlpha")
         };
-        state.additive = match (
+        (state.additive, state.additive_alpha) = match (
             source.unwrap_or(inherited.0),
             destination.unwrap_or(inherited.1),
         ) {
-            ("One", "One") => true,
-            ("SourceAlpha" | "SrcAlpha", "OneMinusSrcAlpha") => false,
+            ("One", "One") => (true, false),
+            ("SourceAlpha" | "SrcAlpha", "One") => (true, true),
+            ("SourceAlpha" | "SrcAlpha", "OneMinusSrcAlpha") => (false, false),
             _ => return None,
         };
     }

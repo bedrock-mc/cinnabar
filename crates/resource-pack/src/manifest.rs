@@ -1,10 +1,10 @@
-//! Lenient manifest reading: only identity, module kinds, and subpack folders
+//! Lenient manifest reading: only identity, module kinds, and subpack requirements
 //! matter for application, so every other field is ignored.
 
 use serde_json::Value;
 use uuid::Uuid;
 
-use crate::{AdmissionError, MAX_SUBPACKS, normalize_jsonc};
+use crate::{AdmissionError, MAX_SUBPACKS, Subpack, normalize_jsonc};
 
 /// A `major.minor.patch` pack version.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -43,7 +43,7 @@ impl Version {
 }
 
 pub(crate) struct Manifest {
-    pub(crate) subpack_folders: Vec<Box<str>>,
+    pub(crate) subpacks: Vec<Subpack>,
 }
 
 /// Validates a manifest against the server-selected identity.
@@ -86,13 +86,19 @@ pub(crate) fn read_manifest(
     if subpacks.len() > MAX_SUBPACKS {
         return Err(AdmissionError::InvalidSubpack);
     }
-    let subpack_folders = subpacks
+    let subpacks = subpacks
         .iter()
-        .filter_map(|subpack| subpack["folder_name"].as_str())
-        .filter(|folder| !folder.is_empty() && !folder.contains(['/', '\\']) && *folder != "..")
-        .map(Into::into)
+        .filter_map(|subpack| {
+            let folder = subpack["folder_name"].as_str()?;
+            (!folder.is_empty() && !folder.contains(['/', '\\']) && !matches!(folder, "." | ".."))
+                .then(|| Subpack {
+                    folder: folder.into(),
+                    name: subpack["name"].as_str().unwrap_or(folder).into(),
+                    memory_tier: crate::subpacks::manifest_memory_tier(subpack),
+                })
+        })
         .collect();
-    Ok(Manifest { subpack_folders })
+    Ok(Manifest { subpacks })
 }
 
 #[cfg(test)]
