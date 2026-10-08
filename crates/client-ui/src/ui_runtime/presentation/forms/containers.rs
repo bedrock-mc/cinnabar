@@ -135,6 +135,9 @@ impl UiPresentationRuntime {
                 for flag in kind.flags {
                     context = context.with_flag(flag, true);
                 }
+                if super::furnace_book::active(player_runtime) {
+                    context = super::furnace_book::context(context);
+                }
             }
             ScreenLayout::Book => context = super::book_screen::context(context),
             _ => context = super::recipe_book::context(context),
@@ -147,7 +150,10 @@ impl UiPresentationRuntime {
             layout,
             &title,
             &mut icons,
-            &mut self.form_presentation.book_cache,
+            (
+                &mut self.form_presentation.book_cache,
+                &mut self.form_presentation.furnace_cache,
+            ),
         );
         let pointer = runtime.inventory_pointer_gui();
         let view = ViewState {
@@ -276,7 +282,9 @@ impl UiPresentationRuntime {
         let region = hit_test(&frame.hits, [f64::from(gui[0]), f64::from(gui[1])])?;
         let widget = || match *layout {
             ScreenLayout::Station(kind) => {
-                container_data::widget_hit(kind.screen, region).map(InventoryCellHit::Widget)
+                super::furnace_book::hit(kind.screen, region).or_else(|| {
+                    container_data::widget_hit(kind.screen, region).map(InventoryCellHit::Widget)
+                })
             }
             ScreenLayout::Personal { book } | ScreenLayout::Workbench { book } => {
                 super::recipe_book::book_hit(region, book)
@@ -506,8 +514,12 @@ fn screen_data(
     layout: ScreenLayout,
     title: &str,
     icons: &mut Vec<IconRef>,
-    book_cache: &mut Option<super::recipe_book::BookCache>,
+    caches: (
+        &mut Option<super::recipe_book::BookCache>,
+        &mut Option<super::furnace_book::FurnaceBookCache>,
+    ),
 ) -> DataSource {
+    let (book_cache, furnace_cache) = caches;
     let ledger = runtime.inventory_ledger(player_runtime);
     let mut data = DataSource::new();
     // Bindings the controller does not answer read as false, as in vanilla.
@@ -587,6 +599,16 @@ fn screen_data(
             data.set_collection("offhand_items", vec![offhand]);
         }
         ScreenLayout::Station(kind) => {
+            if super::furnace_book::active(player_runtime) {
+                super::furnace_book::data(
+                    player_runtime,
+                    runtime,
+                    frame,
+                    &mut data,
+                    cells.icons,
+                    furnace_cache,
+                );
+            }
             for (collection, addressed) in kind.collections {
                 let shown = container_data::collection_len(
                     player_runtime,
@@ -680,7 +702,7 @@ fn station_cell<'a>(
         Cell::Storage(slot) => {
             let index = usize::from(slot);
             (
-                ledger.storage_stack(slot),
+                ledger.furnace_visual_stack(slot),
                 frame.storage_icons.0.get(index).copied().flatten(),
                 frame.durability.storage.get(index).copied().flatten(),
             )

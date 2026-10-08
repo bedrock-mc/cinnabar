@@ -1,6 +1,7 @@
 //! Engine-independent inventory authority, prediction, crafting and commands.
 mod crafting;
 mod crafting_authority;
+mod furnace_recipes;
 mod ingress;
 pub mod inventory_ledger;
 pub mod inventory_router;
@@ -16,6 +17,7 @@ pub use crafting::{
     recipe_ingredient_accepts, screen_ingredient_accepts,
 };
 pub use crafting_authority::CraftingPreview;
+pub use furnace_recipes::{FurnaceRecipeIter, FurnaceRecipes};
 pub use ingress::{InventoryAuthorityEvent, InventoryIngressError, SequencedInventoryEvent};
 pub use inventory_ledger::{PlayerInventoryLedger, PlayerInventorySlot};
 pub use inventory_router::{

@@ -55,7 +55,7 @@ pub fn capture_hud_frame(
     for (slot, icon) in storage_icons.0.iter_mut().enumerate() {
         if let Some(stack) = runtime
             .inventory_ledger(player_runtime)
-            .storage_stack(slot as u8)
+            .furnace_visual_stack(slot as u8)
         {
             *icon = resolve_identifier(stack)
                 .as_deref()
@@ -97,7 +97,7 @@ pub fn capture_hud_frame(
         let ledger = runtime.inventory_ledger(player_runtime);
         (0..36u8)
             .filter_map(|slot| ledger.displayed_stack(slot))
-            .chain((0..54u8).filter_map(|slot| ledger.storage_stack(slot)))
+            .chain((0..54u8).filter_map(|slot| ledger.furnace_visual_stack(slot)))
             .filter_map(|stack| {
                 let name = runtime.localized_item_name(&resolve_identifier(stack)?);
                 Some(((stack.network_id, stack.metadata), Arc::from(name)))
@@ -281,14 +281,30 @@ pub fn capture_hud_frame(
             super::inventory_pointer::InventoryScreen::Personal
                 | super::inventory_pointer::InventoryScreen::Workbench
                 | super::inventory_pointer::InventoryScreen::Creative
+                | super::inventory_pointer::InventoryScreen::Window(
+                    protocol::WindowKind::Furnace
+                        | protocol::WindowKind::BlastFurnace
+                        | protocol::WindowKind::Smoker,
+                    _
+                )
         ) && super::forms::recipe_book_shown(player_runtime, runtime)
         {
-            window_icons.book_entries =
-                super::forms::recipe_book_icons(player_runtime, runtime, |stack| {
-                    resolve_identifier(stack)
-                        .as_deref()
-                        .and_then(|id| presentation.item_icon(id, stack.metadata))
-                });
+            let icon = |stack: &protocol::NetworkItemStack| {
+                resolve_identifier(stack)
+                    .as_deref()
+                    .and_then(|id| presentation.item_icon(id, stack.metadata))
+            };
+            if super::forms::furnace_book::active(player_runtime) {
+                window_icons.furnace_entries = super::forms::furnace_book::icons(
+                    player_runtime,
+                    runtime,
+                    presentation.session_icon_generation(),
+                    icon,
+                );
+            } else {
+                window_icons.book_entries =
+                    super::forms::recipe_book_icons(player_runtime, runtime, icon);
+            }
         }
         if inventory_screen == super::inventory_pointer::InventoryScreen::Creative {
             let entries = crate::ui_runtime::inventory_actions::visible_creative_entries(

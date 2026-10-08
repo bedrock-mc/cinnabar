@@ -92,6 +92,7 @@ impl PlayerInventoryLedger {
     pub(super) fn refold(&mut self) {
         if self.queue.is_empty() {
             self.view = None;
+            self.observe_furnace_cells();
             return;
         }
         let mut view = self.confirmed.clone();
@@ -101,6 +102,7 @@ impl PlayerInventoryLedger {
             }
         }
         self.view = Some(view);
+        self.observe_furnace_cells();
     }
 
     pub(super) fn ensure_queue_capacity(&self) -> Result<(), InventoryGestureError> {

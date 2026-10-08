@@ -102,7 +102,7 @@ fn furnace_cells_are_addressed_by_role() {
         vec![stack(20, 2), stack(21, 3), NetworkItemStack::default()],
     ));
     assert_eq!(ledger.storage_slot_count(), Some(3));
-    ledger.apply(&slot_update(named(3, 26), 0, stack(22, 5)));
+    ledger.apply(&slot_update(named(3, 26), 2, stack(22, 5)));
     assert_eq!(ledger.storage_stack(2).unwrap().count, 5);
     ledger.begin_storage_click(1).unwrap();
     let Some(StackRequestAction::Take { source, .. }) = ledger.newest_action() else {
