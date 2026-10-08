@@ -1,9 +1,12 @@
 use bevy::window::PresentMode;
 use render::{
-    Dx12PresentModePolicy, PresentModePreference, PresentModeRemedy,
-    resolve_dx12_present_mode_remedy,
+    PresentModePolicy, PresentModePreference, PresentModeRemedy, resolve_dx12_present_mode_remedy,
 };
-use wgpu::{Backend, PresentMode as SurfacePresentMode};
+use render_model::{PresentModeKind, SurfacePresentModes};
+use wgpu::Backend;
+
+const FIFO_AND_IMMEDIATE: SurfacePresentModes =
+    SurfacePresentModes::FIFO_ONLY.with(PresentModeKind::Immediate);
 
 const AFFECTED_ADAPTER: &str = "Radeon RX 570 Series";
 const AFFECTED_DRIVER: &str = "31.0.21924.61";
@@ -17,7 +20,7 @@ fn exact_affected_dx12_fifo_path_uses_proven_immediate_mode() {
             AFFECTED_ADAPTER,
             AFFECTED_DRIVER,
             PresentMode::Fifo,
-            &[SurfacePresentMode::Fifo, SurfacePresentMode::Immediate],
+            FIFO_AND_IMMEDIATE,
         ),
         PresentModeRemedy::UseImmediate,
     );
@@ -30,25 +33,25 @@ fn policy_does_not_generalize_beyond_the_measured_driver_and_capability() {
             Backend::Vulkan,
             AFFECTED_ADAPTER,
             AFFECTED_DRIVER,
-            &[SurfacePresentMode::Fifo, SurfacePresentMode::Immediate][..],
+            FIFO_AND_IMMEDIATE,
         ),
         (
             Backend::Dx12,
             "Radeon RX 580 Series",
             AFFECTED_DRIVER,
-            &[SurfacePresentMode::Fifo, SurfacePresentMode::Immediate][..],
+            FIFO_AND_IMMEDIATE,
         ),
         (
             Backend::Dx12,
             AFFECTED_ADAPTER,
             "new-driver",
-            &[SurfacePresentMode::Fifo, SurfacePresentMode::Immediate][..],
+            FIFO_AND_IMMEDIATE,
         ),
         (
             Backend::Dx12,
             AFFECTED_ADAPTER,
             AFFECTED_DRIVER,
-            &[SurfacePresentMode::Fifo][..],
+            SurfacePresentModes::FIFO_ONLY,
         ),
     ] {
         assert_eq!(
@@ -67,7 +70,7 @@ fn policy_does_not_generalize_beyond_the_measured_driver_and_capability() {
 
 #[test]
 fn explicit_vsync_and_no_vsync_are_never_overridden() {
-    let supported = &[SurfacePresentMode::Fifo, SurfacePresentMode::Immediate];
+    let supported = FIFO_AND_IMMEDIATE;
     for (preference, requested) in [
         (PresentModePreference::Vsync, PresentMode::Fifo),
         (PresentModePreference::NoVsync, PresentMode::Immediate),
@@ -100,7 +103,7 @@ fn explicit_vsync_and_no_vsync_are_never_overridden() {
 
 #[test]
 fn shared_policy_can_be_replaced_by_a_user_vsync_choice() {
-    let policy = Dx12PresentModePolicy::new(PresentModePreference::Auto);
+    let policy = PresentModePolicy::new(PresentModePreference::Auto);
     let render_copy = policy.clone();
 
     render_copy.publish_remedy(PresentModeRemedy::UseImmediate);
@@ -118,8 +121,23 @@ fn shared_policy_can_be_replaced_by_a_user_vsync_choice() {
 
 #[test]
 fn review_render_republishing_the_same_preference_retains_the_remedy() {
-    let policy = Dx12PresentModePolicy::default();
+    let policy = PresentModePolicy::default();
     policy.publish_remedy(PresentModeRemedy::UseImmediate);
     policy.set_preference(PresentModePreference::Auto);
     assert_eq!(policy.remedy(), PresentModeRemedy::UseImmediate);
+}
+
+#[test]
+fn surface_capabilities_are_unknown_until_published_and_cleared_for_a_new_window() {
+    let policy = PresentModePolicy::default();
+    let render_copy = policy.clone();
+    assert_eq!(policy.capabilities(), None);
+
+    render_copy.publish_capabilities(Some(SurfacePresentModes::FIFO_ONLY));
+    assert_eq!(policy.capabilities(), Some(SurfacePresentModes::FIFO_ONLY));
+    render_copy.publish_capabilities(Some(FIFO_AND_IMMEDIATE));
+    assert_eq!(policy.capabilities(), Some(FIFO_AND_IMMEDIATE));
+
+    render_copy.publish_capabilities(None);
+    assert_eq!(policy.capabilities(), None);
 }

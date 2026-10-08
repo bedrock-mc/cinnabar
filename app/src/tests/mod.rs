@@ -3,7 +3,7 @@ use assets::RuntimeAssets;
 use bevy::prelude::{
     App, AppExit, IntoScheduleConfigs, MinimalPlugins, Quat, Transform, Update, Vec3,
 };
-use bevy::window::{PresentMode, WindowCloseRequested};
+use bevy::window::WindowCloseRequested;
 use meshing::{
     ChunkBiomeTintIdentity, ChunkMesh, DiagnosticGeometryCount, DiagnosticGeometrySummary,
     FaceConnectivity, PackedBiomeRecord, PackedModelDrawRef, PackedModelRef, PackedQuadLighting,
@@ -64,7 +64,7 @@ use crate::acceptance::{
     AcceptanceExitDecision, AcceptanceRun, Phase3TerminalDrainDecision,
     TRANSPARENT_PRESENTATION_EXIT_GRACE,
     markers::{
-        acceptance_runtime_metadata_marker, cumulative_counter_delta, requested_present_mode,
+        acceptance_runtime_metadata_marker, cumulative_counter_delta,
         visibility_digest_marker_fields, world_publication_snapshot_marker,
     },
     mutation::{

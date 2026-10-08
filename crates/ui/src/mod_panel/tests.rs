@@ -122,3 +122,21 @@ fn compact_style_and_keybind_labels_are_bounded_and_opt_in() {
     }
     assert!(settings.validate().is_err());
 }
+
+#[test]
+fn expanded_panels_still_reject_controls_above_the_capacity() {
+    let mut panel = panel();
+    panel.controls = (0..MAX_PANEL_CONTROLS)
+        .map(|index| Control::Toggle {
+            id: format!("toggle_{index}"),
+            label: format!("Toggle {index}"),
+            value: false,
+        })
+        .collect();
+    assert!(panel.validate().is_ok());
+    panel.controls.push(Control::Button {
+        id: "extra".into(),
+        label: "Extra".into(),
+    });
+    assert!(panel.validate().is_err());
+}
