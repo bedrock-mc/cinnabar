@@ -74,6 +74,9 @@ mod shader_safety;
 mod shader_source;
 mod surface_lifecycle;
 mod ui_render;
+#[cfg(all(test, target_os = "macos"))]
+mod upload_allocation_tests;
+mod upload_staging;
 mod viewmodel;
 mod viewmodel_render;
 
