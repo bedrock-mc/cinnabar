@@ -5,9 +5,6 @@ edition.workspace = true
 rust-version.workspace = true
 publish = false
 
-[features]
-appearance-test-support = []
-
 [dependencies]
 assets = { path = "../assets" }
 bytes.workspace = true
