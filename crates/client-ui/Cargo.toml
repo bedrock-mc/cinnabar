@@ -6,7 +6,6 @@ rust-version.workspace = true
 publish = false
 
 [features]
-tracy = []
 test-support = []
 tracy = []
 
