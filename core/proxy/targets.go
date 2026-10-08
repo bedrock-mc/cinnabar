@@ -82,15 +82,14 @@ func dialSignedOut(ctx context.Context, selected minecraft.Network, address stri
 }
 
 type resolvedUpstreamTarget struct {
-	managedWorldAddress string
-	address             string
-	network             minecraft.Network
-	clientData          func(*login.ClientData) // applies a joined session's login fields
-	friend              interface{ Close() error }
-	xbox                interface{ Close() error }
-	local               interface{ Close() error }
-	offline             bool // explicit own-world offline LAN selection, never an authentication fallback
-	realm               bool // vanilla words a failed Realm join as its own
+	address    string
+	network    minecraft.Network
+	clientData func(*login.ClientData) // applies a joined session's login fields
+	friend     interface{ Close() error }
+	xbox       interface{ Close() error }
+	local      interface{ Close() error }
+	offline    bool // explicit own-world offline LAN selection, never an authentication fallback
+	realm      bool // vanilla words a failed Realm join as its own
 }
 
 // realmJoinError marks a failure while joining a Realm.
