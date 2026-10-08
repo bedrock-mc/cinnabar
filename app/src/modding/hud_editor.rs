@@ -15,9 +15,8 @@ pub(super) fn cancel(
     deliver: bool,
 ) {
     presentation.cancel_mod_hud_editor();
-    let result = presentation
-        .take_mod_hud_editor_result()
-        .unwrap_or_default();
+    // Ownership loss cancels even an undelivered Save from the previous presentation.
+    let _ = presentation.take_mod_hud_editor_result();
     if let Some(owner) = runtime.hud_editor_owner.take()
         && deliver
         && owner.host < runtime.host_count()
@@ -25,7 +24,7 @@ pub(super) fn cancel(
     {
         let _ = runtime
             .host_mut(owner.host)
-            .deliver_hud_editor_result(result);
+            .deliver_hud_editor_result(Default::default());
     }
 }
 

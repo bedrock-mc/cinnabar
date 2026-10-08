@@ -271,3 +271,94 @@ fn hud_editor_focus_and_session_loss_cancel_draft_and_release_world_input_owners
         assert!(!runtime.controls.panel_open);
     }
 }
+
+#[test]
+fn hud_editor_save_and_cancel_return_to_panel_without_replaying_gameplay_keys() {
+    for (key_code, logical_key) in [(KeyCode::Enter, Key::Enter), (KeyCode::Escape, Key::Escape)] {
+        let (mut app, entity) = hud_editor_app();
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(key_code);
+        app.world_mut().write_message(KeyboardInput {
+            key_code,
+            logical_key,
+            state: ButtonState::Pressed,
+            text: None,
+            repeat: false,
+            window: entity,
+        });
+        app.update();
+        let p = app.world().resource::<UiPresentationRuntime>();
+        assert!(!p.mod_hud_editor_open());
+        assert!(p.mod_panel_open());
+        let runtime = app.world().resource::<ModRuntime>();
+        assert!(runtime.hud_editor_owner.is_none());
+        assert!(runtime.host.panel_open());
+        assert!(runtime.controls.panel_open);
+        assert!(runtime.controls.keys_pressed.is_empty());
+        assert!(
+            !app.world()
+                .resource::<ButtonInput<KeyCode>>()
+                .just_pressed(key_code)
+        );
+    }
+}
+
+#[test]
+fn hud_editor_owner_switch_cancels_old_draft_without_keeping_input_capture() {
+    let (mut app, _) = hud_editor_app();
+    let directory = tempfile::tempdir().unwrap();
+    let empty = br#"(component (core module $m (func (export "init")) (func (export "frame")))
+        (core instance $i (instantiate $m))
+        (func (export "init") (canon lift (core func $i "init")))
+        (func (export "frame") (canon lift (core func $i "frame"))))"#;
+    let empty_host = mod_host::ModHost::load_snapshot_with_grants(
+        &directory.path().join("empty.wat"),
+        empty,
+        mod_host::ModGrants::default(),
+    )
+    .unwrap();
+    {
+        let mut runtime = app.world_mut().resource_mut::<ModRuntime>();
+        let old = std::mem::replace(&mut runtime.host, empty_host);
+        runtime
+            .companions
+            .push(super::super::multi::Companion { host: old });
+        runtime.hud_editor_owner.as_mut().unwrap().host = 1;
+        assert_eq!(runtime.panel_owner(), 1);
+    }
+    app.update();
+    assert!(
+        app.world()
+            .resource::<UiPresentationRuntime>()
+            .mod_hud_editor_open()
+    );
+    let mut new_host = mod_host::ModHost::load_snapshot_with_grants(
+        &directory.path().join("new.wat"),
+        fixture().as_bytes(),
+        mod_host::ModGrants {
+            hud: true,
+            controls: true,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    new_host.set_panel_open(false);
+    app.world_mut().resource_mut::<ModRuntime>().host = new_host;
+    app.update();
+    assert!(
+        !app.world()
+            .resource::<UiPresentationRuntime>()
+            .mod_hud_editor_open()
+    );
+    assert!(
+        !app.world()
+            .resource::<UiPresentationRuntime>()
+            .mod_panel_open()
+    );
+    let runtime = app.world().resource::<ModRuntime>();
+    assert!(runtime.hud_editor_owner.is_none());
+    assert_eq!(runtime.panel_owner(), 0);
+    assert!(runtime.host.is_active() && runtime.companions[0].host.is_active());
+    assert!(!runtime.controls.panel_open);
+}
