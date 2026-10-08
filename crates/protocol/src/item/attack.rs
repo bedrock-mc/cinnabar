@@ -59,23 +59,29 @@ pub(super) fn parse_attack(components: &Nbt) -> Option<ItemAttackTiming> {
             ticks: seconds(cooldown.field("duration"))?,
         })
     });
-    let kinetic_weapon = components
-        .field("minecraft:kinetic_weapon")
-        .and_then(|weapon| {
-            let phase = |name| ticks(weapon.field(name)?.field("max_duration"));
-            Some(KineticWeaponTiming {
-                delay_ticks: ticks(weapon.field("delay"))?,
-                dismount_ticks: phase("dismount_conditions")?,
-                knockback_ticks: phase("knockback_conditions")?,
-                damage_ticks: phase("damage_conditions")?,
-            })
-        });
+    let kinetic_name = "minecraft:kinetic_weapon";
+    let kinetic_weapon = components.field(kinetic_name).and_then(|weapon| {
+        // Registry entries may wrap the authored fields in the component name again.
+        let weapon = weapon.field(kinetic_name).unwrap_or(weapon);
+        let phase = |name| ticks(weapon.field(name)?.field("max_duration"));
+        Some(KineticWeaponTiming {
+            delay_ticks: ticks(weapon.field("delay"))?,
+            dismount_ticks: phase("dismount_conditions")?,
+            knockback_ticks: phase("knockback_conditions")?,
+            damage_ticks: phase("damage_conditions")?,
+        })
+    });
     let timing = ItemAttackTiming {
-        is_spear: components.field("minecraft:tags").is_some_and(|tags| {
-            tags.list("tags")
-                .iter()
-                .any(|tag| tag.as_str() == Some("minecraft:is_spear"))
-        }),
+        is_spear: components
+            .list("item_tags")
+            .iter()
+            .chain(
+                components
+                    .field("minecraft:tags")
+                    .into_iter()
+                    .flat_map(|tags| tags.list("tags")),
+            )
+            .any(|tag| tag.as_str() == Some("minecraft:is_spear")),
         swing_duration_ticks,
         attack_cooldown,
         piercing_weapon: matches!(
@@ -179,5 +185,60 @@ mod tests {
         assert_eq!(facts.swing_duration_ticks, None);
         assert_eq!(facts.attack_cooldown, None);
         assert_eq!(facts.kinetic_weapon, None);
+    }
+
+    #[test]
+    fn registry_item_tags_keep_the_explicit_spear_pose_gate() {
+        let mut components = Nbt::Compound(vec![
+            component(
+                "minecraft:swing_duration",
+                vec![("value", Nbt::Float(0.95))],
+            ),
+            (
+                "item_tags".into(),
+                Nbt::List(vec![Nbt::String("minecraft:is_spear".into())]),
+            ),
+        ]);
+        let facts = parse_attack(&components).unwrap();
+        assert!(
+            facts.is_spear,
+            "registry tags must reach the native pose gate"
+        );
+        assert_eq!(facts.swing_duration_ticks, Some(19));
+        let Nbt::Compound(fields) = &mut components else {
+            unreachable!()
+        };
+        fields[1].1 = Nbt::List(vec![Nbt::String("test:kinetic_weapon".into())]);
+        assert!(!parse_attack(&components).unwrap().is_spear);
+    }
+
+    #[test]
+    fn registry_kinetic_component_keeps_its_nested_phase_lengths() {
+        let duration = |ticks| Nbt::Compound(vec![("max_duration".into(), Nbt::Int(ticks))]);
+        let weapon = Nbt::Compound(vec![
+            ("delay".into(), Nbt::Int(4)),
+            ("dismount_conditions".into(), duration(10)),
+            ("knockback_conditions".into(), duration(30)),
+            ("damage_conditions".into(), duration(50)),
+        ]);
+        let components = Nbt::Compound(vec![
+            component("minecraft:piercing_weapon", vec![]),
+            component(
+                "minecraft:kinetic_weapon",
+                vec![("minecraft:kinetic_weapon", weapon)],
+            ),
+        ]);
+        let facts = parse_attack(&components).unwrap();
+        assert!(facts.piercing_weapon);
+        assert_eq!(
+            facts.kinetic_weapon,
+            Some(KineticWeaponTiming {
+                delay_ticks: 4,
+                dismount_ticks: 10,
+                knockback_ticks: 30,
+                damage_ticks: 50,
+            }),
+            "registry wrappers must not erase the authored kinetic phases"
+        );
     }
 }
