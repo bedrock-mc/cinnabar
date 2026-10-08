@@ -1,0 +1,26 @@
+name: PR label
+
+on:
+  pull_request_target:
+    types: [opened, edited, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  label:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      # Base-branch code only; the PR's own code is never checked out or run.
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: packaging/changelog.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - name: Apply the changelog category label
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: python3 packaging/changelog.py label "${{ github.event.pull_request.number }}"
