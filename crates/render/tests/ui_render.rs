@@ -1,3 +1,6 @@
+#[path = "../src/alloc_count.rs"]
+mod alloc_count;
+
 #[path = "../src/material_shader.rs"]
 #[allow(dead_code, reason = "shared checked shader constructor dependencies")]
 mod material_shader;
@@ -51,10 +54,10 @@ use render_model::{
     MAX_UI_INDICES, UiRenderBatch, UiRenderInput, UiRenderRejectReason, UiRenderScene,
     UiRenderStats, UiRenderTextureArray, UiRenderVertex, UiScissor, UiTexturePage,
 };
-use ui_render::{
-    UiRenderHarness, UiRenderPlugin, UiRenderSceneResource, UiRenderStatsResource,
-    prepare_ui_resources, ui_bind_group_layout, ui_pipeline_descriptor,
-};
+use ui_render::harness::UiRenderHarness;
+use ui_render::pipeline::{ui_bind_group_layout, ui_pipeline_descriptor};
+use ui_render::resources::prepare_ui_resources;
+use ui_render::{UiRenderPlugin, UiRenderSceneResource, UiRenderStatsResource};
 
 #[test]
 fn repeated_draw_lists_reuse_shared_gpu_resources_and_preserve_batch_order() {
