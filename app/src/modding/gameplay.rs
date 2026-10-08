@@ -19,6 +19,7 @@ pub(super) struct GameplayContext<'w> {
     auto_fly: Option<Res<'w, AutoFly>>,
     server_camera: Option<Res<'w, ServerCameraView>>,
     time: Option<Res<'w, Time>>,
+    real_time: Option<Res<'w, Time<Real>>>,
     clock: Option<Res<'w, crate::environment::WorldClock>>,
 }
 
@@ -35,7 +36,8 @@ impl GameplayContext<'_> {
         }
         let authority = self.world.as_ref()?.stream.as_ref()?.authority();
         let session = self.clock.as_ref()?.session_generation();
-        let now_millis = self.time.as_ref().map_or(0, |time| {
+        // Effect event anchors use real elapsed time; virtual time may pause or clamp long frames.
+        let now_millis = self.real_time.as_ref().map_or(0, |time| {
             u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX)
         });
         super::player_state::snapshot(authority, session, player, ui, now_millis)
