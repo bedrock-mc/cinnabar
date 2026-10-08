@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
-pub const MAX_HUD_BYTES: usize = 32 * 1024;
+pub const MAX_HUD_BYTES: usize = 128 * 1024;
 pub const MAX_HUD_CARDS: usize = 8;
 pub const MAX_HUD_ROWS: usize = 64;
 pub const MAX_CARD_ROWS: usize = 16;
@@ -24,6 +24,12 @@ pub enum Anchor {
 #[serde(deny_unknown_fields)]
 pub struct Hud {
     pub cards: Vec<Card>,
+    /// Editor requests persist completed gestures when explicitly enabled.
+    #[serde(default)]
+    pub autosave: bool,
+    /// Optional client-authored JSON-UI chrome for a host-owned layout editor.
+    #[serde(default)]
+    pub surface: Option<crate::mod_panel::Surface>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -167,6 +173,25 @@ fn color(value: [f32; 4]) -> Result<(), String> {
 impl Hud {
     /// Rejects unbounded or malformed guest data before publication.
     pub fn validate(&self) -> Result<(), String> {
+        if let Some(surface) = &self.surface {
+            surface.validate()?;
+            for action in surface.actions()? {
+                let indexed = |prefix: &str, maximum: usize| {
+                    action
+                        .strip_prefix(prefix)
+                        .and_then(|index| index.parse::<usize>().ok())
+                        .is_some_and(|index| index < maximum)
+                };
+                if !matches!(
+                    action.as_str(),
+                    "hud.save" | "hud.cancel" | "hud.close" | "hud.reset" | "hud.grid"
+                ) && !indexed("hud.card:", MAX_HUD_CARDS)
+                    && !indexed("hud.done:", crate::mod_panel::MAX_PANEL_CONTROLS)
+                {
+                    return Err("HUD editor surface action is unsupported".into());
+                }
+            }
+        }
         if self.cards.len() > MAX_HUD_CARDS
             || self.cards.iter().map(|c| c.rows.len()).sum::<usize>() > MAX_HUD_ROWS
         {
@@ -250,6 +275,7 @@ impl EditorResult {
                     ..Default::default()
                 })
                 .collect(),
+            ..Default::default()
         };
         hud.validate()
     }
@@ -335,6 +361,31 @@ mod tests {
         assert!(excess.validate().is_err());
     }
     #[test]
+    fn editor_autosave_is_opt_in_and_custom_actions_remain_bounded() {
+        let mut hud: Hud = serde_json::from_str(r#"{"cards":[]}"#).unwrap();
+        assert!(!hud.autosave && hud.surface.is_none());
+        for (action, valid) in [
+            ("hud.close", true),
+            ("hud.done:0", true),
+            ("hud.done:64", false),
+            ("hud.card:7", true),
+            ("hud.card:8", false),
+            ("mod.control:0", false),
+            ("button.resume_game", false),
+        ] {
+            hud.surface = Some(crate::mod_panel::Surface {
+                screen: "fixture.editor".into(),
+                document: serde_json::json!({"namespace":"fixture","editor":{
+                    "type":"button","button_mappings":[{"from_button_id":"button.menu_select",
+                        "to_button_id":action,"mapping_type":"pressed"}]
+                }})
+                .to_string(),
+                bindings: Default::default(),
+            });
+            assert_eq!(hud.validate().is_ok(), valid, "route {action}");
+        }
+    }
+    #[test]
     fn crosshair_rejects_invisible_nonfinite_and_excessive_geometry() {
         for value in [f32::NAN, f32::INFINITY, 0., 17.] {
             assert!(
@@ -388,7 +439,10 @@ mod tests {
             rows: vec![row],
             ..Default::default()
         };
-        let mut hud = Hud { cards: vec![card] };
+        let mut hud = Hud {
+            cards: vec![card],
+            ..Default::default()
+        };
         assert!(hud.validate().is_ok());
         hud.cards.push(hud.cards[0].clone());
         assert!(hud.validate().is_err());

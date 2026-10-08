@@ -194,8 +194,7 @@ Three additional per-component grants are opt-in: `CINNABAR_MOD_CONTROLS=1`,
 They are developer extension capabilities and do not change the vanilla client.
 
 `panel.set-content` retains a bounded JSON panel of toggles, sliders, buttons and
-choices. It uses the host's JSON-UI engine; guests cannot provide templates or
-binding expressions. Optional `style: "compact"` renders a unified menu with up
+choices. It uses the host's JSON-UI engine. Optional `style: "compact"` renders a unified menu with up
 to three equal-height cards. Optional `theme: "monochrome"` selects an opaque neutral
 palette for either layout; omitting it preserves the existing dark/light theme.
 Sections can select a bounded `icon` (`pointer`,
@@ -214,6 +213,26 @@ gameplay. The panel's `toggle_key` opens or closes it before the ordinary input
 sample; Escape closes it. Other absorbing screens and lost focus close it, release
 input, and suppress gameplay output. Removing or quarantining a guest releases
 the panel and its reservations.
+
+An optional `surface` replaces the built-in panel presentation with extension-owned
+JSON-UI. It has `screen` (`namespace.name`), `document` (a JSON string containing
+that namespace and one root definition), and `bindings` (a map of `#name` to a
+boolean, finite number, bounded text or 2–4-number array). The private catalog
+accepts bounded screen, panel, button, label, stack-panel and rectangle/vector
+custom nodes; factories, inheritance and dynamic expansion are rejected. The
+whole panel is capped at 128 KiB; its document at 96 KiB, 1,024 nodes and depth 32.
+Bindings update without rebuilding unchanged catalog geometry. Host bindings
+`#surface_width` and `#surface_height` report the current logical viewport.
+With a surface, the optional panel `reference_size` pair declares positive logical
+dimensions up to 1,000,000. Smaller viewports proportionally reduce rendering and
+input geometry to fit that extent; larger viewports keep the normal scale.
+
+Authored buttons route `mod.control:N` to declared control index N, `mod.edit:N`
+to a declared slider's native number editor, or `mod.close` to dismiss the panel.
+Choice lists, keybind events, slider normalization and input ownership retain
+their native behavior. A guest can declare Button controls for navigation or
+search and process physical key edges while its `capture_key` flag is active;
+layout, branding and navigation state remain in that guest.
 
 `gameplay.set-attack-reach` requests a current-frame actor selection/admission
 range up to `mod_api::MAX_ENTITY_REACH_BLOCKS`. It preserves obstruction checks
@@ -498,6 +517,22 @@ Reset clears positions and uses the supplied factory anchors/offsets while
 preserving scale and opacity. Cancel (or Escape) returns `saved: false` and no
 placements, so the guest leaves its preferences untouched. Save and Cancel return
 to the personal panel, which retains exclusive gameplay input ownership.
+
+An editor request may opt into `autosave: true`. Completed pointer drags, arrow
+nudges, and Reset then return incremental saved results while the editor stays
+open. A held or interrupted drag remains a draft. Escape closes the personal
+panel in this mode; completed placements have already been delivered, and the
+unfinished gesture is discarded. Omitting `autosave` preserves Save/Cancel.
+
+The optional editor `surface` has the same bounded document and bindings as a
+personal panel surface. Its client-authored chrome replaces the built-in shade,
+grid, toolbar, and help while native previews and drag bounds remain. Editor
+actions accept `hud.save`, `hud.cancel`, `hud.close`, `hud.reset`, `hud.grid`, and
+bounded `hud.card:N`. `hud.close` dismisses the whole panel, preserving completed
+autosave placements and discarding an unfinished drag. `hud.done:N` ends the editor and emits the declared Button
+control at panel index N through the ordinary control event queue. It retains panel
+input ownership so the component can choose its next surface. Other control
+types and undeclared indices cannot emit this event.
 
 A result stays stable for the callback and is consumed only after a successful
 callback reads it. The app delivers it only to the requesting component, even
