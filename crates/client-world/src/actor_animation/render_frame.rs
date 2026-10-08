@@ -526,9 +526,7 @@ impl ActorAnimationStore {
                                     Some(geometry),
                                 )
                             });
-                        let previous_local = if let (Some(history), Some((previous, _))) =
-                            (frame.swell_layers.get(&geometry), endpoints.as_ref())
-                        {
+                        let previous_local = if let Some((previous, _)) = endpoints.as_ref() {
                             let Ok(sampled_previous) = render::sample_layer_local(
                                 &previous.evaluator,
                                 &previous.variables,
@@ -539,11 +537,14 @@ impl ActorAnimationStore {
                             ) else {
                                 return Some(completed());
                             };
-                            Some(history.sample(
-                                &mut local,
-                                &sampled_previous,
-                                sampled_mask.as_deref(),
-                            ))
+                            Some(match frame.swell_layers.get(&geometry) {
+                                Some(history) => history.sample(
+                                    &mut local,
+                                    &sampled_previous,
+                                    sampled_mask.as_deref(),
+                                ),
+                                None => sampled_previous,
+                            })
                         } else {
                             None
                         };

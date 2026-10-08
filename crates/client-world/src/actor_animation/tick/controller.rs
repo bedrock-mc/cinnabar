@@ -26,6 +26,26 @@ impl ControllerJournal {
         }
     }
 
+    /// Completed transition effects survive presentation gates that skip drawing a subtree.
+    pub(super) fn replay_inactive(
+        &self,
+        reference: usize,
+        path: &[usize],
+        controllers: &mut [ControllerState],
+        variables: &mut MolangVariables,
+    ) -> Result<(), EvalError> {
+        for event in &self.events {
+            if event.reference == reference
+                && event.depth >= path.len()
+                && &event.path[..path.len()] == path
+            {
+                event.effects.apply(variables)?;
+                controllers[event.slot] = event.runtime;
+            }
+        }
+        Ok(())
+    }
+
     pub(in crate::actor_animation) fn apply(
         &self,
         variables: &mut MolangVariables,
@@ -141,6 +161,20 @@ impl ControllerWalk<'_, '_, '_, '_> {
                 self.budget,
             )?;
             if weight == 0.0 {
+                if self.replay
+                    && matches!(
+                        animation.target,
+                        EntityControllerAnimationTarget::Controller(_)
+                    )
+                {
+                    self.path[depth] = first + index;
+                    self.journal.replay_inactive(
+                        self.reference,
+                        &self.path[..depth + 1],
+                        self.controllers,
+                        self.variables,
+                    )?;
+                }
                 continue;
             }
             match animation.target {

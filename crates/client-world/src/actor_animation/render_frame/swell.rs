@@ -71,16 +71,17 @@ impl SwellSampling {
             }
         }
         let mut variables = BTreeSet::new();
+        let mut random = false;
         let (expressions, weighted_symbols) = loop {
-            let before = variables.len();
+            let before = (variables.len(), random);
             for &expression in &expressions {
-                propagate(assets, expression, false, &mut variables);
+                propagate(assets, expression, false, &mut variables, &mut random);
             }
-            let dependent = dependent_expressions(assets, &expressions, &variables);
+            let dependent = dependent_expressions(assets, &expressions, &variables, random);
             let (weighted, controlled) =
                 activation_dependencies(assets, geometry, controllers, &dependent);
             for expression in controlled {
-                propagate(assets, expression, true, &mut variables);
+                propagate(assets, expression, true, &mut variables, &mut random);
             }
             for clip in assets.animation_clips() {
                 if !weighted.contains(&clip.symbol)
@@ -92,7 +93,7 @@ impl SwellSampling {
                 }
                 for expression in clip_expressions(assets, clip) {
                     if expressions.contains(&expression) {
-                        propagate(assets, expression, true, &mut variables);
+                        propagate(assets, expression, true, &mut variables, &mut random);
                     }
                 }
             }
@@ -104,11 +105,11 @@ impl SwellSampling {
                     .any(|gate| dependent.contains(gate))
                 {
                     for expression in layer_expressions.expressions {
-                        propagate(assets, expression, true, &mut variables);
+                        propagate(assets, expression, true, &mut variables, &mut random);
                     }
                 }
             }
-            if variables.len() == before {
+            if (variables.len(), random) == before {
                 break (dependent, weighted);
             }
         };
@@ -302,6 +303,7 @@ fn propagate(
     expression: u32,
     controlled: bool,
     variables: &mut BTreeSet<u32>,
+    random: &mut bool,
 ) {
     let ops = ops(assets, expression);
     let mut states: Vec<Option<(Vec<bool>, bool)>> = vec![None; ops.len() + 1];
@@ -355,7 +357,10 @@ fn propagate(
             }
             MolangOp::Call(function) => {
                 let dependency = pop(function.arity());
-                stack.push(control || dependency);
+                if function.is_random() {
+                    *random |= control || dependency;
+                }
+                stack.push(control || dependency || (function.is_random() && *random));
             }
             MolangOp::Add
             | MolangOp::Subtract
@@ -390,8 +395,10 @@ fn propagate(
                 pending.push((target, stack.clone(), controls.clone()));
             }
             MolangOp::Coalesce(branch) => {
+                let dependency = control || variables.contains(&branch.symbol);
+                controls.push((usize::from(branch.target), dependency));
                 let mut assigned = stack.clone();
-                assigned.push(control || variables.contains(&branch.symbol));
+                assigned.push(dependency);
                 pending.push((usize::from(branch.target), assigned, controls.clone()));
             }
             MolangOp::LoopNext(target)
@@ -429,6 +436,7 @@ fn dependent_expressions(
     assets: &RuntimeEntityAssets,
     expressions: &[u32],
     variables: &BTreeSet<u32>,
+    random: bool,
 ) -> BTreeSet<u32> {
     expressions
         .iter()
@@ -439,6 +447,7 @@ fn dependent_expressions(
                 MolangOp::CallQuery(call) => is_swell(assets, call.symbol),
                 MolangOp::LoadVariable(symbol) => variables.contains(symbol),
                 MolangOp::LoadThis => true,
+                MolangOp::Call(function) => random && function.is_random(),
                 MolangOp::Coalesce(branch) => variables.contains(&branch.symbol),
                 _ => false,
             })

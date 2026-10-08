@@ -90,6 +90,8 @@ pub(in crate::actor_animation) fn select(
                     path: [0; assets::MAX_ENTITY_CONTROLLER_NESTING],
                 };
                 walk.evaluate(binding.controller as usize, weight, 0)?;
+            } else if replay {
+                journal.replay_inactive(reference, &[], controllers, variables)?;
             }
         }
     }

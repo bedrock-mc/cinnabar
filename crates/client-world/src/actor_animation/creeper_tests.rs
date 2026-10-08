@@ -2409,3 +2409,265 @@ fn swell_pre_animation_samples_presentation_alpha_while_retaining_ordinary_queri
         }
     }
 }
+
+#[test]
+fn swell_controlled_random_draws_taint_later_random_channels() {
+    let store = pack_swell_fixture_with(
+        AuthoredSwellChannel {
+            pre_animation: false,
+            property: assets::EntityAnimationProperty::Translation,
+            variable: false,
+        },
+        None,
+        false,
+        3,
+        false,
+        |compiled| {
+            let scalar = |value| assets::EntityGeometryScalar::new(value).unwrap();
+            compiled.molang_symbols = [
+                (assets::MolangSymbolKind::Name, "wield"),
+                (assets::MolangSymbolKind::Query, "query.swell_amount"),
+                (assets::MolangSymbolKind::Variable, "variable.random"),
+            ]
+            .map(|(kind, identifier)| assets::MolangSymbol {
+                kind,
+                identifier: identifier.into(),
+            })
+            .into();
+            compiled.molang_ops = vec![
+                MolangOp::LoadQuery(1),
+                MolangOp::Push(scalar(0.08)),
+                MolangOp::Greater,
+                MolangOp::JumpIfFalse(8),
+                MolangOp::Push(scalar(0.0)),
+                MolangOp::Push(scalar(1.0)),
+                MolangOp::Call(assets::MolangFunction::Random),
+                MolangOp::Pop,
+                MolangOp::Push(scalar(0.0)),
+                MolangOp::Push(scalar(1.0)),
+                MolangOp::Call(assets::MolangFunction::Random),
+                MolangOp::StoreVariable(2),
+                MolangOp::LoadVariable(2),
+                MolangOp::LoadVariable(2),
+            ]
+            .into();
+            compiled.molang_expressions = [(0, 13, 2), (13, 1, 1)]
+                .map(
+                    |(first_op, op_count, max_stack)| assets::CompiledMolangExpression {
+                        first_op,
+                        op_count,
+                        max_stack,
+                    },
+                )
+                .into();
+            compiled.rig_bindings[0].pre_animation = Some(0);
+            compiled.animation_keyframes[0].expressions = [Some(1), None, None];
+            compiled.render.layers[0].color = Some([1; 4]);
+        },
+    );
+    let completed = store.actor_rig(1).unwrap().current[0].translation_scale[0];
+    for alpha in [0.5, 0.75, 1.0, 0.5] {
+        let layers = store.render_frame(alpha).layers(1).unwrap();
+        assert!(
+            (layers[0].pose[0].translation_scale[0] + layers[0].color[0]).abs() < 1e-6,
+            "body and render consume the same conditional random sequence"
+        );
+    }
+    assert_eq!(
+        store.actor_rig(1).unwrap().current[0].translation_scale[0],
+        completed
+    );
+}
+
+#[test]
+fn swell_selected_geometry_synthesizes_both_ordinary_motion_endpoints() {
+    let store = pack_swell_fixture_with(
+        AuthoredSwellChannel {
+            pre_animation: false,
+            property: assets::EntityAnimationProperty::Translation,
+            variable: false,
+        },
+        None,
+        true,
+        3,
+        false,
+        |compiled| {
+            let scalar = |value| assets::EntityGeometryScalar::new(value).unwrap();
+            compiled.molang_symbols = [
+                (assets::MolangSymbolKind::Name, "wield"),
+                (assets::MolangSymbolKind::Query, "query.life_time"),
+                (assets::MolangSymbolKind::Query, "query.swell_amount"),
+            ]
+            .map(|(kind, identifier)| assets::MolangSymbol {
+                kind,
+                identifier: identifier.into(),
+            })
+            .into();
+            compiled.molang_ops = vec![
+                MolangOp::LoadQuery(2),
+                MolangOp::LoadQuery(1),
+                MolangOp::LoadQuery(2),
+                MolangOp::Push(scalar(0.08)),
+                MolangOp::Greater,
+            ]
+            .into();
+            compiled.molang_expressions = [(0, 1, 1), (1, 1, 1), (2, 3, 2)]
+                .map(
+                    |(first_op, op_count, max_stack)| assets::CompiledMolangExpression {
+                        first_op,
+                        op_count,
+                        max_stack,
+                    },
+                )
+                .into();
+            for key in &mut compiled.animation_keyframes {
+                key.expressions = [Some(0), Some(1), None];
+            }
+            compiled.render.layers[1].condition = Some(2);
+        },
+    );
+    assert_eq!(store.actor_rig(1).unwrap().render.len(), 1);
+    for alpha in [0.5, 0.75, 1.0, 0.5] {
+        let layers = store.render_frame(alpha).layers(1).unwrap();
+        assert_eq!(layers.len(), 2);
+        for (pose, tick) in [
+            (&layers[1].previous_pose[1], 2.0),
+            (&layers[1].pose[1], 3.0),
+        ] {
+            assert!(
+                (pose.translation_scale[1] - tick * ACTOR_TICK_DURATION.as_secs_f32()).abs() < 1e-6,
+                "new geometry retains both ordinary motion endpoints: actual {} tick {}",
+                pose.translation_scale[1],
+                tick,
+            );
+        }
+    }
+}
+#[test]
+fn swell_controller_entry_effects_survive_reference_deactivation() {
+    assert_controller_entry_effects_survive_deactivation(false);
+}
+
+#[test]
+fn swell_controller_entry_effects_survive_nested_reference_deactivation() {
+    assert_controller_entry_effects_survive_deactivation(true);
+}
+
+fn assert_controller_entry_effects_survive_deactivation(nested: bool) {
+    let store = swell_controller_fixture_with(3, 0.12, false, |compiled| {
+        let scalar = |value| assets::EntityGeometryScalar::new(value).unwrap();
+        let mut symbols = compiled.molang_symbols.to_vec();
+        symbols.push(assets::MolangSymbol {
+            kind: assets::MolangSymbolKind::Variable,
+            identifier: "variable.factor".into(),
+        });
+        compiled.molang_symbols = symbols.into();
+        let mut ops = compiled.molang_ops.to_vec();
+        ops.extend([
+            MolangOp::Push(scalar(0.0)),
+            MolangOp::Push(scalar(1.0)),
+            MolangOp::StoreVariable(5),
+            MolangOp::Push(scalar(0.0)),
+            MolangOp::Push(scalar(3.0)),
+            MolangOp::StoreVariable(5),
+            MolangOp::Push(scalar(0.0)),
+            MolangOp::LoadQuery(4),
+            MolangOp::Push(scalar(0.08)),
+            MolangOp::Less,
+            MolangOp::LoadVariable(5),
+        ]);
+        compiled.molang_ops = ops.into();
+        let mut expressions = compiled.molang_expressions.to_vec();
+        expressions.extend(
+            [(7, 1, 1), (8, 3, 1), (11, 3, 1), (14, 3, 2), (17, 1, 1)].map(
+                |(first_op, op_count, max_stack)| assets::CompiledMolangExpression {
+                    first_op,
+                    op_count,
+                    max_stack,
+                },
+            ),
+        );
+        compiled.molang_expressions = expressions.into();
+        compiled.rig_bindings[0].pre_animation = Some(4);
+        compiled.controller_states[1].on_entry = Some(5);
+        for animation in &mut compiled.controller_animations {
+            animation.weight = Some(3);
+        }
+        compiled.rig_controllers = vec![
+            assets::EntityRigControllerBinding {
+                name: 0,
+                controller: 0,
+                weight: Some(6),
+                order: 0,
+            },
+            assets::EntityRigControllerBinding {
+                name: 1,
+                controller: 0,
+                weight: None,
+                order: 2,
+            },
+        ]
+        .into();
+        compiled.rig_animations = vec![assets::EntityRigAnimationBinding {
+            name: 2,
+            clip: 0,
+            weight: Some(7),
+            order: 1,
+        }]
+        .into();
+        compiled.rig_geometries[0].controller_count = 2;
+        compiled.rig_geometries[0].animation_count = 1;
+        if nested {
+            let mut symbols = compiled.symbols.to_vec();
+            symbols.insert(
+                4,
+                assets::EntityAssetSymbol {
+                    kind: assets::EntityAssetKind::AnimationController,
+                    identifier: "controller.animation.wrapper".into(),
+                    source_index: 0,
+                    dependencies: Box::new([]),
+                },
+            );
+            compiled.symbols = symbols.into();
+            compiled.rig_bindings[0].render_controller += 1;
+            let mut controllers = compiled.controllers.to_vec();
+            controllers.push(assets::EntityAnimationController {
+                symbol: 4,
+                first_state: 2,
+                state_count: 1,
+                initial_state: 0,
+            });
+            compiled.controllers = controllers.into();
+            let mut states = compiled.controller_states.to_vec();
+            states.push(assets::EntityControllerState {
+                name: 0,
+                first_animation: 2,
+                animation_count: 1,
+                first_transition: 1,
+                ..Default::default()
+            });
+            compiled.controller_states = states.into();
+            let mut animations = compiled.controller_animations.to_vec();
+            animations.push(assets::EntityControllerAnimation {
+                target: assets::EntityControllerAnimationTarget::Controller(0),
+                weight: Some(6),
+            });
+            compiled.controller_animations = animations.into();
+            compiled.rig_controllers[0].controller = 1;
+            compiled.rig_controllers[0].weight = None;
+        }
+    });
+    for alpha in [0.5, 0.75, 1.0] {
+        let layers = store.render_frame(alpha).layers(1).unwrap();
+        let expected = -(2.0 + alpha) / crate::actor_store::creeper::SWELL_FULL_TICKS;
+        for (pose, factor) in [
+            (&layers[0].previous_pose[0], 1.0),
+            (&layers[0].pose[0], 3.0),
+        ] {
+            assert!(
+                (pose.translation_scale[0] - factor * expected).abs() < 1e-6,
+                "completed entry effects remain part of the ordinary endpoint when its reference stops drawing"
+            );
+        }
+    }
+}
