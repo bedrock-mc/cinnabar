@@ -13,10 +13,7 @@ mod state;
 
 use std::path::PathBuf;
 
-use bevy::{
-    prelude::*,
-    window::{PresentMode, WindowResolution},
-};
+use bevy::{prelude::*, window::WindowResolution};
 use developer_control::{
     ENDPOINT_ENV, HIDDEN_WINDOW_ENV, WINDOW_SIZE_ENV,
     protocol::Command,
@@ -38,7 +35,7 @@ pub(crate) fn primary_window(window: Window) -> Window {
 }
 
 /// Only the explicit developer switch suppresses native application activation.
-fn hidden_window_requested() -> bool {
+pub(crate) fn hidden_window_requested() -> bool {
     std::env::var_os(HIDDEN_WINDOW_ENV).is_some_and(|value| value == "1")
 }
 
@@ -66,7 +63,7 @@ pub(crate) fn prepare_native_application(connection_requested: bool) -> anyhow::
     Ok(())
 }
 
-/// Hidden developer surfaces never request native focus or presentation pacing.
+/// Hidden developer surfaces never request native focus; presentation policy owns pacing.
 fn window_options(mut window: Window, size: Option<[u32; 2]>, hidden: bool) -> Window {
     if let Some(size) = size {
         window.resolution = WindowResolution::new(size[0], size[1]).with_scale_factor_override(1.0);
@@ -75,8 +72,6 @@ fn window_options(mut window: Window, size: Option<[u32; 2]>, hidden: bool) -> W
     if hidden {
         window.visible = false;
         window.focused = false;
-        // A hidden surface never reaches the display, so vsync would only throttle drawables.
-        window.present_mode = PresentMode::AutoNoVsync;
     }
     window
 }
@@ -228,7 +223,6 @@ mod tests {
         assert!(!window.resizable);
         assert_eq!(window.resolution.physical_size(), UVec2::new(1920, 1080));
         assert_eq!(window.resolution.scale_factor(), 1.0);
-        assert_eq!(window.present_mode, super::PresentMode::AutoNoVsync);
     }
 
     #[test]

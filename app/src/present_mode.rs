@@ -1,17 +1,25 @@
 use bevy::{
-    prelude::{Query, Res, ResMut, Resource, With},
+    prelude::{Entity, Query, Res, ResMut, Resource, With},
     window::{PresentMode, PrimaryWindow, Window},
 };
-use render::{Dx12PresentModePolicy, PresentModePreference, PresentModeRemedy};
+use render::{PresentModePolicy, PresentModePreference, PresentModeRemedy, window_present_mode};
+use render_model::{
+    PresentModeKind, PresentationIntent, initial_present_mode, select_present_mode,
+};
 
 use crate::settings_runtime::RuntimeSettings;
 
+/// The session's presentation choice; the only writer of the primary window's present mode.
 #[derive(Resource, Debug)]
 pub(crate) struct PresentModeRuntime {
-    policy: Dx12PresentModePolicy,
+    policy: PresentModePolicy,
     locked: bool,
+    /// A hidden developer surface never reaches a display, so it never waits for one.
+    hidden_surface: bool,
     observed_settings_generation: u64,
-    vsync: bool, // the user choice last applied to the window
+    /// Window that adopted the driver remedy; kept until the preference or window changes,
+    /// since the render world withdraws its recommendation once Immediate is requested.
+    remedy_adopted: Option<Entity>,
 }
 
 impl PresentModeRuntime {
@@ -20,6 +28,7 @@ impl PresentModeRuntime {
         force_vsync: bool,
         no_vsync: bool,
         attributable_evidence: bool,
+        hidden_surface: bool,
     ) -> Self {
         let preference = if no_vsync {
             PresentModePreference::NoVsync
@@ -29,15 +38,16 @@ impl PresentModeRuntime {
             PresentModePreference::Auto
         };
         Self {
-            policy: Dx12PresentModePolicy::new(preference),
+            policy: PresentModePolicy::new(preference),
             locked: force_vsync || no_vsync || attributable_evidence,
+            hidden_surface,
             observed_settings_generation: 0,
-            vsync: !no_vsync,
+            remedy_adopted: None,
         }
     }
 
     #[must_use]
-    pub(crate) fn policy(&self) -> Dx12PresentModePolicy {
+    pub(crate) fn policy(&self) -> PresentModePolicy {
         self.policy.clone()
     }
 
@@ -46,6 +56,35 @@ impl PresentModeRuntime {
     pub(crate) fn vsync_override(&self) -> Option<bool> {
         self.locked
             .then(|| self.policy.preference() != PresentModePreference::NoVsync)
+    }
+
+    /// The window's present mode now: the probed surface's best mode for the intent, the driver
+    /// remedy, or a request the renderer can fall back from before the probe completes.
+    #[must_use]
+    pub(crate) fn window_present_mode(&self) -> PresentMode {
+        window_present_mode(self.selected_mode())
+    }
+
+    fn remedy_eligible(&self) -> bool {
+        !self.hidden_surface && self.policy.preference() == PresentModePreference::Auto
+    }
+
+    fn selected_mode(&self) -> PresentModeKind {
+        if self.remedy_eligible()
+            && (self.remedy_adopted.is_some()
+                || self.policy.remedy() == PresentModeRemedy::UseImmediate)
+        {
+            return PresentModeKind::Immediate;
+        }
+        let intent = if self.hidden_surface {
+            PresentationIntent::LowLatency
+        } else {
+            self.policy.preference().intent()
+        };
+        self.policy.capabilities().map_or_else(
+            || initial_present_mode(intent),
+            |supported| select_present_mode(intent, supported),
+        )
     }
 
     #[cfg(test)]
@@ -59,39 +98,45 @@ impl PresentModeRuntime {
     }
 }
 
-pub(crate) fn apply_runtime_vsync_setting(
+/// Applies the VSync setting and keeps the window on the policy's present mode.
+pub(crate) fn apply_present_mode(
     settings: Res<RuntimeSettings>,
     mut runtime: ResMut<PresentModeRuntime>,
-    mut windows: Query<&mut Window, With<PrimaryWindow>>,
+    mut windows: Query<(Entity, &mut Window), With<PrimaryWindow>>,
 ) {
+    let Ok((entity, mut window)) = windows.single_mut() else {
+        return;
+    };
     let (generation, user_settings) = settings.user_settings_update();
     if generation > runtime.observed_settings_generation {
-        let vsync = user_settings.video.vsync;
-        if !runtime.locked && vsync != runtime.vsync {
-            let Ok(mut window) = windows.single_mut() else {
-                return;
-            };
+        if !runtime.locked {
             // VSync on stays automatic so the driver remedy can still apply.
-            let (preference, present_mode) = if vsync {
-                (PresentModePreference::Auto, PresentMode::Fifo)
+            let preference = if user_settings.video.vsync {
+                PresentModePreference::Auto
             } else {
-                (PresentModePreference::NoVsync, PresentMode::AutoNoVsync)
+                PresentModePreference::NoVsync
             };
+            if preference != runtime.policy.preference() {
+                runtime.remedy_adopted = None;
+            }
             runtime.policy.set_preference(preference);
-            set_present_mode_if_changed(&mut window, present_mode);
-            runtime.vsync = vsync;
         }
         runtime.observed_settings_generation = generation;
-        return;
     }
-
-    if !runtime.locked
-        && runtime.policy.preference() == PresentModePreference::Auto
-        && runtime.policy.remedy() == PresentModeRemedy::UseImmediate
-        && let Ok(mut window) = windows.single_mut()
+    if runtime
+        .remedy_adopted
+        .is_some_and(|adopted| adopted != entity)
     {
-        set_present_mode_if_changed(&mut window, PresentMode::Immediate);
+        runtime.remedy_adopted = None;
     }
+    if runtime.remedy_eligible() && runtime.policy.remedy() == PresentModeRemedy::UseImmediate {
+        runtime.remedy_adopted = Some(entity);
+    }
+    let selected = runtime.selected_mode();
+    runtime
+        .policy
+        .publish_selection(runtime.policy.capabilities().map(|_| selected));
+    set_present_mode_if_changed(&mut window, window_present_mode(selected));
 }
 
 fn set_present_mode_if_changed(window: &mut Window, present_mode: PresentMode) -> bool {
@@ -104,223 +149,5 @@ fn set_present_mode_if_changed(window: &mut Window, present_mode: PresentMode) -
 }
 
 #[cfg(test)]
-mod tests {
-    use bevy::prelude::{App, DetectChanges, MinimalPlugins};
-    use render::PresentModePreference;
-
-    use super::*;
-    use crate::acceptance::markers::requested_present_mode;
-
-    #[test]
-    fn attributable_runs_and_explicit_flags_lock_the_requested_policy() {
-        let automatic = PresentModeRuntime::from_startup(false, false, false);
-        assert!(!automatic.locked());
-        assert_eq!(automatic.policy.preference(), PresentModePreference::Auto);
-
-        for (runtime, expected_preference, initial_mode) in [
-            (
-                PresentModeRuntime::from_startup(true, false, false),
-                PresentModePreference::Vsync,
-                requested_present_mode(false),
-            ),
-            (
-                PresentModeRuntime::from_startup(false, true, false),
-                PresentModePreference::NoVsync,
-                requested_present_mode(true),
-            ),
-            (
-                PresentModeRuntime::from_startup(false, false, true),
-                PresentModePreference::Vsync,
-                requested_present_mode(false),
-            ),
-        ] {
-            assert!(runtime.locked());
-            assert_eq!(runtime.policy.preference(), expected_preference);
-            assert_eq!(
-                initial_mode,
-                match expected_preference {
-                    PresentModePreference::NoVsync => PresentMode::Immediate,
-                    PresentModePreference::Auto | PresentModePreference::Vsync => {
-                        PresentMode::Fifo
-                    }
-                }
-            );
-        }
-    }
-
-    fn vsync_app(runtime: PresentModeRuntime, window: bool) -> App {
-        let mut app = App::new();
-        app.add_plugins(MinimalPlugins)
-            .init_resource::<RuntimeSettings>()
-            .insert_resource(runtime)
-            .add_systems(bevy::prelude::Update, apply_runtime_vsync_setting);
-        if window {
-            spawn_primary_window(&mut app);
-        }
-        app
-    }
-
-    fn spawn_primary_window(app: &mut App) {
-        let window = Window {
-            present_mode: PresentMode::Fifo,
-            ..Window::default()
-        };
-        app.world_mut().spawn((window, PrimaryWindow));
-    }
-
-    fn publish_vsync(app: &mut App, vsync: bool) {
-        let mut settings = ui::UserSettings::default();
-        settings.video.vsync = vsync;
-        app.world_mut()
-            .resource_mut::<RuntimeSettings>()
-            .replace_user_settings(settings);
-        app.update();
-    }
-
-    fn preference(app: &App) -> PresentModePreference {
-        app.world()
-            .resource::<PresentModeRuntime>()
-            .policy
-            .preference()
-    }
-
-    fn primary_present_mode(app: &mut App) -> PresentMode {
-        let world = app.world_mut();
-        let mut windows = world.query_filtered::<&Window, With<PrimaryWindow>>();
-        windows.single(world).unwrap().present_mode
-    }
-
-    #[test]
-    fn toggling_the_user_setting_switches_the_present_mode_live() {
-        let mut app = vsync_app(PresentModeRuntime::from_startup(false, false, false), true);
-
-        publish_vsync(&mut app, false);
-        assert_eq!(preference(&app), PresentModePreference::NoVsync);
-        assert_eq!(primary_present_mode(&mut app), PresentMode::AutoNoVsync);
-
-        publish_vsync(&mut app, true);
-        assert_eq!(preference(&app), PresentModePreference::Auto);
-        assert_eq!(primary_present_mode(&mut app), PresentMode::Fifo);
-    }
-
-    /// An unrelated settings revision must not drop an applied driver remedy.
-    #[test]
-    fn vsync_on_keeps_the_automatic_driver_remedy() {
-        let runtime = PresentModeRuntime::from_startup(false, false, false);
-        let render_policy = runtime.policy();
-        let mut app = vsync_app(runtime, true);
-        render_policy.publish_remedy(PresentModeRemedy::UseImmediate);
-        app.update();
-
-        publish_vsync(&mut app, true);
-        assert_eq!(preference(&app), PresentModePreference::Auto);
-        assert_eq!(render_policy.remedy(), PresentModeRemedy::UseImmediate);
-        assert_eq!(primary_present_mode(&mut app), PresentMode::Immediate);
-    }
-
-    #[test]
-    fn launch_flags_override_the_user_setting() {
-        for (force_vsync, no_vsync, setting, effective) in
-            [(true, false, false, true), (false, true, true, false)]
-        {
-            let runtime = PresentModeRuntime::from_startup(force_vsync, no_vsync, false);
-            assert_eq!(runtime.vsync_override(), Some(effective));
-            let startup_mode = requested_present_mode(no_vsync);
-            let startup_preference = runtime.policy.preference();
-            let mut app = vsync_app(runtime, false);
-            app.world_mut().spawn((
-                Window {
-                    present_mode: startup_mode,
-                    ..Window::default()
-                },
-                PrimaryWindow,
-            ));
-
-            publish_vsync(&mut app, setting);
-            assert_eq!(preference(&app), startup_preference);
-            assert_eq!(primary_present_mode(&mut app), startup_mode);
-        }
-        assert_eq!(
-            PresentModeRuntime::from_startup(false, false, false).vsync_override(),
-            None
-        );
-    }
-
-    #[test]
-    fn locked_acceptance_policy_ignores_runtime_setting_replacements() {
-        let mut app = vsync_app(PresentModeRuntime::from_startup(false, false, true), true);
-        publish_vsync(&mut app, false);
-        assert_eq!(preference(&app), PresentModePreference::Vsync);
-        assert_eq!(primary_present_mode(&mut app), PresentMode::Fifo);
-    }
-
-    #[test]
-    fn a_setting_update_retries_until_the_primary_window_exists() {
-        let mut app = vsync_app(PresentModeRuntime::from_startup(false, false, false), false);
-        publish_vsync(&mut app, false);
-
-        let runtime = app.world().resource::<PresentModeRuntime>();
-        assert_eq!(runtime.observed_settings_generation(), 0);
-        assert_eq!(runtime.policy.preference(), PresentModePreference::Auto);
-
-        spawn_primary_window(&mut app);
-        app.update();
-
-        let runtime = app.world().resource::<PresentModeRuntime>();
-        assert_eq!(runtime.observed_settings_generation(), 1);
-        assert_eq!(runtime.policy.preference(), PresentModePreference::NoVsync);
-        assert_eq!(primary_present_mode(&mut app), PresentMode::AutoNoVsync);
-    }
-
-    #[test]
-    fn automatic_remedy_transitions_the_main_window_only_once() {
-        let mut app = App::new();
-        let runtime = PresentModeRuntime::from_startup(false, false, false);
-        let render_policy = runtime.policy();
-        app.add_plugins(MinimalPlugins)
-            .init_resource::<RuntimeSettings>()
-            .insert_resource(runtime)
-            .add_systems(bevy::prelude::Update, apply_runtime_vsync_setting);
-        let window_entity = app
-            .world_mut()
-            .spawn((Window::default(), PrimaryWindow))
-            .id();
-
-        render_policy.publish_remedy(PresentModeRemedy::UseImmediate);
-        app.update();
-        assert_eq!(
-            app.world()
-                .entity(window_entity)
-                .get::<Window>()
-                .unwrap()
-                .present_mode,
-            PresentMode::Immediate
-        );
-
-        app.world_mut().clear_trackers();
-        app.update();
-        let window = app
-            .world()
-            .entity(window_entity)
-            .get_ref::<Window>()
-            .unwrap();
-        assert_eq!(window.present_mode, PresentMode::Immediate);
-        assert!(
-            !window.is_changed(),
-            "a stable automatic remedy must not request another surface reconfigure"
-        );
-    }
-
-    #[test]
-    fn present_mode_transition_reports_whether_it_changed_the_window() {
-        let mut window = Window::default();
-        assert!(set_present_mode_if_changed(
-            &mut window,
-            PresentMode::Immediate
-        ));
-        assert!(!set_present_mode_if_changed(
-            &mut window,
-            PresentMode::Immediate
-        ));
-    }
-}
+#[path = "present_mode/tests.rs"]
+mod tests;
