@@ -51,7 +51,7 @@ use bevy::{
             TextureUsages, TextureView, TextureViewDescriptor, TextureViewDimension, Variants,
             VertexState, WgpuFeatures,
         },
-        renderer::{RenderAdapter, RenderDevice, RenderInstance, RenderQueue},
+        renderer::{RenderAdapter, RenderDevice, RenderQueue},
         settings::Backends,
         sync_world::MainEntity,
         view::{
@@ -60,6 +60,9 @@ use bevy::{
         },
     },
 };
+// Fixtures construct a render instance directly.
+#[cfg(any(test, feature = "publication-test-support"))]
+use bevy::render::renderer::RenderInstance;
 use meshing::{ChunkBiomeTintIdentity, CubeQuadLayout, Face, chunk_publication_byte_len};
 use render_api::{PublicationPermit, PublicationPermitStage, PublicationServiceConfig};
 use world::SubChunkKey;
@@ -161,6 +164,8 @@ use gpu::bind_groups::{
     prepare_chunk_biome_tints, prepare_chunk_texture_assets, storage_table_fits,
     upload_texture_page,
 };
+#[allow(unused_imports)]
+use gpu::graphics_metadata::{adapter_metadata_field, publish_graphics_runtime_metadata};
 #[cfg(test)]
 use gpu::layout::transparent_geometry_update_requires_cow;
 #[allow(unused_imports)]
@@ -176,16 +181,15 @@ use gpu::types::{
     ArenaAllocation, ChunkDepthLiquidIndirectBatches, ChunkDrawMode, ChunkIndirectBatch,
     ChunkIndirectBatches, ChunkModelIndirectBatches, GpuChunkAllocation, GpuChunkOrigin,
     LEGACY_FIXED_MODEL_QUADS_PER_REF, MODEL_INDEX_COUNT, QueueFrameProbeParams,
-    RetiredArenaAllocation, StreamAddresses, absolutize_liquid_lighting_indices,
-    adapter_metadata_field, cube_draw_base, cube_lighting_record_address,
-    cube_stream_addresses_valid, cube_stream_drawable, cutout_indirect_command,
-    depth_liquid_direct_draw_command, depth_liquid_draw_command, depth_liquid_mdi_draw_command,
-    diagnostic_draw_mode, direct_stream_addresses, extracted_camera_identity, gpu_chunk_origin,
-    mdi_stream_addresses, metadata_base_vertex, model_direct_draw_command, model_draw_command,
-    model_mdi_draw_command, model_ref_count_for_witness, opaque_allocation_is_drawable,
-    publish_graphics_runtime_metadata, resolve_surface_present_mode, select_chunk_draw_mode,
+    RetiredArenaAllocation, StreamAddresses, absolutize_liquid_lighting_indices, cube_draw_base,
+    cube_lighting_record_address, cube_stream_addresses_valid, cube_stream_drawable,
+    cutout_indirect_command, depth_liquid_direct_draw_command, depth_liquid_draw_command,
+    depth_liquid_mdi_draw_command, diagnostic_draw_mode, direct_stream_addresses,
+    extracted_camera_identity, gpu_chunk_origin, mdi_stream_addresses, metadata_base_vertex,
+    model_direct_draw_command, model_draw_command, model_mdi_draw_command,
+    model_ref_count_for_witness, opaque_allocation_is_drawable, select_chunk_draw_mode,
     shared_stream_ranges_disjoint, solid_indirect_commands, summarize_model_workload,
-    surface_present_mode_name, transparent_model_direct_draw_command, window_present_mode_name,
+    transparent_model_direct_draw_command,
 };
 #[allow(unused_imports)]
 use gpu::upload::{
