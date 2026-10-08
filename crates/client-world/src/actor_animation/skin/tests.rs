@@ -323,3 +323,56 @@ fn custom_model_crowd_publishes_after_one_frame_per_admitted_batch() {
     store.advance_interpolation_frame(0);
     assert_eq!(store.actor_rigs().count(), usize::from(crowd));
 }
+
+#[test]
+fn model_installed_between_ticks_advances_the_drawn_rig_generation() {
+    let mut store = player_store();
+    store.apply(
+        1,
+        1,
+        protocol::ActorEvent::Spawn(protocol::ActorSpawnEvent {
+            dimension: 0,
+            unique_id: 1,
+            runtime_id: 1,
+            kind: ActorKind::Player {
+                uuid: [1; 16],
+                username: "fixture".into(),
+            },
+            position: [0.0; 3],
+            velocity: [0.0; 3],
+            pitch: 0.0,
+            yaw: 0.0,
+            head_yaw: 0.0,
+            body_yaw: 0.0,
+            held_item: Default::default(),
+            metadata: Arc::from([]),
+            attributes: Arc::from([]),
+            properties: Arc::from([]),
+            links: Arc::from([]),
+        }),
+    );
+    store.advance_interpolation_ticks(1);
+    let drawn = store
+        .actor_rig(1)
+        .expect("a player without a profile draws");
+    assert!(drawn.skin_geometry.is_none());
+    let generation = drawn.reset_generation;
+    store.apply(
+        1,
+        2,
+        protocol::ActorEvent::PlayerList(protocol::PlayerListUpdateEvent {
+            entries: Arc::from([protocol::PlayerListEntry::Add {
+                uuid: [1; 16],
+                unique_id: 1,
+                username: "fixture".into(),
+                verified: true,
+                skin: standard_skin(),
+            }]),
+        }),
+    );
+    store.advance_interpolation_frame(0);
+    let rig = store.actor_rig(1).unwrap();
+    assert!(rig.skin_geometry.is_some());
+    // Cached pose conversions key on this; reused pose buffers must not keep the old skeleton.
+    assert_ne!(rig.reset_generation, generation);
+}

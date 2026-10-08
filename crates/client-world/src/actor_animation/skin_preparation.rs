@@ -46,9 +46,20 @@ impl ActorAnimationStore {
         else {
             return;
         };
+        let model = |state: &ActorRigState| {
+            state
+                .skin_skeleton()
+                .map(|skeleton| Arc::as_ptr(&skeleton.prepared))
+        };
+        let before = model(state);
         if skin::sync_skin(state, source, &self.skin_preparation) {
             self.stats.invalid_skin_geometries =
                 self.stats.invalid_skin_geometries.saturating_add(1);
+        }
+        // Poses were reset outside tick evaluation, which is what otherwise advances the generation.
+        if model(state) != before {
+            state.reset_generation = self.next_reset_generation;
+            self.next_reset_generation = self.next_reset_generation.saturating_add(1);
         }
     }
 
