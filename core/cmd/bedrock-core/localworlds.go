@@ -9,6 +9,7 @@ import (
 	"runtime"
 
 	"github.com/hashimthearab/rust-mcbe/core/localworld"
+	"github.com/hashimthearab/rust-mcbe/core/proxy"
 )
 
 const localServerName = "bedrock-local-server"
@@ -84,9 +85,14 @@ func openLocalWorlds(opts options, logger *slog.Logger) (*localworld.Manager, er
 	provisioner := &localworld.Provisioner{Root: bdsDir, Version: opts.bdsVersion, Log: logger}
 	provisioner.SetRuntime(runtimeInfo)
 	provisioner.SetDetector(func(ctx context.Context) localworld.RuntimeInfo { return detectRuntime(ctx, opts) })
+	maxPlayers := opts.bdsMaxPlayers
+	if maxPlayers == 0 {
+		// Room for friends joining the hosted world, as vanilla allows.
+		maxPlayers = proxy.FriendWorldMaxPlayers
+	}
 	runners[localworld.BackendBDS] = localworld.BDSRunner{
 		Provisioner: provisioner, Log: logger, Docker: opts.docker, Image: opts.bdsImage,
-		MaxPlayers: opts.bdsMaxPlayers, HostPort: opts.bdsHostPort, LANVisible: opts.bdsLANVisible, LANHostPort: opts.bdsLANHostPort,
+		MaxPlayers: maxPlayers, HostPort: opts.bdsHostPort, LANVisible: opts.bdsLANVisible, LANHostPort: opts.bdsLANHostPort,
 	}
 	manager := localworld.NewManager(store, runners, logger)
 	if missingDragonfly != nil {

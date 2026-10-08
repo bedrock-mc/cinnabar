@@ -18,7 +18,17 @@ use bevy::{
 use client_ui::ui_runtime::presentation::forms::panorama;
 use std::{sync::Arc, time::Instant};
 
-const SIZE: [u32; 2] = [1280, 720];
+/// The frame size: `CINNABAR_GPU_SIZE=<width>x<height>` overrides 1280×720, for checking odd
+/// sizes and GUI scales.
+static SIZE: std::sync::LazyLock<[u32; 2]> = std::sync::LazyLock::new(|| {
+    std::env::var("CINNABAR_GPU_SIZE")
+        .ok()
+        .and_then(|size| {
+            let (width, height) = size.split_once('x')?;
+            Some([width.parse().ok()?, height.parse().ok()?])
+        })
+        .unwrap_or([1280, 720])
+});
 #[derive(Resource, Default)]
 struct Captured(Vec<u8>);
 
@@ -60,7 +70,7 @@ fn app() -> App {
     app.init_resource::<Captured>();
     app.world_mut().spawn(Readback::texture(image)).observe(
         |event: On<ReadbackComplete>, mut capture: ResMut<Captured>| {
-            capture.0.clone_from(&event.data);
+            capture.0 = unpadded_rows(&event.data, SIZE[0], SIZE[1]);
         },
     );
     let mut scene = app.world_mut().resource_mut::<render::PanoramaScene>();
@@ -74,6 +84,33 @@ fn app() -> App {
     app.finish();
     app.cleanup();
     app
+}
+
+/// A texture readback's RGBA8 rows without the padding that pads each one to wgpu's copy row
+/// alignment.
+fn unpadded_rows(data: &[u8], width: u32, height: u32) -> Vec<u8> {
+    let row = width as usize * 4;
+    let stride = row.next_multiple_of(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT as usize);
+    data.chunks(stride)
+        .take(height as usize)
+        .flat_map(|padded| &padded[..row])
+        .copied()
+        .collect()
+}
+
+#[test]
+fn readback_rows_drop_their_alignment_padding() {
+    // 1441 pixels make 5764-byte rows, padded to 5888.
+    let stride = 5888;
+    let mut padded = vec![0xee; stride * 2];
+    for (y, padded_row) in padded.chunks_mut(stride).enumerate() {
+        padded_row[..5764].fill(y as u8);
+    }
+    let rows = unpadded_rows(&padded, 1441, 2);
+    assert_eq!(rows.len(), 1441 * 4 * 2);
+    assert!(rows[..5764].iter().all(|&byte| byte == 0));
+    assert!(rows[5764..].iter().all(|&byte| byte == 1));
+    assert_eq!(unpadded_rows(&padded[..5120 * 2], 1280, 2).len(), 5120 * 2);
 }
 
 #[test]
@@ -182,7 +219,7 @@ fn menu_frames_on_native_gpu() {
                     &player_runtime,
                     &runtime,
                     frame * 16,
-                    SIZE,
+                    *SIZE,
                     ui::DpiScale::new(1.0).unwrap(),
                 )
                 .unwrap();
@@ -282,7 +319,7 @@ fn zeqa_late_pages_match_the_published_frame_on_gpu() {
                     &player_runtime,
                     &runtime,
                     0,
-                    SIZE,
+                    *SIZE,
                     ui::DpiScale::new(1.0).unwrap(),
                 )
                 .unwrap();
@@ -399,7 +436,7 @@ fn profile_frames_on_native_gpu() {
                     &player_runtime,
                     &runtime,
                     frame * 16,
-                    SIZE,
+                    *SIZE,
                     ui::DpiScale::new(1.0).unwrap(),
                 )
                 .unwrap();

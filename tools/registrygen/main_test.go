@@ -347,14 +347,9 @@ func TestPhysicsFactsCoverSpecialMovementFamilies(t *testing.T) {
 	if physics[7].HorizontalSpeedQ1E8 != soulSandSpeedQ1E8 {
 		t.Fatalf("soul sand horizontal speed = %d, want the pinned bedsim %d", physics[7].HorizontalSpeedQ1E8, soulSandSpeedQ1E8)
 	}
-	// Honey deliberately keeps a different, explicitly unproven value: bedsim
-	// v0.1.3 implements no honey stratum, so there is no Bedrock oracle to
-	// correct it against and it must not be silently aliased onto soul sand's.
-	if physics[8].HorizontalSpeedQ1E8 != unprovenHoneySpeedQ1E8 {
-		t.Fatalf("honey horizontal speed = %d, want the documented unproven %d", physics[8].HorizontalSpeedQ1E8, unprovenHoneySpeedQ1E8)
-	}
-	if soulSandSpeedQ1E8 == unprovenHoneySpeedQ1E8 {
-		t.Fatal("soul sand and honey factors must stay independently sourced")
+	// Honey slows through its jump, stand-on and inside rules, not a speed factor.
+	if physics[8].HorizontalSpeedQ1E8 != defaultSpeedQ1E8 || physics[8].VerticalSpeedQ1E8 != defaultSpeedQ1E8 {
+		t.Fatalf("honey speed factors = %d/%d, want neutral", physics[8].HorizontalSpeedQ1E8, physics[8].VerticalSpeedQ1E8)
 	}
 }
 

@@ -8,6 +8,7 @@ pub mod chat_screen;
 pub mod container_data;
 pub mod container_kinds;
 mod debug_overlay;
+pub mod discord_presence_setting;
 pub(super) use container_kinds::supported_storage_slots;
 pub mod containers;
 pub(super) mod credits_content;
@@ -24,8 +25,11 @@ pub mod global_resources;
 pub mod hud;
 #[cfg(test)]
 pub mod inbox_tests;
+mod invite_screen;
 pub mod java_animations_setting;
 pub mod join_progress;
+#[cfg(test)]
+mod join_request_tests;
 pub mod loading_screen;
 #[cfg(test)]
 pub mod loading_texture_tests;

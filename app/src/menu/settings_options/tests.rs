@@ -34,7 +34,7 @@ fn camera_input_and_window_settings_read_the_saved_values() {
     assert!(!authority.feel().camera_shake);
     assert_eq!(authority.feel().damage_bob, 0.25);
     assert_eq!(authority.feel().fov_effects_scale, 0.0);
-    assert_eq!(user.controls.mouse_sensitivity, 1.5);
+    assert_eq!(user.controls.mouse_sensitivity, 0.75);
     assert!(user.controls.invert_mouse_y);
     assert_eq!(user.video.frame_cap, Some(120));
     assert_eq!(

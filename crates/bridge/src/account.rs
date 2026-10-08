@@ -342,6 +342,17 @@ pub struct Friend {
     pub address: Option<String>,
 }
 
+/// One Xbox friend of the signed-in account; `xuid` addresses their game invite.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+pub struct Person {
+    pub xuid: String,
+    pub gamertag: String,
+    #[serde(default)]
+    pub online: bool,
+    #[serde(default)]
+    pub gamerpic: Artwork,
+}
+
 /// Where the next client connection goes.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ConnectTarget {
@@ -504,6 +515,11 @@ struct FriendsBody {
 }
 
 #[derive(Deserialize)]
+struct PeopleBody {
+    friends: Vec<Person>,
+}
+
+#[derive(Deserialize)]
 struct AccountBody {
     account: Account,
 }
@@ -567,6 +583,12 @@ pub async fn list_realms(socket_dir: &Path) -> Result<Vec<Realm>, BridgeError> {
 /// Lists friends' joinable worlds.
 pub async fn list_friends(socket_dir: &Path) -> Result<Vec<Friend>, BridgeError> {
     let body: FriendsBody = call::<_, ()>(socket_dir, "friends_list.v1", None).await?;
+    Ok(body.friends)
+}
+
+/// Lists the account's Xbox friends, online first.
+pub async fn list_people(socket_dir: &Path) -> Result<Vec<Person>, BridgeError> {
+    let body: PeopleBody = call::<_, ()>(socket_dir, "friends_people.v1", None).await?;
     Ok(body.friends)
 }
 
@@ -738,6 +760,19 @@ mod tests {
                 .realms
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn parses_people_with_presence_and_cached_gamerpics() {
+        let people = br#"{"jsonrpc":"2.0","id":1,"result":{"schema_version":1,"friends":[
+            {"xuid":"2535400000000001","gamertag":"Alex","online":true,
+             "gamerpic":{"url":"https://images.example.test/a","path":"/art/people/a.img"}},
+            {"xuid":"2535400000000002","gamertag":"Bea","gamerpic":{}}]}}"#;
+        let body: PeopleBody = parse_response(people).expect("people");
+        assert_eq!(body.friends.len(), 2);
+        assert!(body.friends[0].online && !body.friends[1].online);
+        assert_eq!(body.friends[0].gamerpic.path, "/art/people/a.img");
+        assert_eq!(body.friends[1].gamerpic, Artwork::default());
     }
 
     #[test]

@@ -1,16 +1,21 @@
-//! Producers for the camera's gameplay facts: on-fire, in-portal, flying, bow draw and spyglass scoping.
+//! Producers for the camera's gameplay facts: on-fire, in-portal, flying, walk speed, bow draw and spyglass scoping.
 
 use crate::local_player::LocalViewPose;
 
 use std::sync::Arc;
 
 use bevy::prelude::{Res, ResMut, Resource};
-use protocol::{AbilitiesUpdate, AbilityLayersEvidence};
+use client_world::game_mode_capabilities::resolved_layer;
+use protocol::AbilitiesUpdate;
 
-use super::{fov::CameraFovInputs, presentation::ScreenEffectFacts};
+use super::{
+    fov::{CameraFovInputs, DEFAULT_WALK_SPEED_ABILITY},
+    presentation::ScreenEffectFacts,
+};
 
 mod portal;
 const ABILITY_FLYING_BIT: u32 = 1 << 9;
+const ABILITY_WALK_SPEED_BIT: u32 = 1 << 14;
 const BOW_IDENTIFIER: &str = "minecraft:bow";
 const SPYGLASS_IDENTIFIER: &str = "minecraft:spyglass";
 
@@ -39,14 +44,17 @@ impl ItemUseClock {
     }
 }
 
-/// True when some received ability layer both defines and enables flying.
 fn flying_from_abilities(update: &AbilitiesUpdate) -> bool {
-    match &update.layers {
-        AbilityLayersEvidence::Received(layers) => layers.iter().any(|layer| {
-            layer.abilities & ABILITY_FLYING_BIT != 0 && layer.values & ABILITY_FLYING_BIT != 0
-        }),
-        AbilityLayersEvidence::Unavailable { .. } => false,
-    }
+    resolved_layer(update, ABILITY_FLYING_BIT)
+        .is_some_and(|layer| layer.values & ABILITY_FLYING_BIT != 0)
+}
+
+fn walk_speed_from_abilities(update: Option<&AbilitiesUpdate>) -> f32 {
+    update
+        .and_then(|update| resolved_layer(update, ABILITY_WALK_SPEED_BIT))
+        .map(|layer| f32::from_bits(layer.walk_speed_bits))
+        .filter(|speed| speed.is_finite())
+        .unwrap_or(DEFAULT_WALK_SPEED_ABILITY)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -78,9 +86,9 @@ pub fn collect_screen_effect_facts(
         |identifier: &str| use_held && selected.as_deref().is_some_and(|item| item == identifier);
     fov.bow_draw_seconds = using(BOW_IDENTIFIER).then(|| clock.held_seconds());
     fov.spyglass_scoping = using(SPYGLASS_IDENTIFIER);
-    fov.flying = ui
-        .and_then(|_| player_runtime.facts.local_abilities())
-        .is_some_and(flying_from_abilities);
+    let abilities = ui.and_then(|_| player_runtime.facts.local_abilities());
+    fov.flying = abilities.is_some_and(flying_from_abilities);
+    fov.walk_speed = walk_speed_from_abilities(abilities);
 }
 
 pub(super) fn portal_body(
@@ -142,7 +150,7 @@ pub fn collect_portal_contact(
 
 #[cfg(test)]
 mod tests {
-    use protocol::AbilityLayerEvidence;
+    use protocol::{AbilityLayerEvidence, AbilityLayersEvidence};
 
     use super::*;
 
@@ -154,6 +162,14 @@ mod tests {
             fly_speed_bits: 0,
             vertical_fly_speed_bits: 0,
             walk_speed_bits: 0,
+        }
+    }
+
+    fn walk_layer(layer_type: u16, abilities: u32, walk_speed: f32) -> AbilityLayerEvidence {
+        AbilityLayerEvidence {
+            layer_type,
+            walk_speed_bits: walk_speed.to_bits(),
+            ..layer(abilities, 0)
         }
     }
 
@@ -179,6 +195,59 @@ mod tests {
                 declared_layers: 99
             }
         )));
+    }
+
+    /// The highest layer that sets an ability decides it; unset layers never do.
+    #[test]
+    fn walk_speed_comes_from_the_highest_layer_that_sets_it() {
+        let walk = |layers: Vec<AbilityLayerEvidence>| {
+            walk_speed_from_abilities(Some(&update(AbilityLayersEvidence::Received(
+                layers.into(),
+            ))))
+        };
+        assert_eq!(
+            walk(vec![
+                walk_layer(3, ABILITY_WALK_SPEED_BIT, 0.3),
+                walk_layer(1, ABILITY_WALK_SPEED_BIT, 0.1),
+            ]),
+            0.3
+        );
+        assert_eq!(
+            walk(vec![
+                walk_layer(1, ABILITY_WALK_SPEED_BIT, 0.2),
+                walk_layer(3, 0, 0.5),
+            ]),
+            0.2
+        );
+        // A repeated layer's last definition replaces it, so its unset speed falls through.
+        assert_eq!(
+            walk(vec![
+                walk_layer(1, ABILITY_WALK_SPEED_BIT, 0.1),
+                walk_layer(3, ABILITY_WALK_SPEED_BIT, 0.4),
+                walk_layer(3, 0, 0.0),
+            ]),
+            0.1
+        );
+        assert_eq!(
+            walk(vec![
+                walk_layer(1, ABILITY_WALK_SPEED_BIT, 0.2),
+                walk_layer(9, ABILITY_WALK_SPEED_BIT, 0.7),
+            ]),
+            0.2,
+            "unknown layer types never override a recognised slot"
+        );
+        assert_eq!(walk(vec![]), DEFAULT_WALK_SPEED_ABILITY);
+        assert_eq!(walk_speed_from_abilities(None), DEFAULT_WALK_SPEED_ABILITY);
+        let flying = |layers: Vec<AbilityLayerEvidence>| {
+            flying_from_abilities(&update(AbilityLayersEvidence::Received(layers.into())))
+        };
+        assert!(!flying(vec![
+            AbilityLayerEvidence {
+                layer_type: 3,
+                ..layer(ABILITY_FLYING_BIT, 0)
+            },
+            layer(ABILITY_FLYING_BIT, ABILITY_FLYING_BIT),
+        ]));
     }
 
     #[test]
