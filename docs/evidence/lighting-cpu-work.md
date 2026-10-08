@@ -54,7 +54,7 @@ Median reductions range from 2.9% to 32.4% across 1, 10 and 24 sections.
 | trusted_halo_fresh | 21.941 | 20.745 | 5.4% | 60 → 31 |
 | trusted_halo_retained | 36.046 | 26.813 | 25.6% | 60 → 31 |
 
-Uniform 24-section sky allocates 102,144 bytes per independent result, down from
+Uniform 24-section sky allocates 100,864 bytes per independent result, down from
 153,600. Packed channel allocations are eliminated; the result still owns its
 provenance, section handles and map. Existing scratch-retention checks still pass.
 
