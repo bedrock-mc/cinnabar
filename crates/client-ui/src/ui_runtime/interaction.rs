@@ -90,7 +90,6 @@ pub struct InventoryKeys {
     shift: bool,
     control: bool,
     modifier_sides: [bool; 4],
-    close_after_pointer: bool, // A close key that arrived after this frame's pointer press.
 }
 
 impl InventoryKeys {
@@ -121,15 +120,6 @@ impl InventoryKeys {
             self.presses.push(key);
         }
     }
-
-    /// Holds the close until the earlier pointer press has been applied.
-    pub fn defer_close(&mut self) {
-        self.close_after_pointer = true;
-    }
-
-    pub fn take_deferred_close(&mut self) -> bool {
-        std::mem::take(&mut self.close_after_pointer)
-    }
 }
 
 /// Keyboard events that reached the window before this frame's first primary or
@@ -137,7 +127,8 @@ impl InventoryKeys {
 pub fn keys_before_pointer_press<'a>(
     events: impl IntoIterator<Item = &'a WindowEvent>,
 ) -> Option<usize> {
-    let mut keys = 0;
+    // Every event is consumed so the caller's cursor never replays this frame's keys.
+    let (mut keys, mut first_press) = (0, None);
     for event in events {
         match event {
             WindowEvent::KeyboardInput(_) => keys += 1,
@@ -145,12 +136,12 @@ pub fn keys_before_pointer_press<'a>(
                 if input.state == ButtonState::Pressed
                     && matches!(input.button, MouseButton::Left | MouseButton::Right) =>
             {
-                return Some(keys);
+                first_press.get_or_insert(keys);
             }
             _ => {}
         }
     }
-    None
+    first_press
 }
 
 /// Keyboard gestures over the hovered cell: resolved bindings swap with that hotbar

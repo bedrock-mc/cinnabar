@@ -88,9 +88,9 @@ use crate::{
     session_cleanup::{ScopedSessionDirectory, reclaim_stale_session_directories},
     survival_mining::{SurvivalMiningRuntime, produce_survival_mining},
     ui_runtime::{
-        apply_deferred_inventory_close, drain_inventory_authority, drive_chat_keyboard_input,
-        drive_chat_ui_actions, drive_inventory_ui_actions, drive_server_form_input,
-        drive_sign_editor, drive_world_inventory_keys, flush_chat_network, flush_inventory_network,
+        drain_inventory_authority, drive_chat_keyboard_input, drive_chat_ui_actions,
+        drive_inventory_ui_actions, drive_server_form_input, drive_sign_editor,
+        drive_world_inventory_keys, flush_chat_network, flush_inventory_network,
         flush_server_form_network,
         gameplay_touch::drive_gameplay_touch_targets,
         presentation::{

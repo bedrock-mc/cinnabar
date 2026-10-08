@@ -24,8 +24,7 @@ use crate::{
     app::{ClientFrameSet, configure_client_frame_schedule},
     menu::{MenuClipboard, MenuRuntime, drive_menu_input},
     ui_runtime::{
-        apply_deferred_inventory_close, drive_chat_keyboard_input, drive_inventory_ui_actions,
-        presentation::tests::fixture_font,
+        drive_chat_keyboard_input, drive_inventory_ui_actions, presentation::tests::fixture_font,
     },
 };
 use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
@@ -97,7 +96,8 @@ fn app() -> (App, Entity) {
         .init_resource::<Touches>()
         .init_resource::<MenuClipboard>()
         .add_message::<KeyboardInput>()
-        .add_message::<WindowEvent>()
+        // As in frames without a fixed tick, window events are not rotated between updates.
+        .init_resource::<bevy::ecs::message::Messages<WindowEvent>>()
         .insert_resource(runtime)
         .insert_resource(player_runtime)
         .insert_resource(presentation)
@@ -108,7 +108,6 @@ fn app() -> (App, Entity) {
                 drive_chat_keyboard_input,
                 drive_menu_input,
                 drive_inventory_ui_actions,
-                apply_deferred_inventory_close,
             )
                 .chain()
                 .in_set(ClientFrameSet::UiAuthority),
@@ -120,60 +119,148 @@ fn app() -> (App, Entity) {
     (app, window)
 }
 
-/// Delivers a primary click and Escape in one frame, in the given window order.
-fn click_and_escape(app: &mut App, window: Entity, click_first: bool) {
-    app.world_mut()
-        .resource_mut::<ButtonInput<MouseButton>>()
-        .press(MouseButton::Left);
-    app.world_mut()
-        .resource_mut::<ButtonInput<KeyCode>>()
-        .press(KeyCode::Escape);
-    let escape = KeyboardInput {
-        key_code: KeyCode::Escape,
-        logical_key: Key::Escape,
-        state: ButtonState::Pressed,
-        text: None,
-        repeat: false,
-        window,
-    };
-    let click = WindowEvent::MouseButtonInput(MouseButtonInput {
-        button: MouseButton::Left,
-        state: ButtonState::Pressed,
-        window,
-    });
-    let key = WindowEvent::KeyboardInput(escape.clone());
-    let ordered = if click_first {
-        [click, key]
-    } else {
-        [key, click]
-    };
-    for event in ordered {
+#[derive(Clone, Copy)]
+enum Input {
+    Click(MouseButton),
+    Key(KeyCode),
+}
+
+/// Delivers one frame's inputs as winit does: ordered window events plus the per-device streams.
+fn frame(app: &mut App, window: Entity, inputs: &[Input]) {
+    for input in inputs {
+        let event = match *input {
+            Input::Click(button) => {
+                app.world_mut()
+                    .resource_mut::<ButtonInput<MouseButton>>()
+                    .press(button);
+                WindowEvent::MouseButtonInput(MouseButtonInput {
+                    button,
+                    state: ButtonState::Pressed,
+                    window,
+                })
+            }
+            Input::Key(key_code) => {
+                app.world_mut()
+                    .resource_mut::<ButtonInput<KeyCode>>()
+                    .press(key_code);
+                let (logical_key, text) = match key_code {
+                    KeyCode::Escape => (Key::Escape, None),
+                    KeyCode::KeyT => (Key::Character("t".into()), Some("t".into())),
+                    KeyCode::KeyQ => (Key::Character("q".into()), Some("q".into())),
+                    other => panic!("unmapped test key {other:?}"),
+                };
+                let input = KeyboardInput {
+                    key_code,
+                    logical_key,
+                    state: ButtonState::Pressed,
+                    text,
+                    repeat: false,
+                    window,
+                };
+                app.world_mut().write_message(input.clone());
+                WindowEvent::KeyboardInput(input)
+            }
+        };
         app.world_mut().write_message(event);
     }
-    app.world_mut().write_message(escape);
+}
+
+fn requests(app: &App) -> usize {
+    app.world()
+        .resource::<PlayerRuntime>()
+        .inventory
+        .ledger()
+        .pending_request_count()
 }
 
 /// A click that reached the window before Escape lands in the screen before it closes.
 #[test]
 fn click_then_escape_in_one_frame_applies_the_click() {
-    for click_first in [true, false] {
+    let left = Input::Click(MouseButton::Left);
+    let escape = Input::Key(KeyCode::Escape);
+    for (inputs, applied) in [([left, escape], true), ([escape, left], false)] {
         let (mut app, window) = app();
-        click_and_escape(&mut app, window, click_first);
+        frame(&mut app, window, &inputs);
 
         app.update();
 
         assert!(!app.world().resource::<UiRuntime>().inventory_open());
-        let ledger = app.world().resource::<PlayerRuntime>().inventory.ledger();
         assert_eq!(
-            ledger.pending_request_id().is_some(),
-            click_first,
-            "click_first={click_first}: only a click before Escape picks up the stack"
+            requests(&app) > 0,
+            applied,
+            "only a click before Escape picks up the stack"
         );
         assert!(
             !app.world()
                 .resource::<ButtonInput<MouseButton>>()
                 .pressed(MouseButton::Left),
-            "click_first={click_first}: the click never reaches gameplay"
+            "the click never reaches gameplay"
         );
     }
+}
+
+/// Keys left over from an earlier frame must not shift where this frame's click arrived.
+#[test]
+fn earlier_frame_keys_do_not_reorder_a_later_click_and_escape() {
+    let (mut app, window) = app();
+    let pointer = app.world().get::<Window>(window).unwrap().cursor_position();
+    // A click outside the window leaves the screen untouched, then a key follows it.
+    app.world_mut()
+        .get_mut::<Window>(window)
+        .unwrap()
+        .set_cursor_position(None);
+    frame(
+        &mut app,
+        window,
+        &[Input::Click(MouseButton::Left), Input::Key(KeyCode::KeyQ)],
+    );
+    app.update();
+    assert!(app.world().resource::<UiRuntime>().inventory_open());
+    assert_eq!(requests(&app), 0);
+
+    app.world_mut()
+        .get_mut::<Window>(window)
+        .unwrap()
+        .set_cursor_position(pointer);
+    frame(
+        &mut app,
+        window,
+        &[Input::Click(MouseButton::Left), Input::Key(KeyCode::Escape)],
+    );
+    app.update();
+
+    assert!(!app.world().resource::<UiRuntime>().inventory_open());
+    assert!(
+        requests(&app) > 0,
+        "the second frame's click lands before Escape"
+    );
+}
+
+/// Keys after Escape route as if the screen were already closed.
+#[test]
+fn keys_after_click_and_escape_route_to_the_closed_screen() {
+    let take_half = Input::Click(MouseButton::Right);
+    let escape = Input::Key(KeyCode::Escape);
+    let chat = Input::Key(KeyCode::KeyT);
+    let (mut control, window) = app();
+    frame(&mut control, window, &[take_half, escape, chat]);
+    control.update();
+    assert!(requests(&control) > 0, "the click takes half the stack");
+
+    let (mut app, window) = app();
+    frame(
+        &mut app,
+        window,
+        &[take_half, escape, Input::Key(KeyCode::KeyQ), chat],
+    );
+    app.update();
+
+    let runtime = app.world().resource::<UiRuntime>();
+    assert!(!runtime.inventory_open());
+    assert!(runtime.chat_focused(), "T after Escape opens chat");
+    assert_eq!(
+        requests(&app),
+        requests(&control),
+        "Q after Escape cannot drop from the hovered inventory cell"
+    );
 }

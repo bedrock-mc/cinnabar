@@ -181,6 +181,36 @@ pub(crate) fn drive_inventory_ui_actions(
     let now_millis = time.map_or(0, |time| {
         u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX)
     });
+    apply_inventory_pointer(
+        &mut player_runtime,
+        &mut runtime,
+        &window,
+        &presentation,
+        menu.as_deref(),
+        &mut mouse_buttons,
+        (raw_primary_release, raw_secondary_release),
+        (presses, shift, control),
+        &notches,
+        focus.as_deref_mut(),
+        now_millis,
+    );
+}
+
+/// Applies one frame's buttons, key presses and wheel notches to the open inventory screen.
+#[allow(clippy::too_many_arguments)]
+fn apply_inventory_pointer(
+    player_runtime: &mut crate::player_runtime::PlayerRuntime,
+    runtime: &mut UiRuntime,
+    window: &Window,
+    presentation: &UiPresentationRuntime,
+    menu: Option<&crate::menu::MenuRuntime>,
+    mouse_buttons: &mut ButtonInput<MouseButton>,
+    (raw_primary_release, raw_secondary_release): (bool, bool),
+    (presses, shift, control): (Vec<KeyCode>, bool, bool),
+    notches: &[(f32, MouseScrollUnit)],
+    mut focus: Option<&mut client_presentation::camera::CursorFocus>,
+    now_millis: u64,
+) {
     let primary_pressed = mouse_buttons.just_pressed(MouseButton::Left);
     let secondary_pressed = mouse_buttons.just_pressed(MouseButton::Right);
     let primary_released = mouse_buttons.just_released(MouseButton::Left) || raw_primary_release;
@@ -188,20 +218,17 @@ pub(crate) fn drive_inventory_ui_actions(
         mouse_buttons.just_released(MouseButton::Right) || raw_secondary_release;
     let mouse_hotbar = mouse_buttons.get_just_pressed().find_map(|button| {
         let code = crate::semantic_controls::physical::mouse_button_code(*button)?;
-        hotbar_control_slot(
-            menu.as_deref(),
-            semantic_input::PhysicalControl::MouseButton(code),
-        )
+        hotbar_control_slot(menu, semantic_input::PhysicalControl::MouseButton(code))
     });
     // The inventory owns pointer buttons while open. Preserve the edges long
     // enough to resolve their cell, then clear every button before gameplay
     // systems can observe this frame.
     mouse_buttons.reset_all();
     let generation = runtime
-        .inventory_ledger(&player_runtime)
+        .inventory_ledger(player_runtime)
         .storage_generation();
     runtime.screen_state_mut().observe_window(generation);
-    let screen = InventoryScreen::of_runtime(&player_runtime, &runtime);
+    let screen = InventoryScreen::of_runtime(player_runtime, &runtime);
     if screen != InventoryScreen::Creative {
         runtime.screen_state_mut().search_focused = false;
     }
@@ -242,28 +269,17 @@ pub(crate) fn drive_inventory_ui_actions(
     });
     runtime.screen_state_mut().hover = hit;
     if let (Some(gui), Some(frame)) = (gui, presentation.engine_container_frame()) {
-        scroll_container(&mut runtime, frame, gui, &notches);
+        scroll_container(runtime, frame, gui, notches);
     }
     for key in presses {
         let slot = crate::semantic_controls::keyboard_usage(key).and_then(|code| {
-            hotbar_control_slot(
-                menu.as_deref(),
-                semantic_input::PhysicalControl::KeyboardUsage(code),
-            )
+            hotbar_control_slot(menu, semantic_input::PhysicalControl::KeyboardUsage(code))
         });
-        let drop = binding_key(menu.as_deref(), "key.drop", key);
-        let _ = dispatch_inventory_key(
-            &mut player_runtime,
-            runtime.as_mut(),
-            hit,
-            key,
-            control,
-            slot,
-            drop,
-        );
+        let drop = binding_key(menu, "key.drop", key);
+        let _ = dispatch_inventory_key(player_runtime, runtime, hit, key, control, slot, drop);
     }
     if let Some(slot) = mouse_hotbar {
-        let _ = dispatch_inventory_hotbar(&mut player_runtime, runtime.as_mut(), hit, slot);
+        let _ = dispatch_inventory_hotbar(player_runtime, runtime, hit, slot);
     }
     let frame = super::inventory_drag::PointerFrame {
         primary_pressed,
@@ -272,7 +288,7 @@ pub(crate) fn drive_inventory_ui_actions(
         secondary_released,
         shift,
         holding: runtime
-            .inventory_ledger(&player_runtime)
+            .inventory_ledger(player_runtime)
             .cursor_stack()
             .is_some(),
         hit,
@@ -281,7 +297,7 @@ pub(crate) fn drive_inventory_ui_actions(
     let actions = runtime.screen_state_mut().pointer.step(frame);
     for action in actions {
         let was_open = runtime.inventory_open();
-        runtime.perform_pointer_action(&mut player_runtime, action);
+        runtime.perform_pointer_action(player_runtime, action);
         if was_open
             && !runtime.inventory_open()
             && let Some(focus) = focus.as_deref_mut()
@@ -303,26 +319,9 @@ pub(crate) fn drive_inventory_ui_actions(
         if outside && (primary_pressed || secondary_pressed) {
             let amount = (!primary_pressed).then_some(1);
             let _ = runtime
-                .inventory_ledger_mut(&mut player_runtime)
+                .inventory_ledger_mut(player_runtime)
                 .begin_drop(DropSource::Cursor, amount);
         }
-    }
-}
-
-/// Applies a close key deferred behind this frame's click, whether or not the click landed.
-pub(crate) fn apply_deferred_inventory_close(
-    mut player_runtime: bevy::prelude::ResMut<crate::player_runtime::PlayerRuntime>,
-    mut runtime: ResMut<UiRuntime>,
-    mut mouse_buttons: ResMut<ButtonInput<MouseButton>>,
-    mut focus: Option<ResMut<client_presentation::camera::CursorFocus>>,
-) {
-    if !runtime.inventory_keys_mut().take_deferred_close() || !runtime.inventory_open() {
-        return;
-    }
-    runtime.close_inventory(&mut player_runtime);
-    mouse_buttons.reset_all();
-    if let Some(focus) = focus.as_deref_mut() {
-        focus.authorize_screen_return();
     }
 }
 
@@ -616,10 +615,26 @@ pub(crate) fn drive_chat_keyboard_input(
             }
             let closes = input.key_code == KeyCode::Escape
                 || binding_key(menu.as_deref(), "key.inventory", input.key_code);
-            if closes && keys_before_pointer.is_some_and(|keys| arrival >= keys) {
-                // The earlier click still lands in the screen before it closes.
-                runtime.inventory_keys_mut().defer_close();
-                continue;
+            if closes
+                && keys_before_pointer.is_some_and(|keys| arrival >= keys)
+                && let Some(presentation) = presentation.as_deref()
+            {
+                // An earlier click lands in the open screen before this key closes it.
+                let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
+                let frame = runtime.inventory_keys_mut().take_frame();
+                apply_inventory_pointer(
+                    &mut player_runtime,
+                    &mut runtime,
+                    window,
+                    presentation,
+                    menu.as_deref(),
+                    &mut mouse_buttons,
+                    (false, false),
+                    frame,
+                    &[],
+                    focus.as_deref_mut(),
+                    now_millis,
+                );
             }
             match input.key_code {
                 key if binding_key(menu.as_deref(), "key.inventory", key) => {

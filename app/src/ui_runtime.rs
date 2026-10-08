@@ -9,9 +9,8 @@ pub mod scene_stack;
 pub mod sign_editor;
 pub(crate) use forms::{drive_server_form_input, flush_server_form_network, typed_text};
 pub(crate) use interaction::{
-    apply_deferred_inventory_close, drive_chat_keyboard_input, drive_chat_ui_actions,
-    drive_inventory_ui_actions, drive_world_inventory_keys, flush_chat_network,
-    flush_inventory_network,
+    drive_chat_keyboard_input, drive_chat_ui_actions, drive_inventory_ui_actions,
+    drive_world_inventory_keys, flush_chat_network, flush_inventory_network,
 };
 pub(crate) use sign_editor::drive_sign_editor;
 
