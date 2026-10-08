@@ -82,21 +82,32 @@ impl<'a> Lines<'a> {
     }
 }
 
-/// Warms both formatting buffers on the first visible publication, preserving row capacity.
-pub(super) fn copy_buffers(lines: &DebugLines) -> DebugLines {
-    DebugLines {
-        left: copy_column(&lines.left),
-        right: copy_column(&lines.right),
-    }
+/// Prepares the returned buffer on changed publications so the next identical tick cannot allocate.
+pub(super) fn warm_buffers(
+    published: &DebugLines,
+    staging: &mut DebugLines,
+    spare: &mut [Vec<String>; 2],
+) {
+    let [left, right] = spare;
+    warm_column(&published.left, &mut staging.left, left);
+    warm_column(&published.right, &mut staging.right, right);
 }
 
-/// Copies one column while reserving the same space as its formatted rows.
-fn copy_column(lines: &[String]) -> Vec<String> {
-    let mut copied = Vec::with_capacity(lines.len());
-    copied.extend(lines.iter().map(|line| {
-        let mut copied = String::with_capacity(line.capacity());
-        copied.push_str(line);
-        copied
-    }));
-    copied
+/// Matches row storage to the publication while preserving buffers removed by shrinking columns.
+fn warm_column(published: &[String], staging: &mut Vec<String>, spare: &mut Vec<String>) {
+    if staging.len() > published.len() {
+        spare.extend(staging.drain(published.len()..));
+    }
+    while staging.len() < published.len() {
+        staging.push(
+            spare
+                .pop()
+                .unwrap_or_else(|| String::with_capacity(ROW_CAPACITY)),
+        );
+    }
+    for (row, displayed) in staging.iter_mut().zip(published) {
+        if row.capacity() < displayed.capacity() {
+            row.reserve(displayed.capacity() - row.len());
+        }
+    }
 }

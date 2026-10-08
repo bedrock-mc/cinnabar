@@ -10,7 +10,7 @@ mod tests;
 
 use std::{fmt::Write, time::Duration};
 
-use lines::{Column, Lines, copy_buffers};
+use lines::{Column, Lines, warm_buffers};
 
 use bevy::{
     ecs::system::SystemParam,
@@ -240,17 +240,22 @@ fn publish_debug_overlay(
     lines.left.push("");
     lines.left.push("F3: hide debug | F2: screenshot");
     let mut published = Some(lines.finish());
-    if !state.publication_present {
-        state.staging = copy_buffers(published.as_ref().unwrap());
-        state.publication_present = true;
-    }
-    if presentation
+    let first_publication = !state.publication_present;
+    let changed = presentation
         .bypass_change_detection()
-        .swap_debug_lines(&mut published)
-    {
+        .swap_debug_lines(&mut published);
+    if changed {
         presentation.set_changed();
     }
     if let Some(previous) = published {
         state.staging = previous;
     }
+    if changed || first_publication {
+        warm_buffers(
+            presentation.debug_lines().unwrap(),
+            &mut state.staging,
+            &mut state.spare_rows,
+        );
+    }
+    state.publication_present = true;
 }

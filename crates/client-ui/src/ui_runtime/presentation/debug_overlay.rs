@@ -93,6 +93,11 @@ impl UiPresentationRuntime {
         }
     }
 
+    /// Borrows the current diagnostic publication without copying its strings.
+    pub fn debug_lines(&self) -> Option<&DebugLines> {
+        self.debug_lines.as_ref()
+    }
+
     /// Publishes changed diagnostics and returns the preceding buffers to the caller.
     pub fn swap_debug_lines(&mut self, lines: &mut Option<DebugLines>) -> bool {
         if self.debug_lines == *lines {

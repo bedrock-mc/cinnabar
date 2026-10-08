@@ -542,3 +542,62 @@ fn first_eligible_publication_samples_frame_counters() {
     assert_eq!(state.gathers, 1);
     assert!(state.ui_line.starts_with("UI: 17 draws"));
 }
+#[test]
+fn changed_diagnostic_rows_warm_both_buffers_before_the_next_unchanged_tick() {
+    use crate::tests::alloc_count::thread_allocations;
+    use bevy::ecs::system::{IntoSystem, System};
+
+    let mut world = World::new();
+    world.insert_resource(ButtonInput::<KeyCode>::default());
+    world.insert_resource(Time::<Real>::default());
+    world.insert_resource(ClientWorld::default());
+    world.insert_resource(LocalPlayerFrameCarrier::default());
+    world.insert_resource(DebugOverlayState::default());
+    world.insert_resource(client_ui::test_support::mini_engine_presentation());
+    let mut system = IntoSystem::into_system(publish_debug_overlay);
+    system.initialize(&mut world);
+    world
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(KeyCode::F3);
+    system.run((), &mut world).unwrap();
+    world.resource_mut::<ButtonInput<KeyCode>>().clear();
+
+    let long_error = "x".repeat(super::lines::ROW_CAPACITY + 1);
+    for (change, error) in [
+        ("grow and add", Some(long_error.clone())),
+        ("shrink", None),
+        ("regrow", Some(long_error)),
+    ] {
+        world.resource_mut::<ClientWorld>().fatal_error = error;
+        world.clear_trackers();
+        world
+            .resource_mut::<Time<Real>>()
+            .advance_by(world::TICK_DURATION);
+        system.run((), &mut world).unwrap();
+        assert!(
+            world
+                .get_resource_ref::<UiPresentationRuntime>()
+                .unwrap()
+                .is_changed(),
+            "changed publication: {change}"
+        );
+
+        world.clear_trackers();
+        world
+            .resource_mut::<Time<Real>>()
+            .advance_by(world::TICK_DURATION);
+        let gathers = world.resource::<DebugOverlayState>().gathers;
+        let before = thread_allocations();
+        system.run((), &mut world).unwrap();
+        let allocations = thread_allocations() - before;
+        assert_eq!(allocations, 0, "unchanged tick after {change}");
+        assert_eq!(world.resource::<DebugOverlayState>().gathers, gathers + 1);
+        assert!(
+            !world
+                .get_resource_ref::<UiPresentationRuntime>()
+                .unwrap()
+                .is_changed(),
+            "unchanged publication after {change}"
+        );
+    }
+}
