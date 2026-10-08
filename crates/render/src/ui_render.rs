@@ -98,6 +98,7 @@ impl Plugin for UiRenderPlugin {
 struct UiRenderInstalled;
 
 fn install_ui_render(app: &mut App) {
+    crate::upload_staging::install(app);
     app.init_resource::<UiRenderSceneResource>()
         .init_resource::<UiGlintSettings>()
         .init_resource::<UiRenderStatsResource>();
