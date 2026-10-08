@@ -173,3 +173,69 @@ fn pinned_cube_items_have_sheets_when_carriers_are_available() {
         sheets.sheets.len()
     );
 }
+
+#[test]
+fn pinned_portal_frame_keeps_its_short_block_mesh_and_distinct_faces() {
+    let (Ok(world_path), Ok(pack_root)) = (
+        std::env::var("PINNED_WORLD_CARRIER"),
+        std::env::var("CINNABAR_VANILLA_RESOURCE_PACK"),
+    ) else {
+        eprintln!(
+            "missing portal-frame fixture: PINNED_WORLD_CARRIER and CINNABAR_VANILLA_RESOURCE_PACK"
+        );
+        return;
+    };
+    let world = RuntimeAssets::decode(&std::fs::read(world_path).unwrap()).unwrap();
+    let entities = RuntimeEntityAssets::from_compiled(
+        pack_compiler::compile_entity_assets(
+            std::path::Path::new(&pack_root),
+            assets::VANILLA_SOURCE_MANIFEST.as_bytes(),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let definition = entities
+        .item_visuals()
+        .iter()
+        .find(|entry| entry.key.identifier.as_ref() == assets::END_PORTAL_FRAME_IDENTIFIER)
+        .unwrap();
+    let ItemVisualDefinitionRoute::BlockItem { block_visual } = definition.route else {
+        panic!("portal frame requires a block route");
+    };
+    let sheets = collect(&world, &entities);
+    let vertices = sheets
+        .models
+        .get(&block_visual.0)
+        .expect("the held portal frame must retain its compiled block model");
+    assert_eq!(vertices.len(), 36);
+    let min = vertices
+        .iter()
+        .map(|vertex| vertex.position[1])
+        .fold(f32::INFINITY, f32::min);
+    let max = vertices
+        .iter()
+        .map(|vertex| vertex.position[1])
+        .fold(f32::NEG_INFINITY, f32::max);
+    assert_eq!(min, -0.5);
+    assert_eq!(max, 13.0 / 16.0 - 0.5);
+    for triangle in vertices.chunks_exact(3) {
+        let positions = triangle
+            .iter()
+            .map(|vertex| glam::Vec3::from_array(vertex.position))
+            .collect::<Vec<_>>();
+        assert!(
+            (positions[1] - positions[0])
+                .cross(positions[2] - positions[0])
+                .dot(glam::Vec3::from_array(triangle[0].normal))
+                > 0.0
+        );
+    }
+    let sheet = &sheets.sheets[sheets.by_visual[&block_visual.0]];
+    let tile_color = |face: BlockFace| {
+        let rect = face_rects([0.0, 0.0, 1.0, 1.0])[face as usize];
+        let x = (((rect[0] + rect[2]) * 0.5) * f32::from(sheet.width)) as usize;
+        let y = (((rect[1] + rect[3]) * 0.5) * f32::from(sheet.height)) as usize;
+        &sheet.rgba8[(y * usize::from(sheet.width) + x) * 4..][..4]
+    };
+    assert_ne!(tile_color(BlockFace::Up), tile_color(BlockFace::Down));
+}
