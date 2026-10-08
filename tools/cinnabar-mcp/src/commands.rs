@@ -77,19 +77,19 @@ pub fn command(
                 (Command::CameraPath(path), CALL_TIMEOUT)
             }
         }
-        "test_cape" => {
+        "test_cape" | "test_accounts" => {
             #[derive(serde::Deserialize)]
             #[serde(deny_unknown_fields)]
-            struct Cape {
+            struct Toggle {
                 enabled: bool,
             }
-            let cape: Cape = parse(arguments, "test cape")?;
-            (
-                Command::TestCape {
-                    enabled: cape.enabled,
-                },
-                CALL_TIMEOUT,
-            )
+            let Toggle { enabled } = parse(arguments, name)?;
+            let command = if name == "test_cape" {
+                Command::TestCape { enabled }
+            } else {
+                Command::TestAccounts { enabled }
+            };
+            (command, CALL_TIMEOUT)
         }
         "state" => (Command::State, CALL_TIMEOUT),
         "wait_for" => {

@@ -26,8 +26,8 @@ pub use geometry::{
 };
 pub use hud::{
     BoundedStat, HudExperience, HudPlayerStatus, HudStore, HudViewNode, HudViewRole,
-    MAX_TOAST_RETAINED_BYTES, MAX_TOASTS, TOAST_DISPLAY_MILLIS, TOAST_SLIDE_IN_MILLIS,
-    TOAST_SLIDE_OUT_MILLIS, TimedText, TitleDurations, Toast,
+    MAX_TOAST_RETAINED_BYTES, MAX_TOASTS, ShownToast, StandingToast, TOAST_DISPLAY_MILLIS,
+    TOAST_SLIDE_IN_MILLIS, TOAST_SLIDE_OUT_MILLIS, TimedText, TitleDurations, Toast, ToastPress,
 };
 pub use icon::IconRef;
 pub use model::{
@@ -45,8 +45,8 @@ pub use scoreboard::{
     ScoreboardProjection, ScoreboardStore,
 };
 pub use settings::{
-    CURRENT_SETTINGS_SCHEMA, DEFAULT_OUTLINE_SELECTION, GameplaySettings, RenderMode, UserSettings,
-    VideoSettings,
+    CURRENT_SETTINGS_SCHEMA, DEFAULT_FOV_DEGREES, DEFAULT_OUTLINE_SELECTION, GameplaySettings,
+    MAX_FOV_DEGREES, MIN_FOV_DEGREES, RenderMode, UserSettings, VideoSettings,
 };
 pub use text::{
     BedrockColor, FONT_ASCENT_TEXELS, FONT_DESIGN_PIXEL_TEXELS, FONT_INK_TEXELS, FormattingPalette,

@@ -129,6 +129,23 @@ impl UnsentSampleView {
     }
 }
 
+/// Where a standalone interaction sits on the movement stream: the tick whose input follows it
+/// and the network position it reports.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct InteractionSample {
+    pub tick: u64,
+    pub position: [f32; 3],
+}
+
+impl From<UnsentSampleView> for InteractionSample {
+    fn from(sample: UnsentSampleView) -> Self {
+        Self {
+            tick: sample.tick,
+            position: sample.position,
+        }
+    }
+}
+
 /// Capacity of every movement retry queue: queued samples, staged sends,
 /// sent-history confirmations, and retained tick evidence.
 pub const OUTBOX_CAPACITY: usize = 32;
@@ -302,6 +319,33 @@ impl MovementTicker {
             displacement: [0.0; 3],
             sneaking: false,
         });
+    }
+
+    /// A frame-time interaction once every completed tick is on the wire: it reports the
+    /// newest admitted tick's position and precedes the next tick's input.
+    pub fn between_ticks_sample(&self) -> Option<InteractionSample> {
+        if !self.outbox.is_empty() || self.held_release.is_some() {
+            return None;
+        }
+        let (tick, position) = self
+            .pending_sends
+            .back()
+            .map(|pending| {
+                (
+                    pending.sample.snapshot.tick,
+                    pending.sample.snapshot.position,
+                )
+            })
+            .or_else(|| {
+                self.sent_history
+                    .back()
+                    .filter(|sent| sent.session_generation == self.session_generation)
+                    .map(|sent| (sent.tick, sent.position))
+            })?;
+        (tick == self.completed_tick()).then_some(InteractionSample {
+            tick: tick.checked_add(1)?,
+            position,
+        })
     }
 
     /// Looks up only the exact tick still owned by the unsent movement queue.

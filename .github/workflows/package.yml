@@ -299,7 +299,7 @@ jobs:
       - name: Install build and packaging dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --yes libwayland-dev libxkbcommon-dev libasound2-dev librsvg2-bin
+          sudo apt-get install --yes libwayland-dev libxkbcommon-dev libasound2-dev libudev-dev librsvg2-bin
           fetch() {
             curl --fail --location --silent --show-error --output "$1" "$2"
             echo "$3  $1" | sha256sum --check --strict

@@ -735,7 +735,11 @@ impl Painter<'_> {
             "gradient_renderer" => Some((self.gradient(data, &alpha)?, dest)),
             "animated_gif_renderer" => self.animated_gif(data, dest, &alpha),
             "profile_image_renderer" => {
-                let portrait = self.art.portrait?;
+                // A friend row names its own gamerpic; elsewhere it is the player's.
+                let portrait = match data.get("#profile_image_options") {
+                    Some(serde_json::Value::String(path)) => *self.art.images?.get(path)?,
+                    _ => self.art.portrait?,
+                };
                 Some((
                     UiVisual::Sprite {
                         texture_page: portrait.page,

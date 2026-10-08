@@ -195,6 +195,10 @@ pub enum Command {
     TestCape {
         enabled: bool,
     },
+    /// Presents a signed-in launcher with placeholder accounts; nothing signs in or is saved.
+    TestAccounts {
+        enabled: bool,
+    },
     State,
     WaitFor {
         condition: Condition,

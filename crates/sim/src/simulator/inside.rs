@@ -30,11 +30,14 @@ pub(super) fn stuck_multiplier(
     if input.mode == MovementMode::Flying && input.creative_flight {
         return None;
     }
-    let cobweb = sampled.movement.in_cobweb.then_some(if input.effects.weaving {
-        WEAVING_COBWEB
-    } else {
-        COBWEB
-    });
+    let cobweb = sampled
+        .movement
+        .in_cobweb
+        .then_some(if input.effects.weaving {
+            WEAVING_COBWEB
+        } else {
+            COBWEB
+        });
     match cobweb {
         Some(cobweb) => Some(environment::merge_stuck(sampled.stuck, cobweb)),
         None => sampled.stuck,
