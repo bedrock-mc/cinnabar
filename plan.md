@@ -6569,8 +6569,10 @@ hardware budgets and matched-version pixel comparison remain incomplete.
 Spear bindings and pose inputs now consume authored swing and kinetic timings.
 Attacks at actors, air or blocks send the item-directed transaction with aim and cooldown state,
 allowing the server to apply damage and Lunge movement. Component, admission,
-catalog/reset and real-carrier animation regressions pass. Live action proof and
-the complete matched-version native comparison remain incomplete. See
+catalog/reset and real-carrier animation regressions pass. Matched live captures
+show the jab, charged hold and default-Java third-person arm; server-confirmed
+Lunge moves the fixed client without movement input. The complete matched-version
+native comparison remains incomplete. See
 [spear actions](docs/reference/spear-actions.md).
 
 ## Local placement prediction

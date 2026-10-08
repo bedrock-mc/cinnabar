@@ -11,6 +11,9 @@ cooldown category and kinetic phase lengths. Session entries override the startu
 catalog, and disconnect restores that catalog. Durations are normalized once to
 simulation ticks. First-person and third-person clips receive jab progress,
 charged-use phases and confirmed kinetic-hit timing from that same state.
+Both flat authored components and wrapped session kinetic components retain
+their phase timings. The default Java animation setting preserves the native
+charged spear posture for explicitly tagged spear items.
 
 An attack press sends the item-directed attack
 transaction with the selected authoritative stack, aim point and cooldown flag.
@@ -27,5 +30,8 @@ contract.
 Regressions cover malformed optional components, authored versus throwing
 cooldowns, category expiry, admission rollback, invalid aim, session reset,
 animation queries, pack-authored overrides and actual compiled spear carriers.
+Live before/after captures show the jab, first-person charged hold and raised
+third-person arm. A server-confirmed Lunge jab moves the fixed client while
+the baseline stays still, without movement input during the action.
 An exact-version native comparison of all attack target cases and pose samples
 remains incomplete.
