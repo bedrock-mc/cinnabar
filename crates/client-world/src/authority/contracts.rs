@@ -119,6 +119,8 @@ pub enum CommittedControlEvent {
         sprint_modifier: Option<f32>,
         underwater: Option<f64>,
         lava: Option<f64>,
+        /// Finite `minecraft:air_drag_modifier` current.
+        air_drag_modifier: Option<f32>,
         /// Local input tick the server stamped; zero when unstamped.
         tick: u64,
     },

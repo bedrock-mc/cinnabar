@@ -367,7 +367,7 @@ fn overlay_scaling_fits_dense_columns_at_desktop_dpi_and_gui_scales() {
     ] {
         let metrics = TextMetrics::for_viewport(size, DpiScale::new(dpi).unwrap(), preference);
         let height = size[1] as f32 / dpi;
-        let fitted = debug_overlay::fitted_metrics(metrics, height);
+        let fitted = debug_overlay::visible::fitted_metrics(metrics, height);
         assert!(fitted.scale.get() <= metrics.scale.get());
         assert!(fitted.scale.get() >= metrics.scale.get() / 2.0);
         let px = fitted.scale.get() * ui::FONT_DESIGN_PIXEL_TEXELS as f32;
@@ -426,4 +426,531 @@ fn coordinates_and_facing_remain_complete_when_hardware_names_are_long() {
         layouts[2].ellipsized(),
         "extreme device names give way to position data"
     );
+}
+
+#[test]
+fn unchanged_overlay_paint_allocates_nothing_and_reuses_glyph_runs() {
+    let mut presentation = mini_engine_presentation();
+    presentation.set_debug_lines(Some(DebugLines {
+        left: vec!["FPS 360".into(), "XYZ 1 2 3".into()],
+        right: vec!["GPU".into()],
+    }));
+    let metrics = TextMetrics::for_viewport([800, 600], DpiScale::new(1.0).unwrap(), None);
+    let mut nodes = Vec::with_capacity(64);
+    presentation
+        .append_debug_overlay(&mut nodes, &mut 1, metrics, [800.0, 600.0])
+        .unwrap();
+    let expected = nodes.clone();
+    let passes = presentation.debug_overlay.passes;
+    nodes.clear();
+    let (result, allocations) = crate::allocation_count::count(|| {
+        presentation.append_debug_overlay(&mut nodes, &mut 1, metrics, [800.0, 600.0])
+    });
+    result.unwrap();
+    assert_eq!(
+        allocations, 0,
+        "unchanged diagnostics retain their painted nodes"
+    );
+    assert_eq!(presentation.debug_overlay.passes, passes);
+    assert_eq!(nodes, expected);
+    for (current, kept) in nodes.iter().zip(&expected) {
+        if let (
+            UiVisual::Text {
+                layout: current, ..
+            },
+            UiVisual::Text { layout: kept, .. },
+        ) = (current.visual(), kept.visual())
+        {
+            assert!(std::sync::Arc::ptr_eq(current, kept));
+        }
+    }
+}
+
+#[test]
+fn changing_one_overlay_line_only_measures_its_text() {
+    use std::cell::RefCell;
+
+    struct Measured(RefCell<Vec<String>>);
+    impl TextMeasure for Measured {
+        fn extent(&self, text: &str) -> [f64; 2] {
+            self.0.borrow_mut().push(text.to_owned());
+            DiagnosticFont.extent(text)
+        }
+    }
+    let measured = Measured(RefCell::default());
+    let env = LayoutEnv {
+        text: &measured,
+        textures: &NoTextures,
+    };
+    let mut lines = DebugLines {
+        left: vec!["FPS 360".into(), "XYZ 1 2 3".into()],
+        right: vec!["GPU".into()],
+    };
+    let mut cache = debug_overlay::OverlayCache::default();
+    debug_overlay::render(&mut cache, &lines, ([640.0, 360.0], 1.0), &env);
+    measured.0.borrow_mut().clear();
+    lines.left[0] = "FPS 359".into();
+    debug_overlay::render(&mut cache, &lines, ([640.0, 360.0], 1.0), &env);
+    let measured = measured.0.borrow();
+    assert!(measured.iter().any(|line| line == "FPS 359"));
+    assert!(
+        measured.iter().all(|line| line == "FPS 359"),
+        "measured: {measured:?}"
+    );
+}
+
+#[test]
+fn unchanged_overlay_frame_reuses_geometry_and_publication() {
+    let player = player_state::PlayerState::new(1);
+    let runtime = UiRuntime::new(1);
+    let mut presentation = mini_engine_presentation();
+    presentation.set_debug_lines(Some(DebugLines {
+        left: vec!["FPS 360".into(), "XYZ 1 2 3".into()],
+        right: vec!["GPU".into()],
+    }));
+    let first = presentation
+        .build(
+            &player,
+            &runtime,
+            0,
+            [800, 600],
+            DpiScale::new(1.0).unwrap(),
+        )
+        .unwrap();
+    let tree_builds = presentation.tree_builds;
+    let second = presentation
+        .build(
+            &player,
+            &runtime,
+            1,
+            [800, 600],
+            DpiScale::new(1.0).unwrap(),
+        )
+        .unwrap();
+    assert_eq!(presentation.tree_builds, tree_builds);
+    assert_eq!(first.revision, second.revision);
+    assert!(std::sync::Arc::ptr_eq(&first.vertices, &second.vertices));
+    assert!(std::sync::Arc::ptr_eq(&first.indices, &second.indices));
+    assert!(std::sync::Arc::ptr_eq(&first.textures, &second.textures));
+}
+#[test]
+fn overlay_paint_refreshes_when_its_presentation_inputs_change() {
+    for change in [
+        "font", "viewport", "scale", "grid", "dpi", "solid", "safe", "engine",
+    ] {
+        let mut presentation = mini_engine_presentation();
+        presentation.set_debug_lines(Some(DebugLines {
+            left: vec!["FPS 360".into()],
+            right: vec!["GPU".into()],
+        }));
+        let mut viewport = [800, 600];
+        let mut content = [800.0, 600.0];
+        let mut dpi = 1.0;
+        let mut preference = None;
+        let mut nodes = Vec::with_capacity(64);
+        presentation
+            .append_debug_overlay(
+                &mut nodes,
+                &mut 1,
+                TextMetrics::for_viewport(viewport, DpiScale::new(dpi).unwrap(), preference),
+                content,
+            )
+            .unwrap();
+        match change {
+            "font" => presentation.font = crate::test_support::fixture_font(),
+            "viewport" => {
+                viewport[0] += 100;
+                content[0] += 100.0;
+            }
+            "scale" => preference = Some(1),
+            "grid" => {}
+            "dpi" => dpi = 2.0,
+            "solid" => presentation.solid_texture_page += 1,
+            "safe" => presentation.set_safe_area(ui::SafeArea::new(4.0, 2.0, 0.0, 0.0).unwrap()),
+            "engine" => presentation
+                .enable_json_ui(crate::test_support::mini_carrier())
+                .unwrap(),
+            _ => unreachable!(),
+        }
+        presentation.debug_overlay.retain_font(&presentation.font);
+        let paints = presentation.debug_overlay.paints;
+        let mut metrics =
+            TextMetrics::for_viewport(viewport, DpiScale::new(dpi).unwrap(), preference);
+        if change == "grid" {
+            metrics.gui_scale += 0.5;
+        }
+        let previous_nodes = nodes.clone();
+        nodes.clear();
+        presentation
+            .append_debug_overlay(&mut nodes, &mut 1, metrics, content)
+            .unwrap();
+        assert_eq!(presentation.debug_overlay.paints, paints + 1, "{change}");
+        if change == "grid" {
+            assert_ne!(nodes, previous_nodes);
+        }
+        nodes.clear();
+        presentation
+            .append_debug_overlay(&mut nodes, &mut 1, metrics, content)
+            .unwrap();
+        assert_eq!(
+            presentation.debug_overlay.paints,
+            paints + 1,
+            "unchanged {change}"
+        );
+    }
+}
+
+#[test]
+fn publishing_equal_overlay_lines_keeps_both_buffer_sets() {
+    let mut presentation = mini_engine_presentation();
+    let mut staged = Some(DebugLines {
+        left: vec!["FPS 360".into()],
+        right: Vec::new(),
+    });
+    let storage = staged.as_ref().unwrap().left[0].as_ptr();
+    assert!(presentation.swap_debug_lines(&mut staged));
+    assert!(staged.is_none());
+    assert_eq!(
+        presentation.debug_lines.as_ref().unwrap().left[0].as_ptr(),
+        storage
+    );
+    staged = Some(DebugLines {
+        left: vec!["FPS 360".into()],
+        right: Vec::new(),
+    });
+    let staged_storage = staged.as_ref().unwrap().left[0].as_ptr();
+    let (_, allocations) = crate::allocation_count::count(|| {
+        assert!(!presentation.swap_debug_lines(&mut staged));
+    });
+    assert_eq!(allocations, 0);
+    assert_eq!(staged.as_ref().unwrap().left[0].as_ptr(), staged_storage);
+    assert_eq!(
+        presentation.debug_lines.as_ref().unwrap().left[0].as_ptr(),
+        storage
+    );
+    staged.as_mut().unwrap().left[0].clear();
+    staged.as_mut().unwrap().left[0].push_str("FPS 359");
+    assert!(presentation.swap_debug_lines(&mut staged));
+    assert_eq!(staged.as_ref().unwrap().left[0].as_ptr(), storage);
+    assert_eq!(
+        presentation.debug_lines.as_ref().unwrap().left[0],
+        "FPS 359"
+    );
+}
+#[test]
+fn changes_outside_displayed_rows_keep_paint_and_glyphs() {
+    let mut presentation = mini_engine_presentation();
+    let mut lines = DebugLines {
+        left: (0..50).map(|index| format!("row {index}")).collect(),
+        right: Vec::new(),
+    };
+    presentation.set_debug_lines(Some(lines.clone()));
+    let metrics = TextMetrics::for_viewport([800, 600], DpiScale::new(1.0).unwrap(), None);
+    let mut nodes = Vec::with_capacity(200);
+    presentation
+        .append_debug_overlay(&mut nodes, &mut 1, metrics, [800.0, 600.0])
+        .unwrap();
+    let paints = presentation.debug_overlay.paints;
+    let passes = presentation.debug_overlay.passes;
+    lines.left[49] = "changed hidden row".into();
+    presentation.set_debug_lines(Some(lines));
+    nodes.clear();
+    let (_, allocations) = crate::allocation_count::count(|| {
+        presentation
+            .append_debug_overlay(&mut nodes, &mut 1, metrics, [800.0, 600.0])
+            .unwrap();
+    });
+    assert_eq!(allocations, 0);
+    assert_eq!(presentation.debug_overlay.paints, paints);
+    assert_eq!(presentation.debug_overlay.passes, passes);
+}
+
+#[test]
+fn diagnostic_eligibility_matches_the_rendered_stack_without_allocations() {
+    use crate::menu::{MenuScreen, MenuView};
+    use crate::ui_runtime::presentation::LoadingStage;
+    use crate::ui_runtime::scene_stack::Scene;
+    let mut player = player_state::PlayerState::new(1);
+    let mut runtime = UiRuntime::new(1);
+    runtime
+        .publish_local_runtime_id(&mut player, 1, 42)
+        .unwrap();
+    runtime.publish_inventory_authority(&mut player, protocol::InventoryAuthority::Server);
+    let mut presentation = mini_engine_presentation();
+    for cover in [
+        "game",
+        "pause",
+        "loading",
+        "chat",
+        "inventory",
+        "disconnected",
+    ] {
+        match cover {
+            "pause" => {
+                let mut menu = MenuView::new(true, "Player".into());
+                menu.screen = MenuScreen::Pause;
+                menu.over_world = true;
+                presentation.set_menu_view(Some(menu));
+            }
+            "loading" => presentation.set_loading_stage(Some(LoadingStage::Connecting)),
+            "chat" => {
+                runtime.open_chat(&mut player);
+            }
+            "inventory" => {
+                runtime.toggle_inventory(&mut player);
+            }
+            "disconnected" => runtime = UiRuntime::new(0),
+            _ => (),
+        }
+        let stack = runtime.scenes_in(
+            &player,
+            presentation.scene_host(),
+            &presentation.screen_settings(),
+        );
+        let expected = stack.visible(false).contains(&Scene::Gameplay)
+            && stack
+                .scenes()
+                .iter()
+                .all(|entry| matches!(entry.key, Scene::Gameplay | Scene::Crosshair | Scene::Hud));
+        let (allowed, allocations) = crate::allocation_count::count(|| {
+            presentation.debug_overlay_allowed(&player, &runtime)
+        });
+        assert_eq!(allowed, expected, "{cover}");
+        assert_eq!(allowed, cover == "game", "{cover}");
+        assert_eq!(allocations, 0, "{cover}");
+        presentation.set_menu_view(None);
+        presentation.set_loading_stage(None);
+        runtime.close_chat();
+        runtime.close_inventory(&mut player);
+    }
+}
+
+#[test]
+fn retained_overlay_reparents_when_other_hud_nodes_change() {
+    let mut presentation = mini_engine_presentation();
+    presentation.set_debug_lines(Some(DebugLines {
+        left: vec!["FPS 360".into()],
+        right: Vec::new(),
+    }));
+    let metrics = TextMetrics::for_viewport([800, 600], DpiScale::new(1.0).unwrap(), None);
+    let mut nodes = Vec::with_capacity(64);
+    let mut next = 7;
+    presentation
+        .append_debug_overlay(&mut nodes, &mut next, metrics, [800.0, 600.0])
+        .unwrap();
+    let identities: Vec<_> = nodes
+        .iter()
+        .map(|node| (node.id().get(), node.parent().map(|parent| parent.get())))
+        .collect();
+    let end = next;
+    let paints = presentation.debug_overlay.paints;
+    nodes.clear();
+    next = 17;
+    presentation
+        .append_debug_overlay(&mut nodes, &mut next, metrics, [800.0, 600.0])
+        .unwrap();
+    assert_eq!(next, end + 10);
+    assert_eq!(presentation.debug_overlay.paints, paints);
+    for (node, (id, parent)) in nodes.iter().zip(identities) {
+        assert_eq!(node.id().get(), id + 10);
+        assert_eq!(
+            node.parent().map(|parent| parent.get()),
+            parent.map(|parent| parent + 10)
+        );
+    }
+}
+
+#[test]
+fn pack_hud_visibility_controls_diagnostic_eligibility_without_allocations() {
+    use crate::ui_runtime::presentation::ServerUiPack;
+    use crate::ui_runtime::scene_stack::Scene;
+
+    let player = player_state::PlayerState::new(1);
+    let runtime = UiRuntime::new(1);
+    let mut presentation = mini_engine_presentation();
+    let base = presentation.pack_catalog_base().unwrap();
+    let (namespace, name) = json_ui::HUD_SCREEN.split_once('.').unwrap();
+    for render_game_behind in [false, true] {
+        let definition = serde_json::to_vec(&serde_json::json!({
+            "namespace": namespace,
+            (name): {
+                "type": "screen",
+                "render_game_behind": render_game_behind,
+                "render_only_when_topmost": false
+            }
+        }))
+        .unwrap();
+        let pack = ServerUiPack {
+            ui_layers: vec![vec![
+                (
+                    "ui/_ui_defs.json".into(),
+                    br#"{"ui_defs":["ui/f3_policy.json"]}"#.to_vec(),
+                ),
+                ("ui/f3_policy.json".into(), definition),
+            ]],
+            ..Default::default()
+        }
+        .prepare_catalog(&base);
+        presentation.set_server_ui_pack(&pack);
+        let stack = runtime.scenes_in(
+            &player,
+            presentation.scene_host(),
+            &presentation.screen_settings(),
+        );
+        assert!(stack.contains(Scene::Hud));
+        assert_eq!(
+            stack.visible(false).contains(&Scene::Gameplay),
+            render_game_behind
+        );
+        let (allowed, allocations) = crate::allocation_count::count(|| {
+            presentation.debug_overlay_allowed(&player, &runtime)
+        });
+        assert_eq!(allowed, render_game_behind);
+        assert_eq!(allocations, 0);
+    }
+}
+
+#[test]
+fn changing_one_line_retains_other_painted_glyph_runs() {
+    let mut presentation = mini_engine_presentation();
+    let mut lines = DebugLines {
+        left: vec!["FPS 360".into(), "XYZ 1 2 3".into()],
+        right: vec!["GPU".into()],
+    };
+    presentation.set_debug_lines(Some(lines.clone()));
+    let metrics = TextMetrics::for_viewport([800, 600], DpiScale::new(1.0).unwrap(), None);
+    let mut nodes = Vec::with_capacity(64);
+    presentation
+        .append_debug_overlay(&mut nodes, &mut 1, metrics, [800.0, 600.0])
+        .unwrap();
+    let before: Vec<_> = nodes
+        .iter()
+        .filter_map(|node| match node.visual() {
+            UiVisual::Text { layout, .. } => Some(std::sync::Arc::clone(layout)),
+            _ => None,
+        })
+        .collect();
+    lines.left[0] = "FPS 359".into();
+    presentation.set_debug_lines(Some(lines));
+    nodes.clear();
+    presentation
+        .append_debug_overlay(&mut nodes, &mut 1, metrics, [800.0, 600.0])
+        .unwrap();
+    let after: Vec<_> = nodes
+        .iter()
+        .filter_map(|node| match node.visual() {
+            UiVisual::Text { layout, .. } => Some(layout),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(before.len(), 3);
+    assert_eq!(after.len(), 3);
+    assert!(!std::sync::Arc::ptr_eq(&before[0], after[0]));
+    assert!(std::sync::Arc::ptr_eq(&before[1], after[1]));
+    assert!(std::sync::Arc::ptr_eq(&before[2], after[2]));
+}
+
+#[test]
+fn unchanged_overlay_frames_reuse_scene_assembly_storage() {
+    let player = player_state::PlayerState::new(1);
+    let runtime = UiRuntime::new(1);
+    let mut presentation = mini_engine_presentation();
+    let mut lines = DebugLines {
+        left: vec!["FPS 360".into(), "XYZ 1 2 3".into()],
+        right: vec!["GPU".into()],
+    };
+    presentation.set_debug_lines(Some(lines.clone()));
+    let first = presentation
+        .build(
+            &player,
+            &runtime,
+            0,
+            [800, 600],
+            DpiScale::new(1.0).unwrap(),
+        )
+        .unwrap();
+    let capacity = presentation.assembly_nodes.capacity();
+    let storage = presentation.assembly_nodes.as_ptr();
+    let retained_storage = presentation.last_frame.as_ref().unwrap().nodes.as_ptr();
+    let tree_builds = presentation.tree_builds;
+    assert!(!presentation.assembly_nodes.is_empty());
+    let second = presentation
+        .build(
+            &player,
+            &runtime,
+            1,
+            [800, 600],
+            DpiScale::new(1.0).unwrap(),
+        )
+        .unwrap();
+    assert_eq!(presentation.assembly_nodes.capacity(), capacity);
+    assert_eq!(presentation.assembly_nodes.as_ptr(), storage);
+    assert_eq!(
+        presentation.last_frame.as_ref().unwrap().nodes.as_ptr(),
+        retained_storage
+    );
+    assert_eq!(presentation.tree_builds, tree_builds);
+    assert_eq!(first.revision, second.revision);
+    assert!(std::sync::Arc::ptr_eq(&first.vertices, &second.vertices));
+    assert!(std::sync::Arc::ptr_eq(&first.indices, &second.indices));
+    lines.left[0] = "FPS 359".into();
+    presentation.set_debug_lines(Some(lines));
+    presentation
+        .build(
+            &player,
+            &runtime,
+            2,
+            [800, 600],
+            DpiScale::new(1.0).unwrap(),
+        )
+        .unwrap();
+    assert_eq!(presentation.assembly_nodes.capacity(), capacity);
+    assert_eq!(presentation.assembly_nodes.as_ptr(), storage);
+    assert_eq!(
+        presentation.last_frame.as_ref().unwrap().nodes.as_ptr(),
+        retained_storage
+    );
+}
+
+#[test]
+fn obfuscated_overlay_text_keeps_its_style_and_resamples_frame_geometry() {
+    let player = player_state::PlayerState::new(1);
+    let runtime = UiRuntime::new(1);
+    let mut presentation = mini_engine_presentation();
+    presentation.set_debug_lines(Some(DebugLines {
+        left: vec!["Name: §kSecret".into()],
+        right: Vec::new(),
+    }));
+    presentation
+        .build(
+            &player,
+            &runtime,
+            0,
+            [800, 600],
+            DpiScale::new(1.0).unwrap(),
+        )
+        .unwrap();
+    let tree_builds = presentation.tree_builds;
+    let paints = presentation.debug_overlay.paints;
+    assert!(presentation.last_frame.is_none());
+    assert!(presentation.assembly_nodes.iter().any(|node| {
+        matches!(node.visual(), UiVisual::Text { layout, .. }
+            if layout.glyphs().iter().any(|glyph| glyph.style.obfuscated))
+    }));
+    presentation
+        .build(
+            &player,
+            &runtime,
+            1,
+            [800, 600],
+            DpiScale::new(1.0).unwrap(),
+        )
+        .unwrap();
+    assert_eq!(presentation.tree_builds, tree_builds + 1);
+    assert_eq!(presentation.debug_overlay.paints, paints);
+    assert!(presentation.last_frame.is_none());
+    assert!(presentation.assembly_nodes.iter().any(|node| {
+        matches!(node.visual(), UiVisual::Text { layout, .. }
+            if layout.glyphs().iter().any(|glyph| glyph.style.obfuscated))
+    }));
 }

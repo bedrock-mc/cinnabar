@@ -8,6 +8,7 @@ pub(crate) use gameplay::movement::PredictionSyncState;
 pub(crate) fn send_movement_prediction_sync(
     mut physics: ResMut<LocalPhysicsController>,
     client_world: Res<ClientWorld>,
+    player_runtime: Res<crate::player_runtime::PlayerRuntime>,
     network: Option<Res<NetworkHandle>>,
     mut state: Local<PredictionSyncState>,
 ) {
@@ -17,6 +18,7 @@ pub(crate) fn send_movement_prediction_sync(
     gameplay::movement::send_movement_prediction_sync(
         &mut physics,
         &super::GameplayWorldView(stream),
+        player_runtime.facts.air_drag_modifier(),
         &mut state,
         |packet| network.send_movement_packet(packet).is_ok(),
     );

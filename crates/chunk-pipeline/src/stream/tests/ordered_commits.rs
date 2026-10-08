@@ -322,6 +322,7 @@ fn speed_attribute_backlog_behind_a_pending_decode_commits_one_control_per_updat
                         attribute("minecraft:movement", current),
                         attribute("minecraft:underwater_movement", current / 2.0),
                         attribute("minecraft:lava_movement", current / 4.0),
+                        attribute("minecraft:air_drag_modifier", current * 2.0),
                     ]),
                     tick: sequence,
                 })),
@@ -370,9 +371,11 @@ fn speed_attribute_backlog_behind_a_pending_decode_commits_one_control_per_updat
             current: Some(current),
             underwater: Some(underwater),
             lava: Some(lava),
+            air_drag_modifier: Some(air_drag),
             ..
         }) if *current == f64::from(last)
             && *underwater == f64::from(last / 2.0)
             && *lava == f64::from(last / 4.0)
+            && *air_drag == last * 2.0
     ));
 }

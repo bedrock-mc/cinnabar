@@ -90,10 +90,11 @@ impl CommittedGameplayState<'_> {
             sprint_modifier,
             underwater,
             lava,
+            air_drag_modifier,
             tick,
         } = control
         {
-            // Both attribute edits share the packet's stamp, so one replay covers them.
+            // Every attribute edit shares the packet's stamp, so one replay covers them.
             let mut rewind = None;
             if let Some(current) = current
                 && self.speed.apply(
@@ -121,6 +122,12 @@ impl CommittedGameplayState<'_> {
                 )
                 && self.movement.physics_is_authorized()
                 && let Some(edited) = self.physics.retime_liquid_movement_speeds(tick, speeds)
+            {
+                rewind = Some(rewind.map_or(edited, |earlier: u64| earlier.min(edited)));
+            }
+            if let Some(current) = air_drag_modifier
+                && self.movement.physics_is_authorized()
+                && let Some(edited) = self.physics.retime_air_drag_modifier(tick, current)
             {
                 rewind = Some(rewind.map_or(edited, |earlier: u64| earlier.min(edited)));
             }
