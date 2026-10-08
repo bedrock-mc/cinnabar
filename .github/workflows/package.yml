@@ -427,3 +427,9 @@ jobs:
             gh release create "$RELEASE_TAG" dist/* --verify-tag --target "$RELEASE_COMMIT" \
               --title "$RELEASE_TAG" --generate-notes --notes-file "$RUNNER_TEMP/notes.md"
           fi
+      - name: Post the changelog to Discord
+        if: needs.prepare.outputs.channel == 'stable'
+        continue-on-error: true
+        env:
+          DISCORD_CHANGELOG_WEBHOOK: ${{ secrets.DISCORD_CHANGELOG_WEBHOOK }}
+        run: python3 "$GITHUB_WORKSPACE/release-tools/packaging/discord-changelog.py" "$RELEASE_TAG"
