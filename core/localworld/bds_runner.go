@@ -94,7 +94,7 @@ func (r BDSRunner) Start(ctx context.Context, spec StartSpec) (Instance, error) 
 		unlinkWorld(link)
 		return nil, err
 	}
-	wrapped := &bdsInstance{Instance: inst, cleanup: func() { unlinkWorld(link) }}
+	wrapped := &bdsInstance{Instance: inst, cleanup: func() { unlinkWorld(link) }, maxPlayers: maxPlayers}
 	if r.LANVisible {
 		wrapped.lanAddress = bdsLANAddress(0)
 	}
@@ -111,9 +111,13 @@ type bdsInstance struct {
 	cleanup    func()
 	once       sync.Once
 	lanAddress string
+	maxPlayers int
 }
 
 func (b *bdsInstance) LANAddress() string { return b.lanAddress }
+
+// MaxPlayers is the server's player limit, the host included.
+func (b *bdsInstance) MaxPlayers() int { return b.maxPlayers }
 
 func (b *bdsInstance) cleanupOnce() { b.once.Do(b.cleanup) }
 

@@ -5,7 +5,7 @@ mod launch;
 mod presence;
 
 pub use join::join_address;
-pub use presence::Presence;
+pub use presence::{JoinRequest, Presence};
 
 use discord_presence::models::Activity;
 
@@ -61,6 +61,8 @@ pub struct Target {
     pub join: Option<String>,
     /// A featured server's own art, shown in the card's corner.
     pub badge: Option<Badge>,
+    /// The destination's player limit, for the card's party size.
+    pub max_players: Option<u32>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -75,7 +77,13 @@ pub struct Badge {
 const MAX_IMAGE_BYTES: usize = 256;
 
 impl State {
-    pub fn activity(self, started_at: u64, target: Option<&Target>) -> Activity {
+    /// `players` is how many are in the session now, for the party size.
+    pub fn activity(
+        self,
+        started_at: u64,
+        target: Option<&Target>,
+        players: Option<u32>,
+    ) -> Activity {
         let destination = target.map(|target| &target.destination);
         let mut state = match (self, destination) {
             (Self::Menus, _) => "In the menus".to_owned(),
@@ -122,14 +130,33 @@ impl State {
                 }
             })
             .timestamps(|timestamps| timestamps.start(started_at));
-        let invite = (self == Self::Playing)
-            .then(|| target?.join.as_deref())
-            .flatten()
-            .and_then(|address| Some((join::party_id(address), join::secret(address)?)));
-        match invite {
-            Some((party, secret)) => activity
-                .party(|joined| joined.id(party))
-                .secrets(|secrets| secrets.join(secret)),
+        let target = target.filter(|_| self == Self::Playing);
+        let (party, secret) = target
+            .and_then(|target| target.join.as_deref())
+            .and_then(|address| Some((join::party_id(address), join::secret(address)?)))
+            .unzip();
+        // Discord shows "(current of max)" and rejects a current above max.
+        let size = target
+            .and_then(|target| target.max_players)
+            .filter(|max| *max > 0)
+            .zip(players)
+            .map(|(max, current)| (current.clamp(1, max), max));
+        let activity = if party.is_some() || size.is_some() {
+            activity.party(|joined| {
+                let joined = match party {
+                    Some(party) => joined.id(party),
+                    None => joined,
+                };
+                match size {
+                    Some(size) => joined.size(size),
+                    None => joined,
+                }
+            })
+        } else {
+            activity
+        };
+        match secret {
+            Some(secret) => activity.secrets(|secrets| secrets.join(secret)),
             None => activity,
         }
     }
@@ -139,7 +166,7 @@ const MAX_STATE_BYTES: usize = 128;
 
 #[derive(Default)]
 struct Publication {
-    last: Option<(State, u64, Option<Target>)>,
+    last: Option<(State, u64, Option<Target>, Option<u32>)>,
     /// When the current target went live, so the in-game timer counts the session.
     playing_since: Option<u64>,
 }
@@ -150,26 +177,34 @@ impl Publication {
         state: State,
         connection: u64,
         target: Option<&Target>,
+        players: Option<u32>,
         now: u64,
     ) -> bool {
+        // The library sends one update per 15 s, so a join's brief loading card would hold the
+        // in-world card back; the previous card stays up while joining instead.
+        if state == State::Joining {
+            return false;
+        }
         let target = target.filter(|_| state == State::Playing);
-        if let Some((last_state, last_connection, last_target)) = &self.last
+        let players = players.filter(|_| state == State::Playing);
+        if let Some((last_state, last_connection, last_target, last_players)) = &self.last
             && *last_state == state
             && *last_connection == connection
             && last_target.as_ref() == target
+            && *last_players == players
         {
             return false;
         }
         let same_session = matches!(
             &self.last,
-            Some((State::Playing, _, last)) if last.as_ref() == target
+            Some((State::Playing, _, last, _)) if last.as_ref() == target
         );
         if state != State::Playing {
             self.playing_since = None;
         } else if !same_session {
             self.playing_since = Some(now);
         }
-        self.last = Some((state, connection, target.cloned()));
+        self.last = Some((state, connection, target.cloned(), players));
         true
     }
 }

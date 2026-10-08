@@ -19,7 +19,7 @@ use super::{
 };
 use crate::install_layout::InstallLayout;
 
-const UNPACK_LABEL: &str = "Unpacking the Minecraft sample resource pack";
+pub(super) const UNPACK_LABEL: &str = "Unpacking the Minecraft sample resource pack";
 
 /// The bundled UI font's file name, from the kit's copy of the font manifest.
 pub(super) fn ui_font_file(kit: &Path) -> Result<String> {

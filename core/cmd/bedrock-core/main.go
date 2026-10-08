@@ -137,7 +137,7 @@ func parseFlags(args []string, stderr io.Writer) (options, error) {
 		&opts.bdsMaxPlayers,
 		"bds-max-players",
 		0,
-		"maximum players in a local Bedrock Dedicated Server (zero uses the single-player default)",
+		"maximum players in a local Bedrock Dedicated Server (zero uses vanilla's hosted-world limit)",
 	)
 	flags.IntVar(&opts.bdsHostPort, "bds-host-port", 0,
 		fmt.Sprintf("local BDS loopback host port (zero selects an available port; conventional port is %d)", localworld.DefaultBDSPort))
@@ -352,11 +352,26 @@ func runWithResourcePackCacheFactory(
 	if statusStore != nil {
 		if localWorlds != nil {
 			// Opening a local world supersedes any pending transfer or selected upstream.
-			controlServer.SetWorlds(control.WithOpenHook(localWorlds, func() {
+			worlds := control.WithOpenHook(localWorlds, func() {
 				transfers.Clear()
 				selector.Set("")
 				statusStore.ClearTransfer()
-			}))
+			})
+			if account != nil {
+				hosting := &friendHosting{account: account, worlds: localWorlds, target: localTarget, log: logger}
+				hostingCtx, stopHosting := context.WithCancel(ctx)
+				hostingDone := make(chan struct{})
+				go func() {
+					defer close(hostingDone)
+					hosting.run(hostingCtx)
+				}()
+				defer func() {
+					stopHosting()
+					<-hostingDone
+				}()
+				worlds = control.WithInvites(worlds, hosting.Invite)
+			}
+			controlServer.SetWorlds(worlds)
 		}
 		artworkDir, cacheFile := filepath.Join(opts.socketDir, "artwork"), ""
 		if dir := authSibling(opts.authCache, "catalog-cache"); dir != "" {
