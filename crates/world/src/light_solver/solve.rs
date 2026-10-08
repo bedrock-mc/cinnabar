@@ -293,7 +293,20 @@ fn prior_supports_level<A: LightBlockAccess, P: LightReadAccess>(
     if channel == LightChannel::Sky && !profile.allows_sky() {
         return Ok(false);
     }
-    for offset in NEIGHBOURS {
+    // Direct sky commonly has its full support immediately above the retained cell.
+    let neighbours = if channel == LightChannel::Sky {
+        [
+            NEIGHBOURS[3],
+            NEIGHBOURS[0],
+            NEIGHBOURS[1],
+            NEIGHBOURS[2],
+            NEIGHBOURS[4],
+            NEIGHBOURS[5],
+        ]
+    } else {
+        NEIGHBOURS
+    };
+    for offset in neighbours {
         let Some(neighbour) = position.checked_offset(offset) else {
             continue;
         };
