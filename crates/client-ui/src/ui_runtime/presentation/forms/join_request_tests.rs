@@ -93,3 +93,30 @@ fn join_request_buttons_read_the_active_language() {
         )
     );
 }
+
+#[test]
+fn standalone_sign_in_keeps_its_controls_over_a_pending_join_request() {
+    let Some(mut presentation) = pack_harness::engine_presentation() else {
+        eprintln!(
+            "skipping standalone_sign_in_keeps_its_controls_over_a_pending_join_request: missing local UI carrier; make assets"
+        );
+        return;
+    };
+    let player_runtime = player_state::PlayerState::new(1);
+    let mut view = asking(MenuScreen::Home);
+    view.auth_state = launcher::menu::auth::AuthState::AwaitingCode {
+        uri: "https://example.invalid".into(),
+        code: "TEST-CODE".into(),
+    };
+    let actions = draw_menu_actions(&player_runtime, &mut presentation, &view);
+    assert!(actions.contains(&MenuAction::OpenSignInLink), "{actions:?}");
+    assert!(actions.contains(&MenuAction::CancelSignIn), "{actions:?}");
+    assert!(
+        !actions
+            .iter()
+            .any(|action| matches!(action, MenuAction::JoinRequest(_))),
+        "{actions:?}"
+    );
+    let texts = pack_harness::drawn_texts(pack_harness::menu_nodes(&presentation)).join(" ");
+    assert!(!texts.contains(&join_requests::title("Alex")), "{texts:?}");
+}

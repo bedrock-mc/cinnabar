@@ -122,6 +122,18 @@ impl Server {
             None => DEFAULT_SIZE,
         };
         let headless = arguments.get("headless").and_then(Value::as_bool) == Some(true);
+        if let Some(fixture) = arguments
+            .get("env")
+            .and_then(|env| env.get(developer_control::SIGN_IN_FIXTURE_ENV))
+        {
+            if !headless {
+                return Err("sign-in fixtures require headless: true".into());
+            }
+            serde_json::from_value::<developer_control::protocol::SignInFixtureState>(
+                fixture.clone(),
+            )
+            .map_err(|_| "invalid sign-in fixture state".to_owned())?;
+        }
         let args: Vec<String> = match arguments.get("args") {
             Some(value) => serde_json::from_value(value.clone())
                 .map_err(|_| "`args` must be an array of strings")?,

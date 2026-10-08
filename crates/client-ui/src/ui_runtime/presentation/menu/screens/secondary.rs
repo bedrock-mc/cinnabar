@@ -100,17 +100,14 @@ pub(super) fn profile(
         identity_width - 166.0,
         status_color,
     )?;
-    let action = if matches!(
-        view.auth_state,
-        AuthState::Checking | AuthState::AwaitingCode { .. }
-    ) {
-        MenuAction::CancelSignIn
-    } else {
-        MenuAction::StartSignIn
+    let action = match view.auth_state {
+        AuthState::AwaitingCode { .. } => MenuAction::OpenSignInLink,
+        AuthState::Checking => MenuAction::CancelSignIn,
+        _ => MenuAction::StartSignIn,
     };
     let label = match &view.auth_state {
         AuthState::Checking => "Cancel account check",
-        AuthState::AwaitingCode { .. } => "Cancel sign-in",
+        AuthState::AwaitingCode { .. } => "Open link",
         AuthState::Authenticated => "Check account again",
         AuthState::Failed(_) => "Try sign-in again",
         AuthState::SignedOut => "Sign in with Microsoft",
@@ -133,7 +130,29 @@ pub(super) fn profile(
         CONTROL_HEIGHT,
         SafeArea::ZERO,
     )?;
-    if let AuthState::AwaitingCode { uri, code } = &view.auth_state {
+    if view.auth_state_awaiting_code() {
+        button(
+            view,
+            nodes,
+            hits,
+            next_id,
+            layouts,
+            font,
+            metrics,
+            solid_page,
+            MenuAction::CancelSignIn,
+            usize::MAX,
+            "Cancel sign-in",
+            area.left + SPACE_LG,
+            top + 154.0,
+            identity_width - SPACE_LG * 2.0,
+            CONTROL_HEIGHT,
+            SafeArea::ZERO,
+        )?;
+    }
+    if let AuthState::AwaitingCode { uri, code } = &view.auth_state
+        && view.sign_in_browser == launcher::menu::sign_in::BrowserState::Failed
+    {
         text(
             nodes,
             next_id,
@@ -142,28 +161,30 @@ pub(super) fn profile(
             metrics,
             solid_page,
             &format!("Open {uri} and enter {code}"),
-            [area.left + SPACE_LG, top + 154.0],
+            [area.left + SPACE_LG, top + 198.0],
             identity_width - SPACE_LG * 2.0,
             TEXT,
         )?;
     }
-    text(
-        nodes,
-        next_id,
-        layouts,
-        font,
-        metrics,
-        solid_page,
-        &format!(
-            "{} Realms  •  {} joinable friends  •  {} catalog destinations",
-            view.realms.len(),
-            view.friends.len(),
-            view.featured.len()
-        ),
-        [area.left + SPACE_LG, top + 238.0],
-        identity_width - SPACE_LG * 2.0,
-        MUTED,
-    )?;
+    if !view.auth_state_awaiting_code() {
+        text(
+            nodes,
+            next_id,
+            layouts,
+            font,
+            metrics,
+            solid_page,
+            &format!(
+                "{} Realms  •  {} joinable friends  •  {} catalog destinations",
+                view.realms.len(),
+                view.friends.len(),
+                view.featured.len()
+            ),
+            [area.left + SPACE_LG, top + 238.0],
+            identity_width - SPACE_LG * 2.0,
+            MUTED,
+        )?;
+    }
     if !area.compact {
         let right = area.left + identity_width + SPACE_MD;
         let right_width = area.width - identity_width - SPACE_MD;
