@@ -504,6 +504,20 @@ RVAs are 1.26.50.26 Windows client; `mac 0x10…` addresses are the 26.30 macOS 
 
 ## crates/client-ui/src/ui_runtime/presentation/forms/recipe_book.rs
 - /// `CraftingScreenController::addStaticScreenVars`: radio indexes of the tabs
+- Pinned `ui/inventory_screen.json`, `crafting.scroll_grid`, binds the collection's
+  `#recipe_book_total_items` to `#maximum_grid_items`, including an empty list.+  `ui/ui_common.json`, `common.item_renderer`, reads the icon from the same collection.
+- Current 1.26.50.26 `CraftingContainerManagerModel::setIsFiltering`, canonical
+  `src/__recovered/CraftingContainerManagerModel.cpp`, indexed at `0x0391bea0`,
+  updates each category's item filter rather than copying recipe rows between tabs.
+
+## crates/inventory/src/screen_recipes.rs
+- Current 1.26.50.26 `FUN_1439196b0`, canonical `src/__unmapped/03.cpp`,
+  identified by its `_getRecipesForItem` diagnostic, gathers alternative recipes
+  for one output ItemInstance. Its `FUN_143748510` comparator sorts signed recipe
+  priority ascending before ingredient usability is examined.
+- The pinned `recipes/crafting_table_default.json` and
+  `recipes/crafting_table_from_crimson_planks.json` produce the same crafting table
+  from different plank ingredients, with priorities 1 and 2 respectively.
 
 ## crates/client-ui/src/ui_runtime/presentation/forms/server_pack.rs
 - /// not the pack also replaces the image (`UITextureInfo::_loadNineslice`).
