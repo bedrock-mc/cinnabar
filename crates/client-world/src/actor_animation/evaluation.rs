@@ -413,20 +413,33 @@ impl MolangVariables {
 
     fn store(&mut self, place: Place, value: MolangValue) -> Result<(), EvalError> {
         *self.entry(place).ok_or(EvalError::Invalid)? = Some(value);
+        let slot = match place {
+            Place::Variable(slot) => slot,
+            Place::Temporary(slot) => self.values.len() + slot,
+        };
+        self.record_write(slot);
+        Ok(())
+    }
+
+    /// Tracks authored writes across both direct and mapped script slots.
+    fn record_write(&mut self, slot: usize) {
         if self.capture_writes {
-            let slot = match place {
-                Place::Variable(slot) => slot,
-                Place::Temporary(slot) => self.values.len() + slot,
-            };
             let word = slot / u64::BITS as usize;
             if self.writes.len() <= word {
                 self.writes.resize(word + 1, 0);
             }
             self.writes[word] |= 1 << (slot % u64::BITS as usize);
         }
-        Ok(())
     }
 
+    /// Mapped scripts inherit write recording without retaining an earlier invocation's writes.
+    pub(super) fn inherit_write_capture(&mut self, source: &Self) {
+        self.capture_writes = source.capture_writes;
+        self.writes.clear();
+        self.publication_random = None;
+    }
+
+    /// Mapped copies preserve the source script's authored-write identities.
     pub(super) fn copy_named_from(
         &mut self,
         target: &[assets::MolangSymbol],
@@ -448,6 +461,14 @@ impl MolangVariables {
                 .binary_search_by(|candidate| candidate.identifier.cmp(&symbol.identifier))
             {
                 self.values[slot] = Some(value.clone());
+                if variables.capture_writes
+                    && variables
+                        .writes
+                        .get(offset / u64::BITS as usize)
+                        .is_some_and(|bits| bits & (1 << (offset % u64::BITS as usize)) != 0)
+                {
+                    self.record_write(slot);
+                }
             }
         }
     }

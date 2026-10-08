@@ -14,6 +14,7 @@ pub(in crate::actor_animation) struct SwellMotion {
     pub clocks: super::super::clock::ClipClocks,
     pub controllers: Vec<ControllerState>,
     pub journal: tick::controller::ControllerJournal,
+    pub server_effects: evaluation::MolangEffects,
 }
 
 pub(super) struct SwellEndpoint<'a> {
@@ -70,12 +71,14 @@ impl SwellMotion {
                     clocks: &self.clocks,
                     controllers: &self.controllers,
                     journal: &self.journal,
+                    server_effects: &self.server_effects,
                 },
                 state.swell_sampling.as_deref(),
                 budget,
             )?
         } else {
             self.journal.apply(&mut variables)?;
+            self.server_effects.apply(&mut variables)?;
             self.clips.clone()
         };
         Ok(SwellEndpoint {

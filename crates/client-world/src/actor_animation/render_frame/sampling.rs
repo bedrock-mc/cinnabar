@@ -132,6 +132,7 @@ pub(super) fn pose_expressions(
     rig: usize,
     geometry: usize,
     controllers: &[ControllerState],
+    extra_clips: &[usize],
 ) -> Vec<u32> {
     let mut expressions = render_expressions(assets, rig);
     if let Some(rig) = assets.rig_bindings().get(rig) {
@@ -140,6 +141,7 @@ pub(super) fn pose_expressions(
     }
     let (selection, mut clips) = topology_expressions(assets, geometry, controllers);
     expressions.extend(selection);
+    clips.extend(extra_clips.iter().copied());
     let geometries = assets
         .render_layers(rig)
         .iter()

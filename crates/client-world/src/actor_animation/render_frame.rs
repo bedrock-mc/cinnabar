@@ -256,9 +256,10 @@ impl ActorAnimationStore {
         if !state.samples_render_frames && !swing_changed && !swell_changed {
             return Some(completed());
         }
-        let pose_inputs_changed = camera_rotation != frame.motion.context.camera_rotation
-            || camera_position != frame.motion.context.camera_position
-            || partial_tick != frame.motion.context.frame_alpha;
+        let camera_inputs_changed = camera_rotation != frame.motion.context.camera_rotation
+            || camera_position != frame.motion.context.camera_position;
+        let pose_inputs_changed =
+            camera_inputs_changed || partial_tick != frame.motion.context.frame_alpha;
         let mut context = frame.motion.context.clone();
         context.frame_alpha = partial_tick;
         context.camera_rotation = camera_rotation;
@@ -301,7 +302,9 @@ impl ActorAnimationStore {
             return Some(completed());
         }
         tick::set_item_rotation_factor(&layout.engine, &mut variables);
-        let isolated_swell = swell_changed && !state.samples_camera_poses && !swing_changed;
+        let isolated_swell = swell_changed
+            && !(state.samples_camera_poses && camera_inputs_changed)
+            && !swing_changed;
         let mut endpoints: Option<(SwellEndpoint<'_>, SwellEndpoint<'_>)> = if isolated_swell {
             let amount = actor.creeper_swell_amount(partial_tick);
             let previous = frame.previous_motion.as_ref().unwrap_or(&frame.motion);
@@ -335,6 +338,7 @@ impl ActorAnimationStore {
                     clocks: &state.clip_clocks,
                     controllers: &state.controllers,
                     journal: &frame.motion.journal,
+                    server_effects: &frame.motion.server_effects,
                 },
                 state.swell_sampling.as_deref().filter(|_| swell_changed),
                 &mut budget,

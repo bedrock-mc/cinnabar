@@ -403,6 +403,7 @@ pub(super) fn evaluate_state(
             clocks: BTreeMap::new(),
             controllers: Vec::new(),
             journal: controller::ControllerJournal::default(),
+            server_effects: evaluation::MolangEffects::default(),
         },
         previous_motion: None,
         swell_poses: None,
@@ -478,6 +479,7 @@ pub(super) fn evaluate_state(
     let mut server_animations = replay
         .map_or(&state.server_animations, |replay| &replay.server_animations)
         .clone();
+    let server_capture = samples_swell.then(|| variables.begin_effects());
     super::server_animation::select(
         &evaluator,
         &mut variables,
@@ -490,6 +492,9 @@ pub(super) fn evaluate_state(
         &mut weighted_clips,
         budget,
     )?;
+    let server_effects = server_capture
+        .map(|capture| variables.finish_effects(capture))
+        .unwrap_or_default();
     let clip_clocks = if advance_clocks || replay.is_some() {
         super::clock::prepare(
             &evaluator,
@@ -510,6 +515,7 @@ pub(super) fn evaluate_state(
     {
         frame.motion.clips.clone_from(&weighted_clips);
         frame.motion.journal = journal;
+        frame.motion.server_effects = server_effects;
         if samples_swell
             && state
                 .swell_sampling

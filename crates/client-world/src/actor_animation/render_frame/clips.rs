@@ -6,6 +6,7 @@ pub(super) struct ClipHistory<'a> {
     pub clocks: &'a super::super::clock::ClipClocks,
     pub controllers: &'a [ControllerState],
     pub journal: &'a tick::controller::ControllerJournal,
+    pub server_effects: &'a evaluation::MolangEffects,
 }
 
 /// Resamples weights on scratch controllers without committing transitions or advancing clip clocks.
@@ -22,6 +23,7 @@ pub(super) fn sample(
         clocks,
         controllers,
         journal,
+        server_effects,
     } = history;
     let mut journal = journal.clone();
     let mut controllers = controllers.to_vec();
@@ -39,6 +41,9 @@ pub(super) fn sample(
         },
         budget,
     )?;
+    if swelling.is_some() {
+        server_effects.apply(variables)?;
+    }
     clips.extend(
         previous
             .iter()

@@ -24,8 +24,10 @@ impl SwellSampling {
         rig: usize,
         geometry: usize,
         controllers: &[ControllerState],
+        extra_clips: &[usize],
     ) -> Option<Arc<Self>> {
-        let expressions = super::sampling::pose_expressions(assets, rig, geometry, controllers);
+        let expressions =
+            super::sampling::pose_expressions(assets, rig, geometry, controllers, extra_clips);
         if !expressions.iter().any(|&expression| {
             ops(assets, expression).iter().any(|op| match op {
                 MolangOp::LoadQuery(symbol) => is_swell(assets, *symbol),
@@ -116,6 +118,11 @@ impl SwellSampling {
         let selection_effects =
             super::sampling::selection_expressions(assets, geometry, controllers)
                 .into_iter()
+                .chain(
+                    extra_clips
+                        .iter()
+                        .filter_map(|&clip| assets.animation_clips()[clip].anim_time_update),
+                )
                 .any(|expression| has_effects(assets, expression));
         let timed_symbols = assets
             .animation_clips()
@@ -297,6 +304,15 @@ fn is_swell(assets: &RuntimeEntityAssets, symbol: u32) -> bool {
         .is_some_and(|symbol| symbol.identifier.as_ref() == "query.swell_amount")
 }
 
+/// Fresh presentation inputs share the authored dependency closure.
+fn is_presentation_query(assets: &RuntimeEntityAssets, symbol: u32) -> bool {
+    is_swell(assets, symbol)
+        || assets
+            .molang_symbols()
+            .get(symbol as usize)
+            .is_some_and(|symbol| symbol.identifier.as_ref() == "query.frame_alpha")
+}
+
 /// Propagates query dependencies through authored assignments without running the script.
 fn propagate(
     assets: &RuntimeEntityAssets,
@@ -341,11 +357,13 @@ fn propagate(
         match *op {
             MolangOp::Push(_) | MolangOp::PushString(_) => stack.push(control),
             MolangOp::LoadThis => stack.push(true),
-            MolangOp::LoadQuery(symbol) => stack.push(control || is_swell(assets, symbol)),
+            MolangOp::LoadQuery(symbol) => {
+                stack.push(control || is_presentation_query(assets, symbol))
+            }
             MolangOp::LoadVariable(symbol) => stack.push(control || variables.contains(&symbol)),
             MolangOp::CallQuery(call) => {
                 let dependency = pop(usize::from(call.arguments));
-                stack.push(control || dependency || is_swell(assets, call.symbol));
+                stack.push(control || dependency || is_presentation_query(assets, call.symbol));
             }
             MolangOp::StoreVariable(symbol) => {
                 if pop(1) || control {
@@ -443,8 +461,8 @@ fn dependent_expressions(
         .copied()
         .filter(|&expression| {
             ops(assets, expression).iter().any(|op| match op {
-                MolangOp::LoadQuery(symbol) => is_swell(assets, *symbol),
-                MolangOp::CallQuery(call) => is_swell(assets, call.symbol),
+                MolangOp::LoadQuery(symbol) => is_presentation_query(assets, *symbol),
+                MolangOp::CallQuery(call) => is_presentation_query(assets, call.symbol),
                 MolangOp::LoadVariable(symbol) => variables.contains(symbol),
                 MolangOp::LoadThis => true,
                 MolangOp::Call(function) => random && function.is_random(),

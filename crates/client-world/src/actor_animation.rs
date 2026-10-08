@@ -267,6 +267,8 @@ struct ActorRigState {
     samples_render_frames: bool,
     samples_camera_poses: bool,
     samples_swing_poses: bool,
+    /// Actor kind admits swelling independently of its initially bound clips.
+    creeper: bool,
     swell_sampling: Option<Arc<render_frame::swell::SwellSampling>>,
     render_frame: Option<render_frame::FrameState>,
     initialized: bool,

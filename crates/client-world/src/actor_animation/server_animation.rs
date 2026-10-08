@@ -154,6 +154,15 @@ impl ActorAnimationStore {
         };
         let now = self.completed_tick.saturating_sub(state.lifetime_epoch);
         controller.change(Some(definition), now, runtime_id);
+        if state.creeper {
+            state.swell_sampling = super::render_frame::swell::SwellSampling::new(
+                assets,
+                state.rig_binding,
+                state.geometry_binding,
+                &state.controllers,
+                &dependency_clips(assets, state.geometry_binding, &state.server_animations),
+            );
+        }
         if let Some(ui) = state.ui_animation.as_mut() {
             ui.server_animations.clone_from(&state.server_animations);
         }
@@ -220,6 +229,7 @@ pub(super) fn select(
                         evaluator.assets.molang_symbols(),
                         variables,
                     );
+                    playing.variables.inherit_write_capture(variables);
                     playing.variables.clear_temporaries();
                     let stop_evaluator = Evaluator {
                         layout: &stop.layout,
@@ -282,6 +292,19 @@ pub(super) fn select(
         }
     }
     Ok(())
+}
+
+/// Packet definitions can select clips outside the entity's initially bound animation graph.
+pub(super) fn dependency_clips(
+    assets: &RuntimeEntityAssets,
+    geometry: usize,
+    controllers: &[Controller],
+) -> Vec<usize> {
+    controllers
+        .iter()
+        .flat_map(|controller| &controller.definitions)
+        .filter_map(|definition| resolve(assets, geometry, definition.symbol).ok())
+        .collect()
 }
 
 fn elapsed(now: u64, started: u64) -> f32 {
