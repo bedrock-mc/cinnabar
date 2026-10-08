@@ -955,7 +955,7 @@ fn manual_transfer_downstream_gpu_subgate_prepares_exact_6951_allocation_manifes
         gpu_app
             .world()
             .resource::<RenderDevice>()
-            .poll(PollType::wait_indefinitely())
+            .poll(wgpu::PollType::wait_indefinitely())
             .unwrap();
     }
     let presented = gate.drain();

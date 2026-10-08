@@ -245,7 +245,7 @@ fn tile(parts: Parts<'_>, id: u32) -> Result<(&[u8], usize, bool), Reject> {
     let material = parts.materials.get(id as usize).ok_or(Reject::Material)?;
     let alpha = MATERIAL_FLAG_ALPHA_BLEND | MATERIAL_FLAG_ALPHA_CUTOUT;
     // Tints, overlays and rotated UVs need per-biome or per-state data an icon lacks.
-    if material.flags & !alpha != 0 {
+    if material.flags & !(alpha | assets::MATERIAL_FLAG_ISOTROPIC) != 0 {
         return Err(Reject::Material);
     }
     let array = match parts.textures {

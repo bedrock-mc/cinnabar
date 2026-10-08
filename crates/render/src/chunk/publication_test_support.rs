@@ -69,7 +69,7 @@ pub fn settle_publication_noop_frame(app: &mut App) {
     app.sub_app(RenderApp)
         .world()
         .resource::<RenderDevice>()
-        .poll(PollType::wait_indefinitely())
+        .poll(wgpu::PollType::wait_indefinitely())
         .expect("the NOOP publication renderer settles");
 }
 

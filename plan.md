@@ -1,3 +1,12 @@
+## Optional camera motion blur
+
+- Video offers Off (default), Low, Medium and High camera exposure. This is an owner-authorized
+  visual extension; classic Bedrock has no motion blur. Gameplay and network state do not change.
+- Depth reprojection blurs camera rotation/translation before nametags, projected UI, hands and HUD.
+  Exposure uses elapsed frame time; explicit reanchors suppress the discontinuity frame.
+- Per-object blur remains incomplete and needs motion vectors from every world renderer.
+  Hardware GPU cost and frame-budget acceptance remain unmeasured; no performance gate closes.
+
 ## Anvil models
 
 - Intact, chipped and damaged anvils use four stacked pieces with their damage artwork and

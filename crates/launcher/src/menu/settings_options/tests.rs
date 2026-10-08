@@ -401,6 +401,40 @@ fn vsync_defaults_on_and_persists_into_runtime_settings() {
 }
 
 #[test]
+fn motion_blur_defaults_off_persists_every_preset_and_resets_with_video() {
+    let mut settings = SettingsOptions::default();
+    let index = index(MOTION_BLUR_OPTION.name);
+    assert_eq!(
+        settings.user_settings().video.motion_blur,
+        ui::MotionBlurQuality::Off
+    );
+    for preset in ui::MotionBlurQuality::ALL {
+        settings.set(index, preset.index());
+        let loaded = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
+        assert_eq!(loaded.user_settings().video.motion_blur, preset);
+        assert_eq!(
+            MOTION_BLUR_CHOICES[preset.index() as usize].label,
+            preset.label()
+        );
+    }
+    settings.reset_group(SettingsGroup::Audio);
+    assert_eq!(
+        settings.user_settings().video.motion_blur,
+        ui::MotionBlurQuality::High
+    );
+    settings.reset_group(SettingsGroup::Video);
+    assert_eq!(
+        settings.user_settings().video.motion_blur,
+        ui::MotionBlurQuality::Off
+    );
+    let legacy = SettingsOptions::decode(br#"{"values":{"gamma":40}}"#).unwrap();
+    assert_eq!(
+        legacy.user_settings().video.motion_blur,
+        ui::MotionBlurQuality::Off
+    );
+}
+
+#[test]
 fn exact_server_ping_is_optional_and_persists_with_settings() {
     let mut settings = SettingsOptions::default();
     assert!(!settings.exact_server_ping());

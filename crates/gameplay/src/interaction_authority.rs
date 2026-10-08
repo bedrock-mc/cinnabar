@@ -6,8 +6,9 @@ use protocol::PlayerInputMode;
 #[cfg(test)]
 use std::num::NonZeroU64;
 
-/// Render frames a deferred press may wait for fresh evidence without outliving a stalled simulation.
-pub const MAX_PENDING_INTERACTION_FRAMES: u64 = 32;
+/// Wall-clock millis a deferred press may wait for fresh evidence or a tick, whatever the frame
+/// rate, without outliving a stalled simulation.
+pub const MAX_PENDING_INTERACTION_MILLIS: u64 = 10 * world::TICK_DURATION.as_millis() as u64;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FrozenBlockObservation {
