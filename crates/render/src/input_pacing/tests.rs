@@ -313,9 +313,9 @@ fn a_cadence_admits_exactly_one_frame_per_slot() {
     );
 }
 
-/// A slow frame skips the slots it overran instead of rendering them back to back.
+/// A slow frame restarts the cadence instead of rendering missed slots back to back.
 #[test]
-fn an_overrun_skips_slots_without_a_catch_up_burst() {
+fn an_overrun_restarts_the_cadence_without_a_catch_up_burst() {
     let mut main = vec![ms(1.0); 64];
     main[20] = ms(40.0);
     let render = vec![ms(1.0); 64];
@@ -324,6 +324,11 @@ fn an_overrun_skips_slots_without_a_catch_up_burst() {
     for (index, interval) in intervals(&paced).into_iter().enumerate() {
         assert!(interval >= period / 2, "frame {index}: {interval:?}");
     }
+    let resumed = intervals(&paced)[21];
+    assert!(
+        resumed.abs_diff(period) <= Duration::from_nanos(1),
+        "{resumed:?}"
+    );
 }
 
 /// A finished render never cuts a cadence slot short, and the pacing switch leaves the cap alone.

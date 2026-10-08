@@ -111,16 +111,18 @@ impl Cadence {
         self.slot_nanos(self.next_slot)
     }
 
-    /// Records a frame that sampled input at `sampled_nanos`. The next slot keeps the epoch's
-    /// phase and opens at least half a period later, so a late frame skips the slots it missed
-    /// instead of rendering them in a burst.
+    /// Records a frame that sampled input at `sampled_nanos`. A wake up to half a period late
+    /// keeps the epoch's phase, so the rate never drifts; a later frame restarts the cadence
+    /// from itself, so the next frame follows a full period later rather than in a burst or
+    /// after a skipped slot.
     pub fn admit(&mut self, sampled_nanos: u64) {
-        let earliest = sampled_nanos.saturating_add(self.rate.period_nanos() / 2);
-        let elapsed = u128::from(earliest.saturating_sub(self.epoch_nanos));
-        let rate = u128::from(self.rate.millihertz());
-        let first_open = (elapsed * rate).div_ceil(NANOS_PER_SECOND_MILLI);
-        let first_open = u64::try_from(first_open).unwrap_or(u64::MAX);
-        self.next_slot = first_open.max(self.next_slot.saturating_add(1));
+        let opened = self.slot_nanos(self.next_slot);
+        if sampled_nanos > opened.saturating_add(self.rate.period_nanos() / 2) {
+            self.epoch_nanos = sampled_nanos;
+            self.next_slot = 1;
+        } else {
+            self.next_slot = self.next_slot.saturating_add(1);
+        }
     }
 }
 

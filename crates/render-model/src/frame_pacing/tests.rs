@@ -71,20 +71,21 @@ fn slightly_late_wakes_recover_phase_without_skipping_a_slot() {
     }
 }
 
+/// A hitch restarts the cadence one period after the late frame: no catch-up burst, and no
+/// skipped slot that would stretch the following interval.
 #[test]
-fn late_frames_skip_missed_slots_instead_of_bursting() {
+fn late_frames_restart_the_cadence_instead_of_bursting() {
     let period = rate(60_000).period_nanos();
     for stall in [period * 6 / 10, period * 3, SECOND * 5, SECOND * 86_400] {
         let samples = admitted(60_000, 64, |frame| if frame == 10 { stall } else { 0 });
         for pair in samples.windows(2) {
             assert!(pair[1] - pair[0] >= period / 2, "stall {stall}: {pair:?}");
         }
-        let cadence = Cadence::new(rate(60_000), SECOND);
-        let resumed = samples[11];
-        let slot = (0..u64::MAX)
-            .find(|slot| cadence.slot_nanos(*slot) >= resumed)
-            .unwrap();
-        assert_eq!(resumed, cadence.slot_nanos(slot), "phase survives a stall");
+        let after = samples[11] - samples[10];
+        assert!(
+            after == period || after == period + 1,
+            "stall {stall}: {after}"
+        );
     }
 }
 
