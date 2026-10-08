@@ -3645,3 +3645,18 @@ Files: `docs/reference/held-block-placement.md`, `crates/gameplay/src/block_use.
   `geometry.the_entity`. A fixed 151-actor loopback scene keeps the late actor in
   its authored frustum while a camera turn admits the background crowd; the old
   128-body gates remove that otherwise visible actor.
+
+## Eating fragments
+
+- `crates/particles/src/triggers.rs` gives eating events five item fragments,
+  size multiplier 2/3 and speed multiplier 1/2, keeping the item emitter radius.
+  Current 1.26.50.26 `src/__unmapped/03.cpp:1405620–1405730` handles Feed
+  (`0x39`) with five single-piece settings; `04.cpp:2450145`
+  (`FUN_144e97220`) binds those size and speed fields to the particle variables.
+- `crates/client-world/src/actor_store/hurt.rs` captures the eating attachment
+  with the status pose. Current player initialization in `00.cpp:417431–417452`
+  sets absolute eating offset `[0, -0.2, 0.2]`; `02.cpp:1390180`
+  (`FUN_14284dd20`) preserves the four absolute offsets.
+  `01.cpp:2156047` (`FUN_141c0ded0`) supplies the head yaw and native origin;
+  `03.cpp:1241878` (`FUN_1437517b0`) rotates ActorLocation 8 horizontally.
+  Normalized player feet recover that origin using `PLAYER_NETWORK_OFFSET`.

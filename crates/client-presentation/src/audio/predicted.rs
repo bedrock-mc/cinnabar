@@ -443,6 +443,7 @@ mod tests {
             data: 0,
             position: [1.0, 64.0, 1.0],
             height: Some(2.0),
+            eating_position: [0.0; 3],
         };
         let (event, hurt) =
             status_request(&tables, "minecraft:zombie", &notice(ActorStatusKind::Hurt)).unwrap();
@@ -475,6 +476,7 @@ mod tests {
             data: 0,
             position: [1.0, 64.0, 1.0],
             height: Some(4.0),
+            eating_position: [0.0; 3],
         };
         assert!(
             status_request(&tables, "minecraft:ender_dragon", &notice).is_none(),
