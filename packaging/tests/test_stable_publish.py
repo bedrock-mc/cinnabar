@@ -15,7 +15,7 @@ class StablePublishTests(unittest.TestCase):
     def test_unsigned_rerun_removes_old_manifest_before_replacing_installers(self):
         workflow = (ROOT / ".github/workflows/package.yml").read_text()
         block = workflow.split("      - name: Publish the stable release\n", 1)[1]
-        script = block.split("        run: |\n", 1)[1]
+        script = block.split("        run: |\n", 1)[1].split("\n      - name: ", 1)[0]
         script = "\n".join(line[10:] for line in script.splitlines())
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
