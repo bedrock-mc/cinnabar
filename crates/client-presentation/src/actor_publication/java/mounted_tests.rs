@@ -10,7 +10,7 @@ fn mounted_remote_frame_matches_fixed_native_java_states() {
         serde_json::from_str(include_str!("fixtures/mounted.json")).unwrap();
     let mut stream = super::tests::head_stream();
     stream.sync_local_player_pose(&feed(0.0));
-    stream.prepare_actor_appearances_for_test();
+    stream.prepare_actor_appearance_fixture();
     stream.advance_actor_interpolation_frame(1);
     let source_rig = stream.authority().actor_rig(1).unwrap();
     for state in fixture["states"].as_array().unwrap() {
@@ -76,7 +76,7 @@ fn mounted_stream(identifier: &str, mount_yaw: f32) -> WorldStream {
         None,
     );
     stream.sync_local_player_pose(&feed(0.0));
-    stream.prepare_actor_appearances_for_test();
+    stream.prepare_actor_appearance_fixture();
     stream
         .submit(
             1,
@@ -271,7 +271,7 @@ fn living_mount_uses_its_render_yaw_and_soft_head_limit_with_live_local_look() {
             (40.0, 0.0, 40.0),
         ] {
             stream.sync_local_player_pose(&feed(look));
-            stream.prepare_actor_appearances_for_test();
+            stream.prepare_actor_appearance_fixture();
             stream.advance_actor_interpolation_frame(0);
             let actor_before = stream.authority().actor(1).unwrap().clone();
             let posed = frame(&stream, true, 0.5);
@@ -313,7 +313,7 @@ fn mount_yaw_interpolates_across_the_wrap_without_changing_cape_yaw() {
         )
         .unwrap();
     stream.sync_local_player_pose(&feed(175.0));
-    stream.prepare_actor_appearances_for_test();
+    stream.prepare_actor_appearance_fixture();
     stream.advance_actor_interpolation_frame(1);
     let mount = stream.authority().actor_rig(MOUNT).unwrap();
     assert!(wrap_degrees(mount.body_yaw - mount.previous_body_yaw) > 0.0);
@@ -343,7 +343,7 @@ fn nonliving_unknown_and_removed_mounts_keep_the_ordinary_player_body_basis() {
     ] {
         let mut stream = mounted_stream(identifier, 0.0);
         stream.sync_local_player_pose(&feed(120.0));
-        stream.prepare_actor_appearances_for_test();
+        stream.prepare_actor_appearance_fixture();
         stream.advance_actor_interpolation_frame(1);
         let rig = stream.authority().actor_rig(1).unwrap();
         let expected = lerp_degrees(rig.java.body_yaw[0], rig.java.body_yaw[1], 0.5);
@@ -356,7 +356,7 @@ fn nonliving_unknown_and_removed_mounts_keep_the_ordinary_player_body_basis() {
     }
     let mut stream = mounted_stream("minecraft:horse", 0.0);
     stream.sync_local_player_pose(&feed(120.0));
-    stream.prepare_actor_appearances_for_test();
+    stream.prepare_actor_appearance_fixture();
     stream.advance_actor_interpolation_frame(1);
     link(&mut stream, 3, ActorLinkType::Remove);
     stream.advance_actor_interpolation_frame(1);
@@ -379,7 +379,7 @@ fn local_java_torso_frame_uses_physics_alpha_for_heading_and_cape_rotation() {
     feed.head_yaw = 30.0;
     feed.pitch = 0.0;
     stream.sync_local_player_pose(&feed);
-    stream.prepare_actor_appearances_for_test();
+    stream.prepare_actor_appearance_fixture();
     stream.advance_actor_interpolation_frame(1);
     let mut rig = stream.authority().actor_rig(1).unwrap();
     rig.java.body_yaw = [10.0, 30.0];
@@ -411,7 +411,7 @@ fn local_java_torso_phase_without_motion_retains_the_same_hand_source() {
     feed.yaw = 0.0;
     feed.head_yaw = 0.0;
     stream.sync_local_player_pose(&feed);
-    stream.prepare_actor_appearances_for_test();
+    stream.prepare_actor_appearance_fixture();
     stream.advance_actor_interpolation_frame(1);
     stream.set_local_motion_authority(Some((1, 1)));
     let sample = |alpha| client_world::LocalSwingMotionSample {

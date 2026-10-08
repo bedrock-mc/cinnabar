@@ -23,9 +23,11 @@ pub struct PublicationFixtureSnapshot {
 
 impl WorldStream {
     /// Prepares fixture appearances without changing the simulation clock under test.
-    #[cfg(feature = "publication-test-support")]
-    pub fn prepare_actor_appearances_for_test(&mut self) {
-        self.authority.prepare_actor_appearances_for_test();
+    #[doc(hidden)]
+    pub fn prepare_actor_appearance_fixture(&mut self) {
+        while self.authority.poll_actor_appearance_preparation() {
+            std::thread::yield_now();
+        }
     }
 
     fn install_publication_fixture_light(&mut self, key: SubChunkKey) {
