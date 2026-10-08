@@ -388,6 +388,8 @@ fn menu_input_leak_real_producer_to_hand_adapter_keeps_cpu_until_completion_and_
             })),
         )
         .unwrap();
+    stream.prepare_actor_appearance_fixture();
+    stream.advance_actor_interpolation_ticks(1);
     let mut world = ClientWorld::new_with_entity_assets(assets, entities);
     world.stream = Some(stream);
     let mut runtime = UiRuntime::new(1);
