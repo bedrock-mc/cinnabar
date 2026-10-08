@@ -50,6 +50,11 @@ impl RecipeCatalog {
         self.screen.recipes.iter().find(|recipe| recipe.id == id)
     }
 
+    /// Catalog positions are valid until the catalog revision changes.
+    pub fn screen_recipe_entries(&self) -> &[ScreenRecipe] {
+        &self.screen.recipes
+    }
+
     /// Every retained recipe of one screen kind.
     pub fn screen_recipes(&self, kind: ScreenRecipeKind) -> impl Iterator<Item = &ScreenRecipe> {
         self.screen

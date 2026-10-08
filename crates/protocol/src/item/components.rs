@@ -23,6 +23,8 @@ pub struct ItemComponents {
     /// `use_animation` by name (`eat`, `drink`, `bow`...); the legacy enum maps 1 and 2.
     pub use_animation: Option<Arc<str>>,
     pub use_duration_ticks: Option<u32>,
+    /// Whether `minecraft:food` is declared.
+    pub food: bool,
     /// `minecraft:wearable` slot, e.g. `slot.armor.head`.
     pub wearable_slot: Option<Arc<str>>,
     /// Block `minecraft:block_placer` places.
@@ -105,6 +107,7 @@ pub(super) fn parse_components(bytes: &[u8]) -> Option<ItemComponents> {
             }
         }),
         use_duration_ticks,
+        food: component("minecraft:food").is_some(),
         wearable_slot: text(
             component("minecraft:wearable").and_then(|wearable| wearable.field("slot")),
         ),
@@ -165,6 +168,26 @@ mod tests {
     }
 
     // Dragonfly's custom-item layout: properties nested under item_properties.
+    #[test]
+    fn food_classification_uses_the_food_component() {
+        let food = compound(
+            "",
+            &[compound("components", &[compound("minecraft:food", &[])])],
+        );
+        assert!(parse_components(&food).unwrap().food);
+        let animation = compound(
+            "",
+            &[compound(
+                "components",
+                &[compound(
+                    "minecraft:use_animation",
+                    &[string("value", "eat")],
+                )],
+            )],
+        );
+        assert!(!parse_components(&animation).unwrap().food);
+    }
+
     #[test]
     fn reads_the_item_properties_layout() {
         let nbt = compound(

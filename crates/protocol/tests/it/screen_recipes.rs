@@ -79,6 +79,32 @@ fn screen_recipes_are_retained_by_kind() {
     assert!(catalog.recipe(5).is_none());
 }
 
+#[test]
+fn furnace_recipes_reach_the_screen_catalog_without_entering_the_crafting_grid() {
+    let recipes = ["furnace", "blast_furnace", "smoker"]
+        .into_iter()
+        .enumerate()
+        .map(|(index, tag)| ShapelessRecipePayload {
+            tag: tag.into(),
+            ..stonecutter(index as u32 + 1)
+        })
+        .collect();
+    let update = update(CraftingDataPacket {
+        shapeless_recipes: recipes,
+        clear_recipes: true,
+        ..Default::default()
+    });
+    let mut catalog = RecipeCatalog::default();
+    catalog.begin_session(1);
+    assert!(catalog.apply(1, 1, &update));
+    for id in 1..=3 {
+        let recipe = catalog.screen_recipe(id).expect("furnace recipe retained");
+        assert_eq!(&*recipe.ingredients[0].name, "minecraft:stone");
+        assert_eq!(recipe.output.unwrap().network_id, 9);
+        assert!(catalog.recipe(id).is_none());
+    }
+}
+
 /// A later clearing update drops every screen recipe with the rest.
 #[test]
 fn a_clearing_update_replaces_screen_recipes() {

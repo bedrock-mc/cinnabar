@@ -43,9 +43,9 @@ pub use address::{
     ARMOR_WINDOW_ID, CONTAINER_NAME_ARMOR, CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY,
     CONTAINER_NAME_CRAFT_INPUT, CONTAINER_NAME_CURSOR, CONTAINER_NAME_DYNAMIC,
     CONTAINER_NAME_INVENTORY, CONTAINER_NAME_LEVEL_ENTITY, CONTAINER_NAME_OFFHAND, CanonicalCell,
-    OFFHAND_WINDOW_ID, PLAYER_INVENTORY_WINDOW_ID, UI_INVENTORY_WINDOW_ID,
-    is_personal_ui_inventory, personal_craft_content_indices, personal_craft_slot_index,
-    project_container_cell,
+    DYNAMIC_STORAGE_WINDOW_ID, OFFHAND_WINDOW_ID, PLAYER_INVENTORY_WINDOW_ID,
+    UI_INVENTORY_WINDOW_ID, is_personal_ui_inventory, personal_craft_content_indices,
+    personal_craft_slot_index, project_container_cell,
 };
 pub use client_packets::{
     BookEdit, MAX_BOOK_PAGE_BYTES, block_pick_request_packet, book_edit_packet,

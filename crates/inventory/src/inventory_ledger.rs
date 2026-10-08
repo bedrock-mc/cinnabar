@@ -215,6 +215,7 @@ pub struct PlayerInventoryLedger {
     /// Acknowledged closes whose requests still await answers; they stay current.
     settling: VecDeque<SettlingWindow>,
     storage: Option<StorageWindow>,
+    pub(crate) furnace_selection: Option<crate::furnace_recipes::Selection>,
     pending_closes: VecDeque<PendingClose>,
     player_resync_required: bool,
     cursor_resync_required: bool,
@@ -250,6 +251,7 @@ impl Default for PlayerInventoryLedger {
             held_open: None,
             settling: VecDeque::new(),
             storage: None,
+            furnace_selection: None,
             pending_closes: VecDeque::new(),
             player_resync_required: false,
             cursor_resync_required: false,
@@ -778,6 +780,7 @@ impl PlayerInventoryLedger {
 
     fn discard_storage_window(&mut self) {
         self.storage = None;
+        self.clear_furnace_recipe();
         self.enchant_options = None;
         self.confirmed.clear_storage();
     }
