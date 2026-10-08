@@ -165,6 +165,11 @@ pub(crate) fn produce_block_use(
     ) {
         return;
     }
+    // An attack in the same frame is handled first: the use waits until melee resolves it,
+    // and an actor hit then holds the use off for the post-attack window.
+    if context.input.phase(Action::Attack).pressed || context.melee.press_pending() {
+        return;
+    }
     let Some(selection) = verified_use_selection(&player_runtime, &context.ui) else {
         runtime.clear_press();
         stop_block_use(&mut runtime, &context, false);

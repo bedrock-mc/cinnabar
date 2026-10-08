@@ -2990,6 +2990,15 @@ Files: `docs/reference/held-block-placement.md`, `crates/gameplay/src/block_use.
   (`0x28d3ed0`) copies StateVector position into the transaction: all end-of-previous-tick
   values. No input-mode or touch-option branch exists in the continuation path; only
   `getPickRange` varies by input mode.
+- Attack versus use in one frame (`app/src/block_use.rs`, `crates/gameplay/src/melee.rs`
+  `press_pending`): 26.30 `MinecraftInputHandler::_registerInputHandlers` press lambdas
+  (`support/std/__func--bc8d9908b204/d.cpp:49315` attack, `b.cpp:48297` use; current
+  artifact 6 `FUN_144a69a00`/`FUN_144a69b00`) set the single in-progress intention through
+  `ClientInstance::resetBai` (vtable `+0x9e0`) and call `handleBuildAction` at once.
+  `handleBuildAction` (`by-owner/c/ClientInputCallbacks.cpp:5337`) reads a next-action time
+  (`+0xbd8`) and, after an actor attack or an item use, sets it to now + 200 ms (`+0xbe0`);
+  the build/use branch requires now to be past it. Whichever press is handled first wins and
+  holds the other off; Cinnabar handles a same-frame attack first.
 - Pick used by those build actions: 26.30 `MinecraftGame::tickInput` lambda
   (`handheld/src-client/common/client/game/MinecraftGame.cpp:240293`) appends each frame's
   hit and liquid hit to HitResultComponent through `HitResultSystem::tickPlayerInput`
