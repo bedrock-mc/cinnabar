@@ -1,5 +1,28 @@
 //! Chat option definitions and normalized display settings.
-use super::{SettingsOptions, definitions::SettingChoice};
+use super::{
+    SettingsOptions,
+    definitions::{SettingChoice, SettingDefinition, SettingKind},
+};
+
+/// Client presentation preference; the built-in bottom placement remains the default.
+pub const CHAT_POSITION_OPTION: SettingDefinition = SettingDefinition {
+    name: "cinnabar_chat_position",
+    label: "Chat Position",
+    kind: SettingKind::Dropdown(&[
+        SettingChoice {
+            name: "cinnabar_chat_bottom",
+            label: "Bottom",
+        },
+        SettingChoice {
+            name: "cinnabar_chat_top",
+            label: "Top",
+        },
+    ]),
+    min: 0,
+    max: 1,
+    step: 1,
+    default: 0,
+};
 
 pub const TYPEFACES: &[SettingChoice] = &[
     SettingChoice {
@@ -73,6 +96,11 @@ pub const MENTIONS_COLORS: &[SettingChoice] = &[
 ];
 
 impl SettingsOptions {
+    /// Selects top placement only for the built-in chat presentation.
+    pub fn chat_at_top(&self) -> bool {
+        self.value(CHAT_POSITION_OPTION.name) == 1
+    }
+
     /// Vanilla disables smooth chat for these four locales.
     pub fn chat_smooth_available(&self) -> bool {
         !matches!(self.language(), Some("zh_TW" | "zh_CN" | "ko_KR" | "ja_JP"))
