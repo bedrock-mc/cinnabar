@@ -185,8 +185,9 @@ pub use glyph_sheet::{
     texel_size_64,
 };
 pub use hud::{
-    HUD_CARRIER_MAGIC, HUD_CARRIER_VERSION, HUD_SOURCE_MANIFEST_SHA256, HudCatalogError,
-    HudTexture, HudTextureRole, MAX_HUD_TEXTURE_BYTES, RuntimeHudCatalog, encode_hud_catalog,
+    HUD_CARRIER_MAGIC, HUD_CARRIER_VERSION, HUD_ICONS_SHEET_SIZE, HUD_SOURCE_MANIFEST_SHA256,
+    HudCatalogError, HudTexture, HudTextureRole, MAX_HUD_TEXTURE_BYTES, RuntimeHudCatalog,
+    encode_hud_catalog,
 };
 pub use icon::{
     BLOCK_ITEM_FACE_SIDE, BLOCK_ITEM_SHEET_GRID, BLOCK_ITEM_SHEET_SIZE, ICON_CARRIER_MAGIC,

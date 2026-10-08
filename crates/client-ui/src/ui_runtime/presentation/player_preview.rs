@@ -115,8 +115,14 @@ impl UiPresentationRuntime {
         let catalog = self.equipment_catalog.as_deref();
         let armor = armor.map(|worn| {
             let (identifier, dye) = worn?;
-            let binding = catalog?.binding(identifier)?;
-            let texture = catalog?.texture(&binding.texture.identifier)?;
+            let catalog = self
+                .gui_models
+                .pack_equipment
+                .catalog()
+                .filter(|pack| pack.binding(identifier).is_some())
+                .or(catalog)?;
+            let binding = catalog.binding(identifier)?;
+            let texture = catalog.texture(&binding.texture.identifier)?;
             // Undyed leather takes the default dye colour.
             let tint = dye
                 .or_else(|| identifier.contains("leather").then_some(LEATHER_RGB))
