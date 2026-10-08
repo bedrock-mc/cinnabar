@@ -103,6 +103,7 @@ fn fixture_with_skin(with_skin: bool) -> World {
                 })),
             )
             .unwrap();
+        stream.prepare_actor_appearance_fixture();
         stream.advance_actor_interpolation_ticks(1);
     }
     let mut client = ClientWorld::new_with_entity_assets(assets, entities.clone());
