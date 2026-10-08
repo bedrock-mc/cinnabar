@@ -202,7 +202,10 @@ fn a_running_batch_does_not_hold_back_the_next_pass() {
     }
     assert_eq!(queue.queued.len(), MAX_SKIN_PREPARATIONS_PER_PASS);
     queue.submit(&assets);
-    assert!(queue.queued.is_empty(), "the second batch starts beside the first");
+    assert!(
+        queue.queued.is_empty(),
+        "the second batch starts beside the first"
+    );
     queue.finish_for_test();
     for source in &sources {
         assert!(queue.get(source).is_some());

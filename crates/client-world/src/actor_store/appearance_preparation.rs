@@ -59,9 +59,8 @@ impl ActorStore {
             });
             let previous = ready.profiles.get(uuid);
             if !prepared
-                || previous.is_some_and(|previous| {
-                    !tick || same_profile_allocation(previous, profile)
-                })
+                || previous
+                    .is_some_and(|previous| !tick || same_profile_allocation(previous, profile))
             {
                 // A re-added rig still needs the published model before its first tick.
                 if let Some(previous) = previous {

@@ -301,7 +301,10 @@ fn standard_model_player_is_drawable_in_the_frame_it_is_added() {
         .actor_rigs()
         .find(|rig| rig.actor.runtime_id == 1)
         .expect("a standard-model player must not wait for a tick or a worker");
-    assert!(rig.skin_geometry.is_some(), "the catalog model is installed with the pixels");
+    assert!(
+        rig.skin_geometry.is_some(),
+        "the catalog model is installed with the pixels"
+    );
 }
 
 #[test]

@@ -243,7 +243,9 @@ impl SkinPreparationQueue {
         source: &SkinGeometrySource,
         assets: &RuntimeEntityAssets,
     ) -> Option<Outcome> {
-        if source.byte_len() > MAX_CATALOG_SOURCE_BYTES || !super::preparation::uses_catalog_model(source) {
+        if source.byte_len() > MAX_CATALOG_SOURCE_BYTES
+            || !super::preparation::uses_catalog_model(source)
+        {
             return None;
         }
         if let Some(outcome) = self.catalog.get(&*source.resource_patch) {

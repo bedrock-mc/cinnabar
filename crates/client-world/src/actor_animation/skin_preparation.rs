@@ -47,7 +47,8 @@ impl ActorAnimationStore {
             return;
         };
         if skin::sync_skin(state, source, &self.skin_preparation) {
-            self.stats.invalid_skin_geometries = self.stats.invalid_skin_geometries.saturating_add(1);
+            self.stats.invalid_skin_geometries =
+                self.stats.invalid_skin_geometries.saturating_add(1);
         }
     }
 
