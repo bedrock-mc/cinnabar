@@ -198,6 +198,23 @@ fn assert_installed_creeper_samples(powered: bool) {
         assert!(steps < 100, "swelling must reach a stable cap");
     }
     let capped = store.actor_rig(1).unwrap();
+    let amount = store.get(1).unwrap().creeper_swell_amount(0.0);
+    let wobble = (amount * 5730.0).to_radians().sin() * amount * 0.01 + 1.0;
+    let growth = amount.clamp(0.0, 1.0).powi(4);
+    let expected_body_scale = [
+        (growth * 0.4 + 1.0) * wobble,
+        (growth * 0.1 + 1.0) / wobble,
+        (growth * 0.4 + 1.0) * wobble,
+    ];
+    for (actual, expected) in pose::total_scale(&capped.current[body])
+        .into_iter()
+        .zip(expected_body_scale)
+    {
+        assert!(
+            (actual - expected).abs() < 1e-5,
+            "the authored body swell must be applied once: {actual} != {expected}"
+        );
+    }
     for alpha in [0.0, 0.25, 0.75] {
         let layers = store.render_frame(alpha).layers(1).unwrap();
         let previous = if layers[0].previous_pose.is_empty() {
