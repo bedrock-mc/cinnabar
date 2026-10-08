@@ -2,6 +2,40 @@ use super::*;
 use semantic_input::{InputContext, PhysicalControl};
 
 #[test]
+fn interactive_sharing_preserves_active_late_defaults_across_reset_and_reload() {
+    let hotbar = KEY_BINDINGS
+        .iter()
+        .position(|(action, _)| *action == semantic_input::Action::Hotbar1)
+        .unwrap();
+    for action in [
+        semantic_input::Action::Freelook,
+        semantic_input::Action::InteractWithToast,
+    ] {
+        let row = KEY_BINDINGS
+            .iter()
+            .position(|(candidate, _)| *candidate == action)
+            .unwrap();
+        let mut settings = SettingsOptions::default();
+        let default = settings.key_control(row).unwrap();
+        assert!(settings.remap(hotbar, default));
+        assert_eq!(settings.key_control(row), Some(default));
+        assert!(settings.remap(row, PhysicalControl::KeyboardUsage(0x15)));
+        assert!(settings.reset_key(row));
+        let loaded = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
+        assert_eq!(loaded.key_control(row), Some(default));
+        assert_eq!(loaded.key_control(hotbar), Some(default));
+        assert!(
+            loaded
+                .controls()
+                .unwrap()
+                .bindings()
+                .iter()
+                .any(|binding| { binding.action == action && binding.chord.control == default })
+        );
+    }
+}
+
+#[test]
 fn perspective_and_hotbar_can_share_a_key_across_remaps_reset_and_reload() {
     let mut settings = SettingsOptions::default();
     let perspective = KEY_BINDINGS

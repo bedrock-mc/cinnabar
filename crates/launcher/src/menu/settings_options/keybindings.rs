@@ -40,6 +40,38 @@ pub const OPEN_NOTIFICATION_KEY: &str = "key.interactwithtoast";
 const LATE_DEFAULTS: [Action; 2] = [Action::Freelook, Action::InteractWithToast];
 
 impl SettingsOptions {
+    fn active_late_defaults(&self) -> [(Action, Option<PhysicalControl>); LATE_DEFAULTS.len()] {
+        LATE_DEFAULTS.map(|action| {
+            let index = KEY_BINDINGS
+                .iter()
+                .position(|(candidate, _)| *candidate == action)
+                .expect("late defaults belong to the keyboard layout");
+            (action, self.key_control(index))
+        })
+    }
+
+    /// Legacy layouts can suppress new defaults; interactive edits retain active actions.
+    fn preserve_late_defaults(
+        &mut self,
+        previous: [(Action, Option<PhysicalControl>); LATE_DEFAULTS.len()],
+    ) -> [Option<&'static str>; LATE_DEFAULTS.len()] {
+        let mut inserted = [None; LATE_DEFAULTS.len()];
+        for (index, (action, control)) in previous.into_iter().enumerate() {
+            if self.default_yields(action)
+                && let Some(control) = control
+            {
+                let (_, name) = KEY_BINDINGS
+                    .iter()
+                    .find(|(candidate, _)| *candidate == action)
+                    .expect("late defaults belong to the keyboard layout");
+                let code = encode_control(control).expect("resolved controls have persisted codes");
+                self.keys.insert((*name).to_owned(), code);
+                inserted[index] = Some(*name);
+            }
+        }
+        inserted
+    }
+
     fn default_yields(&self, action: Action) -> bool {
         let Some((_, name)) = KEY_BINDINGS
             .iter()
@@ -162,8 +194,13 @@ impl SettingsOptions {
         let Some(code) = encode_control(self.swap_gamepad_control(control)) else {
             return false;
         };
+        let active_defaults = self.active_late_defaults();
         let previous = self.keys.insert(name.to_owned(), code);
+        let inserted_defaults = self.preserve_late_defaults(active_defaults);
         if self.controls().is_err() {
+            for name in inserted_defaults.into_iter().flatten() {
+                self.keys.remove(name);
+            }
             match previous {
                 Some(code) => {
                     self.keys.insert(name.to_owned(), code);
@@ -179,14 +216,25 @@ impl SettingsOptions {
 
     /// Restores one action's default control while preserving other remaps.
     pub fn reset_key(&mut self, index: usize) -> bool {
-        let Some((name, _, _)) = self.binding(index) else {
+        let Some((name, action, _)) = self.binding(index) else {
             return false;
         };
-        let previous = self.keys.remove(&name);
-        if self.controls().is_err()
-            && let Some(previous) = previous
+        let mut active_defaults = self.active_late_defaults();
+        if let Some((_, control)) = active_defaults
+            .iter_mut()
+            .find(|(candidate, _)| Some(*candidate) == action)
         {
-            self.keys.insert(name.to_owned(), previous);
+            *control = Self::default().key_control(index);
+        }
+        let previous = self.keys.remove(&name);
+        let inserted_defaults = self.preserve_late_defaults(active_defaults);
+        if self.controls().is_err() {
+            for name in inserted_defaults.into_iter().flatten() {
+                self.keys.remove(name);
+            }
+            if let Some(previous) = previous {
+                self.keys.insert(name.to_owned(), previous);
+            }
             return false;
         }
         true
