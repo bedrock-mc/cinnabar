@@ -77,7 +77,8 @@ pub(super) struct HeldRelease {
 /// Tick-bound action flags set before their tick was built.
 #[derive(Debug, Clone, Copy)]
 pub(super) struct NextTickFlags {
-    session_generation: u64,
+    /// Session and position authority; a reanchor retires the latch.
+    authority: (u64, u64),
     tick: u64,
     flags: protocol::PlayerInputFlags,
 }
@@ -487,23 +488,23 @@ impl MovementTicker {
         let latched = self
             .next_tick_flags
             .filter(|latched| {
-                latched.session_generation == self.session_generation && latched.tick == tick
+                latched.authority == self.interaction_authority_identity() && latched.tick == tick
             })
             .map_or(protocol::PlayerInputFlags::NONE, |latched| latched.flags);
         self.next_tick_flags = Some(NextTickFlags {
-            session_generation: self.session_generation,
+            authority: self.interaction_authority_identity(),
             tick,
             flags: latched | flag,
         });
         true
     }
 
-    /// Flags latched for the tick being built; a stale latch from another session or tick is dropped.
+    /// Flags latched for the tick being built; a latch from another authority or tick is dropped.
     pub(super) fn take_next_tick_flags(&mut self) -> protocol::PlayerInputFlags {
         self.next_tick_flags
             .take()
             .filter(|latched| {
-                latched.session_generation == self.session_generation
+                latched.authority == self.interaction_authority_identity()
                     && latched.tick == self.next_tick
             })
             .map_or(protocol::PlayerInputFlags::NONE, |latched| latched.flags)
