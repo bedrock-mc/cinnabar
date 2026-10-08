@@ -11,7 +11,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-/// Upload categories count actual queue writes, including writes of unchanged uniforms.
+/// Upload categories count submitted transfers through queue writes or staging.
 #[derive(Clone, Copy)]
 pub(crate) enum UploadKind {
     Geometry,
@@ -163,7 +163,7 @@ impl UiProfile {
         }
     }
 
-    /// Counts one nonempty queue write and the bytes it transfers.
+    /// Counts one nonempty upload and the bytes it transfers.
     pub(crate) fn record_upload(&self, kind: UploadKind, bytes: u64) {
         if bytes > 0 {
             let mut interval = self.interval.lock().expect("UI profile lock");
@@ -172,7 +172,7 @@ impl UiProfile {
         }
     }
 
-    /// Exposes actual queue-write counters to preparation regressions without resetting them.
+    /// Exposes submitted upload counters to preparation regressions without resetting them.
     #[cfg(test)]
     pub(super) fn submitted_uploads(&self) -> [[u64; 3]; 2] {
         let interval = self.interval.lock().expect("UI profile lock");

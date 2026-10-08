@@ -63,6 +63,14 @@ pub(super) fn init_ui_gpu(
     });
 }
 
+/// Optional preparation inputs share one system parameter without requiring diagnostics.
+type UiPreparationOptions<'w> = (
+    Option<Res<'w, UiHandCoverage>>,
+    Option<Res<'w, UiGlintSettings>>,
+    Option<Res<'w, profile::UiProfile>>,
+    Option<Res<'w, crate::upload_staging::BufferUploadStaging>>,
+);
+
 /// Admits a publication and updates its shared GPU storage without waiting for readback.
 pub(crate) fn prepare_ui_resources(
     scene: Res<UiRenderSceneResource>,
@@ -71,12 +79,7 @@ pub(crate) fn prepare_ui_resources(
     mut gpu: ResMut<UiGpu>,
     stats: Res<UiRenderStatsResource>,
     tick: SystemChangeTick,
-    (coverage, glint, profile, staging): (
-        Option<Res<UiHandCoverage>>,
-        Option<Res<UiGlintSettings>>,
-        Option<Res<profile::UiProfile>>,
-        Option<Res<crate::upload_staging::BufferUploadStaging>>,
-    ),
+    (coverage, glint, profile, staging): UiPreparationOptions<'_>,
 ) {
     let same_device = &gpu.device == render_device.wgpu_device();
     let device_valid =

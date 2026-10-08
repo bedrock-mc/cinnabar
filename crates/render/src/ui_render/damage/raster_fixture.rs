@@ -1,9 +1,7 @@
 //! Native fixture resources shared by the UI damage parity scenarios.
 
-#[path = "../../../tests/it/support/gpu_snapshot.rs"]
-mod gpu_snapshot;
-
 use super::super::*;
+use crate::gpu_snapshot::Gpu;
 use crate::ui_render::{
     self as ui,
     pipeline::{
@@ -11,7 +9,6 @@ use crate::ui_render::{
     },
 };
 use bevy::render::render_resource::Specializer;
-use gpu_snapshot::Gpu;
 use wgpu::util::DeviceExt;
 
 pub(super) const SIDE: u32 = 64;

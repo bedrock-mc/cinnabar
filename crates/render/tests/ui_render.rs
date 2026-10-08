@@ -1,6 +1,9 @@
 #[path = "../src/alloc_count.rs"]
 mod alloc_count;
 
+#[path = "it/support/gpu_snapshot.rs"]
+mod gpu_snapshot;
+
 #[path = "../src/material_shader.rs"]
 #[allow(dead_code, reason = "shared checked shader constructor dependencies")]
 mod material_shader;
