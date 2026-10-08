@@ -119,9 +119,7 @@ fn run(options: &Options, scene: Scene, sections: usize, retained: bool) {
         &mut scratch,
     );
     if scene == Scene::Removal {
-        for sample in &mut fixture.samples {
-            *sample = LightBlockSample::KnownAir;
-        }
+        fixture.samples.fill(LightBlockSample::KnownAir);
     }
     let prior = Prior {
         output: retained.then_some(&original),
