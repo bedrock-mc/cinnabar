@@ -367,15 +367,6 @@ pub(crate) fn reconcile_world_stream_before_physics(
     }
     movement.set_control_fence_pending(false);
     let controls = stream.take_committed_controls();
-    if movement.has_unsent_inputs()
-        && controls
-            .iter()
-            .any(|control| matches!(control, CommittedControlEvent::NetworkStackLatency { .. }))
-    {
-        movement.set_control_fence_pending(true);
-        stream.restore_committed_controls(controls.into_iter());
-        return;
-    }
     refresh_player_list_cache_for_controls(stream, &mut ui_runtime, &controls);
 
     let mut controls = controls.into_iter();
@@ -388,6 +379,12 @@ pub(crate) fn reconcile_world_stream_before_physics(
             continue;
         }
         if let CommittedControlEvent::NetworkStackLatency { creation_time, .. } = control {
+            // Earlier controls already applied; the reply and later ones wait for older inputs to send.
+            if movement.has_unsent_inputs() {
+                movement.set_control_fence_pending(true);
+                stream.restore_committed_controls(std::iter::once(control).chain(controls));
+                return;
+            }
             let Some(network) = network.as_ref() else {
                 movement.set_control_fence_pending(true);
                 stream.restore_committed_controls(std::iter::once(control).chain(controls));
