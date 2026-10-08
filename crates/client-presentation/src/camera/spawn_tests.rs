@@ -1,6 +1,7 @@
 use super::*;
 use bevy::{camera::CameraProjection, window::WindowResolution};
 
+/// Spawns the production camera with a wide FOV for near-plane checks.
 fn spawned_projection() -> PerspectiveProjection {
     let mut settings = UserSettings::default();
     settings.video.horizontal_fov_degrees = 110.0;

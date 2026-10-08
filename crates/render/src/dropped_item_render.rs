@@ -585,6 +585,7 @@ impl Specializer<RenderPipeline> for ItemPipelineSpecializer {
         descriptor: &mut RenderPipelineDescriptor,
     ) -> Result<Canonical<Self::Key>, BevyError> {
         descriptor.multisample.count = key.msaa.samples();
+        crate::alpha_coverage::apply(descriptor, true);
         descriptor.fragment.as_mut().unwrap().targets[0]
             .as_mut()
             .unwrap()
@@ -802,12 +803,49 @@ mod tests {
                 &lighting,
             );
         assert!(crate::shader_test_support::fragment_reads_binding(
-            &source, 0, 0
+            &crate::shader_source::preprocess(&source, &[]),
+            0,
+            0
         ));
         assert!(
             super::item_bind_group_layout().entries[0]
                 .visibility
                 .contains(ShaderStages::FRAGMENT)
         );
+    }
+
+    #[test]
+    fn dropped_item_coverage_is_prewarmed_at_each_sample_count() {
+        use super::*;
+        use crate::pipeline_warmup::{PrewarmPipelines, WarmView};
+        let (mut app, _) = crate::queue_review_support::app();
+        let mut cache = app.world_mut().remove_resource::<PipelineCache>().unwrap();
+        let mut pipeline = ItemPipeline::from_world(&mut World::new());
+        for msaa in [Msaa::Off, Msaa::Sample2, Msaa::Sample4, Msaa::Sample8] {
+            let mut ids = Vec::new();
+            pipeline
+                .prewarm(
+                    &cache,
+                    WarmView {
+                        msaa,
+                        hdr: false,
+                        enhanced: false,
+                        output: None,
+                    },
+                    &mut ids,
+                )
+                .unwrap();
+            let id = pipeline
+                .variants
+                .specialize(&cache, ItemPipelineKey { msaa, hdr: false })
+                .unwrap();
+            assert!(ids.contains(&id));
+            assert_eq!(
+                crate::queue_review_support::queued_descriptor(&mut cache, id)
+                    .multisample
+                    .alpha_to_coverage_enabled,
+                msaa.samples() > 1
+            );
+        }
     }
 }

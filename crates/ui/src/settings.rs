@@ -13,6 +13,9 @@ pub const DEFAULT_RENDER_DISTANCE_CHUNKS: u8 = 16;
 /// Sample counts represented by the rendering backend's camera settings.
 pub const ANTI_ALIASING_SAMPLE_COUNTS: [u32; 4] = [1, 2, 4, 8];
 
+/// Spatial silhouette smoothing is an opt-in addition to vanilla's MSAA setting.
+pub const DEFAULT_SMAA_MODE: SmaaMode = SmaaMode::Off;
+
 /// Motion blur exposure is fixed to this reference rate, independent of rendering cadence.
 pub const MOTION_BLUR_REFERENCE_FPS: f32 = 60.0;
 
@@ -68,6 +71,40 @@ impl MotionBlurQuality {
             Self::Low => 5,
             Self::Medium => 9,
             Self::High => 13,
+        }
+    }
+}
+
+/// Spatial SMAA can run alone or alongside multisample coverage.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(i32)]
+pub enum SmaaMode {
+    Off = 0,
+    Smaa = 1,
+}
+
+impl Default for SmaaMode {
+    /// Uses the shared preference also used by saved Video settings.
+    fn default() -> Self {
+        DEFAULT_SMAA_MODE
+    }
+}
+
+impl SmaaMode {
+    /// Labels shared by every Video settings host.
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Off => "Off",
+            Self::Smaa => "SMAA",
+        }
+    }
+
+    /// Decodes the validated integral setting without enabling unknown modes.
+    pub const fn from_value(value: i32) -> Self {
+        if value == Self::Smaa as i32 {
+            Self::Smaa
+        } else {
+            Self::Off
         }
     }
 }
@@ -137,6 +174,7 @@ pub struct VideoSettings {
     pub vsync: bool,
     pub anti_aliasing_samples: u32,
     pub motion_blur: MotionBlurQuality,
+    pub smaa_mode: SmaaMode,
     pub ui_scale: f32,
     pub render_distance_chunks: u8,
     pub brightness: f32,
@@ -163,6 +201,7 @@ impl Default for VideoSettings {
             vsync: true,
             anti_aliasing_samples: DEFAULT_ANTI_ALIASING_SAMPLES,
             motion_blur: MotionBlurQuality::default(),
+            smaa_mode: DEFAULT_SMAA_MODE,
             ui_scale: 1.0,
             render_distance_chunks: DEFAULT_RENDER_DISTANCE_CHUNKS,
             brightness: 0.5,
@@ -251,6 +290,17 @@ mod tests {
 #[cfg(test)]
 mod antialiasing_tests {
     use super::*;
+
+    #[test]
+    fn spatial_antialiasing_defaults_off_and_round_trips_setting_values() {
+        assert_eq!(UserSettings::default().video.smaa_mode, SmaaMode::Off);
+        assert_eq!(DEFAULT_SMAA_MODE, SmaaMode::Off);
+        for mode in [SmaaMode::Off, SmaaMode::Smaa] {
+            assert_eq!(SmaaMode::from_value(mode as i32), mode);
+        }
+        assert_eq!(SmaaMode::from_value(-1), SmaaMode::Off);
+        assert_eq!(SmaaMode::from_value(2), SmaaMode::Off);
+    }
 
     #[test]
     fn antialiasing_support_keeps_only_usable_stops_and_falls_back_downward() {

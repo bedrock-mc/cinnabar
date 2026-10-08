@@ -10,6 +10,74 @@ const VIEW: &str = "struct View { clip_from_world: mat4x4<f32>, unjittered_clip_
 const FULLSCREEN: &str = "struct FullscreenVertexOutput { @builtin(position) position: vec4<f32>, @location(0) uv: vec2<f32>, }";
 const FULLSCREEN_VERTEX: &str = "@vertex fn fullscreen(@builtin(vertex_index) index: u32) -> FullscreenVertexOutput { var out: FullscreenVertexOutput; out.uv = vec2(f32((index << 1u) & 2u), f32(index & 2u)); out.position = vec4(out.uv * vec2(2.0, -2.0) + vec2(-1.0, 1.0), 0.0, 1.0); return out; }";
 
+/// Reads the alpha cutoff guarding a fragment discard, including named WGSL constants.
+pub fn alpha_discard_threshold(source: &str, entry: &str) -> Option<f32> {
+    let module = naga::front::wgsl::parse_str(&standalone(source, &[])).expect("shader parses");
+    let function = &module
+        .entry_points
+        .iter()
+        .find(|point| point.name == entry)
+        .expect("fragment entry exists")
+        .function;
+    discard_threshold(&module, function, &function.body)
+}
+
+/// Follows nested fragment guards to the comparison that actually discards its alpha.
+fn discard_threshold(
+    module: &naga::Module,
+    function: &naga::Function,
+    block: &naga::Block,
+) -> Option<f32> {
+    block.iter().find_map(|statement| match statement {
+        naga::Statement::If {
+            condition,
+            accept,
+            reject,
+        } => {
+            let threshold = accept
+                .iter()
+                .any(|statement| matches!(statement, naga::Statement::Kill))
+                .then(|| alpha_comparison(module, function, *condition))
+                .flatten();
+            threshold
+                .or_else(|| discard_threshold(module, function, accept))
+                .or_else(|| discard_threshold(module, function, reject))
+        }
+        naga::Statement::Block(inner) => discard_threshold(module, function, inner),
+        _ => None,
+    })
+}
+
+/// Resolves the cutoff of an alpha-channel comparison inside a combined material guard.
+fn alpha_comparison(
+    module: &naga::Module,
+    function: &naga::Function,
+    condition: naga::Handle<naga::Expression>,
+) -> Option<f32> {
+    let naga::Expression::Binary { op, left, right } = function.expressions[condition] else {
+        return None;
+    };
+    let alpha = match function.expressions[left] {
+        naga::Expression::Load { pointer } => &function.expressions[pointer],
+        _ => &function.expressions[left],
+    };
+    if op == naga::BinaryOperator::Less
+        && matches!(alpha, naga::Expression::AccessIndex { index: 3, .. })
+    {
+        let expression = match function.expressions[right] {
+            naga::Expression::Constant(constant) => {
+                &module.global_expressions[module.constants[constant].init]
+            }
+            _ => &function.expressions[right],
+        };
+        return match expression {
+            naga::Expression::Literal(naga::Literal::F32(value)) => Some(*value),
+            _ => None,
+        };
+    }
+    alpha_comparison(module, function, left).or_else(|| alpha_comparison(module, function, right))
+}
+
 /// Keep precisely the active Enhanced branches, including the depth caster variant.
 pub fn preprocess(source: &str, definitions: &[&str]) -> String {
     let source = material_shader::source(source);

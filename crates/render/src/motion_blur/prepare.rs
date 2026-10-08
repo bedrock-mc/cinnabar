@@ -160,42 +160,43 @@ fn update(
         queue.write_buffer(&state.uniform, 0, bytemuck::bytes_of(&uniform));
         state.last_uniform = Some(uniform);
     }
-    let source = target.main_texture_view();
-    if state.binding(source.id(), depth.view().id()).is_none() {
-        // Two ping-pong source views share a depth allocation; a resize retires both bindings.
-        if state.bindings.len() == 2
-            || state
+    for source in [target.main_texture_view(), target.main_texture_other_view()] {
+        if state.binding(source.id(), depth.view().id()).is_none() {
+            // Bind both scene colours before SMAA can switch them; resizing retires both bindings.
+            if state.bindings.len() == 2
+                || state
+                    .bindings
+                    .first()
+                    .is_some_and(|(_, old, _)| *old != depth.view().id())
+            {
+                state.bindings.clear();
+            }
+            let binding = device.create_bind_group(
+                "camera exposure",
+                &cache.get_bind_group_layout(pipeline.layout(samples)),
+                &[
+                    BindGroupEntry {
+                        binding: 0,
+                        resource: BindingResource::TextureView(source),
+                    },
+                    BindGroupEntry {
+                        binding: 1,
+                        resource: BindingResource::Sampler(&pipeline.sampler),
+                    },
+                    BindGroupEntry {
+                        binding: 2,
+                        resource: BindingResource::TextureView(depth.view()),
+                    },
+                    BindGroupEntry {
+                        binding: 3,
+                        resource: state.uniform.as_entire_binding(),
+                    },
+                ],
+            );
+            state
                 .bindings
-                .first()
-                .is_some_and(|(_, old, _)| *old != depth.view().id())
-        {
-            state.bindings.clear();
+                .push((source.id(), depth.view().id(), binding));
         }
-        let binding = device.create_bind_group(
-            "camera exposure",
-            &cache.get_bind_group_layout(pipeline.layout(samples)),
-            &[
-                BindGroupEntry {
-                    binding: 0,
-                    resource: BindingResource::TextureView(source),
-                },
-                BindGroupEntry {
-                    binding: 1,
-                    resource: BindingResource::Sampler(&pipeline.sampler),
-                },
-                BindGroupEntry {
-                    binding: 2,
-                    resource: BindingResource::TextureView(depth.view()),
-                },
-                BindGroupEntry {
-                    binding: 3,
-                    resource: state.uniform.as_entire_binding(),
-                },
-            ],
-        );
-        state
-            .bindings
-            .push((source.id(), depth.view().id(), binding));
     }
 }
 

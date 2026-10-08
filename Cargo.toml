@@ -64,6 +64,9 @@ rust-version = "1.93.1"
 # wayland/x11 only select winit backends on Linux; winit ignores them on other targets.
 bevy = { version = "=0.18.1", default-features = false, features = [
     "bevy_anti_alias",
+    "smaa_luts",
+    "ktx2",
+    "zstd_rust",
     "bevy_asset",
     "bevy_camera",
     "bevy_color",

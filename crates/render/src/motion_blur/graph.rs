@@ -14,12 +14,12 @@ use bevy::{
 };
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, RenderLabel)]
-pub(super) struct MotionBlurLabel;
+pub(crate) struct MotionBlurLabel;
 #[derive(Debug, Hash, PartialEq, Eq, Clone, RenderLabel)]
 pub(super) struct SharpNametagsLabel;
 
 /// Removes nodes entirely when no view requests exposure; unchanged graphs do no work.
-pub(super) fn sync_graph(
+pub(crate) fn sync_graph(
     world: &mut World,
     mut views: Local<Option<QueryState<&CameraMotionBlur>>>,
 ) {
