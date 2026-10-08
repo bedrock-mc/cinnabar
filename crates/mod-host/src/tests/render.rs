@@ -144,6 +144,7 @@ fn render_is_denied_by_default_even_with_other_grants() {
     let frame = calls.draw(&[2.0], true);
     let grants = ModGrants {
         player_state: false,
+        hud: false,
         environment: true,
         players: true,
         camera: true,
