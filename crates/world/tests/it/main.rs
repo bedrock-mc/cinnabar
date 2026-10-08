@@ -5,6 +5,7 @@ mod chunk;
 mod decode_commit;
 mod light;
 mod light_prior_cache;
+mod light_solver_oracle;
 mod mutation;
 mod store;
 mod sub_chunk;

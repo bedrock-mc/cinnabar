@@ -18,3 +18,7 @@ serde_json = "1"
 [[bench]]
 name = "chunk_costs"
 harness = false
+
+[[bench]]
+name = "light_work"
+harness = false
