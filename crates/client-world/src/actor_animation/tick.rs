@@ -386,6 +386,7 @@ pub(super) fn evaluate_state(
             life_tick,
             clips: Vec::new(),
             clocks: BTreeMap::new(),
+            controllers: Vec::new(),
         },
         previous_motion: None,
         swell_poses: None,
@@ -494,6 +495,7 @@ pub(super) fn evaluate_state(
                 .is_some_and(|s| s.samples_clips())
         {
             frame.motion.clocks.clone_from(&clip_clocks);
+            frame.motion.controllers.clone_from(&controllers);
         }
     }
     let local = sample_clips(
@@ -540,6 +542,7 @@ pub(super) fn evaluate_state(
     if samples_swell && let Some(frame) = render_frame.as_mut() {
         frame.swell_poses = Some(super::render_frame::SwellPoses {
             previous: Vec::new(),
+            previous_mask: Vec::new(),
             current: local,
             mask: state.swell_sampling.as_ref().unwrap().mask(
                 assets,
@@ -555,6 +558,7 @@ pub(super) fn evaluate_state(
                     geometry,
                     super::render_frame::SwellPoses {
                         previous: Vec::new(),
+                        previous_mask: Vec::new(),
                         current: local,
                         mask: state.swell_sampling.as_ref().unwrap().mask(
                             assets,

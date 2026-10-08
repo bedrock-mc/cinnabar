@@ -10,6 +10,7 @@ pub(in crate::actor_animation) struct SwellMotion {
     pub life_tick: u64,
     pub clips: Vec<tick::WeightedClip>,
     pub clocks: super::super::clock::ClipClocks,
+    pub controllers: Vec<ControllerState>,
 }
 
 pub(super) struct SwellEndpoint<'a> {
@@ -50,6 +51,7 @@ impl SwellMotion {
                 state,
                 &self.clips,
                 &self.clocks,
+                &self.controllers,
                 state.swell_sampling.as_deref(),
                 budget,
             )?

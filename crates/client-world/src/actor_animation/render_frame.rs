@@ -80,6 +80,7 @@ impl FrameState {
             .chain(self.swell_layers.values_mut())
         {
             poses.previous.clone_from(&poses.current);
+            poses.previous_mask.clone_from(&poses.mask);
         }
     }
 }
@@ -89,6 +90,7 @@ pub(super) struct SwellPoses {
     pub previous: Vec<pose::LocalDelta>,
     pub current: Vec<pose::LocalDelta>,
     pub mask: Vec<[u8; 3]>,
+    pub previous_mask: Vec<[u8; 3]>,
 }
 
 pub(super) fn carry_swell_history(
@@ -100,6 +102,11 @@ pub(super) fn carry_swell_history(
         if let Some(previous) =
             previous.filter(|previous| previous.current.len() == next.current.len())
         {
+            next.previous_mask = if advance {
+                std::mem::take(&mut previous.mask)
+            } else {
+                std::mem::take(&mut previous.previous_mask)
+            };
             next.previous = if advance {
                 std::mem::take(&mut previous.current)
             } else {
@@ -108,6 +115,9 @@ pub(super) fn carry_swell_history(
         }
         if next.previous.is_empty() {
             next.previous.clone_from(&next.current);
+        }
+        if next.previous_mask.is_empty() {
+            next.previous_mask.clone_from(&next.mask);
         }
     }
     next.swelling[0] = previous.as_ref().map_or(next.swelling[1], |frame| {
@@ -154,14 +164,20 @@ impl SwellPoses {
         mask: Option<&[[u8; 3]]>,
     ) -> Vec<pose::LocalDelta> {
         let mut previous = self.previous.clone();
-        for ((((sample, completed), previous), sampled_previous), mask) in current
+        for (
+            (((((sample, completed), previous), sampled_previous), sampled_mask), current_mask),
+            previous_mask,
+        ) in current
             .iter_mut()
             .zip(&self.current)
             .zip(&mut previous)
             .zip(sampled_previous)
             .zip(mask.unwrap_or(&self.mask))
+            .zip(&self.mask)
+            .zip(&self.previous_mask)
         {
-            for (axis, bits) in mask.iter().enumerate() {
+            for (axis, bits) in sampled_mask.iter().enumerate() {
+                let bits = bits | current_mask[axis] | previous_mask[axis];
                 if bits & swell::TRANSLATION != 0 {
                     previous.translation[axis] = sampled_previous.translation[axis];
                 } else {
@@ -300,6 +316,7 @@ impl ActorAnimationStore {
                 state,
                 &frame.motion.clips,
                 &state.clip_clocks,
+                &state.controllers,
                 state.swell_sampling.as_deref().filter(|_| swell_changed),
                 &mut budget,
             ) else {

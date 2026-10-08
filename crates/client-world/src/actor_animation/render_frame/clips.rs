@@ -8,10 +8,11 @@ pub(super) fn sample(
     state: &ActorRigState,
     previous: &[tick::WeightedClip],
     clocks: &super::super::clock::ClipClocks,
+    controllers: &[ControllerState],
     swelling: Option<&swell::SwellSampling>,
     budget: &mut EvalBudget<'_>,
 ) -> Result<Vec<tick::WeightedClip>, EvalError> {
-    let mut controllers = state.controllers.clone();
+    let mut controllers = controllers.to_vec();
     let mut clips = tick::selection::select(
         evaluator,
         variables,

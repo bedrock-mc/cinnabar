@@ -848,3 +848,214 @@ fn swell_on_an_alternate_only_bone_samples_the_frame_fraction() {
         }
     }
 }
+
+#[test]
+fn deactivated_swell_weights_remove_retained_channel_values() {
+    for query_channel in [false, true] {
+        let mut store = pack_swell_fixture(
+            false,
+            assets::EntityAnimationProperty::Translation,
+            false,
+            Some(query_channel),
+            false,
+            3,
+            false,
+        );
+        store.apply(
+            1,
+            2,
+            protocol::ActorEvent::Metadata(protocol::ActorMetadataUpdateEvent {
+                dimension: 0,
+                runtime_id: 1,
+                tick: 0,
+                metadata: Arc::from([protocol::ActorMetadata {
+                    key: 0,
+                    value: ActorMetadataValue::Flags(0),
+                }]),
+                properties: Arc::from([]),
+            }),
+        );
+        store.advance_interpolation_ticks(3);
+        let layers = store.render_frame(1.0).layers(1).unwrap();
+        for pose in [&layers[0].previous_pose[0], &layers[0].pose[0]] {
+            assert_eq!(
+                pose.translation_scale[0], 0.0,
+                "zero-weight channels return to rest"
+            );
+        }
+        store.advance_interpolation_ticks(1);
+        let layers = store.render_frame(0.25).layers(1).unwrap();
+        for pose in [&layers[0].previous_pose[0], &layers[0].pose[0]] {
+            assert_eq!(
+                pose.translation_scale[0], 0.0,
+                "the settling tick also stays at rest"
+            );
+        }
+    }
+}
+
+#[test]
+fn swell_weights_retain_each_endpoint_controller_state() {
+    let store = pack_swell_fixture_with(
+        false,
+        assets::EntityAnimationProperty::Translation,
+        false,
+        None,
+        false,
+        3,
+        false,
+        |compiled| {
+            use assets::*;
+            let scalar = |v| EntityGeometryScalar::new(v).unwrap();
+            let mut symbols = compiled.symbols.to_vec();
+            symbols.insert(
+                3,
+                EntityAssetSymbol {
+                    kind: EntityAssetKind::AnimationController,
+                    identifier: "controller.animation.test".into(),
+                    source_index: 0,
+                    dependencies: Box::new([]),
+                },
+            );
+            let mut sources = compiled.sources.to_vec();
+            sources.insert(
+                0,
+                EntityAssetSource {
+                    path: "animation_controllers/test.json".into(),
+                    source_bytes: 1,
+                    source_sha256: [1; 32],
+                },
+            );
+            for s in &mut symbols {
+                s.source_index += 1;
+            }
+            symbols[3].source_index = 0;
+            compiled.symbols = symbols.into();
+            compiled.sources = sources.into();
+            for g in &mut compiled.geometries {
+                g.source_index += 1;
+            }
+            compiled.animation_clips[0].source += 1;
+            compiled.rig_bindings[0].render_controller = 4;
+            for c in &mut compiled.render.candidates {
+                c.source = 5;
+            }
+            compiled.molang_symbols = vec![
+                MolangSymbol {
+                    kind: MolangSymbolKind::Name,
+                    identifier: "default".into(),
+                },
+                MolangSymbol {
+                    kind: MolangSymbolKind::Name,
+                    identifier: "second".into(),
+                },
+                MolangSymbol {
+                    kind: MolangSymbolKind::Name,
+                    identifier: "wield".into(),
+                },
+                MolangSymbol {
+                    kind: MolangSymbolKind::Query,
+                    identifier: "query.life_time".into(),
+                },
+                MolangSymbol {
+                    kind: MolangSymbolKind::Query,
+                    identifier: "query.swell_amount".into(),
+                },
+            ]
+            .into();
+            compiled.molang_ops = vec![
+                MolangOp::LoadQuery(4),
+                MolangOp::LoadQuery(4),
+                MolangOp::Push(scalar(1.0)),
+                MolangOp::Add,
+                MolangOp::LoadQuery(3),
+                MolangOp::Push(scalar(0.12)),
+                MolangOp::Greater,
+            ]
+            .into();
+            compiled.molang_expressions = vec![
+                CompiledMolangExpression {
+                    first_op: 0,
+                    op_count: 1,
+                    max_stack: 1,
+                },
+                CompiledMolangExpression {
+                    first_op: 1,
+                    op_count: 3,
+                    max_stack: 2,
+                },
+                CompiledMolangExpression {
+                    first_op: 4,
+                    op_count: 3,
+                    max_stack: 2,
+                },
+            ]
+            .into();
+            compiled.controllers = vec![EntityAnimationController {
+                symbol: 3,
+                first_state: 0,
+                state_count: 2,
+                initial_state: 0,
+            }]
+            .into();
+            compiled.controller_states = vec![
+                EntityControllerState {
+                    name: 0,
+                    first_animation: 0,
+                    animation_count: 1,
+                    first_transition: 0,
+                    transition_count: 1,
+                    ..Default::default()
+                },
+                EntityControllerState {
+                    name: 1,
+                    first_animation: 1,
+                    animation_count: 1,
+                    first_transition: 1,
+                    ..Default::default()
+                },
+            ]
+            .into();
+            compiled.controller_animations = vec![
+                EntityControllerAnimation {
+                    target: EntityControllerAnimationTarget::Clip(0),
+                    weight: Some(0),
+                },
+                EntityControllerAnimation {
+                    target: EntityControllerAnimationTarget::Clip(0),
+                    weight: Some(1),
+                },
+            ]
+            .into();
+            compiled.controller_transitions = vec![EntityControllerTransition {
+                target_state: 1,
+                condition: 2,
+            }]
+            .into();
+            compiled.rig_geometries[0].animation_count = 0;
+            compiled.rig_animations = Box::new([]);
+            compiled.rig_geometries[0].controller_count = 1;
+            compiled.rig_controllers = vec![EntityRigControllerBinding {
+                name: 0,
+                controller: 0,
+                weight: None,
+                order: 0,
+            }]
+            .into();
+        },
+    );
+    let tick = store.actor_rig(1).unwrap().completed_tick;
+    for alpha in [0.0, 0.25, 0.75, 1.0] {
+        let layers = store.render_frame(alpha).layers(1).unwrap();
+        let swell = (2.0 + alpha) / crate::actor_store::creeper::SWELL_FULL_TICKS;
+        assert!(
+            (layers[0].previous_pose[0].translation_scale[0] + swell * swell).abs() < 1e-6,
+            "previous endpoint keeps its earlier controller state"
+        );
+        assert!(
+            (layers[0].pose[0].translation_scale[0] + (swell + 1.0) * swell).abs() < 1e-6,
+            "current endpoint keeps its transitioned controller state"
+        );
+    }
+    assert_eq!(store.actor_rig(1).unwrap().completed_tick, tick);
+}
