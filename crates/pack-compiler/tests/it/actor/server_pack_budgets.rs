@@ -96,3 +96,34 @@ fn an_oversized_texture_is_shrunk_so_every_entity_keeps_its_art() {
         "the small texture keeps its full resolution"
     );
 }
+
+#[test]
+fn a_pack_with_thousands_of_textures_keeps_every_entity_texture() {
+    // Sources are taken in path order, so this filler art sorts before the entity's texture.
+    let mut filler = Cursor::new(Vec::new());
+    RgbaImage::from_pixel(1, 1, Rgba([0, 0, 0, 255]))
+        .write_to(&mut filler, image::ImageFormat::Png)
+        .unwrap();
+    let filler = filler.into_inner();
+    let mut files: Vec<(Box<str>, Vec<u8>)> = (0..4_700)
+        .map(|index| {
+            (
+                format!("textures/aaa_filler/{index:05}.png").into(),
+                filler.clone(),
+            )
+        })
+        .collect();
+    files.extend(entity("npc", 16));
+    let compiled = pack_compiler::compile_actor_pack(files)
+        .unwrap()
+        .expect("the entity compiles");
+
+    assert_eq!(compiled.skipped.over_budget, 0);
+    assert!(
+        compiled.bindings.iter().any(|binding| {
+            &*compiled.entities.symbols[binding.entity_symbol as usize].identifier == "test:npc"
+        }),
+        "the entity lost its texture; fallbacks: {:?}",
+        compiled.fallbacks
+    );
+}

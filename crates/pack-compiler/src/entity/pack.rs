@@ -5,7 +5,7 @@
 use super::*;
 
 /// Sources one pack may contribute before the rest are ignored.
-pub const MAX_PACK_ENTITY_SOURCES: usize = 4_096;
+pub const MAX_PACK_ENTITY_SOURCES: usize = 8_192;
 /// Total source bytes one pack may contribute before the rest are ignored.
 pub const MAX_PACK_ENTITY_BYTES: usize = 128 * 1024 * 1024;
 
