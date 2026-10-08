@@ -94,11 +94,15 @@ fn pending_transport_correction_keeps_the_presented_view_without_advancing_autho
             Update,
             super::super::advance_local_physics.after(reconcile_world_stream_before_physics),
         );
-    // Seed one completed tick and retain a half-tick interpolation phase.
-    app.world_mut()
-        .resource_mut::<Time<Real>>()
-        .advance_by(Duration::from_secs_f64(1.5 / sim::TICKS_PER_SECOND as f64));
-    app.update();
+    // Seed two completed ticks and retain a half-tick interpolation phase.
+    for ticks in [2.0, 0.5] {
+        app.world_mut()
+            .resource_mut::<Time<Real>>()
+            .advance_by(Duration::from_secs_f64(
+                ticks / sim::TICKS_PER_SECOND as f64,
+            ));
+        app.update();
+    }
     let before = *app.world().resource::<LocalViewPose>();
     assert!(
         (app.world()
@@ -185,8 +189,7 @@ fn pending_transport_correction_keeps_the_presented_view_without_advancing_autho
             .resource::<MovementTicker>()
             .can_advance_physics_frame()
     );
-    // The setup retained half a tick, and correction replay preserves that phase.
-    // Two more half-ticks advance once and sample halfway through correction decay.
+    // The retained half-tick plus two half-ticks advances once, then samples its decay.
     let half_tick = Duration::from_secs_f64(0.5 / sim::TICKS_PER_SECOND as f64);
     for _ in 0..2 {
         app.world_mut()

@@ -51,8 +51,9 @@ pub use server_position::{ResolvedServerPosition, SAFE_SERVER_HEIGHT};
 mod authority;
 pub use authority::BiomeCommitReport;
 pub use authority::{
-    BlockEventCue, COMMITTED_AUDIO_CAPACITY, COMMITTED_CAMERA_CAPACITY, COMMITTED_CONTROL_CAPACITY,
-    COMMITTED_PARTICLE_CAPACITY, COMMITTED_UI_CAPACITY, CommittedAudioEvent, CommittedCameraEvent,
-    CommittedControlEvent, CommittedParticleEvent, CommittedUiEvent, MapImage,
-    PublisherViewGeometry, SignEditRequest, ViewCohort, WorldAuthority,
+    AIR_DRAG_MODIFIER_ATTRIBUTE, BlockEventCue, COMMITTED_AUDIO_CAPACITY,
+    COMMITTED_CAMERA_CAPACITY, COMMITTED_CONTROL_CAPACITY, COMMITTED_PARTICLE_CAPACITY,
+    COMMITTED_UI_CAPACITY, CommittedAudioEvent, CommittedCameraEvent, CommittedControlEvent,
+    CommittedParticleEvent, CommittedUiEvent, MapImage, PublisherViewGeometry, SignEditRequest,
+    ViewCohort, WorldAuthority,
 };

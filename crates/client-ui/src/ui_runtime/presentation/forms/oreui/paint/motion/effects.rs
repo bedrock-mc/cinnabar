@@ -44,6 +44,15 @@ impl Default for Effects {
 }
 
 impl Effects {
+    /// A fading overlay or departing dialog still changes the output with time.
+    pub(in crate::ui_runtime::presentation) fn active(&self, seconds: f64) -> bool {
+        self.overlays.iter().any(|o| o.alpha.active(seconds))
+            || self
+                .dialogs
+                .iter()
+                .any(|d| d.exit.is_some_and(|start| seconds - start < EXIT_SECONDS))
+    }
+
     pub(in super::super::super) fn configure(&mut self, enabled: bool) {
         if self.enabled != enabled {
             self.overlays.clear();

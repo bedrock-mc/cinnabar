@@ -73,6 +73,11 @@ pub struct MenuScrolls {
 }
 
 impl MenuScrolls {
+    /// Retention waits for wheel interpolation and captured scrollbar input.
+    pub(super) fn active(&self) -> bool {
+        self.drag.is_some() || !self.motion.is_empty()
+    }
+
     /// Samples wheel motion once per rendered menu frame using the real menu clock.
     pub fn configure_motion(&mut self, smooth: bool, seconds: f64) {
         self.smooth = smooth;

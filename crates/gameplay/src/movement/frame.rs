@@ -170,6 +170,7 @@ impl LocomotionState {
                 input.sneaking = controlled.sneaking;
             }
             input.immobile = facts.immobile;
+            input.vertical_physics = facts.vertical_physics;
             movement_speed.set_sprinting(input.sprinting);
             input.movement_speed = movement_speed.prediction_speed();
             let liquid = movement_speed.liquid();

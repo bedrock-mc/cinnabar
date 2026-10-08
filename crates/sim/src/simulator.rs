@@ -22,7 +22,7 @@ use collision::{clip_sneak_edge, resolve_motion};
 use environment::sample;
 
 pub use controls::{ControlledTickResult, ProcessedControls};
-pub use effects::MovementEffects;
+pub use effects::{MovementEffects, VerticalPhysics};
 pub use environment::MAX_BLOCK_SAMPLES_PER_TICK;
 pub use input::MovementInput;
 pub use mode::{MovementMode, pose_fits};
@@ -42,6 +42,14 @@ const STEP_HEIGHT: f64 = 0.5625;
 /// Player movement-speed attribute before any modifier.
 pub const DEFAULT_MOVEMENT_SPEED: f64 = 0.1;
 const DEFAULT_AIR_SPEED: f64 = 0.02;
+/// Largest per-tick liquid velocity whose diagonal sweep, with the standing
+/// liquid-sensing pose and up to unit vertical speed, fits the 64-cell block
+/// sampling budget beside the liquid-exit probe: 1.4 blocks per horizontal axis.
+pub const MAX_SAFE_LIQUID_VELOCITY: f64 = 1.4 * std::f64::consts::SQRT_2;
+/// Incomplete safety bound; vanilla leaves Depth Strider's blend target unbounded.
+/// The worst steady water velocity is about 1.32 targets (effective level 2,
+/// sprint drag blended to 0.664), so the target keeps a tenth of headroom.
+const MAX_DEPTH_STRIDER_WATER_TARGET: f32 = (MAX_SAFE_LIQUID_VELOCITY / (1.32 * 1.1)) as f32;
 /// Default `minecraft:underwater_movement` and `minecraft:lava_movement` value.
 const DEFAULT_LIQUID_MOVEMENT_SPEED: f64 = 0.02;
 /// Swimming with a dolphin boost doubles water travel speed.
@@ -471,6 +479,7 @@ impl Simulator {
         if auto_climb {
             next.velocity.y = CLIMB_SPEED;
         }
+        let vertical = input.vertical_physics;
         if sampled.movement.in_water || sampled.movement.in_lava {
             // When both liquid facts overlap, the pinned v0.1.5 slice follows
             // water travel rather than composing water gravity with lava drag.
@@ -501,11 +510,15 @@ impl Simulator {
             effects::apply_vertical(
                 &mut next.velocity.y,
                 input.effects,
-                if auto_climb { 0.0 } else { gravity },
+                if auto_climb {
+                    0.0
+                } else {
+                    vertical.gravity(gravity)
+                },
                 if auto_climb {
                     1.0
                 } else {
-                    NORMAL_GRAVITY_MULTIPLIER
+                    f64::from(vertical.vertical_drag_retention())
                 },
             );
             next.velocity.x = effects::damp_horizontal(next.velocity.x, friction as f32);
@@ -588,7 +601,7 @@ fn water_travel_speed(input: &MovementInput, grounded: bool) -> f64 {
         );
     }
     let depth_strider = depth_strider_level(input.depth_strider, grounded) as f32;
-    let ground = effective_movement_speed(input);
+    let ground = effective_movement_speed(input).min(MAX_DEPTH_STRIDER_WATER_TARGET);
     f64::from(base + ((ground - base) * depth_strider) / max_level)
 }
 

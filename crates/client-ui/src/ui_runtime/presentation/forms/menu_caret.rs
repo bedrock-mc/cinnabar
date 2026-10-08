@@ -126,7 +126,9 @@ impl UiPresentationRuntime {
             }
         };
         let phase = ((now - since).max(0.0) / json_ui::CARET_BLINK_SECONDS) as u64;
-        view.caret.shown = phase.is_multiple_of(2);
+        if view.field.is_some() {
+            view.caret.shown = phase.is_multiple_of(2);
+        }
     }
 
     pub(super) fn add_menu_text_spots(&mut self, spots: impl IntoIterator<Item = TextSpot>) {
