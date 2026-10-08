@@ -154,6 +154,7 @@ pub struct MovementTicker {
     epoch_publisher: watch::Sender<u64>,
     mining_epoch_publisher: watch::Sender<u64>,
     held_release: Option<outbox::HeldRelease>,
+    next_tick_flags: Option<outbox::NextTickFlags>,
     /// Recent tick-end states, the single source of build actions' pre-tick state.
     tick_ends: outbox::TickEnds,
 }
@@ -198,6 +199,7 @@ impl MovementTicker {
             epoch_publisher,
             mining_epoch_publisher,
             held_release: None,
+            next_tick_flags: None,
             tick_ends: outbox::TickEnds::default(),
         }
     }
@@ -420,7 +422,7 @@ impl MovementTicker {
             yaw: sample.yaw,
             head_yaw: sample.head_yaw,
             camera_orientation: sample.camera_orientation,
-            flags: input_flags(sample, self.previous_input),
+            flags: input_flags(sample, self.previous_input) | self.take_next_tick_flags(),
             input_mode: sample.input_mode,
         };
         self.next_tick = self.next_tick.saturating_add(1);

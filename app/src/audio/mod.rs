@@ -13,4 +13,7 @@ pub(crate) use systems::configure;
 mod local_bank_tests;
 
 #[cfg(test)]
+pub(crate) use predicted::drive_block_cues;
+
+#[cfg(test)]
 pub(crate) use client_presentation::audio::{SERVER_SOUNDS_TEST_LOCK, server_sounds_generation};

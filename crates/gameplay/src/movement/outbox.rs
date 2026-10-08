@@ -74,6 +74,14 @@ pub(super) struct HeldRelease {
     facing_sent: bool,
 }
 
+/// Tick-bound action flags set before their tick was built.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct NextTickFlags {
+    session_generation: u64,
+    tick: u64,
+    flags: protocol::PlayerInputFlags,
+}
+
 /// Recent tick-end states by tick, fed wherever a tick completes, is replayed or is
 /// anchored; transport hand-offs never move them.
 #[derive(Debug, Clone)]
@@ -453,26 +461,52 @@ impl MovementTicker {
         true
     }
 
-    /// Flags an attack press that hit nothing on its exact unsent tick.
+    /// Flags an attack press that hit nothing on its unsent or next tick.
     pub fn mark_missed_swing(&mut self, tick: u64) -> bool {
         self.mark_unsent_flag(tick, protocol::PlayerInputFlags::MISSED_SWING)
     }
 
-    /// Flags the exact unsent tick on which the held item's use began.
+    /// Flags the unsent or next tick on which the held item's use began.
     pub fn mark_started_using_item(&mut self, tick: u64) -> bool {
         self.mark_unsent_flag(tick, protocol::PlayerInputFlags::START_USING_ITEM)
     }
 
     fn mark_unsent_flag(&mut self, tick: u64, flag: protocol::PlayerInputFlags) -> bool {
-        let Some(sample) = self
+        if let Some(sample) = self
             .outbox
             .iter_mut()
             .find(|sample| sample.snapshot.tick == tick)
-        else {
+        {
+            sample.snapshot.flags |= flag;
+            return true;
+        }
+        // A frame-time action between ticks rides the next tick's input, as a jump edge does.
+        if tick != self.next_tick || !self.physics_is_authorized() {
             return false;
-        };
-        sample.snapshot.flags |= flag;
+        }
+        let latched = self
+            .next_tick_flags
+            .filter(|latched| {
+                latched.session_generation == self.session_generation && latched.tick == tick
+            })
+            .map_or(protocol::PlayerInputFlags::NONE, |latched| latched.flags);
+        self.next_tick_flags = Some(NextTickFlags {
+            session_generation: self.session_generation,
+            tick,
+            flags: latched | flag,
+        });
         true
+    }
+
+    /// Flags latched for the tick being built; a stale latch from another session or tick is dropped.
+    pub(super) fn take_next_tick_flags(&mut self) -> protocol::PlayerInputFlags {
+        self.next_tick_flags
+            .take()
+            .filter(|latched| {
+                latched.session_generation == self.session_generation
+                    && latched.tick == self.next_tick
+            })
+            .map_or(protocol::PlayerInputFlags::NONE, |latched| latched.flags)
     }
 
     /// Attaches one destroy tick to its exact unsent sample; it is committed from then on.
