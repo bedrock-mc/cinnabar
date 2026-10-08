@@ -49,7 +49,7 @@ fn terrain_fragments_sample_interpolated_levels_not_interpolated_light_rgb() {
         mip_level_count: 1,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Rgba8UnormSrgb,
+        format: wgpu::TextureFormat::Rgba8Unorm,
         usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
         view_formats: &[],
     });
@@ -132,11 +132,11 @@ fn terrain_fragments_sample_interpolated_levels_not_interpolated_light_rgb() {
                     resource: view.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
-                    binding: 4,
+                    binding: material_shader::NATIVE_LEAF_TEXTURE_BINDINGS[0],
                     resource: wgpu::BindingResource::TextureView(&atlas),
                 },
                 wgpu::BindGroupEntry {
-                    binding: 5,
+                    binding: material_shader::NATIVE_LEAF_TEXTURE_BINDINGS[1],
                     resource: wgpu::BindingResource::TextureView(&atlas),
                 },
                 wgpu::BindGroupEntry {
@@ -165,14 +165,6 @@ fn terrain_fragments_sample_interpolated_levels_not_interpolated_light_rgb() {
                     wgpu::BindGroupEntry {
                         binding: 8,
                         resource: tints.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: material_shader::NATIVE_LEAF_TEXTURE_BINDINGS[0],
-                        resource: wgpu::BindingResource::TextureView(&atlas),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: material_shader::NATIVE_LEAF_TEXTURE_BINDINGS[1],
-                        resource: wgpu::BindingResource::TextureView(&atlas),
                     },
                     wgpu::BindGroupEntry {
                         binding: material_shader::NATIVE_LEAF_SAMPLER_BINDING,

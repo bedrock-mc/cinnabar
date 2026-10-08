@@ -1,4 +1,4 @@
-use super::{MAX_TILE_SIZE, TextureMip};
+use super::{MAX_TILE_SIZE, TextureArray, TextureMip};
 use crate::AssetError;
 
 /// Builds the native legacy terrain atlas's byte-space, unassociated RGBA mips.
@@ -47,6 +47,47 @@ pub fn build_legacy_terrain_mip_chain(
     Ok(mips.into_boxed_slice())
 }
 
+/// Rebuilds each terrain layer from its original bytes, leaving shared carried textures unchanged.
+pub fn rebuild_legacy_terrain_mips(texture: &TextureArray) -> Result<TextureArray, AssetError> {
+    let Some(base) = texture.mips.first() else {
+        return Err(invalid("legacy terrain texture has no base level"));
+    };
+    if texture.layers == 0 || !base.size.is_power_of_two() || base.size > MAX_TILE_SIZE {
+        return Err(invalid("legacy terrain array dimensions are unsupported"));
+    }
+    let layer_bytes = (base.size * base.size * 4) as usize;
+    if layer_bytes.checked_mul(texture.layers as usize) != Some(base.rgba8.len()) {
+        return Err(invalid(
+            "legacy terrain array base has an invalid byte length",
+        ));
+    }
+    let mut levels: Vec<Vec<u8>> = (0..=base.size.trailing_zeros())
+        .map(|level| {
+            Vec::with_capacity(((base.size >> level).pow(2) * 4) as usize * texture.layers as usize)
+        })
+        .collect();
+    for layer in base.rgba8.chunks_exact(layer_bytes) {
+        for (bytes, mip) in levels
+            .iter_mut()
+            .zip(build_legacy_terrain_mip_chain(layer, base.size)?)
+        {
+            bytes.extend_from_slice(&mip.rgba8);
+        }
+    }
+    Ok(TextureArray {
+        layers: texture.layers,
+        mips: levels
+            .into_iter()
+            .enumerate()
+            .map(|(level, bytes)| TextureMip {
+                size: base.size >> level,
+                rgba8: bytes.into_boxed_slice(),
+            })
+            .collect(),
+    })
+}
+
+/// Reports malformed atlas inputs at the asset boundary.
 fn invalid(detail: &str) -> AssetError {
     AssetError::InvalidCompiledAssets {
         detail: detail.into(),

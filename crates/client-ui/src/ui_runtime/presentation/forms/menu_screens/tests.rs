@@ -362,3 +362,30 @@ fn addresses_split_into_the_ip_and_port_boxes() {
     assert_eq!(split_address("[::1]:19132"), ("::1".into(), "19132".into()));
     assert_eq!(split_address("host"), ("host".into(), "19132".into()));
 }
+
+#[test]
+fn antialiasing_slider_uses_device_sample_stops_and_numeric_labels() {
+    let mut view = view(MenuScreen::Settings);
+    let options = Arc::make_mut(&mut view.settings_options);
+    options.set_anti_aliasing_support(ui::AntiAliasingSupport::from_counts([1, 4, 8]));
+    let index = crate::menu::settings_options::SETTINGS_OPTIONS
+        .iter()
+        .position(|option| option.name == "msaa")
+        .unwrap();
+    options.set(index, 4);
+    let mut slider = region(HitKind::Slider, None);
+    slider.control_name = Some("msaa".into());
+    assert_eq!(
+        slider_actions(&view, &slider).unwrap(),
+        [1, 4, 8].map(|samples| MenuAction::SettingsOption(index as u16, samples))
+    );
+    let mut actual = DataSource::default();
+    super::super::settings_controls::bind(&view, &mut actual, &str::to_owned);
+    let mut expected = actual.clone();
+    expected.set_global("#msaa", Scalar::Num(1.0));
+    expected.set_global("#msaa_steps", Scalar::Num(3.0));
+    expected.set_global("#msaa_text_value", Scalar::Text("4".into()));
+    expected.set_global("#msaa_slider_label", Scalar::Text("options.msaa: 4".into()));
+    expected.set_global("#show_msaa", Scalar::Bool(true));
+    assert_eq!(actual, expected);
+}

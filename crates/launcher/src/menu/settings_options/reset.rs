@@ -57,6 +57,7 @@ impl SettingsGroup {
                     | "gui_accessibility_scaling"
                     | "max_framerate"
                     | "vsync"
+                    | "msaa"
             ),
             // P:general_section.json:4738–5158.
             Self::Accessibility => matches!(

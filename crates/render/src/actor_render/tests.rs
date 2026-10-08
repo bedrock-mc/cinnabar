@@ -387,26 +387,28 @@ fn pipeline_descriptor_specializes_and_noop_backend_accepts_the_binding_layout()
         &layout,
     );
 
-    let mut descriptor = actor_pipeline_descriptor(layout.clone());
-    ActorPipelineSpecializer
-        .specialize(
-            ActorPipelineKey {
-                material: 0,
-                msaa: Msaa::Sample4,
-                hdr: true,
-                enhanced: false,
-            },
-            &mut descriptor,
-        )
-        .expect("actor pipeline specializes");
-    assert_eq!(descriptor.multisample.count, 4);
-    assert_eq!(
-        descriptor.fragment.as_ref().unwrap().targets[0]
-            .as_ref()
-            .unwrap()
-            .format,
-        ViewTarget::TEXTURE_FORMAT_HDR
-    );
+    for msaa in [Msaa::Off, Msaa::Sample2, Msaa::Sample4, Msaa::Sample8] {
+        let mut descriptor = actor_pipeline_descriptor(layout.clone());
+        ActorPipelineSpecializer
+            .specialize(
+                ActorPipelineKey {
+                    material: 0,
+                    msaa,
+                    hdr: true,
+                    enhanced: false,
+                },
+                &mut descriptor,
+            )
+            .expect("actor pipeline specializes");
+        assert_eq!(descriptor.multisample.count, msaa.samples());
+        assert_eq!(
+            descriptor.fragment.as_ref().unwrap().targets[0]
+                .as_ref()
+                .unwrap()
+                .format,
+            ViewTarget::TEXTURE_FORMAT_HDR
+        );
+    }
 
     let app = app_with_noop_render_sub_app();
     let render_device = app.sub_app(RenderApp).world().resource::<RenderDevice>();

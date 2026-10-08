@@ -864,7 +864,7 @@ pub(super) fn slider_actions(view: &MenuView, region: &HitRegion) -> Option<Vec<
                 .collect(),
         );
     }
-    super::settings_controls::slider_actions(region)
+    super::settings_controls::slider_actions(&view.settings_options, region)
 }
 
 #[cfg(test)]

@@ -16,6 +16,7 @@ pub enum CameraSettingsError {
 pub struct CameraSettingsAuthority {
     generation: u64,
     horizontal_fov_degrees: f32,
+    anti_aliasing_samples: u32,
     perspective: PerspectiveMode,
     configured_perspective: PerspectiveMode,
     pub(super) freelook: bool,
@@ -78,6 +79,7 @@ impl Default for CameraSettingsAuthority {
         Self {
             generation: 0,
             horizontal_fov_degrees: settings.video.horizontal_fov_degrees,
+            anti_aliasing_samples: settings.video.anti_aliasing_samples,
             perspective: settings.gameplay.default_perspective,
             configured_perspective: settings.gameplay.default_perspective,
             freelook: false,
@@ -111,6 +113,7 @@ impl CameraSettingsAuthority {
         }
         self.generation = generation;
         self.horizontal_fov_degrees = fov;
+        self.anti_aliasing_samples = settings.video.anti_aliasing_samples;
         if self.configured_perspective != settings.gameplay.default_perspective {
             self.configured_perspective = settings.gameplay.default_perspective;
             self.perspective = self.configured_perspective;
@@ -125,6 +128,11 @@ impl CameraSettingsAuthority {
     /// Identifies the latest accepted settings snapshot.
     pub const fn generation(&self) -> u64 {
         self.generation
+    }
+
+    /// Returns the requested sample count; the renderer clamps it to device support.
+    pub const fn anti_aliasing_samples(&self) -> u32 {
+        self.anti_aliasing_samples
     }
 
     /// The Bedrock FOV setting is vertical for a full-window viewport. The
