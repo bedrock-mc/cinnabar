@@ -423,7 +423,10 @@ mod tests {
     fn level_event_silence_prevents_the_default_sound() {
         let absent = SoundEventTables::default();
         assert_eq!(
-            level_event_sound_route(&absent, 1000, 0.0).unwrap().sound.as_ref(),
+            level_event_sound_route(&absent, 1000, 0.0)
+                .unwrap()
+                .sound
+                .as_ref(),
             "random.click"
         );
         let silent = SoundEventTables::from_json(
@@ -615,12 +618,18 @@ pub fn level_event_sound_route(
     let &(_, individual, fallback) = LEVEL_EVENT_SOUNDS
         .iter()
         .find(|(id, _, _)| *id == event_id)?;
-    let lookup = if individual.is_empty() { RouteLookup::Absent } else { tables.individual_lookup(individual) };
+    let lookup = if individual.is_empty() {
+        RouteLookup::Absent
+    } else {
+        tables.individual_lookup(individual)
+    };
     match lookup {
         RouteLookup::Route(route) => Some(route),
         RouteLookup::Silent => None,
         RouteLookup::Absent => Some(SoundRoute {
-            sound: fallback.into(), volume: FloatRange::ONE, pitch: FloatRange::ONE,
+            sound: fallback.into(),
+            volume: FloatRange::ONE,
+            pitch: FloatRange::ONE,
         }),
     }
 }

@@ -1,22 +1,18 @@
 //! Stream adapters for Cinnabar's compiled actor geometry and GPU publication.
 //! Geometry, skin normalization, armor UVs and artwork pages retain native owners.
 
-use std::{
-    collections::BTreeMap,
-    sync::Arc,
-};
+use std::{collections::BTreeMap, sync::Arc};
 
 use assets::{EquipmentCategory, RuntimeEntityAssets, RuntimeEquipmentCatalog, RuntimeIconCatalog};
 use bevy::math::Mat4;
 use render::{
-    ActorArtworkLocation, ActorArtworkPages, ActorRenderIdentity,
-    ActorRenderScene, ActorRigFrameBuilder, ActorRigRenderInput, ActorRigRoute,
-    ActorRigSubmission, HandItemAtlas, HandRigLight,
-    HandRigScene,
+    ActorArtworkLocation, ActorArtworkPages, ActorRenderIdentity, ActorRenderScene,
+    ActorRigFrameBuilder, ActorRigRenderInput, ActorRigRoute, ActorRigSubmission, HandItemAtlas,
+    HandRigLight, HandRigScene,
 };
-use sha2::{Digest, Sha256};
 use render_api::SkinRgba8;
 use render_model::{ActorRigGeometry, ActorSkinPixels, EntityRigId, equipment::EquipmentRaster};
+use sha2::{Digest, Sha256};
 
 use super::browser_model::{Fighter, Item};
 use view_presentation::equipment_display::{self, FirstPersonArms, FirstPersonShape};
@@ -118,7 +114,8 @@ impl BrowserActors {
             {
                 continue;
             }
-            let Some(index) = render_model::find_geometry_index(&entities, &binding.geometry.identifier)
+            let Some(index) =
+                render_model::find_geometry_index(&entities, &binding.geometry.identifier)
             else {
                 continue;
             };
@@ -255,8 +252,8 @@ impl BrowserActors {
             if self.cape_rig.is_none() {
                 return Err("canonical cape geometry unavailable".into());
             }
-            let pixels =
-                view_presentation::cape::cape_layer(width, height, &pixels).ok_or("invalid cape raster")?;
+            let pixels = view_presentation::cape::cape_layer(width, height, &pixels)
+                .ok_or("invalid cape raster")?;
             if self.capes.len() >= MAX_BROWSER_SKINS && !self.capes.contains_key(id) {
                 return Err("cape cache is full".into());
             }
@@ -378,10 +375,13 @@ impl BrowserActors {
     ) -> Option<(ActorRigSubmission, ActorArtworkLocation)> {
         let bone = bone?;
         let (mesh, location) = self.mesh_for(item)?;
-        let display =
-            render_model::equipment::held_sprite_display(render_model::equipment::is_hand_equipped(&item.name));
-        let previous =
-            render_model::equipment::attach_to_bone(*body.input.previous_bones.get(bone)?, display)?;
+        let display = render_model::equipment::held_sprite_display(
+            render_model::equipment::is_hand_equipped(&item.name),
+        );
+        let previous = render_model::equipment::attach_to_bone(
+            *body.input.previous_bones.get(bone)?,
+            display,
+        )?;
         let current =
             render_model::equipment::attach_to_bone(*body.input.current_bones.get(bone)?, display)?;
         let mut held = body.clone();
@@ -476,7 +476,11 @@ impl BrowserActors {
                 .then(|| animation::use_ticks(&self.equipment, &item.name))
                 .flatten();
             let hand = equipment_display::hand_progress(
-                animated.hand.map(|hand| equipment_display::HandProgress { attack_time: hand.attack_time, arm_height: hand.arm_height, use_ticks: hand.use_ticks }),
+                animated.hand.map(|hand| equipment_display::HandProgress {
+                    attack_time: hand.attack_time,
+                    arm_height: hand.arm_height,
+                    use_ticks: hand.use_ticks,
+                }),
                 consume,
                 partial_tick.clamp(0.0, 1.0),
             );
