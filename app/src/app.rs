@@ -13,7 +13,7 @@ use std::{ffi::OsStr, fs, sync::Arc};
 
 use anyhow::{Context, Result, bail};
 use bevy::{
-    anti_alias::{AntiAliasPlugin, fxaa::FxaaPlugin},
+    anti_alias::AntiAliasPlugin,
     app::TerminalCtrlCHandlerPlugin,
     prelude::{
         App, ClearColor, Color, DefaultPlugins, First, IntoScheduleConfigs, Last, PluginGroup,
@@ -702,9 +702,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         })
         .set(render_plugin())
         .set(crate::thread_budget::ThreadBudget::task_pool_plugin())
-        // Cinnabar uses FXAA without Bevy's TAA/SMAA/CAS bundle. The TAA
-        // graph requires post-process nodes that are intentionally absent
-        // from this compact custom renderer.
+        // Vanilla resolves multisampled geometry without a screen-space AA filter.
         .disable::<AntiAliasPlugin>()
         // The launcher owns the production process lifecycle. Keeping the
         // OS default SIGINT action also preserves a real developer escape
@@ -716,7 +714,6 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         ..default()
     });
     app.add_plugins(plugins);
-    app.add_plugins(FxaaPlugin);
     app.add_systems(Update, crate::window_icon::apply);
     app.add_plugins(crate::local_worlds::LocalWorldsPlugin);
     app.add_plugins(crate::hud_tools::HudToolsPlugin {

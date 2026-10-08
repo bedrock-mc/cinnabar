@@ -765,8 +765,6 @@ impl Raster {
                 (1, quads.as_entire_binding()),
                 (2, origins.as_entire_binding()),
                 (3, materials.as_entire_binding()),
-                (4, wgpu::BindingResource::TextureView(&atlas)),
-                (5, wgpu::BindingResource::TextureView(&atlas)),
                 (6, wgpu::BindingResource::Sampler(&sampler)),
                 (7, records.as_entire_binding()),
                 (8, tints.as_entire_binding()),

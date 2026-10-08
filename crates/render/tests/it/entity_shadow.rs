@@ -63,8 +63,57 @@ fn view_words(scene: &Scene) -> Vec<f32> {
     words
 }
 
-/// Renders the floor, copies it as the scene, draws `casters` and reads the encoded bytes.
-fn render(gpu: &Gpu, casters: &[EntityShadow]) -> Vec<u8> {
+/// Requests the native formats used by the scene, sampled depth and overlap stencil.
+fn fixture() -> Option<(Gpu, Vec<u32>)> {
+    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
+    let adapter = match bevy::tasks::block_on(instance.request_adapter(&Default::default())) {
+        Ok(adapter) if adapter.get_info().backend != wgpu::Backend::Noop => adapter,
+        Ok(_) | Err(wgpu::RequestAdapterError::NotFound { .. }) => {
+            eprintln!("missing fixture: native GPU for entity shadow raster");
+            return None;
+        }
+        Err(error) => panic!("entity shadow raster adapter: {error}"),
+    };
+    let counts = [1, 2, 4]
+        .into_iter()
+        .filter(|samples| {
+            let supported = [
+                wgpu::TextureFormat::Rgba8Unorm,
+                wgpu::TextureFormat::Rgba8UnormSrgb,
+                wgpu::TextureFormat::Depth32Float,
+                wgpu::TextureFormat::Stencil8,
+            ]
+            .into_iter()
+            .all(|format| {
+                adapter
+                    .get_texture_format_features(format)
+                    .flags
+                    .sample_count_supported(*samples)
+            });
+            if !supported {
+                eprintln!("missing fixture: entity shadow {samples}x attachment support");
+            }
+            supported
+        })
+        .collect();
+    let (device, queue) = bevy::tasks::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+        required_features: adapter.features()
+            & wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES,
+        ..Default::default()
+    }))
+    .expect("entity shadow raster device");
+    Some((
+        Gpu {
+            device,
+            queue,
+            backend: adapter.get_info().backend,
+        },
+        counts,
+    ))
+}
+
+/// Draws the floor and shadow union into compatible views of the same colour samples.
+fn render(gpu: &Gpu, casters: &[EntityShadow], samples: u32) -> Vec<u8> {
     let device = &gpu.device;
     let scene = scene();
     let size = wgpu::Extent3d {
@@ -72,33 +121,55 @@ fn render(gpu: &Gpu, casters: &[EntityShadow]) -> Vec<u8> {
         height: SIDE,
         depth_or_array_layers: 1,
     };
-    let texture = |format, usage| {
+    let texture = |format, usage, sample_count, view_formats: &[wgpu::TextureFormat]| {
         device.create_texture(&wgpu::TextureDescriptor {
             label: None,
             size,
             mip_level_count: 1,
-            sample_count: 1,
+            sample_count,
             dimension: wgpu::TextureDimension::D2,
             format,
             usage,
-            view_formats: &[],
+            view_formats,
         })
     };
     let target = texture(
+        wgpu::TextureFormat::Rgba8Unorm,
+        wgpu::TextureUsages::RENDER_ATTACHMENT
+            | if samples == 1 {
+                wgpu::TextureUsages::COPY_SRC
+            } else {
+                wgpu::TextureUsages::empty()
+            },
+        samples,
+        &[wgpu::TextureFormat::Rgba8UnormSrgb],
+    );
+    let resolved = texture(
         wgpu::TextureFormat::Rgba8UnormSrgb,
         wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
-    );
-    let copy = texture(
-        wgpu::TextureFormat::Rgba8Unorm,
-        wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        1,
+        &[],
     );
     let depth = texture(
         wgpu::TextureFormat::Depth32Float,
         wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+        samples,
+        &[],
     );
-    let (target_view, copy_view, depth_view) = (
-        target.create_view(&Default::default()),
-        copy.create_view(&Default::default()),
+    let stencil = texture(
+        wgpu::TextureFormat::Stencil8,
+        wgpu::TextureUsages::RENDER_ATTACHMENT,
+        samples,
+        &[],
+    );
+    let stencil_view = stencil.create_view(&Default::default());
+    let encoded_view = target.create_view(&Default::default());
+    let resolved_view = resolved.create_view(&Default::default());
+    let (target_view, depth_view) = (
+        target.create_view(&wgpu::TextureViewDescriptor {
+            format: Some(wgpu::TextureFormat::Rgba8UnormSrgb),
+            ..Default::default()
+        }),
         depth.create_view(&Default::default()),
     );
     let init = |contents: &[u8], usage| {
@@ -137,7 +208,10 @@ fn render(gpu: &Gpu, casters: &[EntityShadow]) -> Vec<u8> {
             stencil: Default::default(),
             bias: Default::default(),
         }),
-        multisample: Default::default(),
+        multisample: wgpu::MultisampleState {
+            count: samples,
+            ..Default::default()
+        },
         fragment: Some(wgpu::FragmentState {
             module: &floor_module,
             entry_point: Some("floor_colour"),
@@ -157,7 +231,7 @@ fn render(gpu: &Gpu, casters: &[EntityShadow]) -> Vec<u8> {
     });
     let source = shader_source::standalone(
         include_str!("../../src/entity_shadow.wgsl"),
-        &["GAMMA_TARGET"],
+        if samples > 1 { &["MULTISAMPLED"] } else { &[] },
     );
     let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: None,
@@ -180,15 +254,48 @@ fn render(gpu: &Gpu, casters: &[EntityShadow]) -> Vec<u8> {
             cull_mode: Some(wgpu::Face::Front),
             ..Default::default()
         },
-        depth_stencil: None,
-        multisample: Default::default(),
+        depth_stencil: Some(wgpu::DepthStencilState {
+            format: wgpu::TextureFormat::Stencil8,
+            depth_write_enabled: false,
+            depth_compare: wgpu::CompareFunction::Always,
+            stencil: wgpu::StencilState {
+                front: wgpu::StencilFaceState {
+                    compare: wgpu::CompareFunction::NotEqual,
+                    pass_op: wgpu::StencilOperation::Replace,
+                    ..Default::default()
+                },
+                back: wgpu::StencilFaceState {
+                    compare: wgpu::CompareFunction::NotEqual,
+                    pass_op: wgpu::StencilOperation::Replace,
+                    ..Default::default()
+                },
+                read_mask: 0xff,
+                write_mask: 0xff,
+            },
+            bias: Default::default(),
+        }),
+        multisample: wgpu::MultisampleState {
+            count: samples,
+            ..Default::default()
+        },
         fragment: Some(wgpu::FragmentState {
             module: &module,
             entry_point: Some("shadow_fragment"),
             compilation_options: Default::default(),
             targets: &[Some(wgpu::ColorTargetState {
-                format: wgpu::TextureFormat::Rgba8UnormSrgb,
-                blend: None,
+                format: wgpu::TextureFormat::Rgba8Unorm,
+                blend: Some(wgpu::BlendState {
+                    color: wgpu::BlendComponent {
+                        src_factor: wgpu::BlendFactor::Zero,
+                        dst_factor: wgpu::BlendFactor::Src,
+                        operation: wgpu::BlendOperation::Add,
+                    },
+                    alpha: wgpu::BlendComponent {
+                        src_factor: wgpu::BlendFactor::Zero,
+                        dst_factor: wgpu::BlendFactor::One,
+                        operation: wgpu::BlendOperation::Add,
+                    },
+                }),
                 write_mask: wgpu::ColorWrites::COLOR,
             })],
         }),
@@ -222,10 +329,6 @@ fn render(gpu: &Gpu, casters: &[EntityShadow]) -> Vec<u8> {
             wgpu::BindGroupEntry {
                 binding: 1,
                 resource: wgpu::BindingResource::TextureView(&depth_view),
-            },
-            wgpu::BindGroupEntry {
-                binding: 2,
-                resource: wgpu::BindingResource::TextureView(&copy_view),
             },
             wgpu::BindGroupEntry {
                 binding: 3,
@@ -271,12 +374,11 @@ fn render(gpu: &Gpu, casters: &[EntityShadow]) -> Vec<u8> {
         pass.set_bind_group(0, &floor_group, &[]);
         pass.draw(0..6, 0..1);
     }
-    encoder.copy_texture_to_texture(target.as_image_copy(), copy.as_image_copy(), size);
     {
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: None,
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: &target_view,
+                view: &encoded_view,
                 depth_slice: None,
                 resolve_target: None,
                 ops: wgpu::Operations {
@@ -284,14 +386,39 @@ fn render(gpu: &Gpu, casters: &[EntityShadow]) -> Vec<u8> {
                     store: wgpu::StoreOp::Store,
                 },
             })],
-            depth_stencil_attachment: None,
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                view: &stencil_view,
+                depth_ops: None,
+                stencil_ops: Some(wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(0),
+                    store: wgpu::StoreOp::Discard,
+                }),
+            }),
             timestamp_writes: None,
             occlusion_query_set: None,
         });
         pass.set_pipeline(&shadow);
+        pass.set_stencil_reference(1);
         pass.set_bind_group(0, &group, &[]);
         pass.set_vertex_buffer(0, mesh.slice(..));
         pass.draw(0..SHADOW_VOLUME_VERTICES as u32, 0..casters.len() as u32);
+    }
+    if samples > 1 {
+        encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("entity shadow final scene resolve"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &target_view,
+                depth_slice: None,
+                resolve_target: Some(&resolved_view),
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Load,
+                    store: wgpu::StoreOp::Discard,
+                },
+            })],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+        });
     }
     let readback = device.create_buffer(&wgpu::BufferDescriptor {
         label: None,
@@ -300,7 +427,11 @@ fn render(gpu: &Gpu, casters: &[EntityShadow]) -> Vec<u8> {
         mapped_at_creation: false,
     });
     encoder.copy_texture_to_buffer(
-        target.as_image_copy(),
+        if samples > 1 {
+            resolved.as_image_copy()
+        } else {
+            target.as_image_copy()
+        },
         wgpu::TexelCopyBufferInfo {
             buffer: &readback,
             layout: wgpu::TexelCopyBufferLayout {
@@ -331,7 +462,7 @@ fn at(pixels: &[u8], x: f32, z: f32) -> u8 {
 
 #[test]
 fn shadows_darken_the_floor_once_inside_each_footprint() {
-    let Some(gpu) = Gpu::for_fixture("entity shadow raster") else {
+    let Some((gpu, samples)) = fixture() else {
         return;
     };
     let shaded = (f32::from(FLOOR_BYTE) * 0.7).round() as i32;
@@ -339,55 +470,58 @@ fn shadows_darken_the_floor_once_inside_each_footprint() {
         feet: [x, y, 0.0],
         radius,
     };
-    let pixels = render(
-        &gpu,
-        &[
-            caster(0.0, FLOOR_Y, 1.0),
-            // Overlaps the first: the shared floor still darkens once.
-            caster(0.4, FLOOR_Y, 1.0),
-            // Hangs 3.5 radii above the floor, past the volume's reach.
-            caster(3.0, FLOOR_Y + 3.5, 1.0),
-            // 1.5 radii up: the floor sits inside a half-width footprint.
-            caster(-3.0, FLOOR_Y + 1.5, 1.0),
-        ],
-    );
-    let near = |byte: u8, expected: i32| (i32::from(byte) - expected).abs() <= 1;
-    assert!(
-        near(at(&pixels, 0.0, 0.0), shaded),
-        "under the feet: {}",
-        at(&pixels, 0.0, 0.0)
-    );
-    assert!(
-        near(at(&pixels, 0.2, 0.0), shaded),
-        "overlap: {}",
-        at(&pixels, 0.2, 0.0)
-    );
-    assert!(
-        near(at(&pixels, 0.0, 1.2), i32::from(FLOOR_BYTE)),
-        "outside the footprint"
-    );
-    assert!(
-        near(at(&pixels, 3.0, 0.0), i32::from(FLOOR_BYTE)),
-        "beyond three radii"
-    );
-    assert!(
-        near(at(&pixels, -3.0, 0.0), shaded),
-        "1.5 radii below the feet"
-    );
-    assert!(
-        near(at(&pixels, -3.0, 0.62), i32::from(FLOOR_BYTE)),
-        "past the narrowed edge"
-    );
-    assert!(
-        near(at(&pixels, 4.5, 4.5), i32::from(FLOOR_BYTE)),
-        "open floor"
-    );
+    for samples in samples {
+        let pixels = render(
+            &gpu,
+            &[
+                caster(0.0, FLOOR_Y, 1.0),
+                // Overlaps the first: the shared floor still darkens once.
+                caster(0.4, FLOOR_Y, 1.0),
+                // Hangs 3.5 radii above the floor, past the volume's reach.
+                caster(3.0, FLOOR_Y + 3.5, 1.0),
+                // 1.5 radii up: the floor sits inside a half-width footprint.
+                caster(-3.0, FLOOR_Y + 1.5, 1.0),
+            ],
+            samples,
+        );
+        let near = |byte: u8, expected: i32| (i32::from(byte) - expected).abs() <= 1;
+        assert!(
+            near(at(&pixels, 0.0, 0.0), shaded),
+            "under the feet: {}",
+            at(&pixels, 0.0, 0.0)
+        );
+        assert!(
+            near(at(&pixels, 0.2, 0.0), shaded),
+            "overlap: {}",
+            at(&pixels, 0.2, 0.0)
+        );
+        assert!(
+            near(at(&pixels, 0.0, 1.2), i32::from(FLOOR_BYTE)),
+            "outside the footprint"
+        );
+        assert!(
+            near(at(&pixels, 3.0, 0.0), i32::from(FLOOR_BYTE)),
+            "beyond three radii"
+        );
+        assert!(
+            near(at(&pixels, -3.0, 0.0), shaded),
+            "1.5 radii below the feet"
+        );
+        assert!(
+            near(at(&pixels, -3.0, 0.62), i32::from(FLOOR_BYTE)),
+            "past the narrowed edge"
+        );
+        assert!(
+            near(at(&pixels, 4.5, 4.5), i32::from(FLOOR_BYTE)),
+            "open floor"
+        );
+    }
 }
 
 /// From inside a volume, back faces still cover the floor beneath; it shades as usual.
 #[test]
 fn a_camera_inside_a_volume_still_shades_the_floor_inside_it() {
-    let Some(gpu) = Gpu::for_fixture("entity shadow raster") else {
+    let Some((gpu, samples)) = fixture() else {
         return;
     };
     let shaded = (f32::from(FLOOR_BYTE) * 0.7).round() as i32;
@@ -396,6 +530,11 @@ fn a_camera_inside_a_volume_still_shades_the_floor_inside_it() {
         feet: [0.0, FLOOR_Y + 10.5, 0.0],
         radius: 4.0,
     };
-    let pixels = render(&gpu, &[around_camera]);
-    assert!((i32::from(at(&pixels, 0.0, 0.0)) - shaded).abs() <= 1);
+    for samples in samples {
+        let pixels = render(&gpu, &[around_camera], samples);
+        assert!(
+            (i32::from(at(&pixels, 0.0, 0.0)) - shaded).abs() <= 1,
+            "{samples}x MSAA camera inside volume"
+        );
+    }
 }

@@ -31,10 +31,21 @@ fn liquid_shader_parses_validates_and_uses_shared_address_contract() {
     .validate(&module)
     .expect("validate liquid WGSL");
 
-    assert_eq!(shader.matches("@group(0) @binding(").count(), 16);
-    for binding in 0..=15 {
-        assert!(shader.contains(&format!("@group(0) @binding({binding})")));
-    }
+    let bindings: std::collections::BTreeSet<_> = module
+        .global_variables
+        .iter()
+        .filter_map(|(_, global)| global.binding.as_ref())
+        .filter(|binding| binding.group == 0)
+        .map(|binding| binding.binding)
+        .collect();
+    assert!(
+        bindings.contains(&16),
+        "native terrain sampling needs its encoded texture view"
+    );
+    assert!(
+        bindings.contains(&17),
+        "native auxiliary sampling needs its encoded texture view"
+    );
     assert!(shader.contains("struct TransparentDrawRef"));
     assert!(shader.contains("liquid_record_index: u32"));
     assert!(shader.contains("metadata_index: u32"));
@@ -225,7 +236,6 @@ fn liquid_shader_preserves_straight_alpha_animation_tint_and_light() {
     assert!(SHADER.contains("out.water_tint = blended_biome_tint("));
     assert!(SHADER.contains("native_liquid_colour(sampled.rgb, in.water_tint.rgb, in)"));
     assert!(SHADER.contains("terrain_light_colour(in.native_light_levels)"));
-    assert!(SHADER.contains("return tint_to_gamma(sampled)"));
     assert!(SHADER.contains("sampled.a * in.water_tint.a"));
     assert!(!SHADER.contains("sampled.rgb * sampled.a"));
     assert!(!SHADER.contains("sampled.a <"));

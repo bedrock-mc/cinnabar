@@ -16,6 +16,7 @@ fn view(eye: [f32; 3], world: u64) -> OcclusionBasis {
         clip_from_view: Mat4::perspective_infinite_reverse_rh(1.2, 1.0, 0.05).to_cols_array(),
         viewport: [0, 0, 256, 256],
         depth_size: [256, 256],
+        depth_samples: 1,
         world,
     }
 }
@@ -324,8 +325,8 @@ fn a_resized_viewport_voids_old_verdicts() {
         color_grading: default(),
         invert_culling: false,
     };
-    let small = view_basis(&extracted(UVec4::new(0, 0, 960, 540)));
-    let large = view_basis(&extracted(UVec4::new(0, 0, 1920, 1080)));
+    let small = view_basis(&extracted(UVec4::new(0, 0, 960, 540)), 1);
+    let large = view_basis(&extracted(UVec4::new(0, 0, 1920, 1080)), 1);
     let mut history = OcclusionHistory::default();
     history.assign(0, 1);
     for frame in 2..=3 {
@@ -381,4 +382,60 @@ fn a_bulk_removal_voids_verdicts_once_per_frame() {
             .candidates,
         0
     );
+}
+
+/// A settled occlusion result cannot survive a different pixel coverage pattern.
+#[test]
+fn changing_multisample_coverage_restarts_settled_direct_occlusion() {
+    let (mut app, camera) = chunk_app(
+        noop_render_plugin(WgpuFeatures::empty()),
+        Msaa::Sample4,
+        camera_transform(),
+    );
+    insert_meshes(&mut app, &KEYS);
+    for _ in 0..16 {
+        frame(&mut app);
+    }
+    let settled = stats(&app);
+    assert!(settled.verdicts_applied > 0);
+    assert_eq!(settled.solid_drawn, 0);
+    *app.world_mut().get_mut::<Msaa>(camera).unwrap() = Msaa::Off;
+    let mut refreshed = false;
+    for _ in 0..8 {
+        frame(&mut app);
+        refreshed |= stats(&app).solid_drawn == KEYS.len() as u32;
+    }
+    assert!(
+        refreshed,
+        "a new coverage pattern must request fresh depth verdicts"
+    );
+    assert!(stats(&app).verdicts_applied > settled.verdicts_applied);
+}
+
+/// Readbacks from every other sample count remain stale even when they arrive late.
+#[test]
+fn sample_count_changes_void_occlusion_history_before_new_readbacks() {
+    for samples in [1, 2, 4, 8] {
+        let mut history = OcclusionHistory::default();
+        history.assign(0, 1);
+        let mut basis = view(EYE, history.world());
+        basis.depth_samples = samples;
+        for frame in 2..=3 {
+            history.apply(&tag(frame, basis, 1), &words(&[0]));
+        }
+        assert!(history.skips(0, &basis));
+        for changed in [1, 2, 4, 8]
+            .into_iter()
+            .filter(|changed| *changed != samples)
+        {
+            let current = OcclusionBasis {
+                depth_samples: changed,
+                ..basis
+            };
+            assert!(!history.skips(0, &current));
+            assert!(!history.settled(&current));
+            history.apply(&tag(4, basis, 1), &words(&[0]));
+            assert!(!history.skips(0, &current));
+        }
+    }
 }

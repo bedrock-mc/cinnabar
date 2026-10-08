@@ -448,7 +448,11 @@ impl Specializer<RenderPipeline> for OverlayPipelineSpecializer {
         key: Self::Key,
         descriptor: &mut RenderPipelineDescriptor,
     ) -> Result<Canonical<Self::Key>, BevyError> {
-        descriptor.multisample.count = key.msaa.samples();
+        descriptor.multisample.count = if key.after_hand {
+            1
+        } else {
+            key.msaa.samples()
+        };
         if key.after_hand {
             descriptor.depth_stencil = None;
         }
@@ -586,7 +590,7 @@ pub(crate) fn draw_before_hud(
     ) else {
         return;
     };
-    let attachments = [Some(target.get_color_attachment())];
+    let attachments = [Some(target.get_unsampled_color_attachment())];
     let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
         label: Some("camera effects before HUD"),
         color_attachments: &attachments,
@@ -692,7 +696,7 @@ mod tests {
         let mut cache = app.world_mut().resource_mut::<PipelineCache>();
         let descriptor = crate::queue_review_support::queued_descriptor(&mut cache, id);
         assert!(descriptor.depth_stencil.is_none());
-        assert_eq!(descriptor.multisample.count, 4);
+        assert_eq!(descriptor.multisample.count, 1);
         assert_eq!(
             descriptor.fragment.as_ref().unwrap().targets[0]
                 .as_ref()

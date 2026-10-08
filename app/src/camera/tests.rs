@@ -662,13 +662,13 @@ fn plugin_spawns_camera_and_auto_fly_uses_delta_seconds() {
         .query_filtered::<&Msaa, (With<Camera3d>, With<FlyCamera>)>()
         .single(app.world())
         .unwrap();
-    assert_eq!(*msaa, Msaa::Off);
+    assert_eq!(msaa.samples(), ui::DEFAULT_ANTI_ALIASING_SAMPLES);
     let fxaa = app
         .world_mut()
         .query_filtered::<&Fxaa, (With<Camera3d>, With<FlyCamera>)>()
-        .single(app.world())
-        .unwrap();
-    assert!(fxaa.enabled);
+        .iter(app.world())
+        .count();
+    assert_eq!(fxaa, 0);
     let start = app.world().resource::<LocalViewPose>().eye_translation();
     assert!(app.world().resource::<AutoFly>().enabled());
 
