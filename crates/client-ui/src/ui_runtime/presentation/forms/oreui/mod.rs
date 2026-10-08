@@ -29,6 +29,7 @@ mod pause;
 mod play;
 mod play_realms;
 mod play_servers;
+pub(in crate::ui_runtime::presentation) use play_servers::animated_server_details;
 mod profile;
 mod progress;
 mod radio;

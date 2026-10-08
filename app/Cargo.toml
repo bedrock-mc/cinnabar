@@ -26,7 +26,7 @@ developer-control = ["dep:developer-control", "dep:objc2", "dep:objc2-app-kit"]
 # Records Bevy schedules, systems, render graph, submission and presentation spans.
 frame-trace = ["bevy/trace_chrome", "bevy/debug"]
 # Live CPU attribution through Bevy and the owned streaming/render hot paths.
-tracy = ["bevy/trace", "bevy/debug", "dep:tracing-tracy", "chunk-pipeline/tracy", "render/tracy"]
+tracy = ["bevy/trace", "bevy/debug", "dep:tracing-tracy", "chunk-pipeline/tracy", "render/tracy", "client-ui/tracy"]
 # Compiles the offline pack reports and benchmarks into the test build.
 reports = []
 
