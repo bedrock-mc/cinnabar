@@ -57,3 +57,4 @@ pub use authority::{
     CommittedParticleEvent, CommittedUiEvent, MapImage, PublisherViewGeometry, SignEditRequest,
     ViewCohort, WorldAuthority,
 };
+pub use protocol::ItemAttackTiming;

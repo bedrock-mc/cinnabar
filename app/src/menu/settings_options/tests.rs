@@ -36,7 +36,10 @@ fn camera_input_and_window_settings_read_the_saved_values() {
     assert_eq!(authority.feel().fov_effects_scale, 0.0);
     assert_eq!(user.controls.mouse_sensitivity, 0.75);
     assert!(user.controls.invert_mouse_y);
-    assert_eq!(user.video.frame_cap, Some(120));
+    assert_eq!(
+        user.video.frame_rate_limit,
+        render_api::FrameRateLimit::Fixed(std::num::NonZeroU16::new(120).unwrap())
+    );
     assert_eq!(
         authority.perspective(),
         semantic_input::PerspectiveMode::ThirdPersonFront

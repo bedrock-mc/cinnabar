@@ -110,6 +110,7 @@ pub(crate) struct ItemStateStore {
     armor: BTreeMap<u64, ActorArmorSnapshot>,
     persistent_armor_runtime: Option<u64>,
     use_durations: Option<Arc<BTreeMap<Box<str>, u32>>>,
+    attack_timings: Option<Arc<BTreeMap<Box<str>, protocol::ItemAttackTiming>>>,
     notices: Vec<EquipmentNotice>,
 }
 
@@ -131,6 +132,7 @@ impl ItemStateStore {
             armor: BTreeMap::new(),
             persistent_armor_runtime: None,
             use_durations: None,
+            attack_timings: None,
             notices: Vec::new(),
         }
     }
@@ -176,6 +178,19 @@ impl ItemStateStore {
     /// Ticks the item can be used for, when the pack states it.
     pub(crate) fn max_use_ticks(&self, identifier: &str) -> Option<u32> {
         self.use_durations.as_ref()?.get(identifier).copied()
+    }
+
+    /// Replaces the session's effective compiled and server-defined attack facts.
+    pub(crate) fn set_attack_timings(
+        &mut self,
+        timings: Arc<BTreeMap<Box<str>, protocol::ItemAttackTiming>>,
+    ) {
+        self.attack_timings = Some(timings);
+    }
+
+    /// Shares the same selected-item facts with packet admission and animation.
+    pub(crate) fn attack_timing(&self, identifier: &str) -> Option<&protocol::ItemAttackTiming> {
+        self.attack_timings.as_ref()?.get(identifier)
     }
 
     /// Keeps this runtime's armor across actor removal and dimension resets (the local player).

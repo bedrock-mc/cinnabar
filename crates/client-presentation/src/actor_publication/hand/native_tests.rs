@@ -175,34 +175,7 @@ fn fixture_with_binding(
         [0.0, 64.0, 0.0],
         None,
     );
-    let mut feed = client_world::LocalPlayerFeed {
-        prefer_client_skin: false,
-        uuid: [1; 16],
-        username: Arc::from("Player"),
-        skin: protocol::PlayerSkin::Unavailable(protocol::PlayerSkinUnavailable::InvalidDimensions),
-        position: [0.0, 64.0, 0.0],
-        velocity: [0.0; 3],
-        on_ground: true,
-        yaw: 170.0,
-        head_yaw: 170.0,
-        pitch: 5.0,
-        main_hand: None,
-        off_hand: None,
-        main_hand_metadata: 0,
-        main_hand_slot: 0,
-        main_hand_stack_id: None,
-        bedrock_swing_ticks: client_world::ACTOR_SWING_TICKS,
-        java_swing_ticks: client_world::ACTOR_SWING_TICKS,
-        flying: false,
-        gliding: false,
-        fall_fly_ticks: 0,
-        teleported: false,
-        first_person: false,
-        view_bobbing: true,
-        sneaking: false,
-        sprinting: false,
-        item_use: client_world::LocalItemUse::Unpredicted,
-    };
+    let mut feed = player_feed();
     if clock {
         feed.skin = protocol::PlayerSkin::Standard(protocol::StandardSkin {
             width: 64,
@@ -741,4 +714,36 @@ fn native_hand_readiness_does_not_advance_the_authored_clock_before_changed_fina
 #[test]
 fn native_hand_readiness_reused_source_commits_the_authored_clock_once() {
     assert_attachable_readiness_clock(false);
+}
+
+/// Supplies original local-player observations for authored body and hand fixtures.
+pub(super) fn player_feed() -> client_world::LocalPlayerFeed {
+    client_world::LocalPlayerFeed {
+        prefer_client_skin: false,
+        uuid: [1; 16],
+        username: Arc::from("Player"),
+        skin: protocol::PlayerSkin::Unavailable(protocol::PlayerSkinUnavailable::InvalidDimensions),
+        position: [0.0, 64.0, 0.0],
+        velocity: [0.0; 3],
+        on_ground: true,
+        yaw: 170.0,
+        head_yaw: 170.0,
+        pitch: 5.0,
+        main_hand: None,
+        off_hand: None,
+        main_hand_metadata: 0,
+        main_hand_slot: 0,
+        main_hand_stack_id: None,
+        bedrock_swing_ticks: client_world::ACTOR_SWING_TICKS,
+        java_swing_ticks: client_world::ACTOR_SWING_TICKS,
+        flying: false,
+        gliding: false,
+        fall_fly_ticks: 0,
+        teleported: false,
+        first_person: false,
+        view_bobbing: true,
+        sneaking: false,
+        sprinting: false,
+        item_use: client_world::LocalItemUse::Unpredicted,
+    }
 }

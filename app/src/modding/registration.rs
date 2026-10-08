@@ -501,6 +501,7 @@ fn install(world: &mut World, update: Update) {
                         registration_identity: Some(candidate.identity),
                         registration_request: Some((update.generation, update.request_id.clone())),
                         suspended: false,
+                        hud_editor_owner: None,
                     });
                     ("loaded", None, Some(candidate.identity))
                 }

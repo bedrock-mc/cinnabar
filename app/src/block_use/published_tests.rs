@@ -8,6 +8,9 @@ use std::time::{Duration, Instant};
 #[path = "published_tests/actor_use.rs"]
 mod actor_use_tests;
 
+#[path = "published_tests/item_use.rs"]
+mod item_use_tests;
+
 /// Supplies loaded synthetic terrain, a current interaction ray and one real Use press.
 fn fixture() -> (World, client_session::CapturedPackets) {
     let bytes = assets::pinned_block_registry_bytes();
@@ -676,6 +679,7 @@ fn attack_tap_then_use(crosshair: crate::melee::Crosshair) -> Vec<[i32; 3]> {
             local_runtime_id: 42,
             selection: None,
             swing_duration: 6,
+            item_attack: None,
             now_millis: 1_000,
         },
         &mut gameplay::melee::SwingTracker::default(),

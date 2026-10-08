@@ -111,14 +111,28 @@ fn a_rejected_pearl_does_not_start_its_cooldown() {
     let mut runtime = ItemUseRuntime::default();
     let mut swings = SwingTracker::default();
     let pearl = |tick| item_frame(tick, false, stack(2, 422, 16), "minecraft:ender_pearl");
+    let cooldown = pearl(100).air_use.unwrap().cooldown().unwrap();
     runtime.observe_press(true);
     send_use(&mut runtime, &mut swings, &pearl(100), &full);
     assert!(runtime.cooldowns.is_empty());
+    assert_eq!(runtime.cooldown_progress(cooldown, 100), 0.0);
     let (ready, _open) = AdmissionQueue::with_command_capacity(2);
     send_use(&mut runtime, &mut swings, &pearl(110), &ready);
     assert_eq!(runtime.cooldowns, [("ender_pearl", 130)]);
     assert_eq!(ready.pending_command_count(), 2);
     assert_eq!(runtime.predicted.as_ref().unwrap().stack.count(), 15);
+    assert_eq!(runtime.cooldown_progress(cooldown, 110), 1.0);
+    let half = 110 + u64::from(cooldown.ticks) / 2;
+    assert_eq!(runtime.cooldown_progress(cooldown, half), 0.5);
+    assert_eq!(runtime.cooldown_progress(cooldown, 130), 0.0);
+    let wind = classify("minecraft:wind_charge", false, 0, None)
+        .unwrap()
+        .cooldown()
+        .unwrap();
+    assert_eq!(runtime.cooldown_progress(wind, 110), 0.0);
+    runtime.synchronize(1);
+    runtime.synchronize(2);
+    assert_eq!(runtime.cooldown_progress(cooldown, 110), 0.0);
 }
 
 #[test]
@@ -620,8 +634,21 @@ fn delay_fix_retries_rejected_batches_but_not_an_accepted_same_tick() {
     send_use(&mut runtime, &mut swings, &next, &ready);
     assert_eq!(
         ready.pending_command_count(),
+        2,
+        "same-slot repeats retain their delay"
+    );
+    let switched = UseFrame {
+        selection: Some(stack(5, SNOWBALL, 16)),
+        ..next
+    };
+    runtime.observe_press(true);
+    send_use(&mut runtime, &mut swings, &switched, &full);
+    assert_eq!(ready.pending_command_count(), 2);
+    send_use(&mut runtime, &mut swings, &switched, &ready);
+    assert_eq!(
+        ready.pending_command_count(),
         3,
-        "the next tick admits its transaction while the existing arm swing remains active"
+        "a rejected slot-change use retries without restarting the existing arm swing"
     );
 }
 
