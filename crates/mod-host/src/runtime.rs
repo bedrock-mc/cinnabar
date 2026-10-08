@@ -1,6 +1,6 @@
 use crate::{
     CameraDelta, FRAME_FUEL, GameplayCameraRig, GameplayMob, GameplaySnapshot, MAX_LABEL_BYTES,
-    MEMORY_BYTES, ModCue, ModGrants,
+    MEMORY_BYTES, ModCue, ModGrants, PlayerStateSnapshot,
 };
 use anyhow::{Result, bail};
 use wasmtime::{
@@ -24,6 +24,8 @@ mod controls;
 mod gameplay;
 #[path = "item_use.rs"]
 mod item_use;
+#[path = "player_state.rs"]
+mod player_state;
 #[path = "render.rs"]
 mod render;
 
@@ -53,6 +55,7 @@ struct State {
     world: gameplay::WorldState,
     camera_policy: camera::CameraPolicy,
     item_use_policy: item_use::ItemUsePolicy,
+    player_state: player_state::PlayerState,
     render: render::RenderState,
     block_highlights: block_highlights::HighlightState,
 }
@@ -92,6 +95,7 @@ impl State {
             world: gameplay::WorldState::default(),
             camera_policy: camera::CameraPolicy::default(),
             item_use_policy: item_use::ItemUsePolicy::default(),
+            player_state: player_state::PlayerState::default(),
             render: render::RenderState::new(),
             block_highlights: block_highlights::HighlightState::default(),
         }
@@ -195,6 +199,7 @@ impl Instance {
         pressed: bool,
         snapshot: Option<GameplaySnapshot>,
         mobs: Vec<GameplayMob>,
+        player_state: Option<PlayerStateSnapshot>,
         controls: crate::ControlFrame,
     ) -> Result<()> {
         let state = self.store.data_mut();
@@ -209,6 +214,7 @@ impl Instance {
         state.render.begin_frame();
         state.block_highlights.begin_frame();
         state.world.begin_frame();
+        state.player_state.begin_frame();
         state.camera_policy = camera::CameraPolicy::default();
         state.item_use_policy = item_use::ItemUsePolicy::default();
         if !self.active {
@@ -216,6 +222,7 @@ impl Instance {
         }
         gameplay::validate_snapshot(snapshot.as_ref())?;
         gameplay::validate_mobs(snapshot.as_ref(), &mobs)?;
+        player_state::validate(player_state.as_ref())?;
         controls::validate_frame(&controls)?;
         let snapshot_seconds = snapshot.as_ref().map_or(0.0, |frame| frame.frame_seconds);
         let state = self.store.data_mut();
@@ -227,6 +234,7 @@ impl Instance {
         state.snapshot = snapshot;
         state.world.advance_command_window(snapshot_seconds);
         state.world.mobs = mobs;
+        state.player_state.snapshot = player_state;
         state.controls.frame = controls;
         self.store.set_fuel(FRAME_FUEL)?;
         if let Err(error) = self.guest.call_frame(&mut self.store) {
@@ -244,6 +252,7 @@ impl Instance {
             self.store.data_mut().render.revoke();
             self.store.data_mut().block_highlights.revoke();
             self.store.data_mut().world = gameplay::WorldState::default();
+            self.store.data_mut().player_state.begin_frame();
             self.store.data_mut().camera_policy = camera::CameraPolicy::default();
             self.store.data_mut().item_use_policy = item_use::ItemUsePolicy::default();
             self.store.data_mut().packet_delay_ms = 0;
@@ -254,6 +263,7 @@ impl Instance {
         }
         commit(&mut self.store);
         self.store.data_mut().snapshot = None;
+        self.store.data_mut().player_state.begin_frame();
         self.store.data_mut().world.mobs = Vec::new();
         self.store.data_mut().world.incoming = Vec::new();
         self.store.data_mut().controls.frame = crate::empty_controls();

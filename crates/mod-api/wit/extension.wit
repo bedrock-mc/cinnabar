@@ -6,6 +6,52 @@ interface hud {
     set-label: func(text: string) -> result<_, string>;
 }
 
+/// Read-only, session-bound facts about the local player's presented inventory and effects.
+interface player-state {
+    record item {
+        /// None when the negotiated registry cannot resolve the item.
+        identifier: option<string>,
+        network-id: s32,
+        metadata: u32,
+        count: u16,
+        /// Canonical block-item route or a retained wire block identity.
+        block: bool,
+        /// Accepted response corrections take precedence over the stack's Damage tag.
+        damage: option<u32>,
+        /// None for items without a known durability maximum, including custom components.
+        max-durability: option<u32>,
+    }
+    record slot {
+        /// False until this inventory cell has authoritative or selected-equipment evidence.
+        known: bool,
+        item: option<item>,
+    }
+    record effect {
+        effect-id: s32,
+        /// The wire amplifier is zero-based and is not a display level.
+        amplifier: s32,
+        /// Remaining 20 Hz server ticks; none is an infinite effect.
+        remaining-ticks: option<u64>,
+        ambient: bool,
+        particles: bool,
+    }
+    record snapshot {
+        session: u64,
+        dimension: s32,
+        selected-slot: option<u8>,
+        /// Exactly 36 cells, with hotbar cells first, in the host's presented inventory order.
+        inventory: list<slot>,
+        /// Helmet, chestplate, leggings, boots, with unknown cells preserved.
+        armor: list<slot>,
+        offhand: slot,
+        /// Currently visible status effects, sorted by effect id, without expired entries.
+        effects: list<effect>,
+    }
+    /// Requires the player-state grant. None outside the current connected session.
+    /// Available while a screen owns input; carries no camera, interaction or packet authority.
+    read-snapshot: func() -> result<option<snapshot>, string>;
+}
+
 /// An opt-in retained settings panel, rendered and hit-tested by the host.
 interface panel {
     record event { id: string, value: f32 }
@@ -168,6 +214,7 @@ interface item-use {
 
 /// Experimental developer contract; no WASI or ambient operating-system access.
 world extension {
+    import player-state;
     import item-use;
     import camera;
     import hud;

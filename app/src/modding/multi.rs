@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use mod_host::{
     CameraDelta, ControlFrame, GameplayCameraRig, GameplayMob, GameplaySnapshot, MAX_LOADED_MODS,
-    ModCue, ModGrants, ModHost,
+    ModCue, ModGrants, ModHost, PlayerStateSnapshot,
 };
 use serde::Deserialize;
 
@@ -164,6 +164,8 @@ pub(super) struct FrameInput<'a> {
     pub controls: &'a ControlFrame,
     /// Every mod's committed cues from the previous frame.
     pub previous_cues: &'a [ModCue],
+    /// Captured once from the current local session, delivered only to granted components.
+    pub player_state: Option<&'a PlayerStateSnapshot>,
 }
 
 /// Runs each mod once in load order with its own grants and merges what they commit.
@@ -184,8 +186,14 @@ pub(super) fn run_frame(
         claimed.extend(runtime.host(index).reserved_keys().iter().cloned());
         let host = runtime.host_mut(index);
         host.deliver_cues(input.previous_cues.to_vec());
+        let player_state = host
+            .grants()
+            .player_state
+            .then(|| input.player_state.cloned())
+            .flatten();
         if host.is_active()
-            && let Err(error) = host.frame_with_world(input.pressed, snapshot, mobs, controls)
+            && let Err(error) =
+                host.frame_with_player_state(input.pressed, snapshot, mobs, player_state, controls)
         {
             failed(index, format!("{error:#}"));
         }

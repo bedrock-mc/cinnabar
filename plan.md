@@ -1667,6 +1667,15 @@ cross-platform runtime acceptance. Loaded player data is not line-of-sight or
 visibility evidence. No aim-assist algorithm is installed and no vanilla parity
 gate is closed; see `docs/modding-spike.md` for the contract and opt-in switches.
 
+2026-10-08 local player-state extension: a separate default-denied, read-only
+grant exposes current-session presented inventory/gear and active status effects.
+Unknown cells, item identities and durability remain explicit; finite effect
+durations follow the existing estimated server clock. Host callback budgets and
+session fences clear stale payloads. Experimental, non-parity API; no vanilla
+gate is closed. Incomplete: custom component durability maxima, production API
+stability, server policy/grant UI and native cross-platform acceptance. See
+`docs/modding-spike.md` for the contract.
+
 2026-10-01 crouch, shield and crossbow follow-up: the local camera now consumes
 the native 0.35-block crouch offset, half-blended once per completed tick and
 interpolated per frame. Local actor feet, interaction eye and network anchor are

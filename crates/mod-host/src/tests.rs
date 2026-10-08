@@ -5,6 +5,7 @@ mod block_highlights;
 mod fullbright;
 mod gameplay;
 mod item_use;
+mod player_state;
 mod prepared_settings;
 mod render;
 mod world;

@@ -79,6 +79,35 @@ subject to its current parity limits; this mod adds no native acceptance claim.
 
 ## Contract and implementation
 
+### Read-only local player state
+
+`player-state.read-snapshot()` exposes the local player's current presented
+inventory, worn armor, offhand and active status effects. It requires the separate
+default-denied `ModGrants.player_state` grant (`CINNABAR_MOD_PLAYER_STATE=1` for
+the explicitly selected developer component). It returns `ok(none)` without a
+connected world or when the network, player and UI session owners disagree.
+Screens may retain this read capability while they own input; the grant carries
+no camera, interaction, remote-player or outbound packet authority.
+
+The snapshot contains the network session generation, current dimension and
+selected hotbar cell. Inventory has exactly 36 cells, hotbar first, and armor has
+four cells in helmet-to-boots order. Every inventory/gear cell preserves unknown,
+empty and present states with `known` and an optional item. Items carry their
+negotiated identifier when available, wire metadata/count and canonical block
+classification. Unknown identifiers remain unknown and still carry their counts.
+Durability damage uses accepted response corrections before the retained Damage
+tag; missing damage remains absent. Durability maxima use the existing Bedrock
+vanilla table only for non-component items. Custom component maxima are unknown,
+without a guessed vanilla fallback.
+
+Effects use the existing authoritative UI effect store and estimated server
+clock. Remaining duration is in 20 Hz ticks, `none` means infinite, and expired
+effects are omitted even before the ordinary UI expiry pass. Effects are sorted
+by ID; wire amplifiers remain zero-based. Reads are limited to eight per callback.
+Snapshots are cleared before and after callbacks and on quarantine; a reload
+starts without previous session data. This experimental API closes no vanilla
+parity or native acceptance gate.
+
 ### Opt-in gameplay API
 
 Personal developer components may request `gameplay.read-frame()` and

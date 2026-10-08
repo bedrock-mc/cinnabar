@@ -20,6 +20,8 @@ const COMPONENT_ENV: &str = "CINNABAR_MOD_COMPONENT";
 #[cfg(feature = "local-mods")]
 const PLAYERS_ENV: &str = "CINNABAR_MOD_PLAYERS";
 #[cfg(feature = "local-mods")]
+const PLAYER_STATE_ENV: &str = "CINNABAR_MOD_PLAYER_STATE";
+#[cfg(feature = "local-mods")]
 const ITEM_USE_ENV: &str = "CINNABAR_MOD_ITEM_USE";
 #[cfg(feature = "local-mods")]
 const CAMERA_ENV: &str = "CINNABAR_MOD_CAMERA";
@@ -117,6 +119,7 @@ fn configure(app: &mut App, path: Option<&Path>) {
     let grants = ModGrants {
         environment: true,
         players: std::env::var(PLAYERS_ENV).is_ok_and(|value| value == "1"),
+        player_state: std::env::var(PLAYER_STATE_ENV).is_ok_and(|value| value == "1"),
         item_use: std::env::var(ITEM_USE_ENV).is_ok_and(|value| value == "1"),
         camera: std::env::var(CAMERA_ENV).is_ok_and(|value| value == "1"),
         controls: std::env::var(CONTROLS_ENV).is_ok_and(|value| value == "1"),
@@ -309,12 +312,18 @@ fn drive_mod(
     let (network, camera, cues, item_use) = outputs;
     let previous_cues = cues.as_ref().map_or_else(Vec::new, |feed| feed.0.clone());
     let registration = extension.registration_request.clone();
+    let player_state = gameplay.player_state(
+        (0..extension.host_count()).any(|index| extension.host(index).grants().player_state),
+        &player_runtime,
+        &ui,
+    );
     let merged = multi::run_frame(
         &mut extension,
         multi::FrameInput {
             pressed,
             controls: &controls,
             previous_cues: &previous_cues,
+            player_state: player_state.as_ref(),
         },
         |grants| {
             let snapshot = gameplay.snapshot(captured && !absorbed, grants);
@@ -499,5 +508,7 @@ mod input;
 pub(crate) mod interaction;
 #[cfg(feature = "local-mods")]
 pub(crate) mod packet_delay;
+#[cfg(feature = "local-mods")]
+mod player_state;
 #[cfg(feature = "local-mods")]
 mod render;
