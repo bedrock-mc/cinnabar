@@ -1,13 +1,14 @@
-//! Dynamic FOV: sprint, speed/slowness, flying, bow draw and spyglass scaling with per-tick smoothing.
-//! Magnitudes are provisional and need native measurement.
+//! Dynamic FOV: movement speed, slowness, flying, bow draw and spyglass scaling with per-tick smoothing.
 
 use bevy::prelude::Resource;
 
 /// Spyglass zoom target for the FOV multiplier.
 pub const SPYGLASS_FOV_MODIFIER: f32 = 0.1;
-const SPRINT_SPEED_BONUS: f32 = 0.3;
-const SPEED_BONUS_PER_LEVEL: f32 = 0.2;
-const SLOWNESS_PENALTY_PER_LEVEL: f32 = 0.15;
+/// Vanilla's default walk-speed ability, used until an ability layer sets one.
+pub const DEFAULT_WALK_SPEED_ABILITY: f32 = 0.1;
+const SPEED_RATIO_SCALE: f32 = 1.2;
+const SLOWNESS_STEP: f32 = -0.1;
+const SLOWNESS_FLOOR: f32 = 0.01;
 const FLYING_MODIFIER: f32 = 1.1;
 const BOW_FULL_DRAW_SECONDS: f32 = 1.0;
 const BOW_MAX_ZOOM: f32 = 0.15;
@@ -19,10 +20,13 @@ const MAX_MODIFIER: f32 = 2.0;
 /// Gameplay facts that steer the FOV multiplier; the equipment lane owns `bow_draw_seconds` and `spyglass_scoping`.
 #[derive(Resource, Debug, Clone, Copy, PartialEq)]
 pub struct CameraFovInputs {
-    pub sprinting: bool,
+    /// Effective movement-speed attribute, including the local sprint modifier.
+    pub movement_speed: f32,
+    /// Resolved walk-speed ability.
+    pub walk_speed: f32,
     pub flying: bool,
-    pub speed_levels: u32,
-    pub slowness_levels: u32,
+    /// Zero-based amplifier of an active slowness effect.
+    pub slowness_amplifier: Option<i32>,
     pub bow_draw_seconds: Option<f32>,
     pub spyglass_scoping: bool,
     /// "FOV effects" scale: 0 disables speed-driven changes, 1 is full strength.
@@ -32,10 +36,10 @@ pub struct CameraFovInputs {
 impl Default for CameraFovInputs {
     fn default() -> Self {
         Self {
-            sprinting: false,
+            movement_speed: sim::DEFAULT_MOVEMENT_SPEED as f32,
+            walk_speed: DEFAULT_WALK_SPEED_ABILITY,
             flying: false,
-            speed_levels: 0,
-            slowness_levels: 0,
+            slowness_amplifier: None,
             bow_draw_seconds: None,
             spyglass_scoping: false,
             fov_effects_scale: 1.0,
@@ -45,22 +49,28 @@ impl Default for CameraFovInputs {
 
 impl CameraFovInputs {
     /// Unsmoothed FOV multiplier; spyglass zoom ignores the FOV-effects scale.
+    ///
+    /// Slowness replaces the movement-speed term rather than scaling it.
     #[must_use]
     pub fn target_modifier(&self) -> f32 {
         if self.spyglass_scoping {
             return SPYGLASS_FOV_MODIFIER;
         }
-        let mut speed_ratio =
-            1.0 + if self.sprinting {
-                SPRINT_SPEED_BONUS
-            } else {
-                0.0
-            } + SPEED_BONUS_PER_LEVEL * self.speed_levels.min(255) as f32
-                - SLOWNESS_PENALTY_PER_LEVEL * self.slowness_levels.min(255) as f32;
-        speed_ratio = speed_ratio.max(0.0);
-        let mut modifier = (speed_ratio + 1.0) * 0.5;
-        if self.flying {
-            modifier *= FLYING_MODIFIER;
+        let mut modifier = if self.flying { FLYING_MODIFIER } else { 1.0 };
+        modifier = match self.slowness_amplifier {
+            None => {
+                modifier * ((self.movement_speed / self.walk_speed) * SPEED_RATIO_SCALE + 1.0) * 0.5
+            }
+            Some(amplifier) => {
+                modifier * (amplifier as f32 * SLOWNESS_STEP + 1.0).max(SLOWNESS_FLOOR)
+            }
+        };
+        if let Some(seconds) = self.bow_draw_seconds.filter(|seconds| seconds.is_finite()) {
+            let draw = (seconds / BOW_FULL_DRAW_SECONDS).clamp(0.0, 1.0);
+            modifier *= 1.0 - BOW_MAX_ZOOM * draw * draw;
+        }
+        if !modifier.is_finite() {
+            return 1.0;
         }
         let scale = if self.fov_effects_scale.is_finite() {
             self.fov_effects_scale.clamp(0.0, 1.0)
@@ -68,10 +78,6 @@ impl CameraFovInputs {
             1.0
         };
         modifier = 1.0 + (modifier - 1.0) * scale;
-        if let Some(seconds) = self.bow_draw_seconds.filter(|seconds| seconds.is_finite()) {
-            let draw = (seconds / BOW_FULL_DRAW_SECONDS).clamp(0.0, 1.0);
-            modifier *= 1.0 - BOW_MAX_ZOOM * draw * draw;
-        }
         modifier.clamp(MIN_MODIFIER, MAX_MODIFIER)
     }
 }
@@ -110,19 +116,42 @@ impl CameraFovState {
 mod tests {
     use super::*;
 
+    const SPRINTING_SPEED: f32 = 0.1 * 1.3;
+
+    /// Vanilla widens the base view by its speed ratio: 1.1 walking, 1.28 sprinting.
     #[test]
-    fn idle_is_neutral_and_sprint_widens() {
+    fn walking_and_sprinting_follow_the_speed_ratio() {
         let mut inputs = CameraFovInputs::default();
+        assert!((inputs.target_modifier() - 1.1).abs() < 1e-6);
+        inputs.movement_speed = SPRINTING_SPEED;
+        assert!((inputs.target_modifier() - 1.28).abs() < 1e-6);
+        inputs.flying = true;
+        assert!((inputs.target_modifier() - 1.408).abs() < 1e-6);
+        inputs.walk_speed = 0.2;
+        assert!((inputs.target_modifier() - 1.1 * 0.89).abs() < 1e-6);
+    }
+
+    /// Slowness replaces the speed term, so a sprinting slowed player does not widen.
+    #[test]
+    fn slowness_replaces_the_speed_term() {
+        let mut inputs = CameraFovInputs {
+            movement_speed: SPRINTING_SPEED,
+            slowness_amplifier: Some(0),
+            ..Default::default()
+        };
         assert!((inputs.target_modifier() - 1.0).abs() < 1e-6);
-        inputs.sprinting = true;
-        assert!((inputs.target_modifier() - 1.15).abs() < 1e-6);
+        inputs.slowness_amplifier = Some(1);
+        assert!((inputs.target_modifier() - 0.9).abs() < 1e-6);
+        inputs.slowness_amplifier = Some(20);
+        assert!((inputs.target_modifier() - MIN_MODIFIER).abs() < 1e-6);
     }
 
     #[test]
     fn effects_scale_zero_disables_speed_fov_but_not_spyglass() {
         let inputs = CameraFovInputs {
-            sprinting: true,
+            movement_speed: SPRINTING_SPEED,
             flying: true,
+            bow_draw_seconds: Some(5.0),
             fov_effects_scale: 0.0,
             ..Default::default()
         };
@@ -136,17 +165,12 @@ mod tests {
     }
 
     #[test]
-    fn slowness_narrows_and_bow_zoom_saturates() {
-        let slow = CameraFovInputs {
-            slowness_levels: 1,
-            ..Default::default()
-        };
-        assert!(slow.target_modifier() < 1.0);
+    fn bow_zoom_saturates_on_the_walking_base() {
         let bow = CameraFovInputs {
             bow_draw_seconds: Some(5.0),
             ..Default::default()
         };
-        assert!((bow.target_modifier() - 0.85).abs() < 1e-6);
+        assert!((bow.target_modifier() - 1.1 * 0.85).abs() < 1e-6);
     }
 
     #[test]
@@ -163,6 +187,11 @@ mod tests {
 
     #[test]
     fn malformed_values_are_ignored() {
+        let zero_walk = CameraFovInputs {
+            walk_speed: 0.0,
+            ..Default::default()
+        };
+        assert_eq!(zero_walk.target_modifier(), 1.0);
         let mut state = CameraFovState::default();
         state.advance(f32::NAN, 0.05);
         assert!(state.modifier().is_finite());

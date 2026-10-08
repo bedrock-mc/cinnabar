@@ -337,6 +337,9 @@ impl MenuRuntime {
                 ],
             };
         }
+        if let Some(actions) = self.join_request_focus_actions() {
+            return actions;
+        }
         let nav = || {
             vec![
                 MenuAction::Navigate(MenuScreen::Home),
@@ -442,6 +445,11 @@ impl MenuRuntime {
                     (_, Some(control)) => Some(control),
                     (supervisor, None) => supervisor,
                 };
+                let auth = if self.presentation_accounts {
+                    Some(&AuthState::Authenticated)
+                } else {
+                    auth
+                };
                 if matches!(
                     auth,
                     Some(AuthState::Checking | AuthState::AwaitingCode { .. })
@@ -449,15 +457,16 @@ impl MenuRuntime {
                     return vec![MenuAction::CancelSignIn];
                 }
                 if auth == Some(&AuthState::Authenticated) {
-                    if self.feeds.profile.unavailable {
+                    let profile = self.presented_profile();
+                    if profile.unavailable {
                         actions.push(MenuAction::RefreshProfile);
-                    } else if self.feeds.profile.loaded {
+                    } else if profile.loaded {
                         actions.extend([
                             MenuAction::SelectProfileTab(launcher::menu::ProfileTab::Overview),
                             MenuAction::SelectProfileTab(launcher::menu::ProfileTab::Stats),
                         ]);
                         if self.profile_tab == launcher::menu::ProfileTab::Overview
-                            && self.feeds.profile.friends.is_some_and(|n| n > 0)
+                            && profile.friends.is_some_and(|n| n > 0)
                         {
                             actions.push(MenuAction::Navigate(MenuScreen::Friends));
                         }
@@ -499,12 +508,18 @@ impl MenuRuntime {
                 }
                 actions
             }
-            MenuScreen::Pause => vec![
-                MenuAction::PauseResume,
-                MenuAction::PauseSettings,
-                MenuAction::Navigate(MenuScreen::DressingRoom),
-                MenuAction::PauseDisconnect,
-            ],
+            MenuScreen::Pause => {
+                let mut actions = vec![
+                    MenuAction::PauseResume,
+                    MenuAction::PauseSettings,
+                    MenuAction::Navigate(MenuScreen::DressingRoom),
+                    MenuAction::PauseDisconnect,
+                ];
+                if self.hosting_world() {
+                    actions.push(MenuAction::Invite(launcher::menu::invite::Action::Open));
+                }
+                actions
+            }
             MenuScreen::Death => vec![MenuAction::Respawn, MenuAction::Navigate(MenuScreen::Pause)],
             MenuScreen::Inbox => {
                 use super::inbox::{Action, CATEGORIES, category_index};
@@ -551,6 +566,7 @@ impl MenuRuntime {
             }
             MenuScreen::Friends => vec![MenuAction::Navigate(MenuScreen::Home)],
             MenuScreen::Store => vec![MenuAction::Store(crate::store::StoreAction::Back)],
+            MenuScreen::Invite => self.invite_focus_actions(),
         }
     }
 }

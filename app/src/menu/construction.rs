@@ -122,6 +122,7 @@ impl MenuRuntime {
             local_world_requested: None,
             local_ui: Default::default(),
             control_auth: None,
+            presentation_accounts: false,
             sign_in_page_code: None,
             sign_out_requested: false,
             accounts: Default::default(),
@@ -154,6 +155,8 @@ impl MenuRuntime {
             local_world_joined: false,
             local_world_active: false,
             feeds: initial.feeds,
+            invite: Default::default(),
+            join_requests: Default::default(),
         }
     }
 }

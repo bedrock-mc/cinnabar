@@ -172,8 +172,13 @@ pub(super) fn button_face(
         0.0
     };
     let edge = canvas.r(EDGE);
-    let shadow = canvas.r(0.4) * (1.0 - motion.press);
-    let outer = [b[0], b[1] + canvas.r(0.4) * motion.press, b[2], b[3]];
+    let shadow = canvas.r(super::theme::BUTTON_DEPTH) * (1.0 - motion.press);
+    let outer = [
+        b[0],
+        b[1] + canvas.r(super::theme::BUTTON_DEPTH) * motion.press,
+        b[2],
+        b[3],
+    ];
     if art::elevated_motion(canvas, b, variant, state, enabled, motion)? {
         return canvas.text_centred(
             label,

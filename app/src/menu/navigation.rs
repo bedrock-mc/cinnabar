@@ -70,6 +70,11 @@ impl MenuRuntime {
 
     /// Returns to the screen below; an in-game root closes the menu.
     pub(super) fn go_back(&mut self) {
+        // Back on a join request's popup declines it, as vanilla's modal escape.
+        if self.join_request_prompted() {
+            self.answer_join_request(false);
+            return;
+        }
         if self.dressing_room.editor.is_some() {
             self.activate(super::MenuAction::DressingRoom(
                 launcher::dressing_room::Action::Cancel,

@@ -1,5 +1,6 @@
 mod bundles;
 mod ingress;
+mod wire_v2;
 
 use super::*;
 use ring::signature::{Ed25519KeyPair, KeyPair};
@@ -83,6 +84,7 @@ fn accept_is_bound_to_the_fresh_connection_and_exact_offer() {
         offer_digest: verified.digest.clone(),
         revision: verified.offer.revision,
         expires_unix: 1500,
+        wire: None,
     };
     let document = crypto::sign(&accept, crypto::ACCEPT_DOMAIN, &key).unwrap();
     assert!(pending.accept(&document, 1000, 1).is_ok());
@@ -171,8 +173,10 @@ fn stale_and_partially_invalid_transactions_never_publish() {
             gpu_bytes: 0,
         },
         assets: BTreeSet::new(),
+        templates: BTreeSet::new(),
         channels: Vec::new(),
         actions: BTreeSet::new(),
+        max_message_bytes: policy::MAX_MESSAGE_BYTES as u32,
     };
     let transaction = runtime::Transaction {
         owner: owner.clone(),
@@ -274,6 +278,7 @@ fn typed_records_wait_for_publication_and_replay_quarantines() {
         connection: crypto::hex(&[3; 32]),
         subclient: 0,
         expires_unix: 1500,
+        wire: negotiation::Wire::v1(),
     };
     let channel = wire::Channel {
         id: format!("{}.score", grant.offer.offer.packages[0].id),
@@ -300,8 +305,10 @@ fn typed_records_wait_for_publication_and_replay_quarantines() {
         runtime::Capabilities {
             scope: grant.offer.offer.scope.clone(),
             assets: BTreeSet::new(),
+            templates: BTreeSet::new(),
             channels: vec![channel.clone()],
             actions: BTreeSet::new(),
+            max_message_bytes: grant.wire.limits.max_message_bytes,
         },
     )]);
     let mut ingress = wire::Ingress::new(0);
@@ -394,6 +401,7 @@ fn review_session_snapshots_share_single_use_handshake_authority() {
             server_challenge: crypto::hex(&[2; 32]),
             session: crypto::hex(&[3; 32]),
             expires_unix: 1500,
+            wire: None,
         };
         let bytes = serde_json::to_vec(&session::Control::Accept(
             crypto::sign(&accept, crypto::ACCEPT_DOMAIN, &key).unwrap(),
@@ -408,4 +416,97 @@ fn review_session_snapshots_share_single_use_handshake_authority() {
         assert!(snapshot.receive(&bytes, 1000, 1).is_err());
         assert!(matches!(snapshot.state, session::State::Disabled));
     }
+}
+
+/// A client part's strikes mirror the server adapter's: the same limit within the same window,
+/// read from `tools/localserver/experience/limits.go`.
+#[test]
+fn guest_strikes_mirror_the_server_adapter() {
+    let go = include_str!("../../../tools/localserver/experience/limits.go");
+    let value = |name: &str| {
+        go.lines()
+            .find_map(|line| line.strip_prefix(&format!("const {name} = ")))
+            .unwrap_or_else(|| panic!("limits.go declares {name}"))
+            .trim()
+    };
+    assert_eq!(value("strikeLimit"), policy::MAX_GUEST_STRIKES.to_string());
+    let window_ms = match value("strikeWindow") {
+        "time.Minute" => 60_000,
+        "time.Second" => 1_000,
+        other => {
+            let (count, unit) = other.split_once(" * time.").expect("N * time.Unit");
+            let unit = match unit {
+                "Minute" => 60_000,
+                "Second" => 1_000,
+                other => panic!("unit {other}"),
+            };
+            count.trim().parse::<u64>().unwrap() * unit
+        }
+    };
+    assert_eq!(window_ms, policy::GUEST_STRIKE_WINDOW_MS);
+}
+
+/// `set-text` stages a bounded, plain text for an edit box by its `text_box_name`; each one the
+/// modal keeps carries its own sequence, so a presenter applies it once and later typing stands.
+#[test]
+fn modal_texts_are_bounded_and_sequenced() {
+    let owner = runtime::Principal {
+        session: crypto::hex(&[1; 32]),
+        bundle: "test:one".into(),
+        generation: policy::INITIAL_BUNDLE_GENERATION,
+    };
+    let capabilities = runtime::Capabilities {
+        scope: manifest::Scope {
+            permissions: BTreeSet::from([manifest::Permission::ModalUi]),
+            origins: BTreeSet::new(),
+            memory_bytes: 0,
+            gpu_bytes: 0,
+        },
+        assets: BTreeSet::new(),
+        templates: BTreeSet::new(),
+        channels: Vec::new(),
+        actions: BTreeSet::new(),
+        max_message_bytes: policy::MAX_MESSAGE_BYTES as u32,
+    };
+    let text = |control: &str, text: &str| runtime::Command::Text {
+        control: control.into(),
+        text: text.into(),
+    };
+    for refused in [
+        text("Search", "iron"),
+        text("search", &"x".repeat(policy::MAX_EDIT_TEXT_BYTES + 1)),
+        text("search", "tab\there"),
+    ] {
+        assert!(capabilities.validate(&refused).is_err(), "{refused:?}");
+    }
+    let mut ui_only = capabilities.clone();
+    ui_only.scope.permissions = BTreeSet::from([manifest::Permission::Ui]);
+    assert!(ui_only.validate(&text("search", "iron")).is_err());
+    let mut contributions = runtime::Contributions::default();
+    let transaction = |commands| runtime::Transaction {
+        owner: owner.clone(),
+        epoch: 1,
+        commands,
+    };
+    contributions
+        .apply(
+            &transaction(vec![text("search", "iron"), text("search", "")]),
+            &owner,
+            1,
+            &capabilities,
+        )
+        .unwrap();
+    let (first, empty) = contributions.modal.texts["search"].clone();
+    assert_eq!(empty, "");
+    contributions
+        .apply(
+            &transaction(vec![text("search", "gold\nbar")]),
+            &owner,
+            1,
+            &capabilities,
+        )
+        .unwrap();
+    let (second, gold) = contributions.modal.texts["search"].clone();
+    assert!(second > first);
+    assert_eq!(gold, "gold\nbar");
 }

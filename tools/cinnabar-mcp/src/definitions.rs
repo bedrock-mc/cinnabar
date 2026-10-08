@@ -94,6 +94,11 @@ pub fn definitions() -> Value {
             "inputSchema": { "type": "object", "properties": { "enabled": { "type": "boolean" } }, "required": ["enabled"], "additionalProperties": false }
         },
         {
+            "name": "test_accounts",
+            "description": "Present a signed-in launcher whose Accounts picker lists placeholder accounts, so recordings never show real gamertags. Sign-in, sign-out and saved accounts stay untouched; switching changes only the in-memory selection. Refused unless the install is signed out (use CINNABAR_USER_ROOT for an isolated one).",
+            "inputSchema": { "type": "object", "properties": { "enabled": { "type": "boolean" } }, "required": ["enabled"], "additionalProperties": false }
+        },
+        {
             "name": "state",
             "description": "Position, rotation (Bedrock degrees), health, dimension, loaded chunk columns, nearby actors (nearest first), screen stack, menu, camera and recording status, and game time.",
             "inputSchema": { "type": "object", "properties": {} }

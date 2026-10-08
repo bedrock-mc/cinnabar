@@ -272,19 +272,7 @@ fn keyboard(
     now: f64,
 ) -> Vec<ScreenEvent> {
     let editing = editing(runtime, frame);
-    let typed = match key {
-        KeyCode::Backspace if editing => Some("\u{8}".to_owned()),
-        KeyCode::Enter | KeyCode::NumpadEnter if editing => Some("\r".to_owned()),
-        KeyCode::KeyV if control && editing => PlatformClipboard
-            .read_text_bounded(MAX_PASTE_BYTES)
-            .ok()
-            .flatten()
-            .map(|text| text.to_string()),
-        _ if editing && !control => text
-            .filter(|text| !text.chars().any(char::is_control))
-            .map(str::to_owned),
-        _ => None,
-    };
+    let typed = editing.then(|| typed_text(key, text, control)).flatten();
     if let Some(typed) = typed {
         let engine = runtime.server_forms_mut().engine_mut();
         return engine
@@ -330,6 +318,25 @@ fn keyboard(
         engine_focus::step(runtime, frame, direction);
     }
     events
+}
+
+/// What a key press types into a selected edit box, as vanilla's edit box takes it: Backspace
+/// and Enter as their control characters, Ctrl+V the clipboard, anything else its text without
+/// control characters.
+pub fn typed_text(key: KeyCode, text: Option<&str>, control: bool) -> Option<String> {
+    match key {
+        KeyCode::Backspace => Some("\u{8}".to_owned()),
+        KeyCode::Enter | KeyCode::NumpadEnter => Some("\r".to_owned()),
+        KeyCode::KeyV if control => PlatformClipboard
+            .read_text_bounded(MAX_PASTE_BYTES)
+            .ok()
+            .flatten()
+            .map(|text| text.to_string()),
+        _ if !control => text
+            .filter(|text| !text.chars().any(char::is_control))
+            .map(str::to_owned),
+        _ => None,
+    }
 }
 
 /// The form's screen controller: what each screen event does to its values.

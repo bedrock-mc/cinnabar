@@ -622,3 +622,16 @@ fn removing_extension_revokes_teleport_camera_policy() {
             .preserves_teleport_rotation()
     );
 }
+
+#[test]
+fn unloading_extension_clears_scoped_item_use_delay_policy() {
+    let (mut world, _, _) = world();
+    world.insert_resource(crate::item_use::ModItemUsePolicy {
+        scope: Some((1, 0)),
+    });
+    clear_owned_state(&mut world);
+    assert_eq!(
+        world.resource::<crate::item_use::ModItemUsePolicy>().scope,
+        None
+    );
+}

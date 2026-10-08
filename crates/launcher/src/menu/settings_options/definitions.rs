@@ -254,7 +254,13 @@ pub const SETTINGS_OPTIONS: &[SettingDefinition] = &[
     slider("max_framerate", "options.framerateLimit", 0, 240, 0),
     // Vanilla keeps this out of retail menus (persisted `gfx_vsync`, on); see plan.md.
     toggle("vsync", "options.vsync", true),
-    slider("field_of_view", "options.fov", 30, 110, 60),
+    slider(
+        "field_of_view",
+        "options.fov",
+        ui::MIN_FOV_DEGREES,
+        ui::MAX_FOV_DEGREES,
+        ui::DEFAULT_FOV_DEGREES,
+    ),
     slider("gamma", "options.gamma", 0, 100, 50),
     slider("interface_opacity", "options.hudOpacity", 0, 100, 100),
     slider("damage_bob", "options.damageBobbing", 0, 100, 100),

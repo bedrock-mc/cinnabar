@@ -27,6 +27,7 @@ impl GameplayContext<'_> {
         if !allowed
             || !(grants.players
                 || grants.camera
+                || grants.item_use
                 || grants.interaction
                 || grants.entities
                 || !grants.commands.is_empty())
