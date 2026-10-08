@@ -6,6 +6,7 @@ mod bind_native;
 mod bind_parity;
 mod component_instances;
 mod declared_pack_paths;
+mod factory_lifecycle;
 mod fixtures;
 mod focus;
 mod forms;

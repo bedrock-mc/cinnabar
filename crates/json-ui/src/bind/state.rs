@@ -72,6 +72,8 @@ pub struct BindState {
 /// One control's memory.
 #[derive(Clone, Debug, Default)]
 pub(super) struct Retained {
+    pub(super) incarnation: Option<u64>,
+    pub(super) parent_incarnation: Option<u64>,
     pub(super) bag: BTreeMap<String, Scalar>,
     /// Literal properties bindings set on components.
     pub(super) native: BTreeMap<String, Value>,

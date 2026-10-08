@@ -264,7 +264,9 @@ impl Scope {
                 || self.for_children == other.for_children)
             && self.parent_key == other.parent_key
             && self.retained_parent == other.retained_parent
+            && self.retained_incarnation == other.retained_incarnation
             && self.layout_key == other.layout_key
+            && self.incarnation == other.incarnation
             && (Arc::ptr_eq(&self.expansions, &other.expansions)
                 || self.expansions == other.expansions)
     }
@@ -637,9 +639,9 @@ pub(super) fn dormant(node: Node, generation: u64, out: &mut KeyMap<Retained>) {
 }
 
 /// Every retained live control's key with whether its subtree waits hidden.
-pub(super) fn live(node: &Node, out: &mut KeyMap<bool>) {
+pub(super) fn live(node: &Node, out: &mut KeyMap<(bool, Option<u64>)>) {
     if node.retained {
-        out.insert(node.key, node.deferred.is_some());
+        out.insert(node.key, (node.deferred.is_some(), node.scope.incarnation));
     }
     for child in &node.children {
         live(child, out);

@@ -6302,9 +6302,9 @@ pack-size parity, ordinary actor endpoint lighting, exact native frame compariso
 and release hardware budgets remain open. Two terrain texture keys absent from the
 served Galaxite stack still report diagnostic textures; this compatibility work does not close those parity gates.
 
-Follow-up compatibility remains in progress: client-authoritative inventory opening
-and item transfers, authored entity visibility bounds, filtered HUD control messages,
-and multipart custom-block collision admission. Collision lists retain at most 256
+Follow-up compatibility covers client-authoritative inventory opening and transfers,
+authored entity visibility bounds, filtered HUD control messages, and multipart
+custom-block collision admission. Collision lists retain at most 256
 primitives. Per-state collision and selection overrides now resolve once at session
 admission and register in both network-ID spaces. Captured bottom/top slab fixtures
 match their authored geometry heights and retain stationary support for 100 ticks.
@@ -6321,6 +6321,11 @@ render pass.
 Client-authoritative inventory follow-up: ordinary moves, splits, swaps, quick
 moves and drops use normal old/new-descriptor transactions; successful transport
 commits local cells and later authoritative Slot/Content updates correct them.
+A 1280×720, DPI 1 macOS/Metal loopback pass opens personal inventory four times
+and chests twice. Its independent server validates old descriptors and item
+conservation before accepting six normal take/swap/place transactions, with no
+sparse requests or rejections. Reopened screens retain the final server cells
+and an empty cursor. Public-server game acceptance remains separate.
 Incomplete: legacy crafting/creative actions, semantic merging of nonplain item
 user data, arbitrary open-window normal-transaction corrections, and a separate
 native client-mode Open/Close acknowledgement contract remain unimplemented or
@@ -6340,14 +6345,12 @@ sidecars retain their frame coordinates and durations independently of image
 residency. Offline 1280×720, DPI 1 published frames cover Galaxite static,
 jumpscare and lighting effects, including changing noise frames, authored loop
 durations and mapping source coordinates into resized atlas placements.
-Incomplete: exhaustive authored effect variants, direct Hive title comparison,
-matched live game-mode sequencing and hardware frame budgets remain open.
+Incomplete: exhaustive authored effect variants, matched live game-mode sequencing
+and hardware frame budgets remain open.
 
-Live follow-up confirms custom sound playback. Hive's death display still duplicates
-its custom title, MegaSMP's retained tutorial panel is missing, and custom actors
-still disappear at some close camera angles. Actual server-pack regressions and
-rendered comparisons remain in progress; these reports are not cleared by the
-synthetic HUD or resting-pose bounds tests.
+Live follow-up confirms custom sound playback. The reported close-camera actor
+disappearance remains open; synthetic HUD and resting-pose bounds tests do not
+clear that live report.
 
 HUD compatibility now retains the native nested title/subtitle override paths,
 answers empty title strings during blank frames, and schedules a pending authored
@@ -6361,8 +6364,22 @@ malformed overlays are skipped, and trailing commas still report errors. The
 unmodified pack fixture changes from a missing tutorial to one retained panel;
 six document regressions cover first, later, null and independent-path reads.
 A 1920×1080 macOS/Metal client replay renders the colored tutorial at top center
-and retains it through a later title. Hive's actual overlay and matched live
-comparisons remain incomplete.
+and retains it through a later title. Matched live gameplay comparisons remain
+incomplete.
+
+The exact admitted Hive overlay now gives each title creation fresh binding
+state, while unrelated and nested retained controls keep their saved values.
+Completed-group visibility expressions preserve their following conditions.
+The original pack's offline replay switches between one authored modal and one
+ordinary title, then repeats and clears the modal without stale labels. The
+MegaSMP tutorial remains retained through those lifecycle changes. A 1920×1080,
+DPI 1 macOS/Metal loopback replay of the unchanged admitted Hive UI renders one
+legible purple death header with its shadow and one body line, with no oversized
+fallback or stale labels. Repeating the title preserves that result; clearing it
+removes the panel, and ordinary titles still render once. Geometry, clipping,
+layering and colors were inspected in fresh frames. Required touched-crate checks
+and the canonical developer-control build pass. Public-match title sequencing and
+matched-version pixel comparisons remain open.
 
 Server-selected animation follow-up retains named clips that an entity does not
 alias, binds shared channels by model bone name, and preserves packet transition,

@@ -138,8 +138,8 @@ fn operator_byte(byte: u8) -> bool {
     matches!(byte, b'*' | b'+' | b'-' | b'/' | b'<' | b'=' | b'>')
 }
 
-/// Trailing closes after a completed group are skipped; unmatched interior
-/// closes reject. Unclosed groups close at the end.
+/// A surplus closing token discards adjacent bare text after a completed group.
+/// Unclosed groups close at the end; a leading close stays undecidable.
 pub(super) fn tokenize(source: &str) -> Option<Vec<Token>> {
     if source.len() > MAX_BYTES {
         return None;
@@ -172,9 +172,12 @@ pub(super) fn tokenize(source: &str) -> Option<Vec<Token>> {
             b')' => {
                 if groups.len() < 2 {
                     let completed_group = matches!(groups[0].last(), Some(Token::Group(_)));
-                    let closing_tail = bytes[i..].iter().all(|byte| matches!(*byte, b')' | b' '));
-                    if completed_group && closing_tail {
-                        break;
+                    if completed_group {
+                        i += 1;
+                        while i < bytes.len() && !delimiter(bytes[i]) {
+                            i += 1;
+                        }
+                        continue;
                     }
                     return None;
                 }

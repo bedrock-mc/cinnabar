@@ -71,6 +71,8 @@ pub struct Timed {
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct HudTitle {
+    /// Identity of the controller request that created this title.
+    pub creation_id: u64,
     pub title: String,
     pub subtitle: String,
     pub fade_in: f64,
@@ -321,6 +323,7 @@ fn titles(data: &mut DataSource, model: &HudModel) {
             "hud_title_text_factory",
             vec![
                 FactoryItem::new("hud_title_text", 0.0)
+                    .identified(title.creation_id)
                     .clocked(TITLE_CLOCK)
                     .named("hud_title_text")
                     .var("title_fade_in_time", Value::from(title.fade_in))

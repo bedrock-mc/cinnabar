@@ -3215,6 +3215,32 @@ Files: `docs/reference/held-block-placement.md`, `crates/gameplay/src/block_use.
 
 ## Authored title and action-bar HUD controls
 
+- `crates/json-ui/src/bind/{feed,reuse,state}.rs` and
+  `crates/client-ui/src/ui_runtime/presentation/forms/hud.rs` retain factory
+  state by creation identity. Current 1.26.50.26
+  `src/__unmapped/05.cpp:1165110–1165310` creates each pending title through
+  `hud_title_text_factory` with name/control ID `hud_title_text` and an
+  exclusive property. `04.cpp:2133810–2133820` dispatches that property to
+  `2139892–2140190`, removing same-name existing controls from the parent
+  before the new creation. A replacement's `once` bindings run afresh; sibling
+  controls and ordinary updates to the same creation keep their state.
+- The admitted Hive `ui/hud_screen.json` replaces `hud_title_text_area` with
+  its own named factory. Its info modal has a title label and title shadow
+  bound once, plus a continuously bound subtitle body. Replaying an ordinary
+  title followed by a flagged modal title identifies stale header state in a
+  reused factory subtree; the packet sequence distinguishes equal-time
+  replacements.
+- `crates/json-ui/src/predicate/token.rs` keeps the remaining operators after
+  a completed group's surplus close. Current `src/__recovered/UIEval.cpp`
+  (`UIEval::evalExpression`, lines 100–125, 407–428 and 492–508) advances a
+  fresh closing byte as a pending token and skips it when its next delimiter
+  is a space; adjoining bare text belongs to that discarded token. For example,
+  `(true))and false` leaves adjacent operands and evaluates to JSON null.
+  `src/__unmapped/00.cpp:842893–842974` passes the resolved source
+  expression unchanged; `04.cpp:2247690–2247693` uses that path for view-binding
+  source properties. The admitted Hive info-title predicate contains this
+  separator before `and`; the remaining exclusion condition still evaluates.
+
 - `assets/java-hud/ui/hud_screen.json` keeps the canonical title and action-bar
   control identities, so higher-priority server definitions replace or hide
   the same controls consumed by the ordinary HUD factories.

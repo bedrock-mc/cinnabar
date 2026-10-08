@@ -461,6 +461,7 @@ fn hud_model(
         let fade_out = title.fade_out_millis;
         let total = title.expires_millis.saturating_sub(title.started_millis);
         HudTitle {
+            creation_id: title.fifo_sequence,
             title: bounded_visible_text(&title.text).to_owned(),
             subtitle: visible(runtime.hud().subtitle(), now)
                 .map(|subtitle| bounded_visible_text(&subtitle.text).to_owned())
