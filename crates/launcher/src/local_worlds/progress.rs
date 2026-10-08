@@ -123,6 +123,7 @@ mod tests {
             error: None,
             setup,
             backend_unavailable_reason: None,
+            max_players: None,
         }
     }
 

@@ -1,8 +1,10 @@
 //! Maps session ownership to the optional desktop Discord service.
 
+use std::time::Duration;
+
 use crate::{menu::MenuRuntime, runtime::world::ClientWorld};
 use bevy::prelude::*;
-use client_ui::ui_runtime::presentation::LoadingStage;
+use client_ui::ui_runtime::{UiRuntime, presentation::LoadingStage};
 use launcher::menu::settings_options::DISCORD_PRESENCE_OPTION;
 use rich_presence::{Presence, State};
 
@@ -26,7 +28,13 @@ pub(crate) fn configure(app: &mut App) {
                 application_id,
                 presence: None,
             })
-            .add_systems(Last, update);
+            .add_systems(Last, update)
+            .add_systems(
+                Update,
+                crate::menu::open_join_requests_from_key
+                    .after(crate::app::ClientFrameSet::SemanticFinalize)
+                    .before(crate::app::ClientFrameSet::UiPreparation),
+            );
         }
         Ok(None) => {}
         Err(error) => warn!("{}: {error}", rich_presence::APPLICATION_ID_ENV),
@@ -57,19 +65,25 @@ fn joining_screen(stage: Option<LoadingStage>) -> bool {
 
 fn update(
     mut discord: ResMut<DiscordPresence>,
-    menu: Res<MenuRuntime>,
+    mut menu: ResMut<MenuRuntime>,
+    mut runtime: ResMut<UiRuntime>,
+    time: Res<Time<Real>>,
     world: Res<ClientWorld>,
     ui: Res<client_ui::ui_runtime::presentation::UiPresentationRuntime>,
     session: Res<crate::session::SessionController>,
 ) {
+    let now = time.elapsed();
     if menu
         .settings_snapshot()
         .0
         .value(DISCORD_PRESENCE_OPTION.name)
         == 0
     {
+        // Nothing new arrives while presence is off, so its requests go with it.
         if discord.presence.is_some() {
             discord.presence = None;
+            menu.clear_join_requests();
+            menu.sync_join_toast(&mut runtime, now);
         }
         return;
     }
@@ -80,10 +94,40 @@ fn update(
         world.fatal_error.is_some(),
     );
     let application_id = discord.application_id;
-    discord
+    let presence = discord
         .presence
-        .get_or_insert_with(|| Presence::start(application_id))
-        .update(state, session.destination());
+        .get_or_insert_with(|| Presence::start(application_id));
+    let players = world
+        .stream
+        .as_ref()
+        .map(|stream| u32::try_from(stream.authority().player_count()).unwrap_or(u32::MAX));
+    presence.update(state, session.presence_target(), players);
+    relay_join_requests(presence, &mut menu, now);
+    menu.sync_join_toast(&mut runtime, now);
+    // A direct `--address` session has no launcher to join through.
+    if let Some(address) = presence.take_join()
+        && menu.is_launcher()
+        && crate::session::invite_joinable(&address)
+        && !already_there(session.presence_target(), &address)
+    {
+        info!("joining {address} from a Discord invite");
+        menu.request_connect(address);
+    }
+}
+
+/// Moves Discord's new join requests into the menu and sends the host's answers back.
+fn relay_join_requests(presence: &Presence, menu: &mut MenuRuntime, now: Duration) {
+    while let Some(request) = presence.take_join_request() {
+        menu.push_join_request(request.user_id, request.name, now);
+    }
+    menu.expire_join_requests(now);
+    while let Some((user_id, accept)) = menu.take_join_reply() {
+        presence.reply(user_id, accept);
+    }
+}
+
+fn already_there(target: Option<&rich_presence::Target>, address: &str) -> bool {
+    target.and_then(|target| target.join.as_deref()) == Some(address)
 }
 
 pub(crate) fn shutdown(app: &mut App) {
@@ -113,5 +157,18 @@ mod tests {
         assert_eq!(state(Some(LoadingStage::BuildingTerrain)), State::Joining);
         assert_eq!(state(Some(LoadingStage::Connecting)), State::Joining);
         assert_eq!(state(None), State::Playing);
+    }
+
+    #[test]
+    fn an_invite_to_the_current_destination_does_not_reconnect() {
+        let target = rich_presence::Target {
+            destination: rich_presence::Destination::Experience,
+            join: Some("gathering/1".into()),
+            badge: None,
+            max_players: None,
+        };
+        assert!(already_there(Some(&target), "gathering/1"));
+        assert!(!already_there(Some(&target), "gathering/2"));
+        assert!(!already_there(None, "gathering/1"));
     }
 }

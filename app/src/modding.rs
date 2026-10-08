@@ -23,6 +23,8 @@ const PACKAGE_ENV: &str = "CINNABAR_MOD_PACKAGE";
 #[cfg(feature = "local-mods")]
 const PLAYERS_ENV: &str = "CINNABAR_MOD_PLAYERS";
 #[cfg(feature = "local-mods")]
+const ITEM_USE_ENV: &str = "CINNABAR_MOD_ITEM_USE";
+#[cfg(feature = "local-mods")]
 const CAMERA_ENV: &str = "CINNABAR_MOD_CAMERA";
 #[cfg(feature = "local-mods")]
 const CONTROLS_ENV: &str = "CINNABAR_MOD_CONTROLS";
@@ -141,6 +143,7 @@ fn environment_grants() -> ModGrants {
     ModGrants {
         environment: true,
         players: std::env::var(PLAYERS_ENV).is_ok_and(|value| value == "1"),
+        item_use: std::env::var(ITEM_USE_ENV).is_ok_and(|value| value == "1"),
         camera: std::env::var(CAMERA_ENV).is_ok_and(|value| value == "1"),
         controls: std::env::var(CONTROLS_ENV).is_ok_and(|value| value == "1"),
         interaction: std::env::var(INTERACTION_ENV).is_ok_and(|value| value == "1"),
@@ -246,7 +249,8 @@ fn configure_systems(app: &mut App, watching: bool) {
     ghost::configure(app);
     block_highlights::configure(app);
     fullbright::configure(app);
-    app.init_resource::<ModCueFeed>()
+    app.init_resource::<crate::item_use::ModItemUsePolicy>()
+        .init_resource::<ModCueFeed>()
         .add_plugins(::render::ModRenderPlugin)
         .add_systems(Update, render::grant_depth_sampling);
     if watching {
@@ -285,6 +289,7 @@ type ModOutputs<'w> = (
     Option<Res<'w, crate::runtime::network::NetworkHandle>>,
     Option<ResMut<'w, crate::camera::CameraSettingsAuthority>>,
     Option<ResMut<'w, ModCueFeed>>,
+    Option<ResMut<'w, crate::item_use::ModItemUsePolicy>>,
 );
 
 #[allow(
@@ -348,7 +353,7 @@ fn drive_mod(
         })
     });
     let controls = std::mem::replace(&mut extension.controls, mod_host::empty_controls());
-    let (network, camera, cues) = outputs;
+    let (network, camera, cues, item_use) = outputs;
     let previous_cues = cues.as_ref().map_or_else(Vec::new, |feed| feed.0.clone());
     let registration = extension.registration_request.clone();
     let merged = multi::run_frame(
@@ -389,6 +394,9 @@ fn drive_mod(
     if let Some(mut camera) = camera {
         camera.set_rig(merged.rig.map(camera_rig));
         camera.set_preserve_teleport_rotation(merged.preserve_teleport_rotation);
+    }
+    if let Some(mut policy) = item_use {
+        policy.scope = merged.item_use_delay_fix;
     }
     time_override.0 = merged.time_override;
     if let Err(error) = presentation.set_mod_label(extension.merged_label()) {

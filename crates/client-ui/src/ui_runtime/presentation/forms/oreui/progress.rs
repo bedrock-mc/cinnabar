@@ -85,8 +85,8 @@ pub(super) fn draw(
     world::backdrop(canvas, size, progress.stage, progress.destination)?;
     let entrance = canvas.begin_entrance(super::motion::Surface::Loading);
     let margin = canvas.r(2.0).min(size[0] * 0.05).min(size[1] * 0.05);
-    let width = canvas.r(48.0).min(size[0] - margin * 2.0);
-    let pad = canvas.r(3.2).min(width * 0.07);
+    let width = canvas.r(theme::LOADING_WIDTH).min(size[0] - margin * 2.0);
+    let pad = canvas.r(theme::LOADING_PAD).min(width * 0.07);
     let inner = width - pad * 2.0;
     let title = progress.title.to_uppercase();
     let mut title_height = canvas.measure_height(&title, inner, HEADER5)?;
@@ -106,12 +106,12 @@ pub(super) fn draw(
     };
     let mut body_height = loader_height + title_height + detail_height;
     let progress_height = if progress.indicator && fraction.is_some() {
-        canvas.r(4.0)
+        canvas.r(theme::LOADING_PROGRESS_AREA)
     } else {
         0.0
     };
     let footer_height = if progress.cancel.is_some() {
-        canvas.r(6.0)
+        canvas.r(theme::LOADING_FOOTER_AREA)
     } else {
         0.0
     };
@@ -190,7 +190,7 @@ pub(super) fn draw(
     if detail_height > 0.0 {
         canvas.centered_wrapped_text(
             progress.detail,
-            [left, at + canvas.r(0.8)],
+            [left, at + canvas.r(theme::SPACE[1])],
             content_width,
             CAPTION,
             TEXT_DIMMER,
@@ -198,18 +198,22 @@ pub(super) fn draw(
     }
     canvas.end_scroll(scroll, body_height)?;
     if progress_height > 0.0 {
-        let at = body_bottom + canvas.r(1.6);
-        track(canvas, [left, at, right, at + canvas.r(0.8)], fraction)?;
+        let at = body_bottom + canvas.r(theme::SPACE[3]);
+        track(
+            canvas,
+            [left, at, right, at + canvas.r(theme::PROGRESS_HEIGHT)],
+            fraction,
+        )?;
     }
     if let (Some(action), Some(view)) = (progress.cancel, view) {
-        let button_width = canvas.r(16.0).min(inner);
+        let button_width = canvas.r(theme::CANCEL_WIDTH).min(inner);
         let mid = (left + right) * 0.5;
         widgets::button(
             canvas,
             view,
             [
                 mid - button_width * 0.5,
-                bounds[3] - pad - canvas.r(4.0),
+                bounds[3] - pad - canvas.r(theme::BUTTON_HEIGHT),
                 mid + button_width * 0.5,
                 bounds[3] - pad,
             ],
@@ -305,6 +309,6 @@ fn track(
     )?;
     canvas.fill(
         [inner[0], inner[1], right, inner[1] + edge],
-        [255, 255, 255, 51],
+        theme::PRIMARY_ROLE.specular[0],
     )
 }
