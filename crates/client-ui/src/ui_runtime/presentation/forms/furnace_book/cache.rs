@@ -6,8 +6,8 @@ use serde_json::Value;
 use super::{HudFrame, IconRef, UiRuntime, category, entries};
 
 pub(in super::super) struct FurnaceBookCache {
-    all: Arc<[u32]>,
-    supplied: Arc<[u32]>,
+    all: Arc<[usize]>,
+    supplied: Arc<[usize]>,
     shown: bool,
     filtering: bool,
     tab: Option<u8>,
@@ -42,8 +42,8 @@ pub(super) fn publication<'a>(
     let filtering = runtime.recipe_filtering(player);
     let shown = state.furnace_book_open;
     let reusable = cache.as_ref().is_some_and(|cache| {
-        Arc::ptr_eq(&cache.all, all.shared_ids())
-            && Arc::ptr_eq(&cache.supplied, supplied.shared_ids())
+        Arc::ptr_eq(&cache.all, all.shared_indices())
+            && Arc::ptr_eq(&cache.supplied, supplied.shared_indices())
             && cache.shown == shown
             && cache.filtering == filtering
             && cache.tab == state.furnace_tab
@@ -65,8 +65,8 @@ pub(super) fn publication<'a>(
             Arc::from([])
         };
         *cache = Some(FurnaceBookCache {
-            all: Arc::clone(all.shared_ids()),
-            supplied: Arc::clone(supplied.shared_ids()),
+            all: Arc::clone(all.shared_indices()),
+            supplied: Arc::clone(supplied.shared_indices()),
             shown,
             filtering,
             tab: state.furnace_tab,

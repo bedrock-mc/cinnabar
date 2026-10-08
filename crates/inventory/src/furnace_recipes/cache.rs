@@ -7,8 +7,8 @@ use crate::InventorySession;
 #[derive(Debug, Default)]
 pub(crate) struct Cache {
     inputs: Option<Inputs>,
-    all: Arc<[u32]>,
-    supplied: Arc<[u32]>,
+    all: Arc<[usize]>,
+    supplied: Arc<[usize]>,
 }
 
 #[derive(Debug)]
@@ -35,26 +35,26 @@ impl Inputs {
 /// A shared result projection borrowed against its current recipe catalog.
 pub struct FurnaceRecipes<'a> {
     catalog: Option<&'a RecipeCatalog>,
-    ids: Arc<[u32]>,
+    indices: Arc<[usize]>,
 }
 
 impl<'a> FurnaceRecipes<'a> {
     pub fn iter(&self) -> impl Iterator<Item = &'a ScreenRecipe> + '_ {
-        self.ids
+        self.indices
             .iter()
-            .filter_map(|id| self.catalog?.screen_recipe(*id))
+            .filter_map(|index| self.catalog?.screen_recipe_entries().get(*index))
     }
 
     pub fn len(&self) -> usize {
-        self.ids.len()
+        self.indices.len()
     }
     pub fn is_empty(&self) -> bool {
-        self.ids.is_empty()
+        self.indices.is_empty()
     }
 
-    /// Immutable result identities, retained for presentation cache invalidation.
-    pub fn shared_ids(&self) -> &Arc<[u32]> {
-        &self.ids
+    /// Immutable catalog positions, retained for presentation cache invalidation.
+    pub fn shared_indices(&self) -> &Arc<[usize]> {
+        &self.indices
     }
 }
 
@@ -63,23 +63,24 @@ impl std::ops::Index<usize> for FurnaceRecipes<'_> {
     fn index(&self, index: usize) -> &Self::Output {
         self.catalog
             .unwrap()
-            .screen_recipe(self.ids[index])
+            .screen_recipe_entries()
+            .get(self.indices[index])
             .unwrap()
     }
 }
 
 pub struct FurnaceRecipeIter<'a> {
     catalog: Option<&'a RecipeCatalog>,
-    ids: Arc<[u32]>,
+    indices: Arc<[usize]>,
     position: usize,
 }
 
 impl<'a> Iterator for FurnaceRecipeIter<'a> {
     type Item = &'a ScreenRecipe;
     fn next(&mut self) -> Option<Self::Item> {
-        let id = *self.ids.get(self.position)?;
+        let index = *self.indices.get(self.position)?;
         self.position += 1;
-        self.catalog?.screen_recipe(id)
+        self.catalog?.screen_recipe_entries().get(index)
     }
 }
 
@@ -89,7 +90,7 @@ impl<'a> IntoIterator for FurnaceRecipes<'a> {
     fn into_iter(self) -> Self::IntoIter {
         FurnaceRecipeIter {
             catalog: self.catalog,
-            ids: self.ids,
+            indices: self.indices,
             position: 0,
         }
     }
@@ -117,38 +118,45 @@ pub(super) fn project(inventory: &InventorySession, filtering: bool) -> FurnaceR
         .as_ref()
         .is_some_and(|previous| previous.same(&inputs))
     {
-        let mut positions = std::collections::HashMap::new();
-        let mut listed: Vec<&ScreenRecipe> = Vec::new();
+        let mut positions: std::collections::HashMap<_, usize> = std::collections::HashMap::new();
+        let mut listed: Vec<(usize, &ScreenRecipe)> = Vec::new();
         if let (Some(catalog), Some(kind)) = (catalog, inputs.kind) {
-            for recipe in catalog
-                .screen_recipes(kind)
-                .filter(|recipe| recipe.ingredients.len() == 1 && recipe.output.is_some())
+            for (index, recipe) in
+                catalog
+                    .screen_recipe_entries()
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, recipe)| {
+                        recipe.kind == kind
+                            && recipe.ingredients.len() == 1
+                            && recipe.output.is_some()
+                    })
             {
                 let output = recipe.output.unwrap();
                 let key = (output.network_id, output.aux, output.block_runtime_id);
                 if let Some(&position) = positions.get(&key) {
                     if ledger.can_supply_furnace_recipe(recipe)
-                        && !ledger.can_supply_furnace_recipe(listed[position])
+                        && !ledger.can_supply_furnace_recipe(listed[position].1)
                     {
-                        listed[position] = recipe;
+                        listed[position] = (index, recipe);
                     }
                 } else {
                     positions.insert(key, listed.len());
-                    listed.push(recipe);
+                    listed.push((index, recipe));
                 }
             }
         }
-        cache.all = listed.iter().map(|recipe| recipe.id).collect();
+        cache.all = listed.iter().map(|(index, _)| *index).collect();
         cache.supplied = listed
             .into_iter()
-            .filter(|recipe| ledger.can_supply_furnace_recipe(recipe))
-            .map(|recipe| recipe.id)
+            .filter(|(_, recipe)| ledger.can_supply_furnace_recipe(recipe))
+            .map(|(index, _)| index)
             .collect();
         cache.inputs = Some(inputs);
     }
     FurnaceRecipes {
         catalog,
-        ids: Arc::clone(if filtering {
+        indices: Arc::clone(if filtering {
             &cache.supplied
         } else {
             &cache.all

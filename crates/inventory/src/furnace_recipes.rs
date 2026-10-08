@@ -67,6 +67,7 @@ impl PlayerInventoryLedger {
             return Err(InventoryGestureError::InvalidRequest);
         }
         let mut placed = None;
+        let mut first_error = None;
         for slot in 0..protocol::PLAYER_INVENTORY_SLOTS {
             if !self
                 .displayed_stack(slot)
@@ -76,13 +77,18 @@ impl PlayerInventoryLedger {
             }
             match self.begin_move_to_furnace_input(InventoryTarget::Player(slot)) {
                 Ok(request) => placed = Some(request),
-                Err(error) if placed.is_none() => return Err(error),
-                Err(_) => continue,
+                Err(error) => {
+                    first_error.get_or_insert(error);
+                }
             }
         }
         placed
-            .or_else(|| self.can_supply_furnace_recipe(recipe).then_some(0))
-            .ok_or(InventoryGestureError::EmptyGesture)
+            .or_else(|| {
+                self.storage_stack(0)
+                    .is_some_and(|stack| self.furnace_input_matches(recipe, stack))
+                    .then_some(0)
+            })
+            .ok_or_else(|| first_error.unwrap_or(InventoryGestureError::EmptyGesture))
     }
 }
 

@@ -193,13 +193,44 @@ fn furnace_recipe_transfer_skips_an_incompatible_accepted_variant() {
 }
 
 #[test]
+fn furnace_recipe_transfer_tops_up_after_an_incompatible_first_variant() {
+    let mut inventory = fixture(::protocol::WINDOW_TYPE_FURNACE);
+    let ledger = inventory.ledger_mut();
+    for (container, slot, metadata) in [(7, 0, 0), (0, 5, 1)] {
+        ledger.apply(&InventoryEvent::Slot(::protocol::InventorySlotEvent {
+            identity: ::protocol::SlotIdentity {
+                container: ContainerIdentity::window(container),
+                slot,
+            },
+            stack: NetworkItemStack {
+                network_id: 2,
+                metadata,
+                count: 8,
+                stack_network_id: i32::from(slot) + 40,
+                ..NetworkItemStack::empty()
+            },
+            storage_item: None,
+        }));
+    }
+    let mut recipe = inventory.furnace_recipes(true)[0].clone();
+    recipe.ingredients[0].aux = ::protocol::RECIPE_ANY_AUX;
+    inventory
+        .ledger_mut()
+        .begin_furnace_recipe(&recipe)
+        .unwrap();
+    assert_eq!(inventory.ledger().storage_stack(0).unwrap().count, 15);
+    assert!(inventory.ledger().displayed_stack(6).is_none());
+    assert_eq!(inventory.ledger().displayed_stack(5).unwrap().count, 8);
+}
+
+#[test]
 fn furnace_recipe_projection_reuses_unchanged_inputs() {
     let inventory = fixture(::protocol::WINDOW_TYPE_FURNACE);
     let first = inventory.furnace_recipes(false);
     let second = inventory.furnace_recipes(false);
     assert_eq!(
-        first.shared_ids().as_ptr(),
-        second.shared_ids().as_ptr(),
+        first.shared_indices().as_ptr(),
+        second.shared_indices().as_ptr(),
         "unchanged furnace inputs reuse the recipe projection"
     );
 }
@@ -207,7 +238,7 @@ fn furnace_recipe_projection_reuses_unchanged_inputs() {
 #[test]
 fn furnace_recipe_projection_invalidates_when_supply_changes() {
     let mut inventory = fixture(::protocol::WINDOW_TYPE_FURNACE);
-    let previous = Arc::clone(inventory.furnace_recipes(true).shared_ids());
+    let previous = Arc::clone(inventory.furnace_recipes(true).shared_indices());
     for slot in [5, 6] {
         inventory
             .ledger_mut()
@@ -222,5 +253,5 @@ fn furnace_recipe_projection_invalidates_when_supply_changes() {
     }
     let listed = inventory.furnace_recipes(true);
     assert!(listed.is_empty());
-    assert!(!Arc::ptr_eq(&previous, listed.shared_ids()));
+    assert!(!Arc::ptr_eq(&previous, listed.shared_indices()));
 }
