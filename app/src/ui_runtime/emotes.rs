@@ -60,6 +60,7 @@ pub(crate) struct EmoteInput<'w, 's> {
     consumed: ResMut<'w, EmoteInputConsumed>,
     focus: Option<ResMut<'w, client_presentation::camera::CursorFocus>>,
     driven: Option<Res<'w, crate::camera::DrivenInput>>,
+    network: Option<Res<'w, crate::runtime::network::NetworkHandle>>,
 }
 
 /// Runs before chat/menu adapters and before semantic gameplay is finalized.
@@ -136,6 +137,7 @@ pub(crate) fn drive_emote_input(mut input: EmoteInput) {
         return;
     }
     let now = u64::try_from(input.time.elapsed().as_millis()).unwrap_or(u64::MAX);
+    let mut started = None;
     let pointer = input
         .window
         .0
@@ -184,9 +186,9 @@ pub(crate) fn drive_emote_input(mut input: EmoteInput) {
             presentation.set_emote_input_mode(json_ui::InputMode::Mouse);
         }
         if let Some(slot) = slot_key(event.key_code) {
-            input.runtime.emotes_mut().activate_slot(slot, now);
+            started = input.runtime.emotes_mut().activate_slot(slot, now);
         } else if let Some(action) = wheel_key(event.key_code) {
-            input.runtime.emotes_mut().handle_action(action, now);
+            started = input.runtime.emotes_mut().handle_action(action, now);
         }
         dismissed |= !input.runtime.emotes().is_open();
     }
@@ -215,7 +217,7 @@ pub(crate) fn drive_emote_input(mut input: EmoteInput) {
         if input.mouse.just_pressed(MouseButton::Left) {
             match hit {
                 Some(EmoteHit::Slot(slot)) => {
-                    input.runtime.emotes_mut().activate_slot(slot, now);
+                    started = input.runtime.emotes_mut().activate_slot(slot, now);
                 }
                 Some(EmoteHit::ChangeEmotes) => input.runtime.emotes_mut().change_emotes(),
                 Some(EmoteHit::Close) => {
@@ -245,7 +247,7 @@ pub(crate) fn drive_emote_input(mut input: EmoteInput) {
                         presentation.set_emote_input_mode(json_ui::InputMode::Gamepad);
                     }
                     let was_open = input.runtime.emotes().is_open();
-                    input.runtime.emotes_mut().handle_action(action, now);
+                    started = input.runtime.emotes_mut().handle_action(action, now);
                     dismissed |= was_open && !input.runtime.emotes().is_open();
                 }
             }
@@ -253,6 +255,20 @@ pub(crate) fn drive_emote_input(mut input: EmoteInput) {
     } else if let Some(presentation) = input.presentation.as_deref_mut() {
         presentation.set_emote_pointer(None);
         input.observed.pointer = None;
+    }
+    if let Some(emote) = started
+        && let Some(runtime_id) = runtime_id
+        && let Some(network) = input.network.as_deref()
+    {
+        let length_ticks =
+            (emote.duration_seconds() / world::TICK_DURATION.as_secs_f64()).ceil() as u32;
+        if let Err(error) = network.send_inventory_packet(protocol::emote_packet(
+            runtime_id,
+            emote.id(),
+            length_ticks,
+        )) {
+            bevy::log::warn!(?error, "emote start was not admitted to the session queue");
+        }
     }
     if let Some(preferences) = input.runtime.emotes_mut().take_preferences()
         && let Some(menu) = input.menu.as_deref_mut()

@@ -115,6 +115,10 @@ const LEFT_LEG: [f32; 3] = [0.0, 0.0, -2.0];
 const TORSO: [f32; 3] = [8.0, 12.0, 4.0];
 const LIMB: [f32; 3] = [4.0, 12.0, 4.0];
 
+// Pinned vanilla models/entity/player_armor.json: UV coordinates use the model's
+// logical size, regardless of the replacement image's physical texel density.
+const ARMOR_UV_SIZE: [f32; 2] = [64.0, 32.0];
+
 /// The boxes of each armor slot, helmet to boots.
 fn slot_boxes(slot: usize) -> &'static [ArmorBox] {
     const HELMET: [ArmorBox; 1] = [armor_box(0, HEAD, [8.0; 3], 1.0, [0.0, 0.0], false)];
@@ -140,14 +144,14 @@ fn slot_boxes(slot: usize) -> &'static [ArmorBox] {
     }
 }
 
-/// The triangles of armor slot `slot` over a `texture_size` texture, in blocks.
-pub(super) fn armor_vertices(slot: usize, texture_size: [f32; 2]) -> Vec<ActorVertex> {
+/// The triangles of armor slot `slot`, with normalized model UVs, in blocks.
+pub(super) fn armor_vertices(slot: usize) -> Vec<ActorVertex> {
     let mut vertices = Vec::new();
     for armor in slot_boxes(slot) {
         let px = 1.0 / 16.0;
         let min = armor.min.map(|axis| (axis - armor.inflate) * px);
         let max = [0, 1, 2].map(|axis| (armor.min[axis] + armor.size[axis] + armor.inflate) * px);
-        append_box(&mut vertices, armor, min, max, texture_size);
+        append_box(&mut vertices, armor, min, max, ARMOR_UV_SIZE);
     }
     vertices
 }

@@ -5,6 +5,7 @@ mod chat;
 mod geometry;
 mod hud;
 mod icon;
+pub mod mod_hud;
 pub mod mod_panel;
 mod model;
 mod scoreboard;
@@ -46,9 +47,9 @@ pub use scoreboard::{
 };
 pub use settings::{
     ANTI_ALIASING_SAMPLE_COUNTS, AntiAliasingSupport, CURRENT_SETTINGS_SCHEMA,
-    DEFAULT_ANTI_ALIASING_SAMPLES, DEFAULT_FOV_DEGREES, DEFAULT_RENDER_DISTANCE_CHUNKS, DEFAULT_OUTLINE_SELECTION,
-    GameplaySettings, MAX_FOV_DEGREES, MIN_FOV_DEGREES, MOTION_BLUR_REFERENCE_FPS,
-    MotionBlurQuality, RenderMode, UserSettings, VideoSettings,
+    DEFAULT_ANTI_ALIASING_SAMPLES, DEFAULT_FOV_DEGREES, DEFAULT_OUTLINE_SELECTION,
+    DEFAULT_RENDER_DISTANCE_CHUNKS, GameplaySettings, MAX_FOV_DEGREES, MIN_FOV_DEGREES,
+    MOTION_BLUR_REFERENCE_FPS, MotionBlurQuality, RenderMode, UserSettings, VideoSettings,
 };
 pub use text::{
     BedrockColor, FONT_ASCENT_TEXELS, FONT_DESIGN_PIXEL_TEXELS, FONT_INK_TEXELS, FormattingPalette,

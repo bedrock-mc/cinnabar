@@ -513,10 +513,12 @@ fn publisher_cohort_preserves_over_max_radius_while_runtime_scope_clamps() {
         air_network_id: 12_530,
         block_network_ids_are_hashes: false,
     });
+    let max = super::PHASE0_MAX_VIEW_RADIUS_CHUNKS;
+    let over_blocks = (max as u32 + 1) * 16;
     let target = super::ViewCohort {
         dimension: 0,
         center: [0, 0],
-        radius: 16,
+        radius: max,
         publisher_geometry: None,
     };
 
@@ -525,7 +527,7 @@ fn publisher_cohort_preserves_over_max_radius_while_runtime_scope_clamps() {
             1,
             WorldEvent::PublisherUpdate(PublisherUpdateEvent {
                 center: [0, 64, 0],
-                radius_blocks: 272,
+                radius_blocks: over_blocks,
             }),
         )
         .unwrap();
@@ -535,14 +537,14 @@ fn publisher_cohort_preserves_over_max_radius_while_runtime_scope_clamps() {
         Some(super::ViewCohort {
             dimension: 0,
             center: [0, 0],
-            radius: 17,
+            radius: max + 1,
             publisher_geometry: Some(client_world::PublisherViewGeometry {
                 center_blocks: [0, 0],
-                radius_blocks: 272,
+                radius_blocks: over_blocks,
             }),
         })
     );
-    assert_eq!(stream.stats().publisher_radius_chunks, Some(16));
+    assert_eq!(stream.stats().publisher_radius_chunks, Some(max));
 }
 
 #[test]
@@ -940,11 +942,17 @@ fn old_dimension_and_out_of_radius_chunks_are_rejected_and_radii_are_clamped() {
     );
     let stats = format!("{:?}", stream.stats());
     assert!(
-        stats.contains("received_radius_chunks: Some(16)"),
+        stats.contains(&format!(
+            "received_radius_chunks: Some({})",
+            super::PHASE0_MAX_VIEW_RADIUS_CHUNKS
+        )),
         "{stats}"
     );
     assert!(
-        stats.contains("publisher_radius_chunks: Some(16)"),
+        stats.contains(&format!(
+            "publisher_radius_chunks: Some({})",
+            super::PHASE0_MAX_VIEW_RADIUS_CHUNKS
+        )),
         "{stats}"
     );
 

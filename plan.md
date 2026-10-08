@@ -1673,6 +1673,19 @@ and revocation UI, production API stability, native multiplayer acceptance and
 cross-platform runtime acceptance. Loaded player data is not line-of-sight or
 visibility evidence. No aim-assist algorithm is installed and no vanilla parity
 gate is closed; see `docs/modding-spike.md` for the contract and opt-in switches.
+Generic cosmetic HUD cards and crosshairs add a separate presentation-only grant,
+bounded retained JSON-UI data, ordinary cursor visibility gates, transactional
+revocation, and 64-control settings pagination. Target-platform rendered evidence
+remains required before this presentation addition is cleared to push.
+
+2026-10-08 local player-state extension: a separate default-denied, read-only
+grant exposes current-session presented inventory/gear and active status effects.
+Unknown cells, item identities and durability remain explicit; finite effect
+durations follow the existing estimated server clock. Host callback budgets and
+session fences clear stale payloads. Experimental, non-parity API; no vanilla
+gate is closed. Incomplete: custom component durability maxima, production API
+stability, server policy/grant UI and native cross-platform acceptance. See
+`docs/modding-spike.md` for the contract.
 
 2026-10-01 crouch, shield and crossbow follow-up: the local camera now consumes
 the native 0.35-block crouch offset, half-blended once per completed tick and
@@ -6583,3 +6596,13 @@ hardware budgets and matched-version pixel comparison remain incomplete.
   its effective placement face are incomplete. Clicked-cell selection retains the existing rule.
 - Same-frame visibility and rendered neighbor/correction behavior still need headless captures;
   this work does not close a visual or frame-budget gate.
+
+## Entity interaction and emote starts
+
+Entity-use presses now send the selected stack and fresh actor hit in the input
+frame, with block occlusion and bounded queue retries. A live cow interaction
+produces a server-confirmed milk bucket. Selecting an equipped emote sends its
+catalog identifier and duration once in that frame; idle and cancellation send
+no start packet. Marketplace clip ownership/playback, remote custom-emote
+synchronization, and the complete villager trade UI remain incomplete. These
+producer fixes do not close those parity gates.

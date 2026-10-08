@@ -135,6 +135,14 @@ impl UiPresentationRuntime {
                                 metrics,
                                 content,
                             );
+                            self.append_mod_widgets(
+                                player_runtime,
+                                runtime,
+                                nodes,
+                                next,
+                                metrics,
+                                content,
+                            );
                             self.append_player_list(
                                 player_runtime,
                                 runtime,

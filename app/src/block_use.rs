@@ -29,6 +29,8 @@ use crate::{
 };
 use client_ui::ui_runtime::UiRuntime;
 
+mod actor_use;
+
 pub(crate) use gameplay::block_use::{
     LocalUse, RepeatClock, UseSurroundings, placement_cell, use_packets,
 };
@@ -208,6 +210,19 @@ pub(crate) fn produce_block_use(
         return;
     }
     let input_mode = protocol_input_mode(input.input_mode);
+    if actor_use::produce(
+        &context,
+        &mut runtime,
+        &selection,
+        pick.expect("the current pick was checked above"),
+        &state,
+        input_mode,
+        trigger,
+        due,
+        clock,
+    ) {
+        return;
+    }
     let (Some(mut observed), Some(stream)) = (
         observe_use_target(
             &player_runtime,

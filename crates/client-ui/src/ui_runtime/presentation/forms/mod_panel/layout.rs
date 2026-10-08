@@ -219,3 +219,58 @@ fn append_row<'a>(
     }
     *y += height + GAP;
 }
+
+#[cfg(test)]
+mod capacity_tests {
+    use super::*;
+    use ui::mod_panel::{Control, MAX_PANEL_CONTROLS, Section, Theme};
+    #[test]
+    fn all_expanded_settings_remain_reachable_when_cards_exceed_the_viewport() {
+        let controls: Vec<_> = (0..MAX_PANEL_CONTROLS)
+            .map(|n| Control::Slider {
+                id: format!("control_{n}"),
+                label: format!("Control {n}"),
+                value: 1.,
+                min: 0.,
+                max: 2.,
+                step: 0.1,
+            })
+            .collect();
+        let sections = (0..8)
+            .map(|section| Section {
+                id: format!("section_{section}"),
+                label: format!("Section {section}"),
+                category: "Settings".into(),
+                icon: Icon::None,
+                toggle: None,
+                controls: controls[section * 8..section * 8 + 8]
+                    .iter()
+                    .map(|c| c.id().to_owned())
+                    .collect(),
+            })
+            .collect();
+        let panel = Panel {
+            theme: Theme::Default,
+            style: Style::Compact,
+            title: "Settings".into(),
+            toggle_key: "F10".into(),
+            dark: true,
+            controls,
+            capture_key: false,
+            sections,
+        };
+        panel.validate().unwrap();
+        for viewport in [[440., 180.], [440., 320.], [440., 640.]] {
+            let layout = Layout::new(&panel, viewport, 0, 8);
+            let mut reached: Vec<_> = layout
+                .pages
+                .iter()
+                .flatten()
+                .flat_map(|card| card.toggle.into_iter().chain(card.controls.iter().copied()))
+                .collect();
+            reached.sort_unstable();
+            assert_eq!(reached, (0..MAX_PANEL_CONTROLS).collect::<Vec<_>>());
+            assert!(layout.pages.len() > 1);
+        }
+    }
+}

@@ -21,6 +21,8 @@ pub use skin::{
 
 /// Largest render distance the client offers and requests; the server grant still bounds streaming.
 pub const PHASE0_MAX_VIEW_RADIUS_CHUNKS: i32 = 255;
+/// Retention radius before the server grants one, so an unbounded maximum never pins old terrain.
+pub const UNGRANTED_VIEW_RADIUS_CHUNKS: i32 = 16;
 
 /// Near clipping distance shared by world and first-person camera projections.
 pub const CAMERA_NEAR_PLANE_BLOCKS: f32 = 0.025;
