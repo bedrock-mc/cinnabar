@@ -54,6 +54,8 @@ const LIQUID_MATERIAL_MASK: u32 = ~(LIQUID_DEPTH_WRITE_BIT | LIQUID_TOP_INSET_BI
 @group(0) @binding(4) var block_textures_page_0: texture_2d_array<f32>;
 @group(0) @binding(5) var block_textures_page_1: texture_2d_array<f32>;
 @group(0) @binding(6) var block_sampler: sampler;
+@group(0) @binding(NATIVE_LEAF_TEXTURE_BINDING_0) var terrain_gamma_page_0: texture_2d_array<f32>;
+@group(0) @binding(NATIVE_LEAF_TEXTURE_BINDING_1) var terrain_gamma_page_1: texture_2d_array<f32>;
 @group(0) @binding(9) var<storage, read> animations: array<AnimationGpu>;
 @group(0) @binding(10) var<storage, read> animation_frames: array<u32>;
 @group(0) @binding(11) var<uniform> clock: AnimationClockGpu;
@@ -272,16 +274,16 @@ fn vertex_for_ref(draw_ref: TransparentDrawRef, vertex_index: u32) -> VertexOutp
 
 fn sample_texture_ref(texture_ref: u32, uv: vec2<f32>, dx: vec2<f32>, dy: vec2<f32>) -> vec4<f32> {
     let layer = i32(texture_ref & 0x7ffu);
-    var sampled: vec4<f32>;
-    if ((texture_ref >> 31u) == 0u) {
-        sampled = textureSampleGrad(block_textures_page_0, block_sampler, uv, layer, dx, dy);
-    } else {
-        sampled = textureSampleGrad(block_textures_page_1, block_sampler, uv, layer, dx, dy);
-    }
 #ifdef ENHANCED
-    return sampled;
+    if ((texture_ref >> 31u) == 0u) {
+        return textureSampleGrad(block_textures_page_0, block_sampler, uv, layer, dx, dy);
+    }
+    return textureSampleGrad(block_textures_page_1, block_sampler, uv, layer, dx, dy);
 #else
-    return tint_to_gamma(sampled);
+    if ((texture_ref >> 31u) == 0u) {
+        return textureSampleGrad(terrain_gamma_page_0, block_sampler, uv, layer, dx, dy);
+    }
+    return textureSampleGrad(terrain_gamma_page_1, block_sampler, uv, layer, dx, dy);
 #endif
 }
 

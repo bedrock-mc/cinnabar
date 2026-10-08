@@ -35,7 +35,7 @@ fn snow_and_other_world_models_use_native_terrain_colour_at_day_and_night() {
         mip_level_count: 1,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Rgba8UnormSrgb,
+        format: wgpu::TextureFormat::Rgba8Unorm,
         usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
         view_formats: &[],
     });
@@ -92,11 +92,11 @@ fn snow_and_other_world_models_use_native_terrain_colour_at_day_and_night() {
                 resource: view.as_entire_binding(),
             },
             wgpu::BindGroupEntry {
-                binding: 4,
+                binding: crate::material_shader::NATIVE_LEAF_TEXTURE_BINDINGS[0],
                 resource: wgpu::BindingResource::TextureView(&atlas),
             },
             wgpu::BindGroupEntry {
-                binding: 5,
+                binding: crate::material_shader::NATIVE_LEAF_TEXTURE_BINDINGS[1],
                 resource: wgpu::BindingResource::TextureView(&atlas),
             },
             wgpu::BindGroupEntry {

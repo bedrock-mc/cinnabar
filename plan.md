@@ -6276,7 +6276,33 @@ hands, matching the existing world equipment fallback. Inventory banners retain 
 colored model icon. Exact native 3D held-banner geometry and patterns remain incomplete;
 the fallback availability regression is fixed, but it does not close that parity gate.
 
-### Crosshair preferences
+## Image clarity and multisampling
+
+Desktop rendering removes FXAA and defaults to two MSAA coverage samples when supported,
+matching the inspected Windows raster setting. Retail, mobile and console defaults remain
+unverified. Video's Anti-Aliasing slider exposes only supported sample counts.
+Terrain uses point-filtered texels, linear mip interpolation and byte-space atlas mips.
+See [the Vanilla rules](docs/reference/rendering.md) for established behavior and evidence
+limits. These changes do not close the cross-platform rendering parity gate.
+
+Opaque, cutout, transparent, sky, world text and hand geometry now retain their original color
+samples in one shared attachment. Compatible views preserve encoded blending without scene
+copies. The last ordinary hand-rig draw resolves and discards the samples; an end-of-main-pass
+resolve covers views without that draw. Shadows use per-sample depth and an overlap stencil,
+and Hi-Z directly reduces the original depth samples. Single-sample post consumers resolve
+only when needed. Real GPU coverage fixtures distinguish this path from resolved-color
+reconstruction, including partially covered silhouettes and overlapping shadows.
+
+Enhanced remains disabled by its existing GPU-fault kill switch. Its MSAA attachment and
+post-chain changes receive compile and shader checks only; no live Enhanced acceptance is
+claimed, and this work does not remove that switch.
+
+Matched native screenshots, material-specific actor/item mip policies, custom-pack mip-level
+limits, console/mobile defaults and texel anti-aliasing remain unverified. Mac headless
+captures and focused GPU tests cannot qualify Intel-integrated performance, other native
+platforms, release streaming or hitch budgets. Those acceptance gates remain open.
+
+## Crosshair preferences
 
 Video settings expose Third Person Crosshair (off by default) and Invert
 Crosshair Colors (on by default). Both persist and reset with Video settings.

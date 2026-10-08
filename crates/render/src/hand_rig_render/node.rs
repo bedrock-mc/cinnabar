@@ -18,13 +18,18 @@ use bevy::{
 pub(super) struct HandRigViewNode;
 
 impl ViewNode for HandRigViewNode {
-    type ViewQuery = (&'static ViewTarget, &'static Msaa);
+    type ViewQuery = (
+        &'static ViewTarget,
+        &'static crate::scene_target::SceneTarget,
+        &'static Msaa,
+        Has<crate::EnhancedRendering>,
+    );
 
     fn run(
         &self,
         _graph: &mut RenderGraphContext,
         context: &mut RenderContext,
-        (target, msaa): QueryItem<Self::ViewQuery>,
+        (target, scene_target, msaa, enhanced): QueryItem<Self::ViewQuery>,
         world: &World,
     ) -> Result<(), NodeRunError> {
         let (Some(gpu), Some(cache)) = (
@@ -36,9 +41,7 @@ impl ViewNode for HandRigViewNode {
         let Some(lightmap) = world.get_resource::<crate::lighting::LightmapGpu>() else {
             return Ok(());
         };
-        let color = target
-            .sampled_main_texture()
-            .unwrap_or_else(|| target.main_texture());
+        let color = &scene_target.texture;
         let extent = color.size();
         let (Some(depth), Some(binding), Some(pipeline)) = (
             &gpu.depth,
@@ -55,7 +58,13 @@ impl ViewNode for HandRigViewNode {
         {
             return Ok(());
         }
-        let attachments = [Some(target.get_color_attachment())];
+        let final_world_draw =
+            !(render_model::ENHANCED_RENDERING_ENABLED && enhanced) && msaa.samples() > 1;
+        let attachments = [Some(if final_world_draw {
+            scene_target.final_attachment(target.main_texture_view())
+        } else {
+            scene_target.color_attachment(target, false)
+        })];
         let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
             label: Some("first-person animated rig"),
             color_attachments: &attachments,

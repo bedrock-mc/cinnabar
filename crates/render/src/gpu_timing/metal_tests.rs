@@ -133,3 +133,61 @@ fn metal_pass_markers_emit_readable_timestamps() {
     assert!(frames[0].get(RuntimeStage::GpuUi).is_some());
     assert_eq!(frames[0].get(RuntimeStage::GpuFrame), None);
 }
+
+/// Each depth reduction claims one existing pass span and keeps its target across owner changes.
+#[test]
+fn metal_depth_resolve_uses_owned_pass_queries_without_extra_passes() {
+    use crate::scene_sampling::ResolvedDepth;
+    use bevy::render::{texture::CachedTexture, view::ViewDepthTexture};
+
+    let Some((device, queue)) = metal_device() else {
+        return;
+    };
+    let texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("timed multisample depth fixture"),
+        size: wgpu::Extent3d {
+            width: 4,
+            height: 4,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 4,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Depth32Float,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+        view_formats: &[],
+    });
+    let depth = ViewDepthTexture::new(
+        CachedTexture {
+            default_view: texture.create_view(&Default::default()),
+            texture,
+        },
+        Some(0.0),
+    );
+    let mut resolved = ResolvedDepth::new(&device, &depth, RuntimeStage::GpuShadows);
+    let retained = resolved.view.id();
+    let mut timestamps = GpuTimestamps::new(&device, &queue, false).unwrap();
+    timestamps.begin(|_| unreachable!("first frame has no readback"));
+    let mut world = World::new();
+    world.insert_resource(timestamps);
+    let mut context = RenderContext::new(device.clone(), None);
+    resolved.draw(&mut context, &world, None);
+    let next = RuntimeStage::GPU_MOD_PASSES[0];
+    resolved.set_stage(next);
+    resolved.draw(&mut context, &world, None);
+    let timestamps = world.resource::<GpuTimestamps>();
+    assert_eq!(timestamps.frame.passes.load(Ordering::Relaxed), 2);
+    assert_eq!(timestamps.frame.draws.load(Ordering::Relaxed), 0);
+    assert_eq!(
+        timestamps.frame.stages[0].load(Ordering::Relaxed),
+        RuntimeStage::GpuShadows as u8
+    );
+    assert_eq!(
+        timestamps.frame.stages[1].load(Ordering::Relaxed),
+        next as u8
+    );
+    assert_eq!(resolved.view.id(), retained);
+    bevy::tasks::ComputeTaskPool::get_or_init(bevy::tasks::TaskPool::default);
+    queue.submit(context.finish().0);
+    device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+}
