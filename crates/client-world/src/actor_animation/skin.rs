@@ -1,9 +1,13 @@
 //! Player skins that carry their own model: the player's animations drive the skin's bones by
 //! name, so the rig poses the skin geometry instead of the default humanoid.
-use assets::{SkinGeometry, parse_skin_geometry};
 use protocol::SkinGeometrySource;
 
 use super::{pose::LocalDelta, *};
+
+mod preparation;
+use preparation::PreparedSkin;
+mod queue;
+pub(super) use queue::SkinPreparationQueue;
 
 #[derive(Debug)]
 pub(super) enum SkinModel {
@@ -15,10 +19,7 @@ pub(super) enum SkinModel {
 #[derive(Debug)]
 pub(super) struct SkinSkeleton {
     source: Arc<SkinGeometrySource>,
-    pub(super) geometry: Arc<SkinGeometry>,
-    pub(super) bones: Vec<RuntimeBone>,
-    pub(super) names: Vec<Box<str>>,
-    pub(super) layers: Vec<super::skin_layers::SkinLayerSkeleton>,
+    pub(super) prepared: Arc<PreparedSkin>,
     /// Default-rig bone whose animation each skin bone takes, matched by name.
     driver: Vec<Option<usize>>,
     /// Geometry binding `driver` was matched against.
@@ -45,13 +46,13 @@ impl ActorRigState {
     /// Bones the rig poses: the skin's when it has a model.
     pub(super) fn posed_bones(&self) -> &[RuntimeBone] {
         self.skin_skeleton()
-            .map_or(&self.bones, |skeleton| &skeleton.bones)
+            .map_or(&self.bones, |skeleton| &skeleton.prepared.bones)
     }
 
     /// Names of the bones the rig poses: the skin's when it has a model.
     pub(super) fn posed_bone_names(&self) -> &[Box<str>] {
         self.skin_skeleton()
-            .map_or(&self.bone_names, |skeleton| &skeleton.names)
+            .map_or(&self.bone_names, |skeleton| &skeleton.prepared.names)
     }
 
     /// Composes the default rig's animation deltas onto the posed skeleton.
@@ -67,7 +68,7 @@ impl ActorRigState {
                             .unwrap_or_default()
                     })
                     .collect::<Vec<_>>();
-                compose_pose(&skeleton.bones, &local)
+                compose_pose(&skeleton.prepared.bones, &local)
             }
             None => compose_pose(&self.bones, local),
         }
@@ -79,7 +80,7 @@ impl ActorRigState {
         if let Some(SkinModel::Parsed(skeleton)) = &mut self.skin
             && skeleton.driver_binding != binding
         {
-            skeleton.driver = drivers(&skeleton.names, bone_names);
+            skeleton.driver = drivers(&skeleton.prepared.names, bone_names);
             skeleton.driver_binding = binding;
             self.rest_on_posed_skeleton();
         }
@@ -88,7 +89,7 @@ impl ActorRigState {
     /// Resets the stored poses to the posed skeleton's rest, after its bones changed.
     pub(super) fn rest_on_posed_skeleton(&mut self) {
         let rest = match self.skin_skeleton() {
-            Some(skeleton) => compose_pose(&skeleton.bones, &[]),
+            Some(skeleton) => skeleton.prepared.rest.as_ref().map(|rest| rest.to_vec()),
             None => compose_pose(&self.bones, &[]),
         };
         if let Some(rest) = rest {
@@ -112,53 +113,59 @@ fn drivers(skin: &[Box<str>], rig: &[Box<str>]) -> Vec<Option<usize>> {
 pub(super) fn sync_skin(
     state: &mut ActorRigState,
     source: Option<&Arc<SkinGeometrySource>>,
-    assets: &RuntimeEntityAssets,
+    cache: &SkinPreparationQueue,
 ) -> bool {
     let unchanged = match (&state.skin, source) {
         (None, None) => true,
-        (Some(model), Some(source)) => {
-            Arc::ptr_eq(model.source(), source) || model.source().as_ref() == source.as_ref()
-        }
+        (Some(model), Some(source)) => Arc::ptr_eq(model.source(), source),
         _ => false,
     };
     if unchanged {
         return false;
     }
+    let outcome = match source {
+        Some(source) => {
+            let Some(outcome) = cache.get(source) else {
+                return false;
+            };
+            Some(outcome)
+        }
+        None => None,
+    };
+    if let (Some(model), Some(source)) = (&mut state.skin, source) {
+        let shares_preparation = match (model, outcome.as_ref()) {
+            (SkinModel::Parsed(skeleton), Some((Some(prepared), _))) => {
+                Arc::ptr_eq(&skeleton.prepared, prepared)
+            }
+            _ => false,
+        };
+        let model = state
+            .skin
+            .as_mut()
+            .expect("the retained skin was inspected");
+        if shares_preparation || cache.replaces_unchanged(source, model.source()) {
+            match model {
+                SkinModel::Parsed(skeleton) => skeleton.source = Arc::clone(source),
+                SkinModel::Default(previous) => *previous = Arc::clone(source),
+            }
+            return false;
+        }
+    }
     let had_skeleton = state.skin_skeleton().is_some();
     let mut rejected = false;
     state.skin = source.map(|source| {
-        let parsed =
-            parse_skin_geometry(&source.resource_patch, &source.geometry_data).map(|geometry| {
-                geometry.or_else(|| {
-                    let name = assets::skin_geometry_name(&source.resource_patch)?;
-                    let geometry = assets
-                        .geometries()
-                        .iter()
-                        .find(|geometry| geometry.identifier.eq_ignore_ascii_case(&name))?;
-                    SkinGeometry::from_catalog(geometry)
-                })
-            });
-        match parsed {
-            Ok(Some(geometry)) => match skeleton(&geometry.bones) {
-                Some((bones, names)) => SkinModel::Parsed(SkinSkeleton {
-                    source: Arc::clone(source),
-                    driver: drivers(&names, &state.bone_names),
-                    driver_binding: state.geometry_binding,
-                    geometry: Arc::new(geometry),
-                    layers: super::skin_layers::parse(source),
-                    bones,
-                    names,
-                }),
-                None => {
-                    rejected = true;
-                    SkinModel::Default(Arc::clone(source))
-                }
-            },
-            Ok(None) => SkinModel::Default(Arc::clone(source)),
-            Err(_) => {
-                rejected = true;
-                SkinModel::Default(Arc::clone(source))
-            }
+        let (prepared, invalid) = outcome
+            .clone()
+            .expect("a source requires completed preparation");
+        rejected = invalid;
+        match prepared {
+            Some(prepared) => SkinModel::Parsed(SkinSkeleton {
+                source: Arc::clone(source),
+                driver: drivers(&prepared.names, &state.bone_names),
+                driver_binding: state.geometry_binding,
+                prepared,
+            }),
+            None => SkinModel::Default(Arc::clone(source)),
         }
     });
     if had_skeleton || state.skin_skeleton().is_some() {
@@ -166,3 +173,7 @@ pub(super) fn sync_skin(
     }
     rejected
 }
+
+#[cfg(test)]
+#[path = "skin/tests.rs"]
+mod tests;

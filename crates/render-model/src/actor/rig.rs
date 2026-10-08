@@ -1,5 +1,8 @@
 //! Actor rig contracts shared by CPU geometry builders and the GPU rig renderer.
-use std::sync::Arc;
+use std::{
+    hash::{DefaultHasher, Hasher},
+    sync::Arc,
+};
 
 use bytemuck::{Pod, Zeroable};
 
@@ -80,15 +83,35 @@ pub struct ActorRigVertex {
 pub const ACTOR_RIG_VERTEX_WORDS: usize = std::mem::size_of::<ActorRigVertex>() / 4;
 const _: () = assert!(std::mem::size_of::<ActorRigVertex>() == ACTOR_RIG_VERTEX_WORDS * 4);
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct ActorRigGeometry {
     pub id: EntityRigId,
     pub vertices: Arc<[ActorRigVertex]>,
     pub bone_pivots: Arc<[[f32; 3]]>,
     bones_used: usize,
+    prepared: Arc<PreparedGeometry>,
+}
+
+/// Strong witnesses force public mutable access onto a different allocation.
+#[derive(Debug)]
+struct PreparedGeometry {
+    vertices: Arc<[ActorRigVertex]>,
+    bone_pivots: Arc<[[f32; 3]]>,
+    fingerprint: u64,
+}
+
+impl PartialEq for ActorRigGeometry {
+    /// Preparation metadata does not change the geometry's observable value.
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+            && self.vertices == other.vertices
+            && self.bone_pivots == other.bone_pivots
+            && self.bones_used == other.bones_used
+    }
 }
 
 impl ActorRigGeometry {
+    /// Validates immutable allocations and prepares their catalog fingerprint.
     pub fn new(
         id: EntityRigId,
         vertices: impl Into<Arc<[ActorRigVertex]>>,
@@ -102,6 +125,8 @@ impl ActorRigGeometry {
         if bone_pivots.is_empty() || bone_pivots.len() > MAX_RENDER_BONES_PER_ACTOR {
             return Err(ActorRigGeometryError::BoneCount);
         }
+        #[cfg(test)]
+        preparation_tests::record_validation(vertices.len());
         if vertices.iter().any(|vertex| {
             vertex
                 .position
@@ -121,11 +146,19 @@ impl ActorRigGeometry {
             .map(|vertex| vertex.bone_index as usize + 1)
             .max()
             .unwrap_or(0);
+        let mut hasher = DefaultHasher::new();
+        hasher.write(bytemuck::cast_slice::<ActorRigVertex, u8>(&vertices));
+        let prepared = Arc::new(PreparedGeometry {
+            vertices: Arc::clone(&vertices),
+            bone_pivots: Arc::clone(&bone_pivots),
+            fingerprint: hasher.finish(),
+        });
         Ok(Self {
             id,
             vertices,
             bone_pivots,
             bones_used,
+            prepared,
         })
     }
 
@@ -135,8 +168,41 @@ impl ActorRigGeometry {
         self.bones_used
     }
 
-    /// Rechecks public vertex data and its bone requirement before catalog admission.
+    /// Reuses the exact prepared vertex allocation; changed public data has no trusted fingerprint.
+    #[must_use]
+    pub fn vertex_fingerprint(&self) -> Option<u64> {
+        Arc::ptr_eq(&self.vertices, &self.prepared.vertices).then_some(self.prepared.fingerprint)
+    }
+
+    /// Exact byte equality permits canonical storage to inherit the original validation witness.
+    pub fn share_vertex_allocation(&mut self, vertices: &Arc<[ActorRigVertex]>) -> bool {
+        if Arc::ptr_eq(&self.vertices, vertices) {
+            return true;
+        }
+        if bytemuck::cast_slice::<ActorRigVertex, u8>(&self.vertices)
+            != bytemuck::cast_slice::<ActorRigVertex, u8>(vertices)
+        {
+            return false;
+        }
+        let fingerprint = self.vertex_fingerprint();
+        self.vertices = Arc::clone(vertices);
+        if let Some(fingerprint) = fingerprint {
+            self.prepared = Arc::new(PreparedGeometry {
+                vertices: Arc::clone(vertices),
+                bone_pivots: Arc::clone(&self.prepared.bone_pivots),
+                fingerprint,
+            });
+        }
+        true
+    }
+
+    /// Rechecks replaced public data while preserving preparation for unchanged allocations.
     pub fn revalidate(&mut self) -> Result<(), ActorRigGeometryError> {
+        if Arc::ptr_eq(&self.vertices, &self.prepared.vertices)
+            && Arc::ptr_eq(&self.bone_pivots, &self.prepared.bone_pivots)
+        {
+            return Ok(());
+        }
         *self = Self::new(
             self.id,
             Arc::clone(&self.vertices),
@@ -214,3 +280,7 @@ pub fn diagnostic_geometry() -> ActorRigGeometry {
     ActorRigGeometry::new(DIAGNOSTIC_RIG_ID, Arc::from(vertices), Arc::from(pivots))
         .expect("authored diagnostic actor geometry is finite and bounded")
 }
+
+#[cfg(test)]
+#[path = "rig/preparation_tests.rs"]
+mod preparation_tests;

@@ -22,6 +22,12 @@ pub struct PublicationFixtureSnapshot {
 }
 
 impl WorldStream {
+    /// Prepares fixture appearances without changing the simulation clock under test.
+    #[cfg(feature = "publication-test-support")]
+    pub fn prepare_actor_appearances_for_test(&mut self) {
+        self.authority.prepare_actor_appearances_for_test();
+    }
+
     fn install_publication_fixture_light(&mut self, key: SubChunkKey) {
         self.lighting.next_block_generation =
             self.lighting.next_block_generation.wrapping_add(1).max(1);
