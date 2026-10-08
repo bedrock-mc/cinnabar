@@ -52,10 +52,10 @@ impl SkinRigCache {
         };
         let id = skin_rig_id(index as u32);
         let Some(mut built) = prepared.cloned() else {
-            if self.rejected.len() == MAX_REJECTED_SKIN_RIGS {
-                if let Some(oldest) = self.rejection_order.pop_front() {
-                    self.rejected.remove(&oldest);
-                }
+            if self.rejected.len() == MAX_REJECTED_SKIN_RIGS
+                && let Some(oldest) = self.rejection_order.pop_front()
+            {
+                self.rejected.remove(&oldest);
             }
             self.rejection_order.push_back(geometry.digest);
             self.rejected.insert(geometry.digest);
