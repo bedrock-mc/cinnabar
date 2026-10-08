@@ -803,3 +803,81 @@ fn instant_plants_publish_the_carried_destroy_effect_once() {
         }
     }
 }
+
+/// A press between ticks breaks an instant block and swings in its own frame; the next tick
+/// still carries the start and completion actions, once.
+#[test]
+fn an_instant_break_between_ticks_is_predicted_at_the_press() {
+    for authority in [Server, Client] {
+        let mut ticker = ticker_with_ticks(1);
+        flush_player_auth_inputs(&mut ticker, 8, Some(evidence()), |_, _| Ok::<_, ()>(())).unwrap();
+        let next = ticker.completed_tick() + 1;
+        let obsidian = DestroyTarget {
+            instant: true,
+            ..target([3, 4, 5], "minecraft:obsidian", None)
+        };
+        let mut runtime = SurvivalMiningRuntime::default();
+        let (mut swings, mut predictions) = (Vec::new(), Vec::new());
+        for _ in 0..2 {
+            runtime.latched_press = true;
+            runtime.break_on_press(
+                &ticker,
+                DestroyInput::Held(Some(&obsidian)),
+                authority,
+                |tick| swings.push(tick),
+                |cell| predictions.push(cell),
+            );
+        }
+        assert_eq!(swings, [next], "one swing, in the press frame");
+        assert_eq!(predictions, [[3, 4, 5]]);
+        assert_eq!(runtime.take_break_cues().len(), 1);
+        assert_eq!(ticker.completed_tick() + 1, next, "no tick ran");
+        let carried = kinds(&runtime.press_break.as_ref().unwrap().1);
+        assert_eq!(carried[0], (StartDestroy, [3, 4, 5], 1));
+        assert_eq!(carried.len(), 2);
+
+        ticker.enqueue_completed_physics(completed(next)).unwrap();
+        runtime.step_ticks(
+            &mut ticker,
+            DestroyInput::Released,
+            authority,
+            |tick| swings.push(tick),
+            |_, _| None,
+            |cell| predictions.push(cell),
+        );
+        assert_eq!(swings, [next]);
+        assert_eq!(predictions, [[3, 4, 5]]);
+        assert!(runtime.take_break_cues().is_empty());
+        let mut packets = Vec::new();
+        flush_player_auth_inputs(&mut ticker, 8, Some(evidence()), |_, packet| {
+            packets.push(packet);
+            Ok::<_, ()>(())
+        })
+        .unwrap();
+        assert!(
+            protocol::player_auth_input_trace_sample(&packets[0])
+                .unwrap()
+                .flag_names
+                .contains(&"PerformBlockActions")
+        );
+    }
+}
+
+/// A block that needs cracking starts on its tick, as before.
+#[test]
+fn a_timed_break_between_ticks_waits_for_its_tick() {
+    let mut ticker = ticker_with_ticks(1);
+    flush_player_auth_inputs(&mut ticker, 8, Some(evidence()), |_, _| Ok::<_, ()>(())).unwrap();
+    let stone = target([0, 1, -3], "minecraft:stone", None);
+    let mut runtime = SurvivalMiningRuntime::default();
+    runtime.latched_press = true;
+    runtime.break_on_press(
+        &ticker,
+        DestroyInput::Held(Some(&stone)),
+        Server,
+        |_| panic!("no swing before the tick"),
+        |_| panic!("no break"),
+    );
+    assert!(runtime.press_break.is_none());
+    assert_eq!(runtime.machine, DestroyMachine::default());
+}
