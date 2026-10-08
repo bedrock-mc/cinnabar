@@ -176,15 +176,11 @@ fn pending_transport_correction_keeps_the_presented_view_without_advancing_autho
             .resource::<MovementTicker>()
             .can_advance_physics_frame()
     );
-    // The setup retained half a tick, and correction replay preserves that phase.
-    // Two more half-ticks advance once and sample halfway through correction decay.
-    let half_tick = Duration::from_secs_f64(0.5 / sim::TICKS_PER_SECOND as f64);
-    for _ in 0..2 {
-        app.world_mut()
-            .resource_mut::<Time<Real>>()
-            .advance_by(half_tick);
-        app.update();
-    }
+    // One tick plus half a tick samples correction decay within the frame clamp.
+    app.world_mut()
+        .resource_mut::<Time<Real>>()
+        .advance_by(Duration::from_secs_f64(1.5 / sim::TICKS_PER_SECOND as f64));
+    app.update();
     let physics = app.world().resource::<LocalPhysicsController>();
     assert_eq!(physics.state().unwrap().tick, tick + 1);
     assert!(physics.tick_alpha() > 0.0 && physics.tick_alpha() < 1.0);
