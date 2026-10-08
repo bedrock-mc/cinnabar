@@ -1,3 +1,4 @@
+pub(in crate::compiler) mod anvil;
 pub(in crate::compiler) mod bamboo;
 pub(in crate::compiler) mod bee_housing;
 pub(in crate::compiler) mod bookshelf;

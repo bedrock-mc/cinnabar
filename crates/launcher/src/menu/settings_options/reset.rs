@@ -15,9 +15,13 @@ impl SettingsGroup {
     /// Limits resets to registered controls in the authored section, including shared controls.
     fn contains(self, name: &str) -> bool {
         if self == Self::Video
-            && [THIRD_PERSON_CROSSHAIR_OPTION, INVERT_CROSSHAIR_OPTION]
-                .iter()
-                .any(|option| option.name == name)
+            && [
+                THIRD_PERSON_CROSSHAIR_OPTION,
+                INVERT_CROSSHAIR_OPTION,
+                super::CHAT_POSITION_OPTION,
+            ]
+            .iter()
+            .any(|option| option.name == name)
         {
             return true;
         }

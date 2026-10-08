@@ -3,7 +3,7 @@
 
 use crate::local_player::LocalViewPose;
 
-use std::{collections::HashSet, sync::Arc};
+use std::sync::Arc;
 
 use bevy::prelude::{Local, Message, MessageReader, Res, ResMut, Time};
 use client_world::ActorStatusNotice;
@@ -324,15 +324,13 @@ fn status_request(
     Some((event, request))
 }
 
-/// Voices every actor's hurt/death status and dropped-item pickups.
+/// Voices every actor's hurt/death status.
 pub fn drive_actor_audio(
     world: crate::observations::WorldObservation<'_>,
     inbox: Option<&mut dyn crate::observations::ParticleAudioObservation>,
     mut engine: ResMut<AudioEngine>,
-    mut popped: Local<HashSet<u64>>,
 ) {
     let Some(stream) = world.stream.as_ref() else {
-        popped.clear();
         if let Some(inbox) = inbox {
             inbox.take_status_audio();
         }
@@ -367,27 +365,6 @@ pub fn drive_actor_audio(
         let subject = EchoSubject::Actor(unique_id);
         if engine.admit_echo(EchoOrigin::Client, event, subject, ACTOR_ECHO_SECONDS) {
             engine.enqueue(request);
-        }
-    }
-    let items = stream.authority().dropped_items(0.0);
-    popped.retain(|id| items.iter().any(|item| item.runtime_id == *id));
-    for item in &items {
-        let collected = stream
-            .authority()
-            .actor(item.runtime_id)
-            .is_some_and(|actor| actor.status.pickup.is_some());
-        if collected && popped.insert(item.runtime_id) {
-            let lookup = engine.bank().map_or(assets::RouteLookup::Absent, |bank| {
-                bank.tables().individual_lookup("pop")
-            });
-            let request = match lookup {
-                assets::RouteLookup::Route(route) => {
-                    SoundRequest::new(route.sound).with_ranges(route.volume, route.pitch)
-                }
-                assets::RouteLookup::Absent => SoundRequest::new("random.pop"),
-                assets::RouteLookup::Silent => continue,
-            };
-            engine.enqueue(request.at(item.position));
         }
     }
 }

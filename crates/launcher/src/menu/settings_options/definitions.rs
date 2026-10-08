@@ -186,6 +186,7 @@ const CHAT_DURATIONS: &[SettingChoice] = &[
 // Defaults retained from the existing desktop host are provisional until the
 // current vanilla option defaults are confirmed; see plan.md.
 pub const SETTINGS_OPTIONS: &[SettingDefinition] = &[
+    super::chat::CHAT_POSITION_OPTION,
     dropdown(
         "content_log_gui_level",
         "options.content_log_gui.level",
