@@ -26,11 +26,7 @@ impl ActorAnimationStore {
         source: &Arc<protocol::SkinGeometrySource>,
         previous: Option<&Arc<protocol::SkinGeometrySource>>,
     ) -> bool {
-        let Some(assets) = &self.assets else {
-            return false;
-        };
-        self.skin_preparation
-            .request_replacing(source, previous, assets)
+        self.skin_preparation.request_replacing(source, previous)
     }
 
     /// Installs a published appearance's model now rather than at the rig's next tick.
@@ -60,6 +56,13 @@ impl ActorAnimationStore {
         if model(state) != before {
             state.reset_generation = self.next_reset_generation;
             self.next_reset_generation = self.next_reset_generation.saturating_add(1);
+        }
+    }
+
+    /// Prepares the standard skin models on the worker as soon as the catalog is available.
+    pub(super) fn prewarm_skin_catalog(&mut self) {
+        if let Some(assets) = &self.assets {
+            self.skin_preparation.prewarm_catalog(assets);
         }
     }
 

@@ -151,10 +151,12 @@ pub(super) fn uses_catalog_model(source: &SkinGeometrySource) -> bool {
 }
 
 /// Resolves a source against the store's immutable vanilla catalog and composes its rest pose once.
-pub(super) fn prepare(
+fn prepare(
     source: &SkinGeometrySource,
     assets: &RuntimeEntityAssets,
 ) -> (Option<Arc<PreparedSkin>>, bool) {
+    #[cfg(test)]
+    PREPARED_ON_THREAD.with(|count| count.set(count.get() + 1));
     let parsed =
         parse_skin_geometry(&source.resource_patch, &source.geometry_data).map(|geometry| {
             geometry.or_else(|| {
@@ -188,4 +190,10 @@ pub(super) fn prepare(
         Ok(None) => (None, false),
         Err(_) => (None, true),
     }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Preparations run on the calling thread, so tests can prove the frame thread does none.
+    pub(super) static PREPARED_ON_THREAD: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }

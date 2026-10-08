@@ -17,9 +17,14 @@ use super::preparation::{PreparedSkin, SkinPreparationCache as WorkerCache};
 pub(crate) const MAX_SKIN_PREPARATIONS_PER_PASS: usize = 8;
 /// Batches running at once; later passes keep their requests queued until one completes.
 pub(super) const MAX_SKIN_BATCHES_IN_FLIGHT: usize = 4;
-/// Model-free sources at or below this size resolve against the catalog inline, once per patch.
+/// Model-free sources at or below this size share one worker-prepared result per catalog model.
 const MAX_CATALOG_SOURCE_BYTES: usize = 1024;
 const MAX_CATALOG_MODELS: usize = 32;
+/// Classic and slim skins name these; preparing them with the session makes first sight inline.
+const STANDARD_CATALOG_MODELS: [&str; 2] =
+    ["geometry.humanoid.custom", "geometry.humanoid.customSlim"];
+/// The catalog model a model-free source names; `None` inside means the default model applies.
+type CatalogKey = Option<Box<str>>;
 // A pending replacement may coexist with one fully ready appearance per admitted player.
 const MAX_SOURCES: usize = crate::actor_store::MAX_TRACKED_ACTORS * 2;
 const SOURCE_BYTES: usize = crate::actor_store::MAX_TRACKED_PLAYER_SKIN_BYTES * 2;
@@ -52,6 +57,7 @@ struct Request {
 #[derive(Debug)]
 struct Completion {
     source: Arc<SkinGeometrySource>,
+    catalog: Option<CatalogKey>,
     outcome: Outcome,
     previous: Option<Arc<SkinGeometrySource>>,
     unchanged: bool,
@@ -70,7 +76,7 @@ pub(in crate::actor_animation) struct SkinPreparationQueue {
     mesh_budget: usize,
     queued: Vec<Request>,
     cache: Arc<Mutex<WorkerCache>>,
-    catalog: HashMap<Arc<str>, Outcome>,
+    catalog: HashMap<CatalogKey, Outcome>,
     sender: mpsc::Sender<Completed>,
     receiver: Mutex<mpsc::Receiver<Completed>>,
     in_flight: usize,
@@ -178,7 +184,6 @@ impl SkinPreparationQueue {
         &mut self,
         source: &Arc<SkinGeometrySource>,
         previous: Option<&Arc<SkinGeometrySource>>,
-        assets: &RuntimeEntityAssets,
     ) -> bool {
         let pointer = Arc::as_ptr(source) as usize;
         if let Some(entry) = self.entries.get_mut(&pointer) {
@@ -190,7 +195,8 @@ impl SkinPreparationQueue {
         {
             return false;
         }
-        if let Some(outcome) = self.catalog_outcome(source, assets) {
+        // Only an already prepared catalog model resolves here; cold ones take the worker path.
+        if let Some(outcome) = catalog_key(source).and_then(|key| self.catalog.get(&key).cloned()) {
             self.admit(source);
             // The catalog memo still owns any over-budget result, so nothing large drops here.
             let _ = self.settle(Arc::clone(source), outcome, None, false);
@@ -229,27 +235,22 @@ impl SkinPreparationQueue {
         );
     }
 
-    /// Standard-model skins carry no geometry to parse, so they resolve here without a worker round trip.
-    fn catalog_outcome(
+    /// Starts preparing the standard catalog models on the worker before any player names them.
+    pub(in crate::actor_animation) fn prewarm_catalog(
         &mut self,
-        source: &SkinGeometrySource,
-        assets: &RuntimeEntityAssets,
-    ) -> Option<Outcome> {
-        if source.byte_len() > MAX_CATALOG_SOURCE_BYTES
-            || !super::preparation::uses_catalog_model(source)
-        {
-            return None;
+        assets: &Arc<RuntimeEntityAssets>,
+    ) {
+        for name in STANDARD_CATALOG_MODELS {
+            self.queued.push(Request {
+                source: Arc::new(SkinGeometrySource {
+                    resource_patch: format!(r#"{{"geometry":{{"default":"{name}"}}}}"#).into(),
+                    geometry_data: "".into(),
+                    animations: Arc::from([]),
+                }),
+                previous: None,
+            });
         }
-        if let Some(outcome) = self.catalog.get(&*source.resource_patch) {
-            return Some(outcome.clone());
-        }
-        if self.catalog.len() >= MAX_CATALOG_MODELS {
-            return None;
-        }
-        let outcome = super::preparation::prepare(source, assets);
-        self.catalog
-            .insert(Arc::clone(&source.resource_patch), outcome.clone());
-        Some(outcome)
+        self.submit(assets);
     }
 
     /// A completed source is immutable for the entire owner lifetime.
@@ -309,6 +310,7 @@ impl SkinPreparationQueue {
                     WorkerCache::prepare_shared(&cache, &source, &assets)
                 };
                 sources.push(Completion {
+                    catalog: catalog_key(&source),
                     source,
                     outcome,
                     previous: previous.map(|(source, _)| source),
@@ -327,11 +329,17 @@ impl SkinPreparationQueue {
         let mut retired = Vec::new();
         for Completion {
             source,
+            catalog,
             outcome,
             previous,
             unchanged,
         } in completed.sources
         {
+            if let Some(key) = catalog
+                && self.catalog.len() < MAX_CATALOG_MODELS
+            {
+                self.catalog.entry(key).or_insert_with(|| outcome.clone());
+            }
             if let Some(previous) = &previous
                 && let Some(entry) = self.entries.get_mut(&(Arc::as_ptr(previous) as usize))
             {
@@ -402,6 +410,13 @@ impl SkinPreparationQueue {
             self.complete(completed);
         }
     }
+}
+
+/// Model-free sources resolve purely by the catalog model their patch names.
+fn catalog_key(source: &SkinGeometrySource) -> Option<CatalogKey> {
+    (source.byte_len() <= MAX_CATALOG_SOURCE_BYTES
+        && super::preparation::uses_catalog_model(source))
+    .then(|| assets::skin_geometry_name(&source.resource_patch).map(Into::into))
 }
 
 #[cfg(test)]

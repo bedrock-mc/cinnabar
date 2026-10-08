@@ -142,12 +142,15 @@ fn profile_store(byte: u8) -> crate::actor_store::ActorStore {
     store
 }
 
+/// A store whose standard catalog models have finished preparing.
 fn player_store() -> crate::actor_store::ActorStore {
-    crate::actor_store::ActorStore::new_with_entity_assets(
+    let mut store = crate::actor_store::ActorStore::new_with_entity_assets(
         1,
         0,
         super::super::render_frame::tests::counting_random_assets_for("minecraft:player"),
-    )
+    );
+    store.finish_appearance_preparation_for_test();
+    store
 }
 
 /// Lists then spawns player `id` as one wire batch would, with uuid, unique and runtime ids from `id`.
@@ -291,20 +294,62 @@ fn standard_skin() -> protocol::PlayerSkin {
     })
 }
 
+fn prepared_on_this_thread() -> usize {
+    super::preparation::PREPARED_ON_THREAD.with(std::cell::Cell::get)
+}
+
+/// Whether player `id` is drawable with its catalog model installed.
+fn drawn_with_model(store: &crate::actor_store::ActorStore, id: u64) -> bool {
+    store
+        .actor_rigs()
+        .any(|rig| rig.actor.runtime_id == id && rig.skin_geometry.is_some())
+}
+
 #[test]
-fn standard_model_player_is_drawable_in_the_frame_it_is_added() {
+fn cold_catalog_model_prepares_off_the_frame_thread_then_resolves_inline() {
     let mut store = player_store();
+    let prepared = prepared_on_this_thread();
     add_player(&mut store, 1, standard_skin());
     store.advance_interpolation_frame(0);
-    assert!(store.player_profile(1).is_some());
-    let rig = store
-        .actor_rigs()
-        .find(|rig| rig.actor.runtime_id == 1)
-        .expect("a standard-model player must not wait for a tick or a worker");
-    assert!(
-        rig.skin_geometry.is_some(),
-        "the catalog model is installed with the pixels"
+    assert_eq!(
+        prepared_on_this_thread(),
+        prepared,
+        "no model work on the frame thread"
     );
+    assert!(!drawn_with_model(&store, 1));
+    store.finish_appearance_preparation_for_test();
+    store.advance_interpolation_frame(0);
+    assert!(drawn_with_model(&store, 1));
+    add_player(&mut store, 2, standard_skin());
+    store.advance_interpolation_frame(0);
+    assert!(
+        drawn_with_model(&store, 2),
+        "a warmed catalog model publishes in the frame its player is added"
+    );
+    assert_eq!(prepared_on_this_thread(), prepared);
+}
+
+#[test]
+fn standard_humanoid_skin_is_drawable_in_the_frame_it_is_added() {
+    let mut store = player_store();
+    let prepared = prepared_on_this_thread();
+    let side = protocol::CLASSIC_SKIN_SIDE;
+    let skin = protocol::PlayerSkin::Standard(protocol::StandardSkin {
+        width: side as u32,
+        height: side as u32,
+        rgba8: vec![9; side * side * 4].into(),
+        cape: None,
+        geometry: Some(Arc::new(SkinGeometrySource {
+            resource_patch: r#"{"geometry" : {"default" : "geometry.humanoid.customSlim"}}"#.into(),
+            geometry_data: "".into(),
+            animations: Arc::from([]),
+        })),
+    });
+    add_player(&mut store, 1, skin);
+    store.advance_interpolation_frame(0);
+    assert!(store.player_profile(1).is_some());
+    assert!(store.actor_rigs().any(|rig| rig.actor.runtime_id == 1));
+    assert_eq!(prepared_on_this_thread(), prepared);
 }
 
 #[test]
@@ -370,6 +415,8 @@ fn model_installed_between_ticks_advances_the_drawn_rig_generation() {
             }]),
         }),
     );
+    store.advance_interpolation_frame(0);
+    store.finish_appearance_preparation_for_test();
     store.advance_interpolation_frame(0);
     let rig = store.actor_rig(1).unwrap();
     assert!(rig.skin_geometry.is_some());
