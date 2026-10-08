@@ -669,7 +669,7 @@ fn creative_take_refuses_unknown_entries_and_occupied_destinations() {
     assert_eq!(ledger.displayed_stack(4).unwrap().stack_network_id, request);
 }
 
-/// Close returns real inputs; our bounded admission waits for the correction.
+/// Close returns real inputs, and the close follows them without waiting for an answer.
 #[test]
 fn closing_a_crafting_screen_returns_inputs_before_close_admission() {
     let mut personal = ledger(PERSONAL_INVENTORY_WINDOW_TYPE);
@@ -685,10 +685,13 @@ fn closing_a_crafting_screen_returns_inputs_before_close_admission() {
         "not optimistically cleared"
     );
     assert!(personal.mark_transport_enqueued(10));
-    assert!(
-        personal.pending_batch().unwrap().is_none(),
-        "wait for return answer"
+    let (close, _) = personal.pending_batch().unwrap().unwrap();
+    assert_eq!(
+        format!("{:?}", close.header.id),
+        "ContainerClosePacket",
+        "the close follows its returns at once"
     );
+    assert!(personal.mark_transport_enqueued(20));
     respond(
         &mut personal,
         request,
@@ -702,7 +705,6 @@ fn closing_a_crafting_screen_returns_inputs_before_close_admission() {
             ),
         ],
     );
-    assert!(personal.mark_transport_enqueued(20));
     personal.apply(&InventoryEvent::Close(protocol::ContainerCloseEvent {
         container: ContainerIdentity::window(2),
         window_type: PERSONAL_INVENTORY_WINDOW_TYPE,
@@ -747,6 +749,42 @@ fn closing_a_crafting_screen_returns_inputs_before_close_admission() {
         workbench.displayed_stack(0).map(|stack| stack.count),
         Some(1)
     );
+}
+
+/// A workbench close acknowledgement that overtakes its return still lets the return apply.
+#[test]
+fn workbench_close_ack_before_the_return_response_applies_the_return() {
+    let mut workbench = ledger(WORKBENCH_WINDOW_TYPE);
+    workbench.apply(&craft_slot(36, stack(COBBLE, 201, 1)));
+    workbench.request_storage_close();
+    let request = workbench.newest_request().unwrap().request_id;
+    assert!(workbench.mark_transport_enqueued(10));
+    assert!(workbench.mark_transport_enqueued(11));
+    workbench.apply(&InventoryEvent::Close(protocol::ContainerCloseEvent {
+        container: ContainerIdentity::window(3),
+        window_type: WORKBENCH_WINDOW_TYPE,
+        server_initiated: false,
+    }));
+    assert!(workbench.storage_generation().is_none());
+    respond(
+        &mut workbench,
+        request,
+        &[
+            (CONTAINER_NAME_CRAFT_INPUT, 36, 0, -1),
+            (
+                protocol::CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY,
+                0,
+                1,
+                201,
+            ),
+        ],
+    );
+    assert_eq!(
+        workbench.displayed_stack(0).map(|stack| stack.count),
+        Some(1)
+    );
+    assert!(workbench.target_stack(InventoryTarget::Craft(36)).is_none());
+    assert!(!workbench.resync_required());
 }
 
 #[test]
@@ -826,14 +864,15 @@ fn close_drops_only_the_remainder_when_the_player_inventory_is_full() {
     assert!(ledger.confirmed.get(Cell::Craft(28)).is_some());
 }
 
+/// An input that cannot be returned never keeps the screen open; the ledger keeps the item.
 #[test]
-fn invalid_close_input_identity_keeps_the_grid_and_the_screen_open() {
+fn invalid_close_input_identity_still_closes_and_keeps_the_grid() {
     let mut ledger = ledger(PERSONAL_INVENTORY_WINDOW_TYPE);
     ledger.apply(&craft_slot(28, stack(LOG, 0, 8)));
     ledger.request_personal_close();
-    assert!(ledger.personal_inventory_desired_open());
+    assert!(!ledger.personal_inventory_desired_open());
     assert_eq!(ledger.pending_request_count(), 0);
-    assert!(ledger.pending_closes.is_empty());
+    assert_eq!(ledger.pending_closes.len(), 1);
     assert_eq!(
         ledger
             .target_stack(InventoryTarget::Craft(28))
@@ -843,13 +882,16 @@ fn invalid_close_input_identity_keeps_the_grid_and_the_screen_open() {
     );
 }
 
+/// A refused return arrives after its close; the ingredient stays where the server kept it.
 #[test]
-fn refused_close_return_restores_open_state_and_preserves_the_ingredient() {
+fn refused_close_return_after_the_close_preserves_the_ingredient() {
     let mut ledger = ledger(PERSONAL_INVENTORY_WINDOW_TYPE);
     ledger.apply(&craft_slot(28, stack(LOG, 101, 8)));
     ledger.request_personal_close();
     let request_id = ledger.newest_request().unwrap().request_id;
     assert!(ledger.mark_transport_enqueued(10));
+    assert!(ledger.mark_transport_enqueued(11));
+    assert!(ledger.pending_closes.is_empty());
     ledger.apply(&InventoryEvent::Response(ItemStackResponseEvent {
         responses: Arc::from([StackResponse {
             status: StackResponseStatus::Rejected,
@@ -857,9 +899,6 @@ fn refused_close_return_restores_open_state_and_preserves_the_ingredient() {
             containers: Arc::from([]),
         }]),
     }));
-    assert!(ledger.personal_inventory_desired_open());
-    assert!(ledger.pending_closes.is_empty());
-    assert!(ledger.request_personal_open(42));
     assert_eq!(
         ledger
             .target_stack(InventoryTarget::Craft(28))
@@ -867,12 +906,28 @@ fn refused_close_return_restores_open_state_and_preserves_the_ingredient() {
             .count,
         8
     );
+    ledger.apply(&InventoryEvent::Close(protocol::ContainerCloseEvent {
+        container: ContainerIdentity::window(2),
+        window_type: PERSONAL_INVENTORY_WINDOW_TYPE,
+        server_initiated: false,
+    }));
+    assert!(!ledger.personal_inventory_desired_open());
+    assert!(ledger.confirmed.get(Cell::Craft(28)).is_some());
+
+    // The stranded ingredient awaits the server, but the reopened screen still closes.
+    assert!(ledger.request_personal_open(42));
+    assert!(ledger.mark_transport_enqueued(20));
+    ledger.apply(&InventoryEvent::Open(ContainerOpenEvent {
+        container: ContainerIdentity::window(3),
+        window_type: PERSONAL_INVENTORY_WINDOW_TYPE,
+        position: [0, 64, 0],
+        runtime_entity_id: -1,
+    }));
+    assert!(ledger.personal_inventory_desired_open());
     ledger.request_personal_close();
-    assert_eq!(
-        ledger.pending_request_count(),
-        1,
-        "the valid backing id permits retry"
-    );
+    assert!(!ledger.personal_inventory_desired_open());
+    let (close, _) = ledger.pending_batch().unwrap().unwrap();
+    assert_eq!(format!("{:?}", close.header.id), "ContainerClosePacket");
 }
 
 #[test]
@@ -889,7 +944,6 @@ fn an_empty_sparse_grid_does_not_cancel_its_unanswered_transfer_on_close() {
     assert_eq!(ledger.pending_request_count(), 2);
     assert_eq!(ledger.newest_request().unwrap().request_id, transfer);
     assert!(ledger.confirmed.get(Cell::Craft(28)).is_some());
-    assert!(ledger.pending_closes.front().unwrap().returning_inputs);
 }
 
 // The recipe book's filter shows recipes the inventory holds some ingredient of.

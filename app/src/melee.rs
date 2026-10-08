@@ -112,6 +112,7 @@ pub(crate) fn produce_melee(
         runtime.cancel();
         return;
     };
+    let now_millis = u64::try_from(context.time.elapsed().as_millis()).unwrap_or(u64::MAX);
     let focused =
         !context.menu.is_visible() && context.windows.single().is_ok_and(|window| window.focused);
     if let Err(reason) = press_admission(
@@ -129,7 +130,7 @@ pub(crate) fn produce_melee(
     // A position-authority change is resolving; the press waits for it.
     if !movement.accepts_block_interactions() {
         drop("position_authority_pending");
-        runtime.defer(input.frame_sequence);
+        runtime.defer(now_millis);
         return;
     }
     let caps = player_runtime.facts.game_mode_capabilities();
@@ -150,14 +151,14 @@ pub(crate) fn produce_melee(
         context.client_world.stream.as_ref(),
     ) else {
         drop("no_interaction_ray");
-        runtime.defer(input.frame_sequence);
+        runtime.defer(now_millis);
         return;
     };
     runtime.observe_crosshair(crosshair);
-    // An actor attack leaves in its own frame; an aim-assist facing needs an unsent tick to carry it.
+    // A press leaves in its own frame; an aim-assist facing needs an unsent tick to carry it.
     let between_ticks = crate::camera::aim_assist::action_rotation(&context.aim, &context.camera)
         .is_none()
-        .then(|| runtime.between_ticks_attack(crosshair, &movement))
+        .then(|| runtime.between_ticks_press(&movement))
         .flatten();
     // Fresh block presses wait for a tick committed in this frame.
     let sample = between_ticks.or_else(|| {
@@ -166,7 +167,7 @@ pub(crate) fn produce_melee(
                 crosshair,
                 &movement,
                 context.effects.recent_tick_count(),
-                input.frame_sequence,
+                now_millis,
             )
             .map(Into::into)
     });
@@ -185,7 +186,7 @@ pub(crate) fn produce_melee(
                 .mining_tick(sample.tick, movement.completed_tick())
                 .0,
         ),
-        now_millis: u64::try_from(context.time.elapsed().as_millis()).unwrap_or(u64::MAX),
+        now_millis,
     };
     let mut rotate_action = false;
     let missed_swing = resolve_and_send(
@@ -193,7 +194,7 @@ pub(crate) fn produce_melee(
         &mut swings,
         crosshair,
         &press,
-        input.frame_sequence,
+        now_millis,
         |packets| {
             let packet_count = packets.len();
             let packet_kinds = [

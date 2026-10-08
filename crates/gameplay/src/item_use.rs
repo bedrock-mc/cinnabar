@@ -170,6 +170,24 @@ impl ItemUseRuntime {
         self.latched_press || self.active.is_some() || held
     }
 
+    /// The tick this frame's use resolves against: the newest unsent tick, else for a press or
+    /// release the next tick, as vanilla sends both in their frame. Held repeats and completion
+    /// wait for a tick.
+    pub fn frame_sample(
+        &self,
+        movement: &crate::movement::MovementTicker,
+        held: bool,
+        between_ticks: bool,
+    ) -> Option<crate::movement::InteractionSample> {
+        movement.newest_unsent_sample().map(Into::into).or_else(|| {
+            let edge =
+                self.latched_press || self.release_pending || (self.active.is_some() && !held);
+            (between_ticks && edge)
+                .then(|| movement.between_ticks_sample())
+                .flatten()
+        })
+    }
+
     /// Ends a use on release, depletion or reselection, then resolves a press or held repeat.
     pub fn step(&mut self, frame: &UseFrame) -> UseOutcome {
         let mut outcome = UseOutcome::default();

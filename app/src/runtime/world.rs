@@ -794,6 +794,7 @@ pub(crate) fn drive_world_stream(
         record_fatal_error(&mut client_world.fatal_error, error);
     }
     if let Some(position) = resolved_surface_spawn {
+        view.reanchor_camera();
         view.set_eye_translation(Vec3::from_array(position));
         let tick = local_physics.state().map_or(0, |state| state.tick);
         // World publication runs after local physics. The next frame's delta

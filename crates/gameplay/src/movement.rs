@@ -154,6 +154,7 @@ pub struct MovementTicker {
     epoch_publisher: watch::Sender<u64>,
     mining_epoch_publisher: watch::Sender<u64>,
     held_release: Option<outbox::HeldRelease>,
+    next_tick_flags: PlayerInputFlags,
     /// Recent tick-end states, the single source of build actions' pre-tick state.
     tick_ends: outbox::TickEnds,
 }
@@ -198,6 +199,7 @@ impl MovementTicker {
             epoch_publisher,
             mining_epoch_publisher,
             held_release: None,
+            next_tick_flags: PlayerInputFlags::NONE,
             tick_ends: outbox::TickEnds::default(),
         }
     }
@@ -420,7 +422,7 @@ impl MovementTicker {
             yaw: sample.yaw,
             head_yaw: sample.head_yaw,
             camera_orientation: sample.camera_orientation,
-            flags: input_flags(sample, self.previous_input),
+            flags: input_flags(sample, self.previous_input) | self.take_next_tick_flags(),
             input_mode: sample.input_mode,
         };
         self.next_tick = self.next_tick.saturating_add(1);
@@ -797,7 +799,7 @@ impl MovementTicker {
         }
         match plan.outcome {
             PhysicsCorrectionOutcome::Snapped { .. } => {
-                self.position_authority_changed();
+                self.correction_authority_changed();
                 self.next_tick = plan.final_tick.saturating_add(1);
                 self.previous_position = plan.final_position;
                 self.outbox.clear();
@@ -885,7 +887,7 @@ impl MovementTicker {
                     let _ = replay_sample(&mut pending.sample)?;
                 }
 
-                self.position_authority_changed();
+                self.correction_authority_changed();
                 for pending in &mut self.pending_sends {
                     pending.retry_after_cancellation =
                         pending.sample.snapshot.tick > plan.corrected_tick;

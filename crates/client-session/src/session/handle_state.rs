@@ -28,6 +28,7 @@ impl<P> NetworkHandle<P> {
                 thread: None,
                 readiness_ingress: Arc::new(ReadinessIngressCounter::default()),
                 experience_gate: Arc::default(),
+                unflushed: Default::default(),
             },
             control_event_tx,
         )
@@ -44,7 +45,7 @@ impl CapturedPackets {
         std::iter::from_fn(|| self.0.try_recv().ok())
             .filter_map(|command| match command {
                 NetworkCommand::Send { packet, .. } => Some(packet),
-                NetworkCommand::FinishLoading => None,
+                NetworkCommand::FinishLoading | NetworkCommand::FlushFrame => None,
             })
             .collect()
     }

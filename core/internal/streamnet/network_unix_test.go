@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 	"testing"
@@ -210,4 +211,86 @@ func syscallSocketPair() ([2]net.Conn, error) {
 		conns[i] = conn
 	}
 	return conns, nil
+}
+
+// Accepted game connections must not keep macOS's 8 KiB Unix socket buffers.
+func TestUnixAcceptedGameConnectionUsesLargeSocketBuffers(t *testing.T) {
+	dir := t.TempDir()
+	listener, err := New(dir).Listen("")
+	if err != nil {
+		t.Fatalf("Listen(): %v", err)
+	}
+	defer listener.Close()
+	network, address, err := Resolve(dir)
+	if err != nil {
+		t.Fatalf("Resolve(): %v", err)
+	}
+	client, err := net.Dial(network, address)
+	if err != nil {
+		t.Fatalf("Dial(): %v", err)
+	}
+	defer client.Close()
+	accepted, err := listener.Accept()
+	if err != nil {
+		t.Fatalf("Accept(): %v", err)
+	}
+	defer accepted.Close()
+
+	for _, option := range []int{syscall.SO_SNDBUF, syscall.SO_RCVBUF} {
+		tuned := socketOption(t, accepted.(*FramedConn).Conn, syscall.SOL_SOCKET, option)
+		untuned := socketOption(t, client, syscall.SOL_SOCKET, option)
+		if tuned <= untuned {
+			t.Fatalf("option %d = %d on the accepted conn, want above the untuned %d", option, tuned, untuned)
+		}
+		if runtime.GOOS == "darwin" && tuned < localSocketBufferBytes {
+			t.Fatalf("option %d = %d, want at least %d", option, tuned, localSocketBufferBytes)
+		}
+	}
+}
+
+// Loopback TCP (the Windows local leg) must send each frame without waiting for an ACK.
+func TestTunedLoopbackTCPConnectionDisablesNagle(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Listen(): %v", err)
+	}
+	defer listener.Close()
+	client, err := net.Dial("tcp", listener.Addr().String())
+	if err != nil {
+		t.Fatalf("Dial(): %v", err)
+	}
+	defer client.Close()
+	accepted, err := listener.Accept()
+	if err != nil {
+		t.Fatalf("Accept(): %v", err)
+	}
+	defer accepted.Close()
+	if err := accepted.(*net.TCPConn).SetNoDelay(false); err != nil {
+		t.Fatalf("SetNoDelay(false): %v", err)
+	}
+
+	tuneLocalConn(accepted)
+
+	if got := socketOption(t, accepted, syscall.IPPROTO_TCP, syscall.TCP_NODELAY); got == 0 {
+		t.Fatal("TCP_NODELAY is off after tuning")
+	}
+}
+
+func socketOption(t *testing.T, conn net.Conn, level, option int) int {
+	t.Helper()
+	raw, err := conn.(syscall.Conn).SyscallConn()
+	if err != nil {
+		t.Fatalf("SyscallConn(): %v", err)
+	}
+	var value int
+	var optErr error
+	if err := raw.Control(func(fd uintptr) {
+		value, optErr = syscall.GetsockoptInt(int(fd), level, option)
+	}); err != nil {
+		t.Fatalf("Control(): %v", err)
+	}
+	if optErr != nil {
+		t.Fatalf("getsockopt(%d, %d): %v", level, option, optErr)
+	}
+	return value
 }

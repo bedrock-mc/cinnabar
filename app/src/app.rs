@@ -331,6 +331,7 @@ pub(crate) fn configure_acceptance_finish_system(app: &mut App) {
 }
 
 pub(crate) fn configure_client_runtime_frame_systems(app: &mut App) {
+    crate::runtime::network::session::configure_network_frame_flush(app);
     app.add_observer(apply_added_chunk_visibility)
         .add_observer(remove_chunk_visibility)
         .configure_sets(

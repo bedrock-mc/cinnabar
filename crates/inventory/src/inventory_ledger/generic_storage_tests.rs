@@ -667,3 +667,84 @@ fn server_close_with_held_cursor_requires_player_and_cursor_in_both_orders() {
         assert!(!ledger.resync_required());
     }
 }
+
+/// A closed chest's late answer moves the item into the player inventory without ever
+/// hiding or clearing the same slot of the chest opened after it.
+#[test]
+fn settling_chest_request_never_touches_the_next_chest() {
+    let mut ledger = ready(27, 960);
+    ledger.apply(&player_content());
+    let request = ledger
+        .begin_quick_move(crate::inventory_ledger::InventoryTarget::Storage(2))
+        .unwrap();
+    let destination = (0..36u8)
+        .find(|slot| ledger.displayed_stack(*slot).is_some())
+        .unwrap();
+    assert!(ledger.mark_transport_enqueued(10));
+    ledger.request_storage_close();
+    assert!(ledger.mark_transport_enqueued(11));
+    ledger.apply(&InventoryEvent::Close(ContainerCloseEvent {
+        container: ContainerIdentity::window(1),
+        window_type: 0,
+        server_initiated: false,
+    }));
+
+    let chest_b_slot = stack(7, 4, 77);
+    let mut slots = vec![NetworkItemStack::default(); 27];
+    slots[2] = chest_b_slot.clone();
+    ledger.apply(&open(2, 0));
+    ledger.apply(&InventoryEvent::Content(InventoryContentEvent {
+        container: ContainerIdentity {
+            window_id: Some(2),
+            slot_type: Some(7),
+            dynamic_id: Some(961),
+        },
+        slots: Arc::from(slots),
+        storage_item: NetworkItemStack::default(),
+    }));
+    assert_eq!(ledger.storage_stack(2), Some(&chest_b_slot));
+
+    let corrected = |slot, count, item_stack_id| StackResponseSlot {
+        slot,
+        hotbar_slot: slot,
+        count,
+        item_stack_id,
+        custom_name: Arc::from(""),
+        filtered_custom_name: Arc::from(""),
+        durability_correction: 0,
+    };
+    ledger.apply(&InventoryEvent::Response(ItemStackResponseEvent {
+        responses: Arc::from([StackResponse {
+            status: StackResponseStatus::Accepted,
+            request_id: request,
+            containers: Arc::from([
+                StackResponseContainer {
+                    container: ContainerIdentity {
+                        window_id: None,
+                        slot_type: Some(protocol::CONTAINER_NAME_LEVEL_ENTITY),
+                        dynamic_id: Some(960),
+                    },
+                    slots: Arc::from([corrected(2, 0, 0)]),
+                },
+                StackResponseContainer {
+                    container: ContainerIdentity {
+                        window_id: None,
+                        slot_type: Some(protocol::CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY),
+                        dynamic_id: None,
+                    },
+                    slots: Arc::from([corrected(destination, 3, 91)]),
+                },
+            ]),
+        }]),
+    }));
+    assert_eq!(ledger.storage_stack(2), Some(&chest_b_slot));
+    let received = ledger
+        .confirmed
+        .get(crate::inventory_ledger::Cell::Inventory(destination))
+        .unwrap();
+    assert_eq!(
+        (received.stack.count, received.stack.stack_network_id),
+        (3, 91)
+    );
+    assert_eq!(ledger.pending_state(), None);
+}

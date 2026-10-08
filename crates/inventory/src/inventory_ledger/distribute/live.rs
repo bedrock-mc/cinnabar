@@ -37,6 +37,53 @@ fn same_item(a: &NetworkItemStack, b: &NetworkItemStack) -> bool {
 }
 
 impl PlayerInventoryLedger {
+    /// Accounts a press-time placement into `target` as the first cell of a drag, so a second
+    /// cell rebalances it like any split; `None` when the press did not place `template` there.
+    #[must_use]
+    pub fn distribution_after_place(
+        &self,
+        template: &NetworkItemStack,
+        target: InventoryTarget,
+        before: Option<&NetworkItemStack>,
+        mode: DistributeMode,
+    ) -> Option<DragDistribution> {
+        let cell = target.cell();
+        if matches!(cell, Cell::Armor(_) | Cell::Offhand)
+            || before.is_some_and(|before| !same_item(before, template))
+        {
+            return None;
+        }
+        let baseline = before.map_or(0, |before| before.count);
+        let held = self.view().get(cell)?;
+        let placed = held
+            .stack
+            .count
+            .checked_sub(baseline)
+            .filter(|placed| *placed > 0 && same_item(&held.stack, template))?;
+        let remaining = template.count.checked_sub(placed)?;
+        let cursor = self.view().get(Cell::Cursor);
+        if cursor.map_or(0, |held| held.stack.count) != remaining
+            || cursor.is_some_and(|held| !same_item(&held.stack, template))
+        {
+            return None;
+        }
+        Some(DragDistribution {
+            template: template.clone(),
+            cells: vec![Contribution {
+                cell,
+                baseline,
+                placed,
+            }],
+            session: self.session_generation,
+            personal: self
+                .gesture_preflight(!matches!(target, InventoryTarget::Storage(_)))
+                .ok()?,
+            storage: self.storage.as_ref().map(|window| window.generation),
+            mode,
+            remaining,
+        })
+    }
+
     /// Updates the real predicted ledger before mouse release. Each atomic
     /// transfer has its own request scope, as in vanilla,
     /// so subsequent transfers name the sparse cell, not a cloned donor ID.

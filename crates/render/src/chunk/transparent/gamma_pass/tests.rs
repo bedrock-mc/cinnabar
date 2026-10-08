@@ -40,7 +40,10 @@ fn homogeneous_and_empty_ranges_do_not_allocate_extra_passes() {
         contiguous_ranges(&[true, true], |item| *item).collect::<Vec<_>>(),
         vec![(0..2, true)]
     );
-    assert_eq!(contiguous_ranges::<bool>(&[], |item| *item).count(), 0);
+    assert_eq!(
+        contiguous_ranges::<bool, bool>(&[], |item| *item).count(),
+        0
+    );
 }
 
 #[test]

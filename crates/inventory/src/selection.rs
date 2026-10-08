@@ -78,8 +78,7 @@ impl InventorySession {
         self.pending_hotbar_selection
     }
     /// Builds the pending selection from current authority without consuming it.
-    /// Unknown cells and unresolved prediction IDs wait for a later inventory receipt;
-    /// the caller clears the returned slot only after transport accepts the packet.
+    /// Only an unknown cell waits; the caller clears the slot once transport accepts the packet.
     pub fn pending_hotbar_packet(
         &self,
         game_mode: Option<PlayerGameMode>,
@@ -103,12 +102,8 @@ impl InventorySession {
                 target,
                 &protocol::NetworkItemStack::empty(),
             ),
+            // The packet carries no stack network id, so a predicted id needs no answer first.
             PlayerInventorySlot::Present(stack) => {
-                // Predictions carry negative request IDs until the server answers.
-                // The untracked server identity -1 is already ready to send.
-                if stack.stack_network_id < -1 {
-                    return Ok(None);
-                }
                 protocol::select_hotbar_slot_packet(runtime_id, target, stack)
             }
         }?;
@@ -227,5 +222,50 @@ impl InventorySession {
                 .cloned()
                 .unwrap_or_default()
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use protocol::wire::valentine::bedrock::version::v1_26_51::McpePacketData;
+    use protocol::{ContainerIdentity, InventoryAuthority, InventoryEvent, InventorySlotEvent};
+
+    /// A slot whose stack still carries a predicted request id sends at once.
+    #[test]
+    fn predicted_stack_id_does_not_withhold_the_hotbar_packet() {
+        let game_mode = Some(PlayerGameMode::Survival);
+        let mut session = InventorySession::new(1);
+        session.publish_local_runtime_id(1, 42).unwrap();
+        let ledger = session.ledger_mut();
+        ledger.apply(&InventoryEvent::Authority(InventoryAuthority::Server));
+        ledger.apply(&InventoryEvent::Slot(InventorySlotEvent {
+            identity: protocol::SlotIdentity {
+                container: ContainerIdentity::window(0),
+                slot: 2,
+            },
+            stack: protocol::NetworkItemStack {
+                network_id: 7,
+                stack_network_id: 13,
+                count: 4,
+                ..protocol::NetworkItemStack::empty()
+            },
+            storage_item: None,
+        }));
+        ledger.begin_world_drop(2, Some(1)).unwrap();
+        let PlayerInventorySlot::Present(predicted) = session.ledger().slot_state(2).unwrap()
+        else {
+            panic!("the drop leaves three items predicted in the slot");
+        };
+        assert_eq!(predicted.stack_network_id, -3);
+
+        session.queue_local_hotbar_selection(2, game_mode);
+        let (slot, packet) = session.pending_hotbar_packet(game_mode).unwrap().unwrap();
+        assert_eq!(slot, 2);
+        let McpePacketData::MobEquipmentPacket(packet) = packet.data else {
+            panic!("hotbar selection must build a MobEquipment packet");
+        };
+        assert_eq!(packet.item.stacksize, 3);
+        assert_eq!(packet.item.net_id_variant, None);
     }
 }

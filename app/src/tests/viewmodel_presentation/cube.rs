@@ -139,7 +139,8 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
     let mut stack = NetworkItemStack::empty();
     stack.network_id = item;
     stack.count = 1;
-    stack.stack_network_id = 2;
+    // Equipment never carries a stack network id.
+    stack.stack_network_id = -1;
     stack.extra_data = Arc::from([0; 10]);
     stack.nbt_digest = {
         use sha2::Digest;

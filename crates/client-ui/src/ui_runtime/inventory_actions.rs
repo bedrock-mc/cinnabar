@@ -18,6 +18,26 @@ use super::screen_state::{ScreenState, creative_entries};
 
 type Outcome = Result<i32, InventoryGestureError>;
 
+/// The held stack and target stack a click starts from.
+struct PlaceSnapshot {
+    target: InventoryTarget,
+    cursor: NetworkItemStack,
+    stack: Option<NetworkItemStack>,
+}
+
+fn place_snapshot(
+    player_runtime: &player_state::PlayerState,
+    hit: InventoryCellHit,
+) -> Option<PlaceSnapshot> {
+    let target = gesture_target(hit)?;
+    let ledger = player_runtime.inventory.ledger();
+    Some(PlaceSnapshot {
+        target,
+        cursor: ledger.cursor_stack()?.clone(),
+        stack: ledger.target_stack(target).cloned(),
+    })
+}
+
 /// The ledger target a cell hit addresses; output, widget and catalog hits have none.
 pub(super) const fn gesture_target(hit: InventoryCellHit) -> Option<InventoryTarget> {
     Some(match hit {
@@ -226,8 +246,18 @@ impl UiRuntime {
         action: PointerAction,
     ) {
         let _ = match action {
-            PointerAction::Click(hit) => self.click_hit(player_runtime, hit),
-            PointerAction::SecondaryClick(hit) => self.secondary_click_hit(player_runtime, hit),
+            PointerAction::Click(hit) => {
+                let before = place_snapshot(player_runtime, hit);
+                let result = self.click_hit(player_runtime, hit);
+                self.seed_split(player_runtime, before, DistributeMode::Even);
+                result
+            }
+            PointerAction::SecondaryClick(hit) => {
+                let before = place_snapshot(player_runtime, hit);
+                let result = self.secondary_click_hit(player_runtime, hit);
+                self.seed_split(player_runtime, before, DistributeMode::One);
+                result
+            }
             PointerAction::QuickMove(hit) => self.quick_move_hit(player_runtime, hit),
             PointerAction::Distribute { cells, one_each } => {
                 let targets: Vec<_> = cells.into_iter().filter_map(gesture_target).collect();
@@ -253,6 +283,27 @@ impl UiRuntime {
             }
             PointerAction::Gather => self.inventory_ledger_mut(player_runtime).begin_gather(),
         };
+    }
+
+    /// Lets a drag that continues from a press-time placement rebalance it.
+    fn seed_split(
+        &mut self,
+        player_runtime: &player_state::PlayerState,
+        before: Option<PlaceSnapshot>,
+        mode: DistributeMode,
+    ) {
+        let Some(PlaceSnapshot {
+            target,
+            cursor,
+            stack,
+        }) = before
+        else {
+            return;
+        };
+        self.screen_state_mut().pointer.distribution = player_runtime
+            .inventory
+            .ledger()
+            .distribution_after_place(&cursor, target, stack.as_ref(), mode);
     }
 
     fn click_hit(

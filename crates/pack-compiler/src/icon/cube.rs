@@ -77,7 +77,9 @@ impl<'a> Cube<'a> {
                 return Err(Reject::Material);
             }
             let material = world.materials().get(id as usize).ok_or(Reject::Material)?;
-            if material.flags != 0 || material.animation != assets::NO_ANIMATION {
+            if material.flags & !assets::MATERIAL_FLAG_ISOTROPIC != 0
+                || material.animation != assets::NO_ANIMATION
+            {
                 return Err(Reject::Material);
             }
             let page = world
