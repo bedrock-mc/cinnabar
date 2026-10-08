@@ -122,26 +122,24 @@ impl InventoryKeys {
     }
 }
 
-/// Keyboard events that reached the window before this frame's first primary or
-/// secondary press, or `None` without such a press.
-pub fn keys_before_pointer_press<'a>(
+/// This frame's mouse presses in arrival order, each with the number of keyboard
+/// events that reached the window before it.
+pub fn ordered_pointer_presses<'a>(
     events: impl IntoIterator<Item = &'a WindowEvent>,
-) -> Option<usize> {
+) -> Vec<(usize, MouseButton)> {
     // Every event is consumed so the caller's cursor never replays this frame's keys.
-    let (mut keys, mut first_press) = (0, None);
+    let mut keys = 0;
+    let mut presses = Vec::new();
     for event in events {
         match event {
             WindowEvent::KeyboardInput(_) => keys += 1,
-            WindowEvent::MouseButtonInput(input)
-                if input.state == ButtonState::Pressed
-                    && matches!(input.button, MouseButton::Left | MouseButton::Right) =>
-            {
-                first_press.get_or_insert(keys);
+            WindowEvent::MouseButtonInput(input) if input.state == ButtonState::Pressed => {
+                presses.push((keys, input.button));
             }
             _ => {}
         }
     }
-    first_press
+    presses
 }
 
 /// Keyboard gestures over the hovered cell: resolved bindings swap with that hotbar

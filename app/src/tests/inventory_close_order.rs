@@ -264,3 +264,48 @@ fn keys_after_click_and_escape_route_to_the_closed_screen() {
         "Q after Escape cannot drop from the hovered inventory cell"
     );
 }
+
+fn queued_batch(app: &App) -> Option<protocol::Packet> {
+    app.world()
+        .resource::<PlayerRuntime>()
+        .inventory
+        .ledger()
+        .pending_batch()
+        .unwrap()
+        .map(|(packet, _)| packet)
+}
+
+/// Only presses before the close key reach the open screen; a later press cannot override them.
+#[test]
+fn press_after_escape_cannot_change_the_earlier_take() {
+    let take_half = Input::Click(MouseButton::Right);
+    let escape = Input::Key(KeyCode::Escape);
+    let (mut control, window) = app();
+    frame(&mut control, window, &[take_half, escape]);
+    control.update();
+    assert!(
+        queued_batch(&control).is_some(),
+        "the right-click takes half"
+    );
+
+    let (mut app, window) = app();
+    frame(
+        &mut app,
+        window,
+        &[take_half, escape, Input::Click(MouseButton::Left)],
+    );
+    app.update();
+
+    assert!(!app.world().resource::<UiRuntime>().inventory_open());
+    assert_eq!(
+        queued_batch(&app),
+        queued_batch(&control),
+        "the left-click after Escape must not turn the half take into a whole-stack take"
+    );
+    assert!(
+        !app.world()
+            .resource::<ButtonInput<MouseButton>>()
+            .pressed(MouseButton::Left),
+        "the late click never reaches gameplay"
+    );
+}

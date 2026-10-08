@@ -38,7 +38,7 @@ use client_ui::ui_runtime::{PlatformClipboard, UiRuntime};
 use client_ui::ui_runtime::interaction::{
     ChatFlushError, dispatch_chat_ui_action, dispatch_inventory_hotbar, dispatch_inventory_key,
     flush_chat_sends, flush_inventory_send, gamepad_chat_action, is_chat_edit_shortcut,
-    keys_before_pointer_press, paste_chat_shortcut, restore_gameplay_input_after_chat,
+    ordered_pointer_presses, paste_chat_shortcut, restore_gameplay_input_after_chat,
     suppress_gameplay_input_for_chat, suppress_gameplay_input_for_inventory,
 };
 
@@ -442,9 +442,10 @@ pub(crate) fn drive_chat_keyboard_input(
     ),
 ) {
     // Only the window event stream keeps keyboard and pointer events in arrival order.
-    let keys_before_pointer = window_events
+    let pointer_presses = window_events
         .as_deref()
-        .and_then(|events| keys_before_pointer_press(window_cursor.read(events)));
+        .map(|events| ordered_pointer_presses(window_cursor.read(events)))
+        .unwrap_or_default();
     let (window, mut cursor) = window.into_inner();
     let input_available = driven.is_some()
         || (window.focused && focus.as_ref().is_none_or(|focus| focus.available()));
@@ -615,26 +616,31 @@ pub(crate) fn drive_chat_keyboard_input(
             }
             let closes = input.key_code == KeyCode::Escape
                 || binding_key(menu.as_deref(), "key.inventory", input.key_code);
-            if closes
-                && keys_before_pointer.is_some_and(|keys| arrival >= keys)
-                && let Some(presentation) = presentation.as_deref()
-            {
-                // An earlier click lands in the open screen before this key closes it.
-                let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
-                let frame = runtime.inventory_keys_mut().take_frame();
-                apply_inventory_pointer(
-                    &mut player_runtime,
-                    &mut runtime,
-                    window,
-                    presentation,
-                    menu.as_deref(),
-                    &mut mouse_buttons,
-                    (false, false),
-                    frame,
-                    &[],
-                    focus.as_deref_mut(),
-                    now_millis,
-                );
+            if closes && let Some(presentation) = presentation.as_deref() {
+                // Presses that reached the window before this key land in the open screen;
+                // later ones meet a closed screen.
+                let mut earlier = ButtonInput::<MouseButton>::default();
+                for (_, button) in pointer_presses.iter().filter(|(keys, _)| *keys <= arrival) {
+                    earlier.press(*button);
+                }
+                if earlier.get_just_pressed().next().is_some() {
+                    let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
+                    let frame = runtime.inventory_keys_mut().take_frame();
+                    apply_inventory_pointer(
+                        &mut player_runtime,
+                        &mut runtime,
+                        window,
+                        presentation,
+                        menu.as_deref(),
+                        &mut earlier,
+                        (false, false),
+                        frame,
+                        &[],
+                        focus.as_deref_mut(),
+                        now_millis,
+                    );
+                    mouse_buttons.reset_all();
+                }
             }
             match input.key_code {
                 key if binding_key(menu.as_deref(), "key.inventory", key) => {
