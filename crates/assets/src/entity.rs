@@ -345,6 +345,8 @@ pub struct RuntimeEntityAssets {
     render: Arc<EntityRenderData>,
 }
 
+type EntityAssetsWithCarrier = (RuntimeEntityAssets, Option<Box<[u8]>>);
+
 impl RuntimeEntityAssets {
     pub fn decode(bytes: &[u8]) -> Result<Self, AssetError> {
         if bytes.len() < HEADER_BYTES + HASH_BYTES {
@@ -446,7 +448,7 @@ impl RuntimeEntityAssets {
     /// matches what a decode of that encoding reports.
     pub fn from_compiled_encoded(
         compiled: CompiledEntityAssets,
-    ) -> Result<(Self, Option<Box<[u8]>>), AssetError> {
+    ) -> Result<EntityAssetsWithCarrier, AssetError> {
         use sha2::{Digest, Sha256};
         let blob = encode_entity_blob(&compiled).ok();
         let assets = Self {

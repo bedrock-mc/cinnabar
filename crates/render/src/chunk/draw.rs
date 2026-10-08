@@ -10,6 +10,13 @@ type ChunkViewQuery = (
     Option<Read<crate::EnhancedRendering>>,
 );
 
+type ChunkIndirectBatchResources<'w> = (
+    ResMut<'w, ChunkIndirectBatches>,
+    ResMut<'w, ChunkModelIndirectBatches>,
+    ResMut<'w, ChunkDepthLiquidIndirectBatches>,
+    ResMut<'w, pipeline::solid::ChunkSolidIndirectBatches>,
+);
+
 #[allow(clippy::too_many_arguments)]
 pub(in crate::chunk) fn queue_chunks(
     pipeline_cache: Res<PipelineCache>,
@@ -28,12 +35,7 @@ pub(in crate::chunk) fn queue_chunks(
         Res<ModelWorkloadMetrics>,
     )>,
     mut probes: QueueFrameProbeParams,
-    mut indirect_batch_sets: ParamSet<(
-        ResMut<ChunkIndirectBatches>,
-        ResMut<ChunkModelIndirectBatches>,
-        ResMut<ChunkDepthLiquidIndirectBatches>,
-        ResMut<pipeline::solid::ChunkSolidIndirectBatches>,
-    )>,
+    mut indirect_batch_sets: ParamSet<ChunkIndirectBatchResources<'_>>,
     mut gpu_culling: gpu_cull::GpuCullQueue,
     mut next_tick: Local<Tick>,
     mut unsupported_reported: Local<bool>,

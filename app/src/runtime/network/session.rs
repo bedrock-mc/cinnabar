@@ -32,6 +32,7 @@ pub struct NetworkHandle(
 );
 
 impl NetworkHandle {
+    #[cfg(feature = "local-mods")]
     pub(crate) fn core_socket_dir(&self) -> Option<&std::path::Path> {
         self.1.as_deref()
     }

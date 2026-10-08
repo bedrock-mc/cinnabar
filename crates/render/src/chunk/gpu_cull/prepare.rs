@@ -75,14 +75,12 @@ impl GpuCull {
     }
 }
 
+type HiddenChunkComponents = (RenderEntity, &'static InheritedVisibility);
+type HiddenChunkFilter = (With<ChunkRenderInstance>, Changed<InheritedVisibility>);
+
 pub(super) fn extract_hidden_chunks(
     mut hidden: ResMut<ChunkHiddenEntities>,
-    chunks: Extract<
-        Query<
-            (RenderEntity, &InheritedVisibility),
-            (With<ChunkRenderInstance>, Changed<InheritedVisibility>),
-        >,
-    >,
+    chunks: Extract<Query<HiddenChunkComponents, HiddenChunkFilter>>,
 ) {
     for (entity, visibility) in &chunks {
         let changed = if visibility.get() {

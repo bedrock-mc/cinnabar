@@ -254,8 +254,8 @@ impl CullCamera {
             return 0x3f;
         }
         let mut mask = 0;
-        for axis in 0..3 {
-            let (eye, low) = (i64::from(self.floor[axis]), i64::from(origin[axis]));
+        for (axis, coordinate) in origin.into_iter().enumerate() {
+            let (eye, low) = (i64::from(self.floor[axis]), i64::from(coordinate));
             if eye < low + i64::from(SIDE) {
                 mask |= 1 << (2 * axis);
             }

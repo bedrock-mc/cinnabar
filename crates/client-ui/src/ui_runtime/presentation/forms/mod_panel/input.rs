@@ -81,16 +81,15 @@ impl ModPanel {
             if let Some(index) = action
                 .and_then(|action| action.strip_prefix("mod.control:"))
                 .and_then(|index| index.parse::<usize>().ok())
+                && matches!(self.panel.controls.get(index), Some(Control::Choice { .. }))
             {
-                if matches!(self.panel.controls.get(index), Some(Control::Choice { .. })) {
-                    if !self.panel.capture_key {
-                        let rect = hit.map(|hit| [hit.rect.x, hit.rect.y, hit.rect.w, hit.rect.h]);
-                        if let Some(rect) = rect {
-                            self.open_editor(index, rect);
-                        }
+                if !self.panel.capture_key {
+                    let rect = hit.map(|hit| [hit.rect.x, hit.rect.y, hit.rect.w, hit.rect.h]);
+                    if let Some(rect) = rect {
+                        self.open_editor(index, rect);
                     }
-                    return Vec::new();
                 }
+                return Vec::new();
             }
             if self.edit.is_some() {
                 self.cancel_edit();

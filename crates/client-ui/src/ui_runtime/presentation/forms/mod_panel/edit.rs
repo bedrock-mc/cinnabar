@@ -392,19 +392,18 @@ pub(super) fn append_overlay(
                 "number",
                 button("mod.editor", [width, height], [x, y], field),
             ));
-            if *invalid {
-                if let Some(Control::Slider { min, max, .. }) = spec.controls.get(*control) {
-                    let message = format!("Use {} to {}", format_number(*min), format_number(*max));
-                    let w = 105_f64.min(viewport[0] - 8.);
-                    let x = x.min(viewport[0] - w - 4.);
-                    let y = (y + height + 2.).min(viewport[1] - 22.);
-                    let mut hint = chrome([w, 18.], raised, 3.);
-                    hint.push(named(
-                        "label",
-                        label(&message, [w - 6., 14.], [3., 4.], palette.accent, false),
-                    ));
-                    controls.push(named("hint", panel([w, 18.], [x, y], hint)));
-                }
+            if *invalid && let Some(Control::Slider { min, max, .. }) = spec.controls.get(*control)
+            {
+                let message = format!("Use {} to {}", format_number(*min), format_number(*max));
+                let w = 105_f64.min(viewport[0] - 8.);
+                let x = x.min(viewport[0] - w - 4.);
+                let y = (y + height + 2.).min(viewport[1] - 22.);
+                let mut hint = chrome([w, 18.], raised, 3.);
+                hint.push(named(
+                    "label",
+                    label(&message, [w - 6., 14.], [3., 4.], palette.accent, false),
+                ));
+                controls.push(named("hint", panel([w, 18.], [x, y], hint)));
             }
         }
     }

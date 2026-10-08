@@ -105,10 +105,10 @@ fn embedded_files(source: &Path) -> Vec<PathBuf> {
         while let Some(start) = rest.find(macro_name) {
             rest = &rest[start + macro_name.len()..];
             let trimmed = rest.trim_start();
-            if let Some(literal) = trimmed.strip_prefix('"').and_then(|s| s.split('"').next()) {
-                if let Ok(path) = base.join(literal).canonicalize() {
-                    found.push(path);
-                }
+            if let Some(literal) = trimmed.strip_prefix('"').and_then(|s| s.split('"').next())
+                && let Ok(path) = base.join(literal).canonicalize()
+            {
+                found.push(path);
             }
         }
     }

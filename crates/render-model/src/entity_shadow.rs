@@ -33,7 +33,7 @@ impl EntityShadow {
     /// Whether `point` lies inside the volume.
     #[must_use]
     pub fn contains(&self, point: [f32; 3]) -> bool {
-        if !(self.radius > 0.0) {
+        if self.radius.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
             return false;
         }
         let local = std::array::from_fn(|axis| (point[axis] - self.feet[axis]) / self.radius);
@@ -214,7 +214,10 @@ pub fn shadow_screen_rect(
             };
             clip_from_world * glam::Vec4::new(pick(0), pick(1), pick(2), 1.0)
         });
-        let behind = corners.iter().filter(|clip| !(clip.w > 1.0e-4)).count();
+        let behind = corners
+            .iter()
+            .filter(|clip| clip.w.partial_cmp(&1.0e-4) != Some(std::cmp::Ordering::Greater))
+            .count();
         if behind == corners.len() {
             continue;
         }
@@ -234,7 +237,7 @@ pub fn shadow_screen_rect(
     let y0 = low[1].floor().max(vy);
     let x1 = high[0].ceil().min(vx + width);
     let y1 = high[1].ceil().min(vy + height);
-    (x0 < x1 && y0 < y1).then(|| [x0 as u32, y0 as u32, x1 as u32, y1 as u32])
+    (x0 < x1 && y0 < y1).then_some([x0 as u32, y0 as u32, x1 as u32, y1 as u32])
 }
 
 /// This frame's casters; the revision moves only when the list changes.

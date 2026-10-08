@@ -466,6 +466,7 @@ fn settled(node: &Node) -> bool {
 }
 
 /// How a refreshed tree differs from the one the last bind produced.
+#[allow(clippy::large_enum_variant)] // Keep full results movable into the reused tree without boxing.
 pub(crate) enum Patch {
     Same,
     /// The control's new fields (childless) when they changed, and its children's changes.

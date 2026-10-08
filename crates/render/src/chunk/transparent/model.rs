@@ -4,6 +4,8 @@ use crate::chunk::*;
 mod orders;
 pub(in crate::chunk) use orders::TransparentModelDrawOrders;
 
+pub(in crate::chunk) type CandidateCacheResolution = (Arc<[Arc<TransparentGroupInput>]>, usize);
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(in crate::chunk) struct TransparentModelAllocationIdentity {
     pub(in crate::chunk) entity: Entity,
@@ -198,7 +200,7 @@ impl TransparentSortRuntime {
         mut build: impl FnMut(
             &TransparentAllocationIdentity,
         ) -> Result<TransparentGroupInput, TransparentSortError>,
-    ) -> Result<(Arc<[Arc<TransparentGroupInput>]>, usize), TransparentSortError> {
+    ) -> Result<CandidateCacheResolution, TransparentSortError> {
         let address_identity = key.address_identity();
         if let Some(cache) = self
             .candidate_cache

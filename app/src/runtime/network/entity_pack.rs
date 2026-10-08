@@ -90,12 +90,11 @@ impl EntityCache {
             pack
         } else {
             let (pack, blob) = compile(view, inputs.vanilla.as_deref(), disk.is_some());
-            if let (Some(disk), Some(key), Some(files)) = (disk, &key, view.dependencies()) {
-                if let Some(entry) =
+            if let (Some(disk), Some(key), Some(files)) = (disk, &key, view.dependencies())
+                && let Some(entry) =
                     encode_entry(&files.snapshot(), pack.as_deref(), blob.as_deref())
-                {
-                    disk.store(key, &entry);
-                }
+            {
+                disk.store(key, &entry);
             }
             pack
         };
