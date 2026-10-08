@@ -191,7 +191,7 @@ impl Crosshair {
         }
         color(self.color)?;
         color(self.outline_color)?;
-        if self.color[3] <= 0. {
+        if (self.color[3] * 255.).round() < 1. {
             return Err("custom crosshair must have visible color".into());
         }
         Ok(())
@@ -213,13 +213,25 @@ mod tests {
                 .is_err()
             );
         }
+        for alpha in [0., 0.0001, 0.49 / 255.] {
+            assert!(
+                Crosshair {
+                    color: [1., 1., 1., alpha],
+                    outline: 0.,
+                    ..Default::default()
+                }
+                .validate()
+                .is_err(),
+                "foreground alpha must remain visible after 8-bit conversion"
+            );
+        }
         assert!(
             Crosshair {
-                color: [0.; 4],
+                color: [1., 1., 1., 1. / 255.],
                 ..Default::default()
             }
             .validate()
-            .is_err()
+            .is_ok()
         );
         assert!(Crosshair::default().validate().is_ok());
     }
