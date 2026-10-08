@@ -3,6 +3,8 @@
 pub mod auth;
 pub mod disconnect;
 pub mod inbox;
+pub mod invite;
+pub mod join_requests;
 pub mod profile;
 pub mod profile_achievements;
 pub mod server_list;
@@ -16,10 +18,10 @@ pub use profile::{
     ProfileTab, profile_banner_index, profile_count_display, profile_minutes_display,
 };
 pub use view::{
-    ButtonArt, CatalogFile, CatalogFriend, EXPERIENCE_ADDRESS_PREFIX, InboxItem, JoinKind,
-    JoinProgress, JoinStage, LiveEventCard, LocalWorldCard, MenuCaret, MenuFeeds, MenuFriendCard,
-    MenuGameCard, MenuHome, MenuProfile, MenuRealmCard, MenuServerCard, MenuView, PingInfo,
-    SavedServer, ServerDetails, ServerTrustPrompt, pingable,
+    ButtonArt, CatalogFile, CatalogFriend, EXPERIENCE_ADDRESS_PREFIX, FRIEND_ADDRESS_PREFIX,
+    InboxItem, JoinKind, JoinProgress, JoinStage, LiveEventCard, LocalWorldCard, MenuCaret,
+    MenuFeeds, MenuFriendCard, MenuGameCard, MenuHome, MenuProfile, MenuRealmCard, MenuServerCard,
+    MenuView, PingInfo, SavedServer, ServerDetails, ServerTrustPrompt, pingable,
 };
 pub use worlds_tab::{LocalWorldAction, civil_date, file_size};
 
@@ -40,6 +42,8 @@ pub enum MenuScreen {
     Friends,
     /// The Marketplace; its content is owned by [`crate::store`].
     Store,
+    /// Vanilla's invite screen over the pause screen, while the world is hosted for friends.
+    Invite,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -150,6 +154,10 @@ pub enum MenuAction {
     DressingRoom(crate::dressing_room::Action),
     /// Answers the join's server trust prompt: "Trust and Join" (true) or "Don't Trust".
     ServerTrust(bool),
+    /// A press on the pause screen's invite button or the invite screen.
+    Invite(invite::Action),
+    /// Answers the oldest Discord join request: Accept (true) or Decline.
+    JoinRequest(bool),
 }
 
 impl MenuAction {
@@ -176,6 +184,7 @@ pub fn menu_reference(screen: MenuScreen) -> Option<&'static str> {
         MenuScreen::AddServer => "add_external_server.add_external_server_screen_new",
         MenuScreen::Settings => SETTINGS_SCREEN,
         MenuScreen::Store => crate::store::SDL_SCREEN,
+        MenuScreen::Invite => invite::SCREEN,
         MenuScreen::Profile
         | MenuScreen::DressingRoom
         | MenuScreen::Inbox

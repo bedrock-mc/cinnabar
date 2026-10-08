@@ -110,7 +110,9 @@ pub(super) fn check_sources(
         }
         for (index, line) in source.lines().enumerate() {
             let compact = line.split_whitespace().collect::<String>();
-            if !is_test && compact.starts_with("include!(") {
+            // Build-script output in `OUT_DIR` is generated code, not a first-party fragment.
+            let generated = compact.starts_with("include!(concat!(env!(\"OUT_DIR\")");
+            if !is_test && compact.starts_with("include!(") && !generated {
                 diagnostics.push(format!(
                     "{relative}:{}: first-party Rust source fragments are forbidden",
                     index + 1

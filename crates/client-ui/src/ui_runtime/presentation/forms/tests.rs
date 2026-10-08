@@ -858,6 +858,7 @@ fn world_types_carry_the_owner_labels_everywhere_they_show() {
             error: None,
             setup: Some(setup),
             backend_unavailable_reason: Some(UnavailableReason::DockerMissing),
+            max_players: None,
         },
     ));
     menu.update(Input::BeginCreate);

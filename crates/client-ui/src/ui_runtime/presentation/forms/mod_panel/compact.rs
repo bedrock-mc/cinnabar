@@ -231,7 +231,9 @@ fn navigation(spec: &Panel, layout: &Layout<'_>, category: usize, palette: Palet
                     palette.accent,
                 ),
             ));
-            let fill = if spec.dark {
+            let fill = if spec.theme == ui::mod_panel::Theme::Monochrome {
+                palette.raised
+            } else if spec.dark {
                 [0.22, 0.12, 0.14, 0.98]
             } else {
                 [1., 0.88, 0.86, 1.]

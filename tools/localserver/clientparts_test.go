@@ -113,6 +113,41 @@ func TestExtensionFlagsGoTogether(t *testing.T) {
 	}
 }
 
+// The runtime lets one callback stage a client message as large as wire v2 carries, on a
+// channel with the longest id, and nests its values exactly as deep as the wire's fields, so
+// whatever a client part may receive an Experience may send.
+func TestRuntimeClientSendsFitTheWire(t *testing.T) {
+	var runtime struct {
+		MaxClientSendBytes int `json:"max_client_send_bytes"`
+		MaxValueDepth      int `json:"max_value_depth"`
+	}
+	var wire struct {
+		MaxMessageBytes    int `json:"max_message_bytes"`
+		MaxIdentifierBytes int `json:"max_identifier_bytes"`
+		MaxFieldDepth      int `json:"max_field_depth"`
+	}
+	for path, into := range map[string]any{
+		filepath.Join("experience", "testdata", "protocol", "limits.json"): &runtime,
+		filepath.Join(extensionTestdata, "constants.json"):                 &wire,
+	} {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(data, into); err != nil {
+			t.Fatalf("%s: %v", path, err)
+		}
+	}
+	if fit := wire.MaxMessageBytes + wire.MaxIdentifierBytes; runtime.MaxClientSendBytes < fit {
+		t.Errorf("the runtime's MAX_CLIENT_SEND_BYTES = %d holds no %d-byte message on a %d-byte channel",
+			runtime.MaxClientSendBytes, wire.MaxMessageBytes, wire.MaxIdentifierBytes)
+	}
+	if runtime.MaxValueDepth != wire.MaxFieldDepth {
+		t.Errorf("the runtime's MAX_VALUE_DEPTH = %d, the wire's MAX_FIELD_DEPTH = %d",
+			runtime.MaxValueDepth, wire.MaxFieldDepth)
+	}
+}
+
 // Each start with the flags offers the bundles under the next revision; a start without them
 // removes the marker pack and keeps the revision for the next offer.
 func TestClientPartsAreOfferedAtStartup(t *testing.T) {

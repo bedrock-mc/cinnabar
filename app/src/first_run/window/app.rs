@@ -15,8 +15,8 @@ use winit::{
     dpi::LogicalSize,
     event::{ElementState, KeyEvent, MouseButton, WindowEvent},
     event_loop::ActiveEventLoop,
-    keyboard::{Key, NamedKey},
-    window::{Window, WindowId},
+    keyboard::ModifiersState,
+    window::{Window, WindowAttributes, WindowId},
 };
 
 use super::{
@@ -27,7 +27,9 @@ use super::{
     },
     EXIT_QUIT, EXIT_UNAVAILABLE,
     canvas::{Canvas, Image, Rect, Text},
-    gpu, view,
+    gpu,
+    input::{Command, Input, Source, pointer::Pointer},
+    view,
 };
 use crate::install_layout::InstallLayout;
 
@@ -60,8 +62,14 @@ pub(super) struct SetupApp {
     updates: Receiver<Status>,
     worker: Option<Worker>,
     hits: Vec<(Action, Rect)>,
-    cursor: (f32, f32),
+    pointer: Pointer,
     hovered: Option<Action>,
+    input: Input,
+    controllers: Option<gilrs::Gilrs>,
+    settings: launcher::menu::settings_options::SettingsOptions,
+    modifiers: ModifiersState,
+    appearance: client_ui::oreui_theme::Appearance,
+    gui_scale_offset: i8,
     overlay_dirty: bool,
     overlay_at: Option<Instant>,
     done_at: Option<Instant>,
@@ -79,6 +87,27 @@ impl SetupApp {
         updating: bool,
     ) -> Self {
         let (sender, updates) = mpsc::channel();
+        let screen = if consented {
+            Screen::Starting
+        } else {
+            Screen::Consent
+        };
+        let mut input = Input::default();
+        input.reset(&screen);
+        let settings = launcher::menu::settings_options::SettingsOptions::load(
+            &layout
+                .server_file()
+                .with_file_name(launcher::menu::settings_options::SETTINGS_FILE),
+        );
+        let appearance = client_ui::oreui_theme::Appearance::from_dark(settings.oreui_dark_mode());
+        let gui_scale_offset = crate::menu::video_settings::load(&layout.user_config_root)
+            .unwrap_or_default()
+            .gui_scale_offset;
+        let controllers = gilrs::Gilrs::new()
+            .map_err(|error| {
+                eprintln!("setup controller input unavailable: {error}");
+            })
+            .ok();
         Self {
             layout,
             text,
@@ -87,18 +116,20 @@ impl SetupApp {
             logo,
             window: None,
             gpu: None,
-            screen: if consented {
-                Screen::Starting
-            } else {
-                Screen::Consent
-            },
+            screen,
             meter: Meter::default(),
             sender,
             updates,
             worker: None,
             hits: Vec::new(),
-            cursor: (0.0, 0.0),
+            pointer: Pointer::default(),
             hovered: None,
+            input,
+            controllers,
+            settings,
+            modifiers: ModifiersState::default(),
+            appearance,
+            gui_scale_offset,
             overlay_dirty: true,
             overlay_at: None,
             done_at: None,
@@ -145,6 +176,8 @@ impl SetupApp {
     fn act(&mut self, action: Action, event_loop: &ActiveEventLoop) {
         let (next, effect) = self.screen.on_action(action);
         if let Some(next) = next {
+            self.input.reset(&next);
+            self.hovered = None;
             self.screen = next;
             self.overlay_dirty = true;
         }
@@ -163,7 +196,7 @@ impl SetupApp {
     }
 
     fn hit(&self) -> Option<Action> {
-        let (x, y) = self.cursor;
+        let (x, y) = self.pointer.hit_position()?;
         self.hits
             .iter()
             .find(|(_, rect)| rect.contains(x, y))
@@ -183,17 +216,33 @@ impl SetupApp {
             &mut self.text,
             &self.screen,
             &view::Style {
-                scale: window.scale_factor() as f32,
+                rem: f32::from(
+                    ui::DesktopGuiScale::for_window([size.width, size.height])
+                        .scale_for_offset(self.gui_scale_offset),
+                ) * client_ui::oreui_theme::GUI_PIXELS_PER_REM,
+                appearance: self.appearance,
                 hovered: self.hovered,
+                focused: self.input.focused.filter(|_| self.input.focus_visible),
+                pressed: self.input.pressed(self.hovered),
                 updating: self.updating,
                 logo: self.logo.as_ref(),
                 log_hint: &log_hint,
             },
         );
         gpu.set_overlay(canvas.width, canvas.height, &canvas.pixels);
-        self.overlay_dirty = false;
+        let hovered = self.hit();
+        self.overlay_dirty = hovered != self.hovered;
+        self.hovered = hovered;
         self.overlay_at = Some(Instant::now());
     }
+}
+
+fn setup_window_attributes(title: Option<&str>) -> WindowAttributes {
+    Window::default_attributes()
+        .with_title(launcher::window_title(title))
+        .with_window_icon(Some(crate::window_icon::icon()))
+        .with_inner_size(LogicalSize::new(1024.0, 640.0))
+        .with_min_inner_size(LogicalSize::new(560.0, 420.0))
 }
 
 impl ApplicationHandler for SetupApp {
@@ -201,11 +250,8 @@ impl ApplicationHandler for SetupApp {
         if self.window.is_some() {
             return;
         }
-        let attributes = Window::default_attributes()
-            .with_title(launcher::PRODUCT_NAME)
-            .with_window_icon(Some(crate::window_icon::icon()))
-            .with_inner_size(LogicalSize::new(1024.0, 640.0))
-            .with_min_inner_size(LogicalSize::new(560.0, 420.0));
+        let attributes =
+            setup_window_attributes(std::env::var("CINNABAR_WINDOW_TITLE").ok().as_deref());
         let Ok(window) = event_loop.create_window(attributes) else {
             self.finish(EXIT_UNAVAILABLE, event_loop);
             return;
@@ -242,40 +288,71 @@ impl ApplicationHandler for SetupApp {
             }
             WindowEvent::ScaleFactorChanged { .. } => self.overlay_dirty = true,
             WindowEvent::CursorMoved { position, .. } => {
-                self.cursor = (position.x as f32, position.y as f32);
+                self.pointer.position = Some((position.x as f32, position.y as f32));
                 let hovered = self.hit();
                 if hovered != self.hovered {
                     self.hovered = hovered;
+                    self.input.focus_visible = false;
                     self.overlay_dirty = true;
                 }
             }
+            WindowEvent::CursorLeft { .. } => {
+                self.pointer.position = None;
+                self.hovered = None;
+                self.overlay_dirty = true;
+            }
+            WindowEvent::Focused(active) => {
+                self.pointer.focus(active);
+                self.hovered = self.hit();
+                self.overlay_dirty = true;
+                if !active {
+                    self.input.blur();
+                    self.modifiers = ModifiersState::default();
+                    self.overlay_dirty = true;
+                }
+            }
+            WindowEvent::ModifiersChanged(modifiers) => self.modifiers = modifiers.state(),
             WindowEvent::MouseInput {
-                state: ElementState::Pressed,
+                state,
                 button: MouseButton::Left,
                 ..
             } => {
-                if let Some(action) = self.hit() {
+                let command = if state == ElementState::Pressed {
+                    Command::Press
+                } else {
+                    Command::Release
+                };
+                let (action, changed) =
+                    self.input
+                        .apply(&self.screen, Source::Pointer, command, self.hovered);
+                self.overlay_dirty |= changed;
+                if let Some(action) = action {
                     self.act(action, event_loop);
                 }
             }
             WindowEvent::KeyboardInput {
                 event:
                     KeyEvent {
-                        state: ElementState::Pressed,
+                        state,
                         logical_key,
                         repeat: false,
                         ..
                     },
+                is_synthetic,
                 ..
-            } => match logical_key {
-                Key::Named(NamedKey::Enter) => {
-                    if let Some(action) = self.screen.primary() {
-                        self.act(action, event_loop);
-                    }
+            } => {
+                let (action, changed) = self.input.keyboard(
+                    &self.screen,
+                    &logical_key,
+                    state,
+                    self.modifiers.shift_key(),
+                    is_synthetic,
+                );
+                self.overlay_dirty |= changed;
+                if let Some(action) = action {
+                    self.act(action, event_loop);
                 }
-                Key::Named(NamedKey::Escape) => self.act(Action::Quit, event_loop),
-                _ => {}
-            },
+            }
             WindowEvent::RedrawRequested => {
                 let (Some(window), Some(gpu)) = (&self.window, &mut self.gpu) else {
                     return;
@@ -299,9 +376,28 @@ impl ApplicationHandler for SetupApp {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        while let Some(event) = self.controllers.as_mut().and_then(gilrs::Gilrs::next_event) {
+            if !self.pointer.active {
+                continue;
+            }
+            if let Some(command) = super::input::controller(event.event, &self.settings) {
+                let (action, changed) =
+                    self.input
+                        .apply(&self.screen, Source::Controller, command, None);
+                self.overlay_dirty |= changed;
+                if let Some(action) = action {
+                    self.act(action, event_loop);
+                }
+            }
+        }
         let now = Instant::now();
         while let Ok(status) = self.updates.try_recv() {
-            self.screen = screen::from_status(&status, &mut self.meter, now);
+            let next = screen::from_status(&status, &mut self.meter, now);
+            self.input.update_screen(&self.screen, &next);
+            if self.screen.actions() != next.actions() {
+                self.hovered = None;
+            }
+            self.screen = next;
             self.overlay_dirty = true;
         }
         if self.screen == Screen::Done {
@@ -319,6 +415,23 @@ impl ApplicationHandler for SetupApp {
         }
         if let Some(window) = &self.window {
             window.request_redraw();
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn setup_window_uses_embedding_title_and_keeps_default_for_blank_values() {
+        assert_eq!(
+            super::setup_window_attributes(Some("Zeno Client")).title,
+            "Zeno Client"
+        );
+        for title in [None, Some(""), Some("  ")] {
+            assert_eq!(
+                super::setup_window_attributes(title).title,
+                launcher::PRODUCT_NAME
+            );
         }
     }
 }

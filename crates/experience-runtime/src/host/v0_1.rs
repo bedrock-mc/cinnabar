@@ -1,5 +1,6 @@
-//! The host side of server WIT 0.1, which artifacts built before 0.2 target. 0.2 only added to
-//! 0.1, so the 0.1 world shares the current WIT's types and its imports act exactly like theirs.
+//! The host side of server WIT 0.1, which artifacts built before 0.2 target. Later versions only
+//! added to 0.1's types, so the 0.1 world shares the current WIT's types and its imports act
+//! exactly like theirs.
 
 use anyhow::{Result, bail};
 use wasmtime::component::Resource;

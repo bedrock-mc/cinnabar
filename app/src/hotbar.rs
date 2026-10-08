@@ -324,6 +324,86 @@ mod tests {
         assert_eq!(wheel_with_ui(&mut player_runtime, form, hidden()), 0);
     }
 
+    /// Delivers one raw wheel frame with the presentation behind the screen policy, and returns
+    /// the selected slot and the presentation.
+    fn wheel_with_presentation(
+        player_runtime: &mut crate::player_runtime::PlayerRuntime,
+        presentation: client_ui::ui_runtime::presentation::UiPresentationRuntime,
+    ) -> (
+        u8,
+        client_ui::ui_runtime::presentation::UiPresentationRuntime,
+    ) {
+        use bevy::{ecs::system::RunSystemOnce, prelude::*};
+        let mut app = App::new();
+        player_runtime.inventory.set_local_selected_slot(0);
+        app.insert_resource(UiRuntime::new(1))
+            .insert_resource(player_runtime.clone())
+            .insert_resource(crate::menu::MenuRuntime::new(false, 2, "Tester".into()))
+            .insert_resource(presentation)
+            .insert_resource(SemanticInputSnapshot::default())
+            .insert_resource(AccumulatedMouseScroll {
+                delta: Vec2::new(0.0, -1.0),
+                ..Default::default()
+            })
+            .insert_resource(NetworkHandle::disconnected())
+            .insert_resource(ClientWorld::default());
+        app.world_mut().run_system_once(select_hotbar_slot).unwrap();
+        *player_runtime = app
+            .world_mut()
+            .remove_resource::<crate::player_runtime::PlayerRuntime>()
+            .unwrap();
+        let slot = player_runtime.selected_hotbar_slot().unwrap();
+        (slot, app.world_mut().remove_resource().unwrap())
+    }
+
+    /// A client part's modal screen is a screen like any other: while it is open the wheel and
+    /// every router-gated gameplay action stop reaching the player, and closing it (Escape or
+    /// `ui.close-screen`, both of which clear its template) gives them back.
+    #[test]
+    fn menu_input_leak_client_part_modal_absorbs_gameplay_until_closed() {
+        use client_ui::test_support::fixture_font;
+        use client_ui::ui_runtime::presentation::{ExperienceModal, UiPresentationRuntime};
+        use server_experience::screen::{Files, Modal};
+
+        let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+        let files = Arc::new(Files::default());
+        let mut modal = Modal::default();
+        let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
+        let follow = |presentation: &mut UiPresentationRuntime, modal: &Modal| {
+            presentation.set_experience_modal(Some(ExperienceModal {
+                bundle: "benergistics",
+                files: &files,
+                modal,
+            }));
+        };
+        let absorbs = |player_runtime: &crate::player_runtime::PlayerRuntime,
+                       presentation: &UiPresentationRuntime| {
+            crate::screen_policy::absorbs_input(
+                player_runtime,
+                Some(&UiRuntime::new(1)),
+                Some(&crate::menu::MenuRuntime::new(false, 2, "Tester".into())),
+                Some(presentation),
+            )
+        };
+
+        follow(&mut presentation, &modal);
+        assert!(!absorbs(&player_runtime, &presentation), "before it opens");
+        let (slot, mut presentation) = wheel_with_presentation(&mut player_runtime, presentation);
+        assert_eq!(slot, 1);
+
+        modal.open(Some("terminal.json".into()));
+        follow(&mut presentation, &modal);
+        assert!(absorbs(&player_runtime, &presentation), "while it is open");
+        let (slot, mut presentation) = wheel_with_presentation(&mut player_runtime, presentation);
+        assert_eq!(slot, 0);
+
+        modal.open(None);
+        follow(&mut presentation, &modal);
+        assert!(!absorbs(&player_runtime, &presentation), "after it closed");
+        let (slot, _) = wheel_with_presentation(&mut player_runtime, presentation);
+        assert_eq!(slot, 1);
+    }
+
     #[test]
     fn unknown_slot_retains_pending_selection_without_sending() {
         let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);

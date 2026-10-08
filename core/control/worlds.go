@@ -23,6 +23,7 @@ const (
 	methodWorldStatus = "world_status.v1"
 	methodBDSEULA     = "bds_accept_eula.v1"
 	methodPrefs       = "local_worlds_prefs.v1"
+	methodWorldInvite = "world_invite.v1"
 
 	// maxListedWorlds keeps a world_list response inside MaxFrameLen.
 	maxListedWorlds = 200
@@ -66,9 +67,27 @@ func WithOpenHook(worlds Worlds, onOpen func()) Worlds {
 	return openHookWorlds{Worlds: worlds, onOpen: onOpen}
 }
 
+// Inviter sends Xbox Live invites to the open world while it is hosted for friends.
+type Inviter interface {
+	Invite(ctx context.Context, xuid string) error
+}
+
+type invitingWorlds struct {
+	Worlds
+	invite func(context.Context, string) error
+}
+
+func (w invitingWorlds) Invite(ctx context.Context, xuid string) error { return w.invite(ctx, xuid) }
+
+// WithInvites returns worlds that also serve world_invite.v1 through invite.
+func WithInvites(worlds Worlds, invite func(context.Context, string) error) Worlds {
+	return invitingWorlds{Worlds: worlds, invite: invite}
+}
+
 var worldMethods = map[string]struct{}{
 	methodWorldList: {}, methodWorldCreate: {}, methodWorldUpdate: {}, methodWorldDelete: {},
 	methodWorldOpen: {}, methodWorldClose: {}, methodWorldPause: {}, methodWorldStatus: {}, methodBDSEULA: {}, methodPrefs: {},
+	methodWorldInvite: {},
 }
 
 func isWorldMethod(method string) bool {
@@ -178,6 +197,21 @@ func (server *Server) serveWorld(conn net.Conn, id uint64, method string, raw js
 			return reply.invalid()
 		}
 		err = worlds.SetPaused(*params.Paused)
+	case methodWorldInvite:
+		var params struct {
+			XUID string `json:"xuid"`
+		}
+		if !decodeParams(raw, &params) || !validXUID(params.XUID) {
+			return reply.invalid()
+		}
+		inviter, ok := worlds.(Inviter)
+		if !ok {
+			err = localworld.ErrNotOpen
+			break
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		err = inviter.Invite(ctx, params.XUID)
+		cancel()
 	}
 	if err != nil {
 		return reply.fail(worldErrorCode(err), worldErrorMessage(err))
@@ -187,6 +221,19 @@ func (server *Server) serveWorld(conn net.Conn, id uint64, method string, raw js
 		result.Status = &status
 	}
 	return reply.ok(result)
+}
+
+// validXUID accepts the decimal Xbox user IDs invites address.
+func validXUID(xuid string) bool {
+	if xuid == "" || len(xuid) > 20 {
+		return false
+	}
+	for _, r := range xuid {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func worldErrorCode(err error) int {

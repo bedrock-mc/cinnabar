@@ -5,6 +5,7 @@ mod environment;
 mod flight;
 mod immobile;
 mod input;
+mod inside;
 mod mode;
 #[cfg(test)]
 mod numeric_tests;
@@ -40,6 +41,13 @@ pub const NORMAL_GRAVITY: f64 = 0.08;
 const STEP_HEIGHT: f64 = 0.5625;
 const DEFAULT_MOVEMENT_SPEED: f64 = 0.1;
 const DEFAULT_AIR_SPEED: f64 = 0.02;
+/// Default `minecraft:underwater_movement` and `minecraft:lava_movement` value.
+const DEFAULT_LIQUID_MOVEMENT_SPEED: f64 = 0.02;
+/// Swimming with a dolphin boost doubles water travel speed.
+const DOLPHIN_SWIM_SPEED_MULTIPLIER: f32 = 2.0;
+// A boosted swimmer's speed scales by `level / 3 * 0.3 + 0.7` instead of Depth Strider's blend.
+const BOOSTED_DEPTH_STRIDER_SCALE: f32 = 0.3;
+const BOOSTED_SWIM_BASE_SCALE: f32 = 0.7;
 const SPRINT_AIR_SPEED: f64 = 0.026;
 /// Native total/current sprint attribute modifier, applied once on sprint entry.
 pub const SPRINT_SPEED_MULTIPLIER: f64 = 1.3;
@@ -55,21 +63,14 @@ pub const JUMP_DELAY_TICKS: u8 = 10;
 const COLLISION_EPSILON: f64 = f32::EPSILON as f64;
 /// `bedsim v0.1.3` `ClimbSpeed`, vanilla's ladder ascent speed.
 const CLIMB_SPEED: f64 = 0.2;
-// Provisional block-modifier and enchantment coefficients with no bedsim oracle;
-// each needs independent measurement.
-const HONEY_JUMP_FACTOR: f64 = 0.5;
-const HONEY_SLIDE_TRIGGER: f64 = -0.13;
-const HONEY_SLIDE_SPEED: f64 = -0.05;
+/// Jump power scale for blocks that prevent jumping (honey).
+const HONEY_JUMP_FACTOR: f32 = 0.6;
 const SOUL_SAND_ACCELERATION_FRICTION: f32 = 1.225;
 const GROUND_BASE_FRICTION: f32 = 0.546_000_06;
 const DEPTH_STRIDER_MAX_LEVEL: u8 = 3;
 const WATER_DRAG: f64 = 0.8;
 /// Ground drag depth strider blends water drag toward (default ground friction times air friction).
 const DEPTH_STRIDER_TARGET_DRAG: f64 = GROUND_BASE_FRICTION as f64;
-/// `bedsim v0.1.3` `walkOnBlock` damps slime by `0.4 + |yMov| * 0.2`. It only
-/// runs on ticks whose resolved vertical movement is exactly zero, so `yMov` is
-/// zero and the factor collapses to its constant term.
-const SLIME_WALK_DAMPING: f64 = 0.4;
 /// Restitution ignores descents below the ordinary gravity step.
 const MIN_REBOUND_SPEED: f32 = 0.080_000_12;
 // Known modelling limitation: bedsim distinguishes `state.Sneaking` (the
@@ -266,9 +267,11 @@ impl Simulator {
         // Liquid and ground speeds come from attributes and friction only; block
         // speed factors never scale the acceleration.
         let relative_speed = if sampled.movement.in_water {
-            water_travel_speed(&input, depth_strider)
+            water_travel_speed(&input, grounded_at_start)
         } else if sampled.movement.in_lava {
-            DEFAULT_AIR_SPEED
+            input
+                .lava_movement_speed
+                .unwrap_or(DEFAULT_LIQUID_MOVEMENT_SPEED)
         } else if grounded_at_start {
             ground_relative_speed(input, &sampled)
         } else if input.sprinting {
@@ -297,7 +300,7 @@ impl Simulator {
             && !sampled.movement.in_water
             && !sampled.movement.in_lava;
         if jump_initiated {
-            let honey = if sampled.movement.surface_response == crate::SurfaceResponse::Honey {
+            let honey = if sampled.honey_jump {
                 HONEY_JUMP_FACTOR
             } else {
                 1.0
@@ -307,7 +310,7 @@ impl Simulator {
                 .jump_boost
                 .map_or(0.0, |amplifier| 0.1_f32 * (amplifier as f32 + 1.0));
             next.velocity.y = f64::from(
-                (next.velocity.y as f32).max((DEFAULT_JUMP_HEIGHT as f32 + boost) * honey as f32),
+                (next.velocity.y as f32).max((DEFAULT_JUMP_HEIGHT as f32 + boost) * honey),
             );
             next.jump_delay = JUMP_DELAY_TICKS;
             if input.sprinting {
@@ -340,33 +343,11 @@ impl Simulator {
             next.velocity.y =
                 f64::from(next.velocity.y as f32 * (sampled.movement.vertical_speed_factor) as f32);
         }
-        if sampled.movement.in_cobweb {
-            let (horizontal, vertical) = if input.effects.weaving {
-                (0.5, 0.25)
-            } else {
-                (0.25, 0.05)
-            };
-            next.velocity.x = f64::from(next.velocity.x as f32 * (horizontal) as f32);
-            next.velocity.y = f64::from(next.velocity.y as f32 * (vertical) as f32);
-            next.velocity.z = f64::from(next.velocity.z as f32 * (horizontal) as f32);
-        } else if sampled.movement.in_powder_snow {
-            next.velocity.x = f64::from(
-                next.velocity.x as f32 * (sampled.movement.horizontal_speed_factor) as f32,
-            );
-            next.velocity.y =
-                f64::from(next.velocity.y as f32 * (sampled.movement.vertical_speed_factor) as f32);
-            next.velocity.z = f64::from(
-                next.velocity.z as f32 * (sampled.movement.horizontal_speed_factor) as f32,
-            );
+        let stuck = inside::stuck_multiplier(&sampled, &input);
+        if let Some(multiplier) = stuck {
+            inside::slow_request(&mut next.velocity, multiplier);
         }
-        if sampled.movement.surface_response == crate::SurfaceResponse::Honey
-            && !grounded_at_start
-            && (retained_collisions.x || retained_collisions.z)
-            && next.velocity.y < HONEY_SLIDE_TRIGGER
-        {
-            next.velocity.y = HONEY_SLIDE_SPEED;
-        }
-        let mut identity = sampled.identity;
+        let mut identity = sampled.identity.clone();
         // Edge avoidance shortens only the move request; velocity keeps each
         // unclipped axis and loses an axis only once its clip reaches zero.
         let mut edge_velocity = None;
@@ -437,19 +418,8 @@ impl Simulator {
             sampled.movement.surface_response
         };
 
-        // `bedsim v0.1.3` applies `walkOnBlock` to the resolved velocity before
-        // publishing this tick's movement, so the damping is visible in both.
-        let mut resolved = motion.resolved;
-        if resolved.y == 0.0
-            && next.on_ground
-            && !input.sneaking
-            && landing_surface == crate::SurfaceResponse::Slime
-        {
-            resolved.x = f64::from(resolved.x as f32 * (SLIME_WALK_DAMPING) as f32);
-            resolved.z = f64::from(resolved.z as f32 * (SLIME_WALK_DAMPING) as f32);
-        }
-        next.movement = resolved;
-        next.velocity = resolved;
+        next.movement = motion.resolved;
+        next.velocity = motion.resolved;
         if let Some(retained) = edge_velocity {
             next.velocity.x = retained.x;
             next.velocity.z = retained.z;
@@ -474,6 +444,10 @@ impl Simulator {
         if motion.collisions.z {
             next.velocity.z = 0.0;
         }
+        // A slowed move leaves no residual velocity.
+        if stuck.is_some() {
+            next.velocity = Vec3::ZERO;
+        }
 
         let liquid_ledge_exit = (sampled.movement.in_water || sampled.movement.in_lava)
             && (motion.collisions.x || motion.collisions.z);
@@ -496,15 +470,7 @@ impl Simulator {
         if auto_climb {
             next.velocity.y = CLIMB_SPEED;
         }
-        if sampled.movement.in_cobweb {
-            next.velocity = Vec3::ZERO;
-            effects::apply_vertical(
-                &mut next.velocity.y,
-                input.effects,
-                NORMAL_GRAVITY,
-                NORMAL_GRAVITY_MULTIPLIER,
-            );
-        } else if sampled.movement.in_water || sampled.movement.in_lava {
+        if sampled.movement.in_water || sampled.movement.in_lava {
             // When both liquid facts overlap, the pinned v0.1.5 slice follows
             // water travel rather than composing water gravity with lava drag.
             if sampled.movement.in_water {
@@ -557,15 +523,31 @@ impl Simulator {
                 state.position.y,
                 next.position.y,
                 &mut next.velocity,
-                sampled.block_samples,
+                &mut sampled.block_samples,
             )?;
             identity = identity.merge(&exit.identity)?;
         }
-        match sampled.movement.surface_response {
-            crate::SurfaceResponse::BubbleUp => next.velocity.y = next.velocity.y.max(0.1),
-            crate::SurfaceResponse::BubbleDown => next.velocity.y = next.velocity.y.min(-0.1),
-            _ => {}
+        if next.on_ground {
+            let standing = inside::primary(
+                world,
+                &mut sampled,
+                &mut identity,
+                environment::block_below(next.position)?,
+            )?;
+            inside::stand_on(
+                &mut next.velocity,
+                standing.surface_response,
+                input.sneaking,
+            );
         }
+        inside::after_move(
+            world,
+            motion.aabb,
+            &mut next.velocity,
+            &input,
+            &mut sampled,
+            &mut identity,
+        )?;
         next.jump_delay = next.jump_delay.saturating_sub(1);
         next.collisions = motion.collisions;
 
@@ -588,12 +570,34 @@ impl Simulator {
     }
 }
 
-/// Vanilla water travel speed: the water base blended toward the ground
-/// movement speed, multiplying the effective enchantment level before division.
-fn water_travel_speed(input: &MovementInput, depth_strider: f64) -> f64 {
-    let base = DEFAULT_AIR_SPEED as f32;
+/// Vanilla water travel speed from the underwater movement attribute. Depth
+/// Strider blends it toward the ground speed, multiplying the effective level
+/// before division; a dolphin-boosted swimmer scales it instead.
+fn water_travel_speed(input: &MovementInput, grounded: bool) -> f64 {
+    let base = input
+        .underwater_movement_speed
+        .unwrap_or(DEFAULT_LIQUID_MOVEMENT_SPEED) as f32;
+    let multiplier = swim_speed_multiplier(input);
+    let max_level = f32::from(DEPTH_STRIDER_MAX_LEVEL);
+    if multiplier > 1.0 {
+        let level = f32::from(input.depth_strider.min(DEPTH_STRIDER_MAX_LEVEL));
+        return f64::from(
+            base * multiplier
+                * ((level / max_level) * BOOSTED_DEPTH_STRIDER_SCALE + BOOSTED_SWIM_BASE_SCALE),
+        );
+    }
+    let depth_strider = depth_strider_level(input.depth_strider, grounded) as f32;
     let ground = effective_movement_speed(input);
-    f64::from(base + ((ground - base) * depth_strider as f32) / f32::from(DEPTH_STRIDER_MAX_LEVEL))
+    f64::from(base + ((ground - base) * depth_strider) / max_level)
+}
+
+/// Swimming with a dolphin boost doubles water speed and disables Depth Strider's drag blend.
+fn swim_speed_multiplier(input: &MovementInput) -> f32 {
+    if input.mode == MovementMode::Swimming && input.effects.dolphin_boost {
+        DOLPHIN_SWIM_SPEED_MULTIPLIER
+    } else {
+        1.0
+    }
 }
 
 /// Caps Depth Strider's level and halves it while airborne, before interpolation.
@@ -637,7 +641,7 @@ fn apply_relative_movement(
 
 /// Uses the current ground-speed ratio; Soul Speed removes only the terrain penalty here.
 fn ground_relative_speed(input: MovementInput, sampled: &environment::SampledEnvironment) -> f64 {
-    let soul_sand = sampled.movement.surface_response == crate::SurfaceResponse::SoulSand;
+    let soul_sand = sampled.friction_surface == crate::SurfaceResponse::SoulSand;
     let mut acceleration_friction = sampled.friction as f32;
     if soul_sand && input.soul_speed == 0 {
         acceleration_friction *= SOUL_SAND_ACCELERATION_FRICTION;
