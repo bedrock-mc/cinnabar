@@ -2737,6 +2737,8 @@ RVAs are 1.26.50.26 Windows client; `mac 0x10…` addresses are the 26.30 macOS 
 
 ## tools/registrygen/education_v2193.go
 ## crates/pack-compiler/src/compiler/visuals/literal.rs
+- Pinned 1.26.50.4 `blocks.json` routes `redstone_lamp` and `lit_redstone_lamp` to the ordinary six-face `redstone_lamp_off` and `redstone_lamp_on` terrain tiles. The active block registry contains their empty-state identities. Their reviewed literal cube route supersedes the provisional fallback inventory for both geometry and material alpha, as do the other literal full cubes.
+- Current 1.26.50.26 `src/__recovered/BlockTypeRegistry.h`, `FUN_14dfcdaa0`, calls the lamp constructor `FUN_14a9d9a90` (`src/__unmapped/0a.cpp`). The constructor retains the base block geometry and enables light emission 15 only for the lit variant; held unlit lamps do not acquire an emission override.
 - Pinned 1.26.50 palette `block_states.nbt` contains allow and deny with empty state, plus 162 border states (four wall connections in none/short/tall and byte wall_post_bit). Vanilla packs route them through `build_allow`, `build_deny`, and `border_block`.
 - `BorderBlock` inherits `WallBlock`; `BlockGraphics::initBlocks` registers it as shape 32 and `BlockTessellator` dispatches that shape to `tessellateWallInWorld`. Reference 26.30 `by-owner/b/BorderBlock.cpp`, `BlockGraphics.cpp`, `BlockTessellator.cpp`; current 1.26.50.26 border description/shape methods are in `__unmapped/03.cpp` near the `tile.border_block.name` owner.
 
