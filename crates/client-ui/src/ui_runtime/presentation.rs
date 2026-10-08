@@ -123,6 +123,7 @@ pub struct UiPresentationRuntime {
     last_input: Option<UiRenderInput>, // last built frame; see `stabilize_revision`
     /// What the last frame was built from, while time cannot change its output.
     last_frame: Option<BuiltFrame>,
+    retained_menu: Option<forms::RetainedMenu>,
     #[cfg(test)]
     tree_builds: usize,
     #[cfg(test)]
@@ -189,7 +190,7 @@ pub struct UiPresentationRuntime {
     missing_icons: std::sync::Mutex<std::collections::HashSet<String>>,
     /// The hotbar last logged: each slot's identifier and whether it had an icon.
     logged_hotbar: [Option<(Arc<str>, bool)>; 9],
-    menu_view: Option<MenuView>,
+    menu_view: Option<Arc<MenuView>>,
     menu_hit_targets: Vec<(MenuAction, UiRect)>,
     menu_skin_thumbnail_indices: Vec<usize>,
     menu_cape_thumbnail_indices: Vec<usize>,
@@ -258,6 +259,7 @@ impl UiPresentationRuntime {
             revision: 0,
             last_input: None,
             last_frame: None,
+            retained_menu: None,
             #[cfg(test)]
             tree_builds: 0,
             #[cfg(test)]
@@ -443,7 +445,12 @@ impl UiPresentationRuntime {
             requests.set_locale(view.settings_options.language().unwrap_or(""));
         }
         self.poll_font_fallback();
-        self.menu_view = view;
+        if let (Some(current), Some(incoming)) = (&self.menu_view, &view)
+            && current.as_ref() == incoming
+        {
+            return;
+        }
+        self.menu_view = view.map(Arc::new);
     }
 
     pub fn hit_test_menu(&self, position: UiPoint) -> Option<MenuAction> {
@@ -561,6 +568,19 @@ impl UiPresentationRuntime {
         if self.menu_artwork_loader.poll() {
             self.rebuild_dynamic_textures();
         }
+        self.menu_seconds = now_millis as f64 / 1_000.0;
+        self.configure_oreui_motion();
+        if let Some(view) = &self.menu_view {
+            self.menu_scrolls.configure_motion(
+                view.settings_options.value("screen_animations") != 0,
+                self.menu_seconds,
+            );
+        }
+        let frame = (physical_size, dpi_scale.get(), self.safe_area);
+        if let Some(input) = self.retained_menu_input(runtime, frame) {
+            return Ok(input);
+        }
+        self.retained_menu = None;
         let logical_width = physical_size[0] as f32 / dpi_scale.get();
         let logical_height = physical_size[1] as f32 / dpi_scale.get();
         let metrics =
@@ -592,8 +612,6 @@ impl UiPresentationRuntime {
         let stack = runtime.scenes_in(player_runtime, host, &self.screen_settings());
         let scenes = stack.visible(false);
         self.begin_form_frame();
-        self.menu_seconds = now_millis as f64 / 1_000.0;
-        self.configure_oreui_motion();
         let open: Vec<Scene> = stack.scenes().iter().map(|scene| scene.key).collect();
         self.scene_clocks.observe(&open, self.menu_seconds);
         let mut menu_hit_targets = Vec::new();
@@ -764,7 +782,9 @@ impl UiPresentationRuntime {
             && last.same(frame, &self.textures, &nodes)
         {
             self.menu_hit_targets = menu_hit_targets;
-            return Ok(input.clone());
+            let input = input.clone();
+            self.remember_menu(runtime, frame);
+            return Ok(input);
         }
         self.last_frame = (!obfuscated(&nodes)).then(|| BuiltFrame {
             nodes: nodes.clone(),
@@ -799,6 +819,7 @@ impl UiPresentationRuntime {
         .map_err(UiPresentationError::Adapter)?;
         let input = self.stabilize_revision(input);
         self.menu_hit_targets = menu_hit_targets;
+        self.remember_menu(runtime, frame);
         Ok(input)
     }
 }

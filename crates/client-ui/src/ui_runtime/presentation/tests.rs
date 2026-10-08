@@ -31,6 +31,7 @@ mod menu_status_tests;
 mod paper_doll_tests;
 mod publication_split_tests;
 mod retained_hud_tests;
+mod retained_menu_invalidations_tests;
 mod retained_menu_tests;
 mod safe_area_tests;
 mod server_menu_tests;

@@ -20,7 +20,7 @@ const CATALOG_FILE: &str = "global_packs.json";
 const MAX_CATALOG_BYTES: usize = 16 * 1024 * 1024;
 
 /// One manifest-declared resolution or memory option.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct Subpack {
     pub folder: String,
     pub name: String,
@@ -28,7 +28,7 @@ pub struct Subpack {
 }
 
 /// Display metadata for an installed, unencrypted resource pack.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct InstalledPack {
     pub id: Uuid,
     pub version: [u32; 3],

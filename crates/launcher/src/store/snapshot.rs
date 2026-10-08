@@ -40,7 +40,7 @@ pub struct DisplayRow {
     pub continuation: Option<String>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct StoreSnapshot {
     pub view: StoreView,
     pub rows: Vec<DisplayRow>,

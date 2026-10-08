@@ -344,7 +344,7 @@ pub struct MenuFriendCard {
     pub xuid: String,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct MenuView {
     pub visible: bool,
     /// The menu opened over the session's world rather than the launcher's.

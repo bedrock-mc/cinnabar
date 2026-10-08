@@ -265,6 +265,22 @@ enum Selection {
     Saved(usize),
 }
 
+/// The selected details keep painting while their pending or offline ping icon loops.
+pub(in crate::ui_runtime::presentation) fn animated_server_details(view: &MenuView) -> bool {
+    let address = match selection(view) {
+        Some(Selection::Saved(index)) => &view.servers[index].address,
+        Some(Selection::Featured(index)) if pingable(&view.featured[index].address) => {
+            &view.featured[index].address
+        }
+        _ => return false,
+    };
+    !view
+        .feeds
+        .pings
+        .get(address)
+        .is_some_and(|ping| ping.online)
+}
+
 /// Hidden sections cannot supply details; an unavailable pick falls back in visible order.
 fn selection(view: &MenuView) -> Option<Selection> {
     let prefs = view.settings_options.server_list();
