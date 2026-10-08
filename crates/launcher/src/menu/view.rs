@@ -392,6 +392,10 @@ pub struct MenuView {
     pub catalog_loading: bool,
     pub catalog_message: Option<String>,
     pub auth_state: AuthState,
+    /// Result of handing the current sign-in code to the default browser.
+    pub sign_in_browser: super::sign_in::BrowserState,
+    /// Interactive sign-in may show waiting and recovery prompts over the current route.
+    pub sign_in_requested: bool,
     pub connecting: bool,
     pub settings_section: u8,
     pub dressing_room: std::sync::Arc<crate::dressing_room::DressingRoomView>,
@@ -525,17 +529,31 @@ impl MenuView {
 
     /// The oldest Discord join request's sender, asked in a popup once no other popup is up.
     pub fn join_request_prompt(&self) -> Option<&str> {
-        self.join_request
-            .as_deref()
-            .filter(|_| self.dialog.is_none() && self.server_trust_prompt().is_none())
+        self.join_request.as_deref().filter(|_| {
+            self.dialog.is_none()
+                && !self.sign_in_prompt_open()
+                && self.server_trust_prompt().is_none()
+        })
     }
 
     /// Whether a popup draws over the screen and takes its input.
     pub fn popup_open(&self) -> bool {
         self.dialog.is_some()
+            || self.sign_in_prompt_open()
             || self.server_trust_prompt().is_some()
             || self.join_request.is_some()
             || self.dressing_room.editor.is_some()
+    }
+
+    /// The standalone sign-in prompt replaces the route until it finishes or is cancelled.
+    pub fn sign_in_prompt_open(&self) -> bool {
+        self.dialog.is_none()
+            && !self.connecting
+            && self.local.progress.is_none()
+            && self.disconnect_message.is_none()
+            && (matches!(self.auth_state, AuthState::AwaitingCode { .. })
+                || (self.sign_in_requested
+                    && matches!(self.auth_state, AuthState::Checking | AuthState::Failed(_))))
     }
 
     /// Whether the launcher is waiting for the player to complete device-code sign-in.
@@ -584,6 +602,8 @@ impl MenuView {
             catalog_loading: false,
             catalog_message: None,
             auth_state: AuthState::SignedOut,
+            sign_in_browser: Default::default(),
+            sign_in_requested: false,
             connecting: false,
             settings_section: 0,
             dressing_room: Default::default(),
@@ -612,5 +632,33 @@ impl MenuView {
             invite: None,
             join_request: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn standalone_sign_in_defers_join_requests_until_it_closes() {
+        let mut view = MenuView::new(true, "Offline Player".into());
+        view.join_request = Some("Placeholder friend".into());
+        for state in [
+            AuthState::AwaitingCode {
+                uri: "https://example.invalid".into(),
+                code: "TEST-CODE".into(),
+            },
+            AuthState::Checking,
+            AuthState::Failed("Try again.".into()),
+        ] {
+            view.sign_in_requested = true;
+            view.auth_state = state;
+            assert!(view.sign_in_prompt_open());
+            assert_eq!(view.join_request_prompt(), None);
+            assert_eq!(view.join_request.as_deref(), Some("Placeholder friend"));
+        }
+        view.sign_in_requested = false;
+        view.auth_state = AuthState::SignedOut;
+        assert_eq!(view.join_request_prompt(), Some("Placeholder friend"));
     }
 }

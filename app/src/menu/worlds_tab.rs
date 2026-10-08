@@ -27,6 +27,13 @@ pub(super) struct LocalWorldsUi {
     max_players: Option<u32>,
 }
 
+impl LocalWorldsUi {
+    /// Local preparation progress covers standalone prompts and owns their input.
+    pub(super) fn progress_open(&self) -> bool {
+        self.view.progress.is_some()
+    }
+}
+
 impl Default for LocalWorldsUi {
     fn default() -> Self {
         Self {

@@ -182,7 +182,13 @@ mod tests {
         let actions =
             draw_menu_actions(&player_state::PlayerState::new(1), &mut presentation, &view);
         let texts = drawn_texts(menu_nodes(&presentation));
-        assert!(texts.iter().any(|text| text.contains("TEST")), "{texts:?}");
+        assert!(
+            !texts
+                .iter()
+                .any(|text| text.contains("TEST") || text.contains("example.invalid")),
+            "{texts:?}"
+        );
+        assert!(actions.contains(&MenuAction::OpenSignInLink), "{actions:?}");
         assert!(actions.contains(&MenuAction::CancelSignIn), "{actions:?}");
         assert!(!actions.iter().any(|action| matches!(
             action,
