@@ -31,3 +31,9 @@ fn composite_fragment(@builtin(position) position: vec4<f32>) -> @location(0) ve
     let gamma = ui.rgb + linear_to_srgb(under.rgb) * (1.0 - ui.a);
     return vec4<f32>(srgb_to_linear(gamma), ui.a + under.a * (1.0 - ui.a));
 }
+
+// The damage rectangle is selected by the render pass scissor.
+@fragment
+fn clear_fragment() -> @location(0) vec4<f32> {
+    return vec4<f32>(0.0);
+}
