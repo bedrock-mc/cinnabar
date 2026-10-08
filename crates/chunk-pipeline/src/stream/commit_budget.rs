@@ -77,7 +77,8 @@ impl WorldStream {
                         });
                     } else {
                         let ids = self.decode_ids(self.authority.current_dimension());
-                        self.predictions.begin_server_batch();
+                        self.predictions
+                            .begin_server_batch(batches.iter().map(|batch| batch.key));
                         self.enqueue_decode_job(DecodeJob::SyncedBlockUpdates {
                             sequence,
                             batches,
@@ -100,7 +101,8 @@ impl WorldStream {
                         });
                     } else {
                         let ids = self.decode_ids(self.authority.current_dimension());
-                        self.predictions.begin_server_batch();
+                        self.predictions
+                            .begin_server_batch(batches.iter().map(|batch| batch.key));
                         self.enqueue_decode_job(DecodeJob::BlockUpdates {
                             sequence,
                             batches,

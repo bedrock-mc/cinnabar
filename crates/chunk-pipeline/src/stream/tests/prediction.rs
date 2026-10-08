@@ -551,3 +551,46 @@ fn urgent_pass_leaves_a_staged_backlog_for_the_poll() {
     );
     assert_eq!(stream.staged_mesh_completions.len(), backlog);
 }
+
+/// A prediction outside a decoding server batch is not replayed over newer server terrain
+/// that committed past that batch.
+#[test]
+fn a_prediction_outside_a_decoding_batch_yields_to_newer_server_terrain() {
+    let mut stream = fixture();
+    let column = |x| {
+        WorldEvent::LevelChunk(LevelChunkEvent {
+            dimension: 0,
+            x,
+            z: 0,
+            mode: LevelChunkMode::Inline { count: 1 },
+            payload: column_payload(),
+        })
+    };
+    stream.submit(2, column(1)).unwrap();
+    complete_pending_decode_jobs(&mut stream);
+    stream.submit(3, worker_block_batch(0, 1)).unwrap();
+    assert_eq!(stream.order.blocking_block_updates(), Some(3));
+    let cell = [19, -64, 3];
+    let air = stream.air_block_id();
+    assert!(stream.predict_block(cell, 0, air));
+    stream.submit(4, column(1)).unwrap();
+    let index = stream
+        .pending_decode
+        .iter()
+        .position(|queued| matches!(queued.job, super::DecodeJob::InlineLevelChunk { .. }))
+        .expect("the newer column is queued");
+    let job = stream.pending_decode.remove(index).unwrap();
+    complete_decode_job(&mut stream, job);
+    stream.apply_ready();
+    assert_eq!(
+        block(&stream, cell),
+        Some(0),
+        "the server column replaced it"
+    );
+    complete_pending_decode_jobs(&mut stream);
+    assert_eq!(
+        block(&stream, cell),
+        Some(0),
+        "finishing the batch keeps it"
+    );
+}
