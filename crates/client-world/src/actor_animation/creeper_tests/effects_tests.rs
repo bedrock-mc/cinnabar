@@ -760,3 +760,89 @@ fn swell_controlled_random_draws_taint_later_random_channels() {
         completed
     );
 }
+
+#[test]
+fn swell_sampled_rig_and_bone_scales_preserve_authored_cancellation() {
+    for slot in 0..4 {
+        let store = pack_swell_fixture_with(
+            AuthoredSwellChannel {
+                pre_animation: true,
+                property: assets::EntityAnimationProperty::Scale,
+                variable: true,
+            },
+            None,
+            false,
+            3,
+            false,
+            |compiled| {
+                let scalar = |value| assets::EntityGeometryScalar::new(value).unwrap();
+                compiled.rig_bindings[0].pre_animation = None;
+                compiled.molang_ops = vec![
+                    MolangOp::LoadQuery(2),
+                    MolangOp::Push(scalar(1.0)),
+                    MolangOp::Add,
+                    MolangOp::StoreVariable(3),
+                    MolangOp::LoadVariable(3),
+                    MolangOp::Push(scalar(1.0)),
+                    MolangOp::Push(scalar(1.0)),
+                    MolangOp::LoadVariable(3),
+                    MolangOp::Divide,
+                ]
+                .into_boxed_slice();
+                compiled.molang_expressions = [(0, 5, 2), (5, 1, 1), (6, 3, 2)]
+                    .into_iter()
+                    .map(
+                        |(first_op, op_count, max_stack)| assets::CompiledMolangExpression {
+                            first_op,
+                            op_count,
+                            max_stack,
+                        },
+                    )
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice();
+                let mut scales = [1; 4];
+                scales[slot] = 0;
+                compiled.rig_bindings[0].scale_expressions = Some(scales);
+                compiled.animation_keyframes[0].value = [scalar(1.0); 3];
+                compiled.animation_keyframes[0].expressions = if slot == 0 {
+                    [Some(2); 3]
+                } else {
+                    let mut axes = [None; 3];
+                    axes[slot - 1] = Some(2);
+                    axes
+                };
+            },
+        );
+        let rig = store.actor_rig(1).unwrap();
+        let tick_scale = [
+            rig.scale,
+            rig.axis_scale[0],
+            rig.axis_scale[1],
+            rig.axis_scale[2],
+        ];
+        for alpha in [0.0, 0.25, 0.5, 0.75, 1.0] {
+            let layers = store.render_frame(alpha).layers(1).unwrap();
+            for layer in layers.iter() {
+                let scale = layer.sampled_scale.unwrap_or(tick_scale);
+                for pose in [&layer.previous_pose[0], &layer.pose[0]] {
+                    for (axis, bone) in pose::total_scale(pose).into_iter().enumerate() {
+                        assert!(
+                            (scale[0] * scale[axis + 1] * bone - 1.0).abs() < 1e-5,
+                            "rig and bone scales cancel at the same frame: slot={slot},alpha={alpha},scale={scale:?},bone={bone}"
+                        );
+                    }
+                }
+            }
+        }
+        let after = store.actor_rig(1).unwrap();
+        assert_eq!(
+            [
+                after.scale,
+                after.axis_scale[0],
+                after.axis_scale[1],
+                after.axis_scale[2]
+            ],
+            tick_scale
+        );
+    }
+}

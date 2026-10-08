@@ -333,6 +333,23 @@ impl ActorAnimationStore {
         } else {
             None
         };
+        let scale = if let Some((_, current)) = &endpoints {
+            current.scale
+        } else if swell_changed {
+            let Ok(scale) = tick::evaluate_scale(&evaluator, rig, &mut variables, &mut budget)
+            else {
+                return Some(completed());
+            };
+            scale
+        } else {
+            None
+        };
+        let sampled_scale = frame
+            .motion
+            .sampling
+            .as_ref()
+            .filter(|_| swell_changed)
+            .and_then(|sampling| sampling.sampled_scale(rig, scale, state.scale));
         let sampled_clips = if !isolated_swell
             && (swing_changed
                 || (swell_changed
@@ -490,6 +507,7 @@ impl ActorAnimationStore {
             .unwrap_or(&frame.motion.clips);
         let mut sampled_geometries = BTreeMap::new();
         for (index, layer) in layers.iter_mut().enumerate() {
+            layer.sampled_scale = sampled_scale;
             let previous = state
                 .render
                 .get(index)

@@ -22,6 +22,7 @@ pub(super) struct SwellEndpoint<'a> {
     pub evaluator: evaluation::Evaluator<'a>,
     pub variables: MolangVariables,
     pub clips: Vec<tick::WeightedClip>,
+    pub scale: Option<[f32; 4]>,
 }
 
 impl SwellMotion {
@@ -51,7 +52,7 @@ impl SwellMotion {
         if publish {
             variables.capture_writes();
         }
-        tick::evaluate_scale(
+        let scale = tick::evaluate_scale(
             &evaluator,
             &evaluator.assets.rig_bindings()[state.rig_binding],
             &mut variables,
@@ -82,6 +83,7 @@ impl SwellMotion {
             evaluator,
             variables,
             clips,
+            scale,
         })
     }
 }

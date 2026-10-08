@@ -160,6 +160,7 @@ fn assert_billboards_follow_fresh_camera(cull_completed_tick: bool) {
             apply_render_layers_cached(
                 &mut batch,
                 |_| Some(layers.clone()),
+                |_, _| None,
                 &pages,
                 &mut LayerPoseCache::default(),
             );
@@ -194,6 +195,104 @@ fn assert_billboards_follow_fresh_camera(cull_completed_tick: bool) {
             );
             assert_eq!(world.actor_rig(1).unwrap().completed_tick, completed_tick);
             assert_eq!(world.actor(1).unwrap(), &actor_before);
+        }
+    }
+}
+
+#[test]
+fn sampled_authored_rig_scales_reach_layer_placement_including_zero_axes() {
+    let (Some(entity_bytes), Some(actor_bytes)) = (carrier("mcbeent"), carrier("mcbeact")) else {
+        return;
+    };
+    let entities = Arc::new(RuntimeEntityAssets::decode(&entity_bytes).unwrap());
+    let artwork = RuntimeActorCatalog::decode(&actor_bytes, &entities).unwrap();
+    let pages = ActorArtworkPages::new(&artwork);
+    let feet = [3.0, 64.0, 4.0];
+    let mut world = WorldAuthority::new(
+        WorldBootstrap {
+            dimension: 0,
+            local_player_runtime_id: 999,
+            local_player_unique_id: 999,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
+            block_network_ids_are_hashes: false,
+        },
+        Arc::new(RuntimeAssets::diagnostic()),
+        Some(entities),
+        [0.0; 3],
+        None,
+    );
+    world
+        .apply_ordered_event(
+            WorldEvent::Actor(ActorEvent::Spawn(ActorSpawnEvent {
+                dimension: 0,
+                unique_id: 1,
+                runtime_id: 1,
+                kind: ActorKind::Entity {
+                    identifier: "minecraft:creeper".into(),
+                },
+                position: feet,
+                velocity: [0.0; 3],
+                pitch: 0.0,
+                yaw: 0.0,
+                head_yaw: 0.0,
+                body_yaw: 0.0,
+                held_item: Default::default(),
+                metadata: Arc::from([]),
+                attributes: Arc::from([]),
+                properties: Arc::from([]),
+                links: Arc::from([]),
+            })),
+            Some(1),
+        )
+        .unwrap();
+    world.advance_actor_interpolation_ticks(2);
+    let rig = world.actor_rig(1).unwrap();
+    let actor = world.actor(1).unwrap();
+    for scale in [[2.0, 3.0, 4.0, 5.0], [2.0, 3.0, 0.0, 5.0]] {
+        let presentation = crate::presentation::actors::entity_rig_presentation_cached(
+            &rig, actor, &pages, 0.5, None,
+        )
+        .unwrap();
+        let identity = presentation.submission.input.identity;
+        let location = presentation.artwork.unwrap();
+        let mut batch = ActorPresentationBatch {
+            submissions: vec![presentation.submission],
+            skin_layers: Vec::new(),
+            artwork: std::collections::HashMap::from([(identity, location)]),
+        };
+        let mut layers = rig.render.to_vec();
+        for layer in &mut layers {
+            layer.sampled_scale = Some(scale);
+        }
+        apply_render_layers_cached(
+            &mut batch,
+            |_| Some(std::borrow::Cow::Borrowed(&layers)),
+            |_, sampled| {
+                crate::presentation::actors::sampled_rig_placement(&rig, actor, 0.5, sampled)
+                    .map(|(rows, _)| rows)
+            },
+            &pages,
+            &mut LayerPoseCache::default(),
+        );
+        assert!(!batch.submissions.is_empty());
+        for submission in &batch.submissions {
+            for axis in 0..3 {
+                let row = submission.world_from_actor[axis];
+                assert_eq!(row[3], feet[axis]);
+                for (column, value) in row[..3].iter().enumerate() {
+                    let expected = if column != axis {
+                        0.0
+                    } else {
+                        scale[0] * scale[axis + 1] * if axis == 1 { 1.0 } else { -1.0 }
+                    };
+                    assert!(
+                        (*value - expected).abs() < 1e-5,
+                        "sampled global and axis scale reach actual layer placement: {row:?}"
+                    );
+                }
+            }
         }
     }
 }

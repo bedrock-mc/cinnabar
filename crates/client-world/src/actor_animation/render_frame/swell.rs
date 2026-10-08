@@ -152,6 +152,26 @@ impl SwellSampling {
         self.uses_swell
     }
 
+    /// Replaces only dependent scale slots, retaining the completed ordinary rig scale.
+    pub(super) fn sampled_scale(
+        &self,
+        rig: &assets::EntityRigBinding,
+        sampled: Option<[f32; 4]>,
+        completed: Option<[f32; 4]>,
+    ) -> Option<[f32; 4]> {
+        let expressions = rig.scale_expressions?;
+        let sampled = sampled?;
+        let mut scale = completed.unwrap_or([rig.scale.get(), 1.0, 1.0, 1.0]);
+        let mut changed = false;
+        for (slot, expression) in expressions.into_iter().enumerate() {
+            if self.expressions.contains(&expression) {
+                scale[slot] = sampled[slot];
+                changed = true;
+            }
+        }
+        changed.then_some(scale)
+    }
+
     /// Ordinary query values belong to the completed motion endpoint.
     pub(in crate::actor_animation) fn freeze_queries(
         &self,

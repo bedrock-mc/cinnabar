@@ -273,15 +273,18 @@ pub fn apply_render_layers<'a>(
     apply_render_layers_cached(
         batch,
         |id| rig_of(id).map(|rig| Cow::Borrowed(rig.render)),
+        |_, _| None,
         artwork,
         &mut LayerPoseCache::default(),
     );
 }
 
-/// [`apply_render_layers`] reusing `cache`'s conversions across frames.
+/// Applies sampled layer poses and rig placement, reusing conversions across frames.
+/// `placement_of` places authored uniform and axis scales at the current actor frame.
 pub fn apply_render_layers_cached<'a>(
     batch: &mut ActorPresentationBatch,
     mut layers_of: impl FnMut(u64) -> Option<Cow<'a, [RenderTextureLayer]>>,
+    mut placement_of: impl FnMut(u64, [f32; 4]) -> Option<[[f32; 4]; 3]>,
     artwork: &ActorArtworkPages,
     cache: &mut LayerPoseCache,
 ) {
@@ -296,11 +299,19 @@ pub fn apply_render_layers_cached<'a>(
         let Some(layers) = layers_of(identity.runtime_id) else {
             continue;
         };
-        resolve(body, &layers, artwork, cache, &mut resolved);
+        let mut pristine = body.clone();
+        if let Some(scale) = layers.iter().find_map(|layer| layer.sampled_scale) {
+            let Some(placement) = placement_of(identity.runtime_id, scale) else {
+                batch.submissions[index].input.previous_bones = Arc::from([]);
+                batch.submissions[index].input.current_bones = Arc::from([]);
+                continue;
+            };
+            pristine.world_from_actor = placement;
+        }
+        resolve(&pristine, &layers, artwork, cache, &mut resolved);
         if resolved.is_empty() {
             continue;
         }
-        let pristine = body.clone();
         for (layer_index, layer) in resolved.iter().enumerate() {
             let submission = layered(&pristine, layer, layer_index, cache);
             batch

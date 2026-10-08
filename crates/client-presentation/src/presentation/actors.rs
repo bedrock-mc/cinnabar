@@ -217,8 +217,6 @@ pub fn actor_rig_presentation_cached(
 #[derive(Clone, Debug)]
 struct TickPresentation {
     presentation: ActorRigPresentation,
-    /// Projectile and orb bones carry their own facing, so the body yaw stays 0.
-    billboard: bool,
 }
 
 /// Validates the tick's pose and builds everything but the frame placement.
@@ -289,7 +287,6 @@ fn tick_presentation(
             world_yaw_degrees: 0.0,
             head_over_body: 0.0,
         },
-        billboard: is_billboard(actor),
     })
 }
 
@@ -301,17 +298,17 @@ fn place(
     partial_tick: f32,
 ) -> Option<ActorRigPresentation> {
     let alpha = partial_tick.clamp(0.0, 1.0);
-    let position = interpolated_position(actor, alpha)?;
-    let yaw = if tick.billboard || actor.target_rotation_is_absolute() {
-        0.0
-    } else {
-        lerp_degrees(rig.previous_body_yaw, rig.body_yaw, alpha)
-    };
-    // The model's authored scale times the server's metadata scale, as vanilla renders it.
-    let scale = rig.scale * actor.render_scale();
-    if !yaw.is_finite() || !scale.is_finite() || scale <= 0.0 {
-        return None;
-    }
+    let (world_from_actor, yaw) = sampled_rig_placement(
+        rig,
+        actor,
+        alpha,
+        [
+            rig.scale,
+            rig.axis_scale[0],
+            rig.axis_scale[1],
+            rig.axis_scale[2],
+        ],
+    )?;
     let mut presentation = tick.presentation;
     let submission = &mut presentation.submission;
     let identity = &mut submission.input.identity;
@@ -321,13 +318,7 @@ fn place(
     if !identity.is_exact() {
         return None;
     }
-    submission.world_from_actor = glide_tilted(
-        death_tilted(
-            scaled_axes(rig_world_from_actor(position, yaw, scale), rig.axis_scale),
-            actor.death_rotation_progress(alpha),
-        ),
-        glide_rotation(actor, alpha),
-    );
+    submission.world_from_actor = world_from_actor;
     submission.overlay_rgba8 = if actor.hurt_overlay_active() {
         pack_overlay_rgba8(HURT_OVERLAY_RGBA)
     } else {
@@ -337,6 +328,41 @@ fn place(
     presentation.head_over_body =
         wrap_degrees(lerp_degrees(actor.previous_pose.head_yaw, actor.head_yaw, alpha) - yaw);
     Some(presentation)
+}
+
+/// Places authored frame scales with the actor's metadata scale, feet, facing and tilts.
+pub(crate) fn sampled_rig_placement(
+    rig: &ActorRigSnapshot<'_>,
+    actor: &ActorSnapshot,
+    alpha: f32,
+    authored: [f32; 4],
+) -> Option<([[f32; 4]; 3], f32)> {
+    let alpha = alpha.clamp(0.0, 1.0);
+    let position = interpolated_position(actor, alpha)?;
+    let yaw = if is_billboard(actor) || actor.target_rotation_is_absolute() {
+        0.0
+    } else {
+        lerp_degrees(rig.previous_body_yaw, rig.body_yaw, alpha)
+    };
+    let scale = authored[0] * actor.render_scale();
+    if !yaw.is_finite()
+        || !scale.is_finite()
+        || scale <= 0.0
+        || authored.iter().any(|x| !x.is_finite())
+    {
+        return None;
+    }
+    let rows = glide_tilted(
+        death_tilted(
+            scaled_axes(
+                rig_world_from_actor(position, yaw, scale),
+                [authored[1], authored[2], authored[3]],
+            ),
+            actor.death_rotation_progress(alpha),
+        ),
+        glide_rotation(actor, alpha),
+    );
+    Some((rows, yaw))
 }
 
 pub fn local_diagnostic_presentation(

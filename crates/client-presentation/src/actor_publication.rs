@@ -631,6 +631,17 @@ pub fn prepare_actor_render_frame(
                     render_frame.layers(runtime_id)
                 }
             },
+            |runtime_id, scale| {
+                let rig = stream.authority().actor_rig(runtime_id)?;
+                let actor = stream.authority().actor(runtime_id)?;
+                crate::presentation::actors::sampled_rig_placement(
+                    &rig,
+                    actor,
+                    step.partial_tick,
+                    scale,
+                )
+                .map(|(rows, _)| rows)
+            },
             artwork,
             layer_poses,
         );

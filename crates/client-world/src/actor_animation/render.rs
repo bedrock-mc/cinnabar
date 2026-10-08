@@ -35,6 +35,8 @@ pub struct RenderTextureLayer {
     pub ignore_lighting: bool,
     /// Multiplies light RGB after world-light admission; defaults to one.
     pub light_color_multiplier: f32,
+    /// Frame-sampled authored uniform and X/Y/Z rig scales; absent for tick-owned placement.
+    pub sampled_scale: Option<[f32; 4]>,
 }
 
 /// Bones of a geometry a render controller draws beside the rig's own.
@@ -377,6 +379,7 @@ pub(super) fn evaluate_render(
                 pose: empty_pose(),
                 ignore_lighting: layer.ignore_lighting,
                 light_color_multiplier,
+                sampled_scale: None,
             });
         }
     }
