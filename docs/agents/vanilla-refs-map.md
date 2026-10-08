@@ -1387,6 +1387,15 @@ RVAs are 1.26.50.26 Windows client; `mac 0x10…` addresses are the 26.30 macOS 
   scalar/six-face/up-down-side isotropy. The graphics loader `069f19a0`
   applies this mask from `blocks.json` for ordinary blocks and leaves alike.
 
+## crates/render/src/viewmodel/cube.rs
+## crates/render-model/src/equipment/blocks.rs
+## crates/pack-compiler/src/icon/cube.rs
+## crates/pack-compiler/src/icon/model.rs
+- Current canonical 1.26.50.26 inventory tessellation `06aab610` in
+  `src/__unmapped/06.cpp` enables the inventory mode at tessellator `+0x84`;
+  the generic face bodies including `06a0f830` skip positional isotropy in
+  that mode. Carried readers preserve the original face pixels and geometry.
+
 ## crates/render/src/native_sunlight.rs
 - /// Weather+0x38: current simulation rain, not the frame's interpolated rain.
 - /// getSunIntensity; the caller supplies the narrow or broad threshold.
