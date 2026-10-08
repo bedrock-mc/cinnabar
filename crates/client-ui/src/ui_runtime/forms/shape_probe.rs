@@ -1,4 +1,4 @@
-//! Opt-in, process-once structural observation; never retains server text.
+//! Opt-in, process-once rejected-form observation; never retains server text.
 use std::{
     ffi::OsStr,
     sync::{
@@ -117,8 +117,11 @@ enum Summary {
 }
 
 fn inspect(enabled: bool, claimed: &AtomicBool, event: &FormRequestEvent) -> Option<Summary> {
-    // Disabled observation does not inspect the document or allocate a parser.
-    if !enabled || claimed.swap(true, Ordering::AcqRel) {
+    // Supported forms preserve the one-shot budget without inspecting the document.
+    if !enabled
+        || !matches!(event.model, ServerFormModel::Unsupported(_))
+        || claimed.swap(true, Ordering::AcqRel)
+    {
         return None;
     }
     if !bounded(&event.json) {

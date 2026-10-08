@@ -148,8 +148,10 @@
   owner limitations. Legacy education photography output is unsupported. Packaged
   boom/shake/collision defaults and highlight sampler need pinned-version witnesses.
   The gameplay FOV multiplier follows vanilla (speed ratio, slowness, flying, bow,
-  spyglass); the swim-speed factor, underwater narrowing and final [5, 130] clamp are
-  still incomplete.
+  spyglass); the swim-speed factor and underwater narrowing remain incomplete.
+  Gameplay angles provisionally apply the [5, 130] bound after effects, preserving
+  authored camera overrides. Incomplete: the exact-version final-angle rule and
+  live post-death distortion acceptance are unverified.
   Finite block sampling is bounded to 4,096 rays. None closes a full parity gate.
 - Touched-crate checks and directly affected regressions pass. A headless macOS
   local-server run at 1280×720 captured named/inline splines, local-body visibility,
@@ -6355,9 +6357,9 @@ durations and mapping source coordinates into resized atlas placements.
 Incomplete: exhaustive authored effect variants, matched live game-mode sequencing
 and hardware frame budgets remain open.
 
-Live follow-up confirms custom sound playback. The reported close-camera actor
-disappearance remains open; synthetic HUD and resting-pose bounds tests do not
-clear that live report.
+Live follow-up confirms custom sound playback. The latest user test reports the
+earlier actor, HUD, collision and inventory bugs fixed, including the actual
+Galaxite death animation. Matched native pixel comparisons remain separate.
 
 HUD compatibility now retains the native nested title/subtitle override paths,
 answers empty title strings during blank frames, and schedules a pending authored
@@ -6406,6 +6408,27 @@ A fresh 1920×1080 macOS/Metal replay shows the actual jumpscare rising at scree
 center, changing pose, approaching the camera and lowering at its authored endpoint.
 Arbitrary expression parents, independent bindings on parented bones,
 independent instances of a shared clip, default controller-player pause,
-version-specific Molang grammar differences, matched live sequencing and the
-reported live flicker remain incomplete. The offline witnesses do not close those
-live reports.
+version-specific Molang grammar differences and matched live sequencing remain
+incomplete. The user reports the earlier live rendering bugs fixed. A fresh
+1920×1080, DPI 1 Metal replay also retains the Entity across two enclosed rooms
+and close oblique views through a 145-frame camera crossing.
+
+The standard world camera now uses vanilla's 0.025-block near plane, shared with
+first-person rendering and boom clearance. The former renderer default of 0.1
+clipped nearby geometry and let sprint-FOV near-plane corners cross a wall even
+when the player collision box stayed outside it. Two presentation spawn
+regressions fail before the correction: a wall at collision clearance intersects
+the near rectangle, and geometry 0.05 blocks ahead is clipped. Setting the
+perspective distance also updates its explicit clip plane; all 188 camera tests
+pass. The static hand fallback uses the same near distance, with its reverse-Z
+regression failing before the change and passing afterward. Fresh Metal wall
+captures and the reported live run remain open.
+
+Server packs now choose a device-compatible authored subpack when the server
+leaves its selection blank or selects an unsupported option. Legacy manifest
+memory requirements convert to performance tiers before selection; supported
+explicit choices and explicit global root selections stay intact. The actual
+Fonts archive now admits its detailed U+E141 Orebits glyph page on this device
+instead of the Lite dot. The former conversion and server admission both have
+failing-before regressions; all 52 resource-pack unit tests and its integration
+test pass. Actual Metal sidebar rendering and live user confirmation remain open.

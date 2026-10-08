@@ -1,14 +1,17 @@
-//! Physical device memory is sampled once on the import worker.
+//! Physical device memory shared by global and server pack selection.
 
 /// Reads physical RAM without using current free memory or process memory pressure.
-pub(super) fn physical_bytes() -> u64 {
-    let result = read_physical_bytes();
-    if result.is_none() {
-        bevy::log::warn!(
-            "physical memory unavailable; resource packs use the lowest automatic tier"
-        );
-    }
-    result.unwrap_or(0)
+pub(crate) fn physical_bytes() -> u64 {
+    static BYTES: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
+    *BYTES.get_or_init(|| {
+        let result = read_physical_bytes();
+        if result.is_none() {
+            bevy::log::warn!(
+                "physical memory unavailable; resource packs use the lowest automatic tier"
+            );
+        }
+        result.unwrap_or(0)
+    })
 }
 
 /// Reads the kernel's byte-valued `hw.memsize` property.

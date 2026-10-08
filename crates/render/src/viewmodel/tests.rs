@@ -425,7 +425,17 @@ fn unverified_profiles_reject_instead_of_recalibrating_the_anchor() {
 #[test]
 fn reverse_z_projection_is_private_aspect_correct_and_world_fov_independent() {
     let projection = hand_projection([1920, 1080]);
-    let near = projection.project_point3(bevy::math::Vec3::new(0., 0., -0.1));
+    let nearby = projection.project_point3(bevy::math::Vec3::new(0., 0., -0.05));
+    assert!(
+        (0.0..=1.0).contains(&nearby.z),
+        "nearby hand geometry is clipped with reverse-Z depth {}",
+        nearby.z
+    );
+    let near = projection.project_point3(bevy::math::Vec3::new(
+        0.,
+        0.,
+        -render_api::CAMERA_NEAR_PLANE_BLOCKS,
+    ));
     assert!((near.z - 1.).abs() < 0.000001);
     let far = projection.project_point3(bevy::math::Vec3::new(0., 0., -1000.));
     assert!(far.z > 0. && far.z < 0.001);

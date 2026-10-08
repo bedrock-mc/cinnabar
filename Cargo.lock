@@ -668,6 +668,7 @@ dependencies = [
  "raw-window-handle",
  "rayon",
  "render",
+ "render-api",
  "render-model",
  "reqwest",
  "resource-pack",

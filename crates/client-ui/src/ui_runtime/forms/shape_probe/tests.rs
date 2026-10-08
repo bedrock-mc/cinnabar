@@ -38,6 +38,23 @@ fn shared_process_budget_does_not_remint_for_cloned_or_new_events() {
 }
 
 #[test]
+fn supported_forms_leave_the_process_probe_for_the_first_rejected_form() {
+    let budget = AtomicBool::new(false);
+    let mut supported = event("not JSON");
+    supported.model = ServerFormModel::TextMenu(protocol::TextMenuForm {
+        title: Arc::from(""),
+        content: Arc::from(""),
+        buttons: Arc::from([]),
+        button_images: Arc::from([]),
+        omitted_images: 0,
+    });
+    assert_eq!(inspect(true, &budget, &supported), None);
+    assert!(!budget.load(Ordering::Acquire));
+    assert!(inspect(true, &budget, &event(r#"{"type":"form","buttons":[]}"#)).is_some());
+    assert!(budget.load(Ordering::Acquire));
+}
+
+#[test]
 fn concurrent_claims_have_exactly_one_observation() {
     let budget = Arc::new(AtomicBool::new(false));
     let results: Vec<_> = (0..8)

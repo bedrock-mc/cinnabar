@@ -114,6 +114,7 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                 std::sync::Arc::new(cache.clone())
                     as std::sync::Arc<dyn protocol::ResourcePackStore>
             }),
+            physical_memory_bytes: crate::global_resources::memory::physical_bytes(),
         },
         move |preparation, game_data, cancelled| {
             let packs = super::resource_packs::prepare_session_presentation(

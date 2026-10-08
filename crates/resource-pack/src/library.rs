@@ -2,7 +2,7 @@
 
 use crate::{
     AdmissionError, MAX_ARCHIVE_BYTES, MAX_PACKS, ValidatedPackStack,
-    parser::validate_archive_parts,
+    parser::validate_archive_parts, subpacks as tiers,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -14,7 +14,6 @@ use std::{
 use uuid::Uuid;
 
 mod storage;
-mod tiers;
 
 const CATALOG_FILE: &str = "global_packs.json";
 const MAX_CATALOG_BYTES: usize = 16 * 1024 * 1024;
@@ -145,7 +144,7 @@ impl GlobalPackLibrary {
 
     /// Sets vanilla's memory tier for newly activated packs; manual selections remain intact.
     pub fn set_device_memory(&mut self, bytes: u64) {
-        self.memory_tier = tiers::memory_tier(bytes);
+        self.memory_tier = tiers::device_memory_tier(bytes);
     }
 
     /// Reports the tier used to warn about unsupported manual choices.
@@ -229,7 +228,7 @@ impl GlobalPackLibrary {
     pub fn pack_icon(&self, metadata: &InstalledPack) -> Result<Option<Box<[u8]>>, LibraryError> {
         let bytes = read_bounded(&self.root.join(metadata.filename()), MAX_ARCHIVE_BYTES)?;
         let (pack, _) =
-            validate_archive_parts(metadata.id, &metadata.version_text(), "", bytes, None)?;
+            validate_archive_parts(metadata.id, &metadata.version_text(), "", bytes, None, None)?;
         Ok(pack.read_file_with_limit("pack_icon.png", 4 * 1024 * 1024)?)
     }
 
@@ -328,6 +327,7 @@ impl GlobalPackLibrary {
                 &metadata.version_text(),
                 &active.subpack,
                 bytes,
+                None,
                 None,
             )?;
             let next = ValidatedPackStack {

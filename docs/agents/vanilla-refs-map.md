@@ -410,6 +410,8 @@ RVAs are 1.26.50.26 Windows client; `mac 0x10…` addresses are the 26.30 macOS 
 - Gameplay FOV multiplier, 1.26.50.26 Windows client `LocalPlayer::getFieldOfViewModifier` (RVA 0x04f33260; macOS 1.26.30 0x103d20270 with symbols). Returns 1.0 when the gameplay-FOV toggle is off, except the first-person scoping override 0.1 (`0x14ffab644`). Otherwise base 1.0, or 1.1 (`0x1500b53d0`) when the resolved Flying ability is set. Without a slowness effect in slot 2: `base * ((movementSpeedCurrent / walkSpeedAbility) * 1.2 + 1.0) * 0.5` (`0x14ffab6dc`, `0x14fea4060`, `0x14fec3380`); MOVEMENT_SPEED current is AttributeInstance +0x7c. With slowness the speed term is skipped: `base * max(amplifier * -0.1 + 1.0, 0.01)` (`0x14ffab670`, `0x1500c2b70`). Then ×1.1 when SwimSpeedMultiplierComponent > 1 (not tracked by Cinnabar), then bow `(useTicks/20)^2` → 0.85 above 1, else `max(t,0) * -0.15 + 1` (`0x14ffa90dc`, `0x14ffab6d0`, `0x150077af4`).
 - Ability lookups walk AbilitiesComponent's six layer slots from the highest (+0x4c8) down and take the first slot whose ability type is not Unset; Flying is ability 9 (+0x6c), WalkSpeed ability 14 (+0xa8).
 - Smoothing: LevelRendererPlayer tick (RVA 0x04e6bad0) stores the previous value then `cur += (target - cur) * 0.5`. macOS `LevelRendererPlayer::getFov` (0x1043a8820) multiplies the option angle by the frame-interpolated value, ×60/70 underwater when the toggle is on, clamps to [5, 130] and scales by the normalized viewport; the 1.26.50 equivalent of that tail was not located.
+- Current CameraAPI dispatch in `current/1.26.50.26/src/__unmapped/07.cpp` around line 274969 identifies gameplay FOV as `FUN_144e81cc0` (RVA 0x04e81cc0), but its canonical body incorrectly has a void return and omits the final arithmetic. The matching executable previously recorded in the private transfer is unavailable, so that exact-version angle tail remains unverified.
+- Near-version iOS 1.26.51.01 primary executable `com.mojang.minecraftpe.app/minecraftpe`: the corresponding gameplay getter at VA 0x1052aa89c reads FOV option 0x2f, multiplies by the interpolated gameplay modifier, applies underwater/death changes, then clamps to 5°/130° at 0x1052aaa64–0x1052aaa78 before normalized viewport scaling at 0x1052aaa80–0x1052aaaa0. This corroborates the 26.30 bound and supports the explicitly provisional gameplay-angle fix in `camera/portal_projection.rs`; it does not verify the preview target's tail or live post-death symptom.
 - Option defaults, macOS 1.26.30 `OptionRegistry::_registerOptions`: `gfx_field_of_view` FloatOption 0x32 default 60, range 30..110 (0x10d9b2f94, 0x10d9b2f9c, 0x10dcc6bb0); `gfx_field_of_view_toggle` BoolOption default true. 1.26.50 `OptionRegistry::_registerOptions` (RVA 0x0239ba00) registers the FOV as option 0x2f with the same values.
 
 ## crates/client-presentation/src/camera/bob.rs
@@ -3445,3 +3447,37 @@ Files: `docs/reference/held-block-placement.md`, `crates/gameplay/src/block_use.
   emission 20/s and particle lifetime 1–1.4s. Its unbound packet emitters must
   therefore stop restarting after that first cycle, independently of later
   identical spawn packets.
+
+## World camera near clipping
+- `crates/render-api/src/lib.rs`, `crates/client-presentation/src/camera.rs`, camera/rig.rs, `crates/render/src/hand_rig_render.rs` and viewmodel.rs: current 1.26.50.26 CameraDefinition constructor `FUN_147d820a0` (`__unmapped/07.cpp:2080102`) initializes literal `0x3ccccccd42a00000` plus `0x451c4000`, yielding FOV80, near0.025 and far2500. Definition adapter `FUN_1409762c0` (`__unmapped/00.cpp:1808358`) writes near to CameraComponent+0x54. `LevelRendererPlayer::setupCamera`, `FUN_144e948a0` (`__unmapped/04.cpp:2448738`), reads +0x54 with far+0x58 into the world perspective depth coefficients. This is the ordinary world projection consumer; the near literal requires no unresolved executable data lookup. Shared camera near-plane distance also supplies the already verified boom clearance and first-person projection.
+
+## Device-compatible server subpacks
+
+- `crates/resource-pack/src/subpacks.rs`, `manifest.rs`, `import.rs` and
+  `parser.rs` share manifest memory conversion and subpack selection;
+  `crates/client-session/src/pack_preparation.rs` applies physical RAM to
+  server admission. Explicit global root selection remains a separate choice.
+- Current 1.26.50.26 `src/__unmapped/00.cpp:614633–614652`,
+  `FUN_140308da0`, yields tiers 0–5 at strict physical-memory boundaries
+  2, 4, 6, 8 and 12 GiB. Near-version
+  `reference/26.30/src/by-owner/h/HardwareMemoryTierUtilImpl.cpp:1–19`
+  identifies the same utility.
+- Current `src/__unmapped/01.cpp:1993030–1993340`,
+  `FUN_141b23a30`, reads legacy `memory_tier` before modern
+  `memory_performance_tier`. The former uses thresholds 11, 12, 18, 24 and
+  32; the latter clamps to 0–5. Installed 1.26.51.01 arm64 legacy manifest
+  reader at `0x10c8f0e50`, branch `0x10c8f4750–0x10c8f4800`, reads the
+  `__const` table at `0x10f03f278`: `(32,5), (24,4), (18,3), (12,2),
+  (11,1), (0,0)`, resolving the current reader's `UNK_1500d1974` table.
+- Current `FUN_141b4c260`, `01.cpp:2015673–2015805`, chooses the last
+  highest authored tier when no subpack is selected. The stack-packet handler
+  calls `FUN_14169e5f0` at `819884`; that method at `1170537–1170583`
+  invokes `FUN_141b50a60` (`2018816–2018897`) to keep a supported explicit
+  selection or replace an unsupported one with the last highest compatible
+  tier. Near-version `ClientNetworkHandler.cpp:5095` identifies this call as
+  `ResourcePackManager::ensureSupportedSubpacks`.
+- The actual admitted Fonts pack has Lite legacy tier 0 and Full legacy tier
+  12. Its U+E141 cell contains respectively 2×2 and 8×8 ink in 1024² and
+  4096² pages. Existing private-use glyph sizing keeps one GUI pixel per
+  source texel, independently of page resolution; `BitmapFont` current
+  `04.cpp:2036717–2037109` retains that private-use scale.

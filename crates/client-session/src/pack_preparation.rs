@@ -53,6 +53,7 @@ impl PackPreparation {
 pub fn prepare_session_packs(
     handoff: protocol::ResourcePackHandoff,
     game_data: &protocol::GameData,
+    physical_memory_bytes: u64,
 ) -> PackPreparation {
     let mut blocks = protocol::CustomBlocks::from_game_data(game_data);
     crate::block_physics::resolve(&mut blocks);
@@ -68,7 +69,7 @@ pub fn prepare_session_packs(
         "START_GAME_BLOCK_IDS"
     );
     let required = handoff.required();
-    let stack = resource_pack::validate_handoff(handoff);
+    let stack = resource_pack::validate_handoff_for_device(handoff, physical_memory_bytes);
     let admission = if stack.packs().is_empty() && stack.rejections().is_empty() {
         PackAdmission::None
     } else {
