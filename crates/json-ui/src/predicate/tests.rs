@@ -84,15 +84,22 @@ fn completed_marker_group_keeps_the_following_visibility_condition() {
 }
 
 #[test]
-fn surplus_close_discards_its_adjacent_pending_text() {
-    for expression in ["(true))and false", "(false))or true", "(true))and(false)"] {
-        assert_eq!(
-            value(expression),
-            Some(Scalar::Json(json!(null))),
-            "{expression}"
-        );
+fn surplus_closing_token_obeys_its_delimiter_and_eof_boundaries() {
+    for (expression, expected) in [
+        ("(true))", Scalar::Bool(true)),
+        ("(true)) ", Scalar::Bool(true)),
+        ("(true))discarded", Scalar::Json(json!(null))),
+        ("(true))discarded ", Scalar::Bool(true)),
+        ("(true))discarded and false", Scalar::Bool(false)),
+        ("(true))and false", Scalar::Json(json!(null))),
+        ("(false))or true", Scalar::Json(json!(null))),
+        ("(true))and(false)", Scalar::Json(json!(null))),
+        ("(true))discarded$desktop_screen", Scalar::Json(json!(null))),
+        ("(true))discarded+#b", Scalar::Int(4)),
+        ("((true))discarded) and false", Scalar::Bool(false)),
+    ] {
+        assert_eq!(value(expression), Some(expected), "{expression}");
     }
-    assert_eq!(value("(true))discarded"), Some(Scalar::Bool(true)));
 }
 
 // A variable holding an expression evaluates it; a self-reference stays undecidable.

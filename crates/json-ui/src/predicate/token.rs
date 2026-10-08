@@ -138,8 +138,8 @@ fn operator_byte(byte: u8) -> bool {
     matches!(byte, b'*' | b'+' | b'-' | b'/' | b'<' | b'=' | b'>')
 }
 
-/// A surplus closing token discards adjacent bare text after a completed group.
-/// Unclosed groups close at the end; a leading close stays undecidable.
+/// A fresh closing token discards adjacent bare text at a delimiter but keeps
+/// it at EOF. Unclosed groups close at the end; a leading close stays undecidable.
 pub(super) fn tokenize(source: &str) -> Option<Vec<Token>> {
     if source.len() > MAX_BYTES {
         return None;
@@ -170,20 +170,23 @@ pub(super) fn tokenize(source: &str) -> Option<Vec<Token>> {
                 continue;
             }
             b')' => {
-                if groups.len() < 2 {
-                    let completed_group = matches!(groups[0].last(), Some(Token::Group(_)));
-                    if completed_group {
-                        i += 1;
-                        while i < bytes.len() && !delimiter(bytes[i]) {
-                            i += 1;
-                        }
-                        continue;
-                    }
+                if groups.len() == 1 && !matches!(groups[0].last(), Some(Token::Group(_))) {
                     return None;
                 }
-                let group = groups.pop()?;
-                groups.last_mut()?.push(Token::Group(group));
+                let start = i;
                 i += 1;
+                while i < bytes.len() && !delimiter(bytes[i]) {
+                    i += 1;
+                }
+                if i == bytes.len() && i > start + 1 {
+                    groups.last_mut()?.push(parse_word(&source[start..i]));
+                } else if bytes.get(i) == Some(&b')') {
+                    if groups.len() > 1 {
+                        let group = groups.pop()?;
+                        groups.last_mut()?.push(Token::Group(group));
+                    }
+                    i += 1;
+                }
                 continue;
             }
             _ => {}
@@ -211,6 +214,14 @@ pub(super) fn tokenize(source: &str) -> Option<Vec<Token>> {
             None => parse_word(word),
         };
         groups.last_mut()?.push(token);
+        if bytes.get(i) == Some(&b')') {
+            if groups.len() < 2 {
+                return None;
+            }
+            let group = groups.pop()?;
+            groups.last_mut()?.push(Token::Group(group));
+            i += 1;
+        }
     }
     while groups.len() > 1 {
         let group = groups.pop()?;

@@ -3236,6 +3236,14 @@ Files: `docs/reference/held-block-placement.md`, `crates/gameplay/src/block_use.
   fresh closing byte as a pending token and skips it when its next delimiter
   is a space; adjoining bare text belongs to that discarded token. For example,
   `(true))and false` leaves adjacent operands and evaluates to JSON null.
+  The EOF materialization path at lines 514–600 keeps a final nonempty pending
+  substring, including its closing prefix: `(true))discarded` also leaves
+  adjacent operands, whereas a final closing byte alone adds no operand.
+  A close terminating a real token pops its frame immediately; a fresh close
+  stays pending even within an open outer frame. A subsequent closing delimiter
+  discards that pending token and closes the remaining frame. The existing
+  bounded leading-close and empty-frame safeguards are not identified by this
+  witness; the native pop path itself has no corresponding underflow guard.
   `src/__unmapped/00.cpp:842893–842974` passes the resolved source
   expression unchanged; `04.cpp:2247690–2247693` uses that path for view-binding
   source properties. The admitted Hive info-title predicate contains this
