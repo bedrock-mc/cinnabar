@@ -1,6 +1,10 @@
 //! Experimental component host. Only the explicit WIT imports carry authority.
 
+#[cfg(feature = "execution")]
+mod grants;
 pub mod helper;
+#[cfg(feature = "execution")]
+pub use grants::ModGrants;
 #[cfg(feature = "execution")]
 mod load;
 #[cfg(feature = "execution")]
@@ -65,46 +69,6 @@ pub const MAX_LABEL_BYTES: usize = 256;
 pub(crate) const FRAME_FUEL: u64 = 100_000;
 #[cfg(feature = "execution")]
 pub(crate) const MEMORY_BYTES: usize = 16 * 1024 * 1024;
-
-/// Explicit per-instance authority; optional capabilities are denied by default.
-/// Field names are the registration and set-file grant names.
-#[cfg(feature = "execution")]
-#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
-#[serde(default, deny_unknown_fields)]
-pub struct ModGrants {
-    /// Allows read-only current-session local inventory and status effect snapshots.
-    pub player_state: bool,
-    /// Allows this instance to replace visual time only.
-    pub environment: bool,
-    /// Allows current-frame remote player and camera pose reads.
-    pub players: bool,
-    /// Allows bounded local camera rotation, rigs, and per-frame teleport aim preservation.
-    pub camera: bool,
-    /// Allows current-frame removal of the air-use rearm delay only.
-    pub item_use: bool,
-    /// Allows local key edges, reserved bindings and the retained settings panel.
-    pub controls: bool,
-    /// Allows bounded host-rendered HUD cards and a local custom crosshair.
-    pub hud: bool,
-    /// Allows bounded actor attack range and held-attack press requests.
-    pub interaction: bool,
-    /// Allows the selected component's bounded companion settings file.
-    pub settings: bool,
-    /// Allows sandboxed post passes and bounded world primitives.
-    pub render: bool,
-    /// Lets render passes read scene depth.
-    pub render_depth: bool,
-    /// Allows current-frame reads of nearby non-player actors.
-    pub entities: bool,
-    /// Command names this instance may request; empty denies command requests.
-    pub commands: Vec<String>,
-    /// Allows bounded post-login packet delay through the private core endpoint.
-    pub packet_delay: bool,
-    /// Allows retained full-block highlights of matching loaded blocks.
-    pub block_highlights: bool,
-    /// Allows retained local fullbright lighting, without altering server light data.
-    pub fullbright: bool,
-}
 
 /// A developer-selected component with transactional reload and trap quarantine.
 #[cfg(feature = "execution")]
