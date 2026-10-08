@@ -509,6 +509,33 @@ impl<P: PhaseItem> RenderCommand<P> for DrawNametagRange {
     }
 }
 
+impl crate::pipeline_warmup::PrewarmPipelines for NametagPipeline {
+    fn prewarm(
+        &mut self,
+        cache: &PipelineCache,
+        view: crate::pipeline_warmup::WarmView,
+        ids: &mut crate::pipeline_warmup::WarmupIds,
+    ) -> Result<(), BevyError> {
+        let gamma_blend =
+            crate::chunk::transparent::gamma_pass::admitted(view.hdr, view.msaa, view.enhanced);
+        for depth_tested in [false, true] {
+            for text in [false, true] {
+                ids.push(self.variants.specialize(
+                    cache,
+                    NametagPipelineKey {
+                        msaa: view.msaa,
+                        hdr: view.hdr,
+                        gamma_blend,
+                        depth_tested,
+                        text,
+                    },
+                )?);
+            }
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -756,32 +783,5 @@ mod tests {
         assert!((expected_yaw + 3.0 * std::f32::consts::FRAC_PI_4).abs() > 0.02);
         assert!(record.world_corners(record.anchor).is_none());
         assert!(record.world_corners([f32::MAX; 3]).is_none());
-    }
-}
-
-impl crate::pipeline_warmup::PrewarmPipelines for NametagPipeline {
-    fn prewarm(
-        &mut self,
-        cache: &PipelineCache,
-        view: crate::pipeline_warmup::WarmView,
-        ids: &mut crate::pipeline_warmup::WarmupIds,
-    ) -> Result<(), BevyError> {
-        let gamma_blend =
-            crate::chunk::transparent::gamma_pass::admitted(view.hdr, view.msaa, view.enhanced);
-        for depth_tested in [false, true] {
-            for text in [false, true] {
-                ids.push(self.variants.specialize(
-                    cache,
-                    NametagPipelineKey {
-                        msaa: view.msaa,
-                        hdr: view.hdr,
-                        gamma_blend,
-                        depth_tested,
-                        text,
-                    },
-                )?);
-            }
-        }
-        Ok(())
     }
 }
