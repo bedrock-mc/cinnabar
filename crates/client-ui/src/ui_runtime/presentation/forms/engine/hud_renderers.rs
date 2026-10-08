@@ -80,6 +80,7 @@ pub struct HudPaint {
     pub mount_jump: Option<(SheetSprite, SheetSprite, f32)>,
     pub crosshair: Option<SheetSprite>,
     pub crosshair_blend: ui::UiBlendMode,
+    pub custom_crosshair: Option<ui::mod_hud::Crosshair>,
 }
 
 impl HudPaint {
@@ -171,7 +172,13 @@ pub(super) fn paint(
         }
         "cursor_renderer" => {
             if let Some(sprite) = hud.crosshair {
-                crosshair(painter, sprite, dest, hud.crosshair_blend);
+                if let Some(spec) = &hud.custom_crosshair {
+                    if !painter.mod_crosshair(spec, dest) {
+                        crosshair(painter, sprite, dest, hud.crosshair_blend);
+                    }
+                } else {
+                    crosshair(painter, sprite, dest, hud.crosshair_blend);
+                }
             }
             return true;
         }
