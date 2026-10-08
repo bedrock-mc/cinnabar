@@ -714,6 +714,8 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         ..default()
     });
     app.add_plugins(plugins);
+    #[cfg(target_os = "macos")]
+    crate::thread_budget::ThreadBudget::configure_render_thread(&mut app);
     app.add_systems(Update, crate::window_icon::apply);
     app.add_plugins(crate::local_worlds::LocalWorldsPlugin);
     app.add_plugins(crate::hud_tools::HudToolsPlugin {

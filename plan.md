@@ -116,6 +116,11 @@
 
 ## Frame attribution and unchanged GPU uploads
 
+- Idle native metadata publication no longer dispatches through the main thread.
+  macOS frame workers use interactive scheduling; bounded-load diagnostics show
+  more render-work headroom. Unloaded tail results remain adverse and unexplained:
+  the hitch and 120 Hz display gates remain incomplete. See
+  [frame-pacing evidence](docs/evidence/zeqa-frame-pacing.md).
 - Opt-in Tracy spans cover Bevy and owned streaming/render work; Metal pass
   durations are delayed plots. macOS zones alone cannot separate preemption from waits.
 - Per-packet ingress admission preserves queued events when consumer fan-out fills
