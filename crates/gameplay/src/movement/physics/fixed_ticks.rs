@@ -9,9 +9,7 @@ pub(super) fn frame(
         return LocalPhysicsFrame::default();
     }
     *accumulated_seconds += elapsed.as_secs_f64();
-    let due = ((*accumulated_seconds + f64::EPSILON) / LOCAL_PHYSICS_TICK_SECONDS)
-        .floor()
-        .clamp(0.0, u64::MAX as f64) as u64;
+    let due = whole_ticks(*accumulated_seconds);
     *accumulated_seconds -= due as f64 * LOCAL_PHYSICS_TICK_SECONDS;
     let allowed = due.min(MAX_LOCAL_PHYSICS_TICKS_PER_FRAME as u64) as usize;
     LocalPhysicsFrame {
@@ -20,4 +18,11 @@ pub(super) fn frame(
         samples: Vec::with_capacity(allowed),
         ..LocalPhysicsFrame::default()
     }
+}
+
+/// Whole fixed ticks contained in accumulated seconds.
+pub(super) fn whole_ticks(accumulated_seconds: f64) -> u64 {
+    ((accumulated_seconds + f64::EPSILON) / LOCAL_PHYSICS_TICK_SECONDS)
+        .floor()
+        .clamp(0.0, u64::MAX as f64) as u64
 }

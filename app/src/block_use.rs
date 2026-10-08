@@ -119,6 +119,7 @@ pub(crate) fn produce_block_use(
     mut swings: ResMut<SwingTracker>,
     mut item_use: ResMut<crate::item_use::ItemUseRuntime>,
     movement: Res<MovementTicker>,
+    physics: Option<Res<crate::movement::LocalPhysicsController>>,
 ) {
     let pick = runtime.pick(movement.interaction_authority_identity());
     if context.input.phase(Action::Use).pressed {
@@ -194,6 +195,14 @@ pub(crate) fn produce_block_use(
     let Some((trigger, due)) = runtime.due(use_phase.held, tick, clock) else {
         return;
     };
+    // Presses resolve at once; held repeats wait for a frame that simulates the next tick.
+    if trigger == ItemUseTrigger::SimulationTick
+        && !physics.as_deref().is_some_and(|physics| {
+            gameplay::movement::frame_simulates_tick(physics, &movement, context.time.delta())
+        })
+    {
+        return;
+    }
     if context.melee.blocks_use_at(clock.now_millis) {
         runtime.clear_press();
         return;

@@ -425,6 +425,14 @@ impl LocalPhysicsController {
         self.discard_next_elapsed = self.is_active();
     }
 
+    /// Fixed ticks a frame of `elapsed` would complete, without advancing the clock.
+    pub fn ticks_due(&self, elapsed: Duration) -> u64 {
+        if self.state.is_none() || self.discard_next_elapsed {
+            return 0;
+        }
+        fixed_ticks::whole_ticks(self.accumulated_seconds + elapsed.as_secs_f64())
+    }
+
     pub fn advance(
         &mut self,
         elapsed: Duration,

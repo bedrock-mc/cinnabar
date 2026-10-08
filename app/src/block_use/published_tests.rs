@@ -436,11 +436,10 @@ fn a_press_waiting_for_a_pick_is_not_resolved_as_item_use() {
     assert_eq!(transaction_targets(&mut captured), [[4, 2, 6]]);
 }
 
-/// A placement resolves before the tick that walks into its cell, so that tick's movement
-/// collides with the placed block instead of reporting the player inside it.
-#[test]
-fn a_placement_before_the_tick_blocks_movement_into_its_cell() {
-    let (mut world, mut captured) = fixture();
+/// The fixture over a stone floor, holding stone at `start` with active physics; the previous
+/// frame picked along `pick` from the eye.
+fn floor_fixture(start: [f32; 3], pick: Quat) -> (World, client_session::CapturedPackets) {
+    let (mut world, captured) = fixture();
     let records = assets::read_registry_for_protocol(
         assets::pinned_block_registry_bytes(),
         assets::active_content_registry_protocol(),
@@ -451,7 +450,6 @@ fn a_placement_before_the_tick_blocks_movement_into_its_cell() {
         .find(|record| record.name.as_ref() == "minecraft:stone")
         .unwrap()
         .sequential_id;
-    let start = [4.5, 2.620_01, 8.32];
     {
         let mut client_world = world.resource_mut::<crate::runtime::world::ClientWorld>();
         let stream = client_world.stream.as_mut().unwrap();
@@ -505,12 +503,11 @@ fn a_placement_before_the_tick_blocks_movement_into_its_cell() {
     let mut physics = crate::movement::LocalPhysicsController::default();
     physics.reanchor_network_position(start, 100, true);
     world.insert_resource(physics);
-    // The previous frame looked down at the floor ahead; walking forward faces it.
     let eye = Vec3::from_array(start);
-    let looking_down = frame_origin(&world, eye, Quat::from_rotation_x(-1.103));
+    let previous = frame_origin(&world, eye, pick);
     world
         .resource_mut::<BlockUseRuntime>()
-        .retain_pick(&looking_down, authority);
+        .retain_pick(&previous, authority);
     world.insert_resource(crate::local_player::LocalViewPose::new(eye, Quat::IDENTITY));
     world.insert_resource(crate::camera::AutoFly::new(false));
     #[cfg(feature = "acceptance")]
@@ -520,20 +517,42 @@ fn a_placement_before_the_tick_blocks_movement_into_its_cell() {
     #[cfg(not(feature = "acceptance"))]
     world.init_resource::<crate::acceptance::AcceptanceRun>();
     world.init_resource::<crate::movement::LocalMovementSpeedAuthority>();
-    let snapshot = world
-        .resource_mut::<crate::semantic_controls::SemanticInputRuntime>()
+    (world, captured)
+}
+
+/// Routes one frame of held keys and mouse buttons into the world's input snapshot.
+fn hold(
+    world: &mut World,
+    router: &mut crate::semantic_controls::SemanticInputRuntime,
+    keys: Vec<u16>,
+    mouse_buttons: Vec<u8>,
+) -> semantic_input::ActionSnapshot {
+    let snapshot = router
         .route_and_finalize(semantic_input::DeviceFrame {
             keyboard_mouse: Some(semantic_input::KeyboardMouseFrame {
-                keys: vec![0x1a],
-                mouse_buttons: vec![2],
+                keys,
+                mouse_buttons,
                 ..Default::default()
             }),
             ..Default::default()
         })
         .unwrap();
+    world.insert_resource(
+        crate::semantic_controls::SemanticInputSnapshot::from_finalized(snapshot.clone()),
+    );
+    snapshot
+}
+
+/// A placement resolves before the tick that walks into its cell, so that tick's movement
+/// collides with the placed block instead of reporting the player inside it.
+#[test]
+fn a_placement_before_the_tick_blocks_movement_into_its_cell() {
+    let start = [4.5, 2.620_01, 8.32];
+    // The previous frame looked down at the floor ahead; walking forward faces it.
+    let (mut world, mut captured) = floor_fixture(start, Quat::from_rotation_x(-1.103));
+    let mut router = crate::semantic_controls::SemanticInputRuntime::default();
+    let snapshot = hold(&mut world, &mut router, vec![0x1a], vec![2]);
     assert!(snapshot.movement[1] > 0.0, "the fixture walks forward");
-    world
-        .insert_resource(crate::semantic_controls::SemanticInputSnapshot::from_finalized(snapshot));
 
     world.run_system_cached(produce_block_use).unwrap();
     assert_eq!(transaction_targets(&mut captured), [[4, 0, 7]]);
@@ -554,6 +573,62 @@ fn a_placement_before_the_tick_blocks_movement_into_its_cell() {
         moved.position[2] - sim::PLAYER_WIDTH as f32 * 0.5 >= 8.0 - 1.0e-4,
         "movement collided with the placed block: {moved:?}"
     );
+}
+
+/// Holds Use from a still pose at one frame interval, pressing on the frame at 50 ms, and
+/// returns each attempt with the tick it precedes. Only the press may land on a frame that
+/// simulates no tick.
+fn held_attempts(frame_micros: u64) -> Vec<(u64, [i32; 3])> {
+    // A pick steep enough to land on the floor ahead, then on the block placed there.
+    let (mut world, mut captured) =
+        floor_fixture([4.5, 2.620_01, 8.32], Quat::from_rotation_x(-0.9601));
+    let mut router = crate::semantic_controls::SemanticInputRuntime::default();
+    // The reanchor discards its first elapsed time; spend it so both rates tick together.
+    hold(&mut world, &mut router, Vec::new(), Vec::new());
+    world
+        .resource_mut::<Time<Real>>()
+        .advance_by(Duration::ZERO);
+    world
+        .run_system_cached(crate::movement::advance_local_physics)
+        .unwrap();
+    let mut attempts = Vec::new();
+    let mut elapsed = 0;
+    while elapsed < 800_000 {
+        elapsed += frame_micros;
+        let buttons = if elapsed >= 50_000 {
+            vec![2]
+        } else {
+            Vec::new()
+        };
+        hold(&mut world, &mut router, Vec::new(), buttons);
+        world
+            .resource_mut::<Time<Real>>()
+            .advance_by(Duration::from_micros(frame_micros));
+        let before = world.resource::<MovementTicker>().completed_tick();
+        world.run_system_cached(produce_block_use).unwrap();
+        let targets = transaction_targets(&mut captured);
+        world
+            .run_system_cached(crate::movement::advance_local_physics)
+            .unwrap();
+        let simulated = world.resource::<MovementTicker>().completed_tick() > before;
+        assert!(
+            simulated || targets.is_empty() || attempts.is_empty(),
+            "a held repeat was sent on a frame without a tick at {elapsed} us"
+        );
+        attempts.extend(targets.into_iter().map(|target| (before + 1, target)));
+    }
+    attempts
+}
+
+/// Held repeats resolve before simulation ticks, so a fast render rate attempts on the same
+/// ticks and targets as one frame per tick, and never between ticks.
+#[test]
+fn held_repeats_follow_simulation_ticks_not_render_frames() {
+    let per_tick = held_attempts(50_000);
+    assert!(per_tick.len() >= 2, "the hold repeats: {per_tick:?}");
+    assert_eq!(per_tick[0], (101, [4, 0, 7]));
+    // 160 fps divides the 50 ms tick exactly, so ticks start at the same instants.
+    assert_eq!(held_attempts(6_250), per_tick);
 }
 
 /// Drives a tapped attack plus a Use press in one frame; melee resolves the attack against
