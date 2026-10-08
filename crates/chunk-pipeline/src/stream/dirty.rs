@@ -17,6 +17,7 @@ impl WorldStream {
             true,
             relight,
         );
+        self.urgent_work_due = true;
     }
     pub(super) fn mark_changed_sources(
         &mut self,

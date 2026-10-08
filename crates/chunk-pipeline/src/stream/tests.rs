@@ -523,6 +523,20 @@ fn requested_block_entity_sub_chunk_event(
     })
 }
 
+/// A block batch too large to prepare on the commit thread, so it keeps its decode fence.
+fn worker_block_batch(chunk_x: i32, network_id: u32) -> WorldEvent {
+    WorldEvent::BlockUpdates(
+        (0..=INLINE_BLOCK_MUTATION_UPDATES as i32)
+            .map(|index| BlockUpdateEvent {
+                dimension: 0,
+                position: [chunk_x * 16 + index % 16, -64, index / 16],
+                layer: 0,
+                network_id,
+            })
+            .collect(),
+    )
+}
+
 /// Finishes fixture decoding and every sliced ordered commit it releases.
 fn complete_pending_decode_jobs(stream: &mut WorldStream) {
     loop {
