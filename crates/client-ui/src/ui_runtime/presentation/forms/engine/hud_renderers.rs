@@ -97,7 +97,12 @@ impl HudPaint {
         .flat_map(|cell| cell.preferred.into_iter().chain([cell.texture]))
         .chain(self.hearts.textures())
         .chain(SLOT_ART)
-        .chain(self.crosshair.map(|_| CROSSHAIR_TEXTURE))
+        .chain(self.crosshair.into_iter().flat_map(|_| {
+            [
+                CROSSHAIR_TEXTURE,
+                assets::HudTextureRole::Crosshair.source_path(),
+            ]
+        }))
     }
 }
 
@@ -281,23 +286,42 @@ fn crosshair(
     dest: [f32; 4],
     blend: ui::UiBlendMode,
 ) {
-    let (sprite, gui_side) = painter.textures.sprite(CROSSHAIR_TEXTURE).map_or_else(
-        || {
-            (
-                sprite,
-                assets::HudTextureRole::Crosshair.expected_size()[0] as f32,
-            )
-        },
-        |(page, [x, y, width, height])| {
-            (
+    let role = assets::HudTextureRole::Crosshair;
+    let standalone =
+        painter
+            .textures
+            .sprite(CROSSHAIR_TEXTURE)
+            .map(|(page, [x, y, width, height])| {
+                (
+                    SheetSprite {
+                        page,
+                        uv: [x, y, x + width, y + height].map(|value| value as u16),
+                    },
+                    CROSSHAIR_SIDE,
+                )
+            });
+    let (sprite, gui_side) = standalone
+        .or_else(|| {
+            let (page, [x, y, width, height]) = painter.textures.sprite(role.source_path())?;
+            let [crop_x, crop_y, crop_width, crop_height] = role.source_crop()?;
+            let [native_width, native_height] = assets::HUD_ICONS_SHEET_SIZE;
+            let scale_x = width / native_width as f32;
+            let scale_y = height / native_height as f32;
+            Some((
                 SheetSprite {
                     page,
-                    uv: [x, y, x + width, y + height].map(|value| value as u16),
+                    uv: [
+                        x + crop_x as f32 * scale_x,
+                        y + crop_y as f32 * scale_y,
+                        x + (crop_x + crop_width) as f32 * scale_x,
+                        y + (crop_y + crop_height) as f32 * scale_y,
+                    ]
+                    .map(|value| value.round() as u16),
                 },
-                CROSSHAIR_SIDE,
-            )
-        },
-    );
+                role.expected_size()[0] as f32,
+            ))
+        })
+        .unwrap_or((sprite, role.expected_size()[0] as f32));
     let side = gui_side * painter.px;
     let x = (dest[0] + dest[2] - side) * 0.5;
     let y = (dest[1] + dest[3] - side) * 0.5;
