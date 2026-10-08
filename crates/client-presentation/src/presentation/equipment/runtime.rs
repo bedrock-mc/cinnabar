@@ -18,6 +18,7 @@ use render_model::{
 };
 
 mod alpha;
+mod attack;
 mod diagnostics;
 mod elytra;
 mod java;
@@ -116,6 +117,9 @@ pub struct EquipmentRuntime {
     item_use: Arc<BTreeMap<Box<str>, u32>>,
     /// The startup catalog's use durations, before session items join them.
     base_item_use: Arc<BTreeMap<Box<str>, u32>>,
+    /// Compiled attack facts with the session's component overrides.
+    item_attack: Arc<BTreeMap<Box<str>, protocol::ItemAttackTiming>>,
+    base_item_attack: Arc<BTreeMap<Box<str>, protocol::ItemAttackTiming>>,
     /// The session's custom item facts and icon sprites.
     session: session::SessionLayer,
     /// Next startup item mesh index; session icons use their own range.
@@ -256,6 +260,13 @@ impl EquipmentRuntime {
                 .map(|entry| (entry.identifier.clone(), entry.ticks))
                 .collect(),
         );
+        let item_attack: Arc<BTreeMap<Box<str>, protocol::ItemAttackTiming>> = Arc::new(
+            catalog
+                .iter()
+                .flat_map(|catalog| catalog.item_attack_timings())
+                .map(|entry| (entry.identifier.clone(), attack::timing(entry)))
+                .collect(),
+        );
         let runtime = Self {
             attachables: client_world::AttachablesRuntime::new(Arc::clone(&assets)),
             attachable_meshes: BTreeMap::new(),
@@ -276,6 +287,8 @@ impl EquipmentRuntime {
             meshes: BTreeMap::new(),
             base_item_use: Arc::clone(&item_use),
             item_use,
+            base_item_attack: Arc::clone(&item_attack),
+            item_attack,
             session: session::SessionLayer::default(),
             next_mesh: 0,
             free_meshes: Vec::new(),
@@ -292,6 +305,11 @@ impl EquipmentRuntime {
     /// Item use durations for the animation runtime's max-duration query.
     pub fn item_use_durations(&self) -> Arc<BTreeMap<Box<str>, u32>> {
         Arc::clone(&self.item_use)
+    }
+
+    /// Item attack facts shared by action admission and actor presentation.
+    pub fn item_attack_timings(&self) -> Arc<BTreeMap<Box<str>, protocol::ItemAttackTiming>> {
+        Arc::clone(&self.item_attack)
     }
 
     /// Geometries generated since the last call; the actor scene must register them before the
@@ -329,6 +347,54 @@ impl EquipmentRuntime {
         ] {
             let Some(item) = item else { continue };
             let before = layers.len();
+            // Models with view/use-dependent poses cannot use the literal third-person grip.
+            let animated = animation
+                .filter(|_| {
+                    if layer == LAYER_MAIN_HAND
+                        && input.java.is_some()
+                        && !self.is_vanilla_attachable(&item.identifier)
+                    {
+                        return false;
+                    }
+                    self.binding_source(&item.identifier)
+                        .is_some_and(|(catalog, _)| {
+                            catalog.binding(&item.identifier).is_some_and(|binding| {
+                                matches!(
+                                    binding.category,
+                                    EquipmentCategory::Held | EquipmentCategory::Shield
+                                ) && binding.third_person.literal().is_none()
+                            })
+                        })
+                })
+                .and_then(|animation| {
+                    self.held_attachable(
+                        body,
+                        item,
+                        animation.owner,
+                        animation.rig,
+                        input.attachable_input(client_world::AttachableAnimationInput {
+                            off_hand: layer == LAYER_OFF_HAND,
+                            frame_alpha: animation.frame_alpha,
+                            use_elapsed_ticks: (animation.rig.hand[1].use_ticks > 0)
+                                .then_some(animation.rig.hand[1].use_ticks),
+                            max_use_ticks: input
+                                .main
+                                .as_ref()
+                                .and_then(|main| self.item_use.get(main.identifier.as_ref()))
+                                .copied()
+                                .unwrap_or_default(),
+                            ..Default::default()
+                        }),
+                        None,
+                    )
+                });
+            if let Some(mut animated) = animated {
+                if input.java.is_some() {
+                    animated.presentation.submission.overlay_rgba8 = 0;
+                }
+                layers.push(animated.presentation);
+                continue;
+            }
             match input.java.filter(|_| layer == LAYER_MAIN_HAND) {
                 Some(grip) => {
                     if !self.push_attachable(body, item, layer, bone, false, &mut layers) {

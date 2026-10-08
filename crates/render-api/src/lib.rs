@@ -4,11 +4,13 @@
 //! rules. It has no dependencies and must not acquire game state or GPU types.
 
 mod actor_lighting;
+mod frame_rate_limit;
 pub mod primitive_shapes;
 mod publication;
 mod skin;
 
 pub use actor_lighting::{ACTOR_SHADE_COEFFICIENTS, fancy_actor_shade};
+pub use frame_rate_limit::FrameRateLimit;
 pub use publication::{
     PublicationAllowance, PublicationPermit, PublicationPermitStage, PublicationServiceConfig,
 };

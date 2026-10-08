@@ -9,6 +9,8 @@ mod native_pose;
 #[cfg(test)]
 mod native_tests;
 #[cfg(test)]
+mod spear_tests;
+#[cfg(test)]
 mod third_person_tests;
 pub(super) use native_pose::NativePoseCache;
 

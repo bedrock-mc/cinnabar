@@ -1025,7 +1025,7 @@ fn zero_world_admission_still_drains_control_ack_and_leaves_world_fifo_untouched
         .unwrap();
 
     let controls = drain_network_controls(&mut control_receiver, OUTBOUND_SEND_BUDGET_PER_FRAME);
-    let world = drain_network_ingress(&mut world_receiver, NETWORK_INGRESS_BUDGET_PER_FRAME.min(0));
+    let world = drain_network_ingress(&mut world_receiver, 0);
 
     assert!(matches!(
         controls.as_slice(),
@@ -1072,8 +1072,9 @@ fn world_ingress_drain_stops_at_transfer_barrier_without_consuming_replacement_e
         }))
         .unwrap();
 
-    let mut drain = WorldIngressDrain::new(4);
-    let drained: Vec<_> = std::iter::from_fn(|| drain.next(&mut receiver, 4)).collect();
+    let now = Instant::now();
+    let mut drain = WorldIngressDrain::new(now + WORLD_INGRESS_DRAIN_BUDGET);
+    let drained: Vec<_> = std::iter::from_fn(|| drain.next(&mut receiver, 4, now)).collect();
 
     assert!(matches!(
         drained.as_slice(),
@@ -1108,27 +1109,6 @@ fn control_ingress_is_bounded_to_outbound_budget_and_preserves_fifo() {
     );
     assert_eq!(receiver.try_recv(), Ok(OUTBOUND_SEND_BUDGET_PER_FRAME));
     assert_eq!(receiver.try_recv(), Ok(OUTBOUND_SEND_BUDGET_PER_FRAME + 1));
-}
-
-#[test]
-fn world_ingress_matches_heavy_admission_window_and_preserves_fifo() {
-    assert_eq!(NETWORK_INGRESS_BUDGET_PER_FRAME, 32);
-    let (sender, mut receiver) = tokio::sync::mpsc::channel(NETWORK_INGRESS_BUDGET_PER_FRAME + 2);
-    for value in 0..NETWORK_INGRESS_BUDGET_PER_FRAME + 2 {
-        sender.try_send(value).unwrap();
-    }
-
-    let drained = drain_network_ingress(&mut receiver, NETWORK_INGRESS_BUDGET_PER_FRAME);
-
-    assert_eq!(
-        drained,
-        (0..NETWORK_INGRESS_BUDGET_PER_FRAME).collect::<Vec<_>>()
-    );
-    assert_eq!(receiver.try_recv(), Ok(NETWORK_INGRESS_BUDGET_PER_FRAME));
-    assert_eq!(
-        receiver.try_recv(),
-        Ok(NETWORK_INGRESS_BUDGET_PER_FRAME + 1)
-    );
 }
 
 #[test]

@@ -8,6 +8,15 @@ interface hud {
     set-content: func(json: string) -> result<_, string>;
     /// Replaces only a normally visible crosshair; requires hud authority. Empty restores it.
     set-crosshair: func(json: string) -> result<_, string>;
+    record point { x: f32, y: f32 }
+    record placement { id: string, position: option<point> }
+    record editor-result { saved: bool, reset: bool, placements: list<placement> }
+    /// Opens a host-owned layout editor from an input-owning panel. Requires hud and controls.
+    /// JSON is bounded HUD preview data, including cards disabled during normal gameplay.
+    open-editor: func(json: string) -> result<_, string>;
+    /// Stable for this callback; consumed after a successful callback that reads it.
+    /// Save carries normalized placements; cancel carries no placements.
+    read-editor-result: func() -> result<option<editor-result>, string>;
 }
 
 /// Read-only, session-bound facts about the local player's presented inventory and effects.
@@ -211,7 +220,8 @@ interface camera {
 
 /// Opt-in item-use policy; requires the explicit item-use grant.
 interface item-use {
-    /// Renew each gameplay frame. Skips only the air-use rearm delay; item cooldowns and tick admission remain intact.
+    /// Renew each gameplay frame. Allows one immediate air use after each slot change and air use while attacking.
+    /// Repeat timing, item cooldowns and tick admission remain intact.
     /// Omission, no gameplay frame, and failed callbacks restore vanilla timing.
     set-delay-fix: func(enabled: bool) -> result<_, string>;
 }

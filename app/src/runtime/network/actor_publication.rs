@@ -209,6 +209,7 @@ pub(crate) fn advance_actor_frame(
 #[derive(SystemParam)]
 pub(crate) struct ActorFinalObservations<'w> {
     world: ResMut<'w, ClientWorld>,
+    player: Option<Res<'w, crate::player_runtime::PlayerRuntime>>,
     physics: Res<'w, LocalPhysicsController>,
     effects: Option<Res<'w, crate::movement::LocalMovementEffectTimeline>>,
     swings: Option<ResMut<'w, crate::melee::SwingTracker>>,
@@ -224,6 +225,7 @@ pub(crate) fn prepare_actor_render_frame(
 ) {
     let ActorFinalObservations {
         mut world,
+        player,
         physics,
         effects,
         mut swings,
@@ -231,15 +233,20 @@ pub(crate) fn prepare_actor_render_frame(
         collisions,
         cave,
     } = observations;
+    let item_swing_ticks = player
+        .as_deref()
+        .and_then(|player| crate::melee::selected_attack_timing(player, &world))
+        .and_then(|timing| timing.swing_duration_ticks);
     let stream = world.stream.as_ref();
     let swing_progress = stream.and_then(|_| {
         let movement = movement.as_deref()?;
         let swings = swings.as_deref_mut()?;
         if let Some(effects) = effects.as_deref() {
-            swings.sync_ticks(
+            swings.sync_ticks_for_item(
                 movement.interaction_authority_identity(),
                 movement.completed_tick(),
                 effects,
+                item_swing_ticks,
             );
         }
         let mut progress = swings.published_progress(movement.completed_tick());
@@ -363,3 +370,7 @@ pub(crate) fn publish_entity_shadows(
 #[cfg(test)]
 #[path = "actor_publication/tests/custom_emotes.rs"]
 mod custom_emotes;
+
+#[cfg(test)]
+#[path = "actor_publication/tests/item_swing.rs"]
+mod item_swing;

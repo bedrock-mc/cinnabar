@@ -6,11 +6,19 @@ use jolyne::GameData;
 
 use crate::nbt_tree::{Nbt, read_root};
 
-const MAX_TEXT_BYTES: usize = 256;
+pub(super) const MAX_TEXT_BYTES: usize = 256;
+
+/// Converts component seconds to the protocol's integral simulation duration.
+pub(super) fn duration_ticks(seconds: f64) -> Option<u32> {
+    (seconds.is_finite() && seconds >= 0.0)
+        .then(|| (seconds * 20.0).round().min(f64::from(u32::MAX)) as u32)
+}
 
 /// What the client presents from one item's components; absent facts stay `None`/`false`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ItemComponents {
+    /// Attack and kinetic presentation facts, when this item declares them.
+    pub attack: Option<super::ItemAttackTiming>,
     /// `item_texture.json` key from `minecraft:icon`.
     pub icon: Option<Arc<str>>,
     /// `minecraft:display_name` value: a localization key or literal text.
@@ -72,10 +80,10 @@ pub(super) fn parse_components(bytes: &[u8]) -> Option<ItemComponents> {
         component("minecraft:use_modifiers")
             .and_then(|modifiers| modifiers.field("use_duration"))
             .and_then(Nbt::number)
-            .filter(|seconds| seconds.is_finite() && *seconds >= 0.0)
-            .map(|seconds| (seconds * 20.0).round().min(f64::from(u32::MAX)) as u32)
+            .and_then(duration_ticks)
     });
     Some(ItemComponents {
+        attack: super::attack::parse_attack(components),
         icon: super::icons::icon_key(bytes),
         display_name: text(
             component("minecraft:display_name").and_then(|name| name.field("value")),

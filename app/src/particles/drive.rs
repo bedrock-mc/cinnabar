@@ -11,8 +11,8 @@ use client_world::{ActorStatusNotice, CommittedParticleEvent};
 use particles::{
     ITEM_ICON_PARTICLES, LevelParticle, ParticleSystem, SpawnRequest, block_break_request,
     block_crack_request, burst_requests, classify_level_event, crack_cadence_due,
-    critical_hit_request, face_toward, item_icon_request, named_request, parse_molang_variables,
-    terrain_request, tiles::item_tile,
+    critical_hit_request, dragon_egg_teleport_requests, face_toward, item_icon_request,
+    named_request, parse_molang_variables, terrain_request, tiles::item_tile,
 };
 use protocol::{ActorStatusKind, ParticleEvent, SpawnParticleEffectEvent};
 use render::{
@@ -222,8 +222,14 @@ fn route_level_event(
     event_id: i32,
     position: [f32; 3],
     data: i32,
+    sequence: u64,
 ) {
     match classify_level_event(event_id, data) {
+        Some(LevelParticle::DragonEggTeleport { displacement }) => {
+            for request in dragon_egg_teleport_requests(position, displacement, sequence) {
+                system.spawn(&request);
+            }
+        }
         Some(LevelParticle::Named {
             effect,
             spell_color,
@@ -449,6 +455,7 @@ fn drive_particles(
                         level.event_id,
                         level.position,
                         level.data,
+                        committed.sequence,
                     );
                 }
             }

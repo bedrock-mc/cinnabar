@@ -1,8 +1,14 @@
 //! Experimental component host. Only the explicit WIT imports carry authority.
 
+#[cfg(feature = "execution")]
+mod grants;
 pub mod helper;
 #[cfg(feature = "execution")]
+pub use grants::ModGrants;
+#[cfg(feature = "execution")]
 mod load;
+#[cfg(feature = "execution")]
+mod outputs;
 #[cfg(feature = "execution")]
 mod runtime;
 #[cfg(feature = "execution")]
@@ -65,46 +71,6 @@ pub const MAX_LABEL_BYTES: usize = 256;
 pub(crate) const FRAME_FUEL: u64 = 100_000;
 #[cfg(feature = "execution")]
 pub(crate) const MEMORY_BYTES: usize = 16 * 1024 * 1024;
-
-/// Explicit per-instance authority; optional capabilities are denied by default.
-/// Field names are the registration and set-file grant names.
-#[cfg(feature = "execution")]
-#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
-#[serde(default, deny_unknown_fields)]
-pub struct ModGrants {
-    /// Allows read-only current-session local inventory and status effect snapshots.
-    pub player_state: bool,
-    /// Allows this instance to replace visual time only.
-    pub environment: bool,
-    /// Allows current-frame remote player and camera pose reads.
-    pub players: bool,
-    /// Allows bounded local camera rotation, rigs, and per-frame teleport aim preservation.
-    pub camera: bool,
-    /// Allows current-frame removal of the air-use rearm delay only.
-    pub item_use: bool,
-    /// Allows local key edges, reserved bindings and the retained settings panel.
-    pub controls: bool,
-    /// Allows bounded host-rendered HUD cards and a local custom crosshair.
-    pub hud: bool,
-    /// Allows bounded actor attack range and held-attack press requests.
-    pub interaction: bool,
-    /// Allows the selected component's bounded companion settings file.
-    pub settings: bool,
-    /// Allows sandboxed post passes and bounded world primitives.
-    pub render: bool,
-    /// Lets render passes read scene depth.
-    pub render_depth: bool,
-    /// Allows current-frame reads of nearby non-player actors.
-    pub entities: bool,
-    /// Command names this instance may request; empty denies command requests.
-    pub commands: Vec<String>,
-    /// Allows bounded post-login packet delay through the private core endpoint.
-    pub packet_delay: bool,
-    /// Allows retained full-block highlights of matching loaded blocks.
-    pub block_highlights: bool,
-    /// Allows retained local fullbright lighting, without altering server light data.
-    pub fullbright: bool,
-}
 
 /// A developer-selected component with transactional reload and trap quarantine.
 #[cfg(feature = "execution")]
@@ -236,50 +202,6 @@ impl ModHost {
     /// Retained request from a successful callback, independent of UI focus.
     pub fn packet_delay_ms(&self) -> u32 {
         self.instance.packet_delay_ms()
-    }
-    /// Successfully committed local lighting override.
-    pub fn fullbright(&self) -> bool {
-        self.instance.fullbright()
-    }
-
-    /// Committed selection; no raw block reads are exposed to the component.
-    pub fn block_highlights(&self) -> Option<&mod_api::BlockHighlightSpec> {
-        self.instance.block_highlights()
-    }
-
-    /// Explicit opt-in to the private core's last-relayed local position witness.
-    pub fn show_real_position(&self) -> bool {
-        self.instance.show_real_position()
-    }
-
-    /// Consumes the last successful frame's rotation once, without entering the guest.
-    pub fn take_camera_delta(&mut self) -> Option<CameraDelta> {
-        self.instance.take_camera_delta()
-    }
-
-    /// Committed render output and a process-unique generation that changes with it.
-    pub fn render(&self) -> (&mod_render::RenderOutput, u64) {
-        self.instance.render()
-    }
-
-    /// Returns only the last successfully committed plain-text label.
-    pub fn label(&self) -> Option<&str> {
-        self.instance.label()
-    }
-
-    /// Retained host-rendered cards from the last successful callback.
-    pub fn hud(&self) -> Option<&ui::mod_hud::Hud> {
-        self.instance.hud()
-    }
-
-    /// Retained cosmetic crosshair, applied only when the ordinary crosshair is visible.
-    pub fn crosshair(&self) -> Option<&ui::mod_hud::Crosshair> {
-        self.instance.crosshair()
-    }
-
-    /// Returns the committed visual override without entering the guest.
-    pub fn time_override(&self) -> Option<u32> {
-        self.instance.time_override()
     }
 
     /// Whether this guest can still receive callbacks.

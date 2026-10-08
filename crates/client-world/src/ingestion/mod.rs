@@ -6,6 +6,7 @@ mod decode;
 mod decode_diagnostics;
 mod ids;
 mod jobs;
+mod lanes;
 mod ordered;
 mod prepare;
 
@@ -16,14 +17,17 @@ pub use contracts::{
 pub(crate) use decode_diagnostics::{DecodeDiagnostics, block_registry_sha256};
 pub use ids::{DecodeIds, default_biome_id, dimension_slots};
 pub use jobs::{BlockMutationBatch, DecodeCompletion, DecodeJob, QueuedDecodeJob};
-pub use ordered::{CommitStep, DecodeCommit, OrderedCommitState};
+pub use lanes::{Consumers, Footprint, LaneContext, classify};
+pub use ordered::{CommitBudget, CommitStep, DecodeCommit, OrderedCommitState};
 pub use prepare::{light_semantics_changed, prepare_block_mutations, prepare_sub_chunks};
 pub use protocol::{CustomBlocks, CustomStateValue};
 
-/// Maximum admitted world events, including retained committed consumers.
+/// Maximum admitted light events, including retained committed consumers.
 pub const MAX_ADMITTED_WORLD_EVENTS: usize = 64;
 /// Maximum admitted terrain and block mutation events.
 pub const MAX_ADMITTED_HEAVY_EVENTS: usize = 32;
+/// Terrain ordered behind full heavy admission, so later light events keep flowing.
+pub const MAX_DEFERRED_WORLD_EVENTS: usize = MAX_ADMITTED_HEAVY_EVENTS;
 
 #[cfg(test)]
 mod tests;

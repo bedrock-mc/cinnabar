@@ -54,6 +54,14 @@ impl WorldStream {
             })
             .collect()
     }
+    /// Starts decode work queued by ingress now rather than at the next poll, so a fast decode
+    /// can commit in the same frame's poll.
+    pub fn dispatch_ingress_decode(&mut self) {
+        if !self.pending_decode.is_empty() {
+            self.dispatch_decode_jobs();
+        }
+    }
+
     pub(super) fn dispatch_decode_jobs(&mut self) {
         #[cfg(feature = "tracy")]
         let _zone = tracing::info_span!("decode.dispatch").entered();

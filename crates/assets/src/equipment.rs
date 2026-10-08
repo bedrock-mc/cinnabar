@@ -14,6 +14,11 @@ use sha2::{Digest, Sha256};
 use crate::item::{ItemDisplayScalar, ItemDisplayTransform};
 use crate::{AssetError, EntityDependencyResolution};
 
+mod attack;
+pub use attack::{
+    CompiledItemAttackCooldown, CompiledItemAttackTiming, CompiledKineticWeaponTiming,
+};
+
 #[cfg(test)]
 #[path = "equipment/texture_tests.rs"]
 mod texture_tests;
@@ -79,7 +84,7 @@ impl EquipmentBinding {
 }
 
 const MAX_POSES_PER_BINDING: usize = 16;
-const MAX_ITEM_USE_DURATIONS: usize = 2048;
+const MAX_ITEM_TIMINGS: usize = 2048;
 const MAX_BONES_PER_POSE: usize = 32;
 
 /// Where the attachment renders, which selects the biped bone a later tranche binds.
@@ -161,6 +166,8 @@ struct EquipmentCatalogPayload {
     bindings: Box<[EquipmentBinding]>,
     #[serde(default)]
     item_use: Box<[ItemUseDuration]>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    item_attack: Vec<CompiledItemAttackTiming>,
 }
 
 /// How long one item can be used (eaten, drunk, drawn) before it completes.
@@ -179,6 +186,7 @@ pub struct RuntimeEquipmentCatalog {
     bindings: Arc<[EquipmentBinding]>,
     textures: Arc<[EquipmentTexture]>,
     item_use: Arc<[ItemUseDuration]>,
+    item_attack: Arc<[CompiledItemAttackTiming]>,
 }
 
 impl RuntimeEquipmentCatalog {
@@ -218,12 +226,14 @@ impl RuntimeEquipmentCatalog {
             &payload.bindings,
         )?;
         validate_item_use(&payload.item_use)?;
+        attack::validate(&payload.item_attack)?;
         let textures = decode_textures(&bytes[payload_end..hash_start])?;
         Ok(Self {
             source_manifest_sha256: payload.source_manifest_sha256,
             entity_blob_sha256: payload.entity_blob_sha256,
             bindings: Arc::from(payload.bindings),
             item_use: Arc::from(payload.item_use),
+            item_attack: Arc::from(payload.item_attack),
             textures: Arc::from(textures),
         })
     }
@@ -248,6 +258,7 @@ impl RuntimeEquipmentCatalog {
             bindings: Arc::from(bindings),
             textures: Arc::from(textures),
             item_use: Arc::from(Vec::new()),
+            item_attack: Arc::from(Vec::new()),
         })
     }
 
@@ -272,6 +283,12 @@ impl RuntimeEquipmentCatalog {
     #[must_use]
     pub fn item_use(&self) -> &[ItemUseDuration] {
         &self.item_use
+    }
+
+    /// Optional attack facts sorted by item identifier.
+    #[must_use]
+    pub fn item_attack_timings(&self) -> &[CompiledItemAttackTiming] {
+        &self.item_attack
     }
 
     /// Ticks the item can be used for, when the pack states it.
@@ -343,14 +360,35 @@ pub fn encode_equipment_catalog_full(
     textures: &[EquipmentTexture],
     item_use: &[ItemUseDuration],
 ) -> Result<Vec<u8>, AssetError> {
+    encode_equipment_catalog_with_attack_timings(
+        source_manifest_sha256,
+        entity_blob_sha256,
+        bindings,
+        textures,
+        item_use,
+        &[],
+    )
+}
+
+/// Encodes the complete equipment catalog, including optional authored attack behavior.
+pub fn encode_equipment_catalog_with_attack_timings(
+    source_manifest_sha256: [u8; 32],
+    entity_blob_sha256: [u8; 32],
+    bindings: &[EquipmentBinding],
+    textures: &[EquipmentTexture],
+    item_use: &[ItemUseDuration],
+    item_attack: &[CompiledItemAttackTiming],
+) -> Result<Vec<u8>, AssetError> {
     validate(&source_manifest_sha256, &entity_blob_sha256, bindings)?;
     validate_textures(textures)?;
     validate_item_use(item_use)?;
+    attack::validate(item_attack)?;
     let payload = EquipmentCatalogPayload {
         source_manifest_sha256,
         entity_blob_sha256,
         bindings: bindings.to_vec().into_boxed_slice(),
         item_use: item_use.to_vec().into_boxed_slice(),
+        item_attack: item_attack.to_vec(),
     };
     let payload_bytes =
         serde_json::to_vec(&payload).map_err(|_| invalid("failed to encode equipment payload"))?;
@@ -422,7 +460,7 @@ fn validate_item_use(item_use: &[ItemUseDuration]) -> Result<(), AssetError> {
         }
         previous = Some(&entry.identifier);
     }
-    if item_use.len() > MAX_ITEM_USE_DURATIONS {
+    if item_use.len() > MAX_ITEM_TIMINGS {
         return Err(invalid("item use duration count exceeds bound"));
     }
     Ok(())

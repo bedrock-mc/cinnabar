@@ -84,6 +84,17 @@ impl SwingTracker {
         completed_tick: u64,
         effects: &LocalMovementEffectTimeline,
     ) {
+        self.sync_ticks_for_item(authority, completed_tick, effects, None);
+    }
+
+    /// Keeps an authored item swing denominator across publication and queue retry history.
+    pub fn sync_ticks_for_item(
+        &mut self,
+        authority: (u64, u64),
+        completed_tick: u64,
+        effects: &LocalMovementEffectTimeline,
+        item_duration: Option<u32>,
+    ) {
         if self.authority != Some(authority) {
             *self = Self {
                 authority: Some(authority),
@@ -98,7 +109,13 @@ impl SwingTracker {
                 completed_tick,
             );
             self.guard_history[distance] = java_swing_duration(before);
-            self.history[distance] = (swing_duration(after), java_swing_duration(after));
+            self.history[distance] = (
+                item_duration.map_or_else(
+                    || swing_duration(after),
+                    |ticks| i32::try_from(ticks).unwrap_or(i32::MAX).max(1),
+                ),
+                java_swing_duration(after),
+            );
         }
     }
 

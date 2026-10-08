@@ -8,7 +8,7 @@ use std::path::PathBuf;
 
 pub use client_session::{
     BatchSendError, NetworkFailureOrigin, PacketSendError, SequencedWorldEvent,
-    SessionTransferTarget, WORLD_EVENT_CAPACITY, WorldIngress, session_failure_display,
+    SessionTransferTarget, WorldIngress, session_failure_display,
 };
 pub type NetworkControlEvent = client_session::NetworkControlEvent<PackApplication>;
 

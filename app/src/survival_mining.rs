@@ -77,10 +77,12 @@ pub(crate) fn produce_survival_mining(
     mut swings: ResMut<SwingTracker>,
     mut movement: ResMut<MovementTicker>,
 ) {
-    swings.sync_ticks(
+    swings.sync_ticks_for_item(
         movement.interaction_authority_identity(),
         movement.completed_tick(),
         &context.effects,
+        crate::melee::selected_attack_timing(&player_runtime, &context.client_world)
+            .and_then(|timing| timing.swing_duration_ticks),
     );
 
     // Wire sequencing only, defaulted to server-authoritative when the server
