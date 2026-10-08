@@ -39,6 +39,8 @@ pub enum ActorStatusKind {
     DrinkMilk,
     Feed,
     ActorGrowUp,
+    /// Event 80 starts the held kinetic weapon's impact feedback.
+    KineticDamageDealt,
 }
 
 /// One actor status event, addressed by runtime id (the wire carries no dimension).
@@ -136,6 +138,7 @@ pub(crate) fn normalize_actor_event(packet: ActorEventPacket) -> Option<ActorEve
         EnumsActorEvent::DrinkMilk => ActorStatusKind::DrinkMilk,
         EnumsActorEvent::Feed => ActorStatusKind::Feed,
         EnumsActorEvent::ActorGrowUp => ActorStatusKind::ActorGrowUp,
+        EnumsActorEvent::KineticDamageDealt => ActorStatusKind::KineticDamageDealt,
         _ => return None,
     };
     Some(ActorEvent::Status(ActorStatusEvent {

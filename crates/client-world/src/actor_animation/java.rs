@@ -28,7 +28,7 @@ pub struct JavaMotion {
     /// The local physics frame fraction; remote swings retain the actor clock.
     pub local_swing_alpha: Option<f32>,
     pub riding: bool,
-    /// Swimming, crawling, gliding, sleeping or emoting: postures Java has no pose for.
+    /// Swimming, crawling, gliding, sleeping, emoting or holding a spear: poses Java lacks.
     pub vanilla_posture: bool,
     /// The cape's chasing point less the position, in blocks.
     pub cape: [[f32; 3]; 2],

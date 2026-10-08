@@ -909,6 +909,7 @@ fn a_local_attack_sends_the_swing_and_swings_the_vanilla_pack_arm() {
                 .unwrap(),
         }),
         swing_duration: 6,
+        item_attack: None,
         now_millis: 1_000,
     };
     let target = Crosshair::Actor(ActorHit {

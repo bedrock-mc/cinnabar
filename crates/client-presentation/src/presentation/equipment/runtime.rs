@@ -18,6 +18,7 @@ use render_model::{
 };
 
 mod alpha;
+mod attack;
 mod diagnostics;
 mod elytra;
 mod java;
@@ -115,6 +116,9 @@ pub struct EquipmentRuntime {
     item_use: Arc<BTreeMap<Box<str>, u32>>,
     /// The startup catalog's use durations, before session items join them.
     base_item_use: Arc<BTreeMap<Box<str>, u32>>,
+    /// Compiled attack facts with the session's component overrides.
+    item_attack: Arc<BTreeMap<Box<str>, protocol::ItemAttackTiming>>,
+    base_item_attack: Arc<BTreeMap<Box<str>, protocol::ItemAttackTiming>>,
     /// The session's custom item facts and icon sprites.
     session: session::SessionLayer,
     /// Next startup item mesh index; session icons use their own range.
@@ -249,6 +253,13 @@ impl EquipmentRuntime {
                 .map(|entry| (entry.identifier.clone(), entry.ticks))
                 .collect(),
         );
+        let item_attack: Arc<BTreeMap<Box<str>, protocol::ItemAttackTiming>> = Arc::new(
+            catalog
+                .iter()
+                .flat_map(|catalog| catalog.item_attack_timings())
+                .map(|entry| (entry.identifier.clone(), attack::timing(entry)))
+                .collect(),
+        );
         let runtime = Self {
             attachables: client_world::AttachablesRuntime::new(Arc::clone(&assets)),
             attachable_meshes: BTreeMap::new(),
@@ -268,6 +279,8 @@ impl EquipmentRuntime {
             meshes: BTreeMap::new(),
             base_item_use: Arc::clone(&item_use),
             item_use,
+            base_item_attack: Arc::clone(&item_attack),
+            item_attack,
             session: session::SessionLayer::default(),
             next_mesh: 0,
             free_meshes: Vec::new(),
@@ -284,6 +297,11 @@ impl EquipmentRuntime {
     /// Item use durations for the animation runtime's max-duration query.
     pub fn item_use_durations(&self) -> Arc<BTreeMap<Box<str>, u32>> {
         Arc::clone(&self.item_use)
+    }
+
+    /// Item attack facts shared by action admission and actor presentation.
+    pub fn item_attack_timings(&self) -> Arc<BTreeMap<Box<str>, protocol::ItemAttackTiming>> {
+        Arc::clone(&self.item_attack)
     }
 
     /// Geometries generated since the last call; the actor scene must register them before the

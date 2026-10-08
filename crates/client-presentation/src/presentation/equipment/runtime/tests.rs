@@ -516,3 +516,92 @@ fn review_render_pack_replacement_invalidates_only_pack_armor_maps() {
     assert_eq!(runtime.armor_maps.len(), 1);
     assert!(runtime.armor_maps.contains_key(&(1, "vanilla".into())));
 }
+
+#[test]
+fn compiled_attack_facts_normalize_and_session_overrides_reset_to_the_catalog() {
+    let (fixture, _, _) = block_fixture();
+    let compiled = assets::CompiledItemAttackTiming {
+        identifier: "fixture:spear".into(),
+        swing_duration_seconds: assets::ItemDisplayScalar::new(0.75),
+        attack_cooldown: Some(assets::CompiledItemAttackCooldown {
+            category: "fixture:jab".into(),
+            duration_seconds: assets::ItemDisplayScalar::new(0.5).unwrap(),
+        }),
+        piercing_weapon: true,
+        is_spear: true,
+        kinetic_weapon: Some(assets::CompiledKineticWeaponTiming {
+            delay_ticks: 4,
+            dismount_ticks: 30,
+            knockback_ticks: 60,
+            damage_ticks: 90,
+        }),
+    };
+    let bytes = assets::encode_equipment_catalog_with_attack_timings(
+        [1; 32],
+        [2; 32],
+        &[],
+        &[],
+        &[],
+        &[compiled],
+    )
+    .unwrap();
+    let catalog = RuntimeEquipmentCatalog::decode(&bytes).unwrap();
+    let (mut runtime, _, _) = EquipmentRuntime::build(
+        fixture.assets,
+        Some(Arc::new(catalog)),
+        fixture.icons,
+        None,
+        None,
+        ActorArtworkPages::default(),
+    );
+    let base = runtime.item_attack_timings();
+    let timing = base.get("fixture:spear").unwrap();
+    assert_eq!(
+        timing.swing_duration_ticks,
+        Some(sim::TICKS_PER_SECOND * 3 / 4)
+    );
+    let cooldown = timing.attack_cooldown.as_ref().unwrap();
+    assert_eq!(cooldown.category.as_ref(), "fixture:jab");
+    assert_eq!(cooldown.ticks, sim::TICKS_PER_SECOND / 2);
+    assert!(timing.piercing_weapon);
+    assert!(timing.is_spear);
+    assert_eq!(timing.kinetic_weapon.unwrap().damage_ticks, 90);
+    let override_timing = protocol::ItemAttackTiming {
+        swing_duration_ticks: Some(sim::TICKS_PER_SECOND),
+        ..Default::default()
+    };
+    let items = crate::session_assets::SessionItems {
+        components: Arc::new(
+            [
+                (
+                    Arc::from("fixture:spear"),
+                    protocol::ItemComponents {
+                        attack: Some(override_timing.clone()),
+                        ..Default::default()
+                    },
+                ),
+                (
+                    Arc::from("fixture:custom"),
+                    protocol::ItemComponents {
+                        attack: Some(override_timing.clone()),
+                        ..Default::default()
+                    },
+                ),
+            ]
+            .into_iter()
+            .collect(),
+        ),
+        icons: None,
+    };
+    runtime.set_session_items(Some(&items), None, Vec::new());
+    assert_eq!(
+        runtime.item_attack_timings().get("fixture:spear"),
+        Some(&override_timing)
+    );
+    assert_eq!(
+        runtime.item_attack_timings().get("fixture:custom"),
+        Some(&override_timing)
+    );
+    runtime.set_session_items(None, None, Vec::new());
+    assert_eq!(runtime.item_attack_timings(), base);
+}

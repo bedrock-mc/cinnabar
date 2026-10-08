@@ -673,6 +673,7 @@ fn attack_tap_then_use(crosshair: crate::melee::Crosshair) -> Vec<[i32; 3]> {
             local_runtime_id: 42,
             selection: None,
             swing_duration: 6,
+            item_attack: None,
             now_millis: 1_000,
         },
         &mut gameplay::melee::SwingTracker::default(),
