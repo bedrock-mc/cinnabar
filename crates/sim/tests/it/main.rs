@@ -1,7 +1,7 @@
 mod aabb;
-mod bamboo;
 mod actor_fluids;
 mod allocation_count;
+mod bamboo;
 mod bedsim_strata;
 mod block_effects;
 mod block_inside;
