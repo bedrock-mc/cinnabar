@@ -5,7 +5,7 @@ use crate::{
     ChunkMesh, DiagnosticGeometryCount, Face, MAX_DIAGNOSTIC_IDENTITIES_PER_MESH,
     MAX_PACKED_BIOME_RECORD_WORDS, PackedBiomeRecord, PackedLiquidQuad, PackedModelDrawRef,
     PackedModelRef, PackedQuad, PackedQuadLighting,
-    chunk::models::{MAX_COMPOUND_MODEL_PARTS, MAX_SELECTED_MODEL_TEMPLATES},
+    chunk::models::MAX_SELECTED_MODEL_TEMPLATES,
     types::{CubeStreams, ModelDrawRefs},
 };
 
@@ -27,11 +27,20 @@ impl MeshOutputBounds {
             .unwrap_or(0);
         let part = bytes::<PackedModelRef>(1)
             + quads * (bytes::<PackedQuadLighting>(1) + bytes::<PackedModelDrawRef>(1));
+        let mut chain = 0_u64;
+        let mut max_parts = 1_u64;
+        for template in assets.model_templates() {
+            chain += 1;
+            max_parts = max_parts.max(chain);
+            if template.flags & assets::MODEL_TEMPLATE_FLAG_COMPOUND_NEXT == 0 {
+                chain = 0;
+            }
+        }
         Self {
             with_models: plain_bound()
                 + BLOCKS_PER_SUB_CHUNK as u64
                     * MAX_SELECTED_MODEL_TEMPLATES as u64
-                    * u64::from(MAX_COMPOUND_MODEL_PARTS)
+                    * max_parts
                     * part,
         }
     }

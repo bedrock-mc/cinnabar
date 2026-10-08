@@ -47,7 +47,7 @@ impl Editor {
         }
     }
 
-    /// Load the compiled Monocraft carrier.
+    /// Load the compiled Cinnangles Sans carrier.
     pub fn load_font(&mut self, bytes: &[u8]) -> Result<(), JsValue> {
         self.frame = None;
         self.session.fonts.load(bytes).map_err(js_error)

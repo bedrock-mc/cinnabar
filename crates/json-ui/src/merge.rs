@@ -1,13 +1,8 @@
-//! `@base` inheritance. A control is flattened by deep-merging its base chain,
-//! child over base. Scalar and array properties are overridden by the child;
-//! nested objects merge key by key; and `controls` merge by local instance name
-//! (a same-named base control is overridden in place, new ones are appended). The
-//! by-name rule matches vanilla templates such as `inactive_button@beacon.base_button`,
-//! which overrides `default`/`hover` yet keeps the base's `pressed`.
+//! `@base` inheritance. As in the vanilla client, a derived definition selects
+//! each property whole: a property it names (objects and `controls` included)
+//! replaces the base's, and only the properties it omits come from the base.
 
 use std::collections::HashSet;
-
-use serde_json::{Map, Value};
 
 use crate::catalog::{Catalog, RawControl};
 use crate::tree::ControlRef;
@@ -23,6 +18,26 @@ pub fn flatten_def(
     namespace: &str,
     name: &str,
     diagnostics: &mut Vec<String>,
+) -> Option<(RawControl, Option<ControlRef>)> {
+    flatten(catalog, namespace, name, diagnostics, true)
+}
+
+/// Applies the same inheritance rules without copying descendant controls.
+pub(crate) fn flatten_properties(
+    catalog: &Catalog,
+    namespace: &str,
+    name: &str,
+    diagnostics: &mut Vec<String>,
+) -> Option<RawControl> {
+    flatten(catalog, namespace, name, diagnostics, false).map(|(control, _)| control)
+}
+
+fn flatten(
+    catalog: &Catalog,
+    namespace: &str,
+    name: &str,
+    diagnostics: &mut Vec<String>,
+    children: bool,
 ) -> Option<(RawControl, Option<ControlRef>)> {
     let top = catalog.lookup(namespace, name)?;
     let provenance = literal_base(top);
@@ -49,9 +64,26 @@ pub fn flatten_def(
         chain.push(base);
     }
     let mut chain = chain.into_iter().rev();
-    let mut flattened = clear_base(chain.next()?.clone());
+    let first = chain.next()?;
+    let mut flattened = clear_base(if children {
+        first.clone()
+    } else {
+        RawControl {
+            owner_ns: first.owner_ns.clone(),
+            name: first.name.clone(),
+            base: first.base.clone(),
+            props: first.props.clone(),
+            children: Vec::new(),
+            has_controls: first.has_controls,
+        }
+    });
     for child in chain {
-        flattened = clear_base(deep_merge_control(&flattened, child));
+        flattened = clear_base(inherit_with_children(
+            &flattened,
+            child,
+            Layering::Document,
+            children,
+        ));
     }
     Some((flattened, provenance))
 }
@@ -64,14 +96,49 @@ fn literal_base(control: &RawControl) -> Option<ControlRef> {
     Some(ControlRef::parse(base, &control.owner_ns))
 }
 
-/// Merge `child` onto `base`, producing a control that keeps `child`'s identity.
-pub fn deep_merge_control(base: &RawControl, child: &RawControl) -> RawControl {
+/// How a derived definition's explicit `null` treats the base's property.
+#[derive(Clone, Copy)]
+pub enum Layering {
+    /// A named `@base` document: any member the derived one names, even `null`, wins.
+    Document,
+    /// An inline `name@base` entry: a `null` member reads through to the base.
+    Inline,
+}
+
+/// `child` over `base` by whole-property selection, keeping `child`'s identity.
+pub fn inherit(base: &RawControl, child: &RawControl, layering: Layering) -> RawControl {
+    inherit_with_children(base, child, layering, true)
+}
+
+fn inherit_with_children(
+    base: &RawControl,
+    child: &RawControl,
+    layering: Layering,
+    children: bool,
+) -> RawControl {
+    let mut props = base.props.clone();
+    if child.has_controls {
+        props.remove("controls");
+    }
+    for (key, value) in &child.props {
+        if value.is_null() && matches!(layering, Layering::Inline) {
+            continue;
+        }
+        props.insert(key.clone(), value.clone());
+    }
     RawControl {
         owner_ns: child.owner_ns.clone(),
         name: child.name.clone(),
         base: child.base.clone().or_else(|| base.base.clone()),
-        props: deep_merge_map(&base.props, &child.props),
-        children: merge_children(&base.children, &child.children),
+        props,
+        children: if !children {
+            Vec::new()
+        } else if child.has_controls {
+            child.children.clone()
+        } else {
+            base.children.clone()
+        },
+        has_controls: child.has_controls || base.has_controls,
     }
 }
 
@@ -80,41 +147,9 @@ fn clear_base(mut control: RawControl) -> RawControl {
     control
 }
 
-fn deep_merge_map(base: &Map<String, Value>, child: &Map<String, Value>) -> Map<String, Value> {
-    let mut merged = base.clone();
-    for (key, value) in child {
-        match (merged.get(key), value) {
-            (Some(Value::Object(base_object)), Value::Object(child_object)) => {
-                merged.insert(
-                    key.clone(),
-                    Value::Object(deep_merge_map(base_object, child_object)),
-                );
-            }
-            _ => {
-                merged.insert(key.clone(), value.clone());
-            }
-        }
-    }
-    merged
-}
-
-fn merge_children(base: &[RawControl], child: &[RawControl]) -> Vec<RawControl> {
-    let mut merged = base.to_vec();
-    for incoming in child {
-        match merged
-            .iter()
-            .position(|existing| existing.name == incoming.name)
-        {
-            Some(index) => merged[index] = deep_merge_control(&merged[index], incoming),
-            None => merged.push(incoming.clone()),
-        }
-    }
-    merged
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{deep_merge_control, flatten_def};
+    use super::{Layering, flatten_def, inherit};
     use crate::catalog::{Catalog, RawControl};
     use serde_json::{Value, json};
 
@@ -182,6 +217,7 @@ mod tests {
             name: name.to_owned(),
             base: base.map(str::to_owned),
             props,
+            has_controls: !children.is_empty(),
             children,
         }
     }
@@ -204,50 +240,59 @@ mod tests {
             json!({ "size": [2, 2] }),
             Vec::new(),
         );
-        let merged = deep_merge_control(&base, &child);
+        let merged = inherit(&base, &child, Layering::Document);
         assert_eq!(merged.props.get("size"), Some(&json!([2, 2])));
         assert_eq!(merged.props.get("color"), Some(&json!("base")));
     }
 
+    // A derived `controls` array replaces the base's children outright.
     #[test]
-    fn controls_merge_by_name_overriding_and_appending() {
+    fn derived_controls_replace_inherited_children() {
         let base = control(
             "btn",
             None,
             json!({}),
-            vec![
-                leaf("default", None),
-                leaf("hover", None),
-                leaf("pressed", None),
-            ],
+            vec![leaf("old", None), leaf("kept", None)],
         );
-        let child = control(
-            "btn",
-            None,
-            json!({}),
-            vec![
-                leaf("default", None),
-                leaf("hover", Some("ns.hover_state")),
-                leaf("extra", None),
-            ],
-        );
-        let merged = deep_merge_control(&base, &child);
+        let child = control("btn", None, json!({}), vec![leaf("new", None)]);
+        let merged = inherit(&base, &child, Layering::Document);
         let names: Vec<&str> = merged.children.iter().map(|c| c.name.as_str()).collect();
-        // pressed survives (only in base), extra appends, base order is kept.
-        assert_eq!(names, ["default", "hover", "pressed", "extra"]);
-        // the overridden `hover` slot takes the child's new base.
-        let hover = merged.children.iter().find(|c| c.name == "hover").unwrap();
-        assert_eq!(hover.base.as_deref(), Some("ns.hover_state"));
+        assert_eq!(names, ["new"]);
+        let mut empty = control("btn", None, json!({}), Vec::new());
+        empty.has_controls = true;
+        assert!(
+            inherit(&base, &empty, Layering::Document)
+                .children
+                .is_empty()
+        );
+        let silent = control("btn", None, json!({}), Vec::new());
+        assert_eq!(
+            inherit(&base, &silent, Layering::Document).children.len(),
+            2
+        );
     }
 
+    // A derived object property is selected whole, not merged key by key.
     #[test]
-    fn nested_objects_merge_key_by_key() {
-        let base = control("p", None, json!({ "bag": { "a": 1, "b": 2 } }), Vec::new());
-        let child = control("p", None, json!({ "bag": { "b": 3, "c": 4 } }), Vec::new());
-        let merged = deep_merge_control(&base, &child);
+    fn derived_objects_replace_the_base_object() {
+        let base = control("p", None, json!({ "map": { "x": 1, "y": 2 } }), Vec::new());
+        let child = control("p", None, json!({ "map": { "x": 3 } }), Vec::new());
+        let merged = inherit(&base, &child, Layering::Document);
+        assert_eq!(merged.props.get("map"), Some(&json!({ "x": 3 })));
+    }
+
+    // An inline entry's `null` reads the base; a document's `null` shadows it.
+    #[test]
+    fn null_members_follow_the_layering() {
+        let base = control("p", None, json!({ "alpha": 0.5 }), Vec::new());
+        let child = control("p", None, json!({ "alpha": null }), Vec::new());
         assert_eq!(
-            merged.props.get("bag"),
-            Some(&json!({ "a": 1, "b": 3, "c": 4 }))
+            inherit(&base, &child, Layering::Inline).props["alpha"],
+            json!(0.5)
+        );
+        assert_eq!(
+            inherit(&base, &child, Layering::Document).props["alpha"],
+            json!(null)
         );
     }
 }

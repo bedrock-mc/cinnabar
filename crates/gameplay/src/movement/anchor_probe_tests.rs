@@ -1,0 +1,1014 @@
+//! Regression witnesses for the bounded spawn-anchor depenetration cure.
+//!
+//! Spawn anchors installed inside solids used to turn depenetration
+//! minimal-translation vectors into oscillating motion under zero input — the
+//! "movement cheats" signature. These witnesses pin the contract: a probed
+//! anchor rests clear of solids before its first sample when a bounded push-out
+//! exists; an unresolvable embedment simply proceeds and streams a driftless
+//! pose (the simulator reports no inputless horizontal motion from an embedded
+//! start), never freezing transmission; and the failed probe optionally renders
+//! one diagnostic marker without changing any decision. All constants are
+//! provisional recovery policy, not vanilla parity claims.
+
+use std::time::Duration;
+
+use serde_json::Value;
+
+use super::anchor_probe::{ANCHOR_PROBE_MAX_DISPLACEMENT_BLOCKS, AnchorProbeState, BeforeTick};
+use super::anchor_probe_evidence::{
+    MARKER_BYTE_CAP, MARKER_PREFIX, MAX_SEALING_COLLIDERS, failure_marker_lines,
+};
+use super::integration_tests::evidence_context;
+use super::{
+    LocalPhysicsController, MovementSource, MovementTicker, PhysicsCorrectionMode,
+    flush_player_auth_inputs, reconcile_candidate_physics_correction,
+};
+use protocol::PLAYER_NETWORK_OFFSET;
+use sim::{
+    Aabb, CollisionQuery, CollisionWorld, MovementInput, ProvenancedCollider, Vec3, WorldQueryError,
+};
+
+/// Flat surface whose walkable top is exactly `y = 70`.
+struct SurfaceFloor;
+
+impl CollisionWorld for SurfaceFloor {
+    fn collision_boxes(&self, query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
+        let floor = Aabb::new(Vec3::new(-64.0, 69.0, -64.0), Vec3::new(64.0, 70.0, 64.0));
+        Ok(CollisionQuery::synthetic(
+            floor
+                .intersects(query)
+                .then_some(floor)
+                .into_iter()
+                .collect(),
+        ))
+    }
+}
+
+/// Sealed pocket: interior gaps are narrower than the standing player on
+/// every axis, so every escape direction collides and no bounded
+/// minimal-translation walk can resolve the embedment.
+struct SealedRoom;
+
+impl SealedRoom {
+    const SOLIDS: [Aabb; 6] = [
+        // Floor (top face y=65).
+        Aabb::new(Vec3::new(-8.0, 64.0, -8.0), Vec3::new(8.0, 65.0, 8.0)),
+        // Ceiling (bottom face y=66.6 leaves a 1.6-block gap < player height).
+        Aabb::new(Vec3::new(-8.0, 66.6, -8.0), Vec3::new(8.0, 68.0, 8.0)),
+        // West/east walls (0.38-block interior gap < player width).
+        Aabb::new(Vec3::new(-8.0, 64.0, -8.0), Vec3::new(0.31, 68.0, 8.0)),
+        Aabb::new(Vec3::new(0.69, 64.0, -8.0), Vec3::new(8.0, 68.0, 8.0)),
+        // North/south walls (0.5-block interior gap < player depth).
+        Aabb::new(Vec3::new(-8.0, 64.0, -8.0), Vec3::new(8.0, 68.0, 0.25)),
+        Aabb::new(Vec3::new(-8.0, 64.0, 0.75), Vec3::new(8.0, 68.0, 8.0)),
+    ];
+}
+
+impl CollisionWorld for SealedRoom {
+    fn collision_boxes(&self, query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
+        Ok(CollisionQuery::synthetic(
+            Self::SOLIDS
+                .iter()
+                .copied()
+                .filter(|shape| shape.intersects(query))
+                .collect(),
+        ))
+    }
+}
+
+fn feet_of(sample_position: [f32; 3]) -> Vec3 {
+    Vec3::new(
+        f64::from(sample_position[0]),
+        f64::from(sample_position[1] - PLAYER_NETWORK_OFFSET),
+        f64::from(sample_position[2]),
+    )
+}
+
+#[test]
+fn reanchor_into_solid_probes_before_first_sample() {
+    let mut physics = LocalPhysicsController::default();
+    let mut ticker = MovementTicker::default();
+    ticker.reset(7, 0, [0.5, 71.0, 0.5]);
+    ticker.set_source(MovementSource::Physics);
+    // The production surface-spawn resolve anchors with authoritative ground
+    // contact (`runtime::world` passes `on_ground = true`), so the probed
+    // anchor's first tick is a settled standing tick rather than an airborne
+    // settling one.
+    physics.reanchor_network_position([0.5, 71.0, 0.5], 0, true);
+
+    let frame = physics.advance(
+        Duration::from_millis(50),
+        MovementInput::default(),
+        &SurfaceFloor,
+    );
+    assert!(frame.blocked.is_none());
+    assert_eq!(frame.samples.len(), 1, "exactly one fixed tick completed");
+
+    let sample = frame.samples.into_iter().next().expect("one sample");
+    let player = Aabb::player_at(feet_of(sample.position));
+    let floor = Aabb::new(Vec3::new(-64.0, 69.0, -64.0), Vec3::new(64.0, 70.0, 64.0));
+    assert!(
+        !player.intersects(floor),
+        "the first produced sample must rest overlap-free, feet {:?}",
+        feet_of(sample.position),
+    );
+    assert!(
+        sample.grounded_after_tick,
+        "the probed anchor stands on the surface instead of launching"
+    );
+    assert!(
+        sample.velocity[1] <= 0.0 && sample.velocity[1] > -0.2,
+        "no depenetration launch impulse may reach the sample: {:?}",
+        sample.velocity,
+    );
+    assert!(!sample.horizontal_collision);
+
+    // Transmission is unconditional: the probed sample is handed off on the very
+    // first flush, with no spawn-settle window withholding it.
+    ticker.enqueue_completed_physics(sample).unwrap();
+    let mut sent = Vec::new();
+    flush_player_auth_inputs(
+        &mut ticker,
+        8,
+        Some(evidence_context()),
+        |identity, _packet| {
+            sent.push(identity.tick);
+            Ok::<_, ()>(())
+        },
+    )
+    .unwrap();
+    assert_eq!(sent, vec![1], "the probed sample transmits immediately");
+}
+
+#[test]
+fn unresolvable_embedment_streams_driftless_instead_of_freezing() {
+    // A sealed pocket cannot be walked clear. Rather than freeze transmission,
+    // the tick proceeds: the simulator reports no inputless horizontal motion
+    // from an embedded start, so every tick still transmits and carries no
+    // horizontal PosDelta the server could read as a movement cheat.
+    let mut physics = LocalPhysicsController::default();
+    let mut ticker = MovementTicker::default();
+    ticker.reset(7, 40, [0.5, 66.620_01, 0.5]);
+    ticker.set_source(MovementSource::Physics);
+    physics.reanchor_network_position([0.5, 66.620_01, 0.5], 40, false);
+
+    let frame = physics.advance(
+        Duration::from_millis(50),
+        MovementInput::default(),
+        &SealedRoom,
+    );
+    assert!(frame.blocked.is_none());
+    assert_eq!(
+        frame.samples.len(),
+        1,
+        "an unresolvable embedment still simulates and transmits"
+    );
+    let sample = frame.samples.into_iter().next().expect("one sample");
+    assert_eq!(
+        (sample.movement[0], sample.movement[2]),
+        (0.0, 0.0),
+        "a sealed embedment reports no inputless horizontal PosDelta",
+    );
+
+    ticker.enqueue_completed_physics(sample).unwrap();
+    let mut sent = Vec::new();
+    flush_player_auth_inputs(
+        &mut ticker,
+        16,
+        Some(evidence_context()),
+        |identity, _packet| {
+            sent.push(identity.tick);
+            Ok::<_, ()>(())
+        },
+    )
+    .unwrap();
+    assert_eq!(sent, vec![41], "the embedded tick transmits like any other");
+
+    // A server snap to a clear position re-probes and rests clear within one
+    // frame (reanchor-before-advance discards exactly the pre-anchor elapsed).
+    let snap_tick = ticker.next_tick();
+    reconcile_candidate_physics_correction(
+        &mut ticker,
+        &mut physics,
+        [50.5, 71.620_01, 50.5],
+        snap_tick,
+        true,
+        PhysicsCorrectionMode::Snap,
+        &SurfaceFloor,
+    )
+    .expect("a clear-position snap applies");
+    let discarded = physics.advance(Duration::ZERO, MovementInput::default(), &SurfaceFloor);
+    assert!(discarded.samples.is_empty());
+    let resume = physics.advance(
+        Duration::from_millis(50),
+        MovementInput::default(),
+        &SurfaceFloor,
+    );
+    assert_eq!(
+        resume.samples.len(),
+        1,
+        "resume within one frame of the snap"
+    );
+    let resumed = resume
+        .samples
+        .into_iter()
+        .next()
+        .expect("one resumed sample");
+    let player = Aabb::player_at(feet_of(resumed.position));
+    let floor = Aabb::new(Vec3::new(-64.0, 69.0, -64.0), Vec3::new(64.0, 70.0, 64.0));
+    assert!(!player.intersects(floor), "the snap re-probe rests clear");
+}
+
+#[test]
+fn a_replay_that_lands_embedded_reprobes_and_pushes_out_on_the_next_tick() {
+    // Corrections replay from a server anchor that can land inside solids just
+    // like a hard anchor. The replay must re-arm the depenetration probe so the
+    // next tick pushes the anchor out positionally instead of streaming an
+    // embedded pose forever.
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position([0.5, 71.620_01, 0.5], 100, true);
+    let mut ticker = MovementTicker::default();
+    ticker.reset(7, 100, [0.5, 71.620_01, 0.5]);
+    ticker.set_source(MovementSource::Physics);
+
+    // One clean tick on the surface so a retained tick exists to replay from.
+    let mut frame = physics
+        .advance(
+            Duration::from_millis(50),
+            MovementInput::default(),
+            &SurfaceFloor,
+        )
+        .samples;
+    let established = frame.pop().expect("one established sample");
+    let established_tick = established.tick;
+    ticker.enqueue_completed_physics(established).unwrap();
+
+    // A replay of that tick to a feet-embedded network position (feet below the
+    // surface top) lands the anchor inside the floor.
+    let embedded_position = [0.5, 71.0, 0.5];
+    reconcile_candidate_physics_correction(
+        &mut ticker,
+        &mut physics,
+        embedded_position,
+        established_tick,
+        true,
+        PhysicsCorrectionMode::ReplayIfRetained,
+        &SurfaceFloor,
+    )
+    .expect("the replay applies");
+
+    // The next simulated tick re-probes and pushes the anchor clear.
+    let resume = physics.advance(
+        Duration::from_millis(50),
+        MovementInput::default(),
+        &SurfaceFloor,
+    );
+    let resumed = resume
+        .samples
+        .into_iter()
+        .next()
+        .expect("one resumed sample");
+    let player = Aabb::player_at(feet_of(resumed.position));
+    let floor = Aabb::new(Vec3::new(-64.0, 69.0, -64.0), Vec3::new(64.0, 70.0, 64.0));
+    assert!(
+        !player.intersects(floor),
+        "the replay re-probe must push the embedded anchor clear, feet {:?}",
+        feet_of(resumed.position),
+    );
+    assert_eq!(
+        (resumed.movement[0], resumed.movement[2]),
+        (0.0, 0.0),
+        "the re-probe tick reports no inputless horizontal PosDelta",
+    );
+}
+
+/// Floor top at `y = 70` with a ceiling edge 1.6 above it: the crouched box
+/// clears it while a standing box would overlap its 0.05-wide lip.
+struct CrouchCeiling;
+
+impl CrouchCeiling {
+    const SOLIDS: [Aabb; 2] = [
+        Aabb::new(Vec3::new(-64.0, 69.0, -64.0), Vec3::new(64.0, 70.0, 64.0)),
+        Aabb::new(Vec3::new(0.75, 71.6, -64.0), Vec3::new(64.0, 72.6, 64.0)),
+    ];
+}
+
+impl CollisionWorld for CrouchCeiling {
+    fn collision_boxes(&self, query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
+        Ok(CollisionQuery::synthetic(
+            Self::SOLIDS
+                .iter()
+                .copied()
+                .filter(|shape| shape.intersects(query))
+                .collect(),
+        ))
+    }
+}
+
+/// The post-replay probe uses the restored crouch box, so a low ceiling cannot shove a sneaking player.
+#[test]
+fn a_replay_under_a_low_ceiling_keeps_a_crouched_anchor_in_place() {
+    let crouching = MovementInput {
+        sneaking: true,
+        ..MovementInput::default()
+    };
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position([0.5, 71.620_01, 0.5], 100, true);
+    let mut ticker = MovementTicker::default();
+    ticker.reset(7, 100, [0.5, 71.620_01, 0.5]);
+    ticker.set_source(MovementSource::Physics);
+    let established = physics
+        .advance(Duration::from_millis(50), crouching, &CrouchCeiling)
+        .samples
+        .pop()
+        .expect("one crouched sample");
+    let established_tick = established.tick;
+    let crouched_position = established.position;
+    ticker.enqueue_completed_physics(established).unwrap();
+
+    reconcile_candidate_physics_correction(
+        &mut ticker,
+        &mut physics,
+        crouched_position,
+        established_tick,
+        true,
+        PhysicsCorrectionMode::ReplayIfRetained,
+        &CrouchCeiling,
+    )
+    .expect("the replay applies");
+
+    let resumed = physics
+        .advance(Duration::from_millis(50), crouching, &CrouchCeiling)
+        .samples
+        .pop()
+        .expect("one resumed sample");
+    assert_eq!(
+        (resumed.position[0], resumed.position[2]),
+        (crouched_position[0], crouched_position[2]),
+        "the probe moved a crouched anchor that already fits",
+    );
+}
+
+#[test]
+fn transient_collision_unavailability_keeps_todays_blocked_behavior() {
+    struct DeferredRoom {
+        available: std::cell::Cell<bool>,
+    }
+    impl CollisionWorld for DeferredRoom {
+        fn collision_boxes(
+            &self,
+            query: Aabb,
+        ) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
+            if !self.available.get() {
+                return Err(WorldQueryError::UnloadedChunk(world::ChunkKey::new(
+                    0, 0, 0,
+                )));
+            }
+            SealedRoom.collision_boxes(query)
+        }
+    }
+
+    let room = DeferredRoom {
+        available: std::cell::Cell::new(false),
+    };
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position([0.5, 66.620_01, 0.5], 40, false);
+
+    let blocked = physics.advance(Duration::from_millis(50), MovementInput::default(), &room);
+    assert!(
+        matches!(
+            blocked.blocked,
+            Some(sim::SimulationError::World(WorldQueryError::UnloadedChunk(
+                _
+            )))
+        ),
+        "unavailable data keeps today's transient-blocked behavior exactly"
+    );
+    assert_eq!(blocked.dropped_ticks, 0);
+
+    // Once data arrives the probe observes the sealed pocket, fails to clear it,
+    // and proceeds — the tick simulates and produces a driftless sample rather
+    // than freezing.
+    room.available.set(true);
+    let resumed = physics.advance(Duration::from_millis(50), MovementInput::default(), &room);
+    assert!(resumed.blocked.is_none());
+    assert_eq!(resumed.samples.len(), 1);
+    let sample = resumed.samples.into_iter().next().expect("one sample");
+    assert_eq!((sample.movement[0], sample.movement[2]), (0.0, 0.0));
+}
+
+// ---------------------------------------------------------------------------
+// Failure-evidence markers (RUST_MCBE_ANCHOR_PROBE family).
+//
+// Live third-party evidence (2026-08-25) could not answer WHICH blocks seal
+// an unescapable spawn pocket after two embedded-anchor holds failed open.
+// These witnesses pin the bounded, zero-behavior-change evidence contract:
+// every failed attempt renders one single-line marker naming the sealing
+// colliders, the epoch-degrade transition adds exactly one degraded marker,
+// truncation stays inside hard caps, and instrumentation can never move a
+// gate, hold, or transmission decision.
+// ---------------------------------------------------------------------------
+
+/// Anchored feet for the unit-cell shaft fixtures below. The standing player
+/// box spans x/z in [0.2001, 0.7999] and y in [65.5, 67.3].
+const SHAFT_FEET: Vec3 = Vec3::new(0.5, 65.5, 0.5);
+
+const FLOOR_CELL: Aabb = Aabb::new(Vec3::new(0.0, 65.0, 0.0), Vec3::new(1.0, 66.0, 1.0));
+const CEILING_CELL: Aabb = Aabb::new(Vec3::new(0.0, 67.0, 0.0), Vec3::new(1.0, 68.0, 1.0));
+
+fn probe_query(feet: Vec3) -> Aabb {
+    Aabb::player_at(feet).grown(ANCHOR_PROBE_MAX_DISPLACEMENT_BLOCKS)
+}
+
+fn parse_marker(line: &str) -> Value {
+    let payload = line
+        .strip_prefix(MARKER_PREFIX)
+        .expect("marker lines carry the registered family prefix");
+    serde_json::from_str(payload).expect("marker payload must be valid JSON")
+}
+
+fn assert_bounded_line(line: &str) {
+    assert!(
+        !line.contains('\n'),
+        "evidence markers must stay single-line"
+    );
+    assert!(
+        line.len() <= MARKER_BYTE_CAP,
+        "marker line {} bytes exceeds the hard cap {MARKER_BYTE_CAP}",
+        line.len(),
+    );
+}
+
+/// Unit-cell sealed shaft: floor cell and ceiling cell one block apart cap
+/// the anchored player column vertically (a 1.0-block gap < standing player
+/// height), so depenetration oscillates until its iteration budget exhausts
+/// and the probe reports unresolvable embedment. Two neighbouring shaft-wall
+/// cells never touch the anchored box and prove non-overlapping geometry is
+/// excluded from the sealing report.
+struct UnitShaft;
+
+impl CollisionWorld for UnitShaft {
+    fn collision_boxes(&self, query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
+        const SIDE_A: Aabb = Aabb::new(Vec3::new(-1.0, 65.0, -1.0), Vec3::new(0.0, 66.0, 0.0));
+        const SIDE_B: Aabb = Aabb::new(Vec3::new(1.0, 65.0, 0.0), Vec3::new(2.0, 66.0, 1.0));
+        Ok(CollisionQuery::synthetic(
+            [FLOOR_CELL, CEILING_CELL, SIDE_A, SIDE_B]
+                .iter()
+                .copied()
+                .filter(|shape| shape.intersects(query))
+                .collect(),
+        ))
+    }
+}
+
+/// Same shaft geometry with the floor cell repeated across ten physics
+/// layers/shapes — multi-shape blocks legitimately produce several colliders
+/// per cell — to exercise the eight-collider report cap.
+struct LayeredShaft;
+
+impl CollisionWorld for LayeredShaft {
+    fn collision_boxes(&self, query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
+        let mut colliders = vec![FLOOR_CELL; 10];
+        colliders.push(CEILING_CELL);
+        Ok(CollisionQuery::synthetic(
+            colliders
+                .into_iter()
+                .filter(|shape| shape.intersects(query))
+                .collect(),
+        ))
+    }
+}
+
+/// Byte-budget fixture: a modest unit-cell collider that always fits, an
+/// out-of-`i32`-range collider whose coordinates cannot be attributed to any
+/// block cell yet still fit comfortably, and a full ±`f64::MAX` cube that
+/// overlaps everything but whose six 309-digit float-marked coordinates can
+/// never fit under the line cap. The truncation outcome is independent of
+/// exact digit counts.
+struct ByteBudgetRoom;
+
+impl CollisionWorld for ByteBudgetRoom {
+    fn collision_boxes(&self, query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
+        const VAST: f64 = f64::MAX;
+        const BEYOND_I32: f64 = 3.0e9;
+        let mut colliders = vec![FLOOR_CELL];
+        colliders.push(Aabb::new(
+            Vec3::new(-BEYOND_I32, 66.5, -BEYOND_I32),
+            Vec3::new(BEYOND_I32, 67.5, BEYOND_I32),
+        ));
+        colliders.push(Aabb::new(
+            Vec3::new(-VAST, -VAST, -VAST),
+            Vec3::new(VAST, VAST, VAST),
+        ));
+        Ok(CollisionQuery::synthetic(
+            colliders
+                .into_iter()
+                .filter(|shape| shape.intersects(query))
+                .collect(),
+        ))
+    }
+}
+
+/// Unit-cell shaft whose colliders carry exact palette provenance from the
+/// new `collision_boxes_with_provenance` surface. The ids mirror the live
+/// aliasing story this evidence exists for: a current-content server streams
+/// sequential id 13629 (pinned-v1001 birch_stairs, current-content air) and
+/// 13094 (v1001 air), so naming wire runtime ids directly proves or refutes
+/// sequential-id aliasing on the wire without any registry inference.
+struct ProvenancedShaft;
+
+impl ProvenancedShaft {
+    fn colliders(query: Aabb) -> Vec<ProvenancedCollider> {
+        [
+            (FLOOR_CELL, [0_i32, 65, 0], 13_629_u64),
+            (CEILING_CELL, [0, 67, 0], 13_094),
+            // Same sealing side cells as UnitShaft, each with its own wire id.
+            (
+                Aabb::new(Vec3::new(-1.0, 65.0, -1.0), Vec3::new(0.0, 66.0, 0.0)),
+                [-1, 65, -1],
+                7_001,
+            ),
+            (
+                Aabb::new(Vec3::new(1.0, 65.0, 0.0), Vec3::new(2.0, 66.0, 1.0)),
+                [1, 65, 0],
+                7_002,
+            ),
+        ]
+        .into_iter()
+        .filter(|(shape, _, _)| shape.intersects(query))
+        .map(|(aabb, block, runtime_id)| ProvenancedCollider {
+            aabb,
+            block: Some(block),
+            runtime_id: Some(runtime_id),
+        })
+        .collect()
+    }
+}
+
+impl CollisionWorld for ProvenancedShaft {
+    fn collision_boxes(&self, query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
+        Ok(CollisionQuery::synthetic(
+            Self::colliders(query).into_iter().map(|e| e.aabb).collect(),
+        ))
+    }
+
+    fn collision_boxes_with_provenance(
+        &self,
+        query: Aabb,
+    ) -> Result<CollisionQuery<Vec<ProvenancedCollider>>, WorldQueryError> {
+        Ok(CollisionQuery::synthetic(Self::colliders(query)))
+    }
+}
+
+/// Same shaft with ten distinct provenanced floor colliders plus the ceiling
+/// cell, to exercise the eight-collider report cap while every entry carries
+/// a runtime id.
+struct LayeredProvenancedShaft;
+
+impl LayeredProvenancedShaft {
+    fn colliders(query: Aabb) -> Vec<ProvenancedCollider> {
+        let mut entries = (0_u64..10)
+            .map(|layer| ProvenancedCollider {
+                aabb: FLOOR_CELL,
+                block: Some([0, 65, 0]),
+                runtime_id: Some(1_000 + layer),
+            })
+            .collect::<Vec<_>>();
+        entries.push(ProvenancedCollider {
+            aabb: CEILING_CELL,
+            block: Some([0, 67, 0]),
+            runtime_id: Some(13_094),
+        });
+        entries
+            .into_iter()
+            .filter(|entry| entry.aabb.intersects(query))
+            .collect()
+    }
+}
+
+impl CollisionWorld for LayeredProvenancedShaft {
+    fn collision_boxes(&self, query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
+        Ok(CollisionQuery::synthetic(
+            Self::colliders(query).into_iter().map(|e| e.aabb).collect(),
+        ))
+    }
+
+    fn collision_boxes_with_provenance(
+        &self,
+        query: Aabb,
+    ) -> Result<CollisionQuery<Vec<ProvenancedCollider>>, WorldQueryError> {
+        Ok(CollisionQuery::synthetic(Self::colliders(query)))
+    }
+}
+
+fn shaft_failure_lines(
+    world: &impl CollisionWorld,
+    enabled: bool,
+    epoch_spent: bool,
+) -> Vec<String> {
+    let colliders = world
+        .collision_boxes_with_provenance(probe_query(SHAFT_FEET))
+        .expect("stub worlds are always loaded")
+        .value;
+    failure_marker_lines(
+        enabled,
+        SHAFT_FEET,
+        &colliders,
+        super::anchor_probe::ANCHOR_PROBE_MAX_ITERATIONS,
+        ANCHOR_PROBE_MAX_DISPLACEMENT_BLOCKS,
+        epoch_spent,
+    )
+}
+
+#[test]
+fn failed_probe_marker_names_exact_unit_cell_sealing_colliders() {
+    // A failed probe proceeds (no freeze) while still rendering its marker.
+    let mut state = AnchorProbeState::new();
+    state.note_hard_anchor();
+    state.testing_set_evidence_enabled(true);
+    assert_eq!(
+        state.before_tick(&UnitShaft, SHAFT_FEET, sim::PLAYER_HEIGHT),
+        BeforeTick::Proceed
+    );
+
+    let lines = shaft_failure_lines(&UnitShaft, true, false);
+    assert_eq!(lines.len(), 1, "exactly one marker per failed attempt");
+    assert_bounded_line(&lines[0]);
+
+    let parsed = parse_marker(&lines[0]);
+    // v2 adds the optional per-collider "rid" key; every prior key renders
+    // exactly as v1 did, and provenance-less colliders stay byte-compatible.
+    assert_eq!(parsed["schema"], "rust-mcbe-anchor-probe-v2");
+    assert_eq!(parsed["phase"], "failed");
+    assert_eq!(parsed["feet"], serde_json::json!([0.5, 65.5, 0.5]));
+    let player = Aabb::player_at(SHAFT_FEET);
+    let extents = player.max - player.min;
+    let expected: serde_json::Value = serde_json::from_str(&format!(
+        "[{:.6},{:.6},{:.6}]",
+        extents.x, extents.y, extents.z
+    ))
+    .unwrap();
+    assert_eq!(parsed["player_extents"], expected);
+    assert_eq!(
+        parsed["iterations"],
+        super::anchor_probe::ANCHOR_PROBE_MAX_ITERATIONS
+    );
+    assert_eq!(
+        parsed["max_displacement_blocks"],
+        ANCHOR_PROBE_MAX_DISPLACEMENT_BLOCKS
+    );
+    assert_eq!(parsed["overlap_free"], false);
+    assert_eq!(parsed["total_sealing_count"], 2);
+    assert_eq!(parsed["truncated"], false);
+    assert_eq!(
+        parsed["sealing"],
+        serde_json::json!([
+            {"min": [0.0, 65.0, 0.0], "max": [1.0, 66.0, 1.0], "block": [0, 65, 0]},
+            {"min": [0.0, 67.0, 0.0], "max": [1.0, 68.0, 1.0], "block": [0, 67, 0]},
+        ]),
+        "each unit-cell collider names its containing block exactly",
+    );
+
+    // Instrumentation disabled: the identical failure requests nothing.
+    assert!(shaft_failure_lines(&UnitShaft, false, false).is_empty());
+
+    // No failure: a merely touching surface produces zero sealing colliders
+    // and therefore zero marker lines even when instrumentation is enabled.
+    const SURFACE_FEET: Vec3 = Vec3::new(0.0, 70.0, 0.0);
+    let surface = SurfaceFloor
+        .collision_boxes_with_provenance(probe_query(SURFACE_FEET))
+        .expect("loaded stub world")
+        .value;
+    let success_lines = failure_marker_lines(
+        true,
+        SURFACE_FEET,
+        &surface,
+        super::anchor_probe::ANCHOR_PROBE_MAX_ITERATIONS,
+        ANCHOR_PROBE_MAX_DISPLACEMENT_BLOCKS,
+        false,
+    );
+    assert!(
+        success_lines.is_empty(),
+        "successful or merely touching anchors emit no evidence"
+    );
+}
+
+#[test]
+fn failed_probe_marker_reports_merged_multicell_colliders_without_block_ids() {
+    // The established sealed-room fixture: giant slabs spanning many cells.
+    let feet = Vec3::new(0.5, 66.620_01, 0.5);
+    let colliders = SealedRoom
+        .collision_boxes_with_provenance(probe_query(feet))
+        .expect("loaded stub world")
+        .value;
+    let lines = failure_marker_lines(
+        true,
+        feet,
+        &colliders,
+        super::anchor_probe::ANCHOR_PROBE_MAX_ITERATIONS,
+        ANCHOR_PROBE_MAX_DISPLACEMENT_BLOCKS,
+        false,
+    );
+    assert_eq!(lines.len(), 1);
+    assert_bounded_line(&lines[0]);
+
+    let parsed = parse_marker(&lines[0]);
+    // The floor lies fully below the anchored box; the other five solids
+    // overlap it. Every overlapping slab spans many cells, so each reports
+    // its quantized AABB plus merged:true and never a block id. Quantized
+    // values land on the 1/64 grid (66.6 -> 66.59375, 0.31 -> 0.3125).
+    assert_eq!(parsed["total_sealing_count"], 5);
+    assert_eq!(parsed["truncated"], false);
+    assert_eq!(
+        parsed["sealing"],
+        serde_json::json!([
+            {"min": [-8.0, 66.59375, -8.0], "max": [8.0, 68.0, 8.0], "merged": true},
+            {"min": [-8.0, 64.0, -8.0], "max": [0.3125, 68.0, 8.0], "merged": true},
+            {"min": [0.6875, 64.0, -8.0], "max": [8.0, 68.0, 8.0], "merged": true},
+            {"min": [-8.0, 64.0, -8.0], "max": [8.0, 68.0, 0.25], "merged": true},
+            {"min": [-8.0, 64.0, 0.75], "max": [8.0, 68.0, 8.0], "merged": true},
+        ]),
+    );
+    for entry in parsed["sealing"].as_array().expect("array") {
+        assert!(
+            entry.get("block").is_none(),
+            "multi-cell colliders must not claim a block id: {entry}"
+        );
+        assert!(
+            entry.get("rid").is_none(),
+            "merged colliders must not claim a runtime id: {entry}"
+        );
+    }
+}
+
+#[test]
+fn failure_marker_lines_render_an_optional_degraded_variant() {
+    let colliders = UnitShaft
+        .collision_boxes_with_provenance(probe_query(SHAFT_FEET))
+        .expect("loaded stub world")
+        .value;
+    let common_args = (
+        SHAFT_FEET,
+        &colliders,
+        super::anchor_probe::ANCHOR_PROBE_MAX_ITERATIONS,
+        ANCHOR_PROBE_MAX_DISPLACEMENT_BLOCKS,
+    );
+
+    let attempt_lines = failure_marker_lines(
+        true,
+        common_args.0,
+        common_args.1,
+        common_args.2,
+        common_args.3,
+        false,
+    );
+    assert_eq!(attempt_lines.len(), 1);
+    assert!(attempt_lines[0].contains("\"phase\":\"failed\""));
+
+    // The third failure additionally spends the epoch budget: one more
+    // marker reusing identical content except phase=degraded.
+    let spent_lines = failure_marker_lines(
+        true,
+        common_args.0,
+        common_args.1,
+        common_args.2,
+        common_args.3,
+        true,
+    );
+    assert_eq!(spent_lines.len(), 2);
+    assert!(spent_lines[0].contains("\"phase\":\"failed\""));
+    assert!(spent_lines[1].contains("\"phase\":\"degraded\""));
+    assert_bounded_line(&spent_lines[1]);
+    assert_eq!(
+        spent_lines[1].replace("degraded", "failed"),
+        spent_lines[0],
+        "the degraded marker reuses the same evidence besides phase",
+    );
+
+    // Disabled instrumentation emits nothing even on the degrade transition.
+    assert!(
+        failure_marker_lines(
+            false,
+            common_args.0,
+            common_args.1,
+            common_args.2,
+            common_args.3,
+            true
+        )
+        .is_empty()
+    );
+}
+
+#[test]
+fn marker_truncates_at_eight_sealing_colliders_with_total_count() {
+    let lines = shaft_failure_lines(&LayeredShaft, true, false);
+    assert_eq!(lines.len(), 1);
+    assert_bounded_line(&lines[0]);
+
+    let parsed = parse_marker(&lines[0]);
+    assert_eq!(parsed["total_sealing_count"], 11);
+    assert_eq!(parsed["truncated"], true);
+    let sealing = parsed["sealing"].as_array().expect("array");
+    assert_eq!(
+        sealing.len(),
+        MAX_SEALING_COLLIDERS,
+        "the report keeps at most eight colliders",
+    );
+    let expected_floor = serde_json::json!({
+        "min": [0.0, 65.0, 0.0],
+        "max": [1.0, 66.0, 1.0],
+        "block": [0, 65, 0],
+    });
+    assert!(
+        sealing.iter().all(|entry| *entry == expected_floor),
+        "count truncation keeps the first colliders in query order",
+    );
+}
+
+#[test]
+fn marker_byte_cap_truncates_instead_of_exceeding_2048_bytes() {
+    let lines = shaft_failure_lines(&ByteBudgetRoom, true, false);
+    assert_eq!(lines.len(), 1);
+    assert_bounded_line(&lines[0]);
+
+    let parsed = parse_marker(&lines[0]);
+    assert_eq!(parsed["total_sealing_count"], 3);
+    assert_eq!(
+        parsed["truncated"], true,
+        "the vast-coordinate collider must be cut by the byte budget",
+    );
+    let sealing = parsed["sealing"].as_array().expect("array");
+    assert_eq!(
+        sealing.len(),
+        2,
+        "the modest and out-of-range colliders fit; the vast one never can: kept {sealing:?}",
+    );
+    // The kept entries: the attributed unit cell, then the unattributable
+    // out-of-range collider reporting merged without any block id.
+    assert_eq!(
+        sealing[0],
+        serde_json::json!({"min": [0.0, 65.0, 0.0], "max": [1.0, 66.0, 1.0], "block": [0, 65, 0]}),
+    );
+    assert_eq!(
+        sealing[1],
+        serde_json::json!({
+            "min": [-3000000000.0, 66.5, -3000000000.0],
+            "max": [3000000000.0, 67.5, 3000000000.0],
+            "merged": true,
+        }),
+        "coordinates beyond the i32 block range never claim a block id",
+    );
+}
+
+#[test]
+fn failed_probe_marker_names_exact_runtime_ids_from_palette_provenance() {
+    let lines = shaft_failure_lines(&ProvenancedShaft, true, false);
+    assert_eq!(lines.len(), 1);
+    assert_bounded_line(&lines[0]);
+
+    let parsed = parse_marker(&lines[0]);
+    assert_eq!(parsed["schema"], "rust-mcbe-anchor-probe-v2");
+    // Only the two unit cells genuinely overlapping the anchored player box
+    // seal it; the side cells reach depenetration through the grown query but
+    // never touch the player, so they stay out of the sealing report.
+    assert_eq!(parsed["total_sealing_count"], 2);
+    assert_eq!(parsed["truncated"], false);
+    assert_eq!(
+        parsed["sealing"],
+        serde_json::json!([
+            {"min": [0.0, 65.0, 0.0], "max": [1.0, 66.0, 1.0], "block": [0, 65, 0], "rid": 13629},
+            {"min": [0.0, 67.0, 0.0], "max": [1.0, 68.0, 1.0], "block": [0, 67, 0], "rid": 13094},
+        ]),
+        "each provenanced collider names its true source cell plus its exact wire runtime id",
+    );
+
+    // The disabled path stays empty even when provenance is available.
+    assert!(shaft_failure_lines(&ProvenancedShaft, false, false).is_empty());
+}
+
+#[test]
+fn marker_truncation_keeps_provenanced_ids_in_query_order() {
+    let lines = shaft_failure_lines(&LayeredProvenancedShaft, true, false);
+    assert_eq!(lines.len(), 1);
+    assert_bounded_line(&lines[0]);
+
+    let parsed = parse_marker(&lines[0]);
+    assert_eq!(parsed["total_sealing_count"], 11);
+    assert_eq!(parsed["truncated"], true);
+    let sealing = parsed["sealing"].as_array().expect("array");
+    assert_eq!(
+        sealing.len(),
+        MAX_SEALING_COLLIDERS,
+        "the report keeps at most eight colliders",
+    );
+    let kept_ids = sealing
+        .iter()
+        .map(|entry| {
+            entry
+                .get("rid")
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or_else(|| panic!("every kept entry carries its rid: {entry}"))
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        kept_ids,
+        (0..MAX_SEALING_COLLIDERS as u64)
+            .map(|layer| 1_000 + layer)
+            .collect::<Vec<_>>(),
+        "kept-prefix runtime ids follow query order",
+    );
+}
+
+#[test]
+fn provenance_attribution_wins_over_geometric_cell_inference() {
+    // A halo-registered shape can lie fully inside a cell other than its
+    // source block; geometric containment would misname or merge it. Exact
+    // provenance must name the SOURCE cell and its runtime id instead.
+    struct HaloShaft;
+
+    impl CollisionWorld for HaloShaft {
+        fn collision_boxes(
+            &self,
+            query: Aabb,
+        ) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
+            Ok(CollisionQuery::synthetic(
+                Self::colliders(query).into_iter().map(|e| e.aabb).collect(),
+            ))
+        }
+
+        fn collision_boxes_with_provenance(
+            &self,
+            query: Aabb,
+        ) -> Result<CollisionQuery<Vec<ProvenancedCollider>>, WorldQueryError> {
+            Ok(CollisionQuery::synthetic(Self::colliders(query)))
+        }
+    }
+
+    impl HaloShaft {
+        fn colliders(query: Aabb) -> Vec<ProvenancedCollider> {
+            const SHAPE: Aabb = Aabb::new(Vec3::new(0.0, 65.0, 0.0), Vec3::new(1.0, 66.0, 1.0));
+            [SHAPE]
+                .into_iter()
+                .filter(|shape| shape.intersects(query))
+                .map(|aabb| ProvenancedCollider {
+                    aabb,
+                    block: Some([5, 60, -3]),
+                    runtime_id: Some(4_242),
+                })
+                .collect()
+        }
+    }
+
+    let lines = shaft_failure_lines(&HaloShaft, true, false);
+    assert_eq!(lines.len(), 1);
+    let parsed = parse_marker(&lines[0]);
+    assert_eq!(
+        parsed["sealing"],
+        serde_json::json!([
+            {"min": [0.0, 65.0, 0.0], "max": [1.0, 66.0, 1.0], "block": [5, 60, -3], "rid": 4242},
+        ]),
+        "the supplied source cell and id win over geometric inference",
+    );
+}
+
+#[test]
+fn evidence_instrumentation_never_changes_probe_decisions() {
+    fn drive_shaft_epoch(world: &impl CollisionWorld, evidence_enabled: bool) -> Vec<BeforeTick> {
+        let mut state = AnchorProbeState::new();
+        state.testing_set_evidence_enabled(evidence_enabled);
+        state.note_hard_anchor();
+        vec![
+            state.before_tick(world, SHAFT_FEET, sim::PLAYER_HEIGHT), // failed probe: proceeds
+            state.before_tick(world, SHAFT_FEET, sim::PLAYER_HEIGHT), // already resolved: proceeds
+            state.before_tick(world, SHAFT_FEET, sim::PLAYER_HEIGHT),
+        ]
+    }
+
+    // A failed probe proceeds regardless of instrumentation; the marker path is
+    // purely additive and must never move the transmission decision.
+    let expected = vec![
+        BeforeTick::Proceed,
+        BeforeTick::Proceed,
+        BeforeTick::Proceed,
+    ];
+    assert_eq!(
+        drive_shaft_epoch(&UnitShaft, false),
+        expected,
+        "instrumentation off keeps the exact decision sequence"
+    );
+    assert_eq!(
+        drive_shaft_epoch(&UnitShaft, true),
+        expected,
+        "instrumentation on must produce the identical decision sequence",
+    );
+    assert_eq!(
+        drive_shaft_epoch(&ProvenancedShaft, false),
+        expected,
+        "provenanced evidence off keeps the exact decision sequence"
+    );
+    assert_eq!(
+        drive_shaft_epoch(&ProvenancedShaft, true),
+        expected,
+        "provenanced evidence on must produce the identical decision sequence",
+    );
+}

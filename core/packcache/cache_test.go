@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -168,9 +167,6 @@ func TestInterruptedTempIgnoredAndRemovedOnRestart(t *testing.T) {
 	if err := os.Mkdir(root, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := secureCreatedPath(root, true); err != nil {
-		t.Fatal(err)
-	}
 	temp := filepath.Join(root, tempPrefix+"interrupted")
 	if err := os.WriteFile(temp, []byte("partial"), 0o600); err != nil {
 		t.Fatal(err)
@@ -259,53 +255,6 @@ func TestImpossibleAdmissionAndContextCancellation(t *testing.T) {
 	cancel()
 	if err := c.Store(ctx, key, pack); !errors.Is(err, context.Canceled) {
 		t.Fatalf("Store error = %v", err)
-	}
-}
-
-func TestLinkedParentAndInsecurePermissionsRejected(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("Unix permission and symlink test")
-	}
-	base := secureTempDir(t)
-	realParent := filepath.Join(base, "real")
-	if err := os.Mkdir(realParent, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	linked := filepath.Join(base, "linked")
-	if err := os.Symlink(realParent, linked); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := New(filepath.Join(linked, "objects")); err == nil {
-		t.Fatal("linked parent accepted")
-	}
-	insecure := filepath.Join(base, "insecure")
-	if err := os.Mkdir(insecure, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := New(filepath.Join(insecure, "objects")); err == nil {
-		t.Fatal("insecure parent accepted")
-	}
-	root := filepath.Join(base, "root")
-	if err := os.Mkdir(root, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chmod(root, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := New(root); err == nil {
-		t.Fatal("insecure root accepted")
-	}
-	c := newTestCache(t, 1<<20)
-	pack, key, _ := testPack(t, uuid.New(), "1.0.0", "permissions")
-	if err := c.Store(context.Background(), key, pack); err != nil {
-		t.Fatal(err)
-	}
-	name, _ := objectName(key)
-	if err := os.Chmod(filepath.Join(c.root, name), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if got, err := c.Load(context.Background(), key); err != nil || got != nil {
-		t.Fatalf("insecure object Load = %v, %v; want miss", got, err)
 	}
 }
 
@@ -480,9 +429,6 @@ func TestStartupCleansAllPrivateTempsBeforeEntryLimit(t *testing.T) {
 	if err := os.Mkdir(root, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := secureCreatedPath(root, true); err != nil {
-		t.Fatal(err)
-	}
 	for i := 0; i <= maxIndexEntries; i++ {
 		name := filepath.Join(root, fmt.Sprintf("%s%06d", tempPrefix, i))
 		if err := os.WriteFile(name, nil, 0o600); err != nil {
@@ -555,9 +501,6 @@ func newTestCache(t *testing.T, quota uint64) *Cache {
 func secureTempDir(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	if err := secureCreatedPath(dir, true); err != nil {
-		t.Fatal(err)
-	}
 	return dir
 }
 
@@ -596,4 +539,140 @@ func csvVersion(version string) string {
 	var a, b, c int
 	fmt.Sscanf(version, "%d.%d.%d", &a, &b, &c)
 	return fmt.Sprintf("%d,%d,%d", a, b, c)
+}
+
+// TestCacheAcceptsExistingDirectory keeps the cache usable without auditing its parent permissions.
+func TestCacheAcceptsExistingDirectory(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "existing")
+	if err := os.Mkdir(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cache, err := New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cache.Close()
+	pack, key, _ := testPack(t, uuid.New(), "1.0.0", "shared-parent")
+	if err := cache.Store(context.Background(), key, pack); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := cache.Load(context.Background(), key); err != nil || got == nil {
+		t.Fatalf("Load = %v, %v", got, err)
+	}
+}
+
+// A load in flight on one key must not hold up loads of other keys, while the same key stays serialized.
+func TestLoadsOfDifferentKeysDoNotWaitOnEachOther(t *testing.T) {
+	c := newTestCache(t, 1<<20)
+	packA, keyA, _ := testPack(t, uuid.New(), "1.0.0", "a")
+	packB, keyB, _ := testPack(t, uuid.New(), "1.0.0", "b")
+	for _, item := range []struct {
+		key  minecraft.ResourcePackCacheKey
+		pack *resource.Pack
+	}{{keyA, packA}, {keyB, packB}} {
+		if err := c.Store(context.Background(), item.key, item.pack); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, release, err := c.acquire(keyA) // stands in for a slow load of A
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := c.Load(context.Background(), keyB); err != nil || got == nil {
+		t.Fatalf("Load(B) while A busy = %v, %v", got, err)
+	}
+	loadedA := make(chan *resource.Pack, 1)
+	go func() { got, _ := c.Load(context.Background(), keyA); loadedA <- got }()
+	select {
+	case <-loadedA:
+		t.Fatal("a second operation on the same key ran concurrently")
+	case <-time.After(50 * time.Millisecond):
+	}
+	release()
+	select {
+	case got := <-loadedA:
+		if got == nil {
+			t.Fatal("Load(A) missed after the key was released")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Load(A) never finished")
+	}
+}
+
+// Concurrent loads, stores and evictions keep the quota and the index in step with the disk.
+func TestConcurrentLoadsAndStoresKeepQuotaAndIndex(t *testing.T) {
+	type item struct {
+		key  minecraft.ResourcePackCacheKey
+		pack *resource.Pack
+	}
+	var items []item
+	for i := range 6 {
+		pack, key, _ := testPack(t, uuid.New(), "1.0.0", strings.Repeat("x", 100*i))
+		items = append(items, item{key, pack})
+	}
+	quota := 3 * items[len(items)-1].key.Size
+	c := newTestCache(t, quota)
+	var wg sync.WaitGroup
+	for g := range 12 {
+		wg.Go(func() {
+			for round := range 20 {
+				it := items[(g+round)%len(items)]
+				if round%3 == 0 {
+					_ = c.Store(context.Background(), it.key, it.pack)
+				} else if got, err := c.Load(context.Background(), it.key); err != nil || (got != nil && !it.key.Matches(got)) {
+					t.Errorf("Load = %v, %v", got, err)
+				}
+			}
+		})
+	}
+	wg.Wait()
+	processMu.Lock()
+	used, indexed := c.used, uint64(0)
+	for _, e := range c.index {
+		indexed += e.size
+	}
+	processMu.Unlock()
+	var onDisk uint64
+	entries, _ := os.ReadDir(c.root)
+	for _, e := range entries {
+		if validObjectName(e.Name()) {
+			info, _ := e.Info()
+			onDisk += uint64(info.Size())
+		}
+	}
+	if used != indexed || used != onDisk || used > quota {
+		t.Fatalf("used %d, indexed %d, on disk %d, quota %d", used, indexed, onDisk, quota)
+	}
+	for _, it := range items {
+		_ = c.Store(context.Background(), it.key, it.pack)
+		if got, err := c.Load(context.Background(), it.key); err != nil || got == nil {
+			t.Fatalf("Load after Store = %v, %v", got, err)
+		}
+	}
+}
+
+// Close waits for an operation in flight so the root lease outlives every write into it.
+func TestCloseWaitsForOperationsInFlight(t *testing.T) {
+	c := newTestCache(t, 1<<20)
+	_, key, _ := testPack(t, uuid.New(), "1.0.0", "x")
+	_, release, err := c.acquire(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	closed := make(chan struct{})
+	go func() { _ = c.Close(); close(closed) }()
+	select {
+	case <-closed:
+		t.Fatal("Close returned with an operation in flight")
+	case <-time.After(50 * time.Millisecond):
+	}
+	if _, err := c.Load(context.Background(), key); !errors.Is(err, ErrClosed) {
+		t.Fatalf("Load while closing = %v", err)
+	}
+	release()
+	select {
+	case <-closed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Close never returned")
+	}
 }

@@ -3,89 +3,79 @@
 //! presses to the module, an opened world is joined through the launcher core
 //! and closed when its session ends, and the pause menu pauses it.
 
-use protocol::world_control::{Difficulty, GameMode, World};
+use protocol::world_control::{Backend, Difficulty, GameMode};
 
-use super::{LocalWorldCard, MenuAction, MenuField, MenuRuntime, MenuScreen, PendingConnect};
-use crate::local_worlds::{
-    Input, LocalWorlds, Progress, PromptButton, Screen, Tab, WorldsView, game_mode_label,
-    world_type_label,
-};
+use super::{MenuAction, MenuField, MenuRuntime, MenuScreen};
+use crate::local_worlds::{Input, LocalWorlds, Progress, Screen, Tab, WorldsView};
 
-/// A press on a local-world screen or modal; the menu forwards it to the module.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum LocalWorldAction {
-    Edit(usize),
-    BeginCreate,
-    OpenTemplates,
-    Back,
-    Tab(Tab),
-    /// Focuses the world name field (create or edit).
-    NameField,
-    SeedField,
-    GameMode(GameMode),
-    Difficulty(Difficulty),
-    Flat(bool),
-    Create,
-    Save,
-    Discard,
-    PlayFromEdit,
-    Delete,
-    ConfirmDelete,
-    AcceptEula,
-    ViewEula,
-    Prompt(PromptButton),
-}
-
-impl LocalWorldAction {
-    /// The text field this press focuses, if any.
-    pub(super) fn field(self) -> Option<MenuField> {
-        match self {
-            Self::NameField => Some(MenuField::WorldName),
-            Self::SeedField => Some(MenuField::WorldSeed),
-            _ => None,
-        }
-    }
-
-    fn input(self) -> Option<Input> {
-        Some(match self {
-            Self::Edit(index) => Input::BeginEdit(index),
-            Self::BeginCreate => Input::BeginCreate,
-            Self::OpenTemplates => Input::OpenTemplates,
-            Self::Back => Input::Back,
-            Self::Tab(tab) => Input::SelectTab(tab),
-            Self::NameField | Self::SeedField => return None,
-            Self::GameMode(mode) => Input::SetGameMode(mode),
-            Self::Difficulty(difficulty) => Input::SetDifficulty(difficulty),
-            Self::Flat(flat) => Input::SetFlat(flat),
-            Self::Create => Input::SubmitCreate,
-            Self::Save => Input::SubmitEdit,
-            Self::Discard => Input::DiscardEdit,
-            Self::PlayFromEdit => Input::PlayFromEdit,
-            Self::Delete => Input::RequestDelete,
-            Self::ConfirmDelete => Input::ConfirmDelete,
-            Self::AcceptEula => Input::AcceptEula,
-            Self::ViewEula => Input::OpenEulaLink,
-            Self::Prompt(button) => button.input(),
-        })
-    }
-}
+pub(crate) use launcher::menu::worlds_tab::LocalWorldAction;
+use launcher::menu::worlds_tab::world_card;
 
 /// The menu's side of the local-world screens: the mirrored view, queued presses and the
-/// text typed into the name and seed fields.
-#[derive(Debug, Default)]
+/// name and seed fields' editors.
+#[derive(Debug)]
 pub(super) struct LocalWorldsUi {
     view: WorldsView,
     actions: Vec<LocalWorldAction>,
-    pub(super) name: String,
-    pub(super) seed: String,
+    pub(super) name: ui::ChatEditor,
+    pub(super) seed: ui::ChatEditor,
     /// The world being joined, for the loading screen's connect stage.
     joining: Option<String>,
+    /// The joined world runs on the dedicated server, which the core hosts for Xbox friends.
+    hosted: bool,
+    /// The open world's player limit, as its server reported it.
+    max_players: Option<u32>,
+}
+
+impl LocalWorldsUi {
+    /// Local preparation progress covers standalone prompts and owns their input.
+    pub(super) fn progress_open(&self) -> bool {
+        self.view.progress.is_some()
+    }
+}
+
+impl Default for LocalWorldsUi {
+    fn default() -> Self {
+        Self {
+            view: WorldsView::default(),
+            actions: Vec::new(),
+            name: super::input::field_editor(MenuField::WorldName),
+            seed: super::input::field_editor(MenuField::WorldSeed),
+            joining: None,
+            hosted: false,
+            max_players: None,
+        }
+    }
 }
 
 impl MenuRuntime {
+    /// Includes deliberate joins whose local-world preparation completes on a later frame.
+    pub(super) fn gameplay_return_pending(&self) -> bool {
+        use crate::local_worlds::{PromptButton, PromptFor};
+        self.intents.join.is_some()
+            || self.local_world_requested.is_some()
+            || self.local_ui.actions.iter().any(|action| match *action {
+                LocalWorldAction::Create
+                | LocalWorldAction::PlayFromEdit
+                | LocalWorldAction::AcceptEula => true,
+                LocalWorldAction::Prompt(button) => {
+                    self.local_ui.view.prompt.is_some_and(|prompt| {
+                        prompt.buttons().contains(&button)
+                            && matches!(
+                                (button, prompt.blocking),
+                                (PromptButton::UseDragonfly, PromptFor::CreateBds)
+                                    | (PromptButton::Retry, PromptFor::Play | PromptFor::CreateBds)
+                            )
+                    })
+                }
+                _ => false,
+            })
+    }
+
     /// Mirror the module's worlds and screens, forward presses and typed text, join a world
     /// that finished opening, and track whether a local-world session is live.
     pub(crate) fn sync_local_worlds(&mut self, worlds: &mut LocalWorlds, in_session: bool) {
+        self.sync_storage_worlds(worlds);
         self.push_local_text(worlds);
         for action in std::mem::take(&mut self.local_ui.actions) {
             if let Some(input) = action.input() {
@@ -105,20 +95,19 @@ impl MenuRuntime {
             view = worlds.menu().view();
         }
         if let Some(id) = worlds.take_ready() {
-            let name = worlds
-                .menu()
-                .worlds()
-                .iter()
-                .find(|world| world.id == id)
-                .map_or(id, |world| world.name.clone());
-            self.request_local_world_join(name);
+            let world = worlds.menu().worlds().iter().find(|world| world.id == id);
+            let hosted = world.is_some_and(|world| world.backend == Backend::Bds);
+            let name = world.map_or(id, |world| world.name.clone());
+            self.request_local_world_join(name, hosted);
+            self.local_ui.max_players = worlds.menu().max_players();
         }
-        if self.local_world_joined && self.connecting {
+        if self.local_world_joined && self.is_connecting() {
             let name = self.local_ui.joining.as_deref().unwrap_or_default();
             view.progress = Some(Progress::connecting(name));
         }
+        self.finish_storage_world(view.screen);
         self.local_ui.view = view;
-        let active = self.local_world_joined && (in_session || self.connecting);
+        let active = self.local_world_joined && (in_session || self.is_connecting());
         if active != self.local_world_active {
             self.local_world_active = active;
             if active {
@@ -128,9 +117,13 @@ impl MenuRuntime {
                 worlds.leave_world();
                 self.local_world_joined = false;
                 self.local_ui.joining = None;
+                self.local_ui.hosted = false;
+                self.local_ui.max_players = None;
             }
         }
-        worlds.set_pause_menu(active && self.visible && self.screen == MenuScreen::Pause);
+        // The invite screen opens over the pause screen, which stays up beneath it.
+        let paused = matches!(self.screen, MenuScreen::Pause | MenuScreen::Invite);
+        worlds.set_pause_menu(active && self.visible && paused);
     }
 
     /// The local-world screens' state for the menu view, with the fields' live text.
@@ -138,12 +131,18 @@ impl MenuRuntime {
         let mut view = self.local_ui.view.clone();
         match view.screen {
             Screen::Create => {
-                view.create.name.clone_from(&self.local_ui.name);
-                view.create.seed_text.clone_from(&self.local_ui.seed);
+                self.local_ui
+                    .name
+                    .as_str()
+                    .clone_into(&mut view.create.name);
+                self.local_ui
+                    .seed
+                    .as_str()
+                    .clone_into(&mut view.create.seed_text);
             }
             Screen::Edit => {
                 if let Some(edit) = &mut view.edit {
-                    edit.name.clone_from(&self.local_ui.name);
+                    self.local_ui.name.as_str().clone_into(&mut edit.name);
                 }
             }
             _ => {}
@@ -167,12 +166,20 @@ impl MenuRuntime {
         let ui = &self.local_ui;
         let view = &ui.view;
         match view.screen {
-            Screen::Create if ui.name != view.create.name || ui.seed != view.create.seed_text => {
-                worlds.input(Input::SetName(ui.name.clone()));
-                worlds.input(Input::SetSeed(ui.seed.clone()));
+            Screen::Create
+                if ui.name.as_str() != view.create.name
+                    || ui.seed.as_str() != view.create.seed_text =>
+            {
+                worlds.input(Input::SetName(ui.name.as_str().to_owned()));
+                worlds.input(Input::SetSeed(ui.seed.as_str().to_owned()));
             }
-            Screen::Edit if view.edit.as_ref().is_some_and(|edit| edit.name != ui.name) => {
-                worlds.input(Input::SetEditName(ui.name.clone()));
+            Screen::Edit
+                if view
+                    .edit
+                    .as_ref()
+                    .is_some_and(|edit| edit.name != ui.name.as_str()) =>
+            {
+                worlds.input(Input::SetEditName(ui.name.as_str().to_owned()));
             }
             _ => {}
         }
@@ -182,12 +189,12 @@ impl MenuRuntime {
     fn load_local_text(&mut self, view: &WorldsView) {
         match view.screen {
             Screen::Create => {
-                self.local_ui.name.clone_from(&view.create.name);
-                self.local_ui.seed.clone_from(&view.create.seed_text);
+                self.local_ui.name.set_text(&view.create.name);
+                self.local_ui.seed.set_text(&view.create.seed_text);
             }
             Screen::Edit => {
                 if let Some(edit) = &view.edit {
-                    self.local_ui.name.clone_from(&edit.name);
+                    self.local_ui.name.set_text(&edit.name);
                 }
             }
             _ => {}
@@ -199,7 +206,6 @@ impl MenuRuntime {
             )
         {
             self.field = None;
-            self.text_selected = false;
         }
     }
 
@@ -243,6 +249,8 @@ impl MenuRuntime {
                     A::Create,
                     A::Tab(Tab::General),
                     A::SeedField,
+                    A::Backend(protocol::world_control::Backend::Dragonfly),
+                    A::Backend(protocol::world_control::Backend::Bds),
                     A::Flat(false),
                     A::Flat(true),
                 ]),
@@ -270,63 +278,40 @@ impl MenuRuntime {
         }
     }
 
-    fn request_local_world_join(&mut self, name: String) {
-        self.begin_fresh_transfer_chain();
+    pub(super) fn request_local_world_join(&mut self, name: String, hosted: bool) {
         self.stop_catalog();
         self.local_world_joined = true;
         self.local_ui.joining = Some(name.clone());
-        self.pending_connect = Some(PendingConnect {
+        self.local_ui.hosted = hosted;
+        self.intents.join = Some(crate::session::JoinIntent {
             address: name,
             auth_cache: None,
             local_world: true,
         });
-        self.mark_connecting();
+        self.show_connecting();
     }
-}
 
-fn world_card(world: &World) -> LocalWorldCard {
-    LocalWorldCard {
-        name: world.name.clone(),
-        game_mode: game_mode_label(world.game_mode).to_owned(),
-        world_type: world_type_label(world.generator).to_owned(),
-        date: civil_date(world.last_played_unix.max(world.created_unix)),
-        size: file_size(world.size_bytes),
+    /// The open world is hosted for Xbox friends under the signed-in account.
+    pub(super) fn hosting_world(&self) -> bool {
+        self.local_ui.hosted && !self.feeds.profile.xuid.is_empty()
     }
-}
 
-/// A world's size as the Worlds tab captions it: one decimal in KB, MB or GB.
-pub(crate) fn file_size(bytes: u64) -> String {
-    const UNITS: [&str; 3] = ["KB", "MB", "GB"];
-    let mut value = bytes as f64 / 1024.0;
-    let mut unit = 0;
-    while value >= 1024.0 && unit < UNITS.len() - 1 {
-        value /= 1024.0;
-        unit += 1;
+    /// The address Discord friends join the open world by, while the core hosts it for Xbox
+    /// friends under the signed-in account.
+    pub(crate) fn hosted_world_address(&self) -> Option<String> {
+        self.hosting_world().then(|| {
+            format!(
+                "{}{}",
+                launcher::menu::FRIEND_ADDRESS_PREFIX,
+                self.feeds.profile.xuid
+            )
+        })
     }
-    format!("{value:.1} {}", UNITS[unit])
-}
 
-/// `month/day/year` of a UTC unix time; empty before the epoch.
-pub(crate) fn civil_date(unix: i64) -> String {
-    if unix <= 0 {
-        return String::new();
+    /// The hosted world's player limit, for the Discord card's party size.
+    pub(crate) fn hosted_world_max_players(&self) -> Option<u32> {
+        self.local_ui.max_players.filter(|_| self.hosting_world())
     }
-    // Days-to-civil over 400-year eras (proleptic Gregorian).
-    let days = unix / 86_400 + 719_468;
-    let era = days / 146_097;
-    let day_of_era = days - era * 146_097;
-    let year_of_era =
-        (day_of_era - day_of_era / 1_460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
-    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
-    let shifted_month = (5 * day_of_year + 2) / 153;
-    let day = day_of_year - (153 * shifted_month + 2) / 5 + 1;
-    let month = if shifted_month < 10 {
-        shifted_month + 3
-    } else {
-        shifted_month - 9
-    };
-    let year = year_of_era + era * 400 + i64::from(month <= 2);
-    format!("{month}/{day}/{year}")
 }
 
 #[cfg(test)]
@@ -334,18 +319,49 @@ mod tests {
     use super::*;
 
     #[test]
-    fn dates_render_as_month_day_year() {
-        assert_eq!(civil_date(0), "");
-        assert_eq!(civil_date(951_782_400), "2/29/2000");
-        assert_eq!(civil_date(1_790_553_600), "9/28/2026");
-    }
+    fn backend_prompt_only_retains_gameplay_return_for_available_join_actions() {
+        use launcher::local_worlds::prompt::{Prompt, PromptButton, PromptFor, PromptKind};
 
-    #[test]
-    fn sizes_render_in_the_largest_whole_unit() {
-        assert_eq!(file_size(0), "0.0 KB");
-        assert_eq!(file_size(512 * 1024), "512.0 KB");
-        assert_eq!(file_size(5 * 1024 * 1024 + 300 * 1024), "5.3 MB");
-        assert_eq!(file_size(3 * 1024 * 1024 * 1024), "3.0 GB");
+        let mut menu = MenuRuntime::new(true, 2, "Steve".to_owned());
+        for (kind, blocking, expected) in [
+            (
+                PromptKind::DockerMissing,
+                PromptFor::CreateBds,
+                &[PromptButton::UseDragonfly][..],
+            ),
+            (
+                PromptKind::DockerNotRunning,
+                PromptFor::CreateBds,
+                &[PromptButton::UseDragonfly, PromptButton::Retry][..],
+            ),
+            (PromptKind::DockerMissing, PromptFor::Play, &[][..]),
+            (
+                PromptKind::DockerNotRunning,
+                PromptFor::Play,
+                &[PromptButton::Retry][..],
+            ),
+        ] {
+            menu.local_ui.view.prompt = Some(Prompt { kind, blocking });
+            for button in [
+                PromptButton::UseDragonfly,
+                PromptButton::Retry,
+                PromptButton::GetDocker,
+                PromptButton::Cancel,
+            ] {
+                menu.local_ui.actions.clear();
+                assert!(!menu.gameplay_return_pending());
+                menu.queue_local_action(LocalWorldAction::Prompt(button));
+                assert_eq!(
+                    menu.gameplay_return_pending(),
+                    expected.contains(&button),
+                    "{kind:?}, {blocking:?}, {button:?}",
+                );
+            }
+        }
+        menu.local_ui.view.prompt = None;
+        menu.local_ui.actions.clear();
+        menu.queue_local_action(LocalWorldAction::Prompt(PromptButton::UseDragonfly));
+        assert!(!menu.gameplay_return_pending());
     }
 
     #[test]
@@ -362,9 +378,10 @@ mod tests {
     fn a_local_world_session_closes_the_world_when_it_ends() {
         let mut menu = MenuRuntime::new(true, 2, "Steve".to_owned());
         let mut worlds = LocalWorlds::default();
-        menu.request_local_world_join("Home".to_owned());
+        menu.request_local_world_join("Home".to_owned(), false);
         assert!(
-            menu.pending_connect
+            menu.intents
+                .join
                 .as_ref()
                 .is_some_and(|join| join.local_world)
         );
@@ -375,9 +392,40 @@ mod tests {
             Some(Progress::connecting("Home")),
             "the loading screen's last stage is the join"
         );
-        menu.connecting = false;
+        menu.intents.join = None;
         menu.sync_local_worlds(&mut worlds, false);
         assert!(!menu.local_world_active && !menu.local_world_joined);
+    }
+
+    #[test]
+    fn only_a_dedicated_server_world_with_a_signed_in_host_is_joinable_and_only_while_open() {
+        let mut menu = MenuRuntime::new(true, 2, "Steve".to_owned());
+        let mut worlds = LocalWorlds::default();
+        menu.request_local_world_join("Home".to_owned(), true);
+        assert_eq!(menu.hosted_world_address(), None, "no signed-in XUID yet");
+        menu.feeds.profile.xuid = "2535400000000001".to_owned();
+        assert_eq!(
+            menu.hosted_world_address(),
+            Some(format!(
+                "{}2535400000000001",
+                launcher::menu::FRIEND_ADDRESS_PREFIX
+            ))
+        );
+        menu.request_local_world_join("Flat".to_owned(), false);
+        assert_eq!(
+            menu.hosted_world_address(),
+            None,
+            "dragonfly worlds are not hosted"
+        );
+        menu.request_local_world_join("Home".to_owned(), true);
+        menu.sync_local_worlds(&mut worlds, false);
+        menu.intents.join = None;
+        menu.sync_local_worlds(&mut worlds, false);
+        assert_eq!(
+            menu.hosted_world_address(),
+            None,
+            "the closed world is no longer hosted"
+        );
     }
 
     /// Create-screen presses reach the module, and typed text lands in its form before submit.
@@ -389,10 +437,14 @@ mod tests {
         menu.activate(MenuAction::LocalWorld(LocalWorldAction::BeginCreate));
         menu.sync_local_worlds(&mut worlds, false);
         assert_eq!(menu.view().local.screen, Screen::Create);
-        assert_eq!(menu.local_ui.name, "My World", "the form's text loads");
+        assert_eq!(
+            menu.local_ui.name.as_str(),
+            "My World",
+            "the form's text loads"
+        );
         menu.activate(MenuAction::LocalWorld(LocalWorldAction::NameField));
         assert_eq!(menu.field, Some(MenuField::WorldName));
-        menu.local_ui.name = "Castle".to_owned();
+        menu.local_ui.name.set_text("Castle");
         menu.activate(MenuAction::LocalWorld(LocalWorldAction::GameMode(
             GameMode::Creative,
         )));

@@ -1,35 +1,42 @@
-//! Two-pass layout of a resolved control tree into positioned virtual-pixel rects.
+//! Two-pass layout of a resolved control tree into positioned virtual-pixel rects,
+//! solving the same rules as the client's layout variables.
 //!
 //! Measure (bottom-up) supplies the content extents `%c`/`%cm`/`%sm`/`default` need;
-//! place (top-down) resolves each control's size against its parent, then positions
-//! it by `anchor_from`/`anchor_to`/`offset`, packing `stack_panel` children end to
-//! end with `fill` absorbing the leftover main-axis space. Everything is in the
-//! virtual coordinate space of `root_size`; the virtual-to-physical scale is applied
-//! downstream by the renderer and is deliberately not modelled here.
+//! place (top-down) resolves each control's size against its parent ([`size`]), then
+//! positions it by `anchor_from`/`anchor_to`/`offset`, or as a [`stack`] item or
+//! [`grid`] cell. Everything is in the virtual coordinate space of `root_size`; the
+//! virtual-to-physical scale is applied downstream by the renderer.
 //!
 //! Layers are relative: a control draws at its parent's layer plus its own. Each
 //! placed control carries a stable key (see [`crate::state`]) so the caller's
 //! hover/press/scroll state can drive the engine-owned widget behaviour in
-//! [`crate::widgets`]. `grid` lays out as a plain panel; its cells arrive
-//! pre-positioned from the binder.
+//! [`crate::widgets`].
 
 use serde_json::Value;
 
-use crate::anim::{Fade, Inherited, Motions};
-use crate::expr::{self, AxisContext, Length, Resolved};
+use crate::anim::{Inherited, NodeAnim};
 use crate::sidecar::TextureMeta;
 use crate::state::{LayoutReport, ViewState};
 use crate::tree::ResolvedControl;
-use crate::widgets::{self, ScrollFrame};
+use crate::widgets;
 
 mod grid;
 mod measure;
 mod place;
+mod refresh;
+mod reuse;
+mod scroll;
+mod size;
+mod stack;
+mod style;
 
+pub(crate) use grid::TEMPLATE_KEY as GRID_TEMPLATE_KEY;
 pub use measure::MeasureCache;
+pub(crate) use reuse::Output;
 
-use grid::{fitted_columns, grid_children, grid_columns};
-use place::{anchor_frac, anchor_from, anchor_to, motion, offset, place_by_anchor};
+pub(crate) use place::draggable_axes;
+use place::{control_anims, place_by_anchor};
+use scroll::{Adjusted, ScrollFrame};
 
 /// A virtual-pixel rectangle, top-left origin.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -67,10 +74,36 @@ pub trait TextMeasure {
         self.extent(text)
     }
 
+    /// Measures a label in a named font; default-only backends keep their label metrics.
+    fn named_label(
+        &self,
+        text: &str,
+        _font: &str,
+        width: Option<f64>,
+        shape: crate::label::LabelShape,
+    ) -> [f64; 2] {
+        self.label(text, width, shape)
+    }
+
     /// A localizing label's text as it will draw; measurers without a language
     /// table measure it as written.
     fn localize<'a>(&self, text: &'a str) -> std::borrow::Cow<'a, str> {
         std::borrow::Cow::Borrowed(text)
+    }
+
+    /// A label's extent in `shape`, wrapped at `max_width` when known; the
+    /// default scales the unscaled measure and ignores line padding.
+    fn label(
+        &self,
+        text: &str,
+        max_width: Option<f64>,
+        shape: crate::label::LabelShape,
+    ) -> [f64; 2] {
+        let [w, h] = match max_width {
+            Some(width) if width > 0.0 => self.wrapped(text, width / shape.scale),
+            _ => self.extent(text),
+        };
+        [w * shape.scale, h * shape.scale]
     }
 }
 
@@ -78,6 +111,14 @@ pub trait TextMeasure {
 /// atlas is bound later; only the metadata is needed to size and slice a sprite.
 pub trait TextureSource {
     fn texture(&self, path: &str) -> Option<TextureMeta>;
+
+    /// An aseprite sheet's frames, for `aseprite_flip_book`.
+    fn aseprite_frames(
+        &self,
+        _path: &str,
+    ) -> Option<std::sync::Arc<[crate::sidecar::AsepriteFrame]>> {
+        None
+    }
 }
 
 /// The measurement backends layout and emit share.
@@ -98,14 +139,18 @@ pub struct LaidOut<'a> {
     /// Absolute draw layer (the parent's plus this control's own).
     pub layer: i32,
     pub alpha: f32,
-    /// Animations scaling `alpha` at paint time, own and propagated.
-    pub fades: Vec<Fade>,
-    /// Offset animations displacing this control and its clip at paint time.
-    pub motions: Motions,
+    /// Animations reaching this control's draws, evaluated at paint time.
+    pub anim: Option<std::sync::Arc<NodeAnim>>,
     pub visible: bool,
+    /// False when this control or an ancestor is disabled (locked styling, no input).
+    pub enabled: bool,
     /// Fraction clipped off a progress image by its widget (`clip_direction`).
     pub clip_ratio: Option<f32>,
     pub children: Vec<LaidOut<'a>>,
+    /// Bound-tree state masks reused by the gated emit pass.
+    pub(crate) state_targets: Option<measure::Targets>,
+    /// The subtree's output from the last layout, spliced instead of placed.
+    pub(crate) reused: Option<reuse::Reused>,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -127,7 +172,33 @@ pub fn layout_with<'a>(
     env: &LayoutEnv,
     state: &ViewState,
 ) -> (LaidOut<'a>, LayoutReport) {
-    lay_out(root, root_size, env, state, false)
+    measure::reset();
+    lay_out(root, root_size, env, state, false, None)
+}
+
+/// Lay out a stable bound tree over retained measurements, splicing the last
+/// layout's output for unchanged subtrees; emits draws, hit regions and the
+/// cancel and `root_panel` lookups.
+pub(crate) fn layout_reusing(
+    root: &ResolvedControl,
+    root_size: [f64; 2],
+    env: &LayoutEnv,
+    state: &ViewState,
+    cache: &mut MeasureCache,
+) -> (Output, LayoutReport) {
+    cache.enter(root);
+    let screen = Rect::new(0.0, 0.0, root_size[0], root_size[1]);
+    cache.placements.begin(state, false, screen);
+    let (laid, report) = lay_out(
+        root,
+        root_size,
+        env,
+        state,
+        false,
+        Some(&mut cache.placements),
+    );
+    cache.leave();
+    (reuse::output(&laid, env, &mut cache.placements), report)
 }
 
 /// [`layout_with`] over `cache`'s measurements that omits hidden controls'
@@ -141,7 +212,7 @@ pub(crate) fn layout_culled<'a>(
     cache: &mut MeasureCache,
 ) -> (LaidOut<'a>, LayoutReport) {
     cache.enter(root);
-    let laid = lay_out(root, root_size, env, state, true);
+    let laid = lay_out(root, root_size, env, state, true, None);
     cache.leave();
     laid
 }
@@ -153,13 +224,11 @@ fn lay_out<'a>(
     env: &LayoutEnv,
     state: &ViewState,
     cull: bool,
+    placements: Option<&mut reuse::Placements>,
 ) -> (LaidOut<'a>, LayoutReport) {
-    if !cull {
-        measure::reset();
-    }
     let screen = Rect::new(0.0, 0.0, root_size[0], root_size[1]);
-    let own = resolve_size(root, screen, measure::intrinsic(root, env, [None; 2]), env);
-    let rect = place_by_anchor(root, screen, own, env);
+    let own = size::resolve_size(root, [Some(screen.w), Some(screen.h)], [0.0; 2], env);
+    let rect = place_by_anchor(root, screen, own, [0.0; 2], env);
     let mut ctx = PlaceCtx {
         env,
         state,
@@ -168,49 +237,126 @@ fn lay_out<'a>(
         scrolls: Vec::new(),
         sliders: Vec::new(),
         ancestors: Vec::new(),
+        overrides: Vec::new(),
+        disabled: 0,
+        hidden_names: Vec::new(),
+        screen,
+        reuse: placements.map(|placements| Reuse {
+            placements,
+            address: Some(reuse::ROOT),
+            old: None,
+            hits: Default::default(),
+            emitting: true,
+            taint: 0,
+            inspected: 0,
+        }),
     };
-    let key = child_key("", root);
+    let key = child_key("", root, 0);
     let laid = place_subtree(
         root,
         key,
         rect,
         screen,
-        (0, true),
+        (0, true, false, true),
         &Inherited::default(),
         &mut ctx,
     );
     (laid, ctx.report)
 }
 
-struct PlaceCtx<'e, 'x> {
+struct PlaceCtx<'tree, 'e, 'x> {
     env: &'e LayoutEnv<'x>,
     state: &'e ViewState,
     /// Skip placing scroll content wholly outside its viewport.
     cull: bool,
     report: LayoutReport,
     scrolls: Vec<ScrollFrame>,
-    /// Enclosing sliders: their fraction plus progress child names.
-    sliders: Vec<(f64, [Option<String>; 3])>,
+    /// Enclosing sliders: fraction, box and progress names, rect, and axis.
+    sliders: Vec<widgets::SliderFrame>,
     /// Enclosing controls' names, rects, and child clips, for `dropdown_area`.
-    ancestors: Vec<(String, Rect, Rect)>,
+    ancestors: Vec<(&'tree str, Rect, Rect)>,
+    /// State controls enclosing stateful controls show or hide: target, shown, state mask.
+    overrides: Vec<(usize, bool, u8)>,
+    /// Enclosing disabled controls; their descendants are locked.
+    disabled: usize,
+    /// Descendant names an enclosing edit box hides (its placeholder).
+    hidden_names: Vec<String>,
+    /// What a control that opts out of clipping draws within.
+    screen: Rect,
+    /// The last layout's records, when unchanged subtrees may be spliced.
+    reuse: Option<Reuse<'e>>,
 }
 
-/// `parent/name`, with `[index]` on factory instances so repeated names stay unique.
-fn child_key(parent: &str, control: &ResolvedControl) -> String {
-    let mut key = String::with_capacity(parent.len() + control.name.len() + 6);
+impl PlaceCtx<'_, '_, '_> {
+    /// Note a read of context outside the current controls' inputs.
+    fn taint(&mut self) {
+        if let Some(reuse) = &mut self.reuse {
+            reuse.taint += 1;
+        }
+    }
+}
+
+/// Placement state for splicing: what the next placed control inherits.
+struct Reuse<'e> {
+    placements: &'e mut reuse::Placements,
+    /// The next control's record key, when it is not its address (the root).
+    address: Option<usize>,
+    /// Where the next control's parent sat in the last layout.
+    old: Option<reuse::Old>,
+    hits: std::sync::Arc<crate::input::HitScope>,
+    emitting: bool,
+    /// Context reads outside a control's inputs so far.
+    taint: usize,
+    /// Enclosing edit boxes, whose input metadata reads their laid-out descendants.
+    inspected: usize,
+}
+
+/// `parent/name`, with `[index]` on factory instances and `~n` on the nth sibling sharing
+/// both, so anonymous array entries keep their own hover and press state.
+pub(crate) fn child_key(parent: &str, control: &ResolvedControl, repeat: usize) -> String {
+    instance_key(parent, &control.name, collection_index(control), repeat)
+}
+
+/// The shared identity of an instance, including patched names and collection indices.
+pub(crate) fn instance_key(parent: &str, name: &str, index: Option<u64>, repeat: usize) -> String {
+    let mut key = String::with_capacity(parent.len() + name.len() + 6);
     key.push_str(parent);
     key.push('/');
-    key.push_str(&control.name);
-    if let Some(index) = control
-        .properties
-        .get("collection_index")
-        .and_then(Value::as_u64)
-    {
+    key.push_str(name);
+    if let Some(index) = index {
         key.push('[');
         key.push_str(&index.to_string());
         key.push(']');
     }
+    if repeat > 0 {
+        key.push('~');
+        key.push_str(&(repeat + 1).to_string());
+    }
     key
+}
+
+fn collection_index(control: &ResolvedControl) -> Option<u64> {
+    control
+        .properties
+        .get("collection_index")
+        .and_then(Value::as_u64)
+}
+
+/// Counts siblings by name and collection index for [`child_key`]'s repeat.
+#[derive(Default)]
+pub(crate) struct SiblingKeys(std::collections::HashMap<(String, Option<u64>), usize>);
+
+impl SiblingKeys {
+    /// Earlier siblings sharing `name` and `index`.
+    pub(crate) fn repeat(&mut self, name: &str, index: Option<u64>) -> usize {
+        let count = self.0.entry((name.to_owned(), index)).or_default();
+        *count += 1;
+        *count - 1
+    }
+
+    pub(crate) fn of(&mut self, control: &ResolvedControl) -> usize {
+        self.repeat(&control.name, collection_index(control))
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -219,84 +365,255 @@ fn place_subtree<'a>(
     key: String,
     rect: Rect,
     parent_clip: Rect,
-    (parent_layer, shown): (i32, bool),
+    (parent_layer, shown, packed, parent_allows): (i32, bool, bool, bool),
     inherited: &Inherited,
-    ctx: &mut PlaceCtx,
+    ctx: &mut PlaceCtx<'a, '_, '_>,
 ) -> LaidOut<'a> {
-    let (own_alpha, fades, mut inherit) = inherited.apply(control, alpha(control));
-    let clips = clip_children(control);
-    let child_clip = if clips {
-        parent_clip.intersect(rect)
-    } else {
-        parent_clip
-    };
+    // Only context a control's inputs capture lets a later layout splice it.
+    let free = ctx.scrolls.is_empty()
+        && ctx.sliders.is_empty()
+        && ctx.overrides.is_empty()
+        && ctx.hidden_names.is_empty()
+        && ctx.reuse.as_ref().is_some_and(|reuse| reuse.inspected == 0);
     let parent_rect = ctx
         .ancestors
         .last()
         .map_or(parent_clip, |(_, parent, _)| *parent);
-    let mut motions = inherited.motions.clone();
-    motions
-        .own
-        .extend(motion(control, parent_rect, [rect.w, rect.h], &inherit));
-    inherit.motions = Motions {
-        clip: if clips {
-            motions.own.clone()
-        } else {
-            motions.clip.clone()
-        },
-        own: motions.own.clone(),
+    let enabled_above = ctx.disabled == 0;
+    let entry = ctx.reuse.as_mut().map(|reuse| {
+        let address = reuse
+            .address
+            .take()
+            .unwrap_or_else(|| std::ptr::from_ref(control).addr());
+        let old = reuse.placements.old(address, reuse.old.take());
+        let inputs = reuse::Inputs {
+            key: key.clone(),
+            rect,
+            parent_clip,
+            parent_rect,
+            layer: parent_layer,
+            shown,
+            packed,
+            allows: parent_allows,
+            enabled: enabled_above,
+            emitting: reuse.emitting,
+            inherited: inherited.clone(),
+            hits: std::sync::Arc::clone(&reuse.hits),
+        };
+        let reused = old
+            .filter(|_| free)
+            .and_then(|old| reuse.placements.reuse(address, old, &inputs));
+        (address, old, inputs, reuse.taint, reused)
+    });
+    let (entry, reused) = match entry {
+        Some((address, old, inputs, taint, reused)) => {
+            (Some((address, old, inputs, taint)), reused)
+        }
+        None => (None, None),
     };
-    let absolute_layer = parent_layer.saturating_add(layer(control));
-    let scroll = ScrollFrame::open(control, &key, ctx.state);
+    if let Some(reused) = reused {
+        return LaidOut {
+            control,
+            key,
+            rect,
+            clip: parent_clip,
+            layer: parent_layer,
+            alpha: 1.0,
+            anim: None,
+            visible: shown,
+            enabled: enabled_above,
+            clip_ratio: None,
+            children: Vec::new(),
+            state_targets: None,
+            reused: Some(reused),
+        };
+    }
+    // A state control a stateful ancestor shows or hides overrides its own `visible`.
+    let forced = ctx
+        .overrides
+        .iter()
+        .rev()
+        .find(|(target, _, _)| *target == std::ptr::from_ref(control).addr())
+        .map(|(_, shown, mask)| (*shown, *mask));
+    let style = measure::style(control);
+    let own_visible = forced.map_or(
+        style.visible && !measure::suppressed(control),
+        |(shown, _)| shown,
+    );
+    let clips = style.clips;
+    let child_clip = if clips {
+        inset_clip(rect, style.clip_offset, parent_clip)
+    } else {
+        parent_clip
+    };
+    // `allow_clipping` defaults to the parent's; opting out frees only the
+    // control's own drawing, not its children's.
+    let allows = style.allows.unwrap_or(parent_allows);
+    let own_clip = match (allows, clips) {
+        (false, _) => ctx.screen,
+        (true, true) => child_clip,
+        (true, false) => parent_clip,
+    };
+    let enabled = ctx.disabled == 0 && style.enabled;
+    if !enabled {
+        ctx.disabled += 1;
+    }
+    let own_anims = control_anims(control, &key, rect, parent_rect, inherited, packed, ctx.env);
+    let (own_alpha, anim, inherit) =
+        inherited.apply(control, style.alpha, own_anims, clips, |node| {
+            place::sprite_rest(control, node)
+        });
+    let absolute_layer = parent_layer.saturating_add(style.layer);
+    let mut scroll = ScrollFrame::open(control, &key, rect, ctx.state, ctx.env);
+    // A bar panel hidden or shown again frees or takes back its space: solve again.
+    if let Some(frame) = &scroll
+        && let Some(panel) = frame.panel_address()
+        && measure::suppress(panel, frame.panel_hidden)
+    {
+        scroll = ScrollFrame::open(control, &key, rect, ctx.state, ctx.env);
+    }
     let opened_scroll = scroll.is_some();
     if let Some(frame) = scroll {
         ctx.scrolls.push(frame);
     }
-    let slider = widgets::slider_fraction(control).map(|f| (f, widgets::slider_names(control)));
+    let slider = widgets::SliderFrame::open(control, rect);
     let opened_slider = slider.is_some();
     if let Some(entry) = slider {
         ctx.sliders.push(entry);
     }
-    let hidden = widgets::hidden_state_children(control, &key, ctx.state);
+    let placeholder = widgets::hidden_placeholder(control);
     let dropdown = widgets::dropdown_area(control);
-    ctx.ancestors.push((control.name.clone(), rect, child_clip));
+    if opened_scroll || opened_slider || placeholder.is_some() || dropdown.is_some() {
+        ctx.taint();
+    }
+    let overrides_len = ctx.overrides.len();
+    let bits = widgets::state_index(ctx.state, &key);
+    let state_targets = measure::state_targets(control, !enabled);
+    ctx.overrides.extend(
+        state_targets
+            .iter()
+            .flat_map(|targets| targets.iter())
+            .map(|&(target, mask)| (target, mask & (1 << bits) != 0, mask)),
+    );
+    if let Some(name) = placeholder {
+        ctx.hidden_names.push(name.to_owned());
+    }
+    ctx.ancestors.push((&control.name, rect, child_clip));
     // A culling layout leaves a hidden control's subtree unplaced: nothing in it draws.
-    let placed = if ctx.cull && !visible(control) {
+    let placed = if ctx.cull && !own_visible && forced.is_none_or(|(_, mask)| mask == 0) {
         Vec::new()
     } else {
-        measure::placed_children(control, rect, ctx.env)
+        let indexed_clip = (ctx.cull
+            && grid::is_grid(control)
+            && allows
+            && !style.unclipped_descendant
+            && control.children.iter().all(|child| {
+                let style = measure::style(child);
+                child.children.is_empty() || style.clips
+            })
+            && dropdown.is_none()
+            && ctx.sliders.is_empty()
+            && ctx
+                .scrolls
+                .last()
+                .is_some_and(|frame| frame.metrics.is_some())
+            && !ctx
+                .scrolls
+                .iter()
+                .any(|frame| frame.adjusts_children(control)))
+        .then_some(child_clip);
+        measure::placed_children(control, rect, ctx.env, indexed_clip)
     };
+    let placed_rects: Vec<(&str, Rect)> = match &dropdown {
+        Some(_) => placed
+            .iter()
+            .map(|(child, rect)| (child.name.as_str(), *rect))
+            .collect(),
+        None => Vec::new(),
+    };
+    let priority = stack::hidden_by_priority(control, rect, ctx.env);
+    let packs = stack::orientation(control).is_some() || grid::is_grid(control);
     let mut children = Vec::with_capacity(placed.len());
+    let repeats = if control.children.len() > 1 {
+        let mut siblings = SiblingKeys::default();
+        control
+            .children
+            .iter()
+            .map(|child| siblings.of(child))
+            .collect()
+    } else {
+        Vec::new()
+    };
+    // What the children's records read: this control's hit scope, whether it
+    // emits, and where it sat in the last layout.
+    let inherit_reuse = ctx.reuse.as_ref().map(|reuse| {
+        let hits = match reuse.hits.inner(control, &key, rect).0 {
+            std::borrow::Cow::Borrowed(_) => std::sync::Arc::clone(&reuse.hits),
+            std::borrow::Cow::Owned(inner) => std::sync::Arc::new(inner),
+        };
+        let parent = (std::sync::Arc::clone(&reuse.hits), reuse.emitting);
+        (hits, reuse.emitting && shown && own_visible, parent)
+    });
+    let old = entry.as_ref().and_then(|(_, old, _, _)| *old);
+    let inspects = control.control_type.as_deref() == Some("edit_box");
+    if let Some(reuse) = ctx.reuse.as_mut().filter(|_| inspects) {
+        reuse.inspected += 1;
+    }
     for (child, mut child_rect) in placed {
-        let mut child_shown = !hidden.contains(&child.name);
+        let child_shown = !ctx.hidden_names.contains(&child.name)
+            && !priority
+                .get(measure::child_index(control, child))
+                .copied()
+                .unwrap_or(false);
         let mut clip_for_child = child_clip;
-        // A dropdown's content lays out inside its named area, not its parent.
-        if let Some((area, content)) = &dropdown
+        // A dropdown's content drops from the dropdown, kept inside its named area.
+        if let Some((drop, area, content)) = &dropdown
             && *content == child.name
-            && let Some((_, area_rect, area_clip)) =
-                ctx.ancestors.iter().rev().find(|(name, _, _)| name == area)
+            && let Some((_, area_rect, area_clip)) = ctx
+                .ancestors
+                .iter()
+                .rev()
+                .find(|(name, _, _)| *name == area.as_str())
+            && let Some((_, drop_rect)) =
+                placed_rects.iter().find(|(name, _)| *name == drop.as_str())
         {
-            let size = resolve_size(child, *area_rect, siblings_max(control, ctx.env), ctx.env);
-            child_rect = place_by_anchor(child, *area_rect, size, ctx.env);
+            child_rect.y = widgets::dropdown_content_top(*drop_rect, *area_rect, child_rect.h);
             clip_for_child = *area_clip;
         }
-        if let Some(frame) = ctx.scrolls.last_mut() {
-            if frame.metrics.is_none() && child.name == frame.content {
-                child_rect = frame.place_content(rect, child_rect);
-            } else if child.name == frame.bar_box
-                && child.control_type.as_deref() == Some("scrollbar_box")
+        let mut child_shown = child_shown;
+        let mut box_fade = None;
+        for frame in ctx.scrolls.iter().rev() {
+            match frame.adjust(child, child_rect) {
+                Adjusted::Kept => continue,
+                Adjusted::Moved(moved) => child_rect = moved,
+                Adjusted::Box(moved, fade) => (child_rect, box_fade) = (moved, fade),
+                Adjusted::Hidden => child_shown = false,
+            }
+            break;
+        }
+        let repeat = repeats
+            .get(measure::child_index(control, child))
+            .copied()
+            .unwrap_or(0);
+        let next_key = child_key(&key, child, repeat);
+        // Stack items and grid cells have no offset delta term.
+        if !packs {
+            if place::follows_pointer(child) {
+                ctx.report.tracks_pointer = true;
+                ctx.taint();
+            }
+            let dragged = ctx.state.drags.get(&next_key).copied();
+            if let Some(moved) =
+                place::offset_delta(child, child_rect, rect, ctx.state.pointer, dragged)
             {
-                match frame.place_box(rect, child_rect) {
-                    Some(placed) => child_rect = placed,
-                    None => child_shown = false,
-                }
+                child_rect = moved;
             }
         }
-        if opened_slider
-            && let Some((fraction, names)) = ctx.sliders.last()
-            && names[0].as_deref() == Some(child.name.as_str())
+        // The named slider box travels the slider however deep it sits.
+        if let Some(frame) = ctx.sliders.last()
+            && frame.names[0].as_deref() == Some(child.name.as_str())
         {
-            child_rect = widgets::slider_box_rect(rect, child_rect, *fraction);
+            child_rect = frame.place_box(child_rect);
         }
         // Scroll content wholly outside its viewport neither draws nor takes input.
         if ctx.cull
@@ -304,22 +621,50 @@ fn place_subtree<'a>(
                 .scrolls
                 .last()
                 .is_some_and(|frame| frame.metrics.is_some())
+            && allows
+            && measure::style(child).allows != Some(false)
+            && !measure::style(child).unclipped_descendant
+            && (child.children.is_empty() || measure::style(child).clips)
             && disjoint(child_rect, clip_for_child)
         {
             continue;
         }
-        let next_key = child_key(&key, child);
-        children.push(place_subtree(
+        if let (Some(reuse), Some((hits, emitting, _))) = (ctx.reuse.as_mut(), &inherit_reuse) {
+            reuse.old = old;
+            reuse.hits = std::sync::Arc::clone(hits);
+            reuse.emitting = *emitting;
+        }
+        let mut laid = place_subtree(
             child,
             next_key,
             child_rect,
             clip_for_child,
-            (absolute_layer, child_shown),
+            (absolute_layer, child_shown, packs, allows),
             &inherit,
             ctx,
-        ));
+        );
+        // A fading touch box dims its children, as vanilla writes their alpha.
+        if let Some(fade) = box_fade {
+            ctx.taint();
+            for child in &mut laid.children {
+                child.alpha *= fade;
+            }
+        }
+        children.push(laid);
+    }
+    if let (Some(reuse), Some((_, _, (hits, emitting)))) = (ctx.reuse.as_mut(), inherit_reuse) {
+        reuse.hits = hits;
+        reuse.emitting = emitting;
+        reuse.inspected -= usize::from(inspects);
     }
     ctx.ancestors.pop();
+    ctx.overrides.truncate(overrides_len);
+    if placeholder.is_some() {
+        ctx.hidden_names.pop();
+    }
+    if !enabled {
+        ctx.disabled -= 1;
+    }
     if opened_slider {
         ctx.sliders.pop();
     }
@@ -329,19 +674,62 @@ fn place_subtree<'a>(
     {
         ctx.report.scrolls.insert(frame.key, metrics);
     }
+    if let Some(event) = control
+        .properties
+        .get("clip_state_change_event")
+        .and_then(Value::as_str)
+        .filter(|_| allows)
+    {
+        ctx.report
+            .clip_states
+            .insert(key.clone(), (event.to_owned(), clipped_out(rect, own_clip)));
+        ctx.taint();
+    }
+    if let (Some(reuse), Some((address, _, inputs, taint))) = (ctx.reuse.as_mut(), entry) {
+        let cacheable = free && reuse.taint == taint;
+        reuse.placements.placed(address, inputs, cacheable);
+    }
     LaidOut {
         control,
         clip_ratio: progress_clip(control, &ctx.sliders),
         key,
         rect,
-        clip: parent_clip,
+        clip: own_clip,
         layer: absolute_layer,
         alpha: own_alpha,
-        fades,
-        motions,
-        visible: shown && visible(control),
+        anim,
+        visible: shown && own_visible,
+        enabled,
         children,
+        state_targets,
+        reused: None,
     }
+}
+
+/// The clip a `clips_children` control gives its children: its rect inset by
+/// `clip_offset` on every side, within `parent`, never inverted.
+fn inset_clip(rect: Rect, offset: [f64; 2], parent: Rect) -> Rect {
+    let x0 = (rect.x + offset[0]).max(parent.x);
+    let y0 = (rect.y + offset[1]).max(parent.y);
+    let x1 = (rect.x + rect.w - offset[0])
+        .min(parent.x + parent.w)
+        .max(x0);
+    let y1 = (rect.y + rect.h - offset[1])
+        .min(parent.y + parent.h)
+        .max(y0);
+    Rect::new(x0, y0, x1 - x0, y1 - y0)
+}
+
+/// Whether `rect` lies wholly outside `clip`, compared in whole pixels; touching
+/// edges and a zero-area clip count as visible.
+fn clipped_out(rect: Rect, clip: Rect) -> bool {
+    let (w, h) = (clip.w.round(), clip.h.round());
+    w != 0.0
+        && h != 0.0
+        && (rect.w.round() + rect.x.round() < clip.x.round()
+            || rect.h.round() + rect.y.round() < clip.y.round()
+            || w + clip.x.round() < rect.x.round()
+            || h + clip.y.round() < rect.y.round())
 }
 
 /// True when `rect` and `clip` share no area.
@@ -353,8 +741,10 @@ fn disjoint(rect: Rect, clip: Rect) -> bool {
 }
 
 /// A bound `clip_ratio`, or a slider progress image revealing its fraction.
-fn progress_clip(control: &ResolvedControl, sliders: &[(f64, [Option<String>; 3])]) -> Option<f32> {
-    if let Some((fraction, names)) = sliders.last()
+fn progress_clip(control: &ResolvedControl, sliders: &[widgets::SliderFrame]) -> Option<f32> {
+    if let Some(widgets::SliderFrame {
+        fraction, names, ..
+    }) = sliders.last()
         && (names[1].as_deref() == Some(control.name.as_str())
             || names[2].as_deref() == Some(control.name.as_str()))
     {
@@ -369,555 +759,38 @@ fn layout_children<'a>(
     parent_rect: Rect,
     env: &LayoutEnv,
 ) -> Vec<(&'a ResolvedControl, Rect)> {
-    let sibling_max = siblings_max(parent, env);
-    if let Some(columns) = grid_columns(parent) {
-        return grid_children(parent, parent_rect, columns, sibling_max, env);
+    if grid::is_grid(parent) {
+        return grid::grid_children(parent, parent_rect, env);
     }
-    match stack_axis(parent) {
-        Some(axis) => stack_children(parent, parent_rect, axis, sibling_max, env),
-        None => parent
-            .children
-            .iter()
-            .map(|child| {
-                let own = resolve_size(child, parent_rect, sibling_max, env);
-                (child, place_by_anchor(child, parent_rect, own, env))
-            })
-            .collect(),
+    if stack::orientation(parent).is_some() {
+        return stack::stack_children(parent, parent_rect, env);
     }
-}
-
-fn stack_children<'a>(
-    parent: &'a ResolvedControl,
-    parent_rect: Rect,
-    axis: Axis,
-    sibling_max: [f64; 2],
-    env: &LayoutEnv,
-) -> Vec<(&'a ResolvedControl, Rect)> {
-    let main = axis;
-    let cross = other(axis);
-    let parent_main = axis_of(parent_rect, main);
-    let parent_cross = axis_of(parent_rect, cross);
-
-    // First resolve every child's cross size and its main size (fill deferred).
-    let mut cross_sizes = Vec::with_capacity(parent.children.len());
-    let mut main_sizes = Vec::with_capacity(parent.children.len());
-    let mut fixed_total = 0.0;
-    let mut fill_count = 0usize;
-    for child in &parent.children {
-        let content = content_extent(child, env, [None; 2]);
-        let nat = natural(child, env, None);
-        let cross_of = |main_size: Option<f64>| {
-            let other = main_size.map(|size| (main, size));
-            let own = known_size(other);
-            let content = content_extent(child, env, own);
-            let cross_ctx = axis_context(
-                parent_cross,
-                other,
-                content,
-                children_max(child, env, own),
-                sibling_max,
-                nat,
-                cross,
-            );
-            let mut cross_size = pixels_or(eval_length(child, cross, &cross_ctx), parent_cross);
-            let inherit = match cross {
-                Axis::X => "inherit_max_sibling_width",
-                Axis::Y => "inherit_max_sibling_height",
-            };
-            if matches!(child.properties.get(inherit), Some(Value::Bool(true))) {
-                cross_size = cross_size.max(axis_pick(sibling_max, cross));
-            }
-            clamp_axis(child, parent_rect, cross, cross_size, content, nat)
-        };
-        let main_of = |cross_size: Option<f64>| {
-            // A child's cross size is known before its main size, so wrapped text
-            // and `%c` content measure at it.
-            let own = known_size(cross_size.map(|size| (cross, size)));
-            let main_ctx = axis_context(
-                parent_main,
-                cross_size.map(|size| (cross, size)),
-                content_extent(child, env, own),
-                children_max(child, env, own),
-                sibling_max,
-                natural(child, env, own[0]),
-                main,
-            );
-            // An invisible stack child collapses instead of holding its slot;
-            // `max_size`/`min_size` bound a visible one (the start screen's
-            // signing-in label wraps at 120px).
-            if !visible(child) {
-                return Resolved::Pixels(0.0);
-            }
-            match eval_length(child, main, &main_ctx) {
-                Resolved::Pixels(value) => {
-                    Resolved::Pixels(clamp_axis(child, parent_rect, main, value, content, nat))
-                }
-                Resolved::Fill => Resolved::Fill,
-            }
-        };
-        // The cross size resolves first unless it depends on the main size: a
-        // vertical stack child whose width follows its height, or a horizontal
-        // one whose height reads its width (`[20, "100%x"]`).
-        let main_first = match main {
-            Axis::Y => height_first(child),
-            Axis::X => {
-                !height_first(child)
-                    && axis_units(child, Axis::Y)
-                        .is_some_and(|units| units.contains(&expr::Unit::PercentX))
-            }
-        };
-        let (cross_size, resolved) = if main_first {
-            let resolved = main_of(None);
-            let main_size = match resolved {
-                Resolved::Pixels(value) => Some(value),
-                Resolved::Fill => None,
-            };
-            (cross_of(main_size), resolved)
-        } else {
-            let cross_size = cross_of(None);
-            (cross_size, main_of(Some(cross_size)))
-        };
-        match resolved {
-            Resolved::Pixels(value) => {
-                fixed_total += value;
-                main_sizes.push(Some(value));
-            }
-            Resolved::Fill => {
-                fill_count += 1;
-                main_sizes.push(None);
-            }
-        }
-        cross_sizes.push(cross_size);
-    }
-
-    let leftover = (parent_main - fixed_total).max(0.0);
-    let fill_each = if fill_count > 0 {
-        leftover / fill_count as f64
-    } else {
-        0.0
-    };
-
-    let mut cursor = axis_min(parent_rect, main);
-    let mut placed = Vec::with_capacity(parent.children.len());
-    for (index, child) in parent.children.iter().enumerate() {
-        let main_size = main_sizes[index].unwrap_or(fill_each);
-        let cross_size = cross_sizes[index];
-        let size = match main {
-            Axis::X => [main_size, cross_size],
-            Axis::Y => [cross_size, main_size],
-        };
-        let off = offset(child, parent_rect, size);
-        let main_pos = cursor + axis_pick(off, main);
-        let cross_pos = axis_min(parent_rect, cross)
-            + parent_cross * anchor_frac(anchor_from(child), cross)
-            - cross_size * anchor_frac(anchor_to(child), cross)
-            + axis_pick(off, cross);
-        placed.push((
-            child,
-            from_axes(main, main_pos, main_size, cross_pos, cross_size),
-        ));
-        cursor += main_size;
-    }
-    placed
-}
-
-/// Resolve a non-stack child's `[w, h]` against its parent, clamped by min/max.
-fn resolve_size(
-    control: &ResolvedControl,
-    parent_rect: Rect,
-    sibling_max: [f64; 2],
-    env: &LayoutEnv,
-) -> [f64; 2] {
-    let axis = |axis: Axis, other: Option<(Axis, f64)>| {
-        let parent = axis_of(parent_rect, axis);
-        let own = known_size(other);
-        let ctx = axis_context(
-            parent,
-            other,
-            content_extent(control, env, own),
-            children_max(control, env, own),
-            sibling_max,
-            natural(control, env, own[0]),
-            axis,
-        );
-        pixels_or(eval_length(control, axis, &ctx), parent)
-    };
-    let [width, height] = in_dependency_order(control, axis);
-    let own = if height_first(control) {
-        [Some(width), Some(height)]
-    } else {
-        [Some(width), None]
-    };
-    let content = content_extent(control, env, own);
-    let nat = natural(control, env, Some(width));
-    let mut size = clamp_bounds(control, parent_rect, [width, height], content, nat, true);
-    for (index, key) in ["inherit_max_sibling_width", "inherit_max_sibling_height"]
-        .into_iter()
-        .enumerate()
-    {
-        if matches!(control.properties.get(key), Some(Value::Bool(true))) {
-            size[index] = size[index].max(sibling_max[index]);
-        }
-    }
-    size
-}
-
-/// `[w, h]` from `resolve(axis, other_axis)`, width first unless [`height_first`].
-fn in_dependency_order(
-    control: &ResolvedControl,
-    mut resolve: impl FnMut(Axis, Option<(Axis, f64)>) -> f64,
-) -> [f64; 2] {
-    if height_first(control) {
-        let height = resolve(Axis::Y, None);
-        [resolve(Axis::X, Some((Axis::Y, height))), height]
-    } else {
-        let width = resolve(Axis::X, None);
-        [width, resolve(Axis::Y, Some((Axis::X, width)))]
-    }
-}
-
-/// Whether the height resolves before the width: the width reads the height
-/// (`["100%y", 32]`), or reads children that may, while the height reads neither.
-fn height_first(control: &ResolvedControl) -> bool {
-    use expr::Unit::{PercentChildren, PercentChildrenMax, PercentX, PercentY};
-    let height_free = matches!(
-        axis_units(control, Axis::Y),
-        Some(units) if !units.iter().any(|unit| matches!(unit, PercentX | PercentChildren | PercentChildrenMax))
-    );
-    height_free
-        && axis_units(control, Axis::X).is_some_and(|units| {
-            units
-                .iter()
-                .any(|unit| matches!(unit, PercentY | PercentChildren | PercentChildrenMax))
+    let extent = [Some(parent_rect.w), Some(parent_rect.h)];
+    let sizes = measure::sizes(parent, extent, env);
+    let siblings = measure::sibling_maxima(parent, &sizes);
+    parent
+        .children
+        .iter()
+        .zip(sizes.iter())
+        .map(|(child, own)| {
+            (
+                child,
+                place_by_anchor(child, parent_rect, *own, siblings, env),
+            )
         })
-}
-
-/// The units the size on `axis` sums, or `None` for `default`/`fill`.
-fn axis_units(control: &ResolvedControl, axis: Axis) -> Option<Vec<expr::Unit>> {
-    memo_length(
-        control,
-        axis_index(axis) as u8,
-        || Some(length(control, axis)),
-        |length| match length {
-            Some(Length::Terms(terms)) => Some(terms.iter().map(|term| term.unit).collect()),
-            _ => None,
-        },
-    )
-}
-
-/// The control's `[width, height]` as far as `other` carries it.
-fn known_size(other: Option<(Axis, f64)>) -> [Option<f64>; 2] {
-    match other {
-        Some((Axis::X, width)) => [Some(width), None],
-        Some((Axis::Y, height)) => [None, Some(height)],
-        None => [None; 2],
-    }
-}
-
-/// `size` on `axis` after the control's min/max bounds on that axis.
-fn clamp_axis(
-    control: &ResolvedControl,
-    parent_rect: Rect,
-    axis: Axis,
-    size: f64,
-    content: [f64; 2],
-    nat: Option<[f64; 2]>,
-) -> f64 {
-    let mut both = [0.0; 2];
-    both[axis_index(axis)] = size;
-    let clamped = clamp_bounds(control, parent_rect, both, content, nat, true);
-    clamped[axis_index(axis)]
-}
-
-/// Clamp by min/max; while the parent's size is still unknown (it sizes to its
-/// children), a parent-relative bound does not constrain the child.
-fn clamp_bounds(
-    control: &ResolvedControl,
-    parent_rect: Rect,
-    size: [f64; 2],
-    content: [f64; 2],
-    nat: Option<[f64; 2]>,
-    parent_known: bool,
-) -> [f64; 2] {
-    // A childless label's `%c` is its text: `max_size: ["100%c", 10]` fits the text.
-    let content = match nat {
-        Some(text) if control.children.is_empty() => text,
-        _ => content,
-    };
-    let mut out = size;
-    // A leaf's content is its own natural size (a label's `max_size: 100%c`).
-    let content = nat
-        .filter(|_| control.children.is_empty())
-        .unwrap_or(content);
-    for (index, axis) in [Axis::X, Axis::Y].into_iter().enumerate() {
-        let parent = axis_of(parent_rect, axis);
-        let bound = |key: &str, unknown: f64| {
-            let parent = if parent_known { parent } else { unknown };
-            let ctx = axis_context(parent, None, content, content, content, nat, axis);
-            eval_bound(control, key, index, &ctx)
-        };
-        if let Some(max) = bound("max_size", f64::INFINITY) {
-            out[index] = out[index].min(max);
-        }
-        if let Some(min) = bound("min_size", 0.0) {
-            out[index] = out[index].max(min);
-        }
-    }
-    out
-}
-
-fn memo_length<R>(
-    control: &ResolvedControl,
-    slot: u8,
-    read: impl FnOnce() -> Option<Length>,
-    eval: impl FnOnce(Option<&Length>) -> R,
-) -> R {
-    let key = (control as *const ResolvedControl as usize, slot);
-    measure::LENGTHS.with(|memo| {
-        let mut memo = memo.borrow_mut();
-        let length = memo.entry(key).or_insert_with(read);
-        eval(length.as_ref())
-    })
-}
-
-fn eval_length(control: &ResolvedControl, axis: Axis, ctx: &AxisContext) -> Resolved {
-    memo_length(
-        control,
-        axis_index(axis) as u8,
-        || Some(length(control, axis)),
-        |length| length.map_or(Resolved::Pixels(0.0), |length| length.eval(ctx)),
-    )
-}
-
-fn eval_bound(
-    control: &ResolvedControl,
-    key: &str,
-    index: usize,
-    ctx: &AxisContext,
-) -> Option<f64> {
-    let slot = if key == "max_size" { 2 } else { 4 } + index as u8;
-    memo_length(
-        control,
-        slot,
-        || bound_length(control, key, index),
-        |length| length.map(|length| length.eval_pixels(ctx)),
-    )
-}
-
-/// The extent of a control's children, the value `%c` reports. A stack sums along
-/// its main axis and takes the max across; other controls take the bounding max.
-/// `own` is this control's resolved `[width, height]` where already known.
-fn content_extent(control: &ResolvedControl, env: &LayoutEnv, own: [Option<f64>; 2]) -> [f64; 2] {
-    measure::children(control, env, own).content
-}
-
-/// Per-axis largest child, the value `%cm` reports.
-fn children_max(control: &ResolvedControl, env: &LayoutEnv, own: [Option<f64>; 2]) -> [f64; 2] {
-    measure::children(control, env, own).maximum
-}
-
-/// Per-axis largest of a parent's children, the value `%sm` reports to each sibling.
-fn siblings_max(parent: &ResolvedControl, env: &LayoutEnv) -> [f64; 2] {
-    children_max(parent, env, [None; 2])
-}
-
-/// Natural content size: an opted-in image's texture `base_size`, a label's text extent
-/// (wrapped at `width` when known), scaled by `font_scale_factor`.
-fn natural(control: &ResolvedControl, env: &LayoutEnv, width: Option<f64>) -> Option<[f64; 2]> {
-    if !matches!(control.control_type.as_deref(), Some("label" | "image")) {
-        return None;
-    }
-    measure::natural(control, width, || natural_uncached(control, env, width))
-}
-
-/// Read a label or opted-in texture size on this layout's first request at `width`.
-fn natural_uncached(
-    control: &ResolvedControl,
-    env: &LayoutEnv,
-    width: Option<f64>,
-) -> Option<[f64; 2]> {
-    match control.control_type.as_deref() {
-        // An image sizes to its texture only when it opts in; otherwise a
-        // default axis fills the parent like any control.
-        Some("image")
-            if widgets::bound_bool(control, "default_size_scales_to_ratio") == Some(true) =>
-        {
-            texture_path(control)
-                .and_then(|path| env.textures.texture(&path).map(|meta| meta.base_size))
-        }
-        Some("label") => {
-            let scale = font_scale(control);
-            let text = label_text(control);
-            let text = if localizes(control) {
-                env.text.localize(&text)
-            } else {
-                std::borrow::Cow::Borrowed(text.as_str())
-            };
-            let [w, h] = match width {
-                Some(width) if width > 0.0 => env.text.wrapped(&text, width / scale),
-                _ => env.text.extent(&text),
-            };
-            Some([w * scale, h * scale])
-        }
-        _ => None,
-    }
-}
-
-/// A label's glyph scale: `font_scale_factor` (1 when absent or non-positive)
-/// times its `font_size` step.
-pub(crate) fn font_scale(control: &ResolvedControl) -> f64 {
-    let factor = widgets::bound_number(control, "font_scale_factor")
-        .filter(|scale| *scale > 0.0)
-        .unwrap_or(1.0);
-    factor * font_size_scale(control)
-}
-
-/// Glyph scale of a `font_size` (small/normal/large/extra_large); needs native
-/// measurement of the client's font-size table.
-fn font_size_scale(control: &ResolvedControl) -> f64 {
-    match control.properties.get("font_size").and_then(Value::as_str) {
-        Some("small") => 0.75,
-        Some("large") => 1.5,
-        Some("extra_large") => 2.0,
-        _ => 1.0,
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-fn axis_context(
-    parent: f64,
-    other_axis: Option<(Axis, f64)>,
-    content: [f64; 2],
-    child_max: [f64; 2],
-    sibling_max: [f64; 2],
-    natural: Option<[f64; 2]>,
-    axis: Axis,
-) -> AxisContext {
-    let index = axis_index(axis);
-    let (own_width, own_height) = match other_axis {
-        Some((Axis::X, value)) => (Some(value), None),
-        Some((Axis::Y, value)) => (None, Some(value)),
-        None => (None, None),
-    };
-    AxisContext {
-        parent,
-        own_width,
-        own_height,
-        children: Some(content[index]),
-        children_max: Some(child_max[index]),
-        sibling_max: Some(sibling_max[index]),
-        natural: natural.map(|n| n[index]),
-    }
+        .collect()
 }
 
 // --- property readers -------------------------------------------------------
 
-/// A control's size on `axis`. An omitted size is `default`: a label's text
-/// size (an image's texture size with `default_size_scales_to_ratio`), a stack
-/// panel's children along its axis, else the parent's full extent.
-fn length(control: &ResolvedControl, axis: Axis) -> Length {
-    let index = axis_index(axis);
-    let explicit = match control.properties.get("size") {
-        Some(Value::Array(items)) if items.len() >= 2 => {
-            Some(expr::length_from_value(&items[index]).unwrap_or_else(|_| Length::percent(100.0)))
-        }
-        Some(scalar @ (Value::String(_) | Value::Number(_))) => {
-            Some(expr::length_from_value(scalar).unwrap_or_else(|_| Length::percent(100.0)))
-        }
-        _ => None,
-    };
-    // A grid sizes to its cells, except one listing them with no size, which fills.
-    let is_grid = control.control_type.as_deref() == Some("grid")
-        && (explicit.is_some() || control.properties.contains_key("grid_item_template"));
-    match explicit {
-        Some(Length::Default) | None if stack_axis(control) == Some(axis) || is_grid => {
-            expr::parse_length("100%c").unwrap_or(Length::Default)
-        }
-        Some(length) => length,
-        None => Length::Default,
-    }
-}
-
-fn bound_length(control: &ResolvedControl, key: &str, index: usize) -> Option<Length> {
-    match control.properties.get(key)? {
-        Value::Array(items) if items.len() >= 2 => expr::length_from_value(&items[index]).ok(),
-        scalar @ (Value::String(_) | Value::Number(_)) => expr::length_from_value(scalar).ok(),
-        _ => None,
-    }
-}
-
+/// The axis a stack panel packs along; `none` and other controls have none.
 fn stack_axis(control: &ResolvedControl) -> Option<Axis> {
-    if control.control_type.as_deref() != Some("stack_panel") {
-        return None;
-    }
-    match control
-        .properties
-        .get("orientation")
-        .and_then(Value::as_str)
-    {
-        Some("horizontal") => Some(Axis::X),
-        // vertical is the JSON-UI default orientation.
-        _ => Some(Axis::Y),
-    }
+    stack::main_axis(control)
 }
 
-fn clip_children(control: &ResolvedControl) -> bool {
-    ["clips_children", "clip_children"]
-        .iter()
-        .any(|key| matches!(control.properties.get(*key), Some(Value::Bool(true))))
-}
-
-fn layer(control: &ResolvedControl) -> i32 {
-    control
-        .properties
-        .get("layer")
-        .and_then(Value::as_i64)
-        .map(|value| value as i32)
-        .unwrap_or(0)
-}
-
-fn alpha(control: &ResolvedControl) -> f32 {
-    control
-        .properties
-        .get("alpha")
-        .and_then(Value::as_f64)
-        .map(|value| value as f32)
-        .unwrap_or(1.0)
-}
-
-/// `visible` honours a literal bool or `"true"`/`"false"`; an undecidable binding
-/// stays visible, matching the lenient-remote-data rule.
-pub(crate) fn own_visible(control: &ResolvedControl) -> bool {
-    visible(control)
-}
-
+/// Own visibility, less a scroll bar panel hidden while its content fits.
 fn visible(control: &ResolvedControl) -> bool {
-    match control.properties.get("visible") {
-        Some(Value::Bool(flag)) => *flag,
-        Some(Value::String(text)) => text != "false",
-        _ => true,
-    }
-}
-
-fn texture_path(control: &ResolvedControl) -> Option<String> {
-    control
-        .properties
-        .get("texture")
-        .and_then(Value::as_str)
-        .map(str::to_owned)
-}
-
-/// A label localizes its text unless `localize` is `false`.
-pub(crate) fn localizes(control: &ResolvedControl) -> bool {
-    control.properties.get("localize") != Some(&Value::Bool(false))
-}
-
-fn label_text(control: &ResolvedControl) -> String {
-    match control.properties.get("text").and_then(Value::as_str) {
-        // A `#binding` has no literal extent until data binds in a later tranche.
-        Some(text) if !text.starts_with('#') => text.to_owned(),
-        _ => String::new(),
-    }
+    measure::style(control).visible && !measure::suppressed(control)
 }
 
 // --- axis helpers -----------------------------------------------------------
@@ -933,37 +806,5 @@ fn axis_index(axis: Axis) -> usize {
     match axis {
         Axis::X => 0,
         Axis::Y => 1,
-    }
-}
-
-fn axis_of(rect: Rect, axis: Axis) -> f64 {
-    match axis {
-        Axis::X => rect.w,
-        Axis::Y => rect.h,
-    }
-}
-
-fn axis_min(rect: Rect, axis: Axis) -> f64 {
-    match axis {
-        Axis::X => rect.x,
-        Axis::Y => rect.y,
-    }
-}
-
-fn axis_pick(pair: [f64; 2], axis: Axis) -> f64 {
-    pair[axis_index(axis)]
-}
-
-fn from_axes(main: Axis, main_pos: f64, main_size: f64, cross_pos: f64, cross_size: f64) -> Rect {
-    match main {
-        Axis::X => Rect::new(main_pos, cross_pos, main_size, cross_size),
-        Axis::Y => Rect::new(cross_pos, main_pos, cross_size, main_size),
-    }
-}
-
-fn pixels_or(resolved: Resolved, fill: f64) -> f64 {
-    match resolved {
-        Resolved::Pixels(value) => value,
-        Resolved::Fill => fill,
     }
 }

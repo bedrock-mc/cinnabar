@@ -3,23 +3,20 @@
 
 use std::{path::Path, sync::Arc};
 
-use bevy::math::{EulerRot, Mat4, Quat, Vec2, Vec3, Vec4};
+use bevy::math::{EulerRot, Mat4, Quat, Vec3, Vec4};
 use protocol::{
     ActorEvent, ActorKind, ActorMetadata, ActorMetadataValue, ActorSpawnEvent, WorldEvent,
 };
-use render::{
-    ActorArtworkPages, ActorRenderScene, NAMETAG_ATLAS_SIDE, NAMETAG_BLOCKS_PER_FONT_PIXEL,
-    NAMETAG_TEXT_LIFT_BLOCKS, NametagScene,
-};
-use ui::{SafeArea, TextLayoutCache};
+use render::{ActorArtworkPages, ActorRenderScene};
+use render_model::{NAMETAG_ATLAS_SIDE, NametagScene};
+use ui::TextLayoutCache;
 
 use super::render_report::{compile_local_pack, world_for};
-use crate::{
-    presentation::{actors, entity_layers},
-    ui_runtime::presentation::{
-        nametag_atlas::{GlyphPage, NametagAtlas, font_page},
-        nametags::{build_nametag_scene, project_nametag},
-    },
+use crate::presentation::{actors, entity_layers};
+use client_ui::ui_runtime::presentation::nametags::extract_nametag;
+use view_presentation::{
+    nametag_atlas::{GlyphPage, GlyphPixels, NametagAtlas, font_page},
+    nametags::build_nametag_scene,
 };
 
 pub(super) const WIDTH: u32 = 1280;
@@ -40,18 +37,36 @@ fn render_captured_scene() {
         "CINNABAR_RENDER_GLYPHS",
         "CINNABAR_RENDER_OUT",
     ]
-    .map(std::env::var);
+    .map(|name| match std::env::var(name) {
+        Ok(value) => Some(value),
+        Err(std::env::VarError::NotPresent) => {
+            eprintln!("skipping captured-scene fixture test: {name} is not set");
+            None
+        }
+        Err(error) => panic!("read scene fixture setting {name}: {error}"),
+    });
     let [
-        Ok(pack),
-        Ok(scene),
-        Ok(camera),
-        Ok(font),
-        Ok(glyphs),
-        Ok(out),
+        Some(pack),
+        Some(scene),
+        Some(camera),
+        Some(font),
+        Some(glyphs),
+        Some(out),
     ] = vars
     else {
         return;
     };
+    for (name, path) in [
+        ("CINNABAR_RENDER_PACK", &pack),
+        ("CINNABAR_RENDER_SCENE", &scene),
+        ("CINNABAR_RENDER_FONT", &font),
+        ("CINNABAR_RENDER_GLYPHS", &glyphs),
+    ] {
+        if !Path::new(path).exists() {
+            eprintln!("skipping captured-scene fixture test: missing {name} fixture {path}");
+            return;
+        }
+    }
     let pack = compile_local_pack(Path::new(&pack));
     let camera: Vec<f32> = camera
         .split(',')
@@ -82,17 +97,16 @@ fn render_captured_scene() {
         &pack.artwork,
     );
     let (font, glyph_pages) = font_with_glyphs(Path::new(&font), Path::new(&glyphs));
-    let to_viewport = |point: Vec3| frame.project(point).map(|p| Vec2::new(p.x, p.y));
     let anchors: Vec<_> = runtime_ids
         .iter()
-        .filter_map(|id| world.actor(*id))
+        .filter_map(|id| world.authority().actor(*id))
         .filter_map(|actor| {
-            project_nametag(
+            extract_nametag(
                 actor,
                 eye,
-                &to_viewport,
-                [WIDTH as f32, HEIGHT as f32],
-                SafeArea::ZERO,
+                None,
+                world.authority().actor_name_tag(actor.unique_id)?,
+                &ui::ScoreboardStore::default(),
                 1.0,
             )
         })
@@ -110,7 +124,7 @@ fn render_captured_scene() {
                     .map(|pixels| GlyphPage {
                         width: GLYPH_PAGE_SIDE,
                         height: GLYPH_PAGE_SIDE,
-                        rgba8: pixels,
+                        pixels: GlyphPixels::Rgba8(pixels),
                     })
             })
         },
@@ -128,7 +142,7 @@ const GLYPH_PAGE_SIDE: u32 = 256;
 
 fn font_with_glyphs(font: &Path, glyphs: &Path) -> (assets::RuntimeFontCatalog, Vec<Box<[u8]>>) {
     let manifest = crate::asset_startup::canonical_source_manifest_sha256(include_str!(
-        "../../../../../assets/ui-font-source.json"
+        "../../../../../assets/cinnangles-sans-source.json"
     ));
     let base = assets::RuntimeFontCatalog::decode(&std::fs::read(font).unwrap(), manifest).unwrap();
     let mut cells = Vec::new();
@@ -318,7 +332,7 @@ impl Frame {
 
 pub(super) fn draw_actors(
     frame: &mut Frame,
-    world: &client_world::WorldStream,
+    world: &chunk_pipeline::WorldStream,
     runtime_ids: &[u64],
     entities: &assets::RuntimeEntityAssets,
     artwork: &ActorArtworkPages,
@@ -326,22 +340,17 @@ pub(super) fn draw_actors(
     let bodies: Vec<_> = runtime_ids
         .iter()
         .filter_map(|id| {
-            let rig = world.actor_rig(*id)?;
-            actors::entity_rig_presentation(&rig, world.actor(*id)?, artwork, 1.0)
+            let rig = world.authority().actor_rig(*id)?;
+            actors::entity_rig_presentation(&rig, world.authority().actor(*id)?, artwork, 1.0)
         })
         .collect();
     let mut batch = actors::select_actor_presentations(1, false, None, bodies);
-    entity_layers::apply_render_layers(&mut batch, |id| world.actor_rig(id), artwork);
+    entity_layers::apply_render_layers(&mut batch, |id| world.authority().actor_rig(id), artwork);
     let mut scene = ActorRenderScene::default();
     scene.replace_pack_entities(Some(entities)).unwrap();
     scene.configure_artwork(artwork.clone());
-    let rendered = scene.update_rigs_with_artwork(
-        1.0,
-        None,
-        batch.submissions.clone(),
-        Arc::from([]),
-        &batch.artwork,
-    );
+    let rendered =
+        scene.update_rigs_with_artwork(1.0, None, batch.submissions.clone(), &[], &batch.artwork);
     let rig = rendered.rig.clone();
     for (instance, entry) in rig.instances.iter().zip(rig.manifest.iter()) {
         let Some(location) = batch.artwork.get(&entry.identity) else {
@@ -422,24 +431,15 @@ fn draw_nametags(frame: &mut Frame, scene: &NametagScene, eye: Vec3) {
     let side = NAMETAG_ATLAS_SIDE as f32;
     let atlas = nametag_pixels(scene);
     for (index, record) in scene.records.iter().enumerate() {
-        let anchor = Vec3::from_array(record.anchor);
-        let facing = (eye - anchor).normalize_or(Vec3::Z);
-        let right = Vec3::Y.cross(facing).normalize_or(Vec3::X);
-        let up = facing.cross(right);
-        let lift = if record.text != 0 {
-            facing * NAMETAG_TEXT_LIFT_BLOCKS
-        } else {
-            Vec3::ZERO
+        let Some(corners) = record.world_corners(eye.to_array()) else {
+            continue;
         };
-        let corner =
-            |x: f32, y: f32| anchor + (right * x - up * y) * NAMETAG_BLOCKS_PER_FONT_PIXEL + lift;
-        let [x0, y0, x1, y1] = record.rect;
         let [u0, v0, u1, v1] = record.uv;
         let quad = [
-            (corner(x0, y0), [u0, v0]),
-            (corner(x1, y0), [u1, v0]),
-            (corner(x1, y1), [u1, v1]),
-            (corner(x0, y1), [u0, v1]),
+            (Vec3::from_array(corners[0]), [u0, v0]),
+            (Vec3::from_array(corners[1]), [u1, v0]),
+            (Vec3::from_array(corners[2]), [u1, v1]),
+            (Vec3::from_array(corners[3]), [u0, v1]),
         ];
         let color = record.color;
         let shade = |uv: [f32; 2]| {
@@ -449,6 +449,9 @@ fn draw_nametags(frame: &mut Frame, scene: &NametagScene, eye: Vec3) {
                 let ty = ((uv[1] * side) as usize).min(NAMETAG_ATLAS_SIDE as usize - 1);
                 let at = (ty * NAMETAG_ATLAS_SIDE as usize + tx) * 4;
                 let texel = &atlas[at..at + 4];
+                if index >= scene.see_through && record.text != 0 && texel[3] < 128 {
+                    return None;
+                }
                 for (channel, value) in rgba.iter_mut().zip(texel) {
                     *channel *= f32::from(*value) / 255.0;
                 }
@@ -456,8 +459,18 @@ fn draw_nametags(frame: &mut Frame, scene: &NametagScene, eye: Vec3) {
             (rgba[3] > 0.0).then(|| rgba.map(|value| (value.clamp(0.0, 1.0) * 255.0).round() as u8))
         };
         let depth_tested = index >= scene.see_through;
-        frame.triangle([quad[0], quad[1], quad[2]], depth_tested, false, &shade);
-        frame.triangle([quad[0], quad[2], quad[3]], depth_tested, false, &shade);
+        frame.triangle(
+            [quad[0], quad[1], quad[2]],
+            depth_tested,
+            record.text != 0,
+            &shade,
+        );
+        frame.triangle(
+            [quad[0], quad[2], quad[3]],
+            depth_tested,
+            record.text != 0,
+            &shade,
+        );
     }
 }
 

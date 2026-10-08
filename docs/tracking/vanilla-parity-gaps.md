@@ -1,7 +1,7 @@
 # Vanilla-parity gap tracker
 
-Consolidated 2026-09-28 from a read-only audit against the 26.30 client (Lens +
-mcsrc-1.26.50 reconstruction + pinned bedrock-samples). Target: version-matched
+Consolidated 2026-09-28 from a read-only audit against the 26.30 client and
+pinned bedrock-samples. Target: version-matched
 vanilla Bedrock, except the in-game HUD, which targets Java Edition by owner
 decision — chat and scoreboard styling there are intentional and not gaps.
 Values marked *(measure)* may now be taken directly from the client references (owner decision).
@@ -60,6 +60,10 @@ dropper, crafter, horse), the creative inventory (tabs, search, collapsible grou
 two-page book/lectern screen, with full item tooltips, the recipe book filter toggle,
 crafter slot toggles/preview/powered arrow, creative's wide list and per-mount equip slots.
 A hover change never lays out again; scrolling lays out only visible scroll content.
+Layout solves the client's layout-variable rules (sizes and bounds, stack, grid and scroll
+components, clipping, locks, anchored and cursor/drag offsets; `crates/json-ui/tests/layout_parity.rs`).
+Incomplete: touch scroll dynamics infer the 0.05 s velocity-window blend and no host ticks them;
+clip-state events are reported but not dispatched; `size` animations need a host clock.
 Incomplete: the enchanting book model, rune font, the live horse renderer, banner
 pattern previews, the anvil result preview and repair cost; the paper doll's held item is
 a flat quad and it draws no offhand or armor trims. Needs native measurement: the virtual UI scale (engine
@@ -74,7 +78,7 @@ profile (OreUI in 26.30, no `ui/*.json` screen) and first-run progress (it compl
 window opens) stay programmatic, and the programmatic launcher remains only for a missing
 carrier or a failed render. Launcher screens sit on the vanilla panorama, a render pass that ray-casts the
 carrier's full-resolution cube faces (FOV 85°, 2°/s turn, 25±5° tilt follow the title-screen
-cube; the reconstruction keeps the real values as unnamed data, so they need measurement).
+cube; the real values remain unresolved and need measurement).
 The Servers tab lists featured servers then gatherings with the vanilla info panel (description,
 news, screenshots, games; artwork up to 512 px, read-more toggles, selected-row highlight,
 RakNet player counts and ping icons with provisional 150/300 ms thresholds); Realms split
@@ -106,11 +110,12 @@ T0 landed (attachable bindings, `.mcbeeqp` carrier). Uncompiled/unmeasured lane 
   shield/pumpkin head.
 - **First person:** near-camera rig pass fed with arm-only masking per the pack's first-person
   part visibility (arm shows for empty hand/map only) plus a drawable held sprite or block cube
-  on the posed `rightItem` bone (item atlas bound to the pass). Placement follows the 26.30
+  in a separate camera-space legacy-icon stack (item atlas bound to the pass); cubes and
+  attachables still use the posed `rightItem` bone. The arm follows the 26.30
   reference: a zero-yaw actor in view space, feet one eye height below the camera, with the
   target/body/head rotation queries zeroed; `variable.player_arm_height` is the equip progress
   (its per-tick step and swap height are unresolved in the reference and need measurement).
-  Still missing: view bob and arm sway on the hand, and the hand FOV (uses the main camera FOV).
+  The hand pass has its own fixed FOV and receives view bob, hurt tilt and arm sway.
   Undrawable items keep the CPU icon viewmodel. Eat/drink/bow-draw
   poses are neutral: `query.main_hand_item_use_duration` now counts using-item flag ticks, but
   `max_duration` has no source (no item-use state; only food durations exist in pack data).
@@ -119,14 +124,15 @@ T0 landed (attachable bindings, `.mcbeeqp` carrier). Uncompiled/unmeasured lane 
   pack's first-person attack rotation reads `variable.first_person_item_rotation_factor`, which
   neither the pack nor the 26.30 client assigns; it provisionally takes the pack's
   `first_person_rotation_factor`. Haste and fatigue do not yet change the rig's 6-tick swing.
-- **Held item placement:** third person seats sprites, hand-equipped tools/weapons and block
-  cubes on the `rightItem` bone by the 26.30 reference's held-item and default item transforms.
-  First person draws the item in camera space by `renderFirstPerson`'s own transforms (swing,
-  equip dip, eat/drink raise, 0.4 hand scale), as vanilla skips held items in the first-person
-  actor pass. Sprites use vanilla's held tessellation layout. Provisional: the hand-equipped and
-  mirrored-art lists mirror vanilla by identifier; first-person bow, crossbow, spyglass, spear and
-  map use poses, the narrow-aspect offset, the eat-raise aspect term and data-driven block display
-  transforms are not applied; a block with no plain cube sheet shows its icon sprite.
+- **Held item placement:** third-person sprites/tools/cubes follow the 26.30 reference's
+  held-item/default transforms on `rightItem`. Ordinary first-person icons use the current
+  client camera stack and default icon transform.
+  Swing/equip inputs are sampled at fixed ticks and interpolated before nonlinear evaluation;
+  they do not inherit avatar bones or model scale. Provisional: item-use/mirrored-art branches,
+  custom render offsets and native sine-table rounding are missing; the hand-equipped item
+  list mirrors vanilla by identifier, the block
+  mesh origin is assumed centred, and the narrow-aspect first-person offset is not applied.
+  `query.get_default_bone_pivot` now reads the rig's rest pivots.
 - **Block items:** plain opaque cubes in hand (third and first person) and on the head
   (carved pumpkin); non-cube blocks and mob/player heads are not drawn.
 - **Elytra:** wings posed from the carrier's literal `default`/`sneaking`/`sleeping` clips;
@@ -162,7 +168,7 @@ animated rig remotes use. All three below flow from that.
   the shared rig + motion model.
 - First-person hand+item: flat CPU sprite / static `EmptyHandNeutralStaticFallback`; no
   bob/swing/equip/sway/lighting/held item. Implement via first-person render controller +
-  `animation.player.first_person.*` (public samples) + `ItemInHandRenderer` transforms (Lens).
+  `animation.player.first_person.*` (public samples) + vanilla's held-item transforms.
 - Top-left mini player: no vanilla counterpart → remove if a standalone overlay; keep the
   inventory/menu paperdoll.
 
@@ -226,7 +232,7 @@ animated rig remotes use. All three below flow from that.
 ## HUD (Java target; chat/scoreboard intentionally Java — not gaps)
 - Title/subtitle/action bar centered, magnified, alpha-faded from SetTitle timings; placement constants need measurement (uncompiled).
 - Screen overlays: see the camera section (dedicated overlay pass landed uncompiled; underwater overlay not listed there) (MED). No red damage flash is correct.
-- Boss-bar colors/notches approximate; effect-blink approximate; boss-bar Java sprites (no source pack carries them; notches stay procedural) (LOW). Hardcore hearts ship via the optional `make hud-extras-assets` carrier. Heart jitter/regen wave, hunger shake, boxed sliding toasts, Name tags are world-space billboards matching `LevelNameTagRenderer` (1.6/60 scale, 0.25-alpha plates, see-through unless sneaking, which depth-tests at 0.125 text alpha); the nameplate-depth-tested flag (129) is not streamed and is ignored. Offhand handedness has no Bedrock source.
+- Boss-bar colors/notches approximate; effect-blink approximate; boss-bar Java sprites (no source pack carries them; notches stay procedural) (LOW). Hardcore hearts ship via the optional `make hud-extras-assets` carrier. Heart jitter/regen wave, hunger shake, boxed sliding toasts remain unaccepted. Name tags now use the native world-plane geometry, multiline background and independent centering; [source record and remaining branches](../reference/nametag-rendering.md). No native visual gate is closed. Offhand handedness has no Bedrock source.
 - Chat/killfeed glyphs: ranges widened (IPA/small caps, super/subscripts, number forms) and zero-width/control/variation-selector code points now lay out as nothing; needs `make assets` and live recheck of the garbling (MED).
 - Round 3, all uncompiled: AvailableCommands drives chat suggestions (names, enums, soft enums, targets, usage hint, permission filter, Tab cycling; Enter always sends); F2 screenshot to `screenshots/` with chat confirmation (UTC names); bed screen (sleep tint, Leave Bed, StopSleeping; tint timing/colour and button geometry need measurement); F3 debug overlay (targeted block shows runtime id only; no block-name lookup).
 - Faithful already: hotbar, hearts/armor/absorption, hunger, air, XP, crosshair.
@@ -235,9 +241,10 @@ animated rig remotes use. All three below flow from that.
 - Third-person boom collapses onto the player (camera reads as "too close"): the collision
   avoidance fails closed to radius 0 when the sweep errors or hits geometry; boom radius 4.0
   is itself vanilla-correct. Model height is correct — this is distance only (MED, confirmed live).
-- Dynamic FOV (sprint/speed/slowness/flying/bow/spyglass 0.1, tick smoothing, FOV-effects scale), walk view-bob,
+- Dynamic FOV multiplier follows vanilla (movement-speed ratio, slowness, flying, bow, spyglass 0.1, tick smoothing);
+  swim-speed factor, underwater narrowing and the final [5, 130] clamp are missing. Walk view-bob,
   hurt tilt, nausea/portal wobble, server shake and `CameraInstruction` set/clear/fade/FOV are implemented
-  presentation-only under `app/src/camera/`; every magnitude, curve and sign is provisional *(measure)* (MED).
+  presentation-only under `app/src/camera/`; their magnitudes, curves and signs are provisional *(measure)* (MED).
 - Screen overlays (pumpkin blur, spyglass scope, portal, freezing, suffocation, fire, server fade) draw in a dedicated
   pass (`ScreenOverlayRenderPlugin`); pumpkin and spyglass use the vanilla PNGs when found and procedural art
   otherwise; portal, fire and freezing are procedural, suffocation is a flat tint, and the vignette stays with the
@@ -246,7 +253,7 @@ animated rig remotes use. All three below flow from that.
   spline instructions, blindness/darkness/night-vision consumers (`VisionEffects`), first-person hand consumer of
   `FirstPersonHandMotion` (MED).
 - Look sensitivity now follows a provisional slider curve, gamepad look is frame-rate normalized, optional
-  cinematic smoothing; pitch clamp 89.9 vs 90 and FOV range/default still *(measure)* (MED).
+  cinematic smoothing; pitch clamp 89.9 vs 90 still *(measure)*; FOV default 60 and range 30..110 match vanilla (MED).
 
 ## Movement / physics / controls (Bedrock target)
 Core physics binary-confirmed correct (gravity/drag/friction/jump/speed). Gaps:
@@ -320,7 +327,7 @@ aim assist, sounds, buoyancy, container data) have no visual effect and are reta
 
 | Key | Consumed | Vanilla effect |
 | --- | --- | --- |
-| 0 / 92 flags | yes | every `is_*` query, on-fire camera overlay, invisible body (NoDraw; armor and held items stay, as `shouldHideHeldItems` returns false), show/always-show name, sneak tag dimming, sleeping, riding layouts (saddled, baby, tamed, sheared) |
+| 0 / 92 flags | yes | every `is_*` query, on-fire camera overlay, invisible body (NoDraw; armor and held items stay, as vanilla never hides held items for invisibility), show/always-show name, sneak tag dimming, sleeping, riding layouts (saddled, baby, tamed, sheared) |
 | 1 structural_integrity, 2 variant, 43 mark_variant, 104 skin_id, 101 trade_tier, 48 invulnerable_ticks, 55 fuse_time, 21 swell_dir | yes | integer queries; render-controller texture, geometry and part-visibility arrays re-evaluated per tick for vanilla and server-pack entities alike |
 | 3 color, 82 color2 | no | engine-side dye tint (sheep wool, shulker, tropical fish, llama carpet); not a Molang query — missing |
 | 4 name, 81 always_show_nametag, 84 score_tag, 143 nameplate_render_distance_max | yes | nametag text (players included), forced visibility, score line within 10 blocks, tag range (default 64) |
@@ -329,9 +336,10 @@ aim assist, sounds, buoyancy, container data) have no visual effect and are reta
 | 56 seat_offset | yes | rider placement; whether the mount's scale scales authored seats is unverified |
 | 5 owner, 6 target, 12 hurt_direction, 15 value, 16 display_block, 19 swell, 23 carry_block, 26 player_flags, 37 leash_holder, 89 sit_amount, 93 lie_amount | yes | ownership/leash ropes, look-at, hurt tilt, XP orb frame, minecart block, creeper swell, enderman block query, sleeping, pose blends |
 | 7 air, 42 max_air, 120 freezing | yes | HUD bubbles and freeze vignette (local player) |
-| 136 filtered_name | no | filtered tag text — missing |
+| 84 score, 140 nameplate_render_distance_max (current target) | yes | synced below-name score inside the native ten-block gate; per-actor tag range |
+| 136 filtered_name (older table's target) | no | filtered tag text — missing; current target key mapping still needs reconciliation |
 
-Missing presentation that the flags drive: the entity flame billboard (`ActorRenderer::renderFlame`)
+Missing presentation that the flags drive: the entity flame billboard
 and `on_fire_color`, entity ground shadows (none are drawn at any scale), the charged-creeper
 armor layer (needs `uv_anim`), and per-tick Molang `scripts.scale` (only a constant authored scale
 is carried).
@@ -360,5 +368,6 @@ the samples). Legacy 64x32 images are expanded as vanilla does.
 
 Player cape: drawn from the skin's cape raster with the `geometry.cape` mesh posed from the
 player's bones by name; the cape's rest turn, layer resampling and `cape_flap_amount` scale need
-native verification. With the real carriers no cape draws yet: vanilla defines `geometry.cape` in
-`models/mobs.json`, which the entity compiler does not read.
+native parity verification. The entity compiler retains vanilla's `geometry.cape` from
+`models/mobs.json` in the geometry carrier and reference sidecar. Server-assigned local appearances
+survive unchanged client pose feeds and roster removal while the player actor remains alive.

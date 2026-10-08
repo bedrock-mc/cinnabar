@@ -2,9 +2,15 @@ use protocol::{ActorMetadataValue, ActorStatusEvent, ActorStatusKind, ActorTakeI
 
 use super::{ActorApplyResult, ActorSnapshot, ActorStore};
 
-pub use render_data::{
-    DEATH_DURATION_TICKS, HURT_DURATION_TICKS, HURT_OVERLAY_ALPHA, PICKUP_DURATION_TICKS,
-};
+/// Ticks the hurt tint and hurt-driven animations stay active; needs independent measurement.
+pub const HURT_DURATION_TICKS: u8 = 10;
+/// Alpha of the red damage overlay while hurt or dying; needs independent measurement.
+pub const HURT_OVERLAY_ALPHA: f32 = 0.4;
+/// Ticks a dying actor takes to tip fully over; needs independent measurement.
+pub const DEATH_DURATION_TICKS: u8 = 20;
+
+/// Ticks a picked-up item takes to reach its collector; needs independent measurement.
+pub const PICKUP_DURATION_TICKS: u8 = 3;
 
 /// Sequences a knockback impulse stays attributable to a hurt event; needs measurement.
 const KNOCKBACK_FRESH_SEQUENCES: u64 = 32;
@@ -26,7 +32,114 @@ pub struct ActorStatusNotice {
     pub height: Option<f32>,
 }
 
-pub use render_data::{ActorPickup, ActorStatus};
+/// A dropped item flying to the actor that collected it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ActorPickup {
+    pub collector_runtime_id: u64,
+    /// Ticks elapsed, saturating at [`PICKUP_DURATION_TICKS`].
+    pub ticks: u8,
+}
+
+/// Client-derived damage and death presentation state, advanced per tick.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct ActorStatus {
+    pub(super) terrain_interlock: super::terrain_interlock::TerrainInterlock,
+    pub(super) movement_interpolation: super::movement_interpolation::MovementInterpolation,
+    /// Vanilla velocity per tick, distinct from query-derived movement speed.
+    pub(crate) native_velocity: [f32; 3],
+    /// Consecutive gliding ticks; vanilla advances them only for the input-driven local player.
+    pub fall_fly_ticks: u32,
+    /// Ticks of hurt state remaining.
+    pub hurt_time: u8,
+    /// Signed native shake countdown, set verbatim by ActorEvent::Shake.
+    pub shake_time: i32,
+    /// The current hurt came without damage, so it shows no red flash.
+    pub skip_red_flash: bool,
+    /// Server-streamed hurt direction, when the server provides one.
+    pub hurt_direction: Option<f32>,
+    /// Ticks elapsed since death, saturating at [`DEATH_DURATION_TICKS`].
+    pub death_time: u8,
+    pub(crate) dragon_death_time: u16,
+    pub(crate) cloud_start_tick: Option<u32>,
+    pub(crate) cloud_particles_expired: bool,
+    pub dead: bool,
+    /// `age_ticks` when the fuse metadata was last received.
+    pub fuse_age_ticks: u32,
+    /// Ticks since the actor spawned; drives dropped-item spin and bob phase.
+    pub age_ticks: u32,
+    pub(super) fire: super::fire::FireAnimation,
+    /// Runtime ID and spawn revision of the dragon's last selected healing crystal.
+    pub(crate) healing_crystal: Option<(u64, u64)>,
+    pub pickup: Option<ActorPickup>,
+    /// Body water/lava contact; `None` before the first successful world sample.
+    pub fluid: Option<(bool, bool)>,
+    /// Breathing point below a liquid surface; `None` before the first world sample.
+    pub breathing_submerged: Option<bool>,
+    /// Bed orientation in degrees under a sleeping actor, sampled from the world.
+    pub sleep_rotation: Option<f32>,
+}
+
+impl ActorStatus {
+    /// Death ticks presented to animations, including the dragon's longer sequence.
+    #[must_use]
+    pub fn death_ticks(&self) -> u16 {
+        if self.dragon_death_time != 0 {
+            self.dragon_death_time
+        } else {
+            u16::from(self.death_time)
+        }
+    }
+
+    /// Whether the red damage overlay should tint the actor this frame.
+    #[must_use]
+    pub fn overlay_active(&self) -> bool {
+        (self.hurt_time > 0 && !self.skip_red_flash) || self.dead
+    }
+
+    /// Death tip-over progress in `0..=1` at `partial_tick`, or `None` while alive.
+    #[must_use]
+    pub fn death_progress(&self, partial_tick: f32) -> Option<f32> {
+        if !self.dead {
+            return None;
+        }
+        let ticks = f32::from(self.death_time) + partial_tick.clamp(0.0, 1.0);
+        Some((ticks / f32::from(DEATH_DURATION_TICKS)).clamp(0.0, 1.0))
+    }
+
+    /// Advances retained presentation timers by one simulation tick.
+    pub fn tick(&mut self) {
+        self.age_ticks = self.age_ticks.saturating_add(1);
+        self.fire.tick(self.age_ticks);
+        if let Some(pickup) = &mut self.pickup {
+            pickup.ticks = pickup.ticks.saturating_add(1).min(PICKUP_DURATION_TICKS);
+        }
+        self.hurt_time = self.hurt_time.saturating_sub(1);
+        // Vanilla's actor tick decrements only positive
+        // shake values. Zero and well-formed negative server values stay unchanged.
+        if self.shake_time > 0 {
+            self.shake_time -= 1;
+        }
+        if self.dead && self.death_time < DEATH_DURATION_TICKS {
+            self.death_time += 1;
+        }
+    }
+
+    /// Starts the native death and damage presentation timers.
+    pub fn die(&mut self) {
+        self.dead = true;
+        self.hurt_time = HURT_DURATION_TICKS;
+        self.skip_red_flash = false;
+    }
+
+    /// Clears death and damage presentation state when the actor becomes alive.
+    pub fn revive(&mut self) {
+        self.hurt_time = 0;
+        self.hurt_direction = None;
+        self.death_time = 0;
+        self.dragon_death_time = 0;
+        self.dead = false;
+    }
+}
 
 impl ActorSnapshot {
     /// Marks the actor dead when its health attribute reaches zero and alive when it recovers.
@@ -75,13 +188,20 @@ impl ActorStore {
                 actor.status.hurt_time = HURT_DURATION_TICKS;
                 actor.status.skip_red_flash = event.kind == ActorStatusKind::HurtWithoutDamage;
                 actor.status.hurt_direction = actor.streamed_hurt_direction();
+                self.animation.hurt_java_limbs(event.runtime_id);
             }
             ActorStatusKind::Death => {
-                if !actor.status.dead {
+                if matches!(&actor.kind, super::ActorKind::Entity { identifier } if identifier.as_ref() == "minecraft:ender_dragon")
+                {
+                    actor.status.dead = true;
+                    actor.status.dragon_death_time = 1;
+                } else if !actor.status.dead {
                     actor.status.die();
                 }
             }
             ActorStatusKind::SpawnAlive => actor.status.revive(),
+            // Entity event 39 (0x27) sets the shake countdown verbatim.
+            ActorStatusKind::Shake => actor.status.shake_time = event.data,
             // Particle-only kinds have no retained actor state.
             _ => {}
         }
@@ -189,6 +309,39 @@ mod tests {
             store.get(7).unwrap().status.hurt_time,
             HURT_DURATION_TICKS - 3
         );
+    }
+
+    #[test]
+    fn shake_event_uses_the_payload_and_only_completed_ticks_decrement_positive_values() {
+        let mut store = ActorStore::new(1, 0);
+        store.apply(1, 1, spawn());
+        let shake = |data| {
+            protocol::ActorEvent::Status(ActorStatusEvent {
+                runtime_id: 7,
+                kind: ActorStatusKind::Shake,
+                data,
+            })
+        };
+        assert_eq!(store.apply(1, 2, shake(12)), ActorApplyResult::Updated);
+        assert_eq!(store.get(7).unwrap().status.shake_time, 12);
+        store.advance_interpolation_ticks(0);
+        assert_eq!(store.get(7).unwrap().status.shake_time, 12);
+        store.advance_interpolation_ticks(3);
+        assert_eq!(store.get(7).unwrap().status.shake_time, 9);
+        store.advance_interpolation_ticks(10);
+        assert_eq!(store.get(7).unwrap().status.shake_time, 0);
+
+        for (sequence, data) in [(3, -1), (4, i32::MIN), (5, 0)] {
+            assert_eq!(
+                store.apply(1, sequence, shake(data)),
+                ActorApplyResult::Updated
+            );
+            store.advance_interpolation_ticks(2);
+            assert_eq!(store.get(7).unwrap().status.shake_time, data);
+        }
+        store.apply(1, 6, shake(i32::MAX));
+        store.advance_interpolation_ticks(1);
+        assert_eq!(store.get(7).unwrap().status.shake_time, i32::MAX - 1);
     }
 
     /// Event 81 arms the hurt countdown but never the red damage flash; a real hit restores it.

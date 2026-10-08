@@ -35,7 +35,13 @@ type Entry = Arc<Mutex<Child>>;
 
 /// A registry of unreaped children.
 pub(crate) struct Children {
-    live: Mutex<Vec<Entry>>,
+    live: Mutex<Registry>,
+}
+
+/// Registration and spawn authority share the shutdown lock.
+struct Registry {
+    entries: Vec<Entry>,
+    shutting_down: bool,
 }
 
 /// One tracked child. Dropping it unreaped leaves the child to the registry's exit sweep.
@@ -45,28 +51,50 @@ pub(crate) struct Spawned(Entry);
 impl Children {
     pub(crate) const fn new() -> Self {
         Self {
-            live: Mutex::new(Vec::new()),
+            live: Mutex::new(Registry {
+                entries: Vec::new(),
+                shutting_down: false,
+            }),
         }
     }
 
     pub(crate) fn track(&self, child: Child) -> Spawned {
         let entry = Arc::new(Mutex::new(child));
         let mut live = lock(&self.live);
-        live.retain(|entry| running(&mut lock(entry)));
-        live.push(Arc::clone(&entry));
+        live.entries.retain(|entry| running(&mut lock(entry)));
+        if live.shutting_down {
+            escalate(std::slice::from_ref(&entry), Duration::ZERO);
+        }
+        if running(&mut lock(&entry)) {
+            live.entries.push(Arc::clone(&entry));
+        }
         Spawned(entry)
+    }
+
+    /// Spawns and registers under the same lock that revokes shutdown authority.
+    fn spawn(&self, command: &mut Command) -> io::Result<Spawned> {
+        let mut live = lock(&self.live);
+        if live.shutting_down {
+            return Err(io::Error::other("client is shutting down"));
+        }
+        let entry = Arc::new(Mutex::new(command.spawn()?));
+        live.entries.retain(|entry| running(&mut lock(entry)));
+        live.entries.push(Arc::clone(&entry));
+        Ok(Spawned(entry))
     }
 
     /// Ends every tracked child: close stdin and wait `graceful`, then SIGTERM, then SIGKILL.
     pub(crate) fn stop_all(&self, graceful: Duration) {
-        let entries = lock(&self.live).clone();
-        escalate(&entries, graceful);
-        lock(&self.live).retain(|entry| running(&mut lock(entry)));
+        let mut live = lock(&self.live);
+        live.shutting_down = true;
+        escalate(&live.entries, graceful);
+        live.entries.retain(|entry| running(&mut lock(entry)));
     }
 
-    #[cfg(test)]
-    pub(crate) fn tracked(&self) -> usize {
-        lock(&self.live).len()
+    /// Counts the children still registered by the Unix process-lifecycle tests.
+    #[cfg(all(test, unix))]
+    fn tracked(&self) -> usize {
+        lock(&self.live).entries.len()
     }
 }
 
@@ -85,7 +113,7 @@ impl From<Child> for Spawned {
 /// Spawns `command` as a tracked child that knows to exit with this process.
 pub(crate) fn spawn(command: &mut Command) -> io::Result<Spawned> {
     command.env(PARENT_ENV, std::process::id().to_string());
-    command.spawn().map(Spawned::from)
+    CHILDREN.spawn(command)
 }
 
 /// Ends every child this process spawned; for exit paths.
@@ -257,6 +285,16 @@ mod tests {
     }
 
     // Each exit path's sweep ends every child, escalating as far as each one needs.
+    #[test]
+    fn review_shutdown_also_stops_late_child_registration() {
+        let children = Children::new();
+        children.stop_all(Duration::ZERO);
+        let child = children.track(ignores_stdin());
+        let alive = matches!(child.try_wait(), Ok(None));
+        child.stop(Duration::ZERO);
+        assert!(!alive, "late registration escaped the exit sweep");
+    }
+
     #[test]
     fn stop_all_escalates_until_every_child_is_reaped() {
         let children = Children::new();

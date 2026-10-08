@@ -3,9 +3,10 @@ use protocol::{ActorKind, ActorMetadataValue};
 
 use super::{ActorSnapshot, ActorStore, FUSE_TIME_METADATA_KEY};
 
-const DISPLAY_BLOCK_METADATA_KEY: u32 = 16;
+const DISPLAY_BLOCK_METADATA_KEY: u32 = 2;
 const OWNER_METADATA_KEY: u32 = 5;
 const LEASH_HOLDER_METADATA_KEY: u32 = 37;
+const INVALID_LEASH_HOLDER_ID: i64 = -1;
 
 // Provisional presentation constants; each needs independent measurement.
 const BLOCK_ENTITY_CENTER_HEIGHT: f32 = 0.49;
@@ -25,7 +26,7 @@ pub enum BlockEntityKind {
     PrimedTnt { visual: ItemVisualRoute },
 }
 
-/// A block-model entity ready to draw as a unit cube.
+/// A block-model entity ready to draw with its retained world geometry.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BlockEntityView {
     pub runtime_id: u64,
@@ -36,6 +37,14 @@ pub struct BlockEntityView {
     pub scale: f32,
     /// White flash active this frame.
     pub flash: bool,
+}
+
+/// Retained block geometry whose visibility can change with a terrain upload.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BlockEntityCandidate {
+    pub unique_id: i64,
+    pub view: BlockEntityView,
+    pub visible: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -78,12 +87,46 @@ pub fn tnt_presentation(fuse: f32) -> (f32, bool) {
 }
 
 impl ActorStore {
+    pub(crate) fn block_entity_candidates(&self, partial_tick: f32) -> Vec<BlockEntityCandidate> {
+        self.block_entity_candidates_at(partial_tick, std::time::Instant::now())
+    }
+
+    pub(super) fn block_entity_candidates_at(
+        &self,
+        partial_tick: f32,
+        now: std::time::Instant,
+    ) -> Vec<BlockEntityCandidate> {
+        let alpha = partial_tick.clamp(0.0, 1.0);
+        let mut candidates = self
+            .actors
+            .values()
+            .filter_map(|actor| {
+                Some(BlockEntityCandidate {
+                    unique_id: actor.unique_id,
+                    view: self.block_entity_view(actor, alpha)?,
+                    visible: actor.status.terrain_interlock.visible_at(now),
+                })
+            })
+            .collect::<Vec<_>>();
+        candidates.sort_unstable_by_key(|candidate| candidate.view.runtime_id);
+        candidates
+    }
+
     /// Falling blocks and primed TNT with interpolated centres.
     pub(crate) fn block_entities(&self, partial_tick: f32) -> Vec<BlockEntityView> {
+        self.block_entities_at(partial_tick, std::time::Instant::now())
+    }
+
+    pub(super) fn block_entities_at(
+        &self,
+        partial_tick: f32,
+        now: std::time::Instant,
+    ) -> Vec<BlockEntityView> {
         let alpha = partial_tick.clamp(0.0, 1.0);
         let mut views = self
             .actors
             .values()
+            .filter(|actor| actor.status.terrain_interlock.visible_at(now))
             .filter_map(|actor| self.block_entity_view(actor, alpha))
             .collect::<Vec<_>>();
         views.sort_unstable_by_key(|view| view.runtime_id);
@@ -108,7 +151,11 @@ impl ActorStore {
                     kind: BlockEntityKind::Falling {
                         block_runtime_id: *block,
                     },
-                    center,
+                    center: [
+                        feet[0],
+                        feet[1] + super::FALLING_BLOCK_NETWORK_OFFSET,
+                        feet[2],
+                    ],
                     scale: 1.0,
                     flash: false,
                 })
@@ -147,7 +194,7 @@ impl ActorStore {
         actors.sort_unstable_by_key(|actor| actor.runtime_id);
         for actor in actors {
             if let Some(holder) = metadata_i64(actor, LEASH_HOLDER_METADATA_KEY)
-                .filter(|holder| *holder > 0)
+                .filter(|holder| *holder != INVALID_LEASH_HOLDER_ID)
                 .and_then(|holder| self.actor_by_unique(holder))
             {
                 let attach = |actor: &ActorSnapshot| {

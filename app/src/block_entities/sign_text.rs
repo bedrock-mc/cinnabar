@@ -78,6 +78,7 @@ pub(crate) fn line_width_design_pixels(
             baseline_64: ASCENT_TEXELS * 64,
             scale: UiScale::default(),
             font,
+            wrap: Default::default(),
         })
         .ok()?;
     Some(layout.size_64()[0] as f32 / (TEXELS_PER_PIXEL * 64) as f32)
@@ -113,6 +114,7 @@ pub(super) fn rasterize(
             baseline_64: ASCENT_TEXELS * 64,
             scale: UiScale::default(),
             font,
+            wrap: Default::default(),
         }) else {
             continue;
         };
@@ -200,9 +202,9 @@ fn page_alpha(page: &assets::FontTexturePage, x: i32, y: i32) -> Option<u8> {
     if x >= page.width || y >= page.height {
         return None;
     }
-    page.rgba8
-        .get(((y * page.width + x) * 4 + 3) as usize)
-        .copied()
+    page.pixels
+        .texel((y * page.width + x) as usize)
+        .map(|texel| texel[3])
 }
 
 #[cfg(test)]

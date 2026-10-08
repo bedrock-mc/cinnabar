@@ -5,7 +5,7 @@ use crate::runtime::network::{
         BootstrapGenerationDisposition, classify_bootstrap_generation, install_server_language,
     },
 };
-use crate::ui_runtime::UiRuntime;
+use client_ui::ui_runtime::UiRuntime;
 
 fn overlay(value: &[u8]) -> Arc<assets::ServerLangOverlay> {
     assets::ServerLangOverlay::read(value.len(), |target| {
@@ -17,6 +17,8 @@ fn overlay(value: &[u8]) -> Arc<assets::ServerLangOverlay> {
 
 #[test]
 fn only_current_successful_bootstrap_can_install_or_retire_language() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(2);
+
     let mut runtime = UiRuntime::new(2);
     let old = overlay(b"item.stone.name=Old\n");
     let old_weak = Arc::downgrade(&old);
@@ -25,6 +27,7 @@ fn only_current_successful_bootstrap_can_install_or_retire_language() {
         BootstrapGenerationDisposition::Expected
     );
     let accepted = publish_bootstrap_inventory(
+        &mut player_runtime,
         &mut runtime,
         None,
         InventoryEvent::Authority(InventoryAuthority::Server),
@@ -32,7 +35,7 @@ fn only_current_successful_bootstrap_can_install_or_retire_language() {
     assert!(accepted);
     install_server_language(&mut runtime, 2, Some(old), accepted);
     assert_eq!(runtime.localized_item_name("minecraft:stone"), "Old");
-    runtime.begin_session(3);
+    crate::session::begin_session(&mut runtime, &mut player_runtime, 3);
     assert!(old_weak.upgrade().is_none());
     let current = overlay(b"item.stone.name=Current\n");
     install_server_language(&mut runtime, 3, Some(current), true);
@@ -48,6 +51,7 @@ fn only_current_successful_bootstrap_can_install_or_retire_language() {
     let failed = overlay(b"item.stone.name=Failed\n");
     let failed_weak = Arc::downgrade(&failed);
     let accepted = publish_bootstrap_inventory(
+        &mut player_runtime,
         &mut runtime,
         None,
         InventoryEvent::SelectedSlot(protocol::SelectedSlotEvent {
@@ -84,7 +88,7 @@ fn replacing_handle_drops_old_terminal_receiver_before_new_session_publication()
     ] {
         let (mut handle, _) = NetworkHandle::stub();
         let (sender, receiver) = mpsc::channel(1);
-        handle.control_events = receiver;
+        *handle.control_events_mut() = receiver;
         sender.try_send(terminal).unwrap();
         let old = std::mem::replace(&mut handle, NetworkHandle::disconnected());
         drop(old);

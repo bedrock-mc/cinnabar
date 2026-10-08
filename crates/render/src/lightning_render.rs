@@ -33,11 +33,12 @@ const LIGHTNING_SHADER_HANDLE: Handle<Shader> =
 const RECORD_BYTES: usize = std::mem::size_of::<BoltRecord>();
 
 pub(crate) fn install_lightning_render(app: &mut App) {
+    crate::pipeline_warmup::register::<LightningPipeline>(app);
     load_internal_asset!(
         app,
         LIGHTNING_SHADER_HANDLE,
         "lightning.wgsl",
-        Shader::from_wgsl
+        crate::shader_safety::from_wgsl
     );
     app.sub_app_mut(RenderApp)
         .init_resource::<LightningPipeline>()
@@ -240,12 +241,12 @@ fn prepare_lightning_bind_group(
 fn queue_lightning(
     pipeline_cache: Res<PipelineCache>,
     mut pipeline: ResMut<LightningPipeline>,
-    gpu: Res<LightningGpu>,
+    scene: Res<LightningScene>,
     mut phases: ResMut<ViewSortedRenderPhases<Transparent3d>>,
     draw_functions: Res<DrawFunctions<Transparent3d>>,
     views: Query<(Entity, &MainEntity, &ExtractedView, &Msaa)>,
 ) {
-    if gpu.record_count == 0 {
+    if scene.records.is_empty() {
         return;
     }
     let draw_function = draw_functions.read().id::<DrawLightningCommands>();
@@ -262,17 +263,18 @@ fn queue_lightning(
         ) else {
             continue;
         };
-        phase.add(Transparent3d {
-            entity: (view_entity, *main_entity),
-            pipeline: pipeline_id,
-            draw_function,
-            distance: view
-                .rangefinder3d()
-                .distance(&view.world_from_view.translation()),
-            batch_range: 0..1,
-            extra_index: PhaseItemExtraIndex::None,
-            indexed: false,
-        });
+        for (index, record) in scene.records.iter().take(MAX_BOLT_RECORDS).enumerate() {
+            let midpoint = (Vec3::from_array(record.start) + Vec3::from_array(record.end)) * 0.5;
+            phase.add(Transparent3d {
+                entity: (view_entity, *main_entity),
+                pipeline: pipeline_id,
+                draw_function,
+                distance: view.rangefinder3d().distance(&midpoint),
+                batch_range: index as u32..index as u32 + 1,
+                extra_index: PhaseItemExtraIndex::None,
+                indexed: false,
+            });
+        }
     }
 }
 
@@ -308,13 +310,90 @@ impl<P: PhaseItem> RenderCommand<P> for DrawLightning {
     type ItemQuery = ();
 
     fn render<'w>(
-        _item: &P,
+        item: &P,
         _view: ROQueryItem<'w, '_, Self::ViewQuery>,
         _item_query: Option<ROQueryItem<'w, '_, Self::ItemQuery>>,
         gpu: SystemParamItem<'w, '_, Self::Param>,
         pass: &mut TrackedRenderPass<'w>,
     ) -> RenderCommandResult {
-        pass.draw(0..gpu.into_inner().record_count.saturating_mul(6), 0..1);
+        let range = item.batch_range();
+        let count = gpu.into_inner().record_count;
+        pass.draw(range.start.min(count) * 6..range.end.min(count) * 6, 0..1);
         RenderCommandResult::Success
+    }
+}
+
+impl crate::pipeline_warmup::PrewarmPipelines for LightningPipeline {
+    fn prewarm(
+        &mut self,
+        cache: &PipelineCache,
+        view: crate::pipeline_warmup::WarmView,
+        ids: &mut crate::pipeline_warmup::WarmupIds,
+    ) -> Result<(), BevyError> {
+        ids.push(self.variants.specialize(
+            cache,
+            LightningPipelineKey {
+                msaa: view.msaa,
+                hdr: view.hdr,
+            },
+        )?);
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod review_tests {
+    use super::*;
+    use crate::queue_review_support as fixture;
+    use bevy::ecs::system::RunSystemOnce;
+    #[test]
+    fn review_render_lightning_queue_uses_current_records() {
+        let (mut app, view) = fixture::app();
+        app.init_resource::<LightningScene>()
+            .init_resource::<LightningPipeline>()
+            .add_render_command::<Transparent3d, DrawLightningCommands>();
+        app.world_mut().run_system_once(init_lightning_gpu).unwrap();
+        app.world_mut()
+            .resource_mut::<LightningScene>()
+            .records
+            .push(BoltRecord {
+                start: [0.0; 3],
+                end: [0.0, 1.0, 0.0],
+                half_width: 0.1,
+                intensity: 1.0,
+            });
+        app.world_mut().run_system_once(queue_lightning).unwrap();
+        assert_eq!(fixture::items(&app, view).len(), 1);
+        fixture::clear(&mut app, view);
+        app.world_mut().resource_mut::<LightningGpu>().record_count = 1;
+        app.world_mut()
+            .resource_mut::<LightningScene>()
+            .records
+            .clear();
+        app.world_mut().run_system_once(queue_lightning).unwrap();
+        assert!(fixture::items(&app, view).is_empty());
+    }
+    #[test]
+    fn review_render_lightning_ribbons_sort_from_their_geometry() {
+        let (mut app, view) = fixture::app();
+        app.init_resource::<LightningScene>()
+            .init_resource::<LightningPipeline>()
+            .add_render_command::<Transparent3d, DrawLightningCommands>();
+        app.world_mut().run_system_once(init_lightning_gpu).unwrap();
+        app.world_mut().resource_mut::<LightningGpu>().record_count = 2;
+        app.world_mut().resource_mut::<LightningScene>().records = [-2.0, -20.0]
+            .map(|z| BoltRecord {
+                start: [0.0, 0.0, z],
+                end: [0.0, 1.0, z],
+                half_width: 0.1,
+                intensity: 1.0,
+            })
+            .to_vec();
+        app.world_mut().run_system_once(queue_lightning).unwrap();
+        let items = fixture::items(&app, view);
+        assert_eq!(items.len(), 2);
+        assert_ne!(items[0].distance, items[1].distance);
+        assert_eq!(items[0].batch_range, 0..1);
+        assert_eq!(items[1].batch_range, 1..2);
     }
 }

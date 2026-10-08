@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -17,7 +18,7 @@ import (
 
 const defaultStartTimeout = 30 * time.Second
 
-// ProcessRunner hosts each superflat world in a managed child running the local server binary.
+// ProcessRunner hosts each Dragonfly world in a managed child running the local server binary.
 // The child prints "ready" on stdout once listening and reads "pause", "resume" and "stop"
 // lines on stdin; stdin EOF also stops it so it cannot outlive the core.
 type ProcessRunner struct {
@@ -30,9 +31,6 @@ type ProcessRunner struct {
 func (r ProcessRunner) Start(ctx context.Context, spec StartSpec) (Instance, error) {
 	if r.Binary == "" {
 		return nil, errors.New("localworld: local server binary is not configured")
-	}
-	if spec.World.Generator != GeneratorFlat {
-		return nil, ErrVanillaNeedsBDS
 	}
 	log := r.Log
 	if log == nil {
@@ -52,6 +50,8 @@ func (r ProcessRunner) Start(ctx context.Context, spec StartSpec) (Instance, err
 		"-name", spec.World.Name,
 		"-game-mode", spec.World.GameMode,
 		"-difficulty", spec.World.Difficulty,
+		"-generator", spec.World.Generator,
+		"-seed", strconv.FormatInt(spec.World.Seed, 10),
 	)
 	cmd.Env = append(os.Environ(), r.Env...)
 	return launch(ctx, launchSpec{
@@ -132,7 +132,7 @@ func launch(ctx context.Context, ls launchSpec) (Instance, error) {
 }
 
 func freeLoopbackAddress() (string, error) {
-	conn, err := net.ListenPacket("udp", "127.0.0.1:0")
+	conn, err := net.ListenPacket("udp", net.JoinHostPort(localServerHost, "0"))
 	if err != nil {
 		return "", fmt.Errorf("localworld: reserve loopback port: %w", err)
 	}

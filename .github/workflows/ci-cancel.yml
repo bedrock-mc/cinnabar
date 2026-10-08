@@ -1,0 +1,21 @@
+name: CI cancel
+
+# Closing or merging a pull request cancels its in-flight CI run: this joins ci.yml's concurrency
+# group for the pull request, and cancel-in-progress applies across workflows.
+on:
+  pull_request:
+    types: [closed]
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  cancel:
+    name: Cancel CI for the closed pull request
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - run: echo "Superseded CI runs for this pull request were cancelled."

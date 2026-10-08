@@ -3,13 +3,22 @@ use std::{collections::BTreeMap, str, sync::Arc};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
+mod fallback;
+mod rendering;
+mod runtime;
+pub use fallback::FontGlyphRequests;
+pub use rendering::{FONT_STYLE_COVERAGE_GAMMA, FONT_STYLE_SDF, FontRendering};
+
 pub const FONT_CARRIER_MAGIC: [u8; 9] = *b"MCBEFONT1";
 pub const FONT_CARRIER_SCHEMA: u32 = 1;
 pub const MAX_FONT_SOURCE_BYTES: u64 = 64 * 1024 * 1024;
 pub const MAX_FONT_PAGES: usize = 256;
 pub const MAX_FONT_GLYPHS: usize = 65_536;
+pub const MAX_FONT_KERNING_PAIRS: usize = 65_536;
 pub const MAX_FONT_PAGE_SIDE: u32 = 4_096;
 pub const MAX_FONT_PATH_BYTES: usize = 512;
+pub const FONT_FALLBACK_ATLAS_SIDE: u32 = 1024;
+pub const MAX_FONT_FALLBACK_PAGES: usize = 16;
 
 const MAX_FONT_DECODED_BYTES: usize = MAX_FONT_SOURCE_BYTES as usize;
 const MAX_FONT_CARRIER_BYTES: usize = 128 * 1024 * 1024;
@@ -35,7 +44,50 @@ pub struct FontTexturePage {
     pub pixels_sha256: [u8; 32],
     pub width: u32,
     pub height: u32,
-    pub rgba8: Box<[u8]>,
+    pub pixels: FontPixels,
+}
+
+/// A page's texels: RGBA8, or one coverage byte per texel when every visible texel is white.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum FontPixels {
+    Rgba8(Box<[u8]>),
+    Coverage(Box<[u8]>),
+}
+
+impl FontPixels {
+    pub fn bytes(&self) -> &[u8] {
+        match self {
+            Self::Rgba8(bytes) | Self::Coverage(bytes) => bytes,
+        }
+    }
+
+    /// The RGBA8 texels an encoder or hash needs; coverage pages no longer have them.
+    pub fn rgba8(&self) -> Option<&[u8]> {
+        match self {
+            Self::Rgba8(bytes) => Some(bytes),
+            Self::Coverage(_) => None,
+        }
+    }
+
+    /// One texel as RGBA8; coverage texels are white.
+    pub fn texel(&self, index: usize) -> Option<[u8; 4]> {
+        match self {
+            Self::Rgba8(bytes) => bytes
+                .get(index * 4..index * 4 + 4)
+                .map(|texel| [texel[0], texel[1], texel[2], texel[3]]),
+            Self::Coverage(bytes) => bytes.get(index).map(|&alpha| [255, 255, 255, alpha]),
+        }
+    }
+
+    /// Coverage-only storage when every visible texel is white, dropping transparent texels'
+    /// colour, which nearest sampling never shows.
+    fn coverage(&self) -> Option<Self> {
+        let rgba8 = self.rgba8()?;
+        rgba8
+            .chunks_exact(4)
+            .all(|texel| texel[3] == 0 || texel[..3] == [255; 3])
+            .then(|| Self::Coverage(rgba8.chunks_exact(4).map(|texel| texel[3]).collect()))
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -45,6 +97,14 @@ pub struct FontCatalogIdentity {
     pub carrier_sha256: [u8; 32],
 }
 
+/// Outline metrics in atlas pixels, independent of a label's CSS line height.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FontLineMetrics {
+    pub em_64: u32,
+    pub ascent_64: u32,
+    pub descent_64: u32,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CompiledFontCatalog {
     identity: FontCatalogIdentity,
@@ -52,6 +112,14 @@ pub struct CompiledFontCatalog {
     pages: Arc<[FontTexturePage]>,
     /// Drawn size in 1/64 px for glyphs that are not drawn at their texel size.
     draw_sizes_64: Arc<BTreeMap<char, [u32; 2]>>,
+    named: Arc<BTreeMap<String, Self>>,
+    sizes: Arc<BTreeMap<u32, Self>>,
+    linear_sampling: bool,
+    rendering: FontRendering,
+    line_metrics: Option<FontLineMetrics>,
+    kerning_64: Arc<BTreeMap<(char, char), i32>>,
+    fallback: Option<Arc<Self>>,
+    requests: Option<Arc<FontGlyphRequests>>,
 }
 
 pub type RuntimeFontCatalog = CompiledFontCatalog;
@@ -81,6 +149,14 @@ impl CompiledFontCatalog {
             glyphs: glyphs.into_boxed_slice(),
             pages: pages.into(),
             draw_sizes_64: Arc::default(),
+            named: Arc::default(),
+            sizes: Arc::default(),
+            linear_sampling: false,
+            rendering: FontRendering::Coverage,
+            line_metrics: None,
+            kerning_64: Arc::default(),
+            fallback: None,
+            requests: None,
         })
     }
 
@@ -108,6 +184,12 @@ impl CompiledFontCatalog {
                 hash.update(value.to_le_bytes());
             }
             hash.update(glyph.metrics.advance_64.to_le_bytes());
+            for value in glyph.metrics.bearing {
+                hash.update(value.to_le_bytes());
+            }
+            for value in glyph.draw_size_64 {
+                hash.update(value.to_le_bytes());
+            }
         }
         Self {
             identity: FontCatalogIdentity {
@@ -117,7 +199,131 @@ impl CompiledFontCatalog {
             glyphs: glyphs.into_values().collect(),
             pages: Arc::clone(&self.pages),
             draw_sizes_64: Arc::new(draw_sizes_64),
+            named: Arc::clone(&self.named),
+            sizes: Arc::clone(&self.sizes),
+            linear_sampling: self.linear_sampling,
+            rendering: self.rendering,
+            line_metrics: self.line_metrics,
+            kerning_64: Arc::clone(&self.kerning_64),
+            fallback: self.fallback.clone(),
+            requests: self.requests.clone(),
         }
+    }
+
+    /// Selects filtered sampling for a runtime outline raster; decoded carriers remain nearest.
+    pub fn with_linear_sampling(mut self) -> Self {
+        if !self.linear_sampling {
+            let mut hash = Sha256::new();
+            hash.update(self.identity.carrier_sha256);
+            hash.update(b"linear outline sampling");
+            self.identity.carrier_sha256 = hash.finalize().into();
+            self.linear_sampling = true;
+        }
+        self
+    }
+
+    pub const fn linear_sampling(&self) -> bool {
+        match self.rendering {
+            FontRendering::Coverage => self.linear_sampling,
+            FontRendering::NativeCoverage => false,
+            FontRendering::NativeSdf => true,
+        }
+    }
+
+    pub fn with_rendering(mut self, rendering: FontRendering) -> Self {
+        if self.rendering != rendering {
+            let mut hash = Sha256::new();
+            hash.update(self.identity.carrier_sha256);
+            hash.update(b"runtime font rendering");
+            hash.update([rendering.style_flags()]);
+            self.identity.carrier_sha256 = hash.finalize().into();
+            self.rendering = rendering;
+        }
+        self
+    }
+
+    pub const fn rendering(&self) -> FontRendering {
+        self.rendering
+    }
+
+    /// Runtime outline faces retain their source baseline and em for semantic text sizing.
+    pub fn with_line_metrics(mut self, metrics: FontLineMetrics) -> Result<Self, FontCatalogError> {
+        if self.line_metrics == Some(metrics) {
+            return Ok(self);
+        }
+        if metrics.em_64 == 0
+            || metrics.em_64 > MAX_FONT_PAGE_SIDE * 64
+            || metrics.ascent_64 == 0
+            || metrics.ascent_64.saturating_add(metrics.descent_64) > metrics.em_64 * 4
+        {
+            return Err(invalid_catalog("outline line metrics exceed bounds"));
+        }
+        let mut hash = Sha256::new();
+        hash.update(self.identity.carrier_sha256);
+        hash.update(metrics.em_64.to_le_bytes());
+        hash.update(metrics.ascent_64.to_le_bytes());
+        hash.update(metrics.descent_64.to_le_bytes());
+        self.identity.carrier_sha256 = hash.finalize().into();
+        self.line_metrics = Some(metrics);
+        Ok(self)
+    }
+
+    pub const fn line_metrics(&self) -> Option<FontLineMetrics> {
+        self.line_metrics
+    }
+
+    /// Runtime horizontal pair advances in the same atlas units as glyph advances.
+    pub fn with_kerning(
+        mut self,
+        pairs: BTreeMap<(char, char), i32>,
+    ) -> Result<Self, FontCatalogError> {
+        if pairs.len() > MAX_FONT_KERNING_PAIRS
+            || pairs.iter().any(|(&(left, right), &value)| {
+                value.unsigned_abs() > MAX_FONT_PAGE_SIDE * 64
+                    || self.glyph(left).is_none()
+                    || self.glyph(right).is_none()
+            })
+        {
+            return Err(invalid_catalog("outline kerning exceeds bounds"));
+        }
+        if *self.kerning_64 == pairs {
+            return Ok(self);
+        }
+        let mut hash = Sha256::new();
+        hash.update(self.identity.carrier_sha256);
+        for (&(left, right), &value) in &pairs {
+            hash.update(u32::from(left).to_le_bytes());
+            hash.update(u32::from(right).to_le_bytes());
+            hash.update(value.to_le_bytes());
+        }
+        self.identity.carrier_sha256 = hash.finalize().into();
+        self.kerning_64 = Arc::new(pairs);
+        Ok(self)
+    }
+
+    pub fn kerning_64(&self, left: char, right: char) -> i32 {
+        self.kerning_64.get(&(left, right)).copied().unwrap_or(0)
+    }
+
+    /// Keeps white-glyph pages as one coverage byte per texel, a quarter of their RGBA size.
+    /// Native distance fields use white RGB throughout, so their linear sampling also permits R8.
+    pub fn with_coverage_pages(mut self) -> Self {
+        if self.linear_sampling() && self.rendering != FontRendering::NativeSdf {
+            return self;
+        }
+        let pages = self
+            .pages
+            .iter()
+            .map(|page| FontTexturePage {
+                pixels: page
+                    .pixels
+                    .coverage()
+                    .unwrap_or_else(|| page.pixels.clone()),
+                ..page.clone()
+            })
+            .collect::<Vec<_>>();
+        self.pages = pages.into();
+        self
     }
 
     /// Drawn `[width, height]` in 1/64 px when it differs from the glyph's texel size.
@@ -190,7 +396,7 @@ pub fn encode_font_catalog(
     })?;
     let pixels_offset = checked_add(paths_offset, paths_bytes, invalid_catalog)?;
     let pixels_bytes = pages.iter().try_fold(0usize, |total, page| {
-        checked_add(total, page.rgba8.len(), invalid_catalog)
+        checked_add(total, page.pixels.bytes().len(), invalid_catalog)
     })?;
     let hash_offset = checked_add(pixels_offset, pixels_bytes, invalid_catalog)?;
     let total_bytes = checked_add(hash_offset, HASH_BYTES, invalid_catalog)?;
@@ -248,18 +454,18 @@ pub fn encode_font_catalog(
         push_u32(&mut bytes, page.height);
         push_u32(&mut bytes, page.source_bytes);
         push_u64(&mut bytes, pixel_cursor)?;
-        push_u64(&mut bytes, page.rgba8.len())?;
+        push_u64(&mut bytes, page.pixels.bytes().len())?;
         bytes.extend_from_slice(&page.source_sha256);
         bytes.extend_from_slice(&page.pixels_sha256);
         push_u32(&mut bytes, 0);
         path_cursor = checked_add(path_cursor, page.source_path.len(), invalid_catalog)?;
-        pixel_cursor = checked_add(pixel_cursor, page.rgba8.len(), invalid_catalog)?;
+        pixel_cursor = checked_add(pixel_cursor, page.pixels.bytes().len(), invalid_catalog)?;
     }
     for page in pages {
         bytes.extend_from_slice(page.source_path.as_bytes());
     }
     for page in pages {
-        bytes.extend_from_slice(&page.rgba8);
+        bytes.extend_from_slice(page.pixels.bytes());
     }
     debug_assert_eq!(bytes.len(), hash_offset);
     bytes.extend_from_slice(&Sha256::digest(&bytes));
@@ -304,8 +510,11 @@ fn validate_catalog(
             ));
         }
         let expected_pixels = pixel_length(page.width, page.height).map_err(invalid_catalog)?;
-        if page.rgba8.len() != expected_pixels
-            || Sha256::digest(&page.rgba8).as_slice() != page.pixels_sha256
+        let rgba8 = page
+            .pixels
+            .rgba8()
+            .ok_or_else(|| invalid_catalog("coverage font pages cannot be encoded"))?;
+        if rgba8.len() != expected_pixels || Sha256::digest(rgba8).as_slice() != page.pixels_sha256
         {
             return Err(invalid_catalog("font page pixels are invalid"));
         }
@@ -313,7 +522,7 @@ fn validate_catalog(
             .checked_add(u64::from(page.source_bytes))
             .ok_or_else(|| invalid_catalog("font source-byte total overflow"))?;
         total_decoded_bytes = total_decoded_bytes
-            .checked_add(page.rgba8.len())
+            .checked_add(rgba8.len())
             .ok_or_else(|| invalid_catalog("font decoded-byte total overflow"))?;
         previous_page = Some(key);
     }
@@ -422,6 +631,7 @@ fn validate_page_offsets(bytes: &[u8], envelope: Envelope) -> Result<(), FontCat
         let pixel_offset = usize_at(bytes, base + 24)?;
         let pixel_length = usize_at(bytes, base + 32)?;
         let source_sha256 = array_at(bytes, base + 40)?;
+        // The envelope seals the pixels; their digests are checked when encoding.
         let pixels_sha256: [u8; 32] = array_at(bytes, base + 72)?;
         if u32_at(bytes, base + 104)? != 0
             || path_offset != expected_path_offset
@@ -454,9 +664,6 @@ fn validate_page_offsets(bytes: &[u8], envelope: Envelope) -> Result<(), FontCat
             return Err(invalid_carrier(
                 "font pages are not strictly source-ordered",
             ));
-        }
-        if Sha256::digest(&bytes[pixel_offset..pixel_end]).as_slice() != pixels_sha256 {
-            return Err(invalid_carrier("font page pixel SHA-256 is invalid"));
         }
         total_source_bytes = total_source_bytes
             .checked_add(u64::from(source_bytes))
@@ -514,7 +721,7 @@ fn decode_pages(
             pixels_sha256: array_at(bytes, base + 72)?,
             width: u32_at(bytes, base + 12)?,
             height: u32_at(bytes, base + 16)?,
-            rgba8: bytes[pixel_offset..pixel_offset + pixel_length].into(),
+            pixels: FontPixels::Rgba8(bytes[pixel_offset..pixel_offset + pixel_length].into()),
         });
     }
     Ok(pages)

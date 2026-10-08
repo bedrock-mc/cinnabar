@@ -78,6 +78,25 @@ impl ChatEditor {
         self.selection_anchor = None;
     }
 
+    /// Replace the whole text with `value`, caret at its end. Text past the
+    /// maximum is kept whole; insertion is refused until it shrinks.
+    pub fn set_text(&mut self, value: &str) {
+        self.text.clear();
+        self.text.push_str(value);
+        self.cursor = self.text.len();
+        self.selection_anchor = None;
+    }
+
+    /// Put the caret at `byte`, clamped into the text and back to a character
+    /// boundary, dropping any selection.
+    pub fn place_cursor(&mut self, byte: usize) {
+        let mut cursor = byte.min(self.text.len());
+        while !self.text.is_char_boundary(cursor) {
+            cursor -= 1;
+        }
+        self.move_to(cursor, false);
+    }
+
     pub fn insert(&mut self, value: &str) -> Result<(), ChatEditorError> {
         let selection = self.selection();
         let removed = selection.as_ref().map_or(0, core::ops::Range::len);
@@ -203,7 +222,8 @@ impl ChatEditor {
         true
     }
 
-    fn remaining_insert_capacity(&self) -> usize {
+    /// Bytes an insertion may add, counting a selection it would replace.
+    pub fn remaining_insert_capacity(&self) -> usize {
         let selected = self.selection().map_or(0, |range| range.len());
         self.maximum_bytes
             .saturating_sub(self.text.len().saturating_sub(selected))

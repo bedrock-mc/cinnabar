@@ -6,12 +6,13 @@
 use std::f32::consts::{PI, TAU};
 
 /// Ticks in one Bedrock day.
-pub const DAY_TICKS: f64 = 24_000.0;
+pub const DAY_TICKS: f64 = mod_api::BEDROCK_DAY_TICKS as f64;
 
 /// Sky-light transfer at night: brightness-ramp level 4, i.e. 15 minus the 11-level night reduction.
 pub const NIGHT_SKY_TRANSFER: f32 = 0.083_333_336;
 
 const RAIN_LIGHT_LOSS: f32 = 5.0 / 16.0;
+const LIGHTMAP_NIGHT_FLOOR: f32 = 0.2;
 const SUNRISE_HALF_WIDTH: f32 = 0.4;
 
 /// Eased celestial angle for an absolute tick; the sun rises slowly and sets slowly.
@@ -27,12 +28,6 @@ pub fn celestial_angle(absolute_ticks: f64) -> f32 {
     linear + (eased - linear) / 3.0
 }
 
-/// Cosine of the sun's zenith angle: 1 at noon, -1 at midnight.
-#[must_use]
-pub fn sun_height(angle: f32) -> f32 {
-    (angle * TAU).cos()
-}
-
 /// Sun position on the unit sphere; east is +x, and noon is straight up.
 #[must_use]
 pub fn sun_direction(angle: f32) -> [f32; 3] {
@@ -43,7 +38,13 @@ pub fn sun_direction(angle: f32) -> [f32; 3] {
 /// Day plateau: 1 while the sun is high, 0 at night, with a short ramp around the horizon.
 #[must_use]
 pub fn day_plateau(angle: f32) -> f32 {
-    (sun_height(angle) * 2.0 + 0.5).clamp(0.0, 1.0)
+    (colour_cosine(angle) * 2.0 + 0.5).clamp(0.0, 1.0)
+}
+
+/// Colour helpers use the native table, unlike the sun direction's full-precision sinf/cosf.
+pub(crate) fn colour_cosine(angle: f32) -> f32 {
+    let half_angle = angle * PI;
+    crate::native_trig::cosine(half_angle + half_angle)
 }
 
 /// Sky-light transfer applied to the sky channel of the lightmap, in `NIGHT_SKY_TRANSFER..=1`.
@@ -53,34 +54,55 @@ pub fn daylight(angle: f32, rain: f32, thunder: f32) -> f32 {
     lerp(NIGHT_SKY_TRANSFER, 1.0, day_plateau(angle) * storm)
 }
 
-/// Multiplier applied to the fog colour: fog never fully blackens.
+/// Vanilla ordinary sky darkening, consumed by builder.
+/// This uses cosf and a distinct twilight curve/floor, not the sky draw's transfer.
 #[must_use]
-pub fn fog_brightness(angle: f32) -> f32 {
-    lerp(0.06, 1.0, day_plateau(angle))
+pub fn lightmap_sky_darken(angle: f32, fog_weather: f32, thunder: f32) -> f32 {
+    let day = ((angle * TAU).cos() * 2.0 + LIGHTMAP_NIGHT_FLOOR).clamp(0.0, 1.0);
+    let storm =
+        (1.0 - unit(fog_weather) * RAIN_LIGHT_LOSS) * (1.0 - unit(thunder) * RAIN_LIGHT_LOSS);
+    day * storm * (1.0 - LIGHTMAP_NIGHT_FLOOR) + LIGHTMAP_NIGHT_FLOOR
+}
+
+pub(crate) fn rgb_to_gamma(rgb: [f32; 3]) -> [f32; 3] {
+    rgb.map(|value| {
+        if value <= 0.003_130_8 {
+            value * 12.92
+        } else {
+            1.055 * value.powf(1.0 / 2.4) - 0.055
+        }
+    })
 }
 
 /// Star alpha: zero by day, at most 0.5 at midnight, hidden by rain.
 #[must_use]
 pub fn star_brightness(angle: f32, rain: f32) -> f32 {
-    let base = (1.0 - (sun_height(angle) * 2.0 + 0.25)).clamp(0.0, 1.0);
-    base * base * 0.5 * (1.0 - unit(rain))
+    // Vanilla star brightness: weather participates
+    // before clamping and squaring; a third-strength rain already hides the stars.
+    let weather = (1.0 - unit(rain) * 3.0).clamp(0.0, 1.0);
+    let height = colour_cosine(angle);
+    let base = (weather * (1.0 - (height + height + 0.75))).clamp(0.0, 1.0);
+    base * base * 0.5
 }
 
 /// Sunrise/sunset glow as `[r, g, b, alpha]` in gamma space; alpha is zero outside the band.
 #[must_use]
 pub fn sunrise_band(angle: f32, rain: f32) -> [f32; 4] {
-    let height = sun_height(angle);
+    let mut band = raw_sunrise_band(angle);
+    band[3] *= 1.0 - unit(rain);
+    band
+}
+
+/// Vanilla's sunrise colour does not read weather. The sky and cloud
+/// draw callers apply their different weather/composition policies separately.
+pub(crate) fn raw_sunrise_band(angle: f32) -> [f32; 4] {
+    let height = colour_cosine(angle);
     if !(-SUNRISE_HALF_WIDTH..=SUNRISE_HALF_WIDTH).contains(&height) {
         return [0.0; 4];
     }
     let f = height / SUNRISE_HALF_WIDTH * 0.5 + 0.5;
-    let alpha = 1.0 - (1.0 - (f * PI).sin()) * 0.99;
-    [
-        f * 0.3 + 0.7,
-        f * f * 0.7 + 0.2,
-        0.2,
-        alpha * alpha * (1.0 - unit(rain)),
-    ]
+    let alpha = 1.0 - (1.0 - crate::native_trig::sine(f * PI)) * 0.99;
+    [f * 0.3 + 0.7, f * f * 0.7 + 0.2, 0.2, alpha * alpha]
 }
 
 /// Clear-sky colour (gamma space) derived from biome temperature.
@@ -105,26 +127,6 @@ pub fn storm_tint(colour: [f32; 3], rain: f32, thunder: f32) -> [f32; 3] {
         }
     }
     colour
-}
-
-/// Underwater fog reach as a fraction of the profile end distance after `seconds` submerged.
-#[must_use]
-pub fn underwater_fog_fraction(seconds: f32) -> f32 {
-    const MIN_PERCENT: f32 = 0.25;
-    const MID: (f32, f32) = (5.0, 0.6);
-    const MAX: (f32, f32) = (30.0, 1.0);
-    let seconds = if seconds.is_finite() {
-        seconds.max(0.0)
-    } else {
-        0.0
-    };
-    if seconds <= MID.0 {
-        lerp(MIN_PERCENT, MID.1, seconds / MID.0)
-    } else if seconds < MAX.0 {
-        lerp(MID.1, MAX.1, (seconds - MID.0) / (MAX.0 - MID.0))
-    } else {
-        MAX.1
-    }
 }
 
 pub(crate) fn srgb_to_linear(value: f32) -> f32 {
@@ -182,7 +184,7 @@ mod tests {
     fn angle_is_zero_at_noon_and_half_at_midnight() {
         assert!(celestial_angle(6_000.0).abs() < 1.0e-6);
         assert!((celestial_angle(18_000.0) - 0.5).abs() < 1.0e-6);
-        assert!((celestial_angle(0.0) - celestial_angle(24_000.0)).abs() < 1.0e-6);
+        assert!((celestial_angle(0.0) - celestial_angle(DAY_TICKS)).abs() < 1.0e-6);
     }
 
     #[test]
@@ -246,11 +248,39 @@ mod tests {
     }
 
     #[test]
+    fn current_lightmap_sky_darken_has_its_own_floor_twilight_and_weather_curve() {
+        // Dimension: cosf; clamp(2*cos+.2); weather; .8*C+.2.
+        for (angle, rain, thunder, expected) in [
+            (0.0, 0.0, 0.0, 1.0),
+            (0.5, 0.0, 0.0, 0.2),
+            (0.25, 0.0, 0.0, 0.36),
+            (0.0, 1.0, 0.0, 0.75),
+            (0.0, 1.0, 1.0, 0.578_125),
+            (0.5, 1.0, 1.0, 0.2),
+        ] {
+            let actual = lightmap_sky_darken(angle, rain, thunder);
+            assert!(
+                (actual - expected).abs() < 0.000_002,
+                "{actual} != {expected}"
+            );
+        }
+        assert_ne!(lightmap_sky_darken(0.5, 0.0, 0.0), daylight(0.5, 0.0, 0.0));
+    }
+
+    #[test]
     fn stars_appear_only_at_night_and_fade_in_rain() {
         assert_eq!(star_brightness(celestial_angle(6_000.0), 0.0), 0.0);
         let midnight = star_brightness(celestial_angle(18_000.0), 0.0);
         assert!((midnight - 0.5).abs() < 1.0e-6);
         assert_eq!(star_brightness(celestial_angle(18_000.0), 1.0), 0.0);
+    }
+
+    #[test]
+    fn stars_use_native_horizon_bias_and_weather_before_squaring() {
+        assert!((star_brightness(0.25, 0.0) - 0.03125).abs() < 1e-6);
+        assert!((star_brightness(0.25, 0.2) - 0.005).abs() < 1e-6);
+        assert!((star_brightness(0.5, 0.25) - 81.0 / 512.0).abs() < 1e-6);
+        assert_eq!(star_brightness(0.5, 1.0 / 3.0), 0.0);
     }
 
     #[test]
@@ -287,14 +317,5 @@ mod tests {
         let rainy = storm_tint(colour, 1.0, 0.0);
         let stormy = storm_tint(colour, 1.0, 1.0);
         assert!(rainy[2] < colour[2] && stormy[2] < rainy[2]);
-    }
-
-    #[test]
-    fn underwater_fog_reach_grows_to_full_over_thirty_seconds() {
-        assert_eq!(underwater_fog_fraction(0.0), 0.25);
-        assert!((underwater_fog_fraction(5.0) - 0.6).abs() < 1.0e-6);
-        assert_eq!(underwater_fog_fraction(30.0), 1.0);
-        assert_eq!(underwater_fog_fraction(1.0e6), 1.0);
-        assert_eq!(underwater_fog_fraction(f32::NAN), 0.25);
     }
 }

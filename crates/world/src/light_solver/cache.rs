@@ -2,7 +2,7 @@ use std::cell::Cell;
 
 use crate::LightChannel;
 
-use super::{
+use super::types::{
     BlockPos, BoundaryLightSample, LightBlockAccess, LightBlockSample, LightBounds,
     LightReadAccess, light_axis_len, light_channel_index, light_dense_index,
 };
@@ -37,21 +37,37 @@ impl DensePositionSet {
     }
 }
 
+#[derive(Default)]
+pub(super) struct BlockCacheScratch {
+    pub(super) samples: Vec<LightBlockSample>,
+    pub(super) sky_seeds: Vec<u8>,
+}
+
 pub(super) struct CachedLightBlockAccess<'a, A> {
     source: &'a A,
     bounds: LightBounds,
     y_len: usize,
     z_len: usize,
-    samples: Box<[LightBlockSample]>,
-    sky_seeds: Box<[u8]>,
+    samples: &'a [LightBlockSample],
+    sky_seeds: &'a [u8],
 }
 
 impl<'a, A: LightBlockAccess> CachedLightBlockAccess<'a, A> {
-    pub(super) fn new(source: &'a A, bounds: LightBounds, volume: usize) -> Self {
+    /// Refreshes the bounded block cache without retaining the previous input source.
+    pub(super) fn new(
+        source: &'a A,
+        bounds: LightBounds,
+        volume: usize,
+        scratch: &'a mut BlockCacheScratch,
+    ) -> Self {
         let y_len = light_axis_len(bounds.min.y, bounds.max.y);
         let z_len = light_axis_len(bounds.min.z, bounds.max.z);
-        let mut samples = Vec::with_capacity(volume);
-        let mut sky_seeds = Vec::with_capacity(volume);
+        scratch.samples.clear();
+        scratch.samples.reserve(volume);
+        scratch.sky_seeds.clear();
+        scratch.sky_seeds.reserve(volume);
+        let samples = &mut scratch.samples;
+        let sky_seeds = &mut scratch.sky_seeds;
         for position in bounds.positions() {
             samples.push(source.sample(position));
             sky_seeds.push(source.sky_seed(position));
@@ -61,11 +77,12 @@ impl<'a, A: LightBlockAccess> CachedLightBlockAccess<'a, A> {
             bounds,
             y_len,
             z_len,
-            samples: samples.into_boxed_slice(),
-            sky_seeds: sky_seeds.into_boxed_slice(),
+            samples,
+            sky_seeds,
         }
     }
 
+    /// Maps only the current bounded cache region to a dense slot.
     fn index(&self, position: BlockPos) -> Option<usize> {
         light_dense_index(self.bounds, self.y_len, self.z_len, position)
     }
@@ -85,33 +102,46 @@ impl<A: LightBlockAccess> LightBlockAccess for CachedLightBlockAccess<'_, A> {
     }
 }
 
+#[derive(Default)]
+pub(super) struct PriorCacheScratch {
+    pub(super) light: Vec<[Cell<Option<u8>>; 2]>,
+    pub(super) direct_sky: Vec<Cell<Option<bool>>>,
+}
+
 pub(super) struct CachedLightReadAccess<'a, P> {
     source: &'a P,
     bounds: LightBounds,
     y_len: usize,
     z_len: usize,
-    light: Box<[[Cell<Option<u8>>; 2]]>,
-    direct_sky: Box<[Cell<Option<bool>>]>,
+    light: &'a [[Cell<Option<u8>>; 2]],
+    direct_sky: &'a [Cell<Option<bool>>],
 }
 
 impl<'a, P: LightReadAccess> CachedLightReadAccess<'a, P> {
-    pub(super) fn new(source: &'a P, bounds: LightBounds, volume: usize) -> Self {
+    /// Invalidates all lazy prior values while retaining their allocation.
+    pub(super) fn new(
+        source: &'a P,
+        bounds: LightBounds,
+        volume: usize,
+        scratch: &'a mut PriorCacheScratch,
+    ) -> Self {
+        scratch.light.clear();
+        scratch
+            .light
+            .resize(volume, [Cell::new(None), Cell::new(None)]);
+        scratch.direct_sky.clear();
+        scratch.direct_sky.resize(volume, Cell::new(None));
         Self {
             source,
             bounds,
             y_len: light_axis_len(bounds.min.y, bounds.max.y),
             z_len: light_axis_len(bounds.min.z, bounds.max.z),
-            light: (0..volume)
-                .map(|_| [Cell::new(None), Cell::new(None)])
-                .collect::<Vec<_>>()
-                .into_boxed_slice(),
-            direct_sky: (0..volume)
-                .map(|_| Cell::new(None))
-                .collect::<Vec<_>>()
-                .into_boxed_slice(),
+            light: &scratch.light,
+            direct_sky: &scratch.direct_sky,
         }
     }
 
+    /// Maps only the current bounded cache region to a dense slot.
     fn index(&self, position: BlockPos) -> Option<usize> {
         light_dense_index(self.bounds, self.y_len, self.z_len, position)
     }
@@ -198,7 +228,8 @@ mod tests {
         let source = RecordingPrior::default();
         let position = BlockPos::new(4, 5, 6);
         let bounds = LightBounds::new(3, position, position).unwrap();
-        let cache = CachedLightReadAccess::new(&source, bounds, 1);
+        let mut scratch = PriorCacheScratch::default();
+        let cache = CachedLightReadAccess::new(&source, bounds, 1, &mut scratch);
 
         assert_eq!(cache.read_light(3, position, LightChannel::Sky), 17);
         assert_eq!(cache.read_light(3, position, LightChannel::Sky), 17);

@@ -4,6 +4,7 @@
 mod app;
 mod canvas;
 mod gpu;
+mod input;
 mod view;
 
 use std::process::Command;
@@ -54,7 +55,7 @@ pub(crate) fn run_setup_process() -> i32 {
     let Ok(layout) = InstallLayout::discover() else {
         return EXIT_UNAVAILABLE;
     };
-    let font = super::plan::ui_font_file(&layout.prep_kit())
+    let font = super::prepare::ui_font_file(&layout.prep_kit())
         .map(|file| layout.resource_root.join(FONT_DIR).join(file));
     let Some(text) = font
         .as_ref()
@@ -65,7 +66,7 @@ pub(crate) fn run_setup_process() -> i32 {
         eprintln!("first-run window unavailable: no usable UI font ({font:?})");
         return EXIT_UNAVAILABLE;
     };
-    let Some(faces) = crate::ui_runtime::presentation::forms::built_in_faces() else {
+    let Some(faces) = client_ui::ui_runtime::presentation::forms::built_in_faces() else {
         return EXIT_UNAVAILABLE;
     };
     let Ok(event_loop) = EventLoop::new() else {
@@ -82,7 +83,8 @@ pub(crate) fn run_setup_process() -> i32 {
 }
 
 fn decode_logo() -> Option<Image> {
-    let image = image::load_from_memory(crate::ui_runtime::presentation::BUILT_IN_TITLE).ok()?;
+    let image =
+        image::load_from_memory(client_ui::ui_runtime::presentation::BUILT_IN_TITLE).ok()?;
     let rgba = image.into_rgba8();
     Some(Image {
         width: rgba.width(),
@@ -107,6 +109,6 @@ mod tests {
     #[test]
     fn built_in_art_decodes() {
         assert!(decode_logo().is_some());
-        assert!(crate::ui_runtime::presentation::forms::built_in_faces().is_some());
+        assert!(client_ui::ui_runtime::presentation::forms::built_in_faces().is_some());
     }
 }

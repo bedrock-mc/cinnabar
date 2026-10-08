@@ -889,6 +889,7 @@ fn accepted_tracked_queue_changes_maintain_the_expected_generation_manifest() {
 fn indexed_indirect_commands_preserve_order_and_encode_quad_and_origin_ranges() {
     let allocations = [
         GpuChunkAllocation {
+            cube_layout: CubeQuadLayout::default(),
             key: SubChunkKey::new(0, 0, 0, 0),
             generation: 1,
             tint_identity: ChunkBiomeTintIdentity::default(),
@@ -906,6 +907,7 @@ fn indexed_indirect_commands_preserve_order_and_encode_quad_and_origin_ranges() 
             metadata_index: 4,
         },
         GpuChunkAllocation {
+            cube_layout: CubeQuadLayout::default(),
             key: SubChunkKey::new(0, 1, 0, 0),
             generation: 2,
             tint_identity: ChunkBiomeTintIdentity::default(),
@@ -971,31 +973,41 @@ fn multi_draw_requires_indirect_execution_and_indirect_first_instance() {
         | WgpuFeatures::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES;
 
     assert_eq!(
-        select_chunk_draw_mode(indirect, first_instance, false, true),
+        select_chunk_draw_mode(indirect, first_instance, Backends::VULKAN, true),
         ChunkDrawMode::MultiDrawIndirect,
     );
     assert_eq!(
-        select_chunk_draw_mode(DownlevelFlags::BASE_VERTEX, first_instance, false, true,),
+        select_chunk_draw_mode(
+            DownlevelFlags::BASE_VERTEX,
+            first_instance,
+            Backends::VULKAN,
+            true
+        ),
         ChunkDrawMode::Direct,
     );
     assert_eq!(
         select_chunk_draw_mode(
             indirect,
             WgpuFeatures::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES,
-            false,
+            Backends::VULKAN,
             true,
         ),
         ChunkDrawMode::Direct,
     );
     assert_eq!(
-        select_chunk_draw_mode(DownlevelFlags::empty(), WgpuFeatures::empty(), false, true,),
+        select_chunk_draw_mode(
+            DownlevelFlags::empty(),
+            WgpuFeatures::empty(),
+            Backends::VULKAN,
+            true
+        ),
         ChunkDrawMode::Unsupported,
     );
     assert_eq!(
         select_chunk_draw_mode(
             DownlevelFlags::INDIRECT_EXECUTION,
             WgpuFeatures::INDIRECT_FIRST_INSTANCE,
-            false,
+            Backends::VULKAN,
             true,
         ),
         ChunkDrawMode::Unsupported,
@@ -1009,15 +1021,40 @@ fn debug_build_uses_direct_draws_when_indirect_validation_needs_extended_command
     let first_instance = WgpuFeatures::INDIRECT_FIRST_INSTANCE;
 
     assert_eq!(
-        select_chunk_draw_mode(indirect, first_instance, true, true),
+        select_chunk_draw_mode(indirect, first_instance, Backends::DX12, true),
         ChunkDrawMode::Direct,
         "debug DX12 validation expands indexed commands from 20 to 32 bytes, so wgpu 27 cannot batch them safely"
     );
     assert_eq!(
-        select_chunk_draw_mode(indirect, first_instance, true, false),
+        select_chunk_draw_mode(indirect, first_instance, Backends::DX12, false),
         ChunkDrawMode::MultiDrawIndirect,
         "release DX12 keeps the required multi-draw path after debug validation is compiled out"
     );
+}
+
+#[test]
+fn metal_uses_direct_draws_in_debug_and_release_even_with_indirect_capabilities() {
+    let capabilities = DownlevelFlags::INDIRECT_EXECUTION | DownlevelFlags::BASE_VERTEX;
+    for debug in [false, true] {
+        assert_eq!(
+            select_chunk_draw_mode(
+                capabilities,
+                WgpuFeatures::INDIRECT_FIRST_INSTANCE,
+                Backends::METAL,
+                debug
+            ),
+            ChunkDrawMode::Direct,
+        );
+        assert_eq!(
+            select_chunk_draw_mode(
+                DownlevelFlags::INDIRECT_EXECUTION,
+                WgpuFeatures::INDIRECT_FIRST_INSTANCE,
+                Backends::METAL,
+                debug
+            ),
+            ChunkDrawMode::Unsupported,
+        );
+    }
 }
 
 #[test]
@@ -1072,5 +1109,12 @@ fn explicit_present_mode_evidence_comes_from_surface_capabilities() {
     assert_eq!(
         resolve_surface_present_mode(WindowPresentMode::Fifo, &[WgpuPresentMode::Fifo]),
         Some(WgpuPresentMode::Fifo)
+    );
+    assert_eq!(
+        resolve_surface_present_mode(
+            WindowPresentMode::AutoNoVsync,
+            &[WgpuPresentMode::Fifo, WgpuPresentMode::Mailbox],
+        ),
+        Some(WgpuPresentMode::Mailbox)
     );
 }

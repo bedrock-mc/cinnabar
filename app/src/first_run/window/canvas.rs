@@ -1,4 +1,4 @@
-//! CPU drawing for the setup overlay: rectangles, the logo and Monocraft text into premultiplied
+//! CPU drawing for the setup overlay: rectangles, the logo and Cinnangles Sans text into premultiplied
 //! sRGB RGBA8.
 
 use std::collections::HashMap;
@@ -14,6 +14,16 @@ pub(super) struct Rect {
 }
 
 impl Rect {
+    /// Insets every edge; negative values expand a focus outline.
+    pub(super) fn inset(self, edge: f32) -> Self {
+        Self {
+            x: self.x + edge,
+            y: self.y + edge,
+            w: (self.w - 2.0 * edge).max(0.0),
+            h: (self.h - 2.0 * edge).max(0.0),
+        }
+    }
+
     pub(super) fn contains(&self, x: f32, y: f32) -> bool {
         x >= self.x && x < self.x + self.w && y >= self.y && y < self.y + self.h
     }
@@ -54,23 +64,77 @@ impl Canvas {
         let index = (y as usize * self.width as usize + x as usize) * 4;
         let pixel = &mut self.pixels[index..index + 4];
         for channel in 0..3 {
-            let source = u32::from(color[channel]) * alpha / 255;
-            pixel[channel] = (source + u32::from(pixel[channel]) * (255 - alpha) / 255) as u8;
+            let opacity = alpha as f32 / 255.0;
+            let source = srgb_to_linear(color[channel]) * opacity;
+            let destination = srgb_to_linear(pixel[channel]) * (1.0 - opacity);
+            pixel[channel] = linear_to_srgb(source + destination);
         }
         pixel[3] = (alpha + u32::from(pixel[3]) * (255 - alpha) / 255) as u8;
     }
 
+    /// Fills a rectangle with the same linear-light compositing as glyph coverage.
     pub(super) fn fill(&mut self, rect: Rect, color: [u8; 4]) {
         let (x0, y0) = (rect.x.round() as i64, rect.y.round() as i64);
         let (x1, y1) = (
             (rect.x + rect.w).round() as i64,
             (rect.y + rect.h).round() as i64,
         );
+        let left = x0.clamp(0, i64::from(self.width)) as usize;
+        let right = x1.clamp(0, i64::from(self.width)) as usize;
+        if right <= left || color[3] == 0 {
+            return;
+        }
+        // Rectangle coverage is constant; decode each possible destination channel once.
+        let opacity = f32::from(color[3]) / 255.0;
+        let channels: [[u8; 256]; 3] = std::array::from_fn(|channel| {
+            let source = srgb_to_linear(color[channel]) * opacity;
+            std::array::from_fn(|destination| {
+                linear_to_srgb(source + srgb_to_linear(destination as u8) * (1.0 - opacity))
+            })
+        });
         for y in y0.max(0)..y1.min(i64::from(self.height)) {
-            for x in x0.max(0)..x1.min(i64::from(self.width)) {
-                self.blend(x, y, color, 255);
+            let start = (y as usize * self.width as usize + left) * 4;
+            let end = (y as usize * self.width as usize + right) * 4;
+            for pixel in self.pixels[start..end].chunks_exact_mut(4) {
+                for channel in 0..3 {
+                    pixel[channel] = channels[channel][pixel[channel] as usize];
+                }
+                pixel[3] = (u32::from(color[3])
+                    + u32::from(pixel[3]) * (255 - u32::from(color[3])) / 255)
+                    as u8;
             }
         }
+    }
+
+    /// Draws a one-edge frame without double-compositing translucent corners.
+    pub(super) fn frame(&mut self, rect: Rect, edge: f32, color: [u8; 4]) {
+        self.fill(Rect { h: edge, ..rect }, color);
+        self.fill(
+            Rect {
+                y: rect.y + rect.h - edge,
+                h: edge,
+                ..rect
+            },
+            color,
+        );
+        self.fill(
+            Rect {
+                y: rect.y + edge,
+                w: edge,
+                h: rect.h - 2.0 * edge,
+                ..rect
+            },
+            color,
+        );
+        self.fill(
+            Rect {
+                x: rect.x + rect.w - edge,
+                y: rect.y + edge,
+                w: edge,
+                h: rect.h - 2.0 * edge,
+            },
+            color,
+        );
     }
 
     /// Nearest-neighbour scale of `image` into `rect`.
@@ -97,7 +161,27 @@ impl Canvas {
     }
 }
 
-/// Monocraft rasterized on demand, cached per glyph and size.
+/// Decodes one stored sRGB channel for linear-light compositing.
+fn srgb_to_linear(channel: u8) -> f32 {
+    let value = f32::from(channel) / 255.0;
+    if value <= 0.04045 {
+        value / 12.92
+    } else {
+        ((value + 0.055) / 1.055).powf(2.4)
+    }
+}
+
+/// Encodes a premultiplied linear channel for the GPU's sRGB texture decoder.
+fn linear_to_srgb(value: f32) -> u8 {
+    let encoded = if value <= 0.0031308 {
+        value * 12.92
+    } else {
+        1.055 * value.powf(1.0 / 2.4) - 0.055
+    };
+    (encoded * 255.0).round().clamp(0.0, 255.0) as u8
+}
+
+/// Cinnangles Sans rasterized on demand, cached per glyph and size.
 pub(super) struct Text {
     font: Font,
     cache: HashMap<(char, u32), (Metrics, Vec<u8>)>,
@@ -222,6 +306,13 @@ mod tests {
     use super::*;
 
     #[test]
+    fn review_overlay_premultiplies_in_linear_light() {
+        let mut canvas = Canvas::new(1, 1);
+        canvas.blend(0, 0, [255, 0, 0, 128], 255);
+        assert_eq!(canvas.pixels, vec![188, 0, 0, 128]);
+    }
+
+    #[test]
     fn fills_composite_premultiplied_source_over() {
         let mut canvas = Canvas::new(2, 1);
         canvas.fill(
@@ -242,8 +333,39 @@ mod tests {
             },
             [0, 0, 255, 128],
         );
-        assert_eq!(&canvas.pixels[..4], &[127, 0, 128, 255]);
-        assert_eq!(&canvas.pixels[4..], &[0, 0, 128, 128]);
+        assert_eq!(&canvas.pixels[..4], &[187, 0, 188, 255]);
+        assert_eq!(&canvas.pixels[4..], &[0, 0, 188, 128]);
+    }
+
+    #[test]
+    fn rectangle_lookup_matches_glyph_compositing_for_every_channel() {
+        for alpha in [0, 51, 128, 255] {
+            let mut expected = Canvas::new(256, 1);
+            for value in 0..256 {
+                let channel = value as u8;
+                expected.blend(value, 0, [channel, channel, channel, 255], 255);
+            }
+            let mut actual = Canvas {
+                width: expected.width,
+                height: expected.height,
+                pixels: expected.pixels.clone(),
+            };
+            let mut color = client_ui::oreui_theme::PRIMARY_ROLE.fill;
+            color[3] = alpha;
+            for value in 0..256 {
+                expected.blend(value, 0, color, 255);
+            }
+            actual.fill(
+                Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    w: 256.0,
+                    h: 1.0,
+                },
+                color,
+            );
+            assert_eq!(actual.pixels, expected.pixels);
+        }
     }
 
     #[test]

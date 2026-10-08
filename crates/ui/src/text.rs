@@ -1,23 +1,28 @@
 use std::{collections::BTreeMap, fmt, mem::size_of, ops::Deref, sync::Arc};
 
-use assets::{CompiledFontCatalog, GlyphMetrics};
+use assets::{CompiledFontCatalog, FontRendering};
 use sha2::{Digest, Sha256};
 
 use crate::UiScale;
 
 mod invisible;
+mod layout;
+mod palette;
 mod parse;
+mod single_line;
 
+pub use palette::FormattingPalette;
+
+use layout::build_layout;
 pub use parse::parse_bedrock_text;
-use parse::parse_bedrock_text_with_style;
 
 pub const MAX_TEXT_SPANS: usize = 4_096;
 pub const MAX_GLYPHS_PER_LAYOUT: usize = 16_384;
 pub const MAX_WRAP_LINES: usize = 1_024;
 
-// The compiled Monocraft atlas is rasterized at 18 px/em (see
-// `assets/ui-font-source.json`). Monocraft draws on a 60-font-unit grid against
-// a 1080-unit em, so one design pixel is two texels: ASCII ink is 16 texels
+// The compiled Cinnangles Sans atlas is rasterized at 18 px/em (see
+// `assets/cinnangles-sans-source.json`). Its reviewed pixel grid uses two texels
+// per design pixel: ASCII ink is 16 texels
 // tall, 14 of them above the baseline, and the widest advance is 12. That makes
 // `UiScale` 1 already equal to Mojang's GUI scale 2, and only whole numbers of
 // physical pixels per texel keep every design pixel on a pixel boundary.
@@ -25,13 +30,15 @@ pub const FONT_DESIGN_PIXEL_TEXELS: u32 = 2;
 pub const FONT_ASCENT_TEXELS: u32 = 14;
 pub const FONT_INK_TEXELS: u32 = 16;
 /// Mojang pitches chat one design pixel below the font's ink height -- 9 px for
-/// an 8 px font. The same ratio against Monocraft's 16 texels gives 18.
+/// an 8 px font. The same ratio against Cinnangles Sans's 16 texels gives 18.
 pub const TEXT_LINE_HEIGHT_64: u32 = (FONT_INK_TEXELS + FONT_DESIGN_PIXEL_TEXELS) * 64;
 /// Distance from the top of a line box down to the baseline, so glyphs sit
 /// inside the box instead of hanging above its origin.
 pub const TEXT_BASELINE_64: u32 = FONT_ASCENT_TEXELS * 64;
 /// Mojang offsets the shadow by exactly one design pixel on both axes.
 pub const TEXT_SHADOW_OFFSET_64: u32 = FONT_DESIGN_PIXEL_TEXELS * 64;
+/// One design pixel for bold measurement and the compiled open-font duplicate.
+pub const TEXT_BOLD_OFFSET_64: u32 = FONT_DESIGN_PIXEL_TEXELS * 64;
 
 const FIXED_POINT_DENOMINATOR: i64 = 64;
 const REPLACEMENT_CODEPOINT: char = '\u{fffd}';
@@ -59,7 +66,9 @@ pub enum BedrockColor {
     Red,
     LightPurple,
     Yellow,
+    /// No `§` colour in force: the draw's own colour.
     #[default]
+    Base,
     White,
     MinecoinGold,
     MaterialQuartz,
@@ -73,14 +82,17 @@ pub enum BedrockColor {
     MaterialLapis,
     MaterialAmethyst,
     MaterialResin,
+    PartyBlue,
 }
 
 impl BedrockColor {
-    /// The `§` colour's RGB; `None` for white, which keeps the text's own colour.
+    /// The `§` colour's RGB; `None` when no colour is in force, which keeps the
+    /// text's own colour.
     #[must_use]
     pub const fn rgb(self) -> Option<[u8; 3]> {
         Some(match self {
-            Self::White => return None,
+            Self::Base => return None,
+            Self::White => [255, 255, 255],
             Self::Black => [0, 0, 0],
             Self::DarkBlue => [0, 0, 170],
             Self::DarkGreen => [0, 170, 0],
@@ -108,6 +120,7 @@ impl BedrockColor {
             Self::MaterialLapis => [35, 98, 180],
             Self::MaterialAmethyst => [154, 92, 198],
             Self::MaterialResin => [237, 105, 52],
+            Self::PartyBlue => [140, 179, 255],
         })
     }
 }
@@ -157,6 +170,44 @@ pub struct TextLayoutKey {
     pub baseline_64: u32,
     pub scale_1024: u16,
     pub font_identity: [u8; 32],
+    pub wrap: TextWrap,
+}
+
+/// Where each wrapped line sits within the wrap width.
+#[derive(Clone, Copy, Debug, Default, Eq, Ord, PartialEq, PartialOrd)]
+pub enum TextLineAlign {
+    #[default]
+    Left,
+    Center,
+    Right,
+}
+
+/// How a word wider than the whole line breaks.
+#[derive(Clone, Copy, Debug, Default, Eq, Ord, PartialEq, PartialOrd)]
+pub enum WordChop {
+    /// Before the first glyph that overflows; a glyph wider than the line errors.
+    #[default]
+    Glyph,
+    /// Vanilla labels: so the prefix plus `-` fits, then draw the `-`.
+    Hyphen,
+    /// As [`Self::Hyphen`] without drawing the hyphen (`hide_hyphen`).
+    Bare,
+}
+
+/// A label's wrapping options beyond its width.
+#[derive(Clone, Copy, Debug, Default, Eq, Ord, PartialEq, PartialOrd)]
+pub struct TextWrap {
+    pub align: TextLineAlign,
+    /// Additional pen advance after each character, in output 1/64 pixels.
+    pub letter_spacing_64: i32,
+    /// Extra pitch between lines in output 1/64 pixels (not scaled again).
+    pub line_padding_64: i32,
+    pub chop: WordChop,
+    /// Lines past this drop and the last kept one ends in `...`.
+    pub max_lines: Option<u16>,
+    /// The grid, in 1/65536 output pixels, that alignment offsets truncate onto, as vanilla
+    /// snaps each line to the pixel grid; zero keeps them exact.
+    pub align_grid_65536: u32,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -168,6 +219,8 @@ pub struct GlyphQuad {
     pub bounds_64: [i32; 4],
     pub line: u16,
     pub style: TextStyle,
+    pub linear_sampling: bool,
+    pub rendering: FontRendering,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -175,11 +228,28 @@ pub struct TextLayout {
     id: u64,
     key: TextLayoutKey,
     glyphs: Box<[GlyphQuad]>,
+    source_indices: Box<[Option<usize>]>,
     line_count: u16,
     size_64: [u32; 2],
+    ellipsized: bool,
+    linear_sampling: bool,
+    rendering: FontRendering,
 }
 
 impl TextLayout {
+    pub const fn rendering(&self) -> FontRendering {
+        self.rendering
+    }
+
+    pub const fn linear_sampling(&self) -> bool {
+        self.linear_sampling
+    }
+
+    /// Whether a line limit cut the text short and ended it in `...`.
+    pub const fn ellipsized(&self) -> bool {
+        self.ellipsized
+    }
+
     pub const fn id(&self) -> u64 {
         self.id
     }
@@ -190,6 +260,11 @@ impl TextLayout {
 
     pub fn glyphs(&self) -> &[GlyphQuad] {
         &self.glyphs
+    }
+
+    /// Character indices in formatting-stripped text; generated hyphens and ellipses have none.
+    pub fn glyph_source_indices(&self) -> &[Option<usize>] {
+        &self.source_indices
     }
 
     pub const fn line_count(&self) -> u16 {
@@ -278,6 +353,7 @@ pub struct TextLayoutRequest<'a> {
     pub baseline_64: u32,
     pub scale: UiScale,
     pub font: &'a CompiledFontCatalog,
+    pub wrap: TextWrap,
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -367,15 +443,17 @@ impl fmt::Display for TextError {
 
 impl std::error::Error for TextError {}
 
+#[derive(Clone, Eq, Ord, PartialEq, PartialOrd)]
+enum CacheKey {
+    Wrapped(TextLayoutKey),
+    SingleLine(TextLayoutKey, u32),
+}
+
 struct CacheEntry {
     layout: Arc<TextLayout>,
     retained_bytes: usize,
     last_used: u64,
 }
-
-/// Default retained text budget shared by native and browser presentation.
-pub const DEFAULT_TEXT_CACHE_ENTRIES: usize = 1_024;
-pub const DEFAULT_TEXT_CACHE_BYTES: usize = 8 * 1024 * 1024;
 
 pub struct TextLayoutCache {
     entry_cap: usize,
@@ -383,7 +461,7 @@ pub struct TextLayoutCache {
     retained_bytes: usize,
     next_id: u64,
     clock: u64,
-    entries: BTreeMap<TextLayoutKey, CacheEntry>,
+    entries: BTreeMap<CacheKey, CacheEntry>,
 }
 
 impl TextLayoutCache {
@@ -399,25 +477,9 @@ impl TextLayoutCache {
     }
 
     pub fn layout(&mut self, request: TextLayoutRequest<'_>) -> Result<Arc<TextLayout>, TextError> {
-        if request.width_64 == 0 {
-            return Err(TextError::ZeroWrapWidth);
-        }
-        if request.line_height_64 == 0 {
-            return Err(TextError::ZeroLineHeight);
-        }
-        if request.baseline_64 > request.line_height_64 {
-            return Err(TextError::BaselineOutsideLine {
-                baseline_64: request.baseline_64,
-                line_height_64: request.line_height_64,
-            });
-        }
-        if request.text.len() > crate::UiLimits::MAX_TEXT_BYTES {
-            return Err(TextError::TextBytesExceeded {
-                actual: request.text.len(),
-                limit: crate::UiLimits::MAX_TEXT_BYTES,
-            });
-        }
-        let key = layout_key(request);
+        validate_request(request)?;
+        let layout_key = layout_key(request);
+        let key = CacheKey::Wrapped(layout_key.clone());
         let now = self.advance_clock()?;
         if let Some(entry) = self.entries.get_mut(&key) {
             entry.last_used = now;
@@ -429,7 +491,22 @@ impl TextLayoutCache {
             .next_id
             .checked_add(1)
             .ok_or(TextError::CacheCounterOverflow)?;
-        let layout = Arc::new(build_layout(id, key.clone(), request)?);
+        let layout = Arc::new(build_layout(id, layout_key, request)?);
+        self.retain(key, layout, now)
+    }
+
+    /// Counts shaping attempts, including failed and uncached layouts.
+    pub const fn built_layout_count(&self) -> u64 {
+        self.next_id - 1
+    }
+
+    /// Both wrapping and ellipsis results share the same bounded retention budget.
+    fn retain(
+        &mut self,
+        key: CacheKey,
+        layout: Arc<TextLayout>,
+        now: u64,
+    ) -> Result<Arc<TextLayout>, TextError> {
         let retained_bytes = retained_layout_bytes(&layout)?;
         if self.entry_cap == 0 || retained_bytes > self.byte_cap {
             return Ok(layout);
@@ -503,6 +580,29 @@ impl TextLayoutCache {
     }
 }
 
+/// Rejects malformed requests before lookup or single-line normalization allocates.
+fn validate_request(request: TextLayoutRequest<'_>) -> Result<(), TextError> {
+    if request.width_64 == 0 {
+        return Err(TextError::ZeroWrapWidth);
+    }
+    if request.line_height_64 == 0 {
+        return Err(TextError::ZeroLineHeight);
+    }
+    if request.baseline_64 > request.line_height_64 {
+        return Err(TextError::BaselineOutsideLine {
+            baseline_64: request.baseline_64,
+            line_height_64: request.line_height_64,
+        });
+    }
+    if request.text.len() > crate::UiLimits::MAX_TEXT_BYTES {
+        return Err(TextError::TextBytesExceeded {
+            actual: request.text.len(),
+            limit: crate::UiLimits::MAX_TEXT_BYTES,
+        });
+    }
+    Ok(())
+}
+
 fn layout_key(request: TextLayoutRequest<'_>) -> TextLayoutKey {
     TextLayoutKey {
         content_sha256: Sha256::digest(request.text.as_bytes()).into(),
@@ -512,403 +612,8 @@ fn layout_key(request: TextLayoutRequest<'_>) -> TextLayoutKey {
         baseline_64: request.baseline_64,
         scale_1024: (request.scale.get() * UiScale::SCALE_DENOMINATOR as f32).round() as u16,
         font_identity: request.font.identity().carrier_sha256,
+        wrap: request.wrap,
     }
-}
-
-fn build_layout(
-    id: u64,
-    key: TextLayoutKey,
-    request: TextLayoutRequest<'_>,
-) -> Result<TextLayout, TextError> {
-    let spans = parse_bedrock_text_with_style(
-        request.text,
-        crate::UiLimits::MAX_TEXT_BYTES,
-        request.style,
-    )?;
-    let glyph_count = spans
-        .iter()
-        .map(|span| {
-            span.text
-                .chars()
-                .filter(|character| *character != '\n')
-                .count()
-        })
-        .try_fold(0usize, |total, count| total.checked_add(count))
-        .ok_or(TextError::FixedPointOverflow)?;
-    if glyph_count > MAX_GLYPHS_PER_LAYOUT {
-        return Err(TextError::GlyphLimitExceeded {
-            actual: glyph_count,
-            limit: MAX_GLYPHS_PER_LAYOUT,
-        });
-    }
-
-    let scale_1024 = i64::from(key.scale_1024);
-    let line_height_64 = scale_metric(i64::from(request.line_height_64), scale_1024)?;
-    let baseline_64 = scale_metric(i64::from(request.baseline_64), scale_1024)?;
-    let mut glyphs = Vec::with_capacity(glyph_count);
-    let mut line = 0usize;
-    let mut line_start = 0usize;
-    let mut line_min_64 = 0i64;
-    let mut line_max_64 = 0i64;
-    let mut x_64 = 0i64;
-    let mut maximum_width_64 = 0i64;
-
-    // Lines break at the last space that fits, as the vanilla font does, and
-    // mid-word only when a single word is wider than the line.
-    let characters: Vec<(char, _)> = spans
-        .iter()
-        .flat_map(|span| {
-            span.text
-                .chars()
-                .map(move |codepoint| (codepoint, span.style))
-        })
-        .collect();
-    let mut space: Option<WrapPoint> = None;
-    let mut index = 0usize;
-    while let Some(&(codepoint, style)) = characters.get(index) {
-        index += 1;
-        if codepoint == '\n' {
-            maximum_width_64 = maximum_width_64.max(finish_line(
-                &mut glyphs,
-                line_start,
-                line_min_64,
-                line_max_64,
-            )?);
-            line = next_line(line)?;
-            line_start = glyphs.len();
-            line_min_64 = 0;
-            line_max_64 = 0;
-            x_64 = 0;
-            space = None;
-            continue;
-        }
-        if invisible::is_invisible(codepoint) {
-            continue;
-        }
-
-        let (resolved_codepoint, metrics) = resolve_glyph(request.font, codepoint)?;
-        let draw_size_64 = request.font.draw_size_64(resolved_codepoint);
-        let advance_64 = scale_metric(i64::from(metrics.advance_64), scale_1024)?;
-        let mut candidate = line_candidate(
-            metrics,
-            draw_size_64,
-            x_64,
-            line,
-            line_height_64,
-            baseline_64,
-            scale_1024,
-            line_min_64,
-            line_max_64,
-            advance_64,
-        )?;
-        if glyphs.len() > line_start && candidate.width_64 > u64::from(request.width_64) {
-            if let Some(point) = space.take().filter(|point| point.glyphs > line_start) {
-                // Drop the space and the partial word; the word restarts the next line.
-                glyphs.truncate(point.glyphs);
-                line_min_64 = point.min_64;
-                line_max_64 = point.max_64;
-                index = point.resume;
-                maximum_width_64 = maximum_width_64.max(finish_line(
-                    &mut glyphs,
-                    line_start,
-                    line_min_64,
-                    line_max_64,
-                )?);
-                line = next_line(line)?;
-                line_start = glyphs.len();
-                line_min_64 = 0;
-                line_max_64 = 0;
-                x_64 = 0;
-                continue;
-            }
-            maximum_width_64 = maximum_width_64.max(finish_line(
-                &mut glyphs,
-                line_start,
-                line_min_64,
-                line_max_64,
-            )?);
-            line = next_line(line)?;
-            line_start = glyphs.len();
-            line_min_64 = 0;
-            line_max_64 = 0;
-            x_64 = 0;
-            candidate = line_candidate(
-                metrics,
-                draw_size_64,
-                x_64,
-                line,
-                line_height_64,
-                baseline_64,
-                scale_1024,
-                line_min_64,
-                line_max_64,
-                advance_64,
-            )?;
-        }
-        if candidate.width_64 > u64::from(request.width_64) {
-            return Err(TextError::VisualWidthExceeded {
-                actual_64: candidate.width_64,
-                limit_64: u64::from(request.width_64),
-            });
-        }
-        if codepoint == ' ' {
-            space = Some(WrapPoint {
-                glyphs: glyphs.len(),
-                resume: index,
-                min_64: line_min_64,
-                max_64: line_max_64,
-            });
-        }
-
-        glyphs.push(GlyphQuad {
-            codepoint,
-            resolved_codepoint,
-            page: metrics.page,
-            uv: metrics.uv,
-            bounds_64: candidate.bounds_64,
-            line: u16::try_from(line).map_err(|_| TextError::FixedPointOverflow)?,
-            style,
-        });
-        x_64 = candidate.pen_end_64;
-        line_min_64 = candidate.min_64;
-        line_max_64 = candidate.max_64;
-    }
-    maximum_width_64 = maximum_width_64.max(finish_line(
-        &mut glyphs,
-        line_start,
-        line_min_64,
-        line_max_64,
-    )?);
-    let line_count = line.checked_add(1).ok_or(TextError::FixedPointOverflow)?;
-    if line_count > MAX_WRAP_LINES {
-        return Err(TextError::WrapLineLimitExceeded {
-            actual: line_count,
-            limit: MAX_WRAP_LINES,
-        });
-    }
-    let nominal_height_64 = i64::try_from(line_count)
-        .ok()
-        .and_then(|count| count.checked_mul(line_height_64))
-        .ok_or(TextError::FixedPointOverflow)?;
-    let height_64 = normalize_vertical_bounds(&mut glyphs, nominal_height_64)?;
-
-    Ok(TextLayout {
-        id,
-        key,
-        glyphs: glyphs.into_boxed_slice(),
-        line_count: u16::try_from(line_count).map_err(|_| TextError::FixedPointOverflow)?,
-        size_64: [checked_u32(maximum_width_64)?, checked_u32(height_64)?],
-    })
-}
-
-/// Where a line may break: the space's glyph index, the character after it,
-/// and the line's extent before the space.
-struct WrapPoint {
-    glyphs: usize,
-    resume: usize,
-    min_64: i64,
-    max_64: i64,
-}
-
-struct LineCandidate {
-    bounds_64: [i32; 4],
-    pen_end_64: i64,
-    min_64: i64,
-    max_64: i64,
-    width_64: u64,
-}
-
-#[allow(clippy::too_many_arguments)]
-fn line_candidate(
-    metrics: GlyphMetrics,
-    draw_size_64: Option<[u32; 2]>,
-    x_64: i64,
-    line: usize,
-    line_height_64: i64,
-    baseline_64: i64,
-    scale_1024: i64,
-    line_min_64: i64,
-    line_max_64: i64,
-    advance_64: i64,
-) -> Result<LineCandidate, TextError> {
-    let bounds_64 = glyph_bounds(
-        metrics,
-        draw_size_64,
-        x_64,
-        line,
-        line_height_64,
-        baseline_64,
-        scale_1024,
-    )?;
-    let pen_end_64 = x_64
-        .checked_add(advance_64)
-        .ok_or(TextError::FixedPointOverflow)?;
-    let min_64 = line_min_64.min(i64::from(bounds_64[0])).min(pen_end_64);
-    let max_64 = line_max_64.max(i64::from(bounds_64[2])).max(pen_end_64);
-    let width_64 = u64::try_from(
-        max_64
-            .checked_sub(min_64)
-            .ok_or(TextError::FixedPointOverflow)?,
-    )
-    .map_err(|_| TextError::FixedPointOverflow)?;
-    Ok(LineCandidate {
-        bounds_64,
-        pen_end_64,
-        min_64,
-        max_64,
-        width_64,
-    })
-}
-
-fn finish_line(
-    glyphs: &mut [GlyphQuad],
-    line_start: usize,
-    min_64: i64,
-    max_64: i64,
-) -> Result<i64, TextError> {
-    let shift_64 = min_64.checked_neg().ok_or(TextError::FixedPointOverflow)?;
-    for glyph in glyphs
-        .get_mut(line_start..)
-        .ok_or(TextError::FixedPointOverflow)?
-    {
-        glyph.bounds_64[0] = checked_i32(
-            i64::from(glyph.bounds_64[0])
-                .checked_add(shift_64)
-                .ok_or(TextError::FixedPointOverflow)?,
-        )?;
-        glyph.bounds_64[2] = checked_i32(
-            i64::from(glyph.bounds_64[2])
-                .checked_add(shift_64)
-                .ok_or(TextError::FixedPointOverflow)?,
-        )?;
-    }
-    max_64
-        .checked_sub(min_64)
-        .ok_or(TextError::FixedPointOverflow)
-}
-
-fn normalize_vertical_bounds(
-    glyphs: &mut [GlyphQuad],
-    nominal_height_64: i64,
-) -> Result<i64, TextError> {
-    let min_64 = glyphs
-        .iter()
-        .map(|glyph| i64::from(glyph.bounds_64[1]))
-        .fold(0, i64::min);
-    let max_64 = glyphs
-        .iter()
-        .map(|glyph| i64::from(glyph.bounds_64[3]))
-        .fold(nominal_height_64, i64::max);
-    let shift_64 = min_64.checked_neg().ok_or(TextError::FixedPointOverflow)?;
-    for glyph in glyphs {
-        glyph.bounds_64[1] = checked_i32(
-            i64::from(glyph.bounds_64[1])
-                .checked_add(shift_64)
-                .ok_or(TextError::FixedPointOverflow)?,
-        )?;
-        glyph.bounds_64[3] = checked_i32(
-            i64::from(glyph.bounds_64[3])
-                .checked_add(shift_64)
-                .ok_or(TextError::FixedPointOverflow)?,
-        )?;
-    }
-    max_64
-        .checked_sub(min_64)
-        .ok_or(TextError::FixedPointOverflow)
-}
-
-fn resolve_glyph(
-    font: &CompiledFontCatalog,
-    codepoint: char,
-) -> Result<(char, GlyphMetrics), TextError> {
-    if let Some(metrics) = font.glyph(codepoint) {
-        return Ok((codepoint, *metrics));
-    }
-    font.glyph(REPLACEMENT_CODEPOINT)
-        .copied()
-        .map(|metrics| (REPLACEMENT_CODEPOINT, metrics))
-        .ok_or(TextError::MissingReplacementGlyph)
-}
-
-fn glyph_bounds(
-    metrics: GlyphMetrics,
-    draw_size_64: Option<[u32; 2]>,
-    x_64: i64,
-    line: usize,
-    line_height_64: i64,
-    baseline_64: i64,
-    scale_1024: i64,
-) -> Result<[i32; 4], TextError> {
-    let bearing_x_64 = scale_metric(
-        i64::from(metrics.bearing[0])
-            .checked_mul(FIXED_POINT_DENOMINATOR)
-            .ok_or(TextError::FixedPointOverflow)?,
-        scale_1024,
-    )?;
-    let bearing_y_64 = scale_metric(
-        i64::from(metrics.bearing[1])
-            .checked_mul(FIXED_POINT_DENOMINATOR)
-            .ok_or(TextError::FixedPointOverflow)?,
-        scale_1024,
-    )?;
-    let [texel_width_64, texel_height_64] = draw_size_64.unwrap_or([
-        u32::from(metrics.uv[2].saturating_sub(metrics.uv[0])) * FIXED_POINT_DENOMINATOR as u32,
-        u32::from(metrics.uv[3].saturating_sub(metrics.uv[1])) * FIXED_POINT_DENOMINATOR as u32,
-    ]);
-    let width_64 = scale_metric(i64::from(texel_width_64), scale_1024)?;
-    let height_64 = scale_metric(i64::from(texel_height_64), scale_1024)?;
-    let line_y_64 = i64::try_from(line)
-        .ok()
-        .and_then(|line| line.checked_mul(line_height_64))
-        .ok_or(TextError::FixedPointOverflow)?;
-    let left = x_64
-        .checked_add(bearing_x_64)
-        .ok_or(TextError::FixedPointOverflow)?;
-    // Bearings point up from the baseline, so the baseline offset is what puts
-    // the glyph inside the line box rather than above its origin.
-    let top = line_y_64
-        .checked_add(baseline_64)
-        .and_then(|top| top.checked_add(bearing_y_64))
-        .ok_or(TextError::FixedPointOverflow)?;
-    let right = left
-        .checked_add(width_64)
-        .ok_or(TextError::FixedPointOverflow)?;
-    let bottom = top
-        .checked_add(height_64)
-        .ok_or(TextError::FixedPointOverflow)?;
-    Ok([
-        checked_i32(left)?,
-        checked_i32(top)?,
-        checked_i32(right)?,
-        checked_i32(bottom)?,
-    ])
-}
-
-fn scale_metric(value: i64, scale_1024: i64) -> Result<i64, TextError> {
-    value
-        .checked_mul(scale_1024)
-        .and_then(|scaled| scaled.checked_div(UiScale::SCALE_DENOMINATOR))
-        .ok_or(TextError::FixedPointOverflow)
-}
-
-fn next_line(line: usize) -> Result<usize, TextError> {
-    let next = line.checked_add(1).ok_or(TextError::FixedPointOverflow)?;
-    let actual = next.checked_add(1).ok_or(TextError::FixedPointOverflow)?;
-    if actual > MAX_WRAP_LINES {
-        return Err(TextError::WrapLineLimitExceeded {
-            actual,
-            limit: MAX_WRAP_LINES,
-        });
-    }
-    Ok(next)
-}
-
-fn checked_i32(value: i64) -> Result<i32, TextError> {
-    i32::try_from(value).map_err(|_| TextError::FixedPointOverflow)
-}
-
-fn checked_u32(value: i64) -> Result<u32, TextError> {
-    u32::try_from(value).map_err(|_| TextError::FixedPointOverflow)
 }
 
 fn retained_layout_bytes(layout: &TextLayout) -> Result<usize, TextError> {
@@ -926,8 +631,15 @@ fn retained_layout_bytes(layout: &TextLayout) -> Result<usize, TextError> {
     [
         arc_allocation,
         glyph_allocation,
+        conservative_allocation_bytes(
+            layout
+                .source_indices
+                .len()
+                .checked_mul(size_of::<Option<usize>>())
+                .ok_or(TextError::FixedPointOverflow)?,
+        )?,
         // BTreeMap duplicates the key and retains a CacheEntry value.
-        size_of::<TextLayoutKey>(),
+        size_of::<CacheKey>(),
         size_of::<CacheEntry>(),
         CONSERVATIVE_BTREE_NODE_BYTES,
         // Node allocator metadata is charged separately from its full page.

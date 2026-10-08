@@ -26,11 +26,20 @@ impl Aabb {
     /// Player box with a pose-dependent height (sneaking, swimming, crawling).
     #[must_use]
     pub fn player_with_height_at(feet: Vec3, height: f64) -> Self {
-        // 1.26.50.26: 0x04b047e0 builds full-width faces; 0x09000dc0 keeps them.
-        let half_width = PLAYER_WIDTH * 0.5;
+        // Vanilla builds and retains full-width faces.
+        let half_width = PLAYER_WIDTH as f32 * 0.5;
+        let [x, y, z] = [feet.x as f32, feet.y as f32, feet.z as f32];
         Self::new(
-            Vec3::new(feet.x - half_width, feet.y, feet.z - half_width),
-            Vec3::new(feet.x + half_width, feet.y + height, feet.z + half_width),
+            Vec3::new(
+                f64::from(x - half_width),
+                f64::from(y),
+                f64::from(z - half_width),
+            ),
+            Vec3::new(
+                f64::from(x + half_width),
+                f64::from(y + height as f32),
+                f64::from(z + half_width),
+            ),
         )
     }
 
@@ -56,12 +65,35 @@ impl Aabb {
 
     #[must_use]
     pub fn intersects(self, rhs: Self) -> bool {
-        self.max.x > rhs.min.x
-            && self.min.x < rhs.max.x
-            && self.max.y > rhs.min.y
-            && self.min.y < rhs.max.y
-            && self.max.z > rhs.min.z
-            && self.min.z < rhs.max.z
+        (self.max.x as f32) > (rhs.min.x as f32)
+            && (self.min.x as f32) < (rhs.max.x as f32)
+            && (self.max.y as f32) > (rhs.min.y as f32)
+            && (self.min.y as f32) < (rhs.max.y as f32)
+            && (self.max.z as f32) > (rhs.min.z as f32)
+            && (self.min.z as f32) < (rhs.max.z as f32)
+    }
+
+    /// Fraction of the closed segment `origin..origin + delta` at which it first touches this box.
+    #[must_use]
+    pub fn segment_entry(self, origin: Vec3, delta: Vec3) -> Option<f64> {
+        let mut entry = 0.0_f64;
+        let mut exit = 1.0_f64;
+        for axis in 0..3 {
+            if delta[axis].abs() <= f64::EPSILON {
+                if origin[axis] < self.min[axis] || origin[axis] > self.max[axis] {
+                    return None;
+                }
+                continue;
+            }
+            let first = (self.min[axis] - origin[axis]) / delta[axis];
+            let second = (self.max[axis] - origin[axis]) / delta[axis];
+            entry = entry.max(first.min(second));
+            exit = exit.min(first.max(second));
+            if entry > exit {
+                return None;
+            }
+        }
+        (exit >= 0.0 && entry <= 1.0).then_some(entry.clamp(0.0, 1.0))
     }
 
     #[must_use]
@@ -84,8 +116,8 @@ impl Aabb {
         let mut separating_axis = 0;
 
         for axis in 0..3 {
-            let mut min_penetration = self.max[axis] - stationary.min[axis];
-            let mut max_penetration = stationary.max[axis] - self.min[axis];
+            let mut min_penetration = self.max[axis] as f32 - stationary.min[axis] as f32;
+            let mut max_penetration = stationary.max[axis] as f32 - self.min[axis] as f32;
             if min_penetration.abs() <= 1.0e-7 {
                 min_penetration = 0.0;
             }
@@ -132,21 +164,21 @@ impl Aabb {
             let desired = axis_penetrations[best_axis] * normal_directions[best_axis];
             let mut depenetrated = velocity;
             depenetrated[best_axis] = if desired > 0.0 {
-                desired.max(velocity[best_axis])
+                f64::from(desired.max(velocity[best_axis] as f32))
             } else {
-                desired.min(velocity[best_axis])
+                f64::from(desired.min(velocity[best_axis] as f32))
             };
             return depenetrated;
         }
 
         let swept_penetration = signed_penetrations[separating_axis]
-            - normal_directions[separating_axis] * velocity[separating_axis];
+            - normal_directions[separating_axis] * velocity[separating_axis] as f32;
         if swept_penetration <= 0.0 {
             return velocity;
         }
         let mut clipped = velocity;
         clipped[separating_axis] =
-            signed_penetrations[separating_axis] * normal_directions[separating_axis];
+            f64::from(signed_penetrations[separating_axis] * normal_directions[separating_axis]);
         clipped
     }
 
@@ -167,8 +199,8 @@ impl Aabb {
         let mut axis_penetrations = [0.0; 3];
         let mut normal_directions = [0.0; 3];
         for axis in 0..3 {
-            let mut min_penetration = self.max[axis] - stationary.min[axis];
-            let mut max_penetration = stationary.max[axis] - self.min[axis];
+            let mut min_penetration = self.max[axis] as f32 - stationary.min[axis] as f32;
+            let mut max_penetration = stationary.max[axis] as f32 - self.min[axis] as f32;
             if min_penetration.abs() <= 1.0e-7 {
                 min_penetration = 0.0;
             }
@@ -198,7 +230,8 @@ impl Aabb {
             }
         }
         let mut translation = Vec3::ZERO;
-        translation[best_axis] = axis_penetrations[best_axis] * normal_directions[best_axis];
+        translation[best_axis] =
+            f64::from(axis_penetrations[best_axis] * normal_directions[best_axis]);
         Some(translation)
     }
 }
@@ -208,7 +241,7 @@ impl Aabb {
 /// tick equations.
 ///
 /// Iteratively applies each overlapping collider's
-/// [`Aabb::overlap_minimal_translation`] to the standing-player box until no
+/// [`Aabb::overlap_minimal_translation`] to the `height`-tall player box until no
 /// collider overlaps, [`max_iterations`] is exhausted, or the net feet
 /// displacement would exceed `max_displacement_blocks`. Returns the adjusted
 /// feet origin only when the final box is provably clear under the same
@@ -217,6 +250,7 @@ impl Aabb {
 #[must_use]
 pub fn depenetrate_player(
     feet: Vec3,
+    height: f64,
     colliders: &[Aabb],
     max_iterations: usize,
     max_displacement_blocks: f64,
@@ -227,7 +261,7 @@ pub fn depenetrate_player(
     let origin = feet;
     let mut feet = feet;
     for _ in 0..max_iterations {
-        let player = Aabb::player_at(feet);
+        let player = Aabb::player_with_height_at(feet, height);
         let mut deepest: Option<(f64, Vec3)> = None;
         for collider in colliders.iter().copied() {
             if collider.is_zero_volume() || !collider.min.is_finite() || !collider.max.is_finite() {
@@ -255,7 +289,7 @@ pub fn depenetrate_player(
             return None;
         }
     }
-    let player = Aabb::player_at(feet);
+    let player = Aabb::player_with_height_at(feet, height);
     colliders
         .iter()
         .all(|collider| {

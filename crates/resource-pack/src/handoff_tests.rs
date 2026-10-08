@@ -4,7 +4,10 @@ use protocol::{ResourcePackArchive, ResourcePackHandoff};
 use uuid::Uuid;
 use zip::{ZipWriter, write::SimpleFileOptions};
 
-use super::{AdmissionError, LayeredPackView, MAX_PACKS, PackRejection, validate_handoff};
+use super::{
+    AdmissionError, LayeredPackView, MAX_PACKS, PackRejection, validate_handoff,
+    validate_handoff_for_device,
+};
 
 const PACK_ID: Uuid = Uuid::from_u128(0x11111111_2222_3333_4444_555555555555);
 
@@ -34,6 +37,119 @@ fn handoff(archives: Vec<ResourcePackArchive>) -> ResourcePackHandoff {
     ResourcePackHandoff::from_archives(archives)
 }
 
+fn tiered_archive(requested: &str) -> ResourcePackArchive {
+    let manifest = format!(
+        r#"{{"format_version":2,"header":{{"uuid":"{PACK_ID}","version":[1,2,3]}},
+        "modules":[{{"type":"resources"}}],"subpacks":[
+        {{"folder_name":"lite","memory_tier":0}},
+        {{"folder_name":"full","memory_tier":12}}]}}"#
+    );
+    let mut writer = ZipWriter::new(Cursor::new(Vec::new()));
+    for (path, bytes) in [
+        ("manifest.json", manifest.as_bytes()),
+        ("font/glyph_E1.png", b"root"),
+        ("subpacks/lite/font/glyph_E1.png", b"lite"),
+        ("subpacks/full/font/glyph_E1.png", b"full"),
+    ] {
+        writer
+            .start_file(path, SimpleFileOptions::default())
+            .unwrap();
+        writer.write_all(bytes).unwrap();
+    }
+    ResourcePackArchive::unencrypted(
+        PACK_ID,
+        "1.2.3".into(),
+        requested.into(),
+        writer.finish().unwrap().into_inner(),
+    )
+}
+
+#[test]
+fn server_device_selection_applies_automatic_and_supported_explicit_subpacks() {
+    for (requested, memory, expected) in [
+        ("", 24 << 30, "full"),
+        ("", 4 << 30, "lite"),
+        ("", 0, "lite"),
+        ("lite", 24 << 30, "lite"),
+        ("full", 4 << 30, "lite"),
+        ("unavailable label", 24 << 30, "full"),
+    ] {
+        let stack = validate_handoff_for_device(handoff(vec![tiered_archive(requested)]), memory);
+        assert!(stack.rejections().is_empty());
+        assert_eq!(stack.packs()[0].sub_pack_name(), expected);
+        let view = LayeredPackView::new(stack);
+        assert_eq!(
+            view.read("font/glyph_E1.png").unwrap().as_ref(),
+            expected.as_bytes()
+        );
+        assert!(view.list("subpacks/").is_empty());
+    }
+    let exact_root = LayeredPackView::new(validate_handoff(handoff(vec![tiered_archive("")])));
+    assert_eq!(
+        exact_root.read("font/glyph_E1.png").unwrap().as_ref(),
+        b"root"
+    );
+}
+
+#[test]
+fn actual_server_font_subpack_uses_full_resolution_glyph_page() {
+    let Some(path) = std::env::var_os("CINNABAR_SUBPACK_FIXTURE") else {
+        eprintln!(
+            "skipping actual_server_font_subpack_uses_full_resolution_glyph_page: missing CINNABAR_SUBPACK_FIXTURE cached font pack"
+        );
+        return;
+    };
+    let bytes = match std::fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            eprintln!(
+                "skipping actual_server_font_subpack_uses_full_resolution_glyph_page: missing CINNABAR_SUBPACK_FIXTURE cached font pack"
+            );
+            return;
+        }
+        Err(error) => panic!("read cached font fixture: {error}"),
+    };
+    let mut zip = zip::ZipArchive::new(Cursor::new(&bytes)).unwrap();
+    let manifest: serde_json::Value =
+        serde_json::from_reader(zip.by_name("manifest.json").unwrap()).unwrap();
+    let id = manifest["header"]["uuid"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+    let version = crate::manifest::Version::from_value(&manifest["header"]["version"])
+        .unwrap()
+        .0
+        .map(|part| part.to_string())
+        .join(".");
+    let handoff = ResourcePackHandoff::from_archives(vec![ResourcePackArchive::unencrypted(
+        id,
+        version,
+        String::new(),
+        bytes.clone(),
+    )]);
+    let stack = validate_handoff_for_device(handoff, 24 << 30);
+    assert!(stack.rejections().is_empty());
+    assert_eq!(stack.packs()[0].sub_pack_name(), "f");
+    let view = LayeredPackView::new(stack);
+    let selected = view.read("font/glyph_E1.png").unwrap();
+    use std::io::Read;
+    let mut authored = Vec::new();
+    zip.by_name("subpacks/f/font/glyph_E1.png")
+        .unwrap()
+        .read_to_end(&mut authored)
+        .unwrap();
+    assert_eq!(selected.as_ref(), authored);
+    assert_eq!(
+        u32::from_be_bytes(selected[16..20].try_into().unwrap()),
+        4096
+    );
+    assert_eq!(
+        u32::from_be_bytes(selected[20..24].try_into().unwrap()),
+        4096
+    );
+}
+
 #[test]
 fn empty_production_handoff_is_validated_without_archives() {
     let stack = validate_handoff(ResourcePackHandoff::default());
@@ -47,6 +163,33 @@ fn nonempty_production_handoff_preserves_selected_metadata() {
     assert_eq!(stack.packs()[0].pack_id(), PACK_ID);
     assert_eq!(stack.packs()[0].version(), "1.2.3");
     assert_eq!(stack.packs()[0].sub_pack_name(), "");
+}
+
+#[test]
+fn required_stack_with_undeclared_subpack_labels_keeps_root_layers() {
+    let upper = Uuid::from_u128(2);
+    let archives = [
+        (PACK_ID, "Common assets", b"lower".as_slice()),
+        (upper, "Server UI", b"upper".as_slice()),
+    ]
+    .map(|(id, selected, text)| {
+        ResourcePackArchive::unencrypted(
+            id,
+            "1.2.3".into(),
+            selected.into(),
+            pack_zip(id, &[("texts/en_US.lang", text)]),
+        )
+    });
+    let stack = validate_handoff(handoff(archives.into()).with_required(true));
+    assert!(stack.rejections().is_empty());
+    assert_eq!(stack.packs().len(), 2);
+    assert_eq!(stack.packs()[0].sub_pack_name(), "Common assets");
+    assert_eq!(stack.packs()[1].sub_pack_name(), "Server UI");
+    let view = LayeredPackView::new(stack);
+    assert_eq!(
+        view.read("texts/en_US.lang").as_deref(),
+        Some(b"upper".as_slice())
+    );
 }
 
 #[test]

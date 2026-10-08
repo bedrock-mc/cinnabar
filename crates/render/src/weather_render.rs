@@ -53,11 +53,12 @@ struct WeatherParamsGpu {
 }
 
 pub(crate) fn install_weather_render(app: &mut App) {
+    crate::pipeline_warmup::register::<WeatherPipeline>(app);
     load_internal_asset!(
         app,
         WEATHER_SHADER_HANDLE,
         "weather.wgsl",
-        Shader::from_wgsl
+        crate::shader_safety::from_wgsl
     );
     app.sub_app_mut(RenderApp)
         .init_resource::<WeatherPipeline>()
@@ -199,6 +200,14 @@ pub(crate) fn prepare_weather_records(
     if count == 0 {
         return;
     }
+    #[cfg(feature = "tracy")]
+    let _span = bevy::log::info_span!(
+        "weather.frame_upload",
+        layers = count,
+        occlusion_generation = scene.occlusion_generation,
+        upload_occlusion = gpu.occlusion_generation != Some(scene.occlusion_generation),
+    )
+    .entered();
     render_queue.write_buffer(
         &gpu.record_buffer,
         0,
@@ -494,6 +503,24 @@ impl<P: PhaseItem> RenderCommand<P> for DrawWeather {
         let gpu = gpu.into_inner();
         pass.draw(0..gpu.max_particles.saturating_mul(6), 0..gpu.layer_count);
         RenderCommandResult::Success
+    }
+}
+
+impl crate::pipeline_warmup::PrewarmPipelines for WeatherPipeline {
+    fn prewarm(
+        &mut self,
+        cache: &PipelineCache,
+        view: crate::pipeline_warmup::WarmView,
+        ids: &mut crate::pipeline_warmup::WarmupIds,
+    ) -> Result<(), BevyError> {
+        ids.push(self.variants.specialize(
+            cache,
+            WeatherPipelineKey {
+                msaa: view.msaa,
+                hdr: view.hdr,
+            },
+        )?);
+        Ok(())
     }
 }
 

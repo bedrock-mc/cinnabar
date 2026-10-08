@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"slices"
 	"testing"
@@ -13,6 +15,34 @@ import (
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 )
+
+// Successful flushes and downstream failures must not allocate an upstream error inspection target.
+func TestRelayErrorPassthroughDoesNotAllocate(t *testing.T) {
+	downstream := errors.New("downstream write failed")
+	for _, test := range []struct {
+		name     string
+		err      error
+		upstream bool
+	}{
+		{"upstream success", nil, true},
+		{"downstream success", nil, false},
+		{"downstream failure", downstream, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := attributeRelayError(test.err, test.upstream); got != test.err {
+				t.Fatalf("error = %v, want original %v", got, test.err)
+			}
+			allocations := testing.AllocsPerRun(100, func() {
+				if attributeRelayError(test.err, test.upstream) != test.err {
+					panic("relay error changed")
+				}
+			})
+			if allocations != 0 {
+				t.Fatalf("passthrough allocations = %v, want zero", allocations)
+			}
+		})
+	}
+}
 
 func TestRelayPreservesUpstreamDisconnectBeforeClosing(t *testing.T) {
 	for _, hidden := range []bool{false, true} {
@@ -26,7 +56,7 @@ func TestRelayPreservesUpstreamDisconnectBeforeClosing(t *testing.T) {
 			before := &packet.NetworkStackLatency{Timestamp: 42}
 			up.reads <- packetResult{packet: before}
 			up.reads <- packetResult{err: fmt.Errorf("receive: %w", reason)}
-			err := relayPackets(context.Background(), down, up)
+			err := relayWithSessions(context.Background(), down, up)
 			if !errors.Is(err, reason) {
 				t.Fatalf("relay error = %v, want original disconnect", err)
 			}
@@ -50,7 +80,7 @@ func TestRelayDoesNotReflectDownstreamDisconnectUpstream(t *testing.T) {
 	up := newFakeUpstream(nil)
 	reason := &minecraft.DisconnectPacketError{Message: "local disconnect"}
 	down.reads <- packetResult{err: reason}
-	if err := relayPackets(context.Background(), down, up); !errors.Is(err, reason) {
+	if err := relayWithSessions(context.Background(), down, up); !errors.Is(err, reason) {
 		t.Fatalf("relay error = %v, want original disconnect", err)
 	}
 	if len(up.written()) != 0 || len(down.written()) != 0 {
@@ -65,7 +95,7 @@ func TestRelayDisconnectFlushFailurePreservesBothErrors(t *testing.T) {
 	flushErr := errors.New("local transport flush failed")
 	down.flushErr = flushErr
 	up.reads <- packetResult{err: reason}
-	err := relayPackets(context.Background(), down, up)
+	err := relayWithSessions(context.Background(), down, up)
 	if !errors.Is(err, reason) || !errors.Is(err, flushErr) {
 		t.Fatalf("relay error = %v, want disconnect and flush failure", err)
 	}
@@ -79,14 +109,14 @@ type reverseFirstDisconnectSession struct {
 	reason error
 }
 
-func (s *reverseFirstDisconnectSession) ReadBatch() ([]packet.Packet, error) {
+func (s *reverseFirstDisconnectSession) ReadBatchRaw(func(uint32) bool) ([]minecraft.RawPacket, error) {
 	// Force the reverse write result to win; the reader becomes runnable only
 	// once the coordinator tears down the upstream session.
 	<-s.closed
 	return nil, s.reason
 }
 
-func (s *reverseFirstDisconnectSession) WritePacket(packet.Packet) error {
+func (s *reverseFirstDisconnectSession) WritePacketRaw([]byte) error {
 	return s.reason
 }
 
@@ -95,7 +125,7 @@ func TestRelayPreservesDisconnectWhenReverseWriterFinishesFirst(t *testing.T) {
 	reason := &minecraft.DisconnectPacketError{Reason: 7, Message: "server stopped"}
 	up := &reverseFirstDisconnectSession{fakeUpstream: newFakeUpstream(nil), reason: reason}
 	down.reads <- packetResult{packet: &packet.NetworkStackLatency{Timestamp: 1}}
-	err := relayPackets(context.Background(), down, up)
+	err := relayWithSessions(context.Background(), down, up)
 	if !errors.Is(err, reason) {
 		t.Fatalf("relay error = %v, want original server disconnect", err)
 	}
@@ -110,7 +140,7 @@ func TestRelayRetainsDistinctErrorsFromBothPumps(t *testing.T) {
 	upErr := errors.New("upstream read failed after teardown")
 	up := &reverseFirstDisconnectSession{fakeUpstream: newFakeUpstream(nil), reason: upErr}
 	down.reads <- packetResult{err: downErr}
-	err := relayPackets(context.Background(), down, up)
+	err := relayWithSessions(context.Background(), down, up)
 	if !errors.Is(err, downErr) || !errors.Is(err, upErr) {
 		t.Fatalf("relay error = %v, want both independent pump failures", err)
 	}
@@ -134,7 +164,7 @@ func TestRelayCancellationUnblocksDisconnectDelivery(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan error, 1)
-	go func() { done <- relayPackets(ctx, down, up) }()
+	go func() { done <- relayWithSessions(ctx, down, up) }()
 	select {
 	case <-down.started:
 	case <-time.After(time.Second):
@@ -188,12 +218,23 @@ func TestRelayPreLoginDisconnectWordsJoinFailuresAsVanilla(t *testing.T) {
 	}
 }
 
-func TestNetworkForAddressUsesRakNetForTransferTargets(t *testing.T) {
+// A transfer hop names a plain host:port, which vanilla probes for NetherNet like any addressed server.
+func TestNetworkForAddressSelectsTransferTransportLikeAnAddressedServer(t *testing.T) {
 	target := &resolvedUpstreamTarget{address: "Host:1", network: scopedNetherNetNetwork{}}
-	if _, ok := networkForAddress(target, "host:1").(scopedNetherNetNetwork); !ok {
+	if _, ok := networkForAddress(target, "host:1", nil).(scopedNetherNetNetwork); !ok {
 		t.Fatal("resolved address lost its transport")
 	}
-	if _, ok := networkForAddress(target, "other.example:19132").(minecraft.RakNet); !ok {
-		t.Fatal("transfer target must dial over RakNet")
+	signaling := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	defer signaling.Close()
+	hop, ok := networkForAddress(target, signaling.Listener.Addr().String(), nil).(addressedServerNetwork)
+	if !ok {
+		t.Fatal("transfer target skipped transport selection")
+	}
+	selected, err := hop.Select(t.Context(), signaling.Listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := selected.(identityProviderDialer); !ok {
+		t.Fatalf("transfer to a NetherNet server selected %T", selected)
 	}
 }

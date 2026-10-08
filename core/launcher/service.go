@@ -18,10 +18,10 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
+	"github.com/hashimthearab/rust-mcbe/core/authflow"
 	"github.com/hashimthearab/rust-mcbe/core/catalog"
 	"github.com/hashimthearab/rust-mcbe/core/control"
 	"github.com/hashimthearab/rust-mcbe/core/proxy"
-	"github.com/sandertv/gophertunnel/minecraft/auth"
 	"github.com/sandertv/gophertunnel/minecraft/realms"
 	"github.com/sandertv/gophertunnel/minecraft/service/gatherings"
 	"golang.org/x/oauth2"
@@ -37,23 +37,27 @@ type Config struct {
 	ArtworkDir string // screen artwork cache; empty skips caching
 	CacheFile  string // last good catalog; empty keeps it in memory only
 	Logger     *slog.Logger
+	Language   string // active UI locale used by messaging
 	// StoreImageDir holds cached Marketplace images; empty disables them.
 	StoreImageDir string
 
 	// Injectable for tests; nil selects the real implementation.
 	Realms   func(context.Context, *authcache.Account) ([]catalog.Realm, error)
 	Friends  func(context.Context, *authcache.Account) ([]catalog.Friend, error)
+	People   func(context.Context, *authcache.Account) ([]catalog.Person, error)
 	Gamertag func(context.Context, *authcache.Account) (string, error)
 	Remove   func(path string) error
 
-	Featured      func(context.Context, *authcache.Account) ([]catalog.FeaturedServer, error)
-	Gatherings    func(context.Context, *authcache.Account) ([]catalog.Gathering, error)
-	Profile       func(context.Context, *authcache.Account) (catalog.Profile, error)
-	CacheArt      func(ctx context.Context, directory string, images []*catalog.Image)
-	Ping          func(ctx context.Context, addresses []string) []catalog.PingResult
-	Home          func(ctx context.Context, src *authcache.Account, session *catalog.MessagingSession, artworkDir string) (catalog.Home, error)
-	Report        func(ctx context.Context, src *authcache.Account, session *catalog.MessagingSession, event catalog.MessageEvent) error
-	JoinGathering func(context.Context, *authcache.Account, uuid.UUID) (*gatherings.Address, error)
+	Featured                  func(context.Context, *authcache.Account) ([]catalog.FeaturedServer, error)
+	ExperienceCounts          func(context.Context, *authcache.Account) ([]gatherings.ExperiencePlayerCount, error)
+	Profile                   func(context.Context, *authcache.Account) (catalog.Profile, error)
+	ProfileFeaturedScreenshot func(context.Context, *authcache.Account, string) (catalog.Image, error)
+	ProfileAvatar             func(context.Context, *authcache.Account, string, string) (catalog.Image, error)
+	CacheArt                  func(ctx context.Context, directory string, images []*catalog.Image)
+	Ping                      func(ctx context.Context, addresses []string) []catalog.PingResult
+	Home                      func(ctx context.Context, src *authcache.Account, session *catalog.MessagingSession, artworkDir string) (catalog.Home, error)
+	Report                    func(ctx context.Context, src *authcache.Account, session *catalog.MessagingSession, event catalog.MessageEvent) error
+	JoinGathering             func(context.Context, *authcache.Account, uuid.UUID) (*gatherings.Address, error)
 }
 
 // Service implements control.Services.
@@ -61,14 +65,17 @@ type Service struct {
 	cfg       Config
 	logger    *slog.Logger
 	signedOut atomic.Bool
-	messaging catalog.MessagingSession
+	messaging *catalog.MessagingSession
 
-	mu        sync.Mutex
-	snap      snapshot
-	flights   [3]*flight
-	attempted [3]time.Time
-	gamerpic  string     // profile artwork pruning must keep
-	disk      sync.Mutex // orders cache rewrites
+	mu           sync.Mutex
+	snap         snapshot
+	flights      [2]*flight
+	attempted    [2]time.Time
+	profileLogMu sync.Mutex
+	profileLogs  map[string]time.Time
+	profileArt   []string   // current avatar and achievement art pruning must keep
+	gamerpic     string     // profile artwork pruning must keep
+	disk         sync.Mutex // orders cache rewrites
 }
 
 // New returns a Service; it fills unset injectables with the real implementations.
@@ -79,6 +86,9 @@ func New(cfg Config) *Service {
 	if cfg.Friends == nil {
 		cfg.Friends = catalog.Friends
 	}
+	if cfg.People == nil {
+		cfg.People = catalog.People
+	}
 	if cfg.Gamertag == nil {
 		cfg.Gamertag = catalog.Gamertag
 	}
@@ -88,11 +98,17 @@ func New(cfg Config) *Service {
 	if cfg.Featured == nil {
 		cfg.Featured = catalog.FeaturedServers
 	}
-	if cfg.Gatherings == nil {
-		cfg.Gatherings = catalog.Gatherings
+	if cfg.ExperienceCounts == nil {
+		cfg.ExperienceCounts = new(catalog.ExperienceCounts).Counts
 	}
 	if cfg.Profile == nil {
 		cfg.Profile = catalog.AccountProfile
+	}
+	if cfg.ProfileFeaturedScreenshot == nil {
+		cfg.ProfileFeaturedScreenshot = catalog.ProfileFeaturedScreenshot
+	}
+	if cfg.ProfileAvatar == nil {
+		cfg.ProfileAvatar = catalog.ProfileAvatar
 	}
 	if cfg.CacheArt == nil {
 		cfg.CacheArt = catalog.CacheImages
@@ -109,7 +125,7 @@ func New(cfg Config) *Service {
 	if cfg.JoinGathering == nil {
 		cfg.JoinGathering = catalog.JoinGathering
 	}
-	s := &Service{cfg: cfg, logger: cfg.Logger}
+	s := &Service{cfg: cfg, logger: cfg.Logger, messaging: catalog.NewMessagingSession(cfg.Language)}
 	if s.logger == nil {
 		s.logger = slog.New(slog.DiscardHandler)
 	}
@@ -118,7 +134,7 @@ func New(cfg Config) *Service {
 }
 
 func (s *Service) source() (*authcache.Account, error) {
-	if s.cfg.Account == nil || s.signedOut.Load() {
+	if s.cfg.Account == nil || s.signedOut.Load() || s.cfg.Account.Closed() {
 		return nil, control.ErrSignedOut
 	}
 	return s.cfg.Account, nil
@@ -147,29 +163,24 @@ func (s *Service) FeaturedServers(ctx context.Context) ([]catalog.FeaturedServer
 	return cached(ctx, s, featuredFeed)
 }
 
-// Gatherings lists the community gatherings with their artwork cached, from the last good fetch.
-func (s *Service) Gatherings(ctx context.Context) ([]catalog.Gathering, error) {
-	return cached(ctx, s, gatheringsFeed)
-}
-
-// Profile returns the signed-in profile with its gamerpic cached.
-func (s *Service) Profile(ctx context.Context) (catalog.Profile, error) {
+// FeaturedServersWithCounts adds live populations while experience details are visible.
+func (s *Service) FeaturedServersWithCounts(ctx context.Context) ([]catalog.FeaturedServer, error) {
+	servers, err := s.FeaturedServers(ctx)
+	if err != nil || !hasExperiences(servers) {
+		return servers, err
+	}
 	src, err := s.source()
 	if err != nil {
-		return catalog.Profile{}, err
+		return nil, err
 	}
-	profile, err := s.cfg.Profile(ctx, src)
-	if err != nil {
-		return catalog.Profile{}, err
+	counts, countErr := s.cfg.ExperienceCounts(ctx, src)
+	if countErr != nil {
+		s.logger.Warn("experience counts unavailable", "error", control.RedactError(countErr))
 	}
-	if partial := profile.Partial(); partial != nil {
-		s.logger.Warn("profile partly unavailable", "error", control.RedactError(partial))
+	if _, err := s.source(); err != nil {
+		return nil, err
 	}
-	s.cacheArt(ctx, []*catalog.Image{&profile.Gamerpic})
-	s.mu.Lock()
-	s.gamerpic = profile.Gamerpic.Path
-	s.mu.Unlock()
-	return profile, nil
+	return withExperienceCounts(servers, counts), nil
 }
 
 // Home returns the start screen's service data with its artwork cached, from the last good fetch.
@@ -183,7 +194,7 @@ func (s *Service) ReportMessage(ctx context.Context, event catalog.MessageEvent)
 	if err != nil {
 		return err
 	}
-	return s.cfg.Report(ctx, src, &s.messaging, event)
+	return s.cfg.Report(ctx, src, s.messaging, event)
 }
 
 // Ping pings servers for their player counts and round trip; it needs no account.
@@ -304,17 +315,12 @@ func (s *Service) SignOut() error {
 	s.snap = snapshot{}
 	s.mu.Unlock()
 	_ = s.cfg.Account.Close()
-	var paths []string
-	if s.cfg.AuthCache != "" {
-		paths = append(paths, s.cfg.AuthCache, authcache.DerivedCachePath(s.cfg.AuthCache))
-	}
-	if s.cfg.CacheFile != "" {
-		paths = append(paths, s.cfg.CacheFile)
-	}
-	var failed bool
 	s.disk.Lock()
-	for _, path := range paths {
-		if err := s.cfg.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+	wait, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	failed := authcache.Remove(wait, s.cfg.AuthCache, s.cfg.Remove) != nil
+	cancel()
+	if s.cfg.CacheFile != "" {
+		if err := s.cfg.Remove(s.cfg.CacheFile); err != nil && !errors.Is(err, os.ErrNotExist) {
 			failed = true
 		}
 	}
@@ -340,7 +346,7 @@ func (s *Service) PublishSignedIn(ctx context.Context) {
 	if tag, err := s.cfg.Gamertag(ctx, s.cfg.Account); err == nil {
 		state.Gamertag = tag
 	}
-	if s.signedOut.Load() {
+	if _, err := s.source(); err != nil {
 		return
 	}
 	s.cfg.Store.SetAuth(state)
@@ -350,25 +356,20 @@ func (s *Service) PublishSignedIn(ctx context.Context) {
 // writes the standard prompt line to w; it publishes a sanitized failure reason on error.
 func DeviceRequest(store *control.Store) func(context.Context, io.Writer) (*oauth2.Token, error) {
 	return func(ctx context.Context, w io.Writer) (*oauth2.Token, error) {
-		fail := func(reason string, err error) (*oauth2.Token, error) {
+		token, err := (authflow.DeviceFlow{}).Request(ctx, func(device *oauth2.DeviceAuthResponse) error {
 			if store != nil {
-				store.SetAuth(control.AuthV1{State: control.AuthFailed, Reason: reason})
+				store.SetAuth(control.AuthV1{
+					State: control.AuthAwaitingCode, VerificationURI: device.VerificationURI, UserCode: device.UserCode,
+				})
+			}
+			_, err := fmt.Fprintf(w, "Authenticate at %v using the code %v.\n", device.VerificationURI, device.UserCode)
+			return err
+		})
+		if err != nil {
+			if store != nil {
+				store.SetAuth(control.AuthV1{State: control.AuthFailed, Reason: "Microsoft sign-in did not complete."})
 			}
 			return nil, err
-		}
-		device, err := auth.AndroidConfig.DeviceAuth(ctx)
-		if err != nil {
-			return fail("Could not start Microsoft sign-in.", fmt.Errorf("start device auth: %w", err))
-		}
-		if store != nil {
-			store.SetAuth(control.AuthV1{
-				State: control.AuthAwaitingCode, VerificationURI: device.VerificationURI, UserCode: device.UserCode,
-			})
-		}
-		_, _ = fmt.Fprintf(w, "Authenticate at %v using the code %v.\n", device.VerificationURI, device.UserCode)
-		token, err := auth.AndroidConfig.DeviceAccessToken(ctx, device)
-		if err != nil {
-			return fail("Microsoft sign-in did not complete.", fmt.Errorf("poll device token: %w", err))
 		}
 		_, _ = w.Write([]byte("Authentication successful.\n"))
 		return token, nil

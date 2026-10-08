@@ -1,0 +1,62 @@
+{
+  "type": "callback",
+  "seq": 4,
+  "info": {
+    "world_id": "world",
+    "dimension_id": "overworld",
+    "tick": 48213,
+    "event_sequence": 904
+  },
+  "actor": null,
+  "world_min_y": -64,
+  "world_max_y": 319,
+  "data_budget": 4096,
+  "snapshot": [
+    {
+      "pos": {
+        "x": 12,
+        "y": 64,
+        "z": -7
+      },
+      "loaded": true,
+      "id": "benergistics:controller",
+      "owned": true,
+      "data": "0100ff"
+    },
+    {
+      "pos": {
+        "x": 13,
+        "y": 64,
+        "z": -7
+      },
+      "loaded": true,
+      "id": "minecraft:stone",
+      "owned": false,
+      "data": null
+    },
+    {
+      "pos": {
+        "x": 12,
+        "y": 64,
+        "z": 400
+      },
+      "loaded": false,
+      "id": "",
+      "owned": false,
+      "data": null
+    }
+  ],
+  "call": {
+    "type": "neighbor",
+    "pos": {
+      "x": 12,
+      "y": 64,
+      "z": -7
+    },
+    "neighbor": {
+      "x": 13,
+      "y": 64,
+      "z": -7
+    }
+  }
+}

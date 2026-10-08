@@ -1,6 +1,6 @@
 use bevy::{
     input::keyboard::{Key, NativeKey},
-    prelude::{App, IntoScheduleConfigs, MinimalPlugins, Update},
+    prelude::{App, IntoScheduleConfigs, KeyCode, MinimalPlugins, Update},
 };
 
 use super::*;
@@ -8,10 +8,7 @@ use crate::menu::MenuAction;
 use crate::present_mode::{PresentModeRuntime, apply_runtime_vsync_setting};
 
 fn app(visible: bool) -> (App, Entity) {
-    let mut menu = MenuRuntime::new(visible, 2, "Steve".to_owned());
-    // These runtime tests start windowed regardless of the host's saved setting.
-    menu.sync_fullscreen(false);
-    let _ = menu.take_fullscreen_change();
+    let menu = MenuRuntime::new(visible, 2, "Steve".to_owned());
     let mut app = App::new();
     app.add_plugins(MinimalPlugins)
         .add_message::<KeyboardInput>()
@@ -197,4 +194,49 @@ fn menu_press_waits_for_a_primary_window() {
         .id();
     app.update();
     assert_fullscreen(&app, replacement, true);
+}
+
+#[test]
+fn a_hidden_capture_window_ignores_the_saved_fullscreen_setting() {
+    let layout = crate::install_layout::scratch("hidden-fullscreen");
+    let skin = crate::player_skin::LocalPlayerSkin::generated_default("Hidden");
+    let menu = MenuRuntime::new_with_layout(false, Some(2), "Hidden".into(), layout, skin);
+    let mut settings = RuntimeSettings::default();
+    let mut user = settings.user_settings_update().1.clone();
+    user.video.fullscreen = true;
+    settings.replace_user_settings(user);
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins)
+        .add_message::<KeyboardInput>()
+        .insert_resource(settings)
+        .insert_resource(menu)
+        .add_systems(
+            Update,
+            (toggle_fullscreen_hotkey, apply_runtime_fullscreen_setting).chain(),
+        );
+    let window = app
+        .world_mut()
+        .spawn((
+            Window {
+                visible: false,
+                ..Window::default()
+            },
+            PrimaryWindow,
+        ))
+        .id();
+    app.update();
+    app.update();
+    assert_eq!(
+        app.world().get::<Window>(window).unwrap().mode,
+        WindowMode::Windowed
+    );
+    assert!(
+        app.world()
+            .resource::<RuntimeSettings>()
+            .user_settings_update()
+            .1
+            .video
+            .fullscreen,
+        "the player's saved preference is left alone"
+    );
 }

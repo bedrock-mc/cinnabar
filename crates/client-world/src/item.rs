@@ -27,6 +27,10 @@ pub struct CanonicalItemStack {
     pub visual: ItemVisualRoute,
     /// Projectile a loaded crossbow holds; `None` for any uncharged stack.
     pub charged_projectile: Option<Arc<str>>,
+    /// Durability damage retained separately from the stack's visual metadata.
+    pub damage: Option<u32>,
+    /// The stack carries the enchantment list that enables worn item glint.
+    pub enchanted: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -325,14 +329,9 @@ impl ItemStateStore {
             return false;
         }
         let mut next = built_in_registry();
-        let mut identifiers = HashMap::with_capacity(registry.entries.len());
         let mut network_ids = HashMap::with_capacity(registry.entries.len());
         for entry in registry.entries.iter() {
-            if network_ids.insert(entry.network_id, ()).is_some()
-                || identifiers
-                    .insert(Arc::clone(&entry.identifier), ())
-                    .is_some()
-            {
+            if network_ids.insert(entry.network_id, ()).is_some() {
                 return false;
             }
             next.insert(entry.network_id, registry_record(entry));
@@ -352,8 +351,12 @@ impl ItemStateStore {
                 &mut snapshot.body,
             ] {
                 let charged = piece.item.charged_projectile.take();
+                let damage = piece.item.damage;
+                let enchanted = piece.item.enchanted;
                 piece.item = self.resolve_identity(piece.item.identity);
                 piece.item.charged_projectile = charged;
+                piece.item.damage = damage;
+                piece.item.enchanted = enchanted;
             }
             self.armor.insert(runtime_id, snapshot);
         }
@@ -373,6 +376,14 @@ impl ItemStateStore {
                 .equipment
                 .get(&key)
                 .and_then(|equipment| equipment.item.charged_projectile.clone());
+            item.damage = self
+                .equipment
+                .get(&key)
+                .and_then(|equipment| equipment.item.damage);
+            item.enchanted = self
+                .equipment
+                .get(&key)
+                .is_some_and(|equipment| equipment.item.enchanted);
             let unresolved = !item.identity.is_empty() && item.identifier.is_none();
             if let Some(equipment) = self.equipment.get_mut(&key) {
                 equipment.item = item;
@@ -425,6 +436,8 @@ impl ItemStateStore {
         };
         let mut item = self.resolve_identity(identity);
         item.charged_projectile = protocol::item_charged_projectile(&stack.extra_data);
+        item.damage = protocol::item_stack_damage(stack);
+        item.enchanted = protocol::item_has_enchantment_list(&stack.extra_data);
         Some(item)
     }
 
@@ -442,6 +455,8 @@ impl ItemStateStore {
                 identifier: None,
                 visual: ItemVisualRoute::EmptyHand,
                 charged_projectile: None,
+                damage: None,
+                enchanted: false,
             };
         }
         let identifier = self
@@ -461,6 +476,8 @@ impl ItemStateStore {
             identifier,
             visual,
             charged_projectile: None,
+            damage: None,
+            enchanted: false,
         }
     }
 
@@ -647,11 +664,169 @@ mod armor_tests {
     }
 
     #[test]
+    fn canonical_armor_retains_enchantment_glint() {
+        let mut extra = vec![0xff, 0xff, 0x01, 0x0a, 0x00, 0x00, 0x09];
+        extra.extend_from_slice(&4u16.to_le_bytes());
+        extra.extend_from_slice(b"ench");
+        extra.extend_from_slice(&[0x0a, 0, 0, 0, 0, 0]);
+        let store = ItemStateStore::diagnostic();
+        assert!(store.canonicalize(&stack(1, &extra)).unwrap().enchanted);
+        assert!(
+            !store
+                .canonicalize(&stack(1, &dyed_extra()))
+                .unwrap()
+                .enchanted
+        );
+    }
+
+    #[test]
+    fn registry_refresh_preserves_held_and_worn_damage_and_glint() {
+        let mut extra = vec![0xff, 0xff, 0x01, 0x0a, 0x00, 0x00, 0x09];
+        extra.extend_from_slice(&4u16.to_le_bytes());
+        extra.extend_from_slice(b"ench");
+        extra.extend_from_slice(&[0x0a, 0, 0, 0, 0, 0x03]);
+        extra.extend_from_slice(&6u16.to_le_bytes());
+        extra.extend_from_slice(b"Damage");
+        extra.extend_from_slice(&7u32.to_le_bytes());
+        extra.push(0);
+        let actor = lifetime(7, 1);
+        let mut store = ItemStateStore::diagnostic();
+        store.insert_spawn(actor, 1, stack(1, &extra));
+        assert!(store.apply_armor(actor, 2, &event(7, stack(1, &extra))));
+        assert!(store.apply_registry(ItemRegistryEvent {
+            entries: Arc::from([])
+        }));
+        for item in [
+            &store.get(actor).unwrap().item,
+            &store.armor(7).unwrap().helmet.item,
+        ] {
+            assert_eq!(item.damage, Some(7));
+            assert!(
+                item.enchanted,
+                "registry resolution must retain the stack's enchantments"
+            );
+        }
+    }
+
+    #[test]
+    fn registry_retains_every_numeric_alias_for_a_shared_item_identifier() {
+        let entries = [101, 102, 103].map(|network_id| protocol::ItemRegistryEntry {
+            identifier: Arc::from("example:menu_icon"),
+            network_id,
+            component_based: true,
+            version: protocol::ItemRegistryVersion::DataDriven,
+            component_digest: [0; 32],
+            negotiated_max_stack_size: Some(64),
+            canonical_empty_component_data: true,
+            item_tags: Arc::from([]),
+        });
+        let mut store = ItemStateStore::diagnostic();
+        assert!(store.apply_registry(ItemRegistryEvent {
+            entries: Arc::from(entries)
+        }));
+        for network_id in [101, 102, 103] {
+            let item = store.canonicalize(&stack(network_id, &[])).unwrap();
+            assert_eq!(item.identifier.as_deref(), Some("example:menu_icon"));
+        }
+    }
+
+    #[test]
     fn armor_with_a_wrong_nbt_digest_is_rejected_whole() {
         let mut store = ItemStateStore::diagnostic();
         let mut bad = stack(1, &dyed_extra());
         bad.nbt_digest = [9; 32];
         assert!(!store.apply_armor(lifetime(7, 1), 1, &event(7, bad)));
         assert!(store.armor(7).is_none());
+    }
+}
+
+/// Maximum durability for damageable vanilla items (Bedrock values).
+#[must_use]
+pub fn vanilla_max_durability(identifier: &str) -> Option<u32> {
+    let name = identifier.strip_prefix("minecraft:").unwrap_or(identifier);
+    let value = match name {
+        // Tools and weapons by material tier.
+        "wooden_sword" | "wooden_pickaxe" | "wooden_axe" | "wooden_shovel" | "wooden_hoe" => 59,
+        "stone_sword" | "stone_pickaxe" | "stone_axe" | "stone_shovel" | "stone_hoe" => 131,
+        "copper_sword" | "copper_pickaxe" | "copper_axe" | "copper_shovel" | "copper_hoe" => 190,
+        "iron_sword" | "iron_pickaxe" | "iron_axe" | "iron_shovel" | "iron_hoe" => 250,
+        "golden_sword" | "golden_pickaxe" | "golden_axe" | "golden_shovel" | "golden_hoe" => 32,
+        "diamond_sword" | "diamond_pickaxe" | "diamond_axe" | "diamond_shovel" | "diamond_hoe" => {
+            1_561
+        }
+        "netherite_sword" | "netherite_pickaxe" | "netherite_axe" | "netherite_shovel"
+        | "netherite_hoe" => 2_031,
+        // Armor: material base durability times the per-piece multiplier
+        // (helmet 11, chestplate 16, leggings 15, boots 13).
+        "leather_helmet" => 55,
+        "leather_chestplate" => 80,
+        "leather_leggings" => 75,
+        "leather_boots" => 65,
+        "golden_helmet" => 77,
+        "golden_chestplate" => 112,
+        "golden_leggings" => 105,
+        "golden_boots" => 91,
+        "copper_helmet" => 121,
+        "copper_chestplate" => 176,
+        "copper_leggings" => 165,
+        "copper_boots" => 143,
+        "chainmail_helmet" | "iron_helmet" => 165,
+        "chainmail_chestplate" | "iron_chestplate" => 240,
+        "chainmail_leggings" | "iron_leggings" => 225,
+        "chainmail_boots" | "iron_boots" => 195,
+        "diamond_helmet" => 363,
+        "diamond_chestplate" => 528,
+        "diamond_leggings" => 495,
+        "diamond_boots" => 429,
+        "netherite_helmet" => 407,
+        "netherite_chestplate" => 592,
+        "netherite_leggings" => 555,
+        "netherite_boots" => 481,
+        "turtle_helmet" => 275,
+        // Other damageable vanilla items (Bedrock maxima).
+        "bow" => 384,
+        "crossbow" => 464,
+        "trident" => 250,
+        "elytra" => 432,
+        "shield" => 336,
+        "fishing_rod" => 384,
+        "carrot_on_a_stick" => 25,
+        "warped_fungus_on_a_stick" => 100,
+        "flint_and_steel" => 64,
+        "shears" => 238,
+        "brush" => 64,
+        "mace" => 500,
+        _ => return None,
+    };
+    Some(value)
+}
+
+#[cfg(test)]
+mod durability_tests {
+    use super::*;
+
+    #[test]
+    fn copper_durabilities_follow_the_material_scheme() {
+        // Copper tools share the 190 tier between stone (131) and iron (250);
+        // copper armor is material base 11 times the per-piece multipliers.
+        for tool in [
+            "minecraft:copper_sword",
+            "minecraft:copper_pickaxe",
+            "minecraft:copper_axe",
+            "minecraft:copper_shovel",
+            "minecraft:copper_hoe",
+        ] {
+            assert_eq!(vanilla_max_durability(tool), Some(190), "{tool}");
+        }
+        assert_eq!(vanilla_max_durability("minecraft:copper_helmet"), Some(121));
+        assert_eq!(
+            vanilla_max_durability("minecraft:copper_chestplate"),
+            Some(176)
+        );
+        assert_eq!(
+            vanilla_max_durability("minecraft:copper_leggings"),
+            Some(165)
+        );
+        assert_eq!(vanilla_max_durability("minecraft:copper_boots"), Some(143));
     }
 }

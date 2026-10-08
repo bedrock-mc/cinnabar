@@ -1,6 +1,6 @@
 //! Actual streamed movement and damage drive Cinnabar's native camera effects.
 use bevy::{platform::time::Instant, prelude::*};
-use render::camera::{
+use view_presentation::camera::{
     CameraHurtState, FirstPersonHandMotion, HandSwayState, LocalHurtEvent, WalkBobState,
     walk_bob_effect,
 };
@@ -56,8 +56,10 @@ impl PovMotion {
                     ((js_sys::Date::now() - js_sys::Date::parse(stamp)) / 1000.0) as f32;
                 // The stream has a committed hurt event but no damage-direction packet.
                 // Native directionless tilt is the explicit fallback for that case.
-                self.hurt
-                    .register_at_age(LocalHurtEvent::default(), age_seconds);
+                if age_seconds.is_finite() {
+                    self.hurt.register(LocalHurtEvent::default());
+                    self.hurt.advance(age_seconds.max(0.0));
+                }
             }
         }
         let (yaw, pitch, _) = base.rotation.to_euler(EulerRot::YXZ);
@@ -68,6 +70,7 @@ impl PovMotion {
             hurt: self.hurt.view_matrix(yaw),
             sway_pitch_radians,
             sway_yaw_radians,
+            eye_height_adjustment: 0.0,
         };
         let camera = Transform::from_matrix(base.to_matrix() * motion.view_matrix().inverse());
         if camera.translation.is_finite() && camera.rotation.is_finite() {

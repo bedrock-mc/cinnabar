@@ -1,0 +1,231 @@
+{
+  "before_commit": "8061e4b0111a2e3a3bd4611c20b801cb0319919d",
+  "after_commit": "f8a56aec9489729690f4918272c4aca6ab561e76",
+  "machine": {
+    "chip": "Apple M3 Pro",
+    "cpu_cores": 12,
+    "memory_gb": 36,
+    "os": "macOS 26.5.1",
+    "target": "aarch64-apple-darwin"
+  },
+  "rustc": "1.93.1 (01f6ddf75 2026-02-11)",
+  "profile": "dev",
+  "environment": {
+    "CARGO_BUILD_JOBS": "3",
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0",
+    "RUSTC_WRAPPER": ""
+  },
+  "command": [
+    "/private/tmp/claude-501/-Users-hashim-Downloads-cinnabar/30f7cca3-953b-4833-843f-34f90cbe1dae/scratchpad/cslot",
+    "env",
+    "RUSTC_WRAPPER=",
+    "CARGO_INCREMENTAL=0",
+    "CARGO_TARGET_DIR=/Users/hashim/Downloads/cinnabar-wt/render-api/target",
+    "cargo",
+    "build",
+    "--offline",
+    "--locked",
+    "-p",
+    "render",
+    "-p",
+    "client-world",
+    "--lib",
+    "--timings"
+  ],
+  "probe": "Append a blank line and // Timing probe: behavior-neutral client-world source edit. to crates/client-world/src/lib.rs, build, then restore exact original bytes.",
+  "runs": {
+    "after-clean": {
+      "total_seconds": 430.0,
+      "fresh_units": 0,
+      "dirty_units": 475,
+      "max_concurrency": 3,
+      "average_active_units": 2.831299469667442,
+      "render_client_world_overlap_seconds": 32.77,
+      "selected_units": {
+        "render-api": {
+          "i": 462,
+          "name": "render-api",
+          "version": "0.1.0",
+          "mode": "todo",
+          "target": "",
+          "start": 347.56,
+          "duration": 0.34,
+          "rmeta_time": 0.06,
+          "unblocked_units": [],
+          "unblocked_rmeta_units": [],
+          "sections": null
+        },
+        "protocol": {
+          "i": 470,
+          "name": "protocol",
+          "version": "0.1.0",
+          "mode": "todo",
+          "target": "",
+          "start": 357.34,
+          "duration": 27.38,
+          "rmeta_time": 1.86,
+          "unblocked_units": [],
+          "unblocked_rmeta_units": [
+            474
+          ],
+          "sections": null
+        },
+        "render": {
+          "i": 473,
+          "name": "render",
+          "version": "0.1.0",
+          "mode": "todo",
+          "target": "",
+          "start": 366.12,
+          "duration": 63.92,
+          "rmeta_time": 48.97,
+          "unblocked_units": [],
+          "unblocked_rmeta_units": [],
+          "sections": null
+        },
+        "client-world": {
+          "i": 474,
+          "name": "client-world",
+          "version": "0.1.0",
+          "mode": "todo",
+          "target": "",
+          "start": 371.46,
+          "duration": 32.77,
+          "rmeta_time": 4.66,
+          "unblocked_units": [],
+          "unblocked_rmeta_units": [],
+          "sections": null
+        }
+      },
+      "returncode": 0,
+      "wall_including_slot_seconds": 430.1463977089952,
+      "report_sha256": "b2bc4463aabb1ae1be77ebb837b22fc2089ecc785eb392735251132beafb906f",
+      "report_path": "/private/tmp/cinnabar-render-api-timings/after-clean.html"
+    },
+    "after-edit": {
+      "total_seconds": 7.7,
+      "fresh_units": 474,
+      "dirty_units": 1,
+      "max_concurrency": 1,
+      "average_active_units": 0.9539017045454545,
+      "render_client_world_overlap_seconds": 0,
+      "selected_units": {
+        "client-world": {
+          "i": 0,
+          "name": "client-world",
+          "version": "0.1.0",
+          "mode": "todo",
+          "target": "",
+          "start": 0.38,
+          "duration": 7.34,
+          "rmeta_time": 1.47,
+          "unblocked_units": [],
+          "unblocked_rmeta_units": [],
+          "sections": null
+        }
+      },
+      "returncode": 0,
+      "wall_including_slot_seconds": 7.785847332997946,
+      "report_sha256": "d4638a7c62176c9e5e778d5aaa67c6f51bad7b070a0cea61e032e0b90470a078",
+      "report_path": "/private/tmp/cinnabar-render-api-timings/after-edit.html"
+    },
+    "before-clean": {
+      "total_seconds": 494.7,
+      "fresh_units": 0,
+      "dirty_units": 474,
+      "max_concurrency": 3,
+      "average_active_units": 2.8745170440853043,
+      "render_client_world_overlap_seconds": 15.21,
+      "selected_units": {
+        "protocol": {
+          "i": 465,
+          "name": "protocol",
+          "version": "0.1.0",
+          "mode": "todo",
+          "target": "",
+          "start": 438.71,
+          "duration": 23.16,
+          "rmeta_time": 5.15,
+          "unblocked_units": [],
+          "unblocked_rmeta_units": [],
+          "sections": null
+        },
+        "client-world": {
+          "i": 472,
+          "name": "client-world",
+          "version": "0.1.0",
+          "mode": "todo",
+          "target": "",
+          "start": 447.11,
+          "duration": 19.15,
+          "rmeta_time": 2.52,
+          "unblocked_units": [],
+          "unblocked_rmeta_units": [
+            473
+          ],
+          "sections": null
+        },
+        "render": {
+          "i": 473,
+          "name": "render",
+          "version": "0.1.0",
+          "mode": "todo",
+          "target": "",
+          "start": 451.05,
+          "duration": 43.65,
+          "rmeta_time": 29.15,
+          "unblocked_units": [],
+          "unblocked_rmeta_units": [],
+          "sections": null
+        }
+      },
+      "returncode": 0,
+      "wall_including_slot_seconds": 494.79452008299995,
+      "report_sha256": "74aa445666347425ea17e988d61aaba553a65e424e3dff84755219d34b923487",
+      "report_path": "/private/tmp/cinnabar-render-api-timings/before-clean.html"
+    },
+    "before-edit": {
+      "total_seconds": 52.6,
+      "fresh_units": 472,
+      "dirty_units": 2,
+      "max_concurrency": 2,
+      "average_active_units": 1.2382837595057037,
+      "render_client_world_overlap_seconds": 13.24,
+      "selected_units": {
+        "client-world": {
+          "i": 0,
+          "name": "client-world",
+          "version": "0.1.0",
+          "mode": "todo",
+          "target": "",
+          "start": 0.71,
+          "duration": 14.82,
+          "rmeta_time": 1.58,
+          "unblocked_units": [],
+          "unblocked_rmeta_units": [
+            1
+          ],
+          "sections": null
+        },
+        "render": {
+          "i": 1,
+          "name": "render",
+          "version": "0.1.0",
+          "mode": "todo",
+          "target": "",
+          "start": 2.29,
+          "duration": 50.32,
+          "rmeta_time": 34.96,
+          "unblocked_units": [],
+          "unblocked_rmeta_units": [],
+          "sections": null
+        }
+      },
+      "returncode": 0,
+      "wall_including_slot_seconds": 52.68069774999458,
+      "report_sha256": "8905f3cb0c3f9544f51d54c685b4e202982488aee28749d6038f0c61dbda4841",
+      "report_path": "/private/tmp/cinnabar-render-api-timings/before-edit.html"
+    }
+  }
+}

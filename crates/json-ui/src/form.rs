@@ -10,7 +10,9 @@
 //! its title/body/button texts fed as the popup's global values. Binding names are
 //! read from the vanilla pack's `server_form.json`/`popup_dialog.json`.
 
-use crate::bind::{CollectionItem, ControlLibrary, DataSource, bind};
+use std::sync::Arc;
+
+use crate::bind::{BindState, CollectionItem, ControlLibrary, DataSource, bind_stateful};
 use crate::catalog::Catalog;
 use crate::emit::{DrawNode, RectOut, emit};
 use crate::input::{HitRegion, global_mapping, hit_regions};
@@ -131,7 +133,8 @@ pub struct FormRender {
     /// The bound tree, for structural inspection.
     pub bound: ResolvedControl,
     pub nodes: Vec<DrawNode>,
-    pub hits: Vec<HitRegion>,
+    /// Immutable input regions shared by redraws of this layout.
+    pub hits: Arc<[HitRegion]>,
     pub report: LayoutReport,
     /// Where `button.menu_cancel` (Escape/back) routes on this screen.
     pub cancel_target: Option<String>,
@@ -210,9 +213,18 @@ pub fn form_context(model: &FormModel, base: &Context) -> Context {
         ] {
             context = context.with_flag(flag, value);
         }
+        // The popup's button labels read their text from the controller, as a
+        // screen hosting this popup selects.
+        context = context.with_var(
+            "button_text_binding_type",
+            serde_json::Value::from("global"),
+        );
     }
     context
 }
+
+/// The popup panel `popup_dialog.modal_dialog_popup`'s text views read.
+const MODAL_SOURCE: &str = "modal_bg_buttons";
 
 /// Map a form model onto the `#binding` names its template reads.
 pub fn form_data_source(model: &FormModel) -> DataSource {
@@ -223,8 +235,9 @@ pub fn form_data_source(model: &FormModel) -> DataSource {
         FormModel::Action(form) => long_form_source(&mut data, form),
         FormModel::Modal(form) => {
             let text = |value: &str| Scalar::Text(value.to_owned());
-            data.set_global("#modal_title_text", text(&form.title));
-            data.set_global("#modal_label_text", text(&form.body));
+            // The dialog's text views read the panel the controller fills.
+            data.set_control_value(MODAL_SOURCE, "#modal_title_text", text(&form.title));
+            data.set_control_value(MODAL_SOURCE, "#modal_label_text", text(&form.body));
             data.set_global("#modal_left_button_text", text(&form.button1));
             data.set_global("#modal_middle_button_text", text(""));
             data.set_global("#modal_rightcancel_button_text", text(&form.button2));
@@ -235,16 +248,17 @@ pub fn form_data_source(model: &FormModel) -> DataSource {
 }
 
 fn long_form_source(data: &mut DataSource, form: &ActionForm) {
+    data.set_creation_value("#title_text", Scalar::Text(form.title.clone()));
+    data.set_creation_value("#form_text", Scalar::Text(form.body.clone()));
     data.set_global("#title_text", Scalar::Text(form.title.clone()));
     data.set_global("#form_text", Scalar::Text(form.body.clone()));
     let length = Scalar::Num(form.elements.len() as f64);
-    data.set_global("#form_button_contents", length.clone());
     data.set_global("#form_button_length", length);
     data.set_global("#submit_button_visible", Scalar::Bool(true));
     let text_item = |role: &str, text: &str| {
         CollectionItem::new(role).with("#form_button_text", Scalar::Text(text.to_owned()))
     };
-    let items = form
+    let items: Vec<_> = form
         .elements
         .iter()
         .map(|element| match element {
@@ -267,10 +281,23 @@ fn long_form_source(data: &mut DataSource, form: &ActionForm) {
             ActionElement::Divider => CollectionItem::new("divider"),
         })
         .collect();
+    let contents = items
+        .iter()
+        .map(|item| {
+            item.role
+                .clone()
+                .map_or(serde_json::Value::Null, serde_json::Value::String)
+        })
+        .collect();
+    data.set_global(
+        "#form_button_contents",
+        Scalar::Json(serde_json::Value::Array(contents)),
+    );
     data.set_collection("form_buttons", items);
 }
 
 fn custom_form_source(data: &mut DataSource, form: &CustomForm) {
+    data.set_creation_value("#title_text", Scalar::Text(form.title.clone()));
     data.set_global("#title_text", Scalar::Text(form.title.clone()));
     data.set_global(
         "#custom_form_length",
@@ -412,10 +439,25 @@ impl ControlLibrary for CatalogLibrary<'_> {
 
 /// Factory and grid resolutions kept across binds of one catalog and context,
 /// so a screen re-bound for changed data reuses its created controls' trees.
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct ResolveCache {
-    memo:
-        std::sync::Mutex<std::collections::BTreeMap<(ControlRef, String), Option<ResolvedControl>>>,
+    memo: std::sync::Mutex<Option<ResolveMemo>>,
+}
+
+/// Recent resolutions and the catalog-and-context root scope they resolve in.
+struct ResolveMemo {
+    trees: crate::lru::Lru<(ControlRef, String), Option<Arc<ResolvedControl>>>,
+    root: crate::env::Env,
+}
+
+/// Distinct factory resolutions kept; text-carrying `$vars` (titles, the action
+/// bar) make one per message.
+const RESOLUTIONS: usize = 512;
+
+impl std::fmt::Debug for ResolveCache {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ResolveCache").finish_non_exhaustive()
+    }
 }
 
 /// A [`CatalogLibrary`] answering from a [`ResolveCache`] first.
@@ -435,33 +477,85 @@ impl ControlLibrary for CachedLibrary<'_> {
         key: &str,
         vars: &dyn Fn() -> std::collections::BTreeMap<String, serde_json::Value>,
     ) -> Option<ResolvedControl> {
+        self.resolve_shared(reference, key, vars)
+            .map(Arc::unwrap_or_clone)
+    }
+
+    fn resolve_shared(
+        &self,
+        reference: &ControlRef,
+        key: &str,
+        vars: &dyn Fn() -> std::collections::BTreeMap<String, serde_json::Value>,
+    ) -> Option<Arc<ResolvedControl>> {
         let cache_key = (reference.clone(), key.to_owned());
-        if let Some(resolved) = self
-            .cache
-            .memo
-            .lock()
-            .ok()
-            .and_then(|memo| memo.get(&cache_key).cloned())
-        {
-            return resolved;
+        let Ok(mut memo) = self.cache.memo.lock() else {
+            return self
+                .library
+                .resolve_with(reference, key, vars)
+                .map(Arc::new);
+        };
+        let memo = memo.get_or_insert_with(|| ResolveMemo {
+            trees: crate::lru::Lru::new(RESOLUTIONS),
+            root: self.library.context.root_env(self.library.catalog),
+        });
+        if let Some(resolved) = memo.trees.get(&cache_key) {
+            return resolved.clone();
         }
-        let resolved = self.library.resolve_with(reference, key, vars);
-        if let Ok(mut memo) = self.cache.memo.lock() {
-            memo.insert(cache_key, resolved.clone());
+        let vars = vars();
+        let name = format!("{}.{}", reference.namespace, reference.name);
+        // A null `$var` reads as unset rather than masking a global, which a
+        // scope over the shared root cannot express.
+        let resolved = if vars.values().any(serde_json::Value::is_null) {
+            self.library.resolve_with(reference, key, &|| vars.clone())
+        } else {
+            let mut root = memo.root.child();
+            for (name, value) in vars {
+                root.set(name.trim_start_matches('$'), value);
+            }
+            crate::resolve_in(self.library.catalog, &name, &root.settle()).control
         }
+        .map(Arc::new);
+        memo.trees.insert(cache_key, resolved.clone());
         resolved
     }
 }
 
 /// Resolve the model's template and bind it against the mapped data source,
-/// returning the baked tree. `None` when the template reference is unknown.
+/// returning the baked tree. `None` when the template is unknown or a binding
+/// budget would omit part of the form.
 pub fn bind_form(
     model: &FormModel,
     catalog: &Catalog,
     context: &Context,
 ) -> Option<ResolvedControl> {
+    bind_form_over(model, catalog, context, &crate::Components::default())
+}
+
+/// [`bind_form`] over what the form's components wrote into their bags.
+pub fn bind_form_over(
+    model: &FormModel,
+    catalog: &Catalog,
+    context: &Context,
+    components: &crate::Components,
+) -> Option<ResolvedControl> {
+    let capacity = crate::bind::feed::MAX_FACTORY_ITEMS;
+    let within_capacity = match model {
+        FormModel::Action(form) => form.elements.len() <= capacity,
+        FormModel::Custom(form) => {
+            form.elements.len() <= capacity
+                && form.elements.iter().all(|element| match element {
+                    CustomElement::Dropdown { options, .. } => options.len() <= capacity,
+                    _ => true,
+                })
+        }
+        FormModel::Modal(_) => true,
+    };
+    if !within_capacity {
+        return None;
+    }
     let context = form_context(model, context);
     let mut data = form_data_source(model);
+    data.set_components(components.clone());
     // Action and custom forms open through the screen's content factory, so a
     // pack's screen override applies; the bare template is the fallback.
     let routed = form_factory_id(model).and_then(|id| {
@@ -478,7 +572,9 @@ pub fn bind_form(
         catalog,
         context: &context,
     };
-    Some(bind(&root, &data, &library))
+    let mut state = BindState::new();
+    let (bound, _) = bind_stateful(&Arc::new(root), &data, &library, &mut state);
+    (!state.node_budget_exceeded).then_some(bound)
 }
 
 /// Render a form with no interaction state.
@@ -523,9 +619,23 @@ pub fn render_bound(
     finish(bound, root_size, env, state)
 }
 
-/// [`render_bound`] independent of hover, press and focus: only `state`'s scroll
-/// offsets lay out, and state children emit gated ([`crate::emit_gated`]), so
-/// the result stays valid until the data, scroll, or root size change. Filter
+/// Render a stable tree with measurements retained by the caller across data updates.
+/// Call `MeasureCache::update_tree` before changing the tree; reset the cache when
+/// the root size or measurement environment changes.
+pub fn render_bound_cached(
+    bound: ResolvedControl,
+    root_size: [f64; 2],
+    env: &LayoutEnv,
+    state: &ViewState,
+    measures: &mut MeasureCache,
+) -> FormRender {
+    lay_out_and_emit(bound, root_size, env, state, Some((measures, false)))
+}
+
+/// [`render_bound`] independent of hover, press and focus: scrolling, pointer
+/// tracking and dragging still affect layout. State children emit gated
+/// ([`crate::emit_gated`]), so the result stays valid while the data, layout
+/// state, root size and measurement environment stay unchanged. Filter
 /// its nodes with [`DrawNode::shown`]; its hit regions are the neutral state's,
 /// less scroll content wholly outside its viewport, which is not laid out.
 /// `measures` must belong to this tree, root size and `env`.
@@ -536,11 +646,8 @@ pub fn render_bound_gated(
     state: &ViewState,
     measures: &mut MeasureCache,
 ) -> FormRender {
-    let neutral = ViewState {
-        scroll: state.scroll.clone(),
-        ..ViewState::default()
-    };
-    lay_out_and_emit(bound, root_size, env, &neutral, Some(measures))
+    let neutral = state.layout_part();
+    lay_out_and_emit(bound, root_size, env, &neutral, Some((measures, true)))
 }
 
 /// Lay out, emit, and collect input for a bound tree.
@@ -558,13 +665,31 @@ fn lay_out_and_emit(
     root_size: [f64; 2],
     env: &LayoutEnv,
     state: &ViewState,
-    gated: Option<&mut MeasureCache>,
+    gated: Option<(&mut MeasureCache, bool)>,
 ) -> FormRender {
     let (nodes, hits, report, cancel_target, root_panel) = {
-        let gate = gated.is_some();
-        let (laid, report) = match gated {
-            Some(measures) => crate::layout::layout_culled(&bound, root_size, env, state, measures),
-            None => layout_with(&bound, root_size, env, state),
+        let (laid, report, gate) = match gated {
+            Some((measures, false)) => {
+                let (output, report) =
+                    crate::layout::layout_reusing(&bound, root_size, env, state, measures);
+                return FormRender {
+                    bound,
+                    nodes: output.nodes,
+                    hits: output.hits.into(),
+                    report,
+                    cancel_target: output.cancel,
+                    root_panel: output.root_panel,
+                };
+            }
+            Some((measures, true)) => {
+                let (laid, report) =
+                    crate::layout::layout_culled(&bound, root_size, env, state, measures);
+                (laid, report, true)
+            }
+            None => {
+                let (laid, report) = layout_with(&bound, root_size, env, state);
+                (laid, report, false)
+            }
         };
         (
             if gate {
@@ -572,7 +697,7 @@ fn lay_out_and_emit(
             } else {
                 emit(&laid, env)
             },
-            hit_regions(&laid),
+            hit_regions(&laid).into(),
             report,
             global_mapping(&laid, "button.menu_cancel"),
             find_rect(&laid, "root_panel"),

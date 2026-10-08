@@ -3,10 +3,12 @@ use std::cell::OnceCell;
 use assets::BlockFlags;
 
 use crate::{
-    DiagnosticGeometryCount, DiagnosticGeometrySummary, Face, PackedQuad, PackedQuadLighting, SIDE,
+    CubeQuadLayout, DiagnosticGeometryCount, DiagnosticGeometrySummary, Face, PackedQuad,
+    PackedQuadLighting, SIDE,
     contributors::{PaletteFacts, PaletteSource, ResolvedPaletteEntry},
 };
 
+use super::cube_materials::CubeMaterialResolver;
 use super::models::PaletteResolutionContext;
 
 #[derive(Default)]
@@ -40,22 +42,65 @@ impl DiagnosticGeometryAccumulator {
     }
 }
 
+/// Cube quads split by draw path, each kept in emission order.
+#[derive(Default)]
+pub(crate) struct CubeQuadStreams {
+    solid: Vec<PackedQuad>,
+    solid_lighting: Vec<PackedQuadLighting>,
+    solid_counts: [u32; 6],
+    two_sided: Vec<PackedQuad>,
+    two_sided_lighting: Vec<PackedQuadLighting>,
+}
+
+impl CubeQuadStreams {
+    /// Solid quads must arrive grouped by face in `Face::ALL` order.
+    fn push(&mut self, quad: PackedQuad, lighting: PackedQuadLighting, solid: bool) {
+        if solid {
+            self.solid_counts[quad.face().index()] += 1;
+            self.solid.push(quad);
+            self.solid_lighting.push(lighting);
+        } else {
+            self.two_sided.push(quad);
+            self.two_sided_lighting.push(lighting);
+        }
+    }
+
+    pub(crate) fn finish(self) -> (Vec<PackedQuad>, Vec<PackedQuadLighting>, CubeQuadLayout) {
+        let len = self.solid.len() + self.two_sided.len();
+        let mut quads = Vec::with_capacity(len);
+        let mut lighting = Vec::with_capacity(len);
+        for face in CubeQuadLayout::SOLID_FACE_ORDER {
+            let start = self.solid_counts[..face.index()].iter().sum::<u32>() as usize;
+            let range = start..start + self.solid_counts[face.index()] as usize;
+            quads.extend_from_slice(&self.solid[range.clone()]);
+            lighting.extend_from_slice(&self.solid_lighting[range]);
+        }
+        quads.extend(self.two_sided);
+        lighting.extend(self.two_sided_lighting);
+        (
+            quads,
+            lighting,
+            CubeQuadLayout::from_solid_counts(self.solid_counts),
+        )
+    }
+}
+
 pub(crate) struct CubeMeshOutput<'a> {
-    quads: &'a mut Vec<PackedQuad>,
-    lighting: &'a mut Vec<PackedQuadLighting>,
+    streams: &'a mut CubeQuadStreams,
     diagnostic_geometry: &'a mut DiagnosticGeometryAccumulator,
+    materials: &'a [assets::Material],
 }
 
 impl<'a> CubeMeshOutput<'a> {
     pub(crate) fn new(
-        quads: &'a mut Vec<PackedQuad>,
-        lighting: &'a mut Vec<PackedQuadLighting>,
+        streams: &'a mut CubeQuadStreams,
         diagnostic_geometry: &'a mut DiagnosticGeometryAccumulator,
+        materials: &'a [assets::Material],
     ) -> Self {
         Self {
-            quads,
-            lighting,
+            streams,
             diagnostic_geometry,
+            materials,
         }
     }
 }
@@ -157,6 +202,7 @@ pub(crate) fn exposed_columns<'a>(
     face: Face,
     masks: &VisibilityMasks,
     neighbour_facts: &[OnceCell<PaletteFacts<'a>>; Face::ALL.len()],
+    leaves: &super::leaves::LeafOcclusion<'_, 'a>,
 ) -> Columns {
     let neighbour = context
         .neighbourhood
@@ -200,6 +246,16 @@ pub(crate) fn exposed_columns<'a>(
                     faces &= !boundary_bit;
                 }
             }
+            // Native leaf adjacency is directional, not the full-solid mask.
+            // Do not emit both coincident planes when cutout material is two-sided.
+            let mut candidates = faces;
+            while candidates != 0 {
+                let slice = candidates.trailing_zeros() as usize;
+                candidates &= candidates - 1;
+                if leaves.culls_face(block_coordinate(face, slice, u, v), face) {
+                    faces &= !(1_u64 << slice);
+                }
+            }
             *exposed_cell = faces;
         }
     }
@@ -233,28 +289,38 @@ const fn neighbour_boundary_coordinate(face: Face, u: usize, v: usize) -> [usize
 }
 
 pub(crate) fn greedy_slice(
-    facts: &PaletteFacts<'_>,
+    resolver: &CubeMaterialResolver<'_, '_, '_>,
     face: Face,
     slice: usize,
     rows: &mut [u64; SIDE],
     lighting_scratch: &[PackedQuadLighting; SIDE * SIDE],
     output: &mut CubeMeshOutput<'_>,
 ) {
+    let facts = resolver.facts;
     for v in 0..SIDE {
         while rows[v] != 0 {
             let u = rows[v].trailing_zeros() as usize;
             let origin = block_coordinate(face, slice, u, v);
             let origin_entry = facts.at(origin[0], origin[1], origin[2]);
-            let material_id = origin_entry.faces[face.index()];
+            let material_id = resolver.face_material(origin, origin_entry, face);
             let lighting = lighting_scratch[v * SIDE + u];
+            let material = output.materials[material_id as usize];
+            // Each isotropic face owns its block-position hash. Merging even
+            // identical material/light records would repeat one block's UVs.
+            let positional = material.variation_count > 1
+                // Native leaf faces have block-local rotations and clamped
+                // atlas edges. A merged quad would stretch/clamp its mask.
+                || material.flags & assets::MATERIAL_FLAG_NATIVE_LEAF_COLOUR != 0;
 
             let shifted = rows[v] >> u;
             let binary_width = (!shifted).trailing_zeros() as usize;
             let binary_width = binary_width.min(SIDE - u);
             let mut width = 1;
-            while width < binary_width && {
+            while !positional && width < binary_width && {
                 let [x, y, z] = block_coordinate(face, slice, u + width, v);
-                same_greedy_identity(origin_entry, facts.at(x, y, z), face)
+                let candidate = facts.at(x, y, z);
+                let candidate_material = resolver.face_material([x, y, z], candidate, face);
+                same_greedy_identity(origin_entry, candidate, material_id, candidate_material)
                     && lighting_scratch[v * SIDE + u + width] == lighting
             } {
                 width += 1;
@@ -262,10 +328,17 @@ pub(crate) fn greedy_slice(
 
             let span = ((1_u64 << width) - 1) << u;
             let mut height = 1;
-            'height: while v + height < SIDE && rows[v + height] & span == span {
+            'height: while !positional && v + height < SIDE && rows[v + height] & span == span {
                 for offset in 0..width {
                     let [x, y, z] = block_coordinate(face, slice, u + offset, v + height);
-                    if !same_greedy_identity(origin_entry, facts.at(x, y, z), face) {
+                    let candidate = facts.at(x, y, z);
+                    let candidate_material = resolver.face_material([x, y, z], candidate, face);
+                    if !same_greedy_identity(
+                        origin_entry,
+                        candidate,
+                        material_id,
+                        candidate_material,
+                    ) {
                         break 'height;
                     }
                     if lighting_scratch[(v + height) * SIDE + u + offset] != lighting {
@@ -278,14 +351,17 @@ pub(crate) fn greedy_slice(
             for row in &mut rows[v..v + height] {
                 *row &= !span;
             }
-            output.quads.push(PackedQuad::new(
-                origin.map(|coordinate| coordinate as u8),
-                face,
-                width as u8,
-                height as u8,
-                material_id,
-            ));
-            output.lighting.push(lighting);
+            output.streams.push(
+                PackedQuad::new(
+                    origin.map(|coordinate| coordinate as u8),
+                    face,
+                    width as u8,
+                    height as u8,
+                    material_id,
+                ),
+                lighting,
+                crate::is_single_sided_opaque(output.materials, material_id),
+            );
             if material_id == assets::DIAGNOSTIC_MATERIAL {
                 output.diagnostic_geometry.record(origin_entry);
             }
@@ -296,10 +372,10 @@ pub(crate) fn greedy_slice(
 fn same_greedy_identity(
     origin: ResolvedPaletteEntry,
     candidate: ResolvedPaletteEntry,
-    face: Face,
+    origin_material: u32,
+    candidate_material: u32,
 ) -> bool {
-    let origin_material = origin.faces[face.index()];
-    origin_material == candidate.faces[face.index()]
+    origin_material == candidate_material
         && (origin_material != assets::DIAGNOSTIC_MATERIAL
             || (origin.network_value == candidate.network_value
                 && origin.sequential_id == candidate.sequential_id))

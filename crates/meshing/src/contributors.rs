@@ -1,6 +1,7 @@
 use assets::{
-    BlockFace, BlockFlags, ContributorRole, DIAGNOSTIC_MATERIAL, NO_MODEL_TEMPLATE, NetworkIdMode,
-    RuntimeAssets, VisualKind,
+    BLOCK_VISUAL_VARIANT_TOP_SNOW, BlockFace, BlockFlags, ContributorRole, DIAGNOSTIC_MATERIAL,
+    NO_MODEL_TEMPLATE, NetworkIdMode, RuntimeAssets, SeasonalFoliageBlock, VisualKind,
+    seasonal_foliage_cell_shelters,
 };
 use world::{PalettedStorage, SubChunk};
 
@@ -69,6 +70,7 @@ impl ResolvedPaletteEntry {
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ResolvedContributors {
     primary: Option<ResolvedPaletteEntry>,
+    covered_plant: Option<ResolvedPaletteEntry>,
     liquid: Option<ResolvedPaletteEntry>,
     diagnostic: Option<ResolvedPaletteEntry>,
 }
@@ -123,10 +125,27 @@ impl ResolvedContributors {
         }
         match entry.contributor_role {
             ContributorRole::Primary => {
-                if self.primary.is_some() {
-                    self.fail_closed(entry.network_value, entry.sequential_id);
-                } else {
-                    self.primary = Some(entry);
+                match self.primary {
+                    None => self.primary = Some(entry),
+                    Some(primary) if self.covered_plant.is_none() => {
+                        // TopSnow tessellates the underlying crossed plant on
+                        // that plant's own render layer, independently of its
+                        // opaque snow surface. Arbitrary second solids remain
+                        // unsupported; this is not a generic multi-model route.
+                        if primary.variant & BLOCK_VISUAL_VARIANT_TOP_SNOW != 0
+                            && entry.kind == VisualKind::Cross
+                        {
+                            self.covered_plant = Some(entry);
+                        } else if entry.variant & BLOCK_VISUAL_VARIANT_TOP_SNOW != 0
+                            && primary.kind == VisualKind::Cross
+                        {
+                            self.primary = Some(entry);
+                            self.covered_plant = Some(primary);
+                        } else {
+                            self.fail_closed(entry.network_value, entry.sequential_id);
+                        }
+                    }
+                    Some(_) => self.fail_closed(entry.network_value, entry.sequential_id),
                 }
             }
             ContributorRole::LiquidAdditional if matches!(entry.kind, VisualKind::Liquid) => {
@@ -147,6 +166,7 @@ impl ResolvedContributors {
 
     fn fail_closed(&mut self, network_value: u32, sequential_id: Option<u32>) {
         self.primary = None;
+        self.covered_plant = None;
         self.liquid = None;
         self.diagnostic = Some(ResolvedPaletteEntry::diagnostic(
             network_value,
@@ -170,6 +190,7 @@ pub(crate) enum PaletteSource<'a> {
 /// the 4,096 voxel positions.
 pub(crate) struct PaletteFacts<'a> {
     pub(crate) source: PaletteSource<'a>,
+    uniform_seasonal_shelter: bool,
 }
 
 impl<'a> PaletteFacts<'a> {
@@ -180,25 +201,34 @@ impl<'a> PaletteFacts<'a> {
         sub_chunk: &'a SubChunk,
     ) -> Self {
         let mut contributors = ResolvedContributors::default();
-        for storage in sub_chunk.storages() {
-            match storage.uniform_runtime_id() {
-                Some(network_value) => contributors.push(resolve_palette_entry(
-                    classifier,
-                    visuals,
-                    network_id_mode,
-                    network_value,
-                )),
-                None => return Self::mixed(classifier, visuals, network_id_mode, sub_chunk),
+        let mut main = Some(SeasonalFoliageBlock::AIR);
+        let mut extra = None;
+        let mut unsupported_extra = false;
+        for (layer, storage) in sub_chunk.storages().iter().enumerate() {
+            let Some(network_value) = storage.uniform_runtime_id() else {
+                return Self::mixed(classifier, visuals, network_id_mode, sub_chunk);
+            };
+            let entry = resolve_palette_entry(classifier, visuals, network_id_mode, network_value);
+            match layer {
+                0 => main = Some(seasonal_block(entry)),
+                1 => extra = Some(seasonal_block(entry)),
+                _ => unsupported_extra |= !entry.flags.contains(BlockFlags::AIR),
             }
+            contributors.push(entry);
         }
+
+        let uniform_seasonal_shelter =
+            unsupported_extra || seasonal_foliage_cell_shelters(main, extra);
 
         if contributors.is_empty() {
             Self {
                 source: PaletteSource::Air,
+                uniform_seasonal_shelter,
             }
         } else {
             Self {
                 source: PaletteSource::Uniform(contributors),
+                uniform_seasonal_shelter,
             }
         }
     }
@@ -229,11 +259,40 @@ impl<'a> PaletteFacts<'a> {
             .into_boxed_slice();
         Self {
             source: PaletteSource::Mixed(storages),
+            uniform_seasonal_shelter: true,
         }
     }
 
     pub(crate) const fn is_air(&self) -> bool {
         matches!(self.source, PaletteSource::Air)
+    }
+
+    /// Native seasonal selection uses storage zero and its extra block, not
+    /// the reordered surface/covered-plant rendering contributors.
+    pub(crate) fn seasonal_shelters_at(&self, x: usize, y: usize, z: usize) -> bool {
+        let PaletteSource::Mixed(storages) = &self.source else {
+            return self.uniform_seasonal_shelter;
+        };
+        let entry_at = |storage: &StoragePaletteFacts<'_>| {
+            packed_palette_index(storage.storage, x, y, z)
+                .and_then(|index| storage.entries.get(index))
+                .copied()
+        };
+        let main = storages.first().and_then(entry_at).map(seasonal_block);
+        let extra = match storages.get(1) {
+            Some(storage) => {
+                let Some(entry) = entry_at(storage) else {
+                    return true;
+                };
+                Some(seasonal_block(entry))
+            }
+            None => None,
+        };
+        // Update packets can address layers beyond vanilla's two wire layers.
+        // Unclassified non-air extras cannot prove an exposed seasonal cell.
+        storages.iter().skip(2).any(|storage| {
+            entry_at(storage).is_none_or(|entry| !entry.flags.contains(BlockFlags::AIR))
+        }) || seasonal_foliage_cell_shelters(main, extra)
     }
 
     pub(crate) fn has_model_geometry(&self) -> bool {
@@ -243,7 +302,10 @@ impl<'a> PaletteFacts<'a> {
         };
         match &self.source {
             PaletteSource::Air => false,
-            PaletteSource::Uniform(contributors) => is_model(contributors.geometry_entry()),
+            PaletteSource::Uniform(contributors) => {
+                is_model(contributors.geometry_entry())
+                    || contributors.covered_plant.is_some_and(is_model)
+            }
             PaletteSource::Mixed(storages) => storages
                 .iter()
                 .any(|storage| storage.entries.iter().copied().any(is_model)),
@@ -272,42 +334,41 @@ impl<'a> PaletteFacts<'a> {
         }
     }
 
-    /// Equals `contributors_at(..).geometry_entry()` without carrying the liquid entry.
+    /// The ordinary surface plus at most one native TopSnow-covered crossed
+    /// plant. The surface remains the sole neighbour-occlusion participant.
+    pub(crate) fn model_entries_at(
+        &self,
+        x: usize,
+        y: usize,
+        z: usize,
+    ) -> [Option<ResolvedPaletteEntry>; 2] {
+        let contributors = self.contributors_at(x, y, z);
+        [contributors.primary, contributors.covered_plant]
+    }
+
+    /// Resolves the surface used by cube visibility and neighbour occlusion.
     pub(crate) fn at(&self, x: usize, y: usize, z: usize) -> ResolvedPaletteEntry {
         let PaletteSource::Mixed(storages) = &self.source else {
             return self.contributors_at(x, y, z).geometry_entry();
         };
-        let mut primary = None;
-        let mut liquid = None;
-        let mut diagnostic = None;
+        let mut contributors = ResolvedContributors::default();
         for storage in storages {
             let Some(&entry) = packed_palette_index(storage.storage, x, y, z)
                 .and_then(|index| storage.entries.get(index))
             else {
                 return ResolvedPaletteEntry::diagnostic(0, None);
             };
-            if diagnostic.is_some() || entry.flags.contains(BlockFlags::AIR) {
-                continue;
-            }
-            match entry.contributor_role {
-                ContributorRole::Primary if primary.is_none() => primary = Some(entry),
-                ContributorRole::LiquidAdditional if matches!(entry.kind, VisualKind::Liquid) => {
-                    match liquid {
-                        None => liquid = Some(entry.network_value),
-                        Some(value) if value != entry.network_value => diagnostic = Some(entry),
-                        Some(_) => {}
-                    }
-                }
-                _ => diagnostic = Some(entry),
-            }
+            contributors.push(entry);
         }
-        match (diagnostic, primary) {
-            (Some(entry), _) => {
-                ResolvedPaletteEntry::diagnostic(entry.network_value, entry.sequential_id)
-            }
-            (None, Some(entry)) => entry,
-            (None, None) => ResolvedPaletteEntry::AIR,
-        }
+        contributors.geometry_entry()
+    }
+}
+
+const fn seasonal_block(entry: ResolvedPaletteEntry) -> SeasonalFoliageBlock {
+    SeasonalFoliageBlock {
+        flags: entry.flags,
+        kind: entry.kind,
+        variant: entry.variant,
     }
 }
 
@@ -400,7 +461,7 @@ impl<'a> ContributorResolver<'a> {
     }
 }
 
-fn resolve_palette_entry(
+pub(crate) fn resolve_palette_entry(
     classifier: BlockClassifier,
     visuals: &RuntimeAssets,
     network_id_mode: NetworkIdMode,
@@ -478,3 +539,7 @@ const fn block_face(face: Face) -> BlockFace {
         Face::PositiveZ => BlockFace::South,
     }
 }
+
+#[cfg(test)]
+#[path = "contributors/tests.rs"]
+mod tests;

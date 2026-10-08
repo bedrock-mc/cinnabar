@@ -249,6 +249,15 @@ fn has_prefix(candidate: &str, prefix: &str) -> bool {
         .is_some_and(|head| head.eq_ignore_ascii_case(prefix))
 }
 
+/// Matches command-name substrings using the command parser’s ASCII case rules.
+fn contains_command(candidate: &str, partial: &str) -> bool {
+    partial.is_empty()
+        || candidate
+            .as_bytes()
+            .windows(partial.len())
+            .any(|part| part.eq_ignore_ascii_case(partial.as_bytes()))
+}
+
 impl ChatAutocompleteCatalog {
     pub fn apply(
         &mut self,
@@ -388,7 +397,7 @@ impl ChatAutocompleteCatalog {
         let Some((&name, args)) = tokens.split_first() else {
             for command in self.commands.iter().filter(|c| visible(c, context)) {
                 for candidate in std::iter::once(&command.name).chain(command.aliases.iter()) {
-                    if has_prefix(candidate, partial) {
+                    if contains_command(candidate, partial) {
                         out.push(Arc::from(format!("/{candidate}")));
                     }
                 }

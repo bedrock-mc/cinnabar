@@ -6,6 +6,8 @@ crates/protocol/data/item_capacity_*.provenance.json text eol=lf
 crates/protocol/data/retail_biomes_*.txt text eol=lf
 assets/vanilla-source.json text eol=lf
 assets/ui-font-source.json text eol=lf
+assets/cinnangles-sans-source.json text eol=lf
+assets/fonts/*.ttf binary
 assets/hud-source-v2193.json text eol=lf
 assets/licenses/Monocraft-OFL-1.1.txt text eol=lf whitespace=-blank-at-eol
 assets/licenses/NotoSansCJK-OFL-1.1.txt text eol=lf whitespace=-blank-at-eol
@@ -20,3 +22,5 @@ docs/evidence/block-entity-render-evidence-v*.json text eol=lf
 tools/blockentitygen/testdata/*.json text eol=lf
 tools/registrygen/cmd/itemcapacity/probe/main.js text eol=lf
 tools/registrygen/cmd/itemcapacity/probe/manifest.json text eol=lf
+tools/localserver/extension/testdata/* -text
+tools/localserver/extension/testdata/go/* -text

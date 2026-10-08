@@ -135,14 +135,22 @@ pub fn extract_cells(sheet: &GlyphSheet) -> Vec<CellGlyph> {
     cells
 }
 
-/// Shelf-packs `cells` into `side`-px square pages (at most `max_pages`), private-use code
-/// points first; glyph pages are numbered from `first_page`. Cells that do not fit are dropped.
+/// Packs `cells` into bounded square pages, reusing identical rasters with independent metrics.
+/// Private-use cells take priority; cells that do not fit are dropped.
 pub fn pack_cells(cells: &[CellGlyph], first_page: u16, side: u32, max_pages: usize) -> GlyphAtlas {
+    use std::{cmp::Reverse, collections::HashMap};
+
     let mut ordered: Vec<&CellGlyph> = cells.iter().collect();
     ordered.sort_by_key(|cell| {
-        let private_use = ('\u{e000}'..='\u{f8ff}').contains(&cell.codepoint);
-        (!private_use, cell.codepoint)
+        (
+            !private_use(cell.codepoint),
+            Reverse(cell.size[1]),
+            Reverse(cell.size[0]),
+            cell.codepoint,
+        )
     });
+    type Placement = (u16, [u16; 4]); // page, uv
+    let mut rasters: HashMap<([u32; 2], &[u8]), Placement> = HashMap::new();
     let mut atlas = GlyphAtlas::default();
     let mut cursor = [0u32; 2];
     let mut row_height = 0u32;
@@ -161,6 +169,11 @@ pub fn pack_cells(cells: &[CellGlyph], first_page: u16, side: u32, max_pages: us
         let [width, height] = cell.size;
         if width == 0 || height == 0 {
             atlas.glyphs.push(metrics(first_page, [0; 4]));
+            continue;
+        }
+        let raster = (cell.size, cell.rgba8.as_ref());
+        if let Some(&(page, uv)) = rasters.get(&raster) {
+            atlas.glyphs.push(metrics(page, uv));
             continue;
         }
         let padded = [width + GUTTER * 2, height + GUTTER * 2];
@@ -192,19 +205,30 @@ pub fn pack_cells(cells: &[CellGlyph], first_page: u16, side: u32, max_pages: us
             }
         }
         let [left, top] = [cursor[0] + GUTTER, cursor[1] + GUTTER];
-        atlas.glyphs.push(metrics(
-            first_page + (atlas.pages.len() - 1) as u16,
-            [
-                left as u16,
-                top as u16,
-                (left + width) as u16,
-                (top + height) as u16,
-            ],
-        ));
+        let page = first_page + (atlas.pages.len() - 1) as u16;
+        let uv = [
+            left as u16,
+            top as u16,
+            (left + width) as u16,
+            (top + height) as u16,
+        ];
+        rasters.insert(raster, (page, uv));
+        atlas.glyphs.push(metrics(page, uv));
         cursor[0] += padded[0];
         row_height = row_height.max(padded[1]);
     }
+    atlas.glyphs.sort_by_key(|glyph| {
+        (
+            !private_use(glyph.metrics.codepoint),
+            glyph.metrics.codepoint,
+        )
+    });
     atlas
+}
+
+fn private_use(codepoint: char) -> bool {
+    u8::try_from(codepoint as u32 >> 8)
+        .is_ok_and(|high_byte| PRIVATE_USE_SHEETS.contains(&high_byte))
 }
 
 #[cfg(test)]
@@ -302,6 +326,104 @@ mod tests {
         assert_eq!(atlas.pages.len(), 1);
     }
 
+    fn raster(codepoint: char, size: [u32; 2], color: u8) -> CellGlyph {
+        CellGlyph {
+            codepoint,
+            size,
+            rgba8: [color, 40, 80, 255]
+                .repeat((size[0] * size[1]) as usize)
+                .into(),
+            bearing: [2, -14],
+            advance_64: 10 * 64,
+            draw_size_64: size.map(|value| value * 64),
+        }
+    }
+
+    #[test]
+    fn identical_rasters_share_space_with_independent_glyph_metrics() {
+        let first = raster('\u{e001}', [4, 4], 120);
+        let mut second = first.clone();
+        second.codepoint = '\u{e002}';
+        second.bearing = [-2, -9];
+        second.advance_64 = 13 * 64;
+        second.draw_size_64 = [8 * 64, 9 * 64];
+        let mut ordinary = first.clone();
+        ordinary.codepoint = 'A';
+        let cells = [ordinary, first, second];
+        let atlas = pack_cells(&cells, 3, 6, 1);
+        assert_eq!(atlas.pages.len(), 1);
+        assert_eq!(atlas.glyphs.len(), cells.len());
+        assert_eq!(atlas.glyphs.last().unwrap().metrics.codepoint, 'A');
+        for cell in &cells {
+            let glyph = atlas
+                .glyphs
+                .iter()
+                .find(|glyph| glyph.metrics.codepoint == cell.codepoint)
+                .unwrap();
+            assert_eq!(glyph.metrics.bearing, cell.bearing);
+            assert_eq!(glyph.metrics.advance_64, cell.advance_64);
+            assert_eq!(glyph.draw_size_64, cell.draw_size_64);
+            assert_eq!(glyph.metrics.uv, atlas.glyphs[0].metrics.uv);
+        }
+    }
+
+    #[test]
+    fn distinct_colors_and_raster_dimensions_keep_separate_allocations() {
+        let cells = [
+            raster('\u{e001}', [4, 4], 120),
+            raster('\u{e002}', [4, 4], 180),
+            raster('\u{e003}', [2, 8], 120),
+        ];
+        let atlas = pack_cells(&cells, 0, 16, 1);
+        assert_eq!(atlas.glyphs.len(), cells.len());
+        for (index, cell) in cells.iter().enumerate() {
+            let glyph = &atlas.glyphs[index];
+            let [left, top, right, bottom] = glyph.metrics.uv;
+            assert_eq!(
+                [u32::from(right - left), u32::from(bottom - top)],
+                cell.size
+            );
+            let pixel = ((u32::from(top) * 16 + u32::from(left)) * 4) as usize;
+            assert_eq!(
+                &atlas.pages[glyph.metrics.page as usize][pixel..pixel + 4],
+                &cell.rgba8[..4]
+            );
+        }
+        assert_ne!(atlas.glyphs[0].metrics.uv, atlas.glyphs[1].metrics.uv);
+        assert_ne!(atlas.glyphs[0].metrics.uv, atlas.glyphs[2].metrics.uv);
+    }
+
+    #[test]
+    fn packing_groups_tall_cells_before_short_cells() {
+        let cells = [
+            raster('\u{e001}', [6, 2], 120),
+            raster('\u{e002}', [6, 10], 180),
+            raster('\u{e003}', [6, 10], 240),
+        ];
+        let atlas = pack_cells(&cells, 0, 16, 1);
+        assert_eq!(atlas.pages.len(), 1);
+        assert_eq!(atlas.glyphs.len(), cells.len());
+    }
+
+    #[test]
+    fn repeated_large_rasters_leave_room_for_a_later_small_icon() {
+        let mut cells: Vec<_> = (0..4)
+            .map(|index| raster(char::from_u32(0xe100 + index).unwrap(), [6, 6], 120))
+            .collect();
+        let icon = raster('\u{e200}', [2, 2], 180);
+        cells.push(icon.clone());
+        let atlas = pack_cells(&cells, 0, 16, 1);
+        assert_eq!(atlas.pages.len(), 1);
+        assert_eq!(atlas.glyphs.len(), cells.len());
+        let glyph = atlas.glyphs.last().unwrap();
+        assert_eq!(glyph.metrics.codepoint, icon.codepoint);
+        assert_eq!(glyph.draw_size_64, icon.draw_size_64);
+        let [left, top, right, bottom] = glyph.metrics.uv;
+        assert_eq!([right - left, bottom - top], [2, 2]);
+        let pixel = ((u32::from(top) * 16 + u32::from(left)) * 4) as usize;
+        assert_eq!(&atlas.pages[0][pixel..pixel + 4], &icon.rgba8[..4]);
+    }
+
     #[test]
     fn oversized_cells_are_dropped_and_page_overflow_is_capped() {
         let huge = extract_cells(&sheet(0xe0, 64, &[(0, [0, 64], [0, 64])]));
@@ -314,6 +436,11 @@ mod tests {
         let full: Vec<_> = (0..256).map(|i| (i, [0, 16], [0, 16])).collect();
         let many: Vec<CellGlyph> = (0xe0..0xf0)
             .flat_map(|b| extract_cells(&sheet(b, 16, &full)))
+            .map(|mut cell| {
+                let scalar = (cell.codepoint as u32).to_le_bytes();
+                cell.rgba8[..2].copy_from_slice(&scalar[..2]);
+                cell
+            })
             .collect();
         let capped = pack_cells(&many, 0, 256, 2);
         assert_eq!(capped.pages.len(), 2);

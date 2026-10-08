@@ -13,13 +13,14 @@ impl ViewNode for HandViewNode {
         &'static MainEntity,
         &'static ExtractedView,
         &'static ViewTarget,
+        &'static crate::scene_target::SceneTarget,
         &'static Msaa,
     );
     fn run(
         &self,
         graph: &mut RenderGraphContext,
         context: &mut RenderContext,
-        (owner, view, target, msaa): QueryItem<Self::ViewQuery>,
+        (owner, view, target, scene_target, msaa): QueryItem<Self::ViewQuery>,
         world: &World,
     ) -> Result<(), NodeRunError> {
         let (Some(gpu), Some(gate), Some(drawn), Some(cache)) = (
@@ -47,9 +48,7 @@ impl ViewNode for HandViewNode {
             gate.reject(token);
             return Ok(());
         }
-        let color = target
-            .sampled_main_texture()
-            .unwrap_or_else(|| target.main_texture());
+        let color = &scene_target.texture;
         let extent = color.size();
         if [extent.width, extent.height] != token.viewport || color.sample_count() != token.samples
         {
@@ -67,7 +66,7 @@ impl ViewNode for HandViewNode {
             gate.reject(token);
             return Ok(());
         };
-        let attachments = [Some(target.get_color_attachment())];
+        let attachments = [Some(scene_target.color_attachment(target, false))];
         let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
             label: Some("camera-local neutral empty hand"),
             color_attachments: &attachments,
@@ -79,7 +78,10 @@ impl ViewNode for HandViewNode {
                 }),
                 stencil_ops: None,
             }),
-            timestamp_writes: None,
+            timestamp_writes: crate::gpu_timing::render_pass_timestamps(
+                world,
+                crate::RuntimeStage::GpuHand,
+            ),
             occlusion_query_set: None,
         });
         pass.set_render_pipeline(pipeline);

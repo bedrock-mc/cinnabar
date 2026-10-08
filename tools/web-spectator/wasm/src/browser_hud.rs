@@ -10,13 +10,16 @@ use json_ui::{
     Catalog, Context, Draw, DrawNode, HudModel, HudSlot, LayoutEnv, Sidebar, TextAlign,
     TextMeasure, TextureMeta, TextureSource, Timed, ViewState,
 };
-use render::{
-    HudTexturePages, IconRef, NametagAnchor, NametagAtlas, NametagScene, UiRenderInput,
-    UiRenderViewport, UiTextureCatalog,
+use render_model::{NametagScene, UiRenderInput, UiRenderTextureArray};
+use view_presentation::{
+    nametag_atlas::NametagAtlas,
+    nametags::NametagAnchor,
+    ui_adapter::UiRenderViewport,
+    ui_atlas::HudTexturePages,
 };
 use ui::native_hud::{HudEffect, HudPaint, HudPaintTarget, SheetSprite, StatusPaintInput};
 use ui::{
-    BoundedStat, DpiScale, SafeArea, TextLayoutCache, TextMetrics, UiNode, UiNodeId, UiPoint,
+    BoundedStat, DpiScale, IconRef, SafeArea, TextLayoutCache, TextMetrics, UiNode, UiNodeId, UiPoint,
     UiRect, UiScale, UiTree, UiVisual,
 };
 
@@ -28,12 +31,14 @@ pub(super) struct BrowserHud {
     font: Arc<RuntimeFontCatalog>,
     icons: RuntimeIconCatalog,
     icon_refs: Box<[IconRef]>,
-    textures: Arc<UiTextureCatalog>,
+    textures: Arc<UiRenderTextureArray>,
     hud_pages: HudTexturePages,
     ui_first_page: u16,
     solid_page: u16,
     layouts: RefCell<TextLayoutCache>,
     cached: Option<(HudModel, [u32; 2], Vec<DrawNode>)>,
+    animator: json_ui::Animator,
+    title_request: Option<(String, String, u64)>,
     generation: u64,
     health: Option<(String, f32)>,
     last_health_drop_millis: Option<u64>,
@@ -49,7 +54,12 @@ impl BrowserHud {
     ) -> Result<Self, String> {
         let assets = RuntimeUiAssets::decode(json_ui_bytes).map_err(|e| e.to_string())?;
         let font = Arc::new(
-            RuntimeFontCatalog::decode(font_bytes, assets::ui_font_source_manifest_sha256())
+            RuntimeFontCatalog::decode(
+                font_bytes,
+                assets::canonical_source_manifest_sha256(include_bytes!(
+                    "../../../../assets/cinnangles-sans-source.json"
+                )),
+            )
                 .map_err(|e| e.to_string())?,
         );
         let hud = RuntimeHudCatalog::decode(hud_bytes).map_err(|e| e.to_string())?;
@@ -70,9 +80,9 @@ impl BrowserHud {
                 .map(|(path, _, bytes)| (*path, *bytes)),
         );
         let (textures, solid_page, hud_pages, icon_refs) =
-            render::font_texture_array_with_hud_and_icons(&font, Some(&hud), Some(&icons))
+            view_presentation::ui_atlas::font_texture_array_with_hud_and_icons(&font, Some(&hud), Some(&icons))
                 .map_err(|e| format!("native HUD atlas: {e:?}"))?;
-        let (textures, ui_first_page) = render::with_ui_pages(&textures, &assets)
+        let (textures, ui_first_page) = view_presentation::ui_atlas::with_ui_pages(&textures, &assets)
             .map_err(|e| format!("JSON-UI atlas: {e:?}"))?;
         Ok(Self {
             catalog,
@@ -89,6 +99,8 @@ impl BrowserHud {
                 ui::DEFAULT_TEXT_CACHE_BYTES,
             )),
             cached: None,
+            animator: json_ui::Animator::default(),
+            title_request: None,
             generation: 0,
             health: None,
             last_health_drop_millis: None,
@@ -99,12 +111,12 @@ impl BrowserHud {
     /// The native billboard atlas shares the same compiled font and layout cache as the HUD.
     pub(super) fn nametag_scene(&mut self, anchors: &[NametagAnchor]) -> NametagScene {
         let font = &self.font;
-        render::build_nametag_scene(
+        view_presentation::nametags::build_nametag_scene(
             anchors,
             font,
             &mut self.layouts.borrow_mut(),
             &mut self.nametag_atlas,
-            &|page| render::nametag_font_page(font, page),
+            &|page| view_presentation::nametag_atlas::font_page(font, page),
         )
     }
 
@@ -126,8 +138,14 @@ impl BrowserHud {
         else {
             self.health = None;
             self.last_health_drop_millis = None;
+            self.title_request = None;
+            self.animator.end_frame();
             return self.publish(Vec::new(), viewport);
         };
+        if self.health.as_ref().is_none_or(|(id, _)| id != &fighter.id) {
+            self.cached = None;
+            self.animator = json_ui::Animator::default();
+        }
         if self
             .health
             .as_ref()
@@ -211,7 +229,13 @@ impl BrowserHud {
             }),
             ..HudModel::default()
         };
-        model.title = pov.hud.title.as_ref().map(|title| json_ui::HudTitle {
+        model.title = pov.hud.title.as_ref().map(|title| {
+            let creation_id = self.title_request.as_ref()
+                .filter(|(id, updated, _)| id == &fighter.id && updated == &title.updated_at)
+                .map_or(self.generation, |(_, _, sequence)| *sequence);
+            self.title_request = Some((fighter.id.clone(), title.updated_at.clone(), creation_id));
+            json_ui::HudTitle {
+            creation_id,
             title: title.text.clone(),
             subtitle: title.subtitle.clone(),
             fade_in: f64::from(title.fade_in_ticks.max(0)) / 20.0,
@@ -219,7 +243,11 @@ impl BrowserHud {
             fade_out: f64::from(title.fade_out_ticks.max(0)) / 20.0,
             background_alpha: 0.0,
             born: timestamp_seconds(&title.updated_at, now_millis),
+            }
         });
+        if model.title.is_none() {
+            self.title_request = None;
+        }
         let context = json_ui::hud_context(&Context::retail(false));
         if self
             .cached
@@ -300,6 +328,7 @@ impl BrowserHud {
             first_person: true,
             hotbar_allowed: true,
             survival_stats_visible: true,
+            crosshair_blend: ui::UiBlendMode::Alpha,
             mount_health: None,
             mount_jump: None,
         };
@@ -321,6 +350,7 @@ impl BrowserHud {
             px,
             solid_page: self.solid_page,
             icons: &drawn_icons,
+            animator: &mut self.animator,
             nodes: Vec::new(),
             clip: [0.0, 0.0, viewport[0] as f32, viewport[1] as f32],
             next: 1,
@@ -328,6 +358,8 @@ impl BrowserHud {
         for node in &self.cached.as_ref().expect("HUD layout installed").2 {
             painter.paint(node, &paint, &clocks, now_millis as f64 / 1_000.0)?;
         }
+        painter.animator.take_events();
+        painter.animator.end_frame();
         let nodes = painter.nodes;
         self.publish(nodes, viewport)
     }
@@ -344,7 +376,7 @@ impl BrowserHud {
             .build_draw_list()
             .map_err(|e| format!("HUD retained draw: {e:?}"))?;
         draw.revision = self.generation;
-        render::adapt_ui_draw_list(
+        view_presentation::ui_adapter::adapt_ui_draw_list(
             &draw,
             Arc::clone(&self.textures),
             UiRenderViewport {
@@ -363,7 +395,7 @@ struct Textures<'a> {
     ui_first_page: u16,
 }
 impl Textures<'_> {
-    fn sprite(&self, path: &str, uv: json_ui::UvRect, color: [u8; 4]) -> Option<UiVisual> {
+    fn sprite(&self, path: &str, uv: json_ui::UvRect, color: [u8; 4], filter: json_ui::SpriteFilter) -> Option<UiVisual> {
         let path = path.trim_end_matches(".png");
         let (page, [x0, y0, x1, y1]) = if let Some(texture) = self.assets.texture(path) {
             (
@@ -385,32 +417,24 @@ impl Textures<'_> {
         let pixel = |origin: u16, end: u16, value: f32| {
             (f32::from(origin) + f32::from(end - origin) * value).round() as u16
         };
-        Some(UiVisual::Sprite {
-            texture_page: page,
-            uv: [
+        let uv = [
                 pixel(x0, x1, uv.u0),
                 pixel(y0, y1, uv.v0),
                 pixel(x0, x1, uv.u1),
                 pixel(y0, y1, uv.v1),
-            ],
-            color,
+            ];
+        let style = (u8::from(filter.grayscale) * ui::UI_STYLE_GRAYSCALE)
+            | (u8::from(filter.bilinear) * ui::UI_STYLE_BILINEAR);
+        Some(if style == 0 {
+            UiVisual::Sprite { texture_page: page, uv, color }
+        } else {
+            UiVisual::StyledSprite { texture_page: page, uv, color, style }
         })
     }
 }
 impl TextureSource for Textures<'_> {
     fn texture(&self, path: &str) -> Option<TextureMeta> {
         let path = path.trim_end_matches(".png");
-        if let Some(sidecar) = self.assets.sidecar(path) {
-            return Some(TextureMeta {
-                base_size: sidecar.base_size.map(f64::from),
-                nineslice: sidecar.nineslice.map(|slice| json_ui::NineSlice {
-                    left: f64::from(slice.left),
-                    top: f64::from(slice.top),
-                    right: f64::from(slice.right),
-                    bottom: f64::from(slice.bottom),
-                }),
-            });
-        }
         let size = self
             .assets
             .texture(path)
@@ -421,10 +445,19 @@ impl TextureSource for Textures<'_> {
                     .copied()
                     .find(|role| role.source_path().trim_end_matches(".png") == path)
                     .map(|role| self.hud.sprite(role).size)
-            })?;
-        Some(TextureMeta {
-            base_size: size.map(f64::from),
-            nineslice: None,
+            })?.map(f64::from);
+        Some(match self.assets.sidecar(path) {
+            Some(sidecar) => TextureMeta {
+                base_size: if sidecar.base_size == [0.0; 2] { size } else { sidecar.base_size.map(f64::from) },
+                pixels: size,
+                nineslice: sidecar.nineslice.map(|slice| json_ui::NineSlice {
+                    left: f64::from(slice.left),
+                    top: f64::from(slice.top),
+                    right: f64::from(slice.right),
+                    bottom: f64::from(slice.bottom),
+                }),
+            },
+            None => TextureMeta::plain(size),
         })
     }
 }
@@ -466,6 +499,7 @@ struct Painter<'a> {
     px: f32,
     solid_page: u16,
     icons: &'a [IconRef],
+    animator: &'a mut json_ui::Animator,
     nodes: Vec<UiNode>,
     clip: [f32; 4],
     next: u32,
@@ -481,7 +515,7 @@ impl Painter<'_> {
         if !node.shown(&ViewState::default()) {
             return Ok(());
         }
-        let (dest, clip) = node.animated_rects(seconds, Some(clocks));
+        let drawn = node.animate(self.animator, seconds, Some(clocks), Some(&self.textures));
         let physical = |r: &json_ui::RectOut| {
             [
                 r.x as f32 * self.px,
@@ -490,11 +524,11 @@ impl Painter<'_> {
                 (r.y + r.h) as f32 * self.px,
             ]
         };
-        let dest = physical(&dest);
-        self.clip = physical(&clip);
-        let opacity =
-            (node.alpha * json_ui::fade_factor_at(&node.fades, seconds, clocks)).clamp(0.0, 1.0);
-        if opacity <= 0.0 || self.clip[2] <= self.clip[0] || self.clip[3] <= self.clip[1] {
+        let dest = physical(&drawn.dest);
+        self.clip = physical(&drawn.clip);
+        let opacity = drawn.opacity.clamp(0.0, 1.0);
+        if drawn.hidden || opacity <= 0.0 || self.clip[2] <= self.clip[0] || self.clip[3] <= self.clip[1]
+            || dest[2] <= dest[0] || dest[3] <= dest[1] {
             return Ok(());
         }
         let alpha = |mut color: [u8; 4]| {
@@ -503,8 +537,10 @@ impl Painter<'_> {
         };
         match &node.draw {
             Draw::Solid { color } => self.solid(dest, alpha(*color)),
-            Draw::Sprite { texture, uv, color } => {
-                if let Some(visual) = self.textures.sprite(texture, *uv, alpha(*color)) {
+            Draw::Sprite { texture, uv, color, filter } => {
+                let uv = drawn.uv.unwrap_or(*uv);
+                let color = drawn.color.unwrap_or(*color);
+                if let Some(visual) = self.textures.sprite(texture, uv, alpha(color), *filter) {
                     self.push(visual, dest);
                 }
             }
@@ -566,20 +602,11 @@ impl Painter<'_> {
                             self.push(icon.visual(alpha([255; 4])), dest);
                         }
                     }
-                    "progress_bar_renderer"
-                        if data.get("#touch_progress_bar_visible")
-                            == Some(&serde_json::Value::Bool(true)) =>
-                    {
-                        if let Some(total) =
-                            number("#progress_bar_total_amount").filter(|total| *total > 0.0)
-                        {
-                            ui::native_hud::paint_progress(
-                                self,
-                                dest,
-                                number("#progress_bar_current_amount").unwrap_or(0.0) / total,
-                                data.get("primary_color").and_then(json_ui::color_value),
-                                &alpha,
-                            );
+                    "progress_bar_renderer" => {
+                        if let Some(paint) = view_presentation::progress::capture_progress(data, dest, self.px) {
+                            for rectangle in paint.rects() {
+                                self.solid(rectangle.bounds, alpha(rectangle.color));
+                            }
                         }
                     }
                     _ => {}
@@ -593,8 +620,11 @@ impl HudPaintTarget for Painter<'_> {
     fn gui_pixel_scale(&self) -> f32 {
         self.px
     }
+    fn visible_bounds(&self) -> [f32; 4] {
+        self.clip
+    }
     fn sprite(&self, path: &str, color: [u8; 4]) -> Option<UiVisual> {
-        self.textures.sprite(path, json_ui::UvRect::full(), color)
+        self.textures.sprite(path, json_ui::UvRect::full(), color, Default::default())
     }
     fn push(&mut self, visual: UiVisual, bounds: [f32; 4]) {
         let Ok(clip) = rect(self.clip) else {

@@ -29,7 +29,7 @@ func stateEmission(record Record) (byte, bool, error) {
 		return 0, false, fmt.Errorf("%s lacks %s", record.Name, key)
 	}
 	if key == "vault_state" {
-		// Lens 0x47f83d0; enum-zero identity follows the pinned vault state schema.
+		// The enum-zero identity follows the pinned vault state schema.
 		switch value.Value {
 		case "inactive":
 			return 6, true, nil
@@ -45,7 +45,7 @@ func stateEmission(record Record) (byte, bool, error) {
 	}
 	switch key {
 	case "trial_spawner_state":
-		// Lens 1.26.50.26 0x4794430; ominous does not affect this accessor.
+		// Ominous does not affect this accessor.
 		switch int(number) {
 		case 0, 5:
 			return 0, true, nil
@@ -55,13 +55,13 @@ func stateEmission(record Record) (byte, bool, error) {
 			return 8, true, nil
 		}
 	case "respawn_anchor_charge":
-		// Lens 0x8efaba0; pack metadata/mojang-blocks.json supplies the five charge values.
+		// Pack metadata/mojang-blocks.json supplies the five charge values.
 		const chargeStates = 5
 		if number >= 0 && number < chargeStates {
 			return byte(number / (chargeStates - 1) * 15), true, nil
 		}
 	case "sculk_sensor_phase":
-		// Current 0x8f045b0 and R:s/SculkSensorBlock.cpp getLightEmission.
+		// Sculk sensors select emission from their phase state.
 		if number >= 0 && number <= 2 {
 			if number == 1 {
 				return 1, true, nil

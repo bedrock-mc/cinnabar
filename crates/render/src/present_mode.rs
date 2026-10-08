@@ -88,8 +88,9 @@ impl Dx12PresentModePolicy {
     }
 
     pub fn set_preference(&self, preference: PresentModePreference) {
-        self.preference.store(preference as u8, Ordering::Release);
-        self.publish_remedy(PresentModeRemedy::KeepRequested);
+        if self.preference.swap(preference as u8, Ordering::AcqRel) != preference as u8 {
+            self.publish_remedy(PresentModeRemedy::KeepRequested);
+        }
     }
 
     #[must_use]
@@ -147,6 +148,7 @@ impl Plugin for Dx12PresentModePolicyPlugin {
             return;
         };
         render_app.insert_resource(self.policy.clone());
+        crate::surface_lifecycle::install(render_app);
         #[cfg(target_os = "windows")]
         render_app.add_systems(
             Render,

@@ -4,34 +4,40 @@
 
 mod condition;
 mod geometry;
+mod legacy;
 mod textures;
 
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use assets::{
     Animation, BlockFlags, BlockOverlay, BlockVisual, ContributorRole, LightProperties,
     MATERIAL_FLAG_ALPHA_BLEND, MATERIAL_FLAG_ALPHA_CUTOUT, MATERIAL_FLAG_BIRCH_FOLIAGE,
-    MATERIAL_FLAG_DRY_FOLIAGE, MATERIAL_FLAG_EVERGREEN_FOLIAGE, MATERIAL_FLAG_FOLIAGE_TINT,
-    MATERIAL_FLAG_GRASS_TINT, MATERIAL_FLAG_WATER_TINT, MODEL_QUAD_FLAG_TWO_SIDED, Material,
-    MaterialKeys, MaterialOverride, ModelQuad, ModelTemplate, NO_ANIMATION, NO_MODEL_TEMPLATE,
-    TextureArray, TextureMip, TextureRef, VisualKind, VisualSupport,
+    MATERIAL_FLAG_DISABLE_AO, MATERIAL_FLAG_DISABLE_FACE_DIMMING, MATERIAL_FLAG_DRY_FOLIAGE,
+    MATERIAL_FLAG_EVERGREEN_FOLIAGE, MATERIAL_FLAG_FOLIAGE_TINT, MATERIAL_FLAG_GRASS_TINT,
+    MATERIAL_FLAG_WATER_TINT, MODEL_QUAD_FLAG_TWO_SIDED, Material, MaterialKeys, MaterialOverride,
+    ModelQuad, ModelTemplate, NO_ANIMATION, NO_MODEL_TEMPLATE, TextureArray, TextureMip,
+    TextureRef, VisualKind, VisualSupport,
 };
 use protocol::{CustomBlocks, CustomVisualComponents};
 use resource_pack::LayeredPackView;
 
 use self::{
+    condition::StateVisual,
     geometry::{FACE_NAMES, FaceQuad, Geometry, geometry_catalog},
     textures::{DecodedTexture, TextureCatalog, flipbook_frames, resample_square, shrink_to_max},
 };
 
 const FULL_BLOCK: &str = "minecraft:geometry.full_block";
+const FULL_BLOCK_V1: &str = "minecraft:geometry.full_block_v1";
 const MIN_TILE: u32 = 16;
 const MAX_TILE: u32 = 128;
 const MAX_OVERLAY_LAYERS: usize = 2048;
 const MAX_OVERLAY_TEXTURE_BYTES: usize = 64 * 1024 * 1024;
 // Held decoded sources are already shrunk to MAX_TILE; bound their total too.
 const MAX_OVERLAY_SOURCE_BYTES: usize = 64 * 1024 * 1024;
-const MAX_QUADS_PER_TEMPLATE: usize = 32;
 const DIAGNOSTIC_MATERIAL: u32 = 0;
 
 /// Counted reasons some server block visuals are incomplete this session.
@@ -43,9 +49,11 @@ pub(crate) struct OverlayGaps {
     pub(crate) skipped_cubes: u32,
     pub(crate) truncated_models: u32,
     pub(crate) approximated_materials: u32,
+    pub(crate) incomplete_state_identities: u32,
+    pub(crate) invalid_legacy_bindings: u32,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct CompiledBlockOverlay {
     pub(crate) overlay: BlockOverlay,
     pub(crate) gaps: OverlayGaps,
@@ -59,6 +67,7 @@ pub(super) fn compile_block_overlay(
     hashed: bool,
     vanilla_keys: Option<&MaterialKeys>,
 ) -> Option<CompiledBlockOverlay> {
+    let legacy = legacy::TextureBindings::new(view);
     let wanted = blocks
         .blocks
         .iter()
@@ -75,7 +84,7 @@ pub(super) fn compile_block_overlay(
         .filter(|identifier| !identifier.starts_with("minecraft:"))
         .collect::<HashSet<_>>();
     let mut builder = Builder {
-        catalog: TextureCatalog::new(view),
+        catalog: TextureCatalog::new(view, vanilla_keys),
         geometries: geometry_catalog(view, &wanted),
         overlay: BlockOverlay::default(),
         sources: Vec::new(),
@@ -83,27 +92,49 @@ pub(super) fn compile_block_overlay(
         textures: HashMap::new(),
         materials: HashMap::new(),
         visuals: HashMap::new(),
-        gaps: OverlayGaps::default(),
+        gaps: OverlayGaps {
+            invalid_legacy_bindings: legacy.invalid,
+            ..OverlayGaps::default()
+        },
     };
     builder.sources.push(Source::Diagnostic);
     builder.overlay.materials.push(Material {
         texture: TextureRef::new(1, 0).expect("layer zero"),
         flags: 0,
         animation: NO_ANIMATION,
+        ..assets::Material::unvaried()
     });
     for block in blocks.blocks.iter() {
+        let expressions = condition::BlockExpressions::new(block);
+        let states = block.hashed_states();
+        let identities_complete = states.len() == block.state_count as usize;
+        if !identities_complete {
+            builder.gaps.incomplete_state_identities += 1;
+        }
         if hashed {
-            for state in block.hashed_states() {
-                let components =
-                    condition::assignment_components(block, &state.values, &mut builder.gaps);
-                builder.push_state(&components);
-                builder.overlay.hashes.push(state.hash);
+            for state in states {
+                let mut visual = condition::state_visual(
+                    block,
+                    &expressions,
+                    Some(&state.values),
+                    &mut builder.gaps,
+                );
+                legacy.apply(&block.name, &mut visual.components);
+                builder.push_state(&visual);
+                builder.overlay.hashes.push(Some(state.hash));
             }
             continue;
         }
         for state in 0..block.state_count {
-            let components = condition::state_components(block, state, &mut builder.gaps);
-            builder.push_state(&components);
+            let values = block.state_values(state);
+            let mut visual =
+                condition::state_visual(block, &expressions, values.as_deref(), &mut builder.gaps);
+            legacy.apply(&block.name, &mut visual.components);
+            builder.push_state(&visual);
+            builder
+                .overlay
+                .hashes
+                .push(identities_complete.then(|| states[state as usize].hash));
         }
     }
     if let Some(keys) = vanilla_keys {
@@ -165,22 +196,23 @@ impl Builder<'_> {
         }
     }
 
-    fn push_state(&mut self, components: &CustomVisualComponents) {
-        let light = state_light(components);
-        let visual = self.visual(components);
+    fn push_state(&mut self, state: &StateVisual) {
+        let light = state_light(&state.components);
+        let visual = self.visual(state);
         self.overlay.visuals.push(visual);
         self.overlay.light_properties.push(light);
     }
 
-    fn visual(&mut self, components: &CustomVisualComponents) -> BlockVisual {
-        let key = format!("{components:?}");
+    fn visual(&mut self, state: &StateVisual) -> BlockVisual {
+        let components = &state.components;
+        let key = format!("{components:?}{:?}", state.hidden_bones);
         if let Some(visual) = self.visuals.get(&key) {
             return *visual;
         }
         let visual = match components.geometry.as_deref() {
-            None | Some(FULL_BLOCK) => self.cube(components),
+            None | Some(FULL_BLOCK | FULL_BLOCK_V1) => self.cube(components),
             Some(identifier) => match self.geometries.get(identifier).cloned() {
-                Some(geometry) => self.model(components, &geometry),
+                Some(geometry) => self.model(components, &geometry, &state.hidden_bones),
                 None => {
                     self.gaps.missing_geometry += 1;
                     diagnostic_visual()
@@ -200,8 +232,15 @@ impl Builder<'_> {
         for (face, slot) in faces.iter_mut().enumerate() {
             // The face showing on world side `face` was model face `source`.
             let source = rotate_face_inverse(face, rotation);
+            let uv_flags = if components.geometry.as_deref() == Some(FULL_BLOCK_V1)
+                && source == assets::BlockFace::Down as usize
+            {
+                render::MATERIAL_UV_ROTATE_180
+            } else {
+                0
+            };
             let (material, flags, _) =
-                self.face_material(components, FACE_NAMES[source], None, true);
+                self.face_material(components, FACE_NAMES[source], None, true, uv_flags);
             opaque &= flags == 0;
             *slot = material;
         }
@@ -211,11 +250,25 @@ impl Builder<'_> {
         }
         let mut flags = BlockFlags::CUBE_GEOMETRY;
         flags.set(BlockFlags::OCCLUDES_FULL_FACE, opaque);
+        let exact = components.transformation.is_none_or(|transform| {
+            transform.rotation == [0; 3]
+                && transform.scale == [1.0; 3]
+                && transform.translation == [0.0; 3]
+        }) && components.materials.as_deref().is_some_and(|materials| {
+            materials.iter().all(|material| {
+                matches!(material.render_method.as_deref(), None | Some("opaque"))
+                    && matches!(material.tint_method.as_deref(), None | Some("none"))
+            })
+        });
         BlockVisual {
             faces,
             flags,
             kind: VisualKind::Cube,
-            support: VisualSupport::VanillaFallback,
+            support: if exact {
+                VisualSupport::Exact
+            } else {
+                VisualSupport::VanillaFallback
+            },
             contributor_role: ContributorRole::Primary,
             model_template: NO_MODEL_TEMPLATE,
             animation: NO_ANIMATION,
@@ -223,14 +276,27 @@ impl Builder<'_> {
         }
     }
 
-    fn model(&mut self, components: &CustomVisualComponents, geometry: &Geometry) -> BlockVisual {
+    fn model(
+        &mut self,
+        components: &CustomVisualComponents,
+        geometry: &Geometry,
+        hidden_bones: &[Arc<str>],
+    ) -> BlockVisual {
         self.gaps.skipped_cubes += geometry.skipped_cubes;
         let mut quads = Vec::new();
         let mut first_material = None;
-        for cube in &geometry.cubes {
+        let shown = geometry
+            .cubes
+            .iter()
+            .filter(|cube| !hidden_bones.iter().any(|bone| **bone == *cube.bone))
+            .collect::<Vec<_>>();
+        if shown.is_empty() && !geometry.cubes.is_empty() {
+            return invisible_visual();
+        }
+        for cube in shown {
             for (face_quad, instance) in cube.quads() {
                 let (material, _, two_sided) =
-                    self.face_material(components, FACE_NAMES[face_quad.face], instance, false);
+                    self.face_material(components, FACE_NAMES[face_quad.face], instance, false, 0);
                 if material == DIAGNOSTIC_MATERIAL {
                     self.gaps.missing_textures += 1;
                     return diagnostic_visual();
@@ -242,19 +308,24 @@ impl Builder<'_> {
                 }
             }
         }
-        if quads.len() > MAX_QUADS_PER_TEMPLATE {
-            self.gaps.truncated_models += 1;
-            quads.truncate(MAX_QUADS_PER_TEMPLATE);
-        }
         let Some(material) = first_material.filter(|_| !quads.is_empty()) else {
             return diagnostic_visual();
         };
         let template = self.overlay.model_templates.len() as u32;
-        self.overlay.model_templates.push(ModelTemplate {
-            quad_start: self.overlay.model_quads.len() as u32,
-            quad_count: quads.len() as u32,
-            flags: 0,
-        });
+        let mut start = self.overlay.model_quads.len() as u32;
+        let count = quads.len().div_ceil(assets::MAX_MODEL_TEMPLATE_QUADS);
+        for (index, part) in quads.chunks(assets::MAX_MODEL_TEMPLATE_QUADS).enumerate() {
+            self.overlay.model_templates.push(ModelTemplate {
+                quad_start: start,
+                quad_count: part.len() as u32,
+                flags: if index + 1 < count {
+                    assets::MODEL_TEMPLATE_FLAG_COMPOUND_NEXT
+                } else {
+                    0
+                },
+            });
+            start += part.len() as u32;
+        }
         self.overlay.model_quads.extend(quads);
         BlockVisual {
             faces: [material; 6],
@@ -276,6 +347,7 @@ impl Builder<'_> {
         face: &str,
         instance: Option<&str>,
         full_block: bool,
+        uv_flags: u32,
     ) -> (u32, u32, bool) {
         let Some(materials) = components.materials.as_deref() else {
             return (DIAGNOSTIC_MATERIAL, 0, false);
@@ -316,7 +388,15 @@ impl Builder<'_> {
             flags = MATERIAL_FLAG_ALPHA_CUTOUT;
         }
         let alpha_flags = flags;
-        flags |= tint_flags(chosen.tint_method.as_deref());
+        flags |= uv_flags | tint_flags(chosen.tint_method.as_deref());
+        if chosen.ambient_occlusion == Some(0.0) {
+            flags |= MATERIAL_FLAG_DISABLE_AO;
+        } else if chosen.ambient_occlusion.is_some_and(|value| value != 1.0) {
+            self.gaps.approximated_materials += 1;
+        }
+        if chosen.face_dimming == Some(false) {
+            flags |= MATERIAL_FLAG_DISABLE_FACE_DIMMING;
+        }
         let texture = chosen.texture.to_string();
         if let Some(&material) = self.materials.get(&(texture.clone(), flags)) {
             return (material, alpha_flags, two_sided);
@@ -329,6 +409,7 @@ impl Builder<'_> {
             texture: TextureRef::new(1, slot.layer).expect("bounded layer"),
             flags,
             animation: slot.animation,
+            ..assets::Material::unvaried()
         });
         self.materials.insert((texture, flags), material);
         (material, alpha_flags, two_sided)
@@ -454,16 +535,24 @@ fn tint_flags(method: Option<&str>) -> u32 {
     }
 }
 
-/// Custom blocks default to full dampening and no emission, matching vanilla and
-/// the public block-component defaults; explicit components override either.
+/// Explicit light components override geometry's zero absorption or legacy type fallback.
 fn state_light(components: &CustomVisualComponents) -> LightProperties {
     let emission = components.light_emission.unwrap_or(0).min(15);
-    let dampening = components.light_dampening.unwrap_or(15).min(15);
+    let dampening = components.effective_light_dampening();
     LightProperties::new(emission, dampening).unwrap_or(LightProperties::OPAQUE_DARK)
 }
 
 fn diagnostic_visual() -> BlockVisual {
     BlockVisual::diagnostic(BlockFlags::empty(), ContributorRole::Primary)
+}
+
+/// A model whose bone visibility hides every cube draws nothing.
+fn invisible_visual() -> BlockVisual {
+    BlockVisual {
+        kind: VisualKind::Invisible,
+        support: VisualSupport::Exact,
+        ..diagnostic_visual()
+    }
 }
 
 fn diagnostic_pixels(tile: u32) -> Box<[u8]> {
@@ -601,7 +690,7 @@ fn quantize(
 /// Model quad face codes (`1..=6` = down/up/west/east/north/south) by face index.
 const MODEL_FACE_FLAGS: [u32; 6] = [3, 4, 1, 2, 5, 6];
 
-#[cfg(test)]
+#[cfg(all(test, feature = "reports"))]
 mod pack_report;
 #[cfg(test)]
 mod tests;

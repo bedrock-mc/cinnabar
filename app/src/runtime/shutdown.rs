@@ -1,27 +1,25 @@
-use std::time::Instant;
+#[cfg(feature = "acceptance")]
+use crate::acceptance::AcceptanceRun;
+#[cfg(feature = "acceptance")]
+use crate::runtime::phase3_evidence::{Phase3EvidenceEmitter, Phase3EvidenceIdentitySource};
 
+#[cfg(feature = "acceptance")]
+use bevy::ecs::system::SystemParam;
 use bevy::{
-    ecs::system::SystemParam,
-    log::error,
     prelude::{AppExit, MessageReader, MessageWriter, Res, ResMut},
     window::WindowCloseRequested,
 };
+#[cfg(feature = "acceptance")]
 use render::TransparentSortMetrics;
 
-use crate::metrics::TransparentSortMetricsSnapshot;
-use crate::{
-    acceptance::{
-        AcceptanceExitDecision, AcceptanceRun, Phase3TerminalDrainDecision,
-        TRANSPARENT_PRESENTATION_EXIT_GRACE, mutation::write_stdout_marker,
-    },
-    movement::MovementTicker,
-    runtime::{
-        network::NetworkHandle,
-        phase3_evidence::{Phase3EvidenceEmitter, Phase3EvidenceIdentitySource},
-        visibility::AppMetrics,
-        world::{ClientWorld, ShutdownWatchdog, begin_bounded_shutdown},
-    },
+use crate::runtime::{
+    network::NetworkHandle,
+    world::{ClientWorld, ShutdownWatchdog, begin_bounded_shutdown},
 };
+#[cfg(feature = "acceptance")]
+use crate::{movement::MovementTicker, runtime::visibility::AppMetrics};
+#[cfg(feature = "acceptance")]
+use diagnostics::metrics::TransparentSortMetricsSnapshot;
 
 pub(crate) fn record_fatal_error(fatal_error: &mut Option<String>, error: String) {
     if fatal_error.is_none() {
@@ -39,7 +37,7 @@ pub(crate) fn window_close_exit(requested: bool) -> Option<AppExit> {
 
 pub(crate) fn exit_on_window_close_requested(
     mut close_requests: MessageReader<WindowCloseRequested>,
-    mut acceptance: ResMut<AcceptanceRun>,
+    #[cfg(feature = "acceptance")] mut acceptance: ResMut<AcceptanceRun>,
     watchdog: Res<ShutdownWatchdog>,
     mut exit: MessageWriter<AppExit>,
 ) {
@@ -47,6 +45,7 @@ pub(crate) fn exit_on_window_close_requested(
         return;
     };
     begin_bounded_shutdown(&watchdog, &exit_status);
+    #[cfg(feature = "acceptance")]
     acceptance.request_shutdown();
     exit.write(exit_status);
 }
@@ -67,6 +66,7 @@ pub(crate) fn exit_on_fatal_runtime_error(
     exit.write(exit_status);
 }
 
+#[cfg(feature = "acceptance")]
 #[derive(SystemParam)]
 pub(crate) struct Phase3TerminalEvidence<'w> {
     movement: Res<'w, MovementTicker>,
@@ -74,108 +74,47 @@ pub(crate) struct Phase3TerminalEvidence<'w> {
     evidence: ResMut<'w, Phase3EvidenceEmitter>,
 }
 
+/// Converts terminal observations into the ordinary network stop and app-exit commands.
+#[cfg(feature = "acceptance")]
 pub(crate) fn finish_acceptance_run(
-    mut acceptance: ResMut<AcceptanceRun>,
+    #[cfg(feature = "acceptance")] mut acceptance: ResMut<AcceptanceRun>,
     client_world: Res<ClientWorld>,
     mut metrics: ResMut<AppMetrics>,
     transparent_sort: Res<TransparentSortMetrics>,
-    mut phase3: Phase3TerminalEvidence,
+    phase3: Phase3TerminalEvidence,
     mut network: ResMut<NetworkHandle>,
     mut exit: MessageWriter<AppExit>,
 ) {
-    if acceptance.finished {
-        return;
-    }
-    let now = Instant::now();
-    let fatal = client_world.fatal_error.is_some();
-    if let Some(deadline) = acceptance.deadline.filter(|deadline| now >= *deadline) {
-        metrics.0.finish_timed_session(deadline);
-    }
-    let transparent_snapshot = TransparentSortMetricsSnapshot::from(transparent_sort.snapshot());
-    let decision = acceptance.exit_decision(now, fatal, transparent_snapshot);
-    if matches!(
-        decision,
-        AcceptanceExitDecision::Continue | AcceptanceExitDecision::WaitForTransparentPresentation
-    ) {
-        return;
-    }
-
-    let phase3_identity = phase3.identity_source.as_deref().and_then(|source| {
-        source
-            .for_session(phase3.movement.session_generation())
-            .ok()
-    });
-    let drain_decision = if fatal {
-        Phase3TerminalDrainDecision::Drained
-    } else {
-        acceptance.phase3_terminal_drain_decision(
-            now,
-            phase3_identity
-                .as_ref()
-                .is_some_and(|identity| identity.candidate_physics()),
-            phase3.movement.pending_count(),
-        )
-    };
-    if drain_decision == Phase3TerminalDrainDecision::Wait {
-        return;
-    }
-    let phase3_drain_timed_out = drain_decision == Phase3TerminalDrainDecision::TimedOut;
-
-    acceptance.finished = true;
-    if let Some(identity) = phase3_identity {
-        let markers = phase3.evidence.observe_terminal(
+    let Phase3TerminalEvidence {
+        movement,
+        identity_source,
+        mut evidence,
+    } = phase3;
+    let terminal = || {
+        let identity = identity_source
+            .as_deref()
+            .and_then(|source| source.for_session(movement.session_generation()).ok());
+        acceptance::finish::TerminalMovementObservation {
             identity,
-            phase3.movement.source(),
-            phase3.movement.sent_physics_packet_count(),
-            phase3.movement.sent_free_camera_packet_count(),
-            phase3.movement.pending_count(),
-            phase3.movement.outbox_reconciliation(),
-        );
-        let mut stdout = std::io::stdout().lock();
-        for marker in markers {
-            write_stdout_marker(&mut stdout, &marker);
+            source: match movement.source() {
+                crate::movement::MovementSource::Physics => "Physics",
+                crate::movement::MovementSource::FreeCamera => "FreeCamera",
+            },
+            physics_packet_count: movement.sent_physics_packet_count(),
+            free_camera_packet_count: movement.sent_free_camera_packet_count(),
+            pending_count: movement.pending_count(),
+            outbox_reconciliation: movement.outbox_reconciliation().as_str(),
         }
+    };
+    if let Some(status) = acceptance::finish::finish_acceptance_run(
+        &mut acceptance,
+        client_world.fatal_error.as_deref(),
+        &mut metrics.0,
+        TransparentSortMetricsSnapshot::from(transparent_sort.snapshot()),
+        terminal,
+        &mut evidence,
+    ) {
+        network.shutdown();
+        exit.write(status);
     }
-    metrics
-        .0
-        .record_transparent_sort_snapshot(transparent_snapshot);
-    let mut output_failed = false;
-    if let Some(path) = &acceptance.metrics_out
-        && let Err(error) = metrics.0.report().write_json(path)
-    {
-        error!(
-            "failed to write acceptance metrics to {}: {error}",
-            path.display()
-        );
-        output_failed = true;
-    }
-    if let Some(error) = &client_world.fatal_error {
-        error!("{error}");
-    }
-    if decision == AcceptanceExitDecision::TransparentPresentationTimedOut {
-        error!(
-            "transparent presentation did not settle within {:.3}s after the timed session: committed={} encoded={} presented={} ref_count={}",
-            TRANSPARENT_PRESENTATION_EXIT_GRACE.as_secs_f64(),
-            transparent_snapshot.committed_generation,
-            transparent_snapshot.encoded_generation,
-            transparent_snapshot.presented_generation,
-            transparent_snapshot.ref_count,
-        );
-    }
-    if phase3_drain_timed_out {
-        error!(
-            "Phase 3 terminal movement acknowledgement drain timed out after {:.3}s: pending={} reconciliation={}",
-            TRANSPARENT_PRESENTATION_EXIT_GRACE.as_secs_f64(),
-            phase3.movement.pending_count(),
-            phase3.movement.outbox_reconciliation().as_str(),
-        );
-    }
-    network.shutdown();
-    exit.write(
-        if decision.is_error() || output_failed || phase3_drain_timed_out {
-            AppExit::error()
-        } else {
-            AppExit::Success
-        },
-    );
 }

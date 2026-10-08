@@ -1,0 +1,134 @@
+// Java-look presentation; the vanilla chat controller still owns editing and sending.
+{
+  "namespace": "chat",
+  "chat_screen@common.base_screen": {
+    "absorbs_input": true,
+    "render_game_behind": true,
+    "$screen_content": "chat.java_chat_content",
+    "$screen_bg_content": "common.base_screen_empty_panel",
+    "$screen_animations": [],
+    "$background_animations": []
+  },
+  "java_chat_content": {
+    "type": "panel",
+    "controls": [
+      {
+        "messages_panel@chat.messages_scrolling_panel": {
+          "size": [ "$cinnabar_chat_width", 180 ],
+          "max_size": [ "100%", "50%" ],
+          "offset": [ 0, "$cinnabar_chat_history_bottom" ],
+          "$scroll_size": [ 0, "100%" ],
+          "$scroll_bar_left_padding_size": [ 0, 0 ],
+          "$scroll_bar_right_padding_size": [ 0, 0 ]
+        }
+      },
+      {
+        "input_line": {
+          "type": "panel",
+          "anchor_from": "bottom_left",
+          "anchor_to": "bottom_left",
+          "offset": [ 0, -2 ],
+          "size": [ "$cinnabar_chat_width", 14 ],
+          "max_size": [ "100%", "100%" ],
+          "layer": 2,
+          "clips_children": true,
+          "controls": [
+            {
+              "background": {
+                "type": "image",
+                "texture": "textures/ui/Black",
+                "alpha": 0.5,
+                "size": [ "100%", "100%" ]
+              }
+            },
+            {
+              "text_edit_box": {
+                "type": "edit_box",
+                "text_control": "text",
+                "size": [ "100% - 8px", 10 ],
+                "always_listening": true,
+                "default_focus_precedence": 1,
+                "layer": 1,
+                "controls": [
+                  {
+                    "text": {
+                      "type": "label",
+                      "size": [ "100%", 10 ],
+                      "text": "#message_text_box_content",
+                      "localize": false,
+                      "shadow": true,
+                      "color": [ 1, 1, 1 ],
+                      "bindings": [ { "binding_name": "#message_text_box_content" } ]
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      {
+        "suggestions@chat.commands_panel": {
+          "size": [ "$cinnabar_chat_width", "100% - 50px" ],
+          "max_size": [ "100%", "100%" ],
+          "offset": [ 0, -18 ],
+          "layer": 10
+        }
+      }
+    ]
+  },
+  "auto_complete_panel/panel/auto_complete_grid": {
+    "size": [ "100%", "default" ],
+    "grid_rescaling_type": "horizontal",
+    "bindings": [
+      {
+        "binding_name": "#collection_total_items",
+        "binding_name_override": "#maximum_grid_items",
+        "binding_type": "collection",
+        "binding_collection_name": "auto_complete"
+      }
+    ]
+  },
+  "auto_complete_panel_contents_with_item": {
+    "modifications": [
+      {
+        "array_name": "controls",
+        "operation": "insert_front",
+        "value": [
+          { "background": {
+            "type": "image",
+            "texture": "textures/ui/Black",
+            "alpha": 0.8,
+            "size": [ "100%", "100%" ],
+            "layer": -1
+          } }
+        ]
+      }
+    ]
+  },
+  "messages_text": {
+    "bindings": [],
+    "modifications": [
+      {
+        "array_name": "controls",
+        "operation": "insert_front",
+        "value": [
+          { "background": {
+            "type": "image",
+            "texture": "textures/ui/Black",
+            "alpha": 0.5,
+            "size": [ "100%", "100%" ]
+          } }
+        ]
+      }
+    ]
+  },
+  "messages_text/text": {
+    "offset": [ 4, 0 ],
+    "size": [ "100% - 8px", "default" ],
+    "anchor_from": "top_left",
+    "anchor_to": "top_left",
+    "shadow": true,
+    "layer": 1
+  }
+}

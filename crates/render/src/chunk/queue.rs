@@ -27,6 +27,8 @@ pub struct ChunkRenderQueue {
     pub(in crate::chunk) pending: HashMap<SubChunkKey, PendingUpload>,
     pub(in crate::chunk) removals: HashMap<SubChunkKey, PendingRemoval>,
     pub(in crate::chunk) render_manifest: BTreeMap<SubChunkKey, u64>,
+    /// Newest tracked generation per queued or presented key; pruned once its removal applies.
+    tracked_generations: HashMap<SubChunkKey, u64>,
     pub(in crate::chunk) next_generation: u64,
     pub(in crate::chunk) pending_bytes: u64,
     pub(in crate::chunk) limits: ChunkRenderQueueLimits,
@@ -48,6 +50,7 @@ impl ChunkRenderQueue {
             pending: HashMap::new(),
             removals: HashMap::new(),
             render_manifest: BTreeMap::new(),
+            tracked_generations: HashMap::new(),
             next_generation: 0,
             pending_bytes: 0,
             limits,
@@ -66,6 +69,7 @@ impl ChunkRenderQueue {
         self.pending.clear();
         self.removals.clear();
         self.render_manifest.clear();
+        self.tracked_generations.clear();
         self.pending_bytes = 0;
         self.ready_scratch.clear();
         self.session_reset_pending = true;
@@ -252,6 +256,10 @@ impl ChunkRenderQueue {
         token: ChunkUploadToken,
         publication_permit: PublicationPermit,
     ) -> Result<(), (ChunkMesh, PackedBiomeRecord, PublicationPermit)> {
+        if self.is_stale(key, Some(token)) {
+            let _ = publication_permit.retire();
+            return Ok(());
+        }
         let expected_bytes = chunk_publication_byte_len(&mesh, &biome);
         let permit_matches = publication_permit.bytes() == Some(expected_bytes)
             && publication_permit.is_zero_byte() == (expected_bytes == 0);
@@ -313,6 +321,10 @@ impl ChunkRenderQueue {
         if !publication_permit.is_zero_byte() || publication_permit.bytes() != Some(0) {
             return Err((key, publication_permit));
         }
+        if self.is_stale(key, Some(token)) {
+            let _ = publication_permit.retire();
+            return Ok(());
+        }
         let replaces_existing = self.pending.contains_key(&key) || self.removals.contains_key(&key);
         if !replaces_existing && self.retained_len() >= self.limits.max_items {
             return Err((key, publication_permit));
@@ -341,6 +353,12 @@ impl ChunkRenderQueue {
         token: Option<ChunkUploadToken>,
         publication_permit: Option<PublicationPermit>,
     ) -> Result<(), SubChunkKey> {
+        if self.is_stale(key, token) {
+            if let Some(permit) = publication_permit {
+                let _ = permit.retire();
+            }
+            return Ok(());
+        }
         let priority = if priority.is_urgent()
             || self
                 .pending
@@ -359,6 +377,7 @@ impl ChunkRenderQueue {
         if !replaces_existing && self.retained_len() >= self.limits.max_items {
             return Err(key);
         }
+        let previous_generation = self.previous_manifest_generation(key);
         if let Some(pending) = self.pending.remove(&key) {
             self.pending_bytes = self
                 .pending_bytes
@@ -375,12 +394,14 @@ impl ChunkRenderQueue {
         self.removals.insert(
             key,
             PendingRemoval {
+                previous_generation,
                 priority,
                 token,
                 publication_permit,
             },
         );
         self.render_manifest.remove(&key);
+        self.record_tracked(key, token);
         Ok(())
     }
 
@@ -523,6 +544,17 @@ impl ChunkRenderQueue {
         self.try_enqueue_inner(key, mesh, biome, tint_identity, priority, token, None)
     }
 
+    /// Retains the resident generation across coalesced uploads and removals.
+    fn previous_manifest_generation(&self, key: SubChunkKey) -> Option<u64> {
+        if let Some(pending) = self.pending.get(&key) {
+            pending.previous_generation
+        } else if let Some(removal) = self.removals.get(&key) {
+            removal.previous_generation
+        } else {
+            self.render_manifest.get(&key).copied()
+        }
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn try_enqueue_inner(
         &mut self,
@@ -534,6 +566,12 @@ impl ChunkRenderQueue {
         token: Option<ChunkUploadToken>,
         publication_permit: Option<PublicationPermit>,
     ) -> Result<(), (ChunkMesh, PackedBiomeRecord)> {
+        if self.is_stale(key, token) {
+            if let Some(permit) = publication_permit {
+                let _ = permit.retire();
+            }
+            return Ok(());
+        }
         let priority = if priority.is_urgent()
             || self
                 .pending
@@ -560,6 +598,7 @@ impl ChunkRenderQueue {
         if next_items > self.limits.max_items || next_bytes > self.limits.max_bytes {
             return Err((mesh, biome));
         }
+        let previous_generation = self.previous_manifest_generation(key);
         if let Some(pending) = self.removals.remove(&key)
             && let Some(permit) = pending.publication_permit
         {
@@ -581,6 +620,7 @@ impl ChunkRenderQueue {
         self.pending.insert(
             key,
             PendingUpload {
+                previous_generation,
                 mesh,
                 biome,
                 tint_identity,
@@ -590,7 +630,24 @@ impl ChunkRenderQueue {
                 publication_permit,
             },
         );
+        self.record_tracked(key, token);
         Ok(())
+    }
+
+    /// Stream generations only grow within a session, so an older tracked change was
+    /// reordered behind a newer one; applying it would resurrect stale geometry or a hole.
+    fn is_stale(&self, key: SubChunkKey, token: Option<ChunkUploadToken>) -> bool {
+        token.is_some_and(|token| {
+            self.tracked_generations
+                .get(&key)
+                .is_some_and(|&newest| newest > token.generation)
+        })
+    }
+
+    fn record_tracked(&mut self, key: SubChunkKey, token: Option<ChunkUploadToken>) {
+        if let Some(token) = token {
+            self.tracked_generations.insert(key, token.generation);
+        }
     }
 }
 
@@ -622,6 +679,9 @@ pub(in crate::chunk) fn update_chunk_animation_clock(
 pub(in crate::chunk) struct RenderQueueRuntime<'w> {
     gpu_removals: Res<'w, ChunkGpuRemovalQueue>,
     acknowledgements: Res<'w, ChunkUploadAcknowledgements>,
+    immediate_terrain: Option<
+        ResMut<'w, crate::dropped_item_render::terrain_items::ImmediateTerrainMeshPublications>,
+    >,
     profiler: Option<Res<'w, RuntimeStageProfiler>>,
 }
 
@@ -632,10 +692,23 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
     mut entities: ResMut<ChunkEntities>,
     existing_instances: Query<&ChunkRenderInstance>,
     runtime: RenderQueueRuntime,
+    reload: Option<Res<ChunkTextureReload>>,
 ) {
+    let mut runtime = runtime;
+    if let Some(immediate) = runtime.immediate_terrain.as_deref_mut() {
+        immediate.0.clear();
+    }
+    if !queue.session_reset_pending
+        && reload
+            .as_ref()
+            .is_some_and(|reload| reload.geometry_pending())
+    {
+        return;
+    }
     let RenderQueueRuntime {
         gpu_removals,
         acknowledgements,
+        mut immediate_terrain,
         profiler,
     } = runtime;
     let _timer = profiler
@@ -697,6 +770,7 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
             let Some(pending) = queue.removals.remove(&key) else {
                 continue;
             };
+            queue.tracked_generations.remove(&key);
             let render_permit = pending
                 .publication_permit
                 .map(PublicationPermit::into_render_entity)
@@ -727,6 +801,9 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
                     .unwrap_or_else(|_| unreachable!("removal mailbox capacity was checked"));
             } else if let Some(token) = token {
                 acknowledgements.complete(key, token, Instant::now());
+                if let Some(immediate) = immediate_terrain.as_deref_mut() {
+                    immediate.0.push((key, token.generation));
+                }
             }
             zero_byte_applications = zero_byte_applications.saturating_add(1);
             continue;
@@ -775,6 +852,7 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
         };
         gpu_removals.cancel(key);
         if pending.mesh.is_empty() {
+            queue.tracked_generations.remove(&key);
             if let Some(entity) = entities.0.remove(&key) {
                 if let Ok(instance) = existing_instances.get(entity)
                     && let Some(slot) = &instance.publication_permit
@@ -794,12 +872,16 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
                     .unwrap_or_else(|_| unreachable!("removal mailbox capacity was checked"));
             } else if let Some(token) = pending.token {
                 acknowledgements.complete(key, token, Instant::now());
+                if let Some(immediate) = immediate_terrain.as_deref_mut() {
+                    immediate.0.push((key, token.generation));
+                }
             }
             zero_byte_applications = zero_byte_applications.saturating_add(1);
             continue;
         }
 
         let origin = chunk_origin(key);
+        let cube_layout = pending.mesh.cube_layout();
         let (
             cube_quads,
             cube_lighting,
@@ -828,6 +910,7 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
             key,
             cube_quads: Arc::from(cube_quads),
             cube_lighting: Arc::from(cube_lighting),
+            cube_layout,
             model_refs: Arc::from(model_refs),
             model_lighting: Arc::from(model_lighting),
             model_draw_refs: Arc::from(model_draw_refs),

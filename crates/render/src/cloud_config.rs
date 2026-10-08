@@ -2,10 +2,74 @@ use std::{error::Error, fmt, fmt::Write as _, mem::size_of};
 
 use assets::AtmosphereTexture;
 pub use assets::CloudQuality;
+use meshing::cloud_viewport::{
+    MAX_VIEWPORT_CLOUD_BYTES, MAX_VIEWPORT_CLOUD_QUADS, ViewportCloudQuad,
+};
 use meshing::{CLOUD_MASK_SIZE, MAX_CLOUD_BYTES, MAX_CLOUD_QUADS, PackedCloudQuad};
+
+const NATIVE_CLOUD_MESH_SIZE: u16 = 64;
+const NATIVE_RENDER_CHUNK_MARGIN: f32 = 16.0;
 
 const MAX_COVERAGE_MILLIBLOCKS: u32 = 16_777_216;
 const MAX_CAMERA_POSITION_MILLIBLOCKS: i64 = 64_000_000_000;
+
+/// Camera-adjusted `RENDER_DISTANCE` used directly by classic cloud DistanceControl.
+///
+/// Vanilla's render distance recalculation removes a distance-dependent
+/// margin, applies the caller coefficient, optionally caps it with the platform
+/// coefficient, then enforces a minimum of 40 blocks. The caller/platform option
+/// admission is separate: this function deliberately does not invent defaults.
+#[must_use]
+pub fn adjusted_cloud_distance_blocks(
+    render_distance_blocks: f32,
+    coefficient: f32,
+    platform_coefficient: Option<f32>,
+) -> Option<f32> {
+    // The native cached input is a non-negative signed integer in blocks. Reject
+    // unusual application inputs instead of silently converting fractional/NaN
+    // values into a shader uniform.
+    if !render_distance_blocks.is_finite()
+        || render_distance_blocks < 0.0
+        || render_distance_blocks >= i32::MAX as f32
+        || render_distance_blocks.fract() != 0.0
+        || !coefficient.is_finite()
+    {
+        return None;
+    }
+    let margin = if render_distance_blocks <= 64.0 {
+        render_distance_blocks * 0.015625 * 4.0
+    } else if render_distance_blocks <= 80.0 {
+        8.0
+    } else {
+        NATIVE_RENDER_CHUNK_MARGIN
+    };
+    let unscaled = render_distance_blocks - margin;
+    let mut adjusted = unscaled * coefficient;
+    if !adjusted.is_finite() {
+        return None;
+    }
+    if let Some(platform_coefficient) = platform_coefficient {
+        let cap = unscaled * platform_coefficient;
+        if !platform_coefficient.is_finite() || !cap.is_finite() {
+            return None;
+        }
+        adjusted = adjusted.min(cap);
+    }
+    Some(adjusted.max(40.0))
+}
+
+/// Ordinary camera distance from the server-confirmed chunk radius in blocks.
+/// Vanilla stores the player's chunk radius as packet radius + one chunk;
+/// it converts this to blocks before applying its far-chunk margin.
+/// The publisher's residency radius and the selected video setting are not
+/// substitutes for this input. Optional platform admission remains separate.
+#[must_use]
+pub fn adjusted_player_render_distance_blocks(confirmed_blocks: f32) -> Option<f32> {
+    if !confirmed_blocks.is_finite() || confirmed_blocks < 0.0 {
+        return None;
+    }
+    adjusted_cloud_distance_blocks(confirmed_blocks + NATIVE_RENDER_CHUNK_MARGIN, 1.0, None)
+}
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct CloudRenderConfig {
@@ -29,10 +93,20 @@ impl CloudRenderConfig {
         Self {
             quality,
             grid_size,
-            mesh_size: 64,
+            mesh_size: NATIVE_CLOUD_MESH_SIZE,
             distance_scale,
             distance_control: true,
             lighting: true,
+        }
+    }
+
+    /// Vanilla's feature-disabled Fancy cloud route. Advanced
+    /// renderer quality selection is a separate, still-open parity gate.
+    #[must_use]
+    pub const fn legacy_fancy() -> Self {
+        Self {
+            grid_size: 1,
+            ..Self::native(CloudQuality::High)
         }
     }
 
@@ -88,6 +162,7 @@ pub struct CloudGeometryDiagnostic {
     occupied_texels: u32,
     quad_count: u32,
     quad_bytes: u32,
+    record_stride_bytes: u32,
     instance_count: u8,
     texture_period_milliblocks: u32,
     underside_y_milliblocks: i32,
@@ -146,6 +221,80 @@ impl CloudGeometryDiagnostic {
         underside_y_milliblocks: i32,
         top_y_milliblocks: i32,
     ) -> Result<Self, CloudGeometryDiagnosticError> {
+        Self::try_new_with_layout(
+            config,
+            asset_identity_sha256,
+            occupied_texels,
+            quad_count,
+            quad_bytes,
+            instance_count,
+            texture_period_milliblocks,
+            underside_y_milliblocks,
+            top_y_milliblocks,
+            size_of::<PackedCloudQuad>() as u32,
+            MAX_CLOUD_BYTES,
+            MAX_CLOUD_QUADS,
+        )
+    }
+
+    /// Diagnostic admission for the native finite-window record layout. It is
+    /// not an eight-byte periodic record with its byte count patched afterward.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn from_viewport_layout(
+        config: CloudRenderConfig,
+        asset_identity_sha256: [u8; 32],
+        texture: &AtmosphereTexture,
+        records: &[ViewportCloudQuad],
+        texture_period_milliblocks: u32,
+        underside_y_milliblocks: i32,
+        top_y_milliblocks: i32,
+    ) -> Result<Self, CloudGeometryDiagnosticError> {
+        let occupied_texels = u32::try_from(
+            texture
+                .rgba8
+                .chunks_exact(4)
+                .filter(|texel| texel[3] > 1)
+                .count(),
+        )
+        .map_err(|_| CloudGeometryDiagnosticError::OccupancyCountOverflow)?;
+        let quad_count = u32::try_from(records.len())
+            .map_err(|_| CloudGeometryDiagnosticError::QuadCountOverflow)?;
+        let quad_bytes = records
+            .len()
+            .checked_mul(size_of::<ViewportCloudQuad>())
+            .and_then(|bytes| u32::try_from(bytes).ok())
+            .ok_or(CloudGeometryDiagnosticError::QuadByteOverflow)?;
+        Self::try_new_with_layout(
+            config,
+            asset_identity_sha256,
+            occupied_texels,
+            quad_count,
+            quad_bytes,
+            1,
+            texture_period_milliblocks,
+            underside_y_milliblocks,
+            top_y_milliblocks,
+            size_of::<ViewportCloudQuad>() as u32,
+            MAX_VIEWPORT_CLOUD_BYTES,
+            MAX_VIEWPORT_CLOUD_QUADS,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn try_new_with_layout(
+        config: CloudRenderConfig,
+        asset_identity_sha256: [u8; 32],
+        occupied_texels: u32,
+        quad_count: u32,
+        quad_bytes: u32,
+        instance_count: u8,
+        texture_period_milliblocks: u32,
+        underside_y_milliblocks: i32,
+        top_y_milliblocks: i32,
+        record_stride_bytes: u32,
+        max_bytes: usize,
+        max_quads: usize,
+    ) -> Result<Self, CloudGeometryDiagnosticError> {
         if asset_identity_sha256 == [0; 32] {
             return Err(CloudGeometryDiagnosticError::InvalidAssetIdentity);
         }
@@ -156,14 +305,14 @@ impl CloudGeometryDiagnostic {
                 max: max_occupied_texels,
             });
         }
-        if usize::try_from(quad_count).map_or(true, |count| count > MAX_CLOUD_QUADS) {
+        if usize::try_from(quad_count).map_or(true, |count| count > max_quads) {
             return Err(CloudGeometryDiagnosticError::TooManyQuads {
                 actual: quad_count,
-                max: MAX_CLOUD_QUADS as u32,
+                max: max_quads as u32,
             });
         }
         let expected_quad_bytes = quad_count
-            .checked_mul(size_of::<PackedCloudQuad>() as u32)
+            .checked_mul(record_stride_bytes)
             .ok_or(CloudGeometryDiagnosticError::QuadByteOverflow)?;
         if quad_bytes != expected_quad_bytes {
             return Err(CloudGeometryDiagnosticError::InconsistentQuadBytes {
@@ -171,10 +320,10 @@ impl CloudGeometryDiagnostic {
                 expected: expected_quad_bytes,
             });
         }
-        if quad_bytes as usize > MAX_CLOUD_BYTES {
+        if quad_bytes as usize > max_bytes {
             return Err(CloudGeometryDiagnosticError::TooManyQuadBytes {
                 actual: quad_bytes,
-                max: MAX_CLOUD_BYTES as u32,
+                max: max_bytes as u32,
             });
         }
         if instance_count == 0 {
@@ -195,6 +344,7 @@ impl CloudGeometryDiagnostic {
             occupied_texels,
             quad_count,
             quad_bytes,
+            record_stride_bytes,
             instance_count,
             texture_period_milliblocks,
             underside_y_milliblocks,
@@ -248,7 +398,7 @@ impl CloudGeometryDiagnostic {
         for byte in self.asset_identity_sha256 {
             write!(&mut asset_identity, "{byte:02x}").expect("writing to a String cannot fail");
         }
-        format!(
+        let mut marker = format!(
             "calibrated=false quality={:?} occupied_texels={} quad_count={} quad_bytes={} \
              instance_count={} texture_period_milliblocks={} underside_y_milliblocks={} \
              top_y_milliblocks={} native_grid_size={} native_mesh_size={} \
@@ -267,7 +417,17 @@ impl CloudGeometryDiagnostic {
             self.config.distance_scale(),
             self.config.distance_control(),
             self.config.lighting(),
-        )
+        );
+        if self.record_stride_bytes == size_of::<ViewportCloudQuad>() as u32 {
+            write!(
+                &mut marker,
+                " geometry=viewport record_stride_bytes={} sampled_span_cells={}",
+                self.record_stride_bytes,
+                u32::from(self.config.mesh_size()) * u32::from(self.config.grid_size()),
+            )
+            .expect("writing to a String cannot fail");
+        }
+        marker
     }
 }
 

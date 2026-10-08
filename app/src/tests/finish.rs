@@ -825,7 +825,7 @@ fn full_view_mutation_closes_only_on_the_target_presented_generation() {
 
 #[test]
 fn full_outbound_queue_retries_the_same_request_then_preserves_fifo_order() {
-    let mut stream = client_world::WorldStream::new(WorldBootstrap {
+    let mut stream = chunk_pipeline::WorldStream::new(WorldBootstrap {
         local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
@@ -896,7 +896,7 @@ fn full_outbound_queue_retries_the_same_request_then_preserves_fifo_order() {
 #[test]
 fn command_admission_leaves_deadline_unarmed_until_transport_success_acknowledgement() {
     let request_stream = || {
-        let mut stream = client_world::WorldStream::new(WorldBootstrap {
+        let mut stream = chunk_pipeline::WorldStream::new(WorldBootstrap {
             local_player_unique_id: 1,
             dimension: 0,
             local_player_runtime_id: 1,
@@ -949,7 +949,7 @@ fn command_admission_leaves_deadline_unarmed_until_transport_success_acknowledge
 
 #[test]
 fn network_session_fatal_is_retained_when_command_sender_closes_in_same_frame() {
-    let mut stream = client_world::WorldStream::new(WorldBootstrap {
+    let mut stream = chunk_pipeline::WorldStream::new(WorldBootstrap {
         local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
@@ -1072,7 +1072,8 @@ fn world_ingress_drain_stops_at_transfer_barrier_without_consuming_replacement_e
         }))
         .unwrap();
 
-    let drained = drain_world_ingress_until_barrier(&mut receiver, 4);
+    let mut drain = WorldIngressDrain::new(4);
+    let drained: Vec<_> = std::iter::from_fn(|| drain.next(&mut receiver, 4)).collect();
 
     assert!(matches!(
         drained.as_slice(),
@@ -1136,22 +1137,6 @@ fn camera_sub_chunk_key_uses_floor_and_euclidean_chunks() {
         camera_sub_chunk_key(2, Vec3::new(-0.1, -64.1, 16.0)),
         SubChunkKey::new(2, -1, -5, 1)
     );
-}
-
-#[test]
-fn status_title_exposes_live_input_coordinates_for_acceptance() {
-    let transform = Transform {
-        translation: Vec3::new(1.25, 72.0, -8.5),
-        rotation: Quat::from_rotation_y(0.5),
-        ..Default::default()
-    };
-    let title = status_title(&transform, 42, 37, true, 59.94);
-
-    assert!(title.contains("59.9 FPS"));
-    assert!(title.contains("pos 1.25 72.00 -8.50"));
-    assert!(title.contains("yaw 0.50"));
-    assert!(title.contains("chunks 37/42"));
-    assert!(title.contains("captured"));
 }
 
 #[test]

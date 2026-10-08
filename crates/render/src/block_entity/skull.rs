@@ -2,7 +2,11 @@
 //!
 //! Dragon and piglin heads are drawn from the entity geometry via [`HeadModels`].
 
+use std::sync::Arc;
+
+use assets::{EntityGeometryCube, EntityGeometryScalar, EntityGeometryUv};
 use bevy::math::Mat4;
+use render_model::{ActorRigGeometry, EntityRigId, append_entity_cube_vertices};
 
 use super::{
     atlas::{BlockEntityAtlas, TextureRef},
@@ -22,6 +26,12 @@ pub enum SkullKind {
 }
 
 impl SkullKind {
+    /// Current native placed-head model selection follows the backing block type.
+    #[must_use]
+    pub fn from_block_identifier(identifier: &str) -> Option<Self> {
+        assets::vanilla_skull_type(identifier).and_then(|kind| Self::from_nbt(i64::from(kind)))
+    }
+
     /// The `SkullType` NBT byte.
     #[must_use]
     pub const fn from_nbt(value: i64) -> Option<Self> {
@@ -140,6 +150,54 @@ pub(super) fn emit(
             WHITE,
         );
     }
+}
+
+/// A worn skull: the player head cube (plus the hat layer for humanoid heads) on one bone, with
+/// its UVs mapped into the block-entity atlas's static region. `None` when the kind has no
+/// packed texture.
+#[must_use]
+pub fn skull_geometry(
+    id: EntityRigId,
+    atlas: &BlockEntityAtlas,
+    kind: SkullKind,
+) -> Option<ActorRigGeometry> {
+    let texture = kind.texture(atlas)?;
+    let [atlas_width, _] = atlas.size();
+    let static_height = atlas.static_height();
+    let rect = texture.rect_uv([0.0, 0.0, texture.logical[0], texture.logical[1]]);
+    let region = [
+        rect[0] / atlas_width as f32,
+        rect[1] / static_height as f32,
+        rect[2] / atlas_width as f32,
+        rect[3] / static_height as f32,
+    ];
+    let logical = (texture.logical[0] as u16, texture.logical[1] as u16);
+    let scalar =
+        |value: f32| EntityGeometryScalar::new(value).unwrap_or(EntityGeometryScalar::ZERO);
+    let cube = |uv: [f32; 2], inflate: f32| EntityGeometryCube {
+        origin: [-4.0, 24.0, -4.0].map(scalar),
+        size: [8.0; 3].map(scalar),
+        pivot: [EntityGeometryScalar::ZERO; 3],
+        rotation: [EntityGeometryScalar::ZERO; 3],
+        uv: EntityGeometryUv::Box(uv.map(scalar)),
+        inflate: scalar(inflate),
+        mirror: false,
+    };
+    let mut vertices = Vec::new();
+    let mut layers = vec![cube([0.0, 0.0], 0.0)];
+    if kind.has_hat_layer() {
+        layers.push(cube([32.0, 0.0], 0.25));
+    }
+    for layer in &layers {
+        append_entity_cube_vertices(&mut vertices, layer, 0, logical, false, 0.0).ok()?;
+    }
+    for vertex in &mut vertices {
+        for uv in [&mut vertex.uv, &mut vertex.back_uv] {
+            uv[0] = region[0] + uv[0] * (region[2] - region[0]);
+            uv[1] = region[1] + uv[1] * (region[3] - region[1]);
+        }
+    }
+    ActorRigGeometry::new(id, Arc::from(vertices), Arc::from(vec![[0.0, 1.5, 0.0]])).ok()
 }
 
 #[cfg(test)]

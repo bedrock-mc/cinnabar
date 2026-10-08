@@ -1,7 +1,10 @@
+use crate::chunk::transparent::liquid::{
+    transparent_frame_draw_for_range, transparent_frame_draws,
+};
 use crate::chunk::*;
 
 pub(in crate::chunk) fn drawable_allocation_identity(
-    frame_probe: &ActiveFrameProbe,
+    frame_probe: &FrameProbeScope<'_>,
     entity: Entity,
     allocation: &GpuChunkAllocation,
     active_tint_identity: ChunkBiomeTintIdentity,
@@ -19,7 +22,7 @@ pub(in crate::chunk) fn drawable_allocation_identity(
 
 pub(in crate::chunk) fn prepare_indirect_batch_draws<'a>(
     allocations: impl IntoIterator<Item = (Entity, &'a GpuChunkAllocation)>,
-    frame_probe: &ActiveFrameProbe,
+    frame_probe: &FrameProbeScope<'_>,
     active_tint_identity: ChunkBiomeTintIdentity,
 ) -> (
     Vec<DrawIndexedIndirectArgs>,
@@ -33,7 +36,7 @@ pub(in crate::chunk) fn prepare_indirect_batch_draws<'a>(
         else {
             continue;
         };
-        let Some(command) = indexed_indirect_command(allocation) else {
+        let Some(command) = cutout_indirect_command(allocation) else {
             continue;
         };
         commands.push(command);
@@ -44,7 +47,7 @@ pub(in crate::chunk) fn prepare_indirect_batch_draws<'a>(
 
 pub(in crate::chunk) fn prepare_model_indirect_batch_draws<'a>(
     allocations: impl IntoIterator<Item = (Entity, &'a GpuChunkAllocation)>,
-    frame_probe: &ActiveFrameProbe,
+    frame_probe: &FrameProbeScope<'_>,
     active_tint_identity: ChunkBiomeTintIdentity,
 ) -> (
     Vec<DrawIndexedIndirectArgs>,
@@ -69,7 +72,7 @@ pub(in crate::chunk) fn prepare_model_indirect_batch_draws<'a>(
 
 pub(in crate::chunk) fn prepare_depth_liquid_indirect_batch_draws<'a>(
     allocations: impl IntoIterator<Item = (Entity, &'a GpuChunkAllocation)>,
-    frame_probe: &ActiveFrameProbe,
+    frame_probe: &FrameProbeScope<'_>,
     active_tint_identity: ChunkBiomeTintIdentity,
 ) -> (
     Vec<DrawIndexedIndirectArgs>,
@@ -99,6 +102,7 @@ pub(in crate::chunk) fn prepare_chunk_indirect_batches(
     allocations: Query<&GpuChunkAllocation>,
     biome_tints: Res<ChunkBiomeTints>,
     frame_probe: Res<ActiveFrameProbe>,
+    mut solid_batches: ResMut<super::solid::ChunkSolidIndirectBatches>,
     mut batches: ResMut<ChunkIndirectBatches>,
     mut model_batches: ResMut<ChunkModelIndirectBatches>,
     mut depth_liquid_batches: ResMut<ChunkDepthLiquidIndirectBatches>,
@@ -108,66 +112,75 @@ pub(in crate::chunk) fn prepare_chunk_indirect_batches(
     let _timer = profiler
         .as_deref()
         .map(|profiler| profiler.time(RuntimeStage::IndirectPreparation));
+    let frame_probe = frame_probe.scope();
     let mut all_commands = Vec::new();
-    for batch in batches.0.values_mut() {
-        let (indirect_commands, drawn_allocations) = prepare_indirect_batch_draws(
-            batch
-                .visible_entities
-                .iter()
-                .filter_map(|&entity| allocations.get(entity).ok().map(|item| (entity, item))),
+    let tint_identity = biome_tints.table_identity();
+    // Solid runs go first so the alpha-tested cutout draws meet a filled depth buffer.
+    for batch in solid_batches.0.values_mut() {
+        let draws = super::solid::prepare_solid_indirect_batch_draws(
+            resident(&batch.cubes.visible_entities, &allocations),
+            batch.camera,
             &frame_probe,
-            biome_tints.table_identity(),
+            tint_identity,
         );
-        batch.drawn_allocations = drawn_allocations;
-        batch.indirect_offset = all_commands.len() as u64 * INDEXED_INDIRECT_BYTES;
-        let Ok(command_count) = u32::try_from(indirect_commands.len()) else {
-            batch.command_count = 0;
-            continue;
-        };
-        batch.command_count = command_count;
-        all_commands.extend(indirect_commands);
+        append_indirect_batch(&mut batch.cubes, draws, &mut all_commands);
+    }
+    for batch in batches.0.values_mut() {
+        let draws = prepare_indirect_batch_draws(
+            resident(&batch.visible_entities, &allocations),
+            &frame_probe,
+            tint_identity,
+        );
+        append_indirect_batch(batch, draws, &mut all_commands);
     }
     for batch in model_batches.0.values_mut() {
-        let (indirect_commands, drawn_allocations) = prepare_model_indirect_batch_draws(
-            batch
-                .visible_entities
-                .iter()
-                .filter_map(|&entity| allocations.get(entity).ok().map(|item| (entity, item))),
+        let draws = prepare_model_indirect_batch_draws(
+            resident(&batch.visible_entities, &allocations),
             &frame_probe,
-            biome_tints.table_identity(),
+            tint_identity,
         );
-        batch.drawn_allocations = drawn_allocations;
-        batch.indirect_offset = all_commands.len() as u64 * INDEXED_INDIRECT_BYTES;
-        let Ok(command_count) = u32::try_from(indirect_commands.len()) else {
-            batch.command_count = 0;
-            continue;
-        };
-        batch.command_count = command_count;
-        all_commands.extend(indirect_commands);
+        append_indirect_batch(batch, draws, &mut all_commands);
     }
     for batch in depth_liquid_batches.0.values_mut() {
-        let (indirect_commands, drawn_allocations) = prepare_depth_liquid_indirect_batch_draws(
-            batch
-                .visible_entities
-                .iter()
-                .filter_map(|&entity| allocations.get(entity).ok().map(|item| (entity, item))),
+        let draws = prepare_depth_liquid_indirect_batch_draws(
+            resident(&batch.visible_entities, &allocations),
             &frame_probe,
-            biome_tints.table_identity(),
+            tint_identity,
         );
-        batch.drawn_allocations = drawn_allocations;
-        batch.indirect_offset = all_commands.len() as u64 * INDEXED_INDIRECT_BYTES;
-        let Ok(command_count) = u32::try_from(indirect_commands.len()) else {
-            batch.command_count = 0;
-            continue;
-        };
-        batch.command_count = command_count;
-        all_commands.extend(indirect_commands);
+        append_indirect_batch(batch, draws, &mut all_commands);
     }
 
     if all_commands.is_empty() {
         return;
     }
     upload_indirect_commands_if_changed(&mut arena, &render_device, &render_queue, &all_commands);
+}
+
+fn resident<'a>(
+    entities: &'a [Entity],
+    allocations: &'a Query<&GpuChunkAllocation>,
+) -> impl Iterator<Item = (Entity, &'a GpuChunkAllocation)> {
+    entities
+        .iter()
+        .filter_map(|&entity| allocations.get(entity).ok().map(|item| (entity, item)))
+}
+
+fn append_indirect_batch(
+    batch: &mut ChunkIndirectBatch,
+    (commands, drawn): (
+        Vec<DrawIndexedIndirectArgs>,
+        Vec<(Entity, FrameAllocationIdentity)>,
+    ),
+    all_commands: &mut Vec<DrawIndexedIndirectArgs>,
+) {
+    batch.drawn_allocations = drawn;
+    batch.indirect_offset = all_commands.len() as u64 * INDEXED_INDIRECT_BYTES;
+    let Ok(command_count) = u32::try_from(commands.len()) else {
+        batch.command_count = 0;
+        return;
+    };
+    batch.command_count = command_count;
+    all_commands.extend(commands);
 }
 
 /// Writes the frame's indirect commands unless the buffer already holds exactly
@@ -182,12 +195,22 @@ pub(in crate::chunk) fn upload_indirect_commands_if_changed(
         arena.indirect_capacity = commands.len().next_power_of_two();
         arena.indirect_buffer = create_indirect_buffer(render_device, arena.indirect_capacity);
         arena.uploaded_indirect_bytes.clear();
+        crate::chunk::gpu::telemetry::log_arena_capacity(arena, "indirect commands grew");
     }
     let bytes: &[u8] = bytemuck::cast_slice(commands);
     if arena.uploaded_indirect_bytes == bytes {
         return 0;
     }
+    #[cfg(feature = "tracy")]
+    let _span = bevy::log::info_span!(
+        "terrain.indirect_write",
+        commands = commands.len(),
+        bytes = bytes.len()
+    )
+    .entered();
     render_queue.write_buffer(&arena.indirect_buffer, 0, bytes);
+    #[cfg(feature = "tracy")]
+    drop(_span);
     arena.uploaded_indirect_bytes.clear();
     arena.uploaded_indirect_bytes.extend_from_slice(bytes);
     bytes.len() as u64
@@ -201,51 +224,116 @@ pub(in crate::chunk) fn sorted_visible_entities<T>(
     visible
 }
 
-pub(in crate::chunk) type DrawChunkCommands = (
-    SetItemPipeline,
-    crate::lighting::SetWorldLightmap,
-    DrawPackedChunk,
-);
-pub(in crate::chunk) type DrawChunkIndirectCommands = (
-    SetItemPipeline,
-    crate::lighting::SetWorldLightmap,
-    DrawPackedChunksIndirect,
-);
-pub(in crate::chunk) type DrawModelCommands = (
-    SetItemPipeline,
-    crate::lighting::SetWorldLightmap,
-    DrawPackedModel,
-);
-pub(in crate::chunk) type DrawModelIndirectCommands = (
-    SetItemPipeline,
-    crate::lighting::SetWorldLightmap,
-    DrawPackedModelsIndirect,
-);
-pub(in crate::chunk) type DrawTransparentModelCommands = (
-    SetItemPipeline,
-    crate::lighting::SetWorldLightmap,
-    DrawPackedTransparentModel,
-);
-pub(in crate::chunk) type DrawDepthLiquidCommands = (
-    SetItemPipeline,
-    crate::lighting::SetWorldLightmap,
-    DrawDepthLiquid,
-);
-pub(in crate::chunk) type DrawDepthLiquidIndirectCommands = (
-    SetItemPipeline,
-    crate::lighting::SetWorldLightmap,
-    DrawDepthLiquidsIndirect,
-);
-pub(in crate::chunk) type DrawTransparentLiquidCommands = (
-    SetItemPipeline,
-    crate::lighting::SetWorldLightmap,
-    DrawTransparentLiquid,
-);
-pub(in crate::chunk) type DrawTransparentLiquidIndirectCommands = (
-    SetItemPipeline,
-    crate::lighting::SetWorldLightmap,
-    DrawTransparentLiquidIndirect,
-);
+/// Draws nearer cube chunks first so depth can reject hidden alpha-tested terrain.
+pub(in crate::chunk) fn front_to_back_cube_entities(
+    visible: impl IntoIterator<Item = (Entity, SubChunkKey)>,
+    rangefinder: &ViewRangefinder3d,
+) -> Vec<Entity> {
+    let mut visible = visible
+        .into_iter()
+        .map(|(entity, key)| {
+            // Equal-sized sub-chunks have the same origin-to-centre offset, so
+            // their origins and centres have the same camera-depth ordering.
+            let origin = Vec3::from_array(chunk_origin(key).map(|value| value as f32));
+            (entity, rangefinder.distance(&origin))
+        })
+        .collect::<Vec<_>>();
+    // Bevy's camera looks along negative view Z. Preserve entity order at ties.
+    visible.sort_unstable_by(|(left, left_depth), (right, right_depth)| {
+        right_depth
+            .total_cmp(left_depth)
+            .then_with(|| left.cmp(right))
+    });
+    visible.into_iter().map(|(entity, _)| entity).collect()
+}
+
+#[cfg(test)]
+mod order_tests;
+
+pub(in crate::chunk) type DrawChunkCommands = crate::gpu_timing::GpuDrawSpan<
+    { crate::RuntimeStage::GpuTerrainCutout as usize },
+    (
+        crate::chunk::gpu_cull::SkipOccludedTerrain,
+        SetItemPipeline,
+        crate::lighting::SetWorldLightmap,
+        crate::enhanced::SetEnhancedViewBindGroup<2>,
+        DrawPackedChunk,
+    ),
+>;
+pub(in crate::chunk) type DrawChunkIndirectCommands = crate::gpu_timing::GpuDrawSpan<
+    { crate::RuntimeStage::GpuTerrainCutout as usize },
+    (
+        SetItemPipeline,
+        crate::lighting::SetWorldLightmap,
+        crate::enhanced::SetEnhancedViewBindGroup<2>,
+        DrawPackedChunksIndirect,
+    ),
+>;
+pub(in crate::chunk) type DrawModelCommands = crate::gpu_timing::GpuDrawSpan<
+    { crate::RuntimeStage::GpuTerrainModel as usize },
+    (
+        crate::chunk::gpu_cull::SkipOccludedTerrain,
+        SetItemPipeline,
+        crate::lighting::SetWorldLightmap,
+        crate::enhanced::SetEnhancedViewBindGroup<2>,
+        DrawPackedModel,
+    ),
+>;
+pub(in crate::chunk) type DrawModelIndirectCommands = crate::gpu_timing::GpuDrawSpan<
+    { crate::RuntimeStage::GpuTerrainModel as usize },
+    (
+        SetItemPipeline,
+        crate::lighting::SetWorldLightmap,
+        crate::enhanced::SetEnhancedViewBindGroup<2>,
+        DrawPackedModelsIndirect,
+    ),
+>;
+pub(in crate::chunk) type DrawTransparentModelCommands = crate::gpu_timing::GpuDrawSpan<
+    { crate::RuntimeStage::GpuTerrainTransparent as usize },
+    (
+        SetItemPipeline,
+        crate::lighting::SetWorldLightmap,
+        crate::enhanced::SetEnhancedViewBindGroup<2>,
+        DrawPackedTransparentModel,
+    ),
+>;
+pub(in crate::chunk) type DrawDepthLiquidCommands = crate::gpu_timing::GpuDrawSpan<
+    { crate::RuntimeStage::GpuTerrainDepthLiquid as usize },
+    (
+        crate::chunk::gpu_cull::SkipOccludedTerrain,
+        SetItemPipeline,
+        crate::lighting::SetWorldLightmap,
+        crate::enhanced::SetEnhancedViewBindGroup<2>,
+        DrawDepthLiquid,
+    ),
+>;
+pub(in crate::chunk) type DrawDepthLiquidIndirectCommands = crate::gpu_timing::GpuDrawSpan<
+    { crate::RuntimeStage::GpuTerrainDepthLiquid as usize },
+    (
+        SetItemPipeline,
+        crate::lighting::SetWorldLightmap,
+        crate::enhanced::SetEnhancedViewBindGroup<2>,
+        DrawDepthLiquidsIndirect,
+    ),
+>;
+pub(in crate::chunk) type DrawTransparentLiquidCommands = crate::gpu_timing::GpuDrawSpan<
+    { crate::RuntimeStage::GpuTerrainTransparent as usize },
+    (
+        SetItemPipeline,
+        crate::lighting::SetWorldLightmap,
+        crate::enhanced::SetEnhancedViewBindGroup<2>,
+        DrawTransparentLiquid,
+    ),
+>;
+pub(in crate::chunk) type DrawTransparentLiquidIndirectCommands = crate::gpu_timing::GpuDrawSpan<
+    { crate::RuntimeStage::GpuTerrainTransparent as usize },
+    (
+        SetItemPipeline,
+        crate::lighting::SetWorldLightmap,
+        crate::enhanced::SetEnhancedViewBindGroup<2>,
+        DrawTransparentLiquidIndirect,
+    ),
+>;
 pub(in crate::chunk) type OpaqueChunkViewQuery = (Entity, Read<ViewUniformOffset>);
 
 pub(in crate::chunk) fn record_visibility_direct_submission(
@@ -266,7 +354,7 @@ pub(in crate::chunk) fn record_visibility_mdi_submissions(
 
 // Both supported paths use `first_instance` to select packed quad records and
 // `base_vertex / 4` to select the per-draw origin. Direct drawing is the
-// fallback only on adapters that expose BASE_VERTEX.
+// fallback only on adapters that expose BASE_VERTEX. This draws the cutout run.
 pub(in crate::chunk) struct DrawPackedChunk;
 
 pub(in crate::chunk) struct DrawTransparentLiquid;
@@ -354,8 +442,11 @@ impl RenderCommand<Transparent3d> for DrawTransparentLiquid {
         else {
             return RenderCommandResult::Skip;
         };
-        let Some(args) = transparent_draw_range_args(snapshot.buffer_slot(), ref_range.clone())
-        else {
+        let Some(args) = transparent_draw_range_args(
+            snapshot.buffer_slot(),
+            arena.transparent_slot_refs,
+            ref_range.clone(),
+        ) else {
             return RenderCommandResult::Skip;
         };
         if args.instance_count == 0 {
@@ -456,27 +547,15 @@ impl<P: PhaseItem> RenderCommand<P> for DrawPackedChunk {
         if !frame_probe.accepts(item.entity(), identity) {
             return RenderCommandResult::Skip;
         }
-        let Some(base_vertex) = metadata_base_vertex(allocation.metadata_index) else {
+        let Some(command) = cutout_indirect_command(allocation) else {
             return RenderCommandResult::Skip;
         };
-        let addresses = direct_stream_addresses(allocation);
-        if !cube_stream_addresses_valid(&addresses) || !shared_stream_ranges_disjoint(&addresses) {
-            return RenderCommandResult::Skip;
-        }
-        let Some(cube_range) = addresses.cube.as_ref() else {
-            return RenderCommandResult::Skip;
-        };
-        if cube_lighting_record_address(&addresses, cube_range.start).is_none()
-            || cube_lighting_record_address(&addresses, cube_range.end.saturating_sub(1)).is_none()
-        {
-            return RenderCommandResult::Skip;
-        }
         pass.set_bind_group(0, bind_group, &[view_offset.offset]);
         pass.set_index_buffer(arena.index_buffer.slice(..), IndexFormat::Uint32);
         pass.draw_indexed(
-            0..STATIC_QUAD_INDICES.len() as u32,
-            base_vertex,
-            cube_range.clone(),
+            command.first_index..command.first_index + command.index_count,
+            command.base_vertex,
+            command.first_instance..command.first_instance + command.instance_count,
         );
         frame_probe.record_direct_draw(item.entity(), identity);
         record_visibility_direct_submission(

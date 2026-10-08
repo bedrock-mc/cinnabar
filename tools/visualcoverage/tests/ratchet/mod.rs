@@ -54,7 +54,6 @@ const SELECTOR_ALIAS_CUBE_REMOVALS: [u32; 27] = [
 
 mod baseline;
 mod gallery;
-mod production;
 mod strict_graph;
 mod strict_routes;
 mod strict_writes;

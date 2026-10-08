@@ -1,4 +1,4 @@
-//! Bedrock grass-noise permutation (Lens 1.26.50.26: 0x6c08620, 0x6c08740).
+//! Bedrock grass-noise permutation.
 
 const MT_WORDS: usize = 624;
 const PERMUTATION_SIZE: usize = 256;
@@ -40,7 +40,7 @@ impl ClientRandom {
         value ^ (value >> 18)
     }
 
-    /// Converts the full unsigned word to a float as Core::Random::nextFloat does.
+    /// Converts the full unsigned word to a float as vanilla's random float does.
     pub fn next_float(&mut self) -> f32 {
         (f64::from(self.next_u32()) / 4_294_967_296.0) as f32
     }

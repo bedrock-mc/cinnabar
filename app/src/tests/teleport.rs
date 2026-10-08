@@ -881,6 +881,7 @@ fn foreign_and_source_events_do_not_advance_target_stage_diagnostics() {
             WorldEvent::SubChunks(SubChunkBatchEvent {
                 dimension: 0,
                 entries: vec![SubChunkEntryEvent {
+                    diagnostics: None,
                     position: [0, -4, 0],
                     result: SubChunkResult::AllAir,
                 }],
@@ -891,6 +892,7 @@ fn foreign_and_source_events_do_not_advance_target_stage_diagnostics() {
             WorldEvent::SubChunks(SubChunkBatchEvent {
                 dimension: 1,
                 entries: vec![SubChunkEntryEvent {
+                    diagnostics: None,
                     position: [65, -4, 65],
                     result: SubChunkResult::AllAir,
                 }],
@@ -916,10 +918,12 @@ fn foreign_and_source_events_do_not_advance_target_stage_diagnostics() {
             dimension: 0,
             entries: vec![
                 SubChunkEntryEvent {
+                    diagnostics: None,
                     position: [0, -4, 0],
                     result: SubChunkResult::AllAir,
                 },
                 SubChunkEntryEvent {
+                    diagnostics: None,
                     position: [65, -4, 65],
                     result: SubChunkResult::AllAir,
                 },
@@ -1053,6 +1057,7 @@ fn full_view_teleport_requires_far_motion_matching_publisher_and_two_presented_f
         &WorldEvent::SubChunks(protocol::SubChunkBatchEvent {
             dimension: 0,
             entries: vec![SubChunkEntryEvent {
+                diagnostics: None,
                 position: [65, -4, 65],
                 result: SubChunkResult::AllAir,
             }],
@@ -1064,6 +1069,7 @@ fn full_view_teleport_requires_far_motion_matching_publisher_and_two_presented_f
         &WorldEvent::SubChunks(protocol::SubChunkBatchEvent {
             dimension: 0,
             entries: vec![SubChunkEntryEvent {
+                diagnostics: None,
                 position: [65, -4, 65],
                 result: SubChunkResult::AllAir,
             }],

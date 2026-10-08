@@ -1,57 +1,223 @@
 use crate::{
-    Aabb, BlockPhysicsFlags, BlockPhysicsSample, CollisionQuery, CollisionWorld, WorldQueryError,
+    Aabb, BlockPhysicsFlags, BlockPhysicsSample, CollisionQuery, CollisionWorld,
+    ProvenancedCollider, WorldQueryError,
 };
 
-/// How far below a scaffolding top the feet may sit and still stand on it.
-const TOP_TOLERANCE: f64 = 1.0e-3;
+use super::environment::SampledEnvironment;
 
-/// Scaffolding is solid only under the feet of a player who is not descending.
+/// How far below a scaffolding top the feet may sit and still stand on it.
+const TOP_TOLERANCE: f32 = 1.0e-6;
+/// Vertical speed of both the held-jump ascent and the sneak descent.
+pub(super) const CLIMB_SPEED: f64 = 0.15;
+
+/// Scaffolding facts of the body footprint at the feet layer and the layer below it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(super) struct ScaffoldingContact {
+    /// Scaffolding at the feet layer.
+    pub inside: bool,
+    /// Scaffolding at the layer below the feet.
+    pub over: bool,
+    /// Lower-layer scaffolding resting on a block other than air or water.
+    pub over_descending: bool,
+}
+
+/// Scans every footprint column at the feet layer and, while sneaking (the only
+/// time it matters), the layer below and its support. Fresh reads merge into the
+/// tick identity. Feet-layer support is never read: inside scaffolding already
+/// admits the ascent.
+pub(super) fn sample_contact(
+    world: &(impl CollisionWorld + ?Sized),
+    player: Aabb,
+    sneaking: bool,
+    sampled: &mut SampledEnvironment,
+) -> Result<ScaffoldingContact, WorldQueryError> {
+    let floor = |value: f64| (value as f32).floor() as i32;
+    let feet = floor(player.min.y);
+    let below = ((player.min.y as f32) - 1.0).floor() as i32;
+    let mut contact = ScaffoldingContact::default();
+    for x in floor(player.min.x)..=floor(player.max.x) {
+        for z in floor(player.min.z)..=floor(player.max.z) {
+            for (y, layer_over) in [(feet, false), (below, true)] {
+                if layer_over && !sneaking {
+                    continue;
+                }
+                if !primary(world, sampled, [x, y, z])?
+                    .flags
+                    .contains(BlockPhysicsFlags::SCAFFOLDING)
+                {
+                    continue;
+                }
+                if layer_over {
+                    contact.over = true;
+                    contact.over_descending |= rests_on_support(world, sampled, [x, y - 1, z])?;
+                } else {
+                    contact.inside = true;
+                }
+            }
+        }
+    }
+    Ok(contact)
+}
+
+fn primary(
+    world: &(impl CollisionWorld + ?Sized),
+    sampled: &mut SampledEnvironment,
+    block: [i32; 3],
+) -> Result<crate::BlockPhysicsFacts, WorldQueryError> {
+    let (facts, fresh) = sampled.primary(world, block)?;
+    if let Some(fresh) = fresh {
+        sampled.identity = sampled.identity.merge(&fresh)?;
+    }
+    Ok(facts)
+}
+
+/// Whether the block under a scaffold is anything but air or (flowing) water.
+fn rests_on_support(
+    world: &(impl CollisionWorld + ?Sized),
+    sampled: &mut SampledEnvironment,
+    block: [i32; 3],
+) -> Result<bool, WorldQueryError> {
+    let facts = primary(world, sampled, block)?;
+    let water = facts.flags.contains(BlockPhysicsFlags::WATER)
+        && !matches!(
+            facts.surface_response,
+            crate::SurfaceResponse::BubbleUp | crate::SurfaceResponse::BubbleDown
+        );
+    let air = match world.primary_is_air(block)? {
+        Some(air) => {
+            sampled.identity = sampled.identity.merge(&air.identity)?;
+            air.value
+        }
+        // Without material identity, air is the bare passable fact set.
+        None => facts.flags == BlockPhysicsFlags::PASSABLE,
+    };
+    Ok(!air && !water)
+}
+
+/// Scaffolding is solid only under the feet of a player not descending through it.
 pub(super) struct ScaffoldingView<'a, W> {
     inner: &'a W,
-    feet_y: f64,
+    player: Aabb,
     descending: bool,
 }
 
 impl<'a, W: CollisionWorld> ScaffoldingView<'a, W> {
-    pub(super) const fn new(inner: &'a W, feet_y: f64, descending: bool) -> Self {
+    /// Retains the pre-move box used by the native contextual collision query.
+    pub(super) const fn new(inner: &'a W, player: Aabb, descending: bool) -> Self {
         Self {
             inner,
-            feet_y,
+            player,
             descending,
         }
-    }
-
-    fn is_scaffolding(&self, block: [i32; 3]) -> Result<bool, WorldQueryError> {
-        Ok(self
-            .inner
-            .block_physics(block)?
-            .layers
-            .iter()
-            .any(|facts| facts.flags.contains(BlockPhysicsFlags::SCAFFOLDING)))
     }
 }
 
 impl<W: CollisionWorld> CollisionWorld for ScaffoldingView<'_, W> {
     fn collision_boxes(&self, query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
+        let colliders = self.collision_boxes_with_provenance(query)?;
+        Ok(CollisionQuery {
+            value: colliders
+                .value
+                .into_iter()
+                .map(|collider| collider.aabb)
+                .collect(),
+            identity: colliders.identity,
+        })
+    }
+
+    /// Keeps source cells attached to the contextual collision shapes.
+    fn collision_boxes_with_provenance(
+        &self,
+        query: Aabb,
+    ) -> Result<CollisionQuery<Vec<ProvenancedCollider>>, WorldQueryError> {
         let colliders = self.inner.collision_boxes_with_provenance(query)?;
         let mut kept = Vec::with_capacity(colliders.value.len());
+        let mut identity = colliders.identity;
         for collider in colliders.value {
-            let solid_top = !self.descending && self.feet_y >= collider.aabb.max.y - TOP_TOLERANCE;
-            if !solid_top
-                && let Some(block) = collider.block
-                && self.is_scaffolding(block)?
-            {
-                continue;
+            let bounds = collider.aabb;
+            let solid_top = !self.descending
+                && self.player.min.y as f32 >= bounds.max.y as f32 - TOP_TOLERANCE
+                && self.player.max.x > bounds.min.x
+                && self.player.min.x < bounds.max.x
+                && self.player.max.z > bounds.min.z
+                && self.player.min.z < bounds.max.z;
+            if !solid_top && let Some(block) = collider.block {
+                let sample = self.inner.block_physics(block)?;
+                identity = identity.merge(&sample.identity)?;
+                if sample
+                    .layers
+                    .iter()
+                    .any(|facts| facts.flags.contains(BlockPhysicsFlags::SCAFFOLDING))
+                {
+                    continue;
+                }
             }
-            kept.push(collider.aabb);
+            kept.push(collider);
         }
         Ok(CollisionQuery {
             value: kept,
-            identity: colliders.identity,
+            identity,
         })
     }
 
     fn block_physics(&self, block: [i32; 3]) -> Result<BlockPhysicsSample, WorldQueryError> {
         self.inner.block_physics(block)
+    }
+
+    fn primary_is_air(
+        &self,
+        block: [i32; 3],
+    ) -> Result<Option<CollisionQuery<bool>>, WorldQueryError> {
+        self.inner.primary_is_air(block)
+    }
+}
+
+#[cfg(test)]
+mod review_tests {
+    use super::*;
+    struct Conflicting;
+    impl CollisionWorld for Conflicting {
+        fn collision_boxes(
+            &self,
+            _query: Aabb,
+        ) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
+            Ok(CollisionQuery::synthetic(vec![]))
+        }
+        fn collision_boxes_with_provenance(
+            &self,
+            _query: Aabb,
+        ) -> Result<CollisionQuery<Vec<crate::ProvenancedCollider>>, WorldQueryError> {
+            Ok(CollisionQuery::synthetic(vec![
+                crate::ProvenancedCollider {
+                    aabb: Aabb::new(crate::Vec3::ZERO, crate::Vec3::ONE),
+                    block: Some([0; 3]),
+                    runtime_id: None,
+                },
+            ]))
+        }
+        fn block_physics(&self, _block: [i32; 3]) -> Result<BlockPhysicsSample, WorldQueryError> {
+            let mut identity = CollisionQuery::synthetic(()).identity;
+            identity.registry.preg_sha256 = [1; 32];
+            Ok(BlockPhysicsSample {
+                identity,
+                layers: Box::new([crate::BlockPhysicsFacts {
+                    friction: 0.6,
+                    horizontal_speed_factor: 1.0,
+                    vertical_speed_factor: 1.0,
+                    fluid_height_blocks: 0.0,
+                    flags: BlockPhysicsFlags::SCAFFOLDING,
+                    surface_response: crate::SurfaceResponse::None,
+                }]),
+            })
+        }
+    }
+    #[test]
+    fn review_scaffolding_classification_must_share_collision_identity() {
+        let player = Aabb::player_at(crate::Vec3::new(0.5, 0.0, 0.5));
+        let view = ScaffoldingView::new(&Conflicting, player, true);
+        assert!(matches!(
+            view.collision_boxes(player),
+            Err(WorldQueryError::RegistryIdentityMismatch)
+        ));
     }
 }

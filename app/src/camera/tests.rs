@@ -26,6 +26,11 @@ use sim::{
 use ui::UserSettings;
 use world::ChunkKey;
 
+mod cursor_changes;
+use cursor_changes::track_test_focus;
+mod front_input;
+mod projection;
+
 #[derive(Default)]
 struct CameraCollisionFixture {
     boxes: Vec<Aabb>,
@@ -61,7 +66,7 @@ impl CollisionWorld for LenientCameraFixture {
 }
 
 #[test]
-fn third_person_boom_sweeps_a_radius_point_and_stops_before_solid_geometry() {
+fn third_person_boom_traces_eight_corners_and_stops_before_solid_geometry() {
     let subject = Vec3::new(0.0, 2.0, 0.0);
     let world = CameraCollisionFixture {
         boxes: vec![Aabb::new(
@@ -82,7 +87,7 @@ fn third_person_boom_sweeps_a_radius_point_and_stops_before_solid_geometry() {
         Vec3::new(
             0.0,
             2.0,
-            1.8 - camera::THIRD_PERSON_COLLISION_EPSILON_BLOCKS,
+            4.02_f32.sqrt() - render_api::CAMERA_NEAR_PLANE_BLOCKS,
         ),
         1.0e-5,
     ));
@@ -91,7 +96,6 @@ fn third_person_boom_sweeps_a_radius_point_and_stops_before_solid_geometry() {
 #[test]
 fn third_person_boom_handles_compound_wall_corner_ceiling_floor_transitions_before_hit() {
     let subject = Vec3::new(0.0, 2.0, 0.0);
-    let diagonal = std::f32::consts::FRAC_1_SQRT_2;
     let cases = [
         (
             "wall",
@@ -100,7 +104,7 @@ fn third_person_boom_handles_compound_wall_corner_ceiling_floor_transitions_befo
                 SimVec3::new(-1.0, 1.0, 2.0),
                 SimVec3::new(1.0, 3.0, 3.0),
             )],
-            1.8,
+            4.02_f32.sqrt(),
         ),
         (
             "corner",
@@ -109,7 +113,7 @@ fn third_person_boom_handles_compound_wall_corner_ceiling_floor_transitions_befo
                 Aabb::new(SimVec3::new(1.5, 1.0, -1.0), SimVec3::new(2.0, 3.0, 4.0)),
                 Aabb::new(SimVec3::new(-1.0, 1.0, 1.5), SimVec3::new(4.0, 3.0, 2.0)),
             ],
-            1.3 / diagonal,
+            3.95_f32.sqrt(),
         ),
         (
             "ceiling",
@@ -118,7 +122,7 @@ fn third_person_boom_handles_compound_wall_corner_ceiling_floor_transitions_befo
                 SimVec3::new(-1.0, 4.0, -1.0),
                 SimVec3::new(1.0, 4.5, 5.0),
             )],
-            1.8 / diagonal,
+            7.25_f32.sqrt(),
         ),
         (
             "floor",
@@ -127,7 +131,7 @@ fn third_person_boom_handles_compound_wall_corner_ceiling_floor_transitions_befo
                 SimVec3::new(-1.0, 0.5, -1.0),
                 SimVec3::new(1.0, 1.0, 5.0),
             )],
-            0.8 / diagonal,
+            1.65_f32.sqrt(),
         ),
     ];
 
@@ -143,7 +147,7 @@ fn third_person_boom_handles_compound_wall_corner_ceiling_floor_transitions_befo
             &blocked_world,
         );
         let blocked_distance = blocked.translation.distance(subject);
-        let expected = contact_distance - camera::THIRD_PERSON_COLLISION_EPSILON_BLOCKS;
+        let expected = contact_distance - render_api::CAMERA_NEAR_PLANE_BLOCKS;
         assert!(
             (blocked_distance - expected).abs() <= 1.0e-4,
             "{label} boom distance {blocked_distance} did not stop at pre-hit {expected}",
@@ -227,7 +231,7 @@ fn third_person_boom_stops_at_a_real_wall_beside_a_skipped_cell() {
         Vec3::new(
             0.0,
             2.0,
-            1.8 - camera::THIRD_PERSON_COLLISION_EPSILON_BLOCKS
+            4.02_f32.sqrt() - render_api::CAMERA_NEAR_PLANE_BLOCKS
         ),
         1.0e-5,
     ));
@@ -260,20 +264,6 @@ fn missing_world_stream_falls_back_to_eye_in_third_person() {
         camera::unavailable_world_perspective_pose(eye, rotation, PerspectiveMode::ThirdPersonBack);
     assert_eq!(pose.translation, eye);
     assert!(pose.rotation.abs_diff_eq(rotation, 1.0e-6));
-}
-
-#[test]
-fn front_camera_uses_positive_horizontal_look_instead_of_pitched_forward() {
-    let subject = Vec3::new(4.0, 20.0, -3.0);
-    let pitched = Quat::from_euler(EulerRot::YXZ, 0.0, 45.0_f32.to_radians(), 0.0);
-
-    let pose = camera::perspective_pose(subject, pitched, PerspectiveMode::ThirdPersonFront);
-
-    assert!(
-        pose.translation
-            .abs_diff_eq(Vec3::new(4.0, 20.0, -7.0), 1.0e-5)
-    );
-    assert!((pose.rotation * Vec3::NEG_Z).dot(Vec3::Z) > 0.999);
 }
 
 #[test]
@@ -397,7 +387,10 @@ fn capture_test_app(
     capture_on_start: bool,
 ) -> (App, Entity) {
     let mut app = App::new();
-    app.init_resource::<ButtonInput<KeyCode>>()
+    app.insert_resource(crate::player_runtime::PlayerRuntime::new(1));
+    app.init_resource::<client_presentation::camera::CursorFocus>()
+        .add_systems(PreUpdate, track_test_focus)
+        .init_resource::<ButtonInput<KeyCode>>()
         .init_resource::<ButtonInput<MouseButton>>()
         .init_resource::<AccumulatedMouseMotion>()
         .insert_resource(AutoFly::with_startup_capture(false, capture_on_start))
@@ -509,8 +502,21 @@ fn left_click_recaptures_with_locked_invisible_cursor() {
 }
 
 #[test]
+fn consent_popup_releases_a_captured_cursor_whatever_the_scene_asks() {
+    let (mut app, window) = capture_test_app(true, CursorGrabMode::Locked, false, true);
+    app.insert_resource(crate::server_experiences::input::ConsentInput(true));
+
+    app.update();
+
+    let cursor = app.world().get::<CursorOptions>(window).unwrap();
+    assert_eq!(cursor.grab_mode, CursorGrabMode::None);
+    assert!(cursor.visible);
+}
+
+#[test]
 fn production_schedule_consumes_recapture_click_until_physical_release() {
     let mut app = App::new();
+    app.insert_resource(crate::player_runtime::PlayerRuntime::new(1));
     configure_client_frame_schedule(&mut app);
     app.init_resource::<Time>()
         .add_plugins(FlyCameraPlugin::default());
@@ -580,6 +586,7 @@ fn production_schedule_consumes_recapture_click_until_physical_release() {
 #[test]
 fn production_schedule_preserves_locked_cursor_attack_hold_across_frames() {
     let mut app = App::new();
+    app.insert_resource(crate::player_runtime::PlayerRuntime::new(1));
     configure_client_frame_schedule(&mut app);
     app.init_resource::<Time>()
         .add_plugins(FlyCameraPlugin::default());
@@ -631,6 +638,7 @@ fn production_schedule_preserves_locked_cursor_attack_hold_across_frames() {
 #[test]
 fn plugin_spawns_camera_and_auto_fly_uses_delta_seconds() {
     let mut app = App::new();
+    app.insert_resource(crate::player_runtime::PlayerRuntime::new(1));
     app.init_resource::<Time>()
         .add_plugins(FlyCameraPlugin::new(true));
     app.world_mut().spawn((
@@ -654,13 +662,13 @@ fn plugin_spawns_camera_and_auto_fly_uses_delta_seconds() {
         .query_filtered::<&Msaa, (With<Camera3d>, With<FlyCamera>)>()
         .single(app.world())
         .unwrap();
-    assert_eq!(*msaa, Msaa::Off);
+    assert_eq!(msaa.samples(), ui::DEFAULT_ANTI_ALIASING_SAMPLES);
     let fxaa = app
         .world_mut()
         .query_filtered::<&Fxaa, (With<Camera3d>, With<FlyCamera>)>()
-        .single(app.world())
-        .unwrap();
-    assert!(fxaa.enabled);
+        .iter(app.world())
+        .count();
+    assert_eq!(fxaa, 0);
     let start = app.world().resource::<LocalViewPose>().eye_translation();
     assert!(app.world().resource::<AutoFly>().enabled());
 
@@ -675,8 +683,52 @@ fn plugin_spawns_camera_and_auto_fly_uses_delta_seconds() {
 }
 
 #[test]
+fn standalone_camera_keeps_advancing_when_the_host_diagnostic_clock_changes() {
+    let mut app = App::new();
+    app.insert_resource(crate::player_runtime::PlayerRuntime::new(1));
+    app.init_resource::<Time>()
+        .add_plugins(FlyCameraPlugin::new(true));
+    app.world_mut().spawn((
+        Window {
+            focused: true,
+            ..default()
+        },
+        CursorOptions::default(),
+        PrimaryWindow,
+    ));
+    app.update();
+    let start = app.world().resource::<LocalViewPose>().eye_translation();
+    let step = Duration::from_millis(250);
+    let mut elapsed = Duration::ZERO;
+
+    for real_clock_present in [false, true, false] {
+        if real_clock_present {
+            let mut real_clock = Time::<bevy::time::Real>::default();
+            real_clock.advance_by(Duration::from_secs(10));
+            app.insert_resource(real_clock);
+        } else {
+            app.world_mut().remove_resource::<Time<bevy::time::Real>>();
+        }
+        app.world_mut().resource_mut::<Time>().advance_by(step);
+        elapsed += step;
+        app.update();
+
+        let actual = app.world().resource::<LocalViewPose>().eye_translation();
+        let expected = start + camera::auto_fly_offset(elapsed.as_secs_f32());
+        assert!(actual.abs_diff_eq(expected, 1.0e-4));
+        assert!(
+            app.world()
+                .resource::<camera::ScreenOverlays>()
+                .layers
+                .is_empty()
+        );
+    }
+}
+
+#[test]
 fn stable_presentation_pause_ignores_held_movement_and_look_input() {
     let mut app = App::new();
+    app.insert_resource(crate::player_runtime::PlayerRuntime::new(1));
     configure_client_frame_schedule(&mut app);
     app.init_resource::<Time>()
         .add_plugins(FlyCameraPlugin::new(true))
@@ -721,14 +773,6 @@ fn stable_presentation_pause_ignores_held_movement_and_look_input() {
 }
 
 #[test]
-fn horizontal_fov_converts_to_aspect_correct_vertical_fov() {
-    let horizontal = 90.0_f32.to_radians();
-    let sixteen_nine = camera::horizontal_fov_to_vertical(horizontal, 16.0 / 9.0);
-    let four_three = camera::horizontal_fov_to_vertical(horizontal, 4.0 / 3.0);
-    assert!(four_three > sixteen_nine);
-}
-
-#[test]
 fn perspective_cycle_matches_bedrock_settings_order() {
     assert_eq!(
         camera::next_perspective(PerspectiveMode::FirstPerson),
@@ -745,41 +789,24 @@ fn perspective_cycle_matches_bedrock_settings_order() {
 }
 
 #[test]
-fn front_perspective_inverts_horizontal_orbit_input_only() {
-    let delta = Vec2::new(8.0, -3.0);
-    assert_eq!(
-        camera::perspective_look_delta(delta, PerspectiveMode::FirstPerson),
-        delta
-    );
-    assert_eq!(
-        camera::perspective_look_delta(delta, PerspectiveMode::ThirdPersonBack),
-        delta
-    );
-    assert_eq!(
-        camera::perspective_look_delta(delta, PerspectiveMode::ThirdPersonFront),
-        Vec2::new(-8.0, -3.0)
-    );
-}
-
-#[test]
 fn perspective_poses_orbit_four_blocks_and_face_the_subject() {
     let subject = Vec3::new(4.0, 70.0, -2.0);
     let rotation = Quat::from_euler(EulerRot::YXZ, 0.7, -0.3, 0.0);
     let forward = rotation * Vec3::NEG_Z;
+    let radius = camera::THIRD_PERSON_RADIUS_BLOCKS;
 
     let first = camera::perspective_pose(subject, rotation, PerspectiveMode::FirstPerson);
     assert!(first.translation.abs_diff_eq(subject, 1.0e-6));
     assert!(first.rotation.abs_diff_eq(rotation, 1.0e-6));
 
     let back = camera::perspective_pose(subject, rotation, PerspectiveMode::ThirdPersonBack);
-    assert!((back.translation.distance(subject) - 4.0).abs() < 1.0e-5);
-    assert!((back.translation - (subject - forward * 4.0)).length() < 1.0e-5);
+    assert!((back.translation.distance(subject) - radius).abs() < 1.0e-5);
+    assert!((back.translation - (subject - forward * radius)).length() < 1.0e-5);
     assert!((back.rotation * Vec3::NEG_Z).dot((subject - back.translation).normalize()) > 0.999);
 
     let front = camera::perspective_pose(subject, rotation, PerspectiveMode::ThirdPersonFront);
-    let horizontal_forward = Vec3::new(forward.x, 0.0, forward.z).normalize();
-    assert!((front.translation.distance(subject) - 4.0).abs() < 1.0e-5);
-    assert!((front.translation - (subject + horizontal_forward * 4.0)).length() < 1.0e-5);
+    assert!((front.translation.distance(subject) - radius).abs() < 1.0e-5);
+    assert!((front.translation - (subject + forward * radius)).length() < 1.0e-5);
     assert!((front.rotation * Vec3::NEG_Z).dot((subject - front.translation).normalize()) > 0.999);
 }
 
@@ -847,8 +874,27 @@ fn settings_authority_rejects_stale_and_invalid_fov_updates_atomically() {
 }
 
 #[test]
+fn review_unrelated_settings_keep_the_hotkey_perspective() {
+    let mut authority = CameraSettingsAuthority::default();
+    let mut settings = UserSettings::default();
+    authority.replace(1, &settings).unwrap();
+    authority.cycle_perspective();
+    assert_eq!(authority.perspective(), PerspectiveMode::ThirdPersonBack);
+    settings.video.horizontal_fov_degrees = 82.0;
+    authority.replace(2, &settings).unwrap();
+    assert_eq!(authority.perspective(), PerspectiveMode::ThirdPersonBack);
+    settings.gameplay.default_perspective = PerspectiveMode::ThirdPersonFront;
+    authority.replace(3, &settings).unwrap();
+    assert_eq!(authority.perspective(), PerspectiveMode::ThirdPersonFront);
+    authority.reset_perspective();
+    authority.replace(4, &settings).unwrap();
+    assert_eq!(authority.perspective(), PerspectiveMode::FirstPerson);
+}
+
+#[test]
 fn captured_f5_cycles_perspective_without_moving_the_local_view() {
     let mut app = App::new();
+    app.insert_resource(crate::player_runtime::PlayerRuntime::new(1));
     configure_client_frame_schedule(&mut app);
     app.init_resource::<Time>()
         .add_plugins(FlyCameraPlugin::default());
@@ -895,6 +941,7 @@ fn captured_f5_cycles_perspective_without_moving_the_local_view() {
 #[test]
 fn captured_f5_tap_between_frames_still_cycles_perspective_once() {
     let mut app = App::new();
+    app.insert_resource(crate::player_runtime::PlayerRuntime::new(1));
     configure_client_frame_schedule(&mut app);
     app.init_resource::<Time>()
         .add_plugins(FlyCameraPlugin::default());
@@ -950,148 +997,10 @@ fn captured_f5_tap_between_frames_still_cycles_perspective_once() {
 }
 
 #[test]
-fn replacing_user_settings_updates_the_live_projection() {
-    let mut app = App::new();
-    app.init_resource::<Time>()
-        .add_plugins(FlyCameraPlugin::default());
-    app.world_mut().spawn((
-        Window {
-            resolution: WindowResolution::new(1600, 900),
-            focused: true,
-            ..default()
-        },
-        CursorOptions::default(),
-        PrimaryWindow,
-    ));
-    app.update();
-
-    let mut settings = UserSettings::default();
-    settings.video.horizontal_fov_degrees = 82.0;
-    app.world_mut()
-        .resource_mut::<RuntimeSettings>()
-        .replace_user_settings(settings);
-    app.update();
-
-    let projection = app
-        .world_mut()
-        .query_filtered::<&Projection, (With<Camera3d>, With<FlyCamera>)>()
-        .single(app.world())
-        .unwrap();
-    let Projection::Perspective(perspective) = projection else {
-        panic!("fly camera projection is not perspective");
-    };
-    assert_eq!(
-        app.world()
-            .resource::<CameraSettingsAuthority>()
-            .generation(),
-        1
-    );
-    let expected = camera::horizontal_fov_to_vertical(82.0_f32.to_radians(), 16.0 / 9.0);
-    assert!((perspective.fov - expected).abs() < 1.0e-6);
-}
-
-#[test]
-fn horizontal_fov_conversion_is_finite_and_bounded_for_bad_inputs() {
-    for horizontal in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, -1.0, 0.0, 999.0] {
-        for aspect in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, -1.0, 0.0] {
-            let vertical = camera::horizontal_fov_to_vertical(horizontal, aspect);
-            assert!(vertical.is_finite());
-            assert!(vertical > 0.0 && vertical < std::f32::consts::PI);
-        }
-    }
-}
-
-#[test]
-fn plugin_spawns_camera_with_default_horizontal_fov() {
-    let mut app = App::new();
-    app.init_resource::<Time>()
-        .add_plugins(FlyCameraPlugin::default());
-    app.world_mut().spawn((
-        Window {
-            focused: true,
-            ..default()
-        },
-        CursorOptions::default(),
-        PrimaryWindow,
-    ));
-
-    app.update();
-    let projection = app
-        .world_mut()
-        .query_filtered::<&Projection, (With<Camera3d>, With<FlyCamera>)>()
-        .single(app.world())
-        .unwrap();
-    let Projection::Perspective(perspective) = projection else {
-        panic!("fly camera projection is not perspective");
-    };
-    let expected = camera::horizontal_fov_to_vertical(90.0_f32.to_radians(), 16.0 / 9.0);
-    assert!(
-        (perspective.fov - expected).abs() <= 1.0e-6,
-        "vertical FOV = {} degrees, want aspect-correct 90-degree horizontal FOV",
-        perspective.fov.to_degrees()
-    );
-}
-
-#[test]
-fn camera_vertical_fov_tracks_primary_window_aspect_changes() {
-    let mut app = App::new();
-    app.init_resource::<Time>()
-        .add_plugins(FlyCameraPlugin::default());
-    let window = app
-        .world_mut()
-        .spawn((
-            Window {
-                resolution: WindowResolution::new(1600, 900),
-                focused: true,
-                ..default()
-            },
-            CursorOptions::default(),
-            PrimaryWindow,
-        ))
-        .id();
-
-    app.update();
-    let fov_16_9 = match app
-        .world_mut()
-        .query_filtered::<&Projection, (With<Camera3d>, With<FlyCamera>)>()
-        .single(app.world())
-        .unwrap()
-    {
-        Projection::Perspective(perspective) => perspective.fov,
-        _ => panic!("fly camera projection is not perspective"),
-    };
-    assert!(
-        (fov_16_9 - camera::horizontal_fov_to_vertical(90.0_f32.to_radians(), 16.0 / 9.0)).abs()
-            < 1.0e-6
-    );
-
-    app.world_mut()
-        .get_mut::<Window>(window)
-        .unwrap()
-        .resolution
-        .set_physical_resolution(1200, 900);
-    app.update();
-
-    let fov_4_3 = match app
-        .world_mut()
-        .query_filtered::<&Projection, (With<Camera3d>, With<FlyCamera>)>()
-        .single(app.world())
-        .unwrap()
-    {
-        Projection::Perspective(perspective) => perspective.fov,
-        _ => panic!("fly camera projection is not perspective"),
-    };
-    assert!(
-        (fov_4_3 - camera::horizontal_fov_to_vertical(90.0_f32.to_radians(), 4.0 / 3.0)).abs()
-            < 1.0e-6
-    );
-    assert!(fov_4_3 > fov_16_9);
-}
-
-#[test]
 fn auto_fly_moves_and_rotates_while_unfocused_with_a_released_cursor() {
     let target = Vec3::new(4.5, 70.0, -3.5);
     let mut app = App::new();
+    app.insert_resource(crate::player_runtime::PlayerRuntime::new(1));
     app.init_resource::<Time>()
         .add_plugins(FlyCameraPlugin::new(true));
     app.world_mut()

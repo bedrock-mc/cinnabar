@@ -368,10 +368,11 @@ pub fn plan_texture_mip_uploads(
 pub fn greedy_texture_uv(face: Face, corner: u32, width: u32, height: u32, flags: u32) -> [f32; 2] {
     let width = width as f32;
     let height = height as f32;
-    let horizontal_standard = [[0.0, 0.0], [width, 0.0], [width, height], [0.0, height]];
+    // Match the native face axes in chunk.wgsl before applying pack transforms.
+    let horizontal_standard = [[0.0, height], [width, height], [width, 0.0], [0.0, 0.0]];
     let horizontal_transposed = [[0.0, 0.0], [0.0, height], [width, height], [width, 0.0]];
     let vertical_standard = [[0.0, height], [width, height], [width, 0.0], [0.0, 0.0]];
-    let vertical_transposed = [[0.0, height], [0.0, 0.0], [width, 0.0], [width, height]];
+    let vertical_transposed = [[width, height], [width, 0.0], [0.0, 0.0], [0.0, height]];
     let corner = (corner & 3) as usize;
     let [mut u, mut v] = match face {
         Face::NegativeX | Face::PositiveZ => vertical_standard[corner],

@@ -17,13 +17,23 @@ pub(super) struct Src {
     pub(super) patch: Option<Arc<Patch>>,
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, PartialEq)]
 pub(super) struct Patch {
     pub(super) name: Option<String>,
     pub(super) properties: BTreeMap<String, Value>,
 }
 
 impl Src {
+    /// Whether literal-child expansion will hoist this factory's creations.
+    pub(super) fn is_authored_child(&self) -> bool {
+        !self.path.is_empty()
+    }
+
+    /// The immutable tree that owns this control's template.
+    pub(super) fn owner(&self) -> &Arc<ResolvedControl> {
+        &self.tree
+    }
+
     pub(super) fn root(tree: Arc<ResolvedControl>) -> Self {
         Self {
             tree,
@@ -38,8 +48,10 @@ impl Src {
             .fold(&*self.tree, |node, &index| &node.children[index as usize])
     }
 
+    /// Extend the path with one allocation, reserving space for the child index.
     pub(super) fn child(&self, index: usize) -> Self {
-        let mut path = self.path.clone();
+        let mut path = Vec::with_capacity(self.path.len() + 1);
+        path.extend_from_slice(&self.path);
         path.push(index as u32);
         Self {
             tree: Arc::clone(&self.tree),
@@ -60,6 +72,13 @@ impl Src {
             .as_ref()
             .and_then(|patch| patch.properties.get(key))
             .or_else(|| self.get().properties.get(key))
+    }
+
+    /// Same template node and patch.
+    pub(super) fn same(&self, other: &Src) -> bool {
+        Arc::ptr_eq(&self.tree, &other.tree)
+            && self.path == other.path
+            && self.patch.as_deref() == other.patch.as_deref()
     }
 
     /// This source with `edit` applied to its patch.

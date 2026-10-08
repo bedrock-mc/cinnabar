@@ -1,8 +1,9 @@
 use std::ops::{Add, AddAssign, Index, IndexMut, Mul, Sub};
+use std::sync::OnceLock;
 
 use serde::{Deserialize, Serialize};
 
-/// Small f64 vector used by the deterministic simulation core.
+/// Simulation vector with f32 arithmetic and lossless f64 transport fields.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Vec3 {
@@ -22,13 +23,23 @@ impl Vec3 {
 
     #[must_use]
     pub fn length_squared(self) -> f64 {
-        self.x
-            .mul_add(self.x, self.y.mul_add(self.y, self.z * self.z))
+        let [x, y, z] = [self.x as f32, self.y as f32, self.z as f32];
+        f64::from(x * x + y * y + z * z)
     }
 
     #[must_use]
     pub fn horizontal_length_squared(self) -> f64 {
-        self.x.mul_add(self.x, self.z * self.z)
+        let [x, z] = [self.x as f32, self.z as f32];
+        f64::from(x * x + z * z)
+    }
+
+    /// Rounds imported coordinates or motion to the native simulation precision.
+    pub(crate) const fn rounded(self) -> Self {
+        Self::new(
+            self.x as f32 as f64,
+            self.y as f32 as f64,
+            self.z as f32 as f64,
+        )
     }
 
     #[must_use]
@@ -47,21 +58,52 @@ impl Vec3 {
     }
 }
 
-pub(crate) fn minecraft_sin(value: f64) -> f64 {
-    let index = (value * 10_430.378) as i64 as u16;
-    (f64::from(index) * std::f64::consts::TAU / 65_536.0).sin()
+const TRIG_INDEX_SCALE: f32 = 10_430.378;
+
+/// Samples the native float table, including float division during initialization.
+fn sine_table(index: i32) -> f64 {
+    // The divisor is also the lookup's index multiplier.
+    static TABLE: OnceLock<Box<[f32]>> = OnceLock::new();
+    let table = TABLE.get_or_init(|| {
+        (0..=u16::MAX)
+            .map(|i| (f32::from(i) / TRIG_INDEX_SCALE).sin())
+            .collect()
+    });
+    f64::from(table[usize::from(index as u16)])
 }
 
-pub(crate) fn minecraft_cos(value: f64) -> f64 {
-    let index = ((value * 10_430.378 + 16_384.0) as i64 as u16) as u32;
-    (f64::from(index) * std::f64::consts::TAU / 65_536.0).sin()
+/// Looks up sine after the native float multiply and truncation toward zero.
+pub fn minecraft_sin(value: f64) -> f64 {
+    sine_table((value as f32 * TRIG_INDEX_SCALE) as i32)
+}
+
+/// Applies the quarter-turn offset before truncating the native float index.
+pub fn minecraft_cos(value: f64) -> f64 {
+    sine_table((value as f32 * TRIG_INDEX_SCALE + 16_384.0) as i32)
+}
+
+/// Vanilla look vector used by the swimming trigger.
+#[must_use]
+pub fn view_direction(pitch_degrees: f32, yaw_degrees: f32) -> Vec3 {
+    let pitch = -pitch_degrees.to_radians();
+    let yaw = -yaw_degrees.to_radians() - std::f32::consts::PI;
+    let horizontal = -(minecraft_cos(f64::from(pitch)) as f32);
+    Vec3::new(
+        f64::from(minecraft_sin(f64::from(yaw)) as f32 * horizontal),
+        minecraft_sin(f64::from(pitch)),
+        f64::from(minecraft_cos(f64::from(yaw)) as f32 * horizontal),
+    )
 }
 
 impl Add for Vec3 {
     type Output = Self;
 
     fn add(self, rhs: Self) -> Self::Output {
-        Self::new(self.x + rhs.x, self.y + rhs.y, self.z + rhs.z)
+        Self::new(
+            f64::from(self.x as f32 + rhs.x as f32),
+            f64::from(self.y as f32 + rhs.y as f32),
+            f64::from(self.z as f32 + rhs.z as f32),
+        )
     }
 }
 
@@ -75,7 +117,11 @@ impl Sub for Vec3 {
     type Output = Self;
 
     fn sub(self, rhs: Self) -> Self::Output {
-        Self::new(self.x - rhs.x, self.y - rhs.y, self.z - rhs.z)
+        Self::new(
+            f64::from(self.x as f32 - rhs.x as f32),
+            f64::from(self.y as f32 - rhs.y as f32),
+            f64::from(self.z as f32 - rhs.z as f32),
+        )
     }
 }
 
@@ -83,7 +129,11 @@ impl Mul<f64> for Vec3 {
     type Output = Self;
 
     fn mul(self, rhs: f64) -> Self::Output {
-        Self::new(self.x * rhs, self.y * rhs, self.z * rhs)
+        Self::new(
+            f64::from(self.x as f32 * rhs as f32),
+            f64::from(self.y as f32 * rhs as f32),
+            f64::from(self.z as f32 * rhs as f32),
+        )
     }
 }
 

@@ -11,5 +11,7 @@ serde = { version = "1", features = ["derive"] }
 thiserror.workspace = true
 toml = "0.9"
 
+syn = { version = "2", features = ["full", "visit"] }
+
 [dev-dependencies]
 tempfile = "3"

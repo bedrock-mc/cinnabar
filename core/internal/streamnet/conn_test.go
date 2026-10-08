@@ -76,8 +76,8 @@ func TestFramePartialHeaderEOF(t *testing.T) {
 	if !errors.Is(err, io.ErrUnexpectedEOF) {
 		t.Fatalf("ReadPacket() error = %v, want io.ErrUnexpectedEOF", err)
 	}
-	if !errors.Is(err, net.ErrClosed) {
-		t.Fatalf("ReadPacket() error = %v, want terminal net.ErrClosed classification", err)
+	if errors.Is(err, net.ErrClosed) {
+		t.Fatalf("ReadPacket() error = %v, truncation must stay fatal", err)
 	}
 }
 
@@ -87,8 +87,8 @@ func TestFramePartialPayloadEOF(t *testing.T) {
 	if !errors.Is(err, io.ErrUnexpectedEOF) {
 		t.Fatalf("ReadPacket() error = %v, want io.ErrUnexpectedEOF", err)
 	}
-	if !errors.Is(err, net.ErrClosed) {
-		t.Fatalf("ReadPacket() error = %v, want terminal net.ErrClosed classification", err)
+	if errors.Is(err, net.ErrClosed) {
+		t.Fatalf("ReadPacket() error = %v, truncation must stay fatal", err)
 	}
 }
 
@@ -99,7 +99,7 @@ func TestFrameCleanEOFBetweenFrames(t *testing.T) {
 		t.Fatalf("ReadPacket() error = %v, want io.EOF", err)
 	}
 	if !errors.Is(err, net.ErrClosed) {
-		t.Fatalf("ReadPacket() error = %v, want terminal net.ErrClosed classification", err)
+		t.Fatalf("ReadPacket() error = %v, want net.ErrClosed classification", err)
 	}
 }
 
@@ -312,5 +312,16 @@ func TestPeerDoneNoticesCloseAndKeepsReadAheadFramesInOrder(t *testing.T) {
 	}
 	if _, err := tracked.ReadPacket(); err == nil {
 		t.Fatal("ReadPacket after the peer left returned no error")
+	}
+}
+
+// TestTruncatedFramesRemainFatal distinguishes partial framing from an ordinary disconnect.
+func TestTruncatedFramesRemainFatal(t *testing.T) {
+	for _, payload := range [][]byte{{0, 0}, {0, 0, 0, 3}, {0, 0, 0, 3, 1}} {
+		conn := NewFramedConn(&readConn{Reader: bytes.NewReader(payload)})
+		_, err := conn.ReadPacket()
+		if !errors.Is(err, io.ErrUnexpectedEOF) || IsClosed(err) || errors.Is(err, net.ErrClosed) {
+			t.Fatalf("frame %x: got %v, want fatal truncation", payload, err)
+		}
 	}
 }

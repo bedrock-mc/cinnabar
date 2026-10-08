@@ -12,30 +12,51 @@ use protocol::{
 };
 
 use super::*;
-use crate::ui_runtime::presentation::refresh_hud_frame;
+use client_ui::ui_runtime::presentation::refresh_hud_frame;
 
-fn local(path: &str) -> Option<Vec<u8>> {
-    std::fs::read(
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../.local/assets/compiled")
-            .join(path),
-    )
-    .ok()
+/// Reads an installed item fixture, skipping missing files and rejecting other read errors.
+fn local(name: &str) -> Option<Vec<u8>> {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../.local/assets/compiled")
+        .join(name);
+    match std::fs::read(&path) {
+        Ok(bytes) => Some(bytes),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            eprintln!(
+                "skipping item pipeline fixture test: missing {}; make assets",
+                path.display()
+            );
+            None
+        }
+        Err(error) => panic!("read item fixture {}: {error}", path.display()),
+    }
 }
 
 struct Harness {
     presentation: UiPresentationRuntime,
-    stream: client_world::WorldStream,
+    stream: chunk_pipeline::WorldStream,
 }
 
 fn harness() -> Option<Harness> {
-    let icons = Arc::new(RuntimeIconCatalog::decode(&local("vanilla-v1.mcbeico")?).ok()?);
-    let entities = Arc::new(RuntimeEntityAssets::decode(&local("vanilla-v1.mcbeent")?).ok()?);
-    let world = Arc::new(RuntimeAssets::decode(&local("vanilla-v2193.mcbea")?).ok()?);
+    let icons = Arc::new(
+        RuntimeIconCatalog::decode(&local("vanilla-v1.mcbeico")?)
+            .expect("decode installed icon fixture"),
+    );
+    let entities = Arc::new(
+        RuntimeEntityAssets::decode(&local("vanilla-v1.mcbeent")?)
+            .expect("decode installed entity fixture"),
+    );
+    let world = Arc::new(
+        RuntimeAssets::decode(&local("vanilla-v2193.mcbea")?)
+            .expect("decode installed world fixture"),
+    );
     let carrier = super::super::forms::pack_harness::carrier()?;
     let mut presentation =
-        UiPresentationRuntime::with_hud_and_icons(fixture_font(), fixture_hud(), icons).ok()?;
-    presentation.enable_json_ui(carrier).ok()?;
+        UiPresentationRuntime::with_hud_and_icons(fixture_font(), fixture_hud(), icons)
+            .expect("build item fixture HUD");
+    presentation
+        .enable_json_ui(carrier)
+        .expect("enable installed UI fixture");
     let bootstrap = WorldBootstrap {
         local_player_unique_id: 1,
         dimension: 0,
@@ -45,7 +66,7 @@ fn harness() -> Option<Harness> {
         air_network_id: 0,
         block_network_ids_are_hashes: false,
     };
-    let stream = client_world::WorldStream::new_with_asset_sets(
+    let stream = chunk_pipeline::WorldStream::new_with_asset_sets(
         bootstrap,
         world,
         entities,
@@ -101,11 +122,16 @@ fn registry_with_custom_item() -> ItemRegistryEvent {
 // report names the stage where each other stack stops.
 #[test]
 fn hotbar_stacks_resolve_icons_and_reach_the_engine_item_renderer() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let Some(Harness {
         mut presentation,
         mut stream,
     }) = harness()
     else {
+        eprintln!(
+            "skipping hotbar_stacks_resolve_icons_and_reach_the_engine_item_renderer: fixture unavailable; requires installed local carriers (make assets)"
+        );
         return;
     };
     assert!(stream.seed_item_registry(registry_with_custom_item()));
@@ -125,10 +151,15 @@ fn hotbar_stacks_resolve_icons_and_reach_the_engine_item_renderer() {
         slots[slot] = stack(identifier, *metadata, *count);
     }
     let mut runtime = UiRuntime::new(1);
-    runtime.publish_local_runtime_id(1, 1).unwrap();
-    runtime.publish_player_game_mode(PlayerGameMode::Survival);
+    runtime
+        .publish_local_runtime_id(&mut player_runtime, 1, 1)
+        .unwrap();
+    player_runtime
+        .facts
+        .publish_player_game_mode(PlayerGameMode::Survival);
     runtime
         .enqueue_inventory_event(
+            &mut player_runtime,
             1,
             1,
             InventoryEvent::Content(InventoryContentEvent {
@@ -142,13 +173,14 @@ fn hotbar_stacks_resolve_icons_and_reach_the_engine_item_renderer() {
             }),
         )
         .unwrap();
-    runtime.drain_pending_inventory();
-    runtime.set_local_selected_slot(0);
+    runtime.drain_pending_inventory(&mut player_runtime);
+    player_runtime.inventory.set_local_selected_slot(0);
     refresh_hud_frame(
+        &player_runtime,
         &mut runtime,
         &mut presentation,
         Some(&stream),
-        &Default::default(),
+        semantic_input::PerspectiveMode::FirstPerson,
         1_000,
     );
     let frame = presentation.hud_frame().clone();
@@ -159,6 +191,7 @@ fn hotbar_stacks_resolve_icons_and_reach_the_engine_item_renderer() {
             let stage = if frame.hotbar_stacks[slot].is_none() {
                 "no ledger stack"
             } else if stream
+                .authority()
                 .canonical_item_stack(frame.hotbar_stacks[slot].as_ref().unwrap())
                 .and_then(|item| item.identifier)
                 .is_none()
@@ -174,18 +207,35 @@ fn hotbar_stacks_resolve_icons_and_reach_the_engine_item_renderer() {
         .collect::<Vec<_>>();
     eprintln!("{report:#?}");
     presentation
-        .build(&runtime, 1_000, [1280, 720], DpiScale::new(1.0).unwrap())
+        .build(
+            &player_runtime,
+            &runtime,
+            1_000,
+            [1280, 720],
+            DpiScale::new(1.0).unwrap(),
+        )
         .unwrap();
     let rendered = presentation
         .hud_draw_nodes()
         .iter()
         .filter(|node| {
             matches!(&node.draw, Draw::Custom { renderer, data }
-                if renderer == "inventory_item_renderer" && data.contains_key("#item_renderer_data"))
+                if renderer == "inventory_item_renderer"
+                    && data.get("#item_renderer_data").is_some_and(serde_json::Value::is_number))
         })
         .count();
     let resolved = frame.hotbar_icons.iter().flatten().count();
     assert_eq!(rendered, resolved, "{report:#?}");
+    let cleared = presentation
+        .hud_draw_nodes()
+        .iter()
+        .filter(|node| {
+            matches!(&node.draw, Draw::Custom { renderer, data }
+                if renderer == "inventory_item_renderer"
+                    && data.get("#item_renderer_data").is_some_and(serde_json::Value::is_null))
+        })
+        .count();
+    assert_eq!(cleared, hotbar.len() - resolved, "{report:#?}");
     assert!(
         frame.hotbar_stacks.iter().all(Option::is_some),
         "{report:#?}"
@@ -197,17 +247,26 @@ fn hotbar_stacks_resolve_icons_and_reach_the_engine_item_renderer() {
 // local rig's worn items.
 #[test]
 fn window_120_armor_dresses_the_hud_inventory_and_local_rig() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let Some(Harness {
         mut presentation,
         mut stream,
     }) = harness()
     else {
+        eprintln!(
+            "skipping window_120_armor_dresses_the_hud_inventory_and_local_rig: fixture unavailable; requires installed local carriers (make assets)"
+        );
         return;
     };
     assert!(stream.seed_item_registry(registry_with_custom_item()));
     let mut runtime = UiRuntime::new(1);
-    runtime.publish_local_runtime_id(1, 1).unwrap();
-    runtime.publish_player_game_mode(PlayerGameMode::Survival);
+    runtime
+        .publish_local_runtime_id(&mut player_runtime, 1, 1)
+        .unwrap();
+    player_runtime
+        .facts
+        .publish_player_game_mode(PlayerGameMode::Survival);
     let worn = [
         "minecraft:diamond_helmet",
         "minecraft:diamond_chestplate",
@@ -216,6 +275,7 @@ fn window_120_armor_dresses_the_hud_inventory_and_local_rig() {
     ];
     runtime
         .enqueue_inventory_event(
+            &mut player_runtime,
             1,
             1,
             InventoryEvent::Content(InventoryContentEvent {
@@ -229,16 +289,17 @@ fn window_120_armor_dresses_the_hud_inventory_and_local_rig() {
             }),
         )
         .unwrap();
-    runtime.drain_pending_inventory();
+    runtime.drain_pending_inventory(&mut player_runtime);
     assert_eq!(
-        runtime.local_armor().chestplate.network_id,
+        runtime.local_armor(&player_runtime).chestplate.network_id,
         network_id("minecraft:diamond_chestplate")
     );
     refresh_hud_frame(
+        &player_runtime,
         &mut runtime,
         &mut presentation,
         Some(&stream),
-        &Default::default(),
+        semantic_input::PerspectiveMode::FirstPerson,
         1_000,
     );
     // Diamond helmet 3, chestplate 8, iron leggings 5, boots 2.
@@ -250,7 +311,8 @@ fn window_120_armor_dresses_the_hud_inventory_and_local_rig() {
             .iter()
             .all(Option::is_some)
     );
-    let rig = crate::presentation::equipment::local_input(&stream, Some(&runtime), 1);
+    let rig =
+        crate::presentation::equipment::local_input(&player_runtime, &stream, Some(&runtime), 1);
     let rig_worn = rig
         .armor
         .map(|item| item.map(|item| item.identifier.to_string()));

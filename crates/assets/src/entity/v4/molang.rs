@@ -88,21 +88,22 @@ pub struct MolangBranch {
     pub target: u16,
 }
 
-/// Every query the pinned vanilla pack uses, sorted. A query outside this namespace makes its
-/// expression uncompilable, which vanilla evaluates as zero; a listed query without retained
-/// actor state reads its idle value.
+/// Queries admitted by the entity compiler, sorted. Names outside this namespace make an
+/// expression uncompilable; a listed query without retained actor state reads its idle value.
 pub const MOLANG_QUERIES: &[&str] = &[
     "query.all_animations_finished",
     "query.anim_time",
     "query.any_animation_finished",
     "query.armor_color_slot",
     "query.armor_texture_slot",
+    "query.base_swing_duration",
     "query.blocking",
     "query.body_x_rotation",
     "query.body_y_rotation",
     "query.bone_aabb",
     "query.bone_origin",
     "query.bone_rotation",
+    "query.camera_distance_range_lerp",
     "query.camera_rotation",
     "query.can_damage_nearby_mobs",
     "query.cape_flap_amount",
@@ -124,10 +125,12 @@ pub const MOLANG_QUERIES: &[&str] = &[
     "query.get_root_locator_offset",
     "query.ground_speed",
     "query.has_any_leashed_entity_of_type",
+    "query.has_armor_slot",
     "query.has_cape",
     "query.has_dash_cooldown",
     "query.has_head_gear",
     "query.has_player_rider",
+    "query.has_property",
     "query.has_rider",
     "query.has_target",
     "query.head_roll_angle",
@@ -207,6 +210,7 @@ pub const MOLANG_QUERIES: &[&str] = &[
     "query.is_using_item",
     "query.item_is_charged",
     "query.item_remaining_use_duration",
+    "query.item_slot_to_bone_name",
     "query.key_frame_lerp_time",
     "query.kinetic_weapon_damage_duration",
     "query.kinetic_weapon_delay",
@@ -402,7 +406,10 @@ pub fn molang_program_stack(ops: &[MolangOp]) -> Result<u8, AssetError> {
         }
         let target = |offset: u16| -> Result<usize, AssetError> {
             let offset = offset as usize;
-            if offset > end {
+            if offset > end
+                || (offset <= at
+                    && !matches!(ops[at], MolangOp::LoopNext(_) | MolangOp::ForEachNext(_)))
+            {
                 Err(invalid("Molang jump target is out of range"))
             } else {
                 Ok(offset)

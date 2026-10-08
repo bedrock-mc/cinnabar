@@ -54,7 +54,7 @@ fn deflated_zip_file(path: &str, bytes: &[u8]) -> Vec<u8> {
 }
 
 fn validate_fixture(bytes: Vec<u8>, selected: &str) -> Result<ValidatedPack, AdmissionError> {
-    validate_archive_parts(PACK_ID, "1.2.3", selected, bytes, None).map(|(pack, _)| pack)
+    validate_archive_parts(PACK_ID, "1.2.3", selected, bytes, None, None).map(|(pack, _)| pack)
 }
 #[test]
 fn admits_jsonc_manifest_and_exposes_only_selected_logical_namespace() {
@@ -113,6 +113,30 @@ fn root_selection_excludes_all_physical_subpacks() {
     );
     assert_eq!(pack.files_under("").as_ref(), ["base.txt", "manifest.json"]);
 }
+
+#[test]
+fn undeclared_server_subpack_names_fall_back_to_root_resources() {
+    for extra in [
+        "",
+        r#", "subpacks": [{"folder_name":"high", "name":"High", "memory_tier":2}]"#,
+    ] {
+        let manifest = manifest(extra);
+        let archive = zip_files(&[
+            ("manifest.json", manifest.as_bytes()),
+            ("base.txt", b"root"),
+            ("subpacks/high/base.txt", b"high"),
+            ("subpacks/server label/base.txt", b"undeclared"),
+        ]);
+        let pack = validate_fixture(archive, "server label").expect("root fallback");
+        assert_eq!(pack.sub_pack_name(), "server label");
+        assert_eq!(
+            pack.read_file("base.txt").unwrap().unwrap().as_ref(),
+            b"root"
+        );
+        assert_eq!(pack.files_under("").as_ref(), ["base.txt", "manifest.json"]);
+    }
+}
+
 #[test]
 fn skips_unsafe_duplicate_and_nonfile_entries_without_dropping_the_pack() {
     let manifest = manifest("");
@@ -232,7 +256,8 @@ fn encrypted_pack_decrypts_listed_files_and_keeps_plaintext_despite_key() {
         ("plain.json", b"{\"a\": 1}"),
     ]);
     let key = ContentKey::new(PACK_KEY);
-    let (pack, _) = validate_archive_parts(PACK_ID, "1.2.3", "", archive.clone(), key).unwrap();
+    let (pack, _) =
+        validate_archive_parts(PACK_ID, "1.2.3", "", archive.clone(), key, None).unwrap();
     assert_eq!(
         pack.read_file("texts/en_US.lang")
             .unwrap()
@@ -248,13 +273,20 @@ fn encrypted_pack_decrypts_listed_files_and_keeps_plaintext_despite_key() {
 
     let wrong = ContentKey::new(b"vutsrqponmlkjihgfedcba9876543210");
     assert_eq!(
-        validate_archive_parts(PACK_ID, "1.2.3", "", archive, wrong).unwrap_err(),
+        validate_archive_parts(PACK_ID, "1.2.3", "", archive, wrong, None).unwrap_err(),
         AdmissionError::MalformedContentsIndex
     );
     let unindexed = zip_files(&[("manifest.json", manifest.as_bytes())]);
     assert_eq!(
-        validate_archive_parts(PACK_ID, "1.2.3", "", unindexed, ContentKey::new(PACK_KEY))
-            .unwrap_err(),
+        validate_archive_parts(
+            PACK_ID,
+            "1.2.3",
+            "",
+            unindexed,
+            ContentKey::new(PACK_KEY),
+            None
+        )
+        .unwrap_err(),
         AdmissionError::MissingContentsIndex
     );
 }
@@ -362,4 +394,36 @@ fn errors_never_include_manifest_or_path_data() {
     let error = validate_fixture(archive, "").unwrap_err();
     assert!(!error.to_string().contains(secret));
     assert!(!format!("{error:?}").contains(secret));
+}
+
+#[test]
+fn review_zip_comment_can_contain_an_eocd_signature() {
+    let mut archive = zip_files(&[("manifest.json", manifest("").as_bytes())]);
+    let footer = archive.len() - EOCD_MIN_BYTES;
+    archive[footer + 20..footer + 22].copy_from_slice(&24_u16.to_le_bytes());
+    archive.extend_from_slice(b"PK\x05\x06");
+    archive.extend_from_slice(&[0; 20]);
+    assert!(preflight_eocd(&archive).is_ok());
+    assert!(validate_fixture(archive.clone(), "").is_ok());
+    let fake = footer + EOCD_MIN_BYTES;
+    archive[fake + 20..fake + 22].copy_from_slice(&2_u16.to_le_bytes());
+    assert!(preflight_eocd(&archive).is_ok());
+}
+
+#[test]
+fn review_wrapped_legacy_manifests_and_subpack_protection() {
+    let text = manifest(r#", "subpacks":[{"folder_name":"high","name":"High","memory_tier":1}]"#);
+    let wrapped = zip_files(&[
+        ("wrapper/pack_manifest.json", text.as_bytes()),
+        ("wrapper/test.txt", b"fixture"),
+    ]);
+    assert!(validate_fixture(wrapped, "").is_ok());
+    let shadowed = zip_files(&[
+        ("pack_manifest.json", text.as_bytes()),
+        ("subpacks/high/pack_manifest.json", text.as_bytes()),
+    ]);
+    assert!(matches!(
+        validate_fixture(shadowed, "high"),
+        Err(AdmissionError::InvalidSubpack)
+    ));
 }

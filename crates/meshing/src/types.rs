@@ -1,6 +1,7 @@
 use world::SubChunk;
 
 use crate::SIDE;
+use crate::liquid::{LIQUID_DEPTH_WRITE_BIT, LIQUID_TOP_INSET_BIT, LIQUID_TWO_SIDED_BIT};
 
 const CONNECTIVITY_MASK: u64 = (1_u64 << (Face::ALL.len() * Face::ALL.len())) - 1;
 
@@ -278,15 +279,15 @@ impl PackedQuadLighting {
 /// NW/SW/SE/NE; -X bottom-N/top-N/top-S/bottom-S; +X
 /// bottom-S/top-S/top-N/bottom-N; -Z bottom-E/top-E/top-W/bottom-W; and +Z
 /// bottom-W/top-W/top-E/bottom-E. Word 2 stores the selected material in bits
-/// 0..30 and the immutable depth-writing route in bit 31; word 3 stores the
+/// 0..28, opposite-winding admission in bit 29, top-emitted corner-height inset
+/// in bit 30, and the immutable
+/// depth-writing route in bit 31; word 3 stores the
 /// relative index in the independently allocated liquid-light stream.
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct PackedLiquidQuad([u32; 4]);
 
 impl PackedLiquidQuad {
-    const DEPTH_WRITE_BIT: u32 = 1 << 31;
-
     #[must_use]
     pub const fn words(self) -> [u32; 4] {
         self.0
@@ -310,7 +311,8 @@ impl PackedLiquidQuad {
         if origin[0] >= 16
             || origin[1] >= 16
             || origin[2] >= 16
-            || material_id & Self::DEPTH_WRITE_BIT != 0
+            || material_id & (LIQUID_DEPTH_WRITE_BIT | LIQUID_TOP_INSET_BIT | LIQUID_TWO_SIDED_BIT)
+                != 0
         {
             return None;
         }
@@ -372,21 +374,53 @@ impl PackedLiquidQuad {
 
     #[must_use]
     pub const fn material_id(self) -> u32 {
-        self.0[2] & !Self::DEPTH_WRITE_BIT
+        self.0[2] & !(LIQUID_DEPTH_WRITE_BIT | LIQUID_TOP_INSET_BIT | LIQUID_TWO_SIDED_BIT)
     }
 
     /// Returns whether this record belongs to the opaque depth-writing liquid route.
     #[must_use]
     pub const fn is_depth_writing(self) -> bool {
-        self.0[2] & Self::DEPTH_WRITE_BIT != 0
+        self.0[2] & LIQUID_DEPTH_WRITE_BIT != 0
     }
 
     #[must_use]
     pub(crate) const fn with_depth_write(mut self, enabled: bool) -> Self {
         if enabled {
-            self.0[2] |= Self::DEPTH_WRITE_BIT;
+            self.0[2] |= LIQUID_DEPTH_WRITE_BIT;
         } else {
-            self.0[2] &= !Self::DEPTH_WRITE_BIT;
+            self.0[2] &= !LIQUID_DEPTH_WRITE_BIT;
+        }
+        self
+    }
+
+    /// Whether visible top emission lowered the top and adjoining side heights.
+    #[must_use]
+    pub const fn has_top_height_inset(self) -> bool {
+        self.0[2] & LIQUID_TOP_INSET_BIT != 0
+    }
+
+    #[must_use]
+    pub(crate) const fn with_top_height_inset(mut self, enabled: bool) -> Self {
+        if enabled {
+            self.0[2] |= LIQUID_TOP_INSET_BIT;
+        } else {
+            self.0[2] &= !LIQUID_TOP_INSET_BIT;
+        }
+        self
+    }
+
+    /// Whether native face metadata admits both the original and opposite winding.
+    #[must_use]
+    pub const fn is_two_sided(self) -> bool {
+        self.0[2] & LIQUID_TWO_SIDED_BIT != 0
+    }
+
+    #[must_use]
+    pub(crate) const fn with_two_sided(mut self, enabled: bool) -> Self {
+        if enabled {
+            self.0[2] |= LIQUID_TWO_SIDED_BIT;
+        } else {
+            self.0[2] &= !LIQUID_TWO_SIDED_BIT;
         }
         self
     }
@@ -423,13 +457,9 @@ impl PackedQuad {
     const POSITION_MASK: u32 = 0x1f;
     const EXTENT_MASK: u32 = 0x0f;
 
-    pub(crate) fn new(
-        origin: [u8; 3],
-        face: Face,
-        width: u8,
-        height: u8,
-        material_id: u32,
-    ) -> Self {
+    /// Origin coordinates must lie inside the sub-chunk and extents in `1..=16`.
+    #[must_use]
+    pub fn new(origin: [u8; 3], face: Face, width: u8, height: u8, material_id: u32) -> Self {
         debug_assert!(origin.into_iter().all(|coordinate| coordinate < SIDE as u8));
         debug_assert!((1..=SIDE as u8).contains(&width));
         debug_assert!((1..=SIDE as u8).contains(&height));
@@ -483,15 +513,6 @@ impl PackedQuad {
         self.material_id
     }
 
-    /// Width and height in the face's local axes, in blocks.
-    #[must_use]
-    pub const fn extent(&self) -> [u8; 2] {
-        [
-            (((self.geometry >> Self::WIDTH_SHIFT) & Self::EXTENT_MASK) + 1) as u8,
-            (((self.geometry >> Self::HEIGHT_SHIFT) & Self::EXTENT_MASK) + 1) as u8,
-        ]
-    }
-
     /// Raw words ready for upload to a storage buffer.
     #[must_use]
     pub const fn words(&self) -> [u32; 2] {
@@ -518,6 +539,12 @@ impl FaceConnectivity {
     #[must_use]
     pub const fn bits(self) -> u64 {
         self.0
+    }
+
+    /// Inverse of `bits`; bits outside the 6x6 matrix are dropped.
+    #[must_use]
+    pub const fn from_bits(bits: u64) -> Self {
+        Self(bits & CONNECTIVITY_MASK)
     }
 
     #[must_use]
@@ -637,6 +664,7 @@ pub struct ChunkMesh {
 pub(crate) struct CubeStreams {
     pub(crate) cube_quads: Box<[PackedQuad]>,
     pub(crate) cube_lighting: Box<[PackedQuadLighting]>,
+    pub(crate) layout: crate::CubeQuadLayout,
     pub(crate) diagnostic_geometry: DiagnosticGeometrySummary,
 }
 
@@ -728,6 +756,7 @@ impl ChunkMesh {
             cube_streams: Box::new(CubeStreams {
                 cube_quads: cube_quads.into_boxed_slice(),
                 cube_lighting: cube_lighting.into_boxed_slice(),
+                layout: crate::CubeQuadLayout::default(),
                 diagnostic_geometry: DiagnosticGeometrySummary::default(),
             }),
             model_refs: model_refs.into_boxed_slice(),
@@ -756,6 +785,11 @@ impl ChunkMesh {
     #[must_use]
     pub fn cube_lighting(&self) -> &[PackedQuadLighting] {
         &self.cube_streams.cube_lighting
+    }
+
+    #[must_use]
+    pub const fn cube_layout(&self) -> crate::CubeQuadLayout {
+        self.cube_streams.layout
     }
 
     #[must_use]

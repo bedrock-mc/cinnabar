@@ -3,14 +3,14 @@
 
 use std::{fs, path::Path};
 
-use asset_compiler::{compile_icon_assets, compile_icon_assets_with_blocks};
 use assets::AssetError;
+use pack_compiler::{compile_icon_assets, compile_icon_assets_with_blocks};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
 use super::{
     MAX_SOURCE_MANIFEST_BYTES, hex, read_bounded_with_limit, validate_output_bundle,
-    write_blob_atomic,
+    write_output_bundle,
 };
 
 #[derive(Serialize)]
@@ -37,6 +37,7 @@ pub(super) struct IconAssetCounts {
     pub(super) sprites: usize,
     pub(super) entries: usize,
     pub(super) sprite_visuals: usize,
+    pub(super) model_item_visuals: usize,
     pub(super) alias_entries: usize,
     pub(super) animation_strips: usize,
     pub(super) skipped_oversized: usize,
@@ -44,6 +45,8 @@ pub(super) struct IconAssetCounts {
     pub(super) block_visuals: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(super) flat_block_visuals: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) carried_block_sheets: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(super) skipped_blocks: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -103,11 +106,13 @@ pub(super) fn compile_icon_assets_command(
             sprites: compiled.report.sprites,
             entries: compiled.report.entries,
             sprite_visuals: compiled.report.sprite_visuals,
+            model_item_visuals: compiled.report.model_item_visuals,
             alias_entries: compiled.report.alias_entries,
             animation_strips: compiled.report.animation_strips,
             skipped_oversized: compiled.report.skipped_oversized,
             block_visuals: world.as_ref().map(|_| compiled.report.block_visuals),
             flat_block_visuals: world.as_ref().map(|_| compiled.report.flat_block_visuals),
+            carried_block_sheets: world.as_ref().map(|_| compiled.report.carried_block_sheets),
             skipped_blocks: world.as_ref().map(|_| compiled.report.skipped_blocks),
             block_refusals: world.as_ref().map(|_| compiled.report.block_refusals),
         },
@@ -115,8 +120,7 @@ pub(super) fn compile_icon_assets_command(
     let mut report_bytes = serde_json::to_vec_pretty(&report_data)?;
     report_bytes.push(b'\n');
     validate_output_bundle(out, report)?;
-    write_blob_atomic(out, &compiled.bytes)?;
-    write_blob_atomic(report, &report_bytes)?;
+    write_output_bundle(&[(out, &compiled.bytes), (report, &report_bytes)])?;
     if world.is_some() {
         println!(
             "compiled {} sprite and provisional ordinary-cube thumbnails ({} entries) to {} and {}",

@@ -239,3 +239,23 @@ fn swords_clear_bamboo_at_the_bedrock_special_speed() {
     // The special case is sword-only.
     assert!(destroy_progress_per_tick(&bamboo, &grounded(None)).unwrap() < 0.1);
 }
+
+#[test]
+fn review_extreme_effect_amplifiers_never_create_nonfinite_destroy_progress() {
+    let block = block_destroy_info("minecraft:stone").unwrap();
+    for amplifier in [500, 1000, i32::MAX] {
+        for fatigue in [None, Some(amplifier)] {
+            let conditions = DestroyConditions {
+                on_ground: true,
+                haste_amplifier: Some(amplifier),
+                mining_fatigue_amplifier: fatigue,
+                ..Default::default()
+            };
+            let progress = destroy_progress_per_tick(&block, &conditions).unwrap();
+            assert!(
+                progress.is_finite() && progress == 0.0,
+                "unsupported effects predicted {progress}"
+            );
+        }
+    }
+}

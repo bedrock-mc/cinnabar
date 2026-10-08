@@ -8,13 +8,13 @@ use std::{
     sync::Arc,
 };
 
-use assets::{MAX_EQUIPMENT_CARRIER_BYTES, RuntimeBlockEntityAssets, RuntimeEquipmentCatalog};
+use assets::{MAX_EQUIPMENT_CARRIER_BYTES, RuntimeEquipmentCatalog};
 
 use super::{LoadedEntityAssets, shell_quote_path};
 
-const EQUIPMENT_ASSETS_FILENAME: &str = "vanilla-v1.mcbeeqp";
+const EQUIPMENT_ASSETS_FILENAME: &str = assets::carriers::EQUIPMENT.output;
 
-fn equipment_asset_path(world: &Path) -> PathBuf {
+pub(crate) fn equipment_asset_path(world: &Path) -> PathBuf {
     world.with_file_name(EQUIPMENT_ASSETS_FILENAME)
 }
 
@@ -65,13 +65,4 @@ pub(crate) fn load_optional_equipment_assets(
         catalog.textures().len()
     );
     Some(Arc::new(catalog))
-}
-
-/// The optional block-entity carrier, read here only for the skull textures worn heads reuse;
-/// absence just leaves worn heads undrawn (the block-entity scene reports it).
-pub(crate) fn load_optional_block_entity_assets(
-    world: &Path,
-) -> Option<Arc<RuntimeBlockEntityAssets>> {
-    let bytes = std::fs::read(world.with_file_name("vanilla-v1.mcbeben")).ok()?;
-    RuntimeBlockEntityAssets::decode(&bytes).ok().map(Arc::new)
 }

@@ -1,5 +1,6 @@
 use super::WHITE_LAYER;
-use super::mesh::{ItemMeshVertex, OPAQUE_WHITE};
+use super::mesh::ItemMeshVertex;
+use render_model::OPAQUE_WHITE;
 
 fn sub(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
     [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
@@ -73,7 +74,7 @@ pub fn rope_ribbon(
             (start[1] + end[1]) * 0.5,
             (start[2] + end[2]) * 0.5,
         ];
-        let Some(side) = normalized(cross(sub(end, start), sub(camera, middle))) else {
+        let Some(side) = normalized(cross(sub(camera, middle), sub(end, start))) else {
             continue;
         };
         let offset = side.map(|component| component * half_width);
@@ -163,5 +164,26 @@ mod tests {
             &mut vertices,
         );
         assert!(vertices.is_empty());
+    }
+    #[test]
+    fn review_render_rope_triangles_face_the_camera() {
+        let camera = [0.0, 0.0, 2.0];
+        let mut vertices = Vec::new();
+        rope_ribbon(
+            [-1.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            camera,
+            1,
+            0.0,
+            0.1,
+            u32::MAX,
+            &mut vertices,
+        );
+        for triangle in vertices.chunks_exact(3) {
+            let a = triangle[0].position;
+            let normal = cross(sub(triangle[1].position, a), sub(triangle[2].position, a));
+            let towards = sub(camera, a);
+            assert!(normal.iter().zip(towards).map(|(n, v)| n * v).sum::<f32>() > 0.0);
+        }
     }
 }

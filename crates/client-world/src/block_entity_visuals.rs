@@ -570,6 +570,9 @@ const STATIC_BACKINGS: [StaticBacking; 38] = [
 ];
 
 #[cfg(test)]
+mod adjudication_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

@@ -44,6 +44,9 @@ type Store struct {
 	auth        AuthV1
 	disconnect  *DisconnectV1
 	disconnects uint64
+
+	trustPrompt *proxy.ServerTrustPrompt           // the pending trust question, if any
+	trustAnswer func(id uint64, trusted bool) bool // resolves a trust question
 }
 
 func NewStore() *Store {

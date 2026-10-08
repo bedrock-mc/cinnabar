@@ -1,61 +1,13 @@
+use std::{collections::BTreeMap, sync::Arc};
+
 use crate::SubChunk;
 
 const WIDTH: usize = 3;
-const SUB_CHUNK_SIDE: i32 = 16;
+const SUB_CHUNK_SIDE: i32 = crate::SUB_CHUNK_SIDE as i32;
 const ENTRY_COUNT: usize = WIDTH * WIDTH * WIDTH;
-const ADJACENT_OFFSETS: [[i8; 3]; 26] = [
-    [-1, -1, -1],
-    [-1, -1, 0],
-    [-1, -1, 1],
-    [-1, 0, -1],
-    [-1, 0, 0],
-    [-1, 0, 1],
-    [-1, 1, -1],
-    [-1, 1, 0],
-    [-1, 1, 1],
-    [0, -1, -1],
-    [0, -1, 0],
-    [0, -1, 1],
-    [0, 0, -1],
-    [0, 0, 1],
-    [0, 1, -1],
-    [0, 1, 0],
-    [0, 1, 1],
-    [1, -1, -1],
-    [1, -1, 0],
-    [1, -1, 1],
-    [1, 0, -1],
-    [1, 0, 0],
-    [1, 0, 1],
-    [1, 1, -1],
-    [1, 1, 0],
-    [1, 1, 1],
-];
-pub(crate) const LIQUID_SAMPLE_OFFSETS: [[i8; 3]; 23] = [
-    [0, -1, 0],
-    [-1, -1, 0],
-    [1, -1, 0],
-    [0, -1, -1],
-    [0, -1, 1],
-    [-1, 0, -1],
-    [-1, 0, 0],
-    [-1, 0, 1],
-    [0, 0, -1],
-    [0, 0, 0],
-    [0, 0, 1],
-    [1, 0, -1],
-    [1, 0, 0],
-    [1, 0, 1],
-    [-1, 1, -1],
-    [-1, 1, 0],
-    [-1, 1, 1],
-    [0, 1, -1],
-    [0, 1, 0],
-    [0, 1, 1],
-    [1, 1, -1],
-    [1, 1, 0],
-    [1, 1, 1],
-];
+mod offsets;
+use offsets::ADJACENT_OFFSETS;
+pub(crate) use offsets::LIQUID_SAMPLE_OFFSETS;
 
 /// One palette-native block sample from a bounded meshing snapshot.
 ///
@@ -73,6 +25,8 @@ pub enum MeshSample {
 pub struct MeshDependencyMask {
     pub diagonal_ao: bool,
     pub liquid: bool,
+    /// Seasonal leaves read shelter in their full vertical chunk column.
+    pub seasonal_foliage: bool,
 }
 
 impl MeshDependencyMask {
@@ -81,12 +35,19 @@ impl MeshDependencyMask {
         Self {
             diagonal_ao,
             liquid,
+            seasonal_foliage: false,
         }
     }
 
     #[must_use]
     pub const fn needs_diagonal_samples(self) -> bool {
         self.diagonal_ao || self.liquid
+    }
+
+    #[must_use]
+    pub const fn with_seasonal_foliage(mut self, enabled: bool) -> Self {
+        self.seasonal_foliage = enabled;
+        self
     }
 }
 
@@ -97,7 +58,10 @@ impl MeshDependencyMask {
 /// beyond that bounded 3x3x3 snapshot is explicit open space.
 #[derive(Debug, Clone)]
 pub struct MeshNeighbourhood<'a> {
+    block_origin: [i32; 3],
     sub_chunks: [Option<&'a SubChunk>; ENTRY_COUNT],
+    column_above: Vec<(i32, &'a SubChunk)>,
+    shared_column: Option<(i32, &'a BTreeMap<i32, Arc<SubChunk>>)>,
 }
 
 impl<'a> MeshNeighbourhood<'a> {
@@ -108,7 +72,24 @@ impl<'a> MeshNeighbourhood<'a> {
     pub fn new(center: &'a SubChunk) -> Self {
         let mut sub_chunks = [None; ENTRY_COUNT];
         sub_chunks[index([0, 0, 0]).expect("center offset is bounded")] = Some(center);
-        Self { sub_chunks }
+        Self {
+            block_origin: [0; 3],
+            sub_chunks,
+            column_above: Vec::new(),
+            shared_column: None,
+        }
+    }
+
+    /// World-space origin of the center sub-chunk, for native positional art.
+    #[must_use]
+    pub fn with_block_origin(mut self, origin: [i32; 3]) -> Self {
+        self.block_origin = origin;
+        self
+    }
+
+    #[must_use]
+    pub const fn block_origin(&self) -> [i32; 3] {
+        self.block_origin
     }
 
     /// Inserts one of the 26 adjacent sub-chunks. Returns false for an
@@ -127,6 +108,61 @@ impl<'a> MeshNeighbourhood<'a> {
     #[must_use]
     pub fn sub_chunk(&self, offset: [i8; 3]) -> Option<&'a SubChunk> {
         self.sub_chunks.get(index(offset)?).copied().flatten()
+    }
+
+    /// Adds palette-packed seasonal shelter context beyond the ordinary AO
+    /// halo. Offsets zero/one already belong to the center/upper halo.
+    pub fn insert_column_above(&mut self, offset_y: i32, sub_chunk: &'a SubChunk) -> bool {
+        if offset_y < 2
+            || offset_y.checked_mul(SUB_CHUNK_SIDE).is_none()
+            || self
+                .column_above
+                .iter()
+                .any(|(existing, _)| *existing == offset_y)
+        {
+            return false;
+        }
+        self.column_above.push((offset_y, sub_chunk));
+        true
+    }
+
+    /// Borrows an immutable column index; explicitly inserted upper sections take precedence.
+    pub fn with_shared_column(
+        mut self,
+        center_y: i32,
+        column: &'a BTreeMap<i32, Arc<SubChunk>>,
+    ) -> Self {
+        self.shared_column = Some((center_y, column));
+        self
+    }
+
+    /// Center, upper neighbor, and explicitly captured higher sub-chunks.
+    pub fn seasonal_column(&self) -> impl Iterator<Item = (i32, &'a SubChunk)> + '_ {
+        [
+            self.sub_chunk([0, 0, 0]).map(|chunk| (0, chunk)),
+            self.sub_chunk([0, 1, 0]).map(|chunk| (1, chunk)),
+        ]
+        .into_iter()
+        .flatten()
+        .chain(self.column_above.iter().copied())
+        .chain(
+            self.shared_column
+                .into_iter()
+                .flat_map(move |(center, column)| {
+                    column
+                        .range(center.saturating_add(2)..)
+                        .filter_map(move |(&y, section)| {
+                            let offset = y.checked_sub(center)?;
+                            (offset >= 2
+                                && offset.checked_mul(SUB_CHUNK_SIDE).is_some()
+                                && !self
+                                    .column_above
+                                    .iter()
+                                    .any(|(explicit, _)| *explicit == offset))
+                            .then_some((offset, section.as_ref()))
+                        })
+                }),
+        )
     }
 
     /// Canonical offsets for all 26 adjacent sub-chunks used by diagonal AO.

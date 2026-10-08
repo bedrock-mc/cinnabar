@@ -11,6 +11,7 @@ use crate::{
 struct PredictedFrame {
     input: MovementInput,
     state: PlayerState,
+    world: Option<crate::CollisionSnapshot>,
 }
 
 /// One server-authoritative velocity replacement applied immediately before
@@ -94,6 +95,15 @@ impl PredictionHistory {
             .map(|frame| &frame.state)
     }
 
+    /// Returns the immutable world retained for a tick, when its adapter supports snapshots.
+    pub fn world_at(&self, tick: u64) -> Option<&crate::CollisionSnapshot> {
+        self.frames
+            .iter()
+            .find(|frame| frame.state.tick == tick)?
+            .world
+            .as_ref()
+    }
+
     /// Returns the exact input recorded for one retained tick's prediction.
     ///
     /// Correction replays re-feed these inputs verbatim, so callers rebuilding
@@ -155,6 +165,7 @@ impl PredictionHistory {
         self.frames.push_back(PredictedFrame {
             input,
             state: state.clone(),
+            world: world.snapshot(),
         });
         Ok(result)
     }
@@ -162,8 +173,8 @@ impl PredictionHistory {
     /// Replaces the retained post-tick state at the correction tick and
     /// deterministically replays every later retained input.
     ///
-    /// The caller must provide the same collision-world snapshot (or a proven
-    /// equivalent snapshot) used by the original predictions. Packet-specific
+    /// Palette worlds replay their retained snapshots. Other adapters must supply
+    /// the original world or an equivalent snapshot. Packet-specific
     /// eye/feet and delta interpretation belongs at the protocol boundary.
     pub fn rewind_and_replay(
         &mut self,
@@ -228,6 +239,31 @@ impl PredictionHistory {
         world: &impl CollisionWorld,
         overlays: &[MotionOverlay],
     ) -> Result<(ReplayResult, Vec<ControlledTickResult>), PredictionError> {
+        self.rewind_and_replay_prepared(
+            current,
+            corrected,
+            simulator,
+            world,
+            overlays,
+            |_, _, _, _| Ok(()),
+        )
+    }
+
+    /// Rebuilds controller decisions before each tick against its retained world.
+    pub fn rewind_and_replay_prepared(
+        &mut self,
+        current: &mut PlayerState,
+        corrected: PlayerState,
+        simulator: &Simulator,
+        world: &impl CollisionWorld,
+        overlays: &[MotionOverlay],
+        mut prepare: impl FnMut(
+            &mut PlayerState,
+            &mut MovementInput,
+            &dyn CollisionWorld,
+            Option<&ControlledTickResult>,
+        ) -> Result<(), SimulationError>,
+    ) -> Result<(ReplayResult, Vec<ControlledTickResult>), PredictionError> {
         validate_player_state(&corrected)?;
         let Some(index) = self
             .frames
@@ -253,8 +289,23 @@ impl PredictionHistory {
             {
                 replayed_state.velocity = overlay.velocity;
             }
-            let input = candidate.frames[frame_index].input;
-            let tick = simulator.tick_with_controls(&mut replayed_state, input, world)?;
+            let mut input = candidate.frames[frame_index].input;
+            let retained_world: &dyn CollisionWorld = candidate.frames[frame_index]
+                .world
+                .as_ref()
+                .map_or(world as &dyn CollisionWorld, |snapshot| snapshot);
+            prepare(
+                &mut replayed_state,
+                &mut input,
+                retained_world,
+                ticks.last(),
+            )?;
+            candidate.frames[frame_index].input = input;
+            let tick = if let Some(snapshot) = &candidate.frames[frame_index].world {
+                simulator.tick_with_controls(&mut replayed_state, input, snapshot)?
+            } else {
+                simulator.tick_with_controls(&mut replayed_state, input, world)?
+            };
             candidate.frames[frame_index].state = replayed_state.clone();
             ticks.push(tick);
         }

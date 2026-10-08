@@ -44,7 +44,7 @@ mod tests {
 
     #[test]
     fn core_args_carry_the_worlds_dir_and_the_manifest_pin() {
-        let layout = InstallLayout::scratch("local-world-args");
+        let layout = crate::install_layout::scratch("local-world-args");
         let args = core_args(&layout);
         assert_eq!(
             std::path::PathBuf::from(arg_after(&args, "-local-worlds-dir")),

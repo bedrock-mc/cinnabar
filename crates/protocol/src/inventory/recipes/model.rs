@@ -2,12 +2,12 @@ use super::budget::Permit;
 use std::sync::Arc;
 
 /// Grid cells a crafting-table recipe may address.
-pub(in crate::inventory) const MAX_INGREDIENTS: usize = 9;
+pub const MAX_INGREDIENTS: usize = 9;
 /// Ingredient metadata that accepts any item metadata.
-pub(in crate::inventory) const ANY_AUX: u16 = 32767;
+pub const ANY_AUX: u16 = 32767;
 
 #[derive(Debug, PartialEq, Eq)]
-pub(in crate::inventory) struct Ingredient {
+pub struct Ingredient {
     /// An item identifier, or a tag when `tag` is set.
     pub(in crate::inventory) name: String,
     pub(in crate::inventory) tag: bool,
@@ -25,7 +25,7 @@ pub(in crate::inventory) struct Output {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub(in crate::inventory) struct Recipe {
+pub struct Recipe {
     /// Zero for a shapeless recipe.
     pub(in crate::inventory) width: u8,
     pub(in crate::inventory) height: u8,
@@ -40,15 +40,59 @@ pub(in crate::inventory) struct Recipe {
 }
 
 impl Ingredient {
-    pub(in crate::inventory) fn accepts_metadata(&self, metadata: u32) -> bool {
+    /// The decoded item identifier or tag name, borrowed from its credited recipe.
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+    /// Whether the name addresses an item tag.
+    pub const fn is_tag(&self) -> bool {
+        self.tag
+    }
+    /// The number of items consumed by one craft.
+    pub const fn count(&self) -> u8 {
+        self.count
+    }
+
+    pub fn accepts_metadata(&self, metadata: u32) -> bool {
         self.aux == ANY_AUX || u32::from(self.aux) == metadata
     }
 }
 
 impl Recipe {
+    /// The decoded shape dimensions, zero for shapeless recipes.
+    pub const fn dimensions(&self) -> (u8, u8) {
+        (self.width, self.height)
+    }
+    /// Whether ingredient order is unconstrained.
+    pub const fn is_shapeless(&self) -> bool {
+        self.shapeless
+    }
+    /// Whether the wire recipe permits horizontal mirroring.
+    pub const fn allows_mirror(&self) -> bool {
+        self.mirror
+    }
+    /// The recipe priority carried by the wire.
+    pub const fn priority(&self) -> i32 {
+        self.priority
+    }
+    /// Borrow decoded cells without detaching their credited storage.
+    pub fn ingredients(&self) -> &[Option<Ingredient>; MAX_INGREDIENTS] {
+        &self.ingredients
+    }
+    /// The declared output, using the existing public wire view.
+    pub fn output(&self) -> super::crafting::RecipeOutput {
+        super::crafting::RecipeOutput {
+            network_id: self.output.id,
+            aux: self.output.aux,
+            count: self.output.count,
+            block_runtime_id: self.output.block,
+            empty_envelope: self.output.empty_envelope,
+        }
+    }
+
     /// The shaped, name-only, fits-in-two-by-two domain the manual craft
     /// builder and passive observations were written for.
-    pub(in crate::inventory) fn is_personal_named(&self) -> bool {
+    pub fn is_personal_named(&self) -> bool {
         !self.shapeless
             && self.width <= 2
             && self.height <= 2
@@ -124,7 +168,8 @@ impl RecipeHandle {
         let recipe = self.recipe();
         (recipe.width, recipe.height)
     }
-    pub(in crate::inventory) fn recipe(&self) -> &Recipe {
+    /// Borrow the admitted recipe while this handle retains its lifetime credit.
+    pub fn recipe(&self) -> &Recipe {
         self.batch.records[self.index]
             .recipe
             .as_ref()

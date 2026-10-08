@@ -2,7 +2,7 @@
 use crate::dropped_item::{
     DroppedItemModel, DroppedItemScene, ITEM_MESH_VERTEX_BYTES, ItemMeshVertex,
     MAX_DROPPED_ITEM_INSTANCES, MAX_DYNAMIC_ITEM_VERTICES, MAX_ITEM_LAYERS, MAX_ITEM_SPRITE_SIDE,
-    cube_mesh, extruded_sprite_mesh,
+    block_mesh, cube_mesh, extruded_sprite_mesh, native_dropped_sprite_mesh,
 };
 use bevy::{
     asset::{AssetId, load_internal_asset, uuid_handle},
@@ -42,6 +42,11 @@ use bevy::{
 use std::ops::Range;
 
 const ITEM_SHADER_HANDLE: Handle<Shader> = uuid_handle!("6b7c1b0e-2f3d-4a61-9d1e-7a8f2c4e5b13");
+pub(crate) mod terrain_items;
+use terrain_items::{TerrainItemMeshGenerations, TerrainItemSessionSet};
+
+#[cfg(all(test, feature = "publication-test-support"))]
+mod terrain_tests;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct DroppedItemRenderPlugin;
@@ -73,16 +78,23 @@ fn install(app: &mut App) {
         app,
         ITEM_SHADER_HANDLE,
         "dropped_item.wgsl",
-        Shader::from_wgsl
+        crate::shader_safety::from_wgsl
     );
+    crate::pipeline_warmup::register::<ItemPipeline>(app);
+    crate::install_opaque_phase_reset(app.sub_app_mut(RenderApp));
     app.sub_app_mut(RenderApp)
         .insert_resource(Installed)
         .init_resource::<ItemPipeline>()
+        .init_resource::<TerrainItemMeshGenerations>()
         .add_render_command::<Opaque3d, DrawItemCommands>()
         .add_systems(RenderStartup, init_gpu)
         .add_systems(
             Render,
             (
+                terrain_items::begin_frame
+                    .in_set(TerrainItemSessionSet)
+                    .after(RenderSystems::ExtractCommands)
+                    .before(RenderSystems::Queue),
                 prepare_items.in_set(RenderSystems::PrepareResources),
                 prepare_bind_group.in_set(RenderSystems::PrepareBindGroups),
                 queue_items
@@ -121,6 +133,8 @@ struct ItemGpu {
     draws: Vec<(Range<u32>, u32)>,
     bind_group: Option<BindGroup>,
     view_buffer_id: Option<BufferId>,
+    #[cfg(test)]
+    upload_calls: u64,
 }
 
 fn init_gpu(mut commands: Commands, device: Res<RenderDevice>) {
@@ -163,6 +177,8 @@ fn init_gpu(mut commands: Commands, device: Res<RenderDevice>) {
         draws: Vec::new(),
         bind_group: None,
         view_buffer_id: None,
+        #[cfg(test)]
+        upload_calls: 0,
     });
 }
 
@@ -186,7 +202,7 @@ fn build_model(atlas: &mut Vec<u8>, model: &DroppedItemModel) -> Option<Vec<Item
     let side = MAX_ITEM_SPRITE_SIDE;
     let layers_used = atlas.len() / (side * side * 4) as usize;
     match model {
-        DroppedItemModel::Sprite(sprite) => {
+        DroppedItemModel::Sprite(sprite) | DroppedItemModel::NativeSprite(sprite) => {
             let (width, height) = (sprite.width as usize, sprite.height as usize);
             if layers_used >= MAX_ITEM_LAYERS
                 || sprite.width > side
@@ -195,7 +211,12 @@ fn build_model(atlas: &mut Vec<u8>, model: &DroppedItemModel) -> Option<Vec<Item
             {
                 return None;
             }
-            let mesh = extruded_sprite_mesh(
+            let build = if matches!(model, DroppedItemModel::NativeSprite(_)) {
+                native_dropped_sprite_mesh
+            } else {
+                extruded_sprite_mesh
+            };
+            let mesh = build(
                 sprite.width,
                 sprite.height,
                 &sprite.rgba8,
@@ -217,6 +238,28 @@ fn build_model(atlas: &mut Vec<u8>, model: &DroppedItemModel) -> Option<Vec<Item
             let layers: [u32; 6] =
                 std::array::from_fn(|face| push_layer(atlas, tile, tile, &cube.faces[face]));
             cube_mesh(layers, cube.tints, cube.tile, side)
+        }
+        DroppedItemModel::Block(block) => {
+            for (sprite, _) in block.materials.iter() {
+                if sprite.width == 0
+                    || sprite.height == 0
+                    || sprite.width > side
+                    || sprite.height > side
+                    || sprite.rgba8.len() != (sprite.width * sprite.height * 4) as usize
+                {
+                    return None;
+                }
+            }
+            let vertices = block_mesh(block, layers_used as u32)?;
+            for (sprite, _) in block.materials.iter() {
+                push_layer(
+                    atlas,
+                    sprite.width as usize,
+                    sprite.height as usize,
+                    &sprite.rgba8,
+                );
+            }
+            Some(vertices)
         }
     }
 }
@@ -280,6 +323,7 @@ fn rebuild_models(
 
 fn prepare_items(
     scene: Res<DroppedItemScene>,
+    terrain: Res<TerrainItemMeshGenerations>,
     device: Res<RenderDevice>,
     queue: Res<RenderQueue>,
     mut gpu: ResMut<ItemGpu>,
@@ -287,9 +331,32 @@ fn prepare_items(
     if gpu.models_revision != scene.models_revision || gpu.atlas_view.is_none() {
         rebuild_models(&scene, &device, &queue, &mut gpu);
     }
+    if scene.instances.is_empty()
+        && scene.dynamic.is_empty()
+        && !scene
+            .terrain_instances
+            .iter()
+            .any(|candidate| terrain.visible(candidate))
+    {
+        gpu.draws.clear();
+        gpu.dynamic_count = 0;
+        gpu.identity_instance = 0;
+        return;
+    }
     let mut instances = Vec::with_capacity(scene.instances.len() + 1);
     let mut draws = Vec::with_capacity(scene.instances.len());
-    for instance in scene.instances.iter() {
+    for instance in scene
+        .instances
+        .iter()
+        .chain(
+            scene
+                .terrain_instances
+                .iter()
+                .filter(|candidate| terrain.visible(candidate))
+                .map(|candidate| &candidate.instance),
+        )
+        .take(MAX_DROPPED_ITEM_INSTANCES)
+    {
         let Some(range) = gpu
             .ranges
             .get(instance.model as usize)
@@ -322,6 +389,10 @@ fn prepare_items(
         0,
         bytemuck::cast_slice::<GpuItemInstance, u8>(&instances),
     );
+    #[cfg(test)]
+    {
+        gpu.upload_calls += 1;
+    }
     gpu.dynamic_count = scene.dynamic.len() as u32;
     if !scene.dynamic.is_empty() {
         queue.write_buffer(
@@ -329,6 +400,10 @@ fn prepare_items(
             0,
             bytemuck::cast_slice::<ItemMeshVertex, u8>(&scene.dynamic),
         );
+        #[cfg(test)]
+        {
+            gpu.upload_calls += 1;
+        }
     }
     gpu.draws = draws;
     queue.write_buffer(
@@ -336,6 +411,10 @@ fn prepare_items(
         0,
         bytemuck::cast_slice::<f32, u8>(&[scene.daylight, 0.0, 0.0, 0.0]),
     );
+    #[cfg(test)]
+    {
+        gpu.upload_calls += 1;
+    }
 }
 
 struct ItemPipelineSpecializer;
@@ -363,7 +442,8 @@ fn item_bind_group_layout() -> BindGroupLayoutDescriptor {
         &[
             BindGroupLayoutEntry {
                 binding: 0,
-                visibility: ShaderStages::VERTEX,
+                // The fragment stage reads the camera position for distance fog.
+                visibility: ShaderStages::VERTEX | ShaderStages::FRAGMENT,
                 ty: BindingType::Buffer {
                     ty: BufferBindingType::Uniform,
                     has_dynamic_offset: true,
@@ -569,7 +649,8 @@ fn prepare_bind_group(
 struct QueueItemParams<'w, 's> {
     pipeline_cache: Res<'w, PipelineCache>,
     pipeline: ResMut<'w, ItemPipeline>,
-    gpu: Res<'w, ItemGpu>,
+    scene: Res<'w, DroppedItemScene>,
+    terrain: Res<'w, TerrainItemMeshGenerations>,
     phases: ResMut<'w, ViewBinnedRenderPhases<Opaque3d>>,
     draw_functions: Res<'w, DrawFunctions<Opaque3d>>,
     views: Query<
@@ -585,8 +666,13 @@ struct QueueItemParams<'w, 's> {
 }
 
 fn queue_items(mut params: QueueItemParams<'_, '_>, mut next_tick: Local<Tick>) {
-    if (params.gpu.draws.is_empty() && params.gpu.dynamic_count == 0)
-        || params.gpu.bind_group.is_none()
+    if params.scene.instances.is_empty()
+        && params.scene.dynamic.is_empty()
+        && !params
+            .scene
+            .terrain_instances
+            .iter()
+            .any(|candidate| params.terrain.visible(candidate))
     {
         return;
     }
@@ -626,11 +712,14 @@ fn queue_items(mut params: QueueItemParams<'_, '_>, mut next_tick: Local<Tick>) 
     }
 }
 
-type DrawItemCommands = (
-    SetItemPipeline,
-    crate::lighting::SetWorldLightmap,
-    DrawItems,
-);
+type DrawItemCommands = crate::gpu_timing::GpuDrawSpan<
+    { crate::RuntimeStage::GpuActors as usize },
+    (
+        SetItemPipeline,
+        crate::lighting::SetWorldLightmap,
+        DrawItems,
+    ),
+>;
 
 struct DrawItems;
 
@@ -666,5 +755,59 @@ impl<P: PhaseItem> RenderCommand<P> for DrawItems {
             );
         }
         RenderCommandResult::Success
+    }
+}
+
+impl crate::pipeline_warmup::PrewarmPipelines for ItemPipeline {
+    fn prewarm(
+        &mut self,
+        cache: &PipelineCache,
+        view: crate::pipeline_warmup::WarmView,
+        ids: &mut crate::pipeline_warmup::WarmupIds,
+    ) -> Result<(), BevyError> {
+        ids.push(self.variants.specialize(
+            cache,
+            ItemPipelineKey {
+                msaa: view.msaa,
+                hdr: view.hdr,
+            },
+        )?);
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+#[path = "dropped_item_render/upload_tests.rs"]
+mod upload_tests;
+
+#[cfg(test)]
+mod tests {
+    use bevy::render::render_resource::ShaderStages;
+
+    // The item fragment stage reads the view for distance fog; a vertex-only binding fails validation.
+    #[test]
+    fn fragment_view_reads_are_visible_to_the_fragment_stage() {
+        let lighting = crate::material_shader::source(include_str!("lighting.wgsl")).replacen(
+            "#define_import_path cinnabar::lighting",
+            "",
+            1,
+        );
+        let source = include_str!("dropped_item.wgsl")
+            .replace(
+                "#import bevy_render::view::View",
+                "struct View { clip_from_world: mat4x4<f32>, world_position: vec3<f32>, }",
+            )
+            .replace(
+                "#import cinnabar::lighting::{actor_light_colour, actor_distance_fog, tint_to_gamma, tint_to_linear}",
+                &lighting,
+            );
+        assert!(crate::shader_test_support::fragment_reads_binding(
+            &source, 0, 0
+        ));
+        assert!(
+            super::item_bind_group_layout().entries[0]
+                .visibility
+                .contains(ShaderStages::FRAGMENT)
+        );
     }
 }

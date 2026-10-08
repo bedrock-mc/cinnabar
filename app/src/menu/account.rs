@@ -1,6 +1,8 @@
 use std::process::{Command, Stdio};
 
 use super::*;
+use launcher::menu::auth::select_auth;
+use launcher::menu::view::MenuProfile;
 
 /// Waits for an exiting helper on a thread so the frame never blocks on it; it
 /// stays tracked, so the exit sweep still covers it.
@@ -24,11 +26,7 @@ pub(super) fn validated_auth_cache(
 
 impl MenuRuntime {
     fn start_catalog(&mut self) {
-        if self.catalog_started || !self.visible || self.connecting {
-            return;
-        }
-        if self.should_auto_start_sign_in(auth_cache_path(&self.layout).is_some()) {
-            self.start_sign_in();
+        if self.catalog_started || !self.visible || self.is_connecting() {
             return;
         }
         if self.auth_attempted && self.auth_process.is_none() {
@@ -78,9 +76,23 @@ impl MenuRuntime {
     /// process (which would overwrite them with other join addresses) stays off.
     pub(super) fn poll_catalog(&mut self, core_feeds: bool) {
         self.poll_sign_in();
+        // Cached validation also runs when a signed-out account core is already
+        // attached, as happens before opening the menu in a direct session.
+        if self.visible
+            && !self.is_connecting()
+            && self.should_auto_start_sign_in(auth_cache_path(&self.layout).is_some())
+        {
+            self.start_sign_in();
+            self.sign_in_requested = false;
+        }
+        self.update_sign_in_browser(false);
         if core_feeds {
             self.stop_catalog();
             return;
+        }
+        if self.screen == MenuScreen::Profile && !self.feeds.profile.loaded {
+            self.feeds.profile = MenuProfile::unavailable();
+            launcher_account::profile_worker::log_unavailable("worker_unavailable");
         }
         self.start_catalog();
         let Some(child) = self.catalog_process.as_ref() else {
@@ -116,7 +128,6 @@ impl MenuRuntime {
 
     fn apply_catalog(&mut self, catalog: CatalogFile) {
         self.featured = catalog.featured;
-        self.gatherings = catalog.gatherings;
         self.realms = catalog.realms;
         self.friends = catalog.friends.into_iter().map(Into::into).collect();
         // Service errors may contain URLs, response bodies, or account material.
@@ -126,6 +137,10 @@ impl MenuRuntime {
     }
 
     pub(super) fn start_sign_in(&mut self) {
+        self.sign_in_failure = None;
+        self.sign_in_requested = true;
+        self.sign_in_cancelled = false;
+        self.focus_sign_in_prompt();
         self.auth_attempted = true;
         self.stop_catalog();
         self.catalog_started = false;
@@ -139,24 +154,169 @@ impl MenuRuntime {
         }
         self.auth_process = None;
         self.auth_restart_requested = false;
+        self.control_auth = None;
         self.spawn_sign_in();
     }
 
     fn spawn_sign_in(&mut self) {
         let Some(executable) = core_executable(&self.layout) else {
             self.auth_process = None;
-            self.message =
-                Some("bedrock-core executable was not found; sign-in unavailable.".to_owned());
+            let failure = "Sign-in is unavailable. Try again.";
+            self.sign_in_failure = Some(AuthState::Failed(failure.into()));
+            self.message = Some(failure.into());
             return;
         };
-        match AuthSupervisor::spawn(&executable, &self.layout.auth_cache()) {
+        let cache = if self.feeds.account_adding {
+            launcher::accounts::AccountStore::new(self.layout.auth_cache()).pending_cache()
+        } else {
+            self.layout.auth_cache()
+        };
+        match AuthSupervisor::spawn(&executable, &cache) {
             Ok(process) => self.auth_process = Some(process),
             Err(error) => {
                 self.auth_process = None;
                 bevy::log::warn!(%error, "sign-in could not start");
-                self.message = Some("Sign-in could not start.".to_owned());
+                let failure = "Sign-in could not start. Try again.";
+                self.sign_in_failure = Some(AuthState::Failed(failure.into()));
+                self.message = Some(failure.into());
             }
         }
+    }
+
+    /// Uses the same auth precedence as presentation, including launcher-core codes.
+    pub(super) fn update_sign_in_browser(&mut self, explicit: bool) {
+        #[cfg(feature = "developer-control")]
+        if self.fixture_active() {
+            return;
+        }
+        self.sign_in_browser.poll();
+        if self.auth_restart_requested
+            || self.sign_in_cancelled
+            || self.owned_sign_in_failure().is_some()
+        {
+            return;
+        }
+        let state = select_auth(
+            self.auth_process.as_ref().map(AuthSupervisor::state),
+            self.control_auth.as_ref(),
+        );
+        if let AuthState::AwaitingCode { code, .. } = state {
+            #[cfg(not(test))]
+            self.sign_in_browser
+                .open(code, explicit, crate::desktop::open_sign_in_link);
+            #[cfg(test)]
+            self.sign_in_browser.open(code, explicit, |_| true);
+        }
+    }
+
+    /// The active auth prompt, with a pending helper ahead of the launcher core.
+    pub(super) fn current_auth(&self) -> std::borrow::Cow<'_, AuthState> {
+        #[cfg(feature = "developer-control")]
+        if let Some(state) = self.sign_in_fixture {
+            return std::borrow::Cow::Owned(if self.dialog == Some(MenuDialog::Accounts) {
+                super::sign_in_fixture::auth_state(state)
+            } else {
+                AuthState::SignedOut
+            });
+        }
+        if self.auth_restart_requested {
+            return std::borrow::Cow::Borrowed(&AuthState::Checking);
+        }
+        if let Some(state) = self.owned_sign_in_failure() {
+            return std::borrow::Cow::Borrowed(state);
+        }
+        let state = select_auth(
+            self.auth_process.as_ref().map(AuthSupervisor::state),
+            self.control_auth.as_ref(),
+        );
+        std::borrow::Cow::Borrowed(
+            if self.sign_in_cancelled && !matches!(state, AuthState::Authenticated) {
+                &AuthState::SignedOut
+            } else {
+                state
+            },
+        )
+    }
+
+    /// Interactive failures own presentation; background cache checks leave core status visible.
+    fn owned_sign_in_failure(&self) -> Option<&AuthState> {
+        self.sign_in_failure
+            .as_ref()
+            .filter(|_| self.sign_in_requested || self.feeds.account_adding)
+    }
+
+    /// New core prompts start at the primary action; repeated status keeps the selection.
+    pub(super) fn apply_control_auth(&mut self, state: AuthState) {
+        if self.sign_in_cancelled || self.owned_sign_in_failure().is_some() {
+            self.control_auth = Some(state);
+            return;
+        }
+        let next = select_auth(
+            self.auth_process.as_ref().map(AuthSupervisor::state),
+            Some(&state),
+        );
+        let ready = matches!(next, AuthState::AwaitingCode { .. });
+        let finished = !self.auth_restart_requested
+            && matches!(next, AuthState::Authenticated | AuthState::SignedOut);
+        let prompt = ready
+            || ((self.sign_in_requested || self.feeds.account_adding)
+                && matches!(next, AuthState::Checking | AuthState::Failed(_)))
+            || (self.feeds.account_adding && matches!(next, AuthState::Authenticated));
+        let reset = !self.auth_restart_requested && self.current_auth().as_ref() != next && prompt;
+        self.control_auth = Some(state);
+        if ready {
+            self.sign_in_requested = true;
+        } else if finished {
+            self.sign_in_requested = false;
+        }
+        if reset {
+            self.focus_sign_in_prompt();
+        }
+    }
+
+    /// A new prompt releases input held by the route underneath it.
+    pub(super) fn focus_sign_in_prompt(&mut self) {
+        if !self.sign_in_prompt_layer_available() {
+            return;
+        }
+        self.focused = 0;
+        self.field = None;
+        self.hovered = None;
+        self.pressed = None;
+        self.pointer_down = false;
+        self.key_remap = None;
+        self.clear_settings_slider_selection();
+    }
+
+    /// Progress and existing dialogs keep their input until the sign-in prompt is visible.
+    fn sign_in_prompt_layer_available(&self) -> bool {
+        !self.is_connecting()
+            && matches!(self.dialog, None | Some(MenuDialog::Accounts))
+            && (self.dialog.is_some()
+                || (self.disconnect_message.is_none() && !self.local_ui.progress_open()))
+    }
+
+    /// Focus follows the sign-in prompt before any controls underneath it.
+    pub(super) fn sign_in_focus(&self) -> Option<Vec<MenuAction>> {
+        if !self.sign_in_prompt_layer_available() {
+            return None;
+        }
+        let auth = self.current_auth();
+        if !self.sign_in_requested
+            && !self.feeds.account_adding
+            && !matches!(auth.as_ref(), AuthState::AwaitingCode { .. })
+        {
+            return None;
+        }
+        Some(match auth.as_ref() {
+            AuthState::Checking => vec![MenuAction::CancelSignIn],
+            AuthState::Authenticated if self.feeds.account_adding => vec![MenuAction::CancelSignIn],
+            AuthState::AwaitingCode { .. } => {
+                vec![MenuAction::OpenSignInLink, MenuAction::CancelSignIn]
+            }
+            AuthState::Failed(_) => vec![MenuAction::StartSignIn, MenuAction::CancelSignIn],
+            _ => return None,
+        })
     }
 
     fn poll_sign_in(&mut self) {
@@ -164,7 +324,26 @@ impl MenuRuntime {
             return;
         };
         let was_authenticated = matches!(process.state(), AuthState::Authenticated);
+        let before = std::mem::discriminant(process.state());
         process.poll();
+        if self.sign_in_cancelled && matches!(process.state(), AuthState::AwaitingCode { .. }) {
+            process.cancel_prompt();
+        }
+        if !self.auth_restart_requested {
+            match process.state() {
+                AuthState::AwaitingCode { .. } => self.sign_in_requested = true,
+                AuthState::Authenticated | AuthState::SignedOut => self.sign_in_requested = false,
+                _ => {}
+            }
+        }
+        let reset_focus = !self.auth_restart_requested
+            && (self.sign_in_requested || self.feeds.account_adding)
+            && before != std::mem::discriminant(process.state())
+            && (matches!(
+                process.state(),
+                AuthState::Checking | AuthState::AwaitingCode { .. } | AuthState::Failed(_)
+            ) || (self.feeds.account_adding
+                && matches!(process.state(), AuthState::Authenticated)));
         if process.cleanup_complete() && self.auth_restart_requested {
             self.auth_process = None;
             self.auth_restart_requested = false;
@@ -175,15 +354,27 @@ impl MenuRuntime {
             self.catalog_started = false;
             self.catalog_message = Some("Signed in. Loading account destinations…".to_owned());
         }
+        if reset_focus {
+            self.focus_sign_in_prompt();
+        }
     }
 
     pub(super) fn stop_sign_in(&mut self) {
+        self.sign_in_failure = None;
+        self.sign_in_requested = false;
+        self.sign_in_cancelled = true;
         // Cancellation is sticky. Only the explicit StartSignIn action may
         // create another helper after this point.
+        if matches!(
+            self.control_auth,
+            Some(AuthState::Checking | AuthState::AwaitingCode { .. } | AuthState::Failed(_))
+        ) {
+            self.control_auth = None;
+        }
         self.auth_attempted = true;
         self.auth_restart_requested = false;
         if let Some(mut process) = self.auth_process.take() {
-            process.request_cancel();
+            process.cancel_prompt();
             self.auth_process = Some(process);
         }
     }
@@ -198,6 +389,7 @@ mod tests {
     use std::{
         ffi::OsString,
         fs,
+        io::Write,
         path::{Path, PathBuf},
         process::{Command, Stdio},
         thread,
@@ -207,6 +399,177 @@ mod tests {
     use super::*;
     use crate::install_layout::{InstallEnvironment, Platform};
     use crate::menu::core_process::core_command_for_address;
+
+    #[test]
+    fn new_core_prompts_take_primary_focus_and_repeats_keep_cancel_selected() {
+        let mut menu = MenuRuntime::new(true, 2, "Offline Player".into());
+        let code = |value: &str| AuthState::AwaitingCode {
+            uri: "https://example.invalid".into(),
+            code: value.into(),
+        };
+        menu.focused = 7;
+        menu.apply_control_auth(code("FIRST"));
+        assert_eq!(menu.view().focused_action, Some(MenuAction::OpenSignInLink));
+        menu.move_focus(1);
+        menu.apply_control_auth(code("FIRST"));
+        assert_eq!(menu.view().focused_action, Some(MenuAction::CancelSignIn));
+        menu.apply_control_auth(code("SECOND"));
+        assert_eq!(menu.view().focused_action, Some(MenuAction::OpenSignInLink));
+        menu.move_focus(1);
+        menu.apply_control_auth(AuthState::Failed("Try again.".into()));
+        assert_eq!(menu.view().focused_action, Some(MenuAction::StartSignIn));
+    }
+
+    #[test]
+    fn completed_add_account_control_preserves_cancel_focus() {
+        let mut menu = MenuRuntime::new(true, 2, "Offline Player".into());
+        menu.dialog = Some(MenuDialog::Accounts);
+        menu.feeds.account_adding = true;
+        menu.apply_control_auth(AuthState::AwaitingCode {
+            uri: "https://example.invalid".into(),
+            code: "TEST-CODE".into(),
+        });
+        menu.move_focus(1);
+        assert_eq!(menu.focused, 1);
+        assert_eq!(menu.view().focused_action, Some(MenuAction::CancelSignIn));
+        menu.apply_control_auth(AuthState::Authenticated);
+        assert_eq!(menu.view().focused_action, Some(MenuAction::CancelSignIn));
+    }
+
+    #[test]
+    fn completed_add_account_helper_preserves_cancel_focus() {
+        let (mut child, directory) = event_child_waiting(
+            &[
+                r#"{"v":1,"event":"checking_cache"}"#,
+                r#"{"v":1,"event":"device_code","verification_uri":"https://example.invalid","user_code":"TEST-CODE"}"#,
+            ],
+            &[r#"{"v":1,"event":"authenticated","method":"device_code"}"#],
+        );
+        let mut input = child.stdin.take().expect("injected helper input");
+        let mut menu = MenuRuntime::new(true, 2, "Offline Player".into());
+        menu.dialog = Some(MenuDialog::Accounts);
+        menu.feeds.account_adding = true;
+        menu.auth_process = Some(AuthSupervisor::from_child(child).unwrap());
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !matches!(menu.current_auth().as_ref(), AuthState::AwaitingCode { .. })
+            && Instant::now() < deadline
+        {
+            menu.poll_sign_in();
+            thread::sleep(Duration::from_millis(5));
+        }
+        assert!(matches!(
+            menu.current_auth().as_ref(),
+            AuthState::AwaitingCode { .. }
+        ));
+        menu.move_focus(1);
+        assert_eq!(menu.focused, 1);
+        assert_eq!(menu.view().focused_action, Some(MenuAction::CancelSignIn));
+        input.write_all(b"finish\n").unwrap();
+        input.flush().unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !matches!(menu.current_auth().as_ref(), AuthState::Authenticated)
+            && Instant::now() < deadline
+        {
+            menu.poll_sign_in();
+            thread::sleep(Duration::from_millis(5));
+        }
+        assert_eq!(menu.current_auth().as_ref(), &AuthState::Authenticated);
+        menu.poll_accounts();
+        let focused = menu.view().focused_action;
+        assert!(menu.accounts.pending_ready);
+        drop(input);
+        drop(menu);
+        fs::remove_dir_all(directory).unwrap();
+        assert_eq!(focused, Some(MenuAction::CancelSignIn));
+    }
+
+    #[test]
+    fn failed_helper_start_survives_signed_out_core_status() {
+        assert_failed_start_prompt_survives(AuthState::SignedOut);
+    }
+
+    #[test]
+    fn failed_helper_start_survives_authenticated_core_status() {
+        assert_failed_start_prompt_survives(AuthState::Authenticated);
+    }
+
+    /// Core status cannot dismiss a launcher-start failure or restore an unfinished Add account.
+    fn assert_failed_start_prompt_survives(status: AuthState) {
+        for adding in [false, true] {
+            let mut menu = MenuRuntime::new(true, 2, "Offline Player".into());
+            menu.layout.core_executable = menu.layout.user_data_root.join("missing-helper");
+            menu.feeds.account_adding = adding;
+            menu.dialog = adding.then_some(MenuDialog::Accounts);
+            menu.start_sign_in();
+            let failure = menu.current_auth().into_owned();
+            assert!(matches!(failure, AuthState::Failed(_)));
+            menu.apply_control_auth(status.clone());
+            menu.poll_accounts();
+            assert_eq!(menu.current_auth().as_ref(), &failure);
+            assert!(menu.sign_in_requested);
+            assert_eq!(menu.view().focused_action, Some(MenuAction::StartSignIn));
+            assert!(menu.accounts.operation.is_none());
+            assert_eq!(menu.control_auth.as_ref(), Some(&status));
+            let hidden_prompt = AuthState::AwaitingCode {
+                uri: "https://example.invalid".into(),
+                code: "HIDDEN-CODE".into(),
+            };
+            menu.apply_control_auth(hidden_prompt.clone());
+            menu.update_sign_in_browser(false);
+            assert_eq!(
+                menu.sign_in_browser.state(&hidden_prompt),
+                launcher::menu::sign_in::BrowserState::Waiting
+            );
+            menu.apply_control_auth(status.clone());
+            menu.stop_sign_in();
+            assert!(!menu.sign_in_requested);
+            assert_eq!(menu.current_auth().as_ref(), &status);
+            menu.start_sign_in();
+            assert!(matches!(menu.current_auth().as_ref(), AuthState::Failed(_)));
+        }
+    }
+
+    #[test]
+    fn cancelled_core_prompts_do_not_return_on_repeated_status() {
+        let mut menu = MenuRuntime::new(true, 2, "Offline Player".into());
+        let code = AuthState::AwaitingCode {
+            uri: "https://example.invalid".into(),
+            code: "TEST-CODE".into(),
+        };
+        menu.apply_control_auth(code.clone());
+        menu.activate(MenuAction::CancelSignIn);
+        menu.focused = 1;
+        for state in [code, AuthState::Failed("Try again.".into())] {
+            menu.apply_control_auth(state);
+            menu.update_sign_in_browser(false);
+            assert_eq!(menu.focused, 1);
+            assert_eq!(menu.view().auth_state, AuthState::SignedOut);
+            assert!(!menu.view().popup_open());
+        }
+        menu.apply_control_auth(AuthState::Authenticated);
+        assert_eq!(menu.view().auth_state, AuthState::Authenticated);
+        menu.start_sign_in();
+        assert!(!menu.sign_in_cancelled);
+        assert!(menu.sign_in_requested);
+    }
+
+    #[test]
+    fn cached_validation_keeps_home_focus_until_a_device_code_arrives() {
+        let mut menu = MenuRuntime::new(true, 2, "Offline Player".into());
+        menu.focused = 1;
+        for state in [AuthState::Checking, AuthState::Failed("Try again.".into())] {
+            menu.apply_control_auth(state);
+            assert_eq!(menu.focused, 1);
+            assert!(!menu.view().sign_in_prompt_open());
+            assert!(menu.sign_in_focus().is_none());
+        }
+        menu.apply_control_auth(AuthState::AwaitingCode {
+            uri: "https://example.invalid".into(),
+            code: "TEST-CODE".into(),
+        });
+        assert!(menu.view().sign_in_prompt_open());
+        assert_eq!(menu.view().focused_action, Some(MenuAction::OpenSignInLink));
+    }
 
     #[test]
     fn catalog_failures_have_safe_recovery_copy_and_preserve_partial_success() {
@@ -230,6 +593,7 @@ mod tests {
             Platform::Linux,
             &InstallEnvironment {
                 executable: PathBuf::from("/opt/Cinnabar Client/bin/bedrock-client"),
+                user_root: None,
                 home: Some(PathBuf::from("/home/Player One")),
                 local_app_data: None,
                 xdg_config_home: Some(PathBuf::from("/cfg/Player One")),
@@ -303,7 +667,7 @@ mod tests {
 
     #[test]
     fn only_validated_authentication_selects_the_cache_for_a_connection() {
-        let layout = InstallLayout::discover().unwrap();
+        let layout = crate::install_layout::checkout();
         assert_eq!(validated_auth_cache(&layout, None), None);
         assert_eq!(
             validated_auth_cache(&layout, Some(&AuthState::SignedOut)),
@@ -336,6 +700,7 @@ mod tests {
         assert_eq!(
             offline_args,
             [
+                OsString::from("-control-status"),
                 OsString::from("-socket-dir"),
                 OsString::from("run with spaces"),
                 OsString::from("-upstream"),
@@ -372,6 +737,7 @@ mod tests {
         assert_eq!(
             authenticated_args,
             [
+                OsString::from("-control-status"),
                 OsString::from("-socket-dir"),
                 OsString::from("run with spaces"),
                 OsString::from("-upstream"),
@@ -403,6 +769,7 @@ mod tests {
         assert_eq!(
             enabled_args,
             [
+                OsString::from("-control-status"),
                 OsString::from("-socket-dir"),
                 OsString::from("run with spaces"),
                 OsString::from("-upstream"),
@@ -434,7 +801,7 @@ mod tests {
         menu.auth_process = Some(AuthSupervisor::from_child(child).unwrap());
 
         menu.request_connect("offline.example:19132".to_owned());
-        assert!(menu.take_pending_connect().is_none());
+        assert!(menu.take_join_intent().is_none());
         assert!(matches!(
             menu.auth_process.as_ref().map(AuthSupervisor::state),
             Some(AuthState::SignedOut)
@@ -456,7 +823,7 @@ mod tests {
                 .is_some_and(AuthSupervisor::cleanup_complete),
             "cancelled sign-in helper was not reaped"
         );
-        let pending = menu.take_pending_connect().expect("offline connection");
+        let pending = menu.take_join_intent().expect("offline connection");
         assert_eq!(pending.address, "offline.example:19132");
         assert_eq!(pending.auth_cache, None);
     }
@@ -485,7 +852,7 @@ mod tests {
         ));
 
         menu.request_connect("authenticated.example:19132".to_owned());
-        assert!(menu.take_pending_connect().is_none());
+        assert!(menu.take_join_intent().is_none());
         let deadline = Instant::now() + Duration::from_secs(5);
         while !menu
             .auth_process
@@ -502,9 +869,7 @@ mod tests {
                 .is_some_and(AuthSupervisor::cleanup_complete),
             "authenticated sign-in helper was not reaped"
         );
-        let pending = menu
-            .take_pending_connect()
-            .expect("authenticated connection");
+        let pending = menu.take_join_intent().expect("authenticated connection");
         assert_eq!(pending.address, "authenticated.example:19132");
         assert_eq!(pending.auth_cache, Some(menu.layout.auth_cache()));
         fs::remove_dir_all(directory).unwrap();
@@ -550,13 +915,19 @@ mod tests {
                 .is_some_and(AuthSupervisor::cleanup_complete),
             "failed sign-in helper was not reaped"
         );
-        let pending = menu.take_pending_connect().expect("offline connection");
+        let pending = menu.take_join_intent().expect("offline connection");
         assert_eq!(pending.address, "offline-after-failure.example:19132");
         assert_eq!(pending.auth_cache, None);
         fs::remove_dir_all(directory).unwrap();
     }
 
+    /// Emits fixed events and keeps the injected helper alive until cleanup.
     fn event_child_holding(lines: &[&str]) -> (std::process::Child, PathBuf) {
+        event_child_waiting(lines, &[])
+    }
+
+    /// Releases completion events only after the test acknowledges the initial prompt.
+    fn event_child_waiting(lines: &[&str], completion: &[&str]) -> (std::process::Child, PathBuf) {
         let unique = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
@@ -569,8 +940,13 @@ mod tests {
         let mut command = if cfg!(windows) {
             let script = directory.join("events.cmd");
             let body = format!(
-                "@echo off\r\n{}\r\nset /p hold=\r\n",
+                "@echo off\r\n{}\r\nset /p hold=\r\n{}\r\nset /p hold=\r\n",
                 lines
+                    .iter()
+                    .map(|line| format!("echo {line}"))
+                    .collect::<Vec<_>>()
+                    .join("\r\n"),
+                completion
                     .iter()
                     .map(|line| format!("echo {line}"))
                     .collect::<Vec<_>>()
@@ -583,8 +959,13 @@ mod tests {
         } else {
             let script = directory.join("events.sh");
             let body = format!(
-                "#!/bin/sh\n{}\nIFS= read -r hold\n",
+                "#!/bin/sh\n{}\nIFS= read -r hold\n{}\nIFS= read -r hold\n",
                 lines
+                    .iter()
+                    .map(|line| format!("printf '%s\\n' '{line}'"))
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+                completion
                     .iter()
                     .map(|line| format!("printf '%s\\n' '{line}'"))
                     .collect::<Vec<_>>()

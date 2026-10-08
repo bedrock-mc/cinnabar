@@ -1,0 +1,8 @@
+{
+  "ui_defs": [
+    "ui/chat_screen.json",
+    "ui/hud_screen.json",
+    "ui/player_list.json",
+    "ui/scoreboards.json"
+  ]
+}

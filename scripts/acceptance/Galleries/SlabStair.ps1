@@ -225,11 +225,71 @@ function Get-StrictMcbeas05ModelTables {
     }
 }
 
+function Assert-SlabStairSelectorCoverage {
+    param([Parameter(Mandatory = $true)][object[]]$Entries)
+
+    $slabs = @($Entries | Where-Object family -CEQ 'Slab')
+    $stairs = @($Entries | Where-Object family -CEQ 'Stair')
+    if ($slabs.Count -eq 0 -or $stairs.Count -eq 0) { throw 'slab/stair registry coverage is empty' }
+    foreach ($group in @($slabs | Group-Object name)) {
+        $halves = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+        # Match registrygen's reviewed double-slab projection rule.
+        $double = ([string]$group.Name).Contains('double')
+        foreach ($entry in $group.Group) {
+            $state = $entry.canonical_state | ConvertFrom-Json
+            $property = $state.PSObject.Properties['minecraft:vertical_half']
+            if (@($state.PSObject.Properties).Count -ne 1 -or $null -eq $property -or
+                @($property.Value.PSObject.Properties).Count -ne 2 -or $property.Value.type -cne 'string' -or
+                $property.Value.value -cnotin @('bottom', 'top') -or $entry.model_mask -ne 2 -or
+                $null -ne $entry.orientation) { throw "slab selector is noncanonical for $($entry.name)" }
+            $half = [string]$property.Value.value
+            $expectedHalf = if ($double) { 2 } elseif ($half -ceq 'bottom') { 0 } else { 1 }
+            if ($entry.half -ne $expectedHalf -or -not $halves.Add($half)) {
+                throw "slab selector matrix changed for $($entry.name)"
+            }
+        }
+        if ($group.Count -ne 2 -or $halves.Count -ne 2) { throw "slab selector matrix changed for $($group.Name)" }
+    }
+    $corners = @('none', 'inner_left', 'inner_right', 'outer_left', 'outer_right')
+    foreach ($group in @($stairs | Group-Object name)) {
+        $selectors = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+        foreach ($entry in $group.Group) {
+            $state = $entry.canonical_state | ConvertFrom-Json
+            $corner = $state.PSObject.Properties['minecraft:corner']
+            $half = $state.PSObject.Properties['upside_down_bit']
+            $direction = $state.PSObject.Properties['weirdo_direction']
+            if (@($state.PSObject.Properties).Count -ne 3 -or $null -eq $corner -or $null -eq $half -or $null -eq $direction) {
+                throw "stair selector is noncanonical for $($entry.name)"
+            }
+            if (@($corner.Value.PSObject.Properties).Count -ne 2 -or $corner.Value.type -cne 'string' -or
+                $corner.Value.value -cnotin $corners -or
+                @($half.Value.PSObject.Properties).Count -ne 2 -or $half.Value.type -cne 'byte' -or
+                $half.Value.value -notin @(0, 1) -or
+                @($direction.Value.PSObject.Properties).Count -ne 2 -or $direction.Value.type -cne 'int' -or
+                $direction.Value.value -notin @(0, 1, 2, 3) -or
+                $entry.model_mask -ne 3 -or $entry.half -ne $half.Value.value -or
+                $entry.orientation -ne $direction.Value.value) { throw "stair selector is noncanonical for $($entry.name)" }
+            if (-not $selectors.Add("$($direction.Value.value),$($half.Value.value),$($corner.Value.value)")) {
+                throw "stair selector matrix changed for $($entry.name)"
+            }
+        }
+        foreach ($orientation in 0..3) {
+            foreach ($half in 0..1) {
+                foreach ($corner in $corners) {
+                    if (-not $selectors.Contains("$orientation,$half,$corner")) { throw "stair selector matrix changed for $($group.Name)" }
+                }
+            }
+        }
+    }
+}
+
 function Get-SlabStairCoverageEvidence {
     param(
         [Parameter(Mandatory = $true)][string]$RegistryPath,
         [Parameter(Mandatory = $true)][string]$AssetsPath
     )
+    $targetRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../..'))
+    $target = Get-BedrockTargetManifest -ProjectRoot $targetRoot
     $registryBytes = [IO.File]::ReadAllBytes($RegistryPath)
     $reader = [IO.BinaryReader]::new([IO.MemoryStream]::new($registryBytes, $false))
     $utf8 = [Text.UTF8Encoding]::new($false, $true)
@@ -241,8 +301,9 @@ function Get-SlabStairCoverageEvidence {
         $null = $reader.ReadUInt32()
         $recordCount = [int]$reader.ReadUInt32()
         foreach ($ignored in 1..4) { $null = $reader.ReadUInt32() }
-        if ($registryProtocol -ne 2193 -or $recordCount -ne 22091) {
-            throw "slab/stair registry target changed: protocol=$registryProtocol records=$recordCount (expected 2193/22091)"
+        if ($registryProtocol -ne [uint32]$target.wire_protocol -or
+            (Get-FileHash -Algorithm SHA256 -LiteralPath $RegistryPath).Hash.ToLowerInvariant() -cne [string]$target.hashes.block_registry) {
+            throw "slab/stair registry target changed: protocol=$registryProtocol records=$recordCount (manifest identity mismatch)"
         }
         $entries = [Collections.Generic.List[object]]::new()
         for ($recordIndex = 0; $recordIndex -lt $recordCount; $recordIndex++) {
@@ -271,18 +332,7 @@ function Get-SlabStairCoverageEvidence {
     $slabs = @($entries | Where-Object family -CEQ 'Slab')
     $stairs = @($entries | Where-Object family -CEQ 'Stair')
     $stairNames = @($stairs | ForEach-Object name | Sort-Object -Unique)
-    if ($slabs.Count -ne 272 -or $stairs.Count -ne 512 -or $stairNames.Count -ne 64) {
-        throw "slab/stair registry coverage changed: slabs=$($slabs.Count) stairs=$($stairs.Count) stair_names=$($stairNames.Count)"
-    }
-    $slabHalves = @(0..2 | ForEach-Object { $half = $_; @($slabs | Where-Object half -eq $half).Count })
-    if (($slabHalves -join ',') -cne '68,68,136') { throw "slab half selector counts changed: $($slabHalves -join ',')" }
-    foreach ($name in $stairNames) {
-        $selectors = @($stairs | Where-Object name -CEQ $name | ForEach-Object { "$($_.orientation),$($_.half)" } | Sort-Object -Unique)
-        $expected = @(0..3 | ForEach-Object { $orientation = $_; 0..1 | ForEach-Object { "$orientation,$_" } })
-        if ($selectors.Count -ne 8 -or ($selectors -join ';') -cne (($expected | Sort-Object) -join ';')) {
-            throw "stair selector matrix changed for ${name}: $($selectors -join ';')"
-        }
-    }
+    Assert-SlabStairSelectorCoverage -Entries @($entries)
 
     $modelTables = Get-StrictMcbeas05ModelTables -Path $AssetsPath
     $assetBytes = $modelTables.bytes

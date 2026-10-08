@@ -399,6 +399,7 @@ fn decode_scoped_entities(
 ) -> DecodedBlockEntities {
     let mut entities = BTreeMap::new();
     let mut consumed = 0;
+    let mut retained_bytes = 0;
     while consumed < payload.len() && entities.len() < max_entities {
         let input = &payload[consumed..];
         if input[0] != COMPOUND_TAG {
@@ -425,10 +426,13 @@ fn decode_scoped_entities(
                 BlockEntityKey::new(key.dimension, x, y, z).sub_chunk() == *key,
             ),
         };
-        if in_scope {
-            entities
-                .entry(BlockEntityKey::new(dimension, x, y, z))
-                .or_insert_with(|| Arc::new(nbt));
+        let key = BlockEntityKey::new(dimension, x, y, z);
+        if in_scope && !entities.contains_key(&key) {
+            let total = retained_bytes + nbt.bytes().len();
+            if total <= MAX_BLOCK_ENTITY_BYTES_PER_CHUNK {
+                entities.insert(key, Arc::new(nbt));
+                retained_bytes = total;
+            }
         }
     }
     DecodedBlockEntities {

@@ -1,0 +1,383 @@
+use assets::{
+    AssetError, BlockPhysicsFlags, BlockPhysicsRecord, PhysicsRegistry, RegistryRecord,
+    SurfaceResponse, physics_registry_header_protocol, read_physics_registry,
+    read_physics_registry_for_protocol, read_registry, read_registry_for_protocol,
+    registry_header_protocol,
+};
+use sha2::{Digest, Sha256};
+use std::collections::HashSet;
+
+const BREG: &[u8] = include_bytes!("../../data/block-registry-v1001.bin");
+
+fn valid_preg(records: &[RegistryRecord]) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    bytes.extend_from_slice(b"PREG1001");
+    bytes.extend_from_slice(&1001_u32.to_le_bytes());
+    bytes.extend_from_slice(&u32::try_from(records.len()).unwrap().to_le_bytes());
+    bytes.extend_from_slice(&Sha256::digest(BREG));
+    for record in records {
+        bytes.extend_from_slice(&record.sequential_id.to_le_bytes());
+        bytes.extend_from_slice(&record.network_hash.to_le_bytes());
+        let water = record.name.as_ref() == "minecraft:water"
+            || record.name.as_ref() == "minecraft:flowing_water"
+            || record.name.as_ref() == "minecraft:bubble_column";
+        let lava = record.name.as_ref() == "minecraft:lava"
+            || record.name.as_ref() == "minecraft:flowing_lava";
+        let fluid = water || lava;
+        let boxes = if fluid {
+            &[][..]
+        } else {
+            record.collision_seed.boxes.as_ref()
+        };
+        let mut flags = BlockPhysicsFlags::empty();
+        if boxes.is_empty() {
+            flags |= BlockPhysicsFlags::PASSABLE;
+        }
+        if water {
+            flags |= BlockPhysicsFlags::WATER;
+        }
+        if lava {
+            flags |= BlockPhysicsFlags::LAVA;
+        }
+        let bubble = record.name.as_ref() == "minecraft:bubble_column";
+        let response = if bubble && record.canonical_state.contains("\"value\":1") {
+            SurfaceResponse::BubbleDown
+        } else if bubble {
+            SurfaceResponse::BubbleUp
+        } else {
+            SurfaceResponse::None
+        };
+        bytes.push(u8::try_from(boxes.len()).unwrap());
+        bytes.push(flags.bits());
+        bytes.push(response as u8);
+        bytes.push(0);
+        bytes.extend_from_slice(&60_000_000_u32.to_le_bytes());
+        bytes.extend_from_slice(&100_000_000_u32.to_le_bytes());
+        bytes.extend_from_slice(&100_000_000_u32.to_le_bytes());
+        bytes.extend_from_slice(&(if fluid { 100_000_000_i32 } else { 0 }).to_le_bytes());
+        for collision_box in boxes {
+            for coordinate in [
+                collision_box.min_x,
+                collision_box.min_y,
+                collision_box.min_z,
+                collision_box.max_x,
+                collision_box.max_y,
+                collision_box.max_z,
+            ] {
+                bytes.extend_from_slice(&coordinate.to_le_bytes());
+            }
+        }
+    }
+    append_digest(bytes)
+}
+
+fn append_digest(mut bytes: Vec<u8>) -> Vec<u8> {
+    let digest = Sha256::digest(&bytes);
+    bytes.extend_from_slice(&digest);
+    bytes
+}
+
+fn resign(bytes: &mut Vec<u8>) {
+    bytes.truncate(bytes.len() - 32);
+    let digest = Sha256::digest(&bytes);
+    bytes.extend_from_slice(&digest);
+}
+
+#[test]
+fn preg1001_public_decoder_contract_is_available() {
+    let _: Option<BlockPhysicsRecord> = None;
+    let _: Option<PhysicsRegistry> = None;
+    let _ = BlockPhysicsFlags::WATER;
+    let _ = SurfaceResponse::None;
+    let _ = read_physics_registry;
+}
+
+#[test]
+fn decodes_exact_breg_bound_identity_and_lookups() {
+    let records = read_registry(BREG).unwrap();
+    let preg = valid_preg(&records);
+    let registry = read_physics_registry(&preg, BREG, &records).unwrap();
+    assert_eq!(registry.len(), records.len());
+    assert!(!registry.is_empty());
+    assert_eq!(registry.sha256(), Sha256::digest(&preg).as_slice());
+    assert_eq!(registry.breg_sha256(), Sha256::digest(BREG).as_slice());
+
+    let water_identity = records
+        .iter()
+        .find(|record| record.name.as_ref() == "minecraft:water")
+        .unwrap();
+    let water: &BlockPhysicsRecord = registry
+        .by_sequential_id(water_identity.sequential_id)
+        .unwrap();
+    assert!(water.flags.contains(BlockPhysicsFlags::WATER));
+    assert!(water.fluid_height_blocks() > 0.0);
+    assert_eq!(water.surface_response, SurfaceResponse::None);
+    assert_eq!(registry.by_network_hash(water.network_hash), Some(water));
+    assert_eq!(water.friction(), 0.6);
+    assert_eq!(water.horizontal_speed_factor(), 1.0);
+    assert_eq!(water.vertical_speed_factor(), 1.0);
+
+    let compound_identity = records
+        .iter()
+        .find(|record| record.collision_seed.boxes.len() > 1)
+        .expect("compound collision state");
+    let compound = registry
+        .by_sequential_id(compound_identity.sequential_id)
+        .unwrap();
+    assert_eq!(
+        compound.boxes.as_ref(),
+        compound_identity.collision_seed.boxes.as_ref()
+    );
+
+    let ladder_boxes = records
+        .iter()
+        .filter(|record| record.name.as_ref() == "minecraft:ladder")
+        .map(|record| {
+            let decoded = registry.by_sequential_id(record.sequential_id).unwrap();
+            assert_eq!(decoded.boxes.as_ref(), record.collision_seed.boxes.as_ref());
+            decoded.boxes.to_vec()
+        })
+        .collect::<HashSet<_>>();
+    assert!(ladder_boxes.len() >= 4, "ladder orientations collapsed");
+
+    let stone_identity = records
+        .iter()
+        .find(|record| record.name.as_ref() == "minecraft:stone")
+        .expect("ordinary full solid");
+    let stone = registry
+        .by_sequential_id(stone_identity.sequential_id)
+        .unwrap();
+    assert!(!stone.flags.contains(BlockPhysicsFlags::PASSABLE));
+    assert_eq!(stone.boxes.len(), 1);
+    assert_eq!(stone.boxes[0].min_x, 0);
+    assert_eq!(stone.boxes[0].max_x, 100_000_000);
+}
+
+#[test]
+fn rejects_stale_or_malformed_carriers_without_partial_acceptance() {
+    let records = read_registry(BREG).unwrap();
+    let valid = valid_preg(&records);
+    let first_record = 48;
+    for (name, mutate) in [
+        ("magic", (0, b'X')),
+        ("protocol", (8, 0)),
+        ("BREG hash", (16, 0)),
+        ("identity", (first_record, 1)),
+        ("flags", (first_record + 9, 0x80)),
+        ("surface", (first_record + 10, 0xff)),
+        ("reserved", (first_record + 11, 1)),
+    ] {
+        let mut broken = valid.clone();
+        broken[mutate.0] = mutate.1;
+        resign(&mut broken);
+        let error = read_physics_registry(&broken, BREG, &records).unwrap_err();
+        assert!(!error.to_string().is_empty(), "{name}");
+    }
+
+    let mut corrupt_digest = valid.clone();
+    *corrupt_digest.last_mut().unwrap() ^= 1;
+    assert!(read_physics_registry(&corrupt_digest, BREG, &records).is_err());
+
+    let mut trailing = valid.clone();
+    trailing.truncate(trailing.len() - 32);
+    trailing.push(0);
+    trailing = append_digest(trailing);
+    assert!(read_physics_registry(&trailing, BREG, &records).is_err());
+
+    let mut too_many_boxes = valid.clone();
+    too_many_boxes[first_record + 8] = 33;
+    resign(&mut too_many_boxes);
+    assert!(read_physics_registry(&too_many_boxes, BREG, &records).is_err());
+
+    let mut zero_scalar = valid.clone();
+    zero_scalar[first_record + 12..first_record + 16].fill(0);
+    resign(&mut zero_scalar);
+    assert!(read_physics_registry(&zero_scalar, BREG, &records).is_err());
+
+    let mut inverted_box = valid.clone();
+    inverted_box[first_record + 8] = 1;
+    let box_bytes = [2_i32, 0, 0, 1, 1, 1]
+        .into_iter()
+        .flat_map(i32::to_le_bytes)
+        .collect::<Vec<_>>();
+    inverted_box.splice(first_record + 28..first_record + 28, box_bytes);
+    resign(&mut inverted_box);
+    assert!(read_physics_registry(&inverted_box, BREG, &records).is_err());
+
+    let mut stale_breg = BREG.to_vec();
+    *stale_breg.last_mut().unwrap() ^= 1;
+    assert!(read_physics_registry(&valid, &stale_breg, &records).is_err());
+}
+
+const BREG_V2193: &[u8] = include_bytes!("../../data/block-registry-v2193.bin");
+const PREG_V2193: &[u8] = include_bytes!("../../data/block-physics-v2193.bin");
+
+/// Pinned sidecar digest of `crates/assets/data/block-physics-v2193.bin`
+/// (`block-physics-v2193.sha256`); guards the committed artifact against drift.
+const PREG_V2193_SHA256_HEX: &str =
+    "080763f3eda3df2fff3aca56cc96fbf55ecbb4a09ab89359f2371997cf77337c";
+
+fn assert_physics_error(error: &AssetError, needle: &str) {
+    match error {
+        AssetError::InvalidPhysicsRegistry { detail } => {
+            assert!(
+                detail.contains(needle),
+                "expected {needle:?} in physics error {detail:?}"
+            );
+        }
+        other => panic!("expected InvalidPhysicsRegistry, got {other:?}"),
+    }
+}
+
+#[test]
+fn committed_protocol_2193_artifact_decodes_against_its_own_breg() {
+    let records = read_registry_for_protocol(BREG_V2193, 2193).unwrap();
+    let registry = read_physics_registry_for_protocol(PREG_V2193, BREG_V2193, &records, 2193)
+        .expect("committed protocol-2193 PREG decodes against its pinned BREG");
+    assert_eq!(registry.len(), records.len());
+    assert_eq!(registry.protocol(), 2193);
+    let expected_sha: [u8; 32] = Sha256::digest(PREG_V2193).into();
+    let mut pinned = [0_u8; 32];
+    for (index, byte) in PREG_V2193_SHA256_HEX.as_bytes().chunks_exact(2).enumerate() {
+        pinned[index] = u8::from_str_radix(std::str::from_utf8(byte).unwrap(), 16).unwrap();
+    }
+    assert_eq!(registry.sha256(), expected_sha);
+    assert_eq!(expected_sha, pinned, "artifact drifted from its sidecar");
+    assert_eq!(
+        registry.breg_sha256(),
+        Sha256::digest(BREG_V2193).as_slice()
+    );
+
+    for name in ["minecraft:air", "minecraft:stone"] {
+        let identity = records
+            .iter()
+            .find(|record| record.name.as_ref() == name)
+            .unwrap_or_else(|| panic!("{name} exists in the checked-in v2193 BREG"));
+        let decoded: &BlockPhysicsRecord = registry
+            .by_sequential_id(identity.sequential_id)
+            .unwrap_or_else(|| panic!("{name} decodes from the v2193 PREG"));
+        assert_eq!(decoded.network_hash, identity.network_hash, "{name}");
+        assert_eq!(
+            decoded.boxes.as_ref(),
+            identity.collision_seed.boxes.as_ref(),
+            "{name} boxes stay the verbatim BREG seeds"
+        );
+        assert_eq!(
+            registry.by_network_hash(identity.network_hash),
+            Some(decoded),
+            "{name} hash lookup"
+        );
+    }
+}
+
+#[test]
+fn legacy_alias_keeps_rejecting_non_1001_carriers() {
+    let records = read_registry_for_protocol(BREG_V2193, 2193).unwrap();
+    let error = read_physics_registry(PREG_V2193, BREG_V2193, &records).unwrap_err();
+    assert_physics_error(&error, "protocol is not 1001");
+}
+
+#[test]
+fn header_protocol_readers_stamp_both_committed_carriers_without_a_full_decode() {
+    assert_eq!(registry_header_protocol(BREG).unwrap(), 1001);
+    assert_eq!(registry_header_protocol(BREG_V2193).unwrap(), 2193);
+    assert_eq!(physics_registry_header_protocol(PREG_V2193).unwrap(), 2193);
+
+    let synthetic = valid_preg(&read_registry(BREG).unwrap());
+    assert_eq!(physics_registry_header_protocol(&synthetic).unwrap(), 1001);
+}
+
+#[test]
+fn header_protocol_readers_reject_short_and_malformed_carriers() {
+    assert!(registry_header_protocol(&[]).is_err());
+    let mut bad_breg_magic = BREG.to_vec();
+    bad_breg_magic[0] ^= 1;
+    assert!(matches!(
+        registry_header_protocol(&bad_breg_magic),
+        Err(AssetError::InvalidRegistryMagic)
+    ));
+
+    assert!(physics_registry_header_protocol(&[]).is_err());
+    assert!(physics_registry_header_protocol(&PREG_V2193[..HEADER_BYTES_FLOOR - 1]).is_err());
+    let mut bad_preg_magic = PREG_V2193.to_vec();
+    bad_preg_magic[0] ^= 1;
+    match physics_registry_header_protocol(&bad_preg_magic) {
+        Err(AssetError::InvalidPhysicsRegistry { detail }) => {
+            assert_eq!(detail.as_ref(), "invalid magic");
+        }
+        other => panic!("expected invalid-magic physics error, got {other:?}"),
+    }
+}
+
+/// The full decoder's minimum carrier size (48-byte header plus 32-byte
+/// trailer); the cheap reader enforces the same floor.
+const HEADER_BYTES_FLOOR: usize = 80;
+
+#[test]
+fn cross_version_bindings_are_rejected_in_both_directions() {
+    // v2193 carrier bound to a v1001 BREG: the stamped BREG digest cannot
+    // match, so the exact-BREG-SHA-256 binding rejects before any record.
+    let v2193_records = read_registry_for_protocol(BREG_V2193, 2193).unwrap();
+    let error =
+        read_physics_registry_for_protocol(PREG_V2193, BREG, &v2193_records, 2193).unwrap_err();
+    assert_physics_error(&error, "exact BREG SHA-256 mismatch");
+
+    // Vice versa: a valid v1001 carrier presented with v2193 BREG bytes.
+    let v1001_records = read_registry(BREG).unwrap();
+    let preg1001 = valid_preg(&v1001_records);
+    let error = read_physics_registry_for_protocol(&preg1001, BREG_V2193, &v1001_records, 1001)
+        .unwrap_err();
+    assert_physics_error(&error, "exact BREG SHA-256 mismatch");
+
+    // A v1001-stamped body can never satisfy an explicit 2193 expectation.
+    let error =
+        read_physics_registry_for_protocol(&preg1001, BREG, &v1001_records, 2193).unwrap_err();
+    assert_physics_error(&error, "protocol is not 2193");
+}
+
+#[test]
+fn unknown_physics_protocols_are_rejected_before_any_structural_read() {
+    let v1001_records = read_registry(BREG).unwrap();
+    let preg1001 = valid_preg(&v1001_records);
+    let error =
+        read_physics_registry_for_protocol(&preg1001, BREG, &v1001_records, 999).unwrap_err();
+    assert_physics_error(&error, "unsupported PREG1001 wire protocol");
+    // The gate precedes even the length and trailer checks.
+    let error = read_physics_registry_for_protocol(&[], BREG, &v1001_records, 999).unwrap_err();
+    assert_physics_error(&error, "unsupported PREG1001 wire protocol");
+}
+
+#[test]
+fn record_count_mismatch_rejection_is_preserved_for_both_versions() {
+    let v2193_records = read_registry_for_protocol(BREG_V2193, 2193).unwrap();
+    let error = read_physics_registry_for_protocol(
+        PREG_V2193,
+        BREG_V2193,
+        &v2193_records[..v2193_records.len() - 1],
+        2193,
+    )
+    .unwrap_err();
+    assert_physics_error(&error, "does not match BREG records");
+
+    let v1001_records = read_registry(BREG).unwrap();
+    let preg1001 = valid_preg(&v1001_records);
+    let error = read_physics_registry_for_protocol(
+        &preg1001,
+        BREG,
+        &v1001_records[..v1001_records.len() - 1],
+        1001,
+    )
+    .unwrap_err();
+    assert_physics_error(&error, "does not match BREG records");
+}
+
+#[test]
+fn legacy_alias_decodes_to_identity_protocol_1001() {
+    let records = read_registry(BREG).unwrap();
+    let preg = valid_preg(&records);
+    let registry = read_physics_registry(&preg, BREG, &records).unwrap();
+    assert_eq!(registry.protocol(), 1001);
+    let parameterized = read_physics_registry_for_protocol(&preg, BREG, &records, 1001).unwrap();
+    assert_eq!(parameterized.protocol(), 1001);
+    assert_eq!(parameterized.sha256(), registry.sha256());
+}

@@ -10,14 +10,12 @@ use std::{
     time::{Duration, Instant},
 };
 
-use anyhow::{Context, Result, bail};
-use bevy::prelude::Resource;
-
 use crate::{
     install_layout::InstallLayout,
     lifecycle::children::{self, Spawned, StopOutcome},
     runtime::endpoint::{bridge_endpoint_exists, bridge_endpoint_path},
 };
+use anyhow::{Context, Result, bail};
 
 /// Bounds the graceful-stop wait before SIGTERM, then SIGKILL, fire.
 ///
@@ -26,7 +24,7 @@ use crate::{
 /// into a watchdog `process::exit` that skips the stop.
 const CORE_GRACEFUL_STOP_DEADLINE: Duration = children::EXIT_GRACE;
 /// How long a freshly spawned core has to publish its bridge endpoint.
-pub(crate) const CORE_START_TIMEOUT: Duration = Duration::from_secs(5);
+pub(crate) use client_session::connection::CORE_START_TIMEOUT;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum CoreStopOutcome {
@@ -38,7 +36,7 @@ pub(crate) enum CoreStopOutcome {
     Unreaped,
 }
 
-#[derive(Debug, Resource, Default)]
+#[derive(Debug, Default)]
 pub(crate) struct CoreProcessGuard {
     child: Option<Spawned>,
 }
@@ -126,12 +124,15 @@ pub(crate) fn stop_core_then<T>(
     release(outcome)
 }
 
+/// `ask_server_trust` is set when a menu polls this core for its server trust question; the
+/// menu-less `--address` session has nobody to ask.
 pub(crate) fn spawn_core_for_address(
     layout: &InstallLayout,
     socket_dir: &Path,
     address: &str,
     auth_cache: Option<&Path>,
     enable_upstream_client_cache: bool,
+    ask_server_trust: bool,
 ) -> Result<Spawned> {
     let executable = core_executable(layout).ok_or_else(|| {
         anyhow::anyhow!(
@@ -148,6 +149,11 @@ pub(crate) fn spawn_core_for_address(
         auth_cache,
         enable_upstream_client_cache,
     );
+    if ask_server_trust {
+        command
+            .arg("-server-trust-file")
+            .arg(layout.server_trust_file());
+    }
     children::spawn(&mut command)
         .with_context(|| format!("spawn {} for {address}", executable.display()))
 }
@@ -160,8 +166,14 @@ pub(super) fn core_command_for_address(
     auth_cache: Option<&Path>,
     enable_upstream_client_cache: bool,
 ) -> Command {
+    // The fallback core needs the same default-port normalization as `connect.v1`.
+    let address = match super::launcher_core::target_for(address) {
+        protocol::launcher_control::ConnectTarget::RakNet(address) => address,
+        _ => address.to_owned(),
+    };
     let mut command = Command::new(executable);
     command
+        .arg("-control-status")
         .arg("-socket-dir")
         .arg(socket_dir)
         .arg("-upstream")
@@ -226,4 +238,52 @@ pub(super) fn core_executable(layout: &InstallLayout) -> Option<PathBuf> {
 
 pub(super) fn auth_cache_path(layout: &InstallLayout) -> Option<PathBuf> {
     Some(layout.auth_cache()).filter(|path| path.is_file())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fallback_core_normalizes_the_same_raknet_address_as_the_launcher() {
+        let layout = crate::install_layout::scratch("fallback-target");
+        for address in ["example.test", "example.test:19133", "::1", "realm_id/42"] {
+            let command = core_command_for_address(
+                &layout,
+                &layout.core_executable,
+                &layout.runtime_root,
+                address,
+                None,
+                false,
+            );
+            let args: Vec<_> = command.get_args().collect();
+            let upstream = args.windows(2).find(|pair| pair[0] == "-upstream").unwrap()[1];
+            let expected = match super::super::launcher_core::target_for(address) {
+                protocol::launcher_control::ConnectTarget::RakNet(address) => address,
+                _ => address.to_owned(),
+            };
+            assert_eq!(upstream, std::ffi::OsStr::new(&expected));
+        }
+    }
+
+    #[test]
+    fn direct_core_enables_private_control_with_or_without_optional_join_settings() {
+        let layout = crate::install_layout::scratch("direct-core-control");
+        for configured in [false, true] {
+            let cache = layout.auth_cache();
+            let command = core_command_for_address(
+                &layout,
+                &layout.core_executable,
+                &layout.runtime_root,
+                "example.test",
+                configured.then_some(cache.as_path()),
+                configured,
+            );
+            assert!(
+                command
+                    .get_args()
+                    .any(|argument| argument == "-control-status")
+            );
+        }
+    }
 }

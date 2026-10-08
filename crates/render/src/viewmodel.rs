@@ -8,6 +8,10 @@ mod geometry;
 mod tests;
 mod witness;
 
+pub(super) const VIEWMODEL_TEXTURE_SIDE: u32 = 64;
+pub(super) const VIEWMODEL_TEXTURE_BYTES: usize =
+    (VIEWMODEL_TEXTURE_SIDE * VIEWMODEL_TEXTURE_SIDE * 4) as usize;
+
 pub const MAX_VIEWMODEL_DEPTH_BYTES: u64 = 64 * 1024 * 1024;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -69,7 +73,7 @@ impl ViewmodelSkin {
     }
     pub fn new(rgba8: Arc<[u8]>, identity: [u8; 32]) -> Option<Self> {
         (identity != [0; 32]
-            && rgba8.len() == 64 * 64 * 4
+            && rgba8.len() == VIEWMODEL_TEXTURE_BYTES
             && rgba8
                 .chunks_exact(4)
                 .all(|pixel| matches!(pixel[3], 0 | 255)))
@@ -171,7 +175,7 @@ impl ViewmodelScene {
     /// icon. Ambiguous or clipped/rewritten geometry leaves GPU admission off.
     pub fn bind_cpu_fallback(
         &mut self,
-        input: &crate::ui::UiRenderInput,
+        input: &render_model::UiRenderInput,
         page: u32,
         uv: [u16; 4],
         gate: &ViewmodelCompletionGate,
@@ -186,7 +190,7 @@ impl ViewmodelScene {
     /// Bind the original rotated held-item quad only for validated cube geometry.
     pub fn bind_cube_cpu_fallback(
         &mut self,
-        input: &crate::ui::UiRenderInput,
+        input: &render_model::UiRenderInput,
         page: u32,
         uv: [u16; 4],
         gate: &ViewmodelCompletionGate,
@@ -199,7 +203,7 @@ impl ViewmodelScene {
     }
     fn bind_fallback(
         &mut self,
-        input: &crate::ui::UiRenderInput,
+        input: &render_model::UiRenderInput,
         page: u32,
         uv: [u16; 4],
         gate: &ViewmodelCompletionGate,
@@ -224,7 +228,7 @@ impl ViewmodelScene {
         for batch in input
             .batches
             .iter()
-            .filter(|b| b.texture_page == page && b.blend_mode == crate::ui::UI_BLEND_ALPHA)
+            .filter(|b| b.texture_page == page && b.blend_mode == render_model::UI_BLEND_ALPHA)
         {
             if batch.first_index % 3 != 0 || batch.index_count % 3 != 0 {
                 self.clear(gate);
@@ -271,7 +275,7 @@ impl ViewmodelScene {
                     && distinct
                     && corners.into_iter().zip(expected).all(|(index, uv)| {
                         input.vertices.get(index as usize).is_some_and(|v| {
-                            v.uv == uv
+                            v.uv == uv.map(f32::from)
                                 && v.color == [255; 4]
                                 && v.style_flags == 0
                                 && v.position.iter().all(|v| v.is_finite())
@@ -319,7 +323,7 @@ fn oriented_rectangle([a, b, c, d]: [[f32; 2]; 4]) -> bool {
             <= tolerance * tolerance * u.length_squared().max(v.length_squared())
 }
 
-fn quad_intersects_scissor(points: [[f32; 2]; 4], scissor: crate::ui::UiScissor) -> bool {
+fn quad_intersects_scissor(points: [[f32; 2]; 4], scissor: render_model::UiScissor) -> bool {
     let min = points
         .into_iter()
         .map(Vec2::from)
@@ -457,6 +461,6 @@ pub(super) fn hand_projection(size: [u32; 2]) -> Mat4 {
     Mat4::perspective_infinite_reverse_rh(
         70.0_f32.to_radians(),
         size[0] as f32 / size[1] as f32,
-        0.1,
+        render_api::CAMERA_NEAR_PLANE_BLOCKS,
     )
 }

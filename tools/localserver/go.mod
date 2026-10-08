@@ -2,7 +2,13 @@ module github.com/hashimthearab/rust-mcbe/tools/localserver
 
 go 1.26.1
 
-require github.com/df-mc/dragonfly v0.0.0-20260919192252-3d29a693c54b
+require (
+	github.com/bedrock-mc/vanilla-gen v0.0.0-20261007153212-e56215898732
+	github.com/df-mc/dragonfly v0.11.2-0.20260807000407-2988c7f4f621
+	github.com/go-gl/mathgl v1.2.0
+	github.com/google/uuid v1.6.0
+	github.com/sandertv/gophertunnel v1.62.0
+)
 
 require (
 	github.com/brentp/intintmap v0.0.0-20251106190759-56907b1f8479 // indirect
@@ -16,10 +22,8 @@ require (
 	github.com/df-mc/goleveldb v1.1.9 // indirect
 	github.com/df-mc/jsonc v1.0.5 // indirect
 	github.com/df-mc/worldupgrader v1.0.22 // indirect
-	github.com/go-gl/mathgl v1.2.0 // indirect
 	github.com/go-jose/go-jose/v4 v4.1.4 // indirect
 	github.com/golang/snappy v0.0.4 // indirect
-	github.com/google/uuid v1.6.0 // indirect
 	github.com/klauspost/compress v1.18.4 // indirect
 	github.com/pion/datachannel v1.6.3 // indirect
 	github.com/pion/dtls/v3 v3.1.9 // indirect
@@ -38,7 +42,6 @@ require (
 	github.com/pion/turn/v5 v5.1.2 // indirect
 	github.com/pion/webrtc/v4 v4.2.21-0.20260920133716-91bfc6c2039f // indirect
 	github.com/sandertv/go-raknet v1.15.2-0.20260705184311-0d1fd09e2cf6 // indirect
-	github.com/sandertv/gophertunnel v1.62.0 // indirect
 	github.com/segmentio/fasthash v1.0.3 // indirect
 	github.com/wlynxg/anet v0.0.5 // indirect
 	golang.org/x/crypto v0.53.0 // indirect
@@ -54,5 +57,5 @@ require (
 replace (
 	github.com/df-mc/dragonfly => github.com/hashimthearab/dragonfly v0.0.0-20260930194619-58003c1d2ced
 	github.com/sandertv/go-raknet => github.com/hashimthearab/go-raknet v1.15.1-0.20260908193618-2049463566ca
-	github.com/sandertv/gophertunnel => github.com/hashimthearab/gophertunnel v1.25.3-0.20261001135308-41f1893421b5
+	github.com/sandertv/gophertunnel => github.com/hashimthearab/gophertunnel v1.25.3-0.20261006223521-1d6b0fe58532
 )

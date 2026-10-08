@@ -5,14 +5,16 @@ use crate::item::{MAX_ITEM_VISUAL_ALIASES, MAX_ITEM_VISUALS};
 use super::super::{
     MAX_ENTITY_ASSET_SOURCES, MAX_ENTITY_ASSET_SYMBOLS, MAX_ENTITY_DEPENDENCIES,
     MAX_ENTITY_GEOMETRIES, MAX_ENTITY_GEOMETRY_BONES, MAX_ENTITY_GEOMETRY_CUBES,
+    MAX_ENTITY_GEOMETRY_TEXTURE_MESHES,
 };
 use super::{
     MAX_ENTITY_ANIMATION_CHANNELS, MAX_ENTITY_ANIMATION_CLIPS, MAX_ENTITY_ANIMATION_KEYFRAMES,
     MAX_ENTITY_CONTROLLER_ANIMATIONS, MAX_ENTITY_CONTROLLER_STATES,
-    MAX_ENTITY_CONTROLLER_TRANSITIONS, MAX_ENTITY_CONTROLLERS, MAX_ENTITY_RIG_ANIMATIONS,
-    MAX_ENTITY_RIG_BINDINGS, MAX_ENTITY_RIG_CONTROLLERS, MAX_ENTITY_RIG_GEOMETRIES,
-    MAX_MOLANG_COLLECTION_ITEMS_TOTAL, MAX_MOLANG_COLLECTIONS, MAX_MOLANG_EXPRESSIONS,
-    MAX_MOLANG_OPS,
+    MAX_ENTITY_CONTROLLER_TRANSITIONS, MAX_ENTITY_CONTROLLERS, MAX_ENTITY_RENDER_CANDIDATES,
+    MAX_ENTITY_RENDER_LAYERS, MAX_ENTITY_RENDER_SLOTS, MAX_ENTITY_RENDER_VISIBILITY,
+    MAX_ENTITY_RIG_ANIMATIONS, MAX_ENTITY_RIG_BINDINGS, MAX_ENTITY_RIG_CONTROLLERS,
+    MAX_ENTITY_RIG_GEOMETRIES, MAX_MOLANG_COLLECTION_ITEMS_TOTAL, MAX_MOLANG_COLLECTIONS,
+    MAX_MOLANG_EXPRESSIONS, MAX_MOLANG_OPS,
 };
 
 #[derive(Deserialize)]
@@ -41,10 +43,21 @@ struct EntityCatalogCountProbe {
     rig_controllers: SequenceCount,
     item_visuals: SequenceCount,
     item_visual_aliases: SequenceCount,
-    #[serde(rename = "render")]
-    _render: de::IgnoredAny,
+    render: RenderCountProbe,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RenderCountProbe {
+    layers: SequenceCount,
+    slots: SequenceCount,
+    candidates: SequenceCount,
+    visibility: SequenceCount,
+    #[serde(default)]
+    geometries: SequenceCount,
+}
+
+#[derive(Default)]
 struct SequenceCount(usize);
 
 impl<'de> Deserialize<'de> for SequenceCount {
@@ -144,6 +157,8 @@ struct GeometryProbe {
     texture_width: de::IgnoredAny,
     texture_height: de::IgnoredAny,
     bones: BoneSequenceCount,
+    #[serde(default)]
+    visible_bounds: Option<de::IgnoredAny>,
 }
 
 #[derive(Deserialize)]
@@ -154,10 +169,16 @@ struct BoneProbe {
     parent: de::IgnoredAny,
     pivot: de::IgnoredAny,
     rotation: de::IgnoredAny,
+    #[serde(default)]
+    bind_pose_rotation: Option<de::IgnoredAny>,
     mirror: de::IgnoredAny,
     inflate: de::IgnoredAny,
     never_render: de::IgnoredAny,
     reset: de::IgnoredAny,
+    #[serde(default)]
+    binding: Option<de::IgnoredAny>,
+    #[serde(default)]
+    texture_meshes: SequenceCount,
     cubes: SequenceCount,
 }
 
@@ -183,16 +204,20 @@ impl<'de> Deserialize<'de> for BoneSequenceCount {
             {
                 let mut bones = 0usize;
                 let mut cubes = 0usize;
+                let mut texture_meshes = 0usize;
                 while let Some(bone) = sequence.next_element::<BoneProbe>()? {
                     let BoneProbe {
                         name: _,
                         parent: _,
                         pivot: _,
                         rotation: _,
+                        bind_pose_rotation: _,
                         mirror: _,
                         inflate: _,
                         never_render: _,
                         reset: _,
+                        binding: _,
+                        texture_meshes: bone_meshes,
                         cubes: bone_cubes,
                     } = bone;
                     bones = bones
@@ -201,7 +226,13 @@ impl<'de> Deserialize<'de> for BoneSequenceCount {
                     cubes = cubes
                         .checked_add(bone_cubes.0)
                         .ok_or_else(|| de::Error::custom("entity cube count overflow"))?;
-                    if bones > MAX_ENTITY_GEOMETRY_BONES || cubes > MAX_ENTITY_GEOMETRY_CUBES {
+                    texture_meshes = texture_meshes
+                        .checked_add(bone_meshes.0)
+                        .ok_or_else(|| de::Error::custom("entity texture mesh count overflow"))?;
+                    if bones > MAX_ENTITY_GEOMETRY_BONES
+                        || cubes > MAX_ENTITY_GEOMETRY_CUBES
+                        || texture_meshes > MAX_ENTITY_GEOMETRY_TEXTURE_MESHES
+                    {
                         return Err(de::Error::custom(
                             "entity geometry subarray count preflight exceeds bound",
                         ));
@@ -244,6 +275,7 @@ impl<'de> Deserialize<'de> for GeometrySequenceCount {
                         texture_width: _,
                         texture_height: _,
                         bones: _,
+                        visible_bounds: _,
                     } = geometry;
                     count = count
                         .checked_add(1)
@@ -288,6 +320,11 @@ pub(crate) fn payload_counts(bytes: &[u8]) -> Result<[usize; 7], serde_json::Err
         (counts.rig_geometries.0, MAX_ENTITY_RIG_GEOMETRIES),
         (counts.rig_animations.0, MAX_ENTITY_RIG_ANIMATIONS),
         (counts.rig_controllers.0, MAX_ENTITY_RIG_CONTROLLERS),
+        (counts.render.layers.0, MAX_ENTITY_RENDER_LAYERS),
+        (counts.render.slots.0, MAX_ENTITY_RENDER_SLOTS),
+        (counts.render.candidates.0, MAX_ENTITY_RENDER_CANDIDATES),
+        (counts.render.visibility.0, MAX_ENTITY_RENDER_VISIBILITY),
+        (counts.render.geometries.0, MAX_ENTITY_RENDER_CANDIDATES),
         (counts.item_visuals.0, MAX_ITEM_VISUALS),
         (counts.item_visual_aliases.0, MAX_ITEM_VISUAL_ALIASES),
     ];
@@ -305,4 +342,41 @@ pub(crate) fn payload_counts(bytes: &[u8]) -> Result<[usize; 7], serde_json::Err
         counts.rig_bindings.0,
         counts.item_visuals.0,
     ])
+}
+
+#[cfg(test)]
+mod review_tests {
+    use super::*;
+    #[test]
+    fn review_render_arrays_are_bounded_before_payload_deserialization() {
+        let mut root = serde_json::Map::new();
+        root.insert("block_visual_count".into(), serde_json::json!(0));
+        for field in [
+            "sources",
+            "symbols",
+            "geometries",
+            "animation_clips",
+            "animation_channels",
+            "animation_keyframes",
+            "molang_symbols",
+            "molang_expressions",
+            "molang_ops",
+            "molang_collections",
+            "molang_collection_items",
+            "controllers",
+            "controller_states",
+            "controller_animations",
+            "controller_transitions",
+            "rig_bindings",
+            "rig_geometries",
+            "rig_animations",
+            "rig_controllers",
+            "item_visuals",
+            "item_visual_aliases",
+        ] {
+            root.insert(field.into(), serde_json::json!([]));
+        }
+        root.insert("render".into(), serde_json::json!({"layers":vec![serde_json::Value::Null; super::super::MAX_ENTITY_RENDER_LAYERS+1], "slots":[],"candidates":[],"visibility":[]}));
+        assert!(payload_counts(&serde_json::to_vec(&root).unwrap()).is_err());
+    }
 }

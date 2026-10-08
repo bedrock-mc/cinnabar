@@ -2,12 +2,12 @@
 
 use std::path::Path;
 
-use asset_compiler::{AUDIO_SOUND_DEFINITIONS_RELATIVE_PATH, compile_audio_assets};
+use pack_compiler::{AUDIO_SOUND_DEFINITIONS_RELATIVE_PATH, compile_audio_assets};
 use serde::Serialize;
 
 use super::{
     MAX_SOURCE_MANIFEST_BYTES, hex, read_bounded_with_limit, validate_output_bundle,
-    write_blob_atomic,
+    write_output_bundle,
 };
 
 #[derive(Serialize)]
@@ -56,8 +56,7 @@ pub(super) fn compile_audio_assets_command(
     let mut report_bytes = serde_json::to_vec_pretty(&report_data)?;
     report_bytes.push(b'\n');
     validate_output_bundle(out, report)?;
-    write_blob_atomic(out, &compiled.bytes)?;
-    write_blob_atomic(report, &report_bytes)?;
+    write_output_bundle(&[(out, &compiled.bytes), (report, &report_bytes)])?;
     println!(
         "compiled {} definitions and {} alternatives to {} and {}",
         report_data.counts.definitions,

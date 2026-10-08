@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use super::{
-    MAX_SOURCE_MANIFEST_BYTES, read_bounded_with_limit, validate_output_bundle, write_blob_atomic,
+    MAX_SOURCE_MANIFEST_BYTES, read_bounded_with_limit, validate_output_bundle, write_output_bundle,
 };
 
 pub(super) fn compile_audio_pcm_command(
@@ -23,11 +23,10 @@ pub(super) fn compile_audio_pcm_command(
         read_bounded_with_limit(catalog, assets::MAX_AUDIO_CARRIER_BYTES, "sound catalog")?;
     let manifest_bytes =
         read_bounded_with_limit(manifest, MAX_SOURCE_MANIFEST_BYTES, "audio source manifest")?;
-    let compiled = asset_compiler::compile_audio_pcm_assets(pack, &catalog_bytes, &manifest_bytes)?;
+    let compiled = pack_compiler::compile_audio_pcm_assets(pack, &catalog_bytes, &manifest_bytes)?;
     let mut report_bytes = serde_json::to_vec_pretty(&compiled.report)?;
     report_bytes.push(b'\n');
-    write_blob_atomic(out, &compiled.bytes)?;
-    write_blob_atomic(report, &report_bytes)?;
+    write_output_bundle(&[(out, &compiled.bytes), (report, &report_bytes)])?;
     println!(
         "compiled finite no-loop PCM to {} and {}; playback remains inactive",
         out.display(),

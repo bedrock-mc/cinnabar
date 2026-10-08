@@ -1,6 +1,7 @@
 package control
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -18,6 +19,7 @@ const (
 	methodAccountStatus  = "account_status.v1"
 	methodSignOut        = "sign_out.v1"
 	methodEvents         = "events.v1"
+	methodServerTrust    = "server_trust_answer.v1"
 	codeSignedOut        = -32020
 	codeServiceFailed    = -32021
 	codeInvalidTarget    = -32022
@@ -86,6 +88,8 @@ type EventsV1 struct {
 	Transfer      *TransferV1   `json:"transfer,omitempty"`
 	// Connect is the join's live stage while the core prepares it.
 	Connect *proxy.ConnectProgress `json:"connect,omitempty"`
+	// ServerTrust is the join's pending question whether to trust a NetherNet server.
+	ServerTrust *proxy.ServerTrustPrompt `json:"server_trust,omitempty"`
 }
 
 type accountResultV1 struct {
@@ -107,16 +111,9 @@ type emptyResultV1 struct {
 	SchemaVersion uint32 `json:"schema_version"`
 }
 
-type serviceResponse struct {
-	JSONRPC string         `json:"jsonrpc"`
-	ID      uint64         `json:"id"`
-	Result  any            `json:"result,omitempty"`
-	Error   *responseError `json:"error,omitempty"`
-}
-
 func isServiceMethod(method string) bool {
 	switch method {
-	case methodRealmsList, methodFriendsList, methodConnect, methodAccountStatus, methodSignOut, methodEvents:
+	case methodRealmsList, methodFriendsList, methodFriendsPeople, methodConnect, methodAccountStatus, methodSignOut, methodEvents, methodServerTrust:
 		return true
 	}
 	return isScreenMethod(method)
@@ -161,46 +158,90 @@ func (store *Store) Events() EventsV1 {
 		progress := *store.connect
 		events.Connect = &progress
 	}
+	if store.trustPrompt != nil {
+		prompt := *store.trustPrompt
+		events.ServerTrust = &prompt
+	}
 	return events
 }
 
-func (server *Server) serveService(conn net.Conn, id uint64, method string, raw json.RawMessage) error {
-	fail := func(code int, message string) error {
-		return server.writeResponse(conn, serviceResponse{JSONRPC: "2.0", ID: id, Error: &responseError{Code: code, Message: message}})
+// ObserveServerTrust publishes a pending trust prompt, or withdraws it once it is no longer pending.
+func (store *Store) ObserveServerTrust(prompt proxy.ServerTrustPrompt, pending bool) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	switch {
+	case pending && (store.trustPrompt == nil || prompt.ID > store.trustPrompt.ID):
+		store.trustPrompt = &prompt
+	case store.trustPrompt != nil && store.trustPrompt.ID == prompt.ID:
+		store.trustPrompt = nil
 	}
-	ok := func(result any) error {
-		return server.writeResponse(conn, serviceResponse{JSONRPC: "2.0", ID: id, Result: result})
+}
+
+// SetServerTrustAnswer installs the receiver of the client's trust answers.
+func (store *Store) SetServerTrustAnswer(answer func(id uint64, trusted bool) bool) {
+	store.mu.Lock()
+	store.trustAnswer = answer
+	store.mu.Unlock()
+}
+
+type serverTrustResultV1 struct {
+	SchemaVersion uint32 `json:"schema_version"`
+	Answered      bool   `json:"answered"` // false once the prompt is no longer pending
+}
+
+func (server *Server) serveServerTrust(reply responseWriter, raw json.RawMessage) error {
+	var params struct {
+		ID      *uint64 `json:"id"`
+		Trusted *bool   `json:"trusted"`
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if len(raw) == 0 || decoder.Decode(&params) != nil || params.ID == nil || params.Trusted == nil {
+		return reply.invalid()
+	}
+	server.store.mu.RLock()
+	answer := server.store.trustAnswer
+	server.store.mu.RUnlock()
+	answered := answer != nil && answer(*params.ID, *params.Trusted)
+	return reply.ok(serverTrustResultV1{SchemaVersion: 1, Answered: answered})
+}
+
+func (server *Server) serveService(conn net.Conn, id uint64, method string, raw json.RawMessage) error {
+	reply := responseWriter{server: server, conn: conn, id: id}
+
+	if method == methodServerTrust {
+		return server.serveServerTrust(reply, raw)
 	}
 	switch method {
 	case methodAccountStatus, methodEvents:
 		if len(raw) != 0 {
-			return fail(-32602, "Invalid params")
+			return reply.invalid()
 		}
 		if method == methodEvents {
-			return ok(server.store.Events())
+			return reply.ok(server.store.Events())
 		}
-		return ok(accountResultV1{SchemaVersion: 1, Account: server.store.Auth()})
+		return reply.ok(accountResultV1{SchemaVersion: 1, Account: server.store.Auth()})
 	}
 	services := server.launcherServices()
 	if services == nil {
-		return fail(codeServicesDisabled, "Launcher services unavailable")
+		return reply.fail(codeServicesDisabled, "Launcher services unavailable")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), serviceCallTimeout)
 	defer cancel()
 	failService := func(err error) error {
 		switch {
 		case errors.Is(err, ErrSignedOut):
-			return fail(codeSignedOut, "Not signed in")
+			return reply.fail(codeSignedOut, "Not signed in")
 		case errors.Is(err, ErrInvalidTarget):
-			return fail(codeInvalidTarget, "Invalid target")
+			return reply.fail(codeInvalidTarget, "Invalid target")
 		}
 		server.logServiceFailure(method, err)
-		return fail(codeServiceFailed, "Service unavailable")
+		return reply.fail(codeServiceFailed, "Service unavailable")
 	}
 	switch method {
 	case methodRealmsList:
 		if len(raw) != 0 {
-			return fail(-32602, "Invalid params")
+			return reply.invalid()
 		}
 		realms, err := services.Realms(ctx)
 		if err != nil {
@@ -209,10 +250,10 @@ func (server *Server) serveService(conn net.Conn, id uint64, method string, raw 
 		if realms == nil {
 			realms = []catalog.Realm{}
 		}
-		return ok(realmsResultV1{SchemaVersion: 1, Realms: realms})
+		return reply.ok(realmsResultV1{SchemaVersion: 1, Realms: realms})
 	case methodFriendsList:
 		if len(raw) != 0 {
-			return fail(-32602, "Invalid params")
+			return reply.invalid()
 		}
 		friends, err := services.Friends(ctx)
 		if err != nil {
@@ -221,49 +262,62 @@ func (server *Server) serveService(conn net.Conn, id uint64, method string, raw 
 		if friends == nil {
 			friends = []catalog.Friend{}
 		}
-		return ok(friendsResultV1{SchemaVersion: 1, Friends: friends})
+		return reply.ok(friendsResultV1{SchemaVersion: 1, Friends: friends})
+	case methodFriendsPeople:
+		people, supported := services.(PeopleServices)
+		if len(raw) != 0 {
+			return reply.invalid()
+		}
+		if !supported {
+			return reply.fail(codeServicesDisabled, "Launcher services unavailable")
+		}
+		list, err := people.People(ctx)
+		if err != nil {
+			return failService(err)
+		}
+		return reply.ok(peopleResult(list))
 	case methodConnect:
 		var params struct {
 			Kind  *string `json:"kind"`
 			Value *string `json:"value"`
 		}
 		if !decodeParams(raw, &params) || params.Kind == nil || params.Value == nil {
-			return fail(-32602, "Invalid params")
+			return reply.invalid()
 		}
 		if len(*params.Value) == 0 || len(*params.Value) > maxTargetValueLen {
-			return fail(codeInvalidTarget, "Invalid target")
+			return reply.fail(codeInvalidTarget, "Invalid target")
 		}
 		switch *params.Kind {
 		case TargetRakNet, TargetRealm, TargetFriend, TargetGathering:
 		default:
-			return fail(codeInvalidTarget, "Invalid target")
+			return reply.fail(codeInvalidTarget, "Invalid target")
 		}
 		if err := services.Connect(ctx, *params.Kind, *params.Value); err != nil {
 			return failService(err)
 		}
-		return ok(emptyResultV1{SchemaVersion: 1})
+		return reply.ok(emptyResultV1{SchemaVersion: 1})
 	case methodSignOut:
 		if len(raw) != 0 {
-			return fail(-32602, "Invalid params")
+			return reply.invalid()
 		}
 		if err := services.SignOut(); err != nil {
 			return failService(err)
 		}
-		return ok(accountResultV1{SchemaVersion: 1, Account: server.store.Auth()})
+		return reply.ok(accountResultV1{SchemaVersion: 1, Account: server.store.Auth()})
 	}
 	if isScreenMethod(method) {
 		screens, supported := services.(ScreenServices)
 		if !supported {
-			return fail(codeServicesDisabled, "Launcher services unavailable")
+			return reply.fail(codeServicesDisabled, "Launcher services unavailable")
 		}
 		result, err := screenResult(ctx, screens, method, raw)
 		if errors.Is(err, errInvalidParams) {
-			return fail(-32602, "Invalid params")
+			return reply.invalid()
 		}
 		if err != nil {
 			return failService(err)
 		}
-		return ok(result)
+		return reply.ok(result)
 	}
-	return fail(-32601, "Method not found")
+	return reply.fail(-32601, "Method not found")
 }

@@ -20,7 +20,10 @@ const (
 	StateFailed   State = "failed" // stays until Close so a failed open never falls through to another target
 )
 
-const defaultStopTimeout = 30 * time.Second // BDS saves the world before exiting
+const (
+	defaultStopTimeout = 30 * time.Second // BDS saves the world before exiting
+	defaultRuntimeWait = 25 * time.Second // outlasts the Docker probe's own timeout
+)
 
 // Status is the secret-safe view of the open world; Error never carries paths.
 type Status struct {
@@ -34,6 +37,8 @@ type Status struct {
 	Setup          *SetupStatus `json:"setup,omitempty"` // dedicated-server acquisition, when configured
 	// BackendUnavailableReason mirrors Setup's docker_missing / docker_not_running.
 	BackendUnavailableReason string `json:"backend_unavailable_reason,omitempty"`
+	// MaxPlayers is the running server's player limit, the host included; zero when unknown.
+	MaxPlayers int `json:"max_players,omitempty"`
 }
 
 // StartSpec identifies the world a Runner must host.
@@ -61,12 +66,14 @@ type Runner interface {
 
 // Manager owns the store and at most one running local world.
 type Manager struct {
-	setup       Setup // nil when no dedicated-server backend is configured
-	autoBackend bool  // Prefs re-probes may change the default backend
+	setup       Setup            // nil when no dedicated-server backend is configured
+	autoBackend bool             // Prefs re-probes may change the default backend
+	unavailable map[string]error // backends that cannot host worlds here, with the operator-facing reason
 	store       *Store
 	runner      Runner
 	log         *slog.Logger
 	stopTimeout time.Duration
+	runtimeWait time.Duration // how long Create waits for a runtime detection in flight
 	bg          sync.WaitGroup
 
 	mu          sync.Mutex
@@ -83,7 +90,7 @@ func NewManager(store *Store, runner Runner, log *slog.Logger) *Manager {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Manager{store: store, runner: runner, log: log, stopTimeout: defaultStopTimeout, state: StateIdle, changed: make(chan struct{})}
+	return &Manager{store: store, runner: runner, log: log, stopTimeout: defaultStopTimeout, runtimeWait: defaultRuntimeWait, state: StateIdle, changed: make(chan struct{})}
 }
 
 func (m *Manager) setState(state State) {
@@ -92,16 +99,36 @@ func (m *Manager) setState(state State) {
 	m.changed = make(chan struct{})
 }
 
+// Running reports the open world while its server runs, and a channel closed on the next
+// lifecycle change.
+func (m *Manager) Running() (world World, running bool, changed <-chan struct{}) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.world, m.state == StateRunning, m.changed
+}
+
 func (m *Manager) idleLocked() {
 	m.world, m.inst, m.paused, m.failure, m.cancelStart = World{}, nil, false, "", nil
 	m.setState(StateIdle)
 }
 
 // SetSetup attaches the dedicated-server installer whose status is reported and whose EULA gates BDS worlds.
-func (m *Manager) SetSetup(setup Setup) { m.setup = setup }
+// Each detection result that becomes current re-points the default backend.
+func (m *Manager) SetSetup(setup Setup) {
+	m.setup = setup
+	setup.OnDetected(m.runtimeDetected)
+}
 
 // SetAutoBackend lets a Docker re-probe change the default backend (false when the operator forced one).
 func (m *Manager) SetAutoBackend(auto bool) { m.autoBackend = auto }
+
+// SetUnavailable marks backend as unable to host worlds; Create refuses it, logging reason.
+func (m *Manager) SetUnavailable(backend string, reason error) {
+	if m.unavailable == nil {
+		m.unavailable = map[string]error{}
+	}
+	m.unavailable[backend] = reason
+}
 
 // AcceptEULA records EULA acceptance so BDS worlds may download and start the server.
 func (m *Manager) AcceptEULA() error {
@@ -115,15 +142,24 @@ func (m *Manager) AcceptEULA() error {
 // A re-probe only changes the default backend of worlds created afterwards; saved worlds keep theirs.
 func (m *Manager) Prefs(ctx context.Context, update PrefsUpdate) (Prefs, error) {
 	if update.Redetect && m.setup != nil {
-		info := m.setup.Redetect(ctx)
-		if m.autoBackend {
-			m.store.SetDefaultBackend(DefaultBackend(info))
-		}
+		m.setup.Redetect(ctx)
 	}
 	if update.DockerPromptDismissed == nil {
 		return m.store.Prefs(), nil
 	}
 	return m.store.UpdatePrefs(update)
+}
+
+// runtimeDetected points the default backend at a fresh probe's result, unless the operator forced one.
+func (m *Manager) runtimeDetected(info RuntimeInfo) {
+	m.log.Info("local world runtime detected", "bds_runtime", info.Kind, "reason", info.Reason)
+	if m.autoBackend {
+		backend := DefaultBackend(info)
+		m.store.SetDefaultBackend(backend)
+		if reason := m.unavailable[backend]; reason != nil {
+			m.log.Error("default local world backend is unavailable", "backend", backend, "error", reason)
+		}
+	}
 }
 
 // Runners routes a world to the runner of its backend.
@@ -139,16 +175,30 @@ func (r Runners) Start(ctx context.Context, spec StartSpec) (Instance, error) {
 
 func (m *Manager) List() ([]World, error) { return m.store.List() }
 
-// Create saves a new world; a BDS world (every normal world) is refused where BDS cannot run.
+// Create saves a new world; a BDS world is refused where BDS cannot run.
+// Unless Dragonfly was asked for, it first waits out a runtime detection in flight, so no world is saved
+// against a guessed backend.
 func (m *Manager) Create(spec Spec) (World, error) {
 	normalized, err := spec.normalize()
 	if err != nil {
 		return World{}, err
 	}
-	if normalized.Backend == BackendBDS && !m.bdsRunnable() {
-		if normalized.Generator == GeneratorNormal {
-			return World{}, ErrVanillaNeedsBDS
+	if m.setup != nil && normalized.Backend != BackendDragonfly {
+		ctx, cancel := context.WithTimeout(context.Background(), m.runtimeWait)
+		err := m.setup.AwaitRuntime(ctx)
+		cancel()
+		if err != nil {
+			return World{}, ErrRuntimePending
 		}
+	}
+	if normalized.Backend == "" {
+		normalized.Backend = m.store.DefaultBackend()
+	}
+	if reason := m.unavailable[normalized.Backend]; reason != nil {
+		m.log.Error("cannot create local world", "backend", normalized.Backend, "error", reason)
+		return World{}, fmt.Errorf("%w: %s", ErrBackendUnavailable, normalized.Backend)
+	}
+	if normalized.Backend == BackendBDS && !m.bdsRunnable() {
 		return World{}, ErrBackendUnavailable
 	}
 	return m.store.Create(normalized)
@@ -175,6 +225,9 @@ func (m *Manager) Status() Status {
 	m.mu.Lock()
 	status := Status{State: m.state, WorldID: m.world.ID, Backend: m.world.Backend, Paused: m.paused, Error: m.failure}
 	status.PauseSupported = m.inst == nil || canPause(m.inst)
+	if limited, ok := m.inst.(interface{ MaxPlayers() int }); ok {
+		status.MaxPlayers = limited.MaxPlayers()
+	}
 	m.mu.Unlock()
 	if m.setup != nil {
 		setup := m.setup.Status()
@@ -185,7 +238,7 @@ func (m *Manager) Status() Status {
 }
 
 func failureText(err error) string {
-	for _, known := range []error{ErrEULARequired, ErrDockerNotRunning, ErrBackendUnavailable, ErrVanillaNeedsBDS, ErrImageNotPinned} {
+	for _, known := range []error{ErrEULARequired, ErrDockerNotRunning, ErrBackendUnavailable, ErrImageNotPinned} {
 		if errors.Is(err, known) {
 			return known.Error()
 		}
@@ -223,9 +276,6 @@ func (m *Manager) Open(id string, opts ...OpenOptions) error {
 	dir, err := m.store.Dir(id)
 	if err != nil {
 		return err
-	}
-	if world.Backend == BackendDragonfly && world.Generator == GeneratorNormal {
-		return ErrVanillaNeedsBDS // saved before normal worlds moved to BDS; never regenerate as an approximation
 	}
 	if world.Backend == BackendBDS {
 		if m.setup == nil {
@@ -359,24 +409,46 @@ func (m *Manager) SetPaused(paused bool) error {
 
 // Target reports the local server address for the proxy, waiting out a start. ok is false when no world is open.
 func (m *Manager) Target(ctx context.Context) (address string, ok bool, err error) {
+	target, ok, err := m.ConnectionTarget(ctx)
+	return target.Address, ok, err
+}
+
+// ConnectionTarget reports the local address and transport atomically, waiting out a start.
+func (m *Manager) ConnectionTarget(ctx context.Context) (ConnectionTarget, bool, error) {
 	for {
 		m.mu.Lock()
-		state, inst, changed, failure := m.state, m.inst, m.changed, m.failure
+		state, inst, changed, failure, world := m.state, m.inst, m.changed, m.failure, m.world
 		m.mu.Unlock()
 		switch state {
 		case StateIdle:
-			return "", false, nil
+			return ConnectionTarget{}, false, nil
 		case StateRunning:
-			return inst.Address(), true, nil
+			transport := TransportRakNet
+			switch world.Backend {
+			case BackendBDS:
+				transport = TransportNetherNetHTTP
+			case BackendDragonfly:
+			default:
+				return ConnectionTarget{}, false, fmt.Errorf("local world uses unsupported backend %q", world.Backend)
+			}
+			target := ConnectionTarget{Address: inst.Address(), Transport: transport}
+			if world.Backend == BackendBDS {
+				if lan, ok := inst.(interface{ LANAddress() string }); ok && lan.LANAddress() != "" {
+					target.Transport = TransportNetherNetLAN
+					target.LANAddress = lan.LANAddress()
+					target.LevelName = world.ID
+				}
+			}
+			return target, true, nil
 		case StateFailed:
-			return "", false, fmt.Errorf("local world unavailable: %s", failure)
+			return ConnectionTarget{}, false, fmt.Errorf("local world unavailable: %s", failure)
 		case StateStopping:
-			return "", false, errors.New("local world is closing")
+			return ConnectionTarget{}, false, errors.New("local world is closing")
 		}
 		select {
 		case <-changed:
 		case <-ctx.Done():
-			return "", false, ctx.Err()
+			return ConnectionTarget{}, false, ctx.Err()
 		}
 	}
 }

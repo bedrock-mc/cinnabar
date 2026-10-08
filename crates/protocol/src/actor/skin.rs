@@ -5,22 +5,45 @@ use valentine::bedrock::version::v1_26_51::SerializedSkinRef;
 use super::{MAX_PLAYER_LIST_SKIN_BYTES, MAX_STANDARD_SKIN_SIDE};
 
 mod alpha;
+pub use alpha::normalize_classic_skin_rgba8;
 mod animation;
-pub use animation::{MAX_SKIN_ANIMATION_LAYERS, SkinAnimation, SkinAnimationKind};
-pub use render_data::{CLASSIC_SKIN_SIDE, MAX_CLASSIC_SKIN_SIDE, expand_legacy_skin_rgba8};
+pub use animation::{SkinAnimation, SkinAnimationKind};
+pub use render_api::{
+    CLASSIC_SKIN_SIDE, MAX_CLASSIC_SKIN_SIDE, MAX_SKIN_ANIMATION_LAYERS, SkinRgba8,
+    expand_legacy_skin_rgba8,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StandardSkin {
     pub width: u32,
     pub height: u32,
-    pub rgba8: Arc<[u8]>,
+    pub rgba8: SkinRgba8,
     /// The skin's cape image when it carries a valid one; counts toward the skin byte budget.
     pub cape: Option<CapeImage>,
     /// The skin's own model inputs when it may name a non-default geometry.
     pub geometry: Option<Arc<SkinGeometrySource>>,
 }
 
-pub use render_data::SkinGeometrySource;
+/// The resource patch and geometry JSON a skin carries; parsed by the actor runtime.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SkinGeometrySource {
+    pub resource_patch: Arc<str>,
+    pub geometry_data: Arc<str>,
+    pub animations: Arc<[SkinAnimation]>,
+}
+
+impl SkinGeometrySource {
+    #[must_use]
+    pub fn byte_len(&self) -> usize {
+        self.resource_patch.len()
+            + self.geometry_data.len()
+            + self
+                .animations
+                .iter()
+                .map(|image| image.rgba8.len())
+                .sum::<usize>()
+    }
+}
 
 /// Model input bytes one skin may retain; larger models fall back to the default geometry.
 pub const MAX_SKIN_GEOMETRY_SOURCE_BYTES: usize = 1024 * 1024;
@@ -53,8 +76,15 @@ pub struct CapeImage {
     pub rgba8: Arc<[u8]>,
 }
 
+impl CapeImage {
+    pub fn is_valid(&self) -> bool {
+        CAPE_DIMENSIONS.contains(&(self.width, self.height))
+            && self.rgba8.len() == self.width as usize * self.height as usize * 4
+    }
+}
+
 /// Cape image sizes Bedrock skins use, as `(width, height)`.
-const CAPE_DIMENSIONS: [(u32, u32); 4] = [(64, 32), (128, 64), (256, 128), (1024, 512)];
+pub const CAPE_DIMENSIONS: [(u32, u32); 4] = [(64, 32), (128, 64), (256, 128), (1024, 512)];
 
 fn normalize_cape(
     image: &valentine::bedrock::version::v1_26_51::SkinImage,
@@ -138,7 +168,7 @@ pub(super) fn normalize_player_skin(
     PlayerSkin::Standard(StandardSkin {
         width,
         height,
-        rgba8: Arc::from(skin.image_data.image_bytes),
+        rgba8: SkinRgba8::from(skin.image_data.image_bytes),
         cape,
         geometry,
     })

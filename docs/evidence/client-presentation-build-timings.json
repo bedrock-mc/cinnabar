@@ -1,0 +1,117 @@
+{
+  "before_commit": "01f54528f5b206d9dd12d6399ce48f74a4eabe03",
+  "after_commit": "3733d0fbaf27e536702b313f26563ea1c8b24ce8",
+  "machine": {
+    "logical_cpus": 12,
+    "macos": "26.5.1",
+    "target": "aarch64-apple-darwin",
+    "rustc": "1.93.1 (01f6ddf75 2026-02-11)"
+  },
+  "profile": {
+    "name": "dev",
+    "workspace_opt_level": 1,
+    "dependency_opt_level": 3,
+    "debug": 0,
+    "jobs": 3,
+    "incremental": false,
+    "compiler_cache": false
+  },
+  "probe": "// Timing probe: behavior-neutral source edit.",
+  "source_before": "app/src/presentation/actors.rs",
+  "source_after": "crates/client-presentation/src/presentation/actors.rs",
+  "reports": {
+    "before": {
+      "cargo_seconds": 36.3,
+      "fresh_units": 669,
+      "dirty_units": 2,
+      "wall_including_slot_seconds": 36.34680424999988,
+      "exit_code": 0,
+      "command": [
+        "/private/tmp/claude-501/-Users-hashim-Downloads-cinnabar/30f7cca3-953b-4833-843f-34f90cbe1dae/scratchpad/cslot",
+        "env",
+        "RUSTC_WRAPPER=",
+        "CARGO_INCREMENTAL=0",
+        "CARGO_TARGET_DIR=/private/tmp/cinnabar-step5-timings/baseline/target",
+        "cargo",
+        "build",
+        "--offline",
+        "--locked",
+        "-p",
+        "bedrock-client",
+        "--timings"
+      ],
+      "report_sha256": "6d133f71e7a911a0b9bd1e87bed58dfd37c44bc31ed85245c327694efe994559",
+      "compiled_units": [
+        {
+          "name": "bedrock-client",
+          "target": "",
+          "start_seconds": 0.64,
+          "duration_seconds": 34.47,
+          "metadata_seconds": 8.24
+        },
+        {
+          "name": "bedrock-client",
+          "target": " bin \"bedrock-client\"",
+          "start_seconds": 35.11,
+          "duration_seconds": 1.17,
+          "metadata_seconds": null
+        }
+      ]
+    },
+    "after": {
+      "cargo_seconds": 34.9,
+      "fresh_units": 670,
+      "dirty_units": 4,
+      "wall_including_slot_seconds": 34.97662529199988,
+      "exit_code": 0,
+      "command": [
+        "/private/tmp/claude-501/-Users-hashim-Downloads-cinnabar/30f7cca3-953b-4833-843f-34f90cbe1dae/scratchpad/cslot",
+        "env",
+        "RUSTC_WRAPPER=",
+        "CARGO_INCREMENTAL=0",
+        "CARGO_TARGET_DIR=/Users/hashim/Coding/cinnabar-wt/step5/target",
+        "cargo",
+        "build",
+        "--offline",
+        "--locked",
+        "-p",
+        "bedrock-client",
+        "--timings"
+      ],
+      "report_sha256": "b7eb15cd2bbf2c87d61c2a35e3cc984815cb71eb1a7f86cd653821054c0d7f09",
+      "compiled_units": [
+        {
+          "name": "client-presentation",
+          "target": "",
+          "start_seconds": 0.31,
+          "duration_seconds": 6.36,
+          "metadata_seconds": 1.24
+        },
+        {
+          "name": "acceptance",
+          "target": "",
+          "start_seconds": 1.55,
+          "duration_seconds": 2.42,
+          "metadata_seconds": 0.49
+        },
+        {
+          "name": "bedrock-client",
+          "target": "",
+          "start_seconds": 3.38,
+          "duration_seconds": 30.25,
+          "metadata_seconds": 6.98
+        },
+        {
+          "name": "bedrock-client",
+          "target": " bin \"bedrock-client\"",
+          "start_seconds": 33.62,
+          "duration_seconds": 1.29,
+          "metadata_seconds": null
+        }
+      ]
+    }
+  },
+  "report_directory": "/private/tmp/cinnabar-step5-timings",
+  "samples_per_case": 1,
+  "limitation": "Shared machine with concurrent builds; elapsed-time differences are observations, not isolated speedup estimates."
+}

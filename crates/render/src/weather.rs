@@ -1,4 +1,4 @@
-//! Precipitation model after the vanilla `WeatherRenderer`: biome lattice, per-kind intensity,
+//! Precipitation model after vanilla: biome lattice, per-kind intensity,
 //! ten wrapped particle layers per kind, a 64x64 column occlusion grid and the splash hook.
 
 use std::sync::Arc;
@@ -8,7 +8,10 @@ use bevy::{prelude::Resource, render::extract_resource::ExtractResource};
 use crate::celestial::unit;
 
 /// Rain level change per second while the server target moves.
-pub const PRECIPITATION_LEVEL_PER_SECOND: f32 = 0.2;
+/// Vanilla weather approaches its targets by this amount per tick.
+pub const PRECIPITATION_LEVEL_PER_TICK: f32 = 0.01;
+pub const PRECIPITATION_LEVEL_PER_SECOND: f32 =
+    PRECIPITATION_LEVEL_PER_TICK * world::TICKS_PER_SECOND as f32;
 /// Side of the cube the particle mesh wraps in, centred ahead of the camera.
 pub const PARTICLE_BOX: f32 = 30.0;
 /// Quads in the shared particle mesh.
@@ -26,7 +29,7 @@ pub const OCCLUSION_BLOCKED: i32 = i32::MAX;
 /// Occlusion height of an unloaded column; precipitation shows at any height.
 pub const OCCLUSION_OPEN: i32 = i32::MIN;
 /// Simulation ticks per second.
-pub const PRECIPITATION_TICKS_PER_SECOND: f64 = 20.0;
+pub const PRECIPITATION_TICKS_PER_SECOND: f64 = world::TICKS_PER_SECOND as f64;
 
 const SNOW_TEMPERATURE: f32 = 0.15;
 const TEMPERATURE_LOSS_PER_BLOCK_ABOVE_SEA: f32 = 0.05 / 30.0;
@@ -81,7 +84,7 @@ pub fn approach_level(current: f32, target: f32, max_step: f32) -> f32 {
     current + (target - current).clamp(-step, step)
 }
 
-/// Per-kind constants from the vanilla `paramsRain`/`paramsSnow` tables.
+/// Vanilla's per-kind rain and snow constants.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PrecipitationParams {
     /// Blocks per tick at unit speed.
@@ -479,7 +482,7 @@ pub struct PrecipitationScene {
     pub occlusion_generation: u64,
 }
 
-/// Biome sample lattice around the player from the vanilla `precipitationOffsets` table.
+/// Vanilla's biome sample lattice around the player for precipitation.
 pub const PRECIPITATION_SAMPLE_OFFSETS: [[i32; 3]; 27] = {
     const RING: [[i32; 2]; 9] = [
         [0, 0],

@@ -1,0 +1,91 @@
+{
+  "before_commit": "75ccf7cf62035a41c00d9146ed384b874057ce99",
+  "after_commit": "3667d25adda2ae12fc8557ff047f0338f654ddfc",
+  "machine": {
+    "cpu": "Apple M3 Pro",
+    "logical_cpus": 12,
+    "memory_bytes": 38654705664,
+    "macos": "26.5.1",
+    "target": "aarch64-apple-darwin",
+    "rustc": "1.93.1 (01f6ddf75 2026-02-11)"
+  },
+  "profile": {
+    "name": "dev",
+    "workspace_opt_level": 1,
+    "dependency_opt_level": 3,
+    "debug": 0,
+    "jobs": 3,
+    "incremental": false,
+    "compiler_cache": false
+  },
+  "command": [
+    "/private/tmp/claude-501/-Users-hashim-Downloads-cinnabar/30f7cca3-953b-4833-843f-34f90cbe1dae/scratchpad/cslot",
+    "env",
+    "RUSTC_WRAPPER=",
+    "CARGO_INCREMENTAL=0",
+    "CARGO_TARGET_DIR=/Users/hashim/Coding/cinnabar-wt/render-api/target",
+    "cargo",
+    "build",
+    "--offline",
+    "--locked",
+    "-p",
+    "bedrock-client",
+    "--timings"
+  ],
+  "probe": "// Timing probe: behavior-neutral source edit.",
+  "ui_source_before": "app/src/ui_runtime/presentation.rs",
+  "ui_source_after": "crates/client-ui/src/ui_runtime/presentation.rs",
+  "reports": {
+    "before-ui-edit": {
+      "cargo_seconds": 139.3,
+      "fresh_units": 679,
+      "wall_including_slot_seconds": 139.41540733299917,
+      "exit_code": 0,
+      "report_sha256": "3f834da96977d400954e933959a4a6aebd4c8d69da14df958d1590344d403889",
+      "compiled_units": [
+        {
+          "name": "bedrock-client",
+          "target": "",
+          "start_seconds": 1.0,
+          "duration_seconds": 136.11
+        },
+        {
+          "name": "bedrock-client",
+          "target": " bin \"bedrock-client\"",
+          "start_seconds": 137.11,
+          "duration_seconds": 2.21
+        }
+      ]
+    },
+    "after-ui-edit": {
+      "cargo_seconds": 60.4,
+      "fresh_units": 681,
+      "wall_including_slot_seconds": 60.457828500002506,
+      "exit_code": 0,
+      "report_sha256": "0d88a95a3173cb7904fd4b010d946e7916eab32c81992fc80034e81c0f6d5a42",
+      "compiled_units": [
+        {
+          "name": "client-ui",
+          "target": "",
+          "start_seconds": 0.89,
+          "duration_seconds": 19.06
+        },
+        {
+          "name": "bedrock-client",
+          "target": "",
+          "start_seconds": 3.77,
+          "duration_seconds": 53.92
+        },
+        {
+          "name": "bedrock-client",
+          "target": " bin \"bedrock-client\"",
+          "start_seconds": 57.69,
+          "duration_seconds": 2.69
+        }
+      ]
+    }
+  },
+  "report_directory": "/private/tmp/cinnabar-launcher-ui-timings",
+  "samples_per_case": 1,
+  "limitation": "Shared machine with concurrent builds; elapsed-time differences are observations, not isolated speedup estimates."
+}

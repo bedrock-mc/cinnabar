@@ -2,7 +2,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use client_world::ActiveBlockCrack;
+use chunk_pipeline::ActiveBlockCrack;
 use render::{CrackInstance, CrackShape};
 
 /// Server progress units for a fully broken block.

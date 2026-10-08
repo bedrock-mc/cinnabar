@@ -12,7 +12,7 @@ use super::{
 };
 
 /// Outward push that keeps the overlay in front of the block's own faces.
-const FACE_OFFSET: f32 = 0.002;
+pub(super) const FACE_OFFSET: f32 = 0.002;
 /// Model-quad UVs are in 1/4096 of a texture tile.
 const UV_TILE: f32 = 4096.0;
 /// Model-quad positions are in 1/256 block.
@@ -24,6 +24,19 @@ pub struct CrackQuad {
     pub corners: [[f32; 3]; 4],
     /// Per-corner fractions of the destroy-stage tile, taken from the block face's own UVs.
     pub uvs: [[f32; 2]; 4],
+}
+
+impl CrackQuad {
+    /// Template windings describe the actual outward surface, including inset
+    /// stair treads and thin snow tops. The full cell's center cannot identify
+    /// the outside of either surface.
+    pub(super) fn outward_offset(self) -> Vec3 {
+        let corners = self.corners.map(Vec3::from_array);
+        (corners[1] - corners[0])
+            .cross(corners[2] - corners[0])
+            .normalize_or_zero()
+            * FACE_OFFSET
+    }
 }
 
 /// The surface a crack covers.
@@ -55,9 +68,16 @@ fn tile_fraction(value: u16) -> f32 {
 }
 
 /// The shape of a model-template block, following compound template chains; `None` when
-/// the template is out of range or has no quads.
+/// the template is out of range or has no quads. `variant` is the resolved block
+/// variant, whose low two bits carry the same quarter-turn as the terrain pass.
+/// Vanilla cracks route through the block
+/// tessellator, not an unrotated canonical model or collision AABB.
 #[must_use]
-pub fn crack_shape_from_template(assets: &RuntimeAssets, template: u32) -> Option<CrackShape> {
+pub fn crack_shape_from_template(
+    assets: &RuntimeAssets,
+    template: u32,
+    variant: u32,
+) -> Option<CrackShape> {
     let templates = assets.model_templates();
     let quads = assets.model_quads();
     let mut shape = Vec::new();
@@ -68,9 +88,7 @@ pub fn crack_shape_from_template(assets: &RuntimeAssets, template: u32) -> Optio
         let end = start.checked_add(usize::try_from(part.quad_count).ok()?)?;
         for quad in quads.get(start..end)? {
             shape.push(CrackQuad {
-                corners: quad
-                    .positions
-                    .map(|corner| corner.map(|axis| f32::from(axis) / POSITION_UNITS)),
+                corners: quad.positions.map(|corner| rotate_corner(corner, variant)),
                 uvs: quad.uvs.map(|uv| uv.map(tile_fraction)),
             });
         }
@@ -80,6 +98,18 @@ pub fn crack_shape_from_template(assets: &RuntimeAssets, template: u32) -> Optio
         index += 1;
     }
     (!shape.is_empty()).then(|| CrackShape::Quads(shape.into()))
+}
+
+fn rotate_corner(corner: [i16; 3], variant: u32) -> [f32; 3] {
+    let [x, y, z] = corner.map(|axis| f32::from(axis) / POSITION_UNITS);
+    // Same cell-centered transform as model.wgsl::rotate_cross. The template
+    // already encodes vertical halves; unrelated high semantic bits are ignored.
+    match variant & 3 {
+        1 => [1.0 - z, y, x],
+        2 => [1.0 - x, y, 1.0 - z],
+        3 => [z, y, 1.0 - x],
+        _ => [x, y, z],
+    }
 }
 
 pub(super) fn emit_crack(
@@ -94,28 +124,26 @@ pub(super) fn emit_crack(
     let rect = texture.rect;
     match &crack.shape {
         CrackShape::Cube => emit_cube(builder, block, rect),
-        CrackShape::Quads(quads) => {
-            for quad in quads.iter() {
-                let corners = quad.corners.map(Vec3::from_array);
-                let center = corners.iter().copied().sum::<Vec3>() / 4.0;
-                let normal = (corners[1] - corners[0])
-                    .cross(corners[2] - corners[0])
-                    .normalize_or_zero();
-                // Push outward from the block center so both windings sit in front.
-                let outward = if normal.dot(center - Vec3::splat(0.5)) < 0.0 {
-                    -normal
-                } else {
-                    normal
-                } * FACE_OFFSET;
-                builder.quad_uv(
-                    Layer::Crack,
-                    corners.map(|corner| (block + corner + outward).to_array()),
-                    quad.uvs
-                        .map(|[u, v]| [rect.x + u * rect.width, rect.y + v * rect.height]),
-                    WHITE,
-                );
-            }
-        }
+        CrackShape::Quads(quads) => emit_model(builder, block, rect, quads),
+    }
+}
+
+fn emit_model(
+    builder: &mut MeshBuilder,
+    block: Vec3,
+    rect: super::atlas::AtlasRect,
+    quads: &[CrackQuad],
+) {
+    for quad in quads {
+        let corners = quad.corners.map(Vec3::from_array);
+        let outward = quad.outward_offset();
+        builder.quad_uv(
+            Layer::Crack,
+            corners.map(|corner| (block + corner + outward).to_array()),
+            quad.uvs
+                .map(|[u, v]| [rect.x + u * rect.width, rect.y + v * rect.height]),
+            WHITE,
+        );
     }
 }
 
@@ -138,31 +166,4 @@ fn emit_cube(builder: &mut MeshBuilder, block: Vec3, rect: super::atlas::AtlasRe
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn stage_names_clamp_to_the_last_texture() {
-        assert_eq!(
-            crack_texture_name(3),
-            "textures/environment/destroy_stage_3"
-        );
-        assert_eq!(
-            crack_texture_name(200),
-            "textures/environment/destroy_stage_9"
-        );
-    }
-
-    #[test]
-    fn wrapped_uvs_fold_into_one_tile_and_full_tile_stays_full() {
-        assert_eq!(tile_fraction(4096), 1.0);
-        assert_eq!(tile_fraction(2048), 0.5);
-        assert!((tile_fraction(6144) - 0.5).abs() < 1.0e-6);
-        assert_eq!(tile_fraction(8192), 1.0);
-    }
-
-    #[test]
-    fn out_of_range_templates_have_no_shape() {
-        assert!(crack_shape_from_template(&RuntimeAssets::diagnostic(), 999).is_none());
-    }
-}
+mod tests;

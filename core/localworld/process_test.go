@@ -3,7 +3,10 @@ package localworld
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -14,6 +17,10 @@ const helperEnv = "LOCALWORLD_TEST_HELPER"
 // TestMain doubles as the fake local server: it honours the ready/pause/resume/stop line protocol.
 func TestMain(m *testing.M) {
 	if mode := os.Getenv(helperEnv); mode != "" {
+		if path := os.Getenv("LOCALWORLD_TEST_ARGS_LOG"); path != "" {
+			raw, _ := json.Marshal(os.Args[1:])
+			_ = os.WriteFile(path, raw, 0o600)
+		}
 		if mode == "docker" {
 			runFakeDocker(os.Args[1:])
 		}
@@ -118,5 +125,31 @@ func TestProcessRunnerTimesOutWhenNeverReady(t *testing.T) {
 func TestProcessRunnerRequiresBinary(t *testing.T) {
 	if _, err := (ProcessRunner{}).Start(context.Background(), testSpec()); err == nil {
 		t.Fatal("expected error")
+	}
+}
+
+func TestProcessRunnerForwardsNormalGeneratorAndSignedSeed(t *testing.T) {
+	argsLog := filepath.Join(t.TempDir(), "args.json")
+	runner := ProcessRunner{Binary: os.Args[0], Env: []string{helperEnv + "=ok", "LOCALWORLD_TEST_ARGS_LOG=" + argsLog}}
+	spec := testSpec()
+	spec.World.Generator = GeneratorNormal
+	inst, err := runner.Start(context.Background(), spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer inst.Stop(context.Background())
+	raw, err := os.ReadFile(argsLog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var args []string
+	if err := json.Unmarshal(raw, &args); err != nil {
+		t.Fatal(err)
+	}
+	for flag, value := range map[string]string{"-generator": GeneratorNormal, "-seed": "-7"} {
+		at := slices.Index(args, flag)
+		if at < 0 || at+1 >= len(args) || args[at+1] != value {
+			t.Fatalf("%s missing in %v", flag, args)
+		}
 	}
 }

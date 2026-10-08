@@ -1,0 +1,8 @@
+{
+  "type": "result",
+  "seq": 2,
+  "outcome": {
+    "type": "rejected",
+    "reason": "a controller already powers this network"
+  }
+}

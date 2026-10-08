@@ -6,9 +6,43 @@ use valentine::bedrock::version::v1_26_51::{
 
 use crate::MAX_PLAYER_LIST_SKIN_BYTES;
 
-pub use render_data::MAX_SKIN_ANIMATION_LAYERS;
+/// Named geometry and texture slots used by the persona render controllers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SkinAnimationKind {
+    Face,
+    Body32,
+    Body128,
+}
 
-pub use render_data::{SkinAnimation, SkinAnimationKind};
+impl SkinAnimationKind {
+    /// Returns the stable atlas slot for this animation kind.
+    pub const fn slot(self) -> usize {
+        match self {
+            Self::Face => 0,
+            Self::Body32 => 1,
+            Self::Body128 => 2,
+        }
+    }
+    /// Returns the resource-patch geometry slot for this animation image.
+    pub const fn geometry_key(self) -> &'static str {
+        match self {
+            Self::Face => "animated_face",
+            Self::Body32 => "animated_32x32",
+            Self::Body128 => "animated_128x128",
+        }
+    }
+}
+
+/// A transmitted persona animation atlas, without resampling or alpha modification.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SkinAnimation {
+    pub kind: SkinAnimationKind,
+    pub width: u32,
+    pub height: u32,
+    pub rgba8: Arc<[u8]>,
+    pub frames: u32,
+    pub blinking: bool,
+}
 
 /// Retains valid transmitted atlases within the same budget as the base skin.
 pub(super) fn normalize(
@@ -30,6 +64,11 @@ pub(super) fn normalize(
         else {
             continue;
         };
+        let previous = output.iter().position(|image| image.kind == kind);
+        let released = previous.map_or(0, |index| output[index].rgba8.len());
+        let candidate_bytes = retained
+            .checked_sub(released)
+            .and_then(|retained| retained.checked_add(bytes));
         if raster.width == 0
             || raster.height == 0
             || bytes != raster.image_bytes.len()
@@ -37,14 +76,14 @@ pub(super) fn normalize(
             || image.frames < 1.0
             || image.frames > raster.height as f32
             || image.frames.fract() != 0.0
-            || retained.saturating_add(bytes) > MAX_PLAYER_LIST_SKIN_BYTES
+            || candidate_bytes.is_none_or(|total| total > MAX_PLAYER_LIST_SKIN_BYTES)
         {
             continue;
         }
-        if let Some(previous) = output.iter().position(|image| image.kind == kind) {
-            *retained -= output.remove(previous).rgba8.len();
+        if let Some(previous) = previous {
+            output.remove(previous);
         }
-        *retained += bytes;
+        *retained = candidate_bytes.expect("validated animation byte total");
         output.push(SkinAnimation {
             kind,
             width: raster.width,
@@ -61,6 +100,26 @@ pub(super) fn normalize(
 mod tests {
     use super::*;
     use valentine::bedrock::version::v1_26_51::SkinImage;
+
+    #[test]
+    fn review_animation_replacement_refunds_its_previous_atlas_before_budgeting() {
+        let image = |height, byte| AnimatedImageData {
+            skin_image: SkinImage {
+                width: 1,
+                height,
+                image_bytes: vec![byte; height as usize * 4],
+            },
+            animated_texture_type: EnumspersonaAnimatedTextureType::Body32X32,
+            frames: 1.0,
+            animation_expression: EnumspersonaAnimationExpression::Linear,
+        };
+        let mut retained = MAX_PLAYER_LIST_SKIN_BYTES - 8;
+        let images = normalize(&[image(2, 1), image(1, 2)], &mut retained);
+        assert_eq!(images.len(), 1);
+        assert_eq!(images[0].height, 1);
+        assert_eq!(images[0].rgba8.as_ref(), &[2; 4]);
+        assert_eq!(retained, MAX_PLAYER_LIST_SKIN_BYTES - 4);
+    }
 
     #[test]
     fn transmitted_persona_animation_keeps_its_actual_width_and_frame_count() {

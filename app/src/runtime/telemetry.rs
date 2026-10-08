@@ -1,6 +1,20 @@
+#[cfg(feature = "acceptance")]
+use crate::acceptance::AcceptanceRun;
+#[cfg(feature = "acceptance")]
+use acceptance::phase2_evidence::{
+    CombinedPhase2Snapshot, PlayerColumnPresentationEvidence, build_profile_identity,
+    generation_manifest_identity, graphics_identity_sha256, key_manifest_identity,
+    phase2_publication_line_if_changed, present_mode_identity, sha256_identity_from_hex_or_text,
+};
+mod attribution;
+use attribution::DiagnosticAttributionLogState;
+pub(crate) use attribution::refresh_diagnostic_attribution;
+
+#[cfg(feature = "acceptance")]
+use bevy::prelude::{Transform, With};
+#[cfg(feature = "acceptance")]
 use meshing::biome_lattice::{BIOME_BLEND_RADIUS, BLEND_SAMPLE_COUNT};
 use std::{
-    collections::VecDeque,
     fmt::Write as _,
     time::{Duration, Instant},
 };
@@ -9,52 +23,44 @@ use bevy::{
     diagnostic::{DiagnosticPath, DiagnosticsStore},
     ecs::system::SystemParam,
     log::info,
-    prelude::{EulerRot, Local, Query, Res, ResMut, Resource, Time, Transform, Vec3, Window, With},
+    prelude::{EulerRot, Local, Quat, Query, Res, ResMut, Time, Vec3},
     time::Real,
-    window::{CursorOptions, PrimaryWindow},
     winit::{UpdateMode, WinitSettings},
 };
-use client_world::Phase2PresentationSnapshot;
+#[cfg(feature = "acceptance")]
+use chunk_pipeline::Phase2PresentationSnapshot;
+#[cfg(feature = "acceptance")]
 use meshing::{BiomeBlendSample, ChunkBiomeTintIdentity, PackedBiomeRecord};
 use render::{
-    ChunkRenderInstance, ChunkRenderQueue, ModelWitnessEvidence, ModelWitnessManifestRecord,
-    ModelWorkloadMetrics, RenderViewCohort, RuntimeStage, RuntimeStageProfiler,
-    TransparentSortMetrics, TransparentWitnessEvidence, VisibilityDiagnostics,
+    ChunkRenderInstance, ChunkRenderQueue, ModelWorkloadMetrics, RuntimeStage,
+    RuntimeStageProfiler, TransparentSortMetrics, VisibilityDiagnostics,
     VisibilityDiagnosticsInput,
 };
-use sha2::{Digest, Sha256};
+#[cfg(feature = "acceptance")]
+use render::{ModelWitnessEvidence, RenderViewCohort, TransparentWitnessEvidence};
 use world::SubChunkKey;
 
+mod visibility_snapshot;
+
+#[cfg(feature = "acceptance")]
+use crate::camera::FlyCamera;
 use crate::{
     acceptance::{
-        AcceptanceRun, PHASE0_REQUESTED_RADIUS_CHUNKS,
         markers::{
-            ERROR_COUNTERS, MODEL_WITNESS_COMPLETE, STAGE_PROFILE, TRANSPARENT_SORT_COMMITTED,
-            TRANSPARENT_WITNESS_COMPLETE, TRANSPARENT_WITNESS_INCOMPLETE,
-            TRANSPARENT_WITNESS_STAGE, VISIBILITY_SNAPSHOT, acceptance_runtime_metadata_marker,
+            ERROR_COUNTERS, STAGE_PROFILE, VISIBILITY_SNAPSHOT, acceptance_runtime_metadata_marker,
             cumulative_counter_delta, visibility_delta_marker_fields,
             visibility_digest_marker_fields, world_publication_snapshot_marker,
         },
         mutation::write_stdout_marker,
     },
-    camera::{self, FlyCamera, THIRD_PERSON_COLLISION_EPSILON_BLOCKS, THIRD_PERSON_RADIUS_BLOCKS},
+    camera::THIRD_PERSON_RADIUS_BLOCKS,
     local_player::LocalPlayerFrameCarrier,
-    metrics::{
-        DiagnosticQuadTracker, GpuPassMeasurement, MetricsCollector, ModelWorkloadMetricsSnapshot,
-        PipelineMetricsSnapshot, TransparentSortMetricsSnapshot, pair_gpu_pass_sample,
-    },
     movement::{
         MovementSendError, MovementTicker, PhysicsTickEvidenceContext,
         flush_player_auth_inputs_guarded,
     },
     runtime::{
         network::{NetworkHandle, OUTBOUND_SEND_BUDGET_PER_FRAME},
-        phase2_evidence::{
-            CombinedPhase2Snapshot, PlayerColumnPresentationEvidence, build_profile_identity,
-            generation_manifest_identity, graphics_identity_sha256, key_manifest_identity,
-            phase2_publication_line_if_changed, present_mode_identity,
-            sha256_identity_from_hex_or_text,
-        },
         publication::{
             PublicationController, PublicationFrameWork, adaptive_publication_diagnostic_line,
         },
@@ -64,8 +70,11 @@ use crate::{
     },
     semantic_controls::SemanticInputSnapshot,
 };
+use diagnostics::metrics::{
+    GpuPassMeasurement, ModelWorkloadMetricsSnapshot, PipelineMetricsSnapshot,
+    TransparentSortMetricsSnapshot, pair_gpu_pass_sample,
+};
 
-const TITLE_REFRESH_INTERVAL: Duration = Duration::from_millis(250);
 const VISIBILITY_DIAGNOSTIC_INTERVAL: Duration = Duration::from_secs(1);
 const OPAQUE_3D_GPU_DIAGNOSTIC: DiagnosticPath =
     DiagnosticPath::const_new("render/main_opaque_pass_3d/elapsed_gpu");
@@ -78,9 +87,11 @@ pub(crate) struct TelemetryRenderMetrics<'w> {
     model_workload: Res<'w, ModelWorkloadMetrics>,
     diagnostics: Res<'w, DiagnosticsStore>,
     publication: ResMut<'w, PublicationController>,
+    #[cfg(feature = "acceptance")]
     local_player: Res<'w, LocalPlayerFrameCarrier>,
     frame_poll: Res<'w, WorldStreamFramePoll>,
     profiler: Option<Res<'w, RuntimeStageProfiler>>,
+    visibility_input: Res<'w, VisibilityDiagnosticsInput>,
 }
 
 pub(crate) fn camera_sub_chunk_key(dimension: i32, position: Vec3) -> SubChunkKey {
@@ -117,85 +128,22 @@ pub(crate) fn frame_limited_winit_settings(frame_cap: Option<u32>, strict: bool)
 }
 
 #[derive(Default)]
-pub(crate) struct RollingFps {
-    pub(crate) frame_times: VecDeque<Duration>,
-    pub(crate) elapsed: Duration,
-}
-
-#[derive(Default)]
 pub(crate) struct MetricsSamplingState {
-    pub(crate) title_elapsed: Duration,
-    pub(crate) rolling_fps: RollingFps,
     pub(crate) last_marked_transparent_sort_generation: u64,
     pub(crate) last_gpu_measurement_time: Option<Instant>,
     pub(crate) visibility_elapsed: Duration,
     pub(crate) runtime_metadata_emitted: bool,
     pub(crate) diagnostic_attribution_revision: u64,
+    diagnostic_attribution_log: DiagnosticAttributionLogState,
+    #[cfg(feature = "acceptance")]
     pub(crate) last_biome_blend_identity: Option<CommittedBiomeBlendIdentity>,
+    #[cfg(feature = "acceptance")]
     pub(crate) last_phase2_snapshot: Option<CombinedPhase2Snapshot>,
 }
 
-pub(crate) fn refresh_diagnostic_attribution(
-    last_revision: &mut u64,
-    tracker: &DiagnosticQuadTracker,
-    metrics: &mut MetricsCollector,
-) -> Option<String> {
-    let revision = tracker.revision();
-    if *last_revision == revision {
-        return None;
-    }
-    let snapshot = tracker.snapshot();
-    let marker = format!("DIAGNOSTIC_GEOMETRY {}", snapshot.marker_fields());
-    metrics.record_diagnostic_attribution(snapshot);
-    *last_revision = revision;
-    Some(marker)
-}
+pub(crate) use diagnostics::AcceptanceRuntimeConfig;
 
-#[derive(Resource, Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct AcceptanceRuntimeConfig {
-    pub(crate) build_profile: &'static str,
-}
-
-impl RollingFps {
-    pub(crate) fn record(&mut self, frame_time: Duration) {
-        if frame_time.is_zero() {
-            return;
-        }
-        self.frame_times.push_back(frame_time);
-        self.elapsed += frame_time;
-        while self.elapsed > Duration::from_secs(1) {
-            let Some(oldest) = self.frame_times.pop_front() else {
-                break;
-            };
-            self.elapsed = self.elapsed.saturating_sub(oldest);
-        }
-    }
-
-    pub(crate) fn value(&self) -> f64 {
-        if self.elapsed.is_zero() {
-            return 0.0;
-        }
-        self.frame_times.len() as f64 / self.elapsed.as_secs_f64()
-    }
-}
-
-pub(crate) fn status_title(
-    camera: &Transform,
-    resident_sub_chunks: usize,
-    visible_sub_chunks: usize,
-    captured: bool,
-    fps: f64,
-) -> String {
-    let (yaw, pitch, _) = camera.rotation.to_euler(EulerRot::YXZ);
-    format!(
-        "Rust MCBE | {fps:.1} FPS | pos {:.2} {:.2} {:.2} | yaw {yaw:.2} pitch {pitch:.2} | chunks {visible_sub_chunks}/{resident_sub_chunks} | {}",
-        camera.translation.x,
-        camera.translation.y,
-        camera.translation.z,
-        if captured { "captured" } else { "released" },
-    )
-}
-
+#[cfg(feature = "acceptance")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct CommittedBiomeBlendIdentity {
     key: SubChunkKey,
@@ -205,12 +153,14 @@ pub(crate) struct CommittedBiomeBlendIdentity {
     local: [i32; 3],
 }
 
+#[cfg(feature = "acceptance")]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct CommittedBiomeBlendSnapshot {
     identity: CommittedBiomeBlendIdentity,
     samples: [BiomeBlendSample; BLEND_SAMPLE_COUNT],
 }
 
+#[cfg(feature = "acceptance")]
 impl CommittedBiomeBlendSnapshot {
     pub(crate) fn from_record(
         key: SubChunkKey,
@@ -238,14 +188,17 @@ impl CommittedBiomeBlendSnapshot {
     }
 }
 
+#[cfg(feature = "acceptance")]
 pub(crate) fn biome_blend_diagnostics_enabled(acceptance: &AcceptanceRun) -> bool {
     acceptance.enabled()
 }
 
+#[cfg(feature = "acceptance")]
 pub(crate) fn publication_diagnostics_enabled(acceptance: &AcceptanceRun) -> bool {
     acceptance.enabled() || acceptance.metrics_out.is_some()
 }
 
+#[cfg(feature = "acceptance")]
 pub(crate) fn biome_blend_diagnostic_marker_if_changed(
     last_emitted: &mut Option<CommittedBiomeBlendIdentity>,
     snapshot: CommittedBiomeBlendSnapshot,
@@ -280,6 +233,7 @@ pub(crate) fn biome_blend_diagnostic_marker_if_changed(
     Some(marker)
 }
 
+#[cfg(feature = "acceptance")]
 fn packed_biome_record_hash(record: &PackedBiomeRecord) -> u64 {
     const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
     const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
@@ -290,17 +244,25 @@ fn packed_biome_record_hash(record: &PackedBiomeRecord) -> u64 {
     })
 }
 
-pub(crate) use render::bedrock_camera_rotation;
+pub(crate) fn bedrock_camera_rotation(yaw_degrees: f32, pitch_degrees: f32) -> Quat {
+    Quat::from_euler(
+        EulerRot::YXZ,
+        (180.0 - yaw_degrees).to_radians(),
+        -pitch_degrees.to_radians(),
+        0.0,
+    )
+}
 
 pub(crate) fn send_player_auth_inputs(
     network: Res<NetworkHandle>,
-    acceptance: Res<AcceptanceRun>,
+    #[cfg(feature = "acceptance")] acceptance: Res<AcceptanceRun>,
     input: Res<SemanticInputSnapshot>,
     local_frame: Res<LocalPlayerFrameCarrier>,
     mut metrics: ResMut<AppMetrics>,
     mut movement: ResMut<MovementTicker>,
     mut client_world: ResMut<ClientWorld>,
 ) {
+    #[cfg(feature = "acceptance")]
     if acceptance.deadline_reached(Instant::now()) {
         movement.begin_terminal_drain();
     }
@@ -312,10 +274,10 @@ pub(crate) fn send_player_auth_inputs(
             let third_person = frame.perspective() != semantic_input::PerspectiveMode::FirstPerson;
             let camera_distance = frame.pose().translation.distance(frame.eye());
             let camera_fallback =
-                third_person && camera_distance <= THIRD_PERSON_COLLISION_EPSILON_BLOCKS;
+                third_person && camera_distance <= render_api::CAMERA_NEAR_PLANE_BLOCKS;
             let camera_blocked = third_person
                 && !camera_fallback
-                && camera_distance + THIRD_PERSON_COLLISION_EPSILON_BLOCKS
+                && camera_distance + render_api::CAMERA_NEAR_PLANE_BLOCKS
                     < THIRD_PERSON_RADIUS_BLOCKS;
             PhysicsTickEvidenceContext {
                 fifo_sequence: frame.fifo_sequence(),
@@ -420,40 +382,22 @@ pub(crate) fn update_visibility_diagnostics(
     diagnostics.advance(resident_mesh, cave_visible);
 }
 
-pub(crate) fn lower_hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
-}
-
-pub(crate) fn model_witness_manifest_hash(records: &[ModelWitnessManifestRecord]) -> String {
-    let mut hasher = Sha256::new();
-    for record in records {
-        hasher.update(record.key.dimension.to_le_bytes());
-        hasher.update(record.key.x.to_le_bytes());
-        hasher.update(record.key.y.to_le_bytes());
-        hasher.update(record.key.z.to_le_bytes());
-        hasher.update(record.generation.to_le_bytes());
-        hasher.update((record.model_ref_count as u64).to_le_bytes());
-    }
-    lower_hex(&hasher.finalize())
-}
-
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn record_metrics_and_title(
+pub(crate) fn record_metrics(
     time: Res<Time<Real>>,
     mut client_world: ResMut<ClientWorld>,
-    acceptance: Res<AcceptanceRun>,
+    #[cfg(feature = "acceptance")] acceptance: Res<AcceptanceRun>,
     cache: Res<CaveVisibilityCache>,
     mut metrics: ResMut<AppMetrics>,
     diagnostic_quads: Res<DiagnosticQuads>,
     render_queue: Res<ChunkRenderQueue>,
     mut render_metrics: TelemetryRenderMetrics,
-    transparent_witness: Res<TransparentWitnessEvidence>,
-    model_witness: Res<ModelWitnessEvidence>,
+    #[cfg(feature = "acceptance")] transparent_witness: Res<TransparentWitnessEvidence>,
+    #[cfg(feature = "acceptance")] model_witness: Res<ModelWitnessEvidence>,
     visibility_diagnostics: Res<VisibilityDiagnostics>,
     runtime_config: Res<AcceptanceRuntimeConfig>,
-    chunks: Query<&ChunkRenderInstance>,
-    camera: Query<&Transform, With<FlyCamera>>,
-    mut window: Query<(&mut Window, &CursorOptions), With<PrimaryWindow>>,
+    #[cfg(feature = "acceptance")] chunks: Query<&ChunkRenderInstance>,
+    #[cfg(feature = "acceptance")] camera: Query<&Transform, With<FlyCamera>>,
     mut sampling: Local<MetricsSamplingState>,
 ) {
     let _timer = render_metrics
@@ -481,26 +425,31 @@ pub(crate) fn record_metrics_and_title(
         sampling.last_gpu_measurement_time = Some(measurement_time);
         metrics.0.record_gpu_pass_sample(measurement_time, sample);
     }
+    #[cfg(feature = "acceptance")]
     if let Some(deadline) = acceptance.deadline.filter(|deadline| now >= *deadline) {
         metrics.0.finish_timed_session(deadline);
     }
     let frame_time = time.delta();
     metrics.0.record_frame(frame_time);
-    sampling.rolling_fps.record(frame_time);
     metrics.0.record_asset_counters(
         client_world.missing_asset_count(),
         diagnostic_quads.0.total(),
     );
-    if let Some(marker) = refresh_diagnostic_attribution(
+    let fresh_marker = refresh_diagnostic_attribution(
         &mut sampling.diagnostic_attribution_revision,
         &diagnostic_quads.0,
         &mut metrics.0,
-    ) {
+    );
+    if let Some(marker) = sampling.diagnostic_attribution_log.take(now, fresh_marker) {
         info!("{marker}");
     }
-    let visibility_snapshot = visibility_diagnostics.snapshot();
+    let visibility_snapshot = visibility_snapshot::active_snapshot(
+        &render_metrics.visibility_input,
+        visibility_diagnostics.snapshot(),
+    );
     // Full-cohort manifests and their JSON/timing markers are acceptance
     // evidence, not gameplay work. Gate the collection as well as the output.
+    #[cfg(feature = "acceptance")]
     if publication_diagnostics_enabled(&acceptance)
         && let (Some(stream), Some(local_frame), Some(graphics)) = (
             client_world.stream.as_ref(),
@@ -635,16 +584,16 @@ pub(crate) fn record_metrics_and_title(
                 .unwrap_or(0);
             write_stdout_marker(
                 &mut stdout,
-                &crate::runtime::phase2_evidence::phase2_publication_timing_line(
+                &acceptance::phase2_evidence::phase2_publication_timing_line(
                     &marker,
                     observed_unix_ms,
                 ),
             );
         }
     }
-    if client_world.stream.is_some() {
+    if client_world.stream.is_some() && visibility_snapshot.frame_generation != 0 {
         let cohort = render_metrics.frame_poll.cohort;
-        let count = |digest: Option<render::VisibilityKeyDigest>| {
+        let count = |digest: Option<render_model::VisibilityKeyDigest>| {
             digest
                 .and_then(|digest| usize::try_from(digest.count).ok())
                 .unwrap_or(0)
@@ -667,6 +616,7 @@ pub(crate) fn record_metrics_and_title(
     if sampling.visibility_elapsed >= VISIBILITY_DIAGNOSTIC_INTERVAL {
         sampling.visibility_elapsed = Duration::ZERO;
         let snapshot = visibility_snapshot;
+        #[cfg(feature = "acceptance")]
         if biome_blend_diagnostics_enabled(&acceptance)
             && let (Some(stream), Ok(camera)) = (client_world.stream.as_ref(), camera.single())
             && camera.translation.is_finite()
@@ -732,21 +682,22 @@ pub(crate) fn record_metrics_and_title(
                 &mut stdout,
                 &adaptive_publication_diagnostic_line(render_metrics.publication.diagnostics()),
             );
-            if let (Some(stream), Some(graphics)) = (
-                client_world.stream.as_ref(),
-                visibility_diagnostics.graphics_adapter(),
-            ) {
-                let marker = world_publication_snapshot_marker(
-                    stream.stats(),
-                    render_queue.retained_len(),
-                    render_queue.pending_bytes(),
-                    render_queue.gpu_upload_bytes(),
-                    snapshot,
-                    *runtime_config,
-                    &graphics,
-                );
-                write_stdout_marker(&mut stdout, &marker);
-            }
+        }
+        if let (Some(stream), Some(graphics)) = (
+            client_world.stream.as_ref(),
+            visibility_diagnostics.graphics_adapter(),
+        ) {
+            let marker = world_publication_snapshot_marker(
+                stream.stats(),
+                render_queue.retained_len(),
+                render_queue.pending_bytes(),
+                render_queue.gpu_upload_bytes(),
+                snapshot,
+                *runtime_config,
+                &graphics,
+            );
+            let mut stdout = std::io::stdout().lock();
+            write_stdout_marker(&mut stdout, &marker);
         }
     }
     let transparent_sort_snapshot =
@@ -762,96 +713,49 @@ pub(crate) fn record_metrics_and_title(
         sampling.last_marked_transparent_sort_generation =
             transparent_sort_snapshot.presented_generation;
     }
-    for event in transparent_witness.drain_events() {
-        let marker = format!(
-            "{TRANSPARENT_WITNESS_COMPLETE} revision={} sequence={} generation={} key_count={} consecutive={}",
-            event.revision, event.sequence, event.generation, event.key_count, event.consecutive,
-        );
-        let mut stdout = std::io::stdout().lock();
-        write_stdout_marker(&mut stdout, &marker);
-    }
-    for event in model_witness.drain_events() {
-        let acknowledgement = &event.acknowledgement;
-        let marker = format!(
-            "{MODEL_WITNESS_COMPLETE} revision={} request_sha256={} sequence={} view_generation={} key_count={} model_ref_count={} manifest_count={} manifest_sha256={} missing={} stale={} wrong_stream={} zero_ref={} draw_mismatch={} consecutive={}",
-            acknowledgement.revision,
-            lower_hex(&acknowledgement.request_hash),
-            acknowledgement.frame_sequence,
-            acknowledgement.view_generation,
-            acknowledgement.manifest.len(),
-            acknowledgement.total_model_ref_count,
-            acknowledgement.manifest.len(),
-            model_witness_manifest_hash(&acknowledgement.manifest),
-            acknowledgement.missing_key_count,
-            acknowledgement.stale_generation_count,
-            acknowledgement.wrong_stream_count,
-            acknowledgement.zero_model_ref_count,
-            acknowledgement.draw_mismatch_count,
-            event.consecutive,
-        );
-        let mut stdout = std::io::stdout().lock();
-        write_stdout_marker(&mut stdout, &marker);
-    }
-    for event in transparent_witness.drain_incomplete_events() {
-        let missing = event
-            .missing_keys
-            .iter()
-            .map(|key| format!("{},{},{},{}", key.dimension, key.x, key.y, key.z))
-            .collect::<Vec<_>>()
-            .join(";");
-        let marker = format!(
-            "{TRANSPARENT_WITNESS_INCOMPLETE} revision={} sequence={} generation={} missing_count={} missing={missing}",
-            event.revision,
-            event.sequence,
-            event.generation,
-            event.missing_keys.len(),
-        );
-        let mut stdout = std::io::stdout().lock();
-        write_stdout_marker(&mut stdout, &marker);
-    }
-    for event in transparent_witness.drain_stage_events() {
-        let records = event
-            .records
-            .iter()
-            .map(|record| {
-                let app_entity = chunks.iter().any(|instance| instance.key() == record.key);
-                format!(
-                    "{},{},{},{}:app_entity={}:cave_visible={}:extracted_visible={}:instance={}:liquid_quads={}:instance_generation={}:allocation={}:liquid_range={}:lighting_range={}:allocation_matches={}:committed_member={}",
-                    record.key.dimension,
-                    record.key.x,
-                    record.key.y,
-                    record.key.z,
-                    u8::from(app_entity),
-                    u8::from(cache.visible.contains(&record.key)),
-                    u8::from(record.extracted_visible),
-                    u8::from(record.instance_present),
-                    record.liquid_quad_count,
-                    record.instance_generation,
-                    u8::from(record.allocation_present),
-                    record.liquid_range_len,
-                    record.lighting_range_len,
-                    u8::from(record.allocation_matches),
-                    u8::from(record.committed_member),
-                )
-            })
-            .collect::<Vec<_>>()
-            .join(";");
-        let marker = format!(
-            "{TRANSPARENT_WITNESS_STAGE} revision={} committed_generation={} records={records}",
-            event.revision, event.committed_generation,
-        );
-        let mut stdout = std::io::stdout().lock();
-        write_stdout_marker(&mut stdout, &marker);
-    }
+    #[cfg(feature = "acceptance")]
+    acceptance::witness_markers::emit_witness_observations(
+        &transparent_witness,
+        &model_witness,
+        |key| chunks.iter().any(|instance| instance.key() == key),
+        |key| cache.visible.contains(&key),
+    );
     let stream_errors = client_world.stream.as_ref().map_or(0, |stream| {
         let stats = stream.stats();
         metrics.0.record_pipeline_snapshot(PipelineMetricsSnapshot {
-            world_ready: acceptance.world_ready,
-            requested_radius_chunks: PHASE0_REQUESTED_RADIUS_CHUNKS,
+            world_ready: {
+                #[cfg(feature = "acceptance")]
+                {
+                    acceptance.world_ready
+                }
+                #[cfg(not(feature = "acceptance"))]
+                {
+                    false
+                }
+            },
+            requested_radius_chunks: diagnostics::PHASE0_REQUESTED_RADIUS_CHUNKS,
             received_radius_chunks: stats.received_radius_chunks,
             publisher_radius_chunks: stats.publisher_radius_chunks,
-            mutation_coordinate: acceptance.mutation_coordinate(),
-            visible_mutation_count: acceptance.visible_mutation_count(),
+            mutation_coordinate: {
+                #[cfg(feature = "acceptance")]
+                {
+                    acceptance.mutation_coordinate()
+                }
+                #[cfg(not(feature = "acceptance"))]
+                {
+                    None
+                }
+            },
+            visible_mutation_count: {
+                #[cfg(feature = "acceptance")]
+                {
+                    acceptance.visible_mutation_count()
+                }
+                #[cfg(not(feature = "acceptance"))]
+                {
+                    0
+                }
+            },
             max_decode: stats.max_decode_duration,
             max_mesh: stats.max_mesh_duration,
             max_remesh: stats.max_remesh_latency,
@@ -903,31 +807,6 @@ pub(crate) fn record_metrics_and_title(
     let error_delta = cumulative_counter_delta(total_errors, client_world.reported_decode_errors);
     metrics.0.add_decode_errors(error_delta);
     client_world.reported_decode_errors = total_errors;
-
-    sampling.title_elapsed += time.delta();
-    if sampling.title_elapsed < TITLE_REFRESH_INTERVAL {
-        return;
-    }
-    sampling.title_elapsed = Duration::ZERO;
-    let (Ok(camera), Ok((mut window, cursor))) = (camera.single(), window.single_mut()) else {
-        return;
-    };
-    let resident = client_world
-        .stream
-        .as_ref()
-        .map_or(0, |stream| stream.stats().resident_sub_chunks);
-    let mut title = status_title(
-        camera,
-        resident,
-        cache.visible_rendered,
-        camera::input_is_active(&window, cursor),
-        sampling.rolling_fps.value(),
-    );
-    if let Some(error) = &client_world.fatal_error {
-        title.push_str(" | ERROR: ");
-        title.push_str(error);
-    }
-    window.title = title;
 }
 
 pub(crate) fn publish_runtime_stage_profile(profiler: Option<Res<RuntimeStageProfiler>>) {
@@ -951,6 +830,16 @@ pub(crate) fn publish_runtime_stage_profile(profiler: Option<Res<RuntimeStagePro
             sample.maximum.as_secs_f64() * 1_000.0,
         );
     }
+    if let Some(slow) = profiler
+        .as_deref()
+        .and_then(RuntimeStageProfiler::slow_frame_counts)
+    {
+        let _ = write!(
+            line,
+            " slow_frames={},{},{}",
+            slow.slow, slow.hitches, slow.hard_hitches
+        );
+    }
     eprintln!("{line}");
 }
 
@@ -963,17 +852,10 @@ pub(crate) fn gpu_pass_measurement(
         .map(|measurement| GpuPassMeasurement::new(measurement.time, measurement.value))
 }
 
-pub(crate) fn transparent_sort_committed_marker(
-    last_presented_generation: u64,
-    snapshot: TransparentSortMetricsSnapshot,
-) -> Option<String> {
-    (snapshot.presented_generation > last_presented_generation
-        && snapshot.presented_generation == snapshot.committed_generation
-        && snapshot.ref_count > 0)
-        .then(|| {
-            format!(
-                "{TRANSPARENT_SORT_COMMITTED} generation={} ref_count={}",
-                snapshot.presented_generation, snapshot.ref_count
-            )
-        })
+pub(crate) use diagnostics::transparent_sort_committed_marker;
+
+/// Releases acknowledged tick records when the optional evidence consumer is absent.
+#[cfg(not(feature = "acceptance"))]
+pub(crate) fn discard_completed_movement_evidence(mut movement: ResMut<MovementTicker>) {
+    let _ = movement.take_tick_evidence();
 }

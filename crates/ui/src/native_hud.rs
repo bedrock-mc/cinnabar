@@ -1,5 +1,4 @@
-//! Native HUD sprite presentation shared by application and browser renderers.
-//! Authored JSON-UI controls own placement; this module paints their custom renderers.
+//! Native HUD presentation shared by authored client and browser screens.
 
 mod model;
 mod motion;
@@ -7,16 +6,24 @@ mod paint;
 mod pinned;
 mod status;
 
-pub use model::{
-    HeartVariant, HudEffect, heart_variant, hunger_effect_active, regeneration_active,
-};
-pub use paint::{Cell, HudPaint, HudPaintTarget, SheetSprite, paint, paint_progress};
+pub use model::{HeartVariant, HudEffect, heart_variant, hunger_effect_active, regeneration_active};
+pub use paint::{Cell, HudPaint, HudPaintTarget, SheetSprite, paint, CROSSHAIR_SIDE, CROSSHAIR_TEXTURE};
 pub use pinned::effect_icon_role;
-pub use status::{StatusPaintInput, capture_status_hud};
+pub use status::{HeartPaint, StatusPaintInput, capture_status_hud};
 
 /// The built-in Java-styled HUD pack: `(pack path, namespace, bytes)`, layered
 /// under every server pack.
-pub const JAVA_HUD_PACK: [(&str, &str, &[u8]); 2] = [
+pub const JAVA_HUD_PACK: [(&str, &str, &[u8]); 4] = [
+    (
+        "ui/_global_variables.json",
+        "",
+        include_bytes!("../../../assets/java-hud/ui/_global_variables.json"),
+    ),
+    (
+        "ui/chat_screen.json",
+        "chat",
+        include_bytes!("../../../assets/java-hud/ui/chat_screen.json"),
+    ),
     (
         "ui/hud_screen.json",
         "hud",
@@ -28,3 +35,4 @@ pub const JAVA_HUD_PACK: [(&str, &str, &[u8]); 2] = [
         include_bytes!("../../../assets/java-hud/ui/scoreboards.json"),
     ),
 ];
+

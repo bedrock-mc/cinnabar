@@ -7,9 +7,9 @@ use protocol::{
     PlayerListUpdateEvent, PlayerSkin, PlayerSkinUnavailable, StandardSkin,
 };
 
-use super::{ActorApplyResult, ActorStore};
+use super::{ActorApplyResult, ActorStore, NAMETAG_METADATA_KEY};
 
-fn spawn(runtime_id: u64, unique_id: i64) -> ActorEvent {
+pub(super) fn spawn(runtime_id: u64, unique_id: i64) -> ActorEvent {
     ActorEvent::Spawn(ActorSpawnEvent {
         dimension: 0,
         unique_id,
@@ -73,6 +73,7 @@ fn network_move(runtime_id: u64, y: f32, teleported: bool) -> ActorEvent {
         teleported,
         player_mode: None,
         source_tick: None,
+        interpolation: Default::default(),
     })
 }
 
@@ -93,6 +94,7 @@ pub(super) fn player_move(runtime_id: u64, x: f32, teleported: bool) -> ActorEve
             protocol::MovePlayerMode::Normal
         }),
         source_tick: Some(10),
+        interpolation: Default::default(),
     })
 }
 
@@ -130,6 +132,34 @@ fn actor_display_names_use_player_username_and_entity_nametag_authority() {
 }
 
 #[test]
+fn synced_player_tag_overrides_username_without_renaming_scoreboard_identity() {
+    let mut store = ActorStore::new(1, 0);
+    store.apply(1, 1, player_spawn(7, 70, 0.0));
+    assert_eq!(store.actor_name_tag(70), Some(Arc::from("player-7")));
+    for (tick, tag) in [(2, "§aRank\nPlayer"), (3, "")] {
+        store.apply(
+            1,
+            tick,
+            ActorEvent::Metadata(ActorMetadataUpdateEvent {
+                dimension: 0,
+                runtime_id: 7,
+                metadata: Arc::from([ActorMetadata {
+                    key: NAMETAG_METADATA_KEY,
+                    value: ActorMetadataValue::String(tag.into()),
+                }]),
+                properties: Arc::from([]),
+                tick,
+            }),
+        );
+        assert_eq!(
+            store.actor_name_tag(70),
+            (!tag.is_empty()).then(|| Arc::from(tag))
+        );
+        assert_eq!(store.actor_display_name(70), Some(Arc::from("player-7")));
+    }
+}
+
+#[test]
 fn player_network_position_is_normalized_to_spawn_feet_space() {
     assert_eq!(PLAYER_NETWORK_OFFSET, 1.62001);
     let mut store = ActorStore::new(1, 0);
@@ -149,6 +179,7 @@ fn player_network_position_is_normalized_to_spawn_feet_space() {
             teleported: false,
             player_mode: None,
             source_tick: None,
+            interpolation: Default::default(),
         }),
     );
 
@@ -236,6 +267,7 @@ fn spawn_and_partial_positions_never_apply_network_offsets() {
             teleported: true,
             player_mode: None,
             source_tick: None,
+            interpolation: Default::default(),
         }),
     );
     assert_eq!(store.get(42).unwrap().position[1], 64.375);
@@ -244,7 +276,7 @@ fn spawn_and_partial_positions_never_apply_network_offsets() {
 #[test]
 fn absolute_network_positions_use_supported_entity_kind_offsets() {
     let cases = [
-        ("minecraft:item", 0.5),
+        ("minecraft:item", super::ITEM_ACTOR_NETWORK_OFFSET),
         ("minecraft:falling_block", 0.5),
         ("minecraft:minecart", 0.5),
         ("minecraft:chest_minecart", 0.5),
@@ -345,6 +377,7 @@ fn feet_origin_y_is_not_shifted_like_a_network_position() {
             teleported: true,
             player_mode: None,
             source_tick: None,
+            interpolation: Default::default(),
         }),
     );
 
@@ -370,6 +403,7 @@ fn non_player_network_position_is_unchanged_without_entity_offset_metadata() {
             teleported: true,
             player_mode: None,
             source_tick: None,
+            interpolation: Default::default(),
         }),
     );
 
@@ -395,6 +429,7 @@ fn player_network_teleport_snaps_to_feet_space() {
             teleported: true,
             player_mode: None,
             source_tick: None,
+            interpolation: Default::default(),
         }),
     );
 
@@ -506,6 +541,7 @@ fn actor_lifecycle_applies_fifo_patches_and_removes_by_unique_id() {
                 teleported: false,
                 player_mode: None,
                 source_tick: None,
+                interpolation: Default::default(),
             }),
         ),
         ActorApplyResult::Updated
@@ -599,6 +635,7 @@ fn consecutive_teleport_packets_retain_distinct_movement_revisions() {
             teleported: true,
             player_mode: None,
             source_tick: None,
+            interpolation: Default::default(),
         })
     };
 
@@ -1045,6 +1082,7 @@ fn remote_rotation_steps_the_short_way_across_the_wrap() {
             teleported: false,
             player_mode: None,
             source_tick: Some(sequence),
+            interpolation: Default::default(),
         })
     };
     store.apply(11, 2, turn(2, 170.0));
@@ -1128,7 +1166,7 @@ fn remote_move_player_rotation_and_reset_modes_follow_vanilla() {
     assert_eq!(reset.interpolation_ticks_remaining, 0);
 }
 
-/// Lens 1.26.50.26 0x1c0e520 samples 0.66 of the authoritative body height.
+/// 1.26.50.26 samples 0.66 of the authoritative body height.
 #[test]
 fn brightness_sample_uses_interpolated_feet_and_body_height() {
     for height in [0.25, 1.8, 3.6] {

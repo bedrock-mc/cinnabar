@@ -4,7 +4,7 @@ use bevy::{
     prelude::{Res, ResMut, Resource, Time},
     time::Real,
 };
-use client_world::{PublicationAllowance, PublicationServiceConfig};
+use chunk_pipeline::{PublicationAllowance, PublicationServiceConfig};
 use render::ChunkUploadBudget;
 
 const NANOS_PER_SECOND: u128 = 1_000_000_000;
@@ -142,6 +142,8 @@ impl PublicationController {
         self.diagnostics.frame_sequence = self.diagnostics.frame_sequence.saturating_add(1);
         self.diagnostics.observed_frame_time = elapsed;
         self.update_pressure_state();
+        // Frames without a world must not repeat the retired session's backlog.
+        self.diagnostics.last_work = PublicationFrameWork::default();
 
         let (items, item_remainder) = accrue_tokens(
             u128::from(self.item_rate_per_second),
@@ -241,13 +243,15 @@ impl PublicationController {
                 self.zero_byte_operations_per_frame = self
                     .zero_byte_operations_per_frame
                     .saturating_div(2)
-                    .max(MINIMUM_PRESSURE_OPERATIONS_PER_FRAME);
+                    .max(MINIMUM_PRESSURE_OPERATIONS_PER_FRAME)
+                    .min(self.config.maximum_zero_byte_operations_per_frame);
             }
             if self.item_operations_per_frame > 0 {
                 self.item_operations_per_frame = self
                     .item_operations_per_frame
                     .saturating_div(2)
-                    .max(MINIMUM_PRESSURE_OPERATIONS_PER_FRAME);
+                    .max(MINIMUM_PRESSURE_OPERATIONS_PER_FRAME)
+                    .min(self.config.maximum_frame_items);
             }
             if self.item_rate_per_second != previous_item_rate
                 || self.byte_rate_per_second != previous_byte_rate

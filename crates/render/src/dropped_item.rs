@@ -1,13 +1,19 @@
 //! Dropped-item scene data: extruded sprite meshes drawn as world-space instances.
 use bevy::{prelude::Resource, render::extract_resource::ExtractResource};
+use render_model::{DroppedItemBlock, DroppedItemCube, DroppedItemSprite};
 use std::sync::Arc;
 
+mod block;
 mod mesh;
+mod native;
 mod rope;
+pub(crate) use block::block_mesh;
 
 pub use mesh::{
-    ITEM_MESH_VERTEX_BYTES, ItemMeshVertex, OPAQUE_WHITE, cube_mesh, extruded_sprite_mesh,
+    ITEM_MESH_VERTEX_BYTES, ItemMeshVertex, cube_mesh, extruded_sprite_mesh,
+    native_dropped_sprite_mesh,
 };
+pub use native::{DroppedItemShape, DroppedItemSpawnPose, native_dropped_item_transform};
 pub use rope::{rope_color, rope_point, rope_ribbon};
 
 /// Side length of every layer on the GPU; larger textures are rejected.
@@ -19,28 +25,15 @@ pub const MAX_DYNAMIC_ITEM_VERTICES: usize = 65_536;
 /// Layer 0 is always opaque white so untextured dynamic geometry (lines) can use it.
 pub const WHITE_LAYER: u32 = 0;
 
-/// One item texture; identical sprites share a layer through their index.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct DroppedItemSprite {
-    pub width: u32,
-    pub height: u32,
-    pub rgba8: Arc<[u8]>,
-}
-
-/// A block as a unit cube: six square RGBA8 tiles in `West, East, Down, Up, North, South` order,
-/// each multiplied by a packed RGBA8 tint.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct DroppedItemCube {
-    pub tile: u32,
-    pub faces: [Arc<[u8]>; 6],
-    pub tints: [u32; 6],
-}
-
 /// Geometry an instance can reference.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum DroppedItemModel {
+    /// Legacy centered slab used by static placements, not native item actors.
     Sprite(DroppedItemSprite),
+    /// Vanilla tessellated sprite frame after the ordinary dropped-item default transform.
+    NativeSprite(DroppedItemSprite),
     Cube(DroppedItemCube),
+    Block(DroppedItemBlock),
 }
 
 /// One drawn copy of a model: `world_from_item` maps the unit model into the world.
@@ -54,12 +47,29 @@ pub struct DroppedItemInstance {
     pub overlay_rgba8: u32,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TerrainItemTransition {
+    pub key: world::SubChunkKey,
+    pub generation: u64,
+    pub visible: bool,
+}
+
+/// A candidate whose visibility follows its ordered terrain publications.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TerrainItemInstance {
+    pub instance: DroppedItemInstance,
+    pub visible: bool,
+    pub transitions: Arc<[TerrainItemTransition]>,
+}
+
 /// The frame's dropped items. `models_revision` must change whenever `models` changes.
 #[derive(Clone, Debug, Default, Resource, ExtractResource)]
 pub struct DroppedItemScene {
     pub(crate) models_revision: u64,
     pub(crate) models: Arc<[DroppedItemModel]>,
     pub(crate) instances: Arc<[DroppedItemInstance]>,
+    pub(crate) terrain_session_id: Option<u64>,
+    pub(crate) terrain_instances: Arc<[TerrainItemInstance]>,
     /// World-space geometry drawn as-is this frame (fishing line, leads).
     pub(crate) dynamic: Arc<[ItemMeshVertex]>,
     pub(crate) daylight: f32,
@@ -94,6 +104,19 @@ impl DroppedItemScene {
     pub fn clear(&mut self) {
         self.instances = Arc::from([]);
         self.dynamic = Arc::from([]);
+        self.terrain_instances = Arc::from([]);
+        self.terrain_session_id = None;
+    }
+
+    /// Retains bounded candidates separately; transition lists come from bounded world admission.
+    pub fn publish_terrain_instances(
+        &mut self,
+        session_id: u64,
+        instances: &[TerrainItemInstance],
+    ) {
+        self.terrain_session_id = Some(session_id);
+        let count = instances.len().min(MAX_DROPPED_ITEM_INSTANCES);
+        self.terrain_instances = Arc::from(&instances[..count]);
     }
 
     #[must_use]
@@ -116,6 +139,7 @@ pub fn dropped_item_transform(center: [f32; 3], yaw_radians: f32, scale: f32) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+    use render_model::OPAQUE_WHITE;
 
     #[test]
     fn publish_caps_instances_and_keeps_models_until_the_revision_changes() {

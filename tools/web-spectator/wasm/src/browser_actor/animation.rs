@@ -1,14 +1,15 @@
 //! Stream observations feed the same compiled fixed-tick Molang animator as native actors.
 use std::{collections::HashMap, sync::Arc};
 
-use actor_animation::{
+use client_world::{
     ACTOR_SWING_TICKS, ACTOR_TICK_DURATION, ActorAnimationStore, ActorRigSnapshot,
-    ActorTickContext, AnimationActor, WornArmor,
+    ActorTickContext, WornArmor,
 };
 use assets::{RuntimeEntityAssets, RuntimeEquipmentCatalog};
 use bevy::platform::time::Instant;
-use render::{EntityRigId, RenderBoneTransform};
-use render_data::{ActorKind, ActorMetadataValue, ActorStatus, HandPhase, SkinGeometrySource};
+use render_model::{EntityRigId, RenderBoneTransform};
+use client_world::{ActorPose, ActorSnapshot, HandPhase};
+use protocol::{ActorAttribute, ActorKind, ActorMetadataValue, ActorSpawnEvent, NetworkItemStack, SkinGeometrySource};
 
 use super::super::browser_model::{Fighter, Frame};
 use super::{hash_id, parse_rgb};
@@ -19,7 +20,8 @@ type ConvertedPose = (Arc<[RenderBoneTransform]>, Arc<[RenderBoneTransform]>);
 
 pub(super) struct NativeAnimator {
     store: ActorAnimationStore,
-    actors: HashMap<u64, Observation>,
+    actors: HashMap<u64, ActorSnapshot>,
+    observations: HashMap<u64, Observation>,
     session: u64,
     last_tick: Instant,
     poses: PoseCache<ConvertedPose>,
@@ -38,16 +40,6 @@ pub(super) struct AnimatedPose {
 }
 
 struct Observation {
-    fighter: Fighter,
-    kind: ActorKind,
-    runtime_id: u64,
-    position: [f32; 3],
-    previous_position: [f32; 3],
-    velocity: [f32; 3],
-    metadata: HashMap<u32, ActorMetadataValue>,
-    int_properties: HashMap<u32, i32>,
-    float_properties: HashMap<u32, f32>,
-    status: ActorStatus,
     skin: Option<Arc<SkinGeometrySource>>,
     swing: Option<String>,
     hurt: Option<String>,
@@ -58,6 +50,7 @@ impl NativeAnimator {
         Self {
             store: ActorAnimationStore::with_assets(entities),
             actors: HashMap::new(),
+            observations: HashMap::new(),
             session: 0,
             last_tick: Instant::now() - ACTOR_TICK_DURATION,
             poses: PoseCache::default(),
@@ -80,6 +73,7 @@ impl NativeAnimator {
         if self.session != session {
             self.store.clear();
             self.actors.clear();
+            self.observations.clear();
             self.poses.clear();
             self.session = session;
             self.last_tick = clock - ACTOR_TICK_DURATION;
@@ -97,6 +91,7 @@ impl NativeAnimator {
             .collect::<Vec<_>>();
         for id in removed {
             self.actors.remove(&id);
+            self.observations.remove(&id);
             self.store.remove_runtime(id);
             self.poses.invalidate(id);
         }
@@ -125,40 +120,58 @@ impl NativeAnimator {
                     * ACTOR_TICK_DURATION.as_secs_f32()
             });
             let fresh = !self.actors.contains_key(&runtime_id);
-            let actor = self
-                .actors
-                .entry(runtime_id)
-                .or_insert_with(|| Observation {
-                    fighter: fighter.clone(),
-                    kind: ActorKind::Player {
-                        uuid: [0; 16],
-                        username: fighter.name.as_str().into(),
+            let actor = self.actors.entry(runtime_id).or_insert_with(|| {
+                ActorSnapshot::from_observation(
+                    ActorSpawnEvent {
+                        dimension: 0,
+                        unique_id: runtime_id as i64,
+                        runtime_id,
+                        kind: ActorKind::Player {
+                            uuid: [0; 16],
+                            username: fighter.name.as_str().into(),
+                        },
+                        position,
+                        velocity,
+                        pitch: fighter.pitch,
+                        yaw: fighter.yaw,
+                        head_yaw: fighter.yaw,
+                        body_yaw: fighter.yaw,
+                        held_item: NetworkItemStack::empty(),
+                        metadata: Arc::from([]),
+                        attributes: Arc::from([health_attribute(fighter)]),
+                        properties: Arc::from([]),
+                        links: Arc::from([]),
                     },
-                    runtime_id,
-                    position,
-                    previous_position: position,
-                    velocity,
-                    metadata: HashMap::new(),
-                    int_properties: HashMap::new(),
-                    float_properties: HashMap::new(),
-                    status: ActorStatus::default(),
-                    skin: None,
-                    swing: None,
-                    hurt: None,
-                });
-            actor.fighter.clone_from(fighter);
+                    1,
+                )
+            });
+            let observation = self.observations.entry(runtime_id).or_insert_with(|| Observation {
+                skin: None,
+                swing: None,
+                hurt: None,
+            });
             actor.kind = ActorKind::Player {
                 uuid: [0; 16],
                 username: fighter.name.as_str().into(),
             };
             actor.position = position;
-            actor.velocity = velocity;
-            actor.skin = skin(&fighter.id);
+            actor.observe_velocity(velocity);
+            actor.pitch = fighter.pitch;
+            actor.yaw = fighter.yaw;
+            actor.head_yaw = fighter.yaw;
+            actor.body_yaw = fighter.yaw;
+            actor.on_ground = Some(fighter.on_ground);
+            actor.movement_revision = actor.movement_revision.wrapping_add(1).max(1);
+            if let Some(health) = actor.attributes.get_mut("minecraft:health") {
+                health.current = fighter.health;
+                health.max = fighter.max_health;
+            }
+            observation.skin = skin(&fighter.id);
             let flags = [
-                (render_data::ACTOR_FLAG_SNEAKING, fighter.sneaking),
-                (render_data::ACTOR_FLAG_SPRINTING, fighter.sprinting),
-                (render_data::ACTOR_FLAG_USING_ITEM, fighter.using_item),
-                (render_data::ACTOR_FLAG_SWIMMING, fighter.swimming),
+                (client_world::ACTOR_FLAG_SNEAKING, fighter.sneaking),
+                (client_world::ACTOR_FLAG_SPRINTING, fighter.sprinting),
+                (client_world::ACTOR_FLAG_USING_ITEM, fighter.using_item),
+                (client_world::ACTOR_FLAG_SWIMMING, fighter.swimming),
             ]
             .into_iter()
             .fold(0_u64, |flags, (bit, set)| {
@@ -177,8 +190,8 @@ impl NativeAnimator {
             if fresh {
                 self.store.insert(session, 0, actor);
             }
-            if actor.swing != fighter.swing_at {
-                actor.swing.clone_from(&fighter.swing_at);
+            if observation.swing != fighter.swing_at {
+                observation.swing.clone_from(&fighter.swing_at);
                 if recent(
                     fighter.swing_at.as_deref(),
                     now,
@@ -187,14 +200,14 @@ impl NativeAnimator {
                     self.store.start_swing(runtime_id, ACTOR_SWING_TICKS);
                 }
             }
-            if actor.hurt != fighter.hurt_at {
-                actor.hurt.clone_from(&fighter.hurt_at);
+            if observation.hurt != fighter.hurt_at {
+                observation.hurt.clone_from(&fighter.hurt_at);
                 if recent(
                     fighter.hurt_at.as_deref(),
                     now,
-                    f64::from(render_data::HURT_DURATION_TICKS) * tick_millis,
+                    f64::from(client_world::HURT_DURATION_TICKS) * tick_millis,
                 ) {
-                    actor.status.hurt_time = render_data::HURT_DURATION_TICKS;
+                    actor.status.hurt_time = client_world::HURT_DURATION_TICKS;
                     actor.status.skip_red_flash = false;
                 }
             }
@@ -202,6 +215,14 @@ impl NativeAnimator {
                 self.last_tick = self.last_tick.min(clock - ACTOR_TICK_DURATION);
             }
         }
+        self.store.begin_skin_preparation();
+        for observation in self.observations.values() {
+            if let Some(source) = &observation.skin {
+                self.store.request_skin_preparation(source);
+            }
+        }
+        self.store.submit_skin_preparation();
+        self.store.begin_skin_preparation();
         let elapsed = clock.duration_since(self.last_tick).as_secs_f64() * 1000.0;
         let steps = (elapsed / tick_millis).floor().min(5.0) as u32;
         if elapsed > tick_millis * 5.0 {
@@ -210,6 +231,7 @@ impl NativeAnimator {
                 self.store.mark_reset(*runtime_id);
             }
         }
+        let observations = &self.observations;
         for step in 0..steps {
             self.last_tick += ACTOR_TICK_DURATION;
             self.store.advance_tick(
@@ -219,7 +241,9 @@ impl NativeAnimator {
                 step + 1 == steps,
                 step == 0,
                 |actor| {
-                    let fighter = &actor.fighter;
+                    let Some(fighter) = frame.fighters.iter().find(|fighter| hash_id(&fighter.id) == actor.runtime_id) else {
+                        return ActorTickContext::default();
+                    };
                     let equipment_items = fighter.equipment.as_ref();
                     let main = equipment_items
                         .and_then(|items| items.main_hand.as_ref())
@@ -234,30 +258,36 @@ impl NativeAnimator {
                         .unwrap_or(0);
                     let mut camera_position = actor.position;
                     camera_position[1] += fighter.pov.as_ref().map_or(0.0, |pov| pov.eye_height);
-                    ActorTickContext {
-                        animation_elapsed_ticks: Some(steps),
-                        main_hand: main.map(|item| item.name.as_str().into()),
-                        off_hand: off.map(|item| item.name.as_str().into()),
-                        main_hand_max_use_ticks: main_use,
-                        is_local_first_person: hidden_player == Some(fighter.id.as_str()),
-                        camera_rotation: [fighter.pitch, fighter.yaw],
-                        camera_position,
-                        armor: std::array::from_fn(|slot| {
-                            equipment_items
-                                .and_then(|items| items.armour.get(slot))
-                                .and_then(Option::as_ref)
-                                .map(|item| WornArmor {
-                                    item: item.name.as_str().into(),
-                                    dye_rgb: item.color.as_deref().and_then(parse_rgb),
-                                })
-                        }),
-                        skin_geometry: actor.skin.clone(),
-                        ..ActorTickContext::default()
-                    }
+                    let mut context = ActorTickContext::default();
+                    context.animation_elapsed_ticks = Some(steps);
+                    context.main_hand = main.map(|item| item.name.as_str().into());
+                    context.off_hand = off.map(|item| item.name.as_str().into());
+                    context.main_hand_max_use_ticks = main_use;
+                    context.main_hand_metadata = main.map_or(0, |item| item.meta.max(0) as u32);
+                    context.main_hand_slot = fighter.pov.as_ref().map_or(0, |pov| pov.selected_slot as u8);
+                    context.is_local_first_person = hidden_player == Some(fighter.id.as_str());
+                    context.camera_rotation = [fighter.pitch, fighter.yaw];
+                    context.camera_position = camera_position;
+                    context.armor = std::array::from_fn(|slot| {
+                        equipment_items
+                            .and_then(|items| items.armour.get(slot))
+                            .and_then(Option::as_ref)
+                            .map(|item| WornArmor {
+                                item: item.name.as_str().into(),
+                                dye_rgb: item.color.as_deref().and_then(parse_rgb),
+                            })
+                    });
+                    context.skin_geometry = observations.get(&actor.runtime_id).and_then(|observation| observation.skin.clone());
+                    context
                 },
             );
             for actor in self.actors.values_mut() {
-                actor.previous_position = actor.position;
+                actor.previous_pose = ActorPose {
+                    position: actor.position,
+                    pitch: actor.pitch,
+                    yaw: actor.yaw,
+                    head_yaw: actor.head_yaw,
+                };
                 actor.status.tick();
             }
         }
@@ -299,7 +329,7 @@ impl NativeAnimator {
             },
         )?;
         let overlay = if actor.status.overlay_active() {
-            render::pack_overlay_rgba8(render::HURT_OVERLAY_RGBA)
+            render::pack_overlay_rgba8(view_presentation::equipment_display::hurt_overlay_rgba(client_world::HURT_OVERLAY_ALPHA))
         } else {
             0
         };
@@ -319,7 +349,7 @@ impl NativeAnimator {
 
 fn convert_pose(
     pose: &ActorRigSnapshot<'_>,
-    bones: &[actor_animation::BoneTransform],
+    bones: &[client_world::BoneTransform],
     names: &[Box<str>],
 ) -> Option<Arc<[RenderBoneTransform]>> {
     names
@@ -342,11 +372,11 @@ fn convert_pose(
 
 pub(super) fn use_ticks(equipment: &RuntimeEquipmentCatalog, identifier: &str) -> Option<u32> {
     let pack = equipment.item_use_ticks(identifier).or_else(|| {
-        render_data::item_use::pack_identifier(identifier)
+        gameplay::item_use::classify::pack_identifier(identifier)
             .and_then(|alias| equipment.item_use_ticks(alias))
     });
-    match render_data::item_use::classify(identifier, false, 0, pack)? {
-        render_data::item_use::AirUse::Hold { max_ticks, .. } => Some(max_ticks),
+    match gameplay::item_use::classify(identifier, false, 0, pack)? {
+        gameplay::item_use::AirUse::Hold { max_ticks, .. } => Some(max_ticks),
         _ => None,
     }
 }
@@ -356,56 +386,13 @@ fn recent(stamp: Option<&str>, now: f64, duration: f64) -> bool {
         .is_some_and(|stamp| stamp.is_finite() && now - stamp >= -1000.0 && now - stamp <= duration)
 }
 
-impl AnimationActor for Observation {
-    fn runtime_id(&self) -> u64 {
-        self.runtime_id
-    }
-    fn spawn_revision(&self) -> u64 {
-        1
-    }
-    fn kind(&self) -> &ActorKind {
-        &self.kind
-    }
-    fn position(&self) -> [f32; 3] {
-        self.position
-    }
-    fn previous_position(&self) -> [f32; 3] {
-        self.previous_position
-    }
-    fn velocity(&self) -> [f32; 3] {
-        self.velocity
-    }
-    fn pitch(&self) -> f32 {
-        self.fighter.pitch
-    }
-    fn yaw(&self) -> f32 {
-        self.fighter.yaw
-    }
-    fn head_yaw(&self) -> f32 {
-        self.fighter.yaw
-    }
-    fn body_yaw(&self) -> f32 {
-        self.fighter.yaw
-    }
-    fn on_ground(&self) -> Option<bool> {
-        Some(self.fighter.on_ground)
-    }
-    fn metadata(&self) -> &HashMap<u32, ActorMetadataValue> {
-        &self.metadata
-    }
-    fn int_properties(&self) -> &HashMap<u32, i32> {
-        &self.int_properties
-    }
-    fn float_properties(&self) -> &HashMap<u32, f32> {
-        &self.float_properties
-    }
-    fn status(&self) -> &ActorStatus {
-        &self.status
-    }
-    fn health(&self) -> Option<f32> {
-        Some(self.fighter.health)
-    }
-    fn max_health(&self) -> Option<f32> {
-        Some(self.fighter.max_health)
+fn health_attribute(fighter: &Fighter) -> ActorAttribute {
+    ActorAttribute {
+        name: "minecraft:health".into(),
+        min: 0.0,
+        max: fighter.max_health,
+        current: fighter.health,
+        default: None,
+        modifiers: Arc::from([]),
     }
 }

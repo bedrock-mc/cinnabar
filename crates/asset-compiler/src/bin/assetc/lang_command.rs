@@ -3,13 +3,13 @@
 
 use std::{fs, path::Path};
 
-use asset_compiler::{compile_lang_assets, compile_language, vanilla_language_codes};
 use assets::AssetError;
+use pack_compiler::{compile_lang_assets, compile_language, vanilla_language_codes};
 use serde::Serialize;
 
 use super::{
     MAX_SOURCE_MANIFEST_BYTES, hex, read_bounded_with_limit, validate_output_bundle,
-    write_blob_atomic,
+    write_blob_atomic, write_output_bundle,
 };
 
 #[derive(Serialize)]
@@ -71,8 +71,7 @@ pub(super) fn compile_lang_assets_command(
     let mut report_bytes = serde_json::to_vec_pretty(&report_data)?;
     report_bytes.push(b'\n');
     validate_output_bundle(out, report)?;
-    write_blob_atomic(out, &compiled.bytes)?;
-    write_blob_atomic(report, &report_bytes)?;
+    write_output_bundle(&[(out, &compiled.bytes), (report, &report_bytes)])?;
     println!(
         "compiled {} pinned official Mojang sample language entries to {} and {}",
         report_data.counts.entries,
@@ -89,6 +88,8 @@ pub(super) fn compile_languages_command(
     source_manifest: &Path,
     dir: &Path,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let stamp = dir.join(".compiled");
+    validate_output_bundle(&stamp, source_manifest)?;
     let manifest_bytes = read_bounded_with_limit(
         source_manifest,
         MAX_SOURCE_MANIFEST_BYTES,
@@ -100,11 +101,13 @@ pub(super) fn compile_languages_command(
         if !pack.join(format!("texts/{code}.lang")).is_file() {
             continue;
         }
+        let out = dir.join(format!("{code}.mcbelang"));
+        validate_output_bundle(&out, source_manifest)?;
         let compiled = compile_language(pack, &code, &manifest_bytes)?;
-        write_blob_atomic(&dir.join(format!("{code}.mcbelang")), &compiled.bytes)?;
+        write_blob_atomic(&out, &compiled.bytes)?;
         written += 1;
     }
-    write_blob_atomic(&dir.join(".compiled"), format!("{written}\n").as_bytes())?;
+    write_blob_atomic(&stamp, format!("{written}\n").as_bytes())?;
     println!(
         "compiled {written} optional language carriers to {}",
         dir.display()

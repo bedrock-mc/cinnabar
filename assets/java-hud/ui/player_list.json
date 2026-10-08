@@ -1,0 +1,47 @@
+// Cinnabar's Java-style roster overlay. Names fill down columns, at most 20 rows.
+{
+  "namespace": "cinnabar_tab",
+  "screen": {
+    "type": "panel", "size": ["100%", "100%"],
+    "controls": [{"list": {
+      "type": "panel", "size": ["$panel_width", "$panel_height"],
+      "anchor_from": "top_middle", "anchor_to": "top_middle", "offset": [0, 10],
+      "controls": [
+        {"background": {
+          "type": "image", "texture": "textures/ui/Black", "alpha": 0.5,
+          "size": ["100%", "100%"]
+        }},
+        {"title": {
+          "type": "label", "size": ["100% - 4px", "$row_height"], "offset": [0, 2],
+          "anchor_from": "top_middle", "anchor_to": "top_middle",
+          "text": "#online_title", "text_alignment": "center", "localize": false,
+          "color": [1, 1, 1], "shadow": true, "layer": 1,
+          "bindings": [{"binding_name": "#online_title"}]
+        }},
+        {"players": {
+          "type": "grid", "size": ["100%c", "100%c"],
+          "anchor_from": "top_middle", "anchor_to": "top_middle", "offset": [0, "$grid_top"],
+          "grid_dimension_binding": "#players_dimensions", "grid_item_template": "cinnabar_tab.row",
+          "collection_name": "online_players", "layer": 1,
+          "bindings": [{"binding_name": "#players_dimensions"}]
+        }}
+      ]
+    }}]
+  },
+  "row": {
+    "type": "panel", "size": ["$cell_width", "$row_height"],
+    "controls": [
+      {"background": {
+        "type": "image", "texture": "textures/ui/Black", "alpha": 0.25,
+        "size": ["100% - 5px", "$row_background_height"], "anchor_from": "top_left", "anchor_to": "top_left"
+      }},
+      {"name": {
+        "type": "label", "size": ["100% - 8px", "$row_height"], "offset": [2, 0],
+        "anchor_from": "top_left", "anchor_to": "top_left", "layer": 1,
+        "text": "#player_name", "localize": false, "color": [1, 1, 1], "shadow": true,
+        "bindings": [{"binding_name": "#player_name", "binding_type": "collection", "binding_collection_name": "online_players"}]
+      }}
+    ],
+    "bindings": [{"binding_name": "#row_visible", "binding_type": "collection", "binding_collection_name": "online_players", "binding_name_override": "#visible"}]
+  }
+}

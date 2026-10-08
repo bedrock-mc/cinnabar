@@ -24,6 +24,12 @@ pub const MAX_UI_ATLAS_SIDE: u32 = 4096;
 pub const MAX_UI_TEXTURES: usize = 8192;
 pub const MAX_UI_SIDECARS: usize = 8192;
 pub const MAX_UI_FILES: usize = 4096;
+/// Package data the credits renderer loads alongside the JSON-UI definitions.
+pub const UI_CREDITS_FILES: [&str; 3] = [
+    "credits/end.txt",
+    "credits/credits.json",
+    "credits/quote.txt",
+];
 /// Bound on a texture placement or sidecar or ui-file logical key.
 pub const MAX_UI_KEY_BYTES: usize = 512;
 /// Bound on one stored raw ui-json file.
@@ -446,9 +452,27 @@ pub fn encode_ui_catalog(
         {
             return Err(invalid("ui atlas page dimensions or pixels exceed bounds"));
         }
-        payload.extend_from_slice(&(page.width as u16).to_le_bytes());
-        payload.extend_from_slice(&(page.height as u16).to_le_bytes());
-        payload.extend_from_slice(&page.rgba8);
+        crate::encoding::append_bounded(
+            &mut payload,
+            &(page.width as u16).to_le_bytes(),
+            MAX_UI_CARRIER_BYTES,
+            HEADER_BYTES + HASH_BYTES,
+        )
+        .ok_or_else(|| invalid("ui carrier exceeds bound"))?;
+        crate::encoding::append_bounded(
+            &mut payload,
+            &(page.height as u16).to_le_bytes(),
+            MAX_UI_CARRIER_BYTES,
+            HEADER_BYTES + HASH_BYTES,
+        )
+        .ok_or_else(|| invalid("ui carrier exceeds bound"))?;
+        crate::encoding::append_bounded(
+            &mut payload,
+            &page.rgba8,
+            MAX_UI_CARRIER_BYTES,
+            HEADER_BYTES + HASH_BYTES,
+        )
+        .ok_or_else(|| invalid("ui carrier exceeds bound"))?;
     }
 
     let mut previous: Option<&str> = None;
@@ -467,11 +491,41 @@ pub fn encode_ui_catalog(
         if previous.is_some_and(|previous| previous >= placement.path.as_ref()) {
             return Err(invalid("ui texture placements are not strictly sorted"));
         }
-        payload.extend_from_slice(&placement.page.to_le_bytes());
-        payload.extend_from_slice(&placement.x.to_le_bytes());
-        payload.extend_from_slice(&placement.y.to_le_bytes());
-        payload.extend_from_slice(&placement.width.to_le_bytes());
-        payload.extend_from_slice(&placement.height.to_le_bytes());
+        crate::encoding::append_bounded(
+            &mut payload,
+            &placement.page.to_le_bytes(),
+            MAX_UI_CARRIER_BYTES,
+            HEADER_BYTES + HASH_BYTES,
+        )
+        .ok_or_else(|| invalid("ui carrier exceeds bound"))?;
+        crate::encoding::append_bounded(
+            &mut payload,
+            &placement.x.to_le_bytes(),
+            MAX_UI_CARRIER_BYTES,
+            HEADER_BYTES + HASH_BYTES,
+        )
+        .ok_or_else(|| invalid("ui carrier exceeds bound"))?;
+        crate::encoding::append_bounded(
+            &mut payload,
+            &placement.y.to_le_bytes(),
+            MAX_UI_CARRIER_BYTES,
+            HEADER_BYTES + HASH_BYTES,
+        )
+        .ok_or_else(|| invalid("ui carrier exceeds bound"))?;
+        crate::encoding::append_bounded(
+            &mut payload,
+            &placement.width.to_le_bytes(),
+            MAX_UI_CARRIER_BYTES,
+            HEADER_BYTES + HASH_BYTES,
+        )
+        .ok_or_else(|| invalid("ui carrier exceeds bound"))?;
+        crate::encoding::append_bounded(
+            &mut payload,
+            &placement.height.to_le_bytes(),
+            MAX_UI_CARRIER_BYTES,
+            HEADER_BYTES + HASH_BYTES,
+        )
+        .ok_or_else(|| invalid("ui carrier exceeds bound"))?;
         previous = Some(&placement.path);
     }
 
@@ -484,16 +538,52 @@ pub fn encode_ui_catalog(
         if previous.is_some_and(|previous| previous >= path.as_ref()) {
             return Err(invalid("ui sidecars are not strictly sorted"));
         }
-        payload.extend_from_slice(&meta.base_size[0].to_le_bytes());
-        payload.extend_from_slice(&meta.base_size[1].to_le_bytes());
+        crate::encoding::append_bounded(
+            &mut payload,
+            &meta.base_size[0].to_le_bytes(),
+            MAX_UI_CARRIER_BYTES,
+            HEADER_BYTES + HASH_BYTES,
+        )
+        .ok_or_else(|| invalid("ui carrier exceeds bound"))?;
+        crate::encoding::append_bounded(
+            &mut payload,
+            &meta.base_size[1].to_le_bytes(),
+            MAX_UI_CARRIER_BYTES,
+            HEADER_BYTES + HASH_BYTES,
+        )
+        .ok_or_else(|| invalid("ui carrier exceeds bound"))?;
         match meta.nineslice {
             None => payload.push(0),
             Some(slice) => {
                 payload.push(NINE_SLICE_PRESENT);
-                payload.extend_from_slice(&slice.left.to_le_bytes());
-                payload.extend_from_slice(&slice.top.to_le_bytes());
-                payload.extend_from_slice(&slice.right.to_le_bytes());
-                payload.extend_from_slice(&slice.bottom.to_le_bytes());
+                crate::encoding::append_bounded(
+                    &mut payload,
+                    &slice.left.to_le_bytes(),
+                    MAX_UI_CARRIER_BYTES,
+                    HEADER_BYTES + HASH_BYTES,
+                )
+                .ok_or_else(|| invalid("ui carrier exceeds bound"))?;
+                crate::encoding::append_bounded(
+                    &mut payload,
+                    &slice.top.to_le_bytes(),
+                    MAX_UI_CARRIER_BYTES,
+                    HEADER_BYTES + HASH_BYTES,
+                )
+                .ok_or_else(|| invalid("ui carrier exceeds bound"))?;
+                crate::encoding::append_bounded(
+                    &mut payload,
+                    &slice.right.to_le_bytes(),
+                    MAX_UI_CARRIER_BYTES,
+                    HEADER_BYTES + HASH_BYTES,
+                )
+                .ok_or_else(|| invalid("ui carrier exceeds bound"))?;
+                crate::encoding::append_bounded(
+                    &mut payload,
+                    &slice.bottom.to_le_bytes(),
+                    MAX_UI_CARRIER_BYTES,
+                    HEADER_BYTES + HASH_BYTES,
+                )
+                .ok_or_else(|| invalid("ui carrier exceeds bound"))?;
             }
         }
         previous = Some(path);
@@ -508,8 +598,20 @@ pub fn encode_ui_catalog(
         if previous.is_some_and(|previous| previous >= file.path.as_ref()) {
             return Err(invalid("ui files are not strictly sorted"));
         }
-        payload.extend_from_slice(&(file.bytes.len() as u32).to_le_bytes());
-        payload.extend_from_slice(&file.bytes);
+        crate::encoding::append_bounded(
+            &mut payload,
+            &(file.bytes.len() as u32).to_le_bytes(),
+            MAX_UI_CARRIER_BYTES,
+            HEADER_BYTES + HASH_BYTES,
+        )
+        .ok_or_else(|| invalid("ui carrier exceeds bound"))?;
+        crate::encoding::append_bounded(
+            &mut payload,
+            &file.bytes,
+            MAX_UI_CARRIER_BYTES,
+            HEADER_BYTES + HASH_BYTES,
+        )
+        .ok_or_else(|| invalid("ui carrier exceeds bound"))?;
         previous = Some(&file.path);
     }
 
@@ -562,8 +664,20 @@ fn write_key(payload: &mut Vec<u8>, key: &str) -> Result<(), AssetError> {
     if key.is_empty() || key.len() > MAX_UI_KEY_BYTES {
         return Err(invalid("ui carrier key length is out of bounds"));
     }
-    payload.extend_from_slice(&(key.len() as u16).to_le_bytes());
-    payload.extend_from_slice(key.as_bytes());
+    crate::encoding::append_bounded(
+        payload,
+        &(key.len() as u16).to_le_bytes(),
+        MAX_UI_CARRIER_BYTES,
+        HEADER_BYTES + HASH_BYTES,
+    )
+    .ok_or_else(|| invalid("ui carrier exceeds bound"))?;
+    crate::encoding::append_bounded(
+        payload,
+        key.as_bytes(),
+        MAX_UI_CARRIER_BYTES,
+        HEADER_BYTES + HASH_BYTES,
+    )
+    .ok_or_else(|| invalid("ui carrier exceeds bound"))?;
     Ok(())
 }
 

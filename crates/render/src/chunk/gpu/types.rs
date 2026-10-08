@@ -12,6 +12,7 @@ pub(in crate::chunk) struct GpuChunkAllocation {
     pub(in crate::chunk) generation: u64,
     pub(in crate::chunk) tint_identity: ChunkBiomeTintIdentity,
     pub(in crate::chunk) quad_range: Range<u32>,
+    pub(in crate::chunk) cube_layout: CubeQuadLayout, // validated against the GPU material table
     pub(in crate::chunk) cube_lighting_range: Option<Range<u32>>,
     pub(in crate::chunk) model_range: Option<Range<u32>>,
     pub(in crate::chunk) model_lighting_range: Option<Range<u32>>,
@@ -133,19 +134,23 @@ pub(in crate::chunk) enum ChunkDrawMode {
 pub(in crate::chunk) fn select_chunk_draw_mode(
     downlevel_flags: DownlevelFlags,
     features: WgpuFeatures,
-    is_dx12: bool,
+    backend: Backends,
     debug_assertions: bool,
 ) -> ChunkDrawMode {
     if !downlevel_flags.contains(DownlevelFlags::BASE_VERTEX) {
         ChunkDrawMode::Unsupported
     } else if downlevel_flags.contains(DownlevelFlags::INDIRECT_EXECUTION)
         && features.contains(WgpuFeatures::INDIRECT_FIRST_INSTANCE)
+        // Metal firmware lockups attributed to this client also stall
+        // WindowServer. Keep the equivalent CPU-validated direct draws on
+        // Metal until indirect submission has passed a native stability gate.
+        && !backend.contains(Backends::METAL)
         // wgpu 27's DX12 indirect validator expands each indexed command
         // from 20 to 32 bytes for special constants, but its debug batching
         // assertion still assumes the unexpanded stride. Preserve MDI in
         // release builds and use the equivalent direct path while that
         // validator is active.
-        && !(debug_assertions && is_dx12)
+        && !(debug_assertions && backend.contains(Backends::DX12))
     {
         ChunkDrawMode::MultiDrawIndirect
     } else {
@@ -162,7 +167,7 @@ pub(in crate::chunk) const fn diagnostic_draw_mode(draw_mode: ChunkDrawMode) -> 
 }
 
 pub(in crate::chunk) fn opaque_allocation_is_drawable(allocation: &GpuChunkAllocation) -> bool {
-    indexed_indirect_command(allocation).is_some()
+    cube_stream_drawable(allocation)
         || model_direct_draw_command(allocation).is_some()
         || depth_liquid_direct_draw_command(allocation).is_some()
 }
@@ -208,6 +213,11 @@ pub(in crate::chunk) fn resolve_surface_present_mode(
         bevy::window::PresentMode::Immediate => {
             &[wgpu::PresentMode::Immediate, wgpu::PresentMode::Fifo]
         }
+        bevy::window::PresentMode::AutoNoVsync => &[
+            wgpu::PresentMode::Immediate,
+            wgpu::PresentMode::Mailbox,
+            wgpu::PresentMode::Fifo,
+        ],
         _ => return None,
     };
     fallbacks
@@ -222,6 +232,7 @@ pub(in crate::chunk) fn window_present_mode_name(
     match mode {
         bevy::window::PresentMode::Fifo => Some("Fifo"),
         bevy::window::PresentMode::Immediate => Some("Immediate"),
+        bevy::window::PresentMode::AutoNoVsync => Some("AutoNoVsync"),
         _ => None,
     }
 }
@@ -230,11 +241,12 @@ pub(in crate::chunk) fn surface_present_mode_name(mode: wgpu::PresentMode) -> Op
     match mode {
         wgpu::PresentMode::Fifo => Some("Fifo"),
         wgpu::PresentMode::Immediate => Some("Immediate"),
+        wgpu::PresentMode::Mailbox => Some("Mailbox"),
         _ => None,
     }
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[derive(Resource, Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub(in crate::chunk) enum GraphicsMetadataPublicationState {
     #[default]
     Pending,
@@ -292,6 +304,29 @@ fn metadata_requires_automatic_immediate(
     })
 }
 
+/// The native probe is eligible only until the requested diagnostic metadata is published.
+#[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(in crate::chunk) struct GraphicsMetadataPublication;
+
+/// Keeps native surface probing ordered after extraction and before surface configuration.
+pub(in crate::chunk) fn configure_graphics_metadata_publication(schedule: &mut Schedule) {
+    schedule.configure_sets(
+        GraphicsMetadataPublication
+            .run_if(graphics_metadata_pending)
+            .after(RenderSystems::ExtractCommands)
+            .after(crate::present_mode::PresentModePolicySet)
+            .before(bevy::render::view::window::create_surfaces),
+    );
+}
+
+/// Rejects idle native work before the executor can queue it on the main thread.
+fn graphics_metadata_pending(
+    input: Res<VisibilityDiagnosticsInput>,
+    publication: Res<GraphicsMetadataPublicationState>,
+) -> bool {
+    input.enabled() && *publication != GraphicsMetadataPublicationState::Published
+}
+
 #[derive(SystemParam)]
 pub(in crate::chunk) struct GraphicsRuntimeMetadataInputs<'w> {
     windows: Res<'w, ExtractedWindows>,
@@ -305,7 +340,7 @@ pub(in crate::chunk) struct GraphicsRuntimeMetadataInputs<'w> {
 pub(in crate::chunk) fn publish_graphics_runtime_metadata(
     #[cfg(any(target_os = "macos", target_os = "ios"))] _marker: bevy::ecs::system::NonSendMarker,
     inputs: GraphicsRuntimeMetadataInputs,
-    mut publication: Local<GraphicsMetadataPublicationState>,
+    mut publication: ResMut<GraphicsMetadataPublicationState>,
 ) {
     let GraphicsRuntimeMetadataInputs {
         windows,
@@ -337,11 +372,22 @@ pub(in crate::chunk) fn publish_graphics_runtime_metadata(
     };
     // SAFETY: This runs on the main thread where required, and the extracted window owns
     // valid raw handles for the same window Bevy configures immediately after this system.
-    let Ok(surface) = (unsafe { render_instance.create_surface_unsafe(surface_target) }) else {
-        return;
+    let surface = {
+        #[cfg(feature = "tracy")]
+        let _zone = bevy::log::info_span!("render.surface_probe.create").entered();
+        let Ok(surface) = (unsafe { render_instance.create_surface_unsafe(surface_target) }) else {
+            return;
+        };
+        surface
     };
-    let capabilities = surface.get_capabilities(&render_adapter);
-    let adapter_info = render_adapter.get_info();
+    let (capabilities, adapter_info) = {
+        #[cfg(feature = "tracy")]
+        let _zone = bevy::log::info_span!("render.surface_probe.capabilities").entered();
+        (
+            surface.get_capabilities(&render_adapter),
+            render_adapter.get_info(),
+        )
+    };
     if metadata_requires_automatic_immediate(
         preference,
         adapter_info.backend,
@@ -374,6 +420,64 @@ pub(in crate::chunk) fn publish_graphics_runtime_metadata(
 #[cfg(test)]
 mod graphics_metadata_tests {
     use super::*;
+
+    #[derive(Resource, Default)]
+    struct NativeProbeCalls(usize);
+
+    /// Counts native dispatches, including no-op calls that still require the main thread.
+    fn record_native_probe(
+        _main_thread: bevy::ecs::system::NonSendMarker,
+        mut calls: ResMut<NativeProbeCalls>,
+    ) {
+        calls.0 += 1;
+    }
+
+    #[test]
+    fn inactive_graphics_metadata_never_dispatches_native_work() {
+        let mut world = World::new();
+        world.insert_resource(VisibilityDiagnosticsInput::new(false));
+        world.init_resource::<GraphicsMetadataPublicationState>();
+        world.init_resource::<NativeProbeCalls>();
+        let mut schedule = Schedule::default();
+        configure_graphics_metadata_publication(&mut schedule);
+        schedule.add_systems(record_native_probe.in_set(GraphicsMetadataPublication));
+        schedule.run(&mut world);
+        assert_eq!(world.resource::<NativeProbeCalls>().0, 0);
+
+        world.insert_resource(VisibilityDiagnosticsInput::new(true));
+        schedule.run(&mut world);
+        assert_eq!(world.resource::<NativeProbeCalls>().0, 1);
+
+        world
+            .resource_mut::<GraphicsMetadataPublicationState>()
+            .publish();
+        for _ in 0..3 {
+            schedule.run(&mut world);
+        }
+        assert_eq!(world.resource::<NativeProbeCalls>().0, 1);
+    }
+
+    #[test]
+    fn startup_graphics_metadata_dispatches_until_publication_succeeds() {
+        let mut world = World::new();
+        let mut input = VisibilityDiagnosticsInput::new(false);
+        input.set_startup_probe_enabled(true);
+        world.insert_resource(input);
+        world.init_resource::<GraphicsMetadataPublicationState>();
+        world.init_resource::<NativeProbeCalls>();
+        let mut schedule = Schedule::default();
+        configure_graphics_metadata_publication(&mut schedule);
+        schedule.add_systems(record_native_probe.in_set(GraphicsMetadataPublication));
+        for _ in 0..2 {
+            schedule.run(&mut world);
+        }
+        assert_eq!(world.resource::<NativeProbeCalls>().0, 2);
+        world
+            .resource_mut::<GraphicsMetadataPublicationState>()
+            .publish();
+        schedule.run(&mut world);
+        assert_eq!(world.resource::<NativeProbeCalls>().0, 2);
+    }
 
     const AFFECTED_ADAPTER: &str = "Radeon RX 570 Series";
     const AFFECTED_DRIVER: &str = "31.0.21924.61";
@@ -465,28 +569,61 @@ mod graphics_metadata_tests {
     }
 }
 
-pub(in crate::chunk) fn indexed_indirect_command(
+/// Validated cube-stream instance range, the layout it honours, and the origin base vertex.
+pub(in crate::chunk) fn cube_draw_base(
     allocation: &GpuChunkAllocation,
-) -> Option<DrawIndexedIndirectArgs> {
+) -> Option<(Range<u32>, CubeQuadLayout, i32)> {
     let addresses = mdi_stream_addresses(allocation);
     if !cube_stream_addresses_valid(&addresses) || !shared_stream_ranges_disjoint(&addresses) {
         return None;
     }
-    let cube = addresses.cube.as_ref()?;
-    let instance_count = cube.end.checked_sub(cube.start)?;
-    if instance_count == 0 {
-        return None;
-    }
+    let cube = addresses.cube.clone()?;
     cube_lighting_record_address(&addresses, cube.start)?;
     cube_lighting_record_address(&addresses, cube.end.checked_sub(1)?)?;
     let base_vertex = metadata_base_vertex(allocation.metadata_index)?;
-    Some(DrawIndexedIndirectArgs {
+    let layout = if allocation.cube_layout.solid_len() <= cube.end - cube.start {
+        allocation.cube_layout
+    } else {
+        CubeQuadLayout::default()
+    };
+    Some((cube, layout, base_vertex))
+}
+
+fn cube_quad_command(base_vertex: i32, quads: Range<u32>) -> DrawIndexedIndirectArgs {
+    DrawIndexedIndirectArgs {
         index_count: STATIC_QUAD_INDICES.len() as u32,
-        instance_count,
+        instance_count: quads.end - quads.start,
         first_index: 0,
         base_vertex,
-        first_instance: cube.start,
-    })
+        first_instance: quads.start,
+    }
+}
+
+pub(in crate::chunk) fn cube_stream_drawable(allocation: &GpuChunkAllocation) -> bool {
+    cube_draw_base(allocation).is_some()
+}
+
+/// The cube quads that keep the alpha-tested two-sided pipeline.
+pub(in crate::chunk) fn cutout_indirect_command(
+    allocation: &GpuChunkAllocation,
+) -> Option<DrawIndexedIndirectArgs> {
+    let (cube, layout, base_vertex) = cube_draw_base(allocation)?;
+    let quads = cube.start + layout.solid_len()..cube.end;
+    (!quads.is_empty()).then(|| cube_quad_command(base_vertex, quads))
+}
+
+/// Draws for the solid runs whose faces can face the camera; `None` for an invalid cube stream.
+pub(in crate::chunk) fn solid_indirect_commands(
+    allocation: &GpuChunkAllocation,
+    camera: Option<[f64; 3]>,
+) -> Option<impl Iterator<Item = DrawIndexedIndirectArgs>> {
+    let (cube, layout, base_vertex) = cube_draw_base(allocation)?;
+    let facing = camera.map_or(meshing::FaceMask::ALL, |camera| {
+        meshing::sub_chunk_facing_faces(chunk_origin(allocation.key), camera)
+    });
+    Some(layout.solid_runs(facing).map(move |run| {
+        cube_quad_command(base_vertex, cube.start + run.start..cube.start + run.end)
+    }))
 }
 
 pub(in crate::chunk) fn model_draw_command(
@@ -677,7 +814,7 @@ pub(in crate::chunk) fn build_indexed_indirect_commands<'a>(
 ) -> Vec<DrawIndexedIndirectArgs> {
     allocations
         .into_iter()
-        .filter_map(indexed_indirect_command)
+        .filter_map(cutout_indirect_command)
         .collect()
 }
 

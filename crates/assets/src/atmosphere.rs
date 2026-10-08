@@ -78,13 +78,15 @@ pub struct FogDistance {
     pub start_bits: u32,
     pub end_bits: u32,
     pub rgb8: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transition: Option<crate::FogTransition>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ResolvedFog {
     pub start: f32,
     pub end: f32,
-    pub rgb8: u32,
+    pub rgb: [f32; 3],
 }
 
 impl FogDistance {
@@ -110,7 +112,7 @@ impl FogDistance {
         Some(ResolvedFog {
             start: self.start() * scale,
             end: self.end() * scale,
-            rgb8: self.rgb8,
+            rgb: [16, 8, 0].map(|shift| ((self.rgb8 >> shift) & 255) as f32 / 255.0),
         })
     }
 }
@@ -216,6 +218,7 @@ pub fn composite_celestial(
 }
 
 pub struct RuntimeAtmosphereAssets {
+    carrier_identity: [u8; 32], // SHA-256 of the decoded carrier file
     source_manifest_sha256: [u8; 32],
     textures: Box<[AtmosphereTexture]>,
     biome_profiles: Box<[BiomeVisualProfile]>,
@@ -223,6 +226,41 @@ pub struct RuntimeAtmosphereAssets {
 }
 
 impl RuntimeAtmosphereAssets {
+    /// Applies optional runtime pack layers without weakening pinned carrier decoding.
+    pub fn with_resource_pack_overrides(
+        &self,
+        textures: &[AtmosphereTexture],
+        biomes: &[BiomeVisualProfile],
+        fogs: &[FogProfile],
+    ) -> Result<Self, AssetError> {
+        let mut result = Self {
+            carrier_identity: self.carrier_identity,
+            source_manifest_sha256: self.source_manifest_sha256,
+            textures: self.textures.clone(),
+            biome_profiles: biomes.into(),
+            fog_profiles: fogs.into(),
+        };
+        validate_environment_profiles(biomes, fogs)?;
+        for texture in textures {
+            let bytes = pixel_length(texture.width, texture.height)?;
+            if texture.width == 0
+                || texture.height == 0
+                || bytes > MAX_SOURCE_BYTES * 4
+                || texture.rgba8.len() != bytes
+            {
+                return Err(invalid("runtime atmosphere texture exceeds bounds"));
+            }
+            if let Some(target) = result
+                .textures
+                .iter_mut()
+                .find(|target| target.role == texture.role)
+            {
+                *target = texture.clone();
+            }
+        }
+        Ok(result)
+    }
+
     pub fn decode(bytes: &[u8]) -> Result<Self, AssetError> {
         if bytes.len() < HEADER_BYTES + HASH_BYTES {
             return Err(invalid("truncated MCBEATM2 blob"));
@@ -267,10 +305,8 @@ impl RuntimeAtmosphereAssets {
         {
             return Err(invalid("noncanonical MCBEATM2 section layout"));
         }
-        let digest = Sha256::digest(&bytes[..environment_end]);
-        if &bytes[environment_end..] != digest.as_slice() {
-            return Err(invalid("MCBEATM2 envelope hash mismatch"));
-        }
+        let carrier_identity = crate::encoding::sealed_identity(bytes, environment_end)
+            .ok_or_else(|| invalid("MCBEATM2 envelope hash mismatch"))?;
 
         let specs = source_specs();
         let mut expected_path_offset = paths_offset;
@@ -320,12 +356,10 @@ impl RuntimeAtmosphereAssets {
             if texture_end > texture_payload_end {
                 return Err(invalid("MCBEATM2 texture payload is out of range"));
             }
+            // The envelope seals the pixels; their digests are checked when encoding.
             let rgba8 = bytes[texture_offset..texture_end]
                 .to_vec()
                 .into_boxed_slice();
-            if Sha256::digest(&rgba8).as_slice() != pixels_sha256 {
-                return Err(invalid("MCBEATM2 texture pixel hash mismatch"));
-            }
             textures.push(AtmosphereTexture {
                 role,
                 source_path: expected_path.into(),
@@ -355,11 +389,18 @@ impl RuntimeAtmosphereAssets {
         }
         validate_environment_profiles(&environment.biome_profiles, &environment.fog_profiles)?;
         Ok(Self {
+            carrier_identity,
             source_manifest_sha256,
             textures: textures.into_boxed_slice(),
             biome_profiles: environment.biome_profiles,
             fog_profiles: environment.fog_profiles,
         })
+    }
+
+    /// The SHA-256 of the carrier file this was decoded from.
+    #[must_use]
+    pub const fn carrier_identity(&self) -> [u8; 32] {
+        self.carrier_identity
     }
 
     #[must_use]
@@ -649,9 +690,11 @@ fn validate_environment_profiles(
             let end = distance.end();
             if !start.is_finite()
                 || !end.is_finite()
-                || start < 0.0
                 || end < start
                 || distance.rgb8 > 0x00ff_ffff
+                || distance
+                    .transition
+                    .is_some_and(|transition| !transition.is_valid())
             {
                 return Err(invalid("fog distance is invalid"));
             }
@@ -782,6 +825,7 @@ mod tests {
                     start_bits: 0.92_f32.to_bits(),
                     end_bits: 1.0_f32.to_bits(),
                     rgb8: 0x0B_08_0C,
+                    transition: None,
                 }]
                 .into_boxed_slice(),
             }]
@@ -810,10 +854,14 @@ mod tests {
             start_bits: 10.0_f32.to_bits(),
             end_bits: 96.0_f32.to_bits(),
             rgb8: 0x33_08_08,
+            transition: None,
         };
         assert_eq!(fixed.resolve(256.0).unwrap().start, 10.0);
         assert_eq!(fixed.resolve(256.0).unwrap().end, 96.0);
-        assert_eq!(fixed.resolve(256.0).unwrap().rgb8, 0x33_08_08);
+        assert_eq!(
+            fixed.resolve(256.0).unwrap().rgb,
+            [51.0 / 255.0, 8.0 / 255.0, 8.0 / 255.0]
+        );
 
         let relative = FogDistance {
             medium: FogMedium::Air,
@@ -821,13 +869,41 @@ mod tests {
             start_bits: 0.92_f32.to_bits(),
             end_bits: 1.0_f32.to_bits(),
             rgb8: 0xAB_D2_FF,
+            transition: None,
         };
         let resolved = relative.resolve(256.0).unwrap();
         assert_eq!(resolved.start, 235.52);
         assert_eq!(resolved.end, 256.0);
-        assert_eq!(resolved.rgb8, 0xAB_D2_FF);
+        assert_eq!(resolved.rgb, [171.0 / 255.0, 210.0 / 255.0, 1.0]);
         assert!(relative.resolve(f32::NAN).is_none());
         assert!(relative.resolve(-1.0).is_none());
+    }
+
+    #[test]
+    fn runtime_texture_override_retains_required_base_and_restores_on_removal() {
+        let compiled = CompiledAtmosphereAssets {
+            source_manifest_sha256: [0x11; 32],
+            textures: synthetic_textures(),
+            biome_profiles: Box::default(),
+            fog_profiles: Box::default(),
+        };
+        let base =
+            RuntimeAtmosphereAssets::decode(&encode_atmosphere_blob(&compiled).unwrap()).unwrap();
+        let mut replacement = base.textures()[0].clone();
+        replacement.rgba8.fill(127);
+        let changed = base
+            .with_resource_pack_overrides(&[replacement.clone()], &[], &[])
+            .unwrap();
+        assert_eq!(changed.textures()[0].rgba8, replacement.rgba8);
+        assert_eq!(changed.textures()[1], base.textures()[1]);
+        let removed = base.with_resource_pack_overrides(&[], &[], &[]).unwrap();
+        assert_eq!(removed.textures(), base.textures());
+        assert_ne!(removed.textures()[0].rgba8, changed.textures()[0].rgba8);
+        replacement.rgba8 = Box::default();
+        assert!(
+            base.with_resource_pack_overrides(&[replacement], &[], &[])
+                .is_err()
+        );
     }
 
     fn synthetic_textures() -> Box<[AtmosphereTexture]> {

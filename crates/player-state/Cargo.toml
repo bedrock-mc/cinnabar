@@ -1,0 +1,10 @@
+[package]
+name = "player-state"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+inventory = { path = "../inventory" }
+client-world = { path = "../client-world" }

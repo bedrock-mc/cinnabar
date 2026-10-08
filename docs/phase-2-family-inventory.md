@@ -387,8 +387,8 @@ and the pinned counts in `tools/visualcoverage/tests/ratchet/{production,gallery
 Lanterns, end rods, candles, cauldron, hopper, anvil, campfire, scaffolding,
 amethyst, sea pickle, redstone wire, levers, pistons, lightning rods, glazed
 terracotta rotation, coral fans, and waterlily stay provisional: the pack ships
-no block geometry, and the Bedrock reconstruction hides box and UV constants
-behind unnamed data symbols, so each needs a native measurement pass. Random
+no block geometry, and exact box and UV constants remain unresolved, so each
+needs a native measurement pass. Random
 plant offsets are a per-block data component with an RNG-derived offset and no
 vanilla ranges in the pack; per-biome `surface_opacity` (3 biomes) needs a
 carrier format bump.
@@ -414,8 +414,8 @@ The pinned pack carries textures but no block geometry, so only literal facts ar
 - `literal.rs` compiles these to `Invisible`: `barrier`, `structure_void`, `invisible_bedrock`,
   `moving_block`, `light_block_0`..`light_block_15`.
 - `entity_drawn.rs` additionally covers `*copper_golem_statue` (all oxidation and waxed forms).
-- Still diagnostic and marked needs-measurement (geometry exists only in decompiled constants or
-  as collision shapes): campfire, soul campfire, hopper, brewing stand, lantern and copper
+- Still diagnostic and marked needs-measurement (exact visual geometry remains unresolved beyond
+  collision shapes): campfire, soul campfire, hopper, brewing stand, lantern and copper
   lanterns, candles and candle cakes, cauldron, end rod, anvils, chains, wall coral fans,
   dripleaf, grindstone, lightning rods, pistons, sea pickle, turtle egg, scaffolding, rails and
   redstone wire. Translucent cubes, copper bulbs, repeaters, comparators, amethyst and standing

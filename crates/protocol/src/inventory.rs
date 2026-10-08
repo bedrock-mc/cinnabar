@@ -29,27 +29,31 @@ pub use creative::{
     MAX_CREATIVE_ITEMS, normalize_creative_content,
 };
 mod client_packets;
+mod legacy;
+pub use legacy::{
+    NormalInventoryChange, NormalInventorySource, normal_inventory_transaction_packet,
+};
 mod raw_scan;
 pub mod recipes;
 mod request;
+mod transaction;
 mod validation;
 mod windows;
 pub use address::{
     ARMOR_WINDOW_ID, CONTAINER_NAME_ARMOR, CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY,
     CONTAINER_NAME_CRAFT_INPUT, CONTAINER_NAME_CURSOR, CONTAINER_NAME_DYNAMIC,
     CONTAINER_NAME_INVENTORY, CONTAINER_NAME_LEVEL_ENTITY, CONTAINER_NAME_OFFHAND, CanonicalCell,
-    OFFHAND_WINDOW_ID, PLAYER_INVENTORY_WINDOW_ID, is_personal_ui_inventory,
-    personal_craft_content_indices, personal_craft_slot_index, project_container_cell,
+    OFFHAND_WINDOW_ID, PLAYER_INVENTORY_WINDOW_ID, UI_INVENTORY_WINDOW_ID,
+    is_personal_ui_inventory, personal_craft_content_indices, personal_craft_slot_index,
+    project_container_cell,
 };
 pub use client_packets::{
     BookEdit, MAX_BOOK_PAGE_BYTES, block_pick_request_packet, book_edit_packet,
     crafter_slot_toggle_packet, lectern_update_packet,
 };
 pub(crate) use raw_scan::validate_raw_inventory_packet;
-pub use request::manual_craft::{
-    ManualCraftError, ManualCraftInput, ManualCraftSnapshot, manual_craft_packet,
-};
 pub use request::mining::{MineBlockRequest, MineBlockRequestError};
+pub(crate) use transaction::normalize_transaction;
 pub use windows::{
     NO_CONTAINER_WINDOW_TYPE, OpenCells, UI_SLOT_COUNT, WINDOW_TYPE_ANVIL, WINDOW_TYPE_BEACON,
     WINDOW_TYPE_BLAST_FURNACE, WINDOW_TYPE_BREWING_STAND, WINDOW_TYPE_CARTOGRAPHY,
@@ -64,13 +68,13 @@ mod registry_snapshot;
 pub use recipes::{
     IngredientObservation, MAX_RECIPE_OBSERVATIONS, RecipeObservation, RecipeObservations,
 };
-pub use recipes::{ManualCraftCell, ManualCraftMatch, ManualCraftPreview, match_manual_grid};
 pub use registry_snapshot::{RecipeRegistryError, RecipeRegistrySnapshot};
 pub use request::{
     ARMOR_SLOTS, AutoCraftIngredient, CRAFTING_INPUT_SLOTS, CREATED_OUTPUT_SLOT, CraftResult,
     MAX_FILTER_STRINGS, MAX_STACK_REQUEST_ACTIONS, PLAYER_INVENTORY_SLOTS, StackItemDescriptor,
     StackRequestAction, StackRequestContainer, StackRequestSlot, container_close_packet,
-    item_stack_request_packet, item_stack_request_packet_filtered, open_inventory_packet,
+    item_stack_request_batch, item_stack_request_packet, item_stack_request_packet_filtered,
+    open_inventory_packet,
 };
 use validation::validate_item_user_data;
 pub const MAX_CONTAINER_SLOTS: usize = 4_096;
@@ -122,6 +126,14 @@ pub struct InventorySlotEvent {
     pub identity: SlotIdentity,
     pub stack: NetworkItemStack,
     pub storage_item: Option<NetworkItemStack>,
+}
+
+/// Absolute inventory writes carried by one normal transaction. The world
+/// balancing leg is not an inventory write and is never projected here.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InventoryTransactionEvent {
+    pub slots: Arc<[InventorySlotEvent]>,
+    pub skipped_actions: usize,
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -215,6 +227,7 @@ pub enum InventoryEvent {
     Authority(InventoryAuthority),
     Content(InventoryContentEvent),
     Slot(InventorySlotEvent),
+    Transaction(InventoryTransactionEvent),
     SelectedSlot(SelectedSlotEvent),
     Response(ItemStackResponseEvent),
     Open(ContainerOpenEvent),
@@ -224,8 +237,23 @@ pub enum InventoryEvent {
     Creative(CreativeContentEvent),
 }
 
+impl InventoryEvent {
+    /// Individual authoritative writes, in their wire order. A transaction
+    /// remains one FIFO event even when it writes several inventory surfaces.
+    #[must_use]
+    pub fn slot_updates(&self) -> &[InventorySlotEvent] {
+        match self {
+            Self::Slot(slot) => std::slice::from_ref(slot),
+            Self::Transaction(transaction) => &transaction.slots,
+            _ => &[],
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum InventoryPacketError {
+    #[error("normal inventory transaction has {0} actions, outside its retention bound")]
+    InvalidNormalTransactionActionCount(usize),
     #[error("item stack request ID must be a negative odd integer below -1")]
     InvalidStackRequestId,
     #[error("item stack request amount must be positive")]
@@ -494,13 +522,10 @@ pub fn normalize_response(
                         validate_response_name(&filtered_custom_name)?;
                         // An absent stack net ID means the server did not track this
                         // slot, which the app models as -1 rather than as a rejection.
-                        let item_stack_id = match slot.item_stack_net_id {
-                            Some(net_id) if net_id.id >= 0 => net_id.id,
-                            Some(net_id) => {
-                                return Err(InventoryPacketError::InvalidStackNetworkId(net_id.id));
-                            }
-                            None => -1,
-                        };
+                        // A well-framed odd value is data, not framing failure.
+                        // The sparse response consumer checks count/id pairing
+                        // and skips unusable corrections without ending play.
+                        let item_stack_id = slot.item_stack_net_id.map_or(-1, |net_id| net_id.id);
                         slots.push(StackResponseSlot {
                             slot: slot.slot,
                             hotbar_slot: slot.requested_slot,

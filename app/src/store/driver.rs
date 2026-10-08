@@ -5,10 +5,10 @@ use std::sync::Arc;
 
 use bevy::prelude::{Commands, Res, ResMut};
 
-use super::snapshot::StoreSnapshot;
 use super::state::StoreState;
 use super::worker::{StoreError, StoreRequest, StoreWorker};
 use crate::menu::{MenuRuntime, launcher_account::LauncherAccount};
+use launcher::store::snapshot::StoreSnapshot;
 
 /// Send `requests`, telling the state about any the queue refused.
 fn send_all(state: &mut StoreState, worker: &StoreWorker, requests: Vec<StoreRequest>) {
@@ -45,7 +45,7 @@ pub(crate) fn drive_store(
     };
     let (Some(worker), Some(mut state)) = (worker, state) else {
         let mut fresh = StoreState::new();
-        fresh.set_settings(super::settings::load(&menu.store_settings_path()));
+        fresh.set_settings(launcher::store::settings::load(&menu.store_settings_path()));
         commands.insert_resource(StoreWorker::new(account.socket_dir().to_path_buf()));
         commands.insert_resource(fresh);
         let loading = menu.in_store().then(|| Arc::new(StoreSnapshot::empty()));

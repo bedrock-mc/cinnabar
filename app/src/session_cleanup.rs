@@ -30,11 +30,12 @@
 //! launch rather than hidden.
 
 use std::{
-    collections::hash_map::RandomState,
+    collections::{HashMap, hash_map::RandomState},
     fs,
     hash::{BuildHasher, Hasher},
     path::{Path, PathBuf},
     process,
+    sync::{Arc, Mutex, OnceLock, Weak},
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -69,6 +70,7 @@ const MAX_STALE_RECLAIMS_PER_STARTUP: usize = 64;
 enum SessionKind {
     Direct,
     Connect,
+    Account,
 }
 
 /// Owner marker persisted inside a bound session directory.
@@ -95,8 +97,8 @@ struct SessionDirId {
 
 /// Parses the strict session-directory grammar.
 ///
-/// Anything outside `direct-<pid>` / `connect-<pid>-<generation>` returns
-/// `None`, including empty segments, signs, overflow, and extra segments.
+/// Only direct sessions, numbered connections and numbered account cores are owned.
+/// Empty segments, signs, overflow and extra segments are rejected.
 fn parse_session_dir_name(name: &str) -> Option<SessionDirId> {
     let (kind, rest) = name
         .strip_prefix("direct-")
@@ -104,10 +106,14 @@ fn parse_session_dir_name(name: &str) -> Option<SessionDirId> {
         .or_else(|| {
             name.strip_prefix("connect-")
                 .map(|rest| (SessionKind::Connect, rest))
+        })
+        .or_else(|| {
+            name.strip_prefix("account-")
+                .map(|rest| (SessionKind::Account, rest))
         })?;
     let (pid_text, generation_text) = match kind {
         SessionKind::Direct => (rest, None),
-        SessionKind::Connect => {
+        SessionKind::Connect | SessionKind::Account => {
             let (pid_text, generation_text) = rest.split_once('-')?;
             (pid_text, Some(generation_text))
         }
@@ -163,6 +169,8 @@ pub(crate) enum SessionDirectoryError {
         "refusing to reuse session directory {directory}: its identity marker names another owning process ({pid})"
     )]
     ForeignIdentity { directory: PathBuf, pid: u32 },
+    #[error("refusing to reuse session directory {directory}: a live binding still owns it")]
+    ActiveBinding { directory: PathBuf },
     #[error(
         "refusing to reuse session directory {directory}: its identity marker could not be read: {source}"
     )]
@@ -209,6 +217,7 @@ pub(crate) struct SessionDirectoryGuard {
     directory: PathBuf,
     token: String,
     bound: bool,
+    active: Option<Arc<()>>,
 }
 
 impl SessionDirectoryGuard {
@@ -217,8 +226,7 @@ impl SessionDirectoryGuard {
     ///
     /// An existing directory is reusable only when its marker is absent
     /// (a leftover from an earlier client build whose name already embeds
-    /// this process id) or names this same process id, which proves the
-    /// previous owner is dead: two live processes cannot share a pid.
+    /// this process id) or names this same process id and has no live guard.
     /// Any other on-disk identity refuses the bind loudly rather than
     /// guessing.
     pub(crate) fn bind(directory: PathBuf) -> Result<Self, SessionDirectoryError> {
@@ -241,9 +249,22 @@ impl SessionDirectoryGuard {
             }
         };
         fs::create_dir_all(&parent).map_err(|source| SessionDirectoryError::Create {
-            directory: parent,
+            directory: parent.clone(),
             source,
         })?;
+        let directory = fs::canonicalize(&parent)
+            .map_err(|source| SessionDirectoryError::Create {
+                directory: parent,
+                source,
+            })?
+            .join(&name);
+        let mut leases = active_directories()
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        leases.retain(|_, lease| lease.strong_count() > 0);
+        if leases.get(&directory).and_then(Weak::upgrade).is_some() {
+            return Err(SessionDirectoryError::ActiveBinding { directory });
+        }
         let mut freshly_created = false;
         match fs::create_dir(&directory) {
             Ok(()) => freshly_created = true,
@@ -270,10 +291,13 @@ impl SessionDirectoryGuard {
             }
             return Err(error);
         }
+        let active = Arc::new(());
+        leases.insert(directory.clone(), Arc::downgrade(&active));
         Ok(Self {
             directory,
             token: marker.token,
             bound: true,
+            active: Some(active),
         })
     }
 
@@ -281,12 +305,25 @@ impl SessionDirectoryGuard {
     /// names this binding. Idempotent: later calls report
     /// [`ReleaseOutcome::AlreadyReleased`] and do nothing.
     pub(crate) fn release(&mut self) -> ReleaseOutcome {
-        self.release_with(remove_owned_directory)
+        let token = self.token.clone();
+        self.release_with(|directory| remove_owned_directory(directory, &token))
     }
 
     /// Runs release through an injected remover so replacement races can be
     /// witnessed without weakening the production identity checks.
     fn release_with(
+        &mut self,
+        remove: impl FnOnce(&Path) -> std::io::Result<()>,
+    ) -> ReleaseOutcome {
+        let outcome = self.release_inner(remove);
+        if !self.bound {
+            self.active = None;
+        }
+        outcome
+    }
+
+    /// Removes a directory only while its marker still proves ownership.
+    fn release_inner(
         &mut self,
         remove: impl FnOnce(&Path) -> std::io::Result<()>,
     ) -> ReleaseOutcome {
@@ -349,7 +386,11 @@ impl SessionDirectoryGuard {
 /// Removes owned runtime contents while deliberately deleting the authority
 /// marker last. If a child cannot be removed, the original marker survives so
 /// a retry remains authorized without ever restamping an unverified pathname.
-fn remove_owned_directory(directory: &Path) -> std::io::Result<()> {
+fn remove_owned_directory(directory: &Path, token: &str) -> std::io::Result<()> {
+    #[cfg(unix)]
+    let proof = directory_proof(directory, token)?;
+    #[cfg(not(unix))]
+    let _ = token;
     for entry in fs::read_dir(directory)? {
         let entry = entry?;
         if entry.file_name() == MARKER_FILE_NAME {
@@ -363,7 +404,55 @@ fn remove_owned_directory(directory: &Path) -> std::io::Result<()> {
         }
     }
     fs::remove_file(directory.join(MARKER_FILE_NAME))?;
-    fs::remove_dir(directory)
+    let removed = fs::remove_dir(directory);
+    #[cfg(unix)]
+    if removed.is_err() {
+        use rustix::fs::{Mode, OFlags, openat};
+        use std::io::Write;
+        if let Ok(fd) = openat(
+            &proof.0,
+            MARKER_FILE_NAME,
+            OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+            Mode::RUSR | Mode::WUSR,
+        ) {
+            let _ = fs::File::from(fd).write_all(&proof.1);
+        }
+    }
+    removed
+}
+
+/// Reads ownership through an open directory so failed cleanup can restore only that inode.
+#[cfg(unix)]
+fn directory_proof(directory: &Path, token: &str) -> std::io::Result<(fs::File, Vec<u8>)> {
+    use rustix::fs::{Mode, OFlags, open, openat};
+    use std::io::Read;
+    let root = fs::File::from(open(
+        directory,
+        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+        Mode::empty(),
+    )?);
+    let mut marker = fs::File::from(openat(
+        &root,
+        MARKER_FILE_NAME,
+        OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+        Mode::empty(),
+    )?);
+    let mut bytes = Vec::new();
+    marker.read_to_end(&mut bytes)?;
+    let marker: SessionOwnerMarker = serde_json::from_slice(&bytes)?;
+    if marker.token != token || marker.pid != process::id() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "session identity changed",
+        ));
+    }
+    Ok((root, bytes))
+}
+
+/// Tracks live bindings independently of markers left by a previous process incarnation.
+fn active_directories() -> &'static Mutex<HashMap<PathBuf, Weak<()>>> {
+    static ACTIVE: OnceLock<Mutex<HashMap<PathBuf, Weak<()>>>> = OnceLock::new();
+    ACTIVE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
 impl Drop for SessionDirectoryGuard {

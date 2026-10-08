@@ -6,7 +6,7 @@ use bevy::{prelude::Resource, render::extract_resource::ExtractResource};
 
 #[path = "scene/cache.rs"]
 mod cache;
-use cache::CachedSubmission;
+use cache::{CachedSubmission, PreviousFragments};
 
 use super::{
     atlas::{AtlasRect, BlockEntityAtlas, DynamicCells},
@@ -17,8 +17,10 @@ use super::{
     chest::ChestModel,
     conduit::ConduitModel,
     crack::{CrackShape, emit_crack},
+    crystal_beam::CrystalBeamModel,
+    dragon_death::DragonDeathModel,
     frame::ItemFrameModel,
-    heads::HeadModels,
+    heads::{HeadModel, HeadModels},
     mesh::{BlockEntityVertex, MeshBuilder},
     mob::MobModels,
     pot::DecoratedPotModel,
@@ -50,6 +52,8 @@ pub enum BlockEntityKind {
     Conduit(ConduitModel),
     DecoratedPot(DecoratedPotModel),
     Beacon(BeaconModel),
+    CrystalBeam(CrystalBeamModel),
+    DragonDeath(DragonDeathModel),
     Statue(StatueModel),
     Spawner(SpawnerModel),
     EndPortal,
@@ -66,8 +70,6 @@ impl BlockEntityKind {
                 | Self::Conduit(_)
                 | Self::Beacon(_)
                 | Self::Spawner(_)
-                | Self::EndPortal
-                | Self::EndGateway
         )
     }
 }
@@ -75,9 +77,32 @@ impl BlockEntityKind {
 #[derive(Clone, Debug, PartialEq)]
 pub struct BlockEntitySubmission {
     pub block: [i32; 3],
-    /// Combined light multiplier in `0.0..=1.0`.
-    pub light: f32,
+    pub light: BlockEntityLight,
     pub kind: BlockEntityKind,
+}
+
+/// Scalar-lit legacy models or the native entity material's block/sky light coordinates.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum BlockEntityLight {
+    /// Existing authored face shading and a combined linear multiplier.
+    Scalar(f32),
+    /// Native entity material: retained levels into the shared environment lightmap.
+    Actor { block: u8, sky: u8 },
+}
+
+impl From<f32> for BlockEntityLight {
+    fn from(value: f32) -> Self {
+        Self::Scalar(value)
+    }
+}
+
+impl BlockEntityLight {
+    fn apply(self, builder: &mut MeshBuilder) {
+        (builder.light, builder.actor_light) = match self {
+            Self::Scalar(value) => (value.clamp(0.0, 1.0), 0),
+            Self::Actor { block, sky } => (1.0, crate::pack_actor_light(block, sky)),
+        };
+    }
 }
 
 /// A block with a break-crack overlay at destroy stage `stage` (`0..=9`).
@@ -95,7 +120,7 @@ pub struct SceneClock {
     pub ticks: f64,
 }
 
-/// Extracted per-frame draw data; empty until assets are installed.
+/// Extracted per-frame draw data; textured models require an installed atlas.
 #[derive(Clone, Debug, Default, Resource, ExtractResource)]
 pub struct BlockEntityFrame {
     pub revision: u64,
@@ -105,16 +130,31 @@ pub struct BlockEntityFrame {
     pub solid: Arc<[BlockEntityVertex]>,
     pub overlay: Arc<[BlockEntityVertex]>,
     pub crack: Arc<[BlockEntityVertex]>,
+    pub portal: Arc<[BlockEntityVertex]>,
     pub additive: Arc<[BlockEntityVertex]>,
+    /// Normalized star texture bounds; wrapping happens within this atlas placement.
+    pub portal_star_rect: [f32; 4],
+    pub portal_time_seconds: f32,
 }
 
-/// Static atlas pixels plus dimensions for GPU upload.
+/// Static atlas pixels plus dimensions for GPU upload; a new size means a new texture.
 #[derive(Debug)]
 pub struct BlockEntityAtlasImage {
     pub identity: [u8; 32],
     pub size: [u32; 2],
     pub static_height: u32,
     pub static_rgba8: Arc<[u8]>,
+}
+
+impl BlockEntityAtlasImage {
+    fn of(atlas: &BlockEntityAtlas) -> Self {
+        Self {
+            identity: atlas.identity(),
+            size: atlas.size(),
+            static_height: atlas.static_height(),
+            static_rgba8: Arc::clone(atlas.static_rgba8()),
+        }
+    }
 }
 
 #[derive(Debug, Default, Resource)]
@@ -124,12 +164,13 @@ pub struct BlockEntityScene {
     text: Option<DynamicCells>,
     frame: BlockEntityFrame,
     heads: HeadModels,
+    bed: Option<HeadModel>,
     mobs: MobModels,
     rejected_quads: u64,
     /// Inputs of the current frame when it holds no clock-driven kind; unchanged inputs reuse it.
     reusable: Option<(Vec<CrackInstance>, Vec<BlockEntitySubmission>)>,
-    /// Static geometry in submission order, limited to the vertices accepted by the last frame.
-    cached_submissions: Vec<Option<CachedSubmission>>,
+    /// Static geometry in the last frame's submission order; see [`PreviousFragments`].
+    cached_submissions: Vec<Option<Box<CachedSubmission>>>,
     #[cfg(test)]
     static_rebuilds: usize,
 }
@@ -137,12 +178,7 @@ pub struct BlockEntityScene {
 impl BlockEntityScene {
     pub fn install_assets(&mut self, assets: &assets::RuntimeBlockEntityAssets) {
         let atlas = BlockEntityAtlas::from_assets(assets);
-        self.image = Some(Arc::new(BlockEntityAtlasImage {
-            identity: atlas.identity(),
-            size: atlas.size(),
-            static_height: atlas.static_height(),
-            static_rgba8: Arc::clone(atlas.static_rgba8()),
-        }));
+        self.image = Some(Arc::new(BlockEntityAtlasImage::of(&atlas)));
         self.text = Some(DynamicCells::new(atlas.size()[0]));
         self.atlas = Some(Arc::new(atlas));
         self.frame = BlockEntityFrame::default();
@@ -150,9 +186,14 @@ impl BlockEntityScene {
         self.cached_submissions.clear();
     }
 
-    /// Builds dragon and piglin heads from the entity catalog's geometry.
+    /// Builds block models from the entity catalog's geometry.
     pub fn install_entity_assets(&mut self, assets: &assets::RuntimeEntityAssets) {
         self.heads = HeadModels::from_assets(assets);
+        self.bed = assets
+            .geometries()
+            .iter()
+            .find(|geometry| geometry.identifier.as_ref() == assets::BED_GEOMETRY_IDENTIFIER)
+            .and_then(|geometry| HeadModel::build_tree(geometry, None, 1.0, false));
         self.reusable = None;
         self.cached_submissions.clear();
     }
@@ -174,7 +215,17 @@ impl BlockEntityScene {
 
     /// The atlas rect of the text canvas for `key`, rasterizing `make` on a miss.
     pub fn text_rect(&mut self, key: u64, make: impl FnOnce() -> Vec<u8>) -> Option<AtlasRect> {
-        let slot = self.text.as_mut()?.text_slot(key, make)?;
+        let text = self.text.as_mut()?;
+        let slot = text.text_slot(key, make)?;
+        let pages = text.text_pages();
+        let atlas = self.atlas.as_mut()?;
+        if atlas.text_pages() != pages {
+            // A taller atlas renormalizes every UV, so no cached geometry survives.
+            Arc::make_mut(atlas).set_text_pages(pages);
+            self.image = Some(Arc::new(BlockEntityAtlasImage::of(atlas)));
+            self.reusable = None;
+            self.cached_submissions.clear();
+        }
         self.atlas.as_ref()?.text_cell(slot)
     }
 
@@ -192,16 +243,11 @@ impl BlockEntityScene {
         catalog: &assets::RuntimeActorCatalog,
     ) {
         let mobs = MobModels::from_assets(entities, catalog);
-        let Some(atlas) = self.atlas.as_mut().and_then(Arc::get_mut) else {
+        let Some(atlas) = self.atlas.as_mut().map(Arc::make_mut) else {
             return;
         };
         atlas.append_textures(mobs.textures());
-        self.image = Some(Arc::new(BlockEntityAtlasImage {
-            identity: atlas.identity(),
-            size: atlas.size(),
-            static_height: atlas.static_height(),
-            static_rgba8: Arc::clone(atlas.static_rgba8()),
-        }));
+        self.image = Some(Arc::new(BlockEntityAtlasImage::of(atlas)));
         self.mobs = mobs;
         self.reusable = None;
         self.cached_submissions.clear();
@@ -213,9 +259,15 @@ impl BlockEntityScene {
         cracks: &[CrackInstance],
         submissions: &[BlockEntitySubmission],
     ) -> &BlockEntityFrame {
+        // This frame's text and map rects are all requested before its update.
+        if let Some(text) = self.text.as_mut() {
+            text.begin_frame();
+        }
         let (Some(atlas), Some(text)) = (self.atlas.as_ref(), self.text.as_ref()) else {
-            return &self.frame;
+            return self.update_untextured(submissions);
         };
+        self.frame.portal_time_seconds = (clock.ticks / f64::from(world::TICKS_PER_SECOND)) as f32;
+        self.frame.portal_star_rect = super::portal::star_rect(atlas);
         // Rebuilding would emit the same vertices; keeping the revision spares the GPU upload.
         if self.frame.dynamic_revision == text.revision()
             && self
@@ -232,36 +284,43 @@ impl BlockEntityScene {
             .any(|submission| submission.kind.is_clock_driven()))
         .then(|| (cracks.to_vec(), submissions.to_vec()));
         let mut builder = MeshBuilder::new(atlas.size());
-        self.cached_submissions
-            .resize_with(submissions.len(), || None);
-        for (submission, cached) in submissions.iter().zip(&mut self.cached_submissions) {
+        let mut previous_fragments =
+            PreviousFragments::new(std::mem::take(&mut self.cached_submissions));
+        for submission in submissions {
             let is_static = !submission.kind.is_clock_driven();
             if is_static
-                && let Some(previous) = cached.as_ref()
+                && let Some(previous) = previous_fragments.take(submission)
                 && previous.matches(submission, &builder)
             {
                 previous.append_to(&mut builder);
+                self.cached_submissions.push(Some(previous));
                 continue;
             }
             let start = cache::vertex_counts(&builder);
             let rejected_before = builder.rejected_quads;
-            builder.light = submission.light.clamp(0.0, 1.0);
+            submission.light.apply(&mut builder);
             emit_submission(
                 &mut builder,
                 atlas,
-                (&self.heads, &self.mobs),
+                (&self.heads, &self.mobs, self.bed.as_ref()),
                 submission,
                 clock,
             );
-            *cached = is_static.then(|| {
+            if is_static {
                 #[cfg(test)]
                 {
                     self.static_rebuilds += 1;
                 }
-                CachedSubmission::capture(submission, start, rejected_before, &builder)
-            });
+                self.cached_submissions
+                    .push(Some(Box::new(CachedSubmission::capture(
+                        submission,
+                        start,
+                        rejected_before,
+                        &builder,
+                    ))));
+            }
         }
-        builder.light = 1.0;
+        BlockEntityLight::Scalar(1.0).apply(&mut builder);
         for crack in cracks {
             emit_crack(&mut builder, atlas, crack);
         }
@@ -279,7 +338,10 @@ impl BlockEntityScene {
             solid: builder.solid.into(),
             overlay: builder.overlay.into(),
             crack: builder.crack.into(),
+            portal: builder.portal.into(),
             additive: builder.additive.into(),
+            portal_star_rect: self.frame.portal_star_rect,
+            portal_time_seconds: self.frame.portal_time_seconds,
         };
         &self.frame
     }
@@ -288,16 +350,39 @@ impl BlockEntityScene {
     pub const fn frame(&self) -> &BlockEntityFrame {
         &self.frame
     }
+
+    fn update_untextured(&mut self, submissions: &[BlockEntitySubmission]) -> &BlockEntityFrame {
+        let mut builder = MeshBuilder::new([1; 2]);
+        for submission in submissions {
+            if let BlockEntityKind::DragonDeath(model) = &submission.kind {
+                submission.light.apply(&mut builder);
+                super::dragon_death::emit(&mut builder, model);
+            }
+        }
+        if builder.additive.as_slice() != self.frame.additive.as_ref() {
+            self.frame = BlockEntityFrame {
+                revision: self.frame.revision.wrapping_add(1),
+                additive: builder.additive.into(),
+                ..Default::default()
+            };
+        }
+        self.rejected_quads = builder.rejected_quads;
+        &self.frame
+    }
 }
 
 #[cfg(test)]
 #[path = "scene/cache_tests.rs"]
 mod cache_tests;
 
+#[cfg(test)]
+#[path = "scene/skull_tests.rs"]
+mod skull_tests;
+
 fn emit_submission(
     builder: &mut MeshBuilder,
     atlas: &BlockEntityAtlas,
-    (heads, mobs): (&HeadModels, &MobModels),
+    (heads, mobs, bed): (&HeadModels, &MobModels, Option<&HeadModel>),
     submission: &BlockEntitySubmission,
     clock: SceneClock,
 ) {
@@ -307,7 +392,7 @@ fn emit_submission(
         BlockEntityKind::Shulker(model) => super::shulker::emit(builder, atlas, block, model),
         BlockEntityKind::Skull(model) => super::skull::emit(builder, atlas, heads, block, model),
         BlockEntityKind::Banner(model) => super::banner::emit(builder, atlas, block, model, clock),
-        BlockEntityKind::Bed(model) => super::bed::emit(builder, atlas, block, model),
+        BlockEntityKind::Bed(model) => super::bed::emit(builder, atlas, block, model, bed),
         BlockEntityKind::Sign(model) => super::sign::emit(builder, block, model),
         BlockEntityKind::EnchantTable { facing_yaw_degrees } => {
             super::book::emit_enchant_table(builder, atlas, block, *facing_yaw_degrees, clock);
@@ -323,6 +408,8 @@ fn emit_submission(
         }
         BlockEntityKind::DecoratedPot(model) => super::pot::emit(builder, atlas, block, model),
         BlockEntityKind::Beacon(model) => super::beam::emit(builder, atlas, block, model, clock),
+        BlockEntityKind::CrystalBeam(model) => super::crystal_beam::emit(builder, atlas, model),
+        BlockEntityKind::DragonDeath(model) => super::dragon_death::emit(builder, model),
         BlockEntityKind::Statue(model) => super::statue::emit(builder, atlas, heads, block, model),
         BlockEntityKind::Spawner(model) => {
             super::spawner::emit(builder, atlas, mobs, block, model, clock);
@@ -370,7 +457,7 @@ mod tests {
         let mut scene = scene_with_chest_and_crack_textures();
         let chest = BlockEntitySubmission {
             block: [1, 2, 3],
-            light: 1.0,
+            light: 1.0.into(),
             kind: BlockEntityKind::Chest(ChestModel {
                 variant: ChestVariant::Normal,
                 facing: Facing::North,
@@ -398,7 +485,7 @@ mod tests {
         let mut scene = scene_with_chest_and_crack_textures();
         let chest = |lid: f32| BlockEntitySubmission {
             block: [1, 2, 3],
-            light: 1.0,
+            light: 1.0.into(),
             kind: BlockEntityKind::Chest(ChestModel {
                 variant: ChestVariant::Normal,
                 facing: Facing::North,
@@ -425,16 +512,22 @@ mod tests {
         );
         let portal = BlockEntitySubmission {
             block: [0; 3],
-            light: 1.0,
+            light: 1.0.into(),
             kind: BlockEntityKind::EndPortal,
         };
         let animated = scene
             .update(SceneClock::default(), &[], std::slice::from_ref(&portal))
             .revision;
         assert_eq!(
-            scene.update(SceneClock::default(), &[], &[portal]).revision,
-            animated + 1,
-            "clock-driven kinds rebuild every frame"
+            scene
+                .update(SceneClock { ticks: 1.0 }, &[], &[portal])
+                .revision,
+            animated,
+            "portal animation updates the shader clock without rebuilding geometry"
+        );
+        assert_eq!(
+            scene.frame.portal_time_seconds,
+            1.0 / world::TICKS_PER_SECOND as f32
         );
     }
 
@@ -470,7 +563,7 @@ mod tests {
             frame.solid.is_empty()
                 && frame.overlay.is_empty()
                 && frame.crack.is_empty()
-                && frame.additive.is_empty()
+                && frame.portal.is_empty()
         );
         assert!(!scene.has_assets());
     }

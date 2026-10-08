@@ -97,7 +97,13 @@ pub fn normalize_creative_content(
     let mut items = Vec::with_capacity(packet.entries.len());
     for entry in packet.entries {
         let item = entry.item_instance;
-        validate_item_user_data(&item.user_data_buffer)?;
+        match validate_item_user_data(&item.user_data_buffer) {
+            Err(InventoryPacketError::UnsupportedItemNbtVersion(_)) => {
+                skipped += 1;
+                continue;
+            }
+            result => result?,
+        }
         let Ok(stack) = make_stack(
             item.id,
             i32::from_ne_bytes(item.auxvalue.to_ne_bytes()),
@@ -170,6 +176,31 @@ mod tests {
         assert_eq!(catalog.item(2).unwrap().stack.count, 1);
         assert!(catalog.item(4).is_none());
         assert_eq!(catalog.groups[0].category, CreativeCategory::Construction);
+    }
+
+    #[test]
+    fn review_unsupported_item_nbt_skips_only_its_creative_entry() {
+        let mut unsupported = entry(2, 1);
+        unsupported.item_instance.user_data_buffer = vec![255, 255, 2];
+        let packet = CreativeContentPacket {
+            groups: Vec::new(),
+            entries: vec![entry(1, 1), unsupported],
+        };
+        let Some(InventoryEvent::Creative(catalog)) = normalize_creative_content(packet).unwrap()
+        else {
+            panic!("catalog")
+        };
+        assert_eq!(catalog.items.len(), 1);
+        assert_eq!(catalog.skipped, 1);
+        let mut truncated = entry(2, 1);
+        truncated.item_instance.user_data_buffer = vec![255, 255];
+        assert!(
+            normalize_creative_content(CreativeContentPacket {
+                groups: Vec::new(),
+                entries: vec![truncated]
+            })
+            .is_err()
+        );
     }
 
     #[test]

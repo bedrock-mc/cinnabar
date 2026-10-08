@@ -1,6 +1,12 @@
-//! Ordered depth-free HUD overlay and exact current-frame hand coverage.
+//! Ordered world-projected UI and depth-free HUD overlay with exact hand coverage.
+use super::pipeline::{UiPipeline, UiPipelineKey};
 use super::*;
-use crate::ui::UI_BLEND_ALPHA;
+use super::{
+    damage::UiDamage,
+    layer::{LayerDrawn, UiLayerDraw, draw_batches, draw_ui_layer, model_depth_attachment},
+};
+#[path = "world.rs"]
+mod world;
 use bevy::{
     camera::{MainPassResolutionOverride, Viewport},
     core_pipeline::core_3d::graph::{Core3d, Node3d},
@@ -10,14 +16,23 @@ use bevy::{
         render_graph::{
             NodeRunError, RenderGraph, RenderGraphContext, RenderLabel, ViewNode, ViewNodeRunner,
         },
-        render_resource::RenderPassDescriptor,
+        render_resource::{
+            LoadOp, Operations, RenderPassDepthStencilAttachment, RenderPassDescriptor, StoreOp,
+        },
         renderer::RenderContext,
+        view::ViewDepthTexture,
     },
 };
+use render_model::UI_BLEND_ALPHA;
 use std::{collections::BTreeMap, ops::Range, sync::Mutex};
+use world::UiWorldNode;
 
 #[derive(Debug, Clone, Hash, Eq, PartialEq, RenderLabel)]
 pub(crate) struct UiOverlayLabel;
+#[derive(Debug, Clone, Hash, Eq, PartialEq, RenderLabel)]
+pub(crate) struct UiWorldLabel;
+#[derive(Debug, Clone, Hash, Eq, PartialEq, RenderLabel)]
+pub(crate) struct UiOverlayPostLabel;
 /// Per-frame draw encoding coverage, not queue completion or presentation.
 /// The optional producer must independently require its prior completion gate.
 #[derive(Default, Resource)]
@@ -77,6 +92,9 @@ impl UiHandCoverage {
         if batch.texture_page != page || batch.blend_mode != UI_BLEND_ALPHA {
             return None;
         }
+        if batch.world_projection != 0 {
+            return None;
+        }
         if containing.next().is_some() {
             return None;
         }
@@ -100,8 +118,35 @@ pub(crate) fn retained_batch_ranges(
         [Some(batch.first_index..end), None]
     }
 }
+/// Runs `N` only on views whose Enhanced opt-in equals `POST`, so one pass draws.
+pub(crate) struct GradeStage<N, const POST: bool>(pub(crate) N);
+
+impl<N: ViewNode, const POST: bool> ViewNode for GradeStage<N, POST> {
+    type ViewQuery = (Has<crate::EnhancedRendering>, N::ViewQuery);
+
+    fn update(&mut self, world: &mut World) {
+        self.0.update(world);
+    }
+
+    fn run<'w>(
+        &self,
+        graph: &mut RenderGraphContext,
+        render_context: &mut RenderContext<'w>,
+        (after_grade, view): QueryItem<'w, '_, Self::ViewQuery>,
+        world: &'w World,
+    ) -> Result<(), NodeRunError> {
+        if (render_model::ENHANCED_RENDERING_ENABLED && after_grade) != POST {
+            return Ok(());
+        }
+        self.0.run(graph, render_context, view, world)
+    }
+}
+
 pub(crate) fn install_overlay_graph(world: &mut World) {
-    let runner = ViewNodeRunner::<UiOverlayNode>::new(UiOverlayNode, world);
+    let runner = ViewNodeRunner::new(GradeStage::<_, false>(UiOverlayNode), world);
+    // Graded views' HUD pass; the Enhanced graph orders it after Bloom and grading.
+    let post_runner = ViewNodeRunner::new(GradeStage::<_, true>(UiOverlayNode), world);
+    let world_runner = ViewNodeRunner::<UiWorldNode>::new(UiWorldNode, world);
     let Some(mut graphs) = world.get_resource_mut::<RenderGraph>() else {
         return;
     };
@@ -111,18 +156,44 @@ pub(crate) fn install_overlay_graph(world: &mut World) {
     if graph.get_node_state(UiOverlayLabel).is_err() {
         graph.add_node(UiOverlayLabel, runner);
     }
+    if graph.get_node_state(UiWorldLabel).is_err() {
+        graph.add_node(UiWorldLabel, world_runner);
+    }
+    if graph.get_node_state(UiOverlayPostLabel).is_err() {
+        graph.add_node(UiOverlayPostLabel, post_runner);
+    }
     graph.add_node_edges((
         Node3d::MainTransparentPass,
-        UiOverlayLabel,
+        UiWorldLabel,
         Node3d::EndMainPass,
     ));
+    // The HUD composites after post-processing, so FXAA never touches UI pixels.
+    for overlay in [UiOverlayLabel.intern(), UiOverlayPostLabel.intern()] {
+        let _ = graph.try_add_node_edge(Node3d::EndMainPass, overlay);
+        let _ = graph.try_add_node_edge(Node3d::EndMainPassPostProcessing, overlay);
+        let _ = graph.try_add_node_edge(overlay, Node3d::Upscaling);
+    }
+    super::composite::install_present_node(world);
 }
 
+type UiOverlayView = (
+    Entity,
+    &'static ExtractedView,
+    &'static Msaa,
+    Option<&'static ViewDepthTexture>,
+    Option<&'static super::composite::UiLayerTexture>,
+    Option<&'static ViewTarget>,
+);
+
+#[allow(clippy::too_many_arguments)] // Independent Bevy render resources and view query.
 pub(super) fn queue_ui_overlay(
     pipeline_cache: Res<PipelineCache>,
     mut pipeline: ResMut<UiPipeline>,
+    mut composite: ResMut<super::composite::UiCompositePipeline>,
     mut gpu: ResMut<UiGpu>,
-    views: Query<(Entity, &ExtractedView, &Msaa)>,
+    views: Query<'_, '_, UiOverlayView>,
+    render_device: Res<RenderDevice>,
+    mut model_depths: ResMut<super::model_depth::UiModelDepths>,
     coverage: Option<Res<UiHandCoverage>>,
 ) {
     // Always clear the previous render-frame coverage, including empty UI and
@@ -133,6 +204,14 @@ pub(super) fn queue_ui_overlay(
     // Retain unchanged view entries rather than freeing/reallocating tree nodes
     // every frame; only departed views release their cached pair.
     retain_view_pipeline_entries(&mut gpu.view_pipelines, |view| views.contains(view));
+    gpu.composite_pipelines
+        .retain(|view, _| views.contains(*view));
+    gpu.world_view_pipelines
+        .retain(|(view, _, _), _| views.contains(*view));
+    gpu.model_view_pipelines
+        .retain(|(view, _, _), _| views.contains(*view));
+    model_depths.synchronize_device(&render_device);
+    model_depths.views.retain(|view, _| views.contains(*view));
     if gpu.batches.is_empty()
         || gpu
             .textures
@@ -144,26 +223,36 @@ pub(super) fn queue_ui_overlay(
     {
         return;
     }
-    for (view_entity, view, msaa) in &views {
+    let needs_models = gpu
+        .batches
+        .iter()
+        .any(|batch| batch.isolated_depth_scope.is_some());
+    let needs_model_depth = gpu.batches.iter().any(|batch| {
+        batch.isolated_depth_scope.is_some() && (batch.depth_test != 0 || batch.depth_write != 0)
+    });
+    if !needs_model_depth {
+        model_depths.views.clear();
+    }
+    for (view_entity, view, msaa, depth, layer, target) in &views {
         let Ok(pipeline_id) = pipeline.variants.specialize(
             &pipeline_cache,
             UiPipelineKey {
                 msaa: *msaa,
                 hdr: view.hdr,
                 invert_blend: false,
+                layer: true,
+                depth_test: false,
+                depth_write: false,
+                isolated_depth: false,
             },
         ) else {
             gpu.view_pipelines.remove(&view_entity);
             continue;
         };
-        let Ok(invert_pipeline_id) = pipeline.variants.specialize(
-            &pipeline_cache,
-            UiPipelineKey {
-                msaa: *msaa,
-                hdr: view.hdr,
-                invert_blend: true,
-            },
-        ) else {
+        let Ok(invert_pipeline_id) = pipeline
+            .variants
+            .specialize(&pipeline_cache, hud_invert_pipeline_key(view.hdr))
+        else {
             gpu.view_pipelines.remove(&view_entity);
             continue;
         };
@@ -172,6 +261,124 @@ pub(super) fn queue_ui_overlay(
             view_entity,
             (pipeline_id, invert_pipeline_id),
         );
+        let main_format = if view.hdr {
+            ViewTarget::TEXTURE_FORMAT_HDR
+        } else {
+            TextureFormat::bevy_default()
+        };
+        let mut composite_into = |format| {
+            composite.specialize(&pipeline_cache, super::composite::UiCompositeKey { format })
+        };
+        match composite_into(main_format) {
+            Some(main) => {
+                let output =
+                    target.and_then(|target| composite_into(target.out_texture_view_format()));
+                gpu.composite_pipelines.insert(
+                    view_entity,
+                    super::composite::CompositePipelines { main, output },
+                );
+            }
+            None => {
+                gpu.composite_pipelines.remove(&view_entity);
+            }
+        }
+        if needs_model_depth && let Some(layer) = layer {
+            model_depths.ensure(view_entity, layer, &render_device);
+        }
+        if needs_models {
+            for (depth_test, depth_write) in
+                [(false, false), (true, false), (false, true), (true, true)]
+            {
+                let key = UiPipelineKey {
+                    msaa: *msaa,
+                    hdr: view.hdr,
+                    invert_blend: false,
+                    layer: true,
+                    depth_test,
+                    depth_write,
+                    isolated_depth: true,
+                };
+                let pair = pipeline
+                    .variants
+                    .specialize(&pipeline_cache, key)
+                    .and_then(|alpha| {
+                        pipeline
+                            .variants
+                            .specialize(
+                                &pipeline_cache,
+                                UiPipelineKey {
+                                    msaa: Msaa::Off,
+                                    invert_blend: true,
+                                    layer: false,
+                                    ..key
+                                },
+                            )
+                            .map(|invert| (alpha, invert))
+                    });
+                if let Ok(pair) = pair {
+                    gpu.model_view_pipelines
+                        .insert((view_entity, depth_test, depth_write), pair);
+                } else {
+                    gpu.model_view_pipelines
+                        .remove(&(view_entity, depth_test, depth_write));
+                }
+            }
+        } else {
+            gpu.model_view_pipelines
+                .retain(|(owner, _, _), _| *owner != view_entity);
+        }
+        if !gpu.batches.iter().any(|batch| batch.world_projection != 0) {
+            gpu.world_view_pipelines
+                .retain(|(owner, _, _), _| *owner != view_entity);
+            continue;
+        }
+        for (depth_test, depth_write) in
+            [(false, false), (true, false), (false, true), (true, true)]
+        {
+            if ((depth_test || depth_write) && depth.is_none())
+                || !gpu.batches.iter().any(|batch| {
+                    batch.world_projection != 0
+                        && (batch.depth_test != 0, batch.depth_write != 0)
+                            == (depth_test, depth_write)
+                })
+            {
+                continue;
+            }
+            let key = UiPipelineKey {
+                msaa: *msaa,
+                hdr: view.hdr,
+                invert_blend: false,
+                layer: false,
+                depth_test,
+                depth_write,
+                isolated_depth: false,
+            };
+            let pair = pipeline
+                .variants
+                .specialize(&pipeline_cache, key)
+                .and_then(|alpha| {
+                    pipeline
+                        .variants
+                        .specialize(
+                            &pipeline_cache,
+                            UiPipelineKey {
+                                invert_blend: true,
+                                ..key
+                            },
+                        )
+                        .map(|invert| (alpha, invert))
+                });
+            match pair {
+                Ok(pair) => {
+                    gpu.world_view_pipelines
+                        .insert((view_entity, depth_test, depth_write), pair);
+                }
+                Err(_) => {
+                    gpu.world_view_pipelines
+                        .remove(&(view_entity, depth_test, depth_write));
+                }
+            }
+        }
     }
 }
 
@@ -213,24 +420,35 @@ impl ViewNode for UiOverlayNode {
         &'static MainEntity,
         &'static ExtractedCamera,
         Option<&'static MainPassResolutionOverride>,
+        Option<&'static super::composite::UiLayerTexture>,
     );
     fn run(
         &self,
         graph: &mut RenderGraphContext,
         context: &mut RenderContext,
-        (target, main, camera, resolution_override): QueryItem<Self::ViewQuery>,
+        (target, main, camera, resolution_override, layer): QueryItem<Self::ViewQuery>,
         world: &World,
     ) -> Result<(), NodeRunError> {
-        let (Some(gpu), Some(pipeline_cache)) = (
+        crate::screen_overlay_render::draw_before_hud(
+            graph.view_entity(),
+            target,
+            camera,
+            resolution_override,
+            context,
+            world,
+        );
+        let (Some(gpu), Some(pipeline_cache), Some(composite)) = (
             world.get_resource::<UiGpu>(),
             world.get_resource::<PipelineCache>(),
+            world.get_resource::<super::composite::UiCompositePipeline>(),
         ) else {
             return Ok(());
         };
-        let (Some(vertices), Some(indices), Some((alpha, invert))) = (
+        let (Some(vertices), Some(indices), Some((alpha, invert)), Some(layer)) = (
             &gpu.vertex_buffer,
             &gpu.index_buffer,
             overlay_pipeline_pair(&gpu.batches, &gpu.view_pipelines, graph.view_entity()),
+            layer,
         ) else {
             return Ok(());
         };
@@ -251,23 +469,16 @@ impl ViewNode for UiOverlayNode {
         ) else {
             return Ok(());
         };
-        let Some(pipeline) = pipeline_cache.get_render_pipeline(*alpha) else {
+        let (Some(layer_pipeline), Some(composite_pipeline)) = (
+            pipeline_cache.get_render_pipeline(*alpha),
+            gpu.composite_pipelines
+                .get(&graph.view_entity())
+                .and_then(|ids| pipeline_cache.get_render_pipeline(ids.main)),
+        ) else {
             return Ok(());
         };
-        let attachments = [Some(target.get_color_attachment())];
-        let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
-            label: Some("retained depth-free HUD overlay"),
-            color_attachments: &attachments,
-            depth_stencil_attachment: None,
-            timestamp_writes: None,
-            occlusion_query_set: None,
-        });
-        pass.set_render_pipeline(pipeline);
-        if let Some(viewport) = overlay_viewport(camera.viewport.as_ref(), resolution_override) {
-            pass.set_camera_viewport(&viewport);
-        }
-        pass.set_vertex_buffer(0, vertices.slice(..));
-        pass.set_index_buffer(indices.slice(..), wgpu::IndexFormat::Uint32);
+        let composite_layout = pipeline_cache.get_bind_group_layout(&composite.layout);
+        let viewport = overlay_viewport(camera.viewport.as_ref(), resolution_override);
         let skip = world.get_resource::<UiHandCoverage>().and_then(|coverage| {
             coverage.range(
                 graph.view_entity(),
@@ -277,38 +488,237 @@ impl ViewNode for UiOverlayNode {
                 gpu.index_count,
             )
         });
-        let mut invert_bound = false;
-        for (_, batch, location) in batches {
-            let binding = gpu.textures.buckets[location.bucket]
-                .bind_group
-                .as_ref()
-                .unwrap();
-            pass.set_bind_group(0, binding, &[]);
-            let wants_invert = batch.blend_mode == UI_BLEND_INVERT;
-            if wants_invert != invert_bound {
-                let id = if wants_invert { *invert } else { *alpha };
-                let Some(pipeline) = pipeline_cache.get_render_pipeline(id) else {
-                    // The invert variant is still compiling; skip its batches
-                    // this frame rather than drawing them with the wrong blend.
-                    if wants_invert {
-                        continue;
-                    }
-                    return Ok(());
-                };
-                pass.set_render_pipeline(pipeline);
-                invert_bound = wants_invert;
+        let batches: Vec<_> = batches
+            .filter(|(_, batch, _)| batch.world_projection == 0)
+            .collect();
+        let model_depth = world
+            .get_resource::<super::model_depth::UiModelDepths>()
+            .and_then(|depths| depths.compatible(graph.view_entity(), layer));
+        let layer_draw = UiLayerDraw {
+            world,
+            gpu,
+            pipeline_cache,
+            alpha: layer_pipeline,
+            vertices,
+            indices,
+            owner: graph.view_entity(),
+            layer,
+            model_depth,
+            viewport: viewport.as_ref(),
+            skip: skip.as_ref(),
+            clear: composite.clear_pipeline(pipeline_cache),
+        };
+        let mut model_lifetime = super::model_depth::ModelDepthLifetime::default();
+        let plan = plan_ui_passes(
+            &batches,
+            world.contains_resource::<super::composite::UiPresentInstalled>(),
+        );
+        // Only a frame's single layer survives to the next frame; animated glint never does.
+        let content = (plan.retainable && !gpu.animated)
+            .then_some(gpu.accepted_revision)
+            .flatten()
+            .map(|revision| super::composite::UiLayerContent {
+                revision,
+                skip: skip.clone(),
+                viewport: viewport
+                    .as_ref()
+                    .map(|viewport| (viewport.physical_position, viewport.physical_size)),
+                model_depth: model_depth.is_some(),
+            });
+        let publication = gpu
+            .last_admitted_publication
+            .upgrade()
+            .filter(|input| Some(input.revision) == gpu.accepted_revision);
+        let profile = world.get_resource::<super::profile::UiProfile>();
+        // Alpha batches blend in the gamma-space layer; an invert batch (the
+        // crosshair) must see the scene, so the layer composites before it.
+        for segment in plan.segments {
+            let layered = &batches[segment.layered];
+            let inverted = segment.inverted.map(|index| &batches[index]);
+            let held = content.as_ref().and_then(|content| layer.holds(content));
+            let proposed = match (content.as_ref(), publication.as_ref()) {
+                _ if held.is_some() => UiDamage::Unchanged,
+                _ if profile.is_some_and(|profile| profile.baseline_replay) => UiDamage::Full,
+                (Some(content), Some(input)) => layer.damage(content, input),
+                _ => UiDamage::Full,
+            };
+            let damage = super::layer::damage_for_passes(
+                proposed,
+                layered.first().map(|(_, batch, _)| *batch),
+                layer_draw.clear.is_some(),
+                !matches!(proposed, UiDamage::Rect(_))
+                    || layered
+                        .iter()
+                        .all(|(_, batch, _)| layer_draw.pipeline(batch).is_some()),
+            );
+            if let Some(profile) = profile {
+                profile.record_layer(
+                    damage != UiDamage::Unchanged,
+                    [layer.texture.width(), layer.texture.height()],
+                    layer.texture.format(),
+                    layer.texture.sample_count(),
+                );
+                if let UiDamage::Rect(rect) = damage {
+                    profile.record_damage(rect);
+                }
             }
-            let scissor = batch.scissor;
-            pass.set_scissor_rect(scissor.x, scissor.y, scissor.width, scissor.height);
-            for range in retained_batch_ranges(batch, skip.as_ref())
-                .into_iter()
-                .flatten()
-            {
-                pass.draw_indexed(range, 0, location.layer..location.layer + 1);
+            let encoded = match held {
+                Some(encoded) => encoded,
+                None => {
+                    let drawn = match damage {
+                        UiDamage::Unchanged => LayerDrawn {
+                            encoded: true,
+                            complete: true,
+                        },
+                        redraw => draw_ui_layer(
+                            context,
+                            &layer_draw,
+                            layered,
+                            &mut model_lifetime,
+                            if let UiDamage::Rect(rect) = redraw {
+                                Some(rect)
+                            } else {
+                                None
+                            },
+                        ),
+                    };
+                    layer.hold_publication(
+                        content
+                            .clone()
+                            .filter(|_| drawn.complete)
+                            .map(|content| (content, drawn.encoded)),
+                        publication.clone(),
+                    );
+                    drawn.encoded
+                }
+            };
+            if encoded {
+                if segment.present {
+                    layer.defer_present();
+                } else {
+                    super::composite::composite(
+                        context,
+                        world,
+                        target,
+                        &layer.view,
+                        composite_pipeline,
+                        &composite_layout,
+                    );
+                }
+            }
+            if let Some(inverted) = inverted {
+                let batch = inverted.1;
+                let scoped = batch.isolated_depth_scope.is_some();
+                model_lifetime.enter(batch.isolated_depth_scope);
+                let needs_depth = batch.depth_test != 0 || batch.depth_write != 0;
+                if scoped && needs_depth && model_depth.is_none() {
+                    continue;
+                }
+                let id = if scoped {
+                    gpu.model_view_pipelines
+                        .get(&(
+                            graph.view_entity(),
+                            batch.depth_test != 0,
+                            batch.depth_write != 0,
+                        ))
+                        .map(|pair| pair.1)
+                } else {
+                    Some(*invert)
+                };
+                let Some(pipeline) = id.and_then(|id| pipeline_cache.get_render_pipeline(id))
+                else {
+                    // Still compiling: skip the crosshair rather than blend it wrong.
+                    continue;
+                };
+                // HUD layers and invert batches share the current resolved scene texture.
+                let attachments = [Some(
+                    bevy::render::render_resource::RenderPassColorAttachment {
+                        view: target.main_texture_view(),
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: Operations {
+                            load: LoadOp::Load,
+                            store: StoreOp::Store,
+                        },
+                    },
+                )];
+                let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
+                    label: Some("retained depth-free HUD invert"),
+                    color_attachments: &attachments,
+                    depth_stencil_attachment: (scoped && needs_depth)
+                        .then(|| model_depth_attachment(model_depth.unwrap(), &model_lifetime)),
+                    timestamp_writes: crate::gpu_timing::ui_pass_timestamps(
+                        world,
+                        crate::RuntimeStage::GpuUiInvert,
+                    ),
+                    occlusion_query_set: None,
+                });
+                if scoped && needs_depth {
+                    model_lifetime.encoded();
+                }
+                pass.set_render_pipeline(pipeline);
+                draw_batches(
+                    &mut pass,
+                    gpu,
+                    vertices,
+                    indices,
+                    viewport.as_ref(),
+                    std::slice::from_ref(inverted),
+                    skip.as_ref(),
+                    None,
+                    world
+                        .get_resource::<super::profile::UiProfile>()
+                        .map(|profile| (profile, crate::RuntimeStage::GpuUiInvert)),
+                );
             }
         }
-        pass.set_scissor_rect(0, 0, gpu.viewport_size[0], gpu.viewport_size[1]);
         Ok(())
+    }
+}
+
+/// One gamma-layer draw: its layered batch range, then an optional invert batch.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct UiSegment {
+    pub(crate) layered: Range<usize>,
+    pub(crate) inverted: Option<usize>,
+    /// The layer composites in the output pass instead of over the main texture.
+    pub(crate) present: bool,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct UiPassPlan {
+    pub(crate) segments: Vec<UiSegment>,
+    /// One layer per frame, so it can be kept for the next frame.
+    pub(crate) retainable: bool,
+}
+
+/// Splits the HUD into layer and invert passes; the last layer waits for the output pass.
+pub(crate) fn plan_ui_passes<T: std::borrow::Borrow<UiRenderBatch>, L>(
+    batches: &[(usize, T, L)],
+    deferred_present: bool,
+) -> UiPassPlan {
+    let mut segments = Vec::new();
+    let mut start = 0;
+    for (index, (_, batch, _)) in batches.iter().enumerate() {
+        if batch.borrow().blend_mode == UI_BLEND_INVERT {
+            segments.push(UiSegment {
+                layered: start..index,
+                inverted: Some(index),
+                present: false,
+            });
+            start = index + 1;
+        }
+    }
+    if start < batches.len() {
+        segments.push(UiSegment {
+            layered: start..batches.len(),
+            inverted: None,
+            present: deferred_present,
+        });
+    }
+    UiPassPlan {
+        retainable: segments.len() == 1,
+        segments,
     }
 }
 
@@ -319,22 +729,39 @@ pub(crate) fn overlay_viewport(
     Viewport::from_viewport_and_override(viewport, resolution_override)
 }
 
+/// Selects the ordinary HUD invert pipeline independently of world depth modes.
+pub(super) fn hud_invert_pipeline_key(hdr: bool) -> UiPipelineKey {
+    UiPipelineKey {
+        msaa: Msaa::Off,
+        hdr,
+        invert_blend: true,
+        layer: false,
+        depth_test: false,
+        depth_write: false,
+        isolated_depth: false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn retained_hand_split_keeps_mixed_bucket_layer_blend_and_shadow_fill_order() {
-        let plan =
-            crate::UiTexturePlan::new(&[[1024, 1024], [2048, 2048], [256, 256], [2048, 2048]])
-                .unwrap();
+        let plan = render_model::UiTexturePlan::new(&[
+            [1024, 1024],
+            [2048, 2048],
+            [256, 256],
+            [2048, 2048],
+        ])
+        .unwrap();
         let batches = [1, 0, 3, 2, 1]
             .into_iter()
             .enumerate()
             .map(|(index, page)| {
                 UiRenderBatch::new(
                     page,
-                    crate::ui::UiScissor::new(index as u32, 0, 20, 20),
+                    render_model::UiScissor::new(index as u32, 0, 20, 20),
                     index as u32 * 18,
                     18,
                     if index == 2 {
@@ -386,5 +813,25 @@ mod tests {
             resolved_batches(Some(7), &batches, &locations, plan.buckets()).is_none(),
             "late invalid physical layer must emit no prefix"
         );
+    }
+}
+
+#[cfg(test)]
+#[path = "frame_pass_tests.rs"]
+mod frame_pass_tests;
+
+#[cfg(test)]
+mod review_tests {
+    use super::*;
+    #[test]
+    fn review_render_hud_invert_uses_the_resolved_scene_sample_count() {
+        use super::super::pipeline::{
+            UiPipelineSpecializer, ui_bind_group_layout, ui_pipeline_descriptor,
+        };
+        let mut descriptor = ui_pipeline_descriptor(ui_bind_group_layout());
+        UiPipelineSpecializer
+            .specialize(hud_invert_pipeline_key(false), &mut descriptor)
+            .unwrap();
+        assert_eq!(descriptor.multisample.count, 1);
     }
 }

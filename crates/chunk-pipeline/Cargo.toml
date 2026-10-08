@@ -1,0 +1,45 @@
+[package]
+name = "chunk-pipeline"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[features]
+tracy = []
+publication-test-support = []
+benchmark-support = []
+
+[dependencies]
+render-api = { path = "../render-api" }
+assets = { path = "../assets" }
+crossbeam-channel = "0.5"
+bytes.workspace = true
+hashbrown = "0.16"
+meshing = { path = "../meshing" }
+client-world = { path = "../client-world" }
+rayon.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+world = { path = "../world" }
+
+[target.'cfg(any(target_os = "macos", target_os = "linux"))'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading"] }
+
+[dev-dependencies]
+protocol = { path = "../protocol" }
+criterion.workspace = true
+
+[[bench]]
+name = "chunk_costs"
+harness = false
+required-features = ["benchmark-support"]
+
+[[bench]]
+name = "flight_costs"
+harness = false
+required-features = ["benchmark-support"]

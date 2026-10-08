@@ -30,6 +30,9 @@ static RECOVERY_ORDER_COMPARISONS: AtomicUsize = AtomicUsize::new(0);
 mod resolver;
 pub use resolver::{BlobCacheReady, BlobCacheStatus};
 
+/// Independent ceiling on retained blob-entry metadata, including tiny payloads.
+pub const MAX_CLIENT_BLOB_CACHE_ENTRIES: usize = 65_536;
+
 pub const CLIENT_BLOB_CACHE_TRIM_TRIGGER_BYTES: usize = 100 * 1024 * 1024;
 pub const CLIENT_BLOB_CACHE_TRIM_FLOOR_BYTES: usize = 80 * 1024 * 1024;
 /// Mojang's cache design limits each `ClientCacheBlobStatusPacket` to 4,095 IDs:
@@ -165,6 +168,8 @@ pub enum BlobCacheError {
     MissingResolvedBlob(u64),
     #[error("cached pinned payload exceeds the aggregate safety ceiling")]
     PinnedPayloadPressure,
+    #[error("cached blob entry metadata exceeds the safety ceiling")]
+    CacheEntryPressure,
     #[error("cached payload byte accounting overflowed")]
     ByteCountOverflow,
     #[error(
@@ -311,7 +316,8 @@ impl ClientBlobCache {
                         .limits
                         .trim_floor_bytes
                         .min(self.limits.trim_trigger_bytes);
-                    store.trim_pending = store.total_bytes > floor;
+                    store.trim_pending = store.total_bytes > floor
+                        || store.entries.len() > MAX_CLIENT_BLOB_CACHE_ENTRIES / 2;
                 }
             }
         }
@@ -530,6 +536,12 @@ fn insert_verified(
         }
         return Ok(());
     }
+    if store.entries.len() >= MAX_CLIENT_BLOB_CACHE_ENTRIES {
+        trim_if_needed(store, limits, hash);
+        if store.entries.len() >= MAX_CLIENT_BLOB_CACHE_ENTRIES {
+            return Err(BlobCacheError::CacheEntryPressure);
+        }
+    }
     let total_bytes = store
         .total_bytes
         .checked_add(payload.len())
@@ -560,10 +572,21 @@ fn insert_verified(
 /// Evicts least-recently-used unpinned entries down to the floor, choosing
 /// every victim from one sorted pass; returns the entries examined.
 fn trim_if_needed(store: &mut CacheStore, limits: BlobCacheLimits, inserted_hash: u64) -> usize {
-    if store.total_bytes <= limits.trim_trigger_bytes {
+    let entry_pressure = store.entries.len() >= MAX_CLIENT_BLOB_CACHE_ENTRIES;
+    let byte_pressure = store.total_bytes > limits.trim_trigger_bytes;
+    if !entry_pressure && !byte_pressure {
         return 0;
     }
-    let floor = limits.trim_floor_bytes.min(limits.trim_trigger_bytes);
+    let floor = if byte_pressure {
+        limits.trim_floor_bytes.min(limits.trim_trigger_bytes)
+    } else {
+        store.total_bytes
+    };
+    let entry_floor = if entry_pressure {
+        MAX_CLIENT_BLOB_CACHE_ENTRIES / 2
+    } else {
+        store.entries.len()
+    };
     let mut victims = store
         .entries
         .iter()
@@ -575,13 +598,14 @@ fn trim_if_needed(store: &mut CacheStore, limits: BlobCacheLimits, inserted_hash
     let examined = store.entries.len();
     victims.sort_unstable();
     for (_, evict) in victims {
-        if store.total_bytes <= floor {
+        if store.total_bytes <= floor && store.entries.len() <= entry_floor {
             break;
         }
         let removed = store.entries.remove(&evict).expect("selected cache entry");
         store.total_bytes = store.total_bytes.saturating_sub(removed.payload.len());
     }
-    store.trim_pending = store.total_bytes > limits.trim_trigger_bytes;
+    store.trim_pending = store.total_bytes > limits.trim_trigger_bytes
+        || store.entries.len() >= MAX_CLIENT_BLOB_CACHE_ENTRIES;
     examined
 }
 

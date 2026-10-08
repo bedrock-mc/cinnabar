@@ -2,9 +2,8 @@ use std::sync::Arc;
 
 use jolyne::GameData;
 use thiserror::Error;
-use valentine::bedrock::version::v1_26_51::LevelChunkPacketView;
 use valentine::bedrock::version::v1_26_51::{
-    EnumsPlayerRespawnState as RespawnPacketState,
+    EnumsMovementEffectType,
     EnumsSubChunkPacketPayloadSubChunkRequestResult as SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult,
     GameRule, GameRuleRuleValue, McpePacketData,
 };
@@ -37,32 +36,51 @@ use crate::{
     },
 };
 
+mod biomes;
 mod block_side;
+mod block_updates;
+mod clocks;
 mod custom_blocks;
+mod diagnostics;
+mod dimension;
+mod environment;
 mod events;
 mod game_mode;
 mod game_rules;
+mod level_chunk;
 mod requests;
-pub use self::custom_blocks::{
-    CustomBlock, CustomBlockVisuals, CustomBlocks, CustomBox, CustomHashedState,
-    CustomMaterialInstance, CustomPermutation, CustomSelection, CustomStateAxis, CustomStateValue,
-    CustomTransformation, CustomVisualComponents, block_name_sort_key,
+
+pub use self::clocks::{
+    OVERWORLD_CLOCK_ID, OVERWORLD_CLOCK_NAME, WorldClockDefinition, WorldClockState,
+    WorldClockUpdateEvent,
 };
+pub use self::custom_blocks::{
+    CustomBlock, CustomBlockPhysics, CustomBlockVisuals, CustomBlocks, CustomBox, CustomCollision,
+    CustomHashedState, CustomMaterialInstance, CustomPermutation, CustomPhysicalComponents,
+    CustomSelection, CustomStateAxis, CustomStateValue, CustomTransformation,
+    CustomVisualComponents, block_name_sort_key, block_state_network_hash,
+};
+pub use self::diagnostics::{DimensionHeightDiagnostic, HeightmapDiagnostic, SubChunkDiagnostic};
+pub use self::environment::WorldEnvironmentBootstrap;
 pub use self::events::{
-    ActorMotionEvent, ActorPropertySyncEvent, BiomeDefinitionEvent, BiomeDefinitionsEvent,
-    BlockEntityUpdateEvent, BlockEventEvent, BlockUpdateEvent, ChangeDimensionEvent,
-    ChunkResyncEvent, DaylightCycleUpdateEvent, DimensionRange, GameRulesEvent, LevelChunkEvent,
-    LevelChunkMode, MAP_IMAGE_SIDE, MAX_ACTOR_PROPERTY_SYNC_BYTES, MapDataEvent, MovePlayerEvent,
-    MovePlayerMode, MovementCorrectionSubject, OpenSignEvent, PLAYER_NETWORK_OFFSET,
+    ActorBlockSyncMessage, ActorMotionEvent, ActorPropertySyncEvent, BiomeDefinitionEvent,
+    BiomeDefinitionsEvent, BlockEntityUpdateEvent, BlockEventEvent, BlockUpdateEvent,
+    ChangeDimensionEvent, ChunkResyncEvent, DaylightCycleUpdateEvent, DimensionRange,
+    GameRulesEvent, LevelChunkEvent, LevelChunkMode, MAP_IMAGE_SIDE, MAX_ACTOR_PROPERTY_SYNC_BYTES,
+    MapDataEvent, MovePlayerEvent, MovePlayerMode, MovementCorrectionSubject, MovementEffectEvent,
+    MovementEffectKind, NETHER_DIMENSION_ID, OpenSignEvent, PLAYER_NETWORK_OFFSET,
     PlayerMovementCorrectionEvent, PublisherUpdateEvent, RespawnEvent, STANDING_PLAYER_EYE_HEIGHT,
     SetTimeEvent, SubChunkBatchEvent, SubChunkEntryEvent, SubChunkReplyAdmissionEvent,
-    SubChunkResult, SubChunkUnavailable, WeatherChannel, WeatherUpdateEvent, WorldEvent,
-    air_network_id, vanilla_dimension_range,
+    SubChunkResult, SubChunkUnavailable, SyncedBlockUpdateEvent, WeatherChannel,
+    WeatherUpdateEvent, WorldEvent, air_network_id, vanilla_dimension_range,
 };
 pub use self::game_mode::PlayerGameMode;
-use self::game_rules::{daylight_cycle_rule_update, hud_rules};
+use self::game_rules::{daylight_cycle_rule_update, hud_rules, weather_cycle_rule_update};
+use self::level_chunk::level_chunk_mode;
+pub(crate) use self::level_chunk::normalize_borrowed_level_chunk;
+use self::requests::checked_sub_chunk_position;
 pub use self::requests::request_sub_chunk_column;
-use self::requests::{checked_sub_chunk_position, normalize_layer};
+use biomes::canonical_biome_name;
 
 /// Sequential palette state ID generated for `minecraft:air` in 1.26.30.
 pub const SEQUENTIAL_AIR_NETWORK_ID: u32 = 12_530;
@@ -75,6 +93,9 @@ pub const MAX_BLOCK_LAYERS: usize = 16;
 
 /// Maximum Y offsets emitted in one column SubChunkRequest.
 pub const MAX_SUB_CHUNK_REQUESTS: usize = 128;
+
+/// Maximum dimension definitions retained from one server packet or session.
+pub const MAX_DIMENSION_DEFINITIONS: usize = 64;
 
 /// Maximum live biome definitions retained from one server packet.
 ///
@@ -174,51 +195,6 @@ impl WorldBootstrap {
     }
 }
 
-/// Initial clock and weather state retained from StartGame.
-///
-/// This is separate from [`WorldBootstrap`] so existing world-stream
-/// construction remains independent of the later app-owned atmosphere state.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct WorldEnvironmentBootstrap {
-    /// StartGame's current absolute world tick.
-    pub initial_time: i64,
-    /// StartGame's cycle lock tick, used only when the daylight cycle is disabled.
-    pub day_cycle_lock_time: i32,
-    /// Whether the world clock advances between server-authored time updates.
-    pub daylight_cycle_enabled: bool,
-    /// Initial rain intensity clamped to the closed unit interval.
-    pub rain_level: f32,
-    /// Initial lightning intensity clamped to the closed unit interval.
-    pub lightning_level: f32,
-}
-
-impl WorldEnvironmentBootstrap {
-    #[must_use]
-    pub fn from_game_data(game_data: &GameData) -> Self {
-        let settings = &game_data.start_game.settings;
-        Self {
-            // gophertunnel packet/start_game.go writes `Time int64`; the
-            // generated field is u64 over the same eight little-endian bytes.
-            initial_time: game_data.start_game.level_current_time as i64,
-            day_cycle_lock_time: settings.day_cycle_stop_time,
-            // StartGame and GameRulesChanged now carry the same `GameRule`
-            // type, so the two rule scans collapse into one helper.
-            daylight_cycle_enabled: daylight_cycle_rule_update(&settings.rule_data.rules_list)
-                .unwrap_or(true),
-            rain_level: normalize_weather_level(settings.rain_level),
-            lightning_level: normalize_weather_level(settings.lightning_level),
-        }
-    }
-}
-
-fn normalize_weather_level(level: f32) -> f32 {
-    if level.is_finite() {
-        level.clamp(0.0, 1.0)
-    } else {
-        0.0
-    }
-}
-
 /// Provenance-preserving failures in an otherwise decoded world packet body.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum WorldWireError {
@@ -290,8 +266,15 @@ pub enum WorldPacketError {
         max: usize,
     },
 
-    #[error("camera spline instructions are recognized but not normalized")]
-    UnsupportedCameraSpline,
+    #[error("camera {field} is unusable")]
+    InvalidCameraField { field: &'static str },
+
+    #[error("camera {field} has {count} entries, exceeding {max}")]
+    CameraCollectionTooLarge {
+        field: &'static str,
+        count: usize,
+        max: usize,
+    },
 
     #[error("unsupported LevelChunk sub-chunk count {0}")]
     InvalidSubChunkCount(i32),
@@ -380,6 +363,18 @@ pub fn into_world_event(
     current_dimension: i32,
 ) -> Result<Option<WorldEvent>, WorldPacketError> {
     let event = match packet.data {
+        McpePacketData::ShowCreditsPacket(packet) => {
+            let Some(event) = crate::credits::normalize(&packet) else {
+                return Ok(None);
+            };
+            WorldEvent::Ui(UiEvent::ShowCredits(event))
+        }
+        McpePacketData::ScriptMessagePacket(message) => {
+            if packet.header.from_subclient != 0 || packet.header.to_subclient != 0 {
+                return Ok(None);
+            }
+            return Ok(crate::experience::normalize(message).map(WorldEvent::Experience));
+        }
         McpePacketData::UpdateAbilitiesPacket(packet) => {
             WorldEvent::Abilities(crate::permissions::normalize_abilities(packet.data))
         }
@@ -444,6 +439,11 @@ pub fn into_world_event(
         McpePacketData::AddItemActorPacket(packet) => {
             WorldEvent::Actor(normalize_add_item_actor(*packet, current_dimension)?)
         }
+        McpePacketData::AvailableActorIdentifiersPacket(packet) => {
+            WorldEvent::Actor(crate::ActorEvent::Identifiers(
+                crate::actor::identifiers::normalize(&packet.identifier_list.0),
+            ))
+        }
         McpePacketData::TakeItemActorPacket(packet) => {
             WorldEvent::Actor(crate::actor::normalize_take_item_actor(packet))
         }
@@ -482,6 +482,9 @@ pub fn into_world_event(
                 update: PlayerGameMode::update_from_game_mode(packet.player_game_type),
             }))
         }
+        McpePacketData::UpdatePlayerGameTypePacket(packet) => {
+            WorldEvent::Ui(game_mode::targeted_update(packet))
+        }
         McpePacketData::SetDefaultGameTypePacket(packet) => {
             WorldEvent::Ui(UiEvent::DefaultGameMode(GameModeEvent {
                 update: PlayerGameMode::update_from_default_game_mode(packet.default_game_type),
@@ -498,6 +501,12 @@ pub fn into_world_event(
         }
         McpePacketData::InventorySlotPacket(packet) => {
             WorldEvent::Inventory(normalize_slot(*packet)?)
+        }
+        McpePacketData::InventoryTransactionPacket(packet) => {
+            let Some(event) = crate::inventory::normalize_transaction(*packet) else {
+                return Ok(None);
+            };
+            WorldEvent::Inventory(event)
         }
         McpePacketData::PlayerHotbarPacket(packet) => {
             WorldEvent::Inventory(normalize_hotbar(packet)?)
@@ -532,7 +541,19 @@ pub fn into_world_event(
             WorldEvent::Camera(crate::camera::normalize_switch(packet))
         }
         McpePacketData::CameraPresetsPacket(packet) => {
-            WorldEvent::Camera(crate::camera::normalize_presets(packet))
+            WorldEvent::Camera(crate::camera::normalize_presets(packet)?)
+        }
+        McpePacketData::CameraSplinePacket(packet) => {
+            WorldEvent::Camera(crate::camera::normalize_registry(packet)?)
+        }
+        McpePacketData::CameraAimAssistPacket(packet) => {
+            WorldEvent::Camera(crate::camera::normalize_settings(*packet)?)
+        }
+        McpePacketData::CameraAimAssistPresetsPacket(packet) => {
+            WorldEvent::Camera(crate::camera::normalize_aim_presets(packet)?)
+        }
+        McpePacketData::CameraAimAssistActorPriorityPacket(packet) => {
+            WorldEvent::Camera(crate::camera::normalize_actor_priorities(packet)?)
         }
         McpePacketData::CameraShakePacket(packet) => {
             WorldEvent::Camera(crate::camera::normalize_shake(*packet)?)
@@ -586,12 +607,21 @@ pub fn into_world_event(
                     }
                 }
                 let name = canonical_biome_name(name);
+                // Climate is optional on the wire. Ignore an unusable optional
+                // field instead of rejecting a well-framed biome definition.
+                let max_snow_accumulation = definition
+                    .chunkgendata
+                    .as_ref()
+                    .and_then(|generation| generation.climate.as_ref())
+                    .map(|climate| climate.snowaccumulationmax)
+                    .filter(|value| value.is_finite());
                 definitions.push(BiomeDefinitionEvent {
                     biome_id: (definition.id != u16::MAX).then_some(definition.id),
                     name,
                     temperature: definition.temperature,
                     downfall: definition.downfall,
                     snow_foliage: definition.foliagesnow,
+                    max_snow_accumulation,
                     map_water_color: definition.mapwatercolor_argb as u32,
                 });
             }
@@ -638,6 +668,7 @@ pub fn into_world_event(
             ];
             let mut normalized = Vec::with_capacity(packet.sub_chunk_data.len());
             for entry in packet.sub_chunk_data {
+                let diagnostics = Some(SubChunkDiagnostic::from_entry(&entry));
                 let offset = [
                     entry.sub_chunk_pos_offset.subchunk_offset_x,
                     entry.sub_chunk_pos_offset.subchunk_offset_y,
@@ -679,46 +710,35 @@ pub fn into_world_event(
                         SubChunkResult::Unavailable(SubChunkUnavailable::Unknown(value))
                     }
                 };
-                normalized.push(SubChunkEntryEvent { position, result });
+                normalized.push(SubChunkEntryEvent {
+                    position,
+                    result,
+                    diagnostics,
+                });
             }
             WorldEvent::SubChunks(SubChunkBatchEvent {
                 dimension: packet.dimension_type.value,
                 entries: normalized,
             })
         }
-        McpePacketData::UpdateBlockPacket(packet) => {
-            let layer = normalize_layer(packet.layer)?;
-            WorldEvent::BlockUpdates(vec![BlockUpdateEvent {
-                dimension: current_dimension,
-                position: [
-                    packet.block_position.x,
-                    packet.block_position.y,
-                    packet.block_position.z,
-                ],
-                layer,
-                network_id: packet.block_runtime_id,
-            }])
-        }
-        McpePacketData::UpdateSubChunkBlocksPacket(packet) => {
-            // The two block lists moved into a nested `blocks_changed` struct;
-            // gophertunnel packet/update_sub_chunk_blocks.go still writes
-            // Blocks (layer 0) then Extra (layer 1) back to back.
-            let standards = packet.blocks_changed.blocks_changed_standards;
-            let extras = packet.blocks_changed.blocks_changed_extras;
-            let mut updates = Vec::with_capacity(standards.len() + extras.len());
-            updates.extend(standards.into_iter().map(|update| BlockUpdateEvent {
-                dimension: current_dimension,
-                position: [update.pos.x, update.pos.y, update.pos.z],
-                layer: 0,
-                network_id: update.runtime_id,
-            }));
-            updates.extend(extras.into_iter().map(|update| BlockUpdateEvent {
-                dimension: current_dimension,
-                position: [update.pos.x, update.pos.y, update.pos.z],
-                layer: 1,
-                network_id: update.runtime_id,
-            }));
-            WorldEvent::BlockUpdates(updates)
+        McpePacketData::DimensionDataPacket(packet) => WorldEvent::DimensionHeights(
+            packet
+                .definitions
+                .into_iter()
+                .take(MAX_DIMENSION_DEFINITIONS)
+                .map(|entry| DimensionHeightDiagnostic {
+                    name: Arc::from(entry.key),
+                    dimension: entry.value.dimension_type.value,
+                    minimum_y: entry.value.minimum_y,
+                    height_range: entry.value.height_range,
+                    generator: diagnostics::dimension_generator_id(entry.value.generator_type),
+                })
+                .collect(),
+        ),
+        packet @ (McpePacketData::UpdateBlockPacket(_)
+        | McpePacketData::UpdateBlockSyncedPacket(_)
+        | McpePacketData::UpdateSubChunkBlocksPacket(_)) => {
+            return block_updates::normalize(packet, current_dimension);
         }
         McpePacketData::BlockActorDataPacket(packet) => {
             WorldEvent::BlockEntityUpdate(BlockEntityUpdateEvent {
@@ -758,24 +778,18 @@ pub fn into_world_event(
             })
         }
         McpePacketData::ChangeDimensionPacket(packet) => {
-            WorldEvent::ChangeDimension(ChangeDimensionEvent {
-                dimension: packet.dimension_id.value,
-                position: [packet.position.x, packet.position.y, packet.position.z],
-            })
+            WorldEvent::ChangeDimension(dimension::normalize_change_dimension(&packet))
         }
-        McpePacketData::RespawnPacket(packet) => WorldEvent::Respawn(RespawnEvent {
-            position: [packet.position.x, packet.position.y, packet.position.z],
-            // The state byte is typed now; gophertunnel packet/respawn.go pins
-            // SearchingForSpawn=0, ReadyToSpawn=1, ClientReadyToSpawn=2, and
-            // this event deliberately keeps the raw wire value.
-            state: match packet.state {
-                RespawnPacketState::Searchingforspawn => 0,
-                RespawnPacketState::Readytospawn => 1,
-                RespawnPacketState::Clientreadytospawn => 2,
-                RespawnPacketState::Unknown(value) => value,
-            },
-            runtime_entity_id: packet.player_runtime_id.actor_runtime_id,
-        }),
+        McpePacketData::PlayerActionPacket(action) => {
+            return Ok(crate::dimension::normalize_ack(
+                &action,
+                packet.header.from_subclient,
+                packet.header.to_subclient,
+            ));
+        }
+        McpePacketData::RespawnPacket(packet) => {
+            WorldEvent::Respawn(dimension::normalize_respawn(&packet))
+        }
         McpePacketData::MovePlayerPacket(packet) => {
             for (field, value) in [
                 ("position x", packet.position.x),
@@ -825,6 +839,19 @@ pub fn into_world_event(
                 tick: packet.tick.inputtick,
             })
         }
+        McpePacketData::MovementEffectPacket(packet) => {
+            WorldEvent::MovementEffect(MovementEffectEvent {
+                actor_runtime_id: packet.target_runtime_id.actor_runtime_id,
+                kind: match packet.effect_id {
+                    EnumsMovementEffectType::GlideBoost => MovementEffectKind::GlideBoost,
+                    EnumsMovementEffectType::DolphinBoost => MovementEffectKind::DolphinBoost,
+                    EnumsMovementEffectType::GeyserBoost => MovementEffectKind::GeyserBoost,
+                    EnumsMovementEffectType::Unknown(value) => MovementEffectKind::Unknown(value),
+                },
+                duration_ticks: packet.effect_duration,
+                tick: packet.tick.inputtick,
+            })
+        }
         McpePacketData::CorrectPlayerMovePredictionPacket(packet) => {
             let delta = [packet.pos_delta.x, packet.pos_delta.y, packet.pos_delta.z];
             // A well-formed correction whose velocity record or rotation is not
@@ -856,16 +883,25 @@ pub fn into_world_event(
         McpePacketData::SetTimePacket(packet) => {
             WorldEvent::SetTime(SetTimeEvent { time: packet.time })
         }
+        McpePacketData::SyncWorldClocksPacket(packet) => {
+            let updates = clocks::normalize_world_clocks(packet.data);
+            if updates.is_empty() {
+                return Ok(None);
+            }
+            WorldEvent::WorldClocks(updates)
+        }
         McpePacketData::GameRulesChangedPacket(packet) => {
             let rules = &packet.rule_data.rules_list;
             let daylight_cycle = daylight_cycle_rule_update(rules)
                 .map(|enabled| DaylightCycleUpdateEvent { enabled });
+            let weather_cycle = weather_cycle_rule_update(rules);
             let hud = hud_rules(rules);
-            if daylight_cycle.is_none() && hud.is_empty() {
+            if daylight_cycle.is_none() && weather_cycle.is_none() && hud.is_empty() {
                 return Ok(None);
             }
             WorldEvent::GameRules(GameRulesEvent {
                 daylight_cycle,
+                weather_cycle,
                 hud,
             })
         }
@@ -918,6 +954,9 @@ pub fn into_world_event(
             };
             WorldEvent::Weather(update)
         }
+        McpePacketData::PrimitiveShapesPacket(packet) => {
+            WorldEvent::PrimitiveShapes(crate::primitive_shapes::normalize(packet))
+        }
         McpePacketData::SpawnParticleEffectPacket(packet) => {
             match crate::particle::normalize_spawn(*packet) {
                 Some(event) => WorldEvent::Particle(event),
@@ -927,61 +966,4 @@ pub fn into_world_event(
         _ => return Ok(None),
     };
     Ok(Some(event))
-}
-
-fn level_chunk_mode(
-    request_limit: Option<i32>,
-    subchunks_count: u32,
-) -> Result<LevelChunkMode, WorldPacketError> {
-    match request_limit {
-        Some(-1) => Ok(LevelChunkMode::LimitlessRequests),
-        Some(limit) => Ok(LevelChunkMode::LimitedRequests {
-            highest: u16::try_from(limit)
-                .map_err(|_| WorldPacketError::InvalidSubChunkCount(limit))?,
-        }),
-        None => {
-            let count = usize::try_from(subchunks_count)
-                .map_err(|_| WorldPacketError::InvalidSubChunkCount(i32::MAX))?;
-            // Vanilla bounds the inline count only while decoding the payload.
-            Ok(LevelChunkMode::Inline { count })
-        }
-    }
-}
-
-pub(crate) fn normalize_borrowed_level_chunk(
-    packet: LevelChunkPacketView,
-) -> Result<(LevelChunkEvent, bytes::Bytes), WorldPacketError> {
-    if packet.cache_enabled {
-        return Err(WorldPacketError::CachedChunksUnsupported);
-    }
-    let mode = level_chunk_mode(
-        packet.client_request_sub_chunk_limit,
-        packet.subchunks_count,
-    )?;
-    let payload = packet.serialized_chunk_data;
-    Ok((
-        LevelChunkEvent {
-            dimension: packet.dimension_id.value,
-            x: packet.chunk_position.x,
-            z: packet.chunk_position.z,
-            mode,
-            payload: Vec::new(),
-        },
-        payload,
-    ))
-}
-
-fn canonical_biome_name(name: &str) -> Arc<str> {
-    if name.contains(':') {
-        return Arc::from(name);
-    }
-    const RETAIL_BIOMES: &str = include_str!("../data/retail_biomes_1_26_50.txt");
-    let known_retail = RETAIL_BIOMES
-        .lines()
-        .any(|identifier| identifier.strip_prefix("minecraft:") == Some(name));
-    if known_retail {
-        Arc::from(format!("minecraft:{name}"))
-    } else {
-        Arc::from(name)
-    }
 }

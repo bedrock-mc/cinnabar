@@ -8,8 +8,11 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+mod properties;
+pub use properties::Properties;
+
 /// A fully qualified `namespace.name` handle for a control definition.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct ControlRef {
     pub namespace: String,
     pub name: String,
@@ -24,13 +27,14 @@ impl ControlRef {
     }
 
     /// Split a reference against a default namespace, dropping any leading `@`.
-    /// `common.foo` keeps its namespace; a bare `foo` adopts `default_ns`.
+    /// `common.foo` keeps its namespace; `foo` and `.foo` adopt `default_ns`.
     /// A `name@ns.base` factory entry names its base after the `@`.
     pub fn parse(reference: &str, default_ns: &str) -> Self {
         let reference = reference
             .rsplit_once('@')
             .map_or(reference, |(_, base)| base);
         match reference.split_once('.') {
+            Some(("", name)) => Self::new(default_ns, name),
             Some((namespace, name)) => Self::new(namespace, name),
             None => Self::new(default_ns, reference),
         }
@@ -54,14 +58,60 @@ pub struct Factory {
     pub control_ids: BTreeMap<String, ControlRef>,
     /// A single-target factory (`control_name`), used by some radio groups.
     pub control_name: Option<ControlRef>,
-    /// `max_children_size`: a fed factory keeps only its newest this many.
+    /// `max_children_size`: the host keeps at most this many children, evicting
+    /// from the end opposite `insert_location`; zero declares no limit.
     #[serde(default)]
     pub max_children_size: Option<usize>,
+    /// Instance names `control_ids` entries give (`instance@ns.control`).
+    #[serde(default)]
+    pub instance_names: BTreeMap<String, String>,
+    /// `insert_location: "front"`: new controls go first.
+    #[serde(default)]
+    pub insert_front: bool,
+    /// `factory_variables` captured where the factory was declared.
+    #[serde(default)]
+    pub variables: BTreeMap<String, Value>,
 }
 
 impl Factory {
     pub fn is_empty(&self) -> bool {
         self.control_ids.is_empty() && self.control_name.is_none()
+    }
+
+    /// The `$vars` a `control_ids` creation resolves with: its own, overridden
+    /// by the captured `factory_variables`.
+    pub fn creation_vars(&self, own: &BTreeMap<String, Value>) -> BTreeMap<String, Value> {
+        let mut vars = own.clone();
+        vars.extend(
+            self.variables
+                .iter()
+                .map(|(name, value)| (name.clone(), value.clone())),
+        );
+        vars
+    }
+
+    /// `created` placed around the host's `literals` by `insert_location`, then
+    /// capped at `max_children_size` by evicting from the opposite end.
+    pub(crate) fn place<T>(&self, literals: Vec<T>, mut created: Vec<T>) -> Vec<T> {
+        let mut children = if self.insert_front {
+            created.reverse();
+            created.extend(literals);
+            created
+        } else {
+            let mut children = literals;
+            children.extend(created);
+            children
+        };
+        if let Some(max) = self.max_children_size
+            && children.len() > max
+        {
+            if self.insert_front {
+                children.truncate(max);
+            } else {
+                children.drain(..children.len() - max);
+            }
+        }
+        children
     }
 }
 
@@ -78,7 +128,7 @@ pub struct ResolvedControl {
     /// base); the node is still emitted so callers see the gap.
     pub unresolved_base: Option<String>,
     /// Remaining properties, `$var`/global substituted, size/`view` left symbolic.
-    pub properties: BTreeMap<String, Value>,
+    pub properties: Properties,
     /// Ordered children with `ignored` controls removed.
     pub children: Vec<ResolvedControl>,
     /// Recorded factory, if this control declares one.

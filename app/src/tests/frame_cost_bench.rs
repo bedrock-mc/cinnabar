@@ -1,12 +1,14 @@
 //! Main-thread cost of per-frame paths, old shape against new, at crowded-server loads.
-//! Run: `cargo test -p bedrock-client --lib frame_cost_bench -- --ignored --nocapture`.
+//! Run: `cargo test -p bedrock-client --features reports --lib frame_cost_bench -- --ignored --nocapture`.
 
 use std::time::{Duration, Instant};
 
 use render::{
-    ActorRigFrameBuilder, ActorRigGeometry, ActorRigVertex, ActorSkinPixels, BlockEntityKind,
-    BlockEntityScene, BlockEntitySubmission, SceneClock, normalize_actor_skin,
-    normalize_actor_skin_cached, skin_rig_id,
+    ActorRigFrameBuilder, BlockEntityKind, BlockEntityScene, BlockEntitySubmission, SceneClock,
+};
+use render_model::{
+    ActorRigGeometry, ActorRigVertex, ActorSkinPixels, normalize_actor_skin,
+    prepare_actor_skin_cached, skin_rig_id,
 };
 
 const FRAMES: u32 = 200;
@@ -44,7 +46,7 @@ fn frame_cost_bench_skin_normalization_50_hd_players() {
     });
     let new = per_frame(FRAMES, |_| {
         for skin in &skins {
-            std::hint::black_box(normalize_actor_skin_cached(skin));
+            std::hint::black_box(prepare_actor_skin_cached(skin));
         }
     });
     report("skin_normalization_50_hd", old, new);
@@ -58,7 +60,7 @@ fn frame_cost_bench_geometry_registration_30_models() {
         ActorRigGeometry::new(id, vec![ActorRigVertex::default(); 500], vec![[0.0; 3]; 4]).unwrap()
     };
     let catalog = || {
-        ActorRigFrameBuilder::new((0..224).map(|index| geometry(render::EntityRigId(index))))
+        ActorRigFrameBuilder::new((0..224).map(|index| geometry(render_model::EntityRigId(index))))
             .unwrap()
     };
     let models = || {
@@ -99,7 +101,7 @@ fn frame_cost_bench_block_entity_scene_400_static() {
     let chests: Vec<BlockEntitySubmission> = (0..400)
         .map(|index| BlockEntitySubmission {
             block: [index % 20, 64, index / 20],
-            light: 1.0,
+            light: 1.0.into(),
             kind: BlockEntityKind::Chest(render::ChestModel {
                 variant: render::ChestVariant::Normal,
                 facing: render::Facing::North,
@@ -114,7 +116,7 @@ fn frame_cost_bench_block_entity_scene_400_static() {
         let frame: Vec<_> = chests
             .iter()
             .map(|chest| BlockEntitySubmission {
-                light,
+                light: light.into(),
                 ..chest.clone()
             })
             .collect();
@@ -131,15 +133,12 @@ fn frame_cost_bench_block_entity_scene_400_static() {
 fn frame_cost_bench_sound_decode() {
     let path = crate::audio::sound_bank_path(
         &std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../.local/assets/compiled/vanilla-v2193.mcbea"),
+            .join("..")
+            .join(crate::asset_startup::DEFAULT_ASSET_PATH),
     );
-    let Ok(Some(mut bank)) = crate::audio::SoundBank::open(&path, None) else {
-        eprintln!(
-            "FRAME_COST music_decode: skipped, no bank at {}",
-            path.display()
-        );
-        return;
-    };
+    let mut bank = crate::audio::SoundBank::open(&path, None)
+        .expect("offline sound timing requires a valid installed sound bank (make assets)")
+        .expect("offline sound timing requires the installed sound bank (make assets)");
     // The largest streamed sound (re-decoded on every start) and common first-play effects.
     for sound in [
         "sounds/ambient/underwater/loop/underwater_ambience",
@@ -160,29 +159,4 @@ fn frame_cost_bench_sound_decode() {
             new.as_secs_f64() * 1e3
         );
     }
-}
-
-#[test]
-#[ignore = "benchmark"]
-fn frame_cost_bench_skin_packing_128_players() {
-    let skins: Vec<std::sync::Arc<[u8]>> = (0..128)
-        .map(|player| vec![player as u8; render::STANDARD_SKIN_BYTES].into())
-        .collect();
-    let mut previous: std::sync::Arc<[u8]> = std::sync::Arc::from([]);
-    let old = per_frame(FRAMES, |_| {
-        let mut bytes = Vec::new();
-        for skin in &skins {
-            bytes.extend_from_slice(skin);
-        }
-        let packed: std::sync::Arc<[u8]> = bytes.into();
-        std::hint::black_box(packed != previous);
-        previous = packed;
-    });
-    let mut pack = crate::presentation::actors::SkinLayerPack::default();
-    let new = per_frame(FRAMES, |_| {
-        let packed = pack.pack(skins.clone());
-        std::hint::black_box(packed != previous);
-        previous = packed;
-    });
-    report("skin_packing_128_players", old, new);
 }

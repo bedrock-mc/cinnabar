@@ -1,7 +1,7 @@
 //! Env-gated lobby frame benchmark: replays a captured server session into a world stream and
 //! times the real actor publication system per frame.
 //! Run: `CINNABAR_LOBBY_CAPTURE=<raw.bin> CINNABAR_RENDER_PACK=<uuid_version.zip> cargo test -p
-//! bedrock-client --lib lobby_frame_bench -- --ignored --nocapture`.
+//! bedrock-client --features reports --lib lobby_frame_bench -- --ignored --nocapture`.
 
 use std::{
     path::{Path, PathBuf},
@@ -14,18 +14,37 @@ use bevy::{
     prelude::World,
     time::{Real, Time},
 };
-use client_world::WorldStream;
+use chunk_pipeline::WorldStream;
 use protocol::{ActorKind, BedrockSession, WorldBootstrap, WorldEvent};
 use render::{ActorRenderFrame, RuntimeStage, RuntimeStageProfiler};
 
 use crate::runtime::network::{
-    HandRigBuilder, prepare_actor_render_frame, publish_actor_render_frame,
+    HandRigBuilder, advance_actor_frame, prepare_actor_render_frame, publish_actor_render_frame,
 };
 
+mod gpu_replay;
+mod join_setup;
+mod pipeline_tests;
 mod player_report;
+mod synthetic_players;
+
+/// Prepares one offline actor frame through the same systems as the client.
+fn prepare_offline_actor_frame(world: &mut World) {
+    world.run_system_cached(advance_actor_frame).unwrap();
+    world.run_system_cached(prepare_actor_render_frame).unwrap();
+}
 
 const FRAME: Duration = Duration::from_nanos(16_666_667);
 const COMPILED: &str = "../.local/assets/compiled";
+
+/// Resolves the pinned world carrier name from the startup path rather than duplicating it.
+fn world_carrier(compiled: &Path) -> PathBuf {
+    compiled.join(
+        Path::new(crate::asset_startup::DEFAULT_ASSET_PATH)
+            .file_name()
+            .unwrap(),
+    )
+}
 
 /// Packets that only build terrain; the actor path never reads them.
 const TERRAIN_PACKETS: [u32; 2] = [58, 174];
@@ -150,7 +169,7 @@ impl Replay {
             self.sequence += 1;
             // The stream admits a bounded backlog; the frame loop's poll applies it.
             if self.sequence.is_multiple_of(32) {
-                drain(stream, self.local_position);
+                drain_through(stream, self.local_position, self.sequence - 1);
             }
             if let Err(error) = stream.submit(self.sequence, event) {
                 self.reject(id, format!("{error:?}"));
@@ -176,6 +195,22 @@ fn drain(stream: &mut WorldStream, camera: [f32; 3]) {
     let _ = stream.take_equipment_notices();
 }
 
+/// Finishes the fixture's submitted FIFO work before advancing its synthetic frame clock.
+fn drain_through(stream: &mut WorldStream, camera: [f32; 3], sequence: u64) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        drain(stream, camera);
+        let committed = stream
+            .inventory_committed_through()
+            .expect("captured replay must retain a valid commit frontier");
+        if committed >= sequence {
+            return;
+        }
+        assert!(Instant::now() < deadline, "captured replay commit stalled");
+        std::thread::yield_now();
+    }
+}
+
 struct Population {
     players: usize,
     entities: usize,
@@ -188,8 +223,8 @@ fn population(stream: &WorldStream) -> Population {
         entities: 0,
         by_identifier: Default::default(),
     };
-    for rig in stream.actor_rigs() {
-        let Some(actor) = stream.actor(rig.actor.runtime_id) else {
+    for rig in stream.authority().actor_rigs() {
+        let Some(actor) = stream.authority().actor(rig.actor.runtime_id) else {
             continue;
         };
         match &actor.kind {
@@ -209,8 +244,9 @@ fn population(stream: &WorldStream) -> Population {
 /// Centroid of the non-player actors, which the lobby camera faces.
 fn entity_centroid(stream: &WorldStream) -> Option<Vec3> {
     let points: Vec<Vec3> = stream
+        .authority()
         .actor_rigs()
-        .filter_map(|rig| stream.actor(rig.actor.runtime_id))
+        .filter_map(|rig| stream.authority().actor(rig.actor.runtime_id))
         .filter(|actor| matches!(actor.kind, ActorKind::Entity { .. }))
         .map(|actor| Vec3::from_array(actor.position))
         .collect();
@@ -219,19 +255,23 @@ fn entity_centroid(stream: &WorldStream) -> Option<Vec3> {
 
 fn build_world(
     capture: &Capture,
-    pack_path: &Path,
+    pack_path: Option<&Path>,
     away: bool,
 ) -> (World, Vec<(u32, Vec<u8>)>, Replay) {
-    let compiled = PathBuf::from(COMPILED);
+    let compiled = PathBuf::from(
+        std::env::var_os("CINNABAR_RENDER_CARRIERS").unwrap_or_else(|| COMPILED.into()),
+    );
     let loaded = crate::asset_startup::load_runtime_assets(crate::asset_startup::AssetSelection {
-        path: compiled.join("vanilla-v2193.mcbea"),
+        path: world_carrier(&compiled),
         source: crate::asset_startup::AssetPathSource::CommandLine,
     })
     .unwrap();
     let entity_runtime = Arc::clone(loaded.entities.runtime());
-    let artwork =
-        crate::asset_startup::require_actor_artwork(&loaded.selected_path, &loaded.entities)
-            .unwrap();
+    let artwork = crate::asset_startup::actor_artwork(
+        &crate::asset_startup::require_actor_assets(&loaded.selected_path, &loaded.entities)
+            .unwrap(),
+        &entity_runtime,
+    );
     let icons = crate::asset_startup::require_icon_assets(
         &loaded.selected_path,
         crate::asset_startup::vanilla_source_manifest_json(),
@@ -247,7 +287,7 @@ fn build_world(
             equipment_catalog,
             Arc::clone(icons.runtime()),
             Some(Arc::clone(&loaded.runtime)),
-            crate::asset_startup::load_optional_block_entity_assets(&loaded.selected_path),
+            crate::block_entities::load_block_entity_carrier(&loaded.selected_path),
             artwork,
         );
     let mut scene = render::ActorRenderScene::with_runtime_entity_assets_and_equipment(
@@ -263,8 +303,12 @@ fn build_world(
     {
         super::set_vanilla_refs(refs);
     }
-    let view = super::super::local_pack::local_pack_view_at(pack_path).unwrap();
-    let pack = super::compile(&view).expect("the pack defines entities");
+    let pack = pack_path.map(|path| {
+        let view = super::super::local_pack::local_pack_view_at(path).unwrap();
+        let pack = super::compile(&view, super::vanilla_refs().as_deref())
+            .expect("the pack defines entities");
+        (pack, super::pack_property_defaults(&view))
+    });
 
     let mut stream = WorldStream::new_with_asset_sets(
         capture.bootstrap,
@@ -273,14 +317,16 @@ fn build_world(
         capture.bootstrap.player_position,
         None,
     );
-    stream.set_pack_entities(Some((
-        Arc::clone(&pack.assets),
-        pack.bindings
-            .iter()
-            .map(|binding| binding.geometry_candidate)
-            .collect(),
-    )));
-    stream.seed_property_defaults(&super::pack_property_defaults(&view));
+    if let Some((pack, defaults)) = &pack {
+        stream.set_pack_entities(Some((
+            Arc::clone(&pack.assets),
+            pack.bindings
+                .iter()
+                .map(|binding| binding.geometry_candidate)
+                .collect(),
+        )));
+        stream.seed_property_defaults(defaults);
+    }
     let mut replay = Replay {
         session: BedrockSession { shield_item_id: 0 },
         sequence: 0,
@@ -294,7 +340,7 @@ fn build_world(
     for (id, body) in &capture.packets[..split] {
         replay.apply(&mut stream, *id, body);
     }
-    drain(&mut stream, replay.local_position);
+    drain_through(&mut stream, replay.local_position, replay.sequence);
     // The camera stands at the local player's eye facing the NPCs, or directly away.
     let eye = Vec3::from_array(replay.local_position) + Vec3::Y * 1.62;
     let target = entity_centroid(&stream).unwrap_or(eye + Vec3::NEG_Z);
@@ -303,7 +349,7 @@ fn build_world(
         Arc::clone(&loaded.runtime),
         entity_runtime,
     );
-    client_world.pack_entities = Some(pack);
+    client_world.pack_entities = pack.map(|(pack, _)| pack);
     client_world.stream = Some(stream);
     let mut world = crate::tests::actor_frame_allocations::actor_frame_world(
         client_world,
@@ -342,7 +388,6 @@ fn gpu_draws(frame: &ActorRenderFrame) -> (usize, u64) {
 fn frame_digest(frame: &ActorRenderFrame) -> u64 {
     use std::hash::{Hash, Hasher};
     let rig = &frame.rig;
-    let skin = render::STANDARD_SKIN_BYTES;
     let mut records: Vec<(u64, u8, u64)> = rig
         .instances
         .iter()
@@ -359,10 +404,9 @@ fn frame_digest(frame: &ActorRenderFrame) -> u64 {
             bits(&instance.uv_anim, &mut hasher);
             // Skin slots and skin rig ids are allocation order; their pixels are what draws.
             if *page == 0 {
-                let layer = instance.texture_layer as usize;
                 frame
-                    .skins_rgba8
-                    .get(layer * skin..(layer + 1) * skin)
+                    .player_skin(instance.texture_layer)
+                    .map(|skin| &**skin)
                     .hash(&mut hasher);
             } else {
                 (page, instance.texture_layer).hash(&mut hasher);
@@ -400,29 +444,38 @@ fn frame_digest(frame: &ActorRenderFrame) -> u64 {
 }
 
 #[repr(C)]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 struct Timespec {
     seconds: i64,
     nanoseconds: i64,
 }
 
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 unsafe extern "C" {
     fn clock_gettime(clock: i32, time: *mut Timespec) -> i32;
 }
 
 #[cfg(target_os = "macos")]
 const THREAD_CPU_CLOCK: i32 = 16;
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "linux")]
 const THREAD_CPU_CLOCK: i32 = 3;
 
 /// CPU time this thread has run, which preemption by other processes does not inflate.
-fn thread_cpu_time() -> Duration {
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn thread_cpu_time() -> Option<Duration> {
     let mut time = Timespec {
         seconds: 0,
         nanoseconds: 0,
     };
     // SAFETY: `time` is a valid out pointer for the duration of the call.
-    unsafe { clock_gettime(THREAD_CPU_CLOCK, &raw mut time) };
-    Duration::new(time.seconds as u64, time.nanoseconds as u32)
+    let result = unsafe { clock_gettime(THREAD_CPU_CLOCK, &raw mut time) };
+    (result == 0).then(|| Duration::new(time.seconds as u64, time.nanoseconds as u32))
+}
+
+/// Keeps the benchmark's other measurements available without a native thread CPU clock.
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+fn thread_cpu_time() -> Option<Duration> {
+    None
 }
 
 #[derive(Default)]
@@ -448,13 +501,10 @@ impl Series {
 #[test]
 #[ignore = "benchmark; needs a lobby capture and its cached pack"]
 fn lobby_frame_bench() {
-    let (Some(capture), Some(pack)) = (
-        std::env::var_os("CINNABAR_LOBBY_CAPTURE"),
-        std::env::var_os("CINNABAR_RENDER_PACK"),
-    ) else {
-        eprintln!("LOBBY_BENCH skipped: set CINNABAR_LOBBY_CAPTURE and CINNABAR_RENDER_PACK");
-        return;
-    };
+    let capture = std::env::var_os("CINNABAR_LOBBY_CAPTURE")
+        .expect("offline lobby timing requires CINNABAR_LOBBY_CAPTURE");
+    let pack = std::env::var_os("CINNABAR_RENDER_PACK")
+        .expect("offline lobby timing requires CINNABAR_RENDER_PACK");
     let frames: usize = std::env::var("CINNABAR_LOBBY_FRAMES")
         .ok()
         .and_then(|value| value.parse().ok())
@@ -462,7 +512,7 @@ fn lobby_frame_bench() {
     let away = std::env::var_os("CINNABAR_LOBBY_LOOK_AWAY").is_some();
     let digest = std::env::var_os("CINNABAR_LOBBY_DIGEST").is_some();
     let capture = read_capture(Path::new(&capture));
-    let (mut world, rest, mut replay) = build_world(&capture, Path::new(&pack), away);
+    let (mut world, rest, mut replay) = build_world(&capture, Some(Path::new(&pack)), away);
 
     let started = Instant::now();
     let mut clock = started;
@@ -493,7 +543,7 @@ fn lobby_frame_bench() {
                 replay.apply(stream, *id, body);
                 next_packet += 1;
             }
-            drain(stream, replay.local_position);
+            drain_through(stream, replay.local_position, replay.sequence);
         }
         clock += FRAME;
         world
@@ -501,9 +551,12 @@ fn lobby_frame_bench() {
             .update_with_instant(clock);
         let before = crate::tests::alloc_count::thread_allocations();
         let (timer, cpu_timer) = (Instant::now(), thread_cpu_time());
-        world.run_system_cached(prepare_actor_render_frame).unwrap();
+        prepare_offline_actor_frame(&mut world);
         world.run_system_cached(publish_actor_render_frame).unwrap();
-        let (elapsed, cpu_elapsed) = (timer.elapsed(), thread_cpu_time() - cpu_timer);
+        let elapsed = timer.elapsed();
+        let cpu_elapsed = thread_cpu_time()
+            .zip(cpu_timer)
+            .map(|(after, before)| after - before);
         let allocated = crate::tests::alloc_count::thread_allocations() - before;
         let snapshot = world
             .resource::<RuntimeStageProfiler>()
@@ -513,7 +566,9 @@ fn lobby_frame_bench() {
         if frame < 60 {
             continue;
         }
-        if cpu_elapsed > Duration::from_millis(4) {
+        if let Some(cpu_elapsed) = cpu_elapsed
+            && cpu_elapsed > Duration::from_millis(4)
+        {
             let stage =
                 |stage: RuntimeStage| snapshot.samples[stage as usize].total.as_secs_f64() * 1e3;
             eprintln!(
@@ -526,7 +581,9 @@ fn lobby_frame_bench() {
             );
         }
         total.0.push(elapsed.as_secs_f64() * 1e3);
-        cpu.0.push(cpu_elapsed.as_secs_f64() * 1e3);
+        if let Some(cpu_elapsed) = cpu_elapsed {
+            cpu.0.push(cpu_elapsed.as_secs_f64() * 1e3);
+        }
         allocations.0.push(allocated as f64);
         for (series, stage) in stages.iter_mut().zip(tracked) {
             series
@@ -565,7 +622,11 @@ fn lobby_frame_bench() {
         eprintln!("LOBBY_BENCH rejected packet {id} x{count}: {error}");
     }
     eprintln!("LOBBY_BENCH system_ms {}", total.summary());
-    eprintln!("LOBBY_BENCH system_cpu_ms {}", cpu.summary());
+    if cpu.0.is_empty() {
+        eprintln!("LOBBY_BENCH system_cpu_ms unavailable");
+    } else {
+        eprintln!("LOBBY_BENCH system_cpu_ms {}", cpu.summary());
+    }
     for (series, stage) in stages.iter_mut().zip(tracked) {
         eprintln!("LOBBY_BENCH {}_ms {}", stage.name(), series.summary());
     }
@@ -590,5 +651,8 @@ fn lobby_frame_bench() {
             .geometry_spans
             .len()
     );
-    eprintln!("LOBBY_BENCH animation {:?}", stream.actor_animation_stats());
+    eprintln!(
+        "LOBBY_BENCH animation {:?}",
+        stream.authority().actor_animation_stats()
+    );
 }

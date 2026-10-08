@@ -16,26 +16,73 @@ pub struct NineSlice {
     pub bottom: f64,
 }
 
-/// A sprite's native dimensions plus any nine-slice split.
+/// A sprite's pixel size, its sidecar `base_size` (the unit nine-slice insets
+/// are in) and any nine-slice split.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TextureMeta {
     pub base_size: [f64; 2],
     pub nineslice: Option<NineSlice>,
+    /// The image's size in texels, the space `uv`/`uv_size` address.
+    pub pixels: [f64; 2],
 }
 
-/// Parse a sidecar JSON value. Returns `None` only when `base_size` is absent or
-/// malformed, since without it neither natural sizing nor nine-slice can proceed.
+impl TextureMeta {
+    /// A plain texture of `pixels` texels with no sidecar.
+    pub fn plain(pixels: [f64; 2]) -> Self {
+        Self {
+            base_size: pixels,
+            nineslice: None,
+            pixels,
+        }
+    }
+}
+
+/// Parse a sidecar JSON value; `pixels` is left at the sidecar's `base_size`
+/// for the caller to replace with the image's real size. An unusable `base_size`
+/// reads zero, which nine-slicing treats as the source region's size.
 pub fn parse_texture_meta(value: &Value) -> Option<TextureMeta> {
     let object = value.as_object()?;
-    let base_size = read_pair(object.get("base_size")?)?;
+    let base_size = object
+        .get("base_size")
+        .and_then(read_size)
+        .unwrap_or([0.0, 0.0]);
     let nineslice = object.get("nineslice_size").and_then(parse_nineslice);
+    if base_size == [0.0, 0.0] && nineslice.is_none() {
+        return None;
+    }
     Some(TextureMeta {
         base_size,
         nineslice,
+        pixels: base_size,
     })
 }
 
-fn parse_nineslice(value: &Value) -> Option<NineSlice> {
+/// One aseprite frame: its sheet position and duration in milliseconds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AsepriteFrame {
+    pub x: i64,
+    pub y: i64,
+    pub duration_ms: i64,
+}
+
+/// The `frames` of an aseprite sheet sidecar, in order.
+pub fn parse_aseprite_frames(value: &Value) -> Option<Vec<AsepriteFrame>> {
+    let frames = value.get("frames")?.as_array()?;
+    frames
+        .iter()
+        .map(|frame| {
+            let rect = frame.get("frame")?;
+            Some(AsepriteFrame {
+                x: rect.get("x")?.as_i64()?,
+                y: rect.get("y")?.as_i64()?,
+                duration_ms: frame.get("duration")?.as_i64()?,
+            })
+        })
+        .collect()
+}
+
+/// A scalar or four-edge `nineslice_size`.
+pub(crate) fn parse_nineslice(value: &Value) -> Option<NineSlice> {
     match value {
         Value::Number(number) => {
             let inset = number.as_f64()?;
@@ -59,9 +106,9 @@ fn parse_nineslice(value: &Value) -> Option<NineSlice> {
     }
 }
 
-fn read_pair(value: &Value) -> Option<[f64; 2]> {
+fn read_size(value: &Value) -> Option<[f64; 2]> {
     let items = value.as_array()?;
-    if items.len() != 2 {
+    if items.len() < 2 {
         return None;
     }
     Some([items[0].as_f64()?, items[1].as_f64()?])
@@ -111,7 +158,37 @@ mod tests {
     }
 
     #[test]
-    fn missing_base_size_is_rejected() {
-        assert!(parse_texture_meta(&json!({ "nineslice_size": 4 })).is_none());
+    fn unusable_base_size_keeps_its_independent_slice() {
+        for base in [
+            json!(60),
+            json!(null),
+            json!(false),
+            json!({}),
+            json!([]),
+            json!([8]),
+        ] {
+            let meta = parse_texture_meta(&json!({
+                "base_size": base,
+                "nineslice_size": 1
+            }))
+            .unwrap();
+            assert_eq!(meta.base_size, [0.0, 0.0]);
+            assert_eq!(meta.nineslice.unwrap().left, 1.0);
+        }
+    }
+
+    #[test]
+    fn base_size_uses_the_first_two_array_elements() {
+        let meta = parse_texture_meta(&json!({ "base_size": [9, 13, 99] })).unwrap();
+        assert_eq!(meta.base_size, [9.0, 13.0]);
+    }
+
+    // A nine-slice sidecar without `base_size` keeps its slice.
+    #[test]
+    fn missing_base_size_keeps_the_slice() {
+        let meta = parse_texture_meta(&json!({ "nineslice_size": 4 })).unwrap();
+        assert_eq!(meta.base_size, [0.0, 0.0]);
+        assert_eq!(meta.nineslice.map(|slice| slice.left), Some(4.0));
+        assert!(parse_texture_meta(&json!({ "frames": [] })).is_none());
     }
 }

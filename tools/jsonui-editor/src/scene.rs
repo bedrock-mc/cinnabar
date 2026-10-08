@@ -109,6 +109,7 @@ struct FrameKey {
     size: [u32; 2],
     px: u32,
     textures: (u64, u64),
+    fonts: u64,
 }
 
 impl Session {
@@ -173,6 +174,7 @@ impl Session {
             size: view.size,
             px,
             textures: (generation, self.workspace.texture_generation()),
+            fonts: self.fonts.revision(),
         };
         if let Some((built, frame)) = &self.frame
             && *built == key
@@ -242,7 +244,7 @@ impl Session {
                 control_type: None,
                 base: None,
                 unresolved_base: None,
-                properties: BTreeMap::new(),
+                properties: Default::default(),
                 children: Vec::new(),
                 factory: None,
             }),
@@ -276,7 +278,7 @@ fn flatten(node: &LaidOut, parent: Option<usize>, path: &mut Vec<usize>, out: &m
         visible: node.visible,
         layer: node.layer,
         parent,
-        animated: !node.fades.is_empty() || !node.motions.own.is_empty(),
+        animated: node.anim.is_some(),
         path: path.clone(),
     });
     for child in &node.children {
@@ -295,4 +297,53 @@ fn flatten(node: &LaidOut, parent: Option<usize>, path: &mut Vec<usize>, out: &m
 pub fn node_at<'a>(tree: &'a ResolvedControl, path: &[usize]) -> Option<&'a ResolvedControl> {
     path.iter()
         .try_fold(tree, |node, &index| node.children.get(index))
+}
+
+#[cfg(test)]
+mod review_tests {
+    use super::*;
+    #[test]
+    fn review_loading_a_font_invalidates_the_cached_layout_frame() {
+        let mut session = Session::default();
+        let layer = session.workspace.add_layer("pack");
+        session.workspace.add_files(layer, vec![("ui/_ui_defs.json".into(), br#"{"ui_defs":["ui/test.json"]}"#.to_vec()), ("ui/_global_variables.json".into(), b"{}".to_vec()), ("ui/test.json".into(), br#"{"namespace":"test","main":{"type":"label","text":"A","size":["default","default"]}}"#.to_vec())], vec![]);
+        let view = View {
+            reference: "test.main".into(),
+            size: [320, 240],
+            ..Default::default()
+        };
+        let before = session.frame(&view);
+        assert!(!before.boxes.is_empty(), "fixture must resolve");
+        assert!(
+            Arc::ptr_eq(&before, &session.frame(&view)),
+            "fixture must hit the layout cache"
+        );
+        let manifest = assets::canonical_source_manifest_sha256(include_bytes!(
+            "../../../assets/cinnangles-sans-source.json"
+        ));
+        let page = assets::FontTexturePage {
+            source_path: "font/test.png".into(),
+            source_bytes: 1,
+            source_sha256: [1; 32],
+            pixels_sha256: [
+                173, 149, 19, 27, 192, 183, 153, 192, 177, 175, 71, 127, 177, 79, 207, 38, 166,
+                169, 247, 96, 121, 228, 139, 240, 144, 172, 183, 232, 54, 123, 253, 14,
+            ],
+            width: 1,
+            height: 1,
+            pixels: assets::FontPixels::Rgba8(vec![255; 4].into_boxed_slice()),
+        };
+        let glyph = assets::GlyphMetrics {
+            codepoint: 'A',
+            page: 0,
+            uv: [0, 0, 1, 1],
+            bearing: [0, -1],
+            advance_64: 512,
+        };
+        let bytes = assets::encode_font_catalog(manifest, &[glyph], &[page]).unwrap();
+        session.fonts.load(&bytes).unwrap();
+        let after = session.frame(&view);
+        assert!(!Arc::ptr_eq(&before, &after));
+        assert_ne!(before.boxes[0].rect, after.boxes[0].rect);
+    }
 }

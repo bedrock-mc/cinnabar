@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
+	"github.com/hashimthearab/rust-mcbe/core/proxy"
 )
 
 const (
@@ -24,7 +25,7 @@ const (
 )
 
 // maxConcurrentRequests bounds simultaneous local requests; extra connections are dropped.
-const maxConcurrentRequests = 16
+const maxConcurrentRequests = 32
 
 const methodPackApplication = "pack_application.v1"
 
@@ -38,7 +39,7 @@ type request struct {
 type response struct {
 	JSONRPC string         `json:"jsonrpc"`
 	ID      any            `json:"id"`
-	Result  *StatusV1      `json:"result,omitempty"`
+	Result  any            `json:"result,omitempty"`
 	Error   *responseError `json:"error,omitempty"`
 }
 
@@ -53,6 +54,7 @@ type Server struct {
 	worlds           Worlds      // nil disables the world_* methods; guarded by mu
 	services         Services    // nil disables the launcher methods; guarded by mu
 	marketplace      Marketplace // nil disables the store_* methods; guarded by mu
+	packetDelay      *proxy.PacketDelay
 	done             chan struct{}
 	once             sync.Once
 	mu               sync.Mutex
@@ -201,6 +203,9 @@ func (server *Server) serveOne(conn net.Conn) error {
 		return server.writeResponse(conn, response{JSONRPC: "2.0", ID: call.ID, Error: &responseError{Code: -32600, Message: "Invalid Request"}})
 	}
 	id := *call.ID
+	if call.Method == methodPacketDelay {
+		return server.servePacketDelay(conn, id, call.Params)
+	}
 	if call.Method == methodPackApplication {
 		return server.servePackApplication(conn, id, call.Params)
 	}

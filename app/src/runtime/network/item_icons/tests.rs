@@ -3,7 +3,7 @@ use std::{io::Write, sync::Arc};
 use resource_pack::LayeredPackView;
 
 use super::{BlockIcons, compile_session_icons, custom_block_items};
-use crate::ui_runtime::presentation::SessionIcon;
+use client_ui::ui_runtime::presentation::SessionIcon;
 
 fn png(width: u32, height: u32) -> Vec<u8> {
     let image = image::RgbaImage::from_fn(width, height, |_, y| image::Rgba([y as u8, 0, 0, 255]));
@@ -68,11 +68,15 @@ fn icon_keys_resolve_to_bounded_sprites() {
         sizes,
         [
             ("lifeboat:gem", 16, 16),
-            ("lifeboat:strip", 16, 16),
-            ("lifeboat:huge", 64, 32)
+            ("lifeboat:huge", 64, 32),
+            ("lifeboat:strip", 16, 16)
         ]
     );
-    let strip = &icons.icons[1];
+    let strip = icons
+        .icons
+        .iter()
+        .find(|icon| icon.identifier.as_ref() == "lifeboat:strip")
+        .unwrap();
     assert_eq!(strip.rgba8[(15 * 16) * 4], 15, "first frame rows only");
 }
 
@@ -176,6 +180,7 @@ fn block_items_beat_short_name_guesses() {
     let key = |identifier: &str, key: &str| (Arc::<str>::from(identifier), Arc::<str>::from(key));
     let block = SessionIcon {
         identifier: "t:crate".into(),
+        metadata: 0,
         width: 32,
         height: 32,
         rgba8: vec![7; 32 * 32 * 4].into(),
@@ -183,6 +188,7 @@ fn block_items_beat_short_name_guesses() {
     let blocks = BlockIcons {
         icons: vec![block],
         misses: vec![("t:broken".into(), "no drawable visual".into())],
+        ..Default::default()
     };
     let icons = compile_session_icons(
         &view(),
@@ -202,6 +208,74 @@ fn block_items_beat_short_name_guesses() {
     assert_eq!((crate_icon.width, crate_icon.rgba8[0]), (32, 7));
     assert_eq!(icons.icons.len(), 2, "t:broken keeps no sprite");
     assert!(icons.misses["t:broken"].contains("no drawable visual"));
+}
+
+#[test]
+fn custom_block_sheet_material_flags_survive_session_icon_compilation() {
+    use assets::{
+        BlockFlags, BlockOverlay, BlockVisual, ContributorRole, Material, TextureArray, TextureMip,
+        TextureRef, VisualKind, VisualSupport,
+    };
+    for flags in [
+        assets::MATERIAL_FLAG_ALPHA_CUTOUT,
+        assets::MATERIAL_FLAG_ALPHA_BLEND,
+    ] {
+        let overlay = BlockOverlay {
+            visuals: vec![BlockVisual {
+                faces: [1; 6],
+                flags: BlockFlags::CUBE_GEOMETRY,
+                kind: VisualKind::Cube,
+                support: VisualSupport::Exact,
+                contributor_role: ContributorRole::Primary,
+                model_template: assets::NO_MODEL_TEMPLATE,
+                animation: assets::NO_ANIMATION,
+                variant: 0,
+            }],
+            materials: vec![
+                Material::unvaried(),
+                Material {
+                    texture: TextureRef::new(1, 0).unwrap(),
+                    flags,
+                    ..Material::unvaried()
+                },
+            ],
+            texture: Some(TextureArray {
+                layers: 1,
+                mips: [16, 8, 4, 2, 1]
+                    .into_iter()
+                    .map(|size| TextureMip {
+                        size,
+                        rgba8: vec![127; (size * size * 4) as usize].into(),
+                    })
+                    .collect(),
+            }),
+            ..Default::default()
+        };
+        let blocks = protocol::CustomBlocks {
+            blocks: vec![protocol::CustomBlock {
+                state_physics: Default::default(),
+                name: Arc::from("test:custom_cube"),
+                tags: Default::default(),
+                state_count: 1,
+                collides: true,
+                collision_boxes: None,
+                selection: Default::default(),
+                visual: Default::default(),
+            }]
+            .into(),
+            vanilla_blocks: Default::default(),
+            skipped: 0,
+        };
+        let items = [(Arc::from("test:custom_cube"), Arc::from("test:custom_cube"))];
+        let compiled = super::custom_block_icons(&overlay, &blocks, false, &items);
+        assert_eq!(compiled.block_sheets.len(), 1);
+        let icons = compile_session_icons(&view(), &[], compiled).unwrap();
+        assert_eq!(
+            icons.block_material_flags.get("test:custom_cube"),
+            Some(&flags)
+        );
+        assert_eq!(icons.block_sheets.len(), 1);
+    }
 }
 
 // A registry item named after a custom block is that block's item; others are not.
@@ -225,14 +299,17 @@ fn registry_items_named_after_custom_blocks_are_block_items() {
     }
     let blocks = protocol::CustomBlocks {
         blocks: vec![protocol::CustomBlock {
+            state_physics: Default::default(),
             name: "t:crate".into(),
+            tags: Default::default(),
             state_count: 1,
             collides: true,
-            collision_box: None,
+            collision_boxes: None,
             selection: Default::default(),
             visual: Default::default(),
         }]
         .into(),
+        vanilla_blocks: Default::default(),
         skipped: 0,
     };
     let pairs = custom_block_items(&game_data, &blocks);
@@ -248,6 +325,9 @@ fn registry_items_named_after_custom_blocks_are_block_items() {
 #[test]
 fn packcache_item_icon_keys_resolve_when_requested() {
     let Some(dir) = std::env::var_os("CINNABAR_PACKCACHE_DIR") else {
+        eprintln!(
+            "skipping packcache_item_icon_keys_resolve_when_requested: fixture unavailable; requires CINNABAR_PACKCACHE_DIR containing offline cached packs"
+        );
         return;
     };
     let (mut declared, mut resolved) = (0usize, 0usize);
@@ -288,4 +368,91 @@ fn icon_count_is_bounded_by_the_item_registry_not_a_fixed_cap() {
         .collect();
     let icons = compile_session_icons(&view(), &keys, BlockIcons::default()).expect("icons");
     assert_eq!(icons.icons.len(), 600);
+}
+
+#[test]
+fn array_variants_keep_metadata_and_pack_item_declarations_override_registry_keys() {
+    let view = stack(&[&[
+        ("textures/item_texture.json", br#"{"texture_data":{"custom":{"textures":["textures/items/zero","textures/items/missing","textures/items/two"]}}}"#.to_vec()),
+        ("items/example.json", br#"{"minecraft:item":{"description":{"identifier":"test:variant"},"components":{"minecraft:icon":{"textures":{"default":"custom"}}}}}"#.to_vec()),
+        ("textures/items/zero.png", png(8, 8)),
+        ("textures/items/two.png", png(16, 16)),
+    ]]);
+    let icons = compile_session_icons(
+        &view,
+        &[(Arc::from("test:variant"), Arc::from("old"))],
+        BlockIcons::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        icons
+            .icons
+            .iter()
+            .map(|icon| (icon.identifier.as_ref(), icon.metadata, icon.width))
+            .collect::<Vec<_>>(),
+        [("test:variant", 0, 8), ("test:variant", 2, 16)]
+    );
+}
+
+#[test]
+fn upper_catalog_replaces_the_complete_variant_list() {
+    let view = stack(&[
+        &[("textures/item_texture.json", br#"{"texture_data":{"gem":{"textures":["textures/items/zero","textures/items/one"]}}}"#.to_vec()), ("textures/items/zero.png", png(8, 8)), ("textures/items/one.png", png(16, 16))],
+        &[("textures/item_texture.json", br#"{"texture_data":{"gem":{"textures":"textures/items/one"}}}"#.to_vec())],
+    ]);
+    let icons = compile_session_icons(
+        &view,
+        &[(Arc::from("test:gem"), Arc::from("gem"))],
+        BlockIcons::default(),
+    )
+    .unwrap();
+    assert_eq!(icons.icons.len(), 1);
+    assert_eq!((icons.icons[0].metadata, icons.icons[0].width), (0, 16));
+}
+
+#[test]
+fn review_variant_decoding_respects_remaining_capacity_and_metadata_indices() {
+    let paths = std::collections::HashMap::from([(
+        "variants".to_owned(),
+        vec![
+            "textures/missing".to_owned(),
+            "textures/items/gem".to_owned(),
+            "textures/items/gem".to_owned(),
+            "textures/items/gem".to_owned(),
+        ],
+    )]);
+    let resolved = super::resolve_key(&view(), &paths, "variants", 1).unwrap();
+    assert_eq!(
+        resolved
+            .iter()
+            .map(|(metadata, _)| *metadata)
+            .collect::<Vec<_>>(),
+        [1]
+    );
+}
+
+#[test]
+fn review_item_declaration_priority_survives_moves_between_files() {
+    let declaration = |identifier: &str, key: &str| {
+        serde_json::to_vec(&serde_json::json!({
+        "minecraft:item": {"description": {"identifier":identifier}, "components":{"minecraft:icon":key}}
+    })).unwrap()
+    };
+    let view = stack(&[
+        &[
+            ("items/a.json", declaration("t:a", "lower_a")),
+            ("items/b.json", declaration("t:b", "lower_b")),
+        ],
+        &[
+            ("items/a.json", declaration("t:b", "upper_b")),
+            ("items/b.json", declaration("t:a", "upper_a")),
+        ],
+    ]);
+    let keys = super::catalog::icon_keys(&view, &[]);
+    assert_eq!(
+        keys.iter()
+            .map(|(id, key)| (id.as_ref(), key.as_ref()))
+            .collect::<Vec<_>>(),
+        [("t:a", "upper_a"), ("t:b", "upper_b")]
+    );
 }

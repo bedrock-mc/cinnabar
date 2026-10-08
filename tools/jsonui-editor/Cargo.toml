@@ -12,7 +12,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 assets = { path = "../../crates/assets" }
-image = { version = "0.25", default-features = false, features = ["jpeg", "png", "tga"] }
+image.workspace = true
 json-ui = { path = "../../crates/json-ui" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

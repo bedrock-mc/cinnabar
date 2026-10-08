@@ -1,4 +1,4 @@
-//! MCBESND1: sound-event routing JSON plus an offset index over raw FSB5 sound files.
+//! MCBESND1: sound-event routing JSON plus an offset index over encoded sound files.
 //!
 //! Layout: header, three JSON blobs, index, SHA-256 of all of those, then file data. Only the
 //! prefix is read at startup; sound files are read by offset on demand.
@@ -75,6 +75,9 @@ impl SoundBankIndex {
         let lengths = [12, 16, 20].map(|at| word(prefix, at).unwrap_or(0) as usize);
         let file_count = word(prefix, 24)? as usize;
         let data_len = u64::from_le_bytes(prefix[32..40].try_into().expect("header width"));
+        if (prefix.len() as u64).checked_add(data_len).is_none() {
+            return Err(SoundBankError("absolute data extent overflow"));
+        }
         if file_count > MAX_SOUND_BANK_FILES {
             return Err(SoundBankError("file count"));
         }
@@ -160,7 +163,7 @@ impl SoundBankIndex {
     }
 }
 
-/// Builds a bank; `files` are `(extensionless path, raw FSB5 bytes)` and order is canonicalized.
+/// Builds a bank; `files` are `(extensionless path, encoded bytes)` and order is canonicalized.
 pub fn encode_sound_bank(
     sounds_json: &[u8],
     materials_json: &[u8],
@@ -186,9 +189,23 @@ pub fn encode_sound_bank(
         index.extend(path.as_bytes());
         index.extend(offset.to_le_bytes());
         index.extend((bytes.len() as u32).to_le_bytes());
-        offset += bytes.len() as u64;
+        offset = offset
+            .checked_add(bytes.len() as u64)
+            .ok_or(SoundBankError("data length overflow"))?;
     }
-    let mut out = Vec::with_capacity(HEADER_BYTES + index.len() + offset as usize + 4096);
+    let prefix_size = [sounds_json, materials_json, music_json]
+        .into_iter()
+        .try_fold(HEADER_BYTES + HASH_BYTES + index.len(), |total, blob| {
+            u32::try_from(blob.len()).ok()?;
+            total.checked_add(blob.len())
+        })
+        .filter(|size| *size <= MAX_SOUND_BANK_PREFIX_BYTES)
+        .ok_or(SoundBankError("prefix length exceeds bound"))?;
+    let capacity = usize::try_from(offset)
+        .ok()
+        .and_then(|data| prefix_size.checked_add(data))
+        .ok_or(SoundBankError("carrier length overflow"))?;
+    let mut out = Vec::with_capacity(capacity);
     out.extend(SOUND_BANK_MAGIC);
     out.extend(SCHEMA.to_le_bytes());
     for blob in [sounds_json, materials_json, music_json] {
@@ -237,6 +254,28 @@ mod tests {
         assert_eq!(&bytes[start..start + entry.len as usize], [9, 9, 9]);
         assert!(index.entry("sounds/missing").is_none());
         assert_eq!(index.len(), 2);
+    }
+
+    #[test]
+    fn review_absolute_sound_offsets_cannot_overflow() {
+        let mut bytes = sample();
+        let prefix_len = sound_bank_prefix_len(&bytes).unwrap();
+        bytes[32..40].copy_from_slice(&u64::MAX.to_le_bytes());
+        let lengths = [12, 16, 20].map(|offset| word(&bytes, offset).unwrap() as usize);
+        let first = HEADER_BYTES + lengths.into_iter().sum::<usize>();
+        let name_len = u16::from_le_bytes(bytes[first..first + 2].try_into().unwrap()) as usize;
+        let offset = first + 2 + name_len;
+        bytes[offset..offset + 8].copy_from_slice(&(u64::MAX - 2).to_le_bytes());
+        let hash = Sha256::digest(&bytes[..prefix_len - HASH_BYTES]);
+        bytes[prefix_len - HASH_BYTES..prefix_len].copy_from_slice(&hash);
+        assert!(SoundBankIndex::decode_prefix(&bytes[..prefix_len]).is_err());
+    }
+
+    #[test]
+    fn review_sound_encoder_respects_the_prefix_bound() {
+        assert!(
+            encode_sound_bank(&vec![0; MAX_SOUND_BANK_PREFIX_BYTES], b"{}", b"{}", &[]).is_err()
+        );
     }
 
     #[test]

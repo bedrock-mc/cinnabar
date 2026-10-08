@@ -2,7 +2,10 @@
 
 use std::sync::Arc;
 
-use bevy::{prelude::Resource, render::extract_resource::ExtractResource};
+use bevy::{
+    prelude::{Mat4, Resource},
+    render::extract_resource::ExtractResource,
+};
 
 pub const MAX_SCREEN_OVERLAY_LAYERS: usize = 8;
 /// Both overlay textures are square RGBA8 of this side.
@@ -54,6 +57,11 @@ pub struct ScreenOverlayScene {
     pub(crate) clock_seconds: f32,
     pub(crate) textures: Option<Arc<ScreenOverlayTextures>>,
     pub(crate) textures_revision: u64,
+    pub(crate) fire: Option<Arc<crate::ScreenFireTexture>>,
+    pub(crate) fire_revision: u64,
+    pub(crate) fire_projection: [f32; 2],
+    /// Direction transform for the native unit-cube portal overlay.
+    pub(crate) portal_from_clip: Mat4,
 }
 
 impl ScreenOverlayScene {
@@ -81,6 +89,27 @@ impl ScreenOverlayScene {
     pub fn set_textures(&mut self, textures: Option<Arc<ScreenOverlayTextures>>) {
         self.textures = textures;
         self.textures_revision = self.textures_revision.wrapping_add(1);
+    }
+
+    pub fn set_fire_texture(&mut self, fire: Option<Arc<crate::ScreenFireTexture>>) {
+        self.fire = fire;
+        self.fire_revision = self.fire_revision.wrapping_add(1);
+    }
+
+    /// Native fire follows the active perspective projection, including FOV changes.
+    pub fn set_fire_projection(&mut self, vertical_fov: f32, aspect: f32) {
+        self.fire_projection = [
+            (vertical_fov * 0.5).tan() * aspect,
+            (vertical_fov * 0.5).tan(),
+        ];
+    }
+
+    pub fn set_portal_from_clip(&mut self, matrix: Mat4) {
+        self.portal_from_clip = if matrix.is_finite() {
+            matrix
+        } else {
+            Mat4::IDENTITY
+        };
     }
 
     #[must_use]

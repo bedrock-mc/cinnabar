@@ -91,6 +91,8 @@ pub(in crate::chunk) struct ChunkGpuArena {
     pub(in crate::chunk) indirect_buffer: Buffer,
     pub(in crate::chunk) transparent_indirect_buffer: Buffer,
     pub(in crate::chunk) transparent_ref_buffer: Buffer,
+    /// Per-slot capacity of `transparent_ref_buffer`, which is also the second slot's offset.
+    pub(in crate::chunk) transparent_slot_refs: usize,
     pub(in crate::chunk) bind_group: Option<BindGroup>,
     pub(in crate::chunk) bind_group_buffers: Option<ChunkBindGroupBuffers>,
     pub(in crate::chunk) quad_capacity: usize,
@@ -130,7 +132,7 @@ impl ChunkGpuArena {
             device_limits.max_buffer_size,
             u64::from(device_limits.max_storage_buffer_binding_size),
         );
-        Self {
+        let arena = Self {
             quad_buffer: create_storage_buffer(
                 render_device,
                 "packed chunk quads",
@@ -163,11 +165,11 @@ impl ChunkGpuArena {
             }),
             indirect_buffer: create_indirect_buffer(render_device, 1),
             transparent_indirect_buffer: create_indirect_buffer(render_device, 1),
-            transparent_ref_buffer: create_storage_buffer(
+            transparent_ref_buffer: transparent_ref_buffer(
                 render_device,
-                "double-buffered transparent draw refs",
-                TRANSPARENT_REF_BUFFER_BYTES as u64,
+                INITIAL_TRANSPARENT_SLOT_REFS,
             ),
+            transparent_slot_refs: INITIAL_TRANSPARENT_SLOT_REFS,
             bind_group: None,
             bind_group_buffers: None,
             quad_capacity: 1,
@@ -193,7 +195,9 @@ impl ChunkGpuArena {
                 MAX_TRANSPARENT_RETIRED_BYTES,
             ),
             migration: None,
-        }
+        };
+        super::telemetry::log_initial_arena_capacity(&arena, render_device);
+        arena
     }
 }
 
@@ -251,6 +255,7 @@ pub(in crate::chunk) struct GpuUpdateFairness {
     pub(in crate::chunk) wait_ages: HashMap<Entity, u32>,
     pub(in crate::chunk) urgent_waiters: HashSet<Entity>,
     pub(in crate::chunk) limit: usize,
+    pub(in crate::chunk) recover_untracked: bool,
     pub(in crate::chunk) last_tint_identity: Option<ChunkBiomeTintIdentity>,
 }
 
@@ -266,6 +271,7 @@ impl GpuUpdateFairness {
             wait_ages: HashMap::new(),
             urgent_waiters: HashSet::new(),
             last_tint_identity: None,
+            recover_untracked: false,
             limit,
         }
     }
@@ -294,11 +300,14 @@ impl GpuUpdateFairness {
             self.wait_ages.remove(&entity);
             self.urgent_waiters.remove(&entity);
         }
+        self.recover_untracked = false;
         for &entity in active.iter().filter(|entity| !successful.contains(entity)) {
             if let Some(age) = self.wait_ages.get_mut(&entity) {
                 *age = age.saturating_add(1);
             } else if self.wait_ages.len() < self.limit {
                 self.wait_ages.insert(entity, 1);
+            } else {
+                self.recover_untracked = true;
             }
         }
         for &entity in urgent.iter().filter(|entity| !successful.contains(entity)) {
@@ -313,6 +322,7 @@ impl GpuUpdateFairness {
         self.wait_ages.clear();
         self.urgent_waiters.clear();
         self.last_tint_identity = None;
+        self.recover_untracked = false;
     }
 
     #[cfg(test)]
@@ -847,6 +857,13 @@ pub(in crate::chunk) fn release_completed_transparent_retirements(
     arena: &mut ChunkGpuArena,
     completed_epoch: u64,
 ) {
+    #[cfg(feature = "tracy")]
+    let _zone = bevy::log::info_span!(
+        "chunk.resource_retirement",
+        pending = arena.retired_allocations.len(),
+        completed_epoch,
+    )
+    .entered();
     let mut retained = Vec::with_capacity(arena.retired_allocations.len());
     for retirement in std::mem::take(&mut arena.retired_allocations) {
         if !retirement.can_release(completed_epoch) {

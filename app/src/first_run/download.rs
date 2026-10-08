@@ -1,62 +1,62 @@
-//! Resumable download of the pinned sample-pack archive with byte progress. The fetch script
-//! reuses the archive once it hash-verifies, so it only extracts and publishes.
+//! Resumable download of the pinned sample-pack archive with byte progress, and its bounded
+//! unpack into the workspace cache.
 
 use std::{
     fs::{self, File, OpenOptions},
-    io::{Read, Write},
-    path::{Path, PathBuf},
+    io::Write,
+    path::Path,
     sync::atomic::{AtomicBool, Ordering},
     time::{Duration, Instant},
 };
 
 use anyhow::{Context, Result, bail};
+use assets::{
+    VanillaSource,
+    carriers::{Sources, VANILLA_MANIFEST},
+    vanilla_pack::{self, PackPaths, UnpackError, UnpackLimits, sha256_file},
+};
 use reqwest::{StatusCode, header::RANGE};
-use serde::Deserialize;
-use sha2::{Digest, Sha256};
 
 use super::runner::Cancelled;
 
 const REPORT_INTERVAL: Duration = Duration::from_millis(100);
-/// Where the fetch script looks for a verified archive, relative to the workspace.
-const DOWNLOADS: &str = ".local/assets/downloads";
 
-#[derive(Deserialize)]
-struct Source {
-    url: String,
-    sha256: String,
-    archive: String,
+/// The kit's pinned pack, unpacked below `workspace`.
+fn pack_paths(kit: &Path, workspace: &Path) -> Result<(VanillaSource, PackPaths)> {
+    let manifest = Sources::Kit(kit.to_path_buf()).resolve(VANILLA_MANIFEST);
+    let source = VanillaSource::read(&manifest)?;
+    let paths = source.local_paths(workspace)?;
+    Ok((source, paths))
 }
 
-/// Leaves the verified archive where `fetch-vanilla-assets` looks for it; `progress` receives
-/// (bytes received, bytes expected).
+/// Leaves the verified archive where [`unpack`] reads it; `progress` receives (bytes received,
+/// bytes expected).
 pub(super) fn fetch_archive(
+    kit: &Path,
     workspace: &Path,
     cancel: &AtomicBool,
     mut progress: impl FnMut(u64, Option<u64>),
 ) -> Result<()> {
-    let manifest = workspace.join(super::plan::VANILLA_MANIFEST);
-    let bytes = fs::read(&manifest).with_context(|| format!("read {}", manifest.display()))?;
-    let source: Source =
-        serde_json::from_slice(&bytes).with_context(|| format!("parse {}", manifest.display()))?;
+    let (source, paths) = pack_paths(kit, workspace)?;
     if !source.url.starts_with("https://") {
         bail!("sample pack URL is not HTTPS: {}", source.url);
     }
     let expected = source.sha256.to_ascii_lowercase();
-    let target = archive_path(workspace, &source.archive);
-    if target.is_file() && sha256_file(&target)? == expected {
-        let len = fs::metadata(&target)?.len();
+    let target = &paths.archive;
+    if target.is_file() && sha256_file(target)? == expected {
+        let len = fs::metadata(target)?.len();
         progress(len, Some(len));
         return Ok(());
     }
     if let Some(parent) = target.parent() {
         fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
     }
-    let partial = target.with_file_name(format!("{}.partial", source.archive));
+    let partial = &paths.partial;
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?;
     runtime
-        .block_on(download_to(&source.url, &partial, cancel, &mut progress))
+        .block_on(download_to(&source.url, partial, cancel, &mut progress))
         .map_err(|error| {
             if error.is::<Cancelled>() {
                 error
@@ -64,24 +64,35 @@ pub(super) fn fetch_archive(
                 error.context("Could not download the Minecraft resources. Check your internet connection, then retry")
             }
         })?;
-    let actual = sha256_file(&partial)?;
+    let actual = sha256_file(partial)?;
     if actual != expected {
-        let _ = fs::remove_file(&partial);
+        let _ = fs::remove_file(partial);
         bail!(
             "the downloaded pack failed verification (SHA-256 {actual}); retry to download it again"
         );
     }
-    fs::rename(&partial, &target)
+    fs::rename(partial, target)
         .with_context(|| format!("move {} to {}", partial.display(), target.display()))
 }
 
+/// Extracts the archive [`fetch_archive`] verified into the manifest's cache directory.
+pub(super) fn unpack(kit: &Path, workspace: &Path, cancel: &AtomicBool) -> Result<()> {
+    let (_, paths) = pack_paths(kit, workspace)?;
+    match vanilla_pack::unpack(&paths, &UnpackLimits::PINNED, &|| {
+        cancel.load(Ordering::Relaxed)
+    }) {
+        Ok(_) => Ok(()),
+        Err(UnpackError::Cancelled) => Err(Cancelled.into()),
+        Err(error) => Err(error.into()),
+    }
+}
+
 /// Deletes every download except the current pin's verified archive.
-pub(super) fn prune(workspace: &Path) {
-    let keep = fs::read(workspace.join(super::plan::VANILLA_MANIFEST))
+pub(super) fn prune(kit: &Path, workspace: &Path) {
+    let keep = pack_paths(kit, workspace)
         .ok()
-        .and_then(|bytes| serde_json::from_slice::<Source>(&bytes).ok())
-        .map(|source| source.archive);
-    let Ok(entries) = fs::read_dir(workspace.join(DOWNLOADS)) else {
+        .map(|(source, _)| source.archive);
+    let Ok(entries) = fs::read_dir(workspace.join(vanilla_pack::DOWNLOAD_DIR)) else {
         return;
     };
     for entry in entries.flatten() {
@@ -89,10 +100,6 @@ pub(super) fn prune(workspace: &Path) {
             let _ = fs::remove_file(entry.path());
         }
     }
-}
-
-fn archive_path(workspace: &Path, archive: &str) -> PathBuf {
-    workspace.join(DOWNLOADS).join(archive)
 }
 
 /// Appends to `partial` when the server honours a range request, else starts it over.
@@ -150,20 +157,6 @@ async fn download_to(
     Ok(())
 }
 
-fn sha256_file(path: &Path) -> Result<String> {
-    let mut file = File::open(path).with_context(|| format!("open {}", path.display()))?;
-    let mut hasher = Sha256::new();
-    let mut buffer = vec![0; 1 << 20];
-    loop {
-        let read = file.read(&mut buffer)?;
-        if read == 0 {
-            break;
-        }
-        hasher.update(&buffer[..read]);
-    }
-    Ok(format!("{:x}", hasher.finalize()))
-}
-
 #[cfg(test)]
 mod tests {
     use std::{
@@ -172,8 +165,10 @@ mod tests {
         thread,
     };
 
+    use sha2::{Digest, Sha256};
+
     use super::*;
-    use crate::first_run::test_support::Dir;
+    use crate::first_run::test_support::{Dir, write_vanilla_manifest};
 
     const BODY: &[u8] = b"0123456789abcdefghijklmnopqrstuvwxyz";
 
@@ -253,18 +248,13 @@ mod tests {
     #[test]
     fn pruning_keeps_only_the_current_archive() {
         let dir = Dir::new("download-prune");
-        let downloads = dir.path().join(DOWNLOADS);
+        let downloads = dir.path().join(vanilla_pack::DOWNLOAD_DIR);
         fs::create_dir_all(&downloads).unwrap();
-        fs::create_dir_all(dir.path().join("assets")).unwrap();
-        fs::write(
-            dir.path().join(super::super::plan::VANILLA_MANIFEST),
-            r#"{"url":"https://x/new.zip","sha256":"00","archive":"new.zip"}"#,
-        )
-        .unwrap();
+        write_vanilla_manifest(dir.path(), "https://x/new.zip", "00", "new.zip");
         for name in ["old.zip", "new.zip", "new.zip.partial"] {
             fs::write(downloads.join(name), b"x").unwrap();
         }
-        prune(dir.path());
+        prune(dir.path(), dir.path());
         let left: Vec<_> = fs::read_dir(&downloads)
             .unwrap()
             .flatten()
@@ -276,20 +266,13 @@ mod tests {
     #[test]
     fn a_verified_archive_is_reused_without_a_request() {
         let dir = Dir::new("download-reuse");
-        let archive = archive_path(dir.path(), "pack.zip");
+        let sha = format!("{:x}", Sha256::digest(BODY));
+        write_vanilla_manifest(dir.path(), "https://127.0.0.1:9/none", &sha, "pack.zip");
+        let archive = pack_paths(dir.path(), dir.path()).unwrap().1.archive;
         fs::create_dir_all(archive.parent().unwrap()).unwrap();
         fs::write(&archive, BODY).unwrap();
-        fs::create_dir_all(dir.path().join("assets")).unwrap();
-        let sha = format!("{:x}", Sha256::digest(BODY));
-        fs::write(
-            dir.path().join(super::super::plan::VANILLA_MANIFEST),
-            format!(
-                r#"{{"url":"https://127.0.0.1:9/none","sha256":"{sha}","archive":"pack.zip"}}"#
-            ),
-        )
-        .unwrap();
         let mut seen = None;
-        fetch_archive(dir.path(), &AtomicBool::new(false), |r, t| {
+        fetch_archive(dir.path(), dir.path(), &AtomicBool::new(false), |r, t| {
             seen = Some((r, t))
         })
         .unwrap();

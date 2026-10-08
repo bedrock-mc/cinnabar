@@ -8,19 +8,26 @@ use bevy::{
     window::{CursorGrabMode, CursorOptions, PrimaryWindow},
 };
 
-use super::{MAX_LINE_DESIGN_PIXELS, SignEdit};
 use crate::{
     block_entities::{BlockEntityFont, BlockEntityRuntime},
     menu::MenuRuntime,
     runtime::{network::NetworkHandle, world::ClientWorld},
-    ui_runtime::{
-        UiRuntime, interaction::restore_gameplay_input_after_chat,
-        presentation::UiPresentationRuntime,
-    },
 };
+use client_ui::ui_runtime::sign_editor::{MAX_LINE_DESIGN_PIXELS, SignEdit};
+use client_ui::ui_runtime::{
+    UiRuntime, interaction::restore_gameplay_input_after_chat, presentation::UiPresentationRuntime,
+};
+
+/// Applies desktop ownership before accepting sign-editor input.
+#[derive(bevy::ecs::system::SystemParam)]
+pub(crate) struct SignInputAuthority<'w> {
+    focus: Option<ResMut<'w, client_presentation::camera::CursorFocus>>,
+    driven: Option<Res<'w, crate::camera::DrivenInput>>,
+}
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn drive_sign_editor(
+    player_runtime: bevy::prelude::Res<crate::player_runtime::PlayerRuntime>,
     window: Single<(&Window, &mut CursorOptions), With<PrimaryWindow>>,
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut mouse: ResMut<ButtonInput<MouseButton>>,
@@ -35,8 +42,17 @@ pub(crate) fn drive_sign_editor(
     mut runtime: ResMut<UiRuntime>,
     mut owned_last_frame: Local<bool>,
     collisions: Option<Res<crate::movement::PhysicsCollisionRegistries>>,
+    authority: SignInputAuthority,
 ) {
+    let SignInputAuthority { mut focus, driven } = authority;
     let (window, mut cursor) = window.into_inner();
+    let input_available = driven.is_some()
+        || (window.focused && focus.as_ref().is_none_or(|focus| focus.available()));
+    if runtime.credits().owns_input() {
+        keyboard.clear();
+        *owned_last_frame = false;
+        return;
+    }
     if menu.as_ref().is_some_and(|menu| menu.is_visible()) {
         runtime.sign_editor_mut().close();
         keyboard.clear();
@@ -74,7 +90,7 @@ pub(crate) fn drive_sign_editor(
     }
     if !runtime.sign_editor().is_open() {
         keyboard.clear();
-        if *owned_last_frame && !runtime.ui_focused() && window.focused {
+        if *owned_last_frame && !runtime.ui_focused(&player_runtime) && input_available {
             restore_gameplay_input_after_chat(&mut cursor, &mut keys, &mut mouse, &mut motion);
         }
         *owned_last_frame = false;
@@ -84,8 +100,9 @@ pub(crate) fn drive_sign_editor(
     cursor.grab_mode = CursorGrabMode::None;
     cursor.visible = true;
     let mut measure = measure;
-    let mut finish = false;
-    if window.focused {
+    let mut finish = runtime.sign_editor_mut().take_finish_request();
+    let mut explicit_finish = false;
+    if input_available {
         for event in keyboard
             .read()
             .filter(|event| event.state == ButtonState::Pressed)
@@ -94,8 +111,15 @@ pub(crate) fn drive_sign_editor(
                 break;
             };
             match event.key_code {
-                KeyCode::Escape => finish = true,
-                KeyCode::Enter | KeyCode::NumpadEnter => finish |= edit.newline(),
+                KeyCode::Escape => {
+                    finish = true;
+                    explicit_finish = true;
+                }
+                KeyCode::Enter | KeyCode::NumpadEnter => {
+                    let last_line = edit.newline();
+                    finish |= last_line;
+                    explicit_finish |= last_line;
+                }
                 KeyCode::Backspace => edit.backspace(),
                 KeyCode::Delete => edit.delete(),
                 KeyCode::ArrowLeft => edit.left(),
@@ -126,26 +150,29 @@ pub(crate) fn drive_sign_editor(
             && presentation.sign_editor_exit_hit(point)
         {
             finish = true;
+            explicit_finish = true;
         }
     } else {
         keyboard.clear();
+    }
+    if explicit_finish && let Some(focus) = focus.as_deref_mut() {
+        focus.authorize_screen_return();
     }
     keys.reset_all();
     motion.delta = bevy::math::Vec2::ZERO;
     if !finish {
         return;
     }
-    if let Some(edit) = runtime.sign_editor_mut().close()
-        && edit.changed()
-    {
-        let position = edit.position();
-        let nbt = edit.into_encoded_nbt();
-        if let Some(network) = network {
-            // A full queue drops this edit; the sign simply keeps its old text.
-            let _ = network.send_inventory_packet(protocol::sign_edit_packet(position, &nbt));
-        }
+    if !runtime.sign_editor_mut().finish(|packet| {
+        network
+            .as_deref()
+            .ok_or(())?
+            .send_inventory_packet(packet)
+            .map_err(|_| ())
+    }) {
+        return;
     }
-    if !runtime.ui_focused() {
+    if !runtime.ui_focused(&player_runtime) {
         restore_gameplay_input_after_chat(&mut cursor, &mut keys, &mut mouse, &mut motion);
         *owned_last_frame = false;
     }

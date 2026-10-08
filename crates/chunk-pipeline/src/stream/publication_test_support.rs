@@ -1,0 +1,181 @@
+use super::*;
+
+/// Identity assigned by the real dirty-revision tracker to a deterministic
+/// publication fixture item.
+#[doc(hidden)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PublicationFixtureIdentity {
+    pub key: SubChunkKey,
+    pub generation: u64,
+    pub dirty_since: Instant,
+}
+
+/// Opaque terminal state exposed only to the cross-crate production-pipeline
+/// acceptance test.
+#[doc(hidden)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PublicationFixtureSnapshot {
+    pub pending_mesh_jobs: usize,
+    pub in_flight_mesh_jobs: usize,
+    pub pending_mesh_changes: usize,
+    pub unacknowledged_meshes: usize,
+}
+
+impl WorldStream {
+    /// Prepares fixture appearances without changing the simulation clock under test.
+    #[doc(hidden)]
+    pub fn prepare_actor_appearance_fixture(&mut self) {
+        while self.authority.poll_actor_appearance_preparation() {
+            std::thread::yield_now();
+        }
+    }
+
+    fn install_publication_fixture_light(&mut self, key: SubChunkKey) {
+        self.lighting.next_block_generation =
+            self.lighting.next_block_generation.wrapping_add(1).max(1);
+        let block_generation = self.lighting.next_block_generation;
+        let light_revision = block_generation.wrapping_add(10_000);
+        self.lighting
+            .block_generations
+            .insert(key, block_generation);
+        self.lighting.store.insert_resident(
+            key,
+            SubChunkLight::uniform(0, 15, light_revision)
+                .expect("fixture light channels are bounded"),
+        );
+        self.lighting.ownership.insert(
+            key,
+            LightOwnership {
+                block_generation,
+                light_revision,
+            },
+        );
+        self.lighting.direct_sky.insert(
+            key,
+            StoredDirectSky {
+                light_revision,
+                mask: Arc::new(DirectSkyMask::Uniform(true)),
+            },
+        );
+        self.lighting.revisions.entries.remove(&key);
+        self.lighting.jobs.pending.remove(&key);
+    }
+
+    /// Stages current resident completions through the real bounded worker
+    /// result channel. Sources and light state are installed for the whole
+    /// batch before its exact current halos are captured. The next
+    /// [`WorldStream::poll`] performs the same validation and publication
+    /// admission used for Rayon mesh results.
+    #[doc(hidden)]
+    pub fn stage_publication_fixture_completions(
+        &mut self,
+        entries: Vec<(SubChunkKey, ChunkMesh, PackedBiomeRecord)>,
+    ) -> Vec<PublicationFixtureIdentity> {
+        assert!(
+            entries.len() <= WORK_RESULT_CAPACITY,
+            "one fixture batch respects the production result capacity"
+        );
+        for (key, _, _) in &entries {
+            let source = SubChunk::decode(
+                &[8, 1, 1, 2],
+                &world::RawBlockIds {
+                    air: self.classifier.air_network_id(),
+                },
+            );
+            self.authority
+                .commit_sub_chunk(*key, source)
+                .expect("commit publication fixture source");
+            self.resident.insert(*key);
+            self.known_air.remove(key);
+            self.install_publication_fixture_light(*key);
+        }
+
+        entries
+            .into_iter()
+            .map(|(key, mesh, biome)| {
+                let dirty_since = Instant::now();
+                let generation = self.mark_dirty_exact(key, dirty_since);
+                self.mesh_jobs.pending.remove(&key);
+                self.mesh_jobs.in_flight.insert(key, generation);
+                let source = self
+                    .authority
+                    .terrain()
+                    .sub_chunk(key)
+                    .expect("fixture source remains resident");
+                let completion = MeshCompletion {
+                    output_permit: None,
+                    _job_permit: None,
+                    key,
+                    revision: generation,
+                    source,
+                    biome_sources: self.biome_neighbourhood(key),
+                    biome,
+                    tint_identity: self.biome_tint_identity(),
+                    mesh,
+                    dependency_mask: MeshDependencyMask::default(),
+                    light_halo: self
+                        .mesh_light_halo(key)
+                        .expect("fixture light halo is current"),
+                    queue_wait: Duration::ZERO,
+                    dispatch_wait: Duration::ZERO,
+                    duration: Duration::ZERO,
+                    urgent: false,
+                };
+                self.mesh_tx
+                    .try_send(completion)
+                    .expect("publication fixture respects the production result capacity");
+                PublicationFixtureIdentity {
+                    key,
+                    generation,
+                    dirty_since,
+                }
+            })
+            .collect()
+    }
+
+    /// Validates synthetic completed CPU work before the fixture's timed world poll.
+    /// Channel, publication-item and byte limits remain production limits; this fixture
+    /// measures publication frames, while real CPU deadlines have separate coverage.
+    #[doc(hidden)]
+    pub fn service_publication_fixture_completions(&mut self) {
+        while self.mesh_changes.len() < MAX_PENDING_MESH_CHANGES {
+            let Ok(completion) = self.mesh_rx.try_recv() else {
+                break;
+            };
+            self.accept_mesh_completion(completion);
+        }
+    }
+
+    /// Stages a current known-air dirty revision. The next real poll dispatch
+    /// converts it to a permitted zero-byte removal.
+    #[doc(hidden)]
+    pub fn stage_publication_fixture_known_air(
+        &mut self,
+        key: SubChunkKey,
+    ) -> PublicationFixtureIdentity {
+        assert!(
+            self.authority.terrain().sub_chunk(key).is_none(),
+            "known-air fixture key must not have resident block storage"
+        );
+        self.resident.insert(key);
+        self.known_air.insert(key);
+        let dirty_since = Instant::now();
+        let generation = self.mark_dirty_exact(key, dirty_since);
+        PublicationFixtureIdentity {
+            key,
+            generation,
+            dirty_since,
+        }
+    }
+
+    #[doc(hidden)]
+    #[must_use]
+    pub fn publication_fixture_snapshot(&self) -> PublicationFixtureSnapshot {
+        PublicationFixtureSnapshot {
+            pending_mesh_jobs: self.mesh_jobs.pending.len(),
+            in_flight_mesh_jobs: self.mesh_jobs.in_flight.len(),
+            pending_mesh_changes: self.mesh_changes.len(),
+            unacknowledged_meshes: self.revisions.entries.len(),
+        }
+    }
+}

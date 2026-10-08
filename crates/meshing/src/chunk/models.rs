@@ -1,15 +1,16 @@
 use std::cell::OnceCell;
 
 use assets::{
-    BlockFlags, MODEL_QUAD_FLAG_CULL_FACE_MASK, MODEL_TEMPLATE_FLAG_FENCE_NETHER,
-    MODEL_TEMPLATE_FLAG_FENCE_WOOD, MODEL_TEMPLATE_FLAG_GATE_AXIS_X,
-    MODEL_TEMPLATE_FLAG_GATE_AXIS_Z, MODEL_TEMPLATE_FLAG_KELP, MODEL_TEMPLATE_FLAG_PANE,
-    MODEL_TEMPLATE_FLAG_STAIR, MODEL_TEMPLATE_FLAG_WALL, NO_MODEL_TEMPLATE, NetworkIdMode,
-    RuntimeAssets, VisualKind,
+    BlockFlags, MODEL_QUAD_FLAG_CULL_FACE_MASK, MODEL_QUAD_FLAG_FACE_MASK,
+    MODEL_TEMPLATE_FLAG_FENCE_NETHER, MODEL_TEMPLATE_FLAG_FENCE_WOOD,
+    MODEL_TEMPLATE_FLAG_GATE_AXIS_X, MODEL_TEMPLATE_FLAG_GATE_AXIS_Z, MODEL_TEMPLATE_FLAG_KELP,
+    MODEL_TEMPLATE_FLAG_PANE, MODEL_TEMPLATE_FLAG_SNOW_LAYER, MODEL_TEMPLATE_FLAG_STAIR,
+    MODEL_TEMPLATE_FLAG_WALL, NO_MODEL_TEMPLATE, NetworkIdMode, RuntimeAssets, VisualKind,
 };
 use world::MeshNeighbourhood;
 
 use super::opaque::face_offset;
+mod fire;
 use crate::{
     BlockClassifier, Face, SIDE,
     contributors::{PaletteFacts, ResolvedPaletteEntry},
@@ -25,7 +26,6 @@ pub(crate) fn is_kelp_entry(visuals: &RuntimeAssets, entry: ResolvedPaletteEntry
 }
 
 pub(crate) const MAX_SELECTED_MODEL_TEMPLATES: usize = 2;
-pub(crate) const MAX_COMPOUND_MODEL_PARTS: u32 = 2;
 
 pub(crate) fn select_model_templates<'a>(
     context: PaletteResolutionContext<'_, 'a>,
@@ -35,6 +35,32 @@ pub(crate) fn select_model_templates<'a>(
     entry: ResolvedPaletteEntry,
 ) -> ([u32; MAX_SELECTED_MODEL_TEMPLATES], u8) {
     let flags = model_template_flags(context.visuals, entry);
+    if flags & assets::MODEL_TEMPLATE_FLAG_FIRE != 0 {
+        return (
+            [
+                fire::select_template(context, facts, neighbour_facts, coordinate, entry),
+                NO_MODEL_TEMPLATE,
+            ],
+            1,
+        );
+    }
+    if flags & assets::MODEL_TEMPLATE_FLAG_NETHER_PORTAL != 0 {
+        let legacy_axis_x = entry.variant & assets::BLOCK_VISUAL_VARIANT_PORTAL_UNKNOWN != 0
+            && [Face::NegativeX, Face::PositiveX].into_iter().any(|face| {
+                let neighbour =
+                    adjacent_palette_entry(context, facts, neighbour_facts, coordinate, face);
+                model_template_flags(context.visuals, neighbour)
+                    & assets::MODEL_TEMPLATE_FLAG_NETHER_PORTAL
+                    != 0
+            });
+        return (
+            [
+                entry.model_template + u32::from(legacy_axis_x),
+                NO_MODEL_TEMPLATE,
+            ],
+            1,
+        );
+    }
     if flags & MODEL_TEMPLATE_FLAG_PANE != 0 {
         let mask = connected_model_mask(
             context,
@@ -109,6 +135,41 @@ pub(crate) fn model_template_flags(visuals: &RuntimeAssets, entry: ResolvedPalet
         .then(|| visuals.model_templates().get(entry.model_template as usize))
         .flatten()
         .map_or(0, |template| template.flags)
+}
+
+/// Native half-cuboid occlusion removes a whole touching side only when the
+/// floor-anchored neighbour reaches at least as high. Never use it for an inset
+/// top or a bottom touching a shorter layer below.
+pub(crate) fn snow_side_is_covered(
+    visuals: &RuntimeAssets,
+    entry: ResolvedPaletteEntry,
+    neighbour: ResolvedPaletteEntry,
+    face: Face,
+) -> bool {
+    if matches!(face, Face::NegativeY | Face::PositiveY) {
+        return false;
+    }
+    match (snow_top(visuals, entry), snow_top(visuals, neighbour)) {
+        (Some(top), Some(neighbour_top)) => neighbour_top >= top,
+        _ => false,
+    }
+}
+
+fn snow_top(visuals: &RuntimeAssets, entry: ResolvedPaletteEntry) -> Option<i16> {
+    if model_template_flags(visuals, entry) != MODEL_TEMPLATE_FLAG_SNOW_LAYER {
+        return None;
+    }
+    let template = visuals
+        .model_templates()
+        .get(entry.model_template as usize)?;
+    let start = template.quad_start as usize;
+    let end = start.checked_add(template.quad_count as usize)?;
+    let top = visuals.model_quads().get(start..end)?.iter().find(|quad| {
+        model_quad_cull_face((quad.flags & MODEL_QUAD_FLAG_FACE_MASK) << 4, 0)
+            == Some(Face::PositiveY)
+    })?;
+    let height = top.positions.first()?[1];
+    (height > 0 && top.positions.iter().all(|position| position[1] == height)).then_some(height)
 }
 
 fn select_stair_template<'a>(

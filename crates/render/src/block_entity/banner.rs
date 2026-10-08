@@ -4,6 +4,7 @@
 //! 20x2x2 bar). The 2/3 model scale, mounting heights and sway parameters need native
 //! measurement.
 
+use assets::block_entity_geometry as geometry;
 use bevy::math::{Mat4, Vec3};
 
 use super::{
@@ -96,42 +97,6 @@ pub fn pattern_texture(id: &str) -> Option<&'static str> {
     })
 }
 
-/// sRGB dye colors in dye-id order white..black (`0..=15`); needs native measurement.
-const DYE_SRGB: [[u8; 3]; 16] = [
-    [0xF9, 0xFF, 0xFE],
-    [0xF9, 0x80, 0x1D],
-    [0xC7, 0x4E, 0xBD],
-    [0x3A, 0xB3, 0xDA],
-    [0xFE, 0xD8, 0x3D],
-    [0x80, 0xC7, 0x1F],
-    [0xF3, 0x8B, 0xAA],
-    [0x47, 0x4F, 0x52],
-    [0x9D, 0x9D, 0x97],
-    [0x16, 0x9C, 0x9C],
-    [0x89, 0x32, 0xB8],
-    [0x3C, 0x44, 0xAA],
-    [0x83, 0x54, 0x32],
-    [0x5E, 0x7C, 0x16],
-    [0xB0, 0x2E, 0x26],
-    [0x1D, 0x1D, 0x21],
-];
-
-fn srgb_to_linear(value: u8) -> f32 {
-    let value = f32::from(value) / 255.0;
-    if value <= 0.04045 {
-        value / 12.92
-    } else {
-        ((value + 0.055) / 1.055).powf(2.4)
-    }
-}
-
-/// Linear RGB for a Bedrock banner color value, which counts dyes in reverse order.
-#[must_use]
-pub fn banner_color(bedrock_value: i64) -> [f32; 3] {
-    let index = usize::try_from(!bedrock_value & 0xF).unwrap_or(0);
-    DYE_SRGB[index].map(srgb_to_linear)
-}
-
 pub(super) fn emit(
     builder: &mut MeshBuilder,
     atlas: &BlockEntityAtlas,
@@ -153,7 +118,7 @@ pub(super) fn emit(
             false,
         ),
     };
-    let Some(base_texture) = atlas.texture("textures/entity/banner/banner_base", [64.0, 64.0])
+    let Some(base_texture) = atlas.texture(geometry::BANNER_TEXTURE.0, geometry::BANNER_TEXTURE.1)
     else {
         return;
     };
@@ -163,7 +128,7 @@ pub(super) fn emit(
             Layer::Solid,
             &base_texture,
             base,
-            BoxSpec::new([-1.0, 0.0, -1.0], [2.0, 42.0, 2.0], [44.0, 0.0]),
+            world_box(geometry::BANNER_POLE, 12.0),
             white,
         );
     }
@@ -171,7 +136,7 @@ pub(super) fn emit(
         Layer::Solid,
         &base_texture,
         base,
-        BoxSpec::new([-10.0, 42.0, -1.0], [20.0, 2.0, 2.0], [0.0, 42.0]),
+        world_box(geometry::BANNER_BAR, 12.0),
         white,
     );
     let sway = sway_degrees(block, clock);
@@ -181,9 +146,7 @@ pub(super) fn emit(
         * Mat4::from_rotation_x(sway.to_radians())
         * Mat4::from_translation(-hinge);
     let tint = |color: [f32; 3]| [color[0], color[1], color[2], 1.0];
-    let cloth_box = |inflate: f32| {
-        BoxSpec::new([-10.0, 2.0, -2.0], [20.0, 40.0, 1.0], [0.0, 0.0]).inflated(inflate)
-    };
+    let cloth_box = |inflate: f32| world_box(geometry::BANNER_CLOTH, hinge.y).inflated(inflate);
     builder.cuboid(
         Layer::Solid,
         &base_texture,
@@ -208,6 +171,11 @@ pub(super) fn emit(
     }
 }
 
+/// Converts downward model-part Y coordinates into upward world model pixels.
+fn world_box(([x, y, z], size, uv): geometry::ModelBox, anchor: f32) -> BoxSpec {
+    BoxSpec::new([x, anchor - y - size[1], z], size, uv)
+}
+
 /// Cloth tilt about the crossbar, varying with position so neighbors do not sway in step.
 fn sway_degrees(block: [i32; 3], clock: SceneClock) -> f32 {
     let seed = (block[0].wrapping_mul(7))
@@ -226,13 +194,6 @@ mod tests {
         assert_eq!(pattern_texture("bs"), Some("stripe_bottom"));
         assert_eq!(pattern_texture("lud"), Some("diagonal_left"));
         assert_eq!(pattern_texture("zzz"), None);
-    }
-
-    #[test]
-    fn bedrock_colors_count_dyes_in_reverse() {
-        // Bedrock 15 is white, 0 is black.
-        assert!(banner_color(15)[0] > 0.9);
-        assert!(banner_color(0)[0] < 0.05);
     }
 
     #[test]

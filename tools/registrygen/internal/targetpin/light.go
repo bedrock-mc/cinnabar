@@ -2,14 +2,26 @@
 package targetpin
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // LightHash finds the target manifest above the working directory and reads its light pin.
 func LightHash() (string, error) {
+	return Hash("light_registry")
+}
+
+// BlockHash reads the block-registry pin from the repository target manifest.
+func BlockHash() (string, error) {
+	return Hash("block_registry")
+}
+
+// Hash finds the target manifest above the working directory and validates one carrier pin.
+func Hash(carrier string) (string, error) {
 	dir, err := os.Getwd()
 	if err != nil {
 		return "", err
@@ -23,9 +35,10 @@ func LightHash() (string, error) {
 			if err := json.Unmarshal(data, &target); err != nil {
 				return "", err
 			}
-			hash := target.Hashes["light_registry"]
-			if len(hash) != 64 {
-				return "", fmt.Errorf("invalid light registry pin")
+			hash := target.Hashes[carrier]
+			decoded, err := hex.DecodeString(hash)
+			if err != nil || len(decoded) != 32 || hash != strings.ToLower(hash) {
+				return "", fmt.Errorf("invalid %s pin", carrier)
 			}
 			return hash, nil
 		}

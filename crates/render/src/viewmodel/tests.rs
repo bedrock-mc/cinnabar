@@ -24,6 +24,7 @@ fn cube_carrier() -> assets::CompiledAssets {
                 texture: TextureRef::new(0, id.saturating_sub(1)).unwrap(),
                 flags: 0,
                 animation: NO_ANIMATION,
+                ..assets::Material::unvaried()
             })
             .collect::<Vec<_>>()
             .into(),
@@ -59,29 +60,52 @@ fn cube_carrier() -> assets::CompiledAssets {
 }
 
 #[test]
+fn opaque_cube_gameplay_flags_do_not_change_held_geometry() {
+    for flag in [
+        assets::BlockFlags::FIRE_FLAMMABLE,
+        assets::BlockFlags::FIRE_TOP_SUPPORT,
+        assets::BlockFlags::SEASONAL_REPLACEABLE,
+    ] {
+        let mut source = cube_carrier();
+        source.visuals[1].flags |= flag;
+        let runtime =
+            assets::RuntimeAssets::decode(&assets::encode_blob(&source).unwrap()).unwrap();
+        let (geometry, _) = ViewmodelGeometry::opaque_cube(&runtime, assets::BlockVisualId(1))
+            .expect("gameplay flags preserve opaque cube geometry");
+        assert_eq!(geometry.vertices.len(), 36);
+    }
+}
+
+#[test]
 fn opaque_cube_transports_all_six_face_layers_without_sprite_extrusion() {
     let source = cube_carrier();
     let runtime = assets::RuntimeAssets::decode(&assets::encode_blob(&source).unwrap()).unwrap();
     let (geometry, pixels) =
         ViewmodelGeometry::opaque_cube(&runtime, assets::BlockVisualId(1)).unwrap();
     assert_eq!(geometry.vertices.len(), 36);
-    assert_eq!(pixels.rgba8.len(), 64 * 64 * 4);
+    let side = VIEWMODEL_TEXTURE_SIDE as usize;
+    assert_eq!(pixels.rgba8.len(), side * side * 4);
     for face in 0..6 {
-        let offset = ((face / 3 * 16) * 64 + face % 3 * 16) * 4;
+        let vertices = &geometry.vertices[face * 6..face * 6 + 6];
+        let low: [usize; 2] = std::array::from_fn(|axis| {
+            (vertices.iter().map(|v| v.uv[axis]).fold(f32::MAX, f32::min) * side as f32) as usize
+        });
+        let offset = (low[1] * side + low[0]) * 4;
         assert_eq!(
             &pixels.rgba8[offset..offset + 4],
             &[face as u8 + 1, 20, 40, 255]
         );
-        for vertex in &geometry.vertices[face * 6..face * 6 + 6] {
+        let gutter = ((low[1] - 1) * side + low[0] - 1) * 4;
+        assert_eq!(
+            &pixels.rgba8[gutter..gutter + 4],
+            &pixels.rgba8[offset..offset + 4]
+        );
+        for vertex in vertices {
             assert!(vertex.position.iter().all(|p| p.is_finite()));
             assert!(vertex.position[2] < 0.);
-            assert!(vertex.uv[0] >= (face % 3 * 16) as f32 / 64.);
-            assert!(vertex.uv[0] < (face % 3 * 16 + 16) as f32 / 64.);
-            assert!(vertex.uv[1] >= (face / 3 * 16) as f32 / 64.);
-            assert!(vertex.uv[1] < (face / 3 * 16 + 16) as f32 / 64.);
+            assert!(vertex.uv.iter().all(|uv| (0.0..=1.0).contains(uv)));
         }
     }
-    assert!(pixels.rgba8[(48 * 4)..64 * 4].iter().all(|b| *b == 0));
     assert!(ViewmodelGeometry::opaque_cube(&runtime, assets::BlockVisualId(0)).is_none());
     assert!(ViewmodelGeometry::opaque_cube(&runtime, assets::BlockVisualId(2)).is_none());
     let mut changed = source.clone();
@@ -233,7 +257,7 @@ fn depth_limit_counts_samples_and_overflow() {
 
 #[test]
 fn skin_fractional_alpha_is_not_silently_quantized() {
-    let pixels: Arc<[u8]> = vec![255; 64 * 64 * 4].into();
+    let pixels: Arc<[u8]> = vec![255; VIEWMODEL_TEXTURE_BYTES].into();
     assert!(ViewmodelSkin::new(pixels.clone(), [1; 32]).is_some());
     let mut fractional = pixels.to_vec();
     fractional[3] = 128;
@@ -290,9 +314,12 @@ fn profile() -> assets::EntityGeometry {
         };
         EntityGeometryBone {
             name: name.into(),
+            binding: None,
+            texture_meshes: Box::new([]),
             parent: parent.map(Into::into),
             pivot: Some(vec(pivot)),
             rotation: None,
+            bind_pose_rotation: None,
             inflate: None,
             mirror: None,
             never_render: None,
@@ -303,11 +330,12 @@ fn profile() -> assets::EntityGeometry {
     .collect::<Vec<_>>()
     .into();
     EntityGeometry {
+        visible_bounds: None,
         identifier: "geometry.humanoid.custom".into(),
         inherits: None,
         source_index: 0,
-        texture_width: 64,
-        texture_height: 64,
+        texture_width: VIEWMODEL_TEXTURE_SIDE as u16,
+        texture_height: VIEWMODEL_TEXTURE_SIDE as u16,
         bones,
     }
 }
@@ -324,10 +352,34 @@ fn arm_and_sleeve_share_one_parent_transform_and_distinct_uv_faces() {
             .transform_point3(bevy::math::Vec3::new(-3., 10., -2.))
             .to_array()
     );
-    assert_eq!(mesh.vertices[0].uv, [44. / 64., 20. / 64.]);
-    assert_eq!(mesh.vertices[1].uv, [48. / 64., 20. / 64.]);
-    assert_eq!(mesh.vertices[2].uv, [48. / 64., 32. / 64.]);
-    assert_eq!(mesh.vertices[36].uv, [44. / 64., 36. / 64.]);
+    assert_eq!(
+        mesh.vertices[0].uv,
+        [
+            44. / VIEWMODEL_TEXTURE_SIDE as f32,
+            20. / VIEWMODEL_TEXTURE_SIDE as f32
+        ]
+    );
+    assert_eq!(
+        mesh.vertices[1].uv,
+        [
+            48. / VIEWMODEL_TEXTURE_SIDE as f32,
+            20. / VIEWMODEL_TEXTURE_SIDE as f32
+        ]
+    );
+    assert_eq!(
+        mesh.vertices[2].uv,
+        [
+            48. / VIEWMODEL_TEXTURE_SIDE as f32,
+            32. / VIEWMODEL_TEXTURE_SIDE as f32
+        ]
+    );
+    assert_eq!(
+        mesh.vertices[36].uv,
+        [
+            44. / VIEWMODEL_TEXTURE_SIDE as f32,
+            36. / VIEWMODEL_TEXTURE_SIDE as f32
+        ]
+    );
     assert_eq!(
         mesh.vertices[36].position,
         transform
@@ -373,30 +425,45 @@ fn unverified_profiles_reject_instead_of_recalibrating_the_anchor() {
 #[test]
 fn reverse_z_projection_is_private_aspect_correct_and_world_fov_independent() {
     let projection = hand_projection([1920, 1080]);
-    let near = projection.project_point3(bevy::math::Vec3::new(0., 0., -0.1));
+    let nearby = projection.project_point3(bevy::math::Vec3::new(0., 0., -0.05));
+    assert!(
+        (0.0..=1.0).contains(&nearby.z),
+        "nearby hand geometry is clipped with reverse-Z depth {}",
+        nearby.z
+    );
+    let near = projection.project_point3(bevy::math::Vec3::new(
+        0.,
+        0.,
+        -render_api::CAMERA_NEAR_PLANE_BLOCKS,
+    ));
     assert!((near.z - 1.).abs() < 0.000001);
     let far = projection.project_point3(bevy::math::Vec3::new(0., 0., -1000.));
     assert!(far.z > 0. && far.z < 0.001);
     assert!((projection.y_axis.y / projection.x_axis.x - 1920. / 1080.).abs() < 0.000001);
 }
 
-fn fallback_input() -> crate::ui::UiRenderInput {
-    use crate::ui::*;
+fn fallback_input() -> render_model::UiRenderInput {
+    use render_model::*;
     UiRenderInput {
         revision: 1,
         viewport_size: test_token().viewport,
         safe_area: [0; 4],
         vertices: [
-            ([1., 2.], [4, 8]),
-            ([3., 2.], [12, 8]),
-            ([3., 4.], [12, 24]),
-            ([1., 4.], [4, 24]),
+            ([1., 2.], [4., 8.]),
+            ([3., 2.], [12., 8.]),
+            ([3., 4.], [12., 24.]),
+            ([1., 4.], [4., 24.]),
         ]
         .map(|(position, uv)| UiRenderVertex {
             position,
+            clip_z: 0.0,
+            clip_w: 1.0,
             uv,
             color: [255; 4],
             style_flags: 0,
+            alpha_cutoff: -1.0,
+            model_light: 1.0,
+            overlay_color: [0.0; 4],
         })
         .into(),
         indices: Arc::from([0, 1, 2, 0, 2, 3]),
@@ -408,8 +475,14 @@ fn fallback_input() -> crate::ui::UiRenderInput {
             UI_BLEND_ALPHA,
         )]),
         textures: Arc::new(
-            crate::UiTextureCatalog::new(
-                vec![crate::UiTexturePage::owned([64, 64], vec![255; 64 * 64 * 4].into()).unwrap()],
+            render_model::UiTextureCatalog::new(
+                vec![
+                    render_model::UiTexturePage::owned(
+                        [VIEWMODEL_TEXTURE_SIDE; 2],
+                        vec![255; VIEWMODEL_TEXTURE_BYTES].into(),
+                    )
+                    .unwrap(),
+                ],
                 1,
             )
             .unwrap(),
@@ -418,7 +491,7 @@ fn fallback_input() -> crate::ui::UiRenderInput {
 }
 fn fallback_scene(gate: &ViewmodelCompletionGate) -> ViewmodelScene {
     let mut scene = ViewmodelScene::default();
-    let skin = ViewmodelSkin::new(vec![255; 64 * 64 * 4].into(), [4; 32]).unwrap();
+    let skin = ViewmodelSkin::new(vec![255; VIEWMODEL_TEXTURE_BYTES].into(), [4; 32]).unwrap();
     let geometry = geometry::validated_geometry(&profile(), [5; 32]).unwrap();
     assert!(scene.publish(test_token(), &skin, &geometry, gate));
     scene
@@ -480,7 +553,7 @@ fn cube_fallback_binds_rotated_edge_quad_but_never_relaxes_empty_hand() {
             }
             4 => {
                 let mut vertices = invalid.vertices.to_vec();
-                vertices[0].uv[0] += 1;
+                vertices[0].uv[0] += 1.0;
                 invalid.vertices = vertices.into();
             }
             5 => {
@@ -504,6 +577,20 @@ fn cube_fallback_binds_rotated_edge_quad_but_never_relaxes_empty_hand() {
     assert!(!empty.bind_cube_cpu_fallback(&fallback_input(), 0, [4, 8, 12, 24], &gate));
     assert!(empty.frame.is_none());
 }
+#[test]
+fn cpu_fallback_requires_exact_float_texel_edges_not_rounded_model_centers() {
+    let gate = ViewmodelCompletionGate::default();
+    let mut scene = fallback_scene(&gate);
+    let mut input = fallback_input();
+    assert!(scene.bind_cpu_fallback(&input, 0, [4, 8, 12, 24], &gate));
+
+    let mut vertices = input.vertices.to_vec();
+    vertices[0].uv[0] += 0.5;
+    input.vertices = vertices.into();
+    assert!(!scene.bind_cpu_fallback(&input, 0, [4, 8, 12, 24], &gate));
+    assert!(scene.frame.is_none());
+}
+
 #[test]
 fn cpu_fallback_join_is_unique_bounded_and_ui_revision_does_not_reset_lifetime_completion() {
     let gate = ViewmodelCompletionGate::default();
@@ -580,11 +667,15 @@ fn fallback_identity_is_logical_even_when_its_layer_is_in_another_bucket() {
     let mut scene = fallback_scene(&gate);
     let mut input = fallback_input();
     input.textures = Arc::new(
-        crate::UiTextureCatalog::new(
+        render_model::UiTextureCatalog::new(
             vec![
-                crate::UiTexturePage::owned([1024, 1024], vec![255; 1024 * 1024 * 4].into())
+                render_model::UiTexturePage::owned([1024, 1024], vec![255; 1024 * 1024 * 4].into())
                     .unwrap(),
-                crate::UiTexturePage::owned([64, 64], vec![255; 64 * 64 * 4].into()).unwrap(),
+                render_model::UiTexturePage::owned(
+                    [VIEWMODEL_TEXTURE_SIDE; 2],
+                    vec![255; VIEWMODEL_TEXTURE_BYTES].into(),
+                )
+                .unwrap(),
             ],
             2,
         )
@@ -595,7 +686,7 @@ fn fallback_identity_is_logical_even_when_its_layer_is_in_another_bucket() {
     input.batches = Arc::from([batch]);
     assert_eq!(
         input.textures.plan().locations()[1],
-        crate::UiTextureLocation {
+        render_model::UiTextureLocation {
             bucket: 1,
             layer: 0
         }
@@ -638,6 +729,7 @@ fn opaque_cube_refuses_server_block_overlay_ids() {
             texture: TextureRef::new(1, 0).unwrap(),
             flags: 0,
             animation: NO_ANIMATION,
+            ..assets::Material::unvaried()
         }],
         texture: Some(TextureArray {
             layers: 1,
@@ -654,4 +746,46 @@ fn opaque_cube_refuses_server_block_overlay_ids() {
             .is_known()
     );
     assert!(ViewmodelGeometry::opaque_cube(&session, BlockVisualId(base_count)).is_none());
+}
+
+#[test]
+fn review_render_cube_uvs_span_complete_source_texels() {
+    let runtime =
+        assets::RuntimeAssets::decode(&assets::encode_blob(&cube_carrier()).unwrap()).unwrap();
+    let (geometry, skin) =
+        ViewmodelGeometry::opaque_cube(&runtime, assets::BlockVisualId(1)).unwrap();
+    for face in geometry.vertices.chunks_exact(6) {
+        for axis in 0..2 {
+            let low = face
+                .iter()
+                .map(|vertex| vertex.uv[axis])
+                .fold(f32::MAX, f32::min);
+            let high = face
+                .iter()
+                .map(|vertex| vertex.uv[axis])
+                .fold(f32::MIN, f32::max);
+            assert_eq!(
+                (high - low) * (skin.rgba8.len() / 4).isqrt() as f32,
+                runtime.texture_pages()[0].texture.mips[0].size as f32
+            );
+        }
+    }
+}
+
+#[test]
+fn review_render_fixed_arm_rejects_bindings_and_texture_meshes() {
+    let mut geometry = profile();
+    geometry.bones[3].binding = Some("q.item_slot_to_bone_name(context.item_slot)".into());
+    assert!(geometry::validated_geometry(&geometry, [5; 32]).is_none());
+    let mut geometry = profile();
+    let zero = assets::EntityGeometryScalar::new(0.0).unwrap();
+    geometry.bones[3].texture_meshes = Box::new([assets::EntityGeometryTextureMesh {
+        local_pivot: [zero; 3],
+        position: [zero; 3],
+        rotation: [zero; 3],
+        scale: assets::EntityGeometryTextureMesh::DEFAULT_SCALE,
+        use_pixel_depth: true,
+        texture: "default".into(),
+    }]);
+    assert!(geometry::validated_geometry(&geometry, [5; 32]).is_none());
 }

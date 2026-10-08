@@ -59,8 +59,8 @@ pub enum StackRequestContainer {
 pub struct StackRequestSlot {
     pub container: StackRequestContainer,
     pub slot: u8,
-    /// A positive server id, `0` for an empty cell, or a negative request id
-    /// naming output created earlier in the same request.
+    /// A positive server id, `0` for an empty cell, or a negative odd request
+    /// id naming a prior prediction (including empty cells) or created output.
     pub stack_network_id: i32,
 }
 

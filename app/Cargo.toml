@@ -5,57 +5,117 @@ edition.workspace = true
 rust-version.workspace = true
 publish = false
 
+# No doctests here; skipping rustdoc's pass over the crate saves a full re-parse.
+[lib]
+doctest = false
+
+# main.rs only dispatches into the library; its tests live there.
+[[bin]]
+name = "bedrock-client"
+path = "src/main.rs"
+test = false
+
+[features]
+default = ["acceptance"]
+acceptance = ["dep:acceptance"]
+enhanced = ["render/enhanced"]
+# Honours CINNABAR_MOD_COMPONENT by running a local Wasmtime component.
+local-mods = ["mod-host/execution"]
+# Loopback control endpoint for scripted driving and recording; never in release builds.
+developer-control = ["dep:developer-control", "dep:objc2", "dep:objc2-app-kit"]
+# Records Bevy schedules, systems, render graph, submission and presentation spans.
+frame-trace = ["bevy/trace_chrome", "bevy/debug"]
+# Live CPU attribution through Bevy and the owned streaming/render hot paths.
+tracy = ["bevy/trace", "bevy/debug", "dep:tracing-tracy", "chunk-pipeline/tracy", "render/tracy", "client-ui/tracy"]
+# Compiles the offline pack reports and benchmarks into the test build.
+reports = []
+
 [dependencies]
+tracing-tracy = { version = "=0.11.4", default-features = false, features = ["enable", "only-localhost", "ondemand"], optional = true }
+acceptance = { path = "../crates/acceptance", optional = true }
+diagnostics = { path = "../crates/diagnostics" }
+developer-control = { path = "../crates/developer-control", optional = true }
+client-presentation = { path = "../crates/client-presentation" }
+view-presentation = { path = "../crates/view-presentation" }
+gameplay = { path = "../crates/gameplay" }
+client-session = { path = "../crates/client-session" }
+client-ui = { path = "../crates/client-ui" }
+launcher = { path = "../crates/launcher" }
+rich-presence = { path = "../crates/rich-presence" }
+player-state = { path = "../crates/player-state" }
+inventory = { path = "../crates/inventory" }
 bytes.workspace = true
 anyhow.workspace = true
-arboard = { version = "3", default-features = false }
-asset-compiler = { path = "../crates/asset-compiler" }
+pack-compiler = { path = "../crates/pack-compiler" }
 assets = { path = "../crates/assets" }
-bevy = { workspace = true, default-features = false, features = [
-    "bevy_anti_alias",
-    "bevy_camera",
-    "bevy_image",
-    "bevy_winit",
-    "bevy_window",
-    "keyboard",
-    "mouse",
-    "std",
-] }
+bevy.workspace = true
 crossbeam-channel = "0.5"
 ctrlc = { version = "3.4", features = ["termination"] }
+gilrs = "0.11.2"
 fontdue = { version = "0.9.3", default-features = false, features = ["std"] }
+chunk-pipeline = { path = "../crates/chunk-pipeline" }
 client-world = { path = "../crates/client-world" }
-image = { version = "0.25", default-features = false, features = ["bmp", "gif", "jpeg", "png", "tga"] }
+image.workspace = true
 json-ui = { path = "../crates/json-ui" }
 meshing = { path = "../crates/meshing" }
-mod-host = { path = "../crates/mod-host" }
+mod-host = { path = "../crates/mod-host", default-features = false }
+particles = { path = "../crates/particles" }
 protocol = { path = "../crates/protocol" }
 resource-pack = { path = "../crates/resource-pack" }
+server-experience = { path = "../crates/server-experience" }
 rayon.workspace = true
-rodio = { version = "=0.20.1", default-features = false }
 render = { path = "../crates/render" }
+render-api = { path = "../crates/render-api" }
+render-model = { path = "../crates/render-model" }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 semantic-input = { path = "../crates/input" }
 sim = { path = "../crates/sim" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-sha2 = "0.10"
+sha2.workspace = true
 thiserror.workspace = true
 url = "2"
-tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync"] }
+tokio.workspace = true
 ui = { path = "../crates/ui" }
-wgpu = { version = "27.0.1", default-features = false, features = ["wgsl"] }
+wgpu.workspace = true
 winit = { version = "0.30", default-features = false, features = ["rwh_06"] }
 world = { path = "../crates/world" }
 
 [target.'cfg(unix)'.dependencies]
-rustix = { version = "1", default-features = false, features = ["process", "std", "stdio"] }
+rustix = { version = "1", default-features = false, features = ["fs", "process", "std", "stdio"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2"
+objc2 = { version = "0.6", optional = true }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSMenu", "NSResponder", "NSRunningApplication"], optional = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-bevy = { workspace = true, default-features = false, features = ["wayland", "x11"] }
+async-io = "2"
+futures-lite = "2"
+zbus = "5"
+
+[target.'cfg(windows)'.dependencies]
+raw-window-handle = "0.6.2"
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_System_Com",
+    "Win32_System_SystemInformation",
+    "Win32_UI_Controls_Dialogs",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }
 
 [dev-dependencies]
+tempfile = "3"
+rodio = { version = "=0.20.1", default-features = false }
+acceptance = { path = "../crates/acceptance", features = ["test-support"] }
+client-presentation = { path = "../crates/client-presentation", features = ["test-support"] }
+gameplay = { path = "../crates/gameplay", features = ["test-support"] }
+client-session = { path = "../crates/client-session", features = ["test-support"] }
+client-ui = { path = "../crates/client-ui", features = ["test-support"] }
+protocol = { path = "../crates/protocol", features = ["wire-test-support"] }
 zip = { version = "7", default-features = false, features = ["deflate-flate2-zlib-rs"] }
-asset-compiler = { path = "../crates/asset-compiler" }
-client-world = { path = "../crates/client-world", features = ["publication-test-support"] }
+pack-compiler = { path = "../crates/pack-compiler" }
+chunk-pipeline = { path = "../crates/chunk-pipeline", features = ["publication-test-support"] }
 render = { path = "../crates/render", features = ["publication-test-support"] }
