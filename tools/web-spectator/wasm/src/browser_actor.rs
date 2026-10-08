@@ -541,7 +541,7 @@ impl BrowserActors {
                 block_level: 0,
                 sky_level: 15,
                 daylight: 1.0,
-                ..HandRigLight::default(),
+                ..HandRigLight::default()
             },
             fov_radians,
             generation,
