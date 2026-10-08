@@ -11,10 +11,6 @@
   `YK` defaults to onRole primary/offRole secondary; selection lowers its face by 0.4rem and draws
   a centered 4.8rem bottom marker. `wX` uses `FX` below 15rem per option; Cinnabar's compact choices
   still wrap instead. `O_` uses `hardcore-heart-engraved-75556ce94d9bfdecca12.png` on its thumb.
-- Create controls use the installed `data/resource_packs/oreui/texts/en_US.lang` General labels,
-  Advanced seed/world-type descriptions and Cheats activation label. The installed bundle remains
-  `1.26.51.01`; matching-version `1.26.50` responsive layout acceptance remains open. Putting terrain,
-  seed, cheats and the Cinnabar Server control on General is the owner-requested creation extension.
 - The owner's quick motion and subdued commerce remain intentional deviations. Unimplemented
   categories/Hardcore/Realm creation are disabled, so this visual pass cannot close full parity.
 
