@@ -15,7 +15,7 @@ pub type PackEquipmentLayer = (
 /// A pack's attachable bindings with its own entity catalog and artwork locations.
 pub struct PackEquipment {
     pub(super) assets: Arc<RuntimeEntityAssets>,
-    catalog: Arc<RuntimeEquipmentCatalog>,
+    pub(super) catalog: Arc<RuntimeEquipmentCatalog>,
     texture_locations: BTreeMap<Box<str>, ActorArtworkLocation>,
     armor_geometry: BTreeMap<Box<str>, Option<Arc<ArmorGeometry>>>,
     pub(super) attachables: client_world::AttachablesRuntime,

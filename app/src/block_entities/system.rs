@@ -38,6 +38,8 @@ const TEXT_CACHE_BYTES: usize = 2 * 1024 * 1024;
 mod bed;
 mod crystal_beams;
 mod dragon_death;
+mod map_requests;
+use map_requests::request_missing_maps;
 mod portals;
 
 /// Reads the optional block-entity carrier next to the world carrier, which the block-entity
@@ -551,42 +553,6 @@ const CAMPFIRE_SLOTS: [[f32; 2]; 4] = [[-4.0, -4.0], [4.0, -4.0], [4.0, 4.0], [-
 const CAMPFIRE_ITEM_HEIGHT: f32 = 7.5;
 const CAMPFIRE_ITEM_SCALE: f32 = 0.375;
 const FLOWER_SCALE: f32 = 0.5;
-
-/// Seconds before an unanswered map request is repeated.
-const MAP_REQUEST_RETRY_SECONDS: f64 = 5.0;
-
-/// Asks the server for the pixels of framed maps whose images have not arrived.
-pub(crate) fn request_missing_maps(
-    mut runtime: ResMut<BlockEntityRuntime>,
-    network: Option<Res<crate::runtime::network::NetworkHandle>>,
-    time: Res<Time<Real>>,
-) {
-    let Some(network) = network else {
-        return;
-    };
-    let now = time.elapsed_secs_f64();
-    let runtime = &mut *runtime;
-    runtime.missing_maps.sort_unstable();
-    runtime.missing_maps.dedup();
-    for id in std::mem::take(&mut runtime.missing_maps) {
-        let due = runtime
-            .map_requests
-            .get(&id)
-            .is_none_or(|last| now - last >= MAP_REQUEST_RETRY_SECONDS);
-        if due
-            && network
-                .send_inventory_packet(protocol::map_info_request_packet(id))
-                .is_ok()
-        {
-            runtime.map_requests.insert(id, now);
-        }
-    }
-    if runtime.map_requests.len() > 256 {
-        runtime
-            .map_requests
-            .retain(|_, last| now - *last < MAP_REQUEST_RETRY_SECONDS);
-    }
-}
 
 /// Cache key for a map image at one revision.
 fn map_cache_key(map_id: i64, revision: u64) -> u64 {

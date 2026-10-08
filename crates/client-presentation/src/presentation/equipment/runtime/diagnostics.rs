@@ -76,6 +76,7 @@ impl EquipmentRuntime {
             }
             HeldKind::Sprite => "icon sprite has no atlas placement or mesh",
             HeldKind::Block(_) => "block item has no cube sheet",
+            HeldKind::Map(_) => "map image or paper background is unavailable",
             HeldKind::Other => "item has no drawable visual route",
         }
     }

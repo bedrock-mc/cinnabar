@@ -33,9 +33,10 @@ pub(super) fn worn_item(item: &CanonicalItemStack, dye_rgb: Option<u32>) -> Opti
         identifier: item.identifier.clone()?,
         metadata: item.identity.metadata,
         damage: item.damage,
-        kind: match item.visual {
-            ItemVisualRoute::Compiled(_) => HeldKind::Sprite,
-            ItemVisualRoute::BlockItem(visual) => HeldKind::Block(visual.0),
+        kind: match (item.identifier.as_deref(), item.visual) {
+            (Some("minecraft:filled_map"), _) => HeldKind::Map(item.map_id),
+            (_, ItemVisualRoute::Compiled(_)) => HeldKind::Sprite,
+            (_, ItemVisualRoute::BlockItem(visual)) => HeldKind::Block(visual.0),
             _ => HeldKind::Other,
         },
         dye_rgb,

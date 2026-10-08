@@ -201,6 +201,7 @@ mod tests {
             visual: assets::ItemVisualRoute::Missing,
             charged_projectile: None,
             damage,
+            map_id: None,
             enchanted: false,
         };
         let maximum = client_world::vanilla_max_durability(ELYTRA_IDENTIFIER).unwrap();
@@ -233,6 +234,7 @@ mod tests {
             visual: assets::ItemVisualRoute::Missing,
             charged_projectile: None,
             damage,
+            map_id: None,
             enchanted: false,
         };
         assert!(elytra_flies(&elytra(Some(maximum - 1)), Some(0)));

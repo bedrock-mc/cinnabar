@@ -120,6 +120,7 @@ impl EquipmentRuntime {
             HeldKind::Sprite | HeldKind::Other => {
                 self.session_held(&item.identifier, item.metadata)
             }
+            HeldKind::Map(_) => return None,
             HeldKind::Block(_) => None,
         };
         let (index, key, placement, location) = if let Some(held) = session {

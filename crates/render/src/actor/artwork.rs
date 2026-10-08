@@ -89,6 +89,15 @@ impl ActorArtworkLocation {
     pub fn layer(self) -> u32 {
         self.layer
     }
+
+    /// Keeps the draw's page identity when its hand pass supplies a separate one-layer image.
+    pub fn single_layer_texture(self) -> Self {
+        Self {
+            layer: 0,
+            multitexture: None,
+            ..self
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

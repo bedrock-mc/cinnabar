@@ -193,12 +193,43 @@ pub(super) fn vanilla_hand_source(
         alpha,
         artwork,
         motion,
+        sampling_camera,
         ..
     } = inputs;
     let runtime_id = presentation.submission.input.identity.runtime_id;
     let rig = stream.authority().actor_rig(runtime_id)?;
     let items = std::array::from_fn(|index| {
         let item = [equipment_input.main.as_ref(), equipment_input.off.as_ref()][index]?;
+        if let crate::presentation::equipment::HeldKind::Map(id) = item.kind {
+            let image = id.and_then(|id| stream.authority().map_image(id));
+            let pitch = sampling_camera.map_or(0.0, |(rotation, _)| rotation[0]);
+            let two_handed = index == 0
+                && equipment_input.off.as_ref().is_none_or(|off| {
+                    !matches!(
+                        off.identifier.as_ref(),
+                        "minecraft:shield" | "minecraft:filled_map" | "minecraft:photo"
+                    )
+                });
+            return equipment.first_person_map(
+                &presentation.submission,
+                id,
+                image,
+                if index == 1 {
+                    FirstPersonHand {
+                        swing: 0.0,
+                        equip: rig.off_hand_animation[0]
+                            .interpolate(rig.off_hand_animation[1], alpha)
+                            .arm_height,
+                        consume: None,
+                    }
+                } else {
+                    hand
+                },
+                pitch,
+                index == 1,
+                two_handed,
+            );
+        }
         let modern = item_animation.and_then(|mut render_input| {
             render_input.frame_alpha = alpha;
             let render_input =

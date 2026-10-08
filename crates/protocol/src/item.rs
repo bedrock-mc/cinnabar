@@ -22,6 +22,7 @@ mod animation_tests;
 mod components;
 mod display;
 mod icons;
+mod map;
 mod registry_capacity;
 
 pub use components::{ItemComponents, item_components};
@@ -30,6 +31,7 @@ pub use display::{
     item_has_enchantment_list,
 };
 pub use icons::item_icon_keys;
+pub use map::item_map_id;
 
 /// The single item shape 1.26.40 puts on the wire.
 ///

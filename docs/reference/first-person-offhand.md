@@ -114,7 +114,7 @@ and replaces the cached stack at height `<=0.1` (or on an instant-update transit
 Both current and previous offhand heights initialize to zero. Cinnabar now retains this independent clock across pose
 resets and supplies its interpolated value to the shared attachable VM.
 
-Incomplete gates: the complete map/legacy Shield route, authored display transforms,
+Incomplete gates: map decorations/third-person artwork, the complete legacy Shield route, authored display transforms,
 and stack-specific vanilla instant-update/equivalence predicates (the current retained
 equipment feed supplies identifiers, not the full vanilla cached-stack comparison).
 The October 1 offline vanilla-BDS run on macOS/Metal at Retina scale 2 renders

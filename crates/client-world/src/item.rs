@@ -29,6 +29,8 @@ pub struct CanonicalItemStack {
     pub charged_projectile: Option<Arc<str>>,
     /// Durability damage retained separately from the stack's visual metadata.
     pub damage: Option<u32>,
+    /// Filled-map image identity from the stack's root NBT long.
+    pub map_id: Option<i64>,
     /// The stack carries the enchantment list that enables worn item glint.
     pub enchanted: bool,
 }
@@ -352,10 +354,12 @@ impl ItemStateStore {
             ] {
                 let charged = piece.item.charged_projectile.take();
                 let damage = piece.item.damage;
+                let map_id = piece.item.map_id;
                 let enchanted = piece.item.enchanted;
                 piece.item = self.resolve_identity(piece.item.identity);
                 piece.item.charged_projectile = charged;
                 piece.item.damage = damage;
+                piece.item.map_id = map_id;
                 piece.item.enchanted = enchanted;
             }
             self.armor.insert(runtime_id, snapshot);
@@ -380,6 +384,10 @@ impl ItemStateStore {
                 .equipment
                 .get(&key)
                 .and_then(|equipment| equipment.item.damage);
+            item.map_id = self
+                .equipment
+                .get(&key)
+                .and_then(|equipment| equipment.item.map_id);
             item.enchanted = self
                 .equipment
                 .get(&key)
@@ -437,6 +445,7 @@ impl ItemStateStore {
         let mut item = self.resolve_identity(identity);
         item.charged_projectile = protocol::item_charged_projectile(&stack.extra_data);
         item.damage = protocol::item_stack_damage(stack);
+        item.map_id = protocol::item_map_id(&stack.extra_data);
         item.enchanted = protocol::item_has_enchantment_list(&stack.extra_data);
         Some(item)
     }
@@ -456,6 +465,7 @@ impl ItemStateStore {
                 visual: ItemVisualRoute::EmptyHand,
                 charged_projectile: None,
                 damage: None,
+                map_id: None,
                 enchanted: false,
             };
         }
@@ -477,6 +487,7 @@ impl ItemStateStore {
             visual,
             charged_projectile: None,
             damage: None,
+            map_id: None,
             enchanted: false,
         }
     }

@@ -21,6 +21,7 @@ mod alpha;
 mod diagnostics;
 mod elytra;
 mod java;
+mod map;
 mod modern;
 mod pack;
 mod push;
@@ -109,6 +110,7 @@ pub struct EquipmentRuntime {
     armor_geometry: BTreeMap<Box<str>, Option<Arc<ArmorGeometry>>>,
     armor_maps: BTreeMap<(u32, Box<str>), ArmorBoneMap>,
     meshes: BTreeMap<MeshKey, Option<EntityRigId>>,
+    map_rasters: [Option<map::MapRaster>; 2],
     pending: Vec<ActorRigGeometry>,
     /// Worn head geometry and texture location per skull kind.
     skulls: BTreeMap<u8, (EntityRigId, ActorArtworkLocation)>,
@@ -266,6 +268,7 @@ impl EquipmentRuntime {
             armor_geometry: BTreeMap::new(),
             armor_maps: BTreeMap::new(),
             meshes: BTreeMap::new(),
+            map_rasters: [None, None],
             base_item_use: Arc::clone(&item_use),
             item_use,
             session: session::SessionLayer::default(),
@@ -610,7 +613,7 @@ impl EquipmentRuntime {
         let sprite = match key {
             MeshKey::Sprite(_) => self.icons.sprites().get(placement_index),
             MeshKey::Session(index) => self.session_sprite_pixels(index),
-            MeshKey::Block(_) | MeshKey::SessionBlock(_) => None,
+            MeshKey::Map | MeshKey::Block(_) | MeshKey::SessionBlock(_) => None,
         };
         let vertices = match (key, sprite) {
             (MeshKey::Block(_) | MeshKey::SessionBlock(_), _) => {

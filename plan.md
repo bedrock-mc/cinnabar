@@ -6576,3 +6576,11 @@ hardware budgets and matched-version pixel comparison remain incomplete.
   its effective placement face are incomplete. Clicked-cell selection retains the existing rule.
 - Same-frame visibility and rendered neighbor/correction behavior still need headless captures;
   this work does not close a visual or frame-budget gate.
+
+## Held map visibility
+
+Filled maps now draw retained server terrain pixels and fetched pack paper in
+first person, including independent main/offhand equip state. The same physical
+map has a live before/after visibility proof. Map decorations, third-person
+dynamic artwork and a matched-version native pose comparison remain incomplete;
+those parity gates remain open. See [held maps](docs/reference/held-maps.md).

@@ -36,11 +36,14 @@ pub enum HeldKind {
     Sprite,
     /// A block item, by block visual id.
     Block(u32),
+    /// A filled map, resolved against the replicated map-image store.
+    Map(Option<i64>),
     Other,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(super) enum MeshKey {
+    Map,
     Sprite(usize),
     Block(u32),
     /// A session icon, by its index in the session layer.

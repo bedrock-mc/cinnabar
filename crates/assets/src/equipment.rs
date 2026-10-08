@@ -163,6 +163,9 @@ struct EquipmentCatalogPayload {
     item_use: Box<[ItemUseDuration]>,
 }
 
+/// The native paper background fetched from the installed resource pack.
+pub const MAP_BACKGROUND_TEXTURE_IDENTIFIER: &str = "textures/map/map_background";
+
 /// How long one item can be used (eaten, drunk, drawn) before it completes.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]

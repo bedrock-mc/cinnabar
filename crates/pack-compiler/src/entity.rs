@@ -136,6 +136,8 @@ pub fn compile_entity_assets_with_report(
     for extension in ["png", "tga"] {
         let path = format!("{}.{extension}", assets::ACTOR_GLINT_TEXTURE_IDENTIFIER);
         collect_optional_file(root, &path, &mut selected)?;
+        let path = format!("{}.{extension}", assets::MAP_BACKGROUND_TEXTURE_IDENTIFIER);
+        collect_optional_file(root, &path, &mut selected)?;
     }
     collect_optional_file(root, "textures/item_texture.json", &mut selected)?;
     collect_optional_file(root, "manifest.json", &mut selected)?;
