@@ -16,6 +16,19 @@
 
 # Vanilla reference map
 
+## app/src/menu/navigation.rs; app/src/menu.rs; app/src/session.rs
+
+- Current 1.26.50.26 `ClientInstance::onStartJoinGame` (`0x06772090`, canonical
+  `src/__unmapped/06.cpp`) calls `0x04c5a810` and stores the returned Play route at
+  `+0x2a8`. The route helper (`src/__unmapped/04.cpp`) walks router entries backward
+  for `/play` and retains the matching page. The named 26.30 `ClientInstance.cpp`
+  identifies this helper as `OreUI::EntryPoints::PlayScreen::getLastPlayScreenTab`.
+- Current leave-game body `0x06774620` passes that saved route to `0x06776840`,
+  which keeps an already active destination or navigates back to it. Its embedded
+  signature identifies `ClientInstance::_requestLeaveGameImpl`; the named 26.30
+  body corroborates pushing the route saved at join. Pause and loading screens
+  therefore do not replace the originating Worlds, Realms or Servers page.
+
 ## crates/client-world/src/actor_animation.rs; crates/client-world/src/actor_animation/geometry/large_rig_tests.rs
 
 - Owner-supplied 1.26.50 Galaxite comparison on 2026-10-07 shows the complete Battle Pass display: characters, furniture and a vehicle beside the GEMS entrance. The served `entity/battlepass_display.entity.json` selects `geometry.battlepass_display`, whose authored geometry contains 190 bones. Native rendering of that composite disproves a player-skin-sized 96-bone runtime limit for custom entities.
