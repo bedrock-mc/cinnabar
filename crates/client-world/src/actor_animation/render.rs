@@ -93,6 +93,7 @@ pub(super) fn pose_layers(
     skeletons: &BTreeMap<u32, Option<Arc<LayerSkeleton>>>,
     clips: &[super::tick::WeightedClip],
     layers: &mut [RenderTextureLayer],
+    mut locals: Option<&mut BTreeMap<u32, Vec<pose::LocalDelta>>>,
     budget: &mut EvalBudget<'_>,
 ) {
     for index in 0..layers.len() {
@@ -107,8 +108,15 @@ pub(super) fn pose_layers(
             .find(|earlier| earlier.geometry == Some(geometry))
         {
             Some(earlier) => Some(Arc::clone(&earlier.pose)),
-            None => sample_layer_pose(evaluator, variables, skeletons, clips, geometry, budget)
+            None => sample_layer_local(evaluator, variables, skeletons, clips, geometry, budget)
                 .ok()
+                .and_then(|local| {
+                    let pose = compose_pose(&skeleton.bones, &local).map(Arc::from);
+                    if let Some(locals) = locals.as_deref_mut() {
+                        locals.insert(geometry, local);
+                    }
+                    pose
+                })
                 .or_else(|| compose_pose(&skeleton.bones, &[]).map(Arc::from)),
         };
         if let Some(pose) = pose {
@@ -117,15 +125,15 @@ pub(super) fn pose_layers(
     }
 }
 
-/// Samples a selected geometry without mutating the rig's variables or masking a failed pose.
-pub(super) fn sample_layer_pose(
+/// Samples a selected geometry without mutating the rig variables.
+pub(super) fn sample_layer_local(
     evaluator: &Evaluator<'_>,
     variables: &MolangVariables,
     skeletons: &BTreeMap<u32, Option<Arc<LayerSkeleton>>>,
     clips: &[super::tick::WeightedClip],
     geometry: u32,
     budget: &mut EvalBudget<'_>,
-) -> Result<Arc<[BoneTransform]>, EvalError> {
+) -> Result<Vec<pose::LocalDelta>, EvalError> {
     let skeleton = skeletons
         .get(&geometry)
         .and_then(Option::as_ref)
@@ -151,9 +159,7 @@ pub(super) fn sample_layer_pose(
         &mapped,
         budget,
     )?;
-    compose_pose(&skeleton.bones, &local)
-        .map(Arc::from)
-        .ok_or(EvalError::Invalid)
+    Ok(local)
 }
 
 /// The pose of a layer that draws the rig's own geometry, shared by every such layer.

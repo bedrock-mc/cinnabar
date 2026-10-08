@@ -597,30 +597,9 @@ impl Ledger<'_> {
         );
         state.scale = evaluated.scale;
         let restart = state.reset_pending || resumed || view_changed;
-        if !restart
-            && let Some(next) = evaluated
-                .render_frame
-                .as_mut()
-                .and_then(|frame| frame.swell_poses.as_mut())
-            && let Some(previous) = state
-                .render_frame
-                .as_mut()
-                .and_then(|frame| frame.swell_poses.as_mut())
-            && previous.current.len() == next.current.len()
-        {
-            next.previous = if self.advance_history {
-                std::mem::take(&mut previous.current)
-            } else {
-                std::mem::take(&mut previous.previous)
-            };
-        }
-        if let Some(next) = evaluated
-            .render_frame
-            .as_mut()
-            .and_then(|frame| frame.swell_poses.as_mut())
-            && next.previous.is_empty()
-        {
-            next.previous.clone_from(&next.current);
+        if let Some(next) = evaluated.render_frame.as_mut() {
+            let previous = state.render_frame.as_mut().filter(|_| !restart);
+            super::render_frame::carry_swell_history(previous, next, self.advance_history);
         }
         state.render_frame = evaluated.render_frame;
         skin_layers::carry(

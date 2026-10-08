@@ -2,6 +2,15 @@ use super::*;
 
 #[test]
 fn installed_creeper_samples_pack_swelling_and_flash_between_ticks() {
+    assert_installed_creeper_samples(false);
+}
+
+#[test]
+fn installed_powered_creeper_samples_pack_swelling_and_motion_between_ticks() {
+    assert_installed_creeper_samples(true);
+}
+
+fn assert_installed_creeper_samples(powered: bool) {
     let root =
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/assets/compiled");
     let entries = match std::fs::read_dir(&root) {
@@ -50,7 +59,7 @@ fn installed_creeper_samples_pack_swelling_and_flash_between_ticks() {
             held_item: Default::default(),
             metadata: Arc::from([protocol::ActorMetadata {
                 key: 0,
-                value: ActorMetadataValue::Flags(1 << 10),
+                value: ActorMetadataValue::Flags((1 << 10) | if powered { 1 << 9 } else { 0 }),
             }]),
             attributes: Arc::from([]),
             properties: Arc::from([]),
@@ -98,6 +107,17 @@ fn installed_creeper_samples_pack_swelling_and_flash_between_ticks() {
     let expected = [rig.previous[head].rotation, rig.current[head].rotation];
     for alpha in [0.25, 0.75] {
         let layers = store.render_frame(alpha).layers(1).unwrap();
+        if powered {
+            assert!(layers.len() > 1);
+            assert_eq!(
+                [
+                    layers[1].previous_pose[head].rotation,
+                    layers[1].pose[head].rotation
+                ],
+                expected,
+                "powered layer must preserve motion"
+            );
+        }
         assert_eq!(
             [
                 layers[0].previous_pose[head].rotation,
@@ -116,14 +136,22 @@ fn installed_creeper_samples_pack_swelling_and_flash_between_ticks() {
             tick: 0,
             metadata: Arc::from([protocol::ActorMetadata {
                 key: 0,
-                value: ActorMetadataValue::Flags(0),
+                value: ActorMetadataValue::Flags(if powered { 1 << 9 } else { 0 }),
             }]),
             properties: Arc::from([]),
         }),
     );
     store.advance_interpolation_ticks(40);
+    let completed = store.actor_rig(1).unwrap().render;
     for alpha in [0.25, 0.75] {
         let layers = store.render_frame(alpha).layers(1).unwrap();
+        if powered {
+            assert!(Arc::ptr_eq(&completed[1].pose, &layers[1].pose));
+            assert!(Arc::ptr_eq(
+                &completed[1].previous_pose,
+                &layers[1].previous_pose
+            ));
+        }
         assert!(
             layers[0].pose.is_empty() && layers[0].previous_pose.is_empty(),
             "unchanged swelling must reuse tick-owned poses"

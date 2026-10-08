@@ -55,12 +55,69 @@ pub(super) struct FrameState {
     pub anim_tick: u64,
     pub clips: Vec<tick::WeightedClip>,
     pub swell_poses: Option<SwellPoses>,
+    pub swell_layers: BTreeMap<u32, SwellPoses>,
 }
 
 #[derive(Debug)]
 pub(super) struct SwellPoses {
     pub previous: Vec<pose::LocalDelta>,
     pub current: Vec<pose::LocalDelta>,
+}
+
+pub(super) fn carry_swell_history(
+    previous: Option<&mut FrameState>,
+    next: &mut FrameState,
+    advance: bool,
+) {
+    fn carry(previous: Option<&mut SwellPoses>, next: &mut SwellPoses, advance: bool) {
+        if let Some(previous) =
+            previous.filter(|previous| previous.current.len() == next.current.len())
+        {
+            next.previous = if advance {
+                std::mem::take(&mut previous.current)
+            } else {
+                std::mem::take(&mut previous.previous)
+            };
+        }
+        if next.previous.is_empty() {
+            next.previous.clone_from(&next.current);
+        }
+    }
+    let mut previous = previous;
+    if let Some(body) = next.swell_poses.as_mut() {
+        carry(
+            previous
+                .as_deref_mut()
+                .and_then(|frame| frame.swell_poses.as_mut()),
+            body,
+            advance,
+        );
+    }
+    for (geometry, poses) in &mut next.swell_layers {
+        carry(
+            previous
+                .as_deref_mut()
+                .and_then(|frame| frame.swell_layers.get_mut(geometry)),
+            poses,
+            advance,
+        );
+    }
+}
+
+impl SwellPoses {
+    fn sample(&self, current: &mut [pose::LocalDelta]) -> Vec<pose::LocalDelta> {
+        let mut previous = self.previous.clone();
+        for ((sample, completed), previous) in
+            current.iter_mut().zip(&self.current).zip(&mut previous)
+        {
+            // Swelling changes scale; ordinary motion retains both completed tick poses.
+            previous.scale = sample.scale;
+            sample.translation = completed.translation;
+            sample.rotation = completed.rotation;
+            sample.rotation_relative_to_entity = completed.rotation_relative_to_entity;
+        }
+        previous
+    }
 }
 
 impl ActorAnimationStore {
@@ -183,16 +240,7 @@ impl ActorAnimationStore {
             let Some(local) = sampled_local.as_mut() else {
                 return Some(completed());
             };
-            let mut previous = history.previous.clone();
-            for ((sample, current), previous) in
-                local.iter_mut().zip(&history.current).zip(&mut previous)
-            {
-                // Swelling changes scale; ordinary motion retains both completed tick poses.
-                previous.scale = sample.scale;
-                sample.translation = current.translation;
-                sample.rotation = current.rotation;
-                sample.rotation_relative_to_entity = current.rotation_relative_to_entity;
-            }
+            let previous = history.sample(local);
             state.compose(&previous).map(Arc::<[BoneTransform]>::from)
         } else {
             None
@@ -241,7 +289,7 @@ impl ActorAnimationStore {
                     if let std::collections::btree_map::Entry::Vacant(entry) =
                         sampled_geometries.entry(geometry)
                     {
-                        let Ok(pose) = render::sample_layer_pose(
+                        let Ok(mut local) = render::sample_layer_local(
                             &evaluator,
                             &variables,
                             &state.layer_skeletons,
@@ -251,17 +299,49 @@ impl ActorAnimationStore {
                         ) else {
                             return Some(completed());
                         };
-                        entry.insert(pose);
+                        let Some(Some(skeleton)) = state.layer_skeletons.get(&geometry) else {
+                            return Some(completed());
+                        };
+                        let previous_local = if swell_previous.is_some() {
+                            frame
+                                .swell_layers
+                                .get(&geometry)
+                                .map(|history| history.sample(&mut local))
+                        } else {
+                            None
+                        };
+                        let Some(current) = pose::compose_pose(&skeleton.bones, &local)
+                            .map(Arc::<[BoneTransform]>::from)
+                        else {
+                            return Some(completed());
+                        };
+                        let previous = match previous_local {
+                            Some(local) => {
+                                let Some(previous) = pose::compose_pose(&skeleton.bones, &local)
+                                else {
+                                    return Some(completed());
+                                };
+                                Arc::from(previous)
+                            }
+                            None => Arc::clone(&current),
+                        };
+                        entry.insert((previous, current));
                     }
-                    sampled_geometries.get(&geometry).map(Arc::clone)
+                    sampled_geometries
+                        .get(&geometry)
+                        .map(|(_, current)| Arc::clone(current))
                 }
                 (None, _) => None,
             };
             if let Some(pose) = sampled {
-                layer.previous_pose = swell_previous
-                    .as_ref()
-                    .filter(|_| layer.geometry.is_none())
-                    .map_or_else(|| Arc::clone(&pose), Arc::clone);
+                layer.previous_pose = match layer.geometry {
+                    None => swell_previous
+                        .as_ref()
+                        .map_or_else(|| Arc::clone(&pose), Arc::clone),
+                    Some(geometry) => sampled_geometries
+                        .get(&geometry)
+                        .map_or_else(|| Arc::clone(&pose), |(previous, _)| Arc::clone(previous)),
+                };
                 layer.pose = pose;
             } else if let Some(previous) = previous {
                 layer.previous_pose = Arc::clone(&previous.previous_pose);

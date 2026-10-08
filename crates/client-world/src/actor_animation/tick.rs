@@ -383,6 +383,7 @@ pub(super) fn evaluate_state(
         anim_tick,
         clips: Vec::new(),
         swell_poses: None,
+        swell_layers: BTreeMap::new(),
     });
     if let Some(script) = rig.pre_animation {
         evaluator.run(script as usize, &mut variables, 0.0, budget)?;
@@ -490,6 +491,7 @@ pub(super) fn evaluate_state(
     )?;
     let pose = state.compose(&local).ok_or(EvalError::Invalid)?;
     // Render selection must not freeze the pose when it alone exceeds the budget.
+    let mut swell_layers = BTreeMap::new();
     let render = super::render::evaluate_render(
         &evaluator,
         &mut variables,
@@ -513,6 +515,7 @@ pub(super) fn evaluate_state(
             &state.layer_skeletons,
             &weighted_clips,
             &mut layers,
+            samples_swell.then_some(&mut swell_layers),
             budget,
         );
         layers
@@ -524,6 +527,18 @@ pub(super) fn evaluate_state(
             previous: Vec::new(),
             current: local,
         });
+        frame.swell_layers = swell_layers
+            .into_iter()
+            .map(|(geometry, local)| {
+                (
+                    geometry,
+                    super::render_frame::SwellPoses {
+                        previous: Vec::new(),
+                        current: local,
+                    },
+                )
+            })
+            .collect();
     }
     Ok(EvaluatedState {
         pose,
