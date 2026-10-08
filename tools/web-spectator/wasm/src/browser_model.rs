@@ -1,5 +1,13 @@
 use serde::Deserialize;
 
+fn null_is_default<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de> + Default,
+{
+    Option::<T>::deserialize(deserializer).map(Option::unwrap_or_default)
+}
+
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct Frame {
@@ -11,6 +19,7 @@ pub(super) struct Frame {
     pub(super) round_active: bool,
     #[serde(rename = "players")]
     pub(super) fighters: Vec<Fighter>,
+    #[serde(default, deserialize_with = "null_is_default")]
     pub(super) team_wins: Vec<i32>,
 }
 
@@ -230,4 +239,24 @@ pub(super) struct HudTitle {
     pub(super) stay_ticks: i32,
     pub(super) fade_out_ticks: i32,
     pub(super) updated_at: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Frame;
+
+    #[test]
+    fn solo_frames_accept_nil_team_scores_but_reject_invalid_scores() {
+        let mut frame = serde_json::json!({"id":"duel", "updatedAt":"2026-10-08T12:00:00Z", "arenaId":"arena", "mode":"NoDebuff", "players":[], "teamWins":null});
+        assert!(
+            Frame::parse(&frame.to_string())
+                .unwrap()
+                .team_wins
+                .is_empty()
+        );
+        frame["teamWins"] = serde_json::json!([1, 0]);
+        assert_eq!(Frame::parse(&frame.to_string()).unwrap().team_wins, [1, 0]);
+        frame["teamWins"] = serde_json::json!(["invalid"]);
+        assert!(Frame::parse(&frame.to_string()).is_err());
+    }
 }
