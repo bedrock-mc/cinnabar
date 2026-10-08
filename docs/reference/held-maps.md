@@ -12,12 +12,18 @@ The raster is cached per hand, map identity, server session, background and imag
 revision. Main-hand two-arm, main-hand one-arm and offhand placement use distinct
 stacks; the offhand follows its independent equip animation.
 
+The inventory icon binds the pack's `map_filled` atlas entry to the canonical
+`minecraft:filled_map` stack. Each available atlas variant retains its stack
+metadata, so ordinary and explorer maps use the selected pack's icon pixels.
+
 ## Verification and remaining gates
 
 Protocol tests preserve signed IDs beyond floating-point integer precision and
 reject missing, truncated or wrongly typed identities. Raster/pose regressions
 cover paper margins, unexplored pixels, transparent custom backgrounds, updates,
-hand offsets, equip dips and invalid sampled input. A live local-server pair uses
+hand offsets, equip dips and invalid sampled input. Icon regressions compile
+original test rasters through the real catalog and cover ordinary and explorer
+metadata, absent atlas entries and missing pixels. A live local-server pair uses
 the same physical map transferred between the before and after clients, with the
 same world, player, camera and GUI scale. The fixed client draws real server
 terrain pixels.

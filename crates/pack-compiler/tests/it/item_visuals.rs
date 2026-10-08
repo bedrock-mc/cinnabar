@@ -15,6 +15,9 @@ mod spawn_eggs;
 #[path = "item_visuals/beds.rs"]
 mod beds;
 
+#[path = "item_visuals/maps.rs"]
+mod maps;
+
 #[test]
 fn leather_tga_atlas_sources_keep_their_opaque_untinted_trim() {
     let pack = item_pack(false);

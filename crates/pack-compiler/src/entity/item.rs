@@ -440,7 +440,11 @@ fn canonical_texture_path(texture: &str) -> String {
     }
 }
 
+/// Resolve the filled-map atlas name while retaining its metadata-selected variants.
 fn canonical_item_identifier(alias: &str) -> String {
+    if alias == "map_filled" {
+        return "minecraft:filled_map".into();
+    }
     if alias.contains(':') {
         alias.to_owned()
     } else {
