@@ -1758,6 +1758,14 @@ RVAs are 1.26.50.26 Windows client; `mac 0x10…` addresses are the 26.30 macOS 
   `src/__unmapped/02.cpp`, `0x02416bd0`, captures the collector and offset `[0, -0.6, 0]`
   with a three-tick lifetime; `0x02416fc0` squares normalized tick progress and
   scales the copied item by its complement; `0x024172f0` / `0x02417300` advance and expire it.
+- Pickup transform scope: current `0x02416fc0` changes only cloned actor scale
+  fields and dispatches camera-relative XYZ through `0x01fb3460`, which supplies
+  that origin to the ordinary item renderer without an outer scale. Current
+  `src/__recovered/ItemRenderer.cpp`, `0x05e54ba0`, translates bob before scaling;
+  current `src/__unmapped/05.cpp`, `0x05e54570`, translates each stack copy before
+  multiplying matrix basis columns by actor scale, leaving translation unchanged.
+  Pickup shrink therefore preserves bob/lift and copy spread, including the
+  cube route `0x05e53930` that calls the same item-group renderer.
 - # Native dropped-item rendering
 - Current `ItemActor` constructor sets the
 - collision width and height to 0.25 and the native Y-origin offset to half the
