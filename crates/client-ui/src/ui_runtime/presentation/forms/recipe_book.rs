@@ -69,6 +69,12 @@ pub fn recipe_book_icons(
     runtime: &UiRuntime,
     icon: impl Fn(&protocol::NetworkItemStack) -> Option<IconRef>,
 ) -> Vec<Option<IconRef>> {
+    if super::furnace_book::active(player_runtime) {
+        return super::furnace_book::entries(player_runtime, runtime)
+            .iter()
+            .map(|recipe| icon(&super::furnace_book::output_stack(recipe)))
+            .collect();
+    }
     recipe_book_entries(player_runtime, runtime)
         .iter()
         .map(|entry| icon(&entry.stack()))
@@ -81,6 +87,14 @@ pub fn recipe_book_hover(
     runtime: &UiRuntime,
     index: u16,
 ) -> Option<(protocol::NetworkItemStack, Option<std::sync::Arc<str>>)> {
+    if super::furnace_book::active(player_runtime) {
+        return Some((
+            super::furnace_book::output_stack(
+                super::furnace_book::entries(player_runtime, runtime).get(usize::from(index))?,
+            ),
+            None,
+        ));
+    }
     let entries = recipe_book_entries(player_runtime, runtime);
     let entry = entries.get(usize::from(index))?;
     let name = match entry {

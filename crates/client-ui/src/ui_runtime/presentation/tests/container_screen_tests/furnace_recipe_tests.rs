@@ -101,6 +101,37 @@ fn furnace_recipe_panel_lists_outputs_and_routes_filter_tabs_and_search() {
         .unwrap();
     runtime.synchronize_crafting_frontier(&mut player, 1, Some((1, 0, Some(3))));
     runtime.drain_pending_inventory(&mut player);
+    runtime.screen_state_mut().furnace_tab = Some(4);
+    runtime.screen_state_mut().search = "iron".into();
+    let first_projection = super::super::super::forms::furnace_book::projection(&player, &runtime);
+    assert_eq!(first_projection.len(), 1);
+    runtime.screen_state_mut().search_focused = true;
+    runtime
+        .screen_state_mut()
+        .container_scroll
+        .insert("recipes".into(), 24.0);
+    assert!(
+        std::sync::Arc::ptr_eq(
+            &first_projection,
+            &super::super::super::forms::furnace_book::projection(&player, &runtime)
+        ),
+        "unchanged furnace search reuses its filtered projection during hover and scroll"
+    );
+    let resolutions = std::cell::Cell::new(0);
+    let resolve = |_: &NetworkItemStack| {
+        resolutions.set(resolutions.get() + 1);
+        None
+    };
+    let first_icons = super::super::super::forms::furnace_book::icons(&player, &runtime, resolve);
+    assert_eq!(resolutions.get(), 1);
+    let next_icons = super::super::super::forms::furnace_book::icons(&player, &runtime, resolve);
+    assert_eq!(
+        resolutions.get(),
+        1,
+        "unchanged furnace results do not resolve icons again"
+    );
+    assert!(std::sync::Arc::ptr_eq(&first_icons, &next_icons));
+    runtime.screen_state_mut().search.clear();
     let Some(mut presentation) =
         engine_presentation_with(super::super::super::forms::pack_harness::font())
     else {

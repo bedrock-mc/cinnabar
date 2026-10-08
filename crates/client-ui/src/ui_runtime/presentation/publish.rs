@@ -289,12 +289,18 @@ pub fn capture_hud_frame(
                 )
         ) && super::forms::recipe_book_shown(player_runtime, runtime)
         {
-            window_icons.book_entries =
-                super::forms::recipe_book_icons(player_runtime, runtime, |stack| {
-                    resolve_identifier(stack)
-                        .as_deref()
-                        .and_then(|id| presentation.item_icon(id, stack.metadata))
-                });
+            let icon = |stack: &protocol::NetworkItemStack| {
+                resolve_identifier(stack)
+                    .as_deref()
+                    .and_then(|id| presentation.item_icon(id, stack.metadata))
+            };
+            if super::forms::furnace_book::active(player_runtime) {
+                window_icons.furnace_entries =
+                    super::forms::furnace_book::icons(player_runtime, runtime, icon);
+            } else {
+                window_icons.book_entries =
+                    super::forms::recipe_book_icons(player_runtime, runtime, icon);
+            }
         }
         if inventory_screen == super::inventory_pointer::InventoryScreen::Creative {
             let entries = crate::ui_runtime::inventory_actions::visible_creative_entries(

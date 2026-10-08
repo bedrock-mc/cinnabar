@@ -1,7 +1,10 @@
 //! The furnace family's JSON-UI recipe panel and its controller bindings.
 
 mod cache;
+mod projection;
 pub(super) use cache::FurnaceBookCache;
+pub(crate) use projection::ProjectionCache;
+pub use projection::{Entries, entries, icons, projection};
 
 use json_ui::{Context, DataSource, HitKind, HitRegion, Scalar};
 use protocol::{NetworkItemStack, ScreenRecipe, WindowKind};
@@ -33,7 +36,11 @@ pub fn output_stack(recipe: &ScreenRecipe) -> NetworkItemStack {
     }
 }
 
-fn category(player: &player_state::PlayerState, runtime: &UiRuntime, recipe: &ScreenRecipe) -> u8 {
+pub(super) fn category(
+    player: &player_state::PlayerState,
+    runtime: &UiRuntime,
+    recipe: &ScreenRecipe,
+) -> u8 {
     let output = recipe.output.unwrap();
     let Some(entry) = player
         .inventory
@@ -54,35 +61,6 @@ fn category(player: &player_state::PlayerState, runtime: &UiRuntime, recipe: &Sc
     } else {
         2
     }
-}
-
-pub fn entries<'a>(
-    player: &'a player_state::PlayerState,
-    runtime: &UiRuntime,
-) -> Vec<&'a ScreenRecipe> {
-    let tab = runtime.screen_state().furnace_tab.unwrap_or(4);
-    let query = runtime.screen_state().search.to_lowercase();
-    player
-        .inventory
-        .furnace_recipes(runtime.recipe_filtering(player))
-        .into_iter()
-        .filter(|recipe| tab == 4 || category(player, runtime, recipe) == tab)
-        .filter(|recipe| {
-            if tab != 4 || query.is_empty() {
-                return true;
-            }
-            player
-                .inventory
-                .ledger()
-                .negotiated_item_entry(recipe.output.unwrap().network_id)
-                .is_some_and(|entry| {
-                    runtime
-                        .localized_item_name(&entry.identifier)
-                        .to_lowercase()
-                        .contains(&query)
-                })
-        })
-        .collect()
 }
 
 pub(super) fn context(mut context: Context) -> Context {

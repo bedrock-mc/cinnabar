@@ -83,7 +83,7 @@ pub fn recipe_book_entries<'a>(
 ) -> Vec<BookEntry<'a>> {
     if super::presentation::forms::furnace_book::active(player_runtime) {
         return super::presentation::forms::furnace_book::entries(player_runtime, runtime)
-            .into_iter()
+            .iter()
             .map(BookEntry::Furnace)
             .collect();
     }
@@ -196,6 +196,9 @@ impl UiRuntime {
                 entries.get(position).map(|item| item.creative_network_id)
             }
             InventoryCellHit::RecipeBook(index) => {
+                if super::presentation::forms::furnace_book::active(player_runtime) {
+                    return None;
+                }
                 match recipe_book_entries(player_runtime, self).get(usize::from(index))? {
                     BookEntry::Creative { item, .. } => Some(item.creative_network_id),
                     BookEntry::Group { index, group, .. } => self
@@ -685,6 +688,15 @@ impl UiRuntime {
         index: u16,
         into_inventory: bool,
     ) -> Outcome {
+        if super::presentation::forms::furnace_book::active(player_runtime) {
+            let recipe = super::presentation::forms::furnace_book::entries(player_runtime, self)
+                .get(usize::from(index))
+                .cloned()
+                .ok_or(InventoryGestureError::InvalidRequest)?;
+            return self
+                .inventory_ledger_mut(player_runtime)
+                .begin_furnace_recipe(&recipe);
+        }
         let entry = recipe_book_entries(player_runtime, self)
             .into_iter()
             .nth(usize::from(index))

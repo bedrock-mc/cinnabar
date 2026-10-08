@@ -8,13 +8,14 @@ use super::{HudFrame, IconRef, UiRuntime, category, entries};
 pub(in super::super) struct FurnaceBookCache {
     all: Arc<[usize]>,
     supplied: Arc<[usize]>,
+    projection: Arc<[usize]>,
     shown: bool,
     filtering: bool,
     tab: Option<u8>,
     search: String,
     components: Option<Arc<crate::ui_runtime::item_facts::SessionItemComponents>>,
     lang: Option<Arc<assets::RuntimeLangCatalog>>,
-    source_icons: Vec<Option<IconRef>>,
+    source_icons: Arc<[Option<IconRef>]>,
     first_icon: usize,
     pub(super) categories: [bool; 3],
     pub(super) icons: Vec<IconRef>,
@@ -38,18 +39,20 @@ pub(super) fn publication<'a>(
 ) -> &'a FurnaceBookCache {
     let all = player.inventory.furnace_recipes(false);
     let supplied = player.inventory.furnace_recipes(true);
+    let projection = super::projection(player, runtime);
     let state = runtime.screen_state();
     let filtering = runtime.recipe_filtering(player);
     let shown = state.furnace_book_open;
     let reusable = cache.as_ref().is_some_and(|cache| {
         Arc::ptr_eq(&cache.all, all.shared_indices())
             && Arc::ptr_eq(&cache.supplied, supplied.shared_indices())
+            && Arc::ptr_eq(&cache.projection, &projection)
             && cache.shown == shown
             && cache.filtering == filtering
             && cache.tab == state.furnace_tab
             && cache.search == state.search
             && cache.first_icon == first_icon
-            && cache.source_icons == frame.window_icons.book_entries
+            && Arc::ptr_eq(&cache.source_icons, &frame.window_icons.furnace_entries)
             && same(&cache.components, &runtime.session_items)
             && same(&cache.lang, &runtime.lang_catalog)
     });
@@ -67,13 +70,14 @@ pub(super) fn publication<'a>(
         *cache = Some(FurnaceBookCache {
             all: Arc::clone(all.shared_indices()),
             supplied: Arc::clone(supplied.shared_indices()),
+            projection,
             shown,
             filtering,
             tab: state.furnace_tab,
             search: state.search.clone(),
             components: runtime.session_items.clone(),
             lang: runtime.lang_catalog.clone(),
-            source_icons: frame.window_icons.book_entries.clone(),
+            source_icons: Arc::clone(&frame.window_icons.furnace_entries),
             first_icon,
             categories,
             icons,
@@ -98,7 +102,7 @@ fn rows(
         .map(|(index, recipe)| {
             let icon = frame
                 .window_icons
-                .book_entries
+                .furnace_entries
                 .get(index)
                 .copied()
                 .flatten();
