@@ -2,6 +2,12 @@
 
 use super::*;
 
+type OptionalUiResources<'w> = (
+    Option<Res<'w, UiHandCoverage>>,
+    Option<Res<'w, UiGlintSettings>>,
+    Option<Res<'w, crate::upload_staging::BufferUploadStaging>>,
+);
+
 /// Creates the shared viewport uniform and samplers for this render device.
 pub(super) fn init_ui_gpu(
     mut commands: Commands,
@@ -71,11 +77,7 @@ pub(crate) fn prepare_ui_resources(
     mut gpu: ResMut<UiGpu>,
     stats: Res<UiRenderStatsResource>,
     tick: SystemChangeTick,
-    (coverage, glint, staging): (
-        Option<Res<UiHandCoverage>>,
-        Option<Res<UiGlintSettings>>,
-        Option<Res<crate::upload_staging::BufferUploadStaging>>,
-    ),
+    (coverage, glint, staging): OptionalUiResources<'_>,
 ) {
     let same_device = &gpu.device == render_device.wgpu_device();
     let device_valid =
