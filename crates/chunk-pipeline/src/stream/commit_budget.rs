@@ -35,23 +35,33 @@ impl WorldStream {
             .is_some_and(|deadline| Instant::now() >= deadline)
     }
 
-    /// Commits FIFO work without crossing a partially published batch or mutation fence.
+    /// Commits every unblocked event. Heavy terrain steps stop at the poll deadline, with one
+    /// guaranteed per poll across every pass it runs; light steps never wait for, or spend,
+    /// the terrain allocation.
     pub(super) fn apply_ready(&mut self) {
         #[cfg(feature = "tracy")]
         let _zone = tracing::info_span!("stream.commit_ready").entered();
-        if self.order.blocking_block_updates().is_some() {
-            return;
-        }
         let deadline = self
             .poll_deadline
             .unwrap_or_else(|| Instant::now() + self.poll_budget);
-        let mut progressed = self.poll_deadline.is_some() && !self.polling;
-        while !progressed || Instant::now() < deadline {
-            let Some(step) = self.order.next_commit() else {
+        let mut heavy_guaranteed =
+            self.poll_deadline.is_none() || (self.polling && self.poll_heavy_guarantee);
+        // Without local physics the server position scopes retention.
+        let couple_position = self.local_player_chunk.is_none();
+        loop {
+            let budget = CommitBudget {
+                heavy: heavy_guaranteed || Instant::now() < deadline,
+                couple_position,
+            };
+            let Some(step) = self.order.next_commit_within(budget) else {
                 break;
             };
+            if self.order.last_step_was_heavy() {
+                heavy_guaranteed = false;
+                self.poll_heavy_guarantee = false;
+            }
             match step {
-                CommitStep::BatchStarted => continue,
+                CommitStep::BatchStarted => {}
                 CommitStep::Apply { sequence, event } => {
                     self.apply_prepared_with_sequence(event, Some(sequence));
                     self.finish_ordered_commit(sequence);
@@ -70,7 +80,6 @@ impl WorldStream {
                             ids,
                         });
                         self.order.defer_block_updates(sequence);
-                        break;
                     }
                 }
                 CommitStep::BlockUpdates { sequence, events } => {
@@ -86,11 +95,9 @@ impl WorldStream {
                             ids,
                         });
                         self.order.defer_block_updates(sequence);
-                        break;
                     }
                 }
             }
-            progressed = true;
         }
     }
 

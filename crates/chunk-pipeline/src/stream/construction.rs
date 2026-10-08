@@ -96,6 +96,8 @@ impl WorldStream {
             classifier: BlockClassifier::new(air_network_id),
             startup_terrain_announced: true,
             seasonal_foliage: seasonal_foliage::SeasonalFoliage::default(),
+            ingress_dimension: bootstrap.dimension,
+            deferred_ingress: VecDeque::new(),
             pending_decode: VecDeque::new(),
             in_flight_decode_jobs: 0,
             predictions: prediction::DeferredPredictions::default(),
@@ -130,6 +132,7 @@ impl WorldStream {
             frame_deadline: None,
             poll_budget: commit_budget::WORLD_POLL_BUDGET,
             polling: false,
+            poll_heavy_guarantee: false,
             publication_allowance: None,
             mesh_changes: MeshChangeQueue::default(),
             publisher: cohort::PublisherScope {
@@ -149,12 +152,21 @@ impl WorldStream {
             job,
         });
     }
-    /// Commits an app-owned event's position in the shared network FIFO
-    /// without duplicating that event in world-owned state.
+    /// Commits an app-owned inventory or equipment event's position in the shared network
+    /// FIFO without duplicating that event in world-owned state.
     pub fn commit(&mut self, sequence: u64) -> Result<(), WorldStreamError> {
+        self.commit_with(sequence, Footprint::inventory())
+    }
+
+    /// Commits an app-owned marker that no later event may overtake.
+    pub fn commit_barrier(&mut self, sequence: u64) -> Result<(), WorldStreamError> {
+        self.commit_with(sequence, Footprint::barrier())
+    }
+
+    fn commit_with(&mut self, sequence: u64, footprint: Footprint) -> Result<(), WorldStreamError> {
         self.order.validate_sequence(sequence)?;
         let retained_commits = self.authority.retained_commit_count();
-        self.order.admit(sequence, false, retained_commits)?;
+        self.order.admit(sequence, footprint, retained_commits)?;
         if let Err(error) = self
             .order
             .insert_ready(sequence, PreparedWorldEvent::CommitOnly)
@@ -181,48 +193,85 @@ impl WorldStream {
         self.submit_with_level_chunk_payload(sequence, WorldEvent::LevelChunk(event), Some(payload))
     }
 
+    pub(super) fn lane_context(&self) -> LaneContext {
+        LaneContext {
+            local_runtime_id: self.authority.local_player_runtime_id(),
+            local_unique_id: self.authority.local_player_unique_id(),
+            dimension: self.ingress_dimension,
+        }
+    }
+
     fn submit_with_level_chunk_payload(
+        &mut self,
+        sequence: u64,
+        event: WorldEvent,
+        level_chunk_payload: Option<Bytes>,
+    ) -> Result<(), WorldStreamError> {
+        self.order.validate_sequence(sequence)?;
+        self.promote_deferred_ingress();
+        let footprint = client_world::ingestion::classify(&event, self.lane_context());
+        if let WorldEvent::ChangeDimension(change) = &event {
+            self.ingress_dimension = change.dimension;
+        }
+        // Submit-time preparation keeps wire order, so later terrain and definitions queue
+        // behind deferred terrain; session events commit past it.
+        let ordered_preparation = footprint.heavy
+            || footprint.barrier
+            || matches!(event, WorldEvent::SubChunkReplyAdmission(_));
+        let defer = ordered_preparation
+            && (!self.deferred_ingress.is_empty()
+                || (footprint.heavy
+                    && (self.order.heavy_capacity() == 0
+                        || (creates_request(&event)
+                            && self.requests.queue.len() >= OUTBOUND_REQUEST_CAPACITY))));
+        if defer {
+            self.order.admit_deferred(
+                sequence,
+                footprint,
+                self.authority.retained_commit_count(),
+            )?;
+            self.deferred_ingress
+                .push_back((sequence, event, level_chunk_payload));
+            return Ok(());
+        }
+        let retained_commits = self.authority.retained_commit_count();
+        self.order.admit(sequence, footprint, retained_commits)?;
+        self.prepare_admitted(sequence, event, level_chunk_payload)
+    }
+
+    /// Prepares deferred terrain in wire order while decode and request capacity allow.
+    pub(super) fn promote_deferred_ingress(&mut self) {
+        while let Some((sequence, event, _)) = self.deferred_ingress.front() {
+            // Light events reserved their slot when deferred. Heavy terrain waits only on
+            // earlier decodes and sent requests; at the frontier it may exceed the decode bound.
+            let ready = !self.order.is_deferred_heavy(*sequence)
+                || ((self.order.heavy_capacity() > 0 || self.order.is_frontier(*sequence))
+                    && (!creates_request(event)
+                        || self.requests.queue.len() < OUTBOUND_REQUEST_CAPACITY));
+            if !ready {
+                return;
+            }
+            let (sequence, event, payload) = self
+                .deferred_ingress
+                .pop_front()
+                .expect("the front was inspected");
+            self.order.promote_deferred(sequence);
+            if let Err(error) = self.prepare_admitted(sequence, event, payload) {
+                self.record_normalization_error(
+                    NormalizationErrorReason::OrderedCompletionRejection,
+                );
+                tracing::debug!(%error, sequence, "deferred world event was rejected");
+            }
+        }
+    }
+
+    fn prepare_admitted(
         &mut self,
         sequence: u64,
         event: WorldEvent,
         mut level_chunk_payload: Option<Bytes>,
     ) -> Result<(), WorldStreamError> {
-        self.order.validate_sequence(sequence)?;
-
-        let heavy = matches!(
-            event,
-            WorldEvent::LevelChunk(_)
-                | WorldEvent::ChunkResync(_)
-                | WorldEvent::SubChunks(_)
-                | WorldEvent::BlockUpdates(_)
-                | WorldEvent::SyncedBlockUpdates(_)
-                | WorldEvent::BlockEntityUpdate(_)
-        );
-        let creates_request = match &event {
-            WorldEvent::LevelChunk(LevelChunkEvent {
-                mode: LevelChunkMode::LimitedRequests { highest },
-                ..
-            }) => *highest != 0,
-            WorldEvent::LevelChunk(LevelChunkEvent {
-                mode: LevelChunkMode::LimitlessRequests,
-                ..
-            }) => true,
-            WorldEvent::ChunkResync(event) => event
-                .requested_sub_chunk_ys
-                .as_ref()
-                .map_or(event.requested_sub_chunks != Some(0), |ys| !ys.is_empty()),
-            _ => false,
-        };
-        if creates_request && self.requests.queue.len() >= OUTBOUND_REQUEST_CAPACITY {
-            return Err(WorldStreamError::OutboundFull {
-                sequence,
-                pending: self.requests.queue.len(),
-                capacity: OUTBOUND_REQUEST_CAPACITY,
-            });
-        }
-        let retained_commits = self.authority.retained_commit_count();
-        self.order.admit(sequence, heavy, retained_commits)?;
-        if creates_request {
+        if creates_request(&event) {
             self.requests.queue.reserve(sequence);
         }
 
@@ -262,7 +311,7 @@ impl WorldStream {
                 },
             ) => {
                 let Some(range) = self.authority.admit_dimension_range(event.dimension) else {
-                    self.order.release_heavy(sequence);
+                    self.order.normalize(sequence);
                     self.order
                         .insert_ready(sequence, PreparedWorldEvent::NormalizationFailure)?;
                     self.apply_ready();
@@ -287,7 +336,7 @@ impl WorldStream {
                 },
             ) => {
                 let Some(range) = self.authority.admit_dimension_range(event.dimension) else {
-                    self.order.release_heavy(sequence);
+                    self.order.normalize(sequence);
                     self.order
                         .insert_ready(sequence, PreparedWorldEvent::NormalizationFailure)?;
                     self.apply_ready();
@@ -306,7 +355,7 @@ impl WorldStream {
             }
             WorldEvent::SubChunks(batch) => {
                 if batch.entries.is_empty() {
-                    self.order.release_heavy(sequence);
+                    self.order.normalize(sequence);
                     self.order
                         .insert_ready(sequence, PreparedWorldEvent::NormalizationFailure)?;
                     self.apply_ready();
@@ -347,9 +396,33 @@ impl WorldStream {
         }
         Ok(())
     }
+    /// Headroom for any next event; request-creating terrain defers instead of failing.
     pub fn remaining_admission_capacity(&self) -> usize {
         self.order
             .remaining_admission_capacity(self.authority.retained_commit_count())
-            .min(OUTBOUND_REQUEST_CAPACITY.saturating_sub(self.requests.queue.len()))
+    }
+
+    /// Headroom for light events alone, independent of terrain admission.
+    pub fn light_admission_capacity(&self) -> usize {
+        self.order
+            .light_capacity(self.authority.retained_commit_count())
+    }
+}
+
+fn creates_request(event: &WorldEvent) -> bool {
+    match event {
+        WorldEvent::LevelChunk(LevelChunkEvent {
+            mode: LevelChunkMode::LimitedRequests { highest },
+            ..
+        }) => *highest != 0,
+        WorldEvent::LevelChunk(LevelChunkEvent {
+            mode: LevelChunkMode::LimitlessRequests,
+            ..
+        }) => true,
+        WorldEvent::ChunkResync(event) => event
+            .requested_sub_chunk_ys
+            .as_ref()
+            .map_or(event.requested_sub_chunks != Some(0), |ys| !ys.is_empty()),
+        _ => false,
     }
 }

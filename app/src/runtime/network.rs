@@ -12,9 +12,7 @@ use crate::runtime::phase3_evidence::{Phase3EvidenceEmitter, Phase3EvidenceEvent
 #[cfg(feature = "acceptance")]
 use crate::runtime::visibility::AppMetrics;
 use std::sync::Arc;
-use std::time::Duration;
-#[cfg(feature = "acceptance")]
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use bevy::{
     ecs::system::SystemParam,
@@ -46,6 +44,8 @@ use client_ui::ui_runtime::{
     inventory_router::{EquipmentRoute, EquipmentRouteResult, InventoryRouterError},
 };
 
+#[cfg(test)]
+pub(crate) use client_session::WORLD_EVENT_CAPACITY;
 pub(crate) use inventory::{
     publish_bootstrap_inventory, route_inventory_ingress, route_item_registry_ingress,
 };
@@ -60,15 +60,12 @@ pub(crate) use resource_packs::{
 };
 pub(crate) use session::{
     BatchSendError, NetworkConfig, NetworkControlEvent, NetworkFailureOrigin, NetworkHandle,
-    PacketSendError, SessionTransferTarget, WORLD_EVENT_CAPACITY, session_failure_display,
-    spawn_network,
+    PacketSendError, SessionTransferTarget, session_failure_display, spawn_network,
 };
 
-pub(crate) const NETWORK_INGRESS_BUDGET_PER_FRAME: usize = 32;
+/// One frame's world ingress time; terrain is bounded by admission, not by this.
+pub(crate) const WORLD_INGRESS_DRAIN_BUDGET: Duration = Duration::from_millis(2);
 pub(crate) const OUTBOUND_SEND_BUDGET_PER_FRAME: usize = 16;
-const _: () = assert!(WORLD_EVENT_CAPACITY >= NETWORK_INGRESS_BUDGET_PER_FRAME);
-const _: () =
-    assert!(NETWORK_INGRESS_BUDGET_PER_FRAME == chunk_pipeline::MAX_ADMITTED_HEAVY_EVENTS);
 
 #[derive(SystemParam)]
 pub(crate) struct NetworkLocalPlayerState<'w> {
@@ -685,13 +682,17 @@ pub(crate) fn receive_network_events(
         }
     }
 
-    let mut drain = WorldIngressDrain::new(NETWORK_INGRESS_BUDGET_PER_FRAME);
+    let mut drain = WorldIngressDrain::new(Instant::now() + WORLD_INGRESS_DRAIN_BUDGET);
     loop {
-        let admission_capacity = client_world.stream.as_ref().map_or(
-            NETWORK_INGRESS_BUDGET_PER_FRAME,
-            WorldStream::remaining_admission_capacity,
-        );
-        let Some(ingress) = drain.next(network.world_events_mut(), admission_capacity) else {
+        let admission_capacity = client_world
+            .stream
+            .as_ref()
+            .map_or(1, WorldStream::remaining_admission_capacity);
+        let Some(ingress) = drain.next(
+            network.world_events_mut(),
+            admission_capacity,
+            Instant::now(),
+        ) else {
             break;
         };
         let sequenced = match ingress {
@@ -769,7 +770,7 @@ pub(crate) fn receive_network_events(
                     );
                     continue;
                 };
-                if let Err(error) = stream.commit(sequence) {
+                if let Err(error) = stream.commit_barrier(sequence) {
                     record_fatal_error(
                         &mut client_world.fatal_error,
                         format!("fast-transfer FIFO marker was rejected: {error}"),

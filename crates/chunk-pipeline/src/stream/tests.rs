@@ -523,9 +523,54 @@ fn requested_block_entity_sub_chunk_event(
     })
 }
 
+/// Runs one poll's commit pass after its deadline: light work plus its one heavy step.
+fn apply_spent_slice(stream: &mut WorldStream) {
+    stream.poll_deadline = Some(Instant::now());
+    stream.polling = true;
+    stream.poll_heavy_guarantee = true;
+    stream.apply_ready();
+}
+
 /// Finishes fixture decoding and every sliced ordered commit it releases.
 fn complete_pending_decode_jobs(stream: &mut WorldStream) {
-    while let Some(job) = stream.pending_decode.pop_front() {
+    loop {
+        stream.promote_deferred_ingress();
+        let Some(job) = stream.pending_decode.pop_front() else {
+            if !settle_ready_commits(stream) || stream.pending_decode.is_empty() {
+                break;
+            }
+            continue;
+        };
+        complete_decode_job(stream, job);
+    }
+}
+
+/// Applies ready commits until nothing moves; true when anything did.
+fn settle_ready_commits(stream: &mut WorldStream) -> bool {
+    let mut moved = false;
+    loop {
+        let before = (
+            stream.order.admitted_count(),
+            stream.order.next_sequence(),
+            stream.order.pending_batch_sequence().is_some(),
+        );
+        stream.apply_ready();
+        stream.promote_deferred_ingress();
+        let after = (
+            stream.order.admitted_count(),
+            stream.order.next_sequence(),
+            stream.order.pending_batch_sequence().is_some(),
+        );
+        if before == after && stream.order.pending_batch_sequence().is_none() {
+            return moved;
+        }
+        moved = true;
+    }
+}
+
+/// Runs one popped decode job on the test thread and accepts its completion.
+fn complete_decode_job(stream: &mut WorldStream, job: super::QueuedDecodeJob) {
+    {
         let (sequence, event) = match job.job {
             super::DecodeJob::InlineLevelChunk {
                 sequence,
@@ -613,20 +658,6 @@ fn complete_pending_decode_jobs(stream: &mut WorldStream) {
             event,
             queue_wait: std::time::Duration::ZERO,
         });
-    }
-    loop {
-        let before = (
-            stream.order.next_sequence(),
-            stream.order.pending_batch_sequence().is_some(),
-        );
-        stream.apply_ready();
-        let after = (
-            stream.order.next_sequence(),
-            stream.order.pending_batch_sequence().is_some(),
-        );
-        if before == after && stream.order.pending_batch_sequence().is_none() {
-            break;
-        }
     }
 }
 
@@ -917,8 +948,10 @@ mod cases_10;
 mod cases_11;
 mod cases_12;
 mod forced_remesh;
+mod inbound_lanes;
 mod inline_cohort;
 mod inventory_commit_fence;
+mod lane_footprints;
 mod lenient_decode;
 mod local_abilities;
 mod prediction;

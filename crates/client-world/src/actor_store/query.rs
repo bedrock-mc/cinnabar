@@ -5,6 +5,11 @@ use crate::{
 };
 
 impl ActorStore {
+    /// The newest sequence the store applied; it rejects anything at or below it.
+    pub(crate) const fn latest_sequence(&self) -> u64 {
+        self.latest_sequence
+    }
+
     pub(crate) fn ridden_unique_id(&self, rider_unique_id: i64) -> Option<i64> {
         self.rider_to_ridden.get(&rider_unique_id).copied()
     }
