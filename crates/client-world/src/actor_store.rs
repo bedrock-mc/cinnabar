@@ -717,6 +717,7 @@ pub(crate) struct ActorStore {
 }
 
 mod cloud_particles;
+pub(crate) mod creeper;
 mod crystal_beam;
 pub use crystal_beam::CrystalBeamView;
 pub(crate) mod dragon_animation;

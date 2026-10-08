@@ -83,7 +83,7 @@ pub(in crate::actor_animation) fn needs_frame_sampling(
                     .is_some_and(|symbol| {
                         matches!(
                             symbol.identifier.as_ref(),
-                            "query.frame_alpha" | "query.life_time"
+                            "query.frame_alpha" | "query.life_time" | "query.swell_amount"
                         )
                     })
             })

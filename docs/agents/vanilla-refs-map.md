@@ -3645,3 +3645,17 @@ Files: `docs/reference/held-block-placement.md`, `crates/gameplay/src/block_use.
   `geometry.the_entity`. A fixed 151-actor loopback scene keeps the late actor in
   its authored frustum while a camera turn admits the background crowd; the old
   128-body gates remove that otherwise visible actor.
+
+## Creeper fuse presentation
+
+- `crates/client-world/src/actor_store/creeper.rs` follows current 1.26.50.26
+  canonical `0384ab70` (initial direction −1), `0384ad30` (previous/current
+  swell, flag 10 direction and bounded tick), and `0384aec0` (death reset).
+- `actor_animation/query.rs` follows `024fec10` (frame interpolation and
+  normalisation) and `025035a0` (retained direction). `021a5170`'s cumulative
+  30-sample averages identify the shared globals `1500f2ce0` as 28 and
+  `14ffab6bc` as 30; `0773b130` independently normalises a 28-step progress.
+- The pinned `entity/creeper.entity.json`, `animations/creeper.animation.json`
+  and `render_controllers/creeper.render_controllers.json` own the wobble,
+  bone scales and alternating white overlay. These expressions sample the
+  fractional actor tick without committing animation state.

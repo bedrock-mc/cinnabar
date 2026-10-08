@@ -873,3 +873,6 @@ mod crystal_tests;
 
 #[cfg(test)]
 mod dragon_tests;
+
+#[cfg(test)]
+mod creeper_tests;
