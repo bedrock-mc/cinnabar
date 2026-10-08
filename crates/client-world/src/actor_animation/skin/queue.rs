@@ -285,10 +285,10 @@ impl SkinPreparationQueue {
             unchanged,
         } in completed.sources
         {
-            if let Some(previous) = &previous {
-                if let Some(entry) = self.entries.get_mut(&(Arc::as_ptr(previous) as usize)) {
-                    entry.in_flight_references -= 1;
-                }
+            if let Some(previous) = &previous
+                && let Some(entry) = self.entries.get_mut(&(Arc::as_ptr(previous) as usize))
+            {
+                entry.in_flight_references -= 1;
             }
             let pointer = Arc::as_ptr(&source) as usize;
             let Some(entry) = self.entries.get_mut(&pointer) else {
