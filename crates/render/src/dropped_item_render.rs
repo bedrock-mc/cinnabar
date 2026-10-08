@@ -758,10 +758,6 @@ impl<P: PhaseItem> RenderCommand<P> for DrawItems {
     }
 }
 
-#[cfg(test)]
-#[path = "dropped_item_render/upload_tests.rs"]
-mod upload_tests;
-
 impl crate::pipeline_warmup::PrewarmPipelines for ItemPipeline {
     fn prewarm(
         &mut self,
@@ -779,6 +775,10 @@ impl crate::pipeline_warmup::PrewarmPipelines for ItemPipeline {
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[path = "dropped_item_render/upload_tests.rs"]
+mod upload_tests;
 
 #[cfg(test)]
 mod tests {

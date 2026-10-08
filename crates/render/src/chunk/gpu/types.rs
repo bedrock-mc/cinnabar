@@ -246,7 +246,7 @@ pub(in crate::chunk) fn surface_present_mode_name(mode: wgpu::PresentMode) -> Op
     }
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[derive(Resource, Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub(in crate::chunk) enum GraphicsMetadataPublicationState {
     #[default]
     Pending,
@@ -304,6 +304,29 @@ fn metadata_requires_automatic_immediate(
     })
 }
 
+/// The native probe is eligible only until the requested diagnostic metadata is published.
+#[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(in crate::chunk) struct GraphicsMetadataPublication;
+
+/// Keeps native surface probing ordered after extraction and before surface configuration.
+pub(in crate::chunk) fn configure_graphics_metadata_publication(schedule: &mut Schedule) {
+    schedule.configure_sets(
+        GraphicsMetadataPublication
+            .run_if(graphics_metadata_pending)
+            .after(RenderSystems::ExtractCommands)
+            .after(crate::present_mode::PresentModePolicySet)
+            .before(bevy::render::view::window::create_surfaces),
+    );
+}
+
+/// Rejects idle native work before the executor can queue it on the main thread.
+fn graphics_metadata_pending(
+    input: Res<VisibilityDiagnosticsInput>,
+    publication: Res<GraphicsMetadataPublicationState>,
+) -> bool {
+    input.enabled() && *publication != GraphicsMetadataPublicationState::Published
+}
+
 #[derive(SystemParam)]
 pub(in crate::chunk) struct GraphicsRuntimeMetadataInputs<'w> {
     windows: Res<'w, ExtractedWindows>,
@@ -317,7 +340,7 @@ pub(in crate::chunk) struct GraphicsRuntimeMetadataInputs<'w> {
 pub(in crate::chunk) fn publish_graphics_runtime_metadata(
     #[cfg(any(target_os = "macos", target_os = "ios"))] _marker: bevy::ecs::system::NonSendMarker,
     inputs: GraphicsRuntimeMetadataInputs,
-    mut publication: Local<GraphicsMetadataPublicationState>,
+    mut publication: ResMut<GraphicsMetadataPublicationState>,
 ) {
     let GraphicsRuntimeMetadataInputs {
         windows,
@@ -349,11 +372,22 @@ pub(in crate::chunk) fn publish_graphics_runtime_metadata(
     };
     // SAFETY: This runs on the main thread where required, and the extracted window owns
     // valid raw handles for the same window Bevy configures immediately after this system.
-    let Ok(surface) = (unsafe { render_instance.create_surface_unsafe(surface_target) }) else {
-        return;
+    let surface = {
+        #[cfg(feature = "tracy")]
+        let _zone = bevy::log::info_span!("render.surface_probe.create").entered();
+        let Ok(surface) = (unsafe { render_instance.create_surface_unsafe(surface_target) }) else {
+            return;
+        };
+        surface
     };
-    let capabilities = surface.get_capabilities(&render_adapter);
-    let adapter_info = render_adapter.get_info();
+    let (capabilities, adapter_info) = {
+        #[cfg(feature = "tracy")]
+        let _zone = bevy::log::info_span!("render.surface_probe.capabilities").entered();
+        (
+            surface.get_capabilities(&render_adapter),
+            render_adapter.get_info(),
+        )
+    };
     if metadata_requires_automatic_immediate(
         preference,
         adapter_info.backend,
@@ -386,6 +420,64 @@ pub(in crate::chunk) fn publish_graphics_runtime_metadata(
 #[cfg(test)]
 mod graphics_metadata_tests {
     use super::*;
+
+    #[derive(Resource, Default)]
+    struct NativeProbeCalls(usize);
+
+    /// Counts native dispatches, including no-op calls that still require the main thread.
+    fn record_native_probe(
+        _main_thread: bevy::ecs::system::NonSendMarker,
+        mut calls: ResMut<NativeProbeCalls>,
+    ) {
+        calls.0 += 1;
+    }
+
+    #[test]
+    fn inactive_graphics_metadata_never_dispatches_native_work() {
+        let mut world = World::new();
+        world.insert_resource(VisibilityDiagnosticsInput::new(false));
+        world.init_resource::<GraphicsMetadataPublicationState>();
+        world.init_resource::<NativeProbeCalls>();
+        let mut schedule = Schedule::default();
+        configure_graphics_metadata_publication(&mut schedule);
+        schedule.add_systems(record_native_probe.in_set(GraphicsMetadataPublication));
+        schedule.run(&mut world);
+        assert_eq!(world.resource::<NativeProbeCalls>().0, 0);
+
+        world.insert_resource(VisibilityDiagnosticsInput::new(true));
+        schedule.run(&mut world);
+        assert_eq!(world.resource::<NativeProbeCalls>().0, 1);
+
+        world
+            .resource_mut::<GraphicsMetadataPublicationState>()
+            .publish();
+        for _ in 0..3 {
+            schedule.run(&mut world);
+        }
+        assert_eq!(world.resource::<NativeProbeCalls>().0, 1);
+    }
+
+    #[test]
+    fn startup_graphics_metadata_dispatches_until_publication_succeeds() {
+        let mut world = World::new();
+        let mut input = VisibilityDiagnosticsInput::new(false);
+        input.set_startup_probe_enabled(true);
+        world.insert_resource(input);
+        world.init_resource::<GraphicsMetadataPublicationState>();
+        world.init_resource::<NativeProbeCalls>();
+        let mut schedule = Schedule::default();
+        configure_graphics_metadata_publication(&mut schedule);
+        schedule.add_systems(record_native_probe.in_set(GraphicsMetadataPublication));
+        for _ in 0..2 {
+            schedule.run(&mut world);
+        }
+        assert_eq!(world.resource::<NativeProbeCalls>().0, 2);
+        world
+            .resource_mut::<GraphicsMetadataPublicationState>()
+            .publish();
+        schedule.run(&mut world);
+        assert_eq!(world.resource::<NativeProbeCalls>().0, 2);
+    }
 
     const AFFECTED_ADAPTER: &str = "Radeon RX 570 Series";
     const AFFECTED_DRIVER: &str = "31.0.21924.61";

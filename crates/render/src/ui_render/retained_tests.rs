@@ -73,6 +73,23 @@ fn retained_publication_rejects_conflicting_identity_and_missing_buffers() {
     assert_eq!(world.resource::<UiGpu>().accepted_revision, None);
 }
 
+/// Replay diagnostics retain the same static viewport and geometry upload behavior.
+#[test]
+fn unchanged_prepared_ui_submits_no_uploads_in_either_replay_mode() {
+    for baseline_replay in [false, true] {
+        let mut world = retained_world();
+        world.insert_resource(profile::UiProfile::with_baseline_replay(baseline_replay));
+        for _ in 0..32 {
+            world.run_system_once(prepare_ui_resources).unwrap();
+        }
+        assert_eq!(
+            world.resource::<profile::UiProfile>().submitted_uploads(),
+            [[0; 3]; 2],
+            "unchanged UI must not upload in replay mode {baseline_replay}"
+        );
+    }
+}
+
 #[test]
 fn retained_publication_plans_no_vertex_or_index_uploads() {
     let mut world = retained_world();
