@@ -179,6 +179,17 @@ pub fn visible_creative_entries<'a>(
 }
 
 impl UiRuntime {
+    /// Releases the keyboard when the inventory search field cannot be shown.
+    pub fn observe_inventory_search_focus(&mut self, player: &player_state::PlayerState) {
+        if super::presentation::inventory_pointer::InventoryScreen::of_runtime(player, self)
+            != super::presentation::inventory_pointer::InventoryScreen::Creative
+            && !(super::presentation::forms::furnace_book::active(player)
+                && self.screen_state().furnace_book_open)
+        {
+            self.screen_state_mut().search_focused = false;
+        }
+    }
+
     /// Drops the hovered catalog entry without moving it through the cursor.
     pub(super) fn drop_creative_hit(
         &mut self,

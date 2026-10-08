@@ -15,7 +15,7 @@ pub(crate) struct ProjectionCache {
 #[derive(Debug)]
 struct Icons {
     positions: Arc<[usize]>,
-    source: Option<Arc<crate::ui_runtime::presentation::SessionIcons>>,
+    generation: u64,
     values: Arc<[Option<IconRef>]>,
 }
 
@@ -123,17 +123,18 @@ impl<'a> Entries<'a> {
 pub fn icons(
     player: &player_state::PlayerState,
     runtime: &UiRuntime,
+    installed_generation: u64,
     icon: impl Fn(&protocol::NetworkItemStack) -> Option<IconRef>,
 ) -> Arc<[Option<IconRef>]> {
     let entries = entries(player, runtime);
     let mut cache = runtime.furnace_projection.lock().unwrap();
     if !cache.icons.as_ref().is_some_and(|cached| {
         Arc::ptr_eq(&cached.positions, &entries.positions)
-            && same(&cached.source, &runtime.session_icons)
+            && cached.generation == installed_generation
     }) {
         cache.icons = Some(Icons {
             positions: Arc::clone(&entries.positions),
-            source: runtime.session_icons.clone(),
+            generation: installed_generation,
             values: entries
                 .iter()
                 .map(|recipe| icon(&super::output_stack(recipe)))

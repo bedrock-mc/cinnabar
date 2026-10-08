@@ -106,6 +106,12 @@ fn furnace_recipe_panel_lists_outputs_and_routes_filter_tabs_and_search() {
     let first_projection = super::super::super::forms::furnace_book::projection(&player, &runtime);
     assert_eq!(first_projection.len(), 1);
     runtime.screen_state_mut().search_focused = true;
+    runtime.screen_state_mut().furnace_book_open = true;
+    runtime.observe_inventory_search_focus(&player);
+    assert!(
+        runtime.screen_state().text_focused(),
+        "visible furnace search retains the keyboard across pointer frames"
+    );
     runtime
         .screen_state_mut()
         .container_scroll
@@ -122,15 +128,34 @@ fn furnace_recipe_panel_lists_outputs_and_routes_filter_tabs_and_search() {
         resolutions.set(resolutions.get() + 1);
         None
     };
-    let first_icons = super::super::super::forms::furnace_book::icons(&player, &runtime, resolve);
+    let first_icons =
+        super::super::super::forms::furnace_book::icons(&player, &runtime, 0, resolve);
     assert_eq!(resolutions.get(), 1);
-    let next_icons = super::super::super::forms::furnace_book::icons(&player, &runtime, resolve);
+    let next_icons = super::super::super::forms::furnace_book::icons(&player, &runtime, 0, resolve);
     assert_eq!(
         resolutions.get(),
         1,
         "unchanged furnace results do not resolve icons again"
     );
     assert!(std::sync::Arc::ptr_eq(&first_icons, &next_icons));
+    runtime.set_session_icons(Some(std::sync::Arc::new(
+        super::super::super::SessionIcons::default(),
+    )));
+    let pending_icons =
+        super::super::super::forms::furnace_book::icons(&player, &runtime, 0, |_| None);
+    assert!(pending_icons[0].is_none());
+    let installed = IconRef {
+        page: 0,
+        uv: [0, 0, 16, 16],
+        glint: false,
+    };
+    let installed_icons =
+        super::super::super::forms::furnace_book::icons(&player, &runtime, 1, |_| Some(installed));
+    assert_eq!(
+        installed_icons[0],
+        Some(installed),
+        "furnace artwork refreshes when the presentation installs the announced source"
+    );
     runtime.screen_state_mut().search.clear();
     let Some(mut presentation) =
         engine_presentation_with(super::super::super::forms::pack_harness::font())

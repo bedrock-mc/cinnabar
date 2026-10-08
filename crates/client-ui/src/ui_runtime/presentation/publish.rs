@@ -295,8 +295,12 @@ pub fn capture_hud_frame(
                     .and_then(|id| presentation.item_icon(id, stack.metadata))
             };
             if super::forms::furnace_book::active(player_runtime) {
-                window_icons.furnace_entries =
-                    super::forms::furnace_book::icons(player_runtime, runtime, icon);
+                window_icons.furnace_entries = super::forms::furnace_book::icons(
+                    player_runtime,
+                    runtime,
+                    presentation.session_icon_generation(),
+                    icon,
+                );
             } else {
                 window_icons.book_entries =
                     super::forms::recipe_book_icons(player_runtime, runtime, icon);
