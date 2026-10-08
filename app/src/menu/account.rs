@@ -248,7 +248,8 @@ impl MenuRuntime {
             && matches!(next, AuthState::Authenticated | AuthState::SignedOut);
         let prompt = ready
             || ((self.sign_in_requested || self.feeds.account_adding)
-                && matches!(next, AuthState::Checking | AuthState::Failed(_)));
+                && matches!(next, AuthState::Checking | AuthState::Failed(_)))
+            || (self.feeds.account_adding && matches!(next, AuthState::Authenticated));
         let reset = !self.auth_restart_requested && self.current_auth().as_ref() != next && prompt;
         self.control_auth = Some(state);
         if ready {
@@ -326,10 +327,11 @@ impl MenuRuntime {
         let reset_focus = !self.auth_restart_requested
             && (self.sign_in_requested || self.feeds.account_adding)
             && before != std::mem::discriminant(process.state())
-            && matches!(
+            && (matches!(
                 process.state(),
                 AuthState::Checking | AuthState::AwaitingCode { .. } | AuthState::Failed(_)
-            );
+            ) || (self.feeds.account_adding
+                && matches!(process.state(), AuthState::Authenticated)));
         if process.cleanup_complete() && self.auth_restart_requested {
             self.auth_process = None;
             self.auth_restart_requested = false;
@@ -374,6 +376,7 @@ mod tests {
     use std::{
         ffi::OsString,
         fs,
+        io::Write,
         path::{Path, PathBuf},
         process::{Command, Stdio},
         thread,
@@ -402,6 +405,69 @@ mod tests {
         menu.move_focus(1);
         menu.apply_control_auth(AuthState::Failed("Try again.".into()));
         assert_eq!(menu.view().focused_action, Some(MenuAction::StartSignIn));
+    }
+
+    #[test]
+    fn completed_add_account_control_preserves_cancel_focus() {
+        let mut menu = MenuRuntime::new(true, 2, "Offline Player".into());
+        menu.dialog = Some(MenuDialog::Accounts);
+        menu.feeds.account_adding = true;
+        menu.apply_control_auth(AuthState::AwaitingCode {
+            uri: "https://example.invalid".into(),
+            code: "TEST-CODE".into(),
+        });
+        menu.move_focus(1);
+        assert_eq!(menu.focused, 1);
+        assert_eq!(menu.view().focused_action, Some(MenuAction::CancelSignIn));
+        menu.apply_control_auth(AuthState::Authenticated);
+        assert_eq!(menu.view().focused_action, Some(MenuAction::CancelSignIn));
+    }
+
+    #[test]
+    fn completed_add_account_helper_preserves_cancel_focus() {
+        let (mut child, directory) = event_child_waiting(
+            &[
+                r#"{"v":1,"event":"checking_cache"}"#,
+                r#"{"v":1,"event":"device_code","verification_uri":"https://example.invalid","user_code":"TEST-CODE"}"#,
+            ],
+            &[r#"{"v":1,"event":"authenticated","method":"device_code"}"#],
+        );
+        let mut input = child.stdin.take().expect("injected helper input");
+        let mut menu = MenuRuntime::new(true, 2, "Offline Player".into());
+        menu.dialog = Some(MenuDialog::Accounts);
+        menu.feeds.account_adding = true;
+        menu.auth_process = Some(AuthSupervisor::from_child(child).unwrap());
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !matches!(menu.current_auth().as_ref(), AuthState::AwaitingCode { .. })
+            && Instant::now() < deadline
+        {
+            menu.poll_sign_in();
+            thread::sleep(Duration::from_millis(5));
+        }
+        assert!(matches!(
+            menu.current_auth().as_ref(),
+            AuthState::AwaitingCode { .. }
+        ));
+        menu.move_focus(1);
+        assert_eq!(menu.focused, 1);
+        assert_eq!(menu.view().focused_action, Some(MenuAction::CancelSignIn));
+        input.write_all(b"finish\n").unwrap();
+        input.flush().unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !matches!(menu.current_auth().as_ref(), AuthState::Authenticated)
+            && Instant::now() < deadline
+        {
+            menu.poll_sign_in();
+            thread::sleep(Duration::from_millis(5));
+        }
+        assert_eq!(menu.current_auth().as_ref(), &AuthState::Authenticated);
+        menu.poll_accounts();
+        let focused = menu.view().focused_action;
+        assert!(menu.accounts.pending_ready);
+        drop(input);
+        drop(menu);
+        fs::remove_dir_all(directory).unwrap();
+        assert_eq!(focused, Some(MenuAction::CancelSignIn));
     }
 
     #[test]
@@ -796,7 +862,13 @@ mod tests {
         fs::remove_dir_all(directory).unwrap();
     }
 
+    /// Emits fixed events and keeps the injected helper alive until cleanup.
     fn event_child_holding(lines: &[&str]) -> (std::process::Child, PathBuf) {
+        event_child_waiting(lines, &[])
+    }
+
+    /// Releases completion events only after the test acknowledges the initial prompt.
+    fn event_child_waiting(lines: &[&str], completion: &[&str]) -> (std::process::Child, PathBuf) {
         let unique = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
@@ -809,8 +881,13 @@ mod tests {
         let mut command = if cfg!(windows) {
             let script = directory.join("events.cmd");
             let body = format!(
-                "@echo off\r\n{}\r\nset /p hold=\r\n",
+                "@echo off\r\n{}\r\nset /p hold=\r\n{}\r\nset /p hold=\r\n",
                 lines
+                    .iter()
+                    .map(|line| format!("echo {line}"))
+                    .collect::<Vec<_>>()
+                    .join("\r\n"),
+                completion
                     .iter()
                     .map(|line| format!("echo {line}"))
                     .collect::<Vec<_>>()
@@ -823,8 +900,13 @@ mod tests {
         } else {
             let script = directory.join("events.sh");
             let body = format!(
-                "#!/bin/sh\n{}\nIFS= read -r hold\n",
+                "#!/bin/sh\n{}\nIFS= read -r hold\n{}\nIFS= read -r hold\n",
                 lines
+                    .iter()
+                    .map(|line| format!("printf '%s\\n' '{line}'"))
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+                completion
                     .iter()
                     .map(|line| format!("printf '%s\\n' '{line}'"))
                     .collect::<Vec<_>>()
