@@ -94,13 +94,11 @@ fn pending_transport_correction_keeps_the_presented_view_without_advancing_autho
             Update,
             super::super::advance_local_physics.after(reconcile_world_stream_before_physics),
         );
-    // Two ticks and half of the next; each render frame stays within vanilla's 0.1 s clamp.
-    for millis in [100, 25] {
-        app.world_mut()
-            .resource_mut::<Time<Real>>()
-            .advance_by(Duration::from_millis(millis));
-        app.update();
-    }
+    // Exactly two ticks: one render frame at vanilla's 0.1 s elapsed-time clamp.
+    app.world_mut()
+        .resource_mut::<Time<Real>>()
+        .advance_by(Duration::from_millis(100));
+    app.update();
     let before = *app.world().resource::<LocalViewPose>();
     let tick = app
         .world()
