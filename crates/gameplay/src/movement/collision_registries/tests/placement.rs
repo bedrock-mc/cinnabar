@@ -330,10 +330,7 @@ fn unresolved_families_and_occupied_destinations_stay_server_confirmed() {
     let store = store(mode);
     let mut around = surroundings();
     for name in [
-        "minecraft:oak_stairs",
         "minecraft:observer",
-        "minecraft:wooden_door",
-        "minecraft:sea_pickle",
         "minecraft:cactus",
         "minecraft:red_shrub",
     ] {
@@ -363,3 +360,171 @@ fn indexed_state_lookup_preserves_typed_values_in_both_identity_spaces() {
         }
     }
 }
+
+#[test]
+fn door_halves_are_resolved_together_and_refuse_an_obstructed_upper_cell() {
+    use serde_json::json;
+    for mode in [NetworkIdMode::Sequential, NetworkIdMode::Hashed] {
+        for (yaw, direction) in [
+            (0.0, "west"),
+            (90.0, "north"),
+            (180.0, "east"),
+            (-90.0, "south"),
+        ] {
+            let mut store = store(mode);
+            let around = surroundings();
+            let mut click = context(&around);
+            click.input.yaw = yaw;
+            let result = predict("minecraft:wooden_door", &store, mode, &click).unwrap();
+            assert_eq!(result.additional.len(), 1);
+            assert_eq!(result.additional[0].0, [8, 10, 8]);
+            assert_eq!(
+                result.block,
+                id(
+                    record(
+                        "minecraft:wooden_door",
+                        &[
+                            ("minecraft:cardinal_direction", json!(direction)),
+                            ("upper_block_bit", json!(0)),
+                            ("door_hinge_bit", json!(0)),
+                            ("open_bit", json!(0))
+                        ]
+                    ),
+                    mode
+                )
+            );
+            assert_eq!(
+                result.additional[0].1,
+                id(
+                    record(
+                        "minecraft:wooden_door",
+                        &[
+                            ("minecraft:cardinal_direction", json!(direction)),
+                            ("upper_block_bit", json!(1)),
+                            ("door_hinge_bit", json!(0)),
+                            ("open_bit", json!(0))
+                        ]
+                    ),
+                    mode
+                )
+            );
+            store
+                .update_block(
+                    SubChunkKey::new(0, 0, 0, 0),
+                    BlockUpdate::new(8, 10, 8, 0, id(record("minecraft:stone", &[]), mode)),
+                    id(record("minecraft:air", &[]), mode),
+                )
+                .unwrap();
+            assert!(predict("minecraft:wooden_door", &store, mode, &click).is_none());
+        }
+    }
+}
+
+/// Defines independent family regressions against the pinned runtime palette.
+macro_rules! immediate_family {
+    ($test:ident, $($name:literal),+ $(,)?) => {
+        #[test]
+        fn $test() {
+            for mode in [NetworkIdMode::Sequential, NetworkIdMode::Hashed] {
+                for name in [$($name),+] {
+                    let store = store(mode);
+                    let around = surroundings();
+                    let result = predict(name, &store, mode, &context(&around)).expect(name);
+                    assert_eq!(result.position, [8,9,8]);
+                    assert_eq!(fixtures().1.block_identifier(mode, result.block), Some(name));
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn immediate_vines_attach_to_each_horizontal_clicked_support() {
+    for mode in [NetworkIdMode::Sequential, NetworkIdMode::Hashed] {
+        for (face, mask) in [(2, 1), (3, 4), (4, 8), (5, 2)] {
+            let store = store(mode);
+            let around = surroundings();
+            let mut click = context(&around);
+            click.input.face = face;
+            let result = predict("minecraft:vine", &store, mode, &click).unwrap();
+            assert_eq!(
+                result.position,
+                crate::block_use::placement_cell(click.clicked, face)
+            );
+            assert_eq!(
+                result.block,
+                id(
+                    record(
+                        "minecraft:vine",
+                        &[("vine_direction_bits", serde_json::json!(mask))]
+                    ),
+                    mode
+                )
+            );
+        }
+    }
+}
+
+#[test]
+fn ordinary_sign_items_select_wall_identity_for_every_side_face() {
+    for mode in [NetworkIdMode::Sequential, NetworkIdMode::Hashed] {
+        for face in 2..=5 {
+            let store = store(mode);
+            let around = surroundings();
+            let mut click = context(&around);
+            click.input.face = face;
+            let result = predict("minecraft:spruce_standing_sign", &store, mode, &click).unwrap();
+            assert_eq!(
+                result.block,
+                id(
+                    record(
+                        "minecraft:spruce_wall_sign",
+                        &[("facing_direction", serde_json::json!(face))]
+                    ),
+                    mode
+                )
+            );
+        }
+    }
+}
+
+immediate_family!(
+    immediate_stairs,
+    "minecraft:oak_stairs",
+    "minecraft:stone_stairs"
+);
+immediate_family!(
+    immediate_six_facing,
+    "minecraft:piston",
+    "minecraft:sticky_piston",
+    "minecraft:dispenser"
+);
+immediate_family!(
+    immediate_legacy_direction,
+    "minecraft:loom",
+    "minecraft:white_glazed_terracotta"
+);
+immediate_family!(immediate_levers, "minecraft:lever");
+immediate_family!(immediate_unlit_torch, "minecraft:unlit_redstone_torch");
+immediate_family!(
+    immediate_candles,
+    "minecraft:candle",
+    "minecraft:red_candle"
+);
+immediate_family!(immediate_dry_sea_pickles, "minecraft:sea_pickle");
+immediate_family!(immediate_first_snow, "minecraft:snow_layer");
+immediate_family!(
+    immediate_signs,
+    "minecraft:standing_sign",
+    "minecraft:spruce_standing_sign"
+);
+immediate_family!(
+    immediate_multiface,
+    "minecraft:glow_lichen",
+    "minecraft:sculk_vein"
+);
+immediate_family!(
+    immediate_doors,
+    "minecraft:wooden_door",
+    "minecraft:iron_door"
+);

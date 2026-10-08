@@ -484,3 +484,85 @@ fn urgent_removal_is_not_overtaken_by_an_older_queued_upsert() {
     );
     assert!(stream.is_mesh_clean(key));
 }
+
+/// A missing second cell leaves the valid first cell untouched.
+#[test]
+fn paired_prediction_rejects_every_cell_when_one_is_unloaded() {
+    let mut stream = fixture();
+    let first = [3, 200, 3];
+    let original = block(&stream, first);
+    assert!(!stream.predict_blocks(&[(first, 0, 1), ([40, 200, 3], 0, 1)]));
+    assert_eq!(block(&stream, first), original);
+}
+
+/// A late handoff can publish completed prediction workers without admitting another server batch.
+#[test]
+fn prediction_workers_publish_without_a_second_world_poll() {
+    let (mut stream, _) = loaded_neighbourhood();
+    let position: [i32; 3] = [3, 200, 3];
+    let key = SubChunkKey::new(0, 0, position[1].div_euclid(16), 0);
+    assert!(stream.predict_block(position, 0, 1));
+    let generation = stream.prediction_generation(position).unwrap().1;
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        stream.poll_prediction_jobs(position.map(|coordinate| coordinate as f32), 2);
+        if stream.take_mesh_changes().into_iter().any(|change| {
+            matches!(change,
+            WorldMeshChange::Upsert {key: actual, generation: revision, urgent: true, ..}
+                if actual == key && revision == generation)
+        }) {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "prediction mesh did not reach the late handoff"
+        );
+        std::thread::yield_now();
+    }
+}
+
+/// Both cells become readable together, and a server rollback replaces the whole pair.
+#[test]
+fn paired_prediction_commits_and_server_correction_rolls_back_both_cells() {
+    let mut stream = fixture();
+    let cells = [[3, 207, 3], [3, 208, 3]];
+    assert!(stream.predict_blocks(&[(cells[0], 0, 1), (cells[1], 0, 0)]));
+    assert_eq!(block(&stream, cells[0]), Some(1));
+    assert_eq!(block(&stream, cells[1]), Some(0));
+    let air = stream.air_block_id();
+    stream
+        .submit(
+            2,
+            WorldEvent::BlockUpdates(
+                cells
+                    .into_iter()
+                    .map(|position| BlockUpdateEvent {
+                        dimension: 0,
+                        position,
+                        layer: 0,
+                        network_id: air,
+                    })
+                    .collect(),
+            ),
+        )
+        .unwrap();
+    complete_pending_decode_jobs(&mut stream);
+    for cell in cells {
+        let key = SubChunkKey::new(0, 0, cell[1].div_euclid(16), 0);
+        assert!(stream.collision_store().is_sub_chunk_loaded(key));
+        assert_eq!(block(&stream, cell).unwrap_or(air), air);
+    }
+}
+
+/// The late worker handoff leaves authoritative corrections for the ordered world poll.
+#[test]
+fn prediction_handoff_does_not_commit_queued_server_corrections() {
+    let mut stream = fixture();
+    let position = [3, 200, 3];
+    assert!(stream.predict_block(position, 0, 1));
+    server_update(&mut stream, 2, position, 0);
+    stream.poll_prediction_jobs(position.map(|coordinate| coordinate as f32), 2);
+    assert_eq!(block(&stream, position), Some(1));
+    complete_pending_decode_jobs(&mut stream);
+    assert_eq!(block(&stream, position), Some(0));
+}
