@@ -1382,6 +1382,11 @@ RVAs are 1.26.50.26 Windows client; `mac 0x10…` addresses are the 26.30 macOS 
 - // enabled by BlockGraphics' pack-authored isotropic mask.
 - // AmbientOcclusionCalculator raises the four-sample average * face
 
+## crates/pack-compiler/src/pack/block/leaf_metadata.rs
+- Current canonical 1.26.50.26 `064868d0` in `src/__unmapped/06.cpp` parses
+  scalar/six-face/up-down-side isotropy. The graphics loader `069f19a0`
+  applies this mask from `blocks.json` for ordinary blocks and leaves alike.
+
 ## crates/render/src/native_sunlight.rs
 - /// Weather+0x38: current simulation rain, not the frame's interpolated rain.
 - /// getSunIntensity; the caller supplies the narrow or broad threshold.
