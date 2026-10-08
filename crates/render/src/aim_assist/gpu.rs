@@ -58,6 +58,7 @@ struct Installed;
 /// Delayed render-app creation and headless app tests share the same registration path.
 fn install(app: &mut App) {
     app.init_resource::<AimAssistHighlightScene>();
+    crate::pipeline_warmup::register::<HighlightPipeline>(app);
     let Some(render_app) = app.get_sub_app(RenderApp) else {
         return;
     };
@@ -80,9 +81,6 @@ fn install(app: &mut App) {
             Render,
             (
                 prepare.in_set(RenderSystems::PrepareBindGroups),
-                warm_pipeline
-                    .in_set(RenderSystems::Queue)
-                    .before(queue_highlight),
                 queue_highlight
                     .run_if(crate::panorama::world_passes_enabled)
                     .in_set(RenderSystems::Queue),
@@ -364,23 +362,25 @@ impl Specializer<RenderPipeline> for PipelineSpecializer {
     }
 }
 
-/// Each view requests its pipeline before a target can trigger first-use compilation.
-fn warm_pipeline(
-    cache: Res<PipelineCache>,
-    mut pipeline: ResMut<HighlightPipeline>,
-    views: Query<(&ExtractedView, &Msaa)>,
-) {
-    for (view, msaa) in &views {
+impl crate::pipeline_warmup::PrewarmPipelines for HighlightPipeline {
+    /// Both halves of a highlight, before a target can trigger first-use compilation.
+    fn prewarm(
+        &mut self,
+        cache: &PipelineCache,
+        view: crate::pipeline_warmup::WarmView,
+        ids: &mut crate::pipeline_warmup::WarmupIds,
+    ) -> Result<(), BevyError> {
         for occluded in [true, false] {
-            let _ = pipeline.variants.specialize(
-                &cache,
+            ids.push(self.variants.specialize(
+                cache,
                 PipelineKey {
-                    msaa: *msaa,
+                    msaa: view.msaa,
                     hdr: view.hdr,
                     occluded,
                 },
-            );
+            )?);
         }
+        Ok(())
     }
 }
 
@@ -570,11 +570,10 @@ mod tests {
     }
 
     #[test]
-    fn empty_views_prepare_the_pipeline_before_the_first_target() {
-        let (mut app, view) = fixture::app();
+    fn warmup_prepares_both_halves_before_the_first_target() {
+        use crate::pipeline_warmup::{PrewarmPipelines, WarmView};
+        let (mut app, _) = fixture::app();
         app.init_resource::<HighlightPipeline>();
-        app.world_mut().run_system_once(warm_pipeline).unwrap();
-        assert!(fixture::items(&app, view).is_empty());
         let (&msaa, view) = app
             .world_mut()
             .query::<(&Msaa, &ExtractedView)>()
@@ -584,6 +583,14 @@ mod tests {
         app.world_mut()
             .resource_scope(|world, mut pipeline: Mut<HighlightPipeline>| {
                 let cache = world.resource::<PipelineCache>();
+                let mut ids = Vec::new();
+                let warm = WarmView {
+                    msaa,
+                    hdr,
+                    enhanced: false,
+                    output: None,
+                };
+                pipeline.prewarm(cache, warm, &mut ids).unwrap();
                 let before = crate::alloc_count::thread_allocations();
                 for occluded in [true, false] {
                     let key = PipelineKey {
@@ -591,9 +598,8 @@ mod tests {
                         hdr,
                         occluded,
                     };
-                    let first = pipeline.variants.specialize(cache, key).unwrap();
-                    let again = pipeline.variants.specialize(cache, key).unwrap();
-                    assert_eq!(first, again);
+                    let drawn = pipeline.variants.specialize(cache, key).unwrap();
+                    assert!(ids.contains(&drawn));
                 }
                 assert_eq!(crate::alloc_count::thread_allocations() - before, 0);
             });

@@ -1,6 +1,8 @@
 #[path = "../src/alloc_count.rs"]
 mod alloc_count;
 
+#[path = "../src/device_poll.rs"]
+mod device_poll;
 #[path = "it/support/gpu_snapshot.rs"]
 mod gpu_snapshot;
 

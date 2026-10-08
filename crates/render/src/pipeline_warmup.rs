@@ -12,8 +12,10 @@ use bevy::{
     prelude::*,
     render::{
         Render, RenderApp, RenderSystems,
-        render_resource::{CachedPipelineState, CachedRenderPipelineId, PipelineCache},
-        view::ExtractedView,
+        render_resource::{
+            CachedPipelineState, CachedRenderPipelineId, PipelineCache, TextureFormat,
+        },
+        view::{ExtractedView, ViewTarget},
     },
     shader::PipelineCacheError,
 };
@@ -35,6 +37,8 @@ pub(crate) struct WarmView {
     pub msaa: Msaa,
     pub hdr: bool,
     pub enhanced: bool,
+    /// The surface or image format the view finally writes; absent until its target exists.
+    pub output: Option<TextureFormat>,
 }
 
 pub(crate) type WarmupIds = Vec<CachedRenderPipelineId>;
@@ -50,11 +54,19 @@ pub(crate) trait PrewarmPipelines: Resource {
     ) -> Result<(), BevyError>;
 }
 
+/// Implemented by owners that compile outside the pipeline cache, as their inputs appear.
+pub(crate) trait PendingPipelines: Resource {
+    /// Whether a pipeline a draw may request this frame is still compiling.
+    fn pending(&self) -> bool;
+}
+
 #[derive(Resource, Default)]
 struct WarmupRegistry {
     views: Vec<WarmView>,
     ids: WarmupIds,
     failed: HashSet<CachedRenderPipelineId>,
+    /// Owned compiles still running this frame.
+    pending: bool,
 }
 
 #[derive(SystemSet, Clone, Debug, PartialEq, Eq, Hash)]
@@ -68,11 +80,37 @@ struct WarmupOwner<T>(std::marker::PhantomData<T>);
 
 /// Idempotent, so plugins that install from both `build` and `finish` may call it twice.
 pub(crate) fn register<T: PrewarmPipelines>(app: &mut App) {
-    app.init_resource::<PipelineWarmupReadiness>();
-    let shared = app.world().resource::<PipelineWarmupReadiness>().clone();
-    let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
+    let Some(render_app) = install(app) else {
         return;
     };
+    if !render_app.world().contains_resource::<WarmupOwner<T>>() {
+        render_app
+            .insert_resource(WarmupOwner::<T>(std::marker::PhantomData))
+            .add_systems(Render, prewarm_owner::<T>.in_set(WarmupSet::Owners));
+    }
+}
+
+/// Holds readiness while `T` reports a compile in flight; idempotent like [`register`].
+pub(crate) fn register_pending<T: PendingPipelines>(app: &mut App) {
+    let Some(render_app) = install(app) else {
+        return;
+    };
+    if !render_app.world().contains_resource::<WarmupOwner<T>>() {
+        render_app
+            .insert_resource(WarmupOwner::<T>(std::marker::PhantomData))
+            .add_systems(
+                Render,
+                owner_pending::<T>
+                    .in_set(RenderSystems::Cleanup)
+                    .before(publish_readiness),
+            );
+    }
+}
+
+fn install(app: &mut App) -> Option<&mut SubApp> {
+    app.init_resource::<PipelineWarmupReadiness>();
+    let shared = app.world().resource::<PipelineWarmupReadiness>().clone();
+    let render_app = app.get_sub_app_mut(RenderApp)?;
     if !render_app.world().contains_resource::<WarmupRegistry>() {
         render_app
             .insert_resource(shared)
@@ -87,23 +125,26 @@ pub(crate) fn register<T: PrewarmPipelines>(app: &mut App) {
             .add_systems(Render, collect_views.in_set(WarmupSet::Views))
             .add_systems(Render, publish_readiness.in_set(RenderSystems::Cleanup));
     }
-    if !render_app.world().contains_resource::<WarmupOwner<T>>() {
-        render_app
-            .insert_resource(WarmupOwner::<T>(std::marker::PhantomData))
-            .add_systems(Render, prewarm_owner::<T>.in_set(WarmupSet::Owners));
-    }
+    Some(render_app)
 }
 
 fn collect_views(
-    views: Query<(&ExtractedView, &Msaa, Option<&crate::EnhancedRendering>)>,
+    views: Query<(
+        &ExtractedView,
+        &Msaa,
+        Option<&ViewTarget>,
+        Option<&crate::EnhancedRendering>,
+    )>,
     mut registry: ResMut<WarmupRegistry>,
 ) {
     registry.views.clear();
-    for (view, msaa, enhanced) in &views {
+    registry.pending = false;
+    for (view, msaa, target, enhanced) in &views {
         let key = WarmView {
             msaa: *msaa,
             hdr: view.hdr,
             enhanced: enhanced.is_some(),
+            output: target.map(ViewTarget::out_texture_view_format),
         };
         if !registry.views.contains(&key) {
             registry.views.push(key);
@@ -135,6 +176,13 @@ fn prewarm_owner<T: PrewarmPipelines>(
     }
 }
 
+fn owner_pending<T: PendingPipelines>(
+    owner: Option<Res<T>>,
+    mut registry: ResMut<WarmupRegistry>,
+) {
+    registry.pending |= owner.is_some_and(|owner| owner.pending());
+}
+
 fn publish_readiness(
     cache: Res<PipelineCache>,
     mut registry: ResMut<WarmupRegistry>,
@@ -146,8 +194,13 @@ fn publish_readiness(
 
 /// Shader loads keep loading held; terminal compile errors are logged once and stop blocking.
 fn registered_pipelines_ready(cache: &PipelineCache, registry: &mut WarmupRegistry) -> bool {
-    let WarmupRegistry { views, ids, failed } = registry;
-    let mut ready = !views.is_empty();
+    let WarmupRegistry {
+        views,
+        ids,
+        failed,
+        pending,
+    } = registry;
+    let mut ready = !views.is_empty() && !*pending;
     for &id in ids.iter() {
         ready &= match cache.get_render_pipeline_state(id) {
             CachedPipelineState::Ok(_) => true,

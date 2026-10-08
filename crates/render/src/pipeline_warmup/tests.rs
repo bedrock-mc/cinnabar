@@ -83,6 +83,7 @@ const VIEW: WarmView = WarmView {
     msaa: Msaa::Off,
     hdr: false,
     enhanced: false,
+    output: None,
 };
 
 fn world(shader: Handle<Shader>) -> World {

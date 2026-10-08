@@ -62,7 +62,7 @@ pub(super) fn render_plugin(
     })
 }
 
-pub(super) fn noop_render_plugin(required_features: WgpuFeatures) -> RenderPlugin {
+pub(crate) fn noop_render_plugin(required_features: WgpuFeatures) -> RenderPlugin {
     render_plugin(wgpu::Backends::NOOP, required_features).expect("the NOOP adapter is built in")
 }
 
@@ -83,7 +83,7 @@ pub(super) fn frame(app: &mut App) {
     app.sub_app(RenderApp)
         .world()
         .resource::<RenderDevice>()
-        .poll(PollType::wait_indefinitely())
+        .poll(wgpu::PollType::wait_indefinitely())
         .unwrap();
 }
 
