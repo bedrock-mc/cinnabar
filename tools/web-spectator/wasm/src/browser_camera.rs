@@ -34,7 +34,12 @@ impl PovMotion {
         *self = Self::default();
     }
 
-    pub(super) fn update(&mut self, fighter: &Fighter, base: Transform, speed: f32) -> (Transform, Mat4) {
+    pub(super) fn update(
+        &mut self,
+        fighter: &Fighter,
+        base: Transform,
+        speed: f32,
+    ) -> (Transform, Mat4) {
         if self.player.as_deref() != Some(fighter.id.as_str()) {
             self.reset();
             self.player = Some(fighter.id.clone());

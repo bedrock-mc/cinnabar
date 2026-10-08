@@ -1,10 +1,10 @@
 //! Bounded adapters for canonical actor-animation persona layer snapshots.
 use client_world::SkinRenderLayer;
-use render_model::{EntityRigId, RenderBoneTransform, equipment::EquipmentRaster};
 use render::{
     ActorArtworkLocation, ActorArtworkPages, ActorRenderIdentity, ActorRenderScene,
     ActorRigSubmission,
 };
+use render_model::{EntityRigId, RenderBoneTransform, equipment::EquipmentRaster};
 use std::{
     collections::{BTreeMap, HashMap},
     sync::Arc,
@@ -70,7 +70,9 @@ impl PersonaLayers {
                         continue;
                     }
                     let rig = render_model::skin_rig_id(1024 + self.rigs.len() as u32);
-                    let Some(mut geometry) = layer.mesh.clone() else { continue; };
+                    let Some(mut geometry) = layer.mesh.clone() else {
+                        continue;
+                    };
                     geometry.id = rig;
                     if scene.insert_geometry(geometry).is_err() {
                         continue;
@@ -78,11 +80,25 @@ impl PersonaLayers {
                     self.rigs.insert(layer.geometry.digest, rig);
                     rig
                 };
-                let convert=|bones:&[client_world::BoneTransform]|->Option<Arc<[RenderBoneTransform]>> {
-    let mut result=bones.iter().map(|b|RenderBoneTransform::from_model_space_scaled(b.rotation,b.translation_scale,b.axis_scale)).collect::<Option<Vec<_>>>()?;
-    for &i in layer.hidden_bones.iter() {if let Some(b)=result.get_mut(i as usize){b.translation_scale=[0.0;4];}}
-    Some(result.into())
-   };
+                let convert =
+                    |bones: &[client_world::BoneTransform]| -> Option<Arc<[RenderBoneTransform]>> {
+                        let mut result = bones
+                            .iter()
+                            .map(|b| {
+                                RenderBoneTransform::from_model_space_scaled(
+                                    b.rotation,
+                                    b.translation_scale,
+                                    b.axis_scale,
+                                )
+                            })
+                            .collect::<Option<Vec<_>>>()?;
+                        for &i in layer.hidden_bones.iter() {
+                            if let Some(b) = result.get_mut(i as usize) {
+                                b.translation_scale = [0.0; 4];
+                            }
+                        }
+                        Some(result.into())
+                    };
                 let (Some(previous), Some(current)) =
                     (convert(&layer.previous), convert(&layer.current))
                 else {

@@ -3,8 +3,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use bevy::math::Vec3;
 use render::{
-    ActorRenderFrame, ActorRenderIdentity, ActorRigRenderInput, ActorRigRoute,
-    ActorRigSubmission,
+    ActorRenderFrame, ActorRenderIdentity, ActorRigRenderInput, ActorRigRoute, ActorRigSubmission,
 };
 use view_presentation::equipment_display;
 
@@ -73,7 +72,10 @@ impl BrowserActors {
             .map(|(_, key, _)| key.clone())
             .collect::<Vec<_>>();
         if self.skin_keys != keys {
-            self.render_skins = keys.iter().map(|key| self.skins[key].pixels.clone()).collect();
+            self.render_skins = keys
+                .iter()
+                .map(|key| self.skins[key].pixels.clone())
+                .collect();
             for key in &keys {
                 if let Some(cape) = self.capes.get(key) {
                     self.render_skins.push(cape.clone());
@@ -121,7 +123,7 @@ impl BrowserActors {
             let position =
                 Vec3::from_array(old.position).lerp(Vec3::from_array(fighter.position), fraction);
             let body = ActorRigSubmission {
-            material: render::ActorMaterial::default(),
+                material: render::ActorMaterial::default(),
                 culling_bounds: rig.bounds,
                 input: ActorRigRenderInput {
                     identity,
@@ -166,9 +168,11 @@ impl BrowserActors {
                     armor_body.input.identity.layer = equipment_display::LAYER_HELMET + slot as u8;
                     armor_body.input.rig = armor.id;
                     armor_body.input.previous_bones =
-                        view_presentation::armor_pose::remap_pose(&map, &body.input.previous_bones).into();
+                        view_presentation::armor_pose::remap_pose(&map, &body.input.previous_bones)
+                            .into();
                     armor_body.input.current_bones =
-                        view_presentation::armor_pose::remap_pose(&map, &body.input.current_bones).into();
+                        view_presentation::armor_pose::remap_pose(&map, &body.input.current_bones)
+                            .into();
                     armor_body.texture_layer = location.layer();
                     armor_body.tint = if binding.material.contains("leather") {
                         view_presentation::armor_pose::pack_tint(
@@ -202,8 +206,12 @@ impl BrowserActors {
                     sneaking: fighter.sneaking,
                 };
                 let pose = view_presentation::cape::java_cape_pose(
-                    cape, &rig.names, |index| animated.rest.get(index).copied(),
-                    &body.input.current_bones, &cape_input);
+                    cape,
+                    &rig.names,
+                    |index| animated.rest.get(index).copied(),
+                    &body.input.current_bones,
+                    &cape_input,
+                );
                 submission.input.previous_bones = Arc::clone(&pose);
                 submission.input.current_bones = pose;
                 submission.texture_layer = (keys.len() + offset) as u32;
@@ -268,7 +276,10 @@ impl BrowserActors {
                 pose_generation: animated.completed_tick,
                 layer: render::ACTOR_LAYER_BODY,
             };
-            let yaw = self.animator.actor_world_yaw(&entity.id).unwrap_or(animated.body_yaw);
+            let yaw = self
+                .animator
+                .actor_world_yaw(&entity.id)
+                .unwrap_or(animated.body_yaw);
             assignments.insert(identity, location);
             submissions.push(ActorRigSubmission {
                 material: render::ActorMaterial::default(),
@@ -311,5 +322,4 @@ impl BrowserActors {
             )
             .clone()
     }
-
 }

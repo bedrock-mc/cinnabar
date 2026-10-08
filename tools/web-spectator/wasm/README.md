@@ -15,7 +15,7 @@ the renderer never connects to a game server or sends gameplay input.
 
 The host builds Cinnabar's pinned vanilla carriers with the existing `assetc`
 commands, then mounts them as read-only runtime data. The viewer requires the
-world, entity, equipment, HUD, item-icon, JSON-UI and font carriers plus the
+world, entity, actor, particle, equipment, HUD, item-icon, JSON-UI and font carriers plus the
 matching canonical block registry. Publish content-addressed URLs with
 immutable caching and a small separately cached bundle manifest. These are
 runtime artifacts; do not commit Mojang images, pack archives or carriers.
@@ -35,7 +35,7 @@ feed the native motion and pose owners. Third-person equipment and the native
 first-person main-hand pass share their existing display transforms and atlas.
 The HUD reuses native JSON-UI layout, stat painters,
 item icons, font metrics, texture atlas and GPU overlay. Pure presentation
-helpers moved into their shared owners; the desktop app retains its APIs.
+helpers live in shared native owners consumed by both the desktop app and browser adapter.
 Public fighter names use the native font-pixel nameplate layout, retained text
 atlas and existing billboard GPU pass, including sneaking depth/alpha policy.
 The selected POV player's own tag is hidden. Tags and HUD share the compiled
@@ -63,6 +63,14 @@ remain open. The shared native main-hand pass has the same
 existing offhand and map restrictions as the desktop path. The admission limits
 are described below.
 
+Regenerate carriers against the current pinned sources when updating the renderer;
+older world/entity schemas and mismatched actor catalogs are rejected. The font
+carrier uses `assets/fonts/CinnanglesSans.ttf` with
+`assets/cinnangles-sans-source.json`. Compile server-pack glyphs with
+`assetc font-assets --glyph-pack <pack-directory> --compact-pages` to include
+custom scoreboard separators without unused atlas padding. Publish all ten
+carriers together with their actual hashes in the bundle manifest.
+
 ## Binding
 
 ```js
@@ -72,7 +80,7 @@ const terrain = new TerrainAssets(worldBytes, registryBytes, protocol);
 const limits = JSON.parse(Viewer.gpu_requirements(terrain));
 // Check the WebGPU adapter limits before constructing the viewer.
 const viewer = new Viewer('#cinnabar-canvas', terrain, entityBytes,
-  equipmentBytes, hudBytes, iconBytes, jsonUiBytes, fontBytes);
+  actorBytes, particleBytes, equipmentBytes, hudBytes, iconBytes, jsonUiBytes, fontBytes);
 viewer.set_arena(JSON.stringify(arena));
 viewer.set_frame(JSON.stringify(frame), Date.now());
 viewer.set_skin(playerId, width, height, rgbaPixels, slim);

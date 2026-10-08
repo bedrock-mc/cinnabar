@@ -1,22 +1,29 @@
 //! Stream observations feed the same compiled fixed-tick Molang animator as native actors.
 use std::{collections::HashMap, sync::Arc};
 
+use assets::{RuntimeEntityAssets, RuntimeEquipmentCatalog};
+use bevy::platform::time::Instant;
 use client_world::{
     ACTOR_SWING_TICKS, ACTOR_TICK_DURATION, ActorAnimationStore, ActorRigSnapshot,
     ActorTickContext, WornArmor,
 };
-use assets::{RuntimeEntityAssets, RuntimeEquipmentCatalog};
-use bevy::platform::time::Instant;
-use render_model::{EntityRigId, RenderBoneTransform};
 use client_world::{ActorPose, ActorSnapshot, HandPhase};
-use protocol::{ActorAttribute, ActorKind, ActorMetadataValue, ActorSpawnEvent, NetworkItemStack, SkinGeometrySource};
+use protocol::{
+    ActorAttribute, ActorKind, ActorMetadataValue, ActorSpawnEvent, NetworkItemStack,
+    SkinGeometrySource,
+};
+use render_model::{EntityRigId, RenderBoneTransform};
 
 use super::super::browser_model::{Fighter, Frame};
 use super::{hash_id, parse_rgb};
 
 mod pose_cache;
 use pose_cache::PoseCache;
-type ConvertedPose = (Arc<[RenderBoneTransform]>, Arc<[RenderBoneTransform]>, Arc<[RenderBoneTransform]>);
+type ConvertedPose = (
+    Arc<[RenderBoneTransform]>,
+    Arc<[RenderBoneTransform]>,
+    Arc<[RenderBoneTransform]>,
+);
 
 pub(super) struct NativeAnimator {
     store: ActorAnimationStore,
@@ -71,7 +78,11 @@ impl NativeAnimator {
         equipment: &RuntimeEquipmentCatalog,
         appearance: impl Fn(&str) -> (Option<Arc<SkinGeometrySource>>, bool),
     ) {
-        let AnimationView { hidden_player, rotation: view_rotation, position: view_position } = view;
+        let AnimationView {
+            hidden_player,
+            rotation: view_rotation,
+            position: view_position,
+        } = view;
         let now = js_sys::Date::now();
         let clock = Instant::now();
         let tick_millis = ACTOR_TICK_DURATION.as_secs_f64() * 1000.0;
@@ -94,7 +105,10 @@ impl NativeAnimator {
                     .fighters
                     .iter()
                     .any(|fighter| hash_id(&fighter.id) == *id)
-                    && !frame.entities.iter().any(|entity| hash_id(&entity.id) == *id)
+                    && !frame
+                        .entities
+                        .iter()
+                        .any(|entity| hash_id(&entity.id) == *id)
             })
             .collect::<Vec<_>>();
         for id in removed {
@@ -111,8 +125,19 @@ impl NativeAnimator {
             .filter(|v| v.is_finite() && *v > 0.0)
             .unwrap_or(ACTOR_TICK_DURATION.as_secs_f64())
             .clamp(ACTOR_TICK_DURATION.as_secs_f64(), 1.0) as f32;
-        let entities = frame.entities.iter().map(|entity| entity.observation()).collect::<Vec<_>>();
-        let old_entities = previous.map(|old| old.entities.iter().map(|entity| entity.observation()).collect::<Vec<_>>()).unwrap_or_default();
+        let entities = frame
+            .entities
+            .iter()
+            .map(|entity| entity.observation())
+            .collect::<Vec<_>>();
+        let old_entities = previous
+            .map(|old| {
+                old.entities
+                    .iter()
+                    .map(|entity| entity.observation())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
         for fighter in frame.fighters.iter().chain(&entities) {
             let runtime_id = hash_id(&fighter.id);
             let old = previous
@@ -156,15 +181,28 @@ impl NativeAnimator {
                     1,
                 )
             });
-            let observation = self.observations.entry(runtime_id).or_insert_with(|| Observation {
-                skin: None,
-                has_cape: false,
-                swing: None,
-                hurt: None,
-            });
-            actor.kind = frame.entities.iter().find(|entity| entity.id == fighter.id).map_or_else(
-                || ActorKind::Player { uuid: [0; 16], username: fighter.name.as_str().into() },
-                |entity| ActorKind::Entity { identifier: entity.kind.as_str().into() });
+            let observation = self
+                .observations
+                .entry(runtime_id)
+                .or_insert_with(|| Observation {
+                    skin: None,
+                    has_cape: false,
+                    swing: None,
+                    hurt: None,
+                });
+            actor.kind = frame
+                .entities
+                .iter()
+                .find(|entity| entity.id == fighter.id)
+                .map_or_else(
+                    || ActorKind::Player {
+                        uuid: [0; 16],
+                        username: fighter.name.as_str().into(),
+                    },
+                    |entity| ActorKind::Entity {
+                        identifier: entity.kind.as_str().into(),
+                    },
+                );
             actor.position = position;
             actor.observe_velocity(velocity);
             actor.pitch = fighter.pitch;
@@ -241,7 +279,9 @@ impl NativeAnimator {
         self.last_tick = clock;
         if self.pending_millis > tick_millis * 5.0 {
             self.pending_millis = tick_millis * 5.0;
-            for runtime_id in self.actors.keys() { self.store.mark_reset(*runtime_id); }
+            for runtime_id in self.actors.keys() {
+                self.store.mark_reset(*runtime_id);
+            }
         }
         let steps = (self.pending_millis / tick_millis).floor() as u32;
         self.pending_millis -= f64::from(steps) * tick_millis;
@@ -254,7 +294,12 @@ impl NativeAnimator {
                 step + 1 == steps,
                 step == 0,
                 |actor| {
-                    let Some(fighter) = frame.fighters.iter().chain(&entities).find(|fighter| hash_id(&fighter.id) == actor.runtime_id) else {
+                    let Some(fighter) = frame
+                        .fighters
+                        .iter()
+                        .chain(&entities)
+                        .find(|fighter| hash_id(&fighter.id) == actor.runtime_id)
+                    else {
                         return ActorTickContext::default();
                     };
                     let equipment_items = fighter.equipment.as_ref();
@@ -277,11 +322,24 @@ impl NativeAnimator {
                     context.off_hand = off.map(|item| item.name.as_str().into());
                     context.main_hand_max_use_ticks = main_use;
                     context.main_hand_metadata = main.map_or(0, |item| item.meta.max(0) as u32);
-                    context.main_hand_slot = fighter.pov.as_ref().map_or(0, |pov| pov.selected_slot as u8);
+                    context.main_hand_slot = fighter
+                        .pov
+                        .as_ref()
+                        .map_or(0, |pov| pov.selected_slot as u8);
                     context.is_local_first_person = hidden_player == Some(fighter.id.as_str());
-                    context.camera_rotation = if matches!(actor.kind, ActorKind::Entity { .. }) { view_rotation } else { [fighter.pitch, fighter.yaw] };
-                    context.camera_position = if matches!(actor.kind, ActorKind::Entity { .. }) { view_position } else { camera_position };
-                    context.has_cape = observations.get(&actor.runtime_id).is_some_and(|observation| observation.has_cape);
+                    context.camera_rotation = if matches!(actor.kind, ActorKind::Entity { .. }) {
+                        view_rotation
+                    } else {
+                        [fighter.pitch, fighter.yaw]
+                    };
+                    context.camera_position = if matches!(actor.kind, ActorKind::Entity { .. }) {
+                        view_position
+                    } else {
+                        camera_position
+                    };
+                    context.has_cape = observations
+                        .get(&actor.runtime_id)
+                        .is_some_and(|observation| observation.has_cape);
                     context.armor = std::array::from_fn(|slot| {
                         equipment_items
                             .and_then(|items| items.armour.get(slot))
@@ -291,7 +349,9 @@ impl NativeAnimator {
                                 dye_rgb: item.color.as_deref().and_then(parse_rgb),
                             })
                     });
-                    context.skin_geometry = observations.get(&actor.runtime_id).and_then(|observation| observation.skin.clone());
+                    context.skin_geometry = observations
+                        .get(&actor.runtime_id)
+                        .and_then(|observation| observation.skin.clone());
                     context
                 },
             );
@@ -308,13 +368,22 @@ impl NativeAnimator {
     }
 
     pub(super) fn skin_layers(&self, id: &str) -> Vec<client_world::SkinRenderLayer> {
-        self.store.get(hash_id(id)).map(|rig| rig.skin_layers.to_vec()).unwrap_or_default()
+        self.store
+            .get(hash_id(id))
+            .map(|rig| rig.skin_layers.to_vec())
+            .unwrap_or_default()
     }
 
     pub(super) fn actor_world_yaw(&self, id: &str) -> Option<f32> {
         let id = hash_id(id);
         let actor = self.actors.get(&id)?;
-        Some(if actor.is_billboard() { 180.0 } else if actor.target_rotation_is_absolute() { 0.0 } else { self.store.get(id)?.body_yaw })
+        Some(if actor.is_billboard() {
+            180.0
+        } else if actor.target_rotation_is_absolute() {
+            0.0
+        } else {
+            self.store.get(id)?.body_yaw
+        })
     }
 
     pub(super) fn partial_tick(&self) -> f32 {
@@ -352,7 +421,9 @@ impl NativeAnimator {
             },
         )?;
         let overlay = if actor.status.overlay_active() {
-            render::pack_overlay_rgba8(view_presentation::equipment_display::hurt_overlay_rgba(client_world::HURT_OVERLAY_ALPHA))
+            render::pack_overlay_rgba8(view_presentation::equipment_display::hurt_overlay_rgba(
+                client_world::HURT_OVERLAY_ALPHA,
+            ))
         } else {
             0
         };
@@ -421,7 +492,6 @@ fn health_attribute(fighter: &Fighter) -> ActorAttribute {
         modifiers: Arc::from([]),
     }
 }
-
 
 pub(super) struct AnimationView<'a> {
     pub hidden_player: Option<&'a str>,

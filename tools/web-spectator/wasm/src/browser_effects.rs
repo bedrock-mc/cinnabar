@@ -2,7 +2,7 @@
 use std::collections::BTreeSet;
 
 use bevy::platform::time::Instant;
-use particles::{LevelParticle, classify_level_event, named_request, ParticleSystem, ParticleView};
+use particles::{LevelParticle, ParticleSystem, ParticleView, classify_level_event, named_request};
 use render::ParticleGpuFrame;
 
 use crate::browser_model::{Frame, SceneEvent};

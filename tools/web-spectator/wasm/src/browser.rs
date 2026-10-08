@@ -23,7 +23,8 @@ use render::{
     ActorPresentationGate, ActorRenderFrame, ActorRenderPlugin, ChunkBiomeTints,
     ChunkRenderApplySet, ChunkRenderPlugin, ChunkRenderQueue, ChunkTextureAssets,
     ChunkUploadBudget, ChunkUploadPriority, PresentedFrameGate, RenderViewCohort, UiRenderPlugin,
-    UiRenderSceneResource, UiRenderStatsResource, VisibilityDiagnostics, VisibilityDiagnosticsInput,
+    UiRenderSceneResource, UiRenderStatsResource, VisibilityDiagnostics,
+    VisibilityDiagnosticsInput,
 };
 use wasm_bindgen::prelude::*;
 use world::SubChunkKey;
@@ -147,8 +148,7 @@ fn gpu_requirements_for(terrain: &TerrainAssets) -> GpuRequirements {
             .map(|page| page.texture.layers)
             .max()
             .unwrap_or(1),
-        max_storage_buffers_per_shader_stage:
-            render::required_vertex_storage_buffers(),
+        max_storage_buffers_per_shader_stage: render::required_vertex_storage_buffers(),
     }
 }
 
@@ -608,7 +608,10 @@ fn spawn_camera(mut commands: Commands, window: Single<&Window, With<PrimaryWind
         Projection::Perspective(PerspectiveProjection {
             far: 2048.0,
             fov: view_presentation::camera::projection_fov_radians(ui::DEFAULT_FOV_DEGREES as f32),
-            aspect_ratio: view_presentation::camera::projection_aspect(window.width(), window.height()),
+            aspect_ratio: view_presentation::camera::projection_aspect(
+                window.width(),
+                window.height(),
+            ),
             near: render_api::CAMERA_NEAR_PLANE_BLOCKS,
             near_clip_plane: Vec4::new(0.0, 0.0, -1.0, -render_api::CAMERA_NEAR_PLANE_BLOCKS),
             ..default()

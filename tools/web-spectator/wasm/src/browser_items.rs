@@ -2,8 +2,8 @@
 use crate::browser_model::Frame;
 use assets::RuntimeIconCatalog;
 use render::{DroppedItemInstance, DroppedItemModel, DroppedItemScene};
-use std::{collections::BTreeMap, sync::Arc};
 use render_model::DroppedItemSprite;
+use std::{collections::BTreeMap, sync::Arc};
 
 pub(super) struct BrowserItems {
     icons: RuntimeIconCatalog,
@@ -70,10 +70,25 @@ impl BrowserItems {
                         .ok()?
                         .first()
                         .copied()?;
-                    render_model::dropped_item_block_cube(&self.terrain, assets::NetworkIdMode::Sequential, id, render::MAX_ITEM_SPRITE_SIDE)
-                        .map(|cube| (DroppedItemModel::Cube(cube), 6))
-                        .or_else(|| render_model::dropped_item_block_model(&self.terrain, assets::NetworkIdMode::Sequential, id, render::MAX_ITEM_SPRITE_SIDE)
-                            .map(|model| { let layers = model.materials.len(); (DroppedItemModel::Block(model), layers) }))
+                    render_model::dropped_item_block_cube(
+                        &self.terrain,
+                        assets::NetworkIdMode::Sequential,
+                        id,
+                        render::MAX_ITEM_SPRITE_SIDE,
+                    )
+                    .map(|cube| (DroppedItemModel::Cube(cube), 6))
+                    .or_else(|| {
+                        render_model::dropped_item_block_model(
+                            &self.terrain,
+                            assets::NetworkIdMode::Sequential,
+                            id,
+                            render::MAX_ITEM_SPRITE_SIDE,
+                        )
+                        .map(|model| {
+                            let layers = model.materials.len();
+                            (DroppedItemModel::Block(model), layers)
+                        })
+                    })
                 });
                 let model = if let Some((block, layers)) = block_model.filter(|(_, layers)| {
                     self.models.len() < 128 && self.model_layers + layers <= render::MAX_ITEM_LAYERS
