@@ -212,48 +212,54 @@ function Assert-ProtocolDependencyProvenance {
         throw "cargo metadata must contain exactly one canonical protocol package, found $($protocolPackages.Count)"
     }
     $protocolPackage = $protocolPackages[0]
-    $expectedDependencies = [ordered]@{
-        valentine = @('bedrock_1_26_51')
-        jolyne = @('client', 'bedrock_1_26_51')
-    }
+    $wireFeatures = @('bedrock_1_26_51')
+    $expectedDependencies = [ordered]@{ valentine = $wireFeatures; jolyne = @('client') }
+    $nativeTarget = 'cfg(not(target_arch = "wasm32"))'
     foreach ($dependencyName in $expectedDependencies.Keys) {
         $matches = @($protocolPackage.dependencies | Where-Object {
             ([string]$_.name -ceq $dependencyName) -or ([string]$_.rename -ceq $dependencyName)
         })
-        if ($matches.Count -ne 1) {
-            throw "protocol dependency provenance drifted: $dependencyName must resolve exactly once from the canonical protocol manifest"
+        $expectedTargets = @($null)
+        if ($dependencyName -ceq 'jolyne') { $expectedTargets += $nativeTarget }
+        if ($matches.Count -ne $expectedTargets.Count) {
+            throw "protocol dependency provenance drifted: $dependencyName must resolve exactly once per required target from the canonical protocol manifest"
         }
-        $dependency = $matches[0]
-        foreach ($field in @('name', 'source', 'kind', 'rename', 'optional', 'uses_default_features', 'features', 'target', 'path')) {
-            if ($dependency.PSObject.Properties.Name -cnotcontains $field) {
-                throw "cargo metadata dependency $dependencyName is missing $field"
+        $seenTargets = [Collections.Generic.List[object]]::new()
+        foreach ($dependency in $matches) {
+            foreach ($field in @('name', 'source', 'kind', 'rename', 'optional', 'uses_default_features', 'features', 'target', 'path')) {
+                if ($dependency.PSObject.Properties.Name -cnotcontains $field) {
+                    throw "cargo metadata dependency $dependencyName is missing $field"
+                }
             }
-        }
-        if ([string]$dependency.name -cne $dependencyName -or $null -ne $dependency.rename) {
-            throw "protocol dependency provenance drifted: $dependencyName must not be renamed"
-        }
-        if ($null -ne $dependency.source -or $null -ne $dependency.kind -or $null -ne $dependency.target -or
-            $dependency.optional -isnot [bool] -or [bool]$dependency.optional -or
-            $dependency.uses_default_features -isnot [bool] -or [bool]$dependency.uses_default_features) {
-            throw "protocol dependency provenance drifted: $dependencyName must be one normal non-target non-optional local dependency with default features disabled"
-        }
-        $vendoredManifest = Join-Path $ProjectRoot "crates\protocol\vendor\$dependencyName\Cargo.toml"
-        if (-not (Test-Path -LiteralPath $vendoredManifest -PathType Leaf)) {
-            throw "protocol dependency provenance drifted: $dependencyName vendored path has no Cargo.toml"
-        }
-        $expectedPath = (Resolve-Path -LiteralPath (Split-Path -Parent $vendoredManifest)).ProviderPath
-        if ($null -eq $dependency.path -or -not [string]::Equals(
-            [IO.Path]::GetFullPath([string]$dependency.path),
-            $expectedPath,
-            $pathComparison
-        )) {
-            throw "protocol dependency provenance drifted: $dependencyName does not resolve to its canonical vendored path"
-        }
-        $expectedFeatures = @($expectedDependencies[$dependencyName])
-        $actualFeatures = @($dependency.features)
-        if ($actualFeatures.Count -ne $expectedFeatures.Count -or
-            @($actualFeatures | Where-Object { $expectedFeatures -cnotcontains [string]$_ }).Count -ne 0) {
-            throw "protocol dependency provenance drifted: $dependencyName resolved feature set is not exact"
+            if ([string]$dependency.name -cne $dependencyName -or $null -ne $dependency.rename) {
+                throw "protocol dependency provenance drifted: $dependencyName must not be renamed"
+            }
+            if ($null -ne $dependency.source -or $null -ne $dependency.kind -or
+                $expectedTargets -cnotcontains $dependency.target -or $seenTargets.Contains($dependency.target) -or
+                $dependency.optional -isnot [bool] -or [bool]$dependency.optional -or
+                $dependency.uses_default_features -isnot [bool] -or [bool]$dependency.uses_default_features) {
+                throw "protocol dependency provenance drifted: $dependencyName must be one normal non-target or canonical native non-optional local dependency with default features disabled"
+            }
+            $seenTargets.Add($dependency.target)
+            $vendoredManifest = Join-Path $ProjectRoot "crates\protocol\vendor\$dependencyName\Cargo.toml"
+            if (-not (Test-Path -LiteralPath $vendoredManifest -PathType Leaf)) {
+                throw "protocol dependency provenance drifted: $dependencyName vendored path has no Cargo.toml"
+            }
+            $expectedPath = (Resolve-Path -LiteralPath (Split-Path -Parent $vendoredManifest)).ProviderPath
+            if ($null -eq $dependency.path -or -not [string]::Equals(
+                [IO.Path]::GetFullPath([string]$dependency.path),
+                $expectedPath,
+                $pathComparison
+            )) {
+                throw "protocol dependency provenance drifted: $dependencyName does not resolve to its canonical vendored path"
+            }
+            $expectedFeatures = @($wireFeatures)
+            if ($null -ne $dependency.target) { $expectedFeatures = @($expectedDependencies[$dependencyName]) }
+            $actualFeatures = @($dependency.features)
+            if ($actualFeatures.Count -ne $expectedFeatures.Count -or
+                @($actualFeatures | Where-Object { $expectedFeatures -cnotcontains [string]$_ }).Count -ne 0) {
+                throw "protocol dependency provenance drifted: $dependencyName resolved feature set is not exact"
+            }
         }
     }
 

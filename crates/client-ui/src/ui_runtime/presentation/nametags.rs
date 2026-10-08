@@ -3,24 +3,19 @@
 
 use std::sync::Arc;
 
-use assets::RuntimeFontCatalog;
 use bevy::{camera::Camera, math::Vec3, prelude::GlobalTransform};
 use client_world::ActorSnapshot;
 use protocol::{ActorKind, ActorMetadataValue};
-use render_model::{MAX_NAMETAG_RECORDS, NAMETAG_ATLAS_SIDE, NametagRecord, NametagScene};
-use ui::{FONT_DESIGN_PIXEL_TEXELS, TextLayoutCache};
 
-use super::nametag_atlas::{GlyphPage, NametagAtlas};
+use view_presentation::nametags::{
+    DEFAULT_HEIGHT, DEFAULT_RENDER_DISTANCE, HEAD_CLEARANCE, NametagAnchor, SNEAKING_HEIGHT,
+};
 
 #[cfg(test)]
 pub(super) mod tests;
 
 /// Presentation resource bound, not a native visibility rule.
 pub(super) const MAX_PRESENTED_NAMETAGS: usize = 128;
-const DEFAULT_RENDER_DISTANCE: f32 = 64.0;
-const HEAD_CLEARANCE: f32 = 0.7;
-const DEFAULT_HEIGHT: f32 = 1.8;
-const SNEAKING_HEIGHT: f32 = 1.5;
 const METADATA_HEIGHT: u32 = 54;
 const METADATA_ALWAYS_SHOW_NAMETAG: u32 = 81;
 const METADATA_SCORE: u32 = 84;
@@ -30,21 +25,6 @@ const ACTOR_FLAG_INVISIBLE: u32 = 5;
 const ACTOR_FLAG_SHOW_NAME: u32 = 14;
 const ACTOR_FLAG_ALWAYS_SHOW_NAME: u32 = 15;
 const SCORE_DISTANCE_SQUARED: f32 = 100.0;
-pub(super) const LINE_PITCH_PX: f32 = 10.0;
-pub(super) const EXTRA_LINE_LIFT: f32 = 0.125;
-pub(super) const PLATE_COLOR: [f32; 4] = [0.0, 0.0, 0.0, 0.25];
-const SNEAK_TEXT_ALPHA: f32 = 0.125;
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct NametagAnchor {
-    pub(super) runtime_id: u64,
-    /// Unlifted anchor: multiline lift must not change the eye-facing rotation.
-    pub(super) position: Vec3,
-    pub(super) lines: Vec<Arc<str>>,
-    pub(super) depth_tested: bool,
-    pub(super) text_alpha: f32,
-    pub(super) distance: f32,
-}
 
 fn actor_flag(actor: &ActorSnapshot, bit: u32) -> bool {
     matches!(actor.metadata.get(&0),
@@ -133,23 +113,15 @@ pub fn extract_nametag(
         return None;
     }
     let text = tag_text(actor, name, distance_squared, scoreboards);
-    let lines: Vec<Arc<str>> = super::bounded_visible_text(&text)
-        .split('\n')
-        .filter(|line| !line.is_empty())
-        .map(Arc::from)
-        .collect();
-    if lines.is_empty() {
-        return None;
-    }
-    let sneaking = actor_flag(actor, ACTOR_FLAG_SNEAKING);
-    Some(NametagAnchor {
-        runtime_id: actor.runtime_id,
+    view_presentation::nametags::nametag_anchor(
+        actor.runtime_id,
+        &text,
+        feet,
         position,
-        lines,
-        depth_tested: sneaking,
-        text_alpha: if sneaking { SNEAK_TEXT_ALPHA } else { 1.0 },
-        distance: distance_squared.sqrt(),
-    })
+        eye,
+        actor_flag(actor, ACTOR_FLAG_SNEAKING),
+        maximum,
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -186,83 +158,4 @@ pub fn project_nametags(
     });
     anchors.truncate(MAX_PRESENTED_NAMETAGS);
     anchors
-}
-
-/// Retained line atlas, one continuous plate per actor, and individually centred glyph lines.
-pub fn build_nametag_scene<'p>(
-    anchors: &[NametagAnchor],
-    font: &RuntimeFontCatalog,
-    layouts: &mut TextLayoutCache,
-    atlas: &mut NametagAtlas,
-    pages: &impl Fn(usize) -> Option<GlyphPage<'p>>,
-) -> NametagScene {
-    let mut ordered: Vec<&NametagAnchor> = anchors.iter().collect();
-    ordered.sort_by(|a, b| {
-        a.depth_tested
-            .cmp(&b.depth_tested)
-            .then(b.distance.total_cmp(&a.distance))
-            .then(a.runtime_id.cmp(&b.runtime_id))
-    });
-    if !atlas.has_room_for(ordered.iter().map(|anchor| anchor.lines.len()).sum()) {
-        atlas.reset();
-    }
-    let side = NAMETAG_ATLAS_SIDE as f32;
-    let texels = FONT_DESIGN_PIXEL_TEXELS as f32;
-    let mut records = Vec::new();
-    let mut see_through = 0;
-    for anchor in ordered {
-        let placed: Vec<_> = anchor
-            .lines
-            .iter()
-            .filter_map(|line| atlas.line(line, font, layouts, pages))
-            .collect();
-        if placed.is_empty() || records.len() + placed.len() + 1 > MAX_NAMETAG_RECORDS {
-            continue;
-        }
-        let half = placed
-            .iter()
-            .map(|line| line.width_px as u32 / 2)
-            .max()
-            .unwrap_or(0) as f32;
-        let common = NametagRecord {
-            anchor: anchor.position.to_array(),
-            line_lift: EXTRA_LINE_LIFT * placed.len().saturating_sub(1) as f32,
-            ..NametagRecord::default()
-        };
-        if placed.len() > 1 || half > 0.0 {
-            records.push(NametagRecord {
-                rect: [
-                    -(half + 1.0),
-                    -1.0,
-                    half + 1.0,
-                    LINE_PITCH_PX * placed.len() as f32 - 1.0,
-                ],
-                uv: [0.0, 0.0, -1.0, -1.0],
-                color: PLATE_COLOR,
-                ..common
-            });
-        }
-        for (index, line) in placed.iter().enumerate() {
-            let left = -((line.width_px as u32 / 2) as f32);
-            let [x, y, width, height] = line.cell.map(|value| value as f32);
-            let top = LINE_PITCH_PX * index as f32 + line.top_px;
-            records.push(NametagRecord {
-                text: 1,
-                rect: [left, top, left + width / texels, top + height / texels],
-                uv: [x / side, y / side, (x + width) / side, (y + height) / side],
-                color: [1.0, 1.0, 1.0, anchor.text_alpha],
-                ..common
-            });
-        }
-        if !anchor.depth_tested {
-            see_through = records.len();
-        }
-    }
-    let (atlas, atlas_revision) = atlas.publish();
-    NametagScene {
-        records,
-        see_through,
-        atlas,
-        atlas_revision,
-    }
 }

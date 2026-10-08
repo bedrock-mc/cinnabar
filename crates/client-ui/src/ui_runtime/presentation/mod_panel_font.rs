@@ -1,9 +1,10 @@
 //! A replaceable private font slot independent of immutable and server-owned UI pages.
 
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 
 use assets::{RuntimeFontCatalog, SheetGlyph};
 use render_model::{UI_LOCAL_FONT_PAGE_OFFSET, UI_LOCAL_FONT_PAGE_SIDE, UiTexturePage};
+use view_presentation::ui_atlas::blank_local_font_page;
 
 use super::{UiPresentationError, UiPresentationRuntime, session_glyphs};
 
@@ -13,17 +14,6 @@ pub(super) struct InstalledFont {
     source: Arc<RuntimeFontCatalog>,
     pub(super) alias: RuntimeFontCatalog,
     pub(super) page: UiTexturePage,
-}
-
-pub(super) fn blank_page() -> UiTexturePage {
-    static BLANK: OnceLock<UiTexturePage> = OnceLock::new();
-    BLANK
-        .get_or_init(|| {
-            let side = UI_LOCAL_FONT_PAGE_SIDE;
-            UiTexturePage::owned([side; 2], vec![0; side as usize * side as usize * 4].into())
-                .expect("bounded private-font page has a valid extent")
-        })
-        .clone()
 }
 
 impl UiPresentationRuntime {
@@ -45,7 +35,7 @@ impl UiPresentationRuntime {
         let installed = font.map(|source| prepare(source, first)).transpose()?;
         let page = installed
             .as_ref()
-            .map_or_else(blank_page, |font| font.page.clone());
+            .map_or_else(blank_local_font_page, |font| font.page.clone());
         let mut dynamic = self.textures.pages()[self.textures.dynamic_start()..].to_vec();
         dynamic[UI_LOCAL_FONT_PAGE_OFFSET] = page;
         let textures = self

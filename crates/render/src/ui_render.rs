@@ -160,7 +160,7 @@ pub(crate) struct UiGpu {
     #[cfg(test)]
     geometry_writes: [usize; 2],
     viewport_size: [u32; 2],
-    started: std::time::Instant,
+    started: bevy::platform::time::Instant,
     textures: UiGpuTextures,
     sampler: Sampler,
     /// `bilinear` sprites sample through this instead.

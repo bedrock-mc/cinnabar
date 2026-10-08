@@ -9,10 +9,10 @@ use bevy::prelude::{
 use chunk_pipeline::WorldStream;
 use client_world::{ActorStatusNotice, CommittedParticleEvent};
 use particles::{
-    ITEM_ICON_PARTICLES, LevelParticle, ParticleSystem, SpawnRequest, block_break_request,
-    block_crack_request, burst_requests, classify_level_event, crack_cadence_due,
-    critical_hit_request, face_toward, item_icon_request, named_request, parse_molang_variables,
-    terrain_request, tiles::item_tile,
+    BLOCK_BREAK_EFFECT, ITEM_ICON_PARTICLES, LevelParticle, ParticleSystem, SpawnRequest,
+    block_break_request, block_crack_request, burst_requests, classify_level_event,
+    crack_cadence_due, critical_hit_request, face_toward, item_icon_request, named_request,
+    parse_molang_variables, terrain_request, tiles::item_tile,
 };
 use protocol::{ActorStatusKind, ParticleEvent, SpawnParticleEffectEvent};
 use render::{
@@ -61,7 +61,6 @@ const MAX_QUEUED_INBOX: usize = 512;
 const MAX_RAIN_SPLASHES_PER_FRAME: usize = 64;
 const IDENTITY_BASIS: [[f32; 3]; 3] = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
 
-const BLOCK_BREAK_EFFECT: &str = "minecraft:block_destruct";
 const RAIN_SPLASH_EFFECT: &str = "minecraft:rain_splash_particle";
 /// Height fraction of an actor's box where head-level effects originate.
 const HEAD_HEIGHT_FRACTION: f32 = 0.9;

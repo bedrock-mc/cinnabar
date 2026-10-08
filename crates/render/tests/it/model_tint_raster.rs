@@ -313,13 +313,8 @@ fn ordinary_models_compute_flat_biome_tint_only_in_vertices() {
         };
         let tint = members
             .iter()
-            .find(|member| {
-                matches!(
-                    member.binding,
-                    Some(naga::Binding::Location { location: 14, .. })
-                )
-            })
-            .expect("ordinary model tint at location 14");
+            .find(|member| member.name.as_deref() == Some("tint_gamma"))
+            .expect("ordinary model biome tint varying");
         assert!(matches!(
             tint.binding,
             Some(naga::Binding::Location {
@@ -342,6 +337,21 @@ fn ordinary_models_compute_flat_biome_tint_only_in_vertices() {
 
 #[test]
 fn model_tint_pixels_match_fragment_biome_reference() {
+    let fixtures = [&[][..], &["NATIVE_GAMMA_BLEND"][..]].map(|definitions| {
+        let reference = fixture_source(definitions, true);
+        let candidate = fixture_source(definitions, false);
+        for source in [&reference, &candidate] {
+            let module = naga::front::wgsl::parse_str(source)
+                .unwrap_or_else(|error| panic!("{}", error.emit_to_string(source)));
+            naga::valid::Validator::new(
+                naga::valid::ValidationFlags::all(),
+                naga::valid::Capabilities::all(),
+            )
+            .validate(&module)
+            .expect("model tint raster fixture validates without a GPU");
+        }
+        (definitions, reference, candidate)
+    });
     let Some(gpu) = Gpu::for_fixture("model tint raster") else {
         return;
     };
@@ -427,9 +437,7 @@ fn model_tint_pixels_match_fragment_biome_reference() {
         (20, lightmap.as_entire_binding()),
     ]
     .map(|(binding, resource)| wgpu::BindGroupEntry { binding, resource });
-    for definitions in [&[][..], &["NATIVE_GAMMA_BLEND"][..]] {
-        let reference = fixture_source(definitions, true);
-        let candidate = fixture_source(definitions, false);
+    for (definitions, reference, candidate) in fixtures {
         for clock_words in [[1, 0.25_f32.to_bits(), 0, 0], [2, 0, 0, 0]] {
             gpu.queue
                 .write_buffer(&clock, 0, bytemuck::cast_slice(&clock_words));
@@ -550,9 +558,9 @@ fn fragment(
     if (!front_facing && in.two_sided == 0u) { discard; }
     let dx = dpdx(in.uv);
     let dy = dpdy(in.uv);
-    var sampled = reference_sample_ref(in.current_texture, in.uv, dx, dy);
+    var sampled = reference_sample_ref(in.texture_frames.x, in.uv, dx, dy);
     if (in.frame_blend > 0.0) {
-        sampled = mix(sampled, reference_sample_ref(in.next_texture, in.uv, dx, dy), in.frame_blend);
+        sampled = mix(sampled, reference_sample_ref(in.texture_frames.y, in.uv, dx, dy), in.frame_blend);
     }
     if (sampled.a < 0.5) { discard; }
     return ordinary_world_model_colour(in, sampled);

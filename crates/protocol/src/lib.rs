@@ -15,7 +15,9 @@ mod interaction;
 mod inventory;
 mod item;
 mod item_capacity;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod launcher_control;
+#[cfg(not(target_arch = "wasm32"))]
 mod login;
 mod movement;
 mod nbt_tree;
@@ -28,12 +30,15 @@ mod respawn;
 mod settings;
 mod skin_change;
 pub use skin_change::{cape_content_id, player_skin_packet, set_skin_packet_uuid};
+#[cfg(not(target_arch = "wasm32"))]
 mod socket_transport;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod store_control;
 mod transfer;
 mod translation_parameter;
 mod ui;
 mod world;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod world_control;
 
 pub use experience::{
@@ -166,6 +171,7 @@ pub use item::{
 };
 pub use item_capacity::{ITEM_DEFAULT_MAX_STACK_SIZE, vanilla_item_capacity};
 pub use jolyne::GameData;
+#[cfg(not(target_arch = "wasm32"))]
 pub use jolyne::stream::client::{ClientCape, ClientSkin};
 pub use jolyne::stream::{
     ResourcePackArchive, ResourcePackContentKey, ResourcePackHandoff, ResourcePackIdentity,
@@ -180,6 +186,7 @@ pub mod wire {
     pub use jolyne;
     pub use valentine;
 }
+#[cfg(not(target_arch = "wasm32"))]
 pub use login::{
     LoginSequence, PacketIdTraceSnapshot, PlayOutbound, PlaySession, network_stack_latency_reply,
 };
@@ -210,6 +217,7 @@ pub use render_api::primitive_shapes::{
     PrimitiveShapesEvent, PrimitiveText,
 };
 pub use settings::request_chunk_radius_packet;
+#[cfg(not(target_arch = "wasm32"))]
 pub use socket_transport::{SocketTransport, bridge_endpoint_path, report_pack_application};
 pub use transfer::{MAX_TRANSFER_HOST_BYTES, ServerTransferEvent, ServerTransferRejection};
 pub use translation_parameter::localize_parameter_prefix;

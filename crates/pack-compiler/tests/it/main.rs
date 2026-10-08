@@ -6,6 +6,7 @@ mod entity_versions;
 mod equipment;
 mod font;
 mod font_fallback;
+mod font_sheets;
 mod item_visuals;
 mod pack;
 mod shield_icon;

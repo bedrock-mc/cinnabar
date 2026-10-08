@@ -10,9 +10,10 @@ use ui::{
     UiRect, UiScale, UiTree, UiVisual,
 };
 
+use super::UiRuntime;
 use super::scene_stack::Scene;
-use super::{UiRuntime, render_adapter::UiRenderViewport};
-use crate::ui_runtime::{item_facts, render_adapter::adapt_ui_draw_list};
+use crate::ui_runtime::item_facts;
+use view_presentation::ui_adapter::{UiRenderViewport, adapt_ui_draw_list};
 
 mod accessors;
 mod construction;
@@ -35,7 +36,6 @@ pub mod menu_scroll;
 mod mod_panel_font;
 mod runtime_assets;
 pub use menu_artwork::BUILT_IN_TITLE;
-pub mod nametag_atlas;
 pub mod nametags;
 pub mod paper_doll;
 pub mod player_preview;
@@ -50,8 +50,6 @@ pub use forms::{MAX_PACK_TEXTURE_BYTES, ServerUiPack};
 pub use session_glyphs::SessionGlyphSheets;
 pub use session_icons::{MAX_SESSION_ICON_SIDE, SessionIcon, SessionIcons};
 pub mod startup;
-pub mod text_metrics;
-pub mod texture_atlas;
 #[cfg_attr(
     not(test),
     allow(
@@ -65,8 +63,8 @@ use crate::menu::{MenuAction, MenuView};
 pub use debug_overlay::DebugLines;
 pub use forms::{BedHit, ChatHit, ExperienceModal, LoadingStage};
 pub use hud_layout::HudFrame;
-use hud_layout::{HudGeometry, HudLayout, gui_scale};
-use primitives::{bounded_visible_text, rect, resolve_chat_line};
+use hud_layout::{HudGeometry, HudLayout};
+use primitives::{rect, resolve_chat_line};
 #[cfg(any(test, feature = "test-support"))]
 pub use publish::commit::refresh_hud_frame;
 pub use publish::{
@@ -76,26 +74,24 @@ pub use publish::{
 };
 use retained_hud::{PresentedScoreboardCache, ScoreboardOwnerNameAuthority};
 use startup::StartupPresentationState;
-use text_metrics::{
-    FONT_DESIGN_PIXEL_TEXELS, TEXT_BASELINE_64, TEXT_LINE_HEIGHT_64, TEXT_SHADOW_OFFSET_64,
-    TextMetrics,
+use ui::IconRef;
+use ui::{
+    DEFAULT_TEXT_CACHE_BYTES, DEFAULT_TEXT_CACHE_ENTRIES, FONT_DESIGN_PIXEL_TEXELS,
+    TEXT_BASELINE_64, TEXT_LINE_HEIGHT_64, TEXT_SHADOW_OFFSET_64, TextMetrics,
 };
-pub use texture_atlas::IconRef;
-use texture_atlas::{
+use view_presentation::text::bounded_visible_text;
+use view_presentation::ui_atlas::{
     HudTexturePages, font_texture_array, font_texture_array_with_hud_and_icons,
     font_texture_array_with_optional_hud,
 };
 
-const TEXT_CACHE_ENTRIES: usize = 1_024;
-const TEXT_CACHE_BYTES: usize = 8 * 1024 * 1024;
-const MAX_PRESENTED_TEXT_BYTES: usize = 512;
 #[derive(Debug)]
 pub enum UiPresentationError {
     InvalidFontTexture,
     Geometry(ui::GeometryError),
     Text(ui::TextError),
     Tree(ui::UiError),
-    Adapter(super::render_adapter::UiRenderAdapterError),
+    Adapter(view_presentation::ui_adapter::UiRenderAdapterError),
     Render(render_model::UiRenderReject),
 }
 
@@ -148,8 +144,8 @@ pub struct UiPresentationRuntime {
     /// Last logged skip/odd-data counters, so changes surface exactly once.
     last_hud_diagnostics: crate::ui_runtime::gameplay_hud::GameplayHudDiagnostics,
     /// This frame's world-space tags, including scores, and their retained glyph atlas.
-    nametag_anchors: Vec<nametags::NametagAnchor>,
-    nametag_atlas: nametag_atlas::NametagAtlas,
+    nametag_anchors: Vec<view_presentation::nametags::NametagAnchor>,
+    nametag_atlas: view_presentation::nametag_atlas::NametagAtlas,
     primitive_text: primitive_shapes::PrimitiveTextRasterizer,
     /// Stable reserved logical page for the optional preview raster.
     paper_doll: paper_doll::PaperDoll,
@@ -211,3 +207,9 @@ pub struct UiPresentationRuntime {
 
 #[cfg(test)]
 pub mod tests;
+
+impl From<view_presentation::UiAtlasError> for UiPresentationError {
+    fn from(_: view_presentation::UiAtlasError) -> Self {
+        Self::InvalidFontTexture
+    }
+}

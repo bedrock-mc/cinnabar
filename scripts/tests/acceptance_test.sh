@@ -63,28 +63,20 @@ cp "$protocol_fixture/crates/protocol/Cargo.toml" "$protocol_fixture/protocol.Ca
 cp -R "$protocol_fixture/crates/protocol/vendor/valentine" "$protocol_fixture/crates/protocol/vendor/valentine-decoy"
 cp -R "$protocol_fixture/crates/protocol/vendor/jolyne" "$protocol_fixture/crates/protocol/vendor/jolyne-decoy"
 python3 - "$protocol_fixture/crates/protocol/Cargo.toml" "$protocol_fixture/crates/protocol/vendor/jolyne-decoy/Cargo.toml" <<'PY'
-import pathlib, sys
+import pathlib, re, sys
 path = pathlib.Path(sys.argv[1])
 jolyne_decoy = pathlib.Path(sys.argv[2])
 jolyne_text = jolyne_decoy.read_text(encoding="utf-8")
 jolyne_text = jolyne_text.replace('path = "../valentine"', 'path = "../valentine-decoy"', 1)
 jolyne_decoy.write_text(jolyne_text, encoding="utf-8")
-text = path.read_text(encoding="utf-8")
-text = text.replace(
-    'valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_51"] }',
-    '"valentine" = { path = "vendor/valentine-decoy", default-features = false, features = ["bedrock_1_26_51"] }',
-    1,
-)
-text = text.replace(
-    'jolyne = { path = "vendor/jolyne", default-features = false, features = ["client", "bedrock_1_26_51"] }',
-    '"jolyne" = { path = "vendor/jolyne-decoy", default-features = false, features = ["client", "bedrock_1_26_51"] }',
-    1,
-)
-decoys = '''description = """
-[dependencies]
-valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_51"] }
-jolyne = { path = "vendor/jolyne", default-features = false, features = ["client", "bedrock_1_26_51"] }
-"""'''
+canonical = path.read_text(encoding="utf-8")
+text = canonical
+for name in ("valentine", "jolyne"):
+    text = re.sub(
+        rf'(?m)^{name}(\s*=\s*\{{\s*path\s*=\s*)"vendor/{name}"',
+        rf'"{name}"\1"vendor/{name}-decoy"', text,
+    )
+decoys = 'description = """\n' + canonical + '\n"""'
 text = text.replace("publish = false", "publish = false\n" + decoys, 1)
 path.write_text(text, encoding="utf-8")
 PY
@@ -92,6 +84,30 @@ if assert_protocol_dependency_provenance "$protocol_fixture" >/dev/null 2>&1; th
     echo 'Bash protocol provenance accepted multiline canonical decoys with quoted wrong-path dependencies' >&2
     exit 1
 fi
+cp "$protocol_fixture/protocol.Cargo.toml.clean" "$protocol_fixture/crates/protocol/Cargo.toml"
+
+for invalid_overlay in target defaults features; do
+    python3 - "$protocol_fixture/protocol.Cargo.toml.clean" "$protocol_fixture/crates/protocol/Cargo.toml" "$invalid_overlay" <<'PY'
+import pathlib, re, sys
+text = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
+overlay = re.search(r'(?m)^jolyne = .*features = \["client"\].*$', text)
+if overlay is None:
+    raise SystemExit("Jolyne native overlay fixture is missing")
+if sys.argv[3] == "target":
+    text = text.replace('cfg(not(target_arch = "wasm32"))', 'cfg(unix)')
+else:
+    replacement = overlay[0].replace(
+        'default-features = false' if sys.argv[3] == "defaults" else '["client"]',
+        'default-features = true' if sys.argv[3] == "defaults" else '[]',
+    )
+    text = text[:overlay.start()] + replacement + text[overlay.end():]
+pathlib.Path(sys.argv[2]).write_text(text, encoding="utf-8")
+PY
+    if assert_protocol_dependency_provenance "$protocol_fixture" >/dev/null 2>&1; then
+        echo "Bash protocol provenance accepted a drifted native Jolyne $invalid_overlay overlay" >&2
+        exit 1
+    fi
+done
 cp "$protocol_fixture/protocol.Cargo.toml.clean" "$protocol_fixture/crates/protocol/Cargo.toml"
 
 cat >>"$protocol_fixture/crates/protocol/Cargo.toml" <<'EOF'

@@ -52,11 +52,11 @@ pub fn font_page(font: &RuntimeFontCatalog, page: usize) -> Option<GlyphPage<'_>
 
 /// One rasterized line: its atlas cell in texels and its width in font pixels.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub(super) struct AtlasLine {
-    pub(super) cell: [u32; 4],
-    pub(super) width_px: f32,
+pub struct AtlasLine {
+    pub cell: [u32; 4],
+    pub width_px: f32,
     /// Font pixels from the line box's top to the cell's top (negative for tall glyphs).
-    pub(super) top_px: f32,
+    pub top_px: f32,
 }
 
 /// Shelf-packed line cells, rebuilt from scratch when a frame's lines no longer fit.
@@ -73,7 +73,7 @@ pub struct NametagAtlas {
 
 impl NametagAtlas {
     /// Retires cached line pixels when the active formatting colors change.
-    pub(super) fn set_palette(&mut self, palette: ui::FormattingPalette) {
+    pub fn set_palette(&mut self, palette: ui::FormattingPalette) {
         if self.palette != palette {
             self.reset();
             self.palette = palette;
@@ -81,7 +81,7 @@ impl NametagAtlas {
     }
 
     /// The cell of `text`, rasterizing it on first use; `None` when the font cannot lay it out.
-    pub(super) fn line<'p>(
+    pub fn line<'p>(
         &mut self,
         text: &Arc<str>,
         font: &RuntimeFontCatalog,
@@ -109,7 +109,7 @@ impl NametagAtlas {
     }
 
     /// Forgets every line so the next frame packs only what it draws.
-    pub(super) fn reset(&mut self) {
+    pub fn reset(&mut self) {
         self.lines.clear();
         self.shelf = [0; 3];
         self.exhausted = false;
@@ -118,12 +118,12 @@ impl NametagAtlas {
     }
 
     /// Checks both retained line count and whether shelf space was exhausted.
-    pub(super) fn has_room_for(&self, texts: usize) -> bool {
+    pub fn has_room_for(&self, texts: usize) -> bool {
         !self.exhausted && self.lines.len().saturating_add(texts) < MAX_ATLAS_LINES
     }
 
     /// Retains immutable line pixels so skipped extractions can recover every update.
-    pub(super) fn publish(&mut self) -> (Arc<[NametagAtlasRect]>, u64) {
+    pub fn publish(&mut self) -> (Arc<[NametagAtlasRect]>, u64) {
         if self.published.is_none() {
             self.revision += 1;
             self.published = Some(self.rectangles.clone().into());
@@ -455,8 +455,8 @@ mod tests {
     fn bold_multiline_nametag_grows_the_plate_and_retains_reset_line_centering() {
         let font = stem_font();
         let build = |name: &str| {
-            super::super::nametags::build_nametag_scene(
-                &[super::super::nametags::tests::anchor(name)],
+            crate::nametags::build_nametag_scene(
+                &[crate::test_support::anchor(name)],
                 &font,
                 &mut TextLayoutCache::new(4, 1 << 20),
                 &mut NametagAtlas::default(),
@@ -475,7 +475,7 @@ mod tests {
 
     /// Builds the labels used by the original full-atlas timing fixture.
     fn sample_atlas() -> (NametagAtlas, std::time::Duration) {
-        let font = super::super::tests::fixture_font();
+        let font = crate::test_support::fixture_font();
         let mut layouts = TextLayoutCache::new(256, 1 << 20);
         let mut atlas = NametagAtlas::default();
         let started = std::time::Instant::now();
@@ -543,7 +543,7 @@ mod tests {
 
     #[test]
     fn palette_change_rerasterizes_retained_name_lines() {
-        let font = super::super::tests::fixture_font();
+        let font = crate::test_support::fixture_font();
         let mut layouts = TextLayoutCache::new(8, 1 << 20);
         let mut atlas = NametagAtlas::default();
         let text = Arc::from("§2Player");
@@ -572,7 +572,7 @@ mod tests {
 
     #[test]
     fn rectangles_preserve_skipped_publications_reset_and_old_readers() {
-        let font = super::super::tests::fixture_font();
+        let font = crate::test_support::fixture_font();
         let mut layouts = TextLayoutCache::new(8, 1 << 20);
         let mut atlas = NametagAtlas::default();
         assert!(atlas.publish().0.is_empty());

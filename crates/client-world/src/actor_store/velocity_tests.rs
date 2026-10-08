@@ -83,3 +83,50 @@ fn direct_position_teleport_preserves_native_motion_but_zeroes_derived_speed() {
     store.advance_interpolation_ticks(1);
     assert_eq!(store.get(7).unwrap().native_velocity(), [0.25, -0.5, 0.0]);
 }
+
+#[test]
+fn observed_motion_preserves_native_spawn_pose_and_damage_timers() {
+    let ActorEvent::Spawn(mut spawn) = tests::spawn(7, 70) else {
+        unreachable!();
+    };
+    spawn.velocity = [0.25, -0.5, 0.0];
+    let mut observed = ActorSnapshot::from_observation(spawn.clone(), 1);
+    let mut native = ActorStore::new(1, 0);
+    native.apply(1, 1, ActorEvent::Spawn(spawn));
+
+    assert_eq!(
+        observed.native_velocity(),
+        native.get(7).unwrap().native_velocity()
+    );
+    assert_eq!(
+        observed.interpolated_position(0.5),
+        Some(native.get(7).unwrap().position)
+    );
+    assert_eq!(observed.status, native.get(7).unwrap().status);
+    observed.status.die();
+    native.apply(
+        1,
+        2,
+        ActorEvent::Status(protocol::ActorStatusEvent {
+            runtime_id: 7,
+            kind: protocol::ActorStatusKind::Death,
+            data: 0,
+        }),
+    );
+    let native = native.actors.get_mut(&7).unwrap();
+    assert!(observed.hurt_overlay_active());
+    assert!(observed.status.dead);
+    assert_eq!(observed.status.death_ticks(), native.status.death_ticks());
+
+    observed.status.tick();
+    native.status.tick();
+    let timers = observed.status;
+    observed.observe_velocity([0.3, -0.4, 0.0]);
+
+    assert_eq!(observed.native_velocity(), [0.3, -0.4, 0.0]);
+    assert_eq!(observed.velocity, observed.native_velocity());
+    assert_eq!(observed.interpolated_position(0.5), Some(native.position));
+    assert_eq!(observed.status.hurt_time, timers.hurt_time);
+    assert_eq!(observed.status.death_ticks(), native.status.death_ticks());
+    assert_eq!(observed.status.age_ticks, native.status.age_ticks);
+}

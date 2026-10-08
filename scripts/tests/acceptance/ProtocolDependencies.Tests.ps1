@@ -242,25 +242,44 @@ $jolyneDecoy = (Get-Content -Raw -LiteralPath $jolyneDecoyManifest).Replace(
     'path = "../valentine-decoy"'
 )
 Set-Content -LiteralPath $jolyneDecoyManifest -NoNewline -Value $jolyneDecoy
-$canonicalStringDecoys = @'
-[dependencies]
-valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_51"] }
-jolyne = { path = "vendor/jolyne", default-features = false, features = ["client", "bedrock_1_26_51"] }
-'@
-$quotedWrongPaths = $canonicalManifest.Replace(
+$quotedWrongPaths = $canonicalManifest
+foreach ($name in @('valentine', 'jolyne')) {
+    $quotedWrongPaths = [regex]::Replace(
+        $quotedWrongPaths,
+        '(?m)^' + $name + '(\s*=\s*\{\s*path\s*=\s*)"vendor/' + $name + '"',
+        '"' + $name + '"${1}"vendor/' + $name + '-decoy"'
+    )
+}
+$quotedWrongPaths = $quotedWrongPaths.Replace(
     'publish = false',
-    "publish = false`ndescription = `"`"`"`n$canonicalStringDecoys`n`"`"`""
-).Replace(
-    'valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_51"] }',
-    '"valentine" = { path = "vendor/valentine-decoy", default-features = false, features = ["bedrock_1_26_51"] }'
-).Replace(
-    'jolyne = { path = "vendor/jolyne", default-features = false, features = ["client", "bedrock_1_26_51"] }',
-    '"jolyne" = { path = "vendor/jolyne-decoy", default-features = false, features = ["client", "bedrock_1_26_51"] }'
+    "publish = false`ndescription = `"`"`"`n$canonicalManifest`n`"`"`""
 )
 Set-Content -LiteralPath $manifestPath -NoNewline -Value $quotedWrongPaths
 Assert-ThrowsLike {
     Assert-TestProtocolDependencyProvenance -Root $fixtureRoot
 } '*vendored path*' 'protocol provenance accepted canonical declarations inside a multiline string while quoted real keys resolved wrong paths'
+Set-Content -LiteralPath $manifestPath -NoNewline -Value $canonicalManifest
+
+foreach ($case in @(
+    @{ From = 'cfg(not(target_arch = "wasm32"))'; To = 'cfg(unix)'; Error = '*canonical native*' },
+    @{ From = 'default-features = false'; To = 'default-features = true'; Error = '*default features disabled*' },
+    @{ From = '["client"]'; To = '[]'; Error = '*feature set*not exact*' }
+)) {
+    $overlay = [regex]::Match($canonicalManifest, '(?m)^jolyne = .*features = \["client"\].*\r?$')
+    Assert-True $overlay.Success 'Jolyne native overlay fixture is missing'
+    $driftedManifest = if ($case.From.StartsWith('cfg(')) {
+        $canonicalManifest.Replace($case.From, $case.To)
+    }
+    else {
+        $canonicalManifest.Remove($overlay.Index, $overlay.Length).Insert(
+            $overlay.Index, $overlay.Value.Replace($case.From, $case.To)
+        )
+    }
+    Set-Content -LiteralPath $manifestPath -NoNewline -Value $driftedManifest
+    Assert-ThrowsLike {
+        Assert-TestProtocolDependencyProvenance -Root $fixtureRoot
+    } $case.Error 'protocol provenance accepted a drifted native Jolyne overlay'
+}
 Set-Content -LiteralPath $manifestPath -NoNewline -Value $canonicalManifest
 
 Set-Content -LiteralPath $manifestPath -NoNewline -Value ($canonicalManifest + @'

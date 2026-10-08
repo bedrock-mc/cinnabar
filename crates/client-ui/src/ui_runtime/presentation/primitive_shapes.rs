@@ -8,9 +8,9 @@ use render_model::NAMETAG_ATLAS_SIDE;
 use render_model::primitive_shapes::{PrimitiveShapeStore, PrimitiveTextRecord};
 use ui::{FONT_DESIGN_PIXEL_TEXELS, FormattingPalette, TextLayoutCache};
 
-use super::nametag_atlas::{AtlasLine, GlyphPage, NametagAtlas, font_page};
-use super::nametags::{EXTRA_LINE_LIFT, LINE_PITCH_PX, PLATE_COLOR};
 use super::{UiPresentationRuntime, UiRuntime};
+use view_presentation::nametag_atlas::{AtlasLine, GlyphPage, NametagAtlas, font_page};
+use view_presentation::nametags::{EXTRA_LINE_LIFT, LINE_PITCH_PX, PLATE_COLOR};
 
 /// One retained atlas, invalidated only by changed text, font or formatting colors.
 #[derive(Default)]

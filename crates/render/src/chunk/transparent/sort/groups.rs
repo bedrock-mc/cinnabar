@@ -154,7 +154,7 @@ pub(in crate::chunk) fn spawn_transparent_sort(
     work: TransparentSortWork,
     profiler: Option<RuntimeStageProfiler>,
 ) {
-    rayon::spawn(move || {
+    let task = move || {
         let _timer = profiler
             .as_ref()
             .map(|profiler| profiler.time(RuntimeStage::TransparentWorker));
@@ -178,5 +178,9 @@ pub(in crate::chunk) fn spawn_transparent_sort(
             cpu_duration: started.elapsed(),
             distinct_tint_count: work.distinct_tint_count,
         });
-    });
+    };
+    #[cfg(target_arch = "wasm32")]
+    task();
+    #[cfg(not(target_arch = "wasm32"))]
+    rayon::spawn(task);
 }

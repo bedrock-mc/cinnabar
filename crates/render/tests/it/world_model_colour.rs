@@ -22,6 +22,20 @@ fn linear(value: f32) -> f32 {
 
 #[test]
 fn snow_and_other_world_models_use_native_terrain_colour_at_day_and_night() {
+    // Validate fixture interfaces even on hosts without a GPU adapter.
+    let source = format!(
+        "{}\n{VERTEX}",
+        shader_source::standalone(include_str!("../../src/model.wgsl"), &[])
+    )
+    .replace("@group(1) @binding(0)", "@group(0) @binding(20)");
+    let module = naga::front::wgsl::parse_str(&source)
+        .unwrap_or_else(|error| panic!("{}", error.emit_to_string(&source)));
+    naga::valid::Validator::new(
+        naga::valid::ValidationFlags::all(),
+        naga::valid::Capabilities::all(),
+    )
+    .validate(&module)
+    .expect("world-model colour fixture validates without a GPU");
     let Some(gpu) = Gpu::for_fixture("world-model native colour") else {
         return;
     };
@@ -54,12 +68,6 @@ fn snow_and_other_world_models_use_native_terrain_colour_at_day_and_night() {
         ..Default::default()
     });
     let sampler = gpu.device.create_sampler(&Default::default());
-    // Actual model entry points, not a reproduction of their arithmetic.
-    let source = format!(
-        "{}\n{VERTEX}",
-        shader_source::standalone(include_str!("../../src/model.wgsl"), &[])
-    )
-    .replace("@group(1) @binding(0)", "@group(0) @binding(20)");
     let view = gpu.buffer(&[0.0; 104], wgpu::BufferUsages::UNIFORM);
     for (light, fog_amount, blend_frames, ao_face) in [
         ([1.0, 1.0, 1.0], 0.0, false, 1.0),
@@ -172,8 +180,7 @@ struct ModelWitnessCase { light_texture: vec4<f32>, distance_frames: vec4<f32> }
     var out = invisible_vertex();
     out.clip_position = vec4(-1.0 + (f32(case_index) + corner.x) * 0.5, -1.0 + corner.y * 2.0, 0.5, 1.0);
     out.uv = vec2(0.5);
-    out.current_texture = bitcast<u32>(witness.light_texture.w);
-    out.next_texture = 3u;
+    out.texture_frames = vec2(bitcast<u32>(witness.light_texture.w), 3u);
     out.frame_blend = witness.distance_frames.y * 0.5;
     out.normal = vec3(0.0, 1.0, 0.0);
     out.lighting = witness.light_texture.rgb;

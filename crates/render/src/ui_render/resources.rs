@@ -45,7 +45,7 @@ pub(super) fn init_ui_gpu(
         #[cfg(test)]
         geometry_writes: [0; 2],
         viewport_size: [1, 1],
-        started: std::time::Instant::now(),
+        started: bevy::platform::time::Instant::now(),
         textures: UiGpuTextures::default(),
         sampler,
         linear_sampler,

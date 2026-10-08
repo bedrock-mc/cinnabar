@@ -266,8 +266,8 @@ fn slot_table_tracks_moves_removals_cave_visibility_and_tint() {
 #[test]
 #[ignore = "offline CPU stage timing fixture"]
 fn gpu_cull_cpu_stage_bench() {
+    use bevy::platform::time::Instant;
     use bevy::render::render_phase::ViewRangefinder3d;
-    use std::time::Instant;
 
     // A 12-chunk radius: 25 x 25 columns of 24 sub-chunks.
     let mut world = World::new();

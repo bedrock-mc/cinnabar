@@ -157,7 +157,7 @@ fn enhanced_lobby_replay_on_native_gpu() {
     presentation.set_menu_view(None);
     let font = crate::ui_runtime::presentation::forms::pack_harness::font();
     let mut layouts = ui::TextLayoutCache::new(256, 1 << 20);
-    let mut atlas = client_ui::ui_runtime::presentation::nametag_atlas::NametagAtlas::default();
+    let mut atlas = view_presentation::nametag_atlas::NametagAtlas::default();
     let mut clock = Instant::now();
     let mut next = 0;
     for frame in 0..120 {
@@ -190,7 +190,8 @@ fn enhanced_lobby_replay_on_native_gpu() {
             frame as u64 * 16,
         );
         {
-            use client_ui::ui_runtime::presentation::{nametag_atlas, nametags};
+            use client_ui::ui_runtime::presentation::nametags;
+            use view_presentation::nametag_atlas;
             let client = world.resource::<crate::runtime::world::ClientWorld>();
             let stream = client.stream.as_ref().unwrap();
             let anchors: Vec<_> = stream
@@ -209,13 +210,15 @@ fn enhanced_lobby_replay_on_native_gpu() {
                 })
                 .collect();
             app.world_mut()
-                .insert_resource(render::NametagSceneResource(nametags::build_nametag_scene(
-                    &anchors,
-                    &font,
-                    &mut layouts,
-                    &mut atlas,
-                    &|page| nametag_atlas::font_page(&font, page),
-                )));
+                .insert_resource(render::NametagSceneResource(
+                    view_presentation::nametags::build_nametag_scene(
+                        &anchors,
+                        &font,
+                        &mut layouts,
+                        &mut atlas,
+                        &|page| nametag_atlas::font_page(&font, page),
+                    ),
+                ));
         }
         app.update();
         app.sub_app(RenderApp)

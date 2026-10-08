@@ -50,7 +50,10 @@ impl UiPresentationRuntime {
     }
 
     /// Supplies the world-query adapter's projected nametag anchors for this frame.
-    pub fn set_nametag_anchors(&mut self, anchors: Vec<nametags::NametagAnchor>) {
+    pub fn set_nametag_anchors(
+        &mut self,
+        anchors: Vec<view_presentation::nametags::NametagAnchor>,
+    ) {
         self.nametag_anchors = anchors;
     }
 
@@ -60,13 +63,14 @@ impl UiPresentationRuntime {
         self.nametag_atlas.set_palette(palette);
         let (font, glyphs) = (&self.font, &self.session_glyphs);
         let dynamic_start = self.textures.dynamic_start();
-        nametags::build_nametag_scene(
+        view_presentation::nametags::build_nametag_scene(
             &self.nametag_anchors,
             font,
             &mut self.layouts,
             &mut self.nametag_atlas,
             &|page| {
-                nametag_atlas::font_page(font, page).or_else(|| glyphs.page(dynamic_start, page))
+                view_presentation::nametag_atlas::font_page(font, page)
+                    .or_else(|| glyphs.page(dynamic_start, page))
             },
         )
     }

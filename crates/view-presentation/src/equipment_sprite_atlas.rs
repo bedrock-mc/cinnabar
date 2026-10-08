@@ -1,23 +1,23 @@
 //! Item sprites packed into shared atlas layers so equipment costs few texture pages.
 
 use assets::IconSprite;
-use render::EquipmentRaster;
+use render_model::equipment::EquipmentRaster;
 
-pub(super) const ATLAS_SIDE: u16 = 512;
+pub const ATLAS_SIDE: u16 = 512;
 
 /// Where one sprite sits in the atlas: layer index and pixel rectangle.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) struct Placement {
-    pub(super) layer: usize,
-    pub(super) x: u16,
-    pub(super) y: u16,
-    pub(super) width: u16,
-    pub(super) height: u16,
+pub struct Placement {
+    pub layer: usize,
+    pub x: u16,
+    pub y: u16,
+    pub width: u16,
+    pub height: u16,
 }
 
 impl Placement {
     /// The sprite's `[u0, v0, u1, v1]` region of its atlas layer.
-    pub(super) fn uv_rect(self) -> [f32; 4] {
+    pub fn uv_rect(self) -> [f32; 4] {
         let side = f32::from(ATLAS_SIDE);
         [
             f32::from(self.x) / side,
@@ -28,10 +28,10 @@ impl Placement {
     }
 }
 
-pub(super) struct SpriteAtlas {
-    pub(super) layers: Vec<EquipmentRaster>,
+pub struct SpriteAtlas {
+    pub layers: Vec<EquipmentRaster>,
     /// Indexed like the icon catalog's sprites; `None` for one that could not be placed.
-    pub(super) placements: Vec<Option<Placement>>,
+    pub placements: Vec<Option<Placement>>,
 }
 
 struct Layer {
@@ -70,7 +70,7 @@ impl Layer {
 
 impl SpriteAtlas {
     /// Shelf-packs every valid sprite, tallest first.
-    pub(super) fn pack(sprites: &[IconSprite]) -> Self {
+    pub fn pack(sprites: &[IconSprite]) -> Self {
         let valid = |sprite: &IconSprite| {
             sprite.width != 0
                 && sprite.height != 0

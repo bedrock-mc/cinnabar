@@ -33,21 +33,20 @@ struct BoneMatrix {
 struct VertexOutput {
     @builtin(position) @invariant position: vec4<f32>,
     @location(0) uv: vec2<f32>,
-    @location(1) @interpolate(flat) skin_layer: u32,
-    @location(2) @interpolate(flat) valid: u32,
-    @location(3) world_normal: vec3<f32>,
-    @location(4) back_uv: vec2<f32>,
-    @location(5) @interpolate(flat) tint: u32,
-    @location(6) @interpolate(flat) overlay: vec4<f32>,
-    @location(7) @interpolate(flat) uv_wrap: u32,
-    @location(8) @interpolate(flat) light: u32,
-    @location(9) world_position: vec3<f32>,
-    @location(10) @interpolate(flat) multitexture_layers: vec2<u32>,
-    @location(11) native_lighting: vec3<f32>,
-    @location(12) @interpolate(flat) material: u32,
-    @location(13) @interpolate(flat) dissolve_multiplier: f32,
-    @location(14) @interpolate(flat) surface: u32,
-    @location(15) back_native_lighting: vec3<f32>,
+    @location(1) @interpolate(flat) skin_layer_valid: vec2<u32>,
+    @location(2) world_normal: vec3<f32>,
+    @location(3) back_uv: vec2<f32>,
+    @location(4) @interpolate(flat) tint: u32,
+    @location(5) @interpolate(flat) overlay: vec4<f32>,
+    @location(6) @interpolate(flat) uv_wrap: u32,
+    @location(7) @interpolate(flat) light: u32,
+    @location(8) world_position: vec3<f32>,
+    @location(9) @interpolate(flat) multitexture_layers: vec2<u32>,
+    @location(10) native_lighting: vec3<f32>,
+    @location(11) @interpolate(flat) material: u32,
+    @location(12) @interpolate(flat) dissolve_multiplier: f32,
+    @location(13) @interpolate(flat) surface: u32,
+    @location(14) back_native_lighting: vec3<f32>,
 }
 
 fn word_f32(index: u32) -> f32 {
@@ -96,7 +95,7 @@ fn actor_vertex(
     let span = geometry_spans[geometry_id];
 
     var out: VertexOutput;
-    out.skin_layer = texture_layer;
+    out.skin_layer_valid = vec2(texture_layer, 0u);
     out.tint = instance_words[instance_base + 18u];
     out.overlay = unpack4x8unorm(overlay_rgba8);
     out.light = instance_words[instance_base + 24u];
@@ -116,7 +115,6 @@ fn actor_vertex(
         out.position = vec4(2.0, 2.0, 2.0, 1.0);
         out.uv = vec2(0.0);
         out.back_uv = vec2(0.0);
-        out.valid = 0u;
         out.world_normal = vec3(0.0, 1.0, 0.0);
         return out;
     }
@@ -175,7 +173,7 @@ fn actor_vertex(
     if (out.surface != 0u) {
         out.back_native_lighting = actor_lighting(out.light, -out.world_normal, out.overlay.a) * light_color_multiplier;
     }
-    out.valid = 1u;
+    out.skin_layer_valid.y = 1u;
     return out;
 }
 
@@ -196,7 +194,7 @@ fn actor_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @l
     let material = input.material & ACTOR_MATERIAL_KIND_MASK;
     let authored = (input.material & ACTOR_MATERIAL_AUTHORED_FLAG) != 0u;
     let emissive = material == ACTOR_MATERIAL_DRAGON || (input.material & ACTOR_MATERIAL_EMISSIVE_FLAG) != 0u;
-    if (input.valid == 0u) {
+    if (input.skin_layer_valid.y == 0u) {
         discard;
     }
     if (!front && input.back_uv.x < -1.0e8) {
@@ -214,7 +212,7 @@ fn actor_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @l
     }
     // Ordinary native actor materials compose gamma RGB. Undo Bevy's texture
     // decode before dye/overlay products, then transfer once at the output.
-    var color = tint_to_gamma(sample_actor_texture(uv, input.skin_layer));
+    var color = tint_to_gamma(sample_actor_texture(uv, input.skin_layer_valid.x));
     if (material == ACTOR_MATERIAL_DISSOLVE_DEPTH) {
         if (color.a * input.dissolve_multiplier < ACTOR_ALPHA_TEST_THRESHOLD) { discard; }
         return vec4(0.0);
@@ -245,8 +243,8 @@ fn actor_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @l
     if (multitexture_material) {
         // Native llama:entity_multitexture has three samplers, no ALPHA_TEST and no blend.
         // Coverage never comes from the base alpha; overlay alpha weights RGB instead.
-        let tex1 = tint_to_gamma(textureSample(skins, skin_sampler, uv, i32(input.multitexture_layers.x)));
-        let tex2 = tint_to_gamma(textureSample(skins, skin_sampler, uv, i32(input.multitexture_layers.y)));
+        let tex1 = tint_to_gamma(textureSampleLevel(skins, skin_sampler, uv, i32(input.multitexture_layers.x), 0.0));
+        let tex2 = tint_to_gamma(textureSampleLevel(skins, skin_sampler, uv, i32(input.multitexture_layers.y), 0.0));
         color = vec4(mix(mix(color.rgb, tex1.rgb, tex1.a), tex2.rgb, tex2.a), color.a);
     }
     // Actor/Entity overlays blend BEFORE the shaded lightmap product. Vertex

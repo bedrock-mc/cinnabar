@@ -1,4 +1,10 @@
 use super::*;
+use render_model::NametagScene;
+use ui::TextLayoutCache;
+use view_presentation::nametag_atlas::NametagAtlas;
+use view_presentation::nametags::{
+    EXTRA_LINE_LIFT, LINE_PITCH_PX, PLATE_COLOR, SNEAK_TEXT_ALPHA, build_nametag_scene,
+};
 
 fn actor() -> ActorSnapshot {
     let mut stream = chunk_pipeline::WorldStream::new_with_assets(
@@ -73,7 +79,7 @@ fn scene(anchors: &[NametagAnchor]) -> NametagScene {
         &font,
         &mut TextLayoutCache::new(8, 1 << 20),
         &mut NametagAtlas::default(),
-        &|page| super::super::nametag_atlas::font_page(&font, page),
+        &|page| view_presentation::nametag_atlas::font_page(&font, page),
     )
 }
 

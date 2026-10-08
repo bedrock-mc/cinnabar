@@ -1,4 +1,4 @@
-use super::hud_renderers;
+use super::hud_pack;
 use json_ui::Catalog;
 
 mod chat;
@@ -12,7 +12,7 @@ pub(in crate::ui_runtime::presentation::forms) fn layer_pack_catalog(
     base: &Catalog,
     layers: &[Vec<(String, Vec<u8>)>],
 ) -> Catalog {
-    let builtin = hud_renderers::with_java_hud(base);
+    let builtin = hud_pack::with_java_hud(base);
     let mut catalog = builtin.clone();
     let mut native_titles = false;
     for files in layers {

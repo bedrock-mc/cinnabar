@@ -14,7 +14,7 @@ use render_model::{
 #[path = "actor/artwork.rs"]
 mod artwork;
 pub use artwork::{
-    ActorArtworkLocation, ActorArtworkPageId, ActorArtworkPages, ActorTexturePage, EquipmentRaster,
+    ActorArtworkLocation, ActorArtworkPageId, ActorArtworkPages, ActorTexturePage,
     MAX_ACTOR_GPU_PIXEL_BYTES, MAX_ACTOR_TEXTURE_PAGES,
 };
 #[path = "actor/glint.rs"]

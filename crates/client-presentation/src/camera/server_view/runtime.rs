@@ -9,6 +9,7 @@ use protocol::{
     CameraInstructionEvent, CameraPreset, CameraSetInstruction, CameraShakeAction,
     CameraShakeEvent, CameraShakeType, CameraSpline,
 };
+use view_presentation::camera::bedrock_camera_rotation as bedrock_rotation;
 
 use super::{
     fade::FadeState,
@@ -877,16 +878,6 @@ impl ServerCameraView {
 /// Gives an instruction component precedence over its preset and current pose.
 fn axis(explicit: Option<f32>, preset: Option<f32>, current: f32) -> f32 {
     explicit.or(preset).unwrap_or(current)
-}
-
-/// Converts Bedrock yaw and pitch into the render camera axes.
-pub(super) fn bedrock_rotation(yaw_degrees: f32, pitch_degrees: f32) -> Quat {
-    Quat::from_euler(
-        EulerRot::YXZ,
-        (180.0 - yaw_degrees).to_radians(),
-        -pitch_degrees.to_radians(),
-        0.0,
-    )
 }
 
 /// Keeps yaw at a vertical target and both axes at a coincident target.

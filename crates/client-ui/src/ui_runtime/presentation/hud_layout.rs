@@ -24,13 +24,12 @@ mod player;
 mod reader;
 mod recipe_book;
 mod sleep;
-mod status_motion;
 mod status_rows;
-pub(super) use status_rows::{HeartPaint, capture as capture_hud_paint};
+pub(super) use status_rows::capture as capture_hud_paint;
 mod windows;
 
 pub(super) use inventory::{CraftingFrame, StorageIcons};
-pub use pinned::{BOSS_TINTS, effect_icon_role, gui_scale};
+pub use pinned::{BOSS_TINTS, gui_scale};
 use pinned::{BOTTOM_STACK_HEIGHT, HOTBAR_WIDTH, hsv_to_rgb};
 pub use sleep::SleepTimeline;
 pub(super) use windows::{Durability, TooltipLine, WindowIcons, WindowText, title_key};

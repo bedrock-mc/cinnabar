@@ -282,7 +282,7 @@ fn first_generic_only_frame_prepares_after_an_empty_skin_revision() {
     assert_eq!(gpu.artwork_identity, [3; 32]);
     assert_eq!(gpu.artwork.pages.len(), 1);
     assert!(gpu.artwork.pages[0].bind_group.is_none());
-    let now = std::time::Instant::now();
+    let now = bevy::platform::time::Instant::now();
     assert!(!gate.publish_reserved(old, now, now));
     assert!(gate.drain().is_empty());
 
@@ -341,6 +341,38 @@ fn actor_shader_parses_as_wgsl() {
     )
     .validate(&module)
     .expect("shared fog and native multitexture varyings validate together");
+}
+
+#[test]
+fn actor_material_sampling_needs_no_uniform_fragment_control_flow() {
+    let module = naga::front::wgsl::parse_str(&standalone_actor_shader_source())
+        .expect("actor shader parses");
+    let levels: Vec<_> = module
+        .functions
+        .iter()
+        .map(|(_, function)| function)
+        .chain(module.entry_points.iter().map(|entry| &entry.function))
+        .flat_map(|function| function.expressions.iter())
+        .filter_map(|(_, expression)| match expression {
+            naga::Expression::ImageSample { level, .. } => Some(level),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        !levels.is_empty(),
+        "actor material textures must be sampled"
+    );
+    assert!(
+        levels
+            .iter()
+            .all(|level| matches!(level, naga::SampleLevel::Zero | naga::SampleLevel::Exact(_))),
+        "single-mip actor textures must not require derivatives in material branches"
+    );
+}
+
+#[test]
+fn actor_fragment_interface_fits_webgpu_limits() {
+    crate::shader_test_support::assert_webgpu_fragment_inputs(&standalone_actor_shader_source());
 }
 
 // A binding the fragment stage reads must be visible to it, or pipeline creation fails validation.

@@ -288,7 +288,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
     mut frame_poll: ResMut<WorldStreamFramePoll>,
     mut audio: MessageWriter<SequencedAudioEvent>,
     mut server_camera: ResMut<ServerCameraInstructions>,
-    mut camera_hurt: Option<ResMut<crate::camera::CameraHurtState>>,
+    mut camera_hurt: Option<ResMut<view_presentation::camera::CameraHurtState>>,
     mut particle_inbox: Option<ResMut<crate::particles::ParticleInbox>>,
     (visibility_diagnostics, profiler, mut player_runtime): (
         Option<Res<VisibilityDiagnosticsInput>>,
@@ -470,7 +470,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
             match observation {
                 ControlObservation::Hurt { source_direction } => {
                     if let Some(hurt) = camera_hurt.as_deref_mut() {
-                        hurt.register(crate::camera::LocalHurtEvent {
+                        hurt.register(view_presentation::camera::LocalHurtEvent {
                             source_direction,
                             ..Default::default()
                         });

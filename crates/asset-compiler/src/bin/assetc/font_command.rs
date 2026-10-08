@@ -1,16 +1,35 @@
 use super::*;
 use pack_compiler::{
-    CompiledFontCarrier, GlyphAdvances, OutlineFontConfig, compile_outline_font,
-    compile_outline_font_with_fallback,
+    CompiledFontCarrier, GlyphAdvances, OutlineFontConfig, compact_font_pages,
+    compile_outline_font, compile_outline_font_with_fallback, overlay_font_glyph_sheets,
 };
 
 const MAX_MANIFEST: usize = 64 * 1024;
 const MAX_LICENSE: usize = 16 * 1024;
 
+pub(super) struct PostprocessOptions<'a> {
+    pub glyph_pack: Option<&'a Path>,
+    pub compact_pages: bool,
+}
+
+pub(super) fn postprocess(
+    mut compiled: CompiledFontCarrier,
+    options: PostprocessOptions<'_>,
+) -> Result<CompiledFontCarrier, FontCompileError> {
+    if let Some(pack) = options.glyph_pack {
+        compiled = overlay_font_glyph_sheets(compiled, pack)?;
+    }
+    if options.compact_pages {
+        compiled = compact_font_pages(compiled)?;
+    }
+    Ok(compiled)
+}
+
 pub(super) fn compile(
     font: &Path,
     fallback: Option<&Path>,
     primary_only: bool,
+    options: PostprocessOptions<'_>,
     manifest_path: &Path,
     out: &Path,
     report: &Path,
@@ -115,6 +134,7 @@ pub(super) fn compile(
         }
         _ => compile_outline_font(font, &primary, manifest_hash, config)?,
     };
+    let compiled = postprocess(compiled, options)?;
     write_compiled_font_assets(
         source,
         manifest_hash,

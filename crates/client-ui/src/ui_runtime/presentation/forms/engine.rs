@@ -21,7 +21,9 @@ use super::super::{FONT_DESIGN_PIXEL_TEXELS, IconRef, TextMetrics, UiPresentatio
 pub(super) mod credits_renderer;
 mod fill_renderers;
 mod formatting_colors;
-pub mod hud_renderers;
+mod hud_pack;
+mod hud_target;
+use ui::native_hud;
 mod item_renderer;
 mod menu_renderers;
 mod menu_title;
@@ -118,7 +120,7 @@ impl FormEngine {
         super::global_resources::extend_catalog(&mut catalog);
         super::credits_screen::extend_catalog(&mut catalog);
         let vanilla = Arc::new(catalog);
-        let base = Arc::new(hud_renderers::with_java_hud(&vanilla));
+        let base = Arc::new(hud_pack::with_java_hud(&vanilla));
         let context = super::menu_screens::retail_context();
         let menu_title_source = menu_title::TitleSource::new(&base, &context);
         Self {
@@ -361,7 +363,7 @@ impl FormEngine {
         self.base = if native {
             Arc::clone(&self.vanilla)
         } else {
-            Arc::new(hud_renderers::with_java_hud(&self.vanilla))
+            Arc::new(hud_pack::with_java_hud(&self.vanilla))
         };
     }
 
@@ -486,11 +488,7 @@ fn render_with<R: Borrow<FormRender>>(
             }
             _ => None,
         })
-        .chain(
-            art.hud
-                .into_iter()
-                .flat_map(hud_renderers::HudPaint::textures),
-        )
+        .chain(art.hud.into_iter().flat_map(native_hud::HudPaint::textures))
         .collect();
     let drawn = Textures {
         assets: textures.assets,
@@ -603,7 +601,7 @@ pub(super) struct ScreenArt<'a> {
     pub(super) now: f64,
     /// Creation times that fades naming a clock read instead of their own.
     pub(super) clocks: Option<&'a std::collections::BTreeMap<String, f64>>,
-    pub(super) hud: Option<&'a hud_renderers::HudPaint>,
+    pub(super) hud: Option<&'a native_hud::HudPaint>,
     pub(super) images: Option<&'a std::collections::HashMap<String, IconRef>>,
     pub(super) portrait: Option<IconRef>,
     pub(super) splash: Option<&'a str>,
@@ -710,7 +708,19 @@ impl Painter<'_> {
         alpha: impl Fn([u8; 4]) -> [u8; 4],
     ) -> Option<(UiVisual, [f32; 4])> {
         if let Some(hud) = self.art.hud
-            && hud_renderers::paint(self, hud, renderer, data, dest, &alpha)
+            && native_hud::paint(
+                self,
+                hud,
+                renderer,
+                data.get("#collection_index")
+                    .and_then(serde_json::Value::as_f64)
+                    .map_or(0, |index| index.clamp(0.0, 8.0) as usize),
+                data.get("#bar_notches")
+                    .and_then(serde_json::Value::as_f64)
+                    .map_or(0, |notches| notches.clamp(0.0, 64.0) as u32),
+                dest,
+                &alpha,
+            )
         {
             return None;
         }

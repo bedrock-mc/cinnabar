@@ -1,13 +1,14 @@
 //! Always-on attribution using bounded counters, with no formatting on fast frames.
 
 use super::runtime_profile::RuntimeStage;
+use bevy::platform::time::Instant;
 use std::{
     fmt::Write,
     sync::{
         Mutex,
         atomic::{AtomicU8, AtomicU64, Ordering},
     },
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 const STAGES: usize = RuntimeStage::ALL.len();

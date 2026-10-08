@@ -1,12 +1,9 @@
 //! Worn wings keep authored poses and textures while riding the player's body.
 
 use super::{pack_runtime, player_body};
-use crate::presentation::equipment::{
-    display::LAYER_CHESTPLATE,
-    runtime::{
-        ActorEquipmentInput, EquipmentAnimation, EquipmentPresentation, EquipmentRuntime, HeldKind,
-        WornItem,
-    },
+use crate::presentation::equipment::runtime::{
+    ActorEquipmentInput, EquipmentAnimation, EquipmentPresentation, EquipmentRuntime, HeldKind,
+    WornItem,
 };
 use assets::{EntityRenderMaterial, EntityRigFallback};
 use client_world::{
@@ -18,6 +15,7 @@ use protocol::{
 };
 use render::{ActorArtworkPages, ActorRigSubmission};
 use std::sync::Arc;
+use view_presentation::equipment_display::LAYER_CHESTPLATE;
 
 /// A solid synthetic raster in the wing geometry's native UV dimensions.
 fn wing_texture() -> Vec<u8> {
