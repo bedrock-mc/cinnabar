@@ -112,7 +112,7 @@ pub use actor::{
     ActorRenderFrame, ActorRenderIdentity, ActorRenderInstance, ActorRenderScene,
     ActorRenderSource, ActorRigFrameBuilder, ActorRigGeometrySpan, ActorRigRejects,
     ActorRigRenderFrame, ActorRigRenderInput, ActorRigRoute, ActorRigSubmission,
-    ActorRuntimeWitness, ActorSkinResidency, ActorTexturePage, EquipmentRaster, IDENTITY_UV_ANIM,
+    ActorRuntimeWitness, ActorSkinResidency, ActorTexturePage, IDENTITY_UV_ANIM,
     MAX_ACTOR_BONE_ARENA_BYTES, MAX_ACTOR_GPU_PIXEL_BYTES, MAX_ACTOR_PRESENTED_ACKNOWLEDGEMENTS,
     MAX_ACTOR_RENDER_DISTANCE_BLOCKS, MAX_ACTOR_RENDER_INSTANCES, MAX_ACTOR_TEXTURE_PAGES,
     ResidentSkin, actor_bounds_are_visible, actor_rig_submission_is_visible, pack_actor_light,

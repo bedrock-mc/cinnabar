@@ -7,6 +7,7 @@
 use std::sync::Arc;
 
 use protocol::{NetworkItemStack, WindowKind};
+use ui::native_hud::effect_icon_role;
 use ui::{TextLayoutRequest, TextStyle, UiNode, UiNodeId, UiVisual};
 
 use super::{HudFrame, HudLayout, IconRef, UiPresentationError, UiRuntime, rect};
@@ -568,7 +569,7 @@ impl HudLayout<'_> {
                         110
                     };
                     self.button(at, size, border, shade)?;
-                    if let Some(role) = super::effect_icon_role(id) {
+                    if let Some(role) = effect_icon_role(id) {
                         let tint = if unlocked {
                             [255; 4]
                         } else {
@@ -594,7 +595,7 @@ impl HudLayout<'_> {
                         110
                     };
                     self.button(at, size, border, shade)?;
-                    if let Some(role) = super::effect_icon_role(primary) {
+                    if let Some(role) = effect_icon_role(primary) {
                         self.sprite_gui(role, [at[0] + 2.0, at[1] + 2.0], [255; 4])?;
                         self.ui_text("+", [at[0] + 14.0, at[1] + 12.0], [255; 4], true)?;
                     }

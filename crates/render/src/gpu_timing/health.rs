@@ -2,7 +2,8 @@
 
 use super::readback::{SpanValidity, span_validity};
 use crate::RuntimeStage;
-use std::time::{Duration, Instant};
+use bevy::platform::time::Instant;
+use std::time::Duration;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 struct StageHealth {

@@ -63,7 +63,11 @@ fn hand_progress_interpolates_the_swing_forward_and_counts_the_use() {
 // that ahead of the view and to its right.
 #[test]
 fn first_person_arm_offset_lands_ahead_and_right_of_the_camera() {
-    let rows = super::hand_camera_from_rig(0.9375, bevy::math::Mat4::IDENTITY);
+    let rows = super::hand_camera_from_rig(
+        0.9375,
+        crate::local_player::LOCAL_AVATAR_EYE_HEIGHT_BLOCKS,
+        bevy::math::Mat4::IDENTITY,
+    );
     let arm = [-8.5 / 16.0, 12.0 / 16.0, 12.0 / 16.0];
     let camera: [f32; 3] = std::array::from_fn(|row| {
         (0..3).map(|axis| rows[row][axis] * arm[axis]).sum::<f32>() + rows[row][3]
@@ -412,11 +416,13 @@ fn equipment_pack_fixture() -> (Arc<assets::SessionEntityPack>, render::ActorArt
         bindings: Arc::from([]),
         equipment: Some(Arc::new(catalog)),
     };
-    let startup = render::ActorArtworkPages::default().with_actor_glint(render::EquipmentRaster {
-        width: 1,
-        height: 1,
-        rgba8: Arc::from([1, 2, 3, 255]),
-    });
+    let startup = render::ActorArtworkPages::default().with_actor_glint(
+        render_model::equipment::EquipmentRaster {
+            width: 1,
+            height: 1,
+            rgba8: Arc::from([1, 2, 3, 255]),
+        },
+    );
     (Arc::new(pack), startup)
 }
 

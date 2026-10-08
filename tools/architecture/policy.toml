@@ -143,7 +143,7 @@ forbidden_transitive_dependencies = ["app", "bedrock-client", "client-ui", "play
 name = "client-ui"
 path = "crates/client-ui"
 # Extension edges support presentation adapters; render data comes from render-model, never render.
-allowed_dependencies = ["assets", "chunk-pipeline", "client-world", "player-state", "launcher", "inventory", "json-ui", "protocol", "render-api", "render-model", "resource-pack", "semantic-input", "ui", "world", "mod-host", "server-experience"]
+allowed_dependencies = ["assets", "chunk-pipeline", "client-world", "player-state", "launcher", "inventory", "json-ui", "protocol", "render-api", "render-model", "resource-pack", "semantic-input", "ui", "world", "mod-host", "server-experience", "view-presentation"]
 forbidden_dependencies = ["asset-compiler", "pack-compiler"]
 forbidden_transitive_dependencies = ["app", "bedrock-client", "client-runtime", "gameplay", "client-session", "render"]
 test_support_features = ["test-support"]
@@ -152,7 +152,7 @@ test_support_features = ["test-support"]
 [[crates]]
 name = "client-presentation"
 path = "crates/client-presentation"
-allowed_dependencies = ["assets", "chunk-pipeline", "client-ui", "client-world", "inventory", "launcher", "player-state", "protocol", "render", "render-api", "render-model", "resource-pack", "semantic-input", "sim", "ui", "world", "meshing", "server-experience"]
+allowed_dependencies = ["assets", "chunk-pipeline", "client-ui", "client-world", "inventory", "launcher", "player-state", "protocol", "render", "render-api", "render-model", "resource-pack", "semantic-input", "sim", "ui", "world", "meshing", "server-experience", "view-presentation"]
 forbidden_dependencies = ["asset-compiler", "pack-compiler"]
 forbidden_transitive_dependencies = ["app", "bedrock-client", "client-runtime", "gameplay", "client-session", "acceptance", "asset-compiler"]
 test_support_features = ["test-support"]
@@ -218,7 +218,7 @@ forbidden_transitive_dependencies = ["client-world", "chunk-pipeline", "protocol
 [[crates]]
 name = "app"
 path = "app"
-allowed_dependencies = ["acceptance", "assets", "chunk-pipeline", "client-presentation", "client-session", "client-ui", "client-world", "developer-control", "diagnostics", "gameplay", "gilrs", "inventory", "json-ui", "launcher", "libc", "rich-presence", "meshing", "mod-host", "objc2", "objc2-app-kit", "pack-compiler", "particles", "player-state", "protocol", "raw-window-handle", "render", "render-api", "render-model", "resource-pack", "semantic-input", "server-experience", "sim", "tracing-tracy", "ui", "world"]
+allowed_dependencies = ["acceptance", "assets", "chunk-pipeline", "client-presentation", "client-session", "client-ui", "client-world", "developer-control", "diagnostics", "gameplay", "gilrs", "inventory", "json-ui", "launcher", "libc", "rich-presence", "meshing", "mod-host", "objc2", "objc2-app-kit", "pack-compiler", "particles", "player-state", "protocol", "raw-window-handle", "render", "render-api", "render-model", "resource-pack", "semantic-input", "server-experience", "sim", "tracing-tracy", "ui", "world", "view-presentation"]
 forbidden_dependencies = ["asset-compiler"]
 forbidden_transitive_dependencies = ["asset-compiler"]
 
@@ -734,3 +734,10 @@ name = "rich-presence"
 path = "crates/rich-presence"
 allowed_dependencies = ["launcher"]
 forbidden_dependencies = ["bevy", "wgpu"]
+
+# Shared camera and authored UI presentation, independent of session and desktop adapters.
+[[crates]]
+name = "view-presentation"
+path = "crates/view-presentation"
+allowed_dependencies = ["assets", "ui", "json-ui", "render-model"]
+forbidden_dependencies = ["protocol", "client-world", "launcher", "render"]

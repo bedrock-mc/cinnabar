@@ -1,9 +1,10 @@
+use bevy::platform::time::Instant;
 use std::{
     sync::{
         Arc, Mutex,
         atomic::{AtomicU64, Ordering},
     },
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 use bevy::prelude::{Res, ResMut, Resource};

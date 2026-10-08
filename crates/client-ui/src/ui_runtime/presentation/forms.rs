@@ -47,7 +47,6 @@ mod retained_menu;
 pub(super) use retained_menu::RetainedMenu;
 #[cfg(any(test, feature = "test-support"))]
 pub mod pack_harness;
-pub mod pages;
 pub mod panorama;
 #[cfg(test)]
 mod publication_tests;
@@ -107,7 +106,6 @@ use crate::ui_runtime::scene_stack::ScreenSettingsTable;
 use crate::ui_runtime::{LocalFormAction, ServerFormIdentity, UiRuntime, forms::EngineFrame};
 use assets::RuntimeUiAssets;
 pub use containers::{container_screen_reference, engine_panel_contains, engine_screen_for};
-pub use engine::hud_renderers;
 pub use recipe_book::{recipe_book_hover, recipe_book_icons, recipe_book_shown};
 pub use server_pack::{MAX_PACK_TEXTURE_BYTES, ServerUiPack};
 use std::sync::Arc;
@@ -192,8 +190,9 @@ impl UiPresentationRuntime {
                 .map(|file| (&*file.path, &*file.bytes)),
         )
         .map_err(|error| format!("ui catalog: {error}"))?;
-        let (textures, first_page) = pages::with_ui_pages(&self.textures, &assets)
-            .map_err(|error| format!("ui atlas pages: {error}"))?;
+        let (textures, first_page) =
+            view_presentation::ui_atlas::with_ui_pages(&self.textures, &assets)
+                .map_err(|error| format!("ui atlas pages: {error}"))?;
         self.textures = Arc::new(textures);
         // Dynamic pages moved up; their references rebuild from the new start.
         self.preview_dirty = true;

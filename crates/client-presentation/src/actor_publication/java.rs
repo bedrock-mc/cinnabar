@@ -2,6 +2,7 @@
 //! replace vanilla's wherever Java has the posture.
 
 use std::sync::Arc;
+use view_presentation::equipment_display::{FirstPersonArms, FirstPersonHand};
 
 use bevy::math::Vec3;
 use chunk_pipeline::WorldStream;
@@ -17,8 +18,7 @@ use super::hand::{HandInputs, HandSource, hand_progress, item_atlas, vanilla_han
 use crate::presentation::{
     actors::{ActorRigPresentation, convert_bones, lerp_degrees, wrap_degrees},
     equipment::{
-        ActorEquipmentInput, EquipmentRuntime, FirstPersonArms, FirstPersonHand, WornItem,
-        java_draws_attachable, remote_input,
+        ActorEquipmentInput, EquipmentRuntime, WornItem, java_draws_attachable, remote_input,
     },
 };
 

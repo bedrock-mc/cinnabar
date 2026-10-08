@@ -6,14 +6,14 @@ use assets::RuntimeUiAssets;
 use render_model::{UiRenderTextureArray, UiTexturePage};
 use sha2::{Digest, Sha256};
 
-use super::super::UiPresentationError;
+use crate::UiAtlasError;
 
 /// The texture array with the carrier pages inserted before the dynamic pages,
 /// plus the texture page index of carrier page 0.
-pub(super) fn with_ui_pages(
+pub fn with_ui_pages(
     textures: &UiRenderTextureArray,
     assets: &RuntimeUiAssets,
-) -> Result<(UiRenderTextureArray, u16), UiPresentationError> {
+) -> Result<(UiRenderTextureArray, u16), UiAtlasError> {
     let atlas = assets.atlas_pages();
     let side = atlas.iter().fold([1u32, 1u32], |acc, page| {
         [acc[0].max(page.width), acc[1].max(page.height)]
@@ -29,12 +29,11 @@ pub(super) fn with_ui_pages(
         }
         ui_pages.push(
             UiTexturePage::owned(side, pixels.into())
-                .map_err(|_| UiPresentationError::InvalidFontTexture)?,
+                .map_err(|_| UiAtlasError::InvalidFontTexture)?,
         );
     }
     let dynamic_start = textures.dynamic_start();
-    let first =
-        u16::try_from(dynamic_start).map_err(|_| UiPresentationError::InvalidFontTexture)?;
+    let first = u16::try_from(dynamic_start).map_err(|_| UiAtlasError::InvalidFontTexture)?;
     let mut pages = textures.pages()[..dynamic_start].to_vec();
     let added = ui_pages.len();
     pages.extend(ui_pages);
@@ -48,6 +47,6 @@ pub(super) fn with_ui_pages(
         dynamic_start + added,
         source.finalize().into(),
     )
-    .map_err(|_| UiPresentationError::InvalidFontTexture)?;
+    .map_err(|_| UiAtlasError::InvalidFontTexture)?;
     Ok((textures, first))
 }

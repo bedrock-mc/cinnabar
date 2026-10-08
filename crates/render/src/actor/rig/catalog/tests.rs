@@ -289,7 +289,7 @@ fn catalog_registration_threshold_bench() {
         }
         let before = catalog.vertices.clone();
         let added = geometry(255);
-        let start = std::time::Instant::now();
+        let start = bevy::platform::time::Instant::now();
         catalog.append(vec![added], 2).unwrap();
         elapsed += start.elapsed();
         copied_vertices += catalog

@@ -1,3 +1,4 @@
+use bevy::platform::time::Instant;
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque, hash_map::Entry},
     ops::Range,
@@ -5,7 +6,7 @@ use std::{
         Arc, Mutex,
         mpsc::{Receiver, SyncSender, sync_channel},
     },
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 use assets::{

@@ -2,6 +2,7 @@
 
 use crate::runtime_profile::RuntimeStage;
 use crate::runtime_profile_slow::SlowFrameEvent;
+use bevy::platform::time::Instant;
 use serde_json::json;
 use std::{
     path::PathBuf,
@@ -10,7 +11,7 @@ use std::{
         atomic::{AtomicBool, AtomicU64, Ordering},
     },
     thread::ThreadId,
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 const TRACE_CAPACITY: usize = 131_072;

@@ -106,7 +106,8 @@ impl ActorStatus {
         Some((ticks / f32::from(DEATH_DURATION_TICKS)).clamp(0.0, 1.0))
     }
 
-    pub(super) fn tick(&mut self) {
+    /// Advances retained presentation timers by one simulation tick.
+    pub fn tick(&mut self) {
         self.age_ticks = self.age_ticks.saturating_add(1);
         self.fire.tick(self.age_ticks);
         if let Some(pickup) = &mut self.pickup {
@@ -123,13 +124,15 @@ impl ActorStatus {
         }
     }
 
-    fn die(&mut self) {
+    /// Starts the native death and damage presentation timers.
+    pub fn die(&mut self) {
         self.dead = true;
         self.hurt_time = HURT_DURATION_TICKS;
         self.skip_red_flash = false;
     }
 
-    fn revive(&mut self) {
+    /// Clears death and damage presentation state when the actor becomes alive.
+    pub fn revive(&mut self) {
         self.hurt_time = 0;
         self.hurt_direction = None;
         self.death_time = 0;

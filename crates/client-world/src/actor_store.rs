@@ -40,11 +40,11 @@ const PLAYER_FLAGS_SLEEPING: u8 = 1 << 1;
 /// Actor flag bits follow gophertunnel v1.61.0 `EntityDataFlag*` (iota from zero); bits from
 /// 64 live in the overflow flag word.
 pub(crate) const ACTOR_FLAG_SLEEPING: u32 = 76;
-const ACTOR_FLAG_SNEAKING: u32 = 1;
+pub const ACTOR_FLAG_SNEAKING: u32 = 1;
 const ACTOR_FLAG_INVISIBLE: u32 = 5;
-const ACTOR_FLAG_SWIMMING: u32 = 57;
-const ACTOR_FLAG_USING_ITEM: u32 = 4;
-const ACTOR_FLAG_SPRINTING: u32 = 3;
+pub const ACTOR_FLAG_SWIMMING: u32 = 57;
+pub const ACTOR_FLAG_USING_ITEM: u32 = 4;
+pub const ACTOR_FLAG_SPRINTING: u32 = 3;
 pub(crate) const ACTOR_FLAG_IMMOBILE: u32 = 16;
 const ACTOR_FLAG_GLIDING: u32 = 32;
 pub(crate) const ACTOR_FLAG_CRAWLING: u32 = 114;
@@ -152,6 +152,16 @@ impl ActorSnapshot {
             "minecraft:arrow" | "minecraft:fireworks_rocket" | "minecraft:wither_skull" | "minecraft:wither_skull_dangerous"))
     }
 
+    /// Projectile bones carry absolute rotation; billboard bones carry the camera's rotation.
+    #[must_use]
+    pub fn is_billboard(&self) -> bool {
+        matches!(&self.kind, ActorKind::Entity { identifier } if matches!(identifier.as_ref(),
+            "minecraft:xp_bottle" | "minecraft:ender_pearl" | "minecraft:xp_orb"
+            | "minecraft:dragon_fireball" | "minecraft:fireball" | "minecraft:snowball"
+            | "minecraft:small_fireball" | "minecraft:splash_potion" | "minecraft:egg"
+            | "minecraft:eye_of_ender_signal" | "minecraft:lingering_potion"))
+    }
+
     /// The render position `alpha` of the way from the previous tick's pose to the current one,
     /// or `None` when a component is not finite.
     #[must_use]
@@ -169,6 +179,25 @@ impl ActorSnapshot {
     fn from_spawn(spawn: ActorSpawnEvent, spawn_revision: u64) -> Self {
         let terrain_interlock =
             terrain_interlock::TerrainInterlock::attached(&spawn.kind, std::time::Instant::now());
+        Self::from_spawn_with_interlock(spawn, spawn_revision, terrain_interlock)
+    }
+
+    /// Creates an observed actor without waiting for separate terrain synchronization.
+    pub fn from_observation(spawn: ActorSpawnEvent, spawn_revision: u64) -> Self {
+        Self::from_spawn_with_interlock(spawn, spawn_revision, Default::default())
+    }
+
+    /// Updates per-tick velocity for observed motion and native animation queries together.
+    pub fn observe_velocity(&mut self, velocity: [f32; 3]) {
+        self.velocity = velocity;
+        self.status.native_velocity = velocity;
+    }
+
+    fn from_spawn_with_interlock(
+        spawn: ActorSpawnEvent,
+        spawn_revision: u64,
+        terrain_interlock: terrain_interlock::TerrainInterlock,
+    ) -> Self {
         let mut position = spawn.position;
         if matches!(&spawn.kind, ActorKind::Entity { identifier } if identifier.as_ref() == "minecraft:falling_block")
         {

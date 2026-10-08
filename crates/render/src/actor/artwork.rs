@@ -1,7 +1,7 @@
 //! Immutable startup artwork pages. Pixel decoding and hashing never run per frame.
 use assets::RuntimeActorCatalog;
 use bevy::prelude::Resource;
-use render_model::EntityRigId;
+use render_model::{EntityRigId, equipment::EquipmentRaster};
 use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -26,14 +26,6 @@ const MAX_ACTOR_PAGE_LAYERS: usize = 256;
 // Cinnabar declared RGBA allocation ceiling, not retail or measured driver memory: vanilla
 // startup art takes about 20 MiB. A page past it is downscaled to fit, never dropped.
 pub const MAX_ACTOR_GPU_PIXEL_BYTES: usize = 512 * 1024 * 1024;
-
-/// One equipment raster (item sprite or attachable texture) to place on a generic page.
-#[derive(Clone, Debug)]
-pub struct EquipmentRaster {
-    pub width: u16,
-    pub height: u16,
-    pub rgba8: Arc<[u8]>,
-}
 
 fn within_page_budget(generic_pages: usize, declared_pixel_bytes: usize) -> bool {
     generic_pages < MAX_ACTOR_TEXTURE_PAGES && declared_pixel_bytes <= MAX_ACTOR_GPU_PIXEL_BYTES

@@ -37,6 +37,7 @@ members = [
     "crates/rich-presence",
     "crates/client-ui",
     "crates/client-presentation",
+    "crates/view-presentation",
     "crates/player-state",
     "crates/sim",
     "crates/ui",
@@ -83,6 +84,7 @@ bevy = { version = "=0.18.1", default-features = false, features = [
     "std",
     "wayland",
     "x11",
+    "webgpu",
 ] }
 # The noop backend only runs when an instance explicitly enables it (render tests).
 wgpu = { version = "27.0.1", default-features = false, features = ["noop", "wgsl"] }

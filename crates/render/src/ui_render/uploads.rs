@@ -162,12 +162,12 @@ mod tests {
         }
         let indices: Vec<u32> = (0..18_000).collect();
         const FRAMES: u32 = 2_000;
-        let started = std::time::Instant::now();
+        let started = bevy::platform::time::Instant::now();
         for _ in 0..FRAMES {
             std::hint::black_box((new.clone(), indices.clone()));
         }
         let full = started.elapsed() / FRAMES;
-        let started = std::time::Instant::now();
+        let started = bevy::platform::time::Instant::now();
         for _ in 0..FRAMES {
             let vertices = changed_range(&old, &new, false);
             let changed_indices = changed_range(&indices, &indices, false);

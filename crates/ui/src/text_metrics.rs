@@ -1,11 +1,11 @@
 //! Per-frame text metrics shared by every HUD, chat, scoreboard and nametag run.
 
+use crate::{DpiScale, TextLayoutRequest, TextShadow, TextStyle, UiScale};
 use assets::RuntimeFontCatalog;
-use ui::{DpiScale, TextLayoutRequest, TextShadow, TextStyle, UiScale};
 
-use super::gui_scale;
+use crate::gui_scale;
 
-pub(super) use ui::{
+use crate::{
     FONT_DESIGN_PIXEL_TEXELS, TEXT_BASELINE_64, TEXT_LINE_HEIGHT_64, TEXT_SHADOW_OFFSET_64,
 };
 
@@ -14,12 +14,12 @@ pub(super) use ui::{
 /// texels per GUI design pixel, while sprite geometry uses one GUI pixel.
 #[derive(Clone, Copy)]
 pub struct TextMetrics {
-    pub(super) scale: UiScale,
+    pub scale: UiScale,
     /// Physical pixels per GUI unit: the GUI scale, on whose pixel grid draws land.
-    pub(super) gui_scale: f32,
-    pub(super) dpi_scale: DpiScale,
-    pub(super) line_height_64: u32,
-    pub(super) baseline_64: u32,
+    pub gui_scale: f32,
+    pub dpi_scale: DpiScale,
+    pub line_height_64: u32,
+    pub baseline_64: u32,
     shadow: TextShadow,
 }
 
@@ -27,7 +27,7 @@ impl TextMetrics {
     /// Uses the same GUI-scale choice as sprite geometry. The font atlas
     /// is authored at two texels per GUI design pixel, so its logical scale is
     /// half the sprite scale before the platform DPI is removed.
-    pub(super) fn for_viewport(
+    pub fn for_viewport(
         physical_size: [u32; 2],
         dpi_scale: DpiScale,
         preference: Option<u8>,
@@ -46,7 +46,7 @@ impl TextMetrics {
         }
     }
 
-    pub(super) fn request<'a>(
+    pub fn request<'a>(
         &self,
         text: &'a str,
         width_64: u32,
@@ -64,7 +64,10 @@ impl TextMetrics {
         }
     }
 
-    pub(super) const fn shadow(&self) -> TextShadow {
+    pub const fn shadow(&self) -> TextShadow {
         self.shadow
     }
 }
+
+pub const DEFAULT_TEXT_CACHE_ENTRIES: usize = 1_024;
+pub const DEFAULT_TEXT_CACHE_BYTES: usize = 8 * 1024 * 1024;

@@ -285,6 +285,8 @@ pub(super) fn command(carrier: &Carrier, context: &Context) -> Result<Command, B
                 _ => None,
             });
             Command::FontAssets {
+                glyph_pack: None,
+                compact_pages: false,
                 pack: None,
                 font: Some(context.font_file(font.ok_or("the font recipe names no font")?)?),
                 source_manifest: manifest(),

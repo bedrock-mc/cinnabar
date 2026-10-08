@@ -224,6 +224,8 @@ fn run(command: Command) -> Result<(), Box<dyn std::error::Error>> {
         Command::FontAssets {
             pack,
             font,
+            glyph_pack,
+            compact_pages,
             source_manifest,
             out,
             report,
@@ -231,6 +233,10 @@ fn run(command: Command) -> Result<(), Box<dyn std::error::Error>> {
             compile_font_assets_command(
                 pack.as_deref(),
                 font.as_deref(),
+                font_command::PostprocessOptions {
+                    glyph_pack: glyph_pack.as_deref(),
+                    compact_pages,
+                },
                 &source_manifest,
                 &out,
                 &report,
@@ -343,6 +349,8 @@ fn run(command: Command) -> Result<(), Box<dyn std::error::Error>> {
             font,
             fallback_font,
             primary_only,
+            glyph_pack,
+            compact_pages,
             source_manifest,
             out,
             report,
@@ -351,6 +359,10 @@ fn run(command: Command) -> Result<(), Box<dyn std::error::Error>> {
                 &font,
                 fallback_font.as_deref(),
                 primary_only,
+                font_command::PostprocessOptions {
+                    glyph_pack: glyph_pack.as_deref(),
+                    compact_pages,
+                },
                 &source_manifest,
                 &out,
                 &report,
@@ -522,6 +534,7 @@ fn run(command: Command) -> Result<(), Box<dyn std::error::Error>> {
 fn compile_font_assets_command(
     pack: Option<&Path>,
     font: Option<&Path>,
+    options: font_command::PostprocessOptions<'_>,
     source_manifest: &Path,
     out: &Path,
     report: &Path,
@@ -547,6 +560,7 @@ fn compile_font_assets_command(
     if compiled.report.source_manifest_sha256 != source_manifest_sha256 {
         return Err(FontCompileError::SourceManifestMismatch.into());
     }
+    let compiled = font_command::postprocess(compiled, options)?;
     write_compiled_font_assets(source, source_manifest_sha256, compiled, out, report, &[])
 }
 
@@ -554,11 +568,20 @@ fn compile_outline_font_assets_command(
     font: &Path,
     fallback: Option<&Path>,
     primary_only: bool,
+    options: font_command::PostprocessOptions<'_>,
     source_manifest: &Path,
     out: &Path,
     report: &Path,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    font_command::compile(font, fallback, primary_only, source_manifest, out, report)
+    font_command::compile(
+        font,
+        fallback,
+        primary_only,
+        options,
+        source_manifest,
+        out,
+        report,
+    )
 }
 
 fn required_u32(value: &serde_json::Value, field: &str) -> Result<u32, Box<dyn std::error::Error>> {

@@ -182,7 +182,7 @@ pub struct ActorAnimationStats {
 }
 
 #[derive(Debug)]
-pub(crate) struct ActorAnimationStore {
+pub struct ActorAnimationStore {
     assets: Option<Arc<RuntimeEntityAssets>>,
     layout: Arc<VariableLayout>,
     /// The session's server-pack entity catalog, in its own index space; its entities win.
@@ -397,7 +397,8 @@ impl ActorAnimationStore {
         Self::new(None)
     }
 
-    pub(crate) fn with_assets(assets: Arc<RuntimeEntityAssets>) -> Self {
+    /// Creates a session-owned animator using the compiled entity catalog.
+    pub fn with_assets(assets: Arc<RuntimeEntityAssets>) -> Self {
         Self::new(Some(assets))
     }
 
@@ -439,7 +440,8 @@ impl ActorAnimationStore {
         self.server_compiler = Some(compiler);
     }
 
-    pub(crate) fn clear(&mut self) {
+    /// Removes all actor lifetimes, poses and prepared appearances from this session.
+    pub fn clear(&mut self) {
         self.rigs.clear();
         self.skin_preparation = skin::SkinPreparationQueue::default();
         self.local_motion_authority = None;
@@ -448,13 +450,15 @@ impl ActorAnimationStore {
         self.bump_generation();
     }
 
-    pub(crate) fn remove_runtime(&mut self, runtime_id: u64) {
+    /// Forgets the current lifetime associated with a runtime ID.
+    pub fn remove_runtime(&mut self, runtime_id: u64) {
         if let Some(lifetime) = self.runtime_to_lifetime.remove(&runtime_id) {
             self.rigs.remove(&lifetime);
         }
     }
 
-    pub(crate) fn insert(&mut self, session_id: u64, dimension: i32, actor: &ActorSnapshot) {
+    /// Resolves a new actor lifetime, replacing any previous use of its runtime ID.
+    pub fn insert(&mut self, session_id: u64, dimension: i32, actor: &ActorSnapshot) {
         self.remove_runtime(actor.runtime_id);
         let Some(assets) = self.assets.clone() else {
             return;
@@ -495,7 +499,8 @@ impl ActorAnimationStore {
         self.rigs.insert(lifetime, state);
     }
 
-    pub(crate) fn mark_reset(&mut self, runtime_id: u64) {
+    /// Resets animation histories when the next observation cannot follow the current pose.
+    pub fn mark_reset(&mut self, runtime_id: u64) {
         let Some(lifetime) = self.runtime_to_lifetime.get(&runtime_id) else {
             return;
         };
@@ -526,7 +531,7 @@ impl ActorAnimationStore {
     }
 
     /// Restarts the arm swing whose progress feeds `variable.attack_time`.
-    pub(crate) fn start_swing(&mut self, runtime_id: u64, ticks: i32) {
+    pub fn start_swing(&mut self, runtime_id: u64, ticks: i32) {
         let Some(lifetime) = self.runtime_to_lifetime.get(&runtime_id) else {
             return;
         };
@@ -569,7 +574,7 @@ impl ActorAnimationStore {
     }
 
     /// Advances tick state; only the frame's final tick evaluates visual controllers and poses.
-    pub(crate) fn advance_tick(
+    pub fn advance_tick(
         &mut self,
         actors: &HashMap<u64, ActorSnapshot>,
         view: Option<&ActorAnimationView>,
@@ -611,7 +616,8 @@ impl ActorAnimationStore {
         );
     }
 
-    pub(crate) fn get(&self, runtime_id: u64) -> Option<ActorRigSnapshot<'_>> {
+    /// Borrows the current lifetime's completed pose and its interpolation history.
+    pub fn get(&self, runtime_id: u64) -> Option<ActorRigSnapshot<'_>> {
         let lifetime = *self.runtime_to_lifetime.get(&runtime_id)?;
         self.snapshot(lifetime, self.rigs.get(&lifetime)?)
     }
@@ -848,7 +854,7 @@ pub use pose::MODEL_PART_ORIGIN_Y;
 use pose::{compose_pose, sample_clips};
 pub use render::RenderTextureLayer;
 pub use skin_layers::SkinRenderLayer;
-pub(crate) use tick::{ActorTickContext, WornArmor};
+pub use tick::{ActorTickContext, WornArmor};
 use tick::{advance_motion, evaluate_state};
 pub use view::ActorAnimationView;
 

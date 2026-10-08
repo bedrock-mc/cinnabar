@@ -30,7 +30,6 @@ pub mod oreui_fonts;
 pub mod platform_clipboard;
 pub mod presentation;
 pub mod raw_text_resolution;
-pub mod render_adapter;
 pub mod scene_stack;
 pub mod scoreboard_adapter;
 pub mod screen_recipes;

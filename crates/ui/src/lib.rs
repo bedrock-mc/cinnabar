@@ -7,9 +7,11 @@ mod hud;
 mod icon;
 pub mod mod_panel;
 mod model;
+pub mod native_hud;
 mod scoreboard;
 mod settings;
 mod text;
+mod text_metrics;
 
 pub use action::{PointerPhase, UiAction, UiLimits};
 pub use chat::{
@@ -56,3 +58,5 @@ pub use text::{
     TextLayout, TextLayoutCache, TextLayoutKey, TextLayoutRequest, TextLineAlign, TextSpan,
     TextSpans, TextStyle, TextWrap, WordChop, parse_bedrock_text,
 };
+
+pub use text_metrics::{DEFAULT_TEXT_CACHE_BYTES, DEFAULT_TEXT_CACHE_ENTRIES, TextMetrics};

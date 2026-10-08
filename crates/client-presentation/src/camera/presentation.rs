@@ -8,12 +8,14 @@ use bevy::prelude::{
     EulerRot, Mat4, Quat, Query, Res, ResMut, Resource, Time, Transform, Vec3, With,
 };
 use semantic_input::{Action, PerspectiveMode};
+use view_presentation::camera::{
+    CameraHurtState, FirstPersonHandMotion, HandSwayState, ViewEffect, WalkBobState,
+    walk_bob_effect,
+};
 
 use super::{
     CameraSettingsAuthority, FlyCamera,
-    bob::{HandSwayState, ViewEffect, WalkBobState, walk_bob_effect},
     fov::CameraFovInputs,
-    hurt::CameraHurtState,
     java::{JavaCameraState, JavaCameraTick, java_hurt_roll},
     overlay::{
         HeadMedium, PortalProgress, ScreenEffectInputs, ScreenOverlays, VisionEffects,
@@ -36,29 +38,6 @@ const VISION_FADE_SECONDS: f32 = 1.0;
 pub struct ScreenEffectFacts {
     pub on_fire: bool,
     pub in_portal: bool,
-}
-
-/// First-person hand motion for the equipment lane, all in view space.
-#[derive(Resource, Debug, Clone, Copy, PartialEq)]
-pub struct FirstPersonHandMotion {
-    pub bob: ViewEffect,
-    pub hurt: Mat4,
-    pub sway_pitch_radians: f32,
-    pub sway_yaw_radians: f32,
-    /// World-space eye correction, independent of view bob and the gameplay origin.
-    pub eye_height_adjustment: f32,
-}
-
-impl Default for FirstPersonHandMotion {
-    fn default() -> Self {
-        Self {
-            bob: ViewEffect::NONE,
-            hurt: Mat4::IDENTITY,
-            sway_pitch_radians: 0.0,
-            sway_yaw_radians: 0.0,
-            eye_height_adjustment: 0.0,
-        }
-    }
 }
 
 /// `movement_speed` is the effective movement-speed attribute, when one has been received.
@@ -390,7 +369,7 @@ pub fn apply_camera_presentation(
     }
 
     if server.renders_first_person(settings.perspective() == PerspectiveMode::FirstPerson) {
-        let effect = hand.hurt * hand.bob.matrix();
+        let effect = hand.view_matrix();
         if effect != Mat4::IDENTITY && effect.is_finite() {
             pose = Transform::from_matrix(pose.to_matrix() * effect.inverse());
             changed = true;
@@ -431,7 +410,8 @@ mod tests {
     use protocol::{CameraEvent, CameraInstructionEvent, CameraSetInstruction};
 
     use super::*;
-    use crate::{camera::hurt::LocalHurtEvent, server_camera::ServerCameraInstructions};
+    use crate::server_camera::ServerCameraInstructions;
+    use view_presentation::camera::LocalHurtEvent;
 
     /// Runs the camera presentation core without a live world observation.
     #[allow(clippy::too_many_arguments)] // Each argument is a separately scheduled Bevy resource.
@@ -655,7 +635,7 @@ mod tests {
     #[test]
     fn hand_motion_defaults_to_identity() {
         let hand = FirstPersonHandMotion::default();
-        assert_eq!(hand.hurt * hand.bob.matrix(), Mat4::IDENTITY);
+        assert_eq!(hand.view_matrix(), Mat4::IDENTITY);
     }
 
     /// The visual sneak correction moves the rendered eye without changing the gameplay ray.

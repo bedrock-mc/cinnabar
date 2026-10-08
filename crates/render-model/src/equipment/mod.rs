@@ -12,3 +12,11 @@ pub use display::{
     held_sprite_display, held_sprite_display_for_hand, is_hand_equipped, is_rod,
     sprite_item_transform,
 };
+
+/// One equipment raster (item sprite or attachable texture) to place on a generic page.
+#[derive(Clone, Debug)]
+pub struct EquipmentRaster {
+    pub width: u16,
+    pub height: u16,
+    pub rgba8: std::sync::Arc<[u8]>,
+}

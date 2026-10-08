@@ -227,7 +227,7 @@ impl ActorAnimationStore {
 
     #[cfg(not(test))]
     const fn parallel(&self) -> bool {
-        true
+        !cfg!(target_arch = "wasm32")
     }
 
     #[cfg(not(test))]
@@ -237,7 +237,7 @@ impl ActorAnimationStore {
 
     #[cfg(test)]
     fn parallel(&self) -> bool {
-        !self.schedule.serial
+        !cfg!(target_arch = "wasm32") && !self.schedule.serial
     }
 
     #[cfg(test)]

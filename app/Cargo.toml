@@ -36,6 +36,7 @@ acceptance = { path = "../crates/acceptance", optional = true }
 diagnostics = { path = "../crates/diagnostics" }
 developer-control = { path = "../crates/developer-control", optional = true }
 client-presentation = { path = "../crates/client-presentation" }
+view-presentation = { path = "../crates/view-presentation" }
 gameplay = { path = "../crates/gameplay" }
 client-session = { path = "../crates/client-session" }
 client-ui = { path = "../crates/client-ui" }

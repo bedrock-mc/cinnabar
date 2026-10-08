@@ -46,7 +46,7 @@ impl GpuArtwork {
         self.identity = Some(identity);
         self.rejected = false;
         let limits = device.limits();
-        let fallback = crate::EquipmentRaster {
+        let fallback = render_model::equipment::EquipmentRaster {
             width: 1,
             height: 1,
             rgba8: Arc::from([0u8; 4]),
