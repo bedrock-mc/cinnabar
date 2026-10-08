@@ -30,6 +30,7 @@ mod home_promo;
 
 mod feeds;
 use feeds::{CoreFeeds, catalog_round};
+mod invites;
 mod message_reports;
 pub(super) mod profile_worker;
 
@@ -79,6 +80,8 @@ struct Snapshot {
     answered_trust: Option<u64>,
     /// The menu is connecting, so the events worker polls faster.
     joining: bool,
+    /// The invite screen's friends list, delivered once per request.
+    people: Option<Result<Vec<launcher_control::Person>, ()>>,
 }
 
 impl Snapshot {
@@ -89,6 +92,7 @@ impl Snapshot {
         self.friends = None;
         self.featured = None;
         self.profile = None;
+        self.people = None;
         self.home = None;
         if let Some(wake) = &self.catalog_wake {
             // A queued wake already covers the newest snapshot; never block a frame.
@@ -125,6 +129,7 @@ pub(crate) struct LauncherAccount {
     sign_out: Sender<()>,
     profile_refresh: Sender<()>,
     message_reports: Sender<MessageEvent>,
+    invites: Sender<invites::Request>,
     /// Dropping it stops the catalog and feed workers.
     _alive: Sender<()>,
     socket_dir: PathBuf,
@@ -149,6 +154,7 @@ impl LauncherAccount {
         let (sign_out, requests) = bounded(1);
         let (alive, stop) = bounded(0);
         let message_reports = message_reports::start(socket_dir.clone(), stop.clone());
+        let invites = invites::start(socket_dir.clone(), Arc::clone(&snapshot), stop.clone());
         let shared = Arc::clone(&snapshot);
         let dir = socket_dir.clone();
         thread::spawn(move || poll_events(&dir, &shared, &requests));
@@ -165,6 +171,7 @@ impl LauncherAccount {
             sign_out,
             profile_refresh,
             message_reports,
+            invites,
             _alive: alive,
             socket_dir,
         }
@@ -513,6 +520,7 @@ fn friend_card(friend: &Friend) -> MenuFriendCard {
         world_name: friend.world_name.clone(),
         members,
         xuid: friend.xuid.clone(),
+        max_members: friend.max_members,
     }
 }
 
@@ -694,6 +702,19 @@ impl AccountControl for LauncherAccount {
             followers: profile.followers,
             statistics: profile.statistics,
         })
+    }
+
+    fn request_people(&mut self) {
+        let _ = self.invites.send(invites::Request::People);
+    }
+
+    fn people(&mut self) -> Option<Result<Vec<launcher::menu::invite::Friend>, ()>> {
+        let people = self.with(|snapshot| snapshot.people.take())?;
+        Some(people.map(|people| people.into_iter().map(Into::into).collect()))
+    }
+
+    fn send_invites(&mut self, xuids: Vec<String>) {
+        let _ = self.invites.send(invites::Request::Send(xuids));
     }
 }
 
@@ -952,6 +973,7 @@ mod tests {
             _alive: alive,
             socket_dir: PathBuf::new(),
             message_reports: crossbeam_channel::unbounded().0,
+            invites: crossbeam_channel::unbounded().0,
         };
         assert!(account.sign_out());
         publish_account(&snapshot, generation, |snapshot| {

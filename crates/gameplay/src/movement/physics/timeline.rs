@@ -132,13 +132,14 @@ impl LocalPhysicsController {
         Some((changed.then_some(tick), speed))
     }
 
-    /// Writes a glide boost stamped `tick` into the retained inputs after it.
+    /// Writes a movement boost stamped `tick` into the retained inputs after it.
     ///
     /// Returns the tick to replay from when a retained input changed, and the
     /// span left for live ticks. Live stamps start with the next tick; stale
     /// stamps clamp to the oldest retained frame, as motion does.
-    pub(crate) fn retime_glide_boost(
+    pub(crate) fn retime_movement_boost(
         &mut self,
+        boost: crate::movement::MovementBoost,
         tick: u64,
         span: crate::movement::BoostSpan,
     ) -> BoostRetime {
@@ -149,6 +150,7 @@ impl LocalPhysicsController {
         };
         let Some(anchor) = anchor else {
             return BoostRetime {
+                boost,
                 rewind: None,
                 remaining: Some(span),
                 previous: Vec::new(),
@@ -156,14 +158,16 @@ impl LocalPhysicsController {
         };
         let mut previous = Vec::new();
         for input in self.history.retained_inputs_after_mut(anchor) {
-            previous.push(input.effects.glide_boost);
-            input.effects.glide_boost = span.covers(previous.len() as u64);
+            let lane = boost.flag(&mut input.effects);
+            previous.push(*lane);
+            *lane = span.covers(previous.len() as u64);
         }
         let changed = previous
             .iter()
             .enumerate()
             .any(|(index, boosted)| *boosted != span.covers(index as u64 + 1));
         BoostRetime {
+            boost,
             rewind: changed.then_some(anchor),
             remaining: span.after(previous.len() as u64),
             previous,
@@ -171,7 +175,7 @@ impl LocalPhysicsController {
     }
 
     /// Restores the retained inputs a boost retime rewrote, for a replay that failed.
-    pub(crate) fn revert_glide_boost(&mut self, retime: BoostRetime) {
+    pub(crate) fn revert_movement_boost(&mut self, retime: BoostRetime) {
         let Some(anchor) = retime.rewind else {
             return;
         };
@@ -180,8 +184,34 @@ impl LocalPhysicsController {
             .retained_inputs_after_mut(anchor)
             .zip(retime.previous)
         {
-            input.effects.glide_boost = boosted;
+            *retime.boost.flag(&mut input.effects) = boosted;
         }
+    }
+
+    /// Rewrites the liquid speed attributes of retained ticks after an
+    /// `UpdateAttributes` stamped `tick`; returns the tick to replay from when
+    /// an input changed. Live and stale stamps need no rewrite.
+    pub(crate) fn retime_liquid_movement_speeds(
+        &mut self,
+        tick: u64,
+        speeds: crate::movement::speed_authority::LiquidMovementSpeeds,
+    ) -> Option<u64> {
+        let TimelineSlot::Rewind(tick) = self.timeline_slot(tick) else {
+            return None;
+        };
+        let mut changed = false;
+        for input in self.history.retained_inputs_after_mut(tick) {
+            for (field, value) in [
+                (&mut input.underwater_movement_speed, speeds.underwater),
+                (&mut input.lava_movement_speed, speeds.lava),
+            ] {
+                if value.is_some() && *field != value {
+                    *field = value;
+                    changed = true;
+                }
+            }
+        }
+        changed.then_some(tick)
     }
 
     /// Replaces the live velocity, for timeline edits whose replay failed.
@@ -202,6 +232,7 @@ impl LocalPhysicsController {
 /// for live ticks, and the overwritten lanes in case the replay fails.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct BoostRetime {
+    boost: crate::movement::MovementBoost,
     pub rewind: Option<u64>,
     pub remaining: Option<crate::movement::BoostSpan>,
     previous: Vec<bool>,

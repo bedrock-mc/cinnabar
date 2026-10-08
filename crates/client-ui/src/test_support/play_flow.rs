@@ -102,12 +102,14 @@ pub fn fixture_view(dir: &std::path::Path) -> MenuView {
             world_name: "Sky Base".to_owned(),
             members: "2/8 players".to_owned(),
             xuid: "2535400000000001".to_owned(),
+            max_members: 8,
         },
         MenuFriendCard {
             gamertag: "Notch".to_owned(),
             world_name: "Survival 2".to_owned(),
             members: "1/8 players".to_owned(),
             xuid: "2535400000000002".to_owned(),
+            max_members: 8,
         },
     ];
     view.local_worlds = vec![LocalWorldCard {

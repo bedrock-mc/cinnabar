@@ -67,6 +67,8 @@ pub struct UseOutcome {
 #[derive(Debug, Default, Clone)]
 pub struct ItemUseRuntime {
     latched_press: bool,
+    delay_fix: bool,
+    last_air_use_tick: Option<u64>,
     active: Option<ActiveUse>,
     session: Option<u64>,
     rearm_millis: Option<u64>,
@@ -89,6 +91,11 @@ pub struct ItemUseRuntime {
 }
 
 impl ItemUseRuntime {
+    /// Skips only the air-use rearm gate; item category cooldowns remain authoritative.
+    pub fn set_delay_fix(&mut self, enabled: bool) {
+        self.delay_fix = enabled;
+    }
+
     /// Accepted use timing shared by native presentation and movement.
     pub fn active_timing(&self) -> Option<(u64, u32)> {
         self.active
@@ -141,6 +148,8 @@ impl ItemUseRuntime {
 
     /// Clears session-owned use state after disconnect or session replacement.
     fn cancel(&mut self) {
+        self.delay_fix = false;
+        self.last_air_use_tick = None;
         self.cancel_pending_input();
         self.active = None;
         self.rearm_millis = None;
@@ -236,9 +245,12 @@ impl ItemUseRuntime {
         }
         if frame.press_consumed {
             Some("consumed_by_block_or_attack")
-        } else if self
-            .rearm_millis
-            .is_some_and(|rearm| frame.now_millis <= rearm)
+        } else if self.delay_fix && self.last_air_use_tick == Some(frame.tick) {
+            Some("use_tick_already_admitted")
+        } else if !self.delay_fix
+            && self
+                .rearm_millis
+                .is_some_and(|rearm| frame.now_millis <= rearm)
         {
             Some("rearm_pending")
         } else if frame.selection.is_none() {
@@ -257,9 +269,11 @@ impl ItemUseRuntime {
     fn try_use(&mut self, frame: &UseFrame, pressed: bool, outcome: &mut UseOutcome) {
         let air_use = self.crossbows.air_use(frame);
         if frame.press_consumed
-            || self
-                .rearm_millis
-                .is_some_and(|rearm| frame.now_millis <= rearm)
+            || (self.delay_fix && self.last_air_use_tick == Some(frame.tick))
+            || (!self.delay_fix
+                && self
+                    .rearm_millis
+                    .is_some_and(|rearm| frame.now_millis <= rearm))
             || (!pressed
                 && (!self.repeat_armed
                     || air_use.is_some_and(|air_use| !air_use.repeats_while_held())))
@@ -269,6 +283,7 @@ impl ItemUseRuntime {
         let Some(selection) = self.displayed_selection(frame) else {
             return;
         };
+        self.last_air_use_tick = Some(frame.tick);
         self.rearm_millis = Some(frame.now_millis.saturating_add(USE_REARM_MILLIS));
         // Vanilla opens a legacy request scope on every air use.
         let legacy_request_id = self.next_legacy_request_id();

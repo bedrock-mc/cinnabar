@@ -4,7 +4,7 @@ use super::*;
 
 /// A local RPC guard, longer than the core's service deadline and response write allowance.
 /// This is transport recovery, not a vanilla animation or service timeout constant.
-const RESPONSE_TIMEOUT: Duration = Duration::from_secs(60);
+pub(super) const RESPONSE_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Publishes a terminal result even if a control endpoint accepts but never answers.
 pub(super) fn poll(

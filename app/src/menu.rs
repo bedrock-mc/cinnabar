@@ -19,10 +19,14 @@ mod flow_tests;
 mod focus;
 pub(crate) mod inbox;
 mod input;
+mod invite;
+mod join_requests;
+pub(crate) use join_requests::open_join_requests_from_key;
 pub(crate) mod launcher_account;
 mod launcher_core;
 pub(crate) use launcher_core::target_for;
 mod navigation;
+mod presence_targets;
 #[cfg(test)]
 mod server_input_tests;
 pub(crate) mod server_trust;
@@ -37,7 +41,7 @@ mod settings_values;
 mod sign_in_popup;
 #[cfg(test)]
 mod transfer_follow_tests;
-mod video_settings;
+pub(crate) mod video_settings;
 mod worlds_tab;
 
 use auth::{AuthState, AuthSupervisor};
@@ -154,6 +158,8 @@ pub(crate) struct MenuRuntime {
     local_ui: worlds_tab::LocalWorldsUi,
     /// Sign-in state reported by the core's account control, when bound.
     control_auth: Option<AuthState>,
+    /// Developer recordings present placeholder accounts; nothing signs in or touches the store.
+    presentation_accounts: bool,
     /// The device code whose sign-in page was last opened, so each code opens once.
     sign_in_page_code: Option<String>,
     sign_out_requested: bool,
@@ -193,6 +199,10 @@ pub(crate) struct MenuRuntime {
     local_world_joined: bool,
     local_world_active: bool,
     feeds: MenuFeeds,
+    /// The pause screen's invite screen and the invites it queued.
+    invite: invite::InviteUi,
+    /// Discord join requests waiting for the host's answer.
+    join_requests: join_requests::JoinRequestUi,
 }
 
 /// Session requests raised by menu actions, for the session controller to take.
@@ -233,11 +243,12 @@ impl MenuRuntime {
         self.visible
     }
 
-    /// Settings retains the background of the launcher or world beneath it.
+    /// Settings retains the background of the launcher or world beneath it; pause, its invite
+    /// screen and death keep the world visible.
     pub(crate) fn uses_panorama(&self) -> bool {
         self.visible
             && match self.screen {
-                MenuScreen::Pause | MenuScreen::Death => false,
+                MenuScreen::Pause | MenuScreen::Death | MenuScreen::Invite => false,
                 MenuScreen::Settings | MenuScreen::DressingRoom => !self.over_world(),
                 _ => true,
             }
@@ -299,6 +310,11 @@ impl MenuRuntime {
             AuthState::Checking | AuthState::AwaitingCode { .. }
         ) || (auth_state == AuthState::Authenticated
             && (!self.catalog_started || self.catalog_process.is_some()));
+        let auth_state = if self.presentation_accounts {
+            AuthState::Authenticated
+        } else {
+            auth_state
+        };
         MenuView {
             visible: self.visible,
             over_world: self.over_world(),
@@ -322,7 +338,7 @@ impl MenuRuntime {
             fullscreen: self.fullscreen,
             render_mode: self.render_mode,
             vsync_override: self.vsync_override,
-            display_name: self.display_name.clone(),
+            display_name: self.presented_display_name(),
             servers: self.servers.clone(),
             featured: self.featured.clone(),
             realms: self.realms.clone(),
@@ -356,8 +372,11 @@ impl MenuRuntime {
             language_choices: std::sync::Arc::clone(&self.language_choices),
             key_remap: self.key_remap,
             settings_advanced_graphics: self.settings_advanced_graphics,
-            feeds: self.feeds.clone(),
+            feeds: self.presented_feeds(),
             store: self.store_snapshot.clone(),
+            hosting: self.hosting_world(),
+            invite: self.invite_view(),
+            join_request: self.join_request_view(),
             global_resources: self.global_resources.clone(),
         }
     }
@@ -539,7 +558,7 @@ impl MenuRuntime {
     }
 
     pub(crate) fn activate(&mut self, action: MenuAction) {
-        if self.skin_editor_blocks(action) {
+        if self.skin_editor_blocks(action) || self.presentation_blocks(action) {
             return;
         }
         if self.account_change_pending()
@@ -684,7 +703,11 @@ impl MenuRuntime {
                         self.message =
                             Some("That friend world has no stable Xbox identity.".to_owned());
                     } else {
-                        self.request_connect(format!("friend_xuid/{}", friend.xuid));
+                        self.request_connect(format!(
+                            "{}{}",
+                            launcher::menu::FRIEND_ADDRESS_PREFIX,
+                            friend.xuid
+                        ));
                     }
                 }
             }
@@ -780,6 +803,8 @@ impl MenuRuntime {
             }
             MenuAction::LocalWorld(action) => self.queue_local_action(action),
             MenuAction::ServerTrust(trusted) => self.answer_server_trust(trusted),
+            MenuAction::Invite(action) => self.activate_invite(action),
+            MenuAction::JoinRequest(accept) => self.answer_join_request(accept),
         }
     }
 
@@ -887,20 +912,6 @@ impl MenuRuntime {
             local_world: false,
         });
         self.show_connecting();
-    }
-
-    /// The featured server `address` joins, as Discord's corner art, when it has a logo URL.
-    pub(crate) fn featured_badge(&self, address: &str) -> Option<rich_presence::Badge> {
-        let target = target_for(address);
-        let server = self
-            .featured
-            .iter()
-            .find(|server| target_for(&server.address) == target)?;
-        let image_url = &self.feeds.details.get(&server.address)?.logo_url;
-        (!image_url.is_empty()).then(|| rich_presence::Badge {
-            image_url: image_url.clone(),
-            name: server.name.clone(),
-        })
     }
 }
 
