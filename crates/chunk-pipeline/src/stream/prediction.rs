@@ -63,6 +63,7 @@ impl WorldStream {
         if self.order.blocking_block_updates().is_some() {
             self.predictions.0.push((key, update));
         }
+        self.dispatch_urgent_work();
         true
     }
 

@@ -128,6 +128,13 @@ const UNSENT_COLUMN_GRACE: Duration = Duration::from_secs(1);
 const MAX_STAGED_MESH_COMPLETIONS: usize = 256;
 const MAX_STAGED_MESH_BYTES: u64 = 32 * 1024 * 1024;
 const MAX_PENDING_SCHEDULER_SCANS_PER_POLL: usize = 128;
+/// Block batches within both bounds prepare on the commit thread.
+const INLINE_BLOCK_MUTATION_SUB_CHUNKS: usize = 4;
+const INLINE_BLOCK_MUTATION_UPDATES: usize = 64;
+/// Jobs one urgent pass may dispatch outside the poll.
+const URGENT_DISPATCH_BUDGET: usize = 4;
+/// Results one urgent pass may accept outside the poll.
+const URGENT_RESULTS_PER_PASS: usize = 16;
 const MAX_PENDING_MESH_QUEUE_WORK_PER_POLL: usize = MAX_PENDING_MESH_CHANGES;
 pub const MAX_IN_FLIGHT_LIGHT_JOBS: usize = 32;
 const MIN_EFFECTIVE_LIGHT_JOB_CAP: usize = 2;
@@ -342,6 +349,10 @@ pub struct WorldStream {
     arrival_cohort: Option<residency::ArrivalCohort>,
     poll_deadline: Option<Instant>,
     frame_deadline: Option<Instant>,
+    /// Camera the last poll ordered work by, reused by urgent passes between polls.
+    last_camera_position: [f32; 3],
+    /// A live block change left urgent light or mesh work to dispatch.
+    urgent_work_due: bool,
     /// Per-frame ingress, commit and scheduling allocation.
     poll_budget: Duration,
     polling: bool,

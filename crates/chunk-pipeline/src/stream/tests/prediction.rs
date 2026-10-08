@@ -375,3 +375,139 @@ fn urgent_removal_is_not_overtaken_by_an_older_queued_upsert() {
     );
     assert!(stream.is_mesh_clean(key));
 }
+
+/// Settles startup work around the fixture's air section so only a new change remains.
+fn settled_neighbourhood() -> (WorldStream, u64, [i32; 3], SubChunkKey, [f32; 3]) {
+    let (mut stream, next_sequence) = loaded_neighbourhood();
+    let position: [i32; 3] = [3, 200, 3];
+    let key = SubChunkKey::new(0, 0, position[1].div_euclid(16), 0);
+    let camera_position = position.map(|axis| axis as f32);
+    let deadline = Instant::now() + Duration::from_secs(20);
+    // Border sections may wait on columns the fixture never sends; settled means nothing
+    // is in flight and a poll finds nothing more to start.
+    loop {
+        let report = stream.poll(camera_position, usize::MAX);
+        present_queued_changes(&mut stream, key);
+        let idle = stream.lighting.jobs.in_flight.is_empty()
+            && stream.mesh_jobs.in_flight.is_empty()
+            && stream.mesh_changes.is_empty()
+            && report.light_jobs_dispatched == 0
+            && report.mesh_jobs_dispatched == 0
+            && report.light_results == 0
+            && report.mesh_results == 0;
+        if idle {
+            break;
+        }
+        assert!(Instant::now() < deadline, "fixture work did not settle");
+        std::thread::yield_now();
+    }
+    (stream, next_sequence, position, key, camera_position)
+}
+
+/// Waits for an urgent worker result; false once no urgent work is in flight.
+fn await_urgent_result(stream: &WorldStream) -> bool {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let urgent_in_flight = !stream.urgent_mesh_in_flight.is_empty()
+            || stream
+                .lighting
+                .jobs
+                .in_flight
+                .values()
+                .any(|identity| identity.urgent);
+        if !urgent_in_flight {
+            return false;
+        }
+        if !stream.lighting.rx.is_empty() || !stream.mesh_rx.is_empty() {
+            return true;
+        }
+        assert!(Instant::now() < deadline, "urgent work did not finish");
+        std::thread::yield_now();
+    }
+}
+
+/// Counts polls until `key`'s `generation` pops for presentation, servicing urgent results
+/// between polls the way the frame does before world publication.
+fn polls_until_published(
+    stream: &mut WorldStream,
+    camera_position: [f32; 3],
+    key: SubChunkKey,
+    generation: u64,
+) -> usize {
+    let mut polls = 0;
+    loop {
+        if present_queued_changes(stream, key).is_some_and(|(published, _)| published == generation)
+        {
+            return polls;
+        }
+        if await_urgent_result(stream) {
+            stream.service_urgent_work();
+        } else {
+            assert!(polls < 8, "the change never published");
+            stream.poll(camera_position, usize::MAX);
+            polls += 1;
+        }
+    }
+}
+
+/// A single server block update commits on arrival and its mesh publishes within one poll.
+#[test]
+fn a_single_block_update_publishes_its_mesh_within_one_poll() {
+    let (mut stream, next_sequence, position, key, camera_position) = settled_neighbourhood();
+    server_update(&mut stream, next_sequence, position, 1);
+    assert_eq!(stream.order.blocking_block_updates(), None);
+    assert!(
+        stream.pending_decode.is_empty(),
+        "a one-section batch skips the worker hop"
+    );
+    assert_eq!(block(&stream, position), Some(1));
+    let generation = stream.revisions.dirty(key).unwrap().revision;
+    let polls = polls_until_published(&mut stream, camera_position, key, generation);
+    assert!(polls <= 1, "published after {polls} polls");
+}
+
+/// A prediction dispatches its urgent work at once, before any poll.
+#[test]
+fn a_prediction_dispatches_its_work_without_a_poll() {
+    let (mut stream, _, position, key, camera_position) = settled_neighbourhood();
+    let stages = stream.stats.phase2_stages;
+    assert!(stream.predict_block(position, 0, 1));
+    let dispatched = stream.stats.phase2_stages;
+    assert!(
+        dispatched.light_jobs_dispatched + dispatched.mesh_jobs_dispatched
+            > stages.light_jobs_dispatched + stages.mesh_jobs_dispatched
+    );
+    let generation = stream.revisions.dirty(key).unwrap().revision;
+    assert_eq!(
+        polls_until_published(&mut stream, camera_position, key, generation),
+        0
+    );
+}
+
+/// Ingress decode starts on submit rather than at the next poll.
+#[test]
+fn ingress_decode_is_in_flight_before_any_poll() {
+    let mut stream = fixture();
+    stream
+        .submit(
+            2,
+            WorldEvent::LevelChunk(LevelChunkEvent {
+                dimension: 0,
+                x: 1,
+                z: 0,
+                mode: LevelChunkMode::Inline { count: 1 },
+                payload: column_payload(),
+            }),
+        )
+        .unwrap();
+    stream.dispatch_ingress_decode();
+    assert!(stream.pending_decode.is_empty());
+    assert_eq!(stream.in_flight_decode_jobs, 1);
+    let completion = stream
+        .decode_rx
+        .recv_timeout(Duration::from_secs(5))
+        .unwrap();
+    stream.accept_decode_completion(completion);
+    stream.apply_ready();
+    assert_eq!(stream.committed_sequence(), 2);
+}

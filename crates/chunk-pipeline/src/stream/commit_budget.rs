@@ -60,6 +60,14 @@ impl WorldStream {
                     let (batches, events) = self.snapshot_synced_block_mutation_batches(events);
                     if batches.is_empty() {
                         self.finish_ordered_commit(sequence);
+                    } else if inline_block_batches(&batches) {
+                        let ids = self.decode_ids(self.authority.current_dimension());
+                        self.apply_block_mutations_inline(DecodeJob::SyncedBlockUpdates {
+                            sequence,
+                            batches,
+                            events,
+                            ids,
+                        });
                     } else {
                         let ids = self.decode_ids(self.authority.current_dimension());
                         self.predictions.begin_server_batch();
@@ -77,6 +85,13 @@ impl WorldStream {
                     let batches = self.snapshot_block_mutation_batches(events);
                     if batches.is_empty() {
                         self.finish_ordered_commit(sequence);
+                    } else if inline_block_batches(&batches) {
+                        let ids = self.decode_ids(self.authority.current_dimension());
+                        self.apply_block_mutations_inline(DecodeJob::BlockUpdates {
+                            sequence,
+                            batches,
+                            ids,
+                        });
                     } else {
                         let ids = self.decode_ids(self.authority.current_dimension());
                         self.predictions.begin_server_batch();
@@ -92,6 +107,16 @@ impl WorldStream {
             }
             progressed = true;
         }
+        if !self.polling {
+            self.dispatch_urgent_work();
+        }
+    }
+
+    /// Prepares and commits a small block batch on this thread, skipping the worker hop.
+    fn apply_block_mutations_inline(&mut self, job: DecodeJob) {
+        let completion = job.run(Instant::now());
+        self.apply_prepared(completion.event);
+        self.finish_ordered_commit(completion.sequence);
     }
 
     /// Releases a request reservation only when the lower owner finishes the whole event.
@@ -100,6 +125,17 @@ impl WorldStream {
             self.cancel_request_reservation(sequence);
         }
     }
+}
+
+/// Small batches prepare on the commit thread: copy-on-write costs microseconds, while a
+/// worker round trip costs a frame.
+fn inline_block_batches(batches: &[BlockMutationBatch]) -> bool {
+    batches.len() <= INLINE_BLOCK_MUTATION_SUB_CHUNKS
+        && batches
+            .iter()
+            .map(|batch| batch.updates.len())
+            .sum::<usize>()
+            <= INLINE_BLOCK_MUTATION_UPDATES
 }
 
 #[cfg(test)]

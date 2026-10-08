@@ -69,6 +69,7 @@ impl WorldStream {
         #[cfg(feature = "tracy")]
         let _zone = tracing::info_span!("stream.poll").entered();
         if camera_position.iter().all(|value| value.is_finite()) {
+            self.last_camera_position = camera_position;
             self.requests.last_player_chunk = Some(ChunkKey::new(
                 self.authority.current_dimension(),
                 floor_to_i32(camera_position[0]).div_euclid(16),
@@ -159,6 +160,63 @@ impl WorldStream {
         self.polling = false;
         report
     }
+    /// Dispatches the light and mesh work a live block change made urgent, without
+    /// waiting for the next poll.
+    pub(super) fn dispatch_urgent_work(&mut self) {
+        if !std::mem::take(&mut self.urgent_work_due) || self.lighting.fatal_failure {
+            return;
+        }
+        let camera = self.last_camera_position;
+        self.dispatch_light_jobs(camera, URGENT_DISPATCH_BUDGET);
+        let budget = self
+            .publication_allowance
+            .as_ref()
+            .map_or(
+                URGENT_DISPATCH_BUDGET,
+                PublicationAllowance::frame_remaining_items,
+            )
+            .min(URGENT_DISPATCH_BUDGET)
+            .min(MAX_PENDING_MESH_CHANGES.saturating_sub(self.mesh_changes.len()));
+        self.dispatch_mesh_jobs_with_limits(camera, budget, budget);
+    }
+
+    /// Accepts urgent light and mesh results finished since the poll and dispatches the meshes
+    /// they unblock, so a block change publishes in the frame its workers finish. Returns the
+    /// mesh results accepted.
+    pub fn service_urgent_work(&mut self) -> usize {
+        if !self.urgent_work_due
+            && self.urgent_mesh_in_flight.is_empty()
+            && !self
+                .lighting
+                .jobs
+                .in_flight
+                .values()
+                .any(|identity| identity.urgent)
+        {
+            return 0;
+        }
+        for _ in 0..URGENT_RESULTS_PER_PASS {
+            let Ok(completion) = self.lighting.rx.try_recv() else {
+                break;
+            };
+            self.accept_light_completion(completion);
+            self.urgent_work_due = true;
+        }
+        self.dispatch_urgent_work();
+        self.retry_staged_mesh_completions();
+        let mut accepted = 0;
+        while accepted < URGENT_RESULTS_PER_PASS
+            && self.mesh_changes.len() < MAX_PENDING_MESH_CHANGES
+        {
+            let Ok(completion) = self.mesh_rx.try_recv() else {
+                break;
+            };
+            self.accept_mesh_completion(completion);
+            accepted += 1;
+        }
+        accepted
+    }
+
     pub fn camera_medium(&self, position: [f32; 3]) -> CameraMedium {
         if !position.iter().all(|value| value.is_finite()) {
             return CameraMedium::Air;

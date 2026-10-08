@@ -1151,7 +1151,11 @@ fn max_block_update_batch_prepares_off_thread_and_commits_atomically_in_fifo() {
     assert_eq!(committed.runtime_id(0, 15, 14, 15), Some(4_095));
     let key = SubChunkKey::new(0, 0, 0, 0);
     assert!(stream.lighting.block_generations.contains_key(&key));
-    assert!(stream.lighting.jobs.pending.contains_key(&key));
+    // The urgent relight starts as soon as the batch commits.
+    assert!(
+        stream.lighting.jobs.pending.contains_key(&key)
+            || stream.lighting.jobs.in_flight.contains_key(&key)
+    );
     assert_eq!(
         stream.lighting.store.kind(key),
         world::LightSubChunkKind::Resident
