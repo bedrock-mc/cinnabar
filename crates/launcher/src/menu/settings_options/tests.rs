@@ -52,6 +52,63 @@ fn freelook_defaults_to_f_and_remaps_to_mouse_across_reload() {
     assert!(router.finalize().unwrap().phases[semantic_input::Action::Freelook as usize].held);
 }
 
+#[test]
+fn open_notification_defaults_to_n_and_remaps_across_reload() {
+    let mut settings = SettingsOptions::default();
+    let row = KEY_BINDINGS
+        .iter()
+        .position(|(_, name)| *name == OPEN_NOTIFICATION_KEY)
+        .unwrap();
+    assert_eq!(
+        KEY_BINDINGS[row].0,
+        semantic_input::Action::InteractWithToast
+    );
+    assert_eq!(
+        settings.named_key_control(OPEN_NOTIFICATION_KEY),
+        Some(PhysicalControl::KeyboardUsage(0x11))
+    );
+    // Another action's key is refused; a free one sticks and reaches the router.
+    assert!(!settings.remap(row, PhysicalControl::KeyboardUsage(0x08)));
+    assert!(settings.remap(row, PhysicalControl::KeyboardUsage(0x0f)));
+    let loaded = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
+    assert_eq!(
+        loaded.named_key_control(OPEN_NOTIFICATION_KEY),
+        Some(PhysicalControl::KeyboardUsage(0x0f))
+    );
+    let mut router = semantic_input::SemanticInputRouter::default();
+    router.replace_bindings(loaded.controls().unwrap()).unwrap();
+    router
+        .route(semantic_input::DeviceFrame {
+            keyboard_mouse: Some(semantic_input::KeyboardMouseFrame {
+                activity_sequence: 1,
+                keys: vec![0x0f],
+                ..Default::default()
+            }),
+            ..Default::default()
+        })
+        .unwrap();
+    let phases = router.finalize().unwrap().phases;
+    assert!(phases[semantic_input::Action::InteractWithToast as usize].pressed);
+}
+
+#[test]
+fn a_saved_layout_already_using_n_keeps_it_over_the_open_notification_default() {
+    let settings = SettingsOptions::decode(br#"{"keys":{"key.drop":17}}"#).unwrap();
+    assert_eq!(
+        settings.named_key_control("key.drop"),
+        Some(PhysicalControl::KeyboardUsage(0x11))
+    );
+    assert_eq!(settings.named_key_control(OPEN_NOTIFICATION_KEY), None);
+    assert!(
+        !settings
+            .controls()
+            .unwrap()
+            .bindings()
+            .iter()
+            .any(|binding| binding.action == semantic_input::Action::InteractWithToast)
+    );
+}
+
 /// Finds an option through the same stable controller identifier used on disk.
 fn index(name: &str) -> usize {
     SETTINGS_OPTIONS

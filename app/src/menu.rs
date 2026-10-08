@@ -19,10 +19,14 @@ mod flow_tests;
 mod focus;
 pub(crate) mod inbox;
 mod input;
+mod invite;
+mod join_requests;
+pub(crate) use join_requests::open_join_requests_from_key;
 pub(crate) mod launcher_account;
 mod launcher_core;
 pub(crate) use launcher_core::target_for;
 mod navigation;
+mod presence_targets;
 #[cfg(test)]
 mod server_input_tests;
 pub(crate) mod server_trust;
@@ -195,6 +199,10 @@ pub(crate) struct MenuRuntime {
     local_world_joined: bool,
     local_world_active: bool,
     feeds: MenuFeeds,
+    /// The pause screen's invite screen and the invites it queued.
+    invite: invite::InviteUi,
+    /// Discord join requests waiting for the host's answer.
+    join_requests: join_requests::JoinRequestUi,
 }
 
 /// Session requests raised by menu actions, for the session controller to take.
@@ -235,11 +243,12 @@ impl MenuRuntime {
         self.visible
     }
 
-    /// Settings retains the background of the launcher or world beneath it.
+    /// Settings retains the background of the launcher or world beneath it; pause, its invite
+    /// screen and death keep the world visible.
     pub(crate) fn uses_panorama(&self) -> bool {
         self.visible
             && match self.screen {
-                MenuScreen::Pause | MenuScreen::Death => false,
+                MenuScreen::Pause | MenuScreen::Death | MenuScreen::Invite => false,
                 MenuScreen::Settings | MenuScreen::DressingRoom => !self.over_world(),
                 _ => true,
             }
@@ -365,6 +374,9 @@ impl MenuRuntime {
             settings_advanced_graphics: self.settings_advanced_graphics,
             feeds: self.presented_feeds(),
             store: self.store_snapshot.clone(),
+            hosting: self.hosting_world(),
+            invite: self.invite_view(),
+            join_request: self.join_request_view(),
             global_resources: self.global_resources.clone(),
         }
     }
@@ -691,7 +703,11 @@ impl MenuRuntime {
                         self.message =
                             Some("That friend world has no stable Xbox identity.".to_owned());
                     } else {
-                        self.request_connect(format!("friend_xuid/{}", friend.xuid));
+                        self.request_connect(format!(
+                            "{}{}",
+                            launcher::menu::FRIEND_ADDRESS_PREFIX,
+                            friend.xuid
+                        ));
                     }
                 }
             }
@@ -787,6 +803,8 @@ impl MenuRuntime {
             }
             MenuAction::LocalWorld(action) => self.queue_local_action(action),
             MenuAction::ServerTrust(trusted) => self.answer_server_trust(trusted),
+            MenuAction::Invite(action) => self.activate_invite(action),
+            MenuAction::JoinRequest(accept) => self.answer_join_request(accept),
         }
     }
 
@@ -894,20 +912,6 @@ impl MenuRuntime {
             local_world: false,
         });
         self.show_connecting();
-    }
-
-    /// The featured server `address` joins, as Discord's corner art, when it has a logo URL.
-    pub(crate) fn featured_badge(&self, address: &str) -> Option<rich_presence::Badge> {
-        let target = target_for(address);
-        let server = self
-            .featured
-            .iter()
-            .find(|server| target_for(&server.address) == target)?;
-        let image_url = &self.feeds.details.get(&server.address)?.logo_url;
-        (!image_url.is_empty()).then(|| rich_presence::Badge {
-            image_url: image_url.clone(),
-            name: server.name.clone(),
-        })
     }
 }
 

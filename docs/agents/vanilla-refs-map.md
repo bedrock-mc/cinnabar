@@ -759,6 +759,10 @@ RVAs are 1.26.50.26 Windows client; `mac 0x10…` addresses are the 26.30 macOS 
 - /// Only zero hardness breaks on the start tick (`GameMode::startDestroyBlock`);
 - /// stopDestroyBlock clears the delay, so a fresh press starts at once.
 
+## crates/input/src/binding.rs
+- InteractWithToast (`key.interactwithtoast`, "Open Notification") defaults to N: vanilla
+  options.txt default `keyboard_type_0_key.interactwithtoast:78`.
+
 ## crates/inventory/src/inventory_ledger/admission.rs
 - // Native LegacyClientNetworkHandler::handle routes a response to the screen manager
 
