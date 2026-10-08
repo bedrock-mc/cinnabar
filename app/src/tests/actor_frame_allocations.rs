@@ -28,6 +28,7 @@ pub(crate) fn actor_frame_world(
     (eye, target): (Vec3, Vec3),
 ) -> World {
     let mut world = World::new();
+    world.insert_resource(crate::player_runtime::PlayerRuntime::new(1));
     world.insert_resource(client_world);
     world.insert_resource(Time::<Real>::new(Instant::now()));
     world.insert_resource(scene);
@@ -43,6 +44,7 @@ pub(crate) fn actor_frame_world(
     world.insert_resource(crate::player_skin::LocalPlayerSkin::generated_default(
         "bench",
     ));
+    world.init_resource::<client_presentation::actor_publication::ActorFrameState>();
     world.insert_resource(ActorFramePartialTick::default());
     world.init_resource::<crate::runtime::network::PreparedActorPublication>();
     let camera = Transform::from_translation(eye).looking_at(target, Vec3::Y);
@@ -120,7 +122,7 @@ fn steady_frame_allocations(actors: u64) -> u64 {
             .resource::<crate::runtime::world::ClientWorld>()
             .stream
             .as_ref()
-            .and_then(|stream| stream.actor_rig(100))
+            .and_then(|stream| stream.authority().actor_rig(100))
             .map(|rig| rig.completed_tick)
     };
     let mut clock = Instant::now();
@@ -132,6 +134,9 @@ fn steady_frame_allocations(actors: u64) -> u64 {
             .update_with_instant(clock);
         let before_tick = tick(&world);
         let before = super::alloc_count::thread_allocations();
+        world
+            .run_system_cached(crate::runtime::network::advance_actor_frame)
+            .unwrap();
         world.run_system_cached(prepare_actor_render_frame).unwrap();
         world.run_system_cached(publish_actor_render_frame).unwrap();
         let allocated = super::alloc_count::thread_allocations() - before;

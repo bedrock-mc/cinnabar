@@ -9,8 +9,11 @@ use client_world::{
 use protocol::{ActorKind, PlayerSkin, StandardSkin};
 use render::{
     ActorCullView, ActorRenderIdentity, ActorRenderScene, ActorRigRenderInput, ActorRigRoute,
-    ActorRigSubmission, EntityRigId as RenderEntityRigId, MAX_RENDERED_PLAYERS,
-    RenderBoneTransform, STANDARD_SKIN_BYTES,
+    ActorRigSubmission,
+};
+use render_model::{
+    EntityRigId as RenderEntityRigId, MAX_RENDERED_PLAYERS, RenderBoneTransform,
+    STANDARD_SKIN_BYTES,
 };
 use semantic_input::PerspectiveMode;
 
@@ -20,7 +23,7 @@ use crate::local_player::{
 };
 use crate::movement::{MovementSource, PhysicsAuthorityGate};
 use crate::presentation::actors::{
-    ActorRigPresentation, SkinLayerPack, actor_rig_presentation, entity_rig_presentation,
+    ActorRigPresentation, actor_rig_presentation, entity_rig_presentation,
     local_actor_presentation_for_visibility, local_diagnostic_presentation,
     select_actor_presentations, select_actor_presentations_for_view, update_actor_rig_scene,
 };
@@ -38,16 +41,15 @@ fn render_bone() -> RenderBoneTransform {
     RenderBoneTransform {
         rotation: [0.0, 0.0, 0.0, 1.0],
         translation_scale: [0.0, 0.0, 0.0, 1.0],
-        axis_scale: render::UNIT_AXIS_SCALE,
+        axis_scale: render_model::UNIT_AXIS_SCALE,
     }
 }
 
 fn actor(runtime_id: u64, movement_revision: u64) -> ActorSnapshot {
-    ActorSnapshot {
+    let mut actor = super::actor_snapshot(protocol::ActorSpawnEvent {
+        dimension: 0,
         unique_id: runtime_id as i64,
         runtime_id,
-        spawn_revision: 3,
-        movement_revision,
         kind: ActorKind::Player {
             uuid: [runtime_id as u8; 16],
             username: "player".into(),
@@ -57,30 +59,24 @@ fn actor(runtime_id: u64, movement_revision: u64) -> ActorSnapshot {
         pitch: 0.0,
         yaw: 90.0,
         head_yaw: 90.0,
-        previous_pose: ActorPose {
-            position: [2.0, 64.0, -2.0],
-            pitch: 0.0,
-            yaw: 0.0,
-            head_yaw: 0.0,
-        },
-        received_pose: ActorPose {
-            position: [4.0, 64.0, -2.0],
-            pitch: 0.0,
-            yaw: 90.0,
-            head_yaw: 90.0,
-        },
-        interpolation_ticks_remaining: 0,
         body_yaw: 90.0,
-        on_ground: Some(true),
-        teleported: false,
-        player_mode: None,
-        source_tick: Some(41),
-        metadata: Default::default(),
-        attributes: Default::default(),
-        int_properties: Default::default(),
-        float_properties: Default::default(),
-        status: Default::default(),
-    }
+        held_item: Default::default(),
+        metadata: Arc::from([]),
+        attributes: Arc::from([]),
+        properties: Arc::from([]),
+        links: Arc::from([]),
+    });
+    actor.spawn_revision = 3;
+    actor.movement_revision = movement_revision;
+    actor.on_ground = Some(true);
+    actor.source_tick = Some(41);
+    actor.previous_pose = ActorPose {
+        position: [2.0, 64.0, -2.0],
+        pitch: 0.0,
+        yaw: 0.0,
+        head_yaw: 0.0,
+    };
+    actor
 }
 
 fn profile(runtime_id: u64, value: u8) -> PlayerProfile {
@@ -91,8 +87,8 @@ fn profile(runtime_id: u64, value: u8) -> PlayerProfile {
         skin: PlayerSkin::Standard(StandardSkin {
             geometry: None,
             cape: None,
-            width: render::STANDARD_SKIN_SIDE as u32,
-            height: render::STANDARD_SKIN_SIDE as u32,
+            width: render_model::STANDARD_SKIN_SIDE as u32,
+            height: render_model::STANDARD_SKIN_SIDE as u32,
             rgba8: vec![value; STANDARD_SKIN_BYTES].into(),
         }),
     }
@@ -126,14 +122,21 @@ fn rig<'a>(
         render: &[],
         bone_names: &[],
         skin_geometry: None,
+        skin_mesh: None,
         skin_layers: &[],
         hand: Default::default(),
+        item_animation: [client_world::ItemAnimationState::default(); 2],
+        off_hand_animation: [client_world::ItemAnimationState::default(); 2],
+        animation_variables: Default::default(),
+        java: Default::default(),
+        java_equipped: None,
     }
 }
 
 fn render_owned(runtime_id: u64, skin: u8) -> ActorRigPresentation {
     ActorRigPresentation {
         submission: ActorRigSubmission {
+            material: Default::default(),
             culling_bounds: Default::default(),
             input: ActorRigRenderInput {
                 identity: ActorRenderIdentity {
@@ -167,8 +170,8 @@ fn render_owned(runtime_id: u64, skin: u8) -> ActorRigPresentation {
         },
         skin_rgba8: Some(vec![skin; STANDARD_SKIN_BYTES].into()),
         artwork: None,
-        model_scale: 1.0,
         authored_scale: 1.0,
+        world_yaw_degrees: 0.0,
         head_over_body: 0.0,
     }
 }
@@ -256,7 +259,7 @@ fn conversion_rejects_nonfinite_bones_and_mismatched_lifetimes() {
 }
 
 #[test]
-fn visible_local_reserves_one_slot_and_removes_its_remote_duplicate() {
+fn visible_local_removes_its_remote_duplicate_without_capping_other_actors() {
     let local = local_diagnostic_presentation(7, -1, 7, 5, [0.0, 64.0, 0.0], 0.0, 0.0)
         .expect("finite local carrier converts");
     assert_eq!(local.submission.input.identity.dimension, -1);
@@ -264,9 +267,10 @@ fn visible_local_reserves_one_slot_and_removes_its_remote_duplicate() {
         .rev()
         .map(|runtime_id| render_owned(runtime_id, 31))
         .collect::<Vec<_>>();
+    let remote_count = remotes.len();
 
     let hidden = select_actor_presentations(7, false, Some(local.clone()), remotes.clone());
-    assert_eq!(hidden.submissions.len(), MAX_RENDERED_PLAYERS);
+    assert_eq!(hidden.submissions.len(), remote_count - 1);
     assert_eq!(
         hidden
             .submissions
@@ -277,7 +281,7 @@ fn visible_local_reserves_one_slot_and_removes_its_remote_duplicate() {
     );
 
     let visible = select_actor_presentations(7, true, Some(local), remotes);
-    assert_eq!(visible.submissions.len(), MAX_RENDERED_PLAYERS);
+    assert_eq!(visible.submissions.len(), remote_count);
     assert_eq!(
         visible
             .submissions
@@ -285,6 +289,12 @@ fn visible_local_reserves_one_slot_and_removes_its_remote_duplicate() {
             .filter(|entry| entry.input.identity.runtime_id == 7)
             .count(),
         1
+    );
+    assert!(
+        visible
+            .submissions
+            .iter()
+            .any(|entry| { entry.input.identity.runtime_id == MAX_RENDERED_PLAYERS as u64 + 1 })
     );
 }
 
@@ -350,23 +360,6 @@ fn identical_skin_families_share_one_bounded_texture_layer() {
     );
 }
 
-/// An unchanged skin set must reuse the packed payload instead of copying it every frame.
-#[test]
-fn unchanged_skin_layers_reuse_one_packed_payload() {
-    let mut pack = SkinLayerPack::default();
-    let first =
-        select_actor_presentations(99, false, None, [render_owned(1, 31), render_owned(2, 32)]);
-    let packed = pack.pack(first.skin_layers);
-    let again =
-        select_actor_presentations(99, false, None, [render_owned(1, 31), render_owned(2, 32)]);
-    let repacked = pack.pack(again.skin_layers);
-    assert!(Arc::ptr_eq(&packed, &repacked));
-    assert_eq!(pack.rebuilds(), 1);
-    let changed = select_actor_presentations(99, false, None, [render_owned(1, 33)]);
-    assert_eq!(pack.pack(changed.skin_layers).len(), STANDARD_SKIN_BYTES);
-    assert_eq!(pack.rebuilds(), 2);
-}
-
 #[test]
 fn visible_local_is_reserved_even_when_the_world_frustum_excludes_its_body() {
     let mut local = local_diagnostic_presentation(7, 0, 7, 5, [0.0, 64.0, 0.0], 0.0, 0.0)
@@ -380,7 +373,7 @@ fn visible_local_is_reserved_even_when_the_world_frustum_excludes_its_body() {
 
     let batch = select_actor_presentations_for_view(7, true, Some(local), [], Some(view));
     let mut scene = ActorRenderScene::default();
-    let frame = update_actor_rig_scene(&mut scene, 0.5, batch, &mut Default::default());
+    let frame = update_actor_rig_scene(&mut scene, 0.5, batch);
 
     assert_eq!(frame.rig.instances.len(), 1);
     assert_eq!(frame.rig.manifest[0].identity.runtime_id, 7);
@@ -401,6 +394,7 @@ fn third_person_local_fallback_reaches_the_render_manifest_without_a_physics_fra
     no_identity.publish_view_visibility(
         PerspectiveMode::ThirdPersonBack,
         Vec3::new(3.0, 65.62, -2.0),
+        Vec3::new(3.0, 64.0, -2.0),
         Quat::IDENTITY,
         &mut visibility,
     );
@@ -416,6 +410,7 @@ fn third_person_local_fallback_reaches_the_render_manifest_without_a_physics_fra
         avatar.publish_view_visibility(
             perspective,
             Vec3::new(3.0, 65.62, -2.0),
+            Vec3::new(3.0, 64.0, -2.0),
             Quat::IDENTITY,
             &mut visibility,
         );
@@ -425,8 +420,7 @@ fn third_person_local_fallback_reaches_the_render_manifest_without_a_physics_fra
             .expect("valid session view publishes without Physics authority");
         assert_eq!(snapshot.visible(), expected_draws != 0);
 
-        let mut position = snapshot.eye();
-        position.y -= crate::local_player::LOCAL_AVATAR_EYE_HEIGHT_BLOCKS;
+        let position = snapshot.feet();
         let local = local_diagnostic_presentation(
             9,
             0,
@@ -439,20 +433,22 @@ fn third_person_local_fallback_reaches_the_render_manifest_without_a_physics_fra
         .expect("view-backed local visibility converts to a diagnostic rig");
         let batch = select_actor_presentations(42, snapshot.visible(), Some(local), []);
         let mut scene = ActorRenderScene::default();
-        let frame = update_actor_rig_scene(&mut scene, 0.5, batch, &mut Default::default());
+        let frame = update_actor_rig_scene(&mut scene, 0.5, batch);
 
         assert_eq!(frame.rig.instances.len(), expected_draws);
         assert_eq!(frame.rig.manifest.len(), expected_draws);
         if expected_draws != 0 {
             assert_eq!(frame.rig.manifest[0].identity.runtime_id, 42);
             assert_eq!(frame.rig.manifest[0].route, ActorRigRoute::Diagnostic);
-            assert_eq!(frame.skins_rgba8.len(), STANDARD_SKIN_BYTES);
+            let skin = frame.player_skin(frame.rig.instances[0].texture_layer);
+            assert_eq!(skin.map(|skin| skin.len()), Some(STANDARD_SKIN_BYTES));
         }
     }
 
     avatar.publish_view_visibility(
         PerspectiveMode::ThirdPersonBack,
         Vec3::NAN,
+        Vec3::ZERO,
         Quat::IDENTITY,
         &mut visibility,
     );
@@ -479,6 +475,7 @@ fn f5_local_avatar_uses_authoritative_subject_when_view_eye_is_boomed() {
     .unwrap();
     let stale_sample = LocalPlayerFrameSample {
         session_generation: 7,
+        actor_session_id: 3,
         fifo_sequence: 41,
         physics_tick: 900,
         perspective: PerspectiveMode::ThirdPersonBack,
@@ -489,6 +486,7 @@ fn f5_local_avatar_uses_authoritative_subject_when_view_eye_is_boomed() {
             PerspectiveMode::ThirdPersonBack,
         ),
         eye: stale_eye,
+        feet: stale_eye - Vec3::Y * protocol::PLAYER_NETWORK_OFFSET,
         rotation: subject_rotation,
     };
     stale_frame.publish(stale_sample).unwrap();
@@ -507,7 +505,9 @@ fn f5_local_avatar_uses_authoritative_subject_when_view_eye_is_boomed() {
         publish_local_actor_visibility(
             &avatar,
             perspective,
+            None,
             authoritative_eye,
+            Some(subject_eye - Vec3::Y * protocol::PLAYER_NETWORK_OFFSET),
             subject_rotation,
             &mut visibility,
         );
@@ -515,8 +515,7 @@ fn f5_local_avatar_uses_authoritative_subject_when_view_eye_is_boomed() {
         assert_eq!(snapshot.eye(), subject_eye);
         assert!(snapshot.visible());
 
-        let mut feet = snapshot.eye();
-        feet.y -= crate::local_player::LOCAL_AVATAR_EYE_HEIGHT_BLOCKS;
+        let feet = snapshot.feet();
         let local = local_diagnostic_presentation(
             7,
             0,
@@ -544,7 +543,9 @@ fn f5_local_avatar_uses_authoritative_subject_when_view_eye_is_boomed() {
     publish_local_actor_visibility(
         &avatar,
         PerspectiveMode::FirstPerson,
+        None,
         Some(subject_eye),
+        Some(subject_eye - Vec3::Y * protocol::PLAYER_NETWORK_OFFSET),
         subject_rotation,
         &mut visibility,
     );
@@ -561,6 +562,8 @@ fn f5_local_avatar_uses_authoritative_subject_when_view_eye_is_boomed() {
 fn local_canonical_body_lags_the_view_yaw_by_the_rigs_head_offset() {
     let mut canonical = render_owned(7, 31);
     canonical.head_over_body = 30.0;
+    canonical.submission.world_from_actor =
+        crate::presentation::actors::rig_world_from_actor([0.0; 3], 0.0, 1.0);
     let diagnostic = local_diagnostic_presentation(7, 0, 7, 5, [4.0, 64.0, 2.0], 90.0, 0.0)
         .expect("finite local carrier converts");
     let local =
@@ -574,7 +577,6 @@ fn local_canonical_body_lags_the_view_yaw_by_the_rigs_head_offset() {
 
 #[test]
 fn projectile_animation_rotation_is_not_multiplied_by_mob_body_yaw() {
-    let bones = [model_bone([0.0; 3])];
     for identifier in [
         "minecraft:arrow",
         "minecraft:ender_pearl",
@@ -584,24 +586,43 @@ fn projectile_animation_rotation_is_not_multiplied_by_mob_body_yaw() {
         actor.kind = ActorKind::Entity {
             identifier: identifier.into(),
         };
-        let rig = ActorRigSnapshot {
-            previous_body_yaw: 90.0,
-            body_yaw: 90.0,
-            ..rig(42, &bones, &bones)
-        };
-        let presentation =
-            entity_rig_presentation(&rig, &actor, &render::ActorArtworkPages::default(), 1.0)
+        for pitch in [-90.0_f32, -35.0, 0.0, 90.0] {
+            let rotation = (Quat::from_rotation_y(73.0_f32.to_radians())
+                * Quat::from_rotation_x(pitch.to_radians()))
+            .to_array();
+            let bones = [BoneTransform {
+                rotation,
+                ..model_bone([0.0; 3])
+            }];
+            for body_yaw in [-120.0, 0.0, 90.0] {
+                let rig = ActorRigSnapshot {
+                    previous_body_yaw: body_yaw,
+                    body_yaw,
+                    ..rig(42, &bones, &bones)
+                };
+                let presentation = entity_rig_presentation(
+                    &rig,
+                    &actor,
+                    &render::ActorArtworkPages::default(),
+                    1.0,
+                )
                 .unwrap();
-        let rows = presentation.submission.world_from_actor;
-        let basis = if identifier == "minecraft:arrow" {
-            -1.0
-        } else {
-            1.0
-        };
-        assert!((rows[0][0] - basis).abs() < 1e-6, "{identifier}");
-        assert!(rows[0][2].abs() < 1e-6, "{identifier}");
-        assert!(rows[2][0].abs() < 1e-6, "{identifier}");
-        assert!((rows[2][2] - basis).abs() < 1e-6, "{identifier}");
+                let rows = presentation.submission.world_from_actor;
+                assert_eq!(presentation.world_yaw_degrees, 0.0, "{identifier}");
+                assert!((rows[0][0] + 1.0).abs() < 1e-6, "{identifier}");
+                assert!(rows[0][2].abs() < 1e-6, "{identifier}");
+                assert!(rows[2][0].abs() < 1e-6, "{identifier}");
+                assert!((rows[2][2] + 1.0).abs() < 1e-6, "{identifier}");
+                assert_eq!(
+                    presentation.submission.input.current_bones[0].rotation, rotation,
+                    "{identifier} keeps its authored rotation at pitch {pitch}"
+                );
+                assert_eq!(
+                    presentation.submission.input.previous_bones[0].rotation,
+                    rotation
+                );
+            }
+        }
     }
 }
 

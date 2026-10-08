@@ -1,0 +1,1170 @@
+//! Authoritative gameplay-HUD state coverage: effects, metadata, armor,
+//! mounts, hotbar/offhand mirroring, and the derived heart variants.
+
+use protocol::{
+    ActorEffectAction, ActorEffectEvent, ActorHandedness, ActorMetadata, ActorMetadataValue,
+    ContainerIdentity, EquipmentEvent, InventoryContentEvent, InventoryEvent, InventorySlotEvent,
+    NetworkItemStack, SelectedSlotEvent, SlotIdentity,
+};
+use sha2::Digest;
+
+use super::*;
+use crate::ui_runtime::gameplay_hud::MAX_HUD_EFFECTS;
+use ui::native_hud::HeartVariant;
+
+#[test]
+fn session_language_overrides_per_key_and_restores_the_immutable_base() {
+    let mut player_runtime = player_state::PlayerState::new(1);
+
+    let entries = [
+        assets::LangEntry {
+            key: "item.stone.name".into(),
+            value: "Base item".into(),
+        },
+        assets::LangEntry {
+            key: "message.key".into(),
+            value: "Base message".into(),
+        },
+        assets::LangEntry {
+            key: "tile.stone.name".into(),
+            value: "Base tile".into(),
+        },
+    ];
+    let bytes = assets::encode_lang_catalog([11; 32], [12; 32], &entries).unwrap();
+    let base = Arc::new(assets::RuntimeLangCatalog::decode(&bytes).unwrap());
+    let mut runtime = UiRuntime::new(1);
+    runtime.set_lang_catalog(base);
+    let document =
+        protocol::parse_raw_text(r#"{"rawtext":[{"translate":"message.key"}]}"#).unwrap();
+    assert_eq!(runtime.localized_item_name("minecraft:stone"), "Base item");
+    let input = b"tile.stone.name=Overlay tile\nmessage.key=Overlay message\n";
+    let overlay = assets::ServerLangOverlay::read(input.len(), |target| {
+        target.copy_from_slice(input);
+        true
+    })
+    .unwrap();
+    runtime.set_server_lang(Some(overlay));
+    // Item-before-tile remains authoritative even when only tile is overridden.
+    assert_eq!(runtime.localized_item_name("minecraft:stone"), "Base item");
+    assert_eq!(runtime.resolve_raw_text(&document).text, "Overlay message");
+    let retained = runtime.clone();
+    runtime.set_server_lang(None);
+    assert_eq!(runtime.resolve_raw_text(&document).text, "Base message");
+    assert_eq!(retained.resolve_raw_text(&document).text, "Overlay message");
+    let input = b"item.stone.name=Overlay item\n";
+    runtime.set_server_lang(assets::ServerLangOverlay::read(input.len(), |target| {
+        target.copy_from_slice(input);
+        true
+    }));
+    assert_eq!(
+        runtime.localized_item_name("minecraft:stone"),
+        "Overlay item"
+    );
+    player_runtime.begin_session(2);
+    runtime.begin_session(2);
+    assert_eq!(runtime.localized_item_name("minecraft:stone"), "Base item");
+    assert_eq!(runtime.resolve_raw_text(&document).text, "Base message");
+}
+
+#[test]
+fn newly_resolved_hud_text_changes_layout_without_rewriting_retained_chat() {
+    let mut player_runtime = player_state::PlayerState::new(1);
+
+    let entries = [assets::LangEntry {
+        key: "message.key".into(),
+        value: "AA".into(),
+    }];
+    let bytes = assets::encode_lang_catalog([13; 32], [14; 32], &entries).unwrap();
+    let mut runtime = UiRuntime::new(1);
+    runtime.set_lang_catalog(Arc::new(
+        assets::RuntimeLangCatalog::decode(&bytes).unwrap(),
+    ));
+    let pixels = vec![255; 16 * 16 * 4].into_boxed_slice();
+    let page = assets::FontTexturePage {
+        source_path: "font/page.png".into(),
+        source_bytes: pixels.len() as u32,
+        source_sha256: [1; 32],
+        pixels_sha256: sha2::Sha256::digest(&pixels).into(),
+        width: 16,
+        height: 16,
+        pixels: assets::FontPixels::Rgba8(pixels),
+    };
+    let glyphs = ['A', '\u{fffd}'].map(|codepoint| assets::GlyphMetrics {
+        codepoint,
+        page: 0,
+        uv: [0, 0, 12, 16],
+        bearing: [0, -14],
+        advance_64: 12 * 64,
+    });
+    let bytes = assets::encode_font_catalog([15; 32], &glyphs, &[page]).unwrap();
+    let font = Arc::new(assets::RuntimeFontCatalog::decode(&bytes, [15; 32]).unwrap());
+    let Some(mut presentation) =
+        crate::ui_runtime::presentation::tests::engine_hud_tests::engine_presentation_with(font)
+    else {
+        eprintln!(
+            "skipping newly_resolved_hud_text_changes_layout_without_rewriting_retained_chat: fixture unavailable; requires installed local carriers (make assets)"
+        );
+        return;
+    };
+    let json = r#"{"rawtext":[{"translate":"message.key"}]}"#;
+    runtime
+        .apply(&mut player_runtime, envelope(1, 1, raw_text_event(json)))
+        .unwrap();
+    let publish = |player_runtime: &mut player_state::PlayerState,
+                   runtime: &mut UiRuntime,
+                   session,
+                   sequence| {
+        runtime
+            .apply(
+                player_runtime,
+                envelope(
+                    session,
+                    sequence,
+                    protocol::UiEvent::Title(protocol::TitleEvent {
+                        action: protocol::TitleAction::ActionBarJson,
+                        text: "".into(),
+                        document: Some(protocol::parse_raw_text(json).unwrap()),
+                        fade_in_ticks: 0,
+                        stay_ticks: 100,
+                        fade_out_ticks: 0,
+                        xuid: "".into(),
+                        platform_online_id: "".into(),
+                        filtered_message: "".into(),
+                    }),
+                ),
+            )
+            .unwrap();
+    };
+    publish(&mut player_runtime, &mut runtime, 1, 2);
+    let build = |player_runtime: &player_state::PlayerState,
+                 presentation: &mut crate::ui_runtime::presentation::UiPresentationRuntime,
+                 runtime: &UiRuntime| {
+        presentation
+            .build(
+                player_runtime,
+                runtime,
+                20,
+                [1280, 720],
+                ui::DpiScale::new(1.0).unwrap(),
+            )
+            .unwrap()
+            .vertices
+            .len()
+    };
+    let baseline = build(&player_runtime, &mut presentation, &runtime);
+    let input = b"message.key=AAAAA\n";
+    runtime.set_server_lang(assets::ServerLangOverlay::read(input.len(), |target| {
+        target.copy_from_slice(input);
+        true
+    }));
+    publish(&mut player_runtime, &mut runtime, 1, 3);
+    assert!(build(&player_runtime, &mut presentation, &runtime) > baseline);
+    assert_eq!(
+        runtime.chat().messages().back().unwrap().message.as_ref(),
+        "AA"
+    );
+    runtime.set_server_lang(None);
+    publish(&mut player_runtime, &mut runtime, 1, 4);
+    assert_eq!(
+        build(&player_runtime, &mut presentation, &runtime),
+        baseline
+    );
+    player_runtime.begin_session(2);
+    runtime.begin_session(2);
+    runtime
+        .apply(&mut player_runtime, envelope(2, 1, raw_text_event(json)))
+        .unwrap();
+    publish(&mut player_runtime, &mut runtime, 2, 2);
+    assert_eq!(
+        build(&player_runtime, &mut presentation, &runtime),
+        baseline
+    );
+}
+
+fn effect(
+    action: ActorEffectAction,
+    effect_id: i32,
+    duration_ticks: i32,
+    tick: u64,
+) -> ActorEffectEvent {
+    ActorEffectEvent {
+        dimension: 0,
+        actor_runtime_id: 1,
+        action,
+        effect_id,
+        amplifier: 0,
+        particles: true,
+        ambient: false,
+        duration_ticks,
+        tick,
+    }
+}
+
+fn stack(network_id: i32) -> NetworkItemStack {
+    NetworkItemStack {
+        network_id,
+        metadata: 0,
+        stack_network_id: -1,
+        count: 1,
+        nbt_digest: sha2::Sha256::digest([]).into(),
+        block_runtime_id: 0,
+        extra_data: std::sync::Arc::from([]),
+    }
+}
+
+fn inventory_container(window_id: i32) -> ContainerIdentity {
+    ContainerIdentity {
+        window_id: Some(window_id),
+        slot_type: None,
+        dynamic_id: None,
+    }
+}
+
+#[test]
+fn local_effects_metadata_armor_and_mount_fan_into_gameplay_hud_state() {
+    let mut player_runtime = player_state::PlayerState::new(4);
+
+    let mut runtime = UiRuntime::new(4);
+
+    runtime
+        .apply_local_effect(4, 1, effect(ActorEffectAction::Add, 19, 600, 100), 0)
+        .unwrap();
+    runtime
+        .apply_local_effect(4, 2, effect(ActorEffectAction::Add, 1, -1, 100), 0)
+        .unwrap();
+    assert_eq!(runtime.gameplay_hud().effects().len(), 2);
+    assert_eq!(
+        runtime.gameplay_hud().heart_variant(Some(500)),
+        HeartVariant::Poisoned
+    );
+    // The poison effect expires on the authoritative clock; the infinite
+    // speed effect stays.
+    assert_eq!(
+        runtime.gameplay_hud().heart_variant(Some(701)),
+        HeartVariant::Normal
+    );
+
+    runtime
+        .apply_local_metadata(
+            4,
+            3,
+            &[
+                ActorMetadata {
+                    key: 7,
+                    value: ActorMetadataValue::Short(150),
+                },
+                ActorMetadata {
+                    key: 42,
+                    value: ActorMetadataValue::Short(300),
+                },
+                ActorMetadata {
+                    key: 120,
+                    value: ActorMetadataValue::Float(1.0),
+                },
+            ],
+        )
+        .unwrap();
+    assert_eq!(runtime.gameplay_hud().air_ticks(), Some((150, 300)));
+    assert_eq!(
+        runtime
+            .hud()
+            .air()
+            .map(|air| (air.current(), air.maximum())),
+        Some((150, 300))
+    );
+    // Poison wins until it expires, then full freezing supplies the recolor.
+    assert_eq!(
+        runtime.gameplay_hud().heart_variant(Some(500)),
+        HeartVariant::Poisoned
+    );
+    assert_eq!(
+        runtime.gameplay_hud().heart_variant(Some(701)),
+        HeartVariant::Frozen
+    );
+
+    runtime
+        .apply_local_mount(&mut player_runtime, 4, 5, Some(-9))
+        .unwrap();
+    assert_eq!(runtime.gameplay_hud().mount_unique_id(), Some(-9));
+    runtime
+        .apply_local_mount(&mut player_runtime, 4, 6, None)
+        .unwrap();
+    assert_eq!(runtime.gameplay_hud().mount_unique_id(), None);
+
+    // Session replacement clears every retained gameplay-HUD surface.
+    player_runtime.begin_session(5);
+    runtime.begin_session(5);
+    assert!(runtime.gameplay_hud().effects().is_empty());
+    assert_eq!(runtime.gameplay_hud().air_ticks(), None);
+    assert_eq!(runtime.gameplay_hud().mount_unique_id(), None);
+}
+
+#[test]
+fn stale_local_gameplay_events_fail_without_mutation() {
+    let mut player_runtime = player_state::PlayerState::new(4);
+
+    let mut runtime = UiRuntime::new(4);
+    runtime
+        .apply_local_effect(4, 10, effect(ActorEffectAction::Add, 19, 600, 100), 0)
+        .unwrap();
+    assert!(matches!(
+        runtime.apply_local_effect(4, 10, effect(ActorEffectAction::Add, 20, 600, 100), 0),
+        Err(UiRuntimeError::StaleFifoSequence { .. })
+    ));
+    assert!(matches!(
+        runtime.apply_local_mount(&mut player_runtime, 11, 3, Some(1)),
+        Err(UiRuntimeError::WrongSession { .. })
+    ));
+    assert_eq!(runtime.gameplay_hud().effects().len(), 1);
+}
+
+#[test]
+fn absorption_poison_outranks_wither_and_unknown_effect_actions_are_counted() {
+    let mut runtime = UiRuntime::new(1);
+    runtime
+        .apply_local_effect(1, 1, effect(ActorEffectAction::Add, 19, -1, 0), 0)
+        .unwrap();
+    runtime
+        .apply_local_effect(1, 2, effect(ActorEffectAction::Add, 20, -1, 0), 0)
+        .unwrap();
+    assert_eq!(
+        runtime.gameplay_hud().heart_variant(None),
+        HeartVariant::Poisoned
+    );
+    runtime
+        .apply_local_effect(1, 3, effect(ActorEffectAction::Unknown(9), 21, -1, 0), 0)
+        .unwrap();
+    assert_eq!(
+        runtime.gameplay_hud().diagnostics().skipped_effect_actions,
+        1
+    );
+    assert_eq!(runtime.gameplay_hud().effects().len(), 2);
+
+    // Removal restores the poison recolor, then normal.
+    runtime
+        .apply_local_effect(1, 4, effect(ActorEffectAction::Remove, 20, 0, 0), 0)
+        .unwrap();
+    assert_eq!(
+        runtime.gameplay_hud().heart_variant(None),
+        HeartVariant::Poisoned
+    );
+}
+
+/// Every vanilla protocol-1001 effect id the HUD can present. Instant
+/// effects (6, 7, 23) have no HUD surface.
+pub const RENDERABLE_EFFECT_IDS: [i32; 27] = [
+    1, 2, 3, 4, 5, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 24, 25, 26, 27, 28,
+    29, 30,
+];
+
+#[test]
+fn unknown_effect_ids_are_counted_and_never_evict_renderable_effects() {
+    let mut runtime = UiRuntime::new(1);
+    let mut sequence = 0;
+    let mut next = || {
+        sequence += 1;
+        sequence
+    };
+    // The full renderable catalog stays under the retention cap by design.
+    for id in RENDERABLE_EFFECT_IDS {
+        runtime
+            .apply_local_effect(1, next(), effect(ActorEffectAction::Add, id, -1, 0), 0)
+            .unwrap();
+    }
+    assert_eq!(
+        runtime.gameplay_hud().effects().len(),
+        RENDERABLE_EFFECT_IDS.len()
+    );
+    assert!(RENDERABLE_EFFECT_IDS.len() <= MAX_HUD_EFFECTS);
+
+    // Unknown ids are odd remote data: counted, skipped, never stored, and
+    // therefore never able to push a renderable effect out of the list.
+    for (offset, unknown_id) in [0, 6, 7, 23, 31, 999, -3].into_iter().enumerate() {
+        runtime
+            .apply_local_effect(
+                1,
+                next(),
+                effect(ActorEffectAction::Add, unknown_id, 100, 0),
+                0,
+            )
+            .unwrap();
+        assert_eq!(
+            runtime.gameplay_hud().diagnostics().unknown_effect_ids,
+            offset as u64 + 1
+        );
+    }
+    assert_eq!(
+        runtime.gameplay_hud().effects().len(),
+        RENDERABLE_EFFECT_IDS.len()
+    );
+    assert_eq!(runtime.gameplay_hud().diagnostics().evicted_effects, 0);
+}
+
+#[test]
+fn finite_effects_expire_on_the_session_clock_without_new_packets() {
+    let mut runtime = UiRuntime::new(1);
+    // Speed for 100 ticks observed at tick 40, local millis 1_000.
+    runtime
+        .apply_local_effect(1, 1, effect(ActorEffectAction::Add, 1, 100, 40), 1_000)
+        .unwrap();
+    // Regeneration without a wire duration never locally expires.
+    runtime
+        .apply_local_effect(1, 2, effect(ActorEffectAction::Add, 10, -1, 40), 1_000)
+        .unwrap();
+
+    // 60 ticks later (3 seconds of local time), speed is still running.
+    runtime.expire_gameplay_effects(4_000);
+    assert_eq!(runtime.gameplay_hud().effects().len(), 2);
+    assert_eq!(runtime.estimated_server_tick(4_000), Some(100));
+
+    // 101 ticks after observation the finite effect is gone, with no packet
+    // having arrived since the Add.
+    runtime.expire_gameplay_effects(1_000 + 101 * 50);
+    assert_eq!(runtime.gameplay_hud().effects().len(), 1);
+    assert_eq!(runtime.gameplay_hud().effects()[0].effect_id, 10);
+}
+
+#[test]
+fn offhand_equipment_echo_does_not_clobber_the_main_hand_slot() {
+    let mut player_runtime = player_state::PlayerState::new(1);
+
+    let mut runtime = UiRuntime::new(1);
+    runtime.retain_local_selected_equipment(
+        &mut player_runtime,
+        1,
+        EquipmentEvent {
+            actor_runtime_id: 7,
+            stack: stack(50),
+            inventory_slot: 2,
+            selected_slot: 2,
+            window_id: 0,
+            handedness: Some(ActorHandedness::Right),
+        },
+    );
+    assert_eq!(player_runtime.selected_hotbar_slot(), Some(2));
+
+    runtime.retain_local_selected_equipment(
+        &mut player_runtime,
+        2,
+        EquipmentEvent {
+            actor_runtime_id: 7,
+            stack: stack(60),
+            inventory_slot: 0,
+            selected_slot: 0,
+            window_id: 119,
+            handedness: Some(ActorHandedness::Left),
+        },
+    );
+    // The offhand echo landed in the offhand mirror, not the slot echo.
+    assert_eq!(player_runtime.selected_hotbar_slot(), Some(2));
+    assert_eq!(
+        runtime
+            .gameplay_hud()
+            .offhand_stack()
+            .map(|stack| stack.network_id),
+        Some(60)
+    );
+}
+
+// The local player's armor is window 120's content, whatever container name
+// the server gives it, and a later slot update replaces one piece.
+#[test]
+fn window_120_is_the_local_armor() {
+    let mut player_runtime = player_state::PlayerState::new(1);
+
+    let mut runtime = UiRuntime::new(1);
+    let armor = ContainerIdentity {
+        window_id: Some(protocol::ARMOR_WINDOW_ID),
+        slot_type: Some(1),
+        dynamic_id: None,
+    };
+    runtime
+        .enqueue_inventory_event(
+            &mut player_runtime,
+            1,
+            1,
+            InventoryEvent::Content(InventoryContentEvent {
+                container: armor,
+                slots: vec![
+                    stack(100),
+                    stack(101),
+                    NetworkItemStack::empty(),
+                    stack(103),
+                ]
+                .into(),
+                storage_item: NetworkItemStack::empty(),
+            }),
+        )
+        .unwrap();
+    runtime
+        .enqueue_inventory_event(
+            &mut player_runtime,
+            1,
+            2,
+            InventoryEvent::Slot(InventorySlotEvent {
+                identity: SlotIdentity {
+                    container: armor,
+                    slot: 2,
+                },
+                stack: stack(102),
+                storage_item: None,
+            }),
+        )
+        .unwrap();
+    runtime.drain_pending_inventory(&mut player_runtime);
+    let worn = runtime.local_armor(&player_runtime);
+    assert_eq!(
+        [&worn.helmet, &worn.chestplate, &worn.leggings, &worn.boots].map(|stack| stack.network_id),
+        [100, 101, 102, 103]
+    );
+}
+
+#[test]
+fn inventory_content_slot_and_forced_selection_reach_the_presented_hotbar() {
+    let mut player_runtime = player_state::PlayerState::new(1);
+
+    let mut runtime = UiRuntime::new(1);
+    let mut slots = vec![NetworkItemStack::empty(); 36];
+    slots[0] = stack(11);
+    slots[8] = stack(19);
+    runtime
+        .enqueue_inventory_event(
+            &mut player_runtime,
+            1,
+            1,
+            InventoryEvent::Content(InventoryContentEvent {
+                container: inventory_container(0),
+                slots: slots.into(),
+                storage_item: NetworkItemStack::empty(),
+            }),
+        )
+        .unwrap();
+    runtime
+        .enqueue_inventory_event(
+            &mut player_runtime,
+            1,
+            2,
+            InventoryEvent::Slot(InventorySlotEvent {
+                identity: SlotIdentity {
+                    container: inventory_container(0),
+                    slot: 3,
+                },
+                stack: stack(14),
+                storage_item: None,
+            }),
+        )
+        .unwrap();
+    player_runtime.inventory.set_local_selected_slot(1);
+    runtime
+        .enqueue_inventory_event(
+            &mut player_runtime,
+            1,
+            3,
+            InventoryEvent::SelectedSlot(SelectedSlotEvent {
+                container: inventory_container(0),
+                slot: 3,
+                select_slot: true,
+            }),
+        )
+        .unwrap();
+    runtime.drain_pending_inventory(&mut player_runtime);
+
+    assert_eq!(
+        player_runtime
+            .presented_hotbar_stack(0)
+            .map(|stack| stack.network_id),
+        Some(11)
+    );
+    assert_eq!(
+        player_runtime
+            .presented_hotbar_stack(3)
+            .map(|stack| stack.network_id),
+        Some(14)
+    );
+    assert_eq!(player_runtime.presented_hotbar_stack(1), None);
+    // The server-forced selection replaced the older local prediction.
+    assert_eq!(player_runtime.selected_hotbar_slot(), Some(3));
+    assert_eq!(
+        player_runtime
+            .selected_stack()
+            .map(|stack| stack.network_id),
+        Some(14)
+    );
+
+    // The selected-item identity clock arms once the stack is known.
+    runtime.observe_selected_item_identity(&player_runtime, 1_000);
+    assert_eq!(runtime.selected_item_changed_millis(), Some(1_000));
+    runtime.observe_selected_item_identity(&player_runtime, 2_000);
+    assert_eq!(runtime.selected_item_changed_millis(), Some(1_000));
+    player_runtime.inventory.set_local_selected_slot(0);
+    runtime.observe_selected_item_identity(&player_runtime, 3_000);
+    assert_eq!(runtime.selected_item_changed_millis(), Some(3_000));
+}
+
+#[test]
+fn odd_metadata_values_are_counted_and_skipped_without_disconnect() {
+    let mut runtime = UiRuntime::new(1);
+    runtime
+        .apply_local_metadata(
+            1,
+            1,
+            &[
+                ActorMetadata {
+                    key: 42,
+                    value: ActorMetadataValue::Short(0),
+                },
+                ActorMetadata {
+                    key: 120,
+                    value: ActorMetadataValue::Float(f32::NAN),
+                },
+                ActorMetadata {
+                    key: 7,
+                    value: ActorMetadataValue::Int(5),
+                },
+            ],
+        )
+        .unwrap();
+    assert_eq!(runtime.gameplay_hud().diagnostics().odd_metadata_values, 3);
+    assert_eq!(runtime.gameplay_hud().air_ticks(), None);
+    assert_eq!(runtime.gameplay_hud().freezing_strength(), 0.0);
+}
+
+#[test]
+fn lang_catalog_resolves_rawtext_translation_and_item_names() {
+    let mut player_runtime = player_state::PlayerState::new(1);
+
+    let entries = [
+        ("commands.op.success", "Opped: %s"),
+        ("item.emerald.name", "Emerald"),
+        ("tile.grass.name", "Grass"),
+    ]
+    .into_iter()
+    .map(|(key, value)| assets::LangEntry {
+        key: key.into(),
+        value: value.into(),
+    })
+    .collect::<Vec<_>>();
+    let bytes = assets::encode_lang_catalog([9; 32], [10; 32], &entries).unwrap();
+    let catalog = std::sync::Arc::new(assets::RuntimeLangCatalog::decode(&bytes).unwrap());
+
+    let mut runtime = UiRuntime::new(1);
+    runtime.set_lang_catalog(std::sync::Arc::clone(&catalog));
+
+    // Localized item names prefer item.* then tile.* keys; unknown identifiers
+    // fall back to the mechanical title case.
+    assert_eq!(runtime.localized_item_name("minecraft:emerald"), "Emerald");
+    assert_eq!(runtime.localized_item_name("minecraft:grass"), "Grass");
+    assert_eq!(
+        runtime.localized_item_name("minecraft:mystery_thing"),
+        "Mystery Thing"
+    );
+
+    // A translate rawtext document resolves through the catalog with its
+    // argument substituted, and reaches chat as human text.
+    let document = protocol::parse_raw_text(
+        r#"{"rawtext":[{"translate":"commands.op.success","with":["Steve"]}]}"#,
+    )
+    .unwrap();
+    assert!(document.has_unresolved_components());
+    let event = protocol::RawTextEvent {
+        text: protocol::TextEvent {
+            category: protocol::TextCategory::MessageOnly,
+            kind: protocol::TextKind::Raw,
+            needs_translation: false,
+            source: None,
+            message: std::sync::Arc::from(""),
+            parameters: std::sync::Arc::from([]),
+            xuid: std::sync::Arc::from(""),
+            platform_chat_id: std::sync::Arc::from(""),
+            filtered_message: None,
+        },
+        document,
+    };
+    runtime
+        .apply(
+            &mut player_runtime,
+            crate::ui_runtime::SequencedUiEvent {
+                session_id: 1,
+                fifo_sequence: 1,
+                local_millis: 0,
+                server_tick: None,
+                event: protocol::UiEvent::RawText(event),
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        runtime.chat().messages().back().unwrap().message.as_ref(),
+        "Opped: Steve"
+    );
+
+    // An unknown key presents verbatim, exactly like the vanilla client.
+    let unknown = protocol::parse_raw_text(r#"{"rawtext":[{"translate":"no.such.key"}]}"#).unwrap();
+    let event = protocol::RawTextEvent {
+        text: protocol::TextEvent {
+            category: protocol::TextCategory::MessageOnly,
+            kind: protocol::TextKind::Raw,
+            needs_translation: false,
+            source: None,
+            message: std::sync::Arc::from(""),
+            parameters: std::sync::Arc::from([]),
+            xuid: std::sync::Arc::from(""),
+            platform_chat_id: std::sync::Arc::from(""),
+            filtered_message: None,
+        },
+        document: unknown,
+    };
+    runtime
+        .apply(
+            &mut player_runtime,
+            crate::ui_runtime::SequencedUiEvent {
+                session_id: 1,
+                fifo_sequence: 2,
+                local_millis: 10,
+                server_tick: None,
+                event: protocol::UiEvent::RawText(event),
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        runtime.chat().messages().back().unwrap().message.as_ref(),
+        "no.such.key"
+    );
+}
+
+#[test]
+fn rawtext_scores_resolve_real_owners_and_selectors_use_known_state() {
+    let mut player_runtime = player_state::PlayerState::new(1);
+
+    let mut runtime = UiRuntime::new(1);
+    runtime.set_chat_source_name(std::sync::Arc::from("Reader"));
+
+    // A sidebar objective with one real player owner (unique id 42), one
+    // real entity owner (unique id 7), and the reader's own fake-player row.
+    runtime
+        .apply(
+            &mut player_runtime,
+            envelope(
+                1,
+                1,
+                UiEvent::Objective(protocol::ObjectiveEvent::Display {
+                    display_slot: std::sync::Arc::from("sidebar"),
+                    objective_name: std::sync::Arc::from("coins"),
+                    display_name: std::sync::Arc::from("Coins"),
+                    criteria_name: std::sync::Arc::from("dummy"),
+                    sort_order: 1,
+                }),
+            ),
+        )
+        .unwrap();
+    let entry = |scoreboard_id, score, identity| protocol::ScoreEntry {
+        action: protocol::ScoreAction::Change,
+        scoreboard_id,
+        objective_name: std::sync::Arc::from("coins"),
+        score,
+        identity,
+    };
+    runtime
+        .apply(
+            &mut player_runtime,
+            envelope(
+                1,
+                2,
+                UiEvent::Score(protocol::ScoreEvent {
+                    entries: vec![
+                        entry(1, 31, protocol::ScoreIdentity::Player(42)),
+                        entry(2, 55, protocol::ScoreIdentity::Entity(7)),
+                        entry(
+                            3,
+                            99,
+                            protocol::ScoreIdentity::FakePlayer(std::sync::Arc::from("Reader")),
+                        ),
+                    ]
+                    .into(),
+                }),
+            ),
+        )
+        .unwrap();
+
+    // The world stream authority supplies the id-to-name map and player list.
+    runtime.refresh_raw_text_identities(
+        |unique_id| match unique_id {
+            42 => Some(std::sync::Arc::from("Steve")),
+            7 => Some(std::sync::Arc::from("Dinnerbone the Pig")),
+            _ => None,
+        },
+        vec![
+            std::sync::Arc::from("Reader"),
+            std::sync::Arc::from("Steve"),
+        ],
+    );
+
+    // Real player and entity owners resolve by their authoritative display
+    // names; the `*` sentinel resolves as the reader's own row.
+    runtime
+        .apply(&mut player_runtime, envelope(
+            1,
+            3,
+            raw_text_event(
+                r#"{"rawtext":[{"score":{"name":"Steve","objective":"coins"}},{"text":"/"},{"score":{"name":"Dinnerbone the Pig","objective":"coins"}},{"text":"/"},{"score":{"name":"*","objective":"coins"}}]}"#,
+            ),
+        ))
+        .unwrap();
+    assert_eq!(
+        runtime.chat().messages().back().unwrap().message.as_ref(),
+        "31/55/99"
+    );
+
+    // `@s` resolves to the reader and `@a` to the sorted known player list;
+    // an entity selector needs a live query and presents as empty.
+    runtime
+        .apply(&mut player_runtime, envelope(
+            1,
+            4,
+            raw_text_event(
+                r#"{"rawtext":[{"selector":"@s"},{"text":" | "},{"selector":"@a"},{"text":" | ("},{"selector":"@e[type=cow]"},{"text":")"}]}"#,
+            ),
+        ))
+        .unwrap();
+    assert_eq!(
+        runtime.chat().messages().back().unwrap().message.as_ref(),
+        "Reader | Reader, Steve | ()"
+    );
+}
+
+#[test]
+fn lang_catalog_translates_rawtext_and_localizes_item_names() {
+    let mut player_runtime = player_state::PlayerState::new(1);
+
+    let entries = [
+        assets::LangEntry {
+            key: "commands.give.success".into(),
+            value: std::sync::Arc::from("Gave %s * %d to %s"),
+        },
+        assets::LangEntry {
+            key: "item.golden_apple.name".into(),
+            value: std::sync::Arc::from("Golden Apple"),
+        },
+    ];
+    let bytes = assets::encode_lang_catalog([7; 32], [8; 32], &entries).unwrap();
+    let catalog = std::sync::Arc::new(assets::RuntimeLangCatalog::decode(&bytes).unwrap());
+
+    let mut runtime = UiRuntime::new(1);
+    runtime.set_lang_catalog(catalog);
+
+    // Localized item names prefer the catalog and fall back mechanically.
+    assert_eq!(
+        runtime.localized_item_name("minecraft:golden_apple"),
+        "Golden Apple"
+    );
+    assert_eq!(
+        runtime.localized_item_name("minecraft:unmapped_thing"),
+        "Unmapped Thing"
+    );
+
+    // A translate component formats its arguments through the catalog; the
+    // unknown-key fallback still presents the key verbatim.
+    let json = r#"{"rawtext":[{"translate":"commands.give.success","with":[{"text":"Apple"},{"text":"2"},{"text":"Hashim"}]},{"text":" / "},{"translate":"missing.key"}]}"#;
+    let document = protocol::parse_raw_text(json).unwrap();
+    runtime
+        .apply(
+            &mut player_runtime,
+            SequencedUiEvent {
+                session_id: 1,
+                fifo_sequence: 1,
+                local_millis: 0,
+                server_tick: None,
+                event: protocol::UiEvent::RawText(protocol::RawTextEvent {
+                    text: protocol::TextEvent {
+                        category: protocol::TextCategory::MessageOnly,
+                        kind: protocol::TextKind::Raw,
+                        needs_translation: false,
+                        source: None,
+                        message: std::sync::Arc::from(document.literal_text()),
+                        parameters: std::sync::Arc::from([]),
+                        xuid: std::sync::Arc::from(""),
+                        platform_chat_id: std::sync::Arc::from(""),
+                        filtered_message: None,
+                    },
+                    document,
+                }),
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        runtime.chat().messages().back().unwrap().message.as_ref(),
+        "Gave Apple * 2 to Hashim / missing.key"
+    );
+}
+
+#[test]
+fn mount_jump_charge_ramps_while_held_and_resets_on_release_or_dismount() {
+    let mut player_runtime = player_state::PlayerState::new(1);
+
+    let mut runtime = UiRuntime::new(1);
+    // Holding jump without a mount never charges.
+    runtime.set_mount_jump_held(true, 1_000);
+    assert_eq!(runtime.mount_jump_charge(1_250), 0.0);
+
+    runtime
+        .apply_local_mount(&mut player_runtime, 1, 1, Some(-9))
+        .unwrap();
+    runtime.set_mount_jump_held(true, 1_000);
+    assert_eq!(runtime.mount_jump_charge(1_000), 0.0);
+    assert_eq!(runtime.mount_jump_charge(1_250), 0.5);
+    assert_eq!(runtime.mount_jump_charge(1_500), 1.0);
+    // The charge saturates at full while held.
+    assert_eq!(runtime.mount_jump_charge(9_000), 1.0);
+
+    // Releasing resets to empty; a fresh hold restarts the ramp.
+    runtime.set_mount_jump_held(false, 2_000);
+    assert_eq!(runtime.mount_jump_charge(2_000), 0.0);
+    runtime.set_mount_jump_held(true, 3_000);
+    assert_eq!(runtime.mount_jump_charge(3_100), 0.2);
+
+    // Dismounting clears the charge even while jump stays held.
+    runtime
+        .apply_local_mount(&mut player_runtime, 1, 2, None)
+        .unwrap();
+    runtime.set_mount_jump_held(true, 3_200);
+    assert_eq!(runtime.mount_jump_charge(3_300), 0.0);
+}
+
+#[test]
+fn the_selected_slot_presents_the_equipment_echo_before_inventory_content() {
+    let mut player_runtime = player_state::PlayerState::new(1);
+
+    let mut runtime = UiRuntime::new(1);
+    runtime.retain_local_selected_equipment(
+        &mut player_runtime,
+        1,
+        EquipmentEvent {
+            actor_runtime_id: 7,
+            stack: stack(41),
+            inventory_slot: 2,
+            selected_slot: 2,
+            window_id: 0,
+            handedness: Some(ActorHandedness::Right),
+        },
+    );
+    // No inventory content has arrived: the MobEquipment echo is the
+    // authoritative selected stack, and only for its own slot.
+    assert_eq!(
+        player_runtime
+            .presented_hotbar_stack(2)
+            .map(|stack| stack.network_id),
+        Some(41)
+    );
+    assert_eq!(player_runtime.presented_hotbar_stack(1), None);
+}
+
+#[test]
+fn known_selected_ledger_state_overrides_the_equipment_bootstrap() {
+    let mut player_runtime = player_state::PlayerState::new(1);
+
+    let mut runtime = UiRuntime::new(1);
+    player_runtime.inventory.set_local_selected_slot(2);
+    runtime.retain_local_selected_equipment(
+        &mut player_runtime,
+        1,
+        EquipmentEvent {
+            actor_runtime_id: 7,
+            stack: stack(41),
+            inventory_slot: 2,
+            selected_slot: 2,
+            window_id: 0,
+            handedness: Some(ActorHandedness::Right),
+        },
+    );
+    runtime
+        .inventory_ledger_mut(&mut player_runtime)
+        .apply(&InventoryEvent::Slot(InventorySlotEvent {
+            identity: SlotIdentity {
+                container: inventory_container(0),
+                slot: 2,
+            },
+            stack: NetworkItemStack::empty(),
+            storage_item: None,
+        }));
+
+    let empty_snapshot = player_runtime.selected_stack_snapshot().unwrap();
+    assert_eq!(empty_snapshot.slot, 2);
+    assert_eq!(
+        empty_snapshot.state,
+        crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Empty
+    );
+    assert_eq!(player_runtime.selected_stack(), None);
+    assert_eq!(player_runtime.presented_hotbar_stack(2), None);
+
+    runtime
+        .inventory_ledger_mut(&mut player_runtime)
+        .apply(&InventoryEvent::Slot(InventorySlotEvent {
+            identity: SlotIdentity {
+                container: inventory_container(0),
+                slot: 2,
+            },
+            stack: stack(77),
+            storage_item: None,
+        }));
+
+    assert_eq!(
+        player_runtime.selected_stack().map(|item| item.network_id),
+        Some(77)
+    );
+    assert_eq!(
+        player_runtime
+            .presented_hotbar_stack(2)
+            .map(|item| item.network_id),
+        Some(77)
+    );
+}
+
+#[test]
+fn equipment_bootstrap_requires_a_matching_valid_selected_slot() {
+    let mut player_runtime = player_state::PlayerState::new(1);
+
+    let mut runtime = UiRuntime::new(1);
+    player_runtime.inventory.set_local_selected_slot(2);
+    runtime.retain_local_selected_equipment(
+        &mut player_runtime,
+        1,
+        EquipmentEvent {
+            actor_runtime_id: 7,
+            stack: stack(41),
+            inventory_slot: 3,
+            selected_slot: 3,
+            window_id: 0,
+            handedness: Some(ActorHandedness::Right),
+        },
+    );
+    assert_eq!(player_runtime.selected_stack(), None);
+
+    let mut player_runtime = player_state::PlayerState::new(1);
+    let mut equipment_only = UiRuntime::new(1);
+    equipment_only.retain_local_selected_equipment(
+        &mut player_runtime,
+        1,
+        EquipmentEvent {
+            actor_runtime_id: 7,
+            stack: stack(41),
+            inventory_slot: 250,
+            selected_slot: 250,
+            window_id: 0,
+            handedness: Some(ActorHandedness::Right),
+        },
+    );
+    assert_eq!(player_runtime.selected_hotbar_slot(), None);
+    assert_eq!(player_runtime.selected_stack(), None);
+}
+
+#[test]
+fn non_forcing_server_selection_does_not_override_local_prediction() {
+    let mut player_runtime = player_state::PlayerState::new(1);
+
+    let mut runtime = UiRuntime::new(1);
+    player_runtime.inventory.set_local_selected_slot(2);
+    runtime
+        .enqueue_inventory_event(
+            &mut player_runtime,
+            1,
+            1,
+            InventoryEvent::SelectedSlot(SelectedSlotEvent {
+                container: inventory_container(0),
+                slot: 6,
+                select_slot: false,
+            }),
+        )
+        .unwrap();
+
+    runtime.drain_pending_inventory(&mut player_runtime);
+
+    assert_eq!(player_runtime.selected_hotbar_slot(), Some(2));
+}
+
+/// New toasts keep their configured duration and queue behind the preceding toast.
+#[test]
+fn toast_duration_setting_reaches_the_notification_queue() {
+    let mut player_runtime = player_state::PlayerState::new(1);
+
+    use crate::menu::settings_options::{SETTINGS_OPTIONS, SettingsOptions};
+    let mut options = SettingsOptions::default();
+    let index = SETTINGS_OPTIONS
+        .iter()
+        .position(|option| option.name == "toast_notification_duration")
+        .unwrap();
+    options.set(index, SETTINGS_OPTIONS[index].max);
+    let mut runtime = UiRuntime::new(1);
+    runtime.toast_display_millis = options.toast_lifetime_millis();
+    assert!(runtime.toast_display_millis > ui::TOAST_DISPLAY_MILLIS);
+    for sequence in 1..=2 {
+        runtime
+            .apply(
+                &mut player_runtime,
+                envelope(
+                    1,
+                    sequence,
+                    UiEvent::Hud(HudEvent::Toast {
+                        title: Arc::from("Notice"),
+                        message: Arc::from("Message"),
+                    }),
+                ),
+            )
+            .unwrap();
+    }
+    let toasts = runtime.hud().toasts();
+    assert_eq!(
+        toasts[0].expires_millis - toasts[0].started_millis,
+        runtime.toast_display_millis + ui::TOAST_SLIDE_OUT_MILLIS
+    );
+    assert_eq!(toasts[1].started_millis, toasts[0].expires_millis);
+    assert!(toasts[0].visible_at(toasts[0].started_millis + ui::TOAST_DISPLAY_MILLIS));
+}
+
+#[test]
+fn malformed_absorption_preserves_the_last_authoritative_stat() {
+    let mut player_runtime = player_state::PlayerState::new(1);
+    let mut runtime = UiRuntime::new(1);
+    for (sequence, current) in [(1, 4.0), (2, f32::NAN)] {
+        runtime
+            .apply_local_attributes(
+                &mut player_runtime,
+                SequencedLocalAttributes {
+                    session_id: 1,
+                    fifo_sequence: sequence,
+                    local_millis: sequence,
+                    server_tick: sequence,
+                    attributes: Arc::from([protocol::ActorAttribute {
+                        name: Arc::from("minecraft:absorption"),
+                        min: 0.0,
+                        max: 20.0,
+                        current,
+                        default: Some(0.0),
+                        modifiers: Arc::from([]),
+                    }]),
+                },
+            )
+            .unwrap();
+    }
+    assert_eq!(runtime.hud().absorption(), ui::BoundedStat::new(4, 4));
+}
+
+#[test]
+fn empty_offhand_content_preserves_known_equipment() {
+    let mut state = crate::ui_runtime::gameplay_hud::GameplayHudState::default();
+    let container = ContainerIdentity {
+        window_id: Some(119),
+        slot_type: None,
+        dynamic_id: None,
+    };
+    state.apply_inventory(&InventoryEvent::Slot(InventorySlotEvent {
+        identity: SlotIdentity { container, slot: 0 },
+        stack: stack(77),
+        storage_item: None,
+    }));
+    assert!(state.offhand_stack().is_some());
+    state.apply_inventory(&InventoryEvent::Content(InventoryContentEvent {
+        container,
+        slots: Arc::from([]),
+        storage_item: NetworkItemStack::empty(),
+    }));
+    assert_eq!(state.offhand_stack().unwrap().network_id, 77);
+}

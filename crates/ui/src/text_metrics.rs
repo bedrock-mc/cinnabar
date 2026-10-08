@@ -1,7 +1,7 @@
 //! Per-frame text metrics shared by every HUD, chat, scoreboard and nametag run.
 
-use crate::{DpiScale, TextLayoutRequest, TextShadow, TextStyle, UiScale};
 use assets::RuntimeFontCatalog;
+use crate::{DpiScale, TextLayoutRequest, TextShadow, TextStyle, UiScale};
 
 use crate::gui_scale;
 
@@ -15,6 +15,9 @@ use crate::{
 #[derive(Clone, Copy)]
 pub struct TextMetrics {
     pub scale: UiScale,
+    /// Physical pixels per GUI unit: the GUI scale, on whose pixel grid draws land.
+    pub gui_scale: f32,
+    pub dpi_scale: DpiScale,
     pub line_height_64: u32,
     pub baseline_64: u32,
     shadow: TextShadow,
@@ -35,6 +38,8 @@ impl TextMetrics {
         Self {
             scale: UiScale::new_display(scale)
                 .expect("supported GUI scale and DPI produce a valid display scale"),
+            gui_scale: k,
+            dpi_scale,
             line_height_64: TEXT_LINE_HEIGHT_64,
             baseline_64: TEXT_BASELINE_64,
             shadow: TextShadow::Offset64(TEXT_SHADOW_OFFSET_64),
@@ -55,6 +60,7 @@ impl TextMetrics {
             baseline_64: self.baseline_64,
             scale: self.scale,
             font,
+            wrap: Default::default(),
         }
     }
 
@@ -62,3 +68,6 @@ impl TextMetrics {
         self.shadow
     }
 }
+
+pub const DEFAULT_TEXT_CACHE_ENTRIES: usize = 1_024;
+pub const DEFAULT_TEXT_CACHE_BYTES: usize = 8 * 1024 * 1024;

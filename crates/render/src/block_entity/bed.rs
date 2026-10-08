@@ -1,14 +1,11 @@
-//! Beds: one 16x16x6 mattress slab per half plus two 3x3x3 legs at its outer end.
-//!
-//! Box sizes and UV origins are recovered from the bed texture's unwrap (head slab at the
-//! origin, foot slab 16 rows down, four legs below); which leg texture sits on which corner
-//! is not derivable from the pack and needs native measurement.
+//! The head block draws the complete bed geometry from the runtime entity catalog.
 
-use bevy::math::Mat4;
+use bevy::math::{Mat4, Vec3};
 
 use super::{
     atlas::BlockEntityAtlas,
-    mesh::{BoxSpec, Layer, MeshBuilder, WHITE, model_matrix},
+    heads::HeadModel,
+    mesh::{Layer, MeshBuilder, WHITE, model_matrix},
 };
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -19,6 +16,24 @@ pub struct BedModel {
     pub head: bool,
     /// Bedrock `direction` state: 0 head toward south, 1 west, 2 north, 3 east.
     pub direction: u8,
+}
+
+impl BedModel {
+    /// Offset of the other half, in blocks, from this block.
+    #[must_use]
+    pub const fn other_half_offset(self) -> [i32; 3] {
+        let offset = match self.direction % 4 {
+            0 => [0, 0, 1],
+            1 => [-1, 0, 0],
+            2 => [0, 0, -1],
+            _ => [1, 0, 0],
+        };
+        if self.head {
+            [-offset[0], 0, -offset[2]]
+        } else {
+            offset
+        }
+    }
 }
 
 /// The texture stem for a bed block entity's `color` (dye id, white first).
@@ -60,41 +75,30 @@ pub(super) fn emit(
     atlas: &BlockEntityAtlas,
     block: [i32; 3],
     model: &BedModel,
+    geometry: Option<&HeadModel>,
 ) {
+    if !model.head {
+        return;
+    }
+    let Some(geometry) = geometry else {
+        return;
+    };
     let Some(texture) = atlas.texture(
         &format!("textures/entity/bed/{}", model.color),
-        [64.0, 64.0],
+        geometry.texture,
     ) else {
         return;
     };
     let base = model_matrix(block, [0.5, 0.0, 0.5], yaw_degrees(model.direction));
-    // The slab is authored 16 wide, 16 long, 6 thick; a quarter turn lays it flat with its
-    // large -Z face on top and the texture's top edge toward +Z.
-    let slab = base * Mat4::from_rotation_x(std::f32::consts::FRAC_PI_2);
-    let (slab_uv, legs) = if model.head {
-        (
-            [0.0, 0.0],
-            [([-8.0, 5.0], [0.0, 38.0]), ([5.0, 5.0], [12.0, 38.0])],
-        )
-    } else {
-        (
-            [0.0, 16.0],
-            [([-8.0, -8.0], [0.0, 44.0]), ([5.0, -8.0], [12.0, 44.0])],
-        )
-    };
-    builder.cuboid(
-        Layer::Solid,
-        &texture,
-        slab,
-        BoxSpec::new([-8.0, -8.0, -9.0], [16.0, 16.0, 6.0], slab_uv),
-        WHITE,
-    );
-    for ([x, z], uv) in legs {
+    let frame = base
+        * Mat4::from_rotation_x(std::f32::consts::FRAC_PI_2)
+        * Mat4::from_translation(Vec3::new(8.0, -24.0, -9.0));
+    for part in &geometry.boxes {
         builder.cuboid(
             Layer::Solid,
             &texture,
-            base,
-            BoxSpec::new([x, 0.0, z], [3.0, 3.0, 3.0], uv),
+            frame * part.matrix,
+            part.spec,
             WHITE,
         );
     }
@@ -102,7 +106,7 @@ pub(super) fn emit(
 
 #[cfg(test)]
 mod tests {
-    use bevy::math::Vec3;
+    mod geometry;
 
     use super::*;
 
@@ -134,5 +138,24 @@ mod tests {
         let bottom = slab.transform_point3(Vec3::new(0.0, 0.0, -3.0));
         let top = slab.transform_point3(Vec3::new(0.0, 0.0, -9.0));
         assert!((bottom.y - 3.0).abs() < 1.0e-5 && (top.y - 9.0).abs() < 1.0e-5);
+    }
+
+    #[test]
+    fn both_halves_locate_each_other_for_every_direction() {
+        for (direction, offset) in [
+            (0, [0, 0, 1]),
+            (1, [-1, 0, 0]),
+            (2, [0, 0, -1]),
+            (3, [1, 0, 0]),
+        ] {
+            let mut model = BedModel {
+                color: "red",
+                head: false,
+                direction,
+            };
+            assert_eq!(model.other_half_offset(), offset);
+            model.head = true;
+            assert_eq!(model.other_half_offset(), offset.map(|value| -value));
+        }
     }
 }

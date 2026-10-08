@@ -5,21 +5,33 @@ edition.workspace = true
 rust-version.workspace = true
 publish = false
 
+[features]
+# Re-exports the vendored wire crates to downstream tests that encode real packets.
+wire-test-support = []
+
 [dependencies]
+render-api = { path = "../render-api" }
 anyhow.workspace = true
-bridge = { path = "../bridge" }
-render-data = { path = "../render-data" }
 bytes.workspace = true
 futures.workspace = true
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-sha2 = "0.10"
+sha2.workspace = true
 thiserror.workspace = true
-tokio = { workspace = true, features = ["time"] }
 uuid.workspace = true
 xxhash-rust = { version = "0.8.15", features = ["xxh64"] }
 valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_51"] }
+jolyne = { path = "vendor/jolyne", default-features = false, features = ["bedrock_1_26_51"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+bridge = { path = "../bridge" }
+tokio.workspace = true
 jolyne = { path = "vendor/jolyne", default-features = false, features = ["client", "bedrock_1_26_51"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+tokio = { version = "1", default-features = false, features = ["sync"] }
+uuid = { workspace = true, features = ["js"] }
+getrandom = { version = "0.2", features = ["js"] }
 
 [dev-dependencies]
 aes = "0.8"
@@ -29,4 +41,3 @@ flate2 = "1"
 jsonwebtoken = "9.3"
 p384 = { version = "0.13", features = ["ecdh", "pkcs8"] }
 snap = "1.1"
-tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }

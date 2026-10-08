@@ -8,42 +8,61 @@
 
 mod account;
 mod account_control;
+mod accounts;
 pub(crate) mod auth;
-mod connection;
+mod construction;
 pub(crate) mod core_process;
 pub(crate) mod disconnect;
+mod dressing_room;
 #[cfg(test)]
 mod flow_tests;
 mod focus;
+pub(crate) mod inbox;
 mod input;
+mod invite;
+mod join_requests;
+pub(crate) use join_requests::open_join_requests_from_key;
 pub(crate) mod launcher_account;
 mod launcher_core;
+pub(crate) use launcher_core::target_for;
+mod navigation;
+mod presence_targets;
+#[cfg(test)]
+mod server_input_tests;
+pub(crate) mod server_trust;
 pub(crate) mod servers;
+#[cfg(test)]
+mod session_teardown_tests;
+pub(crate) mod settings_options;
+mod settings_paths;
+pub(crate) mod settings_storage;
+pub(crate) mod settings_support;
 mod settings_values;
-mod video_settings;
+mod sign_in_browser;
+#[cfg(feature = "developer-control")]
+mod sign_in_fixture;
+#[cfg(test)]
+mod transfer_follow_tests;
+pub(crate) mod video_settings;
 mod view;
 mod worlds_tab;
 
 use auth::{AuthState, AuthSupervisor};
+use ui::RenderMode;
 
-pub(crate) use connection::{
-    drive_menu_connection, follow_server_transfer, recover_menu_session_failure,
-};
 pub(crate) use core_process::{CoreProcessGuard, spawn_core_for_address, wait_for_core};
 use core_process::{auth_cache_path, core_executable};
 pub(crate) use input::{MenuClipboard, drive_menu_input};
+use launcher::menu::view::{CatalogFile, MenuFeeds};
+#[cfg(test)]
+pub(crate) use launcher::menu::view::{InboxItem, JoinKind, JoinProgress, JoinStage, MenuHome};
+pub(crate) use launcher::menu::view::{
+    LocalWorldCard, MenuFriendCard, MenuRealmCard, MenuServerCard, MenuView, SavedServer,
+};
 pub(crate) use launcher_core::LauncherCoreSlot;
 use servers::{ServerWriter, load_servers};
-pub(crate) use settings_values::{VOLUME_SLIDERS, VOLUME_STEPS};
 pub(crate) use video_settings::persist_video_settings;
-pub(crate) use view::{
-    ButtonArt, InboxItem, JoinKind, JoinProgress, JoinStage, LocalWorldCard, MenuFriendCard,
-    MenuHome, MenuRealmCard, MenuServerCard, MenuView, PingInfo, SavedServer,
-};
-use view::{CatalogFile, MenuFeeds};
-#[cfg(test)]
-pub(crate) use view::{LiveEventCard, MenuGameCard, ServerDetails};
-pub(crate) use worlds_tab::{LocalWorldAction, civil_date, file_size};
+pub(crate) use worlds_tab::LocalWorldAction;
 
 use std::{
     fs,
@@ -51,127 +70,24 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use bevy::prelude::Resource;
+use bevy::prelude::{Commands, Res, ResMut, Resource};
 
-use crate::{install_layout::InstallLayout, session_cleanup::SessionDirectoryGuard};
+use crate::{
+    install_layout::InstallLayout,
+    runtime::world::ClientWorld,
+    session::{JoinIntent, SessionStatus},
+};
+use client_ui::ui_runtime::UiRuntime;
 
 const MAX_SERVER_NAME_BYTES: usize = 64;
 const MAX_SERVER_ADDRESS_BYTES: usize = 128;
+/// Vanilla's port box: six number characters, prefilled with the Bedrock default.
+const MAX_SERVER_PORT_BYTES: usize = 6;
+use launcher::menu::DEFAULT_PORT;
 
-/// Bounded number of consecutive automatic transfer-follow hops.
-///
-/// Mirrors the Go core's pre-login transfer-follower limit so a malicious or
-/// misconfigured transfer loop ends in a visible menu state instead of
-/// reconnecting forever. User-initiated joins always start a fresh chain.
-pub(crate) const MAX_TRANSFER_CHAIN_HOPS: u32 = 8;
+pub(crate) use launcher::menu::split_address;
 
-/// Renders a validated transfer host and port as a dialable address.
-///
-/// IPv6 literals are bracketed the way the Go core's dialer expects.
-pub(crate) fn format_transfer_address(host: &str, port: u16) -> String {
-    if host.starts_with('[') && host.ends_with(']') {
-        format!("{host}:{port}")
-    } else if host.contains(':') {
-        format!("[{host}]:{port}")
-    } else {
-        format!("{host}:{port}")
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum MenuScreen {
-    Home,
-    Play,
-    Social,
-    Servers,
-    Profile,
-    Settings,
-    AddServer,
-    Pause,
-    Death,
-    /// OreUI-only screens.
-    Inbox,
-    Friends,
-    /// The Marketplace; its content is owned by [`crate::store`].
-    Store,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum MenuServerTab {
-    Featured,
-    Favorites,
-    Recent,
-    Saved,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum MenuDialog {
-    Exit,
-    RemoveSaved(usize),
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum MenuField {
-    Name,
-    Address,
-    /// The local-world create or edit screen's name field.
-    WorldName,
-    WorldSeed,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum MenuAction {
-    Navigate(MenuScreen),
-    OpenExitDialog,
-    ConfirmExit,
-    DismissDialog,
-    SelectServerTab(MenuServerTab),
-    RefreshCatalog,
-    StartSignIn,
-    CancelSignIn,
-    PlayAddServer,
-    PlaySaved(usize),
-    PlayFeatured(usize),
-    PlayGathering(usize),
-    PlayRealm(usize),
-    PlayFriend(usize),
-    ToggleFavorite(usize),
-    RemoveSavedDialog(usize),
-    ConfirmRemoveSaved(usize),
-    AddName,
-    AddAddress,
-    AddSave,
-    AddSaveConnect,
-    AddBack,
-    SettingsScale(i8),
-    SettingsFullscreen(bool),
-    PauseResume,
-    PauseDisconnect,
-    PauseSettings,
-    /// Load a saved server into the add/edit draft.
-    EditSaved(usize),
-    /// Pick a settings section by its selector index.
-    SettingsSection(u8),
-    Respawn,
-    PlayLocalWorld(usize),
-    /// A press on a local-world screen (create, edit, templates) or its modals.
-    LocalWorld(LocalWorldAction),
-    SignOut,
-    /// A sound slider (by [`VOLUME_SLIDERS`] index) set to a percent.
-    SettingsVolume(u8, u8),
-    /// Show a featured server in the Servers tab's info panel.
-    SelectFeatured(usize),
-    /// Show a saved server's details on the Servers tab.
-    SelectSaved(usize),
-    /// Show a Realm's details on the Realms tab.
-    SelectRealm(usize),
-    /// Flip the info panel's description (0) or news (1) past "read more".
-    ToggleReadMore(u8),
-    /// The start screen's live-event button.
-    OpenLiveEvent,
-    /// A press on a Marketplace screen.
-    Store(crate::store::StoreAction),
-}
+pub(crate) use launcher::menu::{MenuAction, MenuDialog, MenuField, MenuScreen, MenuServerTab};
 
 #[derive(Debug, Resource)]
 pub(crate) struct MenuRuntime {
@@ -182,35 +98,44 @@ pub(crate) struct MenuRuntime {
     pressed: Option<MenuAction>,
     pointer_down: bool,
     server_tab: MenuServerTab,
+    profile_tab: launcher::menu::ProfileTab,
     dialog: Option<MenuDialog>,
     field: Option<MenuField>,
-    text_selected: bool,
-    settings_return_to_pause: bool,
-    name: String,
-    address: String,
+    /// Bumped by every field edit and caret move, restarting the caret blink.
+    caret_revision: u64,
+    /// Screens opened on the way here; back returns to the one below.
+    history: json_ui::ScreenNav<MenuScreen>,
+    /// The Play page beneath the current session's loading and in-game screens.
+    session_origin: Option<MenuScreen>,
+    /// The Add/Edit Server boxes, each typed through the chat editor's caret model.
+    name: ui::ChatEditor,
+    address: ui::ChatEditor,
+    port: ui::ChatEditor,
+    skin_name: ui::ChatEditor,
     message: Option<String>,
     gui_scale_preference: Option<u8>,
     gui_scale_offset: i8,
     gui_scale_display_offset: i8,
-    gui_scale_choices: Vec<i8>,
+    gui_scale_choices: Vec<ui::DesktopGuiScaleChoice>,
     fullscreen: bool,
     fullscreen_change: Option<bool>,
+    video_settings_writer: Option<video_settings::writer::Writer>,
+    settings_focus: Vec<MenuAction>,
+    settings_focus_geometry: focus::SettingsFocusGeometry,
     last_saved_video_settings: video_settings::SavedVideoSettings,
     failed_video_settings_save: Option<video_settings::SavedVideoSettings>,
+    render_mode: RenderMode,
+    render_mode_request: Option<RenderMode>,
+    vsync_override: Option<bool>,
     display_name: String,
     launcher: bool,
     servers: Vec<SavedServer>,
     config_path: PathBuf,
     saves: ServerWriter,
-    pending_connect: Option<PendingConnect>,
-    connecting: bool,
-    disconnect_requested: bool,
-    exit_requested: bool,
-    session_generation: u64,
-    /// Automatic transfer-follow hops remaining in the current chain.
-    transfer_hops_remaining: u32,
+    intents: SessionIntents,
+    /// The session controller's last published state.
+    session: SessionStatus,
     featured: Vec<MenuServerCard>,
-    gatherings: Vec<MenuServerCard>,
     realms: Vec<MenuRealmCard>,
     friends: Vec<MenuFriendCard>,
     catalog_message: Option<String>,
@@ -223,157 +148,123 @@ pub(crate) struct MenuRuntime {
     layout: InstallLayout,
     /// The client's own skin, cloned into every reconnection's `NetworkConfig`.
     player_skin: crate::player_skin::LocalPlayerSkin,
+    dressing_room: std::sync::Arc<launcher::dressing_room::DressingRoomView>,
+    dressing_room_worker: Option<dressing_room::Worker>,
+    skin_update_pending: bool,
+    skin_outbound: Option<(u64, protocol::Packet)>,
+    skin_packet_pending: Option<protocol::Packet>,
     editing: Option<usize>,
     settings_section: u8,
     disconnect_message: Option<String>,
     /// Death screen shown for the current death; cleared once alive again.
     death_shown: bool,
-    respawn_requested: bool,
     local_worlds: Vec<LocalWorldCard>,
     local_world_requested: Option<usize>,
     local_ui: worlds_tab::LocalWorldsUi,
     /// Sign-in state reported by the core's account control, when bound.
     control_auth: Option<AuthState>,
+    /// Tracks the current browser handoff and suppresses repeated automatic opens.
+    sign_in_browser: sign_in_browser::SignInBrowser,
+    /// Interactive prompts take focus; cached validation keeps the home status label.
+    sign_in_requested: bool,
+    /// Cancellation stays dismissed until the player explicitly starts sign-in again.
+    sign_in_cancelled: bool,
+    /// A helper-start failure stays owned by its interactive prompt; only Failed is stored.
+    sign_in_failure: Option<AuthState>,
+    #[cfg(feature = "developer-control")]
+    sign_in_fixture: Option<developer_control::protocol::SignInFixtureState>,
+    /// Developer recordings present placeholder accounts without signing in.
+    presentation_accounts: bool,
     sign_out_requested: bool,
+    accounts: accounts::Manager,
     /// Marketplace actions waiting for the store driver.
     store_actions: Vec<crate::store::StoreAction>,
+    pub(crate) global_resource_actions: Vec<crate::global_resources::Action>,
+    pub(crate) global_resources: std::sync::Arc<crate::global_resources::Snapshot>,
     /// The Marketplace's presented state while its screen is up.
-    store_snapshot: Option<std::sync::Arc<crate::store::StoreSnapshot>>,
-    volumes: settings_values::Volumes,
-    volume_change: Option<(u8, u8)>,
+    store_snapshot: Option<std::sync::Arc<launcher::store::snapshot::StoreSnapshot>>,
+    settings_options: std::sync::Arc<settings_options::SettingsOptions>,
+    storage: std::sync::Arc<settings_storage::StorageView>,
+    settings_dropdown: Option<u16>,
+    settings_scale_picker: bool,
+    settings_dirty: bool,
+    /// Failed writes wait until this deadline while retaining the newest edits.
+    settings_retry_at: Option<std::time::Instant>,
+    settings_apply: bool,
+    /// In-memory option overrides (index, persisted value) that saves never write.
+    session_overrides: Vec<(usize, i32)>,
+    /// A developer controller is driving: hotkey toggles stay in memory.
+    transient_toggles: bool,
+    language_choices: std::sync::Arc<[(String, String)]>,
+    language_pending: bool,
+    language_asset_path: PathBuf,
+    settings_slider_drag: Option<u16>,
+    settings_slider_pointer: Option<launcher::menu::view::SettingsSliderPointer>,
+    settings_slider_hovered: Option<u16>,
+    settings_slider_selected: Option<u16>,
+    settings_control_activation: Option<(MenuAction, u64)>,
+    settings_control_activation_navigation: bool,
+    settings_input_revision: u64,
+    input_mode: input::MenuInputMode,
+    key_remap: Option<u16>,
+    settings_advanced_graphics: bool,
     /// The current or pending session is a local world, and whether it was live last frame.
     local_world_joined: bool,
     local_world_active: bool,
     feeds: MenuFeeds,
-    /// Identity-checked owner of this session's runtime directory; bound
-    /// once a connect attempt provisions it and released on disconnect,
-    /// session failure, exit, or drop.
-    session_directory: Option<SessionDirectoryGuard>,
-    /// The join provisioning behind the connecting screen.
-    join: Option<connection::JoinAttempt>,
+    /// The pause screen's invite screen and the invites it queued.
+    invite: invite::InviteUi,
+    /// Discord join requests waiting for the host's answer.
+    join_requests: join_requests::JoinRequestUi,
 }
 
-#[derive(Debug)]
-struct PendingConnect {
-    address: String,
-    auth_cache: Option<PathBuf>,
-    /// Joins the launcher core's opened local world instead of `address`.
-    local_world: bool,
+/// Session requests raised by menu actions, for the session controller to take.
+#[derive(Debug, Default)]
+struct SessionIntents {
+    join: Option<JoinIntent>,
+    disconnect: bool,
+    respawn: bool,
+    exit: bool,
 }
 
 impl MenuRuntime {
-    #[cfg(test)]
-    pub(crate) fn new(visible: bool, gui_scale: u8, display_name: String) -> Self {
-        let player_skin = crate::player_skin::LocalPlayerSkin::generated_default(&display_name);
-        Self::new_with_layout(
-            visible,
-            Some(gui_scale),
-            display_name,
-            InstallLayout::discover().expect("test executable must have a development layout"),
-            player_skin,
-        )
+    /// Mirrors the applied mode; a pending menu toggle wins until taken.
+    pub(crate) fn sync_render_mode(&mut self, applied: RenderMode) {
+        if self.render_mode_request.is_none() {
+            self.render_mode = applied;
+        }
     }
 
-    pub(crate) fn new_with_layout(
-        visible: bool,
-        gui_scale: Option<u8>,
-        display_name: String,
-        layout: InstallLayout,
-        player_skin: crate::player_skin::LocalPlayerSkin,
-    ) -> Self {
-        let config_path = layout.server_file();
-        let loaded = load_servers(&config_path);
-        let mut message = loaded.recovery_message;
-        let saved_video_settings =
-            video_settings::load(&layout.user_config_root).unwrap_or_else(|error| {
-                let warning = format!("Video settings could not be read: {error:#}");
-                message = Some(message.take().map_or_else(
-                    || warning.clone(),
-                    |previous| format!("{previous}\n{warning}"),
-                ));
-                video_settings::SavedVideoSettings::default()
-            });
-        Self {
-            // The launcher owns the session lifecycle only when the client
-            // started on the menu. `--address` keeps the historical behaviour
-            // of exiting the process when its one session fails.
-            launcher: visible,
-            visible,
-            screen: MenuScreen::Home,
-            focused: 0,
-            hovered: None,
-            pressed: None,
-            pointer_down: false,
-            server_tab: MenuServerTab::Featured,
-            dialog: None,
-            field: None,
-            text_selected: false,
-            settings_return_to_pause: false,
-            name: String::new(),
-            address: String::new(),
-            message,
-            gui_scale_preference: gui_scale
-                .filter(|scale| *scale > 0)
-                .map(|scale| scale.clamp(1, 4)),
-            gui_scale_offset: saved_video_settings.gui_scale_offset,
-            gui_scale_display_offset: saved_video_settings.gui_scale_offset,
-            gui_scale_choices: vec![0],
-            fullscreen: saved_video_settings.fullscreen,
-            fullscreen_change: saved_video_settings.fullscreen.then_some(true),
-            last_saved_video_settings: saved_video_settings,
-            failed_video_settings_save: None,
-            display_name,
-            servers: loaded.servers,
-            saves: ServerWriter::new(config_path.clone()),
-            config_path,
-            pending_connect: None,
-            connecting: false,
-            disconnect_requested: false,
-            exit_requested: false,
-            session_generation: 1,
-            transfer_hops_remaining: MAX_TRANSFER_CHAIN_HOPS,
-            featured: Vec::new(),
-            gatherings: Vec::new(),
-            realms: Vec::new(),
-            friends: Vec::new(),
-            catalog_message: None,
-            catalog_started: false,
-            catalog_path: layout.catalog_file(std::process::id()),
-            catalog_process: None,
-            auth_process: None,
-            auth_attempted: false,
-            auth_restart_requested: false,
-            layout,
-            player_skin,
-            session_directory: None,
-            join: None,
-            editing: None,
-            settings_section: 0,
-            disconnect_message: None,
-            death_shown: false,
-            respawn_requested: false,
-            local_worlds: Vec::new(),
-            local_world_requested: None,
-            local_ui: Default::default(),
-            control_auth: None,
-            sign_out_requested: false,
-            store_actions: Vec::new(),
-            store_snapshot: None,
-            volumes: Default::default(),
-            volume_change: None,
-            local_world_joined: false,
-            local_world_active: false,
-            feeds: MenuFeeds::default(),
-        }
+    /// Shows the VSync toggle locked to a launch-flag override.
+    #[must_use]
+    pub(crate) const fn with_vsync_override(mut self, vsync: Option<bool>) -> Self {
+        self.vsync_override = vsync;
+        self
+    }
+
+    /// Consume the pending Video-section change.
+    pub(crate) fn take_render_mode_request(&mut self) -> Option<RenderMode> {
+        self.render_mode_request.take()
+    }
+
+    /// Return the extension settings file alongside the other user settings.
+    pub(crate) fn graphics_file(&self) -> PathBuf {
+        self.layout.graphics_file()
     }
 
     pub(crate) fn is_visible(&self) -> bool {
         self.visible
     }
 
-    /// Full-screen launcher backgrounds replace the world; pause and death keep it visible.
+    /// Settings retains the background of the launcher or world beneath it; pause, its invite
+    /// screen and death keep the world visible.
     pub(crate) fn uses_panorama(&self) -> bool {
-        self.visible && !matches!(self.screen, MenuScreen::Pause | MenuScreen::Death)
+        self.visible
+            && match self.screen {
+                MenuScreen::Pause | MenuScreen::Death | MenuScreen::Invite => false,
+                MenuScreen::Settings | MenuScreen::DressingRoom => !self.over_world(),
+                _ => true,
+            }
     }
 
     pub(crate) fn screen(&self) -> MenuScreen {
@@ -388,74 +279,31 @@ impl MenuRuntime {
         self.launcher
     }
 
+    /// A join is queued or in progress.
     pub(crate) fn is_connecting(&self) -> bool {
-        self.connecting
+        self.session.connecting || self.intents.join.is_some()
+    }
+
+    pub(crate) fn observe_session(&mut self, status: SessionStatus) {
+        self.session = status;
+    }
+
+    pub(crate) fn layout(&self) -> &InstallLayout {
+        &self.layout
+    }
+
+    pub(crate) fn display_name(&self) -> &str {
+        &self.display_name
     }
 
     pub(crate) fn set_visible(&mut self, visible: bool) {
         self.visible = visible;
         if !visible {
             self.field = None;
-            self.text_selected = false;
+            self.settings_slider_selected = None;
+            self.settings_slider_pointer = None;
+            self.settings_slider_hovered = None;
             self.dialog = None;
-        }
-    }
-
-    pub(crate) fn view(&self) -> MenuView {
-        // A sign-in in flight outranks the core's report, which outranks a finished helper.
-        let supervisor = self
-            .auth_process
-            .as_ref()
-            .map(|process| process.state().clone());
-        let auth_state = match (supervisor, self.control_auth.clone()) {
-            (Some(state @ (AuthState::Checking | AuthState::AwaitingCode { .. })), _) => state,
-            (_, Some(control)) => control,
-            (supervisor, None) => supervisor.unwrap_or(AuthState::SignedOut),
-        };
-        let catalog_loading = matches!(
-            &auth_state,
-            AuthState::Checking | AuthState::AwaitingCode { .. }
-        ) || (auth_state == AuthState::Authenticated
-            && (!self.catalog_started || self.catalog_process.is_some()));
-        MenuView {
-            visible: self.visible,
-            screen: self.screen,
-            focused_action: self.focus_actions().get(self.focused).copied(),
-            hovered: self.hovered,
-            pressed: self.pressed,
-            server_tab: self.server_tab,
-            dialog: self.dialog,
-            field: self.field,
-            name: self.name.clone(),
-            address: self.address.clone(),
-            message: self.message.clone(),
-            gui_scale_offset: self.gui_scale_display_offset,
-            gui_scale_choices: self.gui_scale_choices.clone(),
-            fullscreen: self.fullscreen,
-            display_name: self.display_name.clone(),
-            servers: self.servers.clone(),
-            featured: self.featured.clone(),
-            gatherings: self.gatherings.clone(),
-            realms: self.realms.clone(),
-            friends: self.friends.clone(),
-            featured_icon: None,
-            gathering_icon: None,
-            realm_icon: None,
-            friend_icon: None,
-            saved_icon: None,
-            profile_icon: None,
-            catalog_loading,
-            catalog_message: self.catalog_message.clone(),
-            auth_state,
-            connecting: self.connecting,
-            settings_section: self.settings_section,
-            disconnect_message: self.disconnect_message.clone(),
-            editing: self.editing,
-            local_worlds: self.local_worlds.clone(),
-            local: self.local_view(),
-            volumes: self.volumes,
-            feeds: self.feeds.clone(),
-            store: self.store_snapshot.clone(),
         }
     }
 
@@ -467,7 +315,7 @@ impl MenuRuntime {
     /// Publish (or clear) the Marketplace's presented state.
     pub(crate) fn set_store_snapshot(
         &mut self,
-        snapshot: Option<std::sync::Arc<crate::store::StoreSnapshot>>,
+        snapshot: Option<std::sync::Arc<launcher::store::snapshot::StoreSnapshot>>,
     ) {
         self.store_snapshot = snapshot;
     }
@@ -483,11 +331,6 @@ impl MenuRuntime {
         }
     }
 
-    /// Where the Marketplace settings file lives.
-    pub(crate) fn store_settings_path(&self) -> PathBuf {
-        self.config_path.with_file_name(crate::store::SETTINGS_FILE)
-    }
-
     /// The local worlds the worlds tab lists (the local-worlds module feeds it).
     pub(crate) fn set_local_worlds(&mut self, worlds: Vec<LocalWorldCard>) {
         self.local_worlds = worlds;
@@ -500,11 +343,12 @@ impl MenuRuntime {
 
     /// Show the death screen once per death (health reached zero in play).
     pub(crate) fn open_death(&mut self) {
-        if self.visible || self.connecting || self.death_shown {
+        if self.visible || self.is_connecting() || self.death_shown {
             return;
         }
         self.death_shown = true;
-        self.enter(MenuScreen::Death);
+        self.history.reset(MenuScreen::Death);
+        self.show_top();
     }
 
     /// Health came back above zero: a later death shows the screen again.
@@ -512,27 +356,29 @@ impl MenuRuntime {
         self.death_shown = false;
         if self.screen == MenuScreen::Death && self.visible {
             self.set_visible(false);
+            self.history.reset(MenuScreen::Home);
             self.screen = MenuScreen::Home;
         }
     }
 
     /// The death screen's respawn press, for the session to send once.
     pub(crate) fn take_respawn_request(&mut self) -> bool {
-        std::mem::take(&mut self.respawn_requested)
+        std::mem::take(&mut self.intents.respawn)
     }
 
     pub(crate) fn open_pause(&mut self) {
-        if self.visible || self.connecting {
+        if self.visible || self.is_connecting() {
             return;
         }
+        self.history.reset(MenuScreen::Pause);
         self.screen = MenuScreen::Pause;
         self.focused = 0;
-        self.settings_return_to_pause = false;
         self.message = None;
         self.visible = true;
     }
 
-    fn take_pending_connect(&mut self) -> Option<PendingConnect> {
+    /// The queued join, once any sign-in helper has finished cleaning up.
+    pub(crate) fn take_join_intent(&mut self) -> Option<JoinIntent> {
         if self
             .auth_process
             .as_ref()
@@ -540,36 +386,53 @@ impl MenuRuntime {
         {
             return None;
         }
-        self.pending_connect.take()
+        self.intents.join.take()
     }
 
-    pub(crate) fn mark_connected(&mut self) {
-        self.connecting = false;
+    /// The session is live: the menu gives way to the world.
+    pub(crate) fn show_world(&mut self) {
         self.visible = false;
+        self.history.reset(MenuScreen::Home);
         self.screen = MenuScreen::Home;
         self.message = None;
         self.field = None;
-        self.text_selected = false;
-        self.settings_return_to_pause = false;
     }
 
-    pub(crate) fn mark_connecting(&mut self) {
-        self.connecting = true;
+    pub(crate) fn show_connecting(&mut self) {
         self.visible = true;
+        self.history.reset(MenuScreen::Home);
+        self.history.push(MenuScreen::Play);
         self.screen = MenuScreen::Play;
-        self.settings_return_to_pause = false;
         self.message = Some("Connecting…".to_owned());
     }
 
-    pub(crate) fn mark_disconnected(&mut self) {
+    pub(crate) fn show_home(&mut self) {
         self.visible = true;
+        self.history.reset(MenuScreen::Home);
         self.screen = MenuScreen::Home;
         self.focused = 0;
-        self.connecting = false;
         self.field = None;
-        self.text_selected = false;
-        self.settings_return_to_pause = false;
         self.dialog = None;
+    }
+
+    /// A cancelled join drops any queued join and returns to the play screen.
+    pub(crate) fn cancel_join(&mut self) {
+        self.intents.join = None;
+        self.show_session_origin(MenuScreen::Play);
+    }
+
+    pub(crate) fn show_join_failure(&mut self, message: String) {
+        self.message = Some(message);
+    }
+
+    pub(crate) fn show_transfer(&mut self, address: &str) {
+        self.message = Some(format!("Transferring to {address}…"));
+    }
+
+    /// Resets the join progress screen for a join to `address`.
+    pub(crate) fn begin_join_progress(&mut self, address: &str, local_world: bool) {
+        self.feeds.join =
+            launcher::menu::view::JoinProgress::new(launcher_core::join_kind(address, local_world));
     }
 
     /// Returns the session back to the launcher after a fatal session error.
@@ -580,13 +443,12 @@ impl MenuRuntime {
         if !self.launcher {
             return false;
         }
-        self.connecting = false;
         self.visible = true;
+        self.history.reset(MenuScreen::Home);
+        self.history.push(MenuScreen::Play);
         self.screen = MenuScreen::Play;
         self.dialog = None;
         self.field = None;
-        self.text_selected = false;
-        self.settings_return_to_pause = false;
         // The raw chain is for the log; the disconnect screen words it as vanilla does.
         bevy::log::warn!(error, "session ended");
         self.message = None;
@@ -597,32 +459,53 @@ impl MenuRuntime {
     }
 
     pub(crate) fn take_disconnect_request(&mut self) -> bool {
-        std::mem::take(&mut self.disconnect_requested)
+        std::mem::take(&mut self.intents.disconnect)
     }
 
     pub(crate) fn take_exit_request(&mut self) -> bool {
-        std::mem::take(&mut self.exit_requested)
+        std::mem::take(&mut self.intents.exit)
     }
 
-    pub(crate) fn next_session_generation(&mut self) -> u64 {
-        self.session_generation = self.session_generation.saturating_add(1).max(1);
-        self.session_generation
+    pub(crate) fn activate_from_input(&mut self, action: MenuAction) {
+        self.activate_control_input(action, false);
     }
 
-    /// Takes ownership of the bound session directory, releasing any
-    /// previous binding first so at most one session directory is live.
-    pub(crate) fn bind_session_directory(&mut self, directory: SessionDirectoryGuard) {
-        self.session_directory = Some(directory);
+    pub(crate) fn activate_from_navigation(&mut self, action: MenuAction) {
+        self.activate_control_input(action, true);
     }
 
-    /// Releases the session runtime directory now (after the core has been
-    /// stopped); a no-op when nothing is bound.
-    #[cfg(test)]
-    pub(crate) fn release_session_directory(&mut self) {
-        self.session_directory = None;
+    fn activate_control_input(&mut self, action: MenuAction, navigation: bool) {
+        if self.screen == MenuScreen::Settings {
+            self.settings_input_revision = self.settings_input_revision.wrapping_add(1);
+            self.settings_control_activation = Some((action, self.settings_input_revision));
+            self.settings_control_activation_navigation = navigation;
+        }
+        self.activate(action);
     }
 
     pub(crate) fn activate(&mut self, action: MenuAction) {
+        #[cfg(feature = "developer-control")]
+        if self.activate_sign_in_fixture(action) {
+            return;
+        }
+        if self.skin_editor_blocks(action) || self.presentation_blocks(action) {
+            return;
+        }
+        if self.account_change_pending()
+            && matches!(
+                action,
+                MenuAction::PlaySaved(_)
+                    | MenuAction::PlayFeatured(_)
+                    | MenuAction::PlayRealm(_)
+                    | MenuAction::PlayFriend(_)
+                    | MenuAction::PlayLocalWorld(_)
+                    | MenuAction::OpenLiveEvent
+                    | MenuAction::LocalWorld(_)
+            )
+        {
+            self.message = Some("Please wait for the account change to finish.".into());
+            return;
+        }
         if let Some(index) = self
             .focus_actions()
             .iter()
@@ -632,17 +515,23 @@ impl MenuRuntime {
         }
         match action.text_field() {
             Some(field) => self.focus_field(field),
-            None => {
-                self.field = None;
-                self.text_selected = false;
-            }
+            None => self.field = None,
         }
         self.pressed = Some(action);
         self.message = None;
         self.disconnect_message = None;
         match action {
+            MenuAction::SelectProfileTab(tab) => self.profile_tab = tab,
+            MenuAction::RefreshProfile => {
+                self.feeds.profile.loaded = false;
+                self.feeds.profile.unavailable = false;
+                self.feeds.profile_refresh_requested = true;
+            }
+            MenuAction::Inbox(action) => self.activate_inbox(action),
             MenuAction::Navigate(screen) => {
-                self.settings_return_to_pause = false;
+                if screen == MenuScreen::DressingRoom {
+                    self.ensure_dressing_room();
+                }
                 self.enter(screen);
             }
             MenuAction::OpenExitDialog => {
@@ -651,9 +540,12 @@ impl MenuRuntime {
             }
             MenuAction::ConfirmExit => {
                 self.dialog = None;
-                self.exit_requested = true;
+                self.intents.exit = true;
             }
-            MenuAction::DismissDialog => self.dialog = None,
+            MenuAction::DismissDialog => self.dismiss_accounts(),
+            MenuAction::OpenAccounts => self.open_accounts(),
+            MenuAction::AddAccount => self.add_account(),
+            MenuAction::SwitchAccount(index) => self.switch_account(index),
             MenuAction::SelectServerTab(tab) => {
                 self.server_tab = tab;
                 self.focused = 0;
@@ -664,11 +556,22 @@ impl MenuRuntime {
                 self.catalog_message = None;
             }
             MenuAction::StartSignIn => self.start_sign_in(),
-            MenuAction::CancelSignIn => self.stop_sign_in(),
+            MenuAction::OpenSignInLink => self.update_sign_in_browser(true),
+            MenuAction::CancelSignIn => {
+                if self.feeds.account_adding {
+                    self.cancel_add_account();
+                } else {
+                    self.stop_sign_in();
+                }
+                if self.dialog == Some(MenuDialog::Accounts) {
+                    self.dialog = None;
+                }
+            }
             MenuAction::PlayAddServer => {
                 self.editing = None;
                 self.name.clear();
                 self.address.clear();
+                self.port.set_text(DEFAULT_PORT);
                 self.enter(MenuScreen::AddServer);
                 self.focus_field(MenuField::Name);
             }
@@ -682,11 +585,6 @@ impl MenuRuntime {
             }
             MenuAction::PlayFeatured(index) => {
                 if let Some(server) = self.featured.get(index) {
-                    self.request_connect(server.address.clone());
-                }
-            }
-            MenuAction::PlayGathering(index) => {
-                if let Some(server) = self.gatherings.get(index) {
                     self.request_connect(server.address.clone());
                 }
             }
@@ -739,59 +637,93 @@ impl MenuRuntime {
                         self.message =
                             Some("That friend world has no stable Xbox identity.".to_owned());
                     } else {
-                        self.request_connect(format!("friend_xuid/{}", friend.xuid));
+                        self.request_connect(format!(
+                            "{}{}",
+                            launcher::menu::FRIEND_ADDRESS_PREFIX,
+                            friend.xuid
+                        ));
                     }
                 }
             }
-            MenuAction::AddName | MenuAction::AddAddress => {}
+            MenuAction::AddName
+            | MenuAction::AddAddress
+            | MenuAction::AddPort
+            | MenuAction::EditSkinName => {}
             MenuAction::AddSave => {
+                // Saving pops the form back to the tab that opened it.
                 if self.save_draft() {
-                    self.enter(MenuScreen::Play);
+                    self.go_back();
                 }
             }
             MenuAction::AddSaveConnect => {
                 if self.save_draft() {
-                    self.request_connect(self.address.clone());
+                    self.request_connect(self.draft_endpoint());
                 }
             }
             MenuAction::AddBack => self.go_back(),
-            MenuAction::SettingsScale(offset) => self.set_gui_scale_offset(offset),
-            MenuAction::SettingsFullscreen(fullscreen) => {
-                self.fullscreen = fullscreen;
-                self.fullscreen_change = Some(fullscreen);
+            MenuAction::ToggleRenderMode => {
+                if render_model::ENHANCED_RENDERING_ENABLED {
+                    self.render_mode = self.render_mode.toggled();
+                    self.render_mode_request = Some(self.render_mode);
+                }
             }
             // The game menu opened from the death screen returns to it.
-            MenuAction::PauseResume if self.death_shown => self.enter(MenuScreen::Death),
+            MenuAction::PauseResume if self.death_shown => {
+                self.history.reset(MenuScreen::Death);
+                self.show_top();
+            }
             MenuAction::PauseResume => self.set_visible(false),
             MenuAction::PauseDisconnect => {
-                self.disconnect_requested = true;
+                self.intents.disconnect = true;
                 self.set_visible(false);
             }
             MenuAction::PauseSettings => {
                 self.enter(MenuScreen::Settings);
-                self.settings_return_to_pause = true;
             }
             MenuAction::EditSaved(index) => {
                 if let Some(server) = self.servers.get(index) {
-                    self.name = server.name.clone();
-                    self.address = server.address.clone();
+                    self.name.set_text(&server.name);
+                    let (address, port) = split_address(&server.address);
+                    self.address.set_text(&address);
+                    self.port.set_text(&port);
                     self.enter(MenuScreen::AddServer);
                     self.editing = Some(index);
                     self.focus_field(MenuField::Name);
                 }
             }
-            MenuAction::SettingsSection(section) => self.settings_section = section,
+            MenuAction::SettingsStorage(action) => self.activate_storage(action),
+            MenuAction::SettingsSupport(action) => self.activate_support(action),
+            action @ (MenuAction::SettingsScale(_)
+            | MenuAction::SettingsScalePicker
+            | MenuAction::SettingsFullscreen(_)
+            | MenuAction::SettingsSection(_)
+            | MenuAction::SettingsOption(..)
+            | MenuAction::SettingsLanguage(_)
+            | MenuAction::SettingsDropdown(_)
+            | MenuAction::SettingsResetBindings(_)
+            | MenuAction::SettingsResetGroup(_)
+            | MenuAction::SettingsConfirmResetGroup(_)
+            | MenuAction::SettingsConfirmResetBindings(_)
+            | MenuAction::SettingsKey(_)
+            | MenuAction::SettingsResetKey(_)
+            | MenuAction::SettingsResetChat
+            | MenuAction::SettingsAdvancedGraphics) => self.activate_settings(action),
             MenuAction::Respawn => {
-                self.respawn_requested = true;
+                self.intents.respawn = true;
                 self.set_visible(false);
             }
             MenuAction::SignOut => self.sign_out_requested = true,
-            MenuAction::SettingsVolume(slot, percent) => self.set_volume(slot, percent),
             MenuAction::SelectFeatured(index) => self.feeds.select(index),
             MenuAction::SelectSaved(index) => self.feeds.select_saved(index),
+            MenuAction::ServerList(action) => {
+                self.settings_dirty |=
+                    std::sync::Arc::make_mut(&mut self.settings_options).apply_server_list(action);
+            }
             MenuAction::SelectRealm(index) => self.feeds.selected_realm = Some(index),
             MenuAction::ToggleReadMore(section) => self.feeds.toggle_read_more(section),
             MenuAction::OpenLiveEvent => self.open_live_event(),
+            MenuAction::GlobalResources(action) => self.global_resource_actions.push(action),
+            MenuAction::DressingRoom(action) => self.activate_dressing_room(action),
             MenuAction::Store(action) => {
                 if action == crate::store::StoreAction::Open {
                     self.enter(MenuScreen::Store);
@@ -804,60 +736,35 @@ impl MenuRuntime {
                 }
             }
             MenuAction::LocalWorld(action) => self.queue_local_action(action),
+            MenuAction::ServerTrust(trusted) => self.answer_server_trust(trusted),
+            MenuAction::Invite(action) => self.activate_invite(action),
+            MenuAction::JoinRequest(accept) => self.answer_join_request(accept),
         }
     }
 
-    fn enter(&mut self, screen: MenuScreen) {
-        if screen != MenuScreen::Store {
-            self.store_snapshot = None;
-        }
-        self.screen = screen;
-        self.focused = 0;
-        self.hovered = None;
-        self.field = None;
-        self.text_selected = false;
-        self.dialog = None;
-        self.message = None;
-        self.visible = true;
-    }
-
-    fn go_back(&mut self) {
-        if self.dialog.take().is_some() {
-            return;
-        }
-        if self.local_screen_open() {
-            self.queue_local_action(LocalWorldAction::Back);
-            return;
-        }
-        // Back on the join progress screen is its cancel button, where vanilla offers one.
-        if self.connecting {
-            self.disconnect_requested |= self.feeds.join.cancellable();
-            return;
-        }
-        match self.screen {
-            // Death has no way back; only respawn or leaving ends it.
-            MenuScreen::Home | MenuScreen::Death => {}
-            MenuScreen::Pause if self.death_shown => self.enter(MenuScreen::Death),
-            MenuScreen::Pause => self.set_visible(false),
-            MenuScreen::Store => self.store_actions.push(crate::store::StoreAction::Back),
-            MenuScreen::Settings if self.settings_return_to_pause => {
-                self.settings_return_to_pause = false;
-                self.enter(MenuScreen::Pause);
-            }
-            _ => {
-                self.settings_return_to_pause = false;
-                self.enter(if self.screen == MenuScreen::AddServer {
-                    MenuScreen::Servers
-                } else {
-                    MenuScreen::Home
-                });
-            }
+    /// The draft's `host:port`; a host typed with its own port keeps it.
+    fn draft_endpoint(&self) -> String {
+        let host = self.address.as_str().trim();
+        let port = self.port.as_str().trim();
+        let own_port = host.contains("]:")
+            || host.split_once(':').is_some_and(|(_, rest)| {
+                !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit())
+            });
+        match (
+            own_port || host.is_empty(),
+            port.is_empty(),
+            host.contains(':'),
+        ) {
+            (true, _, _) | (_, true, _) => host.to_owned(),
+            (false, false, true) => format!("[{host}]:{port}"),
+            (false, false, false) => format!("{host}:{port}"),
         }
     }
 
     fn save_draft(&mut self) -> bool {
-        let name = self.name.trim();
-        let address = self.address.trim();
+        let name = self.name.as_str().trim();
+        let endpoint = self.draft_endpoint();
+        let address = endpoint.trim();
         if name.is_empty() || address.is_empty() {
             self.message = Some("Enter a server name and address.".to_owned());
             return false;
@@ -919,66 +826,97 @@ impl MenuRuntime {
         }
     }
 
-    fn request_connect(&mut self, address: String) {
+    /// Queues a join to `address` for the session controller.
+    pub(crate) fn request_connect(&mut self, address: String) {
+        if self.account_change_pending() {
+            self.message = Some("Please wait for the account change to finish.".into());
+            return;
+        }
         if address.trim().is_empty() {
             self.message = Some("That server has no address.".to_owned());
             return;
         }
-        // A user-initiated join always starts a fresh transfer chain.
-        self.begin_fresh_transfer_chain();
+        self.remember_session_origin();
         self.stop_catalog();
-        let auth_cache = account::validated_auth_cache(
-            &self.layout,
-            self.auth_process.as_ref().map(AuthSupervisor::state),
-        );
+        let auth_cache = self.launcher_auth_cache();
         self.stop_sign_in();
         self.local_world_joined = false;
-        self.pending_connect = Some(PendingConnect {
+        self.intents.join = Some(JoinIntent {
             address,
             auth_cache,
             local_world: false,
         });
-        self.mark_connecting();
+        self.show_connecting();
     }
+}
 
-    /// Starts a fresh bounded transfer-follow chain for a user join.
-    pub(crate) fn begin_fresh_transfer_chain(&mut self) {
-        self.transfer_hops_remaining = MAX_TRANSFER_CHAIN_HOPS;
+/// Drives the launcher's own services: catalog, saves, settings, the account core and local worlds.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn drive_menu_services(
+    mut commands: Commands,
+    mut menu: ResMut<MenuRuntime>,
+    client_blob_cache: Res<crate::app::ClientBlobCacheOwner>,
+    mut client_world: ResMut<ClientWorld>,
+    mut runtime: ResMut<UiRuntime>,
+    launcher: Option<ResMut<LauncherCoreSlot>>,
+    launcher_account: Option<ResMut<launcher_account::LauncherAccount>>,
+    mut local_worlds: Option<ResMut<crate::local_worlds::LocalWorlds>>,
+    audio_settings: Option<ResMut<crate::audio::AudioSettings>>,
+    settings: Option<ResMut<crate::settings_runtime::RuntimeSettings>>,
+    antialiasing: Option<Res<client_presentation::camera::antialiasing::CameraAntiAliasingSupport>>,
+    mut local_skin: Option<ResMut<crate::player_skin::LocalPlayerSkin>>,
+    network: Option<Res<crate::runtime::network::NetworkHandle>>,
+) {
+    #[cfg(feature = "developer-control")]
+    if menu.fixture_active() {
+        return;
     }
-
-    /// Consumes one hop of the bounded automatic transfer-follow chain.
-    ///
-    /// Returns `false` when the chain is exhausted; the caller must surface
-    /// the explicit cannot-follow state instead of reconnecting again.
-    pub(crate) fn consume_transfer_chain_hop(&mut self) -> bool {
-        if self.transfer_hops_remaining == 0 {
-            return false;
-        }
-        self.transfer_hops_remaining -= 1;
-        true
+    menu.poll_dressing_room(
+        local_skin.as_deref_mut(),
+        &mut client_world,
+        network.as_deref(),
+        runtime.session_id(),
+    );
+    menu.poll_catalog(launcher_account.is_some());
+    menu.poll_saves();
+    menu.poll_accounts();
+    menu.sync_audio_settings(audio_settings);
+    if let Some(support) = antialiasing {
+        menu.sync_anti_aliasing_support(support.0);
     }
-
-    /// Prepares the replacement-handoff target for a server-directed
-    /// transfer without staging a user connect.
-    ///
-    /// Well-formedness only, exactly like the protocol boundary: no host
-    /// allowlist exists because vanilla servers legitimately transfer across
-    /// unrelated hosts. Returns `None` for an unusable target.
-    pub(crate) fn transfer_handoff_target(
-        &self,
-        host: &str,
-        port: u16,
-    ) -> Option<(String, Option<PathBuf>)> {
-        let trimmed = host.trim();
-        if trimmed.is_empty() {
-            return None;
-        }
-        let address = format_transfer_address(trimmed, port);
-        let auth_cache = account::validated_auth_cache(
-            &self.layout,
-            self.auth_process.as_ref().map(AuthSupervisor::state),
+    menu.sync_user_settings(settings);
+    menu.sync_language(&mut runtime);
+    let in_session = client_world.stream.is_some();
+    if let Some(mut slot) = launcher {
+        // Remote direct sessions have a separate game core. Local worlds use
+        // the account core, so sign-in must not restart it during local play.
+        let idle = launcher_core::account_core_idle(
+            menu.is_launcher(),
+            menu.is_connecting(),
+            in_session,
+            menu.local_world_joined,
         );
-        Some((address, auth_cache))
+        slot.drive(
+            &mut commands,
+            &mut menu,
+            idle,
+            client_blob_cache.enables_upstream_client_cache(),
+            local_worlds.as_deref_mut(),
+        );
+    }
+    if std::mem::take(&mut menu.accounts.skip_control) {
+        menu.forget_launcher_trust();
+        return;
+    }
+    match launcher_account {
+        Some(mut account) => menu.sync_account_control(&mut *account),
+        None => {
+            menu.forget_launcher_trust();
+            menu.sign_out_locally();
+        }
+    }
+    if let Some(worlds) = local_worlds.as_deref_mut() {
+        menu.sync_local_worlds(worlds, in_session);
     }
 }
 

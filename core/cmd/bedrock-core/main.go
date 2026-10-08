@@ -9,6 +9,8 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -17,6 +19,7 @@ import (
 	"github.com/hashimthearab/rust-mcbe/core/catalog"
 	"github.com/hashimthearab/rust-mcbe/core/control"
 	"github.com/hashimthearab/rust-mcbe/core/internal/lifeline"
+	"github.com/hashimthearab/rust-mcbe/core/internal/locale"
 	"github.com/hashimthearab/rust-mcbe/core/launcher"
 	"github.com/hashimthearab/rust-mcbe/core/localworld"
 	"github.com/hashimthearab/rust-mcbe/core/packcache"
@@ -26,12 +29,17 @@ import (
 )
 
 const (
+	// The core relays one session beside a game client that owns the remaining cores.
+	coreMaxProcs = 2
+	// Soft heap target; GC works harder near it instead of growing past it.
+	coreMemoryLimit = 512 << 20
 	// Past this, a shutdown still waiting on work that ignores its context hard-exits.
 	shutdownGrace      = 2 * time.Second
 	parentPollInterval = 250 * time.Millisecond
 )
 
 func main() {
+	configureRuntime(os.Getenv)
 	args := os.Args[1:]
 	var stdin io.Reader
 	if bindsStdin(args) {
@@ -53,6 +61,17 @@ func main() {
 	}
 }
 
+// configureRuntime caps scheduler threads and sets a soft memory limit unless GOMAXPROCS or
+// GOMEMLIMIT already chose them.
+func configureRuntime(getenv func(string) string) {
+	if getenv("GOMAXPROCS") == "" {
+		runtime.GOMAXPROCS(min(coreMaxProcs, runtime.NumCPU()))
+	}
+	if getenv("GOMEMLIMIT") == "" {
+		debug.SetMemoryLimit(coreMemoryLimit)
+	}
+}
+
 // bindsStdin reports whether the client pipes stdin, whose EOF then ends the core; the sign-in and
 // update helpers run with a null stdin.
 func bindsStdin(args []string) bool {
@@ -71,6 +90,7 @@ type options struct {
 	socketDir                 string
 	upstream                  string
 	authCache                 string
+	language                  string
 	catalogFile               string
 	authEvents                bool
 	resourcePackCacheDir      string
@@ -84,7 +104,12 @@ type options struct {
 	bdsDir                    string
 	bdsVersion                string
 	bdsImage                  string
+	bdsMaxPlayers             int
+	bdsHostPort               int
+	bdsLANVisible             bool
+	bdsLANHostPort            int
 	docker                    string
+	serverTrustFile           string
 }
 
 func parseFlags(args []string, stderr io.Writer) (options, error) {
@@ -94,11 +119,13 @@ func parseFlags(args []string, stderr io.Writer) (options, error) {
 	flags.StringVar(&opts.socketDir, "socket-dir", "", "directory containing the local bridge endpoint")
 	flags.StringVar(&opts.upstream, "upstream", "", "upstream Bedrock server address (host:port)")
 	flags.StringVar(&opts.authCache, "auth-cache", "", "path to the Microsoft authentication token cache")
+	flags.StringVar(&opts.language, "language", locale.Default, "active UI language (BCP 47)")
 	flags.StringVar(&opts.catalogFile, "catalog-file", "", "write the authenticated launcher catalog and exit")
 	flags.BoolVar(&opts.authEvents, "auth-events", false, "perform one-shot authentication and emit bounded JSONL events")
 	flags.StringVar(&opts.resourcePackCacheDir, "resource-pack-cache-dir", "", "enable the persistent verified resource-pack cache in this directory")
 	flags.Uint64Var(&opts.resourcePackCacheQuota, "resource-pack-cache-quota-bytes", packcache.DefaultQuota, "maximum resource-pack cache bytes (requires -resource-pack-cache-dir)")
 	flags.BoolVar(&opts.controlStatus, "control-status", false, "enable the local read-only Status v1 control endpoint")
+	flags.StringVar(&opts.serverTrustFile, "server-trust-file", "", "ask the control client before joining an unknown http NetherNet server, remembering trusted ones in this file (requires -control-status)")
 	flags.BoolVar(&opts.upstreamClientCache, "upstream-client-cache", false, "advertise client-cache capability upstream; enable only when the connecting client owns a verified blob cache")
 	flags.StringVar(&opts.localWorldsDir, "local-worlds-dir", "", "enable local single-player worlds stored in this directory (requires -control-status)")
 	flags.StringVar(&opts.localServerBin, "local-server-bin", "", "local world server binary (default: bedrock-local-server beside the core)")
@@ -106,6 +133,16 @@ func parseFlags(args []string, stderr io.Writer) (options, error) {
 	flags.StringVar(&opts.bdsDir, "bds-dir", "", "directory for downloaded Bedrock Dedicated Server builds (default: bds beside the worlds directory)")
 	flags.StringVar(&opts.bdsVersion, "bds-version", "", "exact Bedrock Dedicated Server build to download (the client passes its target manifest's server_version)")
 	flags.StringVar(&opts.bdsImage, "bds-image", "", "digest-pinned container image that runs the Linux Bedrock Dedicated Server where no native build exists")
+	flags.IntVar(
+		&opts.bdsMaxPlayers,
+		"bds-max-players",
+		0,
+		"maximum players in a local Bedrock Dedicated Server (zero uses vanilla's hosted-world limit)",
+	)
+	flags.IntVar(&opts.bdsHostPort, "bds-host-port", 0,
+		fmt.Sprintf("local BDS loopback host port (zero selects an available port; conventional port is %d)", localworld.DefaultBDSPort))
+	flags.BoolVar(&opts.bdsLANVisible, "bds-lan-visible", false, "enable local BDS LAN discovery (container discovery remains published only on loopback)")
+	flags.IntVar(&opts.bdsLANHostPort, "bds-lan-host-port", 0, "container BDS loopback LAN discovery port (zero uses the pinned NetherNet discovery port)")
 	flags.StringVar(&opts.docker, "docker", "docker", "Docker-compatible CLI used to run the Linux Bedrock Dedicated Server where no native build exists")
 	if err := flags.Parse(args); err != nil {
 		return options{}, err
@@ -118,8 +155,20 @@ func parseFlags(args []string, stderr io.Writer) (options, error) {
 	if opts.localWorldsDir != "" && !opts.controlStatus {
 		return options{}, errors.New("local-worlds-dir requires -control-status")
 	}
+	if opts.serverTrustFile != "" && !opts.controlStatus {
+		return options{}, errors.New("server-trust-file requires -control-status")
+	}
 	if opts.localServerBin != "" && opts.localWorldsDir == "" {
 		return options{}, errors.New("local-server-bin requires -local-worlds-dir")
+	}
+	if opts.bdsMaxPlayers < 0 {
+		return options{}, errors.New("bds-max-players must not be negative")
+	}
+	if opts.bdsHostPort < 0 || opts.bdsHostPort != int(uint16(opts.bdsHostPort)) {
+		return options{}, errors.New("bds-host-port must be zero or a valid TCP/UDP port")
+	}
+	if opts.bdsLANHostPort < 0 || opts.bdsLANHostPort != int(uint16(opts.bdsLANHostPort)) {
+		return options{}, errors.New("bds-lan-host-port must be zero or a valid UDP port")
 	}
 	flags.Visit(func(value *flag.Flag) {
 		if value.Name == "resource-pack-cache-quota-bytes" {
@@ -140,6 +189,13 @@ func parseFlags(args []string, stderr io.Writer) (options, error) {
 
 type sourceFunc func(context.Context, authcache.Config) (oauth2.TokenSource, error)
 type serveFunc func(context.Context, proxy.Config) error
+
+// Replaced in tests that must not reach the network.
+var (
+	startVerifierPreload = proxy.StartVerifierPreload
+	keepAccountFresh     = (*authcache.Account).KeepFresh
+)
+
 type ownedResourcePackCache interface {
 	minecraft.ResourcePackCache
 	Close() error
@@ -183,11 +239,20 @@ func runWithResourcePackCacheFactory(
 		if opts.socketDir != "" || opts.upstream != "" || opts.catalogFile != "" || opts.resourcePackCacheDir != "" || opts.controlStatus {
 			return errors.New("auth-events mode cannot be combined with proxy or catalog options")
 		}
-		return authflow.Run(ctx, authflow.Config{Path: opts.authCache, Writer: stdout})
+		return authflow.Run(ctx, authflow.Config{
+			Path: opts.authCache, Writer: stdout,
+			CompleteSignIn: func(ctx context.Context, path string, source oauth2.TokenSource) error {
+				return authcache.CompleteSignIn(ctx, path, source, stderr)
+			},
+		})
 	}
 	logger.Info("core starting", "endpoint", opts.socketDir, "upstream", opts.upstream)
+	if opts.catalogFile == "" {
+		defer startVerifierPreload(ctx, logger)()
+	}
 	var statusStore *control.Store
 	var controlServer *control.Server
+	packetDelay := new(proxy.PacketDelay)
 	if opts.controlStatus && opts.catalogFile == "" {
 		// Bound before authentication so a launcher can poll the device code.
 		statusStore = control.NewStore()
@@ -196,6 +261,7 @@ func runWithResourcePackCacheFactory(
 			return fmt.Errorf("start control endpoint: %w", err)
 		}
 		defer func() { _ = controlServer.Close() }()
+		controlServer.SetPacketDelay(packetDelay)
 	}
 	authentication := "offline"
 	var tokenSource oauth2.TokenSource
@@ -239,6 +305,18 @@ func runWithResourcePackCacheFactory(
 		logger.Info("launcher catalog written", "path", opts.catalogFile)
 		return nil
 	}
+	if account != nil {
+		// Sign-out or an account change closes the account, which ends the refresher.
+		refreshed := make(chan struct{})
+		go func() {
+			defer close(refreshed)
+			keepAccountFresh(account, ctx)
+		}()
+		defer func() {
+			_ = account.Close()
+			<-refreshed
+		}()
+	}
 	var resourcePackCache minecraft.ResourcePackCache
 	var closeResourcePackCache func() error
 	if opts.resourcePackCacheDir != "" {
@@ -263,35 +341,51 @@ func runWithResourcePackCacheFactory(
 			}
 			return err
 		}
-		localTarget = localWorlds.Target
+		localTarget = localWorlds.ConnectionTarget
 	}
 	var resourcePackAdmissionUpdate func(proxy.ResourcePackAdmissionSnapshot)
 	var connectProgress func(proxy.ConnectProgress)
 	transfers := new(proxy.TransferState)
 	selector := new(proxy.UpstreamSelector)
 	var onDisconnect func(proxy.DisconnectInfo)
+	var serverTrust minecraft.ServerTrust
 	if statusStore != nil {
 		if localWorlds != nil {
 			// Opening a local world supersedes any pending transfer or selected upstream.
-			controlServer.SetWorlds(control.WithOpenHook(localWorlds, func() {
+			worlds := control.WithOpenHook(localWorlds, func() {
 				transfers.Clear()
 				selector.Set("")
 				statusStore.ClearTransfer()
-			}))
+			})
+			if account != nil {
+				hosting := &friendHosting{account: account, worlds: localWorlds, target: localTarget, log: logger}
+				hostingCtx, stopHosting := context.WithCancel(ctx)
+				hostingDone := make(chan struct{})
+				go func() {
+					defer close(hostingDone)
+					hosting.run(hostingCtx)
+				}()
+				defer func() {
+					stopHosting()
+					<-hostingDone
+				}()
+				worlds = control.WithInvites(worlds, hosting.Invite)
+			}
+			controlServer.SetWorlds(worlds)
 		}
 		artworkDir, cacheFile := filepath.Join(opts.socketDir, "artwork"), ""
 		if dir := authSibling(opts.authCache, "catalog-cache"); dir != "" {
 			artworkDir, cacheFile = filepath.Join(dir, "artwork"), filepath.Join(dir, "catalog.json")
 		}
 		service := launcher.New(launcher.Config{
-			Account: account, AuthCache: opts.authCache,
+			Account: account, AuthCache: opts.authCache, Language: opts.language,
 			Store: statusStore, Selector: selector, Transfers: transfers,
 			ArtworkDir: artworkDir, CacheFile: cacheFile, Logger: logger,
 			StoreImageDir: authSibling(opts.authCache, "store-images"),
 		})
 		controlServer.SetLogger(logger)
 		controlServer.SetServices(service)
-		controlServer.SetMarketplace(service.Marketplace(nil))
+		controlServer.SetMarketplace(service.Marketplace())
 		if account != nil {
 			go service.PublishSignedIn(ctx)
 			service.Prefetch()
@@ -301,8 +395,18 @@ func runWithResourcePackCacheFactory(
 		connectProgress = statusStore.ObserveConnectProgress
 		transfers.OnTransfer = statusStore.ObserveTransfer
 		onDisconnect = statusStore.ObserveDisconnect
+		if opts.serverTrustFile != "" {
+			prompts := proxy.NewServerTrustPrompts(statusStore.ObserveServerTrust)
+			statusStore.SetServerTrustAnswer(prompts.Answer)
+			serverTrust = &minecraft.FirstUseTrust{
+				Store:   proxy.ServerTrustFile(opts.serverTrustFile),
+				Confirm: prompts.Confirm,
+				Log:     logger,
+			}
+		}
 	}
 	serveErr := serve(ctx, proxy.Config{
+		PacketDelay:         packetDelay,
 		SocketDir:           opts.socketDir,
 		Upstream:            opts.upstream,
 		Account:             account,
@@ -331,6 +435,7 @@ func runWithResourcePackCacheFactory(
 		},
 		ResourcePackAdmissionUpdate: resourcePackAdmissionUpdate,
 		ConnectProgress:             connectProgress,
+		ServerTrust:                 serverTrust,
 	})
 	if controlServer != nil {
 		serveErr = errors.Join(serveErr, controlServer.Close())

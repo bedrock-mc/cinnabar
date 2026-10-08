@@ -7,12 +7,12 @@ use crate::{ChunkKey, SubChunkKey};
 
 #[cfg(test)]
 thread_local! {
-    static COLLAPSE_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    static PACKED_ALLOCATIONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 /// Number of light samples in one 16x16x16 sub-chunk.
 pub const LIGHT_SAMPLES_PER_SUB_CHUNK: usize = 16 * 16 * 16;
-const PACKED_LIGHT_BYTES: usize = LIGHT_SAMPLES_PER_SUB_CHUNK / 2;
+pub(crate) const PACKED_LIGHT_BYTES: usize = LIGHT_SAMPLES_PER_SUB_CHUNK / 2;
 
 /// Errors produced by bounded nibble-light storage operations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
@@ -50,6 +50,17 @@ enum LightNibbleRepresentation {
 }
 
 impl LightNibbleStorage {
+    fn from_packed(bytes: [u8; PACKED_LIGHT_BYTES]) -> Self {
+        let first = bytes[0] & 0x0f;
+        let repeated = first | (first << 4);
+        let representation = if bytes.iter().all(|&byte| byte == repeated) {
+            LightNibbleRepresentation::Uniform(first)
+        } else {
+            LightNibbleRepresentation::Packed(allocate_packed(bytes))
+        };
+        Self { representation }
+    }
+
     /// Creates a uniform channel after validating the nibble value.
     pub fn uniform(value: u8) -> Result<Self, LightStorageError> {
         validate_light(value)?;
@@ -97,7 +108,7 @@ impl LightNibbleStorage {
         if let LightNibbleRepresentation::Uniform(uniform) = &self.representation {
             let byte = *uniform | (*uniform << 4);
             self.representation =
-                LightNibbleRepresentation::Packed(Arc::new([byte; PACKED_LIGHT_BYTES]));
+                LightNibbleRepresentation::Packed(allocate_packed([byte; PACKED_LIGHT_BYTES]));
         }
         let LightNibbleRepresentation::Packed(bytes) = &mut self.representation else {
             unreachable!("a differing uniform write always promotes to packed storage")
@@ -145,8 +156,6 @@ impl LightNibbleStorage {
     }
 
     fn collapse_if_uniform(&mut self) {
-        #[cfg(test)]
-        COLLAPSE_CALLS.set(COLLAPSE_CALLS.get() + 1);
         let LightNibbleRepresentation::Packed(bytes) = &self.representation else {
             return;
         };
@@ -156,6 +165,12 @@ impl LightNibbleStorage {
             self.representation = LightNibbleRepresentation::Uniform(first);
         }
     }
+}
+
+fn allocate_packed(bytes: [u8; PACKED_LIGHT_BYTES]) -> Arc<[u8; PACKED_LIGHT_BYTES]> {
+    #[cfg(test)]
+    PACKED_ALLOCATIONS.set(PACKED_ALLOCATIONS.get() + 1);
+    Arc::new(bytes)
 }
 
 #[cfg(test)]
@@ -179,10 +194,10 @@ mod packing_tests {
     }
 
     #[test]
-    fn solver_canonicalizes_each_output_channel_at_most_once() {
+    fn uniform_solver_output_never_allocates_packed_channels() {
         let bounds =
             LightBounds::new(0, BlockPos::new(0, 0, 0), BlockPos::new(15, 15, 15)).unwrap();
-        COLLAPSE_CALLS.set(0);
+        PACKED_ALLOCATIONS.set(0);
 
         let output = solve_light(
             &FullSky,
@@ -196,11 +211,7 @@ mod packing_tests {
         )
         .unwrap();
 
-        assert!(
-            COLLAPSE_CALLS.get() <= 2,
-            "one solved subchunk performed {} uniform-collapse scans",
-            COLLAPSE_CALLS.get()
-        );
+        assert_eq!(PACKED_ALLOCATIONS.get(), 0);
         let light = output
             .sub_chunks()
             .get(&SubChunkKey::new(0, 0, 0, 0))
@@ -214,27 +225,26 @@ mod packing_tests {
     }
 
     #[test]
-    fn deferred_subchunk_writes_match_public_scalar_canonicalization() {
-        let patterns = [
-            vec![0; LIGHT_SAMPLES_PER_SUB_CHUNK],
-            vec![15; LIGHT_SAMPLES_PER_SUB_CHUNK],
-            vec![10; LIGHT_SAMPLES_PER_SUB_CHUNK],
-            (0..LIGHT_SAMPLES_PER_SUB_CHUNK)
-                .map(|index| u8::try_from(index & 1).unwrap() * 15)
-                .collect(),
-            (0..LIGHT_SAMPLES_PER_SUB_CHUNK)
-                .map(|index| u8::try_from((index * 7 + index / 19) & 15).unwrap())
-                .collect(),
-            {
-                let mut one_changed = vec![0; LIGHT_SAMPLES_PER_SUB_CHUNK];
-                one_changed[2_047] = 9;
-                one_changed
-            },
-        ];
+    fn packed_subchunk_channels_match_public_scalar_canonicalization() {
+        let patterns = (0..=15)
+            .map(|value| vec![value; LIGHT_SAMPLES_PER_SUB_CHUNK])
+            .chain([
+                (0..LIGHT_SAMPLES_PER_SUB_CHUNK)
+                    .map(|index| u8::try_from(index & 1).unwrap() * 15)
+                    .collect(),
+                (0..LIGHT_SAMPLES_PER_SUB_CHUNK)
+                    .map(|index| u8::try_from((index * 7 + index / 19) & 15).unwrap())
+                    .collect(),
+                {
+                    let mut one_changed = vec![0; LIGHT_SAMPLES_PER_SUB_CHUNK];
+                    one_changed[2_047] = 9;
+                    one_changed
+                },
+            ]);
 
         for values in patterns {
             let mut scalar = SubChunkLight::dark(81);
-            let mut deferred = SubChunkLight::dark(81);
+            let mut packed = [[0; PACKED_LIGHT_BYTES]; 2];
             for x in 0..16 {
                 for z in 0..16 {
                     for y in 0..16 {
@@ -244,34 +254,31 @@ mod packing_tests {
                             (LightChannel::Sky, 15 - values[index]),
                         ] {
                             scalar.set(channel, x, y, z, value).unwrap();
-                            deferred.set_deferred(channel, x, y, z, value).unwrap();
                         }
+                        packed[0][index / 2] |= values[index] << ((index & 1) * 4);
+                        packed[1][index / 2] |= (15 - values[index]) << ((index & 1) * 4);
                     }
                 }
             }
-            COLLAPSE_CALLS.set(0);
-            deferred.canonicalize();
-
-            assert_eq!(deferred, scalar);
-            assert_eq!(COLLAPSE_CALLS.get(), 2);
+            let [block, sky] = packed;
+            assert_eq!(SubChunkLight::from_packed(block, sky, 81), scalar);
         }
     }
 
     #[test]
-    fn deferred_subchunk_writes_preserve_scalar_validation() {
-        let mut light = SubChunkLight::dark(91);
-
-        assert_eq!(
-            light.set_deferred(LightChannel::Block, 16, 0, 0, 0),
-            Err(LightStorageError::IndexOutOfRange {
-                index: LIGHT_SAMPLES_PER_SUB_CHUNK
-            })
-        );
-        assert_eq!(
-            light.set_deferred(LightChannel::Block, 0, 0, 0, 16),
-            Err(LightStorageError::ValueOutOfRange { value: 16 })
-        );
-        assert_eq!(light, SubChunkLight::dark(91));
+    fn packed_constructor_preserves_every_pair_of_nibbles() {
+        for byte in u8::MIN..=u8::MAX {
+            let light = LightNibbleStorage::from_packed([byte; PACKED_LIGHT_BYTES]);
+            assert_eq!(light.is_uniform(), byte & 0x0f == byte >> 4);
+            for index in 0..LIGHT_SAMPLES_PER_SUB_CHUNK {
+                let expected = if index & 1 == 0 {
+                    byte & 0x0f
+                } else {
+                    byte >> 4
+                };
+                assert_eq!(light.get(index), Some(expected));
+            }
+        }
     }
 
     #[test]
@@ -355,6 +362,19 @@ pub struct SubChunkLight {
 }
 
 impl SubChunkLight {
+    /// Packs completed channels without allocating for a uniform result.
+    pub(crate) fn from_packed(
+        block: [u8; PACKED_LIGHT_BYTES],
+        sky: [u8; PACKED_LIGHT_BYTES],
+        generation: u64,
+    ) -> Self {
+        Self {
+            block: LightNibbleStorage::from_packed(block),
+            sky: LightNibbleStorage::from_packed(sky),
+            generation,
+        }
+    }
+
     /// Creates allocation-free uniform block- and sky-light channels.
     pub fn uniform(block: u8, sky: u8, generation: u64) -> Result<Self, LightStorageError> {
         Ok(Self {
@@ -413,25 +433,6 @@ impl SubChunkLight {
         self.channel_mut(channel).set(index, value)
     }
 
-    pub(crate) fn set_deferred(
-        &mut self,
-        channel: LightChannel,
-        x: u8,
-        y: u8,
-        z: u8,
-        value: u8,
-    ) -> Result<bool, LightStorageError> {
-        let index = local_index(x, y, z).ok_or(LightStorageError::IndexOutOfRange {
-            index: LIGHT_SAMPLES_PER_SUB_CHUNK,
-        })?;
-        self.channel_mut(channel).set_without_collapse(index, value)
-    }
-
-    pub(crate) fn canonicalize(&mut self) {
-        self.block.collapse_if_uniform();
-        self.sky.collapse_if_uniform();
-    }
-
     /// Returns a channel without exposing mutable packed bytes.
     #[must_use]
     pub const fn channel(&self, channel: LightChannel) -> &LightNibbleStorage {
@@ -473,7 +474,7 @@ struct StoredSubChunkLight {
 /// Immutable copy-on-write snapshot used by worker jobs.
 #[derive(Debug, Clone, Default)]
 pub struct LightStoreSnapshot {
-    entries: HashMap<SubChunkKey, StoredSubChunkLight>,
+    entries: crate::SectionSnapshot<StoredSubChunkLight>,
 }
 
 impl LightStoreSnapshot {
@@ -560,7 +561,11 @@ impl LightStore {
     #[must_use]
     pub fn snapshot(&self) -> LightStoreSnapshot {
         LightStoreSnapshot {
-            entries: self.entries.clone(),
+            entries: self
+                .entries
+                .iter()
+                .map(|(&key, entry)| (key, entry.clone()))
+                .collect(),
         }
     }
 

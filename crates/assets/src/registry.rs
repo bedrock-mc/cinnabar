@@ -12,13 +12,20 @@ const MAX_REGISTRY_STATE_BYTES: usize = 1024 * 1024;
 const MAX_COLLISION_BOXES: usize = 7;
 
 bitflags! {
-    /// Geometry and full-face occlusion facts retained by BREG1003.
+    /// Geometry, occlusion and source-backed seasonal shelter facts.
     #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
     pub struct BlockFlags: u8 {
         const AIR = 1 << 0;
         const CUBE_GEOMETRY = 1 << 1;
         const OCCLUDES_FULL_FACE = 1 << 2;
         const LEAF_MODEL = 1 << 3;
+        /// Vanilla's replaceable-block admission used by the seasonal scan.
+        /// This is not inferred from crossed geometry or lack of collision.
+        const SEASONAL_REPLACEABLE = 1 << 4;
+        /// Effective Vanilla catch chance is nonzero.
+        const FIRE_FLAMMABLE = 1 << 5;
+        /// Native support component/type accepts full support on the top face.
+        const FIRE_TOP_SUPPORT = 1 << 6;
     }
 
     /// Pinned sources that proved the identity of a canonical state.

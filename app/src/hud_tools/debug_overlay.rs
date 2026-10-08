@@ -1,258 +1,261 @@
-//! F3 debug overlay data: gathers client state into the two text columns.
+//! Java-style F3 diagnostics requested for Cinnabar. This is a developer tool,
+//! not a Bedrock parity screen; its visual reference is the supplied 19w05a image.
 
-use bevy::{prelude::*, time::Real};
+mod details;
+mod entities;
+mod lines;
+mod spatial;
+#[cfg(test)]
+mod tests;
 
-use crate::{
-    local_player::LocalPlayerFrameCarrier,
-    movement::PhysicsCollisionRegistries,
-    runtime::world::ClientWorld,
-    ui_runtime::presentation::{DebugLines, UiPresentationRuntime},
+use std::{fmt::Write, time::Duration};
+
+use lines::{Column, Lines, warm_buffers};
+
+use bevy::{
+    ecs::system::SystemParam,
+    prelude::*,
+    time::Real,
+    window::{CursorOptions, PrimaryWindow},
+};
+use render::UiRenderStatsResource;
+use render::{
+    ChunkRenderQueue, GpuFrameTimes, RuntimeStage, RuntimeStageProfiler, VisibilityDiagnostics,
 };
 
-/// How far the targeted-block ray reaches.
-const TARGET_RANGE_BLOCKS: f64 = 20.0;
-const FPS_SMOOTHING: f32 = 0.1;
-/// Heads the overlay so it is never mistaken for vanilla UI.
-const DEV_LABEL: &str = "Cinnabar developer overlay (not vanilla)";
+use crate::{
+    app::ClientFrameSet,
+    camera::CameraSettingsAuthority,
+    environment::{WeatherState, WorldClock},
+    local_player::{LocalPlayerFrameCarrier, LocalViewPose},
+    movement::{LocalPhysicsController, MovementTicker, PhysicsCollisionRegistries},
+    player_runtime::PlayerRuntime,
+    runtime::{network::NetworkHandle, visibility::CaveVisibilityCache, world::ClientWorld},
+};
+use client_ui::ui_runtime::presentation::{DebugLines, UiPresentationRuntime};
+
+/// Publish frame statistics once per second, independently of render frequency.
+const FRAME_TIMING_WINDOW: Duration = Duration::from_secs(1);
+
+#[derive(Clone, Copy, Default)]
+struct FrameTiming {
+    fps: f64,
+    average_ms: f64,
+    max_ms: f64,
+}
 
 #[derive(Resource, Default)]
 pub(super) struct DebugOverlayState {
     visible: bool,
-    fps: f32,
+    publication_present: bool,
+    elapsed: Duration,
+    frames: u32,
+    worst_frame: Duration,
+    timing: FrameTiming,
+    diagnostic_tick: Option<u128>,
+    staging: DebugLines,
+    spare_rows: [Vec<String>; 2],
+    timing_pending: bool,
+    gpu: String,
+    ui_line: String,
+    has_gpu: bool,
+    block_states: spatial::BlockStates,
+    #[cfg(test)]
+    gathers: usize,
+}
+
+impl DebugOverlayState {
+    /// Samples every frame without formatting or allocating.
+    fn sample_frame(&mut self, delta: Duration) -> bool {
+        if delta.is_zero() {
+            return false;
+        }
+        self.elapsed = self.elapsed.saturating_add(delta);
+        self.frames = self.frames.saturating_add(1);
+        self.worst_frame = self.worst_frame.max(delta);
+        if self.elapsed < FRAME_TIMING_WINDOW {
+            return false;
+        }
+        self.timing = FrameTiming {
+            fps: f64::from(self.frames) / self.elapsed.as_secs_f64(),
+            average_ms: self.elapsed.as_secs_f64() * 1_000.0 / f64::from(self.frames),
+            max_ms: self.worst_frame.as_secs_f64() * 1_000.0,
+        };
+        self.elapsed = Duration::ZERO;
+        self.frames = 0;
+        self.worst_frame = Duration::ZERO;
+        true
+    }
 }
 
 pub(super) fn configure(app: &mut App) {
-    app.init_resource::<DebugOverlayState>()
-        .add_systems(Update, publish_debug_overlay);
+    app.init_resource::<DebugOverlayState>().add_systems(
+        Update,
+        publish_debug_overlay
+            .after(ClientFrameSet::UiPreparation)
+            .before(ClientFrameSet::UiPublication),
+    );
 }
 
-struct Target {
-    block: [i32; 3],
-    face: u8,
-    runtime_id: u32,
+/// Format already-collected GPU statistics without sorting an allocated list.
+fn gpu_line(frame: &GpuFrameTimes, line: &mut String) -> bool {
+    line.clear();
+    let Some(total) = frame.get(RuntimeStage::GpuFrame) else {
+        return false;
+    };
+    let passes = top_gpu_passes(frame.iter());
+    write!(line, "GPU: {:.2} ms", total.as_secs_f64() * 1_000.0).unwrap();
+    for (index, (stage, elapsed)) in passes.into_iter().flatten().enumerate() {
+        let name = stage.name().trim_start_matches("gpu_");
+        let separator = if index == 0 { " | " } else { " / " };
+        write!(
+            line,
+            "{separator}{name} {:.2}",
+            elapsed.as_secs_f64() * 1_000.0
+        )
+        .unwrap();
+    }
+    true
 }
 
-struct Snapshot {
-    fps: f32,
-    dimension: i32,
-    position: [f32; 3],
-    direction: [f32; 3],
-    /// `(block, sky)` light at the eye.
-    light: (u8, u8),
-    biome: Option<String>,
-    target: Option<Target>,
+/// Retains the three slowest measured passes, including valid zero-duration samples.
+fn top_gpu_passes(
+    passes: impl Iterator<Item = (RuntimeStage, Duration)>,
+) -> [Option<(RuntimeStage, Duration)>; 3] {
+    let mut top = [None; 3];
+    for (stage, elapsed) in passes.filter(|(stage, _)| *stage != RuntimeStage::GpuFrame) {
+        if let Some(index) = top
+            .iter()
+            .position(|kept: &Option<(RuntimeStage, Duration)>| {
+                kept.is_none_or(|(_, kept)| elapsed > kept)
+            })
+        {
+            for next in (index + 1..top.len()).rev() {
+                top[next] = top[next - 1];
+            }
+            top[index] = Some((stage, elapsed));
+        }
+    }
+    top
 }
 
+/// Read existing authorities; never change gameplay or drain queues.
+#[derive(SystemParam)]
+struct DebugContext<'w, 's> {
+    client_world: Res<'w, ClientWorld>,
+    frame: Res<'w, LocalPlayerFrameCarrier>,
+    view: Option<Res<'w, LocalViewPose>>,
+    collisions: Option<Res<'w, PhysicsCollisionRegistries>>,
+    physics: Option<Res<'w, LocalPhysicsController>>,
+    movement: Option<Res<'w, MovementTicker>>,
+    player: Option<Res<'w, PlayerRuntime>>,
+    ui: Option<Res<'w, client_ui::ui_runtime::UiRuntime>>,
+    clock: Option<Res<'w, WorldClock>>,
+    weather: Option<Res<'w, WeatherState>>,
+    network: Option<Res<'w, NetworkHandle>>,
+    visibility: Option<Res<'w, CaveVisibilityCache>>,
+    graphics: Option<Res<'w, VisibilityDiagnostics>>,
+    queue: Option<Res<'w, ChunkRenderQueue>>,
+    ui_stats: Option<Res<'w, UiRenderStatsResource>>,
+    camera_settings: Option<Res<'w, CameraSettingsAuthority>>,
+    profiler: Option<Res<'w, RuntimeStageProfiler>>,
+    focus: Option<Res<'w, client_presentation::camera::CursorFocus>>,
+    driven: Option<Res<'w, crate::camera::DrivenInput>>,
+    window: Query<'w, 's, (&'static Window, &'static CursorOptions), With<PrimaryWindow>>,
+}
+
+/// Publish sampled diagnostics only while the overlay is visible.
 fn publish_debug_overlay(
     keys: Res<ButtonInput<KeyCode>>,
     time: Res<Time<Real>>,
     mut state: ResMut<DebugOverlayState>,
     mut presentation: ResMut<UiPresentationRuntime>,
-    client_world: Res<ClientWorld>,
-    frame: Res<LocalPlayerFrameCarrier>,
-    collisions: Option<Res<PhysicsCollisionRegistries>>,
+    context: DebugContext,
 ) {
-    if keys.just_pressed(KeyCode::F3) {
+    let timing_updated = state.sample_frame(time.delta());
+    state.timing_pending |= timing_updated;
+    let toggled = keys.just_pressed(KeyCode::F3);
+    if toggled {
         state.visible = !state.visible;
-    }
-    let delta = time.delta_secs();
-    if delta > 0.0 {
-        let instant = 1.0 / delta;
-        state.fps = if state.fps > 0.0 {
-            state.fps + (instant - state.fps) * FPS_SMOOTHING
-        } else {
-            instant
-        };
+        if !state.visible {
+            let mut cleared = None;
+            if presentation
+                .bypass_change_detection()
+                .swap_debug_lines(&mut cleared)
+            {
+                presentation.set_changed();
+            }
+            state.publication_present = false;
+        }
     }
     if !state.visible {
-        presentation.set_debug_lines(None);
         return;
     }
-    let lines = match (client_world.stream.as_ref(), frame.snapshot()) {
-        (Some(stream), Some(frame)) => {
-            let eye = frame.eye();
-            let direction = frame.direction();
-            let target = collisions.as_deref().and_then(|collisions| {
-                let world = sim::PaletteWorld::new(
-                    stream.collision_store(),
-                    collisions.registry(stream.network_id_mode()),
-                    stream.current_dimension(),
-                );
-                let vector = |value: Vec3| {
-                    sim::Vec3::new(f64::from(value.x), f64::from(value.y), f64::from(value.z))
-                };
-                let hit = world
-                    .block_interaction_ray_current(
-                        vector(eye),
-                        vector(direction),
-                        TARGET_RANGE_BLOCKS,
-                    )
-                    .ok()??;
-                Some(Target {
-                    block: hit.block_pos,
-                    face: hit.face,
-                    runtime_id: hit.runtime_id,
-                })
-            });
-            let biome = stream.camera_biome_id(eye.to_array()).map(|id| {
-                stream
-                    .biome_definitions_snapshot()
-                    .iter()
-                    .find(|definition| u32::from(definition.biome_id.unwrap_or(u16::MAX)) == id)
-                    .map_or_else(
-                        || format!("id {id}"),
-                        |definition| definition.name.to_string(),
-                    )
-            });
-            format_lines(&Snapshot {
-                fps: state.fps,
-                dimension: stream.current_dimension(),
-                position: frame.pose().translation.to_array(),
-                direction: direction.to_array(),
-                light: stream.light_level_at(eye.to_array()),
-                biome,
-                target,
-            })
-        }
-        _ => DebugLines {
-            left: vec![DEV_LABEL.to_owned(), fps_line(state.fps)],
-            right: Vec::new(),
-        },
-    };
-    presentation.set_debug_lines(Some(lines));
-}
-
-fn fps_line(fps: f32) -> String {
-    format!("{} fps", fps.round() as u32)
-}
-
-fn dimension_name(dimension: i32) -> &'static str {
-    match dimension {
-        0 => "Overworld",
-        1 => "Nether",
-        2 => "The End",
-        _ => "Unknown",
+    let tick = time.elapsed().as_nanos() / world::TICK_DURATION.as_nanos();
+    if !toggled && state.diagnostic_tick == Some(tick) {
+        return;
     }
-}
-
-fn face_name(face: u8) -> &'static str {
-    ["down", "up", "north", "south", "west", "east"]
-        .get(usize::from(face))
-        .copied()
-        .unwrap_or("unknown")
-}
-
-/// Cardinal heading of a view direction plus its axis hint.
-fn facing(direction: [f32; 3]) -> (&'static str, &'static str) {
-    let [x, _, z] = direction;
-    if x.abs() > z.abs() {
-        if x > 0.0 {
-            ("east", "Towards positive X")
-        } else {
-            ("west", "Towards negative X")
-        }
-    } else if z > 0.0 {
-        ("south", "Towards positive Z")
+    if let (Some(player), Some(ui)) = (context.player.as_deref(), context.ui.as_deref())
+        && !presentation.debug_overlay_allowed(player, ui)
+    {
+        return;
+    }
+    state.diagnostic_tick = Some(tick);
+    #[cfg(test)]
+    {
+        state.gathers += 1;
+    }
+    #[cfg(feature = "tracy")]
+    let _zone = bevy::log::info_span!("ui.f3.gather").entered();
+    if toggled || state.timing_pending || !state.publication_present {
+        state.has_gpu = context
+            .profiler
+            .as_deref()
+            .and_then(RuntimeStageProfiler::latest_gpu_frame)
+            .is_some_and(|frame| gpu_line(&frame, &mut state.gpu));
+        context.sample_ui_stats(&mut state.ui_line);
+    }
+    state.timing_pending = false;
+    let state = &mut *state;
+    let mut lines = Lines::new(std::mem::take(&mut state.staging), &mut state.spare_rows);
+    lines.left.push(format_args!(
+        "{} {} (Bedrock {})",
+        launcher::PRODUCT_NAME,
+        env!("CARGO_PKG_VERSION"),
+        protocol::GAME_VERSION
+    ));
+    if state.timing.fps > 0.0 {
+        lines.left.push(format_args!(
+            "{:.0} fps | {:.1} ms avg / {:.1} ms max",
+            state.timing.fps, state.timing.average_ms, state.timing.max_ms
+        ));
     } else {
-        ("north", "Towards negative Z")
+        lines.left.push("FPS: sampling frame timing...");
     }
-}
-
-fn format_lines(snapshot: &Snapshot) -> DebugLines {
-    let [x, y, z] = snapshot.position;
-    let block = [x, y, z].map(|value| value.floor() as i32);
-    let chunk = block.map(|value| value.div_euclid(16));
-    let within = block.map(|value| value.rem_euclid(16));
-    let [dx, dy, dz] = snapshot.direction;
-    let yaw = (-dx).atan2(dz).to_degrees();
-    // Adding zero turns a negative zero into a printable 0.0.
-    let pitch = -dy.clamp(-1.0, 1.0).asin().to_degrees() + 0.0;
-    let (heading, axis) = facing(snapshot.direction);
-    let (block_light, sky_light) = snapshot.light;
-    let mut left = vec![
-        DEV_LABEL.to_owned(),
-        fps_line(snapshot.fps),
-        format!("Dimension: {}", dimension_name(snapshot.dimension)),
-        format!("XYZ: {x:.3} / {y:.5} / {z:.3}"),
-        format!("Block: {} {} {}", block[0], block[1], block[2]),
-        format!(
-            "Chunk: {} {} {} in {} {} {}",
-            within[0], within[1], within[2], chunk[0], chunk[1], chunk[2]
-        ),
-        format!("Facing: {heading} ({axis}) ({yaw:.1} / {pitch:.1})"),
-        format!(
-            "Client Light: {} ({sky_light} sky, {block_light} block)",
-            block_light.max(sky_light)
-        ),
-    ];
-    if let Some(biome) = &snapshot.biome {
-        left.push(format!("Biome: {biome}"));
+    if state.has_gpu {
+        lines.left.push(&state.gpu);
     }
-    let right = snapshot.target.iter().flat_map(|target| {
-        [
-            format!(
-                "Targeted Block: {}, {}, {}",
-                target.block[0], target.block[1], target.block[2]
-            ),
-            format!("Block runtime id: {}", target.runtime_id),
-            format!("Face: {}", face_name(target.face)),
-        ]
-    });
-    DebugLines {
-        left,
-        right: right.collect(),
+    context.append_client(&mut lines, &presentation, &state.ui_line);
+    context.append_world(&mut lines, time.elapsed_secs_f64(), &mut state.block_states);
+    lines.left.push("");
+    lines.left.push("F3: hide debug | F2: screenshot");
+    let mut published = Some(lines.finish());
+    let first_publication = !state.publication_present;
+    let changed = presentation
+        .bypass_change_detection()
+        .swap_debug_lines(&mut published);
+    if changed {
+        presentation.set_changed();
     }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn snapshot() -> Snapshot {
-        Snapshot {
-            fps: 59.6,
-            dimension: 0,
-            position: [-1.5, 64.0, 17.25],
-            direction: [0.0, 0.0, -1.0],
-            light: (3, 15),
-            biome: Some("plains".to_owned()),
-            target: Some(Target {
-                block: [-2, 63, 17],
-                face: 1,
-                runtime_id: 42,
-            }),
-        }
+    if let Some(previous) = published {
+        state.staging = previous;
     }
-
-    #[test]
-    fn lines_report_position_chunk_facing_and_light() {
-        let lines = format_lines(&snapshot());
-        assert_eq!(lines.left[1], "60 fps");
-        assert_eq!(lines.left[3], "XYZ: -1.500 / 64.00000 / 17.250");
-        assert_eq!(lines.left[4], "Block: -2 64 17");
-        assert_eq!(lines.left[5], "Chunk: 14 0 1 in -1 4 1");
-        assert!(
-            lines.left[6].starts_with("Facing: north (Towards negative Z) (-180.0 / 0.0)")
-                || lines.left[6].starts_with("Facing: north (Towards negative Z) (180.0 / 0.0)")
+    if changed || first_publication {
+        warm_buffers(
+            presentation.debug_lines().unwrap(),
+            &mut state.staging,
+            &mut state.spare_rows,
         );
-        assert_eq!(lines.left[7], "Client Light: 15 (15 sky, 3 block)");
-        assert_eq!(lines.left[8], "Biome: plains");
     }
-
-    #[test]
-    fn targeted_block_fills_the_right_column() {
-        let lines = format_lines(&snapshot());
-        assert_eq!(lines.right[0], "Targeted Block: -2, 63, 17");
-        assert_eq!(lines.right[2], "Face: up");
-        let mut none = snapshot();
-        none.target = None;
-        assert!(format_lines(&none).right.is_empty());
-    }
-
-    #[test]
-    fn facing_picks_the_dominant_horizontal_axis() {
-        assert_eq!(facing([1.0, 0.0, 0.2]).0, "east");
-        assert_eq!(facing([-1.0, 0.0, 0.2]).0, "west");
-        assert_eq!(facing([0.1, 0.0, 1.0]).0, "south");
-    }
+    state.publication_present = true;
 }

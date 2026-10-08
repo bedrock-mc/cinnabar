@@ -1,18 +1,19 @@
 use std::path::Path;
 
-use asset_compiler::{
-    compile_entity_assets_with_report, compile_equipment_textures, compile_item_use_durations,
-};
 use assets::{
     AssetError, EntityDependencyResolution, EquipmentCategory, EquipmentTransform,
     encode_entity_blob, encode_equipment_catalog_full,
+};
+use pack_compiler::{
+    compile_entity_assets_with_report, compile_equipment_textures_for_assets,
+    compile_item_use_durations,
 };
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
 use super::{
     MAX_SOURCE_MANIFEST_BYTES, hex, read_bounded_with_limit, validate_output_bundle,
-    write_blob_atomic,
+    write_output_bundle,
 };
 
 #[derive(Serialize)]
@@ -63,7 +64,7 @@ pub(super) fn compile_equipment_assets_command(
     let entity_blob = encode_entity_blob(&compilation.assets)?;
     let entity_blob_sha256: [u8; 32] = Sha256::digest(&entity_blob).into();
     let bindings = &compilation.equipment_bindings;
-    let textures = compile_equipment_textures(pack, &compilation.assets.sources, bindings)?;
+    let textures = compile_equipment_textures_for_assets(pack, &compilation.assets, bindings)?;
     let item_use = behavior_pack
         .map(compile_item_use_durations)
         .transpose()?
@@ -127,8 +128,7 @@ pub(super) fn compile_equipment_assets_command(
         })?;
     report_bytes.push(b'\n');
     validate_output_bundle(out, report)?;
-    write_blob_atomic(out, &carrier)?;
-    write_blob_atomic(report, &report_bytes)?;
+    write_output_bundle(&[(out, &carrier), (report, &report_bytes)])?;
     println!(
         "compiled {} equipment bindings ({} armor, {} held, {} literal FP, {} literal TP) to {} and {}",
         report_data.counts.bindings,

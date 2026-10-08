@@ -1,5 +1,5 @@
 use std::sync::{
-    Arc, Mutex,
+    Arc, Mutex, OnceLock,
     atomic::{AtomicBool, Ordering},
 };
 
@@ -8,36 +8,13 @@ use bevy::{
     prelude::{Entity, Resource},
     render::extract_resource::ExtractResource,
 };
+use render_model::{
+    ExtractedCameraIdentity, GraphicsAdapterMetadata, OpaqueDrawMode, VisibilityDiagnosticSnapshot,
+    VisibilityKeyDelta, VisibilityKeyDigest,
+};
 use world::{ChunkKey, SubChunkKey};
 
 pub const MAX_VISIBILITY_DIAGNOSTIC_KEYS: usize = 65_536;
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct VisibilityKeyDigest {
-    pub count: u64,
-    pub hash: u64,
-}
-
-impl VisibilityKeyDigest {
-    #[must_use]
-    pub fn from_keys(keys: impl IntoIterator<Item = SubChunkKey>) -> Self {
-        keys.into_iter().fold(Self::default(), |mut digest, key| {
-            digest.insert(key);
-            digest
-        })
-    }
-
-    fn insert(&mut self, key: SubChunkKey) {
-        self.count = self.count.saturating_add(1);
-        self.hash = self.hash.wrapping_add(hash_sub_chunk_key(key));
-    }
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct VisibilityKeyDelta {
-    pub missing: VisibilityKeyDigest,
-    pub extra: VisibilityKeyDigest,
-}
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct VisibilityKeySet {
@@ -83,26 +60,6 @@ impl VisibilityKeySet {
             .then(|| self.keys.iter().filter(|key| key.chunk() == column).count())
             .and_then(|count| u32::try_from(count).ok())
     }
-}
-
-fn hash_sub_chunk_key(key: SubChunkKey) -> u64 {
-    let mut hash = 0xcbf2_9ce4_8422_2325_u64;
-    for byte in key
-        .dimension
-        .to_le_bytes()
-        .into_iter()
-        .chain(key.x.to_le_bytes())
-        .chain(key.y.to_le_bytes())
-        .chain(key.z.to_le_bytes())
-    {
-        hash ^= u64::from(byte);
-        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
-    }
-    hash ^= hash >> 33;
-    hash = hash.wrapping_mul(0xff51_afd7_ed55_8ccd);
-    hash ^= hash >> 33;
-    hash = hash.wrapping_mul(0xc4ce_b9fe_1a85_ec53);
-    hash ^ (hash >> 33)
 }
 
 #[derive(Resource, ExtractResource, Debug, Clone, Default, PartialEq, Eq)]
@@ -184,13 +141,6 @@ impl VisibilityDiagnosticsInput {
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct ExtractedCameraIdentity {
-    pub stable_id: u64,
-    pub pose_hash: u64,
-    pub frustum_hash: u64,
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ExtractedViewGenerations {
     pub pose: u64,
     pub view: u64,
@@ -227,42 +177,6 @@ impl ExtractedCameraIdentityTracker {
         self.current = Some(camera);
         self.generations
     }
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum OpaqueDrawMode {
-    Direct,
-    MultiDrawIndirect,
-    #[default]
-    Unsupported,
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct VisibilityDiagnosticSnapshot {
-    pub frame_generation: u64,
-    pub camera: ExtractedCameraIdentity,
-    pub pose_generation: u64,
-    pub view_generation: u64,
-    pub witness_column: Option<ChunkKey>,
-    pub resident_witness_subchunks: Option<u32>,
-    pub frustum_witness_subchunks: Option<u32>,
-    pub submitted_witness_subchunks: Option<u32>,
-    pub gpu_completed_witness_subchunks: Option<u32>,
-    pub resident_mesh: Option<VisibilityKeyDigest>,
-    pub cave_visible: Option<VisibilityKeyDigest>,
-    pub frustum_visible_opaque: Option<VisibilityKeyDigest>,
-    pub submitted_opaque: Option<VisibilityKeyDigest>,
-    pub gpu_completed_opaque: Option<VisibilityKeyDigest>,
-    pub resident_to_cave: Option<VisibilityKeyDelta>,
-    pub resident_to_frustum: Option<VisibilityKeyDelta>,
-    pub cave_to_frustum: Option<VisibilityKeyDelta>,
-    pub frustum_to_submitted: Option<VisibilityKeyDelta>,
-    pub submitted_to_gpu_completed: Option<VisibilityKeyDelta>,
-    pub draw_mode: OpaqueDrawMode,
-    pub resident_overflowed: bool,
-    pub cave_overflowed: bool,
-    pub frustum_overflowed: bool,
-    pub submitted_overflowed: bool,
 }
 
 pub(crate) struct VisibilityFrameProbe {
@@ -396,37 +310,15 @@ impl VisibilityFrameProbe {
     }
 }
 
-impl VisibilityDiagnosticSnapshot {
-    #[must_use]
-    pub(crate) fn gpu_completed(mut self) -> Self {
-        self.gpu_completed_opaque = self.submitted_opaque;
-        self.gpu_completed_witness_subchunks = self.submitted_witness_subchunks;
-        self.submitted_to_gpu_completed =
-            self.submitted_opaque.map(|_| VisibilityKeyDelta::default());
-        self
-    }
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct GraphicsAdapterMetadata {
-    pub backend: String,
-    pub adapter: String,
-    pub driver: String,
-    pub driver_info: String,
-    pub requested_present_mode: String,
-    pub effective_present_mode: String,
-    pub present_mode_proven: bool,
-}
-
 #[derive(Debug, Default)]
 struct VisibilityDiagnosticsState {
     snapshot: VisibilityDiagnosticSnapshot,
-    graphics_adapter: Option<GraphicsAdapterMetadata>,
 }
 
 #[derive(Resource, Clone, Default)]
 pub struct VisibilityDiagnostics {
     inner: Arc<Mutex<VisibilityDiagnosticsState>>,
+    graphics_adapter: Arc<OnceLock<GraphicsAdapterMetadata>>,
 }
 
 impl VisibilityDiagnostics {
@@ -440,11 +332,13 @@ impl VisibilityDiagnostics {
 
     #[must_use]
     pub fn graphics_adapter(&self) -> Option<GraphicsAdapterMetadata> {
-        self.inner
-            .lock()
-            .unwrap_or_else(|poison| poison.into_inner())
-            .graphics_adapter
-            .clone()
+        self.graphics_adapter_ref().cloned()
+    }
+
+    /// Borrows immutable device metadata without copying strings or locking frame statistics.
+    #[must_use]
+    pub fn graphics_adapter_ref(&self) -> Option<&GraphicsAdapterMetadata> {
+        self.graphics_adapter.get()
     }
 
     pub(crate) fn publish(&self, snapshot: VisibilityDiagnosticSnapshot) -> bool {
@@ -460,15 +354,7 @@ impl VisibilityDiagnostics {
     }
 
     pub(crate) fn publish_graphics_adapter(&self, metadata: GraphicsAdapterMetadata) -> bool {
-        let mut current = self
-            .inner
-            .lock()
-            .unwrap_or_else(|poison| poison.into_inner());
-        if current.graphics_adapter.is_some() {
-            return false;
-        }
-        current.graphics_adapter = Some(metadata);
-        true
+        self.graphics_adapter.set(metadata).is_ok()
     }
 }
 
@@ -709,6 +595,13 @@ mod tests {
                 ..metadata.clone()
             })
         );
+        let shared = diagnostics.clone();
+        let before = crate::alloc_count::thread_allocations();
+        let first = diagnostics.graphics_adapter_ref().unwrap();
+        let second = shared.graphics_adapter_ref().unwrap();
+        let allocations = crate::alloc_count::thread_allocations() - before;
+        assert!(std::ptr::eq(first, second));
+        assert_eq!(allocations, 0);
         assert_eq!(diagnostics.graphics_adapter(), Some(metadata));
         assert_eq!(
             diagnostics.snapshot(),

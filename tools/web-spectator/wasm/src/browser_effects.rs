@@ -2,8 +2,8 @@
 use std::collections::BTreeSet;
 
 use bevy::platform::time::Instant;
-use render::{LevelParticle, classify_level_event, named_request};
-use render::{ParticleGpuFrame, ParticleSystem, ParticleView};
+use particles::{LevelParticle, classify_level_event, named_request, ParticleSystem, ParticleView};
+use render::ParticleGpuFrame;
 
 use crate::browser_model::{Frame, SceneEvent};
 
@@ -57,19 +57,19 @@ impl BrowserEffects {
                     spell_color,
                 }) => Some(named_request(effect, event.position, spell_color)),
                 Some(LevelParticle::ItemIcon { .. }) if !event.item_name.is_empty() => {
-                    render::item_particle_tile(&self.icons, &event.item_name, event.item_aux).map(
+                    particles::tiles::item_tile(&self.icons, &event.item_name, event.item_aux).map(
                         |tile| {
-                            render::item_icon_request(
+                            particles::item_icon_request(
                                 event.position,
                                 tile,
-                                render::ITEM_ICON_PIECES,
+                                particles::ITEM_ICON_PARTICLES as f32,
                             )
                         },
                     )
                 }
-                Some(LevelParticle::FixedItemIcon { identifier }) => {
-                    render::item_particle_tile(&self.icons, identifier, 0).map(|tile| {
-                        render::item_icon_request(event.position, tile, render::ITEM_ICON_PIECES)
+                Some(LevelParticle::FixedItemIcon { identifier, count }) => {
+                    particles::tiles::item_tile(&self.icons, identifier, 0).map(|tile| {
+                        particles::item_icon_request(event.position, tile, count as f32)
                     })
                 }
                 Some(
@@ -94,28 +94,28 @@ impl BrowserEffects {
                         _ => None,
                     };
                     id.and_then(|id| {
-                        render::block_particle_tile(
+                        particles::tiles::terrain_tile(
                             &assets.runtime,
                             assets::NetworkIdMode::Sequential,
                             id,
                         )
                     })
                     .map(|(tile, _flags)| match kind {
-                        LevelParticle::BlockBreak { .. } => render::block_break_request(
-                            render::BLOCK_BREAK_EFFECT,
+                        LevelParticle::BlockBreak { .. } => particles::block_break_request(
+                            particles::BLOCK_BREAK_EFFECT,
                             block,
                             tile,
                             [1.0; 4],
                         ),
-                        LevelParticle::BlockCrack { face, .. } => render::block_crack_request(
-                            render::BLOCK_BREAK_EFFECT,
+                        LevelParticle::BlockCrack { face, .. } => particles::block_crack_request(
+                            particles::BLOCK_BREAK_EFFECT,
                             block,
                             face,
                             tile,
                             [1.0; 4],
                         ),
-                        _ => render::terrain_request(
-                            render::BLOCK_BREAK_EFFECT,
+                        _ => particles::terrain_request(
+                            particles::BLOCK_BREAK_EFFECT,
                             block,
                             tile,
                             [1.0; 4],
@@ -144,10 +144,10 @@ impl BrowserEffects {
         assets: &crate::TerrainAssets,
     ) {
         let particle_world = terrain.map(|scene| scene.particle_world(assets));
-        let empty = render::EmptyParticleWorld;
-        let world: &dyn render::ParticleWorld = particle_world
+        let empty = particles::EmptyWorld;
+        let world: &dyn particles::ParticleWorld = particle_world
             .as_ref()
-            .map_or(&empty as &dyn render::ParticleWorld, |world| world);
+            .map_or(&empty as &dyn particles::ParticleWorld, |world| world);
         let now = Instant::now();
         let elapsed = now.duration_since(self.last_update).as_secs_f32().min(0.25);
         self.last_update = now;
@@ -187,14 +187,10 @@ impl BrowserEffects {
         }
         self.seen
             .retain(|id| frame.events.iter().any(|event| event.id == *id));
-        let dt = if frame.replay_playing == Some(false) {
-            0.0
-        } else {
-            elapsed * frame.replay_speed.unwrap_or(1.0).clamp(0.25, 2.0)
-        };
+        let dt = elapsed * frame.visual_speed();
         render::update_particle_frame(&mut self.system, output, dt, view, world);
     }
-    fn advance(&mut self, seconds: f32, world: &dyn render::ParticleWorld) {
+    fn advance(&mut self, seconds: f32, world: &dyn particles::ParticleWorld) {
         let mut remaining = seconds.clamp(0.0, 5.0);
         while remaining > 0.0 {
             let step = remaining.min(0.25);

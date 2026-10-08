@@ -1,0 +1,40 @@
+{
+  "type": "loaded",
+  "protocol": 4,
+  "id": "benergistics",
+  "version": "0.1.0",
+  "blocks": [
+    {
+      "id": "benergistics:controller",
+      "display_name": "ME Controller",
+      "textures": [
+        {
+          "slot": "*",
+          "path": "/srv/experiences/benergistics/assets/controller.png"
+        },
+        {
+          "slot": "up",
+          "path": "/srv/experiences/benergistics/assets/controller_powered.png"
+        }
+      ],
+      "mining": {
+        "type": "breakable",
+        "hardness": 1.5
+      }
+    },
+    {
+      "id": "benergistics:creative_energy_cell",
+      "display_name": "Creative Energy Cell",
+      "textures": [
+        {
+          "slot": "*",
+          "path": "/srv/experiences/benergistics/assets/creative_energy_cell.png"
+        }
+      ],
+      "mining": {
+        "type": "unbreakable"
+      }
+    }
+  ],
+  "focus": true
+}

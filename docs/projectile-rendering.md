@@ -4,20 +4,16 @@ The fixes in `fix/projectile-render` address invisible item sprites, undersample
 textures, discarded arrow plane backs, duplicated world yaw, and dropped remote motion.
 They do not close the vanilla projectile parity gate.
 
-## References
+## Vanilla rules
 
-Lens references below use artifact **6**, reconstructed client **1.26.50.26**,
-`artifact_function` with `view=raw`. These are derived, source-backed implementations;
-the recovered names are not authoritative. No decompiled implementation was copied.
-
-| Reference | Observed contract | Applied fix |
-| --- | --- | --- |
-| `FUN_146af9220`, RVA `0x6af9220` | Face dimensions are initialized from caller defaults before an optional `uv_size` read. | Omitted face UV dimensions use the authored cube face size, shared between UV validation and mesh generation. |
-| `FUN_1406a6d60`, RVA `0x6a6d60` | `query.camera_rotation(0/1)` reads camera pitch/yaw. | Billboard bones retain the pack's camera rotation, without an additional mob body yaw. |
-| `FUN_1424d3560`, RVA `0x24d3560` | Four actor types read wrapped, interpolated absolute actor yaw; mobs read bounded relative yaw. | Arrow target yaw is absolute, and world placement does not apply it again. |
-| `FUN_142bc2640`, RVA `0x2bc2640` | Actor registrations identify arrow `0xc00050`, fireworks rocket `0x48`, wither skull `0x400059`, dangerous wither skull `0x40005b`. | One classification supplies both query evaluation and world placement. |
-| `FUN_14118b8f0`, RVA `0x118b8f0` → `FUN_14118bfd0`, RVA `0x118bfd0` → `FUN_142c10290`, RVA `0x2c10290` | The classic movement route starts interpolation with at least three steps. | Existing three-tick interpolation is retained. Projectile prediction/component selection still needs confirmation. |
-| `FUN_1428494b0`, RVA `0x28494b0`; `FUN_14297b690`, RVA `0x297b690` | Throwable and abstract-arrow motion handlers replace retained velocity. The arrow initializes zero prior pitch/yaw from its motion vector. | Remote `SetActorMotion` reaches the store; an unrotated arrow initializes its launch angles without moving its position. |
+| Rule | Behaviour |
+| --- | --- |
+| Face UV defaults | Face dimensions are initialized from caller defaults before an optional `uv_size` read. Omitted face UV dimensions use the authored cube face size, shared between UV validation and mesh generation. |
+| Camera rotation | `query.camera_rotation(0/1)` reads camera pitch/yaw. Billboard bones retain the pack's camera rotation, without an additional mob body yaw. |
+| Actor yaw | Four actor types read wrapped, interpolated absolute actor yaw; mobs read bounded relative yaw. Arrow target yaw is absolute, and world placement does not apply it again. |
+| Actor classification | Actor registrations identify arrow `0xc00050`, fireworks rocket `0x48`, wither skull `0x400059`, dangerous wither skull `0x40005b`. One classification supplies both query evaluation and world placement. |
+| Interpolation | The classic movement route starts interpolation with at least three steps. Existing three-tick interpolation is retained. Projectile prediction/component selection still needs confirmation. |
+| Motion | Throwable and abstract-arrow motion handlers replace retained velocity. The arrow initializes zero prior pitch/yaw from its motion vector. Remote `SetActorMotion` reaches the store; an unrotated arrow initializes its launch angles without moving its position. |
 
 The pinned resource pack is selected by `assets/vanilla-source.json`. Its
 `models/entity/item_sprite.geo.json` declares an 8×8 UV frame on an 8×8×0 cube,
@@ -67,7 +63,7 @@ compiled local assets. This work does not write the owner's `.local` directory.
   remains open.
 - Arrow collision/stuck-state transition and shake trigger/countdown. The pack shake
   animation exists; retained client shake state is not implemented. Configuration
-  parsing at Lens RVA `0x2649800` is not proof of the runtime hit trigger.
+  parsing is not proof of the runtime hit trigger.
 - Tipped-arrow rendering: the pack controller has no tint expression, but builtin
   tint or particle behavior has not been excluded with target client evidence.
 - Initial AddActor velocity-only launch orientation and special arrow facing flags;

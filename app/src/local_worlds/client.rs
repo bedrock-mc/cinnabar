@@ -26,10 +26,23 @@ impl WorldsClient {
             .name("local-worlds".to_owned())
             .spawn(move || {
                 while let Ok(effect) = effect_rx.recv() {
-                    if matches!(effect, Effect::PollStatus) {
+                    if matches!(effect, Effect::PollStatus | Effect::PollPrefs) {
                         thread::sleep(POLL_DELAY);
                     }
-                    if let Some(event) = runtime.block_on(execute(&socket_dir, effect))
+                    let preferences = matches!(
+                        effect,
+                        Effect::LoadPrefs | Effect::PollPrefs | Effect::SetPrefs { .. }
+                    );
+                    let event =
+                        runtime
+                            .block_on(execute(&socket_dir, effect))
+                            .map(|event| match event {
+                                Event::Failed(message) if preferences => {
+                                    Event::FailedPrefs(message)
+                                }
+                                event => event,
+                            });
+                    if let Some(event) = event
                         && event_tx.send(event).is_err()
                     {
                         break;
@@ -94,7 +107,9 @@ async fn execute(dir: &std::path::Path, effect: Effect) -> Option<Event> {
             }
             Err(error) => failed(error),
         }),
-        Effect::LoadPrefs => Some(prefs_event(control::PrefsUpdate::default(), dir).await),
+        Effect::LoadPrefs | Effect::PollPrefs => {
+            Some(prefs_event(control::PrefsUpdate::default(), dir).await)
+        }
         Effect::SetPrefs {
             dismiss_docker_prompt,
             redetect,

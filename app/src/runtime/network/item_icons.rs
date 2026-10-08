@@ -1,12 +1,20 @@
 //! Session icons for server-defined items: the stack's item_texture.json, and custom block
 //! items drawn as their block.
 
-use std::{collections::HashSet, sync::Arc};
+use std::{
+    collections::{BTreeMap, HashSet},
+    sync::Arc,
+};
+
+mod catalog;
+mod vanilla;
+pub(crate) use vanilla::set_vanilla_item_paths;
 
 use resource_pack::LayeredPackView;
 
-use super::resource_packs::{DecodedTexture, decode_pack_texture, texture_key_paths};
-use crate::ui_runtime::presentation::{MAX_SESSION_ICON_SIDE, SessionIcon, SessionIcons};
+use super::resource_packs::{DecodedTexture, decode_pack_texture};
+use crate::presentation::equipment::blocks::overlay_sheet;
+use client_ui::ui_runtime::presentation::{MAX_SESSION_ICON_SIDE, SessionIcon, SessionIcons};
 
 /// One icon per registry item, the most a session can name.
 const MAX_SESSION_ICONS: usize = protocol::MAX_ITEM_REGISTRY_ENTRIES;
@@ -19,21 +27,23 @@ pub(super) fn compile_session_icons(
     icon_keys: &[(Arc<str>, Arc<str>)],
     block_icons: BlockIcons,
 ) -> Option<Arc<SessionIcons>> {
-    if icon_keys.is_empty() && block_icons.icons.is_empty() && block_icons.misses.is_empty() {
-        return None;
-    }
+    let BlockIcons {
+        icons: block_icons,
+        block_sheets,
+        block_material_flags,
+        misses: block_misses,
+    } = block_icons;
     let block_rendered = block_icons
-        .icons
         .iter()
         .map(|icon| Arc::clone(&icon.identifier))
         .chain(
-            block_icons
-                .misses
+            block_misses
                 .iter()
                 .map(|(identifier, _)| Arc::clone(identifier)),
         )
         .collect::<HashSet<_>>();
-    let paths = texture_key_paths(view, "textures/item_texture.json");
+    let paths = catalog::paths(view);
+    let icon_keys = catalog::icon_keys(view, icon_keys);
     // Explicit icon components outrank short-name guesses when the icon cap bites.
     let short_name = |identifier: &str| {
         identifier
@@ -47,13 +57,13 @@ pub(super) fn compile_session_icons(
         .partition(|(identifier, key)| key.as_ref() == short_name(identifier));
     let mut icons = Vec::new();
     let mut misses = std::collections::HashMap::new();
-    for (identifier, reason) in block_icons.misses {
+    for (identifier, reason) in block_misses {
         if misses.len() < MAX_SESSION_ICONS {
             misses.insert(identifier, reason);
         }
     }
     let explicit_count = explicit.len();
-    let mut block_icons = block_icons.icons.into_iter();
+    let mut block_icons = block_icons.into_iter();
     for (index, (identifier, key)) in explicit.into_iter().chain(guessed).enumerate() {
         // Block items rank after explicit icons and before short-name guesses.
         if index == explicit_count {
@@ -66,8 +76,22 @@ pub(super) fn compile_session_icons(
         if icons.len() >= MAX_SESSION_ICONS {
             break;
         }
-        match resolve_key(view, &paths, key) {
-            Ok(texture) => icons.push(icon(Arc::clone(identifier), first_frame(texture))),
+        match resolve_key(
+            view,
+            &paths,
+            key,
+            MAX_SESSION_ICONS.saturating_sub(icons.len()),
+        ) {
+            Ok(textures) => {
+                for (metadata, texture) in textures {
+                    if icons.len() >= MAX_SESSION_ICONS {
+                        break;
+                    }
+                    let mut sprite = icon(Arc::clone(identifier), first_frame(texture));
+                    sprite.metadata = metadata;
+                    icons.push(sprite);
+                }
+            }
             Err(reason) => {
                 // A short-name guess that misses is the normal vanilla-item case.
                 if key.as_ref() != short_name(identifier) && misses.len() < MAX_SESSION_ICONS {
@@ -77,56 +101,32 @@ pub(super) fn compile_session_icons(
         }
     }
     icons.extend(block_icons.take(MAX_SESSION_ICONS.saturating_sub(icons.len())));
-    (!icons.is_empty() || !misses.is_empty()).then(|| Arc::new(SessionIcons { icons, misses }))
+    vanilla::append(view, &mut icons);
+    (!icons.is_empty() || !misses.is_empty()).then(|| {
+        Arc::new(SessionIcons {
+            icons,
+            block_sheets,
+            block_material_flags,
+            misses,
+        })
+    })
 }
 
-/// Custom block item thumbnails, and why a block item has none.
+/// Custom block item thumbnails and cube sheets, and why a block item has no thumbnail.
 #[derive(Default)]
 pub(super) struct BlockIcons {
     pub(super) icons: Vec<SessionIcon>,
+    pub(super) block_sheets: Vec<SessionIcon>,
+    pub(super) block_material_flags: BTreeMap<Arc<str>, u32>,
     pub(super) misses: Vec<(Arc<str>, Box<str>)>,
 }
 
-/// Pairs each registry item that draws as a custom block with that block: the block's own
-/// item (a `BlockItem`, which vanilla always renders as its block), or a `block_placer` item
-/// declaring no icon of its own.
-pub(super) fn custom_block_items(
-    game_data: &protocol::GameData,
-    blocks: &protocol::CustomBlocks,
-) -> Box<[(Arc<str>, Arc<str>)]> {
-    let names = blocks
-        .blocks
-        .iter()
-        .map(|block| Arc::clone(&block.name))
-        .collect::<HashSet<_>>();
-    if names.is_empty() {
-        return Box::new([]);
-    }
-    let components = protocol::item_components(game_data);
-    let mut pairs = game_data
-        .item_registry
-        .item_data
-        .iter()
-        .filter_map(|item| names.get(item.item_name.as_str()).cloned())
-        .map(|block| (Arc::clone(&block), block))
-        .collect::<Vec<_>>();
-    for (identifier, facts) in components.iter() {
-        if facts.icon.is_some() || names.contains(identifier) {
-            continue;
-        }
-        if let Some(block) = facts
-            .block_placer
-            .as_deref()
-            .and_then(|block| names.get(block))
-        {
-            pairs.push((Arc::clone(identifier), Arc::clone(block)));
-        }
-    }
-    pairs.into_boxed_slice()
-}
+#[cfg(test)]
+use client_session::custom_block_items;
 
 /// Thumbnails of each block item's block in its default (first) state, whose overlay index is
-/// the block's first palette state, or first `hashed_states` entry in a hashed session.
+/// the block's first palette state, or first `hashed_states` entry in a hashed session. A plain
+/// cube state also yields the six-face sheet hands draw as that cube.
 pub(super) fn custom_block_icons(
     overlay: &assets::BlockOverlay,
     blocks: &protocol::CustomBlocks,
@@ -146,18 +146,32 @@ pub(super) fn custom_block_icons(
         }
         offset = offset.saturating_add(count);
     }
+    let session_icon = |identifier: &Arc<str>, sprite: assets::IconSprite| SessionIcon {
+        identifier: Arc::clone(identifier),
+        metadata: 0,
+        width: u32::from(sprite.width),
+        height: u32::from(sprite.height),
+        rgba8: sprite.rgba8.to_vec().into_boxed_slice(),
+    };
     let mut result = BlockIcons::default();
     for (identifier, block) in block_items.iter().take(MAX_SESSION_ICONS) {
-        let icon = first_state
-            .get(block)
-            .and_then(|&visual| asset_compiler::overlay_block_icon(overlay, visual));
-        match icon {
-            Some(sprite) => result.icons.push(SessionIcon {
-                identifier: Arc::clone(identifier),
-                width: u32::from(sprite.width),
-                height: u32::from(sprite.height),
-                rgba8: sprite.rgba8.to_vec().into_boxed_slice(),
-            }),
+        let visual = first_state.get(block).copied();
+        if let Some(visual) = visual
+            && let Some(sheet) = overlay_sheet(overlay, visual)
+        {
+            let material_flags = overlay.visuals[visual]
+                .faces
+                .iter()
+                .fold(0, |flags, material| {
+                    flags | overlay.materials[*material as usize].flags
+                });
+            result
+                .block_material_flags
+                .insert(Arc::clone(identifier), material_flags);
+            result.block_sheets.push(session_icon(identifier, sheet));
+        }
+        match visual.and_then(|visual| pack_compiler::overlay_block_icon(overlay, visual)) {
+            Some(sprite) => result.icons.push(session_icon(identifier, sprite)),
             None => result.misses.push((
                 Arc::clone(identifier),
                 format!("custom block {block} has no drawable default-state visual").into(),
@@ -170,15 +184,27 @@ pub(super) fn custom_block_icons(
 /// The image for icon `key`: the catalog's path, else `textures/items/<key>`.
 fn resolve_key(
     view: &LayeredPackView,
-    paths: &std::collections::HashMap<String, String>,
+    paths: &std::collections::HashMap<String, Vec<String>>,
     key: &str,
-) -> Result<DecodedTexture, String> {
+    remaining: usize,
+) -> Result<Vec<(u32, DecodedTexture)>, String> {
+    if remaining == 0 {
+        return Ok(Vec::new());
+    }
     let mut tried = Vec::new();
-    if let Some(path) = paths.get(key) {
-        if let Some(texture) = decode_pack_texture(view, path) {
-            return Ok(texture);
+    if let Some(variants) = paths.get(key) {
+        let textures: Vec<_> = variants
+            .iter()
+            .enumerate()
+            .filter_map(|(metadata, path)| {
+                decode_pack_texture(view, path).map(|texture| (metadata as u32, texture))
+            })
+            .take(remaining)
+            .collect();
+        if !textures.is_empty() {
+            return Ok(textures);
         }
-        tried.push(format!("catalog path {path} has no readable image"));
+        tried.push(format!("catalog key {key} has no readable images"));
     } else {
         tried.push(format!("key '{key}' not in the merged item_texture.json"));
     }
@@ -188,7 +214,7 @@ fn resolve_key(
         format!("textures/items/{bare}"),
     ] {
         if let Some(texture) = decode_pack_texture(view, &path) {
-            return Ok(texture);
+            return Ok(vec![(0, texture)]);
         }
     }
     tried.push(format!("no textures/items/{bare}"));
@@ -216,6 +242,7 @@ fn icon(identifier: Arc<str>, texture: DecodedTexture) -> SessionIcon {
     if longest <= MAX_SESSION_ICON_SIDE {
         return SessionIcon {
             identifier,
+            metadata: 0,
             width: texture.width,
             height: texture.height,
             rgba8: texture.rgba8,
@@ -234,6 +261,7 @@ fn icon(identifier: Arc<str>, texture: DecodedTexture) -> SessionIcon {
     }
     SessionIcon {
         identifier,
+        metadata: 0,
         width,
         height,
         rgba8: rgba8.into(),
@@ -242,3 +270,6 @@ fn icon(identifier: Arc<str>, texture: DecodedTexture) -> SessionIcon {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod capture_tests;

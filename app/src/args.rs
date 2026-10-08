@@ -1,20 +1,27 @@
 use std::{ffi::OsString, path::PathBuf};
 
 use thiserror::Error;
+use ui::RenderMode;
 
 /// The settings screen's GUI-scale step when `--gui-scale` is auto.
 pub const DEFAULT_GUI_SCALE: u8 = 2;
 
-pub const HELP: &str = "\
-bedrock-client — Rust Minecraft Bedrock phase-zero renderer
+pub const HELP: &str = concat!(
+    "\
+bedrock-client — ",
+    launcher::product_name!(),
+    ", a Minecraft: Bedrock Edition client
 
-Usage: bedrock-client [OPTIONS]
+Usage: bedrock-client [OPTIONS] [PACK.mcpack|PACK.mcaddon|PACK.zip]...
 
 Options:
   --address <HOST:PORT>       Directly launch the Go core and join a server
   --socket-dir <PATH>          Override the platform runtime socket directory
+  --import-pack <PATH>        Import an optional global resource pack
   --assets <PATH>              Compiled vanilla asset blob
-  --display-name <NAME>        Offline display name (default: RustMCBE)
+  --display-name <NAME>        Offline display name (default: ",
+    launcher::product_name!(),
+    ")
   --acceptance-seconds <N>     Exit after N seconds and write metrics
   --metrics-out <PATH>         Deterministic JSON metrics output path
   --metrics-warmup-seconds <N> Exclude the first N timed-session seconds from frame metrics
@@ -24,8 +31,9 @@ Options:
   --vsync                      Force FIFO presentation and disable driver workarounds
   --no-vsync                   Use immediate presentation when supported
   --frame-cap <FPS>            Cap acceptance updates to 1-1000 FPS
+  --render-mode <MODE>         vanilla or enhanced; CINNABAR_RENDER_MODE is the fallback
   --gui-scale <1-4|auto>       Fix the GUI scale (default: auto, the Bedrock desktop rule)
-  --dev-debug-overlay          Enable the non-vanilla F3 developer overlay (default: off)
+  --dev-debug-overlay          Compatibility alias; F3 debug controls are always available
   --language <ll_CC>           UI language (default: from LC_ALL/LC_MESSAGES/LANG, else en_US)
   --full-view-teleport-gate    Measure a dedicated no-overlap teleport
   --require-transparent-presentation
@@ -38,7 +46,8 @@ Options:
                                Bind Phase 3 evidence to Bds, Lunar, Zeqa, Lbsg, or Zeno
   --phase3-candidate-physics  Request fail-closed candidate Physics authority for Phase 3 evidence
   -h, --help                   Print this help
-";
+"
+);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Phase3Target {
@@ -75,6 +84,14 @@ impl Phase3Target {
     }
 }
 
+#[cfg(feature = "acceptance")]
+impl acceptance::phase3_evidence::Phase3TargetLabel for Phase3Target {
+    /// Publishes the argument's stable label to the optional evidence consumer.
+    fn evidence_label(self) -> &'static str {
+        self.as_str()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClientArgs {
     /// Optional upstream address for the fast direct-connect path. Without it
@@ -83,6 +100,8 @@ pub struct ClientArgs {
     pub socket_dir: PathBuf,
     pub socket_dir_explicit: bool,
     pub assets: Option<PathBuf>,
+    /// Files opened by the user, imported after the window starts.
+    pub import_packs: Vec<PathBuf>,
     pub display_name: String,
     pub acceptance_seconds: Option<u64>,
     pub metrics_out: Option<PathBuf>,
@@ -97,7 +116,10 @@ pub struct ClientArgs {
     /// Fixed Java GUI scale (1..=4) for the pinned capture matrix. `None`
     /// selects the Java auto rule; the normal client default is scale 2.
     pub gui_scale: Option<u8>,
-    /// F3 developer overlay; not a vanilla surface.
+    /// Session-only override of the saved rendering mode.
+    pub render_mode: Option<RenderMode>,
+    /// Enables F3 debug controls; the overlay starts hidden until F3 is pressed.
+    /// `--dev-debug-overlay` remains accepted for older launch commands.
     pub dev_debug_overlay: bool,
     /// Requested UI language code; `None` follows the environment locale.
     pub language: Option<String>,
@@ -116,7 +138,8 @@ impl Default for ClientArgs {
             socket_dir: PathBuf::from(".local/run"),
             socket_dir_explicit: false,
             assets: None,
-            display_name: "RustMCBE".to_owned(),
+            import_packs: Vec::new(),
+            display_name: launcher::PRODUCT_NAME.to_owned(),
             acceptance_seconds: None,
             metrics_out: None,
             metrics_warmup_seconds: 0,
@@ -127,7 +150,8 @@ impl Default for ClientArgs {
             no_vsync: false,
             frame_cap: None,
             gui_scale: None,
-            dev_debug_overlay: false,
+            render_mode: None,
+            dev_debug_overlay: true,
             language: None,
             full_view_teleport_gate: false,
             require_transparent_presentation: false,
@@ -147,6 +171,11 @@ pub enum ParseOutcome {
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum ArgsError {
+    #[error(
+        "acceptance and evidence options require the app's `acceptance` feature; rebuild without --no-default-features or enable --features acceptance"
+    )]
+    AcceptanceFeatureRequired,
+
     #[error("unknown argument {0:?}\n\n{HELP}")]
     Unknown(OsString),
 
@@ -170,6 +199,9 @@ pub enum ArgsError {
 
     #[error("--gui-scale must be an integer from 1 through 4, got {0:?}")]
     InvalidGuiScale(String),
+
+    #[error("--render-mode must be vanilla or enhanced, got {0:?}")]
+    InvalidRenderMode(String),
 
     #[error("--language must be a code like de_DE, got {0:?}")]
     InvalidLanguage(String),
@@ -195,6 +227,22 @@ pub enum ArgsError {
 }
 
 impl ClientArgs {
+    /// Rejects evidence options before first-run setup when this build omits the optional plugin.
+    pub(crate) fn validate_acceptance_support(&self, available: bool) -> Result<(), ArgsError> {
+        let requested = self.acceptance_seconds.is_some()
+            || self.metrics_out.is_some()
+            || self.full_view_teleport_gate
+            || self.require_transparent_presentation
+            || self.transparent_witness_request.is_some()
+            || self.model_witness_request.is_some()
+            || self.phase3_evidence_target.is_some()
+            || self.phase3_candidate_physics;
+        if !available && requested {
+            return Err(ArgsError::AcceptanceFeatureRequired);
+        }
+        Ok(())
+    }
+
     pub fn parse_env() -> Result<ParseOutcome, ArgsError> {
         Self::parse_from(std::env::args_os())
     }
@@ -233,6 +281,11 @@ impl ClientArgs {
                 Some("--socket-dir") => {
                     parsed.socket_dir_explicit = true;
                     parsed.socket_dir = PathBuf::from(next_value(&mut arguments, "--socket-dir")?);
+                }
+                Some("--import-pack") => {
+                    parsed
+                        .import_packs
+                        .push(PathBuf::from(next_value(&mut arguments, "--import-pack")?));
                 }
                 Some("--assets") => {
                     parsed.assets = Some(PathBuf::from(next_value(&mut arguments, "--assets")?));
@@ -351,6 +404,18 @@ impl ClientArgs {
                         )
                     };
                 }
+                Some("--render-mode") => {
+                    let value = next_value(&mut arguments, "--render-mode")?
+                        .into_string()
+                        .map_err(|_| ArgsError::InvalidUtf8 {
+                            flag: "--render-mode",
+                        })?;
+                    parsed.render_mode =
+                        Some(RenderMode::parse(&value).ok_or(ArgsError::InvalidRenderMode(value))?);
+                }
+                _ if resource_pack::is_pack_import_path(std::path::Path::new(&argument)) => {
+                    parsed.import_packs.push(PathBuf::from(argument));
+                }
                 _ => return Err(ArgsError::Unknown(argument)),
             }
         }
@@ -365,6 +430,7 @@ impl ClientArgs {
         {
             return Err(ArgsError::Phase3EvidenceRequiresAttributableRun);
         }
+        parsed.validate_acceptance_support(cfg!(feature = "acceptance"))?;
         Ok(ParseOutcome::Run(Box::new(parsed)))
     }
 
@@ -390,13 +456,33 @@ mod tests {
     use std::path::PathBuf;
 
     #[test]
+    fn accepts_file_open_arguments_and_explicit_imports() {
+        let ParseOutcome::Run(args) = ClientArgs::parse_from([
+            "client",
+            "a.mcpack",
+            "b.MCADDON",
+            "c.zip",
+            "--import-pack",
+            "d.mcpack",
+        ])
+        .unwrap() else {
+            panic!("run");
+        };
+        assert_eq!(
+            args.import_packs,
+            ["a.mcpack", "b.MCADDON", "c.zip", "d.mcpack"].map(PathBuf::from)
+        );
+        assert!(!args.connection_requested());
+    }
+
+    #[test]
     fn defaults_are_stable() {
         let ParseOutcome::Run(args) = ClientArgs::parse_from(["client"]).unwrap() else {
             panic!("expected run args")
         };
         assert_eq!(args.socket_dir, PathBuf::from(".local/run"));
         assert_eq!(args.assets, None);
-        assert_eq!(args.display_name, "RustMCBE");
+        assert_eq!(args.display_name, launcher::PRODUCT_NAME);
         assert_eq!(args.acceptance_seconds, None);
         assert_eq!(args.metrics_warmup_seconds, 0);
         assert_eq!(args.metrics_sample_seconds, None);
@@ -536,6 +622,24 @@ mod tests {
     }
 
     #[test]
+    fn render_mode_is_an_optional_validated_session_override() {
+        let ParseOutcome::Run(args) = ClientArgs::parse_from(["client"]).unwrap() else {
+            panic!("expected run");
+        };
+        assert_eq!(args.render_mode, None);
+        let ParseOutcome::Run(args) =
+            ClientArgs::parse_from(["client", "--render-mode", "Enhanced"]).unwrap()
+        else {
+            panic!("expected run");
+        };
+        assert_eq!(args.render_mode, Some(ui::RenderMode::Enhanced));
+        assert_eq!(
+            ClientArgs::parse_from(["client", "--render-mode", "ultra"]),
+            Err(ArgsError::InvalidRenderMode("ultra".to_owned()))
+        );
+    }
+
+    #[test]
     fn malformed_arguments_are_rejected() {
         assert!(matches!(
             ClientArgs::parse_from(["client", "--socket-dir"]),
@@ -565,7 +669,7 @@ mod tests {
             panic!("--gui-scale must parse into a run outcome");
         };
         assert_eq!(parsed.gui_scale, Some(3));
-        assert!(!parsed.dev_debug_overlay);
+        assert!(parsed.dev_debug_overlay);
         let ParseOutcome::Run(parsed) =
             ClientArgs::parse_from(["client", "--dev-debug-overlay"]).unwrap()
         else {

@@ -38,6 +38,9 @@ impl PlayerInputFlags {
     pub const RIGHT: Self = Self(1 << 13);
     pub const UP_LEFT: Self = Self(1 << 14);
     pub const UP_RIGHT: Self = Self(1 << 15);
+    /// Processed vertical controls read by authoritative flight simulation.
+    pub const WANT_UP: Self = Self(1 << 16);
+    pub const WANT_DOWN: Self = Self(1 << 17);
     pub const SPRINTING: Self = Self(1 << 20);
     pub const PERSIST_SNEAK: Self = Self(1 << 24);
     pub const START_SPRINTING: Self = Self(1 << 25);
@@ -119,6 +122,15 @@ pub enum PlayerInputMode {
     Mouse,
     Touch,
     GamePad,
+}
+
+impl PlayerInputMode {
+    /// Touch and gamepad use vanilla's persistent controls: sneak survives
+    /// suspended input and every input carries PersistSneak.
+    #[must_use]
+    pub const fn persists_sneak(self) -> bool {
+        matches!(self, Self::Touch | Self::GamePad)
+    }
 }
 
 /// One deterministic movement-tick snapshot sent to a server-authoritative server.
@@ -389,6 +401,8 @@ mod locomotion_flag_tests {
             (PlayerInputFlags::PADDLING_RIGHT, "PaddlingRight"),
             (PlayerInputFlags::ASCEND, "Ascend"),
             (PlayerInputFlags::DESCEND, "Descend"),
+            (PlayerInputFlags::WANT_UP, "WantUp"),
+            (PlayerInputFlags::WANT_DOWN, "WantDown"),
             (PlayerInputFlags::START_SWIMMING, "StartSwimming"),
             (PlayerInputFlags::STOP_SWIMMING, "StopSwimming"),
             (PlayerInputFlags::START_GLIDING, "StartGliding"),

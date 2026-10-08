@@ -1,0 +1,685 @@
+#[test]
+fn correction_rebuilds_primary_controls_from_each_retained_input_snapshot() {
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
+    let mut input = physics_movement_input([0.25, 0.5], 0.0, true, false, true, false, None);
+    input.item_use_movement_modifier = Some(0.5);
+    input.movement_speed = Some(0.2);
+    let context = PhysicsSampleContext {
+        raw_move_vector: [0.25, 0.5],
+        analogue_move_vector: [0.25, 0.5],
+        ..Default::default()
+    };
+    let first = physics.advance_with_context(
+        Duration::from_millis(100),
+        input,
+        context,
+        &VersionedFloor(1),
+    );
+    assert_eq!(first.samples.len(), 2);
+    input.item_use_movement_modifier = Some(1.0);
+    input.movement_speed = Some(0.1);
+    let second = physics.advance_with_context(
+        Duration::from_millis(50),
+        input,
+        context,
+        &VersionedFloor(1),
+    );
+    let mut ticker = MovementTicker::default();
+    ticker.reset(7, 100, [0.0, 2.620_01, 0.0]);
+    ticker.set_source(MovementSource::Physics);
+    for sample in first.samples.into_iter().chain(second.samples) {
+        ticker.enqueue_completed_physics(sample).unwrap();
+    }
+    ticker.pop_pending().unwrap();
+    reconcile_candidate_physics_correction(
+        &mut ticker,
+        &mut physics,
+        [0.25, 2.620_01, 0.0],
+        101,
+        true,
+        PhysicsCorrectionMode::ReplayIfRetained,
+        &VersionedFloor(1),
+    )
+    .unwrap();
+    let pending = ticker.pending_samples();
+    assert_eq!(pending.len(), 2);
+    assert_eq!(pending[0].snapshot.move_vector, [-0.0375, 0.075]);
+    assert_eq!(pending[1].snapshot.move_vector, [-0.075, 0.15]);
+    for sample in pending {
+        assert_eq!(sample.snapshot.raw_move_vector, [-0.25, 0.5]);
+        assert_eq!(sample.snapshot.analogue_move_vector, [-0.25, 0.5]);
+    }
+}
+
+#[test]
+fn retained_correction_replays_physics_and_replaces_only_unsent_fifo_ticks() {
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
+    let frame = physics.advance_with_context(
+        Duration::from_millis(150),
+        forward_physics_input(),
+        PhysicsSampleContext::default(),
+        &VersionedFloor(1),
+    );
+    assert!(frame.blocked.is_none(), "{:?}", frame.blocked);
+    assert_eq!(frame.samples.len(), 3);
+
+    let mut ticker = MovementTicker::default();
+    ticker.reset(7, 100, [0.0, 2.620_01, 0.0]);
+    ticker.set_source(MovementSource::Physics);
+    // Transport-focused fixture: the provisional spawn-settle window is
+    // orthogonal to what this test asserts.
+    for sample in frame.samples {
+        ticker.enqueue_completed_physics(sample).unwrap();
+    }
+    let sent = ticker.pop_pending().unwrap();
+    assert_eq!(sent.snapshot.tick, 101);
+    let before = ticker.pending_samples();
+    let collision_mask =
+        PlayerInputFlags::HORIZONTAL_COLLISION.bits() | PlayerInputFlags::VERTICAL_COLLISION.bits();
+    assert!(before.iter().all(|pending| pending.snapshot.flags.bits()
+        & PlayerInputFlags::HORIZONTAL_COLLISION.bits()
+        == 0));
+    for pending in &mut ticker.outbox {
+        pending.snapshot.delta = [99.0; 3];
+        pending.snapshot.flags |= PlayerInputFlags::HORIZONTAL_COLLISION;
+    }
+
+    let outcome = reconcile_candidate_physics_correction(
+        &mut ticker,
+        &mut physics,
+        [0.25, 2.620_01, 0.0],
+        101,
+        true,
+        PhysicsCorrectionMode::ReplayIfRetained,
+        &VersionedFloor(1),
+    )
+    .unwrap();
+
+    assert!(matches!(
+        outcome,
+        PhysicsCorrectionOutcome::Replayed {
+            corrected_tick: 101,
+            replayed_ticks: 2,
+        }
+    ));
+    assert_eq!(physics.state().unwrap().tick, 103);
+    assert_eq!(ticker.next_tick(), 104);
+    let after = ticker.pending_samples();
+    assert_eq!(
+        after
+            .iter()
+            .map(|pending| pending.snapshot.tick)
+            .collect::<Vec<_>>(),
+        [102, 103]
+    );
+    assert!(after.iter().all(|pending| pending.session_generation == 7));
+    assert_eq!(
+        after
+            .iter()
+            .map(|pending| &pending.world_identity)
+            .collect::<Vec<_>>(),
+        before
+            .iter()
+            .map(|pending| &pending.world_identity)
+            .collect::<Vec<_>>()
+    );
+    assert_ne!(after[0].snapshot.position, before[0].snapshot.position);
+    assert_ne!(after[1].snapshot.position, before[1].snapshot.position);
+    // Translation-only replay preserves end-of-tick motion within float noise.
+    for (a, b) in after.iter().zip(&before) {
+        for axis in 0..3 {
+            assert!(
+                (a.snapshot.delta[axis] - b.snapshot.delta[axis]).abs() < 1.0e-4,
+                "replay must preserve the per-tick delta within float noise: {:?} vs {:?}",
+                a.snapshot.delta,
+                b.snapshot.delta,
+            );
+        }
+    }
+    assert_eq!(
+        after
+            .iter()
+            .map(|pending| pending.snapshot.flags.bits() & collision_mask)
+            .collect::<Vec<_>>(),
+        before
+            .iter()
+            .map(|pending| pending.snapshot.flags.bits() & collision_mask)
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(
+        after[0].evidence.network_position, after[0].snapshot.position,
+        "replay must update the evidence snapshot to the exact position that will be encoded"
+    );
+    assert_eq!(
+        after[1].evidence.network_position, after[1].snapshot.position,
+        "every replay-adjusted packet must retain matching immutable evidence"
+    );
+}
+
+#[test]
+fn retained_correction_cancels_admitted_future_ticks_and_requeues_replayed_positions() {
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
+    let frame = physics.advance_with_context(
+        Duration::from_millis(150),
+        forward_physics_input(),
+        PhysicsSampleContext::default(),
+        &VersionedFloor(1),
+    );
+    assert!(frame.blocked.is_none(), "{:?}", frame.blocked);
+    assert_eq!(frame.samples.len(), 3);
+
+    let mut ticker = MovementTicker::default();
+    ticker.reset(7, 100, [0.0, 2.620_01, 0.0]);
+    ticker.set_source(MovementSource::Physics);
+    // Transport-focused fixture: the provisional spawn-settle window is
+    // orthogonal to what this test asserts.
+    for sample in frame.samples {
+        ticker.enqueue_completed_physics(sample).unwrap();
+    }
+
+    let mut confirmed = None;
+    flush_player_auth_inputs(
+        &mut ticker,
+        1,
+        Some(evidence_context()),
+        |identity, _packet| {
+            confirmed = Some(identity);
+            Ok::<_, &str>(())
+        },
+    )
+    .unwrap();
+    assert!(ticker.acknowledge_physics_send(confirmed.unwrap()));
+
+    let mut admitted = Vec::new();
+    flush_player_auth_inputs(
+        &mut ticker,
+        2,
+        Some(evidence_context()),
+        |identity, _packet| {
+            admitted.push(identity);
+            Ok::<_, &str>(())
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        admitted
+            .iter()
+            .map(|identity| identity.tick)
+            .collect::<Vec<_>>(),
+        [102, 103]
+    );
+    let admitted_epoch = ticker.reanchor_epoch();
+
+    let outcome = reconcile_candidate_physics_correction(
+        &mut ticker,
+        &mut physics,
+        [0.25, 2.620_01, 0.0],
+        101,
+        true,
+        PhysicsCorrectionMode::ReplayIfRetained,
+        &VersionedFloor(1),
+    )
+    .unwrap();
+    assert!(matches!(
+        outcome,
+        PhysicsCorrectionOutcome::Replayed {
+            corrected_tick: 101,
+            replayed_ticks: 2,
+        }
+    ));
+    assert!(
+        ticker.reanchor_epoch() > admitted_epoch,
+        "replay changed transport-owned future ticks without invalidating their admission epoch"
+    );
+
+    for identity in admitted {
+        assert!(ticker.resolve_cancelled_physics_send(identity, true));
+    }
+    let replayed = ticker.pending_snapshots();
+    assert_eq!(
+        replayed
+            .iter()
+            .map(|snapshot| snapshot.tick)
+            .collect::<Vec<_>>(),
+        [102, 103]
+    );
+    assert!(replayed.iter().all(|snapshot| snapshot.position[0] > 0.2));
+    assert_eq!(
+        ticker.outbox_reconciliation(),
+        MovementOutboxReconciliation::BudgetDeferred,
+        "definitely-unsent obsolete packets must restore corrected ticks instead of silently draining"
+    );
+
+    let mut readmitted = Vec::new();
+    flush_player_auth_inputs(
+        &mut ticker,
+        2,
+        Some(evidence_context()),
+        |identity, _packet| {
+            readmitted.push(identity);
+            Ok::<_, &str>(())
+        },
+    )
+    .unwrap();
+    assert!(
+        readmitted
+            .iter()
+            .all(|identity| identity.reanchor_epoch > admitted_epoch)
+    );
+    for identity in readmitted {
+        assert!(ticker.acknowledge_physics_send(identity));
+    }
+    assert_eq!(
+        ticker.outbox_reconciliation(),
+        MovementOutboxReconciliation::Drained
+    );
+    let evidence = ticker.take_tick_evidence();
+    assert_eq!(
+        evidence
+            .iter()
+            .filter(|sample| sample.tick > 101)
+            .map(|sample| sample.network_position)
+            .collect::<Vec<_>>(),
+        replayed
+            .iter()
+            .map(|snapshot| snapshot.position)
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn respawn_snap_after_replay_drops_pre_respawn_retries() {
+    let (mut ticker, mut physics, admitted) =
+        replay_with_admitted_future_ticks(MovementTicker::default());
+
+    assert_eq!(
+        reconcile_candidate_physics_correction(
+            &mut ticker,
+            &mut physics,
+            [8.0, 71.620_01, 9.0],
+            0,
+            false,
+            PhysicsCorrectionMode::Snap,
+            &VersionedFloor(1),
+        ),
+        Ok(PhysicsCorrectionOutcome::Snapped { tick: 103 })
+    );
+    for identity in admitted {
+        assert!(ticker.resolve_cancelled_physics_send(identity, true));
+    }
+
+    assert_eq!(
+        ticker.pending_count(),
+        0,
+        "pre-respawn replay retries must not survive the hard respawn anchor"
+    );
+    assert_eq!(
+        ticker.outbox_reconciliation(),
+        MovementOutboxReconciliation::Drained
+    );
+}
+
+#[test]
+fn surface_spawn_reanchor_after_replay_drops_pre_anchor_retries() {
+    let (mut ticker, _physics, admitted) =
+        replay_with_admitted_future_ticks(MovementTicker::default());
+
+    ticker.reanchor_surface_spawn(103, [8.0, 71.620_01, 9.0]);
+    for identity in admitted {
+        assert!(ticker.resolve_cancelled_physics_send(identity, true));
+    }
+
+    assert_eq!(
+        ticker.pending_count(),
+        0,
+        "pre-anchor replay retries must not survive a surface-spawn reanchor"
+    );
+    assert_eq!(
+        ticker.outbox_reconciliation(),
+        MovementOutboxReconciliation::Drained
+    );
+}
+
+
+
+#[test]
+fn newest_retained_tick_correction_invalidates_its_admitted_packet_without_replaying() {
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
+    let frame = physics.advance_with_context(
+        Duration::from_millis(50),
+        forward_physics_input(),
+        PhysicsSampleContext::default(),
+        &VersionedFloor(1),
+    );
+    assert_eq!(frame.samples.len(), 1);
+
+    let mut ticker = MovementTicker::default();
+    ticker.reset(7, 100, [0.0, 2.620_01, 0.0]);
+    ticker.set_source(MovementSource::Physics);
+    // Transport-focused fixture: the provisional spawn-settle window is
+    // orthogonal to what this test asserts.
+    ticker
+        .enqueue_completed_physics(frame.samples[0].clone())
+        .unwrap();
+    let mut admitted = None;
+    flush_player_auth_inputs(
+        &mut ticker,
+        1,
+        Some(evidence_context()),
+        |identity, _packet| {
+            admitted = Some(identity);
+            Ok::<_, &str>(())
+        },
+    )
+    .unwrap();
+    let admitted = admitted.expect("newest retained tick was admitted");
+
+    let outcome = reconcile_candidate_physics_correction(
+        &mut ticker,
+        &mut physics,
+        [0.25, 2.620_01, 0.0],
+        101,
+        true,
+        PhysicsCorrectionMode::ReplayIfRetained,
+        &VersionedFloor(1),
+    )
+    .unwrap();
+
+    assert_eq!(
+        outcome,
+        PhysicsCorrectionOutcome::Replayed {
+            corrected_tick: 101,
+            replayed_ticks: 0,
+        }
+    );
+    assert!(
+        ticker.reanchor_epoch() > admitted.reanchor_epoch,
+        "correcting only the newest retained tick must still invalidate its admitted command"
+    );
+    assert!(!ticker.accepting_physics_admissions());
+    assert!(ticker.resolve_cancelled_physics_send(admitted, true));
+    assert_eq!(ticker.pending_count(), 0);
+}
+
+#[test]
+fn invalidated_retries_resolve_before_a_newer_queued_tick_can_reach_the_wire() {
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
+    let frame = physics.advance_with_context(
+        Duration::from_millis(200),
+        forward_physics_input(),
+        PhysicsSampleContext::default(),
+        &VersionedFloor(1),
+    );
+    assert_eq!(frame.samples.len(), 4);
+
+    let mut ticker = MovementTicker::default();
+    ticker.reset(7, 100, [0.0, 2.620_01, 0.0]);
+    ticker.set_source(MovementSource::Physics);
+    // Transport-focused fixture: the provisional spawn-settle window is
+    // orthogonal to what this test asserts.
+    for sample in frame.samples {
+        ticker.enqueue_completed_physics(sample).unwrap();
+    }
+
+    let mut confirmed = None;
+    flush_player_auth_inputs(
+        &mut ticker,
+        1,
+        Some(evidence_context()),
+        |identity, _packet| {
+            confirmed = Some(identity);
+            Ok::<_, &str>(())
+        },
+    )
+    .unwrap();
+    assert!(ticker.acknowledge_physics_send(confirmed.unwrap()));
+
+    let mut invalidated = Vec::new();
+    flush_player_auth_inputs(
+        &mut ticker,
+        2,
+        Some(evidence_context()),
+        |identity, _packet| {
+            invalidated.push(identity);
+            Ok::<_, &str>(())
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        invalidated
+            .iter()
+            .map(|identity| identity.tick)
+            .collect::<Vec<_>>(),
+        [102, 103]
+    );
+
+    reconcile_candidate_physics_correction(
+        &mut ticker,
+        &mut physics,
+        [0.25, 2.620_01, 0.0],
+        101,
+        true,
+        PhysicsCorrectionMode::ReplayIfRetained,
+        &VersionedFloor(1),
+    )
+    .unwrap();
+
+    let mut overtaking_wire_ticks = Vec::new();
+    let sent = flush_player_auth_inputs(
+        &mut ticker,
+        8,
+        Some(evidence_context()),
+        |identity, _packet| {
+            overtaking_wire_ticks.push(identity.tick);
+            Ok::<_, &str>(())
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        sent, 0,
+        "tick {overtaking_wire_ticks:?} overtook unresolved retries for ticks 102 and 103"
+    );
+    assert!(!ticker.accepting_physics_admissions());
+
+    for identity in invalidated {
+        assert!(ticker.resolve_cancelled_physics_send(identity, true));
+    }
+    assert!(ticker.accepting_physics_admissions());
+
+    let mut ordered_wire_ticks = Vec::new();
+    flush_player_auth_inputs(
+        &mut ticker,
+        8,
+        Some(evidence_context()),
+        |identity, _packet| {
+            ordered_wire_ticks.push(identity.tick);
+            Ok::<_, &str>(())
+        },
+    )
+    .unwrap();
+    assert_eq!(ordered_wire_ticks, [102, 103, 104]);
+}
+
+#[test]
+fn newer_correction_drops_a_retry_that_is_now_the_corrected_tick() {
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
+    let frame = physics.advance_with_context(
+        Duration::from_millis(150),
+        forward_physics_input(),
+        PhysicsSampleContext::default(),
+        &VersionedFloor(1),
+    );
+    let mut ticker = MovementTicker::default();
+    ticker.reset(7, 100, [0.0, 2.620_01, 0.0]);
+    ticker.set_source(MovementSource::Physics);
+    // Transport-focused fixture: the provisional spawn-settle window is
+    // orthogonal to what this test asserts.
+    for sample in frame.samples {
+        ticker.enqueue_completed_physics(sample).unwrap();
+    }
+
+    let mut confirmed = None;
+    flush_player_auth_inputs(
+        &mut ticker,
+        1,
+        Some(evidence_context()),
+        |identity, _packet| {
+            confirmed = Some(identity);
+            Ok::<_, &str>(())
+        },
+    )
+    .unwrap();
+    assert!(ticker.acknowledge_physics_send(confirmed.unwrap()));
+
+    let mut invalidated = Vec::new();
+    flush_player_auth_inputs(
+        &mut ticker,
+        2,
+        Some(evidence_context()),
+        |identity, _packet| {
+            invalidated.push(identity);
+            Ok::<_, &str>(())
+        },
+    )
+    .unwrap();
+
+    reconcile_candidate_physics_correction(
+        &mut ticker,
+        &mut physics,
+        [0.25, 2.620_01, 0.0],
+        101,
+        true,
+        PhysicsCorrectionMode::ReplayIfRetained,
+        &VersionedFloor(1),
+    )
+    .unwrap();
+    reconcile_candidate_physics_correction(
+        &mut ticker,
+        &mut physics,
+        [0.5, 2.620_01, 0.0],
+        102,
+        true,
+        PhysicsCorrectionMode::ReplayIfRetained,
+        &VersionedFloor(1),
+    )
+    .unwrap();
+
+    for identity in invalidated {
+        assert!(ticker.resolve_cancelled_physics_send(identity, true));
+    }
+    assert_eq!(
+        ticker
+            .pending_snapshots()
+            .iter()
+            .map(|snapshot| snapshot.tick)
+            .collect::<Vec<_>>(),
+        [103],
+        "a later correction owns tick 102, so only the still-future tick may be retried"
+    );
+}
+
+
+
+
+
+/// Drives the respawn snap flow end to end and renders the captured
+/// PlayerAuthInput through the exact `rust-mcbe-pai-trace-v1` formatter.
+/// `teleport_ack` forces the opt-in state the startup environment read would
+/// install, so both gated states stay deterministic in-process.
+fn respawn_flow_first_transmission_trace(teleport_ack: bool) -> Option<String> {
+    let mut ticker = MovementTicker::default();
+    ticker.testing_set_teleport_ack(teleport_ack);
+    ticker.reset(7, 100, [0.0, 2.620_01, 0.0]);
+    ticker.set_source(MovementSource::Physics);
+
+    let mut physics = LocalPhysicsController::default();
+    reconcile_candidate_physics_correction(
+        &mut ticker,
+        &mut physics,
+        [8.0, 71.620_01, 9.0],
+        0,
+        false,
+        PhysicsCorrectionMode::Snap,
+        &VersionedFloor(1),
+    )
+    .unwrap();
+    if teleport_ack {
+        ticker.note_server_teleport(crate::movement::ServerTeleportKind::Respawn);
+    }
+    // The teleport-style snap anchors a fresh provisional spawn-settle window
+    // by design; this fixture lifts it because the byte-level trace assertion
+    // here is orthogonal to settling.
+
+    // The snap's before-advance anchor discards the first frame's elapsed
+    // time by design; the second advance produces the first real tick.
+    let warmup = physics.advance_with_context(
+        Duration::from_millis(50),
+        forward_physics_input(),
+        PhysicsSampleContext::default(),
+        &VersionedFloor(1),
+    );
+    assert!(warmup.samples.is_empty());
+    let frame = physics.advance_with_context(
+        Duration::from_millis(50),
+        forward_physics_input(),
+        PhysicsSampleContext::default(),
+        &VersionedFloor(1),
+    );
+    assert_eq!(frame.samples.len(), 1);
+    for sample in frame.samples {
+        ticker.enqueue_completed_physics(sample).unwrap();
+    }
+    let mut packets = Vec::new();
+    flush_player_auth_inputs(
+        &mut ticker,
+        8,
+        Some(evidence_context()),
+        |_identity, packet| {
+            packets.push(packet);
+            Ok::<_, &str>(())
+        },
+    )
+    .unwrap();
+    assert_eq!(packets.len(), 1);
+
+    crate::movement::trace::trace_line_if(true, 7, &packets[0])
+}
+
+#[test]
+fn respawn_marked_first_transmission_renders_handled_teleport_in_the_pai_trace() {
+    let line = respawn_flow_first_transmission_trace(true).expect("enabled trace formats");
+    assert!(!line.contains('\n'), "trace lines must stay single-line");
+    let parsed: serde_json::Value =
+        serde_json::from_str(&line).expect("trace output must be valid JSON");
+    assert_eq!(parsed["schema"], "rust-mcbe-pai-trace-v1");
+    assert!(
+        parsed["flags"]
+            .as_array()
+            .expect("flags array")
+            .iter()
+            .any(|name| name == "HandledTeleport"),
+        "the first resumed transmission must render HandledTeleport: {line}"
+    );
+}
+
+#[test]
+fn respawn_flow_without_the_opt_in_never_renders_handled_teleport() {
+    let line = respawn_flow_first_transmission_trace(false).expect("enabled trace formats");
+    let parsed: serde_json::Value =
+        serde_json::from_str(&line).expect("trace output must be valid JSON");
+    assert_eq!(parsed["schema"], "rust-mcbe-pai-trace-v1");
+    assert!(
+        !parsed["flags"]
+            .as_array()
+            .expect("flags array")
+            .iter()
+            .any(|name| name == "HandledTeleport"),
+        "default-off must stay byte-identical to the un-gated stream: {line}"
+    );
+}

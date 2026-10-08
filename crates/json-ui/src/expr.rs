@@ -1,24 +1,24 @@
-//! Length expressions for `size`/`offset`/`max_size`/`min_size`. A value is a sum
-//! of unit terms (`100% - 4px`, `56.25%x - 65.25px + 118.5px`); the concrete
-//! pixels of each unit come from an [`AxisContext`] the layout solver fills. `fill`
-//! and `default` are standalone keywords the solver resolves against leftover space
-//! and natural size. The boolean/string `view` grammar is evaluated by
-//! `predicate.rs`, which T3 extends with binding lookup and string `+`.
+//! Length expressions for `size`/`offset`/`max_size`/`min_size`, parsed the way
+//! the vanilla client does: a lower-cased token stream of numbers,
+//! units and signs, where a sign holds until the next one and a number without a
+//! unit is dropped. The concrete pixels of each unit come from an
+//! [`AxisContext`] the layout solver fills. `fill` and `default` are whole-string
+//! keywords, as is a non-scalar element (`default`).
 
 use serde_json::Value;
 
-/// A length unit. A bare or `px`-suffixed number is [`Unit::Px`]; the rest are the
-/// percentage families JSON-UI recognises.
+/// A length unit. A `px` number is [`Unit::Px`]; the rest are the percentage
+/// families JSON-UI recognises.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Unit {
     Px,
     /// `%` — percent of the parent's length on this axis.
     Percent,
-    /// `%c` — percent of the content extent of this control's children.
+    /// `%c` — percent of the summed lengths of this control's children.
     PercentChildren,
-    /// `%cm` — percent of the largest child on this axis.
+    /// `%cm` — the largest child on this axis; the coefficient only gates it.
     PercentChildrenMax,
-    /// `%sm` — percent of the largest sibling on this axis.
+    /// `%sm` — the largest sibling on this axis; the coefficient only gates it.
     PercentSiblingMax,
     /// `%x` — percent of this control's own width.
     PercentX,
@@ -66,18 +66,6 @@ pub enum Resolved {
     Fill,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
-pub enum ExprError {
-    #[error("empty length expression")]
-    Empty,
-    #[error("unexpected `{0}` in length expression")]
-    Unexpected(String),
-    #[error("missing number before unit in length expression")]
-    MissingNumber,
-    #[error("malformed number `{0}` in length expression")]
-    BadNumber(String),
-}
-
 impl Length {
     /// `N%` of the parent axis.
     pub fn percent(value: f64) -> Self {
@@ -103,11 +91,7 @@ impl Length {
             Length::Fill => Resolved::Fill,
             Length::Default => Resolved::Pixels(ctx.natural.unwrap_or(ctx.parent)),
             Length::Terms(terms) => {
-                let pixels = terms
-                    .iter()
-                    .map(|term| term.coeff * factor(term.unit, ctx))
-                    .sum();
-                Resolved::Pixels(pixels)
+                Resolved::Pixels(terms.iter().map(|term| term.value(ctx)).sum())
             }
         }
     }
@@ -120,136 +104,154 @@ impl Length {
             Resolved::Fill => ctx.parent,
         }
     }
-}
 
-fn factor(unit: Unit, ctx: &AxisContext) -> f64 {
-    match unit {
-        Unit::Px => 1.0,
-        Unit::Percent => ctx.parent / 100.0,
-        Unit::PercentChildren => ctx.children.unwrap_or(0.0) / 100.0,
-        Unit::PercentChildrenMax => ctx.children_max.unwrap_or(0.0) / 100.0,
-        Unit::PercentSiblingMax => ctx.sibling_max.unwrap_or(0.0) / 100.0,
-        Unit::PercentX => ctx.own_width.unwrap_or(0.0) / 100.0,
-        Unit::PercentY => ctx.own_height.unwrap_or(0.0) / 100.0,
+    /// Whether any term reads `unit`.
+    pub fn uses(&self, unit: Unit) -> bool {
+        matches!(self, Length::Terms(terms) if terms.iter().any(|term| term.unit == unit))
     }
 }
 
-/// Parse a `size`/`offset` element: a number is pixels, a string is an expression.
-/// A non-scalar element parses as `0px`.
-pub fn length_from_value(value: &Value) -> Result<Length, ExprError> {
+impl Term {
+    /// This term's pixels. A zero term contributes nothing; a `%cm`/`%sm` term is
+    /// the maximum itself, whatever its coefficient or sign.
+    fn value(&self, ctx: &AxisContext) -> f64 {
+        if self.coeff == 0.0 {
+            return 0.0;
+        }
+        let percent = |value: Option<f64>| self.coeff * value.unwrap_or(0.0) / 100.0;
+        match self.unit {
+            Unit::Px => self.coeff,
+            Unit::Percent => percent(Some(ctx.parent)),
+            Unit::PercentChildren => percent(ctx.children),
+            Unit::PercentChildrenMax => ctx.children_max.unwrap_or(0.0),
+            Unit::PercentSiblingMax => ctx.sibling_max.unwrap_or(0.0),
+            Unit::PercentX => percent(ctx.own_width),
+            Unit::PercentY => percent(ctx.own_height),
+        }
+    }
+}
+
+/// Parse a `size`/`offset` element: a number is pixels, a string is an
+/// expression, anything else (`null`, a bool) is `default`.
+pub fn length_from_value(value: &Value) -> Length {
     match value {
-        Value::Number(number) => Ok(Length::Terms(vec![Term {
-            coeff: number.as_f64().unwrap_or(0.0),
-            unit: Unit::Px,
-        }])),
+        Value::Number(number) => Length::pixels(number.as_f64().unwrap_or(0.0)),
         Value::String(text) => parse_length(text),
-        _ => Ok(Length::Terms(vec![Term {
-            coeff: 0.0,
-            unit: Unit::Px,
-        }])),
+        _ => Length::Default,
     }
 }
 
-/// Parse a length string. `fill`/`default` are whole-string keywords; otherwise the
-/// input is a `+`/`-` separated sum of `<number><unit>` terms.
-pub fn parse_length(input: &str) -> Result<Length, ExprError> {
-    let text = input.trim();
-    match text {
-        "" => return Err(ExprError::Empty),
-        "fill" => return Ok(Length::Fill),
-        "default" => return Ok(Length::Default),
+/// Parse a length string. Exactly `fill`/`default` are keywords; anything else is
+/// a lower-cased stream of numbers, `px`/`%` units and `+`/`-` signs. A sign
+/// applies to every later term until the next sign, a unit-less number is
+/// dropped, and a stray modifier (`c`, `m`, `s`, `x`, `y`) is ignored.
+pub fn parse_length(input: &str) -> Length {
+    match input {
+        "fill" => return Length::Fill,
+        "default" => return Length::Default,
         _ => {}
     }
-
-    let bytes = text.as_bytes();
-    let mut cursor = 0;
-    let mut sign = read_leading_sign(bytes, &mut cursor);
+    let lower = input.to_lowercase();
+    let tokens = tokenize(&lower);
     let mut terms = Vec::new();
-    loop {
-        skip_spaces(bytes, &mut cursor);
-        let coeff = sign * read_number(text, bytes, &mut cursor)?;
-        let unit = read_unit(bytes, &mut cursor);
-        terms.push(Term { coeff, unit });
-        skip_spaces(bytes, &mut cursor);
-        match bytes.get(cursor) {
-            None => break,
-            Some(b'+') => sign = 1.0,
-            Some(b'-') => sign = -1.0,
-            Some(other) => return Err(ExprError::Unexpected((*other as char).to_string())),
+    let mut value = 0.0;
+    let mut sign = 1.0;
+    let mut index = 0;
+    while index < tokens.len() {
+        match tokens[index] {
+            Token::Number(number) => value = number,
+            Token::Plus => sign = 1.0,
+            Token::Minus => sign = -1.0,
+            Token::Px => terms.push(Term {
+                coeff: sign * value,
+                unit: Unit::Px,
+            }),
+            Token::Percent => {
+                let next = |offset: usize| tokens.get(index + offset).copied();
+                let (unit, consumed) = match (next(1), next(2)) {
+                    (Some(Token::Modifier('c')), Some(Token::Modifier('m'))) => {
+                        (Unit::PercentChildrenMax, 2)
+                    }
+                    (Some(Token::Modifier('c')), _) => (Unit::PercentChildren, 1),
+                    (Some(Token::Modifier('s')), Some(Token::Modifier('m'))) => {
+                        (Unit::PercentSiblingMax, 2)
+                    }
+                    (Some(Token::Modifier('x')), _) => (Unit::PercentX, 1),
+                    (Some(Token::Modifier('y')), _) => (Unit::PercentY, 1),
+                    // An unknown sibling modifier (`%s`) falls back to the axis.
+                    _ => (Unit::Percent, 0),
+                };
+                terms.push(Term {
+                    coeff: sign * value,
+                    unit,
+                });
+                index += consumed;
+            }
+            Token::Modifier(_) => {}
         }
-        cursor += 1;
+        index += 1;
     }
-    Ok(Length::Terms(terms))
+    Length::Terms(terms)
 }
 
-fn read_leading_sign(bytes: &[u8], cursor: &mut usize) -> f64 {
-    skip_spaces(bytes, cursor);
-    match bytes.get(*cursor) {
-        Some(b'-') => {
-            *cursor += 1;
-            -1.0
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Token {
+    Number(f64),
+    Plus,
+    Minus,
+    Px,
+    Percent,
+    Modifier(char),
+}
+
+/// Split at the client's layout delimiters (`+ - % c m s x y px`, whitespace
+/// discarded); every other run is a number read by its leading float.
+fn tokenize(text: &str) -> Vec<Token> {
+    let mut tokens = Vec::new();
+    let mut number = String::new();
+    let flush = |number: &mut String, tokens: &mut Vec<Token>| {
+        if !number.is_empty() {
+            tokens.push(Token::Number(leading_float(number)));
+            number.clear();
         }
-        Some(b'+') => {
-            *cursor += 1;
-            1.0
-        }
-        _ => 1.0,
-    }
-}
-
-fn skip_spaces(bytes: &[u8], cursor: &mut usize) {
-    while matches!(bytes.get(*cursor), Some(b' ' | b'\t')) {
-        *cursor += 1;
-    }
-}
-
-fn read_number(text: &str, bytes: &[u8], cursor: &mut usize) -> Result<f64, ExprError> {
-    let start = *cursor;
-    while matches!(bytes.get(*cursor), Some(byte) if byte.is_ascii_digit() || *byte == b'.') {
-        *cursor += 1;
-    }
-    if *cursor == start {
-        return Err(ExprError::MissingNumber);
-    }
-    let slice = &text[start..*cursor];
-    slice
-        .parse::<f64>()
-        .map_err(|_| ExprError::BadNumber(slice.to_owned()))
-}
-
-/// Read the unit suffix after a number; longer keywords (`cm`, `sm`) win over the
-/// single-letter forms.
-fn read_unit(bytes: &[u8], cursor: &mut usize) -> Unit {
-    if bytes.get(*cursor) == Some(&b'%') {
-        *cursor += 1;
-        return match (bytes.get(*cursor), bytes.get(*cursor + 1)) {
-            (Some(b'c'), Some(b'm')) => {
-                *cursor += 2;
-                Unit::PercentChildrenMax
+    };
+    let mut chars = text.chars().peekable();
+    while let Some(ch) = chars.next() {
+        let token = match ch {
+            '+' => Some(Token::Plus),
+            '-' => Some(Token::Minus),
+            '%' => Some(Token::Percent),
+            'c' | 'm' | 's' | 'x' | 'y' => Some(Token::Modifier(ch)),
+            'p' if chars.peek() == Some(&'x') => {
+                chars.next();
+                Some(Token::Px)
             }
-            (Some(b's'), Some(b'm')) => {
-                *cursor += 2;
-                Unit::PercentSiblingMax
+            ch if ch.is_whitespace() => {
+                flush(&mut number, &mut tokens);
+                continue;
             }
-            (Some(b'c'), _) => {
-                *cursor += 1;
-                Unit::PercentChildren
-            }
-            (Some(b'x'), _) => {
-                *cursor += 1;
-                Unit::PercentX
-            }
-            (Some(b'y'), _) => {
-                *cursor += 1;
-                Unit::PercentY
-            }
-            _ => Unit::Percent,
+            _ => None,
         };
+        match token {
+            Some(token) => {
+                flush(&mut number, &mut tokens);
+                tokens.push(token);
+            }
+            None => number.push(ch),
+        }
     }
-    if bytes.get(*cursor) == Some(&b'p') && bytes.get(*cursor + 1) == Some(&b'x') {
-        *cursor += 2;
-    }
-    Unit::Px
+    flush(&mut number, &mut tokens);
+    tokens
+}
+
+/// The longest leading float of `text` (a stream extraction), else zero.
+fn leading_float(text: &str) -> f64 {
+    (1..=text.len())
+        .rev()
+        .filter(|end| text.is_char_boundary(*end))
+        .find_map(|end| text[..end].parse::<f64>().ok())
+        .filter(|value| value.is_finite())
+        .unwrap_or(0.0)
 }
 
 #[cfg(test)]
@@ -257,10 +259,17 @@ mod tests {
     use super::*;
 
     fn terms(input: &str) -> Vec<Term> {
-        match parse_length(input).unwrap() {
+        match parse_length(input) {
             Length::Terms(terms) => terms,
             other => panic!("expected terms, got {other:?}"),
         }
+    }
+
+    fn px(input: &str, parent: f64) -> f64 {
+        parse_length(input).eval_pixels(&AxisContext {
+            parent,
+            ..AxisContext::default()
+        })
     }
 
     #[test]
@@ -274,21 +283,20 @@ mod tests {
             sibling_max: Some(50.0),
             natural: Some(7.0),
         };
-        assert_eq!(parse_length("4").unwrap().eval_pixels(&ctx), 4.0);
-        assert_eq!(parse_length("4px").unwrap().eval_pixels(&ctx), 4.0);
-        assert_eq!(parse_length("50%").unwrap().eval_pixels(&ctx), 100.0);
-        assert_eq!(parse_length("100%c").unwrap().eval_pixels(&ctx), 30.0);
-        assert_eq!(parse_length("50%cm").unwrap().eval_pixels(&ctx), 6.0);
-        assert_eq!(parse_length("100%sm").unwrap().eval_pixels(&ctx), 50.0);
-        assert_eq!(parse_length("50%x").unwrap().eval_pixels(&ctx), 40.0);
-        assert_eq!(parse_length("100%y").unwrap().eval_pixels(&ctx), 45.0);
-        assert_eq!(parse_length("default").unwrap().eval_pixels(&ctx), 7.0);
+        assert_eq!(parse_length("4px").eval_pixels(&ctx), 4.0);
+        assert_eq!(parse_length("50%").eval_pixels(&ctx), 100.0);
+        assert_eq!(parse_length("100%c").eval_pixels(&ctx), 30.0);
+        assert_eq!(parse_length("100%cm").eval_pixels(&ctx), 12.0);
+        assert_eq!(parse_length("100%sm").eval_pixels(&ctx), 50.0);
+        assert_eq!(parse_length("50%x").eval_pixels(&ctx), 40.0);
+        assert_eq!(parse_length("100%y").eval_pixels(&ctx), 45.0);
+        assert_eq!(parse_length("default").eval_pixels(&ctx), 7.0);
     }
 
     #[test]
     fn fill_is_distinct_from_pixels() {
         assert_eq!(
-            parse_length("fill").unwrap().eval(&AxisContext::default()),
+            parse_length("fill").eval(&AxisContext::default()),
             Resolved::Fill
         );
     }
@@ -309,8 +317,8 @@ mod tests {
             children: Some(40.0),
             ..AxisContext::default()
         };
-        assert_eq!(parse_length("100% - 4px").unwrap().eval_pixels(&ctx), 96.0);
-        assert_eq!(parse_length("100%c + 6px").unwrap().eval_pixels(&ctx), 46.0);
+        assert_eq!(parse_length("100% - 4px").eval_pixels(&ctx), 96.0);
+        assert_eq!(parse_length("100%c + 6px").eval_pixels(&ctx), 46.0);
     }
 
     #[test]
@@ -320,9 +328,7 @@ mod tests {
             own_width: Some(200.0),
             ..AxisContext::default()
         };
-        let value = parse_length("56.25%x - 65.25px + 118.5px")
-            .unwrap()
-            .eval_pixels(&ctx);
+        let value = parse_length("56.25%x - 65.25px + 118.5px").eval_pixels(&ctx);
         assert_eq!(value, 0.5625 * 200.0 - 65.25 + 118.5);
     }
 
@@ -350,13 +356,49 @@ mod tests {
         assert_eq!(terms("1%c")[0].unit, Unit::PercentChildren);
     }
 
+    // G03: units are case-insensitive and the last sign before a term wins.
     #[test]
-    fn garbage_is_rejected() {
-        assert_eq!(parse_length(""), Err(ExprError::Empty));
-        assert!(matches!(
-            parse_length("100% * 2"),
-            Err(ExprError::Unexpected(_))
-        ));
-        assert_eq!(parse_length("%"), Err(ExprError::MissingNumber));
+    fn upper_case_units_and_repeated_signs_normalize() {
+        assert_eq!(px("20PX", 100.0), 20.0);
+        assert_eq!(px("100% + -4px", 100.0), 96.0);
+        assert_eq!(px("100%-4px-2px", 100.0), 94.0);
+    }
+
+    // A sign holds for the terms after it until the next sign.
+    #[test]
+    fn a_sign_carries_to_later_terms() {
+        assert_eq!(px("100% - 4px 2px", 100.0), 94.0);
+    }
+
+    // A number without `px` or `%` is dropped, as the client logs a dangling number.
+    #[test]
+    fn unit_less_numbers_contribute_nothing() {
+        assert_eq!(px("10", 100.0), 0.0);
+        assert_eq!(px("50% + 10", 100.0), 50.0);
+        assert_eq!(px("", 100.0), 0.0);
+    }
+
+    // G06/G07: a maximum term ignores its coefficient and sign; zero drops it.
+    #[test]
+    fn maximum_terms_ignore_their_coefficient() {
+        let ctx = AxisContext {
+            children_max: Some(40.0),
+            sibling_max: Some(40.0),
+            ..AxisContext::default()
+        };
+        assert_eq!(parse_length("50%cm").eval_pixels(&ctx), 40.0);
+        assert_eq!(parse_length("50%sm").eval_pixels(&ctx), 40.0);
+        assert_eq!(parse_length("-100%cm").eval_pixels(&ctx), 40.0);
+        assert_eq!(parse_length("0%cm").eval_pixels(&ctx), 0.0);
+    }
+
+    #[test]
+    fn non_scalar_elements_are_default() {
+        assert_eq!(length_from_value(&Value::Null), Length::Default);
+        assert_eq!(length_from_value(&Value::Bool(true)), Length::Default);
+        assert_eq!(
+            length_from_value(&serde_json::json!(7)),
+            Length::pixels(7.0)
+        );
     }
 }

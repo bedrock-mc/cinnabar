@@ -1,0 +1,13 @@
+[package]
+name = "experience-terminal-client"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+experience-sdk = { path = "../../../crates/experience-sdk", default-features = false, features = ["client"] }
+serde_json = "=1.0.150"

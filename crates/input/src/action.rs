@@ -38,10 +38,14 @@ pub enum Action {
     UiCancel,
     UiTabNext,
     UiTabPrevious,
+    PlayerList,
+    Freelook,
+    /// Vanilla's "Open Notification": opens what the showing toast offers.
+    InteractWithToast,
 }
 
 impl Action {
-    pub const COUNT: usize = 35;
+    pub const COUNT: usize = 38;
 
     pub(crate) const ALL: [Self; Self::COUNT] = [
         Self::MoveForward,
@@ -79,6 +83,9 @@ impl Action {
         Self::UiCancel,
         Self::UiTabNext,
         Self::UiTabPrevious,
+        Self::PlayerList,
+        Self::Freelook,
+        Self::InteractWithToast,
     ];
 
     pub(crate) const fn is_ui_preview(self) -> bool {
@@ -101,6 +108,7 @@ impl Action {
         matches!(
             self,
             Self::CyclePerspective
+                | Self::InteractWithToast
                 | Self::Menu
                 | Self::Back
                 | Self::Hotbar1
@@ -197,8 +205,32 @@ pub struct ActionSnapshot {
     /// Analog-axis contribution of the controlling device (post-deadzone
     /// gamepad axes). Keyboard buttons leave this vector empty.
     pub analogue_movement: [f32; 2],
+    /// Digital direction buttons, independent of analogue axes and opposing-key cancellation.
+    pub movement_buttons: MovementButtons,
     pub look_delta: [f32; 2],
     pub input_mode: InputMode,
     pub phases: [ActionPhase; Action::COUNT],
     pub release_reasons: [Option<ReleaseReason>; Action::COUNT],
+}
+
+/// Direction buttons retain their identities even when their resulting vector is zero.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct MovementButtons {
+    pub forward: bool,
+    pub backward: bool,
+    pub left: bool,
+    pub right: bool,
+}
+
+impl MovementButtons {
+    /// Records only movement actions supplied by a digital control.
+    pub(crate) fn set(&mut self, action: Action) {
+        match action {
+            Action::MoveForward => self.forward = true,
+            Action::MoveBackward => self.backward = true,
+            Action::MoveLeft => self.left = true,
+            Action::MoveRight => self.right = true,
+            _ => {}
+        }
+    }
 }

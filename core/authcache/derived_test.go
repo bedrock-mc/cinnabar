@@ -11,9 +11,9 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"io/fs"
 	"log/slog"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -31,6 +31,7 @@ import (
 	"github.com/df-mc/go-xsapi/v2/xal/xasd"
 	"github.com/df-mc/go-xsapi/v2/xal/xasu"
 	"github.com/df-mc/go-xsapi/v2/xal/xsts"
+	"github.com/google/uuid"
 	"github.com/hashimthearab/rust-mcbe/core/internal/lockfile"
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/service"
@@ -39,52 +40,10 @@ import (
 
 const cachedRelyingParty = "http://xboxlive.com"
 
-// derivedTestDir mirrors the production entry point's trusted top-level alias
-// resolution. Low-level private reads and lease checks require canonical paths;
-// t.TempDir may otherwise retain the macOS /var alias. Nested links are not
-// resolved, so unsafe-path fixtures still exercise the fail-closed checks.
+// derivedTestDir returns the account cache directory for one test.
 func derivedTestDir(t *testing.T) string {
 	t.Helper()
-	dir, err := canonicalizeCachePath(filepath.Clean(t.TempDir()))
-	if err != nil {
-		t.Fatal(err)
-	}
-	return dir
-}
-
-func TestPersistentSourceRetainsCanonicalCachePath(t *testing.T) {
-	raw := filepath.Join(t.TempDir(), "alias", "derived")
-	canonical := filepath.Join(t.TempDir(), "canonical", "derived")
-	var input string
-	deps := derivedDeps{canonicalize: func(path string) (string, error) {
-		input = path
-		return canonical, nil
-	}}
-	source := persistentSource(context.Background(), raw, oauth2.StaticTokenSource(testOAuthToken("account-a")), nil, deps)
-	persistent, ok := source.(*Account)
-	if !ok {
-		t.Fatal("persistent source was not constructed")
-	}
-	wantInput, err := filepath.Abs(raw)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if input != filepath.Clean(wantInput) {
-		t.Fatalf("canonicalization input = %q, want absolute clean path %q", input, filepath.Clean(wantInput))
-	}
-	if persistent.path != canonical {
-		t.Fatalf("persistent path = %q, want canonical path %q", persistent.path, canonical)
-	}
-}
-
-func TestPersistentSourceRejectsUntrustedCanonicalization(t *testing.T) {
-	oauth := oauth2.StaticTokenSource(testOAuthToken("account-a"))
-	deps := derivedDeps{canonicalize: func(string) (string, error) {
-		return "", errors.New("untrusted alias")
-	}}
-	if got := persistentSource(context.Background(), filepath.Join(t.TempDir(), "derived"), oauth, nil, deps).(*Account); got.path != "" {
-		t.Fatal("persistent source retained an untrusted cache path")
-	}
+	return t.TempDir()
 }
 
 func TestPersistentSourceFreshInstanceReusesDerivedStateAndMintsPerKey(t *testing.T) {
@@ -168,6 +127,7 @@ func TestPersistentSourceExpiredServiceRefreshesOnlyServiceLayer(t *testing.T) {
 	if discoveryCalls != 1 || serviceCalls != 1 {
 		t.Fatalf("calls = (discovery=%d service=%d), want (1,1)", discoveryCalls, serviceCalls)
 	}
+	settle(t, source.(*Account))
 	second := persistentSource(context.Background(), path, oauth2.StaticTokenSource(oauthToken), nil, deps)
 	secondKey, _ := ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
 	if _, err := second.(minecraft.MultiplayerTokenSource).MultiplayerToken(context.Background(), &secondKey.PublicKey); err != nil {
@@ -406,6 +366,7 @@ func TestPersistentSourceInvalidatedServiceTokenIsReplaced(t *testing.T) {
 	}
 	var invalidator service.TokenInvalidator = account
 	invalidator.InvalidateServiceToken(rejected)
+	settle(t, account)
 	if state, err := loadDerived(path); err != nil || state.ServiceToken != nil {
 		t.Fatalf("persisted bundle kept the rejected token: err=%v", err)
 	}
@@ -509,7 +470,8 @@ func TestPersistentSourceConcurrentFreshInstancesRemainUsable(t *testing.T) {
 	}
 }
 
-func TestPersistentSourceConcurrentExpiredRefreshUsesOneExchange(t *testing.T) {
+// Concurrent joins needing an expired service token share one exchange.
+func TestConcurrentExpiredRefreshUsesOneExchange(t *testing.T) {
 	path := filepath.Join(derivedTestDir(t), "derived")
 	oauthToken := testOAuthToken("account-a")
 	writeDerivedState(t, path, oauthToken, time.Now().Add(-time.Minute))
@@ -523,21 +485,16 @@ func TestPersistentSourceConcurrentExpiredRefreshUsesOneExchange(t *testing.T) {
 		}),
 		mint: mintFromService,
 	}
-	var diagnostics [2]bytes.Buffer
-	sources := []oauth2.TokenSource{
-		persistentSource(context.Background(), path, oauth2.StaticTokenSource(oauthToken), &diagnostics[0], deps),
-		persistentSource(context.Background(), path, oauth2.StaticTokenSource(oauthToken), &diagnostics[1], deps),
-	}
+	account := newAccount(context.Background(), path, oauth2.StaticTokenSource(oauthToken), nil, deps)
+	defer account.Close()
 	var wg sync.WaitGroup
-	errs := make(chan error, len(sources))
-	for _, source := range sources {
-		wg.Add(1)
-		go func(source oauth2.TokenSource) {
-			defer wg.Done()
+	errs := make(chan error, 4)
+	for range cap(errs) {
+		wg.Go(func() {
 			key, _ := ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
-			_, err := source.(minecraft.MultiplayerTokenSource).MultiplayerToken(context.Background(), &key.PublicKey)
+			_, err := account.MultiplayerToken(context.Background(), &key.PublicKey)
 			errs <- err
-		}(source)
+		})
 	}
 	wg.Wait()
 	close(errs)
@@ -547,7 +504,7 @@ func TestPersistentSourceConcurrentExpiredRefreshUsesOneExchange(t *testing.T) {
 		}
 	}
 	if calls := serviceCalls.Load(); calls != 1 {
-		t.Fatalf("concurrent service exchanges = %d, want 1; diagnostics = %q / %q", calls, diagnostics[0].String(), diagnostics[1].String())
+		t.Fatalf("concurrent service exchanges = %d, want 1", calls)
 	}
 }
 
@@ -602,9 +559,6 @@ func TestPersistentSourceLeaseTimeoutCannotOverwriteOwnerState(t *testing.T) {
 	path := filepath.Join(derivedTestDir(t), "derived")
 	oauthToken := testOAuthToken("account-a")
 	writeDerivedState(t, path, oauthToken, time.Now().Add(-time.Minute))
-	if err := prepareLeasePath(path + ".lock"); err != nil {
-		t.Fatal(err)
-	}
 	lease, err := lockfile.Acquire(path+".lock", 0)
 	if err != nil {
 		t.Fatal(err)
@@ -622,6 +576,7 @@ func TestPersistentSourceLeaseTimeoutCannotOverwriteOwnerState(t *testing.T) {
 		mint: mintFromService,
 	}
 	source := persistentSource(context.Background(), path, oauth2.StaticTokenSource(oauthToken), nil, deps)
+	t.Cleanup(func() { _ = source.(*Account).Close() })
 	done := make(chan error, 1)
 	go func() {
 		key, _ := ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
@@ -647,103 +602,14 @@ func TestPersistentSourceLeaseTimeoutCannotOverwriteOwnerState(t *testing.T) {
 	}
 }
 
-func TestPrepareLeasePathConcurrentFirstCreationKeepsStableIdentity(t *testing.T) {
-	path := filepath.Join(derivedTestDir(t), "derived.lock")
-	start := make(chan struct{})
-	errs := make(chan error, 8)
-	for range cap(errs) {
-		go func() {
-			<-start
-			errs <- prepareLeasePath(path)
-		}()
-	}
-	close(start)
-	for range cap(errs) {
-		if err := <-errs; err != nil {
-			t.Fatal(err)
-		}
-	}
-	before, err := os.Stat(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	lease, err := lockfile.Acquire(path, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	created, err := createPrivateOnce(path, []byte("replacement\n"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if created {
-		t.Fatal("existing active lease file was replaced")
-	}
-	after, err := os.Stat(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !os.SameFile(before, after) {
-		t.Fatal("lease file identity changed while held")
-	}
-	if second, err := lockfile.Acquire(path, 0); !errors.Is(err, lockfile.ErrBusy) {
-		if second != nil {
-			_ = second.Close()
-		}
-		t.Fatalf("second acquisition error = %v, want busy", err)
-	}
-	if err := lease.Close(); err != nil {
-		t.Fatal(err)
-	}
-	contents, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(contents) != "join-auth-lease\n" {
-		t.Fatalf("lease contents = %q, want original marker", contents)
-	}
-}
-
-func TestValidateLeasePathRejectsLinkedTarget(t *testing.T) {
-	dir := derivedTestDir(t)
-	target := filepath.Join(dir, "target")
-	if err := os.WriteFile(target, []byte("outside"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	linked := filepath.Join(dir, "derived.lock")
-	if err := os.Symlink(target, linked); err != nil {
-		t.Skipf("symlink unavailable: %v", err)
-	}
-	if err := validateLeasePath(linked); err == nil {
-		t.Fatal("linked lease target accepted")
-	}
-}
-
-func TestValidateLeasePathRejectsMissingTarget(t *testing.T) {
-	path := filepath.Join(derivedTestDir(t), "missing.lock")
-	if err := validateLeasePath(path); !errors.Is(err, fs.ErrNotExist) {
-		t.Fatalf("error = %v, want missing", err)
-	}
-	if lease, err := lockfile.AcquireExisting(path, 0); !errors.Is(err, fs.ErrNotExist) {
-		if lease != nil {
-			_ = lease.Close()
-		}
-		t.Fatalf("AcquireExisting error = %v, want missing", err)
-	}
-	if _, err := os.Lstat(path); !errors.Is(err, fs.ErrNotExist) {
-		t.Fatalf("missing lease was unexpectedly created: %v", err)
-	}
-}
-
 func TestSavePrivateFailurePreservesOldCache(t *testing.T) {
 	path := filepath.Join(derivedTestDir(t), "derived")
 	if err := savePrivate(path, []byte("old\n")); err != nil {
 		t.Fatal(err)
 	}
-	err := savePrivateWithHooks(path, []byte("new\n"), saveHooks{afterTokenSync: func(string) error {
-		return errors.New("injected failure")
-	}})
+	err := savePrivate(path, bytes.Repeat([]byte("x"), maxCacheSize+1))
 	if err == nil {
-		t.Fatal("save succeeded, want injected failure")
+		t.Fatal("save succeeded, want oversized cache rejection")
 	}
 	got, err := os.ReadFile(path)
 	if err != nil {
@@ -849,6 +715,7 @@ func TestPersistentSourceInvalidatedXSTSTokenIsNotResurrected(t *testing.T) {
 		t.Fatal("fixture did not restore the XSTS token")
 	}
 	invalidator.InvalidateXSTSToken(cachedRelyingParty, rejected)
+	settle(t, source)
 	if source.session.Snapshot().XSTSTokens[cachedRelyingParty] != nil {
 		t.Fatal("in-memory session kept the rejected token")
 	}
@@ -865,9 +732,9 @@ func TestPersistentSourceInvalidatedXSTSTokenIsNotResurrected(t *testing.T) {
 	}
 	// A stale bundle written without the eviction must not resurrect it on reload.
 	writeDerivedState(t, path, oauthToken, time.Now().Add(time.Hour))
-	source.mu.Lock()
+	source.gate <- struct{}{}
 	source.reloadLocked()
-	source.mu.Unlock()
+	source.unlock()
 	if source.session.Snapshot().XSTSTokens[cachedRelyingParty] != nil {
 		t.Fatal("reload resurrected the rejected token")
 	}
@@ -880,8 +747,8 @@ func persistentSource(ctx context.Context, path string, oauth oauth2.TokenSource
 
 // fakeServices stands in for the native service-token source: a valid token is reused, otherwise
 // exchange issues the next one.
-func fakeServices(exchange func(context.Context, *service.AuthorizationEnvironment, xsapi.TokenAndSignaturer) (*service.Token, error)) func(*service.AuthorizationEnvironment, service.SessionTicketSource, *service.Token) service.TokenSource {
-	return func(env *service.AuthorizationEnvironment, _ service.SessionTicketSource, token *service.Token) service.TokenSource {
+func fakeServices(exchange func(context.Context, *service.AuthorizationEnvironment, xsapi.TokenAndSignaturer) (*service.Token, error)) func(*service.AuthorizationEnvironment, service.SessionTicketSource, *service.Token, string, string) service.TokenSource {
+	return func(env *service.AuthorizationEnvironment, _ service.SessionTicketSource, token *service.Token, _, _ string) service.TokenSource {
 		return &fakeServiceSource{env: env, token: token, exchange: exchange}
 	}
 }
@@ -946,7 +813,7 @@ func TestAccountSharesOnePlayFabSessionUntilClosed(t *testing.T) {
 				HTTPClient: &http.Client{Transport: refusingTransport{}}, Logger: slog.New(slog.DiscardHandler),
 			})
 		},
-		services: func(_ *service.AuthorizationEnvironment, source service.SessionTicketSource, _ *service.Token) service.TokenSource {
+		services: func(_ *service.AuthorizationEnvironment, source service.SessionTicketSource, _ *service.Token, _, _ string) service.TokenSource {
 			return fakeServiceSourceFunc(func(ctx context.Context) (*service.Token, error) {
 				ticket, err := source.SessionTicket(ctx)
 				tickets = append(tickets, ticket)
@@ -986,4 +853,455 @@ type fakeServiceSourceFunc func(context.Context) (*service.Token, error)
 
 func (f fakeServiceSourceFunc) ServiceToken(ctx context.Context) (*service.Token, error) {
 	return f(ctx)
+}
+
+// Every service token source an account rebuilds, and its multiplayer mint, name one Session-Id.
+func TestAccountKeepsOneSessionIDAcrossRebuilds(t *testing.T) {
+	var mu sync.Mutex
+	sessions := map[string][]string{}
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		sessions[r.URL.Path] = append(sessions[r.URL.Path], r.Header.Get("Session-Id"))
+		mu.Unlock()
+		now := time.Now().UTC().Truncate(time.Second)
+		if r.URL.Path == "/api/v1.0/multiplayer/session/start" {
+			_ = json.NewEncoder(w).Encode(map[string]any{"result": map[string]any{
+				"issuedAt": now, "signedToken": "multiplayer-token", "validUntil": now.Add(time.Hour),
+			}})
+			return
+		}
+		payload, _ := json.Marshal(map[string]any{"pmid": uuid.NewString(), "iat": now.Unix(), "exp": now.Add(time.Hour).Unix()})
+		_ = json.NewEncoder(w).Encode(map[string]any{"result": &service.Token{
+			AuthorizationHeader: "MCToken header." + base64.RawURLEncoding.EncodeToString(payload) + ".signature",
+			ValidUntil:          now.Add(time.Hour),
+		}})
+	}))
+	defer server.Close()
+	deps := defaultDerivedDeps()
+	deps.discover = func(context.Context) (*service.AuthorizationEnvironment, error) {
+		env := testEnvironment()
+		env.ServiceURI, _ = url.Parse(server.URL)
+		env.HTTPClient = server.Client()
+		return env, nil
+	}
+	var logins atomic.Int32
+	deps.login = func(ctx context.Context, env *service.AuthorizationEnvironment, _ xsapi.TokenAndSignaturer) (*playfab.Client, error) {
+		return playfab.Login(ctx, env.PlayFabTitleID, fakeIdentityProvider{&logins}, playfab.ClientConfig{
+			HTTPClient: &http.Client{Transport: refusingTransport{}}, Logger: slog.New(slog.DiscardHandler),
+		})
+	}
+	account := newAccount(context.Background(), "", oauth2.StaticTokenSource(testOAuthToken("account-a")), nil, deps)
+	defer account.Close()
+
+	token, err := account.ServiceToken(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	account.InvalidateServiceToken(token)
+	if _, err := account.ServiceToken(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := account.refreshServiceAhead(context.Background(), 2*time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if _, err := account.MultiplayerToken(context.Background(), &key.PublicKey); err != nil {
+		t.Fatal(err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	starts, mints := sessions["/api/v1.0/session/start"], sessions["/api/v1.0/multiplayer/session/start"]
+	if len(starts) != 3 || len(mints) != 1 {
+		t.Fatalf("requests = %v, want three service exchanges and one mint", sessions)
+	}
+	if _, err := uuid.Parse(starts[0]); err != nil {
+		t.Fatalf("Session-Id %q is not a UUID", starts[0])
+	}
+	if starts[1] != starts[0] || starts[2] != starts[0] || mints[0] != starts[0] {
+		t.Fatalf("Session-Ids = (exchanges %q, mint %q), want one per account", starts, mints)
+	}
+}
+
+// An XSTS request that read a token before its invalidation finished never returns or reinstalls it.
+func TestXSTSOverlappingInvalidationNeverReturnsTheRejectedToken(t *testing.T) {
+	path := filepath.Join(derivedTestDir(t), "derived")
+	oauthToken := testOAuthToken("account-a")
+	writeDerivedState(t, path, oauthToken, time.Now().Add(time.Hour))
+	account := newAccount(context.Background(), path, oauth2.StaticTokenSource(oauthToken), nil, derivedDeps{})
+	defer account.Close()
+	state, err := loadDerived(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The SISU cache still holds the token, as when an invalidation has recorded it but not yet evicted it.
+	account.session = newAccountSession(account, &sisu.SessionConfig{Snapshot: state.SISU, DeviceTokenSource: generationDeviceSource{}})
+	rejected := state.SISU.XSTSTokens[cachedRelyingParty]
+	account.rejected = map[string]*xsts.Token{cachedRelyingParty: rejected}
+	delete(account.xstsTokens, cachedRelyingParty)
+	token, err := account.deriveXSTS(context.Background(), cachedRelyingParty)
+	if token != nil && token.Token == rejected.Token {
+		t.Fatal("overlapping request returned the rejected token")
+	}
+	if err == nil {
+		t.Fatal("offline re-request succeeded")
+	}
+	if account.xstsTokens[cachedRelyingParty] != nil {
+		t.Fatal("overlapping request reinstalled the rejected token")
+	}
+}
+
+// A snapshot taken before an invalidation finished never writes the rejected token back to disk.
+func TestStaleSnapshotNeverPublishesTheRejectedToken(t *testing.T) {
+	path := filepath.Join(derivedTestDir(t), "derived")
+	oauthToken := testOAuthToken("account-a")
+	writeDerivedState(t, path, oauthToken, time.Now().Add(time.Hour))
+	account := newAccount(context.Background(), path, oauth2.StaticTokenSource(oauthToken), nil, derivedDeps{})
+	defer account.Close()
+	rejected := account.xstsTokens[cachedRelyingParty]
+	account.rejected = map[string]*xsts.Token{cachedRelyingParty: rejected}
+	account.publishNow(context.Background())
+	state, err := loadDerived(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.SISU.XSTSTokens[cachedRelyingParty] != nil {
+		t.Fatal("publish wrote the rejected token")
+	}
+}
+
+// Diagnostics written by concurrent credential calls never race on the caller's writer.
+func TestConcurrentCallsSerializeDiagnostics(t *testing.T) {
+	path := filepath.Join(derivedTestDir(t), "derived")
+	oauthToken := testOAuthToken("account-a")
+	writeDerivedState(t, path, oauthToken, time.Now().Add(time.Hour))
+	var diagnostics bytes.Buffer
+	account := newAccount(context.Background(), path, oauth2.StaticTokenSource(oauthToken), &diagnostics, derivedDeps{})
+	defer account.Close()
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Go(func() {
+			if _, err := account.XSTSToken(context.Background(), cachedRelyingParty); err != nil {
+				t.Error(err)
+			}
+		})
+	}
+	wg.Wait()
+}
+
+// A service-token eviction survives another process publishing the refused token concurrently.
+func TestServiceEvictionSurvivesAConcurrentPublication(t *testing.T) {
+	path := filepath.Join(derivedTestDir(t), "derived")
+	oauthToken := testOAuthToken("account-a")
+	writeDerivedState(t, path, oauthToken, time.Now().Add(time.Hour))
+	account := newAccount(context.Background(), path, oauth2.StaticTokenSource(oauthToken), nil, derivedDeps{})
+	defer account.Close()
+	rejected := account.service
+	account.gate <- struct{}{}
+	account.rejectedService, account.service = rejected, nil
+	account.unlock()
+	// Another process republishes a compatible bundle that still carries the refused token.
+	state, err := loadDerived(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other := *state.SISU.XSTSTokens[cachedRelyingParty]
+	state.SISU.XSTSTokens["https://other.example.test/"] = &other
+	b, err := json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := savePrivate(path, append(b, '\n')); err != nil {
+		t.Fatal(err)
+	}
+	account.publishNow(context.Background())
+	if state, err := loadDerived(path); err != nil || state.ServiceToken != nil {
+		t.Fatalf("publish kept the refused service token on disk: err=%v", err)
+	}
+	account.gate <- struct{}{}
+	account.reloadLocked()
+	service := account.service
+	account.unlock()
+	if service != nil {
+		t.Fatal("reload resurrected the refused service token")
+	}
+}
+
+// Adopting another process's bundle keeps this account's fresher service token and XSTS tokens.
+func TestPublishMergesFresherLocalCredentialsIntoAnotherBundle(t *testing.T) {
+	path := filepath.Join(derivedTestDir(t), "derived")
+	oauthToken := testOAuthToken("account-a")
+	writeDerivedState(t, path, oauthToken, time.Now().Add(-time.Minute))
+	deps := derivedDeps{
+		discover: func(context.Context) (*service.AuthorizationEnvironment, error) { return testEnvironment(), nil },
+		services: fakeServices(func(context.Context, *service.AuthorizationEnvironment, xsapi.TokenAndSignaturer) (*service.Token, error) {
+			return nil, errors.New("offline test")
+		}),
+	}
+	account := newAccount(context.Background(), path, oauth2.StaticTokenSource(oauthToken), nil, deps)
+	defer account.Close()
+	if _, err := account.Environment(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	state, err := loadDerived(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	local := &service.Token{AuthorizationHeader: "MCToken local", ValidUntil: time.Now().Add(time.Hour)}
+	localXSTS := *state.SISU.XSTSTokens[cachedRelyingParty]
+	localXSTS.Token, localXSTS.NotAfter = "local-xsts", time.Now().Add(2*time.Hour)
+	account.gate <- struct{}{}
+	account.service = local
+	account.session = newAccountSession(account, &sisu.SessionConfig{
+		Snapshot: &sisu.Snapshot{XSTSTokens: map[string]*xsts.Token{cachedRelyingParty: &localXSTS}}, DeviceTokenSource: account.device,
+	})
+	account.unlock()
+	// Another process publishes an unrelated XSTS token while this account's credentials are unpublished.
+	other := *state.SISU.XSTSTokens[cachedRelyingParty]
+	state.SISU.XSTSTokens["https://other.example.test/"] = &other
+	b, err := json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := savePrivate(path, append(b, '\n')); err != nil {
+		t.Fatal(err)
+	}
+	account.publishNow(context.Background())
+	published, err := loadDerived(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if published.ServiceToken == nil || published.ServiceToken.AuthorizationHeader != local.AuthorizationHeader {
+		t.Fatal("adopting another bundle dropped the fresher local service token")
+	}
+	if published.SISU.XSTSTokens[cachedRelyingParty].Token != "local-xsts" || published.SISU.XSTSTokens["https://other.example.test/"] == nil {
+		t.Fatal("merged bundle lost the local or the published XSTS token")
+	}
+	if token, err := account.ServiceToken(context.Background()); err != nil || token.AuthorizationHeader != local.AuthorizationHeader {
+		t.Fatalf("account dropped its fresher service token: err=%v", err)
+	}
+}
+
+// A service exchange whose own SISU refresh rotated the OAuth token still installs and persists.
+func TestServiceExchangeSurvivesItsOwnOAuthRotation(t *testing.T) {
+	path := filepath.Join(derivedTestDir(t), "derived")
+	oldToken, rotated := testOAuthToken("account-a"), testOAuthToken("account-a-rotated")
+	writeDerivedState(t, path, oldToken, time.Now().Add(-time.Minute))
+	var account *Account
+	deps := derivedDeps{
+		discover: func(context.Context) (*service.AuthorizationEnvironment, error) { return testEnvironment(), nil },
+		services: fakeServices(func(context.Context, *service.AuthorizationEnvironment, xsapi.TokenAndSignaturer) (*service.Token, error) {
+			if _, err := account.session.Token(); err != nil { // SISU's own refresh reads the rotated token
+				return nil, err
+			}
+			return &service.Token{AuthorizationHeader: "MCToken exchanged", ValidUntil: time.Now().Add(time.Hour)}, nil
+		}),
+	}
+	oauth := &sequenceOAuthSource{tokens: []*oauth2.Token{oldToken, oldToken, rotated}}
+	account = newAccount(context.Background(), path, oauth, nil, deps)
+	defer account.Close()
+	if _, err := account.ServiceToken(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	settle(t, account)
+	if state, err := loadDerived(path); err != nil || state.ServiceToken == nil || state.ServiceToken.AuthorizationHeader != "MCToken exchanged" {
+		t.Fatalf("exchanged token was not persisted after its own OAuth rotation: err=%v", err)
+	}
+}
+
+// A recorded rejection stops the cached-token path even before the invalidation finishes.
+func TestCachedXSTSPathHonoursRecordedRejection(t *testing.T) {
+	path := filepath.Join(derivedTestDir(t), "derived")
+	oauthToken := testOAuthToken("account-a")
+	writeDerivedState(t, path, oauthToken, time.Now().Add(time.Hour))
+	account := newAccount(context.Background(), path, oauth2.StaticTokenSource(oauthToken), nil, derivedDeps{})
+	defer account.Close()
+	state, err := loadDerived(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rejected := account.xstsTokens[cachedRelyingParty]
+	account.gate <- struct{}{}
+	account.session = newAccountSession(account, &sisu.SessionConfig{Snapshot: state.SISU, DeviceTokenSource: generationDeviceSource{}})
+	account.xstsTokens[cachedRelyingParty] = state.SISU.XSTSTokens[cachedRelyingParty]
+	account.rejected = map[string]*xsts.Token{cachedRelyingParty: rejected}
+	account.unlock()
+	if token, _ := account.XSTSToken(context.Background(), cachedRelyingParty); token != nil && token.Token == rejected.Token {
+		t.Fatal("cached path returned a token already recorded as rejected")
+	}
+}
+
+// A merge never restores a synced XSTS token another process has since evicted.
+func TestPublishMergeKeepsAnotherProcessEviction(t *testing.T) {
+	path := filepath.Join(derivedTestDir(t), "derived")
+	oauthToken := testOAuthToken("account-a")
+	writeDerivedState(t, path, oauthToken, time.Now().Add(time.Hour))
+	account := newAccount(context.Background(), path, oauth2.StaticTokenSource(oauthToken), nil, derivedDeps{})
+	defer account.Close()
+	state, err := loadDerived(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Another process evicts the shared token; this account still holds it, unchanged since its last sync.
+	delete(state.SISU.XSTSTokens, cachedRelyingParty)
+	state.ServiceToken = nil
+	b, err := json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := savePrivate(path, append(b, '\n')); err != nil {
+		t.Fatal(err)
+	}
+	account.publishNow(context.Background())
+	published, err := loadDerived(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if published.SISU.XSTSTokens[cachedRelyingParty] != nil || published.ServiceToken != nil {
+		t.Fatal("merge restored credentials another process evicted")
+	}
+}
+
+// A delayed service exchange never replaces a fresher token another refresh already installed.
+func TestDelayedServiceExchangeKeepsAFresherToken(t *testing.T) {
+	path := filepath.Join(derivedTestDir(t), "derived")
+	oauthToken := testOAuthToken("account-a")
+	writeDerivedState(t, path, oauthToken, time.Now().Add(-time.Minute))
+	fresher := &service.Token{AuthorizationHeader: "MCToken fresher", ValidUntil: time.Now().Add(2 * time.Hour)}
+	var account *Account
+	deps := derivedDeps{
+		discover: func(context.Context) (*service.AuthorizationEnvironment, error) { return testEnvironment(), nil },
+		services: fakeServices(func(context.Context, *service.AuthorizationEnvironment, xsapi.TokenAndSignaturer) (*service.Token, error) {
+			account.gate <- struct{}{}
+			account.service = fresher // adopted from another process mid-exchange
+			account.unlock()
+			return &service.Token{AuthorizationHeader: "MCToken older", ValidUntil: time.Now().Add(time.Hour)}, nil
+		}),
+	}
+	account = newAccount(context.Background(), path, oauth2.StaticTokenSource(oauthToken), nil, deps)
+	defer account.Close()
+	token, err := account.ServiceToken(context.Background())
+	if err != nil || token != fresher {
+		t.Fatalf("delayed exchange returned %v, err=%v; want the fresher token", token, err)
+	}
+	account.gate <- struct{}{}
+	current := account.service
+	account.unlock()
+	if current != fresher {
+		t.Fatal("delayed exchange replaced the fresher token")
+	}
+}
+
+// Reloading another process's bundle keeps credentials this account derived but has not yet published.
+func TestReloadKeepsUnpublishedLocalCredentials(t *testing.T) {
+	path := filepath.Join(derivedTestDir(t), "derived")
+	oauthToken := testOAuthToken("account-a")
+	writeDerivedState(t, path, oauthToken, time.Now().Add(-time.Minute))
+	deps := derivedDeps{discover: func(context.Context) (*service.AuthorizationEnvironment, error) { return testEnvironment(), nil }}
+	account := newAccount(context.Background(), path, oauth2.StaticTokenSource(oauthToken), nil, deps)
+	defer account.Close()
+	if _, err := account.Environment(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	state, err := loadDerived(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	local := &service.Token{AuthorizationHeader: "MCToken local", ValidUntil: time.Now().Add(time.Hour)}
+	localXSTS := *state.SISU.XSTSTokens[cachedRelyingParty]
+	localXSTS.Token, localXSTS.NotAfter = "local-xsts", time.Now().Add(2*time.Hour)
+	account.gate <- struct{}{}
+	account.service = local
+	account.xstsTokens[cachedRelyingParty] = &localXSTS
+	account.unlock()
+	other := *state.SISU.XSTSTokens[cachedRelyingParty]
+	state.SISU.XSTSTokens["https://other.example.test/"] = &other
+	b, err := json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := savePrivate(path, append(b, '\n')); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := account.Environment(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	account.gate <- struct{}{}
+	service, xstsToken := account.service, account.xstsTokens[cachedRelyingParty]
+	account.unlock()
+	if service != local || xstsToken == nil || xstsToken.Token != "local-xsts" {
+		t.Fatal("reload discarded credentials this account had not yet published")
+	}
+	// A further unrelated publication must not make the still-unpublished credentials look synced.
+	third := *state.SISU.XSTSTokens[cachedRelyingParty]
+	state.SISU.XSTSTokens["https://third.example.test/"] = &third
+	if b, err = json.Marshal(state); err != nil {
+		t.Fatal(err)
+	}
+	if err := savePrivate(path, append(b, '\n')); err != nil {
+		t.Fatal(err)
+	}
+	account.publishNow(context.Background())
+	published, err := loadDerived(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if published.ServiceToken == nil || published.ServiceToken.AuthorizationHeader != local.AuthorizationHeader ||
+		published.SISU.XSTSTokens[cachedRelyingParty].Token != "local-xsts" {
+		t.Fatal("unpublished credentials were treated as synced and dropped")
+	}
+}
+
+// Adopting another bundle during publication keeps an XSTS token derived after the snapshot was taken.
+func TestPublishKeepsXSTSDerivedAfterItsSnapshot(t *testing.T) {
+	path := filepath.Join(derivedTestDir(t), "derived")
+	oauthToken := testOAuthToken("account-a")
+	writeDerivedState(t, path, oauthToken, time.Now().Add(time.Hour))
+	account := newAccount(context.Background(), path, oauth2.StaticTokenSource(oauthToken), nil, derivedDeps{})
+	defer account.Close()
+	state, err := loadDerived(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fresh := *state.SISU.XSTSTokens[cachedRelyingParty]
+	fresh.Token, fresh.NotAfter = "fresh-xsts", time.Now().Add(2*time.Hour)
+	account.gate <- struct{}{}
+	account.xstsTokens["https://fresh.example.test/"] = &fresh // in the mirror, not yet in any SISU snapshot
+	account.unlock()
+	other := *state.SISU.XSTSTokens[cachedRelyingParty]
+	state.SISU.XSTSTokens["https://other.example.test/"] = &other
+	b, err := json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := savePrivate(path, append(b, '\n')); err != nil {
+		t.Fatal(err)
+	}
+	account.publishNow(context.Background())
+	published, err := loadDerived(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if token := published.SISU.XSTSTokens["https://fresh.example.test/"]; token == nil || token.Token != "fresh-xsts" {
+		t.Fatal("adoption during publication lost an XSTS token derived after the snapshot")
+	}
+}
+
+// A bundle this account cannot restore, such as another cold start's proof key, is replaced on publish.
+func TestPublishReplacesAnUnrestorableBundle(t *testing.T) {
+	path := filepath.Join(derivedTestDir(t), "derived")
+	oauthToken := testOAuthToken("account-a")
+	writeDerivedState(t, path, oauthToken, time.Now().Add(time.Hour))
+	account := newAccount(context.Background(), path, oauth2.StaticTokenSource(oauthToken), nil, derivedDeps{})
+	defer account.Close()
+	want := account.ProofKey()
+	writeDerivedState(t, path, oauthToken, time.Now().Add(time.Hour)) // same account, another proof key
+	account.publishNow(context.Background())
+	state, err := loadDerived(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := decodeProofKey(t, state.ProofKey); got.D.Cmp(want.D) != 0 {
+		t.Fatal("publication left an unrestorable bundle in place")
+	}
 }

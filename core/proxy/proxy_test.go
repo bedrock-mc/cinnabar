@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"math"
 	"net"
 	"path/filepath"
@@ -14,11 +15,13 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
+	"github.com/hashimthearab/rust-mcbe/core/packcache"
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/protocol"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/login"
@@ -44,7 +47,6 @@ func TestNewUpstreamDialerDefaultsUpstreamClientCacheOff(t *testing.T) {
 		nil,
 		nil,
 		nil,
-		nil,
 		true,
 	)
 	if !optedIn.EnableClientCache {
@@ -54,21 +56,6 @@ func TestNewUpstreamDialerDefaultsUpstreamClientCacheOff(t *testing.T) {
 	dialer := newUpstreamDialer(dialerTestDownstream{protocol: minecraft.DefaultProtocol}, nil)
 	if dialer.EnableClientCache {
 		t.Fatal("EnableClientCache = true before downstream ClientCacheStatus is available")
-	}
-	observed := new(cacheBoundaryTelemetry)
-	witness := newUpstreamDialerWithCacheTelemetry(
-		dialerTestDownstream{protocol: minecraft.DefaultProtocol},
-		nil,
-		observed,
-	)
-	payload := []byte{0}
-	witness.PacketFunc(packet.Header{PacketID: packet.IDClientCacheStatus}, payload, nil, nil)
-	if payload[0] != 0 {
-		t.Fatalf("default dialer rewrote outbound ClientCacheStatus byte to %d", payload[0])
-	}
-	snapshot := observed.snapshot()
-	if !snapshot.upstreamStatusSeen || snapshot.upstreamStatusEnabled {
-		t.Fatalf("default dialer snapshot = %#v, want seen enabled=false", snapshot)
 	}
 }
 
@@ -124,36 +111,11 @@ func TestProtocol2193RustFastTransferFixtureDecodesAsVanillaPlayerRequest(t *tes
 	}
 }
 
-func TestCacheBoundaryObserverRecordsUpstreamStatusWithoutRetainingOrMutatingPayload(t *testing.T) {
-	telemetry := new(cacheBoundaryTelemetry)
-	dialer := newUpstreamDialerWithCacheTelemetry(
-		dialerTestDownstream{protocol: minecraft.DefaultProtocol},
-		nil,
-		telemetry,
-	)
-	if dialer.PacketFunc == nil {
-		t.Fatal("upstream dialer has no cache boundary observer")
-	}
-
-	payload := []byte{1}
-	dialer.PacketFunc(packet.Header{PacketID: packet.IDClientCacheStatus}, payload, nil, nil)
-	if payload[0] != 1 {
-		t.Fatalf("PacketFunc mutated ClientCacheStatus payload to %d", payload[0])
-	}
-	payload[0] = 0
-
-	snapshot := telemetry.snapshot()
-	if !snapshot.upstreamStatusSeen || !snapshot.upstreamStatusEnabled {
-		t.Fatalf("cache status snapshot = %#v, want seen enabled=true", snapshot)
-	}
-}
-
 // TestCacheBoundaryScriptedUpstreamObservesDefaultDisabledStatus is the
 // scripted-network ratchet for the default: without the opt-in, the fake
 // upstream server observes Enabled=false exactly as before this option
 // existed.
 func TestCacheBoundaryScriptedUpstreamObservesDefaultDisabledStatus(t *testing.T) {
-	telemetry := new(cacheBoundaryTelemetry)
 	network := newCacheStatusScriptedNetwork(func(conn net.Conn) error {
 		decoder := packet.NewDecoder(conn)
 		encoder := packet.NewEncoder(conn)
@@ -199,10 +161,9 @@ func TestCacheBoundaryScriptedUpstreamObservesDefaultDisabledStatus(t *testing.T
 		}
 		return nil
 	})
-	dialer := newUpstreamDialerWithCacheTelemetry(
+	dialer := newUpstreamDialer(
 		dialerTestDownstream{protocol: minecraft.DefaultProtocol},
 		nil,
-		telemetry,
 	)
 	dialer.FlushRate = -1
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -217,10 +178,6 @@ func TestCacheBoundaryScriptedUpstreamObservesDefaultDisabledStatus(t *testing.T
 	if scriptErr := <-network.done; scriptErr != nil {
 		t.Fatalf("scripted cache status server: %v (dial error: %v)", scriptErr, err)
 	}
-	snapshot := telemetry.snapshot()
-	if !snapshot.upstreamStatusSeen || snapshot.upstreamStatusEnabled {
-		t.Fatalf("actual upstream cache status snapshot = %#v, want seen enabled=false", snapshot)
-	}
 }
 
 // TestCacheBoundaryScriptedUpstreamObservesEnabledStatusWhenOptedIn drives the
@@ -228,7 +185,6 @@ func TestCacheBoundaryScriptedUpstreamObservesDefaultDisabledStatus(t *testing.T
 // upstream server to observe the enabled ClientCacheStatus byte on the wire,
 // plus honest effective-value telemetry.
 func TestCacheBoundaryScriptedUpstreamObservesEnabledStatusWhenOptedIn(t *testing.T) {
-	telemetry := new(cacheBoundaryTelemetry)
 	network := newCacheStatusScriptedNetwork(func(conn net.Conn) error {
 		decoder := packet.NewDecoder(conn)
 		encoder := packet.NewEncoder(conn)
@@ -277,7 +233,6 @@ func TestCacheBoundaryScriptedUpstreamObservesEnabledStatusWhenOptedIn(t *testin
 	dialer := newUpstreamDialerForAdmission(
 		dialerTestDownstream{protocol: minecraft.DefaultProtocol},
 		nil,
-		telemetry,
 		nil,
 		nil,
 		true,
@@ -294,44 +249,6 @@ func TestCacheBoundaryScriptedUpstreamObservesEnabledStatusWhenOptedIn(t *testin
 	}
 	if scriptErr := <-network.done; scriptErr != nil {
 		t.Fatalf("scripted enabled cache status server: %v (dial error: %v)", scriptErr, err)
-	}
-	snapshot := telemetry.snapshot()
-	if !snapshot.upstreamStatusSeen || !snapshot.upstreamStatusEnabled {
-		t.Fatalf("opt-in upstream cache status snapshot = %#v, want seen enabled=true", snapshot)
-	}
-}
-
-func TestCacheBoundarySummaryIsOneSecretSafeMarker(t *testing.T) {
-	telemetry := new(cacheBoundaryTelemetry)
-	telemetry.observeUpstreamPacket(packet.Header{PacketID: packet.IDClientCacheStatus}, []byte{1}, nil, nil)
-	telemetry.observeRelayPacket(&packet.LevelChunk{CacheEnabled: true})
-	telemetry.observeRelayPacket(&packet.LevelChunk{CacheEnabled: false})
-	telemetry.observeRelayPacket(&packet.SubChunk{CacheEnabled: true})
-	telemetry.observeRelayPacket(&packet.SubChunk{CacheEnabled: false})
-	var output lockedBuffer
-
-	telemetry.report(slog.New(slog.NewTextHandler(&output, nil)))
-
-	got := output.String()
-	if strings.Count(got, "msg=PHASE2_CACHE_BOUNDARY") != 1 {
-		t.Fatalf("summary marker count in %q, want exactly one", got)
-	}
-	for _, want := range []string{
-		"upstream_status_seen=true",
-		"upstream_status_enabled=true",
-		"cached_level_chunks=1",
-		"ordinary_level_chunks=1",
-		"cached_sub_chunks=1",
-		"ordinary_sub_chunks=1",
-	} {
-		if !strings.Contains(got, want) {
-			t.Fatalf("summary %q does not contain %q", got, want)
-		}
-	}
-	for _, forbidden := range []string{"hash", "payload", "auth", "address", "token", "credential"} {
-		if strings.Contains(strings.ToLower(got), forbidden) {
-			t.Fatalf("summary %q leaked forbidden term %q", got, forbidden)
-		}
 	}
 }
 
@@ -407,9 +324,9 @@ func TestRelayFIFO(t *testing.T) {
 	}
 	down.reads <- packetResult{err: io.EOF}
 
-	err := serveConnections(context.Background(), down, up)
+	err := servePreparedConnection(context.Background(), down, &preparedConnection{upstream: up})
 	if err != nil {
-		t.Fatalf("serveConnections() error = %v", err)
+		t.Fatalf("servePreparedConnection() error = %v", err)
 	}
 	got := up.written()
 	if len(got) != len(want) {
@@ -469,72 +386,6 @@ func TestRelayNeverFiltersUpstreamLoadingScreens(t *testing.T) {
 	got := down.written()
 	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
 		t.Fatalf("forwarded packets = %#v, want %#v", got, want)
-	}
-}
-
-func TestCacheBoundaryRelayObservationCountsRoutesWithoutMutatingPackets(t *testing.T) {
-	up := newFakeUpstream(nil)
-	down := newFakeDownstream(nil)
-	telemetry := new(cacheBoundaryTelemetry)
-	cachedLevel := &packet.LevelChunk{
-		Position:     protocol.ChunkPos{7, 9},
-		Dimension:    2,
-		CacheEnabled: true,
-		RawPayload:   []byte{1, 2, 3},
-	}
-	ordinaryLevel := &packet.LevelChunk{
-		Position:     protocol.ChunkPos{11, 13},
-		Dimension:    3,
-		CacheEnabled: false,
-		RawPayload:   []byte{4, 5, 6},
-	}
-	cachedSub := &packet.SubChunk{
-		CacheEnabled: true,
-		Dimension:    4,
-		Position:     protocol.SubChunkPos{17, 19, 23},
-	}
-	ordinarySub := &packet.SubChunk{
-		CacheEnabled: false,
-		Dimension:    5,
-		Position:     protocol.SubChunkPos{29, 31, 37},
-	}
-	want := []packet.Packet{cachedLevel, ordinaryLevel, cachedSub, ordinarySub}
-	for _, value := range want {
-		up.reads <- packetResult{packet: value}
-	}
-	up.reads <- packetResult{err: io.EOF}
-
-	if err := pumpPacketsWithCacheTelemetry(up, down, false, telemetry); !errors.Is(err, io.EOF) {
-		t.Fatalf("pumpPacketsWithCacheTelemetry() error = %v, want EOF", err)
-	}
-	got := down.written()
-	if len(got) != len(want) {
-		t.Fatalf("forwarded packets = %d, want %d", len(got), len(want))
-	}
-	for index := range want {
-		if got[index] != want[index] {
-			t.Fatalf("forwarded packet %d identity changed", index)
-		}
-	}
-	if cachedLevel.Position != (protocol.ChunkPos{7, 9}) || cachedLevel.Dimension != 2 ||
-		!cachedLevel.CacheEnabled || !bytes.Equal(cachedLevel.RawPayload, []byte{1, 2, 3}) {
-		t.Fatalf("cached LevelChunk was mutated: %#v", cachedLevel)
-	}
-	if ordinaryLevel.Position != (protocol.ChunkPos{11, 13}) || ordinaryLevel.Dimension != 3 ||
-		ordinaryLevel.CacheEnabled || !bytes.Equal(ordinaryLevel.RawPayload, []byte{4, 5, 6}) {
-		t.Fatalf("ordinary LevelChunk was mutated: %#v", ordinaryLevel)
-	}
-	if cachedSub.Position != (protocol.SubChunkPos{17, 19, 23}) || cachedSub.Dimension != 4 || !cachedSub.CacheEnabled {
-		t.Fatalf("cached SubChunk was mutated: %#v", cachedSub)
-	}
-	if ordinarySub.Position != (protocol.SubChunkPos{29, 31, 37}) || ordinarySub.Dimension != 5 || ordinarySub.CacheEnabled {
-		t.Fatalf("ordinary SubChunk was mutated: %#v", ordinarySub)
-	}
-
-	snapshot := telemetry.snapshot()
-	if snapshot.cachedLevelChunks != 1 || snapshot.ordinaryLevelChunks != 1 ||
-		snapshot.cachedSubChunks != 1 || snapshot.ordinarySubChunks != 1 {
-		t.Fatalf("cache route snapshot = %#v, want one of each route", snapshot)
 	}
 }
 
@@ -669,8 +520,8 @@ func TestRelayDisconnectClosesBothSides(t *testing.T) {
 	up := newFakeUpstream(nil)
 	down.reads <- packetResult{err: io.EOF}
 
-	if err := serveConnections(context.Background(), down, up); err != nil {
-		t.Fatalf("serveConnections() error = %v", err)
+	if err := servePreparedConnection(context.Background(), down, &preparedConnection{upstream: up}); err != nil {
+		t.Fatalf("servePreparedConnection() error = %v", err)
 	}
 	if !down.isClosed() || !up.isClosed() {
 		t.Fatalf("closed states = downstream:%v upstream:%v, want both true", down.isClosed(), up.isClosed())
@@ -683,20 +534,9 @@ func TestRelayClosePanicIsReturned(t *testing.T) {
 	down.closePanic = true
 	down.reads <- packetResult{err: io.EOF}
 
-	err := serveConnections(context.Background(), down, up)
+	err := servePreparedConnection(context.Background(), down, &preparedConnection{upstream: up})
 	if err == nil || !strings.Contains(err.Error(), "panic while closing session") {
-		t.Fatalf("serveConnections() error = %v, want recovered close panic", err)
-	}
-}
-
-func TestDialFailureClosePanicIsReturned(t *testing.T) {
-	down := newFakeDownstream(nil)
-	down.closePanic = true
-	wantErr := errors.New("dial failed")
-
-	err := finishDialFailure(down, wantErr)
-	if !errors.Is(err, wantErr) || !strings.Contains(err.Error(), "panic while closing session") {
-		t.Fatalf("finishDialFailure() error = %v, want dial error plus recovered close panic", err)
+		t.Fatalf("servePreparedConnection() error = %v, want recovered close panic", err)
 	}
 }
 
@@ -708,13 +548,13 @@ func TestRelayCancellationAbortsBeforePanickingClose(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- serveConnections(ctx, down, up) }()
+	go func() { done <- servePreparedConnection(ctx, down, &preparedConnection{upstream: up}) }()
 	cancel()
 
 	select {
 	case err := <-done:
 		if err == nil || !strings.Contains(err.Error(), "panic while closing session") {
-			t.Fatalf("serveConnections() error = %v, want recovered close panic", err)
+			t.Fatalf("servePreparedConnection() error = %v, want recovered close panic", err)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("cancellation remained blocked by panicking Close")
@@ -727,10 +567,10 @@ func TestRelayCancellationAbortsBeforePanickingClose(t *testing.T) {
 }
 
 func TestIsOrdinaryCloseRequiresEveryJoinedLeaf(t *testing.T) {
-	if isOrdinaryClose(errors.Join(errors.New("decode failed"), net.ErrClosed)) {
+	if streamnet.IsClosed(errors.Join(errors.New("decode failed"), net.ErrClosed)) {
 		t.Fatal("mixed joined error classified as ordinary")
 	}
-	if !isOrdinaryClose(errors.Join(fmt.Errorf("wrapped: %w", io.EOF), context.Canceled, net.ErrClosed)) {
+	if !streamnet.IsClosed(errors.Join(fmt.Errorf("wrapped: %w", io.EOF), context.Canceled, net.ErrClosed)) {
 		t.Fatal("all-ordinary joined error classified as non-ordinary")
 	}
 }
@@ -738,10 +578,10 @@ func TestIsOrdinaryCloseRequiresEveryJoinedLeaf(t *testing.T) {
 func TestIsOrdinaryCloseRecognizesClassifiedTerminalTransportError(t *testing.T) {
 	framed := streamnet.NewFramedConn(&terminalWriteConn{err: io.ErrClosedPipe})
 	_, err := framed.Write([]byte{0xfe})
-	if !isOrdinaryClose(err) {
+	if !streamnet.IsClosed(err) {
 		t.Fatalf("classified terminal transport error considered non-ordinary: %v", err)
 	}
-	if isOrdinaryClose(errors.Join(errors.New("decode failed"), err)) {
+	if streamnet.IsClosed(errors.Join(errors.New("decode failed"), err)) {
 		t.Fatal("mixed application and classified terminal errors considered ordinary")
 	}
 }
@@ -929,34 +769,6 @@ func waitForGoroutineStack(t *testing.T, substring string, want bool, timeout ti
 	}
 }
 
-func TestDialCancellationReturnsWithoutWaitingForDialer(t *testing.T) {
-	down := newFakeDownstream(nil)
-	started := make(chan struct{})
-	release := make(chan struct{})
-	dial := func(context.Context) (upstreamSession, error) {
-		close(started)
-		<-release
-		return newFakeUpstream(nil), nil
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() { done <- dialAndServe(ctx, down, dial) }()
-	<-started
-	cancel()
-	select {
-	case err := <-done:
-		if !errors.Is(err, context.Canceled) {
-			t.Fatalf("dialAndServe() error = %v, want context cancellation", err)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("dialAndServe waited for a dialer that ignored cancellation")
-	}
-	close(release)
-	if got := down.lifecycleEvents(); len(got) < 2 || got[0] != "abort" || got[1] != "close" {
-		t.Fatalf("downstream lifecycle = %v, want abort before close", got)
-	}
-}
-
 func TestDialFollowingTransfersRedialsBeforeReturningSession(t *testing.T) {
 	var addresses []string
 	want := newFakeUpstream(nil)
@@ -980,6 +792,44 @@ func TestDialFollowingTransfersRedialsBeforeReturningSession(t *testing.T) {
 	}
 	if joined := strings.Join(addresses, ","); joined != "zeqa.net:19132,na.zeqa.net:19133" {
 		t.Fatalf("dial addresses = %q", joined)
+	}
+}
+
+// A transferred session whose Close blocks must neither delay the next hop nor skip its close.
+func TestConnectUpstreamDoesNotWaitForTransferredSessionClose(t *testing.T) {
+	allowClose := make(chan struct{})
+	transferred := &gatedCloseUpstream{fakeUpstream: newFakeUpstream(nil), closeStarted: make(chan struct{}), allowClose: allowClose}
+	want := newFakeUpstream(nil)
+	dials := 0
+	result := make(chan upstreamSession, 1)
+	go func() {
+		logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+		got, err := connectUpstream(context.Background(), "zeqa.net:19132", "microsoft", logger, func(context.Context, string) (upstreamSession, error) {
+			dials++
+			if dials == 1 {
+				return transferred, &minecraft.TransferError{Address: "pvp.inpvp.net", Port: 19132}
+			}
+			return want, nil
+		})
+		if err != nil {
+			t.Errorf("connectUpstream() error = %v", err)
+		}
+		result <- got
+	}()
+	select {
+	case got := <-result:
+		if got != want {
+			t.Fatalf("connectUpstream() session = %p, want %p", got, want)
+		}
+	case <-time.After(5 * time.Second):
+		close(allowClose)
+		t.Fatal("next hop waited for the transferred session's Close")
+	}
+	close(allowClose)
+	select {
+	case <-transferred.closeStarted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("transferred session was never closed")
 	}
 }
 
@@ -1167,6 +1017,62 @@ func (s *fakeSession) ReadBatch() ([]packet.Packet, error) {
 	}
 }
 
+func (s *fakeSession) ReadBatchRaw(decode func(uint32) bool) ([]minecraft.RawPacket, error) {
+	values, err := s.ReadBatch()
+	return rawBatch(values, decode), err
+}
+
+func (s *fakeSession) WritePacketRaw(data []byte) error { return s.WritePacket(packetFromRaw(data)) }
+
+// testRawPackets maps an encoded test packet's first byte to the value it encodes, so fakes forwarding raw
+// bytes hand back the exact packet a test queued.
+var testRawPackets sync.Map
+
+var testPacketPool = func() packet.Pool {
+	pool := minecraft.DefaultProtocol.Packets(false)
+	maps.Copy(pool, minecraft.DefaultProtocol.Packets(true))
+	return pool
+}()
+
+// rawBatch is what a raw read of values returns: each packet encoded, the selected ones also decoded.
+func rawBatch(values []packet.Packet, decode func(uint32) bool) []minecraft.RawPacket {
+	if values == nil {
+		return nil
+	}
+	batch := make([]minecraft.RawPacket, len(values))
+	for index, value := range values {
+		batch[index] = minecraft.RawPacket{ID: value.ID(), Data: encodeTestPacket(value)}
+		testRawPackets.Store(&batch[index].Data[0], value)
+		if decode != nil && decode(value.ID()) {
+			batch[index].Decoded = []packet.Packet{value}
+		}
+	}
+	return batch
+}
+
+func encodeTestPacket(value packet.Packet) []byte {
+	buf := new(bytes.Buffer)
+	_ = (&packet.Header{PacketID: value.ID()}).Write(buf)
+	value.Marshal(minecraft.DefaultProtocol.NewWriter(buf, 0))
+	return buf.Bytes()
+}
+
+// packetFromRaw returns the queued value behind data, decoding bytes no fake produced.
+func packetFromRaw(data []byte) packet.Packet {
+	if value, ok := testRawPackets.Load(&data[0]); ok {
+		return value.(packet.Packet)
+	}
+	buf := bytes.NewBuffer(data)
+	var header packet.Header
+	_ = header.Read(buf)
+	var value packet.Packet = &packet.Unknown{PacketID: header.PacketID}
+	if newPacket, ok := testPacketPool[header.PacketID]; ok {
+		value = newPacket()
+	}
+	value.Marshal(minecraft.DefaultProtocol.NewReader(buf, 0, false))
+	return value
+}
+
 func (s *fakeSession) WritePacket(p packet.Packet) error {
 	select {
 	case <-s.closed:
@@ -1239,6 +1145,13 @@ func (s *fakeSession) written() []packet.Packet {
 	s.writesMu.Lock()
 	defer s.writesMu.Unlock()
 	return append([]packet.Packet(nil), s.writes...)
+}
+
+// setFlushErr fails later flushes; safe while a pump goroutine is flushing.
+func (s *fakeSession) setFlushErr(err error) {
+	s.batchesMu.Lock()
+	s.flushErr = err
+	s.batchesMu.Unlock()
 }
 
 func (s *fakeSession) flushedBatches() [][]packet.Packet {
@@ -1508,7 +1421,7 @@ func TestRelayForwardsTheUpstreamStartupLosslessly(t *testing.T) {
 	client, err := minecraft.Dialer{
 		IdentityData: login.IdentityData{DisplayName: "RustClient"},
 		Protocol:     minecraft.DefaultProtocol,
-		RelayStartup: true,
+		Handoff:      minecraft.HandoffAtStartGame,
 		PacketFunc: func(header packet.Header, payload []byte, src, _ net.Addr) {
 			mu.Lock()
 			if _, seen := clientReceived[header.PacketID]; !seen {
@@ -1604,6 +1517,144 @@ func TestLocalListenerNegotiatesNoCompression(t *testing.T) {
 	}
 }
 
+// The private listener skips the encryption handshake and serves packs in client-maximum chunks.
+func TestLocalListenerSkipsEncryptionAndServesLargePackChunks(t *testing.T) {
+	archive := admissionPackArchiveWithID(t, "00112233-4455-6677-8899-aabbccddeeff")
+	pack, err := resource.ReadBytes(archive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	network := streamnet.New(filepath.Join(t.TempDir(), "local"))
+	config := localListenConfig(func(_ context.Context, conn *minecraft.Conn) error {
+		return conn.ConfigureResourcePackOffer([]*resource.Pack{pack}, false)
+	})
+	config.ErrorLog = slog.New(slog.DiscardHandler)
+	listener, err := config.ListenNetwork(network, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	go func() {
+		if conn, err := listener.Accept(); err == nil {
+			_ = conn.(*minecraft.Conn).StartGame(minecraft.GameData{EntityRuntimeID: 1})
+		}
+	}()
+	var handshakes atomic.Int32
+	chunkSizes := make(chan uint32, 1)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	conn, err := minecraft.Dialer{
+		IdentityData: login.IdentityData{DisplayName: "Local"},
+		PacketFunc: func(header packet.Header, payload []byte, _, _ net.Addr) {
+			switch header.PacketID {
+			case packet.IDServerToClientHandshake:
+				handshakes.Add(1)
+			case packet.IDResourcePackDataInfo:
+				var pk packet.ResourcePackDataInfo
+				pk.Marshal(minecraft.DefaultProtocol.NewReader(bytes.NewBuffer(payload), 0, false))
+				chunkSizes <- pk.DataChunkSize
+			}
+		},
+	}.DialContextNetwork(ctx, network, "")
+	if err != nil {
+		t.Fatalf("dial local listener: %v", err)
+	}
+	_ = conn.Close()
+	if n := handshakes.Load(); n != 0 {
+		t.Fatalf("local listener sent %d ServerToClientHandshake packets, want none", n)
+	}
+	if got := <-chunkSizes; got != localResourcePackChunkSize {
+		t.Fatalf("local pack chunk size = %d, want %d", got, localResourcePackChunkSize)
+	}
+}
+
+// A client holding an offered pack declines it, so a rejoin moves no pack bytes over the local link.
+func TestLocalListenerSendsOnlyPacksTheClientLacks(t *testing.T) {
+	read := func(archive []byte) *resource.Pack {
+		pack, err := resource.ReadBytes(archive)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return pack
+	}
+	first := read(admissionPackArchiveWithVersion(t, "00112233-4455-6677-8899-aabbccddeeff", "1, 0, 0"))
+	second := read(admissionPackArchiveWithVersion(t, "10112233-4455-6677-8899-aabbccddeeff", "1, 0, 0"))
+	bumped := read(admissionPackArchiveWithVersion(t, "10112233-4455-6677-8899-aabbccddeeff", "1, 0, 1"))
+	var offer atomic.Pointer[[]*resource.Pack]
+	network := streamnet.New(filepath.Join(t.TempDir(), "local"))
+	config := localListenConfig(func(_ context.Context, conn *minecraft.Conn) error {
+		return conn.ConfigureResourcePackOffer(*offer.Load(), false)
+	})
+	config.ErrorLog = slog.New(slog.DiscardHandler)
+	listener, err := config.ListenNetwork(network, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			go func() { _ = conn.(*minecraft.Conn).StartGame(minecraft.GameData{EntityRuntimeID: 1}) }()
+		}
+	}()
+	cache, err := packcache.New(filepath.Join(t.TempDir(), "client-packs"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cache.Close()
+	join := func(packs ...*resource.Pack) (sent []string, chunkBytes int) {
+		t.Helper()
+		offer.Store(&packs)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		var mu sync.Mutex
+		conn, err := minecraft.Dialer{
+			IdentityData:      login.IdentityData{DisplayName: "Local"},
+			ResourcePackCache: cache,
+			PacketFunc: func(header packet.Header, payload []byte, _, _ net.Addr) {
+				mu.Lock()
+				defer mu.Unlock()
+				switch header.PacketID {
+				case packet.IDResourcePackDataInfo:
+					var pk packet.ResourcePackDataInfo
+					pk.Marshal(minecraft.DefaultProtocol.NewReader(bytes.NewBuffer(payload), 0, false))
+					sent = append(sent, pk.UUID)
+				case packet.IDResourcePackChunkData:
+					var pk packet.ResourcePackChunkData
+					pk.Marshal(minecraft.DefaultProtocol.NewReader(bytes.NewBuffer(payload), 0, false))
+					chunkBytes += len(pk.Data)
+				}
+			},
+		}.DialContextNetwork(ctx, network, "")
+		if err != nil {
+			t.Fatalf("dial local listener: %v", err)
+		}
+		if got := len(conn.ResourcePacks()); got != len(packs) {
+			t.Fatalf("client holds %d packs, want %d", got, len(packs))
+		}
+		_ = conn.Close()
+		mu.Lock()
+		defer mu.Unlock()
+		slices.Sort(sent)
+		return sent, chunkBytes
+	}
+	name := func(pack *resource.Pack) string { return pack.UUID().String() + "_" + pack.Version() }
+
+	sent, chunkBytes := join(first, second)
+	if want := []string{name(first), name(second)}; !slices.Equal(sent, want) || chunkBytes != first.Size()+second.Size() {
+		t.Fatalf("first join sent %v (%d bytes), want %v (%d bytes)", sent, chunkBytes, want, first.Size()+second.Size())
+	}
+	if sent, chunkBytes = join(first, second); len(sent) != 0 || chunkBytes != 0 {
+		t.Fatalf("rejoin sent %v (%d bytes), want nothing", sent, chunkBytes)
+	}
+	if sent, chunkBytes = join(first, bumped); !slices.Equal(sent, []string{name(bumped)}) || chunkBytes != bumped.Size() {
+		t.Fatalf("version bump sent %v (%d bytes), want only %v (%d bytes)", sent, chunkBytes, name(bumped), bumped.Size())
+	}
+}
+
 // BenchmarkLocalLegCompression measures the per-MB encode and decode work each side of the local leg does.
 func BenchmarkLocalLegCompression(b *testing.B) {
 	payload := make([]byte, 1<<20)
@@ -1631,4 +1682,18 @@ func BenchmarkLocalLegCompression(b *testing.B) {
 			}
 		})
 	}
+}
+
+// newUpstreamDialer exercises the production constructor with default policy.
+func newUpstreamDialer(downstream dialerDownstream, tokens oauth2.TokenSource) minecraft.Dialer {
+	return newUpstreamDialerForAdmission(downstream, tokens, nil, nil, false)
+}
+
+// relayWithSessions provides the relay's close callback for packet-only test doubles.
+func relayWithSessions(ctx context.Context, downstream, upstream packetSession) (err error) {
+	var closeErr error
+	err = relayPackets(ctx, downstream, upstream, func() {
+		closeErr = errors.Join(shutdownSession(downstream), shutdownSession(upstream))
+	})
+	return errors.Join(err, closeErr)
 }

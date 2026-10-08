@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"testing"
+
+	"github.com/hashimthearab/rust-mcbe/core/localworld"
 )
 
 func onlineStub(address string) func(context.Context) (*resolvedUpstreamTarget, error) {
@@ -14,8 +16,8 @@ func onlineStub(address string) func(context.Context) (*resolvedUpstreamTarget, 
 
 func TestWithLocalTargetRoutesLocalThenFallsBackOnline(t *testing.T) {
 	selected := true
-	resolve := withLocalTarget(func(context.Context) (string, bool, error) {
-		return "127.0.0.1:5000", selected, nil
+	resolve := withLocalTarget(func(context.Context) (localworld.ConnectionTarget, bool, error) {
+		return localworld.ConnectionTarget{Address: "127.0.0.1:5000", Transport: localworld.TransportRakNet}, selected, nil
 	}, onlineStub("online:19132"))
 	target, err := resolve(context.Background())
 	if err != nil || target.address != "127.0.0.1:5000" || target.network == nil {
@@ -29,7 +31,9 @@ func TestWithLocalTargetRoutesLocalThenFallsBackOnline(t *testing.T) {
 
 func TestWithLocalTargetSurfacesLocalErrorsWithoutGoingOnline(t *testing.T) {
 	boom := errors.New("local failed")
-	resolve := withLocalTarget(func(context.Context) (string, bool, error) { return "", false, boom }, onlineStub("online"))
+	resolve := withLocalTarget(func(context.Context) (localworld.ConnectionTarget, bool, error) {
+		return localworld.ConnectionTarget{}, false, boom
+	}, onlineStub("online"))
 	if _, err := resolve(context.Background()); !errors.Is(err, boom) {
 		t.Fatalf("err = %v", err)
 	}
@@ -44,8 +48,8 @@ func TestWithLocalTargetNilIsOnlineResolver(t *testing.T) {
 
 func TestPendingTransferOutranksSelectedLocalWorld(t *testing.T) {
 	var transfers TransferState
-	local := withLocalTarget(func(context.Context) (string, bool, error) {
-		return "127.0.0.1:5000", true, nil
+	local := withLocalTarget(func(context.Context) (localworld.ConnectionTarget, bool, error) {
+		return localworld.ConnectionTarget{Address: "127.0.0.1:5000", Transport: localworld.TransportRakNet}, true, nil
 	}, onlineStub("online:19132"))
 	dial := func(_ context.Context, address string) (*resolvedUpstreamTarget, error) {
 		return &resolvedUpstreamTarget{address: address}, nil

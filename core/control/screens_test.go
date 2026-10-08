@@ -3,6 +3,7 @@ package control
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/hashimthearab/rust-mcbe/core/catalog"
@@ -12,11 +13,37 @@ type stubScreens struct {
 	stubServices
 }
 
+type recordingScreens struct {
+	stubScreens
+	events []catalog.MessageEvent
+}
+
+// ReportMessage records the reports delivered by the control endpoint.
+func (s *recordingScreens) ReportMessage(_ context.Context, event catalog.MessageEvent) error {
+	s.events = append(s.events, event)
+	return nil
+}
+
+func TestMessageEndpointForwardsBulkDeleteAndSubsequentReports(t *testing.T) {
+	screens := &recordingScreens{}
+	dir := startServices(t, NewStore(), screens)
+	for _, params := range []string{
+		`{"event_type":"DeleteAllRead"}`,
+		`{"event_type":"Click","instance_id":"next","report_id":"report"}`,
+	} {
+		if reply := rpc(t, dir, methodMessageEvent, params); reply.Error != nil {
+			t.Fatalf("message event %s was rejected: %+v", params, reply.Error)
+		}
+	}
+	if len(screens.events) != 2 || screens.events[0] != (catalog.MessageEvent{Type: "DeleteAllRead"}) ||
+		screens.events[1] != (catalog.MessageEvent{Type: "Click", InstanceID: "next", ReportID: "report"}) {
+		t.Fatalf("forwarded events = %+v", screens.events)
+	}
+}
+
 func (stubScreens) FeaturedServers(context.Context) ([]catalog.FeaturedServer, error) {
 	return []catalog.FeaturedServer{{Name: "Example", Address: "play.example.test:19132"}}, nil
 }
-
-func (stubScreens) Gatherings(context.Context) ([]catalog.Gathering, error) { return nil, nil }
 
 func (stubScreens) Profile(context.Context) (catalog.Profile, error) {
 	return catalog.Profile{Gamertag: "Steve", XUID: "1"}, nil
@@ -42,11 +69,6 @@ func TestScreenFeedsServeWhenTheBackendSupportsThem(t *testing.T) {
 	if reply := rpc(t, dir, methodFeaturedServers, ""); reply.Error != nil || json.Unmarshal(reply.Result, &featured) != nil ||
 		len(featured.Servers) != 1 || featured.Servers[0].Address != "play.example.test:19132" {
 		t.Fatalf("featured = %+v / %+v", featured, reply.Error)
-	}
-	var gatherings gatheringsResultV1
-	if reply := rpc(t, dir, methodGatherings, ""); reply.Error != nil || json.Unmarshal(reply.Result, &gatherings) != nil ||
-		gatherings.Gatherings == nil {
-		t.Fatalf("empty gatherings must encode as an array: %s", reply.Result)
 	}
 	var profile profileResultV1
 	if reply := rpc(t, dir, methodProfile, ""); reply.Error != nil || json.Unmarshal(reply.Result, &profile) != nil ||
@@ -79,7 +101,41 @@ func TestScreenFeedsServeWhenTheBackendSupportsThem(t *testing.T) {
 
 func TestScreenFeedsNeedAScreenBackend(t *testing.T) {
 	dir := startServices(t, NewStore(), &stubServices{})
-	if reply := rpc(t, dir, methodGatherings, ""); reply.Error == nil || reply.Error.Code != codeServicesDisabled {
+	if reply := rpc(t, dir, methodFeaturedServers, ""); reply.Error == nil || reply.Error.Code != codeServicesDisabled {
 		t.Fatalf("reply = %+v", reply.Error)
+	}
+}
+
+// countedScreens records whether the local caller requested the experience-details data.
+type countedScreens struct {
+	stubScreens
+	calls int
+}
+
+// FeaturedServersWithCounts supplies a real zero without losing its presence on the bridge.
+func (s *countedScreens) FeaturedServersWithCounts(context.Context) ([]catalog.FeaturedServer, error) {
+	s.calls++
+	count := int64(0)
+	return []catalog.FeaturedServer{{Name: "Experience", PlayerCount: &count}}, nil
+}
+
+// TestFeaturedCountsAreOptIn keeps background catalog reads from requesting populations.
+func TestFeaturedCountsAreOptIn(t *testing.T) {
+	s := new(countedScreens)
+	for _, params := range []string{"", `{}`, `{"include_player_counts":false}`} {
+		if _, err := screenResult(context.Background(), s, methodFeaturedServers, json.RawMessage(params)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if s.calls != 0 {
+		t.Fatal("ordinary featured lookup requested player counts")
+	}
+	result, err := screenResult(context.Background(), s, methodFeaturedServers, json.RawMessage(`{"include_player_counts":true}`))
+	if err != nil || s.calls != 1 {
+		t.Fatalf("count request: calls=%d, error=%v", s.calls, err)
+	}
+	raw, err := json.Marshal(result)
+	if err != nil || !strings.Contains(string(raw), `"player_count":0`) {
+		t.Fatalf("count result = %s, error=%v", raw, err)
 	}
 }

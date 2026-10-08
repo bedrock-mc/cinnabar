@@ -16,8 +16,6 @@ mod path;
 pub use cli::parse_args;
 use copy::{copy_validated, executable_destination};
 use hashing::hash_file;
-#[cfg(test)]
-use layout::ASSET_FILES;
 use layout::input_files;
 use path::canonicalize_top_level_alias;
 
@@ -47,7 +45,7 @@ pub struct Options {
 #[derive(Debug, Error)]
 pub enum DistError {
     #[error(
-        "{0}\nusage: dist-local --platform <windows|linux|macos> --client <FILE> --core <FILE> --assets <DIR> --physics <FILE> --notices <FILE> --target <TRIPLE> --git-commit <40_HEX> --out <NEW_DIR>"
+        "{0}\nusage: dist-local --platform <windows|linux|macos> --client <FILE> --core <FILE> [--assets <DIR>] --physics <FILE> --notices <FILE> --target <TRIPLE> --git-commit <40_HEX> --out <NEW_DIR>"
     )]
     Usage(String),
     #[error("unsafe input path `{0}`")]

@@ -10,7 +10,7 @@ fn read_json(path: &Path) -> Result<Value, Box<dyn Error>> {
     }
     Ok(serde_json::from_slice(&fs::read(path)?)?)
 }
-fn wav(pcm: asset_compiler::DecodedFadpcm) -> Vec<u8> {
+fn wav(pcm: pack_compiler::DecodedFadpcm) -> Vec<u8> {
     let length = (pcm.samples().len() * 2) as u32;
     let channels = u16::from(pcm.channels());
     let mut bytes = Vec::with_capacity(length as usize + 44);
@@ -69,7 +69,7 @@ fn visit(
         }
         let input = fs::read(&path)?;
         let (bytes, extension) = if extension == "fsb" {
-            match asset_compiler::decode_fsb5_fadpcm(&input) {
+            match pack_compiler::decode_fsb5_fadpcm(&input) {
                 Ok(pcm) => (wav(pcm), "wav"),
                 Err(error) => {
                     skipped.push(format!("{stem}: {error}"));

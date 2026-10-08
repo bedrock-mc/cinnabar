@@ -56,9 +56,10 @@ fn post_world_ready_required_growth_revokes_the_emitted_cohort() {
     assert_eq!(acceptance.mutation_cohort, None);
 }
 
-/// Ordinary play must not scan the retained world for the cohort witness every frame.
+/// Startup needs the cohort witness even without acceptance flags. Ordinary play
+/// must stop scanning the retained world once the startup probe is disabled.
 #[test]
-fn frame_cohort_status_is_computed_only_for_acceptance_or_metrics_runs() {
+fn frame_cohort_status_is_computed_for_startup_acceptance_or_metrics_only() {
     let mut stream = WorldStream::new(WorldBootstrap {
         local_player_unique_id: 1,
         dimension: 0,
@@ -83,9 +84,11 @@ fn frame_cohort_status_is_computed_only_for_acceptance_or_metrics_runs() {
     let acceptance = AcceptanceRun::new(Some(60), None, false, false);
     let metrics = AcceptanceRun::new(None, Some("metrics.json".into()), false, false);
     assert_eq!(
-        crate::runtime::world::frame_cohort_status(&stream, &play),
+        crate::runtime::world::frame_cohort_status(&stream, &play, false),
         None
     );
-    assert!(crate::runtime::world::frame_cohort_status(&stream, &acceptance).is_some());
-    assert!(crate::runtime::world::frame_cohort_status(&stream, &metrics).is_some());
+    assert!(crate::runtime::world::frame_cohort_status(&stream, &play, true).is_some());
+    assert!(crate::runtime::world::frame_cohort_status(&stream, &acceptance, false).is_some());
+    assert!(crate::runtime::world::frame_cohort_status(&stream, &metrics, false).is_some());
+    assert!(crate::runtime::world::frame_cohort_status(&stream, &play, false).is_none());
 }

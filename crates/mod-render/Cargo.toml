@@ -1,0 +1,11 @@
+[package]
+name = "mod-render"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+bytemuck = { version = "1", features = ["derive"] }
+mod-api = { path = "../mod-api" }
+naga = { version = "27.0.3", features = ["wgsl-in"] }

@@ -1,6 +1,7 @@
-use bevy::platform::time::Instant;
-
 use super::*;
+
+#[path = "publication_removal_tests.rs"]
+mod removal_pressure;
 
 fn noop_gpu_publication_app(
     acknowledgements: ChunkUploadAcknowledgements,
@@ -99,8 +100,8 @@ fn shared_publication_allowance_limits_payload_and_zero_byte_work_independently(
 #[test]
 fn permitted_zero_byte_work_waits_for_gpu_apply_and_is_bounded_at_256_outstanding() {
     let now = Instant::now();
-    let config = render_data::PublicationServiceConfig::PHASE2_GATE;
-    let allowance = render_data::PublicationAllowance::new(config);
+    let config = render_api::PublicationServiceConfig::PHASE2_GATE;
+    let allowance = render_api::PublicationAllowance::new(config);
     allowance.begin_frame(1, 256, 0, 512, config.maximum_frame_items);
     let acknowledgements = ChunkUploadAcknowledgements::default();
     let mut app = App::new();
@@ -156,13 +157,13 @@ fn gpu_preparation_acknowledges_and_retires_a_permitted_known_air_removal_exactl
         dirty_since: Instant::now(),
     };
     let allowance =
-        render_data::PublicationAllowance::new(render_data::PublicationServiceConfig::PHASE2_GATE);
+        render_api::PublicationAllowance::new(render_api::PublicationServiceConfig::PHASE2_GATE);
     allowance.begin_frame(
         1,
         1,
         0,
         1,
-        render_data::PublicationServiceConfig::PHASE2_GATE.maximum_frame_items,
+        render_api::PublicationServiceConfig::PHASE2_GATE.maximum_frame_items,
     );
     let permit = allowance
         .try_admit_zero_byte()
@@ -209,13 +210,13 @@ fn failed_gpu_removal_ack_reservation_requeues_without_retiring_or_leaking_an_ac
         dirty_since: Instant::now(),
     };
     let allowance =
-        render_data::PublicationAllowance::new(render_data::PublicationServiceConfig::PHASE2_GATE);
+        render_api::PublicationAllowance::new(render_api::PublicationServiceConfig::PHASE2_GATE);
     allowance.begin_frame(
         1,
         1,
         0,
         1,
-        render_data::PublicationServiceConfig::PHASE2_GATE.maximum_frame_items,
+        render_api::PublicationServiceConfig::PHASE2_GATE.maximum_frame_items,
     );
     let permit = allowance
         .try_admit_zero_byte()
@@ -253,13 +254,13 @@ fn failed_gpu_removal_ack_reservation_requeues_without_retiring_or_leaking_an_ac
 fn a_newer_gpu_removal_supersedes_and_retires_the_same_key_carrier() {
     let key = SubChunkKey::new(0, 9, 0, 9);
     let allowance =
-        render_data::PublicationAllowance::new(render_data::PublicationServiceConfig::PHASE2_GATE);
+        render_api::PublicationAllowance::new(render_api::PublicationServiceConfig::PHASE2_GATE);
     allowance.begin_frame(
         1,
         2,
         0,
         2,
-        render_data::PublicationServiceConfig::PHASE2_GATE.maximum_frame_items,
+        render_api::PublicationServiceConfig::PHASE2_GATE.maximum_frame_items,
     );
     let first = allowance
         .try_admit_zero_byte()
@@ -308,8 +309,8 @@ fn a_newer_gpu_removal_supersedes_and_retires_the_same_key_carrier() {
 
 #[test]
 fn ordinary_gpu_removals_cannot_consume_the_urgent_reserve() {
-    let config = render_data::PublicationServiceConfig::PHASE2_GATE;
-    let allowance = render_data::PublicationAllowance::new(config);
+    let config = render_api::PublicationServiceConfig::PHASE2_GATE;
+    let allowance = render_api::PublicationAllowance::new(config);
     let gpu_removals = ChunkGpuRemovalQueue::default();
     allowance.begin_frame(
         1,
@@ -384,8 +385,8 @@ fn ordinary_gpu_removals_cannot_consume_the_urgent_reserve() {
 
 #[test]
 fn older_urgent_gpu_removals_stay_ahead_of_new_urgent_work() {
-    let config = render_data::PublicationServiceConfig::PHASE2_GATE;
-    let allowance = render_data::PublicationAllowance::new(config);
+    let config = render_api::PublicationServiceConfig::PHASE2_GATE;
+    let allowance = render_api::PublicationAllowance::new(config);
     let gpu_removals = ChunkGpuRemovalQueue::default();
     allowance.begin_frame(
         1,
@@ -468,13 +469,13 @@ fn admitted_payload_carries_one_permit_from_queue_handoff_to_render_entity() {
     let biome = PackedBiomeRecord::fallback();
     let bytes = ChunkRenderQueue::upload_byte_len(&mesh, &biome);
     let allowance =
-        render_data::PublicationAllowance::new(render_data::PublicationServiceConfig::PHASE2_GATE);
+        render_api::PublicationAllowance::new(render_api::PublicationServiceConfig::PHASE2_GATE);
     allowance.begin_frame(
         1,
         1,
         bytes,
         0,
-        render_data::PublicationServiceConfig::PHASE2_GATE.maximum_frame_items,
+        render_api::PublicationServiceConfig::PHASE2_GATE.maximum_frame_items,
     );
     let permit = allowance.try_admit_payload(bytes).unwrap();
 
@@ -504,8 +505,8 @@ fn admitted_payload_carries_one_permit_from_queue_handoff_to_render_entity() {
             .pending
             .get(&key)
             .and_then(|pending| pending.publication_permit.as_ref())
-            .and_then(render_data::PublicationPermit::stage),
-        Some(render_data::PublicationPermitStage::Handoff),
+            .and_then(render_api::PublicationPermit::stage),
+        Some(render_api::PublicationPermitStage::Handoff),
     );
 
     app.update();
@@ -522,7 +523,7 @@ fn admitted_payload_carries_one_permit_from_queue_handoff_to_render_entity() {
     };
     assert_eq!(
         slot.stage(),
-        Some(render_data::PublicationPermitStage::RenderEntity)
+        Some(render_api::PublicationPermitStage::RenderEntity)
     );
     assert_eq!(allowance.live_permits(), 1);
     assert!(slot.take().unwrap().retire());
@@ -538,13 +539,13 @@ fn admitted_payload_reaches_real_gpu_preparation_with_one_linear_permit_and_exac
     let biome = PackedBiomeRecord::fallback();
     let bytes = ChunkRenderQueue::upload_byte_len(&mesh, &biome);
     let allowance =
-        render_data::PublicationAllowance::new(render_data::PublicationServiceConfig::PHASE2_GATE);
+        render_api::PublicationAllowance::new(render_api::PublicationServiceConfig::PHASE2_GATE);
     allowance.begin_frame(
         1,
         1,
-        render_data::PublicationServiceConfig::PHASE2_GATE.maximum_frame_bytes,
+        render_api::PublicationServiceConfig::PHASE2_GATE.maximum_frame_bytes,
         0,
-        render_data::PublicationServiceConfig::PHASE2_GATE.maximum_frame_items,
+        render_api::PublicationServiceConfig::PHASE2_GATE.maximum_frame_items,
     );
     let permit = allowance.try_admit_payload(bytes).unwrap();
     let acknowledgements = ChunkUploadAcknowledgements::default();
@@ -613,13 +614,13 @@ fn arena_growth_is_charged_to_the_frame_not_to_an_exact_byte_permit() {
     let biome = PackedBiomeRecord::fallback();
     let bytes = ChunkRenderQueue::upload_byte_len(&mesh, &biome);
     let allowance =
-        render_data::PublicationAllowance::new(render_data::PublicationServiceConfig::PHASE2_GATE);
+        render_api::PublicationAllowance::new(render_api::PublicationServiceConfig::PHASE2_GATE);
     allowance.begin_frame(
         1,
         1,
         bytes,
         0,
-        render_data::PublicationServiceConfig::PHASE2_GATE.maximum_frame_items,
+        render_api::PublicationServiceConfig::PHASE2_GATE.maximum_frame_items,
     );
     let permit = allowance.try_admit_payload(bytes).unwrap();
     assert_eq!(allowance.frame_remaining_bytes(), 0);
@@ -688,13 +689,13 @@ fn arena_growth_is_charged_to_the_frame_not_to_an_exact_byte_permit() {
 #[test]
 fn render_handoff_rejects_a_permit_with_the_wrong_class_or_exact_bytes() {
     let allowance =
-        render_data::PublicationAllowance::new(render_data::PublicationServiceConfig::PHASE2_GATE);
+        render_api::PublicationAllowance::new(render_api::PublicationServiceConfig::PHASE2_GATE);
     allowance.begin_frame(
         1,
         2,
         64,
         1,
-        render_data::PublicationServiceConfig::PHASE2_GATE.maximum_frame_items,
+        render_api::PublicationServiceConfig::PHASE2_GATE.maximum_frame_items,
     );
     let payload = allowance.try_admit_payload(64).unwrap();
     let zero = allowance.try_admit_zero_byte().unwrap();
@@ -732,8 +733,8 @@ fn manual_transfer_downstream_gpu_subgate_prepares_exact_6951_allocation_manifes
 
     const COHORT_ITEMS: usize = 6_951;
     const PAYLOADS_PER_FRAME: usize = 511;
-    let config = render_data::PublicationServiceConfig::PHASE2_GATE;
-    let allowance = render_data::PublicationAllowance::new(config);
+    let config = render_api::PublicationServiceConfig::PHASE2_GATE;
+    let allowance = render_api::PublicationAllowance::new(config);
     let acknowledgements = ChunkUploadAcknowledgements::default();
     let gpu_removals = ChunkGpuRemovalQueue::default();
     let budget = ChunkUploadBudget::new(config.maximum_frame_items, config.maximum_frame_bytes)
@@ -968,13 +969,13 @@ fn manual_transfer_downstream_gpu_subgate_prepares_exact_6951_allocation_manifes
 fn full_64_mib_quad_arena_migrates_across_frames_then_publishes_a_positive_upload() {
     use bevy::ecs::system::RunSystemOnce;
 
-    let config = render_data::PublicationServiceConfig::PHASE2_GATE;
+    let config = render_api::PublicationServiceConfig::PHASE2_GATE;
     let now = Instant::now();
     let key = SubChunkKey::new(0, 15, 0, 12);
     let mesh = solid_test_mesh();
     let biome = PackedBiomeRecord::fallback();
     let bytes = ChunkRenderQueue::upload_byte_len(&mesh, &biome);
-    let allowance = render_data::PublicationAllowance::new(config);
+    let allowance = render_api::PublicationAllowance::new(config);
     allowance.begin_frame(
         1,
         1,

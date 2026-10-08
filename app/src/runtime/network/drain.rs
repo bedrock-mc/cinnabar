@@ -1,9 +1,5 @@
 //! Bounded ingress drains shared by the network runtime and acceptance tests.
 
-pub(crate) fn acceptance_surface_anchor(position: [f32; 3]) -> [i32; 2] {
-    [position[0].floor() as i32, position[2].floor() as i32]
-}
-
 pub(crate) fn drain_network_controls<T>(
     receiver: &mut tokio::sync::mpsc::Receiver<T>,
     budget: usize,
@@ -11,25 +7,38 @@ pub(crate) fn drain_network_controls<T>(
     drain_network_ingress(receiver, budget)
 }
 
-pub(crate) fn drain_world_ingress_until_barrier(
-    receiver: &mut tokio::sync::mpsc::Receiver<super::session::WorldIngress>,
-    budget: usize,
-) -> Vec<super::session::WorldIngress> {
-    let mut drained = Vec::with_capacity(budget);
-    for _ in 0..budget {
-        let Ok(ingress) = receiver.try_recv() else {
-            break;
-        };
-        let is_barrier = matches!(
+/// Limits one frame's receives while leaving blocked or post-barrier events in the channel.
+pub(crate) struct WorldIngressDrain {
+    remaining: usize,
+    stopped: bool,
+}
+
+impl WorldIngressDrain {
+    /// Starts a frame's packet budget without reserving consumer admission in advance.
+    pub(crate) const fn new(budget: usize) -> Self {
+        Self {
+            remaining: budget,
+            stopped: false,
+        }
+    }
+
+    /// Takes one event only after the caller rechecks headroom changed by the previous commit.
+    pub(crate) fn next(
+        &mut self,
+        receiver: &mut tokio::sync::mpsc::Receiver<super::session::WorldIngress>,
+        admission_capacity: usize,
+    ) -> Option<super::session::WorldIngress> {
+        if self.remaining == 0 || self.stopped || admission_capacity == 0 {
+            return None;
+        }
+        let ingress = receiver.try_recv().ok()?;
+        self.remaining -= 1;
+        self.stopped = matches!(
             ingress,
             super::session::WorldIngress::FastTransferBarrier { .. }
         );
-        drained.push(ingress);
-        if is_barrier {
-            break;
-        }
+        Some(ingress)
     }
-    drained
 }
 
 pub(crate) fn drain_network_ingress<T>(
@@ -40,3 +49,6 @@ pub(crate) fn drain_network_ingress<T>(
         .take(budget)
         .collect()
 }
+
+#[cfg(test)]
+mod tests;

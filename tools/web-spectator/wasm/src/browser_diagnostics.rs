@@ -1,7 +1,8 @@
 //! Bounded observations from the native render gates; no readiness decisions.
 use render::{
-    ActorPresentedFrameAck, PresentedFrameAck, UiRenderStatsSnapshot, VisibilityDiagnosticSnapshot,
+    ActorPresentedFrameAck, PresentedFrameAck,
 };
+use render_model::{UiRenderStatsSnapshot, VisibilityDiagnosticSnapshot};
 use serde::Serialize;
 
 #[derive(Default, Serialize)]

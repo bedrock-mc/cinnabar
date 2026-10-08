@@ -36,9 +36,6 @@ func (f *feedFixture) service() *Service {
 			f.calls++
 			return f.featured()
 		},
-		Gatherings: func(context.Context, *authcache.Account) ([]catalog.Gathering, error) {
-			return nil, errors.New("offline")
-		},
 		Home: func(context.Context, *authcache.Account, *catalog.MessagingSession, string) (catalog.Home, error) {
 			return catalog.Home{}, errors.New("offline")
 		},
@@ -55,7 +52,7 @@ func (f *feedFixture) writeCache(t *testing.T, name, image string) {
 		Value:   []catalog.FeaturedServer{{Name: name, Logo: catalog.Image{URL: "https://a.test/" + image, Path: image}}},
 	}
 	snap.Home = feed[catalog.Home]{Fetched: time.Now().Add(-time.Hour), Value: catalog.Home{
-		LiveEvents: []catalog.LiveEvent{{ID: "promo"}},
+		RealmInvites: 3,
 	}}
 	data, _ := json.Marshal(snap)
 	if err := os.WriteFile(f.file, data, 0o600); err != nil {
@@ -98,7 +95,7 @@ func TestColdStartServesCacheBeforeNetwork(t *testing.T) {
 	if err != nil || len(servers) != 1 || servers[0].Name != "Cached" {
 		t.Fatalf("servers = %+v, err = %v", servers, err)
 	}
-	if home, err := service.Home(context.Background()); err != nil || len(home.LiveEvents) != 1 {
+	if home, err := service.Home(context.Background()); err != nil || home.RealmInvites != 3 {
 		t.Fatalf("home = %+v, err = %v", home, err)
 	}
 	close(release)
@@ -117,7 +114,7 @@ func TestRefreshReplacesSnapshotAndRewritesFile(t *testing.T) {
 	if err != nil || servers[0].Name != "Fresh" || f.cachedFeatured(t) != "Fresh" {
 		t.Fatalf("servers = %+v, err = %v", servers, err)
 	}
-	if home, err := service.Home(context.Background()); err != nil || len(home.LiveEvents) != 1 {
+	if home, err := service.Home(context.Background()); err != nil || home.RealmInvites != 3 {
 		t.Fatalf("a failed home refresh dropped the cached home: %+v, %v", home, err)
 	}
 	settle(service)

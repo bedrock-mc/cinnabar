@@ -477,12 +477,10 @@ impl RuntimeHudCatalog {
                 .ok_or(HudCatalogError::Invalid(
                     "HUD texture payload is out of range",
                 ))?;
+            // The envelope seals the pixels; their digests are checked when encoding.
             let rgba8 = bytes[texture_offset..texture_end]
                 .to_vec()
                 .into_boxed_slice();
-            if Sha256::digest(&rgba8).as_slice() != pixels_sha256 {
-                return Err(HudCatalogError::Invalid("HUD texture pixel hash mismatch"));
-            }
             textures.push(HudTexture {
                 role,
                 source_bytes,

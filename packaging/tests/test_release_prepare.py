@@ -133,6 +133,14 @@ class VersionTests(unittest.TestCase):
             (self.root / "Cargo.toml").write_text(MANIFEST.replace(SOURCE_VERSION, value))
             self.assertNotEqual(self.bump("current", check=False).returncode, 0)
 
+    def test_custom_version_and_invalid_choices(self):
+        original = (self.root / "Cargo.toml").read_text()
+        for value in ["", "1.2.3", "0.9.9", "01.3.0", "2.0.0-beta", "2.0.0\n"]:
+            result = self.bump("custom", "--version", value, check=False)
+            self.assertNotEqual(result.returncode, 0, value)
+            self.assertEqual((self.root / "Cargo.toml").read_text(), original)
+        self.assertEqual(self.bump("custom", "--version", "3.4.5").stdout.strip(), "3.4.5")
+
 
 class PrepareTests(unittest.TestCase):
     def setUp(self):
@@ -153,7 +161,7 @@ class PrepareTests(unittest.TestCase):
         self.initial = self.git("rev-parse", "HEAD")
         binary = self.directory / "bin"
         binary.mkdir()
-        gh = binary / "gh"
+        gh = binary / ("gh.py" if os.name == "nt" else "gh")
         gh.write_text('''#!/usr/bin/env python3
 import os, sys
 from pathlib import Path
@@ -172,12 +180,15 @@ else:
     raise SystemExit(1)
 ''')
         gh.chmod(0o755)
+        if os.name == "nt":
+            (binary / "gh.cmd").write_text(f'@"{sys.executable}" "{gh}" %*\n')
         self.output = self.directory / "github-output"
         self.log = self.directory / "github-log"
         self.env = dict(os.environ, PATH=str(binary) + os.pathsep + os.environ["PATH"],
                         EVENT_NAME="workflow_dispatch", DEFAULT_BRANCH="main", BUMP="current",
                         GITHUB_REF="refs/heads/main", GITHUB_SHA=self.initial,
                         GITHUB_REPOSITORY="fixture/cinnabar", GITHUB_OUTPUT=str(self.output),
+                        CINNABAR_SOURCE_ROOT=str(self.root),
                         FAKE_GH_LOG=str(self.log), FAKE_RELEASES="", FAKE_GH_ERROR="")
         self.env.pop("RELEASE_TAG", None)
 
@@ -206,6 +217,13 @@ else:
         self.assertEqual(self.refs(), before)
         self.assertFalse(self.log.exists())
 
+    def test_scheduled_run_is_read_only_nightly_at_the_default_branch(self):
+        before = self.refs()
+        self.prepare(EVENT_NAME="schedule")
+        self.assertEqual(self.outputs(), {"channel": "nightly", "tag": "nightly", "version": SOURCE_VERSION,
+                                         "ref": self.initial, "commit": self.initial})
+        self.assertEqual(self.refs(), before)
+
     def test_current_creates_one_annotated_tag_and_no_version_commit(self):
         self.prepare()
         self.assertEqual(self.git("rev-parse", "HEAD"), self.initial)
@@ -233,6 +251,49 @@ else:
         self.assertEqual(self.outputs()["version"], "1.2.4")
         self.assertEqual(self.git("rev-parse", "HEAD"), current)
         self.assertEqual(self.refs(), before)
+
+    def test_selected_branch_receives_release_instead_of_main(self):
+        self.git("checkout", "-b", "release/candidate")
+        self.git("push", "origin", "release/candidate")
+        self.prepare(BUMP="minor", TARGET_BRANCH="release/candidate")
+        current = self.git("rev-parse", "HEAD")
+        self.assertIn(current + "\trefs/heads/release/candidate", self.refs())
+        self.assertIn(self.initial + "\trefs/heads/main", self.refs())
+        self.assertEqual(self.outputs()["version"], "1.3.0")
+
+    def test_control_tools_release_old_branch_without_packaging_scripts(self):
+        tooling = self.directory / "release-tools"
+        shutil.copytree(self.root / "packaging", tooling)
+        self.git("checkout", "-b", "old/branch")
+        self.git("rm", "-r", "packaging")
+        self.git("commit", "-m", "Old source without release tooling")
+        self.git("push", "origin", "old/branch")
+        env = dict(self.env, TARGET_BRANCH="old/branch", BUMP="custom", CUSTOM_VERSION="4.5.6")
+        run(sys.executable, str(tooling / "prepare-release.py"), cwd=self.root, env=env)
+        self.assertEqual(self.outputs()["version"], "4.5.6")
+        self.assertFalse((self.root / "packaging").exists())
+        self.assertEqual(self.git("status", "--porcelain"), "")
+        self.assertIn(self.initial + "\trefs/heads/main", self.refs())
+
+    def test_custom_release_recovers_exact_unpublished_version(self):
+        self.prepare(BUMP="custom", CUSTOM_VERSION="3.4.5")
+        current = self.git("rev-parse", "HEAD")
+        before = self.refs()
+        self.prepare(BUMP="custom", CUSTOM_VERSION="3.4.5")
+        self.assertEqual(self.outputs()["version"], "3.4.5")
+        self.assertEqual(self.git("rev-parse", "HEAD"), current)
+        self.assertEqual(self.refs(), before)
+
+    def test_invalid_branch_and_custom_version_do_not_mutate(self):
+        before = self.refs()
+        for changes in [{"TARGET_BRANCH": "bad..branch"},
+                        {"TARGET_BRANCH": "another"},
+                        {"BUMP": "custom", "CUSTOM_VERSION": "2.0.0-beta"}]:
+            result = self.prepare(check=False, **changes)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(self.git("rev-parse", "HEAD"), self.initial)
+            self.assertEqual(self.refs(), before)
+            self.assert_no_outputs()
 
     def test_existing_current_release_is_rejected_before_mutation(self):
         before = self.refs()

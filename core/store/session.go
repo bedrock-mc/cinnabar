@@ -8,12 +8,13 @@ import (
 
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
 	"github.com/hashimthearab/rust-mcbe/core/catalog"
+	"github.com/hashimthearab/rust-mcbe/core/internal/imagecache"
 	"github.com/sandertv/gophertunnel/minecraft/service"
 	"github.com/sandertv/gophertunnel/minecraft/service/marketplace"
 )
 
-// Open returns a Client on the account's shared PlayFab session and service token; the account owns
-// both, so closing the Client releases nothing.
+// Open returns a Client on the account's shared service token; the account owns it, so closing the
+// Client releases nothing.
 func Open(ctx context.Context, account *authcache.Account) (*Client, error) {
 	if account == nil {
 		return nil, errors.New("store: no signed-in account")
@@ -28,65 +29,59 @@ func Open(ctx context.Context, account *authcache.Account) (*Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("store: discover services: %w", err)
 	}
-	storeEnv := new(marketplace.Environment)
-	if err := discovery.Environment(storeEnv); err != nil {
-		return nil, fmt.Errorf("store: resolve store service: %w", err)
-	}
-	market, err := storeEnv.New(account)
-	if err != nil {
-		return nil, fmt.Errorf("store: %w", err)
-	}
 	env, err := account.Environment(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("store: resolve authorization service: %w", err)
 	}
-	pf, err := account.PlayFab(ctx)
+	market, err := marketplace.Open(discovery, account, marketplace.Identity{XUID: xuid, TitleID: string(env.PlayFabTitleID)})
 	if err != nil {
 		return nil, fmt.Errorf("store: %w", err)
 	}
-	return NewClient(Config{
-		Market:   market,
-		Catalog:  pf.Catalog(),
-		Identity: Identity{XUID: xuid, TitleID: string(env.PlayFabTitleID)},
-	})
+	return NewClient(Config{Market: market})
 }
 
 // Session opens its Client on first use and serves every store call from it.
 type Session struct {
-	open   func(context.Context) (*Client, error)
-	images *ImageCache
+	account func() (*authcache.Account, error)
+	images  *imagecache.Cache
 
 	mu     sync.Mutex
 	client *Client
 }
 
-// NewSession returns a Session that opens on the account on first use; an empty imageDir disables images.
-func NewSession(account *authcache.Account, imageDir string) *Session {
-	s := &Session{open: func(ctx context.Context) (*Client, error) { return Open(ctx, account) }}
+// NewSession opens the current account on first use and checks it before every call.
+// An empty imageDir disables images.
+func NewSession(account func() (*authcache.Account, error), imageDir string) *Session {
+	s := &Session{account: account}
 	if imageDir != "" {
-		s.images = NewImageCache(imageDir)
+		s.images = newImageCache(imageDir)
 	}
 	return s
 }
 
 // Image downloads an offer image into the bounded cache and returns its local path.
 func (s *Session) Image(ctx context.Context, rawURL string) (Image, error) {
+	if _, err := s.account(); err != nil {
+		return Image{}, err
+	}
 	if s.images == nil {
 		return Image{}, ErrImageRejected
 	}
 	return s.images.Fetch(ctx, rawURL)
 }
 
+// get checks the account and opens its shared client once.
 func (s *Session) get(ctx context.Context) (*Client, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	account, err := s.account()
+	if err != nil {
+		return nil, err
+	}
 	if s.client != nil {
 		return s.client, nil
 	}
-	if s.open == nil {
-		return nil, errors.New("store: session has no opener")
-	}
-	client, err := s.open(ctx)
+	client, err := Open(ctx, account)
 	if err != nil {
 		return nil, err
 	}
@@ -150,6 +145,11 @@ func (s *Session) MoreOffers(ctx context.Context, token string) (RowMore, error)
 
 // Purchase implements the Minecoin purchase call.
 func (s *Session) Purchase(ctx context.Context, r PurchaseRequest) (PurchaseResult, error) {
+	// Reject invalid purchases before opening a network session, while keeping
+	// the signed-out error ahead of request validation.
+	if _, err := s.account(); err != nil {
+		return PurchaseResult{}, err
+	}
 	if err := r.Validate(); err != nil {
 		return PurchaseResult{}, err
 	}

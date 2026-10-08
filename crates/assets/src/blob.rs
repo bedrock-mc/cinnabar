@@ -7,7 +7,7 @@ use std::{
 use sha2::{Digest, Sha256};
 
 use crate::model::{
-    MODEL_QUAD_FLAG_TWO_SIDED, model_template_flags_are_valid,
+    MODEL_QUAD_FLAG_TWO_SIDED, covered_grass_variant_is_valid, model_template_flags_are_valid,
     transparent_cube_quad_geometry_is_valid,
 };
 use crate::{
@@ -15,17 +15,25 @@ use crate::{
     MATERIAL_FLAG_ALPHA_CUTOUT, MAX_ANIMATION_FRAMES, MAX_ANIMATIONS, MAX_MATERIALS,
     MAX_MODEL_QUADS, MAX_MODEL_TEMPLATES, MAX_TEXTURE_LAYERS, MAX_TEXTURE_PAGES, MIP_COUNT,
     MODEL_TEMPLATE_FLAG_COMPOUND_NEXT, MODEL_TEMPLATE_FLAG_FENCE_NETHER,
-    MODEL_TEMPLATE_FLAG_FENCE_WOOD, MODEL_TEMPLATE_FLAG_GATE_AXIS_X,
-    MODEL_TEMPLATE_FLAG_GATE_AXIS_Z, MODEL_TEMPLATE_FLAG_KELP, MODEL_TEMPLATE_FLAG_PANE,
-    MODEL_TEMPLATE_FLAG_STAIR, MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE, NO_ANIMATION,
-    NO_MODEL_TEMPLATE, TILE_SIZE, TextureRef, VisualKind,
+    MODEL_TEMPLATE_FLAG_FENCE_WOOD, MODEL_TEMPLATE_FLAG_FIRE, MODEL_TEMPLATE_FLAG_GATE_AXIS_X,
+    MODEL_TEMPLATE_FLAG_GATE_AXIS_Z, MODEL_TEMPLATE_FLAG_KELP, MODEL_TEMPLATE_FLAG_LILY_PAD,
+    MODEL_TEMPLATE_FLAG_PANE, MODEL_TEMPLATE_FLAG_SNOW_LAYER, MODEL_TEMPLATE_FLAG_STAIR,
+    MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE, NO_ANIMATION, NO_MODEL_TEMPLATE, TILE_SIZE, TextureRef,
+    VisualKind,
     biome::{TINT_MAP_BYTES, TINT_MAP_COUNT, TINT_MAP_SIZE, validate_biome_assets},
     compiled::{material_flags_are_valid, visual_semantics_are_valid},
     model::{ANIMATION_FLAGS_MASK, model_quad_flags_are_valid},
 };
 
-pub const BLOB_MAGIC: [u8; 8] = *b"MCBEAS07";
-pub const BLOB_VERSION: u32 = 7;
+// World leaves require native atlas mips, per-face isotropy and pack-authored
+// AO exponents. Reject earlier carriers that omit those material selectors.
+pub const BLOB_VERSION: u32 = 12;
+pub const BLOB_MAGIC: [u8; 8] = {
+    let mut magic = *b"MCBEAS00";
+    magic[6] += (BLOB_VERSION / 10) as u8;
+    magic[7] += (BLOB_VERSION % 10) as u8;
+    magic
+};
 pub(crate) const HEADER_BYTES: usize = 296;
 /// Header offset of the embedded source-manifest SHA-256 identity.
 pub(crate) const MANIFEST_SHA_OFFSET: usize = 64;
@@ -37,7 +45,7 @@ pub(crate) const OFFSETS_OFFSET: usize = 192;
 pub(crate) const HASH_BYTES: usize = 32;
 pub(crate) const VISUAL_BYTES: usize = 44;
 pub(crate) const HASH_ENTRY_BYTES: usize = 8;
-pub(crate) const MATERIAL_BYTES: usize = 12;
+pub const MATERIAL_BYTES: usize = std::mem::size_of::<crate::Material>();
 pub(crate) const TEMPLATE_BYTES: usize = 12;
 pub(crate) const QUAD_BYTES: usize = 48;
 pub(crate) const ANIMATION_BYTES: usize = 28;
@@ -46,10 +54,11 @@ pub(crate) const PAGE_BYTES: usize = 64;
 pub(crate) const BIOME_RULE_BYTES: usize = 36;
 pub(crate) const MAX_VISUALS: usize = 65_536;
 
-/// Serializes canonical, bounded `MCBEAS07` compiler output with embedded
+/// Serializes canonical, bounded world-carrier compiler output with embedded
 /// source provenance and a trailing SHA-256.
 pub fn encode_blob(compiled: &CompiledAssets) -> Result<Box<[u8]>, AssetError> {
     validate_compiled(compiled)?;
+    crate::material_variations::validate(&compiled.materials)?;
     let sizes = [
         size(compiled.visuals.len(), VISUAL_BYTES, "visual")?,
         size(compiled.hashed.len(), HASH_ENTRY_BYTES, "hash")?,
@@ -154,6 +163,9 @@ pub fn encode_blob(compiled: &CompiledAssets) -> Result<Box<[u8]>, AssetError> {
         push_u32(&mut bytes, material.texture.raw());
         push_u32(&mut bytes, material.flags);
         push_u32(&mut bytes, material.animation);
+        push_u32(&mut bytes, material.variation_start);
+        push_u32(&mut bytes, material.variation_count);
+        push_u32(&mut bytes, material.variation_weight);
     }
     for template in &compiled.model_templates {
         push_u32(&mut bytes, template.quad_start);
@@ -284,6 +296,8 @@ fn validate_compiled(compiled: &CompiledAssets) -> Result<(), AssetError> {
         .first()
         .ok_or_else(|| invalid("missing diagnostic material"))?;
     if diagnostic.texture != TextureRef::DIAGNOSTIC
+        || diagnostic.variation_count != 0
+        || diagnostic.variation_weight != 0
         || diagnostic.flags != 0
         || diagnostic.animation != NO_ANIMATION
     {
@@ -306,6 +320,11 @@ fn validate_compiled(compiled: &CompiledAssets) -> Result<(), AssetError> {
     let connected_bases = compiled_connected_bases(&compiled.model_templates)?;
     let mut referenced_connected_bases = vec![false; connected_bases.len()];
     for (index, visual) in compiled.visuals.iter().enumerate() {
+        if !covered_grass_variant_is_valid(visual.kind, visual.variant, compiled.materials.len()) {
+            return Err(invalid(format!(
+                "visual {index} has invalid covered-grass material"
+            )));
+        }
         if BlockFlags::from_bits(visual.flags.bits())
             .is_none_or(|flags| !flags.has_valid_semantics())
         {
@@ -381,10 +400,31 @@ fn validate_compiled(compiled: &CompiledAssets) -> Result<(), AssetError> {
         }
         if visual.model_template != NO_MODEL_TEMPLATE {
             let template_flags = compiled.model_templates[visual.model_template as usize].flags;
+            if template_flags == crate::MODEL_TEMPLATE_FLAG_NETHER_PORTAL {
+                if visual.kind != VisualKind::Model
+                    || !matches!(
+                        visual.variant,
+                        0 | crate::BLOCK_VISUAL_VARIANT_PORTAL_UNKNOWN
+                    )
+                {
+                    return Err(invalid("portal visual has invalid kind or transform"));
+                }
+                if visual.variant == crate::BLOCK_VISUAL_VARIANT_PORTAL_UNKNOWN
+                    && compiled
+                        .model_templates
+                        .get(visual.model_template as usize + 1)
+                        .is_none_or(|next| next.flags != crate::MODEL_TEMPLATE_FLAG_NETHER_PORTAL)
+                {
+                    return Err(invalid(
+                        "unknown-axis portal has no alternate-axis template",
+                    ));
+                }
+            }
             let connected_flag = template_flags
                 & (MODEL_TEMPLATE_FLAG_PANE
                     | MODEL_TEMPLATE_FLAG_FENCE_WOOD
-                    | MODEL_TEMPLATE_FLAG_FENCE_NETHER);
+                    | MODEL_TEMPLATE_FLAG_FENCE_NETHER
+                    | MODEL_TEMPLATE_FLAG_FIRE);
             if connected_flag != 0 {
                 let Some(base_index) = connected_bases.iter().position(|&(base, flag)| {
                     base == visual.model_template as usize && flag == connected_flag
@@ -434,9 +474,13 @@ fn validate_compiled(compiled: &CompiledAssets) -> Result<(), AssetError> {
     for template in &compiled.model_templates {
         if !model_template_flags_are_valid(template.flags)
             || template.quad_start as usize != expected_quad
-            || template.quad_count > 32
+            || template.quad_count as usize > crate::MAX_MODEL_TEMPLATE_QUADS
             || (template.flags & MODEL_TEMPLATE_FLAG_KELP != 0 && template.quad_count != 6)
             || (template.flags == MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE && template.quad_count != 6)
+            || (template.flags == MODEL_TEMPLATE_FLAG_SNOW_LAYER && template.quad_count != 6)
+            || (template.flags == MODEL_TEMPLATE_FLAG_LILY_PAD && template.quad_count != 2)
+            || (template.flags == crate::MODEL_TEMPLATE_FLAG_NETHER_PORTAL
+                && template.quad_count != 6)
         {
             return Err(invalid("model template spans are not canonical"));
         }
@@ -527,7 +571,9 @@ fn validate_compiled(compiled: &CompiledAssets) -> Result<(), AssetError> {
     Ok(())
 }
 
-fn compiled_compound_tails(templates: &[crate::ModelTemplate]) -> Result<Vec<bool>, AssetError> {
+pub(crate) fn compiled_compound_tails(
+    templates: &[crate::ModelTemplate],
+) -> Result<Vec<bool>, AssetError> {
     let mut tails = vec![false; templates.len()];
     for (index, template) in templates.iter().enumerate() {
         if template.flags & MODEL_TEMPLATE_FLAG_COMPOUND_NEXT == 0 {
@@ -547,10 +593,10 @@ fn compiled_compound_tails(templates: &[crate::ModelTemplate]) -> Result<Vec<boo
             return Err(invalid("compound template head has no quads"));
         }
         let Some(tail) = templates.get(index + 1) else {
-            return Err(invalid("compound template pair is truncated"));
+            return Err(invalid("compound template chain is truncated"));
         };
-        if tail.flags != 0 {
-            return Err(invalid("compound continuation is not a plain template"));
+        if !matches!(tail.flags, 0 | MODEL_TEMPLATE_FLAG_COMPOUND_NEXT) {
+            return Err(invalid("compound continuation has incompatible flags"));
         }
         if tail.quad_count == 0 {
             return Err(invalid("compound continuation has no quads"));
@@ -620,6 +666,19 @@ fn compiled_connected_bases(
             }
             bases.push((index, flag));
             index += 17;
+        } else if flag == MODEL_TEMPLATE_FLAG_FIRE {
+            let Some(group) = templates.get(index..index + crate::FIRE_TEMPLATE_COUNT as usize)
+            else {
+                return Err(invalid("fire template group is truncated"));
+            };
+            if group.iter().enumerate().any(|(offset, template)| {
+                template.flags != flag
+                    || template.quad_count != crate::fire_template_quad_count(offset as u32)
+            }) {
+                return Err(invalid("fire template group is noncanonical"));
+            }
+            bases.push((index, flag));
+            index += crate::FIRE_TEMPLATE_COUNT as usize;
         } else {
             index += 1;
         }
@@ -733,7 +792,7 @@ pub fn write_blob_atomic(path: &Path, bytes: &[u8]) -> Result<(), AssetError> {
             }
         }
     }
-    let (temporary_path, file) = temporary.ok_or_else(|| AssetError::Io {
+    let (temporary_path, mut file) = temporary.ok_or_else(|| AssetError::Io {
         path: path.to_path_buf(),
         source: io::Error::new(
             io::ErrorKind::AlreadyExists,
@@ -741,12 +800,10 @@ pub fn write_blob_atomic(path: &Path, bytes: &[u8]) -> Result<(), AssetError> {
         ),
     })?;
     let result = (|| -> io::Result<()> {
-        {
-            let mut temporary_file = file;
-            temporary_file.write_all(bytes)?;
-            temporary_file.flush()?;
-            temporary_file.sync_all()?;
-        }
+        file.write_all(bytes)?;
+        file.flush()?;
+        file.sync_all()?;
+        drop(file);
         fs::rename(&temporary_path, path)
     })();
     if let Err(source) = result {

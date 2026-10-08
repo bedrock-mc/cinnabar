@@ -1,0 +1,34 @@
+// The package keeps the name and version this world had in `crates/mod-api`, so a client part
+// rebuilt against it embeds the same world.
+package cinnabar:extension@0.1.0;
+
+/// Server-scoped component; optional grants return denial through these imports. A component
+/// built against 1.0.0 (imports at 1.0.0, exporting only `init` and `dispatch`) still runs.
+world server-bundle {
+    import cinnabar:server-experience/ui@1.2.0;
+    import cinnabar:server-experience/input@1.2.0;
+    import cinnabar:server-experience/messaging@1.2.0;
+    import cinnabar:server-experience/scene@1.2.0;
+    import cinnabar:server-experience/media@1.2.0;
+    export init: func();
+    /// A typed message or host-owned input edge; no raw packet or keyboard data.
+    export dispatch: func(channel: string, record-json: list<u8>);
+    /// A declared action fired from a modal screen control while the modal has focus; the
+    /// index is the control's row in its nearest collection.
+    export action: func(id: string, collection-index: option<u32>);
+    /// The world epoch changed (a dimension change); the runtime and its state live on.
+    export epoch: func();
+    use cinnabar:server-experience/ui@1.2.0.{gui-size};
+    /// The open modal was first drawn, or its size changed (a window resize or a GUI scale
+    /// change); `size` is what `ui.modal-size` now returns.
+    export modal-resized: func(size: gui-size);
+    /// The text of the modal's edit box whose `text_box_name` is `control` changed while the
+    /// modal had focus; `control` is a declared action. Text ends editing like vanilla's
+    /// `text_edit_box`: Enter or Escape deselects the box, and Escape closes the modal only
+    /// when no box was selected.
+    export text-changed: func(control: string, text: string);
+    /// A secondary press (a right click) on a modal screen control that maps
+    /// `button.menu_secondary_select` to a declared action fired, while the modal has focus; the
+    /// index is the control's row in its nearest collection. `action` stays the primary press.
+    export secondary-action: func(id: string, collection-index: option<u32>);
+}

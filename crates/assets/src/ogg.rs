@@ -22,6 +22,11 @@ pub fn decode_ogg(input: &[u8]) -> Result<DecodedSound, FsbError> {
     loop {
         match reader.read_dec_packet_itl() {
             Ok(Some(packet)) => {
+                if reader.ident_hdr.audio_channels != channels
+                    || reader.ident_hdr.audio_sample_rate != sample_rate
+                {
+                    return Err(FsbError::Unsupported("chained vorbis format change"));
+                }
                 if (samples.len() + packet.len()) * 2 > MAX_FSB_PCM_BYTES {
                     return Err(FsbError::TooLarge);
                 }
@@ -54,6 +59,16 @@ pub fn decode_sound(input: &[u8]) -> Result<DecodedSound, FsbError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn review_chained_ogg_rejects_format_changes() {
+        assert!(
+            decode_ogg(include_bytes!(
+                "../tests/fixtures/chained-format-change.ogg"
+            ))
+            .is_err()
+        );
+    }
 
     #[test]
     fn garbage_and_truncated_ogg_are_rejected() {

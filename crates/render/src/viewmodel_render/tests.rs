@@ -1,4 +1,5 @@
 use super::*;
+use bevy::core_pipeline::core_3d::graph::Node3d;
 
 fn empty_hand_world() -> World {
     use bevy::{ecs::system::RunSystemOnce, render::renderer::WgpuWrapper};
@@ -136,7 +137,7 @@ fn neutral_shader_validates_and_has_private_projection_abi() {
 
 #[test]
 fn hand_attachment_specialization_matches_hdr_and_msaa_without_world_depth() {
-    for samples in [1, 4] {
+    for samples in [1, 2, 4, 8] {
         for hdr in [false, true] {
             let pipeline = specialized_hand_pipeline(hand_layout(), samples, hdr);
             assert_eq!(pipeline.multisample.count, samples);
@@ -255,12 +256,12 @@ fn actual_missing_current_view_coverage_revokes_prior_completion() {
     world.insert_resource(gate.clone());
     let coverage = crate::ui_render::UiHandCoverage::default();
     coverage.clear();
-    let batch = crate::ui::UiRenderBatch::new(
+    let batch = render_model::UiRenderBatch::new(
         0,
-        crate::ui::UiScissor::new(0, 0, 640, 480),
+        render_model::UiScissor::new(0, 0, 640, 480),
         0,
         6,
-        crate::ui::UI_BLEND_ALPHA,
+        render_model::UI_BLEND_ALPHA,
     );
     let render_view = Entity::from_raw_u32(1).unwrap();
     gate.select(None);
@@ -329,12 +330,24 @@ fn ui_only_and_optional_hand_graph_are_ordered_and_idempotent() {
             .is_ok()
     );
     assert!(
-        core.get_node_state(Node3d::MainTransparentPass)
+        core.get_node_state(crate::ui_render::UiWorldLabel)
             .unwrap()
             .edges
             .output_edges()
             .iter()
             .any(|edge| edge.get_input_node() == core.get_node_state(HandLabel).unwrap().label)
+    );
+    assert!(
+        core.get_node_state(Node3d::MainTransparentPass)
+            .unwrap()
+            .edges
+            .output_edges()
+            .iter()
+            .any(|edge| edge.get_input_node()
+                == core
+                    .get_node_state(crate::ui_render::UiWorldLabel)
+                    .unwrap()
+                    .label)
     );
 }
 
@@ -364,9 +377,17 @@ fn both_actual_plugin_orders_install_one_hand_and_one_hud_node() {
         app.insert_resource(Assets::<Shader>::default())
             .insert_sub_app(RenderApp, render_app);
         if hand_first {
-            app.add_plugins((ViewmodelRenderPlugin, crate::ui_render::UiRenderPlugin));
+            app.add_plugins((
+                ViewmodelRenderPlugin,
+                crate::HandRigRenderPlugin,
+                crate::ui_render::UiRenderPlugin,
+            ));
         } else {
-            app.add_plugins((crate::ui_render::UiRenderPlugin, ViewmodelRenderPlugin));
+            app.add_plugins((
+                crate::ui_render::UiRenderPlugin,
+                crate::HandRigRenderPlugin,
+                ViewmodelRenderPlugin,
+            ));
         }
         app.finish();
         install_hand_graph(app.sub_app_mut(RenderApp).world_mut());
@@ -384,6 +405,15 @@ fn both_actual_plugin_orders_install_one_hand_and_one_hud_node() {
         );
         let hand = graph.get_node_state(HandLabel).unwrap();
         assert_eq!(hand.edges.input_edges().len(), 1);
-        assert_eq!(hand.edges.output_edges().len(), 1);
+        assert_eq!(hand.edges.output_edges().len(), 2);
+        let rig = graph
+            .get_node_state(crate::hand_rig_render::HandRigLabel)
+            .unwrap();
+        assert!(
+            hand.edges
+                .output_edges()
+                .iter()
+                .any(|edge| edge.get_input_node() == rig.label)
+        );
     }
 }

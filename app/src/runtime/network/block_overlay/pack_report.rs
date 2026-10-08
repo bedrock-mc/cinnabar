@@ -14,6 +14,9 @@ use super::{
 #[test]
 fn report_local_pack_blocks() {
     let Some(dir) = std::env::var_os("CINNABAR_PACKCACHE_DIR") else {
+        eprintln!(
+            "skipping report_local_pack_blocks: fixture unavailable; requires CINNABAR_PACKCACHE_DIR containing offline cached packs"
+        );
         return;
     };
     let mut zips = std::fs::read_dir(dir)

@@ -6,21 +6,25 @@ use semantic_input::{
     KeyboardMouseFrame, ReleaseReason, RouterError, SemanticInputRouter, TouchContact,
 };
 
-mod physical;
+pub(crate) mod physical;
 pub(crate) use physical::{
     PendingDeviceFrame, SemanticRouteState, collect_raw_input,
-    finalize_semantic_input_after_ui_authority, route_semantic_input,
+    finalize_semantic_input_after_ui_authority, keyboard_usage, route_semantic_input,
 };
 
-use crate::{
-    menu::MenuRuntime, runtime::world::ClientWorld, settings_runtime::RuntimeSettings,
-    ui_runtime::UiRuntime,
-};
+use crate::{menu::MenuRuntime, runtime::world::ClientWorld, settings_runtime::RuntimeSettings};
+use client_ui::ui_runtime::UiRuntime;
 
 #[derive(Resource, Debug, Default, Clone)]
 pub struct SemanticInputSnapshot(Option<ActionSnapshot>);
 
 impl SemanticInputSnapshot {
+    /// Supplies a real router result to isolated production-system tests.
+    #[cfg(test)]
+    pub(crate) fn from_finalized(snapshot: ActionSnapshot) -> Self {
+        Self(Some(snapshot))
+    }
+
     #[must_use]
     pub fn snapshot(&self) -> Option<&ActionSnapshot> {
         self.0.as_ref()
@@ -59,6 +63,20 @@ impl SemanticInputSnapshot {
         self.0.as_ref().map_or(ActionPhase::default(), |snapshot| {
             snapshot.phases[action as usize]
         })
+    }
+
+    /// Adds one attack edge to an existing held input without changing its authority.
+    #[cfg(feature = "local-mods")]
+    pub fn request_mod_attack_press(&mut self) -> bool {
+        let Some(snapshot) = self.0.as_mut() else {
+            return false;
+        };
+        let attack = &mut snapshot.phases[Action::Attack as usize];
+        if !attack.held || attack.pressed {
+            return false;
+        }
+        attack.pressed = true;
+        true
     }
 
     fn replace(&mut self, snapshot: ActionSnapshot) {
@@ -123,6 +141,10 @@ impl SemanticInputRuntime {
             .truncate(semantic_input::MAX_DISCONNECTED_CONTROLLERS);
         self.stamp_activity(&mut frame);
         self.router.route(frame.clone())?;
+        // The router keeps these events; activity comparisons need only the held state.
+        for controller in &mut frame.controllers {
+            controller.button_edges = Default::default();
+        }
         self.previous = frame;
         Ok(())
     }
@@ -205,17 +227,20 @@ impl SemanticInputRuntime {
     fn stamp_activity(&mut self, frame: &mut DeviceFrame) {
         if let Some(current) = frame.keyboard_mouse.as_mut() {
             let previous = self.previous.keyboard_mouse.as_ref();
-            current.activity_sequence =
-                if previous.is_some_and(|previous| keyboard_physical_eq(previous, current)) {
-                    previous.map_or(0, |previous| previous.activity_sequence)
-                } else {
-                    self.next_activity()
-                };
+            current.activity_sequence = if current.mouse_motion.iter().all(|delta| *delta == 0.0)
+                && previous.is_some_and(|previous| keyboard_physical_eq(previous, current))
+            {
+                previous.map_or(0, |previous| previous.activity_sequence)
+            } else {
+                self.next_activity()
+            };
         }
         frame
             .controllers
             .sort_by_key(|controller| controller.device_id);
-        let known_controller_activity_changed = {
+        let known_controller_activity_changed = frame.controllers.iter().any(|current| {
+            !current.button_edges.pressed.is_empty() || !current.button_edges.released.is_empty()
+        }) || {
             let previous = &self.previous.controllers;
             self.router.controller_activity_changed(
                 previous.iter().filter(|previous| {
@@ -267,6 +292,10 @@ fn keyboard_physical_eq(left: &KeyboardMouseFrame, right: &KeyboardMouseFrame) -
         && left.mouse_buttons == right.mouse_buttons
         && left.mouse_motion == right.mouse_motion
         && left.modifiers == right.modifiers
+        && right.key_edges.pressed.is_empty()
+        && right.key_edges.released.is_empty()
+        && right.mouse_edges.pressed.is_empty()
+        && right.mouse_edges.released.is_empty()
 }
 
 fn touch_physical_eq(left: &TouchContact, right: &TouchContact) -> bool {
@@ -311,11 +340,16 @@ impl SemanticTouchTargets {
     }
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Player authority is borrowed separately from UI state."
+)]
 pub(crate) fn synchronize_semantic_input_authority(
+    player_runtime: bevy::prelude::Res<crate::player_runtime::PlayerRuntime>,
     mut runtime: ResMut<SemanticInputRuntime>,
     ui: Option<Res<UiRuntime>>,
     menu: Option<Res<MenuRuntime>>,
-    presentation: Option<Res<crate::ui_runtime::presentation::UiPresentationRuntime>>,
+    presentation: Option<Res<client_ui::ui_runtime::presentation::UiPresentationRuntime>>,
     settings: Res<RuntimeSettings>,
     client_world: Option<Res<ClientWorld>>,
     mut touch_targets: ResMut<SemanticTouchTargets>,
@@ -327,14 +361,17 @@ pub(crate) fn synchronize_semantic_input_authority(
     let dimension = client_world
         .as_deref()
         .and_then(|world| world.stream.as_ref())
-        .map_or(0, client_world::WorldStream::current_dimension);
-    let context =
-        if crate::screen_policy::absorbs_input(Some(&ui), menu.as_deref(), presentation.as_deref())
-        {
-            InputContext::UiFocused
-        } else {
-            InputContext::Gameplay
-        };
+        .map_or(0, chunk_pipeline::WorldStream::current_dimension);
+    let context = if crate::screen_policy::absorbs_input(
+        &player_runtime,
+        Some(&ui),
+        menu.as_deref(),
+        presentation.as_deref(),
+    ) {
+        InputContext::UiFocused
+    } else {
+        InputContext::Gameplay
+    };
     let Some(session_generation) = NonZeroU64::new(ui.session_id()) else {
         return;
     };
@@ -376,11 +413,82 @@ mod tests {
             movement,
             raw_movement,
             analogue_movement,
+            movement_buttons: Default::default(),
             look_delta: [0.0; 2],
             input_mode: InputMode::GamePad,
             phases: [ActionPhase::default(); Action::COUNT],
             release_reasons: [None; Action::COUNT],
         }))
+    }
+
+    #[test]
+    fn review_equal_nonzero_mouse_deltas_are_new_activity_each_frame() {
+        let mut runtime = SemanticInputRuntime::default();
+        let mut first = DeviceFrame {
+            keyboard_mouse: Some(semantic_input::KeyboardMouseFrame {
+                mouse_motion: [1.0, 0.0],
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        runtime.stamp_activity(&mut first);
+        runtime.previous = first.clone();
+        let mut second = first;
+        runtime.stamp_activity(&mut second);
+        assert!(
+            second.keyboard_mouse.unwrap().activity_sequence
+                > runtime.previous.keyboard_mouse.unwrap().activity_sequence
+        );
+    }
+
+    /// A completed controller tap cannot outrank fresh keyboard input on the next frame.
+    #[test]
+    fn consumed_controller_edges_do_not_steal_new_keyboard_movement() {
+        let mut runtime = SemanticInputRuntime::default();
+        let controller = ControllerFrame {
+            device_id: 7,
+            axes: [0.0, -1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            ..Default::default()
+        };
+        let tapped = runtime
+            .route_and_finalize(DeviceFrame {
+                keyboard_mouse: Some(semantic_input::KeyboardMouseFrame::default()),
+                controllers: vec![ControllerFrame {
+                    button_edges: semantic_input::ButtonEdges {
+                        pressed: vec![0],
+                        released: vec![0],
+                    },
+                    ..controller.clone()
+                }],
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(tapped.input_mode, InputMode::GamePad);
+        assert_eq!(tapped.movement, [0.0, -1.0]);
+        let jump = tapped.phases[Action::Jump as usize];
+        assert!(jump.pressed && jump.released && !jump.held);
+        let controller_activity = runtime.previous.controllers[0].activity_sequence;
+
+        let keyboard = runtime
+            .route_and_finalize(DeviceFrame {
+                keyboard_mouse: Some(semantic_input::KeyboardMouseFrame {
+                    keys: vec![0x1a],
+                    key_edges: semantic_input::ButtonEdges {
+                        pressed: vec![0x1a],
+                        released: vec![],
+                    },
+                    ..Default::default()
+                }),
+                controllers: vec![controller],
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(keyboard.input_mode, InputMode::KeyboardMouse);
+        assert_eq!(keyboard.movement, [0.0, 1.0]);
+        assert_eq!(
+            runtime.previous.controllers[0].activity_sequence,
+            controller_activity
+        );
     }
 
     #[test]
@@ -397,6 +505,37 @@ mod tests {
         assert_eq!(snapshot.movement(), [0.6, 0.8]);
         assert_eq!(snapshot.raw_movement(), [1.0, 0.8]);
         assert_eq!(snapshot.analogue_movement(), [0.6, 0.8]);
+    }
+
+    #[cfg(feature = "local-mods")]
+    #[test]
+    fn personal_attack_pulse_requires_current_held_input() {
+        let mut missing = SemanticInputSnapshot::default();
+        assert!(!missing.request_mod_attack_press());
+        assert!(missing.snapshot().is_none());
+
+        let mut released = snapshot_with_carriers([0.0; 2], [0.0; 2], [0.0; 2]);
+        released.0.as_mut().unwrap().phases[Action::Attack as usize].released = true;
+        let before = released.snapshot().unwrap().clone();
+        assert!(!released.request_mod_attack_press());
+        assert_eq!(released.snapshot(), Some(&before));
+    }
+
+    #[cfg(feature = "local-mods")]
+    #[test]
+    fn personal_attack_pulse_only_adds_one_attack_edge() {
+        let mut input = snapshot_with_carriers([0.6, 0.8], [1.0, 0.8], [0.6, 0.8]);
+        let snapshot = input.0.as_mut().unwrap();
+        snapshot.phases[Action::Attack as usize].held = true;
+        snapshot.phases[Action::Jump as usize].pressed = true;
+        snapshot.look_delta = [1.0, -2.0];
+        let mut expected = snapshot.clone();
+        expected.phases[Action::Attack as usize].pressed = true;
+
+        assert!(input.request_mod_attack_press());
+        assert_eq!(input.snapshot(), Some(&expected));
+        assert!(!input.request_mod_attack_press());
+        assert_eq!(input.snapshot(), Some(&expected));
     }
 
     #[test]

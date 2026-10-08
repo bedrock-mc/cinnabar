@@ -1,0 +1,168 @@
+use assets::{LightProperties, read_light_registry, read_registry};
+use sha2::{Digest, Sha256};
+
+fn lreg(breg: &[u8], properties: &[LightProperties]) -> Vec<u8> {
+    let mut bytes = b"LREG1001".to_vec();
+    bytes.extend_from_slice(&1001_u32.to_le_bytes());
+    bytes.extend_from_slice(&(properties.len() as u32).to_le_bytes());
+    bytes.extend_from_slice(&Sha256::digest(breg));
+    bytes.extend(properties.iter().map(|light| light.packed()));
+    let digest = Sha256::digest(&bytes);
+    bytes.extend_from_slice(&digest);
+    bytes
+}
+
+#[test]
+fn lreg1001_decodes_exactly_one_byte_per_breg_state() {
+    let breg = b"exact BREG1003 bytes";
+    let expected = [
+        LightProperties::new(0, 15).unwrap(),
+        LightProperties::new(13, 2).unwrap(),
+    ];
+    let decoded = read_light_registry(&lreg(breg, &expected), breg, expected.len())
+        .expect("decode bound LREG1001");
+    assert_eq!(decoded.as_ref(), expected);
+    assert!(
+        decoded
+            .iter()
+            .all(|light| light.emission() <= 15 && light.filter() <= 15)
+    );
+}
+
+#[test]
+fn lreg1001_rejects_breg_hash_and_count_mismatch() {
+    let breg = b"exact BREG1003 bytes";
+    let bytes = lreg(breg, &[LightProperties::new(1, 2).unwrap()]);
+    assert!(read_light_registry(&bytes, b"different BREG1003 bytes", 1).is_err());
+    assert!(read_light_registry(&bytes, breg, 2).is_err());
+}
+
+#[test]
+fn lreg1001_rejects_malformed_codec_and_integrity() {
+    let breg = b"exact BREG1003 bytes";
+    let valid = lreg(breg, &[LightProperties::new(1, 2).unwrap()]);
+    let mutations: [fn(&mut Vec<u8>); 5] = [
+        |bytes: &mut Vec<u8>| bytes[0] ^= 1,
+        |bytes: &mut Vec<u8>| bytes[8] ^= 1,
+        |bytes: &mut Vec<u8>| bytes[48] ^= 1,
+        |bytes: &mut Vec<u8>| bytes.push(0),
+        |bytes: &mut Vec<u8>| {
+            bytes.truncate(bytes.len() - 1);
+        },
+    ];
+    for mutation in mutations {
+        let mut malformed = valid.clone();
+        mutation(&mut malformed);
+        assert!(read_light_registry(&malformed, breg, 1).is_err());
+    }
+}
+
+#[test]
+fn light_properties_rejects_malformed_runtime_accessor_values() {
+    assert!(LightProperties::new(16, 0).is_err());
+    assert!(LightProperties::new(0, 16).is_err());
+}
+
+#[test]
+fn checked_in_reserved_states_have_neutral_light() {
+    let breg = include_bytes!("../../data/block-registry-v1001.bin");
+    let records = read_registry(breg).unwrap();
+    let lights = read_light_registry(
+        include_bytes!("../../data/block-light-registry-v1001.bin"),
+        breg,
+        records.len(),
+    )
+    .unwrap();
+    let reserved = records
+        .iter()
+        .filter(|record| record.name.as_ref() == "cinnabar:reserved")
+        .collect::<Vec<_>>();
+    assert_eq!(reserved.len(), 383);
+    assert!(reserved.iter().all(|record| {
+        let light = lights[record.sequential_id as usize];
+        light.emission() == 0 && light.filter() == 0
+    }));
+}
+
+#[test]
+fn shipped_trial_spawners_follow_all_twelve_state_combinations() {
+    let breg = include_bytes!("../../data/block-registry-v2193.bin");
+    let protocol = assets::registry_header_protocol(breg).unwrap();
+    let records = assets::read_registry_for_protocol(breg, protocol).unwrap();
+    let lights = assets::read_light_registry_for_protocol(
+        include_bytes!("../../data/block-light-registry-v2193.bin"),
+        breg,
+        records.len(),
+        protocol,
+    )
+    .unwrap();
+    let expected = [0, 4, 8, 8, 8, 0];
+    let mut count = 0;
+    for record in records
+        .iter()
+        .filter(|r| r.name.as_ref() == "minecraft:trial_spawner")
+    {
+        let state: serde_json::Value = serde_json::from_str(&record.canonical_state).unwrap();
+        let index = state["trial_spawner_state"]["value"].as_u64().unwrap() as usize;
+        assert_eq!(
+            lights[record.sequential_id as usize].emission(),
+            expected[index]
+        );
+        count += 1;
+    }
+    assert_eq!(count, 12);
+}
+
+#[test]
+fn shipped_snow_layers_do_not_dampen_light_at_any_height() {
+    let breg = include_bytes!("../../data/block-registry-v2193.bin");
+    let protocol = assets::registry_header_protocol(breg).unwrap();
+    let records = assets::read_registry_for_protocol(breg, protocol).unwrap();
+    let lights = assets::read_light_registry_for_protocol(
+        include_bytes!("../../data/block-light-registry-v2193.bin"),
+        breg,
+        records.len(),
+        protocol,
+    )
+    .unwrap();
+    let mut count = 0;
+    for record in records
+        .iter()
+        .filter(|r| r.name.as_ref() == "minecraft:snow_layer")
+    {
+        let light = lights[record.sequential_id as usize];
+        assert_eq!(light.filter(), 0, "{}", record.canonical_state);
+        assert_eq!(light.emission(), 0, "{}", record.canonical_state);
+        count += 1;
+    }
+    assert_eq!(count, 16, "all eight heights and both covered states");
+}
+
+#[test]
+fn shipped_ice_light_dampening_distinguishes_translucent_from_packed() {
+    let breg = include_bytes!("../../data/block-registry-v2193.bin");
+    let protocol = assets::registry_header_protocol(breg).unwrap();
+    let records = assets::read_registry_for_protocol(breg, protocol).unwrap();
+    let lights = assets::read_light_registry_for_protocol(
+        include_bytes!("../../data/block-light-registry-v2193.bin"),
+        breg,
+        records.len(),
+        protocol,
+    )
+    .unwrap();
+    for (name, filter, expected_count) in [
+        ("minecraft:ice", 3, 1),
+        ("minecraft:frosted_ice", 3, 4),
+        ("minecraft:packed_ice", 15, 1),
+        ("minecraft:blue_ice", 15, 1),
+    ] {
+        let mut count = 0;
+        for record in records.iter().filter(|record| record.name.as_ref() == name) {
+            let light = lights[record.sequential_id as usize];
+            assert_eq!(light.filter(), filter, "{name} {}", record.canonical_state);
+            assert_eq!(light.emission(), 0, "{name} {}", record.canonical_state);
+            count += 1;
+        }
+        assert_eq!(count, expected_count, "{name}");
+    }
+}

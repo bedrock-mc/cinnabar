@@ -1,0 +1,1 @@
+{"id":"benergistics.all_fields","schema":2,"direction":"to_client","fields":[{"type":"bool"},{"type":"integer","min":-9223372036854775808,"max":9223372036854775807},{"type":"integer","min":-1,"max":9007199254740993},{"type":"text","max_bytes":65535},{"type":"choice","variants":65535}]}

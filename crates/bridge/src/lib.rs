@@ -4,6 +4,7 @@ mod account;
 mod endpoint;
 mod error;
 mod framed;
+mod packet_delay;
 mod status;
 mod store;
 mod worlds;
@@ -12,13 +13,18 @@ use std::path::Path;
 
 pub use account::{
     Account, Artwork, AuthState, ConnectProgress, ConnectStage, ConnectTarget, Events,
-    FeaturedGame, FeaturedServer, Friend, Gathering, Home, Inbox, LiveEvent, Message,
-    MessageButton, MessageEvent, MessageImage, Profile, Realm, ServerDisconnect, ServerPing,
-    account_status, connect_target, home, list_featured_servers, list_friends, list_gatherings,
-    list_realms, ping_servers, poll_events, profile, report_message_event, sign_out,
+    FeaturedGame, FeaturedServer, Friend, Home, Inbox, LiveEvent, Message, MessageButton,
+    MessageEvent, MessageImage, Person, Profile, ProfileAchievement, ProfileAchievements,
+    ProfileStatistics, Realm, ServerDisconnect, ServerPing, ServerTrustPrompt, account_status,
+    answer_server_trust, connect_target, home, list_featured_servers,
+    list_featured_servers_with_counts, list_friends, list_people, list_realms, ping_servers,
+    poll_events, profile, report_message_event, sign_out,
 };
 pub use error::BridgeError;
 pub use framed::FramedStream;
+pub use packet_delay::{
+    PacketDelayLease, RelayedPosition, packet_delay_with_position, set_packet_delay,
+};
 pub use status::{
     Lifecycle, PackAcquisition, PackAdmission, PackApplication, PackDownstreamOutcome, PackOffer,
     StatusV1, TransferPending, read_status, report_pack_application,
@@ -33,8 +39,8 @@ pub use store::{
 pub use worlds::{
     Backend, CODE_EULA_REQUIRED, Difficulty, GameMode, Generator, NewWorld, Prefs, PrefsUpdate,
     Setup, SetupState, UnavailableReason, World, WorldState, WorldStatus, WorldUpdate,
-    accept_bds_eula, close_world, create_world, delete_world, list_worlds, local_worlds_prefs,
-    open_world, open_world_with, set_world_paused, update_world, world_status,
+    accept_bds_eula, close_world, create_world, delete_world, invite_to_world, list_worlds,
+    local_worlds_prefs, open_world, open_world_with, set_world_paused, update_world, world_status,
 };
 
 /// Returns the platform endpoint used for the logical socket directory.

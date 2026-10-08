@@ -1,0 +1,26 @@
+id = "probe"
+version = "0.1.0"
+api = "0.4"
+data-schema = 1
+
+# The channels the probe sends on, as a client part of it would declare them. The runtime ignores
+# [client]; the probe takes its channels from here (`build.rs`).
+[client]
+
+# x=1 and x=19 send the counter; x=20 and x=21 test the runtime's own checks with records that
+# do not match this declaration.
+[[client.channels]]
+id = "probe.counter"
+schema = 1
+direction = "to_client"
+fields = [{ type = "integer", min = 0, max = 4294967295 }]
+
+# x=22 and `epoch` send an item list: records of an index and a name.
+[[client.channels]]
+id = "probe.items"
+schema = 1
+direction = "to_client"
+fields = [{ type = "list", max_items = 400, item = { type = "record", fields = [{ type = "integer", min = 0, max = 399 }, { type = "text", max_bytes = 16 }] } }]
+
+# Filled by the runtime test helper, because the hashes depend on the build.
+[files]

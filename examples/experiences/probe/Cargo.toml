@@ -1,0 +1,15 @@
+[package]
+name = "experience-probe"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+experience-sdk = { path = "../../../crates/experience-sdk", default-features = false, features = ["server"] }
+
+[build-dependencies]
+experience-sdk = { path = "../../../crates/experience-sdk", default-features = false, features = ["declarations"] }

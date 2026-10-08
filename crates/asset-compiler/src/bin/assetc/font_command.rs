@@ -1,15 +1,35 @@
 use super::*;
-use asset_compiler::{
-    GlyphAdvances, OutlineFontConfig, compile_outline_font, compile_outline_font_with_fallback,
+use pack_compiler::{
+    CompiledFontCarrier, GlyphAdvances, OutlineFontConfig, compile_outline_font,
+    compile_outline_font_with_fallback, compact_font_pages, overlay_font_glyph_sheets,
 };
 
 const MAX_MANIFEST: usize = 64 * 1024;
 const MAX_LICENSE: usize = 16 * 1024;
 
+pub(super) struct PostprocessOptions<'a> {
+    pub glyph_pack: Option<&'a Path>,
+    pub compact_pages: bool,
+}
+
+pub(super) fn postprocess(
+    mut compiled: CompiledFontCarrier,
+    options: PostprocessOptions<'_>,
+) -> Result<CompiledFontCarrier, FontCompileError> {
+    if let Some(pack) = options.glyph_pack {
+        compiled = overlay_font_glyph_sheets(compiled, pack)?;
+    }
+    if options.compact_pages {
+        compiled = compact_font_pages(compiled)?;
+    }
+    Ok(compiled)
+}
+
 pub(super) fn compile(
     font: &Path,
     fallback: Option<&Path>,
     primary_only: bool,
+    options: PostprocessOptions<'_>,
     manifest_path: &Path,
     out: &Path,
     report: &Path,
@@ -114,9 +134,34 @@ pub(super) fn compile(
         }
         _ => compile_outline_font(font, &primary, manifest_hash, config)?,
     };
-    // Notices are required before publishing a carrier that redistributes the glyphs.
-    write_blob_atomic(&notices_path, &notices)?;
-    write_compiled_font_assets(source, manifest_hash, compiled, out, report)
+    let compiled = postprocess(compiled, options)?;
+    write_compiled_font_assets(
+        source,
+        manifest_hash,
+        compiled,
+        out,
+        report,
+        &[(&notices_path, &notices)],
+    )
+}
+
+/// Rasterizes an outline font whose size and hash `source` pins, keeping its own advances.
+/// The font carries its own CJK pages, so it is also its own fallback provider.
+pub(super) fn compile_pinned(
+    font: &Path,
+    source: &serde_json::Value,
+    manifest_hash: [u8; 32],
+) -> Result<CompiledFontCarrier, Box<dyn std::error::Error>> {
+    // Both providers read these bytes, within the two-provider 32 MiB source budget.
+    let bytes = verified(font, source, "font", 16 * 1024 * 1024)?;
+    Ok(compile_outline_font_with_fallback(
+        font,
+        &bytes,
+        font,
+        &bytes,
+        manifest_hash,
+        OutlineFontConfig::default(),
+    )?)
 }
 
 fn text<'a>(

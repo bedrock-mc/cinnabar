@@ -44,7 +44,7 @@ where
         platform: parse_platform(required(platform, "--platform")?)?,
         client: PathBuf::from(required(client, "--client")?),
         core: PathBuf::from(required(core, "--core")?),
-        assets: PathBuf::from(required(assets, "--assets")?),
+        assets: PathBuf::from(assets.unwrap_or_else(|| assets::carriers::COMPILED_DIR.to_owned())),
         physics: PathBuf::from(required(physics, "--physics")?),
         notices: PathBuf::from(required(notices, "--notices")?),
         target_triple: validate_target(required(target, "--target")?)?,

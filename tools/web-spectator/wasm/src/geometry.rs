@@ -8,7 +8,7 @@ pub(super) fn append_quad(
 ) {
     let local = quad.origin().map(f32::from);
     let origin = std::array::from_fn(|axis| chunk_origin[axis] + local[axis]);
-    let [width, height] = quad.extent().map(f32::from);
+    let [width, height] = [quad.width(), quad.height()].map(f32::from);
     // Identical face axes and outward winding to Cinnabar's chunk.wgsl.
     let (normal, base, u, v) = match quad.face() {
         Face::NegativeX => ([-1., 0., 0.], origin, [0., 0., width], [0., height, 0.]),

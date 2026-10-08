@@ -53,6 +53,7 @@ pub struct RuntimeAudioCatalog {
     source_manifest_sha256: [u8; 32],
     sound_definitions_sha256: [u8; 32],
     envelope_sha256: [u8; 32],
+    carrier_sha256: [u8; 32],
     definitions: Box<[AudioDefinition]>,
 }
 
@@ -78,10 +79,9 @@ impl RuntimeAudioCatalog {
             return invalid("noncanonical carrier section lengths");
         }
         let hash_offset = bytes.len() - HASH_BYTES;
-        let expected_hash: [u8; 32] = Sha256::digest(&bytes[..hash_offset]).into();
-        if bytes[hash_offset..] != expected_hash {
+        let Some(carrier_sha256) = crate::encoding::sealed_identity(bytes, hash_offset) else {
             return invalid("carrier envelope hash mismatch");
-        }
+        };
 
         let source_manifest_sha256 = array_at(bytes, 24)?;
         let sound_definitions_sha256 = array_at(bytes, 56)?;
@@ -153,7 +153,8 @@ impl RuntimeAudioCatalog {
         Ok(Self {
             source_manifest_sha256,
             sound_definitions_sha256,
-            envelope_sha256: expected_hash,
+            envelope_sha256: array_at(bytes, hash_offset)?,
+            carrier_sha256,
             definitions: definitions.into_boxed_slice(),
         })
     }
@@ -179,6 +180,11 @@ impl RuntimeAudioCatalog {
 
     pub fn envelope_sha256(&self) -> [u8; 32] {
         self.envelope_sha256
+    }
+
+    /// The SHA-256 of the whole carrier file.
+    pub fn carrier_sha256(&self) -> [u8; 32] {
+        self.carrier_sha256
     }
 }
 

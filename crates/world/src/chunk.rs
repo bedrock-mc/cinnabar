@@ -133,7 +133,7 @@ impl SubChunkKey {
 /// Sparse block data for one chunk column.
 #[derive(Debug, Default)]
 pub struct Chunk {
-    pub(crate) sub_chunks: BTreeMap<i32, Arc<SubChunk>>,
+    pub(crate) sub_chunks: Arc<BTreeMap<i32, Arc<SubChunk>>>,
     pub(crate) biomes: Option<DecodedBiomeColumn>,
     pub(crate) block_entities: BTreeMap<BlockEntityKey, Arc<BlockEntityNbt>>,
     pub(crate) block_entity_bytes: usize,
@@ -149,6 +149,11 @@ impl Chunk {
         self.sub_chunks
             .iter()
             .map(|(&y, sub_chunk)| (y, Arc::clone(sub_chunk)))
+    }
+
+    /// Retains the immutable section index; edits copy the index only while a job holds it.
+    pub fn shared_sub_chunks(&self) -> Arc<BTreeMap<i32, Arc<SubChunk>>> {
+        Arc::clone(&self.sub_chunks)
     }
 
     /// Returns the packed biome storage for one absolute sub-chunk Y.

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal">
+  <!-- The embedded MSI remains the single owner of files, shortcuts and upgrades. -->
+  <Bundle Name="Cinnabar Setup" Manufacturer="Cinnabar" Version="$(Version)"
+          UpgradeCode="3D75803D-B970-4281-A17B-7BCC8CF39F7C" IconSourceFile="$(Icon)">
+    <BootstrapperApplication>
+      <bal:WixStandardBootstrapperApplication Theme="hyperlinkLicense" LicenseUrl=""
+                                               LogoFile="$(Logo)" />
+    </BootstrapperApplication>
+    <Chain>
+      <MsiPackage SourceFile="$(Msi)" Compressed="yes" Visible="no" />
+    </Chain>
+  </Bundle>
+</Wix>

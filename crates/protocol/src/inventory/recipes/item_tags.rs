@@ -39,11 +39,13 @@ mod tests {
 
     use super::*;
 
-    /// The embedded table is exactly the pinned artifact, and its header's
+    /// The embedded table's LF contents are exactly the pinned artifact, and its header's
     /// source digest is recorded in the data-sources manifest.
     #[test]
     fn table_is_pinned_and_its_source_is_in_the_manifest() {
-        let digest: [u8; 32] = Sha256::digest(TABLE.as_bytes()).into();
+        // Git's Windows checkout can convert the text table to CRLF.
+        let canonical = TABLE.replace("\r\n", "\n");
+        let digest: [u8; 32] = Sha256::digest(canonical.as_bytes()).into();
         assert_eq!(
             hex(&digest),
             "f291e91d363203b16f92c6625361e09ed367d65ed67d9fb056b527019867c3ac"
@@ -58,14 +60,16 @@ mod tests {
             .unwrap();
         let manifest = include_str!("../../../../../assets/block-data-sources.json");
         assert!(manifest.contains(&format!("\"sha256\": \"{source}\"")));
-        assert_eq!(tags().len(), 77);
-        assert_eq!(
-            tags()
-                .iter()
-                .map(|(_, members)| members.len())
-                .sum::<usize>(),
-            1201
-        );
+        for row in TABLE.lines().filter(|line| !line.starts_with('#')) {
+            let (tag, members) = row.split_once('\t').expect("item tag row");
+            for identifier in members.split_whitespace() {
+                assert_eq!(
+                    vanilla_tag_contains(tag, identifier),
+                    Some(true),
+                    "{tag}: {identifier}"
+                );
+            }
+        }
     }
 
     #[test]

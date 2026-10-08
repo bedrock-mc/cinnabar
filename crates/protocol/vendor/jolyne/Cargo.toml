@@ -20,7 +20,7 @@ discovery = ["nethernet"]
 xbox-signaling = ["nethernet"]
 
 [dependencies]
-tokio = { version = "1.48", default-features = false, features = ["sync", "time"] }
+tokio = { version = "1.48", default-features = false, features = ["rt", "sync", "time"] }
 bytes = "1.11"
 thiserror = "1.0"
 valentine = { version = "0.1.0", path = "../valentine", default-features = false }

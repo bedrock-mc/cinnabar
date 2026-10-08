@@ -1,10 +1,11 @@
 use protocol::{InventoryEvent, ItemRegistryEvent, WorldEvent};
 
-use crate::ui_runtime::{UiRuntime, UiRuntimeError};
+use client_ui::ui_runtime::{UiRuntime, UiRuntimeError};
 
 use super::session;
 
 pub(crate) fn publish_bootstrap_inventory(
+    player_runtime: &mut crate::player_runtime::PlayerRuntime,
     runtime: &mut UiRuntime,
     registry: Option<ItemRegistryEvent>,
     inventory: InventoryEvent,
@@ -12,15 +13,18 @@ pub(crate) fn publish_bootstrap_inventory(
     let InventoryEvent::Authority(authority) = inventory else {
         return false;
     };
-    runtime.publish_crafting_bootstrap(registry.as_ref(), authority);
+    runtime.publish_crafting_bootstrap(player_runtime, registry.as_ref(), authority);
     if let Some(registry) = registry {
-        runtime.inventory_ledger_mut().apply_registry(&registry);
+        runtime
+            .inventory_ledger_mut(player_runtime)
+            .apply_registry(&registry);
     }
-    runtime.publish_inventory_authority(authority);
+    runtime.publish_inventory_authority(player_runtime, authority);
     true
 }
 
 pub(crate) fn route_inventory_ingress(
+    player_runtime: &mut crate::player_runtime::PlayerRuntime,
     runtime: &mut UiRuntime,
     sequenced: session::SequencedWorldEvent,
 ) -> Result<u64, UiRuntimeError> {
@@ -33,11 +37,12 @@ pub(crate) fn route_inventory_ingress(
         unreachable!("inventory routing accepts only inventory world events")
     };
     super::item_diagnostics::inventory(&event);
-    runtime.enqueue_inventory_event(session_generation, sequence, event)?;
+    runtime.enqueue_inventory_event(player_runtime, session_generation, sequence, event)?;
     Ok(sequence)
 }
 
 pub(crate) fn route_item_registry_ingress(
+    player_runtime: &mut crate::player_runtime::PlayerRuntime,
     runtime: &mut UiRuntime,
     sequenced: &session::SequencedWorldEvent,
 ) -> Result<(), UiRuntimeError> {
@@ -45,6 +50,7 @@ pub(crate) fn route_item_registry_ingress(
         unreachable!("item-registry routing accepts only registry world events")
     };
     runtime.enqueue_item_registry_event(
+        player_runtime,
         sequenced.session_generation,
         sequenced.sequence,
         event.clone(),

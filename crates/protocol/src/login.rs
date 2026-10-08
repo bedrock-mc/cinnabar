@@ -1,26 +1,29 @@
 use std::collections::VecDeque;
 use std::path::Path;
+use std::sync::Arc;
 
-use bytes::{Buf, Bytes};
+use bytes::Bytes;
 use jolyne::error::JolyneError;
 use jolyne::raw::RawPacket;
 use jolyne::stream::client::ClientHandshakeConfig;
 use jolyne::stream::transport::{BedrockTransport, Transport};
 use jolyne::stream::{BedrockStream, Client, Handshake, Play};
 use valentine::bedrock::version::v1_26_51::{McpePacketData, McpePacketName};
+#[cfg(test)]
 use valentine::protocol::wire;
 
 use crate::blob_cache::ResolverReady;
 use crate::socket_transport::SocketTransport;
 use crate::{
     BlobCacheResolver, BlobCacheStats, ClientBlobCache, GameData, LevelChunkEvent, Packet,
-    ProtocolError, ResourcePackHandoff, ServerDisconnectEvent, ServerTransferEvent, WorldEvent,
-    into_world_event,
+    ProtocolError, ResourcePackHandoff, ResourcePackStore, ServerDisconnectEvent,
+    ServerTransferEvent, WorldEvent, into_world_event,
 };
 
 mod boundary;
 mod latency_probe;
 mod packet_trace;
+mod raw_equipment;
 use boundary::boundary_wakeup;
 pub use latency_probe::network_stack_latency_reply;
 pub use packet_trace::PacketIdTraceSnapshot;
@@ -43,7 +46,7 @@ impl LoginSequence {
         let transport = SocketTransport::connect(socket_dir)
             .await
             .map_err(ProtocolError::Bridge)?;
-        Self::connect_transport_inner(transport, display_name, None, skin).await
+        Self::connect_transport_inner(transport, display_name, None, skin, None).await
     }
 
     /// Connects with a persistent verified cache and a fresh session-owned resolver.
@@ -52,11 +55,12 @@ impl LoginSequence {
         display_name: &str,
         cache: ClientBlobCache,
         skin: Option<crate::ClientSkin>,
+        pack_store: Option<Arc<dyn ResourcePackStore>>,
     ) -> Result<(PlaySession, GameData), ProtocolError> {
         let transport = SocketTransport::connect(socket_dir)
             .await
             .map_err(ProtocolError::Bridge)?;
-        Self::connect_transport_inner(transport, display_name, Some(cache), skin).await
+        Self::connect_transport_inner(transport, display_name, Some(cache), skin, pack_store).await
     }
 
     /// Headless test seam that treats the received spawn prerequisites as presentation readiness.
@@ -66,7 +70,7 @@ impl LoginSequence {
         display_name: &str,
     ) -> Result<(PlaySession<T>, GameData), ProtocolError> {
         let (mut session, data) =
-            Self::connect_transport_inner(transport, display_name, None, None).await?;
+            Self::connect_transport_inner(transport, display_name, None, None, None).await?;
         session.finish_loading().await?;
         Ok((session, data))
     }
@@ -79,7 +83,7 @@ impl LoginSequence {
         cache: ClientBlobCache,
     ) -> Result<(PlaySession<T>, GameData), ProtocolError> {
         let (mut session, data) =
-            Self::connect_transport_inner(transport, display_name, Some(cache), None).await?;
+            Self::connect_transport_inner(transport, display_name, Some(cache), None, None).await?;
         session.finish_loading().await?;
         Ok((session, data))
     }
@@ -89,6 +93,7 @@ impl LoginSequence {
         display_name: &str,
         cache: Option<ClientBlobCache>,
         skin: Option<crate::ClientSkin>,
+        pack_store: Option<Arc<dyn ResourcePackStore>>,
     ) -> Result<(PlaySession<T>, GameData), ProtocolError> {
         let peer_addr = transport.peer_addr();
         let mut transport = BedrockTransport::new(transport);
@@ -98,6 +103,9 @@ impl LoginSequence {
             .with_client_cache_enabled(cache.is_some());
         if let Some(skin) = skin {
             config = config.with_skin(skin);
+        }
+        if let Some(store) = pack_store {
+            config = config.with_resource_pack_store(store);
         }
         let (stream, game_data) = stream.join(config).await?;
         Ok((PlaySession::new(stream, cache), game_data))
@@ -190,6 +198,13 @@ impl<T: Transport> PlaySession<T> {
     /// No archive is parsed or applied, and a second call returns an empty handoff.
     pub fn take_resource_pack_handoff(&mut self) -> ResourcePackHandoff {
         self.stream.take_resource_pack_handoff()
+    }
+
+    /// Whether the server sent terrain before login completed at PlayerSpawn.
+    /// Servers such as Dragonfly stream none until the client reports initialized.
+    #[must_use]
+    pub fn terrain_before_spawn(&self) -> bool {
+        self.stream.terrain_before_spawn()
     }
 
     /// Skips a well-formed but semantically unusable world packet instead of
@@ -717,6 +732,14 @@ fn decode_world_raw_with(
     current_dimension: i32,
     decode: impl FnOnce(RawPacket) -> Result<Packet, JolyneError>,
 ) -> Result<Option<WorldEvent>, ProtocolError> {
+    if raw.id == McpePacketName::ItemRegistryPacket {
+        // Login has already initialized this session's registry. Vanilla 1.26.50
+        // ignores a repeated item registry once initialized, including an
+        // empty/custom-only repeat. Decode the wire first so malformed repeats remain fatal;
+        // neither the inventory ledger nor actor item store may be rebound here.
+        decode(raw)?;
+        return Ok(None);
+    }
     if raw.id == McpePacketName::UpdateAbilitiesPacket {
         return crate::decode_abilities_update(raw.body())
             .map(WorldEvent::Abilities)
@@ -756,20 +779,22 @@ fn decode_world_raw_with(
             | McpePacketName::UpdateAttributesPacket
             | McpePacketName::ActorEventPacket
             | McpePacketName::AddItemActorPacket
+            | McpePacketName::AvailableActorIdentifiersPacket
             | McpePacketName::TakeItemActorPacket
             | McpePacketName::PlayerListPacket
             | McpePacketName::PlayerSkinPacket
-            | McpePacketName::ItemRegistryPacket
             | McpePacketName::MobEquipmentPacket
             | McpePacketName::MobArmorEquipmentPacket
             | McpePacketName::MobEffectPacket
             | McpePacketName::SetActorLinkPacket
             | McpePacketName::SyncActorPropertyPacket
             | McpePacketName::SetPlayerGameTypePacket
+            | McpePacketName::UpdatePlayerGameTypePacket
             | McpePacketName::SetDefaultGameTypePacket
             | McpePacketName::InventoryContentPacket
             | McpePacketName::CreativeContentPacket
             | McpePacketName::InventorySlotPacket
+            | McpePacketName::InventoryTransactionPacket
             | McpePacketName::PlayerHotbarPacket
             | McpePacketName::ItemStackResponsePacket
             | McpePacketName::ContainerOpenPacket
@@ -780,7 +805,9 @@ fn decode_world_raw_with(
             | McpePacketName::AnimateEntityPacket
             | McpePacketName::LevelChunkPacket
             | McpePacketName::SubChunkPacket
+            | McpePacketName::DimensionDataPacket
             | McpePacketName::UpdateBlockPacket
+            | McpePacketName::UpdateBlockSyncedPacket
             | McpePacketName::UpdateSubChunkBlocksPacket
             | McpePacketName::BlockActorDataPacket
             | McpePacketName::BlockEventPacket
@@ -789,12 +816,16 @@ fn decode_world_raw_with(
             | McpePacketName::ChunkRadiusUpdatedPacket
             | McpePacketName::NetworkChunkPublisherUpdatePacket
             | McpePacketName::ChangeDimensionPacket
+            | McpePacketName::ShowCreditsPacket
+            | McpePacketName::PlayerActionPacket
             | McpePacketName::RespawnPacket
             | McpePacketName::MovePlayerPacket
             | McpePacketName::CorrectPlayerMovePredictionPacket
             | McpePacketName::SetActorMotionPacket
+            | McpePacketName::MovementEffectPacket
             | McpePacketName::NetworkStackLatencyPacket
             | McpePacketName::SetTimePacket
+            | McpePacketName::SyncWorldClocksPacket
             | McpePacketName::GameRulesChangedPacket
             | McpePacketName::LevelEventPacket
             | McpePacketName::LevelEventGenericPacket
@@ -806,6 +837,12 @@ fn decode_world_raw_with(
             | McpePacketName::CameraShakePacket
             | McpePacketName::CameraInstructionPacket
             | McpePacketName::CameraPresetsPacket
+            | McpePacketName::CameraSplinePacket
+            | McpePacketName::CameraAimAssistPacket
+            | McpePacketName::CameraAimAssistPresetsPacket
+            | McpePacketName::CameraAimAssistActorPriorityPacket
+            | McpePacketName::ScriptMessagePacket
+            | McpePacketName::PrimitiveShapesPacket
     ) {
         return Ok(None);
     }
@@ -828,7 +865,7 @@ fn decode_world_raw_with(
         crate::audio::validate_borrowed_audio_packet(&borrowed.data)?;
     }
     if raw.id == McpePacketName::MobEquipmentPacket
-        && let Some(equipment) = decode_empty_mob_equipment(&raw)?
+        && let Some(equipment) = raw_equipment::decode_empty_mob_equipment(&raw)?
     {
         return Ok(Some(WorldEvent::Equipment(equipment)));
     }
@@ -869,78 +906,12 @@ fn demote_ui_semantic_rejection(error: ProtocolError) -> ProtocolError {
     }
 }
 
-fn decode_empty_mob_equipment(
-    raw: &RawPacket,
-) -> Result<Option<crate::EquipmentEvent>, ProtocolError> {
-    let malformed = || {
-        ProtocolError::World(crate::world::WorldPacketError::from(
-            crate::ItemPacketError::MalformedWire,
-        ))
-    };
-    let contradictory = || {
-        ProtocolError::World(crate::world::WorldPacketError::Item(
-            crate::ItemPacketError::ContradictoryStackId,
-        ))
-    };
-    let mut body = raw.body().clone();
-    let actor_runtime_id = wire::read_var_u64(&mut body).map_err(|_| malformed())?;
-    if body.remaining() < 2 {
-        return Err(malformed());
-    }
-    let network_id = body.get_i16_le();
-    if network_id != 0 {
-        return Ok(None);
-    }
-    if body.remaining() < 3 {
-        return Err(malformed());
-    }
-    let count = body.get_u16_le();
-    let metadata = wire::read_var_u32(&mut body).map_err(|_| malformed())?;
-    let mut contradictory_shape = count != 0 || metadata != 0;
-    if !body.has_remaining() {
-        return Err(malformed());
-    }
-    let has_stack_id = body.get_u8();
-    if has_stack_id != 0 {
-        let _stack_id = wire::read_var_u32(&mut body).map_err(|_| malformed())?;
-        contradictory_shape = true;
-    }
-    let block_runtime_id = wire::read_var_u32(&mut body).map_err(|_| malformed())?;
-    let extra_len = usize::try_from(wire::read_var_u32(&mut body).map_err(|_| malformed())?)
-        .unwrap_or(usize::MAX);
-    if body.remaining() < extra_len {
-        return Err(malformed());
-    }
-    body.advance(extra_len);
-    contradictory_shape |= block_runtime_id != 0 || extra_len != 0;
-    if body.remaining() < 3 {
-        return Err(malformed());
-    }
-    let inventory_slot = body.get_u8();
-    let selected_slot = body.get_u8();
-    // The container ID is a plain byte in 1.26.40 rather than a named enum.
-    let window = body.get_u8();
-    if body.has_remaining() {
-        return Err(ProtocolError::TrailingPacketBytes {
-            remaining: body.remaining(),
-        });
-    }
-    if contradictory_shape {
-        return Err(contradictory());
-    }
-    Ok(Some(
-        crate::item::normalize_empty_equipment(
-            actor_runtime_id,
-            inventory_slot,
-            selected_slot,
-            window,
-        )
-        .map_err(|error| ProtocolError::World(crate::world::WorldPacketError::Item(error)))?,
-    ))
-}
-
 #[cfg(test)]
 mod block_event_tests;
+#[cfg(test)]
+mod dimension_ingress_tests;
+#[cfg(test)]
+mod experience_ingress_tests;
 #[cfg(test)]
 mod generic_event_tests;
 #[cfg(test)]
@@ -957,3 +928,21 @@ mod recipe_ingress_tests;
 
 #[cfg(test)]
 mod ability_ingress_tests;
+
+#[cfg(test)]
+mod game_mode_ingress_tests;
+
+#[cfg(test)]
+mod inventory_transaction_ingress_tests;
+
+#[cfg(test)]
+mod credits_ingress_tests;
+
+#[cfg(test)]
+mod block_sync_tests;
+
+#[cfg(test)]
+mod actor_identifier_ingress_tests;
+
+#[cfg(test)]
+mod primitive_shapes_ingress_tests;

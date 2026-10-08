@@ -19,6 +19,8 @@ const CONTROL_UNIX_ENDPOINT_NAME: &str = "control.sock";
 const GAME_WINDOWS_ENDPOINT_NAME: &str = "game.addr";
 #[cfg(windows)]
 const CONTROL_WINDOWS_ENDPOINT_NAME: &str = "control.addr";
+#[cfg(any(windows, test))]
+const MAX_WINDOWS_PUBLICATION_BYTES: usize = 128;
 
 #[derive(Clone, Copy)]
 pub(crate) enum EndpointKind {
@@ -188,12 +190,27 @@ async fn connect_windows(
             "endpoint publication is not a regular file",
         ));
     }
-    let publication = tokio::fs::read(&path)
+    let file = tokio::fs::File::open(&path)
+        .await
+        .map_err(|source| endpoint_read(&path, source))?;
+    let publication = read_windows_publication(file)
         .await
         .map_err(|source| endpoint_read(&path, source))?;
     let address = parse_windows_publication(&path, &publication)?;
     let stream = TcpStream::connect(address).await.map_err(BridgeError::Io)?;
     Ok(PlatformStream::Tcp(stream))
+}
+
+/// Reads an endpoint publication before validating its canonical address.
+#[cfg(any(windows, test))]
+async fn read_windows_publication(reader: impl AsyncRead + Unpin) -> io::Result<Vec<u8>> {
+    use tokio::io::AsyncReadExt;
+    let mut bytes = Vec::new();
+    reader
+        .take((MAX_WINDOWS_PUBLICATION_BYTES + 1) as u64)
+        .read_to_end(&mut bytes)
+        .await?;
+    Ok(bytes)
 }
 
 #[cfg(windows)]
@@ -203,7 +220,9 @@ fn parse_windows_publication(
 ) -> Result<std::net::SocketAddrV4, BridgeError> {
     use std::net::{Ipv4Addr, SocketAddrV4};
 
-    if !(2..=128).contains(&publication.len()) || publication.last() != Some(&b'\n') {
+    if !(2..=MAX_WINDOWS_PUBLICATION_BYTES).contains(&publication.len())
+        || publication.last() != Some(&b'\n')
+    {
         return Err(invalid_endpoint(
             path,
             "publication length or terminator is invalid",
@@ -312,6 +331,14 @@ mod tests {
 
     use super::validate_socket_dir;
     use crate::BridgeError;
+
+    #[tokio::test]
+    async fn review_endpoint_publication_read_is_bounded_before_allocation() {
+        let mut reader = std::io::Cursor::new(vec![b'x'; 1024 * 1024]);
+        let bytes = super::read_windows_publication(&mut reader).await.unwrap();
+        assert_eq!(bytes.len(), super::MAX_WINDOWS_PUBLICATION_BYTES + 1);
+        assert_eq!(reader.position(), bytes.len() as u64);
+    }
 
     #[test]
     fn empty_socket_directory_is_rejected() {

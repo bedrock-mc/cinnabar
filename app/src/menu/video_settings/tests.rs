@@ -25,7 +25,7 @@ impl ConfigRoot {
     }
 
     fn menu(&self) -> MenuRuntime {
-        let mut layout = crate::install_layout::InstallLayout::discover().unwrap();
+        let mut layout = crate::install_layout::checkout();
         layout.user_config_root = self.0.clone();
         let skin = crate::player_skin::LocalPlayerSkin::generated_default("Steve");
         MenuRuntime::new_with_layout(true, Some(2), "Steve".to_owned(), layout, skin)
@@ -70,7 +70,12 @@ fn changed_values_persist_without_saving_viewport_clamps_or_cli_overrides() {
     save(&root.0, expected).unwrap();
     let mut menu = root.menu();
     menu.set_gui_scale_preference(Some(4));
-    menu.sync_gui_scale(-1, vec![-1, 0]);
+    menu.sync_gui_scale(
+        -1,
+        ui::DesktopGuiScale::for_window([1280, 720])
+            .choices()
+            .collect(),
+    );
     let mut app = App::new();
     app.insert_resource(menu)
         .add_systems(Update, persist_video_settings);
@@ -83,6 +88,7 @@ fn changed_values_persist_without_saving_viewport_clamps_or_cli_overrides() {
         .resource_mut::<MenuRuntime>()
         .activate(MenuAction::SettingsFullscreen(true));
     app.update();
+    wait_for_save(&mut app);
     let loaded = load(&root.0).unwrap();
     assert!(loaded.fullscreen);
     assert_eq!(loaded.gui_scale_offset, expected.gui_scale_offset);
@@ -90,6 +96,7 @@ fn changed_values_persist_without_saving_viewport_clamps_or_cli_overrides() {
         .resource_mut::<MenuRuntime>()
         .activate(MenuAction::SettingsScale(-1));
     app.update();
+    wait_for_save(&mut app);
     assert_eq!(load(&root.0).unwrap().gui_scale_offset, -1);
 }
 
@@ -177,6 +184,7 @@ fn f11_can_disable_a_loaded_fullscreen_preference_and_saves_it() {
         window,
     });
     app.update();
+    wait_for_save(&mut app);
     assert!(!load(&root.0).unwrap().fullscreen);
     let restarted = root.menu();
     assert!(!restarted.view().fullscreen);
@@ -201,4 +209,64 @@ fn malformed_and_oversized_files_return_errors_without_overwriting_them() {
     assert_eq!(fs::read(&path).unwrap(), br#"{"fullscreen": "yes"}"#);
     fs::write(&path, vec![b' '; MAX_FILE_BYTES as usize + 1]).unwrap();
     assert!(load(&root.0).is_err());
+}
+
+/// Waits for the worker's acknowledgment while driving the normal persistence system.
+fn wait_for_save(app: &mut App) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    loop {
+        app.update();
+        let menu = app.world().resource::<MenuRuntime>();
+        let current = SavedVideoSettings {
+            fullscreen: menu.fullscreen,
+            gui_scale_offset: menu.gui_scale_offset,
+        };
+        if menu.last_saved_video_settings == current {
+            return;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "video settings were not acknowledged"
+        );
+        std::thread::yield_now();
+    }
+}
+
+#[test]
+fn a_pending_video_write_can_return_to_the_last_saved_value() {
+    use std::{sync::mpsc, time::Duration};
+
+    let root = ConfigRoot::new();
+    let mut menu = root.menu();
+    let original = menu.last_saved_video_settings;
+    let (saved_tx, saved_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let mut first = true;
+    menu.video_settings_writer = Some(
+        writer::Writer::new(move |settings| {
+            saved_tx.send(settings).unwrap();
+            if first {
+                first = false;
+                release_rx.recv().unwrap();
+            }
+            Ok(())
+        })
+        .unwrap(),
+    );
+    menu.gui_scale_offset = original.gui_scale_offset + 1;
+    let mut app = App::new();
+    app.insert_resource(menu)
+        .add_systems(Update, persist_video_settings);
+    app.update();
+    let first = saved_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+    app.world_mut()
+        .resource_mut::<MenuRuntime>()
+        .gui_scale_offset = original.gui_scale_offset;
+    app.update();
+    release_tx.send(()).unwrap();
+    assert_ne!(first, original);
+    assert_eq!(
+        saved_rx.recv_timeout(Duration::from_secs(2)).unwrap(),
+        original
+    );
 }

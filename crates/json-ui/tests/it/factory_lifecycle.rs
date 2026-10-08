@@ -1,0 +1,170 @@
+use std::sync::Arc;
+
+use json_ui::{
+    BindState, CachedLibrary, Catalog, CatalogLibrary, Context, DataSource, FactoryItem,
+    ResolveCache, ResolvedControl, Scalar, bind_incremental,
+};
+use serde_json::json;
+
+#[test]
+fn replacement_factory_birth_resets_only_its_own_once_bindings() {
+    verify_lifecycle(false);
+}
+
+#[test]
+fn factory_message_identity_replaces_a_control_at_the_same_birth_time() {
+    verify_lifecycle(true);
+}
+
+fn verify_lifecycle(identified: bool) {
+    let mut catalog = Catalog::default();
+    catalog.overlay_text(
+        "ui/lifecycle.json",
+        r##"{"namespace":"lifecycle",
+        "root":{"type":"panel","controls":[
+            {"retained":{"type":"label","text":"#text","bindings":[
+                {"binding_name":"#value","binding_name_override":"#text","binding_condition":"once"}
+            ]}},
+            {"factory":{"type":"panel","factory":{"name":"feed","control_ids":{"label":"lifecycle.instance"}}}}
+        ]},
+        "instance":{"type":"panel","controls":[
+            {"label":{"type":"label","text":"#text","bindings":[
+                {"binding_name":"#value","binding_name_override":"#text","binding_condition":"once"}
+            ]}},
+            {"gated":{"type":"panel","bindings":[
+                {"binding_name":"#show","binding_name_override":"#visible"}
+            ],"controls":[{"label":{"type":"label","text":"#text","bindings":[
+                {"binding_name":"#value","binding_name_override":"#text","binding_condition":"once"}
+            ]}}]}}
+        ]}}
+        "##,
+    );
+    let context = Context::empty();
+    let root = Arc::new(
+        json_ui::resolve(&catalog, "lifecycle.root", &context)
+            .control
+            .unwrap(),
+    );
+    let mut state = BindState::new();
+    let mut cache = ResolveCache::default();
+    let mut refresh = |value: &str, born: f64, shown: bool| {
+        let mut data = DataSource::new();
+        data.set_global("#value", Scalar::Text(value.into()));
+        data.set_global("#show", Scalar::Bool(shown));
+        let item = FactoryItem::new("label", if identified { 0.0 } else { born }).named("label");
+        let item = if identified {
+            item.identified(born as u64)
+        } else {
+            item
+        };
+        data.set_factory("feed", vec![item]);
+        bind_incremental(
+            &root,
+            &Arc::new(data),
+            &CachedLibrary {
+                library: CatalogLibrary {
+                    catalog: &catalog,
+                    context: &context,
+                },
+                cache: &mut cache,
+            },
+            &mut state,
+        )
+    };
+    assert_eq!(
+        labels(&refresh("first", 0.0, true)),
+        ["first", "first", "first"]
+    );
+    assert_eq!(
+        labels(&refresh("ordinary update", 0.0, false)),
+        ["first", "first"]
+    );
+    assert_eq!(
+        labels(&refresh("replacement", 1.0, false)),
+        ["first", "replacement"],
+        "a replacement creates fresh binding state without resetting its sibling"
+    );
+    assert_eq!(
+        labels(&refresh("replacement", 1.0, true)),
+        ["first", "replacement", "replacement"],
+        "a dormant descendant belongs to the replacement's incarnation"
+    );
+    assert_eq!(
+        labels(&refresh("later update", 1.0, true)),
+        ["first", "replacement", "replacement"]
+    );
+    refresh("later update", 1.0, true);
+    assert_eq!(
+        state.rebuilt(),
+        0,
+        "an unchanged instance rebuilds no controls"
+    );
+}
+
+fn labels(control: &ResolvedControl) -> Vec<String> {
+    let mut texts = Vec::new();
+    if control.properties.get("visible") == Some(&json!(false)) {
+        return texts;
+    }
+    if control.control_type.as_deref() == Some("label")
+        && let Some(text) = control
+            .properties
+            .get("text")
+            .and_then(serde_json::Value::as_str)
+    {
+        texts.push(text.to_owned());
+    }
+    for child in &control.children {
+        texts.extend(labels(child));
+    }
+    texts
+}
+
+#[test]
+fn dormant_nested_factory_keeps_its_own_incarnation_below_the_same_outer_instance() {
+    let mut catalog = Catalog::default();
+    catalog.overlay_text("ui/nested.json", r##"{"namespace":"nested",
+        "root":{"type":"panel","factory":{"name":"outer","control_ids":{"role":"nested.outer"}}},
+        "outer":{"type":"panel","controls":[{"gate":{"type":"panel","bindings":[
+            {"binding_name":"#show","binding_name_override":"#visible"}
+        ],"controls":[{"inner":{"type":"panel","factory":{"name":"inner","control_ids":{"role":"nested.inner"}}}}]}}]},
+        "inner":{"type":"label","text":"#text","bindings":[
+            {"binding_name":"#value","binding_name_override":"#text","binding_condition":"once"}
+        ]}}
+        "##);
+    let context = Context::empty();
+    let root = Arc::new(
+        json_ui::resolve(&catalog, "nested.root", &context)
+            .control
+            .unwrap(),
+    );
+    let mut state = BindState::new();
+    let mut cache = ResolveCache::default();
+    let mut refresh = |value: &str, shown: bool, outer: u64| {
+        let mut data = DataSource::new();
+        data.set_global("#value", Scalar::Text(value.into()));
+        data.set_global("#show", Scalar::Bool(shown));
+        data.set_factory(
+            "outer",
+            vec![FactoryItem::new("role", 0.0).identified(outer)],
+        );
+        data.set_factory("inner", vec![FactoryItem::new("role", 0.0).identified(7)]);
+        bind_incremental(
+            &root,
+            &Arc::new(data),
+            &CachedLibrary {
+                library: CatalogLibrary {
+                    catalog: &catalog,
+                    context: &context,
+                },
+                cache: &mut cache,
+            },
+            &mut state,
+        )
+    };
+    assert_eq!(labels(&refresh("first", true, 1)), ["first"]);
+    assert!(labels(&refresh("changed while hidden", false, 1)).is_empty());
+    assert_eq!(labels(&refresh("changed while hidden", true, 1)), ["first"]);
+    assert!(labels(&refresh("replacement", false, 2)).is_empty());
+    assert_eq!(labels(&refresh("replacement", true, 2)), ["replacement"]);
+}

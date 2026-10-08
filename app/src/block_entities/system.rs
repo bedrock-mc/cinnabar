@@ -1,21 +1,17 @@
 //! The per-frame system, carrier loading and the caches behind them.
 
-use std::{
-    collections::{HashMap, HashSet},
-    path::Path,
-    sync::Arc,
-};
+use std::{collections::HashMap, path::Path, sync::Arc};
 
 use assets::{BlockEntityRouteKind, RuntimeBlockEntityAssets, RuntimeFontCatalog};
 use bevy::prelude::*;
 use render::{
     AtlasRect, AtmosphereFrame, BeaconModel, BellModel, BlockEntityFrame, BlockEntityKind,
-    BlockEntityScene, BlockEntitySubmission, ConduitModel, CrackShape, SceneClock, SignFace,
-    SignModel, StaticItemPlacement, StaticItemPlacements, crack_shape_from_template,
-    item_frame_item_transform, matrix_rows,
+    BlockEntityLight, BlockEntityScene, BlockEntitySubmission, ConduitModel, CrackShape,
+    SceneClock, SignFace, SignModel, StaticItemPlacement, StaticItemPlacements,
+    crack_shape_from_template, item_frame_item_transform, matrix_rows,
 };
 use ui::TextLayoutCache;
-use world::{BlockEntityKey, BlockEntityNbt, ChunkKey};
+use world::{BlockEntityKey, BlockEntityNbt, ChunkKey, SUB_CHUNK_SIDE};
 
 use super::{
     containers::{ContainerKind, ContainerLids, cue_is_open},
@@ -25,11 +21,13 @@ use super::{
     state::BlockState,
 };
 use crate::{
-    local_player::LocalViewPose, movement::PhysicsCollisionRegistries, runtime::world::ClientWorld,
-    ui_runtime::UiRuntime,
+    local_player::LocalViewPose,
+    movement::PhysicsCollisionRegistries,
+    runtime::{network::ActorFramePartialTick, world::ClientWorld},
 };
+use client_ui::ui_runtime::UiRuntime;
 
-const BLOCK_ENTITY_ASSETS_FILENAME: &str = "vanilla-v1.mcbeben";
+const BLOCK_ENTITY_ASSETS_FILENAME: &str = assets::carriers::BLOCK_ENTITY.output;
 /// Block entities farther than this from the eye are not drawn.
 const SCAN_RADIUS_BLOCKS: f32 = 64.0;
 const MAX_SUBMISSIONS: usize = 4_096;
@@ -37,19 +35,28 @@ const TICKS_PER_SECOND: f64 = 20.0;
 const TEXT_CACHE_ENTRIES: usize = 256;
 const TEXT_CACHE_BYTES: usize = 2 * 1024 * 1024;
 
-/// Reads the optional block-entity carrier next to the world carrier; on absence or
-/// corruption logs once and returns a scene that draws nothing.
-pub(crate) fn load_block_entity_scene(world_asset_path: &Path) -> BlockEntityScene {
+mod bed;
+mod crystal_beams;
+mod dragon_death;
+mod portals;
+
+/// Reads the optional block-entity carrier next to the world carrier, which the block-entity
+/// scene and worn heads share; on absence or corruption logs once and returns `None`.
+pub(crate) fn load_block_entity_carrier(
+    world_asset_path: &Path,
+) -> Option<Arc<RuntimeBlockEntityAssets>> {
     let path = world_asset_path.with_file_name(BLOCK_ENTITY_ASSETS_FILENAME);
-    let mut scene = BlockEntityScene::default();
-    let bytes = match std::fs::read(&path) {
+    let bytes = match diagnostics::bounded_file::read(
+        &path,
+        assets::MAX_BLOCK_ENTITY_CARRIER_BYTES as u64,
+    ) {
         Ok(bytes) => bytes,
         Err(error) => {
             eprintln!(
-                "block-entity carrier {} unavailable ({error}); block-entity models, sign text and break cracks are not drawn; rebuild with: make block-entity-assets",
+                "block-entity carrier {} unavailable ({error}); block-entity models, sign text, break cracks and worn heads are not drawn; rebuild with: make block-entity-assets",
                 path.display()
             );
-            return scene;
+            return None;
         }
     };
     match RuntimeBlockEntityAssets::decode(&bytes) {
@@ -60,12 +67,23 @@ pub(crate) fn load_block_entity_scene(world_asset_path: &Path) -> BlockEntitySce
                 assets.placements().len(),
                 assets.atlas_size()
             );
-            scene.install_assets(&assets);
+            Some(Arc::new(assets))
         }
-        Err(error) => eprintln!(
-            "block-entity carrier {} is invalid ({error}); block-entity models, sign text and break cracks are not drawn; rebuild with: make block-entity-assets",
-            path.display()
-        ),
+        Err(error) => {
+            eprintln!(
+                "block-entity carrier {} is invalid ({error}); block-entity models, sign text, break cracks and worn heads are not drawn; rebuild with: make block-entity-assets",
+                path.display()
+            );
+            None
+        }
+    }
+}
+
+/// A scene drawing `assets`, or nothing without them.
+pub(crate) fn block_entity_scene(assets: Option<&RuntimeBlockEntityAssets>) -> BlockEntityScene {
+    let mut scene = BlockEntityScene::default();
+    if let Some(assets) = assets {
+        scene.install_assets(assets);
     }
     scene
 }
@@ -83,6 +101,8 @@ struct Described {
     nbt: Arc<BlockEntityNbt>,
     runtime_id: u32,
     template: Option<Template>,
+    /// The frame that last scanned this entity; older entries are dropped after the scan.
+    seen_frame: u64,
 }
 
 #[derive(Resource)]
@@ -90,6 +110,7 @@ pub(crate) struct BlockEntityRuntime {
     cracks: CrackClock,
     lids: ContainerLids,
     described: HashMap<BlockEntityKey, Described>,
+    frame: u64,
     blocks: HashMap<u32, Option<Arc<BlockInfo>>>,
     layouts: TextLayoutCache,
     shapes: HashMap<u32, CrackShape>,
@@ -98,8 +119,8 @@ pub(crate) struct BlockEntityRuntime {
     missing_maps: Vec<i64>,
     /// When each map id was last requested from the server, in real seconds.
     map_requests: HashMap<i64, f64>,
-    /// World session the runtime-id keyed caches were filled from.
-    session: Option<u64>,
+    /// Session and dimension the runtime-id keyed caches were filled from.
+    session: Option<(u64, i32)>,
 }
 
 impl BlockEntityRuntime {
@@ -108,6 +129,7 @@ impl BlockEntityRuntime {
             cracks: CrackClock::default(),
             lids: ContainerLids::default(),
             described: HashMap::new(),
+            frame: 0,
             blocks: HashMap::new(),
             layouts: TextLayoutCache::new(TEXT_CACHE_ENTRIES, TEXT_CACHE_BYTES),
             shapes: HashMap::new(),
@@ -119,12 +141,15 @@ impl BlockEntityRuntime {
     }
 
     /// Runtime ids, block states and positions mean nothing across sessions, so a
-    /// session change drops every cache keyed by them.
-    fn bind_session(&mut self, session: Option<u64>) {
+    /// session or dimension change drops every cache keyed by them.
+    fn bind_session(&mut self, session: Option<(u64, i32)>) {
         if self.session == session {
             return;
         }
         self.session = session;
+        self.cracks = CrackClock::default();
+        self.lids = ContainerLids::default();
+        self.missing_maps.clear();
         self.described.clear();
         self.blocks.clear();
         self.shapes.clear();
@@ -150,10 +175,9 @@ pub(crate) fn configure(app: &mut App, font: Arc<RuntimeFontCatalog>) {
         .add_systems(
             Update,
             (
-                render::begin_stage_span::<{ render::RuntimeStage::BlockEntities as usize }>,
-                update_block_entity_scene,
+                update_block_entity_scene
+                    .after(crate::runtime::network::prepare_actor_render_frame),
                 request_missing_maps,
-                render::end_stage_span::<{ render::RuntimeStage::BlockEntities as usize }>,
             )
                 .chain(),
         );
@@ -188,6 +212,16 @@ fn light_factor(block: u8, sky: u8, daylight: f32) -> f32 {
     curve(block).max(curve(sky) * transfer)
 }
 
+fn model_light(kind: &BlockEntityKind, block: u8, sky: u8, daylight: f32) -> BlockEntityLight {
+    // Vanilla lights a skull with the world light at its block position,
+    // through mob_head's ordinary entity material.
+    if matches!(kind, BlockEntityKind::Skull(_)) {
+        BlockEntityLight::Actor { block, sky }
+    } else {
+        light_factor(block, sky, daylight).into()
+    }
+}
+
 /// The surface a crack over `layers` should cover: the block model's faces, else a cube.
 fn crack_shape(
     shapes: &mut HashMap<u32, CrackShape>,
@@ -201,10 +235,10 @@ fn crack_shape(
     shapes
         .entry(runtime_id)
         .or_insert_with(|| {
-            assets
-                .resolve(mode, runtime_id)
+            let visual = assets.resolve(mode, runtime_id);
+            visual
                 .model_template()
-                .and_then(|template| crack_shape_from_template(assets, template))
+                .and_then(|template| crack_shape_from_template(assets, template, visual.variant()))
                 .unwrap_or_default()
         })
         .clone()
@@ -236,6 +270,8 @@ fn block_info(
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn update_block_entity_scene(
     client_world: Res<ClientWorld>,
+    actor_partial_tick: Res<ActorFramePartialTick>,
+    camera: Query<(&Transform, &Projection), With<crate::camera::FlyCamera>>,
     collisions: Res<PhysicsCollisionRegistries>,
     view: Res<LocalViewPose>,
     ui: Res<UiRuntime>,
@@ -246,10 +282,25 @@ pub(crate) fn update_block_entity_scene(
     mut scene: ResMut<BlockEntityScene>,
     mut frame: ResMut<BlockEntityFrame>,
     mut placements: ResMut<StaticItemPlacements>,
+    profiler: Option<Res<render::RuntimeStageProfiler>>,
 ) {
     if !scene.has_assets() {
+        dragon_death::update_without_atlas(
+            client_world.stream.as_ref(),
+            actor_partial_tick.0,
+            camera
+                .single()
+                .ok()
+                .map(|(transform, _)| transform.translation),
+            &mut scene,
+            &mut frame,
+        );
         return;
     }
+    // Timed in the body: a span around the chain would also count waiting on actor publication.
+    let _timer = profiler
+        .as_deref()
+        .map(|profiler| profiler.time(render::RuntimeStage::BlockEntities));
     let now_seconds = time.elapsed_secs_f64();
     let clock = SceneClock {
         ticks: now_seconds * TICKS_PER_SECOND,
@@ -261,7 +312,10 @@ pub(crate) fn update_block_entity_scene(
         return;
     };
     let runtime = &mut *runtime;
-    runtime.bind_session(Some(stream.actor_session_id()));
+    runtime.bind_session(Some((
+        stream.authority().actor_session_id(),
+        stream.current_dimension(),
+    )));
     runtime.missing_maps.clear();
     let dimension = stream.current_dimension();
     let store = stream.collision_store();
@@ -289,18 +343,35 @@ pub(crate) fn update_block_entity_scene(
         });
 
     let mut submissions: Vec<BlockEntitySubmission> = Vec::new();
-    let mut seen: HashSet<BlockEntityKey> = HashSet::new();
+    runtime.frame = runtime.frame.wrapping_add(1);
+    let frame_stamp = runtime.frame;
+    // Moved out so `resolve` can borrow a template while mutating the rest of the runtime.
+    let mut described = std::mem::take(&mut runtime.described);
     let mut held: Vec<StaticItemPlacement> = Vec::new();
     runtime.lids.begin();
     let chunk_range = |center: f32| {
-        ((center - SCAN_RADIUS_BLOCKS) / 16.0).floor() as i32
-            ..=((center + SCAN_RADIUS_BLOCKS) / 16.0).floor() as i32
+        ((center - SCAN_RADIUS_BLOCKS) / SUB_CHUNK_SIDE as f32).floor() as i32
+            ..=((center + SCAN_RADIUS_BLOCKS) / SUB_CHUNK_SIDE as f32).floor() as i32
     };
     'columns: for chunk_x in chunk_range(eye.x) {
         for chunk_z in chunk_range(eye.z) {
             let Some(chunk) = store.chunk(ChunkKey::new(dimension, chunk_x, chunk_z)) else {
                 continue;
             };
+            portals::submit(
+                &mut submissions,
+                ChunkKey::new(dimension, chunk_x, chunk_z),
+                chunk,
+                eye,
+                |id| {
+                    let info = block_info(runtime, &collisions, mode, id)?;
+                    match info.name.as_ref() {
+                        assets::END_PORTAL_IDENTIFIER => Some(BlockEntityKind::EndPortal),
+                        assets::END_GATEWAY_IDENTIFIER => Some(BlockEntityKind::EndGateway),
+                        _ => None,
+                    }
+                },
+            );
             for (key, nbt) in chunk.block_entities() {
                 if submissions.len() >= MAX_SUBMISSIONS {
                     break 'columns;
@@ -324,30 +395,36 @@ pub(crate) fn update_block_entity_scene(
                 }) else {
                     continue;
                 };
-                seen.insert(key);
-                let stale = runtime.described.get(&key).is_none_or(|entry| {
-                    !Arc::ptr_eq(&entry.nbt, &nbt) || entry.runtime_id != runtime_id
-                });
-                if stale {
-                    let template = block_info(runtime, &collisions, mode, runtime_id)
-                        .zip(nbt.parse())
-                        .and_then(|(info, root)| {
-                            describe(id, &info.name, &info.state, &root, [x, y, z])
-                        });
-                    runtime.described.insert(
-                        key,
-                        Described {
+                let entry = match described.entry(key) {
+                    std::collections::hash_map::Entry::Occupied(entry)
+                        if Arc::ptr_eq(&entry.get().nbt, &nbt)
+                            && entry.get().runtime_id == runtime_id =>
+                    {
+                        entry.into_mut()
+                    }
+                    entry => {
+                        let template = block_info(runtime, &collisions, mode, runtime_id)
+                            .zip(nbt.parse())
+                            .and_then(|(info, root)| {
+                                describe(id, &info.name, &info.state, &root, [x, y, z])
+                            });
+                        let fresh = Described {
                             nbt: Arc::clone(&nbt),
                             runtime_id,
                             template,
-                        },
-                    );
-                }
-                let Some(template) = runtime
-                    .described
-                    .get(&key)
-                    .and_then(|entry| entry.template.clone())
-                else {
+                            seen_frame: frame_stamp,
+                        };
+                        match entry {
+                            std::collections::hash_map::Entry::Occupied(mut entry) => {
+                                entry.insert(fresh);
+                                entry.into_mut()
+                            }
+                            std::collections::hash_map::Entry::Vacant(entry) => entry.insert(fresh),
+                        }
+                    }
+                };
+                entry.seen_frame = frame_stamp;
+                let Some(template) = entry.template.as_ref() else {
                     continue;
                 };
                 let (block_light, sky_light) = stream.light_level_at(center.to_array());
@@ -378,9 +455,24 @@ pub(crate) fn update_block_entity_scene(
                     )
                 };
                 if let Some(kind) = kind {
+                    // Stateless portal surfaces are admitted from the primary palette above.
+                    // A missing or stale NBT record must never add or remove their geometry.
+                    if matches!(
+                        kind,
+                        BlockEntityKind::EndPortal | BlockEntityKind::EndGateway
+                    ) {
+                        continue;
+                    }
+                    let light = if let BlockEntityKind::Bed(model) = &kind {
+                        bed::light(*model, [x, y, z], |position| {
+                            stream.light_level_at(position)
+                        })
+                    } else {
+                        model_light(&kind, block_light, sky_light, daylight)
+                    };
                     submissions.push(BlockEntitySubmission {
                         block: [x, y, z],
-                        light: light_factor(block_light, sky_light, daylight),
+                        light,
                         kind,
                     });
                 }
@@ -388,14 +480,44 @@ pub(crate) fn update_block_entity_scene(
         }
     }
     runtime.lids.finish();
-    runtime.described.retain(|key, _| seen.contains(key));
-    prune_bell_rings(&mut runtime.bell_rings, now_seconds);
+    described.retain(|_, entry| entry.seen_frame == frame_stamp);
+    runtime.described = described;
+    prune_bell_rings(&mut runtime.bell_rings, now_seconds, |position| {
+        stream
+            .block_event_cue(*position)
+            .filter(|cue| cue.event_type == BELL_RING_EVENT_TYPE)
+            .map(|cue| cue.sequence)
+    });
+    crystal_beams::submit(
+        &mut submissions,
+        stream.authority().crystal_beams(actor_partial_tick.0),
+        camera
+            .single()
+            .ok()
+            .map(|(transform, _)| transform.translation),
+        |runtime_id, owner_position| {
+            let actor = stream.authority().actor(runtime_id)?;
+            stream.solved_light_at(actor.brightness_sample_position(owner_position))
+        },
+    );
+    dragon_death::submit(
+        &mut submissions,
+        stream.authority().dragon_death_rays(actor_partial_tick.0),
+        camera
+            .single()
+            .ok()
+            .map(|(transform, _)| transform.translation),
+        |runtime_id, owner_position| {
+            let actor = stream.authority().actor(runtime_id)?;
+            stream.solved_light_at(actor.brightness_sample_position(owner_position))
+        },
+    );
     placements.0 = held;
     *frame = scene.update(clock, &cracks, &submissions).clone();
 }
 
 struct FrameContext<'a> {
-    stream: &'a client_world::WorldStream,
+    stream: &'a chunk_pipeline::WorldStream,
     eye: Vec3,
     delta_seconds: f32,
     now_seconds: f64,
@@ -484,7 +606,7 @@ fn map_canvas(pixels: &[u32]) -> Vec<u8> {
 
 /// Applies per-frame state (lid openness, sign canvases, viewer yaw) to a template.
 fn resolve(
-    template: Template,
+    template: &Template,
     position: [i32; 3],
     context: &FrameContext<'_>,
     runtime: &mut BlockEntityRuntime,
@@ -498,9 +620,9 @@ fn resolve(
             .is_some_and(|cue| cue_is_open(cue.event_type, cue.event_value))
     };
     match template {
-        Template::Static(kind) => Some(kind),
+        Template::Static(kind) => Some(kind.clone()),
         Template::Beacon => None,
-        Template::Chest(mut model) => {
+        &Template::Chest(mut model) => {
             let open = open_at(position)
                 || matches!(model.pair, render::ChestPair::Lead { partner } if open_at(partner));
             if !matches!(model.pair, render::ChestPair::Follower) {
@@ -513,7 +635,7 @@ fn resolve(
             }
             Some(BlockEntityKind::Chest(model))
         }
-        Template::Shulker(mut model) => {
+        &Template::Shulker(mut model) => {
             model.open = runtime.lids.advance(
                 position,
                 ContainerKind::Shulker,
@@ -525,33 +647,25 @@ fn resolve(
         Template::EnchantTable => Some(BlockEntityKind::EnchantTable {
             facing_yaw_degrees: yaw_toward(context.eye, position),
         }),
-        Template::Conduit { active, hunting } => Some(BlockEntityKind::Conduit(ConduitModel {
+        &Template::Conduit { active, hunting } => Some(BlockEntityKind::Conduit(ConduitModel {
             active,
             hunting,
             viewer_yaw_degrees: yaw_toward(context.eye, position),
         })),
-        Template::Bell {
+        &Template::Bell {
             attachment,
             direction,
         } => {
-            if let Some(cue) = stream
+            let sequence = stream
                 .block_event_cue(position)
                 .filter(|cue| cue.event_type == BELL_RING_EVENT_TYPE)
-            {
-                let entry = runtime
-                    .bell_rings
-                    .entry(position)
-                    .or_insert((cue.sequence, f64::NEG_INFINITY));
-                if entry.0 != cue.sequence {
-                    *entry = (cue.sequence, context.now_seconds);
-                }
-            }
-            let seconds_since_ring = runtime
-                .bell_rings
-                .get(&position)
-                .map_or(f32::INFINITY, |(_, start)| {
-                    (context.now_seconds - start) as f32
-                });
+                .map(|cue| cue.sequence);
+            let seconds_since_ring = bell_elapsed(
+                &mut runtime.bell_rings,
+                position,
+                sequence,
+                context.now_seconds,
+            );
             Some(BlockEntityKind::Bell(BellModel {
                 attachment,
                 direction,
@@ -559,11 +673,12 @@ fn resolve(
             }))
         }
         Template::ItemFrame {
-            mut model,
+            model,
             item,
             rotation_steps,
             map_id,
         } => {
+            let (mut model, rotation_steps, map_id) = (*model, *rotation_steps, *map_id);
             if let Some(id) = map_id
                 && stream.map_image(id).is_none()
             {
@@ -578,7 +693,7 @@ fn resolve(
             model.map = map;
             if let (Some(item), None) = (item, map) {
                 held.push(held_placement(
-                    &item,
+                    item,
                     item_frame_item_transform(position, model.outward, rotation_steps),
                     model.glow.then_some((15, 15)),
                 ));
@@ -592,13 +707,16 @@ fn resolve(
                 let pose = base
                     * Mat4::from_rotation_y(yaw.to_radians())
                     * Mat4::from_scale(Vec3::splat(FLOWER_SCALE * 16.0));
-                held.push(held_placement(&plant, matrix_rows(pose), None));
+                held.push(held_placement(plant, matrix_rows(pose), None));
             }
             None
         }
         Template::Campfire { yaw_degrees, items } => {
-            let base = render::block_matrix(position, [0.5, 0.0, 0.5], yaw_degrees);
+            let base = render::block_matrix(position, [0.5, 0.0, 0.5], *yaw_degrees);
             for (item, [x, z]) in items.iter().zip(CAMPFIRE_SLOTS) {
+                let Some(item) = item else {
+                    continue;
+                };
                 // Lie flat on the grill, sprite facing up.
                 let pose = base
                     * Mat4::from_translation(Vec3::new(x, CAMPFIRE_ITEM_HEIGHT, z))
@@ -609,10 +727,10 @@ fn resolve(
             None
         }
         Template::Sign { mount, front, back } => {
-            let mut face = |spec: Option<sign_text::SignTextSpec>| -> Option<SignFace> {
-                let spec = spec?;
+            let mut face = |spec: &Option<sign_text::SignTextSpec>| -> Option<SignFace> {
+                let spec = spec.as_ref()?;
                 let rect: AtlasRect = scene.text_rect(spec.cache_key(), || {
-                    sign_text::rasterize(&spec, context.font, &mut runtime.layouts)
+                    sign_text::rasterize(spec, context.font, &mut runtime.layouts)
                         .unwrap_or_default()
                 })?;
                 Some(SignFace {
@@ -623,7 +741,7 @@ fn resolve(
             let front = face(front);
             let back = face(back);
             (front.is_some() || back.is_some()).then_some(BlockEntityKind::Sign(SignModel {
-                mount,
+                mount: *mount,
                 front,
                 back,
             }))
@@ -632,13 +750,37 @@ fn resolve(
 }
 
 /// The `BlockEventPacket` type a bell ring arrives as.
+/// Starts each newly observed ring once and reports its elapsed animation time.
+fn bell_elapsed(
+    rings: &mut HashMap<[i32; 3], (u64, f64)>,
+    position: [i32; 3],
+    sequence: Option<u64>,
+    now: f64,
+) -> f32 {
+    if let Some(sequence) = sequence {
+        let entry = rings.entry(position).or_insert((sequence, now));
+        if entry.0 != sequence {
+            *entry = (sequence, now);
+        }
+    }
+    rings
+        .get(&position)
+        .map_or(f32::INFINITY, |(_, start)| (now - start) as f32)
+}
+
 const BELL_RING_EVENT_TYPE: i32 = 1;
 /// Seconds after a ring when the swing has visibly settled and its state can go.
 const BELL_RING_RETAIN_SECONDS: f64 = 10.0;
 
-/// Drops rings whose swing has settled; a still-latched cue re-enters at rest.
-fn prune_bell_rings(rings: &mut HashMap<[i32; 3], (u64, f64)>, now_seconds: f64) {
-    rings.retain(|_, (_, start)| now_seconds - *start < BELL_RING_RETAIN_SECONDS);
+/// Keeps a latched cue's sequence so an expired swing cannot restart; evicted cues age out.
+fn prune_bell_rings(
+    rings: &mut HashMap<[i32; 3], (u64, f64)>,
+    now_seconds: f64,
+    mut cue: impl FnMut(&[i32; 3]) -> Option<u64>,
+) {
+    rings.retain(|position, (sequence, start)| {
+        cue(position) == Some(*sequence) || now_seconds - *start < BELL_RING_RETAIN_SECONDS
+    });
 }
 /// Highest world Y a beacon beam is drawn to; the beam stops at the build limit.
 const BEAM_TOP: i32 = 320;
@@ -671,7 +813,7 @@ fn glass_tint(name: &str) -> Option<[f32; 3]> {
         "black" => 15,
         _ => return None,
     };
-    Some(render::banner_color(15 - java_id))
+    Some(assets::banner::color_linear(15 - java_id))
 }
 
 /// Blends the tint of each stained-glass block above the beacon, each new pane averaging
@@ -731,6 +873,31 @@ mod tests {
     use super::*;
 
     #[test]
+    fn review_first_bell_cue_starts_once() {
+        let mut rings = HashMap::new();
+        assert_eq!(bell_elapsed(&mut rings, [0; 3], Some(7), 100.0), 0.0);
+        prune_bell_rings(&mut rings, 120.0, |_| Some(7));
+        assert_eq!(bell_elapsed(&mut rings, [0; 3], Some(7), 120.0), 20.0);
+        assert_eq!(bell_elapsed(&mut rings, [0; 3], Some(8), 121.0), 0.0);
+    }
+
+    #[test]
+    fn review_session_changes_reset_container_animation() {
+        let mut runtime = BlockEntityRuntime::new();
+        runtime.bind_session(Some((1, 0)));
+        runtime
+            .lids
+            .advance([0; 3], ContainerKind::Chest, true, 1.0);
+        runtime.bind_session(Some((2, 0)));
+        assert_eq!(
+            runtime
+                .lids
+                .advance([0; 3], ContainerKind::Chest, false, 0.05),
+            0.0
+        );
+    }
+
+    #[test]
     fn light_follows_the_terrain_curve_and_night_transfer_floor() {
         assert!((light_factor(15, 0, 0.0) - 1.0).abs() < 1.0e-6);
         assert!((light_factor(0, 15, 1.0) - 1.0).abs() < 1.0e-6);
@@ -738,6 +905,28 @@ mod tests {
         assert!((light_factor(0, 15, 0.0) - NIGHT_SKY_TRANSFER_FLOOR).abs() < 1.0e-6);
         assert_eq!(light_factor(0, 0, 1.0), 0.0);
         assert!(light_factor(8, 0, 1.0) > light_factor(4, 0, 1.0));
+    }
+
+    #[test]
+    fn placed_player_skulls_keep_native_light_coordinates_for_the_environment_shader() {
+        let kind = BlockEntityKind::Skull(render::SkullModel {
+            kind: render::SkullKind::Player,
+            mount: render::SkullMount::Floor {
+                rotation_degrees: 0.0,
+            },
+        });
+        for (block, sky) in [(0, 0), (0, 15), (12, 0)] {
+            for daylight in [0.0, 1.0] {
+                assert_eq!(
+                    model_light(&kind, block, sky, daylight),
+                    BlockEntityLight::Actor { block, sky }
+                );
+            }
+        }
+        assert_eq!(
+            model_light(&BlockEntityKind::EndPortal, 0, 15, 1.0),
+            1.0.into()
+        );
     }
 
     #[test]
@@ -777,7 +966,7 @@ mod tests {
             ([1, 0, 0], (2, f64::NEG_INFINITY)),
             ([2, 0, 0], (3, 80.0)),
         ]);
-        prune_bell_rings(&mut rings, 101.0);
+        prune_bell_rings(&mut rings, 101.0, |_| None);
         assert_eq!(rings.keys().copied().collect::<Vec<_>>(), vec![[0, 0, 0]]);
     }
 
@@ -785,13 +974,13 @@ mod tests {
     #[test]
     fn session_change_drops_runtime_id_keyed_caches() {
         let mut runtime = BlockEntityRuntime::new();
-        runtime.bind_session(Some(1));
+        runtime.bind_session(Some((1, 0)));
         runtime.blocks.insert(7, None);
         runtime.shapes.insert(7, CrackShape::Cube);
         runtime.bell_rings.insert([0, 0, 0], (1, 0.0));
-        runtime.bind_session(Some(1));
+        runtime.bind_session(Some((1, 0)));
         assert_eq!(runtime.blocks.len(), 1);
-        runtime.bind_session(Some(2));
+        runtime.bind_session(Some((2, 0)));
         assert!(runtime.blocks.is_empty() && runtime.shapes.is_empty());
         assert!(runtime.bell_rings.is_empty());
     }

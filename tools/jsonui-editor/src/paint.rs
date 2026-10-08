@@ -57,7 +57,9 @@ pub fn paint(input: &PaintInput, fonts: &Fonts, textures: &Textures) -> Result<V
                 .map(|page| Page {
                     width: page.width,
                     height: page.height,
-                    rgba: std::sync::Arc::from(&page.rgba8[..]),
+                    rgba: (0..page.width as usize * page.height as usize)
+                        .flat_map(|texel| page.pixels.texel(texel).unwrap_or_default())
+                        .collect(),
                 })
                 .collect()
         })
@@ -95,8 +97,10 @@ pub fn draw_list(
         next: 1,
         clip: None,
     };
+    // Each frame samples its moment afresh, every control created at zero.
+    let mut animator = json_ui::Animator::starting_at(0.0);
     for node in input.nodes {
-        painter.paint(node, input.now, input.clocks);
+        painter.paint(node, &mut animator, input.now, input.clocks);
     }
     let error = |e: ui::UiError| e.to_string();
     let mut tree = UiTree::new(painter.nodes).map_err(error)?;
@@ -169,20 +173,24 @@ impl Painter<'_, '_> {
             .push(UiNode::new(id, Some(parent), local).with_visual(visual));
     }
 
-    fn paint(&mut self, node: &DrawNode, now: f64, clocks: &BTreeMap<String, f64>) {
-        let (dest, clip) = node.animated_rects(now, Some(clocks));
-        let clip = self.logical(&clip);
-        let dest = self.logical(&dest);
-        if clip[2] <= clip[0]
+    fn paint(
+        &mut self,
+        node: &DrawNode,
+        animator: &mut json_ui::Animator,
+        now: f64,
+        clocks: &BTreeMap<String, f64>,
+    ) {
+        let drawn = node.animate(animator, now, Some(clocks), None);
+        let clip = self.logical(&drawn.clip);
+        let dest = self.logical(&drawn.dest);
+        let opacity = drawn.opacity;
+        if drawn.hidden
+            || clip[2] <= clip[0]
             || clip[3] <= clip[1]
             || dest[2] <= dest[0]
             || dest[3] <= dest[1]
-            || node.alpha <= 0.0
+            || opacity <= 0.0
         {
-            return;
-        }
-        let opacity = node.alpha * json_ui::fade_factor_at(&node.fades, now, clocks);
-        if opacity <= 0.0 {
             return;
         }
         let alpha = |color: [u8; 4]| {
@@ -197,6 +205,7 @@ impl Painter<'_, '_> {
                 align,
                 scale,
                 localize,
+                ..
             } => {
                 let style = TextPaint {
                     color: alpha(*color),
@@ -216,10 +225,14 @@ impl Painter<'_, '_> {
                     self.push(visual, dest);
                 }
             }
-            Draw::Sprite { texture, uv, color } => {
+            Draw::Sprite {
+                texture, uv, color, ..
+            } => {
                 let Some((page, [w, h])) = self.textures.sprite(texture) else {
                     return;
                 };
+                let uv = drawn.uv.unwrap_or(*uv);
+                let color = &drawn.color.unwrap_or(*color);
                 let pixel =
                     |span: f64, t: f32| (span * f64::from(t)).round().clamp(0.0, 65_535.0) as u16;
                 let visual = UiVisual::Sprite {
@@ -380,9 +393,7 @@ mod tests {
             clip: rect(clip),
             layer: 0,
             alpha: 0.5,
-            fades: Vec::new(),
-            flip_book: None,
-            motions: Default::default(),
+            anim: None,
             draw,
             gates: Vec::new(),
         }
@@ -418,6 +429,7 @@ mod tests {
                     texture: "textures/ui/none".into(),
                     uv: UvRect::full(),
                     color: [255; 4],
+                    filter: Default::default(),
                 },
             ),
             node(

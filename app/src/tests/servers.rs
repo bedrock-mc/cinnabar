@@ -269,7 +269,7 @@ fn unix_saved_server_files_are_owner_only() {
 fn the_writer_saves_off_the_frame_and_reports_failures() {
     let directory = unique_directory("writer");
     let path = directory.join("servers.json");
-    let writer = ServerWriter::new(path.clone());
+    let writer = ServerWriter::new(path.clone(), true);
     writer
         .save(&[sample_server("First", "a.example:19132")])
         .unwrap();
@@ -290,7 +290,7 @@ fn the_writer_saves_off_the_frame_and_reports_failures() {
     // A file where the parent directory should be makes every write fail.
     let blocked = directory.join("blocked");
     fs::write(&blocked, b"").unwrap();
-    let failing = ServerWriter::new(blocked.join("servers.json"));
+    let failing = ServerWriter::new(blocked.join("servers.json"), true);
     failing
         .save(&[sample_server("Lost", "d.example:19132")])
         .unwrap();

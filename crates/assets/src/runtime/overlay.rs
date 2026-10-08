@@ -4,10 +4,11 @@ use std::sync::atomic::AtomicU64;
 
 use super::RuntimeAssets;
 use crate::{
-    Animation, AssetError, BlockVisual, LightProperties, MAX_MATERIALS, MAX_TEXTURE_LAYERS,
-    MAX_TILE_SIZE, Material, ModelQuad, ModelTemplate, NO_ANIMATION, NO_MODEL_TEMPLATE,
-    TextureArray, TexturePage, TextureRef, VisualKind, compiled::material_flags_are_valid,
-    compiled::visual_semantics_are_valid, model::model_quad_flags_are_valid,
+    Animation, AssetError, BlockFlags, BlockVisual, LightProperties, MAX_MATERIALS,
+    MAX_TEXTURE_LAYERS, MAX_TILE_SIZE, Material, ModelQuad, ModelTemplate, NO_ANIMATION,
+    NO_MODEL_TEMPLATE, TextureArray, TexturePage, TextureRef, VisualKind,
+    compiled::material_flags_are_valid, compiled::visual_semantics_are_valid,
+    model::model_quad_flags_are_valid,
 };
 
 /// Repoints a base material at an overlay texture, keeping its flags (tint, alpha).
@@ -33,9 +34,11 @@ pub struct BlockOverlay {
     pub animations: Vec<Animation>,
     pub animation_frames: Vec<TextureRef>,
     pub texture: Option<TextureArray>,
-    /// Network hashes parallel to `visuals` for a hashed-id session; empty otherwise.
-    pub hashes: Vec<u32>,
+    /// Canonical network hashes parallel to `visuals`; incomplete state identities are absent.
+    pub hashes: Vec<Option<u32>>,
     pub material_overrides: Vec<MaterialOverride>,
+    /// Optional pack-defined tint maps and biome appearance rules.
+    pub biomes: Option<crate::CompiledBiomeAssets>,
 }
 
 impl RuntimeAssets {
@@ -47,6 +50,9 @@ impl RuntimeAssets {
         first_id: u32,
         overlay: &BlockOverlay,
     ) -> Result<Self, AssetError> {
+        if let Some(biomes) = &overlay.biomes {
+            crate::biome::validate_biome_assets(biomes)?;
+        }
         if self.visuals.len() != first_id as usize {
             return Err(invalid("overlay ids do not start after the base visuals"));
         }
@@ -96,6 +102,7 @@ impl RuntimeAssets {
         };
 
         let mut materials = self.materials.to_vec();
+        crate::material_variations::validate(&overlay.materials)?;
         for material in &overlay.materials {
             if !material_flags_are_valid(material.flags) {
                 return Err(invalid("overlay material flags are invalid"));
@@ -109,6 +116,13 @@ impl RuntimeAssets {
                     animation_base,
                     "animation",
                 )?,
+                variation_start: if material.variation_count == 0 {
+                    0
+                } else {
+                    material_base + material.variation_start
+                },
+                variation_count: material.variation_count,
+                variation_weight: material.variation_weight,
             });
         }
         for replacement in &overlay.material_overrides {
@@ -119,6 +133,8 @@ impl RuntimeAssets {
             }
             materials[replacement.material as usize] = Material {
                 texture: page_ref(replacement.texture)?,
+                variation_start: 0,
+                variation_count: 0,
                 animation: optional(
                     replacement.animation,
                     overlay.animations.len(),
@@ -163,11 +179,12 @@ impl RuntimeAssets {
             });
         }
         let mut model_templates = self.model_templates.to_vec();
+        let compound_tails = crate::blob::compiled_compound_tails(&overlay.model_templates)?;
         let mut covered = 0usize;
         for template in &overlay.model_templates {
             if template.quad_start as usize != covered
-                || template.quad_count > 32
-                || template.flags != 0
+                || template.quad_count as usize > crate::MAX_MODEL_TEMPLATE_QUADS
+                || !matches!(template.flags, 0 | crate::MODEL_TEMPLATE_FLAG_COMPOUND_NEXT)
             {
                 return Err(invalid("overlay template spans are noncanonical"));
             }
@@ -182,6 +199,11 @@ impl RuntimeAssets {
         }
         let mut visuals = self.visuals.to_vec();
         for visual in &overlay.visuals {
+            if visual.model_template != NO_MODEL_TEMPLATE
+                && compound_tails.get(visual.model_template as usize).copied() == Some(true)
+            {
+                return Err(invalid("overlay visual references a compound continuation"));
+            }
             if !visual.flags.has_valid_semantics()
                 || !visual_semantics_are_valid(
                     visual.kind,
@@ -193,6 +215,18 @@ impl RuntimeAssets {
                     == matches!(visual.kind, VisualKind::Model | VisualKind::Cross)
             {
                 return Err(invalid("overlay visual semantics are invalid"));
+            }
+            if visual.flags.contains(BlockFlags::OCCLUDES_FULL_FACE)
+                && !visual.flags.contains(BlockFlags::CUBE_GEOMETRY)
+                && (visual.kind != VisualKind::Model
+                    || overlay
+                        .model_templates
+                        .get(visual.model_template as usize)
+                        .is_none_or(|template| template.quad_count == 0))
+            {
+                return Err(invalid(
+                    "overlay full-face occlusion requires a drawable model",
+                ));
             }
             let mut faces = visual.faces;
             for face in &mut faces {
@@ -214,7 +248,10 @@ impl RuntimeAssets {
         light_properties.extend_from_slice(&overlay.light_properties);
         // A hash the base or an earlier overlay state already owns keeps its owner.
         let mut hashed = self.hashed.to_vec();
-        for (index, &hash) in overlay.hashes.iter().enumerate() {
+        for (index, hash) in overlay.hashes.iter().copied().enumerate() {
+            let Some(hash) = hash else {
+                continue;
+            };
             if self.sequential_id_for_hash(hash).is_none() {
                 hashed.push((hash, first_id + index as u32));
             }
@@ -235,7 +272,10 @@ impl RuntimeAssets {
             animations: animations.into_boxed_slice(),
             animation_frames: animation_frames.into_boxed_slice(),
             texture_pages: texture_pages.into_boxed_slice(),
-            biomes: self.biomes.clone(),
+            biomes: overlay
+                .biomes
+                .clone()
+                .unwrap_or_else(|| self.biomes.clone()),
             provenance: self.provenance,
             missing: AtomicU64::new(0),
         })
@@ -254,7 +294,7 @@ fn validate_texture(texture: &TextureArray) -> Result<(), AssetError> {
         let expected = (size as usize)
             .checked_mul(size as usize * 4)
             .and_then(|bytes| bytes.checked_mul(texture.layers as usize));
-        if mip.size != size || Some(mip.rgba8.len()) != expected {
+        if size == 0 || mip.size != size || Some(mip.rgba8.len()) != expected {
             return Err(invalid(format!("overlay texture mip {level} is malformed")));
         }
         size /= 2;
@@ -296,6 +336,40 @@ mod tests {
         }
     }
 
+    #[test]
+    fn review_zero_sized_extra_mips_are_rejected() {
+        let mut texture = page(16);
+        let mut mips = texture.mips.to_vec();
+        mips.push(TextureMip {
+            size: 0,
+            rgba8: Box::new([]),
+        });
+        texture.mips = mips.into();
+        assert!(
+            RuntimeAssets::diagnostic()
+                .with_block_overlay(1, &cube_overlay(texture))
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn review_full_face_occlusion_requires_drawable_geometry() {
+        let mut overlay = cube_overlay(page(16));
+        overlay.visuals[0].kind = VisualKind::Model;
+        overlay.visuals[0].flags = BlockFlags::OCCLUDES_FULL_FACE;
+        overlay.visuals[0].model_template = 0;
+        overlay.model_templates = vec![ModelTemplate {
+            quad_start: 0,
+            quad_count: 0,
+            flags: 0,
+        }];
+        assert!(
+            RuntimeAssets::diagnostic()
+                .with_block_overlay(1, &overlay)
+                .is_err()
+        );
+    }
+
     fn cube_overlay(texture: TextureArray) -> BlockOverlay {
         BlockOverlay {
             visuals: vec![BlockVisual {
@@ -313,6 +387,7 @@ mod tests {
                 texture: TextureRef::new(1, 0).unwrap(),
                 flags: 0,
                 animation: NO_ANIMATION,
+                ..crate::Material::unvaried()
             }],
             texture: Some(texture),
             ..BlockOverlay::default()
@@ -324,10 +399,10 @@ mod tests {
     fn overlay_hashes_extend_the_hash_table() {
         let base = RuntimeAssets::diagnostic();
         let mut overlay = cube_overlay(page(16));
-        overlay.hashes = vec![0xdead_beef];
+        overlay.hashes = vec![Some(0xdead_beef)];
         let session = base.with_block_overlay(1, &overlay).unwrap();
         assert_eq!(session.sequential_id_for_hash(0xdead_beef), Some(1));
-        overlay.hashes = vec![1, 2];
+        overlay.hashes = vec![Some(1), Some(2)];
         assert!(base.with_block_overlay(1, &overlay).is_err());
     }
 
@@ -342,6 +417,34 @@ mod tests {
             animation: NO_ANIMATION,
         }];
         assert!(base.with_block_overlay(1, &overlay).is_err());
+    }
+
+    #[test]
+    fn replacing_a_selector_uses_the_server_texture_without_changing_leaf_weights() {
+        let mut base = RuntimeAssets::diagnostic();
+        base.materials = vec![
+            Material::unvaried(),
+            Material {
+                variation_start: 2,
+                variation_count: 1,
+                ..Material::unvaried()
+            },
+            Material {
+                variation_weight: 1.0_f32.to_bits(),
+                ..Material::unvaried()
+            },
+        ]
+        .into();
+        let mut overlay = cube_overlay(page(16));
+        overlay.material_overrides = vec![MaterialOverride {
+            material: 1,
+            texture: TextureRef::new(1, 0).unwrap(),
+            animation: NO_ANIMATION,
+        }];
+        let session = base.with_block_overlay(1, &overlay).unwrap();
+        assert_eq!(session.materials[1].variation_count, 0);
+        assert_eq!(session.materials[1].texture.page(), 1);
+        assert_eq!(session.materials[2].variation_weight, 1.0_f32.to_bits());
     }
 
     // A 32px page is accepted; malformed mips or dangling ids are refused whole.

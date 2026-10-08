@@ -28,6 +28,7 @@ pub(super) fn palette_assets(
             texture: TextureRef::new(1, material).map_err(|error| error.to_string())?,
             flags: 0,
             animation: NO_ANIMATION,
+            ..Material::unvaried()
         });
     }
     if palette.len() > 1 {

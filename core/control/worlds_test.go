@@ -166,9 +166,9 @@ func TestWorldErrorsMapToCodesWithoutLeakingDetail(t *testing.T) {
 		{localworld.ErrNotFound, codeWorldNotFound, "world not found"},
 		{fmt.Errorf("%w: x", localworld.ErrBusy), codeWorldBusy, "another world"},
 		{localworld.ErrInUse, codeWorldBusy, "world is open"},
+		{localworld.ErrRuntimePending, codeWorldBusy, "still checking"},
 		{localworld.ErrEULARequired, codeEULARequired, "EULA"},
 		{localworld.ErrBackendUnavailable, codeBackendAbsent, "not available"},
-		{localworld.ErrVanillaNeedsBDS, codeBackendAbsent, "superflat"},
 		{fmt.Errorf("%w: unknown value", localworld.ErrInvalid), -32602, "unknown value"},
 		{errors.New("open /Users/secret/worlds: denied"), codeWorldFailed, "world operation failed"},
 	} {
@@ -179,6 +179,26 @@ func TestWorldErrorsMapToCodesWithoutLeakingDetail(t *testing.T) {
 			t.Fatalf("payload = %s", payload)
 		}
 	}
+}
+
+func TestWorldInviteReachesTheHostOnlyWithAValidXUID(t *testing.T) {
+	var invited []string
+	hosted := WithInvites(&stubWorlds{}, func(_ context.Context, xuid string) error {
+		invited = append(invited, xuid)
+		return nil
+	})
+	dir := startWorlds(t, hosted)
+	for _, params := range []string{"", `{}`, `{"xuid":""}`, `{"xuid":"12a"}`, `{"xuid":"1","extra":1}`, `{"xuid":"123456789012345678901"}`} {
+		assertRPCError(t, call(t, dir, methodWorldInvite, params), -32602)
+	}
+	if payload := call(t, dir, methodWorldInvite, `{"xuid":"2535400000000000"}`); !strings.Contains(string(payload), `"result"`) {
+		t.Fatalf("invite = %s", payload)
+	}
+	if len(invited) != 1 || invited[0] != "2535400000000000" {
+		t.Fatalf("invited = %v", invited)
+	}
+	unhosted := startWorlds(t, &stubWorlds{})
+	assertRPCError(t, call(t, unhosted, methodWorldInvite, `{"xuid":"2535400000000000"}`), codeWorldBusy)
 }
 
 func TestWorldMethodsAreUnknownWithoutService(t *testing.T) {

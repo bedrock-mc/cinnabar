@@ -458,7 +458,7 @@ impl BlobCacheResolver {
                 self.stats.rejected_blobs = self.stats.rejected_blobs.saturating_add(rejected);
                 self.recover_skipped_miss_response(&response_hashes)
             }
-            Err(BlobCacheError::PinnedPayloadPressure) => {
+            Err(BlobCacheError::PinnedPayloadPressure | BlobCacheError::CacheEntryPressure) => {
                 self.stats.miss_response_cache_pressure =
                     self.stats.miss_response_cache_pressure.saturating_add(1);
                 self.recover_skipped_miss_response(&response_hashes)

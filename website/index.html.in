@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Download Cinnabar for your platform.">
+  <title>Cinnabar</title>
+  <link rel="icon" type="image/svg+xml" href="@@FAVICON@@">
+  <style>
+    :root { --cinnabar-red: @@RED@@; font-family: system-ui, sans-serif; color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; min-height: 100svh; display: grid; place-items: center; padding: 48px 24px; background: #141815; color: #fff; isolation: isolate; }
+    body::before { content: ''; position: fixed; inset: 0; z-index: -2; background: url('/texture.svg') repeat; background-size: 256px 256px; opacity: .7; }
+    body::after { content: ''; position: fixed; inset: 0; z-index: -1; background: radial-gradient(ellipse at 50% 43%, transparent 0%, #11151266 55%, #0b100de6 100%), radial-gradient(ellipse at 50% 47%, color-mix(in srgb, var(--cinnabar-red) 4%, transparent), transparent 55%); }
+    main { width: min(100%, 760px); text-align: center; display: flex; flex-direction: column; align-items: center; }
+    .edition { margin: 0 0 30px; color: #acb7a9; font: 500 .75rem/1.6 ui-monospace, monospace; letter-spacing: .22em; text-transform: uppercase; }
+    .logo-motion { width: min(100%, 680px); }
+    .logo { width: 100%; height: auto; display: block; filter: drop-shadow(0 16px 28px #0007); }
+    .description { margin: 6px 0 38px; color: #c4cdc1; font: 400 1rem/1.7 system-ui, sans-serif; }
+    .actions { display: flex; justify-content: center; align-items: center; flex-wrap: wrap; gap: 16px; max-width: 100%; }
+    .socials { display: flex; align-items: center; gap: 16px; }
+    .github { --button-face: #30363d; --button-border: #101418; --button-base: #171b20; }
+    .discord { --button-face: #5865f2; --button-border: #1e2458; --button-base: #323b9f; }
+    .github, .discord { display: grid; place-items: center; width: 62px; height: 62px; flex: 0 0 62px; text-decoration: none; }
+    .github svg, .discord svg { width: 24px; height: 24px; fill: currentColor; }
+    button, .github, .discord { border: 2px solid var(--button-border, #180d0b); border-radius: 0; background: var(--button-face, var(--cinnabar-red)); color: #fff; box-shadow: inset 0 3px #ffffff35, inset 3px 0 #ffffff16, inset -3px 0 #0002, inset 0 -4px #0004, 0 5px 0 var(--button-base, #451510), 0 7px 0 #0d100d, 0 14px 25px #0004; cursor: pointer; }
+    button { position: relative; display: inline-flex; align-items: center; justify-content: center; gap: 14px; padding: 17px 28px; min-height: 62px; max-width: 100%; font: 700 1rem/1.5 ui-monospace, monospace; text-shadow: 0 2px #0006; }
+    button svg { width: 20px; height: 20px; flex: 0 0 20px; fill: currentColor; }
+    button:hover, .github:hover, .discord:hover { filter: brightness(1.12); }
+    button:active, .github:active, .discord:active { transform: translateY(4px); box-shadow: inset 0 3px #ffffff35, inset 0 -3px #0004, 0 1px 0 var(--button-base, #451510), 0 3px 0 #0d100d; }
+    dialog { width: min(560px, calc(100% - 32px)); padding: 28px; border: 2px solid #505b4c; background: #1c231d; color: #fff; box-shadow: 0 16px 80px #0008; }
+    dialog::backdrop { background: #0009; backdrop-filter: blur(3px); }
+    dialog h2 { margin: 0 40px 16px 0; font: 700 1.25rem/1.4 ui-monospace, monospace; }
+    dialog p { color: #c4cdc1; line-height: 1.6; }
+    dialog .close { position: absolute; right: 12px; top: 12px; min-height: 36px; width: 36px; padding: 0; background: transparent; border: 0; box-shadow: none; font-size: 1.5rem; }
+    .command-row { display: flex; gap: 10px; align-items: center; }
+    #install-command { width: 100%; min-width: 0; background: #101511; border: 1px solid #505b4c; padding: 14px; color: #fff; font: .875rem/1.5 ui-monospace, monospace; }
+    #copy-command { min-height: 48px; padding: 10px 14px; font-size: .875rem; }
+    .download-option { display: block; padding: 14px 18px; margin-top: 10px; color: #fff; border: 1px solid #505b4c; background: #303b30; text-decoration: none; font: 600 1rem/1.5 system-ui, sans-serif; }
+    .download-option:hover { background: #3a4739; }
+    .download-option:focus-visible, #install-command:focus-visible { outline: 3px solid #f8c1af; outline-offset: 3px; }
+    .first-open { margin: 20px 0 0; font-size: .875rem; }
+    .first-open code { display: block; margin-top: 8px; padding: 10px; background: #101511; overflow-wrap: anywhere; font: .8125rem/1.6 ui-monospace, monospace; }
+    #copy-status { margin-bottom: 0; font-size: .875rem; }
+    button:focus-visible, .github:focus-visible, .discord:focus-visible { outline: 3px solid #f8c1af; outline-offset: 8px; }
+    @keyframes logo-float { 0%, 100% { transform: translate3d(0, 3px, 0); } 50% { transform: translate3d(0, -3px, 0); } }
+    @media (prefers-reduced-motion: no-preference) { .logo-motion { will-change: transform; animation: logo-float 6s cubic-bezier(.45, 0, .55, 1) infinite; } }
+    @media (max-width: 480px) { .edition { font-size: .6875rem; letter-spacing: .13em; margin-bottom: 24px; } .description { font-size: .9375rem; margin: 16px 0 32px; } .actions { gap: 12px; } .socials { gap: 12px; } button { padding: 16px 14px; gap: 10px; font-size: .875rem; } }
+  </style>
+</head>
+<body>
+  <main>
+    <p class="edition">Minecraft Bedrock client</p>
+    <div class="logo-motion"><img class="logo" src="/title.png" alt="Cinnabar" width="1022" height="282"></div>
+    <p class="description">A familiar world. A new client.</p>
+    <div class="actions">
+      <button type="button" id="download"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M8 2h4v7h4l-6 6-6-6h4zM3 15h3v2h8v-2h3v5H3z"/></svg><span id="download-label">Download for your device</span></button>
+      <div class="socials">
+        <a class="github" href="@@REPOSITORY_URL@@" aria-label="Cinnabar on GitHub" title="Cinnabar on GitHub"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 .297C5.37.297 0 5.67 0 12.297c0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.043-1.61-4.043-1.61-.546-1.387-1.333-1.756-1.333-1.756-1.09-.745.083-.729.083-.729 1.205.084 1.838 1.237 1.838 1.237 1.07 1.835 2.809 1.305 3.495.998.108-.776.419-1.305.762-1.605-2.665-.303-5.467-1.334-5.467-5.931 0-1.31.469-2.381 1.236-3.221-.124-.303-.536-1.524.117-3.176 0 0 1.008-.322 3.301 1.23a11.52 11.52 0 0 1 3.003-.404c1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.655 1.652.243 2.873.119 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.625-5.479 5.921.43.372.823 1.102.823 2.222 0 1.606-.015 2.898-.015 3.293 0 .322.216.694.825.576C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg></a>
+        <a class="discord" href="https://discord.gg/MeEz7BEHcM" aria-label="Join Cinnabar on Discord" title="Join Cinnabar on Discord"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.317 4.3698a19.7913 19.7913 0 00-4.8851-1.5152.0741.0741 0 00-.0785.0371c-.211.3753-.4447.8648-.6083 1.2495-1.8447-.2762-3.68-.2762-5.4868 0-.1636-.3933-.4058-.8742-.6177-1.2495a.077.077 0 00-.0785-.037 19.7363 19.7363 0 00-4.8852 1.515.0699.0699 0 00-.0321.0277C.5334 9.0458-.319 13.5799.0992 18.0578a.0824.0824 0 00.0312.0561c2.0528 1.5076 4.0413 2.4228 5.9929 3.0294a.0777.0777 0 00.0842-.0276c.4616-.6304.8731-1.2952 1.226-1.9942a.076.076 0 00-.0416-.1057c-.6528-.2476-1.2743-.5495-1.8722-.8923a.077.077 0 01-.0076-.1277c.1258-.0943.2517-.1923.3718-.2914a.0743.0743 0 01.0776-.0105c3.9278 1.7933 8.18 1.7933 12.0614 0a.0739.0739 0 01.0785.0095c.1202.099.246.1981.3728.2924a.077.077 0 01-.0066.1276 12.2986 12.2986 0 01-1.873.8914.0766.0766 0 00-.0407.1067c.3604.698.7719 1.3628 1.225 1.9932a.076.076 0 00.0842.0286c1.961-.6067 3.9495-1.5219 6.0023-3.0294a.077.077 0 00.0313-.0552c.5004-5.177-.8382-9.6739-3.5485-13.6604a.061.061 0 00-.0312-.0286zM8.02 15.3312c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9555-2.4189 2.157-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0 1.3332-.9555 2.4189-2.1569 2.4189zm7.9748 0c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9554-2.4189 2.1569-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0 1.3332-.946 2.4189-2.1568 2.4189Z"/></svg></a>
+      </div>
+    </div>
+  </main>
+  <dialog id="install-dialog" aria-labelledby="install-title">
+    <button type="button" class="close" id="close-dialog" aria-label="Close">×</button>
+    <h2 id="install-title">Install Cinnabar</h2>
+    <div id="linux-install" hidden>
+      <p>Paste this command into your terminal. It installs Cinnabar for your user and adds it to your app menu.</p>
+      <div class="command-row"><input id="install-command" aria-label="Linux install command" readonly><button type="button" id="copy-command">Copy</button></div>
+      <p id="copy-status" role="status"></p>
+    </div>
+    <div id="macos-install" hidden>
+      <p>Choose your Mac, then open the disk image and drag Cinnabar into Applications.</p>
+      <a class="download-option" data-release-asset="macos/arm64">Apple silicon (M series)</a>
+      <a class="download-option" data-release-asset="macos/x86_64">Intel Mac</a>
+      <p class="first-open">If macOS blocks the first launch, run this once in Terminal, then open Cinnabar again:<code>xattr -dr com.apple.quarantine /Applications/Cinnabar.app</code></p>
+    </div>
+    <div id="desktop-install" hidden>
+      <p>Cinnabar is available for desktop computers.</p>
+      <a class="download-option" data-release-asset="windows/x86_64">Windows setup</a>
+      <a class="download-option" data-release-asset="linux/x86_64">Linux AppImage</a>
+      <a class="download-option" data-release-asset="macos/arm64">macOS — Apple silicon</a>
+      <a class="download-option" data-release-asset="macos/x86_64">macOS — Intel</a>
+    </div>
+  </dialog>
+  <script src="/downloads.js" defer></script>
+  <script src="/app.js" defer></script>
+</body>
+</html>

@@ -16,6 +16,17 @@ pub(super) fn check_markers(
     files: &[PathBuf],
     diagnostics: &mut Vec<String>,
 ) -> Result<(), ArchitectureError> {
+    // A marker moves with its owning crate. Scan that crate's whole source tree so
+    // undeclared identifiers remain visible after extraction from the app.
+    let producer_roots = policy
+        .markers
+        .iter()
+        .filter_map(|rule| {
+            rule.producer
+                .split_once("/src/")
+                .map(|(owner, _)| format!("{owner}/src/"))
+        })
+        .collect::<BTreeSet<_>>();
     let mut occurrences = BTreeMap::<String, Vec<String>>::new();
     for path in files {
         if !matches!(
@@ -26,6 +37,9 @@ pub(super) fn check_markers(
         }
         let relative = relative_slash(root, path);
         if !relative.starts_with("app/src/")
+            && !producer_roots
+                .iter()
+                .any(|prefix| relative.starts_with(prefix))
             && relative != "scripts/acceptance.ps1"
             && !relative.starts_with("scripts/acceptance/")
         {

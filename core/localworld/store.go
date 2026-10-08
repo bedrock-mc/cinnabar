@@ -34,6 +34,20 @@ func (store *Store) SetDefaultBackend(backend string) {
 	store.mu.Unlock()
 }
 
+// DefaultBackend is the backend of worlds created without an explicit one.
+func (store *Store) DefaultBackend() string {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	return store.defaultBackendLocked()
+}
+
+func (store *Store) defaultBackendLocked() string {
+	if store.defaultBackend == "" {
+		return BackendDragonfly
+	}
+	return store.defaultBackend
+}
+
 // OpenStore creates root if needed.
 func OpenStore(root string) (*Store, error) {
 	if root == "" {
@@ -71,6 +85,12 @@ func (store *Store) read(id string) (World, error) {
 	}
 	if world.Backend == "" {
 		world.Backend = BackendDragonfly // worlds saved before backends existed
+	}
+	if world.Generator == "" {
+		world.Generator = GeneratorFlat // the original local server created flat worlds
+		if world.Backend == BackendBDS {
+			world.Generator = GeneratorNormal
+		}
 	}
 	return world, nil
 }
@@ -137,10 +157,7 @@ func (store *Store) Create(spec Spec) (World, error) {
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	if spec.Backend == "" {
-		spec.Backend = store.defaultBackend
-	}
-	if spec.Backend == "" {
-		spec.Backend = BackendDragonfly
+		spec.Backend = store.defaultBackendLocked()
 	}
 	world := World{
 		ID: hex.EncodeToString(id), Name: spec.Name, GameMode: spec.GameMode, Generator: spec.Generator,

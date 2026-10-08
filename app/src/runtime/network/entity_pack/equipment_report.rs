@@ -4,8 +4,9 @@ use std::sync::Arc;
 
 use render::{
     ACTOR_LAYER_BODY, ActorArtworkPages, ActorRenderIdentity, ActorRigRenderInput, ActorRigRoute,
-    ActorRigSubmission, EntityRigId, RenderBoneTransform,
+    ActorRigSubmission,
 };
+use render_model::{EntityRigId, RenderBoneTransform};
 
 use crate::presentation::equipment::{ActorEquipmentInput, EquipmentRuntime, HeldKind, WornItem};
 
@@ -20,10 +21,11 @@ fn body(runtime: &mut EquipmentRuntime) -> ActorRigSubmission {
     let rest = RenderBoneTransform {
         rotation: [0.0, 0.0, 0.0, 1.0],
         translation_scale: [0.0, 0.0, 0.0, 1.0],
-        axis_scale: render::UNIT_AXIS_SCALE,
+        axis_scale: render_model::UNIT_AXIS_SCALE,
     };
     let pose: Arc<[RenderBoneTransform]> = names.iter().map(|_| rest).collect();
     ActorRigSubmission {
+        material: Default::default(),
         culling_bounds: Default::default(),
         input: ActorRigRenderInput {
             identity: ActorRenderIdentity {
@@ -66,6 +68,9 @@ fn cached_pack_custom_armor_draws_in_its_wearable_slot() {
         std::env::var_os("CINNABAR_PACKCACHE_DIR"),
         std::env::var_os("CINNABAR_CARRIER_DIR"),
     ) else {
+        eprintln!(
+            "skipping cached_pack_custom_armor_draws_in_its_wearable_slot: fixture unavailable; requires offline cached custom-armor packs and compiled carriers"
+        );
         return;
     };
     let carriers = std::path::PathBuf::from(carriers);
@@ -85,8 +90,8 @@ fn cached_pack_custom_armor_draws_in_its_wearable_slot() {
         let Some(view) = super::super::local_pack::local_pack_view_at(&path) else {
             continue;
         };
-        let files = super::collect::collect_files(&view, refs.as_ref());
-        let Ok(Some(compiled)) = asset_compiler::compile_actor_pack(files) else {
+        let files = super::collect::collect_files(&view, refs.as_ref(), None);
+        let Ok(Some(compiled)) = pack_compiler::compile_actor_pack(files) else {
             continue;
         };
         let custom_armor = compiled
@@ -166,11 +171,13 @@ fn cached_pack_custom_armor_draws_in_its_wearable_slot() {
             input.armor[slot as usize] = Some(WornItem {
                 identifier: Arc::from(item.as_ref()),
                 metadata: 0,
+                damage: None,
                 kind: HeldKind::Other,
                 dye_rgb: None,
+                enchanted: false,
             });
             checked += 1;
-            let ok = runtime.layers_for(&body, &input).len() == 1;
+            let ok = runtime.layers_for(&body, &input, None).len() == 1;
             if !ok {
                 eprintln!("undrawn: {} {item} {slot:?}", path.display());
             }
@@ -179,5 +186,6 @@ fn cached_pack_custom_armor_draws_in_its_wearable_slot() {
     }
     eprintln!("custom armor drawn: {drawn}/{checked}");
     // Artwork page budgets can still drop a texture; most must draw.
+    assert!(checked > 0, "fixture must contain textured custom armor");
     assert!(drawn * 4 >= checked * 3, "{drawn}/{checked}");
 }

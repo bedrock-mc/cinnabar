@@ -1,8 +1,7 @@
 //! The one canonical container-address projection.
 //!
-//! The vanilla client routes inventory traffic by two rules, established from
-//! the 26.30 client's InventoryContent and InventorySlot handlers (Lens RVA
-//! 0x10356ed50 and 0x10356d350). `InventoryContent`/`InventorySlot` carry a
+//! The vanilla client routes inventory traffic by two rules.
+//! `InventoryContent`/`InventorySlot` carry a
 //! legacy window id and route by it alone — window 0 fills the player
 //! inventory, the offhand and armor legacy windows their surfaces, and other
 //! windows the open or dynamic container — consulting the packet's
@@ -56,6 +55,8 @@ pub const PLAYER_INVENTORY_WINDOW_ID: i32 = 0;
 pub const OFFHAND_WINDOW_ID: i32 = 119;
 /// The legacy armor window id, addressed like the offhand window.
 pub const ARMOR_WINDOW_ID: i32 = 120;
+/// The player's fixed UI inventory, including the cursor and crafting cells.
+pub const UI_INVENTORY_WINDOW_ID: i32 = 124;
 
 /// One canonical inventory cell in the explicit cross-surface address space.
 ///
@@ -199,7 +200,7 @@ pub fn is_personal_ui_inventory(identity: &ContainerIdentity) -> bool {
 }
 
 fn is_personal_ui_storage(identity: &ContainerIdentity) -> bool {
-    identity.window_id == Some(124)
+    identity.window_id == Some(UI_INVENTORY_WINDOW_ID)
         && identity.slot_type == Some(0)
         && identity.dynamic_id.is_none()
 }

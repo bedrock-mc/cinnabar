@@ -14,13 +14,20 @@ use sha2::{Digest, Sha256};
 use crate::item::{ItemDisplayScalar, ItemDisplayTransform};
 use crate::{AssetError, EntityDependencyResolution};
 
+#[cfg(test)]
+#[path = "equipment/texture_tests.rs"]
+mod texture_tests;
+
 pub const EQUIPMENT_CARRIER_MAGIC: [u8; 8] = *b"MCBEEQP1";
 pub const EQUIPMENT_CARRIER_VERSION: u32 = 2;
 pub const MAX_EQUIPMENT_BINDINGS: usize = 1024;
 pub const MAX_EQUIPMENT_IDENTIFIER_BYTES: usize = 256;
 pub const MAX_EQUIPMENT_TEXTURES: usize = 256;
-pub const MAX_EQUIPMENT_TEXTURE_SIDE: u16 = 256;
-pub const MAX_EQUIPMENT_CARRIER_BYTES: usize = 8 * 1024 * 1024;
+pub const MAX_EQUIPMENT_TEXTURE_SIDE: u16 = crate::MAX_ACTOR_TEXTURE_SIDE;
+pub const MAX_EQUIPMENT_PIXEL_BYTES: usize = crate::MAX_ACTOR_PIXEL_BYTES;
+const MAX_EQUIPMENT_METADATA_BYTES: usize = 8 * 1024 * 1024;
+pub const MAX_EQUIPMENT_CARRIER_BYTES: usize =
+    MAX_EQUIPMENT_PIXEL_BYTES + MAX_EQUIPMENT_METADATA_BYTES;
 
 const HEADER_BYTES: usize = 20;
 const HASH_BYTES: usize = 32;
@@ -130,6 +137,22 @@ pub struct EquipmentTexture {
     pub rgba8: Arc<[u8]>,
 }
 
+/// The undyed leather armor tint, in RGB byte order.
+pub const DEFAULT_LEATHER_RGB: u32 = 0x00a0_6540;
+
+/// Resolves a leather material's dye mask while retaining its zero-alpha cutout.
+pub fn color_mask_texel(mut texel: [u8; 4], tint: [u8; 3]) -> [u8; 4] {
+    let mask = u32::from(texel[3]);
+    for channel in 0..3 {
+        let weight = 255 * (255 - mask) + u32::from(tint[channel]) * mask;
+        texel[channel] = (u32::from(texel[channel]) * weight / (255 * 255)) as u8;
+    }
+    if texel[3] != 0 {
+        texel[3] = 255;
+    }
+    texel
+}
+
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct EquipmentCatalogPayload {
@@ -170,6 +193,9 @@ impl RuntimeEquipmentCatalog {
         }
         let payload_bytes = usize::try_from(u64::from_le_bytes(field::<8>(bytes, 12)?))
             .map_err(|_| invalid("equipment payload size exceeds platform"))?;
+        if payload_bytes > MAX_EQUIPMENT_METADATA_BYTES {
+            return Err(invalid("equipment metadata exceeds bound"));
+        }
         let hash_start = bytes.len() - HASH_BYTES;
         let payload_end = HEADER_BYTES
             .checked_add(payload_bytes)
@@ -328,6 +354,9 @@ pub fn encode_equipment_catalog_full(
     };
     let payload_bytes =
         serde_json::to_vec(&payload).map_err(|_| invalid("failed to encode equipment payload"))?;
+    if payload_bytes.len() > MAX_EQUIPMENT_METADATA_BYTES {
+        return Err(invalid("equipment metadata exceeds bound"));
+    }
     let mut bytes = Vec::with_capacity(HEADER_BYTES + payload_bytes.len() + HASH_BYTES);
     bytes.extend_from_slice(&EQUIPMENT_CARRIER_MAGIC);
     bytes.extend_from_slice(&EQUIPMENT_CARRIER_VERSION.to_le_bytes());
@@ -404,19 +433,33 @@ fn validate_textures(textures: &[EquipmentTexture]) -> Result<(), AssetError> {
         return Err(invalid("equipment texture count exceeds bound"));
     }
     let mut previous: Option<&str> = None;
+    let mut pixel_bytes = 0usize;
     for texture in textures {
         validate_identifier(&texture.identifier)?;
-        let side_ok = |side: u16| (1..=MAX_EQUIPMENT_TEXTURE_SIDE).contains(&side);
+        let bytes = texture_pixel_bytes(texture.width, texture.height)
+            .ok_or_else(|| invalid("equipment texture dimensions exceed bound"))?;
+        pixel_bytes = pixel_bytes
+            .checked_add(bytes)
+            .filter(|total| *total <= MAX_EQUIPMENT_PIXEL_BYTES)
+            .ok_or_else(|| invalid("equipment texture pixel budget exceeded"))?;
         if previous.is_some_and(|previous| previous >= texture.identifier.as_ref())
-            || !side_ok(texture.width)
-            || !side_ok(texture.height)
-            || texture.rgba8.len() != usize::from(texture.width) * usize::from(texture.height) * 4
+            || texture.rgba8.len() != bytes
         {
             return Err(invalid("invalid or unordered equipment texture"));
         }
         previous = Some(&texture.identifier);
     }
     Ok(())
+}
+
+fn texture_pixel_bytes(width: u16, height: u16) -> Option<usize> {
+    let side_ok = |side: u16| (1..=MAX_EQUIPMENT_TEXTURE_SIDE).contains(&side);
+    if !side_ok(width) || !side_ok(height) {
+        return None;
+    }
+    usize::from(width)
+        .checked_mul(usize::from(height))?
+        .checked_mul(4)
 }
 
 fn decode_textures(section: &[u8]) -> Result<Vec<EquipmentTexture>, AssetError> {
@@ -430,6 +473,7 @@ fn decode_textures(section: &[u8]) -> Result<Vec<EquipmentTexture>, AssetError> 
         return Err(invalid("equipment texture count exceeds bound"));
     }
     let mut textures = Vec::with_capacity(count);
+    let mut pixel_bytes = 0usize;
     for _ in 0..count {
         let name_len = usize::from(u16::from_le_bytes(
             take(&mut cursor, 2)?
@@ -449,7 +493,12 @@ fn decode_textures(section: &[u8]) -> Result<Vec<EquipmentTexture>, AssetError> 
                 .try_into()
                 .map_err(|_| invalid("invalid equipment texture height"))?,
         );
-        let length = usize::from(width) * usize::from(height) * 4;
+        let length = texture_pixel_bytes(width, height)
+            .ok_or_else(|| invalid("equipment texture dimensions exceed bound"))?;
+        pixel_bytes = pixel_bytes
+            .checked_add(length)
+            .filter(|total| *total <= MAX_EQUIPMENT_PIXEL_BYTES)
+            .ok_or_else(|| invalid("equipment texture pixel budget exceeded"))?;
         textures.push(EquipmentTexture {
             identifier,
             width,

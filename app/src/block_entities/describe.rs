@@ -1,13 +1,15 @@
 //! Turns a block entity's id, backing block state and NBT into what the renderer draws.
 
+use assets::{
+    banner::color_linear as banner_color, block_entity_geometry::shulker_color_from_block_name,
+};
 use std::sync::Arc;
 
 use render::{
     BannerLayer, BannerModel, BannerMount, BedModel, BellAttachment, BlockEntityKind, ChestModel,
     ChestPair, ChestVariant, CopperAge, DecoratedPotModel, Facing, ItemFrameModel,
     MAX_BANNER_LAYERS, Oxidation, ShulkerModel, SignMount, SkullKind, SkullModel, SkullMount,
-    SpawnerModel, StatueModel, StatuePose, banner_color, bed_color, pattern_texture, sherd_pattern,
-    shulker_color_from_block_name,
+    SpawnerModel, StatueModel, StatuePose, bed_color, pattern_texture, sherd_pattern,
 };
 use world::NbtCompound;
 
@@ -38,7 +40,7 @@ pub(super) enum Template {
     },
     Campfire {
         yaw_degrees: f32,
-        items: Vec<HeldItem>,
+        items: [Option<HeldItem>; 4],
     },
     Bell {
         attachment: BellAttachment,
@@ -232,7 +234,13 @@ pub(super) fn describe(
             open: 0.0,
         })),
         "Skull" => {
-            let kind = SkullKind::from_nbt(nbt.integer("SkullType")?)?;
+            // Vanilla selects the skull model from the backing block type;
+            // the unsplit legacy block still needs its retained SkullType.
+            let kind = SkullKind::from_block_identifier(block_name).or_else(|| {
+                (block_name == "minecraft:skull")
+                    .then(|| nbt.integer("SkullType").and_then(SkullKind::from_nbt))
+                    .flatten()
+            })?;
             let mount = match state
                 .int("facing_direction")
                 .and_then(Facing::from_facing_direction)
@@ -302,9 +310,10 @@ pub(super) fn describe(
             }),
         "Campfire" => Some(Template::Campfire {
             yaw_degrees: facing(state).unwrap_or(Facing::North).yaw_degrees(),
-            items: (1..=4)
-                .filter_map(|slot| nbt.compound(&format!("Item{slot}")).and_then(held_item))
-                .collect(),
+            items: std::array::from_fn(|slot| {
+                nbt.compound(&format!("Item{}", slot + 1))
+                    .and_then(held_item)
+            }),
         }),
         "Conduit" => Some(Template::Conduit {
             active: nbt.boolean("Active").unwrap_or(false),
@@ -373,6 +382,78 @@ mod tests {
 
     fn state(json: &str) -> BlockState {
         BlockState::parse(json)
+    }
+
+    #[test]
+    fn current_player_head_identity_overrides_absent_or_stale_skull_type() {
+        for compound in [nbt(|_| {}), nbt(|out| int_tag(out, "SkullType", 0))] {
+            let template = describe(
+                "Skull",
+                "minecraft:player_head",
+                &BlockState::default(),
+                &compound,
+                [0; 3],
+            );
+            assert!(matches!(
+                template,
+                Some(Template::Static(BlockEntityKind::Skull(SkullModel {
+                    kind: SkullKind::Player,
+                    ..
+                })))
+            ));
+        }
+        let legacy = nbt(|out| int_tag(out, "SkullType", 6));
+        assert!(matches!(
+            describe(
+                "Skull",
+                "minecraft:skull",
+                &BlockState::default(),
+                &legacy,
+                [0; 3]
+            ),
+            Some(Template::Static(BlockEntityKind::Skull(SkullModel {
+                kind: SkullKind::Player,
+                ..
+            })))
+        ));
+        assert!(
+            describe(
+                "Skull",
+                "custom:player_head",
+                &BlockState::default(),
+                &legacy,
+                [0; 3]
+            )
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn review_campfire_items_keep_their_nbt_slots() {
+        let compound = nbt(|out| {
+            out.extend([10, 5]);
+            out.extend(b"Item4");
+            out.extend([8, 4]);
+            out.extend(b"Name");
+            let name = b"minecraft:apple";
+            out.push(name.len() as u8);
+            out.extend(name);
+            out.push(0);
+        });
+        let Some(Template::Campfire { items, .. }) = describe(
+            "Campfire",
+            "minecraft:campfire",
+            &BlockState::default(),
+            &compound,
+            [0; 3],
+        ) else {
+            panic!("expected campfire");
+        };
+        assert!(items[..3].iter().all(Option::is_none));
+        assert_eq!(
+            items[3].as_ref().unwrap().identifier.as_ref(),
+            "minecraft:apple"
+        );
     }
 
     #[test]

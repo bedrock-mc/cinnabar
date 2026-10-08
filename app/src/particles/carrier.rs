@@ -7,7 +7,7 @@ use std::{
 
 use assets::{MAX_PARTICLE_CARRIER_BYTES, RuntimeParticleAssets};
 
-pub(crate) const PARTICLE_ASSETS_FILENAME: &str = "vanilla-v1.mcbept";
+pub(crate) const PARTICLE_ASSETS_FILENAME: &str = assets::carriers::PARTICLE.output;
 
 /// The particle carrier path beside the world carrier.
 pub(crate) fn particle_asset_path(world_asset_path: &Path) -> PathBuf {

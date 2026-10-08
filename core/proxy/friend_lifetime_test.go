@@ -144,7 +144,7 @@ func (s *friendService) serveRTA(w http.ResponseWriter, r *http.Request) {
 func TestFriendTargetRetainsXboxUntilAfterLeaving(t *testing.T) {
 	for _, fail := range []bool{false, true} {
 		t.Run(fmt.Sprint(fail), func(t *testing.T) {
-			service := &friendService{fail: fail, world: p2p.World{OwnerID: "456", TransportLayer: p2p.TransportLayerNetherNet, Joinability: p2p.JoinabilityFriends, Nonces: map[string]string{"123": "fixture-nonce"}, SupportedConnections: []p2p.Connection{{Type: p2p.ConnectionTypeSignalingOverJSONRPC, PlayerMessagingID: uuid.New(), NetherNetID: p2p.NetherNetID(uuid.NewString())}}}}
+			service := &friendService{fail: fail, world: p2p.World{OwnerID: "456", HostName: "Host", MemberCount: 1, BroadcastSetting: p2p.BroadcastSettingFriendsOfFriends, TransportLayer: p2p.TransportLayerNetherNet, Joinability: p2p.JoinabilityFriends, Nonces: map[string]string{"123": "fixture-nonce"}, SupportedConnections: []p2p.Connection{{Type: p2p.ConnectionTypeSignalingOverJSONRPC, PlayerMessagingID: uuid.New(), NetherNetID: p2p.NetherNetID(uuid.NewString())}}}}
 			server := httptest.NewServer(service)
 			defer server.Close()
 			local, _ := url.Parse(server.URL)

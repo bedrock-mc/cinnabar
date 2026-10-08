@@ -205,10 +205,10 @@ func TestWorkspaceUsesDirectoryResolvesFilesystemAliases(t *testing.T) {
 	}
 }
 
-func TestWorkflowHasIsolatedChunkfixStepRequiresActiveVerifyStepStructure(t *testing.T) {
+func TestWorkflowHasIsolatedChunkfixStepRequiresActiveGoJobStepStructure(t *testing.T) {
 	valid := `name: CI
 jobs:
-  verify:
+  go:
     steps:
       - run: |
           go vet ./...
@@ -233,7 +233,7 @@ jobs:
 			name: "comments and unrelated literals",
 			body: `name: go test ./... -count=1 and go vet ./...
 jobs:
-  verify:
+  go:
     steps:
       - working-directory: tools/chunkfix
         env:
@@ -247,7 +247,7 @@ jobs:
 		{
 			name: "heredoc literal body",
 			body: `jobs:
-  verify:
+  go:
     steps:
       - working-directory: tools/chunkfix
         env:
@@ -263,7 +263,7 @@ jobs:
 		{
 			name: "quoted multiline literal",
 			body: `jobs:
-  verify:
+  go:
     steps:
       - working-directory: tools/chunkfix
         env:
@@ -371,11 +371,11 @@ func workflowHasIsolatedModuleStep(data []byte, directory string) (bool, error) 
 	if err := yaml.Unmarshal(data, &workflow); err != nil {
 		return false, fmt.Errorf("decode workflow YAML: %w", err)
 	}
-	verify, ok := workflow.Jobs["verify"]
+	goJob, ok := workflow.Jobs["go"]
 	if !ok {
 		return false, nil
 	}
-	for _, step := range verify.Steps {
+	for _, step := range goJob.Steps {
 		if step.WorkingDirectory != directory || step.Env["GOWORK"] != "off" {
 			continue
 		}

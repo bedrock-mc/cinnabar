@@ -1,0 +1,21 @@
+{
+  "faces": [
+    "down",
+    "up",
+    "north",
+    "south",
+    "west",
+    "east"
+  ],
+  "causes": [
+    "player",
+    "guest",
+    "environment"
+  ],
+  "fail_kinds": [
+    "trap",
+    "fuel",
+    "deadline",
+    "limit"
+  ]
+}

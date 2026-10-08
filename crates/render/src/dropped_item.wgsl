@@ -1,5 +1,5 @@
 #import bevy_render::view::View
-#import cinnabar::lighting::{lit_colour, light_colour}
+#import cinnabar::lighting::{actor_light_colour, actor_distance_fog, tint_to_gamma, tint_to_linear}
 
 @group(0) @binding(0) var<uniform> view: View;
 @group(0) @binding(1) var sprites: texture_2d_array<f32>;
@@ -28,6 +28,7 @@ struct VertexOutput {
     @location(3) @interpolate(flat) levels: vec2<u32>,
     @location(4) color: vec4<f32>,
     @location(5) @interpolate(flat) overlay: vec4<f32>,
+    @location(6) world_position: vec3<f32>,
 }
 
 // Provisional directional shade: full on top faces, half on bottom faces.
@@ -50,6 +51,7 @@ fn item_vertex(input: VertexInput) -> VertexOutput {
     ));
     var out: VertexOutput;
     out.position = view.clip_from_world * world;
+    out.world_position = world.xyz;
     out.uv = input.uv;
     out.layer = input.layer;
     out.color = input.color;
@@ -61,13 +63,12 @@ fn item_vertex(input: VertexInput) -> VertexOutput {
 
 @fragment
 fn item_fragment(input: VertexOutput) -> @location(0) vec4<f32> {
-    let color = textureSample(sprites, sprite_sampler, input.uv, i32(input.layer)) * input.color;
+    let color = tint_to_gamma(textureSample(sprites, sprite_sampler, input.uv, i32(input.layer))) * input.color;
     if (color.a < 0.1) {
         discard;
     }
-    let lit = lit_colour(
-        color.rgb * input.shade,
-        light_colour(input.levels.x | (input.levels.y << 4u)),
-    );
-    return vec4(mix(lit, input.overlay.rgb, input.overlay.a), color.a);
+    // Native item materials compose gamma RGB with the actor /16 lightmap
+    // lookup. Transfer the completed product once for Bevy's sRGB target.
+    let lit = mix(color.rgb, input.overlay.rgb, input.overlay.a) * input.shade * actor_light_colour(input.levels.x | (input.levels.y << 4u));
+    return tint_to_linear(vec4(actor_distance_fog(lit, input.world_position, view.world_position), color.a));
 }

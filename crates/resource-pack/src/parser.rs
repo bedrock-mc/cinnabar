@@ -36,13 +36,16 @@ pub fn validate_archive_bytes(bytes: &[u8]) -> Result<(), AdmissionError> {
     if bytes.len() > MAX_ARCHIVE_BYTES {
         return Err(AdmissionError::ArchiveTooLarge);
     }
-    validate_archive_parts(Uuid::nil(), "0.0.0", "", bytes.to_vec(), None).map(|_| ())
+    validate_archive_parts(Uuid::nil(), "0.0.0", "", bytes.to_vec(), None, None).map(|_| ())
 }
 
 /// Admits each archive independently in stack order. Stack-wide bounds drop
 /// the packs that would exceed them, not the packs already admitted.
 #[cfg(feature = "handoff")]
-pub(super) fn validate_stack(archives: Vec<ResourcePackArchive>) -> ValidatedPackStack {
+pub(super) fn validate_stack(
+    archives: Vec<ResourcePackArchive>,
+    memory: Option<u32>,
+) -> ValidatedPackStack {
     let mut packs = Vec::with_capacity(archives.len().min(MAX_PACKS));
     let mut rejections = Vec::new();
     let (mut archive_bytes, mut entry_count, mut declared_bytes) = (0usize, 0usize, 0u64);
@@ -53,6 +56,7 @@ pub(super) fn validate_stack(archives: Vec<ResourcePackArchive>) -> ValidatedPac
             &mut seen,
             packs.len(),
             archive_bytes,
+            memory,
             |pack, declared| {
                 let entries = entry_count.saturating_add(pack.entry_count());
                 let bytes = declared_bytes.saturating_add(declared);
@@ -89,6 +93,7 @@ fn admit_stack_entry<T>(
     seen: &mut HashSet<Uuid>,
     admitted: usize,
     archive_bytes: usize,
+    memory: Option<u32>,
     stack_bounds: impl FnOnce(&ValidatedPack, u64) -> Result<T, AdmissionError>,
 ) -> Result<(ValidatedPack, usize, T), AdmissionError> {
     if admitted >= MAX_PACKS {
@@ -116,6 +121,7 @@ fn admit_stack_entry<T>(
         &archive.sub_pack_name,
         archive.archive,
         key,
+        memory,
     )?;
     let bounds = stack_bounds(&pack, declared)?;
     seen.insert(pack.pack_id);
@@ -126,13 +132,14 @@ pub(crate) fn validate_archive_parts(
     pack_id: Uuid,
     version: &str,
     sub_pack_name: &str,
-    archive_bytes: Vec<u8>,
+    mut archive_bytes: Vec<u8>,
     key: Option<ContentKey>,
+    memory: Option<u32>,
 ) -> Result<(ValidatedPack, u64), AdmissionError> {
     if archive_bytes.len() > MAX_ARCHIVE_BYTES {
         return Err(AdmissionError::ArchiveTooLarge);
     }
-    let expected_entries = preflight_eocd(&archive_bytes)?;
+    let expected_entries = prepare_zip_bytes(&mut archive_bytes)?;
     let bytes: Arc<[u8]> = archive_bytes.into();
     let mut zip = ZipArchive::new(Cursor::new(Arc::clone(&bytes)))
         .map_err(|_| AdmissionError::MalformedZip)?;
@@ -181,27 +188,21 @@ pub(crate) fn validate_archive_parts(
         Some(pack_key) => attach_file_keys(&zip, &mut rooted, &pack_key)?,
         None => Box::default(),
     };
-    let manifest_path = ["manifest.json", "pack_manifest.json"]
+    let manifest_path = MANIFEST_NAMES
         .into_iter()
         .find(|path| rooted.contains_key(*path))
         .ok_or(AdmissionError::MissingManifest)?;
-    let files = logical_files(&rooted, sub_pack_name)?;
-    let mut file_order = files.keys().cloned().collect::<Vec<_>>();
-    file_order.sort_unstable();
-    let folded = files
-        .keys()
-        .map(|path| (path.to_ascii_lowercase().into_boxed_str(), path.clone()))
-        .collect();
-    let pack = ValidatedPack {
+    let mut pack = ValidatedPack {
         pack_id,
         version: version.into(),
         sub_pack_name: sub_pack_name.into(),
         archive_bytes,
+        declared_bytes: declared,
         zip,
-        files,
-        folded,
-        file_order: file_order.into_boxed_slice(),
-        keys,
+        files: rooted,
+        folded: HashMap::new(),
+        file_order: Box::default(),
+        keys: keys.into(),
         physical_entry_count: expected_entries,
         skipped_entries: skipped,
     };
@@ -213,28 +214,44 @@ pub(crate) fn validate_archive_parts(
         })?
         .ok_or(AdmissionError::MissingManifest)?;
     let manifest = read_manifest(&manifest_bytes, pack_id, version)?;
-    if !sub_pack_name.is_empty()
-        && !manifest
-            .subpack_folders
+    let selected = if let Some(memory) = memory {
+        crate::subpacks::supported(&manifest.subpacks, sub_pack_name, memory)
+    } else {
+        manifest
+            .subpacks
             .iter()
-            .any(|folder| folder.as_ref() == sub_pack_name)
-    {
-        return Err(AdmissionError::InvalidSubpack);
+            .find(|pack| pack.folder == sub_pack_name)
+            .map_or("", |pack| pack.folder.as_str())
+    };
+    pack.files = logical_files(&pack.files, selected)?;
+    if memory.is_some() {
+        pack.sub_pack_name = selected.into();
     }
+    pack.folded = pack
+        .files
+        .keys()
+        .map(|path| (path.to_ascii_lowercase().into_boxed_str(), path.clone()))
+        .collect();
+    let mut file_order = pack.files.keys().cloned().collect::<Vec<_>>();
+    file_order.sort_unstable();
+    pack.file_order = file_order.into_boxed_slice();
     Ok((pack, declared))
 }
 
 /// Returns the directory prefix holding the manifest when an archive wraps the
 /// pack in one top-level folder.
 fn pack_root(physical: &HashMap<Box<str>, EntryIndex>) -> String {
-    if physical.contains_key("manifest.json") || physical.contains_key("pack_manifest.json") {
+    if MANIFEST_NAMES
+        .iter()
+        .any(|name| physical.contains_key(*name))
+    {
         return String::new();
     }
     let mut roots = physical
         .keys()
         .filter_map(|path| {
             let (folder, rest) = path.split_once('/')?;
-            (rest == "manifest.json").then(|| format!("{folder}/"))
+            MANIFEST_NAMES.contains(&rest).then(|| format!("{folder}/"))
         })
         .collect::<Vec<_>>();
     roots.sort_unstable();
@@ -286,7 +303,11 @@ fn logical_files(
         let Some(logical) = selected_subpack_logical_path(path, sub_pack_name) else {
             continue;
         };
-        if logical.eq_ignore_ascii_case("manifest.json") || logical.is_empty() {
+        if MANIFEST_NAMES
+            .iter()
+            .any(|name| logical.eq_ignore_ascii_case(name))
+            || logical.is_empty()
+        {
             return Err(AdmissionError::InvalidSubpack);
         }
         let logical: Box<str> = logical.into();
@@ -312,16 +333,44 @@ fn selected_subpack_logical_path<'a>(path: &'a str, selected: &str) -> Option<&'
     (root.eq_ignore_ascii_case("subpacks") && name == selected).then_some(logical)
 }
 
+pub(crate) const MANIFEST_NAMES: [&str; 2] = ["manifest.json", "pack_manifest.json"];
+
+/// Checks fixture footer bounds without changing its comment bytes.
+#[cfg(test)]
 fn preflight_eocd(bytes: &[u8]) -> Result<usize, AdmissionError> {
+    find_eocd(bytes).map(|(_, entries)| entries)
+}
+
+/// Removes only the validated ZIP comment so downstream footer searches cannot select its bytes.
+pub(crate) fn prepare_zip_bytes(bytes: &mut Vec<u8>) -> Result<usize, AdmissionError> {
+    let (footer, entries) = find_eocd(bytes)?;
+    bytes[footer + 20..footer + 22].fill(0);
+    bytes.truncate(footer + EOCD_MIN_BYTES);
+    Ok(entries)
+}
+
+/// Finds the last structurally valid footer rather than an arbitrary signature in its comment.
+fn find_eocd(bytes: &[u8]) -> Result<(usize, usize), AdmissionError> {
     if bytes.len() < EOCD_MIN_BYTES {
         return Err(AdmissionError::InvalidZipFooter);
     }
     let start = bytes.len().saturating_sub(EOCD_MAX_SEARCH_BYTES);
     let signature = b"PK\x05\x06";
-    let eocd = (start..=bytes.len() - EOCD_MIN_BYTES)
+    let mut failure = AdmissionError::InvalidZipFooter;
+    for eocd in (start..=bytes.len() - EOCD_MIN_BYTES)
         .rev()
-        .find(|offset| bytes[*offset..].starts_with(signature))
-        .ok_or(AdmissionError::InvalidZipFooter)?;
+        .filter(|offset| bytes[*offset..].starts_with(signature))
+    {
+        match validate_eocd_at(bytes, eocd) {
+            Ok(entries) => return Ok((eocd, entries)),
+            Err(error) => failure = error,
+        }
+    }
+    Err(failure)
+}
+
+/// Validates one footer candidate, including its central directory and exact comment extent.
+fn validate_eocd_at(bytes: &[u8], eocd: usize) -> Result<usize, AdmissionError> {
     let tail = &bytes[eocd..];
     let disk = le_u16(tail, 4)?;
     let central_disk = le_u16(tail, 6)?;
@@ -382,7 +431,7 @@ fn le_u32(bytes: &[u8], offset: usize) -> Result<u32, AdmissionError> {
     Ok(u32::from_le_bytes([value[0], value[1], value[2], value[3]]))
 }
 
-fn is_regular_file(mode: Option<u32>) -> bool {
+pub(crate) fn is_regular_file(mode: Option<u32>) -> bool {
     mode.is_none_or(|mode| {
         let kind = mode & 0o170000;
         kind == 0 || kind == 0o100000
@@ -391,7 +440,7 @@ fn is_regular_file(mode: Option<u32>) -> bool {
 
 /// Normalizes separators and a leading `./`; paths that could escape the pack
 /// root or carry control characters are refused.
-fn canonical_path(raw: &[u8]) -> Option<Box<str>> {
+pub(crate) fn canonical_path(raw: &[u8]) -> Option<Box<str>> {
     if raw.is_empty() || raw.len() > MAX_PATH_BYTES || raw.contains(&0) {
         return None;
     }

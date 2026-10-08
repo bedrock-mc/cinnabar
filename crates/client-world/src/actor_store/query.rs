@@ -14,9 +14,14 @@ impl ActorStore {
         let ActorKind::Player { uuid, .. } = &actor.kind else {
             return None;
         };
-        self.players
-            .get(uuid)
-            .filter(|profile| profile.unique_id == actor.unique_id)
+        let profile = if self.animation.has_skin_preparation() {
+            self.ready_appearances.profiles.get(uuid)
+        } else {
+            self.players
+                .get(uuid)
+                .or_else(|| self.unlisted_players.get(uuid))
+        };
+        profile.filter(|profile| profile.unique_id == actor.unique_id)
     }
 
     pub(crate) fn actor_display_name(&self, unique_id: i64) -> Option<std::sync::Arc<str>> {
@@ -35,6 +40,20 @@ impl ActorStore {
         (!name.is_empty()).then_some(name)
     }
 
+    /// Rendered name tags use synced actor data, including overrides on players.
+    /// An explicitly empty tag hides it; a missing player tag uses its spawn name.
+    pub(crate) fn actor_name_tag(&self, unique_id: i64) -> Option<std::sync::Arc<str>> {
+        let actor = self.snapshot_by_unique(unique_id)?;
+        let name = match actor.metadata.get(&NAMETAG_METADATA_KEY) {
+            Some(ActorMetadataValue::String(name)) => std::sync::Arc::clone(name),
+            _ => match &actor.kind {
+                ActorKind::Player { username, .. } => std::sync::Arc::clone(username),
+                ActorKind::Entity { .. } => return None,
+            },
+        };
+        (!name.is_empty()).then_some(name)
+    }
+
     /// Every username on the retained authoritative player list, sorted for
     /// deterministic presentation (the `@a` selector's known answer).
     pub(crate) fn player_list_usernames(&self) -> Vec<std::sync::Arc<str>> {
@@ -46,6 +65,14 @@ impl ActorStore {
             .collect::<Vec<_>>();
         names.sort_unstable();
         names
+    }
+
+    /// How many players [`Self::player_list_usernames`] would list, without allocating.
+    pub(crate) fn player_list_count(&self) -> usize {
+        self.players
+            .values()
+            .filter(|profile| !profile.username.is_empty())
+            .count()
     }
 
     pub(crate) fn render_players(
@@ -60,6 +87,9 @@ impl ActorStore {
                 let ActorKind::Player { .. } = &actor.kind else {
                     return None;
                 };
+                if !self.appearance_ready(actor) {
+                    return None;
+                }
                 let profile = self.player_profile(actor.runtime_id);
                 Some((actor, profile))
             })
@@ -132,10 +162,63 @@ impl ActorStore {
         self.actors.values()
     }
     pub(crate) fn actor_rig(&self, runtime_id: u64) -> Option<ActorRigSnapshot<'_>> {
-        self.animation.get(runtime_id)
+        self.appearance_ready(self.actors.get(&runtime_id)?)
+            .then(|| self.animation.get(runtime_id))
+            .flatten()
+    }
+    pub(crate) fn render_frame(&self, partial_tick: f32) -> crate::ActorRenderFrame<'_> {
+        crate::ActorRenderFrame::new(self, partial_tick)
+    }
+    pub(crate) fn render_layers(
+        &self,
+        runtime_id: u64,
+        partial_tick: f32,
+        remaining_ops: &mut usize,
+        sample_skin: bool,
+    ) -> Option<crate::ActorRenderLayers<'_>> {
+        self.animation.render_layers(
+            self.actors.get(&runtime_id)?,
+            partial_tick,
+            self.camera_rotation,
+            self.camera_position,
+            remaining_ops,
+            sample_skin,
+        )
+    }
+    /// Full-body pose for the local HUD while first-person hands have a separate pose.
+    pub(crate) fn actor_ui_pose(&self, runtime_id: u64) -> Option<&[crate::BoneTransform]> {
+        self.animation.ui_pose(runtime_id)
+    }
+    pub(crate) fn actor_retargeted_pose(
+        &self,
+        runtime_id: u64,
+        alpha: f32,
+        targets: &[Option<crate::BoneTransform>],
+    ) -> Option<Vec<crate::BoneTransform>> {
+        self.animation.retargeted_pose(runtime_id, alpha, targets)
+    }
+    pub(crate) fn actor_retargeted_layers(
+        &self,
+        runtime_id: u64,
+        alpha: f32,
+        targets: impl Fn(
+            &[Box<str>],
+            &[crate::BoneTransform],
+        ) -> Option<Vec<Option<crate::BoneTransform>>>,
+    ) -> Option<Vec<crate::SkinRenderLayer>> {
+        self.animation.retargeted_layers(runtime_id, alpha, targets)
     }
     pub(crate) fn actor_rigs(&self) -> impl Iterator<Item = ActorRigSnapshot<'_>> {
-        self.animation.snapshots()
+        self.animation.snapshots().filter(|rig| {
+            self.actors
+                .get(&rig.actor.runtime_id)
+                .is_some_and(|actor| self.appearance_ready(actor))
+        })
+    }
+    pub(crate) fn actor_particle_controllers(
+        &self,
+    ) -> impl Iterator<Item = crate::ActorParticleController<'_>> {
+        self.animation.particle_controllers()
     }
     pub(crate) const fn animation_stats(&self) -> ActorAnimationStats {
         self.animation.stats()

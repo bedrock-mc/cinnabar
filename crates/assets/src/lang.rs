@@ -206,10 +206,34 @@ pub fn encode_lang_catalog(
                 "language entries are not strictly sorted",
             ));
         }
-        payload.extend_from_slice(&(entry.key.len() as u16).to_le_bytes());
-        payload.extend_from_slice(entry.key.as_bytes());
-        payload.extend_from_slice(&(entry.value.len() as u16).to_le_bytes());
-        payload.extend_from_slice(entry.value.as_bytes());
+        crate::encoding::append_bounded(
+            &mut payload,
+            &(entry.key.len() as u16).to_le_bytes(),
+            MAX_LANG_CARRIER_BYTES,
+            HEADER_BYTES + HASH_BYTES,
+        )
+        .ok_or(LangCatalogError::Invalid("language carrier exceeds bounds"))?;
+        crate::encoding::append_bounded(
+            &mut payload,
+            entry.key.as_bytes(),
+            MAX_LANG_CARRIER_BYTES,
+            HEADER_BYTES + HASH_BYTES,
+        )
+        .ok_or(LangCatalogError::Invalid("language carrier exceeds bounds"))?;
+        crate::encoding::append_bounded(
+            &mut payload,
+            &(entry.value.len() as u16).to_le_bytes(),
+            MAX_LANG_CARRIER_BYTES,
+            HEADER_BYTES + HASH_BYTES,
+        )
+        .ok_or(LangCatalogError::Invalid("language carrier exceeds bounds"))?;
+        crate::encoding::append_bounded(
+            &mut payload,
+            entry.value.as_bytes(),
+            MAX_LANG_CARRIER_BYTES,
+            HEADER_BYTES + HASH_BYTES,
+        )
+        .ok_or(LangCatalogError::Invalid("language carrier exceeds bounds"))?;
         previous_key = Some(entry.key.as_ref());
     }
     let entries_end = HEADER_BYTES

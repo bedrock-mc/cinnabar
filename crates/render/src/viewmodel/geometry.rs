@@ -11,8 +11,8 @@ pub(super) fn validated_geometry(
 ) -> Option<ViewmodelGeometry> {
     if identity == [0; 32]
         || geometry.inherits.is_some()
-        || geometry.texture_width != 64
-        || geometry.texture_height != 64
+        || u32::from(geometry.texture_width) != VIEWMODEL_TEXTURE_SIDE
+        || u32::from(geometry.texture_height) != VIEWMODEL_TEXTURE_SIDE
     {
         return None;
     }
@@ -37,6 +37,8 @@ pub(super) fn validated_geometry(
             || b.inflate.is_some_and(|i| i.get() != 0.)
             || b.never_render == Some(true)
             || b.reset == Some(true)
+            || b.binding.is_some()
+            || !b.texture_meshes.is_empty()
         {
             return None;
         }
@@ -130,7 +132,7 @@ fn append_arm(
                 position: transform
                     .transform_point3(Vec3::from(corners[face[i]]))
                     .to_array(),
-                uv: uv[i].map(|value| value / 64.),
+                uv: uv[i].map(|value| value / VIEWMODEL_TEXTURE_SIDE as f32),
             });
         }
     }

@@ -3,8 +3,7 @@ use std::sync::Arc;
 use bevy::math::{Mat4, Vec3};
 
 use super::{
-    ActorCullView, ActorRenderScene, ActorRenderSource, ActorSkinPixels, DEFAULT_SKIN_PROVENANCE,
-    MAX_RENDERED_PLAYERS, STANDARD_BIPED_VERTEX_COUNT, standard_biped_vertices,
+    ActorCullView, ActorRenderScene, ActorRenderSource, ActorSkinPixels, MAX_RENDERED_PLAYERS,
 };
 
 fn source(runtime_id: u64, x: f32, yaw_degrees: f32) -> ActorRenderSource {
@@ -184,136 +183,29 @@ fn high_resolution_standard_skin_is_nearest_sampled_and_invalid_skin_uses_author
     let valid = ActorSkinPixels {
         width: 128,
         height: 128,
-        rgba8: Arc::from(rgba8),
+        rgba8: rgba8.into(),
     };
     let invalid = ActorSkinPixels {
         width: 64,
         height: 64,
-        rgba8: Arc::from([0_u8; 4]),
+        rgba8: vec![0_u8; 4].into(),
     };
     let mut first = source(1, 0.0, 0.0);
     first.skin = Some(valid);
     let mut second = source(2, 0.0, 0.0);
     second.skin = Some(invalid);
+    let expected_default = super::default_actor_skin_rgba8();
     let mut scene = ActorRenderScene::default();
     let frame = scene.update(1.0, None, [first, second]);
 
-    assert_eq!(&frame.skins_rgba8[0..4], &[1, 2, 3, 255]);
-    assert_eq!(frame.skins_rgba8.len(), 2 * super::STANDARD_SKIN_BYTES);
-    assert_eq!(
-        DEFAULT_SKIN_PROVENANCE,
-        "locally generated Cinnabar Default skin"
-    );
-    let default = &frame.skins_rgba8[super::STANDARD_SKIN_BYTES..];
-    assert!(
-        default
-            .chunks_exact(4)
-            .any(|pixel| pixel == [42, 91, 99, 255])
-    );
-    assert!(
-        default
-            .chunks_exact(4)
-            .any(|pixel| pixel == [198, 134, 91, 255])
-    );
-}
-
-#[test]
-fn standard_biped_is_six_cuboids_with_a_complete_base_layer_uv_mesh() {
-    let vertices = standard_biped_vertices();
-    assert_eq!(vertices.len(), STANDARD_BIPED_VERTEX_COUNT);
-    assert_eq!(STANDARD_BIPED_VERTEX_COUNT, 6 * 6 * 6);
-    assert!(vertices.iter().all(|vertex| {
-        vertex.position.iter().all(|value| value.is_finite())
-            && vertex.uv.iter().all(|value| (0.0..=1.0).contains(value))
-    }));
-    let min_y = vertices
-        .iter()
-        .map(|vertex| vertex.position[1])
-        .fold(f32::INFINITY, f32::min);
-    let max_y = vertices
-        .iter()
-        .map(|vertex| vertex.position[1])
-        .fold(f32::NEG_INFINITY, f32::max);
-    assert_eq!([min_y, max_y], [0.0, 2.0]);
-}
-
-// A legacy 64x32 skin gains left limbs that mirror the right limbs face by face.
-#[test]
-fn legacy_half_height_skin_expands_with_mirrored_left_limbs() {
-    let mut legacy = vec![0u8; 64 * 32 * 4];
-    let texel = |x: usize, y: usize| (y * 64 + x) * 4;
-    // Right leg front face, leftmost column.
-    legacy[texel(4, 20)..texel(4, 20) + 4].copy_from_slice(&[1, 2, 3, 255]);
-    let square = super::normalize_actor_skin(&super::ActorSkinPixels {
-        width: 64,
-        height: 32,
-        rgba8: legacy.into(),
-    })
-    .expect("legacy skin normalizes");
-    assert_eq!(square.len(), super::STANDARD_SKIN_BYTES);
-    let scale = super::STANDARD_SKIN_SIDE / 64;
-    let texel = |x: usize, y: usize| (y * scale * super::STANDARD_SKIN_SIDE + x * scale) * 4;
-    // Left leg front face (20..24, 52..64) mirrors it into its rightmost column.
-    assert_eq!(&square[texel(23, 52)..texel(23, 52) + 4], &[1, 2, 3, 255]);
-    assert_eq!(&square[texel(4, 20)..texel(4, 20) + 4], &[1, 2, 3, 255]);
-    assert!(
-        super::normalize_actor_skin(&super::ActorSkinPixels {
-            width: 64,
-            height: 48,
-            rgba8: vec![0; 64 * 48 * 4].into(),
-        })
-        .is_none()
-    );
-}
-
-/// An HD skin is resampled once per source raster, not once per frame.
-#[test]
-fn cached_skin_normalization_resamples_each_source_once() {
-    let hd = ActorSkinPixels {
-        width: 128,
-        height: 128,
-        rgba8: (0..128 * 128 * 4).map(|value| value as u8).collect(),
+    let skin = |index: usize| {
+        frame
+            .player_skin(frame.instances[index].skin_layer)
+            .expect("drawn skins are resident")
     };
-    let first = super::normalize_actor_skin_cached(&hd).unwrap();
-    assert_eq!(first, super::normalize_actor_skin(&hd).unwrap());
-    for _ in 0..10 {
-        assert!(Arc::ptr_eq(
-            &first,
-            &super::normalize_actor_skin_cached(&hd).unwrap()
-        ));
-    }
-    let copy = ActorSkinPixels {
-        rgba8: hd.rgba8.to_vec().into(),
-        ..hd
-    };
-    assert!(!Arc::ptr_eq(
-        &first,
-        &super::normalize_actor_skin_cached(&copy).unwrap()
-    ));
-}
-
-/// Narrow opaque texels in HD skins must not disappear when packed into the skin array.
-#[test]
-fn skin_packing_preserves_native_texels_between_old_downsample_points() {
-    // Isolated texels from captured HD skins: the old nearest downsample missed both.
-    for (side, x, y, pixel) in [
-        (128usize, 96usize, 29usize, [91, 91, 91, 254]),
-        (256, 5, 0, [231, 170, 57, 255]),
-    ] {
-        let mut rgba8 = vec![0; side * side * 4];
-        let source = (y * side + x) * 4;
-        rgba8[source..source + 4].copy_from_slice(&pixel);
-        let packed = super::normalize_actor_skin(&ActorSkinPixels {
-            width: side as u32,
-            height: side as u32,
-            rgba8: rgba8.into(),
-        })
-        .unwrap();
-        let at = (y * super::STANDARD_SKIN_SIDE / side * super::STANDARD_SKIN_SIDE
-            + x * super::STANDARD_SKIN_SIDE / side)
-            * 4;
-        assert_eq!(&packed[at..at + 4], &pixel, "{side}-pixel skin");
-    }
+    assert_eq!(&skin(0)[0..4], &[1, 2, 3, 255]);
+    assert_eq!(skin(0).len(), super::STANDARD_SKIN_BYTES);
+    assert_eq!(skin(1), &expected_default);
 }
 
 /// New skin models and item meshes share one catalog rebuild instead of one each.
@@ -321,14 +213,19 @@ fn skin_packing_preserves_native_texels_between_old_downsample_points() {
 fn batched_geometries_rebuild_the_catalog_once() {
     let mut builder = super::ActorRigFrameBuilder::new([]).unwrap();
     let cuboid = |slot| {
-        super::ActorRigGeometry::synthetic_cuboid(super::skin_rig_id(slot), [0.0; 3], [1.0; 3], 1)
-            .unwrap()
+        super::ActorRigGeometry::synthetic_cuboid(
+            render_model::skin_rig_id(slot),
+            [0.0; 3],
+            [slot as f32 + 1.0, 1.0, 1.0],
+            1,
+        )
+        .unwrap()
     };
     let before = builder.geometry_vertices().len();
     builder
         .insert_geometries((0..8).map(cuboid).collect())
         .unwrap();
-    assert!((0..8).all(|slot| builder.contains_geometry(super::skin_rig_id(slot))));
+    assert!((0..8).all(|slot| builder.contains_geometry(render_model::skin_rig_id(slot))));
     assert_eq!(builder.geometry_vertices().len(), before + 8 * 36);
     let mut duplicate = vec![cuboid(9)];
     duplicate.push(
@@ -341,5 +238,34 @@ fn batched_geometries_rebuild_the_catalog_once() {
         .unwrap(),
     );
     assert!(builder.insert_geometries(duplicate).is_err());
-    assert!(!builder.contains_geometry(super::skin_rig_id(9)));
+    assert!(!builder.contains_geometry(render_model::skin_rig_id(9)));
+}
+
+#[test]
+fn review_render_geometry_replacement_keeps_configured_artwork() {
+    let (pages, _) =
+        super::ActorArtworkPages::default().with_equipment_rasters(&[render_model::equipment::EquipmentRaster {
+            width: 1,
+            height: 1,
+            rgba8: Arc::from([1, 2, 3, 255]),
+        }]);
+    let mut scene = ActorRenderScene::default();
+    scene.configure_artwork(pages);
+    let before = Arc::clone(&scene.frame.artwork);
+    scene.replace_pack_entities(None).unwrap();
+    assert!(Arc::ptr_eq(&before, &scene.frame.artwork));
+}
+
+#[test]
+fn review_render_teleport_samples_the_destination_for_local_and_remote_actors() {
+    let mut scene = ActorRenderScene::default();
+    let mut actor = tick_source(7, 0.0, 100.0, 0.0, 90.0);
+    actor.teleported = true;
+    for alpha in [0.0, 0.5, 1.0] {
+        let frame = scene.update(alpha, None, [actor.clone()]);
+        assert_eq!(frame.instances[0].position[0], 100.0);
+        assert!((frame.instances[0].yaw_radians - 90.0_f32.to_radians()).abs() < 1e-5);
+        let frame = scene.update_with_local(alpha, None, [], Some(actor.clone()));
+        assert_eq!(frame.instances[0].position[0], 100.0);
+    }
 }

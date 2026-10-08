@@ -13,7 +13,8 @@ use super::{
     RuntimeEntityAssets, invalid, validate_compiled, validate_geometry_scalar, validate_scalars,
 };
 
-pub const MAX_ENTITY_ANIMATION_CLIPS: usize = 4_096;
+/// Clips are geometry-specific instances and share the retained rig animation instance budget.
+pub const MAX_ENTITY_ANIMATION_CLIPS: usize = MAX_ENTITY_RIG_ANIMATIONS;
 pub const MAX_ENTITY_ANIMATION_CHANNELS: usize = 65_536;
 pub const MAX_ENTITY_ANIMATION_KEYFRAMES: usize = 524_288;
 pub const MAX_ENTITY_CONTROLLERS: usize = 2_048;
@@ -21,7 +22,7 @@ pub const MAX_ENTITY_CONTROLLER_STATES: usize = 16_384;
 pub const MAX_ENTITY_CONTROLLER_TRANSITIONS: usize = 32_768;
 pub const MAX_ENTITY_CONTROLLER_ANIMATIONS: usize = 524_288;
 pub const MAX_MOLANG_EXPRESSIONS: usize = 65_536;
-pub const MAX_MOLANG_OPS_PER_EXPRESSION: usize = 1_024;
+pub const MAX_MOLANG_OPS_PER_EXPRESSION: usize = 2_048;
 pub const MAX_MOLANG_OPS: usize = 1_048_576;
 pub const MAX_MOLANG_STACK_DEPTH: u8 = 32;
 pub const MAX_MOLANG_COLLECTION_ITEMS: usize = 32;
@@ -43,10 +44,11 @@ pub(super) use encode::{encode_compiled, encode_runtime};
 mod render;
 use render::validate_render_payload;
 pub use render::{
-    EntityRenderCandidate, EntityRenderData, EntityRenderGeometry, EntityRenderLayer,
-    EntityRenderSlot, EntityRenderVisibility, MAX_ENTITY_RENDER_CANDIDATES,
-    MAX_ENTITY_RENDER_LAYERS, MAX_ENTITY_RENDER_PATTERN_BYTES, MAX_ENTITY_RENDER_SLOTS,
-    MAX_ENTITY_RENDER_VISIBILITY,
+    ENTITY_ALPHA_TEST_THRESHOLD, EntityRenderCandidate, EntityRenderData, EntityRenderGeometry,
+    EntityRenderLayer, EntityRenderMaterial, EntityRenderMaterialState, EntityRenderSlot,
+    EntityRenderVisibility, MAX_ENTITY_RENDER_CANDIDATES, MAX_ENTITY_RENDER_LAYERS,
+    MAX_ENTITY_RENDER_PATTERN_BYTES, MAX_ENTITY_RENDER_SLOTS, MAX_ENTITY_RENDER_VISIBILITY,
+    entity_render_pattern_matches,
 };
 #[path = "v4/rig.rs"]
 mod rig;
@@ -104,15 +106,24 @@ pub struct EntityAnimationClip {
     /// Geometry whose bones the channels index; clips of one symbol are ordered by it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub geometry: Option<u32>,
+    /// Molang expression that supplies the clip's animation time instead of elapsed time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub anim_time_update: Option<u32>,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct EntityAnimationChannel {
     pub bone: u32,
+    /// Name-bound channels can drive a model selected after pack compilation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bone_name: Option<Box<str>>,
     pub property: EntityAnimationProperty,
     pub first_keyframe: u32,
     pub keyframe_count: u32,
+    /// This bone uses the entity's axes after its pivot follows the parent transform.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub rotation_relative_to_entity: bool,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -178,9 +189,15 @@ pub struct EntityAnimationController {
     pub initial_state: u16,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct EntityControllerState {
+    /// Seconds to blend out this state when transitioning to another state.
+    #[serde(default, skip_serializing_if = "is_default_blend")]
+    pub blend_transition: EntityGeometryScalar,
+    /// Chooses the shorter rotation arc when blending controller states.
+    #[serde(default, skip_serializing_if = "is_default_blend")]
+    pub blend_via_shortest_path: bool,
     pub name: u32,
     pub first_animation: u32,
     pub animation_count: u16,
@@ -188,6 +205,11 @@ pub struct EntityControllerState {
     pub transition_count: u16,
     pub on_entry: Option<u32>,
     pub on_exit: Option<u32>,
+}
+
+/// Omits legacy-compatible controller blending defaults from encoded payloads.
+fn is_default_blend<T: Default + PartialEq>(value: &T) -> bool {
+    *value == T::default()
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -300,7 +322,7 @@ pub struct EntityAssetSummary {
 
 impl CompiledEntityAssets {
     pub fn validate(&self) -> Result<(), AssetError> {
-        validate_compiled(self)
+        validate_compiled(self).map(|_| ())
     }
 }
 
@@ -320,6 +342,12 @@ impl RuntimeEntityAssets {
             .iter()
             .take_while(|clip| clip.symbol == symbol)
             .position(|clip| clip.geometry == Some(geometry))
+            .or_else(|| {
+                self.animation_clips[first..]
+                    .iter()
+                    .take_while(|clip| clip.symbol == symbol)
+                    .position(|clip| clip.geometry.is_none())
+            })
             .map(|offset| (first + offset) as u32)
     }
 
@@ -381,6 +409,21 @@ impl RuntimeEntityAssets {
     #[must_use]
     pub fn rig_bindings(&self) -> &[EntityRigBinding] {
         &self.rig_bindings
+    }
+
+    /// The unambiguous animated attachable rig with this authored identifier.
+    #[must_use]
+    pub fn attachable_rig_binding(&self, identifier: &str) -> Option<usize> {
+        let mut matches = self.rig_bindings.iter().enumerate().filter(|(_, rig)| {
+            self.symbols
+                .get(rig.entity_symbol as usize)
+                .is_some_and(|symbol| {
+                    symbol.kind == EntityAssetKind::Attachable
+                        && symbol.identifier.as_ref() == identifier
+                })
+        });
+        let (index, _) = matches.next()?;
+        matches.next().is_none().then_some(index)
     }
 
     #[must_use]
@@ -588,6 +631,9 @@ fn validate_animation_payload(compiled: &CompiledEntityAssets) -> Result<(), Ass
             || clip
                 .geometry
                 .is_some_and(|geometry| geometry as usize >= compiled.geometries.len())
+            || clip
+                .anim_time_update
+                .is_some_and(|expression| expression as usize >= compiled.molang_expressions.len())
             || !range_in_bounds(
                 clip.first_channel,
                 clip.channel_count,
@@ -598,6 +644,9 @@ fn validate_animation_payload(compiled: &CompiledEntityAssets) -> Result<(), Ass
         }
     }
     for channel in &compiled.animation_channels {
+        if let Some(name) = &channel.bone_name {
+            super::validate_geometry_name(name)?;
+        }
         if !range_in_bounds(
             channel.first_keyframe,
             channel.keyframe_count,
@@ -700,6 +749,10 @@ fn validate_controller_state(
     state: &EntityControllerState,
     controller_state_count: u16,
 ) -> Result<(), AssetError> {
+    validate_geometry_scalar(state.blend_transition)?;
+    if state.blend_transition.get() < 0.0 {
+        return Err(invalid("entity controller blend duration is negative"));
+    }
     if !molang_symbol_has_kind(compiled, state.name, &[MolangSymbolKind::Name])
         || !range_in_bounds(
             state.first_animation,

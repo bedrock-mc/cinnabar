@@ -87,13 +87,21 @@ pub fn prepare_decode_vec<T>(
 }
 
 /// Ensures one more decoded item can be pushed without an infallible allocator path.
+#[inline]
 pub fn reserve_decode_item<T>(values: &mut Vec<T>) -> Result<(), DecodeError> {
     if values.len() == values.capacity() {
-        values
-            .try_reserve(1)
-            .map_err(|_| allocation_failed(values.len().saturating_add(1)))?;
+        grow_decode_vec(values)?;
     }
     Ok(())
+}
+
+/// Keeps the rare, fallible capacity growth out of per-item decode loops.
+#[cold]
+#[inline(never)]
+fn grow_decode_vec<T>(values: &mut Vec<T>) -> Result<(), DecodeError> {
+    values
+        .try_reserve(1)
+        .map_err(|_| allocation_failed(values.len().saturating_add(1)))
 }
 
 /// Allocates a byte buffer through the fallible collection API.

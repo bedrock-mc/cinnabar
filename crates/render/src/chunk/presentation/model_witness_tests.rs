@@ -702,6 +702,7 @@ fn model_witness_uses_actual_direct_and_mdi_frame_probe_recording_paths() {
 #[test]
 fn depth_liquid_direct_and_mdi_draws_share_exact_addresses() {
     let allocation = GpuChunkAllocation {
+        cube_layout: CubeQuadLayout::default(),
         key: SubChunkKey::new(0, 1, 2, 3),
         generation: 4,
         tint_identity: ChunkBiomeTintIdentity::default(),
@@ -734,4 +735,21 @@ fn depth_liquid_direct_and_mdi_draws_share_exact_addresses() {
     water_only.has_depth_liquid = false;
     assert!(depth_liquid_direct_draw_command(&water_only).is_none());
     assert!(depth_liquid_mdi_draw_command(&water_only).is_none());
+}
+
+#[test]
+fn review_render_model_witness_rejects_same_size_wrong_key_manifest() {
+    let a = SubChunkKey::new(0, 0, 0, 0);
+    let b = SubChunkKey::new(0, 1, 0, 0);
+    let request = ModelWitnessRequest::try_new(7, [0x33; 32], vec![a]).unwrap();
+    let evidence = ModelWitnessEvidence::default();
+    evidence.set_authoritative_request(&request);
+    for frame in [40, 41] {
+        evidence.observe_presented_frame(
+            &request,
+            &presented_model_witness_ack(&request, b, frame, 0, 0),
+        );
+    }
+    assert!(!evidence.is_complete_for(&request));
+    assert!(evidence.drain_events().is_empty());
 }

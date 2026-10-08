@@ -475,3 +475,15 @@ fn blob_trim_cost_for_small_blobs() {
         new.as_secs_f64() * 1e3
     );
 }
+
+#[test]
+fn review_tiny_blob_entries_have_a_metadata_bound() {
+    let cache = ClientBlobCache::with_limits(BlobCacheLimits {
+        trim_trigger_bytes: 1024 * 1024,
+        trim_floor_bytes: 1024 * 1024,
+    });
+    for value in 0..=MAX_CLIENT_BLOB_CACHE_ENTRIES as u32 {
+        cache.insert(&value.to_le_bytes()).unwrap();
+    }
+    assert!(cache.entry_count() <= MAX_CLIENT_BLOB_CACHE_ENTRIES);
+}

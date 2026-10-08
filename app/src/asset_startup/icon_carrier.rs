@@ -19,7 +19,7 @@ use super::{
     AssetStartupError, DEFAULT_ASSET_PATH, canonical_source_manifest_sha256, format_sha256,
 };
 
-pub const ICON_ASSETS_FILENAME: &str = "vanilla-v1.mcbeico";
+pub const ICON_ASSETS_FILENAME: &str = assets::carriers::ICON.output;
 pub const ICON_ASSETS_COMPILE_COMMAND: &str = "make icon-assets";
 const ICON_ASSETS_REPORT_FILENAME: &str = "icon-assets.json";
 const MAX_ICON_ASSET_BLOB_BYTES: u64 = assets::MAX_ICON_CARRIER_BYTES as u64;

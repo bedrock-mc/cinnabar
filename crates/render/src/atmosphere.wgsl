@@ -1,4 +1,5 @@
 #import bevy_render::view::View
+#import cinnabar::lighting::{tint_to_gamma, tint_to_linear}
 
 struct AtmosphereUniform {
     sun_direction_daylight: vec4<f32>,
@@ -19,12 +20,11 @@ struct AtmosphereUniform {
 @group(0) @binding(5) var end_sky_texture: texture_2d<f32>;
 @group(0) @binding(6) var<storage, read> stars: array<vec4<f32>>;
 
-// Half-extents of the flat sun and moon quads as a tangent at unit distance; both need
-// native measurement.
-const SUN_HALF_EXTENT: f32 = 0.15;
-const MOON_HALF_EXTENT: f32 = 0.10;
-// Vanilla dims the End sky texture to roughly this fraction of its stored brightness.
-const END_SKY_BRIGHTNESS: f32 = 0.157;
+// Target 1.26.50.26 directional-light builder passes these angular
+// diameters to the orbital transform, which scales the ±.5 quad by
+// 2*distance*tan(diameter/2).
+const SUN_HALF_EXTENT: f32 = tan(28.08 * 0.0174532924 * 0.5);
+const MOON_HALF_EXTENT: f32 = tan(18.924 * 0.0174532924 * 0.5);
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
@@ -35,7 +35,12 @@ struct VertexOutput {
 fn atmosphere_vertex(@builtin(vertex_index) vertex_index: u32) -> VertexOutput {
     if (vertex_index >= 3u) {
         let star = stars[vertex_index - 3u];
-        var clip = view.clip_from_world * vec4(star.xyz + view.world_position, 1.0);
+        let angle = atmosphere.sky_extra.y * 6.283185307;
+        let cosine = cos(angle);
+        let sine = sin(angle);
+        // Vanilla rotates the star mesh around +Z.
+        let sky = vec3(star.x * cosine - star.y * sine, star.y * cosine + star.x * sine, star.z);
+        var clip = view.clip_from_world * vec4(sky + view.world_position, 1.0);
         clip.z = 0.0;
         return VertexOutput(clip, star.w);
     }
@@ -54,24 +59,69 @@ fn view_ray(position: vec2<f32>) -> vec3<f32> {
     return normalize((view.world_from_view * vec4(view_direction, 0.0)).xyz);
 }
 
-// Returns top-left-origin image UV and a hard quad coverage mask from a flat quad tangent
-// to the sky sphere. The basis is stable at zenith so the pinned textures never roll.
-fn celestial_uv(ray: vec3<f32>, direction: vec3<f32>, half_extent: f32) -> vec3<f32> {
-    var right = cross(direction, vec3(0.0, 1.0, 0.0));
-    if (dot(right, right) < 0.0001) {
-        right = vec3(0.0, 0.0, 1.0);
+// The 1.26.50.26 sky mesh has red0 at its centre and
+// red1 at this decagon rim. Vanilla places its plane at Y256
+// and scales XZ by2000. Intersecting the view ray and evaluating the fan's
+// barycentrics reproduces its perspective-interpolated vertex red without
+// allocating or drawing another mesh. Beyond its rim the fog colour remains.
+fn native_sky_fog_weight(ray: vec3<f32>) -> f32 {
+    if (ray.y <= 0.0) {
+        return 1.0;
     }
-    right = normalize(right);
-    let local_up = normalize(cross(right, direction));
-    let facing = dot(ray, direction);
-    let local = vec2(dot(ray, right), dot(ray, local_up)) / max(facing, 0.0001) / half_extent;
-    let inside = facing > 0.0 && max(abs(local.x), abs(local.y)) <= 1.0;
-    let coverage = select(0.0, 1.0, inside);
-    return vec3(local * vec2(0.5, -0.5) + vec2(0.5), coverage);
+    let ring = array<vec2<f32>, 10>(
+        vec2(1.0, 0.0),
+        vec2(0.809017003, 0.587785244),
+        vec2(0.309016973, 0.951056540),
+        vec2(-0.309017152, 0.951056480),
+        vec2(-0.809017062, 0.587785184),
+        vec2(-1.0, -0.0000000874227766),
+        vec2(-0.809016764, -0.587785542),
+        vec2(-0.309017092, -0.951056480),
+        vec2(0.309017122, -0.951056480),
+        vec2(0.809016943, -0.587785304),
+    );
+    let point = ray.xz * (256.0 / 2000.0) / ray.y;
+    for (var index = 0u; index < 10u; index += 1u) {
+        let a = ring[index];
+        let b = ring[(index + 1u) % 10u];
+        let determinant = a.x * b.y - a.y * b.x;
+        let alpha = (point.x * b.y - point.y * b.x) / determinant;
+        let beta = (a.x * point.y - a.y * point.x) / determinant;
+        if (alpha >= 0.0 && beta >= 0.0) {
+            return clamp(alpha + beta, 0.0, 1.0);
+        }
+    }
+    return 1.0;
 }
 
-fn celestial_visibility(direction_y: f32) -> f32 {
-    return smoothstep(-0.04, 0.02, direction_y);
+// The stock orbital transform keeps local-X on−Z through the whole
+// orbit. The celestial quad maps−X→u1 and−Z→v0, hence fixed+Z
+// image-right and this rotating image-down basis. A world-up cross product
+// instead flips both texture axes as the celestial body crosses the zenith.
+fn celestial_uv(ray: vec3<f32>, direction: vec3<f32>, half_extent: f32) -> vec3<f32> {
+    let right = vec3(0.0, 0.0, 1.0);
+    let image_down = normalize(vec3(direction.y, -direction.x, 0.0));
+    let facing = dot(ray, direction);
+    let local = vec2(dot(ray, right), dot(ray, image_down)) / max(facing, 0.0001) / half_extent;
+    let inside = facing > 0.0 && max(abs(local.x), abs(local.y)) <= 1.0;
+    let coverage = select(0.0, 1.0, inside);
+    return vec3(local * 0.5 + vec2(0.5), coverage);
+}
+
+// Current orbital calculation stores the eased day angle in
+// degrees (moon offset 180). Ordinary vanilla admits the
+// sprite through 105/255, without any horizon-height alpha interpolation.
+fn celestial_visibility(phase_offset: f32) -> f32 {
+    let half_angle = atmosphere.sky_extra.y * 3.141592741;
+    let degrees = ((half_angle + half_angle) * 57.2957763671875 + phase_offset) % 360.0;
+    return select(0.0, 1.0, degrees <= 105.0 || degrees >= 255.0);
+}
+
+// The target version scales the stock celestial alpha by
+// clamp(1−2*interpolatedRain,0,1). SunMoon's fragment shader multiplies
+// colour by the sampled RGBA, and its material blends SourceAlpha→One.
+fn celestial_weather_alpha() -> f32 {
+    return clamp(1.0 - 2.0 * atmosphere.sky_zenith_rain.w, 0.0, 1.0);
 }
 
 fn composite_celestial(
@@ -82,12 +132,26 @@ fn composite_celestial(
     return destination + sampled_rgb * coverage;
 }
 
+// Native Sky/SunMoon render into the classic UNORM framebuffer in gamma
+// space. Our view target is sRGB: recover input gamma, compose there, then
+// encode once at the output boundary instead of interpolating linear colours.
+fn native_sky_colour(weight: f32) -> vec3<f32> {
+    return mix(
+        tint_to_gamma(vec4(atmosphere.sky_zenith_rain.rgb, 1.0)).rgb,
+        tint_to_gamma(vec4(atmosphere.sky_horizon_thunder.rgb, 1.0)).rgb,
+        weight,
+    );
+}
+
+fn sky_output(colour: vec3<f32>) -> vec4<f32> {
+    return tint_to_linear(vec4(clamp(colour, vec3(0.0), vec3(1.0)), 1.0));
+}
+
 fn sample_sun(ray: vec3<f32>, direction: vec3<f32>) -> vec4<f32> {
     let mapping = celestial_uv(ray, direction, SUN_HALF_EXTENT);
-    let texel_uv = (clamp(mapping.xy, vec2(0.0), vec2(1.0)) * 31.0 + 0.5) / 32.0;
-    let sampled = textureSampleLevel(sun_texture, atmosphere_sampler, texel_uv, 0.0);
-    let visible = celestial_visibility(direction.y);
-    return vec4(sampled.rgb, mapping.z * visible);
+    let sampled = textureSampleLevel(sun_texture, atmosphere_sampler, mapping.xy, 0.0);
+    let visible = celestial_visibility(0.0);
+    return vec4(tint_to_gamma(sampled).rgb, sampled.a * mapping.z * visible * celestial_weather_alpha());
 }
 
 fn sample_moon(ray: vec3<f32>, direction: vec3<f32>) -> vec4<f32> {
@@ -95,15 +159,20 @@ fn sample_moon(ray: vec3<f32>, direction: vec3<f32>) -> vec4<f32> {
     let phase = u32(atmosphere.moon_direction_phase.w) % 8u;
     let phase_column = phase % 4u;
     let phase_row = phase / 4u;
-    let local_texel = clamp(mapping.xy, vec2(0.0), vec2(1.0)) * 31.0 + 0.5;
-    let atlas_texel = vec2(f32(phase_column * 32u), f32(phase_row * 32u)) + local_texel;
-    let atlas_uv = atlas_texel / vec2(128.0, 64.0);
+    let atlas_uv = (vec2(f32(phase_column), f32(phase_row)) + mapping.xy) / vec2(4.0, 2.0);
     let sampled = textureSampleLevel(moon_phases_texture, atmosphere_sampler, atlas_uv, 0.0);
-    let visible = celestial_visibility(direction.y);
-    return vec4(sampled.rgb, mapping.z * visible);
+    let visible = celestial_visibility(180.0);
+    return vec4(tint_to_gamma(sampled).rgb, sampled.a * mapping.z * visible * celestial_weather_alpha());
 }
 
-fn end_sky(ray: vec3<f32>) -> vec3<f32> {
+// Native Stars fragment outputs vertexRGB*StarsColorRGB*vertexAlpha.
+// The stock mesh vertexRGB is white; vertexAlpha is not framebuffer alpha.
+fn native_star_colour(vertex_alpha: f32) -> vec4<f32> {
+    return vec4(vec3(vertex_alpha * atmosphere.sky_extra.x), vertex_alpha);
+}
+
+// The world-aligned cube repeats its texture sixteen times on each face.
+fn end_sky_uv(ray: vec3<f32>) -> vec2<f32> {
     let magnitude = abs(ray);
     var plane: vec2<f32>;
     var major: f32;
@@ -117,53 +186,34 @@ fn end_sky(ray: vec3<f32>) -> vec3<f32> {
         plane = ray.xy;
         major = magnitude.z;
     }
-    let uv = plane / major * 0.5 + vec2(0.5);
-    return textureSampleLevel(end_sky_texture, atmosphere_sampler, uv, 0.0).rgb * END_SKY_BRIGHTNESS;
+    return (plane / major * 0.5 + vec2(0.5)) * 16.0;
 }
 
-// Sunrise/sunset glow hugging the horizon on the side the sun crosses.
-fn sunrise_glow(ray: vec3<f32>) -> f32 {
-    let alpha = atmosphere.sunrise_band.a;
-    if (alpha <= 0.0) {
-        return 0.0;
-    }
-    let side = select(-1.0, 1.0, atmosphere.sun_direction_daylight.x >= 0.0);
-    let flat_ray = normalize(vec2(ray.x, ray.z) + vec2(0.00001));
-    let azimuth = max(flat_ray.x * side, 0.0);
-    let height = 1.0 - smoothstep(-0.05, 0.5, ray.y);
-    return alpha * azimuth * azimuth * height;
+fn end_sky(ray: vec3<f32>) -> vec3<f32> {
+    let sampled = textureSampleLevel(end_sky_texture, atmosphere_sampler, end_sky_uv(ray), 0.0);
+    let fog = tint_to_gamma(vec4(atmosphere.fog_color_start.rgb, 1.0)).rgb;
+    return tint_to_gamma(sampled).rgb * (2.0 * fog);
 }
 
 @fragment
 fn atmosphere_fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let ray = view_ray(in.position.xy);
     let code = u32(atmosphere.sky_extra.w + 0.5);
-    if (code / 4u != 0u) {
-        return vec4(atmosphere.fog_color_start.rgb, 1.0);
-    }
     if (in.star_alpha > 0.0) {
         if (code != 0u || atmosphere.sky_extra.x <= 0.0) { discard; }
-        let sun = sample_sun(ray, normalize(atmosphere.sun_direction_daylight.xyz));
-        let moon = sample_moon(ray, normalize(atmosphere.moon_direction_phase.xyz));
-        return vec4(vec3(1.0), in.star_alpha * atmosphere.sky_extra.x * (1.0 - sun.a) * (1.0 - moon.a));
+        return tint_to_linear(native_star_colour(in.star_alpha));
+    }
+    if (code / 4u != 0u) {
+        return vec4(atmosphere.fog_color_start.rgb, 1.0);
     }
     let kind = code % 4u;
     if (kind == 1u) {
         return vec4(atmosphere.sky_horizon_thunder.rgb, 1.0);
     }
     if (kind == 2u) {
-        return vec4(atmosphere.sky_zenith_rain.rgb + end_sky(ray), 1.0);
+        return sky_output(end_sky(ray));
     }
-    let horizon_to_zenith = smoothstep(-0.08, 0.72, ray.y);
-    var colour = mix(
-        atmosphere.sky_horizon_thunder.rgb,
-        atmosphere.sky_zenith_rain.rgb,
-        horizon_to_zenith,
-    );
-    if (ray.y < -0.08) {
-        colour *= 0.72;
-    }
-    colour = mix(colour, atmosphere.sunrise_band.rgb, sunrise_glow(ray));
+    var colour = native_sky_colour(native_sky_fog_weight(ray));
 
     let sun_direction = normalize(atmosphere.sun_direction_daylight.xyz);
     let sun = sample_sun(ray, sun_direction);
@@ -173,5 +223,5 @@ fn atmosphere_fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let moon = sample_moon(ray, moon_direction);
     colour = composite_celestial(colour, moon.rgb, moon.a);
 
-    return vec4(colour, 1.0);
+    return sky_output(colour);
 }

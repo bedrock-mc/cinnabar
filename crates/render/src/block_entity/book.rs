@@ -1,12 +1,13 @@
 //! The open book on enchanting tables and lecterns, and the lectern stand.
 //!
 //! Book part boxes and UV origins follow the enchanting-book texture unwrap; the hover height,
-//! tilt, spread, page-flip timing and the lectern stand's dimensions need native measurement.
+//! tilt, spread and page-flip timing need native measurement.
 
+use assets::block_entity_geometry as geometry;
 use bevy::math::Mat4;
 
 use super::{
-    atlas::{AtlasRect, BlockEntityAtlas},
+    atlas::BlockEntityAtlas,
     mesh::{BoxSpec, Layer, MeshBuilder, WHITE, model_matrix},
     scene::SceneClock,
 };
@@ -19,8 +20,6 @@ const SPREAD_WOBBLE_DEGREES: f32 = 4.0;
 const TILT_DEGREES: f32 = 10.0;
 const FLIP_PERIOD_TICKS: f64 = 40.0;
 const THIN: f32 = 0.01;
-const LECTERN_SLOPE_DEGREES: f32 = 22.5;
-const LECTERN_BOARD_HEIGHT: f32 = 14.0;
 
 /// Emits the book with its spine along local Y, pages facing +Z, in `matrix` space; `flip`
 /// is the turning page's angle about the spine in radians.
@@ -100,55 +99,42 @@ pub(super) fn emit_lectern(
     has_book: bool,
 ) {
     let base = model_matrix(block, [0.5, 0.0, 0.5], facing_yaw_degrees);
-    let tile = |name: &str| {
-        atlas
-            .texture(name, [16.0, 16.0])
-            .map(|texture| texture.rect)
+    let [Some(bottom), Some(sides), Some(top), Some(front)] =
+        geometry::LECTERN_TEXTURES.map(|name| atlas.texture(name, [16.0; 2]))
+    else {
+        return;
     };
-    if let (Some(floor), Some(sides), Some(top), Some(front)) = (
-        tile("textures/blocks/lectern_base"),
-        tile("textures/blocks/lectern_sides"),
-        tile("textures/blocks/lectern_top"),
-        tile("textures/blocks/lectern_front"),
-    ) {
-        builder.tile_cuboid(
+    let textures = [bottom, sides, top, front];
+    for (index, (texture_index, (corners, texels))) in
+        geometry::lectern_faces().into_iter().enumerate()
+    {
+        let texture = textures[texture_index];
+        let [u0, v0, u1, v1] = texture.rect_uv(texels);
+        let shade = super::mesh::tile_face_shade(index % 6);
+        builder.quad_uv(
             Layer::Solid,
-            base,
-            [-8.0, 0.0, -8.0],
-            [8.0, 2.0, 8.0],
-            [floor; 6],
-            WHITE,
+            corners.map(|corner| {
+                base.transform_point3(bevy::math::Vec3::from_array(corner))
+                    .to_array()
+            }),
+            [[u0, v0], [u1, v0], [u1, v1], [u0, v1]],
+            [shade, shade, shade, 1.0],
         );
-        builder.tile_cuboid(
-            Layer::Solid,
-            base,
-            [-4.0, 2.0, -4.0],
-            [4.0, 14.0, 4.0],
-            [sides; 6],
-            WHITE,
-        );
-        // The reading board slopes down toward the reader (-Z).
-        let board =
-            base * bevy::math::Mat4::from_translation(bevy::math::Vec3::new(
+    }
+    if has_book {
+        let board = base
+            * Mat4::from_translation(bevy::math::Vec3::from_array(geometry::LECTERN_BOARD_OFFSET))
+            * Mat4::from_translation(bevy::math::Vec3::from_array(geometry::LECTERN_BOARD_PIVOT))
+            * Mat4::from_rotation_x(-geometry::LECTERN_SLOPE_DEGREES.to_radians())
+            * Mat4::from_translation(-bevy::math::Vec3::from_array(geometry::LECTERN_BOARD_PIVOT));
+        let book = board
+            * Mat4::from_translation(bevy::math::Vec3::new(
                 0.0,
-                LECTERN_BOARD_HEIGHT,
-                0.0,
-            )) * Mat4::from_rotation_x(-LECTERN_SLOPE_DEGREES.to_radians());
-        let rects: [AtlasRect; 6] = [sides, sides, sides, top, front, sides];
-        builder.tile_cuboid(
-            Layer::Solid,
-            board,
-            [-8.0, 0.0, -8.0],
-            [8.0, 2.0, 8.0],
-            rects,
-            WHITE,
-        );
-        if has_book {
-            let book = board
-                * Mat4::from_translation(bevy::math::Vec3::new(0.0, 2.5, 0.0))
-                * Mat4::from_rotation_x(-std::f32::consts::FRAC_PI_2);
-            emit_book(builder, atlas, book, SPREAD_DEGREES.to_radians(), 0.0);
-        }
+                geometry::LECTERN_BOARD[1][1] + 0.5,
+                (geometry::LECTERN_BOARD[0][2] + geometry::LECTERN_BOARD[1][2]) * 0.5,
+            ))
+            * Mat4::from_rotation_x(-std::f32::consts::FRAC_PI_2);
+        emit_book(builder, atlas, book, SPREAD_DEGREES.to_radians(), 0.0);
     }
 }
 
@@ -166,9 +152,89 @@ mod tests {
 
     #[test]
     fn the_lectern_slope_lowers_the_reader_edge() {
-        let slope = Mat4::from_rotation_x(-LECTERN_SLOPE_DEGREES.to_radians());
+        let slope = Mat4::from_rotation_x(-geometry::LECTERN_SLOPE_DEGREES.to_radians());
         let reader_edge = slope.transform_point3(Vec3::new(0.0, 0.0, -8.0));
         let far_edge = slope.transform_point3(Vec3::new(0.0, 0.0, 8.0));
         assert!(reader_edge.y < far_edge.y);
+    }
+    #[test]
+    fn lectern_stand_uses_cropped_faces_and_the_sloped_board_dimensions() {
+        let mut placements: Vec<_> = [
+            "lectern_base",
+            "lectern_sides",
+            "lectern_top",
+            "lectern_front",
+        ]
+        .into_iter()
+        .enumerate()
+        .map(|(index, name)| assets::BlockEntityPlacement {
+            name: format!("textures/blocks/{name}").into(),
+            x: index as u32 * 16,
+            y: 0,
+            width: 16,
+            height: 16,
+        })
+        .collect();
+        placements.sort_unstable_by(|left, right| left.name.cmp(&right.name));
+        let encoded = assets::encode_block_entity_catalog(
+            b"{}",
+            64,
+            16,
+            &vec![255; 64 * 16 * 4],
+            &placements,
+        )
+        .unwrap();
+        let atlas = BlockEntityAtlas::from_assets(
+            &assets::RuntimeBlockEntityAssets::decode(&encoded).unwrap(),
+        );
+        for yaw in [0.0, 90.0, 180.0, 270.0] {
+            let mut builder = MeshBuilder::new(atlas.size());
+            emit_lectern(&mut builder, &atlas, [0; 3], yaw, false);
+            let inverse = model_matrix([0; 3], [0.5, 0.0, 0.5], yaw).inverse();
+            let points: Vec<_> = builder
+                .solid
+                .iter()
+                .map(|vertex| inverse.transform_point3(Vec3::from_array(vertex.position)))
+                .collect();
+            let board = &points[72..];
+            assert!(((board[0] - board[1]).length() - 4.0).abs() < 1.0e-4);
+            assert!(((board[0] - board[2]).length() - 13.0).abs() < 1.0e-4);
+            let (min_x, max_x) = board
+                .iter()
+                .fold((f32::INFINITY, f32::NEG_INFINITY), |(min, max), point| {
+                    (min.min(point.x), max.max(point.x))
+                });
+            assert!((max_x - min_x - 15.8).abs() < 1.0e-4);
+            let front = &builder.solid[60..66];
+            for (vertex, point) in front.iter().zip(&points[60..66]) {
+                let expected = [
+                    if (point.y - 14.0).abs() < 1.0e-4 {
+                        56.0
+                    } else {
+                        48.0
+                    },
+                    if point.x > 0.0 { 0.0 } else { 13.0 },
+                ];
+                let uv = [
+                    vertex.uv[0] * atlas.size()[0] as f32,
+                    vertex.uv[1] * atlas.size()[1] as f32,
+                ];
+                assert!(
+                    (uv[0] - expected[0]).abs() < 1.0e-4 && (uv[1] - expected[1]).abs() < 1.0e-4
+                );
+            }
+            let top = &builder.solid[90..96];
+            let min_v = top
+                .iter()
+                .map(|vertex| vertex.uv[1] * atlas.size()[1] as f32)
+                .reduce(f32::min)
+                .unwrap();
+            let max_v = top
+                .iter()
+                .map(|vertex| vertex.uv[1] * atlas.size()[1] as f32)
+                .reduce(f32::max)
+                .unwrap();
+            assert!((min_v - 1.0).abs() < 1.0e-4 && (max_v - 14.0).abs() < 1.0e-4);
+        }
     }
 }

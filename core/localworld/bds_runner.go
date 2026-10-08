@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -23,8 +22,8 @@ const (
 
 // BDSRunner hosts each world in the official Bedrock Dedicated Server.
 //
-// BDS has no bind-address setting, so it listens on all interfaces on a random port with
-// online-mode off and one player slot; the world folder is exposed to it by a directory link
+// BDS's NetherNet HTTP listener binds to loopback with online-mode off; its UDP window
+// is sized to MaxPlayers. The world folder is exposed to it by a directory link
 // at worlds/<id> inside the install, so only one world runs at a time.
 type BDSRunner struct {
 	Provisioner  *Provisioner
@@ -32,6 +31,9 @@ type BDSRunner struct {
 	Log          *slog.Logger
 	StartTimeout time.Duration // default 5m
 	MaxPlayers   int           // default 1
+	HostPort     int           // zero selects an available loopback TCP/UDP window
+	LANVisible   bool          // enable BDS's documented LAN discovery; false by default
+	LANHostPort  int           // container-only discovery host port; zero uses the pinned discovery port
 
 	// Container runtime (macOS): the Linux build runs in Docker.
 	Docker string // default "docker"
@@ -61,11 +63,7 @@ func (r BDSRunner) Start(ctx context.Context, spec StartSpec) (Instance, error) 
 	if maxPlayers <= 0 {
 		maxPlayers = 1
 	}
-	address, err := freeLoopbackAddress()
-	if err != nil {
-		return nil, err
-	}
-	addressV6, err := freeLoopbackAddress()
+	address, err := freeBDSAddress(maxPlayers, r.HostPort)
 	if err != nil {
 		return nil, err
 	}
@@ -78,7 +76,7 @@ func (r BDSRunner) Start(ctx context.Context, spec StartSpec) (Instance, error) 
 	if err := linkWorld(link, worldDir); err != nil {
 		return nil, err
 	}
-	props := serverProperties(spec, portOf(address), portOf(addressV6), maxPlayers)
+	props := serverProperties(spec, portOf(address), maxPlayers, r.LANVisible)
 	if err := os.WriteFile(filepath.Join(installDir, "server.properties"), props, 0o600); err != nil {
 		unlinkWorld(link)
 		return nil, fmt.Errorf("localworld: write server.properties: %w", err)
@@ -96,7 +94,10 @@ func (r BDSRunner) Start(ctx context.Context, spec StartSpec) (Instance, error) 
 		unlinkWorld(link)
 		return nil, err
 	}
-	wrapped := &bdsInstance{Instance: inst, cleanup: func() { unlinkWorld(link) }}
+	wrapped := &bdsInstance{Instance: inst, cleanup: func() { unlinkWorld(link) }, maxPlayers: maxPlayers}
+	if r.LANVisible {
+		wrapped.lanAddress = bdsLANAddress(0)
+	}
 	go func() {
 		<-inst.Done()
 		wrapped.cleanupOnce()
@@ -107,9 +108,16 @@ func (r BDSRunner) Start(ctx context.Context, spec StartSpec) (Instance, error) 
 // bdsInstance drops the world link once the server has exited.
 type bdsInstance struct {
 	Instance
-	cleanup func()
-	once    sync.Once
+	cleanup    func()
+	once       sync.Once
+	lanAddress string
+	maxPlayers int
 }
+
+func (b *bdsInstance) LANAddress() string { return b.lanAddress }
+
+// MaxPlayers is the server's player limit, the host included.
+func (b *bdsInstance) MaxPlayers() int { return b.maxPlayers }
 
 func (b *bdsInstance) cleanupOnce() { b.once.Do(b.cleanup) }
 
@@ -134,7 +142,7 @@ func clampInt(v, lo, hi int) int {
 
 // serverProperties renders the per-launch BDS configuration. Seed, level type and the initial
 // settings only apply when the world is first created; gamemode and difficulty apply on every start.
-func serverProperties(spec StartSpec, port, portV6, maxPlayers int) []byte {
+func serverProperties(spec StartSpec, port, maxPlayers int, lanVisible bool) []byte {
 	w := spec.World
 	levelType := "DEFAULT"
 	if w.Generator == GeneratorFlat {
@@ -156,16 +164,16 @@ func serverProperties(spec StartSpec, port, portV6, maxPlayers int) []byte {
 		{"online-mode", "false"},
 		{"allow-list", "false"},
 		{"server-port", strconv.Itoa(port)},
-		{"server-portv6", strconv.Itoa(portV6)},
+		{"server-ip", localServerHost},
+		{"server-udp-ports", bdsUDPMapping(port, port, maxPlayers)},
 		{"level-name", w.ID},
 		{"level-seed", strconv.FormatInt(w.Seed, 10)},
 		{"level-type", levelType},
 		{"view-distance", strconv.Itoa(view)},
 		{"tick-distance", strconv.Itoa(clampInt(view, 4, 12))},
 		{"player-idle-timeout", "0"},
-		// 1.26.5x defaults to NetherNet; the core dials RakNet. LAN visibility would bind 19132/19133 too.
-		{"transport", "raknet"},
-		{"enable-lan-visibility", "false"},
+		{"transport", string(TransportNetherNetHTTP)},
+		{"enable-lan-visibility", strconv.FormatBool(lanVisible)},
 		{"texturepack-required", "false"},
 		{"content-log-file-enabled", "false"},
 	} {
@@ -189,13 +197,7 @@ func linkWorld(link, target string) error {
 		return fmt.Errorf("localworld: prepare worlds folder: %w", err)
 	}
 	unlinkWorld(link)
-	if runtime.GOOS == "windows" {
-		if out, err := exec.Command("cmd", "/c", "mklink", "/J", link, target).CombinedOutput(); err != nil {
-			return fmt.Errorf("localworld: link world folder: %w: %s", err, bytes.TrimSpace(out))
-		}
-		return nil
-	}
-	if err := os.Symlink(target, link); err != nil {
+	if err := createWorldLink(link, target); err != nil {
 		return fmt.Errorf("localworld: link world folder: %w", err)
 	}
 	return nil

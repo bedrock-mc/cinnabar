@@ -11,8 +11,15 @@
     <StandardDirectory Id="ProgramFiles64Folder">
       <Directory Id="INSTALLFOLDER" Name="Cinnabar">
         <!-- Layout: bedrock-client.exe, bedrock-core.exe and bedrock-local-server.exe beside a resources\ tree. -->
-        <Files Include="$(Payload)\**" />
       </Directory>
+    </StandardDirectory>
+
+    <StandardDirectory Id="DesktopFolder">
+      <Component Id="DesktopShortcut" Guid="*">
+        <Shortcut Id="DesktopAppShortcut" Name="Cinnabar" Target="[INSTALLFOLDER]bedrock-client.exe"
+                  WorkingDirectory="INSTALLFOLDER" Icon="cinnabar.ico" />
+        <RegistryValue Root="HKCU" Key="Software\Cinnabar" Name="desktop-shortcut" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
     </StandardDirectory>
 
     <StandardDirectory Id="ProgramMenuFolder">
@@ -24,7 +31,9 @@
     </StandardDirectory>
 
     <Feature Id="Main" Title="Cinnabar" Level="1">
+      <Files Directory="INSTALLFOLDER" Include="$(Payload)\**" />
       <ComponentRef Id="StartMenuShortcut" />
+      <ComponentRef Id="DesktopShortcut" />
     </Feature>
   </Package>
 </Wix>

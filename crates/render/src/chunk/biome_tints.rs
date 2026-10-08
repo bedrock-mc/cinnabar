@@ -15,6 +15,7 @@ pub struct BiomeTint {
     pub birch: [f32; 3],
     pub evergreen: [f32; 3],
     pub dry_foliage: [f32; 3],
+    pub seasonal_foliage: [[f32; 3]; assets::SEASONAL_FOLIAGE_COUNT],
     pub water: [f32; 3],
     pub water_opacity: f32,
     pub flags: u32,
@@ -28,8 +29,10 @@ impl Default for BiomeTint {
             birch: [0.191_201_69, 0.527_115_1, 0.102_241_73],
             evergreen: [0.191_201_69, 0.527_115_1, 0.102_241_73],
             dry_foliage: [0.191_201_69, 0.527_115_1, 0.102_241_73],
+            seasonal_foliage: [[0.191_201_69, 0.527_115_1, 0.102_241_73];
+                assets::SEASONAL_FOLIAGE_COUNT],
             water: [1.0; 3],
-            water_opacity: 1.0,
+            water_opacity: assets::DEFAULT_WATER_OPACITY,
             flags: 0,
         }
     }
@@ -76,6 +79,11 @@ impl ChunkBiomeTints {
                 dry_foliage: record.dry_foliage[..3]
                     .try_into()
                     .expect("three dry foliage channels"),
+                seasonal_foliage: record.seasonal_foliage.map(|color| {
+                    color[..3]
+                        .try_into()
+                        .expect("three seasonal foliage channels")
+                }),
                 water: record.water[..3].try_into().expect("three water channels"),
                 water_opacity: record.water[3],
                 flags: record.flags,

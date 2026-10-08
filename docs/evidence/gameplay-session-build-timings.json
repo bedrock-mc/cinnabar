@@ -1,0 +1,265 @@
+{
+  "baseline_commit": "01f54528f5b206d9dd12d6399ce48f74a4eabe03",
+  "environment": {
+    "profile": "dev",
+    "cargo_build_jobs": 3,
+    "dev_debug": 0,
+    "incremental": false,
+    "rustc_wrapper": "",
+    "source": "/private/tmp/cinnabar-step4-timings/source",
+    "target": "/private/tmp/cinnabar-step4-timings/target",
+    "os": "macOS 26.5.1",
+    "rustc": "rustc 1.93.1 (01f6ddf75 2026-02-11)"
+  },
+  "measurements": [
+    {
+      "label": "before-gameplay-edit",
+      "source": "app/src/movement/control_modes.rs",
+      "command": [
+        "/private/tmp/claude-501/-Users-hashim-Downloads-cinnabar/30f7cca3-953b-4833-843f-34f90cbe1dae/scratchpad/cslot",
+        "env",
+        "RUSTC_WRAPPER=",
+        "CARGO_INCREMENTAL=0",
+        "CARGO_TARGET_DIR=/private/tmp/cinnabar-step4-timings/target",
+        "cargo",
+        "build",
+        "--offline",
+        "--locked",
+        "-p",
+        "bedrock-client",
+        "--timings"
+      ],
+      "returncode": 0,
+      "limiter_inclusive_seconds": 37.44557112500024,
+      "report_sha256": "cb8f27424ac9420102f976a581296698baa45288938c6c0458c348c3c2a5d3ce",
+      "cargo_elapsed": "37.4s",
+      "fresh_units": 669,
+      "compiled_units": [
+        {
+          "i": 0,
+          "name": "bedrock-client",
+          "version": "0.1.0",
+          "mode": "todo",
+          "target": "",
+          "start": 0.5,
+          "duration": 35.62,
+          "rmeta_time": 8.84,
+          "unblocked_units": [
+            1
+          ],
+          "unblocked_rmeta_units": [],
+          "sections": null
+        },
+        {
+          "i": 1,
+          "name": "bedrock-client",
+          "version": "0.1.0",
+          "mode": "todo",
+          "target": " bin \"bedrock-client\"",
+          "start": 36.13,
+          "duration": 1.24,
+          "rmeta_time": null,
+          "unblocked_units": [],
+          "unblocked_rmeta_units": [],
+          "sections": null
+        }
+      ],
+      "cargo_elapsed_seconds": 37.36
+    },
+    {
+      "label": "before-session-edit",
+      "source": "app/src/runtime/network/session/pump.rs",
+      "command": [
+        "/private/tmp/claude-501/-Users-hashim-Downloads-cinnabar/30f7cca3-953b-4833-843f-34f90cbe1dae/scratchpad/cslot",
+        "env",
+        "RUSTC_WRAPPER=",
+        "CARGO_INCREMENTAL=0",
+        "CARGO_TARGET_DIR=/private/tmp/cinnabar-step4-timings/target",
+        "cargo",
+        "build",
+        "--offline",
+        "--locked",
+        "-p",
+        "bedrock-client",
+        "--timings"
+      ],
+      "returncode": 0,
+      "limiter_inclusive_seconds": 48.666535583999575,
+      "report_sha256": "45ad1032fdf5082701849fdbb5c8d3a666c893df6b71d03c8bc95e170d28ac54",
+      "cargo_elapsed": "48.6s",
+      "fresh_units": 669,
+      "compiled_units": [
+        {
+          "i": 0,
+          "name": "bedrock-client",
+          "version": "0.1.0",
+          "mode": "todo",
+          "target": "",
+          "start": 0.48,
+          "duration": 46.46,
+          "rmeta_time": 12.34,
+          "unblocked_units": [
+            1
+          ],
+          "unblocked_rmeta_units": [],
+          "sections": null
+        },
+        {
+          "i": 1,
+          "name": "bedrock-client",
+          "version": "0.1.0",
+          "mode": "todo",
+          "target": " bin \"bedrock-client\"",
+          "start": 46.94,
+          "duration": 1.61,
+          "rmeta_time": null,
+          "unblocked_units": [],
+          "unblocked_rmeta_units": [],
+          "sections": null
+        }
+      ],
+      "cargo_elapsed_seconds": 48.55
+    },
+    {
+      "label": "after-gameplay-edit",
+      "source": "crates/gameplay/src/movement/control_modes.rs",
+      "command": [
+        "/private/tmp/claude-501/-Users-hashim-Downloads-cinnabar/30f7cca3-953b-4833-843f-34f90cbe1dae/scratchpad/cslot",
+        "env",
+        "RUSTC_WRAPPER=",
+        "CARGO_INCREMENTAL=0",
+        "CARGO_TARGET_DIR=/private/tmp/cinnabar-step4-timings/target",
+        "cargo",
+        "build",
+        "--offline",
+        "--locked",
+        "-p",
+        "bedrock-client",
+        "--timings"
+      ],
+      "returncode": 0,
+      "limiter_inclusive_seconds": 45.66808570899957,
+      "report_sha256": "60d472af34d43ab734bb04329934267b747ca8e43338967452d0351e45f605c6",
+      "cargo_elapsed": "45.6s",
+      "fresh_units": 670,
+      "compiled_units": [
+        {
+          "i": 0,
+          "name": "gameplay",
+          "version": "0.1.0",
+          "mode": "todo",
+          "target": "",
+          "start": 0.51,
+          "duration": 1.95,
+          "rmeta_time": 0.57,
+          "unblocked_units": [],
+          "unblocked_rmeta_units": [
+            1
+          ],
+          "sections": null
+        },
+        {
+          "i": 1,
+          "name": "bedrock-client",
+          "version": "0.1.0",
+          "mode": "todo",
+          "target": "",
+          "start": 1.08,
+          "duration": 43.14,
+          "rmeta_time": 9.35,
+          "unblocked_units": [
+            2
+          ],
+          "unblocked_rmeta_units": [],
+          "sections": null
+        },
+        {
+          "i": 2,
+          "name": "bedrock-client",
+          "version": "0.1.0",
+          "mode": "todo",
+          "target": " bin \"bedrock-client\"",
+          "start": 44.22,
+          "duration": 1.38,
+          "rmeta_time": null,
+          "unblocked_units": [],
+          "unblocked_rmeta_units": [],
+          "sections": null
+        }
+      ],
+      "cargo_elapsed_seconds": 45.59
+    },
+    {
+      "label": "after-session-edit",
+      "source": "crates/client-session/src/session/pump.rs",
+      "command": [
+        "/private/tmp/claude-501/-Users-hashim-Downloads-cinnabar/30f7cca3-953b-4833-843f-34f90cbe1dae/scratchpad/cslot",
+        "env",
+        "RUSTC_WRAPPER=",
+        "CARGO_INCREMENTAL=0",
+        "CARGO_TARGET_DIR=/private/tmp/cinnabar-step4-timings/target",
+        "cargo",
+        "build",
+        "--offline",
+        "--locked",
+        "-p",
+        "bedrock-client",
+        "--timings"
+      ],
+      "returncode": 0,
+      "limiter_inclusive_seconds": 39.504709458000434,
+      "report_sha256": "14261cd66b960e25d7e1fa3119ba180cb13b34e576826aee0690ab8df25e6325",
+      "cargo_elapsed": "39.4s",
+      "fresh_units": 670,
+      "compiled_units": [
+        {
+          "i": 0,
+          "name": "client-session",
+          "version": "0.1.0",
+          "mode": "todo",
+          "target": "",
+          "start": 0.34,
+          "duration": 1.75,
+          "rmeta_time": 0.44,
+          "unblocked_units": [],
+          "unblocked_rmeta_units": [
+            1
+          ],
+          "sections": null
+        },
+        {
+          "i": 1,
+          "name": "bedrock-client",
+          "version": "0.1.0",
+          "mode": "todo",
+          "target": "",
+          "start": 0.78,
+          "duration": 37.39,
+          "rmeta_time": 9.58,
+          "unblocked_units": [
+            2
+          ],
+          "unblocked_rmeta_units": [],
+          "sections": null
+        },
+        {
+          "i": 2,
+          "name": "bedrock-client",
+          "version": "0.1.0",
+          "mode": "todo",
+          "target": " bin \"bedrock-client\"",
+          "start": 38.17,
+          "duration": 1.26,
+          "rmeta_time": null,
+          "unblocked_units": [],
+          "unblocked_rmeta_units": [],
+          "sections": null
+        }
+      ],
+      "cargo_elapsed_seconds": 39.42
+    }
+  ],
+  "method": "One behavior-neutral comment edit per area, followed by an executable build. Warm builds are excluded. Source and target paths, build profile and parallelism are identical. The machine was shared; elapsed times are single samples, not isolated benchmark estimates.",
+  "implementation_commit": "80b8c579ae1d92bd261113aaf99ed42f509078b0",
+  "source_note": "The measured implementation matches this commit; a trailing blank line in a cfg(test) include was removed afterward."
+}

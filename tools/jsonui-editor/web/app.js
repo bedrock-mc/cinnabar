@@ -914,7 +914,7 @@ async function main() {
   state.editor = new Editor();
   code = new EditorView({ state: makeState(""), parent: $("editor") });
   try {
-    const response = await fetch("monocraft.mcbefont");
+    const response = await fetch("cinnangles-sans.mcbefont");
     if (response.ok) state.editor.load_font(new Uint8Array(await response.arrayBuffer()));
   } catch (error) {
     console.warn("font unavailable", error);

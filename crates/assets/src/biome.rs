@@ -13,11 +13,18 @@ pub const TINT_MAP_SIZE: u32 = 256;
 pub const TINT_MAP_COUNT: usize = 8;
 pub const TINT_MAP_BYTES: usize = TINT_MAP_COUNT * 256 * 256 * 3;
 pub const BIOME_RULE_FLAG_GRASS_SHADED: u16 = 1;
+// The default water RGBA is independent of the water-appearance component,
+// whose surface opacity defaults to .65. Loading that component replaces
+// alpha with its surface opacity.
+pub const DEFAULT_WATER_RGB: u32 = 0x60_b7ff;
+pub const DEFAULT_WATER_OPACITY: f32 = 166.0 / 255.0;
+pub const DEFAULT_WATER_APPEARANCE_OPACITY: f32 = 0.65;
 // Upper-byte transparency preserves opaque defaults in existing biome records.
 const WATER_TRANSPARENCY_SHIFT: u32 = 8;
 pub const BIOME_RULE_FLAGS_MASK: u16 =
     BIOME_RULE_FLAG_GRASS_SHADED | (255 << WATER_TRANSPARENCY_SHIFT);
 pub const BIOME_TINT_FLAG_SWAMP_GRASS: u32 = 1 << 16;
+pub const BIOME_TINT_FLAG_SEASONAL_FOLIAGE: u32 = 1 << 17;
 pub const RAW_BIOME_ID_COUNT: usize = u16::MAX as usize + 1;
 pub const MISSING_BIOME_DENSE_INDEX: u32 = 0;
 
@@ -244,6 +251,9 @@ pub struct LiveBiomeDefinition<'a> {
     pub biome_id: Option<u16>,
     pub temperature: f32,
     pub downfall: f32,
+    /// Native foliage-snow palette fraction; unrelated to snow accumulation.
+    pub snow_foliage: f32,
+    pub max_snow_accumulation: Option<f32>,
     /// Bedrock ARGB map-water colour.
     pub map_water_argb: u32,
 }
@@ -259,11 +269,15 @@ pub struct LinearBiomeTints {
     pub evergreen: [f32; 4],
     pub water: [f32; 4],
     pub dry_foliage: [f32; 4],
+    /// Covered evergreen/birch/default, then exposed evergreen/birch/default.
+    pub seasonal_foliage: [[f32; 4]; crate::SEASONAL_FOLIAGE_COUNT],
 }
 
 /// Deterministic dense tint records and direct raw-palette-ID lookup.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ResolvedBiomeTints {
+    /// Odd live climate or seasonal entries omitted while resolving valid siblings.
+    pub skipped_definitions: usize,
     pub records: Box<[LinearBiomeTints]>,
     pub swamp_grass_palette: Box<[[f32; 4]]>,
     pub raw_id_to_dense: Box<[u32]>,
@@ -293,14 +307,30 @@ impl CompiledBiomeAssets {
             .iter()
             .map(|rule| (rule.name.as_ref(), rule))
             .collect::<BTreeMap<_, _>>();
-        let mut climates = BTreeMap::<u32, (f32, f32)>::new();
+        let mut climates = BTreeMap::<u32, (f32, f32, f32, Option<f32>)>::new();
         let mut custom = BTreeMap::<u32, LiveBiomeDefinition<'_>>::new();
+        let mut skipped_definitions = 0;
         for definition in live {
+            if validate_climate(definition.temperature, definition.downfall).is_err()
+                || validate_snow_foliage(definition.snow_foliage).is_err()
+            {
+                skipped_definitions += 1;
+                continue;
+            }
             if let Some(rule) = by_name.get(definition.name) {
                 validate_biome_name(definition.name)?;
-                validate_climate(definition.temperature, definition.downfall)?;
                 if climates
-                    .insert(rule.id, (definition.temperature, definition.downfall))
+                    .insert(
+                        rule.id,
+                        (
+                            definition.temperature,
+                            definition.downfall,
+                            definition.snow_foliage,
+                            definition
+                                .max_snow_accumulation
+                                .filter(|value| value.is_finite()),
+                        ),
+                    )
                     .is_some()
                 {
                     return Err(invalid(format!(
@@ -310,7 +340,6 @@ impl CompiledBiomeAssets {
                 }
             } else if let Some(id) = definition.biome_id {
                 validate_biome_name(definition.name)?;
-                validate_climate(definition.temperature, definition.downfall)?;
                 let id = u32::from(id);
                 if by_name.values().any(|rule| rule.id == id)
                     || custom.insert(id, *definition).is_some()
@@ -320,28 +349,35 @@ impl CompiledBiomeAssets {
             }
         }
 
-        let fallback = BiomeRule {
+        let mut fallback = BiomeRule {
             id: u32::MAX,
             name: "fallback".into(),
             flags: 0,
             grass: TintSource::map(TintMapId::Grass),
             foliage: TintSource::map(TintMapId::Foliage),
             dry_foliage: TintSource::map(TintMapId::DryFoliage),
-            water: TintSource::direct(0x44_aff5),
+            water: TintSource::direct(DEFAULT_WATER_RGB),
             temperature_bits: 0.8_f32.to_bits(),
             downfall_bits: 0.4_f32.to_bits(),
         };
+        fallback.set_water_opacity(DEFAULT_WATER_OPACITY)?;
         let mut records = Vec::with_capacity(self.rules.len() + custom.len() + 1);
-        records.push(self.resolve_rule(&fallback, 0.8, 0.4)?);
+        records.push(self.resolve_rule(&fallback, 0.8, 0.4, 0.0, None)?);
         for rule in &self.rules {
-            let (temperature, downfall) = climates
+            let (temperature, downfall, snow_foliage, max_snow_accumulation) = climates
                 .get(&rule.id)
                 .copied()
-                .unwrap_or((rule.temperature(), rule.downfall()));
-            records.push(self.resolve_rule(rule, temperature, downfall)?);
+                .unwrap_or((rule.temperature(), rule.downfall(), 0.0, None));
+            records.push(self.resolve_rule(
+                rule,
+                temperature,
+                downfall,
+                snow_foliage,
+                max_snow_accumulation,
+            )?);
         }
         for (id, definition) in custom {
-            let fallback = BiomeRule {
+            let mut fallback = BiomeRule {
                 id,
                 name: definition.name.into(),
                 flags: 0,
@@ -352,11 +388,18 @@ impl CompiledBiomeAssets {
                 temperature_bits: definition.temperature.to_bits(),
                 downfall_bits: definition.downfall.to_bits(),
             };
-            records.push(self.resolve_rule(
-                &fallback,
-                definition.temperature,
-                definition.downfall,
-            )?);
+            fallback.set_water_opacity(DEFAULT_WATER_OPACITY)?;
+            records.push(
+                self.resolve_rule(
+                    &fallback,
+                    definition.temperature,
+                    definition.downfall,
+                    definition.snow_foliage,
+                    definition
+                        .max_snow_accumulation
+                        .filter(|value| value.is_finite()),
+                )?,
+            );
         }
         records[1..].sort_unstable_by_key(|record| record.raw_id);
         let mut raw_id_to_dense = vec![MISSING_BIOME_DENSE_INDEX; RAW_BIOME_ID_COUNT];
@@ -364,6 +407,7 @@ impl CompiledBiomeAssets {
             raw_id_to_dense[record.raw_id as usize] = dense as u32;
         }
         Ok(ResolvedBiomeTints {
+            skipped_definitions,
             records: records.into_boxed_slice(),
             swamp_grass_palette: self
                 .tint_maps_rgb8
@@ -390,19 +434,45 @@ impl CompiledBiomeAssets {
         rule: &BiomeRule,
         temperature: f32,
         downfall: f32,
+        snow_foliage: f32,
+        max_snow_accumulation: Option<f32>,
     ) -> Result<LinearBiomeTints, AssetError> {
         let mut grass = self.resolve_source_rgb(rule.grass, temperature, downfall)?;
         if rule.flags & BIOME_RULE_FLAG_GRASS_SHADED != 0
             && rule.grass.map_id() == Some(TintMapId::Grass)
         {
-            // Lens 1.26.50.26 0x1dcd030: shade bytes before color-space conversion.
+            // Vanilla shades bytes before color-space conversion.
             grass = ((grass & 0x00fe_fefe) + 0x0028_340a) >> 1;
         }
+        // Vanilla leaves render layer: snow eligibility and palette blend strength are independent. The
+        // remaining altitude/regional temperature path is tracked in plan.md.
+        let seasonal = max_snow_accumulation.is_some_and(|maximum| maximum > 0.0)
+            && temperature < crate::SEASONAL_FOLIAGE_COLD_THRESHOLD;
+        let seasonal_foliage = std::array::from_fn(|index| {
+            let map = crate::seasonal_foliage::seasonal_palette_map(index);
+            let source = TintSource::map(map);
+            let rgb = self
+                .resolve_source_rgb(source, temperature, downfall)
+                .expect("validated tint maps and finite climate");
+            crate::seasonal_foliage::seasonal_palette_colour(
+                rgb,
+                if index >= crate::SEASONAL_FOLIAGE_EXPOSED_OFFSET {
+                    snow_foliage
+                } else {
+                    0.0
+                },
+            )
+        });
         Ok(LinearBiomeTints {
             raw_id: rule.id,
             flags: u32::from(rule.flags)
                 | if rule.grass.map_id() == Some(TintMapId::SwampGrass) {
                     BIOME_TINT_FLAG_SWAMP_GRASS
+                } else {
+                    0
+                }
+                | if seasonal {
+                    BIOME_TINT_FLAG_SEASONAL_FOLIAGE
                 } else {
                     0
                 },
@@ -420,6 +490,7 @@ impl CompiledBiomeAssets {
                 color
             },
             dry_foliage: self.resolve_source(rule.dry_foliage, temperature, downfall)?,
+            seasonal_foliage,
         })
     }
 
@@ -468,7 +539,7 @@ pub fn colormap_coordinate(temperature: f32, downfall: f32) -> [u8; 2] {
     ]
 }
 
-fn rgb_to_linear(rgb: u32) -> [f32; 4] {
+pub(crate) fn rgb_to_linear(rgb: u32) -> [f32; 4] {
     let channel = |shift: u32| {
         let value = ((rgb >> shift) & 0xff_u32) as f32 / 255.0;
         if value <= 0.040_45 {
@@ -600,4 +671,12 @@ fn validate_climate(temperature: f32, downfall: f32) -> Result<(), AssetError> {
         return Err(invalid("biome climate contains a non-finite value"));
     }
     Ok(())
+}
+
+fn validate_snow_foliage(value: f32) -> Result<(), AssetError> {
+    if value.is_finite() {
+        Ok(())
+    } else {
+        Err(invalid("biome snow foliage contains a non-finite value"))
+    }
 }

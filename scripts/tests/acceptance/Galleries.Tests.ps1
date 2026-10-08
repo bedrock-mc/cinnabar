@@ -33,10 +33,42 @@
             Get-VineCoverageEvidence -RegistryPath $invalidRegistry -AssetsPath $SlabStairAssets
         } 'vine registry target changed:*' "vine accepted $($headerCase.name)"
     }
+    $changedIdentity = Join-Path $TempRoot 'changed registry identity.bin'
+    $changedBytes = [IO.File]::ReadAllBytes($BlockRegistry)
+    $changedBytes[$changedBytes.Length - 1] = $changedBytes[$changedBytes.Length - 1] -bxor 1
+    [IO.File]::WriteAllBytes($changedIdentity, $changedBytes)
+    Assert-ThrowsLike {
+        Get-SlabStairCoverageEvidence -RegistryPath $changedIdentity -AssetsPath $SlabStairAssets
+    } 'slab/stair registry target changed:*' 'slab/stair accepted a registry outside the manifest identity'
     # slab_stair_gallery_covers_all_variants
     $slabStairPlans = @('SlabStairGalleryTop', 'SlabStairGalleryNorth', 'SlabStairGalleryEast', 'SlabStairGalleryOblique', 'SlabStairGalleryObliqueOpposite') | ForEach-Object {
         New-SlabStairGalleryPlan -MutationCoordinate @(100, 64, 200) -Pose $_ -RegistryPath $BlockRegistry -AssetsPath $SlabStairAssets
     }
+    # Exercise structural rejection independently of the manifest integrity gate.
+    $selectorEntries = (Get-SlabStairCoverageEvidence -RegistryPath $BlockRegistry -AssetsPath $SlabStairAssets).entries
+    foreach ($case in @('missing corner', 'duplicate corner', 'unknown corner', 'corner type', 'direction mismatch', 'half mismatch', 'model mask')) {
+        $changedEntries = @($selectorEntries | ForEach-Object { $_ | ConvertTo-Json -Depth 12 | ConvertFrom-Json })
+        $stair = @($changedEntries | Where-Object family -CEQ 'Stair')[0]
+        $state = $stair.canonical_state | ConvertFrom-Json
+        switch ($case) {
+            'missing corner' { $changedEntries = @($changedEntries | Where-Object sequential_id -ne $stair.sequential_id) }
+            'duplicate corner' { $state.'minecraft:corner'.value = 'inner_left' }
+            'unknown corner' { $state.'minecraft:corner'.value = 'unknown' }
+            'corner type' { $state.'minecraft:corner'.type = 'int' }
+            'direction mismatch' { $stair.orientation = 3 }
+            'half mismatch' { $stair.half = 1 }
+            'model mask' { $stair.model_mask = 2 }
+        }
+        $stair.canonical_state = $state | ConvertTo-Json -Depth 6 -Compress
+        Assert-ThrowsLike {
+            Assert-SlabStairSelectorCoverage -Entries $changedEntries
+        } 'stair selector*' "slab/stair accepted $case"
+    }
+    $changedEntries = @($selectorEntries | ForEach-Object { $_ | ConvertTo-Json -Depth 12 | ConvertFrom-Json })
+    @($changedEntries | Where-Object { $_.family -ceq 'Slab' -and $_.half -eq 0 })[0].half = 1
+    Assert-ThrowsLike {
+        Assert-SlabStairSelectorCoverage -Entries $changedEntries
+    } 'slab selector*' 'slab/stair accepted a slab half inconsistent with its canonical state'
     # vine_gallery_covers_all_direction_masks
     $vinePlans = @('VineGalleryTop', 'VineGalleryNorth', 'VineGalleryEast', 'VineGalleryOblique', 'VineGalleryObliqueOpposite') | ForEach-Object {
         New-VineGalleryPlan -MutationCoordinate @(100, 64, 200) -Pose $_ -RegistryPath $BlockRegistry -AssetsPath $SlabStairAssets
@@ -269,6 +301,26 @@
     $expectedFirstFlowerBedState = 'minecraft:pink_petals|{"growth":{"type":"int","value":0},"minecraft:cardinal_direction":{"type":"string","value":"south"}}'
     $expectedLastFlowerBedState = 'minecraft:wildflowers|{"growth":{"type":"int","value":7},"minecraft:cardinal_direction":{"type":"string","value":"east"}}'
 
+    $expectedFlowerBedEntries = @(Get-TestRegistryEntries -RegistryPath $BlockRegistry | Where-Object family -eq 31 | ForEach-Object {
+        $state = $_.canonical_state | ConvertFrom-Json
+        [pscustomobject][ordered]@{
+            sequential_id = $_.sequential_id; name = $_.name; growth = [int]$state.growth.value
+            direction = [string]$state.'minecraft:cardinal_direction'.value; canonical_state = $_.canonical_state
+        }
+    })
+    $expectedFlowerBedHash = Get-CanonicalObjectHash -Value $expectedFlowerBedEntries
+    $expectedFlowerBedLayout = [pscustomobject][ordered]@{
+        schema = 'rust-mcbe-flowerbed-layout-v1'; state_set_sha256 = $expectedFlowerBedHash
+        gallery_state_count = $expectedFlowerBedEntries.Count
+        clear_min = @(-18, 1, -14); clear_max = @(18, 5, 15); support_y = 1; support_block = 'minecraft:grass_block'
+        grid_origin = @(-14, 2, -10); columns = 8; spacing = @(4, 3)
+        reference_cube_offset = @(1, 0, 0); reference_cube = 'minecraft:polished_andesite'
+        camera_offsets = [pscustomobject][ordered]@{
+            FlowerBedGalleryTop = @(0, 32, 0); FlowerBedGalleryNorth = @(0, 10, -44)
+            FlowerBedGalleryEast = @(44, 10, 0); FlowerBedGalleryOblique = @(-38, 28, -38)
+        }
+    }
+    $expectedFlowerBedLayoutHash = Get-CanonicalObjectHash -Value $expectedFlowerBedLayout
     foreach ($flowerBedPlan in $flowerBedPlans) {
         Assert-Equal 'FlowerBedGallery' $flowerBedPlan.Manifest.fixture_kind 'flowerbed plan lost fixture kind'
         Assert-Equal 64 ([int]$flowerBedPlan.Manifest.gallery_state_count) 'flowerbed plan did not enumerate exactly 64 states'
@@ -276,8 +328,8 @@
         Assert-Equal 64 @($flowerBedPlan.GalleryCommands | Where-Object { $_ -match '^setblock .* minecraft:(wildflowers|pink_petals) ' }).Count 'flowerbed plan did not issue exactly one placement per canonical state'
         Assert-Equal 64 @($flowerBedPlan.Manifest.reference_cubes).Count 'flowerbed plan did not pair every state with a reference cube'
         Assert-Equal 5 @($flowerBedPlan.Manifest.camera_poses.PSObject.Properties).Count 'flowerbed plan lost a fixed diagnostic camera'
-        Assert-Equal 'f1a0e249b34f67e9ff6196ed9a910feae4cb3493e124ac2cd381c71c720b2dd2' ([string]$flowerBedPlan.Manifest.coverage_evidence.state_set_sha256) 'flowerbed exact ordered BREG state-set identity drifted'
-        Assert-Equal '37d4230e8afee19aee74f970205866a8faea61d3c8c7791a21b2d1c8621aaad6' ([string]$flowerBedPlan.Manifest.fixture_layout_hash) 'flowerbed canonical layout identity drifted'
+        Assert-Equal $expectedFlowerBedHash ([string]$flowerBedPlan.Manifest.coverage_evidence.state_set_sha256) 'flowerbed exact ordered BREG state-set identity drifted'
+        Assert-Equal $expectedFlowerBedLayoutHash ([string]$flowerBedPlan.Manifest.fixture_layout_hash) 'flowerbed canonical layout identity drifted'
         Assert-Equal $expectedFirstFlowerBedState ([string]$flowerBedPlan.Manifest.gallery_states[0]) 'flowerbed first canonical identity drifted'
         Assert-Equal $expectedLastFlowerBedState ([string]$flowerBedPlan.Manifest.gallery_states[-1]) 'flowerbed last canonical identity drifted'
         Assert-Equal ($expectedFlowerBedStates -join "`n") (@($flowerBedPlan.Manifest.gallery_states) -join "`n") 'flowerbed exact ordered 64-state manifest drifted'
@@ -306,19 +358,70 @@
     ) -join ',') 'flowerbed opposite oblique camera lost its symmetric offset'
     Assert-Equal '138,92,238' (@($oppositeFlowerBedPlan.Manifest.camera.position.x, $oppositeFlowerBedPlan.Manifest.camera.position.y, $oppositeFlowerBedPlan.Manifest.camera.position.z) -join ',') 'flowerbed opposite oblique camera lost its exact position'
     Assert-Equal 'tp @a[name=RustMCBE] 138 92 238 facing 100 66 200' ([string]$oppositeFlowerBedPlan.TeleportCommand) 'flowerbed opposite oblique camera command drifted'
-    Assert-Equal '37d4230e8afee19aee74f970205866a8faea61d3c8c7791a21b2d1c8621aaad6' ([string]$oppositeFlowerBedPlan.Manifest.fixture_layout_hash) 'flowerbed opposite oblique camera changed canonical layout identity'
-    Assert-Equal 'f1a0e249b34f67e9ff6196ed9a910feae4cb3493e124ac2cd381c71c720b2dd2' ([string]$oppositeFlowerBedPlan.Manifest.coverage_evidence.state_set_sha256) 'flowerbed opposite oblique camera changed exact state-set identity'
+    Assert-Equal $expectedFlowerBedLayoutHash ([string]$oppositeFlowerBedPlan.Manifest.fixture_layout_hash) 'flowerbed opposite oblique camera changed canonical layout identity'
+    Assert-Equal $expectedFlowerBedHash ([string]$oppositeFlowerBedPlan.Manifest.coverage_evidence.state_set_sha256) 'flowerbed opposite oblique camera changed exact state-set identity'
     Assert-Equal 1 @($flowerBedPlans | ForEach-Object { $_.Manifest.fixture_layout_hash } | Sort-Object -Unique).Count 'flowerbed camera pose changed canonical layout identity'
     $movedFlowerBedPlan = New-FlowerBedGalleryPlan -MutationCoordinate @(500, 70, -300) -Pose FlowerBedGalleryTop -RegistryPath $BlockRegistry
     Assert-Equal $flowerBedPlans[0].Manifest.fixture_layout_hash $movedFlowerBedPlan.Manifest.fixture_layout_hash 'flowerbed absolute coordinate changed canonical layout identity'
     Assert-Equal ($flowerBedPlans[0].Manifest.gallery_states -join "`n") ($movedFlowerBedPlan.Manifest.gallery_states -join "`n") 'flowerbed BREG state manifest was not deterministic'
     $tamperedFlowerBedLayout = $flowerBedPlans[0].Manifest.relative_layout | ConvertTo-Json -Depth 12 | ConvertFrom-Json
     $tamperedFlowerBedLayout.spacing[0] = 5
-    Assert-True ((Get-CanonicalObjectHash -Value $tamperedFlowerBedLayout) -cne '37d4230e8afee19aee74f970205866a8faea61d3c8c7791a21b2d1c8621aaad6') 'flowerbed pinned layout hash did not detect spacing drift'
+    Assert-True ((Get-CanonicalObjectHash -Value $tamperedFlowerBedLayout) -cne $expectedFlowerBedLayoutHash) 'flowerbed pinned layout hash did not detect spacing drift'
     $reorderedFlowerBedStates = @($expectedFlowerBedStates)
     [array]::Reverse($reorderedFlowerBedStates)
     Assert-True (($reorderedFlowerBedStates -join "`n") -cne ($flowerBedPlans[0].Manifest.gallery_states -join "`n")) 'flowerbed exact ordered manifest assertion cannot detect reordering'
 
+    # Decode the independently pinned registry, rather than trusting gallery evidence.
+    $expectedModelEntries = @(Get-TestRegistryEntries -RegistryPath $BlockRegistry | Where-Object family -in @(7, 8) | ForEach-Object {
+        [pscustomobject][ordered]@{
+            sequential_id = $_.sequential_id
+            family = if ($_.family -eq 7) { 'Slab' } else { 'Stair' }
+            name = $_.name
+            canonical_state = $_.canonical_state
+        }
+    })
+    $expectedStateHash = Get-CanonicalObjectHash -Value $expectedModelEntries
+    $expectedSlabs = @($expectedModelEntries | Where-Object family -CEQ 'Slab')
+    $expectedStairs = @($expectedModelEntries | Where-Object family -CEQ 'Stair')
+    $expectedStairNames = @($expectedStairs | ForEach-Object name | Sort-Object -Unique)
+    $expectedWitnesses = [Collections.Generic.List[object]]::new()
+    foreach ($item in @(@('bottom_slab', -4), @('top_slab', 0), @('double_slab', 4))) {
+        $expectedWitnesses.Add([pscustomobject][ordered]@{
+            kind = 'slab'; shape = $item[0]; orientation = $null; orientation_value = $null; upside_down = $null
+            center_offset = @([int]$item[1], 2, -13); neighbor_offset = $null
+        })
+    }
+    $directions = @('south', 'west', 'north', 'east')
+    $deltas = @(@(0, 1), @(-1, 0), @(0, -1), @(1, 0))
+    $shapes = @('straight', 'right_inner', 'left_inner', 'right_outer', 'left_outer')
+    foreach ($half in 0..1) {
+        foreach ($orientation in 0..3) {
+            foreach ($shape in 0..4) {
+                $index = $half * 20 + $orientation * 5 + $shape
+                $x = -18 + 5 * ($index % 8); $z = -9 + 5 * [Math]::Floor($index / 8)
+                $neighbor = $null
+                if ($shape -ne 0) {
+                    $direction = if ($shape -le 2) { ($orientation + 2) % 4 } else { $orientation }
+                    $neighbor = @(($x + $deltas[$direction][0]), 2, ($z + $deltas[$direction][1]))
+                }
+                $expectedWitnesses.Add([pscustomobject][ordered]@{
+                    kind = 'stair'; shape = $shapes[$shape]; orientation = $directions[$orientation]
+                    orientation_value = $orientation; upside_down = [bool]$half
+                    center_offset = @($x, 2, $z); neighbor_offset = $neighbor
+                })
+            }
+        }
+    }
+    $expectedSlabStairLayout = [pscustomobject][ordered]@{
+        schema = 'rust-mcbe-slab-stair-layout-v1'; witness_count = $expectedWitnesses.Count; state_set_sha256 = $expectedStateHash
+        clear_min = @(-23, 1, -15); clear_max = @(23, 7, 15); support_y = 1; support_block = 'minecraft:stone'
+        witnesses = @($expectedWitnesses)
+        camera_offsets = [pscustomobject][ordered]@{
+            SlabStairGalleryTop = @(0, 38, 0); SlabStairGalleryNorth = @(0, 13, -48); SlabStairGalleryEast = @(48, 13, 0)
+            SlabStairGalleryOblique = @(-42, 30, -42); SlabStairGalleryObliqueOpposite = @(42, 30, 42)
+        }
+    }
+    $expectedSlabStairLayoutHash = Get-CanonicalObjectHash -Value $expectedSlabStairLayout
     foreach ($slabStairPlan in $slabStairPlans) {
         Assert-Equal 'SlabStairGallery' $slabStairPlan.Manifest.fixture_kind 'slab/stair plan lost fixture kind'
         Assert-Equal 43 ([int]$slabStairPlan.Manifest.central_witness_count) 'slab/stair plan lost the 43 central witnesses'
@@ -327,13 +430,13 @@
         Assert-Equal 40 @($slabStairPlan.Manifest.witnesses | Where-Object kind -ceq 'stair').Count 'stair state matrix changed'
         Assert-Equal 5 @($slabStairPlan.Manifest.camera_poses.PSObject.Properties).Count 'slab/stair plan lost a fixed diagnostic camera'
         Assert-Equal 77 @($slabStairPlan.FixtureCommands).Count 'slab/stair fixture command bound changed'
-        Assert-Equal 784 ([int]$slabStairPlan.Manifest.coverage_evidence.state_count) 'slab/stair coverage lost exact BREG state count'
-        Assert-Equal 272 ([int]$slabStairPlan.Manifest.coverage_evidence.slab_state_count) 'slab coverage count drifted'
-        Assert-Equal 512 ([int]$slabStairPlan.Manifest.coverage_evidence.stair_state_count) 'stair coverage count drifted'
-        Assert-Equal 64 ([int]$slabStairPlan.Manifest.coverage_evidence.stair_name_count) 'stair identifier count drifted'
+        Assert-Equal $expectedModelEntries.Count ([int]$slabStairPlan.Manifest.coverage_evidence.state_count) 'slab/stair coverage lost exact BREG state count'
+        Assert-Equal $expectedSlabs.Count ([int]$slabStairPlan.Manifest.coverage_evidence.slab_state_count) 'slab coverage count drifted'
+        Assert-Equal $expectedStairs.Count ([int]$slabStairPlan.Manifest.coverage_evidence.stair_state_count) 'stair coverage count drifted'
+        Assert-Equal $expectedStairNames.Count ([int]$slabStairPlan.Manifest.coverage_evidence.stair_name_count) 'stair identifier count drifted'
         Assert-Equal 0 ([int]$slabStairPlan.Manifest.coverage_evidence.diagnostic_slab_stair) 'slab/stair compiled coverage retained diagnostics'
-        Assert-Equal '35d1e83f88a97acb03fe8bf9afacd809254e3d0663254cfa9c2294cac4b1ca43' ([string]$slabStairPlan.Manifest.state_set_sha256) 'slab/stair exact state-set identity drifted'
-        Assert-Equal '093714e0c48c86d44bda5c1b4a1359fad577ad197a8560498fe4f1804780188d' ([string]$slabStairPlan.Manifest.fixture_layout_hash) 'slab/stair canonical layout identity drifted'
+        Assert-Equal $expectedSlabStairLayoutHash ([string]$slabStairPlan.Manifest.fixture_layout_hash) 'slab/stair canonical geometry identity drifted'
+        Assert-Equal $expectedStateHash ([string]$slabStairPlan.Manifest.state_set_sha256) 'slab/stair exact state-set identity drifted'
         Assert-True ($slabStairPlan.LoadAreaCommand -match '^tickingarea add ') 'slab/stair gallery omitted bounded preload'
         Assert-True ($slabStairPlan.CleanupCommand -match '^tickingarea remove ') 'slab/stair gallery omitted ticking-area cleanup'
         Assert-Equal (Get-CanonicalObjectHash -Value $slabStairPlan.Manifest.relative_layout) $slabStairPlan.Manifest.fixture_layout_hash 'slab/stair layout hash was not derived from its complete relative layout'
@@ -402,11 +505,21 @@
         Get-BdsSourceWorldIdentity -SourceDirectory $malformedSource -AllowMissingWorld
     } '*worlds*' 'fresh-world allowance accepted a malformed worlds entry'
     Assert-Equal 'CrossCropGallery' $crossCropPlan.Manifest.fixture_kind 'cross/crop plan lost fixture kind'
-    Assert-Equal 411 ([int]$crossCropPlan.Manifest.gallery_state_count) 'cross/crop plan did not enumerate the exact tracked Cross/Crop state set after flowerbeds moved to family 31'
+    Assert-Equal 414 ([int]$crossCropPlan.Manifest.gallery_state_count) 'cross/crop plan did not enumerate the exact tracked Cross/Crop state set'
+    Assert-Equal 250 ([int]$crossCropPlan.Manifest.coverage_evidence.cross_state_count) 'cross/crop plan lost Cross state coverage'
+    Assert-Equal 164 ([int]$crossCropPlan.Manifest.coverage_evidence.crop_state_count) 'cross/crop plan changed Crop state coverage'
+    # The pinned registry adds two poplar sapling states and one red shrub state.
+    $newCrossStates = @(
+        'minecraft:poplar_sapling|{"age_bit":{"type":"byte","value":0}}'
+        'minecraft:poplar_sapling|{"age_bit":{"type":"byte","value":1}}'
+        'minecraft:red_shrub|{}'
+    )
+    $actualNewCrossStates = @($crossCropPlan.Manifest.gallery_states | Where-Object { $_ -match '^minecraft:(poplar_sapling|red_shrub)\|' } | Sort-Object)
+    Assert-Equal ($newCrossStates -join "`n") ($actualNewCrossStates -join "`n") 'cross/crop plan lost the pinned poplar sapling or red shrub states'
     Assert-Equal 0 ([int]$crossCropPlan.Manifest.family_diagnostics.cross) 'cross family diagnostic contract changed'
     Assert-Equal 0 ([int]$crossCropPlan.Manifest.family_diagnostics.crop) 'crop family diagnostic contract changed'
     Assert-Equal $assetIdentity ([string]$crossCropPlan.Manifest.artifact_identity.assets_sha256) 'cross/crop plan lost asset identity'
-    Assert-Equal 413 $crossCropPlan.GalleryCommands.Count 'cross/crop gallery command coverage is not one command per tracked state plus bounded setup'
+    Assert-Equal 416 $crossCropPlan.GalleryCommands.Count 'cross/crop gallery command coverage is not one command per tracked state plus bounded setup'
     Assert-True (-not (($crossCropPlan.GalleryCommands -join "`n") -match 'seagrass|kelp')) 'Task 9 gallery included Task 10 aquatic plants'
     $firstPlan = $crossCropPlan.Manifest | ConvertTo-Json -Compress -Depth 12
     $secondPlan = (New-CrossCropGalleryPlan -MutationCoordinate @(100, 64, 200) -Pose CrossCropGalleryFront -RegistryPath $BlockRegistry -AssetsPath $CrossCropAssets).Manifest | ConvertTo-Json -Compress -Depth 12

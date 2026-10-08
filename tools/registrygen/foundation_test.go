@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"github.com/hashimthearab/rust-mcbe/tools/registrygen/internal/targetpin"
 	"os"
@@ -131,7 +132,11 @@ func TestRegistryFoundationReadyRequiresThreeSeparatelyBoundProjections(t *testi
 	if _, err := ValidateRegistryFoundation(strings.NewReader(wrongBiome)); err == nil {
 		t.Fatal("accepted ready foundation with a different biome projection binding")
 	}
-	wrongBlock := strings.Replace(ready, v2193FoundationBlockSHA256,
+	blockHash, err := targetpin.BlockHash()
+	if err != nil {
+		t.Fatal(err)
+	}
+	wrongBlock := strings.Replace(ready, blockHash,
 		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", 1)
 	if _, err := ValidateRegistryFoundation(strings.NewReader(wrongBlock)); err == nil {
 		t.Fatal("accepted ready foundation with a different block projection binding")
@@ -239,9 +244,6 @@ func TestRegistryFoundationMakeTargetIsIsolatedAndReady(t *testing.T) {
 		"REGISTRY_FOUNDATION_MANIFEST ?= assets/registry-foundation-v2193.json",
 		"registry-foundation-check:",
 		"Validate the exact protocol-2193 registry foundation",
-		"BLOCK_REGISTRY ?= crates/assets/data/block-registry-v2193.bin",
-		"LIGHT_REGISTRY ?= crates/assets/data/block-light-registry-v2193.bin",
-		"BIOME_REGISTRY ?= crates/assets/data/biome-registry-v2193.bin",
 	} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("Makefile missing %q", required)
@@ -276,7 +278,12 @@ func missingStrings(values []MissingProjection) []string {
 	return result
 }
 
+// validReadyFoundation binds the fixture to the current target carrier identities.
 func validReadyFoundation() string {
+	blockHash, err := targetpin.BlockHash()
+	if err != nil {
+		panic(err)
+	}
 	lightHash, err := targetpin.LightHash()
 	if err != nil {
 		panic(err)
@@ -291,7 +298,7 @@ func validReadyFoundation() string {
     "biome": {"sha256": "e3ba3d96a66fa49b3b7d94ae6b67b4cc5d8961789c91275080d3922909b25c2a"}
   }`, `,
   "projection_bindings": {
-    "block": {"sha256": "04984b63037cda766e9a41b81bb1314e0c649b6f999bb27d56730decb3c7be53"},
+    "block": {"sha256": "`+blockHash+`"},
     "biome": {"sha256": "e3ba3d96a66fa49b3b7d94ae6b67b4cc5d8961789c91275080d3922909b25c2a"},
     "light": {"sha256": "`+lightHash+`"}
   }`, 1)
@@ -318,4 +325,36 @@ func makeTargetLine(t *testing.T, text, target string) string {
 	}
 	t.Fatalf("missing Make target %q", target)
 	return ""
+}
+
+// TestRegistryFoundationFollowsTargetBlockPin rejects stale bindings after a manifest update.
+func TestRegistryFoundationFollowsTargetBlockPin(t *testing.T) {
+	ready := validReadyFoundation()
+	original, err := targetpin.BlockHash()
+	if err != nil {
+		t.Fatal(err)
+	}
+	light, err := targetpin.LightHash()
+	if err != nil {
+		t.Fatal(err)
+	}
+	changed := strings.Repeat("a", 64)
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "assets"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	target, err := json.Marshal(map[string]any{"hashes": map[string]string{"block_registry": changed, "light_registry": light}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "assets", "bedrock-target.json"), target, 0644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
+	if _, err := ValidateRegistryFoundation(strings.NewReader(strings.Replace(ready, original, changed, 1))); err != nil {
+		t.Fatalf("rejected current target block binding: %v", err)
+	}
+	if _, err := ValidateRegistryFoundation(strings.NewReader(ready)); err == nil {
+		t.Fatal("accepted stale target block binding")
+	}
 }

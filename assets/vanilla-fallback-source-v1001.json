@@ -6,7 +6,7 @@
   "zero_volume_envelopes": 5,
   "status": "provisional-vanilla-fallback",
   "inventory": {
-    "path": "crates/asset-compiler/data/vanilla-fallback-v1001.bin",
+    "path": "crates/pack-compiler/data/vanilla-fallback-v1001.bin",
     "schema": "CVFB1001",
     "version": 1,
     "entry_bytes": 25,

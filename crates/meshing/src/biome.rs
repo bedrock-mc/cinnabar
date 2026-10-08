@@ -153,6 +153,9 @@ impl PackedBiomeRecord {
             slots[slot] = Some(payload_index);
         }
 
+        // The marker value itself needs a lattice even when every sample matches.
+        all_uniform &= uniform_tint != Some(NO_UNIFORM_TINT);
+
         let mut payload_offsets = Vec::with_capacity(payloads.len());
         let lattice_words = if all_uniform {
             0

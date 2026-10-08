@@ -1,8 +1,7 @@
 // Cinnabar's built-in Java-styled sidebar: rows 9 GUI px apart, names left
 // and red scores right with a ": "-wide gap, a 0.4-opacity title band over a
 // 0.3 body, its right edge 1 GUI px in and its bottom one third of the rows'
-// height below the screen middle. Withdrawn wherever a server pack ships its
-// own scoreboards.json.
+// height below the screen middle. Server packs override these definitions.
 {
   "namespace": "scoreboard",
 
@@ -42,22 +41,21 @@
     ]
   },
 
-  // A third of the box's height tall, hung from the screen's right middle, so
-  // the box inside can sit on its bottom edge (less the title's third).
+  // Symmetric anchors preserve a server's full-screen replacement. The inner
+  // box's bottom remains a third of its height below the screen middle.
   "scoreboard_sidebar": {
     "type": "panel",
-    "size": [ "100%c", "33.3333333%c" ],
+    "size": [ "100%c", "66.6666666%c" ],
     "anchor_from": "right_middle",
-    "anchor_to": "top_right",
-    "offset": [ -1, 0 ],
+    "anchor_to": "right_middle",
     "controls": [
       {
         "main": {
           "type": "panel",
-          "size": [ "100%c + 4px", "100%c + 10px" ],
+          "size": [ "100%cm + 4px", "100%cm" ],
           "anchor_from": "bottom_right",
           "anchor_to": "bottom_right",
-          "offset": [ 0, -3.3333333 ],
+          "offset": [ -1, -3.3333333 ],
           "controls": [
             {
               "body_background": {
@@ -94,76 +92,100 @@
               }
             },
             {
-              "displayed_objective": {
-                "type": "label",
-                "size": [ "default", 9 ],
-                "text": "#objective_sidebar_name",
-                "anchor_from": "top_middle",
-                "anchor_to": "top_middle",
-                "offset": [ 0, 1 ],
-                "layer": 2,
-                "color": "$objective_title_color",
-                "localize": false,
-                "bindings": [
-                  {
-                    "binding_name": "#objective_sidebar_name",
-                    "binding_type": "global"
-                  }
-                ]
-              }
-            },
-            {
-              "lists": {
+              "content": {
                 "type": "stack_panel",
-                "orientation": "horizontal",
+                "orientation": "vertical",
+                "size": [ "100%cm", "100%c" ],
                 "anchor_from": "top_left",
                 "anchor_to": "top_left",
-                "inherit_max_sibling_width": true,
-                "offset": [ 2, 10 ],
-                "size": [ "100%c", "100%cm" ],
+                "offset": [ 2, 0 ],
+                "use_child_anchors": true,
                 "controls": [
                   {
-                    "players": {
-                      "type": "stack_panel",
-                      "size": [ "100%cm", "100%c" ],
-                      "orientation": "vertical",
-                      "collection_name": "scoreboard_players",
-                      "factory": {
-                        "name": "player_list_factory",
-                        "control_name": "scoreboard.scoreboard_sidebar_player"
-                      },
-                      "bindings": [
+                    "title_row": {
+                      "type": "panel",
+                      "size": [ "100%cm", 10 ],
+                      "anchor_from": "top_middle",
+                      "anchor_to": "top_middle",
+                      "controls": [
                         {
-                          "binding_name": "#scoreboard_sidebar_size",
-                          "binding_type": "global",
-                          "binding_name_override": "#collection_length"
+                          "displayed_objective": {
+                            "type": "label",
+                            "size": [ "default", 9 ],
+                            "text": "#objective_sidebar_name",
+                            "anchor_from": "top_middle",
+                            "anchor_to": "top_middle",
+                            "offset": [ 0, 1 ],
+                            "layer": 2,
+                            "color": "$objective_title_color",
+                            "localize": false,
+                            "bindings": [
+                              {
+                                "binding_name": "#objective_sidebar_name",
+                                "binding_type": "global"
+                              }
+                            ]
+                          }
                         }
                       ]
                     }
                   },
                   {
-                    "horizontal_padding": {
+                    "lists": {
                       "type": "panel",
-                      "size": [ "fill", 0 ],
-                      "min_size": [ 6, 0 ]
-                    }
-                  },
-                  {
-                    "scores": {
-                      "type": "stack_panel",
-                      "size": [ "100%cm", "100%c" ],
-                      "orientation": "vertical",
-                      "use_child_anchors": true,
-                      "collection_name": "scoreboard_scores",
-                      "factory": {
-                        "name": "player_score_factory",
-                        "control_name": "scoreboard.scoreboard_sidebar_score"
-                      },
-                      "bindings": [
+                      "anchor_from": "top_left",
+                      "anchor_to": "top_left",
+                      "inherit_max_sibling_width": true,
+                      "size": [ "100%c", "100%cm" ],
+                      "controls": [
                         {
-                          "binding_name": "#scoreboard_sidebar_size",
-                          "binding_type": "global",
-                          "binding_name_override": "#collection_length"
+                          "players": {
+                            "type": "stack_panel",
+                            "anchor_from": "top_left",
+                            "anchor_to": "top_left",
+                            "size": [ "100%cm", "100%c" ],
+                            "orientation": "vertical",
+                            "collection_name": "scoreboard_players",
+                            "factory": {
+                              "name": "player_list_factory",
+                              "control_name": "scoreboard.scoreboard_sidebar_player"
+                            },
+                            "bindings": [
+                              {
+                                "binding_name": "#scoreboard_sidebar_size",
+                                "binding_type": "global",
+                                "binding_name_override": "#collection_length"
+                              }
+                            ]
+                          }
+                        },
+                        {
+                          "separator": {
+                            "type": "panel",
+                            "size": [ 6, 0 ]
+                          }
+                        },
+                        {
+                          "scores": {
+                            "type": "stack_panel",
+                            "anchor_from": "top_right",
+                            "anchor_to": "top_right",
+                            "size": [ "100%cm", "100%c" ],
+                            "orientation": "vertical",
+                            "use_child_anchors": true,
+                            "collection_name": "scoreboard_scores",
+                            "factory": {
+                              "name": "player_score_factory",
+                              "control_name": "scoreboard.scoreboard_sidebar_score"
+                            },
+                            "bindings": [
+                              {
+                                "binding_name": "#scoreboard_sidebar_size",
+                                "binding_type": "global",
+                                "binding_name_override": "#collection_length"
+                              }
+                            ]
+                          }
                         }
                       ]
                     }

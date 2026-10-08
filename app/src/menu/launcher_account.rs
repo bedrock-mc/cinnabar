@@ -1,9 +1,7 @@
 //! [`AccountControl`] over the core's launcher control endpoint. Workers poll
-//! `events.v1` and `account_status.v1` often, the slow catalog calls
-//! (`realms_list.v1`, `friends_list.v1`) rarely and the screen feeds
-//! (`featured_servers.v1`, `gatherings.v1`, `profile.v1`) more rarely still,
-//! each on its own thread, so neither the menu nor a fast feed waits on a slow
-//! one; sign-out requests queue to the events worker.
+//! auth/events often, catalogs and Home/public feeds rarely. Profile has an
+//! independent worker woken by opening, retry and account changes, so it never
+//! waits on unrelated feeds. Sign-out requests queue to the events worker.
 
 use std::{
     collections::HashSet,
@@ -17,15 +15,27 @@ use bevy::prelude::Resource;
 use crossbeam_channel::{Receiver, Sender, bounded};
 use protocol::launcher_control::{
     self, Account, AuthState as CoreAuth, ConnectProgress, ConnectStage, FeaturedServer, Friend,
-    Gathering, Home, Message, MessageEvent, Profile, Realm, ServerPing,
+    Home, Message, MessageEvent, Profile, Realm, ServerPing,
 };
 
 use super::account_control::{AccountControl, AccountEvent};
-use super::view::{
-    ButtonArt, InboxItem, JoinStage, LiveEventCard, MenuGameCard, MenuHome, MenuProfile, PingInfo,
-    ServerDetails,
-};
 use super::{AuthState, MenuFriendCard, MenuRealmCard, MenuServerCard};
+use launcher::menu::view::{
+    ButtonArt, InboxItem, JoinStage, LiveEventCard, MenuGameCard, MenuHome, MenuProfile, PingInfo,
+    ServerDetails, ServerTrustPrompt,
+};
+
+#[cfg(test)]
+mod home_promo;
+
+mod feeds;
+use feeds::{CoreFeeds, catalog_round};
+mod invites;
+mod message_reports;
+pub(super) mod profile_worker;
+
+#[cfg(all(test, unix))]
+mod profile_polling_tests;
 
 /// How often auth state and events refresh.
 const EVENT_INTERVAL: Duration = Duration::from_secs(1);
@@ -43,21 +53,73 @@ const PING_INTERVAL: Duration = Duration::from_secs(15);
 
 #[derive(Default)]
 struct Snapshot {
+    auth_generation: u64,
+    /// Wakes the catalog worker when its account identity changes.
+    catalog_wake: Option<Sender<()>>,
+    /// Wakes featured details when their count subscription changes.
+    feed_wake: Option<Sender<()>>,
+    /// Wakes Home independently when its account identity changes.
+    home_wake: Option<Sender<()>>,
+    /// Wakes Profile independently when its account identity changes.
+    profile_wake: Option<Sender<()>>,
     account: Option<Account>,
     realms: Option<Vec<Realm>>,
     friends: Option<Vec<Friend>>,
     /// Delivered once per fetch.
     featured: Option<Vec<FeaturedServer>>,
-    gatherings: Option<Vec<Gathering>>,
-    profile: Option<Profile>,
+    player_counts_visible: bool,
+    profile: Option<Result<Profile, ()>>,
     ping_targets: Vec<String>,
     pings: Option<Vec<ServerPing>>,
     home: Option<Home>,
     events: Vec<AccountEvent>,
     last_disconnect: Option<u64>,
     connect: Option<ConnectProgress>,
+    server_trust: Option<launcher_control::ServerTrustPrompt>,
+    /// The prompt last answered, hidden until the core withdraws it.
+    answered_trust: Option<u64>,
     /// The menu is connecting, so the events worker polls faster.
     joining: bool,
+    /// The invite screen's friends list, delivered once per request.
+    people: Option<Result<Vec<launcher_control::Person>, ()>>,
+}
+
+impl Snapshot {
+    /// Retires values tied to the old account before accepting responses for another identity.
+    fn retire_account_data(&mut self) {
+        self.auth_generation = self.auth_generation.wrapping_add(1);
+        self.realms = None;
+        self.friends = None;
+        self.featured = None;
+        self.profile = None;
+        self.people = None;
+        self.home = None;
+        if let Some(wake) = &self.catalog_wake {
+            // A queued wake already covers the newest snapshot; never block a frame.
+            let _ = wake.try_send(());
+        }
+        if let Some(wake) = &self.profile_wake {
+            let _ = wake.try_send(());
+        }
+        if let Some(wake) = &self.feed_wake {
+            let _ = wake.try_send(());
+        }
+        if let Some(wake) = &self.home_wake {
+            let _ = wake.try_send(());
+        }
+    }
+
+    /// Advances the identity boundary when the core changes account or sign-in state.
+    fn set_account(&mut self, account: Account) {
+        if self
+            .account
+            .as_ref()
+            .is_none_or(|old| old.state != account.state || old.gamertag != account.gamertag)
+        {
+            self.retire_account_data();
+        }
+        self.account = Some(account);
+    }
 }
 
 /// The menu's link to a running core's launcher control endpoint.
@@ -65,6 +127,9 @@ struct Snapshot {
 pub(crate) struct LauncherAccount {
     snapshot: Arc<Mutex<Snapshot>>,
     sign_out: Sender<()>,
+    profile_refresh: Sender<()>,
+    message_reports: Sender<MessageEvent>,
+    invites: Sender<invites::Request>,
     /// Dropping it stops the catalog and feed workers.
     _alive: Sender<()>,
     socket_dir: PathBuf,
@@ -75,19 +140,38 @@ impl LauncherAccount {
     /// when this is dropped. Events, the slow catalog and the screen feeds each
     /// poll on their own worker, publishing every answer as it arrives.
     pub(crate) fn new(socket_dir: PathBuf) -> Self {
-        let snapshot = Arc::new(Mutex::new(Snapshot::default()));
+        let (catalog_wake, catalog_changes) = bounded(1);
+        let (feed_wake, feed_changes) = bounded(1);
+        let (home_wake, home_changes) = bounded(1);
+        let (profile_refresh, profile_requests) = bounded(1);
+        let snapshot = Arc::new(Mutex::new(Snapshot {
+            catalog_wake: Some(catalog_wake),
+            feed_wake: Some(feed_wake),
+            home_wake: Some(home_wake),
+            profile_wake: Some(profile_refresh.clone()),
+            ..Default::default()
+        }));
         let (sign_out, requests) = bounded(1);
         let (alive, stop) = bounded(0);
+        let message_reports = message_reports::start(socket_dir.clone(), stop.clone());
+        let invites = invites::start(socket_dir.clone(), Arc::clone(&snapshot), stop.clone());
         let shared = Arc::clone(&snapshot);
         let dir = socket_dir.clone();
         thread::spawn(move || poll_events(&dir, &shared, &requests));
         let (shared, dir, until) = (Arc::clone(&snapshot), socket_dir.clone(), stop.clone());
-        thread::spawn(move || poll_catalog(&dir, &shared, &until));
+        thread::spawn(move || poll_catalog(&dir, &shared, &until, &catalog_changes));
+        let (shared, dir, until) = (Arc::clone(&snapshot), socket_dir.clone(), stop.clone());
+        thread::spawn(move || feeds::poll_featured(&dir, &shared, &until, &feed_changes));
+        let (shared, dir, until) = (Arc::clone(&snapshot), socket_dir.clone(), stop.clone());
+        thread::spawn(move || feeds::poll_home(&dir, &shared, &until, &home_changes));
         let (shared, dir) = (Arc::clone(&snapshot), socket_dir.clone());
-        thread::spawn(move || poll_feeds(&dir, &shared, &stop));
+        thread::spawn(move || profile_worker::poll(&dir, &shared, &stop, &profile_requests));
         Self {
             snapshot,
             sign_out,
+            profile_refresh,
+            message_reports,
+            invites,
             _alive: alive,
             socket_dir,
         }
@@ -118,12 +202,37 @@ fn publish(shared: &Mutex<Snapshot>, write: impl FnOnce(&mut Snapshot)) {
     write(&mut shared.lock().unwrap_or_else(|poison| poison.into_inner()));
 }
 
+/// Captures the identity boundary before an account-dependent request starts.
+fn auth_generation(shared: &Mutex<Snapshot>) -> u64 {
+    shared
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner())
+        .auth_generation
+}
+
+/// Publishes a worker response under the identity that requested it.
+fn publish_account(shared: &Mutex<Snapshot>, generation: u64, write: impl FnOnce(&mut Snapshot)) {
+    let mut snapshot = shared.lock().unwrap_or_else(|poison| poison.into_inner());
+    if snapshot.auth_generation == generation {
+        write(&mut snapshot);
+    }
+}
+
 /// Waits `interval`; `false` once the link is gone.
 fn wait(stop: &Receiver<()>, interval: Duration) -> bool {
     !matches!(
         stop.recv_timeout(interval),
         Err(crossbeam_channel::RecvTimeoutError::Disconnected)
     )
+}
+
+/// Waits for the next catalog poll, an identity change, or the link being dropped.
+fn wait_catalog(stop: &Receiver<()>, changes: &Receiver<()>) -> bool {
+    crossbeam_channel::select! {
+        recv(stop) -> _ => false,
+        recv(changes) -> result => result.is_ok(),
+        default(CATALOG_INTERVAL) => true,
+    }
 }
 
 fn poll_events(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, requests: &Receiver<()>) {
@@ -149,6 +258,7 @@ fn poll_events(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, requests:
             Err(crossbeam_channel::RecvTimeoutError::Disconnected) => return,
             Err(crossbeam_channel::RecvTimeoutError::Timeout) => {}
         }
+        let generation = auth_generation(shared);
         if let Ok(events) = runtime.block_on(launcher_control::poll_events(socket_dir)) {
             publish(shared, |snapshot| {
                 if let Some(disconnect) = events.disconnect
@@ -164,7 +274,10 @@ fn poll_events(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, requests:
                 }
                 snapshot.last_disconnect.get_or_insert(0);
                 snapshot.connect = events.connect;
-                snapshot.account = Some(events.auth);
+                snapshot.server_trust = events.server_trust;
+            });
+            publish_account(shared, generation, |snapshot| {
+                snapshot.set_account(events.auth);
             });
         }
         let targets = shared
@@ -190,48 +303,30 @@ fn poll_events(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, requests:
     }
 }
 
-fn poll_catalog(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, stop: &Receiver<()>) {
+fn poll_catalog(
+    socket_dir: &std::path::Path,
+    shared: &Mutex<Snapshot>,
+    stop: &Receiver<()>,
+    changes: &Receiver<()>,
+) {
     let Some(runtime) = runtime() else {
         return;
     };
     loop {
-        if let Ok(realms) = runtime.block_on(launcher_control::list_realms(socket_dir)) {
-            publish(shared, |snapshot| snapshot.realms = Some(realms));
+        // Adopt all changes already present before starting this account's requests.
+        while changes.try_recv().is_ok() {}
+        let generation = {
+            let snapshot = shared.lock().unwrap_or_else(|poison| poison.into_inner());
+            snapshot
+                .account
+                .as_ref()
+                .filter(|account| account.state == CoreAuth::SignedIn)
+                .map(|_| snapshot.auth_generation)
+        };
+        if let Some(generation) = generation {
+            runtime.block_on(catalog_round(&CoreFeeds(socket_dir), shared, generation));
         }
-        if let Ok(friends) = runtime.block_on(launcher_control::list_friends(socket_dir)) {
-            publish(shared, |snapshot| snapshot.friends = Some(friends));
-        }
-        if !wait(stop, CATALOG_INTERVAL) {
-            return;
-        }
-    }
-}
-
-fn poll_feeds(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, stop: &Receiver<()>) {
-    let Some(runtime) = runtime() else {
-        return;
-    };
-    let mut reported = HashSet::new();
-    loop {
-        let mut failed = false;
-        let home = runtime.block_on(launcher_control::home(socket_dir));
-        if let Some(home) = settle("home", home, &mut failed) {
-            publish(shared, |snapshot| snapshot.home = Some(home.clone()));
-            report_impressions(&runtime, socket_dir, &home, &mut reported);
-        }
-        let featured = runtime.block_on(launcher_control::list_featured_servers(socket_dir));
-        if let Some(featured) = settle("featured servers", featured, &mut failed) {
-            publish(shared, |snapshot| snapshot.featured = Some(featured));
-        }
-        let gatherings = runtime.block_on(launcher_control::list_gatherings(socket_dir));
-        if let Some(gatherings) = settle("gatherings", gatherings, &mut failed) {
-            publish(shared, |snapshot| snapshot.gatherings = Some(gatherings));
-        }
-        let profile = runtime.block_on(launcher_control::profile(socket_dir));
-        if let Some(profile) = settle("profile", profile, &mut failed) {
-            publish(shared, |snapshot| snapshot.profile = Some(profile));
-        }
-        if !wait(stop, if failed { FEED_RETRY } else { FEED_INTERVAL }) {
+        if !wait_catalog(stop, changes) {
             return;
         }
     }
@@ -240,14 +335,14 @@ fn poll_feeds(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, stop: &Rec
 /// One result per pinged address: a server that sent no pong reads offline, as
 /// vanilla's red offline icon shows it, never as still loading.
 fn round_results(targets: &[String], pongs: Vec<ServerPing>) -> Vec<ServerPing> {
-    let mut pongs: std::collections::HashMap<String, ServerPing> = pongs
+    let pongs: std::collections::HashMap<String, ServerPing> = pongs
         .into_iter()
         .map(|pong| (pong.address.clone(), pong))
         .collect();
     targets
         .iter()
         .map(|address| {
-            pongs.remove(address).unwrap_or_else(|| ServerPing {
+            pongs.get(address).cloned().unwrap_or_else(|| ServerPing {
                 address: address.clone(),
                 ..ServerPing::default()
             })
@@ -310,7 +405,11 @@ fn menu_home(home: &Home, now_unix: i64) -> MenuHome {
         .iter()
         .find(|event| event.end_unix == 0 || now_unix < event.end_unix)
         .map(|event| LiveEventCard {
-            button_text: event.button_text.clone(),
+            button_text: if event.button_text.is_empty() {
+                "gathering.button.liveEventFallback".to_owned()
+            } else {
+                event.button_text.clone()
+            },
             caption: event.caption_text.clone(),
             countdown: event.caption_countdown,
             start_unix: event.start_unix,
@@ -322,6 +421,17 @@ fn menu_home(home: &Home, now_unix: i64) -> MenuHome {
         play_art: art("PlayButton"),
         store_art: art("MarketplaceButton"),
         inbox_unread: home.inbox.unread,
+        inbox_counts: home
+            .inbox
+            .categories
+            .iter()
+            .filter_map(|category| {
+                Some((
+                    super::inbox::category_index(&category.kind)?,
+                    category.unread,
+                ))
+            })
+            .collect(),
         realm_invites: home.realm_invites,
         live_event,
         persona_head: home.persona_head.path.clone(),
@@ -330,6 +440,10 @@ fn menu_home(home: &Home, now_unix: i64) -> MenuHome {
             .iter()
             .filter(|message| message.surface == "InboxMessage")
             .map(|message| InboxItem {
+                instance_id: message.instance_id.clone(),
+                report_id: message.report_id.clone(),
+                received: message.received.clone(),
+                source: message.sender.clone(),
                 header: message.header.clone(),
                 body: message.body.clone(),
                 category: message.category.clone(),
@@ -343,10 +457,15 @@ fn menu_home(home: &Home, now_unix: i64) -> MenuHome {
 fn button_art(message: &Message) -> ButtonArt {
     let mut art = ButtonArt {
         banner: message.banner.clone(),
+        colors: message.colors.clone(),
         ..ButtonArt::default()
     };
     for image in message.images.iter().filter(|image| !image.path.is_empty()) {
         let id = image.id.to_ascii_lowercase();
+        if id.contains("banner") {
+            art.banner_texture = image.path.clone();
+            continue;
+        }
         let hover = id.contains("hover");
         let foreground = id.contains("fore") || id.contains("fg");
         let slot = match (hover, foreground) {
@@ -401,10 +520,22 @@ fn friend_card(friend: &Friend) -> MenuFriendCard {
         world_name: friend.world_name.clone(),
         members,
         xuid: friend.xuid.clone(),
+        max_members: friend.max_members,
     }
 }
 
 impl AccountControl for LauncherAccount {
+    fn set_player_counts_visible(&mut self, visible: bool) {
+        self.with(|snapshot| {
+            if snapshot.player_counts_visible != visible {
+                snapshot.player_counts_visible = visible;
+                if let Some(wake) = &snapshot.feed_wake {
+                    let _ = wake.try_send(());
+                }
+            }
+        });
+    }
+
     fn account_status(&mut self) -> Option<AuthState> {
         self.with(|snapshot| snapshot.account.as_ref().and_then(auth_state))
     }
@@ -415,6 +546,28 @@ impl AccountControl for LauncherAccount {
 
     fn set_joining(&mut self, joining: bool) {
         self.with(|snapshot| snapshot.joining = joining);
+    }
+
+    fn server_trust(&mut self) -> Option<ServerTrustPrompt> {
+        self.with(|snapshot| {
+            let prompt = snapshot.server_trust.as_ref()?;
+            (snapshot.answered_trust != Some(prompt.id)).then(|| ServerTrustPrompt {
+                id: prompt.id,
+                url: prompt.url.clone(),
+                from_session_core: false,
+            })
+        })
+    }
+
+    fn answer_server_trust(&mut self, id: u64, trusted: bool) {
+        self.with(|snapshot| snapshot.answered_trust = Some(id));
+        let snapshot = Arc::clone(&self.snapshot);
+        super::server_trust::send(self.socket_dir.clone(), id, trusted, move || {
+            let mut snapshot = snapshot.lock().unwrap_or_else(|poison| poison.into_inner());
+            if snapshot.answered_trust == Some(id) {
+                snapshot.answered_trust = None;
+            }
+        });
     }
 
     fn realms(&mut self) -> Option<Vec<MenuRealmCard>> {
@@ -453,9 +606,8 @@ impl AccountControl for LauncherAccount {
         if queued {
             // The signed-in lists and status are stale from here on.
             self.with(|snapshot| {
+                snapshot.retire_account_data();
                 snapshot.account = None;
-                snapshot.realms = None;
-                snapshot.friends = None;
             });
         }
         queued
@@ -470,32 +622,9 @@ impl AccountControl for LauncherAccount {
         Some(servers.iter().map(featured_card).collect())
     }
 
-    fn gatherings(&mut self) -> Option<Vec<(MenuServerCard, ServerDetails)>> {
-        let gatherings = self.with(|snapshot| snapshot.gatherings.take())?;
-        Some(
-            gatherings
-                .iter()
-                .filter(|gathering| !gathering.id.is_empty())
-                .map(|gathering| {
-                    let card = MenuServerCard {
-                        name: gathering.name.clone(),
-                        address: format!(
-                            "{}{}",
-                            super::launcher_core::GATHERING_ADDRESS_PREFIX,
-                            gathering.id
-                        ),
-                        caption: gathering.caption.clone(),
-                        image_path: gathering.image.path.clone(),
-                        icon: None,
-                    };
-                    let details = ServerDetails {
-                        description: gathering.description.clone(),
-                        ..ServerDetails::default()
-                    };
-                    (card, details)
-                })
-                .collect(),
-        )
+    /// Queues an inbox action on the dedicated reporting worker.
+    fn report_message(&mut self, event: MessageEvent) {
+        let _ = self.message_reports.send(event);
     }
 
     fn home(&mut self) -> Option<MenuHome> {
@@ -521,6 +650,7 @@ impl AccountControl for LauncherAccount {
                 .into_iter()
                 .map(|ping| {
                     let info = PingInfo {
+                        motd: ping.motd,
                         online: ping.online,
                         players: ping.players,
                         max_players: ping.max_players,
@@ -532,20 +662,63 @@ impl AccountControl for LauncherAccount {
         )
     }
 
+    /// Wakes only Profile when opened or retried, without replaying Home impressions.
+    fn refresh_profile(&mut self) {
+        if matches!(
+            self.profile_refresh.try_send(()),
+            Err(crossbeam_channel::TrySendError::Disconnected(_))
+        ) {
+            self.with(|snapshot| snapshot.profile = Some(Err(())));
+            profile_worker::log_unavailable("worker_unavailable");
+        }
+    }
+
     fn profile(&mut self) -> Option<MenuProfile> {
         let profile = self.with(|snapshot| snapshot.profile.take())?;
+        let Ok(profile) = profile else {
+            return Some(MenuProfile::unavailable());
+        };
         Some(MenuProfile {
+            loaded: true,
+            unavailable: false,
+            xuid: profile.xuid,
+            statistics_loaded: true,
+            statistics_error: profile.statistics.is_none(),
+            achievements_loaded: true,
+            achievements_error: profile.achievements.is_none(),
+            achievements: profile.achievements,
             gamertag: profile.gamertag,
             picture_path: profile.gamerpic.path,
+            avatar_path: profile.avatar.path,
+            avatar_loaded: true,
+            avatar_error: profile.avatar_error,
+            featured_screenshot_path: profile.featured_screenshot.path,
+            featured_screenshot_loaded: true,
+            featured_screenshot_error: profile.featured_screenshot_error,
             real_name: profile.real_name,
             presence: profile.presence_text,
             gamerscore: profile.gamerscore,
             friends: profile.friends,
             followers: profile.followers,
+            statistics: profile.statistics,
         })
+    }
+
+    fn request_people(&mut self) {
+        let _ = self.invites.send(invites::Request::People);
+    }
+
+    fn people(&mut self) -> Option<Result<Vec<launcher::menu::invite::Friend>, ()>> {
+        let people = self.with(|snapshot| snapshot.people.take())?;
+        Some(people.map(|people| people.into_iter().map(Into::into).collect()))
+    }
+
+    fn send_invites(&mut self, xuids: Vec<String>) {
+        let _ = self.invites.send(invites::Request::Send(xuids));
     }
 }
 
+/// Splits the core's featured entry into its menu card and selected details.
 fn featured_card(server: &FeaturedServer) -> (MenuServerCard, ServerDetails) {
     let card = MenuServerCard {
         name: server.name.clone(),
@@ -555,7 +728,10 @@ fn featured_card(server: &FeaturedServer) -> (MenuServerCard, ServerDetails) {
         icon: None,
     };
     let details = ServerDetails {
+        group: server.group.clone(),
+        player_count: server.player_count,
         description: server.description.clone(),
+        banner: server.background.path.clone(),
         news_title: server.news_title.clone(),
         news: server.news.clone(),
         screenshots: server
@@ -574,6 +750,7 @@ fn featured_card(server: &FeaturedServer) -> (MenuServerCard, ServerDetails) {
                 image_path: game.image.path.clone(),
             })
             .collect(),
+        logo_url: server.logo.url.clone(),
     };
     (card, details)
 }
@@ -581,6 +758,54 @@ fn featured_card(server: &FeaturedServer) -> (MenuServerCard, ServerDetails) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn review_ui_account_changes_wake_catalog_without_repeated_poll_wakes() {
+        let (wake, changes) = bounded(1);
+        let mut snapshot = Snapshot {
+            catalog_wake: Some(wake),
+            ..Default::default()
+        };
+        let account = Account {
+            state: CoreAuth::SignedIn,
+            gamertag: Some("Alex".into()),
+            verification_uri: None,
+            user_code: None,
+            reason: None,
+        };
+        snapshot.set_account(account.clone());
+        assert_eq!(
+            changes.try_recv(),
+            Ok(()),
+            "the first account must wake catalogs"
+        );
+        snapshot.set_account(account.clone());
+        assert_eq!(
+            changes.try_recv(),
+            Err(crossbeam_channel::TryRecvError::Empty)
+        );
+        snapshot.set_account(Account {
+            gamertag: Some("Steve".into()),
+            ..account
+        });
+        assert_eq!(
+            changes.try_recv(),
+            Ok(()),
+            "another identity must wake catalogs"
+        );
+        snapshot.retire_account_data();
+        assert_eq!(changes.try_recv(), Ok(()), "sign-out must wake catalogs");
+    }
+
+    #[test]
+    fn review_ui_catalog_wait_handles_wakes_and_shutdown() {
+        let (alive, stop) = bounded(0);
+        let (wake, changes) = bounded(1);
+        wake.try_send(()).unwrap();
+        assert!(wait_catalog(&stop, &changes));
+        drop(alive);
+        assert!(!wait_catalog(&stop, &changes));
+    }
 
     // A pinged server that sent no pong reads offline instead of loading.
     #[test]
@@ -639,8 +864,13 @@ mod tests {
     fn featured_servers_split_into_cards_and_details() {
         let server = FeaturedServer {
             name: "S".into(),
+            player_count: Some(12_345),
             address: "a.test:19132".into(),
             news: "Update".into(),
+            background: protocol::launcher_control::Artwork {
+                url: "https://a.test/bg.png".into(),
+                path: "/art/bg.img".into(),
+            },
             screenshots: vec![
                 protocol::launcher_control::Artwork {
                     url: "https://a.test/s.png".into(),
@@ -657,6 +887,8 @@ mod tests {
         assert_eq!(card.address, "a.test:19132");
         assert_eq!(details.news, "Update");
         assert_eq!(details.screenshots, vec!["/art/t.img".to_owned()]);
+        assert_eq!(details.banner, "/art/bg.img");
+        assert_eq!(details.player_count, Some(12_345));
     }
 
     #[test]
@@ -713,5 +945,42 @@ mod tests {
             auth_state(&account(CoreAuth::Failed)),
             Some(AuthState::Failed("expired".into()))
         );
+    }
+    #[test]
+    fn duplicate_ping_targets_keep_the_same_online_result() {
+        let targets = vec!["server.test".into(), "server.test".into()];
+        let results = round_results(
+            &targets,
+            vec![ServerPing {
+                address: targets[0].clone(),
+                online: true,
+                ..Default::default()
+            }],
+        );
+        assert_eq!(results.len(), 2);
+        assert!(results.iter().all(|ping| ping.online));
+    }
+    #[test]
+    fn account_responses_from_before_sign_out_are_discarded() {
+        let snapshot = Arc::new(Mutex::new(Snapshot::default()));
+        let generation = auth_generation(&snapshot);
+        let (sign_out, _requests) = bounded(1);
+        let (alive, _stop) = bounded(0);
+        let mut account = LauncherAccount {
+            snapshot: Arc::clone(&snapshot),
+            sign_out,
+            profile_refresh: crossbeam_channel::bounded(1).0,
+            _alive: alive,
+            socket_dir: PathBuf::new(),
+            message_reports: crossbeam_channel::unbounded().0,
+            invites: crossbeam_channel::unbounded().0,
+        };
+        assert!(account.sign_out());
+        publish_account(&snapshot, generation, |snapshot| {
+            snapshot.realms = Some(Vec::new());
+            snapshot.friends = Some(Vec::new());
+        });
+        let retained = snapshot.lock().unwrap();
+        assert!(retained.realms.is_none() && retained.friends.is_none());
     }
 }

@@ -8,10 +8,10 @@ use valentine::bedrock::version::v1_26_51::{
     EnumsItemUseInventoryTransactionPredictedResult as ItemUseInventoryTransactionClientInteractPrediction,
     EnumsItemUseInventoryTransactionTriggerType as ItemUseInventoryTransactionTriggerType,
     EnumsItemUseOnActorInventoryTransactionActionType as ItemUseOnActorInventoryTransactionActionType,
-    EnumsPlayerActionType, EnumsPlayerRespawnState, InventoryAction, InventorySource,
-    InventoryTransaction, InventoryTransactionPacket, InventoryTransactionPacketTransaction,
+    EnumsPlayerActionType, InventoryAction, InventorySource, InventoryTransaction,
+    InventoryTransactionPacket, InventoryTransactionPacketTransaction,
     ItemReleaseInventoryTransaction, ItemUseInventoryTransaction,
-    ItemUseOnActorInventoryTransaction, LegacySetSlot, PlayerActionPacket, RespawnPacket,
+    ItemUseOnActorInventoryTransaction, LegacySetSlot, PlayerActionPacket,
     TypedClientNetIdstructItemStackLegacyRequestIdTagint32T0, Vec3,
 };
 
@@ -63,7 +63,7 @@ pub enum BlockUsePacketError {
     NonFinitePlayerPosition,
     #[error("relative hit position must contain only finite values")]
     NonFiniteRelativeHit,
-    #[error("relative hit position must stay within the block-local [0, 1] range")]
+    #[error("relative hit position must be within the unit block for destruction")]
     RelativeHitOutOfRange,
     #[error("block runtime ID {0} exceeds protocol-2168's uint32 wire range")]
     BlockRuntimeIdOutOfRange(u64),
@@ -89,8 +89,7 @@ pub enum ActorUsePacketError {
 ///
 /// The packet carries no legacy slot records and no inventory actions. The required transaction
 /// and action presence markers are set, prediction is `Failure`, and cooldown is `Off`, matching
-/// the pinned public wire fixture. Finite relative-hit components are constrained to the block's
-/// local `[0, 1]` coordinate range.
+/// the pinned public wire fixture. Click coordinates retain the held action's hit point.
 pub fn click_block_packet(
     request: BlockUseRequest,
     session: &BedrockSession,
@@ -117,7 +116,9 @@ pub fn click_block_transaction_packet(
     request: BlockUseRequest,
     trigger: ItemUseTrigger,
     predicted_success: bool,
+    change: Option<PredictedSlotChange>,
 ) -> Result<crate::Packet, BlockUsePacketError> {
+    let slot = request.selected_slot;
     let mut transaction =
         item_use_transaction(request, ItemUseInventoryTransactionActionType::Place)?;
     transaction.trigger_type = match trigger {
@@ -128,9 +129,17 @@ pub fn click_block_transaction_packet(
         transaction.client_interact_prediction =
             ItemUseInventoryTransactionClientInteractPrediction::Success;
     }
+    let SlotChangeParts {
+        legacy_request_id,
+        legacy_set_item_slots,
+        actions,
+    } = slot_change_parts(slot, change)?;
+    transaction.actions.actions = actions;
     Ok(InventoryTransactionPacket {
-        legacy_request_id: TypedClientNetIdstructItemStackLegacyRequestIdTagint32T0 { id: 0 },
-        legacy_set_item_slots: None,
+        legacy_request_id: TypedClientNetIdstructItemStackLegacyRequestIdTagint32T0 {
+            id: legacy_request_id,
+        },
+        legacy_set_item_slots,
         transaction: InventoryTransactionPacketTransaction::ItemUseInventoryTransaction(Box::new(
             transaction,
         )),
@@ -197,10 +206,11 @@ pub(crate) fn item_use_transaction(
     if !request.relative_hit.into_iter().all(f32::is_finite) {
         return Err(BlockUsePacketError::NonFiniteRelativeHit);
     }
-    if !request
-        .relative_hit
-        .into_iter()
-        .all(|component| (0.0..=1.0).contains(&component))
+    if action_type == ItemUseInventoryTransactionActionType::Destroy
+        && !request
+            .relative_hit
+            .into_iter()
+            .all(|axis| (0.0..=1.0).contains(&axis))
     {
         return Err(BlockUsePacketError::RelativeHitOutOfRange);
     }
@@ -272,25 +282,27 @@ fn held_item_parts(request: &HeldItemRequest) -> Result<(i32, Vec3), BlockUsePac
     Ok((i32::from(request.selected_slot), Vec3 { x, y, z }))
 }
 
-/// Builds the click-air transaction vanilla's `GameMode::baseUseItem` sends: zero block and
-/// click positions, face 255, unset trigger and a failure prediction. A `change` becomes the
-/// inventory action and legacy set-slot request vanilla records while the use runs.
-pub fn click_air_packet(
-    request: HeldItemRequest,
+struct SlotChangeParts {
+    legacy_request_id: i32,
+    legacy_set_item_slots: Option<Vec<LegacySetSlot>>,
+    actions: Vec<InventoryAction>,
+}
+
+/// Records the inventory delta and the legacy request for a changed, nonempty result.
+fn slot_change_parts(
+    slot: u8,
     change: Option<PredictedSlotChange>,
-) -> Result<crate::Packet, BlockUsePacketError> {
-    let (slot, from_position) = held_item_parts(&request)?;
-    let item = request.selected_item.into_vendor_item(0)?;
+) -> Result<SlotChangeParts, BlockUsePacketError> {
     let mut legacy_request_id = 0;
     let mut legacy_set_item_slots = None;
     let mut actions = Vec::new();
     if let Some(change) = change {
-        // `setPlayerContainer` stamps and records only a non-empty result.
+        // Vanilla stamps and records only a non-empty result.
         if !change.to.is_empty() && change.legacy_request_id < 0 {
             legacy_request_id = change.legacy_request_id;
             legacy_set_item_slots = Some(vec![LegacySetSlot {
                 container_enum: EnumsContainerEnumName::Inventorycontainer,
-                slots: vec![request.selected_slot],
+                slots: vec![slot],
             }]);
         }
         actions.push(InventoryAction {
@@ -299,11 +311,32 @@ pub fn click_air_packet(
                 container_id: Some(0),
                 bit_flags: None,
             },
-            slot: u32::from(request.selected_slot),
+            slot: u32::from(slot),
             from_item: change.from.into_vendor_item(0)?,
             to_item: change.to.into_vendor_item(0)?,
         });
     }
+    Ok(SlotChangeParts {
+        legacy_request_id,
+        legacy_set_item_slots,
+        actions,
+    })
+}
+
+/// Builds the click-air transaction vanilla sends on an air use: zero block and
+/// click positions, face 255, unset trigger and a failure prediction. A `change` becomes the
+/// inventory action and legacy set-slot request vanilla records while the use runs.
+pub fn click_air_packet(
+    request: HeldItemRequest,
+    change: Option<PredictedSlotChange>,
+) -> Result<crate::Packet, BlockUsePacketError> {
+    let (slot, from_position) = held_item_parts(&request)?;
+    let item = request.selected_item.into_vendor_item(0)?;
+    let SlotChangeParts {
+        legacy_request_id,
+        legacy_set_item_slots,
+        actions,
+    } = slot_change_parts(request.selected_slot, change)?;
     Ok(InventoryTransactionPacket {
         legacy_request_id: TypedClientNetIdstructItemStackLegacyRequestIdTagint32T0 {
             id: legacy_request_id,
@@ -335,7 +368,25 @@ pub fn click_air_packet(
     .into())
 }
 
-/// Builds the release-item transaction `GameMode::releaseUsingItem` sends when the use button
+/// Native action aim rotation runs for actor attacks and held-item releases.
+#[must_use]
+pub fn is_aim_assist_rotation_action(packet: &crate::Packet) -> bool {
+    use valentine::bedrock::version::v1_26_51::McpePacketData;
+    let McpePacketData::InventoryTransactionPacket(packet) = &packet.data else {
+        return false;
+    };
+    match &packet.transaction {
+        InventoryTransactionPacketTransaction::ItemReleaseInventoryTransaction(transaction) => {
+            transaction.action_type == EnumsItemReleaseInventoryTransactionActionType::Release
+        }
+        InventoryTransactionPacketTransaction::ItemUseOnActorInventoryTransaction(transaction) => {
+            transaction.action_type == ItemUseOnActorInventoryTransactionActionType::Attack
+        }
+        _ => false,
+    }
+}
+
+/// Builds the release-item transaction vanilla sends when the use button
 /// goes up; a use that runs out completes without a packet from the client.
 pub fn release_item_packet(request: HeldItemRequest) -> Result<crate::Packet, BlockUsePacketError> {
     let (slot, from_position) = held_item_parts(&request)?;
@@ -432,16 +483,59 @@ pub enum SwingSource {
 }
 
 impl SwingSource {
-    // Vanilla binds the capitalised names; gophertunnel writes lowercase and reads either.
+    // The vanilla client sends the lowercase name; servers that match it exactly drop the
+    // connection on any other casing.
     const fn wire_name(self) -> &'static str {
         match self {
-            Self::Build => "Build",
-            Self::Mine => "Mine",
-            Self::Interact => "Interact",
-            Self::Attack => "Attack",
-            Self::ThrowItem => "ThrowItem",
+            Self::Build => "build",
+            Self::Mine => "mine",
+            Self::Interact => "interact",
+            Self::Attack => "attack",
+            Self::ThrowItem => "throwitem",
         }
     }
+}
+
+/// Starts the first successful held block use with its clicked and resulting cells.
+#[must_use]
+pub fn start_item_use_on_packet(
+    local_runtime_id: u64,
+    clicked: [i32; 3],
+    destination: [i32; 3],
+    face: u8,
+) -> crate::Packet {
+    let [x, y, z] = clicked;
+    let [result_x, result_y, result_z] = destination;
+    PlayerActionPacket {
+        player_runtime_id: ActorRuntimeId {
+            actor_runtime_id: local_runtime_id,
+        },
+        action: EnumsPlayerActionType::Startitemuseon,
+        block_position: BlockPos { x, y, z },
+        result_pos: BlockPos {
+            x: result_x,
+            y: result_y,
+            z: result_z,
+        },
+        face: i32::from(face),
+    }
+    .into()
+}
+
+/// Ends a successful held block use at its last resulting cell.
+#[must_use]
+pub fn stop_item_use_on_packet(local_runtime_id: u64, destination: [i32; 3]) -> crate::Packet {
+    let [x, y, z] = destination;
+    PlayerActionPacket {
+        player_runtime_id: ActorRuntimeId {
+            actor_runtime_id: local_runtime_id,
+        },
+        action: EnumsPlayerActionType::Stopitemuseon,
+        block_position: BlockPos { x, y, z },
+        result_pos: BlockPos { x: 0, y: 0, z: 0 },
+        face: 0,
+    }
+    .into()
 }
 
 /// Builds the PlayerAction that asks the server to wake the local player.
@@ -469,23 +563,6 @@ pub fn swing_arm_packet(local_runtime_id: u64, source: SwingSource) -> crate::Pa
         },
         data: 0.0,
         swing_source: Some(source.wire_name().to_owned()),
-    }
-    .into()
-}
-
-/// Builds the death screen's respawn request: client-ready state, zero position.
-#[must_use]
-pub fn respawn_request_packet(local_runtime_id: u64) -> crate::Packet {
-    RespawnPacket {
-        position: Vec3 {
-            x: 0.0,
-            y: 0.0,
-            z: 0.0,
-        },
-        state: EnumsPlayerRespawnState::Clientreadytospawn,
-        player_runtime_id: ActorRuntimeId {
-            actor_runtime_id: local_runtime_id,
-        },
     }
     .into()
 }

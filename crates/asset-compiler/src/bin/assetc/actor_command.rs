@@ -1,8 +1,8 @@
 use super::{
-    MAX_SOURCE_MANIFEST_BYTES, read_bounded_with_limit, validate_output_bundle, write_blob_atomic,
+    MAX_SOURCE_MANIFEST_BYTES, read_bounded_with_limit, validate_output_bundle, write_output_bundle,
 };
-use asset_compiler::compile_actor_assets;
 use assets::AssetError;
+use pack_compiler::compile_actor_assets;
 use std::{fs, path::Path};
 
 pub(super) fn compile_actor_assets_command(
@@ -21,8 +21,7 @@ pub(super) fn compile_actor_assets_command(
     let mut report_bytes = serde_json::to_vec_pretty(&compiled.report)?;
     report_bytes.push(b'\n');
     validate_output_bundle(out, report)?;
-    write_blob_atomic(out, &compiled.bytes)?;
-    write_blob_atomic(report, &report_bytes)?;
+    write_output_bundle(&[(out, &compiled.bytes), (report, &report_bytes)])?;
     println!(
         "compiled {} neutral actor bindings; {} observable fallbacks",
         compiled.report.bindings,

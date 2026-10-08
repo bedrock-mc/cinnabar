@@ -19,6 +19,19 @@ pub(super) fn validate_rig_payload(compiled: &CompiledEntityAssets) -> Result<()
         return Err(invalid("entity rig binding count exceeds bound"));
     }
     let effective_bone_counts = effective_geometry_bone_counts(&compiled.geometries)?;
+    let clip_bones = compiled
+        .animation_clips
+        .iter()
+        .map(|clip| {
+            compiled.animation_channels[clip.first_channel as usize
+                ..clip.first_channel as usize + clip.channel_count as usize]
+                .iter()
+                .map(|channel| channel.bone as usize + 1)
+                .max()
+                .unwrap_or(0)
+        })
+        .collect::<Vec<_>>();
+    let summaries = controller_summaries(compiled, &mut |clip| clip_bones[clip as usize])?;
     for binding in &compiled.rig_animations {
         if !molang_symbol_has_kind(compiled, binding.name, &[MolangSymbolKind::Name])
             || binding.clip as usize >= compiled.animation_clips.len()
@@ -44,6 +57,10 @@ pub(super) fn validate_rig_payload(compiled: &CompiledEntityAssets) -> Result<()
             &compiled.symbols,
             binding.entity_symbol,
             EntityAssetKind::Entity,
+        ) && !index_has_kind(
+            &compiled.symbols,
+            binding.entity_symbol,
+            EntityAssetKind::Attachable,
         ) || !index_has_kind(
             &compiled.symbols,
             binding.render_controller,
@@ -58,6 +75,7 @@ pub(super) fn validate_rig_payload(compiled: &CompiledEntityAssets) -> Result<()
                 .flatten()
                 .chain(binding.scale_expressions.into_iter().flatten())
                 .any(|index| index as usize >= compiled.molang_expressions.len())
+            || !binding.scale.get().is_finite()
             || binding.scale.get() <= 0.0
         {
             return Err(invalid("entity rig binding index is out of range"));
@@ -92,13 +110,11 @@ pub(super) fn validate_rig_payload(compiled: &CompiledEntityAssets) -> Result<()
             let controllers = &compiled.rig_controllers[candidate.first_controller as usize
                 ..candidate.first_controller as usize + candidate.controller_count as usize];
             for rig_controller in controllers {
-                let mut result = Ok(());
-                visit_controller_clips(compiled, rig_controller.controller, 0, &mut |clip| {
-                    if result.is_ok() {
-                        result = validate_rig_clip_bones(compiled, clip, geometry_bones);
-                    }
-                })?;
-                result?;
+                if summaries[rig_controller.controller as usize].required_bones > geometry_bones {
+                    return Err(invalid(
+                        "entity animation channel bone is out of range for its effective rig geometry",
+                    ));
+                }
             }
         }
     }
@@ -178,35 +194,83 @@ fn validate_rig_clip_bones(
 pub(super) fn validate_controller_nesting(
     compiled: &CompiledEntityAssets,
 ) -> Result<(), AssetError> {
-    for controller in 0..compiled.controllers.len() {
-        visit_controller_clips(compiled, controller as u32, 0, &mut |_| {})?;
-    }
-    Ok(())
+    controller_summaries(compiled, &mut |_| 0).map(|_| ())
 }
 
-fn visit_controller_clips(
+#[derive(Clone, Copy)]
+struct ControllerSummary {
+    height: usize,
+    required_bones: usize,
+}
+
+/// Summarizes each controller once, keeping validation proportional to graph edges.
+fn controller_summaries(
     compiled: &CompiledEntityAssets,
-    controller: u32,
+    clip_bones: &mut impl FnMut(u32) -> usize,
+) -> Result<Vec<ControllerSummary>, AssetError> {
+    let mut memo = vec![None; compiled.controllers.len()];
+    for controller in 0..compiled.controllers.len() {
+        summarize_controller(compiled, controller, 0, &mut memo, clip_bones)?;
+    }
+    Ok(memo
+        .into_iter()
+        .map(|summary| summary.expect("all controllers visited"))
+        .collect())
+}
+
+/// Reuses graph height and the largest reachable clip bone requirement, rejecting cycles.
+fn summarize_controller(
+    compiled: &CompiledEntityAssets,
+    index: usize,
     depth: usize,
-    visit: &mut impl FnMut(u32),
-) -> Result<(), AssetError> {
+    memo: &mut [Option<ControllerSummary>],
+    clip_bones: &mut impl FnMut(u32) -> usize,
+) -> Result<ControllerSummary, AssetError> {
     if depth >= MAX_ENTITY_CONTROLLER_NESTING {
         return Err(invalid("entity controller nesting exceeds bound or cycles"));
     }
-    let controller = &compiled.controllers[controller as usize];
+    if let Some(summary) = memo[index] {
+        if depth + summary.height > MAX_ENTITY_CONTROLLER_NESTING {
+            return Err(invalid("entity controller nesting exceeds bound or cycles"));
+        }
+        return Ok(summary);
+    }
+    let controller = &compiled.controllers[index];
     let states = &compiled.controller_states[controller.first_state as usize
         ..controller.first_state as usize + controller.state_count as usize];
+    let mut summary = ControllerSummary {
+        height: 1,
+        required_bones: 0,
+    };
     for state in states {
         let animations = &compiled.controller_animations[state.first_animation as usize
             ..state.first_animation as usize + state.animation_count as usize];
         for animation in animations {
             match animation.target {
-                EntityControllerAnimationTarget::Clip(clip) => visit(clip),
+                EntityControllerAnimationTarget::Clip(clip) => {
+                    summary.required_bones = summary.required_bones.max(clip_bones(clip));
+                }
                 EntityControllerAnimationTarget::Controller(nested) => {
-                    visit_controller_clips(compiled, nested, depth + 1, visit)?;
+                    let nested = summarize_controller(
+                        compiled,
+                        nested as usize,
+                        depth + 1,
+                        memo,
+                        clip_bones,
+                    )?;
+                    summary.height = summary.height.max(nested.height + 1);
+                    summary.required_bones = summary.required_bones.max(nested.required_bones);
                 }
             }
         }
     }
-    Ok(())
+    if depth + summary.height > MAX_ENTITY_CONTROLLER_NESTING {
+        return Err(invalid("entity controller nesting exceeds bound or cycles"));
+    }
+    memo[index] = Some(summary);
+    Ok(summary)
 }
+
+#[cfg(test)]
+#[path = "rig/tests.rs"]
+mod tests;

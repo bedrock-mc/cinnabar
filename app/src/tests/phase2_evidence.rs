@@ -1,4 +1,4 @@
-use client_world::{
+use chunk_pipeline::{
     BuildProfileIdentity, CohortManifestIdentity, Phase2PresentationSnapshot,
     Phase2PublicationSnapshot, PresentModeIdentity, PublicationStageCounters, RequestClass,
     RequestClassDepth, RequestQueueEvidence, StageDurations, SubChunkOutcomeCounters,
@@ -7,12 +7,13 @@ use protocol::BlobCacheStats;
 use sha2::{Digest, Sha256};
 use world::ChunkKey;
 
-use crate::runtime::phase2_evidence::{
+use acceptance::phase2_evidence::{
     CombinedPhase2Snapshot, PlayerColumnPresentationEvidence, generation_manifest_identity,
     graphics_identity_sha256, key_manifest_identity, phase2_publication_line_if_changed,
     phase2_publication_timing_line, sha256_identity_from_hex_or_text,
 };
-use render::{VisibilityDiagnosticsInput, VisibilityKeyDigest};
+use render::VisibilityDiagnosticsInput;
+use render_model::VisibilityKeyDigest;
 
 use crate::runtime::telemetry::local_subject_column;
 
@@ -210,12 +211,12 @@ fn player_column_witness_uses_subject_not_third_person_camera_boom() {
 fn serialized_phase2_path_reads_the_frozen_local_subject_column() {
     let source = include_str!("../runtime/telemetry.rs");
     let record = source
-        .split("pub(crate) fn record_metrics_and_title")
+        .split("pub(crate) fn record_metrics(")
         .nth(1)
-        .expect("record_metrics_and_title source")
-        .split("\n    if client_world.stream.is_some() {")
-        .next()
-        .expect("record_metrics_and_title body");
+        .expect("record_metrics source")
+        .split_once("\n    if client_world.stream.is_some()")
+        .expect("phase-2 evidence ends before gameplay visibility counters")
+        .0;
 
     assert!(record.contains("render_metrics.local_player.snapshot()"));
     assert!(record.contains("local_subject_column(stream.current_dimension(), local_frame.eye())"));
@@ -409,11 +410,11 @@ fn phase2_key_manifest_identity_does_not_change_with_observation_frame() {
 fn phase2_frame_metrics_observe_the_real_clock() {
     let source = include_str!("../runtime/telemetry.rs");
     let function = source
-        .split_once("pub(crate) fn record_metrics_and_title(")
-        .expect("record_metrics_and_title definition")
+        .split_once("pub(crate) fn record_metrics(")
+        .expect("record_metrics definition")
         .1
         .split_once(") {")
-        .expect("record_metrics_and_title signature")
+        .expect("record_metrics signature")
         .0;
     assert!(
         function.contains("time: Res<Time<Real>>"),
@@ -423,7 +424,7 @@ fn phase2_frame_metrics_observe_the_real_clock() {
 
 #[test]
 fn phase2_graphics_identity_covers_effective_present_mode() {
-    let mut graphics = render::GraphicsAdapterMetadata {
+    let mut graphics = render_model::GraphicsAdapterMetadata {
         backend: "Vulkan".to_owned(),
         adapter: "adapter".to_owned(),
         driver: "driver".to_owned(),

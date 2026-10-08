@@ -89,7 +89,7 @@ def atomic_write(path: Path, text: str) -> None:
             temporary.unlink(missing_ok=True)
 
 
-def bump(root: Path, kind: str, dry_run: bool) -> str:
+def bump(root: Path, kind: str, dry_run: bool, custom: str = "") -> str:
     manifest_path = root / "Cargo.toml"
     lock_path = root / "Cargo.lock"
     text = manifest_path.read_text()
@@ -100,7 +100,13 @@ def bump(root: Path, kind: str, dry_run: bool) -> str:
     if not match:
         raise ValueError("workspace.package.version must be a plain semantic version, such as 1.2.3")
     version = list(map(int, match.groups()))
-    if kind != "current":
+    if kind == "custom":
+        if not SEMVER.fullmatch(custom):
+            raise ValueError("custom version must be a plain semantic version, such as 1.2.3")
+        version = list(map(int, custom.split(".")))
+        if tuple(version) <= tuple(map(int, match.groups())):
+            raise ValueError("custom version must be greater than the current version")
+    elif kind != "current":
         component = {"major": 0, "minor": 1, "patch": 2}[kind]
         version[component] += 1
         version[component + 1 :] = [0] * (2 - component)
@@ -124,12 +130,13 @@ def bump(root: Path, kind: str, dry_run: bool) -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("kind", choices=["current", "patch", "minor", "major"])
+    parser.add_argument("kind", choices=["current", "patch", "minor", "major", "custom"])
+    parser.add_argument("--version", default="", help="X.Y.Z for the custom choice")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[1])
     args = parser.parse_args()
     try:
-        print(bump(args.root, args.kind, args.dry_run))
+        print(bump(args.root, args.kind, args.dry_run, args.version))
     except (OSError, ValueError, KeyError, tomllib.TOMLDecodeError) as error:
         print(f"release version: {error}", file=sys.stderr)
         return 1

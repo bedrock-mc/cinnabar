@@ -88,7 +88,7 @@ pub struct SoundEventTables {
     blocks: HashMap<Box<str>, EventSet>,
     entity_defaults: EventSet,
     entities: HashMap<Box<str>, EntitySet>,
-    individual: HashMap<Box<str>, SoundRoute>,
+    individual: HashMap<Box<str>, Option<SoundRoute>>,
     interactive_blocks: HashMap<Box<str>, EventSet>,
     interactive_defaults: EventSet,
     interactive_entities: HashMap<Box<str>, EventSet>,
@@ -248,7 +248,11 @@ impl SoundEventTables {
             if let Some(Value::Object(events)) = sounds.pointer(section) {
                 for (name, value) in events {
                     if let Some(found) = route(value) {
-                        tables.individual.insert(name.as_str().into(), found);
+                        tables.individual.insert(name.as_str().into(), Some(found));
+                    } else if value.as_str() == Some("")
+                        || value.get("sound").and_then(Value::as_str) == Some("")
+                    {
+                        tables.individual.insert(name.as_str().into(), None);
                     }
                 }
             }
@@ -295,8 +299,16 @@ impl SoundEventTables {
 
     /// Sound material name (`stone`, `wood`, ...) of a block identifier.
     pub fn material_of(&self, block_identifier: &str) -> Option<&str> {
+        // Vanilla loads block textures and `sound` from the same
+        // blocks.json entry. The pack
+        // still calls grass_block `grass`; apply the shared texture alias
+        // after the exact entry, without inventing a default sound material.
         self.materials
             .get(bare(block_identifier))
+            .or_else(|| {
+                self.materials
+                    .get(crate::legacy_resource_pack_block_alias(block_identifier)?)
+            })
             .map(AsRef::as_ref)
     }
 
@@ -366,16 +378,70 @@ impl SoundEventTables {
         resolve(&self.interactive_defaults, event, Some(material))
     }
 
+    /// Distinguishes explicit individual silence from an absent event before fallback routing.
+    pub fn individual_lookup(&self, event: &str) -> RouteLookup {
+        match self.individual.get(event) {
+            Some(Some(route)) => RouteLookup::Route(route.clone()),
+            Some(None) => RouteLookup::Silent,
+            None => RouteLookup::Absent,
+        }
+    }
+
     /// Named individual sound event (`bucket.fill.water`, `random.click`, ...).
     pub fn individual(&self, event: &str) -> Option<&SoundRoute> {
-        self.individual.get(event)
+        self.individual.get(event).and_then(Option::as_ref)
     }
 }
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn review_explicit_individual_silence_overrides_an_earlier_route() {
+        for silent in [serde_json::json!(""), serde_json::json!({"sound":""})] {
+            let mut base = super::SoundEventTables::from_json(
+                &serde_json::json!({"individual_event_sounds":{"events":{"click":"base.click"}}}),
+                &serde_json::json!({}),
+            );
+            let later = super::SoundEventTables::from_json(
+                &serde_json::json!({"individual_event_sounds":{"events":{"click":silent}}}),
+                &serde_json::json!({}),
+            );
+            base.merge(later);
+            assert!(base.individual("click").is_none());
+            assert_eq!(base.individual_lookup("click"), super::RouteLookup::Silent);
+            assert_eq!(
+                base.individual_lookup("missing"),
+                super::RouteLookup::Absent
+            );
+        }
+    }
+
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn level_event_silence_prevents_the_default_sound() {
+        let absent = SoundEventTables::default();
+        assert_eq!(
+            level_event_sound_route(&absent, 1000, 0.0).unwrap().sound.as_ref(),
+            "random.click"
+        );
+        let silent = SoundEventTables::from_json(
+            &json!({"individual_event_sounds":{"events":{"block.click":""}}}),
+            &json!({}),
+        );
+        assert!(level_event_sound_route(&silent, 1000, 0.0).is_none());
+        let custom = SoundEventTables::from_json(
+            &json!({"individual_event_sounds":{"events":{"block.click":{
+                "sound":"custom.click", "volume":0.25, "pitch":[0.5,0.75]
+            }}}}),
+            &json!({}),
+        );
+        let route = level_event_sound_route(&custom, 1000, 0.0).unwrap();
+        assert_eq!(route.sound.as_ref(), "custom.click");
+        assert_eq!(route.volume.sample(0.0), 0.25);
+        assert_eq!(route.pitch.sample(1.0), 0.75);
+    }
 
     fn tables() -> SoundEventTables {
         SoundEventTables::from_json(
@@ -431,6 +497,49 @@ mod tests {
         scaled.interactive_defaults.volume = FloatRange { min: 0.5, max: 0.5 };
         let quiet = scaled.interactive("player", "step", "stone").unwrap();
         assert!((quiet.volume.min - 0.15).abs() < 1e-6);
+    }
+
+    #[test]
+    fn legacy_block_materials_resolve_canonical_names_without_custom_fallbacks() {
+        let tables = SoundEventTables::from_json(
+            &json!({}),
+            &json!({"grass": "grass", "dirt": "gravel", "chain": "metal"}),
+        );
+        assert_eq!(tables.material_of("minecraft:grass_block"), Some("grass"));
+        assert_eq!(tables.material_of("grass_block"), Some("grass"));
+        assert_eq!(tables.material_of("minecraft:grass"), Some("grass"));
+        assert_eq!(tables.material_of("minecraft:dirt"), Some("gravel"));
+        assert_eq!(tables.material_of("minecraft:iron_chain"), Some("metal"));
+        assert_eq!(tables.material_of("example:grass_block"), None);
+        assert_eq!(tables.material_of("minecraft:unknown_block"), None);
+    }
+
+    #[test]
+    fn exact_material_and_server_overrides_win_over_legacy_aliases() {
+        let mut tables = SoundEventTables::from_json(
+            &json!({}),
+            &json!({"grass": "grass", "grass_block": "modern_grass"}),
+        );
+        assert_eq!(
+            tables.material_of("minecraft:grass_block"),
+            Some("modern_grass")
+        );
+        tables.merge(SoundEventTables::from_json(
+            &json!({}),
+            &json!({"minecraft:grass_block": ""}),
+        ));
+        assert_eq!(tables.material_of("minecraft:grass_block"), Some(""));
+
+        let legacy_only = SoundEventTables::from_json(&json!({}), &json!({"grass": "grass"}));
+        let mut overridden = legacy_only;
+        overridden.merge(SoundEventTables::from_json(
+            &json!({}),
+            &json!({"grass": "custom_grass"}),
+        ));
+        assert_eq!(
+            overridden.material_of("minecraft:grass_block"),
+            Some("custom_grass")
+        );
     }
 
     #[test]
@@ -506,15 +615,12 @@ pub fn level_event_sound_route(
     let &(_, individual, fallback) = LEVEL_EVENT_SOUNDS
         .iter()
         .find(|(id, _, _)| *id == event_id)?;
-    Some(
-        tables
-            .individual(individual)
-            .filter(|_| !individual.is_empty())
-            .cloned()
-            .unwrap_or_else(|| SoundRoute {
-                sound: fallback.into(),
-                volume: FloatRange::ONE,
-                pitch: FloatRange::ONE,
-            }),
-    )
+    let lookup = if individual.is_empty() { RouteLookup::Absent } else { tables.individual_lookup(individual) };
+    match lookup {
+        RouteLookup::Route(route) => Some(route),
+        RouteLookup::Silent => None,
+        RouteLookup::Absent => Some(SoundRoute {
+            sound: fallback.into(), volume: FloatRange::ONE, pitch: FloatRange::ONE,
+        }),
+    }
 }

@@ -21,14 +21,23 @@ pub(super) fn parse_bedrock_text_with_style(
     let mut spans = Vec::new();
     let mut buffer = String::new();
     let mut style = base_style;
+    let mut buffer_style = base_style;
     let mut characters = NormalizedChars::new(text).peekable();
     while let Some(character) = characters.next() {
         if character != '§' {
+            if style != buffer_style {
+                push_span(&mut spans, &mut buffer, buffer_style)?;
+                buffer_style = style;
+            }
             buffer.push(character);
             continue;
         }
 
         let Some(code) = characters.peek().copied() else {
+            if style != buffer_style {
+                push_span(&mut spans, &mut buffer, buffer_style)?;
+                buffer_style = style;
+            }
             buffer.push(character);
             continue;
         };
@@ -39,7 +48,6 @@ pub(super) fn parse_bedrock_text_with_style(
             continue;
         };
 
-        push_span(&mut spans, &mut buffer, style)?;
         characters.next();
         match change {
             FormattingChange::Color(color) => {
@@ -51,7 +59,7 @@ pub(super) fn parse_bedrock_text_with_style(
             FormattingChange::Reset => style = base_style,
         }
     }
-    push_span(&mut spans, &mut buffer, style)?;
+    push_span(&mut spans, &mut buffer, buffer_style)?;
     Ok(TextSpans(spans))
 }
 
@@ -80,20 +88,13 @@ impl Iterator for NormalizedChars<'_> {
     }
 }
 
+/// Commits one contiguous run once its visible style changes.
 fn push_span(
     spans: &mut Vec<TextSpan>,
     buffer: &mut String,
     style: TextStyle,
 ) -> Result<(), TextError> {
     if buffer.is_empty() {
-        return Ok(());
-    }
-    if let Some(previous) = spans.last_mut().filter(|span| span.style == style) {
-        let mut joined = String::with_capacity(previous.text.len() + buffer.len());
-        joined.push_str(&previous.text);
-        joined.push_str(buffer);
-        previous.text = joined.into_boxed_str();
-        buffer.clear();
         return Ok(());
     }
     let actual = spans
@@ -159,7 +160,28 @@ fn formatting_change(code: char) -> Option<FormattingChange> {
         'l' => Change::Bold,
         'o' => Change::Italic,
         'r' => Change::Reset,
-        'w' => Change::Color(Color::White),
+        'w' => Change::Color(Color::PartyBlue),
         _ => return None,
     })
+}
+
+#[cfg(test)]
+mod review_tests {
+    use super::*;
+
+    #[test]
+    fn review_redundant_style_changes_have_bounded_parsing_work() {
+        let text = "a§l§r".repeat(1_000_000);
+        let (send, receive) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let result = parse_bedrock_text(&text, text.len()).unwrap();
+            send.send((result.0.len(), result.0[0].text.len())).unwrap();
+        });
+        assert_eq!(
+            receive
+                .recv_timeout(std::time::Duration::from_secs(3))
+                .unwrap(),
+            (1, 1_000_000)
+        );
+    }
 }

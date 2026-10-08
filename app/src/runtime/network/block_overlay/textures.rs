@@ -1,14 +1,17 @@
 //! Terrain texture keys and flipbooks resolved across the stack.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use resource_pack::LayeredPackView;
 use serde_json::Value;
 
 pub(super) use super::super::resource_packs::DecodedTexture;
+mod diagnostics;
+mod tint;
 use super::super::resource_packs::{
     MAX_CATALOG_ENTRIES, decode_pack_texture, parse_pack_json, texture_key_paths,
 };
+use diagnostics::TextureDiagnostics;
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(super) struct Flipbook {
@@ -21,12 +24,26 @@ pub(super) struct Flipbook {
 pub(super) struct TextureCatalog<'a> {
     view: &'a LayeredPackView,
     terrain: HashMap<String, String>,
+    tints: HashMap<String, [u8; 3]>,
+    server_keys: HashSet<String>,
     flipbooks: HashMap<String, Flipbook>,
+    diagnostics: TextureDiagnostics,
 }
 
 impl<'a> TextureCatalog<'a> {
-    pub(super) fn new(view: &'a LayeredPackView) -> Self {
-        let terrain = texture_key_paths(view, "textures/terrain_texture.json");
+    pub(super) fn new(view: &'a LayeredPackView, base: Option<&assets::MaterialKeys>) -> Self {
+        let mut terrain = super::super::resource_packs::base_terrain_catalog();
+        if let Some(base) = base {
+            terrain.extend(
+                base.aliases()
+                    .map(|(key, path)| (key.to_owned(), path.to_owned())),
+            );
+        }
+        let server_terrain = texture_key_paths(view, "textures/terrain_texture.json");
+        let server_keys = server_terrain.keys().cloned().collect();
+        terrain.extend(server_terrain);
+        let diagnostics = TextureDiagnostics::default();
+        diagnostics.catalogs(view);
         let mut flipbooks = HashMap::new();
         for layer in view.read_layers("textures/flipbook_textures.json") {
             let Some(Value::Array(entries)) = parse_pack_json(&layer) else {
@@ -53,7 +70,9 @@ impl<'a> TextureCatalog<'a> {
                     Flipbook {
                         frames,
                         ticks_per_frame: ticks as u32,
-                        blend: entry["blend_frames"].as_bool().unwrap_or(true),
+                        blend: entry["blend_frames"]
+                            .as_bool()
+                            .unwrap_or(pack_compiler::DEFAULT_BLEND_FRAMES),
                     },
                 );
             }
@@ -61,7 +80,10 @@ impl<'a> TextureCatalog<'a> {
         Self {
             view,
             terrain,
+            tints: tint::catalog_tints(view, base),
+            server_keys,
             flipbooks,
+            diagnostics,
         }
     }
 
@@ -75,7 +97,24 @@ impl<'a> TextureCatalog<'a> {
 
     /// Decodes the image a terrain key names.
     pub(super) fn decode(&self, key: &str) -> Option<DecodedTexture> {
-        decode_pack_texture(self.view, self.terrain.get(key)?)
+        let Some(path) = self.terrain.get(key) else {
+            self.diagnostics.failure(key, None, "terrain_key_missing");
+            return None;
+        };
+        let mut texture = decode_pack_texture(self.view, path);
+        if let Some(tint) = self.tints.get(key)
+            && let Some(texture) = texture.as_mut()
+        {
+            pack_compiler::apply_atlas_tint(&mut texture.rgba8, *tint);
+        }
+        if texture.is_none() {
+            let reason = diagnostics::failure_reason(self.view, path);
+            // Base aliases have no server raster until a pack overrides them.
+            if self.server_keys.contains(key) || reason != "texture_file_missing" {
+                self.diagnostics.failure(key, Some(path), reason);
+            }
+        }
+        texture
     }
 }
 

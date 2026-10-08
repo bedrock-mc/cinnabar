@@ -17,15 +17,15 @@ import (
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 )
 
-// countingSource counts ReadBatch calls on the wrapped session.
+// countingSource counts batch reads on the wrapped session.
 type countingSource struct {
 	*fakeDownstream
 	reads atomic.Int32
 }
 
-func (s *countingSource) ReadBatch() ([]packet.Packet, error) {
+func (s *countingSource) ReadBatchRaw(decode func(uint32) bool) ([]minecraft.RawPacket, error) {
 	s.reads.Add(1)
-	return s.fakeDownstream.ReadBatch()
+	return s.fakeDownstream.ReadBatchRaw(decode)
 }
 
 // gatedSink blocks writes until gate closes or the session is torn down.
@@ -39,14 +39,14 @@ func newGatedSink() *gatedSink {
 	return &gatedSink{fakeUpstream: newFakeUpstream(nil), gate: make(chan struct{}), entered: make(chan struct{}, 64)}
 }
 
-func (s *gatedSink) WritePacket(value packet.Packet) error {
+func (s *gatedSink) WritePacketRaw(data []byte) error {
 	s.entered <- struct{}{}
 	select {
 	case <-s.gate:
 	case <-s.closed:
 		return net.ErrClosed
 	}
-	return s.fakeUpstream.WritePacket(value)
+	return s.fakeUpstream.WritePacketRaw(data)
 }
 
 func stamps(n int) [][]packet.Packet {
@@ -97,13 +97,13 @@ func TestRelayCancellationReleasesStalledWriter(t *testing.T) {
 	down.batchReads <- batchResult{packets: stamps(1)[0]}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- relayPackets(ctx, down, sink) }()
+	go func() { done <- relayWithSessions(ctx, down, sink) }()
 	<-sink.entered
 	cancel()
 	select {
 	case err := <-done:
 		if !errors.Is(err, context.Canceled) {
-			t.Fatalf("relayPackets() error = %v, want cancellation", err)
+			t.Fatalf("relayWithSessions() error = %v, want cancellation", err)
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("relay did not shut down with a stalled writer")
@@ -119,7 +119,7 @@ func TestRelayForwardsPartialBatchBeforeMidBatchDecodeClose(t *testing.T) {
 	up.batchReads <- batchResult{packets: delivered}
 	up.batchReads <- batchResult{err: closeErr}
 
-	err := relayPackets(context.Background(), down, up)
+	err := relayWithSessions(context.Background(), down, up)
 	if !errors.Is(err, closeErr) {
 		t.Fatalf("relay error = %v, want decode close error", err)
 	}
@@ -156,7 +156,7 @@ func TestRelayKeepsBatchBoundaryBeforeUpstreamDisconnect(t *testing.T) {
 	reason := &minecraft.DisconnectPacketError{Message: "server message", FilteredMessage: "filtered"}
 	up.batchReads <- batchResult{packets: before}
 	up.batchReads <- batchResult{err: reason}
-	if err := relayPackets(context.Background(), down, up); !errors.Is(err, reason) {
+	if err := relayWithSessions(context.Background(), down, up); !errors.Is(err, reason) {
 		t.Fatalf("relay error = %v, want disconnect", err)
 	}
 	batches := down.flushedBatches()
@@ -174,7 +174,8 @@ type eventSink struct {
 	stall  time.Duration
 }
 
-func (s *eventSink) WritePacket(value packet.Packet) error {
+func (s *eventSink) WritePacketRaw(data []byte) error {
+	value := packetFromRaw(data)
 	if value == s.slow {
 		time.Sleep(s.stall)
 	}

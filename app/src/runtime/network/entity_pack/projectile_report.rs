@@ -16,14 +16,17 @@ fn render_projectile_states() {
         std::env::var("CINNABAR_PROJECTILE_PACK"),
         std::env::var("CINNABAR_PROJECTILE_OUT"),
     ) else {
+        eprintln!(
+            "skipping render_projectile_states: fixture unavailable; offline image export; requires CINNABAR_PROJECTILE_PACK and CINNABAR_PROJECTILE_OUT"
+        );
         return;
     };
     let manifest = include_bytes!("../../../../../assets/vanilla-source.json");
-    let compiled = asset_compiler::compile_entity_assets(Path::new(&pack), manifest).unwrap();
+    let compiled = pack_compiler::compile_entity_assets(Path::new(&pack), manifest).unwrap();
     let bytes = assets::encode_entity_blob(&compiled).unwrap();
     let entities = Arc::new(assets::RuntimeEntityAssets::decode(&bytes).unwrap());
-    let artwork = asset_compiler::compile_actor_assets(Path::new(&pack), manifest).unwrap();
-    let catalog = assets::RuntimeActorCatalog::decode(&artwork.bytes, &bytes).unwrap();
+    let artwork = pack_compiler::compile_actor_assets(Path::new(&pack), manifest).unwrap();
+    let catalog = assets::RuntimeActorCatalog::decode(&artwork.bytes, &entities).unwrap();
     let candidates = catalog
         .bindings()
         .iter()

@@ -533,6 +533,7 @@ fn development_layout_in(root: &Path) -> crate::install_layout::InstallLayout {
         crate::install_layout::Platform::Linux,
         &crate::install_layout::InstallEnvironment {
             executable: root.join("target/debug/bedrock-client"),
+            user_root: None,
             home: Some(root.join("home")),
             local_app_data: None,
             xdg_config_home: None,
@@ -544,45 +545,39 @@ fn development_layout_in(root: &Path) -> crate::install_layout::InstallLayout {
 }
 
 #[test]
-fn menu_runtime_binding_replaces_releases_and_drops_cleanly() {
+fn session_controller_binding_replaces_releases_and_drops_cleanly() {
     let root = TempRoot::new("menu-wiring");
     let layout = development_layout_in(root.path());
-    let mut menu = crate::menu::MenuRuntime::new_with_layout(
-        true,
-        Some(2),
-        "Player".to_owned(),
-        layout.clone(),
-        crate::player_skin::LocalPlayerSkin::generated_default("Player"),
-    );
+    let mut controller = crate::session::SessionController::default();
 
     let first = SessionDirectoryGuard::bind(layout.connect_socket_dir(process::id(), 1))
         .expect("bind first");
     let first_directory = first.directory.clone();
-    menu.bind_session_directory(first);
+    controller.bind_directory(first);
     assert!(first_directory.is_dir());
 
     // Binding a replacement releases the superseded session directory.
     let second = SessionDirectoryGuard::bind(layout.connect_socket_dir(process::id(), 2))
         .expect("bind second");
     let second_directory = second.directory.clone();
-    menu.bind_session_directory(second);
+    controller.bind_directory(second);
     assert!(
         !first_directory.exists(),
         "replaced binding removes the old session directory"
     );
     assert!(second_directory.exists());
 
-    menu.release_session_directory();
+    controller.release_directory();
     assert!(!second_directory.exists());
 
     let third = SessionDirectoryGuard::bind(layout.connect_socket_dir(process::id(), 3))
         .expect("bind third");
     let third_directory = third.directory.clone();
-    menu.bind_session_directory(third);
-    drop(menu);
+    controller.bind_directory(third);
+    drop(controller);
     assert!(
         !third_directory.exists(),
-        "dropping the menu runtime removes its session directory"
+        "dropping the session controller removes its session directory"
     );
     let _ = fs::remove_dir_all(root.path().join(".local"));
 }
@@ -636,4 +631,52 @@ fn reclamation_never_follows_a_seeded_link_shaped_session_name() {
         "the seeded link itself stays untouched"
     );
     assert!(target.is_dir(), "the linked target stays untouched");
+}
+
+#[test]
+fn review_a_live_same_process_binding_cannot_be_taken_over() {
+    let root = TempRoot::new("live-binding");
+    let directory = root.join(&format!("direct-{}", process::id()));
+    let mut first = SessionDirectoryGuard::bind(directory.clone()).unwrap();
+    fs::write(directory.join("bridge.endpoint"), b"live").unwrap();
+    let second = SessionDirectoryGuard::bind(directory.clone());
+    assert!(second.is_err());
+    assert_eq!(
+        fs::read(directory.join("bridge.endpoint")).unwrap(),
+        b"live"
+    );
+    assert_eq!(first.release(), ReleaseOutcome::Removed);
+    assert!(SessionDirectoryGuard::bind(directory).is_ok());
+}
+
+#[cfg(unix)]
+#[test]
+fn review_final_directory_removal_failure_preserves_retry_authority() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = TempRoot::new("parent-permission");
+    let directory = root.join(&format!("direct-{}", process::id()));
+    let mut guard = SessionDirectoryGuard::bind(directory.clone()).unwrap();
+    fs::set_permissions(root.path(), fs::Permissions::from_mode(0o500)).unwrap();
+    let first = guard.release();
+    fs::set_permissions(root.path(), fs::Permissions::from_mode(0o700)).unwrap();
+    assert_eq!(first, ReleaseOutcome::RemoveFailed);
+    assert_eq!(guard.release(), ReleaseOutcome::Removed);
+    assert!(!directory.exists());
+}
+
+#[test]
+fn account_core_directories_are_owned_and_retiring_one_keeps_the_next() {
+    let layout = crate::install_layout::scratch("account-incarnations");
+    let _root = TempRoot(layout.runtime_root.clone());
+    let first = layout.account_socket_dir(process::id(), 1);
+    let second = layout.account_socket_dir(process::id(), 2);
+    let old = SessionDirectoryGuard::bind(first.clone()).unwrap();
+    let new = SessionDirectoryGuard::bind(second.clone()).unwrap();
+    assert!(first.is_dir());
+    assert!(second.is_dir());
+    drop(old);
+    assert!(!first.exists());
+    assert!(second.is_dir());
+    drop(new);
+    assert!(!second.exists());
 }

@@ -3,7 +3,6 @@ use std::{
     sync::{Arc, OnceLock},
 };
 
-use crate::VisibilityKeyDigest;
 use assets::{
     BlockFlags, BlockVisual, CompiledAssets, CompiledBiomeAssets, Material, NO_ANIMATION,
     NO_MODEL_TEMPLATE, NetworkIdMode, TextureMip, TexturePage, TextureRef, VisualKind, encode_blob,
@@ -12,6 +11,7 @@ use bevy::{
     prelude::*,
     render::render_resource::{DownlevelFlags, DrawIndexedIndirectArgs, WgpuFeatures},
 };
+use render_model::VisibilityKeyDigest;
 use world::{RawBlockIds, SubChunk};
 
 use super::*;
@@ -64,7 +64,8 @@ fn opaque_runtime_assets() -> &'static RuntimeAssets {
                 Material {
                     texture: TextureRef::DIAGNOSTIC,
                     flags: 0,
-                    animation: NO_ANIMATION
+                    animation: NO_ANIMATION,
+                    ..assets::Material::unvaried()
                 };
                 2
             ]
@@ -141,6 +142,7 @@ fn retirement_test_allocation() -> ArenaAllocation {
         biome_range: 2..6,
         biome_capacity: 4,
         gpu: GpuChunkAllocation {
+            cube_layout: CubeQuadLayout::default(),
             key: SubChunkKey::new(0, 0, 0, 0),
             generation: 7,
             tint_identity: ChunkBiomeTintIdentity::new(2, 2),
@@ -170,6 +172,8 @@ mod gpu_models;
 mod gpu_publication;
 #[path = "gpu/queue_tests.rs"]
 mod gpu_queue;
+#[path = "gpu/queue_biome_tests.rs"]
+mod gpu_queue_biomes;
 #[path = "gpu/session_tests.rs"]
 mod gpu_session;
 #[path = "presentation/tests.rs"]
@@ -182,3 +186,12 @@ mod presentation_model_witness;
 mod presentation_required_columns;
 #[path = "transparent/tests.rs"]
 mod transparent;
+#[path = "transparent/incremental_tests.rs"]
+mod transparent_incremental;
+#[path = "transparent/residency_tests.rs"]
+mod transparent_residency;
+#[path = "transparent/strafe_tests.rs"]
+mod transparent_strafe;
+
+#[path = "resource_geometry_queue_tests.rs"]
+mod resource_geometry_review;

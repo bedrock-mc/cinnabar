@@ -178,7 +178,8 @@ impl WindowKind {
     #[must_use]
     pub const fn open_cells(self) -> Option<OpenCells> {
         Some(match self {
-            Self::Storage => OpenCells::Generic(&[27, 54]),
+            // Vanilla chest models use the reported container size.
+            Self::Storage => OpenCells::Generic(&[9, 18, 27, 36, 45, 54]),
             Self::Dispenser | Self::Dropper => OpenCells::Generic(&[9]),
             Self::Hopper => OpenCells::Generic(&[5]),
             Self::Furnace => OpenCells::Named {

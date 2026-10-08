@@ -88,11 +88,13 @@ pub(super) fn blob_with_visuals(records: &[RegistryRecord], visuals: &[BlockVisu
                 texture: TextureRef::DIAGNOSTIC,
                 flags: 0,
                 animation: NO_ANIMATION,
+                ..assets::Material::unvaried()
             },
             Material {
                 texture: TextureRef::new(0, 1).unwrap(),
                 flags: 0,
                 animation: NO_ANIMATION,
+                ..assets::Material::unvaried()
             },
         ]
         .into_boxed_slice(),
@@ -384,26 +386,31 @@ pub(super) fn strict_materials() -> Vec<Material> {
             texture: TextureRef::DIAGNOSTIC,
             flags: 0,
             animation: NO_ANIMATION,
+            ..assets::Material::unvaried()
         },
         Material {
             texture: TextureRef::new(0, 1).unwrap(),
             flags: 0,
             animation: NO_ANIMATION,
+            ..assets::Material::unvaried()
         },
         Material {
             texture: TextureRef::new(0, 2).unwrap(),
             flags: 0,
             animation: 0,
+            ..assets::Material::unvaried()
         },
         Material {
             texture: TextureRef::new(0, 3).unwrap(),
             flags: MATERIAL_FLAG_ALPHA_BLEND | MATERIAL_FLAG_WATER_TINT,
             animation: 0,
+            ..assets::Material::unvaried()
         },
         Material {
             texture: TextureRef::new(0, 4).unwrap(),
             flags: MATERIAL_FLAG_LIQUID_DEPTH_WRITE,
             animation: 0,
+            ..assets::Material::unvaried()
         },
     ]
 }

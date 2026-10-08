@@ -22,7 +22,10 @@ enum Entry {
         meta: TextureMeta,
     },
     /// Known to a layer whose bytes the host has not supplied yet.
-    Wanted,
+    Wanted {
+        layer: usize,
+        path: String,
+    },
     Missing,
     Undecodable,
 }
@@ -103,8 +106,14 @@ impl<'a> Textures<'a> {
     }
 
     fn note(&self, key: &str, entry: &Entry) {
-        if matches!(entry, Entry::Missing | Entry::Undecodable) {
-            self.missing.borrow_mut().insert(key.to_owned());
+        match entry {
+            Entry::Wanted { layer, path } => {
+                self.wanted.borrow_mut().insert((*layer, path.clone()));
+            }
+            Entry::Missing | Entry::Undecodable => {
+                self.missing.borrow_mut().insert(key.to_owned());
+            }
+            Entry::Ready { .. } => {}
         }
     }
 
@@ -116,8 +125,7 @@ impl<'a> Textures<'a> {
         let (bytes, path) = match workspace.texture_file(key) {
             None => return Entry::Missing,
             Some(TextureFile::Wanted { layer, path }) => {
-                self.wanted.borrow_mut().insert((layer, path));
-                return Entry::Wanted;
+                return Entry::Wanted { layer, path };
             }
             Some(TextureFile::Loaded { bytes, path, .. }) => (bytes, path),
         };
@@ -129,10 +137,11 @@ impl<'a> Textures<'a> {
             .sidecar(key)
             .and_then(|bytes| serde_json::from_slice(&bytes).ok())
             .and_then(|value| json_ui::parse_texture_meta(&value))
-            .unwrap_or(TextureMeta {
-                base_size: size,
-                nineslice: None,
-            });
+            .map(|meta| TextureMeta {
+                pixels: size,
+                ..meta
+            })
+            .unwrap_or(TextureMeta::plain(size));
         let mut cache = self.cache.borrow_mut();
         cache.pages.push(page);
         Entry::Ready {
@@ -163,13 +172,7 @@ pub fn texture_key(path: &str) -> &str {
 }
 
 fn decode(bytes: &[u8], path: &str) -> Option<Page> {
-    let lower = path.to_ascii_lowercase();
-    let image = if lower.ends_with(".tga") {
-        image::load_from_memory_with_format(bytes, image::ImageFormat::Tga)
-    } else {
-        image::load_from_memory(bytes)
-    }
-    .ok()?;
+    let image = decode_image(bytes, path).ok()?;
     if image.width() > MAX_EDGE || image.height() > MAX_EDGE {
         return None;
     }
@@ -179,4 +182,65 @@ fn decode(bytes: &[u8], path: &str) -> Option<Page> {
         height: rgba.height(),
         rgba: Arc::from(rgba.into_raw()),
     })
+}
+
+#[cfg(test)]
+mod review_tests {
+    use super::*;
+
+    #[test]
+    fn review_pending_texture_is_requested_again_on_a_cache_hit() {
+        let mut workspace = Workspace::default();
+        let layer = workspace.add_layer("pack");
+        workspace.add_files(
+            layer,
+            vec![("manifest.json".into(), b"{}".to_vec())],
+            vec!["textures/ui/pending.png".into()],
+        );
+        let mut cache = TextureCache::default();
+        for render in 0..2 {
+            let textures = Textures::new(&mut workspace, &mut cache);
+            assert!(textures.sprite("textures/ui/pending").is_none());
+            assert!(
+                textures
+                    .wanted
+                    .borrow()
+                    .contains(&(layer, "textures/ui/pending.png".into())),
+                "render {render} must retain the pending-byte request"
+            );
+        }
+    }
+}
+
+/// Decodes texture pixels using the editor's image format selection.
+fn decode_image(bytes: &[u8], path: &str) -> image::ImageResult<image::DynamicImage> {
+    let mut reader = image::ImageReader::new(std::io::Cursor::new(bytes));
+    if path.to_ascii_lowercase().ends_with(".tga") {
+        reader.set_format(image::ImageFormat::Tga);
+    } else {
+        reader = reader.with_guessed_format()?;
+    }
+    let mut limits = image::Limits::default();
+    limits.max_image_width = Some(MAX_EDGE);
+    limits.max_image_height = Some(MAX_EDGE);
+    limits.max_alloc = Some(u64::from(MAX_EDGE) * u64::from(MAX_EDGE) * 8);
+    reader.limits(limits);
+    reader.decode()
+}
+
+#[cfg(test)]
+mod review_limits_tests {
+    use super::*;
+    #[test]
+    fn review_oversized_texture_is_rejected_before_reading_pixel_data() {
+        let mut header = [0_u8; 18];
+        header[2] = 2;
+        header[12..14].copy_from_slice(&((MAX_EDGE + 1) as u16).to_le_bytes());
+        header[14..16].copy_from_slice(&1_u16.to_le_bytes());
+        header[16] = 32;
+        assert!(matches!(
+            decode_image(&header, "oversized.tga"),
+            Err(image::ImageError::Limits(_))
+        ));
+    }
 }

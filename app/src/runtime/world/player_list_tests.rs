@@ -1,13 +1,14 @@
 use std::sync::Arc;
 
-use client_world::{CommittedControlEvent, WorldStream};
+use chunk_pipeline::WorldStream;
+use client_world::CommittedControlEvent;
 use protocol::{
     ActorEvent, PlayerListEntry, PlayerListUpdateEvent, PlayerSkin, PlayerSkinUnavailable,
     WorldBootstrap, WorldEvent,
 };
 
 use super::refresh_player_list_cache_for_controls;
-use crate::ui_runtime::UiRuntime;
+use client_ui::ui_runtime::UiRuntime;
 
 #[test]
 fn player_list_marker_refreshes_known_names_without_a_ui_event() {

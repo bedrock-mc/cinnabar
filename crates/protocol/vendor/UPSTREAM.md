@@ -30,6 +30,9 @@ shared-codec and Jolyne transport hardening.
 
 ## Local source patches
 
+Jolyne's classic-skin login resource patch selects the slim geometry when the supplied
+upload has slim arms, keeping reconnects consistent with the selected local model.
+
 `DisconnectPacket` is hand-patched after generation to read
 `hide_disconnection_screen` and skip both message strings when it is set, as
 gophertunnel's `Disconnect.Marshal` does; the manifest still lacks that
@@ -41,6 +44,9 @@ keeping the server's reason and message texts for the disconnect screen.
 Jolyne hands off required resource packs instead of refusing them: either
 required bit makes stack selection strict and is carried as
 `ResourcePackHandoff::required`, so the client refuses a join it cannot fully apply.
+
+Jolyne's client requests only offered packs its `ResourcePackStore` cannot supply, answering
+HaveAllPacks when nothing is missing, as the vanilla client does for its pack cache.
 
 The self-signed login's client data reports `DeviceOS` 8 (Win32, the GDK Windows client) with a
 lowercase-hex `DeviceId` instead of upstream's Win10 and UUID; BDS 1.26.52 closes logins claiming Win10.
@@ -70,6 +76,20 @@ varint in raw header decoding (resolution still goes through the generated
 codec, whose normalized source stays hash-locked). The shared codec includes a
 fixed-width little-endian NBT scanner with bounded nesting and Bedrock UUID
 encoding as two little-endian `u64` halves.
+
+The shared codec inlines its per-item capacity check and keeps rare capacity
+growth out of line. Collection storage still grows fallibly, with the same
+allocation limits and errors; generated codecs are unchanged.
+
+Jolyne's StartGame handoff also retains the first decoded `ItemRegistry` and its
+shield ID. This matches the one-time initialization guard in the native
+1.26.50 `ItemRegistry::matchServerItemIds`; later empty or
+custom-only packets must not replace the startup table. The Cinnabar play
+ingress wire-decodes these repeats but does not publish replacement events.
+
+Jolyne's StartGame handoff also records whether a publisher update, level chunk or
+sub-chunk preceded PlayerSpawn (`terrain_before_spawn`): servers such as Dragonfly
+stream terrain only after the client's initialized notification.
 
 The generated protocol crate is lowered from protocolgen's reconciled 1.26.51
 manifest (protocol 2193), which pins Mojang's `v1.26.51` metadata release and

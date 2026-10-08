@@ -1,0 +1,597 @@
+use std::ffi::OsStr;
+use std::io::{self, Read};
+use std::path::{Path, PathBuf};
+use std::process::{Child, ChildStdin, Command, ExitStatus, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
+use std::thread::{self, JoinHandle};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+use jolyne::valentine::McpePacketData;
+use protocol::LoginSequence;
+
+const EXTERNAL_HARNESS_TEST: &str = "^TestProxyExternalRustClientHarness$";
+const ENDPOINT_TIMEOUT: Duration = Duration::from_secs(60);
+const LOGIN_TIMEOUT: Duration = Duration::from_secs(60);
+const CHILD_EXIT_TIMEOUT: Duration = Duration::from_secs(30);
+const GO_BUILD_TIMEOUT: Duration = Duration::from_secs(90);
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "manual live BDS login; requires BEDROCK_BDS_DIR and the local Go harness"]
+async fn login_reaches_start_game_through_bds() {
+    let bds_configuration = live_bds_configuration()
+        .expect("validate live BDS paths")
+        .expect("manual live BDS fixture requires BEDROCK_BDS_DIR");
+
+    let socket_dir = TestSocketDir::new().expect("create test socket directory");
+    let mut harness =
+        GoHarness::spawn(socket_dir.path(), &bds_configuration).expect("start Go live harness");
+    wait_for_endpoint(&mut harness, socket_dir.path())
+        .await
+        .unwrap_or_else(|error| panic!("{error}\nGo harness output:\n{}", harness.output()));
+
+    let (mut session, game_data) = tokio::time::timeout(
+        LOGIN_TIMEOUT,
+        LoginSequence::connect(socket_dir.path(), "RustMCBEPhase0", None),
+    )
+    .await
+    .unwrap_or_else(|_| {
+        panic!(
+            "timed out logging in through the Go core\nGo harness output:\n{}",
+            harness.output()
+        )
+    })
+    .unwrap_or_else(|error| {
+        panic!(
+            "login through the Go core failed: {error}\nGo harness output:\n{}",
+            harness.output()
+        )
+    });
+
+    session
+        .finish_loading()
+        .await
+        .expect("headless presentation ready");
+
+    // `runtime_entity_id` is now the `runtime_id: ActorRuntimeId` wrapper, and
+    // the version string prismarine called `engine` is gophertunnel's
+    // `ServerVersion` (`server_version` in the generated crate).
+    assert_ne!(
+        game_data.start_game.runtime_id.actor_runtime_id, 0,
+        "StartGame runtime entity ID must be non-zero"
+    );
+    assert!(
+        !game_data.start_game.server_version.trim().is_empty(),
+        "StartGame must expose the compatible server's version"
+    );
+
+    let available_commands = tokio::time::timeout(LOGIN_TIMEOUT, async {
+        loop {
+            let packet = session.recv().await?;
+            if matches!(packet.data, McpePacketData::AvailableCommandsPacket(_)) {
+                return Ok::<_, protocol::ProtocolError>(packet);
+            }
+        }
+    })
+    .await
+    .unwrap_or_else(|_| {
+        panic!(
+            "timed out waiting for AvailableCommands after StartGame\nGo harness output:\n{}",
+            harness.output()
+        )
+    })
+    .unwrap_or_else(|error| {
+        panic!(
+            "decoding play packets through AvailableCommands failed: {error}\nGo harness output:\n{}",
+            harness.output()
+        )
+    });
+    let McpePacketData::AvailableCommandsPacket(commands) = available_commands.data else {
+        unreachable!("loop returns only AvailableCommands")
+    };
+    assert!(
+        !commands.enum_values.is_empty(),
+        "live AvailableCommands must include enum values"
+    );
+
+    assert_eq!(
+        session.decode_error_count(),
+        0,
+        "login sequence must not suppress packet decode errors"
+    );
+
+    drop(session);
+    let finish_result = harness.finish(CHILD_EXIT_TIMEOUT);
+    let harness_output = harness.output();
+    let status = finish_result.unwrap_or_else(|error| {
+        panic!(
+            "Go live harness did not stop cleanly: {error}\nGo harness output:\n{}",
+            harness_output
+        )
+    });
+    assert!(
+        status.success(),
+        "Go live harness exited with {status}\nGo harness output:\n{}",
+        harness_output
+    );
+}
+
+/// Exercises the actual Rust login across both production Go relay legs without a game server.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn offline_core_preserves_spawn_order_and_startup_transfer() {
+    for scenario in ["spawn", "transfer", "transfer-batch"] {
+        let socket_dir = TestSocketDir::new().expect("socket directory");
+        let mut harness =
+            GoHarness::spawn_mode(socket_dir.path(), None, Some(scenario)).expect("offline core");
+        wait_for_endpoint(&mut harness, socket_dir.path())
+            .await
+            .expect("endpoint");
+        let login = tokio::time::timeout(
+            LOGIN_TIMEOUT,
+            LoginSequence::connect(socket_dir.path(), "StartupFixture", None),
+        )
+        .await
+        .expect("login timeout");
+        if scenario.starts_with("transfer") {
+            let error = match login {
+                Err(error) => error,
+                Ok(_) => panic!("startup transfer became a spawned session"),
+            };
+            let target = error
+                .server_transfer()
+                .unwrap_or_else(|| panic!("{scenario}: {error}\n{}", harness.output()));
+            assert_eq!(
+                (target.host.as_str(), target.port),
+                ("next.example.test", 19133)
+            );
+        } else {
+            let (mut session, _) =
+                login.unwrap_or_else(|error| panic!("{error}\n{}", harness.output()));
+            session
+                .send(startup_marker(100))
+                .await
+                .expect("pre-readiness marker");
+            wait_for_startup_marker(&mut session, 200, &harness).await;
+            session.finish_loading().await.expect("presentation ready");
+            session
+                .finish_loading()
+                .await
+                .expect("completion is one shot");
+            session
+                .send(startup_marker(300))
+                .await
+                .expect("completion marker");
+            wait_for_startup_marker(&mut session, 400, &harness).await;
+        }
+        let status = harness.finish(CHILD_EXIT_TIMEOUT).expect("harness exit");
+        assert!(status.success(), "{}", harness.output());
+    }
+}
+
+/// Waits for proof that the upstream has checked the preceding client messages.
+async fn wait_for_startup_marker(
+    session: &mut protocol::PlaySession,
+    time: i32,
+    harness: &GoHarness,
+) {
+    tokio::time::timeout(LOGIN_TIMEOUT, async {
+        loop {
+            let packet = session
+                .recv()
+                .await
+                .unwrap_or_else(|error| panic!("{error}\n{}", harness.output()));
+            if matches!(packet.data, McpePacketData::SetTimePacket(value) if value.time == time) {
+                break;
+            }
+        }
+    })
+    .await
+    .unwrap_or_else(|_| panic!("upstream barrier timeout\n{}", harness.output()));
+}
+
+/// Builds an application-owned barrier that the upstream can observe on the wire.
+fn startup_marker(timestamp: u64) -> protocol::Packet {
+    jolyne::valentine::NetworkStackLatencyPacket {
+        creation_time: timestamp,
+        is_from_server: false,
+    }
+    .into()
+}
+
+async fn wait_for_endpoint(harness: &mut GoHarness, socket_dir: &Path) -> Result<(), String> {
+    #[cfg(windows)]
+    let endpoint = socket_dir.join("game.addr");
+    #[cfg(unix)]
+    let endpoint = protocol::bridge_endpoint_path(socket_dir);
+
+    let deadline = Instant::now() + ENDPOINT_TIMEOUT;
+    loop {
+        if endpoint.exists() {
+            return Ok(());
+        }
+        if let Some(status) = harness
+            .try_wait()
+            .map_err(|error| format!("inspect Go harness: {error}"))?
+        {
+            return Err(format!(
+                "Go harness exited with {status} before publishing {}",
+                endpoint.display()
+            ));
+        }
+        if Instant::now() >= deadline {
+            return Err(format!(
+                "timed out waiting for Go harness endpoint {}",
+                endpoint.display()
+            ));
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+struct GoHarness {
+    child: Child,
+    stdin: Option<ChildStdin>,
+    output: Arc<Mutex<Vec<u8>>>,
+    readers: Vec<JoinHandle<()>>,
+    completed: bool,
+}
+
+#[derive(Debug)]
+struct LiveBdsConfiguration {
+    source_directory: PathBuf,
+    // The Rust launcher never creates, locks, or mutates this path. The Go
+    // harness canonicalizes it once before deriving the lease and runtime.
+    runtime_directory: PathBuf,
+}
+
+fn live_bds_configuration() -> io::Result<Option<LiveBdsConfiguration>> {
+    validate_live_bds_configuration(
+        std::env::var_os("BEDROCK_BDS_DIR").as_deref(),
+        std::env::var_os("BEDROCK_BDS_RUNTIME_DIR").as_deref(),
+    )
+}
+
+fn validate_live_bds_configuration(
+    source_directory: Option<&OsStr>,
+    runtime_directory: Option<&OsStr>,
+) -> io::Result<Option<LiveBdsConfiguration>> {
+    let Some(source_directory) = source_directory else {
+        return Ok(None);
+    };
+    let source_directory = PathBuf::from(source_directory);
+    if !source_directory.is_absolute() || !source_directory.is_dir() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!(
+                "BEDROCK_BDS_DIR must be an existing absolute directory: {}",
+                source_directory.display()
+            ),
+        ));
+    }
+    let runtime_directory = runtime_directory.ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "BEDROCK_BDS_RUNTIME_DIR is required when BEDROCK_BDS_DIR is set",
+        )
+    })?;
+    let runtime_directory = PathBuf::from(runtime_directory);
+    if !runtime_directory.is_absolute() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!(
+                "BEDROCK_BDS_RUNTIME_DIR must be absolute: {}",
+                runtime_directory.display()
+            ),
+        ));
+    }
+    Ok(Some(LiveBdsConfiguration {
+        source_directory,
+        runtime_directory,
+    }))
+}
+
+impl GoHarness {
+    fn spawn(socket_dir: &Path, bds_configuration: &LiveBdsConfiguration) -> io::Result<Self> {
+        Self::spawn_mode(socket_dir, Some(bds_configuration), None)
+    }
+
+    /// Starts either the offline scripted relay or the explicitly configured live harness.
+    fn spawn_mode(
+        socket_dir: &Path,
+        bds_configuration: Option<&LiveBdsConfiguration>,
+        scenario: Option<&str>,
+    ) -> io::Result<Self> {
+        let core_dir = project_root().join("core");
+        #[cfg(windows)]
+        let executable = socket_dir.join("proxy-live-harness.test.exe");
+        #[cfg(not(windows))]
+        let executable = socket_dir.join("proxy-live-harness.test");
+        build_go_harness(&core_dir, &executable)?;
+
+        let mut command = Command::new(&executable);
+        command
+            .current_dir(core_dir)
+            .args([
+                OsStr::new("-test.run"),
+                OsStr::new(if scenario.is_some() {
+                    "^TestProxyRustStartupHarness$"
+                } else {
+                    EXTERNAL_HARNESS_TEST
+                }),
+                OsStr::new("-test.count=1"),
+                OsStr::new("-test.v"),
+            ])
+            .env("RUST_MCBE_EXTERNAL_RUST_CLIENT", "1")
+            .env("RUST_MCBE_PROXY_SOCKET_DIR", socket_dir)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+
+        if let Some(config) = bds_configuration {
+            command
+                .env("BEDROCK_BDS_DIR", &config.source_directory)
+                .env("BEDROCK_BDS_RUNTIME_DIR", &config.runtime_directory);
+        }
+        if let Some(scenario) = scenario {
+            command.env("CINNABAR_STARTUP_FIXTURE", scenario);
+        }
+        let mut child = command.spawn()?;
+        let stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| io::Error::other("Go harness stdin was not piped"))?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| io::Error::other("Go harness stdout was not piped"))?;
+        let stderr = child
+            .stderr
+            .take()
+            .ok_or_else(|| io::Error::other("Go harness stderr was not piped"))?;
+        let output = Arc::new(Mutex::new(Vec::new()));
+        let readers = vec![
+            drain_output(stdout, Arc::clone(&output)),
+            drain_output(stderr, Arc::clone(&output)),
+        ];
+
+        Ok(Self {
+            child,
+            stdin: Some(stdin),
+            output,
+            readers,
+            completed: false,
+        })
+    }
+
+    fn try_wait(&mut self) -> io::Result<Option<ExitStatus>> {
+        self.child.try_wait()
+    }
+
+    fn finish(&mut self, timeout: Duration) -> io::Result<ExitStatus> {
+        self.stdin.take();
+        let status = match wait_for_child(&mut self.child, timeout)? {
+            Some(status) => status,
+            None => {
+                let kill_error = self.child.kill().err();
+                let final_status = wait_for_child(&mut self.child, Duration::from_secs(5))
+                    .ok()
+                    .flatten();
+                self.completed = true;
+                if final_status.is_some() {
+                    self.join_readers();
+                } else {
+                    self.readers.clear();
+                }
+                return Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    format!(
+                        "timed out after {timeout:?}; kill error={kill_error:?}; final status={final_status:?}"
+                    ),
+                ));
+            }
+        };
+        self.completed = true;
+        self.join_readers();
+        Ok(status)
+    }
+
+    fn output(&self) -> String {
+        let bytes = self.output.lock().expect("Go harness output lock poisoned");
+        String::from_utf8_lossy(&bytes).into_owned()
+    }
+
+    fn join_readers(&mut self) {
+        for reader in self.readers.drain(..) {
+            let _ = reader.join();
+        }
+    }
+}
+
+#[test]
+fn live_bds_configuration_requires_explicit_absolute_runtime_and_defers_identity_to_go() {
+    let socket_dir = TestSocketDir::new().expect("create test directory");
+    let source = socket_dir.path().join("source");
+    std::fs::create_dir(&source).expect("create source directory");
+
+    let missing = validate_live_bds_configuration(Some(source.as_os_str()), None)
+        .expect_err("missing runtime override must fail");
+    assert_eq!(missing.kind(), io::ErrorKind::InvalidInput);
+
+    let relative = validate_live_bds_configuration(
+        Some(source.as_os_str()),
+        Some(OsStr::new("relative/runtime")),
+    )
+    .expect_err("relative runtime override must fail");
+    assert_eq!(relative.kind(), io::ErrorKind::InvalidInput);
+
+    let runtime = socket_dir.path().join("stable-runtime");
+    let configuration =
+        validate_live_bds_configuration(Some(source.as_os_str()), Some(runtime.as_os_str()))
+            .expect("absolute runtime override must validate")
+            .expect("source directory enables the live harness");
+    assert_eq!(configuration.source_directory, source);
+    assert_eq!(configuration.runtime_directory, runtime);
+}
+
+fn build_go_harness(core_dir: &Path, executable: &Path) -> io::Result<()> {
+    let mut command = Command::new("go");
+    command
+        .current_dir(core_dir)
+        .env("GOWORK", "off")
+        .args([OsStr::new("test"), OsStr::new("-c"), OsStr::new("-o")])
+        .arg(executable)
+        .arg("./proxy")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut child = command.spawn()?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| io::Error::other("Go build stdout was not piped"))?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| io::Error::other("Go build stderr was not piped"))?;
+    let output = Arc::new(Mutex::new(Vec::new()));
+    let readers = vec![
+        drain_output(stdout, Arc::clone(&output)),
+        drain_output(stderr, Arc::clone(&output)),
+    ];
+
+    let status = match wait_for_child(&mut child, GO_BUILD_TIMEOUT)? {
+        Some(status) => status,
+        None => {
+            let kill_error = child.kill().err();
+            let final_status = wait_for_child(&mut child, Duration::from_secs(5))?;
+            if final_status.is_some() {
+                for reader in readers {
+                    let _ = reader.join();
+                }
+            }
+            return Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                format!(
+                    "building Go live harness timed out after {GO_BUILD_TIMEOUT:?}; kill error={kill_error:?}; final status={final_status:?}"
+                ),
+            ));
+        }
+    };
+    for reader in readers {
+        let _ = reader.join();
+    }
+    if status.success() {
+        return Ok(());
+    }
+    let output = output.lock().expect("Go build output lock poisoned");
+    Err(io::Error::other(format!(
+        "build Go live harness failed with {status}\noutput:\n{}",
+        String::from_utf8_lossy(&output)
+    )))
+}
+
+impl Drop for GoHarness {
+    fn drop(&mut self) {
+        if self.completed {
+            return;
+        }
+        self.stdin.take();
+        if wait_for_child(&mut self.child, Duration::from_secs(5))
+            .ok()
+            .flatten()
+            .is_none()
+        {
+            let _ = self.child.kill();
+            if wait_for_child(&mut self.child, Duration::from_secs(5))
+                .ok()
+                .flatten()
+                .is_none()
+            {
+                self.completed = true;
+                self.readers.clear();
+                return;
+            }
+        }
+        self.completed = true;
+        self.join_readers();
+    }
+}
+
+fn wait_for_child(child: &mut Child, timeout: Duration) -> io::Result<Option<ExitStatus>> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        if let Some(status) = child.try_wait()? {
+            return Ok(Some(status));
+        }
+        if Instant::now() >= deadline {
+            return Ok(None);
+        }
+        thread::sleep(Duration::from_millis(20));
+    }
+}
+
+fn drain_output<R>(mut reader: R, output: Arc<Mutex<Vec<u8>>>) -> JoinHandle<()>
+where
+    R: Read + Send + 'static,
+{
+    thread::spawn(move || {
+        let mut chunk = [0u8; 4096];
+        loop {
+            match reader.read(&mut chunk) {
+                Ok(0) | Err(_) => return,
+                Ok(read) => output
+                    .lock()
+                    .expect("Go harness output lock poisoned")
+                    .extend_from_slice(&chunk[..read]),
+            }
+        }
+    })
+}
+
+fn project_root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(Path::parent)
+        .expect("protocol crate is nested under crates/")
+        .to_path_buf()
+}
+
+struct TestSocketDir {
+    path: PathBuf,
+}
+
+impl TestSocketDir {
+    fn new() -> io::Result<Self> {
+        static NEXT_ID: AtomicU64 = AtomicU64::new(0);
+        let base = std::fs::canonicalize(std::env::temp_dir())?;
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        for _ in 0..100 {
+            let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+            let path = base.join(format!(
+                "rust-mcbe-login-{}-{timestamp}-{id}",
+                std::process::id()
+            ));
+            match std::fs::create_dir(&path) {
+                Ok(()) => return Ok(Self { path }),
+                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+                Err(error) => return Err(error),
+            }
+        }
+        Err(io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            "could not allocate a unique socket directory",
+        ))
+    }
+
+    fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+impl Drop for TestSocketDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.path);
+    }
+}

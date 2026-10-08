@@ -7,7 +7,7 @@ use bevy::log::info;
 use client_world::{EquipmentNotice, EquipmentOutcome};
 use protocol::{InventoryEvent, ItemRegistryEvent};
 
-use crate::ui_runtime::presentation::SessionIcons;
+use client_ui::ui_runtime::presentation::SessionIcons;
 
 /// Lines each category may log per session.
 const MAX_LINES: usize = 256;

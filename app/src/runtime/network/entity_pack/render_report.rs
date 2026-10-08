@@ -3,7 +3,7 @@
 use std::{path::Path, sync::Arc};
 
 use assets::{RuntimeAssets, RuntimeEntityAssets};
-use client_world::WorldStream;
+use chunk_pipeline::WorldStream;
 use protocol::{
     ActorEvent, ActorKind, ActorMetadata, ActorMetadataValue, ActorSpawnEvent, WorldBootstrap,
     WorldEvent,
@@ -24,8 +24,19 @@ fn render_local_pack_entities() {
         std::env::var_os("CINNABAR_RENDER_OUT"),
         std::env::var("CINNABAR_RENDER_ACTORS").ok(),
     ) else {
+        eprintln!(
+            "skipping render_local_pack_entities: fixture unavailable; offline image export; requires CINNABAR_RENDER_PACK, CINNABAR_RENDER_OUT and CINNABAR_RENDER_ACTORS"
+        );
         return;
     };
+    assert!(!actors.trim().is_empty(), "fixture must name an actor");
+    if !Path::new(&pack).exists() {
+        eprintln!(
+            "skipping entity render fixture test: CINNABAR_RENDER_PACK names missing {}",
+            Path::new(&pack).display()
+        );
+        return;
+    }
     let LocalPack {
         entities,
         artwork,
@@ -67,10 +78,13 @@ pub(super) fn compile_local_pack(pack: &Path) -> LocalPack {
     let refs = std::fs::read("../.local/assets/compiled/vanilla-v1.vanillarefs.json")
         .ok()
         .and_then(|bytes| assets::VanillaEntityRefs::from_json(&bytes));
-    let compiled =
-        asset_compiler::compile_actor_pack(super::collect::collect_files(&view, refs.as_ref()))
-            .unwrap()
-            .unwrap();
+    let compiled = pack_compiler::compile_actor_pack(super::collect::collect_files(
+        &view,
+        refs.as_ref(),
+        None,
+    ))
+    .unwrap()
+    .unwrap();
     let artwork =
         ActorArtworkPages::default().with_pack_artwork(&compiled.textures, &compiled.bindings);
     let candidates = compiled
@@ -174,7 +188,8 @@ fn draw(
     artwork: &ActorArtworkPages,
 ) -> image::RgbaImage {
     let mut image = image::RgbaImage::from_pixel(SIDE, SIDE, image::Rgba([40, 44, 52, 255]));
-    let (Some(rig), Some(actor)) = (world.actor_rig(42), world.actor(42)) else {
+    let (Some(rig), Some(actor)) = (world.authority().actor_rig(42), world.authority().actor(42))
+    else {
         eprintln!("render: no rig");
         return image;
     };
@@ -186,24 +201,22 @@ fn draw(
         return image;
     };
     let mut batch = actors::select_actor_presentations(1, false, None, [body]);
-    entity_layers::apply_render_layers(&mut batch, |id| world.actor_rig(id), artwork);
+    entity_layers::apply_render_layers(&mut batch, |id| world.authority().actor_rig(id), artwork);
     let mut scene = ActorRenderScene::default();
     scene.replace_pack_entities(Some(entities)).unwrap();
     scene.configure_artwork(artwork.clone());
-    let frame = scene.update_rigs_with_artwork(
-        1.0,
-        None,
-        batch.submissions.clone(),
-        Arc::from([]),
-        &batch.artwork,
-    );
+    let frame =
+        scene.update_rigs_with_artwork(1.0, None, batch.submissions.clone(), &[], &batch.artwork);
     let rig = &frame.rig;
     eprintln!(
         "render: submissions={} instances={} rejects={:?} layers={}",
         batch.submissions.len(),
         rig.instances.len(),
         rig.rejects,
-        world.actor_rig(42).map_or(0, |rig| rig.render.len()),
+        world
+            .authority()
+            .actor_rig(42)
+            .map_or(0, |rig| rig.render.len()),
     );
     let mut triangles = Vec::new();
     for (instance, entry) in rig.instances.iter().zip(rig.manifest.iter()) {
@@ -340,7 +353,7 @@ fn measure_pages(
     let entity_bytes = read("vanilla-v1.mcbeent");
     let entities = Arc::new(RuntimeEntityAssets::decode(&entity_bytes).unwrap());
     let catalog =
-        assets::RuntimeActorCatalog::decode(&read("vanilla-v1.mcbeact"), &entity_bytes).unwrap();
+        assets::RuntimeActorCatalog::decode(&read("vanilla-v1.mcbeact"), &entities).unwrap();
     let equipment = assets::RuntimeEquipmentCatalog::decode(&read("vanilla-v1.mcbeeqp")).ok();
     let icons = assets::RuntimeIconCatalog::decode(&read("vanilla-v1.mcbeico")).unwrap();
     let world = std::fs::read(dir.join("vanilla-v2193.mcbea"))

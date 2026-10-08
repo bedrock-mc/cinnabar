@@ -6,7 +6,7 @@
     "size": ["100%", "100%"],
     "$card_width|default": 240,
     "variables": [
-      { "requires": "$pocket_screen", "$card_width": 200 }
+      { "requires": "($pocket_screen)", "$card_width": 200 }
     ],
     "controls": [
       { "backdrop@example_common.fill": { "$fill": [0.03, 0.04, 0.06, 1] } },

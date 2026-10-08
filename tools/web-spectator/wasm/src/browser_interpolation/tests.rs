@@ -105,6 +105,9 @@ fn duel_arena_and_round_boundaries_cannot_borrow_old_camera_positions() {
     let mut changed = current.clone();
     changed.team_wins = vec![1, 0];
     boundaries.push(changed);
+    let mut changed = current.clone();
+    changed.replay_epoch = 1;
+    boundaries.push(changed);
     for current in boundaries {
         let motion = FrameMotion::new(&current, Some(&old), 0.0);
         assert!(motion.previous().is_none());

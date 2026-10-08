@@ -1,5 +1,4 @@
 use bevy::platform::time::Instant;
-
 use std::{
     collections::{BTreeSet, VecDeque},
     sync::{Arc, Mutex},
@@ -7,7 +6,7 @@ use std::{
 
 use bevy::prelude::Resource;
 
-use super::ActorDrawManifestEntry;
+use super::{ActorArtworkPageId, ActorDrawManifestEntry};
 
 #[path = "gpu/geometry.rs"]
 mod geometry;
@@ -209,7 +208,8 @@ struct PendingActorDraw {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub(crate) struct ActorDrawSpan {
-    pub page: u8,
+    pub material: u32,
+    pub page: ActorArtworkPageId,
     pub first: u32,
     pub count: u32,
     /// Vertices of the geometry every instance of the span draws.
@@ -284,7 +284,8 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
-    use crate::actor::{ActorRenderIdentity, ActorRigRoute, EntityRigId};
+    use crate::actor::{ActorRenderIdentity, ActorRigRoute};
+    use render_model::EntityRigId;
 
     fn draw(generation: u64) -> ActorDrawFrame {
         ActorDrawFrame {
@@ -321,6 +322,7 @@ mod tests {
     fn draw_tracker_requires_actual_draw_execution() {
         let tracker = ActorDrawTracker::default();
         let span = ActorDrawSpan {
+            material: 0,
             page: 0,
             first: 0,
             count: 1,
@@ -342,12 +344,14 @@ mod tests {
         frame.manifest = Arc::from([frame.manifest[0].clone(), second]);
         let spans = [
             ActorDrawSpan {
+                material: 0,
                 page: 0,
                 first: 0,
                 count: 1,
                 vertex_count: 3,
             },
             ActorDrawSpan {
+                material: 0,
                 page: 1,
                 first: 1,
                 count: 1,
@@ -399,8 +403,9 @@ mod tests {
     /// A segment appended within an epoch writes into the same buffer; a new epoch replaces it.
     #[test]
     fn appended_segments_reuse_the_buffer_and_new_epochs_replace_it() {
-        use crate::actor::{ActorRigVertex, ActorRigVertexSegments};
+        use crate::actor::ActorRigVertexSegments;
         use bevy::render::renderer::{RenderDevice, RenderQueue, WgpuWrapper};
+        use render_model::ActorRigVertex;
         let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
         let (device, queue) = (
             RenderDevice::from(device),

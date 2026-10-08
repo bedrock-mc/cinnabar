@@ -1,5 +1,8 @@
-use crate::item_geometry::{ItemVertex, cube_vertices, extruded_sprite_vertices};
 use bytemuck::{Pod, Zeroable};
+use render_model::{
+    ActorRigVertex, OPAQUE_WHITE, extruded_sprite_vertices, held_sprite_vertices,
+    textured_cube_vertices,
+};
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Pod, Zeroable)]
@@ -17,8 +20,6 @@ pub struct ItemMeshVertex {
 pub const ITEM_MESH_VERTEX_BYTES: usize = std::mem::size_of::<ItemMeshVertex>();
 const _: () = assert!(ITEM_MESH_VERTEX_BYTES == 40);
 
-pub const OPAQUE_WHITE: u32 = 0xffff_ffff;
-
 /// Builds a unit cube centred on the origin; face `i` samples `layers[i]` over a `tile`-texel
 /// square inside a `layer_side` layer and is multiplied by `colors[i]`.
 #[must_use]
@@ -32,7 +33,7 @@ pub fn cube_mesh(
         return None;
     }
     let extent = tile as f32 / layer_side as f32;
-    let vertices = cube_vertices([[0.0, 0.0, extent, extent]; 6]);
+    let vertices = textured_cube_vertices([[0.0, 0.0, extent, extent]; 6]);
     // Six vertices per face, in face order.
     Some(
         vertices
@@ -70,7 +71,7 @@ pub fn extruded_sprite_mesh(
     )
 }
 
-fn paint(vertex: &ItemVertex, layer: u32, color: u32) -> ItemMeshVertex {
+fn paint(vertex: &ActorRigVertex, layer: u32, color: u32) -> ItemMeshVertex {
     ItemMeshVertex {
         position: vertex.position,
         uv: vertex.uv,
@@ -78,6 +79,44 @@ fn paint(vertex: &ItemVertex, layer: u32, color: u32) -> ItemMeshVertex {
         layer,
         color,
     }
+}
+
+/// The ordinary dropped-item slab after the native default pixel-frame transform, before
+/// its 1.5 scale. Unlike a static placement, it has a floor origin, mirrored rear art and
+/// pixel depth `max(side)/16`.
+#[must_use]
+pub fn native_dropped_sprite_mesh(
+    width: u32,
+    height: u32,
+    rgba8: &[u8],
+    layer_side: u32,
+    layer: u32,
+) -> Option<Vec<ItemMeshVertex>> {
+    if width == 0 || height == 0 || width > layer_side || height > layer_side {
+        return None;
+    }
+    let side = layer_side as f32;
+    let rect = [0.0, 0.0, width as f32 / side, height as f32 / side];
+    // Native tessellation excludes alpha 0 and 1; retain the original texture for sampling.
+    let mut mask = rgba8.to_vec();
+    for pixel in mask.chunks_exact_mut(4) {
+        if pixel[3] < 2 {
+            pixel[3] = 0;
+        }
+    }
+    let longest = width.max(height) as f32;
+    let mut vertices = held_sprite_vertices(width as usize, height as usize, &mask, rect)?;
+    for vertex in &mut vertices {
+        vertex.position[0] += 0.5;
+        vertex.position[1] += 1.0 - height as f32 / longest;
+        vertex.position[2] *= longest / 16.0;
+    }
+    Some(
+        vertices
+            .iter()
+            .map(|vertex| paint(vertex, layer, OPAQUE_WHITE))
+            .collect(),
+    )
 }
 
 #[cfg(test)]
@@ -157,5 +196,44 @@ mod tests {
             assert!(dot > 0.1, "face {face} normal points inward");
         }
         assert!(cube_mesh([0; 6], [0; 6], 33, 32).is_none());
+    }
+
+    #[test]
+    fn native_drop_slab_retains_floor_origin_fixed_pixel_depth_and_mirrored_back() {
+        for (width, height) in [(16, 16), (32, 16), (8, 16)] {
+            let mesh = native_dropped_sprite_mesh(
+                width,
+                height,
+                &vec![255; (width * height * 4) as usize],
+                32,
+                2,
+            )
+            .unwrap();
+            let (mut min, mut max) = ([f32::MAX; 3], [f32::MIN; 3]);
+            for vertex in &mesh {
+                for axis in 0..3 {
+                    min[axis] = min[axis].min(vertex.position[axis]);
+                    max[axis] = max[axis].max(vertex.position[axis]);
+                }
+            }
+            assert_eq!(max[0], 0.5);
+            assert_eq!(max[1], 1.0);
+            assert_eq!(min[1], 1.0 - height as f32 / width.max(height) as f32);
+            assert_eq!(min[2], -1.0 / 16.0);
+            assert_eq!(max[2], 0.0);
+            for front in mesh[..6].iter() {
+                let back = mesh[6..12]
+                    .iter()
+                    .find(|back| back.position[..2] == front.position[..2])
+                    .unwrap();
+                assert_eq!(front.uv, back.uv);
+            }
+        }
+    }
+
+    #[test]
+    fn native_tessellation_does_not_extrude_alpha_one() {
+        let mesh = native_dropped_sprite_mesh(1, 1, &[255, 255, 255, 1], 32, 0).unwrap();
+        assert_eq!(mesh.len(), 12);
     }
 }

@@ -14,6 +14,7 @@ impl<'a> FrameMotion<'a> {
             previous: previous.filter(|old| {
                 old.id == current.id
                     && old.arena_id == current.arena_id
+                    && old.replay_epoch == current.replay_epoch
                     && old.round_active == current.round_active
                     && old.team_wins == current.team_wins
             }),

@@ -28,9 +28,29 @@ pub(super) fn normalize(skin: &mut SerializedSkinRef) {
                 "geometry.humanoid.custom" | "geometry.humanoid.customSlim"
             )
         });
-    let side = image.width as usize;
+    normalize_pixels(
+        image.width,
+        image.height,
+        &mut image.image_bytes,
+        !custom_geometry,
+    );
+}
+
+/// Validates classic image size and applies native wide/slim alpha and body-coverage rules.
+pub fn normalize_classic_skin_rgba8(width: u32, height: u32, pixels: &mut [u8]) -> bool {
+    normalize_pixels(width, height, pixels, true)
+}
+
+fn normalize_pixels(width: u32, height: u32, pixels: &mut [u8], protect_body: bool) -> bool {
+    if width != height
+        || !(width as usize == CLASSIC_SKIN_SIDE || width as usize == MAX_CLASSIC_SKIN_SIDE)
+        || pixels.len() != width as usize * height as usize * 4
+    {
+        return false;
+    }
+    let side = width as usize;
     let scale = side / CLASSIC_SKIN_SIDE;
-    // Lens 1.26.50.26: 0x9bd580 region table and 0x9be810 alpha/coverage validation.
+    // Vanilla validates alpha and coverage across these skin regions.
     for (bounds, protect) in [
         ([0, 8, 32, 16], true),
         ([8, 0, 24, 8], false),
@@ -49,12 +69,13 @@ pub(super) fn normalize(skin: &mut SerializedSkinRef) {
         ([48, 48, 64, 64], false),
     ] {
         region(
-            &mut image.image_bytes,
+            pixels,
             side,
             bounds.map(|value| value * scale),
-            protect && !custom_geometry,
+            protect && protect_body,
         );
     }
+    true
 }
 
 /// Applies the 26/255 alpha cutoff and the strict 60% transparent coverage threshold.

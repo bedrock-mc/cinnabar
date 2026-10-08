@@ -1,10 +1,11 @@
 //! Retained GPU storage for immutable geometry pages.
 
-use crate::actor::{ActorRigVertex, ActorRigVertexSegments, MAX_ACTOR_RIG_VERTICES};
+use crate::actor::ActorRigVertexSegments;
 use bevy::render::{
     render_resource::{Buffer, BufferDescriptor, BufferUsages, CommandEncoderDescriptor},
     renderer::{RenderDevice, RenderQueue},
 };
+use render_model::{ActorRigVertex, MAX_ACTOR_CATALOG_VERTICES};
 use std::collections::BTreeSet;
 
 /// Mirrors changed pages; growth and relocation copy retained GPU bytes instead of uploading them.
@@ -103,8 +104,18 @@ impl SegmentedVertexBuffer {
             .as_ref()
             .map_or(0, |buffer| buffer.size() as usize / stride);
         let plan = PageTransfer::between(&self.vertices, vertices, capacity);
+        #[cfg(feature = "tracy")]
+        let _span = bevy::log::info_span!(
+            "actor.geometry_transfer",
+            label,
+            replace = plan.replace,
+            writes = plan.writes.len(),
+            copies = plan.copies.len(),
+            vertices = vertices.len(),
+        )
+        .entered();
         if plan.replace {
-            let capacity = (vertices.len() + vertices.len() / 4).min(MAX_ACTOR_RIG_VERTICES);
+            let capacity = vertex_buffer_capacity(vertices.len());
             let buffer = device.create_buffer(&BufferDescriptor {
                 label: Some(label),
                 size: (capacity * stride) as u64,
@@ -125,7 +136,10 @@ impl SegmentedVertexBuffer {
                         (len * stride) as u64,
                     );
                 }
-                queue.submit([encoder.finish()]);
+                let command = encoder.finish();
+                #[cfg(feature = "tracy")]
+                let _span = bevy::log::info_span!("actor.geometry_submit").entered();
+                queue.submit([command]);
             }
             self.buffer = Some(buffer);
         }
@@ -134,6 +148,13 @@ impl SegmentedVertexBuffer {
             .as_ref()
             .expect("nonempty pages allocate a buffer");
         for index in plan.writes {
+            #[cfg(feature = "tracy")]
+            let _span = bevy::log::info_span!(
+                "actor.geometry_write",
+                page = index,
+                bytes = vertices.segments[index].len() * stride,
+            )
+            .entered();
             queue.write_buffer(
                 buffer,
                 (vertices.offsets[index] * stride) as u64,
@@ -149,10 +170,29 @@ impl SegmentedVertexBuffer {
     }
 }
 
+fn vertex_buffer_capacity(vertices: usize) -> usize {
+    (vertices + vertices / 4).min(MAX_ACTOR_CATALOG_VERTICES)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::sync::Arc;
+
+    #[test]
+    fn buffer_growth_accommodates_the_aggregate_catalog_budget() {
+        for vertices in [
+            render_model::MAX_ACTOR_RIG_VERTICES + 1,
+            MAX_ACTOR_CATALOG_VERTICES,
+        ] {
+            let capacity = vertex_buffer_capacity(vertices);
+            assert!(capacity >= vertices);
+            assert!(
+                capacity * std::mem::size_of::<ActorRigVertex>()
+                    <= render_model::MAX_ACTOR_CATALOG_VERTEX_BYTES
+            );
+        }
+    }
 
     /// Makes distinguishable page contents for transfer equality checks.
     fn page(count: usize, marker: f32) -> Vec<ActorRigVertex> {

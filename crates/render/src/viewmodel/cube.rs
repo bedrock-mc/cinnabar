@@ -5,9 +5,13 @@ use assets::{
 };
 use sha2::{Digest, Sha256};
 
+const TILE_SIDE: usize = assets::BLOCK_ITEM_FACE_SIDE as usize;
+const TILE_PITCH: usize = TILE_SIDE + 2;
+const TILE_COLUMNS: usize = assets::BLOCK_ITEM_SHEET_GRID[0] as usize;
+
 impl ViewmodelGeometry {
     /// Builds an ordinary opaque cube from the current validated block carrier.
-    /// The existing nearest-only 64x64 transport contains six unmodified tiles.
+    /// The existing nearest-only skin transport contains six unmodified tiles.
     pub fn opaque_cube(
         assets: &RuntimeAssets,
         visual: BlockVisualId,
@@ -19,7 +23,9 @@ impl ViewmodelGeometry {
         if !block.is_known()
             || block.kind() != VisualKind::Cube
             || block.support() != VisualSupport::Exact
-            || block.flags() != (BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE)
+            || !block
+                .flags()
+                .contains(BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE)
             || block.model_template().is_some()
             || block.animation().is_some()
         {
@@ -41,23 +47,35 @@ impl ViewmodelGeometry {
                 .texture_pages()
                 .get(material.texture.page() as usize)?;
             let mip = page.texture.mips.first()?;
-            if mip.size != 16 || material.texture.layer() >= page.texture.layers {
+            if mip.size != TILE_SIDE as u32 || material.texture.layer() >= page.texture.layers {
                 return None;
             }
-            let first = (material.texture.layer() as usize).checked_mul(16 * 16 * 4)?;
-            let tile = mip.rgba8.get(first..first.checked_add(16 * 16 * 4)?)?;
+            let first =
+                (material.texture.layer() as usize).checked_mul(TILE_SIDE * TILE_SIDE * 4)?;
+            let tile = mip
+                .rgba8
+                .get(first..first.checked_add(TILE_SIDE * TILE_SIDE * 4)?)?;
             if !tile.chunks_exact(4).all(|pixel| pixel[3] == 255) {
                 return None;
             }
             tiles[index] = tile;
             materials[index] = id;
         }
-        let mut pixels = vec![0; 64 * 64 * 4];
+        let side = VIEWMODEL_TEXTURE_SIDE as usize;
+        let mut pixels = vec![0; VIEWMODEL_TEXTURE_BYTES];
         for (index, tile) in tiles.into_iter().enumerate() {
-            let [x, y] = [(index % 3) * 16, (index / 3) * 16];
-            for row in 0..16 {
-                let target = ((y + row) * 64 + x) * 4;
-                pixels[target..target + 64].copy_from_slice(&tile[row * 64..row * 64 + 64]);
+            let [x, y] = [
+                (index % TILE_COLUMNS) * TILE_PITCH,
+                (index / TILE_COLUMNS) * TILE_PITCH,
+            ];
+            for row in 0..TILE_PITCH {
+                for column in 0..TILE_PITCH {
+                    let source = (row.saturating_sub(1).min(TILE_SIDE - 1) * TILE_SIDE
+                        + column.saturating_sub(1).min(TILE_SIDE - 1))
+                        * 4;
+                    let target = ((y + row) * side + x + column) * 4;
+                    pixels[target..target + 4].copy_from_slice(&tile[source..source + 4]);
+                }
             }
         }
         // Same face corners and UV directions as the existing world cube pipeline.
@@ -90,8 +108,12 @@ impl ViewmodelGeometry {
                 vertices.push(HandVertex {
                     position: p.to_array(),
                     uv: [
-                        ((face % 3) as f32 * 16. + 0.5 + uv[corner][0] * 15.) / 64.,
-                        ((face / 3) as f32 * 16. + 0.5 + uv[corner][1] * 15.) / 64.,
+                        ((face % TILE_COLUMNS * TILE_PITCH + 1) as f32
+                            + uv[corner][0] * TILE_SIDE as f32)
+                            / VIEWMODEL_TEXTURE_SIDE as f32,
+                        ((face / TILE_COLUMNS * TILE_PITCH + 1) as f32
+                            + uv[corner][1] * TILE_SIDE as f32)
+                            / VIEWMODEL_TEXTURE_SIDE as f32,
                     ],
                 });
             }

@@ -2,7 +2,8 @@
 //!
 //! Each archive is admitted independently: a bad pack is dropped with a counted
 //! reason and the rest of the stack still applies. Encrypted packs are decrypted
-//! in memory per read; plaintext is never written anywhere.
+//! in memory per read; compiled outputs derived from any server pack, encrypted
+//! ones included, may persist in the install's local compile cache.
 
 use std::sync::Arc;
 
@@ -11,18 +12,30 @@ use protocol::ResourcePackHandoff;
 use thiserror::Error;
 
 mod crypto;
+mod dependencies;
+mod import;
 mod jsonc;
+mod library;
 mod manifest;
 mod merge;
 mod pack;
 mod parser;
+mod subpacks;
 mod view;
 
+pub use dependencies::{PackDependencies, PackDependency};
+pub use import::{PACK_IMPORT_EXTENSIONS, is_pack_import_path};
 pub use jsonc::normalize_jsonc;
+pub use library::{
+    ActivePack, GlobalPackLibrary, ImportReport, InstalledPack, LibraryError, Subpack,
+};
 pub use merge::{MAX_MERGED_ENTRIES, MAX_WINNING_BYTES, MAX_WINNING_FILES};
 pub use pack::{PackRejection, ValidatedPack, ValidatedPackStack};
 pub use parser::validate_archive_bytes;
 pub use view::LayeredPackView;
+
+/// Maximum compressed source bytes decoded for one pack texture.
+pub const MAX_PACK_TEXTURE_BYTES: u64 = 4 * 1024 * 1024;
 
 pub const MAX_PACKS: usize = 32;
 pub const MAX_ARCHIVE_BYTES: usize = 64 * 1024 * 1024;
@@ -102,7 +115,20 @@ pub enum PackAdmission {
 #[cfg(feature = "handoff")]
 #[must_use]
 pub fn validate_handoff(handoff: ResourcePackHandoff) -> Arc<ValidatedPackStack> {
-    Arc::new(parser::validate_stack(handoff.into_archives()))
+    Arc::new(parser::validate_stack(handoff.into_archives(), None))
+}
+
+/// Admits server packs using the device's physical RAM for automatic subpack selection.
+#[cfg(feature = "handoff")]
+#[must_use]
+pub fn validate_handoff_for_device(
+    handoff: ResourcePackHandoff,
+    physical_memory_bytes: u64,
+) -> Arc<ValidatedPackStack> {
+    Arc::new(parser::validate_stack(
+        handoff.into_archives(),
+        Some(subpacks::device_memory_tier(physical_memory_bytes)),
+    ))
 }
 
 #[cfg(all(test, feature = "handoff"))]

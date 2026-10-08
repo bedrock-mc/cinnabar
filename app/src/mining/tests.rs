@@ -1,7 +1,6 @@
 use protocol::PlayerInputMode;
 
 use super::{creative_reach, survival_reach};
-use crate::ui_runtime::UiRuntime;
 
 #[test]
 fn creative_reach_is_frozen_per_input_mode() {
@@ -13,11 +12,12 @@ fn creative_reach_is_frozen_per_input_mode() {
 
 #[test]
 fn unknown_selected_slot_mines_as_a_bare_hand() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(7);
+
     // Before the inventory arrives the slot is Unknown; mining must still work
     // by hand rather than refusing (the "can't break blocks" regression).
-    let mut ui = UiRuntime::new(7);
-    ui.set_local_selected_slot(0);
-    let selection = super::hand_interaction_selection(&ui)
+    player_runtime.inventory.set_local_selected_slot(0);
+    let selection = super::hand_interaction_selection(&player_runtime)
         .expect("unknown selection resolves to an empty hand");
     assert_eq!(selection.item.network_id(), 0);
 }

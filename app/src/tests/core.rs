@@ -1,5 +1,9 @@
 use super::*;
 
+mod publication_markers;
+
+const WORLD_STREAM_COMPLETION_TIMEOUT: Duration = Duration::from_secs(30);
+
 #[test]
 fn windows_defaults_to_dx12_without_overriding_an_explicit_wgpu_backend() {
     use std::ffi::OsStr;
@@ -48,11 +52,10 @@ fn actor_render_source_uses_only_remote_actor_pose_and_roster_skin() {
         height: 64,
         rgba8: vec![23; 64 * 64 * 4].into(),
     });
-    let actor = client_world::ActorSnapshot {
+    let mut actor = actor_snapshot(protocol::ActorSpawnEvent {
+        dimension: 0,
         unique_id: 9,
         runtime_id: 77,
-        spawn_revision: 19,
-        movement_revision: 23,
         kind: ActorKind::Player {
             uuid: [7; 16],
             username: "remote".into(),
@@ -62,29 +65,21 @@ fn actor_render_source_uses_only_remote_actor_pose_and_roster_skin() {
         pitch: 15.0,
         yaw: 45.0,
         head_yaw: 60.0,
-        previous_pose: client_world::ActorPose {
-            position: [8.0, 64.0, -3.0],
-            pitch: 10.0,
-            yaw: 40.0,
-            head_yaw: 55.0,
-        },
-        received_pose: client_world::ActorPose {
-            position: [10.0, 64.0, -3.0],
-            pitch: 15.0,
-            yaw: 45.0,
-            head_yaw: 60.0,
-        },
-        interpolation_ticks_remaining: 0,
         body_yaw: 45.0,
-        on_ground: Some(true),
-        teleported: false,
-        player_mode: None,
-        source_tick: None,
-        metadata: Default::default(),
-        attributes: Default::default(),
-        int_properties: Default::default(),
-        float_properties: Default::default(),
-        status: Default::default(),
+        held_item: Default::default(),
+        metadata: Arc::from([]),
+        attributes: Arc::from([]),
+        properties: Arc::from([]),
+        links: Arc::from([]),
+    });
+    actor.spawn_revision = 19;
+    actor.movement_revision = 23;
+    actor.on_ground = Some(true);
+    actor.previous_pose = client_world::ActorPose {
+        position: [8.0, 64.0, -3.0],
+        pitch: 10.0,
+        yaw: 40.0,
+        head_yaw: 55.0,
     };
     let profile = client_world::PlayerProfile {
         unique_id: 9,
@@ -245,7 +240,7 @@ fn runtime_metadata_marker_records_build_presentation_and_adapter_identity() {
         AcceptanceRuntimeConfig {
             build_profile: "release",
         },
-        &render::GraphicsAdapterMetadata {
+        &render_model::GraphicsAdapterMetadata {
             backend: "Dx12".to_owned(),
             adapter: "Test Adapter".to_owned(),
             driver: "test-driver".to_owned(),
@@ -268,92 +263,6 @@ fn runtime_metadata_marker_records_build_presentation_and_adapter_identity() {
     assert_eq!(document["adapter"], "Test Adapter");
     assert_eq!(document["driver"], "test-driver");
     assert_eq!(document["driver_info"], "1.2.3");
-}
-
-#[test]
-fn world_publication_snapshot_is_deterministic_and_keeps_stage_identities_separate() {
-    let stats = WorldStreamStats {
-        accepted_light_jobs: u64::MAX,
-        noop_light_jobs: 2,
-        value_changed_light_jobs: 3,
-        provenance_only_light_jobs: 5,
-        light_mesh_invalidations: 7,
-        stale_light_jobs: 11,
-        stale_mesh_jobs: 13,
-        queued_decode_jobs: 17,
-        in_flight_decode_jobs: 19,
-        pending_light_jobs: 23,
-        in_flight_light_jobs: 29,
-        pending_mesh_jobs: 31,
-        in_flight_mesh_jobs: 37,
-        max_decode_queue_wait: Duration::from_millis(41),
-        max_light_queue_wait: Duration::from_millis(43),
-        max_mesh_queue_wait: Duration::from_millis(47),
-        max_decode_duration: Duration::from_millis(53),
-        max_light_duration: Duration::from_millis(59),
-        max_mesh_duration: Duration::from_millis(61),
-        ..Default::default()
-    };
-    let visibility = VisibilityDiagnosticSnapshot {
-        frame_generation: 67,
-        pose_generation: 71,
-        view_generation: 73,
-        draw_mode: OpaqueDrawMode::Direct,
-        ..Default::default()
-    };
-    let graphics = GraphicsAdapterMetadata {
-        backend: "Dx12".to_owned(),
-        adapter: "Test Adapter".to_owned(),
-        driver: "test-driver".to_owned(),
-        driver_info: "1.2.3".to_owned(),
-        requested_present_mode: "Fifo".to_owned(),
-        effective_present_mode: "Fifo".to_owned(),
-        present_mode_proven: true,
-    };
-
-    let marker = world_publication_snapshot_marker(
-        stats,
-        79,
-        83,
-        89,
-        visibility,
-        AcceptanceRuntimeConfig {
-            build_profile: "debug",
-        },
-        &graphics,
-    );
-    assert_eq!(
-        marker,
-        world_publication_snapshot_marker(
-            stats,
-            79,
-            83,
-            89,
-            visibility,
-            AcceptanceRuntimeConfig {
-                build_profile: "debug",
-            },
-            &graphics,
-        )
-    );
-    let document: serde_json::Value = serde_json::from_str(
-        marker
-            .strip_prefix(&format!("{WORLD_PUBLICATION_SNAPSHOT}="))
-            .unwrap(),
-    )
-    .unwrap();
-    assert_eq!(document["accepted_light_jobs"], u64::MAX);
-    assert_eq!(document["max_decode_queue_wait_ms"], 41.0);
-    assert_eq!(document["max_decode_worker_ms"], 53.0);
-    assert_eq!(document["upload_queue_items"], 79);
-    assert_eq!(document["upload_queue_bytes"], 83);
-    assert_eq!(document["gpu_upload_bytes"], 89);
-    assert_eq!(document["frame_generation"], 67);
-    assert_eq!(document["draw_mode"], "Direct");
-    assert_eq!(document["build_profile"], "debug");
-    assert_eq!(document["requested_present_mode"], "Fifo");
-    assert_eq!(document["effective_present_mode"], "Fifo");
-    assert_eq!(document["present_mode_proven"], true);
 }
 
 #[test]
@@ -396,30 +305,6 @@ fn visibility_capture_observes_post_deferred_upload_and_removal_generation() {
     assert_eq!(removed.cave_visible(), Some(VisibilityKeyDigest::default()));
 }
 
-#[test]
-fn camera_medium_sampling_is_ordered_after_fly_camera_transform_updates() {
-    let camera_source = include_str!("../camera.rs");
-    let main_source = include_str!("../app.rs");
-    assert!(camera_source.contains(".in_set(FlyCameraUpdateSet)"));
-    assert!(main_source.contains(".after(FlyCameraUpdateSet)"));
-}
-
-#[test]
-fn camera_environment_context_is_sampled_before_profiled_atmosphere_derivation() {
-    let main_source = include_str!("../app.rs");
-    let atmosphere_source = include_str!("../environment/atmosphere.rs");
-    let world_source = include_str!("../runtime/world.rs");
-    assert!(main_source.contains("insert_resource(EnvironmentContext::default())"));
-    assert!(main_source.contains("insert_resource(EnvironmentProfileRoute::default())"));
-    let sample = main_source.rfind("update_camera_medium,").unwrap();
-    let derive = main_source.rfind("update_atmosphere_frame,").unwrap();
-    assert!(sample < derive);
-    assert!(world_source.contains(".camera_biome_id(camera.translation.to_array())"));
-    assert!(world_source.contains(".render_distance_blocks()"));
-    assert!(atmosphere_source.contains("assets.biome_profiles()"));
-    assert!(atmosphere_source.contains("assets.fog_profiles()"));
-}
-
 pub(super) fn overworld_biome_payload() -> Vec<u8> {
     let mut payload = vec![1, 2];
     payload.extend(std::iter::repeat_n(0xff, 23));
@@ -429,7 +314,7 @@ pub(super) fn overworld_biome_payload() -> Vec<u8> {
 
 pub(super) fn complete_world_stream_decodes(stream: &mut WorldStream) {
     // A wall-clock bound, not a spin count: decode workers can be starved on a loaded machine.
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    let deadline = std::time::Instant::now() + WORLD_STREAM_COMPLETION_TIMEOUT;
     while std::time::Instant::now() < deadline {
         stream.poll([0.0; 3], 0);
         let stats = stream.stats();
@@ -488,6 +373,7 @@ fn client_world_publication_contract_crosses_the_app_boundary() {
             WorldEvent::SubChunks(SubChunkBatchEvent {
                 dimension: 0,
                 entries: vec![SubChunkEntryEvent {
+                    diagnostics: None,
                     position: [key.x, key.y, key.z],
                     result: SubChunkResult::AllAir,
                 }],
@@ -496,34 +382,33 @@ fn client_world_publication_contract_crosses_the_app_boundary() {
         .unwrap();
     complete_world_stream_decodes(&mut stream);
 
-    let acknowledgement = (0..128)
-        .find_map(|_| {
-            stream.poll([0.0; 3], 1);
-            let mut target = None;
-            while let Some(change) = stream.pop_mesh_change() {
-                let (changed, generation, dirty_since) = match change {
-                    WorldMeshChange::Upsert {
-                        key,
-                        generation,
-                        dirty_since,
-                        ..
-                    }
-                    | WorldMeshChange::Remove {
-                        key,
-                        generation,
-                        dirty_since,
-                        ..
-                    } => (key, generation, dirty_since),
-                };
-                stream.acknowledge_mesh_upload(changed, generation, dirty_since, Instant::now());
-                if changed == key {
-                    target = Some((generation, dirty_since));
+    let acknowledgement = wait_for_mesh_publication(|| {
+        stream.poll([0.0; 3], 1);
+        let mut target = None;
+        while let Some(change) = stream.pop_mesh_change() {
+            let (changed, generation, dirty_since) = match change {
+                WorldMeshChange::Upsert {
+                    key,
+                    generation,
+                    dirty_since,
+                    ..
                 }
+                | WorldMeshChange::Remove {
+                    key,
+                    generation,
+                    dirty_since,
+                    ..
+                } => (key, generation, dirty_since),
+            };
+            stream.acknowledge_mesh_upload(changed, generation, dirty_since, Instant::now());
+            if changed == key {
+                target = Some((generation, dirty_since));
             }
-            std::thread::yield_now();
-            target
-        })
-        .expect("public mesh publication");
+        }
+        std::thread::yield_now();
+        target
+    })
+    .unwrap_or_else(|| panic!("public mesh publication timed out: {:?}", stream.stats()));
     assert_ne!(acknowledgement.0, 0);
     assert!(stream.is_mesh_clean(key));
 }
@@ -564,6 +449,7 @@ fn compiled_and_live_biome_tables_preserve_raw_id_water_colour_parity() {
                         temperature: 0.8,
                         downfall: 0.4,
                         snow_foliage: 0.0,
+                        max_snow_accumulation: None,
                         map_water_color: 0xff44_6688,
                     },
                     BiomeDefinitionEvent {
@@ -572,6 +458,7 @@ fn compiled_and_live_biome_tables_preserve_raw_id_water_colour_parity() {
                         temperature: 0.8,
                         downfall: 0.4,
                         snow_foliage: 0.0,
+                        max_snow_accumulation: None,
                         map_water_color: 0xffaa_3300,
                     },
                 ]),
@@ -632,6 +519,7 @@ fn equal_numeric_revisions_from_different_streams_replace_the_active_table() {
                         temperature,
                         downfall: 0.4,
                         snow_foliage: 0.0,
+                        max_snow_accumulation: None,
                         map_water_color: if temperature > 0.5 {
                             0xff11_2233
                         } else {
@@ -1149,4 +1037,43 @@ fn interactive_network_failure_requests_exit_without_waiting_for_acceptance_fina
         Some(AppExit::error())
     );
     assert_eq!(fatal_runtime_exit(""), None);
+}
+
+/// Polls the public mesh boundary while background work catches up.
+fn wait_for_mesh_publication<T>(mut poll: impl FnMut() -> Option<T>) -> Option<T> {
+    let deadline = Instant::now() + WORLD_STREAM_COMPLETION_TIMEOUT;
+    while Instant::now() < deadline {
+        if let Some(publication) = poll() {
+            return Some(publication);
+        }
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    None
+}
+
+#[test]
+fn review_mesh_publication_waits_beyond_a_scheduler_spin_count() {
+    let mut polls = 0;
+    assert_eq!(
+        wait_for_mesh_publication(|| {
+            polls += 1;
+            (polls > 128).then_some(1)
+        }),
+        Some(1)
+    );
+}
+
+#[test]
+fn camera_environment_context_is_sampled_before_profiled_atmosphere_derivation() {
+    // Production schedule order is checked through the actual graph. Retain the
+    // startup and profile wiring checks until a startup fixture can run them.
+    let main_source = include_str!("../app.rs");
+    let atmosphere_source = include_str!("../environment/atmosphere.rs");
+    let world_source = include_str!("../runtime/world.rs");
+    assert!(main_source.contains("insert_resource(EnvironmentContext::default())"));
+    assert!(main_source.contains("insert_resource(EnvironmentProfileRoute::default())"));
+    assert!(world_source.contains(".camera_biome_id(camera.translation.to_array())"));
+    assert!(world_source.contains(".render_distance_blocks()"));
+    assert!(atmosphere_source.contains("assets.biome_profiles()"));
+    assert!(atmosphere_source.contains("assets.fog_profiles()"));
 }

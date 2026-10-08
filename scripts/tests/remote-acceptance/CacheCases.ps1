@@ -33,13 +33,21 @@
         }
     }
 
-    It 'rejects missing duplicate malformed and incoherent cache boundary evidence' {
+    It 'reports missing markers as unavailable and rejects invalid historical boundary evidence' {
         $temporary = Join-Path ([IO.Path]::GetTempPath()) ('phase2-cache-boundary-invalid-' + [guid]::NewGuid().ToString('N'))
         try {
             New-Item -ItemType Directory -Path $temporary | Out-Null
             $path = Join-Path $temporary 'core.stderr.log'
             Set-Content -LiteralPath $path -Value 'no cache boundary marker'
-            { Get-Phase2CacheBoundaryEvidence -CoreLogPath $path } | Should Throw
+            $missing = Get-Phase2CacheBoundaryEvidence -CoreLogPath $path
+            $missing.classification | Should Be 'unavailable'
+            $missing.reason | Should Be 'core_boundary_marker_not_recorded'
+            { Assert-Phase2CacheBoundaryConsistency -Server Lunar `
+                -ClientBlobCacheRoute cache_backed -BoundaryEvidence $missing } | Should Throw
+            { Assert-Phase2CacheBoundaryConsistency -Server Zeqa `
+                -ClientBlobCacheRoute ordinary_payload -BoundaryEvidence $missing } | Should Throw
+            { Assert-Phase2CacheBoundaryConsistency -Server Zeqa `
+                -ClientBlobCacheRoute ordinary_payload -BoundaryEvidence $null } | Should Throw
 
             $valid = 'time=sentinel level=INFO msg=PHASE2_CACHE_BOUNDARY upstream_status_seen=true upstream_status_enabled=true cached_level_chunks=0 ordinary_level_chunks=1 cached_sub_chunks=0 ordinary_sub_chunks=1'
             @($valid, $valid) | Set-Content -LiteralPath $path
@@ -357,4 +365,32 @@
         $parsedIncompleteCommit = $incompleteCommit | ConvertTo-Json -Depth 20 | ConvertFrom-Json
         (Get-Phase2FirstStalledStage -PublicationRecord $parsedIncompleteCommit -WorldReadyObserved:$true) |
             Should Be 'response_semantics'
+    }
+
+    It 'records current diagnostic runs without treating missing core markers as a parity proof' {
+        $temporary = Join-Path ([IO.Path]::GetTempPath()) ('phase2-current-boundary-' + [guid]::NewGuid().ToString('N'))
+        try {
+            New-Item -ItemType Directory -Path $temporary | Out-Null
+            $corePath = Join-Path $temporary 'core.stderr.log'
+            $clientPath = Join-Path $temporary 'client.stdout.log'
+            Set-Content -LiteralPath $corePath -Value 'core stopped'
+            $record = New-SyntheticPhase2Publication -RequiredColumns 197 -LoadedColumns 177 `
+                -RequestsConstructed 177 -RequestsSent 177 -ResponsesAdmitted 3894 -SubchunksCommitted 3894
+            $record.client_blob_cache.hashes_classified = 1
+            $record.client_blob_cache.hits = 1
+            'PHASE2_PUBLICATION=' + ($record | ConvertTo-Json -Depth 20 -Compress) |
+                Set-Content -LiteralPath $clientPath
+            $manifest = [pscustomobject](New-SyntheticPhase2LunarManifest -Mode Diagnostic)
+            Complete-Phase2DiagnosticEvidence -Manifest $manifest -ClientLogPath $clientPath `
+                -CoreLogPath $corePath -ExpectedPresentMode Fifo -WorldReadyObserved:$false -Server Lunar
+            $manifest.diagnostic_complete | Should Be $true
+            $manifest.behavior_gate_passed | Should Be $false
+            $manifest.cache_boundary_evidence.classification | Should Be 'unavailable'
+            (@($manifest.findings) -contains 'cache_boundary_evidence_unavailable') | Should Be $true
+            $manifest | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath (Join-Path $temporary 'manifest.json')
+            (Find-SyntheticPhase2LunarPrerequisite -RemoteRoot $temporary -Mode Diagnostic) | Should BeNullOrEmpty
+        }
+        finally {
+            Remove-Item -LiteralPath $temporary -Recurse -Force -ErrorAction SilentlyContinue
+        }
     }

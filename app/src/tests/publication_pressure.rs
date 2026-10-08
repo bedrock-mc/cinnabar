@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use client_world::PublicationServiceConfig;
+use chunk_pipeline::PublicationServiceConfig;
 
 use crate::runtime::publication::{PublicationController, PublicationFrameWork};
 
@@ -40,7 +40,7 @@ fn stuck_backlog_keeps_collapsing_toward_the_pressure_floor_instead_of_one() {
     let mut controller = PublicationController::default();
     for frame in 0..24 {
         controller.finish_frame(PublicationFrameWork {
-            upload_queue_items: client_world::MAX_PENDING_MESH_CHANGES + frame,
+            upload_queue_items: chunk_pipeline::MAX_PENDING_MESH_CHANGES + frame,
             ..PublicationFrameWork::default()
         });
         controller.begin_frame(Duration::from_millis(125));
@@ -143,7 +143,7 @@ fn zero_byte_saturation_without_gpu_backlog_preserves_service_caps() {
 fn gpu_backlog_is_genuine_pressure_even_when_fifo_frame_time_is_healthy() {
     let mut controller = PublicationController::default();
     controller.finish_frame(PublicationFrameWork {
-        upload_queue_items: client_world::MAX_PENDING_MESH_CHANGES,
+        upload_queue_items: chunk_pipeline::MAX_PENDING_MESH_CHANGES,
         ..PublicationFrameWork::default()
     });
 
@@ -159,7 +159,7 @@ fn pressure_recovers_only_after_healthy_frames_without_self_funded_bursts() {
     let config = PublicationServiceConfig::PHASE2_GATE;
     let mut controller = PublicationController::default();
     controller.finish_frame(PublicationFrameWork {
-        upload_queue_items: client_world::MAX_PENDING_MESH_CHANGES,
+        upload_queue_items: chunk_pipeline::MAX_PENDING_MESH_CHANGES,
         ..PublicationFrameWork::default()
     });
     controller.begin_frame(Duration::from_millis(125));
@@ -296,4 +296,43 @@ fn controller_credits_shared_allowance_and_only_admitted_work_spends_it() {
     assert_eq!(first_available, 1_024);
     assert_eq!(allowance.remaining_items(), 2_047);
     assert_eq!(allowance.frame_remaining_items(), 512);
+}
+
+/// A disconnected frame reports no old work after pressure consumes the previous sample.
+#[test]
+fn publication_frame_does_not_repeat_retired_world_backlog() {
+    let mut controller = PublicationController::default();
+    controller.finish_frame(PublicationFrameWork {
+        pending_mesh_jobs: 8_931,
+        in_flight_mesh_jobs: 6,
+        mesh_jobs_dispatched: 1,
+        mesh_changes_published: 1,
+        ..PublicationFrameWork::default()
+    });
+    for _ in 0..38 {
+        controller.begin_frame(Duration::from_millis(16));
+        assert_eq!(
+            controller.diagnostics().last_work,
+            PublicationFrameWork::default()
+        );
+    }
+}
+
+#[test]
+fn review_pressure_floor_never_exceeds_configured_operation_caps() {
+    for maximum in [1, 4] {
+        let config = PublicationServiceConfig {
+            maximum_frame_items: maximum,
+            maximum_zero_byte_operations_per_frame: maximum,
+            ..PublicationServiceConfig::PHASE2_GATE
+        };
+        let mut controller = PublicationController::new(config);
+        controller.finish_frame(PublicationFrameWork {
+            upload_queue_items: 520,
+            ..PublicationFrameWork::default()
+        });
+        controller.begin_frame(Duration::from_millis(125));
+        assert!(controller.budget().max_per_frame <= maximum);
+        assert!(controller.budget().max_zero_byte_operations_per_frame <= maximum);
+    }
 }

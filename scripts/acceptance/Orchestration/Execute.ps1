@@ -259,7 +259,7 @@ $script:AcceptanceExecutionPhase = {
         $metadata['app_command'] = $AppCommand
         $metadata | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $RunDirectory 'metadata.json') -Encoding UTF8
         if (-not $SkipClientBuild) {
-            $savedBuildCommit = $env:RUST_MCBE_BUILD_COMMIT; $env:RUST_MCBE_BUILD_COMMIT = $repoCommit; try { Invoke-CheckedBuild -Executable 'cargo' -Arguments @('build', '--release', '-p', 'bedrock-client', '--locked') -LogPath (Join-Path $RunDirectory 'build-app.log') -WorkingDirectory $ProjectRoot } finally { $env:RUST_MCBE_BUILD_COMMIT = $savedBuildCommit }
+            Invoke-CheckedBuild -Executable 'cargo' -Arguments @('build', '--release', '-p', 'bedrock-client', '--locked') -LogPath (Join-Path $RunDirectory 'build-app.log') -WorkingDirectory $ProjectRoot
         }
         if (-not (Test-Path -LiteralPath $AppExecutable -PathType Leaf)) {
             throw "client executable was not available after build selection: $AppExecutable"
@@ -304,7 +304,7 @@ $script:AcceptanceExecutionPhase = {
             }
             Start-Sleep -Milliseconds 100
         }
-        $appHandle = Start-LoggedProcess -Executable $AppExecutable -Arguments $AppArguments -WorkingDirectory $ProjectRoot -StdoutPath (Join-Path $RunDirectory 'app.stdout.log') -StderrPath (Join-Path $RunDirectory 'app.stderr.log')
+        $savedBuildCommit = $env:RUST_MCBE_BUILD_COMMIT; if (-not $SkipClientBuild) { $env:RUST_MCBE_BUILD_COMMIT = $repoCommit }; try { $appHandle = Start-LoggedProcess -Executable $AppExecutable -Arguments $AppArguments -WorkingDirectory $ProjectRoot -StdoutPath (Join-Path $RunDirectory 'app.stdout.log') -StderrPath (Join-Path $RunDirectory 'app.stderr.log') } finally { $env:RUST_MCBE_BUILD_COMMIT = $savedBuildCommit }
         $worldReadyMarkerLine = $null
         if ($isModelWitnessGallery) {
             $galleryAnchorMarkerEvidence = Wait-ProcessOutputMarker `

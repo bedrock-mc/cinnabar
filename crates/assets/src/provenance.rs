@@ -15,15 +15,6 @@ use sha2::{Digest, Sha256};
 /// Mojang bedrock-samples pack that every compiler and runtime pin reads.
 pub const VANILLA_SOURCE_MANIFEST: &str = include_str!("../../../assets/vanilla-source.json");
 
-/// The checkout-pinned outline font manifest, distinct from the vanilla pack.
-pub const UI_FONT_SOURCE_MANIFEST: &str = include_str!("../../../assets/ui-font-source.json");
-
-/// Identity required by carriers built with the outline-font-assets command.
-#[must_use]
-pub fn ui_font_source_manifest_sha256() -> [u8; 32] {
-    canonical_source_manifest_sha256(UI_FONT_SOURCE_MANIFEST.as_bytes())
-}
-
 /// Identity of the pinned Mojang bedrock-samples pack.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]

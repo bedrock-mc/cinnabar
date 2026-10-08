@@ -1,20 +1,6 @@
 use super::*;
 
 #[test]
-fn rolling_fps_uses_only_the_most_recent_second() {
-    let mut fps = RollingFps::default();
-    for _ in 0..60 {
-        fps.record(Duration::from_secs_f64(1.0 / 60.0));
-    }
-    assert!((fps.value() - 60.0).abs() < 0.01);
-
-    for _ in 0..30 {
-        fps.record(Duration::from_secs_f64(1.0 / 30.0));
-    }
-    assert!((fps.value() - 30.0).abs() < 0.01);
-}
-
-#[test]
 fn diagnostic_telemetry_refreshes_only_after_resident_attribution_changes() {
     let key = SubChunkKey::new(0, 1, 2, 3);
     let mut tracker = DiagnosticQuadTracker::default();

@@ -132,6 +132,8 @@ $savedEndpoint = $env:RUST_MCBE_PHASE3_ENDPOINT
 $savedBridgeEndpoint = $env:RUST_MCBE_PHASE3_BRIDGE_ENDPOINT
 $savedCoreSha256 = $env:RUST_MCBE_PHASE3_CORE_SHA256
 $savedCoreProcessId = $env:RUST_MCBE_PHASE3_CORE_PROCESS_ID
+$savedBuildCommit = $env:RUST_MCBE_BUILD_COMMIT
+$savedSourceDirty = $env:RUST_MCBE_SOURCE_DIRTY
 try {
     $failurePhase = 'prebuild_identity'
     foreach ($required in @($pregPath, $bregPath)) {
@@ -215,23 +217,13 @@ else {
     [Text.UTF8Encoding]::new($false)
 )
 
-$savedBuildCommit = $env:RUST_MCBE_BUILD_COMMIT
-$savedSourceDirty = $env:RUST_MCBE_SOURCE_DIRTY
-try {
-    $failurePhase = 'build_app'
-    Assert-Phase3ExactCleanHead -ProjectRoot $projectRoot -ExpectedCommit $buildCommit
-    $env:RUST_MCBE_BUILD_COMMIT = $buildCommit
-    $env:RUST_MCBE_SOURCE_DIRTY = 'false'
-    $appBuildArguments = @('build', '--locked', '-p', 'bedrock-client')
-    if ($buildProfile -ceq 'release') { $appBuildArguments += '--release' }
-    Invoke-CheckedBuild -Executable 'cargo' `
-        -Arguments $appBuildArguments `
-        -LogPath (Join-Path $runDirectory 'build-app.log') -WorkingDirectory $projectRoot
-}
-finally {
-    $env:RUST_MCBE_BUILD_COMMIT = $savedBuildCommit
-    $env:RUST_MCBE_SOURCE_DIRTY = $savedSourceDirty
-}
+$failurePhase = 'build_app'
+Assert-Phase3ExactCleanHead -ProjectRoot $projectRoot -ExpectedCommit $buildCommit
+$appBuildArguments = @('build', '--locked', '-p', 'bedrock-client')
+if ($buildProfile -ceq 'release') { $appBuildArguments += '--release' }
+Invoke-CheckedBuild -Executable 'cargo' `
+    -Arguments $appBuildArguments `
+    -LogPath (Join-Path $runDirectory 'build-app.log') -WorkingDirectory $projectRoot
 Assert-Phase3ExactCleanHead -ProjectRoot $projectRoot -ExpectedCommit $buildCommit
 $failurePhase = 'build_core'
 Invoke-CheckedBuild -Executable 'go' `
@@ -272,6 +264,8 @@ try {
         $env:RUST_MCBE_PHASE3_BRIDGE_ENDPOINT = $bridgeEndpoint
         $env:RUST_MCBE_PHASE3_CORE_SHA256 = $coreSha256
         $env:RUST_MCBE_PHASE3_CORE_PROCESS_ID = $coreProcessId.ToString([Globalization.CultureInfo]::InvariantCulture)
+        $env:RUST_MCBE_BUILD_COMMIT = $buildCommit
+        $env:RUST_MCBE_SOURCE_DIRTY = 'false'
         $appHandle = Start-LoggedProcess -Executable $appExecutable -Arguments $plan.AppArguments `
             -WorkingDirectory $projectRoot -StdoutPath $logPath `
             -StderrPath (Join-Path $runDirectory 'app.stderr.log')
@@ -283,6 +277,8 @@ try {
         $env:RUST_MCBE_PHASE3_BRIDGE_ENDPOINT = $savedBridgeEndpoint
         $env:RUST_MCBE_PHASE3_CORE_SHA256 = $savedCoreSha256
         $env:RUST_MCBE_PHASE3_CORE_PROCESS_ID = $savedCoreProcessId
+        $env:RUST_MCBE_BUILD_COMMIT = $savedBuildCommit
+        $env:RUST_MCBE_SOURCE_DIRTY = $savedSourceDirty
     }
     $failurePhase = 'wait_app'
     if (-not $appHandle.Process.WaitForExit(($DurationSeconds + 120) * 1000)) {
@@ -432,4 +428,6 @@ finally {
     $env:RUST_MCBE_PHASE3_BRIDGE_ENDPOINT = $savedBridgeEndpoint
     $env:RUST_MCBE_PHASE3_CORE_SHA256 = $savedCoreSha256
     $env:RUST_MCBE_PHASE3_CORE_PROCESS_ID = $savedCoreProcessId
+    $env:RUST_MCBE_BUILD_COMMIT = $savedBuildCommit
+    $env:RUST_MCBE_SOURCE_DIRTY = $savedSourceDirty
 }

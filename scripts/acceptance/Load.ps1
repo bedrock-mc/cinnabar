@@ -508,18 +508,23 @@ function Complete-Phase2DiagnosticEvidence {
     if ([string]$Manifest.mode -cne 'Diagnostic') {
         throw 'diagnostic evidence completion is valid only for Diagnostic mode'
     }
-    $cacheBoundary = $null
-    if (-not [string]::IsNullOrWhiteSpace($CoreLogPath)) {
-        $cacheBoundary = Get-Phase2CacheBoundaryEvidence -CoreLogPath $CoreLogPath
-        $Manifest | Add-Member -MemberType NoteProperty -Name cache_boundary_evidence `
-            -Value $cacheBoundary -Force
+    $cacheBoundary = if ([string]::IsNullOrWhiteSpace($CoreLogPath)) {
+        [pscustomobject][ordered]@{ classification = 'unavailable'; reason = 'core_log_not_supplied' }
     }
+    else { Get-Phase2CacheBoundaryEvidence -CoreLogPath $CoreLogPath }
+    $Manifest | Add-Member -MemberType NoteProperty -Name cache_boundary_evidence `
+        -Value $cacheBoundary -Force
     $evidence = Get-Phase2PublicationSequenceEvidence -ClientLogPath $ClientLogPath `
         -ExpectedPresentMode $ExpectedPresentMode -WorldReadyObserved:$WorldReadyObserved -Server $Server
-    Assert-Phase2CacheBoundaryConsistency -Server $Server `
-        -ClientBlobCacheRoute $evidence.ClientBlobCacheRoute -BoundaryEvidence $cacheBoundary
     $findings = [Collections.Generic.List[string]]::new()
     foreach ($finding in @($evidence.Findings)) { $findings.Add($finding) }
+    if ([string]$cacheBoundary.classification -ceq 'unavailable') {
+        $findings.Add('cache_boundary_evidence_unavailable')
+    }
+    else {
+        Assert-Phase2CacheBoundaryConsistency -Server $Server `
+            -ClientBlobCacheRoute $evidence.ClientBlobCacheRoute -BoundaryEvidence $cacheBoundary
+    }
     if (-not $WorldReadyObserved) { $findings.Insert(0, 'world_ready_not_observed') }
     $unavailableReason = if ($WorldReadyObserved) { 'diagnostic_mode_is_non_binding' } else { 'world_ready_not_observed' }
     $Manifest | Add-Member -MemberType NoteProperty -Name status -Value 'passed' -Force
@@ -569,6 +574,7 @@ function Find-Phase2CompletedLunarPrerequisite {
                 -Label 'Phase 2 remote manifest metrics_evidence'
             Assert-Phase2ExactProperties -Value $candidate.resources_evidence -Names @('reason', 'status') `
                 -Label 'Phase 2 remote manifest resources_evidence'
+            if ([string]$candidate.cache_boundary_evidence.classification -ceq 'unavailable') { continue }
             Assert-Phase2ExactProperties -Value $candidate.cache_boundary_evidence -Names @(
                 'cached_level_chunks', 'cached_sub_chunks', 'classification', 'ordinary_level_chunks',
                 'ordinary_sub_chunks', 'upstream_status_enabled', 'upstream_status_seen'

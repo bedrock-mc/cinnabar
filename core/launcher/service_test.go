@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -33,7 +34,7 @@ func newFixture(t *testing.T, source *authcache.Account) *fixture {
 	t.Helper()
 	f := &fixture{store: control.NewStore(), selector: new(proxy.UpstreamSelector)}
 	f.service = New(Config{
-		Account: source, AuthCache: "/cache/token.json",
+		Account: source, AuthCache: filepath.Join(t.TempDir(), "token.json"),
 		Store: f.store, Selector: f.selector, Transfers: new(proxy.TransferState),
 		Realms: func(context.Context, *authcache.Account) ([]catalog.Realm, error) {
 			return []catalog.Realm{{Name: "R", Target: "realm_id/1"}}, nil
@@ -115,7 +116,7 @@ func TestSignOutRemovesCachesAndBlocksAccountCalls(t *testing.T) {
 	if err := f.service.SignOut(); err != nil {
 		t.Fatal(err)
 	}
-	if len(f.removed) != 2 || f.removed[0] != "/cache/token.json" || f.removed[1] == f.removed[0] {
+	if len(f.removed) != 2 || f.removed[0] != f.service.cfg.AuthCache || f.removed[1] == f.removed[0] {
 		t.Fatalf("removed %v, want the token cache and its derived cache", f.removed)
 	}
 	if got := f.store.Auth(); got.State != control.AuthSignedOut || got.Gamertag != "" {
@@ -160,6 +161,23 @@ func TestPublishSignedInIncludesGamertag(t *testing.T) {
 	}
 }
 
+func TestPublishSignedInDoesNotOutliveAccount(t *testing.T) {
+	accountCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	account := authcache.NewAccount(accountCtx, "", oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "x"}), nil)
+	t.Cleanup(func() { _ = account.Close() })
+	f := newFixture(t, account)
+	f.store.SetAuth(control.AuthV1{State: control.AuthSignedOut})
+	f.service.cfg.Gamertag = func(context.Context, *authcache.Account) (string, error) {
+		cancel()
+		return "Steve", nil
+	}
+	f.service.PublishSignedIn(context.Background())
+	if got := f.store.Auth(); got.State != control.AuthSignedOut || got.Gamertag != "" {
+		t.Fatalf("ended account published auth = %+v", got)
+	}
+}
+
 func TestScreenFeedsCacheArtworkAndNeedAnAccount(t *testing.T) {
 	var cached []string
 	service := New(Config{
@@ -187,12 +205,12 @@ func TestScreenFeedsCacheArtworkAndNeedAnAccount(t *testing.T) {
 		t.Fatalf("profile = %+v, err = %v", profile, err)
 	}
 	offline := New(Config{})
-	if _, err := offline.Gatherings(context.Background()); !errors.Is(err, control.ErrSignedOut) {
-		t.Fatalf("offline gatherings err = %v", err)
+	if _, err := offline.FeaturedServers(context.Background()); !errors.Is(err, control.ErrSignedOut) {
+		t.Fatalf("offline featured servers err = %v", err)
 	}
 }
 
-func TestHomeCachesMessageAndEventArtwork(t *testing.T) {
+func TestHomeCachesMessageArtwork(t *testing.T) {
 	service := New(Config{
 		Account: testAccount(), ArtworkDir: "/art",
 		Home: func(context.Context, *authcache.Account, *catalog.MessagingSession, string) (catalog.Home, error) {
@@ -200,7 +218,6 @@ func TestHomeCachesMessageAndEventArtwork(t *testing.T) {
 				Messages: []catalog.Message{{ID: "m", Images: []catalog.MessageImage{
 					{ID: "tile", Image: catalog.Image{URL: "https://a.test/t.png"}},
 				}}},
-				LiveEvents: []catalog.LiveEvent{{ID: "g", Badge: catalog.Image{URL: "https://a.test/b.png"}}},
 			}, nil
 		},
 		CacheArt: func(_ context.Context, directory string, images []*catalog.Image) {
@@ -212,7 +229,7 @@ func TestHomeCachesMessageAndEventArtwork(t *testing.T) {
 		},
 	})
 	home, err := service.Home(context.Background())
-	if err != nil || home.Messages[0].Images[0].Path != "/art/cached" || home.LiveEvents[0].Badge.Path != "/art/cached" {
+	if err != nil || home.Messages[0].Images[0].Path != "/art/cached" {
 		t.Fatalf("home = %+v, err = %v", home, err)
 	}
 }
@@ -251,5 +268,54 @@ func TestConnectJoinsGatheringsAtConnectTime(t *testing.T) {
 	}
 	if err := f.service.Connect(context.Background(), control.TargetGathering, "not-a-uuid"); !errors.Is(err, control.ErrInvalidTarget) {
 		t.Fatalf("malformed experience ID err = %v", err)
+	}
+}
+
+func TestSignOutReportsLeaseFailureWithoutRemovingUnlockedCredentials(t *testing.T) {
+	f := newFixture(t, testAccount())
+	blocked := filepath.Join(t.TempDir(), "not-a-directory")
+	if err := os.WriteFile(blocked, []byte("synthetic"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f.service.cfg.AuthCache = filepath.Join(blocked, "token.json")
+	if err := f.service.SignOut(); err == nil || strings.Contains(err.Error(), blocked) {
+		t.Fatalf("lease failure was hidden or exposed a path: %v", err)
+	}
+	if len(f.removed) != 0 {
+		t.Fatalf("removed credentials without their leases: %v", f.removed)
+	}
+	if f.store.Auth().State != control.AuthSignedOut {
+		t.Fatal("lease failure left the local account signed in")
+	}
+}
+
+// TestProfileCarriesTheRenderedAvatar uses an injected fixture rather than any account service.
+func TestProfileCarriesTheRenderedAvatar(t *testing.T) {
+	calls := 0
+	service := New(Config{
+		Account: testAccount(), ArtworkDir: t.TempDir(),
+		Profile: func(context.Context, *authcache.Account) (catalog.Profile, error) {
+			return catalog.Profile{Gamertag: "Steve", XUID: "123"}, nil
+		},
+		ProfileFeaturedScreenshot: func(context.Context, *authcache.Account, string) (catalog.Image, error) { return catalog.Image{}, nil },
+		ProfileAvatar: func(_ context.Context, _ *authcache.Account, xuid, directory string) (catalog.Image, error) {
+			calls++
+			if xuid != "123" || directory == "" {
+				t.Fatal("avatar did not use profile identity/cache")
+			}
+			return catalog.Image{Path: directory + "/avatar.img"}, nil
+		},
+		CacheArt: func(context.Context, string, []*catalog.Image) {},
+	})
+	profile, err := service.Profile(context.Background())
+	if err != nil || calls != 1 || profile.Avatar.Path == "" || profile.AvatarError {
+		t.Fatalf("profile avatar: %+v %v", profile, err)
+	}
+	service.cfg.ProfileAvatar = func(context.Context, *authcache.Account, string, string) (catalog.Image, error) {
+		return catalog.Image{}, errors.New("fixture unavailable")
+	}
+	profile, err = service.Profile(context.Background())
+	if err != nil || !profile.AvatarError || profile.Gamertag != "Steve" {
+		t.Fatalf("failed avatar lost available profile: %+v %v", profile, err)
 	}
 }

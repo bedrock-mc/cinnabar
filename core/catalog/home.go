@@ -3,33 +3,30 @@ package catalog
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
-	"github.com/sandertv/gophertunnel/minecraft/protocol"
-	"github.com/sandertv/gophertunnel/minecraft/realms"
+	"github.com/hashimthearab/rust-mcbe/core/internal/locale"
 	"github.com/sandertv/gophertunnel/minecraft/service"
-	"github.com/sandertv/gophertunnel/minecraft/service/gatherings"
 	"github.com/sandertv/gophertunnel/minecraft/service/persona"
 	"github.com/sandertv/gophertunnel/minecraft/service/playermessaging"
 )
 
 // Home is what the start screen shows from services: messaging surfaces and
-// the inbox, the token's treatments, the Realms invite count, live events and
-// the rendered persona head. A failed part is named in Errors.
+// the inbox, the token's treatments, the Realms invite count and the rendered
+// persona head. A failed part is named in Errors.
 type Home struct {
-	Messages     []Message   `json:"messages"`
-	Inbox        Inbox       `json:"inbox"`
-	Treatments   []string    `json:"treatments"`
-	RealmInvites int         `json:"realm_invites"`
-	LiveEvents   []LiveEvent `json:"live_events"`
-	PersonaHead  Image       `json:"persona_head"`
-	Errors       []string    `json:"errors,omitempty"`
+	Messages     []Message `json:"messages"`
+	Inbox        Inbox     `json:"inbox"`
+	Treatments   []string  `json:"treatments"`
+	RealmInvites int       `json:"realm_invites"`
+	PersonaHead  Image     `json:"persona_head"`
+	Errors       []string  `json:"errors,omitempty"`
 	failed       homePart
 }
 
@@ -40,9 +37,8 @@ const (
 	partInvites homePart = 1 << iota
 	partTreatments
 	partMessages
-	partEvents
 	partPersona
-	partServices = partTreatments | partMessages | partEvents | partPersona
+	partServices = partTreatments | partMessages | partPersona
 	allHomeParts = partInvites | partServices
 )
 
@@ -61,9 +57,6 @@ func (h Home) Refill(previous Home) Home {
 	if h.failed&partMessages != 0 {
 		h.Messages, h.Inbox = previous.Messages, previous.Inbox
 	}
-	if h.failed&partEvents != 0 {
-		h.LiveEvents = previous.LiveEvents
-	}
 	if h.failed&partPersona != 0 {
 		h.PersonaHead = previous.PersonaHead
 	}
@@ -78,29 +71,28 @@ func HomeImages(home *Home) []*Image {
 			images = append(images, &home.Messages[index].Images[image].Image)
 		}
 	}
-	for index := range home.LiveEvents {
-		images = append(images, &home.LiveEvents[index].Badge, &home.LiveEvents[index].EventImage)
-	}
 	return append(images, &home.PersonaHead)
 }
 
 // Message is one player-messaging message; Surface places it (PlayButton,
 // MarketplaceButton, InboxMessage, LoginAnnouncement, ToastNotification, ...).
 type Message struct {
-	ID         string          `json:"id"`
-	InstanceID string          `json:"instance_id"`
-	ReportID   string          `json:"report_id,omitempty"`
-	Surface    string          `json:"surface"`
-	Template   string          `json:"template"`
-	Category   string          `json:"category,omitempty"`
-	Status     string          `json:"status,omitempty"`
-	Received   string          `json:"received,omitempty"`
-	Header     string          `json:"header,omitempty"`
-	Body       string          `json:"body,omitempty"`
-	SubTitle   string          `json:"sub_title,omitempty"`
-	Banner     string          `json:"banner,omitempty"`
-	Images     []MessageImage  `json:"images"`
-	Buttons    []MessageButton `json:"buttons"`
+	Colors     map[string][3]uint8 `json:"colors,omitempty"`
+	Sender     string              `json:"sender,omitempty"`
+	ID         string              `json:"id"`
+	InstanceID string              `json:"instance_id"`
+	ReportID   string              `json:"report_id,omitempty"`
+	Surface    string              `json:"surface"`
+	Template   string              `json:"template"`
+	Category   string              `json:"category,omitempty"`
+	Status     string              `json:"status,omitempty"`
+	Received   string              `json:"received,omitempty"`
+	Header     string              `json:"header,omitempty"`
+	Body       string              `json:"body,omitempty"`
+	SubTitle   string              `json:"sub_title,omitempty"`
+	Banner     string              `json:"banner,omitempty"`
+	Images     []MessageImage      `json:"images"`
+	Buttons    []MessageButton     `json:"buttons"`
 }
 
 // MessageImage is one keyed message image.
@@ -132,36 +124,21 @@ type InboxCategory struct {
 	Unread int    `json:"unread"`
 }
 
-// LiveEvent is a live gathering with the active segment's start-screen UI.
-type LiveEvent struct {
-	ID                string `json:"id"`
-	Title             string `json:"title"`
-	Description       string `json:"description,omitempty"`
-	StartUnix         int64  `json:"start_unix"`
-	EndUnix           int64  `json:"end_unix"`
-	RouteToServers    bool   `json:"route_to_servers,omitempty"`
-	Address           string `json:"address,omitempty"`
-	NetherNetID       string `json:"nethernet_id,omitempty"`
-	ButtonText        string `json:"button_text,omitempty"`
-	CaptionText       string `json:"caption_text,omitempty"`
-	CaptionCountdown  bool   `json:"caption_countdown,omitempty"`
-	CaptionBackground string `json:"caption_background,omitempty"`
-	CaptionForeground string `json:"caption_foreground,omitempty"`
-	HeaderText        string `json:"header_text,omitempty"`
-	TitleText         string `json:"title_text,omitempty"`
-	BodyText          string `json:"body_text,omitempty"`
-	Badge             Image  `json:"badge"`
-	EventImage        Image  `json:"event_image"`
-}
-
 // MessagingSession holds the account's messaging session across home refreshes and reports.
 type MessagingSession struct {
-	mu     sync.Mutex
-	client *playermessaging.Client
+	art      messageArt
+	mu       sync.Mutex
+	client   *playermessaging.Client
+	language string
+}
+
+// NewMessagingSession keeps the active UI language for refreshes and reports.
+func NewMessagingSession(language string) *MessagingSession {
+	return &MessagingSession{language: language}
 }
 
 // get returns the session's client, opening it on the discovered endpoint on first use.
-func (s *MessagingSession) get(discovery *service.Discovery, account *authcache.Account) (*playermessaging.Client, error) {
+func (s *MessagingSession) get(discovery *service.Discovery, tokens service.TokenSource) (*playermessaging.Client, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.client == nil {
@@ -169,20 +146,24 @@ func (s *MessagingSession) get(discovery *service.Discovery, account *authcache.
 		if err := discovery.Environment(env); err != nil {
 			return nil, fmt.Errorf("resolve messaging service: %w", err)
 		}
-		s.client = env.New(account)
+		env.Language = s.language
+		if env.Language == "" {
+			env.Language = locale.Default
+		}
+		base := http.DefaultClient.Transport
+		if base == nil {
+			base = http.DefaultTransport
+		}
+		env.HTTPClient = &http.Client{Transport: messageArtTransport{RoundTripper: base, art: &s.art}}
+		s.client = env.New(tokens)
 	}
 	return s.client, nil
 }
 
-const (
-	clientPlatform = "Android"
-	clientSub      = "Google"
-)
-
 // HomeFeed gathers the start screen's service data; the persona head is
 // written into artworkDir.
 func HomeFeed(ctx context.Context, account *authcache.Account, session *MessagingSession, artworkDir string) (Home, error) {
-	home := Home{Messages: []Message{}, Treatments: []string{}, LiveEvents: []LiveEvent{}}
+	home := Home{Messages: []Message{}, Treatments: []string{}}
 	if account == nil {
 		return home, errNoAccount
 	}
@@ -202,16 +183,11 @@ func HomeFeed(ctx context.Context, account *authcache.Account, session *Messagin
 	}
 	discovery, err := service.Default(ctx)
 	if err != nil {
-		fail(partMessages|partEvents|partPersona, "Services", fmt.Errorf("discover services: %w", err))
+		fail(partMessages|partPersona, "Services", fmt.Errorf("discover services: %w", err))
 		return home, nil
 	}
 	if err := messages(ctx, discovery, account, session, &home); err != nil {
 		fail(partMessages, "Messaging", err)
-	}
-	if events, err := liveEvents(ctx, discovery, account, time.Now()); err != nil {
-		fail(partEvents, "Live events", err)
-	} else {
-		home.LiveEvents = events
 	}
 	if head, err := personaHead(ctx, discovery, account, artworkDir); err != nil {
 		fail(partPersona, "Persona", err)
@@ -257,6 +233,7 @@ func messages(ctx context.Context, discovery *service.Discovery, account *authca
 		return err
 	}
 	home.Messages, home.Inbox = flatten(refreshed)
+	session.art.apply(home.Messages)
 	return nil
 }
 
@@ -283,7 +260,7 @@ func flatten(session *playermessaging.Session) ([]Message, Inbox) {
 		message := Message{
 			ID: wire.ID, InstanceID: wire.InstanceID, ReportID: wire.ReportID,
 			Surface: wire.Surface, Template: wire.Template, Category: wire.InboxCategory,
-			Status: wire.Status, Received: wire.DateReceived,
+			Status: wire.Status, Received: wire.DateReceived, Sender: wire.Sender,
 			Header: wire.Text.Header, Body: wire.Text.Body,
 			Images: []MessageImage{}, Buttons: []MessageButton{},
 		}
@@ -297,73 +274,12 @@ func flatten(session *playermessaging.Session) ([]Message, Inbox) {
 				ID: id, Text: button.Text, Link: button.Link, Action: strings.ToLower(button.Action),
 			})
 		}
+		applyMessageItems(&message, wire.Items)
 		slices.SortFunc(message.Images, func(a, b MessageImage) int { return strings.Compare(a.ID, b.ID) })
 		slices.SortFunc(message.Buttons, func(a, b MessageButton) int { return strings.Compare(a.ID, b.ID) })
 		messages = append(messages, message)
 	}
 	return messages, inbox
-}
-
-func liveEvents(ctx context.Context, discovery *service.Discovery, account *authcache.Account, now time.Time) ([]LiveEvent, error) {
-	client, err := gatheringsClient(discovery, account)
-	if err != nil {
-		return nil, err
-	}
-	configs, err := client.PublicConfig(ctx, gatherings.ConfigQuery{
-		ClientVersion: protocol.CurrentVersion, ClientPlatform: clientPlatform, ClientSubPlatform: clientSub,
-	})
-	if err != nil {
-		return nil, err
-	}
-	return liveEventsFrom(configs, now), nil
-}
-
-// liveEventsFrom keeps the events not yet over, each dressed by the segment running now.
-func liveEventsFrom(configs []gatherings.GatheringConfig, now time.Time) []LiveEvent {
-	events := []LiveEvent{}
-	for _, config := range configs {
-		if config.ID == "" || (!config.End.IsZero() && config.End.Before(now)) {
-			continue
-		}
-		event := LiveEvent{
-			ID: config.ID, Title: strings.TrimSpace(config.Title), Description: strings.TrimSpace(config.Description),
-			StartUnix: unixOf(config.Start), EndUnix: unixOf(config.End), RouteToServers: config.RouteToServersTab,
-			NetherNetID: config.Venue.NetherNetID,
-		}
-		if address, ok := config.Venue.RakNetAddress(); ok {
-			event.Address = address
-		}
-		// The segment running now dresses the button; else the first one.
-		for index, segment := range config.Segments {
-			running := !segment.Start.After(now) && (segment.End.IsZero() || now.Before(segment.End.Time))
-			if index == 0 || running {
-				applySegmentUI(&event, segment.UI)
-			}
-		}
-		events = append(events, event)
-	}
-	return events
-}
-
-func applySegmentUI(event *LiveEvent, ui gatherings.SegmentUI) {
-	event.ButtonText, event.CaptionText = ui.StartScreenButtonText, ui.CaptionText
-	event.CaptionCountdown = ui.CaptionCountdown
-	event.CaptionBackground, event.CaptionForeground = ui.CaptionBackgroundColor, ui.CaptionForegroundColor
-	event.HeaderText, event.TitleText, event.BodyText = ui.HeaderText, ui.TitleText, ui.BodyText
-	event.Badge, event.EventImage = Image{}, Image{}
-	if validArtworkURL(ui.BadgeImage) {
-		event.Badge.URL = ui.BadgeImage
-	}
-	if validArtworkURL(ui.EventImage) {
-		event.EventImage.URL = ui.EventImage
-	}
-}
-
-func unixOf(t gatherings.Time) int64 {
-	if t.IsZero() {
-		return 0
-	}
-	return t.Unix()
 }
 
 // personaHead writes the rendered persona head for the signed-in account into artworkDir.
@@ -372,7 +288,7 @@ func personaHead(ctx context.Context, discovery *service.Discovery, account *aut
 	if err := discovery.Environment(env); err != nil {
 		return Image{}, fmt.Errorf("resolve persona service: %w", err)
 	}
-	xbl, err := newXSAPIClient(ctx, account)
+	xbl, err := XboxClient(ctx, account)
 	if err != nil {
 		return Image{}, err
 	}
@@ -394,5 +310,9 @@ func personaHead(ctx context.Context, discovery *service.Discovery, account *aut
 
 // realmInvites reads the pending Realms invite count through the Realms client.
 func realmInvites(ctx context.Context, account *authcache.Account) (int, error) {
-	return realms.NewClient(account, nil).PendingInviteCount(ctx)
+	client, err := RealmsClient(ctx, account)
+	if err != nil {
+		return 0, err
+	}
+	return client.PendingInviteCount(ctx)
 }
