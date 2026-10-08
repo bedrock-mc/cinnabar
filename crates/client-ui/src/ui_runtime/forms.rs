@@ -341,34 +341,37 @@ fn pending_packet(pending: &PendingFormResponse) -> Packet {
         RetainedAnswer::Busy => modal_form_busy_response(pending.identity.form_id),
     }
 }
-/// Drain at most one response. Accepted enqueue is consumed once, never
-/// retried on an uncertain subsequent delivery failure.
+/// Drains every due response, the local answer first, and returns whether any was sent.
+/// Accepted enqueue is consumed once, never retried on an uncertain later delivery failure.
 pub fn flush_form_response(
     runtime: &mut UiRuntime,
     mut send: impl FnMut(Packet) -> Result<(), FormTransportError>,
 ) -> Result<bool, FormTransportError> {
     let session = runtime.session_id();
     let store = runtime.server_forms_mut();
-    let local = store.pending.is_some();
-    let Some(pending) = store.pending.take().or_else(|| store.busy.pop_front()) else {
-        return Ok(false);
-    };
-    if pending.identity.session != session {
-        return Ok(false);
-    }
-    match send(pending_packet(&pending)) {
-        Ok(()) => Ok(true),
-        Err(FormTransportError::Full) => {
-            if local {
-                store.pending = Some(pending);
-            } else {
-                store.busy.push_front(pending);
-            }
-            Err(FormTransportError::Full)
+    let mut sent = false;
+    loop {
+        let local = store.pending.is_some();
+        let Some(pending) = store.pending.take().or_else(|| store.busy.pop_front()) else {
+            return Ok(sent);
+        };
+        if pending.identity.session != session {
+            continue;
         }
-        Err(FormTransportError::Closed) => {
-            store.clear();
-            Err(FormTransportError::Closed)
+        match send(pending_packet(&pending)) {
+            Ok(()) => sent = true,
+            Err(FormTransportError::Full) => {
+                if local {
+                    store.pending = Some(pending);
+                } else {
+                    store.busy.push_front(pending);
+                }
+                return Err(FormTransportError::Full);
+            }
+            Err(FormTransportError::Closed) => {
+                store.clear();
+                return Err(FormTransportError::Closed);
+            }
         }
     }
 }

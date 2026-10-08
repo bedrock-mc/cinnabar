@@ -326,6 +326,12 @@ impl ActorSnapshot {
     /// Omitted dimensions retain the generic actor defaults independently.
     #[must_use]
     pub fn bounding_box(&self) -> Option<([f32; 3], [f32; 3])> {
+        self.bounding_box_at(self.position)
+    }
+
+    /// [`Self::bounding_box`] with the feet at `position`.
+    #[must_use]
+    pub fn bounding_box_at(&self, position: [f32; 3]) -> Option<([f32; 3], [f32; 3])> {
         let player = matches!(self.kind, ActorKind::Player { .. });
         let dimension = |key, default| match self.metadata.get(&key) {
             Some(ActorMetadataValue::Float(value)) if value.is_finite() && *value > 0.0 => {
@@ -347,7 +353,7 @@ impl ActorSnapshot {
         if !half_width.is_finite() || !height.is_finite() {
             return None;
         }
-        let [x, y, z] = self.position;
+        let [x, y, z] = position;
         Some((
             [x - half_width, y, z - half_width],
             [x + half_width, y + height, z + half_width],
@@ -690,6 +696,10 @@ pub(crate) struct ActorStore {
     /// Whether the local player's own rig should render first-person; set by each pose feed.
     local_first_person: bool,
     local_view_dirty: bool,
+    /// Remote `(runtime id, position, yaw)` this frame's due ticks reach, sorted by id and read
+    /// by picks until the frame advances the live actors; reused across frames.
+    pick_poses: Vec<(u64, [f32; 3], f32)>,
+    picks_ahead: bool,
     local_view_bobbing: bool,
     local_flying: bool,
     /// Held items of the client-fed local player, which the item store never tracks.

@@ -98,10 +98,10 @@ fn production_client_systems_are_members_of_the_behavioral_sets() {
         ClientFrameSet::Physics,
         ClientFrameSet::Camera,
         ClientFrameSet::Interaction,
+        ClientFrameSet::NetworkSend,
         ClientFrameSet::WorldPublication,
         ClientFrameSet::ActorPreparation,
         ClientFrameSet::UiPreparation,
-        ClientFrameSet::NetworkSend,
         ClientFrameSet::ActorFinalization,
         ClientFrameSet::ActorPublication,
         ClientFrameSet::UiPublication,
@@ -210,6 +210,38 @@ fn production_client_systems_are_members_of_the_behavioral_sets() {
         "send_player_auth_inputs",
         ClientFrameSet::NetworkSend,
     );
+    let motion = system_node(
+        graph,
+        crate::runtime::network::advance_actor_motion,
+        "advance_actor_motion",
+    );
+    for picker in [
+        system_node(graph, produce_melee, "produce_melee"),
+        system_node(
+            graph,
+            crate::camera::aim_assist::publish_assisted_interaction,
+            "publish_assisted_interaction",
+        ),
+    ] {
+        assert!(
+            schedule_precedes(graph, motion, picker),
+            "actor picks must read this frame's remote actor positions",
+        );
+    }
+    for preparation in [
+        system_node(graph, drive_world_stream, "drive_world_stream"),
+        system_node(graph, advance_actor_frame, "advance_actor_frame"),
+        system_node(graph, prepare_ui_runtime, "prepare_ui_runtime"),
+    ] {
+        assert!(
+            schedule_precedes(
+                graph,
+                system_node(graph, send_player_auth_inputs, "send_player_auth_inputs"),
+                preparation,
+            ),
+            "gameplay packets must not wait for world, actor or UI preparation",
+        );
+    }
     assert!(
         schedule_precedes(
             graph,

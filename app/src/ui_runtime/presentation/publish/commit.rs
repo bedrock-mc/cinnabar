@@ -1,7 +1,7 @@
 //! Pure UI rasterization, layout and publication after input enqueue.
 use super::*;
 
-/// Publishes the captured UI without observing mutations from this frame's outbound actions.
+/// Publishes the UI captured during preparation.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn publish_ui_runtime(
     player_runtime: Res<crate::player_runtime::PlayerRuntime>,

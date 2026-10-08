@@ -69,8 +69,60 @@ impl ActorSnapshot {
         }
     }
 
-    pub(super) fn interpolate_movement_rotation(&self, current: ActorPose, next: &mut ActorPose) {
-        let state = self.status.movement_interpolation;
+    /// The pose state an interpolation tick reads and writes.
+    pub(super) fn motion_state(&self) -> MotionState {
+        MotionState {
+            pose: self.current_pose(),
+            received: self.received_pose,
+            remaining: self.interpolation_ticks_remaining,
+            interpolation: self.status.movement_interpolation,
+            dying_dragon: self.is_dying_dragon(),
+        }
+    }
+
+    pub(super) fn apply_motion_state(&mut self, state: MotionState) {
+        self.set_current_pose(state.pose);
+        self.received_pose = state.received;
+        self.interpolation_ticks_remaining = state.remaining;
+        self.status.movement_interpolation = state.interpolation;
+    }
+}
+
+/// The pose state of one actor's interpolation, advanced a tick at a time.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct MotionState {
+    pub(super) pose: ActorPose,
+    received: ActorPose,
+    remaining: u32,
+    interpolation: MovementInterpolation,
+    dying_dragon: bool,
+}
+
+impl MotionState {
+    /// One interpolation tick: each step closes 1/n of the remaining gap and the final step
+    /// lands exactly on the target; rotation follows its own counters.
+    pub(super) fn tick(&mut self) {
+        let current = self.pose;
+        let mut next = if self.remaining == 0 && self.dying_dragon {
+            current
+        } else {
+            self.received
+        };
+        if self.remaining > 1 {
+            let divisor = self.remaining as f32;
+            let target = self.received;
+            next.position = std::array::from_fn(|axis| {
+                current.position[axis] + (target.position[axis] - current.position[axis]) / divisor
+            });
+        }
+        self.interpolate_rotation(current, &mut next);
+        self.remaining = self.remaining.saturating_sub(1);
+        self.pose = next;
+        self.advance_queue();
+    }
+
+    fn interpolate_rotation(&self, current: ActorPose, next: &mut ActorPose) {
+        let state = self.interpolation;
         let step = |from: f32, to: f32, ticks: u32| match ticks {
             0 => from,
             1 => to,
@@ -79,35 +131,35 @@ impl ActorSnapshot {
         let rotation_ticks = if state.last_received.is_some() {
             state.rotation_ticks
         } else {
-            self.interpolation_ticks_remaining.max(1)
+            self.remaining.max(1)
         };
         let head_ticks = if state.last_received.is_some() {
             state.head_ticks
         } else {
             rotation_ticks
         };
-        next.pitch = step(current.pitch, self.received_pose.pitch, rotation_ticks);
-        next.yaw = step(current.yaw, self.received_pose.yaw, rotation_ticks);
-        next.head_yaw = step(current.head_yaw, self.received_pose.head_yaw, head_ticks);
+        next.pitch = step(current.pitch, self.received.pitch, rotation_ticks);
+        next.yaw = step(current.yaw, self.received.yaw, rotation_ticks);
+        next.head_yaw = step(current.head_yaw, self.received.head_yaw, head_ticks);
     }
 
-    pub(super) fn advance_movement_interpolation(&mut self) {
-        let state = &mut self.status.movement_interpolation;
+    fn advance_queue(&mut self) {
+        let state = &mut self.interpolation;
         state.rotation_ticks = state.rotation_ticks.saturating_sub(1);
         state.head_ticks = state.head_ticks.saturating_sub(1);
         let Some(queued) = &mut state.queued else {
             return;
         };
-        if state.must_complete && self.interpolation_ticks_remaining != 0 {
+        if state.must_complete && self.remaining != 0 {
             queued.ticks = queued.ticks.max(2) - 1;
             return;
         }
         let queued = state.queued.take().expect("queued target");
-        self.received_pose = ActorPose {
-            head_yaw: self.head_yaw,
+        self.received = ActorPose {
+            head_yaw: self.pose.head_yaw,
             ..queued.pose
         };
-        self.interpolation_ticks_remaining = queued.ticks;
+        self.remaining = queued.ticks;
         state.rotation_ticks = queued.ticks;
         state.head_ticks = 0;
         state.must_complete = false;

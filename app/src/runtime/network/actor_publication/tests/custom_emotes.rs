@@ -521,3 +521,5 @@ fn production_early_ui_readiness_matches_the_current_hand_source() {
 
 #[path = "custom_emotes/local_torso.rs"]
 mod local_torso;
+#[path = "custom_emotes/pick_positions.rs"]
+mod pick_positions;

@@ -12,7 +12,9 @@ use protocol::{
 const ATTACK_BUILD_BLOCK_MILLIS: u64 = 200;
 
 mod target;
-pub use target::{ActorHit, Crosshair, classify, obstructs_placement, pick_actor, ray_box_entry};
+pub use target::{
+    ActorHit, Crosshair, classify, obstructs_placement, pick_actor, pick_actor_by, ray_box_entry,
+};
 
 /// Bedrock swing length in ticks, with the stronger Haste or Conduit Power taking priority.
 pub fn swing_duration(effects: MiningEffects) -> i32 {

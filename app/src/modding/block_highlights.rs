@@ -21,7 +21,7 @@ pub(super) fn configure(app: &mut App) {
         Update,
         publish
             .in_set(BlockHighlights)
-            .after(ClientFrameSet::Camera)
+            .after(ClientFrameSet::NetworkSend)
             .before(ClientFrameSet::UiPreparation),
     );
 }

@@ -209,6 +209,38 @@ impl ActorStore {
         ))
     }
 
+    /// Moves each seated rider's pick pose onto its mount's predicted seat, as each tick's
+    /// seating places it.
+    pub(super) fn seat_pick_riders(&mut self) {
+        if self.rider_to_ridden.is_empty() {
+            return;
+        }
+        let seated: Vec<_> = self
+            .rider_to_ridden
+            .iter()
+            .filter_map(|(rider_unique_id, ridden)| {
+                let rider_id = *self.unique_to_runtime.get(rider_unique_id)?;
+                let mount_id = *self.unique_to_runtime.get(ridden)?;
+                let (mount_position, mount_yaw) = self.pick_pose(mount_id)?;
+                let mount = self.actors.get(&mount_id)?;
+                let seat = self.seat_for(*rider_unique_id, self.actors.get(&rider_id)?, mount)?;
+                let offset = seat_world_offset(seat.position, mount_yaw);
+                Some((
+                    rider_id,
+                    std::array::from_fn(|axis| mount_position[axis] + offset[axis]),
+                ))
+            })
+            .collect();
+        for (rider_id, position) in seated {
+            if let Ok(index) = self
+                .pick_poses
+                .binary_search_by_key(&rider_id, |(runtime_id, ..)| *runtime_id)
+            {
+                self.pick_poses[index].1 = position;
+            }
+        }
+    }
+
     /// Places each linked rider at its seat and turns its body with the mount; riders with no
     /// known seat keep their streamed pose. The local rig is client-fed and skipped.
     pub(super) fn seat_riders(&mut self) {
