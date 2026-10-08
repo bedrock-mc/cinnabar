@@ -920,6 +920,8 @@ mod generic_event_tests;
 #[cfg(test)]
 mod motion_tests;
 #[cfg(test)]
+mod packet_trace_tests;
+#[cfg(test)]
 mod raw_inventory_provenance_tests;
 #[cfg(test)]
 mod tests;

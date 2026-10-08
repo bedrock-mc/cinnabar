@@ -242,7 +242,11 @@ impl UiPresentationRuntime {
         for (index, layer) in layers.into_iter().enumerate() {
             if !renderer
                 .scene_settings(layer.reference, &layer.context)
-                .renders(index == top && !view.popup_open())
+                .renders(
+                    index == top
+                        && (!view.popup_open()
+                            || view.dialog == Some(crate::menu::MenuDialog::DeathQuit)),
+                )
             {
                 continue;
             }

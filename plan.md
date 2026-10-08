@@ -6627,7 +6627,11 @@ localized labels, wrapping reason and native button artwork. The separate OreUI
 approximation and its entrance animation are removed. The server death-message and
 immediate-respawn rules are retained from bootstrap and incremental packets.
 Respawn keeps the carrier loading state until authoritative recovery; Main menu
-opens the localized quit confirmation. Controller timing, the vanilla death camera,
-exact readiness and respawn transitions, hardcore and secondary-client variants,
+opens the localized quit confirmation over the retained death background. Pending
+respawn requests survive outbound backpressure, forced death cancels hidden key
+capture, and formatted reason parameters remain literal through rendering.
+Immediate respawn is selected when the death route opens. Controller timing, the
+vanilla death camera and death FOV, exact readiness and respawn transitions,
+hardcore and secondary-client variants,
 and matched native frames remain incomplete. These changes do not close the
 broader death-screen parity gate.

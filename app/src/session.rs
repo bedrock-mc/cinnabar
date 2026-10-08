@@ -549,13 +549,14 @@ fn drive_intents(
     cache: &BlobCache,
     session: &mut SessionResources<'_>,
 ) {
-    if menu.take_respawn_request()
-        && let Some(runtime_id) = session.runtime.local_runtime_id(&session.player_runtime)
-    {
+    menu.send_respawn_request(|| {
+        let Some(runtime_id) = session.runtime.local_runtime_id(&session.player_runtime) else {
+            return false;
+        };
         let generation = session.runtime.session_id();
         let packet = protocol::respawn_request_packet(runtime_id);
-        let _ = session.network.send_form_packet(generation, packet);
-    }
+        session.network.send_form_packet(generation, packet).is_ok()
+    });
     if menu.take_exit_request() {
         // Exit stops the core inline, inside the shutdown watchdog's envelope.
         session.controller.core.stop();

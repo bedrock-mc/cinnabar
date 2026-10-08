@@ -67,8 +67,11 @@ fn death_screen_opens_once_per_death_and_requests_respawn() {
     menu.activate(MenuAction::Respawn);
     assert!(menu.is_visible());
     assert!(menu.view().death_loading);
-    assert!(menu.take_respawn_request());
-    assert!(!menu.take_respawn_request(), "the request is consumed once");
+    assert!(menu.send_respawn_request(|| true));
+    assert!(
+        !menu.send_respawn_request(|| true),
+        "the request is consumed once"
+    );
     menu.open_death();
     assert!(
         menu.view().death_loading,
@@ -85,13 +88,13 @@ fn immediate_respawn_sends_once_and_waits_for_authoritative_recovery() {
     let mut menu = MenuRuntime::new(false, 2, "Steve".into());
     menu.open_death_with_rules(true);
     assert!(menu.view().death_loading);
-    assert!(menu.take_respawn_request());
+    assert!(menu.send_respawn_request(|| true));
     menu.open_death_with_rules(true);
-    assert!(!menu.take_respawn_request());
+    assert!(!menu.send_respawn_request(|| true));
     menu.note_player_alive();
     menu.open_death_with_rules(false);
     assert!(!menu.view().death_loading);
-    assert!(!menu.take_respawn_request());
+    assert!(!menu.send_respawn_request(|| true));
 }
 
 #[test]
@@ -103,7 +106,7 @@ fn death_replaces_a_world_menu_and_session_end_retires_pending_respawn() {
     assert_eq!(menu.screen(), MenuScreen::Death);
     menu.activate(MenuAction::Respawn);
     menu.show_after_disconnect();
-    assert!(!menu.take_respawn_request());
+    assert!(!menu.send_respawn_request(|| true));
     menu.show_world();
     menu.open_death();
     assert_eq!(menu.screen(), MenuScreen::Death);
@@ -390,4 +393,49 @@ fn home_realms_and_marketplace_are_reachable_and_activate_their_routes() {
         menu.activate_focused();
         assert_eq!(menu.screen(), MenuScreen::Social);
     }
+}
+
+#[test]
+fn death_cancels_a_pending_settings_key_capture() {
+    let mut menu = MenuRuntime::new(true, 2, "Steve".into());
+    menu.show_world();
+    menu.open_pause();
+    menu.activate(MenuAction::Navigate(MenuScreen::Settings));
+    menu.key_remap = Some(0);
+    menu.open_death();
+    assert_eq!(menu.screen(), MenuScreen::Death);
+    assert!(
+        menu.key_remap.is_none(),
+        "death input cannot change a hidden binding"
+    );
+}
+
+#[test]
+fn death_retries_respawn_after_outbound_backpressure() {
+    let mut menu = MenuRuntime::new(false, 2, "Steve".into());
+    menu.open_death();
+    menu.activate(MenuAction::Respawn);
+    assert!(!menu.send_respawn_request(|| false));
+    assert!(menu.view().death_loading);
+    assert!(
+        menu.send_respawn_request(|| true),
+        "a full queue must retain the request"
+    );
+    assert!(!menu.send_respawn_request(|| panic!("already enqueued")));
+}
+
+#[test]
+fn death_snapshots_immediate_respawn_when_opened() {
+    let mut menu = MenuRuntime::new(false, 2, "Steve".into());
+    menu.open_death_with_rules(false);
+    menu.open_death_with_rules(true);
+    assert!(
+        !menu.view().death_loading,
+        "rule changes apply to the next death"
+    );
+    assert!(!menu.send_respawn_request(|| panic!("no immediate request")));
+    menu.note_player_alive();
+    menu.open_death_with_rules(true);
+    assert!(menu.view().death_loading);
+    assert!(menu.send_respawn_request(|| true));
 }

@@ -150,7 +150,10 @@ pub(super) fn screen_data(view: &MenuView, translate: Translate<'_>) -> Option<M
         let reference = menu_reference(view.screen)?;
         match view.screen {
             MenuScreen::Death => {
-                data.set_global("#death_reason_text", text(&view.death_reason));
+                data.set_global(
+                    super::death_screen::REASON_BINDING,
+                    text(&view.death_reason),
+                );
                 flags(
                     &mut data,
                     if view.death_loading {

@@ -402,5 +402,6 @@ pub(super) fn with_java_hud(vanilla: &json_ui::Catalog) -> json_ui::Catalog {
     super::super::loading_screen::install_brand_layout(&mut catalog);
     super::super::enhanced_setting::install(&mut catalog);
     super::super::chat_position::install(&mut catalog);
+    super::super::death_screen::prefer_literal_reason(&mut catalog);
     catalog
 }

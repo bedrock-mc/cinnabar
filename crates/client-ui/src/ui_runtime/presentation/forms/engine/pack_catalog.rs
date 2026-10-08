@@ -27,6 +27,7 @@ pub(in crate::ui_runtime::presentation::forms) fn layer_pack_catalog(
         );
     }
     chat::prefer_builtin(&mut catalog, &builtin);
+    super::super::death_screen::prefer_literal_reason(&mut catalog);
     for note in catalog.diagnostics().iter().skip(base.diagnostics().len()) {
         bevy::log::debug!(note, "server ui pack");
     }
