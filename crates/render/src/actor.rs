@@ -8,8 +8,7 @@ use bevy::{
 use render_api::SkinRgba8;
 use render_model::{
     ActorRigGeometry, ActorRigGeometryError, ActorSkinPixels, EntityRigId, MAX_RENDERED_PLAYERS,
-    RenderBoneTransform, STANDARD_SKIN_BYTES, default_actor_skin_rgba8, normalize_actor_skin,
-    pack_geometries,
+    RenderBoneTransform, default_actor_skin_rgba8, normalize_actor_skin, pack_geometries,
 };
 
 #[path = "actor/artwork.rs"]
@@ -45,8 +44,7 @@ pub use rig::{
     MAX_ACTOR_POSE_BONES, MAX_ACTOR_RENDER_INSTANCES, actor_bounds_are_visible,
     actor_rig_submission_is_visible, pack_actor_light, pack_overlay_rgba8,
 };
-pub(crate) use skin_slots::PLAYER_SKIN_BUDGET_BYTES;
-pub use skin_slots::{ActorSkinResidency, ResidentSkin, SKIN_CLASS_SIDES, pack_skin_slot};
+pub use skin_slots::{ActorSkinResidency, ResidentSkin, pack_skin_slot};
 pub(crate) use witness::{
     ActorDrawWitness, ActorPrepareWitness, ActorQueueWitness, ActorSubmitWitness,
 };
@@ -292,7 +290,14 @@ impl ActorRenderScene {
         &mut self,
         assets: Option<&assets::RuntimeEntityAssets>,
     ) -> Result<(), ActorRigGeometryError> {
-        let geometries = assets.map(pack_geometries).unwrap_or_default();
+        self.replace_pack_entity_geometries(assets.map(pack_geometries).unwrap_or_default())
+    }
+
+    /// Publishes meshes prepared by the pack worker without rebuilding their vertices.
+    pub fn replace_pack_entity_geometries(
+        &mut self,
+        geometries: Vec<ActorRigGeometry>,
+    ) -> Result<(), ActorRigGeometryError> {
         self.rig_builder.replace_pack_geometries(geometries)?;
         self.frame = ActorRenderFrame {
             artwork: Arc::clone(&self.frame.artwork),
@@ -310,7 +315,21 @@ impl ActorRenderScene {
         Result<(), ActorRigGeometryError>,
         Result<(), ActorRigGeometryError>,
     ) {
-        let geometries = assets.map(pack_geometries).unwrap_or_default();
+        self.replace_prepared_session_geometries(
+            assets.map(pack_geometries).unwrap_or_default(),
+            equipment,
+        )
+    }
+
+    /// Atomically installs prebuilt entity and equipment ranges under the existing admission rules.
+    pub fn replace_prepared_session_geometries(
+        &mut self,
+        geometries: Vec<ActorRigGeometry>,
+        equipment: Vec<ActorRigGeometry>,
+    ) -> (
+        Result<(), ActorRigGeometryError>,
+        Result<(), ActorRigGeometryError>,
+    ) {
         let results = self
             .rig_builder
             .replace_session_pack_geometries(geometries, equipment);
@@ -491,7 +510,9 @@ impl ActorRenderScene {
         assignments: &std::collections::HashMap<ActorRenderIdentity, ActorArtworkLocation>,
     ) -> &ActorRenderFrame {
         let skins_are_valid = skins.len() <= MAX_RENDERED_PLAYERS
-            && skins.iter().all(|skin| skin.len() == STANDARD_SKIN_BYTES);
+            && skins
+                .iter()
+                .all(|skin| render_model::actor_skin_side(skin).is_some());
         let skin_layer_count = skins.len();
         if skins_are_valid {
             // Frame-local skin indices become stable slots, so a visible-set change uploads nothing.
@@ -680,3 +701,6 @@ fn normalize_skin(skin: Option<&ActorSkinPixels>) -> SkinRgba8 {
 #[cfg(test)]
 #[path = "actor/tests.rs"]
 mod tests;
+
+#[cfg(test)]
+use render_model::STANDARD_SKIN_BYTES;
