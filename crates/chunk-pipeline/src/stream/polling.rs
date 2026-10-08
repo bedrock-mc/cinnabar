@@ -36,14 +36,14 @@ impl WorldStream {
         self.startup_priority && self.scheduler_view([0.0; 3]).startup_class(key) < 2
     }
 
-    /// Mutation-through frontier for inactive inventory projections after polling.
-    /// A popped asynchronous block update is not committed until its decode applies.
+    /// Mutation-through frontier for inactive inventory projections after polling. It passes
+    /// pending chunk decodes but not block mutations, which apply only once decoded.
     #[must_use]
     pub fn inventory_committed_through(&self) -> Option<u64> {
         if self.lighting.fatal_failure {
             return None;
         }
-        Some(self.committed_sequence())
+        Some(self.order.committed_past_chunk_data())
     }
 
     const INITIAL_MESH_DISPATCH_BUDGET_PER_POLL: usize = 32;
@@ -93,6 +93,7 @@ impl WorldStream {
             self.accept_decode_completion(completion);
         }
         self.apply_ready();
+        self.promote_deferred_ingress();
         self.expire_sub_chunk_deadlines(Instant::now());
         self.pump_deferred_retries();
         self.dispatch_decode_jobs();

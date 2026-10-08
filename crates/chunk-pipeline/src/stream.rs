@@ -89,8 +89,9 @@ mod workers;
 
 pub use client_world::ingestion::WorldStreamError;
 use client_world::ingestion::{
-    BlockMutationBatch, CommitStep, DecodeCommit, DecodeCompletion, DecodeIds, DecodeJob,
-    PreparedSubChunkResult, PreparedWorldEvent, QueuedDecodeJob, dimension_slots,
+    BlockMutationBatch, CommitBudget, CommitStep, DecodeCommit, DecodeCompletion, DecodeIds,
+    DecodeJob, Footprint, LaneContext, PreparedSubChunkResult, PreparedWorldEvent, QueuedDecodeJob,
+    dimension_slots,
 };
 use column_set::ColumnSubChunkSet;
 use helpers::*;
@@ -307,6 +308,10 @@ pub struct WorldStream {
     /// has no view to wait for until the server publishes one.
     startup_terrain_announced: bool,
     seasonal_foliage: seasonal_foliage::SeasonalFoliage,
+    /// Dimension at the newest admitted wire position; commits may still lag behind it.
+    ingress_dimension: i32,
+    /// Terrain ordered behind full decode admission, prepared once capacity frees.
+    deferred_ingress: VecDeque<(u64, WorldEvent, Option<Bytes>)>,
     pending_decode: VecDeque<QueuedDecodeJob>,
     in_flight_decode_jobs: usize,
     predictions: prediction::DeferredPredictions,
