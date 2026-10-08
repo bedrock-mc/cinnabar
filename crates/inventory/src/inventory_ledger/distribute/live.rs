@@ -29,13 +29,6 @@ pub struct DragDistribution {
     remaining: u16,
 }
 
-fn same_item(a: &NetworkItemStack, b: &NetworkItemStack) -> bool {
-    a.network_id == b.network_id
-        && a.metadata == b.metadata
-        && a.block_runtime_id == b.block_runtime_id
-        && a.extra_data == b.extra_data
-}
-
 impl PlayerInventoryLedger {
     /// Accounts a press-time placement into `target` as the first cell of a drag, so a second
     /// cell rebalances it like any split; `None` when the press did not place `template` there.
@@ -49,21 +42,19 @@ impl PlayerInventoryLedger {
     ) -> Option<DragDistribution> {
         let cell = target.cell();
         if matches!(cell, Cell::Armor(_) | Cell::Offhand)
-            || before.is_some_and(|before| !same_item(before, template))
+            || before.is_some_and(|before| !PlayerInventoryLedger::same_item(before, template))
         {
             return None;
         }
         let baseline = before.map_or(0, |before| before.count);
         let held = self.view().get(cell)?;
-        let placed = held
-            .stack
-            .count
-            .checked_sub(baseline)
-            .filter(|placed| *placed > 0 && same_item(&held.stack, template))?;
+        let placed = held.stack.count.checked_sub(baseline).filter(|placed| {
+            *placed > 0 && PlayerInventoryLedger::same_item(&held.stack, template)
+        })?;
         let remaining = template.count.checked_sub(placed)?;
         let cursor = self.view().get(Cell::Cursor);
         if cursor.map_or(0, |held| held.stack.count) != remaining
-            || cursor.is_some_and(|held| !same_item(&held.stack, template))
+            || cursor.is_some_and(|held| !PlayerInventoryLedger::same_item(&held.stack, template))
         {
             return None;
         }
@@ -134,7 +125,7 @@ impl PlayerInventoryLedger {
             .unwrap_or(state.template.count);
         let cursor = self.named(self.view().get(Cell::Cursor).cloned())?;
         if cursor.as_ref().is_some_and(|held| {
-            !same_item(&held.stack, &state.template)
+            !PlayerInventoryLedger::same_item(&held.stack, &state.template)
                 || has_meaningful_overlay(held.overlay.as_ref())
         }) {
             return Err(InventoryGestureError::InvalidRequest);
@@ -146,7 +137,7 @@ impl PlayerInventoryLedger {
             if held.as_ref().map_or(0, |held| held.stack.count)
                 != contribution.baseline + contribution.placed
                 || held.as_ref().is_some_and(|held| {
-                    !same_item(&held.stack, &state.template)
+                    !PlayerInventoryLedger::same_item(&held.stack, &state.template)
                         || has_meaningful_overlay(held.overlay.as_ref())
                 })
             {
@@ -168,7 +159,7 @@ impl PlayerInventoryLedger {
             if held.is_some_and(|held| {
                 self.awaiting_identity(held)
                     || has_meaningful_overlay(held.overlay.as_ref())
-                    || !same_item(&held.stack, &state.template)
+                    || !PlayerInventoryLedger::same_item(&held.stack, &state.template)
                     || held.stack.count >= capacity
             }) {
                 continue;

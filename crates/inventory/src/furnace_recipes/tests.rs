@@ -181,6 +181,118 @@ fn furnace_loaded_alternative_keeps_the_result_available_without_source_priority
     assert_eq!(inventory.furnace_recipes(true).len(), 1);
 }
 
+/// A replacement variant follows inventory return order rather than unrelated saved cells.
+fn assert_changed_furnace_item_returns_normally(extra_data: Arc<[u8]>, block_runtime_id: i32) {
+    use sha2::{Digest, Sha256};
+
+    let mut inventory = fixture(::protocol::WINDOW_TYPE_FURNACE);
+    let recipe = inventory.furnace_recipes(true)[0].clone();
+    inventory
+        .ledger_mut()
+        .begin_furnace_recipe(&recipe)
+        .unwrap();
+    for _ in 0..inventory.ledger().pending_request_count() {
+        let ledger = inventory.ledger_mut();
+        let request_id = ledger.pending_request_id().unwrap();
+        assert!(ledger.mark_transport_enqueued(1));
+        ledger.apply(&InventoryEvent::Response(
+            ::protocol::ItemStackResponseEvent {
+                responses: Arc::from([::protocol::StackResponse {
+                    request_id,
+                    status: ::protocol::StackResponseStatus::Accepted,
+                    containers: Arc::from([]),
+                }]),
+            },
+        ));
+    }
+    assert_eq!(inventory.ledger().pending_request_count(), 0);
+    inventory
+        .ledger_mut()
+        .apply(&InventoryEvent::Content(InventoryContentEvent {
+            container: ContainerIdentity::window(0),
+            slots: vec![NetworkItemStack::empty(); usize::from(::protocol::PLAYER_INVENTORY_SLOTS)]
+                .into(),
+            storage_item: NetworkItemStack::empty(),
+        }));
+    inventory
+        .ledger_mut()
+        .apply(&InventoryEvent::Slot(::protocol::InventorySlotEvent {
+            identity: ::protocol::SlotIdentity {
+                container: ContainerIdentity::window(7),
+                slot: 0,
+            },
+            stack: NetworkItemStack {
+                network_id: 2,
+                count: 4,
+                stack_network_id: 45,
+                block_runtime_id,
+                nbt_digest: Sha256::digest(&extra_data).into(),
+                extra_data: extra_data.clone(),
+                ..NetworkItemStack::empty()
+            },
+            storage_item: None,
+        }));
+    let current = inventory.ledger().storage_stack(0).unwrap();
+    assert_eq!(current.extra_data, extra_data);
+    assert_eq!(current.block_runtime_id, block_runtime_id);
+    let other = inventory.furnace_recipes(false)[1].clone();
+    inventory.ledger_mut().begin_furnace_recipe(&other).unwrap();
+    let ledger = inventory.ledger();
+    let returned = ledger
+        .displayed_stack(0)
+        .expect("replacement returns to first inventory cell");
+    assert_eq!(
+        (
+            returned.network_id,
+            returned.count,
+            returned.block_runtime_id
+        ),
+        (2, 4, block_runtime_id)
+    );
+    assert_eq!(returned.extra_data, extra_data);
+    assert!(ledger.displayed_stack(5).is_none());
+    assert!(ledger.displayed_stack(6).is_none());
+}
+
+#[test]
+fn furnace_changed_nbt_does_not_restore_an_unrelated_source() {
+    assert_changed_furnace_item_returns_normally(
+        Arc::from([
+            255, 255, 1, 10, 0, 0, 1, 1, 0, b'v', 1, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        ]),
+        0,
+    );
+}
+
+#[test]
+fn furnace_changed_block_identity_does_not_restore_an_unrelated_source() {
+    assert_changed_furnace_item_returns_normally(Arc::from([]), 91);
+}
+
+/// Encodes one placement or breaking restriction in the item's carried data.
+fn restricted_furnace_item_data(place: bool) -> Arc<[u8]> {
+    let name = b"minecraft:stone";
+    let mut data = vec![0, 0];
+    for present in [place, !place] {
+        data.extend_from_slice(&i32::from(present).to_le_bytes());
+        if present {
+            data.extend_from_slice(&(name.len() as u16).to_le_bytes());
+            data.extend_from_slice(name);
+        }
+    }
+    data.into()
+}
+
+#[test]
+fn furnace_changed_placement_restriction_does_not_restore_an_unrelated_source() {
+    assert_changed_furnace_item_returns_normally(restricted_furnace_item_data(true), 0);
+}
+
+#[test]
+fn furnace_changed_breaking_restriction_does_not_restore_an_unrelated_source() {
+    assert_changed_furnace_item_returns_normally(restricted_furnace_item_data(false), 0);
+}
+
 #[test]
 fn furnace_loaded_only_selection_returns_input_and_previews_the_recipe() {
     let mut inventory = fixture(::protocol::WINDOW_TYPE_FURNACE);

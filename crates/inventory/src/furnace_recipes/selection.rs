@@ -141,7 +141,7 @@ impl PlayerInventoryLedger {
                 let (Some(stack), Some(original)) = (self.storage_stack(source), original) else {
                     continue;
                 };
-                if stack.network_id != original.network_id || stack.metadata != original.metadata {
+                if !Self::same_item(stack, original) {
                     continue;
                 }
                 let current_count = self
