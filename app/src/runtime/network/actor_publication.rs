@@ -1,4 +1,4 @@
-//! Captures pre-send observations and finalizes poses after local interaction admission.
+//! Captures post-send observations and finalizes poses after local interaction admission.
 use crate::{
     movement::{LocalPhysicsController, MovementTicker, PhysicsCollisionRegistries},
     player_runtime::PlayerRuntime,
@@ -33,7 +33,7 @@ pub(crate) struct ActorObservations<'w> {
     profiler: Option<Res<'w, render::RuntimeStageProfiler>>,
 }
 
-/// Captures live owners and advances actors before UI and interaction picking.
+/// Captures live owners and advances actors after this frame's sends, before UI preparation.
 pub(crate) fn advance_actor_frame(
     observations: ActorObservations,
     params: client_presentation::actor_publication::ActorFramePublication,

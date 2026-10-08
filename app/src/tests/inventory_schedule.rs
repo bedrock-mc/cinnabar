@@ -125,7 +125,7 @@ fn production_schedule_drains_content_before_click_and_admits_only_in_network_se
         "menu input must finish before inventory UI actions",
     );
     assert!(graph.dependency().graph().contains_edge(
-        stage_node(graph, ClientFrameSet::UiPreparation),
+        stage_node(graph, ClientFrameSet::Interaction),
         stage_node(graph, ClientFrameSet::NetworkSend),
     ));
 }

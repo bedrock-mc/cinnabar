@@ -3,7 +3,7 @@ use bevy::{
         ButtonState, gamepad::GamepadButton, keyboard::KeyboardInput, mouse::AccumulatedMouseMotion,
     },
     prelude::{ButtonInput, KeyCode, MouseButton, Vec2},
-    window::{CursorGrabMode, CursorOptions},
+    window::{CursorGrabMode, CursorOptions, WindowEvent},
 };
 
 use protocol::{ChatPacketError, Packet};
@@ -38,40 +38,44 @@ pub enum ChatFlushError<E> {
 
 pub use protocol::FastTransferAction;
 
+/// Hands queued messages to the transport in FIFO order, each in the frame it was queued.
+/// A transfer command waits for earlier sends to be acknowledged and holds back later ones.
 pub fn flush_chat_sends<E>(
     runtime: &mut UiRuntime,
     budget: usize,
     mut send: impl FnMut(u64, u64, Option<FastTransferAction>, Packet) -> Result<(), E>,
 ) -> Result<usize, ChatFlushError<E>> {
-    if budget == 0 || runtime.in_flight_chat_send().is_some() {
-        return Ok(0);
-    }
     let mut sent = 0;
-    for _ in 0..budget.min(1) {
-        let Some(request) = runtime.pending_chat_sends().front() else {
+    while sent < budget {
+        let in_flight = runtime.in_flight_chat_sends();
+        let pending = runtime.pending_chat_sends();
+        let Some(request) = pending.get(in_flight) else {
             break;
         };
-        if request.session != runtime.session_id() {
+        let action = FastTransferAction::classify(&request.message);
+        let transfer_in_flight = pending
+            .iter()
+            .take(in_flight)
+            .any(|request| FastTransferAction::classify(&request.message).is_some());
+        if transfer_in_flight || (action.is_some() && in_flight > 0) {
+            break;
+        }
+        let session = request.session;
+        if session != runtime.session_id() {
             return Err(ChatFlushError::SessionChanged {
                 expected: runtime.session_id(),
-                actual: request.session,
+                actual: session,
             });
         }
         let (sequence, packet) = runtime
-            .front_chat_packet()
+            .next_chat_packet()
             .map_err(ChatFlushError::Packet)?
-            .expect("the pending front was observed above");
-        send(
-            request.session,
-            sequence,
-            FastTransferAction::classify(&request.message),
-            packet,
-        )
-        .map_err(ChatFlushError::Transport)?;
-        let enqueued = runtime.mark_chat_send_enqueued(request.session, sequence);
+            .expect("the next unsent request was observed above");
+        send(session, sequence, action, packet).map_err(ChatFlushError::Transport)?;
+        let enqueued = runtime.mark_chat_send_enqueued(session, sequence);
         debug_assert!(
             enqueued,
-            "only the observed FIFO front can become in flight"
+            "only the observed next request can become in flight"
         );
         sent += 1;
     }
@@ -86,6 +90,7 @@ pub struct InventoryKeys {
     shift: bool,
     control: bool,
     modifier_sides: [bool; 4],
+    close_after_pointer: bool, // A close key that arrived after this frame's pointer press.
 }
 
 impl InventoryKeys {
@@ -116,6 +121,36 @@ impl InventoryKeys {
             self.presses.push(key);
         }
     }
+
+    /// Holds the close until the earlier pointer press has been applied.
+    pub fn defer_close(&mut self) {
+        self.close_after_pointer = true;
+    }
+
+    pub fn take_deferred_close(&mut self) -> bool {
+        std::mem::take(&mut self.close_after_pointer)
+    }
+}
+
+/// Keyboard events that reached the window before this frame's first primary or
+/// secondary press, or `None` without such a press.
+pub fn keys_before_pointer_press<'a>(
+    events: impl IntoIterator<Item = &'a WindowEvent>,
+) -> Option<usize> {
+    let mut keys = 0;
+    for event in events {
+        match event {
+            WindowEvent::KeyboardInput(_) => keys += 1,
+            WindowEvent::MouseButtonInput(input)
+                if input.state == ButtonState::Pressed
+                    && matches!(input.button, MouseButton::Left | MouseButton::Right) =>
+            {
+                return Some(keys);
+            }
+            _ => {}
+        }
+    }
+    None
 }
 
 /// Keyboard gestures over the hovered cell: resolved bindings swap with that hotbar

@@ -3645,3 +3645,15 @@ Files: `docs/reference/held-block-placement.md`, `crates/gameplay/src/block_use.
   `geometry.the_entity`. A fixed 151-actor loopback scene keeps the late actor in
   its authored frustum while a camera turn admits the background crowd; the old
   128-body gates remove that otherwise visible actor.
+
+## app/src/app/authority.rs; crates/client-ui/src/ui_runtime/interaction.rs; crates/client-ui/src/ui_runtime/forms.rs; app/src/ui_runtime/interaction.rs
+
+- 1.26.30 macOS symbols (not re-traced on 1.26.50.26): `MinecraftGame::_update` 0x1025b2330 runs
+  `startFrame` input callbacks, then `Minecraft::update` 0x10992bf20 runs the sim ticks followed by
+  its network lambda (dispatcher 0x1099359ab): `NetworkSystem::runEvents` 0x105a32410 then
+  `NetworkSystem::update` 0x105a31500, which flushes every `BatchedNetworkPeer` (0x10652fab0) once,
+  before `MinecraftGame::updateGraphics` 0x1025be920. Packets therefore leave after ticks and before
+  any render-side preparation.
+- `ClientInstanceScreenModel::sendChatMessage` builds `TextPacketPayload::createChat` 0x106c9fe50
+  and sends on submit; no per-message acknowledgement gate.
+- Input callbacks run from `MinecraftInputHandler::tick` (win 0x4a2b670) in arrival order.

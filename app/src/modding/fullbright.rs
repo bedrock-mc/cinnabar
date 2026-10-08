@@ -6,7 +6,7 @@ pub(super) fn configure(app: &mut App) {
     app.add_systems(
         Update,
         publish
-            .after(ClientFrameSet::Camera)
+            .after(ClientFrameSet::NetworkSend)
             .before(ClientFrameSet::UiPreparation),
     );
 }

@@ -98,10 +98,10 @@ fn production_client_systems_are_members_of_the_behavioral_sets() {
         ClientFrameSet::Physics,
         ClientFrameSet::Camera,
         ClientFrameSet::Interaction,
+        ClientFrameSet::NetworkSend,
         ClientFrameSet::WorldPublication,
         ClientFrameSet::ActorPreparation,
         ClientFrameSet::UiPreparation,
-        ClientFrameSet::NetworkSend,
         ClientFrameSet::ActorFinalization,
         ClientFrameSet::ActorPublication,
         ClientFrameSet::UiPublication,
@@ -210,6 +210,20 @@ fn production_client_systems_are_members_of_the_behavioral_sets() {
         "send_player_auth_inputs",
         ClientFrameSet::NetworkSend,
     );
+    for preparation in [
+        system_node(graph, drive_world_stream, "drive_world_stream"),
+        system_node(graph, advance_actor_frame, "advance_actor_frame"),
+        system_node(graph, prepare_ui_runtime, "prepare_ui_runtime"),
+    ] {
+        assert!(
+            schedule_precedes(
+                graph,
+                system_node(graph, send_player_auth_inputs, "send_player_auth_inputs"),
+                preparation,
+            ),
+            "gameplay packets must not wait for world, actor or UI preparation",
+        );
+    }
     assert!(
         schedule_precedes(
             graph,

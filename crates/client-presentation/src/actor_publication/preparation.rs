@@ -39,7 +39,7 @@ impl ActorFrameState {
     }
 }
 
-/// Captures inventory and advances the actor clock once, before interaction owners pick actors.
+/// Captures inventory and advances the actor clock once, after interaction owners pick actors.
 pub fn advance_actor_frame(
     mut client_world: ActorWorld<'_>,
     mut input: ActorFrameInput,

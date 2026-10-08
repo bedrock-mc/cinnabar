@@ -21,7 +21,7 @@ use bevy::{
         With,
     },
     time::Real,
-    window::{CursorGrabMode, CursorOptions, PrimaryWindow, Window},
+    window::{CursorGrabMode, CursorOptions, PrimaryWindow, Window, WindowEvent},
 };
 
 use crate::menu::settings_options::{
@@ -38,8 +38,8 @@ use client_ui::ui_runtime::{PlatformClipboard, UiRuntime};
 use client_ui::ui_runtime::interaction::{
     ChatFlushError, dispatch_chat_ui_action, dispatch_inventory_hotbar, dispatch_inventory_key,
     flush_chat_sends, flush_inventory_send, gamepad_chat_action, is_chat_edit_shortcut,
-    paste_chat_shortcut, restore_gameplay_input_after_chat, suppress_gameplay_input_for_chat,
-    suppress_gameplay_input_for_inventory,
+    keys_before_pointer_press, paste_chat_shortcut, restore_gameplay_input_after_chat,
+    suppress_gameplay_input_for_chat, suppress_gameplay_input_for_inventory,
 };
 
 pub(crate) fn flush_inventory_network(
@@ -309,6 +309,23 @@ pub(crate) fn drive_inventory_ui_actions(
     }
 }
 
+/// Applies a close key deferred behind this frame's click, whether or not the click landed.
+pub(crate) fn apply_deferred_inventory_close(
+    mut player_runtime: bevy::prelude::ResMut<crate::player_runtime::PlayerRuntime>,
+    mut runtime: ResMut<UiRuntime>,
+    mut mouse_buttons: ResMut<ButtonInput<MouseButton>>,
+    mut focus: Option<ResMut<client_presentation::camera::CursorFocus>>,
+) {
+    if !runtime.inventory_keys_mut().take_deferred_close() || !runtime.inventory_open() {
+        return;
+    }
+    runtime.close_inventory(&mut player_runtime);
+    mouse_buttons.reset_all();
+    if let Some(focus) = focus.as_deref_mut() {
+        focus.authorize_screen_return();
+    }
+}
+
 /// Wheel notches over an engine-drawn screen scroll the view under the pointer.
 fn scroll_container(
     runtime: &mut UiRuntime,
@@ -415,10 +432,20 @@ pub(crate) fn drive_chat_keyboard_input(
     mut presentation: Option<ResMut<UiPresentationRuntime>>,
     mut clipboard: Option<ResMut<crate::menu::MenuClipboard>>,
     mut modifiers: Local<ButtonInput<KeyCode>>,
-    emote_input: Option<Res<super::emotes::EmoteInputConsumed>>,
+    (emote_input, driven): (
+        Option<Res<super::emotes::EmoteInputConsumed>>,
+        Option<Res<crate::camera::DrivenInput>>,
+    ),
     mut focus: Option<ResMut<client_presentation::camera::CursorFocus>>,
-    driven: Option<Res<crate::camera::DrivenInput>>,
+    (window_events, mut window_cursor): (
+        Option<Res<Messages<WindowEvent>>>,
+        Local<MessageCursor<WindowEvent>>,
+    ),
 ) {
+    // Only the window event stream keeps keyboard and pointer events in arrival order.
+    let keys_before_pointer = window_events
+        .as_deref()
+        .and_then(|events| keys_before_pointer_press(window_cursor.read(events)));
     let (window, mut cursor) = window.into_inner();
     let input_available = driven.is_some()
         || (window.focused && focus.as_ref().is_none_or(|focus| focus.available()));
@@ -540,7 +567,7 @@ pub(crate) fn drive_chat_keyboard_input(
         }
     }
     chat_modifiers::capture(&mut modifiers, &keys);
-    for input in keyboard_messages.read() {
+    for (arrival, input) in keyboard_messages.read().enumerate() {
         chat_modifiers::track(&mut modifiers, input);
         runtime.inventory_keys_mut().track_modifier(input);
         if input.state != ButtonState::Pressed {
@@ -585,6 +612,13 @@ pub(crate) fn drive_chat_keyboard_input(
                     }
                 }
                 dismissed |= !runtime.inventory_open();
+                continue;
+            }
+            let closes = input.key_code == KeyCode::Escape
+                || binding_key(menu.as_deref(), "key.inventory", input.key_code);
+            if closes && keys_before_pointer.is_some_and(|keys| arrival >= keys) {
+                // The earlier click still lands in the screen before it closes.
+                runtime.inventory_keys_mut().defer_close();
                 continue;
             }
             match input.key_code {

@@ -88,9 +88,9 @@ use crate::{
     session_cleanup::{ScopedSessionDirectory, reclaim_stale_session_directories},
     survival_mining::{SurvivalMiningRuntime, produce_survival_mining},
     ui_runtime::{
-        drain_inventory_authority, drive_chat_keyboard_input, drive_chat_ui_actions,
-        drive_inventory_ui_actions, drive_server_form_input, drive_sign_editor,
-        drive_world_inventory_keys, flush_chat_network, flush_inventory_network,
+        apply_deferred_inventory_close, drain_inventory_authority, drive_chat_keyboard_input,
+        drive_chat_ui_actions, drive_inventory_ui_actions, drive_server_form_input,
+        drive_sign_editor, drive_world_inventory_keys, flush_chat_network, flush_inventory_network,
         flush_server_form_network,
         gameplay_touch::drive_gameplay_touch_targets,
         presentation::{
@@ -145,10 +145,10 @@ pub(crate) enum ClientFrameSet {
     Physics,
     Camera,
     Interaction,
+    NetworkSend,
     WorldPublication,
     ActorPreparation,
     UiPreparation,
-    NetworkSend,
     ActorFinalization,
     ActorPublication,
     UiPublication,
@@ -295,12 +295,21 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
                 produce_melee,
                 produce_survival_mining,
                 crate::item_use::produce_item_use,
+                #[cfg(feature = "tracy")]
+                crate::tracy::plot_physics_to_send,
                 send_player_auth_inputs,
                 crate::pick_block::produce_pick_block,
             )
                 .chain()
                 .in_set(ClientFrameSet::NetworkSend),
         );
+    #[cfg(feature = "tracy")]
+    app.init_resource::<crate::tracy::PhysicsEnd>().add_systems(
+        Update,
+        crate::tracy::mark_physics_end
+            .after(advance_local_physics)
+            .in_set(ClientFrameSet::Physics),
+    );
 }
 
 pub(crate) fn configure_acceptance_finish_system(app: &mut App) {

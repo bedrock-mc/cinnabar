@@ -13,10 +13,11 @@ pub(crate) fn configure_client_frame_schedule(app: &mut App) {
             ClientFrameSet::Physics,
             ClientFrameSet::Camera,
             ClientFrameSet::Interaction,
+            // Packets leave before world, actor and UI preparation, as vanilla flushes before render.
+            ClientFrameSet::NetworkSend,
             ClientFrameSet::WorldPublication,
             ClientFrameSet::ActorPreparation,
             ClientFrameSet::UiPreparation,
-            ClientFrameSet::NetworkSend,
             ClientFrameSet::ActorFinalization,
             ClientFrameSet::ActorPublication,
             ClientFrameSet::UiPublication,
@@ -57,7 +58,12 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
                 crate::fullscreen::apply_runtime_fullscreen_setting,
                 crate::ui_runtime::presentation::apply_gui_scale_setting,
                 crate::menu::persist_video_settings,
-                drive_inventory_ui_actions.run_if(crate::server_experiences::input::ordinary_input),
+                (
+                    drive_inventory_ui_actions
+                        .run_if(crate::server_experiences::input::ordinary_input),
+                    apply_deferred_inventory_close,
+                )
+                    .chain(),
                 drive_menu_services,
                 drive_session,
                 crate::settings_runtime::apply_window_settings,

@@ -68,7 +68,7 @@ pub(crate) struct SurvivalMiningContext<'w, 's> {
     block_cues: bevy::prelude::MessageWriter<'w, crate::audio::LocalBlockCue>,
 }
 
-/// Runs after committed world publication and before the movement flush.
+/// Runs after the committed world poll and before the movement flush.
 pub(crate) fn produce_survival_mining(
     mut player_runtime: bevy::prelude::ResMut<crate::player_runtime::PlayerRuntime>,
     mut context: SurvivalMiningContext,
