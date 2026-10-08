@@ -179,7 +179,6 @@ pub(in crate::chunk) fn install(app: &mut App) {
         adapter.get_downlevel_capabilities().flags,
         device.features(),
         Backends::from(adapter.get_info().backend),
-        cfg!(debug_assertions),
     );
     let support = GpuCullSupport(gpu_cull_supported(
         draw_mode,

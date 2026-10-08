@@ -109,6 +109,20 @@ opt-level = 1
 [profile.dev.package."*"]
 opt-level = 3
 
+# wgpu-core 27.0.3 expands validated DX12 indexed draws from 20 to 32 bytes, but
+# its debug-only multi-draw assertion still compares the 20-byte source stride.
+# Upstream fixed this in gfx-rs/wgpu#9332. Keep wgpu's runtime validation and
+# disable only the dependency's faulty internal assertions until the next Bevy
+# upgrade, so workspace debug builds retain multi-draw indirect.
+[profile.dev.package."wgpu-core"]
+opt-level = 3
+debug-assertions = false
+
+# `cargo test` uses a separate profile and exercises the same DX12 MDI path.
+[profile.test.package."wgpu-core"]
+opt-level = 3
+debug-assertions = false
+
 [profile.release]
 codegen-units = 1
 lto = "thin"
