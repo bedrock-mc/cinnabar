@@ -1,17 +1,18 @@
 //! Cape-backed wings keep their draw and glint while replacing only the texture source.
 
 use super::apply_capes;
-use view_presentation::cape::{ACTOR_LAYER_CAPE, CapeRig};
 use crate::presentation::{actors::ActorPresentationBatch, equipment::ELYTRA_LAYER};
 use assets::EntityRenderMaterial;
 use client_world::PlayerProfile;
 use protocol::{CapeImage, PlayerSkin, StandardSkin};
 use render::{
     ACTOR_LAYER_BODY, ActorArtworkPages, ActorGlint, ActorMaterial, ActorRenderIdentity,
-    ActorRigRenderInput, ActorRigRoute, ActorRigSubmission, };
+    ActorRigRenderInput, ActorRigRoute, ActorRigSubmission,
+};
 use render_model::equipment::EquipmentRaster;
 use render_model::{EntityRigId, RenderBoneTransform, STANDARD_SKIN_BYTES, STANDARD_SKIN_SIDE};
 use std::{collections::HashMap, sync::Arc};
+use view_presentation::cape::{ACTOR_LAYER_CAPE, CapeRig};
 
 /// Worn wings bypass the separate cape geometry and pose.
 fn fixture_cape() -> CapeRig {

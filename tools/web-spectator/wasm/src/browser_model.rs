@@ -394,3 +394,23 @@ impl SceneEntity {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::Frame;
+
+    #[test]
+    fn solo_frames_accept_nil_team_scores_but_reject_invalid_scores() {
+        let mut frame = serde_json::json!({"id":"duel", "updatedAt":"2026-10-08T12:00:00Z", "arenaId":"arena", "mode":"NoDebuff", "players":[], "teamWins":null});
+        assert!(
+            Frame::parse(&frame.to_string())
+                .unwrap()
+                .team_wins
+                .is_empty()
+        );
+        frame["teamWins"] = serde_json::json!([1, 0]);
+        assert_eq!(Frame::parse(&frame.to_string()).unwrap().team_wins, [1, 0]);
+        frame["teamWins"] = serde_json::json!(["invalid"]);
+        assert!(Frame::parse(&frame.to_string()).is_err());
+    }
+}

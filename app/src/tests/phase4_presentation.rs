@@ -563,7 +563,7 @@ fn local_canonical_body_lags_the_view_yaw_by_the_rigs_head_offset() {
     let mut canonical = render_owned(7, 31);
     canonical.head_over_body = 30.0;
     canonical.submission.world_from_actor =
-        crate::presentation::actors::rig_world_from_actor([0.0; 3], 0.0, 1.0);
+        view_presentation::equipment_display::rig_world_from_actor([0.0; 3], 0.0, 1.0);
     let diagnostic = local_diagnostic_presentation(7, 0, 7, 5, [4.0, 64.0, 2.0], 90.0, 0.0)
         .expect("finite local carrier converts");
     let local =
@@ -571,7 +571,7 @@ fn local_canonical_body_lags_the_view_yaw_by_the_rigs_head_offset() {
             .expect("canonical local rig is kept");
     assert_eq!(
         local.submission.world_from_actor,
-        crate::presentation::actors::rig_world_from_actor([4.0, 64.0, 2.0], 60.0, 1.0)
+        view_presentation::equipment_display::rig_world_from_actor([4.0, 64.0, 2.0], 60.0, 1.0)
     );
 }
 

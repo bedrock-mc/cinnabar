@@ -1,8 +1,8 @@
 use super::*;
-use ui::native_hud::Cell;
 use crate::ui_runtime::SequencedLocalAttributes;
 use protocol::{ActorEffectAction, ActorEffectEvent};
 use std::sync::Arc;
+use ui::native_hud::Cell;
 
 /// Supplies health and absorption as local-player attribute packets do.
 fn absorbed(current: f32, maximum: f32) -> (player_state::PlayerState, UiRuntime) {

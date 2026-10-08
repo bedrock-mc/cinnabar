@@ -1,10 +1,10 @@
-use bevy::platform::time::Instant;
 use super::model::{
     ARGS_WORDS, CullCamera, CullPhase, CullRecord, CullStream, args_region, args_words,
     reference_args, slot_enabled,
 };
 use super::slots::{CullSlots, cull_record, quad_bounds};
 use super::*;
+use bevy::platform::time::Instant;
 
 const SIDE: i32 = world::SUB_CHUNK_SIDE as i32;
 
@@ -267,8 +267,8 @@ fn slot_table_tracks_moves_removals_cave_visibility_and_tint() {
 #[test]
 #[ignore = "offline CPU stage timing fixture"]
 fn gpu_cull_cpu_stage_bench() {
-    use bevy::render::render_phase::ViewRangefinder3d;
     use bevy::platform::time::Instant;
+    use bevy::render::render_phase::ViewRangefinder3d;
 
     // A 12-chunk radius: 25 x 25 columns of 24 sub-chunks.
     let mut world = World::new();

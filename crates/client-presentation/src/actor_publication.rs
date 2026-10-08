@@ -9,9 +9,9 @@ use equipment_layers::local_equipment;
 mod hand;
 mod java;
 pub use commit::{PreparedActorPublication, publish_actor_render_frame};
-use hand::{HandSource, hand_motion_matrix, publish_hand_rig};
 #[cfg(test)]
 use hand::hand_progress;
+use hand::{HandSource, hand_motion_matrix, publish_hand_rig};
 
 use std::sync::Arc;
 
@@ -40,8 +40,7 @@ use crate::{
         local_diagnostic_presentation, select_actor_presentations_for_view,
     },
     presentation::equipment::{
-        EquipmentRuntime, FirstPersonItem, StagedSessionIcons,
-        remote_input,
+        EquipmentRuntime, FirstPersonItem, StagedSessionIcons, remote_input,
     },
 };
 use bevy::prelude::{Query, Transform, With};

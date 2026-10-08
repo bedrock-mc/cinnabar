@@ -2,8 +2,8 @@
 
 use bevy::math::{Mat4, Quat, Vec3};
 use render_model::RenderBoneTransform;
-use render_model::equipment::sprite_item_transform;
 use render_model::equipment::ItemDisplay;
+use render_model::equipment::sprite_item_transform;
 
 pub const LAYER_MAIN_HAND: u8 = 1;
 pub const LAYER_OFF_HAND: u8 = 2;
@@ -145,7 +145,6 @@ impl FirstPersonArms {
     }
 }
 
-
 /// Places a rig-frame model, which faces -Z with its right side at +X, so it faces the
 /// Minecraft `yaw_degrees` direction at `position`, scaled about the feet.
 pub fn rig_world_from_actor(position: [f32; 3], yaw_degrees: f32, scale: f32) -> [[f32; 4]; 3] {
@@ -157,9 +156,10 @@ pub fn rig_world_from_actor(position: [f32; 3], yaw_degrees: f32, scale: f32) ->
     ]
 }
 
-
 /// Red damage overlay over the authoritative actor fade alpha.
-pub fn hurt_overlay_rgba(alpha: f32) -> [f32; 4] { [1.0, 0.0, 0.0, alpha] }
+pub fn hurt_overlay_rgba(alpha: f32) -> [f32; 4] {
+    [1.0, 0.0, 0.0, alpha]
+}
 
 /// Zero-yaw first-person rig placement, including its native model-space lift.
 pub fn hand_camera_from_rig(scale: f32, eye_height: f32, motion: Mat4) -> [[f32; 4]; 3] {
@@ -180,26 +180,51 @@ pub fn hand_view_placement(matrix: Mat4) -> [[f32; 4]; 3] {
 }
 
 /// Visible native arm and sleeve bones, preserving compiled pose order.
-pub fn mask_first_person_bones(names: &[Box<str>], pose: &[RenderBoneTransform], arms: FirstPersonArms) -> Vec<RenderBoneTransform> {
+pub fn mask_first_person_bones(
+    names: &[Box<str>],
+    pose: &[RenderBoneTransform],
+    arms: FirstPersonArms,
+) -> Vec<RenderBoneTransform> {
     let visible = |name: &str| {
         let is = |wanted: &str| name.eq_ignore_ascii_case(wanted);
         (arms.right && (is("rightArm") || is("rightSleeve")))
             || (arms.left && (is("leftArm") || is("leftSleeve")))
     };
-    pose.iter().zip(names).map(|(bone, name)| if visible(name) { *bone } else { crate::armor_pose::hidden_bone() }).collect()
+    pose.iter()
+        .zip(names)
+        .map(|(bone, name)| {
+            if visible(name) {
+                *bone
+            } else {
+                crate::armor_pose::hidden_bone()
+            }
+        })
+        .collect()
 }
 
 /// Per-tick hand facts admitted by the caller's animation owner.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct HandProgress { pub attack_time: f32, pub arm_height: f32, pub use_ticks: u32 }
+pub struct HandProgress {
+    pub attack_time: f32,
+    pub arm_height: f32,
+    pub use_ticks: u32,
+}
 
-pub fn hand_progress(hand: [HandProgress; 2], consume_ticks: Option<u32>, partial_tick: f32) -> FirstPersonHand {
+pub fn hand_progress(
+    hand: [HandProgress; 2],
+    consume_ticks: Option<u32>,
+    partial_tick: f32,
+) -> FirstPersonHand {
     let [previous, current] = hand;
     let mut swing = current.attack_time - previous.attack_time;
-    if swing < 0.0 { swing += 1.0; }
+    if swing < 0.0 {
+        swing += 1.0;
+    }
     FirstPersonHand {
         swing: previous.attack_time + swing * partial_tick,
         equip: previous.arm_height + (current.arm_height - previous.arm_height) * partial_tick,
-        consume: consume_ticks.filter(|_| current.use_ticks > 0).map(|ticks| (current.use_ticks as f32 - 1.0 + partial_tick, ticks as f32)),
+        consume: consume_ticks
+            .filter(|_| current.use_ticks > 0)
+            .map(|ticks| (current.use_ticks as f32 - 1.0 + partial_tick, ticks as f32)),
     }
 }

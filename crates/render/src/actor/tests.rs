@@ -243,12 +243,13 @@ fn batched_geometries_rebuild_the_catalog_once() {
 
 #[test]
 fn review_render_geometry_replacement_keeps_configured_artwork() {
-    let (pages, _) =
-        super::ActorArtworkPages::default().with_equipment_rasters(&[render_model::equipment::EquipmentRaster {
+    let (pages, _) = super::ActorArtworkPages::default().with_equipment_rasters(&[
+        render_model::equipment::EquipmentRaster {
             width: 1,
             height: 1,
             rgba8: Arc::from([1, 2, 3, 255]),
-        }]);
+        },
+    ]);
     let mut scene = ActorRenderScene::default();
     scene.configure_artwork(pages);
     let before = Arc::clone(&scene.frame.artwork);

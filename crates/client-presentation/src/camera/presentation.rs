@@ -8,7 +8,10 @@ use bevy::prelude::{
     EulerRot, Mat4, Quat, Query, Res, ResMut, Resource, Time, Transform, Vec3, With,
 };
 use semantic_input::{Action, PerspectiveMode};
-use view_presentation::camera::{CameraHurtState, FirstPersonHandMotion, HandSwayState, ViewEffect, WalkBobState, walk_bob_effect};
+use view_presentation::camera::{
+    CameraHurtState, FirstPersonHandMotion, HandSwayState, ViewEffect, WalkBobState,
+    walk_bob_effect,
+};
 
 use super::{
     CameraSettingsAuthority, FlyCamera,

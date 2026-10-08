@@ -20,7 +20,9 @@ impl Painter<'_> {
         alpha: &dyn Fn([u8; 4]) -> [u8; 4],
     ) -> Option<()> {
         let paint = view_presentation::progress::capture_progress(data, dest, self.px)?;
-        for rect in paint.rects() { self.solid(rect.bounds, alpha(rect.color)).ok()?; }
+        for rect in paint.rects() {
+            self.solid(rect.bounds, alpha(rect.color)).ok()?;
+        }
         Some(())
     }
 

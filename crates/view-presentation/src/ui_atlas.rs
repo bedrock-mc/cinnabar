@@ -216,8 +216,8 @@ pub fn font_texture_array_with_hud_and_icons(
         ([render_model::UI_ART_PAGE_SIDE; 2], UiTextureFormat::Rgba8),
         render_model::MAX_UI_ART_PAGES,
     ));
-    let plan = UiTexturePlan::with_formats(&planned)
-        .map_err(|_| UiAtlasError::InvalidFontTexture)?;
+    let plan =
+        UiTexturePlan::with_formats(&planned).map_err(|_| UiAtlasError::InvalidFontTexture)?;
     if plan.bytes() > MAX_UI_FIXED_TEXTURE_BYTES {
         return Err(UiAtlasError::InvalidFontTexture);
     }
@@ -302,10 +302,8 @@ pub fn font_texture_array_with_hud_and_icons(
                     u16::try_from(bottom).map_err(|_| UiAtlasError::InvalidFontTexture)?,
                 ],
                 size: [
-                    u16::try_from(texture.width)
-                        .map_err(|_| UiAtlasError::InvalidFontTexture)?,
-                    u16::try_from(texture.height)
-                        .map_err(|_| UiAtlasError::InvalidFontTexture)?,
+                    u16::try_from(texture.width).map_err(|_| UiAtlasError::InvalidFontTexture)?,
+                    u16::try_from(texture.height).map_err(|_| UiAtlasError::InvalidFontTexture)?,
                 ],
             };
             cursor[0] = padded_right;

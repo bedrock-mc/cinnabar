@@ -18,9 +18,8 @@ pub use admission::within_actor_candidate_cube;
 mod tick_cache;
 pub use tick_cache::PoseConversions;
 use tick_cache::TickKey;
-use view_presentation::equipment_display::rig_world_from_actor;
 pub(crate) use tick_cache::convert_bones;
-
+use view_presentation::equipment_display::rig_world_from_actor;
 
 #[derive(Clone, Debug)]
 pub struct ActorRigPresentation {
@@ -328,7 +327,9 @@ fn place(
         glide_rotation(actor, alpha),
     );
     submission.overlay_rgba8 = if actor.hurt_overlay_active() {
-        pack_overlay_rgba8(view_presentation::equipment_display::hurt_overlay_rgba(client_world::HURT_OVERLAY_ALPHA))
+        pack_overlay_rgba8(view_presentation::equipment_display::hurt_overlay_rgba(
+            client_world::HURT_OVERLAY_ALPHA,
+        ))
     } else {
         0
     };

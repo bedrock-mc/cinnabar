@@ -4,9 +4,10 @@ use std::sync::Arc;
 use assets::{CAPE_GEOMETRY_IDENTIFIER, RuntimeEntityAssets};
 use bevy::math::{EulerRot, Quat, Vec3};
 use render_model::{
-    ActorRigGeometry, EntityRigId, RenderBoneTransform, STANDARD_SKIN_BYTES,
-    STANDARD_SKIN_SIDE, entity_geometry, equipment_rig_id, find_geometry_index,
-    java_animation::{JavaCapeInput, java_cape_bone}, resolve_geometry_bones,
+    ActorRigGeometry, EntityRigId, RenderBoneTransform, STANDARD_SKIN_BYTES, STANDARD_SKIN_SIDE,
+    entity_geometry, equipment_rig_id, find_geometry_index,
+    java_animation::{JavaCapeInput, java_cape_bone},
+    resolve_geometry_bones,
 };
 
 /// Render layer of a player's cape, below the extra texture layers.
@@ -144,8 +145,7 @@ pub fn cape_pose(
                     let parent = Quat::from_array(parent_pose.rotation);
                     let mut local = parent.inverse() * Quat::from_array(pose.rotation);
                     let rest = index.and_then(&body_rest);
-                    let parent_rest =
-                        parent_index.map_or(Some(identity), &body_rest);
+                    let parent_rest = parent_index.map_or(Some(identity), &body_rest);
                     if let (Some(rest), Some(parent_rest)) = (rest, parent_rest) {
                         let scale = total_scale(parent_pose);
                         let rest_scale = total_scale(&parent_rest);

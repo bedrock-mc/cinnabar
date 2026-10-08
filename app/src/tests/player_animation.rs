@@ -299,7 +299,8 @@ fn head_faces_the_reported_head_yaw_and_pitch_in_the_world() {
     world.advance_actor_interpolation_ticks(3);
     let rig = world.authority().actor_rig(42).unwrap();
     assert!(rig.body_yaw.abs() < 40.0, "the body lags the head");
-    let model = crate::presentation::actors::rig_world_from_actor([0.0; 3], rig.body_yaw, 1.0);
+    let model =
+        view_presentation::equipment_display::rig_world_from_actor([0.0; 3], rig.body_yaw, 1.0);
     let forward = rotate(bone(&world, &entities, "head").rotation, [0.0, 0.0, -1.0]);
     let world_forward: [f32; 3] =
         std::array::from_fn(|row| (0..3).map(|axis| model[row][axis] * forward[axis]).sum());
@@ -329,8 +330,11 @@ fn sneaking_keeps_the_heads_entity_relative_look_direction() {
         let standing_head = bone(&world, &entities, "head");
         let world_direction = |world: &WorldStream, rotation, direction| {
             let rig = world.authority().actor_rig(42).unwrap();
-            let model =
-                crate::presentation::actors::rig_world_from_actor([0.0; 3], rig.body_yaw, 1.0);
+            let model = view_presentation::equipment_display::rig_world_from_actor(
+                [0.0; 3],
+                rig.body_yaw,
+                1.0,
+            );
             let vector = rotate(rotation, direction);
             std::array::from_fn::<f32, 3, _>(|row| {
                 (0..3).map(|axis| model[row][axis] * vector[axis]).sum()
@@ -383,7 +387,7 @@ fn sneaking_keeps_the_heads_entity_relative_look_direction() {
 #[test]
 fn rig_frame_front_faces_the_yaw_and_its_right_side_faces_the_models_right() {
     let at = |yaw: f32, vector: [f32; 3]| {
-        let model = crate::presentation::actors::rig_world_from_actor([0.0; 3], yaw, 2.0);
+        let model = view_presentation::equipment_display::rig_world_from_actor([0.0; 3], yaw, 2.0);
         std::array::from_fn::<f32, 3, _>(|row| {
             (0..3)
                 .map(|axis| model[row][axis] * vector[axis])
@@ -499,7 +503,12 @@ fn skinned_player_publishes_a_drawable_body_and_cape_on_the_skin_page() {
         layers,
         [
             (ACTOR_LAYER_BODY, ActorRigRoute::Compiled, 200, true),
-            (cape::ACTOR_LAYER_CAPE, ActorRigRoute::Compiled, 90, true),
+            (
+                view_presentation::cape::ACTOR_LAYER_CAPE,
+                ActorRigRoute::Compiled,
+                90,
+                true
+            ),
         ]
     );
 }

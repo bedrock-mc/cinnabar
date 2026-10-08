@@ -1,7 +1,7 @@
 //! Publishes dropped items, falling blocks, primed TNT and ropes as renderer geometry.
 use std::{collections::HashMap, sync::Arc};
 
-use assets::{VisualKind,ItemVisualRoute, NetworkIdMode, RuntimeAssets};
+use assets::{ItemVisualRoute, NetworkIdMode, RuntimeAssets, VisualKind};
 use bevy::{
     ecs::system::SystemParam,
     prelude::{Local, Res, ResMut},
@@ -14,9 +14,7 @@ use render::{
     StaticItemPlacements, TerrainItemInstance, TerrainItemTransition, dropped_item_transform,
     native_dropped_item_transform, pack_overlay_rgba8, rope_color, rope_ribbon,
 };
-use render_model::{
-    DroppedItemSprite, dropped_item_block_cube, dropped_item_block_model,
-};
+use render_model::{DroppedItemSprite, dropped_item_block_cube, dropped_item_block_model};
 
 use client_ui::ui_runtime::presentation::UiPresentationRuntime;
 
@@ -149,7 +147,10 @@ impl DroppedItemPublisher<'_, '_> {
         }
         let model = dropped_item_block_cube(assets, mode, id, MAX_ITEM_SPRITE_SIDE)
             .map(DroppedItemModel::Cube)
-            .or_else(|| dropped_item_block_model(assets, mode, id, MAX_ITEM_SPRITE_SIDE).map(DroppedItemModel::Block));
+            .or_else(|| {
+                dropped_item_block_model(assets, mode, id, MAX_ITEM_SPRITE_SIDE)
+                    .map(DroppedItemModel::Block)
+            });
         cache.insert(key, model)
     }
 

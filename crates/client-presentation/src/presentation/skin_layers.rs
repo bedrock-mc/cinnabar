@@ -5,9 +5,9 @@ use std::{collections::HashMap, sync::Arc};
 use client_world::ActorRigSnapshot;
 use render::{
     ACTOR_LAYER_BODY, ActorArtworkLocation, ActorArtworkPages, ActorRigRoute, ActorRigSubmission,
-    };
-use render_model::equipment::EquipmentRaster;
+};
 use render_model::ActorRigGeometry;
+use render_model::equipment::EquipmentRaster;
 
 use super::{
     actors::ActorPresentationBatch, entity_layers::LayerPoseCache, skin_rig::SkinRigCache,

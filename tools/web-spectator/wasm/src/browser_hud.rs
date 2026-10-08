@@ -11,16 +11,14 @@ use json_ui::{
     TextMeasure, TextureMeta, TextureSource, Timed, ViewState,
 };
 use render_model::{NametagScene, UiRenderInput, UiRenderTextureArray};
-use view_presentation::{
-    nametag_atlas::NametagAtlas,
-    nametags::NametagAnchor,
-    ui_adapter::UiRenderViewport,
-    ui_atlas::HudTexturePages,
-};
 use ui::native_hud::{HudEffect, HudPaint, HudPaintTarget, SheetSprite, StatusPaintInput};
 use ui::{
-    BoundedStat, DpiScale, IconRef, SafeArea, TextLayoutCache, TextMetrics, UiNode, UiNodeId, UiPoint,
-    UiRect, UiScale, UiTree, UiVisual,
+    BoundedStat, DpiScale, IconRef, SafeArea, TextLayoutCache, TextMetrics, UiNode, UiNodeId,
+    UiPoint, UiRect, UiScale, UiTree, UiVisual,
+};
+use view_presentation::{
+    nametag_atlas::NametagAtlas, nametags::NametagAnchor, ui_adapter::UiRenderViewport,
+    ui_atlas::HudTexturePages,
 };
 
 use super::browser_model::{Fighter, Item};
@@ -60,7 +58,7 @@ impl BrowserHud {
                     "../../../../assets/cinnangles-sans-source.json"
                 )),
             )
-                .map_err(|e| e.to_string())?,
+            .map_err(|e| e.to_string())?,
         );
         let hud = RuntimeHudCatalog::decode(hud_bytes).map_err(|e| e.to_string())?;
         let icons = RuntimeIconCatalog::decode(icon_bytes).map_err(|e| e.to_string())?;
@@ -80,10 +78,15 @@ impl BrowserHud {
                 .map(|(path, _, bytes)| (*path, *bytes)),
         );
         let (textures, solid_page, hud_pages, icon_refs) =
-            view_presentation::ui_atlas::font_texture_array_with_hud_and_icons(&font, Some(&hud), Some(&icons))
-                .map_err(|e| format!("native HUD atlas: {e:?}"))?;
-        let (textures, ui_first_page) = view_presentation::ui_atlas::with_ui_pages(&textures, &assets)
-            .map_err(|e| format!("JSON-UI atlas: {e:?}"))?;
+            view_presentation::ui_atlas::font_texture_array_with_hud_and_icons(
+                &font,
+                Some(&hud),
+                Some(&icons),
+            )
+            .map_err(|e| format!("native HUD atlas: {e:?}"))?;
+        let (textures, ui_first_page) =
+            view_presentation::ui_atlas::with_ui_pages(&textures, &assets)
+                .map_err(|e| format!("JSON-UI atlas: {e:?}"))?;
         Ok(Self {
             catalog,
             assets,
@@ -230,19 +233,21 @@ impl BrowserHud {
             ..HudModel::default()
         };
         model.title = pov.hud.title.as_ref().map(|title| {
-            let creation_id = self.title_request.as_ref()
+            let creation_id = self
+                .title_request
+                .as_ref()
                 .filter(|(id, updated, _)| id == &fighter.id && updated == &title.updated_at)
                 .map_or(self.generation, |(_, _, sequence)| *sequence);
             self.title_request = Some((fighter.id.clone(), title.updated_at.clone(), creation_id));
             json_ui::HudTitle {
-            creation_id,
-            title: title.text.clone(),
-            subtitle: title.subtitle.clone(),
-            fade_in: f64::from(title.fade_in_ticks.max(0)) / 20.0,
-            stay: f64::from(title.stay_ticks.max(0)) / 20.0,
-            fade_out: f64::from(title.fade_out_ticks.max(0)) / 20.0,
-            background_alpha: 0.0,
-            born: timestamp_seconds(&title.updated_at, now_millis),
+                creation_id,
+                title: title.text.clone(),
+                subtitle: title.subtitle.clone(),
+                fade_in: f64::from(title.fade_in_ticks.max(0)) / 20.0,
+                stay: f64::from(title.stay_ticks.max(0)) / 20.0,
+                fade_out: f64::from(title.fade_out_ticks.max(0)) / 20.0,
+                background_alpha: 0.0,
+                born: timestamp_seconds(&title.updated_at, now_millis),
             }
         });
         if model.title.is_none() {
@@ -395,7 +400,13 @@ struct Textures<'a> {
     ui_first_page: u16,
 }
 impl Textures<'_> {
-    fn sprite(&self, path: &str, uv: json_ui::UvRect, color: [u8; 4], filter: json_ui::SpriteFilter) -> Option<UiVisual> {
+    fn sprite(
+        &self,
+        path: &str,
+        uv: json_ui::UvRect,
+        color: [u8; 4],
+        filter: json_ui::SpriteFilter,
+    ) -> Option<UiVisual> {
         let path = path.trim_end_matches(".png");
         let (page, [x0, y0, x1, y1]) = if let Some(texture) = self.assets.texture(path) {
             (
@@ -418,17 +429,26 @@ impl Textures<'_> {
             (f32::from(origin) + f32::from(end - origin) * value).round() as u16
         };
         let uv = [
-                pixel(x0, x1, uv.u0),
-                pixel(y0, y1, uv.v0),
-                pixel(x0, x1, uv.u1),
-                pixel(y0, y1, uv.v1),
-            ];
+            pixel(x0, x1, uv.u0),
+            pixel(y0, y1, uv.v0),
+            pixel(x0, x1, uv.u1),
+            pixel(y0, y1, uv.v1),
+        ];
         let style = (u8::from(filter.grayscale) * ui::UI_STYLE_GRAYSCALE)
             | (u8::from(filter.bilinear) * ui::UI_STYLE_BILINEAR);
         Some(if style == 0 {
-            UiVisual::Sprite { texture_page: page, uv, color }
+            UiVisual::Sprite {
+                texture_page: page,
+                uv,
+                color,
+            }
         } else {
-            UiVisual::StyledSprite { texture_page: page, uv, color, style }
+            UiVisual::StyledSprite {
+                texture_page: page,
+                uv,
+                color,
+                style,
+            }
         })
     }
 }
@@ -445,10 +465,15 @@ impl TextureSource for Textures<'_> {
                     .copied()
                     .find(|role| role.source_path().trim_end_matches(".png") == path)
                     .map(|role| self.hud.sprite(role).size)
-            })?.map(f64::from);
+            })?
+            .map(f64::from);
         Some(match self.assets.sidecar(path) {
             Some(sidecar) => TextureMeta {
-                base_size: if sidecar.base_size == [0.0; 2] { size } else { sidecar.base_size.map(f64::from) },
+                base_size: if sidecar.base_size == [0.0; 2] {
+                    size
+                } else {
+                    sidecar.base_size.map(f64::from)
+                },
                 pixels: size,
                 nineslice: sidecar.nineslice.map(|slice| json_ui::NineSlice {
                     left: f64::from(slice.left),
@@ -527,8 +552,13 @@ impl Painter<'_> {
         let dest = physical(&drawn.dest);
         self.clip = physical(&drawn.clip);
         let opacity = drawn.opacity.clamp(0.0, 1.0);
-        if drawn.hidden || opacity <= 0.0 || self.clip[2] <= self.clip[0] || self.clip[3] <= self.clip[1]
-            || dest[2] <= dest[0] || dest[3] <= dest[1] {
+        if drawn.hidden
+            || opacity <= 0.0
+            || self.clip[2] <= self.clip[0]
+            || self.clip[3] <= self.clip[1]
+            || dest[2] <= dest[0]
+            || dest[3] <= dest[1]
+        {
             return Ok(());
         }
         let alpha = |mut color: [u8; 4]| {
@@ -537,7 +567,12 @@ impl Painter<'_> {
         };
         match &node.draw {
             Draw::Solid { color } => self.solid(dest, alpha(*color)),
-            Draw::Sprite { texture, uv, color, filter } => {
+            Draw::Sprite {
+                texture,
+                uv,
+                color,
+                filter,
+            } => {
                 let uv = drawn.uv.unwrap_or(*uv);
                 let color = drawn.color.unwrap_or(*color);
                 if let Some(visual) = self.textures.sprite(texture, uv, alpha(color), *filter) {
@@ -603,7 +638,9 @@ impl Painter<'_> {
                         }
                     }
                     "progress_bar_renderer" => {
-                        if let Some(paint) = view_presentation::progress::capture_progress(data, dest, self.px) {
+                        if let Some(paint) =
+                            view_presentation::progress::capture_progress(data, dest, self.px)
+                        {
                             for rectangle in paint.rects() {
                                 self.solid(rectangle.bounds, alpha(rectangle.color));
                             }
@@ -624,7 +661,8 @@ impl HudPaintTarget for Painter<'_> {
         self.clip
     }
     fn sprite(&self, path: &str, color: [u8; 4]) -> Option<UiVisual> {
-        self.textures.sprite(path, json_ui::UvRect::full(), color, Default::default())
+        self.textures
+            .sprite(path, json_ui::UvRect::full(), color, Default::default())
     }
     fn push(&mut self, visual: UiVisual, bounds: [f32; 4]) {
         let Ok(clip) = rect(self.clip) else {

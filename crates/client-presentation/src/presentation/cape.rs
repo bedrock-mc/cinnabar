@@ -125,10 +125,18 @@ pub fn apply_capes<'a>(
                 submission.input.current_bones = pose;
             }
             None => {
-                submission.input.previous_bones =
-                    cape_pose(cape, rig.bone_names, |index| rest_pose(rig.rest, index), &body.input.previous_bones);
-                submission.input.current_bones =
-                    cape_pose(cape, rig.bone_names, |index| rest_pose(rig.rest, index), &body.input.current_bones);
+                submission.input.previous_bones = cape_pose(
+                    cape,
+                    rig.bone_names,
+                    |index| rest_pose(rig.rest, index),
+                    &body.input.previous_bones,
+                );
+                submission.input.current_bones = cape_pose(
+                    cape,
+                    rig.bone_names,
+                    |index| rest_pose(rig.rest, index),
+                    &body.input.current_bones,
+                );
             }
         }
         submission.texture_layer = layer as u32;

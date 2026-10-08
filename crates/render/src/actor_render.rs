@@ -642,8 +642,11 @@ fn submit_actor_presented_frame(
     command_buffer.on_submitted_work_done(move || {
         #[cfg(feature = "tracy")]
         let _span = bevy::log::info_span!("actor.completion_callback").entered();
-        let acknowledged =
-            callback_gate.publish_reserved(token, present_returned_at, bevy::platform::time::Instant::now());
+        let acknowledged = callback_gate.publish_reserved(
+            token,
+            present_returned_at,
+            bevy::platform::time::Instant::now(),
+        );
         callback_witness.observe_submit(ActorSubmitWitness {
             drawn_frame: true,
             exact: true,

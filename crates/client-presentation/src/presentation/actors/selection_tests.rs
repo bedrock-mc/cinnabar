@@ -1,8 +1,8 @@
 use super::*;
 use bevy::math::{Mat4, Vec3};
-use render::{ActorArtworkPages, };
-use render_model::equipment::EquipmentRaster;
+use render::ActorArtworkPages;
 use render_model::STANDARD_SKIN_BYTES;
+use render_model::equipment::EquipmentRaster;
 
 fn presentation(runtime_id: u64, position: [f32; 3]) -> ActorRigPresentation {
     local_diagnostic_presentation(7, 0, runtime_id, 5, position, 0.0, 0.0).unwrap()

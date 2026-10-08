@@ -13,10 +13,7 @@ impl ActorAnimationStore {
     }
 
     /// Admits only a retained source pointer; all content work belongs to the worker.
-    pub fn request_skin_preparation(
-        &mut self,
-        source: &Arc<protocol::SkinGeometrySource>,
-    ) -> bool {
+    pub fn request_skin_preparation(&mut self, source: &Arc<protocol::SkinGeometrySource>) -> bool {
         self.skin_preparation.request(source)
     }
 

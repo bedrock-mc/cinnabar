@@ -3,11 +3,14 @@
 //! crosshair, laid out relative to each JSON-UI renderer's control. Heart
 //! rows and absorption sprites follow the Bedrock HUD's display rules.
 
-use assets::HudTextureRole;
-use crate::BoundedStat;
-use super::{HeartVariant, HudEffect, Cell, HudPaint, SheetSprite};
 use super::motion::{heart_lift, hunger_shake_offset, hunger_shakes};
-use super::pinned::{HARMFUL_EFFECT_IDS, MAX_HEART_ROWS, MAX_MOUNT_HEARTS, damage_flash_phase, effect_blink_alpha, effect_icon_role, heart_role};
+use super::pinned::{
+    HARMFUL_EFFECT_IDS, MAX_HEART_ROWS, MAX_MOUNT_HEARTS, damage_flash_phase, effect_blink_alpha,
+    effect_icon_role, heart_role,
+};
+use super::{Cell, HeartVariant, HudEffect, HudPaint, SheetSprite};
+use crate::BoundedStat;
+use assets::HudTextureRole;
 
 /// Authoritative values and presentation preferences captured by the caller.
 #[derive(Clone, Debug)]
@@ -85,7 +88,8 @@ fn heart_rows(input: &StatusPaintInput<'_>) -> Option<HeartRows> {
     // Half-heart units on the reference 20-point scale.
     let current = u32::from(health.current()).div_ceil(scale);
     let maximum = u32::from(health.maximum()).div_ceil(scale);
-    let absorption = input.absorption
+    let absorption = input
+        .absorption
         .map(|stat| u32::from(stat.current()).div_ceil(u32::from(stat.scale()).max(1)))
         .unwrap_or(0);
     let health_hearts = maximum
@@ -174,7 +178,9 @@ impl HeartPaint {
             + self.absorption.div_ceil(2)) as usize
     }
 
-    pub fn is_empty(&self) -> bool { self.total == 0 }
+    pub fn is_empty(&self) -> bool {
+        self.total == 0
+    }
 
     /// Visits only rows intersecting the viewport, including animated lift.
     pub fn visible_cells(
@@ -241,11 +247,7 @@ impl HeartPaint {
 }
 
 /// Retains heart totals and sprite variants without allocating offscreen cells.
-fn hearts(
-    input: &StatusPaintInput<'_>,
-    rows: &HeartRows,
-    now_tick: Option<u64>,
-) -> HeartPaint {
+fn hearts(input: &StatusPaintInput<'_>, rows: &HeartRows, now_tick: Option<u64>) -> HeartPaint {
     let variant = input.heart_variant;
     let flash = damage_flash_phase(input.last_health_drop_millis, input.now_millis);
     let hardcore = input.hardcore;
@@ -332,8 +334,7 @@ fn hunger(input: &StatusPaintInput<'_>, now_tick: Option<u64>) -> Vec<Cell> {
     };
     let tick = now_tick.unwrap_or(0);
     // Without a server clock there is no tick to pulse on, so no shake.
-    let shaking = now_tick.is_some()
-        && hunger_shakes(input.saturation_empty, current, tick);
+    let shaking = now_tick.is_some() && hunger_shakes(input.saturation_empty, current, tick);
     let mut cells = Vec::new();
     for index in 0..10u32 {
         let shake = if shaking {
@@ -440,4 +441,3 @@ fn effects(input: &StatusPaintInput<'_>, now_tick: Option<u64>) -> Vec<Cell> {
     }
     cells
 }
-

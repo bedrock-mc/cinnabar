@@ -11,9 +11,9 @@ use crate::{
 };
 use bevy::prelude::{Projection, Query, Res, ResMut, Time, Transform, With};
 pub use client_presentation::camera::presentation::ScreenEffectFacts;
-use view_presentation::camera::FirstPersonHandMotion;
 use client_presentation::server_camera::ServerCameraInstructions;
 use client_ui::ui_runtime::UiRuntime;
+use view_presentation::camera::FirstPersonHandMotion;
 
 /// Borrows current owner facts and forwards them at the existing system boundary.
 #[allow(clippy::too_many_arguments)]

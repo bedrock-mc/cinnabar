@@ -1,9 +1,10 @@
 use super::*;
-use assets::RuntimeFontCatalog;
 use render_model::NametagScene;
 use ui::TextLayoutCache;
 use view_presentation::nametag_atlas::NametagAtlas;
-use view_presentation::nametags::{build_nametag_scene, LINE_PITCH_PX, EXTRA_LINE_LIFT, PLATE_COLOR, SNEAK_TEXT_ALPHA};
+use view_presentation::nametags::{
+    EXTRA_LINE_LIFT, LINE_PITCH_PX, PLATE_COLOR, SNEAK_TEXT_ALPHA, build_nametag_scene,
+};
 
 fn actor() -> ActorSnapshot {
     let mut stream = chunk_pipeline::WorldStream::new_with_assets(

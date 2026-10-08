@@ -1,8 +1,8 @@
 //! Opt-in bounded counters distinguish missing query samples from skipped readbacks.
 
-use bevy::platform::time::Instant;
 use super::readback::{SpanValidity, span_validity};
 use crate::RuntimeStage;
+use bevy::platform::time::Instant;
 use std::time::Duration;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]

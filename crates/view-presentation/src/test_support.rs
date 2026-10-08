@@ -1,6 +1,6 @@
-use std::sync::Arc;
-use assets::{RuntimeFontCatalog, FontTexturePage, FontPixels, GlyphMetrics, encode_font_catalog};
+use assets::{FontPixels, FontTexturePage, GlyphMetrics, RuntimeFontCatalog, encode_font_catalog};
 use sha2::{Digest, Sha256};
+use std::sync::Arc;
 
 pub fn fixture_font() -> Arc<RuntimeFontCatalog> {
     let pixels = vec![255; 16 * 16 * 4].into_boxed_slice();
@@ -27,7 +27,11 @@ pub fn fixture_font() -> Arc<RuntimeFontCatalog> {
 
 pub fn anchor(name: &str) -> crate::nametags::NametagAnchor {
     crate::nametags::NametagAnchor {
-        runtime_id: 1, position: bevy::math::Vec3::ZERO, lines: vec![Arc::from(name)],
-        depth_tested: false, text_alpha: 1.0, distance: 1.0,
+        runtime_id: 1,
+        position: bevy::math::Vec3::ZERO,
+        lines: vec![Arc::from(name)],
+        depth_tested: false,
+        text_alpha: 1.0,
+        distance: 1.0,
     }
 }

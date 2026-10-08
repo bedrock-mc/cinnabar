@@ -1,8 +1,8 @@
 //! Captures authoritative client values for the shared native HUD painter.
 
+use super::{HudFrame, HudTexturePages, UiRuntime};
 use assets::HudTextureRole;
 use ui::native_hud::{HudPaint, SheetSprite, StatusPaintInput, capture_status_hud};
-use super::{HudFrame, HudTexturePages, UiRuntime};
 
 pub(in super::super) fn capture(
     player_runtime: &player_state::PlayerState,
@@ -30,7 +30,10 @@ pub(in super::super) fn capture(
         now_millis: frame.now_millis,
         last_health_drop_millis: runtime.last_health_drop_millis(),
         first_person: frame.first_person || options.value(THIRD_PERSON_CROSSHAIR_OPTION.name) != 0,
-        hotbar_allowed: player_runtime.facts.player_game_mode().is_none_or(|mode| mode.shows_hotbar()),
+        hotbar_allowed: player_runtime
+            .facts
+            .player_game_mode()
+            .is_none_or(|mode| mode.shows_hotbar()),
         survival_stats_visible: player_runtime.facts.survival_stats_visible(),
         crosshair_blend: if options.value(INVERT_CROSSHAIR_OPTION.name) != 0 {
             ui::UiBlendMode::Invert
@@ -42,9 +45,15 @@ pub(in super::super) fn capture(
     };
     let sprite = |role: HudTextureRole| {
         let sheet = sheet.expect("sprite requested only with an installed HUD sheet");
-        SheetSprite { page: sheet.page, uv: sheet.sprite(role).uv }
+        SheetSprite {
+            page: sheet.page,
+            uv: sheet.sprite(role).uv,
+        }
     };
-    capture_status_hud(&input, sheet.map(|_| &sprite as &dyn Fn(HudTextureRole) -> SheetSprite))
+    capture_status_hud(
+        &input,
+        sheet.map(|_| &sprite as &dyn Fn(HudTextureRole) -> SheetSprite),
+    )
 }
 
 #[cfg(test)]

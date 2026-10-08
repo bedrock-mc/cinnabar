@@ -488,11 +488,7 @@ fn render_with<R: Borrow<FormRender>>(
             }
             _ => None,
         })
-        .chain(
-            art.hud
-                .into_iter()
-                .flat_map(native_hud::HudPaint::textures),
-        )
+        .chain(art.hud.into_iter().flat_map(native_hud::HudPaint::textures))
         .collect();
     let drawn = Textures {
         assets: textures.assets,
@@ -713,10 +709,17 @@ impl Painter<'_> {
     ) -> Option<(UiVisual, [f32; 4])> {
         if let Some(hud) = self.art.hud
             && native_hud::paint(
-                self, hud, renderer,
-                data.get("#collection_index").and_then(serde_json::Value::as_f64).map_or(0, |index| index.clamp(0.0, 8.0) as usize),
-                data.get("#bar_notches").and_then(serde_json::Value::as_f64).map_or(0, |notches| notches.clamp(0.0, 64.0) as u32),
-                dest, &alpha,
+                self,
+                hud,
+                renderer,
+                data.get("#collection_index")
+                    .and_then(serde_json::Value::as_f64)
+                    .map_or(0, |index| index.clamp(0.0, 8.0) as usize),
+                data.get("#bar_notches")
+                    .and_then(serde_json::Value::as_f64)
+                    .map_or(0, |notches| notches.clamp(0.0, 64.0) as u32),
+                dest,
+                &alpha,
             )
         {
             return None;

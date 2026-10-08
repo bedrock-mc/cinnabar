@@ -438,8 +438,8 @@ impl ViewmodelPublish<'_, '_> {
     pub fn bind_cpu_fallback(
         &mut self,
         input: &render_model::UiRenderInput,
-        empty: Option<client_ui::ui_runtime::presentation::IconRef>,
-        held: Option<client_ui::ui_runtime::presentation::IconRef>,
+        empty: Option<ui::IconRef>,
+        held: Option<ui::IconRef>,
     ) {
         let cube = self
             .scene

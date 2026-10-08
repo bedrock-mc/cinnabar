@@ -56,9 +56,12 @@ pub(super) fn hand_progress(
 ) -> FirstPersonHand {
     view_presentation::equipment_display::hand_progress(
         hand.map(|phase| view_presentation::equipment_display::HandProgress {
-            attack_time: phase.attack_time, arm_height: phase.arm_height, use_ticks: phase.use_ticks,
+            attack_time: phase.attack_time,
+            arm_height: phase.arm_height,
+            use_ticks: phase.use_ticks,
         }),
-        consume_ticks, partial_tick,
+        consume_ticks,
+        partial_tick,
     )
 }
 
@@ -77,11 +80,15 @@ pub(super) struct HandSource {
 impl HandSource {
     /// Places the exact body/item submissions shared by validation and final construction.
     fn submissions(&self) -> [Option<ActorRigSubmission>; 3] {
-        let placement = hand_camera_from_rig(self.presentation.authored_scale, crate::local_player::LOCAL_AVATAR_EYE_HEIGHT_BLOCKS, self.motion);
+        let placement = hand_camera_from_rig(
+            self.presentation.authored_scale,
+            crate::local_player::LOCAL_AVATAR_EYE_HEIGHT_BLOCKS,
+            self.motion,
+        );
         let body = self.body.clone().map(|mut body| {
-            body.world_from_actor = self
-                .java_body_camera
-                .map_or(placement, |camera| view_presentation::equipment_display::hand_view_placement(self.motion * camera));
+            body.world_from_actor = self.java_body_camera.map_or(placement, |camera| {
+                view_presentation::equipment_display::hand_view_placement(self.motion * camera)
+            });
             body.texture_layer = 0;
             body
         });
@@ -89,8 +96,12 @@ impl HandSource {
             let (layer, _) = self.items[index].as_ref()?;
             let mut item = layer.presentation.submission.clone();
             item.world_from_actor = match layer.java_camera {
-                Some(camera) => view_presentation::equipment_display::hand_view_placement(self.motion * camera),
-                None if layer.camera_space => view_presentation::equipment_display::hand_view_placement(self.motion),
+                Some(camera) => {
+                    view_presentation::equipment_display::hand_view_placement(self.motion * camera)
+                }
+                None if layer.camera_space => {
+                    view_presentation::equipment_display::hand_view_placement(self.motion)
+                }
                 None => placement,
             };
             item.texture_layer = layer.presentation.location.layer()
@@ -260,7 +271,9 @@ pub(super) fn item_atlas(
 }
 
 /// Vanilla's hand stack order: hurt tilt, walk bob, then sway about X and Y.
-pub(super) fn hand_motion_matrix(motion: &view_presentation::camera::FirstPersonHandMotion) -> Mat4 {
+pub(super) fn hand_motion_matrix(
+    motion: &view_presentation::camera::FirstPersonHandMotion,
+) -> Mat4 {
     motion.matrix()
 }
 

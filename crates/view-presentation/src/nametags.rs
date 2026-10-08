@@ -1,11 +1,11 @@
 //! Native billboard text geometry from admitted name-tag anchors.
 
-use std::sync::Arc;
+use crate::nametag_atlas::{GlyphPage, NametagAtlas};
 use assets::RuntimeFontCatalog;
 use bevy::math::Vec3;
 use render_model::{MAX_NAMETAG_RECORDS, NAMETAG_ATLAS_SIDE, NametagRecord, NametagScene};
+use std::sync::Arc;
 use ui::{FONT_DESIGN_PIXEL_TEXELS, TextLayoutCache};
-use crate::nametag_atlas::{GlyphPage, NametagAtlas};
 
 pub const DEFAULT_RENDER_DISTANCE: f32 = 64.0;
 pub const HEAD_CLEARANCE: f32 = 0.7;
@@ -108,18 +108,62 @@ pub fn build_nametag_scene<'p>(
 
 /// Admitted nameplate text and position through the native distance and sneak policy.
 #[allow(clippy::too_many_arguments)]
-pub fn nametag_anchor(runtime_id: u64, text: &str, feet: Vec3, position: Vec3, eye: Vec3, sneaking: bool, maximum_distance: f32) -> Option<NametagAnchor> {
+pub fn nametag_anchor(
+    runtime_id: u64,
+    text: &str,
+    feet: Vec3,
+    position: Vec3,
+    eye: Vec3,
+    sneaking: bool,
+    maximum_distance: f32,
+) -> Option<NametagAnchor> {
     let distance_squared = eye.distance_squared(feet);
-    if !feet.is_finite() || !position.is_finite() || !distance_squared.is_finite()
-        || distance_squared > maximum_distance * maximum_distance || eye == position
-        || !(eye - position).length_squared().is_finite() { return None; }
-    let lines: Vec<Arc<str>> = crate::text::bounded_visible_text(text).split('\n').filter(|line| !line.is_empty()).map(Arc::from).collect();
-    if lines.is_empty() { return None; }
-    Some(NametagAnchor { runtime_id, position, lines, depth_tested: sneaking, text_alpha: if sneaking { SNEAK_TEXT_ALPHA } else { 1.0 }, distance: distance_squared.sqrt() })
+    if !feet.is_finite()
+        || !position.is_finite()
+        || !distance_squared.is_finite()
+        || distance_squared > maximum_distance * maximum_distance
+        || eye == position
+        || !(eye - position).length_squared().is_finite()
+    {
+        return None;
+    }
+    let lines: Vec<Arc<str>> = crate::text::bounded_visible_text(text)
+        .split('\n')
+        .filter(|line| !line.is_empty())
+        .map(Arc::from)
+        .collect();
+    if lines.is_empty() {
+        return None;
+    }
+    Some(NametagAnchor {
+        runtime_id,
+        position,
+        lines,
+        depth_tested: sneaking,
+        text_alpha: if sneaking { SNEAK_TEXT_ALPHA } else { 1.0 },
+        distance: distance_squared.sqrt(),
+    })
 }
 
 /// Public player name using native player defaults when no metadata is streamed.
-pub fn player_nametag_anchor(name: &str, feet: Vec3, eye: Vec3, sneaking: bool) -> Option<NametagAnchor> {
-    let height = if sneaking { SNEAKING_HEIGHT } else { DEFAULT_HEIGHT };
-    nametag_anchor(0, name, feet, feet + Vec3::Y * (height + HEAD_CLEARANCE), eye, sneaking, DEFAULT_RENDER_DISTANCE)
+pub fn player_nametag_anchor(
+    name: &str,
+    feet: Vec3,
+    eye: Vec3,
+    sneaking: bool,
+) -> Option<NametagAnchor> {
+    let height = if sneaking {
+        SNEAKING_HEIGHT
+    } else {
+        DEFAULT_HEIGHT
+    };
+    nametag_anchor(
+        0,
+        name,
+        feet,
+        feet + Vec3::Y * (height + HEAD_CLEARANCE),
+        eye,
+        sneaking,
+        DEFAULT_RENDER_DISTANCE,
+    )
 }

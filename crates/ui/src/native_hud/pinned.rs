@@ -1,7 +1,7 @@
 //! Native HUD sprite tables and timing.
 
-use assets::HudTextureRole;
 use super::{HeartVariant, HudEffect};
+use assets::HudTextureRole;
 
 /// Damage blink: hearts flash for one second, alternating every 150 ms
 /// (the reference alternates every 3 ticks for 20 ticks).

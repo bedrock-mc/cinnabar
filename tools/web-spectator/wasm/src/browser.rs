@@ -610,6 +610,7 @@ fn spawn_camera(mut commands: Commands, window: Single<&Window, With<PrimaryWind
             fov: view_presentation::camera::projection_fov_radians(ui::DEFAULT_FOV_DEGREES as f32),
             aspect_ratio: view_presentation::camera::projection_aspect(window.width(), window.height()),
             near: render_api::CAMERA_NEAR_PLANE_BLOCKS,
+            near_clip_plane: Vec4::new(0.0, 0.0, -1.0, -render_api::CAMERA_NEAR_PLANE_BLOCKS),
             ..default()
         }),
         Transform::from_xyz(20.0, 18.0, 20.0).looking_at(Vec3::ZERO, Vec3::Y),

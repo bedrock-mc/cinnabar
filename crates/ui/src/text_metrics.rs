@@ -1,7 +1,7 @@
 //! Per-frame text metrics shared by every HUD, chat, scoreboard and nametag run.
 
-use assets::RuntimeFontCatalog;
 use crate::{DpiScale, TextLayoutRequest, TextShadow, TextStyle, UiScale};
+use assets::RuntimeFontCatalog;
 
 use crate::gui_scale;
 
