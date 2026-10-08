@@ -1,8 +1,8 @@
 use bevy::ecs::system::NonSendMarker;
 use bevy::prelude::*;
 use bevy::window::{PrimaryWindow, WindowOccluded};
-use bevy::winit::{UpdateMode, WINIT_WINDOWS, WinitSettings};
-use render::{FrameBudgets, RuntimeStageProfiler};
+use bevy::winit::WINIT_WINDOWS;
+use render::{FrameBudgets, FramePacing, RuntimeStageProfiler};
 use std::time::{Duration, Instant};
 
 const INTERVAL_RECHECK: Duration = Duration::from_secs(1);
@@ -11,7 +11,7 @@ const INTERVAL_RECHECK: Duration = Duration::from_secs(1);
 pub(crate) fn track_frame_interval(
     profiler: Res<RuntimeStageProfiler>,
     windows: Query<Entity, With<PrimaryWindow>>,
-    pacing: Option<Res<WinitSettings>>,
+    pacing: Option<Res<FramePacing>>,
     mut checked: Local<Option<Instant>>,
     _main_thread: NonSendMarker,
 ) {
@@ -28,10 +28,9 @@ pub(crate) fn track_frame_interval(
                 .refresh_rate_millihertz()
         })
     });
-    let cap = pacing.and_then(|pacing| match pacing.focused_mode {
-        UpdateMode::Reactive { wait, .. } => Some(wait),
-        UpdateMode::Continuous => None,
-    });
+    let cap = pacing
+        .and_then(|pacing| pacing.rate)
+        .map(|rate| Duration::from_nanos(rate.period_nanos()));
     profiler.set_frame_interval(FrameBudgets::display_interval(refresh, cap));
 }
 
