@@ -314,7 +314,7 @@ pub(super) fn upload_skin(
     {
         return;
     }
-    let side = render_model::STANDARD_SKIN_SIDE as u32;
+    let side = render_model::actor_skin_side(&frame.skin).expect("admitted hand skin") as u32;
     let texture = device.create_texture_with_data(
         queue,
         &TextureDescriptor {

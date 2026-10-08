@@ -9,6 +9,7 @@ fn spawned_projection() -> PerspectiveProjection {
     let mut app = App::new();
     app.insert_resource(authority)
         .init_resource::<LocalViewPose>()
+        .init_resource::<antialiasing::CameraAntiAliasingSupport>()
         .add_systems(Startup, spawn_fly_camera);
     app.world_mut().spawn((
         Window {

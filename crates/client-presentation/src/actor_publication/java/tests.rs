@@ -103,6 +103,7 @@ pub(super) fn uploaded_skin_feed(animated: bool) -> client_world::LocalPlayerFee
 fn third_person_keeps_authored_pack_poses_and_accepts_uploaded_skin_geometry() {
     let mut stream = head_stream();
     stream.sync_local_player_pose(&uploaded_skin_feed(false));
+    stream.prepare_actor_appearances_for_test();
     stream.advance_actor_interpolation_frame(1);
     let rig = stream.authority().actor_rig(1).unwrap();
     let actor = stream.authority().actor(1).unwrap();
@@ -126,6 +127,7 @@ fn third_person_keeps_authored_pack_poses_and_accepts_uploaded_skin_geometry() {
 fn published_persona_layers_follow_the_sampled_local_emote_only() {
     let mut stream = head_stream();
     stream.sync_local_player_pose(&uploaded_skin_feed(true));
+    stream.prepare_actor_appearances_for_test();
     stream.advance_actor_interpolation_frame(1);
     let rig = stream.authority().actor_rig(1).unwrap();
     assert_eq!(rig.skin_layers.len(), 1);
@@ -162,12 +164,14 @@ fn local_head_tracks_between_tick_look_while_moving_without_committing_a_pose() 
     let mut stream = head_stream();
     let mut feed = head_feed();
     stream.sync_local_player_pose(&feed);
+    stream.prepare_actor_appearances_for_test();
     stream.advance_actor_interpolation_frame(1);
     feed.position[0] += 0.2;
     feed.velocity[0] = 0.2;
     feed.head_yaw = -170.0;
     feed.yaw = -170.0;
     stream.sync_local_player_pose(&feed);
+    stream.prepare_actor_appearances_for_test();
     stream.advance_actor_interpolation_frame(1);
     let rig = stream.authority().actor_rig(1).unwrap();
     let original_motion = rig.java;
@@ -179,6 +183,7 @@ fn local_head_tracks_between_tick_look_while_moving_without_committing_a_pose() 
         feed.head_yaw = head_yaw;
         feed.yaw = head_yaw;
         stream.sync_local_player_pose(&feed);
+        stream.prepare_actor_appearances_for_test();
         stream.advance_actor_interpolation_frame(0);
         let actor = stream.authority().actor(1).unwrap();
         let original_actor = actor.clone();
@@ -214,6 +219,7 @@ fn local_head_tracks_between_tick_look_while_moving_without_committing_a_pose() 
 fn nonlocal_head_keeps_tick_interpolation_and_takes_the_short_yaw_path() {
     let mut stream = head_stream();
     stream.sync_local_player_pose(&head_feed());
+    stream.prepare_actor_appearances_for_test();
     stream.advance_actor_interpolation_frame(1);
     let mut actor = stream.authority().actor(1).unwrap().clone();
     actor.previous_pose.head_yaw = 179.0;
@@ -397,6 +403,7 @@ fn mixed_native_map_swaps_publish_the_outgoing_mesh_until_adoption() {
         feed.first_person = true;
         feed.main_hand = Some(old.into());
         stream.sync_local_player_pose(&feed);
+        stream.prepare_actor_appearances_for_test();
         stream.advance_actor_interpolation_frame(6);
         let (mut equipment, artwork, _) = EquipmentRuntime::build(
             head_assets(),
@@ -434,6 +441,7 @@ fn mixed_native_map_swaps_publish_the_outgoing_mesh_until_adoption() {
             .rig;
         feed.main_hand = Some(new.into());
         stream.sync_local_player_pose(&feed);
+        stream.prepare_actor_appearances_for_test();
         let selected = ActorEquipmentInput {
             main: Some(item(new)),
             ..Default::default()
