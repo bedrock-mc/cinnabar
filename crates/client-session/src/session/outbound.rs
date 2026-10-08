@@ -26,11 +26,8 @@ pub(super) trait OutboundSession: Send + 'static {
 impl OutboundSession for protocol::PlayOutbound {
     type Error = protocol::ProtocolError;
 
-    fn send_batch(
-        &mut self,
-        packets: Vec<Packet>,
-    ) -> impl Future<Output = Result<(), Self::Error>> + Send {
-        async move { protocol::PlayOutbound::send_batch(self, &packets).await }
+    async fn send_batch(&mut self, packets: Vec<Packet>) -> Result<(), Self::Error> {
+        protocol::PlayOutbound::send_batch(self, &packets).await
     }
 
     fn take_finish_loading(&mut self) -> Vec<Packet> {
