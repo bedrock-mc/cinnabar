@@ -333,6 +333,7 @@ func runWithResourcePackCacheFactory(
 	}
 	var localWorlds *localworld.Manager
 	var localTarget proxy.LocalTargetFunc
+	var localHostConnected func(context.Context, string, string) error
 	if opts.localWorldsDir != "" {
 		localWorlds, err = openLocalWorlds(opts, logger)
 		if err != nil {
@@ -342,6 +343,7 @@ func runWithResourcePackCacheFactory(
 			return err
 		}
 		localTarget = localWorlds.ConnectionTarget
+		localHostConnected = localWorlds.GrantHost
 	}
 	var resourcePackAdmissionUpdate func(proxy.ResourcePackAdmissionSnapshot)
 	var connectProgress func(proxy.ConnectProgress)
@@ -416,6 +418,7 @@ func runWithResourcePackCacheFactory(
 		Selector:            selector,
 		OnDisconnect:        onDisconnect,
 		LocalTarget:         localTarget,
+		LocalHostConnected:  localHostConnected,
 		ResourcePackCache:   resourcePackCache,
 		ResourcePackAdmission: func(snapshot proxy.ResourcePackAdmissionSnapshot) {
 			logger.Info("RESOURCE_PACK_ADMISSION",

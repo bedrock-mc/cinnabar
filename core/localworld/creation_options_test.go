@@ -74,9 +74,6 @@ func TestLegacyWorldSettingsKeepTheirOriginalServerAndTerrain(t *testing.T) {
 func TestCheatsPersistAndReachBothBDSRuntimes(t *testing.T) {
 	for _, enabled := range []bool{false, true} {
 		permission := permissionMember
-		if enabled {
-			permission = permissionOperator
-		}
 		store := newTestStore(t)
 		world, err := store.Create(Spec{Name: "Commands", Backend: BackendBDS, Generator: GeneratorFlat, AllowCheats: enabled})
 		if err != nil {

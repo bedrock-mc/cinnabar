@@ -60,7 +60,8 @@ Never bundled or committed. `-bds-dir` (default `bds/` beside the worlds dir) ho
   integrated server's sim-time pause): entities, block ticks, time and weather stop; connections stay up and resume
   continues from the same state. BDS does not register `/globalpause` and has no other true pause, so BDS worlds
   keep running and status reports `pause_supported: false`.
-- **Commands:** Activate cheats grants the local BDS host operator permission. Dragonfly enables its
+- **Commands:** Activate cheats grants the local BDS host operator permission after local admission;
+  friends remain members. Missing or ambiguous host identity refuses the grant. Dragonfly enables its
   testing commands only with this setting, and publishes the same command flag to the client.
 - **Test commands:** Dragonfly worlds with cheats enabled give every player `/speed [multiplier|reset]` (vanilla fly speed and movement
   attribute ×0.1–100, sent as UpdateAbilities and UpdateAttributes), `/fly` and `/tp <x> <y> <z>`.

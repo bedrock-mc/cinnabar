@@ -195,7 +195,7 @@ func containerArgs(spec StartSpec, image, version, installDir string, hostPort, 
 		{"EULA", "TRUE"}, {"VERSION", version}, {"DIRECT_DOWNLOAD_URL", fmt.Sprintf(directURLFormat, "linux", version)},
 		{"SERVER_NAME", sanitizeProperty(w.Name)},
 		{"GAMEMODE", w.GameMode}, {"DIFFICULTY", w.Difficulty}, {"ALLOW_CHEATS", strconv.FormatBool(w.AllowCheats)},
-		{"DEFAULT_PLAYER_PERMISSION_LEVEL", commandPermission(w.AllowCheats)},
+		{"DEFAULT_PLAYER_PERMISSION_LEVEL", permissionMember},
 		{"MAX_PLAYERS", strconv.Itoa(maxPlayers)}, {"ONLINE_MODE", "false"}, {"ALLOW_LIST", "false"},
 		{"LEVEL_NAME", w.ID}, {"LEVEL_SEED", strconv.FormatInt(w.Seed, 10)}, {"LEVEL_TYPE", levelType},
 		{"VIEW_DISTANCE", strconv.Itoa(view)}, {"TICK_DISTANCE", strconv.Itoa(clampInt(view, 4, 12))},
@@ -276,6 +276,9 @@ func (r BDSRunner) startContainer(ctx context.Context, spec StartSpec) (Instance
 		return nil, err
 	}
 	installDir := filepath.Dir(binary)
+	if err := resetBDSPermissions(installDir); err != nil {
+		return nil, err
+	}
 	version := filepath.Base(installDir)
 	if err := linkVersionedBinary(binary, version); err != nil {
 		return nil, err

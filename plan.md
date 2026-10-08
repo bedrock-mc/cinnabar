@@ -18,7 +18,8 @@
   generator selection independently offers Infinite and Flat. The General page also exposes seed and
   command permission, and persists the last server/terrain choice. Unavailable BDS stays disabled
   with a reason; runtime detection never changes the chosen server. Void is not supported by both
-  local backends. Template navigation works.
+  local backends. Template navigation works. BDS owner-only command grants are unit tested; live
+  native/container owner and guest permission checks remain incomplete.
 - Dragonfly Normal uses the pinned owner-requested vanilla-gen dependency with the saved signed
   seed for all three dimensions. New worlds use its spawn; reopening retains saved spawn/chunks.
   Normal supports saved overworld pre-generation and four chunk workers by default; see

@@ -76,6 +76,10 @@ func (r BDSRunner) Start(ctx context.Context, spec StartSpec) (Instance, error) 
 	if err := linkWorld(link, worldDir); err != nil {
 		return nil, err
 	}
+	if err := resetBDSPermissions(installDir); err != nil {
+		unlinkWorld(link)
+		return nil, err
+	}
 	props := serverProperties(spec, portOf(address), maxPlayers, r.LANVisible)
 	if err := os.WriteFile(filepath.Join(installDir, "server.properties"), props, 0o600); err != nil {
 		unlinkWorld(link)
@@ -160,7 +164,7 @@ func serverProperties(spec StartSpec, port, maxPlayers int, lanVisible bool) []b
 		{"force-gamemode", "false"},
 		{"difficulty", w.Difficulty},
 		{"allow-cheats", strconv.FormatBool(w.AllowCheats)},
-		{"default-player-permission-level", commandPermission(w.AllowCheats)},
+		{"default-player-permission-level", permissionMember},
 		{"max-players", strconv.Itoa(maxPlayers)},
 		{"online-mode", "false"},
 		{"allow-list", "false"},
@@ -211,15 +215,4 @@ func unlinkWorld(link string) {
 	}
 }
 
-const (
-	permissionMember   = "member"
-	permissionOperator = "operator"
-)
-
-// commandPermission gives a local world host command access only when cheats are enabled.
-func commandPermission(allowCheats bool) string {
-	if allowCheats {
-		return permissionOperator
-	}
-	return permissionMember
-}
+const permissionMember = "member"
