@@ -2,7 +2,7 @@
 
 use std::sync::{
     Arc,
-    atomic::{AtomicU64, Ordering},
+    atomic::{AtomicBool, AtomicU64, Ordering},
 };
 use std::thread::JoinHandle;
 
@@ -49,10 +49,23 @@ impl Presence {
         let (asked, requests) = crossbeam_channel::unbounded();
         let epoch = Arc::clone(&connection);
         let resubscribe = commands.clone();
+        let unreachable = Arc::new(AtomicBool::new(false));
+        let reachable = Arc::clone(&unreachable);
         let handlers = vec![
             client.on_connected(move |_| {
+                reachable.store(false, Ordering::Relaxed);
                 epoch.fetch_add(1, Ordering::Relaxed);
                 let _ = resubscribe.send(Command::Subscribe);
+            }),
+            // The library retries every few seconds while Discord is closed; report each outage once.
+            client.on_event(Event::Error, move |context| {
+                if !unreachable.swap(true, Ordering::Relaxed) {
+                    let message = match context.event {
+                        EventData::Error(error) => error.message.unwrap_or_default(),
+                        _ => String::new(),
+                    };
+                    tracing::info!(%message, "discord is not reachable; rich presence connects when it starts");
+                }
             }),
             client.on_activity_join(move |context| {
                 if let EventData::ActivityJoin(event) = context.event

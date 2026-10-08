@@ -17,6 +17,19 @@ impl EquipmentRuntime {
         input: AttachableAnimationInput<'_>,
         java_hand: Option<render_model::java_animation::JavaHand>,
     ) -> Option<FirstPersonItem> {
+        self.held_attachable(body, item, owner, owner_rig, input, java_hand)
+    }
+
+    /// Samples a held model in the requested view, retaining its authored bone binding.
+    pub(super) fn held_attachable(
+        &mut self,
+        body: &ActorRigSubmission,
+        item: &WornItem,
+        owner: &ActorSnapshot,
+        owner_rig: &ActorRigSnapshot<'_>,
+        input: AttachableAnimationInput<'_>,
+        java_hand: Option<render_model::java_animation::JavaHand>,
+    ) -> Option<FirstPersonItem> {
         let (catalog, from_pack) = self.binding_source(&item.identifier)?;
         let assets = if from_pack {
             Arc::clone(&self.pack.as_ref()?.assets)

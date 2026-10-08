@@ -89,6 +89,12 @@ impl WorldAuthority {
     pub fn take_actor_status_notices(&mut self) -> Vec<crate::ActorStatusNotice> {
         self.actors.take_status_notices()
     }
+    /// The newest sequence the actor store applied; it rejects any older sequence, so every
+    /// event that advances it must keep wire order with the others.
+    #[must_use]
+    pub const fn actor_sequence_frontier(&self) -> u64 {
+        self.actors.latest_sequence()
+    }
     /// Drains where MobEquipment and MobArmorEquipment events landed, for diagnostics.
     pub fn take_equipment_notices(&mut self) -> Vec<crate::EquipmentNotice> {
         self.actors.take_equipment_notices()
@@ -347,6 +353,17 @@ impl WorldAuthority {
     /// Ticks the pack lets `identifier` be used for before its use completes.
     pub fn item_max_use_ticks(&self, identifier: &str) -> Option<u32> {
         self.actors.item_max_use_ticks(identifier)
+    }
+    /// Installs effective item-directed attack and kinetic presentation facts.
+    pub fn set_item_attack_timings(
+        &mut self,
+        timings: std::sync::Arc<std::collections::BTreeMap<Box<str>, protocol::ItemAttackTiming>>,
+    ) {
+        self.actors.set_item_attack_timings(timings);
+    }
+    /// Borrows the same item facts used by native animation queries.
+    pub fn item_attack_timing(&self, identifier: &str) -> Option<&protocol::ItemAttackTiming> {
+        self.actors.item_attack_timing(identifier)
     }
     /// Borrows the armor resolved for this actor.
     pub fn actor_armor(&self, runtime_id: u64) -> Option<&ActorArmorSnapshot> {

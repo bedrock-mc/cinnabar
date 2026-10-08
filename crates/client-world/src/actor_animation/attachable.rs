@@ -260,7 +260,12 @@ impl AttachablesRuntime {
             max_use_ticks: input.max_use_ticks,
             owner_life_tick: owner_rig.animation_variables.life_tick(),
         };
+        let (main_hand_kinetic, main_hand_swing_seconds) =
+            owner_rig.animation_variables.item_timings();
         let mut context = ActorTickContext {
+            main_hand_kinetic,
+            main_hand_swing_seconds,
+            main_hand_is_spear: owner_rig.animation_variables.is_spear(),
             is_local_first_person: input.first_person,
             hand_charged: input.hand_charged,
             main_hand_max_use_ticks: input.max_use_ticks,

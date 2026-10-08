@@ -20,7 +20,9 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 use super::{SourcePayloads, invalid, json::parse_unique_json, read_bounded_source};
+mod item_attack;
 mod textures;
+pub use item_attack::compile_item_attack_timings;
 use textures::compile_texture_identifiers_with;
 pub use textures::{compile_textures_for_assets, compile_textures_for_assets_with};
 
@@ -120,35 +122,8 @@ pub(super) fn transform_lookup(
 /// Item use durations the behavior pack states, sorted by identifier: `use_modifiers.use_duration`
 /// in seconds or the older `minecraft:use_duration` in ticks. Unreadable items are skipped.
 pub fn compile_item_use(behavior_pack: &Path) -> Result<Vec<ItemUseDuration>, AssetError> {
-    const MAX_ITEM_JSON_BYTES: u64 = 256 * 1024;
-    let directory = behavior_pack.join("items");
-    let entries = std::fs::read_dir(&directory).map_err(|source| AssetError::Io {
-        path: directory.clone(),
-        source,
-    })?;
     let mut durations = BTreeMap::<Box<str>, u32>::new();
-    for entry in entries.flatten() {
-        let path = entry.path();
-        let bounded = entry
-            .metadata()
-            .is_ok_and(|metadata| metadata.is_file() && metadata.len() <= MAX_ITEM_JSON_BYTES);
-        if !bounded || path.extension().is_none_or(|extension| extension != "json") {
-            continue;
-        }
-        let Some(item) = std::fs::read(&path)
-            .ok()
-            .and_then(|bytes| parse_unique_json(&path, &bytes).ok())
-            .and_then(|document| document.get("minecraft:item").cloned())
-        else {
-            continue;
-        };
-        let (Some(identifier), Some(components)) = (
-            item.pointer("/description/identifier")
-                .and_then(Value::as_str),
-            item.get("components"),
-        ) else {
-            continue;
-        };
+    for (identifier, components) in item_attack::components(behavior_pack)? {
         let seconds = components
             .pointer("/minecraft:use_modifiers/use_duration")
             .and_then(Value::as_f64)
@@ -161,10 +136,7 @@ pub fn compile_item_use(behavior_pack: &Path) -> Result<Vec<ItemUseDuration>, As
         let Some(ticks) = ticks.filter(|ticks| ticks.is_finite() && *ticks >= 1.0) else {
             continue;
         };
-        let (Ok(identifier), Ok(ticks)) = (
-            bounded_identifier(identifier),
-            u32::try_from(ticks.round() as u64),
-        ) else {
+        let Ok(ticks) = u32::try_from(ticks.round() as u64) else {
             continue;
         };
         durations.insert(identifier, ticks);

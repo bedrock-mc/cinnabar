@@ -172,6 +172,7 @@ pub(super) fn resolve_binding(
         skin_layers: Vec::new(),
         variables,
         replay: None,
+        complete_spear_variables: super::spear::needs_completion(assets, rig_binding),
         samples_render_frames: samples_camera_poses
             || super::render_frame::sampling::needs_frame_sampling(assets, rig_binding),
         samples_camera_poses,

@@ -25,6 +25,7 @@ fn reject_block_press(
         local_runtime_id: 1,
         selection: None,
         swing_duration: client_world::ACTOR_SWING_TICKS,
+        item_attack: None,
         now_millis: 1,
     };
     resolve_and_send(runtime, swings, Crosshair::Block, &press, 1, |packets| {
@@ -197,6 +198,7 @@ fn a_fresh_block_press_expires_while_waiting_for_a_physics_tick() {
         local_runtime_id: 1,
         selection: None,
         swing_duration: client_world::ACTOR_SWING_TICKS,
+        item_attack: None,
         now_millis: 1,
     };
     assert!(
@@ -399,6 +401,7 @@ fn press_at(sample: crate::movement::InteractionSample) -> PressContext {
                 .unwrap(),
         }),
         swing_duration: client_world::ACTOR_SWING_TICKS,
+        item_attack: None,
         now_millis: 1,
     }
 }
