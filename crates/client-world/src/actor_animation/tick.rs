@@ -322,6 +322,7 @@ pub(super) fn evaluate_state(
         context,
         anim_tick,
         anim_time: None,
+        swell_amount: None,
         life_tick,
         finished: (false, false),
         bones: state.posed_bones(),
@@ -377,11 +378,16 @@ pub(super) fn evaluate_state(
         || samples_swell
         || (state.samples_swing_poses && state.local_swing.is_some()))
     .then(|| super::render_frame::FrameState {
-        variables: variables.clone(),
-        context: context.clone(),
-        input,
-        anim_tick,
-        clips: Vec::new(),
+        motion: super::render_frame::swell_endpoint::SwellMotion {
+            variables: variables.clone(),
+            context: context.clone(),
+            input,
+            anim_tick,
+            life_tick,
+            clips: Vec::new(),
+            clocks: BTreeMap::new(),
+        },
+        previous_motion: None,
         swell_poses: None,
         swell_layers: BTreeMap::new(),
         swelling: [actor.creeper_swell_amount(context.frame_alpha); 2],
@@ -480,7 +486,15 @@ pub(super) fn evaluate_state(
         || (state.samples_swing_poses && state.local_swing.is_some()))
         && let Some(frame) = render_frame.as_mut()
     {
-        frame.clips.clone_from(&weighted_clips);
+        frame.motion.clips.clone_from(&weighted_clips);
+        if samples_swell
+            && state
+                .swell_sampling
+                .as_ref()
+                .is_some_and(|s| s.samples_clips())
+        {
+            frame.motion.clocks.clone_from(&clip_clocks);
+        }
     }
     let local = sample_clips(
         &evaluator,

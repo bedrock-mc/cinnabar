@@ -414,6 +414,7 @@ pub(super) struct Evaluator<'a> {
     pub(super) anim_tick: u64,
     /// The clip clock while its time expression or bone channels are evaluated.
     pub(super) anim_time: Option<f32>,
+    pub(super) swell_amount: Option<f32>,
     pub(super) life_tick: u64,
     /// Whether all and any animations of the controller state being left have finished.
     pub(super) finished: (bool, bool),
@@ -679,6 +680,7 @@ impl Evaluator<'_> {
             context: self.context,
             anim_tick: self.anim_tick,
             anim_time: self.anim_time,
+            swell_amount: self.swell_amount,
             life_tick: self.life_tick,
             finished: self.finished,
             bones: self.bones,

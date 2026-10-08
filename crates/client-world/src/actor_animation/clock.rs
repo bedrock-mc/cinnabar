@@ -11,6 +11,7 @@ pub(super) enum Basis {
 #[derive(Clone, Copy, Debug)]
 pub(super) struct ClipClock {
     pub(super) time: f32,
+    baseline: f32,
     pub(super) finished: bool,
     sampled: Option<(u64, u32)>,
     active: bool,
@@ -100,6 +101,7 @@ pub(super) fn prepare(
                 key,
                 ClipClock {
                     time,
+                    baseline: old.map_or(0.0, |clock| clock.time),
                     finished,
                     sampled: Some(stamp),
                     active: true,
@@ -164,6 +166,7 @@ pub(super) fn sample_update(
     evaluator: &Evaluator<'_>,
     variables: &mut MolangVariables,
     weighted: &mut WeightedClip,
+    clocks: &ClipClocks,
     budget: &mut EvalBudget<'_>,
 ) -> Result<(), EvalError> {
     let clip = evaluator
@@ -173,7 +176,11 @@ pub(super) fn sample_update(
         .ok_or(EvalError::Invalid)?;
     if let Some(expression) = clip.anim_time_update {
         let evaluator = Evaluator {
-            anim_time: Some(weighted.time),
+            anim_time: Some(
+                clocks
+                    .get(&(weighted.clip, weighted.started_tick, weighted.clock))
+                    .map_or(0.0, |clock| clock.baseline),
+            ),
             ..*evaluator
         };
         let time = evaluator.number(expression as usize, variables, 0.0, budget)?;

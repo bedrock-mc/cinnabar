@@ -149,6 +149,27 @@ pub(super) fn pose_expressions(
             }
         }
     }
+    let geometries = assets
+        .render_layers(rig)
+        .iter()
+        .flat_map(|layer| {
+            let first = layer.first_geometry as usize;
+            assets.render_data().geometries[first..first + usize::from(layer.geometry_count)]
+                .iter()
+                .map(|choice| choice.geometry)
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    let mapped = clips
+        .iter()
+        .flat_map(|&clip| {
+            let symbol = assets.animation_clips()[clip].symbol;
+            geometries
+                .iter()
+                .filter_map(move |&geometry| assets.clip_for_geometry(symbol, geometry))
+        })
+        .map(|clip| clip as usize)
+        .collect::<Vec<_>>();
+    clips.extend(mapped);
     for clip in clips {
         let Some(clip) = assets.animation_clips().get(clip) else {
             continue;

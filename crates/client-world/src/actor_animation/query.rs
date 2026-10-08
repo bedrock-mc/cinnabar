@@ -138,6 +138,7 @@ pub(super) struct QueryInputs<'a> {
     pub(super) context: &'a ActorTickContext,
     pub(super) anim_tick: u64,
     pub(super) anim_time: Option<f32>,
+    pub(super) swell_amount: Option<f32>,
     pub(super) life_tick: u64,
     /// Whether all and any animations of the controller state being left have finished.
     pub(super) finished: (bool, bool),
@@ -395,7 +396,9 @@ fn number(evaluator: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) ->
         // Ticks stand in for the world clock; only the phase between actors differs.
         "time_stamp" => evaluator.life_tick as f32,
         "has_target" => truth(has_target(actor)),
-        "swell_amount" if actor.is_creeper() => actor.creeper_swell_amount(context.frame_alpha),
+        "swell_amount" if actor.is_creeper() => evaluator
+            .swell_amount
+            .unwrap_or_else(|| actor.creeper_swell_amount(context.frame_alpha)),
         "swell_amount" => metadata_number(actor, KEY_SWELL)
             .map_or(0.0, |swell| (swell / SWELL_FULL_TICKS).max(0.0)),
         // Wither armor shows below half health.

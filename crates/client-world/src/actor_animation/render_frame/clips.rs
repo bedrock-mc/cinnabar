@@ -7,6 +7,7 @@ pub(super) fn sample(
     variables: &mut MolangVariables,
     state: &ActorRigState,
     previous: &[tick::WeightedClip],
+    clocks: &super::super::clock::ClipClocks,
     swelling: Option<&swell::SwellSampling>,
     budget: &mut EvalBudget<'_>,
 ) -> Result<Vec<tick::WeightedClip>, EvalError> {
@@ -15,7 +16,7 @@ pub(super) fn sample(
         evaluator,
         variables,
         &mut controllers,
-        &state.clip_clocks,
+        clocks,
         state.geometry_binding,
         super::super::skin_layers::blink_controller(evaluator.assets, state),
         budget,
@@ -26,10 +27,10 @@ pub(super) fn sample(
             .filter(|clip| clip.clock == super::super::clock::Basis::Lifetime)
             .copied(),
     );
-    super::super::clock::sample(evaluator, &state.clip_clocks, &mut clips, budget)?;
+    super::super::clock::sample(evaluator, clocks, &mut clips, budget)?;
     for weighted in &mut clips {
         if swelling.is_some_and(|sampling| sampling.samples_time(evaluator.assets, weighted.clip)) {
-            super::super::clock::sample_update(evaluator, variables, weighted, budget)?;
+            super::super::clock::sample_update(evaluator, variables, weighted, clocks, budget)?;
         }
         if !swelling.is_some_and(|sampling| sampling.samples_time(evaluator.assets, weighted.clip))
             && let Some(old) = previous.iter().find(|old| {

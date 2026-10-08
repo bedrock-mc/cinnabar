@@ -119,7 +119,7 @@ impl SwellSampling {
         }))
     }
 
-    pub(super) fn samples_clips(&self) -> bool {
+    pub(in crate::actor_animation) fn samples_clips(&self) -> bool {
         !self.weighted_symbols.is_empty() || !self.timed_symbols.is_empty()
     }
 

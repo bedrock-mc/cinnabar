@@ -345,6 +345,28 @@ fn pack_swell_fixture(
     ticks: u32,
     swell_time: bool,
 ) -> crate::actor_store::ActorStore {
+    pack_swell_fixture_with(
+        pre_animation,
+        property,
+        variable,
+        weighted_query_channel,
+        alternate,
+        ticks,
+        swell_time,
+        |_| {},
+    )
+}
+
+fn pack_swell_fixture_with(
+    pre_animation: bool,
+    property: assets::EntityAnimationProperty,
+    variable: bool,
+    weighted_query_channel: Option<bool>,
+    alternate: bool,
+    ticks: u32,
+    swell_time: bool,
+    edit: impl FnOnce(&mut assets::CompiledEntityAssets),
+) -> crate::actor_store::ActorStore {
     let mut compiled = super::attachable::tests::compiled_fixture();
     compiled.sources[1].path = "entity/creeper.json".into();
     compiled.symbols[4].kind = assets::EntityAssetKind::Entity;
@@ -509,6 +531,7 @@ fn pack_swell_fixture(
         .into_boxed_slice();
     }
 
+    edit(&mut compiled);
     let assets = Arc::new(RuntimeEntityAssets::from_compiled(compiled).unwrap());
     let mut store = crate::actor_store::ActorStore::new_with_entity_assets(1, 0, assets);
     store.apply(
@@ -696,4 +719,132 @@ fn swell_driven_clip_time_samples_fraction_without_advancing_tick_clock() {
         }
     }
     assert_eq!(store.actor_rig(1).unwrap().completed_tick, tick);
+}
+
+#[test]
+fn cumulative_swell_clock_reuses_the_pre_update_baseline() {
+    let store = pack_swell_fixture_with(
+        false,
+        assets::EntityAnimationProperty::Translation,
+        false,
+        None,
+        false,
+        7,
+        true,
+        |compiled| {
+            compiled.molang_symbols = [
+                (assets::MolangSymbolKind::Name, "wield"),
+                (assets::MolangSymbolKind::Query, "query.anim_time"),
+                (assets::MolangSymbolKind::Query, "query.swell_amount"),
+            ]
+            .into_iter()
+            .map(|(kind, identifier)| assets::MolangSymbol {
+                kind,
+                identifier: identifier.into(),
+            })
+            .collect::<Vec<_>>()
+            .into_boxed_slice();
+            compiled.molang_ops = vec![
+                MolangOp::LoadQuery(1),
+                MolangOp::LoadQuery(2),
+                MolangOp::Add,
+            ]
+            .into_boxed_slice();
+            compiled.molang_expressions[0].op_count = 3;
+            compiled.molang_expressions[0].max_stack = 2;
+        },
+    );
+    let tick = store.actor_rig(1).unwrap().completed_tick;
+    let completed = store.actor_rig(1).unwrap().current[0].translation_scale[0];
+    for alpha in [0.0, 0.25, 0.75, 1.0] {
+        let layers = store.render_frame(alpha).layers(1).unwrap();
+        let expected = completed - alpha / crate::actor_store::creeper::SWELL_FULL_TICKS;
+        assert!(
+            (layers[0].pose[0].translation_scale[0] - expected).abs() < 1e-6,
+            "scratch clock must recompute the same cumulative update"
+        );
+    }
+    assert_eq!(store.actor_rig(1).unwrap().completed_tick, tick);
+}
+
+#[test]
+fn swell_and_motion_share_one_axis_without_losing_motion_history() {
+    for operation in [MolangOp::Add, MolangOp::Multiply] {
+        let store = pack_swell_fixture_with(
+            true,
+            assets::EntityAnimationProperty::Translation,
+            true,
+            None,
+            false,
+            7,
+            false,
+            |compiled| {
+                let mut ops = compiled.molang_ops.to_vec();
+                ops.extend([
+                    MolangOp::LoadVariable(3),
+                    MolangOp::LoadVariable(4),
+                    operation,
+                ]);
+                compiled.molang_ops = ops.into_boxed_slice();
+                let mut expressions = compiled.molang_expressions.to_vec();
+                expressions.push(assets::CompiledMolangExpression {
+                    first_op: 7,
+                    op_count: 3,
+                    max_stack: 2,
+                });
+                compiled.molang_expressions = expressions.into_boxed_slice();
+                compiled.animation_keyframes[0].expressions = [Some(3), None, None];
+            },
+        );
+        for alpha in [0.0, 0.25, 0.75, 1.0] {
+            let swell = (6.0 + alpha) / crate::actor_store::creeper::SWELL_FULL_TICKS;
+            let layers = store.render_frame(alpha).layers(1).unwrap();
+            for (pose, life_tick) in [
+                (&layers[0].previous_pose[0], 6.0),
+                (&layers[0].pose[0], 7.0),
+            ] {
+                let motion = life_tick * ACTOR_TICK_DURATION.as_secs_f32();
+                let expected = -match operation {
+                    MolangOp::Add => swell + motion,
+                    _ => swell * motion,
+                };
+                assert!(
+                    (pose.translation_scale[0] - expected).abs() < 1e-6,
+                    "independent motion retains its endpoint while swell samples the fraction"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn swell_on_an_alternate_only_bone_samples_the_frame_fraction() {
+    let store = pack_swell_fixture_with(
+        false,
+        assets::EntityAnimationProperty::Translation,
+        false,
+        None,
+        true,
+        8,
+        false,
+        |compiled| {
+            compiled.animation_clips[0].channel_count = 0;
+            compiled.animation_clips[1].first_channel = 0;
+            let mut channel = compiled.animation_channels[1].clone();
+            channel.bone = 0;
+            channel.first_keyframe = 0;
+            compiled.animation_channels = vec![channel].into_boxed_slice();
+            compiled.animation_keyframes = vec![compiled.animation_keyframes[1]].into_boxed_slice();
+        },
+    );
+    for alpha in [0.0, 0.25, 0.75, 1.0] {
+        let layers = store.render_frame(alpha).layers(1).unwrap();
+        let expected = -(7.0 + alpha) / crate::actor_store::creeper::SWELL_FULL_TICKS;
+        for pose in [&layers[1].previous_pose[0], &layers[1].pose[0]] {
+            assert!(
+                (pose.translation_scale[0] - expected).abs() < 1e-6,
+                "alternate-only channel uses the fractional swell query"
+            );
+        }
+    }
 }

@@ -45,6 +45,7 @@ fn dragon_query_and_engine_history_read_the_completed_actor_tick() {
         context: &context,
         anim_tick: 1,
         anim_time: None,
+        swell_amount: None,
         life_tick: 1,
         finished: (false, false),
         bones: &[],
