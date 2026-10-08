@@ -122,6 +122,7 @@ fn rig<'a>(
         render: &[],
         bone_names: &[],
         skin_geometry: None,
+        skin_mesh: None,
         skin_layers: &[],
         hand: Default::default(),
         item_animation: [client_world::ItemAnimationState::default(); 2],

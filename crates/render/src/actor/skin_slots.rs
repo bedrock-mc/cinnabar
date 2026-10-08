@@ -1,15 +1,16 @@
 //! Stable player-skin texture slots: one array per native resolution, LRU-recycled.
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use render_api::SkinRgba8;
-use render_model::{MAX_RENDERED_PLAYERS, STANDARD_SKIN_BYTES, STANDARD_SKIN_SIDE};
+use render_model::MAX_RENDERED_PLAYERS;
+#[cfg(test)]
+use render_model::{STANDARD_SKIN_BYTES, STANDARD_SKIN_SIDE};
 
-/// Square side of each skin array, indexed by the class the shader reads from a layer's top
-/// byte; class 0 is the standard raster, which artwork pages also sample.
-pub const SKIN_CLASS_SIDES: [usize; 4] = [STANDARD_SKIN_SIDE, 64, 128, 256];
+use render_model::{PLAYER_SKIN_BUDGET_BYTES, SKIN_CLASS_SIDES};
 const SLOT_LAYER_BITS: u32 = 24;
-/// Allocated skin texels never exceed the standard-raster array this layout replaced.
-pub(crate) const PLAYER_SKIN_BUDGET_BYTES: usize = MAX_RENDERED_PLAYERS * STANDARD_SKIN_BYTES;
 /// Arrays grow past their in-use skins only while total allocation stays under this.
 const RETAINED_SKIN_BYTES: usize = PLAYER_SKIN_BUDGET_BYTES / 8;
 /// A new array starts at this many bytes, or one layer.
@@ -32,7 +33,7 @@ const fn layer_bytes(class: usize) -> usize {
     SKIN_CLASS_SIDES[class] * SKIN_CLASS_SIDES[class] * 4
 }
 
-/// One admitted skin: its standard raster, the native texels its class array holds, and an
+/// One admitted skin: its source raster, the native texels its class array holds, and an
 /// admission number that changes whenever the layer's contents do.
 #[derive(Clone, Debug)]
 pub struct ResidentSkin {
@@ -66,13 +67,13 @@ impl ActorSkinResidency {
 #[derive(Debug)]
 struct Slot {
     resident: ResidentSkin,
-    used: u64,
 }
 
 #[derive(Debug, Default)]
 pub(crate) struct SkinSlots {
     classes: [Vec<Option<Slot>>; 4],
     free: [Vec<usize>; 4],
+    recency: [render_model::FrameSlotRecency; SKIN_CLASS_SIDES.len()],
     index: HashMap<SkinRgba8, u32>,
     frame: u64,
     admissions: u64,
@@ -82,9 +83,7 @@ pub(crate) struct SkinSlots {
 }
 
 impl SkinSlots {
-    /// The stable slot of each standard-raster skin, admitting new ones; no skin in `skins` is
-    /// evicted. Every skin must be [`STANDARD_SKIN_BYTES`] long and there are at most
-    /// [`MAX_RENDERED_PLAYERS`].
+    /// Stable slots for admitted square skins; no source in this frame's bounded set is evicted.
     pub(crate) fn assign(&mut self, skins: &[SkinRgba8]) -> &[u32] {
         debug_assert!(skins.len() <= MAX_RENDERED_PLAYERS);
         self.frame += 1;
@@ -120,11 +119,10 @@ impl SkinSlots {
         &self.assigned
     }
 
+    /// Marks a resident slot without scanning or allocating a recency queue.
     fn touch(&mut self, slot: u32) {
         let (class, layer) = unpack_skin_slot(slot);
-        if let Some(entry) = self.classes[class][layer].as_mut() {
-            entry.used = self.frame;
-        }
+        self.recency[class].touch(layer, self.frame);
     }
 
     /// The residency of the latest assignment; a new `Arc` only when a layer or capacity changed.
@@ -151,8 +149,8 @@ impl SkinSlots {
                 texels,
                 admission: self.admissions,
             },
-            used: self.frame,
         });
+        self.recency[class].touch(layer, self.frame);
         self.index.insert(skin.clone(), slot);
         self.dirty = true;
         slot
@@ -176,13 +174,9 @@ impl SkinSlots {
             .max((MIN_CLASS_BYTES / layer_bytes(class)).max(1))
             .min(MAX_RENDERED_PLAYERS)
             .min(capacity + room);
-        let lru = self.classes[class]
-            .iter()
-            .enumerate()
-            .filter_map(|(layer, slot)| slot.as_ref().map(|slot| (slot.used, layer)))
-            .filter(|(used, _)| *used != self.frame)
-            .min()
-            .map(|(_, layer)| layer);
+        #[cfg(test)]
+        tests::record_probe();
+        let lru = self.recency[class].oldest_unused(self.frame);
         let retains = self.allocated_bytes() + (grown - capacity.min(grown)) * layer_bytes(class)
             <= RETAINED_SKIN_BYTES;
         match lru {
@@ -190,6 +184,7 @@ impl SkinSlots {
                 let evicted = self.classes[class][layer]
                     .take()
                     .expect("lru layer is resident");
+                self.recency[class].remove(layer);
                 self.index.remove(&evicted.resident.skin);
                 self.dirty = true;
                 Some(layer)
@@ -207,6 +202,23 @@ impl SkinSlots {
     /// Reassigns this frame's skins to exactly sized arrays, dropping every other skin; only
     /// reached when unused capacity in other classes holds the budget.
     fn repack(&mut self, skins: &[SkinRgba8]) {
+        let mut seen = HashSet::with_capacity(skins.len());
+        let mut unique = Vec::with_capacity(skins.len());
+        for skin in skins {
+            #[cfg(test)]
+            tests::record_probe();
+            if !seen.insert(skin.clone()) {
+                continue;
+            }
+            let prepared = self.index.get(skin).and_then(|&slot| {
+                let (class, layer) = unpack_skin_slot(slot);
+                self.classes[class][layer]
+                    .as_ref()
+                    .map(|slot| (class, Arc::clone(&slot.resident.texels)))
+            });
+            let (class, texels) = prepared.unwrap_or_else(|| native_class(skin));
+            unique.push((skin.clone(), class, texels));
+        }
         *self = Self {
             frame: self.frame,
             admissions: self.admissions,
@@ -214,13 +226,6 @@ impl SkinSlots {
             assigned: std::mem::take(&mut self.assigned),
             ..Self::default()
         };
-        let mut unique = Vec::new();
-        for skin in skins {
-            if !unique.iter().any(|(known, _, _)| known == skin) {
-                let (class, texels) = native_class(skin);
-                unique.push((skin.clone(), class, texels));
-            }
-        }
         for class in 0..4 {
             let count = unique.iter().filter(|entry| entry.1 == class).count();
             self.classes[class].resize_with(count, || None);
@@ -238,7 +243,7 @@ impl SkinSlots {
 
 /// The smallest class whose nearest upscale reproduces `skin`, and that class's texels.
 fn native_class(skin: &SkinRgba8) -> (usize, Arc<[u8]>) {
-    let mut side = STANDARD_SKIN_SIDE;
+    let mut side = render_model::actor_skin_side(skin).expect("admitted square skin");
     let mut texels: Option<Vec<u8>> = None;
     while side > SKIN_CLASS_SIDES[1] {
         let Some(half) = halve(texels.as_deref().unwrap_or(skin), side) else {
@@ -407,6 +412,91 @@ mod tests {
         assert!(residency.allocated_bytes() <= PLAYER_SKIN_BUDGET_BYTES);
         for (skin, slot) in skins.iter().zip(assigned) {
             assert_eq!(&residency.resident(slot).unwrap().skin, skin);
+        }
+    }
+    thread_local! {
+        static LOOKUP_PROBES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    }
+
+    /// Counts one explicit candidate inspection without changing production code.
+    pub(super) fn record_probe() {
+        LOOKUP_PROBES.with(|count| count.set(count.get() + 1));
+    }
+
+    /// Starts an independent work sample on this test thread.
+    fn reset_probes() {
+        LOOKUP_PROBES.with(|count| count.set(0));
+    }
+
+    /// Returns deterministic lookup work rather than elapsed time.
+    fn probes() -> usize {
+        LOOKUP_PROBES.with(std::cell::Cell::get)
+    }
+
+    #[test]
+    fn bounded_skin_repack_work_retains_prepared_texels() {
+        let skins: Vec<_> = (0..MAX_RENDERED_PLAYERS as u64)
+            .map(|seed| skin(seed, 64))
+            .collect();
+        let mut slots = SkinSlots::default();
+        let before = slots.assign(&skins).to_vec();
+        let residency = Arc::clone(slots.residency());
+        reset_probes();
+        slots.repack(&skins);
+        assert!(
+            probes() <= skins.len() * 4,
+            "{} duplicate candidates for {} skins",
+            probes(),
+            skins.len()
+        );
+        let after = slots.assigned().to_vec();
+        let replaced = slots.residency();
+        for (old, new) in before.into_iter().zip(after) {
+            assert!(Arc::ptr_eq(
+                &residency.resident(old).unwrap().texels,
+                &replaced.resident(new).unwrap().texels
+            ));
+        }
+    }
+
+    #[test]
+    fn bounded_lookup_work_when_all_previous_skins_are_replaced() {
+        let count = MAX_RENDERED_PLAYERS / 4;
+        let skins: Vec<_> = (0..count * 2)
+            .map(|seed| skin(seed as u64, STANDARD_SKIN_SIDE))
+            .collect();
+        let mut slots = SkinSlots::default();
+        slots.assign(&skins[..count]);
+        reset_probes();
+        let assigned = slots.assign(&skins[count..]).to_vec();
+        assert!(
+            probes() <= count * 4,
+            "{} eviction candidates for {count} new skins",
+            probes()
+        );
+        let residency = slots.residency();
+        for (skin, slot) in skins[count..].iter().zip(assigned) {
+            assert_eq!(skin, &residency.resident(slot).unwrap().skin);
+        }
+    }
+    #[test]
+    fn native_skin_classes_keep_exact_pixels_and_warm_assignments_allocate_nothing() {
+        for (class, side) in SKIN_CLASS_SIDES.iter().copied().enumerate() {
+            let pixels: Vec<u8> = (0..side * side)
+                .flat_map(|index| [index as u8, (index / side) as u8, 17, 255])
+                .collect();
+            let skin: SkinRgba8 = pixels.into();
+            let mut slots = SkinSlots::default();
+            let slot = slots.assign(std::slice::from_ref(&skin))[0];
+            let resident = slots.residency().resident(slot).unwrap();
+            assert_eq!(unpack_skin_slot(slot).0, class);
+            assert!(Arc::ptr_eq(&resident.texels, skin.pixels()));
+            let allocations = crate::alloc_count::thread_allocations();
+            for _ in 0..3 {
+                slots.assign(std::slice::from_ref(&skin));
+                slots.residency();
+            }
+            assert_eq!(crate::alloc_count::thread_allocations(), allocations);
         }
     }
 }

@@ -8,7 +8,7 @@ use render::{
 };
 use render_model::{
     ActorRigGeometry, ActorRigVertex, ActorSkinPixels, normalize_actor_skin,
-    normalize_actor_skin_cached, skin_rig_id,
+    prepare_actor_skin_cached, skin_rig_id,
 };
 
 const FRAMES: u32 = 200;
@@ -46,7 +46,7 @@ fn frame_cost_bench_skin_normalization_50_hd_players() {
     });
     let new = per_frame(FRAMES, |_| {
         for skin in &skins {
-            std::hint::black_box(normalize_actor_skin_cached(skin));
+            std::hint::black_box(prepare_actor_skin_cached(skin));
         }
     });
     report("skin_normalization_50_hd", old, new);

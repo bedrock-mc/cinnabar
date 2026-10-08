@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 mod aim_assist;
+mod appearance_preparation;
 
 use protocol::{
     ActorAttribute, ActorEvent, ActorKind, ActorLinkEvent, ActorLinkType, ActorMetadataValue,
@@ -650,7 +651,7 @@ pub enum LocalItemUse {
     Using,
 }
 
-/// Sparse, session-scoped actor state. It owns no render or chunk-mesh state.
+/// Sparse session state, including immutable prepared appearances; GPU resources stay in presentation.
 #[derive(Debug)]
 pub(crate) struct ActorStore {
     session_id: u64,
@@ -673,6 +674,7 @@ pub(crate) struct ActorStore {
     /// Appearances of spawned players removed from the roster, retained until despawn.
     unlisted_players: HashMap<[u8; 16], PlayerProfile>,
     animation: ActorAnimationStore,
+    ready_appearances: appearance_preparation::ReadyAppearances,
     items: ItemStateStore,
     actions: RemoteActionStore,
     remote_state_excluded_runtime_id: Option<u64>,

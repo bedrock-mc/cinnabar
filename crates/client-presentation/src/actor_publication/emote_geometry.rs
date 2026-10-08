@@ -23,7 +23,7 @@ pub(super) fn apply(
     animated: render::ActorRigSubmission,
 ) {
     if let Some(geometry) = rig.skin_geometry {
-        let Some(id) = cache.rig(geometry, |built| {
+        let Some(id) = cache.rig(geometry, rig.skin_mesh, |built| {
             if let Some(equipment) = equipment.as_deref_mut() {
                 equipment.register_skin_rig(built.id, rig.bone_names.to_vec());
             }
