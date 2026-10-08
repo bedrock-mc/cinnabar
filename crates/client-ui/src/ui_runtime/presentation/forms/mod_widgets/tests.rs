@@ -6,7 +6,7 @@ use ui::{
 };
 
 /// Loads the same real font, HUD, item icons and JSON-UI carriers used by the client.
-fn installed_hud_presentation() -> Option<UiPresentationRuntime> {
+pub(in super::super) fn installed_hud_presentation() -> Option<UiPresentationRuntime> {
     use assets::{RuntimeHudCatalog, RuntimeIconCatalog};
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local");
     let read = |name: &str| {
@@ -54,7 +54,7 @@ fn installed_hud_presentation() -> Option<UiPresentationRuntime> {
     Some(presentation)
 }
 
-fn content() -> Hud {
+pub(in super::super) fn content() -> Hud {
     Hud {
         cards: vec![Card {
             id: "equipment".into(),
@@ -71,10 +71,11 @@ fn content() -> Hud {
                 progress: Some(0.85),
                 color: [0.3, 1., 0.5, 1.],
             }],
+            ..Default::default()
         }],
     }
 }
-fn presentation(hidden: bool) -> UiPresentationRuntime {
+pub(in super::super) fn presentation(hidden: bool) -> UiPresentationRuntime {
     let mut presentation = mini_engine_presentation();
     let hud = serde_json::json!({"namespace":"hud","hud_screen":{"type":"screen","visible":!hidden,
         "controls":[{"label":{"type":"label","size":[100,12],"text":"Base HUD","anchor_from":"bottom_middle","anchor_to":"bottom_middle"}}]}});
@@ -93,7 +94,7 @@ fn presentation(hidden: bool) -> UiPresentationRuntime {
     });
     presentation
 }
-fn frame(
+pub(in super::super) fn frame(
     presentation: &mut UiPresentationRuntime,
     runtime: &UiRuntime,
     size: [u32; 2],
@@ -280,6 +281,7 @@ fn personal_hud_snapshot_with_real_carrier() {
             },
         })
         .collect(),
+        ..Default::default()
     };
     let effects = Card {
         id: "effects".into(),
@@ -299,6 +301,7 @@ fn personal_hud_snapshot_with_real_carrier() {
                 color: [1.; 4],
             })
             .collect(),
+        ..Default::default()
     };
     let supplies = Card {
         id: "supplies".into(),
@@ -323,6 +326,7 @@ fn personal_hud_snapshot_with_real_carrier() {
             color: [1.; 4],
         })
         .collect(),
+        ..Default::default()
     };
     let hud = Hud {
         cards: vec![equipment, effects, supplies],

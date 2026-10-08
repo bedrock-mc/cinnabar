@@ -10,9 +10,8 @@ pub(super) fn same_shape(a: &Hud, b: &Hud) -> bool {
     a.cards.len() == b.cards.len()
         && a.cards.iter().zip(&b.cards).all(|(a, b)| {
             a.id == b.id
-                && a.anchor == b.anchor
-                && a.offset == b.offset
                 && a.scale == b.scale
+                && a.title.is_empty() == b.title.is_empty()
                 && a.rows.len() == b.rows.len()
                 && a.rows.iter().zip(&b.rows).all(|(a, b)| {
                     a.effect_id == b.effect_id
@@ -33,9 +32,11 @@ fn label(key: &str, size: [f64; 2], offset: [f64; 2], scale: f64, right: bool) -
         "text":key,"bindings":[{"binding_name":key}],"localize":false,"shadow":true,"hide_hyphen":true,
         "text_alignment": if right {"right"} else {"left"},"font_scale_factor":0.8*scale,"color":[1,1,1,1],"clip_children":true})
 }
-fn card(card: &Card, card_index: usize, row_index: &mut usize) -> Value {
+/// Shares card controls between gameplay publication and native previews.
+pub(in super::super) fn card(card: &Card, card_index: usize, row_index: &mut usize) -> Value {
     let k = f64::from(card.scale);
-    let height = HEADER + ROW * card.rows.len() as f64 + 4.;
+    let header = if card.title.is_empty() { 0. } else { HEADER };
+    let height = header + ROW * card.rows.len() as f64 + 4.;
     let mut controls = vec![
         named(
             "surface",
@@ -43,7 +44,7 @@ fn card(card: &Card, card_index: usize, row_index: &mut usize) -> Value {
                 [WIDTH * k, height * k],
                 [0.; 2],
                 3. * k,
-                [0.045, 0.05, 0.065, 0.82],
+                [0.045, 0.05, 0.065, card.background_opacity],
             ),
         ),
         named(
@@ -66,10 +67,14 @@ fn card(card: &Card, card_index: usize, row_index: &mut usize) -> Value {
             ),
         ),
     ];
+    controls[0]["surface"]["bindings"] = json!([{ "binding_name":format!("#card_{card_index}_background"),"binding_name_override":"#color" }]);
+    if card.title.is_empty() {
+        controls.truncate(1);
+    }
     for (local, row) in card.rows.iter().enumerate() {
         let index = *row_index;
         *row_index += 1;
-        let y = (HEADER + ROW * local as f64) * k;
+        let y = (header + ROW * local as f64) * k;
         let left = if row.item.is_some() || row.effect_id.is_some() {
             26.
         } else {
@@ -129,13 +134,9 @@ fn card(card: &Card, card_index: usize, row_index: &mut usize) -> Value {
             ));
         }
     }
-    let anchor = match card.anchor {
-        Anchor::TopLeft => "top_left",
-        Anchor::TopRight => "top_right",
-        Anchor::BottomLeft => "bottom_left",
-        Anchor::BottomRight => "bottom_right",
-    };
-    json!({"type":"panel","size":[WIDTH*k,height*k],"offset":card.offset,"anchor_from":anchor,"anchor_to":anchor,"controls":controls})
+    json!({"type":"panel","size":[WIDTH*k,height*k],"offset":[0,0],
+        "anchor_from":"top_left","anchor_to":"top_left","controls":controls,
+        "bindings":[{"binding_name":format!("#card_{card_index}_offset"),"binding_name_override":"#offset"}]})
 }
 pub(super) fn catalog(hud: &Hud) -> Result<Catalog, String> {
     let mut index = 0;
@@ -156,11 +157,19 @@ pub(super) fn catalog(hud: &Hud) -> Result<Catalog, String> {
     ])
     .map_err(|error| error.to_string())
 }
-pub(super) fn data(hud: &Hud) -> DataSource {
+pub(in super::super) fn data(hud: &Hud, viewport: [f64; 2]) -> DataSource {
     let mut data = DataSource::new();
     let mut index = 0;
     for (n, card) in hud.cards.iter().enumerate() {
         data.set_global(format!("#card_{n}_title"), Scalar::Text(card.title.clone()));
+        data.set_global(
+            format!("#card_{n}_offset"),
+            Scalar::Json(json!(origin(card, viewport))),
+        );
+        data.set_global(
+            format!("#card_{n}_background"),
+            Scalar::Json(json!([0.045, 0.05, 0.065, card.background_opacity])),
+        );
         for row in &card.rows {
             data.set_global(
                 format!("#row_{index}_label"),
@@ -183,4 +192,28 @@ pub(super) fn data(hud: &Hud) -> DataSource {
         }
     }
     data
+}
+
+/// Shared card geometry for gameplay publication and native layout editing.
+pub(in super::super) fn dimensions(card: &Card) -> [f64; 2] {
+    let header = if card.title.is_empty() { 0. } else { HEADER };
+    [
+        WIDTH * f64::from(card.scale),
+        (header + ROW * card.rows.len() as f64 + 4.) * f64::from(card.scale),
+    ]
+}
+/// Resolves normalized travel or the exact legacy corner offset.
+pub(in super::super) fn origin(card: &Card, viewport: [f64; 2]) -> [f64; 2] {
+    let size = dimensions(card);
+    let available = std::array::from_fn::<_, 2, _>(|axis| (viewport[axis] - size[axis]).max(0.));
+    if let Some(position) = card.position {
+        return std::array::from_fn(|axis| f64::from(position[axis]) * available[axis]);
+    }
+    let edge = match card.anchor {
+        Anchor::TopLeft => [0., 0.],
+        Anchor::TopRight => [available[0], 0.],
+        Anchor::BottomLeft => [0., available[1]],
+        Anchor::BottomRight => available,
+    };
+    std::array::from_fn(|axis| edge[axis] + f64::from(card.offset[axis]))
 }

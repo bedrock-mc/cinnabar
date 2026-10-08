@@ -236,6 +236,20 @@ impl ModHost {
         self.instance.hud()
     }
 
+    /// Consumes a committed native-editor request without entering the guest.
+    pub fn take_hud_editor_request(&mut self) -> Option<ui::mod_hud::Hud> {
+        self.instance.take_hud_editor_request()
+    }
+
+    /// Delivers host-owned layout output to this instance only.
+    pub fn deliver_hud_editor_result(&mut self, result: ui::mod_hud::EditorResult) -> Result<()> {
+        result.validate().map_err(anyhow::Error::msg)?;
+        if self.is_active() {
+            self.instance.deliver_hud_editor_result(result);
+        }
+        Ok(())
+    }
+
     /// Retained cosmetic crosshair, applied only when the ordinary crosshair is visible.
     pub fn crosshair(&self) -> Option<&ui::mod_hud::Crosshair> {
         self.instance.crosshair()

@@ -30,14 +30,58 @@ pub struct Hud {
 #[serde(deny_unknown_fields)]
 pub struct Card {
     pub id: String,
+    #[serde(default)]
     pub title: String,
+    #[serde(default)]
+    pub editor_label: String,
     #[serde(default)]
     pub anchor: Anchor,
     #[serde(default)]
     pub offset: [f32; 2],
     #[serde(default = "unit")]
     pub scale: f32,
+    /// Fractions of available travel (viewport minus the scaled card size).
+    #[serde(default)]
+    pub position: Option<[f32; 2]>,
+    #[serde(default = "background_opacity")]
+    pub background_opacity: f32,
+    /// Optional factory placement used only by the host-owned layout editor.
+    #[serde(default)]
+    pub reset_anchor: Option<Anchor>,
+    #[serde(default)]
+    pub reset_offset: Option<[f32; 2]>,
     pub rows: Vec<Row>,
+}
+
+impl Default for Card {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            title: String::new(),
+            editor_label: String::new(),
+            anchor: Anchor::default(),
+            offset: [0.; 2],
+            scale: unit(),
+            position: None,
+            background_opacity: background_opacity(),
+            reset_anchor: None,
+            reset_offset: None,
+            rows: Vec::new(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Placement {
+    pub id: String,
+    pub position: Option<[f32; 2]>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct EditorResult {
+    pub saved: bool,
+    pub reset: bool,
+    pub placements: Vec<Placement>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -98,6 +142,10 @@ impl Default for Crosshair {
 fn unit() -> f32 {
     1.
 }
+/// Preserves the existing card surface alpha when the new field is omitted.
+fn background_opacity() -> f32 {
+    0.82
+}
 fn white() -> [f32; 4] {
     [1.; 4]
 }
@@ -137,6 +185,7 @@ impl Hud {
                 return Err("HUD cards require bounded unique identifiers".into());
             }
             text(&card.title)?;
+            text(&card.editor_label)?;
             if !card.scale.is_finite()
                 || !(0.5..=2.).contains(&card.scale)
                 || card
@@ -144,6 +193,15 @@ impl Hud {
                     .into_iter()
                     .any(|v| !v.is_finite() || v.abs() > 2048.)
                 || card.rows.len() > MAX_CARD_ROWS
+                || !card.background_opacity.is_finite()
+                || !(0. ..=1.).contains(&card.background_opacity)
+                || card.position.is_some_and(|p| {
+                    p.into_iter()
+                        .any(|v| !v.is_finite() || !(0. ..=1.).contains(&v))
+                })
+                || card
+                    .reset_offset
+                    .is_some_and(|p| p.into_iter().any(|v| !v.is_finite() || v.abs() > 2048.))
             {
                 return Err("HUD card geometry exceeds its bounds".into());
             }
@@ -176,6 +234,26 @@ impl Hud {
         Ok(())
     }
 }
+impl EditorResult {
+    /// Rejects malformed placement output and changes attached to cancellation.
+    pub fn validate(&self) -> Result<(), String> {
+        if !self.saved && (self.reset || !self.placements.is_empty()) {
+            return Err("cancelled HUD editor cannot carry changes".into());
+        }
+        let hud = Hud {
+            cards: self
+                .placements
+                .iter()
+                .map(|p| Card {
+                    id: p.id.clone(),
+                    position: p.position,
+                    ..Default::default()
+                })
+                .collect(),
+        };
+        hud.validate()
+    }
+}
 impl Crosshair {
     /// Keeps custom crosshair geometry and color within bounded cosmetic limits.
     pub fn validate(&self) -> Result<(), String> {
@@ -201,6 +279,61 @@ impl Crosshair {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn card_defaults_preserve_legacy_background_and_validate_new_presentation_fields() {
+        let mut hud: Hud =
+            serde_json::from_str(r#"{"cards":[{"id":"supplies","rows":[]}]}"#).unwrap();
+        assert!(hud.cards[0].title.is_empty());
+        assert_eq!(hud.cards[0].position, None);
+        assert_eq!(hud.cards[0].background_opacity, 0.82);
+        assert!(hud.validate().is_ok());
+        for opacity in [0., 0.35, 1.] {
+            hud.cards[0].background_opacity = opacity;
+            assert!(hud.validate().is_ok());
+        }
+        for opacity in [f32::NAN, -0.01, 1.01] {
+            hud.cards[0].background_opacity = opacity;
+            assert!(hud.validate().is_err());
+        }
+        hud.cards[0].background_opacity = 0.82;
+        for position in [[f32::NAN, 0.], [-0.01, 0.], [1.01, 0.], [0., f32::INFINITY]] {
+            hud.cards[0].position = Some(position);
+            assert!(hud.validate().is_err());
+        }
+        for position in [[0., 0.], [0.5, 0.5], [1., 1.]] {
+            hud.cards[0].position = Some(position);
+            assert!(hud.validate().is_ok());
+        }
+        hud.cards[0].editor_label = "Bad\nlabel".into();
+        assert!(hud.validate().is_err());
+    }
+    #[test]
+    fn editor_results_are_bounded_and_cancellation_carries_no_changes() {
+        assert!(EditorResult::default().validate().is_ok());
+        let saved = EditorResult {
+            saved: true,
+            reset: false,
+            placements: vec![Placement {
+                id: "equipment".into(),
+                position: Some([0.5, 0.5]),
+            }],
+        };
+        assert!(saved.validate().is_ok());
+        assert!(
+            EditorResult {
+                saved: false,
+                ..saved.clone()
+            }
+            .validate()
+            .is_err()
+        );
+        let mut duplicate = saved.clone();
+        duplicate.placements.push(duplicate.placements[0].clone());
+        assert!(duplicate.validate().is_err());
+        let mut excess = saved;
+        excess.placements[0].position = Some([1.01, 0.]);
+        assert!(excess.validate().is_err());
+    }
     #[test]
     fn crosshair_rejects_invisible_nonfinite_and_excessive_geometry() {
         for value in [f32::NAN, f32::INFINITY, 0., 17.] {
@@ -253,6 +386,7 @@ mod tests {
             offset: [-6., 6.],
             scale: 1.,
             rows: vec![row],
+            ..Default::default()
         };
         let mut hud = Hud { cards: vec![card] };
         assert!(hud.validate().is_ok());

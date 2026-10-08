@@ -24,6 +24,13 @@ pub(super) struct GameplayContext<'w> {
 }
 
 impl GameplayContext<'_> {
+    /// Layout editing requires the same current connected world as player presentation.
+    pub(super) fn hud_editor_session(&self, ui: &client_ui::ui_runtime::UiRuntime) -> Option<u64> {
+        self.world.as_ref()?.stream.as_ref()?;
+        let session = self.clock.as_ref()?.session_generation();
+        (session == ui.session_id()).then_some(session)
+    }
+
     /// Local facts stay readable while a screen owns input, but never without a live session.
     pub(super) fn player_state(
         &self,
