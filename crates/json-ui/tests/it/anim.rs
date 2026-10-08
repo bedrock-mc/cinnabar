@@ -185,6 +185,69 @@ fn wait_destroys_the_named_ancestor() {
     assert!(animator.is_destroyed(&node(&nodes, "title").key));
 }
 
+#[test]
+fn changed_creation_clock_revives_a_destroyed_control_at_the_same_path() {
+    let nodes = draws(
+        r#""fade": { "anim_type": "alpha", "from": 1, "to": 0, "duration": 1,
+            "destroy_at_end": "popup" },
+        "popup": { "type": "image", "texture": "textures/ui/test", "size": [10, 10],
+            "anim_clock": "popup_text", "anims": ["@audit.fade"] }"#,
+        "popup",
+    );
+    let popup = node(&nodes, "popup");
+    let mut animator = Animator::new();
+    let mut clocks = std::collections::BTreeMap::from([("popup_text".into(), 10.0)]);
+    let drawn = popup.animate(&mut animator, 10.25, Some(&clocks), Some(&Strip));
+    assert!(!drawn.hidden && close(drawn.opacity, 0.75));
+    animator.end_frame();
+
+    popup.animate(&mut animator, 11.25, Some(&clocks), Some(&Strip));
+    animator.end_frame();
+    assert!(
+        popup
+            .animate(&mut animator, 11.3, Some(&clocks), Some(&Strip))
+            .hidden
+    );
+    animator.end_frame();
+    // The component has been pruned, but its old incarnation stays removed.
+    clocks.insert("unrelated".into(), 12.0);
+    assert!(
+        popup
+            .animate(&mut animator, 12.25, Some(&clocks), Some(&Strip))
+            .hidden
+    );
+    animator.end_frame();
+    assert!(
+        popup
+            .animate(&mut animator, 12.5, None, Some(&Strip))
+            .hidden
+    );
+    animator.end_frame();
+
+    clocks.insert("popup_text".into(), 15.0);
+    let replacement = popup.animate(&mut animator, 15.25, Some(&clocks), Some(&Strip));
+    assert!(!replacement.hidden);
+    assert!(close(replacement.opacity, 0.75), "{}", replacement.opacity);
+    assert!(!animator.is_destroyed(&popup.key));
+    animator.end_frame();
+    popup.animate(&mut animator, 16.25, Some(&clocks), Some(&Strip));
+    animator.end_frame();
+    assert!(
+        popup
+            .animate(&mut animator, 16.3, Some(&clocks), Some(&Strip))
+            .hidden
+    );
+    animator.end_frame();
+    assert!(
+        popup
+            .animate(&mut animator, 16.5, Some(&clocks), Some(&Strip))
+            .hidden
+    );
+    animator.end_frame();
+    animator.end_frame();
+    assert!(!animator.is_destroyed(&popup.key));
+}
+
 // N8/N30/N32: a flip-book in `anims` steps texture-width/count frames and turns
 // around with repeated endpoints.
 #[test]
