@@ -15,6 +15,7 @@ use crate::ui_runtime::presentation::hud_layout::HeartPaint;
 
 const CROSSHAIR_TEXTURE: &str = "textures/ui/cross_hair";
 const CROSSHAIR_SIDE: f32 = 16.0;
+pub(in super::super) const HUNGER_RENDERER: &str = "hunger_renderer";
 
 #[cfg(test)]
 mod crosshair_tests;
@@ -127,7 +128,7 @@ pub(super) fn paint(
             return true;
         }
         "armor_renderer" => (&hud.armor, top_left),
-        "hunger_renderer" => (&hud.hunger, top_left),
+        HUNGER_RENDERER => (&hud.hunger, top_left),
         "bubbles_renderer" => (&hud.bubbles, top_left),
         "horse_heart_renderer" => (&hud.mount_hearts, top_left),
         "mob_effects_renderer" => (&hud.effects, [dest[2], dest[1]]),

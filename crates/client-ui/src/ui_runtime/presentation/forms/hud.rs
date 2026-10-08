@@ -96,6 +96,7 @@ struct Laid {
     px: f32,
     language: [usize; 3],
     render: FormRender,
+    hunger_visible: bool,
 }
 
 impl CachedScreen {
@@ -233,10 +234,17 @@ impl CachedScreen {
                 }
             };
             self.passes += 1;
+            let render = render_bound_cached(bound, root, env, view, &mut self.measures);
+            let hunger_visible = render.nodes.iter().any(|node| {
+                node.alpha > 0.0
+                    && node.shown(view)
+                    && matches!(&node.draw, json_ui::Draw::Custom { renderer, .. } if renderer == super::hud_renderers::HUNGER_RENDERER)
+            });
             self.laid = Some(Laid {
                 reference: reference.to_owned(),
                 catalog: Arc::clone(catalog),
-                render: render_bound_cached(bound, root, env, view, &mut self.measures),
+                render,
+                hunger_visible,
                 data,
                 view: view.clone(),
                 root,
@@ -269,7 +277,7 @@ pub(super) struct HudScreens {
 }
 
 impl HudScreens {
-    /// Advance hunger motion once per visible HUD render, independently of packet clocks.
+    /// Prepare the next hunger update; commit it only if the bound renderer is visible.
     #[allow(clippy::too_many_arguments)]
     fn capture_status(
         &mut self,
@@ -284,10 +292,21 @@ impl HudScreens {
             self.hunger_session = Some(runtime.session_id());
             self.hunger_updates = 0;
         }
-        if !crosshair && player.facts.survival_stats_visible() {
+        let updates = self.hunger_updates.wrapping_add(u64::from(!crosshair));
+        hud_layout::capture_hud_paint(player, runtime, frame, sheet, options, updates)
+    }
+
+    /// Keep hidden hunger controls and crosshair passes from advancing the pulse.
+    fn finish_status(&mut self, crosshair: bool) {
+        if !crosshair
+            && self
+                .hud
+                .laid
+                .as_ref()
+                .is_some_and(|laid| laid.hunger_visible)
+        {
             self.hunger_updates = self.hunger_updates.wrapping_add(1);
         }
-        hud_layout::capture_hud_paint(player, runtime, frame, sheet, options, self.hunger_updates)
     }
 
     /// Preserve bindings while relaying out screens for a changed texture pack.
@@ -424,7 +443,7 @@ impl UiPresentationRuntime {
             next: &mut *next,
             overlay: &[],
         };
-        renderer.draw(art, inputs, out, |env, root| {
+        let painted = renderer.draw(art, inputs, out, |env, root| {
             screen.render(
                 reference,
                 &catalog,
@@ -434,6 +453,9 @@ impl UiPresentationRuntime {
                 env,
             )
         })?;
+        if painted.is_some() {
+            screens.finish_status(crosshair);
+        }
         if let Some(view) = preview_view.get() {
             self.player_preview_view = view;
         }
