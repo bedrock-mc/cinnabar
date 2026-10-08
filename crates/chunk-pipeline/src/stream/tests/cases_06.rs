@@ -332,6 +332,7 @@ fn local_movement_authority_commits_in_fifo_order_and_accepts_zero_updates() {
                 sprint_modifier: None,
                 underwater: None,
                 lava: None,
+                air_drag_modifier: None,
                 tick: 2,
             }
         ]

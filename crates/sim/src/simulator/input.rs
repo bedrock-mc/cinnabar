@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::{MovementEffects, MovementMode, SimulationError};
+use super::{MovementEffects, MovementMode, SimulationError, VerticalPhysics};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -77,6 +77,8 @@ pub struct MovementInput {
     /// Ability flight speed; `None` selects the vanilla default. Read only when flying.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fly_speed: Option<f64>,
+    #[serde(default, skip_serializing_if = "VerticalPhysics::is_default")]
+    pub vertical_physics: VerticalPhysics,
 }
 
 impl MovementInput {
@@ -123,6 +125,15 @@ pub(super) fn validate(input: MovementInput) -> Result<(), SimulationError> {
         .is_some_and(|height| !height.is_finite() || height <= 0.0)
     {
         return Err(SimulationError::InvalidLiquidContactHeight);
+    }
+    if input
+        .vertical_physics
+        .air_drag_modifier
+        .is_some_and(|modifier| !modifier.is_finite())
+    {
+        return Err(SimulationError::NonFiniteInput {
+            field: "air_drag_modifier",
+        });
     }
     if input
         .item_use_movement_modifier

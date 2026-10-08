@@ -132,6 +132,22 @@ impl LocalPhysicsController {
         Some((changed.then_some(tick), speed))
     }
 
+    /// Rewrites the air-drag modifier of retained ticks after an `UpdateAttributes`
+    /// stamped `tick`; returns the tick to replay from when an input changed.
+    pub(crate) fn retime_air_drag_modifier(&mut self, tick: u64, current: f32) -> Option<u64> {
+        let tick = match self.timeline_slot(tick) {
+            TimelineSlot::Live => return None,
+            TimelineSlot::Rewind(tick) => tick,
+            TimelineSlot::Stale => self.history.oldest_tick()?,
+        };
+        rewrite_server_owned(
+            self.history.retained_inputs_after_mut(tick),
+            |input| &mut input.vertical_physics.air_drag_modifier,
+            Some(f64::from(current)),
+        )
+        .then_some(tick)
+    }
+
     /// Writes a movement boost stamped `tick` into the retained inputs after it.
     ///
     /// Returns the tick to replay from when a retained input changed, and the
@@ -279,6 +295,20 @@ impl LocalPhysicsController {
             );
             changed |= edited;
         }
+        if let Some(has_gravity) = flags.has_gravity {
+            changed |= rewrite_server_owned(
+                self.history.retained_inputs_after_mut(tick),
+                |input| &mut input.vertical_physics.has_gravity,
+                has_gravity,
+            );
+        }
+        if let Some(uniform) = flags.uniform_air_drag {
+            changed |= rewrite_server_owned(
+                self.history.retained_inputs_after_mut(tick),
+                |input| &mut input.vertical_physics.uniform_air_drag,
+                uniform,
+            );
+        }
         if let Some(sprinting) = flags.sprinting.filter(|value| *value != anchor.sprinting) {
             let (edited, reached) = rewrite_run(
                 self.history.retained_inputs_after_mut(tick),
@@ -372,6 +402,22 @@ fn rewrite_run<'a>(
         edited = true;
     }
     (edited, true)
+}
+
+/// Sets a value only the server authors on every input after the stamp; the
+/// latest update wins there, even over an earlier one with the same stamp.
+fn rewrite_server_owned<'a, T: PartialEq + Copy + 'a>(
+    inputs: impl Iterator<Item = &'a mut MovementInput>,
+    field: fn(&mut MovementInput) -> &mut T,
+    value: T,
+) -> bool {
+    let mut changed = false;
+    for input in inputs {
+        let slot = field(input);
+        changed |= *slot != value;
+        *slot = value;
+    }
+    changed
 }
 
 /// Whether a velocity keeps the next tick's collision sweep inside the query extent.
