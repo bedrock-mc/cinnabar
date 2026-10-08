@@ -111,7 +111,7 @@ pub fn solve_light_with_scratch<A: LightBlockAccess, P: LightReadAccess>(
             let old = output.get(position, channel);
             let base = local_base(blocks, position, channel, profile)?;
             if old == 0
-                || old <= supported_prior_level(blocks, prior, bounds, position, channel, profile)?
+                || prior_supports_level(blocks, prior, bounds, position, channel, profile, old)?
             {
                 continue;
             }
@@ -274,20 +274,24 @@ fn local_base<A: LightBlockAccess>(
     }
 }
 
-fn supported_prior_level<A: LightBlockAccess, P: LightReadAccess>(
+#[allow(clippy::too_many_arguments)]
+fn prior_supports_level<A: LightBlockAccess, P: LightReadAccess>(
     blocks: &A,
     prior: &P,
     bounds: LightBounds,
     position: BlockPos,
     channel: LightChannel,
     profile: DimensionLightProfile,
-) -> Result<u8, LightSolveError> {
+    required: u8,
+) -> Result<bool, LightSolveError> {
     let Some(filter) = blocks.sample(position).filter() else {
-        return Ok(0);
+        return Ok(false);
     };
-    let mut supported = local_base(blocks, position, channel, profile)?;
+    if local_base(blocks, position, channel, profile)? >= required {
+        return Ok(true);
+    }
     if channel == LightChannel::Sky && !profile.allows_sky() {
-        return Ok(supported);
+        return Ok(false);
     }
     for offset in NEIGHBOURS {
         let Some(neighbour) = position.checked_offset(offset) else {
@@ -311,16 +315,19 @@ fn supported_prior_level<A: LightBlockAccess, P: LightReadAccess>(
             };
             (level, direct_sky)
         };
-        supported = supported.max(incoming_level(
+        if incoming_level(
             neighbour_level,
             filter,
             channel,
             profile,
             offset,
             direct_sky,
-        ));
+        ) >= required
+        {
+            return Ok(true);
+        }
     }
-    Ok(supported)
+    Ok(false)
 }
 
 fn incoming_level(
@@ -511,3 +518,7 @@ pub(super) fn enqueue_counted(
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[path = "support_tests.rs"]
+mod tests;
