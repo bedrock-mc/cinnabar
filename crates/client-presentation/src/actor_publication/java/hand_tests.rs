@@ -138,12 +138,12 @@ fn source_for_use(
     feed.first_person = true;
     feed.main_hand = identifier.map(Into::into);
     stream.sync_local_player_pose(&feed);
-    stream.prepare_actor_appearances_for_test();
+    stream.prepare_actor_appearance_fixture();
     stream.advance_actor_interpolation_frame(6);
     if use_ticks > 0 {
         feed.item_use = client_world::LocalItemUse::Using;
         stream.sync_local_player_pose(&feed);
-        stream.prepare_actor_appearances_for_test();
+        stream.prepare_actor_appearance_fixture();
         stream.advance_actor_interpolation_frame(use_ticks);
     }
     let (mut equipment, artwork) = equipment_fixture();
