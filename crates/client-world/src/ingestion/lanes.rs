@@ -34,6 +34,11 @@ impl Consumers {
     }
 
     #[must_use]
+    pub const fn contains(self, other: Self) -> bool {
+        self.0 & other.0 == other.0
+    }
+
+    #[must_use]
     pub const fn intersects(self, other: Self) -> bool {
         self.0 & other.0 != 0
     }
@@ -298,6 +303,8 @@ fn actor_consumers(event: &ActorEvent, context: LaneContext) -> Consumers {
             C::ACTORS.with(C::CONTROLS).with(C::UI)
         }
         ActorEvent::PlayerList(_) => C::ACTORS.with(C::CONTROLS).with(C::UI),
+        // A pickup voices its own sound, which the audio consumer orders by sequence.
+        ActorEvent::TakeItem(_) => C::ACTORS.with(C::UI).with(C::AUDIO),
         // Spawns and removals can change the local mount, which publishes a UI delta.
         _ => C::ACTORS.with(C::UI),
     }

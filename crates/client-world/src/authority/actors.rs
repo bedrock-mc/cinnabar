@@ -89,6 +89,12 @@ impl WorldAuthority {
     pub fn take_actor_status_notices(&mut self) -> Vec<crate::ActorStatusNotice> {
         self.actors.take_status_notices()
     }
+    /// The newest sequence the actor store applied; it rejects any older sequence, so every
+    /// event that advances it must keep wire order with the others.
+    #[must_use]
+    pub const fn actor_sequence_frontier(&self) -> u64 {
+        self.actors.latest_sequence()
+    }
     /// Drains where MobEquipment and MobArmorEquipment events landed, for diagnostics.
     pub fn take_equipment_notices(&mut self) -> Vec<crate::EquipmentNotice> {
         self.actors.take_equipment_notices()

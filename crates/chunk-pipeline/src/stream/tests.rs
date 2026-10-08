@@ -943,6 +943,7 @@ mod forced_remesh;
 mod inbound_lanes;
 mod inline_cohort;
 mod inventory_commit_fence;
+mod lane_footprints;
 mod lenient_decode;
 mod local_abilities;
 mod prediction;
