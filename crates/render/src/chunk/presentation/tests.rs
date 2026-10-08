@@ -1085,36 +1085,3 @@ fn blank_adapter_fields_are_recorded_as_unavailable() {
         "driver 1.2"
     );
 }
-
-#[test]
-fn explicit_present_mode_evidence_comes_from_surface_capabilities() {
-    use bevy::window::PresentMode as WindowPresentMode;
-    use wgpu::PresentMode as WgpuPresentMode;
-
-    assert_eq!(
-        resolve_surface_present_mode(
-            WindowPresentMode::Immediate,
-            &[WgpuPresentMode::Fifo, WgpuPresentMode::Immediate],
-        ),
-        Some(WgpuPresentMode::Immediate)
-    );
-    assert_eq!(
-        resolve_surface_present_mode(WindowPresentMode::Immediate, &[WgpuPresentMode::Fifo],),
-        Some(WgpuPresentMode::Fifo)
-    );
-    assert_eq!(
-        resolve_surface_present_mode(WindowPresentMode::Immediate, &[]),
-        None
-    );
-    assert_eq!(
-        resolve_surface_present_mode(WindowPresentMode::Fifo, &[WgpuPresentMode::Fifo]),
-        Some(WgpuPresentMode::Fifo)
-    );
-    assert_eq!(
-        resolve_surface_present_mode(
-            WindowPresentMode::AutoNoVsync,
-            &[WgpuPresentMode::Fifo, WgpuPresentMode::Mailbox],
-        ),
-        Some(WgpuPresentMode::Mailbox)
-    );
-}

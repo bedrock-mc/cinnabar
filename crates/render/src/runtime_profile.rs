@@ -51,8 +51,11 @@ pub enum RuntimeStage {
     RenderFrame,
     /// Update start, when input is sampled, to the end of that frame's render extraction.
     InputAge,
-    /// Main-thread wait that delays the next input sample toward render-thread completion.
+    /// Main-thread wait that delays the next input sample to its cadence slot or toward
+    /// render-thread completion.
     InputPacingWait,
+    /// How far past its deadline the pacing wait woke.
+    FramePacingLateness,
     /// First to last sampled GPU timestamp; absent when coverage includes only owned passes.
     GpuFrame,
     GpuShadows,
@@ -95,7 +98,7 @@ pub enum RuntimeStage {
 }
 
 impl RuntimeStage {
-    pub const ALL: [Self; 69] = [
+    pub const ALL: [Self; 70] = [
         Self::ActorSessionSetup,
         Self::PackReload,
         Self::WorldPoll,
@@ -131,6 +134,7 @@ impl RuntimeStage {
         Self::RenderFrame,
         Self::InputAge,
         Self::InputPacingWait,
+        Self::FramePacingLateness,
         Self::GpuFrame,
         Self::GpuShadows,
         Self::GpuOpaque,
@@ -275,6 +279,7 @@ impl RuntimeStage {
             Self::RenderFrame => "render_frame",
             Self::InputAge => "input_age",
             Self::InputPacingWait => "input_pacing_wait",
+            Self::FramePacingLateness => "frame_pacing_lateness",
             Self::GpuFrame => "gpu_frame",
             Self::GpuShadows => "gpu_shadows",
             Self::GpuOpaque => "gpu_opaque",

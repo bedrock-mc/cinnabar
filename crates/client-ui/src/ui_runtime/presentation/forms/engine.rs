@@ -25,6 +25,7 @@ pub mod hud_renderers;
 mod item_renderer;
 mod menu_renderers;
 mod menu_title;
+mod mod_crosshair;
 #[cfg(test)]
 mod ownership_tests;
 mod pack_catalog;
