@@ -353,16 +353,19 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
                             model_refs.push(PackedModelRef::new(
                                 pack_model_transform(
                                     [x as u8, y as u8, z as u8],
-                                    if template.flags & assets::MODEL_TEMPLATE_FLAG_BAMBOO != 0 {
-                                        let origin = neighbourhood.block_origin();
-                                        crate::bamboo::positional_transform(
-                                            origin[0].wrapping_add(x as i32),
-                                            origin[2].wrapping_add(z as i32),
-                                        )
-                                    } else if entry.kind == VisualKind::Cross {
+                                    if entry.kind == VisualKind::Cross {
                                         0
                                     } else {
-                                        entry.variant
+                                        let origin = neighbourhood.block_origin();
+                                        crate::bamboo::transform_for_template(
+                                            template.flags,
+                                            entry.variant,
+                                            [
+                                                origin[0].wrapping_add(x as i32),
+                                                0,
+                                                origin[2].wrapping_add(z as i32),
+                                            ],
+                                        )
                                     },
                                 ),
                                 part_template,

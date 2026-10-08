@@ -3678,3 +3678,9 @@ Files: `docs/reference/held-block-placement.md`, `crates/gameplay/src/block_use.
   X/Z offset and zero Y. With equal symmetric X/Z ranges, the origin RNG samples
   and bounds uniquely select 16 steps among integer counts 2..4096. Default
   component admission still needs direct proof.
+
+- `crates/render/src/block_entity/crack.rs` and `app/src/block_selection.rs`
+  share the terrain column transform through `crates/meshing/src/bamboo.rs`;
+  bamboo stem and leaf surfaces retain the offsets and positive leaf plane insets
+  described above. Position-dependent crack surfaces are cached by runtime ID
+  and resolved transform, independent of column height.

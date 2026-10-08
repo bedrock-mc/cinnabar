@@ -2,8 +2,11 @@
 pub const OFFSET_MIN: f32 = -0.25;
 pub const OFFSET_SPAN: f32 = 0.5;
 pub const OFFSET_STEPS: u32 = 16;
+pub const OFFSET_STEP: f32 = OFFSET_SPAN / (OFFSET_STEPS - 1) as f32;
 pub const STEM_UV_STRIDE: f32 = 3.0 / 16.0;
 pub const LEAF_PLANE_INSET: f32 = 0.01;
+pub const POSITIVE_X_LEAF_QUAD: u32 = assets::BlockFace::ALL.len() as u32;
+pub const POSITIVE_Z_LEAF_QUAD: u32 = POSITIVE_X_LEAF_QUAD + 2;
 
 const POSITION_X_MULTIPLIER: u32 = 0x002f_c20f;
 const POSITION_Z_MULTIPLIER: u32 = 0x06eb_fff5;
@@ -31,6 +34,31 @@ pub(crate) fn positional_transform(x: i32, z: i32) -> u32 {
         ^ (x as u32).wrapping_mul(POSITION_X_MULTIPLIER);
     let uv = (hash.wrapping_mul(37).wrapping_add(11).wrapping_mul(hash) >> 4) & 3;
     offset_x as u32 | ((offset_z as u32) << 4) | (uv << 8)
+}
+
+/// Resolves the packed variant shared by terrain and position-dependent overlays.
+pub fn transform_for_template(flags: u32, variant: u32, position: [i32; 3]) -> u32 {
+    if flags & assets::MODEL_TEMPLATE_FLAG_BAMBOO != 0 {
+        positional_transform(position[0], position[2])
+    } else {
+        variant
+    }
+}
+
+/// Block-local displacement for a bamboo model quad, including its leaf plane inset.
+pub fn quad_offset(transform: u32, quad: u32) -> [f32; 3] {
+    let mut offset = [
+        OFFSET_MIN + (transform & 15) as f32 * OFFSET_STEP,
+        0.0,
+        OFFSET_MIN + ((transform >> 4) & 15) as f32 * OFFSET_STEP,
+    ];
+    if quad == POSITIVE_X_LEAF_QUAD {
+        offset[2] += LEAF_PLANE_INSET;
+    }
+    if quad == POSITIVE_Z_LEAF_QUAD {
+        offset[0] += LEAF_PLANE_INSET;
+    }
+    offset
 }
 
 fn mix(mut value: u64) -> u64 {

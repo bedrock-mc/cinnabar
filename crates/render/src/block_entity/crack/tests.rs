@@ -22,7 +22,7 @@ fn wrapped_uvs_fold_into_one_tile_and_full_tile_stays_full() {
 
 #[test]
 fn out_of_range_templates_have_no_shape() {
-    assert!(crack_shape_from_template(&RuntimeAssets::diagnostic(), 999, 0).is_none());
+    assert!(crack_shape_from_template(&RuntimeAssets::diagnostic(), 999, 0, [0; 3]).is_none());
 }
 
 #[test]

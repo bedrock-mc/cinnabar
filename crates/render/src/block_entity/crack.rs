@@ -68,15 +68,14 @@ fn tile_fraction(value: u16) -> f32 {
 }
 
 /// The shape of a model-template block, following compound template chains; `None` when
-/// the template is out of range or has no quads. `variant` is the resolved block
-/// variant, whose low two bits carry the same quarter-turn as the terrain pass.
-/// Vanilla cracks route through the block
-/// tessellator, not an unrotated canonical model or collision AABB.
+/// the template is out of range or has no quads. Resolved variants and block positions
+/// produce the same rotations and column offsets as the terrain pass.
 #[must_use]
 pub fn crack_shape_from_template(
     assets: &RuntimeAssets,
     template: u32,
     variant: u32,
+    block: [i32; 3],
 ) -> Option<CrackShape> {
     let templates = assets.model_templates();
     let quads = assets.model_quads();
@@ -86,9 +85,19 @@ pub fn crack_shape_from_template(
         let part = templates.get(index)?;
         let start = usize::try_from(part.quad_start).ok()?;
         let end = start.checked_add(usize::try_from(part.quad_count).ok()?)?;
-        for quad in quads.get(start..end)? {
+        let transform = meshing::bamboo::transform_for_template(part.flags, variant, block);
+        for (quad_index, quad) in quads.get(start..end)?.iter().enumerate() {
             shape.push(CrackQuad {
-                corners: quad.positions.map(|corner| rotate_corner(corner, variant)),
+                corners: quad.positions.map(|corner| {
+                    if part.flags & assets::MODEL_TEMPLATE_FLAG_BAMBOO != 0 {
+                        let offset = meshing::bamboo::quad_offset(transform, quad_index as u32);
+                        std::array::from_fn(|axis| {
+                            f32::from(corner[axis]) / POSITION_UNITS + offset[axis]
+                        })
+                    } else {
+                        rotate_corner(corner, transform)
+                    }
+                }),
                 uvs: quad.uvs.map(|uv| uv.map(tile_fraction)),
             });
         }

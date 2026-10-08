@@ -3,7 +3,38 @@
 use std::collections::{HashMap, HashSet};
 
 use chunk_pipeline::ActiveBlockCrack;
-use render::{CrackInstance, CrackShape};
+use render::{CrackInstance, CrackShape, crack_shape_from_template};
+
+/// Caches model surfaces by runtime identity and transform, independent of column height.
+pub(super) fn crack_shape(
+    shapes: &mut HashMap<(u32, u32), CrackShape>,
+    assets: &assets::RuntimeAssets,
+    mode: assets::NetworkIdMode,
+    runtime_id: Option<u32>,
+    block: [i32; 3],
+) -> CrackShape {
+    let Some(runtime_id) = runtime_id else {
+        return CrackShape::Cube;
+    };
+    let visual = assets.resolve(mode, runtime_id);
+    let transform = visual
+        .model_template()
+        .and_then(|template| assets.model_templates().get(template as usize))
+        .map_or(visual.variant(), |template| {
+            meshing::bamboo::transform_for_template(template.flags, visual.variant(), block)
+        });
+    shapes
+        .entry((runtime_id, transform))
+        .or_insert_with(|| {
+            visual
+                .model_template()
+                .and_then(|template| {
+                    crack_shape_from_template(assets, template, visual.variant(), block)
+                })
+                .unwrap_or_default()
+        })
+        .clone()
+}
 
 /// Server progress units for a fully broken block.
 const PROGRESS_UNITS: f32 = 65_535.0;
@@ -82,6 +113,10 @@ impl CrackClock {
             .collect()
     }
 }
+
+#[cfg(test)]
+#[path = "crack_shape_tests.rs"]
+mod shape_tests;
 
 #[cfg(test)]
 mod tests {

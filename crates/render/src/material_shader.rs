@@ -40,10 +40,12 @@ pub(crate) fn source(source: &str) -> String {
         .replace("ACTOR_MATERIAL_EMISSIVE_FLAG", &format!("{}u", assets::EntityRenderMaterialState::EMISSIVE))
         .replace("ACTOR_ALPHA_TEST_THRESHOLD", &format!("{:?}", assets::ENTITY_ALPHA_TEST_THRESHOLD))
         .replace("MODEL_BAMBOO_FLAG", &format!("{}u", assets::MODEL_TEMPLATE_FLAG_BAMBOO))
+        .replace("BAMBOO_POSITIVE_X_LEAF_QUAD", &format!("{}u", meshing::bamboo::POSITIVE_X_LEAF_QUAD))
+        .replace("BAMBOO_POSITIVE_Z_LEAF_QUAD", &format!("{}u", meshing::bamboo::POSITIVE_Z_LEAF_QUAD))
         .replace("// BAMBOO_CONSTANTS", &format!(
             "const BAMBOO_OFFSET_MIN: f32 = {:?};\nconst BAMBOO_OFFSET_STEP: f32 = {:?};\nconst BAMBOO_STEM_UV_STRIDE: f32 = {:?};\nconst BAMBOO_LEAF_PLANE_INSET: f32 = {:?};",
             meshing::bamboo::OFFSET_MIN,
-            meshing::bamboo::OFFSET_SPAN / (meshing::bamboo::OFFSET_STEPS - 1) as f32,
+            meshing::bamboo::OFFSET_STEP,
             meshing::bamboo::STEM_UV_STRIDE,
             meshing::bamboo::LEAF_PLANE_INSET,
         ))

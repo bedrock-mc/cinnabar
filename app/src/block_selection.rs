@@ -122,7 +122,9 @@ fn target(
     let visual = assets.resolve(stream.network_id_mode(), hit.runtime_id);
     let shape = visual
         .model_template()
-        .and_then(|template| crack_shape_from_template(assets, template, visual.variant()))
+        .and_then(|template| {
+            crack_shape_from_template(assets, template, visual.variant(), hit.block_pos)
+        })
         .unwrap_or(CrackShape::Cube);
     Some(BlockSelectionTarget {
         block: hit.block_pos,

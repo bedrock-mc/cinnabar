@@ -216,8 +216,8 @@ fn vertex(
     if (is_bamboo) {
         template_position.x += BAMBOO_OFFSET_MIN + f32(rotation & 15u) * BAMBOO_OFFSET_STEP;
         template_position.z += BAMBOO_OFFSET_MIN + f32((rotation >> 4u) & 15u) * BAMBOO_OFFSET_STEP;
-        if (quad_index == 6u) { template_position.z += BAMBOO_LEAF_PLANE_INSET; }
-        if (quad_index == 8u) { template_position.x += BAMBOO_LEAF_PLANE_INSET; }
+        if (quad_index == BAMBOO_POSITIVE_X_LEAF_QUAD) { template_position.z += BAMBOO_LEAF_PLANE_INSET; }
+        if (quad_index == BAMBOO_POSITIVE_Z_LEAF_QUAD) { template_position.x += BAMBOO_LEAF_PLANE_INSET; }
         rotation = 0u;
     }
     if (is_lily_pad) {
@@ -291,7 +291,7 @@ fn vertex(
     out.surface_class = material_class(material_id);
     out.world_position = waved_position(world, out.surface_class, clamp(template_position.y, 0.0, 1.0));
     out.clip_position = view.clip_from_world * vec4(out.world_position, 1.0);
-    out.normal = template_quad_normal(template_quad_base, packed_transform >> 12u);
+    out.normal = template_quad_normal(template_quad_base, rotation);
 #endif
     return out;
 }
