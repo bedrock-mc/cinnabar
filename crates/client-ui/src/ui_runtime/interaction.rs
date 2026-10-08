@@ -3,7 +3,7 @@ use bevy::{
         ButtonState, gamepad::GamepadButton, keyboard::KeyboardInput, mouse::AccumulatedMouseMotion,
     },
     prelude::{ButtonInput, KeyCode, MouseButton, Vec2},
-    window::{CursorGrabMode, CursorOptions, WindowEvent},
+    window::{CursorGrabMode, CursorOptions},
 };
 
 use protocol::{ChatPacketError, Packet};
@@ -120,26 +120,6 @@ impl InventoryKeys {
             self.presses.push(key);
         }
     }
-}
-
-/// This frame's mouse presses in arrival order, each with the number of keyboard
-/// events that reached the window before it.
-pub fn ordered_pointer_presses<'a>(
-    events: impl IntoIterator<Item = &'a WindowEvent>,
-) -> Vec<(usize, MouseButton)> {
-    // Every event is consumed so the caller's cursor never replays this frame's keys.
-    let mut keys = 0;
-    let mut presses = Vec::new();
-    for event in events {
-        match event {
-            WindowEvent::KeyboardInput(_) => keys += 1,
-            WindowEvent::MouseButtonInput(input) if input.state == ButtonState::Pressed => {
-                presses.push((keys, input.button));
-            }
-            _ => {}
-        }
-    }
-    presses
 }
 
 /// Keyboard gestures over the hovered cell: resolved bindings swap with that hotbar
@@ -349,6 +329,11 @@ pub fn suppress_gameplay_input_for_chat(
     mouse_buttons.reset_all();
     mouse_motion.delta = bevy::math::Vec2::ZERO;
 }
+
+mod pointer_order;
+pub use pointer_order::{
+    FrameInput, PointerRouter, PressRoute, ScreenKey, ordered_pointer_presses, route_frame_presses,
+};
 
 #[cfg(test)]
 #[path = "interaction/modifier_tests.rs"]

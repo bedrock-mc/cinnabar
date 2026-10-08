@@ -29,8 +29,12 @@ use crate::{
 };
 use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
 
-/// Opens the personal inventory over one stack in slot zero, with the pointer on that slot.
 fn app() -> (App, Entity) {
+    app_with(true)
+}
+
+/// One stack in slot zero under the pointer, with the personal inventory open or closed.
+fn app_with(open: bool) -> (App, Entity) {
     let mut player_runtime = PlayerRuntime::new(1);
     let mut runtime = UiRuntime::new(1);
     runtime.publish_inventory_authority(&mut player_runtime, InventoryAuthority::Server);
@@ -53,20 +57,22 @@ fn app() -> (App, Entity) {
             ),
             storage_item: NetworkItemStack::default(),
         }));
-    runtime.toggle_inventory(&mut player_runtime);
-    assert!(
+    if open {
+        runtime.toggle_inventory(&mut player_runtime);
+        assert!(
+            runtime
+                .inventory_ledger_mut(&mut player_runtime)
+                .mark_transport_enqueued(0)
+        );
         runtime
             .inventory_ledger_mut(&mut player_runtime)
-            .mark_transport_enqueued(0)
-    );
-    runtime
-        .inventory_ledger_mut(&mut player_runtime)
-        .apply(&InventoryEvent::Open(ContainerOpenEvent {
-            container: ContainerIdentity::window(2),
-            window_type: -1,
-            position: [0, 64, 0],
-            runtime_entity_id: -1,
-        }));
+            .apply(&InventoryEvent::Open(ContainerOpenEvent {
+                container: ContainerIdentity::window(2),
+                window_type: -1,
+                position: [0, 64, 0],
+                runtime_entity_id: -1,
+            }));
+    }
 
     let presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
     let physical_size = [1280, 720];
@@ -147,6 +153,7 @@ fn frame(app: &mut App, window: Entity, inputs: &[Input]) {
                     KeyCode::Escape => (Key::Escape, None),
                     KeyCode::KeyT => (Key::Character("t".into()), Some("t".into())),
                     KeyCode::KeyQ => (Key::Character("q".into()), Some("q".into())),
+                    KeyCode::KeyE => (Key::Character("e".into()), Some("e".into())),
                     other => panic!("unmapped test key {other:?}"),
                 };
                 let input = KeyboardInput {
@@ -308,4 +315,43 @@ fn press_after_escape_cannot_change_the_earlier_take() {
             .pressed(MouseButton::Left),
         "the late click never reaches gameplay"
     );
+}
+
+/// A press made before the open key belongs to gameplay, never to the screen it opens.
+#[test]
+fn press_before_the_open_key_never_reaches_the_opened_screen() {
+    let (mut app, window) = app_with(false);
+    frame(
+        &mut app,
+        window,
+        &[
+            Input::Click(MouseButton::Left),
+            Input::Key(KeyCode::KeyE),
+            Input::Key(KeyCode::Escape),
+        ],
+    );
+    app.update();
+
+    assert!(!app.world().resource::<UiRuntime>().inventory_open());
+    assert_eq!(queued_batch(&app), None, "the inventory receives nothing");
+}
+
+/// A press lands once, on the screen showing when it arrived, however often the screen reopens.
+#[test]
+fn press_is_not_replayed_after_close_and_reopen() {
+    let take_half = Input::Click(MouseButton::Right);
+    let escape = Input::Key(KeyCode::Escape);
+    let (mut control, window) = app();
+    frame(&mut control, window, &[take_half, escape]);
+    control.update();
+
+    let (mut app, window) = app();
+    frame(
+        &mut app,
+        window,
+        &[take_half, escape, Input::Key(KeyCode::KeyE), escape],
+    );
+    app.update();
+
+    assert_eq!(queued_batch(&app), queued_batch(&control));
 }
