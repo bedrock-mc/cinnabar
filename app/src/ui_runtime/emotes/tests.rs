@@ -5,6 +5,7 @@ use bevy::input::keyboard::{Key, NativeKey};
 use semantic_input::Action;
 
 mod controller_inventory;
+mod network;
 
 use crate::semantic_controls::{
     PendingDeviceFrame, SemanticInputRuntime, SemanticRouteState, SemanticTouchTargets,

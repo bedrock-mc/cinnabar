@@ -1,6 +1,10 @@
 //! Experimental component host. Only the explicit WIT imports carry authority.
 
+#[cfg(feature = "execution")]
+mod grants;
 pub mod helper;
+#[cfg(feature = "execution")]
+pub use grants::ModGrants;
 #[cfg(feature = "execution")]
 mod load;
 #[cfg(feature = "execution")]
@@ -13,7 +17,8 @@ mod settings;
 #[cfg(feature = "execution")]
 pub use mod_api::{
     MAX_CAMERA_DELTA_RADIANS, MAX_CONTROL_KEYS, MAX_GAMEPLAY_MOBS, MAX_GAMEPLAY_PLAYERS,
-    MAX_LOADED_MODS, MAX_MOB_RANGE_BLOCKS, MAX_MOB_TYPE_BYTES,
+    MAX_ITEM_IDENTIFIER_BYTES, MAX_LOADED_MODS, MAX_MOB_RANGE_BLOCKS, MAX_MOB_TYPE_BYTES,
+    MAX_PLAYER_STATE_EFFECTS,
 };
 #[cfg(feature = "execution")]
 pub use mod_render;
@@ -21,6 +26,11 @@ pub use mod_render;
 pub use runtime::cinnabar::extension::gameplay::{
     CameraRig as GameplayCameraRig, Mob as GameplayMob, Player as GameplayPlayer,
     Snapshot as GameplaySnapshot, Vector3 as GameplayVector3,
+};
+#[cfg(feature = "execution")]
+pub use runtime::cinnabar::extension::player_state::{
+    Effect as PlayerStateEffect, Item as PlayerStateItem, Slot as PlayerStateSlot,
+    Snapshot as PlayerStateSnapshot,
 };
 #[cfg(feature = "execution")]
 pub use runtime::cinnabar::extension::{
@@ -59,42 +69,6 @@ pub const MAX_LABEL_BYTES: usize = 256;
 pub(crate) const FRAME_FUEL: u64 = 100_000;
 #[cfg(feature = "execution")]
 pub(crate) const MEMORY_BYTES: usize = 16 * 1024 * 1024;
-
-/// Explicit per-instance authority; optional capabilities are denied by default.
-/// Field names are the registration and set-file grant names.
-#[cfg(feature = "execution")]
-#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
-#[serde(default, deny_unknown_fields)]
-pub struct ModGrants {
-    /// Allows this instance to replace visual time only.
-    pub environment: bool,
-    /// Allows current-frame remote player and camera pose reads.
-    pub players: bool,
-    /// Allows bounded local camera rotation, rigs, and per-frame teleport aim preservation.
-    pub camera: bool,
-    /// Allows current-frame removal of the air-use rearm delay only.
-    pub item_use: bool,
-    /// Allows local key edges, reserved bindings and the retained settings panel.
-    pub controls: bool,
-    /// Allows bounded actor attack range and held-attack press requests.
-    pub interaction: bool,
-    /// Allows the selected component's bounded companion settings file.
-    pub settings: bool,
-    /// Allows sandboxed post passes and bounded world primitives.
-    pub render: bool,
-    /// Lets render passes read scene depth.
-    pub render_depth: bool,
-    /// Allows current-frame reads of nearby non-player actors.
-    pub entities: bool,
-    /// Command names this instance may request; empty denies command requests.
-    pub commands: Vec<String>,
-    /// Allows bounded post-login packet delay through the private core endpoint.
-    pub packet_delay: bool,
-    /// Allows retained full-block highlights of matching loaded blocks.
-    pub block_highlights: bool,
-    /// Allows retained local fullbright lighting, without altering server light data.
-    pub fullbright: bool,
-}
 
 /// A developer-selected component with transactional reload and trap quarantine.
 #[cfg(feature = "execution")]
@@ -142,7 +116,20 @@ impl ModHost {
         mobs: Vec<GameplayMob>,
         controls: ControlFrame,
     ) -> Result<()> {
-        self.instance.frame(pressed, snapshot, mobs, controls)?;
+        self.frame_with_player_state(pressed, snapshot, mobs, None, controls)
+    }
+
+    /// Supplies read-only local facts independently of captured gameplay input.
+    pub fn frame_with_player_state(
+        &mut self,
+        pressed: bool,
+        snapshot: Option<GameplaySnapshot>,
+        mobs: Vec<GameplayMob>,
+        player_state: Option<PlayerStateSnapshot>,
+        controls: ControlFrame,
+    ) -> Result<()> {
+        self.instance
+            .frame(pressed, snapshot, mobs, player_state, controls)?;
         self.queue_settings();
         Ok(())
     }
@@ -242,6 +229,16 @@ impl ModHost {
     /// Returns only the last successfully committed plain-text label.
     pub fn label(&self) -> Option<&str> {
         self.instance.label()
+    }
+
+    /// Retained host-rendered cards from the last successful callback.
+    pub fn hud(&self) -> Option<&ui::mod_hud::Hud> {
+        self.instance.hud()
+    }
+
+    /// Retained cosmetic crosshair, applied only when the ordinary crosshair is visible.
+    pub fn crosshair(&self) -> Option<&ui::mod_hud::Crosshair> {
+        self.instance.crosshair()
     }
 
     /// Returns the committed visual override without entering the guest.

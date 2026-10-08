@@ -342,13 +342,16 @@ impl UiPresentationRuntime {
             .hud
             .clocks
             .extend(self.scene_clock.clone());
-        let paint = hud_layout::capture_hud_paint(
+        let mut paint = hud_layout::capture_hud_paint(
             player_runtime,
             runtime,
             &frame,
             self.hud_textures.as_ref(),
             &self.form_presentation.chat.settings.options,
         );
+        if self.mod_hud_visible(player_runtime, runtime) {
+            paint.custom_crosshair = self.form_presentation.mod_crosshair.clone();
+        }
         let context = super::chat_position::context(
             hud_context(renderer.context()),
             &self.form_presentation.chat.settings.options,

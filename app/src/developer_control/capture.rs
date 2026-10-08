@@ -10,10 +10,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use bevy::{
-    prelude::*, render::render_resource::TextureFormat, time::TimeUpdateStrategy,
-    winit::WinitSettings,
-};
+use bevy::{prelude::*, render::render_resource::TextureFormat, time::TimeUpdateStrategy};
 use developer_control::{
     clock::{FixedStepClock, RealTimePacer},
     protocol::RecordSettings,
@@ -49,7 +46,8 @@ pub(super) struct Recording {
     failure: Arc<Mutex<Option<String>>>,
     audio: Option<AudioCapture>,
     stopping: Option<(Reply, Instant)>,
-    previous_pacing: Option<WinitSettings>,
+    /// A fixed clock lifted the frame-rate cadence, which stopping restores.
+    lifted_cadence: bool,
     previous_max_delta: Duration,
 }
 
@@ -139,10 +137,11 @@ pub(super) fn start(world: &mut World, settings: &RecordSettings) -> Result<Valu
         None
     };
     let fixed_clock = clock.is_some();
-    let previous_pacing = fixed_clock.then(|| {
-        let mut pacing = world.resource_mut::<WinitSettings>();
-        std::mem::replace(&mut *pacing, WinitSettings::continuous())
-    });
+    let lifted_cadence = fixed_clock
+        && world
+            .get_resource_mut::<crate::frame_pacing::FramePacingRuntime>()
+            .map(|mut pacing| pacing.set_suspended(true))
+            .is_some();
     let summary = json!({
         "path": settings.path,
         "fps": settings.fps,
@@ -164,7 +163,7 @@ pub(super) fn start(world: &mut World, settings: &RecordSettings) -> Result<Valu
         failure: Arc::default(),
         audio,
         stopping: None,
-        previous_pacing,
+        lifted_cadence,
         previous_max_delta: world.resource::<Time<Virtual>>().max_delta(),
     });
     Ok(summary)
@@ -281,8 +280,11 @@ fn finish(world: &mut World, mut recording: Recording) {
     world
         .resource_mut::<Time<Virtual>>()
         .set_max_delta(recording.previous_max_delta);
-    if let Some(pacing) = recording.previous_pacing.take() {
-        world.insert_resource(pacing);
+    if std::mem::take(&mut recording.lifted_cadence)
+        && let Some(mut pacing) =
+            world.get_resource_mut::<crate::frame_pacing::FramePacingRuntime>()
+    {
+        pacing.set_suspended(false);
     }
     if recording.audio.is_some()
         && let Some(mut device) = world.get_non_send_resource_mut::<AudioDevice>()

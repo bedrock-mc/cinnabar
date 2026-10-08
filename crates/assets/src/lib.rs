@@ -65,10 +65,10 @@ pub use actor::{
     ACTOR_CARRIER_MAGIC, ACTOR_CARRIER_VERSION, ActorArtworkBinding, ActorPoseMode, ActorTexture,
     MAX_ACTOR_BINDINGS, MAX_ACTOR_CARRIER_BYTES, MAX_ACTOR_PIXEL_BYTES, MAX_ACTOR_TEXTURE_SIDE,
     MAX_ACTOR_TEXTURES, RuntimeActorCatalog, actor_dissolve_mask_sources, encode_actor_catalog,
-    native_actor_texture_uses_color_mask, native_actor_texture_uses_multitexture,
-    native_actor_uses_multitexture, neutral_actor_geometry_sampled_texels,
-    neutral_actor_geometry_uvs_are_supported, neutral_actor_material_is_supported,
-    neutral_actor_pose_mode,
+    native_actor_texture_preserves_fractional_alpha, native_actor_texture_uses_color_mask,
+    native_actor_texture_uses_multitexture, native_actor_uses_multitexture,
+    neutral_actor_geometry_sampled_texels, neutral_actor_geometry_uvs_are_supported,
+    neutral_actor_material_is_supported, neutral_actor_pose_mode,
 };
 pub use fire::{
     FIRE_ATTACHMENT_MASK_COUNT, FIRE_SUPPORTED_QUAD_COUNT, FIRE_TEMPLATE_COUNT,

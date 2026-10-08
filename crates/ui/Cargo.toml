@@ -7,6 +7,7 @@ publish = false
 
 [dependencies]
 assets = { path = "../assets" }
+render-api = { path = "../render-api" }
 semantic-input = { path = "../input" }
 sha2.workspace = true
 serde = { version = "1", features = ["derive"] }

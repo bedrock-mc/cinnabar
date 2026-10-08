@@ -229,12 +229,6 @@ fn unavailable_visibility_digest_marker_fields_are_explicitly_invalid() {
 }
 
 #[test]
-fn acceptance_present_mode_is_fifo_unless_no_vsync_is_explicit() {
-    assert_eq!(requested_present_mode(false), PresentMode::Fifo);
-    assert_eq!(requested_present_mode(true), PresentMode::Immediate);
-}
-
-#[test]
 fn runtime_metadata_marker_records_build_presentation_and_adapter_identity() {
     let marker = acceptance_runtime_metadata_marker(
         AcceptanceRuntimeConfig {

@@ -5,7 +5,7 @@ use std::collections::HashSet;
 use serde::{Deserialize, Serialize};
 
 pub const MAX_PANEL_BYTES: usize = 16 * 1024;
-pub const MAX_PANEL_CONTROLS: usize = 24;
+pub const MAX_PANEL_CONTROLS: usize = 64;
 pub const MAX_PANEL_TEXT_BYTES: usize = 96;
 pub const MAX_PANEL_ID_BYTES: usize = 48;
 pub const MAX_PANEL_CHOICES: usize = 8;

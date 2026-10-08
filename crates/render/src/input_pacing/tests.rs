@@ -61,7 +61,7 @@ impl PacingClock for FakeClock {
         self.base + Duration::from_nanos(self.nanos.load(Ordering::SeqCst))
     }
 
-    fn wait_until(&self, deadline: Instant, done: &mut dyn FnMut() -> bool) {
+    fn wait_until(&self, deadline: Instant, _precise: bool, done: &mut dyn FnMut() -> bool) {
         while !done() {
             match self.next_event(deadline) {
                 Some(at) => self.advance_to(at),
@@ -112,6 +112,11 @@ fn simulate_main_work(clock: Res<Clock>, look: Res<Look>, script: Res<Script>) {
 
 /// Runs the recorded frames through a simulated render thread with the pacer on or off.
 fn run(main: &[Duration], render: &[Duration], enabled: bool) -> Run {
+    run_paced(main, render, enabled, FramePacing::default())
+}
+
+/// As [`run`], admitting frames at `pacing`'s cadence.
+fn run_paced(main: &[Duration], render: &[Duration], enabled: bool, pacing: FramePacing) -> Run {
     let clock = FakeClock::new();
     let pacer = InputPacer::new(clock.clone(), enabled);
     let extracted = Arc::new(Mutex::new(Vec::new()));
@@ -121,6 +126,7 @@ fn run(main: &[Duration], render: &[Duration], enabled: bool) -> Run {
             main: main.to_vec(),
         })
         .init_resource::<Look>()
+        .insert_resource(pacing)
         .add_systems(PreUpdate, sample_look)
         .add_systems(Update, simulate_main_work);
     let mut render_thread = SubApp::new();
@@ -267,6 +273,89 @@ fn a_render_slowdown_ending_never_holds_input_past_completion() {
             "update {} waited {:?} past its handed frame's completion",
             index + 2,
             pair[1].sampled_at - resumed_by
+        );
+    }
+}
+
+fn hz(rate: u32) -> FramePacing {
+    FramePacing {
+        rate: FrameRate::from_hz(rate),
+        precise: true,
+    }
+}
+
+fn intervals(run: &Run) -> Vec<Duration> {
+    run.extracted
+        .windows(2)
+        .map(|pair| pair[1].sampled_at - pair[0].sampled_at)
+        .collect()
+}
+
+/// One frame per slot: input samples sit on the cadence however fast main and render work run.
+#[test]
+fn a_cadence_admits_exactly_one_frame_per_slot() {
+    let main = vec![ms(1.0); 600];
+    let render = vec![ms(1.5); 600];
+    let paced = run_paced(&main, &render, true, hz(144));
+    let period = FrameRate::from_hz(144).unwrap().period_nanos();
+    for (index, interval) in intervals(&paced).into_iter().enumerate() {
+        let nanos = interval.as_nanos() as u64;
+        assert!(
+            nanos == period || nanos == period + 1,
+            "frame {index}: {interval:?}"
+        );
+    }
+    let span = paced.extracted.last().unwrap().sampled_at - paced.extracted[0].sampled_at;
+    let exact = Duration::from_nanos(1_000_000_000_000 * 599 / 144_000);
+    assert!(
+        span.abs_diff(exact) <= Duration::from_nanos(1),
+        "drift {span:?}"
+    );
+}
+
+/// A slow frame restarts the cadence instead of rendering missed slots back to back.
+#[test]
+fn an_overrun_restarts_the_cadence_without_a_catch_up_burst() {
+    let mut main = vec![ms(1.0); 64];
+    main[20] = ms(40.0);
+    let render = vec![ms(1.0); 64];
+    let paced = run_paced(&main, &render, true, hz(120));
+    let period = Duration::from_nanos(FrameRate::from_hz(120).unwrap().period_nanos());
+    for (index, interval) in intervals(&paced).into_iter().enumerate() {
+        assert!(interval >= period / 2, "frame {index}: {interval:?}");
+    }
+    let resumed = intervals(&paced)[21];
+    assert!(
+        resumed.abs_diff(period) <= Duration::from_nanos(1),
+        "{resumed:?}"
+    );
+}
+
+/// A finished render never cuts a cadence slot short, and the pacing switch leaves the cap alone.
+#[test]
+fn render_completion_and_the_pacing_switch_never_shorten_the_cadence() {
+    let main = vec![ms(0.5); 96];
+    let render = vec![ms(0.5); 96];
+    for enabled in [true, false] {
+        let paced = run_paced(&main, &render, enabled, hz(60));
+        let period = Duration::from_nanos(FrameRate::from_hz(60).unwrap().period_nanos());
+        for interval in intervals(&paced) {
+            assert!(interval >= period, "enabled={enabled}: {interval:?}");
+        }
+    }
+}
+
+/// Render-bound frames slower than the cadence keep the just-in-time sample.
+#[test]
+fn render_bound_frames_under_a_loose_cadence_still_sample_late() {
+    let main = vec![ms(1.66); 64];
+    let render = vec![ms(8.2); 64];
+    let paced = run_paced(&main, &render, true, hz(60));
+    for (index, frame) in settled(&paced) {
+        assert!(
+            age(frame) <= paced.main[index] + MARGIN + ms(0.01),
+            "frame {index}: input aged {:?}",
+            age(frame)
         );
     }
 }
