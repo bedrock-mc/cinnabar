@@ -1,8 +1,8 @@
 //! Ability-flight controls and independent horizontal/vertical drag.
 
-use crate::{CollisionQuery, CollisionWorld, Vec3, WorldQueryError};
+use crate::Vec3;
 
-use super::{DEFAULT_AIR_FRICTION, MovementInput};
+use super::{DEFAULT_AIR_FRICTION, MovementInput, effects::damp_horizontal};
 
 const DEFAULT_FLY_SPEED: f32 = 0.05;
 const DEFAULT_VERTICAL_FLY_SPEED: f32 = 1.0;
@@ -14,31 +14,9 @@ const FLY_DESCEND: f32 = -0.22;
 const HOVER_INPUT_THRESHOLD: f32 = 0.01;
 const CREATIVE_HOVER_MODIFIER: f32 = 0.375;
 const OTHER_HOVER_MODIFIER: f32 = 0.75;
-// Vertical fly drag retains `1 - VERTICAL_FRICTION` in f32, independent of
-// horizontal drag.
+// Vertical fly drag retains `1 - VERTICAL_FRICTION * air_drag_modifier` in f32,
+// independent of horizontal drag.
 const VERTICAL_FRICTION: f32 = 0.399_999_98;
-
-/// Flying shares the walking ground-friction probe at starting AABB minimum y
-/// minus f32 0.1, including fractional support heights.
-pub(super) fn sample_ground_friction(
-    world: &impl CollisionWorld,
-    feet: Vec3,
-    previous_samples: usize,
-) -> Result<CollisionQuery<f64>, WorldQueryError> {
-    if previous_samples == super::MAX_BLOCK_SAMPLES_PER_TICK {
-        return Err(WorldQueryError::QueryExtentExceeded);
-    }
-    let point = Vec3::new(
-        f64::from(feet.x as f32),
-        f64::from(feet.y as f32 - 0.1_f32),
-        f64::from(feet.z as f32),
-    );
-    let sample = world.block_physics(super::environment::block_at(point)?)?;
-    Ok(CollisionQuery {
-        value: sample.primary().friction,
-        identity: sample.identity,
-    })
-}
 
 pub(super) fn horizontal_speed(input: &MovementInput) -> f64 {
     let speed = input
@@ -96,7 +74,8 @@ pub(super) fn apply_drag(
     let horizontal = ground_friction as f32 * modifier * DEFAULT_AIR_FRICTION as f32;
     velocity.x = damp_horizontal(velocity.x, horizontal);
     velocity.z = damp_horizontal(velocity.z, horizontal);
-    velocity.y = f64::from(velocity.y as f32 * (1.0 - VERTICAL_FRICTION));
+    let retention = input.vertical_physics.modified_retention(VERTICAL_FRICTION);
+    velocity.y = f64::from(velocity.y as f32 * retention);
 }
 
 fn hovering(move_vector: [f64; 2]) -> bool {
@@ -104,15 +83,4 @@ fn hovering(move_vector: [f64; 2]) -> bool {
         .abs()
         .max((move_vector[1] as f32).abs())
         < HOVER_INPUT_THRESHOLD
-}
-
-fn damp_horizontal(value: f64, retention: f32) -> f64 {
-    // Horizontal drag clears each lane at the f32 epsilon before applying
-    // friction; this is independent of vertical drag.
-    let value = value as f32;
-    if value.abs() <= f32::EPSILON {
-        0.0
-    } else {
-        f64::from(value * retention)
-    }
 }

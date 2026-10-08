@@ -689,3 +689,21 @@ pub(super) fn hand_rig_layout() -> BindGroupLayoutDescriptor {
         ],
     )
 }
+
+impl crate::pipeline_warmup::PrewarmPipelines for HandRigGpu {
+    fn prewarm(
+        &mut self,
+        cache: &PipelineCache,
+        view: crate::pipeline_warmup::WarmView,
+        ids: &mut crate::pipeline_warmup::WarmupIds,
+    ) -> Result<(), BevyError> {
+        let layout = &self.layout;
+        let samples = view.msaa.samples();
+        let id = memoized_pipeline(&mut self.pipeline_variants, samples, view.hdr, || {
+            cache.queue_render_pipeline(specialized_pipeline(layout.clone(), samples, view.hdr))
+        })
+        .ok_or("unsupported hand rig pipeline sample count")?;
+        ids.push(id);
+        Ok(())
+    }
+}

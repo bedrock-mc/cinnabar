@@ -1,5 +1,5 @@
 //! Local movement frame coordination before ordered interaction admission.
-use super::control_modes::{ControlModes, ControlObservation, DoubleTap};
+use super::control_modes::{ControlModes, ControlObservation};
 use super::local_facts::LocalMovementFacts;
 use super::physics_authority_fault_for_frame;
 use super::{
@@ -10,6 +10,35 @@ use semantic_input::ActionPhase;
 use std::time::Duration;
 use tracing::debug;
 
+/// Vanilla actor yaw: degrees wrapped to `[-180, 180)` with f32 `fmod`.
+#[must_use]
+pub fn wire_yaw(degrees: f32) -> f32 {
+    let rem = (degrees + 180.0) % 360.0;
+    let wrapped = if rem < 0.0 { rem + 360.0 } else { rem };
+    wrapped - 180.0
+}
+
+/// Vanilla head yaw keeps the unwrapped camera angle, which lies in `(-270, 90]`.
+#[must_use]
+pub fn wire_head_yaw(yaw: f32) -> f32 {
+    if yaw > 90.0 { yaw - 360.0 } else { yaw }
+}
+
+/// Vanilla clamps each render frame's elapsed time to this and loses the rest,
+/// so a stall runs at most two ticks instead of catching up.
+const MAX_FRAME_ELAPSED: Duration = Duration::from_millis(100);
+
+/// Whether a render frame of `delta` will simulate at least one fixed tick.
+pub fn frame_simulates_tick(
+    physics: &LocalPhysicsController,
+    ticker: &MovementTicker,
+    delta: Duration,
+) -> bool {
+    physics.is_active()
+        && ticker.can_advance_physics_frame()
+        && physics.ticks_due(delta.min(MAX_FRAME_ELAPSED)) > 0
+}
+
 /// Immutable input and modifier facts sampled at the existing physics phase.
 pub struct PhysicsFrameInput {
     pub delta: Duration,
@@ -18,6 +47,7 @@ pub struct PhysicsFrameInput {
     pub movement: [f32; 2],
     pub raw_movement: [f32; 2],
     pub analogue_movement: [f32; 2],
+    pub movement_buttons: semantic_input::MovementButtons,
     pub yaw: f32,
     pub pitch: f32,
     pub camera_orientation: [f32; 3],
@@ -44,7 +74,8 @@ pub struct PhysicsFrameHold {
 #[derive(Default)]
 pub struct LocomotionState {
     controls: ControlModes,
-    fly_tap: DoubleTap,
+    /// Last active device; suspended input keeps reporting it.
+    input_mode: protocol::PlayerInputMode,
     previous_blocker: Option<String>,
 }
 
@@ -52,7 +83,6 @@ impl LocomotionState {
     /// Clears input latches when local prediction is inactive.
     pub fn reset(&mut self) {
         self.controls.reset();
-        self.fly_tap.reset();
     }
 
     /// Runs each fixed tick and admits its sample before any interaction producers run.
@@ -65,6 +95,7 @@ impl LocomotionState {
         movement_speed: &mut LocalMovementSpeedAuthority,
         world: &impl sim::CollisionWorld,
     ) -> bool {
+        movement_effects.begin_frame();
         let PhysicsFrameInput {
             now,
             active,
@@ -79,6 +110,12 @@ impl LocomotionState {
             facts,
             ..
         } = frame;
+        if active {
+            self.input_mode = input_mode;
+        }
+        let input_mode = self.input_mode;
+        let head_yaw = wire_head_yaw(yaw);
+        let delta = frame.delta.min(MAX_FRAME_ELAPSED);
         let withhold_input = frame.hold.is_some_and(|hold| hold.withhold_input);
         let requested_speed;
         let frame = if let Some(hold) = frame.hold {
@@ -86,11 +123,11 @@ impl LocomotionState {
             movement_speed.set_sprinting(false);
             requested_speed = movement_speed.prediction_speed();
             physics.advance_dimension_wait(
-                frame.delta,
+                delta,
                 yaw,
                 PhysicsSampleContext {
                     pitch: frame.pitch,
-                    head_yaw: yaw,
+                    head_yaw,
                     camera_orientation: frame.camera_orientation,
                     input_mode,
                     ..PhysicsSampleContext::default()
@@ -100,9 +137,8 @@ impl LocomotionState {
             )
         } else {
             if !active {
-                self.controls.reset();
+                self.controls.suspend(input_mode.persists_sneak());
             }
-            let fly_toggle = jump.pressed && self.fly_tap.press(now);
             if let Some(server) = physics.take_server_control_flags() {
                 movement_speed.adopt_server_sprinting(server.sprinting);
                 self.controls
@@ -114,6 +150,8 @@ impl LocomotionState {
             let controlled = self.controls.update(ControlObservation {
                 now,
                 forward: movement[1],
+                sideways: movement[0],
+                touch_input: input_mode == protocol::PlayerInputMode::Touch,
                 sprint_pressed: sprint.pressed,
                 sprint_held: sprint.held,
                 sneak_pressed: sneak.pressed,
@@ -122,8 +160,10 @@ impl LocomotionState {
                 always_sprint: active && frame.always_sprint,
                 toggle_sneak: frame.toggle_sneak,
                 sprint_blocked: facts.sprint_blocked,
+                sprint_start_blocked: facts.sprint_start_blocked,
                 flying: physics.mode() == sim::MovementMode::Flying,
                 retain_sprint,
+                hold_sneak: !active && input_mode.persists_sneak(),
             });
             let mut input = physics_movement_input(
                 movement,
@@ -137,16 +177,23 @@ impl LocomotionState {
             if retain_sprint {
                 input.sprinting = controlled.sprint_request;
             }
+            if !active {
+                input.sneaking = controlled.sneaking;
+            }
             input.immobile = facts.immobile;
+            input.vertical_physics = facts.vertical_physics;
             movement_speed.set_sprinting(input.sprinting);
             input.movement_speed = movement_speed.prediction_speed();
+            let liquid = movement_speed.liquid();
+            input.underwater_movement_speed = liquid.underwater;
+            input.lava_movement_speed = liquid.lava;
             requested_speed = input.movement_speed;
             physics.advance_with_context_and_effects(
-                frame.delta,
+                delta,
                 input,
                 PhysicsSampleContext {
                     pitch: frame.pitch,
-                    head_yaw: yaw,
+                    head_yaw,
                     camera_orientation: frame.camera_orientation,
                     input_mode,
                     raw_move_vector: raw_movement,
@@ -156,16 +203,26 @@ impl LocomotionState {
                         ride_seat: facts.ride_seat,
                         can_fly: facts.can_fly,
                         server_flying: facts.server_flying,
-                        fly_toggle,
                         fly_speed: facts.fly_speed,
                         vertical_fly_speed: facts.vertical_fly_speed,
                         creative_flight: facts.creative_flight,
                         elytra_ready: facts.elytra_ready,
+                        can_stand_on_snow: facts.can_stand_on_snow,
                         depth_strider: facts.depth_strider,
                         soul_speed: facts.soul_speed,
+                        swift_sneak: facts.swift_sneak,
                         swim_hunger_blocked: facts.swim_hunger_blocked,
+                        sprint_blocked: facts.sprint_blocked,
+                        sprint_start_blocked: facts.sprint_start_blocked,
+                        stop_sprinting: controlled.stop_sprinting,
                     },
-                    sneak_button: active && sneak.held,
+                    input: super::TickInput {
+                        movement_buttons: frame.movement_buttons,
+                        jump,
+                        sneak,
+                        sprint_down: controlled.sprint_down,
+                        sneak_down: controlled.sneaking,
+                    },
                 },
                 world,
                 movement_effects,

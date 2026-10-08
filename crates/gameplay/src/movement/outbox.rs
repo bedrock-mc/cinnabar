@@ -74,7 +74,42 @@ pub(super) struct HeldRelease {
     facing_sent: bool,
 }
 
-/// The reported pose of one unsent tick.
+/// Recent tick-end states by tick, fed wherever a tick completes, is replayed or is
+/// anchored; transport hand-offs never move them.
+#[derive(Debug, Clone)]
+pub(super) struct TickEnds(std::collections::VecDeque<UnsentSampleView>);
+
+/// The predecessor is the only state read; a few spare entries absorb replays.
+const TICK_END_CAPACITY: usize = 8;
+
+impl Default for TickEnds {
+    fn default() -> Self {
+        Self(std::collections::VecDeque::with_capacity(TICK_END_CAPACITY))
+    }
+}
+
+impl TickEnds {
+    /// Records a tick's end state; it supersedes that tick and any later ones.
+    pub(super) fn record(&mut self, view: UnsentSampleView) {
+        while self.0.back().is_some_and(|last| last.tick >= view.tick) {
+            self.0.pop_back();
+        }
+        if self.0.len() == TICK_END_CAPACITY {
+            self.0.pop_front();
+        }
+        self.0.push_back(view);
+    }
+
+    pub(super) fn get(&self, tick: u64) -> Option<UnsentSampleView> {
+        self.0.iter().rev().find(|view| view.tick == tick).copied()
+    }
+
+    pub(super) fn clear(&mut self) {
+        self.0.clear();
+    }
+}
+
+/// The reported pose at the end of one completed tick.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct UnsentSampleView {
     pub tick: u64,
@@ -84,6 +119,66 @@ pub struct UnsentSampleView {
     /// Resolved motion controls held-use cadence independently of outbound velocity.
     pub displacement: [f32; 3],
     pub sneaking: bool,
+}
+
+impl UnsentSampleView {
+    /// Reads the interaction pose without copying queued transport state.
+    pub(super) fn from_queued(sample: &super::QueuedPhysicsSample) -> Self {
+        Self::from_parts(
+            sample.snapshot.tick,
+            sample.snapshot.position,
+            sample.snapshot.delta,
+            sample.displacement,
+            sample.snapshot.flags,
+        )
+    }
+
+    /// Reads a replayed tick with the flags its packet now reports.
+    pub(super) fn from_replayed(
+        sample: &super::PhysicsMovementSample,
+        flags: protocol::PlayerInputFlags,
+    ) -> Self {
+        Self::from_parts(
+            sample.tick,
+            sample.position,
+            sample.velocity,
+            sample.movement,
+            flags,
+        )
+    }
+
+    pub(super) fn from_parts(
+        tick: u64,
+        position: [f32; 3],
+        delta: [f32; 3],
+        displacement: [f32; 3],
+        flags: protocol::PlayerInputFlags,
+    ) -> Self {
+        Self {
+            tick,
+            position,
+            delta,
+            displacement,
+            sneaking: flags.bits() & protocol::PlayerInputFlags::SNEAKING.bits() != 0,
+        }
+    }
+}
+
+/// Where a standalone interaction sits on the movement stream: the tick whose input follows it
+/// and the network position it reports.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct InteractionSample {
+    pub tick: u64,
+    pub position: [f32; 3],
+}
+
+impl From<UnsentSampleView> for InteractionSample {
+    fn from(sample: UnsentSampleView) -> Self {
+        Self {
+            tick: sample.tick,
+            position: sample.position,
+        }
+    }
 }
 
 /// Capacity of every movement retry queue: queued samples, staged sends,
@@ -233,14 +328,77 @@ impl MovementTicker {
 
     /// The newest unsent tick, which standalone interaction packets precede.
     pub fn newest_unsent_sample(&self) -> Option<UnsentSampleView> {
-        self.outbox.back().map(|sample| UnsentSampleView {
-            tick: sample.snapshot.tick,
-            position: sample.snapshot.position,
-            delta: sample.snapshot.delta,
-            displacement: sample.displacement,
-            sneaking: sample.snapshot.flags.bits() & protocol::PlayerInputFlags::SNEAKING.bits()
-                != 0,
+        self.outbox.back().map(UnsentSampleView::from_queued)
+    }
+
+    /// The end state of the last completed tick. Vanilla runs build actions before each
+    /// simulation tick, so the next tick's build actions observe this state.
+    pub fn build_action_state(&self) -> Option<UnsentSampleView> {
+        if !self.physics_is_authorized() {
+            return None;
+        }
+        self.tick_ends.get(self.completed_tick())
+    }
+
+    /// An anchor restarts the timeline with cleared motion at the last completed tick.
+    pub(super) fn anchor_tick_end(&mut self, position: [f32; 3]) {
+        self.tick_ends.clear();
+        self.tick_ends.record(UnsentSampleView {
+            tick: self.completed_tick(),
+            position,
+            delta: [0.0; 3],
+            displacement: [0.0; 3],
+            sneaking: false,
+        });
+    }
+
+    /// A frame-time interaction once every completed tick is on the wire: it reports the
+    /// newest admitted tick's position and precedes the next tick's input.
+    pub fn between_ticks_sample(&self) -> Option<InteractionSample> {
+        if !self.outbox.is_empty() || self.held_release.is_some() {
+            return None;
+        }
+        let (tick, position) = self
+            .pending_sends
+            .back()
+            .map(|pending| {
+                (
+                    pending.sample.snapshot.tick,
+                    pending.sample.snapshot.position,
+                )
+            })
+            .or_else(|| {
+                self.sent_history
+                    .back()
+                    .filter(|sent| sent.session_generation == self.session_generation)
+                    .map(|sent| (sent.tick, sent.position))
+            })?;
+        (tick == self.completed_tick()).then_some(InteractionSample {
+            tick: tick.checked_add(1)?,
+            position,
         })
+    }
+
+    /// Looks up only the exact tick still owned by the unsent movement queue.
+    pub fn unsent_sample_at(&self, tick: u64) -> Option<UnsentSampleView> {
+        self.outbox
+            .iter()
+            .find(|sample| sample.snapshot.tick == tick)
+            .map(UnsentSampleView::from_queued)
+    }
+
+    /// The first eligible unsent tick committed in this render frame.
+    pub fn first_unsent_sample_in_frame(&self, recent_ticks: usize) -> Option<UnsentSampleView> {
+        if recent_ticks == 0 {
+            return None;
+        }
+        let first = self
+            .completed_tick()
+            .saturating_sub(recent_ticks as u64 - 1);
+        self.outbox
+            .iter()
+            .find(|sample| sample.snapshot.tick >= first)
+            .map(UnsentSampleView::from_queued)
     }
 
     /// Holds an aim-assisted release until `tick`'s input, which carries the facing it launches
@@ -290,8 +448,8 @@ impl MovementTicker {
             return false;
         };
         sample.snapshot.pitch = pitch;
+        // Vanilla's aim-assist override leaves head rotation untouched.
         sample.snapshot.yaw = yaw;
-        sample.snapshot.head_yaw = yaw;
         true
     }
 

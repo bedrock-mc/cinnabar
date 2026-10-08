@@ -122,7 +122,7 @@ fn measure_setup(world: &mut World, trial: usize, phase: &str) {
     let allocated = crate::tests::alloc_count::thread_allocations();
     let started = Instant::now();
     let cpu_started = thread_cpu_time();
-    world.run_system_cached(prepare_actor_render_frame).unwrap();
+    prepare_offline_actor_frame(world);
     world.run_system_cached(publish_actor_render_frame).unwrap();
     let elapsed = started.elapsed();
     let cpu = thread_cpu_time()

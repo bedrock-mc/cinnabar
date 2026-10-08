@@ -8,6 +8,7 @@ pub mod chat_screen;
 pub mod container_data;
 pub mod container_kinds;
 mod debug_overlay;
+pub mod discord_presence_setting;
 pub(super) use container_kinds::supported_storage_slots;
 pub mod containers;
 pub(super) mod credits_content;
@@ -16,6 +17,7 @@ pub mod crosshair_settings;
 pub mod emote_screen;
 pub mod engine;
 pub mod experience;
+pub mod experience_modal;
 pub mod fallback;
 #[cfg(test)]
 mod formatting_tests;
@@ -23,8 +25,11 @@ pub mod global_resources;
 pub mod hud;
 #[cfg(test)]
 pub mod inbox_tests;
+mod invite_screen;
 pub mod java_animations_setting;
 pub mod join_progress;
+#[cfg(test)]
+mod join_request_tests;
 pub mod loading_screen;
 #[cfg(test)]
 pub mod loading_texture_tests;
@@ -38,6 +43,8 @@ pub mod mod_panel;
 pub mod model;
 pub mod npc;
 pub mod oreui;
+mod retained_menu;
+pub(super) use retained_menu::RetainedMenu;
 #[cfg(any(test, feature = "test-support"))]
 pub mod pack_harness;
 pub mod pages;
@@ -88,6 +95,7 @@ pub mod vsync_setting;
 pub use chat_screen::{CHAT_SCREEN, ChatHit};
 pub use container_data::observe_station_block;
 pub use emote_screen::{EMOTE_EQUIP_POPUP, EMOTE_SCREEN, EmoteHit};
+pub use experience_modal::ExperienceModal;
 pub use loading_screen::{LOADING_SCREEN, LoadingStage};
 pub use menu_screens::menu_reference;
 pub use npc::NPC_SCREEN;
@@ -122,8 +130,10 @@ pub(super) struct FormPresentation {
     container: Option<(EngineFrame, containers::ScreenLayout)>,
     /// The engine menu's regions by action, for next frame's hover state.
     menu_keys: Vec<(crate::menu::MenuAction, String)>,
-    /// Keyboard/controller actions include scroll content outside the viewport.
-    pub(super) menu_focus_actions: Vec<crate::menu::MenuAction>,
+    /// Keyboard controls include rows outside the pointer's clipped viewports.
+    pub(super) menu_focus: Vec<crate::menu::MenuAction>,
+    pub(super) menu_focus_geometry: Vec<crate::menu::view::SettingsFocusTarget>,
+    pub(super) menu_focus_landmarks: Vec<crate::menu::view::SettingsFocusLandmark>,
     /// The engine menu's press sounds by action; carried across the per-frame reset.
     menu_sounds: Vec<(crate::menu::MenuAction, json_ui::ControlSound)>,
     /// The form whose render path was last logged, so each form logs once.
@@ -134,12 +144,12 @@ pub(super) struct FormPresentation {
     player_list: Option<player_list::PlayerList>,
     mod_panel: Option<mod_panel::ModPanel>,
     experience: Option<experience::ExperienceChrome>,
+    /// A client part's modal screen; carried across the per-frame reset.
+    experience_modal: Option<experience_modal::ModalScreen>,
     /// The last container screen's layout; carried across the per-frame reset.
     container_cache: Option<containers::ScreenCache>,
     /// Immutable creative rows reused across hover and scroll frames.
     book_cache: Option<recipe_book::BookCache>,
-    /// Last shown menu retained while Settings prepares in the background.
-    ready_menu: Option<crate::menu::MenuView>,
     /// The menu text caret's blink and its boxes' text; carried across the per-frame reset.
     menu_caret: menu_caret::MenuCaretState,
     /// The open chat's cached screen; carried across the per-frame reset.
@@ -153,6 +163,10 @@ pub(super) struct FormPresentation {
     /// Dev-mode OreUI originals and the look OreUI screens draw with.
     oreui_originals: Option<Arc<oreui::Originals>>,
     oreui_look: oreui::Look,
+    oreui_dark_mode: bool,
+    oreui_transitions: oreui::Transitions,
+    pub(super) oreui_slider_tracks: Vec<(u16, UiRect, Option<UiRect>)>,
+    pub(super) oreui_settings_input: bool,
     /// The engine catalog's screen settings; carried across the per-frame reset.
     screen_settings: Arc<ScreenSettingsTable>,
     /// Last build's container frame, for this build's pointer hover.
@@ -264,15 +278,18 @@ impl UiPresentationRuntime {
     /// Hands changed server atlas pages to the dynamic texture pages; runs
     /// after the frame's screens drew, before the frame publishes.
     pub(super) fn sync_server_ui_pages(&mut self) {
-        let changed = self
+        let server = self
             .form_presentation
             .engine
             .as_mut()
             .is_some_and(|engine| engine.take_server_pages().is_some());
+        let changed = self.refresh_experience_modal_pages() | server;
         // Server textures too big for a server page draw from full-resolution art.
         let set = super::menu_artwork::ArtworkSet {
             paths: self.menu_artwork_set.paths.clone(),
             oversized: self.oversized_ui_textures(),
+            skins: self.menu_artwork_set.skins.clone(),
+            capes: self.menu_artwork_set.capes.clone(),
         };
         if !set.same(&self.menu_artwork_set) {
             self.menu_artwork_set = set.clone();
@@ -322,9 +339,19 @@ impl UiPresentationRuntime {
 
     /// Retire animation state no paint touched this frame, so a control that
     /// comes back starts its animations afresh.
-    pub(super) fn end_animation_frame(&self) {
+    pub(super) fn end_animation_frame(&mut self) {
         if let Some(engine) = self.form_presentation.engine.as_ref() {
             engine.animator().end_frame();
+        }
+        self.form_presentation.oreui_transitions.end_frame();
+    }
+
+    pub(super) fn configure_oreui_motion(&mut self) {
+        if let Some(view) = &self.menu_view {
+            self.form_presentation.oreui_dark_mode = view.settings_options.oreui_dark_mode();
+            self.form_presentation
+                .oreui_transitions
+                .configure_motion(view.settings_options.value("screen_animations") != 0);
         }
     }
 
@@ -448,6 +475,9 @@ impl UiPresentationRuntime {
     /// Starts a build's form state, keeping what is carried across builds.
     pub(super) fn begin_form_frame(&mut self) {
         let previous_container = self.form_presentation.container.take();
+        self.form_presentation.oreui_slider_tracks.clear();
+        self.form_presentation.menu_focus_geometry.clear();
+        self.form_presentation.menu_focus_landmarks.clear();
         let state = std::mem::take(&mut self.form_presentation);
         self.form_presentation = FormPresentation {
             engine: state.engine,
@@ -459,9 +489,9 @@ impl UiPresentationRuntime {
             player_list: state.player_list,
             mod_panel: state.mod_panel,
             experience: state.experience,
+            experience_modal: state.experience_modal,
             container_cache: state.container_cache,
             book_cache: state.book_cache,
-            ready_menu: state.ready_menu,
             menu_caret: state.menu_caret,
             chat: state.chat,
             emote: state.emote,
@@ -470,6 +500,11 @@ impl UiPresentationRuntime {
             credits: state.credits,
             oreui_originals: state.oreui_originals,
             oreui_look: state.oreui_look,
+            oreui_dark_mode: state.oreui_dark_mode,
+            oreui_transitions: state.oreui_transitions,
+            oreui_slider_tracks: state.oreui_slider_tracks,
+            menu_focus_geometry: state.menu_focus_geometry,
+            menu_focus_landmarks: state.menu_focus_landmarks,
             screen_settings: state.screen_settings,
             previous_container,
             ..FormPresentation::default()

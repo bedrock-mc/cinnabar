@@ -44,10 +44,21 @@ impl MenuRuntime {
         let language_choices =
             settings_options::SettingsOptions::language_choices(&layout.resource_root);
         let mut initial = MenuView::new(visible, display_name);
-        if layout.auth_cache().is_file() {
+        #[cfg(feature = "developer-control")]
+        let sign_in_fixture = super::sign_in_fixture::startup();
+        #[cfg(feature = "developer-control")]
+        let account_lookup = sign_in_fixture.is_none();
+        #[cfg(not(feature = "developer-control"))]
+        let account_lookup = true;
+        if account_lookup && layout.auth_cache().is_file() {
             let store = launcher::accounts::AccountStore::new(layout.auth_cache());
             initial.feeds.accounts = store.list().unwrap_or_default();
             initial.feeds.account_active_id = store.active_id().ok().flatten();
+        }
+        #[cfg(feature = "developer-control")]
+        if sign_in_fixture.is_some() {
+            initial.dialog = Some(MenuDialog::Accounts);
+            initial.feeds.account_adding = true;
         }
         Self {
             // The launcher owns the session lifecycle only when the client
@@ -73,6 +84,7 @@ impl MenuRuntime {
             name: field_editor(MenuField::Name),
             address: field_editor(MenuField::Address),
             port: field_editor(MenuField::Port),
+            skin_name: field_editor(MenuField::SkinName),
             message,
             gui_scale_preference: gui_scale
                 .filter(|scale| *scale > 0)
@@ -84,6 +96,7 @@ impl MenuRuntime {
             fullscreen_change: saved_video_settings.fullscreen.then_some(true),
             video_settings_writer: None,
             settings_focus: Vec::new(),
+            settings_focus_geometry: focus::SettingsFocusGeometry::default(),
             last_saved_video_settings: saved_video_settings,
             failed_video_settings_save: None,
             render_mode: initial.render_mode,
@@ -107,6 +120,11 @@ impl MenuRuntime {
             auth_restart_requested: false,
             layout,
             player_skin,
+            dressing_room: initial.dressing_room,
+            dressing_room_worker: None,
+            skin_update_pending: false,
+            skin_outbound: None,
+            skin_packet_pending: None,
             editing: initial.editing,
             settings_section: initial.settings_section,
             disconnect_message: initial.disconnect_message,
@@ -115,7 +133,13 @@ impl MenuRuntime {
             local_world_requested: None,
             local_ui: Default::default(),
             control_auth: None,
-            sign_in_page_code: None,
+            sign_in_browser: Default::default(),
+            sign_in_requested: false,
+            sign_in_cancelled: false,
+            sign_in_failure: None,
+            #[cfg(feature = "developer-control")]
+            sign_in_fixture,
+            presentation_accounts: false,
             sign_out_requested: false,
             accounts: Default::default(),
             store_actions: Vec::new(),
@@ -125,6 +149,7 @@ impl MenuRuntime {
             settings_options: std::sync::Arc::new(settings_options),
             storage: initial.storage,
             settings_dropdown: initial.settings_dropdown,
+            settings_scale_picker: initial.settings_scale_picker,
             settings_dirty: false,
             settings_retry_at: None,
             settings_apply: true,
@@ -134,11 +159,20 @@ impl MenuRuntime {
             language_pending,
             language_asset_path,
             settings_slider_drag: None,
+            settings_slider_pointer: None,
+            settings_slider_hovered: None,
+            settings_slider_selected: None,
+            settings_control_activation: None,
+            settings_control_activation_navigation: false,
+            settings_input_revision: 0,
+            input_mode: input::MenuInputMode::default(),
             key_remap: initial.key_remap,
             settings_advanced_graphics: initial.settings_advanced_graphics,
             local_world_joined: false,
             local_world_active: false,
             feeds: initial.feeds,
+            invite: Default::default(),
+            join_requests: Default::default(),
         }
     }
 }

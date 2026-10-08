@@ -2,6 +2,11 @@ use semantic_input::{ControlSettings, PerspectiveMode};
 
 pub const CURRENT_SETTINGS_SCHEMA: u32 = 2;
 pub const DEFAULT_OUTLINE_SELECTION: bool = true;
+/// Vanilla's field-of-view option: default and slider range in degrees.
+pub const DEFAULT_FOV_DEGREES: i32 = 60;
+pub const MIN_FOV_DEGREES: i32 = 30;
+pub const MAX_FOV_DEGREES: i32 = 110;
+
 /// Desktop vanilla starts with two coverage samples per pixel.
 pub const DEFAULT_ANTI_ALIASING_SAMPLES: u32 = 2;
 /// Sample counts represented by the rendering backend's camera settings.
@@ -91,7 +96,7 @@ pub struct VideoSettings {
 impl Default for VideoSettings {
     fn default() -> Self {
         Self {
-            horizontal_fov_degrees: 90.0,
+            horizontal_fov_degrees: DEFAULT_FOV_DEGREES as f32,
             fullscreen: false,
             frame_cap: None,
             vsync: true,

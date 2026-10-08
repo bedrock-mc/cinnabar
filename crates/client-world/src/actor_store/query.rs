@@ -63,6 +63,14 @@ impl ActorStore {
         names
     }
 
+    /// How many players [`Self::player_list_usernames`] would list, without allocating.
+    pub(crate) fn player_list_count(&self) -> usize {
+        self.players
+            .values()
+            .filter(|profile| !profile.username.is_empty())
+            .count()
+    }
+
     pub(crate) fn render_players(
         &self,
         excluded_runtime_id: Option<u64>,
@@ -157,13 +165,15 @@ impl ActorStore {
         runtime_id: u64,
         partial_tick: f32,
         remaining_ops: &mut usize,
-    ) -> Option<std::borrow::Cow<'_, [crate::RenderTextureLayer]>> {
+        sample_skin: bool,
+    ) -> Option<crate::ActorRenderLayers<'_>> {
         self.animation.render_layers(
             self.actors.get(&runtime_id)?,
             partial_tick,
             self.camera_rotation,
             self.camera_position,
             remaining_ops,
+            sample_skin,
         )
     }
     /// Full-body pose for the local HUD while first-person hands have a separate pose.

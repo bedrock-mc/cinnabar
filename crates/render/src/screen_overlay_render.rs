@@ -77,6 +77,7 @@ fn install(app: &mut App) {
     if render_app.world().contains_resource::<Installed>() {
         return;
     }
+    crate::pipeline_warmup::register::<OverlayPipeline>(app);
     app.add_plugins(ExtractResourcePlugin::<ScreenOverlayScene>::default());
     load_internal_asset!(
         app,
@@ -737,5 +738,26 @@ mod review_tests {
             .set_layers([], 0.0);
         app.world_mut().run_system_once(queue_overlay).unwrap();
         assert!(fixture::items(&app, view).is_empty());
+    }
+}
+
+impl crate::pipeline_warmup::PrewarmPipelines for OverlayPipeline {
+    fn prewarm(
+        &mut self,
+        cache: &PipelineCache,
+        view: crate::pipeline_warmup::WarmView,
+        ids: &mut crate::pipeline_warmup::WarmupIds,
+    ) -> Result<(), BevyError> {
+        for after_hand in [false, true] {
+            ids.push(self.variants.specialize(
+                cache,
+                OverlayPipelineKey {
+                    msaa: view.msaa,
+                    hdr: view.hdr,
+                    after_hand,
+                },
+            )?);
+        }
+        Ok(())
     }
 }

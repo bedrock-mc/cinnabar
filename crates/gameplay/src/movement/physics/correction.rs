@@ -38,14 +38,14 @@ impl LocalPhysicsController {
                 .is_some_and(|state| state.swim_pose_active);
             let previous_jump_held = self.previous_jump_held;
             let jump_edge_pending = self.jump_edge_pending;
-            let fly_toggle_pending = self.fly_toggle_pending;
+            let input_edges = self.input_edges;
             let modes = self.modes;
             self.reanchor_network_position_before_advance(network_position, tick, on_ground);
             // As in vanilla, MovePlayer changes spatial state without resetting
             // jump input or movement abilities.
             self.previous_jump_held = previous_jump_held;
             self.jump_edge_pending = jump_edge_pending;
-            self.fly_toggle_pending = fly_toggle_pending;
+            self.input_edges = input_edges;
             self.modes = modes;
             if let Some(state) = self.state.as_mut() {
                 state.jump_delay = jump_delay;
@@ -61,6 +61,7 @@ impl LocalPhysicsController {
                 final_tick: tick,
                 final_position: network_position,
                 anchor_input: super::super::encoding::HeldInput::default(),
+                corrected_sample: None,
                 replayed_samples: Vec::new(),
             });
         }
@@ -152,6 +153,7 @@ impl LocalPhysicsController {
         if let Some(velocity) = velocity {
             corrected.velocity = velocity;
         }
+        self.deferred_corrections.supersede(tick);
         self.replay_from_corrected(tick, corrected, Some(network_position), world)
     }
 
@@ -211,6 +213,7 @@ impl LocalPhysicsController {
             .copied()
             .ok_or(PhysicsCorrectionError::NotRetained { tick })?;
         let mut modes = anchor_controller.modes;
+        let deferred_corrections = self.deferred_corrections.clone();
         let (replay, replayed_ticks) = self
             .history
             .rewind_and_replay_prepared(
@@ -222,6 +225,7 @@ impl LocalPhysicsController {
                 world,
                 &motion_overlays,
                 |state, input, world, previous| {
+                    deferred_corrections.apply_before(state);
                     let frame = controller_frames
                         .iter_mut()
                         .find(|frame| frame.tick == state.tick + 1)
@@ -233,6 +237,8 @@ impl LocalPhysicsController {
                 },
             )
             .map_err(|_| PhysicsCorrectionError::ReplayFailed)?;
+
+        self.deferred_corrections.mark_replayed();
 
         if replayed_ticks.len() != replay.replayed_ticks {
             return Err(PhysicsCorrectionError::ReplayFailed);
@@ -328,10 +334,6 @@ impl LocalPhysicsController {
                     retained.movement = delta;
                 }
             }
-            retained.processed.direction_flags = Some(super::super::encoding::direction_flags([
-                -frame_input.strafe as f32,
-                frame_input.forward as f32,
-            ]));
             retained.processed.jump_initiated = initiated;
             retained.processed.jump_arc_active = arc_active;
             replayed_samples.push(retained.clone());
@@ -342,7 +344,7 @@ impl LocalPhysicsController {
             .back()
             .map_or(anchor_controller.environment, |frame| frame.environment);
         self.controller_history = controller_frames;
-        let corrected_world_identity = {
+        let (corrected_world_identity, corrected_sample) = {
             let corrected_sample = self
                 .sample_history
                 .iter_mut()
@@ -356,7 +358,10 @@ impl LocalPhysicsController {
                     corrected_collisions.x || corrected_collisions.z;
                 corrected_sample.vertical_collision = corrected_collisions.y;
             }
-            corrected_sample.world_identity.clone()
+            (
+                corrected_sample.world_identity.clone(),
+                corrected_sample.clone(),
+            )
         };
 
         self.refresh_motion_ticks();
@@ -403,6 +408,7 @@ impl LocalPhysicsController {
             final_tick,
             final_position,
             anchor_input,
+            corrected_sample: Some(corrected_sample),
             replayed_samples,
         })
     }

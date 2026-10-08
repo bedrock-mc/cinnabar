@@ -146,3 +146,19 @@ func TestListReportsWorldSize(t *testing.T) {
 		t.Fatalf("size persisted: %s", raw)
 	}
 }
+
+func TestStoreKeepsBackendAndGeneratorIndependent(t *testing.T) {
+	store := newTestStore(t)
+	for _, backend := range []string{BackendDragonfly, BackendBDS} {
+		for _, generator := range []string{GeneratorNormal, GeneratorFlat} {
+			world, err := store.Create(Spec{Name: "Independent", Backend: backend, Generator: generator})
+			if err != nil {
+				t.Fatalf("%s/%s: %v", backend, generator, err)
+			}
+			saved, err := store.Get(world.ID)
+			if err != nil || saved.Backend != backend || saved.Generator != generator {
+				t.Fatalf("saved %s/%s = %+v, %v", backend, generator, saved, err)
+			}
+		}
+	}
+}

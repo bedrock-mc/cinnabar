@@ -257,6 +257,16 @@ pub(in crate::compiler) fn is_stained_glass_cube(record: &RegistryRecord) -> boo
             .is_ok()
 }
 
+/// Vanilla glass is not solid: faces touching it still draw, and only glass culls glass.
+pub(in crate::compiler) fn is_clear_glass_cube(record: &RegistryRecord) -> bool {
+    record.name.as_ref() == "minecraft:glass"
+        && record.canonical_state.as_ref() == "{}"
+        && record.model_family == ModelFamily::Cube
+        && record.contributor_role == ContributorRole::Primary
+        && record.flags.contains(BlockFlags::CUBE_GEOMETRY)
+        && !record.flags.contains(BlockFlags::AIR)
+}
+
 pub(in crate::compiler) fn is_ordinary_stained_glass_name(name: &str) -> bool {
     ORDINARY_STAINED_GLASS_NAMES.binary_search(&name).is_ok()
 }
@@ -317,6 +327,7 @@ pub(in crate::compiler) fn is_model_visual(record: &RegistryRecord) -> bool {
     super::visuals::portal::is_record(record)
         || super::visuals::end_portal_frame::is_record(record)
         || is_stained_glass_cube(record)
+        || is_clear_glass_cube(record)
         || is_copper_grate(record)
         || is_translucent_cube(record)
         || is_named_block(record)

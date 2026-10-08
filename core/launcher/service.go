@@ -44,6 +44,7 @@ type Config struct {
 	// Injectable for tests; nil selects the real implementation.
 	Realms   func(context.Context, *authcache.Account) ([]catalog.Realm, error)
 	Friends  func(context.Context, *authcache.Account) ([]catalog.Friend, error)
+	People   func(context.Context, *authcache.Account) ([]catalog.Person, error)
 	Gamertag func(context.Context, *authcache.Account) (string, error)
 	Remove   func(path string) error
 
@@ -84,6 +85,9 @@ func New(cfg Config) *Service {
 	}
 	if cfg.Friends == nil {
 		cfg.Friends = catalog.Friends
+	}
+	if cfg.People == nil {
+		cfg.People = catalog.People
 	}
 	if cfg.Gamertag == nil {
 		cfg.Gamertag = catalog.Gamertag

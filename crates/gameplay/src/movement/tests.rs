@@ -20,7 +20,7 @@ fn flush_refuses_a_stale_queue_without_physics_authority() {
             camera_orientation: [0.0, 0.0, 1.0],
             jumping: false,
             sneaking: false,
-            sneak_button: false,
+            input: Default::default(),
             sprinting: false,
             input_mode: PlayerInputMode::Mouse,
             grounded_before_tick: false,
@@ -78,7 +78,7 @@ fn action_rotation_updates_only_the_matching_unsent_actor_facing() {
             camera_orientation: [0.0, 0.0, 1.0],
             jumping: false,
             sneaking: false,
-            sneak_button: false,
+            input: Default::default(),
             sprinting: false,
             input_mode: PlayerInputMode::Mouse,
             grounded_before_tick: false,
@@ -106,7 +106,8 @@ fn action_rotation_updates_only_the_matching_unsent_actor_facing() {
     let changed = ticker.outbox[0].snapshot;
     assert_eq!(
         (changed.pitch, changed.yaw, changed.head_yaw),
-        (15.0, 30.0, 30.0)
+        (15.0, 30.0, previous.head_yaw),
+        "aim assist leaves head rotation untouched"
     );
     assert_eq!(changed.camera_orientation, previous.camera_orientation);
     assert_eq!(changed.move_vector, previous.move_vector);

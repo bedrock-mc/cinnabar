@@ -1,9 +1,11 @@
 {
   "max_frame_bytes": 1048576,
-  "protocol": 2,
+  "protocol": 4,
   "max_block_data_bytes": 65536,
   "max_staged_ops": 64,
   "max_tells": 4,
   "max_tell_bytes": 256,
-  "max_client_sends": 8
+  "max_client_sends": 8,
+  "max_client_send_bytes": 65536,
+  "max_value_depth": 4
 }

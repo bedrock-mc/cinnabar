@@ -58,6 +58,8 @@ struct VertexOutput {
     @location(13) world_position: vec3<f32>,
 #ifdef ENHANCED
     @location(14) @interpolate(flat) surface_class: u32,
+#else
+    @location(14) @interpolate(flat) tint_gamma: vec3<f32>,
 #endif
 }
 
@@ -83,6 +85,7 @@ fn invisible_vertex() -> VertexOutput {
 #else
     invisible.native_light_levels = vec2(0.0);
     invisible.native_ao_face = 0.0;
+    invisible.tint_gamma = vec3(1.0);
 #endif
     invisible.two_sided = 0u;
     invisible.world_origin = vec3(0.0);
@@ -260,6 +263,18 @@ fn vertex(
     out.two_sided = select(0u, 1u, (quad_flags & 8u) != 0u);
     out.world_position = world;
     out.world_origin = vec3<f32>(origin.value.xyz);
+#ifndef ENHANCED
+    out.tint_gamma = vec3(1.0);
+#ifndef ENHANCED_SHADOW
+#ifndef OPAQUE_OVERDRAW
+    // Every corner belongs to the same block; keep its exact tint flat across the model.
+    let tint_kind = material.flags & 0x30u;
+    if (tint_kind != 0u) {
+        out.tint_gamma = blended_biome_tint_gamma(tint_kind, material.flags, out.biome_record, block_position, out.world_origin).rgb;
+    }
+#endif
+#endif
+#endif
 #ifdef ENHANCED
     out.surface_class = material_class(material_id);
     out.world_position = waved_position(world, out.surface_class, clamp(template_position.y, 0.0, 1.0));
@@ -335,12 +350,7 @@ fn apply_distance_fog(colour: vec3<f32>, world_position: vec3<f32>) -> vec3<f32>
 // RenderChunk multiplies atlas/palette, vertex AO and lightmap in gamma RGB.
 // Encode only at our existing Bevy sRGB framebuffer boundary.
 fn ordinary_world_model_gamma_colour(in: VertexOutput, sampled_gamma: vec4<f32>) -> vec4<f32> {
-    var tint_gamma = vec3(1.0);
-    let tint_kind = in.material_flags & 0x30u;
-    if (tint_kind != 0u) {
-        tint_gamma = blended_biome_tint_gamma(tint_kind, in.material_flags, in.biome_record, in.local_position, in.world_origin).rgb;
-    }
-    let lit_gamma = ((sampled_gamma.rgb * tint_gamma) * in.native_ao_face) * terrain_light_colour(in.native_light_levels);
+    let lit_gamma = ((sampled_gamma.rgb * in.tint_gamma) * in.native_ao_face) * terrain_light_colour(in.native_light_levels);
     let fog_gamma = tint_to_gamma(vec4(atmosphere.fog_color_start.rgb, 1.0)).rgb;
     return vec4(mix(lit_gamma, fog_gamma, distance_fog_amount(in.world_position)), sampled_gamma.a);
 }
@@ -359,11 +369,15 @@ fn fragment(
     if (!front_facing && in.two_sided == 0u) { discard; }
     let dx = dpdx(in.uv);
     let dy = dpdy(in.uv);
+    // Both views already hold the working colour space, so frames blend before the alpha test.
     var sampled = sample_ref(in.current_texture, in.uv, dx, dy);
     if (in.frame_blend > 0.0) {
         sampled = mix(sampled, sample_ref(in.next_texture, in.uv, dx, dy), in.frame_blend);
     }
     if (sampled.a < 0.5) { discard; }
+#ifdef OPAQUE_OVERDRAW
+    return vec4(1.0);
+#else
 #ifdef ENHANCED
     let colour = tinted(sampled, in.material_flags, in.biome_record, in.local_position, in.world_origin);
     let shaded = shade_surface(
@@ -379,6 +393,7 @@ fn fragment(
     return vec4(apply_distance_fog(shaded, in.world_position), colour.a);
 #else
     return ordinary_world_model_colour(in, sampled);
+#endif
 #endif
 }
 

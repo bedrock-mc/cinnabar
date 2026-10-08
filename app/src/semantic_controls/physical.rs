@@ -11,8 +11,8 @@ use bevy::{
     window::{CursorOptions, PrimaryWindow},
 };
 use semantic_input::{
-    ControllerFrame, DeviceFrame, KeyboardMouseFrame, MAX_CONTROLLERS, MAX_TOUCH_CONTACTS,
-    ModifierChord, TouchContact,
+    ButtonEdges, ControllerFrame, DeviceFrame, KeyboardMouseFrame, MAX_CONTROLLERS,
+    MAX_TOUCH_CONTACTS, ModifierChord, TouchContact,
 };
 
 use super::{SemanticInputRuntime, SemanticInputSnapshot, SemanticTouchTargets};
@@ -181,14 +181,12 @@ fn translate_device_frame(inputs: SemanticPhysicalInputs) -> TranslatedDeviceFra
     let keyboard_mouse = gates.keyboard_mouse.then(|| {
         let mut keyboard_keys = keys
             .get_pressed()
-            .chain(keys.get_just_pressed())
             .filter_map(|key| keyboard_usage(*key))
             .collect::<Vec<_>>();
         keyboard_keys.sort_unstable();
         keyboard_keys.dedup();
         let mut buttons = mouse_buttons
             .get_pressed()
-            .chain(mouse_buttons.get_just_pressed())
             .filter_map(|button| mouse_button_code(*button))
             .collect::<Vec<_>>();
         buttons.sort_unstable();
@@ -198,6 +196,26 @@ fn translate_device_frame(inputs: SemanticPhysicalInputs) -> TranslatedDeviceFra
             activity_sequence: 0,
             keys: keyboard_keys,
             mouse_buttons: buttons,
+            key_edges: ButtonEdges {
+                pressed: keys
+                    .get_just_pressed()
+                    .filter_map(|key| keyboard_usage(*key))
+                    .collect(),
+                released: keys
+                    .get_just_released()
+                    .filter_map(|key| keyboard_usage(*key))
+                    .collect(),
+            },
+            mouse_edges: ButtonEdges {
+                pressed: mouse_buttons
+                    .get_just_pressed()
+                    .filter_map(|button| mouse_button_code(*button))
+                    .collect(),
+                released: mouse_buttons
+                    .get_just_released()
+                    .filter_map(|button| mouse_button_code(*button))
+                    .collect(),
+            },
             mouse_motion: mouse_motion.delta.to_array(),
             modifiers: ModifierChord {
                 shift: sampled_key(KeyCode::ShiftLeft) || sampled_key(KeyCode::ShiftRight),
@@ -226,6 +244,16 @@ fn translate_device_frame(inputs: SemanticPhysicalInputs) -> TranslatedDeviceFra
                 0.0,
             ],
             buttons: gamepad_button_codes(gamepad),
+            button_edges: ButtonEdges {
+                pressed: TRANSLATED_GAMEPAD_BUTTONS
+                    .iter()
+                    .filter_map(|(code, button)| gamepad.just_pressed(*button).then_some(*code))
+                    .collect(),
+                released: TRANSLATED_GAMEPAD_BUTTONS
+                    .iter()
+                    .filter_map(|(code, button)| gamepad.just_released(*button).then_some(*code))
+                    .collect(),
+            },
         });
     }
     let width = window.width().max(1.0);
@@ -392,9 +420,7 @@ pub(crate) const TRANSLATED_GAMEPAD_BUTTONS: &[(u8, GamepadButton)] = &[
 fn gamepad_button_codes(gamepad: &Gamepad) -> Vec<u8> {
     let mut buttons = TRANSLATED_GAMEPAD_BUTTONS
         .iter()
-        .filter_map(|(code, button)| {
-            (gamepad.pressed(*button) || gamepad.just_pressed(*button)).then_some(*code)
-        })
+        .filter_map(|(code, button)| gamepad.pressed(*button).then_some(*code))
         .collect::<Vec<_>>();
     buttons.sort_unstable();
     buttons
@@ -528,11 +554,10 @@ mod tests {
             .keyboard_mouse
             .as_ref()
             .unwrap();
-        assert!(
-            keyboard
-                .keys
-                .contains(&keyboard_usage(KeyCode::KeyW).unwrap())
-        );
+        let forward = keyboard_usage(KeyCode::KeyW).unwrap();
+        assert!(!keyboard.keys.contains(&forward));
+        assert!(keyboard.key_edges.pressed.contains(&forward));
+        assert!(keyboard.key_edges.released.contains(&forward));
         assert!(keyboard.modifiers.shift);
     }
 

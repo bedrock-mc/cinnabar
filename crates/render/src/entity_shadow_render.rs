@@ -56,6 +56,7 @@ pub struct EntityShadowRenderPlugin;
 
 impl Plugin for EntityShadowRenderPlugin {
     fn build(&self, app: &mut App) {
+        crate::pipeline_warmup::register::<EntityShadowGpu>(app);
         load_internal_asset!(
             app,
             SHADER,

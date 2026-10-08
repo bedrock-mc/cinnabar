@@ -16,13 +16,41 @@ fn push_toast(
     title: &str,
     message: &str,
 ) {
+    push_toast_with(player_runtime, runtime, fifo_sequence, title, message, 0);
+}
+
+fn push_toast_at(
+    player_runtime: &mut player_state::PlayerState,
+    runtime: &mut UiRuntime,
+    fifo_sequence: u64,
+    title: &str,
+    local_millis: u64,
+) {
+    push_toast_with(
+        player_runtime,
+        runtime,
+        fifo_sequence,
+        title,
+        "",
+        local_millis,
+    );
+}
+
+fn push_toast_with(
+    player_runtime: &mut player_state::PlayerState,
+    runtime: &mut UiRuntime,
+    fifo_sequence: u64,
+    title: &str,
+    message: &str,
+    local_millis: u64,
+) {
     runtime
         .apply(
             player_runtime,
             SequencedUiEvent {
                 session_id: 1,
                 fifo_sequence,
-                local_millis: 0,
+                local_millis,
                 server_tick: None,
                 event: UiEvent::Hud(HudEvent::Toast {
                     title: Arc::from(title),
@@ -100,6 +128,58 @@ fn server_toast_slides_down_from_the_top_holds_then_yields_to_the_next() {
     );
     assert!(text(presentation.toast_draw_nodes(), "Second").is_some());
     assert!(text(presentation.toast_draw_nodes(), "Welcome").is_none());
+}
+
+// A join request toast stands past the toast duration, gives way to a server toast and returns,
+// and only it opens anything when pressed.
+#[test]
+fn join_request_toast_stands_around_server_toasts_and_takes_presses() {
+    let mut player_runtime = player_state::PlayerState::new(1);
+    let Some(mut presentation) = super::engine_hud_tests::engine_presentation() else {
+        eprintln!(
+            "skipping join_request_toast_stands_around_server_toasts_and_takes_presses: fixture unavailable; requires installed local carriers (make assets)"
+        );
+        return;
+    };
+    let mut runtime = UiRuntime::new(1);
+    let title = crate::menu::join_requests::title("Alex");
+    let hint = crate::menu::join_requests::respond_hint("N");
+    runtime.stand_toast(ui::StandingToast {
+        id: 7,
+        title: Arc::from(title.as_str()),
+        message: Arc::from(hint.as_str()),
+        press: ui::ToastPress::JoinRequests,
+        since_millis: 0,
+        until_millis: 30_000,
+    });
+    let top_middle = ui::UiPoint::new(640.0, 4.0).unwrap();
+    let elsewhere = ui::UiPoint::new(640.0, 400.0).unwrap();
+    build(&player_runtime, &mut presentation, &runtime, 1_000);
+    assert!(text(presentation.toast_draw_nodes(), &title).is_some());
+    assert!(text(presentation.toast_draw_nodes(), &hint).is_some());
+    assert_eq!(
+        presentation.toast_press_at(top_middle),
+        Some(ui::ToastPress::JoinRequests)
+    );
+    assert_eq!(presentation.toast_press_at(elsewhere), None);
+    push_toast_at(&mut player_runtime, &mut runtime, 1, "Welcome", 1_000);
+    build(&player_runtime, &mut presentation, &runtime, 2_000);
+    assert!(text(presentation.toast_draw_nodes(), "Welcome").is_some());
+    assert_eq!(presentation.toast_press_at(top_middle), None);
+    build(&player_runtime, &mut presentation, &runtime, 6_000);
+    assert!(text(presentation.toast_draw_nodes(), &title).is_some());
+    let frame = super::super::forms::pack_harness::menu_nodes(&presentation);
+    assert!(super::super::forms::pack_harness::drawn_texts(frame).contains(&title));
+    assert_eq!(
+        presentation.toast_press_at(top_middle),
+        Some(ui::ToastPress::JoinRequests)
+    );
+    runtime.retire_standing_toast(6_000);
+    build(&player_runtime, &mut presentation, &runtime, 6_000 + 400);
+    let frame = super::super::forms::pack_harness::menu_nodes(&presentation);
+    let drawn = super::super::forms::pack_harness::drawn_texts(frame);
+    assert!(!drawn.contains(&title), "{drawn:?}");
+    assert_eq!(presentation.toast_press_at(top_middle), None);
 }
 
 /// Local-only: writes `toast_screen.png` when `CINNABAR_FORM_SNAPSHOT_DIR` is set.

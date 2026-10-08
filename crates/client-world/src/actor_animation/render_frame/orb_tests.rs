@@ -120,14 +120,14 @@ fn installed_xp_colour_uses_current_actor_age_when_world_animation_budget_is_exh
     for alpha in [0.25, 0.75] {
         let mut expected_ops = MAX_MOLANG_OPS_PER_RENDER_FRAME;
         let expected = visible
-            .render_layers(&actor, alpha, [0.0; 2], [0.0; 3], &mut expected_ops)
+            .render_layers(&actor, alpha, [0.0; 2], [0.0; 3], &mut expected_ops, false)
             .unwrap();
         let mut actual_ops = MAX_MOLANG_OPS_PER_RENDER_FRAME;
         let actual = starved
-            .render_layers(&actor, alpha, [0.0; 2], [0.0; 3], &mut actual_ops)
+            .render_layers(&actor, alpha, [0.0; 2], [0.0; 3], &mut actual_ops, false)
             .unwrap();
         assert_eq!(
-            actual[0].overlay, expected[0].overlay,
+            actual.render[0].overlay, expected.render[0].overlay,
             "rendered XP colour must use live actor age while the world budget holds its pose"
         );
     }

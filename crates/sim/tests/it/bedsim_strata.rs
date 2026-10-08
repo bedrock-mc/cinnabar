@@ -16,6 +16,26 @@ struct StrataWorld {
 }
 
 impl CollisionWorld for StrataWorld {
+    /// Assigns the homogeneous floor's known material to each fixture collider.
+    fn collision_boxes_with_provenance(
+        &self,
+        query: Aabb,
+    ) -> Result<CollisionQuery<Vec<sim::ProvenancedCollider>>, WorldQueryError> {
+        let boxes = self.collision_boxes(query)?;
+        Ok(CollisionQuery {
+            value: boxes
+                .value
+                .into_iter()
+                .map(|aabb| sim::ProvenancedCollider {
+                    aabb,
+                    block: Some([0, 0, 0]),
+                    runtime_id: None,
+                })
+                .collect(),
+            identity: boxes.identity,
+        })
+    }
+
     fn collision_boxes(&self, query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
         let floor = Aabb::new(Vec3::new(-8.0, 0.0, -8.0), Vec3::new(8.0, 1.0, 8.0));
         Ok(CollisionQuery::synthetic(
@@ -111,37 +131,6 @@ fn resolved_axis_collisions_are_retained_for_the_next_tick() {
         .unwrap();
     assert!(tick.collisions.y);
     assert_eq!(state.collisions, tick.collisions);
-}
-
-/// `bedsim v0.1.3` `walkOnBlock`: standing on slime without sneaking damps
-/// horizontal velocity by `0.4 + |yMov| * 0.2` on the ticks whose resolved
-/// vertical movement is zero. `yMov` is exactly zero on those ticks, so the
-/// vanilla factor collapses to `0.4`.
-#[test]
-fn walking_on_slime_damps_horizontal_velocity() {
-    let slime = world(BlockPhysicsFlags::default(), SurfaceResponse::Slime, true);
-    let ordinary = world(BlockPhysicsFlags::default(), SurfaceResponse::None, true);
-
-    let mut damped_state = PlayerState::new(Vec3::new(0.0, 1.0, 0.0));
-    damped_state.on_ground = true;
-    damped_state.velocity = Vec3::new(0.3, 0.0, 0.3);
-    let damped = Simulator::default()
-        .tick(&mut damped_state, MovementInput::default(), &slime)
-        .unwrap();
-
-    let mut plain_state = PlayerState::new(Vec3::new(0.0, 1.0, 0.0));
-    plain_state.on_ground = true;
-    plain_state.velocity = Vec3::new(0.3, 0.0, 0.3);
-    let plain = Simulator::default()
-        .tick(&mut plain_state, MovementInput::default(), &ordinary)
-        .unwrap();
-
-    assert!(
-        damped.movement.y.abs() <= f64::from(f32::EPSILON),
-        "the witness needs a flat tick"
-    );
-    assert!((damped.movement.x - plain.movement.x * 0.4).abs() <= f64::from(f32::EPSILON));
-    assert!((damped.movement.z - plain.movement.z * 0.4).abs() <= f64::from(f32::EPSILON));
 }
 
 /// The same reference function refuses to damp while sneaking

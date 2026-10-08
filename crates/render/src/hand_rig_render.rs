@@ -155,6 +155,13 @@ impl HandRigScene {
         self.frame = None;
     }
 
+    /// Shares the skin and projection admission used by early first-person readiness.
+    pub fn accepts_skin_and_fov(skin: &SkinRgba8, fov_radians: f32) -> bool {
+        skin.len() == render_model::STANDARD_SKIN_BYTES
+            && fov_radians > 0.0
+            && fov_radians < std::f32::consts::PI
+    }
+
     /// Accepts a single-instance rig frame with a 64x64 RGBA skin and a finite positive FOV;
     /// anything else clears the scene so the fallback keeps rendering.
     pub fn publish(
@@ -169,8 +176,7 @@ impl HandRigScene {
             || rig.previous_bones.is_empty()
             || rig.previous_bones.len() != rig.current_bones.len()
             || rig.maximum_vertex_count == 0
-            || skin.len() != render_model::STANDARD_SKIN_BYTES
-            || !(fov_radians > 0.0 && fov_radians < std::f32::consts::PI)
+            || !Self::accepts_skin_and_fov(&skin, fov_radians)
             || revision == 0
         {
             self.clear();
@@ -213,6 +219,7 @@ impl HandRigScene {
 
 fn install(app: &mut App) {
     app.init_resource::<HandRigScene>();
+    crate::pipeline_warmup::register::<HandRigGpu>(app);
     crate::lighting::install(app);
     let Some(render_app) = app.get_sub_app(RenderApp) else {
         return;

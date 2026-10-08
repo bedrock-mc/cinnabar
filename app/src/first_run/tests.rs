@@ -30,6 +30,7 @@ pub(super) fn installed_layout(data: &Dir, executable: &str) -> InstallLayout {
         Platform::Linux,
         &InstallEnvironment {
             executable: PathBuf::from(executable),
+            user_root: None,
             home: Some(PathBuf::from("/home/dev")),
             local_app_data: None,
             xdg_config_home: Some(data.path().join("cfg")),
@@ -213,5 +214,19 @@ fn every_carrier_startup_requires_is_required_by_the_carrier_table() {
             .find(|carrier| carrier.output == name)
             .unwrap_or_else(|| panic!("{name} is missing from the carrier table"));
         assert!(carrier.required, "{name} must be a required carrier");
+    }
+}
+
+#[test]
+fn native_setup_title_uses_embedding_identity_with_default_fallback() {
+    assert_eq!(
+        super::setup_title(Some("Zeno Client")),
+        "Zeno Client first-time setup"
+    );
+    for title in [None, Some(""), Some("  ")] {
+        assert_eq!(
+            super::setup_title(title),
+            format!("{} first-time setup", launcher::PRODUCT_NAME)
+        );
     }
 }

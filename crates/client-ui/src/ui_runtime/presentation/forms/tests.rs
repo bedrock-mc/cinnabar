@@ -765,14 +765,21 @@ fn oreui_texts(view: &crate::menu::MenuView) -> Vec<String> {
     let metrics = super::super::TextMetrics::for_viewport([1600, 900], dpi, None);
     let (mut nodes, mut next) = (Vec::new(), 1);
     presentation
-        .append_oreui_screen(view, &mut nodes, &mut next, metrics, [1600.0, 900.0], None)
+        .append_oreui_screen(
+            view,
+            &mut nodes,
+            &mut next,
+            metrics,
+            [1600.0, 900.0],
+            None,
+            &|_| None,
+        )
         .unwrap()
         .expect("an OreUI screen");
     super::pack_harness::drawn_texts(&nodes)
 }
 
-// The owner's world type labels show on the create form, the edit screen, the worlds list
-// and the no-Docker dialog's built-in option.
+// Generator labels survive every world view; the Docker prompt offers the alternate backend.
 #[test]
 fn world_types_carry_the_owner_labels_everywhere_they_show() {
     use crate::local_worlds::{
@@ -790,6 +797,7 @@ fn world_types_carry_the_owner_labels_everywhere_they_show() {
         game_mode: GameMode::Creative,
         generator: Generator::Flat,
         difficulty: Difficulty::Easy,
+        allow_cheats: false,
         backend: Backend::Dragonfly,
         seed: 1,
         created_unix: 1,
@@ -851,14 +859,14 @@ fn world_types_carry_the_owner_labels_everywhere_they_show() {
             error: None,
             setup: Some(setup),
             backend_unavailable_reason: Some(UnavailableReason::DockerMissing),
+            max_players: None,
         },
     ));
     menu.update(Input::BeginCreate);
-    let dialog = oreui_texts(&base(&menu));
-    assert!(
-        has(&dialog, &format!("Create {FLAT_WORLD_LABEL} world")),
-        "no-Docker dialog: {dialog:?}"
-    );
+    menu.update(Input::SetBackend(Backend::Bds));
+    let form = oreui_texts(&base(&menu));
+    assert!(has(&form, "BDS is unavailable"), "no-Docker form: {form:?}");
+    assert_eq!(menu.create_form().backend, Backend::Dragonfly);
 }
 
 #[test]
@@ -893,7 +901,7 @@ fn review_failed_menu_modal_does_not_expose_underlying_actions() {
         )
         .unwrap();
     assert!(!presentation.menu_hit_targets.is_empty());
-    view.dialog = Some(MenuDialog::Exit);
+    view.dialog = Some(MenuDialog::SettingsResetBindings(false));
     presentation.set_menu_view(Some(view));
     presentation
         .build(

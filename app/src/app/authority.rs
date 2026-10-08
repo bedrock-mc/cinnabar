@@ -17,6 +17,7 @@ pub(crate) fn configure_client_frame_schedule(app: &mut App) {
             ClientFrameSet::ActorPreparation,
             ClientFrameSet::UiPreparation,
             ClientFrameSet::NetworkSend,
+            ClientFrameSet::ActorFinalization,
             ClientFrameSet::ActorPublication,
             ClientFrameSet::UiPublication,
         )

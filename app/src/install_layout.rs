@@ -32,6 +32,7 @@ pub(crate) fn checkout() -> InstallLayout {
         host_platform(),
         &InstallEnvironment {
             executable: root.join("target/debug/bedrock-client"),
+            user_root: None,
             home: None,
             local_app_data: None,
             xdg_config_home: None,
@@ -65,6 +66,7 @@ fn scratch_at(platform: Platform, base: &std::path::Path) -> InstallLayout {
         platform,
         &InstallEnvironment {
             executable: base.join(executable),
+            user_root: None,
             home: Some(base.to_owned()),
             local_app_data: Some(base.join("data")),
             xdg_config_home: Some(base.join("config")),

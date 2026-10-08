@@ -3,11 +3,15 @@
 pub mod auth;
 pub mod disconnect;
 pub mod inbox;
+pub mod invite;
+pub mod join_requests;
 pub mod profile;
 pub mod profile_achievements;
+pub mod server_list;
 pub mod settings_options;
 pub mod settings_storage;
 pub mod settings_support;
+pub mod sign_in;
 pub mod view;
 pub mod worlds_tab;
 
@@ -15,10 +19,10 @@ pub use profile::{
     ProfileTab, profile_banner_index, profile_count_display, profile_minutes_display,
 };
 pub use view::{
-    ButtonArt, CatalogFile, CatalogFriend, EXPERIENCE_ADDRESS_PREFIX, InboxItem, JoinKind,
-    JoinProgress, JoinStage, LiveEventCard, LocalWorldCard, MenuCaret, MenuFeeds, MenuFriendCard,
-    MenuGameCard, MenuHome, MenuProfile, MenuRealmCard, MenuServerCard, MenuView, PingInfo,
-    SavedServer, ServerDetails, ServerTrustPrompt, pingable,
+    ButtonArt, CatalogFile, CatalogFriend, EXPERIENCE_ADDRESS_PREFIX, FRIEND_ADDRESS_PREFIX,
+    InboxItem, JoinKind, JoinProgress, JoinStage, LiveEventCard, LocalWorldCard, MenuCaret,
+    MenuFeeds, MenuFriendCard, MenuGameCard, MenuHome, MenuProfile, MenuRealmCard, MenuServerCard,
+    MenuView, PingInfo, SavedServer, ServerDetails, ServerTrustPrompt, pingable,
 };
 pub use worlds_tab::{LocalWorldAction, civil_date, file_size};
 
@@ -29,6 +33,7 @@ pub enum MenuScreen {
     Social,
     Servers,
     Profile,
+    DressingRoom,
     Settings,
     AddServer,
     Pause,
@@ -38,6 +43,8 @@ pub enum MenuScreen {
     Friends,
     /// The Marketplace; its content is owned by [`crate::store`].
     Store,
+    /// Vanilla's invite screen over the pause screen, while the world is hosted for friends.
+    Invite,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -68,6 +75,7 @@ pub enum MenuField {
     /// The local-world create or edit screen's name field.
     WorldName,
     WorldSeed,
+    SkinName,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -81,11 +89,13 @@ pub enum MenuAction {
     ConfirmExit,
     DismissDialog,
     SelectServerTab(MenuServerTab),
+    ServerList(server_list::ServerListAction),
     SelectProfileTab(ProfileTab),
     RefreshProfile,
     RefreshCatalog,
     StartSignIn,
     CancelSignIn,
+    OpenSignInLink,
     PlayAddServer,
     PlaySaved(usize),
     PlayFeatured(usize),
@@ -97,10 +107,12 @@ pub enum MenuAction {
     AddName,
     AddAddress,
     AddPort,
+    EditSkinName,
     AddSave,
     AddSaveConnect,
     AddBack,
     SettingsScale(i8),
+    SettingsScalePicker,
     SettingsFullscreen(bool),
     SettingsStorage(settings_storage::StorageAction),
     SettingsSupport(settings_support::SupportAction),
@@ -141,8 +153,13 @@ pub enum MenuAction {
     /// A press on a Marketplace screen.
     Store(crate::store::StoreAction),
     GlobalResources(crate::global_resources::Action),
+    DressingRoom(crate::dressing_room::Action),
     /// Answers the join's server trust prompt: "Trust and Join" (true) or "Don't Trust".
     ServerTrust(bool),
+    /// A press on the pause screen's invite button or the invite screen.
+    Invite(invite::Action),
+    /// Answers the oldest Discord join request: Accept (true) or Decline.
+    JoinRequest(bool),
 }
 
 impl MenuAction {
@@ -152,6 +169,7 @@ impl MenuAction {
             Self::AddName => Some(MenuField::Name),
             Self::AddAddress => Some(MenuField::Address),
             Self::AddPort => Some(MenuField::Port),
+            Self::EditSkinName => Some(MenuField::SkinName),
             Self::LocalWorld(action) => action.field(),
             _ => None,
         }
@@ -168,7 +186,11 @@ pub fn menu_reference(screen: MenuScreen) -> Option<&'static str> {
         MenuScreen::AddServer => "add_external_server.add_external_server_screen_new",
         MenuScreen::Settings => SETTINGS_SCREEN,
         MenuScreen::Store => crate::store::SDL_SCREEN,
-        MenuScreen::Profile | MenuScreen::Inbox | MenuScreen::Friends => return None,
+        MenuScreen::Invite => invite::SCREEN,
+        MenuScreen::Profile
+        | MenuScreen::DressingRoom
+        | MenuScreen::Inbox
+        | MenuScreen::Friends => return None,
     })
 }
 

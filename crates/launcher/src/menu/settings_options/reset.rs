@@ -36,12 +36,15 @@ impl SettingsGroup {
                     | "screen_animations"
                     | "panorama_speed"
                     | "interface_opacity"
+                    | super::SHOW_EXACT_SERVER_PING
+                    | super::OREUI_DARK_MODE
                     | "field_of_view"
                     | "show_auto_save_icon"
                     | "classic_box_selection"
                     | "ingame_player_names"
                     | "view_bobbing"
                     | "animations"
+                    | "discord_presence"
                     | "camera_shake"
                     | "transparent_leaves"
                     | "bubble_particles"

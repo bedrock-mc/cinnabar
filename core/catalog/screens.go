@@ -11,7 +11,6 @@ import (
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
 	"github.com/sandertv/gophertunnel/minecraft/service"
 	"github.com/sandertv/gophertunnel/minecraft/service/gatherings"
-	"github.com/sandertv/gophertunnel/minecraft/service/layout"
 )
 
 // FeaturedServer is a featured server with the details the play screen's
@@ -19,6 +18,7 @@ import (
 // a caller that caches the artwork.
 type FeaturedServer struct {
 	Name         string   `json:"name"`
+	Group        string   `json:"group"`
 	PlayerCount  *int64   `json:"player_count,omitempty"`
 	Address      string   `json:"address"`
 	Caption      string   `json:"caption"`
@@ -69,27 +69,6 @@ type Profile struct {
 
 // Partial returns why lookups failed; their fields are left unset. Callers redact it before logging.
 func (p Profile) Partial() error { return p.partial }
-
-// FeaturedServers lists the Servers tab's experiences from the layout service; each is joined by
-// its id only when the player connects.
-func FeaturedServers(ctx context.Context, account *authcache.Account) ([]FeaturedServer, error) {
-	if account == nil {
-		return nil, errNoAccount
-	}
-	discovery, err := service.Default(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("discover services: %w", err)
-	}
-	env := new(layout.Environment)
-	if err := discovery.Environment(env); err != nil {
-		return nil, fmt.Errorf("resolve layout service: %w", err)
-	}
-	tab, err := env.New(account).Layout(ctx, layout.ServerTab)
-	if err != nil {
-		return nil, err
-	}
-	return featuredServers(tab), nil
-}
 
 // JoinGathering joins the experience now and returns its typed server assignment.
 func JoinGathering(ctx context.Context, account *authcache.Account, id uuid.UUID) (*gatherings.Address, error) {
@@ -198,51 +177,6 @@ func gatheringsClient(discovery *service.Discovery, tokens service.TokenSource) 
 		return nil, fmt.Errorf("resolve gatherings service: %w", err)
 	}
 	return env.New(tokens), nil
-}
-
-func featuredServers(tab *layout.Layout) []FeaturedServer {
-	experiences := tab.Experiences()
-	result := make([]FeaturedServer, 0, len(experiences))
-	for _, experience := range experiences {
-		server := FeaturedServer{
-			Name:        displayName(experience.Title.Value, experience.CreatorName, "Featured server"),
-			Address:     GatheringTargetPrefix + experience.ID.String(),
-			Caption:     displayName(experience.Listing.MOTD.Value, "Featured server"),
-			Description: strings.TrimSpace(experience.Description.Value),
-			Screenshots: []Image{},
-			Games:       []Game{},
-		}
-		// The listing image stands in for a missing logo, and the logo for a missing listing image.
-		logo, listing := experience.LogoImage.URL(), experience.Listing.DisplayImage.URL()
-		for _, url := range []string{logo, listing} {
-			if validArtworkURL(url) && server.Logo.URL == "" {
-				server.Logo.URL = url
-			}
-		}
-		for _, url := range []string{listing, logo} {
-			if validArtworkURL(url) && server.thumbnailURL == "" {
-				server.thumbnailURL = url
-			}
-		}
-		if background := experience.BackgroundImage.URL(); validArtworkURL(background) {
-			server.Background.URL = background
-		}
-		for _, activity := range experience.Activities {
-			game := Game{
-				Title:       strings.TrimSpace(activity.Title.Value),
-				Subtitle:    strings.TrimSpace(activity.Subtitle.Value),
-				Description: strings.TrimSpace(activity.Description.Value),
-			}
-			if image := activity.Image.URL(); validArtworkURL(image) {
-				game.Image.URL = image
-			}
-			if game.Title != "" || game.Subtitle != "" {
-				server.Games = append(server.Games, game)
-			}
-		}
-		result = append(result, server)
-	}
-	return result
 }
 
 // maxCachedArtwork bounds the artwork directory; the least recently used files go first.

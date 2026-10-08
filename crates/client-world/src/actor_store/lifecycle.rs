@@ -105,6 +105,7 @@ impl ActorStore {
             local_main_metadata: 0,
             local_main_stack_id: None,
             local_main_slot: 0,
+            local_bedrock_swing_ticks: crate::ACTOR_SWING_TICKS,
             local_java_swing_ticks: crate::ACTOR_SWING_TICKS,
             camera_rotation: [0.0; 2],
             camera_position: [0.0; 3],
@@ -156,6 +157,7 @@ impl ActorStore {
         self.local_main_metadata = feed.main_hand_metadata;
         self.local_main_stack_id = feed.main_hand_stack_id.filter(|id| *id > 0);
         self.local_main_slot = feed.main_hand_slot;
+        self.local_bedrock_swing_ticks = feed.bedrock_swing_ticks;
         self.local_java_swing_ticks = feed.java_swing_ticks;
         let pose = ActorPose {
             position: feed.position,
@@ -181,6 +183,7 @@ impl ActorStore {
             actor.status.movement_interpolation = Default::default();
             actor.velocity = feed.velocity;
             actor.status.native_velocity = feed.velocity;
+            actor.status.fall_fly_ticks = feed.fall_fly_ticks;
             actor.on_ground = Some(feed.on_ground);
             actor.movement_revision = revision;
             actor.teleported = feed.teleported;

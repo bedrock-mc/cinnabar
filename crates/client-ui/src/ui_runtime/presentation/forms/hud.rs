@@ -249,6 +249,8 @@ pub(super) struct HudScreens {
     crosshair: CachedScreen,
     /// The toast screen, drawn above everything in game.
     pub(super) toast: CachedScreen,
+    /// Where the showing toast takes presses and what they open, when it opens anything.
+    pub(super) toast_press: Option<(ui::ToastPress, ui::UiRect)>,
     /// The world-loading screen shown while joining.
     pub(super) loading: CachedScreen,
     /// This frame's fade clocks (title, action bar, item name).

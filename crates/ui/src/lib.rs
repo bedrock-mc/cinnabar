@@ -21,12 +21,13 @@ pub use chat::{
     MAX_CHAT_INPUT_BYTES, MAX_CHAT_MESSAGES, MAX_CHAT_RETAINED_BYTES, MAX_PENDING_CHAT_SENDS,
 };
 pub use geometry::{
-    DesktopGuiScale, DpiScale, GeometryError, SafeArea, UiPoint, UiRect, UiScale, gui_scale,
+    DesktopGuiScale, DesktopGuiScaleChoice, DpiScale, GeometryError, SafeArea, UiPoint, UiRect,
+    UiScale, gui_scale,
 };
 pub use hud::{
     BoundedStat, HudExperience, HudPlayerStatus, HudStore, HudViewNode, HudViewRole,
-    MAX_TOAST_RETAINED_BYTES, MAX_TOASTS, TOAST_DISPLAY_MILLIS, TOAST_SLIDE_IN_MILLIS,
-    TOAST_SLIDE_OUT_MILLIS, TimedText, TitleDurations, Toast,
+    MAX_TOAST_RETAINED_BYTES, MAX_TOASTS, ShownToast, StandingToast, TOAST_DISPLAY_MILLIS,
+    TOAST_SLIDE_IN_MILLIS, TOAST_SLIDE_OUT_MILLIS, TimedText, TitleDurations, Toast, ToastPress,
 };
 pub use icon::IconRef;
 pub use model::{
@@ -45,8 +46,8 @@ pub use scoreboard::{
 };
 pub use settings::{
     ANTI_ALIASING_SAMPLE_COUNTS, AntiAliasingSupport, CURRENT_SETTINGS_SCHEMA,
-    DEFAULT_ANTI_ALIASING_SAMPLES, DEFAULT_OUTLINE_SELECTION, GameplaySettings, RenderMode,
-    UserSettings, VideoSettings,
+    DEFAULT_ANTI_ALIASING_SAMPLES, DEFAULT_FOV_DEGREES, DEFAULT_OUTLINE_SELECTION, GameplaySettings,
+    MAX_FOV_DEGREES, MIN_FOV_DEGREES, RenderMode, UserSettings, VideoSettings,
 };
 pub use text::{
     BedrockColor, FONT_ASCENT_TEXELS, FONT_DESIGN_PIXEL_TEXELS, FONT_INK_TEXELS, FormattingPalette,

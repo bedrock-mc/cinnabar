@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -29,7 +30,7 @@ func TestParseSettingsValidates(t *testing.T) {
 	for _, bad := range [][]string{
 		{"-addr", "a"}, {"-dir", "d"},
 		{"-dir", "d", "-addr", "a", "-game-mode", "hardcore"},
-		{"-dir", "d", "-addr", "a", "-generator", "normal"}, // vanilla terrain is BDS-only
+		{"-dir", "d", "-addr", "a", "-generator", "unknown"},
 		{"-dir", "d", "-addr", "a", "-difficulty", "brutal"},
 	} {
 		if _, err := parseSettings(bad, io.Discard); err == nil {
@@ -177,5 +178,16 @@ func TestSetPausedSuspendsAndRestoresWorlds(t *testing.T) {
 	}
 	if !cycling.TimeCycle() || stopped.TimeCycle() {
 		t.Fatalf("resume changed time cycle: cycling=%v stopped=%v", cycling.TimeCycle(), stopped.TimeCycle())
+	}
+}
+
+// Saved worlds override the capture server's permissive command default explicitly.
+func TestManagedWorldCommandPermission(t *testing.T) {
+	for _, allowed := range []bool{false, true} {
+		args := []string{"-dir", t.TempDir(), "-addr", "127.0.0.1:19132", "-allow-cheats=" + strconv.FormatBool(allowed)}
+		cfg, err := parseSettings(args, io.Discard)
+		if err != nil || cfg.allowCheats != allowed {
+			t.Fatalf("command permission = %v, %v", cfg.allowCheats, err)
+		}
 	}
 }

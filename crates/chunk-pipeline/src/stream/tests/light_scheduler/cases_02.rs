@@ -214,7 +214,7 @@ fn ordinary_mesh_redirty_inherits_in_flight_urgency() {
 fn forced_remesh_inherits_queued_publication_urgency() {
     let mut stream = lit_stream(0);
     let key = SubChunkKey::new(0, 0, 0, 0);
-    stream.mesh_changes.push_back(WorldMeshChange::Upsert {
+    stream.mesh_changes.push(WorldMeshChange::Upsert {
         output_permit: None,
         key,
         mesh: ChunkMesh::default(),

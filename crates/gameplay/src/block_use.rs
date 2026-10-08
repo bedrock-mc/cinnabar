@@ -264,9 +264,12 @@ pub struct BlockUseRuntime {
     last_attempt_tick: Option<u64>,
     /// Tick whose block interaction consumes the item-use press.
     interacted_tick: Option<u64>,
+    /// The latest press was resolved as a block interaction.
+    press_interacted: bool,
     position_authority: Option<(u64, u64)>,
     pub intention: BuildIntention,
     selected_item: Option<(u8, i32, i32)>,
+    rejected_tick: Option<u64>,
 }
 
 /// One held-use repeat's timing inputs.
@@ -294,6 +297,22 @@ impl RepeatClock {
             survival: game_mode != Some(protocol::PlayerGameMode::Creative),
         }
     }
+
+    /// Times a build action from the tick-end state it observes.
+    pub fn for_state(
+        now_millis: u64,
+        state: &crate::movement::UnsentSampleView,
+        game_mode: Option<protocol::PlayerGameMode>,
+    ) -> Self {
+        let speed = state
+            .displacement
+            .map(|axis| axis * sim::TICKS_PER_SECOND as f32)
+            .into_iter()
+            .map(|axis| axis * axis)
+            .sum::<f32>()
+            .sqrt();
+        Self::for_game_mode(now_millis, state.sneaking, speed, game_mode)
+    }
 }
 
 impl BlockUseRuntime {
@@ -302,7 +321,7 @@ impl BlockUseRuntime {
         self.intention.last_success_destination()
     }
 
-    /// A slot or item-type change stops the old placement line without inventing a press.
+    /// A slot or item-type change revokes a refused attempt while preserving the held action.
     pub fn selection_changed(&mut self, selection: &crate::mining::FrozenMiningSelection) -> bool {
         let identity = (
             selection.slot,
@@ -313,17 +332,21 @@ impl BlockUseRuntime {
             .selected_item
             .is_some_and(|previous| previous != identity);
         self.selected_item = Some(identity);
-        self.stop_repress |= changed && self.latched_press;
+        if changed {
+            self.rejected_tick = None;
+        }
         changed
     }
 
     /// Cancels pending presses without dropping the repeat schedule or a stop destination.
     pub fn clear_press(&mut self) {
+        self.rejected_tick = None;
         self.latched_press = false;
         self.stop_repress = false;
     }
 
     pub fn clear(&mut self) {
+        self.rejected_tick = None;
         self.stopping = false;
         self.stop_repress = false;
         self.latched_press = false;
@@ -374,6 +397,7 @@ impl BlockUseRuntime {
         if let Some(previous) = self.position_authority
             && previous != authority
         {
+            self.rejected_tick = None;
             if previous.0 == authority.0 {
                 self.latched_press = false;
             } else {
@@ -411,6 +435,21 @@ impl BlockUseRuntime {
         self.interacted_tick == Some(tick)
     }
 
+    /// A press block use has latched but not yet resolved; item use waits for it.
+    pub const fn press_pending(&self) -> bool {
+        self.latched_press
+    }
+
+    /// Whether the latest press was resolved as a block interaction, consuming it.
+    pub const fn press_interacted(&self) -> bool {
+        self.press_interacted
+    }
+
+    /// A new press edge starts without the previous press's resolution.
+    pub fn forget_press_resolution(&mut self) {
+        self.press_interacted = false;
+    }
+
     /// Records an attempt. As in vanilla, a failed repeat keeps its schedule, so it
     /// retries (and resends its transaction) on the next tick.
     pub fn record(
@@ -421,10 +460,14 @@ impl BlockUseRuntime {
         local_use: LocalUse,
         clock: RepeatClock,
     ) {
+        self.rejected_tick = None;
         self.latched_press = false;
         self.last_attempt_tick = Some(tick);
-        if trigger == ItemUseTrigger::PlayerInput && local_use == LocalUse::Interact {
-            self.interacted_tick = Some(tick);
+        if trigger == ItemUseTrigger::PlayerInput {
+            self.press_interacted = local_use == LocalUse::Interact;
+            if self.press_interacted {
+                self.interacted_tick = Some(tick);
+            }
         }
         if local_use == LocalUse::Nothing {
             return;
@@ -585,6 +628,7 @@ mod tests;
 
 mod respawn_anchor;
 
+mod admission;
 mod intention;
 pub use intention::{BuildIntention, PlacementTarget, orientation_sensitive};
 

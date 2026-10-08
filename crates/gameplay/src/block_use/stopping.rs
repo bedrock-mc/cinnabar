@@ -8,6 +8,7 @@ impl BlockUseRuntime {
 
     /// Retains the stop destination and any new press until transport accepts the stop.
     pub fn stop_packets(&mut self, local_runtime_id: u64, repress: bool) -> Vec<protocol::Packet> {
+        self.rejected_tick = None;
         self.stop_repress |= repress;
         let Some(destination) = self.last_success_destination() else {
             return Vec::new();
@@ -132,7 +133,7 @@ mod tests {
     }
 
     #[test]
-    fn selection_stop_preserves_a_press_latched_between_physics_ticks() {
+    fn selection_changes_preserve_a_press_latched_between_physics_ticks() {
         let mut runtime = BlockUseRuntime::default();
         let stack = protocol::NetworkItemStack::empty();
         let item =
@@ -150,8 +151,7 @@ mod tests {
         assert!(runtime.observe_use(true, true, false, true));
         selection.slot = 1;
         assert!(runtime.selection_changed(&selection));
-        runtime.stop_packets(42, false);
-        assert!(runtime.admit_stop(true));
+        assert!(!runtime.stopping());
         let clock = RepeatClock {
             now_millis: 1_000,
             sneaking: false,

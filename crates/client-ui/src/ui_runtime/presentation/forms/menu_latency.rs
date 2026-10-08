@@ -167,7 +167,7 @@ fn home_to_play_from_a_fresh_launch() {
     });
     bench.view.pressed = None;
     let after: Vec<_> = (0..5).map(|_| bench.frame()).collect();
-    // Settings after the start screen idled (still drawing frames) long enough to prepare it.
+    // Settings after the start screen idled while drawing frames.
     bench.after(to(MenuScreen::Home));
     let idled = Instant::now();
     while idled.elapsed() < Duration::from_secs(3) {
@@ -181,7 +181,7 @@ fn home_to_play_from_a_fresh_launch() {
         eprintln!("menu-latency hover play button   {}", list(&hover));
         eprintln!("menu-latency press (first play)  {}", ms(&press));
         eprintln!("menu-latency play frames         {}", list(&after));
-        eprintln!("menu-latency settings (prepared) {}", ms(&settings));
+        eprintln!("menu-latency settings (after idle) {}", ms(&settings));
     }
     let idle = *home.last().unwrap();
     let worst = hover.iter().chain(&after).chain([&press]).max().unwrap();
@@ -191,7 +191,7 @@ fn home_to_play_from_a_fresh_launch() {
     );
     assert!(
         settings < Duration::from_millis(16),
-        "prepared settings: {settings:?}"
+        "settings after home idle: {settings:?}"
     );
 }
 
@@ -324,7 +324,7 @@ fn menu_input_frames_cost_about_an_idle_frame() {
         eprintln!("skipping: UI carrier absent");
         return;
     };
-    // Opened on the frame after the first start screen frame, mid-preparation.
+    // Opened on the frame after the first start screen frame.
     let early_settings = Bench::new().map_or(Duration::ZERO, |mut early| {
         early.frame();
         early.after(to(MenuScreen::Settings))
@@ -409,37 +409,36 @@ fn menu_input_frames_cost_about_an_idle_frame() {
     );
 }
 
-/// An early Settings request keeps drawing while preparation completes, then publishes controls.
+/// Settings publishes navigation and edits on its first frame after either cold entry or Home.
 #[test]
-fn early_settings_preparation_keeps_frames_responsive() {
-    let Some(mut bench) = Bench::new() else {
-        return;
-    };
-    bench.frame();
-    let early = bench.after(to(MenuScreen::Settings));
-    assert!(
-        early < Duration::from_millis(100),
-        "opening frame blocked: {early:?}"
-    );
-    let started = Instant::now();
-    while !bench
-        .hits()
-        .iter()
-        .any(|action| matches!(action, MenuAction::SettingsSection(_)))
-    {
+fn settings_first_frame_publishes_navigation_and_edit_controls() {
+    for home_frames in 0..=1 {
+        let Some(mut bench) = Bench::new() else {
+            eprintln!(
+                "skipping settings_first_frame_publishes_navigation_and_edit_controls: missing installed UI carrier (make assets)"
+            );
+            return;
+        };
+        for _ in 0..home_frames {
+            bench.frame();
+        }
+        bench.view.screen = MenuScreen::Settings;
+        bench.view.settings_section = super::menu_screens::SETTINGS_SECTIONS
+            .iter()
+            .find_map(|(name, index)| (*name == "accessibility_forced_index").then_some(*index))
+            .expect("registered accessibility section");
+        bench.frame();
+        let actions = bench.hits();
+        assert!(actions.contains(&MenuAction::AddBack));
+        assert!(actions.contains(&MenuAction::SettingsSection(bench.view.settings_section)));
         assert!(
-            started.elapsed() < Duration::from_secs(5),
-            "Settings never became ready"
-        );
-        assert!(
-            bench.hits().is_empty(),
-            "pending screen retained active hit targets"
-        );
-        std::thread::sleep(Duration::from_millis(16));
-        let frame = bench.frame();
-        assert!(
-            frame < Duration::from_millis(100),
-            "preparation blocked frame: {frame:?}"
+            actions
+                .iter()
+                .any(|action| matches!(action, MenuAction::SettingsOption(..))),
+            "first frame must allow editing a setting: {actions:?}"
         );
     }
 }
+
+#[path = "menu_work_probe.rs"]
+mod work_probe;

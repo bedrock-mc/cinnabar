@@ -79,12 +79,26 @@ func (store *Store) read(id string) (World, error) {
 	if err != nil {
 		return World{}, fmt.Errorf("localworld: read world metadata: %w", err)
 	}
-	var world World
-	if err := json.Unmarshal(raw, &world); err != nil || world.ID != id {
+	var metadata struct {
+		World
+		Cheats *bool `json:"allow_cheats"`
+	}
+	if err := json.Unmarshal(raw, &metadata); err != nil || metadata.ID != id {
 		return World{}, fmt.Errorf("localworld: corrupt world metadata for %s", id)
 	}
+	world := metadata.World
 	if world.Backend == "" {
 		world.Backend = BackendDragonfly // worlds saved before backends existed
+	}
+	if world.Generator == "" {
+		world.Generator = GeneratorFlat // the original local server created flat worlds
+		if world.Backend == BackendBDS {
+			world.Generator = GeneratorNormal
+		}
+	}
+	world.AllowCheats = world.Backend == BackendDragonfly
+	if metadata.Cheats != nil {
+		world.AllowCheats = *metadata.Cheats
 	}
 	return world, nil
 }
@@ -155,7 +169,7 @@ func (store *Store) Create(spec Spec) (World, error) {
 	}
 	world := World{
 		ID: hex.EncodeToString(id), Name: spec.Name, GameMode: spec.GameMode, Generator: spec.Generator,
-		Difficulty: spec.Difficulty, Backend: spec.Backend, Seed: seed, CreatedUnix: now, LastPlayedUnix: now,
+		Difficulty: spec.Difficulty, AllowCheats: spec.AllowCheats, Backend: spec.Backend, Seed: seed, CreatedUnix: now, LastPlayedUnix: now,
 	}
 	if err := store.write(world); err != nil {
 		return World{}, err

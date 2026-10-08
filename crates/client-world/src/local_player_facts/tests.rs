@@ -177,3 +177,28 @@ fn local_immobility_preserves_same_session_and_retires_on_session_replacement() 
     assert!(facts.apply_local_movement_flags(5, immobile(true)));
     assert!(facts.is_immobile());
 }
+
+#[test]
+fn gravity_defaults_on_and_follows_only_explicit_flag_words() {
+    let mut facts = LocalPlayerFacts::new(4);
+    assert!(facts.has_gravity() && !facts.uses_uniform_air_drag());
+    assert_eq!(facts.air_drag_modifier(), None);
+    assert!(facts.apply_local_movement_flags(4, immobile(false)));
+    assert!(
+        facts.has_gravity(),
+        "an update without the gravity bit retains it"
+    );
+    let cleared = crate::MovementFlagUpdate {
+        has_gravity: Some(false),
+        uniform_air_drag: Some(true),
+        ..Default::default()
+    };
+    assert!(facts.apply_local_movement_flags(4, cleared));
+    assert!(!facts.has_gravity() && facts.uses_uniform_air_drag());
+    assert!(!facts.apply_air_drag_modifier(3, 2.0));
+    assert!(facts.apply_air_drag_modifier(4, 2.0));
+    assert_eq!(facts.air_drag_modifier(), Some(2.0));
+    facts.begin_session(5);
+    assert!(facts.has_gravity() && !facts.uses_uniform_air_drag());
+    assert_eq!(facts.air_drag_modifier(), None);
+}

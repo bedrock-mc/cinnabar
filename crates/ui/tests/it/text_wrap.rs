@@ -67,6 +67,56 @@ fn label(chop: WordChop) -> TextWrap {
     }
 }
 
+#[test]
+fn letter_spacing_moves_the_pen_and_changes_wrap_without_changing_ink() {
+    let spacing = TextWrap {
+        letter_spacing_64: 64,
+        ..TextWrap::default()
+    };
+    let spaced = layout("ab", 6, spacing).unwrap();
+    assert_eq!(spaced.size_64()[0], 6 * 64);
+    assert_eq!(spaced.glyphs()[1].bounds_64[0], 3 * 64);
+    assert_eq!(
+        spaced.glyphs()[1].bounds_64[2] - spaced.glyphs()[1].bounds_64[0],
+        2 * 64
+    );
+    assert_eq!(layout("ab", 4, spacing).unwrap().line_count(), 2);
+    assert_eq!(
+        layout("ab", 4, TextWrap::default()).unwrap().line_count(),
+        1
+    );
+}
+
+#[test]
+fn native_pair_advance_shapes_before_letter_spacing_and_restarts_at_line_boundaries() {
+    let font = font()
+        .with_kerning(std::collections::BTreeMap::from([(('a', 'b'), -64)]))
+        .unwrap();
+    let request = |text, width: u32| TextLayoutRequest {
+        text,
+        style: TextStyle::default(),
+        width_64: width * 64,
+        line_height_64: 8 * 64,
+        baseline_64: 0,
+        scale: UiScale::default(),
+        font: &font,
+        wrap: TextWrap {
+            letter_spacing_64: 64,
+            ..TextWrap::default()
+        },
+    };
+    let mut cache = TextLayoutCache::new(8, 65536);
+    let pair = cache.layout(request("ab", 5)).unwrap();
+    assert_eq!(pair.line_count(), 1);
+    assert_eq!(pair.size_64()[0], 5 * 64);
+    assert_eq!(pair.glyphs()[1].bounds_64[0], 2 * 64);
+    assert!(Arc::ptr_eq(&pair, &cache.layout(request("ab", 5)).unwrap()));
+    let broken = cache.layout(request("a\nb", 5)).unwrap();
+    assert!(broken.glyphs().iter().all(|glyph| glyph.bounds_64[0] == 0));
+    let wrapped = cache.layout(request("abab", 5)).unwrap();
+    assert_eq!(lines(&wrapped), ["ab", "ab"]);
+}
+
 // An overlong word chops so its prefix plus `-` fits, then draws the `-`.
 #[test]
 fn overlong_words_chop_with_a_hyphen() {
@@ -99,6 +149,37 @@ fn alignment_places_each_line() {
     let second = centred.glyphs().iter().find(|g| g.line == 1).unwrap();
     assert_eq!(first.bounds_64[0], 0);
     assert_eq!(second.bounds_64[0], 2 * 64);
+}
+
+// Alignment offsets truncate onto the pixel grid, each line on its own: `ab` and `abc` centred
+// in 9 sit at 2.5 and 1.5, which a 1-pixel grid truncates to 2 and 1 and a 2-pixel grid to 2
+// and 0. A 0.8-pixel grid (DPI 1.25) takes 2.5 to three steps, 2.4 (153.6/64, rounded).
+#[test]
+fn alignment_offsets_truncate_onto_the_pixel_grid() {
+    let starts = |grid: u32| {
+        let wrap = TextWrap {
+            align: TextLineAlign::Center,
+            align_grid_65536: grid,
+            ..TextWrap::default()
+        };
+        let centred = layout(
+            "ab
+abc", 9, wrap,
+        )
+        .unwrap();
+        [0, 1].map(|line| {
+            centred
+                .glyphs()
+                .iter()
+                .find(|g| g.line == line)
+                .unwrap()
+                .bounds_64[0]
+        })
+    };
+    assert_eq!(starts(0), [160, 96]);
+    assert_eq!(starts(65_536), [128, 64]);
+    assert_eq!(starts(2 * 65_536), [128, 0]);
+    assert_eq!(starts(52_429)[0], 154);
 }
 
 // `line_padding` adds to the pitch between lines, not after the last.

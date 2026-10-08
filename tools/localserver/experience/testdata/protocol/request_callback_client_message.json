@@ -33,7 +33,34 @@
       {
         "type": "choice",
         "value": 2
+      },
+      {
+        "type": "list",
+        "value": [
+          {
+            "type": "record",
+            "value": [
+              {
+                "type": "text",
+                "value": "minecraft:iron_ingot"
+              },
+              {
+                "type": "integer",
+                "value": 64
+              }
+            ]
+          },
+          {
+            "type": "record",
+            "value": []
+          }
+        ]
+      },
+      {
+        "type": "list",
+        "value": []
       }
-    ]
+    ],
+    "focus": null
   }
 }

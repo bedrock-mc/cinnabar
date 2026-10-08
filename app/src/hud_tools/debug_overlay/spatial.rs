@@ -3,63 +3,94 @@
 use bevy::prelude::Vec3;
 use chunk_pipeline::WorldStream;
 
-use super::{DebugContext, DebugLines, LocalPlayerFrameCarrier, LocalViewPose};
+use super::{Column, DebugContext, Lines, LocalPlayerFrameCarrier, LocalViewPose};
+use std::fmt::Write;
 
 /// Diagnostic inspection reach, independent of the server's interaction reach.
 pub(super) const TARGET_RANGE_BLOCKS: f64 = 20.0;
 const MAX_BLOCK_STATES: usize = 10;
 
+/// Retains parsed target properties until the canonical block state changes.
+#[derive(Default)]
+pub(super) struct BlockStates {
+    source: String,
+    rows: Vec<String>,
+    spare: Vec<String>,
+}
+
+impl BlockStates {
+    /// Parses a new state once and formats cached rows into the sampled column.
+    pub(super) fn append(&mut self, lines: &mut Column<'_>, states: &str) {
+        if self.source != states {
+            self.source.clear();
+            self.source.push_str(states);
+            let mut rows = Column::new(std::mem::take(&mut self.rows), &mut self.spare);
+            append_block_states(&mut rows, states);
+            self.rows = rows.finish();
+        }
+        for row in &self.rows {
+            lines.push(row);
+        }
+    }
+}
+
 impl DebugContext<'_, '_> {
-    pub(super) fn append_position(&self, lines: &mut DebugLines, stream: &WorldStream) {
+    pub(super) fn append_position(
+        &self,
+        lines: &mut Lines<'_>,
+        stream: &WorldStream,
+        block_states: &mut BlockStates,
+    ) {
+        #[cfg(feature = "tracy")]
+        let _zone = bevy::log::info_span!("ui.f3.spatial").entered();
         // CameraPose can be several blocks away in third person. XYZ is always
         // the subject's feet, and facing/raycast use its authoritative eye.
         let origins = player_origins(&self.frame, self.view.as_deref());
         let Some((feet, eye, direction)) = origins else {
-            lines
-                .left
-                .push("XYZ: unavailable (waiting for player)".to_owned());
+            lines.left.push("XYZ: unavailable (waiting for player)");
             return;
         };
-        lines.left.push(String::new());
+        lines.left.push("");
         append_coordinates(&mut lines.left, feet, direction);
         let (block, sky) = stream.light_level_at(eye.to_array());
-        lines.left.push(format!(
+        lines.left.push(format_args!(
             "Client Light: {} ({sky} sky, {block} block)",
             block.max(sky)
         ));
-        let biome = stream.camera_biome_id(eye.to_array()).map(|id| {
-            stream
-                .biome_definitions_snapshot()
-                .iter()
-                .find(|definition| {
-                    definition
-                        .biome_id
-                        .is_some_and(|biome| u32::from(biome) == id)
-                })
-                .map_or_else(
-                    || format!("id {id}"),
-                    |definition| definition.name.to_string(),
-                )
+        lines.left.push_with(|line| {
+            line.push_str("Biome: ");
+            let Some(id) = stream.camera_biome_id(eye.to_array()) else {
+                line.push_str("unavailable");
+                return Ok(());
+            };
+            let definitions = stream.biome_definitions_snapshot();
+            if let Some(definition) = definitions.iter().find(|definition| {
+                definition
+                    .biome_id
+                    .is_some_and(|biome| u32::from(biome) == id)
+            }) {
+                line.push_str(&definition.name);
+                Ok(())
+            } else {
+                write!(line, "id {id}")
+            }
         });
-        lines.left.push(format!(
-            "Biome: {}",
-            biome.as_deref().unwrap_or("unavailable")
-        ));
-        let block_distance = self.append_target(lines, stream, eye, direction);
+        let block_distance = self.append_target(lines, stream, eye, direction, block_states);
         super::entities::append_target_entity(lines, stream, eye, direction, block_distance);
     }
 
     fn append_target(
         &self,
-        lines: &mut DebugLines,
+        lines: &mut Lines<'_>,
         stream: &WorldStream,
         eye: Vec3,
         direction: Vec3,
+        block_states: &mut BlockStates,
     ) -> Option<f64> {
         let Some(collisions) = self.collisions.as_deref() else {
             lines
                 .right
-                .push("Targeted Block: unavailable (no registry)".to_owned());
+                .push("Targeted Block: unavailable (no registry)");
             return None;
         };
         let world = sim::PaletteWorld::new(
@@ -70,16 +101,12 @@ impl DebugContext<'_, '_> {
         let vector = |value: Vec3| {
             sim::Vec3::new(f64::from(value.x), f64::from(value.y), f64::from(value.z))
         };
-        let hit = world.block_interaction_ray_current(
-            vector(eye),
-            vector(direction),
-            TARGET_RANGE_BLOCKS,
-        );
-        lines.right.push(String::new());
+        let hit = world.camera_visibility_ray(vector(eye), vector(direction), TARGET_RANGE_BLOCKS);
+        lines.right.push("");
         let hit = match hit {
             Ok(Some(hit)) => hit,
             Ok(None) => {
-                lines.right.push(format!(
+                lines.right.push(format_args!(
                     "Targeted Block: none within {TARGET_RANGE_BLOCKS:.0} blocks"
                 ));
                 return None;
@@ -87,24 +114,25 @@ impl DebugContext<'_, '_> {
             Err(_) => {
                 lines
                     .right
-                    .push("Targeted Block: unavailable (unloaded terrain)".to_owned());
+                    .push("Targeted Block: unavailable (unloaded terrain)");
                 return None;
             }
         };
         let [x, y, z] = hit.block_pos;
-        lines.right.push(format!("Targeted Block: {x}, {y}, {z}"));
+        lines
+            .right
+            .push(format_args!("Targeted Block: {x}, {y}, {z}"));
         lines.right.push(
             collisions
                 .block_identifier(stream.network_id_mode(), hit.runtime_id)
-                .unwrap_or("unregistered block")
-                .to_owned(),
+                .unwrap_or("unregistered block"),
         );
-        lines.right.push(format!(
+        lines.right.push(format_args!(
             "Runtime ID: {} ({:?})",
             hit.runtime_id,
             stream.network_id_mode()
         ));
-        lines.right.push(format!(
+        lines.right.push(format_args!(
             "Face: {} | distance: {:.2} blocks",
             face_name(hit.face),
             hit.distance
@@ -112,13 +140,13 @@ impl DebugContext<'_, '_> {
         if let Some(states) =
             collisions.block_canonical_state(stream.network_id_mode(), hit.runtime_id)
         {
-            append_block_states(&mut lines.right, states);
+            block_states.append(&mut lines.right, states);
         }
         Some(hit.distance)
     }
 }
 
-pub(super) fn append_coordinates(lines: &mut Vec<String>, position: Vec3, direction: Vec3) {
+pub(super) fn append_coordinates(lines: &mut Column<'_>, position: Vec3, direction: Vec3) {
     let [x, y, z] = position.to_array();
     let block = [x, y, z].map(|value| value.floor() as i32);
     // Shared meshing query width is the sub-chunk edge, rather than another literal.
@@ -129,26 +157,31 @@ pub(super) fn append_coordinates(lines: &mut Vec<String>, position: Vec3, direct
     let pitch = -direction.y.clamp(-1.0, 1.0).asin().to_degrees() + 0.0;
     let (heading, axis) = facing(direction);
     lines.extend([
-        format!("XYZ: {x:.3} / {y:.5} / {z:.3}"),
-        format!("Block: {} {} {}", block[0], block[1], block[2]),
-        format!(
+        format_args!("XYZ: {x:.3} / {y:.5} / {z:.3}"),
+        format_args!("Block: {} {} {}", block[0], block[1], block[2]),
+        format_args!(
             "Chunk: {} {} {} in {} {} {}",
             within[0], within[1], within[2], chunk[0], chunk[1], chunk[2]
         ),
-        format!("Facing: {heading} ({axis}) ({yaw:.1} / {pitch:.1})"),
+        format_args!("Facing: {heading} ({axis}) ({yaw:.1} / {pitch:.1})"),
     ]);
 }
 
-pub(super) fn append_block_states(lines: &mut Vec<String>, states: &str) {
+pub(super) fn append_block_states(lines: &mut Column<'_>, states: &str) {
     if let Ok(states) = serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(states) {
         for (name, value) in states.iter().take(MAX_BLOCK_STATES) {
-            let value = value
-                .as_str()
-                .map_or_else(|| value.to_string(), str::to_owned);
-            lines.push(format!("{name}: {value}"));
+            lines.push_with(|line| {
+                write!(line, "{name}: ")?;
+                if let Some(text) = value.as_str() {
+                    line.push_str(text);
+                    Ok(())
+                } else {
+                    write!(line, "{value}")
+                }
+            });
         }
         if states.len() > MAX_BLOCK_STATES {
-            lines.push(format!(
+            lines.push(format_args!(
                 "... {} more states",
                 states.len() - MAX_BLOCK_STATES
             ));

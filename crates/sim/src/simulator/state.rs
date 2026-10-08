@@ -10,6 +10,9 @@ pub struct PlayerState {
     pub position: Vec3,
     pub velocity: Vec3,
     pub movement: Vec3,
+    /// Requested displacement before collision resolution, retained for controls.
+    #[serde(default)]
+    pub requested_movement: Vec3,
     pub on_ground: bool,
     pub jump_delay: u8,
     /// Vanilla swim-amount blend retained across ticks and replay. Both
@@ -27,6 +30,10 @@ pub struct PlayerState {
     /// field existed default to "no retained collision".
     #[serde(default)]
     pub collisions: AxisCollisions,
+    /// Previous tick's `[pitch, yaw]` in degrees. Glide steering reads the
+    /// rotation interpolated from it; absence reads as the current rotation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub previous_rotation: Option<[f32; 2]>,
 }
 
 impl PlayerState {
@@ -37,6 +44,7 @@ impl PlayerState {
             position,
             velocity: Vec3::ZERO,
             movement: Vec3::ZERO,
+            requested_movement: Vec3::ZERO,
             on_ground: false,
             jump_delay: 0,
             swim_amount: 0.0,
@@ -46,6 +54,7 @@ impl PlayerState {
                 y: false,
                 z: false,
             },
+            previous_rotation: None,
         }
     }
 }
@@ -129,6 +138,7 @@ pub(super) fn validate(state: &PlayerState) -> Result<(), SimulationError> {
         ("position", state.position),
         ("velocity", state.velocity),
         ("movement", state.movement),
+        ("requested_movement", state.requested_movement),
     ] {
         if !value.is_finite() {
             return Err(SimulationError::NonFiniteState { field });

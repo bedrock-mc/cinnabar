@@ -53,6 +53,27 @@ fn the_pause_store_button_names_the_server_store() {
 }
 
 #[test]
+fn dressing_room_buttons_open_the_skin_library_and_preserve_profile_routes() {
+    for screen in [MenuScreen::Home, MenuScreen::Pause] {
+        let shown = view(screen);
+        assert_eq!(
+            action_for(
+                &shown,
+                &region(HitKind::Button, Some("button.to_profile_screen"))
+            ),
+            Some(MenuAction::Navigate(MenuScreen::DressingRoom))
+        );
+        assert_eq!(
+            action_for(
+                &shown,
+                &region(HitKind::Button, Some("button.manage_account"))
+            ),
+            Some(MenuAction::Navigate(MenuScreen::Profile))
+        );
+    }
+}
+
+#[test]
 fn the_version_reads_as_the_release_client_shows_it() {
     assert_eq!(version_label("1.26.50"), "v26.50");
     assert_eq!(version_label("26.60"), "v26.60");
@@ -95,10 +116,7 @@ fn menu_states_open_their_vanilla_screens() {
         uri: "https://x".into(),
         code: "ABC".into(),
     };
-    assert_eq!(
-        reference(&code),
-        Some("xbl_console_signin.xbl_console_signin")
-    );
+    assert_eq!(reference(&code), Some("start.start_screen"));
 }
 
 /// A local world's loading screen wins over the plain connecting screen and cancels the open.
@@ -190,6 +208,32 @@ fn pressed_buttons_map_to_menu_actions() {
 }
 
 #[test]
+fn the_pause_friends_drawer_invites_only_while_hosting() {
+    let press = |view: &MenuView| {
+        action_for(
+            view,
+            &region(HitKind::Button, Some("button.friends_drawer")),
+        )
+    };
+    let mut pause = view(MenuScreen::Pause);
+    assert_eq!(
+        press(&pause),
+        Some(MenuAction::Navigate(MenuScreen::Friends))
+    );
+    pause.hosting = true;
+    assert_eq!(
+        press(&pause),
+        Some(MenuAction::Invite(launcher::menu::invite::Action::Open))
+    );
+    let mut home = view(MenuScreen::Home);
+    home.hosting = true;
+    assert_eq!(
+        press(&home),
+        Some(MenuAction::Navigate(MenuScreen::Friends))
+    );
+}
+
+#[test]
 fn the_start_screen_marketplace_button_opens_the_store_and_its_presses_route_to_it() {
     let home = view(MenuScreen::Home);
     assert_eq!(
@@ -273,7 +317,7 @@ fn fullscreen_toggle_binds_and_changes_the_current_window_mode() {
 fn sliders_split_into_their_settings_values() {
     let mut view = crate::menu::MenuView::new(true, "Player".to_owned());
     view.gui_scale_choices = ui::DesktopGuiScale::for_window([1920, 1080])
-        .offsets()
+        .choices()
         .collect();
     let mut slider = region(HitKind::Slider, None);
     slider.control_name = Some("gui_scale".to_owned());

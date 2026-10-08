@@ -107,32 +107,10 @@ fn publish_local_mesh_work(
 /// while a later authoritative air correction removes that prediction.
 #[test]
 fn predicted_placement_publishes_an_urgent_mesh_before_server_acceptance() {
-    let mut stream = fixture();
     // Bootstrap the real mesh neighbourhood before input. A one-column fixture
     // still owes surrounding requested columns and must not bypass that gate.
     // No server event is admitted between prediction and its mesh publication.
-    let mut next_sequence = 2;
-    for x in -1..=1 {
-        for z in -1..=1 {
-            if x == 0 && z == 0 {
-                continue;
-            }
-            stream
-                .submit(
-                    next_sequence,
-                    WorldEvent::LevelChunk(LevelChunkEvent {
-                        dimension: 0,
-                        x,
-                        z,
-                        mode: LevelChunkMode::Inline { count: 1 },
-                        payload: column_payload(),
-                    }),
-                )
-                .unwrap();
-            next_sequence += 1;
-        }
-    }
-    complete_pending_decode_jobs(&mut stream);
+    let (mut stream, next_sequence) = loaded_neighbourhood();
     let position: [i32; 3] = [3, 200, 3];
     let key = SubChunkKey::new(0, 0, position[1].div_euclid(16), 0);
     let camera_position = position.map(|axis| axis as f32);
@@ -245,4 +223,155 @@ fn a_prediction_survives_an_in_flight_batch_received_before_it() {
     server_update(&mut stream, 3, [5, -64, 5], 1);
     complete_pending_decode_jobs(&mut stream);
     assert_eq!(block(&stream, [5, -64, 5]), Some(1), "a later batch wins");
+}
+
+fn loaded_neighbourhood() -> (WorldStream, u64) {
+    let mut stream = fixture();
+    let mut next_sequence = 2;
+    for x in -1..=1 {
+        for z in -1..=1 {
+            if x == 0 && z == 0 {
+                continue;
+            }
+            stream
+                .submit(
+                    next_sequence,
+                    WorldEvent::LevelChunk(LevelChunkEvent {
+                        dimension: 0,
+                        x,
+                        z,
+                        mode: LevelChunkMode::Inline { count: 1 },
+                        payload: column_payload(),
+                    }),
+                )
+                .unwrap();
+            next_sequence += 1;
+        }
+    }
+    complete_pending_decode_jobs(&mut stream);
+    (stream, next_sequence)
+}
+
+fn poll_until_queued(
+    stream: &mut WorldStream,
+    camera_position: [f32; 3],
+    queued: impl Fn(&WorldMeshChange) -> bool,
+) {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !stream.mesh_changes.iter().any(&queued) {
+        assert!(Instant::now() < deadline, "the mesh change was not queued");
+        stream.poll(camera_position, usize::MAX);
+        std::thread::yield_now();
+    }
+}
+
+/// Drains the queue like the renderer (last write wins per key, each acknowledged) and
+/// returns the generation and upsert flag `key` ends with.
+fn present_queued_changes(stream: &mut WorldStream, key: SubChunkKey) -> Option<(u64, bool)> {
+    let mut last = None;
+    while let Some(change) = stream.pop_mesh_change() {
+        let (changed, generation, dirty_since, is_upsert) = match &change {
+            WorldMeshChange::Upsert {
+                key,
+                generation,
+                dirty_since,
+                ..
+            } => (*key, *generation, *dirty_since, true),
+            WorldMeshChange::Remove {
+                key,
+                generation,
+                dirty_since,
+                ..
+            } => (*key, *generation, *dirty_since, false),
+        };
+        stream.acknowledge_mesh_upload(changed, generation, dirty_since, Instant::now());
+        if changed == key {
+            last = Some((generation, is_upsert));
+        }
+    }
+    last
+}
+
+/// Leaves a known-air removal queued, then places a block there and returns its generation.
+fn place_behind_queued_removal(invalidate_tints: bool) -> (WorldStream, SubChunkKey, u64) {
+    let (mut stream, next_sequence) = loaded_neighbourhood();
+    let position: [i32; 3] = [3, 200, 3];
+    let key = SubChunkKey::new(0, 0, position[1].div_euclid(16), 0);
+    let camera_position = position.map(|axis| axis as f32);
+    assert!(stream.known_air.contains(&key));
+    poll_until_queued(
+        &mut stream,
+        camera_position,
+        |change| matches!(change, WorldMeshChange::Remove { key: removed, .. } if *removed == key),
+    );
+
+    server_update(&mut stream, next_sequence, position, 1);
+    complete_pending_decode_jobs(&mut stream);
+    if invalidate_tints {
+        stream.invalidate_resident_biome_tints(Instant::now());
+    }
+    let generation = stream.revisions.dirty(key).unwrap().revision;
+    poll_until_queued(&mut stream, camera_position, |change| {
+        matches!(change, WorldMeshChange::Upsert { key: changed, generation: g, .. }
+            if *changed == key && *g == generation)
+    });
+    let stages = stream.stats.phase2_stages;
+    assert_eq!(
+        stages.mesh_changes_queued - stages.mesh_changes_dequeued,
+        stream.mesh_changes.len() as u64,
+        "a superseded change leaves the queue accounting balanced"
+    );
+    (stream, key, generation)
+}
+
+/// An urgent remesh must not be overtaken by an older removal still queued for the key.
+#[test]
+fn urgent_upsert_is_not_overtaken_by_an_older_queued_removal() {
+    let (mut stream, key, generation) = place_behind_queued_removal(false);
+    assert_eq!(
+        present_queued_changes(&mut stream, key),
+        Some((generation, true))
+    );
+    assert!(stream.is_mesh_clean(key));
+}
+
+/// Biome tint invalidation keeps queued removals; they must still yield to the newer mesh.
+#[test]
+fn tint_invalidation_keeps_a_queued_removal_behind_the_newer_mesh() {
+    let (mut stream, key, generation) = place_behind_queued_removal(true);
+    assert_eq!(
+        present_queued_changes(&mut stream, key),
+        Some((generation, true))
+    );
+    assert!(stream.is_mesh_clean(key));
+}
+
+/// A newer urgent removal must not be overtaken by an older urgent mesh, leaving a ghost block.
+#[test]
+fn urgent_removal_is_not_overtaken_by_an_older_queued_upsert() {
+    let (mut stream, next_sequence) = loaded_neighbourhood();
+    let position: [i32; 3] = [3, 200, 3];
+    let key = SubChunkKey::new(0, 0, position[1].div_euclid(16), 0);
+    let camera_position = position.map(|axis| axis as f32);
+    assert!(stream.predict_block(position, 0, 1));
+    let predicted = stream.revisions.dirty(key).unwrap().revision;
+    poll_until_queued(&mut stream, camera_position, |change| {
+        matches!(change, WorldMeshChange::Upsert { key: changed, generation, .. }
+            if *changed == key && *generation == predicted)
+    });
+
+    let air = stream.air_block_id();
+    server_update(&mut stream, next_sequence, position, air);
+    complete_pending_decode_jobs(&mut stream);
+    let corrected = stream.revisions.dirty(key).unwrap().revision;
+    poll_until_queued(&mut stream, camera_position, |change| {
+        matches!(change, WorldMeshChange::Remove { key: removed, generation, .. }
+            if *removed == key && *generation == corrected)
+    });
+
+    assert_eq!(
+        present_queued_changes(&mut stream, key),
+        Some((corrected, false))
+    );
+    assert!(stream.is_mesh_clean(key));
 }

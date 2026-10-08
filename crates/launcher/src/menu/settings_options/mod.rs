@@ -22,12 +22,16 @@ pub use control_bindings::{
     EXTRA_GAMEPAD, EXTRA_KEYS, GAMEPAD_BINDINGS, GAMEPAD_OFFSET, gamepad_icon,
 };
 pub use definitions::{
-    ANIMATION_CHOICES, ANIMATIONS_OPTION, INVERT_CROSSHAIR_OPTION, SETTINGS_OPTIONS,
-    SettingDefinition, SettingKind, THIRD_PERSON_CROSSHAIR_OPTION,
+    ANIMATION_CHOICES, ANIMATIONS_OPTION, DISCORD_PRESENCE_OPTION, INVERT_CROSSHAIR_OPTION,
+    MOUSE_SENSITIVITY_OPTION, SETTINGS_OPTIONS, SettingDefinition, SettingKind,
+    THIRD_PERSON_CROSSHAIR_OPTION,
 };
 pub use emotes::EMOTE_SLOT_COUNT;
-pub use keybindings::{KEY_BINDINGS, key_name};
+pub use keybindings::{KEY_BINDINGS, OPEN_NOTIFICATION_KEY, key_name};
 pub use persistence::SETTINGS_FILE;
+
+pub const SHOW_EXACT_SERVER_PING: &str = "show_exact_server_ping";
+pub const OREUI_DARK_MODE: &str = "oreui_dark_mode";
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -39,9 +43,26 @@ pub struct SettingsOptions {
     language: Option<String>,
     /// None means the original custom catalog supplies first-run defaults.
     emote_slots: Option<[Option<String>; EMOTE_SLOT_COUNT]>,
+    server_list: super::server_list::ServerListPreferences,
 }
 
 impl SettingsOptions {
+    pub fn server_list(&self) -> &super::server_list::ServerListPreferences {
+        &self.server_list
+    }
+
+    pub fn apply_server_list(&mut self, action: super::server_list::ServerListAction) -> bool {
+        self.server_list.apply(action)
+    }
+
+    pub fn exact_server_ping(&self) -> bool {
+        self.value(SHOW_EXACT_SERVER_PING) != 0
+    }
+
+    pub fn oreui_dark_mode(&self) -> bool {
+        self.value(OREUI_DARK_MODE) != 0
+    }
+
     /// Returns the saved value, or the registry default for an untouched option.
     pub fn get(&self, index: usize) -> i32 {
         let Some(definition) = SETTINGS_OPTIONS.get(index) else {

@@ -20,7 +20,8 @@ use crate::local_player::{
 use crate::melee::produce_melee;
 use crate::movement::advance_local_physics;
 use crate::runtime::network::{
-    prepare_actor_render_frame, publish_actor_render_frame, receive_network_events,
+    advance_actor_frame, prepare_actor_render_frame, publish_actor_render_frame,
+    receive_network_events,
 };
 use crate::runtime::phase3_evidence::emit_phase3_evidence;
 use crate::runtime::publication::{
@@ -101,6 +102,7 @@ fn production_client_systems_are_members_of_the_behavioral_sets() {
         ClientFrameSet::ActorPreparation,
         ClientFrameSet::UiPreparation,
         ClientFrameSet::NetworkSend,
+        ClientFrameSet::ActorFinalization,
         ClientFrameSet::ActorPublication,
         ClientFrameSet::UiPublication,
     ];
@@ -174,9 +176,15 @@ fn production_client_systems_are_members_of_the_behavioral_sets() {
     );
     assert_system_in_stage(
         graph,
+        advance_actor_frame,
+        "advance_actor_frame",
+        ClientFrameSet::ActorPreparation,
+    );
+    assert_system_in_stage(
+        graph,
         prepare_actor_render_frame,
         "prepare_actor_render_frame",
-        ClientFrameSet::ActorPreparation,
+        ClientFrameSet::ActorFinalization,
     );
     assert_system_in_stage(
         graph,
@@ -221,33 +229,27 @@ fn production_client_systems_are_members_of_the_behavioral_sets() {
     assert!(
         schedule_precedes(
             graph,
-            system_node(graph, produce_survival_mining, "produce_survival_mining"),
             system_node(graph, produce_block_use, "produce_block_use"),
+            system_node(graph, advance_local_physics, "advance_local_physics"),
+        ) && schedule_precedes(
+            graph,
+            system_node(graph, produce_block_use, "produce_block_use"),
+            system_node(graph, produce_item_use, "produce_item_use"),
         ),
-        "mining arbitration must precede provisional block-use production",
+        "build actions must resolve before the tick's movement and before air use",
     );
     assert!(
         schedule_precedes(
             graph,
-            system_node(graph, produce_block_use, "produce_block_use"),
-            system_node(graph, produce_item_use, "produce_item_use"),
-        ) && schedule_precedes(
-            graph,
             system_node(graph, produce_item_use, "produce_item_use"),
             system_node(graph, send_player_auth_inputs, "send_player_auth_inputs"),
         ),
-        "block and air use must attach before the candidate packet is sent",
+        "air use must attach before the candidate packet is sent",
     );
     assert_system_in_stage(
         graph,
         produce_survival_mining,
         "produce_survival_mining",
-        ClientFrameSet::NetworkSend,
-    );
-    assert_system_in_stage(
-        graph,
-        produce_block_use,
-        "produce_block_use",
         ClientFrameSet::NetworkSend,
     );
     assert_system_in_stage(

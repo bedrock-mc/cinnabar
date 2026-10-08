@@ -32,6 +32,8 @@ use gameplay::movement::TELEPORT_ACK_ADMITTED_TICK_BUDGET;
 use render::ChunkUploadBudget;
 use sim::{CollisionIdSpace, CollisionRegistryIdentity, WorldCollisionIdentity};
 
+#[path = "teleport_ack_wiring_tests/camera_policy.rs"]
+mod camera_policy;
 #[path = "teleport_ack_wiring_tests/correction_presentation.rs"]
 mod correction_presentation;
 #[path = "teleport_ack_wiring_tests/respawn.rs"]
@@ -64,7 +66,7 @@ fn completed_sample(tick: u64, position: [f32; 3]) -> super::PhysicsMovementSamp
         camera_orientation: [0.0, 0.0, 1.0],
         jumping: false,
         sneaking: false,
-        sneak_button: false,
+        input: Default::default(),
         sprinting: false,
         input_mode: PlayerInputMode::Mouse,
         grounded_before_tick: false,

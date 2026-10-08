@@ -115,6 +115,24 @@ impl EntityShadowGpu {
     }
 }
 
+impl crate::pipeline_warmup::PrewarmPipelines for EntityShadowGpu {
+    /// Uses the view's format and sample count, as `prepare_shadow_views` does.
+    fn prewarm(
+        &mut self,
+        cache: &PipelineCache,
+        view: crate::pipeline_warmup::WarmView,
+        ids: &mut crate::pipeline_warmup::WarmupIds,
+    ) -> Result<(), bevy::prelude::BevyError> {
+        let format = if view.hdr {
+            ViewTarget::TEXTURE_FORMAT_HDR
+        } else {
+            TextureFormat::bevy_default()
+        };
+        ids.push(self.pipeline(cache, format.remove_srgb_suffix(), view.msaa.samples()));
+        Ok(())
+    }
+}
+
 /// Allocates storage only when the caster capacity grows.
 fn instance_buffer(device: &RenderDevice, capacity: u64) -> Buffer {
     device.create_buffer(&BufferDescriptor {

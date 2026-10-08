@@ -1,6 +1,6 @@
 use sim::{
-    Aabb, CollisionQuery, CollisionWorld, MovementEffects, MovementInput, PlayerState, Simulator,
-    Vec3, WorldQueryError,
+    Aabb, CollisionQuery, CollisionWorld, MovementEffects, MovementInput, MovementMode,
+    PlayerState, Simulator, Vec3, VerticalPhysics, WorldQueryError,
 };
 
 struct EmptyWorld;
@@ -70,10 +70,10 @@ fn signed_levitation_matrix_reverses_and_extremes_remain_finite() {
             )
             .unwrap();
 
-        let target = 0.05_f32 * (amplifier as f32 + 1.0);
+        let lift = amplifier.wrapping_add(1) as f32 * 0.01_f32;
         assert_eq!(
             state.velocity.y,
-            f64::from(-0.4_f32 + (target - -0.4_f32) * 0.2_f32)
+            f64::from((-0.4_f32 * 0.8_f32 + lift) * 0.98_f32)
         );
         assert!(state.velocity.is_finite());
     }
@@ -110,7 +110,7 @@ fn extreme_positive_jump_boost_fails_transactionally_at_the_sweep_bound() {
 
 #[test]
 fn levitation_replaces_gravity_and_scales_from_amplifier_zero() {
-    for (amplifier, target) in [(0, 0.05), (3, 0.20)] {
+    for (amplifier, lift) in [(0, 0.01), (3, 0.04)] {
         let mut state = PlayerState::new(Vec3::new(0.0, 4.0, 0.0));
         state.velocity.y = -0.4;
         Simulator::default()
@@ -128,7 +128,7 @@ fn levitation_replaces_gravity_and_scales_from_amplifier_zero() {
             )
             .unwrap();
 
-        assert_close(state.velocity.y, -0.4 + (target - -0.4) * 0.2);
+        assert_close(state.velocity.y, (-0.4 * 0.8 + lift) * 0.98);
     }
 }
 
@@ -192,4 +192,137 @@ fn neutral_effect_snapshot_preserves_existing_motion_exactly() {
 
     assert_eq!(neutral_tick, default_tick);
     assert_eq!(explicit_neutral, default_state);
+}
+
+fn airborne_tick(
+    vertical_physics: VerticalPhysics,
+    effects: MovementEffects,
+    mode: MovementMode,
+) -> f64 {
+    let mut state = PlayerState::new(Vec3::new(0.0, 8.0, 0.0));
+    state.velocity.y = -0.25;
+    Simulator::default()
+        .tick(
+            &mut state,
+            MovementInput {
+                vertical_physics,
+                effects,
+                mode,
+                ..MovementInput::default()
+            },
+            &EmptyWorld,
+        )
+        .unwrap();
+    state.velocity.y
+}
+
+fn physics(has_gravity: bool, uniform_air_drag: bool, modifier: Option<f64>) -> VerticalPhysics {
+    VerticalPhysics {
+        has_gravity,
+        uniform_air_drag,
+        air_drag_modifier: modifier,
+    }
+}
+
+#[test]
+fn server_cleared_gravity_skips_gravity_and_vertical_drag() {
+    let walking = MovementMode::Walking;
+    let none = MovementEffects::default();
+    assert_eq!(
+        airborne_tick(physics(false, false, None), none, walking),
+        -0.25
+    );
+    let levitation = MovementEffects {
+        levitation: Some(0),
+        ..MovementEffects::default()
+    };
+    assert_eq!(
+        airborne_tick(physics(false, false, None), levitation, walking),
+        f64::from(-0.25_f32 * 0.8_f32 + 0.01_f32)
+    );
+}
+
+#[test]
+fn uniform_air_drag_replaces_gravity_drag_with_its_own_retention() {
+    let none = MovementEffects::default();
+    let walking = MovementMode::Walking;
+    assert_eq!(
+        airborne_tick(physics(true, true, None), none, walking),
+        f64::from((-0.25_f32 - 0.08_f32) * 0.91_f32)
+    );
+    // Uniform drag needs no gravity flag; the actor then only drags.
+    assert_eq!(
+        airborne_tick(physics(false, true, None), none, walking),
+        f64::from(-0.25_f32 * 0.91_f32)
+    );
+}
+
+#[test]
+fn air_drag_modifier_scales_and_clamps_the_vertical_drag_fraction() {
+    let none = MovementEffects::default();
+    let walking = MovementMode::Walking;
+    let fall = -0.25_f32 - 0.08_f32;
+    for (modifier, retention) in [
+        (2.0_f32, 1.0 - (1.0 - 0.98_f32) * 2.0),
+        (0.5, 1.0 - (1.0 - 0.98_f32) * 0.5),
+        (-3.0, 1.0),
+        (60.0, 0.0),
+    ] {
+        assert_eq!(
+            airborne_tick(
+                physics(true, false, Some(f64::from(modifier))),
+                none,
+                walking
+            ),
+            f64::from(fall * retention),
+            "modifier {modifier}"
+        );
+    }
+    assert_eq!(
+        airborne_tick(physics(true, false, Some(1.0)), none, walking),
+        f64::from(fall * 0.98_f32)
+    );
+}
+
+#[test]
+fn air_drag_modifier_scales_flight_vertical_drag() {
+    let none = MovementEffects::default();
+    let friction = f32::from_bits(0x3ecc_cccc);
+    assert_eq!(
+        airborne_tick(physics(true, false, None), none, MovementMode::Flying),
+        f64::from(-0.25_f32 * (1.0 - friction))
+    );
+    assert_eq!(
+        airborne_tick(physics(true, false, Some(2.0)), none, MovementMode::Flying),
+        f64::from(-0.25_f32 * (1.0 - friction * 2.0))
+    );
+    assert_eq!(
+        airborne_tick(physics(true, false, Some(3.0)), none, MovementMode::Flying),
+        0.0
+    );
+}
+
+#[test]
+fn vertical_physics_defaults_to_the_vanilla_player_and_is_omitted_when_default() {
+    assert!(VerticalPhysics::default().has_gravity);
+    let encoded = serde_json::to_string(&MovementInput::default()).unwrap();
+    assert!(!encoded.contains("vertical_physics"), "{encoded}");
+    let decoded: MovementInput =
+        serde_json::from_str(r#"{"strafe":0,"forward":0,"yaw_degrees":0,"jumping":false,"jump_pressed":false,"sprinting":false,"sneaking":false,"vertical_physics":{"air_drag_modifier":2.0}}"#)
+            .unwrap();
+    assert_eq!(decoded.vertical_physics, physics(true, false, Some(2.0)));
+}
+
+#[test]
+fn non_finite_air_drag_modifier_is_rejected() {
+    let mut state = PlayerState::new(Vec3::new(0.0, 8.0, 0.0));
+    let result = Simulator::default().tick(
+        &mut state,
+        MovementInput {
+            vertical_physics: physics(true, false, Some(f64::NAN)),
+            ..MovementInput::default()
+        },
+        &EmptyWorld,
+    );
+    assert!(result.is_err());
 }

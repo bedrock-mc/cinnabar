@@ -165,6 +165,19 @@ impl UiNode {
         self
     }
 
+    /// Repositions a node while preserving its visual, clipping and input metadata.
+    pub fn with_bounds(mut self, bounds: UiRect) -> Self {
+        self.bounds = bounds;
+        self
+    }
+
+    /// Reparents a retained visual into a new tree without copying its artwork.
+    pub fn with_identity(mut self, id: UiNodeId, parent: Option<UiNodeId>) -> Self {
+        self.id = id;
+        self.parent = parent;
+        self
+    }
+
     /// Draws local font/geometry coordinates through a world transform instead of HUD layout.
     /// Projection is per node; safe-area offsets, GUI scale and parent clips do not apply.
     pub fn with_world_projection(mut self, projection: UiWorldProjection) -> Self {

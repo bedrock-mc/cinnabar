@@ -2,7 +2,7 @@ pub(in crate::chunk) mod commands;
 pub(crate) mod layouts;
 pub(in crate::chunk) mod liquid;
 pub(in crate::chunk) mod model;
-pub(in crate::chunk) mod opaque;
+pub(crate) mod opaque;
 pub(in crate::chunk) mod solid;
 
 use crate::chunk::*;

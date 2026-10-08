@@ -1,4 +1,9 @@
+use super::pipeline::{
+    UiPipeline, UiPipelineKey, UiPipelineSpecializer, ui_bind_group_layout, ui_pipeline_descriptor,
+};
+use super::resources::{init_ui_gpu, prepare_ui_resources};
 use super::*;
+use render_model::UiScissor;
 
 #[test]
 fn world_projection_specializes_native_test_and_write_modes_at_each_msaa_sample_count() {

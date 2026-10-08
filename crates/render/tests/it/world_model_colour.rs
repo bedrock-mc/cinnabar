@@ -11,6 +11,7 @@ const TEXELS: [[u8; 4]; 4] = [
     [64, 96, 32, 255],
 ];
 
+/// Decodes the reference fog colour before the production shader restores gamma RGB.
 fn linear(value: f32) -> f32 {
     if value <= 0.04045 {
         value / 12.92
@@ -21,7 +22,7 @@ fn linear(value: f32) -> f32 {
 
 #[test]
 fn snow_and_other_world_models_use_native_terrain_colour_at_day_and_night() {
-    let Some(gpu) = Gpu::for_fixture("world_model_colour") else {
+    let Some(gpu) = Gpu::for_fixture("world-model native colour") else {
         return;
     };
     let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
@@ -60,11 +61,6 @@ fn snow_and_other_world_models_use_native_terrain_colour_at_day_and_night() {
     )
     .replace("@group(1) @binding(0)", "@group(0) @binding(20)");
     let view = gpu.buffer(&[0.0; 104], wgpu::BufferUsages::UNIFORM);
-    let records = gpu.buffer(&[0.0], wgpu::BufferUsages::STORAGE);
-    let tints = gpu.buffer(
-        &[0.0; 8 + assets::SEASONAL_FOLIAGE_COUNT * 4],
-        wgpu::BufferUsages::STORAGE,
-    );
     for (light, fog_amount, blend_frames, ao_face) in [
         ([1.0, 1.0, 1.0], 0.0, false, 1.0),
         ([0.13, 0.15, 0.25], 0.0, false, 1.0),
@@ -106,14 +102,6 @@ fn snow_and_other_world_models_use_native_terrain_colour_at_day_and_night() {
             wgpu::BindGroupEntry {
                 binding: 6,
                 resource: wgpu::BindingResource::Sampler(&sampler),
-            },
-            wgpu::BindGroupEntry {
-                binding: 7,
-                resource: records.as_entire_binding(),
-            },
-            wgpu::BindGroupEntry {
-                binding: 8,
-                resource: tints.as_entire_binding(),
             },
             wgpu::BindGroupEntry {
                 binding: 15,
@@ -191,6 +179,7 @@ struct ModelWitnessCase { light_texture: vec4<f32>, distance_frames: vec4<f32> }
     out.lighting = witness.light_texture.rgb;
     out.native_light_levels = vec2(0.0, 15.0);
     out.native_ao_face = witness.distance_frames.z;
+    out.tint_gamma = vec3(1.0);
     out.world_position = vec3(witness.distance_frames.x, 0.0, 0.0);
     out.two_sided = 1u;
     out.visible = 1u;

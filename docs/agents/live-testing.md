@@ -174,19 +174,29 @@ changing gameplay. `render_frame` is render-world time excluding drawable acquis
 GPU timing uses timestamp queries when the adapter supports them, read back
 asynchronously, so `gpu_*` stages describe a frame a few frames older than the
 window they appear in. `gpu_frame` spans the first to last timestamp only when the sampled graph covers the frame.
-On Metal, queries attach to existing owned render passes: stock Bevy passes and
-shared draw categories remain unmeasured, and `gpu_frame` stays absent. Empty
+On Metal, queries attach to existing owned render passes and the stock opaque pass:
+other stock Bevy passes and shared draw categories remain unmeasured, and `gpu_frame` stays absent. Empty
 compute marker passes do not produce usable timestamps on Apple GPUs. Pass categories
 sum elapsed latencies, including gaps and overlapping GPU work; they are not GPU
 active time and must not be added. Invalid timestamp pairs are skipped, so a
-category may cover only some of its passes. Check coverage against native traces.
+category may cover only some of its passes. Check coverage against native traces;
+`RUST_MCBE_GPU_QUERY_HEALTH=1` logs per-stage invalid-pair and readback counters once a second.
 Node stages
 are `gpu_shadows`, `gpu_opaque`, `gpu_transparent`, `gpu_ui`, `gpu_hand`,
 `gpu_post`, `gpu_tonemapping`, `gpu_fxaa` and `gpu_blit`. With
 `RUST_MCBE_STAGE_PROFILE=1` on adapters with in-pass timestamps (not Apple GPUs),
-draws add `gpu_terrain_opaque`, `gpu_terrain_transparent`, `gpu_actors`,
+draws add `gpu_terrain_solid`, `gpu_terrain_cutout`, `gpu_terrain_model`,
+`gpu_terrain_depth_liquid` (direct and CPU-planned indirect draws; GPU-cull terrain
+commands expose no in-pass spans), `gpu_terrain_transparent`, `gpu_actors`,
 `gpu_particles`, `gpu_sky`, `gpu_panorama` and `gpu_mod_primitives`. Personal-mod post passes
-add `gpu_mod_pass_0`–`gpu_mod_pass_7` by execution slot. F3 shows the latest GPU frame. Fast frames use fixed-size counters without formatting or
+add `gpu_mod_pass_0`–`gpu_mod_pass_7` by execution slot. F3 shows the latest GPU frame.
+
+`RUST_MCBE_GPU_CATEGORIES=1` splits the main opaque phase into category passes
+and disables in-pass spans to avoid double counting; separate late GPU-cull draws
+are not category-timed. `RUST_MCBE_OPAQUE_LAYERS=1` measures submitted alpha-surviving
+terrain coverage in a separate raster target. Both are diagnostic workloads;
+keep them out of ordinary performance captures. See the
+[opaque foliage fixture](../../tools/localserver/opaque-overdraw.md). Fast frames use fixed-size counters without formatting or
 file I/O; aggregate snapshots and full traces remain opt-in.
 
 After the startup visibility probe stops, ordinary world-publication logs keep

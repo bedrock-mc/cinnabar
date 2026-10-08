@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, fmt, mem::size_of, ops::Deref, sync::Arc};
 
-use assets::CompiledFontCatalog;
+use assets::{CompiledFontCatalog, FontRendering};
 use sha2::{Digest, Sha256};
 
 use crate::UiScale;
@@ -9,6 +9,7 @@ mod invisible;
 mod layout;
 mod palette;
 mod parse;
+mod single_line;
 
 pub use palette::FormattingPalette;
 
@@ -197,11 +198,16 @@ pub enum WordChop {
 #[derive(Clone, Copy, Debug, Default, Eq, Ord, PartialEq, PartialOrd)]
 pub struct TextWrap {
     pub align: TextLineAlign,
+    /// Additional pen advance after each character, in output 1/64 pixels.
+    pub letter_spacing_64: i32,
     /// Extra pitch between lines in output 1/64 pixels (not scaled again).
     pub line_padding_64: i32,
     pub chop: WordChop,
     /// Lines past this drop and the last kept one ends in `...`.
     pub max_lines: Option<u16>,
+    /// The grid, in 1/65536 output pixels, that alignment offsets truncate onto, as vanilla
+    /// snaps each line to the pixel grid; zero keeps them exact.
+    pub align_grid_65536: u32,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -213,6 +219,8 @@ pub struct GlyphQuad {
     pub bounds_64: [i32; 4],
     pub line: u16,
     pub style: TextStyle,
+    pub linear_sampling: bool,
+    pub rendering: FontRendering,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -225,9 +233,14 @@ pub struct TextLayout {
     size_64: [u32; 2],
     ellipsized: bool,
     linear_sampling: bool,
+    rendering: FontRendering,
 }
 
 impl TextLayout {
+    pub const fn rendering(&self) -> FontRendering {
+        self.rendering
+    }
+
     pub const fn linear_sampling(&self) -> bool {
         self.linear_sampling
     }
@@ -430,6 +443,12 @@ impl fmt::Display for TextError {
 
 impl std::error::Error for TextError {}
 
+#[derive(Clone, Eq, Ord, PartialEq, PartialOrd)]
+enum CacheKey {
+    Wrapped(TextLayoutKey),
+    SingleLine(TextLayoutKey, u32),
+}
+
 struct CacheEntry {
     layout: Arc<TextLayout>,
     retained_bytes: usize,
@@ -442,7 +461,7 @@ pub struct TextLayoutCache {
     retained_bytes: usize,
     next_id: u64,
     clock: u64,
-    entries: BTreeMap<TextLayoutKey, CacheEntry>,
+    entries: BTreeMap<CacheKey, CacheEntry>,
 }
 
 impl TextLayoutCache {
@@ -458,25 +477,9 @@ impl TextLayoutCache {
     }
 
     pub fn layout(&mut self, request: TextLayoutRequest<'_>) -> Result<Arc<TextLayout>, TextError> {
-        if request.width_64 == 0 {
-            return Err(TextError::ZeroWrapWidth);
-        }
-        if request.line_height_64 == 0 {
-            return Err(TextError::ZeroLineHeight);
-        }
-        if request.baseline_64 > request.line_height_64 {
-            return Err(TextError::BaselineOutsideLine {
-                baseline_64: request.baseline_64,
-                line_height_64: request.line_height_64,
-            });
-        }
-        if request.text.len() > crate::UiLimits::MAX_TEXT_BYTES {
-            return Err(TextError::TextBytesExceeded {
-                actual: request.text.len(),
-                limit: crate::UiLimits::MAX_TEXT_BYTES,
-            });
-        }
-        let key = layout_key(request);
+        validate_request(request)?;
+        let layout_key = layout_key(request);
+        let key = CacheKey::Wrapped(layout_key.clone());
         let now = self.advance_clock()?;
         if let Some(entry) = self.entries.get_mut(&key) {
             entry.last_used = now;
@@ -488,7 +491,22 @@ impl TextLayoutCache {
             .next_id
             .checked_add(1)
             .ok_or(TextError::CacheCounterOverflow)?;
-        let layout = Arc::new(build_layout(id, key.clone(), request)?);
+        let layout = Arc::new(build_layout(id, layout_key, request)?);
+        self.retain(key, layout, now)
+    }
+
+    /// Counts shaping attempts, including failed and uncached layouts.
+    pub const fn built_layout_count(&self) -> u64 {
+        self.next_id - 1
+    }
+
+    /// Both wrapping and ellipsis results share the same bounded retention budget.
+    fn retain(
+        &mut self,
+        key: CacheKey,
+        layout: Arc<TextLayout>,
+        now: u64,
+    ) -> Result<Arc<TextLayout>, TextError> {
         let retained_bytes = retained_layout_bytes(&layout)?;
         if self.entry_cap == 0 || retained_bytes > self.byte_cap {
             return Ok(layout);
@@ -562,6 +580,29 @@ impl TextLayoutCache {
     }
 }
 
+/// Rejects malformed requests before lookup or single-line normalization allocates.
+fn validate_request(request: TextLayoutRequest<'_>) -> Result<(), TextError> {
+    if request.width_64 == 0 {
+        return Err(TextError::ZeroWrapWidth);
+    }
+    if request.line_height_64 == 0 {
+        return Err(TextError::ZeroLineHeight);
+    }
+    if request.baseline_64 > request.line_height_64 {
+        return Err(TextError::BaselineOutsideLine {
+            baseline_64: request.baseline_64,
+            line_height_64: request.line_height_64,
+        });
+    }
+    if request.text.len() > crate::UiLimits::MAX_TEXT_BYTES {
+        return Err(TextError::TextBytesExceeded {
+            actual: request.text.len(),
+            limit: crate::UiLimits::MAX_TEXT_BYTES,
+        });
+    }
+    Ok(())
+}
+
 fn layout_key(request: TextLayoutRequest<'_>) -> TextLayoutKey {
     TextLayoutKey {
         content_sha256: Sha256::digest(request.text.as_bytes()).into(),
@@ -598,7 +639,7 @@ fn retained_layout_bytes(layout: &TextLayout) -> Result<usize, TextError> {
                 .ok_or(TextError::FixedPointOverflow)?,
         )?,
         // BTreeMap duplicates the key and retains a CacheEntry value.
-        size_of::<TextLayoutKey>(),
+        size_of::<CacheKey>(),
         size_of::<CacheEntry>(),
         CONSERVATIVE_BTREE_NODE_BYTES,
         // Node allocator metadata is charged separately from its full page.

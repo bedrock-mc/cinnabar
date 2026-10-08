@@ -5,6 +5,7 @@ use crate::shader_source;
 
 use gpu_snapshot::{Draw, Gpu};
 
+/// Samples the byte-quantized reference table at interpolated terrain light levels.
 fn native_sample(table: &[[f32; 4]], levels: [f32; 2]) -> [f32; 3] {
     let side = table.len().isqrt();
     let coordinate = levels
@@ -35,7 +36,7 @@ fn native_sample(table: &[[f32; 4]], levels: [f32; 2]) -> [f32; 3] {
 
 #[test]
 fn terrain_fragments_sample_interpolated_levels_not_interpolated_light_rgb() {
-    let Some(gpu) = Gpu::for_fixture("terrain lightmap sampling") else {
+    let Some(gpu) = Gpu::for_fixture("terrain light coordinate witness") else {
         return;
     };
     let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
@@ -143,14 +144,6 @@ fn terrain_fragments_sample_interpolated_levels_not_interpolated_light_rgb() {
                     resource: wgpu::BindingResource::Sampler(&sampler),
                 },
                 wgpu::BindGroupEntry {
-                    binding: 7,
-                    resource: records.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 8,
-                    resource: tints.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
                     binding: 15,
                     resource: atmosphere.as_entire_binding(),
                 },
@@ -164,10 +157,20 @@ fn terrain_fragments_sample_interpolated_levels_not_interpolated_light_rgb() {
                 },
             ];
             if kind == "cube" {
-                bindings.extend([wgpu::BindGroupEntry {
-                    binding: material_shader::NATIVE_LEAF_SAMPLER_BINDING,
-                    resource: wgpu::BindingResource::Sampler(&sampler),
-                }]);
+                bindings.extend([
+                    wgpu::BindGroupEntry {
+                        binding: 7,
+                        resource: records.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 8,
+                        resource: tints.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: material_shader::NATIVE_LEAF_SAMPLER_BINDING,
+                        resource: wgpu::BindingResource::Sampler(&sampler),
+                    },
+                ]);
             }
             for &fragment in fragments {
                 let pixels = gpu.render_srgb(
@@ -222,6 +225,7 @@ const MODEL_VERTEX: &str = r#"
     out.uv = vec2(0.5);
     out.native_light_levels = terrain_light_levels(witness_sample(corner));
     out.native_ao_face = 1.0;
+    out.tint_gamma = vec3(1.0);
     out.two_sided = 1u;
     out.visible = 1u;
     return out;

@@ -12,7 +12,7 @@ use bevy::{
     prelude::*,
     render::{
         Render, RenderApp, RenderSystems,
-        render_graph::{RenderGraph, ViewNodeRunner},
+        render_graph::{Node, RenderGraph, ViewNodeRunner},
         render_resource::*,
         renderer::{RenderContext, RenderDevice},
         view::ViewTarget,
@@ -221,9 +221,20 @@ pub(crate) fn prepare_scene_targets(
     }
 }
 
+/// Draws the opaque and cutout phases into the shared scene samples.
+pub(crate) fn opaque_pass(world: &mut World) -> Box<dyn Node> {
+    Box::new(ViewNodeRunner::new(nodes::SceneOpaquePass, world))
+}
+
+/// Recognises the installed shared-scene opaque pass.
+pub(crate) fn is_opaque_pass(node: &dyn Node) -> bool {
+    node.downcast_ref::<ViewNodeRunner<nodes::SceneOpaquePass>>()
+        .is_some()
+}
+
 /// Replaces only main-pass nodes, preserving every installed dependency and post-processing node.
 pub(crate) fn install_graph(world: &mut World) {
-    let opaque = ViewNodeRunner::new(nodes::SceneOpaquePass, world);
+    let opaque = opaque_pass(world);
     let transmissive = ViewNodeRunner::new(nodes::SceneTransmissivePass, world);
     let finish = ViewNodeRunner::new(nodes::SceneFinish, world);
     let Some(mut graphs) = world.get_resource_mut::<RenderGraph>() else {
@@ -233,7 +244,7 @@ pub(crate) fn install_graph(world: &mut World) {
         return;
     };
     if let Ok(node) = graph.get_node_state_mut(Node3d::MainOpaquePass) {
-        node.node = Box::new(opaque);
+        node.node = opaque;
         node.type_name = std::any::type_name::<ViewNodeRunner<nodes::SceneOpaquePass>>();
     }
     if let Ok(node) = graph.get_node_state_mut(Node3d::MainTransmissivePass) {

@@ -29,14 +29,24 @@ impl WorldsClient {
                     if matches!(effect, Effect::PollStatus | Effect::PollPrefs) {
                         thread::sleep(POLL_DELAY);
                     }
+                    let polling_preferences = matches!(effect, Effect::PollPrefs);
                     let preferences = matches!(
                         effect,
-                        Effect::LoadPrefs | Effect::PollPrefs | Effect::SetPrefs { .. }
+                        Effect::LoadPrefs
+                            | Effect::PollPrefs
+                            | Effect::SetPrefs { .. }
+                            | Effect::SaveCreationChoices { .. }
                     );
                     let event =
                         runtime
                             .block_on(execute(&socket_dir, effect))
                             .map(|event| match event {
+                                Event::Prefs(prefs, status) if polling_preferences => {
+                                    Event::PrefsPolled(prefs, status)
+                                }
+                                Event::Failed(message) if polling_preferences => {
+                                    Event::FailedPrefsPolled(message)
+                                }
                                 Event::Failed(message) if preferences => {
                                     Event::FailedPrefs(message)
                                 }
@@ -117,9 +127,21 @@ async fn execute(dir: &std::path::Path, effect: Effect) -> Option<Event> {
             let update = control::PrefsUpdate {
                 docker_prompt_dismissed: dismiss_docker_prompt.then_some(true),
                 redetect,
+                ..Default::default()
             };
             Some(prefs_event(update, dir).await)
         }
+        Effect::SaveCreationChoices { backend, generator } => Some(
+            prefs_event(
+                control::PrefsUpdate {
+                    creation_backend: Some(backend),
+                    creation_generator: Some(generator),
+                    ..Default::default()
+                },
+                dir,
+            )
+            .await,
+        ),
         Effect::AcceptEula => Some(
             control::accept_bds_eula(dir)
                 .await

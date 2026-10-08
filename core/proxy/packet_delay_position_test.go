@@ -43,7 +43,7 @@ func TestPacketDelayPositionAdvancesOnlyAfterSuccessfulUpstreamFlush(t *testing.
 			t.Fatal("second held packet advanced witness")
 		}
 		failure := errors.New("flush rejected")
-		dst.flushErr = failure
+		dst.setFlushErr(failure)
 		time.Sleep(200 * time.Millisecond)
 		if err := <-done; !errors.Is(err, failure) {
 			t.Fatal(err)
