@@ -224,7 +224,11 @@ impl WorldStream {
                         || (creates_request(&event)
                             && self.requests.queue.len() >= OUTBOUND_REQUEST_CAPACITY))));
         if defer {
-            self.order.admit_deferred(sequence, footprint)?;
+            self.order.admit_deferred(
+                sequence,
+                footprint,
+                self.authority.retained_commit_count(),
+            )?;
             self.deferred_ingress
                 .push_back((sequence, event, level_chunk_payload));
             return Ok(());
@@ -237,16 +241,12 @@ impl WorldStream {
     /// Prepares deferred terrain in wire order while decode and request capacity allow.
     pub(super) fn promote_deferred_ingress(&mut self) {
         while let Some((sequence, event, _)) = self.deferred_ingress.front() {
-            let heavy = self.order.is_deferred_heavy(*sequence);
-            let ready = if heavy {
-                self.order.heavy_capacity() > 0
+            // Light events reserved their slot when deferred. Heavy terrain waits only on
+            // earlier decodes and sent requests; at the frontier it may exceed the decode bound.
+            let ready = !self.order.is_deferred_heavy(*sequence)
+                || ((self.order.heavy_capacity() > 0 || self.order.is_frontier(*sequence))
                     && (!creates_request(event)
-                        || self.requests.queue.len() < OUTBOUND_REQUEST_CAPACITY)
-            } else {
-                self.order
-                    .light_capacity(self.authority.retained_commit_count())
-                    > 0
-            };
+                        || self.requests.queue.len() < OUTBOUND_REQUEST_CAPACITY));
             if !ready {
                 return;
             }

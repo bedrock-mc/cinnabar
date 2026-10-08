@@ -279,3 +279,85 @@ fn crack_after_a_delayed_dimension_change_waits_for_its_new_column() {
     assert_eq!(stream.current_dimension(), 1);
     assert_eq!(stream.block_crack_snapshot().status.active, 1);
 }
+
+/// A barrier deferred behind full terrain admission keeps its light slot, so light events
+/// queued behind it cannot starve its promotion.
+#[test]
+fn deferred_barrier_behind_full_terrain_drains_after_light_admission_fills() {
+    let mut stream = block_entity_visual_stream();
+    let heavy = MAX_ADMITTED_HEAVY_EVENTS as u64;
+    for sequence in 1..=heavy + 1 {
+        stream
+            .submit(sequence, inline_air_event(sequence as i32))
+            .unwrap();
+    }
+    stream
+        .submit(
+            heavy + 2,
+            WorldEvent::ChangeDimension(ChangeDimensionEvent::default()),
+        )
+        .unwrap();
+    let mut last = heavy + 2;
+    while stream.remaining_admission_capacity() > 0 {
+        last += 1;
+        stream.submit(last, remote_move(9)).unwrap();
+    }
+    assert!(last - heavy - 2 >= MAX_ADMITTED_WORLD_EVENTS as u64 - 1);
+    complete_pending_decode_jobs(&mut stream);
+    assert_eq!(stream.committed_sequence(), last);
+}
+
+/// Any admissible interleaving drains completely once workers finish.
+#[test]
+fn randomized_ingress_always_drains() {
+    let mut seed = 0x9e37_79b9_7f4a_7c15_u64;
+    let mut next = move |bound: u64| {
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        seed % bound
+    };
+    for _ in 0..40 {
+        let mut stream = block_entity_visual_stream();
+        let total = 160 + next(320);
+        let mut sequence = 0;
+        let mut stalled = 0;
+        while sequence < total {
+            // Workers lag ingress, so terrain, barriers and light traffic pile up together.
+            if stream.remaining_admission_capacity() > 0 && next(32) != 0 {
+                sequence += 1;
+                // Bursts alternate terrain-heavy and light-heavy phases.
+                let terrain_phase = sequence % 160 < 64;
+                let event = match (next(8), terrain_phase) {
+                    (0..=4, true) | (0, false) => inline_air_event(next(40) as i32),
+                    (5, true) => block_update(next(4) as i32, next(3) as u32),
+                    (6, _) => WorldEvent::ChangeDimension(ChangeDimensionEvent::default()),
+                    (5, false) => WorldEvent::NetworkStackLatency(sequence),
+                    _ => remote_move(9),
+                };
+                stream.submit(sequence, event).unwrap();
+                stalled = 0;
+                continue;
+            }
+            // The frame consumes retained deltas and finishes one worker job.
+            stream.take_committed_controls();
+            stream.take_committed_ui();
+            if let Some(job) = stream.pending_decode.pop_front() {
+                complete_decode_job(&mut stream, job);
+            }
+            stream.promote_deferred_ingress();
+            stream.apply_ready();
+            stalled += 1;
+            assert!(stalled < 1_000, "ingress stalled at sequence {sequence}");
+        }
+        for _ in 0..1_000 {
+            stream.take_committed_controls();
+            stream.take_committed_ui();
+            complete_pending_decode_jobs(&mut stream);
+            if stream.committed_sequence() == total {
+                break;
+            }
+        }
+        assert_eq!(stream.committed_sequence(), total);
+    }
+}

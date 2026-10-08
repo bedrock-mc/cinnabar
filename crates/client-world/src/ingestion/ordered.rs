@@ -246,36 +246,51 @@ impl OrderedCommitState {
         Ok(())
     }
 
-    /// Orders an event whose decode admission must wait behind earlier deferred terrain.
+    /// Orders an event whose preparation must wait behind earlier deferred terrain. A light
+    /// event takes its light slot now, so promoting it never needs credit that later light
+    /// events, which cannot pass it, may hold.
     pub fn admit_deferred(
         &mut self,
         sequence: u64,
         footprint: Footprint,
+        retained_commits: usize,
     ) -> Result<(), WorldStreamError> {
         self.validate_sequence(sequence)?;
-        if self.deferred_capacity() == 0 {
-            return Err(self.full(sequence));
-        }
-        self.deferred += 1;
-        self.insert_entry(sequence, footprint, Held::Deferred);
+        let held = if footprint.heavy {
+            if self.deferred_capacity() == 0 {
+                return Err(self.full(sequence));
+            }
+            self.deferred += 1;
+            Held::Deferred
+        } else {
+            if self.light_capacity(retained_commits) == 0 {
+                return Err(self.full(sequence));
+            }
+            self.light += 1;
+            Held::Light
+        };
+        self.insert_entry(sequence, footprint, held);
         Ok(())
     }
 
-    /// Moves a deferred event into its lane's admission; the caller checked capacity.
+    /// Moves deferred heavy terrain into decode admission; the caller checked capacity, or
+    /// the event is the frontier and owes nothing to later events.
     pub fn promote_deferred(&mut self, sequence: u64) {
         let entry = self
             .entries
             .get_mut(&sequence)
             .expect("only an ordered deferred event is promoted");
-        assert_eq!(entry.held, Held::Deferred, "event was not deferred");
-        self.deferred -= 1;
-        if entry.footprint.heavy {
+        if entry.held == Held::Deferred {
+            self.deferred -= 1;
             self.heavy += 1;
             entry.held = Held::Heavy;
-        } else {
-            self.light += 1;
-            entry.held = Held::Light;
         }
+    }
+
+    /// Whether every earlier sequence has finished.
+    #[must_use]
+    pub const fn is_frontier(&self, sequence: u64) -> bool {
+        sequence == self.frontier
     }
 
     fn insert_entry(&mut self, sequence: u64, footprint: Footprint, held: Held) {
