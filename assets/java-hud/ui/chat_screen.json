@@ -14,9 +14,18 @@
     "controls": [
       {
         "messages_panel@chat.messages_scrolling_panel": {
+          "$history_anchor": "bottom_left",
+          "$history_offset": [ 0, "$cinnabar_chat_history_bottom" ],
+          "variables": [{
+            "requires": "$cinnabar_chat_top",
+            "$history_anchor": "top_left",
+            "$history_offset": [ 0, 0 ]
+          }],
           "size": [ "$cinnabar_chat_width", 180 ],
           "max_size": [ "100%", "50%" ],
-          "offset": [ 0, "$cinnabar_chat_history_bottom" ],
+          "anchor_from": "$history_anchor",
+          "anchor_to": "$history_anchor",
+          "offset": "$history_offset",
           "$scroll_size": [ 0, "100%" ],
           "$scroll_bar_left_padding_size": [ 0, 0 ],
           "$scroll_bar_right_padding_size": [ 0, 0 ]
@@ -88,6 +97,13 @@
         "binding_collection_name": "auto_complete"
       }
     ]
+  },
+  "messages_stack_panel": {
+    "variables": [{
+      "requires": "$cinnabar_chat_top",
+      "$scrolling_content_anchor_from": "top_left",
+      "$scrolling_content_anchor_to": "top_left"
+    }]
   },
   "auto_complete_panel_contents_with_item": {
     "modifications": [

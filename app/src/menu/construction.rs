@@ -81,6 +81,7 @@ impl MenuRuntime {
                 history.reset(initial.screen);
                 history
             },
+            session_origin: None,
             name: field_editor(MenuField::Name),
             address: field_editor(MenuField::Address),
             port: field_editor(MenuField::Port),
