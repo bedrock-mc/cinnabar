@@ -37,29 +37,28 @@ struct AtmosphereUniform {
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
     @location(0) uv: vec2<f32>,
-    @location(1) @interpolate(flat) current_texture: u32,
+    @location(1) @interpolate(flat) texture_frames: vec2<u32>,
     @location(2) normal: vec3<f32>,
     @location(3) @interpolate(flat) material_flags: u32,
     @location(4) @interpolate(flat) local_position: vec3<f32>,
     @location(5) @interpolate(flat) biome_record: u32,
-    @location(6) @interpolate(flat) next_texture: u32,
-    @location(7) @interpolate(flat) frame_blend: f32,
-    @location(8) @interpolate(flat) visible: u32,
-    @location(9) lighting: vec3<f32>,
+    @location(6) @interpolate(flat) frame_blend: f32,
+    @location(7) @interpolate(flat) visible: u32,
+    @location(8) lighting: vec3<f32>,
 #ifdef ENHANCED
-    @location(11) sky_light: f32,
-    @location(15) ambient_occlusion: f32,
+    @location(10) sky_light: f32,
+    @location(14) ambient_occlusion: f32,
 #else
-    @location(11) native_light_levels: vec2<f32>,
-    @location(15) native_ao_face: f32,
+    @location(10) native_light_levels: vec2<f32>,
+    @location(14) native_ao_face: f32,
 #endif
-    @location(10) @interpolate(flat) world_origin: vec3<f32>,
-    @location(12) @interpolate(flat) two_sided: u32,
-    @location(13) world_position: vec3<f32>,
+    @location(9) @interpolate(flat) world_origin: vec3<f32>,
+    @location(11) @interpolate(flat) two_sided: u32,
+    @location(12) world_position: vec3<f32>,
 #ifdef ENHANCED
-    @location(14) @interpolate(flat) surface_class: u32,
+    @location(13) @interpolate(flat) surface_class: u32,
 #else
-    @location(14) @interpolate(flat) tint_gamma: vec3<f32>,
+    @location(13) @interpolate(flat) tint_gamma: vec3<f32>,
 #endif
 }
 
@@ -69,12 +68,11 @@ fn invisible_vertex() -> VertexOutput {
     var invisible: VertexOutput;
     invisible.clip_position = vec4(2.0, 2.0, 2.0, 1.0);
     invisible.uv = vec2(0.0);
-    invisible.current_texture = 0u;
+    invisible.texture_frames = vec2(0u);
     invisible.normal = vec3(0.0);
     invisible.material_flags = 0u;
     invisible.local_position = vec3(0.0);
     invisible.biome_record = 0u;
-    invisible.next_texture = 0u;
     invisible.frame_blend = 0.0;
     invisible.visible = 0u;
     invisible.lighting = vec3(0.0);
@@ -237,13 +235,12 @@ fn vertex(
         f32(packed_u16(template_quad_base + 6u, uv_component)),
         f32(packed_u16(template_quad_base + 6u, uv_component + 1u)),
     ) / 4096.0;
-    out.current_texture = frame.current;
+    out.texture_frames = vec2(frame.current, frame.next);
     let normals = array(vec3(0.0), vec3(0.0,-1.0,0.0), vec3(0.0,1.0,0.0), vec3(-1.0,0.0,0.0), vec3(1.0,0.0,0.0), vec3(0.0,0.0,-1.0), vec3(0.0,0.0,1.0));
     out.normal = rotate_cross(normals[quad_flags & 7u] + vec3(0.5,0.0,0.5), rotation) - vec3(0.5,0.0,0.5);
     out.material_flags = material.flags;
     out.local_position = block_position;
     out.biome_record = u32(origin.value.w);
-    out.next_texture = frame.next;
     out.frame_blend = frame.blend;
     out.visible = is_visible;
     // Vanilla uses white top vertices and RGB 0x0f on the reverse
@@ -370,9 +367,9 @@ fn fragment(
     let dx = dpdx(in.uv);
     let dy = dpdy(in.uv);
     // Both views already hold the working colour space, so frames blend before the alpha test.
-    var sampled = sample_ref(in.current_texture, in.uv, dx, dy);
+    var sampled = sample_ref(in.texture_frames.x, in.uv, dx, dy);
     if (in.frame_blend > 0.0) {
-        sampled = mix(sampled, sample_ref(in.next_texture, in.uv, dx, dy), in.frame_blend);
+        sampled = mix(sampled, sample_ref(in.texture_frames.y, in.uv, dx, dy), in.frame_blend);
     }
     if (sampled.a < 0.5) { discard; }
 #ifdef OPAQUE_OVERDRAW
@@ -406,9 +403,9 @@ fn fragment_blend(
     if (!front_facing && in.two_sided == 0u) { discard; }
     let dx = dpdx(in.uv);
     let dy = dpdy(in.uv);
-    var sampled = sample_ref(in.current_texture, in.uv, dx, dy);
+    var sampled = sample_ref(in.texture_frames.x, in.uv, dx, dy);
     if (in.frame_blend > 0.0) {
-        sampled = mix(sampled, sample_ref(in.next_texture, in.uv, dx, dy), in.frame_blend);
+        sampled = mix(sampled, sample_ref(in.texture_frames.y, in.uv, dx, dy), in.frame_blend);
     }
     // The background is fogged by the same transfer, so preserving source
     // alpha composes to one fog application instead of double-counting it.
@@ -440,9 +437,9 @@ fn fragment_blend(
 fn fragment_shadow(in: VertexOutput) {
     let dx = dpdx(in.uv);
     let dy = dpdy(in.uv);
-    var sampled = sample_ref(in.current_texture, in.uv, dx, dy);
+    var sampled = sample_ref(in.texture_frames.x, in.uv, dx, dy);
     if (in.frame_blend > 0.0) {
-        sampled = mix(sampled, sample_ref(in.next_texture, in.uv, dx, dy), in.frame_blend);
+        sampled = mix(sampled, sample_ref(in.texture_frames.y, in.uv, dx, dy), in.frame_blend);
     }
     if (sampled.a < 0.5 || in.visible == 0u) { discard; }
 }

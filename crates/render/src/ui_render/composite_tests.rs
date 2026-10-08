@@ -143,6 +143,7 @@ fn damage_clear_warmup_and_drawing_reuse_one_pipeline() {
                         msaa,
                         hdr,
                         enhanced: false,
+                        output: None,
                     },
                     &mut ids,
                 )
