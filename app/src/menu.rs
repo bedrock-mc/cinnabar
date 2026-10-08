@@ -105,6 +105,8 @@ pub(crate) struct MenuRuntime {
     caret_revision: u64,
     /// Screens opened on the way here; back returns to the one below.
     history: json_ui::ScreenNav<MenuScreen>,
+    /// The Play page beneath the current session's loading and in-game screens.
+    session_origin: Option<MenuScreen>,
     /// The Add/Edit Server boxes, each typed through the chat editor's caret model.
     name: ui::ChatEditor,
     address: ui::ChatEditor,
@@ -416,7 +418,7 @@ impl MenuRuntime {
     /// A cancelled join drops any queued join and returns to the play screen.
     pub(crate) fn cancel_join(&mut self) {
         self.intents.join = None;
-        self.enter(MenuScreen::Play);
+        self.show_session_origin(MenuScreen::Play);
     }
 
     pub(crate) fn show_join_failure(&mut self, message: String) {
@@ -834,6 +836,7 @@ impl MenuRuntime {
             self.message = Some("That server has no address.".to_owned());
             return;
         }
+        self.remember_session_origin();
         self.stop_catalog();
         let auth_cache = self.launcher_auth_cache();
         self.stop_sign_in();

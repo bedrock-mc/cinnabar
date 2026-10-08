@@ -1,6 +1,9 @@
 //! Recipe lookups for the stonecutter, smithing table and cartography table,
 //! answered from the CraftingData catalog and the items in the open screen.
 
+#[cfg(test)]
+mod tests;
+
 use std::sync::Arc;
 
 use protocol::{RecipeCatalog, RecipeHandle, ScreenRecipe, ScreenRecipeKind, WindowKind};
@@ -120,36 +123,51 @@ impl InventorySession {
     /// Crafting recipes the recipe book lists for the open grid, after
     /// skipping `skip`, at most `take`. Filtering keeps the craftable ones,
     /// first, then those the inventory holds some ingredient of; otherwise
-    /// every recipe lists, the uncraftable ones shown disabled.
+    /// every output lists, the uncraftable ones shown disabled. Alternate
+    /// recipes share one entry, preferring usable ingredients, then priority.
     pub fn book_recipes(&self, filtering: bool, skip: usize, take: usize) -> Vec<RecipeHandle> {
         let Some(catalog) = self.screen_catalog() else {
             return Vec::new();
         };
         let ledger = self.ledger();
         let small = ledger.window_kind() != Some(WindowKind::Workbench);
-        let mut listed: Vec<(bool, RecipeHandle)> = catalog
-            .crafting_handles()
-            .into_iter()
-            .filter(|recipe| {
-                let (width, height) = recipe.dimensions();
-                !small
-                    || if recipe.is_shapeless() {
-                        recipe.ingredient_views().len() <= 4
-                    } else {
-                        width <= 2 && height <= 2
-                    }
-            })
-            .map(|recipe| (ledger.can_auto_craft(&recipe), recipe))
-            .filter(|(craftable, recipe)| {
-                !filtering || *craftable || ledger.holds_any_ingredient(recipe)
-            })
-            .collect();
+        let mut listed: Vec<(bool, bool, RecipeHandle)> = Vec::new();
+        let mut outputs = std::collections::HashMap::new();
+        for recipe in catalog.crafting_recipes().filter(|recipe| {
+            let (width, height) = recipe.dimensions();
+            !small
+                || if recipe.is_shapeless() {
+                    recipe.ingredient_views().len() <= 4
+                } else {
+                    width <= 2 && height <= 2
+                }
+        }) {
+            let craftable = ledger.can_auto_craft(recipe);
+            let held = craftable || ledger.holds_any_ingredient(recipe);
+            if filtering && !held {
+                continue;
+            }
+            let output = recipe.output();
+            let key = (output.network_id, output.aux, output.block_runtime_id);
+            if let Some(&index) = outputs.get(&key) {
+                let previous: &(bool, bool, RecipeHandle) = &listed[index];
+                let rank = |craftable: bool, held: bool, recipe: &RecipeHandle| {
+                    (!craftable, !held, recipe.recipe().priority())
+                };
+                if rank(craftable, held, recipe) < rank(previous.0, previous.1, &previous.2) {
+                    listed[index] = (craftable, held, recipe.clone());
+                }
+            } else {
+                outputs.insert(key, listed.len());
+                listed.push((craftable, held, recipe.clone()));
+            }
+        }
         if filtering {
-            listed.sort_by_key(|(craftable, _)| !craftable);
+            listed.sort_by_key(|(craftable, _, _)| !craftable);
         }
         listed
             .into_iter()
-            .map(|(_, recipe)| recipe)
+            .map(|(_, _, recipe)| recipe)
             .skip(skip)
             .take(take)
             .collect()

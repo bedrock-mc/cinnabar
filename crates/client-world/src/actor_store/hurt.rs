@@ -9,7 +9,7 @@ pub const HURT_OVERLAY_ALPHA: f32 = 0.4;
 /// Ticks a dying actor takes to tip fully over; needs independent measurement.
 pub const DEATH_DURATION_TICKS: u8 = 20;
 
-/// Ticks a picked-up item takes to reach its collector; needs independent measurement.
+/// Ticks a picked-up item presentation takes to reach its collector.
 pub const PICKUP_DURATION_TICKS: u8 = 3;
 
 /// Sequences a knockback impulse stays attributable to a hurt event; needs measurement.
@@ -206,6 +206,13 @@ impl ActorStore {
     }
 
     pub(super) fn apply_take_item(&mut self, event: ActorTakeItemEvent) -> ActorApplyResult {
+        if self
+            .actors
+            .get(&event.item_runtime_id)
+            .is_some_and(|actor| actor.status.pickup.is_none())
+        {
+            self.start_pickup_visual(event.item_runtime_id, event.collector_runtime_id);
+        }
         let Some(item) = self.actors.get_mut(&event.item_runtime_id) else {
             return ActorApplyResult::MissingActor;
         };

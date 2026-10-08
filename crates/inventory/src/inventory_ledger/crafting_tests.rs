@@ -214,6 +214,64 @@ fn unique(ledger: &PlayerInventoryLedger, catalog: &RecipeCatalog) -> protocol::
     }
 }
 
+#[test]
+fn shift_crafted_output_uses_hotbar_before_main_inventory() {
+    let catalog = catalog();
+    for window_type in [PERSONAL_INVENTORY_WINDOW_TYPE, WORKBENCH_WINDOW_TYPE] {
+        for (hotbar_full, partial_slots, expected_slot) in [
+            (false, vec![], 0),
+            (true, vec![], protocol::HOTBAR_SLOT_COUNT),
+            (
+                false,
+                vec![protocol::HOTBAR_SLOT_COUNT],
+                protocol::HOTBAR_SLOT_COUNT,
+            ),
+            (false, vec![0, protocol::HOTBAR_SLOT_COUNT], 0),
+        ] {
+            let mut ledger = ledger(window_type);
+            let mut slots = vec![NetworkItemStack::default(); PLAYER_INVENTORY_SLOT_COUNT];
+            if hotbar_full {
+                for (slot, held) in slots[..usize::from(protocol::HOTBAR_SLOT_COUNT)]
+                    .iter_mut()
+                    .enumerate()
+                {
+                    *held = stack(COBBLE, 100 + i32::try_from(slot).unwrap(), 64);
+                }
+            }
+            for slot in partial_slots {
+                slots[usize::from(slot)] = stack(PLANKS, 200 + i32::from(slot), 63);
+            }
+            ledger.apply(&InventoryEvent::Content(InventoryContentEvent {
+                container: ContainerIdentity::window(0),
+                slots: slots.into(),
+                storage_item: NetworkItemStack::default(),
+            }));
+            let craft_slot_index = ledger.crafting_grid().slots().next().unwrap();
+            ledger.apply(&craft_slot(u16::from(craft_slot_index), stack(LOG, 300, 1)));
+            let recipe = unique(&ledger, &catalog);
+            ledger.begin_craft_all(&recipe).unwrap();
+            assert!(ledger.view().get(Cell::Craft(craft_slot_index)).is_none());
+            assert!(
+                matches!(
+                    ledger.newest_request().unwrap().actions.last(),
+                    Some(StackRequestAction::Place { destination, .. })
+                        if destination.slot == expected_slot
+                ),
+                "expected crafted output in player slot {expected_slot}"
+            );
+            assert_eq!(
+                ledger
+                    .view()
+                    .get(Cell::Inventory(expected_slot))
+                    .unwrap()
+                    .stack
+                    .network_id,
+                PLANKS
+            );
+        }
+    }
+}
+
 fn respond(ledger: &mut PlayerInventoryLedger, request_id: i32, rows: &[(u8, u8, u8, i32)]) {
     let containers: Vec<_> = rows
         .iter()
