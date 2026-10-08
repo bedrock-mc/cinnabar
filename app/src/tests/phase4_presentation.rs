@@ -289,9 +289,12 @@ fn visible_local_removes_its_remote_duplicate_without_capping_other_actors() {
             .count(),
         1
     );
-    assert!(visible.submissions.iter().any(|entry| {
-        entry.input.identity.runtime_id == MAX_RENDERED_PLAYERS as u64 + 1
-    }));
+    assert!(
+        visible
+            .submissions
+            .iter()
+            .any(|entry| { entry.input.identity.runtime_id == MAX_RENDERED_PLAYERS as u64 + 1 })
+    );
 }
 
 #[test]

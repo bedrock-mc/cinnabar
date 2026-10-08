@@ -762,6 +762,24 @@ impl<P: PhaseItem> RenderCommand<P> for DrawItems {
 #[path = "dropped_item_render/upload_tests.rs"]
 mod upload_tests;
 
+impl crate::pipeline_warmup::PrewarmPipelines for ItemPipeline {
+    fn prewarm(
+        &mut self,
+        cache: &PipelineCache,
+        view: crate::pipeline_warmup::WarmView,
+        ids: &mut crate::pipeline_warmup::WarmupIds,
+    ) -> Result<(), BevyError> {
+        ids.push(self.variants.specialize(
+            cache,
+            ItemPipelineKey {
+                msaa: view.msaa,
+                hdr: view.hdr,
+            },
+        )?);
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use bevy::render::render_resource::ShaderStages;
@@ -791,23 +809,5 @@ mod tests {
                 .visibility
                 .contains(ShaderStages::FRAGMENT)
         );
-    }
-}
-
-impl crate::pipeline_warmup::PrewarmPipelines for ItemPipeline {
-    fn prewarm(
-        &mut self,
-        cache: &PipelineCache,
-        view: crate::pipeline_warmup::WarmView,
-        ids: &mut crate::pipeline_warmup::WarmupIds,
-    ) -> Result<(), BevyError> {
-        ids.push(self.variants.specialize(
-            cache,
-            ItemPipelineKey {
-                msaa: view.msaa,
-                hdr: view.hdr,
-            },
-        )?);
-        Ok(())
     }
 }
