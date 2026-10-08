@@ -95,10 +95,12 @@ pub(crate) fn produce_melee(
     mut movement: ResMut<MovementTicker>,
     mut view: ResMut<crate::local_player::LocalViewPose>,
 ) {
-    swings.sync_ticks(
+    let item_timing = selected_attack_timing(&player_runtime, &context.client_world);
+    swings.sync_ticks_for_item(
         movement.interaction_authority_identity(),
         movement.completed_tick(),
         &context.effects,
+        item_timing.and_then(|timing| timing.swing_duration_ticks),
     );
 
     runtime.synchronize(movement.interaction_authority_identity());
@@ -180,13 +182,26 @@ pub(crate) fn produce_melee(
         input_mode,
         local_runtime_id: stream.local_player_runtime_id(),
         selection: hand_interaction_selection(&player_runtime),
-        swing_duration: swing_duration(
-            context
-                .effects
-                .mining_tick(sample.tick, movement.completed_tick())
-                .0,
-        ),
+        swing_duration: item_timing
+            .and_then(|timing| timing.swing_duration_ticks)
+            .map(|ticks| i32::try_from(ticks).unwrap_or(i32::MAX).max(1))
+            .unwrap_or_else(|| {
+                swing_duration(
+                    context
+                        .effects
+                        .mining_tick(sample.tick, movement.completed_tick())
+                        .0,
+                )
+            }),
         now_millis,
+        item_attack: item_timing
+            .filter(|timing| timing.piercing_weapon)
+            .and_then(|timing| {
+                Some(gameplay::melee::ItemAttackPress {
+                    direction: context.origin.outbound_ray()?.direction().to_array(),
+                    cooldown: timing.attack_cooldown.clone(),
+                })
+            }),
     };
     let mut rotate_action = false;
     let missed_swing = resolve_and_send(
@@ -235,6 +250,20 @@ pub(crate) fn produce_melee(
     if missed_swing {
         movement.mark_missed_swing(sample.tick);
     }
+}
+
+/// Resolves selected-item component facts through the admitted registry and active catalog.
+pub(crate) fn selected_attack_timing<'a>(
+    player: &crate::player_runtime::PlayerRuntime,
+    world: &'a ClientWorld,
+) -> Option<&'a protocol::ItemAttackTiming> {
+    let stream = world.stream.as_ref()?;
+    let item = stream
+        .authority()
+        .canonical_item_stack(player.selected_stack()?)?;
+    stream
+        .authority()
+        .item_attack_timing(item.identifier.as_deref()?)
 }
 
 #[cfg(test)]

@@ -6564,6 +6564,15 @@ Orebits glyph. The user confirms the rebuilt client looks correct. Required
 touched-crate checks and the canonical developer-control build pass; release
 hardware budgets and matched-version pixel comparison remain incomplete.
 
+## Spear actions
+
+Spear bindings and pose inputs now consume authored swing and kinetic timings.
+Actor/air attacks send the item-directed transaction with aim and cooldown state,
+allowing the server to apply damage and Lunge movement. Component, admission,
+catalog/reset and real-carrier animation regressions pass. Live action proof and
+the complete matched-version native comparison remain incomplete. See
+[spear actions](docs/reference/spear-actions.md).
+
 ## Local placement prediction
 
 - Pillars, slab halves and matching doubles, trapdoors, hoppers, supported attachments,

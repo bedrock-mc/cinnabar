@@ -124,6 +124,7 @@ impl EquipmentRuntime {
             .retain(|key, _| !matches!(key, MeshKey::Session(_) | MeshKey::SessionBlock(_)));
         let mut layer = SessionLayer::default();
         let mut item_use = (*self.base_item_use).clone();
+        let mut item_attack = (*self.base_item_attack).clone();
         for (identifier, components) in items.into_iter().flat_map(|items| items.components.iter())
         {
             layer
@@ -135,6 +136,9 @@ impl EquipmentRuntime {
             if let Some(ticks) = components.use_duration_ticks.filter(|ticks| *ticks > 0) {
                 item_use.insert(Box::from(identifier.as_ref()), ticks);
             }
+            if let Some(timing) = &components.attack {
+                item_attack.insert(Box::from(identifier.as_ref()), timing.clone());
+            }
         }
         if let Some(icons) = icons {
             layer.sprites = icons.sprites;
@@ -145,6 +149,7 @@ impl EquipmentRuntime {
             layer.locations = locations;
         }
         self.item_use = Arc::new(item_use);
+        self.item_attack = Arc::new(item_attack);
         self.session = layer;
     }
 

@@ -32,6 +32,12 @@ pub(crate) struct ActorTickContext {
     pub(crate) hand_charged: bool,
     /// Ticks the main-hand item can be used for, or 0 when unknown.
     pub(crate) main_hand_max_use_ticks: u32,
+    /// Selected kinetic weapon component timings used by its authored pose.
+    pub(crate) main_hand_kinetic: Option<protocol::KineticWeaponTiming>,
+    /// The selected item declares the native spear animation tag.
+    pub(crate) main_hand_is_spear: bool,
+    /// Selected melee component swing duration, in seconds.
+    pub(crate) main_hand_swing_seconds: Option<f32>,
     /// Namespaced identifier of the actor being ridden.
     pub(crate) ridden: Option<Arc<str>>,
     pub(crate) has_rider: bool,
@@ -349,6 +355,15 @@ pub(super) fn evaluate_state(
         inheritance
             .variables
             .copy_to(assets, layout, &mut variables);
+        inheritance.variables.sample_spear_to(
+            &engine.spear,
+            &mut variables,
+            actor,
+            &input,
+            context
+                .attachable
+                .map_or(context.frame_alpha, |item| item.frame_alpha),
+        );
         for &(name, value) in inheritance.overrides {
             variables.set(layout.named_slot(assets, name), value);
         }
@@ -383,6 +398,11 @@ pub(super) fn evaluate_state(
     });
     if let Some(script) = rig.pre_animation {
         evaluator.run(script as usize, &mut variables, 0.0, budget)?;
+    }
+    if state.complete_spear_variables {
+        engine
+            .spear
+            .apply(&mut variables, actor, context, &input, input.attack_time);
     }
     // Authored scale scripts read the variables pre_animation just set.
     let scale = match rig.scale_expressions {

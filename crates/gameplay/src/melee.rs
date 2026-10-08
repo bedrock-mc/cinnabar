@@ -54,6 +54,15 @@ pub struct PressContext {
     pub selection: Option<FrozenMiningSelection>,
     pub swing_duration: i32,
     pub now_millis: u64,
+    /// Piercing components route actor/air attacks through the item transaction.
+    pub item_attack: Option<ItemAttackPress>,
+}
+
+/// The sampled aim and authored cooldown for an item-directed attack.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ItemAttackPress {
+    pub direction: [f32; 3],
+    pub cooldown: Option<protocol::ItemAttackCooldown>,
 }
 
 /// Standalone packets in send order, plus whether the tick reports a missed swing.
@@ -73,6 +82,7 @@ pub struct MeleeRuntime {
     /// Wall-clock millis at which a latched press first waited for admission.
     deferred_since: Option<u64>,
     rejected_tick: Option<u64>,
+    attack_cooldowns: Vec<(std::sync::Arc<str>, u64)>,
 }
 
 impl MeleeRuntime {
@@ -95,6 +105,12 @@ impl MeleeRuntime {
 
     /// Drops a latched press when the session or position authority changes.
     pub fn synchronize(&mut self, authority: (u64, u64)) {
+        if self
+            .position_authority
+            .is_some_and(|previous| previous.0 != authority.0)
+        {
+            self.attack_cooldowns.clear();
+        }
         if self
             .position_authority
             .is_some_and(|previous| previous != authority)
@@ -201,6 +217,41 @@ impl MeleeRuntime {
                     .push(protocol::swing_arm_packet(press.local_runtime_id, source));
             }
         };
+        if crosshair != Crosshair::Block
+            && let Some(attack) = press.item_attack.as_ref()
+            && let Some(selection) = press.selection.as_ref()
+        {
+            self.attack_cooldowns
+                .retain(|(_, until)| press.tick < *until);
+            let on_cooldown = attack.cooldown.as_ref().is_some_and(|cooldown| {
+                self.attack_cooldowns
+                    .iter()
+                    .any(|(category, _)| *category == cooldown.category)
+            });
+            let Ok(packet) = protocol::use_item_as_attack_packet(
+                protocol::HeldItemRequest {
+                    selected_slot: selection.slot,
+                    selected_item: selection.item.clone(),
+                    player_position: press.player_position,
+                },
+                attack.direction,
+                on_cooldown,
+            ) else {
+                return outcome;
+            };
+            if !on_cooldown {
+                swing(&mut outcome, SwingSource::Attack);
+                if let Some(cooldown) = attack.cooldown.as_ref() {
+                    self.attack_cooldowns.push((
+                        std::sync::Arc::clone(&cooldown.category),
+                        press.tick.saturating_add(u64::from(cooldown.ticks)),
+                    ));
+                }
+            }
+            self.last_attack_millis = Some(press.now_millis);
+            outcome.packets.push(packet);
+            return outcome;
+        }
         match crosshair {
             Crosshair::Actor(hit) => {
                 swing(&mut outcome, SwingSource::Attack);
@@ -294,3 +345,7 @@ mod tests;
 #[cfg(test)]
 #[path = "melee/selection_tests.rs"]
 mod selection_tests;
+
+#[cfg(test)]
+#[path = "melee/item_attack_tests.rs"]
+mod item_attack_tests;
