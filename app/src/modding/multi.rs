@@ -94,12 +94,12 @@ impl ModRuntime {
             .unwrap_or(0)
     }
 
-    /// Every loaded mod's reserved keys, kept away from ordinary gameplay.
-    /// The earliest publisher owns each single-valued retained presentation surface.
+    /// The earliest card publisher owns the retained card surface.
     pub(super) fn hud_owner(&self) -> Option<usize> {
         (0..self.host_count()).find(|&index| self.host(index).hud().is_some())
     }
 
+    /// The earliest cursor publisher owns the retained cursor replacement.
     pub(super) fn crosshair_owner(&self) -> Option<usize> {
         (0..self.host_count()).find(|&index| self.host(index).crosshair().is_some())
     }
