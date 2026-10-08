@@ -8,15 +8,17 @@ use assets::{ModelFamily, ModelStateField, RegistryRecord, TOP_SNOW_LAYER_COUNT}
 use sim::{Aabb, Vec3};
 
 impl super::PhysicsCollisionRegistries {
-    /// Invisible barriers expose their selection overlay only to Creative players.
+    /// Native gateways hide their overlay; barriers expose it only in Creative.
     pub fn selection_overlay_visible(
         &self,
         mode: assets::NetworkIdMode,
         runtime_id: u32,
         game_mode: Option<protocol::PlayerGameMode>,
     ) -> bool {
-        self.block_identifier(mode, runtime_id) != Some("minecraft:barrier")
-            || game_mode == Some(protocol::PlayerGameMode::Creative)
+        let identifier = self.block_identifier(mode, runtime_id);
+        identifier != Some("minecraft:end_gateway")
+            && (identifier != Some("minecraft:barrier")
+                || game_mode == Some(protocol::PlayerGameMode::Creative))
     }
 }
 
@@ -40,7 +42,9 @@ pub(super) fn shape(record: &RegistryRecord) -> Option<Aabb> {
         max.y = 1.0;
         return Some(Aabb::new(min, max));
     }
-    if name == "web" {
+    // EndGatewayBlock inherits the native unit visual AABB and mayPick=true,
+    // independently of its empty End-dimension movement collision shapes.
+    if matches!(name, "web" | "end_gateway") {
         return Some(bounds([0.0; 3], [1.0; 3]));
     }
     if name.ends_with("standing_sign") {
