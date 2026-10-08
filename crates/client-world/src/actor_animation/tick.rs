@@ -316,6 +316,7 @@ pub(super) fn evaluate_state(
     let evaluator = Evaluator {
         assets,
         layout,
+        program: None,
         actor,
         input: &input,
         context,
@@ -353,6 +354,7 @@ pub(super) fn evaluate_state(
         }
     }
     if let Some(attachable) = context.attachable {
+        variables.set_actor_reference(engine.context_owning_entity, actor.runtime_id);
         variables.set(
             engine.context_first_person,
             f32::from(attachable.first_person),
@@ -420,9 +422,14 @@ pub(super) fn evaluate_state(
             runtime.blend_from = None;
         }
     }
-    let empty_clocks = super::clock::ClipClocks::new();
+    let reset_clocks = state
+        .clip_clocks
+        .iter()
+        .filter(|((_, _, basis), _)| *basis == super::clock::Basis::Lifetime)
+        .map(|(key, value)| (*key, *value))
+        .collect();
     let previous_clocks = if reset {
-        &empty_clocks
+        &reset_clocks
     } else {
         replay.map_or(&state.clip_clocks, |replay| &replay.clocks)
     };
@@ -435,11 +442,26 @@ pub(super) fn evaluate_state(
         blink_controller,
         budget,
     )?;
+    let mut server_animations = replay
+        .map_or(&state.server_animations, |replay| &replay.server_animations)
+        .clone();
+    super::server_animation::select(
+        &evaluator,
+        &mut variables,
+        &mut server_animations,
+        super::server_animation::SelectionInput {
+            geometry: state.geometry_binding,
+            clocks: previous_clocks,
+            advance: advance_clocks || replay.is_some(),
+        },
+        &mut weighted_clips,
+        budget,
+    )?;
     let clip_clocks = if advance_clocks || replay.is_some() {
         super::clock::prepare(
             &evaluator,
             &mut variables,
-            (!reset).then_some(previous_clocks),
+            Some(previous_clocks),
             &controllers,
             &mut weighted_clips,
             budget,
@@ -457,6 +479,7 @@ pub(super) fn evaluate_state(
         &evaluator,
         &mut variables,
         &state.bones,
+        &state.bone_names,
         &weighted_clips,
         budget,
     )?;
@@ -497,6 +520,7 @@ pub(super) fn evaluate_state(
         render,
         scale,
         controllers,
+        server_animations,
         clip_clocks,
         variables,
         render_frame,
@@ -613,6 +637,7 @@ pub(super) struct WeightedClip {
     pub(super) clip: usize,
     pub(super) weight: f32,
     pub(super) started_tick: u64,
+    pub(super) clock: super::clock::Basis,
     /// Assigned once before posing, shared by every geometry this clip animates.
     pub(super) time: f32,
     pub(super) blend: Option<ControllerBlend>,
@@ -742,6 +767,7 @@ impl ControllerWalk<'_, '_, '_, '_> {
                     clip: clip as usize,
                     weight,
                     started_tick,
+                    clock: super::clock::Basis::Controller,
                     time: 0.0,
                     blend,
                 }),
@@ -793,7 +819,11 @@ impl ControllerWalk<'_, '_, '_, '_> {
                 .ok_or(EvalError::Invalid)?;
             let done = if clip.anim_time_update.is_some() {
                 self.clip_clocks
-                    .get(&(index as usize, entered_tick))
+                    .get(&(
+                        index as usize,
+                        entered_tick,
+                        super::clock::Basis::Controller,
+                    ))
                     .is_some_and(|clock| clock.finished)
             } else {
                 elapsed >= clip.length_seconds.get()

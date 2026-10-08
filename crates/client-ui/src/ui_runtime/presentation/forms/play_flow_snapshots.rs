@@ -338,7 +338,6 @@ fn snapshot_local_worlds() {
         game_mode: GameMode::Survival,
         generator: Generator::Normal,
         difficulty: Difficulty::Normal,
-        allow_cheats: false,
         backend: Backend::Bds,
         seed: 1,
         created_unix: 1_790_553_600,

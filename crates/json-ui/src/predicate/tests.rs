@@ -51,14 +51,55 @@ fn text(value: &str) -> Option<Scalar> {
 }
 
 #[test]
-fn surplus_closing_groups_keep_interior_closes_rejected() {
+fn surplus_closing_groups_preserve_following_operators() {
     assert_eq!(value("(true))"), Some(Scalar::Bool(true)));
     assert_eq!(value("(false)))  "), Some(Scalar::Bool(false)));
-    for expression in [")", ") (true)", "(true)) and false", "(true)) (false)"] {
+    assert_eq!(value("(true)) and false"), Some(Scalar::Bool(false)));
+    assert_eq!(value("(false)) or true"), Some(Scalar::Bool(true)));
+    assert_eq!(value("(true)) (false)"), Some(Scalar::Json(json!(null))));
+    for expression in [")", ") (true)"] {
         assert_eq!(value(expression), None, "{expression}");
     }
     assert_eq!(value("((true"), Some(Scalar::Bool(true)));
     assert_eq!(value("(true +)"), Some(Scalar::Json(json!(null))));
+}
+
+#[test]
+fn completed_marker_group_keeps_the_following_visibility_condition() {
+    let mut env = Env::new();
+    env.set("marker", json!("@modal"));
+    let expression = "(not ((#title - $marker) = #title))) and ((#title - '@hidden') = #title))";
+    for (title, expected) in [
+        ("Ordinary title", false),
+        ("@modalRound finished", true),
+        ("@modal@hiddenRound finished", false),
+    ] {
+        let scope = bindings(&[("#title", Scalar::Text(title.into()))]);
+        assert_eq!(
+            eval_bool(expression, &env, &scope),
+            Some(expected),
+            "{title}"
+        );
+    }
+}
+
+#[test]
+fn surplus_closing_token_obeys_its_delimiter_and_eof_boundaries() {
+    for (expression, expected) in [
+        ("(true))", Scalar::Bool(true)),
+        ("(true)) ", Scalar::Bool(true)),
+        ("(true))discarded", Scalar::Json(json!(null))),
+        ("(true))discarded ", Scalar::Bool(true)),
+        ("(true))discarded and false", Scalar::Bool(false)),
+        ("(true))and false", Scalar::Json(json!(null))),
+        ("(false))or true", Scalar::Json(json!(null))),
+        ("(true))and(false)", Scalar::Json(json!(null))),
+        ("(true))discarded$desktop_screen", Scalar::Json(json!(null))),
+        ("(true))discarded+#b", Scalar::Int(4)),
+        ("((true))discarded) and false", Scalar::Bool(false)),
+    ] {
+        assert_eq!(value(expression), Some(expected), "{expression}");
+    }
 }
 
 // A variable holding an expression evaluates it; a self-reference stays undecidable.

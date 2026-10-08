@@ -3,6 +3,7 @@
 //! Control and world channels retain separate bounded FIFOs. Prepared presentation data is
 //! an opaque generic payload: the session publishes it only at the original bootstrap point.
 
+mod block_physics;
 pub mod compile_cache;
 pub mod connection;
 pub mod pack_language;

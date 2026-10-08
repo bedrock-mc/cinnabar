@@ -92,7 +92,7 @@ fn steady_uploads_hand_uniforms_are_independent_and_allocation_free() {
     let mut gpu = world.remove_resource::<HandRigGpu>().unwrap();
     let device = world.resource::<RenderDevice>().clone();
     let buffers = [gpu.view_uniform.id(), gpu.light_uniform.id()];
-    let projection = Mat4::perspective_infinite_reverse_rh(1.2, 1.5, HAND_RIG_NEAR_PLANE);
+    let projection = Mat4::perspective_infinite_reverse_rh(1.2, 1.5, CAMERA_NEAR_PLANE_BLOCKS);
     let mut light = light();
     upload_uniforms(&mut gpu, &device, &queue, None, projection, light);
     assert_eq!(gpu.uniform_uploads, [1, 1]);
@@ -105,7 +105,7 @@ fn steady_uploads_hand_uniforms_are_independent_and_allocation_free() {
     );
     assert_eq!(crate::alloc_count::thread_allocations() - allocated, 0);
 
-    let projection = Mat4::perspective_infinite_reverse_rh(1.2, 2.0, HAND_RIG_NEAR_PLANE);
+    let projection = Mat4::perspective_infinite_reverse_rh(1.2, 2.0, CAMERA_NEAR_PLANE_BLOCKS);
     upload_uniforms(&mut gpu, &device, &queue, None, projection, light);
     assert_eq!(gpu.uniform_uploads, [2, 1]);
     light.java_lights[1][2] = 0.75;

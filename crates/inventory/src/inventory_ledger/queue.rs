@@ -108,7 +108,10 @@ impl PlayerInventoryLedger {
 
     /// Queues one request built against the current view.
     pub(super) fn enqueue(&mut self, mut request: PendingRequest) {
-        self.bind_request_dependencies(&mut request.actions, request.request_id);
+        let server_authoritative = self.authority == Some(protocol::InventoryAuthority::Server);
+        if server_authoritative {
+            self.bind_request_dependencies(&mut request.actions, request.request_id);
+        }
         tracing::debug!(target: "bedrock_client::inventory_requests",
             request_id = request.request_id, actions = ?request.actions,
             "inventory request predicted");
@@ -139,7 +142,7 @@ impl PlayerInventoryLedger {
             .into_iter()
             .map(|cell| {
                 let mut held = predicted.get(cell).cloned();
-                if let Some(held) = &mut held {
+                if server_authoritative && let Some(held) = &mut held {
                     // Stamp each changed prediction with the request that owns it.
                     held.stack.stack_network_id = request.request_id;
                 }
@@ -158,6 +161,9 @@ impl PlayerInventoryLedger {
     /// Negative odd request ids name pending sparse cells. The cell address
     /// distinguishes even two halves stamped by the same split request.
     pub(super) fn awaiting_identity(&self, held: &Held) -> bool {
+        if self.authority == Some(protocol::InventoryAuthority::Client) {
+            return false;
+        }
         let id = held.stack.stack_network_id;
         id <= 0
             && !(id < -1

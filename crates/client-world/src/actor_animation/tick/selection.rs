@@ -50,6 +50,7 @@ pub(in crate::actor_animation) fn select(
                     clip: binding.clip as usize,
                     weight,
                     started_tick: 0,
+                    clock: super::super::clock::Basis::Direct,
                     time: 0.0,
                     blend: None,
                 });

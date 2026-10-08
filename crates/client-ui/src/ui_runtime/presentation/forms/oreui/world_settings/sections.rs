@@ -2,7 +2,7 @@
 
 use super::super::theme::{BORDER, DISABLED, EDGE, NEUTRAL};
 use super::*;
-use crate::ui_runtime::oreui_assets::{HARDCORE_ICON, SWITCH_OFF_IMAGE, SWITCH_ON_IMAGE};
+use crate::ui_runtime::oreui_assets::{HARDCORE_ICON, SWITCH_OFF_IMAGE};
 
 pub(super) fn row(
     canvas: &mut Canvas<'_>,
@@ -83,76 +83,4 @@ pub(super) fn hardcore(canvas: &mut Canvas<'_>, area: Bounds) -> Result<f32, UiP
     let y = (face[1] + face[3] - side) * 0.5;
     canvas.sprite(HARDCORE_ICON, [x, y, x + side, y + side], [255; 4])?;
     Ok(end.max(thumb[3]))
-}
-
-/// Draws the native switch for the world's command permission.
-pub(super) fn cheats(
-    canvas: &mut Canvas<'_>,
-    view: &MenuView,
-    area: Bounds,
-    enabled: bool,
-) -> Result<f32, UiPresentationError> {
-    let width = canvas.r(6.4);
-    let label_area = [area[0], area[1], area[2] - width - canvas.r(1.6), area[3]];
-    let y = label(canvas, "Activate cheats", label_area, area[1])?;
-    let end = caption(
-        canvas,
-        "Get access to Minecraft’s built-in cheat system",
-        label_area,
-        y,
-    )?;
-    let top = (area[1] + end - canvas.r(3.2)) * 0.5;
-    let bounds = [area[2] - width, top, area[2], top + canvas.r(3.2)];
-    let edge = canvas.r(EDGE);
-    let role = if enabled {
-        super::super::theme::PRIMARY_ROLE
-    } else {
-        super::super::theme::SECONDARY
-    };
-    canvas.fill(bounds, role.border)?;
-    canvas.fill(
-        [
-            bounds[0] + edge,
-            top + edge,
-            bounds[2] - edge,
-            bounds[3] - edge,
-        ],
-        role.fill,
-    )?;
-    let left = bounds[0] + if enabled { canvas.r(3.2) } else { 0.0 };
-    let thumb = [left, top, left + canvas.r(3.2), bounds[3]];
-    canvas.fill(thumb, role.border)?;
-    let face = [
-        thumb[0] + edge,
-        top + edge,
-        thumb[2] - edge,
-        thumb[3] - canvas.r(0.4) - edge,
-    ];
-    canvas.fill(face, role.fill)?;
-    canvas.fill([face[0], face[3], face[2], thumb[3] - edge], role.shadow)?;
-    let icon_x = if enabled {
-        bounds[0] + canvas.r(0.8)
-    } else {
-        bounds[2] - canvas.r(2.4)
-    };
-    canvas.sprite(
-        if enabled {
-            SWITCH_ON_IMAGE
-        } else {
-            SWITCH_OFF_IMAGE
-        },
-        [
-            icon_x,
-            top + canvas.r(0.8),
-            icon_x + canvas.r(1.6),
-            top + canvas.r(2.4),
-        ],
-        [255; 4],
-    )?;
-    let action = local(A::Cheats(!enabled));
-    canvas.hit(action, bounds)?;
-    if view.navigation_focus_visible && view.focused_action == Some(action) {
-        canvas.frame(bounds, EDGE, super::super::theme::OUTLINE)?;
-    }
-    Ok(end.max(bounds[3]))
 }

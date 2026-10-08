@@ -1,8 +1,8 @@
-//! Server-authoritative player-inventory gestures.
+//! Player-inventory gestures for the negotiated inventory authority.
 //!
-//! Requests pipeline up to [`queue::MAX_PENDING_REQUESTS`] deep. Each writes
-//! absolute sparse cells stamped with its request id; server pushes update
-//! backing truth underneath them, and each answer reconciles its own snapshot.
+//! Server requests retain stamped sparse cells until their answers arrive.
+//! Client-authoritative transactions retain old/new cells until transport
+//! admission; later server pushes correct their committed values.
 
 use std::collections::{BTreeMap, VecDeque};
 
@@ -24,6 +24,9 @@ mod gesture;
 mod gesture_tests;
 mod helpers;
 mod item_roles;
+mod legacy;
+#[cfg(test)]
+mod legacy_tests;
 #[cfg(test)]
 mod lifecycle_tests;
 #[cfg(test)]
@@ -160,8 +163,10 @@ impl PendingCloseOwner {
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Error)]
 pub enum InventoryGestureError {
-    #[error("server-authoritative inventory is not active")]
+    #[error("inventory authority has not been negotiated")]
     AuthorityUnavailable,
+    #[error("this action is not implemented for client-authoritative inventory")]
+    LegacyActionUnavailable,
     #[error("personal inventory open has not been admitted")]
     PersonalInventoryUnavailable,
     #[error("player inventory slot {0} is outside 0..36")]
@@ -185,7 +190,7 @@ pub enum InventoryGestureError {
 #[derive(Debug, Clone)]
 pub struct PlayerInventoryLedger {
     authority: Option<InventoryAuthority>,
-    /// Server truth; gesture predictions never write here, only throws that empty a slot.
+    /// Backing truth, including client-authoritative writes admitted to transport.
     confirmed: Cells,
     /// Backing truth covered by active absolute sparse cells; `None` while idle.
     view: Option<Cells>,
@@ -477,6 +482,11 @@ impl PlayerInventoryLedger {
         if let Some(control) = self.pending_control_packet()? {
             return Ok(Some((control, 1)));
         }
+        if self.authority == Some(InventoryAuthority::Client) {
+            return self
+                .legacy_pending_packet()
+                .map(|packet| packet.map(|packet| (packet, 1)));
+        }
         let requests: Vec<_> = self
             .queue
             .iter()
@@ -551,6 +561,9 @@ impl PlayerInventoryLedger {
             *admitted = true;
             *deadline_millis = Some(now_millis.saturating_add(INVENTORY_REQUEST_TIMEOUT_MILLIS));
             return true;
+        }
+        if self.authority == Some(InventoryAuthority::Client) {
+            return self.commit_legacy_transport();
         }
         let Some(pending) = self
             .queue
@@ -670,7 +683,9 @@ impl PlayerInventoryLedger {
         }
         let (window_id, window_type, generation) =
             (storage.window_id, storage.window_type, storage.generation);
-        let returning = if window_type == WORKBENCH_WINDOW_TYPE {
+        let returning = if window_type == WORKBENCH_WINDOW_TYPE
+            || self.authority == Some(InventoryAuthority::Client)
+        {
             match self.return_crafting_on_close() {
                 Ok(returning) => returning,
                 Err(error) => {

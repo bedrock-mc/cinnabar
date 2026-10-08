@@ -107,6 +107,7 @@ impl ActorAnimationStore {
         let evaluator = evaluation::Evaluator {
             assets,
             layout,
+            program: None,
             actor,
             input: &frame.input,
             context: &context,
@@ -151,9 +152,14 @@ impl ActorAnimationStore {
         let clips = sampled_clips.as_deref().unwrap_or(&frame.clips);
         let sampled_local = if (state.samples_camera_poses && pose_inputs_changed) || swing_changed
         {
-            let Ok(local) =
-                pose::sample_clips(&evaluator, &mut variables, &state.bones, clips, &mut budget)
-            else {
+            let Ok(local) = pose::sample_clips(
+                &evaluator,
+                &mut variables,
+                &state.bones,
+                &state.bone_names,
+                clips,
+                &mut budget,
+            ) else {
                 return Some(completed());
             };
             Some(local)

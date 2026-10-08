@@ -61,6 +61,7 @@ pub(super) fn compile(
     symbols: &[EntityAssetSymbol],
     geometries: &[EntityGeometry],
     molang: &mut MolangCompiler,
+    retain_server_clips: bool,
 ) -> Result<AnimationPayload, AssetError> {
     let source_indices = sources
         .iter()
@@ -150,7 +151,7 @@ pub(super) fn compile(
                 geometries
             })
             .collect::<std::collections::BTreeSet<_>>();
-        if used_geometries.is_empty() {
+        if used_geometries.is_empty() && !retain_server_clips {
             outcomes.push(fallback(
                 source,
                 symbol,
@@ -174,12 +175,36 @@ pub(super) fn compile(
             continue;
         }
         let mut partial = false;
+        if retain_server_clips {
+            let names: Vec<Box<str>> = definition
+                .get("bones")
+                .and_then(Value::as_object)
+                .into_iter()
+                .flat_map(|bones| bones.keys())
+                .map(|name| name.to_ascii_lowercase().into())
+                .collect();
+            match compile_clip_for_geometry(
+                symbol,
+                source,
+                definition,
+                (None, &names),
+                ClipOutputs {
+                    clips: &mut clips,
+                    channels: &mut channels,
+                    keyframes: &mut keyframes,
+                    molang,
+                },
+            ) {
+                Ok((_, dropped)) => partial |= dropped > 0,
+                Err(ClipCompileError::Invalid(error)) => return Err(error),
+            }
+        }
         for geometry in used_geometries {
             match compile_clip_for_geometry(
                 symbol,
                 source,
                 definition,
-                (geometry, &effective_bones[geometry as usize]),
+                (Some(geometry), &effective_bones[geometry as usize]),
                 ClipOutputs {
                     clips: &mut clips,
                     channels: &mut channels,

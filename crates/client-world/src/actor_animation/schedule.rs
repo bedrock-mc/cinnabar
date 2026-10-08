@@ -282,10 +282,15 @@ fn culled(
     };
     let scale = model_scale(state, assets) * actor.render_scale();
     let player = matches!(actor.kind, ActorKind::Player { .. });
-    let bounds = state
-        .skin_skeleton()
-        .and_then(|skin| skin.geometry.visible_bounds)
-        .unwrap_or_default();
+    let bounds = if let Some(skin) = state.skin_skeleton() {
+        skin.geometry.visible_bounds.unwrap_or_default()
+    } else {
+        assets
+            .rig_geometries()
+            .get(state.geometry_binding)
+            .and_then(|binding| assets.geometry_visible_bounds(binding.geometry as usize))
+            .unwrap_or_default()
+    };
     !view.admits(actor.position, scale, player, bounds)
         && !view.admits(actor.previous_pose.position, scale, player, bounds)
 }

@@ -56,7 +56,7 @@ impl SkinGeometry {
             return None;
         }
         let source = serde_json::to_string(geometry).ok()?;
-        finish(
+        let mut skin = finish(
             geometry.identifier.to_string(),
             Some(geometry.texture_width),
             Some(geometry.texture_height),
@@ -65,7 +65,9 @@ impl SkinGeometry {
             "",
             &source,
         )
-        .ok()
+        .ok()?;
+        skin.visible_bounds = geometry.visible_bounds.map(|bounds| bounds.as_bounds());
+        Some(skin)
     }
 }
 

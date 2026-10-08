@@ -855,8 +855,9 @@ fn transport_and_authority_teardown_discard_personal_work() {
     assert_eq!(unauthorized.cursor_stack(), None);
     assert_eq!(
         unauthorized.begin_click(0),
-        Err(InventoryGestureError::AuthorityUnavailable)
+        Err(InventoryGestureError::PersonalInventoryUnavailable)
     );
+    assert!(unauthorized.request_personal_open(42));
 }
 
 #[test]

@@ -32,7 +32,7 @@ mod sanitize;
 mod source;
 mod vanilla_refs;
 mod versions;
-pub use molang::{BlockMolang, BlockStateValue};
+pub use molang::{BlockMolang, BlockStateValue, compile_molang_expression};
 pub use vanilla_refs::compile_vanilla_entity_refs;
 
 pub use pack::{
@@ -84,6 +84,7 @@ struct PendingGeometry {
     source_path: Box<str>,
     texture_width: Option<u16>,
     texture_height: Option<u16>,
+    visible_bounds: Option<assets::EntityGeometryBounds>,
     bones: Box<[EntityGeometryBone]>,
 }
 
@@ -322,6 +323,7 @@ fn assemble(
                 texture_width: geometry.texture_width.unwrap_or(64),
                 texture_height: geometry.texture_height.unwrap_or(64),
                 bones: geometry.bones,
+                visible_bounds: geometry.visible_bounds,
             })
         })
         .collect::<Result<Vec<_>, AssetError>>()?;
@@ -348,6 +350,7 @@ fn assemble(
         &symbols,
         &geometries,
         &mut molang_compiler,
+        !include_items,
     )?;
     validate_reference_coverage(&symbols, &animation)?;
     let molang = molang_compiler.finish()?;

@@ -11,6 +11,7 @@ use super::{OverlayGaps, compile_block_overlay};
 
 mod builtins;
 mod legacy;
+mod lighting;
 mod vines;
 
 fn png(width: u32, height: u32, pixel: impl Fn(u32, u32) -> [u8; 4]) -> Vec<u8> {
@@ -133,11 +134,12 @@ fn materials(texture: &str) -> Option<Box<[CustomMaterialInstance]>> {
 
 fn block(name: &str, state_count: u32, visual: CustomBlockVisuals) -> CustomBlock {
     CustomBlock {
+        state_physics: Default::default(),
         name: name.into(),
         tags: Default::default(),
         state_count,
         collides: true,
-        collision_box: None,
+        collision_boxes: None,
         selection: Default::default(),
         visual: Arc::new(visual),
     }
@@ -156,6 +158,7 @@ fn turn(quarters: i32) -> CustomVisualComponents {
 
 fn generator() -> CustomBlock {
     let direction = |value: &str, quarters| CustomPermutation {
+        physical: Default::default(),
         condition: format!("q.block_state('minecraft:cardinal_direction') == '{value}'").into(),
         components: turn(quarters),
     };
@@ -414,6 +417,7 @@ fn incomplete_state_identity_preserves_neighboring_custom_blocks() {
 #[test]
 fn permutation_conditions_evaluate_as_block_molang() {
     let open = |condition: &str| CustomPermutation {
+        physical: Default::default(),
         condition: condition.into(),
         components: turn(1),
     };
@@ -452,6 +456,7 @@ fn permutation_conditions_evaluate_as_block_molang() {
 #[test]
 fn sequential_states_with_several_axes_resolve_permutations() {
     let facing = |value: &str, quarters| CustomPermutation {
+        physical: Default::default(),
         condition: format!("q.block_state('minecraft:cardinal_direction') == '{value}'").into(),
         components: turn(quarters),
     };
@@ -559,6 +564,7 @@ fn bone_visibility_hides_bones_per_state() {
         CustomBlockVisuals {
             base: bone_components(&[]),
             permutations: Box::new([CustomPermutation {
+                physical: Default::default(),
                 condition: "q.block_state('test:s')".into(),
                 components: bone_components(&[("a", "0.000000"), ("b", "0.4"), ("d", "-0.5")]),
             }]),
@@ -649,7 +655,7 @@ fn flipbook_frames_are_capped_and_shrunk() {
     );
 }
 
-// Explicit light components override the full-dampening, no-emission default.
+// Explicit light components override geometry absorption and the no-emission default.
 #[test]
 fn light_components_drive_state_light() {
     use protocol::{CustomBlockVisuals, CustomVisualComponents};
@@ -689,8 +695,8 @@ fn light_components_drive_state_light() {
     assert_eq!((light[0].emission(), light[0].filter()), (13, 0));
     assert_eq!(
         (light[1].emission(), light[1].filter()),
-        (0, 15),
-        "vanilla default"
+        (0, 0),
+        "modern geometry defaults to no absorption"
     );
 }
 
