@@ -8,7 +8,10 @@ use assets::{
 };
 
 impl BlockTextureMap {
-    pub(crate) fn isotropic_face_flags(&self, record: &RegistryRecord) -> [u32; BlockFace::ALL.len()] {
+    pub(crate) fn isotropic_face_flags(
+        &self,
+        record: &RegistryRecord,
+    ) -> [u32; BlockFace::ALL.len()] {
         let name = record
             .name
             .strip_prefix("minecraft:")
