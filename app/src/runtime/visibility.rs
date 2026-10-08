@@ -83,21 +83,18 @@ impl CaveVisibilityCache {
         }
     }
 
-    /// Whether the culler hides the box from `low` to `high` in `dimension`: as in vanilla,
-    /// only when the cache matches graph `generation` and every sub-chunk the
-    /// box overlaps is `known` to that graph without being visible.
+    /// Hides a box only with a current camera and graph result, when every
+    /// sub-chunk it touches is known and invisible.
     pub(crate) fn hides_box(
         &self,
-        dimension: i32,
+        camera: SubChunkKey,
         generation: u64,
         known: impl Fn(SubChunkKey) -> bool,
         low: [f32; 3],
         high: [f32; 3],
     ) -> bool {
         if !self.initialized
-            || self
-                .camera
-                .is_none_or(|camera| camera.dimension != dimension)
+            || self.camera != Some(camera)
             || self.graph_generation != Some(generation)
             || low.iter().chain(&high).any(|value| !value.is_finite())
         {
@@ -107,7 +104,7 @@ impl CaveVisibilityCache {
         for x in section(low[0])..=section(high[0]) {
             for y in section(low[1])..=section(high[1]) {
                 for z in section(low[2])..=section(high[2]) {
-                    let key = SubChunkKey::new(dimension, x, y, z);
+                    let key = SubChunkKey::new(camera.dimension, x, y, z);
                     if !known(key) || self.visible.contains(&key) {
                         return false;
                     }

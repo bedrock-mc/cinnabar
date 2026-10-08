@@ -624,33 +624,15 @@ fn element_button_forms_reject_ambiguous_or_unsupported_controls_without_renumbe
 }
 
 #[test]
-fn element_button_forms_keep_the_existing_count_and_text_limits() {
-    let buttons = std::iter::repeat_n(
-        r#"{"type":"button","text":"x","image":null}"#,
-        protocol::MAX_FORM_BUTTONS,
-    )
-    .collect::<Vec<_>>()
-    .join(",");
-    let event = form_event(&format!(r#"{{"type":"form","elements":[{buttons}]}}"#)).unwrap();
-    let protocol::ServerFormModel::TextMenu(menu) = event.model else {
-        panic!("bounded element menu")
-    };
-    assert_eq!(menu.buttons.len(), protocol::MAX_FORM_BUTTONS);
-    let overflow = format!(
-        r#"{{"type":"form","elements":[{buttons},{{"type":"button","text":"x","image":null}}]}}"#
-    );
+fn element_button_forms_keep_the_existing_text_limits() {
     let long = "x".repeat(MAX_UI_TEXT_BYTES + 1);
-    for json in [
-        overflow,
-        format!(
-            r#"{{"type":"form","elements":[{{"type":"button","text":"{long}","image":null}}]}}"#
-        ),
-    ] {
-        assert_eq!(
-            form_event(&json).unwrap().model,
-            protocol::ServerFormModel::Unsupported(protocol::UnsupportedForm::Limit)
-        );
-    }
+    let json = format!(
+        r#"{{"type":"form","elements":[{{"type":"button","text":"{long}","image":null}}]}}"#
+    );
+    assert_eq!(
+        form_event(&json).unwrap().model,
+        protocol::ServerFormModel::Unsupported(protocol::UnsupportedForm::Limit)
+    );
 }
 
 #[test]
@@ -810,15 +792,7 @@ fn modal_and_custom_form_responses_round_trip() {
 }
 
 #[test]
-fn text_button_form_model_refuses_count_and_string_overflow_without_truncating_indices() {
-    let buttons = std::iter::repeat_n(r#"{"text":"x"}"#, protocol::MAX_FORM_BUTTONS + 1)
-        .collect::<Vec<_>>()
-        .join(",");
-    let event = form_event(&format!(r#"{{"type":"form","buttons":[{buttons}]}}"#)).unwrap();
-    assert!(matches!(
-        event.model,
-        protocol::ServerFormModel::Unsupported(_)
-    ));
+fn text_button_form_model_refuses_string_overflow_without_truncating_indices() {
     let text = "x".repeat(MAX_UI_TEXT_BYTES + 1);
     for json in [
         format!(r#"{{"type":"form","content":"{text}","buttons":[]}}"#),

@@ -22,6 +22,8 @@ mod camera;
 mod controls;
 #[path = "gameplay.rs"]
 mod gameplay;
+#[path = "item_use.rs"]
+mod item_use;
 #[path = "render.rs"]
 mod render;
 
@@ -50,6 +52,7 @@ struct State {
     controls: controls::ControlState,
     world: gameplay::WorldState,
     camera_policy: camera::CameraPolicy,
+    item_use_policy: item_use::ItemUsePolicy,
     render: render::RenderState,
     block_highlights: block_highlights::HighlightState,
 }
@@ -88,6 +91,7 @@ impl State {
             controls: controls::ControlState::new(settings),
             world: gameplay::WorldState::default(),
             camera_policy: camera::CameraPolicy::default(),
+            item_use_policy: item_use::ItemUsePolicy::default(),
             render: render::RenderState::new(),
             block_highlights: block_highlights::HighlightState::default(),
         }
@@ -206,6 +210,7 @@ impl Instance {
         state.block_highlights.begin_frame();
         state.world.begin_frame();
         state.camera_policy = camera::CameraPolicy::default();
+        state.item_use_policy = item_use::ItemUsePolicy::default();
         if !self.active {
             return Ok(());
         }
@@ -240,6 +245,7 @@ impl Instance {
             self.store.data_mut().block_highlights.revoke();
             self.store.data_mut().world = gameplay::WorldState::default();
             self.store.data_mut().camera_policy = camera::CameraPolicy::default();
+            self.store.data_mut().item_use_policy = item_use::ItemUsePolicy::default();
             self.store.data_mut().packet_delay_ms = 0;
             self.store.data_mut().pending_packet_delay = None;
             self.store.data_mut().show_real_position = false;
@@ -252,6 +258,10 @@ impl Instance {
         self.store.data_mut().world.incoming = Vec::new();
         self.store.data_mut().controls.frame = crate::empty_controls();
         Ok(())
+    }
+
+    pub(super) fn item_use_delay_fix(&self) -> Option<(u64, i32)> {
+        self.store.data().item_use_policy.committed
     }
 
     pub(super) fn preserves_teleport_rotation(&self) -> bool {
@@ -344,6 +354,7 @@ fn commit(store: &mut Store<State>) {
     state.block_highlights.commit();
     state.world.commit();
     state.camera_policy.committed = state.camera_policy.pending && state.snapshot.is_some();
+    state.item_use_policy.commit(state.snapshot.as_ref());
     state.camera_delta = state.pending_camera.take();
     if let Some(delay) = state.pending_packet_delay.take() {
         state.packet_delay_ms = delay;

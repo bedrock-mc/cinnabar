@@ -4,6 +4,10 @@ use std::sync::Arc;
 use sha2::{Digest, Sha256};
 
 use super::{PhysicsCollisionRegistries, PhysicsCollisionRegistryError};
+
+#[path = "tests/custom_shapes.rs"]
+mod custom_shapes;
+
 /// Reads the checkout's shared target manifest for registry fixtures.
 fn active_content_registry_protocol() -> u32 {
     serde_json::from_str::<serde_json::Value>(include_str!(
@@ -74,11 +78,12 @@ fn bind(
 
 fn custom_block(name: &str, state_count: u32) -> protocol::CustomBlock {
     protocol::CustomBlock {
+        state_physics: Default::default(),
         name: name.into(),
         tags: Default::default(),
         state_count,
         collides: true,
-        collision_box: None,
+        collision_boxes: None,
         selection: Default::default(),
         visual: Default::default(),
     }

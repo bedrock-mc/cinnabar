@@ -69,7 +69,7 @@ fn concatenate_layers<'a>(layers: impl Iterator<Item = &'a [u8]> + Clone) -> Vec
 }
 
 const fn player_page_bytes() -> usize {
-    super::PLAYER_SKIN_BUDGET_BYTES
+    render_model::PLAYER_SKIN_BUDGET_BYTES
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

@@ -14,6 +14,11 @@ on the horizontal axis. The full-window setting therefore defines the
 vertical FOV. A setting of 110 degrees stays 110 degrees vertically, about
 137 degrees horizontally at 16:9.
 
+The standard world and first-person projections use a near plane 0.025 blocks
+ahead of the eye. Boom collision uses that same clearance. A larger near plane
+can cut into a nearby wall at sprint FOV while the player collision box remains
+outside the wall.
+
 Cinnabar previously treated this setting as a horizontal angle and converted
 it through `2 * atan(tan(FOV / 2) / aspect)`. At 16:9, setting 110 consequently
 rendered only about 77.55 degrees vertically. The camera now uses the setting

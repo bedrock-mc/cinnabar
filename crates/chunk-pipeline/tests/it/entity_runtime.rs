@@ -95,6 +95,7 @@ fn compiled_entity_assets(fallback: EntityRigFallback) -> CompiledEntityAssets {
         symbols,
         geometries: vec![
             EntityGeometry {
+                visible_bounds: None,
                 identifier: "geometry.base".into(),
                 inherits: None,
                 source_index: 3,
@@ -117,6 +118,7 @@ fn compiled_entity_assets(fallback: EntityRigFallback) -> CompiledEntityAssets {
                 .into_boxed_slice(),
             },
             EntityGeometry {
+                visible_bounds: None,
                 identifier: "geometry.bee".into(),
                 inherits: Some(EntityGeometryInheritance {
                     identifier: "geometry.base".into(),
@@ -156,6 +158,7 @@ fn compiled_entity_assets(fallback: EntityRigFallback) -> CompiledEntityAssets {
         }]
         .into_boxed_slice(),
         animation_channels: vec![EntityAnimationChannel {
+            bone_name: None,
             bone: 1,
             property: EntityAnimationProperty::Translation,
             first_keyframe: 0,
@@ -336,7 +339,7 @@ fn stream_with_entity_assets(entity_assets: Arc<RuntimeEntityAssets>) -> WorldSt
 
 #[test]
 fn runtime_budgets_are_the_reviewed_exact_ceilings() {
-    assert_eq!(MAX_RUNTIME_BONES_PER_RIG, 96);
+    assert_eq!(MAX_RUNTIME_BONES_PER_RIG, assets::MAX_ENTITY_GEOMETRY_BONES);
     assert_eq!(MAX_CONTROLLER_TRANSITIONS_PER_TICK, 8);
     assert_eq!(MAX_MOLANG_OPS_PER_ACTOR_TICK, 4_096);
     assert_eq!(MAX_MOLANG_OPS_PER_WORLD_TICK, 262_144);
@@ -931,6 +934,9 @@ fn review_custom_action_uses_the_server_pack_rig_catalog() {
                     kind: protocol::ActorActionKind::Custom {
                         animation: "animation.bee.move".into(),
                         controller: "controller.animation.bee".into(),
+                        next_state: "".into(),
+                        stop_expression: "".into(),
+                        stop_expression_version: 0,
                     },
                     data: 0.0,
                     swing_source: None,

@@ -14,8 +14,8 @@ const FLY_DESCEND: f32 = -0.22;
 const HOVER_INPUT_THRESHOLD: f32 = 0.01;
 const CREATIVE_HOVER_MODIFIER: f32 = 0.375;
 const OTHER_HOVER_MODIFIER: f32 = 0.75;
-// Vertical fly drag retains `1 - VERTICAL_FRICTION` in f32, independent of
-// horizontal drag.
+// Vertical fly drag retains `1 - VERTICAL_FRICTION * air_drag_modifier` in f32,
+// independent of horizontal drag.
 const VERTICAL_FRICTION: f32 = 0.399_999_98;
 
 pub(super) fn horizontal_speed(input: &MovementInput) -> f64 {
@@ -74,7 +74,8 @@ pub(super) fn apply_drag(
     let horizontal = ground_friction as f32 * modifier * DEFAULT_AIR_FRICTION as f32;
     velocity.x = damp_horizontal(velocity.x, horizontal);
     velocity.z = damp_horizontal(velocity.z, horizontal);
-    velocity.y = f64::from(velocity.y as f32 * (1.0 - VERTICAL_FRICTION));
+    let retention = input.vertical_physics.modified_retention(VERTICAL_FRICTION);
+    velocity.y = f64::from(velocity.y as f32 * retention);
 }
 
 fn hovering(move_vector: [f64; 2]) -> bool {

@@ -20,6 +20,7 @@ impl SettingsOptions {
         settings.video.frame_cap =
             (self.value("max_framerate") != 0).then(|| self.value("max_framerate") as u16);
         settings.video.vsync = self.value("vsync") != 0;
+        settings.video.anti_aliasing_samples = self.value("msaa") as u32;
         settings.video.render_distance_chunks = self.value("render_distance") as u8;
         settings.video.view_bobbing = self.value("view_bobbing") != 0;
         settings.video.java_animations = self.value(ANIMATIONS_OPTION.name) == 0;

@@ -334,9 +334,9 @@ fn metadata_properties_and_attributes_are_normalized_without_generated_types() {
 }
 
 #[test]
-fn the_two_actor_flag_words_keep_their_dedicated_metadata_values() {
-    // 1.26.40 sends both flag words as ordinary Int64 payloads; only the
-    // actor-data id (0 and 92) distinguishes them from a plain long.
+fn the_actor_flag_words_keep_their_dedicated_metadata_values() {
+    // 1.26.40 sends the flag words as ordinary Int64 payloads; only the
+    // actor-data id (0, 92 and 139) distinguishes them from a plain long.
     let set_data = SetActorDataPacket {
         target_runtime_id: ActorRuntimeId {
             actor_runtime_id: 55,
@@ -346,6 +346,7 @@ fn the_two_actor_flag_words_keep_their_dedicated_metadata_values() {
                 int64_actor_data(0, 0b1010),
                 int64_actor_data(92, 0b0110),
                 int64_actor_data(7, 42),
+                int64_actor_data(139, 1),
             ],
         },
         ..Default::default()
@@ -363,6 +364,10 @@ fn the_two_actor_flag_words_keep_their_dedicated_metadata_values() {
         ActorMetadataValue::FlagsExtended(0b0110)
     );
     assert_eq!(update.metadata[2].value, ActorMetadataValue::Long(42));
+    assert_eq!(
+        update.metadata[3].value,
+        ActorMetadataValue::FlagsExtended(1)
+    );
 }
 
 fn int64_actor_data(id: i32, value: i64) -> DataItemEntry {

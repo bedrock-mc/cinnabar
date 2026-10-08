@@ -108,6 +108,7 @@ fn geometry_fixture() -> CompiledEntityAssets {
     ]
     .into_boxed_slice();
     compiled.geometries = vec![EntityGeometry {
+        visible_bounds: None,
         identifier: "geometry.allay".into(),
         inherits: None,
         source_index: 1,
@@ -142,7 +143,7 @@ fn geometry_fixture() -> CompiledEntityAssets {
     compiled
 }
 
-fn inherited_geometry_fixture() -> CompiledEntityAssets {
+pub(super) fn inherited_geometry_fixture() -> CompiledEntityAssets {
     let mut compiled = geometry_fixture();
     compiled.sources = vec![
         compiled.sources[0].clone(),
@@ -168,6 +169,7 @@ fn inherited_geometry_fixture() -> CompiledEntityAssets {
     compiled.geometries = vec![
         compiled.geometries[0].clone(),
         EntityGeometry {
+            visible_bounds: None,
             identifier: "geometry.derived".into(),
             inherits: Some(EntityGeometryInheritance {
                 identifier: "geometry.allay".into(),
@@ -390,6 +392,7 @@ fn carrier_rejects_dependency_resolution_that_disagrees_with_catalog() {
     ]
     .into_boxed_slice();
     compiled.geometries = vec![EntityGeometry {
+        visible_bounds: None,
         identifier: "geometry.allay".into(),
         inherits: None,
         source_index: 1,
@@ -512,6 +515,7 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
         sources,
         symbols,
         geometries: vec![entity::EntityGeometry {
+            visible_bounds: None,
             identifier: "geometry.allay".into(),
             inherits: None,
             source_index: 3,
@@ -547,6 +551,7 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
         }]
         .into_boxed_slice(),
         animation_channels: vec![EntityAnimationChannel {
+            bone_name: None,
             bone: 0,
             property: EntityAnimationProperty::Rotation,
             first_keyframe: 0,
@@ -805,10 +810,11 @@ fn carrier_v4_accepts_exact_animation_and_controller_bounds() {
     compiled = carrier_v4_fixture();
     compiled.animation_channels = (0..MAX_ENTITY_ANIMATION_CHANNELS)
         .map(|index| EntityAnimationChannel {
+            bone_name: None,
             first_keyframe: u32::from(index != 0),
             keyframe_count: u32::from(index == 0),
             rotation_relative_to_entity: false,
-            ..compiled.animation_channels[0]
+            ..compiled.animation_channels[0].clone()
         })
         .collect();
     compiled.animation_clips[0].channel_count = MAX_ENTITY_ANIMATION_CHANNELS as u32;
@@ -871,7 +877,8 @@ fn carrier_v4_rejects_animation_and_controller_limits_plus_one() {
 
     let mut compiled = carrier_v4_fixture();
     compiled.animation_channels =
-        vec![compiled.animation_channels[0]; MAX_ENTITY_ANIMATION_CHANNELS + 1].into_boxed_slice();
+        vec![compiled.animation_channels[0].clone(); MAX_ENTITY_ANIMATION_CHANNELS + 1]
+            .into_boxed_slice();
     cases.push(compiled);
 
     let mut compiled = carrier_v4_fixture();
@@ -1165,30 +1172,4 @@ fn render_layers_round_trip_and_reject_invalid_indices() {
     let mut bad_pattern = compiled;
     bad_pattern.render.visibility[0].pattern = "Root".into();
     assert!(entity::encode_entity_blob(&bad_pattern).is_err());
-}
-
-/// Both admission paths retain the selected parent graph and clones share it unchanged.
-#[test]
-fn admitted_geometry_parents_are_shared_and_match_the_decoded_catalog() {
-    let compiled = inherited_geometry_fixture();
-    let encoded = encode_entity_blob(&compiled).unwrap();
-    let admitted = RuntimeEntityAssets::from_compiled(compiled).unwrap();
-    let decoded = RuntimeEntityAssets::decode(&encoded).unwrap();
-    assert_eq!(admitted.geometry_parents(), &[None, Some(0)]);
-    assert_eq!(decoded.geometry_parents(), admitted.geometry_parents());
-    let cloned = admitted.clone();
-    assert!(std::ptr::eq(
-        cloned.geometry_parents(),
-        admitted.geometry_parents()
-    ));
-}
-
-/// A compiled catalog and a decode of its carrier must be indistinguishable, identity included.
-#[test]
-fn encoded_admission_reports_the_identity_of_its_carrier() {
-    let (admitted, blob) =
-        RuntimeEntityAssets::from_compiled_encoded(inherited_geometry_fixture()).unwrap();
-    let decoded = RuntimeEntityAssets::decode(&blob.unwrap()).unwrap();
-    assert!(admitted.carrier_identity().is_some());
-    assert_eq!(format!("{admitted:?}"), format!("{decoded:?}"));
 }

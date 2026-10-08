@@ -53,7 +53,7 @@ use crate::{
         },
         mutation::write_stdout_marker,
     },
-    camera::{THIRD_PERSON_COLLISION_EPSILON_BLOCKS, THIRD_PERSON_RADIUS_BLOCKS},
+    camera::THIRD_PERSON_RADIUS_BLOCKS,
     local_player::LocalPlayerFrameCarrier,
     movement::{
         MovementSendError, MovementTicker, PhysicsTickEvidenceContext,
@@ -274,10 +274,10 @@ pub(crate) fn send_player_auth_inputs(
             let third_person = frame.perspective() != semantic_input::PerspectiveMode::FirstPerson;
             let camera_distance = frame.pose().translation.distance(frame.eye());
             let camera_fallback =
-                third_person && camera_distance <= THIRD_PERSON_COLLISION_EPSILON_BLOCKS;
+                third_person && camera_distance <= render_api::CAMERA_NEAR_PLANE_BLOCKS;
             let camera_blocked = third_person
                 && !camera_fallback
-                && camera_distance + THIRD_PERSON_COLLISION_EPSILON_BLOCKS
+                && camera_distance + render_api::CAMERA_NEAR_PLANE_BLOCKS
                     < THIRD_PERSON_RADIUS_BLOCKS;
             PhysicsTickEvidenceContext {
                 fifo_sequence: frame.fifo_sequence(),

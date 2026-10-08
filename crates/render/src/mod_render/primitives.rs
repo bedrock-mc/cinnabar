@@ -38,6 +38,7 @@ const VERTEX_BYTES: u64 = std::mem::size_of::<ModVertex>() as u64;
 pub(crate) const PRIMITIVE_DISTANCE: f32 = f32::MAX / 2.0;
 
 pub(super) fn install(app: &mut App) {
+    crate::pipeline_warmup::register::<PrimitivePipeline>(app);
     load_internal_asset!(
         app,
         PRIMITIVE_SHADER,
@@ -532,5 +533,26 @@ impl<P: PhaseItem> RenderCommand<P> for DrawBlockHighlights {
         }
         pass.draw(gpu.vertex_count..gpu.vertex_count + gpu.block_count, 0..1);
         RenderCommandResult::Success
+    }
+}
+
+impl crate::pipeline_warmup::PrewarmPipelines for PrimitivePipeline {
+    fn prewarm(
+        &mut self,
+        cache: &PipelineCache,
+        view: crate::pipeline_warmup::WarmView,
+        ids: &mut crate::pipeline_warmup::WarmupIds,
+    ) -> Result<(), BevyError> {
+        for through_world in [false, true] {
+            ids.push(self.variants.specialize(
+                cache,
+                PrimitiveKey {
+                    msaa: view.msaa,
+                    hdr: view.hdr,
+                    through_world,
+                },
+            )?);
+        }
+        Ok(())
     }
 }

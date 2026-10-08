@@ -461,6 +461,6 @@ pub(super) fn hand_projection(size: [u32; 2]) -> Mat4 {
     Mat4::perspective_infinite_reverse_rh(
         70.0_f32.to_radians(),
         size[0] as f32 / size[1] as f32,
-        0.1,
+        render_api::CAMERA_NEAR_PLANE_BLOCKS,
     )
 }

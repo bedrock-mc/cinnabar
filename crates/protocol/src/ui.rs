@@ -23,7 +23,7 @@ pub use commands::{
 
 pub use forms::{
     CustomForm, CustomFormElement, CustomFormValue, ElementMenuForm, FormButtonImage, FormKind,
-    FormNumber, FormRequestEvent, MAX_FORM_BUTTONS, MAX_FORM_JSON_DEPTH, MenuElement,
+    FormNumber, FormRequestEvent, MAX_CUSTOM_FORM_ITEMS, MAX_FORM_JSON_DEPTH, MenuElement,
     ModalDialogForm, ModalFormResponseSelection, NPC_DIALOGUE_FORM_ID, NpcButton, NpcDialogueForm,
     NpcRequestKind, ServerFormModel, TextMenuForm, UnsupportedForm, custom_form_submit_response,
     modal_form_busy_response, modal_form_cancel_response, modal_form_submit_response,

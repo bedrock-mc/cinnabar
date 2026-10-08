@@ -6,6 +6,14 @@ use json_ui::{
 
 use super::layer_pack_catalog;
 
+mod admitted_titles;
+mod effects;
+mod nested_titles;
+mod retained_titles;
+mod title_layout;
+mod titles;
+mod visibility;
+
 struct FixedText;
 
 impl TextMeasure for FixedText {

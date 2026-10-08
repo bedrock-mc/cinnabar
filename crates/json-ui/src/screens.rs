@@ -47,6 +47,7 @@ pub const ENGINE_SCREENS: &[&str] = &[
     "book.book_screen",
     "npc_interact.npc_screen",
     "pause.pause_screen",
+    "invite.invite_screen",
     "chat.chat_screen",
     "start.start_screen",
     "play.play_screen",

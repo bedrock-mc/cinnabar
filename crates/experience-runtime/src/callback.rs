@@ -12,18 +12,19 @@ use wasmtime::{Engine, Store, Trap};
 
 use crate::hex::{self, HexError};
 use crate::host::cinnabar::experience_server::types::{
-    self as wit, CallbackInfo, ChangeCause, GuestError, WorldError,
+    self as wit, CallbackInfo, ChangeCause, GuestError, ValueNode, WorldError,
 };
 use crate::host::{HostState, LimitExceeded, Pre};
 use crate::limits::{
     CALLBACK_DEADLINE, CALLBACK_FUEL, MAX_BLOCK_DATA_BYTES, MAX_CLIENT_SEND_BYTES,
     MAX_CLIENT_SENDS, MAX_HOST_CALLS, MAX_STAGED_DATA_BYTES, MAX_STAGED_OPS, MAX_TELL_BYTES,
-    MAX_TELLS,
+    MAX_TELLS, MAX_VALUE_DEPTH,
 };
 use crate::load::Loaded;
 use crate::protocol::{
-    self, BlockPos, Call, FailKind, Op, Outcome, Request, Scalar, bounded_reason,
+    self, BlockPos, Call, Cell, FailKind, Op, Outcome, Request, Scalar, bounded_reason,
 };
+use crate::value::{self, Refusal};
 
 /// The one block id outside its own namespace that an Experience may place.
 const AIR: &str = "minecraft:air";
@@ -47,9 +48,9 @@ pub fn run_metered(engine: &Engine, loaded: &Loaded, request: &Request) -> (Outc
             return (Outcome::Rejected { reason }, 0);
         }
     };
-    if matches!(export, Export::ClientMessage { .. }) && !loaded.pre.has_client_message() {
+    if let Some(missing) = unsupported(&loaded.pre, &export, res.focus.is_some()) {
         let reason = format!(
-            "malformed callback request: api {} has no client-message",
+            "malformed callback request: api {} has {missing}",
             loaded.manifest.api
         );
         return (Outcome::Rejected { reason }, 0);
@@ -96,8 +97,10 @@ fn invoke(
                 Export::Neighbor { pos, neighbor } => {
                     server.call_on_neighbor_changed(&mut *store, ctx, *pos, *neighbor)
                 }
-                // `run_metered` answers it without running anything.
-                Export::ClientMessage { .. } => bail!("the 0.1 world has no client-message"),
+                // `run_metered` answers them without running anything.
+                Export::ClientMessage { .. } | Export::Epoch { .. } => {
+                    bail!("the 0.1 world has neither client-message nor epoch")
+                }
             }
         }
         Pre::V0_2(pre) => {
@@ -117,13 +120,83 @@ fn invoke(
                     schema,
                     payload,
                 } => {
-                    server.call_client_message(&mut *store, ctx, player, channel, *schema, payload)
+                    // `run_metered` answers a payload with lists or records without running it.
+                    let Some(leaves) = payload
+                        .iter()
+                        .map(value::leaf_of)
+                        .collect::<Option<Vec<_>>>()
+                    else {
+                        bail!("the 0.2 world has no list or record values")
+                    };
+                    server.call_client_message(&mut *store, ctx, player, channel, *schema, &leaves)
                 }
+                Export::Epoch { .. } => bail!("the 0.2 world has no epoch"),
+            }
+        }
+        Pre::V0_3(pre) => {
+            let server = pre.instantiate(&mut *store)?;
+            match export {
+                Export::Place(change) => server.call_on_place(&mut *store, ctx, change),
+                Export::Break(change) => server.call_on_break(&mut *store, ctx, change),
+                Export::Interact { player, pos, face } => {
+                    server.call_on_interact(&mut *store, ctx, player, *pos, *face)
+                }
+                Export::Neighbor { pos, neighbor } => {
+                    server.call_on_neighbor_changed(&mut *store, ctx, *pos, *neighbor)
+                }
+                Export::ClientMessage {
+                    player,
+                    channel,
+                    schema,
+                    payload,
+                } => {
+                    let nodes = value::encode(payload);
+                    server.call_client_message(&mut *store, ctx, player, channel, *schema, &nodes)
+                }
+                Export::Epoch { player } => server.call_epoch(&mut *store, ctx, player),
+            }
+        }
+        Pre::V0_4(pre) => {
+            let server = pre.instantiate(&mut *store)?;
+            match export {
+                Export::Place(change) => server.call_on_place(&mut *store, ctx, change),
+                Export::Break(change) => server.call_on_break(&mut *store, ctx, change),
+                Export::Interact { player, pos, face } => {
+                    server.call_on_interact(&mut *store, ctx, player, *pos, *face)
+                }
+                Export::Neighbor { pos, neighbor } => {
+                    server.call_on_neighbor_changed(&mut *store, ctx, *pos, *neighbor)
+                }
+                Export::ClientMessage {
+                    player,
+                    channel,
+                    schema,
+                    payload,
+                } => {
+                    let nodes = value::encode(payload);
+                    server.call_client_message(&mut *store, ctx, player, channel, *schema, &nodes)
+                }
+                Export::Epoch { player } => server.call_epoch(&mut *store, ctx, player),
             }
         }
     }?;
     let res = store.data_mut().table.delete(owned)?;
     Ok((result, res.ops))
+}
+
+/// What the world of `pre` lacks to run `export`, `focused` when it has its player's focus, if
+/// anything: 0.1 has no client-message, 0.2 no list or record values, neither has epoch, and
+/// only 0.4 has a focus.
+fn unsupported(pre: &Pre, export: &Export<'_>, focused: bool) -> Option<&'static str> {
+    match (pre, export) {
+        (Pre::V0_1(_), Export::ClientMessage { .. }) => Some("no client-message"),
+        (Pre::V0_1(_) | Pre::V0_2(_), Export::Epoch { .. }) => Some("no epoch"),
+        (Pre::V0_2(_), Export::ClientMessage { payload, .. }) if value::depth(payload) > 0 => {
+            Some("no list or record values")
+        }
+        (Pre::V0_1(_) | Pre::V0_2(_) | Pre::V0_3(_), _) if focused => Some("no focus"),
+        _ => None,
+    }
 }
 
 /// The outcome of a callback that trapped or could not start: fuel, the deadline and limits
@@ -147,6 +220,9 @@ fn failed(error: &anyhow::Error) -> Outcome {
 pub struct CallbackRes {
     info: CallbackInfo,
     actor: Option<String>,
+    /// The actor's focus, which a client message or an epoch may have; its snapshot is the one
+    /// its anchor would have.
+    focus: Option<BlockPos>,
     /// The ids of this Experience's blocks.
     own: Arc<[String]>,
     snapshot: Snapshot,
@@ -198,18 +274,23 @@ enum Export<'a> {
         pos: wit::BlockPos,
         neighbor: wit::BlockPos,
     },
+    /// The payload stays in the protocol's form until the world it goes to is known.
     ClientMessage {
         player: &'a wit::PlayerId,
         channel: &'a str,
         schema: u16,
-        payload: Vec<wit::Scalar>,
+        payload: &'a [Scalar],
+    },
+    Epoch {
+        player: &'a wit::PlayerId,
     },
 }
 
 /// The callback's host value and export for `request`, an Experience whose block ids are `own`.
-/// The anchor, whose chunk column bounds writes, is the call's position; a client message has
-/// none, and no snapshot. Hex is decoded and player ids are checked here, so a request that is
-/// not a callback, holds bad hex or a player id that is not canonical fails before anything runs.
+/// The anchor, whose chunk column bounds writes, is the call's position; a client message and an
+/// epoch have their player's focus, if any, and without one no snapshot. Hex is decoded and player ids are checked here, so a request
+/// that is not a callback, holds bad hex or a player id that is not canonical fails before
+/// anything runs.
 fn prepare<'a>(
     own: &Arc<[String]>,
     request: &'a Request,
@@ -228,6 +309,7 @@ fn prepare<'a>(
         return Err("not a callback".to_owned());
     };
     player_id("actor", actor.as_deref())?;
+    let mut focused = None;
     let (anchor, export) = match call {
         Call::Place { change } => (Some(change.pos), Export::Place(block_change(change)?)),
         Call::Break { change } => (Some(change.pos), Export::Break(block_change(change)?)),
@@ -252,21 +334,32 @@ fn prepare<'a>(
             channel,
             schema,
             payload,
+            focus,
         } => {
-            player_id("player", Some(player))?;
-            if actor.as_deref() != Some(player.as_str()) {
-                return Err("a client message's actor is not its player".to_owned());
-            }
-            if !snapshot.is_empty() {
-                return Err("a client message has a snapshot".to_owned());
+            player_call(
+                "a client message",
+                player,
+                actor.as_deref(),
+                snapshot,
+                *focus,
+            )?;
+            if value::depth(payload) > MAX_VALUE_DEPTH {
+                let reason = format!("a client message nests values deeper than {MAX_VALUE_DEPTH}");
+                return Err(reason);
             }
             let export = Export::ClientMessage {
                 player,
                 channel,
                 schema: *schema,
-                payload: payload.iter().cloned().map(Into::into).collect(),
+                payload,
             };
-            (None, export)
+            focused = *focus;
+            (*focus, export)
+        }
+        Call::Epoch { player, focus } => {
+            player_call("an epoch", player, actor.as_deref(), snapshot, *focus)?;
+            focused = *focus;
+            (*focus, Export::Epoch { player })
         }
     };
     let cells = snapshot
@@ -291,6 +384,7 @@ fn prepare<'a>(
             event_sequence: info.event_sequence,
         },
         actor: actor.clone(),
+        focus: focused,
         own: Arc::clone(own),
         snapshot: Snapshot {
             cells,
@@ -332,6 +426,25 @@ fn player_id(what: &str, id: Option<&str>) -> Result<(), String> {
         )),
         _ => Ok(()),
     }
+}
+
+/// Refuses `what`, a callback for `player` alone, unless `player` is canonical and the actor, and
+/// the snapshot is empty without a `focus`.
+fn player_call(
+    what: &str,
+    player: &str,
+    actor: Option<&str>,
+    snapshot: &[Cell],
+    focus: Option<BlockPos>,
+) -> Result<(), String> {
+    player_id("player", Some(player))?;
+    if actor != Some(player) {
+        return Err(format!("{what}'s actor is not its player"));
+    }
+    if focus.is_none() && !snapshot.is_empty() {
+        return Err(format!("{what} has a snapshot without a focus"));
+    }
+    Ok(())
 }
 
 fn decode(data: Option<&str>) -> Result<Option<Vec<u8>>, HexError> {
@@ -384,6 +497,12 @@ impl CallbackRes {
     pub(crate) fn info(&mut self) -> Result<CallbackInfo> {
         self.host_call()?;
         Ok(self.info.clone())
+    }
+
+    /// The actor's focus, which only a client message or an epoch may have.
+    pub(crate) fn focus(&mut self) -> Result<Option<BlockPos>> {
+        self.host_call()?;
+        Ok(self.focus)
     }
 
     pub(crate) fn get_block(&mut self, pos: BlockPos) -> Result<Result<String, WorldError>> {
@@ -505,20 +624,29 @@ impl CallbackRes {
         Ok(Ok(()))
     }
 
-    /// Stages `payload` for the event's actor's client part on `channel`. The callback's channels
-    /// and payloads may hold [`MAX_CLIENT_SEND_BYTES`] in all; the send past [`MAX_CLIENT_SENDS`]
-    /// traps. Which channels the client part declares is the adapter's to check.
+    /// Stages `payload`, its values' pre-order nodes, for the event's actor's client part on
+    /// `channel`. Lists and records nest at most [`MAX_VALUE_DEPTH`] deep, and the callback's
+    /// channels and payloads may hold [`MAX_CLIENT_SEND_BYTES`] in all, else it is `too-large`; a
+    /// header that counts more items than follow it traps, and so does the send past
+    /// [`MAX_CLIENT_SENDS`]. Which channels the client part declares is the adapter's to check.
     pub(crate) fn send_client(
         &mut self,
         player: String,
         channel: String,
         schema: u16,
-        payload: Vec<Scalar>,
+        payload: Vec<ValueNode>,
     ) -> Result<Result<(), WorldError>> {
         self.host_call()?;
         if let Err(error) = self.actor_is(&player) {
             return Ok(Err(error));
         }
+        let payload = match value::decode(payload) {
+            Ok(payload) => payload,
+            Err(Refusal::TooDeep) => return Ok(Err(WorldError::TooLarge)),
+            Err(Refusal::Malformed) => {
+                bail!("a send-client list or record counts more items than follow it")
+            }
+        };
         let bytes = self.client_send_bytes + channel.len() + json_len(&payload);
         if bytes > MAX_CLIENT_SEND_BYTES {
             return Ok(Err(WorldError::TooLarge));
@@ -638,28 +766,6 @@ impl From<protocol::Cause> for ChangeCause {
             protocol::Cause::Player => Self::Player,
             protocol::Cause::Guest => Self::Guest,
             protocol::Cause::Environment => Self::Environment,
-        }
-    }
-}
-
-impl From<Scalar> for wit::Scalar {
-    fn from(scalar: Scalar) -> Self {
-        match scalar {
-            Scalar::Bool(value) => Self::Bool(value),
-            Scalar::Integer(value) => Self::Integer(value),
-            Scalar::Text(value) => Self::Text(value),
-            Scalar::Choice(value) => Self::Choice(value),
-        }
-    }
-}
-
-impl From<wit::Scalar> for Scalar {
-    fn from(scalar: wit::Scalar) -> Self {
-        match scalar {
-            wit::Scalar::Bool(value) => Self::Bool(value),
-            wit::Scalar::Integer(value) => Self::Integer(value),
-            wit::Scalar::Text(value) => Self::Text(value),
-            wit::Scalar::Choice(value) => Self::Choice(value),
         }
     }
 }

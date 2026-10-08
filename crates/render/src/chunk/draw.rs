@@ -433,7 +433,12 @@ pub(in crate::chunk) fn queue_chunks(
 
         // `Some(true)` routes solid faces to the terrain pass instead of this phase.
         let terrain_pass = if direct_view == Some(view_entity) {
-            gpu_culling.begin_direct(view_entity, view, (solid_pipeline_id, solid_direct_draw))
+            gpu_culling.begin_direct(
+                view_entity,
+                view,
+                *msaa,
+                (solid_pipeline_id, solid_direct_draw),
+            )
         } else {
             None
         };

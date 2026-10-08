@@ -55,9 +55,10 @@ pub use self::clocks::{
     WorldClockUpdateEvent,
 };
 pub use self::custom_blocks::{
-    CustomBlock, CustomBlockVisuals, CustomBlocks, CustomBox, CustomHashedState,
-    CustomMaterialInstance, CustomPermutation, CustomSelection, CustomStateAxis, CustomStateValue,
-    CustomTransformation, CustomVisualComponents, block_name_sort_key, block_state_network_hash,
+    CustomBlock, CustomBlockPhysics, CustomBlockVisuals, CustomBlocks, CustomBox, CustomCollision,
+    CustomHashedState, CustomMaterialInstance, CustomPermutation, CustomPhysicalComponents,
+    CustomSelection, CustomStateAxis, CustomStateValue, CustomTransformation,
+    CustomVisualComponents, block_name_sort_key, block_state_network_hash,
 };
 pub use self::diagnostics::{DimensionHeightDiagnostic, HeightmapDiagnostic, SubChunkDiagnostic};
 pub use self::environment::WorldEnvironmentBootstrap;

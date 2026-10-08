@@ -2,7 +2,9 @@ package authflow
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"time"
 
 	"github.com/sandertv/gophertunnel/minecraft/auth"
 	"golang.org/x/oauth2"
@@ -35,7 +37,23 @@ func (f DeviceFlow) Request(ctx context.Context, publish func(*oauth2.DeviceAuth
 	}
 	token, err := f.Token(ctx, response)
 	if err != nil {
+		if deviceCodeExpired(ctx, response, err) {
+			return nil, fmt.Errorf("%w: %w", errDeviceAuthorization, errDeviceCodeExpired)
+		}
 		return nil, fmt.Errorf("%w: complete", errDeviceAuthorization)
 	}
 	return token, nil
+}
+
+// deviceCodeExpired distinguishes device expiry from unrelated caller timeouts without retaining provider details.
+func deviceCodeExpired(ctx context.Context, response *oauth2.DeviceAuthResponse, err error) bool {
+	var providerError *oauth2.RetrieveError
+	if errors.As(err, &providerError) && providerError.ErrorCode == "expired_token" {
+		return true
+	}
+	if !errors.Is(err, context.DeadlineExceeded) || response.Expiry.IsZero() || time.Now().Before(response.Expiry) {
+		return false
+	}
+	deadline, hasDeadline := ctx.Deadline()
+	return !hasDeadline || !deadline.Before(response.Expiry)
 }

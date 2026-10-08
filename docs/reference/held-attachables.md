@@ -8,14 +8,19 @@ The in-hand renderer skips its legacy icon placement when an active attachable
 is present. First-person rendering evaluates the owner’s
 skeleton first. The attachable's scripts, controllers,
 render controllers and animations then select its own geometry, texture and pose.
-Attachable setup composes the parent's matrix before the item's channels. Treating this as the third-person sprite grip was the bow bug.
+Attachable setup composes the selected parent's matrix before the item's channels.
+An unmatched, unbound root stays in the owner's actor frame; a root matching an
+owner bone inherits that bone's matrix. Unbound descendants inherit their root's selection,
+including when a render controller selects alternate geometry. Expression-bound
+roots retain the existing item-slot route; arbitrary binding expressions are incomplete.
 
 The compiler now retains attachable scripts/controllers, bone bindings and
 `texture_meshes`, plus all referenced texture frames. Runtime evaluation reuses
 the actor animation engine with explicit first-person context, owner-variable
 inheritance by name, owner lifetime and frame interpolation. Item duration queries
-are ticks in this context; ordinary actor query units are unchanged. The parent
-hand is interpolated once, and the already sampled item pose is not sampled again.
+are ticks in this context; ordinary actor query units are unchanged. The selected
+owner bone is interpolated at the render fraction, and the already sampled item
+pose is not sampled again.
 The owner-skeleton camera root also retains the vanilla post-scale 1/128-model-unit
 vertical lift; the ordinary camera-space sprite/block path does not inherit it.
 `c.item_slot` remains a string (`main_hand` or `off_hand`), not a boolean or
@@ -79,6 +84,7 @@ This is a functional rendering/input pass, not a controlled version-matched
 vanilla frame comparison or a complete visual parity gate.
 
 Incomplete: multi-layer/enchantment materials, custom binding-expression parents,
+independent bindings authored on parented bones,
 offhand submission in the application, and nonuniform parent/child shear.
 The inherited actor engine's controller/query and
 Molang tolerances remain subject to its existing parity gaps. Legacy mirrored-art

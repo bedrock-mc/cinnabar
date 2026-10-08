@@ -1,7 +1,6 @@
 use std::f32::consts::PI;
 
 use bevy::{
-    anti_alias::fxaa::Fxaa,
     core_pipeline::tonemapping::Tonemapping,
     input::{
         mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll},
@@ -17,6 +16,7 @@ use crate::local_player::{
     LocalPlayerFrameCarrier, LocalViewPose,
 };
 
+pub mod antialiasing;
 mod bob;
 mod controls;
 mod easing;
@@ -37,6 +37,8 @@ mod rig;
 mod server_view;
 mod settings;
 mod shake;
+#[cfg(test)]
+mod spawn_tests;
 
 pub use bob::{HandSwayState, ViewEffect, WalkBobState, walk_bob_effect};
 pub use controls::{
@@ -65,8 +67,6 @@ pub const PITCH_LIMIT: f32 = 89.9_f32.to_radians();
 /// Radius declared by the pinned `minecraft:camera_orbit` vanilla presets.
 pub const THIRD_PERSON_RADIUS_BLOCKS: f32 = 4.0;
 pub const THIRD_PERSON_COLLISION_RADIUS_BLOCKS: f32 = 0.1;
-pub const THIRD_PERSON_COLLISION_EPSILON_BLOCKS: f32 = 0.025;
-const _: () = assert!(THIRD_PERSON_COLLISION_EPSILON_BLOCKS > 0.0);
 const MIN_FOV_RADIANS: f32 = PI / 180.0;
 const MAX_FOV_RADIANS: f32 = PI - MIN_FOV_RADIANS;
 const DEFAULT_ASPECT_RATIO: f32 = 16.0 / 9.0;
@@ -118,16 +118,17 @@ pub fn spawn_fly_camera(
     window: Single<&Window, With<PrimaryWindow>>,
     settings: Res<CameraSettingsAuthority>,
     view: Res<LocalViewPose>,
+    support: Res<antialiasing::CameraAntiAliasingSupport>,
 ) {
     let camera = FlyCamera::default();
     commands.spawn((
         Camera3d::default(),
-        // FXAA avoids unsupported depth sample counts and broken DX12 multisample resolves.
-        Msaa::Off,
-        Fxaa::default(),
+        support.msaa(settings.anti_aliasing_samples()),
         Projection::Perspective(PerspectiveProjection {
             fov: projection_fov_radians(settings.horizontal_fov_degrees()),
             aspect_ratio: window_aspect(&window),
+            near: render_api::CAMERA_NEAR_PLANE_BLOCKS,
+            near_clip_plane: Vec4::new(0.0, 0.0, -1.0, -render_api::CAMERA_NEAR_PLANE_BLOCKS),
             ..default()
         }),
         Tonemapping::None,
@@ -157,6 +158,7 @@ impl Plugin for CameraPresentationPlugin {
                 self.capture_on_start,
             ))
             .init_resource::<CameraSettingsAuthority>()
+            .init_resource::<antialiasing::CameraAntiAliasingSupport>()
             .init_resource::<CameraFovInputs>()
             .init_resource::<CameraFovState>()
             .init_resource::<look::LookSmoother>()
@@ -178,6 +180,9 @@ impl Plugin for CameraPresentationPlugin {
             .init_resource::<LocalPlayerFrameCarrier>()
             .init_resource::<LocalAvatarPresentation>()
             .init_resource::<LocalAvatarVisibilityCarrier>();
+    }
+    fn finish(&self, app: &mut App) {
+        antialiasing::install_device_support(app);
     }
 }
 

@@ -139,6 +139,7 @@ fn scripted_stream() -> WorldStream {
     let mut channels = compiled.animation_channels.into_vec();
     channels[0].keyframe_count = 1;
     channels.push(EntityAnimationChannel {
+        bone_name: None,
         bone: 0,
         property: EntityAnimationProperty::Translation,
         first_keyframe: 1,

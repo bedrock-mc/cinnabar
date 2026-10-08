@@ -36,13 +36,16 @@ pub fn validate_archive_bytes(bytes: &[u8]) -> Result<(), AdmissionError> {
     if bytes.len() > MAX_ARCHIVE_BYTES {
         return Err(AdmissionError::ArchiveTooLarge);
     }
-    validate_archive_parts(Uuid::nil(), "0.0.0", "", bytes.to_vec(), None).map(|_| ())
+    validate_archive_parts(Uuid::nil(), "0.0.0", "", bytes.to_vec(), None, None).map(|_| ())
 }
 
 /// Admits each archive independently in stack order. Stack-wide bounds drop
 /// the packs that would exceed them, not the packs already admitted.
 #[cfg(feature = "handoff")]
-pub(super) fn validate_stack(archives: Vec<ResourcePackArchive>) -> ValidatedPackStack {
+pub(super) fn validate_stack(
+    archives: Vec<ResourcePackArchive>,
+    memory: Option<u32>,
+) -> ValidatedPackStack {
     let mut packs = Vec::with_capacity(archives.len().min(MAX_PACKS));
     let mut rejections = Vec::new();
     let (mut archive_bytes, mut entry_count, mut declared_bytes) = (0usize, 0usize, 0u64);
@@ -53,6 +56,7 @@ pub(super) fn validate_stack(archives: Vec<ResourcePackArchive>) -> ValidatedPac
             &mut seen,
             packs.len(),
             archive_bytes,
+            memory,
             |pack, declared| {
                 let entries = entry_count.saturating_add(pack.entry_count());
                 let bytes = declared_bytes.saturating_add(declared);
@@ -89,6 +93,7 @@ fn admit_stack_entry<T>(
     seen: &mut HashSet<Uuid>,
     admitted: usize,
     archive_bytes: usize,
+    memory: Option<u32>,
     stack_bounds: impl FnOnce(&ValidatedPack, u64) -> Result<T, AdmissionError>,
 ) -> Result<(ValidatedPack, usize, T), AdmissionError> {
     if admitted >= MAX_PACKS {
@@ -116,6 +121,7 @@ fn admit_stack_entry<T>(
         &archive.sub_pack_name,
         archive.archive,
         key,
+        memory,
     )?;
     let bounds = stack_bounds(&pack, declared)?;
     seen.insert(pack.pack_id);
@@ -128,6 +134,7 @@ pub(crate) fn validate_archive_parts(
     sub_pack_name: &str,
     mut archive_bytes: Vec<u8>,
     key: Option<ContentKey>,
+    memory: Option<u32>,
 ) -> Result<(ValidatedPack, u64), AdmissionError> {
     if archive_bytes.len() > MAX_ARCHIVE_BYTES {
         return Err(AdmissionError::ArchiveTooLarge);
@@ -207,13 +214,19 @@ pub(crate) fn validate_archive_parts(
         })?
         .ok_or(AdmissionError::MissingManifest)?;
     let manifest = read_manifest(&manifest_bytes, pack_id, version)?;
-    // An unavailable server selection uses root resources, even when its name is nonempty.
-    let selected = manifest
-        .subpack_folders
-        .iter()
-        .find(|folder| folder.as_ref() == sub_pack_name)
-        .map_or("", AsRef::as_ref);
+    let selected = if let Some(memory) = memory {
+        crate::subpacks::supported(&manifest.subpacks, sub_pack_name, memory)
+    } else {
+        manifest
+            .subpacks
+            .iter()
+            .find(|pack| pack.folder == sub_pack_name)
+            .map_or("", |pack| pack.folder.as_str())
+    };
     pack.files = logical_files(&pack.files, selected)?;
+    if memory.is_some() {
+        pack.sub_pack_name = selected.into();
+    }
     pack.folded = pack
         .files
         .keys()

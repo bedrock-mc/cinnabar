@@ -1,6 +1,13 @@
 use super::*;
 
 impl WorldAuthority {
+    /// Cross-crate fixtures await one admitted worker batch without advancing animation ticks.
+    #[cfg(feature = "appearance-test-support")]
+    pub fn prepare_actor_appearances_for_test(&mut self) {
+        self.actors.prepare_appearances(false);
+        self.actors.finish_appearance_preparation_for_test();
+    }
+
     /// Changes only the actor visual after the corresponding terrain mesh is published.
     pub fn apply_actor_block_sync(&mut self, sync: protocol::ActorBlockSyncMessage) -> bool {
         self.actors.apply_terrain_sync(sync)
@@ -21,6 +28,10 @@ impl WorldAuthority {
     /// Every username on the retained authoritative player list, sorted.
     pub fn player_list_usernames(&self) -> Vec<std::sync::Arc<str>> {
         self.actors.player_list_usernames()
+    }
+    /// How many players are on the player list, without allocating.
+    pub fn player_count(&self) -> usize {
+        self.actors.player_list_count()
     }
     /// The authoritative `(current, maximum)` health of the actor with this
     /// unique id, if it is known and well-formed.
@@ -300,6 +311,14 @@ impl WorldAuthority {
     ) -> Option<&ActorEquipmentSnapshot> {
         self.actors.equipment_in_hand(runtime_id, hand)
     }
+    /// Installs the compiler receiving each packet stop expression and its declared version.
+    pub fn set_server_animation_compiler(
+        &mut self,
+        compiler: crate::actor_animation::ServerAnimationCompiler,
+    ) {
+        self.actors.set_server_animation_compiler(compiler);
+    }
+
     /// Item use durations (ticks by identifier) that drive `query.main_hand_item_max_duration`.
     /// Layers the session's server-pack entity catalog over the vanilla one; its entities
     /// win by identifier for actors spawned afterwards.

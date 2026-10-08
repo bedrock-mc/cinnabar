@@ -392,7 +392,7 @@ pub(crate) fn target_for(address: &str) -> ConnectTarget {
     if let Some(id) = address.strip_prefix("realm_id/") {
         return ConnectTarget::Realm(id.to_owned());
     }
-    if let Some(xuid) = address.strip_prefix("friend_xuid/") {
+    if let Some(xuid) = address.strip_prefix(launcher::menu::FRIEND_ADDRESS_PREFIX) {
         return ConnectTarget::Friend(xuid.to_owned());
     }
     let has_port = address.rsplit_once(':').is_some_and(|(host, port)| {

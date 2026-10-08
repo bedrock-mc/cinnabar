@@ -40,6 +40,8 @@ pub struct Loaded {
     pub blocks: Vec<protocol::BlockDef>,
     /// The ids of `blocks`, shared by every callback.
     pub(crate) block_ids: Arc<[String]>,
+    /// Whether the world of its `api` takes its player's focus in client messages and epochs.
+    pub focus: bool,
     pub(crate) pre: Pre,
 }
 
@@ -121,6 +123,7 @@ fn load_dir(engine: &Engine, dir: &Path) -> Result<Loaded> {
         manifest,
         blocks,
         block_ids,
+        focus: api.focus(),
         pre,
     })
 }

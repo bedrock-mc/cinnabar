@@ -162,6 +162,7 @@ impl ViewNode for EnhancedPostNode {
     type ViewQuery = (
         &'static ViewTarget,
         &'static ViewDepthTexture,
+        &'static crate::scene_target::SceneTarget,
         &'static EnhancedRendering,
     );
 
@@ -169,12 +170,13 @@ impl ViewNode for EnhancedPostNode {
         &self,
         graph: &mut RenderGraphContext,
         context: &mut RenderContext,
-        (target, depth, _settings): QueryItem<Self::ViewQuery>,
+        (target, _depth, scene, _settings): QueryItem<Self::ViewQuery>,
         world: &World,
     ) -> Result<(), NodeRunError> {
         if !super::ENHANCED_RENDERING_ENABLED {
             return Ok(());
         }
+        super::hand_layer::clear(context, world, scene);
         let (Some(pipelines), Some(gpu), Some(views), Some(cache)) = (
             world.get_resource::<EnhancedPostPipelines>(),
             world.get_resource::<EnhancedGpu>(),
@@ -195,6 +197,10 @@ impl ViewNode for EnhancedPostNode {
         if !target.is_hdr() {
             return Ok(());
         }
+        let Some(depth) = &state.resolved_depth else {
+            return Ok(());
+        };
+        depth.draw(context, world, None);
         let device = context.render_device().clone();
         let shadow = state
             .shadow
@@ -211,7 +217,7 @@ impl ViewNode for EnhancedPostNode {
                     source,
                     bloom,
                     shafts,
-                    depth: depth.view(),
+                    depth: &depth.view,
                     shadow,
                 },
             )

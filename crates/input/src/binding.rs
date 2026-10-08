@@ -278,6 +278,7 @@ fn default_bindings() -> Vec<ActionBinding> {
         (CyclePerspective, 0x3e),
         (PlayerList, 0x2b),
         (Freelook, 0x09),
+        (InteractWithToast, 0x11),
         (Menu, 0x29),
         (Hotbar1, 0x1e),
         (Hotbar2, 0x1f),

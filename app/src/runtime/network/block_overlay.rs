@@ -535,11 +535,10 @@ fn tint_flags(method: Option<&str>) -> u32 {
     }
 }
 
-/// Custom blocks default to full dampening and no emission, matching vanilla and
-/// the public block-component defaults; explicit components override either.
+/// Explicit light components override geometry's zero absorption or legacy type fallback.
 fn state_light(components: &CustomVisualComponents) -> LightProperties {
     let emission = components.light_emission.unwrap_or(0).min(15);
-    let dampening = components.light_dampening.unwrap_or(15).min(15);
+    let dampening = components.effective_light_dampening();
     LightProperties::new(emission, dampening).unwrap_or(LightProperties::OPAQUE_DARK)
 }
 

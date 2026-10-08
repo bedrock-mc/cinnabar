@@ -4,6 +4,8 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+#[cfg(test)]
+mod cache_tests;
 mod clip;
 mod motion;
 mod reveal;
@@ -34,6 +36,8 @@ use crate::menu::{
 pub(super) fn text_factor(style: Type) -> f32 {
     style.size / BODY.size
 }
+
+const MEASUREMENT_WIDTH_64: u32 = 65_536 * 64;
 
 /// A logical-pixel rect `[left, top, right, bottom]`.
 pub(super) type Bounds = [f32; 4];
@@ -119,7 +123,7 @@ impl<'a> Canvas<'a> {
             artwork: None,
             title_artwork: None,
             destination_icon: None,
-            rem: gui_pixel * 5.0,
+            rem: gui_pixel * super::theme::GUI_PIXELS_PER_REM,
             hits: Vec::new(),
             focus_hits: Vec::new(),
             focus_targets: Vec::new(),
@@ -417,6 +421,8 @@ impl<'a> Canvas<'a> {
         width_64: u32,
         style: Type,
     ) -> Result<std::sync::Arc<ui::TextLayout>, UiPresentationError> {
+        #[cfg(feature = "tracy")]
+        let _text_span = bevy::log::info_span!("ui.text").entered();
         let request = self.text_request(value, width_64, style)?;
         self.layouts
             .layout(request)
@@ -527,26 +533,14 @@ impl<'a> Canvas<'a> {
         width: f32,
         style: Type,
     ) -> Result<Option<Arc<ui::TextLayout>>, UiPresentationError> {
-        let value = value.split_whitespace().collect::<Vec<_>>().join(" ");
-        let (fits, layout) = self.measured(&value, style)?;
-        if fits <= width {
-            return Ok(Some(layout));
-        }
-        let ends: Vec<usize> = value.char_indices().map(|(at, _)| at).collect();
-        let (mut low, mut high) = (0, ends.len());
-        let mut best = None;
-        while low < high {
-            let mid = low + (high - low) / 2;
-            let shown = format!("{}…", value[..ends[mid]].trim_end());
-            let (fits, layout) = self.measured(&shown, style)?;
-            if fits <= width {
-                best = Some(layout);
-                low = mid + 1;
-            } else {
-                high = mid;
-            }
-        }
-        Ok(best)
+        #[cfg(feature = "tracy")]
+        let _text_span = bevy::log::info_span!("ui.label").entered();
+        let request = self.text_request(value, MEASUREMENT_WIDTH_64, style)?;
+        let layout = self
+            .layouts
+            .single_line(request, (width.max(0.0) * 64.0) as u32)
+            .map_err(UiPresentationError::Text)?;
+        Ok((!layout.glyphs().is_empty()).then_some(layout))
     }
 
     /// The width `value` lays out to in `style`.
@@ -560,7 +554,7 @@ impl<'a> Canvas<'a> {
         value: &str,
         style: Type,
     ) -> Result<(f32, std::sync::Arc<ui::TextLayout>), UiPresentationError> {
-        let layout = self.layout(value, 65_536 * 64, style)?;
+        let layout = self.layout(value, MEASUREMENT_WIDTH_64, style)?;
         Ok((layout.size_64()[0] as f32 / 64.0, layout))
     }
 
@@ -571,6 +565,8 @@ impl<'a> Canvas<'a> {
         width: f32,
         style: Type,
     ) -> Result<f32, UiPresentationError> {
+        #[cfg(feature = "tracy")]
+        let _text_span = bevy::log::info_span!("ui.text").entered();
         let request = self.text_request(value, (width.max(1.0) * 64.0) as u32, style)?;
         let layout = self
             .layouts

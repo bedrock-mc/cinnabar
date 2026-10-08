@@ -118,6 +118,7 @@ impl Plugin for ChunkRenderPlugin {
         let transparent_witness_evidence =
             app.world().resource::<TransparentWitnessEvidence>().clone();
 
+        crate::pipeline_warmup::register::<ChunkPipeline>(app);
         let render_app = app.sub_app_mut(RenderApp);
         render_app
             .insert_resource(self.upload_budget)

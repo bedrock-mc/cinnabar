@@ -265,49 +265,56 @@ fn primitives_queue_on_the_frame_they_first_arrive() {
 
 #[test]
 fn solid_blocks_queue_separately_without_relaxing_guest_depth_tests() {
-    let (mut app, view) = fixture::app();
-    app.init_resource::<primitives::PrimitivePipeline>()
-        .add_render_command::<Transparent3d, primitives::DrawPrimitiveCommands>()
-        .add_render_command::<Transparent3d, primitives::DrawBlockHighlightCommands>();
-    app.world_mut()
-        .run_system_once(primitives::init_gpu)
-        .unwrap();
-    let mut scene = ModRenderScene::default();
-    scene.apply(
-        &RenderOutput {
-            passes: Vec::new(),
-            primitives: Arc::new(decal()),
-        },
-        1,
-    );
-    scene.set_block_highlights(&[[2, 3, 4]], [1.0, 0.1, 0.5, 1.0]);
-    app.insert_resource(scene);
-    app.world_mut().run_system_once(primitives::queue).unwrap();
-    let pipelines: Vec<_> = fixture::items(&app, view)
-        .iter()
-        .map(|item| item.pipeline)
-        .collect();
-    assert_eq!(pipelines.len(), 2);
-    let mut cache = app
-        .world_mut()
-        .resource_mut::<bevy::render::render_resource::PipelineCache>();
-    let mut depths = Vec::new();
-    for pipeline in pipelines {
-        let descriptor = fixture::queued_descriptor(&mut cache, pipeline);
-        let depth = descriptor.depth_stencil.as_ref().unwrap();
-        assert!(!depth.depth_write_enabled);
-        depths.push(depth.depth_compare);
+    for msaa in [Msaa::Off, Msaa::Sample2, Msaa::Sample4, Msaa::Sample8] {
+        let (mut app, view) = fixture::app();
+        let world = app.world_mut();
+        for mut current in world.query::<&mut Msaa>().iter_mut(world) {
+            *current = msaa;
+        }
+        app.init_resource::<primitives::PrimitivePipeline>()
+            .add_render_command::<Transparent3d, primitives::DrawPrimitiveCommands>()
+            .add_render_command::<Transparent3d, primitives::DrawBlockHighlightCommands>();
+        app.world_mut()
+            .run_system_once(primitives::init_gpu)
+            .unwrap();
+        let mut scene = ModRenderScene::default();
+        scene.apply(
+            &RenderOutput {
+                passes: Vec::new(),
+                primitives: Arc::new(decal()),
+            },
+            1,
+        );
+        scene.set_block_highlights(&[[2, 3, 4]], [1.0, 0.1, 0.5, 1.0]);
+        app.insert_resource(scene);
+        app.world_mut().run_system_once(primitives::queue).unwrap();
+        let pipelines: Vec<_> = fixture::items(&app, view)
+            .iter()
+            .map(|item| item.pipeline)
+            .collect();
+        assert_eq!(pipelines.len(), 2);
+        let mut cache = app
+            .world_mut()
+            .resource_mut::<bevy::render::render_resource::PipelineCache>();
+        let mut depths = Vec::new();
+        for pipeline in pipelines {
+            let descriptor = fixture::queued_descriptor(&mut cache, pipeline);
+            assert_eq!(descriptor.multisample.count, msaa.samples());
+            let depth = descriptor.depth_stencil.as_ref().unwrap();
+            assert!(!depth.depth_write_enabled);
+            depths.push(depth.depth_compare);
+        }
+        assert!(depths.contains(&bevy::render::render_resource::CompareFunction::Always));
+        assert!(depths.contains(&bevy::render::render_resource::CompareFunction::GreaterEqual));
+        fixture::clear(&mut app, view);
+        app.world_mut()
+            .resource_mut::<ModRenderScene>()
+            .set_block_highlights(&[], [1.0; 4]);
+        app.world_mut().run_system_once(primitives::queue).unwrap();
+        assert_eq!(
+            fixture::items(&app, view).len(),
+            1,
+            "clearing highlights preserves the guest draw"
+        );
     }
-    assert!(depths.contains(&bevy::render::render_resource::CompareFunction::Always));
-    assert!(depths.contains(&bevy::render::render_resource::CompareFunction::GreaterEqual));
-    fixture::clear(&mut app, view);
-    app.world_mut()
-        .resource_mut::<ModRenderScene>()
-        .set_block_highlights(&[], [1.0; 4]);
-    app.world_mut().run_system_once(primitives::queue).unwrap();
-    assert_eq!(
-        fixture::items(&app, view).len(),
-        1,
-        "clearing highlights preserves the guest draw"
-    );
 }
