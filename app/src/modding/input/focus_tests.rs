@@ -360,5 +360,9 @@ fn hud_editor_owner_switch_cancels_old_draft_without_keeping_input_capture() {
     assert!(runtime.hud_editor_owner.is_none());
     assert_eq!(runtime.panel_owner(), 0);
     assert!(runtime.host.is_active() && runtime.companions[0].host.is_active());
+    assert!(
+        !runtime.companions[0].host.panel_open(),
+        "old owner cannot reopen stale input ownership"
+    );
     assert!(!runtime.controls.panel_open);
 }

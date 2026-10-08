@@ -46,6 +46,9 @@ pub(super) fn guard(
         || !focused
         || absorbed
     {
+        if owner.host < runtime.host_count() {
+            runtime.host_mut(owner.host).set_panel_open(false);
+        }
         cancel(runtime, presentation, true);
         if !focused || absorbed || session != Some(owner.session) {
             let panel_owner = runtime.panel_owner();
