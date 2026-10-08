@@ -113,6 +113,11 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 			conf.Listeners[i] = primitiveListener(listen)
 		}
 	}
+	if !cfg.allowCheats {
+		for i, listen := range conf.Listeners {
+			conf.Listeners[i] = commandsDisabledListener(listen)
+		}
+	}
 	cfg.configureTerrainFixture(&conf)
 	cfg.configureOpaqueOverdraw(&conf)
 	conf.ChunkLoadWorkers = cfg.chunkWorkers
@@ -164,7 +169,9 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	if ext != nil {
 		deliverClientPartEvents(ext, srv.Player, host, logger)
 	}
-	registerChatCommands()
+	if cfg.allowCheats {
+		registerChatCommands()
+	}
 	srv.Listen()
 	accepting := make(chan struct{})
 	go func() {
