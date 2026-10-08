@@ -394,6 +394,9 @@ RVAs are 1.26.50.26 Windows client; `mac 0x10…` addresses are the 26.30 macOS 
 - `_setOptionCallbacks` lambda (RVA 0x0245d7c0), an InputMode observer on 0x183 registered in RVA 0x0239a340: `gameSensitivity.set(mode, powf(sens * 1.1f, 0.6125f) * 0.81f)` (constants 0x1500b53d0, 0x1500cde9c, 0x1500cdea0). `InputModeFloatOption::set` (RVA 0x009b3ee0) stores and notifies only when `|old - new| > 0.001` (ctor RVA 0x009b6570), clamping to the range; load of an unchanged value notifies nothing, so 0.628 persists until the slider really changes.
 - macOS 1.26.30 primary matches: `InGamePlayScreen::applyInput` 0x102779ad0 (same constants, `getGameSensitivity` vtable +0x1d0), `MouseMapper::tick` 0x10c3a6db0, option 0x188/0x192. Mac Config width units and the macOS mouse source were not traced.
 
+## crates/ui/src/settings.rs; crates/launcher/src/menu/settings_options/definitions.rs (field of view)
+- 1.26.50.26 Windows `OptionRegistry::_registerOptions` (RVA 0x0239ba00): `gfx_field_of_view` (string 0x1504df395, referenced at 0x1423b644f) and caption `options.fov` construct option 0x2f with type 2 (Float) at 0x1423b64f1. The inline FloatOption fields are min 30.0 (0x41f00000), max 110.0 (0x42dc0000), value and default 60.0 (0x42700000), increment 0.001 (0x3a83126f), stored at 0x1423b6500..0x1423b651f. macOS 1.26.30 FloatOption 0x32 at 0x103ae111f has the same values.
+
 ## crates/client-presentation/src/camera/bob.rs
 - //! Walk view-bob and first-person hand sway, expressed as view-space effects, following the
 - //! 26.30 reference's bobView and hand spring.
