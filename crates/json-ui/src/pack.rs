@@ -133,14 +133,13 @@ impl Catalog {
             if error.is_some() && self.has_file(path) {
                 continue;
             }
-            if let Value::Object(object) = value {
-                if let Some(namespace) = object
+            if let Value::Object(object) = value
+                && let Some(namespace) = object
                     .get("namespace")
                     .and_then(Value::as_str)
                     .or_else(|| self.file_namespace(path))
-                {
-                    visit(namespace, &object);
-                }
+            {
+                visit(namespace, &object);
             }
         }
     }
