@@ -1,4 +1,8 @@
 use crate::RuntimeStageProfiler;
+use crate::chunk::gpu::types::{
+    GraphicsMetadataPublication, GraphicsMetadataPublicationState,
+    configure_graphics_metadata_publication,
+};
 use crate::chunk::*;
 
 mod publication_schedule;
@@ -125,6 +129,7 @@ impl Plugin for ChunkRenderPlugin {
             .insert_resource(visibility_diagnostics)
             .insert_resource(transparent_witness_evidence)
             .init_resource::<ChunkPipeline>()
+            .init_resource::<GraphicsMetadataPublicationState>()
             .init_resource::<crate::dropped_item_render::terrain_items::TerrainItemMeshGenerations>(
             )
             .init_resource::<ChunkGpuUploadStats>()
@@ -153,6 +158,7 @@ impl Plugin for ChunkRenderPlugin {
         transparent::gamma_pass::install(app);
         let render_app = app.sub_app_mut(RenderApp);
         render_app.edit_schedule(Render, configure_chunk_publication);
+        render_app.edit_schedule(Render, configure_graphics_metadata_publication);
         render_app
             .add_systems(
                 RenderStartup,
@@ -161,10 +167,7 @@ impl Plugin for ChunkRenderPlugin {
             .add_systems(
                 Render,
                 (
-                    publish_graphics_runtime_metadata
-                        .after(RenderSystems::ExtractCommands)
-                        .after(crate::present_mode::PresentModePolicySet)
-                        .before(bevy::render::view::window::create_surfaces),
+                    publish_graphics_runtime_metadata.in_set(GraphicsMetadataPublication),
                     queue_chunks
                         .run_if(crate::panorama::world_passes_enabled)
                         .in_set(RenderSystems::Queue),

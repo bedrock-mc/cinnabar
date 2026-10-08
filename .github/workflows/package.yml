@@ -332,6 +332,7 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: write
+      pull-requests: read
     env:
       GH_TOKEN: ${{ github.token }}
       MACOS_SIGNED: ${{ secrets.MACOS_CERT_P12_BASE64 != '' && secrets.CODESIGN_IDENTITY != '' }}
@@ -406,6 +407,7 @@ jobs:
         if: needs.prepare.outputs.channel == 'stable'
         run: python3 "$GITHUB_WORKSPACE/release-tools/packaging/release-downloads.py" checksums dist
       - name: Publish the stable release
+        id: publish
         if: needs.prepare.outputs.channel == 'stable'
         run: |
           bash "$GITHUB_WORKSPACE/release-tools/packaging/release-notes.sh" release > "$RUNNER_TEMP/notes.md"
@@ -426,4 +428,11 @@ jobs:
           else
             gh release create "$RELEASE_TAG" dist/* --verify-tag --target "$RELEASE_COMMIT" \
               --title "$RELEASE_TAG" --generate-notes --notes-file "$RUNNER_TEMP/notes.md"
+            echo "created=true" >> "${GITHUB_OUTPUT:-/dev/null}"
           fi
+      - name: Post the changelog to Discord
+        if: steps.publish.outputs.created == 'true'
+        continue-on-error: true
+        env:
+          DISCORD_CHANGELOG_WEBHOOK: ${{ secrets.DISCORD_CHANGELOG_WEBHOOK }}
+        run: python3 "$GITHUB_WORKSPACE/release-tools/packaging/changelog.py" discord "$RELEASE_TAG"
