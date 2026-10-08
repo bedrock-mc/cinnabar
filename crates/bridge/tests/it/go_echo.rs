@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, Result, bail};
 use bytes::Bytes;
-use futures::{SinkExt, StreamExt};
+use futures::StreamExt;
 
 const START_TIMEOUT: Duration = Duration::from_secs(10);
 const IO_TIMEOUT: Duration = Duration::from_secs(10);
@@ -33,12 +33,13 @@ async fn go_frame_echo_round_trips_binary_payloads_and_cleans_up() -> Result<()>
     let endpoint = bridge::endpoint_path(&socket_dir);
     wait_for_publication(&mut child, &endpoint).await?;
 
-    let mut stream = tokio::time::timeout(IO_TIMEOUT, bridge::connect(&socket_dir))
+    let (mut reader, frames) = tokio::time::timeout(IO_TIMEOUT, bridge::connect(&socket_dir))
         .await
         .context("timed out connecting to frame-echo")??;
 
     round_trip(
-        &mut stream,
+        &mut reader,
+        &frames,
         Bytes::from_static(&[0x00, 0xfe, 0x00, 0x01, 0xff, 0x00]),
     )
     .await?;
@@ -47,12 +48,11 @@ async fn go_frame_echo_round_trips_binary_payloads_and_cleans_up() -> Result<()>
             .map(|index| (index % 251) as u8)
             .collect::<Vec<_>>(),
     );
-    round_trip(&mut stream, large).await?;
+    round_trip(&mut reader, &frames, large).await?;
 
-    tokio::time::timeout(IO_TIMEOUT, stream.close())
-        .await
-        .context("timed out closing bridge stream")??;
-    drop(stream);
+    // The writer closes the write half once every queue handle is gone.
+    drop(frames);
+    drop(reader);
 
     let status = wait_for_exit(&mut child).await?;
     let logs = child.collect_logs();
@@ -83,11 +83,15 @@ fn build_fixture(core_dir: &Path, executable: &Path) -> Result<()> {
     Ok(())
 }
 
-async fn round_trip(stream: &mut bridge::FramedStream, payload: Bytes) -> Result<()> {
-    tokio::time::timeout(IO_TIMEOUT, stream.send(payload.clone()))
+async fn round_trip(
+    reader: &mut bridge::FramedReader,
+    frames: &bridge::FrameQueue,
+    payload: Bytes,
+) -> Result<()> {
+    tokio::time::timeout(IO_TIMEOUT, frames.send(payload.clone()))
         .await
         .context("timed out sending frame")??;
-    let echoed = tokio::time::timeout(IO_TIMEOUT, stream.next())
+    let echoed = tokio::time::timeout(IO_TIMEOUT, reader.next())
         .await
         .context("timed out receiving echoed frame")?
         .context("frame-echo closed before replying")??;

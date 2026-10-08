@@ -1,12 +1,16 @@
+use std::future::Future;
+use std::io;
 use std::pin::Pin;
+use std::sync::{Arc, OnceLock};
 use std::task::{Context, Poll};
 
 use bytes::{Bytes, BytesMut};
-use futures::{Sink, Stream};
-use tokio_util::codec::{Decoder, Encoder, Framed, LengthDelimitedCodec};
+use futures::{Sink, SinkExt, Stream};
+use tokio::sync::{mpsc, oneshot};
+use tokio_util::codec::{Decoder, Encoder, Framed, FramedRead, FramedWrite, LengthDelimitedCodec};
 
-use crate::endpoint::PlatformStream;
-use crate::{BridgeError, MAX_FRAME_LEN};
+use crate::BridgeError;
+use crate::endpoint::{PlatformReadHalf, PlatformStream, PlatformWriteHalf};
 
 pub(crate) struct BridgeCodec {
     inner: LengthDelimitedCodec,
@@ -17,7 +21,7 @@ pub(crate) struct BridgeCodec {
 impl BridgeCodec {
     #[cfg(test)]
     pub(crate) fn new() -> Self {
-        Self::with_max(MAX_FRAME_LEN)
+        Self::with_max(crate::MAX_FRAME_LEN)
     }
 
     pub(crate) fn with_max(maximum: usize) -> Self {
@@ -108,13 +112,152 @@ pub struct FramedStream {
 }
 
 impl FramedStream {
-    pub(crate) fn new(stream: PlatformStream) -> Self {
-        Self::with_max(stream, MAX_FRAME_LEN)
-    }
-
     pub(crate) fn with_max(stream: PlatformStream, maximum: usize) -> Self {
         Self {
             inner: Framed::new(stream, BridgeCodec::with_max(maximum)),
+        }
+    }
+}
+
+/// Frames accepted but not yet written; a stalled reader backs up into the senders, not memory.
+const QUEUED_FRAMES: usize = 16;
+
+/// Splits a fresh stream so a spawned writer task owns its write half.
+///
+/// Requires a Tokio runtime. The writer exits once every [`FrameQueue`] clone is dropped.
+pub(crate) fn queued(stream: PlatformStream, maximum: usize) -> (FramedReader, FrameQueue) {
+    let (read, write) = stream.into_split();
+    let (frames, queued) = mpsc::channel(QUEUED_FRAMES);
+    let failure = Arc::new(OnceLock::new());
+    tokio::spawn(write_queued_frames(
+        FramedWrite::new(write, BridgeCodec::with_max(maximum)),
+        queued,
+        Arc::clone(&failure),
+    ));
+    (
+        FramedReader {
+            inner: FramedRead::new(read, BridgeCodec::with_max(maximum)),
+        },
+        FrameQueue {
+            frames,
+            failure,
+            maximum,
+        },
+    )
+}
+
+/// The read half of a queued game connection.
+pub struct FramedReader {
+    inner: FramedRead<PlatformReadHalf, BridgeCodec>,
+}
+
+impl Stream for FramedReader {
+    type Item = Result<Bytes, BridgeError>;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        Pin::new(&mut self.get_mut().inner).poll_next(cx)
+    }
+}
+
+struct QueuedFrame {
+    frame: Bytes,
+    written: oneshot::Sender<Result<(), String>>,
+}
+
+/// Queues whole frames for one connection's writer task; every clone shares one bounded FIFO.
+#[derive(Clone)]
+pub struct FrameQueue {
+    frames: mpsc::Sender<QueuedFrame>,
+    failure: Arc<OnceLock<String>>,
+    maximum: usize,
+}
+
+/// Resolves once an accepted frame has been flushed to the socket.
+pub struct FrameWritten {
+    written: oneshot::Receiver<Result<(), String>>,
+    failure: Arc<OnceLock<String>>,
+}
+
+impl Future for FrameWritten {
+    type Output = Result<(), BridgeError>;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let failure = Arc::clone(&self.failure);
+        Pin::new(&mut self.written)
+            .poll(cx)
+            .map(|result| match result {
+                Ok(Ok(())) => Ok(()),
+                Ok(Err(reason)) => Err(broken_pipe(&reason)),
+                Err(_) => Err(writer_stopped(&failure)),
+            })
+    }
+}
+
+impl FrameQueue {
+    /// Writes `frame` after every frame accepted before it and resolves once it is flushed.
+    pub async fn send(&self, frame: Bytes) -> Result<(), BridgeError> {
+        self.accept(frame).await?.await
+    }
+
+    /// Waits for queue capacity, then accepts `frame`; the returned future tracks its write.
+    pub async fn accept(&self, frame: Bytes) -> Result<FrameWritten, BridgeError> {
+        validate_frame_length(frame.len(), self.maximum)?;
+        let permit = self
+            .frames
+            .reserve()
+            .await
+            .map_err(|_| writer_stopped(&self.failure))?;
+        let (written, receiver) = oneshot::channel();
+        permit.send(QueuedFrame { frame, written });
+        Ok(FrameWritten {
+            written: receiver,
+            failure: Arc::clone(&self.failure),
+        })
+    }
+}
+
+fn writer_stopped(failure: &OnceLock<String>) -> BridgeError {
+    broken_pipe(
+        failure
+            .get()
+            .map_or("bridge writer stopped", String::as_str),
+    )
+}
+
+fn broken_pipe(reason: &str) -> BridgeError {
+    BridgeError::Io(io::Error::new(io::ErrorKind::BrokenPipe, reason.to_owned()))
+}
+
+/// Writes queued frames in order, coalescing whatever is already queued into one flush, and
+/// acknowledges each frame only after that flush.
+async fn write_queued_frames(
+    mut writer: FramedWrite<PlatformWriteHalf, BridgeCodec>,
+    mut frames: mpsc::Receiver<QueuedFrame>,
+    failure: Arc<OnceLock<String>>,
+) {
+    let mut pending = Vec::with_capacity(QUEUED_FRAMES);
+    while let Some(first) = frames.recv().await {
+        let mut written = writer.feed(first.frame).await;
+        pending.push(first.written);
+        while written.is_ok()
+            && let Ok(next) = frames.try_recv()
+        {
+            written = writer.feed(next.frame).await;
+            pending.push(next.written);
+        }
+        let flushed = match written {
+            Ok(()) => writer.flush().await,
+            Err(error) => Err(error),
+        };
+        let result = flushed.map_err(|error| error.to_string());
+        if let Err(reason) = &result {
+            let _ = failure.set(reason.clone());
+        }
+        for written in pending.drain(..) {
+            let _ = written.send(result.clone());
+        }
+        if result.is_err() {
+            return;
         }
     }
 }
@@ -154,6 +297,104 @@ mod tests {
 
     use super::{BridgeCodec, validate_frame_length};
     use crate::{BridgeError, MAX_FRAME_LEN};
+
+    /// Clones of the queue share one writer that keeps the order frames were accepted in,
+    /// while the read half keeps receiving.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn queued_connection_writes_in_acceptance_order_while_reading() {
+        use futures::StreamExt;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let (local, mut peer) = tokio::net::UnixStream::pair().unwrap();
+        let (mut reader, queue) =
+            super::queued(crate::endpoint::PlatformStream::Unix(local), MAX_FRAME_LEN);
+        peer.write_all(&wire_frame(&[2])).await.unwrap();
+        let session = queue.clone();
+        let first = queue.accept(Bytes::from_static(&[3])).await.unwrap();
+        let second = session.accept(Bytes::from_static(&[4])).await.unwrap();
+        let third = queue.accept(Bytes::from_static(&[5])).await.unwrap();
+
+        assert_eq!(&reader.next().await.unwrap().unwrap()[..], [2]);
+        let mut written = [0; 15];
+        peer.read_exact(&mut written).await.unwrap();
+        let mut expected = wire_frame(&[3]);
+        expected.extend_from_slice(&wire_frame(&[4]));
+        expected.extend_from_slice(&wire_frame(&[5]));
+        assert_eq!(&written[..], &expected[..]);
+        for written in [first, second, third] {
+            written.await.unwrap();
+        }
+    }
+
+    /// A send completes only once its frame is flushed, and fails when the write does.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn send_resolves_only_after_its_frame_is_flushed() {
+        use futures::FutureExt;
+        use tokio::io::AsyncReadExt;
+
+        let (local, mut peer) = tokio::net::UnixStream::pair().unwrap();
+        let (_reader, queue) =
+            super::queued(crate::endpoint::PlatformStream::Unix(local), MAX_FRAME_LEN);
+        let payload = Bytes::from(vec![7; 4 * 1024 * 1024]);
+        let mut send = Box::pin(queue.send(payload.clone()));
+        for _ in 0..64 {
+            assert!(
+                (&mut send).now_or_never().is_none(),
+                "a frame the peer has not drained must not report written"
+            );
+            tokio::task::yield_now().await;
+        }
+
+        let mut drained = vec![0; 4 + payload.len()];
+        let (read, sent) = tokio::join!(peer.read_exact(&mut drained), send);
+        read.unwrap();
+        sent.unwrap();
+
+        drop(peer);
+        let mut failed = Ok(());
+        for _ in 0..8 {
+            failed = queue.send(Bytes::from_static(&[1])).await;
+            if failed.is_err() {
+                break;
+            }
+        }
+        assert!(failed.is_err(), "a write to a closed peer must fail");
+    }
+
+    /// A reader that stops draining backs up into the senders instead of an unbounded backlog.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn stalled_reader_bounds_accepted_frames() {
+        use futures::FutureExt;
+
+        let (local, _peer) = tokio::net::UnixStream::pair().unwrap();
+        let (_reader, queue) =
+            super::queued(crate::endpoint::PlatformStream::Unix(local), MAX_FRAME_LEN);
+        let frame = Bytes::from(vec![7; 64 * 1024]);
+        let mut accepted = Vec::new();
+        let mut backed_up = false;
+        // 4096 frames of 64 KiB is 256 MiB, far beyond any socket buffer.
+        for _ in 0..4096 {
+            match queue.accept(frame.clone()).now_or_never() {
+                Some(written) => accepted.push(written.unwrap()),
+                None => {
+                    backed_up = true;
+                    break;
+                }
+            }
+            for _ in 0..4 {
+                tokio::task::yield_now().await;
+            }
+        }
+
+        assert!(
+            backed_up,
+            "accepted {} frames for a stalled reader without backing up",
+            accepted.len()
+        );
+    }
 
     fn wire_frame(payload: &[u8]) -> BytesMut {
         let mut wire = BytesMut::with_capacity(4 + payload.len());

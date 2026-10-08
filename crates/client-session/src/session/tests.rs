@@ -14,6 +14,7 @@ type NetworkHandle = super::NetworkHandle<()>;
 #[path = "alloc_count.rs"]
 pub(super) mod alloc_count;
 mod forms;
+mod outbound;
 mod queues;
 
 use protocol::{
@@ -25,7 +26,7 @@ use tokio::sync::{mpsc, oneshot, watch};
 
 use super::{
     COMMAND_CAPACITY, CONTROL_EVENT_CAPACITY, NetworkCommand, NetworkFailureOrigin,
-    NetworkPumpPreference, NetworkPumpWork, NetworkSequencer, NetworkSession, PacketSendError,
+    NetworkPumpWork, NetworkSequencer, NetworkSession, OutboundSession, PacketSendError,
     ReadinessIngressCounter, SequencedWorldEvent, SessionTransferTarget, WORLD_EVENT_CAPACITY,
     WorldIngress, bounded_counter_log_due, run_network_pump, run_network_pump_with_trace,
     send_control_event_or_cancel, send_event_or_cancel, send_final_blob_cache_telemetry,
@@ -190,6 +191,54 @@ fn network_pump_terminal_marker_carries_the_unmasked_error() {
     assert_eq!(marker["decode_error_count"], 7);
 }
 
+type WritePacket<E> = Box<
+    dyn FnMut(protocol::Packet) -> std::pin::Pin<Box<dyn Future<Output = Result<(), E>> + Send>>
+        + Send,
+>;
+
+/// A test write half that hands each packet of a batch, in order, to one callback.
+pub(super) struct PacketOutbound<E> {
+    write: WritePacket<E>,
+    finish_loading: Vec<protocol::Packet>,
+}
+
+impl<E: Send + 'static> PacketOutbound<E> {
+    pub(super) fn new<F, W>(mut write: W) -> Self
+    where
+        W: FnMut(protocol::Packet) -> F + Send + 'static,
+        F: Future<Output = Result<(), E>> + Send + 'static,
+    {
+        Self {
+            write: Box::new(move |packet| Box::pin(write(packet))),
+            finish_loading: Vec::new(),
+        }
+    }
+
+    pub(super) fn accepting() -> Self {
+        Self::new(|_| future::ready(Ok(())))
+    }
+
+    pub(super) fn with_finish_loading(mut self, packets: Vec<protocol::Packet>) -> Self {
+        self.finish_loading = packets;
+        self
+    }
+}
+
+impl<E: std::fmt::Display + Send + 'static> OutboundSession for PacketOutbound<E> {
+    type Error = E;
+
+    async fn send_batch(&mut self, packets: Vec<protocol::Packet>) -> Result<(), E> {
+        for packet in packets {
+            (self.write)(packet).await?;
+        }
+        Ok(())
+    }
+
+    fn take_finish_loading(&mut self) -> Vec<protocol::Packet> {
+        std::mem::take(&mut self.finish_loading)
+    }
+}
+
 struct ReadyInboundSession {
     inbound: Option<WorldEvent>,
     inbound_selected: Arc<AtomicBool>,
@@ -213,6 +262,7 @@ struct TraceOrderingFailSession {
 
 impl NetworkSession for TraceOrderingFailSession {
     type Error = &'static str;
+    type Outbound = PacketOutbound<&'static str>;
 
     async fn receive_world_event(
         &mut self,
@@ -221,9 +271,12 @@ impl NetworkSession for TraceOrderingFailSession {
         future::pending().await
     }
 
-    async fn send_packet(&mut self, _packet: protocol::Packet) -> Result<(), Self::Error> {
-        self.calls.lock().unwrap().push("send");
-        Err("socket write failed")
+    fn outbound(&mut self) -> Result<Self::Outbound, Self::Error> {
+        let calls = Arc::clone(&self.calls);
+        Ok(PacketOutbound::new(move |_| {
+            calls.lock().unwrap().push("send");
+            future::ready(Err("socket write failed"))
+        }))
     }
 
     fn decode_error_count(&self) -> u64 {
@@ -245,6 +298,7 @@ impl NetworkSession for TraceOrderingFailSession {
 
 impl NetworkSession for FailingSendSession {
     type Error = &'static str;
+    type Outbound = PacketOutbound<&'static str>;
 
     async fn receive_world_event(
         &mut self,
@@ -253,8 +307,10 @@ impl NetworkSession for FailingSendSession {
         future::pending().await
     }
 
-    async fn send_packet(&mut self, _packet: protocol::Packet) -> Result<(), Self::Error> {
-        Err("socket write failed")
+    fn outbound(&mut self) -> Result<Self::Outbound, Self::Error> {
+        Ok(PacketOutbound::new(|_| {
+            future::ready(Err("socket write failed"))
+        }))
     }
 
     fn decode_error_count(&self) -> u64 {
@@ -264,6 +320,7 @@ impl NetworkSession for FailingSendSession {
 
 impl NetworkSession for CachedInboundSession {
     type Error = std::convert::Infallible;
+    type Outbound = PacketOutbound<&'static str>;
 
     async fn receive_world_event(
         &mut self,
@@ -278,8 +335,8 @@ impl NetworkSession for CachedInboundSession {
         }
     }
 
-    async fn send_packet(&mut self, _packet: protocol::Packet) -> Result<(), Self::Error> {
-        Ok(())
+    fn outbound(&mut self) -> Result<Self::Outbound, Self::Error> {
+        Ok(PacketOutbound::accepting())
     }
 
     fn decode_error_count(&self) -> u64 {
@@ -297,6 +354,7 @@ impl NetworkSession for CachedInboundSession {
 
 impl NetworkSession for ReadyInboundSession {
     type Error = std::convert::Infallible;
+    type Outbound = PacketOutbound<&'static str>;
 
     async fn receive_world_event(
         &mut self,
@@ -311,8 +369,8 @@ impl NetworkSession for ReadyInboundSession {
         }
     }
 
-    async fn send_packet(&mut self, _packet: protocol::Packet) -> Result<(), Self::Error> {
-        Ok(())
+    fn outbound(&mut self) -> Result<Self::Outbound, Self::Error> {
+        Ok(PacketOutbound::accepting())
     }
 
     fn decode_error_count(&self) -> u64 {
@@ -322,6 +380,7 @@ impl NetworkSession for ReadyInboundSession {
 
 impl NetworkSession for QueuedInboundSession {
     type Error = std::convert::Infallible;
+    type Outbound = PacketOutbound<&'static str>;
 
     async fn receive_world_event(
         &mut self,
@@ -333,8 +392,8 @@ impl NetworkSession for QueuedInboundSession {
         }
     }
 
-    async fn send_packet(&mut self, _packet: protocol::Packet) -> Result<(), Self::Error> {
-        Ok(())
+    fn outbound(&mut self) -> Result<Self::Outbound, Self::Error> {
+        Ok(PacketOutbound::accepting())
     }
 
     fn decode_error_count(&self) -> u64 {
@@ -572,6 +631,7 @@ async fn chat_send_receipt_is_emitted_only_after_the_session_send_completes() {
         .unwrap();
     let (control_event_tx, mut controls) = mpsc::channel(CONTROL_EVENT_CAPACITY);
     let (shutdown, shutdown_rx) = watch::channel(false);
+    commands.try_send(NetworkCommand::FlushFrame).unwrap();
     let worker = tokio::spawn(run_network_pump(
         ReadyInboundSession {
             inbound: None,
@@ -596,247 +656,6 @@ async fn chat_send_receipt_is_emitted_only_after_the_session_send_completes() {
 }
 
 #[tokio::test]
-async fn successful_fast_transfer_flushes_decoded_pending_ingress_then_enqueues_marker() {
-    let (world_event_tx, mut world_events) = mpsc::channel(WORLD_EVENT_CAPACITY);
-    let (commands, command_rx) = mpsc::channel(COMMAND_CAPACITY);
-    commands
-        .try_send(NetworkCommand::Send {
-            packet: test_packet(),
-            sub_chunk: None,
-            chat: Some(super::ChatPacketSend {
-                session: 7,
-                sequence: 11,
-                fast_transfer_action: Some(protocol::FastTransferAction::TransferSm3),
-            }),
-            physics: None,
-            physics_reanchor: None,
-            interaction: None,
-        })
-        .unwrap();
-    let (control_event_tx, mut controls) = mpsc::channel(CONTROL_EVENT_CAPACITY);
-    let (shutdown, shutdown_rx) = watch::channel(false);
-    let rotations = Arc::new(AtomicUsize::new(0));
-    let worker = tokio::spawn(run_network_pump(
-        QueuedInboundSession {
-            inbound: VecDeque::from([
-                WorldEvent::ChunkRadiusUpdated(16),
-                WorldEvent::ChunkRadiusUpdated(8),
-            ]),
-            rotations: Arc::clone(&rotations),
-        },
-        NetworkSequencer::new(7, 0, 42),
-        command_rx,
-        control_event_tx,
-        world_event_tx,
-        shutdown_rx,
-    ));
-
-    assert!(matches!(
-        tokio::time::timeout(Duration::from_millis(100), world_events.recv()).await,
-        Ok(Some(WorldIngress::Event(SequencedWorldEvent {
-            session_generation: 7,
-            sequence: 1,
-            event: WorldEvent::ChunkRadiusUpdated(16),
-        })))
-    ));
-    assert!(matches!(
-        tokio::time::timeout(Duration::from_millis(100), world_events.recv()).await,
-        Ok(Some(WorldIngress::FastTransferBarrier {
-            session_generation: 7,
-            sequence: 2,
-            action_sequence: 11,
-        }))
-    ));
-    assert!(matches!(
-        tokio::time::timeout(Duration::from_millis(100), world_events.recv()).await,
-        Ok(Some(WorldIngress::Event(SequencedWorldEvent {
-            session_generation: 7,
-            sequence: 3,
-            event: WorldEvent::ChunkRadiusUpdated(8),
-        })))
-    ));
-    assert!(matches!(
-        tokio::time::timeout(Duration::from_millis(100), controls.recv()).await,
-        Ok(Some(NetworkControlEvent::ChatPacketSent {
-            session: 7,
-            sequence: 11,
-        }))
-    ));
-    assert_eq!(rotations.load(Ordering::SeqCst), 1);
-    shutdown.send_replace(true);
-    worker.await.unwrap();
-}
-
-#[tokio::test]
-async fn failed_fast_transfer_never_arms_a_reset() {
-    let (world_event_tx, mut world_events) = mpsc::channel(WORLD_EVENT_CAPACITY);
-    let (commands, command_rx) = mpsc::channel(COMMAND_CAPACITY);
-    commands
-        .try_send(NetworkCommand::Send {
-            packet: test_packet(),
-            sub_chunk: None,
-            chat: Some(super::ChatPacketSend {
-                session: 8,
-                sequence: 12,
-                fast_transfer_action: Some(protocol::FastTransferAction::TransferSm3),
-            }),
-            physics: None,
-            physics_reanchor: None,
-            interaction: None,
-        })
-        .unwrap();
-    let (control_event_tx, mut controls) = mpsc::channel(CONTROL_EVENT_CAPACITY);
-    let (_shutdown, shutdown_rx) = watch::channel(false);
-
-    run_network_pump(
-        FailingSendSession,
-        NetworkSequencer::new(7, 0, 42),
-        command_rx,
-        control_event_tx,
-        world_event_tx,
-        shutdown_rx,
-    )
-    .await;
-
-    let events = std::iter::from_fn(|| controls.try_recv().ok()).collect::<Vec<_>>();
-    assert!(world_events.try_recv().is_err());
-    assert!(events.iter().any(|event| matches!(
-        event,
-        NetworkControlEvent::ChatPacketSendFailed {
-            session: 8,
-            sequence: 12,
-            ..
-        }
-    )));
-}
-
-#[tokio::test]
-async fn successful_non_transfer_chat_does_not_arm_blob_rotation() {
-    let (world_event_tx, _world_events) = mpsc::channel(WORLD_EVENT_CAPACITY);
-    let (commands, command_rx) = mpsc::channel(COMMAND_CAPACITY);
-    commands
-        .try_send(NetworkCommand::Send {
-            packet: test_packet(),
-            sub_chunk: None,
-            chat: Some(super::ChatPacketSend {
-                session: 7,
-                sequence: 11,
-                fast_transfer_action: None,
-            }),
-            physics: None,
-            physics_reanchor: None,
-            interaction: None,
-        })
-        .unwrap();
-    let (control_event_tx, mut controls) = mpsc::channel(CONTROL_EVENT_CAPACITY);
-    let (shutdown, shutdown_rx) = watch::channel(false);
-    let rotations = Arc::new(AtomicUsize::new(0));
-    let worker = tokio::spawn(run_network_pump(
-        QueuedInboundSession {
-            inbound: VecDeque::new(),
-            rotations: Arc::clone(&rotations),
-        },
-        NetworkSequencer::new(7, 0, 42),
-        command_rx,
-        control_event_tx,
-        world_event_tx,
-        shutdown_rx,
-    ));
-
-    assert!(matches!(
-        tokio::time::timeout(Duration::from_millis(100), controls.recv()).await,
-        Ok(Some(NetworkControlEvent::ChatPacketSent {
-            session: 7,
-            sequence: 11,
-        }))
-    ));
-    assert_eq!(rotations.load(Ordering::SeqCst), 0);
-    shutdown.send_replace(true);
-    worker.await.unwrap();
-}
-
-#[tokio::test]
-async fn chat_send_failure_identifies_the_exact_outbox_item() {
-    let (world_event_tx, _world_events) = mpsc::channel(WORLD_EVENT_CAPACITY);
-    let (commands, command_rx) = mpsc::channel(COMMAND_CAPACITY);
-    commands
-        .try_send(NetworkCommand::Send {
-            packet: test_packet(),
-            sub_chunk: None,
-            chat: Some(super::ChatPacketSend {
-                session: 8,
-                sequence: 12,
-                fast_transfer_action: None,
-            }),
-            physics: None,
-            physics_reanchor: None,
-            interaction: None,
-        })
-        .unwrap();
-    let (control_event_tx, mut controls) = mpsc::channel(CONTROL_EVENT_CAPACITY);
-    let (_shutdown, shutdown_rx) = watch::channel(false);
-    run_network_pump(
-        FailingSendSession,
-        NetworkSequencer::new(7, 0, 42),
-        command_rx,
-        control_event_tx,
-        world_event_tx,
-        shutdown_rx,
-    )
-    .await;
-
-    assert!(matches!(
-        controls.recv().await,
-        Some(NetworkControlEvent::ChatPacketSendFailed {
-            session: 8,
-            sequence: 12,
-            ref message,
-        }) if message == "socket write failed"
-    ));
-    assert!(matches!(
-        controls.recv().await,
-        Some(NetworkControlEvent::Failed { .. })
-    ));
-}
-
-#[tokio::test]
-async fn fast_transfer_trace_arms_before_send_and_cancels_after_send_failure() {
-    let calls = Arc::new(Mutex::new(Vec::new()));
-    let (world_event_tx, _world_events) = mpsc::channel(WORLD_EVENT_CAPACITY);
-    let (commands, command_rx) = mpsc::channel(COMMAND_CAPACITY);
-    commands
-        .try_send(NetworkCommand::Send {
-            packet: test_packet(),
-            sub_chunk: None,
-            chat: Some(super::ChatPacketSend {
-                session: 8,
-                sequence: 12,
-                fast_transfer_action: Some(protocol::FastTransferAction::TransferSm3),
-            }),
-            physics: None,
-            physics_reanchor: None,
-            interaction: None,
-        })
-        .unwrap();
-    let (control_event_tx, _controls) = mpsc::channel(CONTROL_EVENT_CAPACITY);
-    let (_shutdown, shutdown_rx) = watch::channel(false);
-
-    run_network_pump(
-        TraceOrderingFailSession {
-            calls: Arc::clone(&calls),
-        },
-        NetworkSequencer::new(7, 0, 42),
-        command_rx,
-        control_event_tx,
-        world_event_tx,
-        shutdown_rx,
-    )
-    .await;
-
-    assert_eq!(*calls.lock().unwrap(), ["begin", "send", "cancel"]);
-}
-
-#[tokio::test]
 async fn single_worker_acks_ready_command_while_ready_inbound_waits_on_full_world_fifo() {
     let (world_event_tx, world_events) = mpsc::channel(WORLD_EVENT_CAPACITY);
     for sequence in 1..=WORLD_EVENT_CAPACITY as u64 {
@@ -853,7 +672,7 @@ async fn single_worker_acks_ready_command_while_ready_inbound_waits_on_full_worl
     assert_eq!(world_events.len(), WORLD_EVENT_CAPACITY);
 
     let (commands, command_rx) = mpsc::channel(COMMAND_CAPACITY);
-    for index in 0..COMMAND_CAPACITY {
+    for index in 0..COMMAND_CAPACITY - 1 {
         commands
             .try_send(NetworkCommand::Send {
                 packet: test_packet(),
@@ -869,11 +688,12 @@ async fn single_worker_acks_ready_command_while_ready_inbound_waits_on_full_worl
             })
             .unwrap();
     }
-    assert_eq!(commands.capacity(), 0);
+    assert_eq!(commands.capacity(), 1);
 
     let (control_event_tx, mut control_events) = mpsc::channel(CONTROL_EVENT_CAPACITY);
     let (shutdown, shutdown_rx) = watch::channel(false);
     let inbound_selected = Arc::new(AtomicBool::new(false));
+    commands.try_send(NetworkCommand::FlushFrame).unwrap();
     let worker = tokio::spawn(run_network_pump(
         ReadyInboundSession {
             inbound: Some(WorldEvent::ChunkRadiusUpdated(99)),
@@ -1060,96 +880,6 @@ async fn transport_send_observes_shutdown_after_the_send_is_pending() {
     assert_eq!(result, None);
 }
 
-#[tokio::test]
-async fn network_pump_round_robins_repeated_ready_work_and_preserves_command_fifo() {
-    let (_shutdown, mut shutdown_rx) = watch::channel(false);
-    let (commands, mut command_rx) = mpsc::channel(4);
-    let mut preference = NetworkPumpPreference::Inbound;
-    commands.try_send(10).unwrap();
-    commands.try_send(20).unwrap();
-
-    let first = wait_for_network_work_or_cancel(
-        future::ready("inbound-1"),
-        command_rx.recv(),
-        &mut shutdown_rx,
-        &mut preference,
-    )
-    .await;
-    assert!(matches!(first, NetworkPumpWork::Inbound("inbound-1")));
-    assert_eq!(command_rx.len(), 2);
-
-    let second = wait_for_network_work_or_cancel(
-        future::ready("inbound-2"),
-        command_rx.recv(),
-        &mut shutdown_rx,
-        &mut preference,
-    )
-    .await;
-    assert!(matches!(second, NetworkPumpWork::Command(Some(10))));
-
-    let third = wait_for_network_work_or_cancel(
-        future::ready("inbound-3"),
-        command_rx.recv(),
-        &mut shutdown_rx,
-        &mut preference,
-    )
-    .await;
-    assert!(matches!(third, NetworkPumpWork::Inbound("inbound-3")));
-
-    let fourth = wait_for_network_work_or_cancel(
-        future::ready("inbound-4"),
-        command_rx.recv(),
-        &mut shutdown_rx,
-        &mut preference,
-    )
-    .await;
-    assert!(matches!(fourth, NetworkPumpWork::Command(Some(20))));
-
-    commands.try_send(30).unwrap();
-    let inbound_pending = wait_for_network_work_or_cancel(
-        future::pending::<&'static str>(),
-        command_rx.recv(),
-        &mut shutdown_rx,
-        &mut preference,
-    )
-    .await;
-    assert!(matches!(
-        inbound_pending,
-        NetworkPumpWork::Command(Some(30))
-    ));
-
-    commands.try_send(40).unwrap();
-    let fifth = wait_for_network_work_or_cancel(
-        future::ready("inbound-5"),
-        command_rx.recv(),
-        &mut shutdown_rx,
-        &mut preference,
-    )
-    .await;
-    assert!(matches!(fifth, NetworkPumpWork::Inbound("inbound-5")));
-
-    let command_pending = wait_for_network_work_or_cancel(
-        future::ready("inbound-6"),
-        future::pending::<Option<i32>>(),
-        &mut shutdown_rx,
-        &mut preference,
-    )
-    .await;
-    assert!(matches!(
-        command_pending,
-        NetworkPumpWork::Inbound("inbound-6")
-    ));
-
-    let final_command = wait_for_network_work_or_cancel(
-        future::pending::<&'static str>(),
-        command_rx.recv(),
-        &mut shutdown_rx,
-        &mut preference,
-    )
-    .await;
-    assert!(matches!(final_command, NetworkPumpWork::Command(Some(40))));
-}
-
 #[test]
 fn saturated_command_queue_preserves_packet_and_shutdown_does_not_join_on_ui_thread() {
     let (commands, _command_rx) = mpsc::channel(COMMAND_CAPACITY);
@@ -1183,6 +913,7 @@ fn saturated_command_queue_preserves_packet_and_shutdown_does_not_join_on_ui_thr
         thread: Some(worker),
         readiness_ingress: Arc::new(ReadinessIngressCounter::default()),
         experience_gate: Arc::default(),
+        unflushed: Default::default(),
     };
 
     let packet = test_packet();

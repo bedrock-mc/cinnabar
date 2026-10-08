@@ -44,6 +44,7 @@ func (n *network) DialContext(ctx context.Context, address string) (net.Conn, er
 	if err != nil {
 		return nil, err
 	}
+	tuneLocalConn(conn)
 	return NewFramedConn(conn), nil
 }
 
@@ -140,12 +141,37 @@ func openEndpoint(socketDir string, names endpointNames) (net.Listener, func() e
 	return inner, cleanup, lease, nil
 }
 
+// localSocketBufferBytes lets one large batch cross a Unix socket in a single write; macOS
+// defaults to 8 KiB, which splits it and delays the frames queued behind it.
+const localSocketBufferBytes = 4 << 20
+
+// tuneLocalConn disables Nagle on loopback TCP and enlarges Unix socket buffers. It is best
+// effort: an error returned from Accept would end gophertunnel's accept loop.
+func tuneLocalConn(conn net.Conn) {
+	switch c := conn.(type) {
+	case *net.TCPConn:
+		_ = c.SetNoDelay(true)
+	case *net.UnixConn:
+		_ = c.SetReadBuffer(localSocketBufferBytes)
+		_ = c.SetWriteBuffer(localSocketBufferBytes)
+	}
+}
+
 type rawEndpointListener struct {
 	net.Listener
 	cleanup func() error
 	lease   io.Closer
 	once    sync.Once
 	err     error
+}
+
+func (listener *rawEndpointListener) Accept() (net.Conn, error) {
+	conn, err := listener.Listener.Accept()
+	if err != nil {
+		return nil, err
+	}
+	tuneLocalConn(conn)
+	return conn, nil
 }
 
 func (listener *rawEndpointListener) Close() error {
@@ -172,6 +198,7 @@ func (l *listener) Accept() (net.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
+	tuneLocalConn(conn)
 	var framed *FramedConn
 	framed = newTrackedFramedConn(conn, func() { l.removeConnection(framed) })
 	l.mu.Lock()

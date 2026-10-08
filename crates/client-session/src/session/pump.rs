@@ -93,51 +93,31 @@ where
     }
 }
 
-pub(super) enum NetworkPumpWork<I, C> {
+pub(super) enum NetworkPumpWork<I, H> {
     Shutdown,
     Inbound(I),
-    Command(C),
+    Hook(H),
 }
 
-#[derive(Clone, Copy)]
-pub(super) enum NetworkPumpPreference {
-    Inbound,
-    Command,
-}
-
-pub(super) async fn wait_for_network_work_or_cancel<I, C>(
+/// Outbound hooks win over inbound work, so a trace is armed before its batch is written.
+pub(super) async fn wait_for_network_work_or_cancel<I, H>(
     inbound: I,
-    command: C,
+    hook: H,
     shutdown: &mut watch::Receiver<bool>,
-    preference: &mut NetworkPumpPreference,
-) -> NetworkPumpWork<I::Output, C::Output>
+) -> NetworkPumpWork<I::Output, H::Output>
 where
     I: Future,
-    C: Future,
+    H: Future,
 {
     if *shutdown.borrow() {
         return NetworkPumpWork::Shutdown;
     }
-    let work = match preference {
-        NetworkPumpPreference::Inbound => tokio::select! {
-            biased;
-            _ = wait_for_shutdown(shutdown) => NetworkPumpWork::Shutdown,
-            inbound = inbound => NetworkPumpWork::Inbound(inbound),
-            command = command => NetworkPumpWork::Command(command),
-        },
-        NetworkPumpPreference::Command => tokio::select! {
-            biased;
-            _ = wait_for_shutdown(shutdown) => NetworkPumpWork::Shutdown,
-            command = command => NetworkPumpWork::Command(command),
-            inbound = inbound => NetworkPumpWork::Inbound(inbound),
-        },
-    };
-    match &work {
-        NetworkPumpWork::Shutdown => {}
-        NetworkPumpWork::Inbound(_) => *preference = NetworkPumpPreference::Command,
-        NetworkPumpWork::Command(_) => *preference = NetworkPumpPreference::Inbound,
+    tokio::select! {
+        biased;
+        _ = wait_for_shutdown(shutdown) => NetworkPumpWork::Shutdown,
+        hook = hook => NetworkPumpWork::Hook(hook),
+        inbound = inbound => NetworkPumpWork::Inbound(inbound),
     }
-    work
 }
 
 pub(super) async fn send_control_event_or_cancel<P>(
