@@ -112,7 +112,13 @@ fn local_air_drag_modifier_commits_finite_values_with_their_tick() {
         !authority
             .take_committed_controls()
             .iter()
-            .any(|control| matches!(control, CommittedControlEvent::LocalAirDragModifier { .. }))
+            .any(|control| matches!(
+                control,
+                CommittedControlEvent::LocalMovementSpeed {
+                    air_drag_modifier: Some(_),
+                    ..
+                }
+            ))
     );
     authority
         .apply_ordered_event(air_drag(2.5, 8), Some(2))
@@ -122,12 +128,13 @@ fn local_air_drag_modifier_commits_finite_values_with_their_tick() {
             .take_committed_controls()
             .iter()
             .any(|control| matches!(
-                control,
-                CommittedControlEvent::LocalAirDragModifier {
-                    sequence: 2,
-                    current,
-                    tick: 8,
-                } if *current == 2.5
-            ))
+                    control,
+                    CommittedControlEvent::LocalMovementSpeed {
+                sequence: 2,
+                air_drag_modifier: Some(current),
+                tick: 8,
+                ..
+            } if *current == 2.5
+                ))
     );
 }

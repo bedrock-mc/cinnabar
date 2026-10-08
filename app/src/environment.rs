@@ -242,7 +242,6 @@ pub(crate) fn apply_environment_control(
         | CommittedControlEvent::LocalMovementEffect { .. }
         | CommittedControlEvent::LocalMovementSpeed { .. }
         | CommittedControlEvent::LocalMovementFlags { .. }
-        | CommittedControlEvent::LocalAirDragModifier { .. }
         | CommittedControlEvent::NetworkStackLatency { .. }
         | CommittedControlEvent::LocalActorMotion { .. }
         | CommittedControlEvent::LocalMovementBoost { .. }

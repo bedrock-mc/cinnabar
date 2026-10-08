@@ -90,10 +90,11 @@ impl CommittedGameplayState<'_> {
             sprint_modifier,
             underwater,
             lava,
+            air_drag_modifier,
             tick,
         } = control
         {
-            // Both attribute edits share the packet's stamp, so one replay covers them.
+            // Every attribute edit shares the packet's stamp, so one replay covers them.
             let mut rewind = None;
             if let Some(current) = current
                 && self.speed.apply(
@@ -124,6 +125,12 @@ impl CommittedGameplayState<'_> {
             {
                 rewind = Some(rewind.map_or(edited, |earlier: u64| earlier.min(edited)));
             }
+            if let Some(current) = air_drag_modifier
+                && self.movement.physics_is_authorized()
+                && let Some(edited) = self.physics.retime_air_drag_modifier(tick, current)
+            {
+                rewind = Some(rewind.map_or(edited, |earlier: u64| earlier.min(edited)));
+            }
             if let Some(rewind) = rewind {
                 replay_timeline_edit(self.movement, self.physics, rewind, world);
             }
@@ -132,14 +139,6 @@ impl CommittedGameplayState<'_> {
         if let CommittedControlEvent::LocalMovementFlags { tick, flags, .. } = control {
             if self.movement.physics_is_authorized()
                 && let Some(rewind) = self.physics.apply_server_movement_flags(tick, flags)
-            {
-                replay_timeline_edit(self.movement, self.physics, rewind, world);
-            }
-            return ControlDisposition::Handled;
-        }
-        if let CommittedControlEvent::LocalAirDragModifier { current, tick, .. } = control {
-            if self.movement.physics_is_authorized()
-                && let Some(rewind) = self.physics.retime_air_drag_modifier(tick, current)
             {
                 replay_timeline_edit(self.movement, self.physics, rewind, world);
             }
@@ -402,7 +401,6 @@ impl CommittedGameplayState<'_> {
             | CommittedControlEvent::LocalMovementEffect { .. }
             | CommittedControlEvent::LocalMovementSpeed { .. }
             | CommittedControlEvent::LocalMovementFlags { .. }
-            | CommittedControlEvent::LocalAirDragModifier { .. }
             | CommittedControlEvent::NetworkStackLatency { .. }
             | CommittedControlEvent::LocalActorMotion { .. }
             | CommittedControlEvent::LocalMovementBoost { .. }
