@@ -40,6 +40,9 @@ pub struct ScreenState {
     /// The open mount inventory's entity identifier.
     pub mount_identifier: Option<std::sync::Arc<str>>,
     pub book_open: bool,
+    pub furnace_book_open: bool,
+    /// Furnace tabs have their own food/items/blocks/search indexes.
+    pub furnace_tab: Option<u8>,
     /// Creative's wide list stands in for its recipe book layout.
     pub creative_wide: bool,
     /// The recipe book's filter toggle, once flipped on this screen.
@@ -104,6 +107,7 @@ impl ScreenState {
             self.beacon = (0, 0);
             self.search_focused = false;
             self.recipe_choice = None;
+            self.furnace_tab = None;
             self.loom_pattern = None;
             self.loom_row = 0;
             self.anvil_name.clear();

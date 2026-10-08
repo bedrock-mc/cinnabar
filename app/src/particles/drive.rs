@@ -11,8 +11,8 @@ use client_world::{ActorStatusNotice, CommittedParticleEvent};
 use particles::{
     ITEM_ICON_PARTICLES, LevelParticle, ParticleSystem, SpawnRequest, block_break_request,
     block_crack_request, burst_requests, classify_level_event, crack_cadence_due,
-    critical_hit_request, dragon_egg_teleport_requests, face_toward, item_icon_request,
-    named_request, parse_molang_variables, terrain_request, tiles::item_tile,
+    critical_hit_request, dragon_egg_teleport_requests, eating_item_request, face_toward,
+    item_icon_request, named_request, parse_molang_variables, terrain_request, tiles::item_tile,
 };
 use protocol::{ActorStatusKind, ParticleEvent, SpawnParticleEffectEvent};
 use render::{
@@ -65,7 +65,7 @@ const BLOCK_BREAK_EFFECT: &str = "minecraft:block_destruct";
 const RAIN_SPLASH_EFFECT: &str = "minecraft:rain_splash_particle";
 /// Height fraction of an actor's box where head-level effects originate.
 const HEAD_HEIGHT_FRACTION: f32 = 0.9;
-/// Item pieces per eating or icon-crack event; needs independent measurement.
+/// Item pieces per icon-crack event.
 const ITEM_ICON_PIECES: f32 = ITEM_ICON_PARTICLES as f32;
 
 pub(crate) fn drain_committed_particles(stream: &mut WorldStream, inbox: &mut ParticleInbox) {
@@ -302,13 +302,15 @@ fn route_notice(system: &mut ParticleSystem, routing: &Routing<'_>, notice: &Act
             });
         }
         ActorStatusKind::Feed => {
-            spawn_item_icon_by_id(
-                system,
-                routing,
-                notice.data >> 16,
-                notice.data & 0xffff,
-                head,
-            );
+            if let Some(identifier) = routing
+                .stream
+                .authority()
+                .item_identifier(notice.data >> 16)
+                && let Some(icons) = routing.icons
+                && let Some(tile) = item_tile(icons, &identifier, (notice.data & 0xffff) as u32)
+            {
+                system.spawn(&eating_item_request(notice.eating_position, tile));
+            }
         }
         _ => {}
     }

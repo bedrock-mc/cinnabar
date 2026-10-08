@@ -158,7 +158,7 @@ impl PaletteWorld<'_> {
             {
                 continue;
             }
-            let shape = shape.translated(offset);
+            let shape = shape.translated(physics.shape_offset(block));
             let Some((distance, face, point)) = ray_box(origin, direction, max_distance, shape)
             else {
                 continue;

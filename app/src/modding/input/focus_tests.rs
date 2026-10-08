@@ -366,3 +366,78 @@ fn hud_editor_owner_switch_cancels_old_draft_without_keeping_input_capture() {
     );
     assert!(!runtime.controls.panel_open);
 }
+
+#[test]
+fn incremental_hud_save_retains_component_owner_until_editor_finishes() {
+    let (mut app, _) = hud_editor_app();
+    let preview: ui::mod_hud::Hud = serde_json::from_str(
+        r#"{"autosave":true,"cards":[{"id":"equipment","position":[0.5,0.5],"rows":[{"label":"Helmet","value":"85%"}]}]}"#,
+    ).unwrap();
+    app.world_mut()
+        .resource_scope(|world, mut presentation: Mut<UiPresentationRuntime>| {
+            presentation.open_mod_hud_editor(&preview).unwrap();
+            render(
+                &mut presentation,
+                world.resource::<crate::player_runtime::PlayerRuntime>(),
+                world.resource::<UiRuntime>(),
+            );
+            presentation.mod_panel_events([640., 360.], true, false);
+            presentation.mod_panel_key("ArrowRight", None);
+            let first = presentation
+                .take_mod_hud_editor_result()
+                .expect("rendered card selection must produce a saved nudge");
+            assert!(first.saved);
+            presentation.mod_panel_key("ArrowRight", None);
+            let mut runtime = world.resource_mut::<ModRuntime>();
+            super::super::hud_editor::collect(&mut runtime, &mut presentation);
+            assert!(
+                runtime.hud_editor_owner.is_some(),
+                "a saved checkpoint keeps its component owner"
+            );
+            assert!(presentation.mod_hud_editor_open());
+            assert!(
+                presentation.take_mod_hud_editor_result().is_none(),
+                "checkpoint delivered once"
+            );
+            presentation.cancel_mod_hud_editor();
+            super::super::hud_editor::collect(&mut runtime, &mut presentation);
+            assert!(runtime.hud_editor_owner.is_none());
+        });
+}
+
+#[test]
+fn autosave_editor_escape_closes_entire_panel_without_reopening_it() {
+    let (mut app, entity) = hud_editor_app();
+    let preview: ui::mod_hud::Hud = serde_json::from_str(
+        r#"{"autosave":true,"cards":[{"id":"equipment","position":[0.5,0.5],"rows":[{"label":"Helmet","value":"85%"}]}]}"#,
+    ).unwrap();
+    app.world_mut()
+        .resource_mut::<UiPresentationRuntime>()
+        .open_mod_hud_editor(&preview)
+        .unwrap();
+    app.world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(KeyCode::Escape);
+    app.world_mut().write_message(KeyboardInput {
+        key_code: KeyCode::Escape,
+        logical_key: Key::Escape,
+        state: ButtonState::Pressed,
+        text: None,
+        repeat: false,
+        window: entity,
+    });
+    app.update();
+    let p = app.world().resource::<UiPresentationRuntime>();
+    assert!(!p.mod_hud_editor_open());
+    assert!(
+        !p.mod_panel_open(),
+        "keyboard dismissal survives pointer-routing setup"
+    );
+    let runtime = app.world().resource::<ModRuntime>();
+    assert!(!runtime.host.panel_open() && !runtime.controls.panel_open);
+    assert!(runtime.hud_editor_owner.is_none());
+    assert!(
+        runtime.controls.keys_pressed.is_empty(),
+        "Escape does not leak to gameplay"
+    );
+}

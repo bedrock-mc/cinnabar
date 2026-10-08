@@ -6619,6 +6619,21 @@ native comparison remains incomplete. See
 - Same-frame visibility and rendered neighbor/correction behavior still need headless captures;
   this work does not close a visual or frame-budget gate.
 
+### Furnace recipe panel continuation (incomplete general parity)
+
+Furnace, blast furnace and smoker screens retain their server recipe catalogs and
+show result items through the pinned JSON-UI recipe panel. The toolbar, category
+tabs, search and supplied-ingredient filter reach the inventory controller; a
+selection chooses the alternative with the most matching fuel and inventory
+items and places them in the ingredient role. Ordinary window updates address
+the whole station by window ID. Unsupplied recipes preview their ingredient and
+result; repeat selection returns the ingredient before clearing the preview.
+Replacements return the previous
+ingredient to its source cells before other available inventory cells. Expanded
+ingredient groups, exact ghost rendering, saturated-inventory replacements,
+recipe discovery and server-persisted
+furnace UI options remain incomplete; the full furnace parity gate stays open.
+
 ## Entity interaction and emote starts
 
 Entity-use presses now send the selected stack and fresh actor hit in the input
@@ -6628,3 +6643,13 @@ catalog identifier and duration once in that frame; idle and cancellation send
 no start packet. Marketplace clip ownership/playback, remote custom-emote
 synchronization, and the complete villager trade UI remain incomplete. These
 producer fixes do not close those parity gates.
+
+Bamboo visuals remain incomplete. Dedicated stalk and radial leaf geometry,
+column-dependent UVs and offsets, selection and breaking overlays, picking,
+movement and camera collision, and terrain overhang culling now share the same
+column transform. Placement obstruction samples the resolved destination column,
+including horizontal placements and custom build heights. Earlier rendered
+checks cover all twelve pinned states and the overlay/bounds fixes; fresh
+acceptance of the current integrated build remains pending. Exact target-version
+atlas filtering, random-offset component admission, and live Enhanced
+presentation remain unverified; this work does not close the bamboo parity gate.

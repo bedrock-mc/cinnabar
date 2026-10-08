@@ -417,7 +417,7 @@ fn selected_slot_wire_encoding_distinguishes_retained_block_identity() {
 }
 
 #[test]
-fn retained_block_runtime_identity_routes_fail_visible_and_survives_reresolution() {
+fn compiled_sprite_precedence_preserves_retained_identity_through_reresolution() {
     let mut stream = stream();
     stream
         .submit(1, registry(CUSTOM_ITEM_ID, "minecraft:red_apple"))
@@ -429,16 +429,11 @@ fn retained_block_runtime_identity_routes_fail_visible_and_survives_reresolution
         )
         .unwrap();
 
-    // The sprite-resolving identifier does not launder the retained block
-    // identity: the route carries an explicit fail-visible block marker.
+    // The compiled sprite stays authoritative without discarding the planted-block identity.
     let held = stream.authority().actor_equipment(42).unwrap().clone();
     assert_eq!(held.item.identifier.as_deref(), Some("minecraft:red_apple"));
-    assert_eq!(
-        held.item.visual,
-        ItemVisualRoute::RetainedBlock {
-            block_runtime_id: 180
-        }
-    );
+    assert_eq!(held.item.identity.block_runtime_id, 180);
+    assert_eq!(held.item.visual, ItemVisualRoute::Compiled(ItemVisualId(0)));
 
     // Registry re-resolution rebuilds presentation from the stored identity
     // and preserves the retained block identity end to end.
@@ -453,9 +448,7 @@ fn retained_block_runtime_identity_routes_fail_visible_and_survives_reresolution
     );
     assert_eq!(
         re_resolved.item.visual,
-        ItemVisualRoute::RetainedBlock {
-            block_runtime_id: 180
-        }
+        ItemVisualRoute::Compiled(ItemVisualId(0))
     );
 
     // The identical stack without retained block identity keeps the exact

@@ -25,10 +25,15 @@ struct VertexOutput {
 
 fn vertex_f32(index: u32) -> f32 { return bitcast<f32>(vertex_words[index]); }
 
-@vertex
-fn block_entity_vertex(@builtin(vertex_index) vertex_index: u32) -> VertexOutput {
+fn block_vertex(vertex_index: u32, overlay_bias: bool) -> VertexOutput {
     let base = vertex_index * BLOCK_ENTITY_VERTEX_WORDS;
-    let position = vec3(vertex_f32(base), vertex_f32(base + 1u), vertex_f32(base + 2u));
+    var position = vec3(vertex_f32(base), vertex_f32(base + 1u), vertex_f32(base + 2u));
+    let actor_light = vertex_words[base + 12u];
+    let normal = vec3(vertex_f32(base + 9u), vertex_f32(base + 10u), vertex_f32(base + 11u));
+    if (overlay_bias && actor_light == 0u && any(normal != vec3(0.0))) {
+        let direction = select(-1.0, 1.0, dot(view.world_position - position, normal) >= 0.0);
+        position += normal * (direction * BLOCK_OVERLAY_FACE_OFFSET);
+    }
     var out: VertexOutput;
     out.position = view.clip_from_world * vec4(position, 1.0);
     out.uv = vec2(vertex_f32(base + 3u), vertex_f32(base + 4u));
@@ -39,10 +44,19 @@ fn block_entity_vertex(@builtin(vertex_index) vertex_index: u32) -> VertexOutput
         vertex_f32(base + 8u),
     );
     out.world_position = position;
-    out.actor_light = vertex_words[base + 12u];
-    let normal = vec3(vertex_f32(base + 9u), vertex_f32(base + 10u), vertex_f32(base + 11u));
+    out.actor_light = actor_light;
     out.native_lighting = actor_lighting(out.actor_light, normal, 0.0);
     return out;
+}
+
+@vertex
+fn block_entity_vertex(@builtin(vertex_index) vertex_index: u32) -> VertexOutput {
+    return block_vertex(vertex_index, false);
+}
+
+@vertex
+fn block_overlay_vertex(@builtin(vertex_index) vertex_index: u32) -> VertexOutput {
+    return block_vertex(vertex_index, true);
 }
 
 struct SelectionLineOutput {

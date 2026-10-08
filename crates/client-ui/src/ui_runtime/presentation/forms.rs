@@ -10,6 +10,7 @@ pub mod container_data;
 pub mod container_kinds;
 mod debug_overlay;
 pub mod discord_presence_setting;
+pub mod furnace_book;
 pub(super) use container_kinds::supported_storage_slots;
 pub mod containers;
 pub(super) mod credits_content;
@@ -157,6 +158,7 @@ pub(super) struct FormPresentation {
     container_cache: Option<containers::ScreenCache>,
     /// Immutable creative rows reused across hover and scroll frames.
     book_cache: Option<recipe_book::BookCache>,
+    furnace_cache: Option<furnace_book::FurnaceBookCache>,
     /// The menu text caret's blink and its boxes' text; carried across the per-frame reset.
     menu_caret: menu_caret::MenuCaretState,
     /// The open chat's cached screen; carried across the per-frame reset.
@@ -502,6 +504,7 @@ impl UiPresentationRuntime {
             experience_modal: state.experience_modal,
             container_cache: state.container_cache,
             book_cache: state.book_cache,
+            furnace_cache: state.furnace_cache,
             menu_caret: state.menu_caret,
             chat: state.chat,
             emote: state.emote,

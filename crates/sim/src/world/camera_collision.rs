@@ -144,7 +144,7 @@ impl PaletteWorld<'_> {
         touches: &impl Fn(Aabb) -> bool,
         visitor: &mut impl FnMut(Aabb),
     ) -> Result<(), WorldQueryError> {
-        let offset = Vec3::new(block[0] as f64, block[1] as f64, block[2] as f64);
+        let offset = physics.shape_offset(block);
         if physics.door.is_some() && !touches(Aabb::new(Vec3::ZERO, Vec3::ONE).translated(offset)) {
             return Ok(());
         }

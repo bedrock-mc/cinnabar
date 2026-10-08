@@ -386,6 +386,8 @@ pub(super) fn prepare_mod_input(
             pressed.push(key);
         }
     }
+    let editor_closed_panel = open && !presentation.mod_panel_open();
+    open &= presentation.mod_panel_open();
     let close_requested = pressed.iter().any(|key| key == "Escape")
         && open
         && !extension
@@ -434,7 +436,9 @@ pub(super) fn prepare_mod_input(
         && focused
         && !absorbed
         && extension.host(owner).is_active()
-        && ((had_panel && (close_requested || toggle_requested)) || pointer_closed)
+        && ((had_panel && (close_requested || toggle_requested))
+            || pointer_closed
+            || editor_closed_panel)
         && let Some(focus) = focus.as_deref_mut()
     {
         focus.authorize_screen_return();

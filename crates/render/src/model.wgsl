@@ -10,6 +10,7 @@
 #endif
 
 struct ChunkOrigin { value: vec4<i32>, cube_bases: vec4<u32> }
+// BAMBOO_CONSTANTS
 // ANIMATION_GPU_LAYOUT
 struct AnimationClockGpu { tick: u32, partial_tick: f32, padding_0: u32, padding_1: u32 }
 struct AtmosphereUniform {
@@ -210,7 +211,15 @@ fn vertex(
     );
     let origin = chunk_origins[metadata_index];
     let is_lily_pad = (model_templates[descriptor + 2u] & MODEL_LILY_PAD_FLAG) != 0u;
+    let is_bamboo = (model_templates[descriptor + 2u] & MODEL_BAMBOO_FLAG) != 0u;
     var rotation = packed_transform >> 12u;
+    if (is_bamboo) {
+        template_position.x += BAMBOO_OFFSET_MIN + f32(rotation & 15u) * BAMBOO_OFFSET_STEP;
+        template_position.z += BAMBOO_OFFSET_MIN + f32((rotation >> 4u) & 15u) * BAMBOO_OFFSET_STEP;
+        if (quad_index == BAMBOO_POSITIVE_X_LEAF_QUAD) { template_position.z += BAMBOO_LEAF_PLANE_INSET; }
+        if (quad_index == BAMBOO_POSITIVE_Z_LEAF_QUAD) { template_position.x += BAMBOO_LEAF_PLANE_INSET; }
+        rotation = 0u;
+    }
     if (is_lily_pad) {
         rotation = lily_pad_rotation(origin.value.xyz + vec3<i32>(block_position));
     }
@@ -237,6 +246,9 @@ fn vertex(
         f32(packed_u16(template_quad_base + 6u, uv_component)),
         f32(packed_u16(template_quad_base + 6u, uv_component + 1u)),
     ) / 4096.0;
+    if (is_bamboo && ((BAMBOO_STEM_SIDE_QUAD_MASK >> quad_index) & 1u) != 0u) {
+        out.uv.x += f32((packed_transform >> 20u) & 3u) * BAMBOO_STEM_UV_STRIDE;
+    }
     out.current_texture = frame.current;
     let normals = array(vec3(0.0), vec3(0.0,-1.0,0.0), vec3(0.0,1.0,0.0), vec3(-1.0,0.0,0.0), vec3(1.0,0.0,0.0), vec3(0.0,0.0,-1.0), vec3(0.0,0.0,1.0));
     out.normal = rotate_cross(normals[quad_flags & 7u] + vec3(0.5,0.0,0.5), rotation) - vec3(0.5,0.0,0.5);
@@ -279,7 +291,7 @@ fn vertex(
     out.surface_class = material_class(material_id);
     out.world_position = waved_position(world, out.surface_class, clamp(template_position.y, 0.0, 1.0));
     out.clip_position = view.clip_from_world * vec4(out.world_position, 1.0);
-    out.normal = template_quad_normal(template_quad_base, packed_transform >> 12u);
+    out.normal = template_quad_normal(template_quad_base, rotation);
 #endif
     return out;
 }

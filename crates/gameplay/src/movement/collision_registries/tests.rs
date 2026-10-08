@@ -5,6 +5,9 @@ use sha2::{Digest, Sha256};
 
 use super::{PhysicsCollisionRegistries, PhysicsCollisionRegistryError};
 
+#[path = "tests/bamboo.rs"]
+mod bamboo;
+
 #[path = "tests/custom_shapes.rs"]
 mod custom_shapes;
 

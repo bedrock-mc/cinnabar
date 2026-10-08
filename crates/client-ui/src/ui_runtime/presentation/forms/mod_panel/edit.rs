@@ -37,7 +37,11 @@ impl UiPresentationRuntime {
             .as_mut()
             .filter(|e| e.open)
         {
+            let close_autosave = editor.autosave && key == "Escape";
             editor.key(key);
+            if close_autosave {
+                self.set_mod_panel_open(false);
+            }
             return Vec::new();
         }
         self.form_presentation
@@ -114,7 +118,7 @@ impl ModPanel {
             id: id.clone(),
             value: selected as f32,
         };
-        self.data = Arc::new(control_data(&self.panel));
+        self.refresh_data();
         self.cancel_edit();
         vec![event]
     }
@@ -156,7 +160,7 @@ impl ModPanel {
             value: next,
         };
         *value = next;
-        self.data = Arc::new(control_data(&self.panel));
+        self.refresh_data();
         self.cancel_edit();
         vec![event]
     }

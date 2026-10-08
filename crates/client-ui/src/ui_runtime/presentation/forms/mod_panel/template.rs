@@ -9,10 +9,16 @@ use super::{
 
 pub(super) fn same_shape(a: &Panel, b: &Panel) -> bool {
     a.title == b.title
+        && a.reference_size == b.reference_size
         && a.style == b.style
         && a.theme == b.theme
         && a.dark == b.dark
         && a.sections == b.sections
+        && match (&a.surface, &b.surface) {
+            (Some(a), Some(b)) => a.screen == b.screen && a.document == b.document,
+            (None, None) => true,
+            _ => false,
+        }
         && a.controls.len() == b.controls.len()
         && a.controls.iter().zip(&b.controls).all(|(a, b)| {
             a.id() == b.id()
@@ -51,6 +57,17 @@ pub(super) fn catalog(
     rows: usize,
     editor: Option<&super::edit::Editor>,
 ) -> Result<(Catalog, usize), String> {
+    if let Some(surface) = &panel.surface {
+        let mut catalog = super::surface::catalog(surface)?;
+        let mut document = json!({"namespace":"cinnabar_personal", "panel": {
+            "type":"screen", "size":["100%", "100%"], "render_game_behind":true,
+            "absorbs_input":true, "should_steal_mouse":false,
+            "controls":[{format!("provided@{}", surface.screen): {"size":["100%","100%"]}}]
+        }});
+        super::edit::append_overlay(&mut document, panel, viewport, editor);
+        catalog.overlay_text("ui/host_extension_panel.json", &document.to_string());
+        return Ok((catalog, 1));
+    }
     if panel.style == ui::mod_panel::Style::Compact {
         return super::compact::catalog(panel, viewport, category, page, rows, editor);
     }

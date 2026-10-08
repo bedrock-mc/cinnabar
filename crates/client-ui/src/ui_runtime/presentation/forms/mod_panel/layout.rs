@@ -250,6 +250,8 @@ mod capacity_tests {
             })
             .collect();
         let panel = Panel {
+            surface: None,
+            reference_size: None,
             theme: Theme::Default,
             style: Style::Compact,
             title: "Settings".into(),

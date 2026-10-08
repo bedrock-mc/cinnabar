@@ -356,7 +356,16 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
                                     if entry.kind == VisualKind::Cross {
                                         0
                                     } else {
-                                        entry.variant
+                                        let origin = neighbourhood.block_origin();
+                                        crate::bamboo::transform_for_template(
+                                            template.flags,
+                                            entry.variant,
+                                            [
+                                                origin[0].wrapping_add(x as i32),
+                                                0,
+                                                origin[2].wrapping_add(z as i32),
+                                            ],
+                                        )
                                     },
                                 ),
                                 part_template,

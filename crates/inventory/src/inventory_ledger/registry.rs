@@ -13,6 +13,14 @@ pub(super) enum OccupiedStackRelation {
 }
 
 impl PlayerInventoryLedger {
+    /// Item identity excludes count and server stack IDs, retaining all item user data.
+    pub(crate) fn same_item(a: &NetworkItemStack, b: &NetworkItemStack) -> bool {
+        a.network_id == b.network_id
+            && a.metadata == b.metadata
+            && a.block_runtime_id == b.block_runtime_id
+            && a.extra_data == b.extra_data
+    }
+
     /// Retained registry identity for consumers caching identifier-dependent data.
     pub fn item_registry_snapshot(
         &self,

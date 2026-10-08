@@ -63,8 +63,11 @@ pub(super) fn guard(
 /// Routes a native result before the requesting guest receives its next callback.
 pub(super) fn collect(runtime: &mut ModRuntime, presentation: &mut UiPresentationRuntime) {
     if let Some(result) = presentation.take_mod_hud_editor_result()
-        && let Some(owner) = runtime.hud_editor_owner.take()
+        && let Some(owner) = runtime.hud_editor_owner
     {
+        if !presentation.mod_hud_editor_open() {
+            runtime.hud_editor_owner = None;
+        }
         let _ = runtime
             .host_mut(owner.host)
             .deliver_hud_editor_result(result);

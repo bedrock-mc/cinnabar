@@ -1,5 +1,7 @@
 //! Native layout editing of bounded HUD previews. Pointer data never enters a guest.
 
+#[cfg(test)]
+mod autosave_tests;
 mod input;
 mod template;
 #[cfg(test)]
@@ -23,6 +25,9 @@ const SCREEN: &str = "cinnabar_hud_editor.layout";
 
 pub(super) struct HudEditor {
     draft: Hud,
+    committed: Hud,
+    pub(super) autosave: bool,
+    pub(super) close_requested: bool,
     reset: bool,
     snap: bool,
     selected: Option<usize>,
@@ -47,6 +52,9 @@ impl UiPresentationRuntime {
         self.cancel_mod_panel_edit();
         self.form_presentation.mod_hud_editor = Some(HudEditor {
             draft: preview.clone(),
+            committed: preview.clone(),
+            autosave: preview.autosave,
+            close_requested: false,
             reset: false,
             snap: false,
             selected: None,
@@ -87,7 +95,9 @@ impl UiPresentationRuntime {
     pub fn take_mod_hud_editor_result(&mut self) -> Option<EditorResult> {
         let editor = self.form_presentation.mod_hud_editor.as_mut()?;
         let result = editor.result.take()?;
-        self.form_presentation.mod_hud_editor = None;
+        if !editor.open {
+            self.form_presentation.mod_hud_editor = None;
+        }
         Some(result)
     }
 
@@ -136,10 +146,10 @@ impl UiPresentationRuntime {
             editor.viewport = viewport;
             editor.catalog = None;
             editor.frame = None;
-            editor.drag = None;
+            editor.cancel_drag();
         }
         if editor.catalog.is_none() {
-            match template::catalog(&editor.draft, viewport) {
+            match template::catalog(editor, viewport) {
                 Ok(catalog) => {
                     editor.catalog = Some(Arc::new(catalog));
                     editor.screen = CachedScreen::default();
@@ -217,6 +227,10 @@ impl HudEditor {
     fn data(&self) -> DataSource {
         let mut data = cards::data(&self.draft, self.viewport);
         data.set_global("#grid_visible", Scalar::Bool(self.snap));
+        if let Some(surface) = &self.draft.surface {
+            super::mod_panel::surface::bind(surface, &mut data);
+            super::mod_panel::surface::viewport(&mut data, self.viewport);
+        }
         data.set_global(
             "#grid_label",
             Scalar::Text(if self.snap { "Grid: ON" } else { "Grid: OFF" }.into()),

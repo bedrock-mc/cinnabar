@@ -5,7 +5,7 @@ use super::super::{
 use super::*;
 use ui::mod_hud::{Anchor, Card};
 
-fn panel() -> ui::mod_panel::Panel {
+pub(super) fn panel() -> ui::mod_panel::Panel {
     serde_json::from_str(
         r#"{"title":"Personal HUD","toggle_key":"ShiftRight","dark":true,"controls":[]}"#,
     )
@@ -16,7 +16,7 @@ fn editor(p: &mut UiPresentationRuntime, hud: &Hud) {
     p.set_mod_panel_open(true);
     p.open_mod_hud_editor(hud).unwrap();
 }
-fn point(p: &UiPresentationRuntime, action: &str) -> [f32; 2] {
+pub(super) fn point(p: &UiPresentationRuntime, action: &str) -> [f32; 2] {
     let editor = p.form_presentation.mod_hud_editor.as_ref().unwrap();
     let frame = editor.frame.as_ref().expect("editor rendered");
     let hit = frame
@@ -29,7 +29,7 @@ fn point(p: &UiPresentationRuntime, action: &str) -> [f32; 2] {
         (hit.rect.y + hit.rect.h * 0.5) as f32 * frame.scale + frame.origin[1],
     ]
 }
-fn click(p: &mut UiPresentationRuntime, action: &str) {
+pub(super) fn click(p: &mut UiPresentationRuntime, action: &str) {
     let at = point(p, action);
     p.mod_panel_events(at, true, true);
     p.mod_panel_events(at, false, false);

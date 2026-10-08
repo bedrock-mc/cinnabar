@@ -65,6 +65,9 @@ pub(super) fn control_data(panel: &Panel) -> DataSource {
             _ => {}
         }
     }
+    if let Some(surface) = &panel.surface {
+        super::surface::bind(surface, &mut data);
+    }
     data
 }
 

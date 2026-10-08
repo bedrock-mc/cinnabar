@@ -240,9 +240,12 @@ impl PaletteWorld<'_> {
                 {
                     continue;
                 }
-                let Some((distance, face, point)) =
-                    ray_box(origin, direction, max_distance, shape.translated(offset))
-                else {
+                let Some((distance, face, point)) = ray_box(
+                    origin,
+                    direction,
+                    max_distance,
+                    shape.translated(physics.shape_offset(block)),
+                ) else {
                     continue;
                 };
                 let candidate = Candidate {

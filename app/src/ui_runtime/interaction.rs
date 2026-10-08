@@ -219,9 +219,7 @@ pub(crate) fn drive_inventory_ui_actions(
         .storage_generation();
     runtime.screen_state_mut().observe_window(generation);
     let screen = InventoryScreen::of_runtime(&player_runtime, &runtime);
-    if screen != InventoryScreen::Creative {
-        runtime.screen_state_mut().search_focused = false;
-    }
+    runtime.observe_inventory_search_focus(&player_runtime);
     let Some(position) = window.cursor_position() else {
         runtime.set_inventory_pointer_gui(None);
         runtime.screen_state_mut().hover = None;

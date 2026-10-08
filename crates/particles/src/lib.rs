@@ -24,12 +24,14 @@ pub use emitter::{ParticleSound, SpawnRequest, TileRequest};
 pub use system::{MAX_LIVE_PARTICLES, ParticleSystem};
 pub use triggers::{
     ITEM_ICON_PARTICLES, LevelParticle, block_break_request, block_crack_request, burst_requests,
-    classify_level_event, crack_cadence_due, critical_hit_request, face_toward,
-    is_particle_level_event, item_icon_request, named_request, parse_molang_variables,
+    classify_level_event, crack_cadence_due, critical_hit_request, eating_item_request,
+    face_toward, is_particle_level_event, item_icon_request, named_request, parse_molang_variables,
     terrain_request,
 };
 pub use world::{EmptyWorld, Fluid, ParticleWorld};
 
+#[cfg(test)]
+mod eating_tests;
 #[cfg(test)]
 mod explosion_tests;
 #[cfg(test)]
