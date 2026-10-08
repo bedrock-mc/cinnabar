@@ -55,7 +55,7 @@ pub fn capture_hud_frame(
     for (slot, icon) in storage_icons.0.iter_mut().enumerate() {
         if let Some(stack) = runtime
             .inventory_ledger(player_runtime)
-            .storage_stack(slot as u8)
+            .furnace_visual_stack(slot as u8)
         {
             *icon = resolve_identifier(stack)
                 .as_deref()

@@ -1,4 +1,7 @@
-use std::{collections::BTreeMap, sync::Arc};
+use std::{
+    collections::{BTreeMap, HashSet},
+    sync::Arc,
+};
 
 use protocol::{ItemRegistryEntry, RecipeCatalog, ScreenRecipe, ScreenRecipeKind};
 
@@ -9,6 +12,7 @@ pub(crate) struct Cache {
     inputs: Option<Inputs>,
     all: Arc<[usize]>,
     supplied: Arc<[usize]>,
+    supplied_outputs: HashSet<(i32, u16, u32)>,
 }
 
 #[derive(Debug)]
@@ -16,7 +20,7 @@ struct Inputs {
     catalog: Option<(usize, u64)>,
     kind: Option<ScreenRecipeKind>,
     registry: Option<Arc<BTreeMap<i32, ItemRegistryEntry>>>,
-    stacks: [Option<(i32, u32)>; protocol::PLAYER_INVENTORY_SLOTS as usize + 1],
+    stacks: [Option<(i32, u32, u16)>; protocol::PLAYER_INVENTORY_SLOTS as usize + 2],
 }
 
 impl Inputs {
@@ -104,12 +108,12 @@ pub(super) fn project(inventory: &InventorySession, filtering: bool) -> FurnaceR
         kind: ledger.window_kind().and_then(super::kind),
         registry: ledger.item_registry_snapshot().cloned(),
         stacks: std::array::from_fn(|index| {
-            let stack = if index == usize::from(protocol::PLAYER_INVENTORY_SLOTS) {
-                ledger.storage_stack(0)
+            let stack = if index >= usize::from(protocol::PLAYER_INVENTORY_SLOTS) {
+                ledger.storage_stack((index - usize::from(protocol::PLAYER_INVENTORY_SLOTS)) as u8)
             } else {
                 ledger.displayed_stack(index as u8)
             }?;
-            Some((stack.network_id, stack.metadata))
+            Some((stack.network_id, stack.metadata, stack.count))
         }),
     };
     let mut cache = inventory.furnace_cache.lock().unwrap();
@@ -119,7 +123,7 @@ pub(super) fn project(inventory: &InventorySession, filtering: bool) -> FurnaceR
         .is_some_and(|previous| previous.same(&inputs))
     {
         let mut positions: std::collections::HashMap<_, usize> = std::collections::HashMap::new();
-        let mut listed: Vec<(usize, &ScreenRecipe)> = Vec::new();
+        let mut listed: Vec<(usize, &ScreenRecipe, u32, bool)> = Vec::new();
         if let (Some(catalog), Some(kind)) = (catalog, inputs.kind) {
             for (index, recipe) in
                 catalog
@@ -134,23 +138,32 @@ pub(super) fn project(inventory: &InventorySession, filtering: bool) -> FurnaceR
             {
                 let output = recipe.output.unwrap();
                 let key = (output.network_id, output.aux, output.block_runtime_id);
+                let count = ledger.furnace_source_count(recipe);
+                let supplied = ledger.can_supply_furnace_recipe(recipe);
                 if let Some(&position) = positions.get(&key) {
-                    if ledger.can_supply_furnace_recipe(recipe)
-                        && !ledger.can_supply_furnace_recipe(listed[position].1)
-                    {
-                        listed[position] = (index, recipe);
+                    let available = supplied || listed[position].3;
+                    if count > listed[position].2 {
+                        listed[position] = (index, recipe, count, available);
+                    } else {
+                        listed[position].3 = available;
                     }
                 } else {
                     positions.insert(key, listed.len());
-                    listed.push((index, recipe));
+                    listed.push((index, recipe, count, supplied));
                 }
             }
         }
-        cache.all = listed.iter().map(|(index, _)| *index).collect();
+        cache.all = listed.iter().map(|(index, ..)| *index).collect();
+        cache.supplied_outputs = listed
+            .iter()
+            .filter(|(_, _, _, supplied)| *supplied)
+            .filter_map(|(_, recipe, ..)| recipe.output)
+            .map(|output| (output.network_id, output.aux, output.block_runtime_id))
+            .collect();
         cache.supplied = listed
             .into_iter()
-            .filter(|(_, recipe)| ledger.can_supply_furnace_recipe(recipe))
-            .map(|(index, _)| index)
+            .filter(|(_, _, _, supplied)| *supplied)
+            .map(|(index, ..)| index)
             .collect();
         cache.inputs = Some(inputs);
     }
@@ -162,4 +175,16 @@ pub(super) fn project(inventory: &InventorySession, filtering: bool) -> FurnaceR
             &cache.all
         }),
     }
+}
+
+pub(super) fn supplied(inventory: &InventorySession, recipe: &ScreenRecipe) -> bool {
+    let _ = project(inventory, false);
+    recipe.output.is_some_and(|output| {
+        inventory
+            .furnace_cache
+            .lock()
+            .unwrap()
+            .supplied_outputs
+            .contains(&(output.network_id, output.aux, output.block_runtime_id))
+    })
 }

@@ -688,6 +688,11 @@ impl UiRuntime {
                 self.inventory_ledger_mut(player_runtime)
                     .begin_auto_craft(&recipe)
             }
+            Widget::FurnaceClearRecipe => {
+                self.inventory_ledger_mut(player_runtime)
+                    .clear_furnace_recipe();
+                Ok(0)
+            }
         }
     }
 

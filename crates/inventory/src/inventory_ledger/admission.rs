@@ -154,6 +154,9 @@ impl PlayerInventoryLedger {
     /// projection. A content payload addresses its surface from index zero,
     /// so the projected first cell identifies the surface.
     fn apply_content(&mut self, content: &InventoryContentEvent) {
+        if self.apply_legacy_named_content(content.container, &content.slots) {
+            return;
+        }
         let resolved;
         let identity = self.storage_wire_identity(content.container);
         let content = if identity != content.container {
@@ -306,6 +309,9 @@ impl PlayerInventoryLedger {
 
     /// Admits one authoritative slot update through the canonical projection.
     fn apply_slot_update(&mut self, identity: SlotIdentity, stack: &NetworkItemStack) {
+        if self.apply_legacy_named_slot(identity.container, identity.slot, stack) {
+            return;
+        }
         let identity = SlotIdentity {
             container: if identity.container.slot_type.is_some() {
                 self.storage_wire_identity(identity.container)

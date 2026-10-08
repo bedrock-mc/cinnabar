@@ -150,8 +150,10 @@ impl UiPresentationRuntime {
             layout,
             &title,
             &mut icons,
-            &mut self.form_presentation.book_cache,
-            &mut self.form_presentation.furnace_cache,
+            (
+                &mut self.form_presentation.book_cache,
+                &mut self.form_presentation.furnace_cache,
+            ),
         );
         let pointer = runtime.inventory_pointer_gui();
         let view = ViewState {
@@ -512,9 +514,12 @@ fn screen_data(
     layout: ScreenLayout,
     title: &str,
     icons: &mut Vec<IconRef>,
-    book_cache: &mut Option<super::recipe_book::BookCache>,
-    furnace_cache: &mut Option<super::furnace_book::FurnaceBookCache>,
+    caches: (
+        &mut Option<super::recipe_book::BookCache>,
+        &mut Option<super::furnace_book::FurnaceBookCache>,
+    ),
 ) -> DataSource {
+    let (book_cache, furnace_cache) = caches;
     let ledger = runtime.inventory_ledger(player_runtime);
     let mut data = DataSource::new();
     // Bindings the controller does not answer read as false, as in vanilla.
@@ -697,7 +702,7 @@ fn station_cell<'a>(
         Cell::Storage(slot) => {
             let index = usize::from(slot);
             (
-                ledger.storage_stack(slot),
+                ledger.furnace_visual_stack(slot),
                 frame.storage_icons.0.get(index).copied().flatten(),
                 frame.durability.storage.get(index).copied().flatten(),
             )

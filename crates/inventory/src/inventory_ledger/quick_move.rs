@@ -24,7 +24,7 @@ impl PlayerInventoryLedger {
         if !self.confirmed.contains(Cell::Storage(0)) {
             return Err(InventoryGestureError::InvalidRequest);
         }
-        self.begin_quick_move_into(source, Some(&[Cell::Storage(0)]))
+        self.begin_quick_move_into(source, Some(&[Cell::Storage(0)]), None)
     }
 
     /// Moves a hovered stack across every cell that accepts it: compatible
@@ -33,13 +33,38 @@ impl PlayerInventoryLedger {
         &mut self,
         target: InventoryTarget,
     ) -> Result<i32, InventoryGestureError> {
-        self.begin_quick_move_into(target, None)
+        self.begin_quick_move_into(target, None, None)
+    }
+
+    pub(crate) fn begin_restore_furnace_source(
+        &mut self,
+        source: u8,
+        destination: u8,
+        amount: u16,
+    ) -> Result<i32, InventoryGestureError> {
+        self.begin_quick_move_into(
+            InventoryTarget::Storage(source),
+            Some(&[Cell::Inventory(destination)]),
+            Some(amount),
+        )
+    }
+
+    pub(crate) fn begin_return_furnace_cell(
+        &mut self,
+        source: u8,
+    ) -> Result<i32, InventoryGestureError> {
+        let destinations: Vec<_> = (0..protocol::PLAYER_INVENTORY_SLOTS)
+            .filter(|slot| self.known[usize::from(*slot)])
+            .map(Cell::Inventory)
+            .collect();
+        self.begin_quick_move_into(InventoryTarget::Storage(source), Some(&destinations), None)
     }
 
     pub(super) fn begin_quick_move_into(
         &mut self,
         target: InventoryTarget,
         destinations: Option<&[Cell]>,
+        amount: Option<u16>,
     ) -> Result<i32, InventoryGestureError> {
         let source = target.cell();
         let personal_generation = self.gesture_preflight(!matches!(source, Cell::Storage(_)))?;
@@ -56,7 +81,7 @@ impl PlayerInventoryLedger {
             .negotiated_item_entry(from.stack.network_id)
             .and_then(entry_capacity)
             .map(u16::from);
-        let mut remaining = from.stack.count;
+        let mut remaining = amount.map_or(from.stack.count, |amount| amount.min(from.stack.count));
         let mut actions = Vec::new();
         let mut groups = Vec::new();
         let (mut distinct, mut registry_bound) = (false, false);

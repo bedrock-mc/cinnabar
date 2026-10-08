@@ -10,6 +10,72 @@ use super::{Cell, PlayerInventoryLedger};
 const MAX_WINDOW_DATA: usize = 16;
 
 impl PlayerInventoryLedger {
+    fn legacy_named_window(&self, identity: &ContainerIdentity) -> Option<bool> {
+        let id = identity.window_id?;
+        if matches!(
+            id,
+            protocol::PLAYER_INVENTORY_WINDOW_ID
+                | protocol::OFFHAND_WINDOW_ID
+                | protocol::ARMOR_WINDOW_ID
+                | protocol::UI_INVENTORY_WINDOW_ID
+                | protocol::DYNAMIC_STORAGE_WINDOW_ID
+        ) {
+            return None;
+        }
+        let storage = self.storage.as_ref()?;
+        matches!(storage.kind.open_cells(), Some(OpenCells::Named { .. }))
+            .then_some(id == storage.window_id)
+    }
+
+    /// Ordinary named windows admit complete content by window ID, ignoring packet names.
+    pub(super) fn apply_legacy_named_content(
+        &mut self,
+        identity: ContainerIdentity,
+        slots: &[NetworkItemStack],
+    ) -> bool {
+        let Some(matches) = self.legacy_named_window(&identity) else {
+            return false;
+        };
+        let valid_length = self.storage.as_ref().is_some_and(|storage| {
+            matches!(storage.kind.open_cells(), Some(OpenCells::Named { lengths, .. }) if lengths.contains(&slots.len()))
+        });
+        if !matches || !valid_length {
+            self.note_unrouted_container();
+            return true;
+        }
+        for slot in 0..slots.len() {
+            self.retire_legacy_write(Cell::Storage(slot as u8));
+        }
+        let storage = self.storage.as_mut().expect("named window observed");
+        storage
+            .identity
+            .get_or_insert(ContainerIdentity::window(storage.window_id));
+        storage.resync_required = false;
+        self.confirmed.replace_storage(slots);
+        self.surface_refreshed(CellSurface::Storage);
+        true
+    }
+
+    /// A legacy slot's index is relative to the whole open window.
+    pub(super) fn apply_legacy_named_slot(
+        &mut self,
+        identity: ContainerIdentity,
+        slot: u16,
+        stack: &NetworkItemStack,
+    ) -> bool {
+        let Some(matches) = self.legacy_named_window(&identity) else {
+            return false;
+        };
+        if !matches
+            || !u8::try_from(slot).is_ok_and(|slot| {
+                self.set_authoritative_cell(Cell::Storage(slot), Held::new(stack))
+            })
+        {
+            self.note_unrouted_container();
+        }
+        true
+    }
+
     /// Whether `identity` is unnamed content for the open named window.
     pub(super) fn bare_named_window_matches(&self, identity: &ContainerIdentity) -> bool {
         identity.slot_type.is_none()

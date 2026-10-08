@@ -17,6 +17,7 @@ fn fixture(window_type: i8) -> InventorySession {
                 "minecraft:birch_log",
                 "minecraft:charcoal",
                 "minecraft:iron_ingot",
+                "minecraft:raw_iron",
             ]
             .into_iter()
             .enumerate()
@@ -114,6 +115,137 @@ fn fixture(window_type: i8) -> InventorySession {
     inventory.synchronize_crafting_frontier(1, Some((1, 0, Some(1))));
     inventory.drain_pending_inventory();
     inventory
+}
+
+#[test]
+fn furnace_unsupplied_recipe_shows_ghosts_and_repeat_selection_deselects() {
+    let mut inventory = fixture(::protocol::WINDOW_TYPE_FURNACE);
+    let recipe = inventory.furnace_recipes(false)[1].clone();
+    assert_eq!(recipe.output.unwrap().network_id, 4);
+    assert_eq!(inventory.ledger_mut().begin_furnace_recipe(&recipe), Ok(0));
+    let ledger = inventory.ledger();
+    assert_eq!(
+        ledger
+            .selected_furnace_result()
+            .map(|stack| stack.network_id),
+        Some(4)
+    );
+    assert_eq!(
+        ledger.furnace_ghost_stack(2).map(|stack| stack.network_id),
+        Some(4)
+    );
+    assert!(
+        ledger.storage_stack(2).is_none(),
+        "a ghost is never an inventory item"
+    );
+    assert_eq!(inventory.ledger_mut().begin_furnace_recipe(&recipe), Ok(0));
+    assert!(inventory.ledger().selected_furnace_result().is_none());
+    assert!(inventory.ledger().furnace_ghost_stack(2).is_none());
+}
+
+#[test]
+fn furnace_replacement_restores_original_source_counts_before_showing_ghosts() {
+    let mut inventory = fixture(::protocol::WINDOW_TYPE_FURNACE);
+    let supplied = inventory.furnace_recipes(true)[0].clone();
+    inventory
+        .ledger_mut()
+        .begin_furnace_recipe(&supplied)
+        .unwrap();
+    assert_eq!(inventory.ledger().storage_stack(0).unwrap().count, 15);
+    let other = inventory.furnace_recipes(false)[1].clone();
+    inventory.ledger_mut().begin_furnace_recipe(&other).unwrap();
+    let ledger = inventory.ledger();
+    assert!(ledger.storage_stack(0).is_none());
+    assert_eq!(ledger.displayed_stack(5).unwrap().count, 8);
+    assert_eq!(ledger.displayed_stack(6).unwrap().count, 7);
+    assert_eq!(
+        ledger.furnace_ghost_stack(2).map(|stack| stack.network_id),
+        Some(4)
+    );
+}
+
+#[test]
+fn furnace_loaded_alternative_keeps_the_result_available_without_source_priority() {
+    let mut inventory = fixture(::protocol::WINDOW_TYPE_FURNACE);
+    let recipe = inventory.furnace_recipes(true)[0].clone();
+    inventory
+        .ledger_mut()
+        .begin_furnace_recipe(&recipe)
+        .unwrap();
+    assert_eq!(
+        inventory.furnace_recipes(false)[0].ingredients[0]
+            .name
+            .as_ref(),
+        "minecraft:oak_log"
+    );
+    assert_eq!(inventory.furnace_recipes(true).len(), 1);
+}
+
+#[test]
+fn furnace_count_changes_reselect_the_highest_count_alternative() {
+    let mut inventory = fixture(::protocol::WINDOW_TYPE_FURNACE);
+    inventory
+        .ledger_mut()
+        .apply(&InventoryEvent::Slot(::protocol::InventorySlotEvent {
+            identity: ::protocol::SlotIdentity {
+                container: ContainerIdentity::window(0),
+                slot: 0,
+            },
+            stack: NetworkItemStack {
+                network_id: 1,
+                count: 8,
+                stack_network_id: 40,
+                ..NetworkItemStack::empty()
+            },
+            storage_item: None,
+        }));
+    assert_eq!(
+        inventory.furnace_recipes(false)[0].ingredients[0]
+            .name
+            .as_ref(),
+        "minecraft:birch_log"
+    );
+    for slot in [5, 6] {
+        let mut stack = inventory.ledger().displayed_stack(slot).unwrap().clone();
+        stack.count = 1;
+        inventory
+            .ledger_mut()
+            .apply(&InventoryEvent::Slot(::protocol::InventorySlotEvent {
+                identity: ::protocol::SlotIdentity {
+                    container: ContainerIdentity::window(0),
+                    slot: u16::from(slot),
+                },
+                stack,
+                storage_item: None,
+            }));
+    }
+    assert_eq!(
+        inventory.furnace_recipes(false)[0].ingredients[0]
+            .name
+            .as_ref(),
+        "minecraft:oak_log"
+    );
+}
+
+#[test]
+fn furnace_selection_expires_when_the_open_window_changes() {
+    let mut inventory = fixture(::protocol::WINDOW_TYPE_FURNACE);
+    let recipe = inventory.furnace_recipes(false)[1].clone();
+    inventory
+        .ledger_mut()
+        .begin_furnace_recipe(&recipe)
+        .unwrap();
+    assert!(inventory.ledger().furnace_ghost_stack(0).is_some());
+    inventory
+        .ledger_mut()
+        .apply(&InventoryEvent::Open(ContainerOpenEvent {
+            container: ContainerIdentity::window(8),
+            window_type: ::protocol::WINDOW_TYPE_SMOKER,
+            position: [0, 64, 1],
+            runtime_entity_id: -1,
+        }));
+    assert!(inventory.ledger().selected_furnace_result().is_none());
+    assert!(inventory.ledger().furnace_ghost_stack(0).is_none());
 }
 
 #[test]
@@ -254,4 +386,178 @@ fn furnace_recipe_projection_invalidates_when_supply_changes() {
     let listed = inventory.furnace_recipes(true);
     assert!(listed.is_empty());
     assert!(!Arc::ptr_eq(&previous, listed.shared_indices()));
+}
+
+#[test]
+fn furnace_content_and_slots_follow_the_open_window_instead_of_packet_names() {
+    for window_type in [
+        ::protocol::WINDOW_TYPE_FURNACE,
+        ::protocol::WINDOW_TYPE_BLAST_FURNACE,
+        ::protocol::WINDOW_TYPE_SMOKER,
+    ] {
+        for name in [
+            None,
+            Some(0),
+            Some(::protocol::CONTAINER_NAME_INVENTORY),
+            Some(::protocol::CONTAINER_NAME_DYNAMIC),
+        ] {
+            let mut inventory = fixture(window_type);
+            let identity = ContainerIdentity {
+                window_id: Some(7),
+                slot_type: name,
+                dynamic_id: Some(9),
+            };
+            let stack = |id, count| NetworkItemStack {
+                network_id: id,
+                count,
+                stack_network_id: id + 100,
+                ..NetworkItemStack::empty()
+            };
+            inventory
+                .ledger_mut()
+                .apply(&InventoryEvent::Content(InventoryContentEvent {
+                    container: identity,
+                    slots: vec![stack(2, 8), stack(1, 5), stack(3, 1)].into(),
+                    storage_item: NetworkItemStack::empty(),
+                }));
+            assert_eq!(
+                inventory
+                    .ledger()
+                    .storage_stack(0)
+                    .map(|stack| stack.network_id),
+                Some(2)
+            );
+            assert_eq!(
+                inventory
+                    .ledger()
+                    .storage_stack(1)
+                    .map(|stack| stack.network_id),
+                Some(1)
+            );
+            assert_eq!(
+                inventory
+                    .ledger()
+                    .storage_stack(2)
+                    .map(|stack| stack.network_id),
+                Some(3)
+            );
+            for slot in 0..3 {
+                inventory.ledger_mut().apply(&InventoryEvent::Slot(
+                    ::protocol::InventorySlotEvent {
+                        identity: ::protocol::SlotIdentity {
+                            container: identity,
+                            slot,
+                        },
+                        stack: stack(4, 7),
+                        storage_item: None,
+                    },
+                ));
+                assert_eq!(
+                    inventory
+                        .ledger()
+                        .storage_stack(slot as u8)
+                        .unwrap()
+                        .network_id,
+                    4
+                );
+            }
+            let original = inventory.ledger().storage_stack(0).unwrap().clone();
+            for (container, slots) in [
+                (
+                    ContainerIdentity {
+                        window_id: Some(8),
+                        ..identity
+                    },
+                    vec![stack(2, 8); 3],
+                ),
+                (identity, vec![stack(2, 8); 2]),
+            ] {
+                inventory
+                    .ledger_mut()
+                    .apply(&InventoryEvent::Content(InventoryContentEvent {
+                        container,
+                        slots: slots.into(),
+                        storage_item: NetworkItemStack::empty(),
+                    }));
+                assert_eq!(inventory.ledger().storage_stack(0), Some(&original));
+            }
+            inventory
+                .ledger_mut()
+                .apply(&InventoryEvent::Slot(::protocol::InventorySlotEvent {
+                    identity: ::protocol::SlotIdentity {
+                        container: identity,
+                        slot: 3,
+                    },
+                    stack: stack(2, 8),
+                    storage_item: None,
+                }));
+            assert!(inventory.ledger().storage_stack(3).is_none());
+            assert_eq!(inventory.ledger().displayed_stack(5).unwrap().network_id, 2);
+        }
+    }
+}
+
+#[test]
+fn furnace_alternatives_rank_matching_source_counts_and_keep_compatible_topups() {
+    let mut inventory = fixture(::protocol::WINDOW_TYPE_FURNACE);
+    for (window, slot, id, count) in [(7, 0, 2, 8), (0, 0, 1, 8)] {
+        inventory
+            .ledger_mut()
+            .apply(&InventoryEvent::Slot(::protocol::InventorySlotEvent {
+                identity: ::protocol::SlotIdentity {
+                    container: ContainerIdentity::window(window),
+                    slot,
+                },
+                stack: NetworkItemStack {
+                    network_id: id,
+                    count,
+                    stack_network_id: 100 + id,
+                    ..NetworkItemStack::empty()
+                },
+                storage_item: None,
+            }));
+    }
+    let recipe = inventory.furnace_recipes(true)[0].clone();
+    assert_eq!(&*recipe.ingredients[0].name, "minecraft:birch_log");
+    inventory
+        .ledger_mut()
+        .begin_furnace_recipe(&recipe)
+        .unwrap();
+    assert_eq!(inventory.ledger().storage_stack(0).unwrap().count, 23);
+}
+
+#[test]
+fn furnace_recipe_selection_moves_matching_fuel_into_the_ingredient_role() {
+    let mut inventory = fixture(::protocol::WINDOW_TYPE_FURNACE);
+    inventory
+        .ledger_mut()
+        .apply(&InventoryEvent::Content(InventoryContentEvent {
+            container: ContainerIdentity::window(0),
+            slots: vec![NetworkItemStack::empty(); usize::from(::protocol::PLAYER_INVENTORY_SLOTS)]
+                .into(),
+            storage_item: NetworkItemStack::empty(),
+        }));
+    inventory
+        .ledger_mut()
+        .apply(&InventoryEvent::Slot(::protocol::InventorySlotEvent {
+            identity: ::protocol::SlotIdentity {
+                container: ContainerIdentity::window(7),
+                slot: 1,
+            },
+            stack: NetworkItemStack {
+                network_id: 2,
+                count: 8,
+                stack_network_id: 102,
+                ..NetworkItemStack::empty()
+            },
+            storage_item: None,
+        }));
+    let recipe = inventory.furnace_recipes(false)[0].clone();
+    assert!(inventory.ledger().can_supply_furnace_recipe(&recipe));
+    inventory
+        .ledger_mut()
+        .begin_furnace_recipe(&recipe)
+        .unwrap();
+    assert_eq!(inventory.ledger().storage_stack(0).unwrap().count, 8);
+    assert!(inventory.ledger().storage_stack(1).is_none());
 }

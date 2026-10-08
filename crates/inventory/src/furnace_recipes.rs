@@ -12,6 +12,9 @@ mod cache;
 pub(crate) use cache::Cache;
 pub use cache::{FurnaceRecipeIter, FurnaceRecipes};
 
+mod selection;
+pub(crate) use selection::Selection;
+
 fn kind(window: WindowKind) -> Option<ScreenRecipeKind> {
     Some(match window {
         WindowKind::Furnace => ScreenRecipeKind::Furnace,
@@ -45,7 +48,16 @@ impl PlayerInventoryLedger {
     pub fn can_supply_furnace_recipe(&self, recipe: &ScreenRecipe) -> bool {
         self.storage_stack(0)
             .is_some_and(|stack| self.furnace_input_matches(recipe, stack))
-            || self.furnace_ingredient_slot(recipe).is_some()
+            || self.furnace_source_count(recipe) != 0
+    }
+
+    fn furnace_source_count(&self, recipe: &ScreenRecipe) -> u32 {
+        (0..protocol::PLAYER_INVENTORY_SLOTS)
+            .filter_map(|slot| self.displayed_stack(slot))
+            .chain(self.storage_stack(1))
+            .filter(|stack| self.furnace_input_matches(recipe, stack))
+            .map(|stack| u32::from(stack.count))
+            .sum()
     }
 
     /// The first player inventory stack that matches this recipe's input.
@@ -66,8 +78,27 @@ impl PlayerInventoryLedger {
         if self.window_kind().and_then(kind) != Some(recipe.kind) || recipe.ingredients.len() != 1 {
             return Err(InventoryGestureError::InvalidRequest);
         }
-        let mut placed = None;
+        if self.furnace_result_selected(recipe) {
+            self.clear_furnace_recipe();
+            return Ok(0);
+        }
+        let supplied = self.furnace_source_count(recipe) != 0;
+        let mut placed = self.prepare_furnace_selection(recipe, supplied)?;
+        if !supplied {
+            return Ok(placed.unwrap_or(0));
+        }
         let mut first_error = None;
+        if self
+            .storage_stack(1)
+            .is_some_and(|stack| self.furnace_input_matches(recipe, stack))
+        {
+            match self.begin_move_to_furnace_input(InventoryTarget::Storage(1)) {
+                Ok(request) => placed = Some(request),
+                Err(error) => {
+                    first_error = Some(error);
+                }
+            }
+        }
         for slot in 0..protocol::PLAYER_INVENTORY_SLOTS {
             if !self
                 .displayed_stack(slot)
@@ -82,17 +113,25 @@ impl PlayerInventoryLedger {
                 }
             }
         }
-        placed
+        let outcome = placed
             .or_else(|| {
                 self.storage_stack(0)
                     .is_some_and(|stack| self.furnace_input_matches(recipe, stack))
                     .then_some(0)
             })
-            .ok_or_else(|| first_error.unwrap_or(InventoryGestureError::EmptyGesture))
+            .ok_or_else(|| first_error.unwrap_or(InventoryGestureError::EmptyGesture));
+        if outcome.is_err() {
+            self.clear_furnace_recipe();
+        }
+        outcome
     }
 }
 
 impl InventorySession {
+    /// Any accepted alternative can keep the result in the supplied-only list.
+    pub fn can_supply_furnace_result(&self, recipe: &ScreenRecipe) -> bool {
+        cache::supplied(self, recipe)
+    }
     /// Result identities reuse one allocation until catalog or supplied ingredients change.
     pub fn furnace_recipes(&self, filtering: bool) -> FurnaceRecipes<'_> {
         cache::project(self, filtering)

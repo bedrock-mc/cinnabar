@@ -17,6 +17,7 @@ pub(in super::super) struct FurnaceBookCache {
     lang: Option<Arc<assets::RuntimeLangCatalog>>,
     source_icons: Arc<[Option<IconRef>]>,
     first_icon: usize,
+    selected: Option<(i32, u32, i32)>,
     pub(super) categories: [bool; 3],
     pub(super) icons: Vec<IconRef>,
     pub(super) rows: Arc<[CollectionItem]>,
@@ -43,6 +44,11 @@ pub(super) fn publication<'a>(
     let state = runtime.screen_state();
     let filtering = runtime.recipe_filtering(player);
     let shown = state.furnace_book_open;
+    let selected = player
+        .inventory
+        .ledger()
+        .selected_furnace_result()
+        .map(|stack| (stack.network_id, stack.metadata, stack.block_runtime_id));
     let reusable = cache.as_ref().is_some_and(|cache| {
         Arc::ptr_eq(&cache.all, all.shared_indices())
             && Arc::ptr_eq(&cache.supplied, supplied.shared_indices())
@@ -52,6 +58,7 @@ pub(super) fn publication<'a>(
             && cache.tab == state.furnace_tab
             && cache.search == state.search
             && cache.first_icon == first_icon
+            && cache.selected == selected
             && Arc::ptr_eq(&cache.source_icons, &frame.window_icons.furnace_entries)
             && same(&cache.components, &runtime.session_items)
             && same(&cache.lang, &runtime.lang_catalog)
@@ -79,6 +86,7 @@ pub(super) fn publication<'a>(
             lang: runtime.lang_catalog.clone(),
             source_icons: Arc::clone(&frame.window_icons.furnace_entries),
             first_icon,
+            selected,
             categories,
             icons,
             rows,
@@ -110,13 +118,24 @@ fn rows(
                 icons.push(icon);
                 Scalar::Num((first_icon + icons.len() - 1) as f64)
             });
-            let supplied = player.inventory.ledger().can_supply_furnace_recipe(recipe);
+            let supplied = player.inventory.can_supply_furnace_result(recipe);
+            let selected = player
+                .inventory
+                .ledger()
+                .selected_furnace_result()
+                .is_some_and(|selected| {
+                    recipe.output.is_some_and(|output| {
+                        selected.network_id == output.network_id
+                            && selected.metadata == u32::from(output.aux)
+                            && selected.block_runtime_id == output.block_runtime_id as i32
+                    })
+                });
             CollectionItem::default()
                 .with("#item_renderer_data", renderer)
                 .with("#recipe_book_total_items", Scalar::Num(total))
                 .with("#recipe_craftable_count", Scalar::Text(String::new()))
                 .with("#recipe_hover_text", Scalar::Text(String::new()))
-                .with("#is_recipe_selected_slot", Scalar::Bool(false))
+                .with("#is_recipe_selected_slot", Scalar::Bool(selected))
                 .with(
                     "#container_item_background_texture",
                     Scalar::Text(
