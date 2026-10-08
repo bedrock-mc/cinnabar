@@ -327,7 +327,29 @@ impl EquipmentRuntime {
                         self.push_java_held(body, item, &bones, grip, &mut layers);
                     }
                 }
-                None => self.push_held(body, item, layer, bone, &mut layers),
+                None => {
+                    let authored = animation
+                        .filter(|animation| !animation.owner.is_using_item())
+                        .and_then(|animation| {
+                            self.first_person_attachable(
+                                body,
+                                item,
+                                animation.owner,
+                                animation.rig,
+                                input.attachable_input(client_world::AttachableAnimationInput {
+                                    off_hand: layer == LAYER_OFF_HAND,
+                                    frame_alpha: animation.frame_alpha,
+                                    ..Default::default()
+                                }),
+                                None,
+                            )
+                        });
+                    if let Some(authored) = authored {
+                        layers.push(authored.presentation);
+                    } else {
+                        self.push_held(body, item, layer, bone, &mut layers);
+                    }
+                }
             }
             if layers.len() == before {
                 self.note_missing_layer(item, None, bone);

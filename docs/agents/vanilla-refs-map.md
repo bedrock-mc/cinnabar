@@ -3645,3 +3645,18 @@ Files: `docs/reference/held-block-placement.md`, `crates/gameplay/src/block_use.
   `geometry.the_entity`. A fixed 151-actor loopback scene keeps the late actor in
   its authored frustum while a camera turn admits the background crowd; the old
   128-body gates remove that otherwise visible actor.
+
+## Third-person held attachable evaluation
+
+- `crates/client-presentation/src/presentation/equipment/runtime.rs`: current
+  1.26.50.26 `src/__unmapped/01.cpp:2545510–2545539` sets up equipment slots,
+  including main/offhand 5/6. `01.cpp:2546244–2546377` admits active attachables;
+  `01.cpp:2546510–2547721` supplies `context.item_slot`, sets nonplayer
+  `context.is_first_person` to zero, copies matching owner bone matrices, clears
+  their default TRS and applies the attachable animation component. The draw
+  consumer is `01.cpp:2546380–2546509` and `FUN_141e86370`.
+- Pinned pack `attachables/bow.json`, `animations/bow.animation.json` and
+  `models/entity/bow.geo.json` own the third-person wield channels, standby
+  texture mesh and rightitem attachment. `entity/skeleton.entity.json`,
+  `models/entity/skeleton.geo.json` and the humanoid bow-and-arrow controller
+  supply the owner rig and aiming arm pose.

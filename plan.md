@@ -6544,3 +6544,10 @@ one authored panel, and the MegaSMP tutorial remains retained with its detailed
 Orebits glyph. The user confirms the rebuilt client looks correct. Required
 touched-crate checks and the canonical developer-control build pass; release
 hardware budgets and matched-version pixel comparison remain incomplete.
+
+## Third-person held attachables
+
+Idle held models evaluate their authored scripts and texture meshes against the
+owner's posed bones, including aiming skeleton bows. Active item-use frame and
+duration inputs in third-person equipment remain incomplete and retain the legacy
+route; this does not close the complete held-item parity gate.
