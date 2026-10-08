@@ -78,8 +78,11 @@ animation. Render time drives the loop independently of simulation tick speed.
 Movement, jump, attack/use, other modal screens, loss of focus, and actor/session
 reset cancel local playback. F5 perspective remains user controlled.
 
-This is a client-local feature. Standard Bedrock clients and servers do not know
-its custom clip, so no fake native emote packet is emitted. Exact Lunar keyframes,
+Starting a selected clip queues an EmotePacket in the selection frame, using the
+catalog's own identifier and duration. Opening the wheel, cancelling it, and idle
+frames send no start packet. Restarting a slot announces a new start even when
+the render clock has not advanced. The original custom clip keeps its own
+identifier; standard Bedrock clients do not have that clip. Exact Lunar keyframes,
 native Marketplace ownership/playback, and remote custom-emote synchronization
 remain incomplete. The small custom equip flow substitutes for native Dressing
 Room navigation and does not close that parity gate.

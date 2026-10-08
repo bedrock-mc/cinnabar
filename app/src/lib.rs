@@ -11,6 +11,7 @@ mod developer_control;
 mod discord_presence;
 mod environment;
 mod first_run;
+mod frame_pacing;
 mod fullscreen;
 mod global_resources;
 mod hotbar;

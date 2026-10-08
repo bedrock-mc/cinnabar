@@ -176,6 +176,57 @@ fn armor_content_and_slot_updates_are_retained() {
     assert_eq!(ledger.skipped_unknown_containers(), 0);
 }
 
+#[test]
+fn gear_observation_distinguishes_unknown_empty_and_resets_with_the_session() {
+    let mut ledger = PlayerInventoryLedger::default();
+    let helmet = InventoryTarget::Armor(0);
+    assert_eq!(
+        ledger.gear_slot_state(helmet),
+        Some(PlayerInventorySlot::Unknown)
+    );
+    assert_eq!(
+        ledger.gear_slot_state(InventoryTarget::Offhand),
+        Some(PlayerInventorySlot::Unknown)
+    );
+    ledger.apply(&content(
+        ContainerIdentity::window(protocol::ARMOR_WINDOW_ID),
+        vec![NetworkItemStack::empty()],
+    ));
+    assert_eq!(
+        ledger.gear_slot_state(helmet),
+        Some(PlayerInventorySlot::Empty)
+    );
+    assert_eq!(
+        ledger.gear_slot_state(InventoryTarget::Armor(1)),
+        Some(PlayerInventorySlot::Unknown)
+    );
+    ledger.apply(&InventoryEvent::Slot(InventorySlotEvent {
+        identity: SlotIdentity {
+            container: named(CONTAINER_NAME_OFFHAND),
+            slot: 0,
+        },
+        stack: stack(1, 8),
+        storage_item: None,
+    }));
+    assert!(
+        matches!(ledger.gear_slot_state(InventoryTarget::Offhand), Some(PlayerInventorySlot::Present(item)) if item.count == 8)
+    );
+    assert_eq!(
+        ledger.gear_slot_state(InventoryTarget::Armor(u8::MAX)),
+        None
+    );
+    assert_eq!(ledger.gear_slot_state(InventoryTarget::Player(0)), None);
+    ledger.begin_session(2);
+    assert_eq!(
+        ledger.gear_slot_state(helmet),
+        Some(PlayerInventorySlot::Unknown)
+    );
+    assert_eq!(
+        ledger.gear_slot_state(InventoryTarget::Offhand),
+        Some(PlayerInventorySlot::Unknown)
+    );
+}
+
 /// Personal UI inventory content fills every crafting cell; named crafting
 /// input updates address the same cells.
 #[test]

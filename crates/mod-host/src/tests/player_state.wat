@@ -1,0 +1,42 @@
+(component
+  (import "$PLAYER_STATE" (instance $player-state
+    (type $i (record (field "identifier" (option string)) (field "network-id" s32)
+      (field "metadata" u32) (field "count" u16) (field "block" bool)
+      (field "damage" (option u32)) (field "max-durability" (option u32))))
+    (export "item" (type $item (eq $i)))
+    (type $c (record (field "known" bool) (field "item" (option $item))))
+    (export "slot" (type $slot (eq $c)))
+    (type $e (record (field "effect-id" s32) (field "amplifier" s32)
+      (field "remaining-ticks" (option u64)) (field "ambient" bool) (field "particles" bool)))
+    (export "effect" (type $effect (eq $e)))
+    (type $s (record (field "session" u64) (field "dimension" s32)
+      (field "selected-slot" (option u8)) (field "inventory" (list $slot))
+      (field "armor" (list $slot)) (field "offhand" $slot) (field "effects" (list $effect))))
+    (export "snapshot" (type $snapshot (eq $s)))
+    (export "read-snapshot" (func (result (result (option $snapshot) (error string)))))))
+  (alias export $player-state "read-snapshot" (func $read))
+  (core module $memory-module
+    (memory (export "memory") 1)
+    (global $next (mut i32) (i32.const 4096))
+    (func (export "realloc") (param i32 i32 i32 i32) (result i32)
+      (local $old i32)
+      global.get $next local.tee $old
+      local.get 3 i32.add global.set $next local.get $old))
+  (core instance $mem (instantiate $memory-module))
+  (alias core export $mem "memory" (core memory $memory))
+  (alias core export $mem "realloc" (core func $realloc))
+  (core func $lower (canon lower (func $read) (memory $memory) (realloc $realloc)))
+  (core module $code
+    (import "host" "read" (func $read (param i32)))
+    (import "host" "memory" (memory 1))
+    (global $count (mut i32) (i32.const 0))
+    (func (export "init") $INIT)
+    (func (export "frame")
+      global.get $count i32.const 1 i32.add global.set $count
+      $FRAME))
+  (core instance $host
+    (export "read" (func $lower))
+    (export "memory" (memory $memory)))
+  (core instance $run (instantiate $code (with "host" (instance $host))))
+  (func (export "init") (canon lift (core func $run "init")))
+  (func (export "frame") (canon lift (core func $run "frame"))))
