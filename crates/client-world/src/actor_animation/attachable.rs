@@ -5,7 +5,9 @@ mod preview;
 use preview::Preview;
 type AttachableKey = (ActorLifetimeId, bool, bool, bool);
 
-const MAX_ATTACHABLE_STATES: usize = 256;
+// Every hand, perspective and worn-state key fits for all admitted owners.
+const STATES_PER_OWNER: usize = 1 << 3;
+const MAX_ATTACHABLE_STATES: usize = crate::actor_store::MAX_TRACKED_ACTORS * STATES_PER_OWNER;
 
 /// Native item-render inputs; duration values are ticks, not the actor VM's seconds.
 #[derive(Clone, Copy, Debug, Default)]
@@ -197,11 +199,36 @@ impl AttachablesRuntime {
             input.first_person,
             input.worn,
         );
-        // Ended sessions and a reused runtime ID's previous owner carry no script state.
-        self.states.retain(|(actor, _, _, _), _| {
-            actor.session_id == owner_rig.actor.session_id
-                && (actor.runtime_id != owner_rig.actor.runtime_id || *actor == owner_rig.actor)
-        });
+        if self
+            .states
+            .first_key_value()
+            .is_some_and(|((actor, _, _, _), _)| actor.session_id != owner_rig.actor.session_id)
+        {
+            self.states.clear();
+            self.previewed.clear();
+        }
+        if !self.states.contains_key(&key) {
+            let first = ActorLifetimeId {
+                spawn_revision: 0,
+                ..owner_rig.actor
+            };
+            let last = ActorLifetimeId {
+                spawn_revision: u64::MAX,
+                ..owner_rig.actor
+            };
+            let mut stale = [None; STATES_PER_OWNER];
+            for (slot, (&key, _)) in stale.iter_mut().zip(
+                self.states
+                    .range((first, false, false, false)..=(last, true, true, true)),
+            ) {
+                if key.0 != owner_rig.actor {
+                    *slot = Some(key);
+                }
+            }
+            for key in stale.into_iter().flatten() {
+                self.states.remove(&key);
+            }
+        }
         let binding = self.assets.attachable_rig_binding(identifier)?;
         self.evaluations += 1;
         // Departed owners are never announced here; the least recently drawn state makes room.

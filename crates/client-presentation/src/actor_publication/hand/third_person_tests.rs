@@ -202,10 +202,16 @@ fn assert_native_body_sample(equipment_parent: bool, case: BodyCase) {
                 let mut expected_body = body.clone();
                 expected_body.input.previous_bones = previous;
                 expected_body.input.current_bones = current;
+                let delta_seconds = world.resource::<Time<Real>>().delta_secs();
                 let expected = world.resource_mut::<EquipmentRuntime>().layers_for(
                     &expected_body,
                     &input,
-                    None,
+                    Some(crate::presentation::equipment::EquipmentAnimation {
+                        owner: actor,
+                        rig: &rig,
+                        frame_alpha: actor_alpha,
+                        delta_seconds,
+                    }),
                 );
                 let expected = expected.first().expect("native held equipment");
                 let actual = world
