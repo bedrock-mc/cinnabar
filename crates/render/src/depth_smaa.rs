@@ -68,6 +68,14 @@ struct DepthSmaaView {
     format: TextureFormat,
 }
 
+type PreparedView = (
+    Entity,
+    &'static ViewTarget,
+    &'static ViewDepthTexture,
+    &'static Msaa,
+    Option<&'static DepthSmaaView>,
+);
+
 /// Caches bindings for both ping-pong colours and removes them immediately when disabled.
 fn prepare(
     mut commands: Commands,
@@ -75,16 +83,7 @@ fn prepare(
     cache: Res<PipelineCache>,
     mut pipelines: ResMut<DepthSmaaPipelines>,
     uniforms: Res<bevy::anti_alias::smaa::SmaaInfoUniformBuffer>,
-    views: Query<
-        (
-            Entity,
-            &ViewTarget,
-            &ViewDepthTexture,
-            &Msaa,
-            Option<&DepthSmaaView>,
-        ),
-        (With<Smaa>, With<SmaaTextures>),
-    >,
+    views: Query<PreparedView, (With<Smaa>, With<SmaaTextures>)>,
     removed: Query<Entity, (With<DepthSmaaView>, Without<Smaa>)>,
 ) {
     for entity in &removed {
@@ -194,12 +193,11 @@ fn sync_graph(world: &mut World) {
     if enabled && !installed {
         install_graph(world);
     }
-    if !enabled {
-        if let Some(mut graphs) = world.get_resource_mut::<RenderGraph>() {
-            if let Some(graph) = graphs.get_sub_graph_mut(Core3d) {
-                let _ = graph.remove_node(Node3d::Smaa);
-                let _ = graph.remove_node(nametags::NametagsAfterSmaaLabel);
-            }
-        }
+    if !enabled
+        && let Some(mut graphs) = world.get_resource_mut::<RenderGraph>()
+        && let Some(graph) = graphs.get_sub_graph_mut(Core3d)
+    {
+        let _ = graph.remove_node(Node3d::Smaa);
+        let _ = graph.remove_node(nametags::NametagsAfterSmaaLabel);
     }
 }
