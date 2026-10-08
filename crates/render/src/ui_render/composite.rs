@@ -51,7 +51,7 @@ pub(crate) struct UiLayerTexture {
     pub(crate) texture: Texture,
     pub(crate) view: TextureView,
     /// The drawn content and whether it encoded any batch.
-    held: Arc<Mutex<Option<(UiLayerContent, bool)>>>,
+    held: Arc<Mutex<Option<HeldLayer>>>,
     /// Set when the frame's final layer is left for [`UiPresentNode`] to composite.
     present: AtomicBool,
     /// The sole writer of its output with no blend, so the composite can replace the blit.
@@ -63,15 +63,47 @@ impl UiLayerTexture {
     pub(crate) fn holds(&self, content: &UiLayerContent) -> Option<bool> {
         let held = self.held.lock().expect("UI layer content lock");
         held.as_ref()
-            .filter(|(held, _)| held == content)
-            .map(|(_, encoded)| *encoded)
+            .filter(|held| &held.content == content)
+            .map(|held| held.encoded)
     }
 
-    /// Records what the layer now holds; `None` marks it stale.
+    /// Records test content without a publication available for partial replay.
+    #[cfg(test)]
     pub(crate) fn hold(&self, content: Option<(UiLayerContent, bool)>) {
-        *self.held.lock().expect("UI layer content lock") = content;
+        self.hold_publication(content, None);
     }
 
+    /// Retains exactly the accepted publication that produced the completed layer.
+    pub(super) fn hold_publication(
+        &self,
+        content: Option<(UiLayerContent, bool)>,
+        publication: Option<Arc<UiRenderInput>>,
+    ) {
+        *self.held.lock().expect("UI layer content lock") =
+            content.map(|(content, encoded)| HeldLayer {
+                content,
+                encoded,
+                publication,
+            });
+    }
+
+    /// Plans replay only when the retained layer and publication share the same draw policy.
+    pub(super) fn damage(
+        &self,
+        content: &UiLayerContent,
+        input: &UiRenderInput,
+    ) -> super::damage::UiDamage {
+        let held = self.held.lock().expect("UI layer content lock");
+        held.as_ref().map_or(super::damage::UiDamage::Full, |held| {
+            held.damage(
+                content,
+                input,
+                [self.texture.width(), self.texture.height()],
+            )
+        })
+    }
+
+    /// Leaves the final layer for the output pass to composite.
     pub(crate) fn defer_present(&self) {
         self.present.store(true, Ordering::Relaxed);
     }
@@ -88,10 +120,44 @@ impl UiLayerTexture {
     }
 }
 
+/// A completed raster and the immutable publication used to produce its pixels.
+struct HeldLayer {
+    content: UiLayerContent,
+    encoded: bool,
+    publication: Option<Arc<UiRenderInput>>,
+}
+
+impl HeldLayer {
+    /// Partial replay requires an unchanged full-target policy and matching accepted revisions.
+    fn damage(
+        &self,
+        content: &UiLayerContent,
+        input: &UiRenderInput,
+        extent: [u32; 2],
+    ) -> super::damage::UiDamage {
+        let Some(previous) = self.publication.as_ref() else {
+            return super::damage::UiDamage::Full;
+        };
+        if !self.encoded
+            || self.content.skip.is_some()
+            || content.skip.is_some()
+            || self.content.viewport.is_some()
+            || content.viewport.is_some()
+            || self.content.model_depth != content.model_depth
+            || self.content.revision != previous.revision
+            || content.revision != input.revision
+            || extent != input.viewport_size
+        {
+            return super::damage::UiDamage::Full;
+        }
+        super::damage::plan(previous, input)
+    }
+}
+
 struct RetainedLayer {
     texture: Texture,
     view: TextureView,
-    held: Arc<Mutex<Option<(UiLayerContent, bool)>>>,
+    held: Arc<Mutex<Option<HeldLayer>>>,
 }
 
 /// Per-view layers kept across frames, unlike the frame-scoped texture cache.
@@ -178,6 +244,7 @@ fn retained_layer(device: &RenderDevice, size: Extent3d) -> RetainedLayer {
 pub(crate) struct UiCompositePipeline {
     pub(crate) layout: BindGroupLayoutDescriptor,
     variants: Variants<RenderPipeline, UiCompositeSpecializer>,
+    clear: Option<CachedRenderPipelineId>,
 }
 
 struct UiCompositeSpecializer;
@@ -241,6 +308,7 @@ impl FromWorld for UiCompositePipeline {
         Self {
             layout,
             variants: Variants::new(UiCompositeSpecializer, descriptor),
+            clear: None,
         }
     }
 }
@@ -251,7 +319,59 @@ impl UiCompositePipeline {
         cache: &PipelineCache,
         key: UiCompositeKey,
     ) -> Option<CachedRenderPipelineId> {
+        self.clear_pipeline_id(cache);
         self.variants.specialize(cache, key).ok()
+    }
+
+    /// Shares one rectangle-clear pipeline between startup warmup and all view formats.
+    fn clear_pipeline_id(&mut self, cache: &PipelineCache) -> CachedRenderPipelineId {
+        *self
+            .clear
+            .get_or_insert_with(|| cache.queue_render_pipeline(clear_pipeline_descriptor()))
+    }
+
+    /// Returns the unblended rectangle-clear pipeline once asynchronous compilation finishes.
+    pub(super) fn clear_pipeline<'a>(
+        &self,
+        cache: &'a PipelineCache,
+    ) -> Option<&'a RenderPipeline> {
+        self.clear.and_then(|id| cache.get_render_pipeline(id))
+    }
+}
+
+impl crate::pipeline_warmup::PrewarmPipelines for UiCompositePipeline {
+    /// Holds startup readiness until the fixed-format damage clear has compiled.
+    fn prewarm(
+        &mut self,
+        cache: &PipelineCache,
+        _view: crate::pipeline_warmup::WarmView,
+        ids: &mut crate::pipeline_warmup::WarmupIds,
+    ) -> Result<(), BevyError> {
+        ids.push(self.clear_pipeline_id(cache));
+        Ok(())
+    }
+}
+
+/// Clears a scissored rectangle without reading or blending the old gamma-space layer.
+pub(super) fn clear_pipeline_descriptor() -> RenderPipelineDescriptor {
+    RenderPipelineDescriptor {
+        label: Some("retained UI damage clear".into()),
+        vertex: VertexState {
+            shader: UI_COMPOSITE_SHADER_HANDLE,
+            entry_point: Some("composite_vertex".into()),
+            ..default()
+        },
+        fragment: Some(FragmentState {
+            shader: UI_COMPOSITE_SHADER_HANDLE,
+            entry_point: Some("clear_fragment".into()),
+            targets: vec![Some(ColorTargetState {
+                format: UI_LAYER_FORMAT,
+                blend: None,
+                write_mask: ColorWrites::ALL,
+            })],
+            ..default()
+        }),
+        ..default()
     }
 }
 
@@ -306,14 +426,18 @@ fn encode_composite(
         layout,
         &BindGroupEntries::sequential((sources[0], sources[1])),
     );
+    if let Some(profile) = world.get_resource::<super::profile::UiProfile>() {
+        profile.record_pass(crate::RuntimeStage::GpuUiComposite);
+        profile.record_draw(crate::RuntimeStage::GpuUiComposite, 0);
+    }
     let attachments = [Some(destination)];
     let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
         label: Some("gamma-space UI composite"),
         color_attachments: &attachments,
         depth_stencil_attachment: None,
-        timestamp_writes: crate::gpu_timing::render_pass_timestamps(
+        timestamp_writes: crate::gpu_timing::ui_pass_timestamps(
             world,
-            crate::RuntimeStage::GpuUi,
+            crate::RuntimeStage::GpuUiComposite,
         ),
         occlusion_query_set: None,
     });
@@ -411,3 +535,7 @@ pub(crate) fn install_present_node(world: &mut World) {
     node.type_name = std::any::type_name::<ViewNodeRunner<UiPresentNode>>();
     world.insert_resource(UiPresentInstalled);
 }
+
+#[cfg(test)]
+#[path = "composite_tests.rs"]
+mod tests;

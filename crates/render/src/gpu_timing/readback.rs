@@ -79,9 +79,17 @@ pub(super) fn ticks_to_duration(ticks: u64, period_ns: f32) -> Duration {
 
 /// Sums elapsed pass latencies, including overlapping work and gaps; unmeasured stages stay absent.
 /// Metal samples vertex-start to fragment-end and omits whole-frame, stock-pass and per-draw costs.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct GpuFrameTimes {
     stages: [Option<Duration>; RuntimeStage::GPU.len()],
+}
+
+impl Default for GpuFrameTimes {
+    fn default() -> Self {
+        Self {
+            stages: [None; RuntimeStage::GPU.len()],
+        }
+    }
 }
 
 impl GpuFrameTimes {

@@ -3,6 +3,9 @@
 
 use bevy::app::{TaskPoolOptions, TaskPoolPlugin, TaskPoolThreadAssignmentPolicy};
 
+#[cfg(target_os = "macos")]
+mod macos;
+
 /// Thread counts for each shared pool on a machine with `cores` logical processors.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ThreadBudget {
@@ -42,9 +45,31 @@ impl ThreadBudget {
             task_pool_options: TaskPoolOptions {
                 io: fixed(budget.io),
                 async_compute: fixed(budget.async_compute),
-                compute: fixed(budget.compute),
+                compute: TaskPoolThreadAssignmentPolicy {
+                    #[cfg(target_os = "macos")]
+                    on_thread_spawn: Some(std::sync::Arc::new(macos::prepare_frame_thread)),
+                    ..fixed(budget.compute)
+                },
                 ..TaskPoolOptions::default()
             },
+        }
+    }
+
+    /// Configures frame submission on the render executor's own thread.
+    #[cfg(target_os = "macos")]
+    pub(crate) fn configure_render_thread(app: &mut bevy::prelude::App) {
+        use bevy::{
+            ecs::schedule::common_conditions::run_once,
+            prelude::IntoScheduleConfigs,
+            render::{Render, RenderApp, RenderSystems},
+        };
+        if let Some(render) = app.get_sub_app_mut(RenderApp) {
+            render.add_systems(
+                Render,
+                macos::prepare_render_thread
+                    .run_if(run_once)
+                    .before(RenderSystems::ExtractCommands),
+            );
         }
     }
 

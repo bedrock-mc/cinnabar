@@ -2,12 +2,6 @@
 
 use super::*;
 
-type OptionalUiResources<'w> = (
-    Option<Res<'w, UiHandCoverage>>,
-    Option<Res<'w, UiGlintSettings>>,
-    Option<Res<'w, crate::upload_staging::BufferUploadStaging>>,
-);
-
 /// Creates the shared viewport uniform and samplers for this render device.
 pub(super) fn init_ui_gpu(
     mut commands: Commands,
@@ -69,6 +63,14 @@ pub(super) fn init_ui_gpu(
     });
 }
 
+/// Optional preparation inputs share one system parameter without requiring diagnostics.
+type UiPreparationOptions<'w> = (
+    Option<Res<'w, UiHandCoverage>>,
+    Option<Res<'w, UiGlintSettings>>,
+    Option<Res<'w, profile::UiProfile>>,
+    Option<Res<'w, crate::upload_staging::BufferUploadStaging>>,
+);
+
 /// Admits a publication and updates its shared GPU storage without waiting for readback.
 pub(crate) fn prepare_ui_resources(
     scene: Res<UiRenderSceneResource>,
@@ -77,7 +79,7 @@ pub(crate) fn prepare_ui_resources(
     mut gpu: ResMut<UiGpu>,
     stats: Res<UiRenderStatsResource>,
     tick: SystemChangeTick,
-    (coverage, glint, staging): OptionalUiResources<'_>,
+    (coverage, glint, profile, staging): UiPreparationOptions<'_>,
 ) {
     let same_device = &gpu.device == render_device.wgpu_device();
     let device_valid =
@@ -135,6 +137,12 @@ pub(crate) fn prepare_ui_resources(
                 &render_queue,
                 &[(&*viewport_buffer, 0, bytemuck::bytes_of(uniform))],
             );
+            if let Some(profile) = profile.as_deref() {
+                profile.record_upload(
+                    profile::UploadKind::Viewport,
+                    size_of::<UiViewportUniform>() as u64,
+                );
+            }
         },
     );
     if let Some(previous) = gpu.last_admitted_revision {
@@ -180,10 +188,12 @@ pub(crate) fn prepare_ui_resources(
         record_render_rejection(&stats, input.revision, reason);
         return;
     }
-    if let Err(reason) = gpu
-        .textures
-        .prepare(&input.textures, &render_device, &render_queue)
-    {
+    if let Err(reason) = gpu.textures.prepare(
+        &input.textures,
+        &render_device,
+        &render_queue,
+        profile.as_deref(),
+    ) {
         gpu.accepted_revision = None;
         gpu.batches = Arc::from([]);
         record_render_rejection(&stats, input.revision, reason);
@@ -243,6 +253,12 @@ pub(crate) fn prepare_ui_resources(
             (upload.vertices.start * size_of::<UiRenderVertex>()) as u64,
             bytemuck::cast_slice(&input.vertices[upload.vertices.clone()]),
         );
+        if let Some(profile) = profile.as_deref() {
+            profile.record_upload(
+                profile::UploadKind::Geometry,
+                (upload.vertices.len() * size_of::<UiRenderVertex>()) as u64,
+            );
+        }
         #[cfg(test)]
         {
             gpu.geometry_writes[0] += 1;
@@ -264,6 +280,12 @@ pub(crate) fn prepare_ui_resources(
             (upload.indices.start * size_of::<u32>()) as u64,
             bytemuck::cast_slice(&input.indices[upload.indices.clone()]),
         );
+        if let Some(profile) = profile.as_deref() {
+            profile.record_upload(
+                profile::UploadKind::Geometry,
+                (upload.indices.len() * size_of::<u32>()) as u64,
+            );
+        }
         #[cfg(test)]
         {
             gpu.geometry_writes[1] += 1;
