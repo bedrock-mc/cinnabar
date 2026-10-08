@@ -117,9 +117,15 @@ fn cards_update_values_without_rebuilding_the_json_ui_catalog_and_revoke_cleanly
     let mut hud = content();
     p.set_mod_hud(Some(&hud)).unwrap();
     let after = frame(&mut p, &runtime, [1280, 720], 1.);
-    assert_ne!(snapshot::rasterize(&before), snapshot::rasterize(&after));
+    assert!(
+        snapshot::rasterize(&before) != snapshot::rasterize(&after),
+        "published cards change the rendered frame"
+    );
     let catalog = Arc::clone(&p.form_presentation.mod_widgets.as_ref().unwrap().catalog);
-    assert_eq!(after, frame(&mut p, &runtime, [1280, 720], 1.));
+    assert!(
+        after == frame(&mut p, &runtime, [1280, 720], 1.),
+        "unchanged content reuses the published frame"
+    );
     hud.cards[0].rows[0].value = "41%".into();
     hud.cards[0].rows[0].progress = Some(0.41);
     p.set_mod_hud(Some(&hud)).unwrap();
@@ -127,9 +133,17 @@ fn cards_update_values_without_rebuilding_the_json_ui_catalog_and_revoke_cleanly
         &catalog,
         &p.form_presentation.mod_widgets.as_ref().unwrap().catalog
     ));
-    assert_ne!(after, frame(&mut p, &runtime, [1280, 720], 1.));
+    let updated = frame(&mut p, &runtime, [1280, 720], 1.);
+    assert!(
+        snapshot::rasterize(&after) != snapshot::rasterize(&updated),
+        "new values change the rendered cards"
+    );
     p.set_mod_hud(None).unwrap();
-    assert_eq!(before, frame(&mut p, &runtime, [1280, 720], 1.));
+    let restored = frame(&mut p, &runtime, [1280, 720], 1.);
+    assert!(
+        snapshot::rasterize(&before) == snapshot::rasterize(&restored),
+        "revoking cards restores the original pixels"
+    );
 }
 #[test]
 fn cards_cannot_bypass_inventory_chat_loading_server_or_player_hud_visibility() {
@@ -153,10 +167,10 @@ fn cards_cannot_bypass_inventory_chat_loading_server_or_player_hud_visibility() 
         }
         let before = frame(&mut p, &runtime, [1280, 720], 1.);
         p.set_mod_hud(Some(&content())).unwrap();
-        assert_eq!(
-            before,
-            frame(&mut p, &runtime, [1280, 720], 1.),
-            "gate {gate}"
+        let gated = frame(&mut p, &runtime, [1280, 720], 1.);
+        assert!(
+            snapshot::rasterize(&before) == snapshot::rasterize(&gated),
+            "gate {gate} hides the personal cards"
         );
     }
 }
@@ -329,13 +343,19 @@ fn personal_hud_snapshot_with_real_carrier() {
         .unwrap();
         let after = frame(&mut p, &runtime, [1920, 1080], 1.);
         snapshot::write(&after, &format!("personal-hud-after-{shape:?}"));
-        assert_ne!(snapshot::rasterize(&before), snapshot::rasterize(&after));
+        assert!(
+            snapshot::rasterize(&before) != snapshot::rasterize(&after),
+            "personal HUD capture renders the enabled presentation"
+        );
     }
     p.set_mod_hud(None).unwrap();
     p.set_mod_crosshair(None).unwrap();
     let restored = frame(&mut p, &runtime, [1920, 1080], 1.);
     snapshot::write(&restored, "personal-hud-restored");
-    assert_eq!(snapshot::rasterize(&before), snapshot::rasterize(&restored));
+    assert!(
+        snapshot::rasterize(&before) == snapshot::rasterize(&restored),
+        "clearing personal HUD cards and cursor restores the original pixels"
+    );
 }
 
 #[test]

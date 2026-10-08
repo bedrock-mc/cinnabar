@@ -274,9 +274,9 @@ fn cosmetic_crosshair_replaces_only_visible_cursor_art_and_restores_on_clear() {
                 .0
                 .is_empty()
         );
-        assert_eq!(
-            draw_custom(&engine, true, ui::UiBlendMode::Invert, None).0,
-            vanilla
+        assert!(
+            draw_custom(&engine, true, ui::UiBlendMode::Invert, None).0 == vanilla,
+            "clearing the cosmetic cursor restores native geometry"
         );
     }
 }
