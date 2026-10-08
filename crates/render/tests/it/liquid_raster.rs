@@ -9,9 +9,10 @@ use meshing::liquid::{LIQUID_DEPTH_WRITE_BIT, LIQUID_TOP_INSET_BIT, LIQUID_TWO_S
 use meshing::{Face, PackedLiquidQuad};
 
 #[test]
-#[ignore = "requires a native GPU adapter; run explicitly on a GPU host"]
 fn native_liquid_faces_admit_only_their_original_and_marked_reverse_windings() {
-    let gpu = Gpu::new().expect("native GPU");
+    let Some(gpu) = Gpu::for_fixture("liquid_raster") else {
+        return;
+    };
     let indices = chunk_constants::STATIC_QUAD_INDICES;
     let index_source = format!(
         "const RASTER_INDICES: array<u32, {}> = array({});",
@@ -36,7 +37,7 @@ fn native_liquid_faces_admit_only_their_original_and_marked_reverse_windings() {
         mip_level_count: 1,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Rgba8UnormSrgb,
+        format: wgpu::TextureFormat::Rgba8Unorm,
         usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
         view_formats: &[],
     });
@@ -110,11 +111,11 @@ fn native_liquid_faces_admit_only_their_original_and_marked_reverse_windings() {
                             resource: view.as_entire_binding(),
                         },
                         wgpu::BindGroupEntry {
-                            binding: 4,
+                            binding: crate::material_shader::NATIVE_LEAF_TEXTURE_BINDINGS[0],
                             resource: wgpu::BindingResource::TextureView(&atlas),
                         },
                         wgpu::BindGroupEntry {
-                            binding: 5,
+                            binding: crate::material_shader::NATIVE_LEAF_TEXTURE_BINDINGS[1],
                             resource: wgpu::BindingResource::TextureView(&atlas),
                         },
                         wgpu::BindGroupEntry {

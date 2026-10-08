@@ -5,7 +5,7 @@ fn vanilla_base_pipeline_construction_matches_baseline() {
     let (mut app, _) = crate::queue_review_support::app();
     let mut cache = app.world_mut().remove_resource::<PipelineCache>().unwrap();
     let mut pipelines = ChunkPipeline::from_world(&mut World::new());
-    for msaa in [Msaa::Off, Msaa::Sample4] {
+    for msaa in [Msaa::Off, Msaa::Sample2, Msaa::Sample4, Msaa::Sample8] {
         for hdr in [false, true] {
             let key = ChunkPipelineKey {
                 msaa,
@@ -89,7 +89,7 @@ fn vanilla_base_pipeline_construction_matches_baseline() {
                     colour.format,
                     if hdr {
                         ViewTarget::TEXTURE_FORMAT_HDR
-                    } else if blended && msaa == Msaa::Off {
+                    } else if blended {
                         TextureFormat::bevy_default().remove_srgb_suffix()
                     } else {
                         TextureFormat::bevy_default()
@@ -99,7 +99,7 @@ fn vanilla_base_pipeline_construction_matches_baseline() {
                     fragment_state
                         .shader_defs
                         .contains(&"NATIVE_GAMMA_BLEND".into()),
-                    blended && !hdr && msaa == Msaa::Off
+                    blended && !hdr
                 );
                 assert_eq!(colour.blend, blended.then_some(BlendState::ALPHA_BLENDING));
                 assert_eq!(
@@ -188,7 +188,7 @@ fn solid_cube_pipeline_culls_back_faces_without_fragment_discards() {
         "cutout keeps its gates"
     );
     assert!(!discards(&module, entry("fragment_solid")));
-    for msaa in [Msaa::Off, Msaa::Sample4] {
+    for msaa in [Msaa::Off, Msaa::Sample2, Msaa::Sample4, Msaa::Sample8] {
         for hdr in [false, true] {
             let key = ChunkPipelineKey {
                 msaa,

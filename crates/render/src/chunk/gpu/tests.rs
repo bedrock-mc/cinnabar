@@ -1,12 +1,13 @@
 use super::*;
 use crate::chunk::gpu::upload::validate_local_model_streams;
 use crate::chunk::transparent::liquid::transparent_liquid_phase_distance;
+use bevy::render::render_resource::FilterMode;
 
 #[test]
-fn chunk_sampler_keeps_native_texels_crisp_without_discarding_minification_mips() {
+fn chunk_sampler_uses_point_texels_and_linear_mip_interpolation() {
     let descriptor = chunk_sampler_descriptor();
     assert_eq!(descriptor.mag_filter, FilterMode::Nearest);
-    assert_eq!(descriptor.min_filter, FilterMode::Linear);
+    assert_eq!(descriptor.min_filter, FilterMode::Nearest);
     assert_eq!(descriptor.mipmap_filter, FilterMode::Linear);
     assert_eq!(descriptor.anisotropy_clamp, 1);
 }

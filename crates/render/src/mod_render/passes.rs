@@ -2,7 +2,7 @@
 //! after post-processing and before the HUD, timed per pass slot.
 
 use super::ModRenderScene;
-use crate::RuntimeStage;
+use crate::{RuntimeStage, scene_sampling::ResolvedDepth};
 use bevy::tasks::{AsyncComputeTaskPool, Task};
 use bevy::{
     core_pipeline::core_3d::graph::{Core3d, Node3d},
@@ -54,6 +54,7 @@ pub(crate) struct PassGpu {
     /// Owned rather than in Bevy's append-only cache, so dropping an entry frees it.
     pub(crate) pipelines: HashMap<(u64, TextureFormat), PipelineState>,
     uniforms: HashMap<(Entity, u64), Buffer>,
+    resolved_depth: HashMap<Entity, ResolvedDepth>,
     /// The scene alternates between two main textures, so each pass reuses two bind groups.
     bind_groups: Mutex<HashMap<BindGroupKey, BindGroup>>,
 }
@@ -233,9 +234,13 @@ pub(crate) fn layout(depth: bool) -> BindGroupLayoutDescriptor {
 }
 
 pub(super) fn install(render_app: &mut SubApp) {
-    render_app
-        .add_systems(RenderStartup, init_gpu)
-        .add_systems(Render, prepare.in_set(RenderSystems::PrepareResources));
+    render_app.add_systems(RenderStartup, init_gpu).add_systems(
+        Render,
+        prepare
+            .in_set(RenderSystems::PrepareResources)
+            .after(bevy::render::view::prepare_view_targets)
+            .after(bevy::core_pipeline::core_3d::prepare_core_3d_depth_textures),
+    );
     install_graph(render_app.world_mut());
 }
 
@@ -268,6 +273,7 @@ pub(crate) fn init_gpu(mut commands: Commands, device: Res<RenderDevice>) {
         _dummy_depth: dummy_depth,
         pipelines: HashMap::new(),
         uniforms: HashMap::new(),
+        resolved_depth: HashMap::new(),
         bind_groups: Mutex::new(HashMap::new()),
     });
 }
@@ -299,7 +305,12 @@ fn prepare(
     time: Res<Time>,
     (device, queue, cache): (Res<RenderDevice>, Res<RenderQueue>, Res<PipelineCache>),
     gpu: Option<ResMut<PassGpu>>,
-    views: Query<(Entity, &ExtractedView, &ViewTarget)>,
+    views: Query<(
+        Entity,
+        &ExtractedView,
+        &ViewTarget,
+        Option<&ViewDepthTexture>,
+    )>,
 ) {
     let (Some(scene), Some(mut gpu)) = (scene, gpu) else {
         return;
@@ -307,19 +318,65 @@ fn prepare(
     let gpu = &mut *gpu;
     let current = |revision: u64| scene.passes.iter().any(|p| p.revision == revision);
     gpu.retain_pipelines(&scene);
+    let depth_stage = scene
+        .passes
+        .iter()
+        .position(|pass| pass.enabled && pass.depth)
+        .map(|slot| RuntimeStage::GPU_MOD_PASSES[slot.min(RuntimeStage::GPU_MOD_PASSES.len() - 1)]);
+    gpu.resolved_depth.retain(|entity, _| {
+        depth_stage.is_some()
+            && views
+                .get(*entity)
+                .is_ok_and(|(_, _, _, depth)| depth.is_some_and(multisample_depth))
+    });
+    if let Some(stage) = depth_stage {
+        for (entity, _, _, depth) in &views {
+            let Some(depth) = depth.filter(|depth| multisample_depth(depth)) else {
+                continue;
+            };
+            if gpu
+                .resolved_depth
+                .get(&entity)
+                .is_none_or(|resolved| !resolved.matches(depth))
+            {
+                gpu.resolved_depth
+                    .insert(entity, ResolvedDepth::new(&device, depth, stage));
+            } else if let Some(resolved) = gpu.resolved_depth.get_mut(&entity) {
+                resolved.set_stage(stage);
+            }
+        }
+    }
     gpu.uniforms
         .retain(|(view, revision), _| views.contains(*view) && current(*revision));
+    let resolved_depth = &gpu.resolved_depth;
+    let dummy_depth = gpu.dummy_depth_view.id();
     gpu.bind_groups
         .get_mut()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
         .retain(|key, _| {
             current(key.revision)
-                && views.get(key.view).is_ok_and(|(_, _, target)| {
-                    key.source == target.main_texture_view().id()
-                        || key.source == target.main_texture_other_view().id()
+                && views.get(key.view).is_ok_and(|(_, _, target, depth)| {
+                    let current_depth = resolved_depth
+                        .get(&key.view)
+                        .map(|depth| depth.view.id())
+                        .or_else(|| {
+                            depth
+                                .filter(|depth| {
+                                    depth.texture.sample_count() == 1
+                                        && depth
+                                            .texture
+                                            .usage()
+                                            .contains(TextureUsages::TEXTURE_BINDING)
+                                })
+                                .map(|depth| depth.view().id())
+                        })
+                        .unwrap_or(dummy_depth);
+                    (key.source == target.main_texture_view().id()
+                        || key.source == target.main_texture_other_view().id())
+                        && key.depth.is_none_or(|depth| depth == current_depth)
                 })
         });
-    for (entity, view, target) in &views {
+    for (entity, view, target, _) in &views {
         let format = target.main_texture_format();
         for (slot, pass) in scene.passes.iter().enumerate() {
             if !pass.enabled {
@@ -347,6 +404,15 @@ fn prepare(
             queue.write_buffer(buffer, 0, bytemuck::bytes_of(&uniform));
         }
     }
+}
+
+/// Multisampled depth is sampled into a separate target before a mod consumes it.
+fn multisample_depth(depth: &ViewDepthTexture) -> bool {
+    depth.texture.sample_count() > 1
+        && depth
+            .texture
+            .usage()
+            .contains(TextureUsages::TEXTURE_BINDING)
 }
 
 pub(crate) fn install_graph(world: &mut World) {
@@ -403,15 +469,24 @@ impl ViewNode for ModPassNode {
         }
         let view = graph.view_entity();
         let format = target.main_texture_format();
-        let depth_view = depth
-            .filter(|depth| {
+        let resolved = gpu.resolved_depth.get(&view);
+        if let Some(resolved) = resolved {
+            resolved.draw(context, world, None);
+        }
+        let depth_view = resolved
+            .map(|resolved| &resolved.view)
+            .or_else(|| {
                 depth
-                    .texture
-                    .usage()
-                    .contains(TextureUsages::TEXTURE_BINDING)
-                    && depth.texture.sample_count() == 1
+                    .filter(|depth| {
+                        depth
+                            .texture
+                            .usage()
+                            .contains(TextureUsages::TEXTURE_BINDING)
+                            && depth.texture.sample_count() == 1
+                    })
+                    .map(ViewDepthTexture::view)
             })
-            .map_or(&gpu.dummy_depth_view, ViewDepthTexture::view);
+            .unwrap_or(&gpu.dummy_depth_view);
         for (slot, pass) in scene.passes.iter().enumerate() {
             let (true, Some(pipeline), Some(uniform)) = (
                 pass.enabled,

@@ -365,3 +365,28 @@ fn review_render_hand_atlas_rejects_device_dimension_and_layer_limits() {
         assert!(gpu.atlases[0].is_none());
     }
 }
+
+#[test]
+fn animated_hand_pipeline_matches_every_scene_sample_count_and_format() {
+    for samples in [1, 2, 4, 8] {
+        for hdr in [false, true] {
+            let descriptor = specialized_pipeline(hand_rig_layout(), samples, hdr);
+            assert_eq!(descriptor.multisample.count, samples);
+            assert_eq!(
+                descriptor.depth_stencil.unwrap().format,
+                CORE_3D_DEPTH_FORMAT
+            );
+            assert_eq!(
+                descriptor.fragment.unwrap().targets[0]
+                    .as_ref()
+                    .unwrap()
+                    .format,
+                if hdr {
+                    ViewTarget::TEXTURE_FORMAT_HDR
+                } else {
+                    TextureFormat::bevy_default()
+                }
+            );
+        }
+    }
+}

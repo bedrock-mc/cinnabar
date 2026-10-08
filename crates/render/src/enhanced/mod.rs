@@ -10,6 +10,8 @@ pub(crate) mod graph;
 #[cfg(all(test, feature = "enhanced"))]
 mod graph_tests;
 #[cfg(feature = "enhanced")]
+mod hand_layer;
+#[cfg(feature = "enhanced")]
 mod materials;
 #[cfg(feature = "enhanced")]
 mod post;
@@ -53,10 +55,8 @@ const ENHANCED_CASTER_SHADER_HANDLE: Handle<Shader> =
 const ENHANCED_POST_SHADER_HANDLE: Handle<Shader> =
     uuid_handle!("9b7e2c15-3f4a-4d8b-a6e2-7c1d0f5b3a84");
 
-/// Per-camera opt-in for Enhanced rendering. The plugin enforces [`Msaa::Off`]
-/// before extraction because its depth copies and sampling require single-sample textures.
+/// Per-camera opt-in for Enhanced rendering, with resolved depth for post effects.
 #[derive(Component, ExtractComponent, Clone, Copy, Debug, PartialEq)]
-#[require(Msaa::Off)]
 pub struct EnhancedRendering {
     pub shadows: bool,
     pub shadow_resolution: u32,
@@ -162,7 +162,6 @@ impl Plugin for EnhancedRenderPlugin {
             crate::shader_safety::from_wgsl
         );
         app.add_plugins(ExtractComponentPlugin::<EnhancedRendering>::default());
-        app.add_systems(Last, enforce_single_sample_depth);
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
             return;
         };
@@ -170,7 +169,9 @@ impl Plugin for EnhancedRenderPlugin {
             Render,
             (prepare_enhanced_materials, prepare_enhanced_views)
                 .chain()
-                .in_set(RenderSystems::PrepareResources),
+                .in_set(RenderSystems::PrepareResources)
+                .after(bevy::render::view::prepare_view_targets)
+                .after(bevy::core_pipeline::core_3d::prepare_core_3d_depth_textures),
         );
     }
 
@@ -186,15 +187,5 @@ impl Plugin for EnhancedRenderPlugin {
             .init_resource::<EnhancedPostPipelines>()
             .init_resource::<EnhancedShadowPipelines>();
         install_graph(render_app.world_mut());
-    }
-}
-
-/// Keeps runtime MSAA changes from reaching the single-sample depth passes.
-#[cfg(feature = "enhanced")]
-fn enforce_single_sample_depth(mut cameras: Query<&mut Msaa, With<EnhancedRendering>>) {
-    for mut msaa in &mut cameras {
-        if *msaa != Msaa::Off {
-            *msaa = Msaa::Off;
-        }
     }
 }
