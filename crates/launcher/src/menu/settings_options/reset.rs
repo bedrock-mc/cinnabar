@@ -18,6 +18,7 @@ impl SettingsGroup {
             && [
                 THIRD_PERSON_CROSSHAIR_OPTION,
                 INVERT_CROSSHAIR_OPTION,
+                super::MOTION_BLUR_OPTION,
                 super::CHAT_POSITION_OPTION,
             ]
             .iter()

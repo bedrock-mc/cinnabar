@@ -101,8 +101,9 @@ impl ServerCameraView {
         }
     }
 
-    /// Advances every prepared stationary target, whether or not its camera is selected.
+    /// Observes attachment availability and advances every prepared stationary target.
     pub fn advance_target(&mut self, seconds: f32, context: &ViewContext<'_>) {
+        self.observe_attachment(context);
         let active_position = self.current_pose(context).translation;
         let animated = self
             .spline
@@ -121,7 +122,11 @@ impl ServerCameraView {
                     .unwrap()
                     .translation
             };
+            let previous = focus;
             if focus.advance(seconds, position, (context.actors)(focus.actor)) {
+                if self.active_preset_index == Some(index) && focus.reanchored_since(previous) {
+                    self.camera_reanchor_epoch = self.camera_reanchor_epoch.wrapping_add(1);
+                }
                 self.overrides[index].focus = Some(focus);
             } else {
                 self.release_focus(index, focus.last_rotation());
