@@ -491,3 +491,29 @@ mod review_tests {
 #[cfg(test)]
 #[path = "contract_tests.rs"]
 mod contract_tests;
+
+impl crate::pipeline_warmup::PrewarmPipelines for ChunkPipeline {
+    fn prewarm(
+        &mut self,
+        cache: &PipelineCache,
+        view: crate::pipeline_warmup::WarmView,
+        ids: &mut crate::pipeline_warmup::WarmupIds,
+    ) -> Result<(), BevyError> {
+        let key = ChunkPipelineKey {
+            msaa: view.msaa,
+            hdr: view.hdr,
+            enhanced: view.enhanced,
+        };
+        for variants in [
+            &mut self.variants,
+            &mut self.solid_variants,
+            &mut self.model_variants,
+            &mut self.transparent_model_variants,
+            &mut self.liquid_variants,
+            &mut self.depth_liquid_variants,
+        ] {
+            ids.push(variants.specialize(cache, key)?);
+        }
+        Ok(())
+    }
+}

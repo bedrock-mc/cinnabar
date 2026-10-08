@@ -84,6 +84,7 @@ pub fn media_screen_axes(
 }
 
 pub(crate) fn install_media_screen_render(app: &mut App) {
+    crate::pipeline_warmup::register::<MediaScreenPipeline>(app);
     load_internal_asset!(
         app,
         MEDIA_SCREEN_SHADER_HANDLE,
@@ -803,5 +804,23 @@ mod tests {
             .unwrap();
         assert_eq!(colour.blend, None);
         assert_eq!(colour.format, ViewTarget::TEXTURE_FORMAT_HDR);
+    }
+}
+
+impl crate::pipeline_warmup::PrewarmPipelines for MediaScreenPipeline {
+    fn prewarm(
+        &mut self,
+        cache: &PipelineCache,
+        view: crate::pipeline_warmup::WarmView,
+        ids: &mut crate::pipeline_warmup::WarmupIds,
+    ) -> Result<(), BevyError> {
+        ids.push(self.variants.specialize(
+            cache,
+            MediaScreenPipelineKey {
+                msaa: view.msaa,
+                hdr: view.hdr,
+            },
+        )?);
+        Ok(())
     }
 }

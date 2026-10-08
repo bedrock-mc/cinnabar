@@ -44,6 +44,7 @@ type PublishExtras<'w> = (
     Option<Res<'w, crate::movement::PhysicsCollisionRegistries>>,
     Option<Res<'w, render::RuntimeStageProfiler>>,
     Option<Res<'w, render::ActorPipelineReadiness>>,
+    Option<Res<'w, render::PipelineWarmupReadiness>>,
     Option<Res<'w, crate::camera::ServerCameraView>>,
     (
         Res<'w, crate::runtime::network::ActorFramePartialTick>,
@@ -83,6 +84,7 @@ pub(crate) fn prepare_ui_runtime(
         collisions,
         profiler,
         actor_pipelines,
+        warmed_pipelines,
         server_camera,
         (
             actor_partial,
@@ -142,9 +144,12 @@ pub(crate) fn prepare_ui_runtime(
             cohort: frame_poll.cohort,
             render_work_drained: render_queue.retained_len() == 0
                 && upload_acknowledgements.is_empty(),
-            actor_pipelines_ready: actor_pipelines
+            pipelines_ready: actor_pipelines
                 .as_ref()
-                .is_none_or(|ready| ready.is_ready()),
+                .is_none_or(|ready| ready.is_ready())
+                && warmed_pipelines
+                    .as_ref()
+                    .is_none_or(|ready| ready.is_ready()),
             now: time.elapsed(),
         },
     );
