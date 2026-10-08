@@ -27,12 +27,24 @@ impl DensePositionSet {
 
     pub(super) fn contains(&self, position: &BlockPos) -> bool {
         light_dense_index(self.bounds, self.y_len, self.z_len, *position)
-            .is_some_and(|index| self.present[index])
+            .is_some_and(|index| self.contains_at_index(index))
     }
 
     pub(super) fn insert(&mut self, position: BlockPos) {
         let index = light_dense_index(self.bounds, self.y_len, self.z_len, position)
             .expect("solver provenance stays inside validated light bounds");
+        self.insert_at_index(index);
+    }
+
+    /// Reads provenance for an index validated against the current solve bounds.
+    #[inline]
+    pub(super) fn contains_at_index(&self, index: usize) -> bool {
+        self.present[index]
+    }
+
+    /// Records provenance without remapping a validated cell coordinate.
+    #[inline]
+    pub(super) fn insert_at_index(&mut self, index: usize) {
         self.present[index] = true;
     }
 }
@@ -83,8 +95,20 @@ impl<'a, A: LightBlockAccess> CachedLightBlockAccess<'a, A> {
     }
 
     /// Maps only the current bounded cache region to a dense slot.
-    fn index(&self, position: BlockPos) -> Option<usize> {
+    pub(super) fn index(&self, position: BlockPos) -> Option<usize> {
         light_dense_index(self.bounds, self.y_len, self.z_len, position)
+    }
+
+    /// Reads block properties for a dense index validated by this solve.
+    #[inline]
+    pub(super) fn sample_at_index(&self, index: usize) -> LightBlockSample {
+        self.samples[index]
+    }
+
+    /// Reads the raw sky seed so the solver can retain its validation order.
+    #[inline]
+    pub(super) fn sky_seed_at_index(&self, index: usize) -> u8 {
+        self.sky_seeds[index]
     }
 }
 
@@ -145,6 +169,39 @@ impl<'a, P: LightReadAccess> CachedLightReadAccess<'a, P> {
     fn index(&self, position: BlockPos) -> Option<usize> {
         light_dense_index(self.bounds, self.y_len, self.z_len, position)
     }
+
+    /// Lazily reads a validated interior cell, leaving nibble validation to the solver.
+    #[inline]
+    pub(super) fn read_at_index(
+        &self,
+        index: usize,
+        position: BlockPos,
+        channel: LightChannel,
+    ) -> u8 {
+        let cached = &self.light[index][light_channel_index(channel)];
+        if let Some(value) = cached.get() {
+            return value;
+        }
+        let value = self
+            .source
+            .read_light(self.bounds.dimension, position, channel);
+        cached.set(Some(value));
+        value
+    }
+
+    /// Loads interior provenance once without repeating the cell's coordinate conversion.
+    #[inline]
+    pub(super) fn direct_sky_at_index(&self, index: usize, position: BlockPos) -> bool {
+        let cached = &self.direct_sky[index];
+        if let Some(direct_sky) = cached.get() {
+            return direct_sky;
+        }
+        let direct_sky = self
+            .source
+            .has_direct_sky_provenance(self.bounds.dimension, position);
+        cached.set(Some(direct_sky));
+        direct_sky
+    }
 }
 
 impl<P: LightReadAccess> LightReadAccess for CachedLightReadAccess<'_, P> {
@@ -155,13 +212,7 @@ impl<P: LightReadAccess> LightReadAccess for CachedLightReadAccess<'_, P> {
         let Some(index) = self.index(position) else {
             return self.source.read_light(dimension, position, channel);
         };
-        let cached = &self.light[index][light_channel_index(channel)];
-        if let Some(value) = cached.get() {
-            return value;
-        }
-        let value = self.source.read_light(dimension, position, channel);
-        cached.set(Some(value));
-        value
+        self.read_at_index(index, position, channel)
     }
 
     fn has_direct_sky_provenance(&self, dimension: i32, position: BlockPos) -> bool {
@@ -171,13 +222,7 @@ impl<P: LightReadAccess> LightReadAccess for CachedLightReadAccess<'_, P> {
         let Some(index) = self.index(position) else {
             return self.source.has_direct_sky_provenance(dimension, position);
         };
-        let cached = &self.direct_sky[index];
-        if let Some(direct_sky) = cached.get() {
-            return direct_sky;
-        }
-        let direct_sky = self.source.has_direct_sky_provenance(dimension, position);
-        cached.set(Some(direct_sky));
-        direct_sky
+        self.direct_sky_at_index(index, position)
     }
 
     fn boundary_light(

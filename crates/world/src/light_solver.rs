@@ -1,5 +1,6 @@
 mod cache;
 mod output;
+mod queue;
 mod scratch;
 mod solve;
 mod types;
@@ -14,16 +15,22 @@ pub use types::{
 };
 
 #[cfg(test)]
-use std::collections::VecDeque;
+use queue::IncreaseQueue;
 #[cfg(test)]
 use {
     crate::LightChannel,
     cache::DensePositionSet,
     output::{MutableOutput, MutableOutputScratch},
-    solve::{IncreaseEntry, NEIGHBOURS, enqueue_counted, seed_boundary_from_halo},
+    solve::{IncreaseEntry, NEIGHBOURS, seed_boundary_from_halo},
     types::light_channel_index,
 };
 
 #[cfg(test)]
 #[path = "light_solver/boundary_scan_tests.rs"]
 mod boundary_scan_tests;
+
+#[cfg(test)]
+mod pending_tests;
+
+#[cfg(test)]
+mod oracle_tests;
