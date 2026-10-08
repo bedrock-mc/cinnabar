@@ -376,6 +376,7 @@ fn snapshot_local_worlds() {
         error: None,
         setup,
         backend_unavailable_reason: reason,
+        max_players: None,
     };
     menu.update(Input::Play);
     let mut download = Setup {

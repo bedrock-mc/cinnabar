@@ -19,6 +19,9 @@ pub struct MovementEffects {
     /// Server-granted firework glide boost (`MovementEffect` glide boost) for this tick.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub glide_boost: bool,
+    /// Server-granted dolphin swim boost (`MovementEffect` dolphin boost) for this tick.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub dolphin_boost: bool,
 }
 
 impl MovementEffects {
@@ -30,6 +33,7 @@ impl MovementEffects {
             && !self.weaving
             && !self.blindness
             && !self.glide_boost
+            && !self.dolphin_boost
     }
 }
 

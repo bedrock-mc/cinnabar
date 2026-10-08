@@ -17,8 +17,11 @@ const (
 	// ManifestDomain prefixes the signed bytes of a bundle manifest: MANIFEST_DOMAIN.
 	ManifestDomain = "Cinnabar/experience/manifest/v1\x00"
 
-	// WireVersion is the version of offers, Hello and envelopes: WIRE_VERSION.
+	// WireVersion is the version of offers, Hello, manifests and the original envelope form:
+	// WIRE_VERSION.
 	WireVersion = 1
+	// MaxWireVersion is the highest envelope version either side may select: MAX_WIRE_VERSION.
+	MaxWireVersion = 2
 	// APIVersion is the client component API in Hello and manifests: API_VERSION.
 	APIVersion = 1
 	// InitialBundleGeneration is the only bundle generation: INITIAL_BUNDLE_GENERATION.
@@ -26,8 +29,14 @@ const (
 
 	// MaxMarkerBytes bounds the marker file: MAX_MARKER_BYTES.
 	MaxMarkerBytes = 64 << 10
-	// MaxPayloadBytes bounds an encoded record and an Accept payload: MAX_PAYLOAD_BYTES.
+	// MaxPayloadBytes bounds an inline record, the data of one fragment and an Accept payload:
+	// MAX_PAYLOAD_BYTES.
 	MaxPayloadBytes = 16 << 10
+	// MaxMessageBytes bounds a reassembled wire v2 record: MAX_MESSAGE_BYTES.
+	MaxMessageBytes = 48 << 10
+	// MaxQueueBytes bounds the carrier bytes one direction holds for undelivered messages, an
+	// open fragmented one included: MAX_QUEUE_BYTES.
+	MaxQueueBytes = 256 << 10
 	// MaxEnvelopeBytes bounds one carrier message: protocol::MAX_EXPERIENCE_ENVELOPE_BYTES.
 	MaxEnvelopeBytes = 64 << 10
 	// MaxMessagesPerSecond is the message rate of one direction: MAX_MESSAGES_PER_SECOND.
@@ -49,6 +58,8 @@ const (
 	MaxChannels = 64
 	// MaxChannelFields bounds the fields of one channel: MAX_CHANNEL_FIELDS.
 	MaxChannelFields = 64
+	// MaxFieldDepth bounds how deep list and record fields nest: MAX_FIELD_DEPTH.
+	MaxFieldDepth = 4
 	// MaxIdentifierBytes bounds a package, channel or action identifier: MAX_IDENTIFIER_BYTES.
 	MaxIdentifierBytes = 96
 	// MaxFallbackBytes bounds an offer's fallback text: MAX_FALLBACK_BYTES.

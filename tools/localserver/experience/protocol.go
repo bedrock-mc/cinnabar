@@ -17,7 +17,7 @@ import (
 
 // protocolVersion is the adapter protocol this package speaks. It must equal the Rust runtime's
 // PROTOCOL_VERSION, which TestFrameLimitMatchesRust checks against the limits fixture.
-const protocolVersion = 2
+const protocolVersion = 4
 
 // BlockPos is a block position.
 type BlockPos struct {
@@ -86,13 +86,17 @@ type Change struct {
 	PreviousData *string  `json:"previous_data"`
 }
 
-// Scalar is one field of a client-channel record, in the form the client part's wire protocol
-// gives it. Exactly one field is set.
+// Scalar is one value of a client-channel record, in the form the client part's wire protocol
+// gives it: a leaf, or on wire v2 a list or record of values. Exactly one field is set.
 type Scalar struct {
 	Bool    *bool
 	Integer *int64
 	Text    *string
 	Choice  *uint16
+	// List holds the items of a list field, all of its one item type.
+	List *[]Scalar
+	// Record holds one value per field of a record field, in order.
+	Record *[]Scalar
 }
 
 // Call is the guest callback that a CallbackRequest runs. Exactly one field is set.
@@ -102,6 +106,7 @@ type Call struct {
 	Interact      *InteractCall
 	Neighbor      *NeighborCall
 	ClientMessage *ClientMessageCall
+	Epoch         *EpochCall
 }
 
 // PlaceCall follows a successful player placement.
@@ -128,12 +133,22 @@ type NeighborCall struct {
 }
 
 // ClientMessageCall is a typed message that Player's client part sent on Channel, revision
-// Schema. Its callback's actor is Player, and its snapshot is empty.
+// Schema. Its callback's actor is Player. With Focus, the block of Player's focus, its snapshot
+// is the one an interaction with that block would have; without, it is empty.
 type ClientMessageCall struct {
-	Player  string   `json:"player"`
-	Channel string   `json:"channel"`
-	Schema  uint16   `json:"schema"`
-	Payload []Scalar `json:"payload"`
+	Player  string    `json:"player"`
+	Channel string    `json:"channel"`
+	Schema  uint16    `json:"schema"`
+	Payload []Scalar  `json:"payload"`
+	Focus   *BlockPos `json:"focus"`
+}
+
+// EpochCall tells the guest that Player's client part moved to a new world epoch and kept
+// running. Its callback's actor is Player, and its snapshot that of Focus like a client
+// message's.
+type EpochCall struct {
+	Player string    `json:"player"`
+	Focus  *BlockPos `json:"focus"`
 }
 
 // Request is a message from the adapter to the runtime. Exactly one field is set.
@@ -272,12 +287,15 @@ type Response struct {
 	Result     *Result
 }
 
-// Loaded answers load with the artifact's identity and its validated blocks.
+// Loaded answers load with the artifact's identity and its validated blocks. Focus is set when
+// the Experience's world takes its player's focus in client messages and epochs; one that does
+// not is never given one.
 type Loaded struct {
 	Protocol uint32     `json:"protocol"`
 	ID       string     `json:"id"`
 	Version  string     `json:"version"`
 	Blocks   []BlockDef `json:"blocks"`
+	Focus    bool       `json:"focus"`
 }
 
 // LoadFailed answers load when the artifact does not load; the runtime then exits.
@@ -380,6 +398,7 @@ const (
 	typeInteract      = "interact"
 	typeNeighbor      = "neighbor"
 	typeClientMessage = "client_message"
+	typeEpoch         = "epoch"
 	typeUnbreakable   = "unbreakable"
 	typeBreakable     = "breakable"
 	typeSetBlock      = "set_block"
@@ -396,6 +415,8 @@ const (
 	typeInteger       = "integer"
 	typeText          = "text"
 	typeChoice        = "choice"
+	typeList          = "list"
+	typeRecord        = "record"
 )
 
 // variantTag is the "type" member of a union variant on the wire.
@@ -438,6 +459,10 @@ type (
 	clientMessageWire struct {
 		variantTag
 		*ClientMessageCall
+	}
+	epochWire struct {
+		variantTag
+		*EpochCall
 	}
 	unbreakableWire struct {
 		variantTag
@@ -527,6 +552,8 @@ func (c Call) MarshalJSON() ([]byte, error) {
 		return json.Marshal(neighborWire{variantTag{typeNeighbor}, c.Neighbor})
 	case c.ClientMessage != nil:
 		return json.Marshal(clientMessageWire{variantTag{typeClientMessage}, c.ClientMessage})
+	case c.Epoch != nil:
+		return json.Marshal(epochWire{variantTag{typeEpoch}, c.Epoch})
 	}
 	return nil, errors.New("empty call")
 }
@@ -548,6 +575,8 @@ func (c *Call) UnmarshalJSON(data []byte) error {
 		return decodeStrict(data, &neighborWire{NeighborCall: fresh(&c.Neighbor)})
 	case typeClientMessage:
 		return decodeStrict(data, &clientMessageWire{ClientMessageCall: fresh(&c.ClientMessage)})
+	case typeEpoch:
+		return decodeStrict(data, &epochWire{EpochCall: fresh(&c.Epoch)})
 	}
 	return fmt.Errorf("unknown call type %q", tag)
 }
@@ -564,6 +593,10 @@ func (s Scalar) MarshalJSON() ([]byte, error) {
 		return marshalUnescaped(scalarWire[string]{typeText, s.Text})
 	case s.Choice != nil:
 		return marshalUnescaped(scalarWire[uint16]{typeChoice, s.Choice})
+	case s.List != nil:
+		return marshalUnescaped(scalarWire[[]Scalar]{typeList, s.List})
+	case s.Record != nil:
+		return marshalUnescaped(scalarWire[[]Scalar]{typeRecord, s.Record})
 	}
 	return nil, errors.New("empty scalar")
 }
@@ -594,6 +627,10 @@ func (s *Scalar) UnmarshalJSON(data []byte) error {
 		return scalarValue(data, &s.Text)
 	case typeChoice:
 		return scalarValue(data, &s.Choice)
+	case typeList:
+		return scalarValue(data, &s.List)
+	case typeRecord:
+		return scalarValue(data, &s.Record)
 	}
 	return fmt.Errorf("unknown scalar type %q", tag)
 }

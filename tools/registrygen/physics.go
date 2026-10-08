@@ -31,16 +31,12 @@ const (
 	// factor. bedsim is this repository's selected Bedrock movement authority.
 	// The Java Edition value is 0.4 and must not be substituted for it.
 	soulSandSpeedQ1E8 = 54_300_000
-	// unprovenHoneySpeedQ1E8 is a Java-derived approximation retained only
-	// because bedsim v0.1.3 implements no honey stratum, so no Bedrock oracle
-	// exists to correct it. It is deliberately not aliased onto soul sand's
-	// value and must be replaced once an authoritative Bedrock reference for
-	// honey movement is identified. Tracked in docs/tracking/phase3-movement.md.
-	unprovenHoneySpeedQ1E8 = 40_000_000
-	// Provisional inside-block slowdown for sweet berry bushes; no Bedrock reference exists
-	// yet and the public notes mark the model unresolved.
-	provisionalInsideSlowdownHorizontalQ1E8 = 80_000_000
-	provisionalInsideSlowdownVerticalQ1E8   = 75_000_000
+	// Vanilla stuck-block move multipliers (horizontal, vertical) for sweet
+	// berry bushes and powder snow.
+	berryBushSlowdownHorizontalQ1E8  = 80_000_000
+	berryBushSlowdownVerticalQ1E8    = 75_000_000
+	powderSnowSlowdownHorizontalQ1E8 = 90_000_000
+	powderSnowSlowdownVerticalQ1E8   = 150_000_000
 )
 
 const (
@@ -400,17 +396,18 @@ func applyPhysicsOverride(record Record, override reviewedPhysicsOverride, entry
 		entry.VerticalSpeedQ1E8 = 5_000_000
 	case behaviorPowderSnow:
 		entry.Flags |= physicsFlagPowderSnow | physicsFlagPassable
+		entry.HorizontalSpeedQ1E8 = powderSnowSlowdownHorizontalQ1E8
+		entry.VerticalSpeedQ1E8 = powderSnowSlowdownVerticalQ1E8
 	case behaviorScaffolding:
 		entry.Flags |= physicsFlagScaffolding
 	case behaviorSlime:
 		entry.SurfaceResponse = SurfaceSlime
 	case behaviorHoney:
-		entry.HorizontalSpeedQ1E8 = unprovenHoneySpeedQ1E8
 		entry.SurfaceResponse = SurfaceHoney
 	case behaviorInsideSlowdown:
 		entry.Flags |= physicsFlagPassable
-		entry.HorizontalSpeedQ1E8 = provisionalInsideSlowdownHorizontalQ1E8
-		entry.VerticalSpeedQ1E8 = provisionalInsideSlowdownVerticalQ1E8
+		entry.HorizontalSpeedQ1E8 = berryBushSlowdownHorizontalQ1E8
+		entry.VerticalSpeedQ1E8 = berryBushSlowdownVerticalQ1E8
 	case behaviorSoulSand:
 		entry.HorizontalSpeedQ1E8 = soulSandSpeedQ1E8
 		entry.SurfaceResponse = SurfaceSoulSand

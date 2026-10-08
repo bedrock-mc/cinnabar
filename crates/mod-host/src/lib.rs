@@ -70,8 +70,10 @@ pub struct ModGrants {
     pub environment: bool,
     /// Allows current-frame remote player and camera pose reads.
     pub players: bool,
-    /// Allows bounded, transactional local camera rotation.
+    /// Allows bounded local camera rotation, rigs, and per-frame teleport aim preservation.
     pub camera: bool,
+    /// Allows current-frame removal of the air-use rearm delay only.
+    pub item_use: bool,
     /// Allows local key edges, reserved bindings and the retained settings panel.
     pub controls: bool,
     /// Allows bounded actor attack range and held-attack press requests.
@@ -143,6 +145,16 @@ impl ModHost {
         self.instance.frame(pressed, snapshot, mobs, controls)?;
         self.queue_settings();
         Ok(())
+    }
+
+    /// The session and dimension of the last successful gameplay delay-fix request.
+    pub fn item_use_delay_fix(&self) -> Option<(u64, i32)> {
+        self.instance.item_use_delay_fix()
+    }
+
+    /// Whether the last successful gameplay callback opted in to preserving teleport aim.
+    pub fn preserves_teleport_rotation(&self) -> bool {
+        self.instance.preserves_teleport_rotation()
     }
 
     /// The retained camera rig from the last successful callback.

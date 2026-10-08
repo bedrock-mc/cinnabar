@@ -55,6 +55,7 @@ fn friends_view() -> MenuView {
             world_name: "World".into(),
             members: "1/8".into(),
             xuid: index.to_string(),
+            max_members: 8,
         })
         .collect();
     view

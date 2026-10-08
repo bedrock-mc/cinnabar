@@ -33,6 +33,7 @@ fn status(state: WorldState, id: &str) -> WorldStatus {
         error: None,
         setup: None,
         backend_unavailable_reason: None,
+        max_players: None,
     }
 }
 

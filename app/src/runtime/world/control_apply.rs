@@ -24,7 +24,9 @@ pub(crate) fn apply_committed_control(
                 position = ?movement.position,
                 "applying committed local MovePlayer"
             );
-            if movement.yaw.is_finite() && movement.pitch.is_finite() {
+            let preserve_rotation = camera_settings.preserves_teleport_rotation()
+                && movement.mode == protocol::MovePlayerMode::Teleport;
+            if !preserve_rotation && movement.yaw.is_finite() && movement.pitch.is_finite() {
                 view.set_rotation(bedrock_camera_rotation(movement.yaw, movement.pitch));
             }
             resolved
@@ -81,4 +83,80 @@ pub(super) fn log_respawn(respawn: protocol::RespawnEvent) {
         position = ?respawn.position,
         "applying committed Respawn"
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy::prelude::{EulerRot, Quat, Vec3};
+
+    #[test]
+    fn teleport_policy_preserves_only_teleport_aim_and_always_reconciles_position() {
+        use protocol::MovePlayerMode::*;
+        let aim = Quat::from_euler(EulerRot::YXZ, 0.35, -0.2, 0.0);
+        let server_aim = bedrock_camera_rotation(90.0, 15.0);
+        for enabled in [false, true] {
+            for mode in [Normal, Reset, Teleport, Rotation, Unknown(9)] {
+                let mut view = LocalViewPose::new(Vec3::ZERO, aim);
+                let mut settings = CameraSettingsAuthority::default();
+                settings.set_preserve_teleport_rotation(enabled);
+                let mut anchor = None;
+                apply_committed_control(
+                    CommittedControlEvent::MovePlayer {
+                        sequence: 1,
+                        source_cohort: None,
+                        movement: protocol::MovePlayerEvent {
+                            yaw: 90.0,
+                            pitch: 15.0,
+                            mode,
+                            ..Default::default()
+                        },
+                        resolved: client_world::ResolvedServerPosition {
+                            position: [3.0, 64.0, 8.0],
+                            surface_anchor: Some([3, 8]),
+                        },
+                    },
+                    &mut view,
+                    &mut settings,
+                    &mut anchor,
+                );
+                assert_eq!(view.eye_translation(), Vec3::new(3.0, 64.0, 8.0));
+                assert_eq!(anchor, Some([3, 8]));
+                let expected = if enabled && mode == Teleport {
+                    aim
+                } else {
+                    server_aim
+                };
+                assert!(view.rotation().abs_diff_eq(expected, 0.0001));
+            }
+        }
+    }
+
+    #[test]
+    fn camera_context_reset_revokes_teleport_policy() {
+        let mut settings = CameraSettingsAuthority::default();
+        assert!(!settings.preserves_teleport_rotation());
+        settings.set_preserve_teleport_rotation(true);
+        let mut view = LocalViewPose::default();
+        let mut anchor = None;
+        apply_committed_control(
+            CommittedControlEvent::ChangeDimension {
+                sequence: 1,
+                change: protocol::ChangeDimensionEvent {
+                    dimension: 1,
+                    ..Default::default()
+                },
+                resolved: client_world::ResolvedServerPosition {
+                    position: [3.0, 64.0, 8.0],
+                    surface_anchor: Some([3, 8]),
+                },
+            },
+            &mut view,
+            &mut settings,
+            &mut anchor,
+        );
+        assert_eq!(view.eye_translation(), Vec3::new(3.0, 64.0, 8.0));
+        assert_eq!(anchor, Some([3, 8]));
+        assert!(!settings.preserves_teleport_rotation());
+    }
 }

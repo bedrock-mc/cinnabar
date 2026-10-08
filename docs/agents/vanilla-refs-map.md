@@ -195,6 +195,18 @@ RVAs are 1.26.50.26 Windows client; `mac 0x10…` addresses are the 26.30 macOS 
   MobJumpSystem `0x0a5dc2e0`: (69 or 99) without 71 sets `vy = 0.15` and jump delay 10 before
   the ladder branch. Gravity setter `0x032252b0` returns when 71 and (69 or 70). Collision
   shape mac `0x10ab628c0` keeps the top only for feet at or above it, without flag 71.
+- `crates/sim/src/simulator/inside.rs`, `environment.rs`, `simulator.rs`, `travel.rs` (block
+  inside): entity-inside tick `0x06ddfb10` applies bubble entries per cell (surface
+  `min(1.8, vy+0.1)`/`max(-0.9, vy-0.03)`, inside `min(0.7, vy+0.06)`/`max(-0.3, vy-0.03)`,
+  skipped for ability flight) then honey per cell (`x,z *= 0.4`, `vy = max(vy, -0.12)`,
+  excluded in water). Inside cells use the box shrunk by 0.001 (mac `0x1064aad50`, x then y
+  then z); air above selects the surface entry (mac lambda in `0x105948a10`). Powder snow
+  `0x06dc5990` (0.9, 1.5, 0.9) and cobweb `0x06dc5b40` set the move multiplier when it is
+  near zero, else keep the per-axis minimum; slowdown application (mac `0x1058983b0`) scales
+  the move request and zeroes velocity. Jump from ground `0x0a5dacf0`: 0.6 (`0x14ffab698`)
+  when the feet cell, or the cell below integer feet, has property bit 30. Stand-on
+  `0x050937d0`/`0x0712e810`: not sneaking and `vy < 0.1` gives `x,z *= |vy|*0.2 + 0.4`;
+  filter `0x05074d50` selects slime and honey.
 
 ## app/src/block_entities/describe.rs
 - // Current renderSkull selects the model from the backing block type;
@@ -379,9 +391,30 @@ RVAs are 1.26.50.26 Windows client; `mac 0x10…` addresses are the 26.30 macOS 
 ## crates/client-presentation/src/camera.rs
 - /// Native `getNormalizedViewportSize` measures viewport fractions of the full
 
+## crates/client-presentation/src/camera/look.rs; crates/client-presentation/src/camera/controls.rs; crates/input/src/binding.rs; crates/launcher/src/menu/settings_options/definitions.rs
+- Mouse look chain, 1.26.50.26 Windows client. `GameControllerHandler_GameCore::refresh` (RVA 0x0008ba40) feeds GameInput mouse position differences as short counts to `MouseDevice::feed` (RVA 0x0038f130) with no scaling. `MouseMapper::tick` (RVA 0x0038faf0) enqueues a direction event `(float)dx / (float)mScreenWidth`, `(float)(dy * mYAxisInversionFactor) / (float)mScreenWidth`; `mScreenWidth` is `InputDeviceMapper` +8, set from `Config::mWidth` by `MinecraftInputHandler::onConfigChanged`. `InGamePlayScreen::handleDirection` sums the events at +0x34/+0x38.
+- `InGamePlayScreen::applyInput` (RVA 0x004f5aa0): `c = getGameSensitivity(mode) * 0.6f + 0.15f; c = c*c*c*9600.0f`; yaw `(sumX * c) * 0.3f * modeScale` (1.0 mouse, 0.7 gamepad), pitch `(c * sumY) * 0.3f`; then `LocalPlayer::localPlayerTurn` (RVA 0x04f324b0, spyglass ratio from vtable +0x1a0) and the camera look handler (RVA 0x07162b00, degrees x 0.017453292). Constants at 0x14ffab698, 0x14ffab6c8, 0x15005ea00, 0x150056088, 0x15005ea04.
+- Options (`OptionRegistry::_registerOptions`, RVA 0x0239ba00): 0x183 `options.sensitivity`/`ctrl_sensitivity2` InputModeFloat default 0.5, range 0..1 (call at 0x1423a1ee2); 0x18d `gameSensitivity`, unsaved, default 0.628, range 0..1 (0x1423c911d). OptionRegistry vtable 0x150106e40: +0x190 getSensitivity (RVA 0x010efe80), +0x1a0 getSpyglassDamping, +0x1b8 getGameSensitivity (RVA 0x010f01c0, read by applyInput).
+- `_setOptionCallbacks` lambda (RVA 0x0245d7c0), an InputMode observer on 0x183 registered in RVA 0x0239a340: `gameSensitivity.set(mode, powf(sens * 1.1f, 0.6125f) * 0.81f)` (constants 0x1500b53d0, 0x1500cde9c, 0x1500cdea0). `InputModeFloatOption::set` (RVA 0x009b3ee0) stores and notifies only when `|old - new| > 0.001` (ctor RVA 0x009b6570), clamping to the range; load of an unchanged value notifies nothing, so 0.628 persists until the slider really changes.
+- macOS 1.26.30 primary matches: `InGamePlayScreen::applyInput` 0x102779ad0 (same constants, `getGameSensitivity` vtable +0x1d0), `MouseMapper::tick` 0x10c3a6db0, option 0x188/0x192. Mac Config width units and the macOS mouse source were not traced.
+
+## crates/ui/src/settings.rs; crates/launcher/src/menu/settings_options/definitions.rs (field of view)
+- 1.26.50.26 Windows `OptionRegistry::_registerOptions` (RVA 0x0239ba00): `gfx_field_of_view` (string 0x1504df395, referenced at 0x1423b644f) and caption `options.fov` construct option 0x2f with type 2 (Float) at 0x1423b64f1. The inline FloatOption fields are min 30.0 (0x41f00000), max 110.0 (0x42dc0000), value and default 60.0 (0x42700000), increment 0.001 (0x3a83126f), stored at 0x1423b6500..0x1423b651f. macOS 1.26.30 FloatOption 0x32 at 0x103ae111f has the same values.
+
+## crates/client-presentation/src/camera/fov.rs; crates/client-presentation/src/camera/facts.rs; crates/client-presentation/src/camera/presentation.rs
+- Gameplay FOV multiplier, 1.26.50.26 Windows client `LocalPlayer::getFieldOfViewModifier` (RVA 0x04f33260; macOS 1.26.30 0x103d20270 with symbols). Returns 1.0 when the gameplay-FOV toggle is off, except the first-person scoping override 0.1 (`0x14ffab644`). Otherwise base 1.0, or 1.1 (`0x1500b53d0`) when the resolved Flying ability is set. Without a slowness effect in slot 2: `base * ((movementSpeedCurrent / walkSpeedAbility) * 1.2 + 1.0) * 0.5` (`0x14ffab6dc`, `0x14fea4060`, `0x14fec3380`); MOVEMENT_SPEED current is AttributeInstance +0x7c. With slowness the speed term is skipped: `base * max(amplifier * -0.1 + 1.0, 0.01)` (`0x14ffab670`, `0x1500c2b70`). Then ×1.1 when SwimSpeedMultiplierComponent > 1 (not tracked by Cinnabar), then bow `(useTicks/20)^2` → 0.85 above 1, else `max(t,0) * -0.15 + 1` (`0x14ffa90dc`, `0x14ffab6d0`, `0x150077af4`).
+- Ability lookups walk AbilitiesComponent's six layer slots from the highest (+0x4c8) down and take the first slot whose ability type is not Unset; Flying is ability 9 (+0x6c), WalkSpeed ability 14 (+0xa8).
+- Smoothing: LevelRendererPlayer tick (RVA 0x04e6bad0) stores the previous value then `cur += (target - cur) * 0.5`. macOS `LevelRendererPlayer::getFov` (0x1043a8820) multiplies the option angle by the frame-interpolated value, ×60/70 underwater when the toggle is on, clamps to [5, 130] and scales by the normalized viewport; the 1.26.50 equivalent of that tail was not located.
+- Option defaults, macOS 1.26.30 `OptionRegistry::_registerOptions`: `gfx_field_of_view` FloatOption 0x32 default 60, range 30..110 (0x10d9b2f94, 0x10d9b2f9c, 0x10dcc6bb0); `gfx_field_of_view_toggle` BoolOption default true. 1.26.50 `OptionRegistry::_registerOptions` (RVA 0x0239ba00) registers the FOV as option 0x2f with the same values.
+
 ## crates/client-presentation/src/camera/bob.rs
 - //! Walk view-bob and first-person hand sway, expressed as view-space effects, following the
 - //! 26.30 reference's bobView and hand spring.
+
+## crates/client-presentation/src/presentation/actors.rs (glide_rotation, glide_tilted)
+- Glide/riptide body rotation: 1.26.50.26 `ActorRenderData::getDamageOrGlidingXYRotation` RVA `0x01fbf550` (26.30 macOS `0x1037108e0`), called from the data-driven mob rotation setup RVA `0x01fbfad0` (26.30 inlined in `DataDrivenRenderer::render`) after the death Z roll and Dinnerbone flip; X rotation by the first value, then Y by the second when nonzero. Suppressed when the player's `variable.is_first_person` (hash `0x2739f381184de4ae`) is nonzero.
+- Gliding (actor flag 32): ease `clamp((FallFlyTicks + a)^2 / 100, 0, 1)` (`0x14ffa2648` = 100, `0x14fea4060` = 1); pitch `(-90 - currentPitch) * ease` (`0x14ffd5074`), current pitch from the actor's cached rotation pointer (+0x228). Yaw: interpolated rotation (fmodf wrap 180/360/-180), table view vector (-PI `0x14ffab65c`, deg->rad `0x14ffab66c`, index scale `0x14ffab660`, quarter turn `0x14ffab664`), posDelta x/z (StateVector +0x18/+0x20); `acosf(dot / sqrt(deltaLenSq))` (view length not divided out), sign of `viewZ*dx - viewX*dz` zeroed when `|cross| < 0.0625` (`0x14ffa90e0`), times 57.2957763 (`0x14ffd5070`). Riptide (flag 56) returns `-90 - pitch, 0` and spins Y by `(tickCount + a) * -75` (`0x1500e24d8`); not implemented.
+- FallFlyTicks writers: only GlideInputSystem (`0x070be110`, view `0x070d1c80`, filter ActorMovementTickNeeded + PlayerInputRequest) and the Mob constructor's default emplace (`0x02341df0`), so remote players render with zero ticks.
 
 ## crates/client-presentation/src/presentation/equipment/display.rs
 - /// `ItemInHandRenderer::_applyDefaultItemTransforms` for a flat sprite in hand: the 1.5 scale
@@ -738,6 +771,10 @@ RVAs are 1.26.50.26 Windows client; `mac 0x10…` addresses are the 26.30 macOS 
 ## crates/gameplay/src/survival_mining/tests.rs
 - /// Only zero hardness breaks on the start tick (`GameMode::startDestroyBlock`);
 - /// stopDestroyBlock clears the delay, so a fresh press starts at once.
+
+## crates/input/src/binding.rs
+- InteractWithToast (`key.interactwithtoast`, "Open Notification") defaults to N: vanilla
+  options.txt default `keyboard_type_0_key.interactwithtoast:78`.
 
 ## crates/inventory/src/inventory_ledger/admission.rs
 - // Native LegacyClientNetworkHandler::handle routes a response to the screen manager
@@ -1382,6 +1419,7 @@ RVAs are 1.26.50.26 Windows client; `mac 0x10…` addresses are the 26.30 macOS 
 - // Current BedBlock restitution.
 - /// `WaterTravelSystem`'s travel speed: the water base blended toward the ground
 - // Travel selection `0x09fefcb0`: ability flight, then WasInWater water travel, then lava, then GlidingTravelFlag, then normal.
+- Water travel speed `0x0dc3eeb0` (adapter `0x0dc3f070`): base = MovementAttributes underwater_movement (0 if absent; dolphins use movement); swim multiplier <= 1 blends Depth Strider (halved off ground) toward minecraft:movement; otherwise base * multiplier * ((level / max) * 0.3 + 0.7) (PE 0x150056088, 0x15005ea04). SwimSpeedMultiplier `0x09a0b500`: 2.0 (PE 0x14feff2b8) when actor flag 57 (swimming) and MovementEffects slot 1 (dolphin boost) is active, else 1.0. Lava travel (26.30 LavaTravelSystem view `0x1051bf080`) sets speed to lava_movement (0 if absent).
 - Ground contact: FinalizeMove `0x06dcbfc0` compares the move request (+0x30) with the
   result (+0x3c). A vertical difference above float epsilon adds OnGround only when
   request y < 0, otherwise removes it; with no vertical difference OnGround survives only
@@ -1454,6 +1492,7 @@ RVAs are 1.26.50.26 Windows client; `mac 0x10…` addresses are the 26.30 macOS 
 - /// excludes MobIsJumpingFlagComponent and lets MobJumpSystem handle ascent.
 - // RVA 0x09fd2140: ordinary upward steering requires the liquid material
 - // flag written by bounding-box input update, even if velocity was falling.
+- Water drag `0x0320fc20`: a swim speed multiplier above 1 keeps the base 0.8/0.9 horizontal drag without the Depth Strider blend.
 
 ## crates/sim/src/world/current.rs
 - //! Player liquid-current impulse from the preceding pose (native 0x0a5d5c40).
@@ -1557,7 +1596,7 @@ RVAs are 1.26.50.26 Windows client; `mac 0x10…` addresses are the 26.30 macOS 
 - `button_face`: pressable `sf`/`bf`/`hf`; menus theme `--pressableElevated*` nine-slices.
 - `menu_item`: dropdown item `bV` (classes `gV`) in `MV`; check icon `Fp`.
 
-## crates/client-ui/src/ui_runtime/presentation/forms/oreui/theme.rs
+## crates/client-ui/src/oreui_theme/mod.rs
 - Role table: theme `pD` colour roles over the palette constants defined beside `Zc`.
 
 ## docs/evidence/desktop-video-settings.md
@@ -2880,6 +2919,9 @@ was not used as version evidence.
 - Third-person visibility and disabling inversion are owner-requested options;
   defaults retain first-person visibility and inverted colors. The Java HUD's
   built-in fallback remains 15×15; a pack crosshair remains 16×16.
+
+## app/src/melee.rs; crates/gameplay/src/melee.rs; crates/gameplay/src/movement/outbox.rs (frame-time attacks)
+- Attack presses are handled per frame, not per tick. 1.26.50.26 `MinecraftGame::startFrame` (RVA 0x00842ff0) calls the input tick (RVA 0x0084d830) every frame under two virtual guards; that calls `MinecraftInputHandler::tick` (RVA 0x04a2b670). macOS 1.26.30: `MinecraftGame::startFrame` 0x1025bb440 is the only caller of `MinecraftGame::tickInput` 0x1025c2840 → `InputHandler::tick` 0x10c39a9b0; the registered press lambdas call `ClientInputCallbacks::handleBuildOrAttackOrBlockSelectButtonPress` 0x1023161c0 → `handleBuildAction` 0x1023178c0 → `GameMode::attack` 0x10a0bba00, whose `_attack` 0x10a0bba20 sends the transaction through the packet sender immediately. The frame's ticks run after `startFrame`, so the attack precedes the next PlayerAuthInput and reports the latest ticked position.
 
 ## Swing duration publication
 

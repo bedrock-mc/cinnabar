@@ -493,6 +493,16 @@ pub fn view_paths(view: &crate::menu::MenuView) -> Vec<(String, u32)> {
     if view.screen == crate::menu::MenuScreen::Store {
         return store_art(view);
     }
+    // The invite screen draws only its friends' gamerpics, online list first.
+    if let Some(invite) = view.invite.as_deref() {
+        use launcher::menu::invite::Section;
+        return [Section::Online, Section::Offline]
+            .into_iter()
+            .flat_map(|section| invite.section(section))
+            .filter(|friend| !friend.picture_path.is_empty())
+            .map(|friend| (friend.picture_path.clone(), THUMBNAIL_SIDE))
+            .collect();
+    }
     // The Servers tab shows the first experience until a server is picked.
     let shown = match view.feeds.selected_saved {
         Some(_) => None,

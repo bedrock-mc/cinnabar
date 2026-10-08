@@ -4,14 +4,16 @@ use std::fs;
 use std::path::Path;
 
 use common::{
-    client_message, edit_manifest, hello_wasm, interact, probe_dir, probe_dir_with, probe_wasm,
-    rehash, tell, v0_1_dir,
+    client_message, current_api, edit_manifest, epoch, focused, hello_wasm, interact, p, probe_dir,
+    probe_dir_with, probe_wasm, rehash, send, tell, v0_1_dir, v0_2_dir, v0_3_dir,
 };
 use experience_runtime::callback::run;
 use experience_runtime::limits::{MAX_COMPONENT_BYTES, MAX_MANIFEST_BYTES, MAX_VERSION_BYTES};
 use experience_runtime::load::{engine, load};
-use experience_runtime::manifest::{ASSETS_DIR, MANIFEST_FILE, SERVER_WASM, read_manifest};
-use experience_runtime::protocol::{BlockDef, Mining, Outcome, Texture};
+use experience_runtime::manifest::{
+    ASSETS_DIR, CLIENT_TABLE, MANIFEST_FILE, SERVER_WASM, read_manifest,
+};
+use experience_runtime::protocol::{BlockDef, Mining, Outcome, Scalar, Texture};
 use tempfile::TempDir;
 
 /// Loads `dir`, which must fail, and returns the error chain. Every load error names the
@@ -161,6 +163,27 @@ fn wrong_api_is_refused() {
     assert!(error.contains("unsupported api \"0.0\""), "{error}");
 }
 
+/// The probe's manifest declares a client part, which the runtime ignores whatever it holds; an
+/// unknown key outside it is still refused.
+#[test]
+fn only_the_client_table_is_ignored() {
+    let anything = probe_dir_with(|dir| {
+        edit_manifest(dir, |manifest| {
+            let client = manifest[CLIENT_TABLE].as_table_mut().unwrap();
+            client.insert("anything".to_owned(), 1.into());
+        });
+    });
+    read_manifest(anything.path()).unwrap();
+
+    let unknown = probe_dir_with(|dir| {
+        edit_manifest(dir, |manifest| {
+            manifest.insert("clients".to_owned(), toml::Table::new().into());
+        });
+    });
+    let error = refusal(unknown.path());
+    assert!(error.contains("clients"), "{error}");
+}
+
 /// The limit is inclusive: a manifest padded to exactly `MAX_MANIFEST_BYTES` is read, and one
 /// byte more is refused.
 #[test]
@@ -253,7 +276,8 @@ fn oversized_component_is_refused() {
 }
 
 /// A guest built against server WIT 0.1 still loads, and its callbacks run through the 0.1
-/// imports. 0.1 has no `client-message`, so a client message for it is rejected unrun.
+/// imports. 0.1 has neither `client-message` nor `epoch`, so a client message or an epoch for it
+/// is rejected unrun.
 #[test]
 fn v0_1_artifact_loads_and_runs() {
     let dir = v0_1_dir();
@@ -278,23 +302,126 @@ fn v0_1_artifact_loads_and_runs() {
             ops: vec![tell("v0.1")]
         }
     );
-    let outcome = run(&engine, &loaded, &client_message("probe.echo", 1, vec![]));
-    assert!(matches!(outcome, Outcome::Rejected { .. }), "{outcome:?}");
+    for request in [client_message("probe.echo", 1, vec![]), epoch()] {
+        let outcome = run(&engine, &loaded, &request);
+        assert!(matches!(outcome, Outcome::Rejected { .. }), "{outcome:?}");
+    }
+}
+
+/// A guest built against server WIT 0.2 still loads, and its callbacks run through the 0.2
+/// imports: its client messages and sends hold scalars. 0.2 has no list or record values and no
+/// `epoch`, so a client message holding one, or an epoch, is rejected unrun.
+#[test]
+fn v0_2_artifact_loads_and_runs() {
+    let dir = v0_2_dir();
+    let (engine, _ticker) = engine().unwrap();
+    let loaded = load(&engine, dir.path()).unwrap();
+    assert_eq!(
+        run(&engine, &loaded, &interact(0)),
+        Outcome::Committed {
+            ops: vec![tell("v0.2")]
+        }
+    );
+    let scalars = vec![
+        Scalar::Bool(true),
+        Scalar::Integer(-42),
+        Scalar::Text("ack".to_owned()),
+        Scalar::Choice(3),
+    ];
+    assert_eq!(
+        run(
+            &engine,
+            &loaded,
+            &client_message("probe.echo", 7, scalars.clone())
+        ),
+        Outcome::Committed {
+            ops: vec![send("probe.echo", 7, scalars)]
+        }
+    );
+    let nested = |value| client_message("probe.echo", 1, vec![Scalar::Bool(true), value]);
+    for request in [
+        nested(Scalar::List(Vec::new())),
+        nested(Scalar::Record(vec![Scalar::Integer(1)])),
+        epoch(),
+    ] {
+        let outcome = run(&engine, &loaded, &request);
+        assert!(matches!(outcome, Outcome::Rejected { .. }), "{outcome:?}");
+    }
+}
+
+/// A guest built against server WIT 0.3 still loads, and its callbacks run through the 0.3
+/// imports: client messages with lists and records, and epochs, exactly as before 0.4. 0.3 has
+/// no focus, so the artifact does not take one, and a client message or an epoch with a focus is
+/// rejected unrun.
+#[test]
+fn v0_3_artifact_loads_and_runs() {
+    let dir = v0_3_dir();
+    let (engine, _ticker) = engine().unwrap();
+    let loaded = load(&engine, dir.path()).unwrap();
+    assert!(!loaded.focus);
+    assert_eq!(
+        run(&engine, &loaded, &interact(0)),
+        Outcome::Committed {
+            ops: vec![tell("v0.3")]
+        }
+    );
+    let nested = vec![
+        Scalar::List(vec![Scalar::Record(vec![Scalar::Integer(1)])]),
+        Scalar::Text("ack".to_owned()),
+    ];
+    assert_eq!(
+        run(
+            &engine,
+            &loaded,
+            &client_message("probe.echo", 3, nested.clone())
+        ),
+        Outcome::Committed {
+            ops: vec![send("probe.echo", 3, nested)]
+        }
+    );
+    assert_eq!(
+        run(&engine, &loaded, &epoch()),
+        Outcome::Committed { ops: vec![] }
+    );
+    for request in [
+        focused(client_message("probe.echo", 1, vec![]), p(0)),
+        focused(epoch(), p(0)),
+    ] {
+        let outcome = run(&engine, &loaded, &request);
+        assert!(matches!(outcome, Outcome::Rejected { .. }), "{outcome:?}");
+    }
+}
+
+/// The probe targets the current world, which takes a focus; every older one does not.
+#[test]
+fn only_the_current_api_takes_a_focus() {
+    let (engine, _ticker) = engine().unwrap();
+    let probe = probe_dir();
+    let loaded = load(&engine, probe.path()).unwrap();
+    assert_eq!(loaded.manifest.api, current_api());
+    assert!(loaded.focus);
+    for dir in [v0_1_dir(), v0_2_dir()] {
+        assert!(!load(&engine, dir.path()).unwrap().focus);
+    }
 }
 
 /// The manifest's `api` names the world that `server.wasm` must target.
 #[test]
 fn api_must_match_the_component() {
-    let old_component = v0_1_dir();
-    edit_manifest(old_component.path(), |manifest| {
-        manifest.insert("api".to_owned(), "0.2".into());
-    });
-    let new_component = probe_dir_with(|dir| {
-        edit_manifest(dir, |manifest| {
-            manifest.insert("api".to_owned(), "0.1".into());
+    let with_api = |dir: TempDir, api: &str| {
+        edit_manifest(dir.path(), |manifest| {
+            manifest.insert("api".to_owned(), api.into());
         });
-    });
-    for dir in [old_component, new_component] {
+        dir
+    };
+    for dir in [
+        with_api(v0_1_dir(), "0.2"),
+        with_api(v0_2_dir(), "0.3"),
+        with_api(v0_3_dir(), current_api()),
+        with_api(probe_dir(), "0.3"),
+        with_api(probe_dir(), "0.2"),
+        with_api(probe_dir(), "0.1"),
+    ] {
         let error = refusal(dir.path());
         assert!(
             error.contains("is not a") && error.contains("server component"),

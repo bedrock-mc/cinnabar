@@ -243,6 +243,14 @@ impl WorldsMenu {
         self.ready.take()
     }
 
+    /// The open world's player limit, the host included, once its server reported one.
+    pub fn max_players(&self) -> Option<u32> {
+        self.opening_status
+            .as_ref()?
+            .max_players
+            .filter(|max| *max > 0)
+    }
+
     /// The loading screen while a world opens.
     pub fn progress(&self) -> Option<Progress> {
         let id = self
