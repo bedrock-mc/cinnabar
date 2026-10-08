@@ -1,5 +1,5 @@
 //! Production overlay vertices must stay in front of two-sided leaf depth from either view.
-use crate::{gpu_snapshot::Gpu, shader_source};
+use crate::{gpu_snapshot::Gpu, shader_safety, shader_source};
 use render::{
     BlockEntityScene, BlockSelectionFrame, BlockSelectionTarget, CrackInstance, SceneClock,
 };
@@ -83,28 +83,27 @@ fn bamboo_leaf_overlays_survive_front_and_reverse_depth_without_duplicate_quads(
         .chain(cracks.iter())
         .copied()
         .collect();
-    let source = shader_source::standalone(
+    let shader = shader_safety::from_block_entity_wgsl(
         include_str!("../../src/block_entity/block_entity.wgsl"),
-        &[],
-    )
-    .replace("@group(1) @binding(0)", "@group(0) @binding(6)")
-    .replace(
-        "BLOCK_SELECTION_VERTICES_PER_EDGE",
-        &format!("{}u", render::BLOCK_SELECTION_VERTICES_PER_EDGE),
-    )
-    .replace(
-        "BLOCK_ENTITY_VERTEX_WORDS",
-        &format!("{}u", render::BLOCK_ENTITY_VERTEX_WORDS),
-    )
-    .replace(
-        "@vertex\nfn block_overlay_vertex(@builtin(vertex_index) vertex_index: u32)",
-        "fn overlay_vertex(vertex_index: u32)",
+        "bamboo-overlay-depth.wgsl",
+        render::BLOCK_ENTITY_VERTEX_WORDS,
+        render::BLOCK_SELECTION_VERTICES_PER_EDGE,
     );
+    let bevy::shader::Source::Wgsl(source) = shader.source else {
+        panic!("block overlay shader must retain WGSL");
+    };
+    let source = shader_source::standalone_prepared(&source)
+        .replace("@group(1) @binding(0)", "@group(0) @binding(6)")
+        .replace(
+            "@vertex\nfn block_overlay_vertex(@builtin(vertex_index) vertex_index: u32)",
+            "fn overlay_vertex(vertex_index: u32)",
+        );
     let source = format!(
         "{source}\n@group(0) @binding(5) var<storage,read_write> results: array<vec4<f32>>;\n@compute @workgroup_size(1) fn witness(@builtin(global_invocation_id) id: vec3<u32>) {{ results[id.x] = vec4(overlay_vertex({}u + id.x * {}u).world_position,1.0); }}",
         assets::BlockFace::ALL.len() * 6,
         expected_vertices
     );
+    gpu.device.push_error_scope(wgpu::ErrorFilter::Validation);
     let module = gpu
         .device
         .create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -121,6 +120,14 @@ fn bamboo_leaf_overlays_survive_front_and_reverse_depth_without_duplicate_quads(
             compilation_options: Default::default(),
             cache: None,
         });
+    let validation = gpu.device.pop_error_scope();
+    gpu.device
+        .poll(wgpu::PollType::wait_indefinitely())
+        .unwrap();
+    assert!(
+        bevy::tasks::block_on(validation).is_none(),
+        "production block-overlay pipeline must validate"
+    );
     let words = gpu.words(bytemuck::cast_slice(&vertices), wgpu::BufferUsages::STORAGE);
     let lightmap = gpu.buffer(
         bytemuck::cast_slice(&render::LightmapInputs::default().build()),
