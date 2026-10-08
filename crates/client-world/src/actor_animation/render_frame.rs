@@ -309,8 +309,8 @@ impl ActorAnimationStore {
                 &mut variables,
                 actor,
                 &context,
-                &frame.input,
-                swing.unwrap_or(frame.input.attack_time),
+                &frame.motion.input,
+                swing.unwrap_or(frame.motion.input.attack_time),
             );
         }
         tick::set_item_rotation_factor(&layout.engine, &mut variables);

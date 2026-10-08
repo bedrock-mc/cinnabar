@@ -706,7 +706,10 @@ impl ActorAnimationStore {
             )
             .with_input(state.history.back().copied())
             .with_item_context(
-                state.render_frame.as_ref().map(|frame| &frame.context),
+                state
+                    .render_frame
+                    .as_ref()
+                    .map(|frame| &frame.motion.context),
                 state.complete_spear_variables,
             ),
             java: state.java.motion,
