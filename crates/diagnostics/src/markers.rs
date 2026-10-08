@@ -1,6 +1,5 @@
 use std::time::Duration;
 
-use bevy::window::PresentMode;
 use render_model::{VisibilityKeyDelta, VisibilityKeyDigest};
 
 use crate::AcceptanceRuntimeConfig;
@@ -153,14 +152,6 @@ pub fn visibility_digest_marker_fields(
             )
         },
     )
-}
-
-pub const fn requested_present_mode(no_vsync: bool) -> PresentMode {
-    if no_vsync {
-        PresentMode::Immediate
-    } else {
-        PresentMode::Fifo
-    }
 }
 
 pub fn acceptance_runtime_metadata_marker(

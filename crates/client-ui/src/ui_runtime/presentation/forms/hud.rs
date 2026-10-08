@@ -365,13 +365,16 @@ impl UiPresentationRuntime {
             .hud
             .hunger_animation
             .begin(runtime.session_id(), &catalog);
-        let paint = hud_layout::capture_hud_paint(
+        let mut paint = hud_layout::capture_hud_paint(
             player_runtime,
             runtime,
             &frame,
             self.hud_textures.as_ref(),
             &self.form_presentation.chat.settings.options,
         );
+        if self.mod_hud_visible(player_runtime, runtime) {
+            paint.custom_crosshair = self.form_presentation.mod_crosshair.clone();
+        }
         let px = metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
         let translate = |key: &str| runtime.translation(key);
         let screens = &mut self.form_presentation.hud;

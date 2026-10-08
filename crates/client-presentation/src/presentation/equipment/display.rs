@@ -119,11 +119,36 @@ pub fn view_bone(display: ItemDisplay) -> Option<RenderBoneTransform> {
     bone.is_finite().then_some(bone)
 }
 
-/// A block worn on the head: a cube just larger than the head, centred on it. Provisional.
+/// A block worn on the head, facing along the head after vanilla's half-turn.
+/// The existing cube size and vertical placement remain provisional.
 pub(super) fn head_block_display() -> ItemDisplay {
     ItemDisplay {
-        rotation: Quat::IDENTITY,
+        rotation: Quat::from_rotation_y(std::f32::consts::PI),
         translation: Vec3::new(0.0, 0.25, 0.0),
         scale: 0.5625,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn worn_pumpkin_face_follows_the_front_of_the_posed_head() {
+        // The sample's pumpkin face is the south tile (+Z on the carried cube).
+        let face_normal = Vec3::Z;
+        for head_rotation in [
+            Quat::IDENTITY,
+            Quat::from_rotation_y(0.8) * Quat::from_rotation_x(-0.4),
+        ] {
+            let head = RenderBoneTransform {
+                rotation: head_rotation.to_array(),
+                translation_scale: [0.3, 1.5, -0.2, 1.0],
+                axis_scale: render_model::UNIT_AXIS_SCALE,
+            };
+            let worn = attach_to_bone(head, head_block_display()).unwrap();
+            let worn_rotation = Quat::from_array(worn.rotation);
+            assert!((worn_rotation * face_normal).abs_diff_eq(head_rotation * -Vec3::Z, 1e-6));
+        }
     }
 }
