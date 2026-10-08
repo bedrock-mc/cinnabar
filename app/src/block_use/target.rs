@@ -154,5 +154,7 @@ pub(super) fn observe_use_target(
     .flatten()?;
     observed.ray.origin = pick.origin.to_array();
     observed.ray.direction = pick.direction.to_array();
-    gameplay::interaction_authority::within_pick_range(&observed).then_some(observed)
+    // Like the refreshed pick, the resolved target is in reach of the pre-tick eye.
+    gameplay::interaction_authority::within_pick_range_of(&observed, state.position)
+        .then_some(observed)
 }

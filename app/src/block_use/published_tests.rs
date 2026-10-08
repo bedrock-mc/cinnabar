@@ -299,26 +299,16 @@ fn a_block_press_reports_the_position_before_the_newest_tick() {
     assert_eq!(positions, [before]);
 }
 
-/// Placement casts the pick of the frame before the tick, not this frame's post-tick view.
-#[test]
-fn a_block_press_casts_the_pick_taken_before_the_tick() {
-    use protocol::wire::valentine::bedrock::version::v1_26_51::{
-        InventoryTransactionPacketTransaction, McpePacketData,
-    };
-    let (mut world, mut captured) = fixture();
+/// Publishes one frame's eye ray for the fixture session.
+fn frame_origin(world: &World, eye: Vec3, rotation: Quat) -> InteractionOriginSnapshot {
     let stream = world.resource::<crate::runtime::world::ClientWorld>();
     let stream = stream.stream.as_ref().unwrap();
-    let (actor_session_id, fifo_sequence) = (
-        stream.authority().actor_session_id(),
-        stream.committed_sequence(),
-    );
-    let eye = Vec3::new(4.5, 2.5, 8.5);
     let mut carrier = crate::local_player::LocalPlayerFrameCarrier::default();
     carrier
         .publish(crate::local_player::LocalPlayerFrameSample {
             session_generation: 7,
-            actor_session_id,
-            fifo_sequence,
+            actor_session_id: stream.authority().actor_session_id(),
+            fifo_sequence: stream.committed_sequence(),
             physics_tick: 101,
             perspective: semantic_input::PerspectiveMode::FirstPerson,
             world_collision_identity: gameplay::test_support::survival_mining::completed(101)
@@ -326,14 +316,20 @@ fn a_block_press_casts_the_pick_taken_before_the_tick() {
             pose: Transform::from_translation(eye),
             eye,
             feet: eye - Vec3::Y * 1.62,
-            rotation: Quat::from_rotation_x(std::f32::consts::FRAC_PI_2),
+            rotation,
         })
         .unwrap();
-    world
-        .resource_mut::<InteractionOriginSnapshot>()
-        .publish_from_local_player_frame(&carrier);
-    world.run_system_cached(produce_block_use).unwrap();
-    let targets: Vec<_> = captured
+    let mut origin = InteractionOriginSnapshot::default();
+    origin.publish_from_local_player_frame(&carrier);
+    origin
+}
+
+/// Blocks targeted by the captured item-use transactions.
+fn transaction_targets(captured: &mut client_session::CapturedPackets) -> Vec<[i32; 3]> {
+    use protocol::wire::valentine::bedrock::version::v1_26_51::{
+        InventoryTransactionPacketTransaction, McpePacketData,
+    };
+    captured
         .drain()
         .into_iter()
         .filter_map(|packet| match packet.data {
@@ -345,6 +341,38 @@ fn a_block_press_casts_the_pick_taken_before_the_tick() {
             },
             _ => None,
         })
-        .collect();
-    assert_eq!(targets, [[4, 2, 6]]);
+        .collect()
+}
+
+/// Placement casts the pick of the frame before the tick, not this frame's post-tick view.
+#[test]
+fn a_block_press_casts_the_pick_taken_before_the_tick() {
+    let (mut world, mut captured) = fixture();
+    let looking_up = frame_origin(
+        &world,
+        Vec3::new(4.5, 2.5, 8.5),
+        Quat::from_rotation_x(std::f32::consts::FRAC_PI_2),
+    );
+    world.insert_resource(looking_up);
+    world.run_system_cached(produce_block_use).unwrap();
+    assert_eq!(transaction_targets(&mut captured), [[4, 2, 6]]);
+}
+
+/// Reach is measured from the pre-tick eye: a chest centre 5.5 blocks from it is placed
+/// against even though the moving frame's ray started 5.8 blocks away.
+#[test]
+fn a_moving_press_measures_reach_from_the_pre_tick_eye() {
+    let (mut world, mut captured) = fixture();
+    for (tick, z) in [(102, 12.0), (103, 12.6)] {
+        let mut sample = gameplay::test_support::survival_mining::completed(tick);
+        sample.position = [4.5, 2.5, z];
+        world
+            .resource_mut::<MovementTicker>()
+            .enqueue_completed_physics(sample)
+            .unwrap();
+    }
+    let ahead = frame_origin(&world, Vec3::new(4.5, 2.5, 12.3), Quat::IDENTITY);
+    world.resource_mut::<BlockUseRuntime>().retain_pick(&ahead);
+    world.run_system_cached(produce_block_use).unwrap();
+    assert_eq!(transaction_targets(&mut captured), [[4, 2, 6]]);
 }
