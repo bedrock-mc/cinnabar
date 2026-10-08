@@ -389,7 +389,15 @@ impl RigScripts {
         };
         let initialize = script("initialize")?;
         let pre_animation = script("pre_animation")?;
-        let field = |name: &str| scripts.and_then(|scripts| scripts.get(name));
+        let field = |name: &str| {
+            scripts.and_then(|scripts| {
+                scripts.get(name).or_else(|| {
+                    scripts
+                        .iter()
+                        .find_map(|(key, value)| key.eq_ignore_ascii_case(name).then_some(value))
+                })
+            })
+        };
         let constant = match field("scale") {
             None => Some(1.0),
             Some(Value::Number(number)) => number.as_f64().map(|value| value as f32),
@@ -484,4 +492,35 @@ fn unique_symbol_indices(
             .or_insert(Some(index as u32));
     }
     indices
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lowercase_wither_axis_scales_compile_like_camel_case_fields() {
+        let compile = |scripts| {
+            let description = serde_json::json!({"scripts": scripts});
+            let mut molang = MolangCompiler::default();
+            let rig = RigScripts::compile(description.as_object().unwrap(), &mut molang).unwrap();
+            assert_eq!(rig.dropped, 0);
+            assert!(
+                rig.scale_expressions.is_some(),
+                "authored axis scales must execute"
+            );
+            molang.finish().unwrap()
+        };
+        let lowercase = compile(serde_json::json!({
+            "scalex": "query.swell_amount + 2",
+            "scaley": 2,
+            "scalez": "3"
+        }));
+        let camel_case = compile(serde_json::json!({
+            "scaleX": "query.swell_amount + 2",
+            "scaleY": 2,
+            "scaleZ": "3"
+        }));
+        assert_eq!(lowercase, camel_case);
+    }
 }

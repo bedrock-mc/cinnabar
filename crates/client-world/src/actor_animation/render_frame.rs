@@ -138,6 +138,23 @@ impl ActorAnimationStore {
         {
             return Some(completed());
         }
+        let model_scale_ratio = match tick::sample_model_scale(
+            &evaluator,
+            &mut variables,
+            rig.scale_expressions,
+            &mut budget,
+        ) {
+            Ok(Some(sampled)) => {
+                let completed = state.scale.unwrap_or([rig.scale.get(), 1.0, 1.0, 1.0]);
+                std::array::from_fn(|axis| {
+                    let ratio =
+                        sampled[0] * sampled[axis + 1] / (completed[0] * completed[axis + 1]);
+                    if ratio.is_finite() { ratio } else { 1.0 }
+                })
+            }
+            Ok(None) => [1.0; 3],
+            Err(_) => return Some(completed()),
+        };
         tick::set_item_rotation_factor(&layout.engine, &mut variables);
         let sampled_clips = if swing_changed {
             let Ok(clips) =
@@ -194,6 +211,7 @@ impl ActorAnimationStore {
         };
         let mut sampled_geometries = BTreeMap::new();
         for (index, layer) in layers.iter_mut().enumerate() {
+            layer.model_scale_ratio = model_scale_ratio;
             let previous = state
                 .render
                 .get(index)

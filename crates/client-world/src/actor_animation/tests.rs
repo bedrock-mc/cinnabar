@@ -673,7 +673,7 @@ fn state_queries_read_target_swell_shield_and_death() {
             modifiers: Arc::from([]),
         },
     );
-    assert_eq!(read(&actor, &input, 0, "query.is_shield_powered"), 1.0);
+    assert_eq!(read(&actor, &input, 0, "query.is_shield_powered"), 0.0);
 }
 
 #[test]

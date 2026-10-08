@@ -25,6 +25,8 @@ pub struct RenderTextureLayer {
     pub hidden_bones: Arc<[u32]>,
     /// `uv_anim` `[offset u, offset v, scale u, scale v]`: `uv = offset + uv * scale`.
     pub uv_anim: [f32; 4],
+    /// Authored frame scale relative to the completed tick's model scale.
+    pub model_scale_ratio: [f32; 3],
     /// Catalog geometry this layer draws when its controller picks another than the rig's;
     /// `hidden_bones` and the poses then index that geometry's bones.
     pub geometry: Option<u32>,
@@ -350,6 +352,7 @@ pub(super) fn evaluate_render(
         };
         for (texture_slot, &source) in selected_sources.iter().take(count).enumerate() {
             output.push(RenderTextureLayer {
+                model_scale_ratio: [1.0; 3],
                 material: layer.material,
                 material_state: layer.material_state,
                 source,

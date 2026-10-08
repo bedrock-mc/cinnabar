@@ -84,7 +84,10 @@ const FLAG_TAMED: u32 = 28;
 
 const INTEGER_QUERIES: [(&str, u32); 8] = [
     ("fuse_time", 55),
-    ("invulnerable_ticks", 48),
+    (
+        "invulnerable_ticks",
+        crate::actor_store::INVULNERABLE_TICKS_KEY,
+    ),
     ("mark_variant", 43),
     ("skin_id", 104),
     ("structural_integrity", 1),
@@ -103,9 +106,6 @@ const KEY_TARGET: u32 = 6;
 const KEY_SWELL: u32 = 19;
 pub(super) const FLAG_STANDING: u32 = 39;
 pub(super) const FLAG_SWIMMING: u32 = 57;
-
-// Fuse ticks a swell is normalised by; needs independent measurement.
-const SWELL_FULL_TICKS: f32 = 28.0;
 
 // Actors that swim in place, so airborne means in water; without a fluid sample this stands in
 // for the fish-on-land flop.
@@ -292,6 +292,9 @@ fn number(evaluator: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) ->
         }
     }
     let argument = |index: usize| arguments.get(index).map(MolangValue::number);
+    if let Some(value) = actor.wither_query(name, context.frame_alpha) {
+        return value;
+    }
     if name == "is_in_ui" && evaluator.context.is_in_ui {
         return 1.0;
     }
@@ -393,15 +396,10 @@ fn number(evaluator: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) ->
         // Ticks stand in for the world clock; only the phase between actors differs.
         "time_stamp" => evaluator.life_tick as f32,
         "has_target" => truth(has_target(actor)),
-        "swell_amount" => metadata_number(actor, KEY_SWELL)
-            .map_or(0.0, |swell| (swell / SWELL_FULL_TICKS).max(0.0)),
-        // Wither armor shows below half health.
-        "is_shield_powered" => truth(
-            actor
-                .attributes
-                .get("minecraft:health")
-                .is_some_and(|health| health.max > 0.0 && health.current <= health.max * 0.5),
-        ),
+        "swell_amount" => metadata_number(actor, KEY_SWELL).map_or(0.0, |swell| {
+            (swell / crate::actor_store::SWELL_DIVISOR).max(0.0)
+        }),
+        "is_shield_powered" => 0.0,
         "swim_amount" => input.swim_amount,
         // Unsmoothed 0/1 stand-in for the pose blend.
         "standing_scale" => truth(actor_flag(actor, FLAG_STANDING)),

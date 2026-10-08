@@ -60,6 +60,7 @@ pub struct ActorStatus {
     /// Ticks elapsed since death, saturating at [`DEATH_DURATION_TICKS`].
     pub death_time: u8,
     pub(crate) dragon_death_time: u16,
+    pub(crate) wither_animation: Option<super::wither_animation::State>,
     pub(crate) cloud_start_tick: Option<u32>,
     pub(crate) cloud_particles_expired: bool,
     pub dead: bool,
@@ -83,6 +84,9 @@ impl ActorStatus {
     /// Death ticks presented to animations, including the dragon's longer sequence.
     #[must_use]
     pub fn death_ticks(&self) -> u16 {
+        if let Some(wither) = &self.wither_animation {
+            return wither.death_ticks();
+        }
         if self.dragon_death_time != 0 {
             self.dragon_death_time
         } else {
@@ -135,6 +139,9 @@ impl ActorStatus {
         self.death_time = 0;
         self.dragon_death_time = 0;
         self.dead = false;
+        if self.wither_animation.is_some() {
+            self.wither_animation = Some(super::wither_animation::State::default());
+        }
     }
 }
 

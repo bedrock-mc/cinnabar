@@ -7,6 +7,7 @@ pub(super) fn render_expressions(assets: &RuntimeEntityAssets, binding: usize) -
     };
     let mut expressions = Vec::new();
     expressions.extend(rig.pre_animation);
+    expressions.extend(rig.scale_expressions.into_iter().flatten());
     let data = assets.render_data();
     for layer in assets.render_layers(binding) {
         expressions.extend(layer.condition);
@@ -83,7 +84,7 @@ pub(in crate::actor_animation) fn needs_frame_sampling(
                     .is_some_and(|symbol| {
                         matches!(
                             symbol.identifier.as_ref(),
-                            "query.frame_alpha" | "query.life_time"
+                            "query.frame_alpha" | "query.life_time" | "query.swell_amount"
                         )
                     })
             })

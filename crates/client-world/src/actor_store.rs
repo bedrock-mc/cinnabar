@@ -2,6 +2,8 @@ use std::collections::{HashMap, HashSet};
 
 mod aim_assist;
 mod appearance_preparation;
+mod wither_animation;
+pub(crate) use wither_animation::{INVULNERABLE_TICKS_KEY, SWELL_DIVISOR};
 
 use protocol::{
     ActorAttribute, ActorEvent, ActorKind, ActorLinkEvent, ActorLinkType, ActorMetadataValue,
@@ -123,10 +125,10 @@ impl ActorSnapshot {
         }
     }
 
-    /// Dragons retain their authored death pose while ordinary mobs tip onto their side.
+    /// Bosses with their own death sequence retain their pose while ordinary mobs tip over.
     #[must_use]
     pub fn death_rotation_progress(&self, partial_tick: f32) -> Option<f32> {
-        if self.is_dying_dragon() {
+        if self.is_dying_dragon() || self.is_wither() {
             None
         } else {
             self.status.death_progress(partial_tick)
@@ -211,6 +213,9 @@ impl ActorSnapshot {
             },
             dragon_animation: None,
         };
+        if snapshot.is_wither() {
+            snapshot.status.wither_animation = Some(wither_animation::State::default());
+        }
         snapshot.apply_metadata(&spawn.metadata);
         snapshot.apply_attributes(&spawn.attributes);
         snapshot.apply_properties(&spawn.properties);
@@ -476,6 +481,9 @@ impl ActorSnapshot {
                 self.status.fuse_age_ticks = self.status.age_ticks;
             }
             self.metadata.insert(metadata.key, metadata.value.clone());
+            if let Some(wither) = &mut self.status.wither_animation {
+                wither.observe(metadata);
+            }
         }
         let burning = self.is_on_fire();
         self.status.fire.observe(burning, self.status.age_ticks);

@@ -3,6 +3,24 @@ use assets::EntityControllerAnimationTarget;
 
 pub(super) mod selection;
 
+/// Evaluates authored uniform and axis scales using the caller's tick or frame queries.
+pub(super) fn sample_model_scale(
+    evaluator: &evaluation::Evaluator<'_>,
+    variables: &mut MolangVariables,
+    expressions: Option<[u32; 4]>,
+    budget: &mut EvalBudget<'_>,
+) -> Result<Option<[f32; 4]>, EvalError> {
+    let Some(expressions) = expressions else {
+        return Ok(None);
+    };
+    let mut scale = [1.0; 4];
+    for (slot, expression) in scale.iter_mut().zip(expressions) {
+        let value = evaluator.number(expression as usize, variables, 1.0, budget)?;
+        *slot = if value.is_finite() { value } else { 1.0 };
+    }
+    Ok(Some(scale))
+}
+
 #[cfg(test)]
 #[path = "tick_cape_tests.rs"]
 mod cape_tests;
@@ -385,17 +403,7 @@ pub(super) fn evaluate_state(
         evaluator.run(script as usize, &mut variables, 0.0, budget)?;
     }
     // Authored scale scripts read the variables pre_animation just set.
-    let scale = match rig.scale_expressions {
-        None => None,
-        Some(expressions) => {
-            let mut scale = [1.0; 4];
-            for (slot, expression) in scale.iter_mut().zip(expressions) {
-                let value = evaluator.number(expression as usize, &mut variables, 1.0, budget)?;
-                *slot = if value.is_finite() { value } else { 1.0 };
-            }
-            Some(scale)
-        }
-    };
+    let scale = sample_model_scale(&evaluator, &mut variables, rig.scale_expressions, budget)?;
     set_item_rotation_factor(engine, &mut variables);
     let mut controllers = topology
         .map_or(&state.controllers, |replay| &replay.controllers)

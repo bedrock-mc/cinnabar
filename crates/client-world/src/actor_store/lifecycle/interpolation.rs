@@ -83,6 +83,9 @@ impl ActorStore {
                     actor.set_current_pose(next);
                     actor.advance_movement_interpolation();
                     actor.status.tick();
+                    if let Some(wither) = &mut actor.status.wither_animation {
+                        wither.tick(actor.status.dead);
+                    }
                 }
                 self.seat_riders();
             }

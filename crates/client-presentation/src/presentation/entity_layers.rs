@@ -34,6 +34,7 @@ struct ResolvedLayer {
     overlay: Option<u32>,
     hidden_bones: Arc<[u32]>,
     uv_anim: [f32; 4],
+    model_scale_ratio: [f32; 3],
     model: Option<LayerModel>,
     ignore_lighting: bool,
 }
@@ -199,6 +200,7 @@ fn resolve(
                     overlay: (layer.overlay[3] > 0.0).then(|| pack_overlay_rgba8(layer.overlay)),
                     hidden_bones: Arc::clone(&layer.hidden_bones),
                     uv_anim: layer.uv_anim,
+                    model_scale_ratio: layer.model_scale_ratio,
                 })
             })
             .take(MAX_TEXTURE_LAYERS),
@@ -241,6 +243,11 @@ fn layered(
     }
     submission.tint = layer.tint;
     submission.uv_anim = layer.uv_anim;
+    for row in &mut submission.world_from_actor {
+        for (value, ratio) in row[..3].iter_mut().zip(layer.model_scale_ratio) {
+            *value *= ratio;
+        }
+    }
     if layer.ignore_lighting {
         submission.light = 0;
     }
