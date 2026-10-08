@@ -3369,6 +3369,19 @@ Files: `docs/reference/held-block-placement.md`, `crates/gameplay/src/block_use.
   `subtitle_frame/subtitle` below `hud_title_text`. The built-in HUD exposes
   those same override paths so server frame replacement removes the original
   labels rather than drawing beside them.
+- `crates/client-ui/src/ui_runtime/presentation/forms/engine/pack_catalog/titles.rs`
+  restores the ordinary title definition before its first admitted server edit,
+  while preserving already-authored factory areas and all later layer edits.
+  The installed version-matched `ui/hud_screen.json:2267–2385` uses a vertical
+  stack with naturally sized title/subtitle frames; its labels have font sizes
+  `extra_large` and `large` without independent scale factors. Current
+  1.26.50.26 `src/__unmapped/04.cpp:2253059–2253083` in `FUN_144d64a60`
+  reads font size and scale factor as separate properties. Admitted Zeqa
+  `stack-0031/layer-0001/ui/hud_screen.json:208–224` patches those native labels
+  to `large` and `medium`. The previous built-in factors 4/2 multiplied those
+  native size changes. The unchanged pack loopback before-frame at GUI scale 2
+  reproduces title/subtitle overlap; the regression checks native scale and
+  placement plus layered factory preservation.
 - Current 1.26.50.26 `src/__recovered/DataBindingComponent.cpp:64–72` records
   each visibility-conditioned binding's previous control flag before applying
   it. `src/__unmapped/05.cpp:16395–16406` runs bindings on the normal UI update,

@@ -6468,3 +6468,10 @@ Rejected binding attempts retain their input identity until model, components or
 catalog changes. Protocol, full-hierarchy and final-button response regressions
 pass. The actual Metal large-menu input replay and live menu retest are pending;
 larger hierarchy admission remains an incomplete implementation resource policy.
+
+Zeqa's ordinary title patches inherited the built-in HUD's extra text scaling.
+The first authored ordinary-title override now inherits the vanilla definition;
+custom title factories and later server edits retain their priority. Layout,
+layer-order and indexed-document regressions pass, including the reproduced
+title/subtitle overlap. Exact admitted Hive and retained tutorial baselines are
+checked separately; the final Zeqa rendered replay remains pending.
