@@ -50,6 +50,7 @@ impl ActorStore {
         if ticks > 0 || refresh_view {
             self.local_view_dirty = false;
         }
+        self.prepare_appearances(ticks > 0);
         for tick in 0..ticks.max(u32::from(refresh_view)) {
             if !refresh_view {
                 for actor in self.actors.values_mut() {
@@ -108,8 +109,17 @@ impl ActorStore {
             let camera_rotation = self.camera_rotation;
             let camera_position = self.camera_position;
             let property_registry = &self.property_registry;
-            let players = &self.players;
-            let unlisted = &self.unlisted_players;
+            let prepared = self.animation.has_skin_preparation();
+            let players = if prepared {
+                &self.ready_appearances.profiles
+            } else {
+                &self.players
+            };
+            let unlisted = if prepared {
+                &self.ready_appearances.profiles
+            } else {
+                &self.unlisted_players
+            };
             let local_first_person = self
                 .remote_state_excluded_runtime_id
                 .filter(|_| self.local_first_person);

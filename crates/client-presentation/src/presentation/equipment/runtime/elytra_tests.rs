@@ -146,6 +146,7 @@ fn owner_rig<'a>(owner: &ActorSnapshot, names: &'a [Box<str>], tick: u64) -> Act
         render: &[],
         bone_names: names,
         skin_geometry: None,
+        skin_mesh: None,
         skin_layers: &[],
         hand: [HandPhase::default(); 2],
         item_animation: [ItemAnimationState::default(); 2],

@@ -102,7 +102,7 @@ pub const HAND_FOV_DEGREES: f32 = 70.0;
 /// Rebuilds session artwork and item routes, or restores startup artwork after disconnect.
 fn apply_session_pack(
     scene: &mut ActorRenderScene,
-    mut pages: render::ActorArtworkPages,
+    resources: &crate::prepared_actor_artwork::PreparedSessionResources,
     pack: Option<&crate::session_assets::SessionEntityPack>,
     session_icons: Option<StagedSessionIcons>,
     geometry_ready: &mut SessionGeometryReady,
@@ -114,23 +114,16 @@ fn apply_session_pack(
     Vec<Option<render::ActorArtworkLocation>>,
 ) {
     let equipment_timer = profiler.map(|profiler| profiler.time(RuntimeStage::ActorEquipmentSetup));
-    let mut layer = None;
-    let mut geometries = Vec::new();
-    if let Some(pack) = pack
-        && let Some(catalog) = &pack.equipment
-    {
-        let (extended, locations) =
-            pages.with_equipment_rasters(&EquipmentRuntime::pack_rasters(catalog));
-        // Startup pages carry the vanilla glint, so disconnect restores it.
-        pages = match EquipmentRuntime::actor_glint(catalog) {
-            Some(glint) => extended.with_actor_glint(glint),
-            None => extended,
-        };
-        if !geometry_ready.equipment {
-            geometries = EquipmentRuntime::pack_geometries(&pack.assets, catalog);
-        }
-        layer = Some((Arc::clone(&pack.assets), Arc::clone(catalog), locations));
-    }
+    let mut pages = resources.pages.clone();
+    let layer = pack.and_then(|pack| {
+        pack.equipment.as_ref().map(|catalog| {
+            (
+                Arc::clone(&pack.assets),
+                Arc::clone(catalog),
+                resources.locations.clone(),
+            )
+        })
+    });
     if let Some(equipment) = equipment {
         equipment.set_pack_layer(layer);
     }
@@ -142,7 +135,7 @@ fn apply_session_pack(
     }
     drop(equipment_timer);
     if !geometry_ready.entities || !geometry_ready.equipment {
-        apply_session_geometry(scene, pack, geometries, geometry_ready, profiler);
+        apply_session_geometry(scene, resources, geometry_ready, profiler);
     }
     scene.configure_artwork(pages.clone());
     let effective = (pack.is_some() || session_icons.is_some()).then_some(pages);
@@ -159,17 +152,30 @@ struct SessionGeometryReady {
 /// Retries rejected namespaces while retaining geometry that already published successfully.
 fn apply_session_geometry(
     scene: &mut ActorRenderScene,
-    pack: Option<&crate::session_assets::SessionEntityPack>,
-    geometries: Vec<render_model::ActorRigGeometry>,
+    resources: &crate::prepared_actor_artwork::PreparedSessionResources,
     ready: &mut SessionGeometryReady,
     profiler: Option<&RuntimeStageProfiler>,
 ) {
     let geometry_timer = profiler.map(|profiler| profiler.time(RuntimeStage::ActorGeometrySetup));
-    let assets = pack.map(|pack| &*pack.assets);
+    let _span = bevy::log::info_span!(
+        "actor.session_geometry_commit",
+        entities = resources.entities.len(),
+        equipment = resources.equipment.len()
+    )
+    .entered();
     let (entities, equipment) = match (ready.entities, ready.equipment) {
-        (false, false) => scene.replace_session_pack_geometries(assets, geometries),
-        (false, true) => (scene.replace_pack_entities(assets), Ok(())),
-        (true, false) => (Ok(()), scene.replace_pack_equipment(geometries)),
+        (false, false) => scene.replace_prepared_session_geometries(
+            resources.entities.clone(),
+            resources.equipment.clone(),
+        ),
+        (false, true) => (
+            scene.replace_pack_entity_geometries(resources.entities.clone()),
+            Ok(()),
+        ),
+        (true, false) => (
+            Ok(()),
+            scene.replace_pack_equipment(resources.equipment.clone()),
+        ),
         (true, true) => return,
     };
     ready.entities = entities.is_ok();

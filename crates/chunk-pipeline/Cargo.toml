@@ -7,7 +7,7 @@ publish = false
 
 [features]
 tracy = []
-publication-test-support = []
+publication-test-support = ["client-world/appearance-test-support"]
 benchmark-support = []
 
 [dependencies]

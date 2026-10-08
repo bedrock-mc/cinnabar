@@ -1,5 +1,5 @@
 //! Player skin rasters: normalization into the shared skin array and the default skin.
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, OnceLock};
 
 use render_api::SkinRgba8;
 
@@ -48,18 +48,7 @@ pub fn default_actor_skin_rgba8() -> SkinRgba8 {
 /// The skin resampled to the standard raster; a standard-size source keeps its allocation and hash.
 #[must_use]
 pub fn normalize_actor_skin(skin: &ActorSkinPixels) -> Option<SkinRgba8> {
-    if !skin.width.is_power_of_two()
-        || skin.width < CLASSIC_SKIN_SIDE as u32
-        || skin.width > render_api::MAX_STANDARD_SKIN_SIDE
-        || (skin.height != skin.width && skin.height.checked_mul(2) != Some(skin.width))
-    {
-        return None;
-    }
-    let side = usize::try_from(skin.width).expect("bounded standard skin side");
-    let height = usize::try_from(skin.height).expect("bounded standard skin height");
-    if skin.rgba8.len() != side * height * 4 {
-        return None;
-    }
+    let (side, height) = validated_skin_shape(skin)?;
     let expanded;
     let square: &[u8] = if height == side {
         &skin.rgba8
@@ -84,39 +73,6 @@ pub fn normalize_actor_skin(skin: &ActorSkinPixels) -> Option<SkinRgba8> {
         }
     }
     Some(normalized.into())
-}
-
-/// Resampled skins retained by source raster; bounded like the player skin array.
-const NORMALIZED_SKIN_CACHE: usize = MAX_RENDERED_PLAYERS;
-
-/// [`normalize_actor_skin`] memoized by source raster, so HD and legacy skins are not resampled
-/// every frame. The entry holds its source, so a matched pointer is never a reused allocation.
-#[must_use]
-pub fn normalize_actor_skin_cached(skin: &ActorSkinPixels) -> Option<SkinRgba8> {
-    if skin.width as usize == STANDARD_SKIN_SIDE && skin.height == skin.width {
-        return normalize_actor_skin(skin);
-    }
-    type Entry = (Arc<[u8]>, u32, u32, Option<SkinRgba8>);
-    static CACHE: Mutex<Vec<Entry>> = Mutex::new(Vec::new());
-    let mut cache = CACHE
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    if let Some((.., normalized)) = cache.iter().find(|(source, width, height, _)| {
-        Arc::ptr_eq(source, skin.rgba8.pixels()) && *width == skin.width && *height == skin.height
-    }) {
-        return normalized.clone();
-    }
-    let normalized = normalize_actor_skin(skin);
-    if cache.len() == NORMALIZED_SKIN_CACHE {
-        cache.remove(0);
-    }
-    cache.push((
-        Arc::clone(skin.rgba8.pixels()),
-        skin.width,
-        skin.height,
-        normalized.clone(),
-    ));
-    normalized
 }
 
 fn generated_default_skin() -> Vec<u8> {
@@ -154,7 +110,6 @@ fn fill_rect(rgba8: &mut [u8], x: usize, y: usize, width: usize, height: usize, 
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
 
     use super::*;
 
@@ -187,35 +142,6 @@ mod tests {
         );
     }
 
-    /// An HD skin is resampled once per source raster, not once per frame.
-    #[test]
-    fn cached_skin_normalization_resamples_each_source_once() {
-        let hd = ActorSkinPixels {
-            width: 128,
-            height: 128,
-            rgba8: (0..128 * 128 * 4)
-                .map(|value| value as u8)
-                .collect::<Vec<_>>()
-                .into(),
-        };
-        let first = normalize_actor_skin_cached(&hd).unwrap();
-        assert_eq!(first, normalize_actor_skin(&hd).unwrap());
-        for _ in 0..10 {
-            assert!(Arc::ptr_eq(
-                first.pixels(),
-                normalize_actor_skin_cached(&hd).unwrap().pixels()
-            ));
-        }
-        let copy = ActorSkinPixels {
-            rgba8: hd.rgba8.to_vec().into(),
-            ..hd
-        };
-        assert!(!Arc::ptr_eq(
-            first.pixels(),
-            normalize_actor_skin_cached(&copy).unwrap().pixels()
-        ));
-    }
-
     /// Narrow opaque texels in HD skins must not disappear when packed into the skin array.
     #[test]
     fn skin_packing_preserves_native_texels_between_old_downsample_points() {
@@ -240,3 +166,25 @@ mod tests {
         }
     }
 }
+
+/// Validates the shared pixel contract before either native or standard-size preparation.
+fn validated_skin_shape(skin: &ActorSkinPixels) -> Option<(usize, usize)> {
+    if !skin.width.is_power_of_two()
+        || skin.width < CLASSIC_SKIN_SIDE as u32
+        || skin.width > render_api::MAX_STANDARD_SKIN_SIDE
+        || (skin.height != skin.width && skin.height.checked_mul(2) != Some(skin.width))
+    {
+        return None;
+    }
+    let side = usize::try_from(skin.width).expect("bounded standard skin side");
+    let height = usize::try_from(skin.height).expect("bounded standard skin height");
+    if skin.rgba8.len() != side * height * 4 {
+        return None;
+    }
+    Some((side, height))
+}
+
+mod native;
+pub use native::{
+    PLAYER_SKIN_BUDGET_BYTES, SKIN_CLASS_SIDES, actor_skin_side, prepare_actor_skin_cached,
+};

@@ -3,10 +3,17 @@ use assets::{CompiledMolangExpression, EntityAssetKind, EntityGeometryScalar, Mo
 
 /// A `minecraft:test` rig whose pre-animation counts ticks and draws a random number, posing both.
 pub(in crate::actor_animation) fn counting_random_assets() -> Arc<RuntimeEntityAssets> {
+    counting_random_assets_for("minecraft:test")
+}
+
+/// Gives actor fixtures the same deterministic rig under their actual entity identifier.
+pub(in crate::actor_animation) fn counting_random_assets_for(
+    identifier: &str,
+) -> Arc<RuntimeEntityAssets> {
     let mut compiled = super::super::attachable::tests::compiled_fixture();
     compiled.sources[1].path = "entity/item.json".into();
     compiled.symbols[4].kind = EntityAssetKind::Entity;
-    compiled.symbols[4].identifier = "minecraft:test".into();
+    compiled.symbols[4].identifier = identifier.into();
     compiled.symbols.rotate_right(1);
     compiled.rig_bindings[0].entity_symbol = 0;
     compiled.rig_bindings[0].render_controller = 3;

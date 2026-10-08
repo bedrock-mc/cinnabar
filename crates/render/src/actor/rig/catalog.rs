@@ -17,6 +17,10 @@ use render_model::MAX_ACTOR_CATALOG_VERTICES;
 mod pages;
 use pages::VertexPages;
 
+#[path = "catalog/free_ranges.rs"]
+mod free_ranges;
+use free_ranges::FreeRanges;
+
 /// Distinct for independently constructed catalogs.
 static NEXT_EPOCH: AtomicU64 = AtomicU64::new(1);
 
@@ -118,8 +122,13 @@ impl GeometryCatalog {
         mut geometries: BTreeMap<EntityRigId, ActorRigGeometry>,
         maximum_vertices: usize,
     ) -> Result<Self, ActorRigGeometryError> {
-        for geometry in geometries.values_mut() {
-            geometry.revalidate()?;
+        let _span =
+            bevy::log::info_span!("actor.catalog_layout", geometries = geometries.len()).entered();
+        {
+            let _validation = bevy::log::info_span!("actor.catalog_validate").entered();
+            for geometry in geometries.values_mut() {
+                geometry.revalidate()?;
+            }
         }
         let mut indices = BTreeMap::new();
         let mut pages = VertexPages::default();
@@ -127,7 +136,7 @@ impl GeometryCatalog {
         let mut spans = Vec::with_capacity(geometries.len());
         let mut len = 0;
         for (id, geometry) in &mut geometries {
-            let page = pages.intern(&geometry.vertices);
+            let page = pages.intern(geometry);
             if page == offsets.len() {
                 if geometry.vertices.len() > maximum_vertices.saturating_sub(len) {
                     return Err(ActorRigGeometryError::CatalogCapacity);
@@ -135,14 +144,13 @@ impl GeometryCatalog {
                 offsets.push(len);
                 len += geometry.vertices.len();
             }
-            geometry.vertices = Arc::clone(&pages.pages[page]);
             indices.insert(*id, spans.len() as u32);
             spans.push(ActorRigGeometrySpan {
                 first_vertex: offsets[page] as u32,
                 vertex_count: geometry.vertices.len() as u32,
             });
         }
-        let revision = content_revision(&pages.pages, &spans);
+        let revision = content_revision(&pages.fingerprints, &spans);
         Ok(Self {
             geometries,
             indices,
@@ -164,8 +172,8 @@ impl GeometryCatalog {
         let mut pages = VertexPages::retained(&self.vertices.segments, &self.page_fingerprints);
         let mut used = BTreeSet::new();
         let mut len = 0;
-        for geometry in geometries.values() {
-            let page = pages.intern(&geometry.vertices);
+        for mut geometry in geometries.values().cloned() {
+            let page = pages.intern(&mut geometry);
             if used.insert(page) {
                 if geometry.vertices.len() > self.maximum_vertices.saturating_sub(len) {
                     return false;
@@ -183,8 +191,12 @@ impl GeometryCatalog {
         mut added: Vec<ActorRigGeometry>,
         revision: u64,
     ) -> Result<(), ActorRigGeometryError> {
-        for geometry in &mut added {
-            geometry.revalidate()?;
+        let _span = bevy::log::info_span!("actor.catalog_append", added = added.len()).entered();
+        {
+            let _validation = bevy::log::info_span!("actor.catalog_validate").entered();
+            for geometry in &mut added {
+                geometry.revalidate()?;
+            }
         }
         let mut geometries = self.geometries.clone();
         geometries.extend(added.into_iter().map(|geometry| (geometry.id, geometry)));
@@ -196,8 +208,7 @@ impl GeometryCatalog {
         let mut used = BTreeSet::new();
         let mut live_len = 0;
         for (id, geometry) in &mut geometries {
-            let page = pages.intern(&geometry.vertices);
-            geometry.vertices = Arc::clone(&pages.pages[page]);
+            let page = pages.intern(geometry);
             if used.insert(page) {
                 if geometry.vertices.len() > self.maximum_vertices.saturating_sub(live_len) {
                     return Err(ActorRigGeometryError::CatalogCapacity);
@@ -233,11 +244,11 @@ impl GeometryCatalog {
             page_offsets[page] = offset;
             occupied.insert(offset, pages.pages[page].len());
         }
+        let mut free = FreeRanges::new(&occupied, self.maximum_vertices);
         let mut relocate = false;
         for &page in order.iter().filter(|&&page| page >= retained_count) {
             let count = pages.pages[page].len();
-            if let Some(offset) = vacant_range(&occupied, count, self.maximum_vertices) {
-                occupied.insert(offset, count);
+            if let Some(offset) = free.allocate(count) {
                 page_offsets[page] = offset;
             } else {
                 relocate = true;
@@ -282,31 +293,19 @@ impl GeometryCatalog {
     }
 }
 
-/// Finds the first contiguous unused address range within the existing vertex ceiling.
-fn vacant_range(
-    occupied: &BTreeMap<usize, usize>,
-    count: usize,
-    maximum_vertices: usize,
-) -> Option<usize> {
-    let mut start = 0;
-    for (&offset, &len) in occupied {
-        if offset >= start + count {
-            return Some(start);
-        }
-        start = start.max(offset + len);
-    }
-    (start + count <= maximum_vertices).then_some(start)
-}
-
-/// Hashes initial page contents in the same order as the former contiguous layout.
-fn content_revision(segments: &[Arc<[ActorRigVertex]>], spans: &[ActorRigGeometrySpan]) -> u64 {
+/// Combines immutable page fingerprints and routes without rereading prepared vertex bytes.
+fn content_revision(fingerprints: &[u64], spans: &[ActorRigGeometrySpan]) -> u64 {
     let mut hash = 0xcbf2_9ce4_8422_2325_u64;
-    for byte in segments
+    for byte in fingerprints
         .iter()
-        .flat_map(|segment| bytemuck::cast_slice::<ActorRigVertex, u8>(segment))
-        .chain(bytemuck::cast_slice::<ActorRigGeometrySpan, u8>(spans))
+        .flat_map(|fingerprint| fingerprint.to_le_bytes())
+        .chain(
+            bytemuck::cast_slice::<ActorRigGeometrySpan, u8>(spans)
+                .iter()
+                .copied(),
+        )
     {
-        hash ^= u64::from(*byte);
+        hash ^= u64::from(byte);
         hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
     }
     hash.max(1)
