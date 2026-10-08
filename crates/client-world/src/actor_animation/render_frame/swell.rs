@@ -17,6 +17,7 @@ pub(in crate::actor_animation) struct SwellSampling {
     queries: BTreeSet<u32>,
     properties: bool,
     selection_effects: bool,
+    rig_scale: bool,
 }
 
 impl SwellSampling {
@@ -136,6 +137,9 @@ impl SwellSampling {
         let render_writes = super::sampling::render_controller_expressions(assets, rig)
             .into_iter()
             .any(|expression| has_effects(assets, expression));
+        let rig_scale = assets.rig_bindings()[rig]
+            .scale_expressions
+            .is_some_and(|scales| scales.iter().any(|scale| expressions.contains(scale)));
         Arc::new(Self {
             uses_swell,
             render_writes,
@@ -145,11 +149,17 @@ impl SwellSampling {
             expressions,
             weighted_symbols,
             timed_symbols,
+            rig_scale,
         })
     }
 
     pub(super) fn uses_swell(&self) -> bool {
         self.uses_swell
+    }
+
+    /// Whether a retained dependency changes the authored uniform or axis scale.
+    pub(super) fn samples_rig_scale(&self) -> bool {
+        self.rig_scale
     }
 
     /// Replaces only dependent scale slots, retaining the completed ordinary rig scale.

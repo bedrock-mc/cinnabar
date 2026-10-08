@@ -21,6 +21,7 @@ pub struct ActorRenderFrame<'a> {
     store: &'a crate::actor_store::ActorStore,
     alpha: f32,
     remaining_ops: usize,
+    scale_layers: HashMap<u64, Option<Cow<'a, [RenderTextureLayer]>>>,
 }
 
 impl<'a> ActorRenderFrame<'a> {
@@ -33,12 +34,37 @@ impl<'a> ActorRenderFrame<'a> {
                 0.0
             },
             remaining_ops: MAX_MOLANG_OPS_PER_RENDER_FRAME,
+            scale_layers: HashMap::new(),
         }
+    }
+
+    /// Samples authored scale before admission and caches its layers for the same draw.
+    /// Ordinary rigs retain their tick scale without evaluating layer expressions.
+    pub fn sample_rig_scale(&mut self, mut rig: ActorRigSnapshot<'a>) -> ActorRigSnapshot<'a> {
+        let id = rig.actor.runtime_id;
+        if self.store.samples_rig_scale(id) {
+            let layers = self.scale_layers.entry(id).or_insert_with(|| {
+                self.store
+                    .render_layers(id, self.alpha, &mut self.remaining_ops, false)
+                    .map(|layers| layers.render)
+            });
+            if let Some(scale) = layers
+                .as_ref()
+                .and_then(|layers| layers.iter().find_map(|layer| layer.sampled_scale))
+            {
+                rig.scale = scale[0];
+                rig.axis_scale = [scale[1], scale[2], scale[3]];
+            }
+        }
+        rig
     }
 
     /// Samples authored frame queries without committing variables, clocks or poses.
     /// Unsupported or exhausted evaluations retain the completed tick's layers.
     pub fn layers(&mut self, runtime_id: u64) -> Option<Cow<'a, [RenderTextureLayer]>> {
+        if let Some(layers) = self.scale_layers.remove(&runtime_id) {
+            return layers;
+        }
         self.store
             .render_layers(runtime_id, self.alpha, &mut self.remaining_ops, false)
             .map(|layers| layers.render)
@@ -62,6 +88,15 @@ pub(super) struct FrameState {
 }
 
 impl FrameState {
+    fn samples_rig_scale(&self, actor: &ActorSnapshot) -> bool {
+        self.needs_swell_sampling(actor)
+            && self
+                .motion
+                .sampling
+                .as_ref()
+                .is_some_and(|sampling| sampling.samples_rig_scale())
+    }
+
     fn needs_swell_sampling(&self, actor: &ActorSnapshot) -> bool {
         self.swell_poses.is_some()
             && std::iter::once(&self.motion)
@@ -215,6 +250,16 @@ impl SwellPoses {
 }
 
 impl ActorAnimationStore {
+    /// Whether admission needs a frame scale rather than the completed tick's scale.
+    pub(crate) fn samples_rig_scale(&self, actor: &ActorSnapshot) -> bool {
+        self.runtime_to_lifetime
+            .get(&actor.runtime_id)
+            .filter(|lifetime| lifetime.spawn_revision == actor.spawn_revision)
+            .and_then(|lifetime| self.rigs.get(lifetime))
+            .and_then(|state| state.render_frame.as_ref())
+            .is_some_and(|frame| frame.samples_rig_scale(actor))
+    }
+
     pub(crate) fn render_layers(
         &self,
         actor: &ActorSnapshot,
@@ -239,7 +284,7 @@ impl ActorAnimationStore {
                 || state.samples_swing_poses
                 || frame.needs_swell_sampling(actor))
                 && *remaining_ops > 0
-                && (!state.culled || state.samples_camera_poses)
+                && (!state.culled || state.samples_camera_poses || frame.samples_rig_scale(actor))
                 && !state.reset_pending
         }) else {
             return Some(completed());

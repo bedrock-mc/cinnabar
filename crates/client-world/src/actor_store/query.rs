@@ -181,6 +181,12 @@ impl ActorStore {
     pub(crate) fn render_frame(&self, partial_tick: f32) -> crate::ActorRenderFrame<'_> {
         crate::ActorRenderFrame::new(self, partial_tick)
     }
+    /// Whether this actor's retained scale depends on the current swelling frame.
+    pub(crate) fn samples_rig_scale(&self, runtime_id: u64) -> bool {
+        self.actors
+            .get(&runtime_id)
+            .is_some_and(|actor| self.animation.samples_rig_scale(actor))
+    }
     pub(crate) fn render_layers(
         &self,
         runtime_id: u64,

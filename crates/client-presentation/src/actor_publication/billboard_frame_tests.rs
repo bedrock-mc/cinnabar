@@ -160,7 +160,6 @@ fn assert_billboards_follow_fresh_camera(cull_completed_tick: bool) {
             apply_render_layers_cached(
                 &mut batch,
                 |_| Some(layers.clone()),
-                |_, _| None,
                 &pages,
                 &mut LayerPoseCache::default(),
             );
@@ -251,8 +250,13 @@ fn sampled_authored_rig_scales_reach_layer_placement_including_zero_axes() {
     let rig = world.actor_rig(1).unwrap();
     let actor = world.actor(1).unwrap();
     for scale in [[2.0, 3.0, 4.0, 5.0], [2.0, 3.0, 0.0, 5.0]] {
+        let sampled = client_world::ActorRigSnapshot {
+            scale: scale[0],
+            axis_scale: [scale[1], scale[2], scale[3]],
+            ..rig
+        };
         let presentation = crate::presentation::actors::entity_rig_presentation_cached(
-            &rig, actor, &pages, 0.5, None,
+            &sampled, actor, &pages, 0.5, None,
         )
         .unwrap();
         let identity = presentation.submission.input.identity;
@@ -269,10 +273,6 @@ fn sampled_authored_rig_scales_reach_layer_placement_including_zero_axes() {
         apply_render_layers_cached(
             &mut batch,
             |_| Some(std::borrow::Cow::Borrowed(&layers)),
-            |_, sampled| {
-                crate::presentation::actors::sampled_rig_placement(&rig, actor, 0.5, sampled)
-                    .map(|(rows, _)| rows)
-            },
             &pages,
             &mut LayerPoseCache::default(),
         );

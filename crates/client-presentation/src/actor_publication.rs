@@ -307,6 +307,10 @@ pub fn prepare_actor_render_frame(
         })
         .flatten();
     let mut native_body_sampled = false;
+    let mut render_frame = client_world
+        .stream
+        .as_ref()
+        .map(|stream| stream.authority().actor_render_frame(step.partial_tick));
     let (local_runtime_id, actor_session_id, dimension, remotes, canonical_local, unrigged_actors) =
         client_world
             .stream
@@ -321,7 +325,10 @@ pub fn prepare_actor_render_frame(
                     let Some(actor) = stream.authority().actor(rig.actor.runtime_id) else {
                         continue;
                     };
-                    // Culled before any per-actor work; the local rig also drives the hand.
+                    let rig = render_frame
+                        .as_mut()
+                        .map_or(rig, |frame| frame.sample_rig_scale(rig));
+                    // Cull at the sampled frame scale; the local rig also drives the hand.
                     if rig.actor.runtime_id != local_runtime_id
                         && !crate::presentation::actors::rig_may_be_visible(
                             &rig,
@@ -618,8 +625,7 @@ pub fn prepare_actor_render_frame(
     }
 
     // After equipment, which rides the rig's own model even when a controller draws another.
-    if let Some(stream) = client_world.stream.as_ref() {
-        let mut render_frame = stream.authority().actor_render_frame(step.partial_tick);
+    if let Some(render_frame) = render_frame.as_mut() {
         crate::presentation::entity_layers::apply_render_layers_cached(
             &mut batch,
             |runtime_id| {
@@ -630,17 +636,6 @@ pub fn prepare_actor_render_frame(
                 } else {
                     render_frame.layers(runtime_id)
                 }
-            },
-            |runtime_id, scale| {
-                let rig = stream.authority().actor_rig(runtime_id)?;
-                let actor = stream.authority().actor(runtime_id)?;
-                crate::presentation::actors::sampled_rig_placement(
-                    &rig,
-                    actor,
-                    step.partial_tick,
-                    scale,
-                )
-                .map(|(rows, _)| rows)
             },
             artwork,
             layer_poses,

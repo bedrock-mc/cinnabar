@@ -787,6 +787,9 @@ mod glide_tests;
 mod selection_tests;
 
 #[cfg(test)]
+mod sampled_scale_tests;
+
+#[cfg(test)]
 mod death_tests {
     use super::*;
 

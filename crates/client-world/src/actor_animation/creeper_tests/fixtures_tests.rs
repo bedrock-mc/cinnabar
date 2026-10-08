@@ -27,9 +27,9 @@ pub(super) fn pack_swell_fixture(
 ) -> crate::actor_store::ActorStore {
     pack_swell_fixture_with(
         AuthoredSwellChannel {
-            pre_animation: pre_animation,
-            property: property,
-            variable: variable,
+            pre_animation,
+            property,
+            variable,
         },
         weighted_query_channel,
         alternate,
