@@ -44,6 +44,8 @@ use client_ui::ui_runtime::{
     inventory_router::{EquipmentRoute, EquipmentRouteResult, InventoryRouterError},
 };
 
+#[cfg(test)]
+pub(crate) use client_session::WORLD_EVENT_CAPACITY;
 pub(crate) use inventory::{
     publish_bootstrap_inventory, route_inventory_ingress, route_item_registry_ingress,
 };
@@ -56,8 +58,6 @@ pub(crate) use resource_packs::{
     classify_bootstrap_generation, set_active_language, set_base_material_keys,
     set_base_terrain_catalog, set_compile_cache_dir,
 };
-#[cfg(test)]
-pub(crate) use session::WORLD_EVENT_CAPACITY;
 pub(crate) use session::{
     BatchSendError, NetworkConfig, NetworkControlEvent, NetworkFailureOrigin, NetworkHandle,
     PacketSendError, SessionTransferTarget, session_failure_display, spawn_network,
