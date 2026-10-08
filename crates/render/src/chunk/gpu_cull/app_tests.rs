@@ -1,4 +1,4 @@
-//! The real render app on a validating NOOP device with count-driven indirect draws.
+//! Real render apps on a validating NOOP device and native fallback backends.
 
 use bevy::{
     asset::{AssetPlugin, Assets},
@@ -188,6 +188,7 @@ fn count_capable_devices_run_the_two_phase_cull_through_the_render_graph() {
         &GpuCullSupport(true)
     );
     let cull = render_world.resource::<GpuCull>();
+    assert_eq!(cull.submission, GpuCullSubmission::Count);
     assert_eq!(cull.slot_count(), 2);
     assert!(cull.table.records().iter().all(CullRecord::is_live));
     assert!(
@@ -211,15 +212,14 @@ fn count_capable_devices_run_the_two_phase_cull_through_the_render_graph() {
     assert_eq!(cull.slot_count(), 1);
 }
 
-/// wgpu-core 27 expands validated DX12 indexed commands to include three special constants.
-/// The workspace dev profile disables its bad source-stride assertion, so ordinary MDI remains
-/// available instead of falling back to one direct draw per terrain section.
+/// DX12 cannot consume compacted draw counts without losing base vertex/instance constants.
+/// Cleared fixed-size indirect regions preserve those constants and still run the same Hi-Z cull.
 #[cfg(all(target_os = "windows", debug_assertions))]
 #[test]
-fn dx12_debug_batches_expanded_indexed_indirect_commands() {
+fn dx12_debug_runs_two_phase_fixed_count_gpu_culling() {
     let Some(render) = render_plugin(wgpu::Backends::DX12, WgpuFeatures::INDIRECT_FIRST_INSTANCE)
     else {
-        eprintln!("skipping DX12 debug MDI app: missing compatible native adapter");
+        eprintln!("skipping DX12 fixed-count cull app: missing compatible native adapter");
         return;
     };
     let (mut app, _) = chunk_app(render, Msaa::Off, camera_transform());
@@ -231,22 +231,19 @@ fn dx12_debug_batches_expanded_indexed_indirect_commands() {
     let render_world = app.sub_app(RenderApp).world();
     assert_eq!(
         render_world.resource::<GpuCullSupport>(),
-        &GpuCullSupport(false),
-        "DX12 count draws still use the CPU-prepared MDI path"
+        &GpuCullSupport(true)
     );
     assert_eq!(
         render_world.resource::<DirectOcclusionSupport>(),
         &DirectOcclusionSupport(false),
-        "DX12 debug must not regress to per-section direct draws"
+        "DX12 MDI must not regress to per-section direct draws"
     );
-    let command_count: u32 = render_world
-        .resource::<pipeline::solid::ChunkSolidIndirectBatches>()
-        .0
-        .values()
-        .map(|batch| batch.cubes.command_count)
-        .sum();
+    let cull = render_world.resource::<GpuCull>();
+    assert_eq!(cull.submission, GpuCullSubmission::Fixed);
+    assert_eq!(cull.slot_count(), 2);
+    assert!(cull.bind_groups.is_some(), "the culled view was prepared");
     assert!(
-        command_count > 1,
-        "fixture must exercise a multi-command indexed indirect batch"
+        cull.pyramid.is_some(),
+        "the DX12 depth target admits the late Hi-Z phase"
     );
 }

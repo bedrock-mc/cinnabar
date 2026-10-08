@@ -85,7 +85,7 @@ impl CullStorage {
             args: buffer(
                 "terrain cull indirect args",
                 args_words(capacity) * 4,
-                U::STORAGE | U::INDIRECT | copy_out,
+                U::STORAGE | U::INDIRECT | U::COPY_DST | copy_out,
             ),
             draw_counts: buffer(
                 "terrain cull draw counts",
