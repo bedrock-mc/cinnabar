@@ -35,6 +35,28 @@ fn decode_event(wire: Bytes, dimension: i32) -> WorldEvent {
 
 impl NetworkSession for ReplaySession {
     type Error = std::convert::Infallible;
+    type Outbound = PacketOutbound<std::convert::Infallible>;
+
+    /// Encode the actual outgoing packet and report completion without a simulated socket delay.
+    fn outbound(&mut self) -> Result<Self::Outbound, Self::Error> {
+        let sent = self.sent.clone();
+        Ok(PacketOutbound::new(move |packet| {
+            let selected = Instant::now();
+            let allocations = crate::session::tests::alloc_count::thread_allocations();
+            let wire = protocol::encode(&packet, &CODEC_SESSION).unwrap();
+            let completed = Instant::now();
+            let allocations =
+                crate::session::tests::alloc_count::thread_allocations() - allocations;
+            sent.send(Sent {
+                selected,
+                completed,
+                wire,
+                allocations,
+            })
+            .unwrap();
+            future::ready(Ok(()))
+        }))
+    }
 
     /// Keep captured packet decoding ready until the real pump applies backpressure.
     async fn receive_world_event(&mut self, dimension: i32) -> Result<WorldEvent, Self::Error> {
@@ -51,24 +73,6 @@ impl NetworkSession for ReplaySession {
             allocations,
         });
         Ok(event)
-    }
-
-    /// Encode the actual outgoing packet and report completion without a simulated socket delay.
-    async fn send_packet(&mut self, packet: protocol::Packet) -> Result<(), Self::Error> {
-        let selected = Instant::now();
-        let allocations = crate::session::tests::alloc_count::thread_allocations();
-        let wire = protocol::encode(&packet, &CODEC_SESSION).unwrap();
-        let completed = Instant::now();
-        let allocations = crate::session::tests::alloc_count::thread_allocations() - allocations;
-        self.sent
-            .send(Sent {
-                selected,
-                completed,
-                wire,
-                allocations,
-            })
-            .unwrap();
-        Ok(())
     }
 
     /// The fixed fixture must decode without suppressed errors.
@@ -179,6 +183,7 @@ fn run_case(name: &str, wire: Option<Bytes>, hold_world: bool) {
                     interaction: None,
                 })
                 .unwrap();
+            commands.try_send(NetworkCommand::FlushFrame).unwrap();
             let sent = sent_rx.recv_timeout(Duration::from_secs(2)).unwrap();
             assert_eq!(sent.wire, expected, "movement bytes changed at tick {tick}");
             queued.push(sent.selected - started);

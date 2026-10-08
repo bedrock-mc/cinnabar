@@ -12,6 +12,65 @@ pub const DEFAULT_ANTI_ALIASING_SAMPLES: u32 = 2;
 /// Sample counts represented by the rendering backend's camera settings.
 pub const ANTI_ALIASING_SAMPLE_COUNTS: [u32; 4] = [1, 2, 4, 8];
 
+/// Motion blur exposure is fixed to this reference rate, independent of rendering cadence.
+pub const MOTION_BLUR_REFERENCE_FPS: f32 = 60.0;
+
+/// Optional camera-only exposure presets; vanilla rendering leaves this disabled.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Hash)]
+pub enum MotionBlurQuality {
+    #[default]
+    Off,
+    Low,
+    Medium,
+    High,
+}
+
+impl MotionBlurQuality {
+    pub const ALL: [Self; 4] = [Self::Off, Self::Low, Self::Medium, Self::High];
+
+    pub const fn index(self) -> i32 {
+        self as i32
+    }
+
+    /// Unknown indices keep the optional effect disabled.
+    pub const fn from_index(index: i32) -> Self {
+        match index {
+            1 => Self::Low,
+            2 => Self::Medium,
+            3 => Self::High,
+            _ => Self::Off,
+        }
+    }
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Off => "Off",
+            Self::Low => "Low",
+            Self::Medium => "Medium",
+            Self::High => "High",
+        }
+    }
+
+    pub const fn shutter_angle_degrees(self) -> f32 {
+        match self {
+            Self::Off => 0.0,
+            Self::Low => 90.0,
+            Self::Medium => 180.0,
+            Self::High => 270.0,
+        }
+    }
+
+    /// Total color samples, including the center pixel.
+    pub const fn sample_count(self) -> u32 {
+        match self {
+            Self::Off => 0,
+            Self::Low => 5,
+            Self::Medium => 9,
+            Self::High => 13,
+        }
+    }
+}
+
 /// The intersection of color and depth sample counts supported by the active device.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct AntiAliasingSupport(u32);
@@ -76,6 +135,7 @@ pub struct VideoSettings {
     pub frame_cap: Option<u16>,
     pub vsync: bool,
     pub anti_aliasing_samples: u32,
+    pub motion_blur: MotionBlurQuality,
     pub ui_scale: f32,
     pub render_distance_chunks: u8,
     pub brightness: f32,
@@ -101,6 +161,7 @@ impl Default for VideoSettings {
             frame_cap: None,
             vsync: true,
             anti_aliasing_samples: DEFAULT_ANTI_ALIASING_SAMPLES,
+            motion_blur: MotionBlurQuality::default(),
             ui_scale: 1.0,
             render_distance_chunks: 16,
             brightness: 0.5,
@@ -198,5 +259,34 @@ mod antialiasing_tests {
         assert_eq!(support.select(7), 4);
         assert_eq!(support.select(32), 8);
         assert_eq!(AntiAliasingSupport::from_counts([]).select(0), 1);
+    }
+}
+
+#[cfg(test)]
+mod motion_blur_tests {
+    use super::*;
+
+    #[test]
+    fn motion_blur_defaults_off_and_round_trips_every_preset() {
+        assert_eq!(
+            UserSettings::default().video.motion_blur,
+            MotionBlurQuality::Off
+        );
+        assert_eq!(MotionBlurQuality::Off.shutter_angle_degrees(), 0.0);
+        assert_eq!(MotionBlurQuality::Off.sample_count(), 0);
+        for preset in MotionBlurQuality::ALL {
+            assert_eq!(MotionBlurQuality::from_index(preset.index()), preset);
+            if preset != MotionBlurQuality::Off {
+                assert!(preset.shutter_angle_degrees() > 0.0);
+                assert!(preset.shutter_angle_degrees() <= 360.0);
+                assert!(preset.sample_count() > 1);
+                assert_eq!(preset.sample_count() % 2, 1);
+            }
+        }
+        assert_eq!(MotionBlurQuality::from_index(-1), MotionBlurQuality::Off);
+        assert_eq!(
+            MotionBlurQuality::from_index(i32::MAX),
+            MotionBlurQuality::Off
+        );
     }
 }

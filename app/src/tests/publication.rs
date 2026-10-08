@@ -252,6 +252,16 @@ fn production_client_systems_are_members_of_the_behavioral_sets() {
         "produce_survival_mining",
         ClientFrameSet::NetworkSend,
     );
+    let block_cues = system_node(graph, crate::audio::drive_block_cues, "drive_block_cues");
+    for producer in [
+        system_node(graph, produce_survival_mining, "produce_survival_mining"),
+        system_node(graph, produce_block_use, "produce_block_use"),
+    ] {
+        assert!(
+            schedule_precedes(graph, producer, block_cues),
+            "a predicted break or placement must sound in its own frame"
+        );
+    }
     assert_system_in_stage(
         graph,
         emit_phase3_evidence,

@@ -1,563 +1,563 @@
-minecraft:acacia_boat	0	boat	4	0x10a79ccc1
-minecraft:acacia_chest_boat	0	chest_boat	4	0x10a79d027
-minecraft:acacia_door	0	acacia_door	0	0x10a79ff31
-minecraft:acacia_hanging_sign	0	sign_acacia_hanging	0	0x10a79c33e
-minecraft:acacia_sign	0	sign_acacia	0	0x10a79c157
-minecraft:amethyst_shard	0	amethyst_shard	0	0x10a7a0bbf
-minecraft:angler_pottery_sherd	0	angler_pottery_sherd	0	0x10a7a14ea
-minecraft:apple	0	apple	0	0x10a79dfed
-minecraft:archer_pottery_sherd	0	archer_pottery_sherd	0	0x10a7a1550
-minecraft:armadillo_scute	0	armadillo_scute	0	0x10a7a2943
-minecraft:armor_stand	0	armor_stand	0	0x10a79f12b
-minecraft:arms_up_pottery_sherd	0	arms_up_pottery_sherd	0	0x10a7a15b6
-minecraft:arrow	0	arrow	0	0x10a79ae28
-minecraft:axolotl_bucket	0	bucket	9	0x10a79c857
-minecraft:balloon	0	balloon	0	0x10a7a3ad5
-minecraft:bamboo_chest_raft	0	chest_boat	7	0x10a79d117
-minecraft:bamboo_door	0	bamboo_door	0	0x10a7a0d2c
-minecraft:bamboo_hanging_sign	0	sign_bamboo_hanging	0	0x10a79c4bf
-minecraft:bamboo_raft	0	boat	7	0x10a79cdb1
-minecraft:bamboo_sign	0	bamboo_sign	0	0x10a7a0d75
-minecraft:banner	0	sign	0	0x10a79fdc4
-minecraft:bed	0	bed	0	0x10a79def5
-minecraft:birch_boat	0	boat	2	0x10a79cbd1
-minecraft:birch_chest_boat	0	chest_boat	2	0x10a79cf37
-minecraft:birch_door	0	birch_door	0	0x10a79fe9f
-minecraft:birch_hanging_sign	0	sign_birch_hanging	0	0x10a79c2a4
-minecraft:birch_sign	0	sign_birch	0	0x10a79c0bd
-minecraft:black_bundle	0	bundle_black	0	0x10a7a0e8a
-minecraft:black_dye	0	dye_powder	16	0x10a79d7e4
-minecraft:black_harness	0	harness_black	0	0x10a7a2c20
-minecraft:blade_pottery_sherd	0	blade_pottery_sherd	0	0x10a7a161c
-minecraft:blaze_powder	0	blaze_powder	0	0x10a79e718
-minecraft:blaze_rod	0	blaze_rod	0	0x10a79e47b
-minecraft:bleach	0	bleach	0	0x10a7a3a49
-minecraft:blue_bundle	0	bundle_blue	0	0x10a7a10ee
-minecraft:blue_dye	0	dye_powder	18	0x10a79d924
-minecraft:blue_egg	0	blue_egg	0	0x10a7a2b54
-minecraft:blue_harness	0	harness_blue	0	0x10a7a2c86
-minecraft:board	0	chalkboard	0	0x10a7a3631
-minecraft:bolt_armor_trim_smithing_template	0	bolt_armor_trim_smithing_template	0	0x10a7a25a6
-minecraft:bone	0	bone	0	0x10a79de1a
-minecraft:bone_meal	0	dye_powder	15	0x10a79ddd1
-minecraft:book	0	book_normal	0	0x10a79ea1d
-minecraft:bordure_indented_banner_pattern	0	bordure_indented_banner_pattern	0	0x10a7a04a5
-minecraft:bow	0	bow_standby	0	0x10a79ad92
-minecraft:bowl	0	bowl	0	0x10a79b506
-minecraft:breeze_rod	0	breeze_rod	0	0x10a79e4c4
-minecraft:brewer_pottery_sherd	0	brewer_pottery_sherd	0	0x10a7a1682
-minecraft:brewing_stand	0	brewing_stand	0	0x10a79e7aa
-minecraft:brick	0	brick	0	0x10a79d249
-minecraft:brown_bundle	0	bundle_brown	0	0x10a7a1220
-minecraft:brown_dye	0	dye_powder	17	0x10a79d8d4
-minecraft:brown_egg	0	brown_egg	0	0x10a7a2bba
-minecraft:brown_harness	0	harness_brown	0	0x10a7a2cec
-minecraft:brush	0	brush	0	0x10a7a1e14
-minecraft:bucket	0	bucket	0	0x10a79c56e
-minecraft:bundle	0	bundle	0	0x10a7a0e24
-minecraft:burn_pottery_sherd	0	burn_pottery_sherd	0	0x10a7a16e8
-minecraft:cake	0	cake	0	0x10a79deac
-minecraft:campfire	0	campfire	0	0x10a7a055e
-minecraft:carrot_on_a_stick	0	carrot_on_a_stick	0	0x10a79ecad
-minecraft:cauldron	0	cauldron	0	0x10a79e7f3
-minecraft:chainmail_boots	0	boots	1	0x10a79bb6b
-minecraft:chainmail_chestplate	0	chestplate	1	0x10a79bacb
-minecraft:chainmail_helmet	0	helmet	1	0x10a79ba7b
-minecraft:chainmail_leggings	0	leggings	1	0x10a79bb1b
-minecraft:charcoal	0	charcoal	0	0x10a79e383
-minecraft:cherry_boat	0	boat	8	0x10a79ce01
-minecraft:cherry_chest_boat	0	chest_boat	8	0x10a79d167
-minecraft:cherry_door	0	cherry_door	0	0x10a7a25ef
-minecraft:cherry_hanging_sign	0	sign_cherry_hanging	0	0x10a7a2685
-minecraft:cherry_sign	0	cherry_sign	0	0x10a7a2638
-minecraft:chest_minecart	0	minecart_chest	0	0x10a79d407
-minecraft:clay_ball	0	clay_ball	0	0x10a79d292
-minecraft:clock	0	clock_item	0	0x10a79d5ff
-minecraft:coal	0	coal	0	0x10a79e31d
-minecraft:coast_armor_trim_smithing_template	0	coast_armor_trim_smithing_template	0	0x10a7a1fac
-minecraft:cocoa_beans	0	dye_powder	3	0x10a79dd31
-minecraft:cod	0	fish	0	0x10a79e1eb
-minecraft:cod_bucket	0	bucket	4	0x10a79c6ae
-minecraft:comparator	0	comparator	0	0x10a79eebe
-minecraft:compass	0	compass_item	0	0x10a79d49d
-minecraft:compound	0	compound	0	0x10a7a39b7
-minecraft:cooked_cod	0	cooked_fish	0	0x10a79e251
-minecraft:cooked_mutton	0	mutton_cooked	0	0x10a79e185
-minecraft:copper_axe	0	axe	6	0x10a7a33be
-minecraft:copper_boots	0	boots	6	0x10a7a35cb
-minecraft:copper_chestplate	0	chestplate	6	0x10a7a34f9
-minecraft:copper_door	0	copper_door	0	0x10a7a26ce
-minecraft:copper_helmet	0	helmet	6	0x10a7a3490
-minecraft:copper_hoe	0	hoe	6	0x10a7a3427
-minecraft:copper_horse_armor	0	copper_horse_armor	0	0x10a79f329
-minecraft:copper_ingot	0	copper_ingot	0	0x10a79aeba
-minecraft:copper_leggings	0	leggings	6	0x10a7a3562
-minecraft:copper_nautilus_armor	0	copper_nautilus_armor	0	0x10a7a3697
-minecraft:copper_nugget	0	copper_nugget	0	0x10a79e5e8
-minecraft:copper_pickaxe	0	pickaxe	6	0x10a7a3355
-minecraft:copper_shovel	0	shovel	6	0x10a7a32ec
-minecraft:copper_sword	0	sword	6	0x10a7a3283
-minecraft:creeper_banner_pattern	0	creeper_banner_pattern	0	0x10a7a0455
-minecraft:crimson_door	0	crimson_door	0	0x10a79ffc3
-minecraft:crimson_hanging_sign	0	sign_crimson_hanging	0	0x10a79c3d8
-minecraft:crimson_sign	0	crimson_sign_item	0	0x10a7a0a31
-minecraft:crossbow	0	crossbow_standby	0	0x10a79addf
-minecraft:cyan_bundle	0	bundle_cyan	0	0x10a7a1286
-minecraft:cyan_dye	0	dye_powder	6	0x10a79d9c4
-minecraft:cyan_harness	0	harness_cyan	0	0x10a7a2d52
-minecraft:danger_pottery_sherd	0	danger_pottery_sherd	0	0x10a7a174e
-minecraft:dark_oak_boat	0	boat	5	0x10a79cd11
-minecraft:dark_oak_chest_boat	0	chest_boat	5	0x10a79d077
-minecraft:dark_oak_door	0	dark_oak_door	0	0x10a79ff7a
-minecraft:dark_oak_hanging_sign	0	sign_darkoak_hanging	0	0x10a79c38b
-minecraft:dark_oak_sign	0	sign_darkoak	0	0x10a79c1bd
-minecraft:diamond	0	diamond	0	0x10a79ae71
-minecraft:diamond_axe	0	axe	4	0x10a79b42b
-minecraft:diamond_boots	0	boots	4	0x10a79bdeb
-minecraft:diamond_chestplate	0	chestplate	4	0x10a79bd4b
-minecraft:diamond_helmet	0	helmet	4	0x10a79bcfb
-minecraft:diamond_hoe	0	hoe	4	0x10a79b85e
-minecraft:diamond_horse_armor	0	diamond_horse_armor	0	0x10a79f2c3
-minecraft:diamond_leggings	0	leggings	4	0x10a79bd9b
-minecraft:diamond_nautilus_armor	0	diamond_nautilus_armor	0	0x10a7a37c9
-minecraft:diamond_pickaxe	0	pickaxe	4	0x10a79b3db
-minecraft:diamond_shovel	0	shovel	4	0x10a79b38b
-minecraft:diamond_sword	0	sword	4	0x10a79b33b
-minecraft:disc_fragment_5	0	disc_fragment_5	0	0x10a7a0dbe
-minecraft:dragon_breath	0	dragon_breath	0	0x10a7a00bb
-minecraft:dried_kelp	0	dried_kelp	0	0x10a79d324
-minecraft:dune_armor_trim_smithing_template	0	dune_armor_trim_smithing_template	0	0x10a7a1f46
-minecraft:echo_shard	0	echo_shard	0	0x10a79d569
-minecraft:egg	0	egg	0	0x10a79d450
-minecraft:elytra	0	elytra	0	0x10a7a030f
-minecraft:emerald	0	emerald	0	0x10a79eb32
-minecraft:empty_map	0	map_empty	0	0x10a79ec47
-minecraft:enchanted_book	0	book_enchanted	0	0x10a79ee75
-minecraft:enchanted_golden_apple	0	apple_golden	0	0x10a79e0b9
-minecraft:end_crystal	0	end_crystal	0	0x10a79fe0d
-minecraft:ender_eye	0	ender_eye	0	0x10a79e83c
-minecraft:ender_pearl	0	ender_pearl	0	0x10a79e432
-minecraft:experience_bottle	0	experience_bottle	0	0x10a79e951
-minecraft:explorer_pottery_sherd	0	explorer_pottery_sherd	0	0x10a7a17b4
-minecraft:exposed_copper_door	0	exposed_copper_door	0	0x10a7a2717
-minecraft:eye_armor_trim_smithing_template	0	eye_armor_trim_smithing_template	0	0x10a7a20de
-minecraft:feather	0	feather	0	0x10a79b6d8
-minecraft:fermented_spider_eye	0	spider_eye_fermented	0	0x10a79e6cf
-minecraft:field_masoned_banner_pattern	0	field_masoned_banner_pattern	0	0x10a7a04b5
-minecraft:fire_charge	0	fireball	0	0x10a79e9b7
-minecraft:firework_rocket	0	fireworks	0	0x10a79ed5c
-minecraft:firework_star	0	fireworks_charge	0	0x10a79edc2
-minecraft:fishing_rod	0	fishing_rod	0	0x10a79d5b2
-minecraft:flint	0	flint	0	0x10a79bf74
-minecraft:flint_and_steel	0	flint_and_steel	0	0x10a79ad45
-minecraft:flow_armor_trim_smithing_template	0	flow_armor_trim_smithing_template	0	0x10a7a2540
-minecraft:flow_banner_pattern	0	flow_banner_pattern	0	0x10a7a04c5
-minecraft:flow_pottery_sherd	0	flow_pottery_sherd	0	0x10a7a181a
-minecraft:flower_banner_pattern	0	flower_banner_pattern	0	0x10a7a0445
-minecraft:flower_pot	0	flower_pot	0	0x10a79ebe1
-minecraft:frame	0	item_frame	0	0x10a79eb98
-minecraft:friend_pottery_sherd	0	friend_pottery_sherd	0	0x10a7a1880
-minecraft:ghast_tear	0	ghast_tear	0	0x10a79e50d
-minecraft:glass_bottle	0	potion_bottle_empty	0	0x10a79e682
-minecraft:glistering_melon_slice	0	melon_speckled	0	0x10a79e8a2
-minecraft:globe_banner_pattern	0	globe_banner_pattern	0	0x10a7a0495
-minecraft:glow_frame	0	glow_item_frame	0	0x10a79d794
-minecraft:glow_ink_sac	0	dye_powder	20	0x10a79d72e
-minecraft:glowstone_dust	0	glowstone_dust	0	0x10a79d648
-minecraft:goat_horn	0	goat_horn	0	0x10a7a0b76
-minecraft:gold_ingot	0	gold_ingot	0	0x10a79b027
-minecraft:gold_nugget	0	gold_nugget	0	0x10a79e556
-minecraft:golden_apple	0	apple_golden	0	0x10a79e053
-minecraft:golden_axe	0	axe	3	0x10a79b646
-minecraft:golden_boots	0	boots	3	0x10a79bf2b
-minecraft:golden_chestplate	0	chestplate	3	0x10a79be8b
-minecraft:golden_helmet	0	helmet	3	0x10a79be3b
-minecraft:golden_hoe	0	hoe	3	0x10a79b8ae
-minecraft:golden_horse_armor	0	gold_horse_armor	0	0x10a79f25d
-minecraft:golden_leggings	0	leggings	3	0x10a79bedb
-minecraft:golden_nautilus_armor	0	gold_nautilus_armor	0	0x10a7a3763
-minecraft:golden_pickaxe	0	pickaxe	3	0x10a79b5f6
-minecraft:golden_shovel	0	shovel	3	0x10a79b5a6
-minecraft:golden_sword	0	sword	3	0x10a79b556
-minecraft:gray_bundle	0	bundle_gray	0	0x10a7a0fbc
-minecraft:gray_dye	0	dye_powder	8	0x10a79da64
-minecraft:gray_harness	0	harness_gray	0	0x10a7a2db8
-minecraft:green_bundle	0	bundle_green	0	0x10a7a1352
-minecraft:green_dye	0	dye_powder	2	0x10a79d884
-minecraft:green_harness	0	harness_green	0	0x10a7a2e1e
-minecraft:gunpowder	0	gunpowder	0	0x10a79b721
-minecraft:guster_banner_pattern	0	guster_banner_pattern	0	0x10a7a04d5
-minecraft:guster_pottery_sherd	0	guster_pottery_sherd	0	0x10a7a18e6
-minecraft:heart_of_the_sea	0	heart_of_the_sea	0	0x10a7a01e7
-minecraft:heart_pottery_sherd	0	heart_pottery_sherd	0	0x10a7a194c
-minecraft:heartbreak_pottery_sherd	0	heartbreak_pottery_sherd	0	0x10a7a19b2
-minecraft:honey_bottle	0	honey_bottle	0	0x10a7a09e4
-minecraft:honeycomb	0	honeycomb	0	0x10a7a099b
-minecraft:hopper	0	hopper	0	0x10a79f050
-minecraft:hopper_minecart	0	minecart_hopper	0	0x10a79f007
-minecraft:host_armor_trim_smithing_template	0	host_armor_trim_smithing_template	0	0x10a7a24da
-minecraft:howl_pottery_sherd	0	howl_pottery_sherd	0	0x10a7a1a18
-minecraft:ice_bomb	0	ice_bomb	0	0x10a7a3a00
-minecraft:ink_sac	0	dye_powder	0	0x10a79dce1
-minecraft:iron_axe	0	axe	2	0x10a79acfc
-minecraft:iron_boots	0	boots	2	0x10a79bcab
-minecraft:iron_chestplate	0	chestplate	2	0x10a79bc0b
-minecraft:iron_door	0	iron_door	0	0x10a79ca51
-minecraft:iron_helmet	0	helmet	2	0x10a79bbbb
-minecraft:iron_hoe	0	hoe	2	0x10a79b80e
-minecraft:iron_horse_armor	0	iron_horse_armor	0	0x10a79f1f7
-minecraft:iron_ingot	0	iron_ingot	0	0x10a79afde
-minecraft:iron_leggings	0	leggings	2	0x10a79bc5b
-minecraft:iron_nautilus_armor	0	iron_nautilus_armor	0	0x10a7a36fd
-minecraft:iron_nugget	0	iron_nugget	0	0x10a79e59f
-minecraft:iron_pickaxe	0	pickaxe	2	0x10a79acac
-minecraft:iron_shovel	0	shovel	2	0x10a79ac5c
-minecraft:iron_sword	0	sword	2	0x10a79b077
-minecraft:jungle_boat	0	boat	3	0x10a79cc21
-minecraft:jungle_chest_boat	0	chest_boat	3	0x10a79cf87
-minecraft:jungle_door	0	jungle_door	0	0x10a79fee8
-minecraft:jungle_hanging_sign	0	sign_jungle_hanging	0	0x10a79c2f1
-minecraft:jungle_sign	0	sign_jungle	0	0x10a79c10a
-minecraft:kelp	0	kelp	0	0x10a79d2db
-minecraft:lapis_lazuli	0	dye_powder	4	0x10a79dd81
-minecraft:lava_bucket	0	bucket	3	0x10a79c60e
-minecraft:lead	0	lead	0	0x10a79fd2e
-minecraft:leather	0	leather	0	0x10a79d200
-minecraft:leather_boots	0	boots	0	0x10a79ba2b
-minecraft:leather_chestplate	0	chestplate	0	0x10a79b991
-minecraft:leather_helmet	0	helmet	0	0x10a79b944
-minecraft:leather_horse_armor	0	leather_horse_armor	0	0x10a79f191
-minecraft:leather_leggings	0	leggings	0	0x10a79b9de
-minecraft:light_blue_bundle	0	bundle_light_blue	0	0x10a7a1088
-minecraft:light_blue_dye	0	dye_powder	12	0x10a79dba4
-minecraft:light_blue_harness	0	harness_light_blue	0	0x10a7a2e84
-minecraft:light_gray_bundle	0	bundle_light_gray	0	0x10a7a1022
-minecraft:light_gray_dye	0	dye_powder	7	0x10a79da14
-minecraft:light_gray_harness	0	harness_light_gray	0	0x10a7a2eea
-minecraft:lime_bundle	0	bundle_lime	0	0x10a7a12ec
-minecraft:lime_dye	0	dye_powder	10	0x10a79db04
-minecraft:lime_harness	0	harness_lime	0	0x10a7a2f50
-minecraft:lingering_potion	0	potion_bottle_lingering	0	0x10a6fc970
-minecraft:lingering_potion	1	potion_bottle_lingering	0	0x10a6fc970
-minecraft:lingering_potion	2	potion_bottle_lingering	0	0x10a6fc970
-minecraft:lingering_potion	3	potion_bottle_lingering	0	0x10a6fc970
-minecraft:lingering_potion	4	potion_bottle_lingering	0	0x10a6fc970
-minecraft:lingering_potion	5	potion_bottle_lingering	11	0x10a6fc970
-minecraft:lingering_potion	6	potion_bottle_lingering	11	0x10a6fc970
-minecraft:lingering_potion	7	potion_bottle_lingering	10	0x10a6fc970
-minecraft:lingering_potion	8	potion_bottle_lingering	10	0x10a6fc970
-minecraft:lingering_potion	9	potion_bottle_lingering	6	0x10a6fc970
-minecraft:lingering_potion	10	potion_bottle_lingering	6	0x10a6fc970
-minecraft:lingering_potion	11	potion_bottle_lingering	6	0x10a6fc970
-minecraft:lingering_potion	12	potion_bottle_lingering	8	0x10a6fc970
-minecraft:lingering_potion	13	potion_bottle_lingering	8	0x10a6fc970
-minecraft:lingering_potion	14	potion_bottle_lingering	1	0x10a6fc970
-minecraft:lingering_potion	15	potion_bottle_lingering	1	0x10a6fc970
-minecraft:lingering_potion	16	potion_bottle_lingering	1	0x10a6fc970
-minecraft:lingering_potion	17	potion_bottle_lingering	2	0x10a6fc970
-minecraft:lingering_potion	18	potion_bottle_lingering	2	0x10a6fc970
-minecraft:lingering_potion	19	potion_bottle_lingering	9	0x10a6fc970
-minecraft:lingering_potion	20	potion_bottle_lingering	9	0x10a6fc970
-minecraft:lingering_potion	21	potion_bottle_lingering	4	0x10a6fc970
-minecraft:lingering_potion	22	potion_bottle_lingering	4	0x10a6fc970
-minecraft:lingering_potion	23	potion_bottle_lingering	5	0x10a6fc970
-minecraft:lingering_potion	24	potion_bottle_lingering	5	0x10a6fc970
-minecraft:lingering_potion	25	potion_bottle_lingering	13	0x10a6fc970
-minecraft:lingering_potion	26	potion_bottle_lingering	13	0x10a6fc970
-minecraft:lingering_potion	27	potion_bottle_lingering	13	0x10a6fc970
-minecraft:lingering_potion	28	potion_bottle_lingering	7	0x10a6fc970
-minecraft:lingering_potion	29	potion_bottle_lingering	7	0x10a6fc970
-minecraft:lingering_potion	30	potion_bottle_lingering	7	0x10a6fc970
-minecraft:lingering_potion	31	potion_bottle_lingering	3	0x10a6fc970
-minecraft:lingering_potion	32	potion_bottle_lingering	3	0x10a6fc970
-minecraft:lingering_potion	33	potion_bottle_lingering	3	0x10a6fc970
-minecraft:lingering_potion	34	potion_bottle_lingering	12	0x10a6fc970
-minecraft:lingering_potion	35	potion_bottle_lingering	12	0x10a6fc970
-minecraft:lingering_potion	36	potion_bottle_lingering	14	0x10a6fc970
-minecraft:lingering_potion	37	potion_bottle_lingering	15	0x10a6fc970
-minecraft:lingering_potion	38	potion_bottle_lingering	15	0x10a6fc970
-minecraft:lingering_potion	39	potion_bottle_lingering	15	0x10a6fc970
-minecraft:lingering_potion	40	potion_bottle_lingering	16	0x10a6fc970
-minecraft:lingering_potion	41	potion_bottle_lingering	16	0x10a6fc970
-minecraft:lingering_potion	42	potion_bottle_lingering	2	0x10a6fc970
-minecraft:lingering_potion	43	potion_bottle_lingering	17	0x10a6fc970
-minecraft:lingering_potion	44	potion_bottle_lingering	18	0x10a6fc970
-minecraft:lingering_potion	45	potion_bottle_lingering	19	0x10a6fc970
-minecraft:lingering_potion	46	potion_bottle_lingering	20	0x10a6fc970
-minecraft:lodestone_compass	0	lodestonecompass_item	0	0x10a7a0ae4
-minecraft:mace	0	mace	0	0x10a79b474
-minecraft:magenta_bundle	0	bundle_magenta	0	0x10a7a141e
-minecraft:magenta_dye	0	dye_powder	13	0x10a79dbf4
-minecraft:magenta_harness	0	harness_magenta	0	0x10a7a2fb6
-minecraft:magma_cream	0	magma_cream	0	0x10a79e761
-minecraft:mangrove_boat	0	boat	6	0x10a79cd61
-minecraft:mangrove_chest_boat	0	chest_boat	6	0x10a79d0c7
-minecraft:mangrove_door	0	mangrove_door	0	0x10a7a0c9a
-minecraft:mangrove_hanging_sign	0	sign_mangrove_hanging	0	0x10a79c472
-minecraft:mangrove_propagule	0	mangrove_propagule	0	0x10a7a0c51
-minecraft:mangrove_sign	0	mangrove_sign	0	0x10a7a0ce3
-minecraft:medicine	0	medicine	0	0x10a7a3b18
-minecraft:melon_slice	0	melon	0	0x10a79e908
-minecraft:milk_bucket	0	bucket	1	0x10a79c65e
-minecraft:minecart	0	minecart_normal	0	0x10a79c976
-minecraft:miner_pottery_sherd	0	miner_pottery_sherd	0	0x10a7a1a7e
-minecraft:mojang_banner_pattern	0	mojang_banner_pattern	0	0x10a7a0475
-minecraft:mourner_pottery_sherd	0	mourner_pottery_sherd	0	0x10a7a1ae4
-minecraft:music_disc_11	0	record_11	0	0x10a79f923
-minecraft:music_disc_13	0	record_13	0	0x10a79f38f
-minecraft:music_disc_5	0	record_5	0	0x10a79fbed
-minecraft:music_disc_blocks	0	record_blocks	0	0x10a79f45b
-minecraft:music_disc_bounce	0	record_bounce	0	0x10a79f4c1
-minecraft:music_disc_cat	0	record_cat	0	0x10a79f3f5
-minecraft:music_disc_chirp	0	record_chirp	0	0x10a79f527
-minecraft:music_disc_creator	0	record_creator	0	0x10a79f58d
-minecraft:music_disc_creator_music_box	0	record_creator_music_box	0	0x10a79f5f3
-minecraft:music_disc_far	0	record_far	0	0x10a79f659
-minecraft:music_disc_lava_chicken	0	record_lava_chicken	0	0x10a79f6bf
-minecraft:music_disc_mall	0	record_mall	0	0x10a79f725
-minecraft:music_disc_mellohi	0	record_mellohi	0	0x10a79f78b
-minecraft:music_disc_otherside	0	record_otherside	0	0x10a79fb87
-minecraft:music_disc_pigstep	0	record_pigstep	0	0x10a79f9ef
-minecraft:music_disc_precipice	0	record_precipice	0	0x10a79fa55
-minecraft:music_disc_relic	0	record_relic	0	0x10a79fb21
-minecraft:music_disc_stal	0	record_stal	0	0x10a79f7f1
-minecraft:music_disc_strad	0	record_strad	0	0x10a79f857
-minecraft:music_disc_tears	0	record_tears	0	0x10a79fabb
-minecraft:music_disc_wait	0	record_wait	0	0x10a79f989
-minecraft:music_disc_ward	0	record_ward	0	0x10a79f8bd
-minecraft:mutton	0	mutton_raw	0	0x10a79e11f
-minecraft:name_tag	0	name_tag	0	0x10a79fd77
-minecraft:nautilus_shell	0	nautilus_shell	0	0x10a7a019e
-minecraft:nether_sprouts	0	nether_sprouts	0	0x10a7a0952
-minecraft:nether_star	0	nether_star	0	0x10a79ee28
-minecraft:netherbrick	0	netherbrick	0	0x10a79ef24
-minecraft:netherite_axe	0	axe	5	0x10a7a0779
-minecraft:netherite_boots	0	boots	5	0x10a7a0909
-minecraft:netherite_chestplate	0	chestplate	5	0x10a7a0869
-minecraft:netherite_helmet	0	helmet	5	0x10a7a0819
-minecraft:netherite_hoe	0	hoe	5	0x10a7a07c9
-minecraft:netherite_horse_armor	0	netherite_horse_armor	0	0x10a7a3895
-minecraft:netherite_ingot	0	netherite_ingot	0	0x10a7a05f0
-minecraft:netherite_leggings	0	leggings	5	0x10a7a08b9
-minecraft:netherite_nautilus_armor	0	netherite_nautilus_armor	0	0x10a7a382f
-minecraft:netherite_pickaxe	0	pickaxe	5	0x10a7a0729
-minecraft:netherite_scrap	0	netherite_scrap	0	0x10a7a0639
-minecraft:netherite_shovel	0	shovel	5	0x10a7a06d9
-minecraft:netherite_sword	0	sword	5	0x10a7a0689
-minecraft:netherite_upgrade_smithing_template	0	netherite_upgrade_smithing_template	0	0x10a7a1e7a
-minecraft:oak_boat	0	boat	0	0x10a79cb81
-minecraft:oak_chest_boat	0	chest_boat	0	0x10a79cee7
-minecraft:oak_hanging_sign	0	sign_oak_hanging	0	0x10a79c20a
-minecraft:oak_sign	0	sign	0	0x10a79c023
-minecraft:orange_bundle	0	bundle_orange	0	0x10a7a1154
-minecraft:orange_dye	0	dye_powder	14	0x10a79dc44
-minecraft:orange_harness	0	harness_orange	0	0x10a7a301c
-minecraft:oxidized_copper_door	0	oxidized_copper_door	0	0x10a7a27a9
-minecraft:painting	0	painting	0	0x10a79bfbd
-minecraft:pale_oak_boat	0	boat	9	0x10a79ce51
-minecraft:pale_oak_chest_boat	0	chest_boat	9	0x10a79d1b7
-minecraft:pale_oak_door	0	pale_oak_door	0	0x10a7a29f2
-minecraft:pale_oak_hanging_sign	0	sign_pale_oak_hanging	0	0x10a7a2a88
-minecraft:pale_oak_sign	0	pale_oak_sign	0	0x10a7a2a3b
-minecraft:paper	0	paper	0	0x10a79d36d
-minecraft:phantom_membrane	0	phantom_membrane	0	0x10a7a0407
-minecraft:photo_item	0	photo	0	0x10a7a38fb
-minecraft:piglin_banner_pattern	0	piglin_banner_pattern	0	0x10a7a0485
-minecraft:pink_bundle	0	bundle_pink	0	0x10a7a1484
-minecraft:pink_dye	0	dye_powder	9	0x10a79dab4
-minecraft:pink_harness	0	harness_pink	0	0x10a7a3082
-minecraft:plenty_pottery_sherd	0	plenty_pottery_sherd	0	0x10a7a1b4a
-minecraft:popped_chorus_fruit	0	chorus_fruit_popped	0	0x10a7a0072
-minecraft:portfolio	0	book_portfolio	0	0x10a7a3961
-minecraft:potion	0	potion_bottle_drinkable	0	0x10a6fc970
-minecraft:potion	1	potion_bottle_drinkable	0	0x10a6fc970
-minecraft:potion	2	potion_bottle_drinkable	0	0x10a6fc970
-minecraft:potion	3	potion_bottle_drinkable	0	0x10a6fc970
-minecraft:potion	4	potion_bottle_drinkable	0	0x10a6fc970
-minecraft:potion	5	potion_bottle_drinkable	16	0x10a6fc970
-minecraft:potion	6	potion_bottle_drinkable	16	0x10a6fc970
-minecraft:potion	7	potion_bottle_drinkable	14	0x10a6fc970
-minecraft:potion	8	potion_bottle_drinkable	14	0x10a6fc970
-minecraft:potion	9	potion_bottle_drinkable	8	0x10a6fc970
-minecraft:potion	10	potion_bottle_drinkable	8	0x10a6fc970
-minecraft:potion	11	potion_bottle_drinkable	8	0x10a6fc970
-minecraft:potion	12	potion_bottle_drinkable	12	0x10a6fc970
-minecraft:potion	13	potion_bottle_drinkable	12	0x10a6fc970
-minecraft:potion	14	potion_bottle_drinkable	1	0x10a6fc970
-minecraft:potion	15	potion_bottle_drinkable	1	0x10a6fc970
-minecraft:potion	16	potion_bottle_drinkable	1	0x10a6fc970
-minecraft:potion	17	potion_bottle_drinkable	2	0x10a6fc970
-minecraft:potion	18	potion_bottle_drinkable	2	0x10a6fc970
-minecraft:potion	19	potion_bottle_drinkable	13	0x10a6fc970
-minecraft:potion	20	potion_bottle_drinkable	13	0x10a6fc970
-minecraft:potion	21	potion_bottle_drinkable	6	0x10a6fc970
-minecraft:potion	22	potion_bottle_drinkable	6	0x10a6fc970
-minecraft:potion	23	potion_bottle_drinkable	7	0x10a6fc970
-minecraft:potion	24	potion_bottle_drinkable	7	0x10a6fc970
-minecraft:potion	25	potion_bottle_drinkable	19	0x10a6fc970
-minecraft:potion	26	potion_bottle_drinkable	19	0x10a6fc970
-minecraft:potion	27	potion_bottle_drinkable	19	0x10a6fc970
-minecraft:potion	28	potion_bottle_drinkable	10	0x10a6fc970
-minecraft:potion	29	potion_bottle_drinkable	10	0x10a6fc970
-minecraft:potion	30	potion_bottle_drinkable	10	0x10a6fc970
-minecraft:potion	31	potion_bottle_drinkable	5	0x10a6fc970
-minecraft:potion	32	potion_bottle_drinkable	5	0x10a6fc970
-minecraft:potion	33	potion_bottle_drinkable	5	0x10a6fc970
-minecraft:potion	34	potion_bottle_drinkable	18	0x10a6fc970
-minecraft:potion	35	potion_bottle_drinkable	18	0x10a6fc970
-minecraft:potion	36	potion_bottle_drinkable	20	0x10a6fc970
-minecraft:potion	37	potion_bottle_drinkable	25	0x10a6fc970
-minecraft:potion	38	potion_bottle_drinkable	25	0x10a6fc970
-minecraft:potion	39	potion_bottle_drinkable	25	0x10a6fc970
-minecraft:potion	40	potion_bottle_drinkable	26	0x10a6fc970
-minecraft:potion	41	potion_bottle_drinkable	26	0x10a6fc970
-minecraft:potion	42	potion_bottle_drinkable	2	0x10a6fc970
-minecraft:potion	43	potion_bottle_drinkable	27	0x10a6fc970
-minecraft:potion	44	potion_bottle_drinkable	28	0x10a6fc970
-minecraft:potion	45	potion_bottle_drinkable	29	0x10a6fc970
-minecraft:potion	46	potion_bottle_drinkable	30	0x10a6fc970
-minecraft:powder_snow_bucket	0	bucket	8	0x10a79c7ee
-minecraft:prismarine_crystals	0	prismarine_crystals	0	0x10a7a0279
-minecraft:prismarine_shard	0	prismarine_shard	0	0x10a7a0230
-minecraft:prize_pottery_sherd	0	prize_pottery_sherd	0	0x10a7a1bb0
-minecraft:pufferfish_bucket	0	bucket	7	0x10a79c74e
-minecraft:purple_bundle	0	bundle_purple	0	0x10a7a13b8
-minecraft:purple_dye	0	dye_powder	5	0x10a79d974
-minecraft:purple_harness	0	harness_purple	0	0x10a7a30e8
-minecraft:quartz	0	quartz	0	0x10a79ef6d
-minecraft:rabbit_foot	0	rabbit_foot	0	0x10a79f099
-minecraft:rabbit_hide	0	rabbit_hide	0	0x10a79f0e2
-minecraft:raiser_armor_trim_smithing_template	0	raiser_armor_trim_smithing_template	0	0x10a7a240e
-minecraft:rapid_fertilizer	0	rapid_fertilizer	0	0x10a7a3a92
-minecraft:raw_copper	0	raw_copper	0	0x10a79af95
-minecraft:raw_gold	0	raw_gold	0	0x10a79af4c
-minecraft:raw_iron	0	raw_iron	0	0x10a79af03
-minecraft:recovery_compass	0	recovery_compass_item	0	0x10a79d503
-minecraft:red_bundle	0	bundle_red	0	0x10a7a0f56
-minecraft:red_dye	0	dye_powder	1	0x10a79d834
-minecraft:red_harness	0	harness_red	0	0x10a7a314e
-minecraft:repeater	0	repeater	0	0x10a79df3e
-minecraft:resin_brick	0	resin_brick	0	0x10a7a2aee
-minecraft:rib_armor_trim_smithing_template	0	rib_armor_trim_smithing_template	0	0x10a7a2276
-minecraft:saddle	0	saddle	0	0x10a79ca08
-minecraft:salmon_bucket	0	bucket	5	0x10a79c6fe
-minecraft:scrape_pottery_sherd	0	scrape_pottery_sherd	0	0x10a7a1c16
-minecraft:sentry_armor_trim_smithing_template	0	sentry_armor_trim_smithing_template	0	0x10a7a1ee0
-minecraft:shaper_armor_trim_smithing_template	0	shaper_armor_trim_smithing_template	0	0x10a7a2474
-minecraft:sheaf_pottery_sherd	0	sheaf_pottery_sherd	0	0x10a7a1c7c
-minecraft:shears	0	shears	0	0x10a79df87
-minecraft:shelter_pottery_sherd	0	shelter_pottery_sherd	0	0x10a7a1ce2
-minecraft:shield	0	shield	0	0x10a79c9bf
-minecraft:shulker_shell	0	shulker_shell	0	0x10a7a0358
-minecraft:silence_armor_trim_smithing_template	0	silence_armor_trim_smithing_template	0	0x10a7a2342
-minecraft:skull_banner_pattern	0	skull_banner_pattern	0	0x10a7a0465
-minecraft:skull_pottery_sherd	0	skull_pottery_sherd	0	0x10a7a1d48
-minecraft:slime_ball	0	slimeball	0	0x10a79d3ba
-minecraft:snort_pottery_sherd	0	snort_pottery_sherd	0	0x10a7a1dae
-minecraft:snout_armor_trim_smithing_template	0	snout_armor_trim_smithing_template	0	0x10a7a2210
-minecraft:soul_campfire	0	soul_campfire	0	0x10a7a0b2d
-minecraft:sparkler	0	sparkler	0	0x10a7a3b5b
-minecraft:spire_armor_trim_smithing_template	0	spire_armor_trim_smithing_template	0	0x10a7a22dc
-minecraft:splash_potion	0	potion_bottle_splash	0	0x10a6fc970
-minecraft:splash_potion	1	potion_bottle_splash	0	0x10a6fc970
-minecraft:splash_potion	2	potion_bottle_splash	0	0x10a6fc970
-minecraft:splash_potion	3	potion_bottle_splash	0	0x10a6fc970
-minecraft:splash_potion	4	potion_bottle_splash	0	0x10a6fc970
-minecraft:splash_potion	5	potion_bottle_splash	16	0x10a6fc970
-minecraft:splash_potion	6	potion_bottle_splash	16	0x10a6fc970
-minecraft:splash_potion	7	potion_bottle_splash	14	0x10a6fc970
-minecraft:splash_potion	8	potion_bottle_splash	14	0x10a6fc970
-minecraft:splash_potion	9	potion_bottle_splash	8	0x10a6fc970
-minecraft:splash_potion	10	potion_bottle_splash	8	0x10a6fc970
-minecraft:splash_potion	11	potion_bottle_splash	8	0x10a6fc970
-minecraft:splash_potion	12	potion_bottle_splash	12	0x10a6fc970
-minecraft:splash_potion	13	potion_bottle_splash	12	0x10a6fc970
-minecraft:splash_potion	14	potion_bottle_splash	1	0x10a6fc970
-minecraft:splash_potion	15	potion_bottle_splash	1	0x10a6fc970
-minecraft:splash_potion	16	potion_bottle_splash	1	0x10a6fc970
-minecraft:splash_potion	17	potion_bottle_splash	2	0x10a6fc970
-minecraft:splash_potion	18	potion_bottle_splash	2	0x10a6fc970
-minecraft:splash_potion	19	potion_bottle_splash	13	0x10a6fc970
-minecraft:splash_potion	20	potion_bottle_splash	13	0x10a6fc970
-minecraft:splash_potion	21	potion_bottle_splash	6	0x10a6fc970
-minecraft:splash_potion	22	potion_bottle_splash	6	0x10a6fc970
-minecraft:splash_potion	23	potion_bottle_splash	7	0x10a6fc970
-minecraft:splash_potion	24	potion_bottle_splash	7	0x10a6fc970
-minecraft:splash_potion	25	potion_bottle_splash	19	0x10a6fc970
-minecraft:splash_potion	26	potion_bottle_splash	19	0x10a6fc970
-minecraft:splash_potion	27	potion_bottle_splash	19	0x10a6fc970
-minecraft:splash_potion	28	potion_bottle_splash	10	0x10a6fc970
-minecraft:splash_potion	29	potion_bottle_splash	10	0x10a6fc970
-minecraft:splash_potion	30	potion_bottle_splash	10	0x10a6fc970
-minecraft:splash_potion	31	potion_bottle_splash	5	0x10a6fc970
-minecraft:splash_potion	32	potion_bottle_splash	5	0x10a6fc970
-minecraft:splash_potion	33	potion_bottle_splash	5	0x10a6fc970
-minecraft:splash_potion	34	potion_bottle_splash	18	0x10a6fc970
-minecraft:splash_potion	35	potion_bottle_splash	18	0x10a6fc970
-minecraft:splash_potion	36	potion_bottle_splash	20	0x10a6fc970
-minecraft:splash_potion	37	potion_bottle_splash	24	0x10a6fc970
-minecraft:splash_potion	38	potion_bottle_splash	24	0x10a6fc970
-minecraft:splash_potion	39	potion_bottle_splash	24	0x10a6fc970
-minecraft:splash_potion	40	potion_bottle_splash	25	0x10a6fc970
-minecraft:splash_potion	41	potion_bottle_splash	25	0x10a6fc970
-minecraft:splash_potion	42	potion_bottle_splash	2	0x10a6fc970
-minecraft:splash_potion	43	potion_bottle_splash	26	0x10a6fc970
-minecraft:splash_potion	44	potion_bottle_splash	27	0x10a6fc970
-minecraft:splash_potion	45	potion_bottle_splash	28	0x10a6fc970
-minecraft:splash_potion	46	potion_bottle_splash	29	0x10a6fc970
-minecraft:spruce_boat	0	boat	1	0x10a79cc71
-minecraft:spruce_chest_boat	0	chest_boat	1	0x10a79cfd7
-minecraft:spruce_door	0	spruce_door	0	0x10a79fe56
-minecraft:spruce_hanging_sign	0	sign_spruce_hanging	0	0x10a79c257
-minecraft:spruce_sign	0	sign_spruce	0	0x10a79c070
-minecraft:spyglass	0	spyglass	0	0x10a7a0c08
-minecraft:stick	0	stick	0	0x10a79b4bd
-minecraft:stone_axe	0	axe	1	0x10a79b2eb
-minecraft:stone_hoe	0	hoe	1	0x10a79b7be
-minecraft:stone_pickaxe	0	pickaxe	1	0x10a79b29b
-minecraft:stone_shovel	0	shovel	1	0x10a79b24b
-minecraft:stone_sword	0	sword	1	0x10a79b1fb
-minecraft:string	0	string	0	0x10a79b68f
-minecraft:sugar	0	sugar	0	0x10a79de63
-minecraft:sugar_cane	0	reeds	0	0x10a79e3e9
-minecraft:sulfur_cube_bucket	0	bucket	11	0x10a79c929
-minecraft:suspicious_stew	0	suspicious_stew	0	0x10a7a05a7
-minecraft:tadpole_bucket	0	bucket	10	0x10a79c8c0
-minecraft:tide_armor_trim_smithing_template	0	tide_armor_trim_smithing_template	0	0x10a7a21aa
-minecraft:tnt_minecart	0	minecart_tnt	0	0x10a79efba
-minecraft:totem_of_undying	0	totem	0	0x10a7a03be
-minecraft:trident	0	trident	0	0x10a79fc36
-minecraft:tropical_fish	0	clownfish	0	0x10a79e2b7
-minecraft:tropical_fish_bucket	0	bucket	6	0x10a79c79e
-minecraft:turtle_helmet	0	turtle_helmet	0	0x10a79fce5
-minecraft:turtle_scute	0	turtle_shell_piece	0	0x10a79fc9c
-minecraft:vex_armor_trim_smithing_template	0	vex_armor_trim_smithing_template	0	0x10a7a2144
-minecraft:ward_armor_trim_smithing_template	0	ward_armor_trim_smithing_template	0	0x10a7a2078
-minecraft:warped_door	0	warped_door	0	0x10a7a000c
-minecraft:warped_fungus_on_a_stick	0	warped_fungus_on_a_stick	0	0x10a79ecf6
-minecraft:warped_hanging_sign	0	sign_warped_hanging	0	0x10a79c425
-minecraft:warped_sign	0	warped_sign_item	0	0x10a7a0a7e
-minecraft:water_bucket	0	bucket	2	0x10a79c5be
-minecraft:waxed_copper_door	0	copper_door	0	0x10a7a27f6
-minecraft:waxed_exposed_copper_door	0	exposed_copper_door	0	0x10a7a2843
-minecraft:waxed_oxidized_copper_door	0	oxidized_copper_door	0	0x10a7a28dd
-minecraft:waxed_weathered_copper_door	0	weathered_copper_door	0	0x10a7a2890
-minecraft:wayfinder_armor_trim_smithing_template	0	wayfinder_armor_trim_smithing_template	0	0x10a7a23a8
-minecraft:weathered_copper_door	0	weathered_copper_door	0	0x10a7a2760
-minecraft:wheat	0	wheat	0	0x10a79b8f7
-minecraft:white_bundle	0	bundle_white	0	0x10a7a0ef0
-minecraft:white_dye	0	dye_powder	19	0x10a79dc94
-minecraft:white_harness	0	harness_white	0	0x10a7a31b4
-minecraft:wild_armor_trim_smithing_template	0	wild_armor_trim_smithing_template	0	0x10a7a2012
-minecraft:wolf_armor	0	wolf_armor	0	0x10a7a29a9
-minecraft:wooden_axe	0	axe	0	0x10a79b1ab
-minecraft:wooden_door	0	wooden_door	0	0x10a79c525
-minecraft:wooden_hoe	0	hoe	0	0x10a79b76e
-minecraft:wooden_pickaxe	0	pickaxe	0	0x10a79b15e
-minecraft:wooden_shovel	0	shovel	0	0x10a79b111
-minecraft:wooden_sword	0	sword	0	0x10a79b0c4
-minecraft:writable_book	0	book_writable	0	0x10a79eae9
-minecraft:written_book	0	book_written	0	0x10a79ea83
-minecraft:yellow_bundle	0	bundle_yellow	0	0x10a7a11ba
-minecraft:yellow_dye	0	dye_powder	11	0x10a79db54
-minecraft:yellow_harness	0	harness_yellow	0	0x10a7a321a
+minecraft:acacia_boat	0	boat	4
+minecraft:acacia_chest_boat	0	chest_boat	4
+minecraft:acacia_door	0	acacia_door	0
+minecraft:acacia_hanging_sign	0	sign_acacia_hanging	0
+minecraft:acacia_sign	0	sign_acacia	0
+minecraft:amethyst_shard	0	amethyst_shard	0
+minecraft:angler_pottery_sherd	0	angler_pottery_sherd	0
+minecraft:apple	0	apple	0
+minecraft:archer_pottery_sherd	0	archer_pottery_sherd	0
+minecraft:armadillo_scute	0	armadillo_scute	0
+minecraft:armor_stand	0	armor_stand	0
+minecraft:arms_up_pottery_sherd	0	arms_up_pottery_sherd	0
+minecraft:arrow	0	arrow	0
+minecraft:axolotl_bucket	0	bucket	9
+minecraft:balloon	0	balloon	0
+minecraft:bamboo_chest_raft	0	chest_boat	7
+minecraft:bamboo_door	0	bamboo_door	0
+minecraft:bamboo_hanging_sign	0	sign_bamboo_hanging	0
+minecraft:bamboo_raft	0	boat	7
+minecraft:bamboo_sign	0	bamboo_sign	0
+minecraft:banner	0	sign	0
+minecraft:bed	0	bed	0
+minecraft:birch_boat	0	boat	2
+minecraft:birch_chest_boat	0	chest_boat	2
+minecraft:birch_door	0	birch_door	0
+minecraft:birch_hanging_sign	0	sign_birch_hanging	0
+minecraft:birch_sign	0	sign_birch	0
+minecraft:black_bundle	0	bundle_black	0
+minecraft:black_dye	0	dye_powder	16
+minecraft:black_harness	0	harness_black	0
+minecraft:blade_pottery_sherd	0	blade_pottery_sherd	0
+minecraft:blaze_powder	0	blaze_powder	0
+minecraft:blaze_rod	0	blaze_rod	0
+minecraft:bleach	0	bleach	0
+minecraft:blue_bundle	0	bundle_blue	0
+minecraft:blue_dye	0	dye_powder	18
+minecraft:blue_egg	0	blue_egg	0
+minecraft:blue_harness	0	harness_blue	0
+minecraft:board	0	chalkboard	0
+minecraft:bolt_armor_trim_smithing_template	0	bolt_armor_trim_smithing_template	0
+minecraft:bone	0	bone	0
+minecraft:bone_meal	0	dye_powder	15
+minecraft:book	0	book_normal	0
+minecraft:bordure_indented_banner_pattern	0	bordure_indented_banner_pattern	0
+minecraft:bow	0	bow_standby	0
+minecraft:bowl	0	bowl	0
+minecraft:breeze_rod	0	breeze_rod	0
+minecraft:brewer_pottery_sherd	0	brewer_pottery_sherd	0
+minecraft:brewing_stand	0	brewing_stand	0
+minecraft:brick	0	brick	0
+minecraft:brown_bundle	0	bundle_brown	0
+minecraft:brown_dye	0	dye_powder	17
+minecraft:brown_egg	0	brown_egg	0
+minecraft:brown_harness	0	harness_brown	0
+minecraft:brush	0	brush	0
+minecraft:bucket	0	bucket	0
+minecraft:bundle	0	bundle	0
+minecraft:burn_pottery_sherd	0	burn_pottery_sherd	0
+minecraft:cake	0	cake	0
+minecraft:campfire	0	campfire	0
+minecraft:carrot_on_a_stick	0	carrot_on_a_stick	0
+minecraft:cauldron	0	cauldron	0
+minecraft:chainmail_boots	0	boots	1
+minecraft:chainmail_chestplate	0	chestplate	1
+minecraft:chainmail_helmet	0	helmet	1
+minecraft:chainmail_leggings	0	leggings	1
+minecraft:charcoal	0	charcoal	0
+minecraft:cherry_boat	0	boat	8
+minecraft:cherry_chest_boat	0	chest_boat	8
+minecraft:cherry_door	0	cherry_door	0
+minecraft:cherry_hanging_sign	0	sign_cherry_hanging	0
+minecraft:cherry_sign	0	cherry_sign	0
+minecraft:chest_minecart	0	minecart_chest	0
+minecraft:clay_ball	0	clay_ball	0
+minecraft:clock	0	clock_item	0
+minecraft:coal	0	coal	0
+minecraft:coast_armor_trim_smithing_template	0	coast_armor_trim_smithing_template	0
+minecraft:cocoa_beans	0	dye_powder	3
+minecraft:cod	0	fish	0
+minecraft:cod_bucket	0	bucket	4
+minecraft:comparator	0	comparator	0
+minecraft:compass	0	compass_item	0
+minecraft:compound	0	compound	0
+minecraft:cooked_cod	0	cooked_fish	0
+minecraft:cooked_mutton	0	mutton_cooked	0
+minecraft:copper_axe	0	axe	6
+minecraft:copper_boots	0	boots	6
+minecraft:copper_chestplate	0	chestplate	6
+minecraft:copper_door	0	copper_door	0
+minecraft:copper_helmet	0	helmet	6
+minecraft:copper_hoe	0	hoe	6
+minecraft:copper_horse_armor	0	copper_horse_armor	0
+minecraft:copper_ingot	0	copper_ingot	0
+minecraft:copper_leggings	0	leggings	6
+minecraft:copper_nautilus_armor	0	copper_nautilus_armor	0
+minecraft:copper_nugget	0	copper_nugget	0
+minecraft:copper_pickaxe	0	pickaxe	6
+minecraft:copper_shovel	0	shovel	6
+minecraft:copper_sword	0	sword	6
+minecraft:creeper_banner_pattern	0	creeper_banner_pattern	0
+minecraft:crimson_door	0	crimson_door	0
+minecraft:crimson_hanging_sign	0	sign_crimson_hanging	0
+minecraft:crimson_sign	0	crimson_sign_item	0
+minecraft:crossbow	0	crossbow_standby	0
+minecraft:cyan_bundle	0	bundle_cyan	0
+minecraft:cyan_dye	0	dye_powder	6
+minecraft:cyan_harness	0	harness_cyan	0
+minecraft:danger_pottery_sherd	0	danger_pottery_sherd	0
+minecraft:dark_oak_boat	0	boat	5
+minecraft:dark_oak_chest_boat	0	chest_boat	5
+minecraft:dark_oak_door	0	dark_oak_door	0
+minecraft:dark_oak_hanging_sign	0	sign_darkoak_hanging	0
+minecraft:dark_oak_sign	0	sign_darkoak	0
+minecraft:diamond	0	diamond	0
+minecraft:diamond_axe	0	axe	4
+minecraft:diamond_boots	0	boots	4
+minecraft:diamond_chestplate	0	chestplate	4
+minecraft:diamond_helmet	0	helmet	4
+minecraft:diamond_hoe	0	hoe	4
+minecraft:diamond_horse_armor	0	diamond_horse_armor	0
+minecraft:diamond_leggings	0	leggings	4
+minecraft:diamond_nautilus_armor	0	diamond_nautilus_armor	0
+minecraft:diamond_pickaxe	0	pickaxe	4
+minecraft:diamond_shovel	0	shovel	4
+minecraft:diamond_sword	0	sword	4
+minecraft:disc_fragment_5	0	disc_fragment_5	0
+minecraft:dragon_breath	0	dragon_breath	0
+minecraft:dried_kelp	0	dried_kelp	0
+minecraft:dune_armor_trim_smithing_template	0	dune_armor_trim_smithing_template	0
+minecraft:echo_shard	0	echo_shard	0
+minecraft:egg	0	egg	0
+minecraft:elytra	0	elytra	0
+minecraft:emerald	0	emerald	0
+minecraft:empty_map	0	map_empty	0
+minecraft:enchanted_book	0	book_enchanted	0
+minecraft:enchanted_golden_apple	0	apple_golden	0
+minecraft:end_crystal	0	end_crystal	0
+minecraft:ender_eye	0	ender_eye	0
+minecraft:ender_pearl	0	ender_pearl	0
+minecraft:experience_bottle	0	experience_bottle	0
+minecraft:explorer_pottery_sherd	0	explorer_pottery_sherd	0
+minecraft:exposed_copper_door	0	exposed_copper_door	0
+minecraft:eye_armor_trim_smithing_template	0	eye_armor_trim_smithing_template	0
+minecraft:feather	0	feather	0
+minecraft:fermented_spider_eye	0	spider_eye_fermented	0
+minecraft:field_masoned_banner_pattern	0	field_masoned_banner_pattern	0
+minecraft:fire_charge	0	fireball	0
+minecraft:firework_rocket	0	fireworks	0
+minecraft:firework_star	0	fireworks_charge	0
+minecraft:fishing_rod	0	fishing_rod	0
+minecraft:flint	0	flint	0
+minecraft:flint_and_steel	0	flint_and_steel	0
+minecraft:flow_armor_trim_smithing_template	0	flow_armor_trim_smithing_template	0
+minecraft:flow_banner_pattern	0	flow_banner_pattern	0
+minecraft:flow_pottery_sherd	0	flow_pottery_sherd	0
+minecraft:flower_banner_pattern	0	flower_banner_pattern	0
+minecraft:flower_pot	0	flower_pot	0
+minecraft:frame	0	item_frame	0
+minecraft:friend_pottery_sherd	0	friend_pottery_sherd	0
+minecraft:ghast_tear	0	ghast_tear	0
+minecraft:glass_bottle	0	potion_bottle_empty	0
+minecraft:glistering_melon_slice	0	melon_speckled	0
+minecraft:globe_banner_pattern	0	globe_banner_pattern	0
+minecraft:glow_frame	0	glow_item_frame	0
+minecraft:glow_ink_sac	0	dye_powder	20
+minecraft:glowstone_dust	0	glowstone_dust	0
+minecraft:goat_horn	0	goat_horn	0
+minecraft:gold_ingot	0	gold_ingot	0
+minecraft:gold_nugget	0	gold_nugget	0
+minecraft:golden_apple	0	apple_golden	0
+minecraft:golden_axe	0	axe	3
+minecraft:golden_boots	0	boots	3
+minecraft:golden_chestplate	0	chestplate	3
+minecraft:golden_helmet	0	helmet	3
+minecraft:golden_hoe	0	hoe	3
+minecraft:golden_horse_armor	0	gold_horse_armor	0
+minecraft:golden_leggings	0	leggings	3
+minecraft:golden_nautilus_armor	0	gold_nautilus_armor	0
+minecraft:golden_pickaxe	0	pickaxe	3
+minecraft:golden_shovel	0	shovel	3
+minecraft:golden_sword	0	sword	3
+minecraft:gray_bundle	0	bundle_gray	0
+minecraft:gray_dye	0	dye_powder	8
+minecraft:gray_harness	0	harness_gray	0
+minecraft:green_bundle	0	bundle_green	0
+minecraft:green_dye	0	dye_powder	2
+minecraft:green_harness	0	harness_green	0
+minecraft:gunpowder	0	gunpowder	0
+minecraft:guster_banner_pattern	0	guster_banner_pattern	0
+minecraft:guster_pottery_sherd	0	guster_pottery_sherd	0
+minecraft:heart_of_the_sea	0	heart_of_the_sea	0
+minecraft:heart_pottery_sherd	0	heart_pottery_sherd	0
+minecraft:heartbreak_pottery_sherd	0	heartbreak_pottery_sherd	0
+minecraft:honey_bottle	0	honey_bottle	0
+minecraft:honeycomb	0	honeycomb	0
+minecraft:hopper	0	hopper	0
+minecraft:hopper_minecart	0	minecart_hopper	0
+minecraft:host_armor_trim_smithing_template	0	host_armor_trim_smithing_template	0
+minecraft:howl_pottery_sherd	0	howl_pottery_sherd	0
+minecraft:ice_bomb	0	ice_bomb	0
+minecraft:ink_sac	0	dye_powder	0
+minecraft:iron_axe	0	axe	2
+minecraft:iron_boots	0	boots	2
+minecraft:iron_chestplate	0	chestplate	2
+minecraft:iron_door	0	iron_door	0
+minecraft:iron_helmet	0	helmet	2
+minecraft:iron_hoe	0	hoe	2
+minecraft:iron_horse_armor	0	iron_horse_armor	0
+minecraft:iron_ingot	0	iron_ingot	0
+minecraft:iron_leggings	0	leggings	2
+minecraft:iron_nautilus_armor	0	iron_nautilus_armor	0
+minecraft:iron_nugget	0	iron_nugget	0
+minecraft:iron_pickaxe	0	pickaxe	2
+minecraft:iron_shovel	0	shovel	2
+minecraft:iron_sword	0	sword	2
+minecraft:jungle_boat	0	boat	3
+minecraft:jungle_chest_boat	0	chest_boat	3
+minecraft:jungle_door	0	jungle_door	0
+minecraft:jungle_hanging_sign	0	sign_jungle_hanging	0
+minecraft:jungle_sign	0	sign_jungle	0
+minecraft:kelp	0	kelp	0
+minecraft:lapis_lazuli	0	dye_powder	4
+minecraft:lava_bucket	0	bucket	3
+minecraft:lead	0	lead	0
+minecraft:leather	0	leather	0
+minecraft:leather_boots	0	boots	0
+minecraft:leather_chestplate	0	chestplate	0
+minecraft:leather_helmet	0	helmet	0
+minecraft:leather_horse_armor	0	leather_horse_armor	0
+minecraft:leather_leggings	0	leggings	0
+minecraft:light_blue_bundle	0	bundle_light_blue	0
+minecraft:light_blue_dye	0	dye_powder	12
+minecraft:light_blue_harness	0	harness_light_blue	0
+minecraft:light_gray_bundle	0	bundle_light_gray	0
+minecraft:light_gray_dye	0	dye_powder	7
+minecraft:light_gray_harness	0	harness_light_gray	0
+minecraft:lime_bundle	0	bundle_lime	0
+minecraft:lime_dye	0	dye_powder	10
+minecraft:lime_harness	0	harness_lime	0
+minecraft:lingering_potion	0	potion_bottle_lingering	0
+minecraft:lingering_potion	1	potion_bottle_lingering	0
+minecraft:lingering_potion	2	potion_bottle_lingering	0
+minecraft:lingering_potion	3	potion_bottle_lingering	0
+minecraft:lingering_potion	4	potion_bottle_lingering	0
+minecraft:lingering_potion	5	potion_bottle_lingering	11
+minecraft:lingering_potion	6	potion_bottle_lingering	11
+minecraft:lingering_potion	7	potion_bottle_lingering	10
+minecraft:lingering_potion	8	potion_bottle_lingering	10
+minecraft:lingering_potion	9	potion_bottle_lingering	6
+minecraft:lingering_potion	10	potion_bottle_lingering	6
+minecraft:lingering_potion	11	potion_bottle_lingering	6
+minecraft:lingering_potion	12	potion_bottle_lingering	8
+minecraft:lingering_potion	13	potion_bottle_lingering	8
+minecraft:lingering_potion	14	potion_bottle_lingering	1
+minecraft:lingering_potion	15	potion_bottle_lingering	1
+minecraft:lingering_potion	16	potion_bottle_lingering	1
+minecraft:lingering_potion	17	potion_bottle_lingering	2
+minecraft:lingering_potion	18	potion_bottle_lingering	2
+minecraft:lingering_potion	19	potion_bottle_lingering	9
+minecraft:lingering_potion	20	potion_bottle_lingering	9
+minecraft:lingering_potion	21	potion_bottle_lingering	4
+minecraft:lingering_potion	22	potion_bottle_lingering	4
+minecraft:lingering_potion	23	potion_bottle_lingering	5
+minecraft:lingering_potion	24	potion_bottle_lingering	5
+minecraft:lingering_potion	25	potion_bottle_lingering	13
+minecraft:lingering_potion	26	potion_bottle_lingering	13
+minecraft:lingering_potion	27	potion_bottle_lingering	13
+minecraft:lingering_potion	28	potion_bottle_lingering	7
+minecraft:lingering_potion	29	potion_bottle_lingering	7
+minecraft:lingering_potion	30	potion_bottle_lingering	7
+minecraft:lingering_potion	31	potion_bottle_lingering	3
+minecraft:lingering_potion	32	potion_bottle_lingering	3
+minecraft:lingering_potion	33	potion_bottle_lingering	3
+minecraft:lingering_potion	34	potion_bottle_lingering	12
+minecraft:lingering_potion	35	potion_bottle_lingering	12
+minecraft:lingering_potion	36	potion_bottle_lingering	14
+minecraft:lingering_potion	37	potion_bottle_lingering	15
+minecraft:lingering_potion	38	potion_bottle_lingering	15
+minecraft:lingering_potion	39	potion_bottle_lingering	15
+minecraft:lingering_potion	40	potion_bottle_lingering	16
+minecraft:lingering_potion	41	potion_bottle_lingering	16
+minecraft:lingering_potion	42	potion_bottle_lingering	2
+minecraft:lingering_potion	43	potion_bottle_lingering	17
+minecraft:lingering_potion	44	potion_bottle_lingering	18
+minecraft:lingering_potion	45	potion_bottle_lingering	19
+minecraft:lingering_potion	46	potion_bottle_lingering	20
+minecraft:lodestone_compass	0	lodestonecompass_item	0
+minecraft:mace	0	mace	0
+minecraft:magenta_bundle	0	bundle_magenta	0
+minecraft:magenta_dye	0	dye_powder	13
+minecraft:magenta_harness	0	harness_magenta	0
+minecraft:magma_cream	0	magma_cream	0
+minecraft:mangrove_boat	0	boat	6
+minecraft:mangrove_chest_boat	0	chest_boat	6
+minecraft:mangrove_door	0	mangrove_door	0
+minecraft:mangrove_hanging_sign	0	sign_mangrove_hanging	0
+minecraft:mangrove_propagule	0	mangrove_propagule	0
+minecraft:mangrove_sign	0	mangrove_sign	0
+minecraft:medicine	0	medicine	0
+minecraft:melon_slice	0	melon	0
+minecraft:milk_bucket	0	bucket	1
+minecraft:minecart	0	minecart_normal	0
+minecraft:miner_pottery_sherd	0	miner_pottery_sherd	0
+minecraft:mojang_banner_pattern	0	mojang_banner_pattern	0
+minecraft:mourner_pottery_sherd	0	mourner_pottery_sherd	0
+minecraft:music_disc_11	0	record_11	0
+minecraft:music_disc_13	0	record_13	0
+minecraft:music_disc_5	0	record_5	0
+minecraft:music_disc_blocks	0	record_blocks	0
+minecraft:music_disc_bounce	0	record_bounce	0
+minecraft:music_disc_cat	0	record_cat	0
+minecraft:music_disc_chirp	0	record_chirp	0
+minecraft:music_disc_creator	0	record_creator	0
+minecraft:music_disc_creator_music_box	0	record_creator_music_box	0
+minecraft:music_disc_far	0	record_far	0
+minecraft:music_disc_lava_chicken	0	record_lava_chicken	0
+minecraft:music_disc_mall	0	record_mall	0
+minecraft:music_disc_mellohi	0	record_mellohi	0
+minecraft:music_disc_otherside	0	record_otherside	0
+minecraft:music_disc_pigstep	0	record_pigstep	0
+minecraft:music_disc_precipice	0	record_precipice	0
+minecraft:music_disc_relic	0	record_relic	0
+minecraft:music_disc_stal	0	record_stal	0
+minecraft:music_disc_strad	0	record_strad	0
+minecraft:music_disc_tears	0	record_tears	0
+minecraft:music_disc_wait	0	record_wait	0
+minecraft:music_disc_ward	0	record_ward	0
+minecraft:mutton	0	mutton_raw	0
+minecraft:name_tag	0	name_tag	0
+minecraft:nautilus_shell	0	nautilus_shell	0
+minecraft:nether_sprouts	0	nether_sprouts	0
+minecraft:nether_star	0	nether_star	0
+minecraft:netherbrick	0	netherbrick	0
+minecraft:netherite_axe	0	axe	5
+minecraft:netherite_boots	0	boots	5
+minecraft:netherite_chestplate	0	chestplate	5
+minecraft:netherite_helmet	0	helmet	5
+minecraft:netherite_hoe	0	hoe	5
+minecraft:netherite_horse_armor	0	netherite_horse_armor	0
+minecraft:netherite_ingot	0	netherite_ingot	0
+minecraft:netherite_leggings	0	leggings	5
+minecraft:netherite_nautilus_armor	0	netherite_nautilus_armor	0
+minecraft:netherite_pickaxe	0	pickaxe	5
+minecraft:netherite_scrap	0	netherite_scrap	0
+minecraft:netherite_shovel	0	shovel	5
+minecraft:netherite_sword	0	sword	5
+minecraft:netherite_upgrade_smithing_template	0	netherite_upgrade_smithing_template	0
+minecraft:oak_boat	0	boat	0
+minecraft:oak_chest_boat	0	chest_boat	0
+minecraft:oak_hanging_sign	0	sign_oak_hanging	0
+minecraft:oak_sign	0	sign	0
+minecraft:orange_bundle	0	bundle_orange	0
+minecraft:orange_dye	0	dye_powder	14
+minecraft:orange_harness	0	harness_orange	0
+minecraft:oxidized_copper_door	0	oxidized_copper_door	0
+minecraft:painting	0	painting	0
+minecraft:pale_oak_boat	0	boat	9
+minecraft:pale_oak_chest_boat	0	chest_boat	9
+minecraft:pale_oak_door	0	pale_oak_door	0
+minecraft:pale_oak_hanging_sign	0	sign_pale_oak_hanging	0
+minecraft:pale_oak_sign	0	pale_oak_sign	0
+minecraft:paper	0	paper	0
+minecraft:phantom_membrane	0	phantom_membrane	0
+minecraft:photo_item	0	photo	0
+minecraft:piglin_banner_pattern	0	piglin_banner_pattern	0
+minecraft:pink_bundle	0	bundle_pink	0
+minecraft:pink_dye	0	dye_powder	9
+minecraft:pink_harness	0	harness_pink	0
+minecraft:plenty_pottery_sherd	0	plenty_pottery_sherd	0
+minecraft:popped_chorus_fruit	0	chorus_fruit_popped	0
+minecraft:portfolio	0	book_portfolio	0
+minecraft:potion	0	potion_bottle_drinkable	0
+minecraft:potion	1	potion_bottle_drinkable	0
+minecraft:potion	2	potion_bottle_drinkable	0
+minecraft:potion	3	potion_bottle_drinkable	0
+minecraft:potion	4	potion_bottle_drinkable	0
+minecraft:potion	5	potion_bottle_drinkable	16
+minecraft:potion	6	potion_bottle_drinkable	16
+minecraft:potion	7	potion_bottle_drinkable	14
+minecraft:potion	8	potion_bottle_drinkable	14
+minecraft:potion	9	potion_bottle_drinkable	8
+minecraft:potion	10	potion_bottle_drinkable	8
+minecraft:potion	11	potion_bottle_drinkable	8
+minecraft:potion	12	potion_bottle_drinkable	12
+minecraft:potion	13	potion_bottle_drinkable	12
+minecraft:potion	14	potion_bottle_drinkable	1
+minecraft:potion	15	potion_bottle_drinkable	1
+minecraft:potion	16	potion_bottle_drinkable	1
+minecraft:potion	17	potion_bottle_drinkable	2
+minecraft:potion	18	potion_bottle_drinkable	2
+minecraft:potion	19	potion_bottle_drinkable	13
+minecraft:potion	20	potion_bottle_drinkable	13
+minecraft:potion	21	potion_bottle_drinkable	6
+minecraft:potion	22	potion_bottle_drinkable	6
+minecraft:potion	23	potion_bottle_drinkable	7
+minecraft:potion	24	potion_bottle_drinkable	7
+minecraft:potion	25	potion_bottle_drinkable	19
+minecraft:potion	26	potion_bottle_drinkable	19
+minecraft:potion	27	potion_bottle_drinkable	19
+minecraft:potion	28	potion_bottle_drinkable	10
+minecraft:potion	29	potion_bottle_drinkable	10
+minecraft:potion	30	potion_bottle_drinkable	10
+minecraft:potion	31	potion_bottle_drinkable	5
+minecraft:potion	32	potion_bottle_drinkable	5
+minecraft:potion	33	potion_bottle_drinkable	5
+minecraft:potion	34	potion_bottle_drinkable	18
+minecraft:potion	35	potion_bottle_drinkable	18
+minecraft:potion	36	potion_bottle_drinkable	20
+minecraft:potion	37	potion_bottle_drinkable	25
+minecraft:potion	38	potion_bottle_drinkable	25
+minecraft:potion	39	potion_bottle_drinkable	25
+minecraft:potion	40	potion_bottle_drinkable	26
+minecraft:potion	41	potion_bottle_drinkable	26
+minecraft:potion	42	potion_bottle_drinkable	2
+minecraft:potion	43	potion_bottle_drinkable	27
+minecraft:potion	44	potion_bottle_drinkable	28
+minecraft:potion	45	potion_bottle_drinkable	29
+minecraft:potion	46	potion_bottle_drinkable	30
+minecraft:powder_snow_bucket	0	bucket	8
+minecraft:prismarine_crystals	0	prismarine_crystals	0
+minecraft:prismarine_shard	0	prismarine_shard	0
+minecraft:prize_pottery_sherd	0	prize_pottery_sherd	0
+minecraft:pufferfish_bucket	0	bucket	7
+minecraft:purple_bundle	0	bundle_purple	0
+minecraft:purple_dye	0	dye_powder	5
+minecraft:purple_harness	0	harness_purple	0
+minecraft:quartz	0	quartz	0
+minecraft:rabbit_foot	0	rabbit_foot	0
+minecraft:rabbit_hide	0	rabbit_hide	0
+minecraft:raiser_armor_trim_smithing_template	0	raiser_armor_trim_smithing_template	0
+minecraft:rapid_fertilizer	0	rapid_fertilizer	0
+minecraft:raw_copper	0	raw_copper	0
+minecraft:raw_gold	0	raw_gold	0
+minecraft:raw_iron	0	raw_iron	0
+minecraft:recovery_compass	0	recovery_compass_item	0
+minecraft:red_bundle	0	bundle_red	0
+minecraft:red_dye	0	dye_powder	1
+minecraft:red_harness	0	harness_red	0
+minecraft:repeater	0	repeater	0
+minecraft:resin_brick	0	resin_brick	0
+minecraft:rib_armor_trim_smithing_template	0	rib_armor_trim_smithing_template	0
+minecraft:saddle	0	saddle	0
+minecraft:salmon_bucket	0	bucket	5
+minecraft:scrape_pottery_sherd	0	scrape_pottery_sherd	0
+minecraft:sentry_armor_trim_smithing_template	0	sentry_armor_trim_smithing_template	0
+minecraft:shaper_armor_trim_smithing_template	0	shaper_armor_trim_smithing_template	0
+minecraft:sheaf_pottery_sherd	0	sheaf_pottery_sherd	0
+minecraft:shears	0	shears	0
+minecraft:shelter_pottery_sherd	0	shelter_pottery_sherd	0
+minecraft:shield	0	shield	0
+minecraft:shulker_shell	0	shulker_shell	0
+minecraft:silence_armor_trim_smithing_template	0	silence_armor_trim_smithing_template	0
+minecraft:skull_banner_pattern	0	skull_banner_pattern	0
+minecraft:skull_pottery_sherd	0	skull_pottery_sherd	0
+minecraft:slime_ball	0	slimeball	0
+minecraft:snort_pottery_sherd	0	snort_pottery_sherd	0
+minecraft:snout_armor_trim_smithing_template	0	snout_armor_trim_smithing_template	0
+minecraft:soul_campfire	0	soul_campfire	0
+minecraft:sparkler	0	sparkler	0
+minecraft:spire_armor_trim_smithing_template	0	spire_armor_trim_smithing_template	0
+minecraft:splash_potion	0	potion_bottle_splash	0
+minecraft:splash_potion	1	potion_bottle_splash	0
+minecraft:splash_potion	2	potion_bottle_splash	0
+minecraft:splash_potion	3	potion_bottle_splash	0
+minecraft:splash_potion	4	potion_bottle_splash	0
+minecraft:splash_potion	5	potion_bottle_splash	16
+minecraft:splash_potion	6	potion_bottle_splash	16
+minecraft:splash_potion	7	potion_bottle_splash	14
+minecraft:splash_potion	8	potion_bottle_splash	14
+minecraft:splash_potion	9	potion_bottle_splash	8
+minecraft:splash_potion	10	potion_bottle_splash	8
+minecraft:splash_potion	11	potion_bottle_splash	8
+minecraft:splash_potion	12	potion_bottle_splash	12
+minecraft:splash_potion	13	potion_bottle_splash	12
+minecraft:splash_potion	14	potion_bottle_splash	1
+minecraft:splash_potion	15	potion_bottle_splash	1
+minecraft:splash_potion	16	potion_bottle_splash	1
+minecraft:splash_potion	17	potion_bottle_splash	2
+minecraft:splash_potion	18	potion_bottle_splash	2
+minecraft:splash_potion	19	potion_bottle_splash	13
+minecraft:splash_potion	20	potion_bottle_splash	13
+minecraft:splash_potion	21	potion_bottle_splash	6
+minecraft:splash_potion	22	potion_bottle_splash	6
+minecraft:splash_potion	23	potion_bottle_splash	7
+minecraft:splash_potion	24	potion_bottle_splash	7
+minecraft:splash_potion	25	potion_bottle_splash	19
+minecraft:splash_potion	26	potion_bottle_splash	19
+minecraft:splash_potion	27	potion_bottle_splash	19
+minecraft:splash_potion	28	potion_bottle_splash	10
+minecraft:splash_potion	29	potion_bottle_splash	10
+minecraft:splash_potion	30	potion_bottle_splash	10
+minecraft:splash_potion	31	potion_bottle_splash	5
+minecraft:splash_potion	32	potion_bottle_splash	5
+minecraft:splash_potion	33	potion_bottle_splash	5
+minecraft:splash_potion	34	potion_bottle_splash	18
+minecraft:splash_potion	35	potion_bottle_splash	18
+minecraft:splash_potion	36	potion_bottle_splash	20
+minecraft:splash_potion	37	potion_bottle_splash	24
+minecraft:splash_potion	38	potion_bottle_splash	24
+minecraft:splash_potion	39	potion_bottle_splash	24
+minecraft:splash_potion	40	potion_bottle_splash	25
+minecraft:splash_potion	41	potion_bottle_splash	25
+minecraft:splash_potion	42	potion_bottle_splash	2
+minecraft:splash_potion	43	potion_bottle_splash	26
+minecraft:splash_potion	44	potion_bottle_splash	27
+minecraft:splash_potion	45	potion_bottle_splash	28
+minecraft:splash_potion	46	potion_bottle_splash	29
+minecraft:spruce_boat	0	boat	1
+minecraft:spruce_chest_boat	0	chest_boat	1
+minecraft:spruce_door	0	spruce_door	0
+minecraft:spruce_hanging_sign	0	sign_spruce_hanging	0
+minecraft:spruce_sign	0	sign_spruce	0
+minecraft:spyglass	0	spyglass	0
+minecraft:stick	0	stick	0
+minecraft:stone_axe	0	axe	1
+minecraft:stone_hoe	0	hoe	1
+minecraft:stone_pickaxe	0	pickaxe	1
+minecraft:stone_shovel	0	shovel	1
+minecraft:stone_sword	0	sword	1
+minecraft:string	0	string	0
+minecraft:sugar	0	sugar	0
+minecraft:sugar_cane	0	reeds	0
+minecraft:sulfur_cube_bucket	0	bucket	11
+minecraft:suspicious_stew	0	suspicious_stew	0
+minecraft:tadpole_bucket	0	bucket	10
+minecraft:tide_armor_trim_smithing_template	0	tide_armor_trim_smithing_template	0
+minecraft:tnt_minecart	0	minecart_tnt	0
+minecraft:totem_of_undying	0	totem	0
+minecraft:trident	0	trident	0
+minecraft:tropical_fish	0	clownfish	0
+minecraft:tropical_fish_bucket	0	bucket	6
+minecraft:turtle_helmet	0	turtle_helmet	0
+minecraft:turtle_scute	0	turtle_shell_piece	0
+minecraft:vex_armor_trim_smithing_template	0	vex_armor_trim_smithing_template	0
+minecraft:ward_armor_trim_smithing_template	0	ward_armor_trim_smithing_template	0
+minecraft:warped_door	0	warped_door	0
+minecraft:warped_fungus_on_a_stick	0	warped_fungus_on_a_stick	0
+minecraft:warped_hanging_sign	0	sign_warped_hanging	0
+minecraft:warped_sign	0	warped_sign_item	0
+minecraft:water_bucket	0	bucket	2
+minecraft:waxed_copper_door	0	copper_door	0
+minecraft:waxed_exposed_copper_door	0	exposed_copper_door	0
+minecraft:waxed_oxidized_copper_door	0	oxidized_copper_door	0
+minecraft:waxed_weathered_copper_door	0	weathered_copper_door	0
+minecraft:wayfinder_armor_trim_smithing_template	0	wayfinder_armor_trim_smithing_template	0
+minecraft:weathered_copper_door	0	weathered_copper_door	0
+minecraft:wheat	0	wheat	0
+minecraft:white_bundle	0	bundle_white	0
+minecraft:white_dye	0	dye_powder	19
+minecraft:white_harness	0	harness_white	0
+minecraft:wild_armor_trim_smithing_template	0	wild_armor_trim_smithing_template	0
+minecraft:wolf_armor	0	wolf_armor	0
+minecraft:wooden_axe	0	axe	0
+minecraft:wooden_door	0	wooden_door	0
+minecraft:wooden_hoe	0	hoe	0
+minecraft:wooden_pickaxe	0	pickaxe	0
+minecraft:wooden_shovel	0	shovel	0
+minecraft:wooden_sword	0	sword	0
+minecraft:writable_book	0	book_writable	0
+minecraft:written_book	0	book_written	0
+minecraft:yellow_bundle	0	bundle_yellow	0
+minecraft:yellow_dye	0	dye_powder	11
+minecraft:yellow_harness	0	harness_yellow	0

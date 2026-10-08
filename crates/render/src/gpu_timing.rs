@@ -26,7 +26,7 @@ use bevy::{
             RenderLabel, SlotInfo,
         },
         render_phase::{PhaseItem, RenderCommand, RenderCommandResult, TrackedRenderPass},
-        renderer::{RenderContext, RenderDevice, RenderQueue, render_system},
+        renderer::{RenderContext, RenderDevice, RenderQueue},
     },
 };
 use readback::{ReadbackRing, SLOTS};
@@ -66,6 +66,7 @@ impl Plugin for GpuTimingPlugin {
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
             return;
         };
+        crate::device_poll::install(render_app);
         if overdraw::requested() {
             overdraw::install(render_app);
         }
@@ -81,9 +82,7 @@ impl Plugin for GpuTimingPlugin {
                 Render,
                 (
                     begin_gpu_frame.in_set(RenderSystems::PrepareResources),
-                    submit_gpu_frame
-                        .in_set(RenderSystems::Render)
-                        .after(render_system),
+                    submit_gpu_frame.in_set(crate::device_poll::FrameSubmissions),
                 ),
             );
         #[cfg(feature = "tracy")]
@@ -521,18 +520,12 @@ fn init_gpu_timestamps(
 
 fn begin_gpu_frame(
     timestamps: Option<ResMut<GpuTimestamps>>,
-    device: Res<RenderDevice>,
     profiler: Res<RuntimeStageProfiler>,
 ) {
     let Some(mut timestamps) = timestamps else {
         return;
     };
-    // Non-blocking: only fires map callbacks the GPU has already completed.
-    {
-        #[cfg(feature = "tracy")]
-        let _zone = bevy::log::info_span!("gpu.timestamps.device_poll").entered();
-        let _ = device.poll(wgpu::PollType::Poll);
-    }
+    // Reads slots mapped by the previous frame's device poll.
     timestamps.begin(|frame| profiler.record_gpu_frame(frame));
 }
 

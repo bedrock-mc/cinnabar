@@ -21,6 +21,9 @@ mod model;
 mod shield;
 mod sprites;
 
+#[cfg(test)]
+mod tests;
+
 #[derive(Debug)]
 pub struct CompiledIconCarrier {
     pub bytes: Vec<u8>,

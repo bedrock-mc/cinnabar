@@ -1,5 +1,5 @@
 {
-  "schema": 1,
+  "schema": 2,
   "game_version": "1.26.50",
   "source_tag": "v1.26.50.4",
   "source_commit": "46ba6ea985fb5a92d79a9419198f10dda14c199d",
@@ -7,314 +7,222 @@
   "archive_sha256": "c0b6151f5f9a0c31ebe3c909dfc82d97f12473ed2c6e039aa7e22d667042026c",
   "atlas_sha256": "b203a6a4daef52efe98a1e7569a1b69ac7c1a08ca824e8556d141be34233107a",
   "retail_allowlist_sha256": "6f186e8f781c611722cd28ece47f643112732a89e18cd9beab9d414243750821",
-  "coverage": "Explicit default icon bindings from the pinned samples and the identified native item-component witness; bundle auxiliary states, legacy implicit routes, metadata selection, dynamic icons and display transforms are not established.",
-  "native_item_witness": {
-    "app_version": "1.26.50.4",
-    "archive": "native/vanilla/__brarchive/items.brarchive",
-    "archive_sha256": "4bdd2215697112998ca185186305c24b9848bd196099a42c17d03a1d027c9eb4",
-    "version_relation": "Version-matched runtime resource-pack witness. Explicit food and seed icon components are omitted from the sample behavior definitions."
-  },
+  "coverage": "Explicit default icon bindings; bundle auxiliary states, legacy implicit routes, metadata selection, dynamic icons and display transforms are not established.",
   "routes": [
     {
       "identifier": "minecraft:apple",
       "default_alias": "apple",
-      "atlas_variant": 0,
-      "evidence_file": "behavior_pack/items/apple.json",
-      "evidence_sha256": "afa76c2146b710d9cf5bf379c916912cb326c1de4dcf651be165994474ff077c"
+      "atlas_variant": 0
     },
     {
       "identifier": "minecraft:baked_potato",
       "default_alias": "potato_baked",
-      "atlas_variant": 0,
-      "evidence_file": "native/vanilla/__brarchive/items.brarchive#baked_potato.json",
-      "evidence_sha256": "7aaca245a05f4690bdce74b5d9ad42da0e5abd7938237e66d90e1fc9dcbd2555"
+      "atlas_variant": 0
     },
     {
       "identifier": "minecraft:beef",
       "default_alias": "beef_raw",
-      "atlas_variant": 0,
-      "evidence_file": "native/vanilla/__brarchive/items.brarchive#beef.json",
-      "evidence_sha256": "fe9516e0b23755f1a9bda232b34a6a74f900246132a4bf60153cc4320a9a2d7d"
+      "atlas_variant": 0
     },
     {
       "identifier": "minecraft:beetroot_seeds",
       "default_alias": "seeds_beetroot",
-      "atlas_variant": 0,
-      "evidence_file": "native/vanilla/__brarchive/items.brarchive#beetroot_seeds.json",
-      "evidence_sha256": "ce48ae4eb86699bfe098f46002c2879873e0efce06b6561fd7387ff75f006853"
+      "atlas_variant": 0
     },
     {
       "identifier": "minecraft:black_bundle",
       "default_alias": "bundle_black",
-      "atlas_variant": 0,
-      "evidence_file": "behavior_pack/items/black_bundle.json",
-      "evidence_sha256": "dc75c04ac45a808036f478623f3d921562db833daf5b6437617dcac74e77fb7d"
+      "atlas_variant": 0
     },
     {
       "identifier": "minecraft:blue_bundle",
       "default_alias": "bundle_blue",
-      "atlas_variant": 0,
-      "evidence_file": "behavior_pack/items/blue_bundle.json",
-      "evidence_sha256": "cdf795bd7c8d23caeb5af133a3b58d009f7d66d00fed85140e793893e510a3f9"
+      "atlas_variant": 0
     },
     {
       "identifier": "minecraft:breeze_rod",
       "default_alias": "breeze_rod",
-      "atlas_variant": 0,
-      "evidence_file": "behavior_pack/items/breeze_rod.json",
-      "evidence_sha256": "6099198c64c3849ea252b575279a7c88e13f726dbd0e8ed7657642af810c6f10"
+      "atlas_variant": 0
     },
     {
       "identifier": "minecraft:brown_bundle",
       "default_alias": "bundle_brown",
-      "atlas_variant": 0,
-      "evidence_file": "behavior_pack/items/brown_bundle.json",
-      "evidence_sha256": "d5bdf112903ea95d03a1d23cc48b3e600f2479e1cbaecb31a497aeaa12a41889"
+      "atlas_variant": 0
     },
     {
       "identifier": "minecraft:bundle",
       "default_alias": "bundle",
-      "atlas_variant": 0,
-      "evidence_file": "behavior_pack/items/bundle.json",
-      "evidence_sha256": "ea9aa8bc235bc4de48fad1a43e6c66ffdcc0a3418cdefc9a77fa384725a42b4e"
+      "atlas_variant": 0
     },
     {
       "identifier": "minecraft:chicken",
       "default_alias": "chicken_raw",
-      "atlas_variant": 0,
-      "evidence_file": "native/vanilla/__brarchive/items.brarchive#chicken.json",
-      "evidence_sha256": "b65f065d4701be5ecc597e77c9f498812914060ebde1762ecf991b02781639c5"
+      "atlas_variant": 0
     },
     {
       "identifier": "minecraft:cooked_beef",
       "default_alias": "beef_cooked",
-      "atlas_variant": 0,
-      "evidence_file": "native/vanilla/__brarchive/items.brarchive#cooked_beef.json",
-      "evidence_sha256": "6d2350697a6c22c759c01e1640b773d0756b8d5c5b9f047f70df6178c041b7e0"
+      "atlas_variant": 0
     },
     {
       "identifier": "minecraft:cooked_chicken",
       "default_alias": "chicken_cooked",
-      "atlas_variant": 0,
-      "evidence_file": "native/vanilla/__brarchive/items.brarchive#cooked_chicken.json",
-      "evidence_sha256": "ff807b40957a43d6a3c567079c40923cc9a5ba19f1710c099c0c1cfbf5d98043"
+      "atlas_variant": 0
     },
     {
       "identifier": "minecraft:cooked_porkchop",
       "default_alias": "porkchop_cooked",
-      "atlas_variant": 0,
-      "evidence_file": "native/vanilla/__brarchive/items.brarchive#cooked_porkchop.json",
-      "evidence_sha256": "7e67900beec96b7112b0c77c9d0cf418f5629a00e15343d7f9c7f4efcd28a6a1"
+      "atlas_variant": 0
     },
     {
       "identifier": "minecraft:cooked_rabbit",
       "default_alias": "rabbit_cooked",
-      "atlas_variant": 0,
-      "evidence_file": "native/vanilla/__brarchive/items.brarchive#cooked_rabbit.json",
-      "evidence_sha256": "8eb91d1827bbd53572445ed9d3667d8f9485c80779042ef004dc9453dd4fe97c"
+      "atlas_variant": 0
     },
     {
       "identifier": "minecraft:copper_spear",
       "default_alias": "copper_spear",
-      "atlas_variant": 0,
-      "evidence_file": "behavior_pack/items/copper_spear.json",
-      "evidence_sha256": "2cc56a66a3d5a9b1148e70e1a49ecdca3493cd30548bc8872787e14c7aefb27c"
+      "atlas_variant": 0
     },
     {
       "identifier": "minecraft:cyan_bundle",
       "default_alias": "bundle_cyan",
-      "atlas_variant": 0,
-      "evidence_file": "behavior_pack/items/cyan_bundle.json",
-      "evidence_sha256": "9ed92a2be79db27208f5b1387c87a8792e22a0a0c63689f121784c47fe286569"
+      "atlas_variant": 0
     },
     {
       "identifier": "minecraft:diamond_spear",
       "default_alias": "diamond_spear",
-      "atlas_variant": 0,
-      "evidence_file": "behavior_pack/items/diamond_spear.json",
-      "evidence_sha256": "09c111c9a3500ec861da414e097e590012f6d8be0a4446f82171416a8e9bfd56"
+      "atlas_variant": 0
     },
     {
       "identifier": "minecraft:golden_carrot",
       "default_alias": "carrot_golden",
-      "atlas_variant": 0,
-      "evidence_file": "native/vanilla/__brarchive/items.brarchive#golden_carrot.json",
-      "evidence_sha256": "e13040d2a59d7e4a43a9b5cf9c636a7402516f060dfbe23974d33d405f960e1c"
+      "atlas_variant": 0
     },
     {
       "identifier": "minecraft:golden_spear",
       "default_alias": "gold_spear",
-      "atlas_variant": 0,
-      "evidence_file": "behavior_pack/items/golden_spear.json",
-      "evidence_sha256": "1887596a6dcf73f020931ac289704264195cebdfee13c601d129fe732880eea9"
+      "atlas_variant": 0
     },
     {
       "identifier": "minecraft:gray_bundle",
       "default_alias": "bundle_gray",
-      "atlas_variant": 0,
-      "evidence_file": "behavior_pack/items/gray_bundle.json",
-      "evidence_sha256": "2e2d4fc5b52d17335d88c9f0e2b562981676e890cf33d46b3018ccd5be2ba42b"
+      "atlas_variant": 0
     },
     {
       "identifier": "minecraft:green_bundle",
       "default_alias": "bundle_green",
-      "atlas_variant": 0,
-      "evidence_file": "behavior_pack/items/green_bundle.json",
-      "evidence_sha256": "3df6e179f950f1b7cbd9d070663235eef8671c99b7ac1985d74a1548845504d0"
+      "atlas_variant": 0
     },
     {
       "identifier": "minecraft:iron_spear",
       "default_alias": "iron_spear",
-      "atlas_variant": 0,
-      "evidence_file": "behavior_pack/items/iron_spear.json",
-      "evidence_sha256": "efa3fcb4bfde76b528d22c6c212e44ddc389ede8d9ec3cc8719081bce200a228"
+      "atlas_variant": 0
     },
     {
       "identifier": "minecraft:light_blue_bundle",
       "default_alias": "bundle_light_blue",
-      "atlas_variant": 0,
-      "evidence_file": "behavior_pack/items/light_blue_bundle.json",
-      "evidence_sha256": "4e7940bad6edd289ff8feb9ae33f023ba8de6c41f4ff4fc46cb9d1d371b4e91f"
+      "atlas_variant": 0
     },
     {
       "identifier": "minecraft:light_gray_bundle",
       "default_alias": "bundle_light_gray",
-      "atlas_variant": 0,
-      "evidence_file": "behavior_pack/items/light_gray_bundle.json",
-      "evidence_sha256": "3e915b9d25f2ce6ebfc248814bd9ad026fb2a2564e2866ea8c2e4ea2b76ff4fb"
+      "atlas_variant": 0
     },
     {
       "identifier": "minecraft:lime_bundle",
       "default_alias": "bundle_lime",
-      "atlas_variant": 0,
-      "evidence_file": "behavior_pack/items/lime_bundle.json",
-      "evidence_sha256": "ba5da8b7517bd4760c6e14dbd44fc040dcffceb67e37fb62b681aa88e88191c9"
+      "atlas_variant": 0
     },
     {
       "identifier": "minecraft:magenta_bundle",
       "default_alias": "bundle_magenta",
-      "atlas_variant": 0,
-      "evidence_file": "behavior_pack/items/magenta_bundle.json",
-      "evidence_sha256": "ca6d56043bbababff4fcd232b5e16106586589f70c6b4fd8e947cee0f4372a7b"
+      "atlas_variant": 0
     },
     {
       "identifier": "minecraft:melon_seeds",
       "default_alias": "seeds_melon",
-      "atlas_variant": 0,
-      "evidence_file": "native/vanilla/__brarchive/items.brarchive#melon_seeds.json",
-      "evidence_sha256": "e2c7b97b330e2f9d2df0ee988e5481d94bbf3d0299ee54c8438e2b9949df9b91"
+      "atlas_variant": 0
     },
     {
       "identifier": "minecraft:netherite_spear",
       "default_alias": "netherite_spear",
-      "atlas_variant": 0,
-      "evidence_file": "behavior_pack/items/netherite_spear.json",
-      "evidence_sha256": "919bf283789b07cf70c9243fcd44e729bc09565c91a45ab8dcc3b5695913bb96"
+      "atlas_variant": 0
     },
     {
       "identifier": "minecraft:ominous_trial_key",
       "default_alias": "ominous_trial_key",
-      "atlas_variant": 0,
-      "evidence_file": "behavior_pack/items/ominous_trial_key.json",
-      "evidence_sha256": "fb1517708446785ed540bc118b7950ba44d2a15da4e4c5037858a157cdfd9317"
+      "atlas_variant": 0
     },
     {
       "identifier": "minecraft:orange_bundle",
       "default_alias": "bundle_orange",
-      "atlas_variant": 0,
-      "evidence_file": "behavior_pack/items/orange_bundle.json",
-      "evidence_sha256": "b57944224f3b2c5045def1535e82e76943ce32dc743511fa591b1fe576537506"
+      "atlas_variant": 0
     },
     {
       "identifier": "minecraft:pink_bundle",
       "default_alias": "bundle_pink",
-      "atlas_variant": 0,
-      "evidence_file": "behavior_pack/items/pink_bundle.json",
-      "evidence_sha256": "55e08e5f55f2af0965a9d6dfa569956c72920345cdbd71de47a3fb5e90d91b8e"
+      "atlas_variant": 0
     },
     {
       "identifier": "minecraft:poisonous_potato",
       "default_alias": "potato_poisonous",
-      "atlas_variant": 0,
-      "evidence_file": "native/vanilla/__brarchive/items.brarchive#poisonous_potato.json",
-      "evidence_sha256": "56722f28cc4f78d7b361c0086ce31d38592291f5a839c275e633ea59c7507f69"
+      "atlas_variant": 0
     },
     {
       "identifier": "minecraft:porkchop",
       "default_alias": "porkchop_raw",
-      "atlas_variant": 0,
-      "evidence_file": "native/vanilla/__brarchive/items.brarchive#porkchop.json",
-      "evidence_sha256": "9db649574eaaeb8fe2a6055dbd789c23d2ecb46f68e60e76c0b009bc0ae23d11"
+      "atlas_variant": 0
     },
     {
       "identifier": "minecraft:pumpkin_seeds",
       "default_alias": "seeds_pumpkin",
-      "atlas_variant": 0,
-      "evidence_file": "native/vanilla/__brarchive/items.brarchive#pumpkin_seeds.json",
-      "evidence_sha256": "8d0e3fffb0127e40b1cacad85c0ef264b4a6eb32f5bf9785f8415021f954d3ed"
+      "atlas_variant": 0
     },
     {
       "identifier": "minecraft:purple_bundle",
       "default_alias": "bundle_purple",
-      "atlas_variant": 0,
-      "evidence_file": "behavior_pack/items/purple_bundle.json",
-      "evidence_sha256": "a6ececb97d586cfb0fe12e525aea5a0149aac7e5a7aaf791779b0c4e3bd3021d"
+      "atlas_variant": 0
     },
     {
       "identifier": "minecraft:red_bundle",
       "default_alias": "bundle_red",
-      "atlas_variant": 0,
-      "evidence_file": "behavior_pack/items/red_bundle.json",
-      "evidence_sha256": "d91d1ba195e277ee04dd275234cda213f6080d263d3ce5d6ad8b2e0b63b619a1"
+      "atlas_variant": 0
     },
     {
       "identifier": "minecraft:stone_spear",
       "default_alias": "stone_spear",
-      "atlas_variant": 0,
-      "evidence_file": "behavior_pack/items/stone_spear.json",
-      "evidence_sha256": "a1c65b3c0a18f7c83c873175e09f7eb2588cf21eed4558ea21a5082d4eace1a7"
+      "atlas_variant": 0
     },
     {
       "identifier": "minecraft:trial_key",
       "default_alias": "trial_key",
-      "atlas_variant": 0,
-      "evidence_file": "behavior_pack/items/trial_key.json",
-      "evidence_sha256": "a7dc3a72cab144a48a19955446d5ef032fa9a13d4d64d4b0d99d382adaf3961b"
+      "atlas_variant": 0
     },
     {
       "identifier": "minecraft:wheat_seeds",
       "default_alias": "seeds_wheat",
-      "atlas_variant": 0,
-      "evidence_file": "native/vanilla/__brarchive/items.brarchive#wheat_seeds.json",
-      "evidence_sha256": "eb925569c5b84df43717297af2490bda293284ed4659e6f96b127c249dcf43ed"
+      "atlas_variant": 0
     },
     {
       "identifier": "minecraft:white_bundle",
       "default_alias": "bundle_white",
-      "atlas_variant": 0,
-      "evidence_file": "behavior_pack/items/white_bundle.json",
-      "evidence_sha256": "d78335ae38d60fd1772544b7328bd421cd8f3d39e1e5a79383f57c0f2bb920d8"
+      "atlas_variant": 0
     },
     {
       "identifier": "minecraft:wind_charge",
       "default_alias": "wind_charge",
-      "atlas_variant": 0,
-      "evidence_file": "behavior_pack/items/wind_charge.json",
-      "evidence_sha256": "4e4f6430b1198106dee9fd10bfa58ad803e2d8ff1f35237cddfbbd11ce682e14"
+      "atlas_variant": 0
     },
     {
       "identifier": "minecraft:wooden_spear",
       "default_alias": "wood_spear",
-      "atlas_variant": 0,
-      "evidence_file": "behavior_pack/items/wooden_spear.json",
-      "evidence_sha256": "e66540ec034b485bf974bf263e5fecec0dc2e0013728160620a17107e96b8423"
+      "atlas_variant": 0
     },
     {
       "identifier": "minecraft:yellow_bundle",
       "default_alias": "bundle_yellow",
-      "atlas_variant": 0,
-      "evidence_file": "behavior_pack/items/yellow_bundle.json",
-      "evidence_sha256": "59bcdfe2a114267d710bb97059d028361d7b3c62b72b95aba2f207a59c453fd3"
+      "atlas_variant": 0
     }
   ]
 }

@@ -1,6 +1,6 @@
 //! Attack target selection, local swings and ordered combat admission.
 use crate::{
-    BatchSendError, interaction_authority::MAX_PENDING_INTERACTION_FRAMES,
+    BatchSendError, interaction_authority::MAX_PENDING_INTERACTION_MILLIS,
     mining::FrozenMiningSelection, movement::MiningEffects,
 };
 use protocol::{
@@ -70,7 +70,7 @@ pub struct MeleeRuntime {
     actor_in_front: bool,
     last_attack_millis: Option<u64>,
     position_authority: Option<(u64, u64)>,
-    /// Input frame at which a latched press first waited for admission.
+    /// Wall-clock millis at which a latched press first waited for admission.
     deferred_since: Option<u64>,
     rejected_tick: Option<u64>,
 }
@@ -125,13 +125,14 @@ impl MeleeRuntime {
         self.rejected_tick = None;
     }
 
-    /// Bounds waiting on unavailable interaction evidence or simulation ticks.
-    pub fn defer(&mut self, input_frame: u64) {
+    /// Bounds waiting on unavailable interaction evidence or simulation ticks in time, so the
+    /// frame rate never shortens it.
+    pub fn defer(&mut self, now_millis: u64) {
         if !self.latched_press {
             return;
         }
-        let since = *self.deferred_since.get_or_insert(input_frame);
-        if input_frame.saturating_sub(since) > MAX_PENDING_INTERACTION_FRAMES {
+        let since = *self.deferred_since.get_or_insert(now_millis);
+        if now_millis.saturating_sub(since) > MAX_PENDING_INTERACTION_MILLIS {
             self.cancel();
         }
     }
@@ -143,7 +144,7 @@ impl MeleeRuntime {
         crosshair: Crosshair,
         movement: &crate::movement::MovementTicker,
         recent_ticks: usize,
-        input_frame: u64,
+        now_millis: u64,
     ) -> Option<crate::movement::UnsentSampleView> {
         let sample = if crosshair == Crosshair::Block {
             movement
@@ -162,19 +163,18 @@ impl MeleeRuntime {
             movement.newest_unsent_sample()
         };
         if sample.is_none() {
-            self.defer(input_frame);
+            self.defer(now_millis);
         }
         sample
     }
 
-    /// A latched actor attack resolves in its own frame when no unsent tick exists, as vanilla
-    /// handles the press before the next tick instead of waiting for it.
-    pub fn between_ticks_attack(
+    /// A latched press resolves in its own frame when no unsent tick exists, as vanilla handles
+    /// the press before the next tick; a miss flag or block start still rides that tick.
+    pub fn between_ticks_press(
         &self,
-        crosshair: Crosshair,
         movement: &crate::movement::MovementTicker,
     ) -> Option<crate::movement::InteractionSample> {
-        if !self.latched_press || !matches!(crosshair, Crosshair::Actor(_)) {
+        if !self.latched_press {
             return None;
         }
         movement.between_ticks_sample()
@@ -246,7 +246,7 @@ pub fn resolve_and_send(
     swings: &mut SwingTracker,
     crosshair: Crosshair,
     press: &PressContext,
-    input_frame: u64,
+    now_millis: u64,
     send: impl FnOnce(Vec<protocol::Packet>) -> Result<(), BatchSendError>,
 ) -> bool {
     if runtime.latched_press
@@ -255,7 +255,7 @@ pub fn resolve_and_send(
             || (crosshair == Crosshair::Block && !swings.tick_is_current_publication(press.tick)))
     {
         runtime.observe_crosshair(crosshair);
-        runtime.defer(input_frame);
+        runtime.defer(now_millis);
         return false;
     }
     let (saved_runtime, saved_swings) = (runtime.clone(), swings.clone());
@@ -269,7 +269,7 @@ pub fn resolve_and_send(
             }
             let candidate_swings = std::mem::replace(swings, saved_swings);
             swings.defer_unadmitted_attempt(&candidate_swings);
-            runtime.defer(input_frame);
+            runtime.defer(now_millis);
             false
         }
     }

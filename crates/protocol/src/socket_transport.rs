@@ -1,12 +1,14 @@
 use std::collections::VecDeque;
+use std::future::Future;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::Path;
 use std::pin::Pin;
-use std::task::{Context, Poll};
+use std::sync::Mutex;
+use std::task::{Context, Poll, ready};
 
-use bridge::{BridgeError, FramedStream};
+use bridge::{BridgeError, FrameQueue, FramedReader};
 use bytes::Bytes;
-use futures::{Sink, Stream};
+use futures::Stream;
 use jolyne::stream::transport::{Transport, TransportMessage, TransportRecvMessage};
 
 /// Returns the local transport endpoint for a logical socket directory.
@@ -27,19 +29,52 @@ pub async fn report_pack_application(socket_dir: &Path, applied: bool) -> bool {
 }
 
 /// Jolyne transport over the local length-framed bridge.
+///
+/// A spawned writer owns the socket's write half, so sends never wait on a receive in progress.
 pub struct SocketTransport {
-    stream: FramedStream,
-    send_state: SendState,
+    reader: FramedReader,
+    frames: FrameQueue,
+    sending: VecDeque<InFlightSend>, // accepted sends, flushed strictly in order
     peer_addr: SocketAddr,
+}
+
+type FrameSend = Pin<Box<dyn Future<Output = Result<(), BridgeError>> + Send>>;
+
+/// A send retained across cancellation until its frame is flushed.
+struct InFlightSend {
+    buffer: Bytes,
+    // Only reached through `&mut`; the mutex just keeps the transport `Sync`.
+    write: Mutex<FrameSend>,
+}
+
+impl InFlightSend {
+    fn poll(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), BridgeError>> {
+        self.write
+            .get_mut()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .as_mut()
+            .poll(cx)
+    }
+}
+
+fn same_buffer(left: &Bytes, right: &Bytes) -> bool {
+    left.len() == right.len() && left.as_ptr() == right.as_ptr()
 }
 
 impl SocketTransport {
     pub(crate) async fn connect(socket_dir: &Path) -> anyhow::Result<Self> {
+        let (reader, frames) = bridge::connect(socket_dir).await?;
         Ok(Self {
-            stream: bridge::connect(socket_dir).await?,
-            send_state: SendState::default(),
+            reader,
+            frames,
+            sending: VecDeque::new(),
             peer_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
         })
+    }
+
+    /// The FIFO this transport's own sends share with detached outbound batches.
+    pub(crate) fn frame_queue(&self) -> FrameQueue {
+        self.frames.clone()
     }
 }
 
@@ -48,33 +83,64 @@ impl Transport for SocketTransport {
 
     const USES_BATCH_PREFIX: bool = true;
 
+    /// Retains the frame from the first poll until it is flushed, so a cancelled send can
+    /// neither lose nor repeat it; frames retained earlier finish first.
     fn poll_send(
-        mut self: Pin<&mut Self>,
+        self: Pin<&mut Self>,
         cx: &mut Context<'_>,
         message: TransportMessage,
     ) -> Poll<Result<(), Self::Error>> {
-        let this = self.as_mut().get_mut();
-        poll_send_frame(
-            Pin::new(&mut this.stream),
-            &mut this.send_state,
-            cx,
-            message.buffer,
-        )
+        let this = self.get_mut();
+        if !this
+            .sending
+            .iter()
+            .any(|sending| same_buffer(&sending.buffer, &message.buffer))
+        {
+            let frames = this.frames.clone();
+            let buffer = message.buffer.clone();
+            this.sending.push_back(InFlightSend {
+                buffer: message.buffer.clone(),
+                write: Mutex::new(Box::pin(async move { frames.send(buffer).await })),
+            });
+        }
+        while let Some(front) = this.sending.front_mut() {
+            let result = ready!(front.poll(cx));
+            let finished = this
+                .sending
+                .pop_front()
+                .expect("the polled send is retained");
+            if result.is_err() {
+                this.sending.clear();
+                return Poll::Ready(result);
+            }
+            if same_buffer(&finished.buffer, &message.buffer) {
+                return Poll::Ready(Ok(()));
+            }
+        }
+        unreachable!("the current frame is retained until it finishes")
     }
 
     fn poll_drain_send(
-        mut self: Pin<&mut Self>,
+        self: Pin<&mut Self>,
         cx: &mut Context<'_>,
     ) -> Poll<Result<(), Self::Error>> {
-        let this = self.as_mut().get_mut();
-        poll_drain_send_state(Pin::new(&mut this.stream), &mut this.send_state, cx)
+        let this = self.get_mut();
+        while let Some(front) = this.sending.front_mut() {
+            let result = ready!(front.poll(cx));
+            this.sending.pop_front();
+            if result.is_err() {
+                this.sending.clear();
+                return Poll::Ready(result);
+            }
+        }
+        Poll::Ready(Ok(()))
     }
 
     fn poll_recv(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
     ) -> Poll<Option<Result<TransportRecvMessage, Self::Error>>> {
-        match Pin::new(&mut self.stream).poll_next(cx) {
+        match Pin::new(&mut self.reader).poll_next(cx) {
             Poll::Ready(Some(Ok(bytes))) => {
                 Poll::Ready(Some(Ok(TransportRecvMessage::Contiguous(bytes))))
             }
@@ -89,324 +155,53 @@ impl Transport for SocketTransport {
     }
 }
 
-#[derive(Debug)]
-struct PendingSend {
-    buffer: Bytes,
-    started: bool,
-}
-
-#[derive(Debug, Default)]
-struct SendState {
-    active: Option<PendingSend>,
-    queued: VecDeque<Bytes>,
-}
-
-fn same_buffer(left: &Bytes, right: &Bytes) -> bool {
-    left.len() == right.len() && left.as_ptr() == right.as_ptr()
-}
-
-fn poll_send_frame<S>(
-    mut stream: Pin<&mut S>,
-    state: &mut SendState,
-    cx: &mut Context<'_>,
-    buffer: Bytes,
-) -> Poll<Result<(), S::Error>>
-where
-    S: Sink<Bytes> + Unpin,
-{
-    let already_retained = state
-        .active
-        .as_ref()
-        .is_some_and(|pending| same_buffer(&pending.buffer, &buffer))
-        || state
-            .queued
-            .iter()
-            .any(|queued| same_buffer(queued, &buffer));
-    if !already_retained {
-        if state.active.is_none() {
-            state.active = Some(PendingSend {
-                buffer: buffer.clone(),
-                started: false,
-            });
-        } else {
-            state.queued.push_back(buffer.clone());
-        }
-    }
-
-    loop {
-        let pending = state
-            .active
-            .as_mut()
-            .expect("the current send is retained before polling");
-        if !pending.started {
-            match stream.as_mut().poll_ready(cx) {
-                Poll::Ready(Ok(())) => {}
-                Poll::Ready(Err(error)) => {
-                    state.active = None;
-                    state.queued.clear();
-                    return Poll::Ready(Err(error));
-                }
-                Poll::Pending => return Poll::Pending,
-            }
-            if let Err(error) = stream.as_mut().start_send(pending.buffer.clone()) {
-                state.active = None;
-                state.queued.clear();
-                return Poll::Ready(Err(error));
-            }
-            pending.started = true;
-        }
-
-        match stream.as_mut().poll_flush(cx) {
-            Poll::Ready(Ok(())) => {
-                let completed = state.active.take().expect("a flushed send remains active");
-                let completed_current = same_buffer(&completed.buffer, &buffer);
-                state.active = state.queued.pop_front().map(|buffer| PendingSend {
-                    buffer,
-                    started: false,
-                });
-                if completed_current {
-                    return Poll::Ready(Ok(()));
-                }
-            }
-            Poll::Ready(Err(error)) => {
-                state.active = None;
-                state.queued.clear();
-                return Poll::Ready(Err(error));
-            }
-            Poll::Pending => return Poll::Pending,
-        }
-    }
-}
-
-fn poll_drain_send_state<S>(
-    mut stream: Pin<&mut S>,
-    state: &mut SendState,
-    cx: &mut Context<'_>,
-) -> Poll<Result<(), S::Error>>
-where
-    S: Sink<Bytes> + Unpin,
-{
-    loop {
-        let Some(pending) = state.active.as_mut() else {
-            return Poll::Ready(Ok(()));
-        };
-        if !pending.started {
-            match stream.as_mut().poll_ready(cx) {
-                Poll::Ready(Ok(())) => {}
-                Poll::Ready(Err(error)) => {
-                    state.active = None;
-                    state.queued.clear();
-                    return Poll::Ready(Err(error));
-                }
-                Poll::Pending => return Poll::Pending,
-            }
-            if let Err(error) = stream.as_mut().start_send(pending.buffer.clone()) {
-                state.active = None;
-                state.queued.clear();
-                return Poll::Ready(Err(error));
-            }
-            pending.started = true;
-        }
-
-        match stream.as_mut().poll_flush(cx) {
-            Poll::Ready(Ok(())) => {
-                state.active = state.queued.pop_front().map(|buffer| PendingSend {
-                    buffer,
-                    started: false,
-                });
-            }
-            Poll::Ready(Err(error)) => {
-                state.active = None;
-                state.queued.clear();
-                return Poll::Ready(Err(error));
-            }
-            Poll::Pending => return Poll::Pending,
-        }
-    }
-}
-
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
     use futures::task::noop_waker;
+    use tokio::io::AsyncReadExt;
 
-    #[derive(Default)]
-    struct PendingFlushSink {
-        starts: usize,
-        flushes: usize,
-    }
+    /// Two sends cancelled while the peer is stalled both flush on drain, once each, in order.
+    #[tokio::test]
+    async fn cancelled_sends_behind_a_pending_send_flush_in_order_on_drain() {
+        let socket_dir =
+            std::env::temp_dir().join(format!("cinnabar-socket-transport-{}", std::process::id()));
+        std::fs::create_dir_all(&socket_dir).unwrap();
+        let endpoint = bridge_endpoint_path(&socket_dir);
+        let _ = std::fs::remove_file(&endpoint);
+        let listener = tokio::net::UnixListener::bind(&endpoint).unwrap();
+        let mut transport = SocketTransport::connect(&socket_dir).await.unwrap();
+        let (mut peer, _) = listener.accept().await.unwrap();
 
-    impl Sink<Bytes> for PendingFlushSink {
-        type Error = BridgeError;
-
-        fn poll_ready(
-            self: Pin<&mut Self>,
-            _cx: &mut Context<'_>,
-        ) -> Poll<Result<(), Self::Error>> {
-            Poll::Ready(Ok(()))
-        }
-
-        fn start_send(mut self: Pin<&mut Self>, _item: Bytes) -> Result<(), Self::Error> {
-            self.starts += 1;
-            Ok(())
-        }
-
-        fn poll_flush(
-            mut self: Pin<&mut Self>,
-            _cx: &mut Context<'_>,
-        ) -> Poll<Result<(), Self::Error>> {
-            self.flushes += 1;
-            if self.flushes == 1 {
-                Poll::Pending
-            } else {
-                Poll::Ready(Ok(()))
-            }
-        }
-
-        fn poll_close(
-            self: Pin<&mut Self>,
-            _cx: &mut Context<'_>,
-        ) -> Poll<Result<(), Self::Error>> {
-            Poll::Ready(Ok(()))
-        }
-    }
-
-    #[derive(Default)]
-    struct PendingReadySink {
-        ready_polls: usize,
-        starts: usize,
-    }
-
-    impl Sink<Bytes> for PendingReadySink {
-        type Error = BridgeError;
-
-        fn poll_ready(
-            mut self: Pin<&mut Self>,
-            _cx: &mut Context<'_>,
-        ) -> Poll<Result<(), Self::Error>> {
-            self.ready_polls += 1;
-            if self.ready_polls == 1 {
-                Poll::Pending
-            } else {
-                Poll::Ready(Ok(()))
-            }
-        }
-
-        fn start_send(mut self: Pin<&mut Self>, _item: Bytes) -> Result<(), Self::Error> {
-            self.starts += 1;
-            Ok(())
-        }
-
-        fn poll_flush(
-            self: Pin<&mut Self>,
-            _cx: &mut Context<'_>,
-        ) -> Poll<Result<(), Self::Error>> {
-            Poll::Ready(Ok(()))
-        }
-
-        fn poll_close(
-            self: Pin<&mut Self>,
-            _cx: &mut Context<'_>,
-        ) -> Poll<Result<(), Self::Error>> {
-            Poll::Ready(Ok(()))
-        }
-    }
-
-    #[test]
-    fn pending_flush_does_not_start_the_same_frame_twice() {
-        let mut sink = PendingFlushSink::default();
-        let mut pending = SendState::default();
+        // Too large to flush while the peer is not reading.
+        let first = Bytes::from(vec![1; 16 * 1024 * 1024]);
+        let second = Bytes::from_static(&[2, 2]);
         let waker = noop_waker();
         let mut cx = Context::from_waker(&waker);
-        let bytes = Bytes::from_static(b"frame");
+        for frame in [&first, &second] {
+            let poll = Pin::new(&mut transport)
+                .poll_send(&mut cx, TransportMessage::reliable(frame.clone()));
+            assert!(poll.is_pending(), "the stalled peer must hold the send");
+        }
 
-        assert!(
-            poll_send_frame(Pin::new(&mut sink), &mut pending, &mut cx, bytes.clone(),)
-                .is_pending()
-        );
-        assert!(poll_send_frame(Pin::new(&mut sink), &mut pending, &mut cx, bytes).is_ready());
-        assert_eq!(sink.starts, 1);
-    }
+        let mut received = Vec::new();
+        let drain = async {
+            std::future::poll_fn(|cx| Pin::new(&mut transport).poll_drain_send(cx))
+                .await
+                .unwrap();
+            drop(transport);
+        };
+        let (_, read) = tokio::join!(drain, peer.read_to_end(&mut received));
+        read.unwrap();
+        let _ = std::fs::remove_file(&endpoint);
+        let _ = std::fs::remove_dir(&socket_dir);
 
-    #[test]
-    fn cancelled_pending_send_can_be_drained_without_a_replacement_frame() {
-        let mut sink = PendingFlushSink::default();
-        let mut pending = SendState::default();
-        let waker = noop_waker();
-        let mut cx = Context::from_waker(&waker);
-
-        assert!(
-            poll_send_frame(
-                Pin::new(&mut sink),
-                &mut pending,
-                &mut cx,
-                Bytes::from_static(b"cancelled"),
-            )
-            .is_pending()
-        );
-        assert!(poll_drain_send_state(Pin::new(&mut sink), &mut pending, &mut cx).is_ready());
-        assert_eq!(sink.starts, 1);
-        assert!(pending.active.is_none());
-        assert!(pending.queued.is_empty());
-    }
-
-    #[test]
-    fn cancelled_pending_send_flushes_before_starting_the_replacement_frame() {
-        let mut sink = PendingFlushSink::default();
-        let mut pending = SendState::default();
-        let waker = noop_waker();
-        let mut cx = Context::from_waker(&waker);
-
-        assert!(
-            poll_send_frame(
-                Pin::new(&mut sink),
-                &mut pending,
-                &mut cx,
-                Bytes::from_static(b"cancelled"),
-            )
-            .is_pending()
-        );
-        assert!(
-            poll_send_frame(
-                Pin::new(&mut sink),
-                &mut pending,
-                &mut cx,
-                Bytes::from_static(b"replacement"),
-            )
-            .is_ready()
-        );
-        assert_eq!(sink.starts, 2);
-        assert!(pending.active.is_none());
-        assert!(pending.queued.is_empty());
-    }
-
-    #[test]
-    fn cancelled_send_waiting_for_readiness_is_retained_before_its_replacement() {
-        let mut sink = PendingReadySink::default();
-        let mut pending = SendState::default();
-        let waker = noop_waker();
-        let mut cx = Context::from_waker(&waker);
-
-        assert!(
-            poll_send_frame(
-                Pin::new(&mut sink),
-                &mut pending,
-                &mut cx,
-                Bytes::from_static(b"cancelled-before-start"),
-            )
-            .is_pending()
-        );
-        assert!(
-            poll_send_frame(
-                Pin::new(&mut sink),
-                &mut pending,
-                &mut cx,
-                Bytes::from_static(b"replacement"),
-            )
-            .is_ready()
-        );
-        assert_eq!(sink.starts, 2);
-        assert!(pending.active.is_none());
-        assert!(pending.queued.is_empty());
+        let mut expected = Vec::new();
+        for frame in [&first, &second] {
+            expected.extend_from_slice(&(frame.len() as u32).to_be_bytes());
+            expected.extend_from_slice(frame);
+        }
+        assert_eq!(received.len(), expected.len());
+        assert!(received == expected, "both frames arrive once, in order");
     }
 }

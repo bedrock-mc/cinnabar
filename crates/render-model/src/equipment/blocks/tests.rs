@@ -77,6 +77,29 @@ fn cube_sheets_preserve_blended_and_cutout_face_pixels() {
 }
 
 #[test]
+fn world_isotropy_preserves_carried_cube_face_pixels() {
+    for flags in [
+        0,
+        assets::MATERIAL_FLAG_ALPHA_BLEND,
+        assets::MATERIAL_FLAG_ALPHA_CUTOUT,
+    ] {
+        let mut source = overlay(
+            BlockFlags::CUBE_GEOMETRY,
+            flags,
+            BLOCK_ITEM_FACE_SIDE.into(),
+        );
+        source.texture.as_mut().unwrap().mips[0].rgba8[TILE * TILE * 4] = 91;
+        let expected = overlay_sheet(&source, 0).unwrap();
+        source.materials[1].flags |= assets::MATERIAL_FLAG_ISOTROPIC;
+        let actual = overlay_sheet(&source, 0)
+            .expect("world-position rotation preserves carried face admission");
+        assert_eq!(actual.rgba8, expected.rgba8);
+        source.materials[1].flags |= assets::MATERIAL_FLAG_FOLIAGE_TINT;
+        assert!(overlay_sheet(&source, 0).is_none());
+    }
+}
+
+#[test]
 fn unresolved_tint_and_non_cube_shapes_do_not_create_cube_sheets() {
     assert!(
         overlay_sheet(
