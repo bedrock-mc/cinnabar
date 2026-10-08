@@ -564,14 +564,15 @@ fn drive_intents(
         return;
     }
     if menu.take_disconnect_request() {
-        // A disconnect while connecting is a cancelled join, which returns to the play screen.
+        // Loading and pause screens retain the Play page that opened the session.
         let cancelled_join = menu.is_connecting();
         // Drop the old event receivers as well as stopping their worker: a
         // queued transfer must not undo this explicit disconnect later this frame.
         session.retire();
-        menu.show_home();
         if cancelled_join {
             menu.cancel_join();
+        } else {
+            menu.show_after_disconnect();
         }
         return;
     }

@@ -16,6 +16,19 @@
 
 # Vanilla reference map
 
+## app/src/menu/navigation.rs; app/src/menu.rs; app/src/session.rs
+
+- Current 1.26.50.26 `ClientInstance::onStartJoinGame` (`0x06772090`, canonical
+  `src/__unmapped/06.cpp`) calls `0x04c5a810` and stores the returned Play route at
+  `+0x2a8`. The route helper (`src/__unmapped/04.cpp`) walks router entries backward
+  for `/play` and retains the matching page. The named 26.30 `ClientInstance.cpp`
+  identifies this helper as `OreUI::EntryPoints::PlayScreen::getLastPlayScreenTab`.
+- Current leave-game body `0x06774620` passes that saved route to `0x06776840`,
+  which keeps an already active destination or navigates back to it. Its embedded
+  signature identifies `ClientInstance::_requestLeaveGameImpl`; the named 26.30
+  body corroborates pushing the route saved at join. Pause and loading screens
+  therefore do not replace the originating Worlds, Realms or Servers page.
+
 ## crates/client-world/src/actor_animation.rs; crates/client-world/src/actor_animation/geometry/large_rig_tests.rs
 
 - Owner-supplied 1.26.50 Galaxite comparison on 2026-10-07 shows the complete Battle Pass display: characters, furniture and a vehicle beside the GEMS entrance. The served `entity/battlepass_display.entity.json` selects `geometry.battlepass_display`, whose authored geometry contains 190 bones. Native rendering of that composite disproves a player-skin-sized 96-bone runtime limit for custom entities.
@@ -807,6 +820,7 @@ RVAs are 1.26.50.26 Windows client; `mac 0x10…` addresses are the 26.30 macOS 
 
 ## crates/inventory/src/inventory_ledger/crafting.rs
 - // Native _makeCreateItemScopeCreative
+- Current 1.26.50.26 canonical `GameplayUI::Util` auto-place order (`0x071ce2b0`) routes personal and workbench crafting output to `combined_hotbar_and_inventory_items`. The inventory model offset (`0x0a5d0af0`, named counterpart `InventoryContainerModel::_getContainerOffset`) is nine only for main inventory and zero for the combined container; initialization (`0x0a5d0be0`) visits ascending slots. Compatible partial stacks precede empty slots, with the hotbar first in each pass.
 
 ## crates/inventory/src/inventory_ledger/crafting_close.rs
 - //! ContainerManagerController::_closeContainers invokes
@@ -1767,6 +1781,21 @@ RVAs are 1.26.50.26 Windows client; `mac 0x10…` addresses are the 26.30 macOS 
 - on the macOS/Metal client. A controlled native standing/held Shift/release and
 
 ## docs/reference/dropped-items.md
+- Pickup lifetime and sound: current `1.26.50.26` canonical
+  `src/__unmapped/01.cpp`, `0x014b8460`, copies the item into an independent
+  take-animation particle and voices the `pop` event at the item's attach position.
+  `src/__unmapped/02.cpp`, `0x02416bd0`, captures the collector and offset `[0, -0.6, 0]`
+  with a three-tick lifetime; `0x02416fc0` squares normalized tick progress and
+  scales the copied item by its complement; `0x024172f0` / `0x02417300` advance and expire it.
+- Pickup transform scope: current `0x02416fc0` changes only cloned actor scale
+  fields and dispatches camera-relative XYZ through `0x01fb3460`, which supplies
+  that origin to the ordinary item renderer without an outer scale. Current
+  `src/__recovered/ItemRenderer.cpp`, `0x05e54ba0`, translates bob before scaling;
+  current `src/__unmapped/05.cpp`, `0x05e54570`, translates each stack copy before
+  multiplying matrix basis columns by actor scale, leaving translation unchanged.
+  Pickup draw assigns the complement directly, replacing source scale metadata.
+  Its shrink therefore preserves bob/lift and copy spread, including the
+  cube route `0x05e53930` that calls the same item-group renderer.
 - # Native dropped-item rendering
 - Current `ItemActor` constructor sets the
 - collision width and height to 0.25 and the native Y-origin offset to half the

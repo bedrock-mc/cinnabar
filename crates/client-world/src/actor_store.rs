@@ -741,6 +741,7 @@ pub(crate) struct ActorStore {
     local_knockback: Option<(u64, [f32; 2])>,
     /// Status events awaiting a particle or sound consumer.
     status_notices: Vec<ActorStatusNotice>,
+    pickup_visuals: Vec<dropped::PickupVisual>,
     particle_effects: std::collections::VecDeque<crate::CommittedParticleEvent>,
     synchronized_audio: synchronized_audio::SynchronizedAudio,
 }

@@ -87,6 +87,7 @@ impl ActorStore {
                 self.seat_riders();
             }
             if !refresh_view {
+                self.advance_pickup_visuals();
                 self.advance_dragon_animation();
                 self.advance_dragon_beams();
                 self.advance_dragon_particles();
