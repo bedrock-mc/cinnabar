@@ -189,6 +189,36 @@ fn pickup_visuals_end_on_dimension_reset_and_do_not_capture_reused_collectors() 
 }
 
 #[test]
+fn moving_pickup_copies_the_current_native_origin() {
+    let mut store = ActorStore::new(1, 0);
+    store.apply(1, 1, dropped_spawn(7, 1));
+    store.apply(1, 2, dropped_spawn(8, 1));
+    store.actors.get_mut(&7).unwrap().previous_pose.position = [0.0, 1.0, 2.0];
+    store.apply(
+        1,
+        3,
+        ActorEvent::TakeItem(protocol::ActorTakeItemEvent {
+            item_runtime_id: 7,
+            collector_runtime_id: 8,
+        }),
+    );
+    store.apply(
+        1,
+        4,
+        ActorEvent::Remove(protocol::ActorRemoveEvent {
+            dimension: 0,
+            unique_id: 7,
+        }),
+    );
+    let view = store
+        .dropped_items(0.0)
+        .into_iter()
+        .find(|view| view.runtime_id == 7)
+        .unwrap();
+    assert_eq!(view.position, [1.0, 2.0 + ITEM_ACTOR_NETWORK_OFFSET, 3.0]);
+}
+
+#[test]
 fn spawn_absolute_and_partial_move_keep_feet_and_restore_the_same_native_origin() {
     let mut store = ActorStore::new(1, 0);
     let ActorEvent::Spawn(mut spawn) = dropped_spawn(7, 1) else {

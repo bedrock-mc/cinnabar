@@ -93,9 +93,12 @@ impl ActorStore {
         let Some(item) = self.actors.get(&item_runtime_id) else {
             return;
         };
-        let Some(view) = self.dropped_item_view(item, 0.0) else {
+        let Some(mut view) = self.dropped_item_view(item, 0.0) else {
             return;
         };
+        // The copied actor starts at its current origin, independently of frame interpolation.
+        view.position = item.position;
+        view.position[1] += ITEM_ACTOR_NETWORK_OFFSET;
         let Some(collector) = self.actors.get(&collector_runtime_id) else {
             return;
         };
