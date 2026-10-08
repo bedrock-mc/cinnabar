@@ -2,6 +2,23 @@ use super::*;
 use semantic_input::{InputContext, PhysicalControl};
 
 #[test]
+fn chat_position_defaults_to_bottom_persists_and_resets_only_with_video() {
+    let mut settings = SettingsOptions::decode(br#"{"values":{}}"#).unwrap();
+    assert!(!settings.chat_at_top());
+    let index = SETTINGS_OPTIONS
+        .iter()
+        .position(|option| option.name == CHAT_POSITION_OPTION.name)
+        .unwrap();
+    settings.set(index, CHAT_POSITION_OPTION.max);
+    let mut saved = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
+    assert!(saved.chat_at_top());
+    saved.reset_group(SettingsGroup::Accessibility);
+    assert!(saved.chat_at_top());
+    saved.reset_group(SettingsGroup::Video);
+    assert!(!saved.chat_at_top());
+}
+
+#[test]
 fn existing_f_binding_survives_freelook_default() {
     let settings =
         SettingsOptions::decode(br#"{"keys":{"key.drop":9,"key.inventory":12}}"#).unwrap();

@@ -7,7 +7,6 @@ use crate::{
 use bevy::prelude::{Local, MessageReader, Res, ResMut, Time};
 use client_presentation::audio::predicted::{ConsumeAudio, LocalBlockCue, MiningAudio};
 use client_ui::ui_runtime::UiRuntime;
-use std::collections::HashSet;
 
 /// Borrows current owner facts and forwards them at the existing system boundary.
 #[allow(clippy::too_many_arguments)]
@@ -67,7 +66,6 @@ pub(crate) fn drive_actor_audio(
     world: Res<ClientWorld>,
     mut inbox: Option<ResMut<ParticleInbox>>,
     engine: ResMut<AudioEngine>,
-    popped: Local<HashSet<u64>>,
 ) {
     client_presentation::audio::predicted::drive_actor_audio(
         client_presentation::observations::WorldObservation {
@@ -77,6 +75,5 @@ pub(crate) fn drive_actor_audio(
             value as &mut dyn client_presentation::observations::ParticleAudioObservation
         }),
         engine,
-        popped,
     );
 }

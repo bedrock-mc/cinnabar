@@ -358,7 +358,8 @@ impl PlayerInventoryLedger {
     }
 
     /// Splits `created` over player cells: compatible partial stacks first,
-    /// then empty cells. Each entry is `(cell, amount, occupied destination
+    /// then empty cells, both in hotbar-first player slot order.
+    /// Each entry is `(cell, amount, occupied destination
     /// stack id and count)`; `None` when the inventory cannot hold it all.
     fn spread_plan(
         &self,
@@ -368,8 +369,7 @@ impl PlayerInventoryLedger {
         let capacity = u16::from(capacity);
         let mut remaining = created.count;
         let mut plan = Vec::new();
-        let cells: Vec<Cell> = (9..36u8)
-            .chain(0..9)
+        let cells: Vec<Cell> = (0..protocol::PLAYER_INVENTORY_SLOTS)
             .filter(|slot| self.known[usize::from(*slot)])
             .map(Cell::Inventory)
             .collect();

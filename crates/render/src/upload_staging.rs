@@ -36,6 +36,8 @@ pub(crate) fn install(app: &mut App) {
     if render_app.world().contains_resource::<Installed>() {
         return;
     }
+    // Slots return to the pool through the frame's device poll.
+    crate::device_poll::install(render_app);
     render_app
         .insert_resource(Installed)
         .add_systems(RenderStartup, initialize);

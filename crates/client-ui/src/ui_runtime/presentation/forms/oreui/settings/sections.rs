@@ -7,9 +7,9 @@ use super::{Content, button};
 use crate::menu::{
     MenuAction,
     settings_options::{
-        ANIMATIONS_OPTION, EXTRA_GAMEPAD, EXTRA_KEYS, GAMEPAD_BINDINGS, GAMEPAD_OFFSET,
-        INVERT_CROSSHAIR_OPTION, KEY_BINDINGS, MOTION_BLUR_OPTION, SettingsGroup, SettingsOptions,
-        THIRD_PERSON_CROSSHAIR_OPTION, VOLUME_SETTINGS, key_name,
+        ANIMATIONS_OPTION, CHAT_POSITION_OPTION, EXTRA_GAMEPAD, EXTRA_KEYS, GAMEPAD_BINDINGS,
+        GAMEPAD_OFFSET, INVERT_CROSSHAIR_OPTION, KEY_BINDINGS, MOTION_BLUR_OPTION, SettingsGroup,
+        SettingsOptions, THIRD_PERSON_CROSSHAIR_OPTION, VOLUME_SETTINGS, key_name,
     },
     settings_support::{SupportAction, SupportDialog, SupportLink},
 };
@@ -106,6 +106,7 @@ fn video(content: &mut Content<'_, '_>) -> Result<(), UiPresentationError> {
         "menu.video.group.general.description",
     )?;
     options(content, &["field_of_view", "third_person"])?;
+    content.option(CHAT_POSITION_OPTION.name)?;
     content.heading(
         "menu.video.group.performance",
         "menu.video.group.performance.description",

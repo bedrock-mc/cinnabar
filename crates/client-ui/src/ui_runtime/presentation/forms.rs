@@ -4,6 +4,7 @@ pub mod book_screen;
 pub mod chat_coordinates;
 mod chat_link_dialog;
 mod chat_links;
+mod chat_position;
 pub mod chat_screen;
 pub mod container_data;
 pub mod container_kinds;

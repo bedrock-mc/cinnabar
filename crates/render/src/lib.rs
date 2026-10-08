@@ -26,6 +26,7 @@ mod celestial;
 mod chunk;
 mod cloud_config;
 mod cloud_render;
+mod device_poll;
 pub use cloud_render::CloudVisibility;
 mod dropped_item;
 mod enhanced;
@@ -58,6 +59,9 @@ mod panorama;
 mod panorama_render;
 mod particle_render;
 mod pipeline_warmup;
+#[cfg(test)]
+#[path = "pipeline_warmup/app_tests.rs"]
+mod pipeline_warmup_app_tests;
 pub use pipeline_warmup::PipelineWarmupReadiness;
 mod present_mode;
 mod primitive_shapes;

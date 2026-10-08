@@ -139,7 +139,8 @@ impl UiPresentationRuntime {
             data.set_control_values(name, metrics.feedback());
         }
         let view = chat.view_state(runtime.chat_selected_suggestion());
-        let context = renderer.context().clone();
+        let context =
+            super::chat_position::context(renderer.context().clone(), &chat.settings.options);
         let catalog = Arc::clone(renderer.screen_catalog(CHAT_SCREEN));
         let px = metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
         let translate = |key: &str| runtime.translation(key);

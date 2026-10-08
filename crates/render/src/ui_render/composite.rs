@@ -323,6 +323,23 @@ impl UiCompositePipeline {
         self.variants.specialize(cache, key).ok()
     }
 
+    /// Composites into an `hdr` view's main texture and into its `output` format, if known.
+    pub(crate) fn view_pipelines(
+        &mut self,
+        cache: &PipelineCache,
+        hdr: bool,
+        output: Option<TextureFormat>,
+    ) -> Option<CompositePipelines> {
+        let format = if hdr {
+            ViewTarget::TEXTURE_FORMAT_HDR
+        } else {
+            TextureFormat::bevy_default()
+        };
+        let main = self.specialize(cache, UiCompositeKey { format })?;
+        let output = output.and_then(|format| self.specialize(cache, UiCompositeKey { format }));
+        Some(CompositePipelines { main, output })
+    }
+
     /// Shares one rectangle-clear pipeline between startup warmup and all view formats.
     fn clear_pipeline_id(&mut self, cache: &PipelineCache) -> CachedRenderPipelineId {
         *self
@@ -340,14 +357,18 @@ impl UiCompositePipeline {
 }
 
 impl crate::pipeline_warmup::PrewarmPipelines for UiCompositePipeline {
-    /// Holds startup readiness until the fixed-format damage clear has compiled.
+    /// Covers the damage clear and the view's main and output composites.
     fn prewarm(
         &mut self,
         cache: &PipelineCache,
-        _view: crate::pipeline_warmup::WarmView,
+        view: crate::pipeline_warmup::WarmView,
         ids: &mut crate::pipeline_warmup::WarmupIds,
     ) -> Result<(), BevyError> {
         ids.push(self.clear_pipeline_id(cache));
+        if let Some(pipelines) = self.view_pipelines(cache, view.hdr, view.output) {
+            ids.push(pipelines.main);
+            ids.extend(pipelines.output);
+        }
         Ok(())
     }
 }

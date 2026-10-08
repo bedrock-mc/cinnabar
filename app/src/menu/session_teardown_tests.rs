@@ -122,6 +122,9 @@ fn pending_sample(world_identity: WorldCollisionIdentity) -> PhysicsMovementSamp
 #[test]
 fn pause_disconnect_retires_pending_movement_before_network_send() {
     let mut menu = MenuRuntime::new(true, 2, "Player".to_owned());
+    menu.activate(MenuAction::Navigate(MenuScreen::Servers));
+    menu.request_connect("fixture.invalid".to_owned());
+    menu.take_join_intent();
     menu.show_world();
     menu.open_pause();
     menu.activate(MenuAction::PauseDisconnect);
@@ -199,7 +202,7 @@ fn pause_disconnect_retires_pending_movement_before_network_send() {
     app.update();
 
     let menu = app.world().resource::<MenuRuntime>();
-    assert_eq!(menu.view().screen, MenuScreen::Home);
+    assert_eq!(menu.view().screen, MenuScreen::Servers);
     assert!(menu.view().message.is_none());
     assert!(app.world().resource::<ClientWorld>().fatal_error.is_none());
     assert_eq!(

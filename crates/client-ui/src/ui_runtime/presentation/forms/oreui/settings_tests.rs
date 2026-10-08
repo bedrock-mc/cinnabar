@@ -89,6 +89,33 @@ fn centre(bounds: UiRect) -> UiPoint {
     UiPoint::new((min.x() + max.x()) * 0.5, (min.y() + max.y()) * 0.5).unwrap()
 }
 
+#[test]
+fn video_chat_position_choices_are_clickable_in_both_saved_states() {
+    use crate::menu::settings_options::CHAT_POSITION_OPTION;
+
+    let index = SETTINGS_OPTIONS
+        .iter()
+        .position(|option| option.name == CHAT_POSITION_OPTION.name)
+        .unwrap();
+    let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
+    let mut view = settings_view("video_forced_index");
+    for size in [[1280.0, 720.0], [1920.0, 1080.0]] {
+        for value in CHAT_POSITION_OPTION.min..=CHAT_POSITION_OPTION.max {
+            Arc::make_mut(&mut view.settings_options).set(index, value);
+            present(&mut presentation, &view, size);
+            for choice in CHAT_POSITION_OPTION.min..=CHAT_POSITION_OPTION.max {
+                let action = MenuAction::SettingsOption(index as u16, choice);
+                let bounds = presentation
+                    .menu_hit_targets
+                    .iter()
+                    .find_map(|(target, bounds)| (*target == action).then_some(*bounds))
+                    .expect("Video exposes both chat placements");
+                assert_eq!(presentation.hit_test_menu(centre(bounds)), Some(action));
+            }
+        }
+    }
+}
+
 fn present(
     presentation: &mut UiPresentationRuntime,
     view: &MenuView,

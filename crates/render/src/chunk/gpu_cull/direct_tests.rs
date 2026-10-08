@@ -230,6 +230,29 @@ fn stats(app: &App) -> super::direct::DirectOcclusionStats {
         .stats
 }
 
+/// Readbacks still arrive when the device is polled once per frame and never by their owner.
+#[test]
+fn one_device_poll_per_frame_still_delivers_occlusion_readbacks() {
+    let (mut app, _) = chunk_app(
+        noop_render_plugin(WgpuFeatures::empty()),
+        Msaa::Sample4,
+        camera_transform(),
+    );
+    insert_meshes(&mut app, &KEYS);
+    let polls = |app: &App| {
+        app.sub_app(RenderApp)
+            .world()
+            .resource::<crate::device_poll::DevicePolls>()
+            .0
+    };
+    let start = polls(&app);
+    for frames in 1..=8 {
+        app.update();
+        assert_eq!(polls(&app) - start, frames);
+    }
+    assert!(stats(&app).verdicts_applied > 0);
+}
+
 /// The terrain pass runs only while a still camera's verdicts are unsettled.
 #[test]
 fn direct_draw_devices_split_solid_terrain_out_only_until_a_still_view_settles() {
