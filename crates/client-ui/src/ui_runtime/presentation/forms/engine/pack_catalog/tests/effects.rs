@@ -216,7 +216,7 @@ fn admitted_effects_publish_from_raw_messages() {
             .collect::<Vec<_>>();
         let missing = presentation.hud_unresolved_sprites();
         assert!(
-            drawn.iter().any(|path| *path == expected),
+            drawn.contains(&expected),
             "{trigger} did not select its effect: {drawn:?}"
         );
         assert!(

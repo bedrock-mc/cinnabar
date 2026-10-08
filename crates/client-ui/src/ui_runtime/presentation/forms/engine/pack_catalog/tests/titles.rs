@@ -47,7 +47,7 @@ fn server_title_and_actionbar_visibility_preserves_effect_inputs() {
         return;
     };
     let pack = layer(AUTHOR_VISIBILITY);
-    let catalog = layer_pack_catalog(&vanilla, &[pack.clone()]);
+    let catalog = layer_pack_catalog(&vanilla, std::slice::from_ref(&pack));
     let model = HudModel {
         title: Some(HudTitle {
             title: "fx.flash".into(),
@@ -148,7 +148,7 @@ fn server_custom_title_replaces_builtin_title_without_duplicate_draws() {
         ]}
     }"##);
     let frame = render_model(
-        &layer_pack_catalog(&vanilla, &[pack.clone()]),
+        &layer_pack_catalog(&vanilla, std::slice::from_ref(&pack)),
         &HudModel {
             title: Some(HudTitle {
                 title: "Round finished".into(),
@@ -196,7 +196,7 @@ fn admitted_hud_hides_its_authored_title_and_actionbar_triggers() {
     };
     let pack = layer(&bytes);
     let frame = render_model(
-        &layer_pack_catalog(&vanilla, &[pack.clone()]),
+        &layer_pack_catalog(&vanilla, std::slice::from_ref(&pack)),
         &HudModel {
             title: Some(HudTitle {
                 title: "ui.halloween.flash".into(),

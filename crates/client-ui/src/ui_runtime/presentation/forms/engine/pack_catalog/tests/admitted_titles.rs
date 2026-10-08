@@ -31,7 +31,7 @@ fn admitted_dynamic_title_selects_only_its_authored_branch() {
         .into_iter()
         .map(|(path, bytes)| (format!("ui/{path}"), bytes))
         .collect::<Vec<_>>();
-    let catalog = layer_pack_catalog(&vanilla, &[pack.clone()]);
+    let catalog = layer_pack_catalog(&vanilla, std::slice::from_ref(&pack));
     let title = "§m§aRound finished";
     let subtitle = "Spectating";
     let frame = render_model(

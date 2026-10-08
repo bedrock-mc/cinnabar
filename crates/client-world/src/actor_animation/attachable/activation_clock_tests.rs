@@ -7,10 +7,10 @@ fn fixture() -> Arc<RuntimeEntityAssets> {
     compiled.animation_clips[0].loop_mode = EntityAnimationLoop::HoldOnLastFrame;
     compiled.animation_channels[0].keyframe_count = 2;
     compiled.animation_keyframes[0].value = [scalar(0.0); 3];
-    let mut end = compiled.animation_keyframes[0].clone();
+    let mut end = compiled.animation_keyframes[0];
     end.time_seconds = scalar(1.25);
     end.value[0] = scalar(20.0);
-    compiled.animation_keyframes = vec![compiled.animation_keyframes[0].clone(), end].into();
+    compiled.animation_keyframes = vec![compiled.animation_keyframes[0], end].into();
     Arc::new(RuntimeEntityAssets::from_compiled(compiled).unwrap())
 }
 

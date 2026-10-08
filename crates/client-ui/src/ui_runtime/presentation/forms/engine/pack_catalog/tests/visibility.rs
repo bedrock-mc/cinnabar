@@ -56,7 +56,7 @@ fn server_chat_visibility_filters_rows_without_starving_effect_factories() {
         ..Default::default()
     };
     let drawn = render_model(
-        &layer_pack_catalog(&vanilla, &[pack.clone()]),
+        &layer_pack_catalog(&vanilla, std::slice::from_ref(&pack)),
         &model,
         [480.0, 270.0],
     );

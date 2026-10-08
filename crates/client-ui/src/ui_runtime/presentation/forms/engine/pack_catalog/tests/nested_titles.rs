@@ -27,7 +27,7 @@ fn native_nested_title_overrides_hide_each_authored_label() {
     }"##,
     );
     let frame = render_model(
-        &layer_pack_catalog(&vanilla, &[pack.clone()]),
+        &layer_pack_catalog(&vanilla, std::slice::from_ref(&pack)),
         &model(),
         [480.0, 270.0],
     );
@@ -59,7 +59,7 @@ fn native_title_frame_replacement_draws_only_server_labels() {
         ]}
     }"##);
     let frame = render_model(
-        &layer_pack_catalog(&vanilla, &[pack.clone()]),
+        &layer_pack_catalog(&vanilla, std::slice::from_ref(&pack)),
         &model(),
         [480.0, 270.0],
     );
