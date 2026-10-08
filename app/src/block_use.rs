@@ -35,12 +35,15 @@ pub(crate) use gameplay::block_use::{
     LocalUse, RepeatClock, UseSurroundings, placement_cell, use_packets,
 };
 
+mod prediction_frames;
+
 /// Bevy resource adapter for the gameplay block_use owner.
 #[derive(Resource, Debug, Default)]
 pub(crate) struct BlockUseRuntime {
     owner: gameplay::block_use::BlockUseRuntime,
     /// The latest published frame pick; build actions run before the next publication.
     previous_pick: Option<FramePick>,
+    pub(crate) prediction_frames: prediction_frames::PredictionFrames,
 }
 impl std::ops::Deref for BlockUseRuntime {
     type Target = gameplay::block_use::BlockUseRuntime;
@@ -101,6 +104,7 @@ pub(crate) fn retain_block_use_pick(
 #[derive(SystemParam)]
 pub(crate) struct BlockUseContext<'w, 's> {
     input: Res<'w, SemanticInputSnapshot>,
+    frame: Res<'w, bevy::diagnostic::FrameCount>,
     origin: Res<'w, InteractionOriginSnapshot>,
     view: Res<'w, LocalViewPose>,
     ui: Res<'w, UiRuntime>,
@@ -275,7 +279,7 @@ pub(crate) fn produce_block_use(
     if !runtime.may_attempt(tick, local_use, &swings) {
         return;
     }
-    let destination = placement.map_or_else(
+    let destination = placement.as_ref().map_or_else(
         || {
             surroundings
                 .destination(observed.target.position, observed.target.face)
@@ -285,12 +289,21 @@ pub(crate) fn produce_block_use(
     );
     let predicted = placement
         .filter(|_| local_use == LocalUse::Place)
-        .map(|placement| (placement.position, placement.block));
+        .map(|placement| {
+            std::iter::once((placement.position, 0, placement.block))
+                .chain(
+                    placement
+                        .additional
+                        .into_iter()
+                        .map(|(position, block)| (position, 0, block)),
+                )
+                .collect::<Vec<_>>()
+        });
     let predicted = predicted.or_else(|| {
         (local_use == LocalUse::Interact)
             .then(|| predicted_toggle(&context.collisions, stream, observed.target.runtime_id))
             .flatten()
-            .map(|block| (observed.target.position, block))
+            .map(|block| vec![(observed.target.position, 0, block)])
     });
     let local_runtime_id = stream.local_player_runtime_id();
     // Only block items keep using while held.
@@ -390,16 +403,19 @@ pub(crate) fn produce_block_use(
         stream.reset_local_java_equip();
     }
     // Vanilla places locally as it sends; a correction replaces the prediction.
-    if let (true, Some((position, block)), Some(stream)) =
+    if let (true, Some(cells), Some(stream)) =
         (sent, predicted, context.client_world.stream.as_mut())
     {
-        let applied = stream.predict_block(position, 0, block);
-        bevy::log::debug!(
-            ?position,
-            block,
-            applied,
-            "local block prediction committed"
-        );
+        let applied = stream.predict_blocks(&cells);
+        if applied {
+            runtime.prediction_frames.committed(
+                context.frame.0,
+                cells
+                    .iter()
+                    .filter_map(|cell| stream.prediction_generation(cell.0)),
+            );
+        }
+        bevy::log::debug!(?cells, applied, "local block prediction committed");
     }
 }
 

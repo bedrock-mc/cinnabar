@@ -7,10 +7,16 @@ pub mod melee;
 pub mod mining;
 pub mod movement;
 mod placement_connections;
+mod placement_doors;
+mod placement_facing;
+mod placement_multiface;
 mod placement_prediction;
+mod placement_signs;
 mod placement_stacking;
+mod placement_stairs;
 pub mod placement_state;
 mod placement_support;
+mod placement_vines;
 pub mod survival_mining;
 
 pub use protocol::BatchSendError;

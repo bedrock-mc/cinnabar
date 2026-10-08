@@ -313,6 +313,11 @@ pub(super) fn snapshot(world: &World) -> Value {
         "recording": world.get_resource::<Recording>().map(Recording::summary),
         "game_seconds": world.resource::<Time>().elapsed_secs_f64(),
         "frame_count": world.get_resource::<bevy::diagnostic::FrameCount>().map(|count| count.0),
+        "placement_frames": world.get_resource::<crate::block_use::BlockUseRuntime>().map(|runtime| json!({
+            "committed": runtime.prediction_frames.committed_frame,
+            "staged": runtime.prediction_frames.staged_frame,
+            "upload_acknowledged": runtime.prediction_frames.upload_acknowledged_frame,
+        })),
     })
 }
 

@@ -156,6 +156,7 @@ fn fixture() -> (World, client_session::CapturedPackets) {
     world.init_resource::<MeleeRuntime>();
     world.insert_resource(network);
     world.insert_resource(Time::<Real>::default());
+    world.init_resource::<bevy::diagnostic::FrameCount>();
     world
         .resource_mut::<Time<Real>>()
         .advance_by(Duration::from_millis(1_000));

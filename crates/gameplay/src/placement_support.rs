@@ -22,6 +22,12 @@ pub(crate) fn attachment_states(
         return None;
     }
     let mut states = canonical.clone();
+    if identifier == "minecraft:vine" {
+        return crate::placement_vines::attachment_states(canonical, input.face, supports);
+    }
+    if crate::placement_multiface::is_multiface(identifier) {
+        return crate::placement_multiface::attachment_states(canonical, input.face, supports);
+    }
     if is_torch(identifier) {
         if !known_keys(canonical, &["torch_facing_direction"]) {
             return None;
@@ -53,6 +59,46 @@ pub(crate) fn attachment_states(
             _ => return None,
         };
         set_state(&mut states, "torch_facing_direction", Value::from(name))?;
+    } else if identifier == "minecraft:lever" {
+        if !known_keys(canonical, &["lever_direction", "open_bit"])
+            || state_bit(canonical, "open_bit").is_none()
+            || ![
+                "down_east_west",
+                "east",
+                "west",
+                "south",
+                "north",
+                "up_north_south",
+                "up_east_west",
+                "down_north_south",
+            ]
+            .contains(&state_value(canonical, "lever_direction")?.as_str()?)
+            || !supports[usize::from(input.face ^ 1)]?
+        {
+            return None;
+        }
+        let direction = match input.face {
+            0 => {
+                if crate::placement_state::yaw_quadrant(input.yaw)? & 1 == 0 {
+                    "down_north_south"
+                } else {
+                    "down_east_west"
+                }
+            }
+            1 => {
+                if crate::placement_state::yaw_quadrant(input.yaw)? & 1 == 0 {
+                    "up_north_south"
+                } else {
+                    "up_east_west"
+                }
+            }
+            2 => "north",
+            3 => "south",
+            4 => "west",
+            5 => "east",
+            _ => return None,
+        };
+        crate::placement_state::set_value(&mut states, "lever_direction", Value::from(direction))?;
     } else if identifier.ends_with("_button") {
         if !known_keys(canonical, &["facing_direction", "button_pressed_bit"])
             || state_value(canonical, "facing_direction")?.as_u64()? > 5
@@ -95,6 +141,17 @@ pub(crate) fn support_requirement(
     if !identifier.starts_with("minecraft:") {
         return SupportRequirement::Unsupported;
     }
+    if identifier == "minecraft:vine" {
+        return crate::placement_vines::support_face(states)
+            .map_or(SupportRequirement::Unsupported, SupportRequirement::Face);
+    }
+    if crate::placement_multiface::is_multiface(identifier) {
+        return crate::placement_multiface::support_face(states)
+            .map_or(SupportRequirement::Unsupported, SupportRequirement::Face);
+    }
+    if let Some(face) = crate::placement_signs::support_face(identifier, states) {
+        return SupportRequirement::Face(face);
+    }
     if is_torch(identifier) {
         return match state_value(states, "torch_facing_direction").and_then(Value::as_str) {
             Some("top") => SupportRequirement::Face(0),
@@ -111,6 +168,17 @@ pub(crate) fn support_requirement(
             _ => SupportRequirement::Unsupported,
         };
     }
+    if identifier == "minecraft:lever" {
+        return match state_value(states, "lever_direction").and_then(Value::as_str) {
+            Some("down_east_west" | "down_north_south") => SupportRequirement::Face(1),
+            Some("up_east_west" | "up_north_south") => SupportRequirement::Face(0),
+            Some("north") => SupportRequirement::Face(3),
+            Some("south") => SupportRequirement::Face(2),
+            Some("west") => SupportRequirement::Face(5),
+            Some("east") => SupportRequirement::Face(4),
+            _ => SupportRequirement::Unsupported,
+        };
+    }
     if is_lantern(identifier) {
         return match state_bit(states, "hanging_bit") {
             Some(false) => SupportRequirement::Face(0),
@@ -119,6 +187,14 @@ pub(crate) fn support_requirement(
         };
     }
     if is_carpet(identifier) {
+        return SupportRequirement::Face(0);
+    }
+    if crate::placement_doors::is_door(identifier) {
+        return SupportRequirement::Face(0);
+    }
+    if is_candle(identifier)
+        || matches!(identifier, "minecraft:sea_pickle" | "minecraft:snow_layer")
+    {
         return SupportRequirement::Face(0);
     }
     if survival_is_unresolved(identifier) {
@@ -145,6 +221,26 @@ pub(crate) fn support_acceptance(
     support_identifier: &str,
     full_cube: bool,
 ) -> Option<bool> {
+    if identifier == "minecraft:vine" {
+        return match support_identifier {
+            "minecraft:stone" => Some(true),
+            "minecraft:air" => Some(false),
+            _ => None,
+        };
+    }
+    if identifier == "minecraft:snow_layer" {
+        return match support_identifier {
+            "minecraft:stone" => Some(true),
+            name if is_leaves(name) => Some(true),
+            "minecraft:snow_layer" if full_cube => Some(true),
+            "minecraft:air"
+            | "minecraft:water"
+            | "minecraft:flowing_water"
+            | "minecraft:lava"
+            | "minecraft:flowing_lava" => Some(false),
+            _ => None,
+        };
+    }
     if accepts_support(identifier, support_identifier, full_cube) {
         return Some(true);
     }
@@ -194,7 +290,10 @@ fn state_bit(states: &Map<String, Value>, key: &str) -> Option<bool> {
 fn is_torch(identifier: &str) -> bool {
     matches!(
         identifier,
-        "minecraft:torch" | "minecraft:soul_torch" | "minecraft:redstone_torch"
+        "minecraft:torch"
+            | "minecraft:soul_torch"
+            | "minecraft:redstone_torch"
+            | "minecraft:unlit_redstone_torch"
     )
 }
 
@@ -203,6 +302,12 @@ fn is_lantern(identifier: &str) -> bool {
     identifier == "minecraft:lantern"
         || identifier == "minecraft:soul_lantern"
         || identifier.ends_with("copper_lantern")
+}
+
+/// Ordinary candles share count and support rules; candle cakes use another placement path.
+pub(crate) fn is_candle(identifier: &str) -> bool {
+    identifier == "minecraft:candle"
+        || (identifier.starts_with("minecraft:") && identifier.ends_with("_candle"))
 }
 
 /// Moss carpets have additional growth rules and are not ordinary colored carpet.
@@ -375,6 +480,82 @@ mod tests {
     }
 
     #[test]
+    fn lever_faces_and_yaw_parity_preserve_the_open_bit() {
+        let states = serde_json::from_value(serde_json::json!({
+            "lever_direction":{"type":"string","value":"east"},
+            "open_bit":{"type":"byte","value":1}
+        }))
+        .unwrap();
+        for (yaw, expected) in [
+            (
+                0.0,
+                [
+                    "down_north_south",
+                    "up_north_south",
+                    "north",
+                    "south",
+                    "west",
+                    "east",
+                ],
+            ),
+            (
+                90.0,
+                [
+                    "down_east_west",
+                    "up_east_west",
+                    "north",
+                    "south",
+                    "west",
+                    "east",
+                ],
+            ),
+            (
+                180.0,
+                [
+                    "down_north_south",
+                    "up_north_south",
+                    "north",
+                    "south",
+                    "west",
+                    "east",
+                ],
+            ),
+            (
+                -90.0,
+                [
+                    "down_east_west",
+                    "up_east_west",
+                    "north",
+                    "south",
+                    "west",
+                    "east",
+                ],
+            ),
+        ] {
+            for (face, direction) in expected.into_iter().enumerate() {
+                let mut click = input(face as u8);
+                click.yaw = yaw;
+                let placed =
+                    attachment_states("minecraft:lever", &states, click, [Some(true); 6]).unwrap();
+                assert_eq!(
+                    state_value(&placed, "lever_direction"),
+                    Some(&Value::from(direction))
+                );
+                assert_eq!(state_bit(&placed, "open_bit"), Some(true));
+                assert_eq!(
+                    support_requirement("minecraft:lever", &placed),
+                    SupportRequirement::Face(face as u8 ^ 1)
+                );
+                let mut unsupported = [Some(true); 6];
+                unsupported[face ^ 1] = Some(false);
+                assert!(
+                    attachment_states("minecraft:lever", &states, click, unsupported).is_none()
+                );
+            }
+        }
+    }
+
+    #[test]
     fn torch_faces_point_toward_support() {
         for (face, expected, support) in [
             (1, "top", 0),
@@ -523,10 +704,8 @@ mod tests {
         for identifier in [
             "minecraft:cactus",
             "minecraft:rail",
-            "minecraft:oak_door",
             "minecraft:oak_sapling",
-            "minecraft:sea_pickle",
-            "minecraft:unlit_redstone_torch",
+            "minecraft:bed",
         ] {
             assert_eq!(
                 support_requirement(identifier, &Map::new()),
