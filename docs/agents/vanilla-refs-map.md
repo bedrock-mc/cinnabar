@@ -505,7 +505,8 @@ RVAs are 1.26.50.26 Windows client; `mac 0x10…` addresses are the 26.30 macOS 
 ## crates/client-ui/src/ui_runtime/presentation/forms/recipe_book.rs
 - /// `CraftingScreenController::addStaticScreenVars`: radio indexes of the tabs
 - Pinned `ui/inventory_screen.json`, `crafting.scroll_grid`, binds the collection's
-  `#recipe_book_total_items` to `#maximum_grid_items`, including an empty list.+  `ui/ui_common.json`, `common.item_renderer`, reads the icon from the same collection.
+  `#recipe_book_total_items` to `#maximum_grid_items`, including an empty list.
+- `ui/ui_common.json`, `common.item_renderer`, reads the icon from the same collection.
 - Current 1.26.50.26 `CraftingContainerManagerModel::setIsFiltering`, canonical
   `src/__recovered/CraftingContainerManagerModel.cpp`, indexed at `0x0391bea0`,
   updates each category's item filter rather than copying recipe rows between tabs.
