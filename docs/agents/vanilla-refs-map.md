@@ -2064,6 +2064,9 @@ RVAs are 1.26.50.26 Windows client; `mac 0x10…` addresses are the 26.30 macOS 
 - cells, with the native cursor projection. Unknown or unreviewed sources/slots,
 - The native UI output-50 deferred `InventoryTransactionManager` path, arbitrary
 
+## crates/protocol/src/inventory/recipes/grammar.rs
+- Signed item IDs: current `1.26.50.26` canonical `ItemRegistry::registerItem` (`0x03971210`, `src/__recovered/ItemRegistry.cpp`, index `0397.jsonl`) reads and sign-extends the item's short ID into registry lookup/storage. Negative IDs are legitimate block identities; the pinned behavior pack's `recipes/spruce_planks.json` maps one spruce log to four spruce planks. Recipe output ID zero remains empty.
+
 ## docs/reference/inventory-recipe-admission.md
 - those conditions, the state pointer remains null and candidate recipes still
 
