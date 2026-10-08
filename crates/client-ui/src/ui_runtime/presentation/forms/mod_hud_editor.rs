@@ -63,6 +63,7 @@ impl UiPresentationRuntime {
         Ok(())
     }
 
+    /// Whether native layout editing currently owns the personal panel surface.
     pub fn mod_hud_editor_open(&self) -> bool {
         self.form_presentation
             .mod_hud_editor
@@ -90,6 +91,7 @@ impl UiPresentationRuntime {
         Some(result)
     }
 
+    /// Draws previews and editor chrome at the same GUI scale as gameplay cards.
     pub(in super::super) fn append_mod_hud_editor(
         &mut self,
         runtime: &UiRuntime,
@@ -211,6 +213,7 @@ impl UiPresentationRuntime {
 }
 
 impl HudEditor {
+    /// Binds changing positions and selection without regenerating the catalog.
     fn data(&self) -> DataSource {
         let mut data = cards::data(&self.draft, self.viewport);
         data.set_global("#grid_visible", Scalar::Bool(self.snap));

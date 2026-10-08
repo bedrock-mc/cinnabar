@@ -32,6 +32,7 @@ fn label(key: &str, size: [f64; 2], offset: [f64; 2], scale: f64, right: bool) -
         "text":key,"bindings":[{"binding_name":key}],"localize":false,"shadow":true,"hide_hyphen":true,
         "text_alignment": if right {"right"} else {"left"},"font_scale_factor":0.8*scale,"color":[1,1,1,1],"clip_children":true})
 }
+/// Shares card controls between gameplay publication and native previews.
 pub(in super::super) fn card(card: &Card, card_index: usize, row_index: &mut usize) -> Value {
     let k = f64::from(card.scale);
     let header = if card.title.is_empty() { 0. } else { HEADER };
@@ -201,6 +202,7 @@ pub(in super::super) fn dimensions(card: &Card) -> [f64; 2] {
         (header + ROW * card.rows.len() as f64 + 4.) * f64::from(card.scale),
     ]
 }
+/// Resolves normalized travel or the exact legacy corner offset.
 pub(in super::super) fn origin(card: &Card, viewport: [f64; 2]) -> [f64; 2] {
     let size = dimensions(card);
     let available = std::array::from_fn::<_, 2, _>(|axis| (viewport[axis] - size[axis]).max(0.));

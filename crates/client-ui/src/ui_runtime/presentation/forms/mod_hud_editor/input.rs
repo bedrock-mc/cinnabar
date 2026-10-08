@@ -9,6 +9,7 @@ pub(in super::super) struct Drag {
 }
 
 impl HudEditor {
+    /// Ends capture and retains one bounded Save or Cancel result for the host.
     pub(super) fn finish(&mut self, saved: bool) {
         self.result = Some(EditorResult {
             saved,
@@ -31,6 +32,7 @@ impl HudEditor {
         self.drag = None;
         self.view = ViewState::default();
     }
+    /// Converts a clamped GUI-pixel top-left into normalized available travel.
     fn move_card(&mut self, index: usize, at: [f64; 2]) {
         let card = &mut self.draft.cards[index];
         let size = cards::dimensions(card);
@@ -48,6 +50,7 @@ impl HudEditor {
             }
         }));
     }
+    /// Uses rendered hit regions and retains a drag until its physical release.
     pub(in super::super) fn pointer(&mut self, position: [f32; 2], pressed: bool, held: bool) {
         if !self.open || !position.into_iter().all(f32::is_finite) {
             self.drag = None;
@@ -125,6 +128,7 @@ impl HudEditor {
             self.drag = None;
         }
     }
+    /// Handles editor keys while keeping them away from gameplay input.
     pub(in super::super) fn key(&mut self, key: &str) {
         if !self.open {
             return;

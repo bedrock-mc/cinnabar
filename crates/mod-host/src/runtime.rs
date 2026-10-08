@@ -348,10 +348,12 @@ impl Instance {
         self.store.data().hud.content.as_ref()
     }
 
+    /// Moves a committed preview into the native editor without a guest call.
     pub(super) fn take_hud_editor_request(&mut self) -> Option<ui::mod_hud::Hud> {
         self.store.data_mut().hud.editor_request.take()
     }
 
+    /// Makes one host result available to this instance's next callback.
     pub(super) fn deliver_hud_editor_result(&mut self, result: ui::mod_hud::EditorResult) {
         self.store.data_mut().hud.editor_result = Some(result);
     }

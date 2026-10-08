@@ -33,6 +33,7 @@ impl HudState {
         }
     }
 }
+/// Stages validated previews only while a granted panel owns focused input.
 pub(super) fn open_editor(state: &mut State, json: String) -> Result<Result<(), String>> {
     if let Err(error) = admit(state)? {
         return Ok(Err(error));
@@ -60,6 +61,7 @@ pub(super) fn open_editor(state: &mut State, json: String) -> Result<Result<(), 
     Ok(Ok(()))
 }
 
+/// Returns the same host result until a successful callback consumes it.
 pub(super) fn read_editor_result(
     state: &mut State,
 ) -> Result<Result<Option<super::cinnabar::extension::hud::EditorResult>, String>> {

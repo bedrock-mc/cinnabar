@@ -142,6 +142,7 @@ impl Default for Crosshair {
 fn unit() -> f32 {
     1.
 }
+/// Preserves the existing card surface alpha when the new field is omitted.
 fn background_opacity() -> f32 {
     0.82
 }
@@ -234,6 +235,7 @@ impl Hud {
     }
 }
 impl EditorResult {
+    /// Rejects malformed placement output and changes attached to cancellation.
     pub fn validate(&self) -> Result<(), String> {
         if !self.saved && (self.reset || !self.placements.is_empty()) {
             return Err("cancelled HUD editor cannot carry changes".into());

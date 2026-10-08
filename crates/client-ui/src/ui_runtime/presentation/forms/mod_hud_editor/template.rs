@@ -1,24 +1,29 @@
 use super::*;
 use serde_json::{Value, json};
 
+/// Names a control in the private JSON-UI catalog.
 fn named(name: &str, value: Value) -> Value {
     json!({name:value})
 }
+/// Defines bounded editor chrome through the native rectangle renderer.
 fn rect(size: [f64; 2], offset: [f64; 2], color: [f64; 4]) -> Value {
     json!({"type":"custom","renderer":"cinnabar_rounded_rectangle","radius":0,
         "size":size,"offset":offset,"color":color,"anchor_from":"top_left","anchor_to":"top_left"})
 }
+/// Creates a literal, clipped editor label using the active carrier font.
 fn label(text: &str, size: [f64; 2], offset: [f64; 2]) -> Value {
     json!({"type":"label","text":text,"size":size,"offset":offset,"localize":false,
         "font_scale_factor":0.8,"color":[1,1,1,1],"shadow":true,"text_alignment":"left",
         "anchor_from":"top_left","anchor_to":"top_left","clip_children":true})
 }
+/// Gives native hit-testing a host-owned pressed action.
 fn button(action: &str, size: [f64; 2], offset: [f64; 2], controls: Vec<Value>) -> Value {
     json!({"type":"button","size":size,"offset":offset,"controls":controls,
         "anchor_from":"top_left","anchor_to":"top_left",
         "button_mappings":[{"from_button_id":"button.menu_select","to_button_id":action,"mapping_type":"pressed"}]})
 }
 
+/// Builds stable card previews and a bounded grid with editor controls.
 pub(super) fn catalog(hud: &Hud, viewport: [f64; 2]) -> Result<Catalog, String> {
     let mut controls = vec![named("shade", rect(viewport, [0.; 2], [0., 0., 0., 0.32]))];
     // A bounded grid. Larger virtual viewports keep the same drag increment and fewer drawn lines.

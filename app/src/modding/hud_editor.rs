@@ -9,6 +9,7 @@ pub(super) struct Owner {
     pub session: u64,
 }
 
+/// Discards the draft and optionally delivers cancellation to its original owner.
 pub(super) fn cancel(
     runtime: &mut ModRuntime,
     presentation: &mut UiPresentationRuntime,
@@ -28,6 +29,7 @@ pub(super) fn cancel(
     }
 }
 
+/// Revokes a draft when its component, session or input ownership changes.
 pub(super) fn guard(
     runtime: &mut ModRuntime,
     presentation: &mut UiPresentationRuntime,
@@ -58,6 +60,7 @@ pub(super) fn guard(
     }
 }
 
+/// Routes a native result before the requesting guest receives its next callback.
 pub(super) fn collect(runtime: &mut ModRuntime, presentation: &mut UiPresentationRuntime) {
     if let Some(result) = presentation.take_mod_hud_editor_result()
         && let Some(owner) = runtime.hud_editor_owner.take()
@@ -68,6 +71,7 @@ pub(super) fn collect(runtime: &mut ModRuntime, presentation: &mut UiPresentatio
     }
 }
 
+/// Opens committed requests only for the current live, focused settings owner.
 pub(super) fn publish(
     runtime: &mut ModRuntime,
     presentation: &mut UiPresentationRuntime,
