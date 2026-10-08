@@ -140,7 +140,7 @@ fn step(runtime_id: u64, x: f32, yaw: f32) -> WorldEvent {
 }
 
 /// Every frame of a tick reuses one presentation and re-places it, matching an uncached build
-/// exactly; a new tick or a mid-tick skin change rebuilds it.
+/// exactly; a new tick or a newly published skin rebuilds it.
 #[test]
 fn frames_between_ticks_only_re_place_the_tick_presentation() {
     let mut world = world();
@@ -210,11 +210,20 @@ fn frames_between_ticks_only_re_place_the_tick_presentation() {
         }
     }
 
-    // A profile change between ticks rebuilds the player's presentation with the new skin.
+    // A profile change retains the ready skin until the next simulation tick.
     let before = poses.presentation_builds();
     world
         .apply_ordered_event(profile(9), Some(sequence + 1))
         .unwrap();
+    poses.begin_frame();
+    let rig = world.actor_rig(PLAYER).unwrap();
+    let actor = world.actor(PLAYER).unwrap();
+    let profile = world.actor_player_profile(PLAYER);
+    let cached = actor_rig_presentation_cached(&rig, actor, profile, 0.5, &mut poses).unwrap();
+    assert_eq!(poses.presentation_builds(), before);
+    assert_eq!(cached.skin_rgba8, last_player.as_ref().unwrap().skin_rgba8);
+
+    world.advance_actor_interpolation_frame(1);
     poses.begin_frame();
     let rig = world.actor_rig(PLAYER).unwrap();
     let actor = world.actor(PLAYER).unwrap();

@@ -1,12 +1,18 @@
-//! Device-bounded immutable neutral artwork, replaced whole when its identity changes.
+//! Device-bounded immutable artwork; publications retain textures with unchanged pixels.
 use super::*;
 use crate::actor::{
     ActorArtworkPageId, ActorArtworkPages, MAX_ACTOR_GPU_PIXEL_BYTES, MAX_ACTOR_TEXTURE_PAGES,
     gpu::ActorDrawSpan,
 };
-use std::sync::Arc;
+use std::{collections::hash_map::RandomState, sync::Arc};
 
+#[path = "artwork_cache.rs"]
+mod cache;
+use cache::{TextureCache, TextureKey};
+
+#[derive(Clone)]
 pub(super) struct GpuArtworkPage {
+    source: TextureKey,
     _texture: Texture,
     pub view: TextureView,
     pub bind_group: Option<BindGroup>,
@@ -19,10 +25,14 @@ pub(super) struct GpuArtwork {
     identity: Option<([u8; 32], [u8; 32])>,
     pub pages: Vec<GpuArtworkPage>,
     pub glint: Option<(Texture, TextureView)>,
+    glint_source: Option<TextureKey>,
+    glint_bytes: usize,
+    source_hasher: RandomState,
     rejected: bool,
 }
 
 impl GpuArtwork {
+    /// Keeps immutable textures across route changes and uploads only new pixel content.
     pub fn prepare(
         &mut self,
         pages: &ActorArtworkPages,
@@ -33,15 +43,8 @@ impl GpuArtwork {
         if self.identity == Some(identity) {
             return !self.rejected;
         }
-        if self.identity.take().is_some() {
-            // Session packs change the artwork. wgpu keeps dropped pages alive until
-            // work already submitted with them completes, so a generation is only
-            // briefly doubled.
-            self.pages.clear();
-            self.glint = None;
-            self.rejected = false;
-        }
         self.identity = Some(identity);
+        self.rejected = false;
         let limits = device.limits();
         let fallback = crate::EquipmentRaster {
             width: 1,
@@ -57,30 +60,23 @@ impl GpuArtwork {
             color_mask: false,
             multitexture: false,
         };
-        let glint = glint_page.fit_within(limits.max_texture_dimension_2d);
-        let texture = device.create_texture_with_data(
-            queue,
-            &TextureDescriptor {
-                label: Some("immutable actor glint"),
-                size: Extent3d {
-                    width: u32::from(glint.width),
-                    height: u32::from(glint.height),
-                    depth_or_array_layers: 1,
-                },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: TextureDimension::D2,
-                format: TextureFormat::Rgba8UnormSrgb,
-                usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
-                view_formats: &[],
-            },
-            TextureDataOrder::LayerMajor,
-            &glint.rgba8,
-        );
-        let view = texture.create_view(&TextureViewDescriptor::default());
-        self.glint = Some((texture, view));
+        let glint_key = self
+            .glint_source
+            .as_ref()
+            .filter(|key| key.shares_pixels_with(&glint_page))
+            .cloned()
+            .unwrap_or_else(|| TextureKey::new(&glint_page, &self.source_hasher));
+        if self.glint_source.as_ref() != Some(&glint_key) {
+            let glint = glint_page.fit_within(limits.max_texture_dimension_2d);
+            let texture = upload_page(device, queue, &glint, "immutable actor glint");
+            let view = texture.create_view(&TextureViewDescriptor::default());
+            self.glint = Some((texture, view));
+            self.glint_bytes = glint.rgba8.len();
+            self.invalidate_bindings();
+        }
+        self.glint_source = Some(glint_key);
         let bytes = pages.pages.iter().try_fold(
-            crate::actor::PLAYER_SKIN_BUDGET_BYTES + glint.rgba8.len(),
+            render_model::PLAYER_SKIN_BUDGET_BYTES + self.glint_bytes,
             |total, page| total.checked_add(page.rgba8.len()),
         );
         if pages.pages.len() + 1 > MAX_ACTOR_TEXTURE_PAGES
@@ -90,54 +86,93 @@ impl GpuArtwork {
                 .iter()
                 .any(|page| page.layers > limits.max_texture_array_layers)
         {
+            self.pages.clear();
             self.rejected = true;
             bevy::log::warn!(
                 "neutral actor artwork exceeds device limits; generic artwork unavailable"
             );
             return false;
         }
+        let mut retained = TextureCache::new(std::mem::take(&mut self.pages));
+        self.pages.reserve(pages.pages.len());
         for page in pages.pages.iter() {
-            // UVs are normalised, so a page past the device limit draws downscaled, not blank.
-            let page = &page.fit_within(limits.max_texture_dimension_2d);
-            let texture = device.create_texture_with_data(
-                queue,
-                &TextureDescriptor {
-                    label: Some("immutable neutral binary-alpha actor page"),
-                    size: Extent3d {
-                        width: u32::from(page.width),
-                        height: u32::from(page.height),
-                        depth_or_array_layers: page.layers,
-                    },
-                    mip_level_count: 1,
-                    sample_count: 1,
-                    dimension: TextureDimension::D2,
-                    format: TextureFormat::Rgba8UnormSrgb,
-                    usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
-                    view_formats: &[],
-                },
-                TextureDataOrder::LayerMajor,
-                &page.rgba8,
-            );
-            let view = texture.create_view(&TextureViewDescriptor {
-                dimension: Some(TextureViewDimension::D2Array),
-                ..default()
+            let source = retained.key(page, &self.source_hasher);
+            let mut gpu = retained.get(&source).unwrap_or_else(|| {
+                // Normalised UVs let oversized source pages use downscaled device textures.
+                let fitted = page.fit_within(limits.max_texture_dimension_2d);
+                let texture = upload_page(device, queue, &fitted, "immutable actor page");
+                let view = texture.create_view(&TextureViewDescriptor {
+                    dimension: Some(TextureViewDimension::D2Array),
+                    ..default()
+                });
+                GpuArtworkPage {
+                    source: source.clone(),
+                    _texture: texture,
+                    view,
+                    bind_group: None,
+                    color_mask: page.color_mask,
+                    multitexture: page.multitexture,
+                }
             });
-            self.pages.push(GpuArtworkPage {
-                _texture: texture,
-                view,
-                bind_group: None,
-                color_mask: page.color_mask,
-                multitexture: page.multitexture,
-            });
+            gpu.source = source;
+            if gpu.color_mask != page.color_mask || gpu.multitexture != page.multitexture {
+                gpu.bind_group = None;
+                gpu.color_mask = page.color_mask;
+                gpu.multitexture = page.multitexture;
+            }
+            retained.insert(gpu.clone());
+            self.pages.push(gpu);
         }
+        #[cfg(feature = "tracy")]
+        let _retire = bevy::log::info_span!("actor.artwork_retire").entered();
+        drop(retained);
         true
     }
 
+    /// Buffer and glint replacements invalidate bindings without discarding page textures.
     pub fn invalidate_bindings(&mut self) {
         for page in &mut self.pages {
             page.bind_group = None;
         }
     }
+}
+
+/// Accounts for both texture allocation and the immutable source upload in one trace zone.
+fn upload_page(
+    device: &RenderDevice,
+    queue: &RenderQueue,
+    page: &crate::ActorTexturePage,
+    label: &'static str,
+) -> Texture {
+    #[cfg(feature = "tracy")]
+    let _span = bevy::log::info_span!(
+        "actor.artwork_upload",
+        label,
+        width = page.width,
+        height = page.height,
+        layers = page.layers,
+        bytes = page.rgba8.len(),
+    )
+    .entered();
+    device.create_texture_with_data(
+        queue,
+        &TextureDescriptor {
+            label: Some(label),
+            size: Extent3d {
+                width: u32::from(page.width),
+                height: u32::from(page.height),
+                depth_or_array_layers: page.layers,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: TextureDimension::D2,
+            format: TextureFormat::Rgba8UnormSrgb,
+            usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
+            view_formats: &[],
+        },
+        TextureDataOrder::LayerMajor,
+        &page.rgba8,
+    )
 }
 
 /// Opaque instances share runs; blended instances retain individual sort positions.
@@ -432,3 +467,7 @@ mod tests {
         assert_eq!(gpu.identity, Some(([0; 32], [0; 32])));
     }
 }
+
+#[cfg(test)]
+#[path = "artwork_reuse_tests.rs"]
+mod reuse_tests;

@@ -126,6 +126,18 @@
 - Unchanged hand and cloud uniforms, inactive portals and empty item scenes skip
   redundant staging work. Regression tests assert allocations, writes and retained
   buffers; hardware captures measure elapsed time separately.
+- Actor publication retains native skin pixels and unchanged GPU artwork. Bounded worker
+  batches prepare custom models while replacements retain the last complete profile.
+  Prepared meshes retain validation and vertex fingerprints across catalog publication.
+  Deterministic tests cover admission, reuse, stale completions and indexed lookup work;
+  see [actor burst evidence](docs/evidence/actor-burst-preparation.md).
+- Incomplete actor-join acceptance: readiness-gated first appearance remains provisional.
+  Models exceeding the preparation mesh budget use the default rig until their source
+  changes or the session resets; exact appearance under that limit remains an open gate.
+  First GPU uploads, pipeline compilation, UI publication and exact page comparisons
+  remain cold costs. Synthetic crowds and headless screenshots do not
+  establish native first-appearance timing, join latency, no-pop-in acceptance or release
+  frame budgets; those gates remain open.
 - Recurring hand, UI viewport and particle writes share bounded retained GPU
   staging. Allocation regressions cover real Metal owners; lifecycle and byte-order
   tests cover asynchronous reuse and fallback. Attach-only native samples confirm
@@ -463,6 +475,14 @@
   submitting what it hides.
 - Incomplete live visual acceptance: an in-game pass on the M3 Pro (no pop-in, no wrongly
   hidden terrain) and live `gpu_opaque` and render CPU stage captures are pending.
+
+## Bounded lighting CPU work
+
+- Retained-support early exits and section packing preserve light/provenance output;
+  [remote CPU evidence](docs/evidence/lighting-cpu-work.md) records workload, allocation
+  and queue measurements alongside independent regression oracles.
+- Incomplete: these synthetic solver diagnostics do not close native vanilla parity,
+  release frame, join or streaming gates; target-hardware captures remain required.
 
 ## Headless chunk cost baselines
 

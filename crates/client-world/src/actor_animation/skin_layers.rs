@@ -7,6 +7,8 @@ use super::{pose::LocalDelta, *};
 pub struct SkinRenderLayer {
     pub image: SkinAnimation,
     pub geometry: Arc<assets::SkinGeometry>,
+    /// Immutable worker-built mesh for this exact animated layer.
+    pub mesh: Option<render_model::ActorRigGeometry>,
     pub previous: Arc<[BoneTransform]>,
     pub current: Arc<[BoneTransform]>,
     pub rest: Arc<[BoneTransform]>,
@@ -18,6 +20,7 @@ pub struct SkinRenderLayer {
 pub(super) struct SkinLayerSkeleton {
     image: SkinAnimation,
     geometry: Arc<assets::SkinGeometry>,
+    pub(super) mesh: Option<render_model::ActorRigGeometry>,
     pub(super) bones: Vec<RuntimeBone>,
     pub(super) names: Vec<Box<str>>,
     pub(super) rest: Arc<[BoneTransform]>,
@@ -46,6 +49,7 @@ pub(super) fn parse(source: &SkinGeometrySource) -> Vec<SkinLayerSkeleton> {
             let rest = compose_pose(&bones, &[])?.into();
             Some(SkinLayerSkeleton {
                 image: image.clone(),
+                mesh: render_model::skin_geometry(&geometry, render_model::DIAGNOSTIC_RIG_ID).ok(),
                 geometry: Arc::new(geometry),
                 bones,
                 names,
@@ -62,6 +66,7 @@ pub(super) fn blink_controller(
 ) -> Option<usize> {
     state
         .skin_skeleton()?
+        .prepared
         .layers
         .iter()
         .any(|layer| layer.image.kind == SkinAnimationKind::Face)
@@ -85,7 +90,7 @@ pub(super) fn seed(
     let Some(skin) = state.skin_skeleton() else {
         return;
     };
-    for layer in &skin.layers {
+    for layer in &skin.prepared.layers {
         let variable = match layer.image.kind {
             SkinAnimationKind::Face => "variable.animation_frames_face",
             SkinAnimationKind::Body32 => "variable.animation_frames_32x32",
@@ -133,7 +138,8 @@ pub(super) fn evaluate(
                 .slot(evaluator.assets, "variable.is_blinking"),
         )
         .unwrap_or(0.0);
-    skin.layers
+    skin.prepared
+        .layers
         .iter()
         .filter_map(|layer| {
             let local = layer
@@ -159,7 +165,8 @@ pub(super) fn evaluate(
                     {
                         return None;
                     }
-                    let body_index = skin.names.iter().position(|body| body == name)? as u32;
+                    let body_index =
+                        skin.prepared.names.iter().position(|body| body == name)? as u32;
                     render
                         .and_then(|layers| layers.first())
                         .is_some_and(|body| body.hidden_bones.contains(&body_index))
@@ -169,6 +176,7 @@ pub(super) fn evaluate(
             Some(SkinRenderLayer {
                 image: layer.image.clone(),
                 geometry: Arc::clone(&layer.geometry),
+                mesh: layer.mesh.clone(),
                 previous: Arc::clone(&pose),
                 current: pose,
                 rest: Arc::clone(&layer.rest),
@@ -198,7 +206,11 @@ pub(super) fn sample(
     budget: &mut EvalBudget<'_>,
 ) -> Result<Vec<SkinRenderLayer>, EvalError> {
     let work = state.skin_skeleton().map_or(0, |skin| {
-        skin.layers.iter().map(|layer| layer.bones.len()).sum()
+        skin.prepared
+            .layers
+            .iter()
+            .map(|layer| layer.bones.len())
+            .sum()
     });
     if work > budget.work_left {
         return Err(EvalError::ActorBudget);
