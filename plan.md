@@ -102,6 +102,9 @@
   start/stop actions, local outcome, click position and survival inventory delta.
 - Deterministic gameplay and wire tests cover ledges, jump bridging, towering,
   backward sneak bridging, failed attempts and refused transport.
+- Provisional: slot or item changes preserve the held placement line and repeat
+  schedule. Native slot-change callbacks and their effect on retained history,
+  orientation and timing remain unverified; this does not close the hotbar-switch gate.
 - Incomplete: complete runtime block-property and custom block-placer admission,
   item-specific replacement/state rules and live vanilla/server acceptance remain open. No
   complete placement parity or performance gate is closed by these tests.
