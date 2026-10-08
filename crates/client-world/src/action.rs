@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, sync::Arc};
 
-use assets::{EntityAssetKind, ItemActionPhase, RuntimeEntityAssets};
+use assets::{ItemActionPhase, RuntimeEntityAssets};
 use protocol::{ActorActionEvent, ActorActionKind};
 
 use crate::{ActorLifetimeId, EntityRigId};
@@ -193,11 +193,7 @@ impl RemoteActionStore {
     }
 
     fn fallback(&self, kind: &ActorActionKind, rig: Option<EntityRigId>) -> RemoteActionFallback {
-        let ActorActionKind::Custom {
-            animation,
-            controller,
-        } = kind
-        else {
+        let ActorActionKind::Custom { animation, .. } = kind else {
             return RemoteActionFallback::None;
         };
         let catalog = rig.and_then(|rig| {
@@ -208,46 +204,9 @@ impl RemoteActionStore {
             }
         });
         let available = catalog.is_some_and(|(assets, index)| {
-            let Some(geometry) = assets.rig_geometries().get(index as usize) else {
-                return false;
-            };
-            let animation_first = geometry.first_animation as usize;
-            let animation_end = animation_first.saturating_add(geometry.animation_count as usize);
-            let animation_available = assets
-                .rig_animations()
-                .get(animation_first..animation_end)
-                .is_some_and(|bindings| {
-                    bindings.iter().any(|binding| {
-                        assets
-                            .animation_clips()
-                            .get(binding.clip as usize)
-                            .and_then(|clip| assets.symbols().get(clip.symbol as usize))
-                            .is_some_and(|symbol| {
-                                symbol.kind == EntityAssetKind::Animation
-                                    && symbol.identifier.as_ref() == animation.as_ref()
-                            })
-                    })
-                });
-            let controller_first = geometry.first_controller as usize;
-            let controller_end =
-                controller_first.saturating_add(geometry.controller_count as usize);
-            let controller_available = controller.is_empty()
-                || assets
-                    .rig_controllers()
-                    .get(controller_first..controller_end)
-                    .is_some_and(|bindings| {
-                        bindings.iter().any(|binding| {
-                            assets
-                                .controllers()
-                                .get(binding.controller as usize)
-                                .and_then(|compiled| assets.symbols().get(compiled.symbol as usize))
-                                .is_some_and(|symbol| {
-                                    symbol.kind == EntityAssetKind::AnimationController
-                                        && symbol.identifier.as_ref() == controller.as_ref()
-                                })
-                        })
-                    });
-            animation_available && controller_available
+            assets
+                .server_animation_clip(index as usize, animation)
+                .is_some()
         });
         if available {
             RemoteActionFallback::None

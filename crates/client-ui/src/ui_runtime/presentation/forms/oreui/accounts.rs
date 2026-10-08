@@ -15,74 +15,116 @@ use crate::menu::{MenuAction, MenuScreen, MenuView, auth::AuthState};
 
 /// The picker for `view`, with account pictures from `images` once decoded.
 pub(super) fn modal<'a>(view: &'a MenuView, images: &HashMap<String, IconRef>) -> Modal<'a> {
-    let busy = view.feeds.account_adding;
+    if view.feeds.account_adding
+        || matches!(view.auth_state, AuthState::AwaitingCode { .. })
+        || (view.sign_in_requested
+            && matches!(view.auth_state, AuthState::Checking | AuthState::Failed(_)))
+    {
+        return sign_in_modal(view);
+    }
     let active = view.feeds.account_active_id.as_deref();
-    let items = if busy {
-        Vec::new()
-    } else {
-        view.feeds
-            .accounts
-            .iter()
-            .enumerate()
-            .map(|(index, account)| {
-                let current = active == Some(account.id.as_str());
-                MenuItem {
-                    label: &account.gamertag,
-                    picture_slot: true,
-                    picture: account
-                        .picture_path
-                        .as_ref()
-                        .and_then(|path| images.get(path).copied()),
-                    selected: current,
-                    enabled: true,
-                    action: (!current).then_some(MenuAction::SwitchAccount(index)),
-                }
-            })
-            .collect()
-    };
-    let (body, body_color) = if busy {
-        (status(&view.auth_state).into(), TEXT)
-    } else {
-        let error = view.feeds.account_error.as_deref().unwrap_or_default();
-        (error.into(), DESTRUCTIVE_TINT)
-    };
-    let first = if busy {
-        (
-            "Cancel sign-in".into(),
-            Variant::Secondary,
-            Some(MenuAction::CancelSignIn),
-        )
-    } else {
-        (
-            "Add account".into(),
-            Variant::Primary,
-            Some(MenuAction::AddAccount),
-        )
-    };
-    let profile = (!busy).then_some(MenuAction::Navigate(MenuScreen::Profile));
+    let items = view
+        .feeds
+        .accounts
+        .iter()
+        .enumerate()
+        .map(|(index, account)| {
+            let current = active == Some(account.id.as_str());
+            MenuItem {
+                label: &account.gamertag,
+                picture_slot: true,
+                picture: account
+                    .picture_path
+                    .as_ref()
+                    .and_then(|path| images.get(path).copied()),
+                selected: current,
+                enabled: true,
+                action: (!current).then_some(MenuAction::SwitchAccount(index)),
+            }
+        })
+        .collect();
     Modal {
         title: "Accounts",
         items,
-        body,
-        body_color,
-        buttons: vec![first, ("View profile".into(), Variant::Secondary, profile)],
-        close: Some(if busy {
-            MenuAction::CancelSignIn
-        } else {
-            MenuAction::DismissDialog
-        }),
+        body: view
+            .feeds
+            .account_error
+            .as_deref()
+            .unwrap_or_default()
+            .into(),
+        body_color: DESTRUCTIVE_TINT,
+        buttons: vec![
+            (
+                "Add account".into(),
+                Variant::Primary,
+                Some(MenuAction::AddAccount),
+            ),
+            (
+                "View profile".into(),
+                Variant::Secondary,
+                Some(MenuAction::Navigate(MenuScreen::Profile)),
+            ),
+        ],
+        close: Some(MenuAction::DismissDialog),
     }
 }
 
-/// What the sign-in in progress is waiting on.
-fn status(auth: &AuthState) -> String {
-    match auth {
-        AuthState::AwaitingCode { uri, code } => {
-            format!("Finish signing in in the browser.\n\n{uri}\n\n{code}")
-        }
+/// Device sign-in uses the same primary and secondary roles as other launcher modals.
+pub(super) fn sign_in_modal(view: &MenuView) -> Modal<'_> {
+    let first = match view.auth_state {
+        AuthState::AwaitingCode { .. } => (
+            "Open link".into(),
+            Variant::Primary,
+            Some(MenuAction::OpenSignInLink),
+        ),
+        AuthState::Failed(_) => (
+            "Try again".into(),
+            Variant::Primary,
+            Some(MenuAction::StartSignIn),
+        ),
+        AuthState::Authenticated => ("Signed in".into(), Variant::Primary, None),
+        _ => ("Open link".into(), Variant::Primary, None),
+    };
+    Modal {
+        title: "Sign in with Microsoft",
+        items: Vec::new(),
+        body: status(view).into(),
+        body_color: if matches!(view.auth_state, AuthState::Failed(_)) {
+            DESTRUCTIVE_TINT
+        } else {
+            TEXT
+        },
+        buttons: vec![
+            first,
+            (
+                "Cancel sign-in".into(),
+                Variant::Secondary,
+                Some(MenuAction::CancelSignIn),
+            ),
+        ],
+        close: Some(MenuAction::CancelSignIn),
+    }
+}
+
+/// Manual instructions appear only when the default browser handoff fails.
+fn status(view: &MenuView) -> String {
+    use launcher::menu::sign_in::BrowserState;
+    match &view.auth_state {
+        AuthState::AwaitingCode { uri, code } => match view.sign_in_browser {
+            BrowserState::Failed => format!(
+                "Your browser couldn't open. Try Open link again.\n\nOr visit {uri} and enter code {code}."
+            ),
+            BrowserState::Opened => {
+                "Your browser is open. Finish signing in there, then return to the game.".into()
+            }
+            BrowserState::Opening => "Opening your browser… You can also select Open link.".into(),
+            BrowserState::Waiting => {
+                "Select Open link to finish signing in in your browser.".into()
+            }
+        },
         AuthState::Failed(reason) => reason.clone(),
-        AuthState::Authenticated => "Loading Xbox profile…".into(),
-        _ => "Opening Microsoft sign-in…".into(),
+        AuthState::Authenticated => "Signed in. Loading Xbox profile…".into(),
+        _ => "Preparing Microsoft sign-in…".into(),
     }
 }
 
@@ -196,6 +238,77 @@ mod tests {
 
     fn near(a: [f32; 4], b: [f32; 4]) -> bool {
         a.iter().zip(b).all(|(a, b)| (a - b).abs() < 0.01)
+    }
+
+    #[test]
+    fn device_prompt_prioritizes_open_link_and_hides_manual_details_until_failure() {
+        let mut view = manager_view();
+        view.feeds.account_adding = true;
+        view.auth_state = AuthState::AwaitingCode {
+            uri: "https://example.invalid/link".into(),
+            code: "TEST-CODE".into(),
+        };
+        let prompt = modal(&view, &HashMap::new());
+        assert!(!prompt.body.contains("TEST-CODE"));
+        assert!(!prompt.body.contains("example.invalid"));
+        assert_eq!(prompt.buttons[0].0, "Open link");
+        assert_eq!(prompt.buttons[0].2, Some(MenuAction::OpenSignInLink));
+        let (_, actions, _) = draw(&view);
+        assert!(actions.contains(&MenuAction::OpenSignInLink));
+        assert!(actions.contains(&MenuAction::CancelSignIn));
+        view.sign_in_browser = launcher::menu::sign_in::BrowserState::Failed;
+        let fallback = modal(&view, &HashMap::new());
+        assert!(fallback.body.contains("TEST-CODE"));
+        assert!(fallback.body.contains("example.invalid"));
+        assert_eq!(fallback.buttons[0].2, Some(MenuAction::OpenSignInLink));
+    }
+
+    #[test]
+    fn device_prompt_captures_standalone_routes_and_their_focus() {
+        let mut presentation =
+            UiPresentationRuntime::new(crate::test_support::fixture_font()).unwrap();
+        let metrics = TextMetrics::for_viewport([1280, 720], ui::DpiScale::new(1.0).unwrap(), None);
+        for screen in [MenuScreen::Home, MenuScreen::Profile, MenuScreen::Store] {
+            let mut view = manager_view();
+            view.dialog = None;
+            view.screen = screen;
+            view.auth_state = AuthState::AwaitingCode {
+                uri: "https://example.invalid".into(),
+                code: "TEST-CODE".into(),
+            };
+            let (mut nodes, mut next) = (Vec::new(), 1);
+            let hits = presentation
+                .append_oreui_screen(&view, &mut nodes, &mut next, metrics, SIZE, None, &|_| None)
+                .unwrap()
+                .expect("standalone sign-in prompt");
+            assert!(
+                hits.iter()
+                    .any(|(action, _)| *action == MenuAction::OpenSignInLink)
+            );
+            assert!(hits.iter().all(|(action, _)| matches!(
+                action,
+                MenuAction::OpenSignInLink | MenuAction::CancelSignIn
+            )));
+        }
+    }
+
+    #[test]
+    fn failed_sign_in_offers_retry_and_success_has_no_browser_action() {
+        let mut view = manager_view();
+        view.feeds.account_adding = true;
+        view.auth_state = AuthState::Failed("Your sign-in code expired. Try again.".into());
+        let prompt = modal(&view, &HashMap::new());
+        assert!(prompt.body.contains("expired"));
+        assert_eq!(prompt.buttons[0].2, Some(MenuAction::StartSignIn));
+        view.auth_state = AuthState::Authenticated;
+        let success = modal(&view, &HashMap::new());
+        assert!(
+            !success
+                .buttons
+                .iter()
+                .any(|button| button.2 == Some(MenuAction::OpenSignInLink))
+        );
+        assert!(success.body.contains("Signed in"));
     }
 
     #[test]

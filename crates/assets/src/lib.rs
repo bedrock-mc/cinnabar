@@ -133,8 +133,8 @@ pub use entity::{
     EntityAssetSource, EntityAssetSummary, EntityAssetSymbol, EntityCarrierBlob,
     EntityControllerAnimation, EntityControllerAnimationTarget, EntityControllerState,
     EntityControllerTransition, EntityDependency, EntityDependencyKind, EntityDependencyResolution,
-    EntityGeometry, EntityGeometryBone, EntityGeometryCube, EntityGeometryFaceUv,
-    EntityGeometryFaceUvs, EntityGeometryInheritance, EntityGeometryScalar,
+    EntityGeometry, EntityGeometryBone, EntityGeometryBounds, EntityGeometryCube,
+    EntityGeometryFaceUv, EntityGeometryFaceUvs, EntityGeometryInheritance, EntityGeometryScalar,
     EntityGeometryTextureMesh, EntityGeometryUv, EntityRenderCandidate, EntityRenderData,
     EntityRenderGeometry, EntityRenderLayer, EntityRenderMaterial, EntityRenderMaterialState,
     EntityRenderSlot, EntityRenderVisibility, EntityRigAnimationBinding, EntityRigBinding,
@@ -154,9 +154,10 @@ pub use entity::{
     MAX_MOLANG_EXPRESSIONS, MAX_MOLANG_LOOP_DEPTH, MAX_MOLANG_LOOP_ITERATIONS, MAX_MOLANG_OPS,
     MAX_MOLANG_OPS_PER_EXPRESSION, MAX_MOLANG_QUERY_ARGUMENTS, MAX_MOLANG_STACK_DEPTH,
     MAX_MOLANG_STRING_BYTES, MOLANG_QUERIES, MolangBranch, MolangCall, MolangCollection,
-    MolangCollectionItem, MolangEaseCurve, MolangEaseMode, MolangFunction, MolangOp, MolangSymbol,
-    MolangSymbolKind, RuntimeEntityAssets, encode_entity_blob, entity_render_pattern_matches,
-    molang_call, molang_program_stack, validate_entity_geometry_inheritance,
+    MolangCollectionItem, MolangEaseCurve, MolangEaseMode, MolangFunction, MolangOp, MolangProgram,
+    MolangSymbol, MolangSymbolKind, RuntimeEntityAssets, encode_entity_blob,
+    entity_render_pattern_matches, molang_call, molang_program_stack,
+    validate_entity_geometry_inheritance,
 };
 pub use entity::{PACK_EQUIPMENT_INDEX_BASE, PACK_RIG_ID_BASE};
 pub use environment_settings::{CloudQuality, EnvironmentQualitySettings, PrecipitationQuality};
@@ -263,7 +264,7 @@ pub use sound_events::{FloatRange, RouteLookup, SoundEventTables, SoundRoute};
 pub use stair::StairDirection;
 pub use texture::{
     MAX_TILE_SIZE, MIP_COUNT, TILE_SIZE, TextureArray, TextureMip, build_legacy_terrain_mip_chain,
-    build_texture_mip_chain, downsample_linear_premultiplied,
+    build_texture_mip_chain, downsample_linear_premultiplied, rebuild_legacy_terrain_mips,
 };
 pub use ui::{
     MAX_UI_ATLAS_PAGES, MAX_UI_ATLAS_SIDE, MAX_UI_CARRIER_BYTES, MAX_UI_FILE_BYTES, MAX_UI_FILES,

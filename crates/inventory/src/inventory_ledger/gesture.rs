@@ -431,7 +431,7 @@ impl PlayerInventoryLedger {
         &self,
         personal_cells: bool,
     ) -> Result<Option<u64>, InventoryGestureError> {
-        if self.authority != Some(protocol::InventoryAuthority::Server) {
+        if self.authority.is_none() {
             return Err(InventoryGestureError::AuthorityUnavailable);
         }
         // A locally closing window only waits out its admitted requests.
@@ -484,6 +484,9 @@ impl PlayerInventoryLedger {
     }
 
     pub(super) fn submit(&mut self, submission: Submission) -> Result<i32, InventoryGestureError> {
+        if self.authority == Some(protocol::InventoryAuthority::Client) {
+            self.validate_legacy_submission(&submission)?;
+        }
         self.check_surfaces(submission.groups.iter().flat_map(DeltaGroup::touched))?;
         let request_id = self.peek_request_id()?;
         self.next_request_id -= 2;

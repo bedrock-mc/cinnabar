@@ -28,6 +28,9 @@ mod horse_tests;
 #[path = "geometry/inherited_cubes_tests.rs"]
 mod inherited_cubes_tests;
 #[cfg(test)]
+#[path = "geometry/large_rig_tests.rs"]
+mod large_rig_tests;
+#[cfg(test)]
 #[path = "geometry/pig_tests.rs"]
 mod pig_tests;
 #[cfg(test)]
@@ -69,6 +72,7 @@ pub(super) fn resolve_binding(
     let evaluator = Evaluator {
         assets,
         layout,
+        program: None,
         actor,
         input: &input,
         context: &context,
@@ -140,6 +144,7 @@ pub(super) fn resolve_binding(
         scale: None,
         layer_skeletons: BTreeMap::new(),
         controllers,
+        server_animations: Vec::new(),
         previous: current.clone(),
         ui_pose: None,
         ui_animation: None,
@@ -448,6 +453,7 @@ fn reselect_geometry_with_checkpoint(
     let evaluator = Evaluator {
         assets,
         layout,
+        program: None,
         actor,
         input: &input,
         context,

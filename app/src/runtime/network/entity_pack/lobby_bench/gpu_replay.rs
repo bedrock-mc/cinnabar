@@ -1,7 +1,6 @@
 //! Native GPU replay of captured lobby actors; no socket or live server is used.
 use super::*;
 use bevy::{
-    anti_alias::{AntiAliasPlugin, fxaa::Fxaa},
     asset::AssetPlugin,
     camera::{Camera3dDepthTextureUsage, CameraPlugin, RenderTarget},
     core_pipeline::{CorePipelinePlugin, tonemapping::Tonemapping},
@@ -33,7 +32,6 @@ fn gpu_app(camera: Transform) -> App {
             CameraPlugin,
             CorePipelinePlugin,
             PostProcessPlugin,
-            AntiAliasPlugin,
         ))
         .add_plugins((
             render::ChunkRenderPlugin::new(1),
@@ -47,6 +45,13 @@ fn gpu_app(camera: Transform) -> App {
             render::ScreenOverlayRenderPlugin,
             render::EnhancedRenderPlugin,
         ));
+    app.finish();
+    app.cleanup();
+    let render_world = app.sub_app(RenderApp).world();
+    let support = client_presentation::camera::antialiasing::device_support(
+        render_world.resource::<bevy::render::renderer::RenderAdapter>(),
+        render_world.resource::<RenderDevice>(),
+    );
     let image = app
         .world_mut()
         .resource_mut::<Assets<Image>>()
@@ -59,24 +64,19 @@ fn gpu_app(camera: Transform) -> App {
     app.world_mut().spawn((
         Camera3d {
             depth_texture_usages: Camera3dDepthTextureUsage::from(
-                TextureUsages::RENDER_ATTACHMENT
-                    | TextureUsages::TEXTURE_BINDING
-                    | TextureUsages::COPY_SRC,
+                TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING,
             ),
             ..default()
         },
         Camera::default(),
         RenderTarget::Image(image.into()),
-        Msaa::Off,
-        Fxaa::default(),
+        support.msaa(ui::DEFAULT_ANTI_ALIASING_SAMPLES),
         Hdr,
         Tonemapping::None,
         Bloom::default(),
         render::EnhancedRendering::default(),
         camera,
     ));
-    app.finish();
-    app.cleanup();
     app
 }
 

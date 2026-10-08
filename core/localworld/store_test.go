@@ -162,3 +162,26 @@ func TestStoreKeepsBackendAndGeneratorIndependent(t *testing.T) {
 		}
 	}
 }
+
+// Worlds saved before the generator field existed must still list and open.
+func TestLegacyWorldWithoutGeneratorGetsBackendDefault(t *testing.T) {
+	store := newTestStore(t)
+	for _, tc := range []struct{ backend, want string }{{"", GeneratorFlat}, {BackendBDS, GeneratorNormal}} {
+		world, err := store.Create(Spec{Name: "legacy"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		meta := filepath.Join(store.root, world.ID, metaFile)
+		raw := `{"id":"` + world.ID + `","name":"legacy","backend":"` + tc.backend + `"}`
+		if err := os.WriteFile(meta, []byte(raw), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		got, err := store.Get(world.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Generator != tc.want {
+			t.Fatalf("backend %q: generator = %q, want %q", tc.backend, got.Generator, tc.want)
+		}
+	}
+}

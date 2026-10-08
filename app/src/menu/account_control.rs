@@ -231,11 +231,11 @@ impl MenuRuntime {
             self.feeds.server_trust = asked;
         }
         if let Some(status) = control.account_status() {
-            self.control_auth = Some(status);
+            self.apply_control_auth(status);
         }
         while let Some(event) = control.poll_event() {
             match event {
-                AccountEvent::Auth(state) => self.control_auth = Some(state),
+                AccountEvent::Auth(state) => self.apply_control_auth(state),
                 AccountEvent::Disconnected { reason } => {
                     self.disconnect_message = Some(super::disconnect::from_server(&reason));
                 }

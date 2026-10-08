@@ -87,7 +87,7 @@ fn third_person_boom_traces_eight_corners_and_stops_before_solid_geometry() {
         Vec3::new(
             0.0,
             2.0,
-            4.02_f32.sqrt() - camera::THIRD_PERSON_COLLISION_EPSILON_BLOCKS,
+            4.02_f32.sqrt() - render_api::CAMERA_NEAR_PLANE_BLOCKS,
         ),
         1.0e-5,
     ));
@@ -147,7 +147,7 @@ fn third_person_boom_handles_compound_wall_corner_ceiling_floor_transitions_befo
             &blocked_world,
         );
         let blocked_distance = blocked.translation.distance(subject);
-        let expected = contact_distance - camera::THIRD_PERSON_COLLISION_EPSILON_BLOCKS;
+        let expected = contact_distance - render_api::CAMERA_NEAR_PLANE_BLOCKS;
         assert!(
             (blocked_distance - expected).abs() <= 1.0e-4,
             "{label} boom distance {blocked_distance} did not stop at pre-hit {expected}",
@@ -231,7 +231,7 @@ fn third_person_boom_stops_at_a_real_wall_beside_a_skipped_cell() {
         Vec3::new(
             0.0,
             2.0,
-            4.02_f32.sqrt() - camera::THIRD_PERSON_COLLISION_EPSILON_BLOCKS
+            4.02_f32.sqrt() - render_api::CAMERA_NEAR_PLANE_BLOCKS
         ),
         1.0e-5,
     ));
@@ -662,13 +662,13 @@ fn plugin_spawns_camera_and_auto_fly_uses_delta_seconds() {
         .query_filtered::<&Msaa, (With<Camera3d>, With<FlyCamera>)>()
         .single(app.world())
         .unwrap();
-    assert_eq!(*msaa, Msaa::Off);
+    assert_eq!(msaa.samples(), ui::DEFAULT_ANTI_ALIASING_SAMPLES);
     let fxaa = app
         .world_mut()
         .query_filtered::<&Fxaa, (With<Camera3d>, With<FlyCamera>)>()
-        .single(app.world())
-        .unwrap();
-    assert!(fxaa.enabled);
+        .iter(app.world())
+        .count();
+    assert_eq!(fxaa, 0);
     let start = app.world().resource::<LocalViewPose>().eye_translation();
     assert!(app.world().resource::<AutoFly>().enabled());
 

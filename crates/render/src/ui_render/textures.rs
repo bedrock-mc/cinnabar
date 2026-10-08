@@ -13,7 +13,7 @@ use bevy::prelude::{Res, ResMut};
 use bevy::render::render_resource::{BindGroupEntry, BindingResource, PipelineCache};
 use render_model::UiRenderRejectReason;
 
-use super::{UiGpu, UiPipeline};
+use super::{UiGpu, pipeline::UiPipeline};
 use render_model::{
     UiTextureCatalog, UiTextureFormat, UiTextureLocation, UiTexturePage, UiTexturePlan,
 };
@@ -604,7 +604,7 @@ mod tests {
             .unwrap();
         world.insert_resource(UiRenderSceneResource(scene.clone()));
         world
-            .run_system_once(super::super::prepare_ui_resources)
+            .run_system_once(super::super::resources::prepare_ui_resources)
             .unwrap();
         world
             .run_system_once(super::super::prepare_ui_bind_group)
@@ -633,7 +633,7 @@ mod tests {
             .unwrap();
         world.insert_resource(UiRenderSceneResource(scene.clone()));
         world
-            .run_system_once(super::super::prepare_ui_resources)
+            .run_system_once(super::super::resources::prepare_ui_resources)
             .unwrap();
         let gpu = world.resource::<UiGpu>();
         assert_eq!(gpu.accepted_revision, Some(2));
@@ -672,7 +672,7 @@ mod tests {
             .unwrap();
         world.insert_resource(UiRenderSceneResource(scene));
         world
-            .run_system_once(super::super::prepare_ui_resources)
+            .run_system_once(super::super::resources::prepare_ui_resources)
             .unwrap();
         let gpu = world.resource::<UiGpu>();
         assert_eq!(gpu.accepted_revision, Some(3));

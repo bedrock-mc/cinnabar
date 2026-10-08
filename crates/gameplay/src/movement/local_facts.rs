@@ -16,6 +16,7 @@ const SWIFT_SNEAK_ENCHANTMENT_ID: i16 = 37;
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct LocalMovementFacts {
     pub immobile: bool,
+    pub vertical_physics: sim::VerticalPhysics,
     pub ride: Option<super::RideKind>,
     pub ride_seat: Option<[f32; 3]>,
     pub can_fly: bool,
@@ -73,6 +74,11 @@ pub fn read(
     });
     LocalMovementFacts {
         immobile: player.facts.is_immobile(),
+        vertical_physics: sim::VerticalPhysics {
+            has_gravity: player.facts.has_gravity(),
+            uniform_air_drag: player.facts.uses_uniform_air_drag(),
+            air_drag_modifier: player.facts.air_drag_modifier().map(f64::from),
+        },
         ride,
         ride_seat: ride
             .and(stream.local_rider_seat_pose())

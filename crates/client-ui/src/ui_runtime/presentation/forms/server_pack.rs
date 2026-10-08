@@ -22,6 +22,7 @@ use render_model::UiTexturePage;
 
 use super::remote_images::{RemoteImages, RemoteState, is_remote};
 
+mod frame_sidecars;
 mod prepared_settings;
 pub use prepared_settings::PreparedScreenSettings;
 
@@ -211,6 +212,7 @@ pub(super) struct ServerAtlas {
     sources: BTreeMap<String, Source>,
     /// Sidecars read up front, by path stem, whether or not the pack has the image.
     sidecars: BTreeMap<String, TextureMeta>,
+    frames: frame_sidecars::FrameSidecars,
     pack: Option<PackTextures>,
     /// Vanilla images and downloaded URLs, found on first use; `None` when absent.
     extra: RefCell<BTreeMap<String, Option<Source>>>,
@@ -348,10 +350,12 @@ impl ServerAtlas {
         let sources = ranked
             .filter_map(|(stem, bytes)| Some((stem.to_owned(), source(bytes.as_slice().into())?)))
             .collect::<BTreeMap<_, _>>();
+        let frames = frame_sidecars::FrameSidecars::new(files, view.clone());
         let pack = view.map(PackTextures::index);
         Self {
             sources,
             sidecars,
+            frames,
             pack,
             max_pages,
             dirty: true,
@@ -365,6 +369,7 @@ impl ServerAtlas {
         vanilla: Option<PathBuf>,
         remote: Option<RemoteImages>,
     ) -> Self {
+        self.frames.set_vanilla(vanilla.clone());
         self.vanilla = vanilla;
         self.remote = remote;
         self
@@ -404,6 +409,10 @@ impl ServerAtlas {
             .get(key)
             .copied()
             .or_else(|| self.pack.as_ref()?.sidecar(key))
+    }
+
+    pub(super) fn aseprite_frames(&self, key: &str) -> Option<Arc<[json_ui::AsepriteFrame]>> {
+        self.frames.get(key)
     }
 
     /// Pixel size of a vanilla image or a downloaded URL, reading or requesting

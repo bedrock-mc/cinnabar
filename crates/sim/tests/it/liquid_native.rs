@@ -319,3 +319,91 @@ fn dolphin_boost_scales_swim_speed_and_skips_depth_strider_drag() {
         );
     }
 }
+
+/// Water, or dry ground when `water` is false, above a floor whose top is `floor`.
+struct Floored {
+    floor: Option<f64>,
+    water: bool,
+}
+
+impl CollisionWorld for Floored {
+    fn collision_boxes(&self, query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
+        Ok(CollisionQuery::synthetic(
+            self.floor
+                .map(|top| {
+                    Aabb::new(
+                        Vec3::new(-1.0e6, top - 1.0, -1.0e6),
+                        Vec3::new(1.0e6, top, 1.0e6),
+                    )
+                })
+                .filter(|floor| floor.intersects(query))
+                .into_iter()
+                .collect(),
+        ))
+    }
+
+    fn block_physics(&self, block: [i32; 3]) -> Result<BlockPhysicsSample, WorldQueryError> {
+        let mut sample = Submerged.block_physics(block)?;
+        if !self.water {
+            sample.layers[0].flags = BlockPhysicsFlags::default();
+            sample.layers[0].fluid_height_blocks = 0.0;
+        }
+        Ok(sample)
+    }
+}
+
+/// A large movement attribute keeps Depth Strider water travel inside every
+/// simulator query budget, while dry ground applies it unchanged.
+#[test]
+fn depth_strider_water_travel_stays_simulable_with_a_large_movement_attribute() {
+    for floor in [Some(5.0), None] {
+        for depth_strider in 1..=3 {
+            for sprinting in [true, false] {
+                let mut state = PlayerState::new(Vec3::new(0.5, 5.0, 0.5));
+                state.on_ground = floor.is_some();
+                let input = MovementInput {
+                    forward: 1.0,
+                    strafe: 1.0,
+                    yaw_degrees: 45.0,
+                    sprinting,
+                    depth_strider,
+                    movement_speed: Some(20.0),
+                    liquid_contact_height: Some(f64::from(sim::PLAYER_HEIGHT as f32)),
+                    ..MovementInput::default()
+                };
+                let world = Floored { floor, water: true };
+                for tick in 0..300 {
+                    Simulator::default()
+                        .tick(&mut state, input, &world)
+                        .unwrap_or_else(|error| {
+                            panic!(
+                                "floor {floor:?} level {depth_strider} sprint {sprinting} tick {tick}: {error}"
+                            )
+                        });
+                }
+            }
+        }
+    }
+
+    let land = |speed: f64| {
+        let mut state = PlayerState::new(Vec3::new(0.5, 5.0, 0.5));
+        state.on_ground = true;
+        Simulator::default()
+            .tick(
+                &mut state,
+                MovementInput {
+                    forward: 1.0,
+                    movement_speed: Some(speed),
+                    ..MovementInput::default()
+                },
+                &Floored {
+                    floor: Some(5.0),
+                    water: false,
+                },
+            )
+            .unwrap()
+            .velocity
+            .z
+    };
+    assert_eq!(land(2.0), 2.0 * land(1.0));
+}

@@ -45,6 +45,10 @@ const PARTICLE_SHADER_HANDLE: Handle<Shader> = uuid_handle!("6b2f9c3e-4d1a-4e8b-
 const INSTANCE_BYTES: u64 = std::mem::size_of::<ParticleInstance>() as u64;
 const MIN_CAPACITY: usize = 256;
 
+#[cfg(all(test, target_os = "macos"))]
+#[path = "particle_render/upload_tests.rs"]
+mod upload_tests;
+
 /// The particle simulation as a Bevy resource.
 #[derive(Resource, Default, Deref, DerefMut)]
 pub struct ParticleSimulation(pub ParticleSystem);
@@ -138,6 +142,7 @@ pub struct ParticleRenderPlugin;
 
 impl Plugin for ParticleRenderPlugin {
     fn build(&self, app: &mut App) {
+        crate::upload_staging::install(app);
         crate::lighting::install(app);
         app.init_resource::<ParticleSimulation>()
             .init_resource::<ParticleGpuFrame>()
@@ -148,6 +153,7 @@ impl Plugin for ParticleRenderPlugin {
             "particles.wgsl",
             crate::shader_safety::from_wgsl
         );
+        crate::pipeline_warmup::register::<ParticlePipeline>(app);
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
             return;
         };
@@ -217,6 +223,7 @@ fn prepare_particle_resources(
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
     mut gpu: ResMut<ParticleGpu>,
+    staging: Option<Res<crate::upload_staging::BufferUploadStaging>>,
 ) {
     if let Some(base) = &frame.base
         && gpu.base.as_ref().is_none_or(|old| !Arc::ptr_eq(old, base))
@@ -292,11 +299,18 @@ fn prepare_particle_resources(
             bytes = total as u64 * INSTANCE_BYTES
         )
         .entered();
-        render_queue.write_buffer(buffer, 0, bytemuck::cast_slice(&frame.blend[..]));
-        render_queue.write_buffer(
-            buffer,
-            blend as u64 * INSTANCE_BYTES,
-            bytemuck::cast_slice(&frame.add[..]),
+        crate::upload_staging::write_batch(
+            staging.as_deref(),
+            &render_device,
+            &render_queue,
+            &[
+                (buffer, 0, bytemuck::cast_slice(&frame.blend[..])),
+                (
+                    buffer,
+                    blend as u64 * INSTANCE_BYTES,
+                    bytemuck::cast_slice(&frame.add[..]),
+                ),
+            ],
         );
     }
 }
@@ -629,5 +643,26 @@ impl<P: PhaseItem, const ADDITIVE: bool> RenderCommand<P> for DrawParticleRange<
         }
         pass.draw(0..6, range);
         RenderCommandResult::Success
+    }
+}
+
+impl crate::pipeline_warmup::PrewarmPipelines for ParticlePipeline {
+    fn prewarm(
+        &mut self,
+        cache: &PipelineCache,
+        view: crate::pipeline_warmup::WarmView,
+        ids: &mut crate::pipeline_warmup::WarmupIds,
+    ) -> Result<(), BevyError> {
+        for additive in [false, true] {
+            ids.push(self.variants.specialize(
+                cache,
+                ParticlePipelineKey {
+                    msaa: view.msaa,
+                    hdr: view.hdr,
+                    additive,
+                },
+            )?);
+        }
+        Ok(())
     }
 }

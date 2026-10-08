@@ -1,0 +1,66 @@
+<?xml version='1.0' encoding='utf-8'?>
+<package>
+  <id>local.cinnabar.numeric-clock</id>
+  <title>Numeric Clock</title>
+  <owner>
+    <name>Render profiling</name>
+  </owner>
+  <import-schema>time-info</import-schema>
+  <import-schema>time-profile</import-schema>
+  <instrument>
+    <id>local.cinnabar.numeric-clock.instrument</id>
+    <title>Numeric Clock</title>
+    <category>System</category>
+    <purpose>Records only the numeric native clock calibration table.</purpose>
+    <icon>Generic</icon>
+    <create-table>
+      <id>numeric-clock-table</id>
+      <schema-ref>time-info</schema-ref>
+    </create-table>
+    <list>
+      <title>Clock calibration</title>
+      <table-ref>numeric-clock-table</table-ref>
+      <add-all-columns />
+    </list>
+  </instrument>
+  <instrument>
+    <id>local.cinnabar.waiting-samples.instrument</id>
+    <title>Waiting Thread Samples</title>
+    <category>System</category>
+    <purpose>Samples running and waiting target threads without per-context-switch stacks.</purpose>
+    <icon>Time Profiler</icon>
+    <import-parameter>
+      <from-scope>trace</from-scope>
+      <name>?target-pid</name>
+    </import-parameter>
+    <create-table>
+      <id>waiting-sample-table</id>
+      <schema-ref>time-profile</schema-ref>
+      <attribute>
+        <name>target-pid</name>
+        <parameter-ref>?target-pid</parameter-ref>
+      </attribute>
+      <attribute>
+        <name>record-waiting-threads</name>
+        <integer>1</integer>
+      </attribute>
+      <attribute>
+        <name>high-frequency-sampling</name>
+        <integer>0</integer>
+      </attribute>
+      <attribute>
+        <name>needs-kernel-callstack</name>
+        <integer>0</integer>
+      </attribute>
+      <attribute>
+        <name>context-switch-sampling</name>
+        <integer>0</integer>
+      </attribute>
+    </create-table>
+    <list>
+      <title>Thread snapshots</title>
+      <table-ref>waiting-sample-table</table-ref>
+      <add-all-columns />
+    </list>
+  </instrument>
+</package>

@@ -14,7 +14,7 @@ use crate::actor_store::ActorSnapshot;
 /// Simulation tick duration used by actor clocks and Molang time queries.
 pub use world::TICK_DURATION as ACTOR_TICK_DURATION;
 
-pub const MAX_RUNTIME_BONES_PER_RIG: usize = 96;
+pub const MAX_RUNTIME_BONES_PER_RIG: usize = assets::MAX_ENTITY_GEOMETRY_BONES;
 const ANIMATION_TICK_SECONDS: f32 = ACTOR_TICK_DURATION.as_secs_f32();
 pub const MAX_CONTROLLER_TRANSITIONS_PER_TICK: usize = 8;
 pub const MAX_MOLANG_OPS_PER_ACTOR_TICK: usize = 4_096;
@@ -174,6 +174,7 @@ pub struct ActorAnimationStats {
     pub actor_budget_exhaustions: u64,
     pub world_budget_exhaustions: u64,
     pub frozen_actors: u64,
+    pub invalid_server_stop_expressions: u64,
     pub unrigged_spawns: u64, // spawns with entity assets loaded but no compiled rig
     pub invalid_skin_geometries: u64, // skin models that fell back to the default geometry
 }
@@ -184,6 +185,7 @@ pub(crate) struct ActorAnimationStore {
     layout: Arc<VariableLayout>,
     /// The session's server-pack entity catalog, in its own index space; its entities win.
     pack: Option<PackCatalog>,
+    server_compiler: Option<ServerAnimationCompiler>,
     rigs: BTreeMap<ActorLifetimeId, ActorRigState>,
     runtime_to_lifetime: HashMap<u64, ActorLifetimeId>,
     /// First actor the world budget skipped last tick, where the next tick starts.
@@ -229,6 +231,7 @@ struct ActorRigState {
     /// Skeletons of the geometries render controllers draw instead of the rig's, by geometry.
     layer_skeletons: BTreeMap<u32, Option<Arc<render::LayerSkeleton>>>,
     controllers: Vec<ControllerState>,
+    server_animations: Vec<server_animation::Controller>,
     clip_clocks: clock::ClipClocks,
     previous: Vec<BoneTransform>,
     current: Vec<BoneTransform>,
@@ -332,6 +335,7 @@ struct EvaluatedState {
     render: Option<Vec<RenderTextureLayer>>,
     scale: Option<[f32; 4]>,
     controllers: Vec<ControllerState>,
+    server_animations: Vec<server_animation::Controller>,
     clip_clocks: clock::ClipClocks,
     variables: MolangVariables,
     render_frame: Option<render_frame::FrameState>,
@@ -404,6 +408,7 @@ impl ActorAnimationStore {
             ),
             assets,
             pack: None,
+            server_compiler: None,
             rigs: BTreeMap::new(),
             runtime_to_lifetime: HashMap::new(),
             first_starved: None,
@@ -424,6 +429,10 @@ impl ActorAnimationStore {
             artwork: artwork.into_iter().collect(),
             assets,
         });
+    }
+
+    pub(crate) fn set_server_animation_compiler(&mut self, compiler: ServerAnimationCompiler) {
+        self.server_compiler = Some(compiler);
     }
 
     pub(crate) fn clear(&mut self) {
@@ -807,12 +816,16 @@ mod render;
 mod render_frame;
 pub use render_frame::{ActorRenderFrame, ActorRenderLayers};
 mod replay;
+mod server_animation;
+pub use server_animation::ServerAnimationCompiler;
 mod schedule;
 mod skin;
 mod skin_layers;
 mod tick;
 mod view;
-pub use attachable::{AttachableAnimationInput, AttachableRigSnapshot, AttachablesRuntime};
+pub use attachable::{
+    AttachableAnimationInput, AttachableBoneParent, AttachableRigSnapshot, AttachablesRuntime,
+};
 pub use evaluation::ActorAnimationVariables;
 use evaluation::{EngineSlots, Evaluator, MolangVariables, VariableLayout};
 use geometry::{collect_controllers, resolve_binding, resolve_bones, skeleton};
@@ -834,6 +847,9 @@ mod local_motion_tests;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod server_tests;
 
 #[cfg(test)]
 mod hurt_tests;

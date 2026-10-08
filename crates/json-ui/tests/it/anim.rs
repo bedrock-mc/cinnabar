@@ -25,7 +25,7 @@ impl TextureSource for Strip {
         Some(TextureMeta::plain(base_size))
     }
 
-    fn aseprite_frames(&self, path: &str) -> Option<Vec<AsepriteFrame>> {
+    fn aseprite_frames(&self, path: &str) -> Option<std::sync::Arc<[AsepriteFrame]>> {
         (path == "textures/ui/sheet").then(|| {
             vec![
                 AsepriteFrame {
@@ -39,6 +39,7 @@ impl TextureSource for Strip {
                     duration_ms: 100,
                 },
             ]
+            .into()
         })
     }
 }

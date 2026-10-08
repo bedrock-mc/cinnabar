@@ -420,6 +420,15 @@ pub(crate) fn reconcile_world_stream_before_physics(
                 );
             }
         }
+        if let CommittedControlEvent::LocalMovementSpeed {
+            air_drag_modifier: Some(current),
+            ..
+        } = control
+        {
+            player_runtime
+                .facts
+                .apply_air_drag_modifier(clock.session_generation(), current);
+        }
         if respawn.consume_nonspatial_phase(
             clock.session_generation(),
             &control,

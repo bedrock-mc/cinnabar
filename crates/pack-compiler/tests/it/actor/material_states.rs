@@ -30,6 +30,13 @@ fn actor_material_states_distinguish_authored_one_sided_and_nocull_alpha_test() 
 }
 
 #[test]
+fn skeleton_alias_uses_double_sided_alpha_test_without_material_definitions() {
+    let expected = json!({"alpha_test":true,"cull":false,"blend":false,"depth_write":true});
+    assert_eq!(state("skeleton", None), expected);
+    assert_eq!(state("skeleton.skinning", None), expected);
+}
+
+#[test]
 fn emissive_materials_keep_alpha_as_lighting_weight_and_authored_additive_inheritance() {
     assert_eq!(
         state("entity_emissive_alpha", None),
@@ -53,6 +60,34 @@ fn emissive_materials_keep_alpha_as_lighting_weight_and_authored_additive_inheri
     assert_eq!(
         state("fixture_ordinary", Some(&definitions)),
         json!({"alpha_test":true,"cull":false,"blend":true,"depth_write":true})
+    );
+}
+
+#[test]
+fn additive_material_child_can_weight_source_alpha_without_replacing_destination() {
+    let definitions = json!({"materials":{
+        "version":"1.0.0",
+        "fixture_glow:entity_emissive":{
+            "+states":["Blending","DisableCulling","DisableDepthWrite"],
+            "blendSrc":"One","blendDst":"One"
+        },
+        "fixture_faded:fixture_glow":{"blendSrc":"SourceAlpha"},
+        "fixture_inherited:fixture_faded":{"+defines":["USE_UV_ANIM"]},
+        "fixture_opaque:fixture_faded":{"blendSrc":"One"},
+        "fixture_standard:fixture_faded":{"blendDst":"OneMinusSrcAlpha"}
+    }});
+    let expected = json!({"alpha_test":false,"cull":false,"blend":true,"depth_write":false,
+        "emissive":true,"additive":true,"additive_alpha":true});
+    assert_eq!(state("fixture_faded", Some(&definitions)), expected);
+    assert_eq!(state("fixture_inherited", Some(&definitions)), expected);
+    assert_eq!(
+        state("fixture_opaque", Some(&definitions)),
+        json!({"alpha_test":false,"cull":false,"blend":true,"depth_write":false,
+            "emissive":true,"additive":true})
+    );
+    assert_eq!(
+        state("fixture_standard", Some(&definitions)),
+        json!({"alpha_test":false,"cull":false,"blend":true,"depth_write":false,"emissive":true})
     );
 }
 

@@ -205,7 +205,7 @@ pub struct ActorFramePublication<'w, 's> {
 pub fn prepare_actor_render_frame(
     mut client_world: ActorWorld<'_>,
     swing_progress: Option<client_world::LocalSwingProgress>,
-    hides_box: impl Fn(&WorldStream, [f32; 3], [f32; 3]) -> bool,
+    hides_box: impl Fn(&WorldStream, [f32; 3], [f32; 3], [f32; 3]) -> bool,
     params: ActorFramePublication,
 ) {
     let ActorFramePublication {
@@ -322,7 +322,11 @@ pub fn prepare_actor_render_frame(
                             actor,
                             step.partial_tick,
                             cull_view,
-                            |low, high| hides_box(stream, low, high),
+                            |low, high| {
+                                cull_view.is_some_and(|view| {
+                                    hides_box(stream, view.camera_position.to_array(), low, high)
+                                })
+                            },
                         )
                     {
                         continue;

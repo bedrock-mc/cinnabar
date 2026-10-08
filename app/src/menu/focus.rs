@@ -90,7 +90,10 @@ impl MenuRuntime {
 
     /// Tracks each visible settings control once, preserving focus across value changes.
     pub(super) fn refresh_settings_focus(&mut self, actions: impl IntoIterator<Item = MenuAction>) {
-        if self.screen != MenuScreen::Settings || self.dialog.is_some() {
+        if self.screen != MenuScreen::Settings
+            || self.dialog.is_some()
+            || self.sign_in_focus().is_some()
+        {
             self.settings_focus.clear();
             self.settings_slider_selected = None;
             self.settings_focus_geometry = SettingsFocusGeometry::default();
@@ -159,6 +162,13 @@ impl MenuRuntime {
     }
 
     pub(super) fn move_directional_focus(&mut self, axis: SettingsFocusAxis, direction: i32) {
+        if !self.is_connecting()
+            && matches!(self.dialog, None | Some(MenuDialog::Accounts))
+            && self.sign_in_focus().is_some()
+        {
+            self.move_focus(direction);
+            return;
+        }
         self.retain_settings_slider_selection();
         if axis == SettingsFocusAxis::Horizontal
             && self.screen == MenuScreen::Settings
@@ -167,8 +177,9 @@ impl MenuRuntime {
             && let Some(option) = settings_options::SETTINGS_OPTIONS.get(usize::from(index))
         {
             let value = self.settings_options.get(usize::from(index));
-            let next = value
-                .saturating_add(direction * option.step)
+            let next = self
+                .settings_options
+                .offset_value(usize::from(index), direction)
                 .clamp(option.min, option.max);
             if next != value {
                 self.activate_from_navigation(MenuAction::SettingsOption(index, next));
@@ -253,7 +264,10 @@ impl MenuRuntime {
         let previous = self.focus_actions().get(self.focused).copied();
         let had_native_focus = self.settings_focus_geometry.native;
         self.refresh_settings_focus(targets.iter().map(|target| target.action));
-        if self.screen != MenuScreen::Settings || self.dialog.is_some() {
+        if self.screen != MenuScreen::Settings
+            || self.dialog.is_some()
+            || self.sign_in_focus().is_some()
+        {
             return;
         }
         self.settings_focus_geometry.update(targets, landmarks);
@@ -285,9 +299,18 @@ impl MenuRuntime {
                 MenuAction::ServerTrust(false),
             ];
         }
+        if !self.is_connecting()
+            && self.dialog.is_none()
+            && let Some(actions) = self.sign_in_focus()
+        {
+            return actions;
+        }
         if let Some(dialog) = self.dialog {
             return match dialog {
                 MenuDialog::Accounts => {
+                    if let Some(actions) = self.sign_in_focus() {
+                        return actions;
+                    }
                     if self.feeds.account_adding {
                         return vec![MenuAction::CancelSignIn];
                     }
@@ -434,29 +457,9 @@ impl MenuRuntime {
             MenuScreen::DressingRoom => self.dressing_room_focus(),
             MenuScreen::Profile => {
                 let mut actions = vec![MenuAction::AddBack];
-                // Match view(): an active helper outranks the core's previous report.
-                let auth = match (
-                    self.auth_process.as_ref().map(AuthSupervisor::state),
-                    self.control_auth.as_ref(),
-                ) {
-                    (Some(state @ (AuthState::Checking | AuthState::AwaitingCode { .. })), _) => {
-                        Some(state)
-                    }
-                    (_, Some(control)) => Some(control),
-                    (supervisor, None) => supervisor,
-                };
-                let auth = if self.presentation_accounts {
-                    Some(&AuthState::Authenticated)
-                } else {
-                    auth
-                };
-                if matches!(
-                    auth,
-                    Some(AuthState::Checking | AuthState::AwaitingCode { .. })
-                ) {
-                    return vec![MenuAction::CancelSignIn];
-                }
-                if auth == Some(&AuthState::Authenticated) {
+                if self.presentation_accounts
+                    || self.current_auth().as_ref() == &AuthState::Authenticated
+                {
                     let profile = self.presented_profile();
                     if profile.unavailable {
                         actions.push(MenuAction::RefreshProfile);

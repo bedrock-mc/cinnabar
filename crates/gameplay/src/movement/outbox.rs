@@ -74,7 +74,42 @@ pub(super) struct HeldRelease {
     facing_sent: bool,
 }
 
-/// The reported pose of one unsent tick.
+/// Recent tick-end states by tick, fed wherever a tick completes, is replayed or is
+/// anchored; transport hand-offs never move them.
+#[derive(Debug, Clone)]
+pub(super) struct TickEnds(std::collections::VecDeque<UnsentSampleView>);
+
+/// The predecessor is the only state read; a few spare entries absorb replays.
+const TICK_END_CAPACITY: usize = 8;
+
+impl Default for TickEnds {
+    fn default() -> Self {
+        Self(std::collections::VecDeque::with_capacity(TICK_END_CAPACITY))
+    }
+}
+
+impl TickEnds {
+    /// Records a tick's end state; it supersedes that tick and any later ones.
+    pub(super) fn record(&mut self, view: UnsentSampleView) {
+        while self.0.back().is_some_and(|last| last.tick >= view.tick) {
+            self.0.pop_back();
+        }
+        if self.0.len() == TICK_END_CAPACITY {
+            self.0.pop_front();
+        }
+        self.0.push_back(view);
+    }
+
+    pub(super) fn get(&self, tick: u64) -> Option<UnsentSampleView> {
+        self.0.iter().rev().find(|view| view.tick == tick).copied()
+    }
+
+    pub(super) fn clear(&mut self) {
+        self.0.clear();
+    }
+}
+
+/// The reported pose at the end of one completed tick.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct UnsentSampleView {
     pub tick: u64,
@@ -88,14 +123,43 @@ pub struct UnsentSampleView {
 
 impl UnsentSampleView {
     /// Reads the interaction pose without copying queued transport state.
-    fn from_queued(sample: &super::QueuedPhysicsSample) -> Self {
+    pub(super) fn from_queued(sample: &super::QueuedPhysicsSample) -> Self {
+        Self::from_parts(
+            sample.snapshot.tick,
+            sample.snapshot.position,
+            sample.snapshot.delta,
+            sample.displacement,
+            sample.snapshot.flags,
+        )
+    }
+
+    /// Reads a replayed tick with the flags its packet now reports.
+    pub(super) fn from_replayed(
+        sample: &super::PhysicsMovementSample,
+        flags: protocol::PlayerInputFlags,
+    ) -> Self {
+        Self::from_parts(
+            sample.tick,
+            sample.position,
+            sample.velocity,
+            sample.movement,
+            flags,
+        )
+    }
+
+    pub(super) fn from_parts(
+        tick: u64,
+        position: [f32; 3],
+        delta: [f32; 3],
+        displacement: [f32; 3],
+        flags: protocol::PlayerInputFlags,
+    ) -> Self {
         Self {
-            tick: sample.snapshot.tick,
-            position: sample.snapshot.position,
-            delta: sample.snapshot.delta,
-            displacement: sample.displacement,
-            sneaking: sample.snapshot.flags.bits() & protocol::PlayerInputFlags::SNEAKING.bits()
-                != 0,
+            tick,
+            position,
+            delta,
+            displacement,
+            sneaking: flags.bits() & protocol::PlayerInputFlags::SNEAKING.bits() != 0,
         }
     }
 }
@@ -265,6 +329,27 @@ impl MovementTicker {
     /// The newest unsent tick, which standalone interaction packets precede.
     pub fn newest_unsent_sample(&self) -> Option<UnsentSampleView> {
         self.outbox.back().map(UnsentSampleView::from_queued)
+    }
+
+    /// The end state of the last completed tick. Vanilla runs build actions before each
+    /// simulation tick, so the next tick's build actions observe this state.
+    pub fn build_action_state(&self) -> Option<UnsentSampleView> {
+        if !self.physics_is_authorized() {
+            return None;
+        }
+        self.tick_ends.get(self.completed_tick())
+    }
+
+    /// An anchor restarts the timeline with cleared motion at the last completed tick.
+    pub(super) fn anchor_tick_end(&mut self, position: [f32; 3]) {
+        self.tick_ends.clear();
+        self.tick_ends.record(UnsentSampleView {
+            tick: self.completed_tick(),
+            position,
+            delta: [0.0; 3],
+            displacement: [0.0; 3],
+            sneaking: false,
+        });
     }
 
     /// A frame-time interaction once every completed tick is on the wire: it reports the

@@ -80,13 +80,14 @@ fn camera_compiled() -> assets::CompiledEntityAssets {
         })
         .collect::<Vec<_>>()
         .into_boxed_slice();
-    let channel = compiled.animation_channels[0];
+    let channel = compiled.animation_channels[0].clone();
     compiled.animation_channels = (0..2)
         .map(|bone| EntityAnimationChannel {
+            bone_name: None,
             bone,
             property: EntityAnimationProperty::Rotation,
             first_keyframe: bone * channel.keyframe_count,
-            ..channel
+            ..channel.clone()
         })
         .collect::<Vec<_>>()
         .into_boxed_slice();

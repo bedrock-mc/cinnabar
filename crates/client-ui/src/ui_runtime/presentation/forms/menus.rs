@@ -3,6 +3,8 @@
 //! state machine and its input path stay unchanged. States without a vanilla
 //! screen, or a render that fails, fall back to the programmatic launcher.
 
+use std::sync::Arc;
+
 use json_ui::{HitRegion, ViewState};
 use ui::{UiNode, UiRect};
 
@@ -50,8 +52,8 @@ impl UiPresentationRuntime {
         let Some(mut view) = self.menu_view.take() else {
             return Ok(Vec::new());
         };
-        self.begin_menu_caret(&mut view);
-        let shown = &view;
+        self.begin_menu_caret(Arc::make_mut(&mut view));
+        let shown = view.as_ref();
         self.menu_scrolls.begin_frame(format!(
             "{:?}/{:?}/{:?}/{}",
             shown.screen, shown.server_tab, shown.profile_tab, shown.settings_section

@@ -111,10 +111,13 @@ pub struct EntityAnimationClip {
     pub anim_time_update: Option<u32>,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct EntityAnimationChannel {
     pub bone: u32,
+    /// Name-bound channels can drive a model selected after pack compilation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bone_name: Option<Box<str>>,
     pub property: EntityAnimationProperty,
     pub first_keyframe: u32,
     pub keyframe_count: u32,
@@ -339,6 +342,12 @@ impl RuntimeEntityAssets {
             .iter()
             .take_while(|clip| clip.symbol == symbol)
             .position(|clip| clip.geometry == Some(geometry))
+            .or_else(|| {
+                self.animation_clips[first..]
+                    .iter()
+                    .take_while(|clip| clip.symbol == symbol)
+                    .position(|clip| clip.geometry.is_none())
+            })
             .map(|offset| (first + offset) as u32)
     }
 
@@ -635,6 +644,9 @@ fn validate_animation_payload(compiled: &CompiledEntityAssets) -> Result<(), Ass
         }
     }
     for channel in &compiled.animation_channels {
+        if let Some(name) = &channel.bone_name {
+            super::validate_geometry_name(name)?;
+        }
         if !range_in_bounds(
             channel.first_keyframe,
             channel.keyframe_count,

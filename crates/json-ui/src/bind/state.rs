@@ -60,6 +60,8 @@ pub struct BindState {
     pub(super) generation: u64,
     /// Whether any built control reads the layout’s scroll feedback.
     pub(super) scroll_observed: bool,
+    /// Whether binding omitted descendants after exhausting the shared node budget.
+    pub(crate) node_budget_exceeded: bool,
     /// The last bind's controls, which hold the memory of every live one; `controls`
     /// keeps only those dropped under still-hidden ancestors.
     pub(super) tree: Option<Box<super::Node>>,
@@ -72,6 +74,8 @@ pub struct BindState {
 /// One control's memory.
 #[derive(Clone, Debug, Default)]
 pub(super) struct Retained {
+    pub(super) incarnation: Option<u64>,
+    pub(super) parent_incarnation: Option<u64>,
     pub(super) bag: BTreeMap<String, Scalar>,
     /// Literal properties bindings set on components.
     pub(super) native: BTreeMap<String, Value>,
@@ -141,6 +145,13 @@ impl BindState {
     /// Whether scroll feedback can affect a bound property or view.
     pub fn observes_scroll(&self) -> bool {
         self.scroll_observed
+    }
+
+    /// Whether view notifications left a visibility-scheduled binding for the next refresh.
+    pub fn has_pending_visibility(&self) -> bool {
+        self.tree
+            .as_ref()
+            .is_some_and(|node| node.track.visibility_pending)
     }
 
     /// Whether a bind has run over this state yet.

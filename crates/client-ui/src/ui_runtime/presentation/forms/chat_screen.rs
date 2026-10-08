@@ -225,7 +225,9 @@ impl UiPresentationRuntime {
                 }
                 continue;
             }
-            if let Some(actions) = super::settings_controls::slider_actions(region) {
+            if let Some(actions) =
+                super::settings_controls::slider_actions(&chat.settings.options, region)
+            {
                 for (step, bounds) in
                     super::menus::segments(region, actions.len(), frame.scale, frame.origin)
                 {

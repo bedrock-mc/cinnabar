@@ -1,5 +1,6 @@
 //! Persisted launcher options and engine-independent input bindings.
 
+pub mod antialiasing;
 pub mod chat;
 pub mod control_bindings;
 pub mod definitions;
@@ -36,6 +37,8 @@ pub const OREUI_DARK_MODE: &str = "oreui_dark_mode";
 #[serde(default)]
 pub struct SettingsOptions {
     values: BTreeMap<String, i32>,
+    #[serde(skip)]
+    anti_aliasing_support: ui::AntiAliasingSupport,
     keys: BTreeMap<String, u16>,
     language: Option<String>,
     /// None means the original custom catalog supplies first-run defaults.
@@ -65,10 +68,16 @@ impl SettingsOptions {
         let Some(definition) = SETTINGS_OPTIONS.get(index) else {
             return 0;
         };
-        self.values
+        let value = self
+            .values
             .get(definition.name)
             .copied()
-            .unwrap_or(definition.default)
+            .unwrap_or(definition.default);
+        if definition.name == "msaa" {
+            self.anti_aliasing_support.select(value.max(1) as u32) as i32
+        } else {
+            value
+        }
     }
 
     /// Looks up a runtime setting by its JSON-UI controller name.
@@ -86,7 +95,21 @@ impl SettingsOptions {
         };
         let value = value.clamp(definition.min, definition.max);
         let value = definition.min + ((value - definition.min) / definition.step) * definition.step;
-        if self.get(index) == value {
+        let value = if definition.name == "msaa" {
+            self.anti_aliasing_support
+                .counts()
+                .min_by_key(|samples| samples.abs_diff(value as u32))
+                .unwrap_or(1) as i32
+        } else {
+            value
+        };
+        if self
+            .values
+            .get(definition.name)
+            .copied()
+            .unwrap_or(definition.default)
+            == value
+        {
             return false;
         }
         self.values.insert(definition.name.to_owned(), value);

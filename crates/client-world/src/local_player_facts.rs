@@ -25,6 +25,10 @@ pub struct LocalPlayerFacts {
     hunger: Option<LocalPlayerStat>,
     mount_unique_id: Option<i64>,
     immobile: bool,
+    /// Server-cleared `HasGravity`; the vanilla player spawns with it set.
+    gravity_cleared: bool,
+    uniform_air_drag: bool,
+    air_drag_modifier: Option<f32>,
 }
 
 impl LocalPlayerFacts {
@@ -191,7 +195,38 @@ impl LocalPlayerFacts {
         if let Some(immobile) = flags.immobile {
             self.immobile = immobile;
         }
+        if let Some(has_gravity) = flags.has_gravity {
+            self.gravity_cleared = !has_gravity;
+        }
+        if let Some(uniform_air_drag) = flags.uniform_air_drag {
+            self.uniform_air_drag = uniform_air_drag;
+        }
         true
+    }
+
+    /// Applies a FIFO-committed `minecraft:air_drag_modifier` current for this session.
+    pub fn apply_air_drag_modifier(&mut self, session_id: u64, current: f32) -> bool {
+        if self.session_id != session_id {
+            return false;
+        }
+        self.air_drag_modifier = Some(current);
+        true
+    }
+
+    #[must_use]
+    pub const fn has_gravity(&self) -> bool {
+        !self.gravity_cleared
+    }
+
+    #[must_use]
+    pub const fn uses_uniform_air_drag(&self) -> bool {
+        self.uniform_air_drag
+    }
+
+    /// Returns None until the server defines the attribute.
+    #[must_use]
+    pub const fn air_drag_modifier(&self) -> Option<f32> {
+        self.air_drag_modifier
     }
 
     /// Server immobility prevents travel without locking camera or raw input.

@@ -40,8 +40,8 @@ pub struct RenderTextureLayer {
 /// Bones of a geometry a render controller draws beside the rig's own.
 #[derive(Clone, Debug)]
 pub(super) struct LayerSkeleton {
-    bones: Vec<RuntimeBone>,
-    names: Vec<Box<str>>,
+    pub(super) bones: Vec<RuntimeBone>,
+    pub(super) names: Vec<Box<str>>,
 }
 
 pub(super) fn bind_attachable_roots(state: &mut ActorRigState, owner_names: &[Box<str>]) {
@@ -143,7 +143,14 @@ pub(super) fn sample_layer_pose(
         .collect();
     // Keyframe scripts already ran for the rig; scratch variables keep their writes isolated.
     let mut scratch = variables.clone();
-    let local = sample_clips(evaluator, &mut scratch, &skeleton.bones, &mapped, budget)?;
+    let local = sample_clips(
+        evaluator,
+        &mut scratch,
+        &skeleton.bones,
+        &skeleton.names,
+        &mapped,
+        budget,
+    )?;
     compose_pose(&skeleton.bones, &local)
         .map(Arc::from)
         .ok_or(EvalError::Invalid)

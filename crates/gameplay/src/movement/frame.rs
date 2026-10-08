@@ -28,6 +28,17 @@ pub fn wire_head_yaw(yaw: f32) -> f32 {
 /// so a stall runs at most two ticks instead of catching up.
 const MAX_FRAME_ELAPSED: Duration = Duration::from_millis(100);
 
+/// Whether a render frame of `delta` will simulate at least one fixed tick.
+pub fn frame_simulates_tick(
+    physics: &LocalPhysicsController,
+    ticker: &MovementTicker,
+    delta: Duration,
+) -> bool {
+    physics.is_active()
+        && ticker.can_advance_physics_frame()
+        && physics.ticks_due(delta.min(MAX_FRAME_ELAPSED)) > 0
+}
+
 /// Immutable input and modifier facts sampled at the existing physics phase.
 pub struct PhysicsFrameInput {
     pub delta: Duration,
@@ -170,6 +181,7 @@ impl LocomotionState {
                 input.sneaking = controlled.sneaking;
             }
             input.immobile = facts.immobile;
+            input.vertical_physics = facts.vertical_physics;
             movement_speed.set_sprinting(input.sprinting);
             input.movement_speed = movement_speed.prediction_speed();
             let liquid = movement_speed.liquid();

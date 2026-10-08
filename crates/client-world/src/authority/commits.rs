@@ -137,11 +137,25 @@ impl WorldAuthority {
                     };
                     let underwater = liquid("minecraft:underwater_movement");
                     let lava = liquid("minecraft:lava_movement");
+                    let air_drag_modifier = update
+                        .attributes
+                        .iter()
+                        .rev()
+                        .find(|attribute| {
+                            attribute.name.as_ref()
+                                == movement_attribute::AIR_DRAG_MODIFIER_ATTRIBUTE
+                        })
+                        .map(|attribute| attribute.current)
+                        .filter(|current| current.is_finite());
                     if let Some((current, _)) = movement {
                         self.local_movement_speed = Some(current);
                     }
                     // One control per update keeps admission's one-slot reservation exact.
-                    if movement.is_some() || underwater.is_some() || lava.is_some() {
+                    if movement.is_some()
+                        || underwater.is_some()
+                        || lava.is_some()
+                        || air_drag_modifier.is_some()
+                    {
                         self.push_committed_control(CommittedControlEvent::LocalMovementSpeed {
                             sequence,
                             dimension: update.dimension,
@@ -149,6 +163,7 @@ impl WorldAuthority {
                             sprint_modifier: movement.and_then(|(_, modifier)| modifier),
                             underwater,
                             lava,
+                            air_drag_modifier,
                             tick: update.tick,
                         });
                     }

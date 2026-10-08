@@ -157,6 +157,8 @@ struct GeometryProbe {
     texture_width: de::IgnoredAny,
     texture_height: de::IgnoredAny,
     bones: BoneSequenceCount,
+    #[serde(default)]
+    visible_bounds: Option<de::IgnoredAny>,
 }
 
 #[derive(Deserialize)]
@@ -273,6 +275,7 @@ impl<'de> Deserialize<'de> for GeometrySequenceCount {
                         texture_width: _,
                         texture_height: _,
                         bones: _,
+                        visible_bounds: _,
                     } = geometry;
                     count = count
                         .checked_add(1)

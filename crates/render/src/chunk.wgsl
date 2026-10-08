@@ -337,10 +337,18 @@ fn sample_texture_ref(
 ) -> vec4<f32> {
     let page = texture_ref >> 31u;
     let layer = i32(texture_ref & 0x7ffu);
+#ifdef ENHANCED
     if (page == 0u) {
         return textureSampleGrad(block_textures_page_0, block_sampler, uv, layer, uv_dx, uv_dy);
     }
     return textureSampleGrad(block_textures_page_1, block_sampler, uv, layer, uv_dx, uv_dy);
+#else
+    // Mips and animation frames interpolate the original encoded texture bytes.
+    if (page == 0u) {
+        return textureSampleGrad(native_leaf_textures_page_0, block_sampler, uv, layer, uv_dx, uv_dy);
+    }
+    return textureSampleGrad(native_leaf_textures_page_1, block_sampler, uv, layer, uv_dx, uv_dy);
+#endif
 }
 
 fn sample_material_texture_ref(
@@ -395,18 +403,12 @@ fn native_leaf_colour(
     return tint_to_linear(vec4(mix(lit_gamma, fog_gamma, fog_amount), 1.0)).rgb;
 }
 
-// Ordinary cubes arrive through the retained sRGB atlas view. Undo its input
-// transfer before native terrain lighting: logs behind leaf cutouts must not
-// receive a brighter, linear-domain AO product. Carried/entity routes stay separate;
-// bounded world models use the same native terrain domain in model.wgsl.
+// Terrain lighting operates on encoded RGB before the framebuffer conversion.
 fn native_cube_colour(
     texture: vec4<f32>, flags: u32, tint_gamma: vec3<f32>,
     ao_face: f32, lightmap_gamma: vec3<f32>, fog_linear: vec3<f32>, fog_amount: f32,
 ) -> vec4<f32> {
-    var texture_gamma = texture.rgb;
-    if (!material_uses_native_leaf_colour(flags)) {
-        texture_gamma = tint_to_gamma(vec4(texture.rgb, 1.0)).rgb;
-    }
+    let texture_gamma = texture.rgb;
     // Current atlas overlay and installed near-version opaque
     // RenderChunk agree: alpha masks the RGB tint, then output is opaque.
     // Apply this in the same gamma domain as the native terrain product.

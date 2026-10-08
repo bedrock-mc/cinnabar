@@ -201,10 +201,8 @@ fn apply_render_mode_to_cameras(
         if enhanced != has_enhanced {
             if enhanced {
                 let original = camera.depth_texture_usages;
-                camera.depth_texture_usages = (TextureUsages::from(original)
-                    | TextureUsages::TEXTURE_BINDING
-                    | TextureUsages::COPY_SRC)
-                    .into();
+                camera.depth_texture_usages =
+                    (TextureUsages::from(original) | TextureUsages::TEXTURE_BINDING).into();
                 commands.entity(entity).insert((
                     EnhancedRendering::default(),
                     Hdr,
@@ -302,8 +300,7 @@ mod tests {
             .spawn((
                 Camera3d {
                     depth_texture_usages: (TextureUsages::from(original)
-                        | TextureUsages::TEXTURE_BINDING
-                        | TextureUsages::COPY_SRC)
+                        | TextureUsages::TEXTURE_BINDING)
                         .into(),
                     ..default()
                 },

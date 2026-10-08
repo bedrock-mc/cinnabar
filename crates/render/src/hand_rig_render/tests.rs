@@ -36,6 +36,51 @@ fn light() -> HandRigLight {
     }
 }
 
+#[cfg(target_os = "macos")]
+#[test]
+fn recurring_hand_pose_updates_allocate_no_gpu_staging_buffers() {
+    use bevy::{ecs::system::RunSystemOnce, render::view::RetainedViewEntity};
+    let Some(mut app) = crate::upload_allocation_tests::app(HandRigRenderPlugin) else {
+        return;
+    };
+    let world = app.sub_app_mut(RenderApp).world_mut();
+    world.spawn((
+        Msaa::Off,
+        ExtractedView {
+            retained_view_entity: RetainedViewEntity::new(Entity::PLACEHOLDER.into(), None, 0),
+            clip_from_view: Mat4::IDENTITY,
+            world_from_view: GlobalTransform::IDENTITY,
+            clip_from_world: None,
+            hdr: false,
+            viewport: UVec4::new(0, 0, 64, 64),
+            color_grading: default(),
+            invert_culling: false,
+        },
+    ));
+    let mut scene = HandRigScene::default();
+    assert!(scene.publish(single_instance_frame(), skin(), light(), 1.2, 1));
+    world.insert_resource(scene);
+    world.run_system_once(prepare).unwrap();
+    assert_eq!(world.resource::<HandRigGpu>().revision, Some(1));
+    let initial_buffers = crate::upload_allocation_tests::buffers(world);
+    for revision in 2..=4 {
+        let mut rig = single_instance_frame();
+        Arc::make_mut(&mut rig.current_bones)[0][0][0] = revision as f32;
+        assert!(
+            world
+                .resource_mut::<HandRigScene>()
+                .publish(rig, skin(), light(), 1.2, revision,)
+        );
+        world.run_system_once(prepare).unwrap();
+        assert_eq!(world.resource::<HandRigGpu>().revision, Some(revision));
+        assert_eq!(
+            crate::upload_allocation_tests::buffers(world),
+            initial_buffers,
+            "a changed hand pose must not allocate another Metal staging buffer"
+        );
+    }
+}
+
 #[test]
 fn steady_uploads_hand_uniforms_are_independent_and_allocation_free() {
     use bevy::{ecs::system::RunSystemOnce, render::renderer::WgpuWrapper};
@@ -45,13 +90,14 @@ fn steady_uploads_hand_uniforms_are_independent_and_allocation_free() {
     world.insert_resource(RenderDevice::from(device));
     world.run_system_once(init_gpu).unwrap();
     let mut gpu = world.remove_resource::<HandRigGpu>().unwrap();
+    let device = world.resource::<RenderDevice>().clone();
     let buffers = [gpu.view_uniform.id(), gpu.light_uniform.id()];
-    let projection = Mat4::perspective_infinite_reverse_rh(1.2, 1.5, HAND_RIG_NEAR_PLANE);
+    let projection = Mat4::perspective_infinite_reverse_rh(1.2, 1.5, CAMERA_NEAR_PLANE_BLOCKS);
     let mut light = light();
-    upload_uniforms(&mut gpu, &queue, projection, light);
+    upload_uniforms(&mut gpu, &device, &queue, None, projection, light);
     assert_eq!(gpu.uniform_uploads, [1, 1]);
     let allocated = crate::alloc_count::thread_allocations();
-    upload_uniforms(&mut gpu, &queue, projection, light);
+    upload_uniforms(&mut gpu, &device, &queue, None, projection, light);
     assert_eq!(
         gpu.uniform_uploads,
         [1, 1],
@@ -59,14 +105,14 @@ fn steady_uploads_hand_uniforms_are_independent_and_allocation_free() {
     );
     assert_eq!(crate::alloc_count::thread_allocations() - allocated, 0);
 
-    let projection = Mat4::perspective_infinite_reverse_rh(1.2, 2.0, HAND_RIG_NEAR_PLANE);
-    upload_uniforms(&mut gpu, &queue, projection, light);
+    let projection = Mat4::perspective_infinite_reverse_rh(1.2, 2.0, CAMERA_NEAR_PLANE_BLOCKS);
+    upload_uniforms(&mut gpu, &device, &queue, None, projection, light);
     assert_eq!(gpu.uniform_uploads, [2, 1]);
     light.java_lights[1][2] = 0.75;
-    upload_uniforms(&mut gpu, &queue, projection, light);
+    upload_uniforms(&mut gpu, &device, &queue, None, projection, light);
     assert_eq!(gpu.uniform_uploads, [2, 2]);
     light.java_normal_axes[2][0] = 0.25;
-    upload_uniforms(&mut gpu, &queue, projection, light);
+    upload_uniforms(&mut gpu, &device, &queue, None, projection, light);
     assert_eq!(gpu.uniform_uploads, [2, 3]);
     assert_eq!([gpu.view_uniform.id(), gpu.light_uniform.id()], buffers);
 }
@@ -223,7 +269,13 @@ fn pose_updates_reuse_their_buffers() {
     let mut buffers = Vec::new();
     for revision in 1..=3 {
         assert!(scene.publish(single_instance_frame(), skin(), light(), 1.2, revision));
-        upload_pose(&mut gpu, &device, &queue, scene.frame.as_ref().unwrap());
+        upload_pose(
+            &mut gpu,
+            &device,
+            &queue,
+            None,
+            scene.frame.as_ref().unwrap(),
+        );
         buffers.push(gpu.instances.as_ref().unwrap().id());
     }
     assert!(buffers.windows(2).all(|pair| pair[0] == pair[1]));
@@ -311,5 +363,30 @@ fn review_render_hand_atlas_rejects_device_dimension_and_layer_limits() {
         ]);
         upload_atlas(&mut gpu, &device, &queue, scene.frame.as_ref().unwrap());
         assert!(gpu.atlases[0].is_none());
+    }
+}
+
+#[test]
+fn animated_hand_pipeline_matches_every_scene_sample_count_and_format() {
+    for samples in [1, 2, 4, 8] {
+        for hdr in [false, true] {
+            let descriptor = specialized_pipeline(hand_rig_layout(), samples, hdr);
+            assert_eq!(descriptor.multisample.count, samples);
+            assert_eq!(
+                descriptor.depth_stencil.unwrap().format,
+                CORE_3D_DEPTH_FORMAT
+            );
+            assert_eq!(
+                descriptor.fragment.unwrap().targets[0]
+                    .as_ref()
+                    .unwrap()
+                    .format,
+                if hdr {
+                    ViewTarget::TEXTURE_FORMAT_HDR
+                } else {
+                    TextureFormat::bevy_default()
+                }
+            );
+        }
     }
 }

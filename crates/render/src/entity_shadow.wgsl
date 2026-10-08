@@ -10,9 +10,11 @@ struct ShadowParams {
 }
 
 @group(0) @binding(0) var<uniform> view: View;
+#ifdef MULTISAMPLED
+@group(0) @binding(1) var scene_depth: texture_depth_multisampled_2d;
+#else
 @group(0) @binding(1) var scene_depth: texture_depth_2d;
-// The opaque scene copied before this pass; encoded bytes when GAMMA_TARGET.
-@group(0) @binding(2) var scene_colour: texture_2d<f32>;
+#endif
 // Feet in xyz, radius in w.
 @group(0) @binding(3) var<storage, read> casters: array<vec4<f32>>;
 @group(0) @binding(4) var<uniform> params: ShadowParams;
@@ -49,16 +51,18 @@ fn inside_volume(local: vec3<f32>) -> bool {
     return true;
 }
 
-fn srgb_to_linear(colour: vec3<f32>) -> vec3<f32> {
-    let low = colour / 12.92;
-    let high = pow((colour + 0.055) / 1.055, vec3(2.4));
-    return select(high, low, colour <= vec3(0.04045));
-}
-
 @fragment
-fn shadow_fragment(in: VertexOutput) -> @location(0) vec4<f32> {
+fn shadow_fragment(in: VertexOutput,
+#ifdef MULTISAMPLED
+    @builtin(sample_index) sample: u32,
+#endif
+) -> @location(0) vec4<f32> {
     let pixel = vec2<i32>(floor(in.position.xy));
+#ifdef MULTISAMPLED
+    let depth = textureLoad(scene_depth, pixel, i32(sample));
+#else
     let depth = textureLoad(scene_depth, pixel, 0);
+#endif
     // Reverse depth: zero is the sky.
     if depth <= 0.0 {
         discard;
@@ -72,11 +76,5 @@ fn shadow_fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     if !inside_volume((from_eye - (caster.xyz - view.world_position)) / caster.w) {
         discard;
     }
-    let scene = textureLoad(scene_colour, pixel, 0);
-    let shaded = scene.rgb * params.colour.rgb;
-#ifdef GAMMA_TARGET
-    return vec4(srgb_to_linear(shaded), scene.a);
-#else
-    return vec4(shaded, scene.a);
-#endif
+    return params.colour;
 }

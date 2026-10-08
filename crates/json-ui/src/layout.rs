@@ -113,7 +113,10 @@ pub trait TextureSource {
     fn texture(&self, path: &str) -> Option<TextureMeta>;
 
     /// An aseprite sheet's frames, for `aseprite_flip_book`.
-    fn aseprite_frames(&self, _path: &str) -> Option<Vec<crate::sidecar::AsepriteFrame>> {
+    fn aseprite_frames(
+        &self,
+        _path: &str,
+    ) -> Option<std::sync::Arc<[crate::sidecar::AsepriteFrame]>> {
         None
     }
 }

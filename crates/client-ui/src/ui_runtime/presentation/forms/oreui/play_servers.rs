@@ -219,6 +219,22 @@ enum Selection {
     Saved(usize),
 }
 
+/// The selected details keep painting while their pending or offline ping icon loops.
+pub(in crate::ui_runtime::presentation) fn animated_server_details(view: &MenuView) -> bool {
+    let address = match selection(view, view.featured.len()) {
+        Some(Selection::Saved(index)) => &view.servers[index].address,
+        Some(Selection::Featured(index)) if pingable(&view.featured[index].address) => {
+            &view.featured[index].address
+        }
+        _ => return false,
+    };
+    !view
+        .feeds
+        .pings
+        .get(address)
+        .is_some_and(|ping| ping.online)
+}
+
 /// The picked server, else the first experience, else the first saved server.
 fn selection(view: &MenuView, featured: usize) -> Option<Selection> {
     let saved = view.servers.len();

@@ -7,6 +7,38 @@ use std::{
 use zip::{ZipWriter, write::SimpleFileOptions};
 
 static NEXT: AtomicUsize = AtomicUsize::new(0);
+
+#[test]
+fn legacy_manifest_subpack_memory_is_converted_before_automatic_selection() {
+    let fixture = Fixture::new();
+    let mut library = fixture.library();
+    library.set_device_memory(24 << 30);
+    let manifest = manifest(
+        90,
+        "resources",
+        r#", "subpacks": [
+            {"folder_name":"lite", "name":"Lite", "memory_tier":0},
+            {"folder_name":"full", "name":"Full", "memory_tier":12}
+        ]"#,
+    );
+    let archive = zip(&[
+        ("manifest.json", manifest.as_bytes()),
+        ("font/glyph_e1.png", b"root glyph"),
+        ("subpacks/lite/font/glyph_e1.png", b"lite glyph"),
+        ("subpacks/full/font/glyph_e1.png", b"full glyph"),
+    ]);
+    library
+        .import(&fixture.write("tiers.mcpack", &archive))
+        .unwrap();
+    library.activate(Uuid::from_u128(90)).unwrap();
+    assert_eq!(library.active()[0].subpack, "full");
+    let view = LayeredPackView::new(library.apply().unwrap());
+    assert_eq!(
+        view.read("font/glyph_e1.png").unwrap().as_ref(),
+        b"full glyph"
+    );
+}
+
 struct Fixture(PathBuf);
 impl Fixture {
     /// Gives each test isolated install storage.
@@ -190,7 +222,7 @@ fn selects_subpack_and_rejects_newer_engine_on_activation() {
     let manifest = manifest(
         1,
         "resources",
-        r#", "subpacks":[{"folder_name":"high","name":"High","memory_tier":4}]"#,
+        r#", "subpacks":[{"folder_name":"high","name":"High","memory_performance_tier":4}]"#,
     );
     let bytes = zip(&[
         ("manifest.json", manifest.as_bytes()),

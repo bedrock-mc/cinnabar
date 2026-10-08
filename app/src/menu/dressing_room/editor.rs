@@ -5,6 +5,13 @@ use launcher::dressing_room::{SkinEditor, SkinEditorMode, SkinEditorTarget};
 
 impl MenuRuntime {
     pub(in crate::menu) fn skin_editor_blocks(&self, action: MenuAction) -> bool {
+        if matches!(
+            action,
+            MenuAction::OpenSignInLink | MenuAction::CancelSignIn | MenuAction::StartSignIn
+        ) && self.sign_in_focus().is_some()
+        {
+            return false;
+        }
         if self.dressing_room.busy && action == MenuAction::EditSkinName {
             return true;
         }

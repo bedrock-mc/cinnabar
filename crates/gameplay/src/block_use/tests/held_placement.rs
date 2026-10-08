@@ -1,5 +1,6 @@
 use super::*;
 use crate::block_use::{BuildIntention, PlacementTarget};
+use crate::movement::{MovementSource, MovementTicker};
 use protocol::wire::valentine::bedrock::version::v1_26_51::{
     EnumsItemUseInventoryTransactionTriggerType, InventoryTransactionPacketTransaction,
     McpePacketData,
@@ -109,10 +110,11 @@ fn step(
     assert_eq!(tx.target_block_id, 9);
     assert_eq!(
         tx.trigger_type,
-        if tick == 1 {
-            EnumsItemUseInventoryTransactionTriggerType::Playerinput
-        } else {
-            EnumsItemUseInventoryTransactionTriggerType::Simulationtick
+        match trigger {
+            ItemUseTrigger::PlayerInput => EnumsItemUseInventoryTransactionTriggerType::Playerinput,
+            ItemUseTrigger::SimulationTick => {
+                EnumsItemUseInventoryTransactionTriggerType::Simulationtick
+            }
         }
     );
     assert_eq!(
@@ -399,4 +401,153 @@ fn an_authority_wait_preserves_the_line_and_resumes_with_fresh_evidence() {
     .unwrap();
     assert_eq!(destination, [2, 63, 0]);
     assert_eq!(packets.len(), 2);
+}
+
+/// Queues one tick ending at `eye` with the given tick-end velocity and displacement.
+fn advance(ticker: &mut MovementTicker, tick: u64, eye: [f32; 3], velocity: [f32; 3]) {
+    let mut sample = crate::test_support::survival_mining::completed(tick);
+    sample.position = eye;
+    sample.velocity = velocity;
+    sample.movement = [velocity[0], 0.0, velocity[2]];
+    ticker.enqueue_completed_physics(sample).unwrap();
+}
+
+/// A repeat due on the jump tick reads the pre-jump motion, so it extends the bridge
+/// sideways instead of stacking on the top face under the crosshair.
+#[test]
+fn a_repeat_due_on_the_jump_tick_extends_the_bridge_instead_of_stacking() {
+    let mut ticker = MovementTicker::default();
+    ticker.reset(7, 0, [0.5, 65.62, 0.5]);
+    ticker.set_source(MovementSource::Physics);
+    let mut runtime = BlockUseRuntime::default();
+    runtime.observe_use(true, true, false, true);
+    let side = PlacementTarget {
+        position: [-1, 63, 0],
+        face: 5,
+    };
+    let top = PlacementTarget {
+        position: [0, 63, 0],
+        face: 1,
+    };
+    let mut placed = Vec::new();
+    for tick in 1..=8 {
+        let jumping = tick == 8;
+        let eye = [
+            0.5 + 0.12 * tick as f32,
+            if jumping { 66.04 } else { 65.62 },
+            0.5,
+        ];
+        let velocity = if jumping {
+            [0.12, 0.3332, 0.0]
+        } else {
+            [0.12, -0.0784, 0.0]
+        };
+        // The build action resolves before this tick simulates.
+        let state = ticker.build_action_state().unwrap();
+        let hit = if tick == 1 { side } else { top };
+        if let Some((position, _)) = step(
+            &mut runtime,
+            tick,
+            Some(hit),
+            state.position,
+            state.delta,
+            state.sneaking,
+        ) {
+            placed.push((tick, position));
+        }
+        advance(&mut ticker, tick, eye, velocity);
+    }
+    assert_eq!(placed, [(1, [0, 63, 0]), (8, [1, 63, 0])]);
+}
+
+/// Cadence is timed from the previous tick's motion: stopping still repeats on the moving delay.
+#[test]
+fn held_cadence_uses_the_motion_of_the_previous_tick() {
+    let mut ticker = MovementTicker::default();
+    ticker.reset(7, 0, [0.5, 65.62, 0.5]);
+    ticker.set_source(MovementSource::Physics);
+    advance(&mut ticker, 1, [0.75, 65.62, 0.5], [0.25, 0.0, 0.0]);
+    // Tick 2's build action reads tick 1's motion; the stop simulated on tick 2 is later.
+    let state = ticker.build_action_state().unwrap();
+    advance(&mut ticker, 2, [0.75, 65.62, 0.5], [0.0; 3]);
+    let mut runtime = BlockUseRuntime::default();
+    runtime.intention.record(
+        false,
+        [0, 63, 0],
+        LocalUse::Place,
+        true,
+        false,
+        [0.5, 64.0, 0.5],
+    );
+    runtime.intention.record(
+        true,
+        [1, 63, 0],
+        LocalUse::Place,
+        true,
+        false,
+        [1.5, 64.0, 0.5],
+    );
+    let clock =
+        |now_millis| RepeatClock::for_state(now_millis, &state, Some(PlayerGameMode::Survival));
+    runtime.record(
+        ItemUseTrigger::PlayerInput,
+        1_000,
+        1,
+        LocalUse::Place,
+        clock(1_000),
+    );
+    assert_eq!(clock(0).speed, 5.0);
+    assert_eq!(runtime.due(true, 2, clock(1_180)), None);
+    assert_eq!(
+        runtime.due(true, 2, clock(1_181)),
+        Some((ItemUseTrigger::SimulationTick, 1_180))
+    );
+}
+
+/// Releasing use stops at the last destination and drops the line; a new press is fresh.
+#[test]
+fn releasing_use_resets_the_placement_lock() {
+    let mut runtime = BlockUseRuntime::default();
+    runtime.observe_use(true, true, false, true);
+    for (tick, support, face, x) in [(1, [-1, 63, 0], 5, 0.5), (8, [0, 63, 0], 1, 1.5)] {
+        let hit = Some(PlacementTarget {
+            position: support,
+            face,
+        });
+        assert!(
+            step(
+                &mut runtime,
+                tick,
+                hit,
+                [x, 65.62, 0.5],
+                [0.22, 0.0, 0.0],
+                false
+            )
+            .is_some()
+        );
+    }
+    assert!(!runtime.intention.unlined());
+    assert_eq!(
+        runtime.stop_packets(42, false),
+        [protocol::stop_item_use_on_packet(42, [1, 63, 0])]
+    );
+    assert!(runtime.admit_stop(true));
+    assert!(!runtime.observe_use(false, false, false, true));
+    assert_eq!(runtime.last_success_destination(), None);
+    runtime.observe_use(true, true, false, true);
+    let top = Some(PlacementTarget {
+        position: [1, 63, 0],
+        face: 1,
+    });
+    let (destination, packets) = step(
+        &mut runtime,
+        20,
+        top,
+        [2.5, 65.62, 0.5],
+        [0.22, 0.0, 0.0],
+        false,
+    )
+    .unwrap();
+    assert_eq!(destination, [1, 64, 0]);
+    assert_eq!(packets.len(), 3);
 }
