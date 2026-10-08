@@ -6544,6 +6544,7 @@ hardware budgets and matched-version pixel comparison remain incomplete.
 Bamboo visuals remain incomplete. A dedicated stalk/leaf model now separates the
 stem selector from the small/large leaf selectors, with thickness-dependent stalk
 bounds and position-dependent stem UVs and column offsets. Current pinned physics
-seeds confirm both widths and the origin offsets. Exact target-version atlas and
-random-offset component admission still need verification, followed by rendered
-directional and state checks; this work does not close the bamboo parity gate.
+seeds confirm both widths and the origin offsets. Headless Metal checks cover
+all twelve pinned states from four sides and above, with continuous stalks and
+visible radial leaves. Exact target-version atlas and random-offset component
+admission still need verification; this work does not close the bamboo parity gate.

@@ -3660,7 +3660,14 @@ Files: `docs/reference/held-block-placement.md`, `crates/gameplay/src/block_use.
   widths 1/8 and 3/16, stem UV stride 3/16, cap U 13/16, bottom V 1/4,
   small leaf UV boundaries 1/8, 7/16, 9/16, 7/8 and large boundaries
   0, 7/16, 9/16, 1. These resolve nearby-version numeric data only: the current
-  exported globals remain unavailable, so exact target admission stays open.
+  exported data payload remains unavailable, so exact target admission stays open.
+- Current shared constants have independent pinned physics constraints:
+  `FUN_14a5bee10` in `src/__unmapped/0a.cpp` uses `150178684`/`150162320`
+  for the disconnected pane/bar bounds 7/16..9/16; the five-box cauldron body
+  uses `14ff1b14c`/`150178688` for its wall bounds 1/8..7/8.
+  `FUN_14a7c7db0` uses `15014e774` as the end portal frame base height and
+  eye minimum Y. Its base/eye topology matches `EndPortalFrameBlock::addAABBs`
+  in the named reference; pinned protocol-2193 boxes constrain both to 13/16.
 - `crates/meshing/src/bamboo.rs` follows current position hash, seed mixing,
   and xoroshiro128++ in `src/__unmapped/0a.cpp`, `FUN_14ab8efd0` (2018342).
   Installed arm64 `0x10bb8af58` independently confirms signed-coordinate RNG
@@ -3668,4 +3675,6 @@ Files: `docs/reference/held-block-placement.md`, `crates/gameplay/src/block_use.
   extrema; our wide hash follows the current canonical body. Pinned protocol-2193
   physics seeds independently confirm both widths
   and origin bounds (.31666666, .38333333), matching a 16-step [-1/4, 1/4]
-  X/Z offset and zero Y. Default component admission still needs direct proof.
+  X/Z offset and zero Y. With equal symmetric X/Z ranges, the origin RNG samples
+  and bounds uniquely select 16 steps among integer counts 2..4096. Default
+  component admission still needs direct proof.
