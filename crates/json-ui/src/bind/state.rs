@@ -143,6 +143,13 @@ impl BindState {
         self.scroll_observed
     }
 
+    /// Whether view notifications left a visibility-scheduled binding for the next refresh.
+    pub fn has_pending_visibility(&self) -> bool {
+        self.tree
+            .as_ref()
+            .is_some_and(|node| node.track.visibility_pending)
+    }
+
     /// Whether a bind has run over this state yet.
     pub fn is_empty(&self) -> bool {
         fn retains(node: &super::Node) -> bool {

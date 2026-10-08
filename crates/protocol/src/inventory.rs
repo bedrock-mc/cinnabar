@@ -29,6 +29,10 @@ pub use creative::{
     MAX_CREATIVE_ITEMS, normalize_creative_content,
 };
 mod client_packets;
+mod legacy;
+pub use legacy::{
+    NormalInventoryChange, NormalInventorySource, normal_inventory_transaction_packet,
+};
 mod raw_scan;
 pub mod recipes;
 mod request;
@@ -248,6 +252,8 @@ impl InventoryEvent {
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum InventoryPacketError {
+    #[error("normal inventory transaction has {0} actions, outside its retention bound")]
+    InvalidNormalTransactionActionCount(usize),
     #[error("item stack request ID must be a negative odd integer below -1")]
     InvalidStackRequestId,
     #[error("item stack request amount must be positive")]

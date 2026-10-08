@@ -7,7 +7,8 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         Arc, Mutex,
-        mpsc::{Receiver, Sender, channel},
+        atomic::{AtomicU64, AtomicUsize, Ordering},
+        mpsc::{Receiver, SyncSender, TrySendError, sync_channel},
     },
 };
 
@@ -25,7 +26,7 @@ const CACHE_BUDGET_BYTES: usize = 96 * 1024 * 1024;
 /// Worker threads decoding bank entries, so a streamed track cannot hold up every first-play sound.
 const DECODE_WORKERS: usize = 2;
 /// Decodes queued at once, and their compressed bytes; a lookup beyond either is `Busy`.
-const MAX_QUEUED_DECODES: usize = 64;
+pub(super) const MAX_QUEUED_DECODES: usize = 64;
 const MAX_QUEUED_DECODE_BYTES: usize = 32 * 1024 * 1024;
 
 /// Where the sound bank sits relative to the world carrier.
@@ -54,6 +55,7 @@ pub struct SoundBank {
     cache_bytes: usize,
     failed: HashSet<Box<str>>,
     decoder: Option<Decoder>,
+    decode_generation: u64,
     /// Paths being decoded, with their stream flag and compressed size.
     in_flight: HashMap<Box<str>, (bool, usize)>,
     in_flight_bytes: usize,
@@ -70,22 +72,46 @@ pub enum PcmLookup {
     Failed,
 }
 
-type DecodeJob = (Box<str>, Vec<u8>);
-type DecodeResult = (Box<str>, Option<Pcm>);
+enum DecodeSource {
+    Bank(Vec<u8>),
+    Server,
+}
+
+type DecodeJob = (u64, Box<str>, DecodeSource, EncodedPermit);
+type DecodeResult = (u64, Box<str>, Option<Pcm>);
+type CurrentServer = Arc<Mutex<(u64, Option<Arc<ServerSoundPack>>)>>;
+
+struct EncodedPermit {
+    bytes: usize,
+    total: Arc<AtomicUsize>,
+}
+
+impl Drop for EncodedPermit {
+    fn drop(&mut self) {
+        self.total.fetch_sub(self.bytes, Ordering::Relaxed);
+    }
+}
 
 struct Decoder {
-    jobs: Sender<DecodeJob>,
+    jobs: SyncSender<DecodeJob>,
     done: Mutex<Receiver<DecodeResult>>,
+    generation: Arc<AtomicU64>,
+    encoded_bytes: Arc<AtomicUsize>,
+    server: CurrentServer,
 }
 
 impl Decoder {
-    fn spawn() -> Option<Self> {
-        let (jobs, job_queue) = channel::<DecodeJob>();
-        let (results, done) = channel();
+    fn spawn(generation: u64, server: Option<Arc<ServerSoundPack>>) -> Option<Self> {
+        let (jobs, job_queue) = sync_channel::<DecodeJob>(MAX_QUEUED_DECODES);
+        let (results, done) = sync_channel(DECODE_WORKERS);
         let job_queue = Arc::new(Mutex::new(job_queue));
+        let server = Arc::new(Mutex::new((generation, server)));
+        let generation = Arc::new(AtomicU64::new(generation));
         for index in 0..DECODE_WORKERS {
             let job_queue = Arc::clone(&job_queue);
             let results = results.clone();
+            let generation = Arc::clone(&generation);
+            let server = Arc::clone(&server);
             std::thread::Builder::new()
                 .name(format!("sound-decode-{index}"))
                 .spawn(move || {
@@ -94,9 +120,29 @@ impl Decoder {
                             .lock()
                             .unwrap_or_else(std::sync::PoisonError::into_inner)
                             .recv();
-                        let Ok((path, bytes)) = job else { return };
-                        let pcm = decode_pcm(&bytes, &path);
-                        if results.send((path, pcm)).is_err() {
+                        let Ok((epoch, path, source, permit)) = job else {
+                            return;
+                        };
+                        if generation.load(Ordering::Acquire) != epoch {
+                            continue;
+                        }
+                        let pcm = match source {
+                            DecodeSource::Bank(bytes) => decode_pcm(&bytes, &path),
+                            DecodeSource::Server => {
+                                let pack = {
+                                    let current = server
+                                        .lock()
+                                        .unwrap_or_else(std::sync::PoisonError::into_inner);
+                                    (current.0 == epoch).then(|| current.1.clone()).flatten()
+                                };
+                                pack.and_then(|pack| pack.decode(&path))
+                            }
+                        };
+                        drop(permit);
+                        if generation.load(Ordering::Acquire) != epoch {
+                            continue;
+                        }
+                        if results.send((epoch, path, pcm)).is_err() {
                             return;
                         }
                     }
@@ -106,6 +152,22 @@ impl Decoder {
         Some(Self {
             jobs,
             done: Mutex::new(done),
+            generation,
+            encoded_bytes: Arc::new(AtomicUsize::new(0)),
+            server,
+        })
+    }
+
+    fn reserve(&self, bytes: usize) -> Option<EncodedPermit> {
+        self.encoded_bytes
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |held| {
+                held.checked_add(bytes)
+                    .filter(|total| *total <= MAX_QUEUED_DECODE_BYTES)
+            })
+            .ok()?;
+        Some(EncodedPermit {
+            bytes,
+            total: Arc::clone(&self.encoded_bytes),
         })
     }
 }
@@ -179,6 +241,7 @@ impl SoundBank {
             cache_bytes: 0,
             failed: HashSet::new(),
             decoder: None,
+            decode_generation: 0,
             in_flight: HashMap::new(),
             in_flight_bytes: 0,
             ready_streams: HashMap::new(),
@@ -200,6 +263,13 @@ impl SoundBank {
 
     /// Replaces the session's server pack; `None` restores vanilla definitions.
     pub fn install_server(&mut self, pack: Option<Arc<ServerSoundPack>>) {
+        if match (&self.server, &pack) {
+            (None, None) => true,
+            (Some(old), Some(new)) => Arc::ptr_eq(old, new),
+            _ => false,
+        } {
+            return;
+        }
         self.merged = pack
             .as_ref()
             .and_then(|pack| pack.tables.clone())
@@ -209,6 +279,24 @@ impl SoundBank {
                 merged
             });
         self.server = pack;
+        self.decode_generation = self.decode_generation.wrapping_add(1);
+        if let Some(decoder) = &self.decoder {
+            *decoder
+                .server
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) =
+                (self.decode_generation, self.server.clone());
+            decoder
+                .generation
+                .store(self.decode_generation, Ordering::Release);
+        }
+        self.in_flight.clear();
+        self.in_flight_bytes = 0;
+        self.ready_streams.clear();
+        self.failed.clear();
+        self.cache.clear();
+        self.cache_order.clear();
+        self.cache_bytes = 0;
     }
 
     /// Definition by name, the server pack winning over the vanilla catalog.
@@ -222,9 +310,6 @@ impl SoundBank {
     /// PCM for an alternative's sound path (no extension), queueing a background decode on a
     /// miss; non-streaming sounds are cached once decoded.
     pub fn lookup(&mut self, path: &str, stream: bool) -> PcmLookup {
-        if let Some(found) = self.server.as_ref().and_then(|pack| pack.files.get(path)) {
-            return PcmLookup::Ready(Arc::clone(found));
-        }
         if let Some(found) = self.cache.get(path) {
             return PcmLookup::Ready(Arc::clone(found));
         }
@@ -237,27 +322,53 @@ impl SoundBank {
         if self.in_flight.contains_key(path) {
             return PcmLookup::Pending;
         }
-        let Some(entry) = self.index.entry(path) else {
+        let server = self.server.as_ref().is_some_and(|pack| pack.contains(path));
+        let entry = self.index.entry(path);
+        if !server && entry.is_none() {
             self.failed.insert(path.into());
             return PcmLookup::Failed;
+        }
+        // Only active workers retain an archive; queued jobs carry a path and generation.
+        let size = if server {
+            0
+        } else {
+            entry.map_or(0, |entry| entry.len as usize)
         };
-        let size = entry.len as usize;
         if !self.in_flight.is_empty()
             && (self.in_flight.len() >= MAX_QUEUED_DECODES
                 || self.in_flight_bytes.saturating_add(size) > MAX_QUEUED_DECODE_BYTES)
         {
             return PcmLookup::Busy;
         }
-        let bytes = self.read_entry(entry);
         if self.decoder.is_none() {
-            self.decoder = Decoder::spawn();
+            self.decoder = Decoder::spawn(self.decode_generation, self.server.clone());
         }
-        let queued = bytes
-            .zip(self.decoder.as_ref())
-            .is_some_and(|(bytes, decoder)| decoder.jobs.send((path.into(), bytes)).is_ok());
-        if !queued {
+        let Some(decoder) = &self.decoder else {
             self.failed.insert(path.into());
             return PcmLookup::Failed;
+        };
+        let Some(permit) = decoder.reserve(size) else {
+            return PcmLookup::Busy;
+        };
+        let jobs = decoder.jobs.clone();
+        let source = match server {
+            true => Some(DecodeSource::Server),
+            false => entry
+                .and_then(|entry| self.read_entry(entry))
+                .map(DecodeSource::Bank),
+        };
+        let Some(source) = source else {
+            self.failed.insert(path.into());
+            return PcmLookup::Failed;
+        };
+        let job = (self.decode_generation, path.into(), source, permit);
+        match jobs.try_send(job) {
+            Ok(()) => {}
+            Err(TrySendError::Full(_)) => return PcmLookup::Busy,
+            Err(TrySendError::Disconnected(_)) => {
+                self.failed.insert(path.into());
+                return PcmLookup::Failed;
+            }
         }
         self.in_flight.insert(path.into(), (stream, size));
         self.in_flight_bytes += size;
@@ -271,16 +382,21 @@ impl SoundBank {
 
     /// Collects finished decodes.
     pub fn poll(&mut self) {
-        let Some(decoder) = self.decoder.as_ref() else {
-            return;
-        };
-        let finished: Vec<DecodeResult> = decoder
-            .done
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .try_iter()
-            .collect();
-        for (path, pcm) in finished {
+        for _ in 0..DECODE_WORKERS {
+            let finished = self.decoder.as_ref().and_then(|decoder| {
+                decoder
+                    .done
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .try_recv()
+                    .ok()
+            });
+            let Some((generation, path, pcm)) = finished else {
+                break;
+            };
+            if generation != self.decode_generation {
+                continue;
+            }
             let (stream, size) = self.in_flight.remove(&path).unwrap_or_default();
             self.in_flight_bytes -= size;
             match pcm.map(Arc::new) {
@@ -310,6 +426,10 @@ impl SoundBank {
 
     fn remember(&mut self, path: &str, pcm: &Arc<Pcm>) {
         let size = pcm.samples.len() * 2;
+        if size > CACHE_BUDGET_BYTES {
+            self.ready_streams.insert(path.into(), Arc::clone(pcm));
+            return;
+        }
         while self.cache_bytes + size > CACHE_BUDGET_BYTES {
             let Some(oldest) = self.cache_order.pop_front() else {
                 break;
@@ -347,6 +467,7 @@ impl SoundBank {
             cache_bytes: 0,
             failed: HashSet::new(),
             decoder: None,
+            decode_generation: 0,
             in_flight: HashMap::new(),
             in_flight_bytes: 0,
             ready_streams: HashMap::new(),
@@ -368,6 +489,9 @@ impl SoundBank {
         }
     }
 }
+
+#[cfg(test)]
+mod reload_tests;
 
 #[cfg(test)]
 mod tests {

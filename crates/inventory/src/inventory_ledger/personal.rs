@@ -1,5 +1,3 @@
-use protocol::InventoryAuthority;
-
 use super::{InventoryPendingState, PendingCloseOwner, PlayerInventoryLedger};
 
 #[derive(Debug, Clone, Copy)]
@@ -76,7 +74,7 @@ impl PlayerInventoryLedger {
     }
 
     pub fn request_personal_open(&mut self, target_runtime_id: u64) -> bool {
-        if self.authority != Some(InventoryAuthority::Server)
+        if self.authority.is_none()
             || target_runtime_id == 0
             || self.storage.is_some()
             || !self.pending_closes.is_empty()

@@ -22,10 +22,10 @@ use client_ui::ui_runtime::{
 };
 
 /// Builds the keyboard fixture with one live domain owner.
-fn app() -> (App, Entity) {
+fn app(authority: InventoryAuthority) -> (App, Entity) {
     let mut player_runtime = PlayerRuntime::new(1);
     let mut runtime = UiRuntime::new(1);
-    runtime.publish_inventory_authority(&mut player_runtime, InventoryAuthority::Server);
+    runtime.publish_inventory_authority(&mut player_runtime, authority);
     runtime
         .publish_local_runtime_id(&mut player_runtime, 1, 42)
         .unwrap();
@@ -94,61 +94,63 @@ fn flush(app: &mut App, millis: u64) {
 
 #[test]
 fn e_key_reopens_after_e_or_escape_and_response_payload_does_not_identify_the_screen() {
-    // The native response branch never inspects either payload
-    // identifier. Include generic type/window0 (DF), an inventory type, a
-    // sentinel and an odd but well-framed type, without asserting BDS's shape.
-    for (response_window, response_type) in [
-        (0, GENERIC_STORAGE_WINDOW_TYPE),
-        (3, PERSONAL_INVENTORY_WINDOW_TYPE),
-        (255, 127),
-    ] {
-        for close_key in [KeyCode::KeyE, KeyCode::Escape] {
-            let (mut app, window) = app();
-            for cycle in 0..3 {
-                key(&mut app, window, KeyCode::KeyE, ButtonState::Pressed);
-                assert!(
-                    app.world().resource::<UiRuntime>().inventory_open(),
-                    "cycle {cycle}"
-                );
-                assert!(app.world().get::<CursorOptions>(window).unwrap().visible);
-                flush(&mut app, cycle * 100_000 + 10);
-                receive(
-                    &mut app,
-                    cycle * 2 + 1,
-                    InventoryEvent::Open(ContainerOpenEvent {
-                        container: ContainerIdentity::window(0),
-                        window_type: PERSONAL_INVENTORY_WINDOW_TYPE,
-                        position: [0; 3],
-                        runtime_entity_id: -1,
-                    }),
-                );
-                key(&mut app, window, KeyCode::KeyE, ButtonState::Released);
-                key(&mut app, window, close_key, ButtonState::Pressed);
-                assert!(!app.world().resource::<UiRuntime>().inventory_open());
-                assert_eq!(
-                    app.world().get::<CursorOptions>(window).unwrap().grab_mode,
-                    CursorGrabMode::Locked
-                );
-                flush(&mut app, cycle * 100_000 + 20);
-                receive(
-                    &mut app,
-                    cycle * 2 + 2,
-                    InventoryEvent::Close(ContainerCloseEvent {
-                        container: ContainerIdentity::window(response_window),
-                        window_type: response_type,
-                        server_initiated: false,
-                    }),
-                );
-                key(&mut app, window, close_key, ButtonState::Released);
-                crate::tests::with_ui_player(&mut app, |runtime, player_runtime| {
-                    runtime.poll_inventory_timeout(player_runtime, cycle * 100_000 + 60_000);
-                    assert!(!runtime.inventory_open());
+    for authority in [InventoryAuthority::Server, InventoryAuthority::Client] {
+        // The native response branch never inspects either payload
+        // identifier. Include generic type/window0 (DF), an inventory type, a
+        // sentinel and an odd but well-framed type, without asserting BDS's shape.
+        for (response_window, response_type) in [
+            (0, GENERIC_STORAGE_WINDOW_TYPE),
+            (3, PERSONAL_INVENTORY_WINDOW_TYPE),
+            (255, 127),
+        ] {
+            for close_key in [KeyCode::KeyE, KeyCode::Escape] {
+                let (mut app, window) = app(authority);
+                for cycle in 0..3 {
+                    key(&mut app, window, KeyCode::KeyE, ButtonState::Pressed);
                     assert!(
-                        !runtime
-                            .inventory_ledger(player_runtime)
-                            .personal_inventory_desired_open()
+                        app.world().resource::<UiRuntime>().inventory_open(),
+                        "cycle {cycle}"
                     );
-                });
+                    assert!(app.world().get::<CursorOptions>(window).unwrap().visible);
+                    flush(&mut app, cycle * 100_000 + 10);
+                    receive(
+                        &mut app,
+                        cycle * 2 + 1,
+                        InventoryEvent::Open(ContainerOpenEvent {
+                            container: ContainerIdentity::window(0),
+                            window_type: PERSONAL_INVENTORY_WINDOW_TYPE,
+                            position: [0; 3],
+                            runtime_entity_id: -1,
+                        }),
+                    );
+                    key(&mut app, window, KeyCode::KeyE, ButtonState::Released);
+                    key(&mut app, window, close_key, ButtonState::Pressed);
+                    assert!(!app.world().resource::<UiRuntime>().inventory_open());
+                    assert_eq!(
+                        app.world().get::<CursorOptions>(window).unwrap().grab_mode,
+                        CursorGrabMode::Locked
+                    );
+                    flush(&mut app, cycle * 100_000 + 20);
+                    receive(
+                        &mut app,
+                        cycle * 2 + 2,
+                        InventoryEvent::Close(ContainerCloseEvent {
+                            container: ContainerIdentity::window(response_window),
+                            window_type: response_type,
+                            server_initiated: false,
+                        }),
+                    );
+                    key(&mut app, window, close_key, ButtonState::Released);
+                    crate::tests::with_ui_player(&mut app, |runtime, player_runtime| {
+                        runtime.poll_inventory_timeout(player_runtime, cycle * 100_000 + 60_000);
+                        assert!(!runtime.inventory_open());
+                        assert!(
+                            !runtime
+                                .inventory_ledger(player_runtime)
+                                .personal_inventory_desired_open()
+                        );
+                    });
+                }
             }
         }
     }

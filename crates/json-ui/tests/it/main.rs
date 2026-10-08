@@ -16,6 +16,7 @@ mod input;
 mod interaction;
 mod layout;
 mod layout_parity;
+mod partial_documents;
 mod render;
 mod resolution;
 mod resolve_snapshot;

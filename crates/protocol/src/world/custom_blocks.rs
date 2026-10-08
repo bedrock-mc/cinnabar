@@ -13,6 +13,8 @@ const MAX_PERMUTATIONS: usize = 1024;
 const MAX_BONE_VISIBILITY: usize = 256;
 /// Material instances one component set may define before extras are ignored.
 const MAX_MATERIAL_INSTANCES: usize = 64;
+/// Collision primitives one custom block may contribute before extras are ignored.
+const MAX_COLLISION_BOXES: usize = 256;
 /// The namespace of vanilla's own blocks.
 const VANILLA_NAMESPACE: &str = "minecraft";
 
@@ -26,11 +28,13 @@ pub struct CustomBlock {
     pub state_count: u32,
     /// False when the definition disables its collision box.
     pub collides: bool,
-    /// Explicit `minecraft:collision_box` shape; `None` means a full cube when `collides`.
-    pub collision_box: Option<CustomBox>,
+    /// Explicit `minecraft:collision_box` shapes; `None` means a full cube when `collides`.
+    pub collision_boxes: Option<Arc<[CustomBox]>>,
     /// `minecraft:selection_box`: what the pick ray targets and the outline traces.
     pub selection: CustomSelection,
     pub visual: Arc<CustomBlockVisuals>,
+    /// Resolved palette-order component sets; empty until session preparation.
+    pub state_physics: Arc<[CustomBlockPhysics]>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
@@ -43,7 +47,7 @@ pub enum CustomSelection {
     Disabled,
 }
 
-/// An axis-aligned box in block units (`0..=1` on each axis).
+/// An axis-aligned box in block units (X/Z `0..=1`, Y `0..=1.5`).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CustomBox {
     pub min: [f32; 3],
@@ -118,6 +122,28 @@ pub struct CustomTransformation {
 pub struct CustomPermutation {
     pub condition: Arc<str>,
     pub components: CustomVisualComponents,
+    pub physical: CustomPhysicalComponents,
+}
+
+/// Collision and targeting components present in a permutation; absent fields inherit.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct CustomPhysicalComponents {
+    pub collision: Option<CustomCollision>,
+    pub selection: Option<CustomSelection>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct CustomCollision {
+    pub enabled: bool,
+    pub boxes: Option<Arc<[CustomBox]>>,
+}
+
+/// Effective physical components for one palette state.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CustomBlockPhysics {
+    pub collides: bool,
+    pub collision_boxes: Option<Arc<[CustomBox]>>,
+    pub selection: CustomSelection,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -142,6 +168,24 @@ pub struct CustomHashedState {
 }
 
 impl CustomBlock {
+    /// Falls back to the base component set when a state has not been resolved.
+    #[must_use]
+    pub fn physics_for_state(&self, index: u32) -> CustomBlockPhysics {
+        self.state_physics
+            .get(index as usize)
+            .cloned()
+            .unwrap_or_else(|| self.base_physics())
+    }
+
+    #[must_use]
+    pub fn base_physics(&self) -> CustomBlockPhysics {
+        CustomBlockPhysics {
+            collides: self.collides,
+            collision_boxes: self.collision_boxes.clone(),
+            selection: self.selection,
+        }
+    }
+
     /// Every state in palette order with its network block hash, for sessions whose block
     /// ids are hashes.
     #[must_use]
@@ -314,15 +358,16 @@ impl CustomBlocks {
             }
             match parse_definition(&root) {
                 Some(definition) => {
-                    skipped += definition.tag_skips;
+                    skipped += definition.skipped;
                     blocks.push(CustomBlock {
                         name: Arc::from(name),
                         tags: definition.tags,
                         state_count: definition.state_count,
                         collides: definition.collides,
-                        collision_box: definition.collision_box,
+                        collision_boxes: definition.collision_boxes,
                         selection: definition.selection,
                         visual: Arc::new(definition.visual),
+                        state_physics: Arc::default(),
                     });
                 }
                 None => skipped += 1,
@@ -348,10 +393,10 @@ impl CustomBlocks {
 
 struct Definition {
     tags: Arc<[Arc<str>]>,
-    tag_skips: usize,
+    skipped: usize,
     state_count: u32,
     collides: bool,
-    collision_box: Option<CustomBox>,
+    collision_boxes: Option<Arc<[CustomBox]>>,
     selection: CustomSelection,
     visual: CustomBlockVisuals,
 }
@@ -433,50 +478,40 @@ fn parse_definition(root: &Nbt) -> Option<Definition> {
         return None;
     }
     let components = root.field("components");
-    let collides =
-        match components.and_then(|components| components.field("minecraft:collision_box")) {
-            Some(Nbt::Byte(enabled)) => *enabled != 0,
-            Some(compound @ Nbt::Compound(_)) => {
-                !matches!(compound.field("enabled"), Some(Nbt::Byte(0)))
-            }
-            _ => true,
-        };
-    let collision_box = components
-        .and_then(|components| components.field("minecraft:collision_box"))
-        .and_then(box_component);
+    let collision_component = components.and_then(|set| set.field("minecraft:collision_box"));
+    let collides = collision_enabled(collision_component);
+    let (collision_boxes, collision_skips) = collision_components(collision_component);
     let selection =
-        match components.and_then(|components| components.field("minecraft:selection_box")) {
-            Some(Nbt::Byte(0)) => CustomSelection::Disabled,
-            Some(compound @ Nbt::Compound(_)) => {
-                if matches!(compound.field("enabled"), Some(Nbt::Byte(0))) {
-                    CustomSelection::Disabled
-                } else {
-                    box_component(compound).map_or(CustomSelection::Default, CustomSelection::Box)
-                }
-            }
-            _ => CustomSelection::Default,
-        };
+        selection_component(components.and_then(|set| set.field("minecraft:selection_box")));
+    let mut permutation_skips = root
+        .list("permutations")
+        .len()
+        .saturating_sub(MAX_PERMUTATIONS);
     let permutations = root
         .list("permutations")
         .iter()
         .take(MAX_PERMUTATIONS)
         .filter_map(|permutation| {
             let Some(Nbt::String(condition)) = permutation.field("condition") else {
+                permutation_skips += 1;
                 return None;
             };
+            let (physical, skipped) = physical_components(permutation.field("components"));
+            permutation_skips += skipped;
             Some(CustomPermutation {
                 condition: condition.as_str().into(),
                 components: visual_components(permutation.field("components")),
+                physical,
             })
         })
         .collect();
     let (tags, tag_skips) = block_tags(root);
     Some(Definition {
         tags,
-        tag_skips,
+        skipped: tag_skips + collision_skips + permutation_skips,
         state_count: u32::try_from(states).ok()?,
         collides,
-        collision_box,
+        collision_boxes,
         selection,
         visual: CustomBlockVisuals {
             base: visual_components(components),
@@ -485,6 +520,106 @@ fn parse_definition(root: &Nbt) -> Option<Definition> {
             state_identity_incomplete,
         },
     })
+}
+
+fn collision_enabled(component: Option<&Nbt>) -> bool {
+    match component {
+        Some(Nbt::Byte(enabled)) => *enabled != 0,
+        Some(compound @ Nbt::Compound(_)) if compound.field("boxes").is_some() => {
+            matches!(compound.field("enabled"), Some(Nbt::Byte(enabled)) if *enabled != 0)
+        }
+        Some(compound @ Nbt::Compound(_)) => {
+            !matches!(compound.field("enabled"), Some(Nbt::Byte(0)))
+        }
+        _ => true,
+    }
+}
+
+fn selection_component(component: Option<&Nbt>) -> CustomSelection {
+    match component {
+        Some(Nbt::Byte(0)) => CustomSelection::Disabled,
+        Some(compound @ Nbt::Compound(_))
+            if matches!(compound.field("enabled"), Some(Nbt::Byte(0))) =>
+        {
+            CustomSelection::Disabled
+        }
+        Some(compound @ Nbt::Compound(_)) => {
+            box_component(compound).map_or(CustomSelection::Default, CustomSelection::Box)
+        }
+        _ => CustomSelection::Default,
+    }
+}
+
+fn physical_components(components: Option<&Nbt>) -> (CustomPhysicalComponents, usize) {
+    let collision = components.and_then(|set| set.field("minecraft:collision_box"));
+    let (boxes, skipped) = collision_components(collision);
+    (
+        CustomPhysicalComponents {
+            collision: collision.map(|component| CustomCollision {
+                enabled: collision_enabled(Some(component)),
+                boxes,
+            }),
+            selection: components
+                .and_then(|set| set.field("minecraft:selection_box"))
+                .map(|component| selection_component(Some(component))),
+        },
+        skipped,
+    )
+}
+
+fn collision_components(component: Option<&Nbt>) -> (Option<Arc<[CustomBox]>>, usize) {
+    let Some(component) = component else {
+        return (None, 0);
+    };
+    match component.field("boxes") {
+        Some(Nbt::List(entries)) if !entries.is_empty() => {
+            let mut skipped = entries.len().saturating_sub(MAX_COLLISION_BOXES);
+            let boxes = entries
+                .iter()
+                .take(MAX_COLLISION_BOXES)
+                .filter_map(|entry| {
+                    let shape = native_collision_box(entry);
+                    skipped += usize::from(shape.is_none());
+                    shape
+                })
+                .collect::<Arc<[CustomBox]>>();
+            ((!boxes.is_empty()).then_some(boxes), skipped)
+        }
+        Some(Nbt::List(_)) => (None, 0),
+        Some(_) => (None, 1),
+        None => (box_component(component).map(|shape| Arc::from([shape])), 0),
+    }
+}
+
+/// Wire bounds use corner coordinates in sixteenths; X faces opposite world X.
+fn native_collision_box(entry: &Nbt) -> Option<CustomBox> {
+    if !matches!(entry, Nbt::Compound(_)) {
+        return None;
+    }
+    let mut coordinates = [0.0_f32; 6];
+    for (coordinate, name) in coordinates
+        .iter_mut()
+        .zip(["minX", "minY", "minZ", "maxX", "maxY", "maxZ"])
+    {
+        *coordinate = match entry.field(name) {
+            Some(Nbt::Float(value)) => *value as f32,
+            _ => 0.0,
+        };
+        if !coordinate.is_finite() {
+            return None;
+        }
+    }
+    let mut min = [0.0; 3];
+    let mut max = [0.0; 3];
+    for axis in 0..3 {
+        let ceiling = if axis == 1 { 24.0 } else { 16.0 };
+        let first = coordinates[axis].clamp(0.0, ceiling) / 16.0;
+        let second = coordinates[axis + 3].clamp(0.0, ceiling) / 16.0;
+        min[axis] = first.min(second);
+        max[axis] = first.max(second);
+    }
+    (min[0], max[0]) = (1.0 - max[0], 1.0 - min[0]);
+    Some(CustomBox { min, max })
 }
 
 /// Reads a `{origin, size}` box given in sixteenths from the block's bottom
@@ -707,3 +842,6 @@ mod compatibility_tests;
 
 #[cfg(test)]
 mod lighting_tests;
+
+#[cfg(test)]
+mod collision_tests;

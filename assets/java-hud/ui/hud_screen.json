@@ -400,60 +400,73 @@
     "factory": {
       "name": "hud_title_text_factory",
       "control_ids": {
-        "hud_title_text": "hud_title_text@hud.java_title_text"
+        "hud_title_text": "hud_title_text@hud.hud_title_text"
       }
     }
   },
 
-  "java_title_text": {
+  "hud_title_text": {
     "type": "panel",
     "size": [ "100%", "100%" ],
+    "offset": [ 0, 0 ],
     "layer": 1,
     "alpha": "@hud.anim_title_text_alpha_in",
     "propagate_alpha": true,
     "controls": [
       {
-        "title": {
-          "type": "label",
-          "anchor_from": "center",
-          "anchor_to": "top_middle",
-          "offset": [ 0, -40 ],
-          "text": "#text",
-          "color": "$title_command_text_color",
-          "font_scale_factor": 4.0,
-          "shadow": true,
-          "localize": false,
-          "layer": 31,
-          "text_alignment": "center",
-          "bindings": [
-            {
-              "binding_name": "#hud_title_text_string",
-              "binding_name_override": "#text",
-              "binding_type": "global"
+        "title_frame": {
+          "type": "panel",
+          "size": [ "100%", "100%" ],
+          "controls": [ {
+            "title": {
+              "type": "label",
+              "anchor_from": "center",
+              "anchor_to": "top_middle",
+              "offset": [ 0, -40 ],
+              "text": "#text",
+              "color": "$title_command_text_color",
+              "font_scale_factor": 4.0,
+              "shadow": true,
+              "localize": false,
+              "layer": 31,
+              "text_alignment": "center",
+              "bindings": [
+                {
+                  "binding_name": "#hud_title_text_string",
+                  "binding_name_override": "#text",
+                  "binding_type": "global"
+                }
+              ]
             }
-          ]
+          } ]
         }
       },
       {
-        "subtitle": {
-          "type": "label",
-          "anchor_from": "center",
-          "anchor_to": "top_middle",
-          "offset": [ 0, 10 ],
-          "text": "#text",
-          "color": "$title_command_text_color",
-          "font_scale_factor": 2.0,
-          "shadow": true,
-          "localize": false,
-          "layer": 31,
-          "text_alignment": "center",
-          "bindings": [
-            {
-              "binding_name": "#hud_subtitle_text_string",
-              "binding_name_override": "#text",
-              "binding_type": "global"
+        "subtitle_frame": {
+          "type": "panel",
+          "size": [ "100%", "100%" ],
+          "controls": [ {
+            "subtitle": {
+              "type": "label",
+              "anchor_from": "center",
+              "anchor_to": "top_middle",
+              "offset": [ 0, 10 ],
+              "text": "#text",
+              "color": "$title_command_text_color",
+              "font_scale_factor": 2.0,
+              "shadow": true,
+              "localize": false,
+              "layer": 31,
+              "text_alignment": "center",
+              "bindings": [
+                {
+                  "binding_name": "#hud_subtitle_text_string",
+                  "binding_name_override": "#text",
+                  "binding_type": "global"
+                }
+              ]
             }
-          ]
+          } ]
         }
       }
     ]
@@ -466,13 +479,15 @@
     "factory": {
       "name": "hud_actionbar_text_factory",
       "control_ids": {
-        "hud_actionbar_text": "hud_actionbar_text@hud.java_actionbar_text"
+        "hud_actionbar_text": "hud_actionbar_text@hud.hud_actionbar_text"
       }
     }
   },
 
-  "java_actionbar_text": {
+  "hud_actionbar_text": {
     "type": "label",
+    "size": [ "default", "default" ],
+    "controls": [],
     "anchor_from": "bottom_middle",
     "anchor_to": "top_middle",
     "offset": [ 0, -72 ],

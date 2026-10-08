@@ -54,7 +54,8 @@ pub fn prepare_session_packs(
     handoff: protocol::ResourcePackHandoff,
     game_data: &protocol::GameData,
 ) -> PackPreparation {
-    let blocks = protocol::CustomBlocks::from_game_data(game_data);
+    let mut blocks = protocol::CustomBlocks::from_game_data(game_data);
+    crate::block_physics::resolve(&mut blocks);
     let icons = protocol::item_icon_keys(game_data);
     let block_items = custom_block_items(game_data, &blocks);
     let hashed = game_data.start_game.block_network_ids_are_hashes;

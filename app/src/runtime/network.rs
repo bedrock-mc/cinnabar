@@ -391,6 +391,7 @@ pub(crate) fn receive_network_events(
                         "skipped malformed server block definitions"
                     );
                 }
+                stream.set_server_animation_compiler(server_animation::compile_stop);
                 stream.set_world_default_game_mode(world_default_game_mode);
                 stream.set_display_interval(display_interval);
                 stream.begin_frame_work();
@@ -910,6 +911,7 @@ mod actor_publication;
 mod block_overlay;
 mod drain;
 pub(crate) mod entity_pack;
+mod server_animation;
 mod entity_texture_reload;
 mod glyph_sheets;
 mod inventory;

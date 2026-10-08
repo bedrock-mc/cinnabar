@@ -92,6 +92,89 @@ fn selected_geometry(root: &Path) -> String {
 }
 
 #[test]
+fn authored_entity_visibility_bounds_survive_compilation_and_encoding() {
+    let pack = pack(
+        json!([1, 20, 0]),
+        &[("entity/horse.json", Value::Null, "geometry.fixture")],
+    );
+    write(
+        pack.path(),
+        "models/entity/geometry.fixture.json",
+        json!({
+            "format_version":"1.12.0",
+            "minecraft:geometry":[{
+                "description":{
+                    "identifier":"geometry.fixture",
+                    "visible_bounds_width":17,
+                    "visible_bounds_height":7.5,
+                    "visible_bounds_offset":[2,3.25,-1]
+                },
+                "bones":[{"name":"body"}]
+            }]
+        }),
+    );
+    let compiled = compile_entity_assets(pack.path(), MANIFEST).unwrap();
+    let bytes = assets::encode_entity_blob(&compiled).unwrap();
+    let runtime = RuntimeEntityAssets::decode(&bytes).unwrap();
+    let geometry = runtime
+        .geometries()
+        .iter()
+        .find(|geometry| geometry.identifier.as_ref() == "geometry.fixture")
+        .unwrap();
+    let geometry = serde_json::to_value(geometry).unwrap();
+    assert_eq!(
+        geometry["visible_bounds"],
+        json!({
+            "center":[(-2.0_f32).to_bits(),3.25_f32.to_bits(),(-1.0_f32).to_bits()],
+            "half_extents":[8.5_f32.to_bits(),3.75_f32.to_bits(),8.5_f32.to_bits()]
+        })
+    );
+}
+
+#[test]
+fn inherited_entity_visibility_bounds_resolve_the_nearest_authored_box() {
+    let pack = pack(
+        json!([1, 20, 0]),
+        &[("entity/horse.json", Value::Null, "geometry.fixture")],
+    );
+    write(
+        pack.path(),
+        "models/entity/geometry.fixture.json",
+        json!({
+            "format_version":"1.8.0",
+            "geometry.base":{
+                "visible_bounds_width":17,
+                "visible_bounds_height":7.5,
+                "visible_bounds_offset":[0,3.25,0],
+                "bones":[{"name":"body"}]
+            },
+            "geometry.fixture:geometry.base":{"bones":[]},
+            "geometry.overridden:geometry.fixture":{
+                "visible_bounds_width":4,
+                "visible_bounds_height":3.5,
+                "visible_bounds_offset":[0,1.25,0],
+                "bones":[]
+            }
+        }),
+    );
+    let compiled = compile_entity_assets(pack.path(), MANIFEST).unwrap();
+    let bytes = assets::encode_entity_blob(&compiled).unwrap();
+    let runtime = RuntimeEntityAssets::decode(&bytes).unwrap();
+    let bounds = |identifier: &str| {
+        let index = runtime
+            .geometries()
+            .iter()
+            .position(|geometry| geometry.identifier.as_ref() == identifier)
+            .unwrap();
+        runtime.geometry_visible_bounds(index).unwrap()
+    };
+    assert_eq!(bounds("geometry.fixture"), bounds("geometry.base"));
+    assert_eq!(bounds("geometry.fixture").half_extents, [8.5, 3.75, 8.5]);
+    assert_eq!(bounds("geometry.overridden").half_extents, [2.0, 1.75, 2.0]);
+    assert_eq!(bounds("geometry.overridden").center, [0.0, 1.25, 0.0]);
+}
+
+#[test]
 fn legacy_bed_geometry_is_retained_without_overriding_modern_actor_geometry() {
     let pack = pack(
         json!([1, 20, 0]),

@@ -1620,6 +1620,15 @@ RVAs are 1.26.50.26 Windows client; `mac 0x10…` addresses are the 26.30 macOS 
 - The native query getters use render interpolation fraction `alpha`:
 - phase input but does not implement these native render-time getters. No teleport distance cutoff
 - or teleport-specific native animation reset was established by this investigation.
+- `crates/client-world/src/actor_animation/clock.rs`, `attachable.rs`, and
+  `crates/client-presentation/src/actor_publication/preparation.rs`: direct clip
+  application accumulates the prior stored time by the render delta, pauses below
+  effective float epsilon and retains completion across resumes. Current
+  1.26.50.26 `src/__unmapped/02.cpp:177659` retains the default expression
+  `query.anim_time + query.delta_time`. Near-version
+  `reference/26.30/src/by-owner/a/ActorSkeletalAnimationPlayer.cpp:400–508`
+  checks effective weight before assigning stored time, uses sticky completion and
+  holds at the declared endpoint; `897–915` resets player time and completion.
 
 ## docs/reference/arrow-rendering.md
 - # Native arrow entity rendering
@@ -3123,3 +3132,230 @@ Files: `docs/reference/held-block-placement.md`, `crates/gameplay/src/block_use.
   `reference/26.30/src/by-owner/b/BlockComponentDirectData.cpp:103–126`
   explicitly writes zero in the nonlegacy geometry branch, and
   `BlockGeometryDescription.cpp:3915–3930` identifies the same network flag.
+
+## Authored HUD chat trigger visibility
+
+- `crates/client-ui/src/ui_runtime/presentation/forms/engine/pack_catalog/chat.rs`
+  retains server visibility bindings on the built-in ordinary chat controls.
+  Message collections remain complete for independent server HUD factories.
+- The admitted Galaxite pack stack's `layer-0018/ui/hud_screen.json` appends a
+  `hud.chat_label` visibility predicate excluding the `ui.` prefix range.
+  `layer-0017/ui/halloween/jumpscare.json` and `static.json` consume the same
+  `chat_text_grid` through `chat_item_factory`, using `ui.jumpscare` and
+  `ui.static` as effect triggers rather than visible chat history.
+
+## Custom block collision primitive lists
+
+- `crates/protocol/src/world/custom_blocks.rs` retains each network collision
+  primitive, its enable flag, and the existing origin/size compatibility form.
+  `crates/gameplay/src/movement/collision_registries.rs` registers the same
+  independent primitives in sequential and hashed identity spaces. Default
+  selection uses those primitives rather than a filled bounding union.
+- Current 1.26.50.26 `src/__unmapped/0a.cpp:1098190–1098377`,
+  `FUN_14a6360b0`, writes `enabled` and the `boxes` list with six named corner
+  coordinates. `src/__unmapped/0a.cpp:1098436–1098568`, `FUN_14a636790`, reads
+  compound entries and defaults absent coordinate fields to zero. An empty
+  primitive list defaults to a full cube during component initialization.
+- `src/__unmapped/0a.cpp:1097727–1097923`, `FUN_14a635610`, normalizes and
+  orders the bounds, reflects X about the block center, and retains every
+  primitive. Near-version
+  `reference/26.30/src/by-owner/b/BlockCollisionBoxDescription.cpp:240–617`
+  identifies the same initialization contract. The current
+  [collision component documentation](https://learn.microsoft.com/en-us/minecraft/creator/reference/content/blockreference/examples/blockcomponents/minecraftblock_collision_box?view=minecraft-bedrock-stable)
+  confirms multipart shapes and the 24-sixteenth Y ceiling from 1.26.0.
+
+## Regular entity geometry visibility bounds
+
+- `crates/assets/src/entity/geometry.rs`,
+  `crates/pack-compiler/src/entity/geometry.rs`, and
+  `crates/client-world/src/actor_animation/{view,schedule}.rs` retain authored
+  model visibility bounds independently of the network collision dimensions.
+  The admitted Galaxite `models/entity/battlepass_display.geo.json` supplies
+  width 17, height 7.5, and offset `[0,3.25,0]`; a tiny collision box does not
+  replace this render box.
+- Current 1.26.50.26 `src/__unmapped/06.cpp:1831614–1831658` reads the authored
+  dimensions and offset; `1833870` serializes those fields. Near-version
+  `reference/26.30/src/by-owner/g/GeometryGroup.cpp:5183–5206` identifies their
+  clamp/default contract. `a/ActorRenderer.cpp:2064–2104,2349–2389,2546–2740`
+  constructs the axis-aligned center/half-extents box, scales and translates it
+  with actor movement, and does not rotate it by actor yaw. Replacement skins
+  retain their own model's visibility box.
+
+## Client-authoritative inventory transactions
+
+- `crates/inventory/src/inventory_ledger/legacy.rs` and
+  `crates/protocol/src/inventory/legacy.rs` serialize each balanced ordinary
+  mutation as old/new container descriptors, without sparse request stamping.
+  Player, armor, offhand and UI inventories retain their native window IDs;
+  an opened storage window uses its assigned ID and content-order slots.
+- Current 1.26.50.26 `src/__recovered/TransactionOffhandUtils.cpp:1–55`
+  (`0x028d7820`) constructs container-source actions from old/new stacks, with
+  player window 0 or offhand window 119 and offhand slot 0.
+  `src/__unmapped/00.cpp:409435` (`0x001e2c70`) constructs an action's complete
+  old/new descriptors. `00.cpp:440530–440625` (`0x002173b0`) supplies a dropped
+  item's balancing source 2, window -1, slot 0, random flag, and empty-to-item
+  descriptor leg.
+- Near-version `reference/26.30/src/by-owner/i/InventoryTransactionManager.cpp:1–84`
+  accumulates changed actions until quantities balance, sends and clears the
+  normal transaction. `ItemStackNetManagerClient.cpp:1884–1900` admits this
+  manager when item-stack networking is disabled.
+  `by-owner/c/ClientInputCallbacks.cpp:743–885` retains Interact action 6 and
+  the local actor runtime ID for ordinary personal-inventory opening. This
+  change preserves the existing Open/Close acknowledgement path; no separate
+  client-mode acknowledgement contract has been established.
+
+
+## Authored title and action-bar HUD controls
+
+- `assets/java-hud/ui/hud_screen.json` keeps the canonical title and action-bar
+  control identities, so higher-priority server definitions replace or hide
+  the same controls consumed by the ordinary HUD factories.
+- Installed version-matched `ui/hud_screen.json:3398–3428` maps
+  `hud_title_text_factory` to `hud.hud_title_text` and
+  `hud_actionbar_text_factory` to `hud.hud_actionbar_text`.
+- Admitted Galaxite `layer-0018/ui/hud_screen.json` appends title text and view
+  bindings that hide the `ui.` prefix range, and applies an equivalent
+  action-bar variable predicate. Those inputs remain available to independent
+  server effect factories while their ordinary text controls are hidden.
+
+- Installed `ui/hud_screen.json:2267–2385` retains `title_frame/title` and
+  `subtitle_frame/subtitle` below `hud_title_text`. The built-in HUD exposes
+  those same override paths so server frame replacement removes the original
+  labels rather than drawing beside them.
+- Current 1.26.50.26 `src/__recovered/DataBindingComponent.cpp:64–72` records
+  each visibility-conditioned binding's previous control flag before applying
+  it. `src/__unmapped/05.cpp:16395–16406` runs bindings on the normal UI update,
+  including a visibility transition left by the preceding view notification.
+  `crates/json-ui/src/bind/{reuse,state}.rs` and the HUD cache retain that pending
+  refresh independently of controller input changes.
+- Current `src/__unmapped/05.cpp:1171955–1171967` answers the title-string hash
+  `0x26874c54` by copying the stored string into the requested bag property;
+  `1170942–1170954` does the same for subtitle hash `0x8c0610a2`.
+  `05.cpp:991176–991240` resets both strings to empty. The controller answers
+  those empty strings while no title is displayed.
+- Cached MineVille `ui/mineville/templates/title.json` retains matching title
+  payloads through `visibility_changed`, then exposes their marker-free text
+  through `titles/objective.json`; unrelated later titles do not replace it.
+  The cached MegaSMP version's `ui/mineville/hud.json` has a trailing-comma parse
+  failure. Its namespace, root panel and tutorial control precede that error.
+  Native PlayCover 1.26.51.01's immediately captured MegaSMP UI 26.7.25 cache has
+  byte-identical `_ui_defs.json`, `hud_screen.json` and `mineville/hud.json`;
+  the corresponding native frame displays the tutorial panel.
+- Current `src/__unmapped/0f.cpp:1665549–1665598` initializes the UI reader with
+  comments allowed and strict-root disabled. `1666337–1666780` rejects trailing
+  array commas; its first array-token scan accepts comments before an empty
+  array. Object members and array elements receive partially read child values
+  before error propagation (`1666609–1666618`, `1666719–1666774`).
+- `0f.cpp:1667838–1667852` copies the partial root value into the output before
+  checking reader errors. `00.cpp:846707–846728`, `850813–850817` parses the first
+  UI resource directly into the stored result and leaves it intact on failure,
+  without processing later layers. Failed later resources instead discard their
+  temporary values (`847135–847143`). `crates/json-ui/src/{json5,catalog,pack}.rs`
+  retains that distinction per resource path, including a valid first null root.
+  The exact cached MegaSMP fixture verifies one retained, marker-free tutorial
+  panel; the encrypted Hive overlay still requires an admitted plaintext witness.
+
+## Authored HUD effect texture timelines
+
+- `crates/client-ui/src/ui_runtime/presentation/forms/server_pack/frame_sidecars.rs`
+  and `textures.rs` retain shared Aseprite frame metadata independently of image
+  residency and pass it to `crates/json-ui/src/anim/paint.rs`.
+- The admitted Galaxite `layer-0017/ui/halloween/{static,jumpscare}.json`
+  consumes raw `chat_text_grid` rows and selects the corresponding noise-sheet
+  controls. `halloween.json` consumes raw action-bar input for its lighting
+  controls. Hidden ordinary text does not discard those factory inputs.
+- `textures/ui/aseprite/static.json` supplies ten 50 ms frames; `glitch.json`
+  supplies eleven 50 ms frames. Their frame coordinates refer to the original
+  sheet pixels. The existing `UIAsepriteFlipbook::tick` contract indexed above
+  selects the containing duration span and wraps at the authored total.
+- The offline published-frame fixture applies raw protocol text/action-bar
+  events, samples frame zero, frame two and loop repetition, then checks source
+  frame coordinates mapped into the current atlas placement. Other authored
+  effect variants and live game-mode sequencing remain outside this witness.
+
+## Sound registration and deferred waveform loading
+
+- `crates/client-presentation/src/audio/server.rs` registers all admitted
+  definitions independently of waveform decoding, with stack precedence and
+  case-insensitive archive lookup. `audio/bank.rs` loads a selected waveform on
+  bounded background workers and caches decoded PCM on demand.
+- Current 1.26.50.26 `src/__unmapped/03.cpp:1698058`
+  (`0x03a02390`) iterates sound-definition resources from the end of the pack
+  stack and rejects duplicate lower-priority definitions independently of PCM.
+  `src/__unmapped/04.cpp:1580329` (`0x049741b0`) registers sound events.
+- `src/__unmapped/0c.cpp:1442322` (`0x0c7fc870`) chooses a weighted alternative
+  before requesting `_loadSoundAsync`. `0c.cpp:1446905` (`0x0c8042e0`)
+  loads audio-provider bytes and creates the sound on its worker path; streamed
+  playback has a separate branch.
+
+## Server-selected actor animation states
+
+- `crates/protocol/src/item.rs` retains AnimateEntity's animation, controller,
+  next state, stop expression/version and outgoing blend duration.
+- `crates/pack-compiler/src/entity/animation.rs` retains globally named server
+  clips without requiring an entity alias. Optional channel bone names bind that
+  shared clip to each model; missing model bones are skipped.
+- `crates/client-world/src/actor_animation/server_animation.rs` shares pose and
+  Molang budgets with authored animation, resets clocks on playback, evaluates
+  stop expressions against the selected state's clip, and blends its outgoing
+  pose before entering the named next state.
+- Current 1.26.50.26 `src/__unmapped/01.cpp:845858–845895` edits global
+  animation-controller data from the packet fields, then starts the named state.
+  `src/__recovered/AnimationComponent.cpp:308–700` owns those state definitions.
+- The 26.30 owner reconstruction `src/by-owner/c/ClientNetworkHandler.cpp:22111–22600`
+  resolves authored entity aliases before the global animation group.
+  `src/by-owner/a/AnimationComponent.cpp:1725–2330` adds a transition only for a
+  nonempty stop expression, retains its version and next-state name, and assigns
+  the state's outgoing blend duration; `2628–2875` restarts playback clocks.
+- Admitted Galaxite `layer-0017/entity/mobs/the_entity.entity.json` does not alias
+  `animation.the_entity.kill`. `animations/the_entity.animation.json` supplies
+  that 3.36-second clip. Its separate first-person jumpscare attachable has a
+  1.25-second held clip; verifying one does not verify the other.
+
+- `crates/client-world/src/actor_animation/evaluation.rs`, `tick.rs`, and `attachable/owner_reference_tests.rs`: Bedrock 1.26.50 item rendering sets `context.owning_entity` to a typed live actor reference alongside item-slot and first-person context. Matching references permit owner queries; numeric operands do not act as references. Witness: `mcsrc-1.26.50/current/1.26.50.26/src/__unmapped/01.cpp:2546615–2546725`; runtime pack `attachables/entity_jumpscare.attachable.json` and `attachables/statue_jumpscare.attachable.json` use that reference for their activation flags.
+
+## Custom state collision and targeting components
+
+- `crates/protocol/src/world/custom_blocks.rs` retains physical components in
+  each ordered permutation; `crates/client-session/src/block_physics.rs`
+  resolves the same palette-state conditions as terrain once per session.
+  `crates/gameplay/src/movement/collision_registries.rs` registers the resulting
+  state-specific primitive and selection sets in both ID spaces.
+- Near-version `reference/26.30/src/by-owner/b/BlockComponentDirectData.cpp:41–61`
+  (`_finalizeInit`) selects state-component storage before the block-type base
+  collision and selection components. `BlockCollisionBoxComponent.cpp:32–97`
+  retains the individual authored collision primitives.
+- Current component and permutation contract:
+  https://learn.microsoft.com/en-us/minecraft/creator/documents/multi-blocks?view=minecraft-bedrock-stable
+  and
+  https://learn.microsoft.com/en-us/minecraft/creator/reference/content/blockreference/examples/blockstatesandpermutations?view=minecraft-bedrock-stable .
+- Admitted Galaxite `smooth_path_slab` uses a bottom-half base box and an
+  upper-half condition override; `large_snow_bricks_slab` also overrides double
+  states to a full cube. Their `slab_bottom.geo.json` and `slab_top.geo.json`
+  cube tops are respectively 0.5 and 1.0 blocks. This closes the decoded
+  per-state support mismatch, independently of the live hovering report.
+
+## Particle lifetime restart ownership
+
+- `crates/particles/src/emitter.rs` expires an unbound looping emitter at the
+  first complete active/sleep cycle; live particles drain independently. A
+  repeating reset requires a valid actor binding. Removing that owner stops new
+  emission without clearing its live particles.
+- Current 1.26.50.26 `src/__unmapped/02.cpp:683577–683672`
+  (`0x02438ed0`) combines component restart permission with a valid entity
+  binding on non-initial resets. The update at `684730–684783`
+  (`0x0243a750`) resets when active plus sleep time ends. Creation at
+  `697984` (`0x0244ea20`) explicitly performs an initial reset.
+- Current packet handling `src/__unmapped/01.cpp:862627–862940`
+  (`0x014ed540`) creates an independent unbound emitter for actor ID -1, or
+  binds it to a resolved actor. The allocator at `02.cpp:697504–697675`
+  creates a fresh emitter; matching identifiers and positions are not deduped.
+- Current animation events `src/__unmapped/00.cpp:368100–368248`
+  (`0x001adf70`) bind only when the authored animation event requests it.
+  The looping component parser defaults absent sleep to zero at
+  `06.cpp:2125281–2125430`; its reset hook at `2125430–2125460`
+  (`0x06ca6a30`) returns restart permission.
+- The admitted `galaxite:gem_bag_particle` effect uses active time 1, steady
+  emission 20/s and particle lifetime 1–1.4s. Its unbound packet emitters must
+  therefore stop restarting after that first cycle, independently of later
+  identical spawn packets.

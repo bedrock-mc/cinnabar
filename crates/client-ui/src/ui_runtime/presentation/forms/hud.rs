@@ -22,6 +22,9 @@ use super::super::{
 use super::engine::{EngineInputs, EngineOutput, ScreenArt};
 use crate::ui_runtime::UiRuntime;
 
+#[cfg(test)]
+mod visibility_tests;
+
 /// The built-in Java-styled HUD pack: `(pack path, namespace, bytes)`, layered
 /// under every server pack.
 pub(super) const JAVA_HUD_PACK: [(&str, &str, &[u8]); 4] = [
@@ -167,7 +170,8 @@ impl CachedScreen {
         view: &ViewState,
     ) -> Option<&FormRender> {
         let fresh = self.laid.as_ref().is_some_and(|laid| {
-            laid.reference == reference
+            !self.binding.has_pending_visibility()
+                && laid.reference == reference
                 && Arc::ptr_eq(&laid.catalog, catalog)
                 && laid.root == root
                 && laid.px == px

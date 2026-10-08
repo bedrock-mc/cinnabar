@@ -11,11 +11,12 @@ fn parse_definition(bytes: &[u8]) -> Option<Definition> {
 #[test]
 fn hashed_states_enumerate_axes_and_hash_distinctly() {
     let block = CustomBlock {
+        state_physics: Default::default(),
         name: "ns:b".into(),
         tags: Default::default(),
         state_count: 6,
         collides: true,
-        collision_box: None,
+        collision_boxes: None,
         selection: CustomSelection::Default,
         visual: std::sync::Arc::new(CustomBlockVisuals {
             state_axes: Box::new([
@@ -45,6 +46,7 @@ fn hashed_states_enumerate_axes_and_hash_distinctly() {
     let hashes: std::collections::HashSet<_> = states.iter().map(|state| state.hash).collect();
     assert_eq!(hashes.len(), 6);
     let plain = CustomBlock {
+        state_physics: Default::default(),
         visual: std::sync::Arc::new(CustomBlockVisuals::default()),
         ..block
     };
@@ -177,11 +179,12 @@ fn placement_traits(direction_first: bool) -> Vec<Nbt> {
 fn custom_block(name: &str, root: &Nbt) -> CustomBlock {
     let definition = super::parse_definition(root).expect("definition");
     CustomBlock {
+        state_physics: Default::default(),
         name: name.into(),
         tags: definition.tags,
         state_count: definition.state_count,
         collides: definition.collides,
-        collision_box: definition.collision_box,
+        collision_boxes: definition.collision_boxes,
         selection: definition.selection,
         visual: std::sync::Arc::new(definition.visual),
     }

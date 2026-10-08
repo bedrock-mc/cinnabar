@@ -200,6 +200,11 @@ impl Emitter {
             Lifetime::Once { .. } => (self.age <= self.active_time, 0),
             Lifetime::Looping { .. } => {
                 let period = (self.active_time + self.sleep_time).max(1e-3);
+                // Repeating lifetime resets require a live actor binding. Unbound effects
+                // finish their first active/sleep cycle while existing particles drain.
+                if self.bound.is_none() && self.age >= self.active_time + self.sleep_time {
+                    self.done = true;
+                }
                 let cycle = (self.age / period) as u64;
                 (self.age - cycle as f32 * period <= self.active_time, cycle)
             }

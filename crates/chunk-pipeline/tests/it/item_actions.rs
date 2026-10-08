@@ -910,6 +910,9 @@ fn custom_actions_replace_in_fifo_and_teleport_cancels_the_current_lifetime() {
     let custom = ActorActionKind::Custom {
         animation: "animation.missing.wave".into(),
         controller: "controller.animation.missing".into(),
+        next_state: "".into(),
+        stop_expression: "".into(),
+        stop_expression_version: 0,
     };
     stream
         .submit(2, action_with_details(&[42], custom.clone(), 0.4, None))
@@ -924,6 +927,9 @@ fn custom_actions_replace_in_fifo_and_teleport_cancels_the_current_lifetime() {
     let catalog_only = ActorActionKind::Custom {
         animation: "animation.catalog_only".into(),
         controller: "".into(),
+        next_state: "".into(),
+        stop_expression: "".into(),
+        stop_expression_version: 0,
     };
     stream.submit(3, action(&[42], catalog_only)).unwrap();
     assert_eq!(

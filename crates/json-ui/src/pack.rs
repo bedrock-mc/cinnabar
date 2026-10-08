@@ -52,7 +52,7 @@ impl Catalog {
 
     /// Overlay a resource pack's ui files (pack-relative paths). As the vanilla
     /// client does, only paths some `_ui_defs.json` lists load, in sorted order;
-    /// malformed files are skipped and recorded, never fatal.
+    /// first-file partial values are retained and invalid later files are skipped.
     pub fn apply_pack<'a>(&mut self, files: impl IntoIterator<Item = (&'a str, &'a [u8])>) {
         let files: BTreeMap<&str, &[u8]> = files.into_iter().collect();
         if let Some(bytes) = files.get(GLOBALS)
@@ -99,23 +99,31 @@ impl Catalog {
                     && *path != GLOBALS
                     && *path != UI_DEFS
             })
-            .filter_map(
-                |(path, bytes)| match json5::parse(&String::from_utf8_lossy(bytes)) {
-                    Ok(Value::Object(object)) => match object.get("namespace") {
+            .filter_map(|(path, bytes)| {
+                if self.file_failed(path) {
+                    return None;
+                }
+                let (value, error) = json5::parse_partial(&String::from_utf8_lossy(bytes));
+                if error.is_some() && self.has_file(path) {
+                    return None;
+                }
+                match value {
+                    Value::Object(object) => match object.get("namespace") {
                         Some(Value::String(namespace)) => Some(namespace.clone()),
                         _ => self.file_namespace(path).map(str::to_owned),
                     },
                     _ => None,
-                },
-            )
+                }
+            })
             .collect()
     }
 
     pub(crate) fn merge_overlay_file(&mut self, entry: &str, text: &str) {
-        let object = match json5::parse(text) {
-            Ok(Value::Object(object)) => object,
-            Ok(_) => return self.note(format!("pack {entry}: top level is not an object")),
-            Err(error) => return self.note(format!("pack {entry}: parse error ({error})")),
+        let Some(value) = self.read_document(entry, text) else {
+            return;
+        };
+        let Value::Object(object) = value else {
+            return self.note(format!("pack {entry}: top level is not an object"));
         };
         // A file overriding a vanilla path may omit the namespace it extends.
         let namespace = match object.get("namespace") {

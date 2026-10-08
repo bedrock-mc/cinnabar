@@ -108,6 +108,7 @@ fn geometry_fixture() -> CompiledEntityAssets {
     ]
     .into_boxed_slice();
     compiled.geometries = vec![EntityGeometry {
+        visible_bounds: None,
         identifier: "geometry.allay".into(),
         inherits: None,
         source_index: 1,
@@ -168,6 +169,7 @@ fn inherited_geometry_fixture() -> CompiledEntityAssets {
     compiled.geometries = vec![
         compiled.geometries[0].clone(),
         EntityGeometry {
+            visible_bounds: None,
             identifier: "geometry.derived".into(),
             inherits: Some(EntityGeometryInheritance {
                 identifier: "geometry.allay".into(),
@@ -390,6 +392,7 @@ fn carrier_rejects_dependency_resolution_that_disagrees_with_catalog() {
     ]
     .into_boxed_slice();
     compiled.geometries = vec![EntityGeometry {
+        visible_bounds: None,
         identifier: "geometry.allay".into(),
         inherits: None,
         source_index: 1,
@@ -512,6 +515,7 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
         sources,
         symbols,
         geometries: vec![entity::EntityGeometry {
+            visible_bounds: None,
             identifier: "geometry.allay".into(),
             inherits: None,
             source_index: 3,
@@ -547,6 +551,7 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
         }]
         .into_boxed_slice(),
         animation_channels: vec![EntityAnimationChannel {
+            bone_name: None,
             bone: 0,
             property: EntityAnimationProperty::Rotation,
             first_keyframe: 0,
@@ -805,10 +810,11 @@ fn carrier_v4_accepts_exact_animation_and_controller_bounds() {
     compiled = carrier_v4_fixture();
     compiled.animation_channels = (0..MAX_ENTITY_ANIMATION_CHANNELS)
         .map(|index| EntityAnimationChannel {
+            bone_name: None,
             first_keyframe: u32::from(index != 0),
             keyframe_count: u32::from(index == 0),
             rotation_relative_to_entity: false,
-            ..compiled.animation_channels[0]
+            ..compiled.animation_channels[0].clone()
         })
         .collect();
     compiled.animation_clips[0].channel_count = MAX_ENTITY_ANIMATION_CHANNELS as u32;
@@ -871,7 +877,7 @@ fn carrier_v4_rejects_animation_and_controller_limits_plus_one() {
 
     let mut compiled = carrier_v4_fixture();
     compiled.animation_channels =
-        vec![compiled.animation_channels[0]; MAX_ENTITY_ANIMATION_CHANNELS + 1].into_boxed_slice();
+        vec![compiled.animation_channels[0].clone(); MAX_ENTITY_ANIMATION_CHANNELS + 1].into_boxed_slice();
     cases.push(compiled);
 
     let mut compiled = carrier_v4_fixture();

@@ -17,6 +17,7 @@ fn geometry_replacement_resets_absorption_but_other_permutations_preserve_it() {
                     ..Default::default()
                 },
                 permutations: Box::new([CustomPermutation {
+                    physical: Default::default(),
                     condition: "1".into(),
                     components: CustomVisualComponents {
                         geometry,
@@ -49,6 +50,7 @@ fn geometry_replacement_keeps_explicit_absorption() {
                 ..Default::default()
             },
             permutations: Box::new([CustomPermutation {
+                physical: Default::default(),
                 condition: "1".into(),
                 components: CustomVisualComponents {
                     geometry: Some("geometry.path".into()),

@@ -108,6 +108,8 @@ pub(super) struct Track {
     pub(super) deferred_below: bool,
     /// The subtree holds a view binding.
     pub(super) views_below: bool,
+    /// A visibility-scheduled binding awaits the next refresh in this subtree.
+    pub(super) visibility_pending: bool,
     /// Properties of the last bake.
     baked: Option<Properties>,
     /// The source before a bound grid patched it, which a reuse compares.
@@ -432,6 +434,9 @@ pub(super) fn finish(node: &mut Node) -> bool {
     // A grid whose cell count a view sets expands only after views settle, so
     // it rebuilds every bind rather than keep cells for a stale count.
     track.stable = track.settled && !super::grid::grid_awaits_views(node.src.get(), &node.bindings);
+    let visible = node.native.visible(node.src.get());
+    track.visibility_pending = node.memory.seen.values().any(|seen| *seen != visible);
+    track.stable &= !track.visibility_pending;
     track.deferred_below = node.deferred.is_some();
     track.views_below = node
         .bindings
@@ -444,6 +449,7 @@ pub(super) fn finish(node: &mut Node) -> bool {
         track.stable &= child.track.stable;
         track.deferred_below |= child.track.deferred_below;
         track.views_below |= child.track.views_below;
+        track.visibility_pending |= child.track.visibility_pending;
     }
     true
 }

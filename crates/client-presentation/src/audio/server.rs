@@ -4,7 +4,7 @@
 //! mailbox the engine polls each frame.
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     sync::{Arc, Mutex},
 };
 
@@ -15,16 +15,17 @@ use serde_json::{Map, Value};
 use super::voice::Pcm;
 
 const MAX_FILE_BYTES: u64 = 16 * 1024 * 1024;
-const MAX_TOTAL_PCM_BYTES: usize = 64 * 1024 * 1024;
 const MAX_DEFINITIONS: usize = 8192;
 /// Alternatives kept per definition and across the whole pack; extras are dropped.
 const MAX_ALTERNATIVES: usize = 256;
 const MAX_TOTAL_ALTERNATIVES: usize = 65_536;
 
+#[derive(Default)]
 pub struct ServerSoundPack {
     pub definitions: HashMap<Box<str>, AudioDefinition>,
     pub tables: Option<SoundEventTables>,
-    pub files: HashMap<Box<str>, Arc<Pcm>>,
+    pub(super) files: HashSet<Box<str>>,
+    view: Option<LayeredPackView>,
 }
 
 impl std::fmt::Debug for ServerSoundPack {
@@ -164,30 +165,38 @@ impl ServerSoundPack {
         let tables = (!routing.is_empty())
             .then(|| SoundEventTables::from_json(&Value::Object(routing), &Value::Null))
             .filter(|tables| !tables.is_empty());
-        if definitions.is_empty() && tables.is_none() {
+        let files: HashSet<Box<str>> = view
+            .list("")
+            .into_iter()
+            .filter_map(|path| {
+                let (stem, extension) = path.rsplit_once('.')?;
+                ["fsb", "ogg", "wav"]
+                    .iter()
+                    .any(|accepted| extension.eq_ignore_ascii_case(accepted))
+                    .then(|| {
+                        view.track_contents(path);
+                        Box::from(stem.to_ascii_lowercase())
+                    })
+            })
+            .collect();
+        if definitions.is_empty() && tables.is_none() && files.is_empty() {
             return None;
-        }
-        let mut files = HashMap::new();
-        let mut budget = MAX_TOTAL_PCM_BYTES;
-        for alt in definitions.values().flat_map(|def| def.alternatives.iter()) {
-            if files.contains_key(&alt.name) {
-                continue;
-            }
-            let Some(pcm) = load_file(view, &alt.name) else {
-                continue;
-            };
-            let size = pcm.samples.len() * 2;
-            if size > budget {
-                break;
-            }
-            budget -= size;
-            files.insert(alt.name.clone(), Arc::new(pcm));
         }
         Some(Self {
             definitions,
             tables,
             files,
+            view: Some(LayeredPackView::new(view.shared_stack())),
         })
+    }
+
+    /// Reads and decodes only the selected waveform on the bank's decoder worker.
+    pub(super) fn decode(&self, path: &str) -> Option<Pcm> {
+        load_file(self.view.as_ref()?, path)
+    }
+
+    pub(super) fn contains(&self, path: &str) -> bool {
+        self.files.contains(path) || self.files.contains(path.to_ascii_lowercase().as_str())
     }
 }
 
@@ -223,6 +232,10 @@ pub fn poll_server_sounds(seen: &mut u64) -> Option<Option<Arc<ServerSoundPack>>
 }
 
 #[cfg(test)]
+#[path = "server/loading_tests.rs"]
+mod loading_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
@@ -253,7 +266,7 @@ mod tests {
         assert_eq!(parsed.alternatives.len(), MAX_ALTERNATIVES);
     }
 
-    fn wav(channels: u16, rate: u32, samples: &[i16]) -> Vec<u8> {
+    pub(super) fn wav(channels: u16, rate: u32, samples: &[i16]) -> Vec<u8> {
         let data: Vec<u8> = samples.iter().flat_map(|s| s.to_le_bytes()).collect();
         let mut out = b"RIFF".to_vec();
         out.extend((36 + data.len() as u32).to_le_bytes());

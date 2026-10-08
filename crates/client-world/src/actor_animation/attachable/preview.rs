@@ -43,6 +43,7 @@ impl AttachableState {
         let state = &mut self.rig;
         state.variables = evaluated.variables;
         state.controllers = evaluated.controllers;
+        state.server_animations = evaluated.server_animations;
         state.clip_clocks = evaluated.clip_clocks;
         state.current = evaluated.pose;
         state.scale = evaluated.scale;

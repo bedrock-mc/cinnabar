@@ -94,12 +94,20 @@ fn pending_transport_correction_keeps_the_presented_view_without_advancing_autho
             Update,
             super::super::advance_local_physics.after(reconcile_world_stream_before_physics),
         );
-    // Exactly two ticks: one render frame at vanilla's 0.1 s elapsed-time clamp.
+    // Seed one completed tick and retain a half-tick interpolation phase.
     app.world_mut()
         .resource_mut::<Time<Real>>()
-        .advance_by(Duration::from_millis(100));
+        .advance_by(Duration::from_secs_f64(1.5 / sim::TICKS_PER_SECOND as f64));
     app.update();
     let before = *app.world().resource::<LocalViewPose>();
+    assert!(
+        (app.world()
+            .resource::<LocalPhysicsController>()
+            .tick_alpha()
+            - 0.5)
+            .abs()
+            < 1e-6
+    );
     let tick = app
         .world()
         .resource::<LocalPhysicsController>()
@@ -147,6 +155,7 @@ fn pending_transport_correction_keeps_the_presented_view_without_advancing_autho
     assert!(!ticker.can_advance_physics_frame());
     assert_eq!(ticker.pending_count(), 1);
     assert_eq!(physics.state().unwrap().tick, tick);
+    assert!((physics.tick_alpha() - 0.5).abs() < 1e-6);
     assert_eq!(physics.state().unwrap().position.x, f64::from(position[0]));
     assert_eq!(
         app.world()
@@ -187,7 +196,7 @@ fn pending_transport_correction_keeps_the_presented_view_without_advancing_autho
     }
     let physics = app.world().resource::<LocalPhysicsController>();
     assert_eq!(physics.state().unwrap().tick, tick + 1);
-    assert!(physics.tick_alpha() > 0.0 && physics.tick_alpha() < 1.0);
+    assert!((physics.tick_alpha() - 0.5).abs() < 1e-6);
     let view = app.world().resource::<LocalViewPose>();
     assert!(view.eye_translation().x > before.eye_translation().x);
     assert!(view.eye_translation().x < position[0]);

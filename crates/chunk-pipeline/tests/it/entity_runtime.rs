@@ -95,6 +95,7 @@ fn compiled_entity_assets(fallback: EntityRigFallback) -> CompiledEntityAssets {
         symbols,
         geometries: vec![
             EntityGeometry {
+                visible_bounds: None,
                 identifier: "geometry.base".into(),
                 inherits: None,
                 source_index: 3,
@@ -117,6 +118,7 @@ fn compiled_entity_assets(fallback: EntityRigFallback) -> CompiledEntityAssets {
                 .into_boxed_slice(),
             },
             EntityGeometry {
+                visible_bounds: None,
                 identifier: "geometry.bee".into(),
                 inherits: Some(EntityGeometryInheritance {
                     identifier: "geometry.base".into(),
@@ -156,6 +158,7 @@ fn compiled_entity_assets(fallback: EntityRigFallback) -> CompiledEntityAssets {
         }]
         .into_boxed_slice(),
         animation_channels: vec![EntityAnimationChannel {
+            bone_name: None,
             bone: 1,
             property: EntityAnimationProperty::Translation,
             first_keyframe: 0,
@@ -931,6 +934,9 @@ fn review_custom_action_uses_the_server_pack_rig_catalog() {
                     kind: protocol::ActorActionKind::Custom {
                         animation: "animation.bee.move".into(),
                         controller: "controller.animation.bee".into(),
+                        next_state: "".into(),
+                        stop_expression: "".into(),
+                        stop_expression_version: 0,
                     },
                     data: 0.0,
                     swing_source: None,

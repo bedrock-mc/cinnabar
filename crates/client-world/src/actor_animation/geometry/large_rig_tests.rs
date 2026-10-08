@@ -75,3 +75,67 @@ fn runtime_skeleton_rejects_parts_beyond_the_entity_geometry_bound() {
     let compiled = compiled_display(assets::MAX_ENTITY_GEOMETRY_BONES + 1);
     assert!(skeleton(&compiled.geometries[0].bones).is_none());
 }
+
+#[test]
+fn authored_entity_bounds_keep_edge_display_visible_and_animated() {
+    let mut compiled = compiled_display(190);
+    let scalar = |value| assets::EntityGeometryScalar::new(value).unwrap();
+    let bounds = assets::EntityGeometryBounds {
+        center: [0.0, 3.25, 0.0].map(scalar),
+        half_extents: [8.5, 3.75, 8.5].map(scalar),
+    };
+    compiled.geometries[0].visible_bounds = Some(bounds);
+    let assets = Arc::new(RuntimeEntityAssets::from_compiled(compiled).unwrap());
+    let mut actor = super::super::tests::actor_with_metadata(HashMap::from([
+        (
+            crate::actor_store::BOUNDING_BOX_WIDTH_METADATA_KEY,
+            ActorMetadataValue::Float(0.005),
+        ),
+        (
+            crate::actor_store::BOUNDING_BOX_HEIGHT_METADATA_KEY,
+            ActorMetadataValue::Float(0.005),
+        ),
+    ]));
+    actor.position = [11.0, 0.0, 0.0];
+    actor.previous_pose.position = actor.position;
+    actor.received_pose.position = actor.position;
+    let mut store = ActorAnimationStore::with_assets(Arc::clone(&assets));
+    store.set_pack(Some((assets, vec![0])));
+    store.insert(1, 0, &actor);
+    let lifetime = store.runtime_to_lifetime[&actor.runtime_id];
+    assert_eq!(
+        store.get(actor.runtime_id).unwrap().culling_bounds(),
+        bounds.as_bounds()
+    );
+    let view = ActorAnimationView {
+        planes: [[-1.0, 0.0, 0.0, 10.0]; 6],
+        camera: [0.0; 3],
+        player_distance: 100.0,
+        entity_radius: 72.0,
+    };
+    store.advance_tick(
+        &HashMap::from([(actor.runtime_id, actor.clone())]),
+        Some(&view),
+        None,
+        true,
+        false,
+        |_| ActorTickContext::default(),
+    );
+    let rig = store.get(actor.runtime_id).unwrap();
+    assert_eq!(rig.render.len(), 1);
+    assert_eq!(rig.current[189].translation_scale[0], -2.0);
+    assert!(!store.rigs[&lifetime].culled);
+
+    actor.position[0] = 19.0;
+    actor.previous_pose.position = actor.position;
+    actor.received_pose.position = actor.position;
+    store.advance_tick(
+        &HashMap::from([(actor.runtime_id, actor.clone())]),
+        Some(&view),
+        None,
+        true,
+        false,
+        |_| ActorTickContext::default(),
+    );
+    assert!(store.rigs[&lifetime].culled);
+}

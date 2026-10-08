@@ -72,6 +72,7 @@ pub(super) fn resolve_binding(
     let evaluator = Evaluator {
         assets,
         layout,
+        program: None,
         actor,
         input: &input,
         context: &context,
@@ -143,6 +144,7 @@ pub(super) fn resolve_binding(
         scale: None,
         layer_skeletons: BTreeMap::new(),
         controllers,
+        server_animations: Vec::new(),
         previous: current.clone(),
         ui_pose: None,
         ui_animation: None,
@@ -451,6 +453,7 @@ fn reselect_geometry_with_checkpoint(
     let evaluator = Evaluator {
         assets,
         layout,
+        program: None,
         actor,
         input: &input,
         context,

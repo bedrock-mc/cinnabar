@@ -298,12 +298,25 @@ fn slot_item(slot: &HudSlot) -> CollectionItem {
 mod tests;
 
 fn titles(data: &mut DataSource, model: &HudModel) {
+    data.set_global(
+        "#hud_title_text_string",
+        Scalar::Text(
+            model
+                .title
+                .as_ref()
+                .map_or_else(String::new, |title| title.title.clone()),
+        ),
+    );
+    data.set_global(
+        "#hud_subtitle_text_string",
+        Scalar::Text(
+            model
+                .title
+                .as_ref()
+                .map_or_else(String::new, |title| title.subtitle.clone()),
+        ),
+    );
     if let Some(title) = &model.title {
-        data.set_global("#hud_title_text_string", Scalar::Text(title.title.clone()));
-        data.set_global(
-            "#hud_subtitle_text_string",
-            Scalar::Text(title.subtitle.clone()),
-        );
         data.set_factory(
             "hud_title_text_factory",
             vec![

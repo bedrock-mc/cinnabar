@@ -120,7 +120,8 @@ fn fixture_source(path: &str) -> bool {
             .strip_prefix("texts/")
             .and_then(|localized| localized.split_once('/'))
             .is_some_and(|(_, member)| member.starts_with("font/"));
-    (path.ends_with(".json") && JSON_PREFIXES.iter().any(|prefix| path.starts_with(prefix)))
+    path == "manifest.json"
+        || (path.ends_with(".json") && JSON_PREFIXES.iter().any(|prefix| path.starts_with(prefix)))
         || (path.starts_with("materials/") && path.ends_with(".material"))
         || (font
             && [".png", ".tga", ".json"]
@@ -218,6 +219,7 @@ mod tests {
     #[test]
     fn fixtures_include_font_and_material_sources_without_other_payloads() {
         for path in [
+            "manifest.json",
             "ui/server_form.json",
             "entity/player.json",
             "models/entity/avatar.json",
@@ -237,7 +239,6 @@ mod tests {
             "font/custom.ttf",
             "font/contents.json.key",
             "contents.json",
-            "manifest.json",
             "texts/en_US.lang",
         ] {
             assert!(!fixture_source(path), "{path}");

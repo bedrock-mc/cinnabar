@@ -316,9 +316,7 @@ fn number(evaluator: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) ->
         "life_time" => {
             (evaluator.life_tick as f32 + context.frame_alpha) * ACTOR_TICK_DURATION.as_secs_f32()
         }
-        "delta_time" => {
-            context.animation_elapsed_ticks.unwrap_or(1) as f32 * ACTOR_TICK_DURATION.as_secs_f32()
-        }
+        "delta_time" => delta_time(context),
         "modified_distance_moved" => input.distance_moved,
         "modified_move_speed" => input.move_speed,
         "walk_distance" => input.walk_distance,
@@ -476,6 +474,15 @@ fn camera_distance_range_lerp(distance: f32, start: f32, end: f32) -> f32 {
     if end < start { 1.0 - amount } else { amount }
 }
 
+pub(super) fn delta_time(context: &ActorTickContext) -> f32 {
+    context
+        .attachable
+        .and_then(|input| input.delta_seconds)
+        .unwrap_or_else(|| {
+            context.animation_elapsed_ticks.unwrap_or(1) as f32 * ACTOR_TICK_DURATION.as_secs_f32()
+        })
+}
+
 pub(super) fn is_arrow(actor: &ActorSnapshot) -> bool {
     matches!(&actor.kind, ActorKind::Entity { identifier } if identifier.as_ref() == "minecraft:arrow")
 }
@@ -544,6 +551,7 @@ fn hand_item<'a>(context: &'a ActorTickContext, hand: Option<&MolangValue>) -> O
         None => false,
         Some(MolangValue::Number(value)) => value.trunc() == 1.0,
         Some(MolangValue::String(name)) => name.as_ref() == "off_hand",
+        Some(MolangValue::ActorReference(_)) => false,
     };
     if off_hand {
         context.off_hand.as_deref()

@@ -16,6 +16,8 @@ pub struct AttachableAnimationInput<'a> {
     pub worn: bool,
     pub is_paperdoll: bool,
     pub frame_alpha: f32,
+    /// Elapsed render time for clip application; absent inputs use the actor timestep.
+    pub delta_seconds: Option<f32>,
     pub animation_frame: u32,
     /// Owner's elapsed main-hand use ticks, also visible to offhand attachables.
     pub use_elapsed_ticks: Option<u32>,
@@ -51,6 +53,7 @@ pub(crate) struct AttachableQueryContext {
     pub worn: bool,
     pub is_paperdoll: bool,
     pub frame_alpha: f32,
+    pub delta_seconds: Option<f32>,
     pub animation_frame: u32,
     pub use_elapsed_ticks: Option<u32>,
     pub max_use_ticks: u32,
@@ -211,6 +214,9 @@ impl AttachablesRuntime {
             worn: input.worn,
             is_paperdoll: input.is_paperdoll,
             frame_alpha,
+            delta_seconds: input
+                .delta_seconds
+                .filter(|delta| delta.is_finite() && *delta >= 0.0),
             animation_frame: input.animation_frame,
             use_elapsed_ticks: input.use_elapsed_ticks,
             max_use_ticks: input.max_use_ticks,
@@ -360,3 +366,11 @@ pub(in crate::actor_animation) mod tests;
 #[cfg(test)]
 #[path = "attachable/preview_tests.rs"]
 mod preview_tests;
+
+#[cfg(test)]
+#[path = "attachable/owner_reference_tests.rs"]
+mod owner_reference_tests;
+
+#[cfg(test)]
+#[path = "attachable/activation_clock_tests.rs"]
+mod activation_clock_tests;
