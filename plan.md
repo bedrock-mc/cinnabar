@@ -6551,5 +6551,8 @@ stem selector from the small/large leaf selectors, with thickness-dependent stal
 bounds and position-dependent stem UVs and column offsets. Current pinned physics
 seeds confirm both widths and the origin offsets. Headless Metal checks cover
 all twelve pinned states from four sides and above, with continuous stalks and
-visible radial leaves. Exact target-version atlas and random-offset component
+visible radial leaves. Matching headless game checks confirm selection highlights
+and server-driven cracks follow the same column offsets. Production Enhanced
+vertex normals pass an offline Metal shader fixture; live Enhanced presentation
+remains unverified. Exact target-version atlas and random-offset component
 admission still need verification; this work does not close the bamboo parity gate.
