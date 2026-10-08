@@ -25,13 +25,14 @@ use bevy::{
 };
 
 use crate::menu::settings_options::{
-    binding_gamepad, binding_key, binding_mouse, binding_pressed, hotbar_control_slot,
+    binding_gamepad, binding_key, binding_mouse, binding_pressed, hotbar_control_slots,
 };
 use ui::{ChatEditor, PointerPhase, UiAction, UiPoint};
 
 use client_ui::ui_runtime::inventory_ledger::DropSource;
 use client_ui::ui_runtime::presentation::{
-    UiPresentationRuntime, inventory_pointer::InventoryScreen,
+    UiPresentationRuntime,
+    inventory_pointer::{InventoryCellHit, InventoryScreen},
 };
 use client_ui::ui_runtime::{PlatformClipboard, UiRuntime};
 
@@ -41,6 +42,22 @@ use client_ui::ui_runtime::interaction::{
     paste_chat_shortcut, restore_gameplay_input_after_chat, suppress_gameplay_input_for_chat,
     suppress_gameplay_input_for_inventory,
 };
+
+/// Dispatches inventory hotbar shortcuts bound to one physical press.
+pub(crate) fn dispatch_bound_inventory_hotbar(
+    menu: Option<&crate::menu::MenuRuntime>,
+    control: semantic_input::PhysicalControl,
+    player: &mut player_state::PlayerState,
+    runtime: &mut UiRuntime,
+    hit: Option<InventoryCellHit>,
+) -> bool {
+    let mut matched = false;
+    for slot in hotbar_control_slots(menu, control) {
+        let _ = dispatch_inventory_hotbar(player, runtime, hit, slot);
+        matched = true;
+    }
+    matched
+}
 
 pub(crate) fn flush_inventory_network(
     mut player_runtime: bevy::prelude::ResMut<crate::player_runtime::PlayerRuntime>,
@@ -186,13 +203,13 @@ pub(crate) fn drive_inventory_ui_actions(
     let primary_released = mouse_buttons.just_released(MouseButton::Left) || raw_primary_release;
     let secondary_released =
         mouse_buttons.just_released(MouseButton::Right) || raw_secondary_release;
-    let mouse_hotbar = mouse_buttons.get_just_pressed().find_map(|button| {
-        let code = crate::semantic_controls::physical::mouse_button_code(*button)?;
-        hotbar_control_slot(
-            menu.as_deref(),
-            semantic_input::PhysicalControl::MouseButton(code),
-        )
-    });
+    let mouse_hotbar: Vec<_> = mouse_buttons
+        .get_just_pressed()
+        .filter_map(|button| {
+            crate::semantic_controls::physical::mouse_button_code(*button)
+                .map(semantic_input::PhysicalControl::MouseButton)
+        })
+        .collect();
     // The inventory owns pointer buttons while open. Preserve the edges long
     // enough to resolve their cell, then clear every button before gameplay
     // systems can observe this frame.
@@ -245,12 +262,17 @@ pub(crate) fn drive_inventory_ui_actions(
         scroll_container(&mut runtime, frame, gui, &notches);
     }
     for key in presses {
-        let slot = crate::semantic_controls::keyboard_usage(key).and_then(|code| {
-            hotbar_control_slot(
+        if crate::semantic_controls::keyboard_usage(key).is_some_and(|code| {
+            dispatch_bound_inventory_hotbar(
                 menu.as_deref(),
                 semantic_input::PhysicalControl::KeyboardUsage(code),
+                &mut player_runtime,
+                runtime.as_mut(),
+                hit,
             )
-        });
+        }) {
+            continue;
+        }
         let drop = binding_key(menu.as_deref(), "key.drop", key);
         let _ = dispatch_inventory_key(
             &mut player_runtime,
@@ -258,12 +280,18 @@ pub(crate) fn drive_inventory_ui_actions(
             hit,
             key,
             control,
-            slot,
+            None,
             drop,
         );
     }
-    if let Some(slot) = mouse_hotbar {
-        let _ = dispatch_inventory_hotbar(&mut player_runtime, runtime.as_mut(), hit, slot);
+    for control in mouse_hotbar {
+        dispatch_bound_inventory_hotbar(
+            menu.as_deref(),
+            control,
+            &mut player_runtime,
+            runtime.as_mut(),
+            hit,
+        );
     }
     let frame = super::inventory_drag::PointerFrame {
         primary_pressed,

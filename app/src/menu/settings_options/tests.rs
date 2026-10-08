@@ -370,15 +370,15 @@ fn session_overrides_apply_in_memory_but_are_never_saved() {
 
 #[test]
 fn inventory_hotbar_controls_follow_saved_keyboard_and_mouse_remaps() {
-    use super::hotbar_control_slot;
+    use super::hotbar_control_slots;
     let mut menu = crate::menu::MenuRuntime::new(true, 2, "Bindings".to_owned());
     let row = KEY_BINDINGS
         .iter()
         .position(|(action, _)| *action == semantic_input::Action::Hotbar1)
         .unwrap();
     assert_eq!(
-        hotbar_control_slot(Some(&menu), PhysicalControl::KeyboardUsage(0x1e)),
-        Some(0)
+        hotbar_control_slots(Some(&menu), PhysicalControl::KeyboardUsage(0x1e)).collect::<Vec<_>>(),
+        vec![0]
     );
     assert!(
         std::sync::Arc::make_mut(&mut menu.settings_options)
@@ -389,29 +389,103 @@ fn inventory_hotbar_controls_follow_saved_keyboard_and_mouse_remaps() {
             .unwrap(),
     );
     assert_eq!(
-        hotbar_control_slot(Some(&menu), PhysicalControl::KeyboardUsage(0x15)),
-        Some(0)
+        hotbar_control_slots(Some(&menu), PhysicalControl::KeyboardUsage(0x15)).collect::<Vec<_>>(),
+        vec![0]
     );
     assert_eq!(
-        hotbar_control_slot(Some(&menu), PhysicalControl::KeyboardUsage(0x1e)),
-        None
+        hotbar_control_slots(Some(&menu), PhysicalControl::KeyboardUsage(0x1e)).collect::<Vec<_>>(),
+        Vec::<u8>::new()
     );
     assert!(
         std::sync::Arc::make_mut(&mut menu.settings_options)
             .remap(row, PhysicalControl::MouseButton(4))
     );
     assert_eq!(
-        hotbar_control_slot(Some(&menu), PhysicalControl::MouseButton(4)),
-        Some(0)
+        hotbar_control_slots(Some(&menu), PhysicalControl::MouseButton(4)).collect::<Vec<_>>(),
+        vec![0]
     );
     assert_eq!(
-        hotbar_control_slot(Some(&menu), PhysicalControl::KeyboardUsage(0x15)),
-        None
+        hotbar_control_slots(Some(&menu), PhysicalControl::KeyboardUsage(0x15)).collect::<Vec<_>>(),
+        Vec::<u8>::new()
     );
     for (slot, usage) in (0x1f..=0x26).enumerate() {
         assert_eq!(
-            hotbar_control_slot(Some(&menu), PhysicalControl::KeyboardUsage(usage)),
-            Some(slot as u8 + 1)
+            hotbar_control_slots(Some(&menu), PhysicalControl::KeyboardUsage(usage))
+                .collect::<Vec<_>>(),
+            vec![slot as u8 + 1]
         );
+    }
+}
+
+#[test]
+fn shared_hotbar_press_swaps_each_bound_slot_in_order() {
+    use std::sync::Arc;
+
+    use client_ui::ui_runtime::presentation::inventory_pointer::InventoryCellHit;
+    use protocol::{ContainerIdentity, InventoryContentEvent, InventoryEvent, NetworkItemStack};
+    use semantic_input::{Action, PhysicalControl};
+
+    for control in [
+        PhysicalControl::KeyboardUsage(0x15),
+        PhysicalControl::MouseButton(4),
+    ] {
+        let mut menu = crate::menu::MenuRuntime::new(true, 2, "Bindings".into());
+        for action in [Action::Hotbar1, Action::Hotbar2] {
+            let row = crate::menu::settings_options::KEY_BINDINGS
+                .iter()
+                .position(|(candidate, _)| *candidate == action)
+                .unwrap();
+            assert!(Arc::make_mut(&mut menu.settings_options).remap(row, control));
+        }
+        let mut player = player_state::PlayerState::new(1);
+        let mut runtime = client_ui::test_support::inventory_session(&mut player);
+        let ledger = runtime.inventory_ledger_mut(&mut player);
+        assert!(ledger.request_personal_open(42));
+        assert!(ledger.mark_transport_enqueued(0));
+        ledger.apply(&InventoryEvent::Open(protocol::ContainerOpenEvent {
+            container: ContainerIdentity::window(2),
+            window_type: client_ui::ui_runtime::inventory_ledger::PERSONAL_INVENTORY_WINDOW_TYPE,
+            position: [0; 3],
+            runtime_entity_id: -1,
+        }));
+        let mut slots = vec![
+            NetworkItemStack::empty();
+            client_ui::ui_runtime::inventory_ledger::PLAYER_INVENTORY_SLOT_COUNT
+        ];
+        for (slot, network_id) in [(0, 745), (1, 846), (20, 947)] {
+            slots[slot] = NetworkItemStack {
+                network_id,
+                stack_network_id: network_id,
+                count: 1,
+                ..NetworkItemStack::empty()
+            };
+        }
+        runtime
+            .enqueue_inventory_event(
+                &mut player,
+                1,
+                1,
+                InventoryEvent::Content(InventoryContentEvent {
+                    container: ContainerIdentity::window(0),
+                    slots: slots.into(),
+                    storage_item: NetworkItemStack::empty(),
+                }),
+            )
+            .unwrap();
+        runtime.drain_pending_inventory(&mut player);
+        assert!(
+            crate::ui_runtime::interaction::dispatch_bound_inventory_hotbar(
+                Some(&menu),
+                control,
+                &mut player,
+                &mut runtime,
+                Some(InventoryCellHit::Player(20)),
+            )
+        );
+        let ledger = runtime.inventory_ledger(&player);
+        assert_eq!(ledger.displayed_stack(0).unwrap().network_id, 947);
+        assert_eq!(ledger.displayed_stack(1).unwrap().network_id, 745);
+        assert_eq!(ledger.displayed_stack(20).unwrap().network_id, 846);
+        assert_eq!(ledger.pending_request_count(), 2);
     }
 }

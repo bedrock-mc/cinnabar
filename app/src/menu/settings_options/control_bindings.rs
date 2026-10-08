@@ -2,15 +2,15 @@
 use launcher::menu::settings_options::{EXTRA_GAMEPAD, GAMEPAD_BINDINGS, GAMEPAD_OFFSET};
 use semantic_input::PhysicalControl;
 
-/// Inventory shortcuts share the exact configured controls used by gameplay slots.
-pub(crate) fn hotbar_control_slot(
+/// Resolves every inventory hotbar shortcut in action registration order.
+pub(crate) fn hotbar_control_slots(
     menu: Option<&crate::menu::MenuRuntime>,
     control: PhysicalControl,
-) -> Option<u8> {
+) -> impl Iterator<Item = u8> + '_ {
     crate::hotbar::HOTBAR_DIGIT_ACTIONS
         .iter()
         .enumerate()
-        .find_map(|(slot, action)| {
+        .filter_map(move |(slot, action)| {
             let (_, name) = super::KEY_BINDINGS
                 .iter()
                 .find(|(candidate, _)| candidate == action)?;
