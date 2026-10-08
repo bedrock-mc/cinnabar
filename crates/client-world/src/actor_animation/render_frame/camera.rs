@@ -154,7 +154,7 @@ fn camera_expression(assets: &RuntimeEntityAssets, index: usize, swing: bool) ->
         .is_some_and(|ops| {
             ops.iter().any(|op| {
                 let symbol = match op {
-                    MolangOp::LoadVariable(symbol) if swing => *symbol,
+                    MolangOp::LoadVariable(symbol) => *symbol,
                     MolangOp::LoadQuery(symbol) if !swing => *symbol,
                     MolangOp::CallQuery(call) if !swing => call.symbol,
                     _ => return false,
@@ -164,15 +164,23 @@ fn camera_expression(assets: &RuntimeEntityAssets, index: usize, swing: bool) ->
                     .get(symbol as usize)
                     .is_some_and(|symbol| {
                         if swing {
-                            return symbol.identifier.as_ref() == "variable.attack_time";
+                            return symbol.identifier.as_ref() == "variable.attack_time"
+                                || symbol.identifier.starts_with("variable.fp_melee_spear_")
+                                || symbol.identifier.starts_with("variable.tp_melee_spear_");
                         }
-                        matches!(
-                            symbol.identifier.as_ref(),
-                            "query.camera_distance_range_lerp"
-                                | "query.camera_rotation"
-                                | "query.distance_from_camera"
-                                | "query.rotation_to_camera"
-                        )
+                        symbol
+                            .identifier
+                            .starts_with("variable.fp_melee_spear_use_")
+                            || symbol
+                                .identifier
+                                .starts_with("variable.tp_melee_spear_use_")
+                            || matches!(
+                                symbol.identifier.as_ref(),
+                                "query.camera_distance_range_lerp"
+                                    | "query.camera_rotation"
+                                    | "query.distance_from_camera"
+                                    | "query.rotation_to_camera"
+                            )
                     })
             })
         })

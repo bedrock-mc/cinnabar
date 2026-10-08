@@ -7,6 +7,7 @@ use super::*;
 
 mod admission;
 mod crossbow;
+mod delayfix;
 
 fn crossbow_duration() -> u32 {
     match classify("minecraft:crossbow", false, 0, None).unwrap() {
@@ -765,41 +766,6 @@ impl AdmissionQueue {
 }
 
 #[test]
-fn delay_fix_skips_rearm_but_preserves_item_cooldowns() {
-    let first = item_frame(1, false, stack(2, SNOWBALL, 16), "minecraft:snowball");
-    for enabled in [false, true] {
-        let mut runtime = ItemUseRuntime::default();
-        runtime.observe_press(true);
-        assert!(runtime.step(&first).swung);
-        runtime.set_delay_fix(enabled);
-        runtime.observe_press(true);
-        let second = UseFrame {
-            tick: 2,
-            now_millis: first.now_millis + 50,
-            ..first.clone()
-        };
-        assert_eq!(runtime.step(&second).swung, enabled);
-        runtime.set_delay_fix(false);
-        runtime.observe_press(true);
-        assert!(!runtime.step(&second).swung);
-    }
-    let pearl = item_frame(1, false, stack(2, SNOWBALL, 16), "minecraft:ender_pearl");
-    let mut runtime = ItemUseRuntime::default();
-    runtime.set_delay_fix(true);
-    runtime.observe_press(true);
-    assert!(runtime.step(&pearl).swung);
-    runtime.observe_press(true);
-    let next = UseFrame {
-        tick: 2,
-        now_millis: 100,
-        ..pearl.clone()
-    };
-    let blocked = runtime.step(&next);
-    assert!(!blocked.swung);
-    assert!(!blocked.packets.is_empty());
-}
-
-#[test]
 fn delay_fix_admits_once_per_tick_and_session_reset_restores_rearm() {
     let first = item_frame(1, false, stack(2, SNOWBALL, 16), "minecraft:snowball");
     let mut runtime = ItemUseRuntime::default();
@@ -816,6 +782,7 @@ fn delay_fix_admits_once_per_tick_and_session_reset_restores_rearm() {
     let next = UseFrame {
         tick: 2,
         now_millis: first.now_millis + 50,
+        selection: Some(stack(3, SNOWBALL, 16)),
         ..first.clone()
     };
     runtime.observe_press(true);

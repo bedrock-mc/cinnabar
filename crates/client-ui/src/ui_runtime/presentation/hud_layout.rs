@@ -55,6 +55,7 @@ pub struct HudFrame {
     /// Authoritative `(current, maximum)` health of the ridden actor.
     pub mount_health: Option<(f32, f32)>,
     pub hotbar_durability: [Option<f32>; 9],
+    pub hotbar_cooldowns: [f32; 9],
     pub offhand_durability: Option<f32>,
     /// Exact stack state published for each occupied hotbar cell this frame.
     pub hotbar_stacks: [Option<protocol::NetworkItemStack>; 9],

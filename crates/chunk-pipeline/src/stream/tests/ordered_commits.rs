@@ -13,7 +13,8 @@ fn newer_update_waits_for_older_decode_and_wins() {
         &RAW_IDS,
     );
     let mut ordered = client_world::ingestion::OrderedCommitState::new(1);
-    ordered.admit(2, true, 0).unwrap();
+    let column = || client_world::ingestion::Footprint::terrain([key.chunk()], true);
+    ordered.admit(2, column(), 0).unwrap();
     ordered
         .insert_ready(
             2,
@@ -26,7 +27,7 @@ fn newer_update_waits_for_older_decode_and_wins() {
         )
         .unwrap();
     assert!(ordered.next_commit().is_none(), "sequence two must wait");
-    ordered.admit(1, true, 0).unwrap();
+    ordered.admit(1, column(), 0).unwrap();
     ordered
         .insert_ready(
             1,
@@ -176,19 +177,12 @@ fn control_effects_are_exposed_only_after_older_heavy_sequence_commits_in_fifo_o
             },
         )
         .unwrap();
-    // Force one FIFO event per poll slice. A heavy commit can spend the normal frame
-    // budget, so controls need later slices even though all three events are ready.
-    stream.poll_deadline = Some(Instant::now());
-    stream.polling = true;
-    stream.apply_ready();
-    assert_eq!(stream.order.next_sequence(), 2);
-    assert_eq!(stream.current_dimension(), 0);
-    assert!(stream.take_committed_controls().is_empty());
-
-    stream.apply_ready();
+    // One heavy step per spent slice: the move follows the chunk at once as a light
+    // commit, while the dimension change is heavy and waits for the next slice.
+    apply_spent_slice(&mut stream);
     assert_eq!(stream.order.next_sequence(), 3);
     assert_eq!(stream.current_dimension(), 0);
-    stream.apply_ready();
+    apply_spent_slice(&mut stream);
     assert_eq!(stream.order.next_sequence(), 4);
     assert_eq!(stream.current_dimension(), 1);
     assert_eq!(
@@ -266,13 +260,9 @@ fn movement_correction_commits_in_fifo_without_move_player_capture_metadata() {
             },
         )
         .unwrap();
-    // One event per slice: a wall-clock budget must not decide whether the correction commits.
-    stream.poll_deadline = Some(Instant::now());
-    stream.polling = true;
-    stream.apply_ready();
-    assert_eq!(stream.order.next_sequence(), 2);
-    assert!(stream.take_committed_controls().is_empty());
-    stream.apply_ready();
+    // Without local physics the correction scopes retention, so it follows the chunk; as a
+    // light commit it does so in the same spent slice.
+    apply_spent_slice(&mut stream);
 
     assert_eq!(
         stream.take_committed_controls(),
@@ -287,10 +277,10 @@ fn movement_correction_commits_in_fifo_without_move_player_capture_metadata() {
     );
 }
 
-/// Attribute updates admitted behind a pending heavy decode commit one control
-/// each, so the whole backlog fits the control queue when it lands at once.
+/// Attribute updates behind a pending chunk decode commit at once, one control each,
+/// until retained consumers fill light admission.
 #[test]
-fn speed_attribute_backlog_behind_a_pending_decode_commits_one_control_per_update() {
+fn speed_attribute_burst_behind_a_pending_decode_commits_one_control_per_update() {
     let mut stream = WorldStream::new(WorldBootstrap {
         local_player_unique_id: 1,
         dimension: 0,
@@ -309,8 +299,9 @@ fn speed_attribute_backlog_behind_a_pending_decode_commits_one_control_per_updat
         modifiers: Arc::from([]),
     };
     stream.submit(1, inline_air_event(0)).unwrap();
-    let updates = MAX_ADMITTED_WORLD_EVENTS as u64 - 1;
-    for sequence in 2..=updates + 1 {
+    let mut sequence = 1;
+    while stream.light_admission_capacity() > 0 {
+        sequence += 1;
         let current = sequence as f32 / 1000.0;
         stream
             .submit(
@@ -329,42 +320,16 @@ fn speed_attribute_backlog_behind_a_pending_decode_commits_one_control_per_updat
             )
             .unwrap();
     }
-    assert!(stream.take_committed_controls().is_empty());
-
-    let super::DecodeJob::InlineLevelChunk {
-        event,
-        payload,
-        slots,
-        count,
-        ids,
-        ..
-    } = stream.pending_decode.pop_front().unwrap().job
-    else {
-        panic!("expected inline decode job")
-    };
-    let chunk = ChunkKey::new(event.dimension, event.x, event.z);
-    let decoded = DecodedLevelChunk::decode_inline(chunk, slots, count, &payload, &ids, &ids);
-    stream
-        .order
-        .insert_ready(
-            1,
-            super::PreparedWorldEvent::InlineLevelChunk {
-                event,
-                decoded,
-                duration: std::time::Duration::ZERO,
-            },
-        )
-        .unwrap();
-    for _ in 0..=updates {
-        if stream.order.next_sequence() > updates + 1 {
-            break;
-        }
-        stream.apply_ready();
-    }
-    assert_eq!(stream.order.next_sequence(), updates + 2);
+    let updates = sequence - 1;
+    assert!(stream.order.is_finished(sequence));
+    assert_eq!(
+        stream.committed_sequence(),
+        0,
+        "the chunk still owns the frontier"
+    );
     let controls = stream.take_committed_controls();
     assert_eq!(controls.len() as u64, updates);
-    let last = (updates + 1) as f32 / 1000.0;
+    let last = sequence as f32 / 1000.0;
     assert!(matches!(
         controls.last(),
         Some(super::CommittedControlEvent::LocalMovementSpeed {

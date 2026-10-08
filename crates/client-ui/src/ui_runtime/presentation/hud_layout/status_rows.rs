@@ -104,6 +104,7 @@ pub(in super::super) fn capture(
         .is_none_or(|mode| mode.shows_hotbar());
     let mut paint = HudPaint {
         effects: effects(runtime, now_tick),
+        hotbar_cooldowns: frame.hotbar_cooldowns,
         // The third-person preference never overrides the spectator gate.
         crosshair: sheet
             .filter(|_| {

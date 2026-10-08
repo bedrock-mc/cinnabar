@@ -20,6 +20,9 @@ pub(super) enum Editor {
 
 impl UiPresentationRuntime {
     pub fn mod_panel_editing(&self) -> bool {
+        if self.mod_hud_editor_open() {
+            return true;
+        }
         self.form_presentation
             .mod_panel
             .as_ref()
@@ -28,6 +31,15 @@ impl UiPresentationRuntime {
 
     /// Routes keyboard input exclusively to an open personal-panel editor.
     pub fn mod_panel_key(&mut self, key: &str, text: Option<&str>) -> Vec<Event> {
+        if let Some(editor) = self
+            .form_presentation
+            .mod_hud_editor
+            .as_mut()
+            .filter(|e| e.open)
+        {
+            editor.key(key);
+            return Vec::new();
+        }
         self.form_presentation
             .mod_panel
             .as_mut()
@@ -35,6 +47,7 @@ impl UiPresentationRuntime {
     }
 
     pub fn cancel_mod_panel_edit(&mut self) {
+        self.cancel_mod_hud_editor();
         if let Some(panel) = self.form_presentation.mod_panel.as_mut() {
             panel.cancel_edit();
         }

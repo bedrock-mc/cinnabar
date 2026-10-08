@@ -68,6 +68,8 @@ pub struct UseOutcome {
 pub struct ItemUseRuntime {
     latched_press: bool,
     delay_fix: bool,
+    selected_slot: Option<u8>,
+    slot_change_pending: bool,
     last_air_use_tick: Option<u64>,
     active: Option<ActiveUse>,
     session: Option<u64>,
@@ -91,9 +93,23 @@ pub struct ItemUseRuntime {
 }
 
 impl ItemUseRuntime {
-    /// Skips only the air-use rearm gate; item category cooldowns remain authoritative.
+    /// Allows one immediate air use after each slot change; item cooldowns remain authoritative.
     pub fn set_delay_fix(&mut self, enabled: bool) {
         self.delay_fix = enabled;
+        if !enabled {
+            self.slot_change_pending = false;
+        }
+    }
+
+    /// Observes slot changes even without use input; unavailable inventory grants no new use.
+    pub fn observe_selected_slot(&mut self, slot: Option<u8>) {
+        let Some(slot) = slot else {
+            return;
+        };
+        if self.selected_slot != Some(slot) {
+            self.slot_change_pending = self.delay_fix && self.selected_slot.is_some();
+            self.selected_slot = Some(slot);
+        }
     }
 
     /// Accepted use timing shared by native presentation and movement.
@@ -101,6 +117,19 @@ impl ItemUseRuntime {
         self.active
             .as_ref()
             .map(|active| (active.started_tick, active.max_ticks))
+    }
+
+    /// Remaining fraction of an admitted category cooldown at the completed player tick.
+    pub fn cooldown_progress(&self, cooldown: Cooldown, tick: u64) -> f32 {
+        if cooldown.ticks == 0 {
+            return 0.0;
+        }
+        self.cooldowns
+            .iter()
+            .find(|(category, _)| *category == cooldown.category)
+            .map_or(0.0, |(_, until)| {
+                (until.saturating_sub(tick) as f32 / cooldown.ticks as f32).min(1.0)
+            })
     }
     /// Predicted crossbow charge for one authoritative inventory revision.
     pub fn predicted_projectile(
@@ -149,6 +178,8 @@ impl ItemUseRuntime {
     /// Clears session-owned use state after disconnect or session replacement.
     fn cancel(&mut self) {
         self.delay_fix = false;
+        self.selected_slot = None;
+        self.slot_change_pending = false;
         self.last_air_use_tick = None;
         self.cancel_pending_input();
         self.active = None;
@@ -190,6 +221,7 @@ impl ItemUseRuntime {
 
     /// Ends a use on release, depletion or reselection, then resolves a press or held repeat.
     pub fn step(&mut self, frame: &UseFrame) -> UseOutcome {
+        self.observe_selected_slot(frame.selection.as_ref().map(|selection| selection.slot));
         let mut outcome = UseOutcome::default();
         let pressed = std::mem::take(&mut self.latched_press);
         if pressed {
@@ -265,11 +297,7 @@ impl ItemUseRuntime {
             Some("consumed_by_block_or_attack")
         } else if self.delay_fix && self.last_air_use_tick == Some(frame.tick) {
             Some("use_tick_already_admitted")
-        } else if !self.delay_fix
-            && self
-                .rearm_millis
-                .is_some_and(|rearm| frame.now_millis <= rearm)
-        {
+        } else if self.rearm_pending(frame) {
             Some("rearm_pending")
         } else if frame.selection.is_none() {
             Some("selection_unverified")
@@ -288,10 +316,7 @@ impl ItemUseRuntime {
         let air_use = self.crossbows.air_use(frame);
         if frame.press_consumed
             || (self.delay_fix && self.last_air_use_tick == Some(frame.tick))
-            || (!self.delay_fix
-                && self
-                    .rearm_millis
-                    .is_some_and(|rearm| frame.now_millis <= rearm))
+            || self.rearm_pending(frame)
             || (!pressed
                 && (!self.repeat_armed
                     || air_use.is_some_and(|air_use| !air_use.repeats_while_held())))
@@ -301,6 +326,7 @@ impl ItemUseRuntime {
         let Some(selection) = self.displayed_selection(frame) else {
             return;
         };
+        self.slot_change_pending = false;
         self.last_air_use_tick = Some(frame.tick);
         self.rearm_millis = Some(frame.now_millis.saturating_add(USE_REARM_MILLIS));
         // Vanilla opens a legacy request scope on every air use.
@@ -374,6 +400,14 @@ impl ItemUseRuntime {
                     .predict(&selection, frame.inventory_revision, None);
             }
         }
+    }
+
+    /// Retains the normal repeat gate after the slot change's first admitted air use.
+    fn rearm_pending(&self, frame: &UseFrame) -> bool {
+        !(self.delay_fix && self.slot_change_pending)
+            && self
+                .rearm_millis
+                .is_some_and(|rearm| frame.now_millis <= rearm)
     }
 
     /// The selected stack with an unconfirmed throw applied; `None` when nothing is held.

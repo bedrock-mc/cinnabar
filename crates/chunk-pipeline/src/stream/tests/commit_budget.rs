@@ -1,11 +1,15 @@
 use super::*;
+use client_world::ingestion::{Footprint, classify};
 
-/// An expired slice publishes one entry while keeping later control state fenced.
+/// An expired slice publishes one batch entry; the light control passes it at once.
 #[test]
-fn sliced_sub_chunk_commit_keeps_order_and_inventory_frontier() {
+fn sliced_sub_chunk_commit_keeps_its_frontier_while_light_events_pass() {
     let (mut stream, key) = stream_with_one_expected_sub_chunk();
     stream.enqueue_request(key.chunk(), key.y, 3, None);
-    stream.order.admit(2, true, 0).unwrap();
+    stream
+        .order
+        .admit(2, Footprint::terrain([key.chunk()], true), 0)
+        .unwrap();
     stream
         .order
         .insert_ready(
@@ -23,41 +27,41 @@ fn sliced_sub_chunk_commit_keeps_order_and_inventory_frontier() {
             },
         )
         .unwrap();
-    stream.order.admit(3, false, 0).unwrap();
+    let set_time = WorldEvent::SetTime(SetTimeEvent { time: 123 });
     stream
         .order
-        .insert_ready(
-            3,
-            PreparedWorldEvent::Immediate(WorldEvent::SetTime(SetTimeEvent { time: 123 })),
-        )
+        .admit(3, classify(&set_time, stream.lane_context()), 0)
         .unwrap();
-    stream.poll_deadline = Some(Instant::now());
-    stream.polling = true;
-    stream.apply_ready();
+    stream
+        .order
+        .insert_ready(3, PreparedWorldEvent::Immediate(set_time))
+        .unwrap();
+    apply_spent_slice(&mut stream);
     assert!(stream.order.pending_batch_sequence().is_some());
-    assert_eq!(stream.inventory_committed_through(), Some(1));
-    assert!(stream.take_committed_controls().is_empty());
-    assert!(stream.order.is_heavy_admitted(2));
-    stream.apply_ready();
-    assert_eq!(stream.inventory_committed_through(), Some(1));
-    stream.apply_ready();
-    assert!(stream.order.pending_batch_sequence().is_none());
-    assert_eq!(stream.inventory_committed_through(), Some(2));
-    assert!(stream.take_committed_controls().is_empty());
-    assert!(!stream.order.is_heavy_admitted(2));
-    stream.apply_ready();
     assert!(matches!(
         stream.take_committed_controls().as_slice(),
         [CommittedControlEvent::SetTime { sequence: 3, .. }]
     ));
+    assert_eq!(stream.committed_sequence(), 1);
     assert_eq!(stream.inventory_committed_through(), Some(3));
+    assert!(stream.order.is_heavy_admitted(2));
+    apply_spent_slice(&mut stream);
+    assert_eq!(stream.committed_sequence(), 1);
+    apply_spent_slice(&mut stream);
+    assert!(stream.order.pending_batch_sequence().is_none());
+    assert!(!stream.order.is_heavy_admitted(2));
+    assert_eq!(stream.committed_sequence(), 3);
 }
 
-/// Deadlines do not consume events when a block mutation still owns the FIFO fence.
+/// Local authority waits for a block mutation's decode regardless of the deadline.
 #[test]
 fn budget_does_not_bypass_block_mutation_fence() {
     let (mut stream, key) = stream_with_one_expected_sub_chunk();
-    stream.order.admit(2, true, 0).unwrap();
+    let mutation = Footprint {
+        mutation: true,
+        ..Footprint::terrain([key.chunk()], true)
+    };
+    stream.order.admit(2, mutation, 0).unwrap();
     stream
         .order
         .insert_ready(
@@ -75,23 +79,21 @@ fn budget_does_not_bypass_block_mutation_fence() {
         Some(CommitStep::BlockUpdates { sequence: 2, .. })
     ));
     stream.order.defer_block_updates(2);
-    stream.order.admit(3, false, 0).unwrap();
+    stream.order.admit(3, Footprint::inventory(), 0).unwrap();
     stream
         .order
         .insert_ready(3, PreparedWorldEvent::CommitOnly)
         .unwrap();
-    stream.poll_deadline = Some(Instant::now());
-    stream.polling = true;
-    stream.apply_ready();
+    apply_spent_slice(&mut stream);
     assert_eq!(stream.order.next_sequence(), 3);
     assert_eq!(stream.order.blocking_block_updates(), Some(2));
     assert_eq!(stream.order.ready_count(), 1);
     assert_eq!(stream.inventory_committed_through(), Some(1));
 }
 
-/// Repeated ingress cannot renew an exhausted frame allocation.
+/// Light ingress commits past an exhausted frame allocation without renewing it.
 #[test]
-fn ingress_preserves_the_poll_deadline() {
+fn light_ingress_commits_past_the_spent_poll_deadline() {
     let (mut stream, _) = stream_with_one_expected_sub_chunk();
     let deadline = Instant::now();
     stream.poll_deadline = Some(deadline);
@@ -105,11 +107,9 @@ fn ingress_preserves_the_poll_deadline() {
             )
             .unwrap();
     }
-    assert!(stream.take_committed_controls().is_empty());
+    assert_eq!(stream.take_committed_controls().len(), 3);
     assert_eq!(stream.poll_deadline, Some(deadline));
-    stream.poll([0.0; 3], 0);
-    assert_eq!(stream.take_committed_controls().len(), 1);
-    assert_eq!(stream.inventory_committed_through(), Some(2));
+    assert_eq!(stream.inventory_committed_through(), Some(4));
 }
 
 /// Spent commit time cannot reduce a bounded decode handoff to one job per frame.
