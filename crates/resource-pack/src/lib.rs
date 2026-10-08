@@ -20,6 +20,7 @@ mod manifest;
 mod merge;
 mod pack;
 mod parser;
+mod subpacks;
 mod view;
 
 pub use dependencies::{PackDependencies, PackDependency};
@@ -114,7 +115,20 @@ pub enum PackAdmission {
 #[cfg(feature = "handoff")]
 #[must_use]
 pub fn validate_handoff(handoff: ResourcePackHandoff) -> Arc<ValidatedPackStack> {
-    Arc::new(parser::validate_stack(handoff.into_archives()))
+    Arc::new(parser::validate_stack(handoff.into_archives(), None))
+}
+
+/// Admits server packs using the device's physical RAM for automatic subpack selection.
+#[cfg(feature = "handoff")]
+#[must_use]
+pub fn validate_handoff_for_device(
+    handoff: ResourcePackHandoff,
+    physical_memory_bytes: u64,
+) -> Arc<ValidatedPackStack> {
+    Arc::new(parser::validate_stack(
+        handoff.into_archives(),
+        Some(subpacks::device_memory_tier(physical_memory_bytes)),
+    ))
 }
 
 #[cfg(all(test, feature = "handoff"))]

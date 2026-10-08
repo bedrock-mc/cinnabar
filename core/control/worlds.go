@@ -168,16 +168,14 @@ func (server *Server) serveWorld(conn net.Conn, id uint64, method string, raw js
 		}
 	case methodPrefs:
 		var params struct {
-			DockerPromptDismissed *bool   `json:"docker_prompt_dismissed"`
-			CreationBackend       *string `json:"creation_backend"`
-			CreationGenerator     *string `json:"creation_generator"`
-			Redetect              bool    `json:"redetect"`
+			DockerPromptDismissed *bool `json:"docker_prompt_dismissed"`
+			Redetect              bool  `json:"redetect"`
 		}
 		if len(raw) != 0 && !decodeParams(raw, &params) {
 			return reply.invalid()
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		prefs, prefsErr := worlds.Prefs(ctx, localworld.PrefsUpdate{DockerPromptDismissed: params.DockerPromptDismissed, CreationBackend: params.CreationBackend, CreationGenerator: params.CreationGenerator, Redetect: params.Redetect})
+		prefs, prefsErr := worlds.Prefs(ctx, localworld.PrefsUpdate{DockerPromptDismissed: params.DockerPromptDismissed, Redetect: params.Redetect})
 		cancel()
 		err = prefsErr
 		result.Prefs = &prefs

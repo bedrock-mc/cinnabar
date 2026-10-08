@@ -61,10 +61,16 @@ Cinnabar retains scripted clocks alongside each rig, evaluates their expressions
 once before sampling the main and additional model geometries, and supplies the
 same resulting time to their bone queries. Dormant zero-weight clocks persist.
 Actor resets discard prior clocks before controller finished-condition checks,
-and controller reentry uses the new entry tick. The current key of clip plus entry
-tick still does not represent every independent vanilla animation-player instance.
-Clips without an authored update retain the existing elapsed-tick timing path;
-their complete pause/render-time behavior is not claimed as newly verified parity.
+and controller reentry uses the new entry tick. Direct script players retain
+their applied time independently of controller and packet players. Late activation
+adds the first elapsed application interval; zero weight pauses time and completion,
+and resuming retains both. First-person item application uses the render delta
+independently of its owner's age, even when the owner sample stays unchanged.
+
+Clip plus entry tick and player kind still do not represent every independent
+vanilla animation-player instance. Controller clips without an authored update
+retain the elapsed-tick path; their complete zero-weight pause and render-time
+behavior remain incomplete.
 
 ## Motion inputs and render interpolation
 

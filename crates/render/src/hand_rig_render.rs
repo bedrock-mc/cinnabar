@@ -15,7 +15,7 @@ use bevy::{
         view::{ExtractedView, ViewTarget},
     },
 };
-use render_api::SkinRgba8;
+use render_api::{CAMERA_NEAR_PLANE_BLOCKS, SkinRgba8};
 use render_model::ActorRigVertex;
 use std::{mem::size_of, sync::Arc};
 
@@ -26,8 +26,6 @@ use gpu::*;
 mod tests;
 
 const HAND_RIG_SHADER: Handle<Shader> = uuid_handle!("6f2b1c74-4a2e-49d8-9c1a-2f7b0d5e3a61");
-/// Near plane of vanilla's first-person projection.
-const HAND_RIG_NEAR_PLANE: f32 = 0.025;
 
 /// Instance texture-selector bits shared with the hand shader.
 pub const HAND_ITEM_LAYER_FLAG: u32 = 0x8000_0000;

@@ -49,7 +49,6 @@ type World struct {
 	GameMode       string `json:"game_mode"`
 	Generator      string `json:"generator"`
 	Difficulty     string `json:"difficulty"`
-	AllowCheats    bool   `json:"allow_cheats"`
 	Backend        string `json:"backend"`
 	Seed           int64  `json:"seed"`
 	CreatedUnix    int64  `json:"created_unix"`
@@ -66,13 +65,12 @@ type Update struct {
 
 // Spec is the user-chosen settings of a new world; empty fields take defaults and a nil Seed is random.
 type Spec struct {
-	Name        string `json:"name"`
-	GameMode    string `json:"game_mode,omitempty"`
-	Generator   string `json:"generator,omitempty"`
-	Difficulty  string `json:"difficulty,omitempty"`
-	AllowCheats bool   `json:"allow_cheats,omitempty"`
-	Backend     string `json:"backend,omitempty"` // empty takes the store default
-	Seed        *int64 `json:"seed,omitempty"`
+	Name       string `json:"name"`
+	GameMode   string `json:"game_mode,omitempty"`
+	Generator  string `json:"generator,omitempty"`
+	Difficulty string `json:"difficulty,omitempty"`
+	Backend    string `json:"backend,omitempty"` // empty takes the store default
+	Seed       *int64 `json:"seed,omitempty"`
 }
 
 func oneOf(value, fallback string, allowed ...string) (string, error) {

@@ -4,15 +4,15 @@ mod alloc_count;
 #[path = "../src/material_shader.rs"]
 #[allow(dead_code, reason = "shared checked shader constructor dependencies")]
 mod material_shader;
+#[path = "../src/pipeline_warmup.rs"]
+#[allow(dead_code, reason = "shared pipeline warmup")]
+mod pipeline_warmup;
 #[path = "../src/scene_target.rs"]
 #[allow(
     dead_code,
     reason = "shared world attachment contract for projected UI"
 )]
 mod scene_target;
-#[path = "../src/pipeline_warmup.rs"]
-#[allow(dead_code, reason = "shared pipeline warmup")]
-mod pipeline_warmup;
 #[path = "../src/shader_safety.rs"]
 #[allow(dead_code, reason = "shared checked shader constructors")]
 mod shader_safety;

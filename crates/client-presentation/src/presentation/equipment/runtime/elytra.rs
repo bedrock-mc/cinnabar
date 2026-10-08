@@ -12,6 +12,7 @@ const WING_MATERIAL_STATE: assets::EntityRenderMaterialState = assets::EntityRen
     depth_write: true,
     emissive: false,
     additive: false,
+    additive_alpha: false,
 };
 
 impl EquipmentRuntime {

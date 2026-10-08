@@ -2,9 +2,8 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use assets::{
     AssetError, CompiledMolangExpression, EntityGeometryScalar, MAX_MOLANG_EXPRESSIONS,
-    MAX_MOLANG_OPS, MAX_MOLANG_OPS_PER_EXPRESSION, MolangBranch, MolangCall, MolangCollection,
-    MolangCollectionItem, MolangOp, MolangSymbol, MolangSymbolKind, molang_call,
-    molang_program_stack,
+    MAX_MOLANG_OPS, MAX_MOLANG_OPS_PER_EXPRESSION, MolangBranch, MolangCall, MolangOp,
+    MolangProgram, MolangSymbol, MolangSymbolKind, molang_call, molang_program_stack,
 };
 
 use super::invalid;
@@ -128,14 +127,6 @@ pub(super) struct MolangCompiler {
 #[derive(Clone, Copy)]
 pub(super) struct MolangMark(usize);
 
-pub(super) struct MolangPayload {
-    pub symbols: Box<[MolangSymbol]>,
-    pub expressions: Box<[CompiledMolangExpression]>,
-    pub ops: Box<[MolangOp]>,
-    pub collections: Box<[MolangCollection]>,
-    pub collection_items: Box<[MolangCollectionItem]>,
-}
-
 impl MolangCompiler {
     /// Compiles one expression. An error means vanilla would evaluate it as 0.0.
     pub fn compile(&mut self, source: &str) -> Result<u32, AssetError> {
@@ -227,7 +218,7 @@ impl MolangCompiler {
         Ok(self.programs.len() as u32 - 1)
     }
 
-    pub fn finish(self) -> Result<MolangPayload, AssetError> {
+    pub fn finish(self) -> Result<MolangProgram, AssetError> {
         let mut symbol_set = self
             .names
             .into_iter()
@@ -264,7 +255,7 @@ impl MolangCompiler {
         if ops.len() > MAX_MOLANG_OPS {
             return Err(invalid("total Molang operation count exceeds bound"));
         }
-        Ok(MolangPayload {
+        Ok(MolangProgram {
             symbols: symbols.into_boxed_slice(),
             expressions: expressions.into_boxed_slice(),
             ops: ops.into_boxed_slice(),
@@ -363,3 +354,10 @@ fn lower(
 
 #[cfg(test)]
 mod tests;
+
+/// Compiles a server expression with the same bounded parser used for pack scripts.
+pub fn compile_molang_expression(source: &str) -> Result<MolangProgram, AssetError> {
+    let mut compiler = MolangCompiler::default();
+    compiler.compile(source)?;
+    compiler.finish()
+}

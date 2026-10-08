@@ -14,7 +14,6 @@ pub struct CreateForm {
     pub generator: Generator,
     pub backend: Backend,
     pub difficulty: Difficulty,
-    pub allow_cheats: bool,
     /// Blank means random; digits are used as-is and other text is hashed.
     pub seed_text: String,
 }
@@ -27,7 +26,6 @@ impl Default for CreateForm {
             generator: Generator::Normal,
             backend: Backend::Dragonfly,
             difficulty: Difficulty::Normal,
-            allow_cheats: false,
             seed_text: String::new(),
         }
     }
@@ -109,7 +107,6 @@ impl CreateForm {
             game_mode: self.game_mode,
             generator: self.generator,
             difficulty: self.difficulty,
-            allow_cheats: self.allow_cheats,
             backend: Some(self.backend),
             seed: seed_from_text(&self.seed_text),
         })
@@ -117,7 +114,7 @@ impl CreateForm {
 }
 
 /// Terrain choices are independent of the server hosting them.
-pub const NORMAL_WORLD_LABEL: &str = "Infinite";
+pub const NORMAL_WORLD_LABEL: &str = "Normal (Vanilla)";
 pub const FLAT_WORLD_LABEL: &str = "Flat";
 
 pub fn backend_label(backend: Backend) -> &'static str {

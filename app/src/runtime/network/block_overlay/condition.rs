@@ -117,6 +117,8 @@ fn apply(resolved: &mut CustomVisualComponents, components: &CustomVisualCompone
     if components.geometry.is_some() {
         // Bone visibility belongs to the geometry component it arrived with.
         resolved.geometry.clone_from(&components.geometry);
+        resolved.geometry_use_block_type_light_absorption =
+            components.geometry_use_block_type_light_absorption;
         resolved
             .bone_visibility
             .clone_from(&components.bone_visibility);

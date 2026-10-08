@@ -74,7 +74,7 @@ impl PlayerInventoryLedger {
         }
     }
 
-    fn request_cell(&self, slot: StackRequestSlot) -> Option<Cell> {
+    pub(super) fn request_cell(&self, slot: StackRequestSlot) -> Option<Cell> {
         Some(match slot.container {
             StackRequestContainer::PlayerInventory => Cell::Inventory(slot.slot),
             StackRequestContainer::Cursor => Cell::Cursor,

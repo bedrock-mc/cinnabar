@@ -29,7 +29,7 @@ use valentine::bedrock::version::v1_26_51::{
 use super::{MAX_FORM_JSON_BYTES, MAX_UI_TEXT_BYTES, UiEvent, UiPacketError};
 
 pub const MAX_FORM_JSON_DEPTH: usize = 16;
-pub const MAX_FORM_BUTTONS: usize = 256;
+pub const MAX_CUSTOM_FORM_ITEMS: usize = 256;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TextMenuForm {
@@ -265,10 +265,7 @@ fn text_menu_model(object: &serde_json::Map<String, serde_json::Value>) -> Serve
     else {
         return unsupported(UnsupportedForm::Controls);
     };
-    if title.len() > MAX_UI_TEXT_BYTES
-        || content.len() > MAX_UI_TEXT_BYTES
-        || buttons.len() > MAX_FORM_BUTTONS
-    {
+    if title.len() > MAX_UI_TEXT_BYTES || content.len() > MAX_UI_TEXT_BYTES {
         return unsupported(UnsupportedForm::Limit);
     }
     let mut labels = Vec::with_capacity(buttons.len());

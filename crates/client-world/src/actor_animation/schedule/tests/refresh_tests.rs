@@ -85,9 +85,10 @@ fn local_fixture_with(
     layer_clip.geometry = Some(1);
     layer_clip.first_channel = 1;
     compiled.animation_clips = vec![compiled.animation_clips[0], layer_clip].into();
-    let mut layer_channel = compiled.animation_channels[0];
+    let mut layer_channel = compiled.animation_channels[0].clone();
     layer_channel.first_keyframe = 1;
-    compiled.animation_channels = vec![compiled.animation_channels[0], layer_channel].into();
+    compiled.animation_channels =
+        vec![compiled.animation_channels[0].clone(), layer_channel].into();
     compiled.animation_keyframes = compiled.animation_keyframes.repeat(2).into();
     compiled.render.layers[0].geometry_count = 1;
     compiled.render.geometries = vec![assets::EntityRenderGeometry {

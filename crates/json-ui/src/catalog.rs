@@ -132,6 +132,12 @@ pub(crate) fn unqualified(name: &str) -> &str {
 /// A document without a string `namespace` registers under this one.
 pub(crate) const ROOT_NAMESPACE: &str = "_root";
 
+#[derive(Clone, Debug, Default)]
+struct FileRead {
+    namespace: Option<String>,
+    failed: bool,
+}
+
 /// The whole pack: variable globals plus every control keyed by namespace/name.
 #[derive(Clone, Debug, Default)]
 pub struct Catalog {
@@ -139,8 +145,8 @@ pub struct Catalog {
     /// Every `_ui_defs` path loaded so far; a pack file loads only when listed.
     ui_defs: std::collections::BTreeSet<String>,
     defs: BTreeMap<String, BTreeMap<String, RawControl>>,
-    /// Each loaded file's namespace, which a pack file at that path may omit.
-    file_namespaces: BTreeMap<String, String>,
+    /// First-file parse state and namespace inherited by later layers at that path.
+    files: BTreeMap<String, FileRead>,
     diagnostics: Vec<String>,
 }
 
@@ -211,8 +217,8 @@ impl Catalog {
         self.load_text(entry, &text);
     }
 
-    /// Layers one pack `ui/*.json` file over the catalog with pack merge
-    /// semantics. Bad files are recorded in diagnostics and skipped.
+    /// Layers one pack document over the catalog with first-file retention and
+    /// later-file merge semantics. Syntax errors remain in diagnostics.
     pub fn overlay_text(&mut self, entry: &str, text: &str) {
         self.merge_overlay_file(entry, text);
     }
@@ -229,13 +235,8 @@ impl Catalog {
 
     /// Add every control of one `ui/*.json` document; a redefinition replaces.
     pub(crate) fn load_text(&mut self, entry: &str, text: &str) {
-        let value = match json5::parse(text) {
-            Ok(value) => value,
-            Err(error) => {
-                self.diagnostics
-                    .push(format!("{entry}: parse error ({error})"));
-                return;
-            }
+        let Some(value) = self.read_document(entry, text) else {
+            return;
         };
         let Value::Object(object) = value else {
             self.diagnostics
@@ -246,8 +247,7 @@ impl Catalog {
             Some(Value::String(namespace)) => namespace.clone(),
             _ => ROOT_NAMESPACE.to_owned(),
         };
-        self.file_namespaces
-            .insert(entry.to_owned(), namespace.clone());
+        self.remember_file_namespace(entry, &namespace);
         for (key, body) in &object {
             if key == "namespace" {
                 continue;
@@ -298,13 +298,46 @@ impl Catalog {
     }
 
     pub(crate) fn file_namespace(&self, entry: &str) -> Option<&str> {
-        self.file_namespaces.get(entry).map(String::as_str)
+        self.files.get(entry)?.namespace.as_deref()
     }
 
     /// Records a document's namespace so later pack layers can inherit it.
     pub(crate) fn remember_file_namespace(&mut self, entry: &str, namespace: &str) {
-        self.file_namespaces
-            .insert(entry.to_owned(), namespace.to_owned());
+        self.files.entry(entry.to_owned()).or_default().namespace = Some(namespace.to_owned());
+    }
+
+    pub(crate) fn file_failed(&self, entry: &str) -> bool {
+        self.files.get(entry).is_some_and(|file| file.failed)
+    }
+
+    pub(crate) fn has_file(&self, entry: &str) -> bool {
+        self.files.contains_key(entry)
+    }
+
+    /// The first resource keeps its partial value; a failed first read prevents
+    /// later merges, while an invalid later resource leaves the earlier value intact.
+    pub(crate) fn read_document(&mut self, entry: &str, text: &str) -> Option<Value> {
+        if self.file_failed(entry) {
+            return None;
+        }
+        let first = !self.has_file(entry);
+        let (value, error) = json5::parse_partial(text);
+        if first {
+            self.files.insert(
+                entry.to_owned(),
+                FileRead {
+                    namespace: None,
+                    failed: error.is_some(),
+                },
+            );
+        }
+        if let Some(error) = error {
+            self.note(format!("{entry}: parse error ({error})"));
+            if !first {
+                return None;
+            }
+        }
+        Some(value)
     }
 
     pub(crate) fn note(&mut self, message: String) {

@@ -45,7 +45,10 @@ pub(super) fn replacement(world: &mut World) -> Option<Box<dyn Node>> {
         return None;
     }
     let scene = crate::scene_target::opaque_pass(world);
-    Some(Box::new(ViewNodeRunner::new(OpaqueCategoryNode { scene }, world)))
+    Some(Box::new(ViewNodeRunner::new(
+        OpaqueCategoryNode { scene },
+        world,
+    )))
 }
 
 /// Leaves other renderers' opaque nodes unchanged; only category splitting also owns the scene pass.

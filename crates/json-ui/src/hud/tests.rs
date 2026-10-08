@@ -2,8 +2,60 @@ use std::sync::Arc;
 
 use serde_json::{Value, json};
 
-use super::{BossBar, HudModel, HudSlot, hud_data_source};
+use super::{BossBar, HudModel, HudSlot, HudTitle, hud_data_source};
 use crate::{BindState, EmptyLibrary, ResolvedControl, bind_stateful};
+
+#[test]
+fn absent_hud_title_answers_empty_text_and_clears_retained_labels() {
+    for binding in ["#hud_title_text_string", "#hud_subtitle_text_string"] {
+        let root = Arc::new(ResolvedControl {
+            name: "retained_title".into(),
+            control_type: Some("label".into()),
+            base: None,
+            unresolved_base: None,
+            properties: [
+                ("text".into(), json!("#text")),
+                ("property_bag".into(), json!({"#text":"seed"})),
+                ("bindings".into(), json!([
+                    {"binding_name":binding,"binding_name_override":"#text"},
+                    {"binding_type":"view","source_property_name":"(not (#text = ''))","target_property_name":"#visible"}
+                ])),
+            ].into(),
+            children: Vec::new(),
+            factory: None,
+        });
+        let mut state = BindState::new();
+        for title in [
+            None,
+            Some(HudTitle {
+                title: "Title".into(),
+                subtitle: "Subtitle".into(),
+                ..Default::default()
+            }),
+            None,
+        ] {
+            let expected = title.as_ref().map_or("", |title| {
+                if binding == "#hud_title_text_string" {
+                    title.title.as_str()
+                } else {
+                    title.subtitle.as_str()
+                }
+            });
+            let model = HudModel {
+                title: title.clone(),
+                ..Default::default()
+            };
+            let (bound, notes) =
+                bind_stateful(&root, &hud_data_source(&model), &EmptyLibrary, &mut state);
+            assert!(notes.is_empty(), "{notes:?}");
+            assert_eq!(bound.properties.get("text"), Some(&json!(expected)));
+            assert_eq!(
+                bound.properties.get("visible"),
+                Some(&json!(!expected.is_empty()))
+            );
+        }
+    }
+}
 
 fn hotbar() -> Arc<ResolvedControl> {
     let child = |index| ResolvedControl {

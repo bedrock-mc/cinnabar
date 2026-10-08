@@ -46,8 +46,6 @@ pub enum Input {
     SetDifficulty(Difficulty),
     SetFlat(bool),
     SetBackend(Backend),
-    SetCheats(bool),
-    RedetectBds,
     SubmitCreate,
     /// Opens the settings of the world at this list index.
     BeginEdit(usize),
@@ -89,10 +87,6 @@ pub enum Effect {
         dismiss_docker_prompt: bool,
         redetect: bool,
     },
-    SaveCreationChoices {
-        backend: Backend,
-        generator: Generator,
-    },
     AcceptEula,
     /// Handled by the embedding resource, not the control worker.
     OpenUrl(&'static str),
@@ -106,12 +100,10 @@ pub enum Event {
     Updated(World),
     Status(WorldStatus),
     Prefs(Prefs, WorldStatus),
-    PrefsPolled(Prefs, WorldStatus),
     EulaRequired,
     EulaAccepted,
     Failed(String),
     FailedPrefs(String),
-    FailedPrefsPolled(String),
 }
 
 pub const EULA_URL: &str = "https://www.minecraft.net/eula";
@@ -173,12 +165,6 @@ pub struct WorldsMenu {
     unavailable: Option<UnavailableReason>,
     pending: Option<Pending>,
     eula_for: Option<String>,
-    creation_backend: Backend,
-    creation_generator: Generator,
-    creation_choices_loaded: bool,
-    prefs_poll_pending: bool,
-    creation_backend_changed: bool,
-    creation_generator_changed: bool,
 }
 
 impl WorldsMenu {
@@ -213,7 +199,7 @@ impl WorldsMenu {
             error: self.error.clone(),
             prompt: self.prompt(),
             progress: self.progress(),
-            busy: self.busy || (self.screen == Screen::Create && !self.creation_choices_loaded),
+            busy: self.busy,
             bds_can_run: self.bds_can_run(),
             bds_unavailable: self.unavailable,
         }
@@ -267,13 +253,9 @@ impl WorldsMenu {
 
     /// False once the core reports the dedicated server cannot run here.
     pub fn bds_can_run(&self) -> bool {
-        self.unavailable.is_none()
-            && self.setup.as_ref().is_some_and(|setup| {
-                !matches!(
-                    setup.state,
-                    SetupState::Unsupported | SetupState::CheckingRuntime
-                )
-            })
+        self.setup
+            .as_ref()
+            .is_none_or(|setup| setup.state != SetupState::Unsupported)
     }
 
     /// The Docker modal, while [`Screen::BackendPrompt`] is up.
@@ -332,11 +314,7 @@ impl WorldsMenu {
         self.pending = None;
         match pending {
             Pending::Create => {
-                self.create = CreateForm {
-                    backend: self.creation_backend,
-                    generator: self.creation_generator,
-                    ..CreateForm::default()
-                };
+                self.create = CreateForm::default();
                 self.tab = Tab::General;
                 self.form_error = None;
                 self.screen = Screen::Create;
@@ -381,19 +359,10 @@ impl WorldsMenu {
         match button {
             PromptButton::UseDragonfly => match self.pending.take() {
                 Some(Pending::SubmitCreate) => {
-                    self.creation_backend_changed = true;
                     self.create.backend = Backend::Dragonfly;
-                    let mut effects = self.save_creation_choices();
-                    effects.extend(self.proceed(Pending::SubmitCreate));
-                    effects
+                    self.proceed(Pending::SubmitCreate)
                 }
-                _ => {
-                    self.creation_backend_changed = true;
-                    let mut effects = self.proceed(Pending::Create);
-                    self.create.backend = Backend::Dragonfly;
-                    effects.extend(self.save_creation_choices());
-                    effects
-                }
+                _ => self.proceed(Pending::Create),
             },
             PromptButton::GetDocker => vec![Effect::OpenUrl(DOCKER_URL)],
             PromptButton::Retry => {
@@ -435,11 +404,7 @@ impl WorldsMenu {
                 Vec::new()
             }
             Input::BeginCreate if matches!(self.screen, Screen::List | Screen::Templates) => {
-                let mut effects = self.gate(Pending::Create);
-                if !self.creation_choices_loaded {
-                    effects.push(Effect::LoadPrefs);
-                }
-                effects
+                self.gate(Pending::Create)
             }
             Input::OpenTemplates if self.screen == Screen::List => {
                 self.screen = Screen::Templates;
@@ -474,36 +439,18 @@ impl WorldsMenu {
                 Vec::new()
             }
             Input::SetFlat(flat) => {
-                self.creation_generator_changed = true;
                 self.create.generator = if flat {
                     Generator::Flat
                 } else {
                     Generator::Normal
                 };
-                self.save_creation_choices()
+                Vec::new()
             }
             Input::SetBackend(backend) if self.screen == Screen::Create => {
-                if backend == Backend::Dragonfly || self.bds_can_run() {
-                    self.creation_backend_changed = true;
-                    self.create.backend = backend;
-                    return self.save_creation_choices();
-                }
+                self.create.backend = backend;
                 Vec::new()
             }
-            Input::RedetectBds if self.screen == Screen::Create => {
-                self.busy = true;
-                vec![Effect::SetPrefs {
-                    dismiss_docker_prompt: false,
-                    redetect: true,
-                }]
-            }
-            Input::SetCheats(enabled) if self.screen == Screen::Create => {
-                self.create.allow_cheats = enabled;
-                Vec::new()
-            }
-            Input::SubmitCreate
-                if self.screen == Screen::Create && self.creation_choices_loaded =>
-            {
+            Input::SubmitCreate if self.screen == Screen::Create => {
                 self.gate(Pending::SubmitCreate)
             }
             Input::BeginEdit(index) if self.screen == Screen::List => {
@@ -559,19 +506,6 @@ impl WorldsMenu {
             Input::Back => self.back(),
             _ => Vec::new(),
         }
-    }
-
-    /// Saves terrain and server choices together without coupling either choice.
-    fn save_creation_choices(&mut self) -> Vec<Effect> {
-        self.creation_backend = self.create.backend;
-        self.creation_generator = self.create.generator;
-        if !self.creation_choices_loaded {
-            return Vec::new();
-        }
-        vec![Effect::SaveCreationChoices {
-            backend: self.create.backend,
-            generator: self.create.generator,
-        }]
     }
 
     fn submit_edit(&mut self) -> Vec<Effect> {
@@ -725,27 +659,7 @@ impl WorldsMenu {
                 self.note_status(&status);
                 self.apply_status(status)
             }
-            Event::PrefsPolled(prefs, status) => {
-                self.prefs_poll_pending = false;
-                self.apply(Event::Prefs(prefs, status))
-            }
-            Event::FailedPrefsPolled(message) => {
-                self.prefs_poll_pending = false;
-                self.apply(Event::FailedPrefs(message))
-            }
-            Event::Prefs(prefs, status) => {
-                let initial = !self.creation_choices_loaded;
-                if !self.creation_backend_changed {
-                    self.creation_backend = prefs.creation_backend.unwrap_or_default();
-                }
-                if !self.creation_generator_changed {
-                    self.creation_generator = prefs.creation_generator.unwrap_or_default();
-                }
-                self.creation_choices_loaded = true;
-                if initial && self.screen == Screen::Create {
-                    self.create.backend = self.creation_backend;
-                    self.create.generator = self.creation_generator;
-                }
+            Event::Prefs(_, status) => {
                 self.note_status(&status);
                 self.busy = self.mutation_pending;
                 // The Docker probe outlives core startup; keep reading until it reports a verdict.
@@ -753,16 +667,7 @@ impl WorldsMenu {
                     .setup
                     .as_ref()
                     .is_some_and(|setup| setup.state == SetupState::CheckingRuntime);
-                let mut effects = if initial
-                    && (self.creation_backend_changed || self.creation_generator_changed)
-                {
-                    vec![Effect::SaveCreationChoices {
-                        backend: self.creation_backend,
-                        generator: self.creation_generator,
-                    }]
-                } else {
-                    Vec::new()
-                };
+                let mut effects = Vec::new();
                 if self.screen == Screen::BackendPrompt && self.prompt().is_none() {
                     effects = match self.pending.take() {
                         Some(pending) => self.proceed(pending),
@@ -772,8 +677,7 @@ impl WorldsMenu {
                         }
                     };
                 }
-                if detecting && !self.prefs_poll_pending {
-                    self.prefs_poll_pending = true;
+                if detecting {
                     effects.push(Effect::PollPrefs);
                 }
                 effects

@@ -19,12 +19,19 @@ pub(super) fn sample(
         super::super::skin_layers::blink_controller(evaluator.assets, state),
         budget,
     )?;
+    clips.extend(
+        previous
+            .iter()
+            .filter(|clip| clip.clock == super::super::clock::Basis::Lifetime)
+            .copied(),
+    );
     super::super::clock::sample(evaluator, &state.clip_clocks, &mut clips, budget)?;
     for weighted in &mut clips {
-        if let Some(old) = previous
-            .iter()
-            .find(|old| old.clip == weighted.clip && old.started_tick == weighted.started_tick)
-        {
+        if let Some(old) = previous.iter().find(|old| {
+            old.clip == weighted.clip
+                && old.started_tick == weighted.started_tick
+                && old.clock == weighted.clock
+        }) {
             weighted.time = old.time;
         }
     }

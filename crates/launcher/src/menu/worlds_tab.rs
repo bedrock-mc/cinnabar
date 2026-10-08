@@ -1,8 +1,6 @@
 //! Local-world control intents and their model inputs.
 use super::{LocalWorldCard, MenuField};
-use crate::local_worlds::{
-    Input, PromptButton, Tab, WorldsView, game_mode_label, world_type_label,
-};
+use crate::local_worlds::{Input, PromptButton, Tab, game_mode_label, world_type_label};
 use protocol::world_control::{Backend, Difficulty, GameMode, World};
 
 /// A press on a local-world screen or modal; the menu forwards it to the module.
@@ -20,8 +18,6 @@ pub enum LocalWorldAction {
     Difficulty(Difficulty),
     Flat(bool),
     Backend(Backend),
-    Cheats(bool),
-    RedetectBds,
     Create,
     Save,
     Discard,
@@ -43,43 +39,6 @@ impl LocalWorldAction {
         }
     }
 
-    /// Lists keyboard and controller targets for the visible creation controls.
-    pub fn creation_focus(view: &WorldsView) -> Vec<Self> {
-        let mut actions = Vec::new();
-        if !view.busy && (view.create.backend == Backend::Dragonfly || view.bds_can_run) {
-            actions.push(Self::Create);
-        }
-        actions.push(Self::Tab(match view.tab {
-            Tab::General => Tab::Advanced,
-            Tab::Advanced => Tab::General,
-        }));
-        if view.tab == Tab::General {
-            actions.extend([
-                Self::NameField,
-                Self::GameMode(GameMode::Survival),
-                Self::GameMode(GameMode::Creative),
-                Self::Difficulty(Difficulty::Peaceful),
-                Self::Difficulty(Difficulty::Easy),
-                Self::Difficulty(Difficulty::Normal),
-                Self::Difficulty(Difficulty::Hard),
-            ]);
-        }
-        actions.extend([Self::SeedField, Self::Flat(false), Self::Flat(true)]);
-        if view.tab == Tab::General {
-            actions.extend([
-                Self::Cheats(!view.create.allow_cheats),
-                Self::Backend(Backend::Dragonfly),
-            ]);
-            if view.bds_can_run {
-                actions.push(Self::Backend(Backend::Bds));
-            } else if !view.busy {
-                actions.push(Self::RedetectBds);
-            }
-        }
-        actions.push(Self::Back);
-        actions
-    }
-
     /// Converts a launcher control into a local-world model intent.
     pub fn input(self) -> Option<Input> {
         Some(match self {
@@ -93,8 +52,6 @@ impl LocalWorldAction {
             Self::Difficulty(difficulty) => Input::SetDifficulty(difficulty),
             Self::Flat(flat) => Input::SetFlat(flat),
             Self::Backend(backend) => Input::SetBackend(backend),
-            Self::Cheats(enabled) => Input::SetCheats(enabled),
-            Self::RedetectBds => Input::RedetectBds,
             Self::Create => Input::SubmitCreate,
             Self::Save => Input::SubmitEdit,
             Self::Discard => Input::DiscardEdit,
@@ -170,51 +127,5 @@ mod tests {
         assert_eq!(file_size(512 * 1024), "512.0 KB");
         assert_eq!(file_size(5 * 1024 * 1024 + 300 * 1024), "5.3 MB");
         assert_eq!(file_size(3 * 1024 * 1024 * 1024), "3.0 GB");
-    }
-    #[test]
-    fn creation_focus_reaches_new_first_page_choices_and_skips_disabled_bds() {
-        let mut view = WorldsView::default();
-        let actions = LocalWorldAction::creation_focus(&view);
-        for action in [
-            LocalWorldAction::SeedField,
-            LocalWorldAction::Flat(true),
-            LocalWorldAction::Cheats(true),
-            LocalWorldAction::Backend(Backend::Dragonfly),
-            LocalWorldAction::RedetectBds,
-        ] {
-            assert!(actions.contains(&action));
-        }
-        assert!(!actions.contains(&LocalWorldAction::Backend(Backend::Bds)));
-        view.create.backend = Backend::Bds;
-        assert!(!LocalWorldAction::creation_focus(&view).contains(&LocalWorldAction::Create));
-        view.bds_can_run = true;
-        assert!(
-            LocalWorldAction::creation_focus(&view)
-                .contains(&LocalWorldAction::Backend(Backend::Bds))
-        );
-        view.tab = Tab::Advanced;
-        let actions = LocalWorldAction::creation_focus(&view);
-        assert!(actions.contains(&LocalWorldAction::SeedField));
-        assert!(actions.iter().all(|action| !matches!(
-            action,
-            LocalWorldAction::Backend(_)
-                | LocalWorldAction::Cheats(_)
-                | LocalWorldAction::RedetectBds
-        )));
-    }
-
-    #[test]
-    fn creation_focus_keeps_the_cheats_switch_at_the_same_navigation_position() {
-        let mut view = WorldsView::default();
-        let before = LocalWorldAction::creation_focus(&view);
-        let index = before
-            .iter()
-            .position(|action| *action == LocalWorldAction::Cheats(true))
-            .unwrap();
-        view.create.allow_cheats = true;
-        assert_eq!(
-            LocalWorldAction::creation_focus(&view)[index],
-            LocalWorldAction::Cheats(false)
-        );
     }
 }

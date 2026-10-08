@@ -13,9 +13,7 @@ use valentine::bedrock::version::v1_26_51::{
     NpcRequestPacket, ServerSettingsRequestPacket, ServerSettingsResponsePacket,
 };
 
-use super::{
-    FormKind, FormRequestEvent, MAX_FORM_BUTTONS, ServerFormModel, UnsupportedForm, normalize_form,
-};
+use super::{FormKind, FormRequestEvent, ServerFormModel, UnsupportedForm, normalize_form};
 use crate::ui::{MAX_FORM_JSON_BYTES, MAX_UI_TEXT_BYTES, UiEvent, UiPacketError};
 
 /// The form id NPC dialogues occupy; server forms never answer to it.
@@ -94,7 +92,7 @@ fn buttons(json: &str) -> Result<Vec<NpcButton>, UnsupportedForm> {
     }
     let value: Value = serde_json::from_str(json).map_err(|_| UnsupportedForm::Controls)?;
     let actions = value.as_array().ok_or(UnsupportedForm::Controls)?;
-    if actions.len() > MAX_FORM_BUTTONS.min(usize::from(u8::MAX) + 1) {
+    if actions.len() > usize::from(u8::MAX) + 1 {
         return Err(UnsupportedForm::Limit);
     }
     let mut buttons = Vec::new();

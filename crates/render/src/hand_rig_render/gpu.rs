@@ -134,7 +134,7 @@ pub(super) fn prepare(
     ensure_depth(&mut gpu, &device, size, samples);
     let aspect = viewport.z as f32 / viewport.w as f32;
     let projection =
-        Mat4::perspective_infinite_reverse_rh(frame.fov_radians, aspect, HAND_RIG_NEAR_PLANE);
+        Mat4::perspective_infinite_reverse_rh(frame.fov_radians, aspect, CAMERA_NEAR_PLANE_BLOCKS);
     upload_uniforms(&mut gpu, &queue, projection, frame.light);
     build_bind_group(&mut gpu, &device, &cache);
     let gpu = &mut *gpu;

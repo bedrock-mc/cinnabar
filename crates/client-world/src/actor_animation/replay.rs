@@ -7,6 +7,7 @@ pub(super) struct Replay {
     pub(super) geometry: usize,
     pub(super) variables: MolangVariables,
     pub(super) controllers: Vec<ControllerState>,
+    pub(super) server_animations: Vec<server_animation::Controller>,
     pub(super) clocks: clock::ClipClocks,
     pub(super) initialized: bool,
     pub(super) reset: bool,
@@ -32,6 +33,10 @@ impl Replay {
             &mut state.controllers,
             std::mem::take(&mut evaluated.controllers),
         );
+        let server_animations = std::mem::replace(
+            &mut state.server_animations,
+            std::mem::take(&mut evaluated.server_animations),
+        );
         let clocks = std::mem::replace(
             &mut state.clip_clocks,
             std::mem::take(&mut evaluated.clip_clocks),
@@ -55,6 +60,7 @@ impl Replay {
             geometry: state.geometry_binding,
             variables,
             controllers,
+            server_animations,
             clocks,
             initialized: state.initialized,
             reset: state.reset_pending,

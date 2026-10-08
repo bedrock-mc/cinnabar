@@ -74,7 +74,11 @@ pub fn spawn_network<P: Send + 'static>(
                 let cancelled = shutdown_rx.clone();
                 let Some((preparation, game_data, packs)) = run_blocking_or_cancel(
                     move || {
-                        let preparation = crate::prepare_session_packs(handoff, &game_data);
+                        let preparation = crate::prepare_session_packs(
+                            handoff,
+                            &game_data,
+                            config.physical_memory_bytes,
+                        );
                         let packs = unless_cancelled(&cancelled, || {
                             prepare_presentation(&preparation, &game_data, &|| *cancelled.borrow())
                         })
