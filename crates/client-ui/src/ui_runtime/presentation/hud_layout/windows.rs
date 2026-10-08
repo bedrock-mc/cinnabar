@@ -122,7 +122,7 @@ fn stack_of<'a>(
     let ledger = runtime.inventory_ledger(player_runtime);
     match hit {
         InventoryCellHit::Player(slot) => ledger.displayed_stack(slot),
-        InventoryCellHit::Storage(slot) => ledger.storage_stack(slot),
+        InventoryCellHit::Storage(slot) => ledger.furnace_visual_stack(slot),
         InventoryCellHit::Craft(slot) => ledger.target_stack(InventoryTarget::Craft(slot)),
         InventoryCellHit::CraftOutput => ledger.created_output_stack(),
         _ => None,
@@ -677,6 +677,7 @@ impl HudLayout<'_> {
                 | Widget::CrafterSlot(_)
                 | Widget::InventoryLayout(_)
                 | Widget::FurnaceTab(_)
+                | Widget::FurnaceClearRecipe
                 | Widget::LoomPatternAt(_)
                 | Widget::BookRecipe(_)
                 | Widget::BookPage { .. }

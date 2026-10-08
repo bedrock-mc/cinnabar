@@ -6574,5 +6574,6 @@ items and places them in the ingredient role. Ordinary window updates address
 the whole station by window ID. Unsupplied recipes preview their ingredient and
 result; repeat selection clears the preview. Replacements return the previous
 ingredient to its source cells before other available inventory cells. Expanded
-ingredient groups, exact ghost rendering, recipe discovery and server-persisted
+ingredient groups, exact ghost rendering, saturated-inventory replacements,
+recipe discovery and server-persisted
 furnace UI options remain incomplete; the full furnace parity gate stays open.

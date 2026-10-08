@@ -97,7 +97,7 @@ pub fn capture_hud_frame(
         let ledger = runtime.inventory_ledger(player_runtime);
         (0..36u8)
             .filter_map(|slot| ledger.displayed_stack(slot))
-            .chain((0..54u8).filter_map(|slot| ledger.storage_stack(slot)))
+            .chain((0..54u8).filter_map(|slot| ledger.furnace_visual_stack(slot)))
             .filter_map(|stack| {
                 let name = runtime.localized_item_name(&resolve_identifier(stack)?);
                 Some(((stack.network_id, stack.metadata), Arc::from(name)))

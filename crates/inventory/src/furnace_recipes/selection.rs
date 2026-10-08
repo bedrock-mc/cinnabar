@@ -26,17 +26,35 @@ impl PlayerInventoryLedger {
             .as_ref()
     }
 
+    /// Actual station items take precedence over preview items in presentation.
     pub fn furnace_visual_stack(&self, slot: u8) -> Option<&NetworkItemStack> {
         self.storage_stack(slot)
             .or_else(|| self.furnace_ghost_stack(slot))
     }
 
+    /// The result selected in the current window generation.
     pub fn selected_furnace_result(&self) -> Option<&NetworkItemStack> {
         Some(&self.furnace_selection()?.result)
     }
 
+    /// Deselecting removes previews without moving actual inventory items.
     pub fn clear_furnace_recipe(&mut self) {
         self.furnace_selection = None;
+    }
+
+    /// A role retires its preview once it has held an actual item.
+    pub(crate) fn observe_furnace_cells(&mut self) {
+        let occupied = [
+            self.storage_stack(0).is_some(),
+            self.storage_stack(2).is_some(),
+        ];
+        if let Some(selection) = &mut self.furnace_selection {
+            for (slot, occupied) in [0, 2].into_iter().zip(occupied) {
+                if occupied {
+                    selection.ghosts[slot] = None;
+                }
+            }
+        }
     }
 
     pub(super) fn furnace_result_selected(&self, recipe: &ScreenRecipe) -> bool {
@@ -130,12 +148,11 @@ impl PlayerInventoryLedger {
                     .displayed_stack(slot as u8)
                     .map_or(0, |stack| stack.count);
                 let missing = original.count.saturating_sub(current_count);
-                if missing != 0 {
-                    if let Ok(request) =
+                if missing != 0
+                    && let Ok(request) =
                         self.begin_restore_furnace_source(source, slot as u8, missing)
-                    {
-                        last_request = Some(request);
-                    }
+                {
+                    last_request = Some(request);
                 }
             }
         }

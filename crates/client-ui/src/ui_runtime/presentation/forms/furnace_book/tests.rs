@@ -12,16 +12,33 @@ pub(in crate::ui_runtime::presentation) fn assert_selection_publication(
     let mut cache = None;
     let frame = HudFrame::default();
     player.inventory.ledger_mut().clear_furnace_recipe();
-    let recipe = entries(player, runtime)[0].clone();
+    let recipe = entries(player, runtime).get(0).unwrap().clone();
     let first = Arc::clone(&cache::publication(player, runtime, &frame, 0, &mut cache).rows);
-    player.inventory.ledger_mut().begin_furnace_recipe(&recipe).unwrap();
+    player
+        .inventory
+        .ledger_mut()
+        .begin_furnace_recipe(&recipe)
+        .unwrap();
     let selected = Arc::clone(&cache::publication(player, runtime, &frame, 0, &mut cache).rows);
-    assert_eq!(selected[0].values["#is_recipe_selected_slot"], Scalar::Bool(true));
+    assert_eq!(
+        selected[0].values["#is_recipe_selected_slot"],
+        Scalar::Bool(true)
+    );
     assert!(!Arc::ptr_eq(&first, &selected));
-    assert!(Arc::ptr_eq(&selected, &cache::publication(player, runtime, &frame, 0, &mut cache).rows));
-    player.inventory.ledger_mut().begin_furnace_recipe(&recipe).unwrap();
+    assert!(Arc::ptr_eq(
+        &selected,
+        &cache::publication(player, runtime, &frame, 0, &mut cache).rows
+    ));
+    player
+        .inventory
+        .ledger_mut()
+        .begin_furnace_recipe(&recipe)
+        .unwrap();
     let cleared = Arc::clone(&cache::publication(player, runtime, &frame, 0, &mut cache).rows);
-    assert_eq!(cleared[0].values["#is_recipe_selected_slot"], Scalar::Bool(false));
+    assert_eq!(
+        cleared[0].values["#is_recipe_selected_slot"],
+        Scalar::Bool(false)
+    );
     assert!(!Arc::ptr_eq(&selected, &cleared));
 }
 

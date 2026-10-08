@@ -8,7 +8,9 @@ pub(super) use cache::FurnaceBookCache;
 pub(crate) use projection::ProjectionCache;
 pub use projection::{Entries, entries, icons, projection};
 #[cfg(test)]
-pub(in crate::ui_runtime::presentation) use tests::{assert_empty_search_clears_grid, assert_selection_publication};
+pub(in crate::ui_runtime::presentation) use tests::{
+    assert_empty_search_clears_grid, assert_selection_publication,
+};
 
 use json_ui::{Context, DataSource, HitKind, HitRegion, Scalar};
 use protocol::{NetworkItemStack, ScreenRecipe, WindowKind};
