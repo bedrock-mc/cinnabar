@@ -36,7 +36,7 @@ fn ability_suffix_waits_for_actual_block_mutation_and_survives_malformed_chunk_p
     let local = stream.authority().local_player_unique_id();
     stream.submit(1, inline_air_event(0)).unwrap();
     complete_pending_decode_jobs(&mut stream);
-    stream.submit(2, worker_block_batch(1)).unwrap();
+    stream.submit(2, worker_block_batch(0, 1)).unwrap();
     stream.submit(3, ability(local, 0)).unwrap();
     stream.apply_ready();
     assert_eq!(stream.order.blocking_block_updates(), Some(2));
