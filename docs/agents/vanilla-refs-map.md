@@ -2907,6 +2907,9 @@ was not used as version evidence.
   defaults retain first-person visibility and inverted colors. The Java HUD's
   built-in fallback remains 15×15; a pack crosshair remains 16×16.
 
+## app/src/melee.rs; crates/gameplay/src/melee.rs; crates/gameplay/src/movement/outbox.rs (frame-time attacks)
+- Attack presses are handled per frame, not per tick. 1.26.50.26 `MinecraftGame::startFrame` (RVA 0x00842ff0) calls the input tick (RVA 0x0084d830) every frame under two virtual guards; that calls `MinecraftInputHandler::tick` (RVA 0x04a2b670). macOS 1.26.30: `MinecraftGame::startFrame` 0x1025bb440 is the only caller of `MinecraftGame::tickInput` 0x1025c2840 → `InputHandler::tick` 0x10c39a9b0; the registered press lambdas call `ClientInputCallbacks::handleBuildOrAttackOrBlockSelectButtonPress` 0x1023161c0 → `handleBuildAction` 0x1023178c0 → `GameMode::attack` 0x10a0bba00, whose `_attack` 0x10a0bba20 sends the transaction through the packet sender immediately. The frame's ticks run after `startFrame`, so the attack precedes the next PlayerAuthInput and reports the latest ticked position.
+
 ## Swing duration publication
 
 - `crates/gameplay/src/melee.rs` and `melee/swing.rs`: Bedrock 1.26.50 `Mob::getModifiedSwingDuration`, `Mob::swing` and `Mob::aiStep`; Java 1.7.10 `EntityLivingBase.getArmSwingAnimationEnd`, `swingItem` and `updateArmSwingProgress`.
