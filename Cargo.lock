@@ -5967,6 +5967,7 @@ dependencies = [
  "bevy",
  "bytemuck",
  "image",
+ "libc",
  "meshing",
  "mod-api",
  "mod-render",
@@ -5982,6 +5983,7 @@ dependencies = [
  "tempfile",
  "tracy-client",
  "wgpu",
+ "windows-sys 0.61.2",
  "world",
 ]
 
@@ -7257,6 +7259,7 @@ name = "ui"
 version = "0.1.12"
 dependencies = [
  "assets",
+ "render-api",
  "semantic-input",
  "serde",
  "sha2",

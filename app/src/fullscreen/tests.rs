@@ -5,7 +5,7 @@ use bevy::{
 
 use super::*;
 use crate::menu::MenuAction;
-use crate::present_mode::{PresentModeRuntime, apply_runtime_vsync_setting};
+use crate::present_mode::{PresentModeRuntime, apply_present_mode};
 
 fn app(visible: bool) -> (App, Entity) {
     let menu = MenuRuntime::new(visible, 2, "Steve".to_owned());
@@ -145,10 +145,10 @@ fn fullscreen_changes_preserve_the_automatic_vsync_policy() {
     for from_hotkey in [true, false] {
         let (mut app, window) = app(true);
         let initial_mode = app.world().get::<Window>(window).unwrap().present_mode;
-        app.insert_resource(PresentModeRuntime::from_startup(false, false, false))
+        app.insert_resource(PresentModeRuntime::from_startup(false, false, false, false))
             .add_systems(
                 Update,
-                apply_runtime_vsync_setting.after(apply_runtime_fullscreen_setting),
+                apply_present_mode.after(apply_runtime_fullscreen_setting),
             );
         if from_hotkey {
             key(&mut app, window, ButtonState::Pressed, false);

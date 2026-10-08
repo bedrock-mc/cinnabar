@@ -214,6 +214,11 @@ pub(super) fn rebuild(runtime: &mut UiPresentationRuntime) {
                 .gui_models
                 .pages
                 .get(offset - super::gui_models::MODEL_PAGE)
+                .or_else(|| {
+                    let index = (offset - super::gui_models::MODEL_PAGE)
+                        .checked_sub(runtime.gui_models.pages.len())?;
+                    runtime.gui_models.pack_equipment.pages.get(index)
+                })
         } else {
             None
         };

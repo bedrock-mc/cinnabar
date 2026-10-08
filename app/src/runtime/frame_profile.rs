@@ -1,37 +1,29 @@
-use bevy::ecs::system::NonSendMarker;
 use bevy::prelude::*;
 use bevy::window::{PrimaryWindow, WindowOccluded};
-use bevy::winit::{UpdateMode, WINIT_WINDOWS, WinitSettings};
-use render::{FrameBudgets, RuntimeStageProfiler};
-use std::time::{Duration, Instant};
+use render::{FrameBudgets, FramePacing, RuntimeStageProfiler};
+use std::time::Duration;
+#[cfg(feature = "tracy")]
+use std::time::Instant;
 
-const INTERVAL_RECHECK: Duration = Duration::from_secs(1);
+use crate::present_mode::DisplayRefresh;
 
 /// Feeds slow-frame thresholds the primary window's monitor interval, or a slower frame cap.
 pub(crate) fn track_frame_interval(
     profiler: Res<RuntimeStageProfiler>,
-    windows: Query<Entity, With<PrimaryWindow>>,
-    pacing: Option<Res<WinitSettings>>,
-    mut checked: Local<Option<Instant>>,
-    _main_thread: NonSendMarker,
+    display: Option<Res<DisplayRefresh>>,
+    pacing: Option<Res<FramePacing>>,
 ) {
-    let now = Instant::now();
-    if checked.is_some_and(|last| now.saturating_duration_since(last) < INTERVAL_RECHECK) {
+    if !display.as_ref().is_some_and(|display| display.is_changed())
+        && !pacing.as_ref().is_some_and(|pacing| pacing.is_changed())
+    {
         return;
     }
-    *checked = Some(now);
-    let refresh = windows.single().ok().and_then(|window| {
-        WINIT_WINDOWS.with_borrow(|windows| {
-            windows
-                .get_window(window)?
-                .current_monitor()?
-                .refresh_rate_millihertz()
-        })
-    });
-    let cap = pacing.and_then(|pacing| match pacing.focused_mode {
-        UpdateMode::Reactive { wait, .. } => Some(wait),
-        UpdateMode::Continuous => None,
-    });
+    let refresh = display
+        .and_then(|display| display.0.refresh)
+        .map(|rate| rate.millihertz());
+    let cap = pacing
+        .and_then(|pacing| pacing.rate)
+        .map(|rate| Duration::from_nanos(rate.period_nanos()));
     profiler.set_frame_interval(FrameBudgets::display_interval(refresh, cap));
 }
 

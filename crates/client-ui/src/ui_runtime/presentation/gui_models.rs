@@ -12,6 +12,7 @@ mod atlas;
 mod fire;
 mod held;
 mod live_player;
+mod pack_equipment;
 mod sources;
 use sources::modulated;
 pub(super) use sources::{ordinary_cube_sheet, sheet_faces};
@@ -35,6 +36,7 @@ pub(super) struct GuiModels {
     pub(super) enabled: bool,
     pub(super) pages: Vec<UiTexturePage>,
     pub(super) skin: Option<UiTexturePage>,
+    pub(super) pack_equipment: pack_equipment::PackEquipment,
     live_player: live_player::LivePlayer,
     models: BTreeMap<IconKey, Arc<UiMesh>>,
     textures: BTreeMap<atlas::TextureKey, IconRef>,
@@ -157,7 +159,13 @@ impl UiPresentationRuntime {
         self.gui_models.fire.pages_start = None;
         self.install_gui_fire()?;
         self.gui_models.enabled = true;
-        self.rebuild_dynamic_textures();
+        let pack = self.gui_models.pack_equipment.source.clone();
+        self.gui_models.pack_equipment = Default::default();
+        if pack.is_some() {
+            self.set_preview_pack_equipment(pack);
+        } else {
+            self.rebuild_dynamic_textures();
+        }
         Ok(())
     }
 
@@ -231,9 +239,12 @@ impl UiPresentationRuntime {
             glint: false,
         };
         let texture = |texture: &player_preview::PreviewTexture| {
+            let key = atlas::key([texture.width, texture.height], &texture.rgba);
             self.gui_models
+                .pack_equipment
                 .textures
-                .get(&atlas::key([texture.width, texture.height], &texture.rgba))
+                .get(&key)
+                .or_else(|| self.gui_models.textures.get(&key))
                 .copied()
         };
         let armor = self

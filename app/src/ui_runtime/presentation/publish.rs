@@ -174,6 +174,12 @@ pub(crate) fn prepare_ui_runtime(
     } else {
         player_preview::PlayerPreviewPose::of_local_player(stream)
     };
+    presentation.set_preview_pack_equipment(
+        client_world
+            .pack_entities
+            .as_ref()
+            .and_then(|pack| pack.equipment.clone()),
+    );
     // The model wears the local player's armor and held item.
     if dressing_room {
         presentation.set_player_preview_gear([None; 4], None);

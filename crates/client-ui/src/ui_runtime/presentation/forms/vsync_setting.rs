@@ -1,8 +1,22 @@
-//! Video-section VSync toggle; retail vanilla keeps VSync out of its menus.
+//! Video-section VSync toggle and the frame-rate limit caption; retail vanilla keeps VSync out
+//! of its menus and has no Automatic limit.
 
 use json_ui::{Catalog, DataSource, Scalar};
+use render_api::FrameRateLimit;
 
-use crate::menu::MenuView;
+use crate::menu::{MenuView, settings_options::frame_rate_limit};
+
+/// Caption for the Automatic stop, which vanilla's lang has no key for.
+const AUTOMATIC_LABEL: &str = "Automatic";
+
+/// The Max Framerate caption: Automatic, a cap, or vanilla's Unlimited.
+pub(super) fn frame_rate_label(value: i32, translate: &dyn Fn(&str) -> String) -> String {
+    match frame_rate_limit(value) {
+        FrameRateLimit::Automatic => AUTOMATIC_LABEL.to_owned(),
+        FrameRateLimit::Unlimited => translate("options.framerateLimit.max"),
+        FrameRateLimit::Fixed(fps) => fps.to_string(),
+    }
+}
 
 /// Places the toggle beside the frame-rate limit in the advanced video options.
 pub(super) fn install(catalog: &mut Catalog) {
@@ -39,6 +53,7 @@ const OVERLAY: &str = r##"{
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::menu::settings_options::{FRAME_RATE_AUTOMATIC, FRAME_RATE_UNLIMITED};
     use crate::ui_runtime::presentation::forms::pack_harness;
 
     fn has_text(control: &json_ui::ResolvedControl, text: &str) -> bool {
@@ -90,5 +105,19 @@ mod tests {
         locked.set_global("#vsync", Scalar::Bool(false));
         locked.set_global("#vsync_enabled", Scalar::Bool(false));
         assert_eq!(data, locked);
+    }
+
+    #[test]
+    fn frame_rate_caption_names_automatic_caps_and_vanilla_unlimited() {
+        let translate = |key: &str| format!("<{key}>");
+        assert_eq!(
+            frame_rate_label(FRAME_RATE_AUTOMATIC, &translate),
+            "Automatic"
+        );
+        assert_eq!(frame_rate_label(144, &translate), "144");
+        assert_eq!(
+            frame_rate_label(FRAME_RATE_UNLIMITED, &translate),
+            "<options.framerateLimit.max>"
+        );
     }
 }

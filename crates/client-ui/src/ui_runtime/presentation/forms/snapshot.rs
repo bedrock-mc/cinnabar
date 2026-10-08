@@ -6,7 +6,7 @@
 use std::path::Path;
 
 use image::{Rgba, RgbaImage};
-use render_model::{UI_BLEND_INVERT, UiRenderInput, UiRenderVertex};
+use render_model::{UI_BLEND_INVERT, UiRenderInput, UiRenderVertex, UiTextureFormat};
 
 const SNAPSHOT_ENV: &str = "CINNABAR_FORM_SNAPSHOT_DIR";
 
@@ -81,8 +81,11 @@ pub fn rasterize(input: &UiRenderInput) -> RgbaImage {
                         (u.floor() as u32).min(page_width - 1),
                         (v.floor() as u32).min(page_height - 1),
                     );
-                    let at = ((v * page_width + u) * 4) as usize;
-                    let mut texel: [u8; 4] = pixels[at..at + 4].try_into().unwrap();
+                    let at = (v * page_width + u) as usize;
+                    let mut texel: [u8; 4] = match page.format() {
+                        UiTextureFormat::Coverage => [255, 255, 255, pixels[at]],
+                        UiTextureFormat::Rgba8 => pixels[at * 4..at * 4 + 4].try_into().unwrap(),
+                    };
                     if u32::from(ui::UI_STYLE_GRAYSCALE) & corners[0].style_flags != 0 {
                         let luma = (0.299 * f32::from(texel[0])
                             + 0.587 * f32::from(texel[1])
@@ -183,6 +186,52 @@ pub fn write(input: &UiRenderInput, name: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn coverage_font_pages_render_like_white_rgba_pages() {
+        use render_model::{
+            UI_BLEND_ALPHA, UiRenderBatch, UiRenderTextureArray, UiScissor, UiTexturePage,
+        };
+        use std::sync::Arc;
+
+        let coverage = [0, 73, 128, 255];
+        let rgba: Vec<_> = coverage
+            .iter()
+            .flat_map(|&alpha| [255, 255, 255, alpha])
+            .collect();
+        let render = |page| {
+            let vertices =
+                [[0., 0.], [2., 0.], [2., 2.], [0., 2.]].map(|position| UiRenderVertex {
+                    uv: position,
+                    color: [100, 150, 200, 255],
+                    ..vertex(position[0], position[1])
+                });
+            rasterize(&UiRenderInput {
+                revision: 1,
+                viewport_size: [2, 2],
+                safe_area: [0; 4],
+                vertices: vertices.into(),
+                indices: [0, 1, 2, 0, 2, 3].into(),
+                batches: [UiRenderBatch::new(
+                    0,
+                    UiScissor::new(0, 0, 2, 2),
+                    0,
+                    6,
+                    UI_BLEND_ALPHA,
+                )]
+                .into(),
+                textures: Arc::new(UiRenderTextureArray::new(vec![page], 1).unwrap()),
+            })
+        };
+        let actual = render(UiTexturePage::coverage([2, 2], coverage.into()).unwrap());
+        let expected = render(UiTexturePage::owned([2, 2], rgba.into()).unwrap());
+        assert!(
+            actual == expected,
+            "coverage texels preserve font color and alpha"
+        );
+        assert_eq!(actual.get_pixel(0, 0).0, [70, 90, 110, 255]);
+        assert_eq!(actual.get_pixel(1, 1).0, [100, 150, 200, 255]);
+    }
 
     fn vertex(x: f32, y: f32) -> UiRenderVertex {
         UiRenderVertex {

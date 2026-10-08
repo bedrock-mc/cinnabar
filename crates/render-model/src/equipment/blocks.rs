@@ -19,6 +19,8 @@ pub struct BlockSheets {
     pub sheets: Vec<IconSprite>,
     /// Block visual id to its sheet index.
     pub by_visual: BTreeMap<u32, usize>,
+    /// Exact carried models with sheet-relative UVs, in centred block coordinates.
+    pub models: BTreeMap<u32, Vec<crate::ActorRigVertex>>,
 }
 
 /// Shares face sheets across cube items independently of their terrain occlusion and alpha.
@@ -26,8 +28,13 @@ pub fn collect(world: &RuntimeAssets, entities: &RuntimeEntityAssets) -> BlockSh
     let mut sheets = Vec::new();
     let mut by_materials = BTreeMap::<[u32; 6], usize>::new();
     let mut by_visual = BTreeMap::new();
+    let mut models = BTreeMap::new();
     if !world.provenance().is_complete() {
-        return BlockSheets { sheets, by_visual };
+        return BlockSheets {
+            sheets,
+            by_visual,
+            models,
+        };
     }
     for definition in entities.item_visuals() {
         let ItemVisualDefinitionRoute::BlockItem { block_visual } = definition.route else {
@@ -37,7 +44,14 @@ pub fn collect(world: &RuntimeAssets, entities: &RuntimeEntityAssets) -> BlockSh
         if by_visual.contains_key(&visual) || visual as usize >= world.visual_count() {
             continue;
         }
-        let Some(materials) = cube_materials(world, visual) else {
+        let model = (definition.key.identifier.as_ref() == assets::END_PORTAL_FRAME_IDENTIFIER)
+            .then(|| frame_model(world, visual))
+            .flatten();
+        let Some(materials) = model
+            .as_ref()
+            .map(|(materials, _)| *materials)
+            .or_else(|| cube_materials(world, visual))
+        else {
             continue;
         };
         let index = match by_materials.get(&materials) {
@@ -52,8 +66,72 @@ pub fn collect(world: &RuntimeAssets, entities: &RuntimeEntityAssets) -> BlockSh
             }
         };
         by_visual.insert(visual, index);
+        if let Some((_, vertices)) = model {
+            models.insert(visual, vertices);
+        }
     }
-    BlockSheets { sheets, by_visual }
+    BlockSheets {
+        sheets,
+        by_visual,
+        models,
+    }
+}
+
+/// Reuses the exact unfilled portal frame template instead of inventing a full cube.
+fn frame_model(
+    world: &RuntimeAssets,
+    visual: u32,
+) -> Option<([u32; 6], Vec<crate::ActorRigVertex>)> {
+    let block = world.resolve(NetworkIdMode::Sequential, visual);
+    if block.kind() != VisualKind::Model || block.support() != VisualSupport::Exact {
+        return None;
+    }
+    let template = world
+        .model_templates()
+        .get(block.model_template()? as usize)?;
+    if template.flags != 0 || template.quad_count != BlockFace::ALL.len() as u32 {
+        return None;
+    }
+    let quads = world.model_quads().get(
+        template.quad_start as usize..template.quad_start as usize + template.quad_count as usize,
+    )?;
+    let rects = face_rects([0.0, 0.0, 1.0, 1.0]);
+    let mut materials = [0; 6];
+    let mut vertices = Vec::with_capacity(36);
+    for (index, quad) in quads.iter().enumerate() {
+        let face = index;
+        if quad.flags & assets::MODEL_QUAD_FLAG_FACE_MASK
+            != BlockFace::ALL[face].model_quad_face_id()
+        {
+            return None;
+        }
+        materials[face] = quad.material;
+        let rect = rects[face];
+        let normal = match BlockFace::ALL[face] {
+            BlockFace::West => [-1.0, 0.0, 0.0],
+            BlockFace::East => [1.0, 0.0, 0.0],
+            BlockFace::Down => [0.0, -1.0, 0.0],
+            BlockFace::Up => [0.0, 1.0, 0.0],
+            BlockFace::North => [0.0, 0.0, -1.0],
+            BlockFace::South => [0.0, 0.0, 1.0],
+        };
+        for corner in [0, 1, 2, 0, 2, 3] {
+            let uv = std::array::from_fn(|axis| {
+                rect[axis]
+                    + f32::from(quad.uvs[corner][axis]) / 4096.0 * (rect[axis + 2] - rect[axis])
+            });
+            vertices.push(crate::ActorRigVertex {
+                position: quad.positions[corner]
+                    .map(|coordinate| f32::from(coordinate) / 256.0 - 0.5),
+                normal,
+                uv,
+                back_uv: uv,
+                bone_index: 0,
+                surface: crate::ActorRigSurface::SINGLE_FACE,
+            });
+        }
+    }
+    Some((materials, vertices))
 }
 
 /// Selects exact cube geometry, including the carrier's transparent cube templates.
