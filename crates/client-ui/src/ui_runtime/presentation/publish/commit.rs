@@ -41,8 +41,10 @@ pub fn render_prepared_ui(
     presentation.hud_frame.player_preview = icon;
     presentation.hud_frame.left_hand = left.filter(|_| preview.hands);
     presentation.hud_frame.right_hand = right.filter(|_| preview.hands);
-    if let Some(menu) = presentation.menu_view.as_mut() {
-        menu.profile_icon = icon;
+    if let Some(menu) = presentation.menu_view.as_mut()
+        && menu.profile_icon != icon
+    {
+        Arc::make_mut(menu).profile_icon = icon;
     }
     publish_item_viewmodels(presentation, prepared.item_icons);
     runtime.with_presentation_inventory(

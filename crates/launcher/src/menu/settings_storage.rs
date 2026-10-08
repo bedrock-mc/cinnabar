@@ -11,7 +11,7 @@ pub const CATEGORIES: [&str; 6] = [
     "cache",
 ];
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct StorageItem {
     pub name: String,
     pub bytes: u64,
@@ -21,7 +21,7 @@ pub struct StorageItem {
     pub path: PathBuf,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct StorageView {
     pub worlds: Vec<StorageItem>,
     pub cached: Vec<StorageItem>,

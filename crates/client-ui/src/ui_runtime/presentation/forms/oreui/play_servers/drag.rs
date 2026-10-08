@@ -46,6 +46,11 @@ fn contains(b: Bounds, p: UiPoint) -> bool {
 }
 
 impl DragState {
+    /// A captured pointer may move a section or trigger scrolling on its next frame.
+    pub(in crate::ui_runtime::presentation) fn captured(&self) -> bool {
+        self.capture.is_some()
+    }
+
     pub(in super::super) fn begin_layout(&mut self, viewport: Bounds) {
         self.viewport = Some(viewport);
         self.sections.clear();
