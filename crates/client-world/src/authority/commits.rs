@@ -195,7 +195,32 @@ impl WorldAuthority {
                                 | protocol::ActorStatusKind::HurtWithoutDamage
                         ) && status.runtime_id == self.local_player_runtime_id
                 );
-                let _ = self.actors.apply(self.actor_session_id, sequence, event);
+                let pickup_position = if let ActorEvent::TakeItem(take) = &event {
+                    self.actors.pickup_sound_position(take.item_runtime_id)
+                } else {
+                    None
+                };
+                let result = self.actors.apply(self.actor_session_id, sequence, event);
+                if result == crate::actor_store::ActorApplyResult::Updated
+                    && let Some(position) = pickup_position
+                {
+                    self.push_committed_audio(CommittedAudioEvent {
+                        sequence,
+                        dimension: self.current_dimension,
+                        dimension_epoch: self.form_dimension_epoch,
+                        actor_synchronization: None,
+                        event: AudioEvent::Level(protocol::LevelAudioEvent {
+                            sound_event: "pop".into(),
+                            position,
+                            data: -1,
+                            actor_identifier: "".into(),
+                            is_baby: false,
+                            is_global: false,
+                            actor_unique_id: -1,
+                            fire_at_position: None,
+                        }),
+                    });
+                }
                 if local_hurt {
                     self.push_committed_control(CommittedControlEvent::LocalHurt {
                         sequence,
