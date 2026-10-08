@@ -869,8 +869,10 @@ fn a_timed_break_between_ticks_waits_for_its_tick() {
     let mut ticker = ticker_with_ticks(1);
     flush_player_auth_inputs(&mut ticker, 8, Some(evidence()), |_, _| Ok::<_, ()>(())).unwrap();
     let stone = target([0, 1, -3], "minecraft:stone", None);
-    let mut runtime = SurvivalMiningRuntime::default();
-    runtime.latched_press = true;
+    let mut runtime = SurvivalMiningRuntime {
+        latched_press: true,
+        ..Default::default()
+    };
     runtime.break_on_press(
         &ticker,
         DestroyInput::Held(Some(&stone)),

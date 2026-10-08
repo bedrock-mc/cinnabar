@@ -47,7 +47,10 @@ mod tests {
     fn primary_window_queues_a_single_frame() {
         for present_mode in [PresentMode::Fifo, PresentMode::AutoNoVsync] {
             let window = primary_window(String::new(), present_mode);
-            assert_eq!(window.desired_maximum_frame_latency.map(NonZeroU32::get), Some(1));
+            assert_eq!(
+                window.desired_maximum_frame_latency.map(NonZeroU32::get),
+                Some(1)
+            );
             assert_eq!(window.present_mode, present_mode);
         }
     }
