@@ -6,6 +6,8 @@ use super::CompileRuleResult;
 use super::inspect_animation_inventory;
 use assets::{RegistryRecord, TILE_SIZE, VisualKind, VisualSupport};
 
+#[path = "tests/anvil.rs"]
+mod anvil;
 #[path = "tests/dragon_egg.rs"]
 mod dragon_egg;
 #[path = "tests/grass_side_mips.rs"]

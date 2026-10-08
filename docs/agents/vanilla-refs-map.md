@@ -16,6 +16,19 @@
 
 # Vanilla reference map
 
+## app/src/menu/navigation.rs; app/src/menu.rs; app/src/session.rs
+
+- Current 1.26.50.26 `ClientInstance::onStartJoinGame` (`0x06772090`, canonical
+  `src/__unmapped/06.cpp`) calls `0x04c5a810` and stores the returned Play route at
+  `+0x2a8`. The route helper (`src/__unmapped/04.cpp`) walks router entries backward
+  for `/play` and retains the matching page. The named 26.30 `ClientInstance.cpp`
+  identifies this helper as `OreUI::EntryPoints::PlayScreen::getLastPlayScreenTab`.
+- Current leave-game body `0x06774620` passes that saved route to `0x06776840`,
+  which keeps an already active destination or navigates back to it. Its embedded
+  signature identifies `ClientInstance::_requestLeaveGameImpl`; the named 26.30
+  body corroborates pushing the route saved at join. Pause and loading screens
+  therefore do not replace the originating Worlds, Realms or Servers page.
+
 ## crates/client-world/src/actor_animation.rs; crates/client-world/src/actor_animation/geometry/large_rig_tests.rs
 
 - Owner-supplied 1.26.50 Galaxite comparison on 2026-10-07 shows the complete Battle Pass display: characters, furniture and a vehicle beside the GEMS entrance. The served `entity/battlepass_display.entity.json` selects `geometry.battlepass_display`, whose authored geometry contains 190 bones. Native rendering of that composite disproves a player-skin-sized 96-bone runtime limit for custom entities.
@@ -504,6 +517,21 @@ RVAs are 1.26.50.26 Windows client; `mac 0x10…` addresses are the 26.30 macOS 
 
 ## crates/client-ui/src/ui_runtime/presentation/forms/recipe_book.rs
 - /// `CraftingScreenController::addStaticScreenVars`: radio indexes of the tabs
+- Pinned `ui/inventory_screen.json`, `crafting.scroll_grid`, binds the collection's
+  `#recipe_book_total_items` to `#maximum_grid_items`, including an empty list.
+- `ui/ui_common.json`, `common.item_renderer`, reads the icon from the same collection.
+- Current 1.26.50.26 `CraftingContainerManagerModel::setIsFiltering`, canonical
+  `src/__recovered/CraftingContainerManagerModel.cpp`, indexed at `0x0391bea0`,
+  updates each category's item filter rather than copying recipe rows between tabs.
+
+## crates/inventory/src/screen_recipes.rs
+- Current 1.26.50.26 `FUN_1439196b0`, canonical `src/__unmapped/03.cpp`,
+  identified by its `_getRecipesForItem` diagnostic, gathers alternative recipes
+  for one output ItemInstance. Its `FUN_143748510` comparator sorts signed recipe
+  priority ascending before ingredient usability is examined.
+- The pinned `recipes/crafting_table_default.json` and
+  `recipes/crafting_table_from_crimson_planks.json` produce the same crafting table
+  from different plank ingredients, with priorities 1 and 2 respectively.
 
 ## crates/client-ui/src/ui_runtime/presentation/forms/server_pack.rs
 - /// not the pack also replaces the image (`UITextureInfo::_loadNineslice`).
@@ -792,6 +820,7 @@ RVAs are 1.26.50.26 Windows client; `mac 0x10…` addresses are the 26.30 macOS 
 
 ## crates/inventory/src/inventory_ledger/crafting.rs
 - // Native _makeCreateItemScopeCreative
+- Current 1.26.50.26 canonical `GameplayUI::Util` auto-place order (`0x071ce2b0`) routes personal and workbench crafting output to `combined_hotbar_and_inventory_items`. The inventory model offset (`0x0a5d0af0`, named counterpart `InventoryContainerModel::_getContainerOffset`) is nine only for main inventory and zero for the combined container; initialization (`0x0a5d0be0`) visits ascending slots. Compatible partial stacks precede empty slots, with the hotbar first in each pass.
 
 ## crates/inventory/src/inventory_ledger/crafting_close.rs
 - //! ContainerManagerController::_closeContainers invokes
@@ -1752,6 +1781,21 @@ RVAs are 1.26.50.26 Windows client; `mac 0x10…` addresses are the 26.30 macOS 
 - on the macOS/Metal client. A controlled native standing/held Shift/release and
 
 ## docs/reference/dropped-items.md
+- Pickup lifetime and sound: current `1.26.50.26` canonical
+  `src/__unmapped/01.cpp`, `0x014b8460`, copies the item into an independent
+  take-animation particle and voices the `pop` event at the item's attach position.
+  `src/__unmapped/02.cpp`, `0x02416bd0`, captures the collector and offset `[0, -0.6, 0]`
+  with a three-tick lifetime; `0x02416fc0` squares normalized tick progress and
+  scales the copied item by its complement; `0x024172f0` / `0x02417300` advance and expire it.
+- Pickup transform scope: current `0x02416fc0` changes only cloned actor scale
+  fields and dispatches camera-relative XYZ through `0x01fb3460`, which supplies
+  that origin to the ordinary item renderer without an outer scale. Current
+  `src/__recovered/ItemRenderer.cpp`, `0x05e54ba0`, translates bob before scaling;
+  current `src/__unmapped/05.cpp`, `0x05e54570`, translates each stack copy before
+  multiplying matrix basis columns by actor scale, leaving translation unchanged.
+  Pickup draw assigns the complement directly, replacing source scale metadata.
+  Its shrink therefore preserves bob/lift and copy spread, including the
+  cube route `0x05e53930` that calls the same item-group renderer.
 - # Native dropped-item rendering
 - Current `ItemActor` constructor sets the
 - collision width and height to 0.25 and the native Y-origin offset to half the
@@ -2063,6 +2107,9 @@ RVAs are 1.26.50.26 Windows client; `mac 0x10…` addresses are the 26.30 macOS 
 ## docs/reference/inventory-normal-transactions.md
 - cells, with the native cursor projection. Unknown or unreviewed sources/slots,
 - The native UI output-50 deferred `InventoryTransactionManager` path, arbitrary
+
+## crates/protocol/src/inventory/recipes/grammar.rs
+- Signed item IDs: current `1.26.50.26` canonical `ItemRegistry::registerItem` (`0x03971210`, `src/__recovered/ItemRegistry.cpp`, index `0397.jsonl`) reads and sign-extends the item's short ID into registry lookup/storage. Negative IDs are legitimate block identities; the pinned behavior pack's `recipes/spruce_planks.json` maps one spruce log to four spruce planks. Recipe output ID zero remains empty.
 
 ## docs/reference/inventory-recipe-admission.md
 - those conditions, the state pointer remains null and candidate recipes still
@@ -3659,6 +3706,24 @@ Files: `docs/reference/held-block-placement.md`, `crates/gameplay/src/block_use.
   and `render_controllers/creeper.render_controllers.json` own the wobble,
   bone scales and alternating white overlay. These expressions sample the
   fractional actor tick without committing animation state.
+
+## crates/pack-compiler/src/compiler/visuals/anvil.rs
+
+- Current 1.26.50.26 canonical `src/__unmapped/06.cpp` anvil world routine `0x06a359e0`
+  and piece helper `0x06a922d0`, indexed in `06a3.jsonl` / `06a9.jsonl`, emit four parts.
+  Immediate width/height/depth triples are `(0.75,0.25,0.75)`, `(0.5,0.0625,0.625)`,
+  `(0.25,0.3125,0.5)` and `(0.625,0.3749,1)`. Cumulative height and centered widths
+  quantize to the carrier's 1/256 block position units. Odd directions exchange X/Z.
+- The base overrides every face with face-0 artwork; later upper faces use face 1,
+  so flattened intact/chipped/damaged pack names determine their damage artwork.
+  The six rotation bytes are direction 0 `[3,3,0,0,1,2]`, 1 `[1,2,1,2,0,0]`,
+  2 `[0,0,0,0,2,1]`, 3 `[2,1,2,1,0,0]` in down/up/north/south/west/east order.
+- Older named 26.30 `BlockTessellator::tessellateAnvilInWorld` and `tessellateAnvilPiece`
+  identify the current call pattern; shape `0x2b` uses the anvil route in both world
+  and item dispatch. The pinned `blocks.json` and `textures/terrain_texture.json`
+  bind modern damage names. Exact per-vertex texture rotation remains incomplete:
+  the current canonical generic face emitters hide position register arguments and the
+  matching executable is unavailable. The compiler retains provisional support.
 
 ## app/src/runtime/world.rs (committed control fence); app/src/tests/latency_fences.rs
 
