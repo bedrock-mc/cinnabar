@@ -370,6 +370,11 @@ fn actor_material_sampling_needs_no_uniform_fragment_control_flow() {
     );
 }
 
+#[test]
+fn actor_fragment_interface_fits_webgpu_limits() {
+    crate::shader_test_support::assert_webgpu_fragment_inputs(&standalone_actor_shader_source());
+}
+
 // A binding the fragment stage reads must be visible to it, or pipeline creation fails validation.
 #[test]
 fn fragment_view_reads_are_visible_to_the_fragment_stage() {
