@@ -196,6 +196,8 @@ pub struct PlayerInventoryLedger {
     /// Backing truth covered by active absolute sparse cells; `None` while idle.
     view: Option<Cells>,
     known: [bool; PLAYER_INVENTORY_SLOT_COUNT],
+    armor_known: [bool; cells::ARMOR_CELLS],
+    offhand_known: bool,
     slot_revisions: [u64; PLAYER_INVENTORY_SLOT_COUNT],
     item_registry: Option<std::sync::Arc<BTreeMap<i32, ItemRegistryEntry>>>,
     creative: Option<protocol::CreativeContentEvent>,
@@ -236,6 +238,8 @@ impl Default for PlayerInventoryLedger {
             confirmed: Cells::default(),
             view: None,
             known: [false; PLAYER_INVENTORY_SLOT_COUNT],
+            armor_known: [false; cells::ARMOR_CELLS],
+            offhand_known: false,
             slot_revisions: [0; PLAYER_INVENTORY_SLOT_COUNT],
             item_registry: None,
             creative: None,
@@ -305,6 +309,21 @@ impl PlayerInventoryLedger {
     #[must_use]
     pub fn target_stack(&self, target: InventoryTarget) -> Option<&NetworkItemStack> {
         self.view_stack(target.cell())
+    }
+
+    /// Worn armor or offhand presentation, preserving unobserved versus empty cells.
+    /// Other surfaces and out-of-range armor addresses return `None`.
+    pub fn gear_slot_state(&self, target: InventoryTarget) -> Option<PlayerInventorySlot<'_>> {
+        let known = match target {
+            InventoryTarget::Armor(slot) => *self.armor_known.get(usize::from(slot))?,
+            InventoryTarget::Offhand => self.offhand_known,
+            _ => return None,
+        };
+        Some(match self.target_stack(target) {
+            Some(stack) => PlayerInventorySlot::Present(stack),
+            None if known => PlayerInventorySlot::Empty,
+            None => PlayerInventorySlot::Unknown,
+        })
     }
 
     #[must_use]

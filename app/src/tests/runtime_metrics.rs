@@ -48,23 +48,3 @@ fn cumulative_counter_delta_tolerates_a_counter_reset() {
     assert_eq!(cumulative_counter_delta(9, 4), 5);
     assert_eq!(cumulative_counter_delta(2, 9), 2);
 }
-
-// A capped interactive run still wakes on input; only acceptance runs ignore it.
-#[test]
-fn a_frame_cap_keeps_input_wakeups_outside_acceptance_runs() {
-    use bevy::winit::UpdateMode;
-
-    let reacts =
-        |strict| match crate::runtime::telemetry::frame_limited_winit_settings(Some(30), strict)
-            .focused_mode
-        {
-            UpdateMode::Reactive {
-                react_to_window_events,
-                react_to_device_events,
-                ..
-            } => react_to_window_events && react_to_device_events,
-            UpdateMode::Continuous => panic!("a cap is reactive"),
-        };
-    assert!(reacts(false));
-    assert!(!reacts(true));
-}

@@ -10,6 +10,7 @@ mod codec;
 mod credits;
 mod dimension;
 mod disconnect;
+mod emote;
 mod experience;
 mod interaction;
 mod inventory;
@@ -42,6 +43,7 @@ pub use experience::{
 };
 
 pub use credits::{ShowCreditsEvent, credits_finished_packet};
+pub use emote::emote_packet;
 
 pub use dimension::{LoadingScreenPhase, dimension_change_done_packet, loading_screen_packet};
 

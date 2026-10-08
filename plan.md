@@ -609,9 +609,10 @@
   default on; the three-way `vsync_dropdown` exists only in the non-publish Debug section).
 - Toggle follows Max Framerate in the advanced video options, labelled `options.vsync`, default
   on, persisted with the settings registry and applied live.
-- On keeps the automatic present-mode policy and its DX12 remedy; off requests AutoNoVsync
-  (Immediate, else Mailbox). `--vsync`, `--no-vsync` and evidence runs pin the session and show
-  the toggle locked to that state. Incomplete: rendered Video-screen acceptance pending.
+- On keeps the automatic present-mode policy and its DX12 remedy; off selects Immediate, else
+  Mailbox, else FIFO from the primary surface's probed modes, the same decision `--no-vsync` uses.
+  `--vsync`, `--no-vsync` and evidence runs pin the session and show the toggle locked to that
+  state. Incomplete: rendered Video-screen acceptance pending.
 
 ## Unfilled sub-chunk slots light as air
 
@@ -1666,6 +1667,19 @@ and revocation UI, production API stability, native multiplayer acceptance and
 cross-platform runtime acceptance. Loaded player data is not line-of-sight or
 visibility evidence. No aim-assist algorithm is installed and no vanilla parity
 gate is closed; see `docs/modding-spike.md` for the contract and opt-in switches.
+Generic cosmetic HUD cards and crosshairs add a separate presentation-only grant,
+bounded retained JSON-UI data, ordinary cursor visibility gates, transactional
+revocation, and 64-control settings pagination. Target-platform rendered evidence
+remains required before this presentation addition is cleared to push.
+
+2026-10-08 local player-state extension: a separate default-denied, read-only
+grant exposes current-session presented inventory/gear and active status effects.
+Unknown cells, item identities and durability remain explicit; finite effect
+durations follow the existing estimated server clock. Host callback budgets and
+session fences clear stale payloads. Experimental, non-parity API; no vanilla
+gate is closed. Incomplete: custom component durability maxima, production API
+stability, server policy/grant UI and native cross-platform acceptance. See
+`docs/modding-spike.md` for the contract.
 
 2026-10-01 crouch, shield and crossbow follow-up: the local camera now consumes
 the native 0.35-block crouch offset, half-blended once per completed tick and
@@ -6591,3 +6605,13 @@ ingredient to its source cells before other available inventory cells. Expanded
 ingredient groups, exact ghost rendering, saturated-inventory replacements,
 recipe discovery and server-persisted
 furnace UI options remain incomplete; the full furnace parity gate stays open.
+
+## Entity interaction and emote starts
+
+Entity-use presses now send the selected stack and fresh actor hit in the input
+frame, with block occlusion and bounded queue retries. A live cow interaction
+produces a server-confirmed milk bucket. Selecting an equipped emote sends its
+catalog identifier and duration once in that frame; idle and cancellation send
+no start packet. Marketplace clip ownership/playback, remote custom-emote
+synchronization, and the complete villager trade UI remain incomplete. These
+producer fixes do not close those parity gates.
