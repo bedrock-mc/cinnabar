@@ -172,15 +172,10 @@ pub(crate) fn produce_block_use(
         return;
     }
     let Some(selection) = verified_use_selection(&player_runtime, &context.ui) else {
-        runtime.clear_press();
-        stop_block_use(&mut runtime, &context, false);
+        // Unconfirmed inventory suspends attempts while preserving the held action.
         return;
     };
-    if runtime.selection_changed(&selection)
-        && !stop_block_use(&mut runtime, &context, use_phase.pressed)
-    {
-        return;
-    }
+    runtime.selection_changed(&selection);
     // Vanilla builds before each simulation tick, from the last completed tick's end state;
     // this runs before the frame's physics, so a placed block is in the world the tick sees.
     let Some(state) = movement.build_action_state() else {
@@ -270,7 +265,7 @@ pub(crate) fn produce_block_use(
     // Only block items keep using while held.
     if trigger == ItemUseTrigger::SimulationTick && observed.selection.item.block_runtime_id() == 0
     {
-        runtime.record(trigger, due, tick, local_use, clock);
+        runtime.record(trigger, due, tick, LocalUse::Nothing, clock);
         return;
     }
     let duration = swing_duration(

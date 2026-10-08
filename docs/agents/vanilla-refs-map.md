@@ -3041,7 +3041,25 @@ Files: `docs/reference/held-block-placement.md`, `crates/gameplay/src/block_use.
   `clearInProgressBAI` and `getInProgressBAI` own input intention.
   `by-owner/h/HitResultUtils.cpp`: `refreshHitResult` refreshes world pick evidence.
   `by-owner/c/ClientInputCallbacks.cpp`: `handleBuildAction` RVA `0x23178c0`
-  owns first press; selected-slot and gameplay-input routing own stopping boundaries.
+  owns first press; gameplay-input routing owns stopping boundaries.
+- Current `continueBuildBlock` at `0x28b66b0` reads the actor's current hand stack
+  on every repeat without resetting the successful destination, line, first intercept
+  or success timestamp on a selected-stack identity change. `buildBlock` at `0x28b5e60`
+  tests current-stack held-repeat eligibility before a transaction; continuation advances
+  the success timestamp only when that use returns success.
+  This establishes the continuation body only; it does not exclude an external
+  selection callback resetting GameMode history.
+  Current `__unmapped/06.cpp`: `FUN_1467618e0` (1347050–1347134) matches the
+  slot-button handler and calls `FUN_140205800`; `__unmapped/00.cpp` (430856–431065)
+  updates selection and emits hotbar event variant `0x23`. Current coordinator
+  `FUN_1428ee360` in `__unmapped/02.cpp` (1497725 onward) dispatches registered
+  virtual gameplay handlers and listeners. Those callback targets remain unclosed
+  in the available source export; native history and timing across selection are incomplete.
+  Named `by-owner/c/ClientInputCallbacks.cpp`: `handleSlotSelectButtonPress`
+  (3856–3933) has no direct build stop; `by-owner/p/PlayerInventory.cpp`: `selectSlot`
+  (1051 onward) also emits that event. Default named hotbar/selected-item dispatcher
+  handlers return normally, and the named scripting listener emits an after-event;
+  neither establishes the complete registered callback set.
 - `by-owner/b/BlockItem.cpp`: `_calculatePlacePos` RVA `0xa5f6dc0`,
   replace the clicked cell when admitted, otherwise offset by face.
   `by-owner/p/PlanterItemComponent.cpp`: `getBlockPlacementContext` RVA `0xa2e0430`
