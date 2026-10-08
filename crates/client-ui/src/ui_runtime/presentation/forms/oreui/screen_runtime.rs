@@ -20,6 +20,8 @@ impl UiPresentationRuntime {
         portrait: Option<super::super::super::IconRef>,
         translate: super::super::menu_screens::Translate<'_>,
     ) -> Result<Option<Vec<(MenuAction, UiRect)>>, UiPresentationError> {
+        #[cfg(feature = "tracy")]
+        let _screen_span = bevy::log::info_span!("ui.oreui_paint").entered();
         // A launcher dialog draws over the OreUI screen instead.
         let progress = view.connecting || view.local.progress.is_some();
         let sign_in = view.sign_in_prompt_open();
@@ -45,6 +47,10 @@ impl UiPresentationRuntime {
                 ))
         {
             return Ok(None);
+        }
+        #[cfg(test)]
+        {
+            self.oreui_paints += 1;
         }
         let originals = self
             .form_presentation

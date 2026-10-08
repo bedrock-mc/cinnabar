@@ -351,7 +351,7 @@ pub struct MenuFriendCard {
     pub max_members: u32,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct MenuView {
     pub visible: bool,
     /// The menu opened over the session's world rather than the launcher's.
