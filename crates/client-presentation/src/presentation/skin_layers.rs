@@ -1,6 +1,6 @@
 //! Animated player skin textures on their own geometry and shared actor pose.
 
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use client_world::ActorRigSnapshot;
 use render::{
@@ -27,10 +27,31 @@ pub struct SkinLayerCache {
     base: [u8; 32],
     rasters: Vec<EquipmentRaster>,
     desired: Vec<EquipmentRaster>,
+    desired_index: HashMap<ImageKey, (EquipmentRaster, usize)>,
+    image_index: HashMap<ImageKey, (EquipmentRaster, usize)>,
     locations: Vec<Option<ActorArtworkLocation>>,
     pages: Option<ActorArtworkPages>,
     poses: LayerPoseCache,
     extras: Vec<ActorRigSubmission>,
+}
+
+/// Keys are valid while their corresponding retained raster owns the immutable allocation.
+#[derive(Clone, Copy, Hash, PartialEq, Eq)]
+struct ImageKey {
+    address: usize,
+    width: u16,
+    height: u16,
+}
+
+impl ImageKey {
+    /// Preserves the cache's existing pointer-and-dimensions equality exactly.
+    fn new(raster: &EquipmentRaster) -> Self {
+        Self {
+            address: raster.rgba8.as_ptr() as usize,
+            width: raster.width,
+            height: raster.height,
+        }
+    }
 }
 
 /// Two raster entries point at the same retained image and image dimensions.
@@ -50,6 +71,31 @@ fn image_raster(image: &protocol::SkinAnimation) -> Option<EquipmentRaster> {
 }
 
 impl SkinLayerCache {
+    /// Retains the first occurrence of each immutable source image in draw order.
+    fn retain_image(&mut self, raster: EquipmentRaster) {
+        #[cfg(test)]
+        tests::record_probe();
+        // The desired vector may be cleared by the next frame before its index is reused.
+        if self.desired.is_empty() {
+            self.desired_index.clear();
+        }
+        if let std::collections::hash_map::Entry::Vacant(entry) =
+            self.desired_index.entry(ImageKey::new(&raster))
+        {
+            entry.insert((raster.clone(), self.desired.len()));
+            self.desired.push(raster);
+        }
+    }
+
+    /// Resolves one retained source to its published artwork location.
+    fn image_location(&self, raster: &EquipmentRaster) -> Option<ActorArtworkLocation> {
+        #[cfg(test)]
+        tests::record_probe();
+        self.image_index
+            .get(&ImageKey::new(raster))
+            .and_then(|(_, index)| self.locations[*index])
+    }
+
     /// Rebuilds rectangular image pages only when the base artwork or selected image set changes.
     fn update_pages(&mut self, base: &ActorArtworkPages) -> Option<ActorArtworkPages> {
         let changed = self.base != base.identity()
@@ -64,6 +110,13 @@ impl SkinLayerCache {
         }
         self.base = base.identity();
         std::mem::swap(&mut self.rasters, &mut self.desired);
+        self.image_index.clear();
+        self.image_index.extend(
+            self.rasters
+                .iter()
+                .enumerate()
+                .map(|(index, image)| (ImageKey::new(image), (image.clone(), index))),
+        );
         if self.rasters.is_empty() {
             self.locations.clear();
             return self.pages.take().map(|_| base.clone());
@@ -97,9 +150,7 @@ impl SkinLayerCache {
                 let Some(raster) = image_raster(&layer.image) else {
                     continue;
                 };
-                if !self.desired.iter().any(|known| same_image(known, &raster)) {
-                    self.desired.push(raster);
-                }
+                self.retain_image(raster);
             }
         }
         let changed = self.update_pages(base);
@@ -115,15 +166,11 @@ impl SkinLayerCache {
                 let Some(raster) = image_raster(&layer.image) else {
                     continue;
                 };
-                let Some(location) = self
-                    .rasters
-                    .iter()
-                    .position(|known| same_image(known, &raster))
-                    .and_then(|index| self.locations[index])
-                else {
+                let Some(location) = self.image_location(&raster) else {
                     continue;
                 };
-                let Some(geometry) = rigs.rig(&layer.geometry, &mut register) else {
+                let Some(geometry) = rigs.rig(&layer.geometry, layer.mesh.as_ref(), &mut register)
+                else {
                     continue;
                 };
                 let (Some(previous), Some(current)) = (
@@ -187,5 +234,51 @@ mod tests {
             cache.update_pages(&base).unwrap().identity(),
             base.identity()
         );
+    }
+    thread_local! {
+        static LOOKUP_PROBES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    }
+
+    /// Counts explicit source-image candidates on this test thread.
+    pub(super) fn record_probe() {
+        LOOKUP_PROBES.with(|count| count.set(count.get() + 1));
+    }
+
+    #[test]
+    fn bounded_lookup_work_for_distinct_skin_animation_images() {
+        let images: Vec<_> = (0..render_model::MAX_RENDERED_PLAYERS)
+            .map(|_| raster())
+            .collect();
+        let mut cache = SkinLayerCache::default();
+        let base = ActorArtworkPages::default();
+        LOOKUP_PROBES.with(|count| count.set(0));
+        for image in &images {
+            cache.retain_image(image.clone());
+        }
+        cache.update_pages(&base).unwrap();
+        assert_eq!(
+            cache.rasters.len(),
+            images.len(),
+            "equal pixels in separate allocations remain separate sources"
+        );
+        for image in &images {
+            assert!(cache.image_location(image).is_some());
+        }
+        let work = LOOKUP_PROBES.with(std::cell::Cell::get);
+        assert!(
+            work <= images.len() * 4,
+            "{work} image candidates for {} layers",
+            images.len()
+        );
+        cache.desired.clear();
+        for image in &images {
+            cache.retain_image(image.clone());
+        }
+        assert!(cache.update_pages(&base).is_none());
+        cache.desired.clear();
+        cache.update_pages(&base).unwrap();
+        for image in &images {
+            assert!(cache.image_location(image).is_none());
+        }
     }
 }

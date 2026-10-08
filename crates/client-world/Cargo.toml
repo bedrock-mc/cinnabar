@@ -5,12 +5,17 @@ edition.workspace = true
 rust-version.workspace = true
 publish = false
 
+[features]
+appearance-test-support = []
+
 [dependencies]
 assets = { path = "../assets" }
 bytes.workspace = true
 hashbrown = "0.16"
 protocol = { path = "../protocol" }
 rayon.workspace = true
+render-model = { path = "../render-model" }
+tracing.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
 world = { path = "../world" }
