@@ -372,7 +372,7 @@ pub(super) fn evaluate_state(
     }
     variables.clear_temporaries();
     variables.clear(engine.first_person_item_rotation_factor);
-    let samples_swell = actor.is_creeper() && state.samples_swell_poses;
+    let samples_swell = actor.is_creeper() && state.swell_sampling.is_some();
     let mut render_frame = (state.samples_render_frames
         || samples_swell
         || (state.samples_swing_poses && state.local_swing.is_some()))
@@ -527,6 +527,11 @@ pub(super) fn evaluate_state(
         frame.swell_poses = Some(super::render_frame::SwellPoses {
             previous: Vec::new(),
             current: local,
+            mask: state.swell_sampling.as_ref().unwrap().mask(
+                assets,
+                &state.bone_names,
+                &weighted_clips,
+            ),
         });
         frame.swell_layers = swell_layers
             .into_iter()
@@ -536,6 +541,11 @@ pub(super) fn evaluate_state(
                     super::render_frame::SwellPoses {
                         previous: Vec::new(),
                         current: local,
+                        mask: state.swell_sampling.as_ref().unwrap().mask(
+                            assets,
+                            &state.layer_skeletons[&geometry].as_ref().unwrap().names,
+                            &weighted_clips,
+                        ),
                     },
                 )
             })

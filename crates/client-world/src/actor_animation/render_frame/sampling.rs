@@ -63,13 +63,6 @@ pub(in crate::actor_animation) fn needs_frame_sampling(
     })
 }
 
-pub(in crate::actor_animation) fn needs_swell_sampling(
-    assets: &RuntimeEntityAssets,
-    binding: usize,
-) -> bool {
-    uses_render_query(assets, binding, |name| name == "query.swell_amount")
-}
-
 fn uses_render_query(
     assets: &RuntimeEntityAssets,
     binding: usize,
@@ -100,4 +93,77 @@ fn uses_render_query(
                     .is_some_and(|symbol| query(symbol.identifier.as_ref()))
             })
         })
+}
+
+/// Collects expressions reachable from a rig's render layers and animation topology.
+pub(super) fn pose_expressions(
+    assets: &RuntimeEntityAssets,
+    rig: usize,
+    geometry: usize,
+    controllers: &[ControllerState],
+) -> Vec<u32> {
+    let mut expressions = render_expressions(assets, rig);
+    if let Some(rig) = assets.rig_bindings().get(rig) {
+        expressions.extend(rig.initialize);
+        expressions.extend(rig.scale_expressions.into_iter().flatten());
+    }
+    let mut clips = std::collections::BTreeSet::new();
+    if let Some(geometry) = assets.rig_geometries().get(geometry) {
+        let first = geometry.first_animation as usize;
+        for binding in
+            &assets.rig_animations()[first..first + usize::from(geometry.animation_count)]
+        {
+            expressions.extend(binding.weight);
+            clips.insert(binding.clip as usize);
+        }
+        let first = geometry.first_controller as usize;
+        for binding in
+            &assets.rig_controllers()[first..first + usize::from(geometry.controller_count)]
+        {
+            expressions.extend(binding.weight);
+        }
+    }
+    for runtime in controllers {
+        let Some(controller) = assets.controllers().get(runtime.controller) else {
+            continue;
+        };
+        let first = controller.first_state as usize;
+        for state in &assets.controller_states()[first..first + usize::from(controller.state_count)]
+        {
+            expressions.extend(state.on_entry);
+            expressions.extend(state.on_exit);
+            let first = state.first_transition as usize;
+            expressions.extend(
+                assets.controller_transitions()[first..first + usize::from(state.transition_count)]
+                    .iter()
+                    .map(|transition| transition.condition),
+            );
+            let first = state.first_animation as usize;
+            for animation in
+                &assets.controller_animations()[first..first + usize::from(state.animation_count)]
+            {
+                expressions.extend(animation.weight);
+                if let assets::EntityControllerAnimationTarget::Clip(clip) = animation.target {
+                    clips.insert(clip as usize);
+                }
+            }
+        }
+    }
+    for clip in clips {
+        let Some(clip) = assets.animation_clips().get(clip) else {
+            continue;
+        };
+        expressions.extend(clip.anim_time_update);
+        let first = clip.first_channel as usize;
+        for channel in &assets.animation_channels()[first..first + clip.channel_count as usize] {
+            let first = channel.first_keyframe as usize;
+            for key in &assets.animation_keyframes()[first..first + channel.keyframe_count as usize]
+            {
+                expressions.extend(key.expressions.into_iter().flatten());
+            }
+        }
+    }
+    expressions.sort_unstable();
+    expressions.dedup();
+    expressions
 }

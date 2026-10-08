@@ -319,3 +319,188 @@ fn assert_installed_creeper_samples(powered: bool) {
         }
     }
 }
+
+fn compiled_swell_fixture(pre_animation: bool) -> crate::actor_store::ActorStore {
+    authored_swell_fixture(
+        pre_animation,
+        assets::EntityAnimationProperty::Translation,
+        false,
+    )
+}
+
+fn authored_swell_fixture(
+    pre_animation: bool,
+    property: assets::EntityAnimationProperty,
+    variable: bool,
+) -> crate::actor_store::ActorStore {
+    let mut compiled = super::attachable::tests::compiled_fixture();
+    compiled.sources[1].path = "entity/creeper.json".into();
+    compiled.symbols[4].kind = assets::EntityAssetKind::Entity;
+    compiled.symbols[4].identifier = "minecraft:creeper".into();
+    compiled.symbols.rotate_right(1);
+    compiled.rig_bindings[0].entity_symbol = 0;
+    compiled.rig_bindings[0].render_controller = 3;
+    compiled.rig_bindings[0].pre_animation = pre_animation.then_some(0);
+    compiled.animation_clips[0].symbol = 2;
+    compiled.molang_symbols = vec![
+        assets::MolangSymbol {
+            kind: assets::MolangSymbolKind::Name,
+            identifier: "wield".into(),
+        },
+        assets::MolangSymbol {
+            kind: assets::MolangSymbolKind::Query,
+            identifier: "query.swell_amount".into(),
+        },
+    ]
+    .into_boxed_slice();
+    compiled.molang_ops = vec![MolangOp::LoadQuery(1)].into_boxed_slice();
+    compiled.molang_expressions = vec![assets::CompiledMolangExpression {
+        first_op: 0,
+        op_count: 1,
+        max_stack: 1,
+    }]
+    .into_boxed_slice();
+    compiled.animation_keyframes[0].expressions = [Some(0), None, None];
+    compiled.animation_channels[0].property = property;
+    if variable {
+        compiled.molang_symbols = [
+            (assets::MolangSymbolKind::Name, "wield"),
+            (assets::MolangSymbolKind::Query, "query.life_time"),
+            (assets::MolangSymbolKind::Query, "query.swell_amount"),
+            (assets::MolangSymbolKind::Variable, "variable.swell"),
+            (assets::MolangSymbolKind::Variable, "variable.zz_motion"),
+        ]
+        .into_iter()
+        .map(|(kind, identifier)| assets::MolangSymbol {
+            kind,
+            identifier: identifier.into(),
+        })
+        .collect::<Vec<_>>()
+        .into_boxed_slice();
+        compiled.molang_ops = vec![
+            MolangOp::LoadQuery(2),
+            MolangOp::StoreVariable(3),
+            MolangOp::LoadQuery(1),
+            MolangOp::StoreVariable(4),
+            MolangOp::Push(assets::EntityGeometryScalar::new(0.0).unwrap()),
+            MolangOp::LoadVariable(3),
+            MolangOp::LoadVariable(4),
+        ]
+        .into_boxed_slice();
+        compiled.molang_expressions = [(0, 5), (5, 1), (6, 1)]
+            .into_iter()
+            .map(|(first_op, op_count)| assets::CompiledMolangExpression {
+                first_op,
+                op_count,
+                max_stack: 1,
+            })
+            .collect::<Vec<_>>()
+            .into_boxed_slice();
+        compiled.rig_bindings[0].pre_animation = Some(0);
+        compiled.animation_keyframes[0].expressions = [
+            Some(1),
+            (property == assets::EntityAnimationProperty::Translation).then_some(2),
+            None,
+        ];
+    }
+
+    let assets = Arc::new(RuntimeEntityAssets::from_compiled(compiled).unwrap());
+    let mut store = crate::actor_store::ActorStore::new_with_entity_assets(1, 0, assets);
+    store.apply(
+        1,
+        1,
+        protocol::ActorEvent::Spawn(protocol::ActorSpawnEvent {
+            dimension: 0,
+            unique_id: 1,
+            runtime_id: 1,
+            kind: ActorKind::Entity {
+                identifier: "minecraft:creeper".into(),
+            },
+            position: [0.; 3],
+            velocity: [0.; 3],
+            pitch: 0.,
+            yaw: 0.,
+            head_yaw: 0.,
+            body_yaw: 0.,
+            held_item: Default::default(),
+            metadata: Arc::from([protocol::ActorMetadata {
+                key: 0,
+                value: ActorMetadataValue::Flags(1 << 10),
+            }]),
+            attributes: Arc::from([]),
+            properties: Arc::from([]),
+            links: Arc::from([]),
+        }),
+    );
+    store.advance_interpolation_ticks(3);
+    store
+}
+
+#[test]
+fn direct_swell_channel_samples_fraction() {
+    let store = compiled_swell_fixture(false);
+    let rig = store.actor_rig(1).unwrap();
+    let layers = store.render_frame(0.5).layers(1).unwrap();
+    let (previous, current) = if layers[0].pose.is_empty() {
+        (&rig.previous[0], &rig.current[0])
+    } else {
+        (&layers[0].previous_pose[0], &layers[0].pose[0])
+    };
+    let drawn_x = (previous.translation_scale[0] + current.translation_scale[0]) * 0.5;
+    assert_eq!(drawn_x, -2.5 / 28.);
+}
+
+#[test]
+fn swell_translation_with_pre_animation_samples_fraction() {
+    let store = compiled_swell_fixture(true);
+    let layers = store.render_frame(0.5).layers(1).unwrap();
+    let drawn_x = (layers[0].previous_pose[0].translation_scale[0]
+        + layers[0].pose[0].translation_scale[0])
+        * 0.5;
+    assert_eq!(drawn_x, -2.5 / 28.);
+}
+
+#[test]
+fn authored_swell_trs_channels_follow_query_and_pre_animation_variables() {
+    use assets::EntityAnimationProperty::*;
+    for variable in [false, true] {
+        for property in [Translation, Rotation, Scale] {
+            let store = authored_swell_fixture(variable, property, variable);
+            for alpha in [0.0, 0.25, 0.75, 1.0] {
+                let value = (2.0 + alpha) / crate::actor_store::creeper::SWELL_FULL_TICKS;
+                let layers = store.render_frame(alpha).layers(1).unwrap();
+                assert!(!layers[0].pose.is_empty());
+                for pose in [&layers[0].previous_pose[0], &layers[0].pose[0]] {
+                    match property {
+                        Translation => assert_eq!(pose.translation_scale[0], -value),
+                        Rotation => {
+                            assert_eq!(pose.rotation, pose::quat_from_euler([-value, 0.0, 0.0]))
+                        }
+                        Scale => assert!((pose::total_scale(pose)[0] - value).abs() < 1e-6),
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn swell_script_preserves_an_independent_motion_variable_channel() {
+    let store = authored_swell_fixture(true, assets::EntityAnimationProperty::Translation, true);
+    let rig = store.actor_rig(1).unwrap();
+    assert_ne!(
+        rig.previous[0].translation_scale[1],
+        rig.current[0].translation_scale[1]
+    );
+    for alpha in [0.0, 0.25, 0.75, 1.0] {
+        let layers = store.render_frame(alpha).layers(1).unwrap();
+        assert_eq!(
+            layers[0].previous_pose[0].translation_scale[1],
+            rig.previous[0].translation_scale[1]
+        );
+        assert_eq!(
+            layers[0].pose[0].translation_scale[1],
+            rig.current[0].translation_scale[1]
+        );
+    }
+}

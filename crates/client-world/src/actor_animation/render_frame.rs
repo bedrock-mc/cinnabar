@@ -5,6 +5,7 @@ use super::*;
 pub(super) mod camera;
 mod clips;
 pub(super) mod sampling;
+pub(super) mod swell;
 
 /// Completed slices stay borrowed; sampled layers own only their frame's changed pose data.
 pub struct ActorRenderLayers<'a> {
@@ -84,6 +85,7 @@ impl FrameState {
 pub(super) struct SwellPoses {
     pub previous: Vec<pose::LocalDelta>,
     pub current: Vec<pose::LocalDelta>,
+    pub mask: Vec<[u8; 3]>,
 }
 
 pub(super) fn carry_swell_history(
@@ -132,13 +134,29 @@ pub(super) fn carry_swell_history(
 impl SwellPoses {
     fn sample(&self, current: &mut [pose::LocalDelta]) -> Vec<pose::LocalDelta> {
         let mut previous = self.previous.clone();
-        for ((sample, completed), previous) in
-            current.iter_mut().zip(&self.current).zip(&mut previous)
+        for (((sample, completed), previous), mask) in current
+            .iter_mut()
+            .zip(&self.current)
+            .zip(&mut previous)
+            .zip(&self.mask)
         {
-            // Swelling changes scale; ordinary motion retains both completed tick poses.
-            previous.scale = sample.scale;
-            sample.translation = completed.translation;
-            sample.rotation = completed.rotation;
+            for (axis, bits) in mask.iter().enumerate() {
+                if bits & swell::TRANSLATION != 0 {
+                    previous.translation[axis] = sample.translation[axis];
+                } else {
+                    sample.translation[axis] = completed.translation[axis];
+                }
+                if bits & swell::ROTATION != 0 {
+                    previous.rotation[axis] = sample.rotation[axis];
+                } else {
+                    sample.rotation[axis] = completed.rotation[axis];
+                }
+                if bits & swell::SCALE != 0 {
+                    previous.scale[axis] = sample.scale[axis];
+                } else {
+                    sample.scale[axis] = completed.scale[axis];
+                }
+            }
             sample.rotation_relative_to_entity = completed.rotation_relative_to_entity;
         }
         previous
