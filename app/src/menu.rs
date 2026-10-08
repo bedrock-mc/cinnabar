@@ -29,6 +29,7 @@ mod settings_paths;
 pub(crate) mod settings_storage;
 pub(crate) mod settings_support;
 mod settings_values;
+mod update;
 mod video_settings;
 mod view;
 mod worlds_tab;
@@ -273,6 +274,7 @@ impl MenuRuntime {
         ) || (auth_state == AuthState::Authenticated
             && (!self.catalog_started || self.catalog_process.is_some()));
         MenuView {
+            update: crate::lifecycle::update::view(),
             visible: self.visible,
             over_world: self.over_world(),
             screen: self.screen,
@@ -500,6 +502,10 @@ impl MenuRuntime {
         self.message = None;
         self.disconnect_message = None;
         match action {
+            MenuAction::UpdateRestart
+            | MenuAction::UpdateRetry
+            | MenuAction::UpdateNotes
+            | MenuAction::UpdateToggle => self.activate_update(action),
             MenuAction::SelectProfileTab(tab) => self.profile_tab = tab,
             MenuAction::RefreshProfile => {
                 self.feeds.profile.loaded = false;

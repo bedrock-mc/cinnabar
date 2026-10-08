@@ -22,7 +22,7 @@ func TestSignProducesVerifiableManifestWithArtifactDigest(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	err := run([]string{"sign", "-version", "1.2.3", "-artifact", "macos-arm64=https://example.test/c.dmg=" + file}, &out)
+	err := signWithKeys([]string{"-version", "1.2.3", "-artifact", "macos-arm64=https://example.test/c.dmg=" + file}, &out, map[string]ed25519.PublicKey{"k1": pub})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,5 +44,15 @@ func TestSignRequiresKeyAndArtifact(t *testing.T) {
 	t.Setenv(keyEnv, "")
 	if err := run([]string{"sign", "-version", "1.0.0"}, &bytes.Buffer{}); err == nil {
 		t.Fatal("missing key accepted")
+	}
+}
+
+// TestSignRejectsUntrustedSeed prevents publishing releases that clients cannot verify.
+func TestSignRejectsUntrustedSeed(t *testing.T) {
+	_, private, _ := ed25519.GenerateKey(rand.Reader)
+	public, _, _ := ed25519.GenerateKey(rand.Reader)
+	t.Setenv(keyEnv, base64.StdEncoding.EncodeToString(private.Seed()))
+	if err := signWithKeys([]string{"-version", "1.2.3"}, &bytes.Buffer{}, map[string]ed25519.PublicKey{"k1": public}); err == nil {
+		t.Fatal("mismatched signing key accepted")
 	}
 }

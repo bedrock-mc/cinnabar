@@ -1,0 +1,45 @@
+{
+  "namespace": "cinnabar_update",
+  "home": {
+    "type": "panel",
+    "controls": [
+      { "original@start.start_screen_content": {
+        "size": "$cinnabar_home_size",
+        "anchor_from": "bottom_middle", "anchor_to": "bottom_middle"
+      } },
+      { "notice": {
+        "type": "stack_panel", "orientation": "vertical",
+        "size": ["100% - 16px", 56], "offset": [0, 4],
+        "anchor_from": "top_middle", "anchor_to": "top_middle",
+        "bindings": [{"binding_name": "#cinnabar_update_visible", "binding_name_override": "#visible"}],
+        "controls": [
+          { "message": {
+            "type": "label", "size": ["100%", 28], "text": "#cinnabar_update_message",
+            "text_alignment": "center", "shadow": true,
+            "bindings": [{"binding_name": "#cinnabar_update_message"}]
+          } },
+          { "actions": {
+            "type": "stack_panel", "orientation": "horizontal", "size": ["100%c", 24],
+            "controls": [
+              { "restart@common_buttons.light_text_button": {
+                "size": [124, 22], "$button_text": "Restart to update",
+                "$pressed_button_name": "button.cinnabar_update_restart",
+                "bindings": [{"binding_name": "#cinnabar_update_ready", "binding_name_override": "#visible"}]
+              } },
+              { "retry@common_buttons.light_text_button": {
+                "size": [86, 22], "$button_text": "Retry update",
+                "$pressed_button_name": "button.cinnabar_update_retry",
+                "bindings": [{"binding_name": "#cinnabar_update_retry", "binding_name_override": "#visible"}]
+              } },
+              { "notes@common_buttons.light_text_button": {
+                "size": [90, 22], "$button_text": "Release notes",
+                "$pressed_button_name": "button.cinnabar_update_notes",
+                "bindings": [{"binding_name": "#cinnabar_update_notes", "binding_name_override": "#visible"}]
+              } }
+            ]
+          } }
+        ]
+      } }
+    ]
+  }
+}

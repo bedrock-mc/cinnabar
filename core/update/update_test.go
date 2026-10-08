@@ -6,8 +6,6 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
-	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -49,10 +47,8 @@ func fixture(t *testing.T) (ed25519.PublicKey, ed25519.PrivateKey, Manifest) {
 func TestCheckReportsNewerVerifiedBuild(t *testing.T) {
 	pub, priv, manifest := fixture(t)
 	body := signed(t, priv, manifest)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(body) }))
-	defer server.Close()
 	result, err := Check(context.Background(), Config{
-		ManifestURL: server.URL, Channel: "stable", Platform: "macos-arm64", Current: "0.1.9",
+		ManifestURL: "https://example.test/update.json", Client: fixtureClient(body, nil), Channel: "stable", Platform: "macos-arm64", Current: "0.1.9",
 		Keys: map[string]ed25519.PublicKey{"k1": pub}, Now: func() time.Time { return fixedNow }, AllowHTTP: true,
 	})
 	if err != nil || !result.Available || result.Artifact == nil || result.Latest != "0.2.0" {

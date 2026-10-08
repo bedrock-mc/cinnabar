@@ -2,6 +2,7 @@
 use crate::movement::GameplayWorldView;
 use crate::player_runtime::PlayerRuntime;
 use bevy::prelude::*;
+use gameplay::movement::control_modes::SPRINT_HUNGER_FLOOR;
 use gameplay::movement::local_facts::{LocalMovementFacts, read};
 use gameplay::test_support::DEPTH_STRIDER_ENCHANTMENT_ID;
 use inventory::inventory_ledger::{
@@ -175,7 +176,7 @@ fn swimming_food_gate_uses_native_floor_and_flight_permission() {
         air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
-    assert!(read(Some(&player), &stream, false).swim_hunger_blocked);
+    assert!(read(Some(&player), &GameplayWorldView(&stream), false).swim_hunger_blocked);
     for (food, blocked) in [
         (SPRINT_HUNGER_FLOOR, true),
         (SPRINT_HUNGER_FLOOR + 1, false),
@@ -191,7 +192,7 @@ fn swimming_food_gate_uses_native_floor_and_flight_permission() {
                 modifiers: Arc::from([]),
             });
         assert_eq!(
-            read(Some(&player), &stream, true).swim_hunger_blocked,
+            read(Some(&player), &GameplayWorldView(&stream), true).swim_hunger_blocked,
             blocked
         );
     }
@@ -208,5 +209,5 @@ fn swimming_food_gate_uses_native_floor_and_flight_permission() {
             default: Some(20.0),
             modifiers: Arc::from([]),
         });
-    assert!(!read(Some(&player), &stream, false).swim_hunger_blocked);
+    assert!(!read(Some(&player), &GameplayWorldView(&stream), false).swim_hunger_blocked);
 }

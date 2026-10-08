@@ -178,18 +178,12 @@ impl Simulator {
         }
         let head_in_water = if input.jumping
             && input.mode == MovementMode::Swimming
-            && input.liquid_attach_height.is_some()
+            && let Some(attach_height) = input.liquid_attach_height
         {
             if sampled.block_samples == MAX_BLOCK_SAMPLES_PER_TICK {
                 return Err(crate::WorldQueryError::QueryExtentExceeded.into());
             }
-            let head = water::sample_water_head(
-                world,
-                next.position,
-                input
-                    .liquid_attach_height
-                    .expect("height was checked above"),
-            )?;
+            let head = water::sample_water_head(world, next.position, attach_height)?;
             sampled.identity = sampled.identity.merge(&head.identity)?;
             sampled.block_samples += 1;
             Some(head.value)

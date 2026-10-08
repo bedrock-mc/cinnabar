@@ -3,7 +3,8 @@
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <Package Name="Cinnabar" Manufacturer="Cinnabar" Version="$(Version)"
            UpgradeCode="2A430447-F280-4F32-AFE9-F8A652811A04" Scope="perMachine" Compressed="yes">
-    <MajorUpgrade DowngradeErrorMessage="A newer version of Cinnabar is already installed." />
+    <!-- Keep removal inside the transaction so a failed upgrade restores the old version. -->
+    <MajorUpgrade Schedule="afterInstallInitialize" DowngradeErrorMessage="A newer version of Cinnabar is already installed." />
     <MediaTemplate EmbedCab="yes" />
     <Icon Id="cinnabar.ico" SourceFile="$(Icon)" />
     <Property Id="ARPPRODUCTICON" Value="cinnabar.ico" />

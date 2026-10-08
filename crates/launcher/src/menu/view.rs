@@ -313,6 +313,29 @@ pub struct MenuFriendCard {
     pub xuid: String,
 }
 
+/// Background update status exposed to the launcher and Settings.
+#[derive(Clone, Debug)]
+pub struct UpdateView {
+    pub message: String,
+    pub ready: bool,
+    pub retry: bool,
+    pub notes: bool,
+    pub enabled: bool,
+}
+
+impl Default for UpdateView {
+    /// Enables update checks until the host loads the saved preference.
+    fn default() -> Self {
+        Self {
+            message: String::new(),
+            ready: false,
+            retry: false,
+            notes: false,
+            enabled: true,
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct MenuView {
     pub visible: bool,
@@ -332,6 +355,7 @@ pub struct MenuView {
     pub address: String,
     pub port: String,
     pub message: Option<String>,
+    pub update: UpdateView,
     pub gui_scale_offset: i8,
     pub gui_scale_choices: Vec<i8>,
     pub fullscreen: bool,
@@ -451,6 +475,7 @@ impl MenuView {
             address: String::new(),
             port: String::new(),
             message: None,
+            update: UpdateView::default(),
             gui_scale_offset: 0,
             gui_scale_choices: vec![0],
             fullscreen: false,

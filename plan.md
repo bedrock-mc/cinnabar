@@ -1,5 +1,11 @@
 # Rust Bedrock Client (Bevy + Go Core) — Master Implementation Plan
 
+Auto-updater checkpoint (implemented locally; not pushed): signed artifacts download in the background and apply only
+after client shutdown. Launcher notices and the General settings opt-out use JSON-UI. This is
+a Cinnabar extension following the vanilla update controls; exact visual parity remains incomplete
+until a packaged-client frame is checked. Real macOS, Windows and Linux install/rollback smoke
+tests and owner signing-key provisioning remain release gates. Fixture tests do not close them.
+
 2026-10-03 current checkpoint (in progress; locally committed, not pushed):
 accumulated work and follow-up fixes are committed through `97dccfb3`, including
 the dev integration through `58141bc6` and its chunk-pipeline and pack-compiler

@@ -34,6 +34,10 @@ class ReleaseDownloadsTests(unittest.TestCase):
             platform: {arch: "fixture-" + name for arch, name in arches.items()}
             for platform, arches in self.config["assets"].items()
         }
+        self.config["updater_assets"] = {
+            platform: {arch: "fixture-" + name for arch, name in arches.items()}
+            for platform, arches in self.config["updater_assets"].items()
+        }
         self.config["additional_assets"] = [
             "fixture-" + name for name in self.config["additional_assets"]
         ]
@@ -50,7 +54,7 @@ class ReleaseDownloadsTests(unittest.TestCase):
     def required_assets(self):
         return [
             name for arches in self.config["assets"].values() for name in arches.values()
-        ] + self.config["additional_assets"] + [self.config["install_script"]]
+        ] + [name for arches in self.config["updater_assets"].values() for name in arches.values()] + self.config["additional_assets"] + [self.config["install_script"]]
 
     def populate(self):
         for name in self.required_assets():
@@ -135,9 +139,10 @@ class ReleaseDownloadsTests(unittest.TestCase):
                 with self.subTest(platform=platform, arch=arch):
                     result = self.run_helper("env", platform, arch)
                     self.assertEqual(result.returncode, 0, result.stderr)
-                    expected = dict(common, RELEASE_ASSET=name)
+                    expected = dict(common, RELEASE_ASSET=name, UPDATER_ASSET=
+                                    self.config["updater_assets"].get(platform, arches)[arch])
                     if platform == "windows":
-                        expected["AUXILIARY_ASSET"] = self.config["additional_assets"][0]
+                        expected["AUXILIARY_ASSET"] = self.config["updater_assets"][platform][arch]
                     self.assertEqual(
                         dict(line.split("=", 1) for line in result.stdout.splitlines()), expected,
                     )
@@ -150,7 +155,7 @@ class ReleaseDownloadsTests(unittest.TestCase):
         specs = [line.split("=", 2) for line in result.stdout.splitlines()]
         expected = {
             f"{platform}-{arch}": (base + "/" + name, str(directory / name))
-            for platform, arches in self.config["assets"].items()
+            for platform, arches in {**self.config["assets"], **self.config["updater_assets"]}.items()
             for arch, name in arches.items()
         }
         self.assertEqual(len(specs), len(expected))

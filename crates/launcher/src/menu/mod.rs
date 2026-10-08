@@ -18,6 +18,7 @@ pub use view::{
     ButtonArt, CatalogFile, CatalogFriend, InboxItem, JoinKind, JoinProgress, JoinStage,
     LiveEventCard, LocalWorldCard, MenuCaret, MenuFeeds, MenuFriendCard, MenuGameCard, MenuHome,
     MenuProfile, MenuRealmCard, MenuServerCard, MenuView, PingInfo, SavedServer, ServerDetails,
+    UpdateView,
 };
 pub use worlds_tab::{LocalWorldAction, civil_date, file_size};
 
@@ -96,6 +97,10 @@ pub enum MenuAction {
     AddSave,
     AddSaveConnect,
     AddBack,
+    UpdateRestart,
+    UpdateRetry,
+    UpdateNotes,
+    UpdateToggle,
     SettingsScale(i8),
     SettingsFullscreen(bool),
     SettingsStorage(settings_storage::StorageAction),

@@ -25,6 +25,7 @@ fn main() {
                 eprintln!("bedrock-client failed: {error:#}");
                 std::process::exit(1);
             }
+            lifecycle::after_run();
         }
         Err(error) => {
             eprintln!("{error}");

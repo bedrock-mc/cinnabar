@@ -3,7 +3,7 @@
 pub(crate) mod children;
 pub(crate) mod core_health;
 mod crash;
-mod update;
+pub(crate) mod update;
 
 use anyhow::{Context, Result};
 
@@ -33,11 +33,10 @@ pub fn before_run(assets_overridden: bool) -> Result<bool> {
         return Ok(false);
     }
     update::check_in_background(&layout);
-    if let Some(notice) = update::available(&layout) {
-        eprintln!(
-            "Cinnabar {} is available (running {}).",
-            notice.latest, notice.current
-        );
-    }
     Ok(true)
+}
+
+/// Applies a staged update after a successful client shutdown, never from the frame loop.
+pub fn after_run() {
+    update::after_run();
 }

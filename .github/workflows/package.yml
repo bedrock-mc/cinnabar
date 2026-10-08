@@ -1,13 +1,14 @@
 name: Package
 
-# main pushes refresh `nightly`; manual runs and v* tags publish stable releases.
+# The daily schedule refreshes `nightly` from the default branch (dev).
+# Manual runs and v* tags publish stable releases.
 # Signing and the update manifest are optional: missing secrets yield unsigned artifacts.
 on:
   push:
-    branches:
-      - main
     tags:
       - "v*"
+  schedule:
+    - cron: "17 3 * * *"
   workflow_dispatch:
     inputs:
       bump:
@@ -25,7 +26,7 @@ on:
 
 concurrency:
   group: ${{ (github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')) && 'package-release' || format('package-{0}', github.ref) }}
-  cancel-in-progress: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -36,7 +37,6 @@ defaults:
 
 env:
   CINNABAR_UPDATE_URL: ${{ github.server_url }}/${{ github.repository }}/releases/latest/download/update-stable.json
-  UPDATE_TRUSTED_KEYS: ${{ vars.UPDATE_TRUSTED_KEYS }}
   CARGO_TERM_COLOR: always
   CINNABAR_SOURCE_ROOT: ${{ github.workspace }}/source
 
@@ -158,6 +158,8 @@ jobs:
           version="${{ needs.prepare.outputs.version }}"
           bash "$tools/make-dmg.sh" .local/dist/macos-release/Cinnabar.app ".local/dist/macos-release/Cinnabar-$version.dmg"
           bash "$tools/sign-notarize.sh" ".local/dist/macos-release/Cinnabar-$version.dmg"
+      - name: Archive the signed app for in-place updates
+        run: COPYFILE_DISABLE=1 tar -czf "$RUNNER_TEMP/$UPDATER_ASSET" -C .local/dist/macos-release Cinnabar.app
       - name: Name the artifact by architecture
         run: mv .local/dist/macos-release/Cinnabar-*.dmg "$RUNNER_TEMP/$RELEASE_ASSET"
       - name: Check the DMG against the payload allowlist
@@ -171,7 +173,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: macos-${{ matrix.arch }}
-          path: ${{ runner.temp }}/${{ env.RELEASE_ASSET }}
+          path: |
+            ${{ runner.temp }}/${{ env.RELEASE_ASSET }}
+            ${{ runner.temp }}/${{ env.UPDATER_ASSET }}
           if-no-files-found: error
 
   windows:
@@ -402,7 +406,8 @@ jobs:
           while IFS= read -r spec; do
             args+=(-artifact "$spec")
           done < <(python3 "$GITHUB_WORKSPACE/release-tools/packaging/release-downloads.py" update-artifacts "$base" "$GITHUB_WORKSPACE/source/dist")
-          go -C core run ./cmd/release-manifest sign -version "$RELEASE_VERSION" -channel stable "${args[@]}" \
+          go -C core run ./cmd/release-manifest sign -version "$RELEASE_VERSION" -channel stable \
+            -notes-url "${{ github.server_url }}/${{ github.repository }}/releases/tag/$RELEASE_TAG" "${args[@]}" \
             > "$RUNNER_TEMP/$UPDATE_MANIFEST"
           mv "$RUNNER_TEMP/$UPDATE_MANIFEST" "dist/$UPDATE_MANIFEST"
       - name: Verify all downloads and checksum the stable release

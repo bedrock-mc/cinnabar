@@ -42,7 +42,7 @@ func run(args []string, stdout io.Writer) error {
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(stdout, "public (embed as -X main.trustedUpdateKeys=<id>:<this>): %s\n", base64.StdEncoding.EncodeToString(pub))
+		fmt.Fprintf(stdout, "public (commit as k1:<this> in core/update/trusted-keys.txt): %s\n", base64.StdEncoding.EncodeToString(pub))
 		fmt.Fprintf(stdout, "private (store as %s, never commit): %s\n", keyEnv, base64.StdEncoding.EncodeToString(priv.Seed()))
 		return nil
 	case "sign":
@@ -51,7 +51,17 @@ func run(args []string, stdout io.Writer) error {
 	return fmt.Errorf("unknown command %q", args[0])
 }
 
+// sign requires the release seed to match the client's committed trust store.
 func sign(args []string, stdout io.Writer) error {
+	keys, err := update.TrustedKeys()
+	if err != nil {
+		return err
+	}
+	return signWithKeys(args, stdout, keys)
+}
+
+// signWithKeys builds an envelope only for a key trusted by the release binary.
+func signWithKeys(args []string, stdout io.Writer, keys map[string]ed25519.PublicKey) error {
 	flags := flag.NewFlagSet("sign", flag.ContinueOnError)
 	version := flags.String("version", "", "release version, e.g. 1.2.3")
 	channel := flags.String("channel", "stable", "release channel")
@@ -67,6 +77,11 @@ func sign(args []string, stdout io.Writer) error {
 	if err != nil || len(seed) != ed25519.SeedSize {
 		return fmt.Errorf("%s must hold a base64 %d-byte seed", keyEnv, ed25519.SeedSize)
 	}
+	private := ed25519.NewKeyFromSeed(seed)
+	trusted, ok := keys[*keyID]
+	if !ok || !trusted.Equal(private.Public()) {
+		return errors.New("signing seed does not match the committed public key")
+	}
 	manifest := update.Manifest{
 		Schema: 1, Channel: *channel, Version: *version, NotesURL: *notes,
 		Expires: time.Now().Add(*validity).UTC(), Artifacts: map[string]update.Artifact{},
@@ -81,7 +96,7 @@ func sign(args []string, stdout io.Writer) error {
 	if len(manifest.Artifacts) == 0 {
 		return errors.New("at least one -artifact is required")
 	}
-	body, err := update.Sign(manifest, *keyID, ed25519.NewKeyFromSeed(seed))
+	body, err := update.Sign(manifest, *keyID, private)
 	if err != nil {
 		return err
 	}

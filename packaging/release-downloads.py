@@ -10,10 +10,17 @@ HERE = Path(__file__).resolve().parent
 
 
 def manifest():
+    """Read the shared release artifact contract."""
     return json.loads((HERE / "release-assets.json").read_text())
 
 
+def updater_assets(config):
+    """Select updater archives where an installer cannot be applied in place."""
+    return {**config["assets"], **config["updater_assets"]}
+
+
 def render_installer():
+    """Render the standalone installer with the shared asset names."""
     config = manifest()
     template = (HERE / "install.sh.in").read_text()
     values = {"REPOSITORY": config["repository"], "CHECKSUM_ASSET": config["checksums"],
@@ -26,8 +33,10 @@ def render_installer():
 
 
 def checksum(directory):
+    """Require all payloads before publishing their final file digests."""
     config = manifest()
     expected = [name for arches in config["assets"].values() for name in arches.values()]
+    expected.extend(name for arches in config["updater_assets"].values() for name in arches.values())
     expected.extend(config["additional_assets"])
     expected.append(config["install_script"])
     missing = [name for name in expected if not (directory / name).is_file()]
@@ -42,6 +51,7 @@ def checksum(directory):
 
 
 def main():
+    """Serve release asset metadata to packaging and publishing commands."""
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
     asset = commands.add_parser("asset")
@@ -67,10 +77,11 @@ def main():
             print(f"{key}={config[field]}")
         if args.platform:
             print(f'RELEASE_ASSET={config["assets"][args.platform][args.arch]}')
+            print(f'UPDATER_ASSET={updater_assets(config)[args.platform][args.arch]}')
             if args.platform == "windows":
-                print(f'AUXILIARY_ASSET={config["additional_assets"][0]}')
+                print(f'AUXILIARY_ASSET={updater_assets(config)[args.platform][args.arch]}')
     elif args.command == "update-artifacts":
-        for platform, arches in manifest()["assets"].items():
+        for platform, arches in updater_assets(manifest()).items():
             for arch, filename in arches.items():
                 print(f"{platform}-{arch}={args.base}/{filename}={args.directory / filename}")
     elif args.command == "install-script":

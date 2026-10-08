@@ -176,12 +176,10 @@ impl Specializer<RenderPipeline> for ChunkPipelineSpecializer {
             .unwrap()
             .format = if key.hdr {
             ViewTarget::TEXTURE_FORMAT_HDR
+        } else if native_gamma {
+            TextureFormat::bevy_default().remove_srgb_suffix()
         } else {
-            if native_gamma {
-                TextureFormat::bevy_default().remove_srgb_suffix()
-            } else {
-                TextureFormat::bevy_default()
-            }
+            TextureFormat::bevy_default()
         };
         if crate::ENHANCED_RENDERING_ENABLED && key.enhanced {
             descriptor

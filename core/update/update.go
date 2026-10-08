@@ -215,7 +215,7 @@ func fetch(ctx context.Context, cfg Config) ([]byte, error) {
 	return body, nil
 }
 
-// ParseKeys decodes "id:base64,id:base64" trusted-key lists (as injected at build time).
+// ParseKeys decodes comma-separated "id:base64" trusted-key lists.
 func ParseKeys(list string) (map[string]ed25519.PublicKey, error) {
 	keys := map[string]ed25519.PublicKey{}
 	for _, entry := range strings.Split(list, ",") {

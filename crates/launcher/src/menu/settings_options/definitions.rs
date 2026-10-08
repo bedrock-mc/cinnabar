@@ -297,8 +297,6 @@ pub const SETTINGS_OPTIONS: &[SettingDefinition] = &[
     toggle("websockets_enabled", "options.websocketsEnabled", false),
     // P:ui/settings_sections/general_section.json:119; default is not yet recovered.
     toggle("websocket_encryption", "options.websocketEncryption", false),
-    // P:ui/settings_sections/general_section.json:165; default is not yet recovered.
-    toggle("auto_update_enabled", "options.autoUpdateEnabled", false),
     // P:ui/settings_sections/general_section.json:246; default is not yet recovered.
     toggle(
         "only_trusted_skins_allowed",

@@ -165,11 +165,11 @@ fn vanilla_mob_motion_on_native_gpu() {
             }
         }
     }
-    for index in 0..MOB_IDS.len() - 1 {
+    for (index, species) in SPECIES.iter().enumerate().take(MOB_IDS.len() - 1) {
         assert!(
             gait_crossings[1].1[index] > gait_crossings[0].1[index],
             "{} fast walking must complete more gait half-cycles than slow walking over the same elapsed time: {:?}",
-            SPECIES[index],
+            species,
             gait_crossings
         );
     }

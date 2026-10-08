@@ -141,6 +141,16 @@ impl MenuRuntime {
         match self.screen {
             MenuScreen::Home => {
                 let mut actions = nav();
+                let update = crate::lifecycle::update::view();
+                if update.ready {
+                    actions.push(MenuAction::UpdateRestart);
+                }
+                if update.retry {
+                    actions.push(MenuAction::UpdateRetry);
+                }
+                if update.notes {
+                    actions.push(MenuAction::UpdateNotes);
+                }
                 actions.extend((0..self.friends.len().min(1)).map(MenuAction::PlayFriend));
                 actions.extend((0..self.realms.len().min(1)).map(MenuAction::PlayRealm));
                 actions.extend((0..self.featured.len().min(2)).map(MenuAction::PlayFeatured));

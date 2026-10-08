@@ -105,7 +105,7 @@ fn ordinary_ice_water_overlap_never_hits_the_former_independent_segment_cap() {
         .enumerate()
         .map(|(index, centroid)| {
             let index = index as u32;
-            let stream = if index % 2 == 0 {
+            let stream = if index.is_multiple_of(2) {
                 MixedStream::Model
             } else {
                 MixedStream::Water

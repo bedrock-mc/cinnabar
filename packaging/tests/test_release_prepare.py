@@ -150,14 +150,14 @@ class PrepareTests(unittest.TestCase):
         self.root = self.directory / "workspace"
         self.remote = self.directory / "origin.git"
         fixture(self.root)
-        run("git", "init", "--bare", "--initial-branch=main", str(self.remote), cwd=self.directory)
-        self.git("init", "--initial-branch=main")
+        run("git", "init", "--bare", "--initial-branch=dev", str(self.remote), cwd=self.directory)
+        self.git("init", "--initial-branch=dev")
         self.git("config", "user.name", "Fixture")
         self.git("config", "user.email", "fixture@example.invalid")
         self.git("add", ".")
         self.git("commit", "-m", "Initial fixture")
         self.git("remote", "add", "origin", str(self.remote))
-        self.git("push", "--set-upstream", "origin", "main")
+        self.git("push", "--set-upstream", "origin", "dev")
         self.initial = self.git("rev-parse", "HEAD")
         binary = self.directory / "bin"
         binary.mkdir()
@@ -185,8 +185,8 @@ else:
         self.output = self.directory / "github-output"
         self.log = self.directory / "github-log"
         self.env = dict(os.environ, PATH=str(binary) + os.pathsep + os.environ["PATH"],
-                        EVENT_NAME="workflow_dispatch", DEFAULT_BRANCH="main", BUMP="current",
-                        GITHUB_REF="refs/heads/main", GITHUB_SHA=self.initial,
+                        EVENT_NAME="workflow_dispatch", DEFAULT_BRANCH="dev", BUMP="current",
+                        GITHUB_REF="refs/heads/dev", GITHUB_SHA=self.initial,
                         GITHUB_REPOSITORY="fixture/cinnabar", GITHUB_OUTPUT=str(self.output),
                         CINNABAR_SOURCE_ROOT=str(self.root),
                         FAKE_GH_LOG=str(self.log), FAKE_RELEASES="", FAKE_GH_ERROR="")
@@ -209,11 +209,22 @@ else:
     def assert_no_outputs(self):
         self.assertFalse(self.output.exists())
 
-    def test_main_push_is_read_only_nightly_at_the_event_commit(self):
+    def test_daily_schedule_is_read_only_nightly_at_the_event_commit(self):
         before = self.refs()
-        self.prepare(EVENT_NAME="push")
+        self.prepare(EVENT_NAME="schedule")
         self.assertEqual(self.outputs(), {"channel": "nightly", "tag": "nightly", "version": SOURCE_VERSION,
                                          "ref": self.initial, "commit": self.initial})
+        self.assertEqual(self.refs(), before)
+        self.assertFalse(self.log.exists())
+
+    def test_branch_pushes_and_nondefault_schedules_do_not_package(self):
+        """Only the scheduled default branch can produce a nightly package."""
+        before = self.refs()
+        for event, ref in [("push", "refs/heads/dev"), ("push", "refs/heads/feature"),
+                           ("schedule", "refs/heads/feature")]:
+            result = self.prepare(check=False, EVENT_NAME=event, GITHUB_REF=ref)
+            self.assertNotEqual(result.returncode, 0)
+            self.assert_no_outputs()
         self.assertEqual(self.refs(), before)
         self.assertFalse(self.log.exists())
 
@@ -232,7 +243,7 @@ else:
         self.assertEqual(self.outputs()["version"], "1.2.4")
         self.assertEqual(self.outputs()["ref"], current)
         self.assertEqual(self.git("rev-parse", "v1.2.4^{commit}"), current)
-        self.assertIn(current + "\trefs/heads/main", self.refs())
+        self.assertIn(current + "\trefs/heads/dev", self.refs())
         self.assertIn(current + "\trefs/tags/v1.2.4^{}", self.refs())
         self.assertEqual(self.git("log", "-1", "--format=%s"), "chore: release v1.2.4")
 
@@ -245,13 +256,13 @@ else:
         self.assertEqual(self.git("rev-parse", "HEAD"), current)
         self.assertEqual(self.refs(), before)
 
-    def test_selected_branch_receives_release_instead_of_main(self):
+    def test_selected_branch_receives_release_instead_of_dev(self):
         self.git("checkout", "-b", "release/candidate")
         self.git("push", "origin", "release/candidate")
         self.prepare(BUMP="minor", TARGET_BRANCH="release/candidate")
         current = self.git("rev-parse", "HEAD")
         self.assertIn(current + "\trefs/heads/release/candidate", self.refs())
-        self.assertIn(self.initial + "\trefs/heads/main", self.refs())
+        self.assertIn(self.initial + "\trefs/heads/dev", self.refs())
         self.assertEqual(self.outputs()["version"], "1.3.0")
 
     def test_control_tools_release_old_branch_without_packaging_scripts(self):
@@ -266,7 +277,7 @@ else:
         self.assertEqual(self.outputs()["version"], "4.5.6")
         self.assertFalse((self.root / "packaging").exists())
         self.assertEqual(self.git("status", "--porcelain"), "")
-        self.assertIn(self.initial + "\trefs/heads/main", self.refs())
+        self.assertIn(self.initial + "\trefs/heads/dev", self.refs())
 
     def test_custom_release_recovers_exact_unpublished_version(self):
         self.prepare(BUMP="custom", CUSTOM_VERSION="3.4.5")
@@ -358,8 +369,8 @@ else:
         (self.root / "change.txt").write_text("later commit")
         self.git("add", "change.txt")
         self.git("commit", "-m", "Later commit")
-        result = self.prepare(check=False, EVENT_NAME="push")
-        self.assertIn("pushed commit", result.stderr)
+        result = self.prepare(check=False, EVENT_NAME="schedule")
+        self.assertIn("event commit", result.stderr)
         self.assert_no_outputs()
 
     def test_rejected_branch_push_does_not_leave_a_remote_release_tag(self):
@@ -370,7 +381,7 @@ else:
         (other / "race.txt").write_text("branch advanced during preparation")
         run("git", "add", "race.txt", cwd=other)
         run("git", "commit", "-m", "Concurrent branch advance", cwd=other)
-        run("git", "push", "origin", "main", cwd=other)
+        run("git", "push", "origin", "dev", cwd=other)
         before = self.refs()
         result = self.prepare(check=False, BUMP="patch")
         self.assertNotEqual(result.returncode, 0)

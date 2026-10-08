@@ -34,6 +34,11 @@ const (
 
 func main() {
 	args := os.Args[1:]
+	// The detached installer must outlive its parent and owns its own exit barrier.
+	if len(args) > 0 && args[0] == "apply-update" {
+		_, code := helperMode(context.Background(), args, os.Stdout, os.Stderr)
+		os.Exit(code)
+	}
 	var stdin io.Reader
 	if bindsStdin(args) {
 		stdin = os.Stdin
@@ -57,7 +62,7 @@ func main() {
 // bindsStdin reports whether the client pipes stdin, whose EOF then ends the core; the sign-in and
 // update helpers run with a null stdin.
 func bindsStdin(args []string) bool {
-	if len(args) > 0 && args[0] == "check-update" {
+	if len(args) > 0 && (args[0] == "check-update" || args[0] == "download-update") {
 		return false
 	}
 	for _, arg := range args {

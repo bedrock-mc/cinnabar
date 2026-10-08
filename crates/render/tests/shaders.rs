@@ -1,4 +1,8 @@
 #[path = "../src/shader_safety.rs"]
+#[allow(
+    dead_code,
+    reason = "this fixture uses only the shader constructors it validates"
+)]
 mod shader_safety;
 #[path = "support/shader_source.rs"]
 mod shader_source;

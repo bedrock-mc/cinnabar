@@ -158,8 +158,8 @@ pub(super) fn sample(
                 return Ok(None);
             };
             samples.merge(&flow.identity)?;
-            for axis in 0..3 {
-                sum[axis] += flow.value[axis] as f32;
+            for (axis, component) in sum.iter_mut().enumerate() {
+                *component += flow.value[axis] as f32;
             }
         }
         let [x, y, z] = sum;

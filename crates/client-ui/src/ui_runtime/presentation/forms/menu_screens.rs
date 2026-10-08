@@ -180,7 +180,7 @@ pub(super) fn screen_data(view: &MenuView, translate: Translate<'_>) -> Option<M
             }
             MenuScreen::Home => {
                 start_screen(view, &mut data, translate);
-                context = start_screen_vars(context);
+                context = super::updater::bind_home(view, &mut data, start_screen_vars(context));
             }
             MenuScreen::Play | MenuScreen::Social | MenuScreen::Servers => {
                 super::play_screen::bind(view, &mut data);
@@ -198,6 +198,7 @@ pub(super) fn screen_data(view: &MenuView, translate: Translate<'_>) -> Option<M
                 super::settings_controls::bind(view, &mut data, &|key: &str| {
                     translated(translate, key, key)
                 });
+                super::updater::bind_settings(view, &mut data);
                 super::settings_language::bind(view, &mut data);
                 super::settings_account::bind(view, &mut data);
                 super::settings_resources::bind(&mut data);
@@ -653,6 +654,9 @@ fn section_index(name: &str) -> u8 {
 
 /// The menu action a pressed region means on `view`'s screen.
 pub(super) fn action_for(view: &MenuView, region: &HitRegion) -> Option<MenuAction> {
+    if let Some(action) = super::updater::action(view, region) {
+        return Some(action);
+    }
     if view.screen == MenuScreen::Settings
         && let Some(action) = super::settings_language::action(region)
             .or_else(|| super::settings_account::action(region))

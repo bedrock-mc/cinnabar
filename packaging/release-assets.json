@@ -13,9 +13,16 @@
       "x86_64": "Cinnabar-x86_64.dmg"
     }
   },
-  "additional_assets": [
-    "Cinnabar-x64.msi"
-  ],
+  "additional_assets": [],
   "install_script": "install.sh",
-  "update_manifest": "update-stable.json"
+  "update_manifest": "update-stable.json",
+  "updater_assets": {
+    "macos": {
+      "arm64": "Cinnabar-arm64.app.tar.gz",
+      "x86_64": "Cinnabar-x86_64.app.tar.gz"
+    },
+    "windows": {
+      "x86_64": "Cinnabar-x64.msi"
+    }
+  }
 }
