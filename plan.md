@@ -1,3 +1,10 @@
+## Anvil models
+
+- Intact, chipped and damaged anvils use four stacked pieces with their damage artwork and
+  cardinal orientation. The base, rim, stem and head replace the provisional single cuboid.
+- Exact texture rotation/crop parity remains incomplete; the models retain provisional support
+  until a matching native directional gallery verifies texel orientation. No parity gate closes.
+
 ## OreUI menus, appearance and motion
 
 - Home, Pause, Play, Inbox, world creation, Accounts and confirmation dialogs use shared OreUI

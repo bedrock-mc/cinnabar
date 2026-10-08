@@ -3645,3 +3645,21 @@ Files: `docs/reference/held-block-placement.md`, `crates/gameplay/src/block_use.
   `geometry.the_entity`. A fixed 151-actor loopback scene keeps the late actor in
   its authored frustum while a camera turn admits the background crowd; the old
   128-body gates remove that otherwise visible actor.
+
+## crates/pack-compiler/src/compiler/visuals/anvil.rs
+
+- Current 1.26.50.26 canonical `src/__unmapped/06.cpp` anvil world routine `0x06a359e0`
+  and piece helper `0x06a922d0`, indexed in `06a3.jsonl` / `06a9.jsonl`, emit four parts.
+  Immediate width/height/depth triples are `(0.75,0.25,0.75)`, `(0.5,0.0625,0.625)`,
+  `(0.25,0.3125,0.5)` and `(0.625,0.3749,1)`. Cumulative height and centered widths
+  quantize to the carrier's 1/256 block position units. Odd directions exchange X/Z.
+- The base overrides every face with face-0 artwork; later upper faces use face 1,
+  so flattened intact/chipped/damaged pack names determine their damage artwork.
+  The six rotation bytes are direction 0 `[3,3,0,0,1,2]`, 1 `[1,2,1,2,0,0]`,
+  2 `[0,0,0,0,2,1]`, 3 `[2,1,2,1,0,0]` in down/up/north/south/west/east order.
+- Older named 26.30 `BlockTessellator::tessellateAnvilInWorld` and `tessellateAnvilPiece`
+  identify the current call pattern; shape `0x2b` uses the anvil route in both world
+  and item dispatch. The pinned `blocks.json` and `textures/terrain_texture.json`
+  bind modern damage names. Exact per-vertex texture rotation remains incomplete:
+  the current canonical generic face emitters hide position register arguments and the
+  matching executable is unavailable. The compiler retains provisional support.
