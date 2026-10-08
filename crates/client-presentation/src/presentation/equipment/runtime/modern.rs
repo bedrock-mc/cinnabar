@@ -41,10 +41,15 @@ impl EquipmentRuntime {
         };
         let model_scale =
             std::array::from_fn::<_, 3, _>(|axis| evaluated.scale * evaluated.axis_scale[axis]);
-        let placed: Arc<[RenderBoneTransform]> = pose
-            .iter()
-            .enumerate()
-            .map(|(index, bone)| {
+        let placed = self.poses.sample(
+            body,
+            if input.off_hand {
+                LAYER_OFF_HAND
+            } else {
+                LAYER_MAIN_HAND
+            },
+            pose.len(),
+            |index| {
                 if selected.hidden_bones.contains(&(index as u32)) {
                     return Some(hidden_bone());
                 }
@@ -57,11 +62,10 @@ impl EquipmentRuntime {
                         evaluated.bone_parent(geometry_index, index)?,
                         model_scale,
                     )?,
-                    *bone,
+                    pose[index],
                 )
-            })
-            .collect::<Option<Vec<_>>>()?
-            .into();
+            },
+        )?;
         let source = assets.sources().get(selected.source as usize)?;
         let texture_identifier = source
             .path

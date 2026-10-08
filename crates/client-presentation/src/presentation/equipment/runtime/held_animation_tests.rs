@@ -100,14 +100,13 @@ fn held(identifier: &str) -> ActorEquipmentInput {
     }
 }
 
-#[test]
-fn third_person_held_attachable_runs_authored_perspective_and_owner_bone_channels() {
+fn held_pack() -> Vec<(Box<str>, Vec<u8>)> {
     let raster = image::RgbaImage::from_pixel(16, 16, image::Rgba([255, 0, 0, 255]));
     let mut bytes = std::io::Cursor::new(Vec::new());
     raster
         .write_to(&mut bytes, image::ImageFormat::Png)
         .unwrap();
-    let files = vec![
+    vec![
         (
             "attachables/held.json".into(),
             br#"{"format_version":"1.10.0","minecraft:attachable":{"description":{
@@ -139,8 +138,12 @@ fn third_person_held_attachable_runs_authored_perspective_and_owner_bone_channel
                 .to_vec(),
         ),
         ("textures/items/held.png".into(), bytes.into_inner()),
-    ];
-    let (mut runtime, _) = pack_runtime(files);
+    ]
+}
+
+#[test]
+fn third_person_held_attachable_runs_authored_perspective_and_owner_bone_channels() {
+    let (mut runtime, _) = pack_runtime(held_pack());
     let mut body = player_body(&mut runtime);
     let owner = owner();
     let names = [
@@ -171,6 +174,7 @@ fn third_person_held_attachable_runs_authored_perspective_and_owner_bone_channel
             owner: &owner,
             rig: &rig,
             frame_alpha: 1.0,
+            delta_seconds: client_world::ACTOR_TICK_DURATION.as_secs_f32(),
         }),
     );
     assert_eq!(
@@ -195,6 +199,7 @@ fn third_person_held_attachable_runs_authored_perspective_and_owner_bone_channel
             owner: &owner,
             rig: &rig,
             frame_alpha: 1.0,
+            delta_seconds: client_world::ACTOR_TICK_DURATION.as_secs_f32(),
         }),
     );
     assert_eq!(
@@ -205,6 +210,84 @@ fn third_person_held_attachable_runs_authored_perspective_and_owner_bone_channel
         runtime.take_pending_geometries().is_empty(),
         "unchanged held geometry stays resident"
     );
+    assert!(
+        Arc::ptr_eq(
+            &repeated[0].submission.input.current_bones,
+            &layers[0].submission.input.current_bones
+        ),
+        "unchanged poses retain their matrix-cache key"
+    );
+}
+
+#[test]
+fn third_person_held_attachable_receives_the_render_delta() {
+    let mut files = held_pack();
+    let (_, clip) = files
+        .iter_mut()
+        .find(|(path, _)| path.as_ref() == "animations/held.json")
+        .unwrap();
+    let mut document: serde_json::Value = serde_json::from_slice(clip).unwrap();
+    document["animations"]["animation.held"]["bones"]["rightitem"]["position"] =
+        serde_json::json!(["query.delta_time", 0, 0]);
+    *clip = serde_json::to_vec(&document).unwrap();
+    let (mut runtime, _) = pack_runtime(files);
+    let body = player_body(&mut runtime);
+    let owner = owner();
+    let names = ["rightItem".into()];
+    let rig = owner_rig(&owner, &names);
+    let input = held("test:held");
+    for delta_seconds in [0.01, 0.035] {
+        let layers = runtime.layers_for(
+            &body,
+            &input,
+            Some(EquipmentAnimation {
+                owner: &owner,
+                rig: &rig,
+                frame_alpha: 1.0,
+                delta_seconds,
+            }),
+        );
+        assert_eq!(layers.len(), 1);
+        let x = layers[0].submission.input.current_bones[0].translation_scale[0];
+        assert!(
+            (x + delta_seconds / 16.0).abs() < 1e-6,
+            "authored channel must receive the current render delta: {delta_seconds}, x {x}"
+        );
+    }
+}
+
+#[test]
+fn worn_attachable_categories_do_not_become_held_models() {
+    for identifier in ["minecraft:elytra", "test:helmet"] {
+        let mut files = held_pack();
+        let (_, attachable) = files
+            .iter_mut()
+            .find(|(path, _)| path.as_ref() == "attachables/held.json")
+            .unwrap();
+        let mut document: serde_json::Value = serde_json::from_slice(attachable).unwrap();
+        document["minecraft:attachable"]["description"]["identifier"] =
+            serde_json::json!(identifier);
+        *attachable = serde_json::to_vec(&document).unwrap();
+        let (mut runtime, _) = pack_runtime(files);
+        let body = player_body(&mut runtime);
+        let owner = owner();
+        let names = ["rightItem".into()];
+        let rig = owner_rig(&owner, &names);
+        let layers = runtime.layers_for(
+            &body,
+            &held(identifier),
+            Some(EquipmentAnimation {
+                owner: &owner,
+                rig: &rig,
+                frame_alpha: 1.0,
+                delta_seconds: client_world::ACTOR_TICK_DURATION.as_secs_f32(),
+            }),
+        );
+        assert!(
+            layers.is_empty(),
+            "{identifier}'s worn model must not replace its missing held icon"
+        );
+    }
 }
 
 #[test]
@@ -261,6 +344,7 @@ fn installed_bow_third_person_uses_authored_texture_mesh_and_wield_pose() {
             owner: &owner,
             rig: &rig,
             frame_alpha: 1.0,
+            delta_seconds: client_world::ACTOR_TICK_DURATION.as_secs_f32(),
         }),
     );
     assert_eq!(layers.len(), 1);

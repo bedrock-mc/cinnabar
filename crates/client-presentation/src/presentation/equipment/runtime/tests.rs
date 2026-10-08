@@ -6,6 +6,23 @@ use client_world::ItemAnimationState;
 use render::ActorRenderIdentity;
 use sha2::{Digest, Sha256};
 
+#[test]
+fn unchanged_authored_pose_sampling_allocates_nothing_and_keeps_matrix_identity() {
+    let (mut runtime, body, _) = block_fixture();
+    let transform = body.input.current_bones[0];
+    let pose = runtime
+        .poses
+        .sample(&body, LAYER_MAIN_HAND, 1, |_| Some(transform))
+        .unwrap();
+    let allocated = crate::test_allocations::count();
+    let repeated = runtime
+        .poses
+        .sample(&body, LAYER_MAIN_HAND, 1, |_| Some(transform))
+        .unwrap();
+    assert_eq!(crate::test_allocations::count() - allocated, 0);
+    assert!(Arc::ptr_eq(&pose, &repeated));
+}
+
 /// The cube sheet is injected after atlas construction: these tests cover placement and
 /// routing, not block-carrier admission (which has separate asset tests).
 fn block_fixture() -> (EquipmentRuntime, ActorRigSubmission, WornItem) {

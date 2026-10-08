@@ -114,12 +114,13 @@ impl FirstPersonArms {
     }
 }
 
-/// Tick-owned actor queries and the sampled render fraction for worn attachables.
+/// Actor queries and sampled render timing for animated equipment.
 #[derive(Clone, Copy)]
 pub struct EquipmentAnimation<'a> {
     pub owner: &'a client_world::ActorSnapshot,
     pub rig: &'a client_world::ActorRigSnapshot<'a>,
     pub frame_alpha: f32,
+    pub delta_seconds: f32,
 }
 
 pub(super) struct BodyBones {

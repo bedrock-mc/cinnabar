@@ -330,6 +330,20 @@ impl EquipmentRuntime {
                 None => {
                     let authored = animation
                         .filter(|animation| !animation.owner.is_using_item())
+                        .filter(|_| {
+                            self.binding_source(&item.identifier)
+                                .and_then(|(catalog, _)| {
+                                    catalog
+                                        .binding(&item.identifier)
+                                        .map(|binding| binding.category)
+                                })
+                                .is_some_and(|category| {
+                                    matches!(
+                                        category,
+                                        EquipmentCategory::Held | EquipmentCategory::Shield
+                                    )
+                                })
+                        })
                         .and_then(|animation| {
                             self.first_person_attachable(
                                 body,
@@ -339,6 +353,7 @@ impl EquipmentRuntime {
                                 input.attachable_input(client_world::AttachableAnimationInput {
                                     off_hand: layer == LAYER_OFF_HAND,
                                     frame_alpha: animation.frame_alpha,
+                                    delta_seconds: Some(animation.delta_seconds),
                                     ..Default::default()
                                 }),
                                 None,
@@ -680,6 +695,32 @@ impl PoseMemo {
         self.frame += 1;
         let oldest = self.frame.saturating_sub(POSE_MEMO_RETENTION_FRAMES);
         self.entries.retain(|_, entry| entry.1 >= oldest);
+    }
+
+    /// Samples placed channels without allocating when the published pose is unchanged.
+    pub(super) fn sample(
+        &mut self,
+        body: &ActorRigSubmission,
+        layer: u8,
+        len: usize,
+        mut transform: impl FnMut(usize) -> Option<RenderBoneTransform>,
+    ) -> Option<RenderPose> {
+        let key = (body.input.identity.runtime_id, layer);
+        let retained = self.entries.get(&key).and_then(|(poses, _)| {
+            let pose = &poses[1];
+            (pose.len() == len && (0..len).all(|index| transform(index) == Some(pose[index])))
+                .then(|| Arc::clone(pose))
+        });
+        let pose = match retained {
+            Some(pose) => pose,
+            None => (0..len)
+                .map(&mut transform)
+                .collect::<Option<Vec<_>>>()?
+                .into(),
+        };
+        self.entries
+            .insert(key, ([Arc::clone(&pose), Arc::clone(&pose)], self.frame));
+        Some(pose)
     }
 
     /// Shared allocations holding `poses` (previous, current) for `body`'s `layer`.
