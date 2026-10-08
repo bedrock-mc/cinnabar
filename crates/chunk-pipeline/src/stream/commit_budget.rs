@@ -46,12 +46,12 @@ impl WorldStream {
             .unwrap_or_else(|| Instant::now() + self.poll_budget);
         let mut heavy_guaranteed =
             self.poll_deadline.is_none() || (self.polling && self.poll_heavy_guarantee);
-        // Without local physics the server position scopes retention.
-        let couple_position = self.local_player_chunk.is_none();
         loop {
+            // Without local physics the server position scopes retention; a committed
+            // teleport, respawn or dimension change can hand it back mid-pass.
             let budget = CommitBudget {
                 heavy: heavy_guaranteed || Instant::now() < deadline,
-                couple_position,
+                couple_position: self.local_player_chunk.is_none(),
             };
             let Some(step) = self.order.next_commit_within(budget) else {
                 break;

@@ -160,6 +160,15 @@ fn player_spawn(runtime_id: u64) -> WorldEvent {
     })
 }
 
+/// Jukebox playback names its record by item network id.
+fn record_sound() -> WorldEvent {
+    WorldEvent::Audio(AudioEvent::LevelEvent(protocol::LevelEventSound {
+        event_id: 1006,
+        position: [1.0, 2.0, 3.0],
+        data: 1,
+    }))
+}
+
 fn level_sound(fire_at_position: Option<[f32; 3]>) -> WorldEvent {
     WorldEvent::Audio(AudioEvent::Level(LevelAudioEvent {
         sound_event: "pop".into(),
@@ -376,6 +385,7 @@ fn samples() -> Vec<WorldEvent> {
         }),
         level_sound(None),
         level_sound(Some([1.0, 2.0, 3.0])),
+        record_sound(),
         WorldEvent::Camera(CameraEvent::Shake(CameraShakeEvent {
             intensity: 1.0,
             duration_seconds: 1.0,
@@ -558,9 +568,11 @@ fn commit_sample(event: WorldEvent, actors: bool) -> (Consumers, String) {
     (touched, contents)
 }
 
-/// Events whose consumers look up an actor when they run, after the commit.
+/// Events whose consumers look up an actor or the actor store's item registry when they
+/// run, after the commit.
 fn consumer_resolves_actor(event: &WorldEvent) -> bool {
     match event {
+        WorldEvent::Audio(AudioEvent::LevelEvent(_)) => true,
         WorldEvent::Particle(ParticleEvent::Spawn(spawn)) => spawn.actor_unique_id.is_some(),
         WorldEvent::Camera(_) | WorldEvent::Ui(UiEvent::Boss(_)) => true,
         WorldEvent::SyncedBlockUpdates(updates) => updates
@@ -742,4 +754,49 @@ fn actor_bound_particle_waits_for_its_held_actor_spawn() {
     complete_pending_decode_jobs(&mut stream);
     assert_eq!(stream.take_committed_particles().len(), 1);
     assert!(stream.authority.actor_by_unique_id(11).is_some());
+}
+
+/// Record playback waits for an item registry update held behind local knockback, so the
+/// consumer resolves the record against the registry wire order gives it.
+#[test]
+fn record_sound_waits_for_a_held_item_registry_update() {
+    let (mut stream, sequence) = fixture();
+    let batch = (0..256)
+        .map(|index| BlockUpdateEvent {
+            dimension: 0,
+            position: [index % 16, -64, index / 16],
+            layer: 0,
+            network_id: 1,
+        })
+        .collect();
+    stream
+        .submit(sequence, WorldEvent::BlockUpdates(batch))
+        .unwrap();
+    stream
+        .submit(
+            sequence + 1,
+            WorldEvent::ActorMotion(ActorMotionEvent {
+                actor_runtime_id: LOCAL,
+                motion: [0.1, 0.2, 0.3],
+                tick: 1,
+            }),
+        )
+        .unwrap();
+    stream
+        .submit(
+            sequence + 2,
+            WorldEvent::ItemActor(ItemActorEvent::Registry(ItemRegistryEvent {
+                entries: protocol::vanilla_item_registry()
+                    .iter()
+                    .take(1)
+                    .cloned()
+                    .collect(),
+            })),
+        )
+        .unwrap();
+    stream.submit(sequence + 3, record_sound()).unwrap();
+    assert!(stream.take_committed_audio().is_empty());
+    complete_pending_decode_jobs(&mut stream);
+    assert!(stream.order.is_finished(sequence + 2));
+    assert_eq!(stream.take_committed_audio().len(), 1);
 }

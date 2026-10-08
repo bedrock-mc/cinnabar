@@ -261,6 +261,11 @@ fn classify_event(event: &WorldEvent, context: LaneContext) -> Footprint {
         WorldEvent::Audio(AudioEvent::Level(level)) if level.fire_at_position.is_some() => {
             Footprint::session(C::AUDIO.with(C::ACTORS))
         }
+        // Level-event sounds such as record playback resolve items through the actor
+        // store's item registry when consumed.
+        WorldEvent::Audio(AudioEvent::LevelEvent(_)) => {
+            Footprint::session(C::AUDIO.with(C::ACTORS))
+        }
         WorldEvent::Audio(_) => Footprint::session(C::AUDIO),
         // Camera switches, targets and attachments resolve actors when consumed.
         WorldEvent::Camera(_) => Footprint::session(C::CAMERA.with(C::AUDIO).with(C::ACTORS)),
