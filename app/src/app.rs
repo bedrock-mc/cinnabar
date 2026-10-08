@@ -723,6 +723,8 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     });
     app.add_plugins(plugins);
     app.add_plugins(render::InputPacingPlugin::default())
+        .init_resource::<crate::present_mode::DisplayRefresh>()
+        .add_systems(First, crate::frame_pacing::track_display_refresh)
         .add_systems(Last, crate::frame_pacing::update_frame_pacing);
     #[cfg(target_os = "macos")]
     crate::thread_budget::ThreadBudget::configure_render_thread(&mut app);

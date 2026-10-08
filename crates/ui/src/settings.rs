@@ -1,3 +1,4 @@
+use render_api::FrameRateLimit;
 use semantic_input::{ControlSettings, PerspectiveMode};
 
 pub const CURRENT_SETTINGS_SCHEMA: u32 = 2;
@@ -133,8 +134,10 @@ impl Default for UserSettings {
 pub struct VideoSettings {
     pub horizontal_fov_degrees: f32,
     pub fullscreen: bool,
-    pub frame_cap: Option<u16>,
+    pub frame_rate_limit: FrameRateLimit,
     pub vsync: bool,
+    /// With VSync off, present frames mid-scanout instead of waiting for a whole refresh.
+    pub allow_tearing: bool,
     pub anti_aliasing_samples: u32,
     pub motion_blur: MotionBlurQuality,
     pub ui_scale: f32,
@@ -159,8 +162,9 @@ impl Default for VideoSettings {
         Self {
             horizontal_fov_degrees: DEFAULT_FOV_DEGREES as f32,
             fullscreen: false,
-            frame_cap: None,
+            frame_rate_limit: FrameRateLimit::Automatic,
             vsync: true,
+            allow_tearing: false,
             anti_aliasing_samples: DEFAULT_ANTI_ALIASING_SAMPLES,
             motion_blur: MotionBlurQuality::default(),
             ui_scale: 1.0,

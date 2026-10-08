@@ -30,7 +30,7 @@ impl FrameRate {
         }
     }
 
-    const fn from_hz_const(hz: u32) -> Self {
+    pub(crate) const fn from_hz_const(hz: u32) -> Self {
         match Self::from_hz(hz) {
             Some(rate) => rate,
             None => panic!("frame rate must be positive"),

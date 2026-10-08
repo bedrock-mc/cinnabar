@@ -22,7 +22,7 @@ fn attributable_runs_and_explicit_flags_lock_the_requested_policy() {
         ),
         (
             PresentModeRuntime::from_startup(false, true, false, false),
-            PresentModePreference::NoVsync,
+            PresentModePreference::Tearing,
             PresentMode::Immediate,
         ),
         (
@@ -46,7 +46,10 @@ fn startup_flag_and_runtime_setting_select_the_same_mode_once_probed() {
 
         let mut app = vsync_app(PresentModeRuntime::from_startup(false, false, false, false));
         publish_capabilities(&app, supported);
-        publish_vsync(&mut app, false);
+        publish_video(&mut app, |video| {
+            video.vsync = false;
+            video.allow_tearing = true;
+        });
         assert_eq!(primary_present_mode(&mut app), flag.window_present_mode());
     }
 }
@@ -70,8 +73,12 @@ fn spawn_primary_window(app: &mut App) {
 }
 
 fn publish_vsync(app: &mut App, vsync: bool) {
+    publish_video(app, |video| video.vsync = vsync);
+}
+
+fn publish_video(app: &mut App, edit: impl FnOnce(&mut ui::VideoSettings)) {
     let mut settings = ui::UserSettings::default();
-    settings.video.vsync = vsync;
+    edit(&mut settings.video);
     app.world_mut()
         .resource_mut::<RuntimeSettings>()
         .replace_user_settings(settings);
@@ -104,6 +111,13 @@ fn toggling_the_user_setting_switches_the_present_mode_live() {
 
     publish_vsync(&mut app, false);
     assert_eq!(preference(&app), PresentModePreference::NoVsync);
+    assert_eq!(primary_present_mode(&mut app), PresentMode::Fifo);
+
+    publish_video(&mut app, |video| {
+        video.vsync = false;
+        video.allow_tearing = true;
+    });
+    assert_eq!(preference(&app), PresentModePreference::Tearing);
     assert_eq!(primary_present_mode(&mut app), PresentMode::Immediate);
 
     publish_vsync(&mut app, true);
@@ -113,9 +127,12 @@ fn toggling_the_user_setting_switches_the_present_mode_live() {
 
 /// The fallback request before the probe is replaced by the surface's best advertised mode.
 #[test]
-fn a_completed_probe_moves_vsync_off_to_the_advertised_mode() {
+fn a_completed_probe_moves_a_tearing_request_to_the_advertised_mode() {
     let mut app = vsync_app(PresentModeRuntime::from_startup(false, false, false, false));
-    publish_vsync(&mut app, false);
+    publish_video(&mut app, |video| {
+        video.vsync = false;
+        video.allow_tearing = true;
+    });
     assert_eq!(primary_present_mode(&mut app), PresentMode::Immediate);
 
     publish_capabilities(&app, MAILBOX_ONLY);
@@ -198,7 +215,7 @@ fn a_setting_update_retries_until_the_primary_window_exists() {
     let runtime = app.world().resource::<PresentModeRuntime>();
     assert_eq!(runtime.observed_settings_generation(), 1);
     assert_eq!(runtime.policy.preference(), PresentModePreference::NoVsync);
-    assert_eq!(primary_present_mode(&mut app), PresentMode::Immediate);
+    assert_eq!(primary_present_mode(&mut app), PresentMode::Fifo);
 }
 
 #[test]
@@ -291,4 +308,34 @@ fn the_capability_selected_mode_is_published_with_the_window_request() {
     app.update();
     assert_eq!(policy.selection(), Some(PresentModeKind::Mailbox));
     assert_eq!(primary_present_mode(&mut app), PresentMode::Mailbox);
+}
+
+/// VSync off stays tear-free on a surface without Mailbox, and Mailbox only serves a limit
+/// that outpaces the display.
+#[test]
+fn vsync_off_without_tearing_never_requests_immediate() {
+    let mut app = vsync_app(PresentModeRuntime::from_startup(false, false, false, false));
+    publish_capabilities(&app, METAL);
+    for limit in [
+        render_api::FrameRateLimit::Automatic,
+        render_api::FrameRateLimit::Unlimited,
+    ] {
+        publish_video(&mut app, |video| {
+            video.vsync = false;
+            video.frame_rate_limit = limit;
+        });
+        assert_eq!(
+            primary_present_mode(&mut app),
+            PresentMode::Fifo,
+            "{limit:?}"
+        );
+    }
+    publish_capabilities(&app, MAILBOX_ONLY);
+    publish_video(&mut app, |video| {
+        video.vsync = false;
+        video.frame_rate_limit = render_api::FrameRateLimit::Unlimited;
+    });
+    assert_eq!(primary_present_mode(&mut app), PresentMode::Mailbox);
+    publish_video(&mut app, |video| video.vsync = false);
+    assert_eq!(primary_present_mode(&mut app), PresentMode::Fifo);
 }

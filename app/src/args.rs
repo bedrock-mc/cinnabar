@@ -29,7 +29,7 @@ Options:
   --auto-fly                   Fly the camera automatically for acceptance
   --freecam                    Use non-authoritative free-camera movement
   --vsync                      Force FIFO presentation and disable driver workarounds
-  --no-vsync                   Prefer immediate, then mailbox presentation
+  --no-vsync                   Turn VSync off and allow tearing (immediate, else mailbox)
   --frame-cap <FPS>            Cap acceptance updates to 1-1000 FPS
   --render-mode <MODE>         vanilla or enhanced; CINNABAR_RENDER_MODE is the fallback
   --gui-scale <1-4|auto>       Fix the GUI scale (default: auto, the Bedrock desktop rule)

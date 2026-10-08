@@ -523,3 +523,58 @@ fn auto_jump_defaults_off_for_every_input_mode() {
         assert_eq!(settings.get(index(name)), 0, "{name}");
     }
 }
+
+fn limit(settings: &SettingsOptions) -> render_api::FrameRateLimit {
+    settings.user_settings().video.frame_rate_limit
+}
+
+/// Saved files without a schema predate Automatic: no stored limit and 0 both meant Unlimited.
+#[test]
+fn legacy_frame_rate_limits_keep_their_meaning_and_new_installs_start_automatic() {
+    use render_api::FrameRateLimit::{Automatic, Fixed, Unlimited};
+
+    assert_eq!(limit(&SettingsOptions::default()), Automatic);
+    assert_eq!(
+        limit(&SettingsOptions::decode(br#"{"values":{}}"#).unwrap()),
+        Unlimited
+    );
+    assert_eq!(
+        limit(&SettingsOptions::decode(br#"{"values":{"max_framerate":0}}"#).unwrap()),
+        Unlimited
+    );
+    let legacy_cap = SettingsOptions::decode(br#"{"values":{"max_framerate":90}}"#).unwrap();
+    assert_eq!(limit(&legacy_cap), Fixed(90.try_into().unwrap()));
+
+    for settings in [SettingsOptions::default(), legacy_cap] {
+        let saved = serde_json::to_vec(&settings).unwrap();
+        let reloaded = SettingsOptions::decode(&saved).unwrap();
+        assert_eq!(limit(&reloaded), limit(&settings), "migration runs once");
+    }
+}
+
+#[test]
+fn frame_rate_slider_stops_cover_automatic_every_cap_and_unlimited() {
+    use render_api::FrameRateLimit::{Automatic, Fixed, Unlimited};
+
+    let option = &SETTINGS_OPTIONS[index("max_framerate")];
+    assert_eq!(frame_rate_limit(option.min), Automatic);
+    assert_eq!(frame_rate_limit(option.default), Automatic);
+    assert_eq!(frame_rate_limit(option.max), Unlimited);
+    for fps in 1..=MAX_FIXED_FRAME_RATE {
+        assert_eq!(
+            frame_rate_limit(fps),
+            Fixed(u16::try_from(fps).unwrap().try_into().unwrap())
+        );
+    }
+}
+
+#[test]
+fn allow_tearing_defaults_off_and_resets_with_video() {
+    let mut settings = SettingsOptions::default();
+    assert!(!settings.user_settings().video.allow_tearing);
+    settings.set(index(ALLOW_TEARING_OPTION.name), 1);
+    let mut saved = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
+    assert!(saved.user_settings().video.allow_tearing);
+    saved.reset_group(SettingsGroup::Video);
+    assert!(!saved.user_settings().video.allow_tearing);
+}

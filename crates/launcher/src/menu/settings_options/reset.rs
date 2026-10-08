@@ -62,6 +62,7 @@ impl SettingsGroup {
                     | "gui_accessibility_scaling"
                     | "max_framerate"
                     | "vsync"
+                    | "allow_tearing"
                     | "msaa"
             ),
             // P:general_section.json:4738–5158.

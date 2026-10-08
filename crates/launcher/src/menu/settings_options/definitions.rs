@@ -87,6 +87,15 @@ pub const MOUSE_SENSITIVITY_OPTION: SettingDefinition = slider(
     (semantic_input::DEFAULT_MOUSE_SENSITIVITY * 100.0) as i32,
 );
 
+/// Frame-rate slider stops: Automatic, whole caps in frames per second, then Unlimited.
+pub const FRAME_RATE_AUTOMATIC: i32 = 0;
+pub const MAX_FIXED_FRAME_RATE: i32 = 240;
+pub const FRAME_RATE_UNLIMITED: i32 = MAX_FIXED_FRAME_RATE + 1;
+
+/// With VSync off, presents mid-scanout for the earliest partial update; off stays tear-free.
+pub const ALLOW_TEARING_OPTION: SettingDefinition =
+    toggle("allow_tearing", "options.allowTearing", false);
+
 /// Defines one boolean binding with an integral persisted value.
 const fn toggle(name: &'static str, label: &'static str, default: bool) -> SettingDefinition {
     SettingDefinition {
@@ -278,7 +287,13 @@ pub const SETTINGS_OPTIONS: &[SettingDefinition] = &[
         render_api::PHASE0_MAX_VIEW_RADIUS_CHUNKS,
         ui::DEFAULT_RENDER_DISTANCE_CHUNKS as i32,
     ),
-    slider("max_framerate", "options.framerateLimit", 0, 240, 0),
+    slider(
+        "max_framerate",
+        "options.framerateLimit",
+        FRAME_RATE_AUTOMATIC,
+        FRAME_RATE_UNLIMITED,
+        FRAME_RATE_AUTOMATIC,
+    ),
     slider(
         "msaa",
         "options.msaa",
@@ -289,6 +304,7 @@ pub const SETTINGS_OPTIONS: &[SettingDefinition] = &[
     MOTION_BLUR_OPTION,
     // Vanilla keeps this out of retail menus (persisted `gfx_vsync`, on); see plan.md.
     toggle("vsync", "options.vsync", true),
+    ALLOW_TEARING_OPTION,
     slider(
         "field_of_view",
         "options.fov",

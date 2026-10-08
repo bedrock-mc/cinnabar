@@ -1,13 +1,27 @@
 //! Chooses the frame admission cadence from the frame-rate setting, launch flags and window state.
 
+use std::time::{Duration, Instant};
+
 use bevy::{
-    prelude::{Entity, MessageReader, Query, Res, ResMut, Resource, With},
+    ecs::system::NonSendMarker,
+    prelude::{Entity, Local, MessageReader, Query, Res, ResMut, Resource, With},
     window::{PrimaryWindow, Window, WindowOccluded},
+    winit::WINIT_WINDOWS,
 };
 use render::FramePacing;
-use render_model::{FrameRate, WindowActivity, effective_frame_rate};
+use render_api::FrameRateLimit;
+use render_model::{
+    DisplayTiming, FrameRate, PresentationIntent, WindowActivity, effective_frame_rate,
+    frame_rate_target,
+};
 
-use crate::settings_runtime::RuntimeSettings;
+use crate::{
+    present_mode::{DisplayRefresh, PresentModeRuntime},
+    settings_runtime::RuntimeSettings,
+};
+
+/// Monitors can change refresh while a window stays put, so it is re-read this often.
+const DISPLAY_RECHECK: Duration = Duration::from_secs(1);
 
 /// Session inputs to the cadence that the saved settings do not carry.
 #[derive(Resource, Debug)]
@@ -37,7 +51,13 @@ impl FramePacingRuntime {
         self.suspended = suspended;
     }
 
-    fn pacing(&self, saved_cap: Option<u16>, focused: bool) -> FramePacing {
+    fn pacing(
+        &self,
+        intent: PresentationIntent,
+        limit: FrameRateLimit,
+        display: DisplayTiming,
+        focused: bool,
+    ) -> FramePacing {
         let activity = if self.ignore_window_state {
             WindowActivity::Focused
         } else if self.occluded {
@@ -49,7 +69,7 @@ impl FramePacingRuntime {
         };
         let requested = self
             .launch_cap
-            .or_else(|| saved_cap.and_then(|cap| FrameRate::from_hz(u32::from(cap))));
+            .or_else(|| frame_rate_target(intent, limit, display));
         FramePacing {
             rate: (!self.suspended)
                 .then(|| effective_frame_rate(requested, activity))
@@ -63,6 +83,8 @@ impl FramePacingRuntime {
 pub(crate) fn update_frame_pacing(
     settings: Res<RuntimeSettings>,
     mut runtime: ResMut<FramePacingRuntime>,
+    presentation: Res<PresentModeRuntime>,
+    display: Res<DisplayRefresh>,
     windows: Query<(Entity, &Window), With<PrimaryWindow>>,
     mut occlusion: MessageReader<WindowOccluded>,
     mut pacing: ResMut<FramePacing>,
@@ -74,9 +96,43 @@ pub(crate) fn update_frame_pacing(
         }
     }
     let focused = primary.is_none_or(|(_, window)| window.focused);
-    let next = runtime.pacing(settings.user_settings_update().1.video.frame_cap, focused);
+    let next = runtime.pacing(
+        presentation.intent(),
+        settings.user_settings_update().1.video.frame_rate_limit,
+        display.0,
+        focused,
+    );
     if *pacing != next {
         *pacing = next;
+    }
+}
+
+/// Re-reads the primary window's monitor refresh; changes only when it does.
+pub(crate) fn track_display_refresh(
+    windows: Query<Entity, With<PrimaryWindow>>,
+    mut display: ResMut<DisplayRefresh>,
+    mut checked: Local<Option<Instant>>,
+    _main_thread: NonSendMarker,
+) {
+    let now = Instant::now();
+    if checked.is_some_and(|last| now.saturating_duration_since(last) < DISPLAY_RECHECK) {
+        return;
+    }
+    *checked = Some(now);
+    let refresh = windows.single().ok().and_then(|window| {
+        WINIT_WINDOWS.with_borrow(|windows| {
+            windows
+                .get_window(window)?
+                .current_monitor()?
+                .refresh_rate_millihertz()
+        })
+    });
+    let next = DisplayRefresh(DisplayTiming {
+        refresh: refresh.and_then(FrameRate::from_millihertz),
+        ..display.0
+    });
+    if *display != next {
+        *display = next;
     }
 }
 

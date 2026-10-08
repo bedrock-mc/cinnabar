@@ -334,7 +334,7 @@ mod graphics_metadata_tests {
     /// A pre-probe FIFO request on a Mailbox-only surface must not be reported as effective.
     #[test]
     fn metadata_waits_for_the_capability_selected_request() {
-        let policy = PresentModePolicy::new(PresentModePreference::NoVsync);
+        let policy = PresentModePolicy::new(PresentModePreference::Tearing);
         policy.publish_capabilities(Some(
             SurfacePresentModes::FIFO_ONLY.with(PresentModeKind::Mailbox),
         ));

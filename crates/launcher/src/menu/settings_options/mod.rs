@@ -23,20 +23,25 @@ pub use control_bindings::{
     EXTRA_GAMEPAD, EXTRA_KEYS, GAMEPAD_BINDINGS, GAMEPAD_OFFSET, gamepad_icon,
 };
 pub use definitions::{
-    ANIMATION_CHOICES, ANIMATIONS_OPTION, DISCORD_PRESENCE_OPTION, INVERT_CROSSHAIR_OPTION,
+    ALLOW_TEARING_OPTION, ANIMATION_CHOICES, ANIMATIONS_OPTION, DISCORD_PRESENCE_OPTION,
+    FRAME_RATE_AUTOMATIC, FRAME_RATE_UNLIMITED, INVERT_CROSSHAIR_OPTION, MAX_FIXED_FRAME_RATE,
     MOTION_BLUR_CHOICES, MOTION_BLUR_OPTION, MOUSE_SENSITIVITY_OPTION, SETTINGS_OPTIONS,
     SettingDefinition, SettingKind, THIRD_PERSON_CROSSHAIR_OPTION,
 };
 pub use emotes::EMOTE_SLOT_COUNT;
 pub use keybindings::{KEY_BINDINGS, OPEN_NOTIFICATION_KEY, key_name};
-pub use persistence::SETTINGS_FILE;
+pub use persistence::{SETTINGS_FILE, SETTINGS_SCHEMA};
+pub use runtime::frame_rate_limit;
 
 pub const SHOW_EXACT_SERVER_PING: &str = "show_exact_server_ping";
 pub const OREUI_DARK_MODE: &str = "oreui_dark_mode";
 
-#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SettingsOptions {
+    /// Stored layout version; files without one predate the frame-rate limit migration.
+    #[serde(default = "persistence::legacy_schema")]
+    schema: u32,
     values: BTreeMap<String, i32>,
     #[serde(skip)]
     anti_aliasing_support: ui::AntiAliasingSupport,
@@ -45,6 +50,20 @@ pub struct SettingsOptions {
     /// None means the original custom catalog supplies first-run defaults.
     emote_slots: Option<[Option<String>; EMOTE_SLOT_COUNT]>,
     server_list: super::server_list::ServerListPreferences,
+}
+
+impl Default for SettingsOptions {
+    fn default() -> Self {
+        Self {
+            schema: SETTINGS_SCHEMA,
+            values: BTreeMap::new(),
+            anti_aliasing_support: ui::AntiAliasingSupport::default(),
+            keys: BTreeMap::new(),
+            language: None,
+            emote_slots: None,
+            server_list: super::server_list::ServerListPreferences::default(),
+        }
+    }
 }
 
 impl SettingsOptions {
