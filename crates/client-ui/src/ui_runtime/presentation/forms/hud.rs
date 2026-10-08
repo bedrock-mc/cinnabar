@@ -324,7 +324,10 @@ impl UiPresentationRuntime {
             self.hud_textures.as_ref(),
             &self.form_presentation.chat.settings.options,
         );
-        let context = hud_context(renderer.context());
+        let context = super::chat_position::context(
+            hud_context(renderer.context()),
+            &self.form_presentation.chat.settings.options,
+        );
         let catalog = Arc::clone(renderer.catalog());
         let px = metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
         let translate = |key: &str| runtime.translation(key);

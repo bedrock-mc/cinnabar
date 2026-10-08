@@ -10,6 +10,7 @@ pub mod language;
 pub mod persistence;
 pub mod reset;
 pub mod runtime;
+pub use chat::CHAT_POSITION_OPTION;
 pub use reset::SettingsGroup;
 #[cfg(test)]
 mod tests;
