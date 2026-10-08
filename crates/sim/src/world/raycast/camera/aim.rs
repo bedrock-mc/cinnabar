@@ -153,9 +153,9 @@ impl PaletteWorld<'_> {
             let Some((&first, rest)) = shapes.split_first() else {
                 return Ok(None);
             };
-            let mut outline = first.translated(offset);
+            let mut outline = first.translated(physics.shape_offset(block));
             for shape in rest {
-                let shape = shape.translated(offset);
+                let shape = shape.translated(physics.shape_offset(block));
                 for axis in 0..3 {
                     outline.min[axis] = outline.min[axis].min(shape.min[axis]);
                     outline.max[axis] = outline.max[axis].max(shape.max[axis]);

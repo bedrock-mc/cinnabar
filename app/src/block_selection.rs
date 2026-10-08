@@ -112,11 +112,7 @@ fn target(
             max.z.max(shape.max.z),
         );
     }
-    let offset = sim::Vec3::new(
-        hit.block_pos[0] as f64,
-        hit.block_pos[1] as f64,
-        hit.block_pos[2] as f64,
-    );
+    let offset = registry.block_shape_offset(hit.runtime_id, hit.block_pos)?;
     let point = |point: sim::Vec3| [point.x as f32, point.y as f32, point.z as f32];
     let assets = stream.runtime_assets();
     let visual = assets.resolve(stream.network_id_mode(), hit.runtime_id);

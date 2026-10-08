@@ -6548,7 +6548,9 @@ hardware budgets and matched-version pixel comparison remain incomplete.
 
 Bamboo visuals remain incomplete. A dedicated stalk/leaf model now separates the
 stem selector from the small/large leaf selectors, with thickness-dependent stalk
-bounds and position-dependent stem UVs and column offsets. Current pinned physics
+bounds and position-dependent stem UVs and column offsets. Picking, collision,
+camera and outline bounds resolve the same column displacement; CPU terrain
+culling shares the GPU model-overhang bounds. Current pinned physics
 seeds confirm both widths and the origin offsets. Headless Metal checks cover
 all twelve pinned states from four sides and above, with continuous stalks and
 visible radial leaves. Matching headless game checks confirm selection highlights

@@ -46,8 +46,8 @@ pub(crate) fn source(source: &str) -> String {
         .replace("BAMBOO_POSITIVE_Z_LEAF_QUAD", &format!("{}u", meshing::bamboo::POSITIVE_Z_LEAF_QUAD))
         .replace("// BAMBOO_CONSTANTS", &format!(
             "const BAMBOO_OFFSET_MIN: f32 = {:?};\nconst BAMBOO_OFFSET_STEP: f32 = {:?};\nconst BAMBOO_STEM_UV_STRIDE: f32 = {:?};\nconst BAMBOO_LEAF_PLANE_INSET: f32 = {:?};",
-            meshing::bamboo::OFFSET_MIN,
-            meshing::bamboo::OFFSET_STEP,
+            world::bamboo::OFFSET_MIN,
+            world::bamboo::OFFSET_STEP,
             meshing::bamboo::STEM_UV_STRIDE,
             meshing::bamboo::LEAF_PLANE_INSET,
         ))

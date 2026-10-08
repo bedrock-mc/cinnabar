@@ -164,9 +164,9 @@ fn bamboo_offsets_do_not_rotate_enhanced_surface_normals() {
         );
         assert_eq!(values[case * 2][3], 1.0, "fixture vertex must be visible");
         if case < 4 {
-            let x = meshing::bamboo::OFFSET_MIN
-                + case as f32 * meshing::bamboo::OFFSET_SPAN
-                    / (meshing::bamboo::OFFSET_STEPS - 1) as f32
+            let x = world::bamboo::OFFSET_MIN
+                + case as f32 * world::bamboo::OFFSET_SPAN
+                    / (world::bamboo::OFFSET_STEPS - 1) as f32
                 + 0.5;
             assert!((values[case * 2 + 1][0] - x).abs() < 1.0e-6);
         }

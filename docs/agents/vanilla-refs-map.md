@@ -3668,7 +3668,7 @@ Files: `docs/reference/held-block-placement.md`, `crates/gameplay/src/block_use.
   `FUN_14a7c7db0` uses `15014e774` as the end portal frame base height and
   eye minimum Y. Its base/eye topology matches `EndPortalFrameBlock::addAABBs`
   in the named reference; pinned protocol-2193 boxes constrain both to 13/16.
-- `crates/meshing/src/bamboo.rs` follows current position hash, seed mixing,
+- `crates/world/src/bamboo.rs` follows current position hash, seed mixing,
   and xoroshiro128++ in `src/__unmapped/0a.cpp`, `FUN_14ab8efd0` (2018342).
   Installed arm64 `0x10bb8af58` independently confirms signed-coordinate RNG
   samples for ordinary coordinates. Its narrowed X product diverges at i32
@@ -3697,6 +3697,15 @@ Files: `docs/reference/held-block-placement.md`, `crates/gameplay/src/block_use.
   overlays preserve that admission through `CrackQuad`; their shared overlay
   vertex entry keeps the depth separation toward the camera on either side,
   while emitting each transparent leaf only once.
+- Collision and pick admission share the column displacement: current
+  `FUN_143655e00` (`src/__unmapped/03.cpp`, 1108936 onward) translates collision
+  boxes by the random-offset component; `FUN_142e33a60` (`02.cpp`, 2428689 onward)
+  does the same for clip boxes, and `FUN_1436567d0` (`03.cpp`, 1109394 onward;
+  thunk in `04.cpp`, 1270804 onward) applies it to selection bounds. The pinned
+  physics carrier already samples the origin, so `sim` retains its shapes and
+  resolves each block's displacement relative to that sample. Rendering and
+  all collision/pick/camera/outline consumers share the `world` column owner.
+
 ## app/src/runtime/world.rs (committed control fence); app/src/tests/latency_fences.rs
 
 - Vanilla handles inbound packets in wire order every frame after the tick loop (`Minecraft::update` → `NetworkSystem::runEvents`, macOS ~1.26.30 0x10992bf20/0x105a32410). `LegacyClientNetworkHandler::handle(SetActorMotionPacket)` applies tick-zero motion immediately and `_onCorrectPlayerMovePredictionPacket` `0x04ae6670` feeds the correction into the replay frame when handled (entries above), so nothing ahead of a later NetworkStackLatency probe waits for that probe's reply. Cinnabar defers only the probe and later controls while older inputs drain, preserving the wire order input → reply → input reflecting post-probe state.

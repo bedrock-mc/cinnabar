@@ -6,6 +6,7 @@ use world::{ChunkCollisionRevision, ChunkKey, ChunkStore, SubChunkKey};
 
 use crate::{Aabb, Vec3};
 
+mod bamboo;
 mod camera_collision;
 mod contracts;
 mod current;
@@ -281,6 +282,7 @@ pub struct CollisionRegistry {
 
 #[derive(Debug, Clone)]
 struct BlockPhysics {
+    bamboo_offset: bool,
     door: Option<DoorState>,
     flow: Option<FlowBlockFacts>,
     shapes: Box<[Aabb]>,
@@ -429,6 +431,7 @@ impl CollisionRegistry {
         Arc::make_mut(&mut self.blocks).insert(
             runtime_id,
             BlockPhysics {
+                bamboo_offset: false,
                 door: None,
                 flow: None,
                 shapes: shapes.into_boxed_slice(),
@@ -707,7 +710,6 @@ impl<'a> PaletteWorld<'a> {
             for z in min[2]..=max[2] {
                 for y in min[1]..=max[1] {
                     let block = [x, y, z];
-                    let block_offset = Vec3::new(f64::from(x), f64::from(y), f64::from(z));
                     for runtime_id in self.runtime_ids_at(block)? {
                         let physics = self
                             .registry
@@ -718,7 +720,7 @@ impl<'a> PaletteWorld<'a> {
                             .iter()
                             .copied()
                         {
-                            let shape = shape.translated(block_offset);
+                            let shape = shape.translated(physics.shape_offset(block));
                             if shape.intersects(query) {
                                 instances.push(CollisionInstance {
                                     shape,
