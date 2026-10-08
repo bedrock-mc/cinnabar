@@ -1,55 +1,75 @@
 #define_import_path cinnabar::lighting
 
-// Alpha alone interpolates across a cutout edge; the authored RGB texels stay nearest.
-fn cutout_alpha_footprint(alpha: vec4<f32>, fraction: vec2<f32>, dx: vec2<f32>, dy: vec2<f32>) -> vec2<f32> {
-    let interpolated = mix(mix(alpha.x, alpha.y, fraction.x), mix(alpha.z, alpha.w, fraction.x), fraction.y);
-    let gradient = vec2(mix(alpha.y - alpha.x, alpha.w - alpha.z, fraction.y), mix(alpha.z - alpha.x, alpha.w - alpha.y, fraction.x));
-    return vec2(interpolated, abs(dot(gradient, dx)) + abs(dot(gradient, dy)));
+// Coverage and the nearest covered texel stay separate so opaque RGB is never filtered.
+struct CutoutSample { coverage: f32, colour: vec4<f32> }
+
+// Coverage integrates the nearest alpha grid over one pixel; covered RGB stays nearest.
+fn cutout_sample(texels: array<vec4<f32>, 4>, fraction: vec2<f32>, footprint: vec2<f32>, threshold: f32) -> CutoutSample {
+    let weight = clamp((fraction - vec2(0.5)) / max(footprint, vec2(0.00001)) + vec2(0.5), vec2(0.0), vec2(1.0));
+    let mask = vec4<f32>(vec4(texels[0].a, texels[1].a, texels[2].a, texels[3].a) >= vec4(threshold));
+    let coverage = mix(mix(mask.x, mask.y, weight.x), mix(mask.z, mask.w, weight.x), weight.y);
+    var colour = texels[0];
+    var nearest = 1000000.0;
+    for (var index = 0u; index < 4u; index++) {
+        let offset = fraction - vec2(f32(index & 1u), f32(index >> 1u));
+        let distance_squared = dot(offset, offset);
+        if (texels[index].a >= threshold && distance_squared < nearest) {
+            colour = texels[index];
+            nearest = distance_squared;
+        }
+    }
+    return CutoutSample(coverage, colour);
 }
 
-// Minification keeps the existing mip alpha; magnification measures the binary texel contour.
-fn cutout_alpha_array(image: texture_2d_array<f32>, uv: vec2<f32>, layer: i32, dx: vec2<f32>, dy: vec2<f32>, sampled_alpha: f32, repeat_uv: bool) -> vec2<f32> {
+// Animated cutout frames mix coverage without introducing transparent RGB into recovered edges.
+fn cutout_mix(first: CutoutSample, second: CutoutSample, blend: f32) -> CutoutSample {
+    let coverage = mix(first.coverage, second.coverage, blend);
+    let colour = mix(first.colour * first.coverage, second.colour * second.coverage, blend) / max(coverage, 0.00001);
+    return CutoutSample(coverage, colour);
+}
+
+// Minification keeps mip coverage; magnification filters only the binary alpha contour.
+fn cutout_alpha_array(image: texture_2d_array<f32>, uv: vec2<f32>, layer: i32, dx: vec2<f32>, dy: vec2<f32>, sampled: vec4<f32>, repeat_uv: bool, threshold: f32) -> CutoutSample {
     let size = vec2<f32>(textureDimensions(image, 0));
     let texel_dx = dx * size;
     let texel_dy = dy * size;
-    if (max(length(texel_dx), length(texel_dy)) >= 1.0) { return vec2(sampled_alpha, 1.0); }
+    if (max(length(texel_dx), length(texel_dy)) >= 1.0) {
+        return CutoutSample(clamp(sampled.a - threshold + 0.5, 0.0, 1.0), sampled);
+    }
     let position = uv * size - vec2(0.5);
     let base = vec2<i32>(floor(position));
-    let alpha = vec4(
-        textureLoad(image, cutout_texel_address(base, vec2<i32>(size), repeat_uv), layer, 0).a,
-        textureLoad(image, cutout_texel_address(base + vec2(1, 0), vec2<i32>(size), repeat_uv), layer, 0).a,
-        textureLoad(image, cutout_texel_address(base + vec2(0, 1), vec2<i32>(size), repeat_uv), layer, 0).a,
-        textureLoad(image, cutout_texel_address(base + vec2(1), vec2<i32>(size), repeat_uv), layer, 0).a,
+    let texels = array(
+        textureLoad(image, cutout_texel_address(base, vec2<i32>(size), repeat_uv), layer, 0),
+        textureLoad(image, cutout_texel_address(base + vec2(1, 0), vec2<i32>(size), repeat_uv), layer, 0),
+        textureLoad(image, cutout_texel_address(base + vec2(0, 1), vec2<i32>(size), repeat_uv), layer, 0),
+        textureLoad(image, cutout_texel_address(base + vec2(1), vec2<i32>(size), repeat_uv), layer, 0),
     );
-    return cutout_alpha_footprint(alpha, fract(position), texel_dx, texel_dy);
+    return cutout_sample(texels, fract(position), abs(texel_dx) + abs(texel_dy), threshold);
 }
 
-// Signed modulo keeps bilinear neighbours inside the same array layer at a repeating seam.
+// Signed modulo keeps neighbours inside the same array layer at a repeating seam.
 fn cutout_texel_address(coordinate: vec2<i32>, size: vec2<i32>, repeat_uv: bool) -> vec2<i32> {
     return select(clamp(coordinate, vec2(0), size - vec2(1)), (coordinate % size + size) % size, repeat_uv);
 }
 
-// Atlas cutouts use the same alpha footprint without adding a filtering sampler.
-fn cutout_alpha_2d(image: texture_2d<f32>, uv: vec2<f32>, dx: vec2<f32>, dy: vec2<f32>, sampled_alpha: f32) -> vec2<f32> {
+// Atlas cutouts use the same one-pixel contour and recover covered RGB at transparent texels.
+fn cutout_alpha_2d(image: texture_2d<f32>, uv: vec2<f32>, dx: vec2<f32>, dy: vec2<f32>, sampled: vec4<f32>, threshold: f32) -> CutoutSample {
     let size = vec2<f32>(textureDimensions(image, 0));
     let texel_dx = dx * size;
     let texel_dy = dy * size;
-    if (max(length(texel_dx), length(texel_dy)) >= 1.0) { return vec2(sampled_alpha, 1.0); }
+    if (max(length(texel_dx), length(texel_dy)) >= 1.0) {
+        return CutoutSample(clamp(sampled.a - threshold + 0.5, 0.0, 1.0), sampled);
+    }
     let position = uv * size - vec2(0.5);
     let base = vec2<i32>(floor(position));
     let limit = vec2<i32>(size) - vec2(1);
-    let alpha = vec4(
-        textureLoad(image, clamp(base, vec2(0), limit), 0).a,
-        textureLoad(image, clamp(base + vec2(1, 0), vec2(0), limit), 0).a,
-        textureLoad(image, clamp(base + vec2(0, 1), vec2(0), limit), 0).a,
-        textureLoad(image, clamp(base + vec2(1), vec2(0), limit), 0).a,
+    let texels = array(
+        textureLoad(image, clamp(base, vec2(0), limit), 0),
+        textureLoad(image, clamp(base + vec2(1, 0), vec2(0), limit), 0),
+        textureLoad(image, clamp(base + vec2(0, 1), vec2(0), limit), 0),
+        textureLoad(image, clamp(base + vec2(1), vec2(0), limit), 0),
     );
-    return cutout_alpha_footprint(alpha, fract(position), texel_dx, texel_dy);
-}
-
-// The original alpha threshold stays at the contour's center, with a one-pixel coverage ramp.
-fn cutout_coverage(footprint: vec2<f32>, threshold: f32) -> f32 {
-    return clamp((footprint.x - threshold) / max(footprint.y, 0.00001) + 0.5, 0.0, 1.0);
+    return cutout_sample(texels, fract(position), abs(texel_dx) + abs(texel_dy), threshold);
 }
 // ACTOR_SHADE_CONSTANTS
 

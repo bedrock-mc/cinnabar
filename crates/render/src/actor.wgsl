@@ -1,7 +1,7 @@
 #import bevy_render::view::View
 #import cinnabar::lighting::{actor_lighting, actor_distance_fog, actor_light_colour, tint_to_gamma, tint_to_linear}
 #ifdef ALPHA_TO_COVERAGE
-#import cinnabar::lighting::{cutout_alpha_array, cutout_coverage}
+#import cinnabar::lighting::{CutoutSample, cutout_alpha_array}
 #endif
 
 struct GeometrySpan {
@@ -196,13 +196,13 @@ fn sample_actor_texture(uv: vec2<f32>, layer: u32) -> vec4<f32> {
 
 #ifdef ALPHA_TO_COVERAGE
 // Player skin resolution classes keep their own texel footprint when measuring cutout coverage.
-fn actor_alpha_footprint(uv: vec2<f32>, layer: u32, dx: vec2<f32>, dy: vec2<f32>, sampled_alpha: f32, repeat_uv: bool) -> vec2<f32> {
+fn actor_alpha_footprint(uv: vec2<f32>, layer: u32, dx: vec2<f32>, dy: vec2<f32>, sampled: vec4<f32>, repeat_uv: bool) -> CutoutSample {
     let index = i32(layer & 0xffffffu);
     switch (layer >> 24u) {
-        case 1u: { return cutout_alpha_array(skins_64, uv, index, dx, dy, sampled_alpha, repeat_uv); }
-        case 2u: { return cutout_alpha_array(skins_128, uv, index, dx, dy, sampled_alpha, repeat_uv); }
-        case 3u: { return cutout_alpha_array(skins_256, uv, index, dx, dy, sampled_alpha, repeat_uv); }
-        default: { return cutout_alpha_array(skins, uv, index, dx, dy, sampled_alpha, repeat_uv); }
+        case 1u: { return cutout_alpha_array(skins_64, uv, index, dx, dy, sampled, repeat_uv, ACTOR_ALPHA_TEST_THRESHOLD); }
+        case 2u: { return cutout_alpha_array(skins_128, uv, index, dx, dy, sampled, repeat_uv, ACTOR_ALPHA_TEST_THRESHOLD); }
+        case 3u: { return cutout_alpha_array(skins_256, uv, index, dx, dy, sampled, repeat_uv, ACTOR_ALPHA_TEST_THRESHOLD); }
+        default: { return cutout_alpha_array(skins, uv, index, dx, dy, sampled, repeat_uv, ACTOR_ALPHA_TEST_THRESHOLD); }
     }
 }
 #endif
@@ -234,9 +234,12 @@ fn actor_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @l
     }
     // Ordinary native actor materials compose gamma RGB. Undo Bevy's texture
     // decode before dye/overlay products, then transfer once at the output.
-    var color = tint_to_gamma(sample_actor_texture(uv, input.skin_layer));
+    let texel = sample_actor_texture(uv, input.skin_layer);
+    var color = tint_to_gamma(texel);
 #ifdef ALPHA_TO_COVERAGE
-    let coverage = cutout_coverage(actor_alpha_footprint(uv, input.skin_layer, uv_dx, uv_dy, color.a, input.uv_wrap != 0u), ACTOR_ALPHA_TEST_THRESHOLD);
+    let cutout = actor_alpha_footprint(uv, input.skin_layer, uv_dx, uv_dy, texel, input.uv_wrap != 0u);
+    let coverage = cutout.coverage;
+    if (color.a < ACTOR_ALPHA_TEST_THRESHOLD && coverage > 0.0) { color = tint_to_gamma(cutout.colour); }
 #endif
     if (material == ACTOR_MATERIAL_DISSOLVE_DEPTH) {
         if (color.a * input.dissolve_multiplier < ACTOR_ALPHA_TEST_THRESHOLD) { discard; }

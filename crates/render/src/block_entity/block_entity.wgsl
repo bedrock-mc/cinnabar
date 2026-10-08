@@ -1,10 +1,12 @@
 #import bevy_render::view::View
 #import cinnabar::lighting::{actor_lighting, actor_distance_fog, tint_to_gamma, tint_to_linear}
 #ifdef ALPHA_TO_COVERAGE
-#import cinnabar::lighting::{cutout_alpha_2d, cutout_coverage}
+#import cinnabar::lighting::{cutout_alpha_2d}
 #endif
 
 // Packed Rust BlockEntityVertex: position, atlas UV, RGBA, world normal, actor light.
+const BLOCK_ENTITY_ALPHA_THRESHOLD: f32 = 0.5;
+
 @group(0) @binding(0) var<uniform> view: View;
 @group(0) @binding(1) var<storage, read> vertex_words: array<u32>;
 @group(0) @binding(2) var atlas: texture_2d<f32>;
@@ -104,11 +106,13 @@ fn selection_line_fragment(input: SelectionLineOutput) -> @location(0) vec4<f32>
 
 @fragment
 fn block_entity_solid(input: VertexOutput) -> @location(0) vec4<f32> {
-    let texel = textureSample(atlas, atlas_sampler, input.uv);
+    var texel = textureSample(atlas, atlas_sampler, input.uv);
 #ifdef ALPHA_TO_COVERAGE
-    let coverage = cutout_coverage(cutout_alpha_2d(atlas, input.uv, dpdx(input.uv), dpdy(input.uv), texel.a), 0.5);
+    let cutout = cutout_alpha_2d(atlas, input.uv, dpdx(input.uv), dpdy(input.uv), texel, BLOCK_ENTITY_ALPHA_THRESHOLD);
+    let coverage = cutout.coverage;
+    if (texel.a < BLOCK_ENTITY_ALPHA_THRESHOLD && coverage > 0.0) { texel = cutout.colour; }
 #else
-    if (texel.a < 0.5) {
+    if (texel.a < BLOCK_ENTITY_ALPHA_THRESHOLD) {
         discard;
     }
     let coverage = 1.0;

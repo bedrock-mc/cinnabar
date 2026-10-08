@@ -79,7 +79,7 @@ fn block_entity_source() -> String {
 }
 
 /// Draws the production block-entity cutout fragment with controlled alpha texels.
-fn cutout_raster(gpu: &Gpu, samples: u32, coverage: bool) -> Vec<u8> {
+fn cutout_raster(gpu: &Gpu, samples: u32, coverage: bool, square: bool) -> Vec<u8> {
     let source = block_entity_source();
     let mut source =
         crate::shader_source::standalone(&source, if coverage { &[SHADER_DEF] } else { &[] })
@@ -101,13 +101,21 @@ fn cutout_raster(gpu: &Gpu, samples: u32, coverage: bool) -> Vec<u8> {
 }
 "#,
     );
+    let texels = if square {
+        source = source.replace("    out.uv.x += uv.y * 0.35 - 0.175 + 0.00137;", "");
+        let mut texels = vec![0; 4 * 4 * 4];
+        texels[20..24].copy_from_slice(&[255, 0, 0, 255]);
+        texels
+    } else {
+        vec![0, 0, 0, 0, 255, 0, 0, 255, 255, 0, 0, 255, 0, 255, 0, 255]
+    };
     let texture = gpu.device.create_texture_with_data(
         &gpu.queue,
         &wgpu::TextureDescriptor {
             label: Some("owned cutout coverage fixture"),
             size: wgpu::Extent3d {
                 width: 4,
-                height: 1,
+                height: if square { 4 } else { 1 },
                 depth_or_array_layers: 1,
             },
             mip_level_count: 1,
@@ -118,7 +126,7 @@ fn cutout_raster(gpu: &Gpu, samples: u32, coverage: bool) -> Vec<u8> {
             view_formats: &[],
         },
         wgpu::util::TextureDataOrder::LayerMajor,
-        &[255, 0, 0, 0, 255, 0, 0, 255, 255, 0, 0, 255, 0, 255, 0, 255],
+        &texels,
     );
     let atlas = texture.create_view(&Default::default());
     let sampler = gpu
@@ -175,8 +183,8 @@ fn cutout_edge_has_partial_coverage_at_four_samples_without_blurring_opaque_texe
     ) else {
         return;
     };
-    let one = cutout_raster(&gpu, 1, false);
-    let four = cutout_raster(&gpu, 4, true);
+    let one = cutout_raster(&gpu, 1, false, false);
+    let four = cutout_raster(&gpu, 4, true, false);
     let pixel = |frame: &[u8], column: usize, row: usize| {
         let index = (row * SNAPSHOT_SIDE as usize + column) * 4;
         <[u8; 4]>::try_from(&frame[index..index + 4]).unwrap()
@@ -193,6 +201,10 @@ fn cutout_edge_has_partial_coverage_at_four_samples_without_blurring_opaque_texe
                 "1x keeps the binary 0.5 alpha test"
             );
             let edge = pixel(&four, column, row);
+            assert!(
+                edge[0] >= clear[0],
+                "black transparent texels cannot darken the covered contour"
+            );
             partial |= edge[0] > clear[0] && edge[0] < solid[0];
         }
         partial_rows += usize::from(partial);
@@ -210,4 +222,34 @@ fn cutout_edge_has_partial_coverage_at_four_samples_without_blurring_opaque_texe
     );
     crate::gpu_snapshot::save("cutout-before", &one);
     crate::gpu_snapshot::save("cutout-after", &four);
+}
+
+#[test]
+fn cutout_magnification_preserves_square_corners_outside_one_pixel_contour() {
+    let Some(gpu) =
+        Gpu::for_fixture("cutout_magnification_preserves_square_corners_outside_one_pixel_contour")
+    else {
+        return;
+    };
+    let one = cutout_raster(&gpu, 1, false, true);
+    let four = cutout_raster(&gpu, 4, true, true);
+    let side = SNAPSHOT_SIDE as usize;
+    let first = side / 4;
+    let last = side / 2;
+    for row in 0..side {
+        for column in 0..side {
+            if [row, column]
+                .into_iter()
+                .any(|value| value.abs_diff(first) <= 1 || value.abs_diff(last) <= 1)
+            {
+                continue;
+            }
+            let index = (row * side + column) * 4;
+            assert_eq!(
+                &one[index..index + 4],
+                &four[index..index + 4],
+                "the nearest opaque square changes only within one pixel of its original contour at ({column}, {row})"
+            );
+        }
+    }
 }
