@@ -313,6 +313,7 @@
   },
 
   "java_chat": {
+    "ignored": "$cinnabar_chat_top",
     "type": "panel",
     "size": [ "$cinnabar_chat_width", 90 ],
     "max_size": [ "100%", "100%" ],
@@ -327,27 +328,54 @@
     ]
   },
 
+  "top_chat@hud.java_chat": {
+    "ignored": "(not $cinnabar_chat_top)",
+    "type": "stack_panel",
+    "orientation": "vertical",
+    "size": [ "$cinnabar_chat_width", "100%c" ],
+    "max_size": [ "100%", "100%" ],
+    "anchor_from": "top_left",
+    "anchor_to": "top_left",
+    "offset": [ 0, 0 ],
+    "controls": [
+      // Reserve the native world-text heights without drawing those labels twice.
+      { "world_text_padding": {
+        "type": "stack_panel",
+        "size": [ "100%", "100%c" ],
+        "alpha": 0,
+        "propagate_alpha": true,
+        "controls": [
+          { "position_padding@hud.player_position": {} },
+          { "days_padding@hud.number_of_days_played": {} }
+        ]
+      } },
+      { "chat_panel@hud.chat_panel": { "$cinnabar_chat_anchor": "top_left" } }
+    ]
+  },
+
   "java_chat_overlay": {
     "type": "panel",
     "size": [ "100%", "100%" ],
     "controls": [
       { "server_additional_content@$cinnabar_additional_content": {} },
-      { "cinnabar_chat@hud.java_chat": {} }
+      { "cinnabar_chat@hud.java_chat": {} },
+      { "cinnabar_top_chat@hud.top_chat": {} }
     ]
   },
 
   "chat_panel": {
     "type": "panel",
-    "anchor_from": "bottom_left",
-    "anchor_to": "bottom_left",
+    "$cinnabar_chat_anchor|default": "bottom_left",
+    "anchor_from": "$cinnabar_chat_anchor",
+    "anchor_to": "$cinnabar_chat_anchor",
     "size": [ "100%", "100%c" ],
     "controls": [
       {
         "stack_panel": {
           "type": "stack_panel",
           "size": [ "100%", "100%c" ],
-          "anchor_from": "bottom_left",
-          "anchor_to": "bottom_left",
+          "anchor_from": "$cinnabar_chat_anchor",
+          "anchor_to": "$cinnabar_chat_anchor",
           "factory": {
             "name": "chat_item_factory",
             "max_children_size": 10,
