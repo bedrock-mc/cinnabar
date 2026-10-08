@@ -28,6 +28,8 @@ const CAMERA_ENV: &str = "CINNABAR_MOD_CAMERA";
 #[cfg(feature = "local-mods")]
 const CONTROLS_ENV: &str = "CINNABAR_MOD_CONTROLS";
 #[cfg(feature = "local-mods")]
+const HUD_ENV: &str = "CINNABAR_MOD_HUD";
+#[cfg(feature = "local-mods")]
 const INTERACTION_ENV: &str = "CINNABAR_MOD_INTERACTION";
 #[cfg(feature = "local-mods")]
 const SETTINGS_ENV: &str = "CINNABAR_MOD_SETTINGS";
@@ -123,6 +125,7 @@ fn configure(app: &mut App, path: Option<&Path>) {
         item_use: std::env::var(ITEM_USE_ENV).is_ok_and(|value| value == "1"),
         camera: std::env::var(CAMERA_ENV).is_ok_and(|value| value == "1"),
         controls: std::env::var(CONTROLS_ENV).is_ok_and(|value| value == "1"),
+        hud: std::env::var(HUD_ENV).is_ok_and(|value| value == "1"),
         interaction: std::env::var(INTERACTION_ENV).is_ok_and(|value| value == "1"),
         settings: std::env::var(SETTINGS_ENV).is_ok_and(|value| value == "1"),
         render: std::env::var(RENDER_ENV).is_ok_and(|value| value == "1"),
@@ -363,6 +366,16 @@ fn drive_mod(
     time_override.0 = merged.time_override;
     if let Err(error) = presentation.set_mod_label(extension.merged_label()) {
         eprintln!("Cinnabar extension HUD rejected: {error}");
+    }
+    let hud_owner = extension.hud_owner();
+    let hud = hud_owner.and_then(|owner| extension.host(owner).hud());
+    if let Err(error) = presentation.set_mod_hud(hud) {
+        eprintln!("Cinnabar extension HUD cards rejected: {error}");
+    }
+    let crosshair_owner = extension.crosshair_owner();
+    let crosshair = crosshair_owner.and_then(|owner| extension.host(owner).crosshair());
+    if let Err(error) = presentation.set_mod_crosshair(crosshair) {
+        eprintln!("Cinnabar extension crosshair rejected: {error}");
     }
     let owner = extension.panel_owner();
     if let Err(error) = presentation.set_mod_panel(extension.host(owner).panel()) {

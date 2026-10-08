@@ -22,6 +22,8 @@ mod camera;
 mod controls;
 #[path = "gameplay.rs"]
 mod gameplay;
+#[path = "hud.rs"]
+mod hud;
 #[path = "item_use.rs"]
 mod item_use;
 #[path = "player_state.rs"]
@@ -33,6 +35,7 @@ struct State {
     limits: StoreLimits,
     pressed: bool,
     label: Option<String>,
+    hud: hud::HudState,
     pending: Option<String>,
     writes: u32,
     grants: ModGrants,
@@ -73,6 +76,7 @@ impl State {
                 .build(),
             pressed: false,
             label: None,
+            hud: hud::HudState::default(),
             pending: None,
             writes: 0,
             grants,
@@ -103,6 +107,14 @@ impl State {
 }
 
 impl cinnabar::extension::hud::Host for State {
+    fn set_content(&mut self, json: String) -> Result<Result<(), String>> {
+        hud::set_content(self, json)
+    }
+
+    fn set_crosshair(&mut self, json: String) -> Result<Result<(), String>> {
+        hud::set_crosshair(self, json)
+    }
+
     /// Stages bounded plain text; nothing is published until the guest returns.
     fn set_label(&mut self, text: String) -> Result<Result<(), String>> {
         self.writes += 1;
@@ -241,6 +253,7 @@ impl Instance {
             self.active = false;
             self.store.data_mut().pending = None;
             self.store.data_mut().label = None;
+            self.store.data_mut().hud = hud::HudState::default();
             self.store.data_mut().pending_time = None;
             self.store.data_mut().time_override = None;
             self.store.data_mut().fullbright = false;
@@ -322,6 +335,14 @@ impl Instance {
         self.store.data().label.as_deref()
     }
 
+    pub(super) fn hud(&self) -> Option<&ui::mod_hud::Hud> {
+        self.store.data().hud.content.as_ref()
+    }
+
+    pub(super) fn crosshair(&self) -> Option<&ui::mod_hud::Crosshair> {
+        self.store.data().hud.crosshair.as_ref()
+    }
+
     pub(super) fn panel(&self) -> Option<&ui::mod_panel::Panel> {
         self.store.data().controls.panel.as_ref()
     }
@@ -359,6 +380,7 @@ impl Instance {
 /// Publishes retained presentation changes after the entire callback succeeds.
 fn commit(store: &mut Store<State>) {
     let state = store.data_mut();
+    state.hud.commit();
     state.controls.commit();
     state.render.commit();
     state.block_highlights.commit();

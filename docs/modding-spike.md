@@ -439,3 +439,39 @@ the executable's normal installation location. Relative and empty overrides fail
 at startup. This does not require changing HOME, LOCALAPPDATA or XDG variables.
 `CINNABAR_WINDOW_TITLE` optionally changes the game window title; absent, empty or
 whitespace-only values retain the product name.
+
+### Cosmetic HUD cards and crosshairs
+
+The separate `hud` grant permits `hud.set-content(json)` and
+`hud.set-crosshair(json)`. Select it with `CINNABAR_MOD_HUD=1`, or `"hud": true`
+in the component's registration/set grants. Neither operation reads player data,
+changes input, nor sends packets. Existing `set-label` remains available without
+this grant. All HUD writes share an eight-call callback budget.
+
+Card data contains `cards`, each with a unique `id`, `title`, `rows`, and optional
+`anchor`, `offset`, and `scale`. Anchors are `top_left`, `top_right`, `bottom_left`,
+and `bottom_right`; offsets are GUI pixels from that corner. Negative offsets
+move inward from right/bottom corners. Scale is 0.5–2 and scales card text, icons,
+and geometry together. Each row has `label`, `value`, and optional `item`
+(resource identifier), `metadata`, `effect_id` (canonical Bedrock effect icon),
+`progress` (0–1), and `color` (RGBA 0–1). Item and effect icons are mutually exclusive;
+unknown effect IDs leave the icon empty rather than guessing.
+Item art follows the current session's resource-pack icons and normal item atlas;
+unknown item identities draw no substituted item. Cards are 148 GUI pixels wide,
+and their height is `(22 + 20 * rows) * scale`.
+
+Crosshair data supports `shape` (`cross`, `dot`, `circle`), `size` (cross arm
+length or circle/dot radius), `gap` (cross center clearance), `thickness`, `color`,
+`outline`, and `outline_color`. Dimensions use GUI pixels. The host renders the
+replacement inside the ordinary JSON-UI cursor renderer, preserving its camera,
+spectator, pack, focus, and HUD visibility gates. Clearing the spec restores the
+player's existing cursor texture and blending preference.
+
+Both operations retain validated data only after a successful callback. Empty
+JSON clears that surface. A trap or unload revokes it; a rejected replacement
+keeps the old instance, and a successful reload starts with the new instance's
+published surfaces. Cards hide while a screen or personal panel owns input,
+during loading, and when the player or server hides the HUD. Text/value updates
+reuse the retained host JSON-UI template while its geometry is unchanged.
+The settings panel now accepts at most 64 controls; existing category and page
+navigation keeps controls reachable when they exceed the viewport.

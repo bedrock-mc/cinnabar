@@ -4,6 +4,7 @@ use super::*;
 mod block_highlights;
 mod fullbright;
 mod gameplay;
+mod hud;
 mod item_use;
 mod player_state;
 mod prepared_settings;

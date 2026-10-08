@@ -1666,6 +1666,10 @@ and revocation UI, production API stability, native multiplayer acceptance and
 cross-platform runtime acceptance. Loaded player data is not line-of-sight or
 visibility evidence. No aim-assist algorithm is installed and no vanilla parity
 gate is closed; see `docs/modding-spike.md` for the contract and opt-in switches.
+Generic cosmetic HUD cards and crosshairs add a separate presentation-only grant,
+bounded retained JSON-UI data, ordinary cursor visibility gates, transactional
+revocation, and 64-control settings pagination. Target-platform rendered evidence
+remains required before this presentation addition is cleared to push.
 
 2026-10-08 local player-state extension: a separate default-denied, read-only
 grant exposes current-session presented inventory/gear and active status effects.

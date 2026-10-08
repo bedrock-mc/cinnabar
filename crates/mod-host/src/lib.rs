@@ -84,6 +84,8 @@ pub struct ModGrants {
     pub item_use: bool,
     /// Allows local key edges, reserved bindings and the retained settings panel.
     pub controls: bool,
+    /// Allows bounded host-rendered HUD cards and a local custom crosshair.
+    pub hud: bool,
     /// Allows bounded actor attack range and held-attack press requests.
     pub interaction: bool,
     /// Allows the selected component's bounded companion settings file.
@@ -263,6 +265,16 @@ impl ModHost {
     /// Returns only the last successfully committed plain-text label.
     pub fn label(&self) -> Option<&str> {
         self.instance.label()
+    }
+
+    /// Retained host-rendered cards from the last successful callback.
+    pub fn hud(&self) -> Option<&ui::mod_hud::Hud> {
+        self.instance.hud()
+    }
+
+    /// Retained cosmetic crosshair, applied only when the ordinary crosshair is visible.
+    pub fn crosshair(&self) -> Option<&ui::mod_hud::Crosshair> {
+        self.instance.crosshair()
     }
 
     /// Returns the committed visual override without entering the guest.

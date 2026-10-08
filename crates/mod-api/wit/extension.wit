@@ -4,6 +4,10 @@ package cinnabar:extension@0.1.0;
 interface hud {
     /// Replaces this mod's label. Empty text removes it; invalid text is rejected.
     set-label: func(text: string) -> result<_, string>;
+    /// Bounded host-rendered HUD cards; requires hud authority. Empty clears them.
+    set-content: func(json: string) -> result<_, string>;
+    /// Replaces only a normally visible crosshair; requires hud authority. Empty restores it.
+    set-crosshair: func(json: string) -> result<_, string>;
 }
 
 /// Read-only, session-bound facts about the local player's presented inventory and effects.

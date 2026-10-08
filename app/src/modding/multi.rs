@@ -95,6 +95,15 @@ impl ModRuntime {
     }
 
     /// Every loaded mod's reserved keys, kept away from ordinary gameplay.
+    /// The earliest publisher owns each single-valued retained presentation surface.
+    pub(super) fn hud_owner(&self) -> Option<usize> {
+        (0..self.host_count()).find(|&index| self.host(index).hud().is_some())
+    }
+
+    pub(super) fn crosshair_owner(&self) -> Option<usize> {
+        (0..self.host_count()).find(|&index| self.host(index).crosshair().is_some())
+    }
+
     /// Every mod's label in load order, joined and cut to the plain-text limit.
     pub(super) fn merged_label(&mut self) -> Option<&str> {
         if self.host_count() == 1 {
