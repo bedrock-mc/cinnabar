@@ -5,6 +5,55 @@ use ui::{
     mod_hud::{Anchor, Card, Row},
 };
 
+/// Loads the same real font, HUD, item icons and JSON-UI carriers used by the client.
+fn installed_hud_presentation() -> Option<UiPresentationRuntime> {
+    use assets::{RuntimeHudCatalog, RuntimeIconCatalog};
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local");
+    let read = |name: &str| {
+        let path = root.join("assets/compiled").join(name);
+        match std::fs::read(&path) {
+            Ok(bytes) => Some(bytes),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                eprintln!(
+                    "skipping installed personal HUD fixture: missing {}; make assets",
+                    path.display()
+                );
+                None
+            }
+            Err(error) => panic!("read personal HUD fixture {}: {error}", path.display()),
+        }
+    };
+    let hud = Arc::new(
+        RuntimeHudCatalog::decode(&read(assets::carriers::HUD.output)?)
+            .expect("decode installed HUD fixture"),
+    );
+    let icons = Arc::new(
+        RuntimeIconCatalog::decode(&read(assets::carriers::ICON.output)?)
+            .expect("decode installed item icon fixture"),
+    );
+    let font = Arc::new(
+        (*super::super::pack_harness::font())
+            .clone()
+            .with_coverage_pages(),
+    );
+    let mut presentation = UiPresentationRuntime::with_hud_and_icons(font, hud, icons)
+        .expect("build installed HUD fixture");
+    presentation
+        .enable_json_ui(super::super::pack_harness::carrier()?)
+        .expect("enable installed JSON-UI fixture");
+    presentation
+        .form_presentation
+        .engine
+        .as_mut()
+        .unwrap()
+        .textures
+        .set_fallbacks(
+            Default::default(),
+            root.join(crate::install_layout::vanilla_pack_relative()),
+        );
+    Some(presentation)
+}
+
 fn content() -> Hud {
     Hud {
         cards: vec![Card {
@@ -176,13 +225,14 @@ fn malformed_presentation_does_not_replace_the_existing_cards_or_crosshair() {
 
 #[test]
 fn personal_hud_snapshot_with_real_carrier() {
-    let Some(mut p) = super::super::pack_harness::engine_presentation() else {
+    let Some(mut p) = installed_hud_presentation() else {
         eprintln!(
             "skipping personal_hud_snapshot_with_real_carrier: installed local carriers unavailable (make assets)"
         );
         return;
     };
     let runtime = UiRuntime::new(1);
+    p.hud_frame_mut().first_person = true;
     let before = frame(&mut p, &runtime, [1920, 1080], 1.);
     snapshot::write(&before, "personal-hud-before");
     let equipment = Card {
@@ -265,7 +315,6 @@ fn personal_hud_snapshot_with_real_carrier() {
         cards: vec![equipment, effects, supplies],
     };
     p.set_mod_hud(Some(&hud)).unwrap();
-    p.hud_frame_mut().first_person = true;
     for shape in [
         ui::mod_hud::CrosshairShape::Cross,
         ui::mod_hud::CrosshairShape::Dot,
@@ -284,10 +333,9 @@ fn personal_hud_snapshot_with_real_carrier() {
     }
     p.set_mod_hud(None).unwrap();
     p.set_mod_crosshair(None).unwrap();
-    snapshot::write(
-        &frame(&mut p, &runtime, [1920, 1080], 1.),
-        "personal-hud-restored",
-    );
+    let restored = frame(&mut p, &runtime, [1920, 1080], 1.);
+    snapshot::write(&restored, "personal-hud-restored");
+    assert_eq!(snapshot::rasterize(&before), snapshot::rasterize(&restored));
 }
 
 #[test]
@@ -296,7 +344,7 @@ fn custom_cursor_preserves_camera_spectator_hidden_hud_and_menu_gates() {
         SETTINGS_OPTIONS, SettingsOptions, THIRD_PERSON_CROSSHAIR_OPTION,
     };
     use protocol::PlayerGameMode;
-    let Some(mut p) = super::super::pack_harness::engine_presentation() else {
+    let Some(mut p) = installed_hud_presentation() else {
         eprintln!(
             "skipping custom_cursor_preserves_camera_spectator_hidden_hud_and_menu_gates: installed local carriers unavailable (make assets)"
         );
