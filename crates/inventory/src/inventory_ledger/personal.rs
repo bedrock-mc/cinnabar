@@ -47,15 +47,16 @@ impl PersonalWindow {
 impl PlayerInventoryLedger {
     #[must_use]
     pub const fn personal_inventory_desired_open(&self) -> bool {
-        matches!(
-            self.personal,
-            Some(
-                PersonalWindow::Opening {
-                    desired_open: true,
-                    ..
-                } | PersonalWindow::Open { .. }
+        self.held_open.is_some()
+            || matches!(
+                self.personal,
+                Some(
+                    PersonalWindow::Opening {
+                        desired_open: true,
+                        ..
+                    } | PersonalWindow::Open { .. }
+                )
             )
-        )
     }
 
     pub(super) fn personal_generation_for_gesture(&self) -> Option<u64> {
@@ -77,12 +78,18 @@ impl PlayerInventoryLedger {
         if self.authority.is_none()
             || target_runtime_id == 0
             || self.storage.is_some()
-            || !self.pending_closes.is_empty()
             || self.personal_lifecycle_failed
         {
             return false;
         }
         if self.personal_inventory_desired_open() {
+            return true;
+        }
+        // The open follows the close on the wire instead of being dropped.
+        if !self.pending_closes.is_empty()
+            || matches!(self.personal, Some(PersonalWindow::Closing { .. }))
+        {
+            self.held_open = Some(target_runtime_id);
             return true;
         }
         if self.personal.is_some() {
@@ -101,6 +108,9 @@ impl PlayerInventoryLedger {
     }
 
     pub fn request_personal_close(&mut self) {
+        if self.held_open.take().is_some() {
+            return;
+        }
         let Some(personal) = self.personal else {
             return;
         };
@@ -178,10 +188,19 @@ impl PlayerInventoryLedger {
             }
             PersonalWindow::Closing { generation, .. } => generation,
         };
-        if returning {
-            self.retain_close_returns(PendingCloseOwner::Personal(generation));
-        } else {
+        if !returning {
             self.cancel_unsent_personal_prediction(generation);
+        }
+    }
+
+    /// Starts a held open once no close is unsent or awaiting its acknowledgement.
+    pub(super) fn resume_held_open(&mut self) {
+        if let Some(target_runtime_id) = self.held_open
+            && self.pending_closes.is_empty()
+            && !matches!(self.personal, Some(PersonalWindow::Closing { .. }))
+        {
+            self.held_open = None;
+            self.request_personal_open(target_runtime_id);
         }
     }
 

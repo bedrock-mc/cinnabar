@@ -809,6 +809,69 @@ fn admitted_mutation_and_cursor_return_settle_before_personal_close() {
     assert!(!ledger.resync_required());
 }
 
+/// Sends one flush and names its packets in transport order.
+fn flushed_packet_names(session: &mut InventorySession, now_millis: u64) -> Vec<String> {
+    let mut sent = Vec::new();
+    session
+        .flush_inventory_send(now_millis, |packet| {
+            sent.push(format!("{:?}", packet.header.id));
+            Ok::<_, ()>(())
+        })
+        .unwrap();
+    sent
+}
+
+/// The cursor return and the close leave in one flush without waiting for any answer.
+#[test]
+fn close_flushes_its_returns_and_the_close_together() {
+    let mut session = InventorySession::new(1);
+    *session.ledger_mut() = ledger_with_slot_zero();
+    acknowledge_personal_open(session.ledger_mut(), 2);
+    session.ledger_mut().begin_click(0).unwrap();
+    assert_eq!(
+        flushed_packet_names(&mut session, 20),
+        ["ItemStackRequestPacket"]
+    );
+    assert_eq!(
+        session.ledger().pending_state(),
+        Some(InventoryPendingState::AwaitingResponse)
+    );
+
+    session.ledger_mut().request_personal_close();
+    assert_eq!(
+        flushed_packet_names(&mut session, 30),
+        ["ItemStackRequestPacket", "ContainerClosePacket"]
+    );
+    assert!(session.ledger().pending_closes.is_empty());
+}
+
+/// An open pressed while the close awaits its acknowledgement is held, then sent after it.
+#[test]
+fn open_pressed_during_a_close_is_held_until_the_close_settles() {
+    let mut session = InventorySession::new(1);
+    *session.ledger_mut() = ledger_with_slot_zero();
+    acknowledge_personal_open(session.ledger_mut(), 2);
+    session.ledger_mut().request_personal_close();
+    assert_eq!(
+        flushed_packet_names(&mut session, 20),
+        ["ContainerClosePacket"]
+    );
+
+    assert!(session.ledger_mut().request_personal_open(42));
+    assert!(session.ledger().personal_inventory_desired_open());
+    assert!(flushed_packet_names(&mut session, 21).is_empty());
+
+    session
+        .ledger_mut()
+        .apply(&InventoryEvent::Close(ContainerCloseEvent {
+            container: ContainerIdentity::window(2),
+            window_type: PERSONAL_INVENTORY_WINDOW_TYPE,
+            server_initiated: false,
+        }));
+    assert!(session.ledger().personal_inventory_desired_open());
+    assert_eq!(flushed_packet_names(&mut session, 22), ["InteractPacket"]);
+}
+
 #[test]
 fn unsent_and_admitted_cursor_mutations_are_retained_for_close_cleanup() {
     let mut unsent = ledger_with_slot_zero();

@@ -134,7 +134,6 @@ struct PendingClose {
     window_id: i32,
     window_type: i8,
     owner: PendingCloseOwner,
-    returning_inputs: bool,
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -209,6 +208,8 @@ pub struct PlayerInventoryLedger {
     next_open_generation: u64,
     personal: Option<PersonalWindow>,
     personal_lifecycle_failed: bool,
+    /// An open press made while a close is unsent or unacknowledged; opens once it settles.
+    held_open: Option<u64>,
     storage: Option<StorageWindow>,
     pending_closes: VecDeque<PendingClose>,
     player_resync_required: bool,
@@ -242,6 +243,7 @@ impl Default for PlayerInventoryLedger {
             next_open_generation: 1,
             personal: None,
             personal_lifecycle_failed: false,
+            held_open: None,
             storage: None,
             pending_closes: VecDeque::new(),
             player_resync_required: false,
@@ -421,6 +423,13 @@ impl PlayerInventoryLedger {
         self.cell_pending(Cell::Inventory(slot))
     }
 
+    /// Whether an unanswered gesture, not a mining request, predicts hotbar `slot`.
+    #[must_use]
+    pub fn slot_gesture_pending(&self, slot: u8) -> bool {
+        self.gestures()
+            .any(|pending| pending.touches(Cell::Inventory(slot)))
+    }
+
     #[must_use]
     pub fn storage_slot_pending(&self, slot: u8) -> bool {
         self.cell_pending(Cell::Storage(slot))
@@ -511,7 +520,7 @@ impl PlayerInventoryLedger {
     /// Returns the next window lifecycle packet before inventory mutations.
     fn pending_control_packet(&self) -> Result<Option<Packet>, InventoryGestureError> {
         if let Some(close) = self.pending_closes.front().copied()
-            && self.close_ready(close)
+            && self.close_ready()
         {
             return container_close_packet(close.window_id)
                 .map(Some)
@@ -531,11 +540,7 @@ impl PlayerInventoryLedger {
     }
 
     pub fn mark_transport_enqueued(&mut self, now_millis: u64) -> bool {
-        if self
-            .pending_closes
-            .front()
-            .copied()
-            .is_some_and(|close| self.close_ready(close))
+        if self.close_ready()
             && let Some(close) = self.pending_closes.pop_front()
         {
             if let Some(generation) = close.owner.personal_generation()
@@ -549,6 +554,7 @@ impl PlayerInventoryLedger {
                 *deadline_millis =
                     Some(now_millis.saturating_add(INVENTORY_REQUEST_TIMEOUT_MILLIS));
             }
+            self.resume_held_open();
             return true;
         }
         if let Some(PersonalWindow::Opening {
@@ -646,6 +652,7 @@ impl PlayerInventoryLedger {
         self.abandon_requests(|pending| pending.personal_generation == Some(generation));
         self.personal = None;
         self.personal_lifecycle_failed = true;
+        self.held_open = None;
         self.drop_confirmed_cursor();
         self.refold();
         true
@@ -654,6 +661,7 @@ impl PlayerInventoryLedger {
     pub fn transport_closed(&mut self) {
         self.pending_closes.clear();
         self.personal = None;
+        self.held_open = None;
         self.abandon_requests(|_| true);
         self.finish_closing();
     }
@@ -697,9 +705,7 @@ impl PlayerInventoryLedger {
             false
         };
         self.queue_close(window_id, window_type, PendingCloseOwner::Storage);
-        if returning {
-            self.retain_close_returns(PendingCloseOwner::Storage);
-        } else {
+        if !returning {
             self.abandon_requests(|pending| {
                 pending.storage_generation == Some(generation)
                     && pending.state == InventoryPendingState::AwaitingTransport
@@ -725,11 +731,11 @@ impl PlayerInventoryLedger {
         };
         if storage.closing
             && !self.storage_request_bound(storage.generation)
-            && self
-                .pending_closes
-                .iter()
-                .filter(|close| close.owner == PendingCloseOwner::Storage)
-                .all(|close| self.close_ready(*close))
+            && (self.close_ready()
+                || !self
+                    .pending_closes
+                    .iter()
+                    .any(|close| close.owner == PendingCloseOwner::Storage))
         {
             self.discard_storage();
         }
@@ -822,7 +828,6 @@ impl PlayerInventoryLedger {
             window_id,
             window_type,
             owner,
-            returning_inputs: false,
         });
     }
 
