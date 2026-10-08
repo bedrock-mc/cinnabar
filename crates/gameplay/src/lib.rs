@@ -6,6 +6,11 @@ pub mod item_use;
 pub mod melee;
 pub mod mining;
 pub mod movement;
+mod placement_connections;
+mod placement_prediction;
+mod placement_stacking;
+pub mod placement_state;
+mod placement_support;
 pub mod survival_mining;
 
 pub use protocol::BatchSendError;
