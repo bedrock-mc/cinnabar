@@ -28,14 +28,18 @@ fn cold_queue_admission_is_bounded_and_never_computes_inline() {
 fn worker_content_reuse_shares_geometry_and_mesh_without_an_inline_fallback() {
     let sources = sources(MAX_SKIN_PREPARATIONS_PER_PASS);
     let mut queue = SkinPreparationQueue::default();
+    assert!(!queue.is_pending());
     for source in &sources {
         queue.request(source);
     }
+    assert!(queue.is_pending());
     queue.submit(&super::super::super::render_frame::tests::counting_random_assets());
+    assert!(queue.is_pending());
     for source in &sources {
         assert!(queue.get(source).is_none());
     }
-    queue.finish_for_test();
+    queue.finish_fixture_batch();
+    assert!(!queue.is_pending());
     let first = queue.get(&sources[0]).unwrap().0.unwrap();
     for source in &sources {
         assert!(queue.request(source));
@@ -77,7 +81,7 @@ fn equal_sources_charge_one_mesh_allocation_at_the_capacity_boundary() {
         queue.request(source);
     }
     queue.submit(&assets);
-    queue.finish_for_test();
+    queue.finish_fixture_batch();
     for source in &sources {
         assert!(queue.get(source).is_some());
     }
@@ -97,7 +101,7 @@ fn equal_replacement_reuses_the_ready_result_after_worker_memo_eviction() {
     let mut queue = SkinPreparationQueue::default();
     queue.request(&sources[0]);
     queue.submit(&assets);
-    queue.finish_for_test();
+    queue.finish_fixture_batch();
     let first = queue.get(&sources[0]).unwrap().0.unwrap();
     queue.cache = Some(WorkerCache::default());
     assert!(!queue.request_replacing(&sources[1], Some(&sources[0])));
@@ -106,7 +110,7 @@ fn equal_replacement_reuses_the_ready_result_after_worker_memo_eviction() {
         1
     );
     queue.submit(&assets);
-    queue.finish_for_test();
+    queue.finish_fixture_batch();
     let next = queue.get(&sources[1]).unwrap().0.unwrap();
     assert!(Arc::ptr_eq(&first, &next));
     assert!(queue.replaces_unchanged(&sources[1], &sources[0]));
@@ -155,7 +159,7 @@ fn mesh_budget_rejection_is_ready_and_never_requeues_unchanged_sources() {
     queue.mesh_budget = 0;
     assert!(!queue.request(&source));
     queue.submit(&assets);
-    queue.finish_for_test();
+    queue.finish_fixture_batch();
     for _ in 0..4 {
         queue.begin_frame();
         assert!(
