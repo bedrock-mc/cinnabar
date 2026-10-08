@@ -84,6 +84,7 @@ world = { path = "../crates/world" }
 rustix = { version = "1", default-features = false, features = ["fs", "process", "std", "stdio"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2"
 objc2 = { version = "0.6", optional = true }
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSMenu", "NSResponder", "NSRunningApplication"], optional = true }
 

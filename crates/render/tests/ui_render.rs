@@ -1,6 +1,9 @@
 #[path = "../src/alloc_count.rs"]
 mod alloc_count;
 
+#[path = "it/support/gpu_snapshot.rs"]
+mod gpu_snapshot;
+
 #[path = "../src/material_shader.rs"]
 #[allow(dead_code, reason = "shared checked shader constructor dependencies")]
 mod material_shader;
@@ -36,6 +39,17 @@ mod screen_overlay_render {
 }
 
 mod gpu_timing {
+    /// Diagnostics stay disabled in the standalone UI fixture.
+    pub(crate) fn ui_profiling_requested() -> bool {
+        false
+    }
+    /// The standalone UI fixture has no diagnostic query ring.
+    pub(crate) fn ui_pass_timestamps(
+        _: &bevy::prelude::World,
+        _: render::RuntimeStage,
+    ) -> Option<wgpu::RenderPassTimestampWrites<'_>> {
+        None
+    }
     /// The isolated UI fixture installs no GPU timing query ring.
     pub(crate) fn render_pass_timestamps(
         _: &bevy::prelude::World,
