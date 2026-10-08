@@ -54,6 +54,7 @@ pub(super) struct ModPanel {
 
 impl UiPresentationRuntime {
     pub(in super::super) fn invalidate_mod_panel_font(&mut self) {
+        self.cancel_mod_hud_editor();
         if let Some(panel) = &mut self.form_presentation.mod_panel {
             panel.cancel_edit();
             panel.screen = CachedScreen::default();
@@ -66,6 +67,7 @@ impl UiPresentationRuntime {
     /// Replaces validated control data, retaining the open state across value updates.
     pub fn set_mod_panel(&mut self, panel: Option<&Panel>) -> Result<(), String> {
         let Some(panel) = panel else {
+            self.cancel_mod_hud_editor();
             self.form_presentation.mod_panel = None;
             return Ok(());
         };
@@ -117,6 +119,9 @@ impl UiPresentationRuntime {
     }
 
     pub fn set_mod_panel_open(&mut self, open: bool) {
+        if !open {
+            self.cancel_mod_hud_editor();
+        }
         if let Some(panel) = self.form_presentation.mod_panel.as_mut() {
             panel.open = open;
             if !open {
@@ -150,6 +155,15 @@ impl UiPresentationRuntime {
         pressed: bool,
         held: bool,
     ) -> Vec<Event> {
+        if let Some(editor) = self
+            .form_presentation
+            .mod_hud_editor
+            .as_mut()
+            .filter(|e| e.open)
+        {
+            editor.pointer(position, pressed, held);
+            return Vec::new();
+        }
         self.form_presentation
             .mod_panel
             .as_mut()
@@ -166,6 +180,10 @@ impl UiPresentationRuntime {
         mut metrics: TextMetrics,
         content: [f32; 2],
     ) {
+        if self.mod_hud_editor_open() {
+            self.append_mod_hud_editor(runtime, nodes, next, metrics, content);
+            return;
+        }
         let Some(panel) = self
             .form_presentation
             .mod_panel

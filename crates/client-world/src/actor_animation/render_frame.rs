@@ -138,6 +138,15 @@ impl ActorAnimationStore {
         {
             return Some(completed());
         }
+        if state.complete_spear_variables {
+            layout.engine.spear.apply(
+                &mut variables,
+                actor,
+                &context,
+                &frame.input,
+                swing.unwrap_or(frame.input.attack_time),
+            );
+        }
         tick::set_item_rotation_factor(&layout.engine, &mut variables);
         let sampled_clips = if swing_changed {
             let Ok(clips) =

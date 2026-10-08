@@ -53,13 +53,13 @@ fn emissive_materials_keep_alpha_as_lighting_weight_and_authored_additive_inheri
         "fixture_ordinary:fixture_child":{"-defines":["USE_EMISSIVE"],
             "blendSrc":"SourceAlpha","blendDst":"OneMinusSrcAlpha"}
     }});
-    let expected = json!({"alpha_test":true,"cull":false,"blend":true,"depth_write":true,
+    let expected = json!({"alpha_test":false,"cull":false,"blend":true,"depth_write":true,
         "emissive":true,"additive":true});
     assert_eq!(state("fixture_reflection", Some(&definitions)), expected);
     assert_eq!(state("fixture_child", Some(&definitions)), expected);
     assert_eq!(
         state("fixture_ordinary", Some(&definitions)),
-        json!({"alpha_test":true,"cull":false,"blend":true,"depth_write":true})
+        json!({"alpha_test":false,"cull":false,"blend":true,"depth_write":true})
     );
 }
 
@@ -104,6 +104,28 @@ fn actor_material_states_keep_slime_outer_blended_culled_and_depth_writing() {
     assert_eq!(
         state("slime_outer", None),
         json!({"alpha_test":false,"cull":true,"blend":true,"depth_write":true})
+    );
+}
+
+#[test]
+fn wind_material_uses_the_native_double_sided_blended_route_without_depth_writes() {
+    let expected = json!({"alpha_test":false,"cull":false,"blend":true,"depth_write":false});
+    assert_eq!(state("breeze_wind", None), expected);
+    // Native material inheritance still includes ALPHA_TEST, but Blending selects
+    // the separate transparent Actor pass after the inherited declaration is read.
+    let definitions = json!({"materials": {
+        "version": "1.0.0",
+        "fixture_wind:entity_static": {
+            "+defines": ["ALPHA_TEST", "USE_UV_ANIM"],
+            "+states": ["Blending", "DisableCulling", "DisableDepthWrite"]
+        },
+        "fixture_child:fixture_wind": {"+defines": ["ALPHA_TEST"]},
+        "fixture_cutout:fixture_child": {"-states": ["Blending"]}
+    }});
+    assert_eq!(state("fixture_child", Some(&definitions)), expected);
+    assert_eq!(
+        state("fixture_cutout", Some(&definitions)),
+        json!({"alpha_test":true,"cull":false,"blend":false,"depth_write":false})
     );
 }
 
@@ -262,7 +284,7 @@ fn actor_material_rules_use_the_last_match_and_cover_alternate_geometry_bones() 
 }
 
 #[test]
-fn actor_material_states_inherit_alpha_test_and_add_blending_without_losing_depth_write() {
+fn actor_material_states_select_inherited_blending_without_losing_depth_write() {
     let definitions = json!({"materials":{
         "version":"1.0.0",
         "fixture_text:entity_alphatest":{"-defines":["FANCY"]},
@@ -270,7 +292,7 @@ fn actor_material_states_inherit_alpha_test_and_add_blending_without_losing_dept
     }});
     assert_eq!(
         state("fixture_plate", Some(&definitions)),
-        json!({"alpha_test":true,"cull":false,"blend":true,"depth_write":true})
+        json!({"alpha_test":false,"cull":false,"blend":true,"depth_write":true})
     );
 }
 
@@ -288,7 +310,7 @@ fn actor_material_states_apply_explicit_depth_and_culling_overrides_independentl
     }});
     assert_eq!(
         state("fixture_plate", Some(&definitions)),
-        json!({"alpha_test":true,"cull":true,"blend":true,"depth_write":false})
+        json!({"alpha_test":false,"cull":true,"blend":true,"depth_write":false})
     );
     assert_eq!(
         state("fixture_opaque", Some(&definitions)),

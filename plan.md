@@ -609,10 +609,15 @@
   default on; the three-way `vsync_dropdown` exists only in the non-publish Debug section).
 - Toggle follows Max Framerate in the advanced video options, labelled `options.vsync`, default
   on, persisted with the settings registry and applied live.
-- On keeps the automatic present-mode policy and its DX12 remedy; off selects Immediate, else
-  Mailbox, else FIFO from the primary surface's probed modes, the same decision `--no-vsync` uses.
-  `--vsync`, `--no-vsync` and evidence runs pin the session and show the toggle locked to that
-  state. Incomplete: rendered Video-screen acceptance pending.
+- On keeps FIFO and its DX12 remedy. Off, and `--no-vsync`, stay tear-free: FIFO, or Mailbox when
+  the frame-rate limit outpaces the display. No setting or flag requests tearing; only hidden
+  developer surfaces present unpaced. Every choice comes from the primary surface's probed modes.
+  `--vsync`, `--no-vsync` and evidence runs pin the session and show the toggle locked.
+- Max Framerate adds Automatic (the default for new settings) before 1–240 and moves Unlimited,
+  vanilla's 0, after them; saved files without a schema keep Unlimited. `--frame-cap` replaces
+  the saved limit for the session. Automatic lets the display pace FIFO and caps confirmed
+  variable refresh at 97% of its maximum. Incomplete: no platform reports active variable
+  refresh yet, so that cap never engages; rendered Video-screen acceptance pending.
 
 ## Unfilled sub-chunk slots light as air
 
@@ -945,6 +950,12 @@ and the ordinary value-band check pass. Fresh production Metal frames show all
 eleven crisp orb sprites with the actual live camera query. Exact between-tick
 billboard sampling, End lighting, beam AABB light sampling and the previously
 recorded identical-version gates remain open.
+
+Thrown splash and lingering potion appearance now reads each projectile's own
+short auxiliary value and shares the reviewed item sprite routes. Known potion
+routes agree with the pinned effect texture arrays; the current native potion
+table constructor and auxiliary values without reviewed routes remain incomplete.
+This correction does not close the broader actor parity gate.
 
 The canonical v21 debug build passes, along with focused snowball, explosion,
 credits, boss UI/wire/app/session, orb, portal overlay GPU and shader checks.
@@ -5174,6 +5185,10 @@ UI remain Bedrock/resource-pack-driven. The current text/panel renderer is an
 incomplete scaffold until the full state matrix and native/live comparison gates
 below are green. See `AGENTS.md` for the repository-wide gameplay-HUD exception.
 
+Hunger shakes use renderer-local updates and neutral/upward offsets, independent of
+food packet ticks. The complete native HUD motion gallery, including heart timing,
+remains incomplete; this correction does not close the Phase 5.7 parity gate.
+
 **Bounded native HUD tranche (2026-07-19):** the protocol-1001 carrier and
 retained presentation now provide provenance-pinned health, hunger, armor, air,
 hotbar, selected-slot, chat, and scoreboard data paths. Survival geometry is
@@ -6577,6 +6592,17 @@ one authored panel, and the MegaSMP tutorial remains retained with its detailed
 Orebits glyph. The user confirms the rebuilt client looks correct. Required
 touched-crate checks and the canonical developer-control build pass; release
 hardware budgets and matched-version pixel comparison remain incomplete.
+
+## Spear actions
+
+Spear bindings and pose inputs now consume authored swing and kinetic timings.
+Attacks at actors, air or blocks send the item-directed transaction with aim and cooldown state,
+allowing the server to apply damage and Lunge movement. Component, admission,
+catalog/reset and real-carrier animation regressions pass. Matched live captures
+show the jab, charged hold and default-Java third-person arm; server-confirmed
+Lunge moves the fixed client without movement input. The complete matched-version
+native comparison remains incomplete. See
+[spear actions](docs/reference/spear-actions.md).
 
 ## Local placement prediction
 

@@ -78,21 +78,12 @@ pub struct ControlSettings {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BindingError {
-    TooManyBindings {
-        actual: usize,
-        maximum: usize,
-    },
+    TooManyBindings { actual: usize, maximum: usize },
     NonFiniteSensitivity,
     SensitivityOutOfRange,
     NonFiniteDeadzone,
     DeadzoneOutOfRange,
     UnknownPhysicalCode,
-    Conflict {
-        context: InputContext,
-        chord: InputChord,
-        first: Action,
-        second: Action,
-    },
 }
 
 impl ControlSettings {
@@ -176,18 +167,8 @@ impl ControlSettings {
         if deadzones.iter().any(|value| !(0.0..=0.95).contains(value)) {
             return Err(BindingError::DeadzoneOutOfRange);
         }
-        for (index, binding) in self.bindings.iter().enumerate() {
+        for binding in &self.bindings {
             validate_chord(binding.chord, touch_layout)?;
-            if let Some(first) = self.bindings[..index].iter().find(|candidate| {
-                candidate.context == binding.context && candidate.chord == binding.chord
-            }) {
-                return Err(BindingError::Conflict {
-                    context: binding.context,
-                    chord: binding.chord,
-                    first: first.action,
-                    second: binding.action,
-                });
-            }
         }
         Ok(())
     }

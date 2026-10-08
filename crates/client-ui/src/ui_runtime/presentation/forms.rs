@@ -41,6 +41,7 @@ pub mod menu_latency;
 pub mod menu_screens;
 pub mod menus;
 pub mod mod_hud;
+pub mod mod_hud_editor;
 pub mod mod_panel;
 pub mod mod_widgets;
 pub mod model;
@@ -145,6 +146,7 @@ pub(super) struct FormPresentation {
     /// The engine HUD's cached screens; carried across the per-frame reset.
     hud: hud::HudScreens,
     mod_hud: Option<mod_hud::ModHud>,
+    mod_hud_editor: Option<mod_hud_editor::HudEditor>,
     mod_widgets: Option<mod_widgets::ModWidgets>,
     mod_crosshair: Option<ui::mod_hud::Crosshair>,
     player_list: Option<player_list::PlayerList>,
@@ -493,6 +495,7 @@ impl UiPresentationRuntime {
             logged: state.logged,
             hud: state.hud,
             mod_hud: state.mod_hud,
+            mod_hud_editor: state.mod_hud_editor,
             mod_widgets: state.mod_widgets,
             mod_crosshair: state.mod_crosshair,
             player_list: state.player_list,

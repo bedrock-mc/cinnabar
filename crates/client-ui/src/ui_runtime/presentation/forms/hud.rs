@@ -23,6 +23,8 @@ use super::engine::{EngineInputs, EngineOutput, ScreenArt};
 use crate::ui_runtime::UiRuntime;
 
 #[cfg(test)]
+mod hunger_control_tests;
+#[cfg(test)]
 mod visibility_tests;
 
 /// The built-in Java-styled HUD pack: `(pack path, namespace, bytes)`, layered
@@ -262,6 +264,7 @@ pub(super) struct HudScreens {
     model: Option<HudModel>,
     opacity: Option<i32>,
     data: Arc<DataSource>,
+    hunger_animation: super::hud_renderers::HungerAnimation,
 }
 
 impl HudScreens {
@@ -299,6 +302,21 @@ impl UiPresentationRuntime {
             .options
             .value("hide_hud")
             != 0
+        {
+            return Ok(true);
+        }
+        let context = super::chat_position::context(
+            hud_context(renderer.context()),
+            &self.form_presentation.chat.settings.options,
+        );
+        let reference = if crosshair {
+            CROSSHAIR_SCREEN
+        } else {
+            HUD_SCREEN
+        };
+        if !renderer
+            .scene_settings(reference, &context)
+            .renders(crosshair || !runtime.chat_focused())
         {
             return Ok(true);
         }
@@ -342,6 +360,11 @@ impl UiPresentationRuntime {
             .hud
             .clocks
             .extend(self.scene_clock.clone());
+        let catalog = Arc::clone(renderer.catalog());
+        self.form_presentation
+            .hud
+            .hunger_animation
+            .begin(runtime.session_id(), &catalog);
         let mut paint = hud_layout::capture_hud_paint(
             player_runtime,
             runtime,
@@ -352,35 +375,28 @@ impl UiPresentationRuntime {
         if self.mod_hud_visible(player_runtime, runtime) {
             paint.custom_crosshair = self.form_presentation.mod_crosshair.clone();
         }
-        let context = super::chat_position::context(
-            hud_context(renderer.context()),
-            &self.form_presentation.chat.settings.options,
-        );
-        let catalog = Arc::clone(renderer.catalog());
         let px = metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
         let translate = |key: &str| runtime.translation(key);
         let screens = &mut self.form_presentation.hud;
         let preview_view = std::cell::Cell::new(None);
+        let hunger_animation = std::cell::RefCell::new(&mut screens.hunger_animation);
+        let advance_hunger =
+            |key: &str, instance| hunger_animation.borrow_mut().advance(key, instance);
         let art = ScreenArt {
             icons: &icons,
             now: now_millis as f64 / 1_000.0,
             hud: Some(&paint),
+            hunger_update: Some(&advance_hunger),
             preview: frame.player_preview,
             preview_view: Some(&preview_view),
             clocks: Some(&screens.clocks),
             ..ScreenArt::default()
         };
-        let (reference, screen) = if crosshair {
-            (CROSSHAIR_SCREEN, &mut screens.crosshair)
+        let screen = if crosshair {
+            &mut screens.crosshair
         } else {
-            (HUD_SCREEN, &mut screens.hud)
+            &mut screens.hud
         };
-        if !renderer
-            .scene_settings(reference, &context)
-            .renders(crosshair || !runtime.chat_focused())
-        {
-            return Ok(true);
-        }
         let inputs = EngineInputs {
             layouts: &mut self.layouts,
             font: &self.font,

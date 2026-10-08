@@ -81,6 +81,7 @@ pub(super) struct EngineSlots {
     pub(super) horse_open_mouth: Option<usize>,
     /// Dense slots for each requested dragon historical frame's yaw or height.
     pub(super) dragon_history: Vec<(usize, usize, usize)>,
+    pub(super) spear: super::spear::Slots,
 }
 
 // Client-owned variables seeded on construction and needing independent measurement; remote third-person actors keep these values because
@@ -144,6 +145,7 @@ impl VariableLayout {
                     .filter_map(|(name, value)| slot(name).map(|slot| (slot, *value)))
                     .collect(),
                 attack_time: slot("variable.attack_time"),
+                spear: super::spear::Slots::new(slot),
                 gliding_speed_value: slot("variable.gliding_speed_value"),
                 is_holding_right: slot("variable.is_holding_right"),
                 is_holding_left: slot("variable.is_holding_left"),
@@ -227,6 +229,8 @@ pub struct ActorAnimationVariables<'a> {
     variables: Option<&'a MolangVariables>,
     life_tick: u64,
     input: Option<ActorTickInput>,
+    item_context: Option<&'a ActorTickContext>,
+    complete_spear: bool,
 }
 
 impl<'a> ActorAnimationVariables<'a> {
@@ -240,6 +244,8 @@ impl<'a> ActorAnimationVariables<'a> {
             variables: Some(variables),
             life_tick,
             input: None,
+            item_context: None,
+            complete_spear: false,
         }
     }
 
@@ -247,6 +253,48 @@ impl<'a> ActorAnimationVariables<'a> {
     pub(super) fn with_input(mut self, input: Option<ActorTickInput>) -> Self {
         self.input = input;
         self
+    }
+
+    /// Retains item component facts and whether the player needs native spear pose completion.
+    pub(super) fn with_item_context(
+        mut self,
+        context: Option<&'a ActorTickContext>,
+        complete_spear: bool,
+    ) -> Self {
+        self.item_context = context;
+        self.complete_spear = complete_spear;
+        self
+    }
+
+    /// Selected owner component facts also serve owning-entity queries on held attachables.
+    pub(super) fn item_timings(self) -> (Option<protocol::KineticWeaponTiming>, Option<f32>) {
+        self.item_context.map_or((None, None), |context| {
+            (context.main_hand_kinetic, context.main_hand_swing_seconds)
+        })
+    }
+
+    /// The owning item's explicit tag stays available to attachable query contexts.
+    pub(super) fn is_spear(self) -> bool {
+        self.item_context
+            .is_some_and(|context| context.main_hand_is_spear)
+    }
+
+    /// Samples the owner-provided spear variables at the held item's frame fraction.
+    pub(super) fn sample_spear_to(
+        self,
+        slots: &super::spear::Slots,
+        output: &mut MolangVariables,
+        actor: &ActorSnapshot,
+        input: &ActorTickInput,
+        alpha: f32,
+    ) {
+        if self.complete_spear
+            && let Some(context) = self.item_context
+        {
+            let mut context = context.clone();
+            context.frame_alpha = alpha;
+            slots.apply(output, actor, &context, input, input.attack_time);
+        }
     }
 
     /// Retains query inputs as well as script variables for worn animation clips.

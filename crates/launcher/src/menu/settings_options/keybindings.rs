@@ -40,6 +40,38 @@ pub const OPEN_NOTIFICATION_KEY: &str = "key.interactwithtoast";
 const LATE_DEFAULTS: [Action; 2] = [Action::Freelook, Action::InteractWithToast];
 
 impl SettingsOptions {
+    fn active_late_defaults(&self) -> [(Action, Option<PhysicalControl>); LATE_DEFAULTS.len()] {
+        LATE_DEFAULTS.map(|action| {
+            let index = KEY_BINDINGS
+                .iter()
+                .position(|(candidate, _)| *candidate == action)
+                .expect("late defaults belong to the keyboard layout");
+            (action, self.key_control(index))
+        })
+    }
+
+    /// Legacy layouts can suppress new defaults; interactive edits retain active actions.
+    fn preserve_late_defaults(
+        &mut self,
+        previous: [(Action, Option<PhysicalControl>); LATE_DEFAULTS.len()],
+    ) -> [Option<&'static str>; LATE_DEFAULTS.len()] {
+        let mut inserted = [None; LATE_DEFAULTS.len()];
+        for (index, (action, control)) in previous.into_iter().enumerate() {
+            if self.default_yields(action)
+                && let Some(control) = control
+            {
+                let (_, name) = KEY_BINDINGS
+                    .iter()
+                    .find(|(candidate, _)| *candidate == action)
+                    .expect("late defaults belong to the keyboard layout");
+                let code = encode_control(control).expect("resolved controls have persisted codes");
+                self.keys.insert((*name).to_owned(), code);
+                inserted[index] = Some(*name);
+            }
+        }
+        inserted
+    }
+
     fn default_yields(&self, action: Action) -> bool {
         let Some((_, name)) = KEY_BINDINGS
             .iter()
@@ -61,7 +93,7 @@ impl SettingsOptions {
                 && decode_control(*code).is_some_and(|control| Some(control) == default)
         })
     }
-    /// Validates stored controls with the same device and collision rules as interactive remapping.
+    /// Validates stored controls with the same device rules as interactive remapping.
     pub fn stored_bindings_valid(&self) -> bool {
         self.controls().is_ok()
             && (0..KEY_BINDINGS.len() + EXTRA_KEYS.len())
@@ -75,10 +107,8 @@ impl SettingsOptions {
                     let Some(code) = self.keys.get(&name) else {
                         return true;
                     };
-                    decode_control(*code).is_some_and(|control| {
-                        is_gamepad(control) == (index >= GAMEPAD_OFFSET)
-                            && !self.binding_conflicts(index, self.swap_gamepad_control(control))
-                    })
+                    decode_control(*code)
+                        .is_some_and(|control| is_gamepad(control) == (index >= GAMEPAD_OFFSET))
                 })
     }
 
@@ -164,11 +194,13 @@ impl SettingsOptions {
         let Some(code) = encode_control(self.swap_gamepad_control(control)) else {
             return false;
         };
-        if self.binding_conflicts(index, control) {
-            return false;
-        }
+        let active_defaults = self.active_late_defaults();
         let previous = self.keys.insert(name.to_owned(), code);
+        let inserted_defaults = self.preserve_late_defaults(active_defaults);
         if self.controls().is_err() {
+            for name in inserted_defaults.into_iter().flatten() {
+                self.keys.remove(name);
+            }
             match previous {
                 Some(code) => {
                     self.keys.insert(name.to_owned(), code);
@@ -182,38 +214,27 @@ impl SettingsOptions {
         true
     }
 
-    /// Rejects collisions across semantic actions and host-owned UI actions on one device.
-    fn binding_conflicts(&self, index: usize, control: PhysicalControl) -> bool {
-        let indices = if index >= GAMEPAD_OFFSET {
-            GAMEPAD_OFFSET..GAMEPAD_OFFSET + GAMEPAD_BINDINGS.len() + EXTRA_GAMEPAD.len()
-        } else {
-            0..KEY_BINDINGS.len() + EXTRA_KEYS.len()
-        };
-        indices.into_iter().any(|other| {
-            other != index
-                && (self.key_control(other) == Some(control)
-                    || self.binding(other).is_some_and(|(name, _, _)| {
-                        self.secondary_key_control(&name) == Some(control)
-                    }))
-        })
-    }
-
     /// Restores one action's default control while preserving other remaps.
     pub fn reset_key(&mut self, index: usize) -> bool {
-        let Some((name, _, _)) = self.binding(index) else {
+        let Some((name, action, _)) = self.binding(index) else {
             return false;
         };
-        let previous = self.keys.remove(&name);
-        if (self.controls().is_err()
-            || self
-                .key_control(index)
-                .is_some_and(|control| self.binding_conflicts(index, control))
-            || self
-                .secondary_key_control(&name)
-                .is_some_and(|control| self.binding_conflicts(index, control)))
-            && let Some(previous) = previous
+        let mut active_defaults = self.active_late_defaults();
+        if let Some((_, control)) = active_defaults
+            .iter_mut()
+            .find(|(candidate, _)| Some(*candidate) == action)
         {
-            self.keys.insert(name.to_owned(), previous);
+            *control = Self::default().key_control(index);
+        }
+        let previous = self.keys.remove(&name);
+        let inserted_defaults = self.preserve_late_defaults(active_defaults);
+        if self.controls().is_err() {
+            for name in inserted_defaults.into_iter().flatten() {
+                self.keys.remove(name);
+            }
+            if let Some(previous) = previous {
+                self.keys.insert(name.to_owned(), previous);
+            }
             return false;
         }
         true

@@ -1,7 +1,7 @@
 //! Native local body and equipment share the physics-sampled attack parent.
 use super::*;
 use bevy::ecs::system::SystemState;
-use bevy::math::Quat;
+use bevy::math::{Quat, Vec3};
 use bevy::prelude::{PerspectiveProjection, Projection, Time, Transform, World};
 use bevy::time::Real;
 
@@ -199,30 +199,43 @@ fn assert_native_body_sample(equipment_parent: bool, case: BodyCase) {
                 Quat::from_rotation_x(-((1.0 + physics_alpha) / duration) * 80.0f32.to_radians());
             assert!(Quat::from_array(current[arm].rotation).abs_diff_eq(expected, 1e-5));
             if equipment_parent {
-                let mut expected_body = body.clone();
-                expected_body.input.previous_bones = previous;
-                expected_body.input.current_bones = current;
-                let expected = world.resource_mut::<EquipmentRuntime>().layers_for(
-                    &expected_body,
-                    &input,
-                    None,
-                );
-                let expected = expected.first().expect("native held equipment");
-                let actual = world
+                let item_parent = rig
+                    .bone_names
+                    .iter()
+                    .position(|name| name.eq_ignore_ascii_case("rightItem"))
+                    .unwrap();
+                assert_eq!(previous, current, "the body publishes one sampled frame");
+                // The zero-pivot item retains the model origin beneath rightItem,
+                // with no fallback grip rotation or scale.
+                let parent = current[item_parent];
+                let rotation = Quat::from_array(parent.rotation);
+                let origin = Vec3::from_slice(&parent.translation_scale[..3])
+                    + rotation
+                        * (-Vec3::Y
+                            * client_world::MODEL_PART_ORIGIN_Y
+                            * assets::gui_item::SHIELD_MODEL_UNIT);
+                let mut equipment = world
                     .resource::<super::super::PreparedActorPublication>()
                     .submissions()
                     .unwrap()
                     .iter()
-                    .find(|draw| draw.input.identity == expected.submission.input.identity)
-                    .unwrap();
-                assert_eq!(
-                    actual.input.previous_bones, expected.submission.input.previous_bones,
-                    "native equipment previous parent duration {duration}"
-                );
-                assert_eq!(
-                    actual.input.current_bones, expected.submission.input.current_bones,
-                    "native equipment current parent duration {duration}"
-                );
+                    .filter(|draw| draw.input.identity.layer != render::ACTOR_LAYER_BODY);
+                let actual = equipment.next().expect("native held equipment");
+                assert!(equipment.next().is_none(), "one identity-pose held model");
+                for bones in [&actual.input.previous_bones, &actual.input.current_bones] {
+                    assert_eq!(bones.len(), 1, "one bound item root");
+                    assert!(
+                        Quat::from_array(bones[0].rotation).abs_diff_eq(rotation, 1e-6),
+                        "native equipment parent rotation duration {duration}"
+                    );
+                    assert!(
+                        Vec3::from_slice(&bones[0].translation_scale[..3])
+                            .abs_diff_eq(origin, 1e-6),
+                        "native equipment parent origin duration {duration}"
+                    );
+                    assert_eq!(bones[0].translation_scale[3], 1.0);
+                    assert_eq!(bones[0].axis_scale, render_model::UNIT_AXIS_SCALE);
+                }
             } else {
                 assert!(
                     Quat::from_array(body.input.current_bones[arm].rotation)

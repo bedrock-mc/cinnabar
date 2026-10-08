@@ -266,6 +266,7 @@ fn press(input_mode: PlayerInputMode) -> PressContext {
                 .unwrap(),
         }),
         swing_duration: 6,
+        item_attack: None,
         now_millis: 1_000,
     }
 }

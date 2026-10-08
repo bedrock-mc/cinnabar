@@ -36,7 +36,7 @@ pub struct HudEffect {
     pub amplifier: i32,
     pub ambient: bool,
     pub particles: bool,
-    /// Server tick after which the effect is no longer presented. `None` is an
+    /// Presentation tick after which the effect is no longer presented. `None` is an
     /// effectively infinite (negative wire duration) effect.
     pub expires_at_tick: Option<u64>,
 }

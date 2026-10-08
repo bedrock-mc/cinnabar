@@ -201,8 +201,7 @@ impl SourceDecoder {
         let asset = &entities.sources[source as usize];
         let binary_alpha = !self.lenient
             && !self.dissolve_masks.contains(&source)
-            && !assets::native_actor_texture_uses_color_mask(asset)
-            && !assets::native_actor_texture_uses_multitexture(asset);
+            && !assets::native_actor_texture_preserves_fractional_alpha(asset);
         let sampled = |width: u16, height: u16| {
             let mut union = vec![false; usize::from(width) * usize::from(height)];
             for &geometry in self.drawn.get(&source)?.as_ref()? {

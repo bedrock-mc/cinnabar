@@ -98,6 +98,7 @@ pub use interaction::{
     click_block_packet, click_block_transaction_packet, destroy_block_packet,
     is_aim_assist_rotation_action, release_item_packet, start_item_use_on_packet,
     stop_item_use_on_packet, stop_sleeping_packet, swing_arm_packet, use_actor_packet,
+    use_item_as_attack_packet,
 };
 pub use inventory::recipes::{
     MAX_RECIPE_INGREDIENTS, RECIPE_ANY_AUX, RECIPE_OWNED_BYTES, RecipeCatalog, RecipeDefinition,
@@ -158,9 +159,10 @@ pub use inventory::{MineBlockRequest, MineBlockRequestError};
 pub use inventory::{RecipeRegistryError, RecipeRegistrySnapshot};
 pub use item::{
     ActorActionEvent, ActorActionKind, ActorHandedness, ArmorEquipmentEvent, EquipmentEvent,
-    HOTBAR_SLOT_COUNT, ItemActorEvent, ItemBook, ItemComponents, ItemDisplay, ItemPacketError,
-    ItemRegistryEntry, ItemRegistryEvent, ItemRegistryVersion, MAX_ACTION_IDENTIFIER_BYTES,
-    MAX_ANIMATE_ENTITY_IDS, MAX_ANIMATION_IDENTIFIER_BYTES, MAX_BOOK_PAGES, MAX_ITEM_EXTRA_BYTES,
+    HOTBAR_SLOT_COUNT, ItemActorEvent, ItemAttackCooldown, ItemAttackTiming, ItemBook,
+    ItemComponents, ItemDisplay, ItemPacketError, ItemRegistryEntry, ItemRegistryEvent,
+    ItemRegistryVersion, KineticWeaponTiming, MAX_ACTION_IDENTIFIER_BYTES, MAX_ANIMATE_ENTITY_IDS,
+    MAX_ANIMATION_IDENTIFIER_BYTES, MAX_BOOK_PAGES, MAX_ITEM_EXTRA_BYTES,
     MAX_ITEM_REGISTRY_ENTRIES, NetworkItemStack, item_book, item_bundle_id,
     item_charged_projectile, item_components, item_custom_color, item_display,
     item_enchantment_level, item_extra_damage, item_extra_unbreakable, item_has_enchantment_list,

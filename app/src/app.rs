@@ -682,7 +682,8 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         args.no_vsync,
         diagnostics_enabled,
         hidden_surface,
-    );
+    )
+    .with_launch_frame_cap(args.frame_cap);
     let present_mode = present_mode_runtime.window_present_mode();
     let present_mode_policy = present_mode_runtime.policy();
     let vsync_override = present_mode_runtime.vsync_override();
@@ -716,13 +717,20 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         // OS default SIGINT action also preserves a real developer escape
         // hatch if graceful Bevy teardown is wedged.
         .disable::<TerminalCtrlCHandlerPlugin>();
-    #[cfg(feature = "tracy")]
     let plugins = plugins.set(bevy::log::LogPlugin {
+        // The presence library logs an error on every retry while Discord is closed; rich-presence reports it once.
+        filter: format!(
+            "{}discord_presence::connection=off",
+            bevy::log::DEFAULT_FILTER
+        ),
+        #[cfg(feature = "tracy")]
         custom_layer: crate::tracy::layer,
         ..default()
     });
     app.add_plugins(plugins);
     app.add_plugins(render::InputPacingPlugin::default())
+        .init_resource::<crate::present_mode::DisplayRefresh>()
+        .add_systems(First, crate::frame_pacing::track_display_refresh)
         .add_systems(Last, crate::frame_pacing::update_frame_pacing);
     #[cfg(target_os = "macos")]
     crate::thread_budget::ThreadBudget::configure_render_thread(&mut app);
@@ -744,7 +752,6 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         Color::srgb(0.035, 0.043, 0.059)
     };
     app.insert_resource(crate::frame_pacing::FramePacingRuntime::new(
-        args.frame_cap,
         hidden_surface || args.acceptance_seconds.is_some(),
     ))
     // Every update passes the pacer's single admission wait, so input never adds frames.
