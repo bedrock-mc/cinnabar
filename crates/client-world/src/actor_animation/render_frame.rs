@@ -273,6 +273,7 @@ impl ActorAnimationStore {
             anim_tick: frame.motion.anim_tick,
             anim_time: None,
             swell_amount: None,
+            presentation_alpha: None,
             query_history: None,
             life_tick: self.completed_tick.saturating_sub(state.lifetime_epoch),
             finished: (false, false),

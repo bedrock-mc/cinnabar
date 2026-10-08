@@ -16,51 +16,72 @@ pub(super) fn render_controller_expressions(
     assets: &RuntimeEntityAssets,
     binding: usize,
 ) -> Vec<u32> {
-    let mut expressions = Vec::new();
+    assets
+        .render_layers(binding)
+        .iter()
+        .flat_map(|layer| render_layer_expressions(assets, layer).expressions)
+        .collect()
+}
+
+/// Separate selection gates preserve dependencies of conditionally executed assignments.
+pub(super) struct RenderExpressions {
+    pub expressions: Vec<u32>,
+    pub gates: Vec<u32>,
+}
+
+/// Layer conditions and choices control which following scripts execute.
+pub(super) fn render_layer_expressions(
+    assets: &RuntimeEntityAssets,
+    layer: &assets::EntityRenderLayer,
+) -> RenderExpressions {
     let data = assets.render_data();
-    for layer in assets.render_layers(binding) {
-        expressions.extend(layer.condition);
-        expressions.extend(layer.light_color_multiplier);
-        for channels in [
-            layer.color,
-            layer.overlay_color,
-            layer.hurt_color,
-            layer.on_fire_color,
-            layer.uv_anim,
-        ]
-        .into_iter()
-        .flatten()
-        {
-            expressions.extend(channels);
-        }
-        let first = layer.first_geometry as usize;
-        if let Some(choices) = data
-            .geometries
-            .get(first..first + usize::from(layer.geometry_count))
-        {
-            expressions.extend(choices.iter().filter_map(|choice| choice.condition));
-        }
-        let first = layer.first_visibility as usize;
-        if let Some(rules) = data
-            .visibility
-            .get(first..first + usize::from(layer.visibility_count))
-        {
-            expressions.extend(rules.iter().map(|rule| rule.condition));
-        }
-        let first = layer.first_slot as usize;
-        if let Some(slots) = data.slots.get(first..first + usize::from(layer.slot_count)) {
-            for slot in slots {
-                let first = slot.first_candidate as usize;
-                if let Some(choices) = data
-                    .candidates
-                    .get(first..first + usize::from(slot.candidate_count))
-                {
-                    expressions.extend(choices.iter().filter_map(|choice| choice.condition));
-                }
+    let mut expressions = Vec::new();
+    let mut gates = Vec::new();
+
+    expressions.extend(layer.condition);
+    gates.extend(layer.condition);
+    expressions.extend(layer.light_color_multiplier);
+    for channels in [
+        layer.color,
+        layer.overlay_color,
+        layer.hurt_color,
+        layer.on_fire_color,
+        layer.uv_anim,
+    ]
+    .into_iter()
+    .flatten()
+    {
+        expressions.extend(channels);
+    }
+    let first = layer.first_geometry as usize;
+    if let Some(choices) = data
+        .geometries
+        .get(first..first + usize::from(layer.geometry_count))
+    {
+        expressions.extend(choices.iter().filter_map(|choice| choice.condition));
+        gates.extend(choices.iter().filter_map(|choice| choice.condition));
+    }
+    let first = layer.first_visibility as usize;
+    if let Some(rules) = data
+        .visibility
+        .get(first..first + usize::from(layer.visibility_count))
+    {
+        expressions.extend(rules.iter().map(|rule| rule.condition));
+    }
+    let first = layer.first_slot as usize;
+    if let Some(slots) = data.slots.get(first..first + usize::from(layer.slot_count)) {
+        for slot in slots {
+            let first = slot.first_candidate as usize;
+            if let Some(choices) = data
+                .candidates
+                .get(first..first + usize::from(slot.candidate_count))
+            {
+                expressions.extend(choices.iter().filter_map(|choice| choice.condition));
+                gates.extend(choices.iter().filter_map(|choice| choice.condition));
             }
         }
     }
-    expressions
+    RenderExpressions { expressions, gates }
 }
 
 /// Frame-time queries require fresh rendered-layer evaluation between simulation ticks.

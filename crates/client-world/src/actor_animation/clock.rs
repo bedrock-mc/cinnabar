@@ -179,7 +179,21 @@ pub(super) fn sample_update(
             anim_time: Some(
                 clocks
                     .get(&(weighted.clip, weighted.started_tick, weighted.clock))
-                    .map_or(0.0, |clock| clock.baseline),
+                    .map_or(0.0, |clock| {
+                        let stamp = (
+                            evaluator.anim_tick,
+                            evaluator
+                                .context
+                                .attachable
+                                .map_or(0.0, |input| input.frame_alpha)
+                                .to_bits(),
+                        );
+                        if clock.sampled == Some(stamp) {
+                            clock.baseline
+                        } else {
+                            clock.time
+                        }
+                    }),
             ),
             ..*evaluator
         };

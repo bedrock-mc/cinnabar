@@ -325,6 +325,7 @@ pub(super) fn evaluate_state(
         anim_tick,
         anim_time: None,
         swell_amount: None,
+        presentation_alpha: None,
         query_history: None,
         life_tick,
         finished: (false, false),
@@ -460,16 +461,18 @@ pub(super) fn evaluate_state(
         &evaluator,
         &mut variables,
         &mut controllers,
-        previous_clocks,
-        state.geometry_binding,
-        blink_controller,
-        &mut journal,
-        false,
-        samples_swell
-            && state
-                .swell_sampling
-                .as_ref()
-                .is_some_and(|s| s.samples_clips()),
+        selection::Input {
+            clocks: previous_clocks,
+            geometry: state.geometry_binding,
+            blink: blink_controller,
+            journal: &mut journal,
+            replay: false,
+            record: samples_swell
+                && state
+                    .swell_sampling
+                    .as_ref()
+                    .is_some_and(|s| s.samples_clips()),
+        },
         budget,
     )?;
     let mut server_animations = replay

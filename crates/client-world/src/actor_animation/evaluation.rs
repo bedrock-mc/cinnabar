@@ -220,6 +220,7 @@ pub(super) struct MolangVariables {
     temps: Vec<Option<MolangValue>>,
     random: u64,
     random_draws: u64,
+    publication_random: Option<(u64, u64)>,
     capture_writes: bool,
     writes: Vec<u64>,
 }
@@ -299,16 +300,20 @@ enum Place {
     Temporary(usize),
 }
 
+/// Completed controller effects retain authored slots and their random draw span.
 #[derive(Clone, Debug, Default)]
 pub(super) struct MolangEffects {
     writes: Vec<(Place, Option<MolangValue>)>,
     random_draws: u64,
+    random_start: u64,
+    random_end: u64,
 }
 
 pub(super) struct EffectsCapture {
     enabled: bool,
     writes: Vec<u64>,
     random_draws: u64,
+    random: u64,
 }
 
 impl MolangEffects {
@@ -324,27 +329,30 @@ impl MolangEffects {
                 *variables.entry(*place).ok_or(EvalError::Invalid)? = None;
             }
         }
-        for _ in 0..self.random_draws {
-            variables.next_random();
-        }
+        variables.advance_random(self.random_start, self.random_end, self.random_draws);
         Ok(())
     }
 }
 
 impl MolangVariables {
+    /// Nested recording preserves the enclosing authored-write bitmap.
     pub(super) fn begin_effects(&mut self) -> EffectsCapture {
         let capture = EffectsCapture {
             enabled: self.capture_writes,
             writes: std::mem::take(&mut self.writes),
             random_draws: self.random_draws,
+            random: self.random,
         };
         self.capture_writes = true;
         capture
     }
 
+    /// Completed events restore their enclosing capture after retaining their effects.
     pub(super) fn finish_effects(&mut self, capture: EffectsCapture) -> MolangEffects {
         let mut effects = MolangEffects {
             random_draws: self.random_draws.wrapping_sub(capture.random_draws),
+            random_start: capture.random,
+            random_end: self.random,
             ..Default::default()
         };
         for (word, &bits) in self.writes.iter().enumerate() {
@@ -380,12 +388,14 @@ impl MolangVariables {
     pub(super) fn capture_writes(&mut self) {
         self.capture_writes = true;
         self.writes.clear();
+        self.publication_random = Some((self.random, self.random_draws));
     }
 
     /// Publishes authored side effects to matching slots without replacing untouched values; random draws continue on the same stream.
     pub(super) fn publish_writes(&self, target: &mut Self) {
-        target.random = self.random;
-        target.random_draws = self.random_draws;
+        if let Some((random, draws)) = self.publication_random {
+            target.advance_random(random, self.random, self.random_draws.wrapping_sub(draws));
+        }
         for (word, &bits) in self.writes.iter().enumerate() {
             let mut bits = bits;
             while bits != 0 {
@@ -501,6 +511,18 @@ impl MolangVariables {
             .map(|value| value.number())
     }
 
+    /// Effects consume draws after the receiving prefix, preserving its conditional random work.
+    fn advance_random(&mut self, start: u64, end: u64, draws: u64) {
+        if self.random == start {
+            self.random = end;
+            self.random_draws = self.random_draws.wrapping_add(draws);
+        } else {
+            for _ in 0..draws {
+                self.next_random();
+            }
+        }
+    }
+
     /// Next value in `[0, 1]` from a per-actor xorshift stream.
     fn next_random(&mut self) -> f32 {
         let mut state = self.random;
@@ -539,6 +561,8 @@ pub(super) struct Evaluator<'a> {
     /// The clip clock while its time expression or bone channels are evaluated.
     pub(super) anim_time: Option<f32>,
     pub(super) swell_amount: Option<f32>,
+    /// The presentation fraction is independent of retained ordinary query inputs.
+    pub(super) presentation_alpha: Option<f32>,
     pub(super) query_history: Option<&'a [(u32, MolangValue)]>,
     pub(super) life_tick: u64,
     /// Whether all and any animations of the controller state being left have finished.
@@ -796,6 +820,14 @@ impl Evaluator<'_> {
     }
 
     pub(super) fn query(&self, symbol: u32, arguments: &[MolangValue]) -> MolangValue {
+        if let Some(alpha) = self.presentation_alpha
+            && self
+                .symbols()
+                .get(symbol as usize)
+                .is_some_and(|symbol| symbol.identifier.as_ref() == "query.frame_alpha")
+        {
+            return MolangValue::Number(alpha);
+        }
         if self.program.is_none()
             && arguments.is_empty()
             && let Some(history) = self.query_history

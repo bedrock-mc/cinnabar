@@ -10,7 +10,9 @@ pub(in crate::actor_animation) struct ControllerJournal {
 #[derive(Clone, Debug)]
 struct ControllerEvent {
     slot: usize,
-    occurrence: usize,
+    reference: usize,
+    path: [usize; assets::MAX_ENTITY_CONTROLLER_NESTING],
+    depth: usize,
     state: usize,
     runtime: ControllerState,
     effects: evaluation::MolangEffects,
@@ -44,7 +46,9 @@ pub(super) struct ControllerWalk<'e, 'v, 'b, 'w> {
     pub(super) budget: &'b mut EvalBudget<'w>,
     pub(super) journal: &'v mut ControllerJournal,
     pub(super) replay: bool,
-    pub(super) visits: &'v mut [usize],
+    pub(super) record: bool,
+    pub(super) reference: usize,
+    pub(super) path: [usize; assets::MAX_ENTITY_CONTROLLER_NESTING],
 }
 
 impl ControllerWalk<'_, '_, '_, '_> {
@@ -64,7 +68,7 @@ impl ControllerWalk<'_, '_, '_, '_> {
             .position(|runtime| runtime.controller == controller)
             .ok_or(EvalError::Invalid)?;
         self.budget.charge_work()?;
-        let state = self.advance(slot)?;
+        let state = self.advance(slot, depth)?;
         self.controllers[slot].active = true;
         let runtime = self.controllers[slot];
         if let Some((previous, started, began)) = runtime.blend_from {
@@ -123,7 +127,11 @@ impl ControllerWalk<'_, '_, '_, '_> {
         started_tick: u64,
         blend: Option<ControllerBlend>,
     ) -> Result<(), EvalError> {
-        for animation in state_animations(self.evaluator.assets, state)? {
+        let first = self.evaluator.assets.controller_states()[state].first_animation as usize;
+        for (index, animation) in state_animations(self.evaluator.assets, state)?
+            .iter()
+            .enumerate()
+        {
             self.budget.charge_work()?;
             let weight = blend_weight(
                 self.evaluator,
@@ -145,6 +153,7 @@ impl ControllerWalk<'_, '_, '_, '_> {
                     blend,
                 }),
                 EntityControllerAnimationTarget::Controller(nested) => {
+                    self.path[depth] = first + index;
                     self.evaluate(nested as usize, weight, depth + 1)?
                 }
             }
@@ -208,23 +217,14 @@ impl ControllerWalk<'_, '_, '_, '_> {
     }
 
     /// Takes at most the bounded number of transitions; returns the absolute state index.
-    fn advance(&mut self, slot: usize) -> Result<usize, EvalError> {
-        let occurrence = self
-            .visits
-            .get_mut(slot)
-            .map(|visits| {
-                let occurrence = *visits;
-                *visits += 1;
-                occurrence
-            })
-            .unwrap_or(0);
+    fn advance(&mut self, slot: usize, depth: usize) -> Result<usize, EvalError> {
         if self.replay {
-            if let Some(event) = self
-                .journal
-                .events
-                .iter()
-                .find(|event| event.slot == slot && event.occurrence == occurrence)
-            {
+            if let Some(event) = self.journal.events.iter().find(|event| {
+                event.slot == slot
+                    && event.reference == self.reference
+                    && event.depth == depth
+                    && event.path[..depth] == self.path[..depth]
+            }) {
                 event.effects.apply(self.variables)?;
                 self.controllers[slot] = event.runtime;
                 return Ok(event.state);
@@ -235,7 +235,7 @@ impl ControllerWalk<'_, '_, '_, '_> {
                     + runtime.state as usize,
             );
         }
-        if self.visits.is_empty() {
+        if !self.record {
             return self.advance_tick(slot);
         }
         let capture = self.variables.begin_effects();
@@ -245,7 +245,9 @@ impl ControllerWalk<'_, '_, '_, '_> {
         if self.journal.retain_states || !effects.is_empty() {
             self.journal.events.push(ControllerEvent {
                 slot,
-                occurrence,
+                reference: self.reference,
+                path: self.path,
+                depth,
                 state,
                 runtime: self.controllers[slot],
                 effects,

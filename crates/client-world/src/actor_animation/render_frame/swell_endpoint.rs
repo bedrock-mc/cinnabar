@@ -37,6 +37,7 @@ impl SwellMotion {
             anim_tick: self.anim_tick,
             life_tick: self.life_tick,
             swell_amount: Some(amount),
+            presentation_alpha: Some(base.context.frame_alpha),
             query_history: Some(&self.queries),
             actor: self.actor.as_deref().unwrap_or(base.actor),
             ..base

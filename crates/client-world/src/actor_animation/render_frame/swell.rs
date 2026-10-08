@@ -59,6 +59,7 @@ impl SwellSampling {
                             !matches!(
                                 s.identifier.as_ref(),
                                 "query.swell_amount"
+                                    | "query.frame_alpha"
                                     | "query.anim_time"
                                     | "query.all_animations_finished"
                                     | "query.any_animation_finished"
@@ -70,82 +71,49 @@ impl SwellSampling {
             }
         }
         let mut variables = BTreeSet::new();
-        loop {
+        let (expressions, weighted_symbols) = loop {
             let before = variables.len();
             for &expression in &expressions {
-                propagate(assets, expression, &mut variables);
+                propagate(assets, expression, false, &mut variables);
             }
-            if variables.len() == before {
-                break;
+            let dependent = dependent_expressions(assets, &expressions, &variables);
+            let (weighted, controlled) =
+                activation_dependencies(assets, geometry, controllers, &dependent);
+            for expression in controlled {
+                propagate(assets, expression, true, &mut variables);
             }
-        }
-        let expressions = expressions
-            .into_iter()
-            .filter(|&expression| {
-                ops(assets, expression).iter().any(|op| match op {
-                    MolangOp::LoadQuery(symbol) => is_swell(assets, *symbol),
-                    MolangOp::CallQuery(call) => is_swell(assets, call.symbol),
-                    MolangOp::LoadVariable(symbol) => variables.contains(symbol),
-                    MolangOp::LoadThis => true,
-                    MolangOp::Coalesce(branch) => variables.contains(&branch.symbol),
-                    _ => false,
-                })
-            })
-            .collect::<BTreeSet<_>>();
-        let mut weighted_symbols = BTreeSet::new();
-        let geometry_index = geometry;
-        let geometry = &assets.rig_geometries()[geometry];
-        let first = geometry.first_animation as usize;
-        for binding in
-            &assets.rig_animations()[first..first + usize::from(geometry.animation_count)]
-        {
-            if binding
-                .weight
-                .is_some_and(|weight| expressions.contains(&weight))
-            {
-                weighted_symbols.insert(assets.animation_clips()[binding.clip as usize].symbol);
-            }
-        }
-        let first = geometry.first_controller as usize;
-        for binding in
-            &assets.rig_controllers()[first..first + usize::from(geometry.controller_count)]
-        {
-            if binding
-                .weight
-                .is_some_and(|weight| expressions.contains(&weight))
-            {
-                controller_symbols(assets, binding.controller as usize, &mut weighted_symbols);
-            }
-        }
-        for runtime in controllers {
-            let controller = &assets.controllers()[runtime.controller];
-            let first = controller.first_state as usize;
-            for state in
-                &assets.controller_states()[first..first + usize::from(controller.state_count)]
-            {
-                let first = state.first_animation as usize;
-                for animation in &assets.controller_animations()
-                    [first..first + usize::from(state.animation_count)]
+            for clip in assets.animation_clips() {
+                if !weighted.contains(&clip.symbol)
+                    && !clip
+                        .anim_time_update
+                        .is_some_and(|time| dependent.contains(&time))
                 {
-                    if !animation
-                        .weight
-                        .is_some_and(|weight| expressions.contains(&weight))
-                    {
-                        continue;
-                    }
-                    match animation.target {
-                        assets::EntityControllerAnimationTarget::Clip(clip) => {
-                            weighted_symbols.insert(assets.animation_clips()[clip as usize].symbol);
-                        }
-                        assets::EntityControllerAnimationTarget::Controller(controller) => {
-                            controller_symbols(assets, controller as usize, &mut weighted_symbols)
-                        }
+                    continue;
+                }
+                for expression in clip_expressions(assets, clip) {
+                    if expressions.contains(&expression) {
+                        propagate(assets, expression, true, &mut variables);
                     }
                 }
             }
-        }
+            for layer in assets.render_layers(rig) {
+                let layer_expressions = super::sampling::render_layer_expressions(assets, layer);
+                if layer_expressions
+                    .gates
+                    .iter()
+                    .any(|gate| dependent.contains(gate))
+                {
+                    for expression in layer_expressions.expressions {
+                        propagate(assets, expression, true, &mut variables);
+                    }
+                }
+            }
+            if variables.len() == before {
+                break (dependent, weighted);
+            }
+        };
         let selection_effects =
-            super::sampling::selection_expressions(assets, geometry_index, controllers)
+            super::sampling::selection_expressions(assets, geometry, controllers)
                 .into_iter()
                 .any(|expression| has_effects(assets, expression));
         let timed_symbols = assets
@@ -171,6 +139,7 @@ impl SwellSampling {
         }))
     }
 
+    /// Ordinary query values belong to the completed motion endpoint.
     pub(in crate::actor_animation) fn freeze_queries(
         &self,
         evaluator: &evaluation::Evaluator<'_>,
@@ -181,6 +150,7 @@ impl SwellSampling {
             .collect()
     }
 
+    /// Argument-based property queries also require the retained actor maps.
     pub(in crate::actor_animation) fn samples_properties(&self) -> bool {
         self.properties
     }
@@ -269,7 +239,12 @@ impl SwellSampling {
     }
 }
 
-fn controller_symbols(assets: &RuntimeEntityAssets, root: usize, symbols: &mut BTreeSet<u32>) {
+fn controller_dependencies(
+    assets: &RuntimeEntityAssets,
+    root: usize,
+    symbols: &mut BTreeSet<u32>,
+    scripts: &mut BTreeSet<u32>,
+) {
     let mut pending = vec![root];
     let mut seen = BTreeSet::new();
     while let Some(index) = pending.pop() {
@@ -280,10 +255,19 @@ fn controller_symbols(assets: &RuntimeEntityAssets, root: usize, symbols: &mut B
         let first = controller.first_state as usize;
         for state in &assets.controller_states()[first..first + usize::from(controller.state_count)]
         {
+            scripts.extend(state.on_entry);
+            scripts.extend(state.on_exit);
+            let first = state.first_transition as usize;
+            scripts.extend(
+                assets.controller_transitions()[first..first + state.transition_count as usize]
+                    .iter()
+                    .map(|transition| transition.condition),
+            );
             let first = state.first_animation as usize;
             for animation in
                 &assets.controller_animations()[first..first + usize::from(state.animation_count)]
             {
+                scripts.extend(animation.weight);
                 match animation.target {
                     assets::EntityControllerAnimationTarget::Clip(clip) => {
                         symbols.insert(assets.animation_clips()[clip as usize].symbol);
@@ -313,10 +297,20 @@ fn is_swell(assets: &RuntimeEntityAssets, symbol: u32) -> bool {
 }
 
 /// Propagates query dependencies through authored assignments without running the script.
-fn propagate(assets: &RuntimeEntityAssets, expression: u32, variables: &mut BTreeSet<u32>) {
+fn propagate(
+    assets: &RuntimeEntityAssets,
+    expression: u32,
+    controlled: bool,
+    variables: &mut BTreeSet<u32>,
+) {
     let ops = ops(assets, expression);
     let mut states: Vec<Option<(Vec<bool>, bool)>> = vec![None; ops.len() + 1];
-    let mut pending = vec![(0, Vec::new(), Vec::<(usize, bool)>::new())];
+    let controls = if controlled {
+        vec![(ops.len(), true)]
+    } else {
+        Vec::new()
+    };
+    let mut pending = vec![(0, Vec::new(), controls)];
     while let Some((pc, mut stack, mut controls)) = pending.pop() {
         controls.retain(|(end, _)| pc < *end);
         let mut control = controls.iter().any(|(_, dependency)| *dependency);
@@ -429,4 +423,105 @@ fn has_effects(assets: &RuntimeEntityAssets, expression: u32) -> bool {
         matches!(op, MolangOp::StoreVariable(_))
             || matches!(op, MolangOp::Call(function) if function.is_random())
     })
+}
+
+fn dependent_expressions(
+    assets: &RuntimeEntityAssets,
+    expressions: &[u32],
+    variables: &BTreeSet<u32>,
+) -> BTreeSet<u32> {
+    expressions
+        .iter()
+        .copied()
+        .filter(|&expression| {
+            ops(assets, expression).iter().any(|op| match op {
+                MolangOp::LoadQuery(symbol) => is_swell(assets, *symbol),
+                MolangOp::CallQuery(call) => is_swell(assets, call.symbol),
+                MolangOp::LoadVariable(symbol) => variables.contains(symbol),
+                MolangOp::LoadThis => true,
+                MolangOp::Coalesce(branch) => variables.contains(&branch.symbol),
+                _ => false,
+            })
+        })
+        .collect()
+}
+
+fn activation_dependencies(
+    assets: &RuntimeEntityAssets,
+    geometry: usize,
+    controllers: &[ControllerState],
+    expressions: &BTreeSet<u32>,
+) -> (BTreeSet<u32>, BTreeSet<u32>) {
+    let mut weighted_symbols = BTreeSet::new();
+    let mut scripts = BTreeSet::new();
+    let geometry = &assets.rig_geometries()[geometry];
+    let first = geometry.first_animation as usize;
+    for binding in &assets.rig_animations()[first..first + usize::from(geometry.animation_count)] {
+        if binding
+            .weight
+            .is_some_and(|weight| expressions.contains(&weight))
+        {
+            weighted_symbols.insert(assets.animation_clips()[binding.clip as usize].symbol);
+        }
+    }
+    let first = geometry.first_controller as usize;
+    for binding in &assets.rig_controllers()[first..first + usize::from(geometry.controller_count)]
+    {
+        if binding
+            .weight
+            .is_some_and(|weight| expressions.contains(&weight))
+        {
+            controller_dependencies(
+                assets,
+                binding.controller as usize,
+                &mut weighted_symbols,
+                &mut scripts,
+            );
+        }
+    }
+    for runtime in controllers {
+        let controller = &assets.controllers()[runtime.controller];
+        let first = controller.first_state as usize;
+        for state in &assets.controller_states()[first..first + usize::from(controller.state_count)]
+        {
+            let first = state.first_animation as usize;
+            for animation in
+                &assets.controller_animations()[first..first + usize::from(state.animation_count)]
+            {
+                if !animation
+                    .weight
+                    .is_some_and(|weight| expressions.contains(&weight))
+                {
+                    continue;
+                }
+                match animation.target {
+                    assets::EntityControllerAnimationTarget::Clip(clip) => {
+                        weighted_symbols.insert(assets.animation_clips()[clip as usize].symbol);
+                    }
+                    assets::EntityControllerAnimationTarget::Controller(controller) => {
+                        controller_dependencies(
+                            assets,
+                            controller as usize,
+                            &mut weighted_symbols,
+                            &mut scripts,
+                        )
+                    }
+                }
+            }
+        }
+    }
+    (weighted_symbols, scripts)
+}
+
+fn clip_expressions(assets: &RuntimeEntityAssets, clip: &assets::EntityAnimationClip) -> Vec<u32> {
+    let mut expressions = Vec::new();
+    expressions.extend(clip.anim_time_update);
+    let first = clip.first_channel as usize;
+    for channel in &assets.animation_channels()[first..first + clip.channel_count as usize] {
+        let first = channel.first_keyframe as usize;
+        for key in &assets.animation_keyframes()[first..first + channel.keyframe_count as usize] {
+            expressions.extend(key.expressions.into_iter().flatten());
+        }
+    }
+    expressions
 }

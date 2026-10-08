@@ -29,12 +29,14 @@ pub(super) fn sample(
         evaluator,
         variables,
         &mut controllers,
-        clocks,
-        state.geometry_binding,
-        super::super::skin_layers::blink_controller(evaluator.assets, state),
-        &mut journal,
-        swelling.is_some(),
-        false,
+        tick::selection::Input {
+            clocks,
+            geometry: state.geometry_binding,
+            blink: super::super::skin_layers::blink_controller(evaluator.assets, state),
+            journal: &mut journal,
+            replay: swelling.is_some(),
+            record: false,
+        },
         budget,
     )?;
     clips.extend(
