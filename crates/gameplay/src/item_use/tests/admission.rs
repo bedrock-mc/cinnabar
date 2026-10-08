@@ -620,8 +620,21 @@ fn delay_fix_retries_rejected_batches_but_not_an_accepted_same_tick() {
     send_use(&mut runtime, &mut swings, &next, &ready);
     assert_eq!(
         ready.pending_command_count(),
+        2,
+        "same-slot repeats retain their delay"
+    );
+    let switched = UseFrame {
+        selection: Some(stack(5, SNOWBALL, 16)),
+        ..next
+    };
+    runtime.observe_press(true);
+    send_use(&mut runtime, &mut swings, &switched, &full);
+    assert_eq!(ready.pending_command_count(), 2);
+    send_use(&mut runtime, &mut swings, &switched, &ready);
+    assert_eq!(
+        ready.pending_command_count(),
         3,
-        "the next tick admits its transaction while the existing arm swing remains active"
+        "a rejected slot-change use retries without restarting the existing arm swing"
     );
 }
 
