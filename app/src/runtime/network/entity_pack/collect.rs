@@ -98,15 +98,7 @@ pub(super) fn collect_files(
 ) -> Vec<(Box<str>, Vec<u8>)> {
     let mut files = Vec::new();
     let entities = unique_entities(view);
-    let attachables = view
-        .list("attachables/")
-        .into_iter()
-        .filter(|path| path.ends_with(".json"))
-        .filter_map(|path| {
-            let bytes = view.read(path)?;
-            Some((Box::<str>::from(path), canonical_json(&bytes)?))
-        })
-        .collect::<Vec<_>>();
+    let attachables = attachables::collect(view, vanilla_pack_dir);
     let mut references = References::default();
     for (_, bytes) in entities.iter().chain(&attachables) {
         if let Ok(actor) = serde_json::from_slice::<Value>(bytes) {
@@ -410,6 +402,8 @@ fn collect_texture_strings(value: &Value, stems: &mut BTreeSet<String>) {
         _ => {}
     }
 }
+
+mod attachables;
 
 #[cfg(test)]
 mod tests;

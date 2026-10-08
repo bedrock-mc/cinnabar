@@ -111,12 +111,11 @@ pub fn mesh_with_cape(
         let (Some(icon), Some(texture)) = (icon, &gear.armor[slot]) else {
             continue;
         };
-        let size = [f32::from(texture.width), f32::from(texture.height)];
         append(
             &mut vertices,
             &mut batches,
             &rig,
-            &equipment::armor_vertices(slot, size),
+            &equipment::armor_vertices(slot),
             icon,
             texture.tint,
             fancy,
@@ -239,6 +238,9 @@ fn normalize_depth(vertices: &mut [UiMeshVertex]) -> Option<()> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod hd_armor_tests;
 
 #[cfg(any(test, feature = "test-support"))]
 pub use held::test_support::assert_installed_shield;

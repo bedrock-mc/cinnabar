@@ -111,6 +111,25 @@ fn hotbar_top(render: &ScreenRender) -> f64 {
         .expect("hotbar cells")
 }
 
+#[test]
+fn resource_pack_hotbar_panel_patch_reaches_the_builtin_hud() {
+    let Some(vanilla) = vanilla("resource_pack_hotbar_panel_patch_reaches_the_builtin_hud") else {
+        return;
+    };
+    let base = render(&layer_pack_catalog(&vanilla, &[]));
+    for target in [
+        "hotbar_panel",
+        "centered_gui_elements_at_bottom_middle/hotbar_panel",
+    ] {
+        let patch = serde_json::json!({"namespace":"hud", target: {"offset":[0,-30]}}).to_string();
+        let patched = render(&super::layer_pack_catalog(
+            &vanilla,
+            &[layer(patch.as_bytes())],
+        ));
+        assert_eq!(hotbar_top(&patched), hotbar_top(&base) - 30.0, "{target}");
+    }
+}
+
 const CHAT_STYLE: &[u8] = br#"{
     "namespace": "hud",
     "chat_label": {"color": [0.25, 0.5, 0.75]}
