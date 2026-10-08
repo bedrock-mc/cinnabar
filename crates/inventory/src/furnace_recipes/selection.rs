@@ -42,6 +42,17 @@ impl PlayerInventoryLedger {
         self.furnace_selection = None;
     }
 
+    /// Returns the ingredient to its original sources before removing the selection.
+    pub fn begin_clear_furnace_recipe(&mut self) -> Result<i32, InventoryGestureError> {
+        if self.window_kind().and_then(super::kind).is_none() {
+            return Err(InventoryGestureError::InvalidRequest);
+        }
+        let previous = self.furnace_selection().cloned();
+        let request = self.restore_furnace_cell(0, previous.as_ref())?;
+        self.clear_furnace_recipe();
+        Ok(request.unwrap_or(0))
+    }
+
     /// A role retires its preview once it has held an actual item.
     pub(crate) fn observe_furnace_cells(&mut self) {
         let occupied = [

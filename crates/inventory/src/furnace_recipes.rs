@@ -79,8 +79,7 @@ impl PlayerInventoryLedger {
             return Err(InventoryGestureError::InvalidRequest);
         }
         if self.furnace_result_selected(recipe) {
-            self.clear_furnace_recipe();
-            return Ok(0);
+            return self.begin_clear_furnace_recipe();
         }
         let supplied = self.furnace_source_count(recipe) != 0;
         let mut placed = self.prepare_furnace_selection(recipe, supplied)?;

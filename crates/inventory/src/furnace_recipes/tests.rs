@@ -144,6 +144,30 @@ fn furnace_unsupplied_recipe_shows_ghosts_and_repeat_selection_deselects() {
 }
 
 #[test]
+fn furnace_repeated_supplied_selection_returns_original_sources_before_deselecting() {
+    let mut inventory = fixture(::protocol::WINDOW_TYPE_FURNACE);
+    let recipe = inventory.furnace_recipes(true)[0].clone();
+    inventory
+        .ledger_mut()
+        .begin_furnace_recipe(&recipe)
+        .unwrap();
+    assert_eq!(inventory.ledger().storage_stack(0).unwrap().count, 15);
+    assert!(inventory.ledger().displayed_stack(5).is_none());
+    assert!(inventory.ledger().displayed_stack(6).is_none());
+    inventory
+        .ledger_mut()
+        .begin_furnace_recipe(&recipe)
+        .unwrap();
+    let ledger = inventory.ledger();
+    assert!(ledger.storage_stack(0).is_none());
+    assert_eq!(ledger.displayed_stack(5).unwrap().count, 8);
+    assert_eq!(ledger.displayed_stack(6).unwrap().count, 7);
+    assert!(ledger.selected_furnace_result().is_none());
+    assert!(ledger.furnace_ghost_stack(0).is_none());
+    assert!(ledger.furnace_ghost_stack(2).is_none());
+}
+
+#[test]
 fn furnace_replacement_restores_original_source_counts_before_showing_ghosts() {
     let mut inventory = fixture(::protocol::WINDOW_TYPE_FURNACE);
     let supplied = inventory.furnace_recipes(true)[0].clone();

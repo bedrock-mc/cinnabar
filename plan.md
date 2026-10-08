@@ -6585,7 +6585,8 @@ tabs, search and supplied-ingredient filter reach the inventory controller; a
 selection chooses the alternative with the most matching fuel and inventory
 items and places them in the ingredient role. Ordinary window updates address
 the whole station by window ID. Unsupplied recipes preview their ingredient and
-result; repeat selection clears the preview. Replacements return the previous
+result; repeat selection returns the ingredient before clearing the preview.
+Replacements return the previous
 ingredient to its source cells before other available inventory cells. Expanded
 ingredient groups, exact ghost rendering, saturated-inventory replacements,
 recipe discovery and server-persisted

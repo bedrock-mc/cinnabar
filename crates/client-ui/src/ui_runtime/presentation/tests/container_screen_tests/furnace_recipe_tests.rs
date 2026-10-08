@@ -254,7 +254,30 @@ fn furnace_recipe_panel_lists_outputs_and_routes_filter_tabs_and_search() {
         1,
         "loaded furnace ingredient keeps its recipe listed"
     );
-    super::super::super::forms::furnace_book::assert_selection_publication(&mut player, &mut runtime);
+    runtime.perform_pointer_action(
+        &mut player,
+        PointerAction::Click(InventoryCellHit::Widget(Widget::FurnaceClearRecipe)),
+    );
+    assert!(player.inventory.ledger().storage_stack(0).is_none());
+    assert_eq!(
+        player.inventory.ledger().displayed_stack(0).unwrap().count,
+        8
+    );
+    assert!(
+        player
+            .inventory
+            .ledger()
+            .selected_furnace_result()
+            .is_none()
+    );
+    runtime.perform_pointer_action(
+        &mut player,
+        PointerAction::Click(InventoryCellHit::RecipeBook(0)),
+    );
+    super::super::super::forms::furnace_book::assert_selection_publication(
+        &mut player,
+        &mut runtime,
+    );
     runtime.perform_pointer_action(
         &mut player,
         PointerAction::Click(InventoryCellHit::Widget(Widget::InventoryLayout(1))),
