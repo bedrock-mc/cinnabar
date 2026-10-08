@@ -516,6 +516,24 @@ impl<P: PhaseItem, const I: usize> RenderCommand<P> for DrawMediaScreen<I> {
     }
 }
 
+impl crate::pipeline_warmup::PrewarmPipelines for MediaScreenPipeline {
+    fn prewarm(
+        &mut self,
+        cache: &PipelineCache,
+        view: crate::pipeline_warmup::WarmView,
+        ids: &mut crate::pipeline_warmup::WarmupIds,
+    ) -> Result<(), BevyError> {
+        ids.push(self.variants.specialize(
+            cache,
+            MediaScreenPipelineKey {
+                msaa: view.msaa,
+                hdr: view.hdr,
+            },
+        )?);
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -804,23 +822,5 @@ mod tests {
             .unwrap();
         assert_eq!(colour.blend, None);
         assert_eq!(colour.format, ViewTarget::TEXTURE_FORMAT_HDR);
-    }
-}
-
-impl crate::pipeline_warmup::PrewarmPipelines for MediaScreenPipeline {
-    fn prewarm(
-        &mut self,
-        cache: &PipelineCache,
-        view: crate::pipeline_warmup::WarmView,
-        ids: &mut crate::pipeline_warmup::WarmupIds,
-    ) -> Result<(), BevyError> {
-        ids.push(self.variants.specialize(
-            cache,
-            MediaScreenPipelineKey {
-                msaa: view.msaa,
-                hdr: view.hdr,
-            },
-        )?);
-        Ok(())
     }
 }
