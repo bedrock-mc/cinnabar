@@ -31,6 +31,12 @@ pub enum Control {
         >,
         world_epoch: u64,
     },
+    /// Wire v2: the client's world epoch changed and its runtime kept running. Later
+    /// envelopes carry `world_epoch`; earlier-epoch ones are dropped and counted, not fatal.
+    Epoch {
+        session: String,
+        world_epoch: u64,
+    },
     Disabled,
 }
 

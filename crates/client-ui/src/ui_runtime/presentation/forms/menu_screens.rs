@@ -146,12 +146,6 @@ pub(super) fn screen_data(view: &MenuView, translate: Translate<'_>) -> Option<M
         };
         data.set_global("#disconnect_text", text(body));
         "disconnect.disconnect_screen"
-    } else if let AuthState::AwaitingCode { uri, code } = &view.auth_state
-        && !view.feeds.account_adding
-    {
-        data.set_global("#url", text(uri.clone()));
-        data.set_global("#code", text(code.clone()));
-        "xbl_console_signin.xbl_console_signin"
     } else {
         let reference = menu_reference(view.screen)?;
         match view.screen {
@@ -173,6 +167,19 @@ pub(super) fn screen_data(view: &MenuView, translate: Translate<'_>) -> Option<M
                     text(super::accounts::current_name(view).to_owned()),
                 );
                 flags(&mut data, &["#playername_visible"]);
+                if view.hosting {
+                    // Vanilla's pause invite entry sits in a panel 1.26.50 no longer draws; the
+                    // friends drawer is the pause screen's visible social entry.
+                    flags(
+                        &mut data,
+                        &[
+                            "#legacy_invite_button_visible",
+                            "#legacy_invite_button_enabled",
+                            "#friends_drawer_button_visible",
+                            "#friends_drawer_button_enabled",
+                        ],
+                    );
+                }
                 data.set_global("#unlock_full_game_button_text", text(UNLOCK_FULL_GAME_TEXT));
                 // A non-edu client draws the retail pause content, not edu_pause's.
                 context = unlock_text(context)
@@ -220,6 +227,10 @@ pub(super) fn screen_data(view: &MenuView, translate: Translate<'_>) -> Option<M
                 });
             }
             MenuScreen::Store => return store_screen(view, &context, translate),
+            MenuScreen::Invite => {
+                super::invite_screen::bind(view, &mut data, translate);
+                context = super::invite_screen::context(view, context);
+            }
             MenuScreen::Profile
             | MenuScreen::DressingRoom
             | MenuScreen::Inbox
@@ -507,6 +518,16 @@ pub(super) fn server_trust_model(url: &str, translate: Translate<'_>) -> json_ui
     })
 }
 
+/// The host's answer to `name`'s Discord join request, with vanilla's Accept and Decline.
+pub(super) fn join_request_model(name: &str, translate: Translate<'_>) -> json_ui::FormModel {
+    json_ui::FormModel::Modal(json_ui::ModalForm {
+        title: crate::menu::join_requests::title(name),
+        body: String::new(),
+        button1: translated(translate, "gui.accept", "Accept"),
+        button2: translated(translate, "gui.decline", "Decline"),
+    })
+}
+
 fn add_server_screen(view: &MenuView, data: &mut DataSource, translate: Translate<'_>) {
     let title = if view.editing.is_some() {
         translated(translate, "addServer.title.edit", "Edit Server")
@@ -708,6 +729,11 @@ pub(super) fn action_for(view: &MenuView, region: &HitRegion) -> Option<MenuActi
     if view.screen == MenuScreen::Store {
         return crate::store::action(view.store.as_deref(), region).map(MenuAction::Store);
     }
+    if view.screen == MenuScreen::Invite
+        && let Some(action) = super::invite_screen::action(region)
+    {
+        return Some(action);
+    }
     if view.screen == MenuScreen::Settings
         && let Some(action) = super::global_resources::action(view, region)
     {
@@ -737,6 +763,12 @@ pub(super) fn action_for(view: &MenuView, region: &HitRegion) -> Option<MenuActi
             MenuAction::DismissDialog
         }
         "button.menu_settings" if view.screen == MenuScreen::Pause => MenuAction::PauseSettings,
+        "button.menu_invite_players" if view.hosting => {
+            MenuAction::Invite(launcher::menu::invite::Action::Open)
+        }
+        "button.friends_drawer" if view.hosting && view.screen == MenuScreen::Pause => {
+            MenuAction::Invite(launcher::menu::invite::Action::Open)
+        }
         "button.menu_settings" => MenuAction::Navigate(MenuScreen::Settings),
         "button.menu_quit" | "button.main_menu_button" => MenuAction::PauseDisconnect,
         "button.respawn_button" => MenuAction::Respawn,

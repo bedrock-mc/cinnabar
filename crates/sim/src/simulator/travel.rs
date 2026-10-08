@@ -93,10 +93,7 @@ pub(super) fn tick_mode(
                 super::movement_impulse(controls.move_vector[0]),
                 super::movement_impulse(controls.move_vector[1]),
                 input.yaw_degrees,
-                super::water_travel_speed(
-                    &input,
-                    super::depth_strider_level(input.depth_strider, grounded_at_start),
-                ),
+                super::water_travel_speed(&input, grounded_at_start),
             );
             let attach = (!input.jumping)
                 .then_some(input.liquid_attach_height)

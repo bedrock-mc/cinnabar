@@ -11,6 +11,10 @@
   `YK` defaults to onRole primary/offRole secondary; selection lowers its face by 0.4rem and draws
   a centered 4.8rem bottom marker. `wX` uses `FX` below 15rem per option; Cinnabar's compact choices
   still wrap instead. `O_` uses `hardcore-heart-engraved-75556ce94d9bfdecca12.png` on its thumb.
+- Create controls use the installed `data/resource_packs/oreui/texts/en_US.lang` General labels,
+  Advanced seed/world-type descriptions and Cheats activation label. The installed bundle remains
+  `1.26.51.01`; matching-version `1.26.50` responsive layout acceptance remains open. Putting terrain,
+  seed, cheats and the Cinnabar Server control on General is the owner-requested creation extension.
 - The owner's quick motion and subdued commerce remain intentional deviations. Unimplemented
   categories/Hardcore/Realm creation are disabled, so this visual pass cannot close full parity.
 
@@ -394,6 +398,15 @@ RVAs are 1.26.50.26 Windows client; `mac 0x10…` addresses are the 26.30 macOS 
 - `_setOptionCallbacks` lambda (RVA 0x0245d7c0), an InputMode observer on 0x183 registered in RVA 0x0239a340: `gameSensitivity.set(mode, powf(sens * 1.1f, 0.6125f) * 0.81f)` (constants 0x1500b53d0, 0x1500cde9c, 0x1500cdea0). `InputModeFloatOption::set` (RVA 0x009b3ee0) stores and notifies only when `|old - new| > 0.001` (ctor RVA 0x009b6570), clamping to the range; load of an unchanged value notifies nothing, so 0.628 persists until the slider really changes.
 - macOS 1.26.30 primary matches: `InGamePlayScreen::applyInput` 0x102779ad0 (same constants, `getGameSensitivity` vtable +0x1d0), `MouseMapper::tick` 0x10c3a6db0, option 0x188/0x192. Mac Config width units and the macOS mouse source were not traced.
 
+## crates/ui/src/settings.rs; crates/launcher/src/menu/settings_options/definitions.rs (field of view)
+- 1.26.50.26 Windows `OptionRegistry::_registerOptions` (RVA 0x0239ba00): `gfx_field_of_view` (string 0x1504df395, referenced at 0x1423b644f) and caption `options.fov` construct option 0x2f with type 2 (Float) at 0x1423b64f1. The inline FloatOption fields are min 30.0 (0x41f00000), max 110.0 (0x42dc0000), value and default 60.0 (0x42700000), increment 0.001 (0x3a83126f), stored at 0x1423b6500..0x1423b651f. macOS 1.26.30 FloatOption 0x32 at 0x103ae111f has the same values.
+
+## crates/client-presentation/src/camera/fov.rs; crates/client-presentation/src/camera/facts.rs; crates/client-presentation/src/camera/presentation.rs
+- Gameplay FOV multiplier, 1.26.50.26 Windows client `LocalPlayer::getFieldOfViewModifier` (RVA 0x04f33260; macOS 1.26.30 0x103d20270 with symbols). Returns 1.0 when the gameplay-FOV toggle is off, except the first-person scoping override 0.1 (`0x14ffab644`). Otherwise base 1.0, or 1.1 (`0x1500b53d0`) when the resolved Flying ability is set. Without a slowness effect in slot 2: `base * ((movementSpeedCurrent / walkSpeedAbility) * 1.2 + 1.0) * 0.5` (`0x14ffab6dc`, `0x14fea4060`, `0x14fec3380`); MOVEMENT_SPEED current is AttributeInstance +0x7c. With slowness the speed term is skipped: `base * max(amplifier * -0.1 + 1.0, 0.01)` (`0x14ffab670`, `0x1500c2b70`). Then ×1.1 when SwimSpeedMultiplierComponent > 1 (not tracked by Cinnabar), then bow `(useTicks/20)^2` → 0.85 above 1, else `max(t,0) * -0.15 + 1` (`0x14ffa90dc`, `0x14ffab6d0`, `0x150077af4`).
+- Ability lookups walk AbilitiesComponent's six layer slots from the highest (+0x4c8) down and take the first slot whose ability type is not Unset; Flying is ability 9 (+0x6c), WalkSpeed ability 14 (+0xa8).
+- Smoothing: LevelRendererPlayer tick (RVA 0x04e6bad0) stores the previous value then `cur += (target - cur) * 0.5`. macOS `LevelRendererPlayer::getFov` (0x1043a8820) multiplies the option angle by the frame-interpolated value, ×60/70 underwater when the toggle is on, clamps to [5, 130] and scales by the normalized viewport; the 1.26.50 equivalent of that tail was not located.
+- Option defaults, macOS 1.26.30 `OptionRegistry::_registerOptions`: `gfx_field_of_view` FloatOption 0x32 default 60, range 30..110 (0x10d9b2f94, 0x10d9b2f9c, 0x10dcc6bb0); `gfx_field_of_view_toggle` BoolOption default true. 1.26.50 `OptionRegistry::_registerOptions` (RVA 0x0239ba00) registers the FOV as option 0x2f with the same values.
+
 ## crates/client-presentation/src/camera/bob.rs
 - //! Walk view-bob and first-person hand sway, expressed as view-space effects, following the
 - //! 26.30 reference's bobView and hand spring.
@@ -758,6 +771,10 @@ RVAs are 1.26.50.26 Windows client; `mac 0x10…` addresses are the 26.30 macOS 
 ## crates/gameplay/src/survival_mining/tests.rs
 - /// Only zero hardness breaks on the start tick (`GameMode::startDestroyBlock`);
 - /// stopDestroyBlock clears the delay, so a fresh press starts at once.
+
+## crates/input/src/binding.rs
+- InteractWithToast (`key.interactwithtoast`, "Open Notification") defaults to N: vanilla
+  options.txt default `keyboard_type_0_key.interactwithtoast:78`.
 
 ## crates/inventory/src/inventory_ledger/admission.rs
 - // Native LegacyClientNetworkHandler::handle routes a response to the screen manager
@@ -1402,6 +1419,7 @@ RVAs are 1.26.50.26 Windows client; `mac 0x10…` addresses are the 26.30 macOS 
 - // Current BedBlock restitution.
 - /// `WaterTravelSystem`'s travel speed: the water base blended toward the ground
 - // Travel selection `0x09fefcb0`: ability flight, then WasInWater water travel, then lava, then GlidingTravelFlag, then normal.
+- Water travel speed `0x0dc3eeb0` (adapter `0x0dc3f070`): base = MovementAttributes underwater_movement (0 if absent; dolphins use movement); swim multiplier <= 1 blends Depth Strider (halved off ground) toward minecraft:movement; otherwise base * multiplier * ((level / max) * 0.3 + 0.7) (PE 0x150056088, 0x15005ea04). SwimSpeedMultiplier `0x09a0b500`: 2.0 (PE 0x14feff2b8) when actor flag 57 (swimming) and MovementEffects slot 1 (dolphin boost) is active, else 1.0. Lava travel (26.30 LavaTravelSystem view `0x1051bf080`) sets speed to lava_movement (0 if absent).
 - Ground contact: FinalizeMove `0x06dcbfc0` compares the move request (+0x30) with the
   result (+0x3c). A vertical difference above float epsilon adds OnGround only when
   request y < 0, otherwise removes it; with no vertical difference OnGround survives only
@@ -1429,6 +1447,26 @@ RVAs are 1.26.50.26 Windows client; `mac 0x10…` addresses are the 26.30 macOS 
 - // reads getBlock's primary material, without secondary layers.
 - Shared horizontal movement (0x099cc8b0) defaults ground friction to 0.6 and samples the block at
   floor(x), floor(feet y + -0.1f), floor(z); it takes that block's friction only when its type is not air.
+
+## crates/sim/src/simulator/effects.rs; flight.rs; crates/client-world/src/actor_store.rs; local_player_facts.rs; crates/gameplay/src/movement/prediction_sync.rs
+- Ground/air vertical drag `0x032150c0` (26.30 `MobMovementDrag::tickApplyGroundVerticalDrag`
+  / `tickApplyAirVerticalDrag`): retention `0.91f` (`0x15006b0f8`) with flag 128
+  `UsesUniformAirDrag`, else `0.98f` (`0x1500eb864`) with flag 49 `HasGravity`, else no drag.
+  Drag fraction `(1 - r) * air_drag_modifier` (MovementAttributes `+0x40`, absent reads `1.0f`
+  at `0x14fea4060`); above one retains zero, below zero retains one. Levitation (`0x03233fc0`)
+  is followed by the same drag; auto-climb/DiscardFriction exclude it.
+- FlyDrag `0x03217940`: fraction `0x15016729c * air_drag_modifier` with the same clamp.
+- Ground/air gravity setter `0x032252b0` returns without `HasGravity` (bit 49), so the
+  per-tick ApplyGravity component is absent (26.30 `MobMovementGravity::forSystems`). Player
+  water gravity `0x0322d5d0` ignores `HasGravity`; lava gravity `0x03204c50` keeps -0.02 with
+  it and otherwise probes two blocks (predicate not identified; Cinnabar keeps lava gravity).
+- Vanilla player: 26.30 `PhysicsDefinition::initialize` writes `has_gravity` (default true) into
+  flag 49; the 1.26.30 behaviour pack's `player.json` has `minecraft:physics` and no
+  `minecraft:uses_uniform_air_drag`. Flag words are actor-data ids 0, 92 and 139
+  (`ActorDataFlagComponent::getUnderlyingIndex`, `0x0320c090`, `0x02e064c0`).
+- MovementAttributes order (26.30 `MovementAttributesComponentExt::getAttributeMap`) and the
+  prediction-sync serializer `0x02089600`: friction modifier and air drag modifier send `1.0f`
+  and bounciness `0.0f` only while the attribute is undefined.
 
 ## crates/sim/src/simulator/flight.rs
 - // HorizontalFlySpeedControl current RVA 0x03235360, PE VA 0x1501672a8.
@@ -1474,6 +1512,7 @@ RVAs are 1.26.50.26 Windows client; `mac 0x10…` addresses are the 26.30 macOS 
 - /// excludes MobIsJumpingFlagComponent and lets MobJumpSystem handle ascent.
 - // RVA 0x09fd2140: ordinary upward steering requires the liquid material
 - // flag written by bounding-box input update, even if velocity was falling.
+- Water drag `0x0320fc20`: a swim speed multiplier above 1 keeps the base 0.8/0.9 horizontal drag without the Depth Strider blend.
 
 ## crates/sim/src/world/current.rs
 - //! Player liquid-current impulse from the preceding pose (native 0x0a5d5c40).
@@ -1569,6 +1608,13 @@ RVAs are 1.26.50.26 Windows client; `mac 0x10…` addresses are the 26.30 macOS 
 - 0x18/0x20. It does not call other functions or write history, input flags, ground
 - state or rotation.
 
+## crates/client-ui/src/ui_runtime/presentation/forms/oreui/accounts.rs
+- Pinned vanilla pack v1.26.50.4: `ui/xbl_console_signin.json` separates sign-in instructions,
+  website/code fallback and cancel; `ui/xbl_console_qr_signin.json` keeps manual fallback beneath
+  its primary route; `ui/xbl_console_signin_succeeded.json` distinguishes completion.
+- The owner's launcher adaptation uses the existing OreUI primary button for a pre-filled URL
+  handed to the system browser, with manual website/code instructions only after a failed handoff.
+
 ## crates/client-ui/src/ui_runtime/presentation/forms/oreui/modal.rs
 - Index bundle modal `Ug` (`Ug.Overlay`, `Ug.Header` over title bar `gm`, `Ug.Content`, `Ug.Text`,
   `Ug.Buttons`) and the modal menu `SV`/`CV`/`wV`.
@@ -1577,7 +1623,7 @@ RVAs are 1.26.50.26 Windows client; `mac 0x10…` addresses are the 26.30 macOS 
 - `button_face`: pressable `sf`/`bf`/`hf`; menus theme `--pressableElevated*` nine-slices.
 - `menu_item`: dropdown item `bV` (classes `gV`) in `MV`; check icon `Fp`.
 
-## crates/client-ui/src/ui_runtime/presentation/forms/oreui/theme.rs
+## crates/client-ui/src/oreui_theme/mod.rs
 - Role table: theme `pD` colour roles over the palette constants defined beside `Zc`.
 
 ## docs/evidence/desktop-video-settings.md
@@ -2901,6 +2947,9 @@ was not used as version evidence.
   defaults retain first-person visibility and inverted colors. The Java HUD's
   built-in fallback remains 15×15; a pack crosshair remains 16×16.
 
+## app/src/melee.rs; crates/gameplay/src/melee.rs; crates/gameplay/src/movement/outbox.rs (frame-time attacks)
+- Attack presses are handled per frame, not per tick. 1.26.50.26 `MinecraftGame::startFrame` (RVA 0x00842ff0) calls the input tick (RVA 0x0084d830) every frame under two virtual guards; that calls `MinecraftInputHandler::tick` (RVA 0x04a2b670). macOS 1.26.30: `MinecraftGame::startFrame` 0x1025bb440 is the only caller of `MinecraftGame::tickInput` 0x1025c2840 → `InputHandler::tick` 0x10c39a9b0; the registered press lambdas call `ClientInputCallbacks::handleBuildOrAttackOrBlockSelectButtonPress` 0x1023161c0 → `handleBuildAction` 0x1023178c0 → `GameMode::attack` 0x10a0bba00, whose `_attack` 0x10a0bba20 sends the transaction through the packet sender immediately. The frame's ticks run after `startFrame`, so the attack precedes the next PlayerAuthInput and reports the latest ticked position.
+
 ## Swing duration publication
 
 - `crates/gameplay/src/melee.rs` and `melee/swing.rs`: Bedrock 1.26.50 `Mob::getModifiedSwingDuration`, `Mob::swing` and `Mob::aiStep`; Java 1.7.10 `EntityLivingBase.getArmSwingAnimationEnd`, `swingItem` and `updateArmSwingProgress`.
@@ -2923,7 +2972,44 @@ was not used as version evidence.
 Files: `docs/reference/held-block-placement.md`, `crates/gameplay/src/block_use.rs`,
 `crates/gameplay/src/block_use/intention.rs`, `crates/gameplay/src/block_use/packets.rs`,
 `crates/gameplay/src/block_use/stopping.rs`, `app/src/block_use.rs`,
-`app/src/block_use/target.rs`, `crates/protocol/src/interaction.rs`.
+`app/src/block_use/target.rs`, `crates/protocol/src/interaction.rs`,
+`crates/gameplay/src/movement.rs`, `crates/gameplay/src/movement/outbox.rs`.
+
+- Evaluation order (pre-tick state, `MovementTicker::pre_tick_sample`): current artifact 6
+  `FUN_146788250` (RVA `0x6788250`, `__unmapped/06.cpp:1373205`) walks the player's
+  HitResultComponent (type hash `0x5af5cf0e`) pairs and calls `_tickBuildAction` `0x67883a0`
+  (first pair with flag true). Its shape matches 26.30 `ClientInstance::onBeforeSimTick`
+  (mac `0x102334b90`; thunk `0x102335480` sits at GameCallbacks vtable slot `+0x20`,
+  before `onTick` at `+0x28`, vtable `0x110b29500`). 26.30 `Minecraft::update`
+  (`by-owner/m/Minecraft.cpp:1504–1507` and `1544–1547`) calls that callback and then
+  `GameSession::tick` once per simulated tick, so build actions precede the tick's
+  movement and its PlayerAuthInput. At that point `continueBuildBlockAction`
+  (`0x28b63a0`) reads StateVector posDelta (`+0x218` -> `+0x18`), `continueBuildBlock`
+  (`0x28b66b0`) reads PostTickPositionDeltaComponent (`0xf96968b0`) and the
+  ActorDataFlag sneaking bit (`0xc67426f3`, byte `& 2`), and the build callback
+  (`0x28d3ed0`) copies StateVector position into the transaction: all end-of-previous-tick
+  values. No input-mode or touch-option branch exists in the continuation path; only
+  `getPickRange` varies by input mode.
+- Attack versus use in one frame (`app/src/block_use.rs`, `crates/gameplay/src/melee.rs`
+  `press_pending`): 26.30 `MinecraftInputHandler::_registerInputHandlers` press lambdas
+  (`support/std/__func--bc8d9908b204/d.cpp:49315` attack, `b.cpp:48297` use; current
+  artifact 6 `FUN_144a69a00`/`FUN_144a69b00`) set the single in-progress intention through
+  `ClientInstance::resetBai` (vtable `+0x9e0`) and call `handleBuildAction` at once.
+  `handleBuildAction` (`by-owner/c/ClientInputCallbacks.cpp:5337`) reads a next-action time
+  (`+0xbd8`) and, after an actor attack or an item use, sets it to now + 200 ms (`+0xbe0`);
+  the build/use branch requires now to be past it. Whichever press is handled first wins and
+  holds the other off; Cinnabar handles a same-frame attack first.
+- Pick used by those build actions: 26.30 `MinecraftGame::tickInput` lambda
+  (`handheld/src-client/common/client/game/MinecraftGame.cpp:240293`) appends each frame's
+  hit and liquid hit to HitResultComponent through `HitResultSystem::tickPlayerInput`
+  (`by-owner/h/HitResultSystem.cpp:1`); `HitResultSystem::tick` clears it after the sim
+  tick. `_tickBuildAction` re-clips each stored ray from its stored start
+  (`HitResultUtils::refreshHitResult`, `by-owner/h/HitResultUtils.cpp:6`, 267) and
+  `trimHitResult` (current artifact 6 RVA `0xfe80b0`) turns the hit into a miss when its
+  point (block centre `+0.5`, actor hit point) is farther than pick range from the camera
+  actor's StateVector position, i.e. the pre-tick eye. Cinnabar keeps the previous frame's
+  presented ray (`app/src/block_use.rs` `FramePick`); it casts one stored frame per tick
+  where vanilla walks every frame pick since the last tick.
 
 - Primary current evidence: Lens artifact 6, normalized build `1.26.50.26`,
   source-backed `artifact_function` reads at RVAs `0x28b63a0`
@@ -2955,7 +3041,25 @@ Files: `docs/reference/held-block-placement.md`, `crates/gameplay/src/block_use.
   `clearInProgressBAI` and `getInProgressBAI` own input intention.
   `by-owner/h/HitResultUtils.cpp`: `refreshHitResult` refreshes world pick evidence.
   `by-owner/c/ClientInputCallbacks.cpp`: `handleBuildAction` RVA `0x23178c0`
-  owns first press; selected-slot and gameplay-input routing own stopping boundaries.
+  owns first press; gameplay-input routing owns stopping boundaries.
+- Current `continueBuildBlock` at `0x28b66b0` reads the actor's current hand stack
+  on every repeat without resetting the successful destination, line, first intercept
+  or success timestamp on a selected-stack identity change. `buildBlock` at `0x28b5e60`
+  tests current-stack held-repeat eligibility before a transaction; continuation advances
+  the success timestamp only when that use returns success.
+  This establishes the continuation body only; it does not exclude an external
+  selection callback resetting GameMode history.
+  Current `__unmapped/06.cpp`: `FUN_1467618e0` (1347050–1347134) matches the
+  slot-button handler and calls `FUN_140205800`; `__unmapped/00.cpp` (430856–431065)
+  updates selection and emits hotbar event variant `0x23`. Current coordinator
+  `FUN_1428ee360` in `__unmapped/02.cpp` (1497725 onward) dispatches registered
+  virtual gameplay handlers and listeners. Those callback targets remain unclosed
+  in the available source export; native history and timing across selection are incomplete.
+  Named `by-owner/c/ClientInputCallbacks.cpp`: `handleSlotSelectButtonPress`
+  (3856–3933) has no direct build stop; `by-owner/p/PlayerInventory.cpp`: `selectSlot`
+  (1051 onward) also emits that event. Default named hotbar/selected-item dispatcher
+  handlers return normally, and the named scripting listener emits an after-event;
+  neither establishes the complete registered callback set.
 - `by-owner/b/BlockItem.cpp`: `_calculatePlacePos` RVA `0xa5f6dc0`,
   replace the clicked cell when admitted, otherwise offset by face.
   `by-owner/p/PlanterItemComponent.cpp`: `getBlockPlacementContext` RVA `0xa2e0430`
@@ -3011,6 +3115,19 @@ Files: `docs/reference/held-block-placement.md`, `crates/gameplay/src/block_use.
 - `crates/json-ui/src/hud/tests.rs`: vanilla pack 1.26.50.4
   `resource_pack/ui/hud_screen.json`, `heart_renderer`, binds only
   `#show_survival_ui` to `#visible`; absorption is native renderer state.
+
+## Background account validation
+
+- `app/src/menu/account.rs` and `crates/launcher/src/menu/view.rs`: vanilla pack
+  1.26.50.4 `resource_pack/ui/start_screen.json`,
+  `lower_online_buttons_panel/stacked_column/signingin`, presents the checking
+  label through `#signingin_text` and `#signingin_visible` without a device-code dialog.
+
+## app/src/hud_tools/debug_overlay.rs (Java Edition frame statistics)
+
+- Java Edition 1.7.10 `Minecraft.runGameLoop` publishes `fpsCounter` after
+  `getSystemTime() >= debugUpdateTime + 1000L`, then advances the counter window by 1000 ms.
+- Other diagnostics use Cinnabar's shared simulation tick duration as their publication budget.
 
 ## crates/protocol/src/item.rs; crates/protocol/tests/it/items_actions.rs
 

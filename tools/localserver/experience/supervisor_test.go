@@ -325,6 +325,7 @@ func TestFailedRestartIsFault(t *testing.T) {
 		{"texture removed", "ok", func(l *Loaded) { l.Blocks[1].Textures = l.Blocks[1].Textures[:1] }},
 		{"mining", "ok", func(l *Loaded) { l.Blocks[0].Mining = Mining{Unbreakable: &Unbreakable{}} }},
 		{"hardness", "ok", func(l *Loaded) { l.Blocks[0].Mining.Breakable.Hardness = 2 }},
+		{"focus", "ok", func(l *Loaded) { l.Focus = !l.Focus }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			log, _ := testLog(t)

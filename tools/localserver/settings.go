@@ -21,6 +21,7 @@ const maxPlayers = 4 // one local player plus a reconnect overlapping its predec
 // settings are the per-world options the core passes on the command line.
 type settings struct {
 	primitiveShapes, cameraTest, actorBurst bool
+	allowCheats                             bool
 	terrainFixture, terrainFixtureGenerate  bool
 	actorBurstArtwork                       int
 	terrainFixtureRadius                    int
@@ -56,6 +57,7 @@ func parseSettings(args []string, stderr io.Writer) (settings, error) {
 	flags.StringVar(&s.diff, "difficulty", "normal", "peaceful, easy, normal or hard")
 	flags.StringVar(&s.generator, "generator", "flat", "normal or flat terrain")
 	flags.Int64Var(&s.seed, "seed", 0, "world seed")
+	flags.BoolVar(&s.allowCheats, "allow-cheats", true, "allow commands; managed worlds pass their saved choice")
 	flags.IntVar(&s.pregenRadius, "pregen-radius", 0, "generate and save normal overworld chunks around spawn before listening (0 disables)")
 	flags.IntVar(&s.chunkWorkers, "chunk-workers", defaultChunkWorkers, "background chunk generation workers per dimension (1..16)")
 	flags.BoolVar(&s.generationStats, "generation-stats", false, "report normal generation counts and CPU-path elapsed time at shutdown")

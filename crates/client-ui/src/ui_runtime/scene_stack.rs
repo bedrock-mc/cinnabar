@@ -2,6 +2,8 @@
 //! settings its vanilla screen definition declares. Composition, gameplay input
 //! and mouse capture all read this one stack.
 
+pub(in crate::ui_runtime) mod construction;
+
 use std::{collections::HashMap, sync::Arc};
 
 use json_ui::{Catalog, Context, SceneStack, ScreenSettings};
@@ -109,33 +111,6 @@ impl ScreenSettingsTable {
     }
 }
 
-/// The in-game play screen's overrides of the base screen: it passes input through (the
-/// base default), is not a menu, captures the mouse and always renders.
-const fn gameplay_settings() -> ScreenSettings {
-    ScreenSettings {
-        screen_not_flushable: false,
-        always_accepts_input: false,
-        render_game_behind: true,
-        absorbs_input: false,
-        is_showing_menu: false,
-        is_modal: true,
-        should_steal_mouse: true,
-        low_frequency_rendering: false,
-        screen_draws_last: false,
-        force_render_below: false,
-        send_telemetry: true,
-        close_on_player_hurt: false,
-        use_custom_pocket_toast: false,
-        cache_screen: false,
-        gamepad_cursor: false,
-        gamepad_cursor_deflection_mode: false,
-        vertical_scroll_delta: None,
-        load_screen_immediately: false,
-        render_only_when_topmost: false,
-        should_be_skipped_during_automation: false,
-    }
-}
-
 impl UiRuntime {
     #[cfg(test)]
     pub fn set_screen_settings(&mut self, table: Arc<ScreenSettingsTable>) {
@@ -166,69 +141,10 @@ impl UiRuntime {
         host: SceneHost,
         table: &ScreenSettingsTable,
     ) -> SceneStack<Scene> {
-        let json = |reference: Option<&str>| {
-            reference
-                .and_then(|reference| table.get(reference))
-                .unwrap_or_default()
-        };
         let mut stack = SceneStack::default();
-        if self.session_id() != 0 && host.over_world {
-            stack.push(Scene::Gameplay, gameplay_settings());
-            // The HUD screens are JSON scenes; without their definitions nothing draws them.
-            if let Some(settings) = table.get(json_ui::CROSSHAIR_SCREEN) {
-                stack.push(Scene::Crosshair, settings);
-            }
-            if let Some(settings) = table.get(json_ui::HUD_SCREEN) {
-                stack.push(Scene::Hud, settings);
-            }
-        }
-        if self.local_sleeping() {
-            stack.push(Scene::Bed, json(Some(BED_SCREEN)));
-        }
-        if self.inventory_open() {
-            let reference =
-                super::presentation::forms::container_screen_reference(player_runtime, self);
-            stack.push(Scene::Container, json(reference));
-        }
-        if self.chat_focused() {
-            stack.push(
-                Scene::Chat,
-                json(Some(super::presentation::forms::CHAT_SCREEN)),
-            );
-        }
-        if self.emotes().is_open() {
-            stack.push(
-                Scene::Emote,
-                json(Some(super::presentation::forms::EMOTE_SCREEN)),
-            );
-        }
-        if host.loading && host.menu.is_none() {
-            let reference = super::presentation::forms::LOADING_SCREEN;
-            stack.push(Scene::Loading, json(Some(reference)));
-        }
-        if self.sign_editor().is_open() {
-            let reference = super::presentation::forms::SIGN_SCREEN;
-            stack.push(Scene::SignEditor, json(Some(reference)));
-        }
-        let form = self.server_forms().active();
-        let settings_form = self.server_forms().settings_form_active();
-        // An answered form keeps absorbing input until its answer is sent.
-        if self.server_forms().owns_input() && !settings_form {
-            stack.push(
-                Scene::ServerForm,
-                json(Some(form.map_or(SERVER_FORM_SCREEN, form_screen))),
-            );
-        }
-        if let Some(screen) = host.menu {
-            let reference = super::presentation::forms::menu_reference(screen);
-            stack.push(Scene::Menu(screen), json(reference));
-        }
-        if let Some(entry) = form.filter(|_| settings_form) {
-            stack.push(Scene::ServerSettingsForm, json(Some(form_screen(entry))));
-        }
-        if self.credits().owns_input() {
-            stack.push(Scene::Credits, json(Some(super::credits::CREDITS_SCREEN)));
-        }
+        self.visit_scenes_in(player_runtime, host, table, |key, settings| {
+            stack.push(key, settings)
+        });
         stack
     }
 

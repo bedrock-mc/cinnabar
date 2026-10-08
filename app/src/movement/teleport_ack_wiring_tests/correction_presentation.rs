@@ -178,10 +178,9 @@ fn pending_transport_correction_keeps_the_presented_view_without_advancing_autho
             .resource::<MovementTicker>()
             .can_advance_physics_frame()
     );
-    // The first tick retains the original correction as its previous sample.
-    // Sample inside the following tick to observe its interpolated decay.
+    // The retained half-tick plus two half-ticks advances once, then samples its decay.
     let half_tick = Duration::from_secs_f64(0.5 / sim::TICKS_PER_SECOND as f64);
-    for _ in 0..3 {
+    for _ in 0..2 {
         app.world_mut()
             .resource_mut::<Time<Real>>()
             .advance_by(half_tick);
@@ -189,7 +188,11 @@ fn pending_transport_correction_keeps_the_presented_view_without_advancing_autho
     }
     let physics = app.world().resource::<LocalPhysicsController>();
     assert_eq!(physics.state().unwrap().tick, tick + 1);
-    assert!(physics.tick_alpha() > 0.0 && physics.tick_alpha() < 1.0);
+    assert!(
+        (physics.tick_alpha() - 0.5).abs() < 1.0e-6,
+        "{}",
+        physics.tick_alpha()
+    );
     let view = app.world().resource::<LocalViewPose>();
     assert!(view.eye_translation().x > before.eye_translation().x);
     assert!(view.eye_translation().x < position[0]);

@@ -338,6 +338,7 @@ fn snapshot_local_worlds() {
         game_mode: GameMode::Survival,
         generator: Generator::Normal,
         difficulty: Difficulty::Normal,
+        allow_cheats: false,
         backend: Backend::Bds,
         seed: 1,
         created_unix: 1_790_553_600,
@@ -375,6 +376,7 @@ fn snapshot_local_worlds() {
         error: None,
         setup,
         backend_unavailable_reason: reason,
+        max_players: None,
     };
     menu.update(Input::Play);
     let mut download = Setup {

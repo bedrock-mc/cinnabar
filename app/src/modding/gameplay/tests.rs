@@ -441,3 +441,18 @@ fn mobs_need_the_entities_grant_and_a_current_snapshot() {
     app.update();
     assert_eq!(app.world().resource::<Mobs>().0, 0);
 }
+
+#[test]
+fn item_use_grant_builds_scoped_context_without_disclosing_players() {
+    let mut app = app();
+    app.world_mut().resource_mut::<Request>().grants = ModGrants {
+        item_use: true,
+        ..Default::default()
+    };
+    app.update();
+    let snapshot = app.world().resource::<ResultSnapshot>().0.as_ref().unwrap();
+    assert!(snapshot.players.is_empty());
+    app.world_mut().resource_mut::<Request>().allowed = false;
+    app.update();
+    assert!(app.world().resource::<ResultSnapshot>().0.is_none());
+}

@@ -4,6 +4,7 @@
 mod app;
 mod canvas;
 mod gpu;
+mod input;
 mod view;
 
 use std::process::Command;

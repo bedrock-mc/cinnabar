@@ -53,6 +53,17 @@ impl Default for Resources {
 }
 
 impl Resources {
+    /// Pack transfers and disclosures must finish before their frame is retained.
+    pub(in crate::ui_runtime::presentation) fn active(&self, seconds: f64) -> bool {
+        self.groups.iter().any(|t| t.active(seconds))
+            || self.pending.active(seconds)
+            || self.empty.active(seconds)
+            || self
+                .cards
+                .iter()
+                .any(|c| c.visibility_tween.active(seconds) || c.details_tween.active(seconds))
+    }
+
     pub(in super::super) fn sync(&mut self, snapshot: &Snapshot, seconds: f64, animated: bool) {
         let first = !self.mounted;
         self.mounted = true;

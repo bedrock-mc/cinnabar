@@ -49,6 +49,8 @@ pub(crate) const ACTOR_FLAG_IMMOBILE: u32 = 16;
 const ACTOR_FLAG_GLIDING: u32 = 32;
 pub(crate) const ACTOR_FLAG_CRAWLING: u32 = 114;
 pub(crate) const ACTOR_FLAG_SITTING: u32 = 24;
+const ACTOR_FLAG_HAS_GRAVITY: u32 = 49;
+const ACTOR_FLAG_USES_UNIFORM_AIR_DRAG: u32 = 128;
 
 const SLEEPING_PLAYER_NETWORK_OFFSET: f32 = 0.2;
 const FALLING_BLOCK_NETWORK_OFFSET: f32 = 0.5;
@@ -547,10 +549,12 @@ pub struct MovementFlagUpdate {
     pub gliding: Option<bool>,
     pub swimming: Option<bool>,
     pub crawling: Option<bool>,
+    pub has_gravity: Option<bool>,
+    pub uniform_air_drag: Option<bool>,
 }
 
 impl MovementFlagUpdate {
-    /// Reads the flag words from `metadata`; `None` when neither word is present.
+    /// Reads the flag words from `metadata`; `None` when no word is present.
     #[must_use]
     pub fn from_metadata(metadata: &[protocol::ActorMetadata]) -> Option<Self> {
         let word = |key| {
@@ -563,19 +567,16 @@ impl MovementFlagUpdate {
                 _ => None,
             })
         };
-        let primary = word(0);
-        let extended = word(EXTENDED_FLAGS_METADATA_KEY);
-        if primary.is_none() && extended.is_none() {
+        let words = [
+            word(0),
+            word(EXTENDED_FLAGS_METADATA_KEY),
+            word(protocol::ACTOR_DATA_ID_FLAGS_THIRD),
+        ];
+        if words.iter().all(Option::is_none) {
             return None;
         }
-        let bit = |bit: u32| {
-            let (flags, bit) = if bit < 64 {
-                (primary, bit)
-            } else {
-                (extended, bit - 64)
-            };
-            flags.map(|flags| flags & (1_u64 << bit) != 0)
-        };
+        let bit =
+            |bit: u32| words[(bit / 64) as usize].map(|flags| flags & (1_u64 << (bit % 64)) != 0);
         Some(Self {
             immobile: bit(ACTOR_FLAG_IMMOBILE),
             sneaking: bit(ACTOR_FLAG_SNEAKING),
@@ -583,6 +584,8 @@ impl MovementFlagUpdate {
             gliding: bit(ACTOR_FLAG_GLIDING),
             swimming: bit(ACTOR_FLAG_SWIMMING),
             crawling: bit(ACTOR_FLAG_CRAWLING),
+            has_gravity: bit(ACTOR_FLAG_HAS_GRAVITY),
+            uniform_air_drag: bit(ACTOR_FLAG_USES_UNIFORM_AIR_DRAG),
         })
     }
 }

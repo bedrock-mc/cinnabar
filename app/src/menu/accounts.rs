@@ -1,6 +1,14 @@
 use launcher::accounts::{AccountProfile, AccountStore};
 
-use super::{AuthState, MenuDialog, MenuRuntime};
+use super::{AuthState, MenuAction, MenuDialog, MenuRuntime};
+
+/// Placeholder identities shown while developer recordings present accounts.
+const PRESENTATION_ACCOUNTS: [(&str, &str); 4] = [
+    ("2535400000000001", "CinnabarDemo"),
+    ("2535400000000002", "PixelPioneer"),
+    ("2535400000000003", "BlockBuilder"),
+    ("2535400000000004", "SkylineSurfer"),
+];
 
 #[derive(Debug, Default)]
 pub(super) struct Manager {
@@ -42,7 +50,112 @@ impl MenuRuntime {
         self.feeds.account_error = None;
     }
 
+    /// Presents a signed-in launcher with placeholder accounts, or restores the saved ones.
+    /// Enabling needs a signed-out install with no sign-in under way, so no live account data
+    /// or action can exist behind the placeholders.
+    #[cfg(any(test, feature = "developer-control"))]
+    pub(crate) fn set_presentation_accounts(&mut self, enabled: bool) -> bool {
+        if enabled
+            && (self.account_change_pending()
+                || self.auth_restart_requested
+                || self.auth_process.as_ref().is_some_and(|process| {
+                    matches!(
+                        process.state(),
+                        AuthState::Checking
+                            | AuthState::AwaitingCode { .. }
+                            | AuthState::Authenticated
+                    )
+                })
+                || self.layout.auth_cache().is_file())
+        {
+            return false;
+        }
+        self.presentation_accounts = enabled;
+        self.feeds.account_error = None;
+        self.reload_accounts();
+        true
+    }
+
+    /// The feeds the UI sees; presentation mode shows the selected placeholder's loaded profile.
+    pub(super) fn presented_feeds(&self) -> launcher::menu::view::MenuFeeds {
+        let mut feeds = self.feeds.clone();
+        if let std::borrow::Cow::Owned(profile) = self.presented_profile() {
+            feeds.profile = profile;
+        }
+        feeds
+    }
+
+    /// The live profile, or the selected placeholder's completed one in presentation mode.
+    pub(super) fn presented_profile(
+        &self,
+    ) -> std::borrow::Cow<'_, launcher::menu::view::MenuProfile> {
+        if !self.presentation_accounts {
+            return std::borrow::Cow::Borrowed(&self.feeds.profile);
+        }
+        std::borrow::Cow::Owned(launcher::menu::view::MenuProfile {
+            loaded: true,
+            xuid: self.feeds.account_active_id.clone().unwrap_or_default(),
+            gamertag: self.presented_display_name(),
+            statistics_loaded: true,
+            achievements_loaded: true,
+            avatar_loaded: true,
+            avatar_error: true,
+            featured_screenshot_loaded: true,
+            featured_screenshot_error: true,
+            ..Default::default()
+        })
+    }
+
+    /// The selected placeholder's name in presentation mode, otherwise the live display name.
+    pub(super) fn presented_display_name(&self) -> String {
+        self.presentation_accounts
+            .then_some(self.feeds.account_active_id.as_deref())
+            .flatten()
+            .and_then(|active| PRESENTATION_ACCOUNTS.iter().find(|(id, _)| *id == active))
+            .map_or_else(|| self.display_name.clone(), |(_, name)| (*name).to_owned())
+    }
+
+    /// Account actions only change the in-memory presentation while it is shown.
+    pub(super) fn presentation_blocks(&mut self, action: MenuAction) -> bool {
+        if !self.presentation_accounts {
+            return false;
+        }
+        match action {
+            MenuAction::SwitchAccount(index) => {
+                if let Some(account) = self.feeds.accounts.get(index) {
+                    self.feeds.account_active_id = Some(account.id.clone());
+                }
+                self.dialog = None;
+                true
+            }
+            MenuAction::StartSignIn
+            | MenuAction::CancelSignIn
+            | MenuAction::AddAccount
+            | MenuAction::SignOut => true,
+            _ => false,
+        }
+    }
+
     fn reload_accounts(&mut self) {
+        if self.presentation_accounts {
+            self.feeds.accounts = PRESENTATION_ACCOUNTS
+                .iter()
+                .map(|(id, gamertag)| AccountProfile {
+                    id: (*id).into(),
+                    gamertag: (*gamertag).into(),
+                    picture_path: None,
+                })
+                .collect();
+            let shown = self
+                .feeds
+                .account_active_id
+                .as_deref()
+                .is_some_and(|active| PRESENTATION_ACCOUNTS.iter().any(|(id, _)| *id == active));
+            if !shown {
+                self.feeds.account_active_id = Some(PRESENTATION_ACCOUNTS[0].0.into());
+            }
+            return;
+        }
         let store = self.account_store();
         match store.list() {
             Ok(accounts) => {
@@ -80,7 +193,6 @@ impl MenuRuntime {
             self.feeds.profile_refresh_requested = true;
             return;
         }
-        self.sign_in_page_code = None;
         self.feeds.account_error = None;
         self.feeds.account_adding = true;
         self.accounts.pending_ready = false;
@@ -105,6 +217,7 @@ impl MenuRuntime {
             self.dialog = None;
             return;
         }
+        self.sign_in_cancelled = false;
         self.accounts.operation = Some(Operation::Switch(account.id.clone()));
         self.focused = 0;
     }
@@ -114,6 +227,9 @@ impl MenuRuntime {
             self.cancel_add_account();
         }
         self.dialog = None;
+        if self.sign_in_focus().is_some() {
+            self.focus_sign_in_prompt();
+        }
     }
 
     pub(super) fn cancel_add_account(&mut self) {
@@ -160,7 +276,7 @@ impl MenuRuntime {
                     self.feeds.profile = Default::default();
                     self.control_auth = None;
                 }
-                Some(AuthState::Failed(_)) | None => {
+                None if !matches!(self.current_auth().as_ref(), AuthState::Failed(_)) => {
                     self.feeds.account_error = Some("Sign-in did not complete. Try again.".into());
                     self.accounts.operation = Some(Operation::Restore);
                 }
@@ -263,10 +379,18 @@ impl MenuRuntime {
         self.friends.clear();
         self.catalog_started = false;
         self.control_auth = None;
-        self.sign_in_page_code = None;
         self.reload_accounts();
         if !signed_out {
-            self.start_sign_in();
+            if self.sign_in_cancelled && !self.layout.auth_cache().is_file() {
+                self.auth_process = None;
+            } else {
+                let cancelled = self.sign_in_cancelled;
+                self.start_sign_in();
+                if cancelled {
+                    self.sign_in_cancelled = true;
+                    self.sign_in_requested = false;
+                }
+            }
         }
         if self.dialog.is_some() {
             self.dialog = Some(MenuDialog::Accounts);
@@ -277,7 +401,67 @@ impl MenuRuntime {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::menu::MenuAction;
+
+    #[test]
+    fn presentation_accounts_never_sign_in_or_queue_store_changes() {
+        let mut menu = MenuRuntime::new(true, 2, "First".into());
+        menu.feeds.account_adding = true;
+        assert!(!menu.set_presentation_accounts(true));
+        menu.feeds.account_adding = false;
+        let cache = menu.layout.auth_cache();
+        std::fs::create_dir_all(cache.parent().unwrap()).unwrap();
+        std::fs::write(&cache, b"{}").unwrap();
+        assert!(
+            !menu.set_presentation_accounts(true),
+            "a signed-in install is refused"
+        );
+        std::fs::remove_file(&cache).unwrap();
+        menu.auth_restart_requested = true;
+        assert!(
+            !menu.set_presentation_accounts(true),
+            "a queued sign-in is refused"
+        );
+        menu.auth_restart_requested = false;
+        assert!(menu.set_presentation_accounts(true));
+        assert_eq!(menu.view().auth_state, AuthState::Authenticated);
+        menu.activate(MenuAction::OpenAccounts);
+        assert_eq!(menu.dialog, Some(MenuDialog::Accounts));
+        assert_eq!(menu.feeds.accounts.len(), PRESENTATION_ACCOUNTS.len());
+        menu.activate(MenuAction::AddAccount);
+        menu.activate(MenuAction::StartSignIn);
+        menu.activate(MenuAction::SignOut);
+        menu.activate(MenuAction::CancelSignIn);
+        assert!(menu.auth_process.is_none());
+        assert!(menu.accounts.operation.is_none());
+        assert!(!menu.feeds.account_adding && !menu.sign_out_requested);
+        menu.activate(MenuAction::SwitchAccount(2));
+        assert!(menu.accounts.operation.is_none());
+        menu.activate(MenuAction::OpenAccounts);
+        assert_eq!(
+            menu.feeds.account_active_id.as_deref(),
+            Some(PRESENTATION_ACCOUNTS[2].0)
+        );
+        let view = menu.view();
+        assert_eq!(view.display_name, PRESENTATION_ACCOUNTS[2].1);
+        assert!(view.feeds.profile.loaded);
+        assert_eq!(view.feeds.profile.gamertag, PRESENTATION_ACCOUNTS[2].1);
+        assert!(
+            menu.feeds.profile.gamertag.is_empty(),
+            "the live profile is untouched"
+        );
+        menu.activate(MenuAction::Navigate(launcher::menu::MenuScreen::Profile));
+        assert!(menu.focus_actions().contains(&MenuAction::SelectProfileTab(
+            launcher::menu::ProfileTab::Stats
+        )));
+        menu.set_presentation_accounts(false);
+        assert_eq!(menu.view().display_name, "First");
+        assert_ne!(menu.view().auth_state, AuthState::Authenticated);
+        assert!(menu.feeds.accounts.iter().all(|account| {
+            PRESENTATION_ACCOUNTS
+                .iter()
+                .all(|(id, _)| account.id != *id)
+        }));
+    }
 
     #[test]
     fn account_picker_queues_switch_without_replacing_live_credentials() {
@@ -306,6 +490,25 @@ mod tests {
         assert!(matches!(menu.accounts.operation, Some(Operation::Restore)));
         assert!(!menu.sign_out_requested);
         assert_eq!(menu.feeds.account_active_id.as_deref(), Some("41"));
+    }
+
+    #[test]
+    fn back_cancels_add_account_without_restarting_a_signed_out_flow() {
+        let mut menu = MenuRuntime::new(true, 2, "Offline Player".into());
+        menu.feeds.account_adding = true;
+        menu.dialog = Some(MenuDialog::Accounts);
+        menu.apply_control_auth(AuthState::AwaitingCode {
+            uri: "https://example.invalid".into(),
+            code: "TEST-CODE".into(),
+        });
+        menu.go_back();
+        assert!(menu.dialog.is_none());
+        menu.account_operation_job()();
+        menu.poll_accounts();
+        assert!(!menu.sign_in_requested);
+        assert!(menu.sign_in_cancelled);
+        assert_eq!(menu.current_auth().as_ref(), &AuthState::SignedOut);
+        assert!(menu.auth_process.is_none());
     }
 
     #[test]

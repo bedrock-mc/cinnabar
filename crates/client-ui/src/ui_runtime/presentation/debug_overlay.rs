@@ -10,10 +10,13 @@ use json_ui::{
     Scalar, ViewState,
 };
 use serde_json::{Value, json};
-use ui::UiScale;
+pub(super) mod paint;
+pub(super) mod visibility;
+pub(super) mod visible;
+use paint::PaintedOverlay;
 
 use super::bounded_visible_text;
-use super::{FONT_DESIGN_PIXEL_TEXELS, TEXT_LINE_HEIGHT_64, TextMetrics, UiPresentationRuntime};
+use super::{FONT_DESIGN_PIXEL_TEXELS, TEXT_LINE_HEIGHT_64, UiPresentationRuntime};
 
 const STRIP_COLOR: [u8; 4] = [80, 80, 80, 144];
 const INSET: f64 = 2.0;
@@ -39,9 +42,13 @@ pub(super) struct OverlayCache {
     measures: MeasureCache,
     laid: Option<LaidOverlay>,
     font: Option<Arc<RuntimeFontCatalog>>, // the font `measures` were taken with
+    widths: [Vec<f64>; 2],
+    pub(super) painted: PaintedOverlay,
     /// Bind+layout passes run, for cache tests.
     #[cfg(test)]
     pub(super) passes: usize,
+    #[cfg(test)]
+    pub(super) paints: usize,
 }
 
 impl OverlayCache {
@@ -59,6 +66,13 @@ impl OverlayCache {
         }
     }
 
+    /// Whether the retained layout was bound from these displayed lines.
+    pub(super) fn matches_lines(&self, lines: &DebugLines) -> bool {
+        self.laid
+            .as_ref()
+            .is_some_and(|laid| visible::same_lines(&laid.lines, lines, laid.root))
+    }
+
     #[cfg(test)]
     pub(super) fn into_render(self) -> Option<FormRender> {
         self.laid.map(|laid| laid.render)
@@ -74,22 +88,24 @@ struct LaidOverlay {
 
 impl UiPresentationRuntime {
     pub fn set_debug_lines(&mut self, lines: Option<DebugLines>) {
-        self.debug_lines = lines;
+        if self.debug_lines != lines {
+            self.debug_lines = lines;
+        }
     }
-}
 
-/// Reserve the full row budget so changing values or target properties never
-/// resize the text. Only viewport height, DPI and GUI scale affect font size;
-/// horizontal overflow is truncated instead of shrinking the whole overlay.
-pub(super) fn fitted_metrics(mut metrics: TextMetrics, content_height: f32) -> TextMetrics {
-    let px = f64::from(metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32);
-    let height = (2.0 * INSET + LINE_HEIGHT * MAX_LINES_PER_COLUMN as f64) * px;
-    let factor = (f64::from(content_height) / height).clamp(0.5, 1.0) as f32;
-    if let Ok(scale) = UiScale::new_display(metrics.scale.get() * factor) {
-        metrics.scale = scale;
-        metrics.gui_scale *= factor;
+    /// Borrows the current diagnostic publication without copying its strings.
+    pub fn debug_lines(&self) -> Option<&DebugLines> {
+        self.debug_lines.as_ref()
     }
-    metrics
+
+    /// Publishes changed diagnostics and returns the preceding buffers to the caller.
+    pub fn swap_debug_lines(&mut self, lines: &mut Option<DebugLines>) -> bool {
+        if self.debug_lines == *lines {
+            return false;
+        }
+        std::mem::swap(&mut self.debug_lines, lines);
+        true
+    }
 }
 
 /// Bind and lay out the built-in JSON-UI screen using the same font measurer and
@@ -104,10 +120,23 @@ pub(super) fn render<'a>(
         .laid
         .as_ref()
         .is_some_and(|laid| laid.root == root && laid.scale == scale);
-    if same_frame && cache.laid.as_ref().is_some_and(|laid| laid.lines == *lines) {
+    if same_frame
+        && cache
+            .laid
+            .as_ref()
+            .is_some_and(|laid| visible::same_lines(&laid.lines, lines, root))
+    {
         return &cache.laid.as_ref().expect("checked above").render;
     }
-    let data = Arc::new(data_source(lines, root, env));
+    cache.painted.key = None;
+    #[cfg(feature = "tracy")]
+    let _span = bevy::log::info_span!("ui.f3.rebind_layout").entered();
+    let previous = cache
+        .laid
+        .as_ref()
+        .filter(|_| same_frame)
+        .map(|laid| &laid.lines);
+    let data = Arc::new(data_source(lines, root, env, previous, &mut cache.widths));
     let bound = match cache.laid.take() {
         Some(laid) => {
             let mut bound = laid.render.bound;
@@ -133,8 +162,11 @@ pub(super) fn render<'a>(
     {
         cache.passes += 1;
     }
-    let render =
-        json_ui::render_bound_cached(bound, root, env, &ViewState::default(), &mut cache.measures);
+    let render = {
+        #[cfg(feature = "tracy")]
+        let _span = bevy::log::info_span!("ui.f3.layout").entered();
+        json_ui::render_bound_cached(bound, root, env, &ViewState::default(), &mut cache.measures)
+    };
     &cache
         .laid
         .insert(LaidOverlay {
@@ -147,23 +179,35 @@ pub(super) fn render<'a>(
 }
 
 /// Row text, visibility and width bindings for every line that fits the root height.
-fn data_source(lines: &DebugLines, root: [f64; 2], env: &LayoutEnv) -> DataSource {
-    let row_limit = (((root[1] - 2.0 * INSET) / LINE_HEIGHT).max(0.0) + 1e-4).floor() as usize;
-    let row_limit = row_limit.min(MAX_LINES_PER_COLUMN);
+fn data_source(
+    lines: &DebugLines,
+    root: [f64; 2],
+    env: &LayoutEnv,
+    previous: Option<&DebugLines>,
+    widths: &mut [Vec<f64>; 2],
+) -> DataSource {
+    #[cfg(feature = "tracy")]
+    let _span = bevy::log::info_span!("ui.f3.bindings_measure").entered();
+    let row_limit = visible::row_limit(root);
     let columns = [&lines.left, &lines.right];
-    let widths: [Vec<f64>; 2] = columns.map(|column| {
-        column
-            .iter()
-            .take(row_limit)
-            .map(|line| {
-                if line.is_empty() {
-                    0.0
-                } else {
-                    env.text.extent(bounded_visible_text(line))[0] + 2.0 * STRIP_PADDING
-                }
-            })
-            .collect()
-    });
+    for (column_index, column) in columns.into_iter().enumerate() {
+        let old_column = previous.map(|lines| [&lines.left, &lines.right][column_index]);
+        widths[column_index].resize(column.len().min(row_limit), 0.0);
+        for (index, line) in column.iter().take(row_limit).enumerate() {
+            if old_column
+                .and_then(|old| old.get(index))
+                .map(|line| bounded_visible_text(line))
+                == Some(bounded_visible_text(line))
+            {
+                continue;
+            }
+            widths[column_index][index] = if line.is_empty() {
+                0.0
+            } else {
+                env.text.extent(bounded_visible_text(line))[0] + 2.0 * STRIP_PADDING
+            };
+        }
+    }
     let natural = widths
         .each_ref()
         .map(|column| column.iter().copied().fold(0.0, f64::max));
