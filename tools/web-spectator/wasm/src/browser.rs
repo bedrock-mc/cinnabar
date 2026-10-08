@@ -30,9 +30,15 @@ use wasm_bindgen::prelude::*;
 use world::SubChunkKey;
 
 use crate::{
-    TerrainAssets, browser_actor::BrowserActors, browser_camera::PovMotion,
-    browser_diagnostics::Diagnostics, browser_hud::BrowserHud, browser_interpolation::FrameMotion,
-    browser_model::Frame, model::Arena, terrain_runtime,
+    TerrainAssets,
+    browser_actor::{AnimationView, BrowserActors},
+    browser_camera::PovMotion,
+    browser_diagnostics::Diagnostics,
+    browser_hud::BrowserHud,
+    browser_interpolation::FrameMotion,
+    browser_model::Frame,
+    model::Arena,
+    terrain_runtime,
 };
 
 #[derive(Clone, Copy)]
@@ -334,6 +340,7 @@ impl Viewer {
         Ok(())
     }
 
+    /// Anchors presentation to live wall time or the recording's current epoch time.
     pub fn set_frame(&self, input: &str, received_timestamp_ms: f64) -> Result<(), String> {
         if !received_timestamp_ms.is_finite() || received_timestamp_ms < 0.0 {
             return Err("spectator frame timestamp is invalid".into());
@@ -618,7 +625,6 @@ fn spawn_camera(mut commands: Commands, window: Single<&Window, With<PrimaryWind
             ),
             near: render_api::CAMERA_NEAR_PLANE_BLOCKS,
             near_clip_plane: Vec4::new(0.0, 0.0, -1.0, -render_api::CAMERA_NEAR_PLANE_BLOCKS),
-            ..default()
         }),
         Transform::from_xyz(20.0, 18.0, 20.0).looking_at(Vec3::ZERO, Vec3::Y),
     ));
@@ -672,7 +678,11 @@ fn update_viewer(
         state.ready = false;
         return;
     }
-    if state.current.is_none() || state.received.elapsed() > std::time::Duration::from_secs(5) {
+    if state
+        .current
+        .as_ref()
+        .is_none_or(|frame| frame.is_stale(state.received.elapsed()))
+    {
         runtime.camera_motion.reset();
         *actors = ActorRenderFrame::default();
         **nametags = render_model::NametagScene::default();
@@ -795,12 +805,13 @@ fn update_viewer(
             .iter()
             .find(|fighter| fighter.id == state.camera.player_id)
     });
-    let interval = state
-        .received
-        .duration_since(state.previous_received)
-        .as_secs_f32()
-        .clamp(0.05, 1.0);
-    let partial = (state.received.elapsed().as_secs_f32() / interval).clamp(0.0, 1.0);
+    let interval = state.received.duration_since(state.previous_received);
+    let partial = current.map_or(1.0, |frame| {
+        frame.interpolation_fraction(state.received.elapsed(), interval)
+    });
+    let now_millis = current.map_or(state.wall_millis, |frame| {
+        frame.presentation_millis(state.wall_millis, state.received.elapsed())
+    });
     let motion = current.map(|frame| FrameMotion::new(frame, state.previous.as_ref(), partial));
     let position = fighter
         .zip(motion.as_ref())
@@ -832,7 +843,9 @@ fn update_viewer(
                 ..Transform::IDENTITY
             };
             let speed = current.map_or(1.0, Frame::visual_speed);
-            let (posed, motion) = runtime.camera_motion.update(fighter, base, speed);
+            let (posed, motion) = runtime
+                .camera_motion
+                .update(fighter, base, speed, now_millis);
             **camera = posed;
             hand_motion = motion;
         }
@@ -861,15 +874,18 @@ fn update_viewer(
             current,
             motion.as_ref().and_then(FrameMotion::previous),
             partial,
-            hidden,
-            {
-                let (yaw, pitch, _) = camera.rotation.to_euler(EulerRot::YXZ);
-                [
-                    -pitch.to_degrees(),
-                    (180.0 - yaw.to_degrees()).rem_euclid(360.0),
-                ]
+            AnimationView {
+                hidden_player: hidden,
+                rotation: {
+                    let (yaw, pitch, _) = camera.rotation.to_euler(EulerRot::YXZ);
+                    [
+                        -pitch.to_degrees(),
+                        (180.0 - yaw.to_degrees()).rem_euclid(360.0),
+                    ]
+                },
+                position: camera.translation.to_array(),
+                timeline_millis: now_millis,
             },
-            camera.translation.to_array(),
         );
         let anchors = current
             .fighters
@@ -928,16 +944,11 @@ fn update_viewer(
             current,
             &mut particles,
             &view,
-            state
-                .wall_millis
-                .saturating_add(state.received.elapsed().as_millis() as u64),
+            now_millis,
             terrain.as_ref().and_then(|guard| guard.as_ref()),
             &terrain_assets,
         );
     }
-    let now_millis = state
-        .wall_millis
-        .saturating_add(state.received.elapsed().as_millis() as u64);
     match runtime
         .hud
         .update(hud_fighter, viewport, now_millis, state.wall_millis)

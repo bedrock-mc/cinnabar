@@ -1,4 +1,13 @@
+use std::time::Duration;
+
 use serde::Deserialize;
+
+/// Measures an authored event on the supplied live or recording timeline.
+pub(super) fn event_age_millis(timestamp_ms: f64, timeline_millis: u64) -> Option<f64> {
+    timestamp_ms
+        .is_finite()
+        .then_some(timeline_millis as f64 - timestamp_ms)
+}
 
 // Producers may encode empty event data and block state maps as JSON null.
 // Accept empty collections without loosening other fields.
@@ -39,6 +48,29 @@ impl Frame {
         } else {
             self.replay_speed.unwrap_or(1.0).clamp(0.25, 2.0)
         }
+    }
+
+    /// Advances the supplied timeline at playback speed, retaining its anchor while paused.
+    pub(super) fn presentation_millis(&self, anchor_millis: u64, elapsed: Duration) -> u64 {
+        anchor_millis.saturating_add(
+            (elapsed.as_secs_f64() * 1000.0 * f64::from(self.visual_speed())) as u64,
+        )
+    }
+
+    /// Expires interrupted live streams while retaining explicit recordings.
+    pub(super) fn is_stale(&self, elapsed: Duration) -> bool {
+        let recorded =
+            self.replay_playing.is_some() || self.replay_speed.is_some() || self.replay_epoch != 0;
+        !recorded && elapsed > Duration::from_secs(5)
+    }
+
+    /// Samples committed poses using arrival cadence, or the current pose while paused.
+    pub(super) fn interpolation_fraction(&self, elapsed: Duration, interval: Duration) -> f32 {
+        if self.visual_speed() == 0.0 {
+            return 1.0;
+        }
+        // The host already submits observations at its chosen playback cadence.
+        (elapsed.as_secs_f32() / interval.as_secs_f32().clamp(0.05, 1.0)).clamp(0.0, 1.0)
     }
 
     pub(super) fn parse(input: &str) -> Result<Self, String> {
@@ -416,3 +448,7 @@ mod tests {
         assert!(Frame::parse(&frame.to_string()).is_err());
     }
 }
+
+#[cfg(test)]
+#[path = "browser_model/clock_tests.rs"]
+mod clock_tests;

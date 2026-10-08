@@ -663,7 +663,10 @@ impl HudPaintTarget for Painter<'_> {
     fn sprite(&self, path: &str, color: [u8; 4]) -> Option<UiVisual> {
         let path = path.trim_end_matches(".png");
         // Shared crosshair painting expects a full sheet; its compiled crop is supplied separately.
-        if path == HudTextureRole::Crosshair.source_path().trim_end_matches(".png")
+        if path
+            == HudTextureRole::Crosshair
+                .source_path()
+                .trim_end_matches(".png")
             && self.textures.assets.texture(path).is_none()
         {
             return None;

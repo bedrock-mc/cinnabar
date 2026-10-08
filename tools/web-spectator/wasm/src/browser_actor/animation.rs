@@ -14,7 +14,7 @@ use protocol::{
 };
 use render_model::{EntityRigId, RenderBoneTransform};
 
-use super::super::browser_model::{Fighter, Frame};
+use super::super::browser_model::{Fighter, Frame, event_age_millis};
 use super::{hash_id, parse_rgb};
 
 mod pose_cache;
@@ -82,8 +82,8 @@ impl NativeAnimator {
             hidden_player,
             rotation: view_rotation,
             position: view_position,
+            timeline_millis,
         } = view;
-        let now = js_sys::Date::now();
         let clock = Instant::now();
         let tick_millis = ACTOR_TICK_DURATION.as_secs_f64() * 1000.0;
         let session = hash_id(&format!("{}:{}", frame.id, frame.replay_epoch));
@@ -244,7 +244,7 @@ impl NativeAnimator {
                 observation.swing = swing_identity.cloned();
                 if recent(
                     fighter.swing_at.as_deref(),
-                    now,
+                    timeline_millis,
                     ACTOR_SWING_TICKS as f64 * tick_millis,
                 ) {
                     self.store.start_swing(runtime_id, ACTOR_SWING_TICKS);
@@ -255,7 +255,7 @@ impl NativeAnimator {
                 observation.hurt = hurt_identity.cloned();
                 if recent(
                     fighter.hurt_at.as_deref(),
-                    now,
+                    timeline_millis,
                     f64::from(client_world::HURT_DURATION_TICKS) * tick_millis,
                 ) {
                     actor.status.hurt_time = client_world::HURT_DURATION_TICKS;
@@ -476,10 +476,11 @@ pub(super) fn use_ticks(equipment: &RuntimeEquipmentCatalog, identifier: &str) -
         _ => None,
     }
 }
-fn recent(stamp: Option<&str>, now: f64, duration: f64) -> bool {
+fn recent(stamp: Option<&str>, timeline_millis: u64, duration: f64) -> bool {
     stamp
         .map(js_sys::Date::parse)
-        .is_some_and(|stamp| stamp.is_finite() && now - stamp >= -1000.0 && now - stamp <= duration)
+        .and_then(|stamp| event_age_millis(stamp, timeline_millis))
+        .is_some_and(|age| age >= -1000.0 && age <= duration)
 }
 
 fn health_attribute(fighter: &Fighter) -> ActorAttribute {
@@ -493,8 +494,9 @@ fn health_attribute(fighter: &Fighter) -> ActorAttribute {
     }
 }
 
-pub(super) struct AnimationView<'a> {
+pub(crate) struct AnimationView<'a> {
     pub hidden_player: Option<&'a str>,
     pub rotation: [f32; 2],
     pub position: [f32; 3],
+    pub timeline_millis: u64,
 }

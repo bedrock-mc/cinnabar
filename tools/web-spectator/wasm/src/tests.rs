@@ -2,6 +2,7 @@ use serde_json::{Value, json};
 
 use crate::{mesh_arena, model::Arena, terrain::FLOATS_PER_VERTEX};
 
+#[cfg(not(target_arch = "wasm32"))]
 #[path = "browser_actor/animation/pose_cache.rs"]
 mod pose_cache;
 

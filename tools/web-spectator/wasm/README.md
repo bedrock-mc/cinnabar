@@ -158,6 +158,16 @@ observed sound triggers through the pinned pack; the host loads audio and owns
 playback consent. Cinnabar supplies no storage, retention, authentication or
 transport service for these inputs.
 
+Pass the recording's current epoch milliseconds as the second `set_frame`
+argument during playback. Frame, swing, hurt, event and HUD timestamps must share
+that recording timeline; they do not need rebasing to the viewer's wall clock.
+Live inputs use `Date.now()`. The host submits observations at the chosen playback
+cadence, so position interpolation does not apply the speed a second time.
+Paused frames sample their committed current pose immediately. Any explicit
+playback input (`replayPlaying`, `replaySpeed` or nonzero `replayEpoch`) exempts the
+recording from the live stream's five-second stale timeout; a paused or completed
+recording remains visible without heartbeat frames.
+
 Remaining parity work is tracked in `plan.md`; a compiled viewer is not a visual
 parity result.
 

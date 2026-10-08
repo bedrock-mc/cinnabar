@@ -21,6 +21,7 @@ use view_presentation::equipment_sprite_atlas::{Placement, SpriteAtlas};
 mod animation;
 mod persona;
 mod update;
+pub(super) use animation::AnimationView;
 use animation::NativeAnimator;
 
 const MAX_BROWSER_SKINS: usize = 64;

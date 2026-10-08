@@ -5,7 +5,7 @@ use view_presentation::camera::{
     walk_bob_effect,
 };
 
-use crate::browser_model::Fighter;
+use crate::browser_model::{Fighter, event_age_millis};
 
 pub(super) struct PovMotion {
     player: Option<String>,
@@ -39,6 +39,7 @@ impl PovMotion {
         fighter: &Fighter,
         base: Transform,
         speed: f32,
+        timeline_millis: u64,
     ) -> (Transform, Mat4) {
         if self.player.as_deref() != Some(fighter.id.as_str()) {
             self.reset();
@@ -58,13 +59,13 @@ impl PovMotion {
         if self.hurt_at.as_ref() != hurt_identity {
             self.hurt_at = hurt_identity.cloned();
             if let Some(stamp) = fighter.hurt_at.as_deref() {
-                let age_seconds =
-                    ((js_sys::Date::now() - js_sys::Date::parse(stamp)) / 1000.0) as f32;
                 // The stream has a committed hurt event but no damage-direction packet.
                 // Native directionless tilt is the explicit fallback for that case.
-                if age_seconds.is_finite() {
+                if let Some(age_millis) =
+                    event_age_millis(js_sys::Date::parse(stamp), timeline_millis)
+                {
                     self.hurt.register(LocalHurtEvent::default());
-                    self.hurt.advance(age_seconds.max(0.0));
+                    self.hurt.advance((age_millis / 1000.0).max(0.0) as f32);
                 }
             }
         }

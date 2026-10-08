@@ -7,7 +7,7 @@ use render::{
 };
 use view_presentation::equipment_display;
 
-use super::{BrowserActors, animation, hash_id, parse_rgb};
+use super::{AnimationView, BrowserActors, hash_id, parse_rgb};
 use crate::browser_model::Frame;
 
 impl BrowserActors {
@@ -16,11 +16,10 @@ impl BrowserActors {
         current: &Frame,
         previous: Option<&Frame>,
         partial_tick: f32,
-        hidden_player: Option<&str>,
-        view_rotation: [f32; 2],
-        view_position: [f32; 3],
+        view: AnimationView<'_>,
     ) -> ActorRenderFrame {
         self.generation = self.generation.wrapping_add(1).max(1);
+        let hidden_player = view.hidden_player;
         let fraction = if partial_tick.is_finite() {
             partial_tick.clamp(0.0, 1.0)
         } else {
@@ -31,17 +30,8 @@ impl BrowserActors {
         let skins = &self.skins;
         let custom = &self.custom;
         let capes = &self.capes;
-        self.animator.advance(
-            current,
-            previous,
-            fraction,
-            animation::AnimationView {
-                hidden_player,
-                rotation: view_rotation,
-                position: view_position,
-            },
-            &self.equipment,
-            |id| {
+        self.animator
+            .advance(current, previous, fraction, view, &self.equipment, |id| {
                 let source = skins.get(id).map(|skin| {
                     if let Some(rig) = custom.get(id) {
                         return Arc::clone(&rig.source);
@@ -53,8 +43,7 @@ impl BrowserActors {
                     }
                 });
                 (source, capes.contains_key(id))
-            },
-        );
+            });
         let animation_fraction = self.animator.partial_tick();
         let visible = current
             .fighters
