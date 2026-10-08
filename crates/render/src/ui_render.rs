@@ -108,7 +108,8 @@ fn install_ui_render(app: &mut App) {
         install_overlay_graph(app.sub_app_mut(RenderApp).world_mut());
         return;
     }
-    crate::pipeline_warmup::register::<UiPipeline>(app);
+    crate::pipeline_warmup::register::<pipeline::UiPipeline>(app);
+    crate::pipeline_warmup::register::<composite::UiCompositePipeline>(app);
     let stats = app.world().resource::<UiRenderStatsResource>().clone();
     app.add_plugins((
         ExtractResourcePlugin::<UiRenderSceneResource>::default(),

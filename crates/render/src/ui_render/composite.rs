@@ -319,9 +319,15 @@ impl UiCompositePipeline {
         cache: &PipelineCache,
         key: UiCompositeKey,
     ) -> Option<CachedRenderPipelineId> {
-        self.clear
-            .get_or_insert_with(|| cache.queue_render_pipeline(clear_pipeline_descriptor()));
+        self.clear_pipeline_id(cache);
         self.variants.specialize(cache, key).ok()
+    }
+
+    /// Shares one rectangle-clear pipeline between startup warmup and all view formats.
+    fn clear_pipeline_id(&mut self, cache: &PipelineCache) -> CachedRenderPipelineId {
+        *self
+            .clear
+            .get_or_insert_with(|| cache.queue_render_pipeline(clear_pipeline_descriptor()))
     }
 
     /// Returns the unblended rectangle-clear pipeline once asynchronous compilation finishes.
@@ -330,6 +336,19 @@ impl UiCompositePipeline {
         cache: &'a PipelineCache,
     ) -> Option<&'a RenderPipeline> {
         self.clear.and_then(|id| cache.get_render_pipeline(id))
+    }
+}
+
+impl crate::pipeline_warmup::PrewarmPipelines for UiCompositePipeline {
+    /// Holds startup readiness until the fixed-format damage clear has compiled.
+    fn prewarm(
+        &mut self,
+        cache: &PipelineCache,
+        _view: crate::pipeline_warmup::WarmView,
+        ids: &mut crate::pipeline_warmup::WarmupIds,
+    ) -> Result<(), BevyError> {
+        ids.push(self.clear_pipeline_id(cache));
+        Ok(())
     }
 }
 

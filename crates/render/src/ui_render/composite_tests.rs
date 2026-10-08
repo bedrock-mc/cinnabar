@@ -118,3 +118,40 @@ fn damage_clear_is_single_sample_unblended_and_depth_free() {
     assert!(target.blend.is_none());
     assert_eq!(target.write_mask, ColorWrites::ALL);
 }
+
+#[test]
+fn damage_clear_warmup_and_drawing_reuse_one_pipeline() {
+    use crate::pipeline_warmup::{PrewarmPipelines, WarmView};
+
+    let world = super::super::ordered_command_tests::binding_world();
+    let cache = world.resource::<PipelineCache>();
+    for draw_first in [false, true] {
+        let mut pipeline = UiCompositePipeline::from_world(&mut World::new());
+        let key = UiCompositeKey {
+            format: TextureFormat::bevy_default(),
+        };
+        if draw_first {
+            pipeline.specialize(cache, key).unwrap();
+        }
+        let mut expected = pipeline.clear;
+        for (msaa, hdr) in [(Msaa::Off, false), (Msaa::Sample4, true)] {
+            let mut ids = Vec::new();
+            pipeline
+                .prewarm(
+                    cache,
+                    WarmView {
+                        msaa,
+                        hdr,
+                        enhanced: false,
+                    },
+                    &mut ids,
+                )
+                .unwrap();
+            let clear = pipeline.clear.expect("warmup queues the damage clear");
+            assert!(ids.contains(&clear), "clear must hold the warmup gate");
+            assert_eq!(*expected.get_or_insert(clear), clear);
+            pipeline.specialize(cache, key).unwrap();
+            assert_eq!(pipeline.clear, Some(clear));
+        }
+    }
+}
