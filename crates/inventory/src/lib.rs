@@ -17,6 +17,7 @@ pub use crafting::{
     recipe_ingredient_accepts, screen_ingredient_accepts,
 };
 pub use crafting_authority::CraftingPreview;
+pub use furnace_recipes::{FurnaceRecipeIter, FurnaceRecipes};
 pub use ingress::{InventoryAuthorityEvent, InventoryIngressError, SequencedInventoryEvent};
 pub use inventory_ledger::{PlayerInventoryLedger, PlayerInventorySlot};
 pub use inventory_router::{

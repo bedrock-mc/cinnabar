@@ -193,4 +193,12 @@ fn furnace_recipe_panel_lists_outputs_and_routes_filter_tabs_and_search() {
         1,
         "loaded furnace ingredient keeps its recipe listed"
     );
+    runtime.perform_pointer_action(
+        &mut player,
+        PointerAction::Click(InventoryCellHit::Widget(Widget::InventoryLayout(1))),
+    );
+    assert!(
+        !runtime.screen_state().text_focused(),
+        "hidden furnace search must release the keyboard"
+    );
 }

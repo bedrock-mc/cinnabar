@@ -1,6 +1,9 @@
 //! The furnace family's JSON-UI recipe panel and its controller bindings.
 
-use json_ui::{CollectionItem, Context, DataSource, HitKind, HitRegion, Scalar};
+mod cache;
+pub(super) use cache::FurnaceBookCache;
+
+use json_ui::{Context, DataSource, HitKind, HitRegion, Scalar};
 use protocol::{NetworkItemStack, ScreenRecipe, WindowKind};
 use serde_json::Value;
 
@@ -102,20 +105,13 @@ pub(super) fn data(
     frame: &HudFrame,
     data: &mut DataSource,
     icons: &mut Vec<IconRef>,
+    cache: &mut Option<FurnaceBookCache>,
 ) {
     let state = runtime.screen_state();
     let shown = state.furnace_book_open;
     let tab = state.furnace_tab.unwrap_or(4);
-    let all = player.inventory.furnace_recipes(false);
-    let food = all
-        .iter()
-        .any(|recipe| category(player, runtime, recipe) == 1);
-    let items = all
-        .iter()
-        .any(|recipe| category(player, runtime, recipe) == 2);
-    let blocks = all
-        .iter()
-        .any(|recipe| category(player, runtime, recipe) == 3);
+    let publication = cache::publication(player, runtime, frame, icons.len(), cache);
+    let [food, items, blocks] = publication.categories;
     for (name, value) in [
         ("#is_survival_layout", !shown),
         ("#is_recipe_book_layout", shown),
@@ -163,43 +159,8 @@ pub(super) fn data(
     if !shown {
         return;
     }
-    let entries = entries(player, runtime);
-    let total = entries.len() as f64;
-    let rows = entries
-        .iter()
-        .enumerate()
-        .map(|(index, recipe)| {
-            let icon = frame
-                .window_icons
-                .book_entries
-                .get(index)
-                .copied()
-                .flatten();
-            let renderer = icon.map_or(Scalar::Json(Value::Null), |icon| {
-                icons.push(icon);
-                Scalar::Num((icons.len() - 1) as f64)
-            });
-            let supplied = player.inventory.ledger().can_supply_furnace_recipe(recipe);
-            CollectionItem::default()
-                .with("#item_renderer_data", renderer)
-                .with("#recipe_book_total_items", Scalar::Num(total))
-                .with("#recipe_craftable_count", Scalar::Text(String::new()))
-                .with("#recipe_hover_text", Scalar::Text(String::new()))
-                .with("#is_recipe_selected_slot", Scalar::Bool(false))
-                .with(
-                    "#container_item_background_texture",
-                    Scalar::Text(
-                        if supplied {
-                            "textures/ui/recipe_book_item_bg"
-                        } else {
-                            "textures/ui/recipe_book_red_button"
-                        }
-                        .to_owned(),
-                    ),
-                )
-        })
-        .collect();
-    data.set_collection("recipe_book", rows);
+    icons.extend_from_slice(&publication.icons);
+    data.set_shared_collection("recipe_book", std::sync::Arc::clone(&publication.rows));
 }
 
 pub(super) fn hit(screen: &str, region: &HitRegion) -> Option<InventoryCellHit> {

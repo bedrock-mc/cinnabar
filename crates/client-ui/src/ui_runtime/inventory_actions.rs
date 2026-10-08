@@ -616,8 +616,12 @@ impl UiRuntime {
             Widget::CrafterSlot(slot) => self.set_crafter_slot(player_runtime, slot, false),
             Widget::InventoryLayout(layout) => {
                 if super::presentation::forms::furnace_book::active(player_runtime) {
-                    self.screen_state_mut().furnace_book_open = layout == 2;
-                    self.screen_state_mut().container_scroll.clear();
+                    let state = self.screen_state_mut();
+                    state.furnace_book_open = layout == 2;
+                    if !state.furnace_book_open {
+                        state.search_focused = false;
+                    }
+                    state.container_scroll.clear();
                     return Ok(0);
                 }
                 let creative = player_runtime.facts.player_game_mode()

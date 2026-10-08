@@ -8,6 +8,10 @@ use crate::{InventorySession, screen_ingredient_accepts};
 #[cfg(test)]
 mod tests;
 
+mod cache;
+pub(crate) use cache::Cache;
+pub use cache::{FurnaceRecipeIter, FurnaceRecipes};
+
 fn kind(window: WindowKind) -> Option<ScreenRecipeKind> {
     Some(match window {
         WindowKind::Furnace => ScreenRecipeKind::Furnace,
@@ -73,7 +77,7 @@ impl PlayerInventoryLedger {
             match self.begin_move_to_furnace_input(InventoryTarget::Player(slot)) {
                 Ok(request) => placed = Some(request),
                 Err(error) if placed.is_none() => return Err(error),
-                Err(_) => break,
+                Err(_) => continue,
             }
         }
         placed
@@ -83,35 +87,8 @@ impl PlayerInventoryLedger {
 }
 
 impl InventorySession {
-    /// One recipe per output, preferring a supplied input when alternatives share a result.
-    pub fn furnace_recipes(&self, filtering: bool) -> Vec<&ScreenRecipe> {
-        let (Some(kind), Some(catalog)) = (
-            self.ledger().window_kind().and_then(kind),
-            self.screen_catalog(),
-        ) else {
-            return Vec::new();
-        };
-        let recipes = catalog
-            .screen_recipes(kind)
-            .filter(|recipe| recipe.ingredients.len() == 1 && recipe.output.is_some());
-        let mut positions = std::collections::HashMap::new();
-        let mut listed: Vec<&ScreenRecipe> = Vec::new();
-        for recipe in recipes {
-            let supplied = self.ledger().can_supply_furnace_recipe(recipe);
-            if filtering && !supplied {
-                continue;
-            }
-            let output = recipe.output.unwrap();
-            let key = (output.network_id, output.aux, output.block_runtime_id);
-            if let Some(&position) = positions.get(&key) {
-                if supplied && !self.ledger().can_supply_furnace_recipe(listed[position]) {
-                    listed[position] = recipe;
-                }
-            } else {
-                positions.insert(key, listed.len());
-                listed.push(recipe);
-            }
-        }
-        listed
+    /// Result identities reuse one allocation until catalog or supplied ingredients change.
+    pub fn furnace_recipes(&self, filtering: bool) -> FurnaceRecipes<'_> {
+        cache::project(self, filtering)
     }
 }

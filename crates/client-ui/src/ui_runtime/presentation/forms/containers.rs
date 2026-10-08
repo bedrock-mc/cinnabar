@@ -151,6 +151,7 @@ impl UiPresentationRuntime {
             &title,
             &mut icons,
             &mut self.form_presentation.book_cache,
+            &mut self.form_presentation.furnace_cache,
         );
         let pointer = runtime.inventory_pointer_gui();
         let view = ViewState {
@@ -512,6 +513,7 @@ fn screen_data(
     title: &str,
     icons: &mut Vec<IconRef>,
     book_cache: &mut Option<super::recipe_book::BookCache>,
+    furnace_cache: &mut Option<super::furnace_book::FurnaceBookCache>,
 ) -> DataSource {
     let ledger = runtime.inventory_ledger(player_runtime);
     let mut data = DataSource::new();
@@ -593,7 +595,14 @@ fn screen_data(
         }
         ScreenLayout::Station(kind) => {
             if super::furnace_book::active(player_runtime) {
-                super::furnace_book::data(player_runtime, runtime, frame, &mut data, cells.icons);
+                super::furnace_book::data(
+                    player_runtime,
+                    runtime,
+                    frame,
+                    &mut data,
+                    cells.icons,
+                    furnace_cache,
+                );
             }
             for (collection, addressed) in kind.collections {
                 let shown = container_data::collection_len(
