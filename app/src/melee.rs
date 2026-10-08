@@ -156,7 +156,10 @@ pub(crate) fn produce_melee(
         runtime.defer(now_millis);
         return;
     };
-    runtime.observe_crosshair(crosshair);
+    let crosshair = runtime.observe_attack_target(
+        crosshair,
+        item_timing.is_some_and(|timing| timing.piercing_weapon),
+    );
     // A press leaves in its own frame; an aim-assist facing needs an unsent tick to carry it.
     let between_ticks = crate::camera::aim_assist::action_rotation(&context.aim, &context.camera)
         .is_none()

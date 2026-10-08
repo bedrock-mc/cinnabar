@@ -6567,7 +6567,7 @@ hardware budgets and matched-version pixel comparison remain incomplete.
 ## Spear actions
 
 Spear bindings and pose inputs now consume authored swing and kinetic timings.
-Actor/air attacks send the item-directed transaction with aim and cooldown state,
+Attacks at actors, air or blocks send the item-directed transaction with aim and cooldown state,
 allowing the server to apply damage and Lunge movement. Component, admission,
 catalog/reset and real-carrier animation regressions pass. Live action proof and
 the complete matched-version native comparison remain incomplete. See

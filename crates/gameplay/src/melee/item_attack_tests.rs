@@ -45,9 +45,10 @@ fn transaction(outcome: &MeleeOutcome) -> &ItemUseInventoryTransaction {
 }
 
 #[test]
-fn piercing_attacks_report_aim_in_air_and_on_actors_without_a_missed_swing() {
+fn piercing_attacks_report_aim_for_air_actor_and_block_targets_without_mining() {
     for crosshair in [
         Crosshair::Miss,
+        Crosshair::Block,
         Crosshair::Actor(ActorHit {
             runtime_id: 8,
             distance: 2.0,
@@ -81,14 +82,25 @@ fn piercing_attacks_report_aim_in_air_and_on_actors_without_a_missed_swing() {
             outcome.packets.last().unwrap()
         ));
         assert!(!outcome.missed_swing);
+        assert!(runtime.actor_in_front(), "piercing attacks veto mining");
     }
     let mut runtime = MeleeRuntime::default();
     runtime.observe_input(true, true);
     let block = runtime.resolve(Crosshair::Block, &press(100), &mut SwingTracker::default());
+    assert_eq!(transaction(&block).action_type, Action::Useasattack);
+    runtime.observe_input(false, true);
     assert_eq!(
-        block.packets.len(),
-        1,
-        "a block-targeted press keeps its mining swing"
+        runtime.observe_attack_target(Crosshair::Block, true),
+        Crosshair::Miss
+    );
+    assert!(
+        runtime.actor_in_front(),
+        "holding attack still suppresses mining"
+    );
+    runtime.observe_attack_target(Crosshair::Block, false);
+    assert!(
+        !runtime.actor_in_front(),
+        "an ordinary item restores mining"
     );
 }
 

@@ -131,7 +131,23 @@ impl MeleeRuntime {
 
     /// Records whether actor picking consumes the current attack target.
     pub fn observe_crosshair(&mut self, crosshair: Crosshair) {
-        self.actor_in_front = !matches!(crosshair, Crosshair::Block);
+        self.observe_attack_target(crosshair, false);
+    }
+
+    /// Piercing components own attacks at blocks as well as actors and air.
+    /// Return the target shared by press admission and the held-button mining veto.
+    pub fn observe_attack_target(
+        &mut self,
+        crosshair: Crosshair,
+        item_directed: bool,
+    ) -> Crosshair {
+        let target = if item_directed && crosshair == Crosshair::Block {
+            Crosshair::Miss
+        } else {
+            crosshair
+        };
+        self.actor_in_front = !matches!(target, Crosshair::Block);
+        target
     }
 
     pub fn cancel(&mut self) {
@@ -203,7 +219,7 @@ impl MeleeRuntime {
         press: &PressContext,
         swings: &mut SwingTracker,
     ) -> MeleeOutcome {
-        self.observe_crosshair(crosshair);
+        let crosshair = self.observe_attack_target(crosshair, press.item_attack.is_some());
         self.deferred_since = None;
         let mut outcome = MeleeOutcome::default();
         if !std::mem::take(&mut self.latched_press) {
@@ -217,8 +233,7 @@ impl MeleeRuntime {
                     .push(protocol::swing_arm_packet(press.local_runtime_id, source));
             }
         };
-        if crosshair != Crosshair::Block
-            && let Some(attack) = press.item_attack.as_ref()
+        if let Some(attack) = press.item_attack.as_ref()
             && let Some(selection) = press.selection.as_ref()
         {
             self.attack_cooldowns
@@ -305,7 +320,7 @@ pub fn resolve_and_send(
         && (runtime.rejected_tick != Some(press.tick)
             || (crosshair == Crosshair::Block && !swings.tick_is_current_publication(press.tick)))
     {
-        runtime.observe_crosshair(crosshair);
+        runtime.observe_attack_target(crosshair, press.item_attack.is_some());
         runtime.defer(now_millis);
         return false;
     }
