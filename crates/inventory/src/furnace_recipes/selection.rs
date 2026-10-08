@@ -12,6 +12,7 @@ pub(crate) struct Selection {
 }
 
 impl PlayerInventoryLedger {
+    /// Selection bookkeeping belongs to the current storage generation.
     fn furnace_selection(&self) -> Option<&Selection> {
         self.furnace_selection
             .as_ref()
@@ -68,6 +69,7 @@ impl PlayerInventoryLedger {
         }
     }
 
+    /// Repeating the selected result triggers ingredient return and deselection.
     pub(super) fn furnace_result_selected(&self, recipe: &ScreenRecipe) -> bool {
         recipe
             .output
@@ -79,6 +81,7 @@ impl PlayerInventoryLedger {
             })
     }
 
+    /// Returns incompatible items before snapshotting sources and installing previews.
     pub(super) fn prepare_furnace_selection(
         &mut self,
         recipe: &ScreenRecipe,
@@ -141,6 +144,7 @@ impl PlayerInventoryLedger {
         Ok(last_request)
     }
 
+    /// Restores original source deficits before normal player-inventory return order.
     fn restore_furnace_cell(
         &mut self,
         source: u8,

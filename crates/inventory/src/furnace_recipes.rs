@@ -15,6 +15,7 @@ pub use cache::{FurnaceRecipeIter, FurnaceRecipes};
 mod selection;
 pub(crate) use selection::Selection;
 
+/// The recipe family associated with a furnace-style station.
 fn kind(window: WindowKind) -> Option<ScreenRecipeKind> {
     Some(match window {
         WindowKind::Furnace => ScreenRecipeKind::Furnace,
@@ -25,6 +26,7 @@ fn kind(window: WindowKind) -> Option<ScreenRecipeKind> {
 }
 
 impl PlayerInventoryLedger {
+    /// Matches the negotiated item and tags against the station ingredient.
     fn furnace_input_matches(
         &self,
         recipe: &ScreenRecipe,
@@ -51,6 +53,7 @@ impl PlayerInventoryLedger {
             || self.furnace_source_count(recipe) != 0
     }
 
+    /// Counts external fuel and player sources; loaded input only affects availability.
     fn furnace_source_count(&self, recipe: &ScreenRecipe) -> u32 {
         (0..protocol::PLAYER_INVENTORY_SLOTS)
             .filter_map(|slot| self.displayed_stack(slot))

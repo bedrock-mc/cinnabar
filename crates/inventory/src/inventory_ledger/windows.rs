@@ -10,6 +10,7 @@ use super::{Cell, PlayerInventoryLedger};
 const MAX_WINDOW_DATA: usize = 16;
 
 impl PlayerInventoryLedger {
+    /// Separates fixed and dynamic addresses before matching the active named window.
     fn legacy_named_window(&self, identity: &ContainerIdentity) -> Option<bool> {
         let id = identity.window_id?;
         if matches!(
@@ -47,9 +48,7 @@ impl PlayerInventoryLedger {
             self.retire_legacy_write(Cell::Storage(slot as u8));
         }
         let storage = self.storage.as_mut().expect("named window observed");
-        storage
-            .identity
-            .get_or_insert(ContainerIdentity::window(storage.window_id));
+        storage.identity.get_or_insert(identity);
         storage.resync_required = false;
         self.confirmed.replace_storage(slots);
         self.surface_refreshed(CellSurface::Storage);
