@@ -39,7 +39,8 @@ const DEFAULT_AIR_FRICTION: f64 = 0.91;
 const NORMAL_GRAVITY_MULTIPLIER: f64 = 0.98;
 pub const NORMAL_GRAVITY: f64 = 0.08;
 const STEP_HEIGHT: f64 = 0.5625;
-const DEFAULT_MOVEMENT_SPEED: f64 = 0.1;
+/// Player movement-speed attribute before any modifier.
+pub const DEFAULT_MOVEMENT_SPEED: f64 = 0.1;
 const DEFAULT_AIR_SPEED: f64 = 0.02;
 /// Default `minecraft:underwater_movement` and `minecraft:lava_movement` value.
 const DEFAULT_LIQUID_MOVEMENT_SPEED: f64 = 0.02;
