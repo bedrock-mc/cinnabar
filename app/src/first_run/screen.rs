@@ -307,6 +307,37 @@ mod tests {
     }
 
     #[test]
+    fn progress_mapping_preserves_download_and_step_boundaries() {
+        let download = |received, total| Screen::Downloading {
+            received,
+            total,
+            bytes_per_second: None,
+        };
+        assert_eq!(download(50, None).progress(), Some(0.0));
+        assert_eq!(download(50, Some(0)).progress(), Some(0.0));
+        assert_eq!(download(200, Some(100)).progress(), Some(1.0));
+        let preparing = Screen::Preparing {
+            step: 3,
+            total: 4,
+            label: String::new(),
+        };
+        assert_eq!(preparing.progress(), Some(0.5));
+        assert_eq!(Screen::Done.progress(), Some(1.0));
+        assert_eq!(
+            Screen::Failed {
+                message: "offline".into()
+            }
+            .progress(),
+            None
+        );
+        assert_eq!(
+            download(50, None).on_action(Action::Quit),
+            (None, Effect::Quit)
+        );
+        assert_eq!(preparing.on_action(Action::Quit), (None, Effect::Quit));
+    }
+
+    #[test]
     fn updates_use_update_wording() {
         let downloading = Screen::Downloading {
             received: 0,

@@ -177,8 +177,7 @@ pub(super) fn sample(
                     ],
                 ));
             }
-            if !stuck_block && (body_contact || (block == support && facts.flags.bits() == 0))
-            {
+            if !stuck_block && (body_contact || (block == support && facts.flags.bits() == 0)) {
                 movement.horizontal_speed_factor = movement
                     .horizontal_speed_factor
                     .min(facts.horizontal_speed_factor);

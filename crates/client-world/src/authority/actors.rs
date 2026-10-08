@@ -22,6 +22,10 @@ impl WorldAuthority {
     pub fn player_list_usernames(&self) -> Vec<std::sync::Arc<str>> {
         self.actors.player_list_usernames()
     }
+    /// How many players are on the player list, without allocating.
+    pub fn player_count(&self) -> usize {
+        self.actors.player_list_count()
+    }
     /// The authoritative `(current, maximum)` health of the actor with this
     /// unique id, if it is known and well-formed.
     pub fn actor_health_by_unique(&self, unique_id: i64) -> Option<(f32, f32)> {

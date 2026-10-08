@@ -44,7 +44,7 @@ pub use correction_shape::{
     reconcile_prediction_correction, reconcile_timeline_rewind,
 };
 pub use diagnostics::{CorrectionKind, note_correction, note_motion};
-pub use effects::{BoostSpan, LocalMovementEffectTimeline, MiningEffects};
+pub use effects::{BoostSpan, LocalMovementEffectTimeline, MiningEffects, MovementBoost};
 use encoding::{HeldInput, input_flags, normalize_move_vector};
 use evidence::PhysicsTickSampleEvidence;
 pub use evidence::{PhysicsTickEvidence, PhysicsTickEvidenceContext};
@@ -54,7 +54,7 @@ pub use outbox::OUTBOX_CAPACITY;
 #[cfg(any(test, feature = "test-support"))]
 pub use outbox::flush_player_auth_inputs;
 pub use outbox::{
-    InteractionPacketGuard, MovementOutboxReconciliation, UnsentSampleView,
+    InteractionPacketGuard, InteractionSample, MovementOutboxReconciliation, UnsentSampleView,
     flush_player_auth_inputs_guarded,
 };
 use physics::PhysicsCorrectionConfirmation;

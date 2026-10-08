@@ -44,7 +44,7 @@ pub fn java_swing_duration(effects: MiningEffects) -> i32 {
 mod swing;
 pub use swing::SwingTracker;
 
-/// The unsent tick and local state one attack press resolves against.
+/// The tick and local state one attack press resolves against.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PressContext {
     pub tick: u64,
@@ -159,6 +159,19 @@ impl MeleeRuntime {
             self.defer(input_frame);
         }
         sample
+    }
+
+    /// A latched actor attack resolves in its own frame when no unsent tick exists, as vanilla
+    /// handles the press before the next tick instead of waiting for it.
+    pub fn between_ticks_attack(
+        &self,
+        crosshair: Crosshair,
+        movement: &crate::movement::MovementTicker,
+    ) -> Option<crate::movement::InteractionSample> {
+        if !self.latched_press || !matches!(crosshair, Crosshair::Actor(_)) {
+            return None;
+        }
+        movement.between_ticks_sample()
     }
 
     /// Resolves at most one latched press into packets; a held button never re-attacks.

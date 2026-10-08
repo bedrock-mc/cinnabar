@@ -146,6 +146,7 @@ fn render_is_denied_by_default_even_with_other_grants() {
         environment: true,
         players: true,
         camera: true,
+        item_use: true,
         controls: true,
         interaction: true,
         settings: false,

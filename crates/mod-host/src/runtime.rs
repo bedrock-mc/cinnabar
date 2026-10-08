@@ -37,6 +37,8 @@ mod exports;
 #[path = "gameplay.rs"]
 mod gameplay;
 mod hud;
+#[path = "item_use.rs"]
+mod item_use;
 mod player_mod;
 #[path = "render.rs"]
 mod render;
@@ -74,6 +76,7 @@ struct State {
     controls: controls::ControlState,
     world: gameplay::WorldState,
     camera_policy: camera::CameraPolicy,
+    item_use_policy: item_use::ItemUsePolicy,
     render: render::RenderState,
     declared: Declared,
     layout: Option<HostLayout>,
@@ -129,6 +132,7 @@ impl State {
             controls: controls::ControlState::new(settings),
             world: gameplay::WorldState::default(),
             camera_policy: camera::CameraPolicy::default(),
+            item_use_policy: item_use::ItemUsePolicy::default(),
             render: render::RenderState::new(),
             declared,
             layout: None,
@@ -276,6 +280,7 @@ impl Instance {
         state.block_highlights.begin_frame();
         state.world.begin_frame();
         state.camera_policy = camera::CameraPolicy::default();
+        state.item_use_policy = item_use::ItemUsePolicy::default();
         if !self.active {
             return Ok(());
         }
@@ -359,6 +364,7 @@ impl Instance {
         state.block_highlights.revoke();
         state.world = gameplay::WorldState::default();
         state.camera_policy = camera::CameraPolicy::default();
+        state.item_use_policy = item_use::ItemUsePolicy::default();
         state.packet_delay_ms = 0;
         state.pending_packet_delay = None;
         state.show_real_position = false;
@@ -367,6 +373,10 @@ impl Instance {
         state.screens = ModScreens::default();
         state.pending_hud = None;
         state.hud = Modal::default();
+    }
+
+    pub(super) fn item_use_delay_fix(&self) -> Option<(u64, i32)> {
+        self.store.data().item_use_policy.committed
     }
 
     pub(super) fn preserves_teleport_rotation(&self) -> bool {
@@ -532,6 +542,7 @@ fn commit(store: &mut Store<State>) {
     state.block_highlights.commit();
     state.world.commit();
     state.camera_policy.committed = state.camera_policy.pending && state.snapshot.is_some();
+    state.item_use_policy.commit(state.snapshot.as_ref());
     state.camera_delta = state.pending_camera.take();
     if let Some(delay) = state.pending_packet_delay.take() {
         state.packet_delay_ms = delay;

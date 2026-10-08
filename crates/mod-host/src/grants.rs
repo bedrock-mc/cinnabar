@@ -11,6 +11,8 @@ pub struct ModGrants {
     pub players: bool,
     /// Allows bounded local camera rotation, rigs, and per-frame teleport aim preservation.
     pub camera: bool,
+    /// Allows current-frame removal of the air-use rearm delay only.
+    pub item_use: bool,
     /// Allows local key edges, reserved bindings and the retained settings panel.
     pub controls: bool,
     /// Allows bounded actor attack range and held-attack press requests.

@@ -5,6 +5,7 @@ mod block_highlights;
 mod fullbright;
 mod gameplay;
 mod hud;
+mod item_use;
 mod prepared_settings;
 mod render;
 mod screens;

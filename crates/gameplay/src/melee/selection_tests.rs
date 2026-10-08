@@ -360,3 +360,73 @@ fn an_unreplayable_owned_block_tick_remains_bounded() {
             .is_none()
     );
 }
+
+/// Once every completed tick is on the wire, an actor attack resolves in its own frame
+/// against the next tick instead of waiting up to a tick for one.
+#[test]
+fn an_actor_attack_between_ticks_does_not_wait_for_the_next_tick() {
+    let zombie = Crosshair::Actor(ActorHit {
+        runtime_id: 9,
+        distance: 2.0,
+        point: [0.0, 1.5, -2.0],
+    });
+    let mut movement = ticker_with_ticks(1);
+    crate::movement::flush_player_auth_inputs(
+        &mut movement,
+        1,
+        Some(crate::test_support::survival_mining::evidence()),
+        |_, _| Ok::<_, ()>(()),
+    )
+    .unwrap();
+    let mut runtime = MeleeRuntime::default();
+    let mut swings = SwingTracker::default();
+    runtime.synchronize(movement.interaction_authority_identity());
+    swings.sync_ticks(
+        movement.interaction_authority_identity(),
+        movement.completed_tick(),
+        &crate::movement::LocalMovementEffectTimeline::default(),
+    );
+    assert!(runtime.between_ticks_attack(zombie, &movement).is_none());
+    runtime.observe_input(true, true);
+    for waiting in [Crosshair::Block, Crosshair::Miss] {
+        assert!(runtime.between_ticks_attack(waiting, &movement).is_none());
+    }
+    let sample = runtime
+        .between_ticks_attack(zombie, &movement)
+        .expect("a sent tick admits a frame-time attack");
+    assert_eq!(sample.tick, movement.completed_tick() + 1);
+    assert_eq!(sample.position, [0.5, 2.620_01, 0.5]);
+    let stack = protocol::NetworkItemStack::empty();
+    let press = PressContext {
+        tick: sample.tick,
+        player_position: sample.position,
+        input_mode: PlayerInputMode::Mouse,
+        local_runtime_id: 1,
+        selection: Some(crate::mining::FrozenMiningSelection {
+            slot: 0,
+            item: protocol::VerifiedNetworkItemStack::try_new(stack.clone(), stack.nbt_digest)
+                .unwrap(),
+        }),
+        swing_duration: client_world::ACTOR_SWING_TICKS,
+        now_millis: 1,
+    };
+    let mut sent = Vec::new();
+    resolve_and_send(&mut runtime, &mut swings, zombie, &press, 1, |packets| {
+        sent = packets;
+        Ok(())
+    });
+    assert_eq!(sent.len(), 2, "swing and attack leave together");
+    let mut movement = ticker_with_ticks(1);
+    assert!(
+        movement.between_ticks_sample().is_none(),
+        "an unsent tick still carries the attack"
+    );
+    crate::movement::flush_player_auth_inputs(
+        &mut movement,
+        1,
+        Some(crate::test_support::survival_mining::evidence()),
+        |_, _| Err::<(), _>(()),
+    )
+    .unwrap_err();
+    assert!(movement.between_ticks_sample().is_none());
+}

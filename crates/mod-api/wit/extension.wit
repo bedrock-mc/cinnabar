@@ -244,8 +244,16 @@ interface camera {
     set-preserve-teleport-rotation: func(enabled: bool) -> result<_, string>;
 }
 
+/// Opt-in item-use policy; requires the explicit item-use grant.
+interface item-use {
+    /// Renew each gameplay frame. Skips only the air-use rearm delay; item cooldowns and tick admission remain intact.
+    /// Omission, no gameplay frame, and failed callbacks restore vanilla timing.
+    set-delay-fix: func(enabled: bool) -> result<_, string>;
+}
+
 /// Experimental developer contract; no WASI or ambient operating-system access.
 world extension {
+    import item-use;
     import camera;
     import hud;
     import input;

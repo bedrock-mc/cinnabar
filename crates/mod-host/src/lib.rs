@@ -147,6 +147,11 @@ impl ModHost {
         Ok(())
     }
 
+    /// The session and dimension of the last successful gameplay delay-fix request.
+    pub fn item_use_delay_fix(&self) -> Option<(u64, i32)> {
+        self.instance.item_use_delay_fix()
+    }
+
     /// Whether the last successful gameplay callback opted in to preserving teleport aim.
     pub fn preserves_teleport_rotation(&self) -> bool {
         self.instance.preserves_teleport_rotation()
