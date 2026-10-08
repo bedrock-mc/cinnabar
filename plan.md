@@ -143,7 +143,9 @@
   historical remote geometry during catch-up, and fire-resistance lava fog remain
   owner limitations. Legacy education photography output is unsupported. Packaged
   boom/shake/collision defaults and highlight sampler need pinned-version witnesses.
-  Existing gameplay FOV magnitude approximations remain separate incomplete work.
+  The gameplay FOV multiplier follows vanilla (speed ratio, slowness, flying, bow,
+  spyglass); the swim-speed factor, underwater narrowing and final [5, 130] clamp are
+  still incomplete.
   Finite block sampling is bounded to 4,096 rays. None closes a full parity gate.
 - Touched-crate checks and directly affected regressions pass. A headless macOS
   local-server run at 1280×720 captured named/inline splines, local-body visibility,

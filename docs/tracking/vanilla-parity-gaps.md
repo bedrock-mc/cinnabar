@@ -241,9 +241,10 @@ animated rig remotes use. All three below flow from that.
 - Third-person boom collapses onto the player (camera reads as "too close"): the collision
   avoidance fails closed to radius 0 when the sweep errors or hits geometry; boom radius 4.0
   is itself vanilla-correct. Model height is correct — this is distance only (MED, confirmed live).
-- Dynamic FOV (sprint/speed/slowness/flying/bow/spyglass 0.1, tick smoothing, FOV-effects scale), walk view-bob,
+- Dynamic FOV multiplier follows vanilla (movement-speed ratio, slowness, flying, bow, spyglass 0.1, tick smoothing);
+  swim-speed factor, underwater narrowing and the final [5, 130] clamp are missing. Walk view-bob,
   hurt tilt, nausea/portal wobble, server shake and `CameraInstruction` set/clear/fade/FOV are implemented
-  presentation-only under `app/src/camera/`; every magnitude, curve and sign is provisional *(measure)* (MED).
+  presentation-only under `app/src/camera/`; their magnitudes, curves and signs are provisional *(measure)* (MED).
 - Screen overlays (pumpkin blur, spyglass scope, portal, freezing, suffocation, fire, server fade) draw in a dedicated
   pass (`ScreenOverlayRenderPlugin`); pumpkin and spyglass use the vanilla PNGs when found and procedural art
   otherwise; portal, fire and freezing are procedural, suffocation is a flat tint, and the vignette stays with the
