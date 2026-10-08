@@ -80,7 +80,7 @@ fn malformed_snapshots_cannot_expose_items_or_expired_effects() {
     bad.effects[0].remaining_ticks = Some(0);
     assert!(validate(Some(&bad)).is_err());
     bad = snapshot();
-    bad.effects.push(bad.effects[0].clone());
+    bad.effects.push(bad.effects[0]);
     assert!(validate(Some(&bad)).is_err());
     bad = snapshot();
     bad.inventory[0].item = Some(PlayerStateItem {

@@ -203,8 +203,7 @@ fn anchored_card_bounds_and_icons_scale_together_across_viewports() {
             let nodes = &p.last_frame.as_ref().unwrap().nodes;
             let card = nodes
                 .iter()
-                .filter(|node| matches!(node.visual(), ui::UiVisual::Mesh(_)))
-                .next()
+                .find(|node| matches!(node.visual(), ui::UiVisual::Mesh(_)))
                 .expect("card surface");
             let rect = card.bounds();
             assert!(rect.min().x() >= 0. && rect.min().y() >= 0.);

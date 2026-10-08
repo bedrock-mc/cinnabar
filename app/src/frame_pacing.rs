@@ -41,7 +41,7 @@ impl FramePacingRuntime {
     }
 
     /// Lifts the cadence while a fixed-clock recording steps time per frame.
-#[cfg(any(test, feature = "developer-control"))]
+    #[cfg(any(test, feature = "developer-control"))]
     pub(crate) fn set_suspended(&mut self, suspended: bool) {
         self.suspended = suspended;
     }
