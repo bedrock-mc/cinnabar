@@ -321,6 +321,54 @@ impl EquipmentRuntime {
         ] {
             let Some(item) = item else { continue };
             let before = layers.len();
+            // Models with view/use-dependent poses cannot use the literal third-person grip.
+            let animated = animation
+                .filter(|_| {
+                    if layer == LAYER_MAIN_HAND
+                        && input.java.is_some()
+                        && !self.is_vanilla_attachable(&item.identifier)
+                    {
+                        return false;
+                    }
+                    self.binding_source(&item.identifier)
+                        .is_some_and(|(catalog, _)| {
+                            catalog.binding(&item.identifier).is_some_and(|binding| {
+                                matches!(
+                                    binding.category,
+                                    EquipmentCategory::Held | EquipmentCategory::Shield
+                                ) && binding.third_person.literal().is_none()
+                            })
+                        })
+                })
+                .and_then(|animation| {
+                    self.held_attachable(
+                        body,
+                        item,
+                        animation.owner,
+                        animation.rig,
+                        input.attachable_input(client_world::AttachableAnimationInput {
+                            off_hand: layer == LAYER_OFF_HAND,
+                            frame_alpha: animation.frame_alpha,
+                            use_elapsed_ticks: (animation.rig.hand[1].use_ticks > 0)
+                                .then_some(animation.rig.hand[1].use_ticks),
+                            max_use_ticks: input
+                                .main
+                                .as_ref()
+                                .and_then(|main| self.item_use.get(main.identifier.as_ref()))
+                                .copied()
+                                .unwrap_or_default(),
+                            ..Default::default()
+                        }),
+                        None,
+                    )
+                });
+            if let Some(mut animated) = animated {
+                if input.java.is_some() {
+                    animated.presentation.submission.overlay_rgba8 = 0;
+                }
+                layers.push(animated.presentation);
+                continue;
+            }
             match input.java.filter(|_| layer == LAYER_MAIN_HAND) {
                 Some(grip) => {
                     if !self.push_attachable(body, item, layer, bone, false, &mut layers) {
