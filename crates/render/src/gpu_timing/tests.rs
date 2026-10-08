@@ -186,6 +186,56 @@ fn frame_without_spans_releases_its_slot() {
 }
 
 #[test]
+fn ui_pass_categories_are_opt_in_and_do_not_duplicate_parent_spans() {
+    bevy::tasks::ComputeTaskPool::get_or_init(bevy::tasks::TaskPool::default);
+    let (device, queue) = noop_device(wgpu::Features::TIMESTAMP_QUERY);
+    for enabled in [false, true] {
+        let mut timestamps = GpuTimestamps::new(&device, &queue, false).unwrap();
+        timestamps.ui_categories = enabled;
+        timestamps.begin(|_| unreachable!("first frame has no readback"));
+        let mut world = World::new();
+        world.insert_resource(timestamps);
+        let mut context = RenderContext::new(device.clone(), None);
+        timed(&world, &mut context, RuntimeStage::GpuUi, |_| {});
+        let parent_span = !cfg!(target_os = "macos") && !enabled;
+        let buffers = context.finish().0;
+        assert_eq!(buffers.is_empty(), !parent_span);
+        let timestamps = world.resource::<GpuTimestamps>();
+        assert_eq!(
+            timestamps.frame.passes.load(Ordering::Relaxed),
+            u32::from(parent_span)
+        );
+        for category in RuntimeStage::GPU_UI {
+            let writes = ui_pass_timestamps(&world, category);
+            if cfg!(target_os = "macos") || enabled {
+                let writes = writes.expect("owned UI passes use timestamp-capable adapters");
+                let span = writes.beginning_of_pass_write_index.unwrap() / 2;
+                let stage = timestamps.frame.stages[span as usize].load(Ordering::Relaxed);
+                assert_eq!(
+                    RuntimeStage::ALL[stage as usize],
+                    if enabled {
+                        category
+                    } else {
+                        RuntimeStage::GpuUi
+                    }
+                );
+                assert_eq!(writes.end_of_pass_write_index, Some(span * 2 + 1));
+            } else {
+                assert!(writes.is_none(), "ordinary rendering retains graph markers");
+            }
+        }
+        assert_eq!(
+            timestamps.frame.passes.load(Ordering::Relaxed),
+            if cfg!(target_os = "macos") || enabled {
+                RuntimeStage::GPU_UI.len() as u32
+            } else {
+                1
+            }
+        );
+    }
+}
+
+#[test]
 fn draw_overflow_drops_categories_but_keeps_passes() {
     let features = wgpu::Features::TIMESTAMP_QUERY | wgpu::Features::TIMESTAMP_QUERY_INSIDE_PASSES;
     let (device, queue) = noop_device(features);

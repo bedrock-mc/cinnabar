@@ -199,6 +199,19 @@ keep them out of ordinary performance captures. See the
 [opaque foliage fixture](../../tools/localserver/opaque-overdraw.md). Fast frames use fixed-size counters without formatting or
 file I/O; aggregate snapshots and full traces remain opt-in.
 
+`RUST_MCBE_GPU_UI=1` replaces the aggregate UI timestamp category with
+`gpu_ui_raster`, `gpu_ui_model`, `gpu_ui_composite` and `gpu_ui_invert` on
+owned passes. It also reports submitted pass, draw and index counts, layer reuse,
+target extent/format/sample count, and geometry, texture and viewport upload bytes
+once per second. Metal timings retain the latency and invalid-pair limitations
+above; a missing category is not a zero-cost pass. Pair this diagnostic with query
+health and repeat the ordinary capture without it before making a performance claim.
+With these diagnostics enabled, `RUST_MCBE_GPU_UI_BASELINE=1` selects the previous
+replay policy: retain identical revisions and fully redraw newer publications.
+Both modes retain unchanged viewport uniforms. Use this same-binary control
+for matched comparisons, with equal warm-up and alternating run order. The switch
+is sampled at startup and has no effect without UI diagnostics.
+
 After the startup visibility probe stops, ordinary world-publication logs keep
 current stream and upload counters but mark the inactive visibility witness as
 `visibility_snapshot_valid=false`, with null frame, pose, view and draw-mode

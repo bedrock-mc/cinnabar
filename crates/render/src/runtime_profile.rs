@@ -55,6 +55,11 @@ pub enum RuntimeStage {
     GpuOpaque,
     GpuTransparent,
     GpuUi,
+    /// Owned UI passes measured only during explicit UI profiling.
+    GpuUiRaster,
+    GpuUiModel,
+    GpuUiComposite,
+    GpuUiInvert,
     GpuHand,
     GpuPost,
     GpuTonemapping,
@@ -86,7 +91,7 @@ pub enum RuntimeStage {
 }
 
 impl RuntimeStage {
-    pub const ALL: [Self; 63] = [
+    pub const ALL: [Self; 67] = [
         Self::ActorSessionSetup,
         Self::PackReload,
         Self::WorldPoll,
@@ -125,6 +130,10 @@ impl RuntimeStage {
         Self::GpuOpaque,
         Self::GpuTransparent,
         Self::GpuUi,
+        Self::GpuUiRaster,
+        Self::GpuUiModel,
+        Self::GpuUiComposite,
+        Self::GpuUiInvert,
         Self::GpuHand,
         Self::GpuPost,
         Self::GpuTonemapping,
@@ -153,12 +162,16 @@ impl RuntimeStage {
     ];
 
     /// GPU-timed stages, the contiguous tail of [`Self::ALL`].
-    pub const GPU: [Self; 30] = [
+    pub const GPU: [Self; 34] = [
         Self::GpuFrame,
         Self::GpuShadows,
         Self::GpuOpaque,
         Self::GpuTransparent,
         Self::GpuUi,
+        Self::GpuUiRaster,
+        Self::GpuUiModel,
+        Self::GpuUiComposite,
+        Self::GpuUiInvert,
         Self::GpuHand,
         Self::GpuPost,
         Self::GpuTonemapping,
@@ -184,6 +197,14 @@ impl RuntimeStage {
         Self::GpuModPass6,
         Self::GpuModPass7,
         Self::GpuModPrimitives,
+    ];
+
+    /// Owned UI passes separated from the enclosing UI node when explicitly requested.
+    pub const GPU_UI: [Self; 4] = [
+        Self::GpuUiRaster,
+        Self::GpuUiModel,
+        Self::GpuUiComposite,
+        Self::GpuUiInvert,
     ];
 
     /// Mod post-pass slots; [`mod_api::MAX_RENDER_PASSES`] long.
@@ -251,6 +272,10 @@ impl RuntimeStage {
             Self::GpuOpaque => "gpu_opaque",
             Self::GpuTransparent => "gpu_transparent",
             Self::GpuUi => "gpu_ui",
+            Self::GpuUiRaster => "gpu_ui_raster",
+            Self::GpuUiModel => "gpu_ui_model",
+            Self::GpuUiComposite => "gpu_ui_composite",
+            Self::GpuUiInvert => "gpu_ui_invert",
             Self::GpuHand => "gpu_hand",
             Self::GpuPost => "gpu_post",
             Self::GpuTonemapping => "gpu_tonemapping",
