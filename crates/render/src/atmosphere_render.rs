@@ -74,6 +74,7 @@ pub(crate) fn install_atmosphere(app: &mut App) {
     app.init_resource::<crate::PrecipitationMix>();
     app.init_resource::<crate::LightningScene>();
     app.init_resource::<crate::MediaScreenScene>();
+    crate::pipeline_warmup::register::<AtmospherePipeline>(app);
     let Some(render_app) = app.get_sub_app(RenderApp) else {
         return;
     };
@@ -472,6 +473,28 @@ impl Specializer<RenderPipeline> for AtmospherePipelineSpecializer {
         target.blend = key.stars.then(native_star_blend);
         target.write_mask = ColorWrites::RED | ColorWrites::GREEN | ColorWrites::BLUE;
         Ok(key)
+    }
+}
+
+impl crate::pipeline_warmup::PrewarmPipelines for AtmospherePipeline {
+    /// The sky and its star layer, before the menu's panorama hands over to the world.
+    fn prewarm(
+        &mut self,
+        cache: &PipelineCache,
+        view: crate::pipeline_warmup::WarmView,
+        ids: &mut crate::pipeline_warmup::WarmupIds,
+    ) -> Result<(), BevyError> {
+        for stars in [false, true] {
+            ids.push(self.variants.specialize(
+                cache,
+                AtmospherePipelineKey {
+                    msaa: view.msaa,
+                    hdr: view.hdr,
+                    stars,
+                },
+            )?);
+        }
+        Ok(())
     }
 }
 

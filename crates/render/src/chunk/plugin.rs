@@ -120,6 +120,7 @@ impl Plugin for ChunkRenderPlugin {
 
         crate::pipeline_warmup::register::<ChunkPipeline>(app);
         let render_app = app.sub_app_mut(RenderApp);
+        crate::device_poll::install(render_app);
         render_app
             .insert_resource(self.upload_budget)
             .insert_resource(acknowledgements)
@@ -189,9 +190,7 @@ impl Plugin for ChunkRenderPlugin {
                         .in_set(RenderSystems::PrepareResources)
                         .after(prepare_gpu_chunks),
                     prepare_chunk_bind_group.in_set(RenderSystems::PrepareBindGroups),
-                    submit_presented_frame_probe
-                        .in_set(RenderSystems::Render)
-                        .after(bevy::render::renderer::render_system),
+                    submit_presented_frame_probe.in_set(crate::device_poll::FrameSubmissions),
                 ),
             );
     }

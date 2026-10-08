@@ -17,7 +17,7 @@ use bevy::{
     app::TerminalCtrlCHandlerPlugin,
     prelude::{
         App, ClearColor, Color, DefaultPlugins, First, IntoScheduleConfigs, Last, PluginGroup,
-        Resource, SystemSet, Update, Window, default,
+        Resource, SystemSet, Update, default,
     },
     render::{diagnostic::RenderDiagnosticsPlugin, settings::Backends},
     window::WindowPlugin,
@@ -686,11 +686,10 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     };
     let shutdown_watchdog = ShutdownWatchdog::process(SHUTDOWN_WATCHDOG_TIMEOUT);
 
-    let primary_window = Window {
-        title: launcher::window_title(std::env::var("CINNABAR_WINDOW_TITLE").ok().as_deref()),
+    let primary_window = render_setup::primary_window(
+        launcher::window_title(std::env::var("CINNABAR_WINDOW_TITLE").ok().as_deref()),
         present_mode,
-        ..default()
-    };
+    );
     #[cfg(feature = "developer-control")]
     let primary_window = crate::developer_control::primary_window(primary_window);
     let mut app = App::new();
