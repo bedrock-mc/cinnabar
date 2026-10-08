@@ -534,6 +534,7 @@ impl Specializer<RenderPipeline> for BlockEntitySpecializer {
             match key.mode {
                 PipelineMode::Portal => "portal_vertex",
                 PipelineMode::Outline => "selection_line_vertex",
+                PipelineMode::Crack => "block_overlay_vertex",
                 _ => "block_entity_vertex",
             }
             .into(),

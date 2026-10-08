@@ -1,6 +1,7 @@
 //! Selection uses native wire-box geometry or an overlay on the selected model's faces.
-use super::{BlockEntityVertex, CrackShape, crack::FACE_OFFSET};
+use super::{BlockEntityVertex, CrackShape};
 use bevy::{math::Vec3, prelude::Resource, render::extract_resource::ExtractResource};
+use render_api::BLOCK_OVERLAY_FACE_OFFSET as FACE_OFFSET;
 use std::sync::Arc;
 
 const HIGHLIGHT_COLOR: [f32; 4] = [0.65, 0.65, 0.65, 1.0];
@@ -66,18 +67,18 @@ impl BlockSelectionFrame {
                 match &target.shape {
                     CrackShape::Cube => {
                         for face in box_faces(corners) {
-                            quad(&mut surface, face, HIGHLIGHT_COLOR);
+                            quad(&mut surface, face, HIGHLIGHT_COLOR, [0.0; 3]);
                         }
                     }
                     CrackShape::Quads(quads) => {
                         let block = Vec3::from_array(target.block.map(|v| v as f32));
                         for face in quads.iter() {
-                            let corners =
-                                face.corners.map(|corner| block + Vec3::from_array(corner));
+                            let (corners, normal) = face.overlay_geometry();
                             quad(
                                 &mut surface,
-                                corners.map(|corner| corner + face.outward_offset()),
+                                corners.map(|corner| block + Vec3::from_array(corner)),
                                 HIGHLIGHT_COLOR,
+                                normal,
                             );
                         }
                     }
@@ -127,11 +128,17 @@ fn box_faces(corners: [Vec3; 8]) -> [[Vec3; 4]; 6] {
 }
 
 /// Packs one untextured quad into the shared storage-buffer triangle format.
-fn quad(output: &mut Vec<BlockEntityVertex>, corners: [Vec3; 4], color: [f32; 4]) {
+fn quad(
+    output: &mut Vec<BlockEntityVertex>,
+    corners: [Vec3; 4],
+    color: [f32; 4],
+    normal: [f32; 3],
+) {
     output.extend([0, 1, 2, 0, 2, 3].map(|index| BlockEntityVertex {
         position: corners[index].to_array(),
         uv: UNTEXTURED_UV,
         color,
+        normal,
         ..Default::default()
     }));
 }

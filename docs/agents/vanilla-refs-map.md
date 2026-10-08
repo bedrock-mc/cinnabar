@@ -3692,3 +3692,8 @@ Files: `docs/reference/held-block-placement.md`, `crates/gameplay/src/block_use.
   selector before the stem helper; the helper's fixed-texture branch replaces
   the rectangle but retains the selector in all four side UV ranges. Caps and
   radial leaves retain their own UV ranges. `crack.rs` applies that same rule.
+
+- Radial leaf quads in the stalk body above are two-sided. Selection and destroy
+  overlays preserve that admission through `CrackQuad`; their shared overlay
+  vertex entry keeps the depth separation toward the camera on either side,
+  while emitting each transparent leaf only once.

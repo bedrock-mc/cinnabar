@@ -30,6 +30,7 @@ fn every_partial_snow_top_crack_is_above_its_actual_surface() {
     for layer in 1..assets::TOP_SNOW_LAYER_COUNT {
         let height = f32::from(layer) / f32::from(assets::TOP_SNOW_LAYER_COUNT);
         let face = CrackQuad {
+            two_sided: false,
             corners: [
                 [0.0, height, 0.0],
                 [0.0, height, 1.0],
@@ -63,6 +64,7 @@ fn every_partial_snow_top_crack_is_above_its_actual_surface() {
 fn inset_stair_risers_push_into_empty_space_not_towards_the_cell_edge() {
     // A west-facing riser at x=.5 has its outside towards the open step at -X.
     let face = CrackQuad {
+        two_sided: false,
         corners: [
             [0.5, 0.5, 0.0],
             [0.5, 0.5, 1.0],

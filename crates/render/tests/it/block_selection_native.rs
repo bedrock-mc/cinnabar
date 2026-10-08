@@ -3,7 +3,7 @@ use std::{fs, path::Path};
 use assets::{NetworkIdMode, RegistryRecord, RuntimeAssets, TOP_SNOW_LAYER_COUNT};
 use render::{BlockSelectionFrame, BlockSelectionTarget, CrackShape, crack_shape_from_template};
 
-fn fixture() -> (Vec<RegistryRecord>, RuntimeAssets) {
+pub(super) fn fixture() -> (Vec<RegistryRecord>, RuntimeAssets) {
     let data = include_bytes!("../../../assets/data/block-registry-v2193.bin");
     let protocol = assets::registry_header_protocol(data).unwrap();
     let records: Vec<_> = assets::read_registry_for_protocol(data, protocol)
