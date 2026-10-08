@@ -368,8 +368,9 @@ pub(crate) fn produce_item_use(
     if !runtime.has_work(held) {
         return;
     }
-    // Frames between physics ticks have no unsent tick; the press waits for one.
-    let Some(sample) = movement.newest_unsent_sample() else {
+    let aim_rotation = crate::camera::aim_assist::action_rotation(&context.aim, &context.camera);
+    // An aim-assist facing needs an unsent tick to carry it.
+    let Some(sample) = runtime.frame_sample(&movement, held, aim_rotation.is_none()) else {
         return;
     };
     // One press resolves once: item use waits while block use still holds it.
@@ -432,7 +433,7 @@ pub(crate) fn produce_item_use(
         &frame,
         stream.local_player_runtime_id(),
         duration,
-        crate::camera::aim_assist::action_rotation(&context.aim, &context.camera),
+        aim_rotation,
         &context.network,
     );
     if let Some((slot, revision)) = runtime.take_emptied_slot() {

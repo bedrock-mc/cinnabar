@@ -191,6 +191,7 @@ pub fn spawn_network<P: Send + 'static>(
         thread: Some(thread),
         readiness_ingress,
         experience_gate,
+        unflushed: AtomicBool::new(false),
     })
 }
 
@@ -244,18 +245,19 @@ mod tests {
 
     impl NetworkSession for LoadingSession {
         type Error = &'static str;
+        type Outbound = super::super::tests::PacketOutbound<&'static str>;
+
+        fn outbound(&mut self) -> Result<Self::Outbound, Self::Error> {
+            let calls = Arc::clone(&self.0);
+            Ok(super::super::tests::PacketOutbound::new(move |_| {
+                calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                std::future::ready(Err("completion write failed"))
+            })
+            .with_finish_loading(vec![protocol::modal_form_cancel_response(1)]))
+        }
 
         async fn receive_world_event(&mut self, _: i32) -> Result<WorldEvent, Self::Error> {
             std::future::pending().await
-        }
-
-        async fn send_packet(&mut self, _: Packet) -> Result<(), Self::Error> {
-            panic!("loading completion must use its own command");
-        }
-
-        async fn finish_loading(&mut self) -> Result<(), Self::Error> {
-            self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-            Err("completion write failed")
         }
 
         fn decode_error_count(&self) -> u64 {
@@ -266,7 +268,7 @@ mod tests {
     #[tokio::test]
     async fn pump_waits_for_readiness_command_and_reports_completion_send_failure() {
         let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-        let (commands, command_rx) = mpsc::channel(1);
+        let (commands, command_rx) = mpsc::channel(2);
         let (controls, mut events) = mpsc::channel(1);
         let (world, _world_rx) = mpsc::channel(1);
         let (_shutdown, shutdown_rx) = watch::channel(false);
@@ -285,6 +287,7 @@ mod tests {
         );
         assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 0);
         commands.try_send(NetworkCommand::FinishLoading).unwrap();
+        commands.try_send(NetworkCommand::FlushFrame).unwrap();
         pump.await;
         assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
         assert!(matches!(

@@ -19,7 +19,7 @@ pub use client_presentation::camera::{
     perspective_pose, release_cursor, spawn_fly_camera, unavailable_world_perspective_pose,
     update_camera_fov,
 };
-use client_presentation::camera::{antialiasing, fov, look, overlay_publish};
+use client_presentation::camera::{antialiasing, fov, look, motion_blur, overlay_publish};
 pub use view_presentation::camera::{
     CameraHurtState, FirstPersonHandMotion, HandSwayState, LocalHurtEvent, ViewEffect,
     WalkBobState, projection_fov_radians, walk_bob_effect,
@@ -125,6 +125,9 @@ impl Plugin for FlyCameraPlugin {
                     .chain()
                     .after(resolve_camera_pose)
                     .in_set(ClientFrameSet::Camera),
+                motion_blur::apply_camera_motion_blur
+                    .after(ClientFrameSet::Camera)
+                    .before(ClientFrameSet::Interaction),
             ),
         );
         #[cfg(feature = "local-mods")]

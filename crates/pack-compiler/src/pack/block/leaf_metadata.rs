@@ -1,13 +1,35 @@
-//! Native world-leaf face metadata; carried materials deliberately omit it.
+//! Pack-authored cube UV rotation and world-leaf ambient occlusion metadata.
 
 use super::{BlockTextureMap, Value};
 use assets::{
-    AssetError, BlockFace, MATERIAL_FLAG_LEAF_ISOTROPIC, MATERIAL_LEAF_AO_EXPONENT_MAX,
+    AssetError, BlockFace, MATERIAL_FLAG_ISOTROPIC, MATERIAL_LEAF_AO_EXPONENT_MAX,
     MATERIAL_LEAF_AO_EXPONENT_SCALE, MATERIAL_LEAF_AO_EXPONENT_SHIFT, RegistryRecord,
     legacy_resource_pack_block_alias, material_leaf_ao_exponent,
 };
 
 impl BlockTextureMap {
+    pub(crate) fn isotropic_face_flags(
+        &self,
+        record: &RegistryRecord,
+    ) -> [u32; BlockFace::ALL.len()] {
+        let name = record
+            .name
+            .strip_prefix("minecraft:")
+            .unwrap_or(&record.name);
+        let entry = self
+            .entries
+            .get(name)
+            .or_else(|| self.entries.get(legacy_resource_pack_block_alias(name)?));
+        let value = entry.and_then(|entry| entry.extra.get("isotropic"));
+        BlockFace::ALL.map(|face| {
+            if is_isotropic(value, face) {
+                MATERIAL_FLAG_ISOTROPIC
+            } else {
+                0
+            }
+        })
+    }
+
     pub(crate) fn leaf_world_face_flags(
         &self,
         record: &RegistryRecord,
@@ -33,15 +55,9 @@ impl BlockTextureMap {
                 .into(),
             })?,
         };
-        let isotropic = entry.extra.get("isotropic");
-        Ok(BlockFace::ALL.map(|face| {
-            exponent
-                | if is_isotropic(isotropic, face) {
-                    MATERIAL_FLAG_LEAF_ISOTROPIC
-                } else {
-                    0
-                }
-        }))
+        Ok(self
+            .isotropic_face_flags(record)
+            .map(|flags| exponent | flags))
     }
 }
 

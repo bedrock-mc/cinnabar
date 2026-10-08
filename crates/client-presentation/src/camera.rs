@@ -23,6 +23,7 @@ pub mod fov;
 mod freelook_tests;
 pub mod java;
 pub mod look;
+pub mod motion_blur;
 mod overlay;
 pub mod overlay_publish;
 pub mod portal_diagnostics;
@@ -123,7 +124,8 @@ pub struct CameraPresentationPlugin {
 }
 impl Plugin for CameraPresentationPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<ButtonInput<KeyCode>>()
+        app.add_plugins(render::motion_blur::CameraMotionBlurPlugin)
+            .init_resource::<ButtonInput<KeyCode>>()
             .init_resource::<ButtonInput<MouseButton>>()
             .init_resource::<AccumulatedMouseMotion>()
             .init_resource::<AccumulatedMouseScroll>()

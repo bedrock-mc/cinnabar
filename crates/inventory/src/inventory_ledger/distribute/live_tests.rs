@@ -145,3 +145,28 @@ fn queue_limit_does_not_partially_submit_a_hover_rebalance() {
     assert!(ledger.displayed_stack(11).is_none());
     assert!(ledger.cursor_stack().is_none());
 }
+
+/// A press-time place-all becomes the first share once the drag reaches a second cell.
+#[test]
+fn press_time_placement_rebalances_when_the_drag_reaches_a_second_cell() {
+    let mut ledger = personal_ledger(&[]);
+    set_cursor(&mut ledger, stack(60, 10));
+    let template = ledger.cursor_stack().unwrap().clone();
+    ledger
+        .begin_target_gesture(InventoryTarget::Player(9), CellGesture::Click)
+        .unwrap();
+    assert!(ledger.cursor_stack().is_none());
+    let mut drag = ledger.distribution_after_place(
+        &template,
+        InventoryTarget::Player(9),
+        None,
+        DistributeMode::Even,
+    );
+    assert!(drag.is_some());
+    ledger
+        .advance_distribute(&mut drag, &targets(&[9, 10]), DistributeMode::Even)
+        .unwrap();
+    assert_eq!(ledger.displayed_stack(9).unwrap().count, 5);
+    assert_eq!(ledger.displayed_stack(10).unwrap().count, 5);
+    assert!(ledger.cursor_stack().is_none());
+}

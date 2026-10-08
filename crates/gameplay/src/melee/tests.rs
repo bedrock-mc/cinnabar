@@ -358,7 +358,7 @@ fn a_press_deferred_on_unavailable_block_evidence_is_bounded() {
     let mut runtime = MeleeRuntime::default();
     runtime.observe_input(true, true);
     runtime.defer(10);
-    runtime.defer(10 + MAX_PENDING_INTERACTION_FRAMES);
+    runtime.defer(10 + MAX_PENDING_INTERACTION_MILLIS);
     let outcome = runtime.resolve(
         ZOMBIE,
         &press(PlayerInputMode::Mouse),
@@ -368,7 +368,7 @@ fn a_press_deferred_on_unavailable_block_evidence_is_bounded() {
 
     runtime.observe_input(true, true);
     runtime.defer(50);
-    runtime.defer(51 + MAX_PENDING_INTERACTION_FRAMES);
+    runtime.defer(51 + MAX_PENDING_INTERACTION_MILLIS);
     let outcome = runtime.resolve(
         ZOMBIE,
         &press(PlayerInputMode::Mouse),
@@ -911,7 +911,7 @@ fn fresh_published_presses_expire_without_sending() {
     let press = press(PlayerInputMode::Mouse);
     swings.published_progress(press.tick);
     runtime.observe_input(true, false);
-    for frame in [1, 2 + MAX_PENDING_INTERACTION_FRAMES] {
+    for frame in [1, 2 + MAX_PENDING_INTERACTION_MILLIS] {
         assert!(!resolve_and_send(
             &mut runtime,
             &mut swings,
@@ -946,7 +946,7 @@ fn melee_retry_permission_clears_on_cancel_authority_change_and_expiry() {
         match reset {
             0 => runtime.cancel(),
             1 => runtime.synchronize((1, 2)),
-            _ => runtime.defer(2 + MAX_PENDING_INTERACTION_FRAMES),
+            _ => runtime.defer(2 + MAX_PENDING_INTERACTION_MILLIS),
         }
         runtime.observe_input(true, false);
         assert!(!resolve_and_send(

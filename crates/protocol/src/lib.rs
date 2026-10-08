@@ -187,7 +187,9 @@ pub mod wire {
     pub use valentine;
 }
 #[cfg(not(target_arch = "wasm32"))]
-pub use login::{LoginSequence, PacketIdTraceSnapshot, PlaySession, network_stack_latency_reply};
+pub use login::{
+    LoginSequence, PacketIdTraceSnapshot, PlayOutbound, PlaySession, network_stack_latency_reply,
+};
 pub use movement::{
     BlockAction, BlockActionKind, BlockActions, BlockActionsFull, BlockItemInteraction,
     InteractionEncodeError, MAX_BLOCK_ACTIONS_PER_INPUT, MovementPredictionSync,

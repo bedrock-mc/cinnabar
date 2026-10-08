@@ -1071,3 +1071,57 @@ fn review_wall_jump_correction_keeps_ordinary_upward_momentum() {
     assert_eq!(physics.state().unwrap().velocity.y, retained.velocity.y);
     assert!(!physics.state().unwrap().collisions.z);
 }
+
+/// Replayed and snapped corrections keep an action flag latched for the next tick, as vanilla's
+/// action state survives correction replay.
+#[test]
+fn a_correction_keeps_a_flag_latched_for_the_next_tick() {
+    for mode in [
+        PhysicsCorrectionMode::ReplayIfRetained,
+        PhysicsCorrectionMode::Snap,
+    ] {
+        let world = VersionedFloor(1);
+        let mut physics = LocalPhysicsController::default();
+        physics.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
+        let frame = physics.advance(
+            Duration::from_millis(100),
+            sim::MovementInput::default(),
+            &world,
+        );
+        let tick = physics.state().unwrap().tick;
+        let mut corrected = frame.samples.last().unwrap().position;
+        corrected[0] += 2.0;
+        let mut ticker = ticker_with_samples(frame.samples);
+        for identity in admit_all(&mut ticker) {
+            assert!(ticker.acknowledge_physics_send(identity));
+        }
+        let next = ticker.completed_tick() + 1;
+        assert!(ticker.mark_missed_swing(next));
+        reconcile_candidate_physics_correction(
+            &mut ticker,
+            &mut physics,
+            corrected,
+            tick,
+            true,
+            mode,
+            &world,
+        )
+        .unwrap();
+        while ticker.pending_snapshots().is_empty() {
+            let frame = physics.advance(
+                Duration::from_millis(25),
+                sim::MovementInput::default(),
+                &world,
+            );
+            for sample in frame.samples {
+                ticker.enqueue_completed_physics(sample).unwrap();
+            }
+        }
+        let flags = ticker.pending_snapshots()[0].flags;
+        assert_ne!(
+            flags.bits() & protocol::PlayerInputFlags::MISSED_SWING.bits(),
+            0,
+            "{mode:?}"
+        );
+    }
+}

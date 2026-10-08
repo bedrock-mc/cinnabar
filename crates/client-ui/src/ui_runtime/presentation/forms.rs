@@ -42,6 +42,7 @@ pub mod menus;
 pub mod mod_hud;
 pub mod mod_panel;
 pub mod model;
+pub mod motion_blur_setting;
 pub mod npc;
 pub mod oreui;
 mod retained_menu;

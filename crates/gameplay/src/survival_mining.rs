@@ -382,6 +382,8 @@ pub struct SurvivalMiningRuntime {
     position_authority: Option<(u64, u64)>,
     last_blocked_log_millis: Option<u64>,
     break_cues: Vec<BlockBreakCue>,
+    /// A press that broke its block in its own frame, with the actions its tick carries.
+    press_break: Option<(u64, SurvivalTickPayload)>,
 }
 
 impl SurvivalMiningRuntime {
@@ -408,20 +410,7 @@ impl SurvivalMiningRuntime {
         mut predict_break: impl FnMut([i32; 3]),
     ) -> Vec<i32> {
         let mut unsent = Vec::new();
-        let identity = ticker.interaction_authority_identity();
-        if let Some((session, _)) = self
-            .position_authority
-            .filter(|previous| *previous != identity)
-        {
-            // Reanchors clear the outbox and may rewind tick numbers.
-            self.last_stepped_tick = None;
-            if session == identity.0 {
-                self.machine.interrupt();
-            } else {
-                self.machine = DestroyMachine::default();
-            }
-        }
-        self.position_authority = Some(identity);
+        self.synchronize(ticker.interaction_authority_identity());
         let ticks = ticker.unstepped_interaction_ticks(self.last_stepped_tick);
         let Some(&(newest, _)) = ticks.last() else {
             return unsent;
@@ -430,10 +419,18 @@ impl SurvivalMiningRuntime {
         if !ticker.accepts_block_interactions() {
             // Withheld ticks never reach the server, so neither may their actions.
             self.machine.interrupt();
+            self.press_break = None;
             return unsent;
         }
         for (tick, motion) in ticks {
-            let mut payload = self.machine.step(input, motion, authority);
+            let pressed = self
+                .press_break
+                .take_if(|(pressed, _)| *pressed <= tick)
+                .filter(|(pressed, _)| *pressed == tick)
+                .map(|(_, payload)| payload);
+            let from_press = pressed.is_some();
+            let mut payload =
+                pressed.unwrap_or_else(|| self.machine.step(input, motion, authority));
             payload.mine_block = payload
                 .wear
                 .filter(|&(slot, damage, stack_network_id)| {
@@ -449,7 +446,7 @@ impl SurvivalMiningRuntime {
                     .ok()
                 });
             self.latched_press = false;
-            if payload.swing {
+            if payload.swing && !from_press {
                 swing(tick);
             }
             let mine_block = payload
@@ -461,6 +458,9 @@ impl SurvivalMiningRuntime {
                 continue;
             }
             if ticker.attach_survival_mining(tick, payload) {
+                if from_press {
+                    break;
+                }
                 broken.into_iter().for_each(&mut predict_break);
                 if let Some(position) = broken {
                     if let DestroyInput::Held(Some(target)) = input {
@@ -478,6 +478,69 @@ impl SurvivalMiningRuntime {
             }
         }
         unsent
+    }
+
+    /// Breaks an instantly breakable block in a press's own frame between ticks, as vanilla
+    /// destroys locally on the press; the break's actions still ride the next tick's input.
+    pub fn break_on_press(
+        &mut self,
+        ticker: &MovementTicker,
+        input: DestroyInput<'_>,
+        authority: BlockBreakingAuthority,
+        swing: impl FnOnce(u64),
+        predict_break: impl FnOnce([i32; 3]),
+    ) {
+        self.synchronize(ticker.interaction_authority_identity());
+        let DestroyInput::Held(Some(target)) = input else {
+            return;
+        };
+        // Only a fresh start ignores the tick's motion; a continuing destroy waits for it.
+        if !self.latched_press
+            || self.press_break.is_some()
+            || self.machine.destroying.is_some()
+            || !ticker.accepts_block_interactions()
+        {
+            return;
+        }
+        let Some(sample) = ticker.between_ticks_sample() else {
+            return;
+        };
+        let mut machine = self.machine.clone();
+        let motion = TickMotion {
+            on_ground: true,
+            moved: 0.0,
+        };
+        let payload = machine.step(input, motion, authority);
+        let (Some(position), None) = (payload.broken, payload.wear) else {
+            return;
+        };
+        self.machine = machine;
+        if payload.swing {
+            swing(sample.tick);
+        }
+        predict_break(position);
+        self.break_cues.push(BlockBreakCue::Break {
+            position,
+            block_runtime_id: target.runtime_id as i32,
+        });
+        self.press_break = Some((sample.tick, payload));
+    }
+
+    /// Reanchors clear the outbox and may rewind tick numbers.
+    fn synchronize(&mut self, identity: (u64, u64)) {
+        if let Some((session, _)) = self
+            .position_authority
+            .filter(|previous| *previous != identity)
+        {
+            self.last_stepped_tick = None;
+            self.press_break = None;
+            if session == identity.0 {
+                self.machine.interrupt();
+            } else {
+                self.machine = DestroyMachine::default();
+            }
+        }
+        self.position_authority = Some(identity);
     }
 
     /// Emits one throttled line naming the gate that blocked a held-attack break.

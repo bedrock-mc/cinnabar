@@ -469,13 +469,15 @@ fn use_surroundings(
 mod target;
 use target::observe_use_target;
 
-/// The selected stack, only while no inventory request or hotbar change is in flight.
+/// The selected stack, unless its own slot awaits a gesture answer or the hotbar change is unsent.
+/// Requests on other cells never hold a use back: vanilla acts on the predicted held item.
 pub(crate) fn verified_use_selection(
     player_runtime: &crate::player_runtime::PlayerRuntime,
     ui: &UiRuntime,
 ) -> Option<FrozenMiningSelection> {
     let ledger = ui.inventory_ledger(player_runtime);
-    if ledger.pending_request_id().is_some()
+    let selection = verified_selection(player_runtime)?;
+    if ledger.slot_gesture_pending(selection.slot)
         || ledger.resync_required()
         || player_runtime
             .inventory
@@ -484,7 +486,7 @@ pub(crate) fn verified_use_selection(
     {
         return None;
     }
-    verified_selection(player_runtime)
+    Some(selection)
 }
 
 #[cfg(test)]

@@ -233,6 +233,7 @@ impl<'a> FallbackInventory<'a> {
 fn has_exact_family_route(record: &RegistryRecord) -> bool {
     super::lily_pad::is_record(record)
         || super::portal::is_record(record)
+        || super::literal::is_literal_cube(record)
         || super::literal::is_default_invisible(&record.name)
         || is_cross_visual(record)
         || is_torch(record)

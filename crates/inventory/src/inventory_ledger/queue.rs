@@ -38,6 +38,8 @@ pub(super) struct PendingRequest {
     pub(super) storage_generation: Option<u64>,
     pub(super) personal_generation: Option<u64>,
     pub(super) storage_identity: Option<ContainerIdentity>,
+    /// Its storage window closed while it settles; its storage cells belong to no visible window.
+    pub(super) storage_detached: bool,
     /// A split must end with distinct positive server ids on surviving halves.
     pub(super) requires_distinct_stack_ids: bool,
     /// A merge whose capacity came from the session item registry.
@@ -70,7 +72,10 @@ const MAX_OUTSTANDING_MINING_REQUESTS: usize = 16;
 
 impl PendingRequest {
     pub(super) fn touched(&self) -> impl Iterator<Item = Cell> + '_ {
-        self.groups.iter().flat_map(DeltaGroup::touched)
+        self.groups
+            .iter()
+            .flat_map(DeltaGroup::touched)
+            .filter(|cell| !(self.storage_detached && matches!(cell, Cell::Storage(_))))
     }
 
     pub(super) fn touches(&self, cell: Cell) -> bool {
@@ -174,17 +179,31 @@ impl PlayerInventoryLedger {
     pub(super) fn request_is_current(&self, request: &PendingRequest) -> bool {
         request.session_generation == self.session_generation
             && request.personal_generation.is_none_or(|generation| {
-                self.personal
-                    .as_ref()
-                    .map(super::personal::PersonalWindow::generation)
-                    == Some(generation)
+                self.personal_settling(generation)
+                    || self
+                        .personal
+                        .as_ref()
+                        .map(super::personal::PersonalWindow::generation)
+                        == Some(generation)
             })
-            && request.storage_generation.is_none_or(|generation| {
-                self.storage.as_ref().map(|storage| storage.generation) == Some(generation)
-            })
-            && request.storage_identity.is_none_or(|identity| {
-                self.storage.as_ref().and_then(|storage| storage.identity) == Some(identity)
-            })
+            && self.storage_request_is_current(request)
+    }
+
+    /// A storage request answers its own open window, or the closed one it settles against.
+    fn storage_request_is_current(&self, request: &PendingRequest) -> bool {
+        let current = self.storage.as_ref();
+        let identity = match request.storage_generation {
+            Some(generation) if current.map(|storage| storage.generation) != Some(generation) => {
+                match self.storage_settling(generation) {
+                    Some(identity) => identity,
+                    None => return false,
+                }
+            }
+            _ => current.and_then(|storage| storage.identity),
+        };
+        request
+            .storage_identity
+            .is_none_or(|expected| identity == Some(expected))
     }
 
     pub(super) fn remove_unanswered_mining(&mut self, request_id: i32) {
@@ -246,6 +265,11 @@ impl PlayerInventoryLedger {
                     self.note_unrouted_container();
                     continue;
                 };
+                if request.storage_detached
+                    && (matches!(cell, Cell::Storage(_)) || matches!(requested, Cell::Storage(_)))
+                {
+                    continue;
+                }
                 // A mining correction never touches a cell a later gesture owns.
                 let owned =
                     request.mining.is_some() && self.queue.iter().any(|later| later.touches(cell));
@@ -483,6 +507,7 @@ impl PlayerInventoryLedger {
                 storage_generation: None,
                 personal_generation: None,
                 storage_identity: None,
+                storage_detached: false,
                 requires_distinct_stack_ids: false,
                 registry_bound_merge: false,
                 predicted: Vec::new(),

@@ -16,6 +16,7 @@ struct KickedInboundSession {
 
 impl NetworkSession for KickedInboundSession {
     type Error = &'static str;
+    type Outbound = PacketOutbound<&'static str>;
 
     async fn receive_world_event(
         &mut self,
@@ -27,8 +28,8 @@ impl NetworkSession for KickedInboundSession {
         }
     }
 
-    async fn send_packet(&mut self, _packet: protocol::Packet) -> Result<(), Self::Error> {
-        Ok(())
+    fn outbound(&mut self) -> Result<Self::Outbound, Self::Error> {
+        Ok(PacketOutbound::accepting())
     }
 
     fn decode_error_count(&self) -> u64 {
@@ -89,6 +90,7 @@ async fn send_failure_reports_the_local_send_origin() {
             interaction: None,
         })
         .unwrap();
+    commands.try_send(NetworkCommand::FlushFrame).unwrap();
     let (control_event_tx, mut controls) = mpsc::channel(CONTROL_EVENT_CAPACITY);
     let (_shutdown, shutdown_rx) = watch::channel(false);
 

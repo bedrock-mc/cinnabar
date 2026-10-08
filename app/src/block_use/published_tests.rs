@@ -997,3 +997,28 @@ fn a_hotbar_switch_mid_hold_repeats_with_the_new_block_before_the_tick() {
         .collect();
     assert_eq!(repeats.first(), Some(&(1, [4, 1, 7])), "{repeats:?}");
 }
+
+/// An inventory request on another slot, still awaiting its answer, does not hold back a placement.
+#[test]
+fn an_unrelated_inventory_request_does_not_delay_a_placement() {
+    let (mut world, mut captured) =
+        floor_fixture([4.5, 2.620_01, 8.32], Quat::from_rotation_x(-0.9601));
+    world
+        .resource_mut::<crate::player_runtime::PlayerRuntime>()
+        .inventory
+        .ledger_mut()
+        .apply(&InventoryEvent::Authority(
+            protocol::InventoryAuthority::Server,
+        ));
+    set_hotbar_stack(&mut world, 3, Some("minecraft:dirt"));
+    {
+        let mut player = world.resource_mut::<crate::player_runtime::PlayerRuntime>();
+        let ledger = player.inventory.ledger_mut();
+        ledger.begin_world_drop(3, Some(1)).unwrap();
+        assert!(ledger.pending_request_id().is_some());
+    }
+    let mut router = crate::semantic_controls::SemanticInputRuntime::default();
+    hold(&mut world, &mut router, Vec::new(), vec![2]);
+    world.run_system_cached(produce_block_use).unwrap();
+    assert_eq!(transaction_targets(&mut captured), [[4, 0, 7]]);
+}

@@ -642,6 +642,56 @@ impl<T: Transport> BedrockTransport<T> {
     pub fn peer_addr(&self) -> std::net::SocketAddr {
         self.inner.peer_addr()
     }
+
+    /// Returns the underlying transport.
+    pub fn inner(&self) -> &T {
+        &self.inner
+    }
+
+    /// Snapshots the negotiated batch encoding so another task can frame outbound batches.
+    ///
+    /// Fails once encryption is active, because its counter must stay with one sender.
+    pub fn batch_encoder(&self) -> Result<BatchEncoder, JolyneError> {
+        if self.encryption_enabled {
+            return Err(JolyneError::Protocol(ProtocolError::UnexpectedHandshake(
+                "cannot detach batch encoding from an encrypted transport".into(),
+            )));
+        }
+        Ok(BatchEncoder {
+            compression_enabled: self.compression_enabled,
+            compression_algorithm: self.compression_algorithm,
+            compression_level: self.compression_level,
+            compression_threshold: self.compression_threshold,
+            use_batch_prefix: T::USES_BATCH_PREFIX,
+            buffer: BytesMut::new(),
+        })
+    }
+}
+
+/// Encodes packet batches with a transport's negotiated compression, outside the transport.
+pub struct BatchEncoder {
+    compression_enabled: bool,
+    compression_algorithm: BatchCompression,
+    compression_level: u32,
+    compression_threshold: u16,
+    use_batch_prefix: bool,
+    buffer: BytesMut,
+}
+
+impl BatchEncoder {
+    /// Encodes `packets` as one batch frame.
+    pub fn encode(&mut self, packets: &[McpePacket]) -> Result<bytes::Bytes, JolyneError> {
+        encode_batch_multi_into(
+            packets,
+            self.compression_enabled,
+            self.compression_algorithm,
+            self.compression_level,
+            self.compression_threshold,
+            self.use_batch_prefix,
+            &mut self.buffer,
+        )?;
+        Ok(self.buffer.split().freeze())
+    }
 }
 
 #[cfg(test)]
@@ -1140,6 +1190,43 @@ mod tests {
         let reliable = true;
         let should_error = encryption_enabled && !reliable;
         assert!(!should_error);
+    }
+
+    /// A detached encoder frames a batch the receive path decodes back in order, and refuses to
+    /// split off an encrypted transport's send counter.
+    #[test]
+    fn detached_batch_encoder_matches_negotiated_framing() {
+        use crate::valentine::mcpe::McpePacketName;
+        use crate::valentine::{
+            ActorRuntimeId, RequestChunkRadiusPacket, SetLocalPlayerAsInitializedPacket,
+        };
+
+        let mut transport = BedrockTransport::new(TestTransport);
+        transport.set_compression(true, 7, 0);
+        let packets = [
+            McpePacket::from(SetLocalPlayerAsInitializedPacket {
+                player_id: ActorRuntimeId {
+                    actor_runtime_id: 7,
+                },
+            }),
+            McpePacket::from(RequestChunkRadiusPacket {
+                chunk_radius: 8,
+                max_chunk_radius: 8,
+            }),
+        ];
+
+        let mut frame = transport.batch_encoder().unwrap().encode(&packets).unwrap();
+        let decoded = crate::batch::decode_batch_raw(&mut frame, true, None).unwrap();
+
+        assert_eq!(
+            decoded.iter().map(|packet| packet.id).collect::<Vec<_>>(),
+            [
+                McpePacketName::SetLocalPlayerAsInitializedPacket,
+                McpePacketName::RequestChunkRadiusPacket
+            ]
+        );
+        transport.enable_encryption(*GenericArray::from_slice(&[0x42; 32]), [0; 12]);
+        assert!(transport.batch_encoder().is_err());
     }
 
     // ========== Key/IV Generation Tests ==========

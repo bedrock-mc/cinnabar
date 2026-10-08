@@ -18,7 +18,7 @@ concurrency:
 
 jobs:
   release:
-    if: github.head_ref == 'feat/replays'
+    if: github.head_ref == 'feat/replays' || github.head_ref == 'fix/web-spectator-polish'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
@@ -61,7 +61,7 @@ jobs:
           profile = tomllib.loads(pathlib.Path('Cargo.toml').read_text())['profile']['release']
           source = {
               'repository': 'https://github.com/bedrock-mc/cinnabar',
-              'branch': 'feat/replays',
+              'branch': os.environ['GITHUB_HEAD_REF'],
               'commit': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(),
               'crate': 'tools/web-spectator/wasm',
               'rust': tomllib.loads(pathlib.Path('rust-toolchain.toml').read_text())['toolchain']['channel'],

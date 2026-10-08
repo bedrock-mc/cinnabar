@@ -127,7 +127,7 @@ fn a_block_retry_revokes_selection_after_cancel_authority_change_or_expiry() {
         match reset {
             0 => runtime.cancel(),
             1 => runtime.synchronize((7, 1)),
-            2 => runtime.defer(2 + MAX_PENDING_INTERACTION_FRAMES),
+            2 => runtime.defer(2 + MAX_PENDING_INTERACTION_MILLIS),
             _ => runtime.position_authority = Some((7, 1)),
         }
         assert!(
@@ -168,7 +168,7 @@ fn a_fresh_block_press_expires_while_waiting_for_a_physics_tick() {
     swings.published_progress(movement.completed_tick());
     runtime.synchronize(movement.interaction_authority_identity());
     runtime.observe_input(true, false);
-    for frame in [1, 2 + MAX_PENDING_INTERACTION_FRAMES] {
+    for frame in [1, 2 + MAX_PENDING_INTERACTION_MILLIS] {
         assert!(
             runtime
                 .press_sample(Crosshair::Block, &movement, 0, frame)
@@ -187,7 +187,7 @@ fn a_fresh_block_press_expires_while_waiting_for_a_physics_tick() {
             Crosshair::Block,
             &movement,
             1,
-            3 + MAX_PENDING_INTERACTION_FRAMES,
+            3 + MAX_PENDING_INTERACTION_MILLIS,
         )
         .unwrap();
     let press = PressContext {
@@ -215,7 +215,7 @@ fn a_quick_released_block_press_waits_through_a_short_physics_stall() {
     let mut runtime = MeleeRuntime::default();
     runtime.synchronize(movement.interaction_authority_identity());
     runtime.observe_input(true, false);
-    for frame in [1, 1 + MAX_PENDING_INTERACTION_FRAMES] {
+    for frame in [1, 1 + MAX_PENDING_INTERACTION_MILLIS] {
         assert!(
             runtime
                 .press_sample(Crosshair::Block, &movement, 0, frame)
@@ -235,7 +235,7 @@ fn an_owned_block_retry_expires_after_repeated_full_admissions() {
     let mut swings = SwingTracker::default();
     let press = reject_block_press(&mut runtime, &mut swings, &movement, 1);
     swings.published_progress(movement.completed_tick());
-    for frame in 2..=2 + MAX_PENDING_INTERACTION_FRAMES {
+    for frame in 2..=2 + MAX_PENDING_INTERACTION_MILLIS {
         let sample = runtime
             .press_sample(Crosshair::Block, &movement, 0, frame)
             .unwrap();
@@ -256,7 +256,7 @@ fn an_owned_block_retry_expires_after_repeated_full_admissions() {
                 Crosshair::Block,
                 &movement,
                 0,
-                3 + MAX_PENDING_INTERACTION_FRAMES
+                3 + MAX_PENDING_INTERACTION_MILLIS
             )
             .is_none()
     );
@@ -329,7 +329,7 @@ fn an_unreplayable_owned_block_tick_remains_bounded() {
     let mut swings = SwingTracker::default();
     let press = reject_block_press(&mut runtime, &mut swings, &movement, 3);
     swings.published_progress(movement.completed_tick());
-    for frame in [2, 2 + MAX_PENDING_INTERACTION_FRAMES] {
+    for frame in [2, 2 + MAX_PENDING_INTERACTION_MILLIS] {
         assert_eq!(
             runtime
                 .press_sample(Crosshair::Block, &movement, 0, frame)
@@ -355,29 +355,26 @@ fn an_unreplayable_owned_block_tick_remains_bounded() {
                 Crosshair::Block,
                 &movement,
                 0,
-                3 + MAX_PENDING_INTERACTION_FRAMES
+                3 + MAX_PENDING_INTERACTION_MILLIS
             )
             .is_none()
     );
 }
 
-/// Once every completed tick is on the wire, an actor attack resolves in its own frame
-/// against the next tick instead of waiting up to a tick for one.
-#[test]
-fn an_actor_attack_between_ticks_does_not_wait_for_the_next_tick() {
-    let zombie = Crosshair::Actor(ActorHit {
-        runtime_id: 9,
-        distance: 2.0,
-        point: [0.0, 1.5, -2.0],
-    });
-    let mut movement = ticker_with_ticks(1);
+/// A tick-aligned frame's movement with every completed tick already on the wire.
+fn sent_ticks(ticks: u64) -> crate::movement::MovementTicker {
+    let mut movement = ticker_with_ticks(ticks);
     crate::movement::flush_player_auth_inputs(
         &mut movement,
-        1,
+        8,
         Some(crate::test_support::survival_mining::evidence()),
         |_, _| Ok::<_, ()>(()),
     )
     .unwrap();
+    movement
+}
+
+fn synchronized(movement: &crate::movement::MovementTicker) -> (MeleeRuntime, SwingTracker) {
     let mut runtime = MeleeRuntime::default();
     let mut swings = SwingTracker::default();
     runtime.synchronize(movement.interaction_authority_identity());
@@ -386,18 +383,12 @@ fn an_actor_attack_between_ticks_does_not_wait_for_the_next_tick() {
         movement.completed_tick(),
         &crate::movement::LocalMovementEffectTimeline::default(),
     );
-    assert!(runtime.between_ticks_attack(zombie, &movement).is_none());
-    runtime.observe_input(true, true);
-    for waiting in [Crosshair::Block, Crosshair::Miss] {
-        assert!(runtime.between_ticks_attack(waiting, &movement).is_none());
-    }
-    let sample = runtime
-        .between_ticks_attack(zombie, &movement)
-        .expect("a sent tick admits a frame-time attack");
-    assert_eq!(sample.tick, movement.completed_tick() + 1);
-    assert_eq!(sample.position, [0.5, 2.620_01, 0.5]);
+    (runtime, swings)
+}
+
+fn press_at(sample: crate::movement::InteractionSample) -> PressContext {
     let stack = protocol::NetworkItemStack::empty();
-    let press = PressContext {
+    PressContext {
         tick: sample.tick,
         player_position: sample.position,
         input_mode: PlayerInputMode::Mouse,
@@ -409,12 +400,39 @@ fn an_actor_attack_between_ticks_does_not_wait_for_the_next_tick() {
         }),
         swing_duration: client_world::ACTOR_SWING_TICKS,
         now_millis: 1,
-    };
-    let mut sent = Vec::new();
-    resolve_and_send(&mut runtime, &mut swings, zombie, &press, 1, |packets| {
-        sent = packets;
-        Ok(())
+    }
+}
+
+/// Once every completed tick is on the wire, an actor attack resolves in its own frame
+/// against the next tick instead of waiting up to a tick for one.
+#[test]
+fn an_actor_attack_between_ticks_does_not_wait_for_the_next_tick() {
+    let zombie = Crosshair::Actor(ActorHit {
+        runtime_id: 9,
+        distance: 2.0,
+        point: [0.0, 1.5, -2.0],
     });
+    let movement = sent_ticks(1);
+    let (mut runtime, mut swings) = synchronized(&movement);
+    assert!(runtime.between_ticks_press(&movement).is_none());
+    runtime.observe_input(true, true);
+    let sample = runtime
+        .between_ticks_press(&movement)
+        .expect("a sent tick admits a frame-time attack");
+    assert_eq!(sample.tick, movement.completed_tick() + 1);
+    assert_eq!(sample.position, [0.5, 2.620_01, 0.5]);
+    let mut sent = Vec::new();
+    resolve_and_send(
+        &mut runtime,
+        &mut swings,
+        zombie,
+        &press_at(sample),
+        1,
+        |packets| {
+            sent = packets;
+            Ok(())
+        },
+    );
     assert_eq!(sent.len(), 2, "swing and attack leave together");
     let mut movement = ticker_with_ticks(1);
     assert!(
@@ -429,4 +447,91 @@ fn an_actor_attack_between_ticks_does_not_wait_for_the_next_tick() {
     )
     .unwrap_err();
     assert!(movement.between_ticks_sample().is_none());
+}
+
+/// A miss or block press between ticks swings in its own frame; only the miss flag and the
+/// block start wait for the next tick's input.
+#[test]
+fn a_miss_between_ticks_swings_at_once_and_flags_the_next_input() {
+    for crosshair in [Crosshair::Miss, Crosshair::Block] {
+        let mut movement = sent_ticks(1);
+        let (mut runtime, mut swings) = synchronized(&movement);
+        runtime.observe_input(true, true);
+        let sample = runtime
+            .between_ticks_press(&movement)
+            .expect("a press between ticks resolves in its frame");
+        let completed = movement.completed_tick();
+        let mut sent = Vec::new();
+        let missed = resolve_and_send(
+            &mut runtime,
+            &mut swings,
+            crosshair,
+            &press_at(sample),
+            1,
+            |packets| {
+                sent = packets;
+                Ok(())
+            },
+        );
+        assert_eq!(movement.completed_tick(), completed, "no tick ran");
+        assert_eq!(sent.len(), 1, "the swing leaves in the press frame");
+        assert!(!runtime.press_pending(), "a later use need not wait");
+        assert_eq!(missed, crosshair == Crosshair::Miss);
+        if missed {
+            assert!(movement.mark_missed_swing(sample.tick));
+        }
+        movement
+            .enqueue_completed_physics(crate::test_support::survival_mining::completed(sample.tick))
+            .unwrap();
+        let flagged = movement.pending_snapshots()[0].flags.bits()
+            & protocol::PlayerInputFlags::MISSED_SWING.bits()
+            != 0;
+        assert_eq!(flagged, missed, "{crosshair:?}");
+        let mut later = movement.clone();
+        later
+            .enqueue_completed_physics(crate::test_support::survival_mining::completed(
+                sample.tick + 1,
+            ))
+            .unwrap();
+        assert_eq!(
+            later.pending_snapshots()[1].flags.bits()
+                & protocol::PlayerInputFlags::MISSED_SWING.bits(),
+            0,
+            "the flag rides one input"
+        );
+    }
+}
+
+/// A press waiting for a tick survives any number of frames; only wall-clock time bounds it.
+#[test]
+fn a_miss_deferred_through_many_frames_resolves_on_the_next_tick() {
+    let mut movement = sent_ticks(1);
+    let (mut runtime, mut swings) = synchronized(&movement);
+    runtime.observe_input(true, true);
+    // One millisecond per frame: a thousand frames per second.
+    for now_millis in 1..=50 {
+        assert!(
+            runtime
+                .press_sample(Crosshair::Miss, &movement, 0, now_millis)
+                .is_none()
+        );
+    }
+    assert!(runtime.press_pending());
+    movement
+        .enqueue_completed_physics(crate::test_support::survival_mining::completed(
+            movement.completed_tick() + 1,
+        ))
+        .unwrap();
+    let sample = runtime
+        .press_sample(Crosshair::Miss, &movement, 1, 51)
+        .expect("the tick admits the deferred press");
+    let missed = resolve_and_send(
+        &mut runtime,
+        &mut swings,
+        Crosshair::Miss,
+        &press_at(sample.into()),
+        51,
+        |_| Ok(()),
+    );
+    assert!(missed);
 }

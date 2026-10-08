@@ -1405,8 +1405,25 @@ RVAs are 1.26.50.26 Windows client; `mac 0x10…` addresses are the 26.30 macOS 
 - // truncates RGB to bytes before LightTexture::getColorForUV reads them.
 
 ## crates/render/src/material.wgsl
+- Cube face isotropy uses the current canonical 1.26.50.26 `06a0f830` Up and
+  adjacent face bodies in `src/__unmapped/06.cpp`: floored block position,
+  wrapping 32-bit mix, bits 24–25, native rotation codes `[0, 1, 3, 2]`.
 - // enabled by BlockGraphics' pack-authored isotropic mask.
 - // AmbientOcclusionCalculator raises the four-sample average * face
+
+## crates/pack-compiler/src/pack/block/leaf_metadata.rs
+- Current canonical 1.26.50.26 `064868d0` in `src/__unmapped/06.cpp` parses
+  scalar/six-face/up-down-side isotropy. The graphics loader `069f19a0`
+  applies this mask from `blocks.json` for ordinary blocks and leaves alike.
+
+## crates/render/src/viewmodel/cube.rs
+## crates/render-model/src/equipment/blocks.rs
+## crates/pack-compiler/src/icon/cube.rs
+## crates/pack-compiler/src/icon/model.rs
+- Current canonical 1.26.50.26 inventory tessellation `06aab610` in
+  `src/__unmapped/06.cpp` enables the inventory mode at tessellator `+0x84`;
+  the generic face bodies including `06a0f830` skip positional isotropy in
+  that mode. Carried readers preserve the original face pixels and geometry.
 
 ## crates/render/src/native_sunlight.rs
 - /// Weather+0x38: current simulation rain, not the frame's interpolated rain.
@@ -2737,6 +2754,8 @@ RVAs are 1.26.50.26 Windows client; `mac 0x10…` addresses are the 26.30 macOS 
 
 ## tools/registrygen/education_v2193.go
 ## crates/pack-compiler/src/compiler/visuals/literal.rs
+- Pinned 1.26.50.4 `blocks.json` routes `redstone_lamp` and `lit_redstone_lamp` to the ordinary six-face `redstone_lamp_off` and `redstone_lamp_on` terrain tiles. The active block registry contains their empty-state identities. Their reviewed literal cube route supersedes the provisional fallback inventory for both geometry and material alpha, as do the other literal full cubes.
+- Current 1.26.50.26 `src/__recovered/BlockTypeRegistry.h`, `FUN_14dfcdaa0`, calls the lamp constructor `FUN_14a9d9a90` (`src/__unmapped/0a.cpp`). The constructor retains the base block geometry and enables light emission 15 only for the lit variant; held unlit lamps do not acquire an emission override.
 - Pinned 1.26.50 palette `block_states.nbt` contains allow and deny with empty state, plus 162 border states (four wall connections in none/short/tall and byte wall_post_bit). Vanilla packs route them through `build_allow`, `build_deny`, and `border_block`.
 - `BorderBlock` inherits `WallBlock`; `BlockGraphics::initBlocks` registers it as shape 32 and `BlockTessellator` dispatches that shape to `tessellateWallInWorld`. Reference 26.30 `by-owner/b/BorderBlock.cpp`, `BlockGraphics.cpp`, `BlockTessellator.cpp`; current 1.26.50.26 border description/shape methods are in `__unmapped/03.cpp` near the `tile.border_block.name` owner.
 

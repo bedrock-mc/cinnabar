@@ -624,3 +624,77 @@ fn delay_fix_retries_rejected_batches_but_not_an_accepted_same_tick() {
         "the next tick admits its transaction while the existing arm swing remains active"
     );
 }
+
+/// With every tick already sent and none due, a press and its release each leave in their own
+/// frame; the next tick's input reports the use's start.
+#[test]
+fn a_use_and_release_between_ticks_send_without_waiting_for_a_tick() {
+    use crate::test_support::survival_mining::{completed, evidence, ticker_with_ticks};
+    let flush = |movement: &mut crate::movement::MovementTicker| {
+        crate::movement::flush_player_auth_inputs(movement, 8, Some(evidence()), |_, _| {
+            Ok::<_, ()>(())
+        })
+        .unwrap();
+    };
+    let mut movement = ticker_with_ticks(1);
+    flush(&mut movement);
+    let mut runtime = ItemUseRuntime::default();
+    let mut swings = SwingTracker::default();
+    assert!(runtime.frame_sample(&movement, true, true).is_none());
+    runtime.observe_press(true);
+    assert!(
+        runtime.frame_sample(&movement, true, false).is_none(),
+        "an aim-assist facing waits for a tick"
+    );
+    let completed_tick = movement.completed_tick();
+    let sample = runtime
+        .frame_sample(&movement, true, true)
+        .expect("a press resolves between ticks");
+    assert_eq!(sample.tick, completed_tick + 1);
+    let mut sent = Vec::new();
+    let mut admit = |runtime: &mut ItemUseRuntime,
+                     movement: &mut crate::movement::MovementTicker,
+                     held,
+                     sent: &mut Vec<String>| {
+        let use_frame = UseFrame {
+            position: sample.position,
+            ..frame(sample.tick, held)
+        };
+        admit_on_tick(
+            runtime,
+            &mut swings,
+            movement,
+            &use_frame,
+            1,
+            6,
+            |packets| {
+                sent.extend(packets.iter().map(wire));
+                Ok(())
+            },
+        );
+    };
+    admit(&mut runtime, &mut movement, true, &mut sent);
+    assert_eq!(sent.len(), 1, "the use leaves in the press frame");
+    assert!(runtime.is_using());
+    assert!(
+        runtime.frame_sample(&movement, true, true).is_none(),
+        "a held use waits for a tick"
+    );
+    let release = runtime
+        .frame_sample(&movement, false, true)
+        .expect("a release resolves between ticks");
+    assert_eq!(release.tick, sample.tick);
+    admit(&mut runtime, &mut movement, false, &mut sent);
+    assert_eq!(sent.len(), 2);
+    assert!(sent[1].contains("Release"), "{}", sent[1]);
+    assert_eq!(movement.completed_tick(), completed_tick, "no tick ran");
+    movement
+        .enqueue_completed_physics(completed(sample.tick))
+        .unwrap();
+    assert_ne!(
+        movement.pending_snapshots()[0].flags.bits()
+            & protocol::PlayerInputFlags::START_USING_ITEM.bits(),
+        0,
+        "the next tick reports the start"
+    );
+}
