@@ -11,10 +11,14 @@ use protocol::{PlayerSkin, WorldBootstrap};
 use render::ActorRigFrameBuilder;
 use render_model::{ActorRigVertex, RenderBoneTransform};
 
-use view_presentation::equipment_display::{FirstPersonHand, FirstPersonShape, first_person_display, view_bone};
-use render_model::equipment::{attach_to_bone, held_block_display, held_sprite_display, is_hand_equipped, is_rod};
 use crate::presentation::actors::actor_rig_presentation;
+use render_model::equipment::{
+    attach_to_bone, held_block_display, held_sprite_display, is_hand_equipped, is_rod,
+};
 use view_presentation::equipment_display::rig_world_from_actor;
+use view_presentation::equipment_display::{
+    FirstPersonHand, FirstPersonShape, first_person_display, view_bone,
+};
 
 const WIDTH: usize = 854;
 const REST: FirstPersonHand = FirstPersonHand {

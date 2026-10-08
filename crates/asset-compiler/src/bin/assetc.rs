@@ -573,7 +573,15 @@ fn compile_outline_font_assets_command(
     out: &Path,
     report: &Path,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    font_command::compile(font, fallback, primary_only, options, source_manifest, out, report)
+    font_command::compile(
+        font,
+        fallback,
+        primary_only,
+        options,
+        source_manifest,
+        out,
+        report,
+    )
 }
 
 fn required_u32(value: &serde_json::Value, field: &str) -> Result<u32, Box<dyn std::error::Error>> {

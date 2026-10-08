@@ -1,7 +1,7 @@
 use super::*;
 use pack_compiler::{
-    CompiledFontCarrier, GlyphAdvances, OutlineFontConfig, compile_outline_font,
-    compile_outline_font_with_fallback, compact_font_pages, overlay_font_glyph_sheets,
+    CompiledFontCarrier, GlyphAdvances, OutlineFontConfig, compact_font_pages,
+    compile_outline_font, compile_outline_font_with_fallback, overlay_font_glyph_sheets,
 };
 
 const MAX_MANIFEST: usize = 64 * 1024;

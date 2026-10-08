@@ -44,30 +44,34 @@ pub enum HeartVariant {
 /// Heart presentation follows the current authoritative effect order.
 #[must_use]
 pub fn heart_variant(effects: &[HudEffect], now_tick: Option<u64>, freezing: f32) -> HeartVariant {
-        let mut variant = if freezing >= 1.0 {
-            HeartVariant::Frozen
-        } else {
-            HeartVariant::Normal
-        };
-        for effect in effects {
-            if !effect.visible_at_tick(now_tick) {
-                continue;
-            }
-            match effect.effect_id {
-                20 => variant = HeartVariant::Withered,
-                19 | 25 => return HeartVariant::Poisoned,
-                _ => {}
-            }
+    let mut variant = if freezing >= 1.0 {
+        HeartVariant::Frozen
+    } else {
+        HeartVariant::Normal
+    };
+    for effect in effects {
+        if !effect.visible_at_tick(now_tick) {
+            continue;
         }
-        variant
+        match effect.effect_id {
+            20 => variant = HeartVariant::Withered,
+            19 | 25 => return HeartVariant::Poisoned,
+            _ => {}
+        }
+    }
+    variant
 }
 
 #[must_use]
 pub fn regeneration_active(effects: &[HudEffect], now_tick: Option<u64>) -> bool {
-    effects.iter().any(|effect| effect.effect_id == 10 && effect.visible_at_tick(now_tick))
+    effects
+        .iter()
+        .any(|effect| effect.effect_id == 10 && effect.visible_at_tick(now_tick))
 }
 
 #[must_use]
 pub fn hunger_effect_active(effects: &[HudEffect], now_tick: Option<u64>) -> bool {
-    effects.iter().any(|effect| effect.effect_id == 17 && effect.visible_at_tick(now_tick))
+    effects
+        .iter()
+        .any(|effect| effect.effect_id == 17 && effect.visible_at_tick(now_tick))
 }

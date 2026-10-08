@@ -190,8 +190,9 @@ impl UiPresentationRuntime {
                 .map(|file| (&*file.path, &*file.bytes)),
         )
         .map_err(|error| format!("ui catalog: {error}"))?;
-        let (textures, first_page) = view_presentation::ui_atlas::with_ui_pages(&self.textures, &assets)
-            .map_err(|error| format!("ui atlas pages: {error}"))?;
+        let (textures, first_page) =
+            view_presentation::ui_atlas::with_ui_pages(&self.textures, &assets)
+                .map_err(|error| format!("ui atlas pages: {error}"))?;
         self.textures = Arc::new(textures);
         // Dynamic pages moved up; their references rebuild from the new start.
         self.preview_dirty = true;

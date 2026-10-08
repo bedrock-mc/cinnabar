@@ -34,13 +34,14 @@ fn publication_of_one_new_page_retains_existing_textures_and_glint() {
     assert!(gpu.prepare(&original, &device, &queue));
     let base = gpu.pages[0]._texture.id();
     let glint = gpu.glint.as_ref().unwrap().0.id();
-    let (extended, _) = original
-        .clone()
-        .with_equipment_rasters(&[render_model::equipment::EquipmentRaster {
-            width: 8,
-            height: 8,
-            rgba8: vec![31; 8 * 8 * 4].into(),
-        }]);
+    let (extended, _) =
+        original
+            .clone()
+            .with_equipment_rasters(&[render_model::equipment::EquipmentRaster {
+                width: 8,
+                height: 8,
+                rgba8: vec![31; 8 * 8 * 4].into(),
+            }]);
     assert!(gpu.prepare(&extended, &device, &queue));
     assert_eq!(gpu.pages.len(), 2);
     assert_eq!(
@@ -57,11 +58,12 @@ fn publication_of_one_new_page_retains_existing_textures_and_glint() {
 #[test]
 fn route_and_page_order_changes_reuse_immutable_textures() {
     let (device, queue) = gpu();
-    let (mut pages, _) = artwork().with_equipment_rasters(&[render_model::equipment::EquipmentRaster {
-        width: 8,
-        height: 8,
-        rgba8: vec![31; 8 * 8 * 4].into(),
-    }]);
+    let (mut pages, _) =
+        artwork().with_equipment_rasters(&[render_model::equipment::EquipmentRaster {
+            width: 8,
+            height: 8,
+            rgba8: vec![31; 8 * 8 * 4].into(),
+        }]);
     let mut gpu = GpuArtwork::default();
     assert!(gpu.prepare(&pages, &device, &queue));
     let ids: Vec<_> = gpu.pages.iter().map(|page| page._texture.id()).collect();

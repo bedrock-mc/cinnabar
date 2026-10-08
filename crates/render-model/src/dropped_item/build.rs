@@ -121,4 +121,3 @@ pub fn dropped_item_block_model(
         rotation: block.variant() & 3,
     })
 }
-

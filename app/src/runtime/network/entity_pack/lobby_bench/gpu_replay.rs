@@ -210,13 +210,15 @@ fn enhanced_lobby_replay_on_native_gpu() {
                 })
                 .collect();
             app.world_mut()
-                .insert_resource(render::NametagSceneResource(view_presentation::nametags::build_nametag_scene(
-                    &anchors,
-                    &font,
-                    &mut layouts,
-                    &mut atlas,
-                    &|page| nametag_atlas::font_page(&font, page),
-                )));
+                .insert_resource(render::NametagSceneResource(
+                    view_presentation::nametags::build_nametag_scene(
+                        &anchors,
+                        &font,
+                        &mut layouts,
+                        &mut atlas,
+                        &|page| nametag_atlas::font_page(&font, page),
+                    ),
+                ));
         }
         app.update();
         app.sub_app(RenderApp)

@@ -12,4 +12,3 @@ pub fn bounded_visible_text(value: &str) -> &str {
     }
     &value[..end]
 }
-

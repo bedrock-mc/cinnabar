@@ -1,15 +1,18 @@
 //! Stream observations feed the same compiled fixed-tick Molang animator as native actors.
 use std::{collections::HashMap, sync::Arc};
 
+use assets::{RuntimeEntityAssets, RuntimeEquipmentCatalog};
+use bevy::platform::time::Instant;
 use client_world::{
     ACTOR_SWING_TICKS, ACTOR_TICK_DURATION, ActorAnimationStore, ActorRigSnapshot,
     ActorTickContext, WornArmor,
 };
-use assets::{RuntimeEntityAssets, RuntimeEquipmentCatalog};
-use bevy::platform::time::Instant;
-use render_model::{EntityRigId, RenderBoneTransform};
 use client_world::{ActorPose, ActorSnapshot, HandPhase};
-use protocol::{ActorAttribute, ActorKind, ActorMetadataValue, ActorSpawnEvent, NetworkItemStack, SkinGeometrySource};
+use protocol::{
+    ActorAttribute, ActorKind, ActorMetadataValue, ActorSpawnEvent, NetworkItemStack,
+    SkinGeometrySource,
+};
+use render_model::{EntityRigId, RenderBoneTransform};
 
 use super::super::browser_model::{Fighter, Frame};
 use super::{hash_id, parse_rgb};
@@ -145,11 +148,14 @@ impl NativeAnimator {
                     1,
                 )
             });
-            let observation = self.observations.entry(runtime_id).or_insert_with(|| Observation {
-                skin: None,
-                swing: None,
-                hurt: None,
-            });
+            let observation = self
+                .observations
+                .entry(runtime_id)
+                .or_insert_with(|| Observation {
+                    skin: None,
+                    swing: None,
+                    hurt: None,
+                });
             actor.kind = ActorKind::Player {
                 uuid: [0; 16],
                 username: fighter.name.as_str().into(),
@@ -241,7 +247,11 @@ impl NativeAnimator {
                 step + 1 == steps,
                 step == 0,
                 |actor| {
-                    let Some(fighter) = frame.fighters.iter().find(|fighter| hash_id(&fighter.id) == actor.runtime_id) else {
+                    let Some(fighter) = frame
+                        .fighters
+                        .iter()
+                        .find(|fighter| hash_id(&fighter.id) == actor.runtime_id)
+                    else {
                         return ActorTickContext::default();
                     };
                     let equipment_items = fighter.equipment.as_ref();
@@ -264,7 +274,10 @@ impl NativeAnimator {
                     context.off_hand = off.map(|item| item.name.as_str().into());
                     context.main_hand_max_use_ticks = main_use;
                     context.main_hand_metadata = main.map_or(0, |item| item.meta.max(0) as u32);
-                    context.main_hand_slot = fighter.pov.as_ref().map_or(0, |pov| pov.selected_slot as u8);
+                    context.main_hand_slot = fighter
+                        .pov
+                        .as_ref()
+                        .map_or(0, |pov| pov.selected_slot as u8);
                     context.is_local_first_person = hidden_player == Some(fighter.id.as_str());
                     context.camera_rotation = [fighter.pitch, fighter.yaw];
                     context.camera_position = camera_position;
@@ -277,7 +290,9 @@ impl NativeAnimator {
                                 dye_rgb: item.color.as_deref().and_then(parse_rgb),
                             })
                     });
-                    context.skin_geometry = observations.get(&actor.runtime_id).and_then(|observation| observation.skin.clone());
+                    context.skin_geometry = observations
+                        .get(&actor.runtime_id)
+                        .and_then(|observation| observation.skin.clone());
                     context
                 },
             );
@@ -329,7 +344,9 @@ impl NativeAnimator {
             },
         )?;
         let overlay = if actor.status.overlay_active() {
-            render::pack_overlay_rgba8(view_presentation::equipment_display::hurt_overlay_rgba(client_world::HURT_OVERLAY_ALPHA))
+            render::pack_overlay_rgba8(view_presentation::equipment_display::hurt_overlay_rgba(
+                client_world::HURT_OVERLAY_ALPHA,
+            ))
         } else {
             0
         };

@@ -33,8 +33,7 @@ pub fn with_ui_pages(
         );
     }
     let dynamic_start = textures.dynamic_start();
-    let first =
-        u16::try_from(dynamic_start).map_err(|_| UiAtlasError::InvalidFontTexture)?;
+    let first = u16::try_from(dynamic_start).map_err(|_| UiAtlasError::InvalidFontTexture)?;
     let mut pages = textures.pages()[..dynamic_start].to_vec();
     let added = ui_pages.len();
     pages.extend(ui_pages);

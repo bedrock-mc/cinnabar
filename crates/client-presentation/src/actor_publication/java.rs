@@ -1,8 +1,8 @@
 //! Java 1.7 player animation at publication: Java's pose, body yaw and first-person hand
 //! replace vanilla's wherever Java has the posture.
 
-use view_presentation::equipment_display::{FirstPersonArms, FirstPersonHand};
 use std::sync::Arc;
+use view_presentation::equipment_display::{FirstPersonArms, FirstPersonHand};
 
 use bevy::math::Vec3;
 use chunk_pipeline::WorldStream;
@@ -18,8 +18,7 @@ use super::hand::{HandInputs, HandSource, hand_progress, item_atlas, vanilla_han
 use crate::presentation::{
     actors::{ActorRigPresentation, convert_bones, lerp_degrees, wrap_degrees},
     equipment::{
-        ActorEquipmentInput, EquipmentRuntime, WornItem,
-        java_draws_attachable, remote_input,
+        ActorEquipmentInput, EquipmentRuntime, WornItem, java_draws_attachable, remote_input,
     },
 };
 

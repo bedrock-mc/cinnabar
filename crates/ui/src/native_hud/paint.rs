@@ -5,8 +5,8 @@
 //! each draws is captured once per frame into [`HudPaint`]. Native cells obey
 //! the control's inherited clip and viewport.
 
-use crate::UiVisual;
 use super::HeartPaint;
+use crate::UiVisual;
 
 pub const CROSSHAIR_TEXTURE: &str = "textures/ui/cross_hair";
 pub const CROSSHAIR_SIDE: f32 = 16.0;
@@ -117,7 +117,10 @@ pub fn paint(
         "heart_renderer" => {
             let visible = visible_bounds(painter);
             if visible[0] < visible[2] && visible[1] < visible[3] {
-                for cell in hud.hearts.visible_cells(top_left, painter.gui_pixel_scale(), visible) {
+                for cell in hud
+                    .hearts
+                    .visible_cells(top_left, painter.gui_pixel_scale(), visible)
+                {
                     paint_cell(painter, &cell, top_left, visible, alpha);
                 }
             }
@@ -219,9 +222,7 @@ fn paint_cell(
     let visual = cell
         .preferred
         .and_then(|path| painter.sprite(path, color))
-        .or_else(|| {
-            painter.sprite(cell.texture, color)
-        });
+        .or_else(|| painter.sprite(cell.texture, color));
     if let Some(visual) = visual {
         painter.push(visual, bounds);
     }
@@ -262,10 +263,19 @@ fn crosshair(
     blend: crate::UiBlendMode,
 ) {
     let (sprite, gui_side) = match painter.sprite(CROSSHAIR_TEXTURE, [255; 4]) {
-        Some(UiVisual::Sprite { texture_page, uv, .. }) => (
-            SheetSprite { page: texture_page, uv }, CROSSHAIR_SIDE,
+        Some(UiVisual::Sprite {
+            texture_page, uv, ..
+        }) => (
+            SheetSprite {
+                page: texture_page,
+                uv,
+            },
+            CROSSHAIR_SIDE,
         ),
-        _ => (sprite, assets::HudTextureRole::Crosshair.expected_size()[0] as f32),
+        _ => (
+            sprite,
+            assets::HudTextureRole::Crosshair.expected_size()[0] as f32,
+        ),
     };
     let side = gui_side * painter.gui_pixel_scale();
     let x = (dest[0] + dest[2] - side) * 0.5;

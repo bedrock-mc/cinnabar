@@ -10,17 +10,20 @@ use bevy::{prelude::*, window::PrimaryWindow};
 
 pub use client_presentation::camera::{
     AUTO_FLY_MAX_HORIZONTAL_BLOCKS, AUTO_FLY_PERIOD_SECONDS, AutoFly, CameraFeelSettings,
-    CameraFovInputs, CameraFovState, CameraPresentationPlugin, CameraRig,
-    CameraSettingsAuthority, CameraSettingsError, FlyCamera,
-    FlyCameraUpdateSet, HeadMedium, OverlayKind, OverlayLayer,
+    CameraFovInputs, CameraFovState, CameraPresentationPlugin, CameraRig, CameraSettingsAuthority,
+    CameraSettingsError, FlyCamera, FlyCameraUpdateSet, HeadMedium, OverlayKind, OverlayLayer,
     PITCH_LIMIT, PortalProgress, SPYGLASS_FOV_MODIFIER, ScreenEffectFacts, ScreenEffectInputs,
     ScreenOverlays, ServerCameraSkips, ServerCameraView, THIRD_PERSON_COLLISION_RADIUS_BLOCKS,
-    THIRD_PERSON_RADIUS_BLOCKS, VisionEffects, auto_fly_offset,
-    collision_safe_perspective_pose, compute_overlays, input_is_active, look_angles,
-    look_at_target, next_perspective, perspective_pose, release_cursor,
-    spawn_fly_camera, unavailable_world_perspective_pose, update_camera_fov, };
-pub use view_presentation::camera::{CameraHurtState, FirstPersonHandMotion, HandSwayState, LocalHurtEvent, ViewEffect, WalkBobState, walk_bob_effect, projection_fov_radians};
+    THIRD_PERSON_RADIUS_BLOCKS, VisionEffects, auto_fly_offset, collision_safe_perspective_pose,
+    compute_overlays, input_is_active, look_angles, look_at_target, next_perspective,
+    perspective_pose, release_cursor, spawn_fly_camera, unavailable_world_perspective_pose,
+    update_camera_fov,
+};
 use client_presentation::camera::{antialiasing, fov, look, overlay_publish};
+pub use view_presentation::camera::{
+    CameraHurtState, FirstPersonHandMotion, HandSwayState, LocalHurtEvent, ViewEffect,
+    WalkBobState, projection_fov_radians, walk_bob_effect,
+};
 pub(crate) mod aim_assist;
 pub(crate) mod aim_highlight;
 mod facts;

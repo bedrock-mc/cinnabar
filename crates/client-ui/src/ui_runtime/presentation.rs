@@ -10,10 +10,10 @@ use ui::{
     UiRect, UiScale, UiTree, UiVisual,
 };
 
-use super::scene_stack::Scene;
 use super::UiRuntime;
-use view_presentation::ui_adapter::{UiRenderViewport, adapt_ui_draw_list};
+use super::scene_stack::Scene;
 use crate::ui_runtime::item_facts;
+use view_presentation::ui_adapter::{UiRenderViewport, adapt_ui_draw_list};
 
 mod accessors;
 mod construction;
@@ -63,9 +63,8 @@ use crate::menu::{MenuAction, MenuView};
 pub use debug_overlay::DebugLines;
 pub use forms::{BedHit, ChatHit, ExperienceModal, LoadingStage};
 pub use hud_layout::HudFrame;
-use hud_layout::{HudGeometry, HudLayout, gui_scale};
+use hud_layout::{HudGeometry, HudLayout};
 use primitives::{rect, resolve_chat_line};
-use view_presentation::text::bounded_visible_text;
 #[cfg(any(test, feature = "test-support"))]
 pub use publish::commit::refresh_hud_frame;
 pub use publish::{
@@ -75,11 +74,12 @@ pub use publish::{
 };
 use retained_hud::{PresentedScoreboardCache, ScoreboardOwnerNameAuthority};
 use startup::StartupPresentationState;
-use ui::{
-    FONT_DESIGN_PIXEL_TEXELS, TEXT_BASELINE_64, TEXT_LINE_HEIGHT_64, TEXT_SHADOW_OFFSET_64,
-    TextMetrics, DEFAULT_TEXT_CACHE_ENTRIES, DEFAULT_TEXT_CACHE_BYTES,
-};
 use ui::IconRef;
+use ui::{
+    DEFAULT_TEXT_CACHE_BYTES, DEFAULT_TEXT_CACHE_ENTRIES, FONT_DESIGN_PIXEL_TEXELS,
+    TEXT_BASELINE_64, TEXT_LINE_HEIGHT_64, TEXT_SHADOW_OFFSET_64, TextMetrics,
+};
+use view_presentation::text::bounded_visible_text;
 use view_presentation::ui_atlas::{
     HudTexturePages, font_texture_array, font_texture_array_with_hud_and_icons,
     font_texture_array_with_optional_hud,
@@ -209,5 +209,7 @@ pub struct UiPresentationRuntime {
 pub mod tests;
 
 impl From<view_presentation::UiAtlasError> for UiPresentationError {
-    fn from(_: view_presentation::UiAtlasError) -> Self { Self::InvalidFontTexture }
+    fn from(_: view_presentation::UiAtlasError) -> Self {
+        Self::InvalidFontTexture
+    }
 }

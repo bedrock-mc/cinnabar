@@ -7,7 +7,9 @@ use bevy::{camera::Camera, math::Vec3, prelude::GlobalTransform};
 use client_world::ActorSnapshot;
 use protocol::{ActorKind, ActorMetadataValue};
 
-use view_presentation::nametags::{NametagAnchor, DEFAULT_RENDER_DISTANCE, HEAD_CLEARANCE, DEFAULT_HEIGHT, SNEAKING_HEIGHT};
+use view_presentation::nametags::{
+    DEFAULT_HEIGHT, DEFAULT_RENDER_DISTANCE, HEAD_CLEARANCE, NametagAnchor, SNEAKING_HEIGHT,
+};
 
 #[cfg(test)]
 pub(super) mod tests;
@@ -112,7 +114,13 @@ pub fn extract_nametag(
     }
     let text = tag_text(actor, name, distance_squared, scoreboards);
     view_presentation::nametags::nametag_anchor(
-        actor.runtime_id, &text, feet, position, eye, actor_flag(actor, ACTOR_FLAG_SNEAKING), maximum,
+        actor.runtime_id,
+        &text,
+        feet,
+        position,
+        eye,
+        actor_flag(actor, ACTOR_FLAG_SNEAKING),
+        maximum,
     )
 }
 

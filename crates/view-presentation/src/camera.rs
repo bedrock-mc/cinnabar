@@ -32,7 +32,9 @@ impl Default for FirstPersonHandMotion {
 
 impl FirstPersonHandMotion {
     #[must_use]
-    pub fn view_matrix(&self) -> Mat4 { self.hurt * self.bob.matrix() }
+    pub fn view_matrix(&self) -> Mat4 {
+        self.hurt * self.bob.matrix()
+    }
 
     #[must_use]
     pub fn matrix(&self) -> Mat4 {
@@ -45,19 +47,35 @@ impl FirstPersonHandMotion {
 /// Converts the full-window FOV to vertical radians; the projection handles pixel aspect.
 #[must_use]
 pub fn projection_fov_radians(fov_degrees: f32) -> f32 {
-    let degrees = if fov_degrees.is_finite() { fov_degrees } else { ui::DEFAULT_FOV_DEGREES as f32 };
-    degrees.to_radians().clamp(std::f32::consts::PI / 180.0, std::f32::consts::PI - std::f32::consts::PI / 180.0)
+    let degrees = if fov_degrees.is_finite() {
+        fov_degrees
+    } else {
+        ui::DEFAULT_FOV_DEGREES as f32
+    };
+    degrees.to_radians().clamp(
+        std::f32::consts::PI / 180.0,
+        std::f32::consts::PI - std::f32::consts::PI / 180.0,
+    )
 }
 
 /// Converts Bedrock yaw and pitch into the render camera axes.
 #[must_use]
 pub fn bedrock_camera_rotation(yaw_degrees: f32, pitch_degrees: f32) -> Quat {
-    Quat::from_euler(EulerRot::YXZ, (180.0 - yaw_degrees).to_radians(), -pitch_degrees.to_radians(), 0.0)
+    Quat::from_euler(
+        EulerRot::YXZ,
+        (180.0 - yaw_degrees).to_radians(),
+        -pitch_degrees.to_radians(),
+        0.0,
+    )
 }
 
 /// Finite projection aspect, including a minimized window.
 #[must_use]
 pub fn projection_aspect(width: f32, height: f32) -> f32 {
     let aspect = width / height;
-    if aspect.is_finite() && aspect > 0.0 { aspect } else { 16.0 / 9.0 }
+    if aspect.is_finite() && aspect > 0.0 {
+        aspect
+    } else {
+        16.0 / 9.0
+    }
 }

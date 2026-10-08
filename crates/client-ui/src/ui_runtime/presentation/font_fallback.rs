@@ -1,10 +1,7 @@
 //! Installs off-thread fallback results into stable reserved texture slots.
 
 use super::{UiPresentationRuntime, dynamic_textures, session_glyphs};
-use render_model::{
-    MAX_UI_FALLBACK_FONT_PAGES, UI_FALLBACK_FONT_PAGE_OFFSET,
-    UiTexturePage,
-};
+use render_model::{MAX_UI_FALLBACK_FONT_PAGES, UI_FALLBACK_FONT_PAGE_OFFSET, UiTexturePage};
 use std::sync::Arc;
 use view_presentation::ui_atlas::blank_fallback_font_page;
 
@@ -39,8 +36,10 @@ impl UiPresentationRuntime {
         }
         let mut dynamic = self.textures.pages()[self.textures.dynamic_start()..].to_vec();
         for offset in 0..MAX_UI_FALLBACK_FONT_PAGES {
-            dynamic[UI_FALLBACK_FONT_PAGE_OFFSET + offset] =
-                pages.get(offset).cloned().unwrap_or_else(blank_fallback_font_page);
+            dynamic[UI_FALLBACK_FONT_PAGE_OFFSET + offset] = pages
+                .get(offset)
+                .cloned()
+                .unwrap_or_else(blank_fallback_font_page);
         }
         let Ok(textures) = self.textures.replace_dynamic(dynamic) else {
             return;
@@ -79,8 +78,8 @@ mod tests {
         FontGlyphRequests, FontLineMetrics, FontPixels, FontRendering, FontTexturePage,
         GlyphMetrics, RuntimeFontCatalog, encode_font_catalog,
     };
-    use sha2::{Digest, Sha256};
     use render_model::UI_FALLBACK_FONT_PAGE_SIDE;
+    use sha2::{Digest, Sha256};
 
     fn fallback(ch: char) -> RuntimeFontCatalog {
         let side = UI_FALLBACK_FONT_PAGE_SIDE;

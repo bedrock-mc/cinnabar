@@ -38,8 +38,8 @@ pub use chunk_metrics::{
     ModelWorkloadCount, ModelWorkloadMetricsSnapshot, TransparentSortMetricsSnapshot,
 };
 pub use dropped_item::{
-    DroppedItemBlock, DroppedItemCube, DroppedItemSprite, OPAQUE_WHITE,
-    dropped_item_block_cube, dropped_item_block_model,
+    DroppedItemBlock, DroppedItemCube, DroppedItemSprite, OPAQUE_WHITE, dropped_item_block_cube,
+    dropped_item_block_model,
 };
 pub use entity_shadow::{
     EntityShadow, EntityShadowFrame, EntityShadowParams, MAX_ENTITY_SHADOWS,

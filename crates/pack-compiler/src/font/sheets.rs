@@ -119,7 +119,10 @@ pub fn overlay_font_glyph_sheets(
     compiled.report.glyphs = glyphs.len();
     compiled.report.pages = pages.len();
     compiled.report.source_bytes = pages.iter().map(|page| u64::from(page.source_bytes)).sum();
-    compiled.report.decoded_bytes = pages.iter().map(|page| page.pixels.bytes().len() as u64).sum();
+    compiled.report.decoded_bytes = pages
+        .iter()
+        .map(|page| page.pixels.bytes().len() as u64)
+        .sum();
     compiled.report.carrier_sha256 = compiled.bytes[compiled.bytes.len() - 32..]
         .try_into()
         .map_err(|_| invalid("glyph font carrier digest is missing"))?;

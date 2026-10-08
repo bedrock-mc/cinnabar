@@ -24,10 +24,7 @@ pub fn bone_map(armor_names: &[Box<str>], body_names: &[Box<str>]) -> Vec<Option
 }
 
 /// Armor bone poses taken from `body` through `map`; unmatched bones hide.
-pub fn remap_pose(
-    map: &[Option<usize>],
-    body: &[RenderBoneTransform],
-) -> Vec<RenderBoneTransform> {
+pub fn remap_pose(map: &[Option<usize>], body: &[RenderBoneTransform]) -> Vec<RenderBoneTransform> {
     map.iter()
         .map(|index| {
             index

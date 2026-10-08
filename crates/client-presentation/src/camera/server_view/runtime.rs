@@ -4,12 +4,12 @@
 use std::sync::Arc;
 
 use bevy::prelude::{EulerRot, Quat, Resource, Transform, Vec2, Vec3};
-use view_presentation::camera::bedrock_camera_rotation as bedrock_rotation;
 use protocol::{
     CameraAimAssistPresetSettings, CameraEvent, CameraFadeInstruction, CameraFovInstruction,
     CameraInstructionEvent, CameraPreset, CameraSetInstruction, CameraShakeAction,
     CameraShakeEvent, CameraShakeType, CameraSpline,
 };
+use view_presentation::camera::bedrock_camera_rotation as bedrock_rotation;
 
 use super::{
     fade::FadeState,

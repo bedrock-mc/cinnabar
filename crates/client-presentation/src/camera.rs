@@ -35,7 +35,6 @@ mod shake;
 #[cfg(test)]
 mod spawn_tests;
 
-use view_presentation::camera::{CameraHurtState, FirstPersonHandMotion, HandSwayState, WalkBobState, projection_fov_radians};
 pub use controls::{
     AutoFly, auto_fly_offset, input_is_active, look_angles, look_at_target, release_cursor,
     update_cursor_capture, update_look, update_movement, update_perspective,
@@ -55,6 +54,9 @@ pub use rig::{
 pub use server_view::{ActorView, ServerCameraSkips, ServerCameraView, ViewContext};
 pub use settings::{
     CameraFeelSettings, CameraRig, CameraSettingsAuthority, CameraSettingsError, next_perspective,
+};
+use view_presentation::camera::{
+    CameraHurtState, FirstPersonHandMotion, HandSwayState, WalkBobState, projection_fov_radians,
 };
 
 pub const PITCH_LIMIT: f32 = 89.9_f32.to_radians();
@@ -96,7 +98,10 @@ pub fn spawn_fly_camera(
         support.msaa(settings.anti_aliasing_samples()),
         Projection::Perspective(PerspectiveProjection {
             fov: projection_fov_radians(settings.horizontal_fov_degrees()),
-            aspect_ratio: view_presentation::camera::projection_aspect(window.resolution.width(), window.resolution.height()),
+            aspect_ratio: view_presentation::camera::projection_aspect(
+                window.resolution.width(),
+                window.resolution.height(),
+            ),
             near: render_api::CAMERA_NEAR_PLANE_BLOCKS,
             near_clip_plane: Vec4::new(0.0, 0.0, -1.0, -render_api::CAMERA_NEAR_PLANE_BLOCKS),
             ..default()

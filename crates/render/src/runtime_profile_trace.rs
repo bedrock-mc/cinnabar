@@ -1,8 +1,8 @@
 //! Bounded, opt-in spans exported on the exit frame without per-frame file I/O.
 
-use bevy::platform::time::Instant;
 use crate::runtime_profile::RuntimeStage;
 use crate::runtime_profile_slow::SlowFrameEvent;
+use bevy::platform::time::Instant;
 use serde_json::json;
 use std::{
     path::PathBuf,

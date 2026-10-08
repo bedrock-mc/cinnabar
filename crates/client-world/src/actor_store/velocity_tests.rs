@@ -94,8 +94,14 @@ fn observed_motion_preserves_native_spawn_pose_and_damage_timers() {
     let mut native = ActorStore::new(1, 0);
     native.apply(1, 1, ActorEvent::Spawn(spawn));
 
-    assert_eq!(observed.native_velocity(), native.get(7).unwrap().native_velocity());
-    assert_eq!(observed.interpolated_position(0.5), Some(native.get(7).unwrap().position));
+    assert_eq!(
+        observed.native_velocity(),
+        native.get(7).unwrap().native_velocity()
+    );
+    assert_eq!(
+        observed.interpolated_position(0.5),
+        Some(native.get(7).unwrap().position)
+    );
     assert_eq!(observed.status, native.get(7).unwrap().status);
     observed.status.die();
     native.apply(

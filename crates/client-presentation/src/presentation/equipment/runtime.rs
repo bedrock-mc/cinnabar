@@ -2,19 +2,21 @@
 
 use std::{collections::BTreeMap, sync::Arc};
 
+use assets::DEFAULT_LEATHER_RGB;
 use assets::{
     ArmorSlot, EntityDependencyResolution, EquipmentCategory, IconSprite, RuntimeAssets,
     RuntimeBlockEntityAssets, RuntimeEntityAssets, RuntimeEquipmentCatalog, RuntimeIconCatalog,
 };
 use bevy::prelude::Resource;
-use view_presentation::equipment_sprite_atlas::{Placement, SpriteAtlas};
-use view_presentation::armor_pose::{bone_map, hidden_bone, pack_tint, remap_pose};
-use assets::DEFAULT_LEATHER_RGB;
-use render_model::equipment::{ItemDisplay, attach_to_bone, held_block_display, held_sprite_display, is_hand_equipped, is_rod};
-use view_presentation::equipment_display::{
-        FirstPersonArms, FirstPersonHand, FirstPersonShape, LAYER_BOOTS, LAYER_CHESTPLATE,
-        LAYER_HELMET, LAYER_LEGGINGS, LAYER_MAIN_HAND, LAYER_OFF_HAND, first_person_display, head_block_display, view_bone,
+use render_model::equipment::{
+    ItemDisplay, attach_to_bone, held_block_display, held_sprite_display, is_hand_equipped, is_rod,
 };
+use view_presentation::armor_pose::{bone_map, hidden_bone, pack_tint, remap_pose};
+use view_presentation::equipment_display::{
+    FirstPersonArms, FirstPersonShape, LAYER_BOOTS, LAYER_CHESTPLATE, LAYER_HELMET, LAYER_LEGGINGS,
+    LAYER_MAIN_HAND, LAYER_OFF_HAND, first_person_display, head_block_display, view_bone,
+};
+use view_presentation::equipment_sprite_atlas::{Placement, SpriteAtlas};
 
 use render::{
     ACTOR_LAYER_BODY, ActorArtworkLocation, ActorArtworkPages, ActorRigRenderInput, ActorRigRoute,
@@ -41,8 +43,8 @@ pub use java::java_draws_attachable;
 pub use pack::PackEquipment;
 pub use session::StagedSessionIcons;
 pub use types::{
-    ActorEquipmentInput, EquipmentAnimation, EquipmentPresentation,
-    FirstPersonItem, HeldKind, JavaGrip, WornItem,
+    ActorEquipmentInput, EquipmentAnimation, EquipmentPresentation, FirstPersonItem, HeldKind,
+    JavaGrip, WornItem,
 };
 use types::{ArmorGeometry, AttachableMeshKey, BodyBones, JavaRasterFrame, MeshKey};
 
@@ -402,7 +404,9 @@ impl EquipmentRuntime {
         {
             return None;
         }
-        let mask = |pose: &[RenderBoneTransform]| view_presentation::equipment_display::mask_first_person_bones(&bones.names, pose, arms);
+        let mask = |pose: &[RenderBoneTransform]| {
+            view_presentation::equipment_display::mask_first_person_bones(&bones.names, pose, arms)
+        };
         let mut masked = body.clone();
         let (previous, current) = (
             mask(&body.input.previous_bones),

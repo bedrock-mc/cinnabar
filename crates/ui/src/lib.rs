@@ -59,4 +59,4 @@ pub use text::{
     TextSpans, TextStyle, TextWrap, WordChop, parse_bedrock_text,
 };
 
-pub use text_metrics::{TextMetrics, DEFAULT_TEXT_CACHE_ENTRIES, DEFAULT_TEXT_CACHE_BYTES};
+pub use text_metrics::{DEFAULT_TEXT_CACHE_BYTES, DEFAULT_TEXT_CACHE_ENTRIES, TextMetrics};

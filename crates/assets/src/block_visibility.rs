@@ -16,4 +16,3 @@ pub fn is_default_invisible_block(name: &str) -> bool {
         .strip_prefix("minecraft:light_block_")
         .is_some_and(|level| level.parse::<u8>().is_ok_and(|level| level <= 15))
 }
-

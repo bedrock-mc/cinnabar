@@ -1,13 +1,13 @@
 use std::{fs, path::Path};
 
-use pack_compiler::{
-    CompiledFontCarrier, FontCompileReport, compact_font_pages, overlay_font_glyph_sheets,
-};
 use assets::{
     FONT_CARRIER_SCHEMA, FontPixels, FontTexturePage, GlyphMetrics, GlyphSheet, RuntimeFontCatalog,
     encode_font_catalog, extract_cells,
 };
 use image::{ExtendedColorType, ImageEncoder, codecs::png::PngEncoder};
+use pack_compiler::{
+    CompiledFontCarrier, FontCompileReport, compact_font_pages, overlay_font_glyph_sheets,
+};
 use sha2::{Digest, Sha256};
 
 fn base() -> CompiledFontCarrier {

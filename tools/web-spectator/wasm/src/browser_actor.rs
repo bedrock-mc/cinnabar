@@ -10,9 +10,8 @@ use assets::{EquipmentCategory, RuntimeEntityAssets, RuntimeEquipmentCatalog, Ru
 use bevy::math::{Mat4, Vec3};
 use render::{
     ActorArtworkLocation, ActorArtworkPages, ActorRenderFrame, ActorRenderIdentity,
-    ActorRenderScene, ActorRigFrameBuilder, ActorRigRenderInput, ActorRigRoute,
-    ActorRigSubmission, HandItemAtlas, HandRigLight,
-    HandRigScene,
+    ActorRenderScene, ActorRigFrameBuilder, ActorRigRenderInput, ActorRigRoute, ActorRigSubmission,
+    HandItemAtlas, HandRigLight, HandRigScene,
 };
 use render_api::SkinRgba8;
 use render_model::{ActorRigGeometry, ActorSkinPixels, EntityRigId, equipment::EquipmentRaster};
@@ -102,7 +101,8 @@ impl BrowserActors {
             {
                 continue;
             }
-            let Some(index) = render_model::find_geometry_index(&entities, &binding.geometry.identifier)
+            let Some(index) =
+                render_model::find_geometry_index(&entities, &binding.geometry.identifier)
             else {
                 continue;
             };
@@ -331,9 +331,11 @@ impl BrowserActors {
                     armor_body.input.identity.layer = equipment_display::LAYER_HELMET + slot as u8;
                     armor_body.input.rig = armor.id;
                     armor_body.input.previous_bones =
-                        view_presentation::armor_pose::remap_pose(&map, &body.input.previous_bones).into();
+                        view_presentation::armor_pose::remap_pose(&map, &body.input.previous_bones)
+                            .into();
                     armor_body.input.current_bones =
-                        view_presentation::armor_pose::remap_pose(&map, &body.input.current_bones).into();
+                        view_presentation::armor_pose::remap_pose(&map, &body.input.current_bones)
+                            .into();
                     armor_body.texture_layer = location.layer();
                     armor_body.tint = if binding.material.contains("leather") {
                         view_presentation::armor_pose::pack_tint(
@@ -425,10 +427,13 @@ impl BrowserActors {
     ) -> Option<(ActorRigSubmission, ActorArtworkLocation)> {
         let bone = bone?;
         let (mesh, location) = self.mesh_for(item)?;
-        let display =
-            render_model::equipment::held_sprite_display(render_model::equipment::is_hand_equipped(&item.name));
-        let previous =
-            render_model::equipment::attach_to_bone(*body.input.previous_bones.get(bone)?, display)?;
+        let display = render_model::equipment::held_sprite_display(
+            render_model::equipment::is_hand_equipped(&item.name),
+        );
+        let previous = render_model::equipment::attach_to_bone(
+            *body.input.previous_bones.get(bone)?,
+            display,
+        )?;
         let current =
             render_model::equipment::attach_to_bone(*body.input.current_bones.get(bone)?, display)?;
         let mut held = body.clone();

@@ -27,7 +27,10 @@ pub fn compact_font_pages(
         let source_stride = page.width as usize * 4;
         let stride = width as usize * 4;
         let mut pixels = Vec::with_capacity(stride * height as usize);
-        let rgba8 = page.pixels.rgba8().ok_or_else(|| invalid("compiled font page has no RGBA8 texels"))?;
+        let rgba8 = page
+            .pixels
+            .rgba8()
+            .ok_or_else(|| invalid("compiled font page has no RGBA8 texels"))?;
         for row in rgba8.chunks_exact(source_stride).take(height as usize) {
             pixels.extend_from_slice(&row[..stride]);
         }
@@ -41,7 +44,10 @@ pub fn compact_font_pages(
         font.glyphs(),
         &pages,
     )?;
-    compiled.report.decoded_bytes = pages.iter().map(|page| page.pixels.bytes().len() as u64).sum();
+    compiled.report.decoded_bytes = pages
+        .iter()
+        .map(|page| page.pixels.bytes().len() as u64)
+        .sum();
     compiled.report.carrier_sha256 = compiled.bytes[compiled.bytes.len() - 32..]
         .try_into()
         .map_err(|_| invalid("compacted font carrier digest is missing"))?;
