@@ -25,7 +25,6 @@ use bevy::{
     log::info,
     prelude::{EulerRot, Local, Quat, Query, Res, ResMut, Time, Vec3},
     time::Real,
-    winit::{UpdateMode, WinitSettings},
 };
 #[cfg(feature = "acceptance")]
 use chunk_pipeline::Phase2PresentationSnapshot;
@@ -107,24 +106,6 @@ pub(crate) fn local_subject_column(dimension: i32, position: Vec3) -> Option<wor
     position
         .is_finite()
         .then(|| camera_sub_chunk_key(dimension, position).chunk())
-}
-
-/// Updates capped at `frame_cap`; input still wakes an update at once unless
-/// `strict`, which deterministic acceptance runs keep to the cap alone.
-pub(crate) fn frame_limited_winit_settings(frame_cap: Option<u32>, strict: bool) -> WinitSettings {
-    let Some(frame_cap) = frame_cap else {
-        return WinitSettings::continuous();
-    };
-    let mode = UpdateMode::Reactive {
-        wait: Duration::from_secs_f64(1.0 / f64::from(frame_cap)),
-        react_to_device_events: !strict,
-        react_to_user_events: !strict,
-        react_to_window_events: !strict,
-    };
-    WinitSettings {
-        focused_mode: mode,
-        unfocused_mode: mode,
-    }
 }
 
 #[derive(Default)]

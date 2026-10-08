@@ -67,8 +67,8 @@ use crate::{
         publication::{PublicationController, begin_publication_frame},
         shutdown::{exit_on_fatal_runtime_error, exit_on_window_close_requested},
         telemetry::{
-            AcceptanceRuntimeConfig, frame_limited_winit_settings, publish_runtime_stage_profile,
-            record_metrics, send_player_auth_inputs, update_visibility_diagnostics,
+            AcceptanceRuntimeConfig, publish_runtime_stage_profile, record_metrics,
+            send_player_auth_inputs, update_visibility_diagnostics,
         },
         visibility::{
             AppMetrics, CaveVisibilityCache, DiagnosticQuads, apply_added_chunk_visibility,
@@ -721,7 +721,8 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         ..default()
     });
     app.add_plugins(plugins);
-    app.add_plugins(render::InputPacingPlugin::default());
+    app.add_plugins(render::InputPacingPlugin::default())
+        .add_systems(Last, crate::frame_pacing::update_frame_pacing);
     #[cfg(target_os = "macos")]
     crate::thread_budget::ThreadBudget::configure_render_thread(&mut app);
     app.add_systems(Update, crate::window_icon::apply);
@@ -741,10 +742,12 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     } else {
         Color::srgb(0.035, 0.043, 0.059)
     };
-    app.insert_resource(frame_limited_winit_settings(
+    app.insert_resource(crate::frame_pacing::FramePacingRuntime::new(
         args.frame_cap,
-        args.acceptance_seconds.is_some(),
+        hidden_surface || args.acceptance_seconds.is_some(),
     ))
+    // Every update passes the pacer's single admission wait, so input never adds frames.
+    .insert_resource(bevy::winit::WinitSettings::continuous())
     .insert_resource(ClearColor(clear_color))
     .insert_resource(shutdown_watchdog.clone())
     .insert_resource(TeardownWatchdog(shutdown_watchdog.clone()))

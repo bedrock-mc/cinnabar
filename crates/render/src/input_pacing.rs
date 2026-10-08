@@ -1,14 +1,22 @@
-//! Just-in-time input sampling for pipelined rendering.
+//! Frame admission: the single wait between one frame's handoff and the next frame's input.
 //!
 //! The main thread hands frame N to the render thread at the end of an update, then would start
 //! N+1 at once and block at the next handoff until N finishes rendering, so N+1's input goes stale
-//! by that whole wait. After each handoff this delays the next update until the predicted render
-//! completion less the predicted main-thread time and a safety margin, from recent frame history,
-//! or until that frame actually finishes if sooner. Render time includes drawable acquisition, so
-//! swapchain backpressure is folded in.
+//! by that whole wait. After each handoff this delays the next update until the later of two
+//! deadlines: the next slot of the requested frame-rate cadence, and the predicted render
+//! completion less the predicted main-thread time and a safety margin, from recent frame history
+//! (or that frame's actual completion if sooner). Render time includes drawable acquisition, so
+//! swapchain backpressure is folded in. The wait ends before the event loop collects the next
+//! frame's input, so events arriving meanwhile are read fresh, and since every update passes
+//! through it, input events can wake the loop but never admit an extra frame.
+
+mod wait;
 
 use std::{
-    sync::{Arc, Mutex, PoisonError},
+    sync::{
+        Arc, Mutex, PoisonError,
+        atomic::{AtomicU64, Ordering},
+    },
     time::{Duration, Instant},
 };
 
@@ -17,45 +25,105 @@ use bevy::{
     prelude::*,
     render::{Render, RenderApp, RenderSystems, pipelined_rendering::RenderExtractApp},
 };
+use render_model::{Cadence, FrameRate};
 
 use crate::{RuntimeStage, RuntimeStageProfiler};
 
-/// `0` keeps measuring input age but never delays an update.
+/// `0` keeps measuring input age but never delays an update for render completion.
 const PACING_ENV: &str = "RUST_MCBE_INPUT_PACING";
 
 /// Time the next update reaches the handoff ahead of render completion.
 pub(crate) const MARGIN: Duration = Duration::from_micros(1_000);
-/// Longest single delay; a stalled render thread never holds input for longer.
+/// Longest render-completion delay; a stalled render thread never holds input for longer.
 const MAX_DELAY: Duration = Duration::from_millis(50);
 const HISTORY: usize = 32;
 /// Samples of each duration needed before any delay is predicted.
 const MIN_SAMPLES: usize = 8;
 /// Typical durations; the margin absorbs ordinary jitter on both sides.
 const MEDIAN: usize = HISTORY / 2;
-/// Longest sleep between checks for render completion and main-thread tasks while waiting.
-const WAIT_SLICE: Duration = Duration::from_micros(250);
+/// Longest sleep between checks for render completion and main-thread tasks while waiting;
+/// background windows check less often.
+const SERVICE_SLICE: Duration = Duration::from_millis(1);
+const BACKGROUND_SERVICE_SLICE: Duration = Duration::from_millis(4);
+/// Spin before a focused deadline: starts here, then tracks observed sleep overshoot.
+const INITIAL_SPIN: Duration = Duration::from_micros(200);
+const MIN_SPIN: Duration = Duration::from_micros(50);
+const MAX_SPIN: Duration = Duration::from_micros(500);
+const SPIN_HEADROOM: Duration = Duration::from_micros(25);
+
+/// The cadence the next frames are admitted at; the app's presentation policy writes it.
+#[derive(Resource, Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct FramePacing {
+    /// At most one frame samples input per slot of this rate; `None` paces on rendering alone.
+    pub rate: Option<FrameRate>,
+    /// Spins briefly before each deadline for precision; only worth a core while focused.
+    pub precise: bool,
+}
 
 /// Wall time and blocking for the pacer; tests substitute a deterministic clock.
 pub(crate) trait PacingClock: Send + Sync + 'static {
     fn now(&self) -> Instant;
     /// Blocks until `deadline` or until `done` returns true; `done` also runs main-thread tasks.
-    fn wait_until(&self, deadline: Instant, done: &mut dyn FnMut() -> bool);
+    /// `precise` permits a short spin so the wake lands on the deadline.
+    fn wait_until(&self, deadline: Instant, precise: bool, done: &mut dyn FnMut() -> bool);
 }
 
-struct SystemClock;
+/// Sleeps on the OS's absolute monotonic timer, then spins the stretch its wakes overshoot by.
+struct SystemClock {
+    /// Current spin allowance in nanoseconds, raised at once on a late wake and relaxed slowly.
+    spin_nanos: AtomicU64,
+}
+
+impl SystemClock {
+    fn new() -> Self {
+        Self {
+            spin_nanos: AtomicU64::new(INITIAL_SPIN.as_nanos() as u64),
+        }
+    }
+
+    fn spin(&self) -> Duration {
+        Duration::from_nanos(self.spin_nanos.load(Ordering::Relaxed))
+    }
+
+    fn record_overshoot(&self, overshoot: Duration) {
+        let wanted = (overshoot + SPIN_HEADROOM).clamp(MIN_SPIN, MAX_SPIN);
+        let current = self.spin();
+        let next = if wanted > current {
+            wanted
+        } else {
+            current.saturating_sub(Duration::from_micros(1)).max(wanted)
+        };
+        self.spin_nanos
+            .store(next.as_nanos() as u64, Ordering::Relaxed);
+    }
+}
 
 impl PacingClock for SystemClock {
     fn now(&self) -> Instant {
         Instant::now()
     }
 
-    fn wait_until(&self, deadline: Instant, done: &mut dyn FnMut() -> bool) {
+    fn wait_until(&self, deadline: Instant, precise: bool, done: &mut dyn FnMut() -> bool) {
+        let (spin, slice) = if precise {
+            (self.spin(), SERVICE_SLICE)
+        } else {
+            (Duration::ZERO, BACKGROUND_SERVICE_SLICE)
+        };
+        let spin_from = deadline.checked_sub(spin).unwrap_or(deadline);
         while !done() {
             let now = Instant::now();
             if now >= deadline {
                 return;
             }
-            std::thread::sleep((deadline - now).min(WAIT_SLICE));
+            if now < spin_from {
+                let target = spin_from.min(now + slice);
+                wait::sleep_until(target);
+                if precise && target == spin_from {
+                    self.record_overshoot(Instant::now().saturating_duration_since(target));
+                }
+            } else {
+                std::hint::spin_loop();
+            }
         }
     }
 }
@@ -128,6 +196,8 @@ struct PacerState {
     /// Frames handed to the render thread and frames it has finished; it renders them in order.
     handed: u64,
     finished: u64,
+    cadence: Option<Cadence>,
+    precise: bool,
 }
 
 /// Shared between the main-thread handoff and the render thread's frame markers.
@@ -135,6 +205,8 @@ struct PacerState {
 pub(crate) struct InputPacer {
     state: Arc<Mutex<PacerState>>,
     clock: Arc<dyn PacingClock>,
+    /// Origin of the cadence's nanosecond timeline.
+    epoch: Instant,
     enabled: bool,
 }
 
@@ -142,6 +214,7 @@ impl InputPacer {
     pub(crate) fn new(clock: Arc<dyn PacingClock>, enabled: bool) -> Self {
         Self {
             state: Arc::default(),
+            epoch: clock.now(),
             clock,
             enabled,
         }
@@ -151,8 +224,29 @@ impl InputPacer {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    fn update_started(&self) {
-        self.state().update_started = Some(self.clock.now());
+    fn nanos(&self, at: Instant) -> u64 {
+        u64::try_from(at.saturating_duration_since(self.epoch).as_nanos()).unwrap_or(u64::MAX)
+    }
+
+    fn instant(&self, nanos: u64) -> Instant {
+        self.epoch + Duration::from_nanos(nanos)
+    }
+
+    /// Marks this update's input sample against the cadence; a new rate starts a new epoch.
+    fn update_started(&self, pacing: FramePacing) {
+        let now = self.clock.now();
+        let at = self.nanos(now);
+        let mut state = self.state();
+        state.update_started = Some(now);
+        state.precise = pacing.precise;
+        state.cadence = pacing.rate.map(|rate| {
+            let mut cadence = match state.cadence {
+                Some(cadence) if cadence.rate() == rate => cadence,
+                _ => Cadence::new(rate, at),
+            };
+            cadence.admit(at);
+            cadence
+        });
     }
 
     fn render_started(&self) {
@@ -181,7 +275,7 @@ impl InputPacer {
         let ready = self.clock.now();
         inner(main, render);
         let handed = self.clock.now();
-        let (update_started, delay, handed_frame) = {
+        let (update_started, delay, handed_frame, cadence, precise) = {
             let mut state = self.state();
             state.handed += 1;
             let update_started = state.update_started.take();
@@ -191,7 +285,16 @@ impl InputPacer {
                     .main
                     .record(ready.saturating_duration_since(started));
             }
-            (update_started, state.model.delay(), state.handed)
+            let cadence = state
+                .cadence
+                .map(|cadence| self.instant(cadence.next_admission_nanos()));
+            (
+                update_started,
+                state.model.delay(),
+                state.handed,
+                cadence,
+                state.precise,
+            )
         };
         let profiler = main.get_resource::<RuntimeStageProfiler>().cloned();
         if let (Some(profiler), Some(started)) = (&profiler, update_started) {
@@ -201,32 +304,76 @@ impl InputPacer {
                 handed.saturating_duration_since(started),
             );
         }
-        if !self.enabled || delay.is_zero() {
+        let render_ready = (self.enabled && !delay.is_zero()).then(|| handed + delay);
+        let Some(deadline) = cadence.max(render_ready) else {
             return;
-        }
-        #[cfg(feature = "tracy")]
-        let _span = bevy::log::info_span!("input_pacing.wait").entered();
+        };
         let executor = main
             .get_resource::<MainThreadExecutor>()
             .map(|executor| executor.0.clone());
-        let ticker = executor.as_deref().and_then(|executor| executor.ticker());
+        self.wait(
+            deadline,
+            precise,
+            profiler.as_ref(),
+            || {
+                // Rendering may only cut the wait short once the cadence slot has opened.
+                render_ready.is_some()
+                    && cadence.is_none_or(|slot| self.clock.now() >= slot)
+                    && self.state().finished >= handed_frame
+            },
+            executor.as_deref(),
+        );
+    }
+
+    /// Without pipelined rendering only the cadence applies, at the end of the update.
+    fn pace_unpipelined(&self, main: &World) {
+        let (cadence, precise) = {
+            let state = self.state();
+            (state.cadence, state.precise)
+        };
+        if let Some(cadence) = cadence {
+            let profiler = main.get_resource::<RuntimeStageProfiler>().cloned();
+            let deadline = self.instant(cadence.next_admission_nanos());
+            self.wait(deadline, precise, profiler.as_ref(), || false, None);
+        }
+    }
+
+    fn wait(
+        &self,
+        deadline: Instant,
+        precise: bool,
+        profiler: Option<&RuntimeStageProfiler>,
+        mut finished: impl FnMut() -> bool,
+        executor: Option<&bevy::tasks::ThreadExecutor<'static>>,
+    ) {
+        #[cfg(feature = "tracy")]
+        let _span = bevy::log::info_span!("input_pacing.wait").entered();
+        let started = self.clock.now();
+        let ticker = executor.and_then(|executor| executor.ticker());
         let mut done = || {
             while ticker.as_ref().is_some_and(|ticker| ticker.try_tick()) {}
-            self.state().finished >= handed_frame
+            finished()
         };
-        self.clock.wait_until(handed + delay, &mut done);
+        self.clock.wait_until(deadline, precise, &mut done);
         if let Some(profiler) = profiler {
+            let woke = self.clock.now();
             profiler.record(
                 RuntimeStage::InputPacingWait,
-                handed,
-                self.clock.now().saturating_duration_since(handed),
+                started,
+                woke.saturating_duration_since(started),
             );
+            if woke >= deadline {
+                profiler.record(
+                    RuntimeStage::FramePacingLateness,
+                    deadline,
+                    woke.saturating_duration_since(deadline),
+                );
+            }
         }
     }
 }
 
-/// Paces updates when rendering is pipelined; otherwise render runs inside the update and
-/// there is no handoff to pace.
+/// Paces updates at the handoff when rendering is pipelined, otherwise at the end of `Last`.
 #[derive(Default)]
 pub struct InputPacingPlugin {
     #[cfg(test)]
@@ -245,23 +392,28 @@ impl InputPacingPlugin {
             return pacer.clone();
         }
         let enabled = std::env::var_os(PACING_ENV).is_none_or(|value| value != "0");
-        InputPacer::new(Arc::new(SystemClock), enabled)
+        InputPacer::new(Arc::new(SystemClock::new()), enabled)
     }
 }
 
 impl Plugin for InputPacingPlugin {
     fn build(&self, app: &mut App) {
-        let Some(extract_app) = app.get_sub_app_mut(RenderExtractApp) else {
-            return;
-        };
-        let Some(mut inner) = extract_app.take_extract() else {
-            return;
-        };
         let pacer = self.pacer();
+        app.init_resource::<FramePacing>()
+            .insert_resource(pacer.clone())
+            .add_systems(First, mark_update_start);
+        let inner = app
+            .get_sub_app_mut(RenderExtractApp)
+            .and_then(|extract_app| extract_app.take_extract());
+        let Some(mut inner) = inner else {
+            app.add_systems(Last, pace_unpipelined);
+            return;
+        };
         let handoff = pacer.clone();
-        extract_app.set_extract(move |main, render| handoff.handoff(main, render, &mut inner));
+        app.sub_app_mut(RenderExtractApp)
+            .set_extract(move |main, render| handoff.handoff(main, render, &mut inner));
         if let Some(render_app) = app.get_sub_app_mut(RenderApp) {
-            render_app.insert_resource(pacer.clone()).add_systems(
+            render_app.insert_resource(pacer).add_systems(
                 Render,
                 (
                     mark_render_start.before(RenderSystems::ExtractCommands),
@@ -269,13 +421,17 @@ impl Plugin for InputPacingPlugin {
                 ),
             );
         }
-        app.insert_resource(pacer)
-            .add_systems(First, mark_update_start);
     }
 }
 
-fn mark_update_start(pacer: Res<InputPacer>) {
-    pacer.update_started();
+fn mark_update_start(pacer: Res<InputPacer>, pacing: Res<FramePacing>) {
+    pacer.update_started(*pacing);
+}
+
+fn pace_unpipelined(world: &mut World) {
+    if let Some(pacer) = world.get_resource::<InputPacer>().cloned() {
+        pacer.pace_unpipelined(world);
+    }
 }
 
 fn mark_render_start(pacer: Res<InputPacer>) {

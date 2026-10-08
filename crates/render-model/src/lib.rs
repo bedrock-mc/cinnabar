@@ -7,6 +7,7 @@ mod chunk_metrics;
 mod dropped_item;
 mod entity_shadow;
 pub mod equipment;
+mod frame_pacing;
 mod item_geometry;
 pub mod java_animation;
 mod nametag;
@@ -44,6 +45,10 @@ pub use entity_shadow::{
     SHADOW_VOLUME_BOTTOM_RADIUS, SHADOW_VOLUME_BOTTOM_Y, SHADOW_VOLUME_SIDES,
     SHADOW_VOLUME_TOP_RADIUS, SHADOW_VOLUME_TOP_Y, SHADOW_VOLUME_VERTICES, entity_shadow_colour,
     shadow_screen_rect, shadow_volume_mesh, unit_volume_contains,
+};
+pub use frame_pacing::{
+    Cadence, FrameRate, OCCLUDED_FRAME_RATE, UNFOCUSED_FRAME_RATE, WindowActivity,
+    effective_frame_rate,
 };
 pub use item_geometry::{extruded_sprite_vertices, held_sprite_vertices, textured_cube_vertices};
 pub use nametag::{
