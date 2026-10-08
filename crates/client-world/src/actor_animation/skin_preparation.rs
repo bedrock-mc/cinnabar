@@ -37,8 +37,12 @@ impl ActorAnimationStore {
     }
 
     /// Tests can await their own submitted batch without making a timing assertion.
-    #[cfg(any(test, feature = "appearance-test-support"))]
-    pub(crate) fn finish_skin_preparation_for_test(&mut self) {
-        self.skin_preparation.finish_for_test();
+    #[cfg(test)]
+    pub(crate) fn finish_skin_fixture_batch(&mut self) {
+        self.skin_preparation.finish_fixture_batch();
+    }
+
+    pub(crate) fn skin_preparation_pending(&self) -> bool {
+        self.skin_preparation.is_pending()
     }
 }
