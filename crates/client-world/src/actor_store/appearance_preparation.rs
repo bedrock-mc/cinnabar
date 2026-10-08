@@ -77,9 +77,13 @@ impl ActorStore {
     }
 
     /// Tests explicitly await their own immutable job without assuming any wall-clock duration.
-    #[cfg(any(test, feature = "appearance-test-support"))]
-    pub(crate) fn finish_appearance_preparation_for_test(&mut self) {
-        self.animation.finish_skin_preparation_for_test();
+    #[cfg(test)]
+    pub(crate) fn finish_appearance_fixture_batch(&mut self) {
+        self.animation.finish_skin_fixture_batch();
+    }
+
+    pub(crate) fn appearance_preparation_pending(&self) -> bool {
+        self.animation.skin_preparation_pending()
     }
 
     /// Newly pending appearances have no drawable body or hand until the matching model is ready.
