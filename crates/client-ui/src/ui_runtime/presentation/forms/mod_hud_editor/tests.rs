@@ -160,6 +160,56 @@ fn editor_grid_is_optional_and_nudging_stays_inside_available_travel() {
     assert!((moved[0] - origin[0] - 8.).abs() < 0.001);
 }
 #[test]
+fn large_editor_viewport_draws_a_bounded_subset_of_the_same_eight_pixel_grid() {
+    let mut p = presentation(false);
+    p.set_gui_scale_preference(Some(1));
+    let mut hud = content();
+    hud.cards[0].title.clear();
+    editor(&mut p, &hud);
+    frame(&mut p, &UiRuntime::new(1), [8192, 2160], 1.);
+    click(&mut p, "hud.grid");
+    frame(&mut p, &UiRuntime::new(1), [8192, 2160], 1.);
+    let e = p.form_presentation.mod_hud_editor.as_ref().unwrap();
+    assert!(
+        e.viewport[0] > 1536.,
+        "exercise a viewport that needs bounded grid decimation"
+    );
+    let px = e.frame.as_ref().unwrap().scale;
+    let lines: Vec<_> = p
+        .last_frame
+        .as_ref()
+        .unwrap()
+        .nodes
+        .iter()
+        .filter_map(|node| {
+            let ui::UiVisual::Mesh(mesh) = node.visual() else {
+                return None;
+            };
+            mesh.vertices()
+                .iter()
+                .any(|v| v.color == [255, 255, 255, 23])
+                .then(|| node.bounds())
+        })
+        .collect();
+    assert!(
+        !lines.is_empty() && lines.len() <= 384,
+        "bounded visible grid lines"
+    );
+    for line in lines {
+        let axis = usize::from(line.max().x() - line.min().x() > px);
+        let at = if axis == 0 {
+            line.min().x()
+        } else {
+            line.min().y()
+        };
+        let grid = at / px / 8.;
+        assert!(
+            (grid - grid.round()).abs() < 0.001,
+            "visible lines agree with eight pixel snapping"
+        );
+    }
+}
+#[test]
 fn editor_closure_and_invalid_preview_release_drag_without_persisting() {
     let mut p = presentation(false);
     let hud = content();

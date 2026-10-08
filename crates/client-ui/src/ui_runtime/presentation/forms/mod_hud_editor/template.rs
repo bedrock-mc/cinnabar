@@ -24,7 +24,7 @@ pub(super) fn catalog(hud: &Hud, viewport: [f64; 2]) -> Result<Catalog, String> 
     // A bounded grid. Larger virtual viewports keep the same drag increment and fewer drawn lines.
     let mut lines = Vec::new();
     for axis in 0..2 {
-        let spacing = (viewport[axis] / 192.).ceil().max(8.);
+        let spacing = 8. * (viewport[axis] / (192. * 8.)).ceil().max(1.);
         for n in 1..=(viewport[axis] / spacing) as usize {
             let mut size = viewport;
             size[axis] = 0.5;
