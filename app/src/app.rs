@@ -56,7 +56,7 @@ use crate::{
         LocalMovementEffectTimeline, LocalMovementSpeedAuthority, LocalPhysicsController,
         PhysicsAuthorityGate, advance_local_physics, send_movement_prediction_sync,
     },
-    present_mode::{PresentModeRuntime, apply_runtime_vsync_setting},
+    present_mode::{PresentModeRuntime, apply_present_mode},
     runtime::{
         endpoint::{preflight_bridge_endpoint, resolve_socket_dir},
         network::{
@@ -99,7 +99,7 @@ use crate::{
     },
 };
 use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
-use diagnostics::markers::{SHUTDOWN_COMPLETED, requested_present_mode};
+use diagnostics::markers::SHUTDOWN_COMPLETED;
 use diagnostics::metrics::MetricsCollector;
 
 #[cfg(feature = "acceptance")]
@@ -373,7 +373,7 @@ pub(crate) fn configure_client_runtime_frame_systems(app: &mut App) {
                 emit_world_ready,
                 #[cfg(feature = "acceptance")]
                 drive_model_witness,
-                apply_runtime_vsync_setting,
+                apply_present_mode,
                 record_metrics,
                 publish_runtime_stage_profile,
             )
@@ -668,13 +668,21 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         NetworkHandle::disconnected()
     };
     let movement_ticker = network.movement_ticker();
-    let present_mode = requested_present_mode(args.no_vsync);
     let diagnostics_enabled = args.acceptance_seconds.is_some() || args.metrics_out.is_some();
     let stage_profile_enabled = std::env::var_os(crate::acceptance::markers::STAGE_PROFILE)
         .as_deref()
         == Some(OsStr::new("1"));
-    let present_mode_runtime =
-        PresentModeRuntime::from_startup(args.force_vsync, args.no_vsync, diagnostics_enabled);
+    #[cfg(feature = "developer-control")]
+    let hidden_surface = crate::developer_control::hidden_window_requested();
+    #[cfg(not(feature = "developer-control"))]
+    let hidden_surface = false;
+    let present_mode_runtime = PresentModeRuntime::from_startup(
+        args.force_vsync,
+        args.no_vsync,
+        diagnostics_enabled,
+        hidden_surface,
+    );
+    let present_mode = present_mode_runtime.window_present_mode();
     let present_mode_policy = present_mode_runtime.policy();
     let vsync_override = present_mode_runtime.vsync_override();
     let runtime_config = AcceptanceRuntimeConfig {
@@ -724,9 +732,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     });
     // Account feeds also serve Profile in direct-address and external-socket runs.
     app.init_resource::<crate::menu::LauncherCoreSlot>();
-    app.add_plugins(render::Dx12PresentModePolicyPlugin::new(
-        present_mode_policy,
-    ));
+    app.add_plugins(render::PresentModePolicyPlugin::new(present_mode_policy));
     if diagnostics_enabled {
         app.add_plugins(RenderDiagnosticsPlugin);
     }

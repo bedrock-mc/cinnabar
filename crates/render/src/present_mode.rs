@@ -1,6 +1,6 @@
 use std::sync::{
     Arc,
-    atomic::{AtomicU8, Ordering},
+    atomic::{AtomicU8, AtomicU16, Ordering},
 };
 
 use bevy::{
@@ -16,19 +16,16 @@ use bevy::{
     prelude::{IntoScheduleConfigs, Res},
     render::{
         Render, RenderSystems,
-        renderer::{RenderAdapter, RenderInstance},
+        renderer::RenderAdapter,
         view::window::{ExtractedWindows, create_surfaces},
     },
 };
+use render_model::{PresentModeKind, PresentationIntent, SurfacePresentModes};
 
 const AFFECTED_DX12_ADAPTER: &str = "Radeon RX 570 Series";
 const AFFECTED_DX12_DRIVERS: &[&str] = &["31.0.21924.61", "31.0.21925.1001"];
-#[cfg(any(target_os = "windows", test))]
-const INITIAL_PROBE_RETRY_FRAMES: u16 = 4;
-#[cfg(any(target_os = "windows", test))]
-const MAX_PROBE_RETRY_FRAMES: u16 = 60;
-#[cfg(any(target_os = "windows", test))]
-const MAX_BACKOFF_FAILURES: u8 = 5;
+/// Marks published capabilities so an empty FIFO-only set is distinct from "not yet probed".
+const CAPABILITIES_KNOWN: u16 = 1 << 8;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 #[repr(u8)]
@@ -45,6 +42,14 @@ impl PresentModePreference {
             1 => Self::Vsync,
             2 => Self::NoVsync,
             _ => Self::Auto,
+        }
+    }
+
+    #[must_use]
+    pub const fn intent(self) -> PresentationIntent {
+        match self {
+            Self::Auto | Self::Vsync => PresentationIntent::Synchronized,
+            Self::NoVsync => PresentationIntent::LowLatency,
         }
     }
 }
@@ -66,24 +71,28 @@ impl PresentModeRemedy {
     }
 }
 
+/// Presentation state shared by the main world, which picks the window's mode, and the render
+/// world, which probes the surface and the driver remedy.
 #[derive(Resource, Clone, Debug)]
-pub struct Dx12PresentModePolicy {
+pub struct PresentModePolicy {
     preference: Arc<AtomicU8>,
     remedy: Arc<AtomicU8>,
+    capabilities: Arc<AtomicU16>,
 }
 
-impl Default for Dx12PresentModePolicy {
+impl Default for PresentModePolicy {
     fn default() -> Self {
         Self::new(PresentModePreference::Auto)
     }
 }
 
-impl Dx12PresentModePolicy {
+impl PresentModePolicy {
     #[must_use]
     pub fn new(preference: PresentModePreference) -> Self {
         Self {
             preference: Arc::new(AtomicU8::new(preference as u8)),
             remedy: Arc::new(AtomicU8::new(PresentModeRemedy::KeepRequested as u8)),
+            capabilities: Arc::default(),
         }
     }
 
@@ -106,6 +115,42 @@ impl Dx12PresentModePolicy {
     pub fn remedy(&self) -> PresentModeRemedy {
         PresentModeRemedy::from_u8(self.remedy.load(Ordering::Acquire))
     }
+
+    /// Publishes the primary surface's modes; `None` while a new window awaits its probe.
+    pub fn publish_capabilities(&self, modes: Option<SurfacePresentModes>) {
+        let encoded = modes.map_or(0, |modes| CAPABILITIES_KNOWN | u16::from(modes.bits()));
+        self.capabilities.store(encoded, Ordering::Release);
+    }
+
+    #[must_use]
+    pub fn capabilities(&self) -> Option<SurfacePresentModes> {
+        let encoded = self.capabilities.load(Ordering::Acquire);
+        (encoded & CAPABILITIES_KNOWN != 0)
+            .then(|| SurfacePresentModes::from_bits(encoded.to_le_bytes()[0]))
+    }
+}
+
+/// Converts a selected mode into the window request Bevy configures.
+#[must_use]
+pub const fn window_present_mode(mode: PresentModeKind) -> PresentMode {
+    match mode {
+        PresentModeKind::Fifo => PresentMode::Fifo,
+        PresentModeKind::FifoRelaxed => PresentMode::FifoRelaxed,
+        PresentModeKind::Mailbox => PresentMode::Mailbox,
+        PresentModeKind::Immediate => PresentMode::Immediate,
+    }
+}
+
+/// The concrete mode a window requests; automatic requests have none.
+#[must_use]
+pub const fn requested_present_mode_kind(mode: PresentMode) -> Option<PresentModeKind> {
+    match mode {
+        PresentMode::Fifo => Some(PresentModeKind::Fifo),
+        PresentMode::FifoRelaxed => Some(PresentModeKind::FifoRelaxed),
+        PresentMode::Mailbox => Some(PresentModeKind::Mailbox),
+        PresentMode::Immediate => Some(PresentModeKind::Immediate),
+        PresentMode::AutoVsync | PresentMode::AutoNoVsync => None,
+    }
 }
 
 #[must_use]
@@ -115,14 +160,14 @@ pub fn resolve_dx12_present_mode_remedy(
     adapter: &str,
     driver: &str,
     requested: PresentMode,
-    supported: &[wgpu::PresentMode],
+    supported: SurfacePresentModes,
 ) -> PresentModeRemedy {
     if preference == PresentModePreference::Auto
         && backend == wgpu::Backend::Dx12
         && adapter.trim().eq_ignore_ascii_case(AFFECTED_DX12_ADAPTER)
         && AFFECTED_DX12_DRIVERS.contains(&driver.trim())
         && requested == PresentMode::Fifo
-        && supported.contains(&wgpu::PresentMode::Immediate)
+        && supported.contains(PresentModeKind::Immediate)
     {
         PresentModeRemedy::UseImmediate
     } else {
@@ -130,30 +175,33 @@ pub fn resolve_dx12_present_mode_remedy(
     }
 }
 
+/// Shares `policy` with the render world, which probes the surface and the driver remedy.
 #[derive(Clone, Debug)]
-pub struct Dx12PresentModePolicyPlugin {
-    policy: Dx12PresentModePolicy,
+pub struct PresentModePolicyPlugin {
+    policy: PresentModePolicy,
 }
 
-impl Dx12PresentModePolicyPlugin {
+impl PresentModePolicyPlugin {
     #[must_use]
-    pub fn new(policy: Dx12PresentModePolicy) -> Self {
+    pub fn new(policy: PresentModePolicy) -> Self {
         Self { policy }
     }
 }
 
-impl Plugin for Dx12PresentModePolicyPlugin {
+impl Plugin for PresentModePolicyPlugin {
     fn build(&self, app: &mut App) {
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
             return;
         };
         render_app.insert_resource(self.policy.clone());
         crate::surface_lifecycle::install(render_app);
+        crate::surface_capabilities::install(render_app);
         #[cfg(target_os = "windows")]
         render_app.add_systems(
             Render,
             apply_dx12_present_mode_policy
                 .in_set(PresentModePolicySet)
+                .after(crate::surface_capabilities::SurfaceCapabilitiesSet)
                 .after(RenderSystems::ExtractCommands)
                 .before(create_surfaces),
         );
@@ -273,90 +321,26 @@ impl AutoRemedyLifecycle {
     }
 }
 
-#[cfg(any(target_os = "windows", test))]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct SurfaceProbeKey {
-    window: u64,
-    preference: PresentModePreference,
-    requested: PresentMode,
-}
-
-#[cfg(any(target_os = "windows", test))]
-#[derive(Debug, Default)]
-struct SurfaceProbeRetry {
-    key: Option<SurfaceProbeKey>,
-    consecutive_failures: u8,
-    cooldown_frames: u16,
-}
-
-#[cfg(any(target_os = "windows", test))]
-impl SurfaceProbeRetry {
-    fn should_attempt(&mut self, key: SurfaceProbeKey) -> bool {
-        if self.key != Some(key) {
-            self.key = Some(key);
-            self.consecutive_failures = 0;
-            self.cooldown_frames = 0;
-        }
-        if self.cooldown_frames == 0 {
-            true
-        } else {
-            self.cooldown_frames -= 1;
-            false
-        }
-    }
-
-    fn record_failure(&mut self, key: SurfaceProbeKey) {
-        if self.key != Some(key) {
-            self.key = Some(key);
-            self.consecutive_failures = 0;
-        }
-        self.consecutive_failures = self
-            .consecutive_failures
-            .saturating_add(1)
-            .min(MAX_BACKOFF_FAILURES);
-        let shift = u32::from(self.consecutive_failures.saturating_sub(1));
-        self.cooldown_frames = INITIAL_PROBE_RETRY_FRAMES
-            .checked_shl(shift)
-            .unwrap_or(MAX_PROBE_RETRY_FRAMES)
-            .min(MAX_PROBE_RETRY_FRAMES);
-    }
-
-    #[cfg(target_os = "windows")]
-    fn record_success(&mut self, key: SurfaceProbeKey) {
-        self.key = Some(key);
-        self.consecutive_failures = 0;
-        self.cooldown_frames = 0;
-    }
-
-    #[cfg(target_os = "windows")]
-    fn reset(&mut self) {
-        *self = Self::default();
-    }
-}
-
 #[cfg(target_os = "windows")]
 fn apply_dx12_present_mode_policy(
     windows: Res<ExtractedWindows>,
-    render_instance: Res<RenderInstance>,
+    probed: Res<crate::surface_capabilities::ProbedSurface>,
     render_adapter: Res<RenderAdapter>,
-    policy: Res<Dx12PresentModePolicy>,
+    policy: Res<PresentModePolicy>,
     mut cached: Local<Option<CachedResolution>>,
     mut lifecycle: Local<AutoRemedyLifecycle>,
-    mut probe_retry: Local<SurfaceProbeRetry>,
 ) {
     let preference = policy.preference();
     let Some(window_id) = windows.primary else {
         policy.publish_remedy(PresentModeRemedy::KeepRequested);
         *cached = None;
         lifecycle.reset();
-        probe_retry.reset();
         return;
     };
     let Some(window) = windows.windows.get(&window_id) else {
         policy.publish_remedy(PresentModeRemedy::KeepRequested);
         *cached = None;
         lifecycle.reset();
-        probe_retry.reset();
         return;
     };
     let requested = window.present_mode;
@@ -376,26 +360,9 @@ fn apply_dx12_present_mode_policy(
     if !key_matches {
         policy.publish_remedy(PresentModeRemedy::KeepRequested);
         *cached = None;
-        let probe_key = SurfaceProbeKey {
-            window: window_identity,
-            preference,
-            requested,
-        };
-        if !probe_retry.should_attempt(probe_key) {
-            return;
-        }
-        let surface_target = wgpu::SurfaceTargetUnsafe::RawHandle {
-            raw_display_handle: window.handle.get_display_handle(),
-            raw_window_handle: window.handle.get_window_handle(),
-        };
-        // SAFETY: The render-world extracted window owns valid handles and this
-        // system is constrained to Bevy's main-thread render surface schedule.
-        let Ok(surface) = (unsafe { render_instance.create_surface_unsafe(surface_target) }) else {
-            probe_retry.record_failure(probe_key);
+        let Some(supported) = probed.modes_for(window_id) else {
             return;
         };
-        probe_retry.record_success(probe_key);
-        let capabilities = surface.get_capabilities(&render_adapter);
         let adapter_info = render_adapter.get_info();
         let resolution = CachedResolution {
             window: window_id,
@@ -407,7 +374,7 @@ fn apply_dx12_present_mode_policy(
                 &adapter_info.name,
                 &adapter_info.driver,
                 requested,
-                &capabilities.present_modes,
+                supported,
             ),
         };
         policy.publish_remedy(resolution.remedy);
@@ -487,37 +454,5 @@ mod tests {
                 AutoRemedyLifecycleEvent::None
             );
         }
-    }
-
-    #[test]
-    fn failed_surface_probe_uses_capped_backoff_and_eventually_retries() {
-        let mut retry = SurfaceProbeRetry::default();
-        let key = SurfaceProbeKey {
-            window: 13,
-            preference: PresentModePreference::Auto,
-            requested: PresentMode::Fifo,
-        };
-        assert!(retry.should_attempt(key));
-        retry.record_failure(key);
-        for _ in 0..INITIAL_PROBE_RETRY_FRAMES {
-            assert!(!retry.should_attempt(key));
-        }
-        assert!(retry.should_attempt(key));
-
-        for _ in 0..(MAX_BACKOFF_FAILURES + 2) {
-            retry.record_failure(key);
-        }
-        assert_eq!(retry.cooldown_frames, MAX_PROBE_RETRY_FRAMES);
-        for _ in 0..MAX_PROBE_RETRY_FRAMES {
-            assert!(!retry.should_attempt(key));
-        }
-        assert!(retry.should_attempt(key));
-
-        let replacement = SurfaceProbeKey { window: 14, ..key };
-        retry.record_failure(key);
-        assert!(
-            retry.should_attempt(replacement),
-            "a changed window/key must not inherit an unrelated failure cooldown"
-        );
     }
 }

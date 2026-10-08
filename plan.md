@@ -600,9 +600,10 @@
   default on; the three-way `vsync_dropdown` exists only in the non-publish Debug section).
 - Toggle follows Max Framerate in the advanced video options, labelled `options.vsync`, default
   on, persisted with the settings registry and applied live.
-- On keeps the automatic present-mode policy and its DX12 remedy; off requests AutoNoVsync
-  (Immediate, else Mailbox). `--vsync`, `--no-vsync` and evidence runs pin the session and show
-  the toggle locked to that state. Incomplete: rendered Video-screen acceptance pending.
+- On keeps the automatic present-mode policy and its DX12 remedy; off selects Immediate, else
+  Mailbox, else FIFO from the primary surface's probed modes, the same decision `--no-vsync` uses.
+  `--vsync`, `--no-vsync` and evidence runs pin the session and show the toggle locked to that
+  state. Incomplete: rendered Video-screen acceptance pending.
 
 ## Unfilled sub-chunk slots light as air
 
