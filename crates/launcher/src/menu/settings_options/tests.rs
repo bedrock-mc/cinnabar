@@ -568,13 +568,12 @@ fn frame_rate_slider_stops_cover_automatic_every_cap_and_unlimited() {
     }
 }
 
+/// Tearing is not a player setting; a stray stored key is ignored, never an error.
 #[test]
-fn allow_tearing_defaults_off_and_resets_with_video() {
-    let mut settings = SettingsOptions::default();
-    assert!(!settings.user_settings().video.allow_tearing);
-    settings.set(index(ALLOW_TEARING_OPTION.name), 1);
-    let mut saved = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
-    assert!(saved.user_settings().video.allow_tearing);
-    saved.reset_group(SettingsGroup::Video);
-    assert!(!saved.user_settings().video.allow_tearing);
+fn an_unknown_tearing_key_is_ignored() {
+    let settings =
+        SettingsOptions::decode(br#"{"schema":1,"values":{"allow_tearing":1,"vsync":0}}"#).unwrap();
+    assert!(!settings.user_settings().video.vsync);
+    let saved = String::from_utf8(serde_json::to_vec(&settings).unwrap()).unwrap();
+    assert!(!saved.contains("allow_tearing"), "{saved}");
 }

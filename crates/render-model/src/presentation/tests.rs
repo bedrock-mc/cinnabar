@@ -3,9 +3,9 @@ use std::num::NonZeroU16;
 use super::*;
 use FrameRateLimit::{Automatic, Fixed, Unlimited};
 use PresentModeKind::{Fifo, FifoRelaxed, Immediate, Mailbox};
-use PresentationIntent::{AllowTearing, LowLatency, Synchronized};
+use PresentationIntent::{LowLatency, Synchronized, Unpaced};
 
-const INTENTS: [PresentationIntent; 3] = [Synchronized, LowLatency, AllowTearing];
+const INTENTS: [PresentationIntent; 3] = [Synchronized, LowLatency, Unpaced];
 
 fn modes(list: &[PresentModeKind]) -> SurfacePresentModes {
     list.iter().copied().collect()
@@ -51,11 +51,10 @@ fn selection_table_matches_backend_capability_sets() {
         (LowLatency, fixed(240), dx12, Mailbox),
         (LowLatency, Unlimited, dx12_tearing, Mailbox),
         (LowLatency, Unlimited, metal, Fifo),
-        (AllowTearing, Automatic, metal, Immediate),
-        (AllowTearing, Automatic, dx12_tearing, Immediate),
-        (AllowTearing, Automatic, dx12, Mailbox),
-        (AllowTearing, Unlimited, modes(&[Fifo, FifoRelaxed]), Fifo),
-        (AllowTearing, Automatic, fifo_only, Fifo),
+        (LowLatency, Unlimited, fifo_only, Fifo),
+        (Unpaced, Automatic, metal, Immediate),
+        (Unpaced, Automatic, dx12, Mailbox),
+        (Unpaced, Unlimited, modes(&[Fifo, FifoRelaxed]), Fifo),
     ] {
         assert_eq!(
             select_present_mode(intent, limit, fixed_120, surface),
@@ -65,9 +64,9 @@ fn selection_table_matches_backend_capability_sets() {
     }
 }
 
-/// Without tearing, Immediate is never chosen whatever the surface, limit or display.
+/// Player-facing presentation never tears, whatever the surface, limit or display.
 #[test]
-fn only_an_explicit_tearing_intent_selects_immediate() {
+fn player_intents_never_select_immediate() {
     for surface in all_surfaces() {
         for limit in all_limits() {
             for vrr in [VrrStatus::Active, VrrStatus::Unknown] {
@@ -95,10 +94,10 @@ fn selection_never_requests_an_unadvertised_mode_or_relies_on_fallback() {
 }
 
 #[test]
-fn unprobed_requests_stay_tear_free_unless_tearing_is_allowed() {
+fn unprobed_player_requests_start_on_fifo() {
     assert_eq!(initial_present_mode(Synchronized), Fifo);
     assert_eq!(initial_present_mode(LowLatency), Fifo);
-    assert_eq!(initial_present_mode(AllowTearing), Immediate);
+    assert_eq!(initial_present_mode(Unpaced), Immediate);
     let fifo_only = SurfacePresentModes::FIFO_ONLY;
     assert_eq!(configured_present_mode(Immediate, fifo_only), Fifo);
     assert_eq!(
@@ -118,21 +117,13 @@ fn a_limit_outpaces_the_display_only_above_its_refresh() {
     assert!(outpaces_display(fixed(60), DisplayTiming::default()));
 }
 
+/// Automatic never adds a second clock: the display paces FIFO and Mailbox only serves a
+/// limit above refresh.
 #[test]
-fn automatic_rates_follow_the_intent_and_display() {
+fn automatic_and_unlimited_leave_pacing_to_the_display_or_rendering() {
     let fixed_120 = display(120, VrrStatus::Unknown);
-    assert_eq!(frame_rate_target(Synchronized, Automatic, fixed_120), None);
-    assert_eq!(frame_rate_target(LowLatency, Automatic, fixed_120), None);
-    assert_eq!(
-        frame_rate_target(AllowTearing, Automatic, fixed_120),
-        Some(hz(240))
-    );
-    assert_eq!(
-        frame_rate_target(AllowTearing, Automatic, DisplayTiming::default()),
-        Some(hz(240)),
-        "an unknown refresh assumes the provisional rate"
-    );
     for intent in INTENTS {
+        assert_eq!(frame_rate_target(intent, Automatic, fixed_120), None);
         assert_eq!(frame_rate_target(intent, Unlimited, fixed_120), None);
         assert_eq!(
             frame_rate_target(intent, fixed(75), fixed_120),
@@ -162,7 +153,7 @@ fn variable_refresh_caps_low_latency_below_the_maximum() {
         frame_rate_target(LowLatency, fixed(90), vrr_120),
         Some(hz(90))
     );
-    assert_eq!(frame_rate_target(AllowTearing, Unlimited, vrr_120), None);
+    assert_eq!(frame_rate_target(Unpaced, Unlimited, vrr_120), None);
     assert_eq!(frame_rate_target(Synchronized, Automatic, vrr_120), None);
     for unconfirmed in [VrrStatus::Inactive, VrrStatus::Unknown] {
         assert_eq!(

@@ -5,24 +5,20 @@
 //! | --- | --- | --- |
 //! | Synchronized (VSync on) | the display paces FIFO | FIFO |
 //! | LowLatency (VSync off) | the display paces FIFO | FIFO; Mailbox first when a limit outpaces the display |
-//! | AllowTearing | twice the refresh rate | Immediate, Mailbox, FIFO |
+//! | Unpaced (hidden developer surfaces only) | none | Immediate, Mailbox, FIFO |
 //!
-//! Mailbox without display timing beats against a refresh-rate cap, so tear-free low latency only
-//! uses it to render faster than the display. Confirmed variable refresh caps low-latency
-//! rendering just below the maximum refresh, so every frame stays inside the range.
+//! Player-facing presentation never tears. Mailbox without display timing beats against a
+//! refresh-rate cap, so low latency only uses it to render faster than the display. Confirmed
+//! variable refresh caps low-latency rendering just below the maximum refresh.
 
 use render_api::FrameRateLimit;
 
 use crate::frame_pacing::FrameRate;
 
-/// Refresh assumed while a display reports none; replaced as soon as one is known.
-pub const PROVISIONAL_REFRESH: FrameRate = FrameRate::from_hz_const(120);
 /// Initial variable-refresh ceiling as a share of the maximum refresh, in percent.
 const VRR_CEILING_PERCENT: u64 = 97;
 /// Margin added to measured completion error when sizing the variable-refresh ceiling.
 const VRR_ERROR_MARGIN_NANOS: u64 = 100_000;
-/// Automatic tearing renders this many frames per refresh, shortening each tear's age.
-const TEARING_FRAMES_PER_REFRESH: u32 = 2;
 
 /// What the player asked presentation to optimise for.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
@@ -31,8 +27,9 @@ pub enum PresentationIntent {
     Synchronized,
     /// Fresh input and the shortest queue without tearing.
     LowLatency,
-    /// Show each frame as soon as it is ready, even mid-scanout.
-    AllowTearing,
+    /// Diagnostic only: a hidden developer surface never reaches a display, so it never waits
+    /// for one. No setting selects it.
+    Unpaced,
 }
 
 /// Whether the display is known to refresh when a frame arrives rather than on a fixed clock.
@@ -146,7 +143,7 @@ const fn preference_order(
             &[PresentModeKind::Mailbox, PresentModeKind::Fifo]
         }
         PresentationIntent::LowLatency => &[PresentModeKind::Fifo],
-        PresentationIntent::AllowTearing => &[
+        PresentationIntent::Unpaced => &[
             PresentModeKind::Immediate,
             PresentModeKind::Mailbox,
             PresentModeKind::Fifo,
@@ -154,12 +151,11 @@ const fn preference_order(
     }
 }
 
-/// The mode to request before the surface is probed. Only a tearing request relies on the
-/// renderer's fallback, which may tear; tear-free intents start on FIFO.
+/// The mode to request before the surface is probed; player-facing intents start on FIFO.
 #[must_use]
 pub const fn initial_present_mode(intent: PresentationIntent) -> PresentModeKind {
     match intent {
-        PresentationIntent::AllowTearing => PresentModeKind::Immediate,
+        PresentationIntent::Unpaced => PresentModeKind::Immediate,
         PresentationIntent::Synchronized | PresentationIntent::LowLatency => PresentModeKind::Fifo,
     }
 }
@@ -187,19 +183,8 @@ pub fn frame_rate_target(
     display: DisplayTiming,
 ) -> Option<FrameRate> {
     let requested = match limit {
-        FrameRateLimit::Unlimited => None,
+        FrameRateLimit::Automatic | FrameRateLimit::Unlimited => None,
         FrameRateLimit::Fixed(fps) => FrameRate::from_hz(u32::from(fps.get())),
-        FrameRateLimit::Automatic => match intent {
-            PresentationIntent::Synchronized | PresentationIntent::LowLatency => None,
-            PresentationIntent::AllowTearing => {
-                let refresh = display.refresh.unwrap_or(PROVISIONAL_REFRESH);
-                FrameRate::from_millihertz(
-                    refresh
-                        .millihertz()
-                        .saturating_mul(TEARING_FRAMES_PER_REFRESH),
-                )
-            }
-        },
     };
     let ceiling = (intent == PresentationIntent::LowLatency && display.vrr == VrrStatus::Active)
         .then_some(display.refresh)

@@ -405,7 +405,6 @@ impl Content<'_, '_> {
         let description = if name == "screen_animations" {
             "Smooth highlights, button presses and screen transitions. Turn off for an instant interface.".to_owned()
         } else if (name == "render_clouds"
-            || name == "allow_tearing"
             || name == "max_framerate"
             || name == crate::menu::settings_options::SHOW_EXACT_SERVER_PING
             || name == crate::menu::settings_options::OREUI_DARK_MODE)
@@ -422,7 +421,6 @@ impl Content<'_, '_> {
                         self.view.vsync_override.unwrap_or(value != 0),
                         self.view.vsync_override.is_none(),
                     ),
-                    "allow_tearing" => super::super::vsync_setting::tearing_toggle(self.view),
                     _ => (value != 0, true),
                 };
                 self.boolean(

@@ -154,21 +154,15 @@ fn an_unchanged_cadence_is_not_republished() {
     assert!(!app.world().resource_ref::<FramePacing>().is_changed());
 }
 
-/// Automatic leaves synchronized and tear-free pacing to the display, and renders tearing
-/// frames at twice the refresh rate.
+/// Automatic adds no second clock: the display paces FIFO with VSync on or off.
 #[test]
-fn automatic_limits_follow_the_presentation_intent() {
+fn automatic_limits_leave_pacing_to_the_display() {
     let (app, _) = pacing_app((None, false), FrameRateLimit::Automatic);
     assert_eq!(pacing(&app).rate, None);
     let (app, _) = pacing_app_with((None, false), FrameRateLimit::Automatic, |video| {
         video.vsync = false
     });
     assert_eq!(pacing(&app).rate, None);
-    let (app, _) = pacing_app_with((None, false), FrameRateLimit::Automatic, |video| {
-        video.vsync = false;
-        video.allow_tearing = true;
-    });
-    assert_eq!(pacing(&app).rate, hz(240));
 }
 
 /// Present mode and cadence must agree on one limit, the launch cap outranking the saved one.

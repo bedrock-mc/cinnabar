@@ -38,7 +38,6 @@ impl SettingsOptions {
         settings.video.damage_bob = self.value("damage_bob") as f32 / 100.0;
         settings.video.frame_rate_limit = frame_rate_limit(self.value("max_framerate"));
         settings.video.vsync = self.value("vsync") != 0;
-        settings.video.allow_tearing = self.value(super::ALLOW_TEARING_OPTION.name) != 0;
         settings.video.anti_aliasing_samples = self.value("msaa") as u32;
         settings.video.motion_blur =
             ui::MotionBlurQuality::from_index(self.value(MOTION_BLUR_OPTION.name));

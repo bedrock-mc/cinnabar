@@ -40,9 +40,8 @@ impl PresentModeRuntime {
         attributable_evidence: bool,
         hidden_surface: bool,
     ) -> Self {
-        // `--no-vsync` has always meant immediate presentation, so it allows tearing.
         let preference = if no_vsync {
-            PresentModePreference::Tearing
+            PresentModePreference::NoVsync
         } else if force_vsync || attributable_evidence {
             PresentModePreference::Vsync
         } else {
@@ -94,7 +93,7 @@ impl PresentModeRuntime {
     #[must_use]
     pub(crate) fn intent(&self) -> PresentationIntent {
         if self.hidden_surface {
-            PresentationIntent::AllowTearing
+            PresentationIntent::Unpaced
         } else {
             self.policy.preference().intent()
         }
@@ -150,11 +149,8 @@ pub(crate) fn apply_present_mode(
     if generation > runtime.observed_settings_generation {
         if !runtime.locked {
             // VSync on stays automatic so the driver remedy can still apply.
-            let video = &user_settings.video;
-            let preference = if video.vsync {
+            let preference = if user_settings.video.vsync {
                 PresentModePreference::Auto
-            } else if video.allow_tearing {
-                PresentModePreference::Tearing
             } else {
                 PresentModePreference::NoVsync
             };

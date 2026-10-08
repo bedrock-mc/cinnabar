@@ -1,13 +1,10 @@
-//! Video-section VSync and Allow Tearing toggles and the frame-rate limit caption; retail
-//! vanilla keeps VSync out of its menus and has no Automatic limit.
+//! Video-section VSync toggle and the frame-rate limit caption; retail vanilla keeps VSync out
+//! of its menus and has no Automatic limit.
 
 use json_ui::{Catalog, DataSource, Scalar};
 use render_api::FrameRateLimit;
 
-use crate::menu::{
-    MenuView,
-    settings_options::{ALLOW_TEARING_OPTION, frame_rate_limit},
-};
+use crate::menu::{MenuView, settings_options::frame_rate_limit};
 
 /// Caption for the Automatic stop, which vanilla's lang has no key for.
 const AUTOMATIC_LABEL: &str = "Automatic";
@@ -18,18 +15,6 @@ pub(super) fn frame_rate_label(value: i32, translate: &dyn Fn(&str) -> String) -
         FrameRateLimit::Automatic => AUTOMATIC_LABEL.to_owned(),
         FrameRateLimit::Unlimited => translate("options.framerateLimit.max"),
         FrameRateLimit::Fixed(fps) => fps.to_string(),
-    }
-}
-
-/// Allow Tearing's shown state and whether it is editable: only with VSync off, and a launch
-/// override pins it along with VSync.
-pub(super) fn tearing_toggle(view: &MenuView) -> (bool, bool) {
-    match view.vsync_override {
-        Some(vsync) => (!vsync, false),
-        None => (
-            view.settings_options.value(ALLOW_TEARING_OPTION.name) != 0,
-            view.settings_options.value("vsync") == 0,
-        ),
     }
 }
 
@@ -44,9 +29,6 @@ pub(super) fn bind(view: &MenuView, data: &mut DataSource) {
         data.set_global("#vsync", Scalar::Bool(vsync));
         data.set_global("#vsync_enabled", Scalar::Bool(false));
     }
-    let (tearing, enabled) = tearing_toggle(view);
-    data.set_global("#allow_tearing", Scalar::Bool(tearing));
-    data.set_global("#allow_tearing_enabled", Scalar::Bool(enabled));
 }
 
 const OVERLAY: &str = r##"{
@@ -63,14 +45,6 @@ const OVERLAY: &str = r##"{
           "$option_enabled_binding_name": "#vsync_enabled",
           "$toggle_name": "vsync"
         }
-      },
-      {
-        "allow_tearing@settings_common.option_toggle": {
-          "$option_label": "options.allowTearing",
-          "$option_binding_name": "#allow_tearing",
-          "$option_enabled_binding_name": "#allow_tearing_enabled",
-          "$toggle_name": "allow_tearing"
-        }
       }]
     }]
   }
@@ -79,9 +53,7 @@ const OVERLAY: &str = r##"{
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::menu::settings_options::{
-        FRAME_RATE_AUTOMATIC, FRAME_RATE_UNLIMITED, SETTINGS_OPTIONS,
-    };
+    use crate::menu::settings_options::{FRAME_RATE_AUTOMATIC, FRAME_RATE_UNLIMITED};
     use crate::ui_runtime::presentation::forms::pack_harness;
 
     fn has_text(control: &json_ui::ResolvedControl, text: &str) -> bool {
@@ -132,30 +104,7 @@ mod tests {
         let mut locked = DataSource::default();
         locked.set_global("#vsync", Scalar::Bool(false));
         locked.set_global("#vsync_enabled", Scalar::Bool(false));
-        locked.set_global("#allow_tearing", Scalar::Bool(true));
-        locked.set_global("#allow_tearing_enabled", Scalar::Bool(false));
         assert_eq!(data, locked);
-    }
-
-    /// Allow Tearing only applies with VSync off, so it is editable only then.
-    #[test]
-    fn allow_tearing_is_editable_only_with_vsync_off() {
-        let mut view = MenuView::new(true, "Steve".into());
-        assert_eq!(tearing_toggle(&view), (false, false));
-        let vsync = SETTINGS_OPTIONS
-            .iter()
-            .position(|option| option.name == "vsync")
-            .unwrap();
-        let tearing = SETTINGS_OPTIONS
-            .iter()
-            .position(|option| option.name == ALLOW_TEARING_OPTION.name)
-            .unwrap();
-        std::sync::Arc::make_mut(&mut view.settings_options).set(vsync, 0);
-        assert_eq!(tearing_toggle(&view), (false, true));
-        std::sync::Arc::make_mut(&mut view.settings_options).set(tearing, 1);
-        assert_eq!(tearing_toggle(&view), (true, true));
-        view.vsync_override = Some(true);
-        assert_eq!(tearing_toggle(&view), (false, false));
     }
 
     #[test]

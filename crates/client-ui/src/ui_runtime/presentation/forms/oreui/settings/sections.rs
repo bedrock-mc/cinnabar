@@ -126,7 +126,6 @@ fn video(content: &mut Content<'_, '_>) -> Result<(), UiPresentationError> {
                 "gamma",
                 "max_framerate",
                 "vsync",
-                "allow_tearing",
                 MOTION_BLUR_OPTION.name,
                 "smooth_lighting",
                 "fancy_skies",
@@ -538,12 +537,8 @@ pub(super) fn option_label(name: &str, default: &'static str) -> &'static str {
 pub(super) fn fallback(key: &str) -> &str {
     match key {
         "options.renderClouds" => "Render Clouds",
-        "options.allowTearing" => "Allow Tearing",
-        "options.allowTearing.description" => {
-            "With VSync off, show each frame the moment it is ready. Lowest latency, with visible tear lines."
-        }
         "options.framerateLimit.description" => {
-            "Automatic matches your display, or twice its rate when tearing is allowed. Unlimited renders as fast as it can."
+            "Automatic lets your display pace frames, with fresh input and no tearing. Unlimited renders as fast as it can."
         }
         "options.showExactServerPing" => "Show exact server ping",
         "options.oreuiDarkMode" => "Dark Mode",
