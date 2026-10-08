@@ -135,6 +135,8 @@ const INLINE_BLOCK_MUTATION_UPDATES: usize = 64;
 const URGENT_DISPATCH_BUDGET: usize = 4;
 /// Results one urgent pass may accept outside the poll.
 const URGENT_RESULTS_PER_PASS: usize = 16;
+/// Cooperative time for one urgent pass outside the poll, so it never sweeps a backlog.
+const URGENT_PASS_BUDGET: Duration = Duration::from_millis(1);
 const MAX_PENDING_MESH_QUEUE_WORK_PER_POLL: usize = MAX_PENDING_MESH_CHANGES;
 pub const MAX_IN_FLIGHT_LIGHT_JOBS: usize = 32;
 const MIN_EFFECTIVE_LIGHT_JOB_CAP: usize = 2;

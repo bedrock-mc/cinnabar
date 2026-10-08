@@ -166,18 +166,31 @@ impl WorldStream {
         if !std::mem::take(&mut self.urgent_work_due) || self.lighting.fatal_failure {
             return;
         }
-        let camera = self.last_camera_position;
-        self.dispatch_light_jobs(camera, URGENT_DISPATCH_BUDGET);
-        let budget = self
-            .publication_allowance
-            .as_ref()
-            .map_or(
-                URGENT_DISPATCH_BUDGET,
-                PublicationAllowance::frame_remaining_items,
-            )
-            .min(URGENT_DISPATCH_BUDGET)
-            .min(MAX_PENDING_MESH_CHANGES.saturating_sub(self.mesh_changes.len()));
-        self.dispatch_mesh_jobs_with_limits(camera, budget, budget);
+        self.with_urgent_deadline(|stream| {
+            let camera = stream.last_camera_position;
+            stream.dispatch_light_jobs(camera, URGENT_DISPATCH_BUDGET);
+            let budget = stream
+                .publication_allowance
+                .as_ref()
+                .map_or(
+                    URGENT_DISPATCH_BUDGET,
+                    PublicationAllowance::frame_remaining_items,
+                )
+                .min(URGENT_DISPATCH_BUDGET)
+                .min(MAX_PENDING_MESH_CHANGES.saturating_sub(stream.mesh_changes.len()));
+            stream.dispatch_mesh_jobs_with_limits(camera, budget, budget);
+        });
+    }
+
+    /// Runs urgent work under its own cooperative deadline unless a poll's already applies.
+    fn with_urgent_deadline<T>(&mut self, work: impl FnOnce(&mut Self) -> T) -> T {
+        if self.poll_deadline.is_some() {
+            return work(self);
+        }
+        self.poll_deadline = Some(Instant::now() + URGENT_PASS_BUDGET);
+        let result = work(self);
+        self.poll_deadline = None;
+        result
     }
 
     /// Accepts urgent light and mesh results finished since the poll and dispatches the meshes
@@ -195,26 +208,28 @@ impl WorldStream {
         {
             return 0;
         }
-        for _ in 0..URGENT_RESULTS_PER_PASS {
-            let Ok(completion) = self.lighting.rx.try_recv() else {
-                break;
-            };
-            self.accept_light_completion(completion);
-            self.urgent_work_due = true;
-        }
-        self.dispatch_urgent_work();
-        self.retry_staged_mesh_completions();
-        let mut accepted = 0;
-        while accepted < URGENT_RESULTS_PER_PASS
-            && self.mesh_changes.len() < MAX_PENDING_MESH_CHANGES
-        {
-            let Ok(completion) = self.mesh_rx.try_recv() else {
-                break;
-            };
-            self.accept_mesh_completion(completion);
-            accepted += 1;
-        }
-        accepted
+        self.with_urgent_deadline(|stream| {
+            for _ in 0..URGENT_RESULTS_PER_PASS {
+                let Ok(completion) = stream.lighting.rx.try_recv() else {
+                    break;
+                };
+                stream.accept_light_completion(completion);
+                stream.urgent_work_due = true;
+            }
+            stream.dispatch_urgent_work();
+            stream.retry_urgent_staged_mesh_completions(URGENT_RESULTS_PER_PASS);
+            let mut accepted = 0;
+            while accepted < URGENT_RESULTS_PER_PASS
+                && stream.mesh_changes.len() < MAX_PENDING_MESH_CHANGES
+            {
+                let Ok(completion) = stream.mesh_rx.try_recv() else {
+                    break;
+                };
+                stream.accept_mesh_completion(completion);
+                accepted += 1;
+            }
+            accepted
+        })
     }
 
     pub fn camera_medium(&self, position: [f32; 3]) -> CameraMedium {

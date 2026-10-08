@@ -511,3 +511,43 @@ fn ingress_decode_is_in_flight_before_any_poll() {
     stream.apply_ready();
     assert_eq!(stream.committed_sequence(), 2);
 }
+
+/// The urgent pass leaves a non-urgent staged backlog to the poll, yet the urgent mesh still
+/// publishes in the same frame.
+#[test]
+fn urgent_pass_leaves_a_staged_backlog_for_the_poll() {
+    let (mut stream, _, position, key, camera_position) = settled_neighbourhood();
+    let source = Arc::new(uniform_sub_chunk(1));
+    let biome_sources: super::BiomeNeighbourhood = std::array::from_fn(|_| None);
+    let backlog = super::MAX_STAGED_MESH_COMPLETIONS;
+    for index in 0..backlog {
+        let biome =
+            super::pack_biome_record(&biome_sources, stream.authority.resolved_biome_tints());
+        let mesh = ChunkMesh::default();
+        stream.staged_mesh_bytes += chunk_publication_byte_len(&mesh, &biome);
+        stream.staged_mesh_completions.push_back(MeshCompletion {
+            output_permit: None,
+            _job_permit: None,
+            key: SubChunkKey::new(0, 1_000 + index as i32, 0, 0),
+            revision: 0,
+            source: Arc::clone(&source),
+            biome_sources: biome_sources.clone(),
+            biome,
+            tint_identity: stream.biome_tint_identity(),
+            mesh,
+            dependency_mask: MeshDependencyMask::default(),
+            light_halo: Default::default(),
+            queue_wait: Duration::ZERO,
+            dispatch_wait: Duration::ZERO,
+            duration: Duration::ZERO,
+            urgent: false,
+        });
+    }
+    assert!(stream.predict_block(position, 0, 1));
+    let generation = stream.revisions.dirty(key).unwrap().revision;
+    assert_eq!(
+        polls_until_published(&mut stream, camera_position, key, generation),
+        0
+    );
+    assert_eq!(stream.staged_mesh_completions.len(), backlog);
+}
