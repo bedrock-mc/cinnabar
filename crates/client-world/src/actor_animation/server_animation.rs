@@ -183,16 +183,25 @@ impl Controller {
     }
 }
 
+pub(super) struct SelectionInput<'a> {
+    pub(super) geometry: usize,
+    pub(super) clocks: &'a clock::ClipClocks,
+    pub(super) advance: bool,
+}
+
 pub(super) fn select(
     evaluator: &Evaluator<'_>,
     variables: &mut MolangVariables,
     controllers: &mut [Controller],
-    geometry: usize,
-    clocks: &clock::ClipClocks,
+    input: SelectionInput<'_>,
     clips: &mut Vec<WeightedClip>,
     budget: &mut EvalBudget<'_>,
-    advance: bool,
 ) -> Result<(), EvalError> {
+    let SelectionInput {
+        geometry,
+        clocks,
+        advance,
+    } = input;
     for controller in controllers {
         budget.charge_work()?;
         if advance {

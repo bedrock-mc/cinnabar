@@ -432,6 +432,14 @@ RVAs are 1.26.50.26 Windows client; `mac 0x10…` addresses are the 26.30 macOS 
 
 ## crates/client-presentation/src/presentation/equipment/runtime/modern.rs
 - /// Native setupAttachableNoChecks copies the parent's complete matrix before the held
+- `AttachableRigSnapshot::bone_parent` and `parent_for_root`: current 1.26.50.26
+  `src/__unmapped/01.cpp:2547160–2547490` distinguishes unmatched actor roots,
+  matching owner names and expression bindings. The first-person actor pass uses
+  the shared owner model frame (`04.cpp:2626841–2626993`,
+  `05.cpp:2402720–2402766`). Both ordinary and attachable final draws seed neutral
+  geometry-root matrices (`01.cpp:2545432–2545478,2550801–2551140`);
+  bound orientations substitute their stored owner matrix. Near-version named
+  counterpart: `reference/26.30/src/by-owner/d/DataDrivenModel.cpp:8811–8840`.
 
 ## crates/client-ui/src/sound_requests.rs
 - /// `min_seconds_between_plays` (`SoundComponent`).

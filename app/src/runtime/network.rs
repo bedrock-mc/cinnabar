@@ -911,12 +911,12 @@ mod actor_publication;
 mod block_overlay;
 mod drain;
 pub(crate) mod entity_pack;
-mod server_animation;
 mod entity_texture_reload;
 mod glyph_sheets;
 mod inventory;
 mod item_diagnostics;
 mod item_icons;
+mod server_animation;
 pub(crate) use item_icons::set_vanilla_item_paths;
 #[cfg(test)]
 mod local_pack;

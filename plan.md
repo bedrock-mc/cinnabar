@@ -6376,8 +6376,12 @@ Rendered offline Entity fixtures now cover the server-selected death motion,
 close camera orbits, and moving spawn/despawn poses with the actual pack geometry
 and materials. The first-person jumpscare exposed a separate late-activation
 clock error; direct players now pause and resume applied time independently of
-owner age, with render-delta regressions. Its corrected rendered sequence remains
-pending. Independent instances of a shared clip, default controller-player pause,
+owner age, with render-delta regressions. Held root placement also preserves the
+owner actor frame for unbound roots and the matching owner matrix for named roots.
+A fresh 1920×1080 macOS/Metal replay shows the actual jumpscare rising at screen
+center, changing pose, approaching the camera and lowering at its authored endpoint.
+Arbitrary expression parents, independent bindings on parented bones,
+independent instances of a shared clip, default controller-player pause,
 version-specific Molang grammar differences, matched live sequencing and the
 reported live flicker remain incomplete. The offline witnesses do not close those
 live reports.

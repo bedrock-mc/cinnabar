@@ -82,6 +82,8 @@ impl AttachableState {
             render,
             scale: scale.map_or(assets.rig_bindings()[binding].scale.get(), |s| s[0]),
             axis_scale: scale.map_or([1.0; 3], |s| [s[1], s[2], s[3]]),
+            bones: &state.bones,
+            layer_skeletons: &state.layer_skeletons,
         })
     }
 }

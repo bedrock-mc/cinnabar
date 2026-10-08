@@ -40,8 +40,8 @@ pub struct RenderTextureLayer {
 /// Bones of a geometry a render controller draws beside the rig's own.
 #[derive(Clone, Debug)]
 pub(super) struct LayerSkeleton {
-    bones: Vec<RuntimeBone>,
-    names: Vec<Box<str>>,
+    pub(super) bones: Vec<RuntimeBone>,
+    pub(super) names: Vec<Box<str>>,
 }
 
 pub(super) fn bind_attachable_roots(state: &mut ActorRigState, owner_names: &[Box<str>]) {

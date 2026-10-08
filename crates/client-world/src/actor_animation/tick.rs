@@ -449,11 +449,13 @@ pub(super) fn evaluate_state(
         &evaluator,
         &mut variables,
         &mut server_animations,
-        state.geometry_binding,
-        previous_clocks,
+        super::server_animation::SelectionInput {
+            geometry: state.geometry_binding,
+            clocks: previous_clocks,
+            advance: advance_clocks || replay.is_some(),
+        },
         &mut weighted_clips,
         budget,
-        advance_clocks || replay.is_some(),
     )?;
     let clip_clocks = if advance_clocks || replay.is_some() {
         super::clock::prepare(

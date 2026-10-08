@@ -877,7 +877,8 @@ fn carrier_v4_rejects_animation_and_controller_limits_plus_one() {
 
     let mut compiled = carrier_v4_fixture();
     compiled.animation_channels =
-        vec![compiled.animation_channels[0].clone(); MAX_ENTITY_ANIMATION_CHANNELS + 1].into_boxed_slice();
+        vec![compiled.animation_channels[0].clone(); MAX_ENTITY_ANIMATION_CHANNELS + 1]
+            .into_boxed_slice();
     cases.push(compiled);
 
     let mut compiled = carrier_v4_fixture();

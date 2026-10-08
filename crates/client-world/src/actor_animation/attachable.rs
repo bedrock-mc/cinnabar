@@ -69,6 +69,44 @@ pub struct AttachableRigSnapshot<'a> {
     pub render: &'a [RenderTextureLayer],
     pub scale: f32,
     pub axis_scale: [f32; 3],
+    bones: &'a [RuntimeBone],
+    layer_skeletons: &'a BTreeMap<u32, Option<Arc<render::LayerSkeleton>>>,
+}
+
+/// The skeletal frame inherited by an attachable root and all its descendants.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum AttachableBoneParent<'a> {
+    Actor,
+    OwnerNamed(&'a str),
+    BindingExpression,
+}
+
+impl<'a> AttachableRigSnapshot<'a> {
+    /// Resolves the selected geometry's root without allocating or copying its pose.
+    pub fn bone_parent(&self, geometry: u32, index: usize) -> Option<AttachableBoneParent<'a>> {
+        let (bones, names) = if geometry == self.geometry {
+            (self.bones, self.bone_names)
+        } else {
+            let skeleton = self.layer_skeletons.get(&geometry)?.as_ref()?;
+            (skeleton.bones.as_slice(), skeleton.names.as_slice())
+        };
+        let mut root = index;
+        for _ in 0..bones.len() {
+            let bone = bones.get(root)?;
+            if let Some(parent) = bone.parent {
+                root = parent;
+                continue;
+            }
+            return Some(match bone.attachable_root {
+                AttachableRootFrame::Actor => AttachableBoneParent::Actor,
+                AttachableRootFrame::MatchingOwnerName => {
+                    AttachableBoneParent::OwnerNamed(names.get(root)?)
+                }
+                AttachableRootFrame::BindingExpression => AttachableBoneParent::BindingExpression,
+            });
+        }
+        None
+    }
 }
 
 #[derive(Debug)]
@@ -374,3 +412,7 @@ mod owner_reference_tests;
 #[cfg(test)]
 #[path = "attachable/activation_clock_tests.rs"]
 mod activation_clock_tests;
+
+#[cfg(test)]
+#[path = "attachable/parent_frame_tests.rs"]
+mod parent_frame_tests;
