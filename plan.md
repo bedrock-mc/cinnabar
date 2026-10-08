@@ -4928,6 +4928,9 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
   lift gated by an unidentified movement ability and geyser boosts remain incomplete.
   Water and lava travel read the underwater and lava movement attributes, and a swimmer's
   dolphin boost scales speed and drag as vanilla does; riptide launches remain unimplemented.
+  Incomplete safety bound (a known divergence; vanilla is unbounded): Depth Strider's water-speed
+  blend target is clamped so the steady water velocity stays inside the simulator's block-sampling
+  budget. Land movement speed is not clamped.
   Honey jump/slide, soul speed and depth
   strider coefficients are provisional (honey and soul speed have no public value). Riding
   suspends player physics and streams steering input with boat paddle flags; rider seat
