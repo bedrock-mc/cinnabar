@@ -2,7 +2,7 @@ use bevy::prelude::Shader;
 use bytemuck::{Pod, Zeroable};
 
 #[repr(C)]
-#[derive(Clone, Copy, Pod, Zeroable)]
+#[derive(Clone, Copy, PartialEq, Pod, Zeroable)]
 pub(super) struct UiViewportUniform {
     pub(super) viewport_size: [f32; 2],
     /// Seconds since the UI renderer started; animates the item glint.
