@@ -1,4 +1,4 @@
-//! Chooses the frame admission cadence from the frame-rate setting, launch flags and window state.
+//! Chooses the frame admission cadence from the session's frame-rate limit and window state.
 
 use std::time::{Duration, Instant};
 
@@ -15,10 +15,7 @@ use render_model::{
     frame_rate_target,
 };
 
-use crate::{
-    present_mode::{DisplayRefresh, PresentModeRuntime},
-    settings_runtime::RuntimeSettings,
-};
+use crate::present_mode::{DisplayRefresh, PresentModeRuntime};
 
 /// Monitors can change refresh while a window stays put, so it is re-read this often.
 const DISPLAY_RECHECK: Duration = Duration::from_secs(1);
@@ -26,8 +23,6 @@ const DISPLAY_RECHECK: Duration = Duration::from_secs(1);
 /// Session inputs to the cadence that the saved settings do not carry.
 #[derive(Resource, Debug)]
 pub(crate) struct FramePacingRuntime {
-    /// `--frame-cap`, which outranks the saved setting for the session.
-    launch_cap: Option<FrameRate>,
     /// Hidden developer surfaces and acceptance runs keep their requested cadence in the
     /// background, so window state never skews their measurements.
     ignore_window_state: bool,
@@ -37,9 +32,8 @@ pub(crate) struct FramePacingRuntime {
 }
 
 impl FramePacingRuntime {
-    pub(crate) fn new(launch_cap: Option<u32>, ignore_window_state: bool) -> Self {
+    pub(crate) fn new(ignore_window_state: bool) -> Self {
         Self {
-            launch_cap: launch_cap.and_then(FrameRate::from_hz),
             ignore_window_state,
             suspended: false,
             occluded: false,
@@ -67,9 +61,7 @@ impl FramePacingRuntime {
         } else {
             WindowActivity::Unfocused
         };
-        let requested = self
-            .launch_cap
-            .or_else(|| frame_rate_target(intent, limit, display));
+        let requested = frame_rate_target(intent, limit, display);
         FramePacing {
             rate: (!self.suspended)
                 .then(|| effective_frame_rate(requested, activity))
@@ -81,7 +73,6 @@ impl FramePacingRuntime {
 
 /// Publishes the cadence the next update's input sample is admitted at.
 pub(crate) fn update_frame_pacing(
-    settings: Res<RuntimeSettings>,
     mut runtime: ResMut<FramePacingRuntime>,
     presentation: Res<PresentModeRuntime>,
     display: Res<DisplayRefresh>,
@@ -98,7 +89,7 @@ pub(crate) fn update_frame_pacing(
     let focused = primary.is_none_or(|(_, window)| window.focused);
     let next = runtime.pacing(
         presentation.intent(),
-        settings.user_settings_update().1.video.frame_rate_limit,
+        presentation.limit(),
         display.0,
         focused,
     );

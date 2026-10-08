@@ -682,7 +682,8 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         args.no_vsync,
         diagnostics_enabled,
         hidden_surface,
-    );
+    )
+    .with_launch_frame_cap(args.frame_cap);
     let present_mode = present_mode_runtime.window_present_mode();
     let present_mode_policy = present_mode_runtime.policy();
     let vsync_override = present_mode_runtime.vsync_override();
@@ -746,7 +747,6 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         Color::srgb(0.035, 0.043, 0.059)
     };
     app.insert_resource(crate::frame_pacing::FramePacingRuntime::new(
-        args.frame_cap,
         hidden_surface || args.acceptance_seconds.is_some(),
     ))
     // Every update passes the pacer's single admission wait, so input never adds frames.

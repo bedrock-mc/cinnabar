@@ -21,7 +21,10 @@ pub(crate) struct PresentModeRuntime {
     /// Window that adopted the driver remedy; kept until the preference or window changes,
     /// since the render world withdraws its recommendation once Immediate is requested.
     remedy_adopted: Option<Entity>,
-    /// The saved limit: frames outpacing the display choose Mailbox when tear-free.
+    /// `--frame-cap`, which outranks the saved limit for the whole session.
+    launch_limit: Option<FrameRateLimit>,
+    /// The session's effective limit, shared with the pacer's cadence; frames outpacing the
+    /// display choose Mailbox when tear-free.
     limit: FrameRateLimit,
 }
 
@@ -51,8 +54,28 @@ impl PresentModeRuntime {
             hidden_surface,
             observed_settings_generation: 0,
             remedy_adopted: None,
+            launch_limit: None,
             limit: FrameRateLimit::Automatic,
         }
+    }
+
+    /// Applies `--frame-cap` in place of the saved limit for this session.
+    #[must_use]
+    pub(crate) fn with_launch_frame_cap(mut self, fps: Option<u32>) -> Self {
+        self.launch_limit = fps
+            .and_then(|fps| u16::try_from(fps).ok())
+            .and_then(std::num::NonZeroU16::new)
+            .map(FrameRateLimit::Fixed);
+        if let Some(limit) = self.launch_limit {
+            self.limit = limit;
+        }
+        self
+    }
+
+    /// The frame-rate limit in force: the launch cap, else the saved setting.
+    #[must_use]
+    pub(crate) const fn limit(&self) -> FrameRateLimit {
+        self.limit
     }
 
     #[must_use]
@@ -140,7 +163,9 @@ pub(crate) fn apply_present_mode(
             }
             runtime.policy.set_preference(preference);
         }
-        runtime.limit = user_settings.video.frame_rate_limit;
+        runtime.limit = runtime
+            .launch_limit
+            .unwrap_or(user_settings.video.frame_rate_limit);
         runtime.observed_settings_generation = generation;
     }
     if runtime
