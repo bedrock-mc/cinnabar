@@ -371,6 +371,7 @@ fn a_combined_delayed_speed_update_replays_once() {
                 sprint_modifier: None,
                 underwater,
                 lava: None,
+                air_drag_modifier: None,
                 tick: 102,
             },
             &world,

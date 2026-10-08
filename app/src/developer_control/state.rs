@@ -312,6 +312,7 @@ pub(super) fn snapshot(world: &World) -> Value {
             .map(crate::runtime::visibility::CaveVisibilityCache::telemetry_snapshot),
         "recording": world.get_resource::<Recording>().map(Recording::summary),
         "game_seconds": world.resource::<Time>().elapsed_secs_f64(),
+        "frame_count": world.get_resource::<bevy::diagnostic::FrameCount>().map(|count| count.0),
     })
 }
 

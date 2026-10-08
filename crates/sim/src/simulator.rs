@@ -22,7 +22,7 @@ use collision::{clip_sneak_edge, resolve_motion};
 use environment::sample;
 
 pub use controls::{ControlledTickResult, ProcessedControls};
-pub use effects::MovementEffects;
+pub use effects::{MovementEffects, VerticalPhysics};
 pub use environment::MAX_BLOCK_SAMPLES_PER_TICK;
 pub use input::MovementInput;
 pub use mode::{MovementMode, pose_fits};
@@ -479,6 +479,7 @@ impl Simulator {
         if auto_climb {
             next.velocity.y = CLIMB_SPEED;
         }
+        let vertical = input.vertical_physics;
         if sampled.movement.in_water || sampled.movement.in_lava {
             // When both liquid facts overlap, the pinned v0.1.5 slice follows
             // water travel rather than composing water gravity with lava drag.
@@ -509,11 +510,15 @@ impl Simulator {
             effects::apply_vertical(
                 &mut next.velocity.y,
                 input.effects,
-                if auto_climb { 0.0 } else { gravity },
+                if auto_climb {
+                    0.0
+                } else {
+                    vertical.gravity(gravity)
+                },
                 if auto_climb {
                     1.0
                 } else {
-                    NORMAL_GRAVITY_MULTIPLIER
+                    f64::from(vertical.vertical_drag_retention())
                 },
             );
             next.velocity.x = effects::damp_horizontal(next.velocity.x, friction as f32);
