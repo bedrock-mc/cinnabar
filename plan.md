@@ -5105,6 +5105,9 @@ and dropped-item rendering, paper-doll first-person arm/held item.
   Capture bounded native visual and packet/pose evidence.
 
 - [ ] **4.5 Held items, actions, dropped items, and viewmodel.** `P4.5-ITEM-ACTIONS`
+  - [ ] Pickup sound and the three-tick copied-item flight survive immediate server
+    removal. The squared trajectory and collector offset follow the current vanilla
+    rules; a version-matched rendered comparison remains incomplete.
   - [x] Render supported ordinary opaque full-cube held blocks using the current
     selected stack, world materials, and session-bound local presentation authority.
     A live controlled check covered Stone, distinct crafting-table faces, empty-slot

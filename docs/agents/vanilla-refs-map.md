@@ -1752,6 +1752,12 @@ RVAs are 1.26.50.26 Windows client; `mac 0x10…` addresses are the 26.30 macOS 
 - on the macOS/Metal client. A controlled native standing/held Shift/release and
 
 ## docs/reference/dropped-items.md
+- Pickup lifetime and sound: current `1.26.50.26` canonical
+  `src/__unmapped/01.cpp`, `0x014b8460`, copies the item into an independent
+  take-animation particle and voices the `pop` event at the item's attach position.
+  `src/__unmapped/02.cpp`, `0x02416bd0`, captures the collector and offset `[0, -0.6, 0]`
+  with a three-tick lifetime; `0x02416fc0` squares normalized tick progress and
+  scales the copied item by its complement; `0x024172f0` / `0x02417300` advance and expire it.
 - # Native dropped-item rendering
 - Current `ItemActor` constructor sets the
 - collision width and height to 0.25 and the native Y-origin offset to half the

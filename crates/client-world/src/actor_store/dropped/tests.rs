@@ -102,6 +102,93 @@ fn malformed_pose_and_empty_stack_are_not_drawable() {
 }
 
 #[test]
+fn pickup_flight_survives_immediate_authoritative_removal() {
+    let mut store = ActorStore::new(1, 0);
+    store.apply(1, 1, dropped_spawn(7, 1));
+    let ActorEvent::Spawn(mut collector) = dropped_spawn(8, 1) else {
+        unreachable!()
+    };
+    collector.kind = ActorKind::Entity {
+        identifier: "minecraft:zombie".into(),
+    };
+    collector.position = [4.0, 5.0, 6.0];
+    store.apply(1, 2, ActorEvent::Spawn(collector));
+    store.apply(
+        1,
+        3,
+        ActorEvent::TakeItem(protocol::ActorTakeItemEvent {
+            item_runtime_id: 7,
+            collector_runtime_id: 8,
+        }),
+    );
+    store.apply(
+        1,
+        4,
+        ActorEvent::Remove(protocol::ActorRemoveEvent {
+            dimension: 0,
+            unique_id: 7,
+        }),
+    );
+    assert!(
+        store.get(7).is_none(),
+        "server removal ends the actor lifetime"
+    );
+    assert_eq!(
+        store.dropped_items(0.0).len(),
+        1,
+        "collection retains its presentation"
+    );
+    let half_tick = store.dropped_items(0.5).remove(0);
+    let progress = (0.5_f32 / f32::from(super::super::PICKUP_DURATION_TICKS)).powi(2);
+    let origin = [1.0, 2.0 + ITEM_ACTOR_NETWORK_OFFSET, 3.0];
+    let target = [4.0, 5.0 + COLLECTOR_Y_OFFSET, 6.0];
+    assert_eq!(
+        half_tick.position,
+        std::array::from_fn(|axis| origin[axis] + (target[axis] - origin[axis]) * progress)
+    );
+    assert_eq!(half_tick.render_scale, 2.0 * (1.0 - progress));
+    store.advance_interpolation_ticks(u32::from(super::super::PICKUP_DURATION_TICKS));
+    assert!(store.dropped_items(0.0).is_empty());
+}
+
+#[test]
+fn pickup_visuals_end_on_dimension_reset_and_do_not_capture_reused_collectors() {
+    let mut store = ActorStore::new(1, 0);
+    store.apply(1, 1, dropped_spawn(7, 1));
+    store.apply(1, 2, dropped_spawn(8, 1));
+    store.apply(
+        1,
+        3,
+        ActorEvent::TakeItem(protocol::ActorTakeItemEvent {
+            item_runtime_id: 7,
+            collector_runtime_id: 8,
+        }),
+    );
+    store.apply(
+        1,
+        4,
+        ActorEvent::TakeItem(protocol::ActorTakeItemEvent {
+            item_runtime_id: 7,
+            collector_runtime_id: 8,
+        }),
+    );
+    assert_eq!(
+        store.dropped_items(0.0).len(),
+        2,
+        "one ground item and one pickup"
+    );
+    store.apply(1, 5, dropped_spawn(8, 1));
+    assert_eq!(
+        store.dropped_items(0.0).len(),
+        1,
+        "new collector lifetime cannot inherit the flight"
+    );
+    store.reset_dimension(1, 6, 1);
+    assert!(store.pickup_visuals.is_empty());
+    assert!(store.dropped_items(0.0).is_empty());
+}
+
+#[test]
 fn spawn_absolute_and_partial_move_keep_feet_and_restore_the_same_native_origin() {
     let mut store = ActorStore::new(1, 0);
     let ActorEvent::Spawn(mut spawn) = dropped_spawn(7, 1) else {

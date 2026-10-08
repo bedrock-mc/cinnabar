@@ -15,7 +15,15 @@ pub const MAX_DROPPED_ITEM_COPIES: usize = 4;
 const SPIN_RATE_PER_TICK: f32 = 0.05;
 const SPIN_HALF_TICK: f32 = SPIN_RATE_PER_TICK * 0.5;
 const COPY_SPREAD: f32 = 0.2;
-const DEFAULT_COLLECTOR_HEIGHT: f32 = 1.8;
+const COLLECTOR_Y_OFFSET: f32 = -0.6;
+
+#[derive(Debug)]
+pub(super) struct PickupVisual {
+    view: DroppedItemView,
+    collector_runtime_id: u64,
+    collector_spawn_revision: u64,
+    ticks: u8,
+}
 
 /// One dropped-item stack ready to draw: interpolated origin, spin, and stacked copy offsets.
 #[derive(Debug, Clone, PartialEq)]
@@ -81,6 +89,52 @@ fn copy_offsets(count: u8) -> [[f32; 3]; MAX_DROPPED_ITEM_COPIES] {
 }
 
 impl ActorStore {
+    pub(super) fn start_pickup_visual(&mut self, item_runtime_id: u64, collector_runtime_id: u64) {
+        let Some(item) = self.actors.get(&item_runtime_id) else {
+            return;
+        };
+        let Some(view) = self.dropped_item_view(item, 0.0) else {
+            return;
+        };
+        let Some(collector) = self.actors.get(&collector_runtime_id) else {
+            return;
+        };
+        if self.pickup_visuals.len() < self.max_actors {
+            self.pickup_visuals.push(PickupVisual {
+                view,
+                collector_runtime_id,
+                collector_spawn_revision: collector.spawn_revision,
+                ticks: 0,
+            });
+        }
+    }
+
+    pub(super) fn advance_pickup_visuals(&mut self) {
+        self.pickup_visuals.retain_mut(|pickup| {
+            pickup.ticks = pickup.ticks.saturating_add(1);
+            pickup.ticks < super::PICKUP_DURATION_TICKS
+        });
+    }
+
+    pub(crate) fn pickup_sound_position(&self, item_runtime_id: u64) -> Option<[f32; 3]> {
+        let actor = self.actors.get(&item_runtime_id)?;
+        if actor.status.pickup.is_some() {
+            return None;
+        }
+        let ActorKind::Entity { identifier } = &actor.kind else {
+            return None;
+        };
+        if identifier.as_ref() != "minecraft:item" {
+            return None;
+        }
+        let mut position = actor.position;
+        position[1] += ITEM_ACTOR_NETWORK_OFFSET;
+        position
+            .iter()
+            .all(|axis| axis.is_finite())
+            .then_some(position)
+    }
+
     /// Views for every dropped-item actor whose stack resolved; picked-up items fly to their
     /// collector and vanish once they arrive.
     pub(crate) fn dropped_items(&self, partial_tick: f32) -> Vec<DroppedItemView> {
@@ -88,8 +142,26 @@ impl ActorStore {
         let mut views = self
             .actors
             .values()
+            .filter(|actor| actor.status.pickup.is_none())
             .filter_map(|actor| self.dropped_item_view(actor, alpha))
             .collect::<Vec<_>>();
+        views.extend(self.pickup_visuals.iter().filter_map(|pickup| {
+            let collector = self
+                .actors
+                .get(&pickup.collector_runtime_id)
+                .filter(|actor| actor.spawn_revision == pickup.collector_spawn_revision)?;
+            let mut target = collector.interpolated_position(alpha)?;
+            target[1] += collector.network_position_offset() + COLLECTOR_Y_OFFSET;
+            let progress =
+                (f32::from(pickup.ticks) + alpha) / f32::from(super::PICKUP_DURATION_TICKS);
+            let progress = progress * progress;
+            let mut view = pickup.view.clone();
+            view.position = std::array::from_fn(|axis| {
+                view.position[axis] + (target[axis] - view.position[axis]) * progress
+            });
+            view.render_scale *= 1.0 - progress;
+            Some(view)
+        }));
         views.sort_unstable_by_key(|view| view.runtime_id);
         views
     }
@@ -113,25 +185,6 @@ impl ActorStore {
         // Vanilla renders actors from their network position,
         // whereas our actor store retains collision feet for boxes and brightness.
         position[1] += ITEM_ACTOR_NETWORK_OFFSET;
-        let mut bob_multiplier = 1.0;
-        if let Some(pickup) = actor.status.pickup {
-            let progress =
-                (f32::from(pickup.ticks) + alpha) / f32::from(super::PICKUP_DURATION_TICKS);
-            if progress >= 1.0 {
-                return None;
-            }
-            if let Some(collector) = self.actors.get(&pickup.collector_runtime_id) {
-                let height = collector
-                    .bounding_box()
-                    .map_or(DEFAULT_COLLECTOR_HEIGHT, |(min, max)| max[1] - min[1]);
-                let anchor = collector.interpolated_position(alpha)?;
-                let target = [anchor[0], anchor[1] + height * 0.5, anchor[2]];
-                position = std::array::from_fn(|axis| {
-                    position[axis] + (target[axis] - position[axis]) * progress
-                });
-                bob_multiplier = 1.0 - progress;
-            }
-        }
         let copy_count = dropped_item_copy_count(item.identity.count);
         Some(DroppedItemView {
             runtime_id: actor.runtime_id,
@@ -144,7 +197,7 @@ impl ActorStore {
                 actor.runtime_id,
                 actor.spawn_revision,
             )),
-            bob_multiplier,
+            bob_multiplier: 1.0,
             render_scale: actor.render_scale(),
             yaw_radians: (ticks * SPIN_RATE_PER_TICK - SPIN_HALF_TICK).max(0.0),
             item,
