@@ -72,6 +72,7 @@ Signing is optional; each missing secret yields unsigned output instead of a fai
 | `WINDOWS_CERT_PFX_BASE64`, `WINDOWS_CERT_PASSWORD` | Authenticode signing of the exes, MSI, setup engine and bundle |
 | `CINNABAR_UPDATE_SIGNING_KEY` | Signed `update-stable.json` on `v*` releases (else none is published) |
 | `UPDATE_TRUSTED_KEYS` (variable) | Keys the core trusts for update manifests |
+| `DISCORD_CHANGELOG_WEBHOOK` | Posts each new `v*` release's changelog to Discord, grouped by PR label (`packaging/changelog.py`) |
 
 Without `CODESIGN_IDENTITY` the macOS app is ad-hoc signed and not notarized. Gatekeeper then blocks
 it on other Macs until the recipient runs `xattr -dr com.apple.quarantine /Applications/Cinnabar.app`
