@@ -5,6 +5,8 @@
 //! a diagnostic geometry tool only and is not a viewer fallback.
 
 #[cfg(any(target_arch = "wasm32", test))]
+mod browser_entity_catalog;
+#[cfg(any(target_arch = "wasm32", test))]
 mod browser_interpolation;
 #[cfg(any(target_arch = "wasm32", test))]
 // Host interpolation tests parse the same model without using graphics-only fields.
