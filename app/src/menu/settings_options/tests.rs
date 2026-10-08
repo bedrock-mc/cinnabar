@@ -121,7 +121,7 @@ fn supplemental_bindings_drive_production_keyboard_and_mouse_helpers() {
 }
 
 #[test]
-fn chat_secondary_default_obeys_remapping_and_reset_conflicts() {
+fn chat_secondary_default_obeys_remapping_and_allows_a_shared_reset() {
     use super::{EXTRA_KEYS, binding_key, binding_pressed};
     use bevy::prelude::{ButtonInput, KeyCode};
     let mut menu = crate::menu::MenuRuntime::new(true, 2, "Bindings".to_owned());
@@ -146,16 +146,16 @@ fn chat_secondary_default_obeys_remapping_and_reset_conflicts() {
         &ButtonInput::default()
     ));
     let settings = std::sync::Arc::make_mut(&mut menu.settings_options);
-    assert!(!settings.remap(inventory, enter));
+    assert!(settings.remap(inventory, enter));
     assert!(settings.remap(chat, PhysicalControl::KeyboardUsage(0x1c)));
     assert!(settings.remap(inventory, enter));
-    assert!(!settings.reset_key(chat));
     assert!(!binding_key(Some(&menu), "key.chat", KeyCode::Enter));
     assert!(binding_key(Some(&menu), "key.chat", KeyCode::KeyY));
     let settings = std::sync::Arc::make_mut(&mut menu.settings_options);
-    assert!(settings.reset_key(inventory));
     assert!(settings.reset_key(chat));
     assert!(binding_key(Some(&menu), "key.chat", KeyCode::Enter));
+    assert!(binding_key(Some(&menu), "key.inventory", KeyCode::Enter));
+    assert!(std::sync::Arc::make_mut(&mut menu.settings_options).reset_key(inventory));
 }
 
 #[test]
