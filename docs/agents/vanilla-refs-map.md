@@ -792,6 +792,7 @@ RVAs are 1.26.50.26 Windows client; `mac 0x10…` addresses are the 26.30 macOS 
 
 ## crates/inventory/src/inventory_ledger/crafting.rs
 - // Native _makeCreateItemScopeCreative
+- Current 1.26.50.26 canonical `GameplayUI::Util` auto-place order (`0x071ce2b0`) routes personal and workbench crafting output to `combined_hotbar_and_inventory_items`. The inventory model offset (`0x0a5d0af0`, named counterpart `InventoryContainerModel::_getContainerOffset`) is nine only for main inventory and zero for the combined container; initialization (`0x0a5d0be0`) visits ascending slots. Compatible partial stacks precede empty slots, with the hotbar first in each pass.
 
 ## crates/inventory/src/inventory_ledger/crafting_close.rs
 - //! ContainerManagerController::_closeContainers invokes
