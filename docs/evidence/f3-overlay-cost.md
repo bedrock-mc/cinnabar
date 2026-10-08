@@ -4,7 +4,7 @@
 
 M3 Pro, macOS arm64, Metal, 1920×1080, DPI 1, GUI scale 4, 12-chunk radius, Immediate presentation and vsync disabled. All clients were headless and driven through developer-control on an owned local terrain server. The fixed scene contains 489 columns and no remote entities. Camera position, inspection heading, player feet and residency were checked at every phase boundary.
 
-Before: optimized play-profile build preserving `3abbe9f94` overlay behavior, with matching timing zones and developer-control frame-count instrumentation (`developer-control,tracy`). After: optimized play-profile runtime from `5b826a364`, integrating dev `686fbb9e1`. Each Tracy comparison alternates three closed/open pairs of 120 seconds after settling. Conservative clock-anchor bounds select complete frames. The additive UI attribution uses disjoint main/UI and render/UI systems and CPU graph nodes; nested detail spans are reported separately. These are CPU-side elapsed spans across threads, not active CPU time or additive frame wall time.
+Before: optimized play-profile build preserving `3abbe9f94` overlay behavior, with matching timing zones and developer-control frame-count instrumentation (`developer-control,tracy`). After: optimized play-profile runtime from `63dc79ad81e535828edd1511085571b1b39f4899`, integrating dev `eeb55dd32`. Each Tracy comparison alternates three closed/open pairs of 120 seconds after settling. Conservative clock-anchor bounds select complete frames. The additive UI attribution uses disjoint main/UI and render/UI systems and CPU graph nodes; nested detail spans are reported separately. These are CPU-side elapsed spans across threads, not active CPU time or additive frame wall time.
 
 This scene stays near 120 FPS despite uncapped Immediate presentation. It cannot establish the reported 500 FPS behavior. It also does not qualify the 30-player lobby, streaming or join budgets.
 
@@ -12,50 +12,52 @@ This scene stays near 120 FPS despite uncapped Immediate presentation. It cannot
 
 | UI CPU elapsed work (ms/frame) | Before | After |
 | --- | ---: | ---: |
-| F3 closed | 0.282 | 0.220 |
-| F3 open | 1.165 | 0.363 |
-| Open minus closed | 0.882 | 0.143 |
+| F3 closed | 0.282 | 0.217 |
+| F3 open | 1.165 | 0.382 |
+| Open minus closed | 0.882 | 0.165 |
 
-Added UI work fell by approximately 84%; every final pair is below the requested ~0.2 ms average per-frame target.
+Added UI work fell by approximately 81%; every integrated pair is below the requested ~0.2 ms average per-frame target.
 
-Per-pair added UI work: before 0.807, 0.865, 0.975 ms; after 0.139, 0.142, 0.148 ms.
+Per-pair added UI work: before 0.807, 0.865, 0.975 ms; after 0.171, 0.171, 0.153 ms.
 
 | Open-frame detail (ms/frame; nested rows overlap) | Before | After |
 | --- | ---: | ---: |
-| Gather/format/snapshot total | 0.04438 | 0.00477 |
-| World/chunk/spatial diagnostics subset | 0.03254 | 0.00324 |
-| Inspection ray subset | 0.02456 | 0.00245 |
-| Entity inspection subset | 0.00097 | 0.00013 |
-| Retained paint total | 0.42009 | 0.06839 |
-| Rebind/layout subset | 0.39474 | 0.06005 |
-| Bindings/text measurement subset | 0.05428 | 0.00964 |
-| Layout subset | 0.17506 | 0.02595 |
-| UI geometry rebuild | 0.23767 | 0.03873 |
+| Gather/format/snapshot total | 0.04438 | 0.00507 |
+| World/chunk/spatial diagnostics subset | 0.03254 | 0.00338 |
+| Inspection ray subset | 0.02456 | 0.00259 |
+| Entity inspection subset | 0.00097 | 0.00014 |
+| Retained paint total | 0.42009 | 0.07152 |
+| Rebind/layout subset | 0.39474 | 0.06299 |
+| Bindings/text measurement subset | 0.05428 | 0.01006 |
+| Layout subset | 0.17506 | 0.02809 |
+| UI geometry rebuild | 0.23767 | 0.03931 |
 | Viewport upload API elapsed | 0.03249 | 0.00000 |
-| Vertex upload API elapsed | 0.06968 | 0.00893 |
-| Index upload API elapsed | 0.01444 | 0.00005 |
-| Existing device poll | 0.06239 | 0.03435 |
-| Existing readback processing | 0.00360 | 0.00286 |
+| Vertex upload API elapsed | 0.06968 | 0.00979 |
+| Index upload API elapsed | 0.01444 | 0.00004 |
+| Existing device poll | 0.06239 | 0.02745 |
+| Existing readback processing | 0.00360 | 0.00351 |
 
 Gather includes direct string formatting, diagnostic queries and CPU statistics copies. Static system labels use existing metadata. World includes spatial and entity subsets. Paint includes rebind and layout; these detail rows must not be added together. The whole UI-system difference above also includes UI preparation, render preparation, layering, binding, queueing and graph execution.
 
 | Open-frame deterministic work | Before | After |
 | --- | ---: | ---: |
-| Gathers/frame | 1.00009 | 0.16820 |
-| Rebind/layout calls/frame | 0.99392 | 0.16820 |
-| Geometry rebuilds/frame | 0.99392 | 0.16820 |
+| Gathers/frame | 1.00009 | 0.16848 |
+| Rebind/layout calls/frame | 0.99392 | 0.16848 |
+| Geometry rebuilds/frame | 0.99392 | 0.16848 |
 | Viewport writes/frame | 1.00005 | 0.00000 |
-| Vertex writes/frame | 0.99387 | 0.16818 |
-| Index writes/frame | 0.49970 | 0.00199 |
+| Vertex writes/frame | 0.99387 | 0.16850 |
+| Index writes/frame | 0.49970 | 0.00152 |
 | Font-atlas writes/frame | 0.00000 | 0.00000 |
 | Viewport bytes/frame | 16 | 0 |
-| Vertex bytes/frame | 191053 | 5207 |
-| Index bytes/frame | 18757 | 75 |
+| Vertex bytes/frame | 191053 | 4316 |
+| Index bytes/frame | 18757 | 57 |
 
 | Collector-disconnected 120 s pair | Closed FPS / mean ms | Open FPS / mean ms |
 | --- | ---: | ---: |
 | Before | 119.34 / 8.379 | 118.29 / 8.454 |
-| After | 119.71 / 8.354 | 119.99 / 8.334 |
+| After | 112.60 / 8.881 | 119.99 / 8.334 |
+
+The collector-disconnected closed phase is slower than both its open phase and the traced closed phases. This variation is retained; the FPS pairs do not establish a causal throughput gain. Before integration, the same cache design measured 0.143 ms of added UI work (0.139 / 0.142 / 0.148 ms) and 119.71 / 119.99 closed/open FPS.
 
 ## Work and cadence
 
@@ -71,8 +73,8 @@ F3 never enables timing collection, submits timestamp queries or requests readba
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | Before closed-0 | 2908 | 2645 | 263 | 7 | 3 | 0 | 1851 |
 | Before open-0 | 2748 | 2604 | 143 | 7 | 3 | 0 | 2214 |
-| After closed-0 | 3042 | 3027 | 14 | 7 | 3 | 0 | 2867 |
-| After open-0 | 3259 | 3248 | 12 | 7 | 3 | 0 | 3101 |
+| After closed-0 | 3368 | 3368 | 0 | 7 | 3 | 0 | 3350 |
+| After open-0 | 3374 | 3374 | 0 | 7 | 3 | 0 | 3369 |
 
 The separate final query-count capture uses the same final runtime. Both clocks were validated, and reporting intervals touching visibility transitions were excluded.
 
@@ -90,17 +92,17 @@ An earlier candidate averaged 0.220 ms of added UI work, with pairs of 0.075 / 0
 | Before open-1 | 118.26 | 8.393 / 11.758 / 105.641 | 119 | 1 |
 | Before closed-2 | 118.57 | 8.379 / 11.228 / 77.999 | 103 | 0 |
 | Before open-2 | 117.68 | 8.388 / 12.973 / 74.526 | 159 | 0 |
-| After closed-0 | 119.97 | 8.409 / 9.644 / 17.692 | 5 | 0 |
-| After open-0 | 120.00 | 8.438 / 9.475 / 11.599 | 0 | 0 |
-| After closed-1 | 118.46 | 8.445 / 11.650 / 99.344 | 114 | 0 |
-| After open-1 | 117.39 | 8.439 / 16.365 / 96.641 | 271 | 0 |
-| After closed-2 | 119.01 | 8.433 / 11.414 / 124.935 | 98 | 1 |
-| After open-2 | 119.29 | 8.504 / 9.713 / 130.470 | 41 | 2 |
+| After closed-0 | 119.58 | 8.252 / 10.331 / 45.569 | 54 | 0 |
+| After open-0 | 117.58 | 8.386 / 15.380 / 129.242 | 234 | 1 |
+| After closed-1 | 119.85 | 8.307 / 9.694 / 30.359 | 26 | 0 |
+| After open-1 | 118.77 | 8.394 / 12.747 / 56.720 | 151 | 0 |
+| After closed-2 | 119.98 | 8.292 / 9.677 / 18.657 | 3 | 0 |
+| After open-2 | 119.57 | 8.355 / 10.095 / 61.867 | 50 | 0 |
 
-Seven second-pair hitches intersect 8.984–20.120 ms shared vertex-write API spans exceeding half their frame interval. These are elapsed API calls, without evidence identifying a GPU wait, lock owner or scheduler delay. The final two open frames above 100 ms contain only 0.004 and 0.671 ms of selected overlay/publication/geometry/upload spans; the remaining render time is unattributed.
+Seven open-phase hitches intersect 7.271–17.836 ms shared vertex-write API spans exceeding half their frame interval. These are elapsed API calls, without evidence identifying a GPU wait, lock owner or scheduler delay. The 129.242 ms open frame contains only 0.005 ms of selected overlay/publication/geometry/upload spans; the remaining time is unattributed.
 
 Every interval above 12.5 ms remains in the reported distribution; no outlier is removed as presumed operating-system activity. Selected nested-span attribution is retained privately for every hitch. Unexplained time remains unexplained; this is not full-game performance qualification.
 
 ## Verification and visual result
 
-Touched-crate `cargo check --tests`, 18 app and 22 UI overlay tests, 34 renderer unit tests and 63 renderer integration tests run through cslot, with focused follow-up dispatch and glide-fixture checks, including the retained half-tick correction fixture required by PR CI. Later changes add test-only dispatch counters and remove an unused glide-test calculation; they do not change the measured production runtime. Env-scrubbed Codex review reports no actionable findings. The final headless rendered frame passes legibility, geometry, clipping, layering, scaling, colors and endpoint-delivered F3 input at the stated platform and scale. Screenshots are attached to the PR outside git; raw captures are removed after selected timing exports.
+Touched-crate `cargo check --tests`, 18 app and 22 UI overlay tests, 34 renderer unit tests and 63 renderer integration tests run through cslot, with focused actual dispatch, glide and half-tick correction checks. After integration, the UI/app check and all 22 overlay and 11 retained-menu tests pass. The subsequent one-line menu closure cleanup is behavior-equivalent and outside the measured F3 path. Env-scrubbed Codex review reports no actionable findings. The final headless rendered frame passes legibility, geometry, clipping, layering, scaling, colors and endpoint-delivered F3 input at the stated platform and scale. Screenshots are attached to the PR outside git; raw captures are removed after selected timing exports.
