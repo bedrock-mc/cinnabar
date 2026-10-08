@@ -436,27 +436,7 @@ fn use_surroundings(
     ];
     let half_width = sim::PLAYER_WIDTH * 0.5;
     let height = sim::MovementMode::Walking.hitbox_height(sneaking);
-    let placed_boxes = stream.and_then(|stream| {
-        let shapes = context
-            .collisions
-            .registry(stream.network_id_mode())
-            .collision_shapes(held_block_store_id(
-                stream,
-                observed.selection.item.block_runtime_id(),
-            )?)?;
-        Some(
-            shapes
-                .iter()
-                .map(|shape| {
-                    (
-                        [shape.min.x, shape.min.y, shape.min.z],
-                        [shape.max.x, shape.max.y, shape.max.z],
-                    )
-                })
-                .collect(),
-        )
-    });
-    UseSurroundings {
+    let mut surroundings = UseSurroundings {
         clicked_identifier: context
             .collisions
             .block_identifier(
@@ -495,8 +475,20 @@ fn use_surroundings(
             .map(|(min, max)| (min.map(f64::from), max.map(f64::from)))
             .collect(),
         sneaking,
-        placed_boxes,
+        placed_boxes: None,
+    };
+    if let Some((stream, held)) = stream.and_then(|stream| {
+        held_block_store_id(stream, observed.selection.item.block_runtime_id())
+            .map(|held| (stream, held))
+    }) {
+        surroundings.set_placed_collision_shapes(
+            context.collisions.registry(stream.network_id_mode()),
+            held,
+            observed.target.position,
+            observed.target.face,
+        );
     }
+    surroundings
 }
 
 mod target;

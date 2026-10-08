@@ -20,7 +20,7 @@ pub struct BlockEntityVertex {
     pub uv: [f32; 2],
     /// Model tint or portal normal/depth encoding; actor materials compose lit RGB in gamma.
     pub color: [f32; 4],
-    /// Outward world normal for native entity-material lighting.
+    /// Outward world normal for entity lighting or view-facing separation in scalar overlay passes.
     pub normal: [f32; 3],
     /// Packed actor light; zero retains the scalar-lit block-entity path.
     pub actor_light: u32,

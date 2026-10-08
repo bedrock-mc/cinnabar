@@ -73,6 +73,7 @@ pub(in super::super) fn content() -> Hud {
             }],
             ..Default::default()
         }],
+        ..Default::default()
     }
 }
 pub(in super::super) fn presentation(hidden: bool) -> UiPresentationRuntime {
@@ -330,6 +331,7 @@ fn personal_hud_snapshot_with_real_carrier() {
     };
     let hud = Hud {
         cards: vec![equipment, effects, supplies],
+        ..Default::default()
     };
     p.set_mod_hud(Some(&hud)).unwrap();
     for shape in [

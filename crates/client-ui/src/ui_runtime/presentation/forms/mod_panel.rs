@@ -8,6 +8,9 @@ mod edit_tests;
 mod icons;
 mod input;
 mod layout;
+pub(in super::super) mod surface;
+#[cfg(test)]
+mod surface_tests;
 mod template;
 #[cfg(test)]
 mod tests;
@@ -94,7 +97,7 @@ impl UiPresentationRuntime {
                 current.cancel_edit();
             }
             current.panel = panel.clone();
-            current.data = Arc::new(control_data(panel));
+            current.refresh_data();
         } else {
             self.form_presentation.mod_panel = Some(ModPanel {
                 panel: panel.clone(),
@@ -155,14 +158,22 @@ impl UiPresentationRuntime {
         pressed: bool,
         held: bool,
     ) -> Vec<Event> {
+        let controls = self
+            .form_presentation
+            .mod_panel
+            .as_ref()
+            .map_or(&[][..], |panel| panel.panel.controls.as_slice());
         if let Some(editor) = self
             .form_presentation
             .mod_hud_editor
             .as_mut()
             .filter(|e| e.open)
         {
-            editor.pointer(position, pressed, held);
-            return Vec::new();
+            let events = editor.pointer(position, pressed, held, controls);
+            if editor.close_requested {
+                self.set_mod_panel_open(false);
+            }
+            return events;
         }
         self.form_presentation
             .mod_panel
@@ -196,8 +207,18 @@ impl UiPresentationRuntime {
             panel.open = false;
             return;
         };
-        // Desktop controls retain logical sizing; the render tree applies platform DPI.
-        metrics.scale = UiScale::new_display(1.0).expect("unit display scale is valid");
+        // Authored surfaces may declare their logical extent for viewport fitting.
+        let scale = panel.panel.reference_size.map_or(1.0, |size| {
+            content
+                .into_iter()
+                .zip(size)
+                .map(|(available, required)| {
+                    available / (required * FONT_DESIGN_PIXEL_TEXELS as f32)
+                })
+                .fold(1.0, f32::min)
+                .clamp(UiScale::DISPLAY_MIN, 1.0)
+        });
+        metrics.scale = UiScale::new_display(scale).expect("fitted display scale is valid");
         let px = metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
         let viewport = [f64::from(content[0] / px), f64::from(content[1] / px)];
         if viewport[0] < 120.0
@@ -216,6 +237,7 @@ impl UiPresentationRuntime {
         if panel.viewport != viewport || panel.rows != rows {
             panel.cancel_edit();
             panel.viewport = viewport;
+            panel.refresh_data();
             panel.rows = rows;
             panel.page = panel.page.min(panel.last_page());
             panel.catalog = None;
@@ -305,6 +327,15 @@ fn out_of_render(
 }
 
 impl ModPanel {
+    /// Publishes typed control values and host viewport dimensions together.
+    fn refresh_data(&mut self) {
+        let mut data = control_data(&self.panel);
+        if self.panel.surface.is_some() {
+            surface::viewport(&mut data, self.viewport);
+        }
+        self.data = Arc::new(data);
+    }
+
     fn last_page(&self) -> usize {
         self.pages.saturating_sub(1)
     }

@@ -3,12 +3,9 @@
 use crate::chunk::*;
 
 use super::model::{CullRecord, CullRecordSource};
+use crate::chunk::bounds::{FULL_BOUNDS, MODEL_BOUNDS};
 
 const SIDE: i32 = world::SUB_CHUNK_SIDE as i32;
-/// Models may overhang their sub-chunk by one block.
-const MODEL_BOUNDS: [[i32; 3]; 2] = [[-1; 3], [SIDE + 1; 3]];
-const FULL_BOUNDS: [[i32; 3]; 2] = [[0; 3], [SIDE; 3]];
-
 #[derive(Clone, Copy)]
 struct SlotOwner {
     entity: Entity,

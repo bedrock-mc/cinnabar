@@ -36,7 +36,7 @@ pub(crate) fn from_block_entity_wgsl(
     selection_vertices_per_edge: u32,
 ) -> Shader {
     from_wgsl(
-        source
+        crate::material_shader::source(source)
             .replace("BLOCK_ENTITY_VERTEX_WORDS", &format!("{words}u"))
             .replace(
                 "BLOCK_SELECTION_VERTICES_PER_EDGE",

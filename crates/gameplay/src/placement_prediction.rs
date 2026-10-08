@@ -6,7 +6,7 @@ use assets::NetworkIdMode;
 use sim::PaletteWorld;
 
 use crate::{
-    block_use::{BoxBounds, UseSurroundings, overlaps, placement_cell},
+    block_use::{UseSurroundings, overlaps, placed_collision_boxes, placement_cell},
     movement::PhysicsCollisionRegistries,
     placement_stacking::stacked_placement_canonical,
     placement_state::{PlacementInput, merge_slab_state, resolve_placement_state},
@@ -118,21 +118,13 @@ pub fn predicted_placement(
         &mut states,
     )?;
     let block = collisions.block_state_runtime_id(mode, &placed_identifier, &states)?;
-    let shapes = collisions.registry(mode).collision_shapes(block)?;
+    let shapes = placed_collision_boxes(collisions.registry(mode), block, position)?;
     let actor_overlap = |local| {
         std::iter::once(&context.surroundings.player_box)
             .chain(&context.surroundings.actor_boxes)
             .any(|actor| overlaps(position, local, *actor))
     };
-    if (full_cell && actor_overlap(([0.0; 3], [1.0; 3])))
-        || shapes.iter().any(|shape| {
-            let local: BoxBounds = (
-                [shape.min.x, shape.min.y, shape.min.z],
-                [shape.max.x, shape.max.y, shape.max.z],
-            );
-            actor_overlap(local)
-        })
-    {
+    if (full_cell && actor_overlap(([0.0; 3], [1.0; 3]))) || shapes.into_iter().any(actor_overlap) {
         return None;
     }
     Some(PredictedPlacement { position, block })

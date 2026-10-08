@@ -21,6 +21,8 @@ mod actor_rig;
 mod actor_sidedness;
 mod actor_skin_classes;
 mod atmosphere;
+mod bamboo_overlay_depth;
+mod bamboo_shader;
 mod biome_shader;
 mod biome_tint_bounds;
 mod block_selection;

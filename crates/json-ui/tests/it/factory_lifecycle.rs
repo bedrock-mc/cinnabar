@@ -168,3 +168,137 @@ fn dormant_nested_factory_keeps_its_own_incarnation_below_the_same_outer_instanc
     assert!(labels(&refresh("replacement", false, 2)).is_empty());
     assert_eq!(labels(&refresh("replacement", true, 2)), ["replacement"]);
 }
+
+#[test]
+fn custom_control_lifetime_survives_hiding_but_not_factory_destruction() {
+    let mut catalog = Catalog::default();
+    catalog.overlay_text(
+        "ui/custom_lifetime.json",
+        &json!({
+            "namespace":"lifetime",
+            "root":{"type":"panel", "controls":[{"factory":{"type":"factory",
+                "factory":{"name":"feed", "control_ids":{"item":"lifetime.item"}}}}]},
+            "item":{"type":"panel", "bindings":[
+                {"binding_name":"#shown", "binding_name_override":"#visible"}
+            ], "controls":[{"renderer":{"type":"custom", "renderer":"test_renderer"}}]}
+        })
+        .to_string(),
+    );
+    let context = Context::empty();
+    let root = Arc::new(
+        json_ui::resolve(&catalog, "lifetime.root", &context)
+            .control
+            .unwrap(),
+    );
+    let mut state = BindState::new();
+    let mut refresh = |present: bool, shown: bool| {
+        let mut data = DataSource::new();
+        data.set_global("#shown", Scalar::Bool(shown));
+        data.set_factory(
+            "feed",
+            if present {
+                vec![FactoryItem::new("item", 0.0).named("same_name")]
+            } else {
+                Vec::new()
+            },
+        );
+        bind_incremental(
+            &root,
+            &Arc::new(data),
+            &CatalogLibrary {
+                catalog: &catalog,
+                context: &context,
+            },
+            &mut state,
+        )
+    };
+    let identity = |tree: &ResolvedControl| {
+        fn find(tree: &ResolvedControl) -> Option<u64> {
+            tree.properties
+                .get(json_ui::CUSTOM_CONTROL_INSTANCE_KEY)
+                .and_then(serde_json::Value::as_u64)
+                .or_else(|| tree.children.iter().find_map(find))
+        }
+        find(tree).expect("custom control has a lifetime identity")
+    };
+    let first = identity(&refresh(true, true));
+    refresh(true, false);
+    assert_eq!(
+        identity(&refresh(true, true)),
+        first,
+        "hidden ancestor keeps its renderer"
+    );
+    assert_eq!(
+        identity(&refresh(true, true)),
+        first,
+        "unchanged control keeps its identity"
+    );
+    refresh(false, true);
+    assert_ne!(
+        identity(&refresh(true, true)),
+        first,
+        "recreation starts a new lifetime"
+    );
+}
+
+#[test]
+fn a_live_custom_factory_control_refreshes_literal_bags_without_replacing_its_lifetime() {
+    let mut catalog = Catalog::default();
+    catalog.overlay_text(
+        "ui/custom_bag.json",
+        &json!({
+            "namespace":"bag",
+            "root":{"type":"panel", "controls":[{"factory":{"type":"factory",
+                "factory":{"name":"feed", "control_ids":{"item":"bag.item"}}}}]},
+            "item":{"type":"custom", "renderer":"test_renderer", "property_bag":{"#x":"$x"}}
+        })
+        .to_string(),
+    );
+    let context = Context::empty();
+    let root = Arc::new(
+        json_ui::resolve(&catalog, "bag.root", &context)
+            .control
+            .unwrap(),
+    );
+    let mut state = BindState::new();
+    let mut first_identity = None;
+    for value in [1, 2] {
+        let mut data = DataSource::new();
+        data.set_factory(
+            "feed",
+            vec![
+                FactoryItem::new("item", 0.0)
+                    .named("same_name")
+                    .identified(1)
+                    .var("x", json!(value)),
+            ],
+        );
+        let tree = bind_incremental(
+            &root,
+            &Arc::new(data),
+            &CatalogLibrary {
+                catalog: &catalog,
+                context: &context,
+            },
+            &mut state,
+        );
+        let custom = tree
+            .find(&|control| control.control_type.as_deref() == Some("custom"))
+            .unwrap();
+        assert_eq!(
+            custom.properties.get("#x"),
+            Some(&json!(value)),
+            "factory variables reach the live renderer"
+        );
+        let identity = custom
+            .properties
+            .get(json_ui::CUSTOM_CONTROL_INSTANCE_KEY)
+            .unwrap()
+            .clone();
+        assert_eq!(
+            first_identity.get_or_insert(identity.clone()),
+            &identity,
+            "updating parameters keeps the control lifetime"
+        );
+    }
+}

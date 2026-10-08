@@ -185,6 +185,9 @@ fn normal<'a>(
     let screen_kind = match block {
         "stonecutter" => Some(ScreenRecipeKind::Stonecutter),
         "cartography_table" => Some(ScreenRecipeKind::Cartography),
+        "furnace" => Some(ScreenRecipeKind::Furnace),
+        "blast_furnace" => Some(ScreenRecipeKind::BlastFurnace),
+        "smoker" => Some(ScreenRecipeKind::Smoker),
         _ => None,
     };
     let screen = screen_kind

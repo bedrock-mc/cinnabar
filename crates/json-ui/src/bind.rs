@@ -38,6 +38,9 @@ pub use data::{CollectionItem, DataSource, scoped_key};
 pub use feed::FactoryItem;
 pub use state::BindState;
 
+/// Reserved custom-renderer data key identifying the bound control lifetime.
+pub const CUSTOM_CONTROL_INSTANCE_KEY: &str = "_control_instance";
+
 pub(crate) use reuse::{Children, Patch};
 
 use bag::Bag;
@@ -397,11 +400,15 @@ impl<'a> Binder<'a> {
         }
         let for_children = declaration.bags.children(&scope.for_children);
         let parent = scope.retained_parent;
-        let created = retained.is_none();
+        let created = retained.as_ref().is_none_or(|memory| !memory.keep_bag);
         let mut memory = retained.unwrap_or_default();
         memory.parent = parent;
         memory.parent_incarnation = scope.retained_incarnation;
         memory.incarnation = scope.incarnation;
+        let custom = control.control_type.as_deref() == Some("custom");
+        if custom && memory.custom_instance.is_none() {
+            memory.custom_instance = Some(state::new_custom_instance());
+        }
         let mut own = if created {
             let mut own = declaration.bags.own(&scope.for_children);
             for (name, value) in scope.values.iter() {
@@ -481,9 +488,10 @@ impl<'a> Binder<'a> {
         let visible = native.visible(control);
         let awaits_views =
             grid_awaits_views(control, &bindings) || factory_awaits_views(control, &bindings);
-        // Only state a refresh cannot rebuild from literals is retained.
-        let retained =
+        memory.keep_bag =
             !bindings.is_empty() || !native.props.is_empty() || !visible || had_published;
+        // A renderer lifetime survives refreshes without freezing literal bags.
+        let retained = custom || memory.keep_bag;
         if retained {
             child_scope.retained_parent = key;
             child_scope.retained_incarnation = child_scope.incarnation;
@@ -848,6 +856,16 @@ fn bake_output(node: &Node, components: &crate::component::Components) -> crate:
                 .iter()
                 .map(|(key, value)| (key.clone(), value.clone())),
         );
+    }
+    if control.control_type.as_deref() == Some("custom") {
+        match node.memory.custom_instance {
+            Some(instance) => {
+                properties.insert(CUSTOM_CONTROL_INSTANCE_KEY.into(), Value::from(instance));
+            }
+            None => {
+                properties.remove(CUSTOM_CONTROL_INSTANCE_KEY);
+            }
+        }
     }
     properties.into()
 }

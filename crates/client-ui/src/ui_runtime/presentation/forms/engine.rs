@@ -582,6 +582,9 @@ fn edit_texts(
         .collect()
 }
 
+/// Advance an admitted hunger control and return its render-update count.
+type HungerUpdate<'a> = &'a dyn Fn(&str, Option<u64>) -> u64;
+
 /// Caller art the custom renderers draw: `#item_renderer_data` icons, the player preview,
 /// the tooltip pointer (virtual px), the fade clock (s), HUD state, artwork and gamerpic.
 #[derive(Clone, Copy, Default)]
@@ -607,6 +610,8 @@ pub(super) struct ScreenArt<'a> {
     /// Creation times that fades naming a clock read instead of their own.
     pub(super) clocks: Option<&'a std::collections::BTreeMap<String, f64>>,
     pub(super) hud: Option<&'a hud_renderers::HudPaint>,
+    /// Per-control updates advance only when a hunger renderer reaches painting.
+    pub(super) hunger_update: Option<HungerUpdate<'a>>,
     pub(super) images: Option<&'a std::collections::HashMap<String, IconRef>>,
     pub(super) portrait: Option<IconRef>,
     pub(super) splash: Option<&'a str>,
@@ -707,13 +712,14 @@ impl Painter<'_> {
     /// player preview, tooltips, and the HUD's native renderers. Others draw nothing yet.
     fn custom(
         &mut self,
+        key: &str,
         renderer: &str,
         data: &std::collections::BTreeMap<String, serde_json::Value>,
         dest: [f32; 4],
         alpha: impl Fn([u8; 4]) -> [u8; 4],
     ) -> Option<(UiVisual, [f32; 4])> {
         if let Some(hud) = self.art.hud
-            && hud_renderers::paint(self, hud, renderer, data, dest, &alpha)
+            && hud_renderers::paint(self, hud, key, renderer, data, dest, &alpha)
         {
             return None;
         }
@@ -951,10 +957,12 @@ impl Painter<'_> {
                     None => Ok(()),
                 };
             }
-            Draw::Custom { renderer, data } => match self.custom(renderer, data, dest, alpha) {
-                Some(visual) => visual,
-                None => return Ok(()),
-            },
+            Draw::Custom { renderer, data } => {
+                match self.custom(&node.key, renderer, data, dest, alpha) {
+                    Some(visual) => visual,
+                    None => return Ok(()),
+                }
+            }
         };
         self.push(visual, bounds)
     }
