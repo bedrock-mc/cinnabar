@@ -55,6 +55,9 @@ const RECIPE_DISABLED: &str = "textures/ui/recipe_book_red_button";
 
 /// Whether the panel shows: creative opens on it and the toggle flips either way.
 pub fn recipe_book_shown(player_runtime: &player_state::PlayerState, runtime: &UiRuntime) -> bool {
+    if super::furnace_book::active(player_runtime) {
+        return runtime.screen_state().furnace_book_open;
+    }
     let creative =
         player_runtime.facts.player_game_mode() == Some(protocol::PlayerGameMode::Creative);
     creative != runtime.screen_state().book_open

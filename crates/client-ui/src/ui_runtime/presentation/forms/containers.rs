@@ -135,6 +135,9 @@ impl UiPresentationRuntime {
                 for flag in kind.flags {
                     context = context.with_flag(flag, true);
                 }
+                if super::furnace_book::active(player_runtime) {
+                    context = super::furnace_book::context(context);
+                }
             }
             ScreenLayout::Book => context = super::book_screen::context(context),
             _ => context = super::recipe_book::context(context),
@@ -276,7 +279,9 @@ impl UiPresentationRuntime {
         let region = hit_test(&frame.hits, [f64::from(gui[0]), f64::from(gui[1])])?;
         let widget = || match *layout {
             ScreenLayout::Station(kind) => {
-                container_data::widget_hit(kind.screen, region).map(InventoryCellHit::Widget)
+                super::furnace_book::hit(kind.screen, region).or_else(|| {
+                    container_data::widget_hit(kind.screen, region).map(InventoryCellHit::Widget)
+                })
             }
             ScreenLayout::Personal { book } | ScreenLayout::Workbench { book } => {
                 super::recipe_book::book_hit(region, book)
@@ -587,6 +592,9 @@ fn screen_data(
             data.set_collection("offhand_items", vec![offhand]);
         }
         ScreenLayout::Station(kind) => {
+            if super::furnace_book::active(player_runtime) {
+                super::furnace_book::data(player_runtime, runtime, frame, &mut data, cells.icons);
+            }
             for (collection, addressed) in kind.collections {
                 let shown = container_data::collection_len(
                     player_runtime,

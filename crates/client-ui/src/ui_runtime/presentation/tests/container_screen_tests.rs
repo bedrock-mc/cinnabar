@@ -11,6 +11,8 @@ use super::*;
 pub(super) use crate::test_support::{creative_with, inventory_session as session};
 use crate::ui_runtime::presentation::inventory_pointer::InventoryCellHit;
 
+mod furnace_recipe_tests;
+
 fn opened(
     player_runtime: &mut player_state::PlayerState,
     window_type: i8,
@@ -429,6 +431,43 @@ fn every_container_screen_draws_through_the_engine() {
         for hit in expected.into_iter().chain(player) {
             assert!(reached.contains(&hit), "{name}: {hit:?} unreachable");
         }
+    }
+}
+
+#[test]
+fn furnace_recipe_layout_buttons_reach_the_screen_controller() {
+    let mut player_runtime = player_state::PlayerState::new(1);
+    let runtime = opened(&mut player_runtime, protocol::WINDOW_TYPE_FURNACE, 3);
+    let Some(mut presentation) =
+        engine_presentation_with(super::super::forms::pack_harness::font())
+    else {
+        eprintln!(
+            "skipping furnace_recipe_layout_buttons_reach_the_screen_controller: missing local UI carrier; make assets"
+        );
+        return;
+    };
+    let dpi = DpiScale::new(1.0).unwrap();
+    presentation
+        .build(&player_runtime, &runtime, 0, [1280, 720], dpi)
+        .unwrap();
+    let frame = presentation.engine_container_frame().unwrap();
+    let reached: Vec<_> = frame
+        .hits
+        .iter()
+        .filter_map(|region| {
+            presentation.engine_container_hit([
+                (region.rect.x + region.rect.w / 2.0) as f32,
+                (region.rect.y + region.rect.h / 2.0) as f32,
+            ])
+        })
+        .collect();
+    for layout in [1, 2] {
+        assert!(
+            reached.contains(&InventoryCellHit::Widget(
+                crate::ui_runtime::presentation::screens::Widget::InventoryLayout(layout)
+            )),
+            "furnace layout {layout} must be reachable"
+        );
     }
 }
 

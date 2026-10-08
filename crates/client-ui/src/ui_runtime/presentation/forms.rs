@@ -9,6 +9,7 @@ pub mod container_data;
 pub mod container_kinds;
 mod debug_overlay;
 pub mod discord_presence_setting;
+pub mod furnace_book;
 pub(super) use container_kinds::supported_storage_slots;
 pub mod containers;
 pub(super) mod credits_content;

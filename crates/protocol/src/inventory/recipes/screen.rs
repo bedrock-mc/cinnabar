@@ -14,6 +14,9 @@ pub enum ScreenRecipeKind {
     Cartography,
     SmithingTransform,
     SmithingTrim,
+    Furnace,
+    BlastFurnace,
+    Smoker,
 }
 
 /// One accepted input of a screen recipe: an item name or a tag.
@@ -28,7 +31,7 @@ pub struct ScreenIngredient {
 pub struct ScreenRecipe {
     pub id: u32,
     pub kind: ScreenRecipeKind,
-    /// Stonecutter: the input. Cartography: map then modifier. Smithing:
+    /// Furnaces and stonecutter: the input. Cartography: map then modifier. Smithing:
     /// template, base, addition.
     pub ingredients: Vec<ScreenIngredient>,
     /// Absent for smithing trims, which decorate the base item.

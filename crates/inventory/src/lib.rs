@@ -1,6 +1,7 @@
 //! Engine-independent inventory authority, prediction, crafting and commands.
 mod crafting;
 mod crafting_authority;
+mod furnace_recipes;
 mod ingress;
 pub mod inventory_ledger;
 pub mod inventory_router;

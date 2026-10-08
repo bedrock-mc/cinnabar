@@ -6544,3 +6544,13 @@ one authored panel, and the MegaSMP tutorial remains retained with its detailed
 Orebits glyph. The user confirms the rebuilt client looks correct. Required
 touched-crate checks and the canonical developer-control build pass; release
 hardware budgets and matched-version pixel comparison remain incomplete.
+
+### Furnace recipe panel continuation (incomplete general parity)
+
+Furnace, blast furnace and smoker screens retain their server recipe catalogs and
+show result items through the pinned JSON-UI recipe panel. The toolbar, category
+tabs, search and supplied-ingredient filter reach the inventory controller; a
+supplied recipe places its ingredient in the furnace input role. This corrects
+the missing-panel route, not the full furnace parity gate. Expanded ingredient
+alternatives, ghost selection/deselection, replacing an incompatible input,
+recipe discovery, and server-persisted furnace UI options remain incomplete.

@@ -17,11 +17,29 @@ fn slot_limit(cell: Cell) -> Option<u16> {
 }
 
 impl PlayerInventoryLedger {
+    pub(crate) fn begin_move_to_furnace_input(
+        &mut self,
+        source: InventoryTarget,
+    ) -> Result<i32, InventoryGestureError> {
+        if !self.confirmed.contains(Cell::Storage(0)) {
+            return Err(InventoryGestureError::InvalidRequest);
+        }
+        self.begin_quick_move_into(source, Some(&[Cell::Storage(0)]))
+    }
+
     /// Moves a hovered stack across every cell that accepts it: compatible
     /// partial stacks first, then empty cells, until nothing is left.
     pub fn begin_quick_move(
         &mut self,
         target: InventoryTarget,
+    ) -> Result<i32, InventoryGestureError> {
+        self.begin_quick_move_into(target, None)
+    }
+
+    pub(super) fn begin_quick_move_into(
+        &mut self,
+        target: InventoryTarget,
+        destinations: Option<&[Cell]>,
     ) -> Result<i32, InventoryGestureError> {
         let source = target.cell();
         let personal_generation = self.gesture_preflight(!matches!(source, Cell::Storage(_)))?;
@@ -30,7 +48,10 @@ impl PlayerInventoryLedger {
             .movable(source)?
             .ok_or(InventoryGestureError::EmptyGesture)?;
         let address = self.window_address();
-        let candidates = self.quick_move_candidates(source, &from.stack);
+        let candidates = destinations.map_or_else(
+            || self.quick_move_candidates(source, &from.stack),
+            <[Cell]>::to_vec,
+        );
         let item_capacity = self
             .negotiated_item_entry(from.stack.network_id)
             .and_then(entry_capacity)

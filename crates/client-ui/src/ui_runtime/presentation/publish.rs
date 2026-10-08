@@ -281,6 +281,12 @@ pub fn capture_hud_frame(
             super::inventory_pointer::InventoryScreen::Personal
                 | super::inventory_pointer::InventoryScreen::Workbench
                 | super::inventory_pointer::InventoryScreen::Creative
+                | super::inventory_pointer::InventoryScreen::Window(
+                    protocol::WindowKind::Furnace
+                        | protocol::WindowKind::BlastFurnace
+                        | protocol::WindowKind::Smoker,
+                    _
+                )
         ) && super::forms::recipe_book_shown(player_runtime, runtime)
         {
             window_icons.book_entries =
