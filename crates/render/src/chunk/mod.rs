@@ -60,7 +60,6 @@ use bevy::{
         },
     },
 };
-// Fixtures construct a render instance directly.
 #[cfg(any(test, feature = "publication-test-support"))]
 use bevy::render::renderer::RenderInstance;
 use meshing::{ChunkBiomeTintIdentity, CubeQuadLayout, Face, chunk_publication_byte_len};
