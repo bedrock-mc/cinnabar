@@ -5,17 +5,7 @@ fn review_commit_frontier_waits_for_actual_block_mutation_then_releases_fifo_suf
     let mut stream = block_entity_visual_stream();
     stream.submit(1, inline_air_event(0)).unwrap();
     complete_pending_decode_jobs(&mut stream);
-    stream
-        .submit(
-            2,
-            WorldEvent::BlockUpdates(vec![BlockUpdateEvent {
-                dimension: 0,
-                position: [0, -64, 0],
-                layer: 0,
-                network_id: 1,
-            }]),
-        )
-        .unwrap();
+    stream.submit(2, worker_block_batch(0, 1)).unwrap();
     stream.commit(3).unwrap();
     stream.apply_ready();
     assert_eq!(stream.order.blocking_block_updates(), Some(2));

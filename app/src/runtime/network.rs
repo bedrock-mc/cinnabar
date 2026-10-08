@@ -740,7 +740,9 @@ pub(crate) fn receive_network_events(
                 ) {
                     stream.schedule_source_capture(sequence);
                 }
-                if let Err(error) = stream.submit_level_chunk_bytes(sequence, event, payload) {
+                let submitted = stream.submit_level_chunk_bytes(sequence, event, payload);
+                stream.dispatch_ingress_decode();
+                if let Err(error) = submitted {
                     record_fatal_error(
                         &mut client_world.fatal_error,
                         format!("world FIFO rejected LevelChunk: {error}"),
@@ -892,7 +894,9 @@ pub(crate) fn receive_network_events(
                 stream.schedule_source_capture(sequenced.sequence);
             }
         }
-        if let Err(error) = stream.submit(sequenced.sequence, sequenced.event) {
+        let submitted = stream.submit(sequenced.sequence, sequenced.event);
+        stream.dispatch_ingress_decode();
+        if let Err(error) = submitted {
             client_world.fatal_error = Some(format!("world FIFO rejected data: {error}"));
         }
     }

@@ -133,6 +133,8 @@ impl WorldStream {
             poll_budget: commit_budget::WORLD_POLL_BUDGET,
             polling: false,
             poll_heavy_guarantee: false,
+            last_camera_position: [0.0; 3],
+            urgent_work_due: false,
             publication_allowance: None,
             mesh_changes: MeshChangeQueue::default(),
             publisher: cohort::PublisherScope {
