@@ -415,8 +415,7 @@ pub(crate) fn drive_world_inventory_keys(
     {
         return;
     }
-    if use_book {
-        runtime.open_held_book(&player_runtime);
+    if (use_book && runtime.open_held_book(&player_runtime)) || !drop {
         return;
     }
     let Some(slot) = player_runtime.selected_hotbar_slot() else {
