@@ -18,7 +18,7 @@ fn cold_queue_admission_is_bounded_and_never_computes_inline() {
     let mut queue = SkinPreparationQueue::default();
     queue.begin_frame();
     for source in &sources {
-        assert!(!queue.request(source, &assets));
+        assert!(!queue.request_replacing(source, None, &assets));
     }
     assert_eq!(queue.queued.len(), MAX_SKIN_PREPARATIONS_PER_PASS);
     assert_eq!(queue.entries.len(), MAX_SKIN_PREPARATIONS_PER_PASS);
@@ -35,7 +35,7 @@ fn worker_content_reuse_shares_geometry_and_mesh_without_an_inline_fallback() {
     let assets = assets();
     let mut queue = SkinPreparationQueue::default();
     for source in &sources {
-        queue.request(source, &assets);
+        queue.request_replacing(source, None, &assets);
     }
     queue.submit(&assets);
     for source in &sources {
@@ -44,7 +44,7 @@ fn worker_content_reuse_shares_geometry_and_mesh_without_an_inline_fallback() {
     queue.finish_for_test();
     let first = queue.get(&sources[0]).unwrap().0.unwrap();
     for source in &sources {
-        assert!(queue.request(source, &assets));
+        assert!(queue.request_replacing(source, None, &assets));
         let next = queue.get(source).unwrap().0.unwrap();
         assert!(Arc::ptr_eq(&first.geometry, &next.geometry));
         assert!(Arc::ptr_eq(
@@ -60,7 +60,7 @@ fn old_worker_channels_cannot_complete_a_new_owner_with_the_same_source() {
     let source = sources(1).pop().unwrap();
     let assets = assets();
     let mut old = SkinPreparationQueue::default();
-    old.request(&source, &assets);
+    old.request_replacing(&source, None, &assets);
     old.submit(&assets);
     let (_, idle) = mpsc::channel();
     let old_receiver = std::mem::replace(&mut old.receiver, Mutex::new(idle))
@@ -68,7 +68,7 @@ fn old_worker_channels_cannot_complete_a_new_owner_with_the_same_source() {
         .unwrap();
     drop(old);
     let mut next = SkinPreparationQueue::default();
-    next.request(&source, &assets);
+    next.request_replacing(&source, None, &assets);
     let _ = old_receiver.recv();
     assert!(next.get(&source).is_none());
     assert_eq!(next.queued.len(), 1);
@@ -86,7 +86,7 @@ fn equal_sources_charge_one_mesh_allocation_at_the_capacity_boundary() {
     queue.mesh_budget = first.mesh_bytes();
     queue.cache = Arc::new(worker);
     for source in &sources {
-        queue.request(source, &assets);
+        queue.request_replacing(source, None, &assets);
     }
     queue.submit(&assets);
     queue.finish_for_test();
@@ -107,7 +107,7 @@ fn equal_replacement_reuses_the_ready_result_after_worker_memo_eviction() {
     let sources = sources(2);
     let assets = assets();
     let mut queue = SkinPreparationQueue::default();
-    queue.request(&sources[0], &assets);
+    queue.request_replacing(&sources[0], None, &assets);
     queue.submit(&assets);
     queue.finish_for_test();
     let first = queue.get(&sources[0]).unwrap().0.unwrap();
@@ -165,13 +165,13 @@ fn mesh_budget_rejection_is_ready_and_never_requeues_unchanged_sources() {
     let assets = assets();
     let mut queue = SkinPreparationQueue::default();
     queue.mesh_budget = 0;
-    assert!(!queue.request(&source, &assets));
+    assert!(!queue.request_replacing(&source, None, &assets));
     queue.submit(&assets);
     queue.finish_for_test();
     for _ in 0..4 {
         queue.begin_frame();
         assert!(
-            queue.request(&source, &assets),
+            queue.request_replacing(&source, None, &assets),
             "budget fallback completes appearance readiness"
         );
         let (prepared, rejected) = queue.get(&source).unwrap();
@@ -194,11 +194,11 @@ fn a_running_batch_does_not_hold_back_the_next_pass() {
     let assets = assets();
     let mut queue = SkinPreparationQueue::default();
     for source in first {
-        queue.request(source, &assets);
+        queue.request_replacing(source, None, &assets);
     }
     queue.submit(&assets);
     for source in second {
-        assert!(!queue.request(source, &assets));
+        assert!(!queue.request_replacing(source, None, &assets));
     }
     assert_eq!(queue.queued.len(), MAX_SKIN_PREPARATIONS_PER_PASS);
     queue.submit(&assets);
@@ -224,8 +224,8 @@ fn model_free_sources_resolve_inline_and_share_one_catalog_model() {
     let (first, second) = (source(), source());
     let assets = assets();
     let mut queue = SkinPreparationQueue::default();
-    assert!(queue.request(&first, &assets));
-    assert!(queue.request(&second, &assets));
+    assert!(queue.request_replacing(&first, None, &assets));
+    assert!(queue.request_replacing(&second, None, &assets));
     assert!(queue.queued.is_empty());
     let first = queue.get(&first).unwrap().0.expect("catalog model");
     let second = queue.get(&second).unwrap().0.expect("catalog model");

@@ -172,16 +172,8 @@ impl SkinPreparationQueue {
         }
     }
 
-    /// Looks up a ready source or queues its retained allocation without hashing its contents.
-    pub(in crate::actor_animation) fn request(
-        &mut self,
-        source: &Arc<SkinGeometrySource>,
-        assets: &RuntimeEntityAssets,
-    ) -> bool {
-        self.request_replacing(source, None, assets)
-    }
-
-    /// Pins the prior result so an equal replacement can preserve animation history after memo eviction.
+    /// Looks up a ready source or queues its retained allocation without hashing its contents; pins
+    /// the prior result so an equal replacement can preserve animation history after memo eviction.
     pub(in crate::actor_animation) fn request_replacing(
         &mut self,
         source: &Arc<SkinGeometrySource>,
