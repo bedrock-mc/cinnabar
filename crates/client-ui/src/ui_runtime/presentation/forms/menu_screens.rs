@@ -158,12 +158,18 @@ pub(super) fn screen_data(view: &MenuView, translate: Translate<'_>) -> Option<M
                     &mut data,
                     if view.death_loading {
                         &["#loading_message_visible"]
-                    } else {
+                    } else if view.death_controls_visible {
                         &[
                             "#buttons_and_deathmessage_visible",
                             "#respawn_visible",
                             "#respawn_enabled",
                             "#quit_visible",
+                            "#quit_enabled",
+                        ]
+                    } else {
+                        &[
+                            "#buttons_and_deathmessage_visible",
+                            "#respawn_enabled",
                             "#quit_enabled",
                         ]
                     },

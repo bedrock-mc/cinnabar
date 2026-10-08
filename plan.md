@@ -6630,9 +6630,9 @@ Respawn keeps the carrier loading state until authoritative recovery; Main menu
 opens the localized quit confirmation over the retained death background. Pending
 respawn requests survive outbound backpressure, forced death cancels hidden key
 capture, and formatted reason parameters remain literal through rendering.
-Immediate respawn is selected when the death route opens. Controller timing and
-scene lifecycle animations, the vanilla death camera and death FOV, exact readiness
-and respawn transitions,
-hardcore and secondary-client variants,
-and matched native frames remain incomplete. These changes do not close the
+Immediate respawn is selected when the death route opens. Ordinary controls wait
+1.2 seconds on real time before appearing or accepting input; the reason remains
+visible during the wait. Scene lifecycle animations, the vanilla death camera and
+death FOV, exact readiness and respawn transitions, hardcore and secondary-client
+variants, and matched native frames remain incomplete. These changes do not close the
 broader death-screen parity gate.

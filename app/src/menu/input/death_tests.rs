@@ -85,3 +85,55 @@ fn death_discards_a_same_frame_pause_settings_click() {
         "held old input stays retired"
     );
 }
+
+#[test]
+fn death_controls_advance_on_real_time_while_simulation_is_paused() {
+    let mut app = App::new();
+    app.insert_resource(crate::player_runtime::PlayerRuntime::new(1))
+        .add_message::<KeyboardInput>()
+        .init_resource::<ButtonInput<KeyCode>>()
+        .init_resource::<ButtonInput<MouseButton>>()
+        .init_resource::<Touches>()
+        .insert_resource(
+            UiPresentationRuntime::new(client_ui::test_support::fixture_font()).unwrap(),
+        )
+        .insert_resource(MenuRuntime::new(false, 2, "Player".into()))
+        .insert_resource(MenuClipboard::with_access(|_| None, |_| {}))
+        .add_systems(Update, drive_menu_input);
+    app.world_mut().spawn((
+        Window {
+            focused: true,
+            ..Default::default()
+        },
+        CursorOptions::default(),
+        PrimaryWindow,
+    ));
+    app.init_resource::<Time<Real>>()
+        .init_resource::<Time<Virtual>>();
+    app.world_mut().resource_mut::<Time<Virtual>>().pause();
+    {
+        let mut menu = app.world_mut().resource_mut::<MenuRuntime>();
+        menu.show_world();
+        menu.open_death();
+    }
+    app.update();
+    assert!(
+        !app.world()
+            .resource::<MenuRuntime>()
+            .view()
+            .death_controls_visible
+    );
+    app.world_mut()
+        .resource_mut::<Time<Real>>()
+        .advance_by(std::time::Duration::from_secs_f64(
+            crate::menu::death::DEATH_CONTROLS_DELAY_SECONDS + 0.001,
+        ));
+    app.update();
+    assert!(
+        app.world()
+            .resource::<MenuRuntime>()
+            .view()
+            .death_controls_visible
+    );
+    assert!(app.world().resource::<Time<Virtual>>().is_paused());
+}

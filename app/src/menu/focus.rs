@@ -526,7 +526,7 @@ impl MenuRuntime {
                 }
                 actions
             }
-            MenuScreen::Death if self.death_loading => Vec::new(),
+            MenuScreen::Death if !self.death_controls_ready() => Vec::new(),
             MenuScreen::Death => vec![MenuAction::Respawn, MenuAction::OpenDeathQuit],
             MenuScreen::Inbox => {
                 use super::inbox::{Action, CATEGORIES, category_index};

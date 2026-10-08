@@ -160,6 +160,7 @@ pub(crate) struct MenuRuntime {
     /// Death screen shown for the current death; cleared once alive again.
     death_shown: bool,
     death_loading: bool,
+    death_controls_remaining: f64,
     local_worlds: Vec<LocalWorldCard>,
     local_world_requested: Option<usize>,
     local_ui: worlds_tab::LocalWorldsUi,
@@ -522,7 +523,7 @@ impl MenuRuntime {
                 self.intents.exit = true;
             }
             MenuAction::OpenDeathQuit => {
-                if self.screen == MenuScreen::Death && self.death_shown {
+                if self.death_controls_ready() {
                     self.dialog = Some(MenuDialog::DeathQuit);
                     self.focused = 0;
                 }
@@ -701,10 +702,8 @@ impl MenuRuntime {
             | MenuAction::SettingsResetChat
             | MenuAction::SettingsAdvancedGraphics) => self.activate_settings(action),
             MenuAction::Respawn => {
-                if self.screen == MenuScreen::Death && self.death_shown && !self.death_loading {
-                    self.intents.respawn = true;
-                    self.death_loading = true;
-                    self.dialog = None;
+                if self.death_controls_ready() {
+                    self.request_respawn();
                 }
             }
             MenuAction::SignOut => self.sign_out_requested = true,

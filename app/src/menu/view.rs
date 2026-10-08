@@ -40,6 +40,7 @@ impl MenuRuntime {
             message: self.message.clone(),
             death_reason: String::new(),
             death_loading: self.death_loading,
+            death_controls_visible: self.death_controls_ready(),
             gui_scale_offset: self.gui_scale_display_offset,
             gui_scale_choices: self.gui_scale_choices.clone(),
             fullscreen: self.fullscreen,

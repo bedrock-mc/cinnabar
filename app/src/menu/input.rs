@@ -16,8 +16,8 @@ use bevy::{
         touch::Touches,
     },
     prelude::{
-        ButtonInput, Entity, KeyCode, Local, MessageReader, MouseButton, Query, Res, ResMut,
-        Resource, Single, With,
+        ButtonInput, Entity, KeyCode, Local, MessageReader, MouseButton, Query, Real, Res, ResMut,
+        Resource, Single, Time, With,
     },
     window::{CursorGrabMode, CursorOptions, PrimaryWindow, Window},
 };
@@ -362,6 +362,7 @@ fn max_bytes(field: MenuField) -> usize {
 #[derive(bevy::ecs::system::SystemParam)]
 pub(crate) struct MenuInputContext<'w, 's> {
     player_runtime: Res<'w, crate::player_runtime::PlayerRuntime>,
+    time: Option<Res<'w, Time<Real>>>,
     keyboard_messages: MessageReader<'w, 's, KeyboardInput>,
     focus: Option<ResMut<'w, client_presentation::camera::CursorFocus>>,
     driven: Option<Res<'w, crate::camera::DrivenInput>>,
@@ -388,10 +389,14 @@ pub(crate) fn drive_menu_input(
 ) {
     let MenuInputContext {
         player_runtime,
+        time,
         mut keyboard_messages,
         mut focus,
         driven,
     } = context;
+    if let Some(time) = time {
+        menu.advance_death_controls(time.delta_secs_f64());
+    }
     menu.settings_slider_hovered = None;
     if consent.is_some_and(|consent| consent.0) {
         presentation.cancel_menu_player_preview_input();

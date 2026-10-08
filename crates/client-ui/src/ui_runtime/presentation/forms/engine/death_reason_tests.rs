@@ -65,6 +65,69 @@ fn death_reason_text_is_painted_without_a_second_translation() {
 }
 
 #[test]
+fn death_reveal_preserves_the_reason_and_loading_retires_the_controls() {
+    use crate::menu::{MenuScreen, MenuView};
+    let catalog = Arc::new(Catalog::from_files([
+        ("ui/_global_variables.json", b"{}".as_slice()),
+        ("ui/_ui_defs.json", br#"{"ui_defs":["ui/death_screen.json"]}"#.as_slice()),
+        ("ui/death_screen.json", br##"{"namespace":"death","death_screen":{"type":"screen","controls":[
+            {"content":{"type":"panel","bindings":[{"binding_name":"#buttons_and_deathmessage_visible","binding_name_override":"#visible"}],"controls":[
+                {"reason":{"type":"label","text":"#death_reason_text","localize":false,"size":[300,20],"bindings":[{"binding_name":"#death_reason_text"}]}},
+                {"respawn":{"type":"button","size":[100,20],"bindings":[{"binding_name":"#respawn_visible","binding_name_override":"#visible"},{"binding_name":"#respawn_enabled","binding_name_override":"#enabled"}],"controls":[{"label":{"type":"label","text":"Respawn","localize":false,"size":[100,20]}}]}},
+                {"quit":{"type":"button","size":[100,20],"bindings":[{"binding_name":"#quit_visible","binding_name_override":"#visible"},{"binding_name":"#quit_enabled","binding_name_override":"#enabled"}],"controls":[{"label":{"type":"label","text":"Main menu","localize":false,"size":[100,20]}}]}}
+            ]}},
+            {"loading":{"type":"label","text":"Loading","localize":false,"size":[100,20],"bindings":[{"binding_name":"#loading_message_visible","binding_name_override":"#visible"}]}}
+        ]}}"##.as_slice()),
+    ]).unwrap());
+    let mut view = MenuView::new(false, "Player".into());
+    view.screen = MenuScreen::Death;
+    view.death_reason = "Player fell".into();
+    let (state, cache) = (ViewState::default(), ScreenCache::default());
+    for (controls, loading, expected) in [
+        (false, false, vec!["Player fell"]),
+        (true, false, vec!["Player fell", "Respawn", "Main menu"]),
+        (false, true, vec!["Loading"]),
+    ] {
+        view.death_controls_visible = controls;
+        view.death_loading = loading;
+        let screen = super::super::menu_screens::screen_data(&view, &|_| None).unwrap();
+        let rendered = cache
+            .render(
+                ScreenKey {
+                    reference: screen.reference,
+                    catalog: &catalog,
+                    context: &screen.context,
+                    data: &screen.data,
+                    view: &state,
+                    root: [400.0, 300.0],
+                    px: 1.0,
+                    text: [0; 3],
+                },
+                &LayoutEnv {
+                    text: &Measure,
+                    textures: &Measure,
+                },
+            )
+            .unwrap();
+        let texts = rendered
+            .nodes
+            .iter()
+            .filter_map(|node| match &node.draw {
+                Draw::Text { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(texts, expected);
+        let buttons = rendered
+            .hits
+            .iter()
+            .filter(|hit| hit.kind == json_ui::HitKind::Button)
+            .count();
+        assert_eq!(buttons, if controls { 2 } else { 0 });
+    }
+}
+
+#[test]
 fn death_quit_popup_retains_the_death_screen_underneath() {
     use crate::menu::{MenuDialog, MenuScreen, MenuView};
     use crate::ui_runtime::{
