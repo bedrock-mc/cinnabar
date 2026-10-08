@@ -36,8 +36,8 @@ fn material_position_random(position: vec3<i32>) -> u32 {
 
 // Current cube tessellation applies this only to faces
 // enabled by blocks.json's pack-authored isotropic mask.
-fn material_leaf_uv_flags(flags: u32, position: vec3<i32>) -> u32 {
-    if ((flags & MATERIAL_LEAF_ISOTROPIC_FLAG) == 0u || (flags & 3u) != 0u) {
+fn material_uv_flags(flags: u32, position: vec3<i32>) -> u32 {
+    if ((flags & MATERIAL_ISOTROPIC_FLAG) == 0u || (flags & 3u) != 0u) {
         return flags;
     }
     let native_code = (material_position_random(position) >> 24u) & 3u;

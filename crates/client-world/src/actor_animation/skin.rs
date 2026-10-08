@@ -93,12 +93,19 @@ impl ActorRigState {
             None => compose_pose(&self.bones, &[]),
         };
         if let Some(rest) = rest {
-            self.previous.clone_from(&rest);
-            self.current.clone_from(&rest);
-            self.rest = rest;
-            self.reset_pending = true;
-            self.rest_reset_pending = true;
+            self.reset_to_skeleton(rest);
         }
+    }
+
+    /// Every pose a changed skeleton invalidates, including the HUD's, restarts from its rest.
+    pub(super) fn reset_to_skeleton(&mut self, rest: Vec<BoneTransform>) {
+        self.ui_pose = None;
+        self.ui_animation = None;
+        self.previous.clone_from(&rest);
+        self.current.clone_from(&rest);
+        self.rest = rest;
+        self.reset_pending = true;
+        self.rest_reset_pending = true;
     }
 }
 

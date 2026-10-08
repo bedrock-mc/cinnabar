@@ -10,7 +10,8 @@ pub(super) struct ReadyAppearances {
 
 impl ActorStore {
     /// Ready profiles have their own byte ceiling, including replacements retained during a job.
-    pub(crate) fn prepare_appearances(&mut self, publish: bool) {
+    /// First appearances publish on any frame; replacements wait for a tick so a visible pose never drops to rest.
+    pub(crate) fn prepare_appearances(&mut self, tick: bool) {
         if !self.animation.has_skin_preparation() {
             return;
         }
@@ -56,11 +57,16 @@ impl ActorStore {
                 self.animation
                     .request_replacing_skin_preparation(source, previous_source)
             });
-            if !publish || !prepared {
-                continue;
-            }
             let previous = ready.profiles.get(uuid);
-            if previous.is_some_and(|previous| same_profile_allocation(previous, profile)) {
+            if !prepared
+                || previous
+                    .is_some_and(|previous| !tick || same_profile_allocation(previous, profile))
+            {
+                // A re-added rig still needs the published model before its first tick.
+                if let Some(previous) = previous {
+                    self.animation
+                        .sync_skin_model(actor.runtime_id, geometry_source(previous));
+                }
                 continue;
             }
             let bytes = ready
@@ -72,6 +78,8 @@ impl ActorStore {
             }
             ready.bytes = bytes;
             ready.profiles.insert(*uuid, profile.clone());
+            self.animation
+                .sync_skin_model(actor.runtime_id, geometry_source(profile));
         }
         self.animation.submit_skin_preparation();
     }

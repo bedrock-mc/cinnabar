@@ -402,7 +402,7 @@ impl ActorAnimationStore {
     }
 
     fn new(assets: Option<Arc<RuntimeEntityAssets>>) -> Self {
-        Self {
+        let mut store = Self {
             layout: Arc::new(
                 assets
                     .as_deref()
@@ -423,7 +423,9 @@ impl ActorAnimationStore {
             stats: ActorAnimationStats::default(),
             #[cfg(test)]
             schedule: Default::default(),
-        }
+        };
+        store.prewarm_skin_catalog();
+        store
     }
 
     /// Layers a server-pack entity catalog over the vanilla one for actors spawned afterwards.
@@ -442,6 +444,7 @@ impl ActorAnimationStore {
     pub(crate) fn clear(&mut self) {
         self.rigs.clear();
         self.skin_preparation = skin::SkinPreparationQueue::default();
+        self.prewarm_skin_catalog();
         self.local_motion_authority = None;
         self.runtime_to_lifetime.clear();
         self.completed_tick = 0;

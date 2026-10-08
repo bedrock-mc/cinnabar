@@ -26,6 +26,7 @@ mod celestial;
 mod chunk;
 mod cloud_config;
 mod cloud_render;
+mod device_poll;
 pub use cloud_render::CloudVisibility;
 mod dropped_item;
 mod enhanced;
@@ -37,6 +38,8 @@ pub use gpu_timing::{GpuFrameTimes, GpuTimingPlugin};
 
 mod dropped_item_render;
 mod hand_rig_render;
+mod input_pacing;
+pub use input_pacing::InputPacingPlugin;
 mod lightning;
 mod lightning_render;
 mod media;
@@ -48,6 +51,7 @@ pub use media_screen::{
 mod material_shader;
 mod mod_render;
 pub use mod_render::{MAX_BLOCK_HIGHLIGHTS, ModPassLabel, ModRenderPlugin, ModRenderScene};
+pub mod motion_blur;
 mod nametag_render;
 pub use nametag_render::NametagSceneResource;
 mod native_sunlight;
@@ -57,6 +61,9 @@ mod panorama;
 mod panorama_render;
 mod particle_render;
 mod pipeline_warmup;
+#[cfg(test)]
+#[path = "pipeline_warmup/app_tests.rs"]
+mod pipeline_warmup_app_tests;
 pub use pipeline_warmup::PipelineWarmupReadiness;
 mod present_mode;
 mod primitive_shapes;

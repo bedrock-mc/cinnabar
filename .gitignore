@@ -5,6 +5,7 @@
 /.local/
 /.superpowers/
 /.worktrees/
+/reports/
 *.log
 
 

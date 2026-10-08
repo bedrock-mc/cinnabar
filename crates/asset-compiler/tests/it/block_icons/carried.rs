@@ -287,7 +287,7 @@ fn native_cube_sheets_follow_shape_and_preserve_carried_alpha() {
                 | MATERIAL_FLAG_EXPOSED_FOLIAGE
                 | MATERIAL_FLAG_TWO_SIDED
                 | MATERIAL_FLAG_NATIVE_LEAF_COLOUR
-                | MATERIAL_FLAG_LEAF_ISOTROPIC,
+                | MATERIAL_FLAG_ISOTROPIC,
             [70, 130, 40, 255],
             true,
         ),

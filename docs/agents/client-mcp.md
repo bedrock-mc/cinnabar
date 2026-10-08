@@ -18,7 +18,8 @@ schemas document every argument. Agents drive the client only through this endpo
 - Sign-in captures launch with `headless: true`, an isolated `CINNABAR_USER_ROOT`, and
   `env: {"CINNABAR_SIGN_IN_FIXTURE": "opened"}`. `sign_in_fixture` switches between
   `waiting`, `opened`, `browser_failed`, `success`, `expired`, and `error`. These fixed states accept no account
-  data, skip account services, and never open a browser. Save screenshots beneath `/private/tmp`.
+  data, skip account services, and never open a browser. Save screenshots in a temporary directory
+  outside the checkout.
 - `test_accounts` with `enabled: true` shows a signed-in launcher whose Accounts picker lists
   placeholder accounts, so recordings never show real gamertags; it never signs in or saves, and
   needs a signed-out install (an isolated `CINNABAR_USER_ROOT`).

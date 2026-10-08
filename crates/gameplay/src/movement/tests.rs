@@ -196,3 +196,26 @@ fn held_release_survives_an_authority_change_after_its_facing_was_written() {
     });
     assert!(released);
 }
+
+/// A reanchor that keeps the tick number retires an action flag latched under the old authority.
+#[test]
+fn a_reanchor_drops_a_flag_latched_for_the_next_tick() {
+    use crate::test_support::survival_mining::{completed, ticker_with_ticks};
+    for reanchor in [false, true] {
+        let mut ticker = ticker_with_ticks(0);
+        let next = ticker.completed_tick() + 1;
+        assert!(ticker.mark_missed_swing(next));
+        if reanchor {
+            ticker.snap_non_authoritative_anchor(next - 1, [0.5, 2.620_01, 0.5]);
+            assert_eq!(
+                ticker.completed_tick() + 1,
+                next,
+                "the tick number survives"
+            );
+        }
+        ticker.enqueue_completed_physics(completed(next)).unwrap();
+        let flagged =
+            ticker.pending_snapshots()[0].flags.bits() & PlayerInputFlags::MISSED_SWING.bits() != 0;
+        assert_eq!(flagged, !reanchor);
+    }
+}

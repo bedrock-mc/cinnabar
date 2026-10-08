@@ -60,8 +60,14 @@ pub fn select_hotbar_slot_packet(
     if slot >= HOTBAR_SLOT_COUNT {
         return Err(InventoryPacketError::InvalidSelectedSlot(i32::from(slot)));
     }
-    let verified = VerifiedNetworkItemStack::try_new(stack.clone(), stack.nbt_digest)?;
-    let item = verified.into_vendor_item(0)?;
+    // Vanilla's client equipment descriptor never includes a stack network id, so a
+    // predicted request id is neither validated nor sent.
+    let mut untracked = stack.clone();
+    if !untracked.is_empty() {
+        untracked.stack_network_id = -1;
+    }
+    let item =
+        VerifiedNetworkItemStack::try_new(untracked, stack.nbt_digest)?.into_vendor_item(0)?;
     Ok(MobEquipmentPacket {
         target_runtime_id: ActorRuntimeId {
             actor_runtime_id: runtime_id,
@@ -950,7 +956,23 @@ mod hotbar_tests {
         assert_eq!(packet.selected_slot, 3);
         assert_eq!(packet.container_id, 0);
         assert_eq!(packet.item.user_data_buffer, expected.extra_data.as_ref());
-        assert_eq!(normalize_equipment(*packet).unwrap().stack, expected);
+        let mut untracked = expected;
+        untracked.stack_network_id = -1;
+        assert_eq!(normalize_equipment(*packet).unwrap().stack, untracked);
+    }
+
+    /// A predicted request id is never written, so the packet builds before the server answers.
+    #[test]
+    fn hotbar_selection_omits_the_stack_network_id() {
+        let mut predicted = selected_stack();
+        predicted.stack_network_id = -3;
+        let McpePacketData::MobEquipmentPacket(packet) =
+            select_hotbar_slot_packet(1, 0, &predicted).unwrap().data
+        else {
+            panic!("hotbar selection must build a MobEquipment packet");
+        };
+        assert_eq!(packet.item.net_id_variant, None);
+        assert_eq!(packet.item.stacksize, 4);
     }
 
     #[test]

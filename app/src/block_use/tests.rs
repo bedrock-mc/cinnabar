@@ -100,10 +100,18 @@ fn unknown_or_inventory_pending_selection_fails_closed() {
     assert_eq!(selection.slot, 2);
     assert_eq!(selection.item.block_runtime_id(), 77);
 
+    // A gesture on another cell leaves the selected stack usable; one on the selected slot waits.
     ui.inventory_ledger_mut(&mut player_runtime)
         .apply(&inventory_slot(3, network_item(3, 0)));
     ui.inventory_ledger_mut(&mut player_runtime)
         .begin_click(3)
+        .unwrap();
+    assert_eq!(
+        verified_use_selection(&player_runtime, &ui).map(|selection| selection.slot),
+        Some(2)
+    );
+    ui.inventory_ledger_mut(&mut player_runtime)
+        .begin_click(2)
         .unwrap();
     assert!(verified_use_selection(&player_runtime, &ui).is_none());
 

@@ -701,14 +701,6 @@ pub(in crate::chunk) fn submit_presented_frame_probe(
         && witness_token.is_none()
         && visibility_snapshot.is_none()
     {
-        #[cfg(feature = "tracy")]
-        let _span = bevy::log::info_span!("terrain.completion_poll", submitted = false).entered();
-        if let Err(error) = render_device.poll(PollType::Poll) {
-            bevy::log::warn!(
-                ?error,
-                "could not nonblockingly poll presented-frame fences"
-            );
-        }
         return;
     }
     let present_returned_at = Instant::now();
@@ -758,13 +750,5 @@ pub(in crate::chunk) fn submit_presented_frame_probe(
         #[cfg(feature = "tracy")]
         let _span = bevy::log::info_span!("terrain.completion_submit").entered();
         render_queue.submit([command_buffer]);
-    }
-    #[cfg(feature = "tracy")]
-    let _span = bevy::log::info_span!("terrain.completion_poll", submitted = true).entered();
-    if let Err(error) = render_device.poll(PollType::Poll) {
-        bevy::log::warn!(
-            ?error,
-            "could not nonblockingly poll presented-frame fences"
-        );
     }
 }
