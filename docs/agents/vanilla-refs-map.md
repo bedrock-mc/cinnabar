@@ -3660,3 +3660,11 @@ Files: `docs/reference/held-block-placement.md`, `crates/gameplay/src/block_use.
   `01.cpp:2156047` (`FUN_141c0ded0`) supplies the head yaw and native origin;
   `03.cpp:1241878` (`FUN_1437517b0`) rotates ActorLocation 8 horizontally.
   Normalized player feet recover that origin using `PLAYER_NETWORK_OFFSET`.
+- `crates/particles/src/eating_tests.rs` covers the full draw extent and sprite crop.
+  `particles/breaking_item_icon.json` evaluates half extents as
+  `(particle_random_1 * 0.04 + 0.04) * size_modifier` and samples a quarter of the
+  supplied sprite on each axis. Current `06.cpp` (`FUN_146cb4d40`) preserves the
+  evaluated dimensions; `02.cpp:684833` initializes the particle scale to 1,
+  `FUN_14243beb0` stores it and `FUN_14243e870` extracts scaled dimensions.
+  `02.cpp` (`FUN_14244a1e0`, vertices at 696006–696066) places corners at plus/minus
+  those dimensions, confirming half extents rather than halving them again.
