@@ -75,6 +75,9 @@ impl UiPresentationRuntime {
         metrics: TextMetrics,
         content: [f32; 2],
     ) {
+        if !self.mod_hud_visible(player_runtime, runtime) {
+            return;
+        }
         let Some(hud) = self.form_presentation.mod_hud.as_mut() else {
             return;
         };

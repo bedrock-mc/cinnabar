@@ -476,6 +476,8 @@ fn install(world: &mut World, update: Update) {
                         .set_mod_panel_font(candidate.font.clone())
                         .map_err(|error| error.to_string())?;
                     presentation.set_mod_label(candidate.host.label())?;
+                    presentation.set_mod_hud(candidate.host.hud())?;
+                    presentation.set_mod_crosshair(candidate.host.crosshair())?;
                     presentation.set_mod_panel(candidate.host.panel())?;
                     presentation.set_mod_panel_open(false);
                     Ok(())
@@ -619,6 +621,8 @@ fn clear_presentation(world: &mut World) {
         presentation.set_mod_panel_open(false);
         let _ = presentation.set_mod_panel(None);
         let _ = presentation.set_mod_label(None);
+        let _ = presentation.set_mod_hud(None);
+        let _ = presentation.set_mod_crosshair(None);
         if let Err(error) = presentation.set_mod_panel_font(None) {
             eprintln!("Personal-panel font could not be released: {error}");
         }
