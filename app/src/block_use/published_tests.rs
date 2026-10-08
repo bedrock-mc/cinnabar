@@ -423,3 +423,76 @@ fn a_press_after_a_correction_does_not_reuse_the_earlier_pick() {
         "the press stays pending"
     );
 }
+
+/// While block targeting waits after a correction, a held throwable is not thrown: the
+/// same press opens the chest once a valid pick exists.
+#[test]
+fn a_press_waiting_for_a_pick_is_not_resolved_as_item_use() {
+    let (mut world, mut captured) = fixture();
+    let snowball = 300;
+    let mut stream = world.resource_mut::<crate::runtime::world::ClientWorld>();
+    assert!(
+        stream
+            .stream
+            .as_mut()
+            .unwrap()
+            .seed_item_registry(protocol::ItemRegistryEvent {
+                entries: [protocol::ItemRegistryEntry {
+                    identifier: "minecraft:snowball".into(),
+                    network_id: snowball,
+                    component_based: false,
+                    version: protocol::ItemRegistryVersion::None,
+                    component_digest: [0; 32],
+                    negotiated_max_stack_size: Some(16),
+                    canonical_empty_component_data: true,
+                    item_tags: std::sync::Arc::from([]),
+                }]
+                .into(),
+            })
+    );
+    world.resource_scope(|world, mut ui: Mut<UiRuntime>| {
+        let mut player = world.resource_mut::<crate::player_runtime::PlayerRuntime>();
+        let extra_data: std::sync::Arc<[u8]> = std::sync::Arc::from([]);
+        ui.inventory_ledger_mut(&mut player)
+            .apply(&InventoryEvent::Slot(InventorySlotEvent {
+                identity: SlotIdentity {
+                    container: ContainerIdentity {
+                        window_id: Some(0),
+                        slot_type: None,
+                        dynamic_id: None,
+                    },
+                    slot: 0,
+                },
+                stack: protocol::NetworkItemStack {
+                    network_id: snowball,
+                    metadata: 0,
+                    stack_network_id: 5,
+                    count: 16,
+                    nbt_digest: <sha2::Sha256 as sha2::Digest>::digest(&extra_data).into(),
+                    block_runtime_id: 0,
+                    extra_data,
+                },
+                storage_item: None,
+            }));
+    });
+    world.init_resource::<client_presentation::aim_assist::AimAssistFrame>();
+    world.init_resource::<crate::camera::ServerCameraView>();
+    world.init_resource::<crate::local_player::LocalViewPose>();
+    let position = world
+        .resource::<MovementTicker>()
+        .newest_unsent_sample()
+        .unwrap()
+        .position;
+    let mut movement = world.resource_mut::<MovementTicker>();
+    movement.reanchor_surface_spawn(101, position);
+    let mut sample = gameplay::test_support::survival_mining::completed(102);
+    sample.position = position;
+    movement.enqueue_completed_physics(sample).unwrap();
+    for _ in 0..2 {
+        world.run_system_cached(produce_block_use).unwrap();
+        world
+            .run_system_cached(crate::item_use::produce_item_use)
+            .unwrap();
+    }
+    assert_eq!(transaction_targets(&mut captured), [[4, 2, 6]]);
+}

@@ -39,6 +39,8 @@ pub(crate) struct BlockUseRuntime {
     owner: gameplay::block_use::BlockUseRuntime,
     /// The latest pick taken before this frame's physics.
     previous_pick: Option<FramePick>,
+    /// Tick whose press waits for a valid pick; item use defers the same press.
+    awaiting_pick: Option<u64>,
 }
 impl std::ops::Deref for BlockUseRuntime {
     type Target = gameplay::block_use::BlockUseRuntime;
@@ -83,6 +85,11 @@ impl BlockUseRuntime {
         std::mem::replace(&mut self.previous_pick, current)
             .filter(|previous| previous.authority == authority)
     }
+
+    /// Whether the press on `tick` still waits for block targeting.
+    pub(crate) fn awaiting_pick_at(&self, tick: u64) -> bool {
+        self.awaiting_pick == Some(tick)
+    }
 }
 #[derive(SystemParam)]
 pub(crate) struct BlockUseContext<'w, 's> {
@@ -109,6 +116,7 @@ pub(crate) fn produce_block_use(
     movement: Res<MovementTicker>,
 ) {
     let pick = runtime.retain_pick(&context.origin, movement.interaction_authority_identity());
+    runtime.awaiting_pick = None;
     swings.sync_ticks(
         movement.interaction_authority_identity(),
         movement.completed_tick(),
@@ -182,6 +190,9 @@ pub(crate) fn produce_block_use(
     }
     // A press or repeat waits for a pick taken under the current movement authority.
     if pick.is_none() {
+        if trigger == ItemUseTrigger::PlayerInput {
+            runtime.awaiting_pick = Some(tick);
+        }
         return;
     }
     let input_mode = protocol_input_mode(input.input_mode);
