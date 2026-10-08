@@ -1752,7 +1752,7 @@ not established by the pack binding names. See the settings audit below.
   world-edit/Experiments, Party, several account/help submenus, reset flows and
   hardware/flight-dependent controls remain incomplete.
 - Numeric defaults/ranges are provisional unless a source explicitly states them.
-  The pack confirms chat notification 10s and toast notification 3s defaults. Mouse sensitivity (default 0.5 over 0..1) and its look curve match the current client. Other vanilla option defaults remain unconfirmed. FOV, gamma, controller/touch sensitivities, FPS limits and added boolean defaults therefore
+  The pack confirms chat notification 10s and toast notification 3s defaults. Mouse sensitivity (default 0.5 over 0..1) and its look curve match the current client, as does field of view (default 60, range 30..110). Other vanilla option defaults remain unconfirmed. Gamma, controller/touch sensitivities, FPS limits and added boolean defaults therefore
   require further current-client evidence; they must not be described as vanilla.
 - Offline carrier gallery, geometry and option-family tests provide local evidence,
   not a retail visual acceptance. Focus/hover/pressed, scrolling, all modal flows,

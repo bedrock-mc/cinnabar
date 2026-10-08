@@ -253,7 +253,7 @@ animated rig remotes use. All three below flow from that.
   spline instructions, blindness/darkness/night-vision consumers (`VisionEffects`), first-person hand consumer of
   `FirstPersonHandMotion` (MED).
 - Look sensitivity now follows a provisional slider curve, gamepad look is frame-rate normalized, optional
-  cinematic smoothing; pitch clamp 89.9 vs 90 and FOV range/default still *(measure)* (MED).
+  cinematic smoothing; pitch clamp 89.9 vs 90 still *(measure)*; FOV default 60 and range 30..110 match vanilla (MED).
 
 ## Movement / physics / controls (Bedrock target)
 Core physics binary-confirmed correct (gravity/drag/friction/jump/speed). Gaps:
