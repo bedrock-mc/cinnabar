@@ -13,6 +13,7 @@ fn first_block_selection_reuses_a_prewarmed_pipeline() {
                 msaa,
                 hdr,
                 enhanced: false,
+                output: None,
             };
             pipeline.prewarm(cache, view, &mut ids).unwrap();
             let key = BlockEntityPipelineKey {

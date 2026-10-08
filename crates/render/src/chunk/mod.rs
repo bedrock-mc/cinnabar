@@ -44,7 +44,7 @@ use bevy::{
             BufferBindingType, BufferDescriptor, BufferId, BufferInitDescriptor, BufferUsages,
             Canonical, ColorTargetState, ColorWrites, CommandEncoderDescriptor, CompareFunction,
             DepthStencilState, DownlevelFlags, DrawIndexedIndirectArgs, Extent3d, FragmentState,
-            IndexFormat, Origin3d, PipelineCache, PollType, PrimitiveState, RenderPipeline,
+            IndexFormat, Origin3d, PipelineCache, PrimitiveState, RenderPipeline,
             RenderPipelineDescriptor, Sampler, SamplerBindingType, SamplerDescriptor, ShaderStages,
             ShaderType, Specializer, SpecializerKey, TexelCopyBufferLayout, TexelCopyTextureInfo,
             Texture, TextureDescriptor, TextureDimension, TextureFormat, TextureSampleType,
@@ -88,6 +88,8 @@ pub(crate) mod enhanced;
 mod extract;
 mod gpu;
 mod gpu_cull;
+#[cfg(test)]
+pub(crate) use gpu_cull::app_tests::noop_render_plugin;
 pub(crate) use gpu_cull::{GpuCullLateLabel, TerrainPassLabel, admit_depth_sampling};
 mod instance;
 pub(crate) mod pipeline;
