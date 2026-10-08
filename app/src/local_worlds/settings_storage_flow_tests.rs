@@ -21,7 +21,6 @@ fn storage_world_delete_uses_catalog_identity_and_returns_to_settings() {
         game_mode: GameMode::Survival,
         generator: Generator::Flat,
         difficulty: Difficulty::Normal,
-        allow_cheats: false,
         backend: Backend::Dragonfly,
         seed: 1,
         created_unix: 0,

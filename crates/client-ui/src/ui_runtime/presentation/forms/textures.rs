@@ -245,6 +245,11 @@ impl Textures<'_> {
 }
 
 impl TextureSource for Textures<'_> {
+    fn aseprite_frames(&self, path: &str) -> Option<Arc<[json_ui::AsepriteFrame]>> {
+        self.admits(path).then_some(())?;
+        self.atlas.aseprite_frames(&self.canonical(path))
+    }
+
     fn texture(&self, path: &str) -> Option<TextureMeta> {
         if !self.admits(path) {
             return None;

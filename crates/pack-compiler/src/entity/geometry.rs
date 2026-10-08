@@ -88,8 +88,8 @@ pub(super) fn parse_geometry(
                 identifier,
                 None,
                 relative_path,
-                texture_width,
-                texture_height,
+                [texture_width, texture_height],
+                assets::EntityGeometryBounds::from_description(description),
                 bones,
             )?;
         }
@@ -158,8 +158,8 @@ pub(super) fn parse_geometry(
                 identifier,
                 inherits,
                 relative_path,
-                texture_width,
-                texture_height,
+                [texture_width, texture_height],
+                assets::EntityGeometryBounds::from_description(geometry),
                 bones,
             )?;
         }
@@ -172,8 +172,8 @@ fn insert_geometry(
     identifier: &str,
     inherits: Option<&str>,
     source_path: &str,
-    texture_width: Option<u16>,
-    texture_height: Option<u16>,
+    texture_dimensions: [Option<u16>; 2],
+    visible_bounds: Option<assets::EntityGeometryBounds>,
     bones: Box<[EntityGeometryBone]>,
 ) -> Result<(), AssetError> {
     let identifier: Box<str> = identifier.into();
@@ -182,8 +182,9 @@ fn insert_geometry(
         identifier: identifier.clone(),
         inherits: inherits.map(Into::into),
         source_path: source_path.clone(),
-        texture_width,
-        texture_height,
+        texture_width: texture_dimensions[0],
+        texture_height: texture_dimensions[1],
+        visible_bounds,
         bones,
     };
     if geometries

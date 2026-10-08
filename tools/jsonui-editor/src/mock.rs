@@ -373,6 +373,7 @@ impl MockHud {
                 })
                 .collect(),
             title: self.title.as_ref().map(|title| HudTitle {
+                creation_id: 0,
                 title: title.clone(),
                 subtitle: self.subtitle.clone().unwrap_or_default(),
                 fade_in: 0.5,

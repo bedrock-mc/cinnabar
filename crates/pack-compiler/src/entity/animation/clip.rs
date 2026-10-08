@@ -27,7 +27,7 @@ pub(super) fn compile_clip_for_geometry(
     symbol: u32,
     source: u32,
     definition: &Map<String, Value>,
-    (geometry, effective_bones): (u32, &[Box<str>]),
+    (geometry, effective_bones): (Option<u32>, &[Box<str>]),
     outputs: ClipOutputs<'_>,
 ) -> Result<(u32, usize), ClipCompileError> {
     let ClipOutputs {
@@ -109,6 +109,9 @@ pub(super) fn compile_clip_for_geometry(
                     continue;
                 };
                 local_channels.push(EntityAnimationChannel {
+                    bone_name: geometry
+                        .is_none()
+                        .then(|| bone_name.to_ascii_lowercase().into()),
                     bone: bone_index,
                     property,
                     first_keyframe,
@@ -156,7 +159,7 @@ pub(super) fn compile_clip_for_geometry(
             .get("override_previous_animation")
             .and_then(Value::as_bool)
             .unwrap_or(false),
-        geometry: Some(geometry),
+        geometry,
         anim_time_update,
     });
     Ok((clip, dropped + uncompiled))

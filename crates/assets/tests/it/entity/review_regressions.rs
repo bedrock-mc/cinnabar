@@ -283,7 +283,7 @@ fn carrier_rejects_unlisted_queries_and_accepts_script_opcodes() {
 fn carrier_v4_rejects_every_orphan_flattened_tail() {
     assert_mutation_rejected(|c| {
         let mut values = c.animation_channels.to_vec();
-        values.push(values[0]);
+        values.push(values[0].clone());
         c.animation_channels = values.into_boxed_slice();
     });
     assert_mutation_rejected(|c| {

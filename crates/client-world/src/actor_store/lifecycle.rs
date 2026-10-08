@@ -4,6 +4,13 @@ use crate::item::EquipmentOutcome;
 mod interpolation;
 
 impl ActorStore {
+    pub(crate) fn set_server_animation_compiler(
+        &mut self,
+        compiler: crate::actor_animation::ServerAnimationCompiler,
+    ) {
+        self.animation.set_server_animation_compiler(compiler);
+    }
+
     pub(crate) fn new(session_id: u64, dimension: i32) -> Self {
         Self::with_capacity(
             session_id,
@@ -877,7 +884,8 @@ impl ActorStore {
                 let mut seen = HashSet::with_capacity(action.actor_runtime_ids.len());
                 let mut targets = Vec::with_capacity(action.actor_runtime_ids.len());
                 for runtime_id in action.actor_runtime_ids.iter().copied() {
-                    if self.remote_state_excluded_runtime_id == Some(runtime_id)
+                    if (self.remote_state_excluded_runtime_id == Some(runtime_id)
+                        && !matches!(action.kind, protocol::ActorActionKind::Custom { .. }))
                         || !seen.insert(runtime_id)
                     {
                         continue;
@@ -894,6 +902,7 @@ impl ActorStore {
                 if !self.actions.can_accept(targets.len()) {
                     return ActorApplyResult::CapacityRejected;
                 }
+                let prepared = self.animation.prepare_server_animation(&action);
                 let mut accepted = false;
                 for (lifetime, rig) in targets {
                     let source_tick = ActorSourceTick::IngressSequence(sequence);
@@ -904,6 +913,12 @@ impl ActorStore {
                         self.animation.start_swing(
                             lifetime.runtime_id,
                             crate::actor_animation::ACTOR_SWING_TICKS,
+                        );
+                    }
+                    if applied && let Some(request) = prepared.as_ref() {
+                        self.animation.start_server_animation(
+                            lifetime.runtime_id,
+                            std::sync::Arc::clone(request),
                         );
                     }
                     accepted |= applied;

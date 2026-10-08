@@ -13,14 +13,10 @@ Each world records the backend that created it (`world.json`) and always reopens
 | `bds` container | macOS (or any host without a native build) with a Docker-compatible runtime | Linux BDS in the manifest's pinned `itzg/minecraft-bedrock-server` image, `--platform linux/amd64`. |
 | `dragonfly` | built-in local server on every supported host | Normal terrain through `bedrock-mc/vanilla-gen`, or Dragonfly's flat generator; mob behavior has parity gaps. |
 
-The create screen defaults to Dragonfly and Infinite. Backend and generator are independent choices;
-both backends accept Infinite or Flat. Unavailable BDS is disabled with a runtime reason and Check again
-re-probes availability. The last server and terrain choices persist; detection never changes either one.
-Void is unavailable because both backends do not support it. World name, mode, difficulty, seed and
-Activate cheats appear on General using the shared OreUI controls.
-`world_create.v1` without `backend` uses the operator default; `-local-backend=auto` defaults to Dragonfly.
-Legacy worlds without backend retain Dragonfly; missing terrain retains Flat on Dragonfly and Infinite on
-BDS. Missing command permission preserves the old enabled Dragonfly / disabled BDS setting.
+The create screen defaults to Dragonfly and Normal (Vanilla). Backend and generator are independent choices;
+both backends accept Normal or Flat. Selecting unavailable BDS shows its runtime warning. Creation then offers
+Get Docker / Retry or Dragonfly, preserving the chosen generator, name and seed.
+`world_create.v1` without `backend` still uses the store default (`-local-backend=auto`).
 `docker_missing` / `docker_not_running` are reported as `backend_unavailable_reason` in status.
 
 ## BDS acquisition
@@ -60,10 +56,7 @@ Never bundled or committed. `-bds-dir` (default `bds/` beside the worlds dir) ho
   integrated server's sim-time pause): entities, block ticks, time and weather stop; connections stay up and resume
   continues from the same state. BDS does not register `/globalpause` and has no other true pause, so BDS worlds
   keep running and status reports `pause_supported: false`.
-- **Commands:** Activate cheats grants the local BDS host operator permission after local admission;
-  friends remain members. Missing or ambiguous host identity refuses the grant. Dragonfly enables its
-  testing commands only with this setting, and publishes the same command flag to the client.
-- **Test commands:** Dragonfly worlds with cheats enabled give every player `/speed [multiplier|reset]` (vanilla fly speed and movement
+- **Test commands:** dragonfly worlds give every player `/speed [multiplier|reset]` (vanilla fly speed and movement
   attribute ×0.1–100, sent as UpdateAbilities and UpdateAttributes), `/fly` and `/tp <x> <y> <z>`.
 - **Login:** signed in, the core presents the account's identity. Signed out, it presents a self-signed NetherNet
   identity (BDS refuses anonymous HTTP offers) and an offline login from the client's identity, both admitted
@@ -72,7 +65,7 @@ Never bundled or committed. `-bds-dir` (default `bds/` beside the worlds dir) ho
 ## Control methods
 
 `world_list/create/update/delete/open/close/pause/status.v1`, `bds_accept_eula.v1`, and `local_worlds_prefs.v1`
-(`docker_prompt_dismissed`, `redetect`, `creation_backend`, `creation_generator`), all schema v1. `world_update.v1` takes `id` plus any of `name`, `game_mode`,
+(`docker_prompt_dismissed`, `redetect`), all schema v1. `world_update.v1` takes `id` plus any of `name`, `game_mode`,
 `difficulty` (applied on the next open); listed worlds carry `size_bytes`.
 
 ## Client

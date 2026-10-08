@@ -5,8 +5,13 @@ use serde::{Deserialize, Serialize};
 use crate::AssetError;
 use crate::item::{ItemVisualAlias, ItemVisualDefinition};
 
+mod geometry;
+mod molang_program;
+mod server_animation;
+pub use molang_program::MolangProgram;
 #[path = "entity/inherited_cubes.rs"]
 mod inherited_cubes;
+pub use geometry::{EntityGeometry, EntityGeometryBounds, EntityGeometryInheritance};
 mod source_paths;
 #[path = "entity/texture_mesh.rs"]
 mod texture_mesh;
@@ -243,24 +248,6 @@ pub struct EntityGeometryBone {
     )]
     pub texture_meshes: Box<[EntityGeometryTextureMesh]>,
     pub cubes: Box<[EntityGeometryCube]>,
-}
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct EntityGeometry {
-    pub identifier: Box<str>,
-    pub inherits: Option<EntityGeometryInheritance>,
-    pub source_index: u32,
-    pub texture_width: u16,
-    pub texture_height: u16,
-    pub bones: Box<[EntityGeometryBone]>,
-}
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct EntityGeometryInheritance {
-    pub identifier: Box<str>,
-    pub resolution: EntityDependencyResolution,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -677,6 +664,9 @@ fn validate_geometries(
             || geometry.bones.len() > MAX_ENTITY_GEOMETRY_BONES
         {
             return Err(invalid("invalid or unordered entity geometry payload"));
+        }
+        if let Some(bounds) = geometry.visible_bounds {
+            bounds.validate()?;
         }
         validate_geometry_bones(&geometry.bones, geometry.inherits.is_some())?;
         previous = Some(key);

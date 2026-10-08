@@ -7,6 +7,82 @@ use std::sync::Arc;
 
 pub use crate::test_support::{mini_carrier, mini_engine_presentation};
 
+#[test]
+fn rejected_form_binds_once_without_partial_hits_and_changed_inputs_retry() {
+    let mut player_runtime = player_state::PlayerState::new(1);
+    let mut presentation = mini_engine_presentation();
+    let descendants: Vec<_> = (0..700)
+        .map(|index| serde_json::json!({format!("child_{index}"): {"type":"panel"}}))
+        .collect();
+    presentation.set_server_ui_pack(&super::ServerUiPack {
+        ui_layers: vec![vec![(
+            "ui/server_form.json".into(),
+            serde_json::json!({
+                "namespace":"server_form", "form_button":{"controls":descendants}
+            })
+            .to_string()
+            .into_bytes(),
+        )]],
+        ..Default::default()
+    });
+    let labels = vec!["Choice"; 300];
+    let runtime = super::pack_harness::action_form(&mut player_runtime, "Menu", &labels);
+    let identity = runtime.server_forms().active().unwrap().identity;
+    let dpi = ui::DpiScale::new(1.0).unwrap();
+    for now in 0..3 {
+        presentation
+            .build(&player_runtime, &runtime, now, [1280, 720], dpi)
+            .unwrap();
+        assert!(presentation.form_engine_frame(identity).is_none());
+        assert_eq!(presentation.form_button_count(identity), Some(labels.len()));
+        assert_eq!(
+            presentation
+                .form_presentation
+                .engine
+                .as_ref()
+                .unwrap()
+                .passes,
+            [1, 0]
+        );
+    }
+    presentation.set_server_ui_pack(&super::ServerUiPack::default());
+    presentation
+        .build(&player_runtime, &runtime, 3, [1280, 720], dpi)
+        .unwrap();
+    assert_eq!(
+        presentation.form_engine_frame(identity).unwrap().hits.len(),
+        labels.len()
+    );
+    assert_eq!(
+        presentation
+            .form_presentation
+            .engine
+            .as_ref()
+            .unwrap()
+            .passes,
+        [2, 1]
+    );
+    let runtime =
+        super::pack_harness::action_form(&mut player_runtime, "Smaller menu", &["Choice"]);
+    let identity = runtime.server_forms().active().unwrap().identity;
+    presentation
+        .build(&player_runtime, &runtime, 4, [1280, 720], dpi)
+        .unwrap();
+    assert_eq!(
+        presentation.form_engine_frame(identity).unwrap().hits.len(),
+        1
+    );
+    assert_eq!(
+        presentation
+            .form_presentation
+            .engine
+            .as_ref()
+            .unwrap()
+            .passes,
+        [3, 2]
+    );
+}
+
 // A static form resolves and lays out once; hovering a button only repaints.
 #[test]
 fn static_form_resolves_once_and_hover_only_repaints() {
@@ -783,7 +859,7 @@ fn oreui_texts(view: &crate::menu::MenuView) -> Vec<String> {
 #[test]
 fn world_types_carry_the_owner_labels_everywhere_they_show() {
     use crate::local_worlds::{
-        Event, FLAT_WORLD_LABEL, Input, NORMAL_WORLD_LABEL, Tab, WorldsMenu,
+        Event, FLAT_WORLD_LABEL, Input, NORMAL_WORLD_LABEL, PromptButton, Tab, WorldsMenu,
     };
     use protocol::world_control::{
         Backend, Difficulty, GameMode, Generator, Prefs, Setup, SetupState, UnavailableReason,
@@ -797,7 +873,6 @@ fn world_types_carry_the_owner_labels_everywhere_they_show() {
         game_mode: GameMode::Creative,
         generator: Generator::Flat,
         difficulty: Difficulty::Easy,
-        allow_cheats: false,
         backend: Backend::Dragonfly,
         seed: 1,
         created_unix: 1,
@@ -864,9 +939,12 @@ fn world_types_carry_the_owner_labels_everywhere_they_show() {
     ));
     menu.update(Input::BeginCreate);
     menu.update(Input::SetBackend(Backend::Bds));
-    let form = oreui_texts(&base(&menu));
-    assert!(has(&form, "BDS is unavailable"), "no-Docker form: {form:?}");
-    assert_eq!(menu.create_form().backend, Backend::Dragonfly);
+    menu.update(Input::SubmitCreate);
+    let dialog = oreui_texts(&base(&menu));
+    assert!(
+        has(&dialog, &PromptButton::UseDragonfly.label()),
+        "no-Docker dialog: {dialog:?}"
+    );
 }
 
 #[test]

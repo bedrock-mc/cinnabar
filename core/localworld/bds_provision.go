@@ -554,12 +554,20 @@ func detectRuntime(ctx context.Context, goos, arch, docker string, env []string)
 		docker = "docker"
 	}
 	if _, found := lookupDocker(docker); !found {
-		return RuntimeInfo{RuntimeNone, "no native Bedrock Dedicated Server for this platform and Docker is not installed", "docker_missing"}
+		return RuntimeInfo{RuntimeNone, "no native Bedrock Dedicated Server for this platform and Docker is not installed; new worlds use dragonfly", "docker_missing"}
 	}
 	probe, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	if err := dockerCommand(probe, docker, env, "info").Run(); err == nil {
 		return RuntimeInfo{Kind: RuntimeContainer, Reason: "no native Bedrock Dedicated Server for this platform; running the Linux build in a container"}
 	}
-	return RuntimeInfo{RuntimeNone, "no native Bedrock Dedicated Server for this platform and Docker is not running", "docker_not_running"}
+	return RuntimeInfo{RuntimeNone, "no native Bedrock Dedicated Server for this platform and Docker is not running; new worlds use dragonfly", "docker_not_running"}
+}
+
+// DefaultBackend is BDS when it can run (natively or in a container), else dragonfly.
+func DefaultBackend(info RuntimeInfo) string {
+	if info.Kind == RuntimeNative || info.Kind == RuntimeContainer {
+		return BackendBDS
+	}
+	return BackendDragonfly
 }

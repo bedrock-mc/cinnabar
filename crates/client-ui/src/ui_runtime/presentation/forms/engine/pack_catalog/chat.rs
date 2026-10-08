@@ -45,6 +45,14 @@ pub(super) fn prefer_builtin(catalog: &mut Catalog, builtin: &Catalog) {
             }
         }
     }
+    let visibility = ROOTS
+        .into_iter()
+        .filter_map(|name| {
+            let reference = ControlRef::new("hud", name);
+            let bindings = visibility_bindings(catalog.lookup("hud", name)?);
+            Some((reference, bindings))
+        })
+        .collect::<BTreeMap<_, _>>();
     for control in catalog.controls_mut() {
         suppress_chat(control, &chat);
     }
@@ -56,8 +64,22 @@ pub(super) fn prefer_builtin(catalog: &mut Catalog, builtin: &Catalog) {
     let mut global_names = BTreeSet::new();
     for reference in restore {
         if let Some(control) = builtin.lookup(&reference.namespace, &reference.name) {
-            collect_globals(control, &mut global_names);
-            catalog.insert(control.clone());
+            let mut control = control.clone();
+            if let Some(bindings) = visibility.get(&reference)
+                && let Some(target) = control
+                    .props
+                    .entry("bindings".to_owned())
+                    .or_insert_with(|| Value::Array(Vec::new()))
+                    .as_array_mut()
+            {
+                for binding in bindings {
+                    if !target.contains(binding) {
+                        target.push(binding.clone());
+                    }
+                }
+            }
+            collect_globals(&control, &mut global_names);
+            catalog.insert(control);
         }
     }
     let globals = global_names
@@ -89,6 +111,24 @@ pub(super) fn prefer_builtin(catalog: &mut Catalog, builtin: &Catalog) {
             .props
             .insert("$additional_screen_content".to_owned(), overlay.clone());
     }
+}
+
+fn visibility_bindings(control: &RawControl) -> Vec<Value> {
+    control
+        .props
+        .get("bindings")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|binding| {
+            let target = binding
+                .get("target_property_name")
+                .or_else(|| binding.get("binding_name_override"))
+                .or_else(|| binding.get("binding_name"));
+            target.and_then(Value::as_str) == Some("#visible")
+        })
+        .cloned()
+        .collect()
 }
 
 fn collect_globals(control: &RawControl, names: &mut BTreeSet<String>) {

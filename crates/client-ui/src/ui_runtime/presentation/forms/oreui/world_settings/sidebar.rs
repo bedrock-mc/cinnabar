@@ -65,11 +65,7 @@ pub(super) fn draw(
         [inner[0], y, inner[1], y + canvas.r(4.8)],
         Variant::Hero,
         if edit { "Play" } else { "Create" },
-        (!view.local.busy
-            && (edit
-                || view.local.create.backend == protocol::world_control::Backend::Dragonfly
-                || view.local.bds_can_run))
-            .then_some(local(if edit { A::PlayFromEdit } else { A::Create })),
+        (!view.local.busy).then_some(local(if edit { A::PlayFromEdit } else { A::Create })),
     )?;
     y += canvas.r(5.6);
     if !edit {

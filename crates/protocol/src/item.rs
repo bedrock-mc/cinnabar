@@ -17,6 +17,8 @@ use valentine::bedrock::{
 
 use crate::inventory::{InventoryPacketError, VerifiedNetworkItemStack};
 
+#[cfg(test)]
+mod animation_tests;
 mod components;
 mod display;
 mod icons;
@@ -445,6 +447,9 @@ pub enum ActorActionKind {
     Custom {
         animation: Arc<str>,
         controller: Arc<str>,
+        next_state: Arc<str>,
+        stop_expression: Arc<str>,
+        stop_expression_version: i32,
     },
     Ignored {
         action_id: u8,
@@ -859,6 +864,9 @@ pub(crate) fn normalize_animate_entity(
         kind: ActorActionKind::Custom {
             animation: Arc::from(packet.m_animation),
             controller: Arc::from(packet.m_controller),
+            next_state: Arc::from(packet.m_next_state),
+            stop_expression: Arc::from(packet.m_stop_expression),
+            stop_expression_version: packet.m_stop_expression_version,
         },
         data: packet.m_blend_out_time,
         swing_source: None,

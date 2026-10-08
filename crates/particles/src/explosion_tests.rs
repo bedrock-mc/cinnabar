@@ -71,7 +71,7 @@ fn scalar_block_explosion_events_do_not_fabricate_a_huge_cloud() {
 }
 
 #[test]
-fn explicit_named_looping_effects_keep_their_authored_lifetime() {
+fn explicit_named_unbound_looping_effects_finish_their_first_cycle() {
     let mut system = system();
     assert!(
         system
@@ -85,6 +85,6 @@ fn explicit_named_looping_effects_keep_their_authored_lifetime() {
     for _ in 0..20 {
         system.tick(0.05, &EmptyWorld);
     }
-    assert_eq!(system.emitter_count(), 1);
-    assert!(system.live_particles() > 0);
+    assert_eq!(system.emitter_count(), 0);
+    assert_eq!(system.live_particles(), 0);
 }

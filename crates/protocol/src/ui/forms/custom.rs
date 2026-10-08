@@ -10,7 +10,7 @@ use std::sync::Arc;
 use serde_json::{Map, Value};
 
 use super::{
-    MAX_FORM_BUTTONS, ServerFormModel, UnsupportedForm, optional_text, required_text_value,
+    MAX_CUSTOM_FORM_ITEMS, ServerFormModel, UnsupportedForm, optional_text, required_text_value,
 };
 
 /// A finite form number compared by bit pattern so the model stays `Eq`.
@@ -91,7 +91,7 @@ fn parse(object: &Map<String, Value>) -> Result<CustomForm, UnsupportedForm> {
         .get("content")
         .and_then(Value::as_array)
         .ok_or(UnsupportedForm::Controls)?;
-    if content.len() > MAX_FORM_BUTTONS {
+    if content.len() > MAX_CUSTOM_FORM_ITEMS {
         return Err(UnsupportedForm::Limit);
     }
     let submit = match object.get("submit") {
@@ -191,7 +191,7 @@ fn string_list(value: Option<&Value>) -> Result<Arc<[Arc<str>]>, UnsupportedForm
     let items = value
         .and_then(Value::as_array)
         .ok_or(UnsupportedForm::Controls)?;
-    if items.len() > MAX_FORM_BUTTONS {
+    if items.len() > MAX_CUSTOM_FORM_ITEMS {
         return Err(UnsupportedForm::Limit);
     }
     items

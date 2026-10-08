@@ -54,7 +54,7 @@ fn deflated_zip_file(path: &str, bytes: &[u8]) -> Vec<u8> {
 }
 
 fn validate_fixture(bytes: Vec<u8>, selected: &str) -> Result<ValidatedPack, AdmissionError> {
-    validate_archive_parts(PACK_ID, "1.2.3", selected, bytes, None).map(|(pack, _)| pack)
+    validate_archive_parts(PACK_ID, "1.2.3", selected, bytes, None, None).map(|(pack, _)| pack)
 }
 #[test]
 fn admits_jsonc_manifest_and_exposes_only_selected_logical_namespace() {
@@ -256,7 +256,8 @@ fn encrypted_pack_decrypts_listed_files_and_keeps_plaintext_despite_key() {
         ("plain.json", b"{\"a\": 1}"),
     ]);
     let key = ContentKey::new(PACK_KEY);
-    let (pack, _) = validate_archive_parts(PACK_ID, "1.2.3", "", archive.clone(), key).unwrap();
+    let (pack, _) =
+        validate_archive_parts(PACK_ID, "1.2.3", "", archive.clone(), key, None).unwrap();
     assert_eq!(
         pack.read_file("texts/en_US.lang")
             .unwrap()
@@ -272,13 +273,20 @@ fn encrypted_pack_decrypts_listed_files_and_keeps_plaintext_despite_key() {
 
     let wrong = ContentKey::new(b"vutsrqponmlkjihgfedcba9876543210");
     assert_eq!(
-        validate_archive_parts(PACK_ID, "1.2.3", "", archive, wrong).unwrap_err(),
+        validate_archive_parts(PACK_ID, "1.2.3", "", archive, wrong, None).unwrap_err(),
         AdmissionError::MalformedContentsIndex
     );
     let unindexed = zip_files(&[("manifest.json", manifest.as_bytes())]);
     assert_eq!(
-        validate_archive_parts(PACK_ID, "1.2.3", "", unindexed, ContentKey::new(PACK_KEY))
-            .unwrap_err(),
+        validate_archive_parts(
+            PACK_ID,
+            "1.2.3",
+            "",
+            unindexed,
+            ContentKey::new(PACK_KEY),
+            None
+        )
+        .unwrap_err(),
         AdmissionError::MissingContentsIndex
     );
 }

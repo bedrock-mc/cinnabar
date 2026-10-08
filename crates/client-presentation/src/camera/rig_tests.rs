@@ -1,6 +1,7 @@
 use std::cell::Cell;
 
 use bevy::prelude::{EulerRot, Quat, Transform, Vec3};
+use render_api::CAMERA_NEAR_PLANE_BLOCKS;
 use semantic_input::PerspectiveMode;
 use sim::{
     Aabb, CollisionQuery, CollisionRegistry, CollisionWorld, LenientSkipCounts, PaletteWorld,
@@ -9,9 +10,8 @@ use sim::{
 use world::{BlockUpdate, ChunkKey, ChunkStore, RawBlockIds, SubChunkKey};
 
 use super::{
-    CameraRig, CameraSettingsAuthority, THIRD_PERSON_COLLISION_EPSILON_BLOCKS,
-    THIRD_PERSON_COLLISION_RADIUS_BLOCKS, collision_safe_perspective_pose, collision_safe_rig_pose,
-    perspective_pose, rig_pose,
+    CameraRig, CameraSettingsAuthority, THIRD_PERSON_COLLISION_RADIUS_BLOCKS,
+    collision_safe_perspective_pose, collision_safe_rig_pose, perspective_pose, rig_pose,
 };
 
 struct Walls(Vec<Aabb>);
@@ -90,11 +90,7 @@ fn rig_boom_stops_before_a_wall_behind_the_shoulder() {
     )]);
     let pose = collision_safe_rig_pose(eye, Quat::IDENTITY, rig, &wall);
     assert!(pose.translation.abs_diff_eq(
-        Vec3::new(
-            0.0,
-            2.0,
-            4.02_f32.sqrt() - THIRD_PERSON_COLLISION_EPSILON_BLOCKS
-        ),
+        Vec3::new(0.0, 2.0, 4.02_f32.sqrt() - CAMERA_NEAR_PLANE_BLOCKS),
         1e-5
     ));
     let open = collision_safe_rig_pose(eye, Quat::IDENTITY, rig, &Walls(Vec::new()));
@@ -186,7 +182,7 @@ fn volume_scan_boom(subject: Vec3, mut pose: Transform, world: &impl CollisionWo
     let origin = SimVec3::new(subject.x.into(), subject.y.into(), subject.z.into());
     let sweep = SimVec3::new(delta.x.into(), delta.y.into(), delta.z.into());
     let radius = f64::from(THIRD_PERSON_COLLISION_RADIUS_BLOCKS);
-    let near_clip = f64::from(THIRD_PERSON_COLLISION_EPSILON_BLOCKS);
+    let near_clip = f64::from(CAMERA_NEAR_PLANE_BLOCKS);
     let camera = Aabb::new(
         origin - SimVec3::new(radius, radius, radius),
         origin + SimVec3::new(radius, radius, radius),

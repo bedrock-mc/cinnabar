@@ -2,12 +2,12 @@ use assets::{MAX_MOLANG_LOOP_DEPTH, MAX_MOLANG_LOOP_ITERATIONS, MolangSymbolKind
 
 use super::*;
 
-/// A Molang runtime value. Actor references and arrays have no producer in this client, so
-/// `->` and `for_each` always take their empty path.
+/// Runtime values retain the attachable's owning actor reference without numeric coercion.
 #[derive(Clone, Debug, PartialEq)]
 pub(super) enum MolangValue {
     Number(f32),
     String(Arc<str>),
+    ActorReference(u64),
 }
 
 impl MolangValue {
@@ -15,7 +15,7 @@ impl MolangValue {
     pub(super) fn number(&self) -> f32 {
         match self {
             Self::Number(value) => *value,
-            Self::String(_) => 0.0,
+            Self::String(_) | Self::ActorReference(_) => 0.0,
         }
     }
 
@@ -23,7 +23,7 @@ impl MolangValue {
     pub(super) fn truthy(&self) -> bool {
         match self {
             Self::Number(value) => *value != 0.0,
-            Self::String(_) => true,
+            Self::String(_) | Self::ActorReference(_) => true,
         }
     }
 }
@@ -56,6 +56,7 @@ pub(super) struct EngineSlots {
     pub(super) context_first_person: Option<usize>,
     pub(super) context_paperdoll: Option<usize>,
     pub(super) context_item_slot: Option<usize>,
+    pub(super) context_owning_entity: Option<usize>,
     /// Look pitch feeding `variable.map_angle`; refreshed per tick, unlike the seed.
     pub(super) player_x_rotation: Option<usize>,
     /// View-bobbing gate the first-person walk/breathing animations weigh against.
@@ -116,7 +117,10 @@ impl VariableLayout {
     }
 
     pub(super) fn new(assets: &RuntimeEntityAssets) -> Self {
-        let symbols = assets.molang_symbols();
+        Self::from_symbols(assets.molang_symbols())
+    }
+
+    pub(super) fn from_symbols(symbols: &[assets::MolangSymbol]) -> Self {
         let range = |kind: MolangSymbolKind| {
             let start = symbols.partition_point(|symbol| symbol.kind < kind);
             let end = symbols.partition_point(|symbol| symbol.kind <= kind);
@@ -151,6 +155,7 @@ impl VariableLayout {
                 context_first_person: slot("context.is_first_person"),
                 context_paperdoll: slot("context.is_paperdoll"),
                 context_item_slot: slot("context.item_slot"),
+                context_owning_entity: slot("context.owning_entity"),
                 player_x_rotation: slot("variable.player_x_rotation"),
                 bob_animation: slot("variable.bob_animation"),
                 first_person_item_rotation_factor: slot(
@@ -290,9 +295,39 @@ enum Place {
 }
 
 impl MolangVariables {
+    pub(super) fn copy_named_from(
+        &mut self,
+        target: &[assets::MolangSymbol],
+        source: &[assets::MolangSymbol],
+        variables: &Self,
+    ) {
+        let first = source.partition_point(|symbol| symbol.kind < MolangSymbolKind::Variable);
+        let target_first =
+            target.partition_point(|symbol| symbol.kind < MolangSymbolKind::Variable);
+        let target_end = target.partition_point(|symbol| symbol.kind <= MolangSymbolKind::Variable);
+        for (offset, value) in variables.values.iter().enumerate() {
+            let Some(value) = value else {
+                continue;
+            };
+            let Some(symbol) = source.get(first + offset) else {
+                break;
+            };
+            if let Ok(slot) = target[target_first..target_end]
+                .binary_search_by(|candidate| candidate.identifier.cmp(&symbol.identifier))
+            {
+                self.values[slot] = Some(value.clone());
+            }
+        }
+    }
     pub(super) fn set_string(&mut self, slot: Option<usize>, value: &str) {
         if let Some(entry) = slot.and_then(|slot| self.values.get_mut(slot)) {
             *entry = Some(MolangValue::String(Arc::from(value)));
+        }
+    }
+
+    pub(super) fn set_actor_reference(&mut self, slot: Option<usize>, runtime_id: u64) {
+        if let Some(entry) = slot.and_then(|slot| self.values.get_mut(slot)) {
+            *entry = Some(MolangValue::ActorReference(runtime_id));
         }
     }
 
@@ -372,6 +407,7 @@ impl VariableLayout {
 pub(super) struct Evaluator<'a> {
     pub(super) assets: &'a RuntimeEntityAssets,
     pub(super) layout: &'a VariableLayout,
+    pub(super) program: Option<&'a assets::MolangProgram>,
     pub(super) actor: &'a ActorSnapshot,
     pub(super) input: &'a ActorTickInput,
     pub(super) context: &'a ActorTickContext,
@@ -387,6 +423,32 @@ pub(super) struct Evaluator<'a> {
 }
 
 impl Evaluator<'_> {
+    fn expressions(&self) -> &[assets::CompiledMolangExpression] {
+        self.program.map_or_else(
+            || self.assets.molang_expressions(),
+            |program| &program.expressions,
+        )
+    }
+    fn ops(&self) -> &[MolangOp] {
+        self.program
+            .map_or_else(|| self.assets.molang_ops(), |program| &program.ops)
+    }
+    fn symbols(&self) -> &[assets::MolangSymbol] {
+        self.program
+            .map_or_else(|| self.assets.molang_symbols(), |program| &program.symbols)
+    }
+    fn collections(&self) -> &[assets::MolangCollection] {
+        self.program.map_or_else(
+            || self.assets.molang_collections(),
+            |program| &program.collections,
+        )
+    }
+    fn collection_items(&self) -> &[assets::MolangCollectionItem] {
+        self.program.map_or_else(
+            || self.assets.molang_collection_items(),
+            |program| &program.collection_items,
+        )
+    }
     pub(super) fn number(
         &self,
         expression: usize,
@@ -421,19 +483,14 @@ impl Evaluator<'_> {
         budget: &mut EvalBudget<'_>,
     ) -> Result<MolangValue, EvalError> {
         let expression = self
-            .assets
-            .molang_expressions()
+            .expressions()
             .get(expression_index)
             .ok_or(EvalError::Invalid)?;
         let first = expression.first_op as usize;
         let end = first
             .checked_add(expression.op_count as usize)
             .ok_or(EvalError::Invalid)?;
-        let ops = self
-            .assets
-            .molang_ops()
-            .get(first..end)
-            .ok_or(EvalError::Invalid)?;
+        let ops = self.ops().get(first..end).ok_or(EvalError::Invalid)?;
         // Temporaries last for one evaluation.
         variables.clear_temporaries();
         stack.reserve(expression.max_stack as usize);
@@ -500,7 +557,7 @@ impl Evaluator<'_> {
                 MolangOp::Not => {
                     let value = match pop(stack)? {
                         MolangValue::Number(value) => value == 0.0,
-                        MolangValue::String(_) => false,
+                        MolangValue::String(_) | MolangValue::ActorReference(_) => false,
                     };
                     stack.push(bool_value(value));
                 }
@@ -514,6 +571,9 @@ impl Evaluator<'_> {
                     let equal = match (&left, &right) {
                         (MolangValue::Number(left), MolangValue::Number(right)) => left == right,
                         (MolangValue::String(left), MolangValue::String(right)) => left == right,
+                        (MolangValue::ActorReference(left), MolangValue::ActorReference(right)) => {
+                            left == right
+                        }
                         _ => false,
                     };
                     stack.push(bool_value(equal == matches!(op, MolangOp::Equal)));
@@ -585,10 +645,13 @@ impl Evaluator<'_> {
                     pc = jump(branch.target)?;
                 }
                 MolangOp::Arrow(target) => {
-                    // No value is an actor reference: the right side is skipped.
-                    pop(stack)?;
-                    stack.push(MolangValue::Number(0.0));
-                    pc = jump(target)?;
+                    // Attachable queries already read the supplied owning actor snapshot.
+                    let reference = pop(stack)?;
+                    if !matches!(reference, MolangValue::ActorReference(id) if id == self.actor.runtime_id)
+                    {
+                        stack.push(MolangValue::Number(0.0));
+                        pc = jump(target)?;
+                    }
                 }
             }
         }
@@ -599,8 +662,7 @@ impl Evaluator<'_> {
     }
 
     fn string(&self, symbol: u32) -> Result<Arc<str>, EvalError> {
-        self.assets
-            .molang_symbols()
+        self.symbols()
             .get(symbol as usize)
             .filter(|symbol| symbol.kind == MolangSymbolKind::String)
             .map(|symbol| Arc::from(symbol.identifier.as_ref()))
@@ -608,7 +670,7 @@ impl Evaluator<'_> {
     }
 
     fn query(&self, symbol: u32, arguments: &[MolangValue]) -> MolangValue {
-        let Some(symbol) = self.assets.molang_symbols().get(symbol as usize) else {
+        let Some(symbol) = self.symbols().get(symbol as usize) else {
             return MolangValue::Number(0.0);
         };
         let inputs = query::QueryInputs {
@@ -628,8 +690,7 @@ impl Evaluator<'_> {
     /// Selects a collection item; indices wrap past the end and clamp below zero.
     fn collection(&self, collection: u32, index: f32) -> Result<f32, EvalError> {
         let collection = self
-            .assets
-            .molang_collections()
+            .collections()
             .get(collection as usize)
             .ok_or(EvalError::Invalid)?;
         let count = usize::from(collection.item_count);
@@ -641,8 +702,7 @@ impl Evaluator<'_> {
         } else {
             (index as usize) % count
         };
-        self.assets
-            .molang_collection_items()
+        self.collection_items()
             .get(collection.first_item as usize + index)
             .map(|item| item.value.get())
             .ok_or(EvalError::Invalid)
