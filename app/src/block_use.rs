@@ -17,7 +17,7 @@ use sim::PaletteWorld;
 use crate::{
     interaction_authority::FrozenBlockObservation,
     local_player::InteractionOriginSnapshot,
-    melee::{MeleeRuntime, SwingTracker, obstructs_placement, swing_duration},
+    melee::{MeleeRuntime, SwingTracker, obstructs_placement},
     menu::MenuRuntime,
     mining::{
         FrozenMiningSelection, creative_reach, protocol_input_mode, survival_reach,
@@ -268,12 +268,11 @@ pub(crate) fn produce_block_use(
         runtime.record(trigger, due, tick, LocalUse::Nothing, clock);
         return;
     }
-    let duration = swing_duration(
-        context
-            .effects
-            .mining_tick(tick, movement.completed_tick())
-            .0,
-    );
+    // The tick has not simulated yet, so its swing reads the effects in force before it.
+    let swing_effects = context
+        .effects
+        .mining_tick(tick, movement.completed_tick())
+        .0;
     let Some(block_network_id) = stream.block_network_id(observed.target.runtime_id) else {
         return;
     };
@@ -298,7 +297,7 @@ pub(crate) fn produce_block_use(
         start_destination,
         change.clone(),
         local_runtime_id,
-        |tick| swings.try_swing(tick, duration),
+        |tick| swings.try_swing_before_tick(tick, swing_effects),
         tick,
     );
     let result = (!packets.is_empty()).then(|| context.network.send_inventory_packets(packets));
