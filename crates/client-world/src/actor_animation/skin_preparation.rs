@@ -52,10 +52,13 @@ impl ActorAnimationStore {
             self.stats.invalid_skin_geometries =
                 self.stats.invalid_skin_geometries.saturating_add(1);
         }
-        // Poses were reset outside tick evaluation, which is what otherwise advances the generation.
+        // Tick evaluation settles a skeleton reset's generations; between ticks they advance here,
+        // so pose and rest caches keyed on them rebuild for the new bones.
         if model(state) != before {
             state.reset_generation = self.next_reset_generation;
             self.next_reset_generation = self.next_reset_generation.saturating_add(1);
+            state.rest_reset_generation = self.next_rest_reset_generation;
+            self.next_rest_reset_generation = self.next_rest_reset_generation.saturating_add(1);
         }
     }
 

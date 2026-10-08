@@ -423,3 +423,55 @@ fn model_installed_between_ticks_advances_the_drawn_rig_generation() {
     // Cached pose conversions key on this; reused pose buffers must not keep the old skeleton.
     assert_ne!(rig.reset_generation, generation);
 }
+
+/// A ticked rig whose model `source` then installs between ticks; returns its runtime id.
+fn rig_with_model_installed_between_ticks(
+    store: &mut ActorAnimationStore,
+    before_install: impl FnOnce(&mut ActorAnimationStore, u64),
+) -> u64 {
+    let actor = super::super::tests::actor_with_metadata(HashMap::new());
+    let runtime_id = actor.runtime_id;
+    store.insert(1, 0, &actor);
+    let actors = HashMap::from([(runtime_id, actor)]);
+    store.advance_tick(&actors, None, None, false, true, |_| {
+        ActorTickContext::default()
+    });
+    before_install(store, runtime_id);
+    let source = source(MODEL);
+    warm_source(store, &source);
+    store.sync_skin_model(runtime_id, Some(&source));
+    assert!(store.get(runtime_id).unwrap().skin_geometry.is_some());
+    runtime_id
+}
+
+#[test]
+fn model_installed_between_ticks_advances_the_rest_generation() {
+    let mut store = ActorAnimationStore::with_assets(
+        super::super::render_frame::tests::counting_random_assets(),
+    );
+    let mut rest_generation = 0;
+    let runtime_id = rig_with_model_installed_between_ticks(&mut store, |store, runtime_id| {
+        rest_generation = store.get(runtime_id).unwrap().rest_reset_generation;
+    });
+    // The first-person arm cache keys on this; it must not reuse the old skeleton's arm.
+    assert_ne!(
+        store.get(runtime_id).unwrap().rest_reset_generation,
+        rest_generation
+    );
+}
+
+#[test]
+fn model_installed_between_ticks_never_leaves_a_hud_pose_on_the_old_bones() {
+    let mut store = ActorAnimationStore::with_assets(
+        super::super::render_frame::tests::counting_random_assets(),
+    );
+    let runtime_id = rig_with_model_installed_between_ticks(&mut store, |store, runtime_id| {
+        let lifetime = store.runtime_to_lifetime[&runtime_id];
+        let state = store.rigs.get_mut(&lifetime).unwrap();
+        state.ui_pose = Some(state.current.clone());
+    });
+    let rig = store.get(runtime_id).unwrap();
+    let hud = store.ui_pose(runtime_id).unwrap();
+    assert_eq!(hud.len(), rig.bone_names.len());
+    assert_eq!(hud, rig.current);
+}
