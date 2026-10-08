@@ -15,6 +15,7 @@ use render_model::{
 
 mod admission;
 pub use admission::within_actor_candidate_cube;
+pub(crate) use admission::{actor_within_render_distance, sample_candidate_scale};
 mod tick_cache;
 pub use tick_cache::PoseConversions;
 use tick_cache::TickKey;
@@ -73,17 +74,15 @@ pub fn rig_may_be_visible(
     view: Option<ActorCullView>,
     occluded: impl Fn([f32; 3], [f32; 3]) -> bool,
 ) -> bool {
+    if !actor_within_render_distance(actor, partial_tick, view) {
+        return false;
+    }
     let (Some(view), Some(feet)) = (
         view,
         interpolated_position(actor, partial_tick.clamp(0.0, 1.0)),
     ) else {
         return true;
     };
-    let camera = view.camera_position.to_array();
-    if matches!(actor.kind, ActorKind::Entity { .. }) && !within_actor_candidate_cube(feet, camera)
-    {
-        return false;
-    }
     // Per-axis scale and the death tilt never lengthen the up axis past the largest axis scale.
     let largest_axis = rig
         .axis_scale

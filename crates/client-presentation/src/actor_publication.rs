@@ -325,9 +325,25 @@ pub fn prepare_actor_render_frame(
                     let Some(actor) = stream.authority().actor(rig.actor.runtime_id) else {
                         continue;
                     };
-                    let rig = render_frame
-                        .as_mut()
-                        .map_or(rig, |frame| frame.sample_rig_scale(rig));
+                    let mut sample_scale = |rig| {
+                        render_frame
+                            .as_mut()
+                            .map_or(rig, |frame| frame.sample_rig_scale(rig))
+                    };
+                    let rig = if rig.actor.runtime_id == local_runtime_id {
+                        sample_scale(rig)
+                    } else {
+                        let Some(rig) = crate::presentation::actors::sample_candidate_scale(
+                            rig,
+                            actor,
+                            step.partial_tick,
+                            cull_view,
+                            sample_scale,
+                        ) else {
+                            continue;
+                        };
+                        rig
+                    };
                     // Cull at the sampled frame scale; the local rig also drives the hand.
                     if rig.actor.runtime_id != local_runtime_id
                         && !crate::presentation::actors::rig_may_be_visible(

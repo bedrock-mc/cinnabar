@@ -667,18 +667,11 @@ pub fn actor_bounds_are_visible(
     bounds: assets::SkinGeometryBounds,
     view: Option<ActorCullView>,
 ) -> bool {
-    let Some(view) = view.filter(|view| {
-        view.clip_from_world.is_finite()
-            && view.camera_position.is_finite()
-            && view.max_distance.is_finite()
-            && view.max_distance > 0.0
-    }) else {
+    let Some(view) = view.filter(ActorCullView::is_valid) else {
         return true;
     };
     let feet = Vec3::from_array(feet);
-    if (feet + Vec3::Y).distance_squared(view.camera_position)
-        > view.max_distance * view.max_distance
-    {
+    if !view.contains_distance(feet.to_array()) {
         return false;
     }
     let (low, high) = bounds.at(feet.to_array(), scale);

@@ -85,6 +85,59 @@ fn sampled_scales_can_admit_a_frame_after_the_animation_tick_was_culled() {
     assert_sampled_admission(true);
 }
 
+#[test]
+fn scale_independent_distance_gate_retains_edges_and_rejects_far_actors() {
+    let radius = render::ACTOR_CANDIDATE_RADIUS_BLOCKS;
+    let view = ActorCullView {
+        camera_position: Vec3::Y,
+        clip_from_world: Mat4::IDENTITY,
+        max_distance: 100.0,
+    };
+    for (feet, maximum, expected) in [
+        ([radius, 0.0, 0.0], radius + 10.0, true),
+        ([radius + 1.0, 0.0, 0.0], radius + 10.0, false),
+        ([0.0, 0.0, -10.0], 10.0, true),
+        ([0.0, 0.0, -11.0], 10.0, false),
+        ([7.5, 0.0, -5.0], 100.0, true),
+    ] {
+        let world = world("1000 + query.swell_amount", false, feet);
+        let actor = world.actor(1).unwrap();
+        let sampled = std::cell::Cell::new(false);
+        let candidate = sample_candidate_scale(
+            world.actor_rig(1).unwrap(),
+            actor,
+            0.5,
+            Some(ActorCullView {
+                max_distance: maximum,
+                ..view
+            }),
+            |rig| {
+                sampled.set(true);
+                rig
+            },
+        );
+        assert_eq!(
+            sampled.get(),
+            expected,
+            "far actors must consume no scale-sampling work"
+        );
+        assert_eq!(candidate.is_some(), expected);
+        assert_eq!(
+            actor_within_render_distance(
+                actor,
+                0.5,
+                Some(ActorCullView {
+                    max_distance: maximum,
+                    ..view
+                })
+            ),
+            expected,
+            "distance admission is independent of even a large authored scale: {feet:?}"
+        );
+        assert!(actor_within_render_distance(actor, 0.5, None));
+    }
+}
+
 /// Exercises scale sampling, both culling stages and body construction on compiled scripts.
 fn assert_sampled_admission(cull_completed_tick: bool) {
     let camera = Vec3::new(0.0, 1.0, 0.0);

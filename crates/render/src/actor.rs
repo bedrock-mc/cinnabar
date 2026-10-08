@@ -95,6 +95,26 @@ pub struct ActorCullView {
     pub max_distance: f32,
 }
 
+impl ActorCullView {
+    /// Tests actor distance independently of model scale, failing open for invalid views.
+    pub fn contains_distance(&self, feet: [f32; 3]) -> bool {
+        if !self.is_valid() {
+            return true;
+        }
+        let distance = (Vec3::from_array(feet) + Vec3::Y).distance_squared(self.camera_position);
+        distance.partial_cmp(&(self.max_distance * self.max_distance))
+            != Some(std::cmp::Ordering::Greater)
+    }
+
+    /// Whether the view can safely reject an actor using distance or clip bounds.
+    fn is_valid(&self) -> bool {
+        self.clip_from_world.is_finite()
+            && self.camera_position.is_finite()
+            && self.max_distance.is_finite()
+            && self.max_distance > 0.0
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct ActorRenderInstance {
     pub runtime_id: u64,
