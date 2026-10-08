@@ -134,18 +134,15 @@ pub(super) fn resolve_binding(
         geometry_binding,
         &controllers,
     );
-    let swell_sampling = actor
-        .is_creeper()
-        .then(|| {
-            super::render_frame::swell::SwellSampling::new(
-                assets,
-                rig_binding,
-                geometry_binding,
-                &controllers,
-                &[],
-            )
-        })
-        .flatten();
+    let swell_sampling = actor.is_creeper().then(|| {
+        super::render_frame::swell::SwellSampling::new(
+            assets,
+            rig_binding,
+            geometry_binding,
+            &controllers,
+            &[],
+        )
+    });
     Some(ActorRigState {
         pack: false,
         // The renderer needs the resolved geometry candidate, not only the
@@ -543,22 +540,15 @@ fn reselect_geometry_with_checkpoint(
         selected,
         &controllers,
     );
-    state.swell_sampling = actor
-        .is_creeper()
-        .then(|| {
-            super::render_frame::swell::SwellSampling::new(
-                assets,
-                state.rig_binding,
-                selected,
-                &controllers,
-                &super::server_animation::dependency_clips(
-                    assets,
-                    selected,
-                    &state.server_animations,
-                ),
-            )
-        })
-        .flatten();
+    state.swell_sampling = actor.is_creeper().then(|| {
+        super::render_frame::swell::SwellSampling::new(
+            assets,
+            state.rig_binding,
+            selected,
+            &controllers,
+            &super::server_animation::dependency_clips(assets, selected, &state.server_animations),
+        )
+    });
     state.samples_render_frames = state.samples_camera_poses
         || super::render_frame::sampling::needs_frame_sampling(assets, state.rig_binding);
     state.geometry_binding = selected;

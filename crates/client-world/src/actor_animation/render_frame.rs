@@ -64,6 +64,9 @@ pub(super) struct FrameState {
 impl FrameState {
     fn needs_swell_sampling(&self, actor: &ActorSnapshot) -> bool {
         self.swell_poses.is_some()
+            && std::iter::once(&self.motion)
+                .chain(self.previous_motion.iter())
+                .any(|motion| motion.sampling.as_ref().is_some_and(|s| s.uses_swell()))
             && (actor.creeper_swell_changes()
                 || self.swelling[0] != self.swelling[1]
                 || actor.creeper_swell_amount(self.motion.context.frame_alpha) != self.swelling[1])

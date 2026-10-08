@@ -9,6 +9,7 @@ pub(super) const ROTATION_FRAME: u8 = 8;
 
 #[derive(Debug)]
 pub(in crate::actor_animation) struct SwellSampling {
+    uses_swell: bool,
     expressions: BTreeSet<u32>,
     weighted_symbols: BTreeSet<u32>,
     timed_symbols: BTreeSet<u32>,
@@ -19,24 +20,23 @@ pub(in crate::actor_animation) struct SwellSampling {
 }
 
 impl SwellSampling {
+    /// Retains endpoint inputs before a server animation introduces its first swell query.
     pub(in crate::actor_animation) fn new(
         assets: &RuntimeEntityAssets,
         rig: usize,
         geometry: usize,
         controllers: &[ControllerState],
         extra_clips: &[usize],
-    ) -> Option<Arc<Self>> {
+    ) -> Arc<Self> {
         let expressions =
             super::sampling::pose_expressions(assets, rig, geometry, controllers, extra_clips);
-        if !expressions.iter().any(|&expression| {
+        let uses_swell = expressions.iter().any(|&expression| {
             ops(assets, expression).iter().any(|op| match op {
                 MolangOp::LoadQuery(symbol) => is_swell(assets, *symbol),
                 MolangOp::CallQuery(call) => is_swell(assets, call.symbol),
                 _ => false,
             })
-        }) {
-            return None;
-        }
+        });
         let mut queries = BTreeSet::new();
         let mut properties = false;
         for &expression in &expressions {
@@ -136,7 +136,8 @@ impl SwellSampling {
         let render_writes = super::sampling::render_controller_expressions(assets, rig)
             .into_iter()
             .any(|expression| has_effects(assets, expression));
-        Some(Arc::new(Self {
+        Arc::new(Self {
+            uses_swell,
             render_writes,
             queries,
             properties,
@@ -144,7 +145,11 @@ impl SwellSampling {
             expressions,
             weighted_symbols,
             timed_symbols,
-        }))
+        })
+    }
+
+    pub(super) fn uses_swell(&self) -> bool {
+        self.uses_swell
     }
 
     /// Ordinary query values belong to the completed motion endpoint.

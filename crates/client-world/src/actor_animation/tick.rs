@@ -384,6 +384,7 @@ pub(super) fn evaluate_state(
     .then(|| super::render_frame::FrameState {
         motion: super::render_frame::swell_endpoint::SwellMotion {
             variables: variables.clone(),
+            sampling: state.swell_sampling.clone(),
             queries: if samples_swell {
                 state
                     .swell_sampling

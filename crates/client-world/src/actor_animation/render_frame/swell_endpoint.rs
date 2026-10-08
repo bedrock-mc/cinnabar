@@ -4,6 +4,7 @@ use super::*;
 #[derive(Clone, Debug, Default)]
 pub(in crate::actor_animation) struct SwellMotion {
     pub variables: MolangVariables,
+    pub sampling: Option<Arc<super::swell::SwellSampling>>,
     pub queries: Vec<(u32, MolangValue)>,
     pub actor: Option<Arc<ActorSnapshot>>,
     pub context: ActorTickContext,
@@ -57,11 +58,7 @@ impl SwellMotion {
             budget,
         )?;
         tick::set_item_rotation_factor(&evaluator.layout.engine, &mut variables);
-        let clips = if state
-            .swell_sampling
-            .as_ref()
-            .is_some_and(|s| s.samples_clips())
-        {
+        let clips = if self.sampling.as_ref().is_some_and(|s| s.samples_clips()) {
             clips::sample(
                 &evaluator,
                 &mut variables,
@@ -73,7 +70,7 @@ impl SwellMotion {
                     journal: &self.journal,
                     server_effects: &self.server_effects,
                 },
-                state.swell_sampling.as_deref(),
+                self.sampling.as_deref(),
                 budget,
             )?
         } else {
