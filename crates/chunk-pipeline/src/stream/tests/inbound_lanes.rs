@@ -74,11 +74,11 @@ fn actor_move_after_a_block_decode_on_another_column_commits_without_waiting() {
     stream.submit(1, inline_air_event(0)).unwrap();
     stream.submit(2, inline_air_event(1)).unwrap();
     complete_pending_decode_jobs(&mut stream);
-    stream.submit(3, block_update(0, 1)).unwrap();
+    stream.submit(3, worker_block_batch(0, 1)).unwrap();
     assert_eq!(stream.order.blocking_block_updates(), Some(3));
     stream.submit(4, remote_move(9)).unwrap();
     assert!(stream.order.is_finished(4));
-    stream.submit(5, block_update(1, 1)).unwrap();
+    stream.submit(5, worker_block_batch(1, 1)).unwrap();
     assert!(
         !stream.order.is_finished(5),
         "one block decode is in flight at a time"
@@ -102,8 +102,8 @@ fn block_update_on_a_pending_column_waits_only_for_that_column() {
     stream.submit(1, inline_air_event(1)).unwrap();
     complete_pending_decode_jobs(&mut stream);
     stream.submit(2, inline_air_event(0)).unwrap();
-    stream.submit(3, block_update(0, 1)).unwrap();
-    stream.submit(4, block_update(1, 1)).unwrap();
+    stream.submit(3, worker_block_batch(0, 1)).unwrap();
+    stream.submit(4, worker_block_batch(1, 1)).unwrap();
     assert_eq!(stream.order.blocking_block_updates(), Some(4));
     let job = take_decode_job(&mut stream, |job| {
         matches!(job, super::DecodeJob::BlockUpdates { .. })

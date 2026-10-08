@@ -650,6 +650,9 @@ pub(crate) fn drive_world_stream(
     let mut published_payload_items = 0_usize;
     let mut published_bytes = 0_u64;
     if let Some(stream) = client_world.stream.as_mut() {
+        // Block changes from this frame's interaction or ingress publish once their workers
+        // finish, not one poll later.
+        stream.service_urgent_work();
         while let Some(change) = stream.pop_mesh_change() {
             if !mesh_change_has_publication_permit(&change) {
                 let restored = stream.retry_mesh_change_front(change).is_ok();
