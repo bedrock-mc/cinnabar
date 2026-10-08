@@ -35,6 +35,8 @@ mod map_data;
 mod movement_attribute;
 mod particles;
 #[cfg(test)]
+mod pickup_tests;
+#[cfg(test)]
 mod primitive_shape_tests;
 mod queues;
 mod sign_edit;

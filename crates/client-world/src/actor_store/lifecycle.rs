@@ -122,6 +122,7 @@ impl ActorStore {
             property_registry: Default::default(),
             local_knockback: None,
             status_notices: Vec::new(),
+            pickup_visuals: Vec::new(),
             particle_effects: Default::default(),
             synchronized_audio: Default::default(),
         }
@@ -304,6 +305,7 @@ impl ActorStore {
         self.items.clear();
         self.actions.clear();
         self.status_notices.clear();
+        self.pickup_visuals.clear();
         self.particle_effects.clear();
         self.synchronized_audio.clear();
     }
@@ -335,6 +337,7 @@ impl ActorStore {
         self.items.clear_actor_state();
         self.actions.clear();
         self.status_notices.clear();
+        self.pickup_visuals.clear();
         self.particle_effects.clear();
         self.synchronized_audio.clear();
         ActorApplyResult::Reset

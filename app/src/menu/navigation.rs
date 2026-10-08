@@ -4,6 +4,32 @@
 use super::{LocalWorldAction, MenuAction, MenuRuntime, MenuScreen};
 
 impl MenuRuntime {
+    pub(super) fn remember_session_origin(&mut self) {
+        if self.over_world() || self.is_connecting() {
+            return;
+        }
+        self.session_origin = self.history.screens().iter().rev().copied().find(|screen| {
+            matches!(
+                screen,
+                MenuScreen::Play | MenuScreen::Social | MenuScreen::Servers
+            )
+        });
+    }
+
+    pub(super) fn show_session_origin(&mut self, fallback: MenuScreen) {
+        let screen = self.session_origin.unwrap_or(fallback);
+        self.history.reset(MenuScreen::Home);
+        if screen != MenuScreen::Home {
+            self.history.push(screen);
+        }
+        self.show_top();
+    }
+
+    /// Leaving a world reveals the Play page retained when it was joined.
+    pub(crate) fn show_after_disconnect(&mut self) {
+        self.show_session_origin(MenuScreen::Home);
+    }
+
     /// Whether a visible menu opened over the session's world (its history
     /// starts at pause or death) rather than the launcher; true while hidden.
     pub(crate) fn over_world(&self) -> bool {
@@ -138,3 +164,6 @@ impl MenuRuntime {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;
