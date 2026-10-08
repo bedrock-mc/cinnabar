@@ -332,6 +332,7 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: write
+      pull-requests: read
     env:
       GH_TOKEN: ${{ github.token }}
       MACOS_SIGNED: ${{ secrets.MACOS_CERT_P12_BASE64 != '' && secrets.CODESIGN_IDENTITY != '' }}
