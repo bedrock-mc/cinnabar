@@ -9,7 +9,13 @@ use ui::{DpiScale, SafeArea, TextLayoutCache};
 fn engine() -> FormEngine {
     let mut catalog = Catalog::default();
     catalog.overlay_text("ui/hunger_test.json", &serde_json::json!({
-        "namespace":"hud", "root":{"type":"panel", "controls":[
+        "namespace":"hud",
+        "food_template":{"type":"custom", "size":[1,1], "offset":[160,30],
+            "anchor_from":"top_left", "anchor_to":"top_left",
+            "renderer":super::super::hud_renderers::HUNGER_RENDERER},
+        "root":{"type":"panel", "controls":[
+            {"factory":{"type":"factory", "factory":{"name":"food_factory",
+                "control_ids":{"food":"hud.food_template"}}}},
             {"first":{"type":"custom", "size":[1,1], "offset":[160,30],
                 "anchor_from":"top_left", "anchor_to":"top_left",
                 "renderer":super::super::hud_renderers::HUNGER_RENDERER,
@@ -42,9 +48,31 @@ fn draw(
     runtime: &UiRuntime,
     visible: [bool; 2],
 ) -> [Vec<f32>; 2] {
+    draw_with_factory(engine, screens, player, runtime, visible, None)
+}
+
+/// Replace a named factory instance without changing its layout path.
+fn draw_with_factory(
+    engine: &FormEngine,
+    screens: &mut HudScreens,
+    player: &player_state::PlayerState,
+    runtime: &UiRuntime,
+    visible: [bool; 2],
+    factory_instance: Option<u64>,
+) -> [Vec<f32>; 2] {
     let metrics = TextMetrics::for_viewport([1280, 720], DpiScale::new(1.0).unwrap(), None);
     let px = metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
     let mut data = DataSource::default();
+    if let Some(instance) = factory_instance {
+        data.set_factory(
+            "food_factory",
+            vec![
+                json_ui::FactoryItem::new("food", 0.0)
+                    .named("food")
+                    .identified(instance),
+            ],
+        );
+    }
     data.set_global("#first_visible", json_ui::Scalar::Bool(visible[0]));
     data.set_global("#second_visible", json_ui::Scalar::Bool(visible[1]));
     screens
@@ -61,7 +89,7 @@ fn draw(
     let mut nodes = Vec::new();
     let mut next = 1;
     let hunger_animation = std::cell::RefCell::new(&mut screens.hunger_animation);
-    let advance_hunger = |key: &str| hunger_animation.borrow_mut().advance(key);
+    let advance_hunger = |key: &str, instance| hunger_animation.borrow_mut().advance(key, instance);
     engine
         .draw(
             ScreenArt {
@@ -252,4 +280,37 @@ fn a_new_pack_catalog_starts_with_a_neutral_hunger_row() {
     );
     assert!(!rows[0].is_empty());
     assert!(rows[0].iter().all(|y| *y == 0.0));
+}
+
+#[test]
+fn a_replaced_factory_hunger_renderer_starts_with_a_neutral_row() {
+    let engine = engine();
+    let mut screens = HudScreens::default();
+    let mut player = player_state::PlayerState::new(1);
+    let mut runtime = UiRuntime::new(1);
+    food_update(&mut player, &mut runtime, 1);
+    for _ in 0..54 {
+        let rows = draw_with_factory(
+            &engine,
+            &mut screens,
+            &player,
+            &runtime,
+            [false, false],
+            Some(1),
+        );
+        assert!(!rows[0].is_empty(), "factory renderer is drawn");
+    }
+    let rows = draw_with_factory(
+        &engine,
+        &mut screens,
+        &player,
+        &runtime,
+        [false, false],
+        Some(2),
+    );
+    assert!(!rows[0].is_empty());
+    assert!(
+        rows[0].iter().all(|y| *y == 0.0),
+        "replacement must not inherit predecessor pulse"
+    );
 }

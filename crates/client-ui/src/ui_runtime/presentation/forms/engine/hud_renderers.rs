@@ -134,7 +134,13 @@ pub(super) fn paint(
         }
         "armor_renderer" => (&hud.armor, top_left),
         HUNGER_RENDERER => {
-            let updates = painter.art.hunger_update.map_or(1, |advance| advance(key));
+            let updates = painter.art.hunger_update.map_or(1, |advance| {
+                advance(
+                    key,
+                    data.get(json_ui::CUSTOM_CONTROL_INSTANCE_KEY)
+                        .and_then(Value::as_u64),
+                )
+            });
             let visible = visible_bounds(painter);
             for cell in hud.hunger.cells(updates) {
                 paint_cell(painter, &cell, top_left, visible, alpha);

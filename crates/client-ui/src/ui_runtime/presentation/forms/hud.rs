@@ -377,7 +377,8 @@ impl UiPresentationRuntime {
         let screens = &mut self.form_presentation.hud;
         let preview_view = std::cell::Cell::new(None);
         let hunger_animation = std::cell::RefCell::new(&mut screens.hunger_animation);
-        let advance_hunger = |key: &str| hunger_animation.borrow_mut().advance(key);
+        let advance_hunger =
+            |key: &str, instance| hunger_animation.borrow_mut().advance(key, instance);
         let art = ScreenArt {
             icons: &icons,
             now: now_millis as f64 / 1_000.0,

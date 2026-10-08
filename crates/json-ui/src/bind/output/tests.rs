@@ -49,6 +49,10 @@ fn bag_native_and_instance_changes_invalidate_outputs() {
     node.native.props.insert("visible".into(), json!(false));
     assert!(get(&node).is_none());
     node.native.props.clear();
+    node.scope.incarnation = Some(7);
+    assert!(get(&node).is_none());
+    node.scope.incarnation = None;
+    assert!(get(&node).is_some());
     node.src = node.src.patched(|patch| {
         patch
             .properties

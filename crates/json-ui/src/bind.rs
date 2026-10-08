@@ -38,6 +38,9 @@ pub use data::{CollectionItem, DataSource, scoped_key};
 pub use feed::FactoryItem;
 pub use state::BindState;
 
+/// Reserved custom-renderer data key identifying the current factory instance.
+pub const CUSTOM_CONTROL_INSTANCE_KEY: &str = "_control_instance";
+
 pub(crate) use reuse::{Children, Patch};
 
 use bag::Bag;
@@ -848,6 +851,16 @@ fn bake_output(node: &Node, components: &crate::component::Components) -> crate:
                 .iter()
                 .map(|(key, value)| (key.clone(), value.clone())),
         );
+    }
+    if control.control_type.as_deref() == Some("custom") {
+        match node.scope.incarnation {
+            Some(instance) => {
+                properties.insert(CUSTOM_CONTROL_INSTANCE_KEY.into(), Value::from(instance));
+            }
+            None => {
+                properties.remove(CUSTOM_CONTROL_INSTANCE_KEY);
+            }
+        }
     }
     properties.into()
 }

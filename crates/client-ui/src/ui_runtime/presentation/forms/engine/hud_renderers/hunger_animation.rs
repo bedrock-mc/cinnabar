@@ -7,7 +7,7 @@ use json_ui::Catalog;
 pub(in crate::ui_runtime::presentation) struct HungerAnimation {
     session: Option<u64>,
     catalog: Option<Arc<Catalog>>,
-    updates: HashMap<String, u64>,
+    updates: HashMap<String, (Option<u64>, u64)>,
 }
 
 impl HungerAnimation {
@@ -30,13 +30,22 @@ impl HungerAnimation {
     }
 
     /// Advance only the custom control that survived binding and paint visibility gates.
-    pub(in crate::ui_runtime::presentation) fn advance(&mut self, key: &str) -> u64 {
+    pub(in crate::ui_runtime::presentation) fn advance(
+        &mut self,
+        key: &str,
+        instance: Option<u64>,
+    ) -> u64 {
         let updates = &mut self.updates;
         if let Some(value) = updates.get_mut(key) {
-            *value = value.wrapping_add(1);
-            return *value;
+            value.1 = if value.0 == instance {
+                value.1.wrapping_add(1)
+            } else {
+                1
+            };
+            value.0 = instance;
+            return value.1;
         }
-        updates.insert(key.to_owned(), 1);
+        updates.insert(key.to_owned(), (instance, 1));
         1
     }
 }
