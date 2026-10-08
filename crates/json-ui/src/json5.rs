@@ -14,6 +14,7 @@ pub struct ParseError {
     message: &'static str,
     line: usize,
     column: usize,
+    partial: Value,
 }
 
 /// Parse one document, ignoring anything after its root value.
@@ -25,6 +26,14 @@ pub fn parse(source: &str) -> Result<Value, ParseError> {
         depth: 0,
     };
     reader.value()
+}
+
+/// Keeps the output constructed before an error without accepting invalid syntax.
+pub(crate) fn parse_partial(source: &str) -> (Value, Option<ParseError>) {
+    match parse(source) {
+        Ok(value) => (value, None),
+        Err(mut error) => (error.partial.take(), Some(error)),
+    }
 }
 
 struct Reader<'a> {
@@ -47,6 +56,7 @@ impl Reader<'_> {
             message,
             line,
             column,
+            partial: Value::Null,
         }
     }
 
@@ -130,6 +140,16 @@ impl Reader<'_> {
     fn object(&mut self) -> Result<Value, ParseError> {
         self.pos += 1;
         let mut map = Map::new();
+        match self.object_members(&mut map) {
+            Ok(()) => Ok(Value::Object(map)),
+            Err(mut error) => {
+                error.partial = Value::Object(map);
+                Err(error)
+            }
+        }
+    }
+
+    fn object_members(&mut self, map: &mut Map<String, Value>) -> Result<(), ParseError> {
         // jsoncpp accepts `}` where a member name is due only while the last name is empty.
         let mut name = String::new();
         loop {
@@ -137,7 +157,7 @@ impl Reader<'_> {
             match self.peek() {
                 Some(b'}') if name.is_empty() => {
                     self.pos += 1;
-                    return Ok(Value::Object(map));
+                    return Ok(());
                 }
                 Some(b'"') => name = self.string()?,
                 _ => return Err(self.error("missing `}` or object member name")),
@@ -147,14 +167,20 @@ impl Reader<'_> {
                 return Err(self.error("missing `:` after object member name"));
             }
             self.pos += 1;
-            let value = self.value()?;
+            let value = match self.value() {
+                Ok(value) => value,
+                Err(mut error) => {
+                    map.insert(name.clone(), error.partial.take());
+                    return Err(error);
+                }
+            };
             map.insert(name.clone(), value);
             self.skip_insignificant()?;
             match self.peek() {
                 Some(b',') => self.pos += 1,
                 Some(b'}') => {
                     self.pos += 1;
-                    return Ok(Value::Object(map));
+                    return Ok(());
                 }
                 _ => return Err(self.error("missing `,` or `}` in object")),
             }
@@ -164,20 +190,35 @@ impl Reader<'_> {
     fn array(&mut self) -> Result<Value, ParseError> {
         self.pos += 1;
         let mut items = Vec::new();
-        // Only plain whitespace may precede an empty array's `]`.
-        self.skip_spaces();
+        match self.array_items(&mut items) {
+            Ok(()) => Ok(Value::Array(items)),
+            Err(mut error) => {
+                error.partial = Value::Array(items);
+                Err(error)
+            }
+        }
+    }
+
+    fn array_items(&mut self, items: &mut Vec<Value>) -> Result<(), ParseError> {
+        self.skip_insignificant()?;
         if self.peek() == Some(b']') {
             self.pos += 1;
-            return Ok(Value::Array(items));
+            return Ok(());
         }
         loop {
-            items.push(self.value()?);
+            match self.value() {
+                Ok(value) => items.push(value),
+                Err(mut error) => {
+                    items.push(error.partial.take());
+                    return Err(error);
+                }
+            }
             self.skip_insignificant()?;
             match self.peek() {
                 Some(b',') => self.pos += 1,
                 Some(b']') => {
                     self.pos += 1;
-                    return Ok(Value::Array(items));
+                    return Ok(());
                 }
                 _ => return Err(self.error("missing `,` or `]` in array")),
             }
@@ -327,6 +368,12 @@ mod tests {
     fn a_leading_byte_order_mark_is_stripped() {
         let text = "\u{feff}{\"namespace\":\"a\",\"c\":{\"type\":\"panel\"}}";
         assert_eq!(parse(text).unwrap()["c"]["type"], "panel");
+    }
+
+    #[test]
+    fn comments_before_an_empty_array_are_token_separators() {
+        assert_eq!(parse("[ /* comment */ ]").unwrap(), json!([]));
+        assert_eq!(parse("[ // comment\n ]").unwrap(), json!([]));
     }
 
     #[test]

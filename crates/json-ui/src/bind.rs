@@ -169,6 +169,7 @@ fn bind_with(
     incremental: bool,
 ) -> Vec<String> {
     state.scroll_observed = false;
+    state.node_budget_exceeded = false;
     state.built.clear();
     let changes = match &state.data {
         Some(previous)
@@ -226,10 +227,13 @@ struct Scope {
     parent_key: u64,
     /// The nearest retained ancestor's key hash.
     retained_parent: u64,
+    retained_incarnation: Option<u64>,
     /// The control's layout key, tracked only while components write bags.
     layout_key: String,
     /// Active factory/template references, carried through deferred children.
     expansions: Arc<Vec<ControlRef>>,
+    /// The named-factory creation this subtree belongs to.
+    incarnation: Option<u64>,
 }
 
 impl Default for Scope {
@@ -241,8 +245,10 @@ impl Default for Scope {
             for_children: Arc::default(),
             parent_key: state::KEY_ROOT,
             retained_parent: state::KEY_ROOT,
+            retained_incarnation: None,
             layout_key: String::new(),
             expansions: Arc::default(),
+            incarnation: None,
         }
     }
 }
@@ -332,6 +338,7 @@ impl<'a> Binder<'a> {
         if self.created < crate::resolve::MAX_NODES {
             return true;
         }
+        self.state.node_budget_exceeded = true;
         self.note("bound control node limit exceeded".to_owned());
         false
     }
@@ -360,10 +367,17 @@ impl<'a> Binder<'a> {
                 return self.reuse(previous);
             }
             Some(previous) => {
+                let same_instance = previous.scope.incarnation == scope.incarnation;
                 let (retained, prior) = self.replace(previous);
-                (retained, Some(prior))
+                (retained.filter(|_| same_instance), Some(prior))
             }
-            None => (self.state.controls.remove(&key), None),
+            None => (
+                self.state
+                    .controls
+                    .remove(&key)
+                    .filter(|memory| memory.incarnation == scope.incarnation),
+                None,
+            ),
         };
         self.created += 1;
         self.state.built.push(key);
@@ -386,6 +400,8 @@ impl<'a> Binder<'a> {
         let created = retained.is_none();
         let mut memory = retained.unwrap_or_default();
         memory.parent = parent;
+        memory.parent_incarnation = scope.retained_incarnation;
+        memory.incarnation = scope.incarnation;
         let mut own = if created {
             let mut own = declaration.bags.own(&scope.for_children);
             for (name, value) in scope.values.iter() {
@@ -470,6 +486,7 @@ impl<'a> Binder<'a> {
             !bindings.is_empty() || !native.props.is_empty() || !visible || had_published;
         if retained {
             child_scope.retained_parent = key;
+            child_scope.retained_incarnation = child_scope.incarnation;
         }
         child_scope.for_children = for_children;
         child_scope.parent_collection = collection_name(control).map(|name| {
@@ -786,13 +803,17 @@ impl<'a> Binder<'a> {
                 .iter()
                 .filter(|(_, memory)| {
                     let mut parent = memory.parent;
+                    let mut expected = memory.parent_incarnation;
                     for _ in 0..MAX_KEEP_DEPTH {
-                        if let Some(deferred) = built.get(&parent) {
-                            return *deferred;
+                        if let Some((deferred, incarnation)) = built.get(&parent) {
+                            return *deferred && *incarnation == expected;
                         }
                         match leftover.get(&parent) {
-                            Some(above) => parent = above.parent,
-                            None => return false,
+                            Some(above) if above.incarnation == expected => {
+                                parent = above.parent;
+                                expected = above.parent_incarnation;
+                            }
+                            _ => return false,
                         }
                     }
                     false

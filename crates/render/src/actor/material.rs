@@ -21,7 +21,7 @@ pub(crate) fn blend_state(
         return None;
     }
     let component = BlendComponent {
-        src_factor: if state.additive {
+        src_factor: if state.additive && !state.additive_alpha {
             BlendFactor::One
         } else {
             BlendFactor::SrcAlpha
@@ -49,7 +49,7 @@ mod tests {
 
     #[test]
     fn authored_actor_states_roundtrip_without_changing_the_shader_kind() {
-        for bits in 0..64 {
+        for bits in 0..128 {
             let expected = EntityRenderMaterialState {
                 alpha_test: bits & 1 != 0,
                 cull: bits & 2 != 0,
@@ -57,6 +57,7 @@ mod tests {
                 depth_write: bits & 8 != 0,
                 emissive: bits & 16 != 0,
                 additive: bits & 32 != 0,
+                additive_alpha: bits & 64 != 0,
             };
             let material = ActorMaterial {
                 kind: assets::EntityRenderMaterial::Default,

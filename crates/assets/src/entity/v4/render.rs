@@ -37,9 +37,12 @@ pub struct EntityRenderMaterialState {
     /// Texture alpha weights world lighting; colored alpha-zero texels remain emissive.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub emissive: bool,
-    /// Enabled blending uses One/One rather than SourceAlpha/OneMinusSrcAlpha.
+    /// Enabled blending adds to the destination instead of weighting it by inverse alpha.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub additive: bool,
+    /// Additive source RGB and alpha are weighted by the source alpha.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub additive_alpha: bool,
 }
 
 impl Default for EntityRenderMaterialState {
@@ -51,6 +54,7 @@ impl Default for EntityRenderMaterialState {
             depth_write: true,
             emissive: false,
             additive: false,
+            additive_alpha: false,
         }
     }
 }
@@ -64,6 +68,7 @@ impl EntityRenderMaterialState {
     pub const DISABLE_DEPTH_WRITE: u32 = 1 << 12;
     pub const EMISSIVE: u32 = 1 << 13;
     pub const ADDITIVE: u32 = 1 << 14;
+    pub const ADDITIVE_ALPHA: u32 = 1 << 15;
 
     pub fn from_word(word: u32) -> Option<Self> {
         (word & Self::AUTHORED != 0).then_some(Self {
@@ -73,6 +78,7 @@ impl EntityRenderMaterialState {
             depth_write: word & Self::DISABLE_DEPTH_WRITE == 0,
             emissive: word & Self::EMISSIVE != 0,
             additive: word & Self::ADDITIVE != 0,
+            additive_alpha: word & Self::ADDITIVE_ALPHA != 0,
         })
     }
 }
@@ -112,6 +118,11 @@ impl EntityRenderMaterial {
                     }
                     | if state.additive {
                         EntityRenderMaterialState::ADDITIVE
+                    } else {
+                        0
+                    }
+                    | if state.additive_alpha {
+                        EntityRenderMaterialState::ADDITIVE_ALPHA
                     } else {
                         0
                     }

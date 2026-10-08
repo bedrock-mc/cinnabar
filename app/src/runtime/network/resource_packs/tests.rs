@@ -373,11 +373,12 @@ fn overlay_cache_reuses_the_previous_session_compile() {
     let _cache = overlay_cache();
     let blocks = protocol::CustomBlocks {
         blocks: vec![protocol::CustomBlock {
+            state_physics: Default::default(),
             name: "cache:test".into(),
             tags: Default::default(),
             state_count: 1,
             collides: true,
-            collision_box: None,
+            collision_boxes: None,
             selection: Default::default(),
             visual: Default::default(),
         }]

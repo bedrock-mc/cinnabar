@@ -43,6 +43,7 @@ impl AttachableState {
         let state = &mut self.rig;
         state.variables = evaluated.variables;
         state.controllers = evaluated.controllers;
+        state.server_animations = evaluated.server_animations;
         state.clip_clocks = evaluated.clip_clocks;
         state.current = evaluated.pose;
         state.scale = evaluated.scale;
@@ -81,6 +82,8 @@ impl AttachableState {
             render,
             scale: scale.map_or(assets.rig_bindings()[binding].scale.get(), |s| s[0]),
             axis_scale: scale.map_or([1.0; 3], |s| [s[1], s[2], s[3]]),
+            bones: &state.bones,
+            layer_skeletons: &state.layer_skeletons,
         })
     }
 }

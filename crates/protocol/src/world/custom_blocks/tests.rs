@@ -11,11 +11,12 @@ fn parse_definition(bytes: &[u8]) -> Option<Definition> {
 #[test]
 fn hashed_states_enumerate_axes_and_hash_distinctly() {
     let block = CustomBlock {
+        state_physics: Default::default(),
         name: "ns:b".into(),
         tags: Default::default(),
         state_count: 6,
         collides: true,
-        collision_box: None,
+        collision_boxes: None,
         selection: CustomSelection::Default,
         visual: std::sync::Arc::new(CustomBlockVisuals {
             state_axes: Box::new([
@@ -45,6 +46,7 @@ fn hashed_states_enumerate_axes_and_hash_distinctly() {
     let hashes: std::collections::HashSet<_> = states.iter().map(|state| state.hash).collect();
     assert_eq!(hashes.len(), 6);
     let plain = CustomBlock {
+        state_physics: Default::default(),
         visual: std::sync::Arc::new(CustomBlockVisuals::default()),
         ..block
     };
@@ -177,11 +179,12 @@ fn placement_traits(direction_first: bool) -> Vec<Nbt> {
 fn custom_block(name: &str, root: &Nbt) -> CustomBlock {
     let definition = super::parse_definition(root).expect("definition");
     CustomBlock {
+        state_physics: Default::default(),
         name: name.into(),
         tags: definition.tags,
         state_count: definition.state_count,
         collides: definition.collides,
-        collision_box: definition.collision_box,
+        collision_boxes: definition.collision_boxes,
         selection: definition.selection,
         visual: std::sync::Arc::new(definition.visual),
     }
@@ -327,7 +330,6 @@ fn states_the_axes_cannot_account_for_are_not_decoded() {
     assert_eq!((block.state_count, block.state_values(0)), (2, None));
 }
 
-// Vanilla sends each bone as a string: a Molang expression or a formatted constant.
 #[test]
 fn geometry_bone_visibility_is_retained_per_component_set() {
     let geometry = |bones: Vec<(&str, Nbt)>| {
@@ -381,6 +383,42 @@ fn geometry_bone_visibility_is_retained_per_component_set() {
     assert_eq!(
         bones(&visual.permutations[0].components),
         [("a".to_owned(), "0.000000".to_owned())]
+    );
+}
+
+#[test]
+fn geometry_bone_visibility_retains_versioned_network_expressions() {
+    let expression = "q.block_state('test:raised') == 1";
+    let mut nbt = named(10, "");
+    nbt.extend(named(10, "components"));
+    nbt.extend(named(10, "minecraft:geometry"));
+    nbt.extend(string_field("identifier", "geometry.test_edge"));
+    nbt.extend(named(10, "bone_visibility"));
+    for (bone, value) in [("raised", expression), ("hidden", "0.000000")] {
+        nbt.extend(named(10, bone));
+        nbt.extend(string_field("expression", value));
+        nbt.extend(named(3, "version"));
+        nbt.extend([18, 0]);
+    }
+    nbt.extend(named(10, "unknown"));
+    nbt.extend(string_field("unrelated", "0.000000"));
+    nbt.push(0);
+    nbt.extend(named(10, "malformed_expression"));
+    nbt.extend(named(1, "expression"));
+    nbt.extend([1, 0]);
+    nbt.extend([0, 0, 0, 0]);
+
+    let blocks = super::CustomBlocks::from_definitions([("test:edge", nbt.as_slice())]);
+    assert_eq!(blocks.blocks.len(), 1, "odd bone entries keep the block");
+    let base = &blocks.blocks[0].visual.base;
+    assert_eq!(base.geometry.as_deref(), Some("geometry.test_edge"));
+    assert_eq!(
+        base.bone_visibility
+            .iter()
+            .map(|(bone, expression)| (bone.as_ref(), expression.as_ref()))
+            .collect::<Vec<_>>(),
+        [("raised", expression), ("hidden", "0.000000")],
+        "structured expressions must reach state-dependent geometry evaluation"
     );
 }
 

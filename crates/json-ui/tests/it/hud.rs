@@ -101,6 +101,7 @@ fn model() -> HudModel {
             born: 0.0,
         }],
         title: Some(HudTitle {
+            creation_id: 1,
             title: "Title".into(),
             subtitle: "Sub".into(),
             fade_in: 0.5,

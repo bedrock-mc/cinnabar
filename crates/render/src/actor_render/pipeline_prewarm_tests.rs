@@ -57,13 +57,14 @@ fn actor_pipeline_prewarm_empty_frame_covers_all_authored_raster_states() {
             .prewarm(cache, msaa, hdr, false)
             .expect("an empty view prepares actor pipelines");
         let mut descriptors = HashSet::new();
-        for kind in [
+        let kinds = [
             EntityRenderMaterial::Default,
             EntityRenderMaterial::Glint,
             EntityRenderMaterial::Dragon,
             EntityRenderMaterial::DissolveDepth,
             EntityRenderMaterial::DissolveColor,
-        ] {
+        ];
+        for kind in kinds {
             for cull in [false, true] {
                 for blend in [false, true] {
                     for depth_write in [false, true] {
@@ -90,27 +91,31 @@ fn actor_pipeline_prewarm_empty_frame_covers_all_authored_raster_states() {
             24,
             "only distinct raster/depth contracts compile"
         );
-        for cull in [false, true] {
-            for depth_write in [false, true] {
-                let material =
-                    EntityRenderMaterial::Default.word(Some(EntityRenderMaterialState {
-                        cull,
-                        depth_write,
-                        blend: true,
-                        additive: true,
-                        ..Default::default()
-                    }));
-                descriptors.insert(
-                    pipeline
-                        .draw_variant(msaa, hdr, false, material)
-                        .expect("additive contracts are prepared before an actor exists"),
-                );
+        for kind in kinds {
+            for cull in [false, true] {
+                for depth_write in [false, true] {
+                    for additive_alpha in [false, true] {
+                        let material = kind.word(Some(EntityRenderMaterialState {
+                            cull,
+                            depth_write,
+                            blend: true,
+                            additive: true,
+                            additive_alpha,
+                            ..Default::default()
+                        }));
+                        descriptors.insert(
+                            pipeline
+                                .draw_variant(msaa, hdr, false, material)
+                                .expect("each additive kind is prepared before an actor exists"),
+                        );
+                    }
+                }
             }
         }
         assert_eq!(
             descriptors.len(),
-            28,
-            "blend factors add only four contracts"
+            48,
+            "additive source factors add eight contracts per raster kind"
         );
     });
 }

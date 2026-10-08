@@ -258,7 +258,7 @@ fn conversion_rejects_nonfinite_bones_and_mismatched_lifetimes() {
 }
 
 #[test]
-fn visible_local_reserves_one_slot_and_removes_its_remote_duplicate() {
+fn visible_local_removes_its_remote_duplicate_without_capping_other_actors() {
     let local = local_diagnostic_presentation(7, -1, 7, 5, [0.0, 64.0, 0.0], 0.0, 0.0)
         .expect("finite local carrier converts");
     assert_eq!(local.submission.input.identity.dimension, -1);
@@ -266,9 +266,10 @@ fn visible_local_reserves_one_slot_and_removes_its_remote_duplicate() {
         .rev()
         .map(|runtime_id| render_owned(runtime_id, 31))
         .collect::<Vec<_>>();
+    let remote_count = remotes.len();
 
     let hidden = select_actor_presentations(7, false, Some(local.clone()), remotes.clone());
-    assert_eq!(hidden.submissions.len(), MAX_RENDERED_PLAYERS);
+    assert_eq!(hidden.submissions.len(), remote_count - 1);
     assert_eq!(
         hidden
             .submissions
@@ -279,7 +280,7 @@ fn visible_local_reserves_one_slot_and_removes_its_remote_duplicate() {
     );
 
     let visible = select_actor_presentations(7, true, Some(local), remotes);
-    assert_eq!(visible.submissions.len(), MAX_RENDERED_PLAYERS);
+    assert_eq!(visible.submissions.len(), remote_count);
     assert_eq!(
         visible
             .submissions
@@ -288,6 +289,9 @@ fn visible_local_reserves_one_slot_and_removes_its_remote_duplicate() {
             .count(),
         1
     );
+    assert!(visible.submissions.iter().any(|entry| {
+        entry.input.identity.runtime_id == MAX_RENDERED_PLAYERS as u64 + 1
+    }));
 }
 
 #[test]

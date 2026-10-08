@@ -54,6 +54,10 @@ impl PlayerInventoryLedger {
             self.note_unrouted_container();
             return;
         }
+        let start = if whole { 0 } else { usize::from(first) };
+        for slot in start..start + slots.len() {
+            self.retire_legacy_write(Cell::Storage(slot as u8));
+        }
         let storage = self.storage.as_mut().expect("storage observed above");
         storage.identity.get_or_insert(identity);
         storage.resync_required = false;
@@ -85,7 +89,7 @@ impl PlayerInventoryLedger {
             .zip(u8::try_from(slot).ok())
             .and_then(|(first, slot)| first.checked_add(slot));
         match index {
-            Some(index) if self.confirmed.set(Cell::Storage(index), Held::new(stack)) => {}
+            Some(index) if self.set_authoritative_cell(Cell::Storage(index), Held::new(stack)) => {}
             _ => self.note_unrouted_container(),
         }
     }

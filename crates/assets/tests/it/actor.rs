@@ -8,6 +8,7 @@ use sha2::{Digest, Sha256};
 fn geometry(size: [f32; 3], uv: assets::EntityGeometryUv) -> assets::EntityGeometry {
     use assets::{EntityGeometryBone, EntityGeometryCube, EntityGeometryScalar as Scalar};
     assets::EntityGeometry {
+        visible_bounds: None,
         identifier: "geometry.projectile".into(),
         inherits: None,
         source_index: 0,

@@ -116,20 +116,22 @@ fn persistent_custom_states_decode_before_visual_overlay_is_ready() {
     let definitions = CustomBlocks {
         blocks: Arc::from([
             CustomBlock {
+                state_physics: Default::default(),
                 name: "example:plain".into(),
                 tags: Default::default(),
                 state_count: 1,
                 collides: true,
-                collision_box: None,
+                collision_boxes: None,
                 selection: CustomSelection::Default,
                 visual: Arc::default(),
             },
             CustomBlock {
+                state_physics: Default::default(),
                 name: "example:powered".into(),
                 tags: Default::default(),
                 state_count: 2,
                 collides: true,
-                collision_box: None,
+                collision_boxes: None,
                 selection: CustomSelection::Default,
                 visual: Arc::new(CustomBlockVisuals {
                     state_axes: Box::new([CustomStateAxis {
@@ -239,11 +241,12 @@ fn custom_identity_authority(mode: NetworkIdMode) -> WorldAuthority {
 
 fn plain_identity_block(name: &str) -> CustomBlock {
     CustomBlock {
+        state_physics: Default::default(),
         name: name.into(),
         tags: Default::default(),
         state_count: 1,
         collides: true,
-        collision_box: None,
+        collision_boxes: None,
         selection: CustomSelection::Default,
         visual: Arc::default(),
     }

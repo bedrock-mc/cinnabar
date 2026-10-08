@@ -11,8 +11,8 @@
 //! never ends the session.
 
 use protocol::{
-    CanonicalCell, ContainerIdentity, InventoryAuthority, InventoryContentEvent, InventoryEvent,
-    NetworkItemStack, SlotIdentity, project_container_cell,
+    CanonicalCell, ContainerIdentity, InventoryContentEvent, InventoryEvent, NetworkItemStack,
+    SlotIdentity, project_container_cell,
 };
 
 use super::cells::{ARMOR_CELLS, CellSurface, FIRST_CRAFT_SLOT, Held};
@@ -48,8 +48,11 @@ impl PlayerInventoryLedger {
             // Recipe execution is not activated by protocol admission alone.
             InventoryEvent::Recipes(_) => {}
             InventoryEvent::Authority(authority) => {
-                self.authority = Some(*authority);
-                if *authority != InventoryAuthority::Server {
+                if self
+                    .authority
+                    .replace(*authority)
+                    .is_some_and(|previous| previous != *authority)
+                {
                     self.queue.clear();
                     self.personal = None;
                     self.confirmed.set(Cell::Cursor, None);
@@ -181,8 +184,7 @@ impl PlayerInventoryLedger {
                     .take(PLAYER_INVENTORY_SLOT_COUNT)
                     .enumerate()
                 {
-                    self.confirmed
-                        .set(Cell::Inventory(index as u8), Held::new(stack));
+                    self.set_authoritative_cell(Cell::Inventory(index as u8), Held::new(stack));
                     self.known[index] = true;
                     self.note_authoritative_write(Cell::Inventory(index as u8));
                 }
@@ -195,7 +197,7 @@ impl PlayerInventoryLedger {
                 // The cursor holds exactly one cell; anything else is odd
                 // remote data addressed to the cursor surface.
                 if let [stack] = content.slots.as_ref() {
-                    self.confirmed.set(Cell::Cursor, Held::new(stack));
+                    self.set_authoritative_cell(Cell::Cursor, Held::new(stack));
                     self.cursor_resync_required = false;
                     self.surface_refreshed(CellSurface::Cursor);
                 } else {
@@ -204,8 +206,7 @@ impl PlayerInventoryLedger {
             }
             Some(CanonicalCell::Armor(_)) => {
                 for (slot, stack) in content.slots.iter().take(ARMOR_CELLS).enumerate() {
-                    self.confirmed
-                        .set(Cell::Armor(slot as u8), Held::new(stack));
+                    self.set_authoritative_cell(Cell::Armor(slot as u8), Held::new(stack));
                 }
                 if content.slots.len() >= ARMOR_CELLS - 1 {
                     self.armor_resync_required = false;
@@ -214,7 +215,7 @@ impl PlayerInventoryLedger {
             }
             Some(CanonicalCell::Offhand) => {
                 if let [stack] = content.slots.as_ref() {
-                    self.confirmed.set(Cell::Offhand, Held::new(stack));
+                    self.set_authoritative_cell(Cell::Offhand, Held::new(stack));
                     self.offhand_resync_required = false;
                     self.surface_refreshed(CellSurface::Offhand);
                 } else {
@@ -226,7 +227,7 @@ impl PlayerInventoryLedger {
             }
             Some(CanonicalCell::UiSlot(slot)) => match content.slots.as_ref() {
                 [stack] => {
-                    self.confirmed.set(Cell::Craft(slot), Held::new(stack));
+                    self.set_authoritative_cell(Cell::Craft(slot), Held::new(stack));
                 }
                 _ => self.note_unrouted_container(),
             },
@@ -236,7 +237,7 @@ impl PlayerInventoryLedger {
                 for slot in 0..protocol::UI_SLOT_COUNT as u8 {
                     if let Some(cell) = ui_cell(slot) {
                         let stack = &content.slots[usize::from(slot)];
-                        self.confirmed.set(cell, Held::new(stack));
+                        self.set_authoritative_cell(cell, Held::new(stack));
                     }
                 }
                 self.crafting_resync_required = false;
@@ -321,18 +322,18 @@ impl PlayerInventoryLedger {
         }
         match project_container_cell(&identity.container, identity.slot) {
             Some(CanonicalCell::PlayerInventory(index)) => {
-                self.confirmed.set(Cell::Inventory(index), Held::new(stack));
+                self.set_authoritative_cell(Cell::Inventory(index), Held::new(stack));
                 self.known[usize::from(index)] = true;
                 self.note_authoritative_write(Cell::Inventory(index));
             }
             // A single-cell surface is completely restated by one slot update.
             Some(CanonicalCell::Cursor) => {
-                self.confirmed.set(Cell::Cursor, Held::new(stack));
+                self.set_authoritative_cell(Cell::Cursor, Held::new(stack));
                 self.cursor_resync_required = false;
                 self.surface_refreshed(CellSurface::Cursor);
             }
             Some(CanonicalCell::Offhand) => {
-                self.confirmed.set(Cell::Offhand, Held::new(stack));
+                self.set_authoritative_cell(Cell::Offhand, Held::new(stack));
                 self.offhand_resync_required = false;
                 self.surface_refreshed(CellSurface::Offhand);
             }
@@ -366,17 +367,17 @@ impl PlayerInventoryLedger {
                 && u8::try_from(identity.slot).ok().and_then(ui_cell).is_some() =>
             {
                 let cell = ui_cell(identity.slot as u8).expect("checked by the guard");
-                self.confirmed.set(cell, Held::new(stack));
+                self.set_authoritative_cell(cell, Held::new(stack));
             }
             Some(CanonicalCell::UiSlot(slot)) => {
-                self.confirmed.set(Cell::Craft(slot), Held::new(stack));
+                self.set_authoritative_cell(Cell::Craft(slot), Held::new(stack));
             }
             Some(CanonicalCell::WindowSlot { name, slot }) => {
                 self.apply_window_slot(identity.container, name, slot, stack);
             }
             Some(canonical) => match fixed_cell(canonical) {
                 Some(cell) => {
-                    self.confirmed.set(cell, Held::new(stack));
+                    self.set_authoritative_cell(cell, Held::new(stack));
                 }
                 None => self.note_unrouted_container(),
             },
@@ -543,6 +544,9 @@ impl PlayerInventoryLedger {
             self.close_storage();
             return;
         }
+        for slot in 0..self.confirmed.storage_len().max(slots.len()) {
+            self.retire_legacy_write(Cell::Storage(slot as u8));
+        }
         let storage = self.storage.as_mut().expect("storage remains active");
         storage.identity = Some(identity);
         storage.resync_required = false;
@@ -566,7 +570,7 @@ impl PlayerInventoryLedger {
             return;
         }
         if let Ok(slot) = u8::try_from(slot) {
-            self.confirmed.set(Cell::Storage(slot), Held::new(stack));
+            self.set_authoritative_cell(Cell::Storage(slot), Held::new(stack));
         }
     }
 }

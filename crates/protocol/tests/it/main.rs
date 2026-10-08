@@ -13,6 +13,7 @@ mod dimension_packets;
 mod disconnect_wire;
 mod fixtures;
 mod form_element_images;
+mod form_menu_capacity;
 mod generated_reservations;
 mod held_placement_packets;
 mod hud_state_packets;
