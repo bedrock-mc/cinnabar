@@ -176,7 +176,10 @@ fn prewarm_owner<T: PrewarmPipelines>(
     }
 }
 
-fn owner_pending<T: PendingPipelines>(owner: Option<Res<T>>, mut registry: ResMut<WarmupRegistry>) {
+fn owner_pending<T: PendingPipelines>(
+    owner: Option<Res<T>>,
+    mut registry: ResMut<WarmupRegistry>,
+) {
     registry.pending |= owner.is_some_and(|owner| owner.pending());
 }
 

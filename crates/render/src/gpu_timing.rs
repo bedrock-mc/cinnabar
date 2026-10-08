@@ -518,7 +518,10 @@ fn init_gpu_timestamps(
     }
 }
 
-fn begin_gpu_frame(timestamps: Option<ResMut<GpuTimestamps>>, profiler: Res<RuntimeStageProfiler>) {
+fn begin_gpu_frame(
+    timestamps: Option<ResMut<GpuTimestamps>>,
+    profiler: Res<RuntimeStageProfiler>,
+) {
     let Some(mut timestamps) = timestamps else {
         return;
     };
