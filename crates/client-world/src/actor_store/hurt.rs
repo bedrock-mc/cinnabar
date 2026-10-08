@@ -55,6 +55,8 @@ pub struct ActorStatus {
     pub hurt_time: u8,
     /// Signed native shake countdown, set verbatim by ActorEvent::Shake.
     pub shake_time: i32,
+    /// Completed ticks since a server-confirmed kinetic hit in the current item use.
+    pub(crate) kinetic_hit_ticks: Option<u32>,
     /// The current hurt came without damage, so it shows no red flash.
     pub skip_red_flash: bool,
     /// Server-streamed hurt direction, when the server provides one.
@@ -123,6 +125,15 @@ impl ActorStatus {
         if self.dead && self.death_time < DEATH_DURATION_TICKS {
             self.death_time += 1;
         }
+    }
+
+    /// Advances confirmed impact timing only while the actor continues its item use.
+    pub(super) fn advance_kinetic_hit(&mut self, using_item: bool) {
+        self.kinetic_hit_ticks = if using_item {
+            self.kinetic_hit_ticks.map(|ticks| ticks.saturating_add(1))
+        } else {
+            None
+        };
     }
 
     fn die(&mut self) {
@@ -218,6 +229,7 @@ impl ActorStore {
             ActorStatusKind::SpawnAlive => actor.status.revive(),
             // Entity event 39 (0x27) sets the shake countdown verbatim.
             ActorStatusKind::Shake => actor.status.shake_time = event.data,
+            ActorStatusKind::KineticDamageDealt => actor.status.kinetic_hit_ticks = Some(0),
             // Particle-only kinds have no retained actor state.
             _ => {}
         }
@@ -461,5 +473,22 @@ mod tests {
         status.revive();
         assert_eq!(status.death_progress(0.0), None);
         assert!(!status.overlay_active());
+    }
+    #[test]
+    fn confirmed_kinetic_hit_counts_completed_ticks_and_clears_between_uses() {
+        let mut store = ActorStore::new(1, 0);
+        store.apply(1, 1, spawn());
+        assert_eq!(store.get(7).unwrap().status.kinetic_hit_ticks, None);
+        store.apply(1, 2, status(ActorStatusKind::KineticDamageDealt));
+        assert_eq!(store.get(7).unwrap().status.kinetic_hit_ticks, Some(0));
+        let actor = store.actors.get_mut(&7).unwrap();
+        actor.status.advance_kinetic_hit(true);
+        assert_eq!(actor.status.kinetic_hit_ticks, Some(1));
+        for _ in 0..5 {
+            actor.status.advance_kinetic_hit(true);
+        }
+        assert_eq!(actor.status.kinetic_hit_ticks, Some(6));
+        actor.status.advance_kinetic_hit(false);
+        assert_eq!(actor.status.kinetic_hit_ticks, None);
     }
 }

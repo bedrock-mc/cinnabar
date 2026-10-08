@@ -44,6 +44,30 @@ const remoteMaxMTU = 1400
 // remoteRakNet dials a server over RakNet without probing it for NetherNet.
 func remoteRakNet() minecraft.RakNet { return minecraft.RakNet{MaxMTU: remoteMaxMTU} }
 
+// rakNetConnectBudget is how long vanilla gives a RakNet connection: 12 offline attempts 500 ms
+// apart, then 10 s for the server to accept the connection request.
+const rakNetConnectBudget = 6*time.Second + 10*time.Second
+
+// dialTransport dials network; a RakNet server that never accepts fails instead of waiting on ctx.
+func dialTransport(ctx context.Context, network minecraft.Network, address string) (net.Conn, error) {
+	return dialTransportWithin(ctx, network, address, rakNetConnectBudget)
+}
+
+func dialTransportWithin(ctx context.Context, network minecraft.Network, address string, budget time.Duration) (net.Conn, error) {
+	switch network.(type) {
+	case minecraft.RakNet, *minecraft.RakNet:
+	default:
+		return network.DialContext(ctx, address)
+	}
+	bounded, cancel := context.WithTimeout(ctx, budget)
+	defer cancel()
+	conn, err := network.DialContext(bounded, address)
+	if err != nil && ctx.Err() == nil && errors.Is(bounded.Err(), context.DeadlineExceeded) {
+		err = fmt.Errorf("proxy: %s did not accept the connection within %s (%w): %w", address, budget, context.DeadlineExceeded, err)
+	}
+	return conn, err
+}
+
 // remoteServerNetwork is the network for a server named by host:port rather than found on the
 // LAN: like vanilla it probes the address for NetherNet HTTP signaling and falls back to RakNet.
 // A nil trust joins any NetherNet server.
@@ -72,7 +96,7 @@ func (n addressedServerNetwork) DialContext(ctx context.Context, address string)
 func dialSignedOut(ctx context.Context, selected minecraft.Network, address string) (net.Conn, error) {
 	dialer, ok := selected.(identityProviderDialer)
 	if !ok {
-		return selected.DialContext(ctx, address)
+		return dialTransport(ctx, selected, address)
 	}
 	identity, err := selfSignedIdentity(time.Now())
 	if err != nil {

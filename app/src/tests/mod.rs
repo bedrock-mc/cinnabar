@@ -95,10 +95,9 @@ use crate::runtime::{
         resolve_socket_dir_from,
     },
     network::{
-        ActorFrameClock, NETWORK_INGRESS_BUDGET_PER_FRAME, NetworkHandle,
-        OUTBOUND_SEND_BUDGET_PER_FRAME, WorldIngressDrain, acceptance_surface_anchor,
-        actor_render_source, drain_network_controls, drain_network_ingress,
-        update_actor_render_scene,
+        ActorFrameClock, NetworkHandle, OUTBOUND_SEND_BUDGET_PER_FRAME, WORLD_INGRESS_DRAIN_BUDGET,
+        WorldIngressDrain, acceptance_surface_anchor, actor_render_source, drain_network_controls,
+        drain_network_ingress, update_actor_render_scene,
     },
     shutdown::{
         exit_on_window_close_requested, fatal_runtime_exit, record_fatal_error, window_close_exit,

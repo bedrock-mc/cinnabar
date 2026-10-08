@@ -80,10 +80,4 @@ pub enum WorldStreamError {
         heavy_admitted: usize,
         heavy_capacity: usize,
     },
-    #[error("outbound SubChunkRequest FIFO is full at sequence {sequence} ({pending}/{capacity})")]
-    OutboundFull {
-        sequence: u64,
-        pending: usize,
-        capacity: usize,
-    },
 }

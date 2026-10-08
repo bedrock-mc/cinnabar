@@ -9,7 +9,7 @@ use semantic_input::PerspectiveMode;
 
 use crate::runtime::{network::actor_publication::*, world::ClientWorld};
 
-fn fixture() -> World {
+pub(super) fn fixture() -> World {
     fixture_with_skin(false)
 }
 

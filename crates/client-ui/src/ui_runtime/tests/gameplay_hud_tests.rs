@@ -11,6 +11,8 @@ use sha2::Digest;
 use super::*;
 use crate::ui_runtime::gameplay_hud::{HeartVariant, MAX_HUD_EFFECTS};
 
+mod effect_clock_tests;
+
 #[test]
 fn session_language_overrides_per_key_and_restores_the_immutable_base() {
     let mut player_runtime = player_state::PlayerState::new(1);

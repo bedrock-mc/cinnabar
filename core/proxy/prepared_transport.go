@@ -46,7 +46,7 @@ func newPreparedTransport(ctx context.Context, network minecraft.Network, addres
 		if _, ok := prepared.selected.(identityProviderDialer); ok {
 			return // NetherNet proves possession during setup, so it dials after authentication
 		}
-		prepared.conn, prepared.err = prepared.selected.DialContext(ctx, address)
+		prepared.conn, prepared.err = dialTransport(ctx, prepared.selected, address)
 		prepared.conn = usableTransport(prepared.conn)
 		if prepared.conn == nil && prepared.err == nil {
 			prepared.err = net.ErrClosed
@@ -103,7 +103,7 @@ func (prepared *preparedTransport) handOff(ctx context.Context, address string) 
 	if connection, ok := prepared.conn.(interface{ Context() context.Context }); ok && connection.Context().Err() != nil {
 		// The upstream closes an idle connection once its login deadline passes, which slow
 		// authentication can outlast; finish closes the expired one and login takes a fresh dial.
-		return prepared.selected.DialContext(ctx, address)
+		return dialTransport(ctx, prepared.selected, address)
 	}
 	prepared.handedOff.Store(true)
 	return prepared.conn, nil

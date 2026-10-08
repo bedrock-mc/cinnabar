@@ -397,7 +397,7 @@ fn clock_daylight_and_weather_commit_in_fifo_order_without_dirtying_world_meshes
 }
 
 #[test]
-fn clock_and_weather_wait_behind_an_earlier_decode_before_committing() {
+fn clock_and_weather_commit_in_order_past_an_earlier_chunk_decode() {
     let mut stream = WorldStream::new(WorldBootstrap {
         local_player_unique_id: 1,
         dimension: 0,
@@ -421,8 +421,11 @@ fn clock_and_weather_wait_behind_an_earlier_decode_before_committing() {
         )
         .unwrap();
 
-    assert!(stream.take_committed_controls().is_empty());
-    complete_pending_decode_jobs(&mut stream);
+    assert_eq!(
+        stream.committed_sequence(),
+        0,
+        "the chunk is still decoding"
+    );
     assert_eq!(
         stream.take_committed_controls(),
         vec![

@@ -273,6 +273,15 @@ impl WorldStream {
     ) {
         self.authority.set_item_use_durations(durations)
     }
+    /// Installs effective item-directed attack and kinetic presentation facts.
+    pub fn set_item_attack_timings(
+        &mut self,
+        timings: std::sync::Arc<
+            std::collections::BTreeMap<Box<str>, client_world::ItemAttackTiming>,
+        >,
+    ) {
+        self.authority.set_item_attack_timings(timings)
+    }
     pub fn stats(&self) -> WorldStreamStats {
         let completed_decode_results = self
             .order

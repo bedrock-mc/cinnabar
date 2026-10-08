@@ -35,23 +35,33 @@ impl WorldStream {
             .is_some_and(|deadline| Instant::now() >= deadline)
     }
 
-    /// Commits FIFO work without crossing a partially published batch or mutation fence.
+    /// Commits every unblocked event. Heavy terrain steps stop at the poll deadline, with one
+    /// guaranteed per poll across every pass it runs; light steps never wait for, or spend,
+    /// the terrain allocation.
     pub(super) fn apply_ready(&mut self) {
         #[cfg(feature = "tracy")]
         let _zone = tracing::info_span!("stream.commit_ready").entered();
-        if self.order.blocking_block_updates().is_some() {
-            return;
-        }
         let deadline = self
             .poll_deadline
             .unwrap_or_else(|| Instant::now() + self.poll_budget);
-        let mut progressed = self.poll_deadline.is_some() && !self.polling;
-        while !progressed || Instant::now() < deadline {
-            let Some(step) = self.order.next_commit() else {
+        let mut heavy_guaranteed =
+            self.poll_deadline.is_none() || (self.polling && self.poll_heavy_guarantee);
+        loop {
+            // Without local physics the server position scopes retention; a committed
+            // teleport, respawn or dimension change can hand it back mid-pass.
+            let budget = CommitBudget {
+                heavy: heavy_guaranteed || Instant::now() < deadline,
+                couple_position: self.local_player_chunk.is_none(),
+            };
+            let Some(step) = self.order.next_commit_within(budget) else {
                 break;
             };
+            if self.order.last_step_was_heavy() {
+                heavy_guaranteed = false;
+                self.poll_heavy_guarantee = false;
+            }
             match step {
-                CommitStep::BatchStarted => continue,
+                CommitStep::BatchStarted => {}
                 CommitStep::Apply { sequence, event } => {
                     self.apply_prepared_with_sequence(event, Some(sequence));
                     self.finish_ordered_commit(sequence);
@@ -60,9 +70,18 @@ impl WorldStream {
                     let (batches, events) = self.snapshot_synced_block_mutation_batches(events);
                     if batches.is_empty() {
                         self.finish_ordered_commit(sequence);
+                    } else if inline_block_batches(&batches) {
+                        let ids = self.decode_ids(self.authority.current_dimension());
+                        self.apply_block_mutations_inline(DecodeJob::SyncedBlockUpdates {
+                            sequence,
+                            batches,
+                            events,
+                            ids,
+                        });
                     } else {
                         let ids = self.decode_ids(self.authority.current_dimension());
-                        self.predictions.begin_server_batch();
+                        self.predictions
+                            .begin_server_batch(batches.iter().map(|batch| batch.key));
                         self.enqueue_decode_job(DecodeJob::SyncedBlockUpdates {
                             sequence,
                             batches,
@@ -70,28 +89,43 @@ impl WorldStream {
                             ids,
                         });
                         self.order.defer_block_updates(sequence);
-                        break;
                     }
                 }
                 CommitStep::BlockUpdates { sequence, events } => {
                     let batches = self.snapshot_block_mutation_batches(events);
                     if batches.is_empty() {
                         self.finish_ordered_commit(sequence);
+                    } else if inline_block_batches(&batches) {
+                        let ids = self.decode_ids(self.authority.current_dimension());
+                        self.apply_block_mutations_inline(DecodeJob::BlockUpdates {
+                            sequence,
+                            batches,
+                            ids,
+                        });
                     } else {
                         let ids = self.decode_ids(self.authority.current_dimension());
-                        self.predictions.begin_server_batch();
+                        self.predictions
+                            .begin_server_batch(batches.iter().map(|batch| batch.key));
                         self.enqueue_decode_job(DecodeJob::BlockUpdates {
                             sequence,
                             batches,
                             ids,
                         });
                         self.order.defer_block_updates(sequence);
-                        break;
                     }
                 }
             }
-            progressed = true;
         }
+        if !self.polling {
+            self.dispatch_urgent_work();
+        }
+    }
+
+    /// Prepares and commits a small block batch on this thread, skipping the worker hop.
+    fn apply_block_mutations_inline(&mut self, job: DecodeJob) {
+        let completion = job.run(Instant::now());
+        self.apply_prepared(completion.event);
+        self.finish_ordered_commit(completion.sequence);
     }
 
     /// Releases a request reservation only when the lower owner finishes the whole event.
@@ -100,6 +134,17 @@ impl WorldStream {
             self.cancel_request_reservation(sequence);
         }
     }
+}
+
+/// Small batches prepare on the commit thread: copy-on-write costs microseconds, while a
+/// worker round trip costs a frame.
+fn inline_block_batches(batches: &[BlockMutationBatch]) -> bool {
+    batches.len() <= INLINE_BLOCK_MUTATION_SUB_CHUNKS
+        && batches
+            .iter()
+            .map(|batch| batch.updates.len())
+            .sum::<usize>()
+            <= INLINE_BLOCK_MUTATION_UPDATES
 }
 
 #[cfg(test)]
