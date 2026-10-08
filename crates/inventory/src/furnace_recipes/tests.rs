@@ -182,6 +182,40 @@ fn furnace_loaded_alternative_keeps_the_result_available_without_source_priority
 }
 
 #[test]
+fn furnace_loaded_only_selection_returns_input_and_previews_the_recipe() {
+    let mut inventory = fixture(::protocol::WINDOW_TYPE_FURNACE);
+    let recipe = inventory.furnace_recipes(false)[1].clone();
+    inventory
+        .ledger_mut()
+        .apply(&InventoryEvent::Slot(::protocol::InventorySlotEvent {
+            identity: ::protocol::SlotIdentity {
+                container: ContainerIdentity::window(7),
+                slot: 0,
+            },
+            stack: NetworkItemStack {
+                network_id: 5,
+                count: 8,
+                stack_network_id: 45,
+                ..NetworkItemStack::empty()
+            },
+            storage_item: None,
+        }));
+    assert!(inventory.ledger().can_supply_furnace_recipe(&recipe));
+    inventory
+        .ledger_mut()
+        .begin_furnace_recipe(&recipe)
+        .unwrap();
+    let ledger = inventory.ledger();
+    assert!(ledger.storage_stack(0).is_none());
+    let returned = ledger.displayed_stack(0).unwrap();
+    assert_eq!((returned.network_id, returned.count), (5, 8));
+    assert_eq!(ledger.furnace_ghost_stack(0).unwrap().network_id, 5);
+    assert_eq!(ledger.furnace_ghost_stack(2).unwrap().network_id, 4);
+    assert_eq!(ledger.displayed_stack(5).unwrap().count, 8);
+    assert_eq!(ledger.displayed_stack(6).unwrap().count, 7);
+}
+
+#[test]
 fn furnace_count_changes_reselect_the_highest_count_alternative() {
     let mut inventory = fixture(::protocol::WINDOW_TYPE_FURNACE);
     inventory
