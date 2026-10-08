@@ -246,7 +246,7 @@ fn vertex(
         f32(packed_u16(template_quad_base + 6u, uv_component)),
         f32(packed_u16(template_quad_base + 6u, uv_component + 1u)),
     ) / 4096.0;
-    if (is_bamboo && (quad_index == 0u || quad_index == 1u || quad_index == 4u || quad_index == 5u)) {
+    if (is_bamboo && ((BAMBOO_STEM_SIDE_QUAD_MASK >> quad_index) & 1u) != 0u) {
         out.uv.x += f32((packed_transform >> 20u) & 3u) * BAMBOO_STEM_UV_STRIDE;
     }
     out.current_texture = frame.current;

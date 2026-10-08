@@ -224,3 +224,47 @@ fn every_partial_native_snow_highlight_top_survives_above_the_surface() {
         assert_eq!(frame.outline.len(), 12 * 2);
     }
 }
+
+#[test]
+fn bamboo_destroy_surfaces_retain_the_column_stem_uv_selector() {
+    let (records, assets) = fixture();
+    for record in records
+        .iter()
+        .filter(|record| record.name.as_ref() == "minecraft:bamboo")
+    {
+        let visual = assets.resolve(NetworkIdMode::Sequential, record.sequential_id);
+        let CrackShape::Quads(origin) = selected_shape(&assets, record, NetworkIdMode::Sequential)
+        else {
+            panic!("bamboo surfaces");
+        };
+        for (x, selector) in [(1, 2), (2, 1), (4, 2)] {
+            let CrackShape::Quads(column) = crack_shape_from_template(
+                &assets,
+                visual.model_template().unwrap(),
+                visual.variant(),
+                [x, 3, 0],
+            )
+            .unwrap() else {
+                panic!("bamboo surfaces");
+            };
+            for (index, (before, after)) in origin.iter().zip(column.iter()).enumerate() {
+                let offset = if assets::BlockFace::ALL
+                    .get(index)
+                    .is_some_and(|face| face.is_horizontal())
+                {
+                    selector as f32 * meshing::bamboo::STEM_UV_STRIDE
+                } else {
+                    0.0
+                };
+                for (a, b) in before.uvs.iter().zip(after.uvs.iter()) {
+                    assert_eq!(
+                        *b,
+                        [a[0] + offset, a[1]],
+                        "{} x={x} quad={index}",
+                        record.canonical_state
+                    );
+                }
+            }
+        }
+    }
+}

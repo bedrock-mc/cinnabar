@@ -3,6 +3,10 @@ pub const OFFSET_MIN: f32 = -0.25;
 pub const OFFSET_SPAN: f32 = 0.5;
 pub const OFFSET_STEPS: u32 = 16;
 pub const OFFSET_STEP: f32 = OFFSET_SPAN / (OFFSET_STEPS - 1) as f32;
+pub const STEM_SIDE_QUAD_MASK: u32 = (1 << assets::BlockFace::West as u32)
+    | (1 << assets::BlockFace::East as u32)
+    | (1 << assets::BlockFace::North as u32)
+    | (1 << assets::BlockFace::South as u32);
 pub const STEM_UV_STRIDE: f32 = 3.0 / 16.0;
 pub const LEAF_PLANE_INSET: f32 = 0.01;
 pub const POSITIVE_X_LEAF_QUAD: u32 = assets::BlockFace::ALL.len() as u32;
@@ -42,6 +46,15 @@ pub fn transform_for_template(flags: u32, variant: u32, position: [i32; 3]) -> u
         positional_transform(position[0], position[2])
     } else {
         variant
+    }
+}
+
+/// Column-dependent U displacement retained when the stem uses a texture override.
+pub fn stem_uv_offset(transform: u32, quad: u32) -> f32 {
+    if quad < assets::BlockFace::ALL.len() as u32 && (STEM_SIDE_QUAD_MASK >> quad) & 1 != 0 {
+        ((transform >> 8) & 3) as f32 * STEM_UV_STRIDE
+    } else {
+        0.0
     }
 }
 

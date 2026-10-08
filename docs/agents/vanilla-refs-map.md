@@ -3684,3 +3684,11 @@ Files: `docs/reference/held-block-placement.md`, `crates/gameplay/src/block_use.
   bamboo stem and leaf surfaces retain the offsets and positive leaf plane insets
   described above. Position-dependent crack surfaces are cached by runtime ID
   and resolved transform, independent of column height.
+
+- Destroy-stage UV admission: current `LevelRendererPlayer::extractCracks`
+  dispatches `FUN_144e7ec70` (`src/__unmapped/04.cpp`, 2439666 onward),
+  selects the stage rectangle, then calls `FUN_146a1a2a0` to enable a fixed
+  texture and dispatch world shape 0x6c. The stalk computes its column UV
+  selector before the stem helper; the helper's fixed-texture branch replaces
+  the rectangle but retains the selector in all four side UV ranges. Caps and
+  radial leaves retain their own UV ranges. `crack.rs` applies that same rule.

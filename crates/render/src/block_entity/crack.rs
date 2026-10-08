@@ -98,7 +98,13 @@ pub fn crack_shape_from_template(
                         rotate_corner(corner, transform)
                     }
                 }),
-                uvs: quad.uvs.map(|uv| uv.map(tile_fraction)),
+                uvs: quad.uvs.map(|uv| {
+                    let mut uv = uv.map(tile_fraction);
+                    if part.flags & assets::MODEL_TEMPLATE_FLAG_BAMBOO != 0 {
+                        uv[0] += meshing::bamboo::stem_uv_offset(transform, quad_index as u32);
+                    }
+                    uv
+                }),
             });
         }
         if part.flags & MODEL_TEMPLATE_FLAG_COMPOUND_NEXT == 0 {
