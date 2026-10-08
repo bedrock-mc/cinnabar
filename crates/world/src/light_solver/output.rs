@@ -118,18 +118,23 @@ impl<'a> MutableOutput<'a> {
     }
 
     /// Reads zero outside the current solve region.
+    #[cfg(test)]
     pub(super) fn get(&self, position: BlockPos, channel: LightChannel) -> u8 {
         let Some(index) = self.index(position) else {
             return 0;
         };
+        self.get_at_index(index, channel)
+    }
+
+    /// Reads a cell whose dense index was validated for this solve.
+    #[inline]
+    pub(super) fn get_at_index(&self, index: usize, channel: LightChannel) -> u8 {
         self.values[index][light_channel_index(channel)]
     }
 
-    /// Writes a validated light nibble and marks its position known.
-    pub(super) fn set(&mut self, position: BlockPos, channel: LightChannel, value: u8) {
-        let index = self
-            .index(position)
-            .expect("solver writes only inside validated light bounds");
+    /// Writes a validated cell and records that it belongs in the final output.
+    #[inline]
+    pub(super) fn set_at_index(&mut self, index: usize, channel: LightChannel, value: u8) {
         self.values[index][light_channel_index(channel)] = value;
         self.known[index] = true;
     }

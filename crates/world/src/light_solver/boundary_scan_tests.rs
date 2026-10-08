@@ -77,7 +77,7 @@ fn snapshot_seed(
     channel: LightChannel,
     output: &MutableOutput,
     direct: &DensePositionSet,
-    queue: &VecDeque<IncreaseEntry>,
+    queue: &IncreaseQueue,
     queued_total: usize,
 ) -> SeedSnapshot {
     SeedSnapshot {
@@ -107,7 +107,7 @@ fn seed_boundary_full_volume_oracle<A: LightBlockAccess, P: LightReadAccess>(
     channel: LightChannel,
     profile: DimensionLightProfile,
     output: &mut MutableOutput,
-    queue: &mut VecDeque<IncreaseEntry>,
+    queue: &mut IncreaseQueue,
     direct_positions: &mut DensePositionSet,
     limits: SolverLimits,
     queued_total: &mut usize,
@@ -153,20 +153,25 @@ fn seed_boundary_full_volume_oracle<A: LightBlockAccess, P: LightReadAccess>(
                 candidate_is_direct = direct;
             }
         }
-        let current = output.get(position, channel);
+        let index = output.index(position).unwrap();
+        let current = output.get_at_index(index, channel);
         let gains_direct = candidate_is_direct && !direct_positions.contains(&position);
         if candidate > current || (candidate == current && candidate != 0 && gains_direct) {
             if candidate > current {
-                output.set(position, channel, candidate);
+                output.set_at_index(index, channel, candidate);
             }
             if candidate_is_direct {
                 direct_positions.insert(position);
             }
-            enqueue_counted(queued_total, 1, limits.max_queue_entries)?;
-            queue.push_back(IncreaseEntry {
-                position,
-                direct_sky: candidate_is_direct,
-            });
+            queue.push_back(
+                IncreaseEntry {
+                    position,
+                    index,
+                    direct_sky: candidate_is_direct,
+                },
+                queued_total,
+                limits.max_queue_entries,
+            )?;
         }
     }
     Ok(())
@@ -184,7 +189,7 @@ fn run_seed(
     let volume = bounds.volume().unwrap();
     let mut scratch = MutableOutputScratch::default();
     let mut output = MutableOutput::new(bounds, 41, volume, &mut scratch);
-    let mut queue = VecDeque::new();
+    let mut queue = IncreaseQueue::new(volume);
     let mut direct = DensePositionSet::new(bounds, volume);
     let limits = SolverLimits::new(volume, queue_cap);
     let mut queued_total = 0;
@@ -661,8 +666,8 @@ fn measure_seed_scans(bounds: LightBounds, full_volume: bool, rounds: usize) -> 
     };
     let mut scratch = MutableOutputScratch::default();
     let mut output = MutableOutput::new(bounds, 41, volume, &mut scratch);
-    let mut block_queue = VecDeque::new();
-    let mut sky_queue = VecDeque::new();
+    let mut block_queue = IncreaseQueue::new(volume);
+    let mut sky_queue = IncreaseQueue::new(volume);
     let mut direct = DensePositionSet::new(bounds, volume);
     let limits = SolverLimits::new(volume, usize::MAX);
     let mut queued_total = 0;
@@ -753,8 +758,8 @@ fn release_boundary_seed_scan_benchmark() {
 }
 
 #[test]
-#[ignore = "release-only deterministic boundary-scan baseline"]
-fn release_boundary_scan_full_solve_fingerprints() {
+fn full_column_output_matches_recorded_values() {
+    let mut mapping_work = Vec::new();
     for (label, bounds) in [
         (
             "16x16x16",
@@ -766,6 +771,7 @@ fn release_boundary_scan_full_solve_fingerprints() {
         ),
     ] {
         let volume = bounds.volume().unwrap();
+        super::types::take_dense_index_calls();
         let output = solve_light(
             &BaselineBlocks,
             &EmptyLight,
@@ -777,6 +783,8 @@ fn release_boundary_scan_full_solve_fingerprints() {
             SolverLimits::new(volume, volume.saturating_mul(64)),
         )
         .unwrap();
+        let index_calls = super::types::take_dense_index_calls();
+        mapping_work.push((label, volume, index_calls));
         let expected = match label {
             "16x16x16" => (
                 11_701_639_296_605_938_954,
@@ -796,12 +804,40 @@ fn release_boundary_scan_full_solve_fingerprints() {
                 LightSolveStats {
                     darken_seeded: 0,
                     darken_dequeued: 0,
-                    increase_dequeued: 263_425,
+                    increase_dequeued: 239_032,
                     queue_peak: 31_173,
                 },
             ),
             _ => unreachable!(),
         };
-        assert_eq!(fingerprint(&output), expected, "{label}");
+        eprintln!(
+            "light_fixture {label} increase_dequeued={} queue_peak={} dense_index_calls={index_calls}",
+            output.stats().increase_dequeued,
+            output.stats().queue_peak
+        );
+        let actual = fingerprint(&output);
+        assert_eq!(
+            (actual.0, actual.1, actual.2),
+            (expected.0, expected.1, expected.2),
+            "{label}"
+        );
+        assert_eq!(actual.3.darken_seeded, expected.3.darken_seeded);
+        assert_eq!(actual.3.darken_dequeued, expected.3.darken_dequeued);
+        assert!(
+            actual.3.increase_dequeued <= expected.3.increase_dequeued,
+            "{label}: {:?}",
+            actual.3
+        );
+        assert!(
+            actual.3.queue_peak <= expected.3.queue_peak,
+            "{label}: {:?}",
+            actual.3
+        );
+    }
+    for (label, volume, index_calls) in mapping_work {
+        assert!(
+            index_calls <= volume * 20,
+            "{label}: {index_calls} dense-coordinate conversions exceed the work ceiling"
+        );
     }
 }

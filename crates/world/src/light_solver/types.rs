@@ -2,6 +2,17 @@ use thiserror::Error;
 
 use crate::{LightChannel, LightStorageError, LightStoreSnapshot, SubChunkKey};
 
+#[cfg(test)]
+thread_local! {
+    static DENSE_INDEX_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Measures coordinate conversions on this test thread without timing assertions.
+#[cfg(test)]
+pub(super) fn take_dense_index_calls() -> usize {
+    DENSE_INDEX_CALLS.replace(0)
+}
+
 /// Global block coordinate used by the dependency-free light solver.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct BlockPos {
@@ -322,6 +333,8 @@ pub(super) fn light_dense_index(
     z_len: usize,
     position: BlockPos,
 ) -> Option<usize> {
+    #[cfg(test)]
+    DENSE_INDEX_CALLS.set(DENSE_INDEX_CALLS.get() + 1);
     if !bounds.contains(position) {
         return None;
     }

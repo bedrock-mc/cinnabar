@@ -3,7 +3,8 @@ use std::collections::VecDeque;
 use super::{
     cache::{BlockCacheScratch, PriorCacheScratch},
     output::MutableOutputScratch,
-    solve::{DarkenEntry, IncreaseEntry},
+    queue::IncreaseQueue,
+    solve::DarkenEntry,
 };
 
 /// Reusable worker-local buffers whose capacity follows the largest bounded solve.
@@ -14,8 +15,8 @@ pub struct LightSolverScratch {
     pub(super) prior: PriorCacheScratch,
     pub(super) output: MutableOutputScratch,
     pub(super) darken: VecDeque<DarkenEntry>,
-    pub(super) block_increase: VecDeque<IncreaseEntry>,
-    pub(super) sky_increase: VecDeque<IncreaseEntry>,
+    pub(super) block_increase: IncreaseQueue,
+    pub(super) sky_increase: IncreaseQueue,
 }
 
 #[cfg(test)]
@@ -72,7 +73,7 @@ mod tests {
     }
 
     /// Records retained buffer addresses and capacities without allocating.
-    fn buffers(scratch: &LightSolverScratch) -> [(usize, usize); 9] {
+    fn buffers(scratch: &LightSolverScratch) -> [(usize, usize); 11] {
         [
             (
                 scratch.blocks.samples.as_ptr() as usize,
@@ -99,8 +100,10 @@ mod tests {
                 scratch.output.known.capacity(),
             ),
             (0, scratch.darken.capacity()),
-            (0, scratch.block_increase.capacity()),
-            (0, scratch.sky_increase.capacity()),
+            scratch.block_increase.buffers()[0],
+            scratch.block_increase.buffers()[1],
+            scratch.sky_increase.buffers()[0],
+            scratch.sky_increase.buffers()[1],
         ]
     }
 
