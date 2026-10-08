@@ -115,15 +115,10 @@ pub(crate) fn produce_block_use(
         return;
     }
     let Some(selection) = verified_use_selection(&player_runtime, &context.ui) else {
-        runtime.clear_press();
-        stop_block_use(&mut runtime, &context, false);
+        // Unconfirmed inventory suspends attempts while preserving the held action.
         return;
     };
-    if runtime.selection_changed(&selection)
-        && !stop_block_use(&mut runtime, &context, use_phase.pressed)
-    {
-        return;
-    }
+    runtime.selection_changed(&selection);
     // Frames between physics ticks have no unsent tick; a press waits for one.
     let Some(sample) = movement.newest_unsent_sample() else {
         return;
@@ -206,7 +201,7 @@ pub(crate) fn produce_block_use(
     // Only block items keep using while held.
     if trigger == ItemUseTrigger::SimulationTick && observed.selection.item.block_runtime_id() == 0
     {
-        runtime.record(trigger, due, sample.tick, local_use, clock);
+        runtime.record(trigger, due, sample.tick, LocalUse::Nothing, clock);
         return;
     }
     let duration = swing_duration(

@@ -303,7 +303,7 @@ impl BlockUseRuntime {
         self.intention.last_success_destination()
     }
 
-    /// A slot or item-type change stops the old placement line without inventing a press.
+    /// A slot or item-type change revokes a refused attempt while preserving the held action.
     pub fn selection_changed(&mut self, selection: &crate::mining::FrozenMiningSelection) -> bool {
         let identity = (
             selection.slot,
@@ -317,7 +317,6 @@ impl BlockUseRuntime {
         if changed {
             self.rejected_tick = None;
         }
-        self.stop_repress |= changed && self.latched_press;
         changed
     }
 

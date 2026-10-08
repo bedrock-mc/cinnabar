@@ -260,3 +260,238 @@ fn a_deferred_fresh_block_press_sends_on_the_next_unpublished_tick() {
     assert!(swing < transaction);
     assert!(world.resource::<BlockUseRuntime>().interacted_at(102));
 }
+
+/// Publishes held use without another press while preserving the fixture's input authority.
+fn hold_use(world: &mut World) {
+    let snapshot = world
+        .resource_mut::<crate::semantic_controls::SemanticInputRuntime>()
+        .route_and_finalize(semantic_input::DeviceFrame {
+            keyboard_mouse: Some(semantic_input::KeyboardMouseFrame {
+                mouse_buttons: vec![2],
+                ..Default::default()
+            }),
+            ..Default::default()
+        })
+        .unwrap();
+    assert!(!snapshot.phases[Action::Use as usize].pressed);
+    world
+        .insert_resource(crate::semantic_controls::SemanticInputSnapshot::from_finalized(snapshot));
+}
+
+/// Publishes an authoritative hotbar stack with the matched block palette for placement tests.
+fn set_hotbar_stack(world: &mut World, slot: u16, block: Option<&str>) {
+    let stack = block.map_or_else(protocol::NetworkItemStack::empty, |name| {
+        let records = assets::read_registry_for_protocol(
+            assets::pinned_block_registry_bytes(),
+            assets::active_content_registry_protocol(),
+        )
+        .unwrap();
+        let block_runtime_id = records
+            .iter()
+            .find(|record| record.name.as_ref() == name)
+            .unwrap()
+            .sequential_id;
+        protocol::NetworkItemStack {
+            network_id: i32::from(slot) + 1,
+            count: 64,
+            stack_network_id: i32::from(slot) + 41,
+            block_runtime_id: i32::from_ne_bytes(block_runtime_id.to_ne_bytes()),
+            ..protocol::NetworkItemStack::empty()
+        }
+    });
+    world
+        .resource_mut::<crate::player_runtime::PlayerRuntime>()
+        .inventory
+        .ledger_mut()
+        .apply(&InventoryEvent::Slot(InventorySlotEvent {
+            identity: SlotIdentity {
+                container: ContainerIdentity {
+                    window_id: Some(0),
+                    slot_type: None,
+                    dynamic_id: None,
+                },
+                slot,
+            },
+            stack,
+            storage_item: None,
+        }));
+}
+
+#[test]
+fn hotbar_changes_preserve_the_held_line_intercept_and_repeat_deadline() {
+    for (pending, placeable) in [(true, true), (false, true), (false, false)] {
+        let (mut world, mut captured) = fixture();
+        hold_use(&mut world);
+        set_hotbar_stack(&mut world, 0, Some("minecraft:stone"));
+        set_hotbar_stack(&mut world, 1, placeable.then_some("minecraft:dirt"));
+        let selected = verified_use_selection(
+            world.resource::<crate::player_runtime::PlayerRuntime>(),
+            world.resource::<UiRuntime>(),
+        )
+        .unwrap();
+        let mut runtime = world.resource_mut::<BlockUseRuntime>();
+        runtime.selection_changed(&selected);
+        runtime.intention.record(
+            false,
+            [0, 63, 1],
+            LocalUse::Place,
+            true,
+            false,
+            [0.5, 64.0, 0.5],
+        );
+        runtime.intention.record(
+            true,
+            [0, 63, 2],
+            LocalUse::Place,
+            true,
+            false,
+            [0.5, 64.0, 1.5],
+        );
+        runtime.record(
+            ItemUseTrigger::SimulationTick,
+            950,
+            100,
+            LocalUse::Place,
+            RepeatClock {
+                now_millis: 950,
+                sneaking: false,
+                speed: 0.0,
+                survival: true,
+            },
+        );
+        let mut player = world.resource_mut::<crate::player_runtime::PlayerRuntime>();
+        if pending {
+            player
+                .inventory
+                .queue_local_hotbar_selection(1, Some(PlayerGameMode::Survival));
+        } else {
+            player.inventory.set_local_selected_slot(1);
+        }
+        world.run_system_cached(produce_block_use).unwrap();
+        assert!(
+            captured.drain().is_empty(),
+            "switching must not send StopItemUseOn or start a new use"
+        );
+        let runtime = world.resource::<BlockUseRuntime>();
+        assert_eq!(runtime.last_success_destination(), Some([0, 63, 2]));
+        assert_eq!(runtime.intention.first_world_hit(), Some([0.5, 64.0, 0.5]));
+        assert_eq!(
+            runtime.intention.target(
+                None,
+                [0.5, 64.0, 2.5],
+                [0.5, 63.5, 4.0],
+                [1.0, 0.0, 0.0],
+                false
+            ),
+            Some(gameplay::block_use::PlacementTarget {
+                position: [0, 63, 2],
+                face: 3
+            })
+        );
+        let clock = RepeatClock {
+            now_millis: 1_150,
+            sneaking: false,
+            speed: 0.0,
+            survival: true,
+        };
+        assert_eq!(
+            runtime.due(true, 101, clock),
+            None,
+            "switching must not reset the strict repeat deadline"
+        );
+        assert_eq!(
+            runtime.due(
+                true,
+                101,
+                RepeatClock {
+                    now_millis: 1_151,
+                    ..clock
+                }
+            ),
+            Some((ItemUseTrigger::SimulationTick, 1_150))
+        );
+    }
+}
+
+#[test]
+fn denied_nonblock_repeat_keeps_the_last_admitted_placement_schedule() {
+    let (mut world, mut captured) = fixture();
+    hold_use(&mut world);
+    world
+        .resource_mut::<crate::player_runtime::PlayerRuntime>()
+        .inventory
+        .ledger_mut()
+        .apply(&InventoryEvent::Slot(InventorySlotEvent {
+            identity: SlotIdentity {
+                container: ContainerIdentity {
+                    window_id: Some(0),
+                    slot_type: None,
+                    dynamic_id: None,
+                },
+                slot: 0,
+            },
+            stack: protocol::NetworkItemStack {
+                network_id: 42,
+                stack_network_id: 41,
+                count: 1,
+                ..protocol::NetworkItemStack::empty()
+            },
+            storage_item: None,
+        }));
+    world.resource_mut::<BlockUseRuntime>().record(
+        ItemUseTrigger::SimulationTick,
+        500,
+        100,
+        LocalUse::Place,
+        RepeatClock {
+            now_millis: 500,
+            sneaking: false,
+            speed: 0.0,
+            survival: true,
+        },
+    );
+    world.run_system_cached(produce_block_use).unwrap();
+    assert!(
+        captured.drain().is_empty(),
+        "the locally denied repeat must not emit a chest interaction"
+    );
+    assert_eq!(
+        world.resource::<BlockUseRuntime>().due(
+            true,
+            102,
+            RepeatClock {
+                now_millis: 1_001,
+                sneaking: false,
+                speed: 0.0,
+                survival: true
+            },
+        ),
+        Some((ItemUseTrigger::SimulationTick, 700)),
+        "an unsent interaction must not change the last admitted placement's schedule"
+    );
+}
+
+#[test]
+fn pending_hotbar_selection_retains_a_deferred_block_press() {
+    let (mut world, mut captured) = fixture();
+    world
+        .resource_mut::<crate::player_runtime::PlayerRuntime>()
+        .inventory
+        .queue_local_hotbar_selection(1, Some(PlayerGameMode::Survival));
+    world.run_system_cached(produce_block_use).unwrap();
+    assert!(captured.drain().is_empty());
+    assert_eq!(
+        world.resource::<BlockUseRuntime>().due(
+            true,
+            101,
+            RepeatClock {
+                now_millis: 1_000,
+                sneaking: false,
+                speed: 0.0,
+                survival: true
+            },
+        ),
+        Some((ItemUseTrigger::PlayerInput, 1_000)),
+        "selection confirmation must not discard a deferred first press"
+    );
+}
