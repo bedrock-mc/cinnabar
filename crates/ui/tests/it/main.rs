@@ -15,6 +15,7 @@ mod scoreboard;
 #[path = "../../src/settings.rs"]
 #[allow(dead_code)]
 mod settings;
+mod standing_toast;
 mod text;
 mod text_style;
 mod text_wrap;

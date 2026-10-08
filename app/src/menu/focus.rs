@@ -337,6 +337,9 @@ impl MenuRuntime {
                 ],
             };
         }
+        if let Some(actions) = self.join_request_focus_actions() {
+            return actions;
+        }
         let nav = || {
             vec![
                 MenuAction::Navigate(MenuScreen::Home),
@@ -505,12 +508,18 @@ impl MenuRuntime {
                 }
                 actions
             }
-            MenuScreen::Pause => vec![
-                MenuAction::PauseResume,
-                MenuAction::PauseSettings,
-                MenuAction::Navigate(MenuScreen::DressingRoom),
-                MenuAction::PauseDisconnect,
-            ],
+            MenuScreen::Pause => {
+                let mut actions = vec![
+                    MenuAction::PauseResume,
+                    MenuAction::PauseSettings,
+                    MenuAction::Navigate(MenuScreen::DressingRoom),
+                    MenuAction::PauseDisconnect,
+                ];
+                if self.hosting_world() {
+                    actions.push(MenuAction::Invite(launcher::menu::invite::Action::Open));
+                }
+                actions
+            }
             MenuScreen::Death => vec![MenuAction::Respawn, MenuAction::Navigate(MenuScreen::Pause)],
             MenuScreen::Inbox => {
                 use super::inbox::{Action, CATEGORIES, category_index};
@@ -557,6 +566,7 @@ impl MenuRuntime {
             }
             MenuScreen::Friends => vec![MenuAction::Navigate(MenuScreen::Home)],
             MenuScreen::Store => vec![MenuAction::Store(crate::store::StoreAction::Back)],
+            MenuScreen::Invite => self.invite_focus_actions(),
         }
     }
 }

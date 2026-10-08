@@ -759,6 +759,10 @@ RVAs are 1.26.50.26 Windows client; `mac 0x10…` addresses are the 26.30 macOS 
 - /// Only zero hardness breaks on the start tick (`GameMode::startDestroyBlock`);
 - /// stopDestroyBlock clears the delay, so a fresh press starts at once.
 
+## crates/input/src/binding.rs
+- InteractWithToast (`key.interactwithtoast`, "Open Notification") defaults to N: vanilla
+  options.txt default `keyboard_type_0_key.interactwithtoast:78`.
+
 ## crates/inventory/src/inventory_ledger/admission.rs
 - // Native LegacyClientNetworkHandler::handle routes a response to the screen manager
 
@@ -1579,7 +1583,7 @@ RVAs are 1.26.50.26 Windows client; `mac 0x10…` addresses are the 26.30 macOS 
 - `button_face`: pressable `sf`/`bf`/`hf`; menus theme `--pressableElevated*` nine-slices.
 - `menu_item`: dropdown item `bV` (classes `gV`) in `MV`; check icon `Fp`.
 
-## crates/client-ui/src/ui_runtime/presentation/forms/oreui/theme.rs
+## crates/client-ui/src/oreui_theme/mod.rs
 - Role table: theme `pD` colour roles over the palette constants defined beside `Zc`.
 
 ## docs/evidence/desktop-video-settings.md
@@ -2902,6 +2906,9 @@ was not used as version evidence.
 - Third-person visibility and disabling inversion are owner-requested options;
   defaults retain first-person visibility and inverted colors. The Java HUD's
   built-in fallback remains 15×15; a pack crosshair remains 16×16.
+
+## app/src/melee.rs; crates/gameplay/src/melee.rs; crates/gameplay/src/movement/outbox.rs (frame-time attacks)
+- Attack presses are handled per frame, not per tick. 1.26.50.26 `MinecraftGame::startFrame` (RVA 0x00842ff0) calls the input tick (RVA 0x0084d830) every frame under two virtual guards; that calls `MinecraftInputHandler::tick` (RVA 0x04a2b670). macOS 1.26.30: `MinecraftGame::startFrame` 0x1025bb440 is the only caller of `MinecraftGame::tickInput` 0x1025c2840 → `InputHandler::tick` 0x10c39a9b0; the registered press lambdas call `ClientInputCallbacks::handleBuildOrAttackOrBlockSelectButtonPress` 0x1023161c0 → `handleBuildAction` 0x1023178c0 → `GameMode::attack` 0x10a0bba00, whose `_attack` 0x10a0bba20 sends the transaction through the packet sender immediately. The frame's ticks run after `startFrame`, so the attack precedes the next PlayerAuthInput and reports the latest ticked position.
 
 ## Swing duration publication
 

@@ -19,12 +19,13 @@ const MAX_FILE_BYTES: u64 = 4096;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
-pub(super) struct SavedVideoSettings {
+pub(crate) struct SavedVideoSettings {
     pub(super) fullscreen: bool,
-    pub(super) gui_scale_offset: i8,
+    pub(crate) gui_scale_offset: i8,
 }
 
-pub(super) fn load(config_root: &Path) -> Result<SavedVideoSettings> {
+/// Reads saved menu and setup geometry without changing the persisted preference.
+pub(crate) fn load(config_root: &Path) -> Result<SavedVideoSettings> {
     let path = config_root.join(FILE_NAME);
     let file = match fs::File::open(&path) {
         Ok(file) => file,
