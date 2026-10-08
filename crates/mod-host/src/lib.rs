@@ -13,7 +13,8 @@ mod settings;
 #[cfg(feature = "execution")]
 pub use mod_api::{
     MAX_CAMERA_DELTA_RADIANS, MAX_CONTROL_KEYS, MAX_GAMEPLAY_MOBS, MAX_GAMEPLAY_PLAYERS,
-    MAX_LOADED_MODS, MAX_MOB_RANGE_BLOCKS, MAX_MOB_TYPE_BYTES,
+    MAX_ITEM_IDENTIFIER_BYTES, MAX_LOADED_MODS, MAX_MOB_RANGE_BLOCKS, MAX_MOB_TYPE_BYTES,
+    MAX_PLAYER_STATE_EFFECTS,
 };
 #[cfg(feature = "execution")]
 pub use mod_render;
@@ -21,6 +22,11 @@ pub use mod_render;
 pub use runtime::cinnabar::extension::gameplay::{
     CameraRig as GameplayCameraRig, Mob as GameplayMob, Player as GameplayPlayer,
     Snapshot as GameplaySnapshot, Vector3 as GameplayVector3,
+};
+#[cfg(feature = "execution")]
+pub use runtime::cinnabar::extension::player_state::{
+    Effect as PlayerStateEffect, Item as PlayerStateItem, Slot as PlayerStateSlot,
+    Snapshot as PlayerStateSnapshot,
 };
 #[cfg(feature = "execution")]
 pub use runtime::cinnabar::extension::{
@@ -66,6 +72,8 @@ pub(crate) const MEMORY_BYTES: usize = 16 * 1024 * 1024;
 #[derive(Clone, Debug, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ModGrants {
+    /// Allows read-only current-session local inventory and status effect snapshots.
+    pub player_state: bool,
     /// Allows this instance to replace visual time only.
     pub environment: bool,
     /// Allows current-frame remote player and camera pose reads.
@@ -76,6 +84,8 @@ pub struct ModGrants {
     pub item_use: bool,
     /// Allows local key edges, reserved bindings and the retained settings panel.
     pub controls: bool,
+    /// Allows bounded host-rendered HUD cards and a local custom crosshair.
+    pub hud: bool,
     /// Allows bounded actor attack range and held-attack press requests.
     pub interaction: bool,
     /// Allows the selected component's bounded companion settings file.
@@ -142,7 +152,20 @@ impl ModHost {
         mobs: Vec<GameplayMob>,
         controls: ControlFrame,
     ) -> Result<()> {
-        self.instance.frame(pressed, snapshot, mobs, controls)?;
+        self.frame_with_player_state(pressed, snapshot, mobs, None, controls)
+    }
+
+    /// Supplies read-only local facts independently of captured gameplay input.
+    pub fn frame_with_player_state(
+        &mut self,
+        pressed: bool,
+        snapshot: Option<GameplaySnapshot>,
+        mobs: Vec<GameplayMob>,
+        player_state: Option<PlayerStateSnapshot>,
+        controls: ControlFrame,
+    ) -> Result<()> {
+        self.instance
+            .frame(pressed, snapshot, mobs, player_state, controls)?;
         self.queue_settings();
         Ok(())
     }
@@ -242,6 +265,16 @@ impl ModHost {
     /// Returns only the last successfully committed plain-text label.
     pub fn label(&self) -> Option<&str> {
         self.instance.label()
+    }
+
+    /// Retained host-rendered cards from the last successful callback.
+    pub fn hud(&self) -> Option<&ui::mod_hud::Hud> {
+        self.instance.hud()
+    }
+
+    /// Retained cosmetic crosshair, applied only when the ordinary crosshair is visible.
+    pub fn crosshair(&self) -> Option<&ui::mod_hud::Crosshair> {
+        self.instance.crosshair()
     }
 
     /// Returns the committed visual override without entering the guest.

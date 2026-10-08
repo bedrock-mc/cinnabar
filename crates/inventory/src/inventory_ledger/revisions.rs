@@ -26,10 +26,23 @@ impl PlayerInventoryLedger {
     }
 
     pub(super) fn note_authoritative_write(&mut self, cell: Cell) {
+        self.note_observed_gear(cell);
         if let Cell::Inventory(slot) = cell
             && let Some(revision) = self.slot_revisions.get_mut(usize::from(slot))
         {
             *revision = revision.wrapping_add(1).max(1);
+        }
+    }
+
+    pub(super) fn note_observed_gear(&mut self, cell: Cell) {
+        match cell {
+            Cell::Armor(slot) => {
+                if let Some(known) = self.armor_known.get_mut(usize::from(slot)) {
+                    *known = true;
+                }
+            }
+            Cell::Offhand => self.offhand_known = true,
+            _ => {}
         }
     }
 }

@@ -1,5 +1,5 @@
 use crate::RuntimeStageProfiler;
-use crate::chunk::gpu::types::{
+use crate::chunk::gpu::graphics_metadata::{
     GraphicsMetadataPublication, GraphicsMetadataPublicationState,
     configure_graphics_metadata_publication,
 };
@@ -160,6 +160,7 @@ impl Plugin for ChunkRenderPlugin {
         let render_app = app.sub_app_mut(RenderApp);
         render_app.edit_schedule(Render, configure_chunk_publication);
         render_app.edit_schedule(Render, configure_graphics_metadata_publication);
+        crate::surface_capabilities::install(render_app);
         render_app
             .add_systems(
                 RenderStartup,

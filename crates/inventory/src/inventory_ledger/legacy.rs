@@ -38,7 +38,11 @@ impl PlayerInventoryLedger {
 
     pub(super) fn set_authoritative_cell(&mut self, cell: Cell, held: Option<Held>) -> bool {
         self.retire_legacy_write(cell);
-        self.confirmed.set(cell, held)
+        let written = self.confirmed.set(cell, held);
+        if written {
+            self.note_observed_gear(cell);
+        }
+        written
     }
 
     pub(super) fn validate_legacy_submission(

@@ -35,12 +35,22 @@ fn engine(files: &[(String, Vec<u8>)]) -> FormEngine {
 
 /// Emits cursor geometry for one visibility and blending combination.
 fn draw(engine: &FormEngine, visible: bool, blend: ui::UiBlendMode) -> (Vec<UiNode>, f32) {
+    draw_custom(engine, visible, blend, None)
+}
+
+fn draw_custom(
+    engine: &FormEngine,
+    visible: bool,
+    blend: ui::UiBlendMode,
+    custom: Option<ui::mod_hud::Crosshair>,
+) -> (Vec<UiNode>, f32) {
     let font = fixture_font();
     let metrics = TextMetrics::for_viewport([1280, 720], DpiScale::new(1.0).unwrap(), None);
     let px = metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
     let hud = HudPaint {
         crosshair: visible.then_some(FALLBACK),
         crosshair_blend: blend,
+        custom_crosshair: custom,
         ..Default::default()
     };
     let mut layouts = TextLayoutCache::new(32, 1024 * 1024);
@@ -237,5 +247,42 @@ fn crosshair_color_toggle_preserves_pack_art_and_geometry() {
             node.visual(),
             UiVisual::Sprite { .. } | UiVisual::InvertedSprite { .. }
         )));
+    }
+}
+
+#[test]
+fn cosmetic_crosshair_replaces_only_visible_cursor_art_and_restores_on_clear() {
+    let engine = engine(&[]);
+    let vanilla = draw(&engine, true, ui::UiBlendMode::Invert).0;
+    for shape in [
+        ui::mod_hud::CrosshairShape::Cross,
+        ui::mod_hud::CrosshairShape::Dot,
+        ui::mod_hud::CrosshairShape::Circle,
+    ] {
+        let spec = ui::mod_hud::Crosshair {
+            shape,
+            ..Default::default()
+        };
+        let (custom, _) = draw_custom(&engine, true, ui::UiBlendMode::Invert, Some(spec.clone()));
+        let painted: Vec<_> = custom
+            .iter()
+            .filter(|node| !matches!(node.visual(), UiVisual::None))
+            .collect();
+        assert_eq!(painted.len(), 1, "custom cursor paints one visual");
+        assert!(matches!(painted[0].visual(), ui::UiVisual::Mesh(_)));
+        let bounds = painted[0].bounds();
+        assert_eq!((bounds.min().x() + bounds.max().x()) * 0.5, 640.);
+        assert_eq!((bounds.min().y() + bounds.max().y()) * 0.5, 360.);
+        assert!(
+            draw_custom(&engine, false, ui::UiBlendMode::Invert, Some(spec))
+                .0
+                .iter()
+                .all(|node| matches!(node.visual(), UiVisual::None)),
+            "a hidden native cursor also hides the custom cursor"
+        );
+        assert!(
+            draw_custom(&engine, true, ui::UiBlendMode::Invert, None).0 == vanilla,
+            "clearing the cosmetic cursor restores native geometry"
+        );
     }
 }
