@@ -38,6 +38,10 @@ pub use gpu_timing::{GpuFrameTimes, GpuTimingPlugin};
 
 mod dropped_item_render;
 mod hand_rig_render;
+#[cfg(not(target_arch = "wasm32"))]
+mod input_pacing;
+#[cfg(not(target_arch = "wasm32"))]
+pub use input_pacing::InputPacingPlugin;
 mod lightning;
 mod lightning_render;
 mod media;
