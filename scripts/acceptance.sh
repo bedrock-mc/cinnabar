@@ -219,63 +219,67 @@ if len(protocol_packages) != 1:
     raise SystemExit(
         f"cargo metadata must contain exactly one canonical protocol package, found {len(protocol_packages)}"
     )
-expected_dependencies = {
-    "valentine": ["bedrock_1_26_51"],
-    "jolyne": ["client", "bedrock_1_26_51"],
-}
+wire_features = ["bedrock_1_26_51"]
+expected_dependencies = {"valentine": wire_features, "jolyne": ["client"]}
+native_target = 'cfg(not(target_arch = "wasm32"))'
 for dependency_name, expected_features in expected_dependencies.items():
     matches = [
         dependency
         for dependency in protocol_packages[0].get("dependencies", [])
         if dependency.get("name") == dependency_name or dependency.get("rename") == dependency_name
     ]
-    if len(matches) != 1:
+    expected_targets = [None, native_target] if dependency_name == "jolyne" else [None]
+    if len(matches) != len(expected_targets):
         raise SystemExit(
-            f"protocol dependency provenance drifted: {dependency_name} must resolve exactly once from the canonical protocol manifest"
+            f"protocol dependency provenance drifted: {dependency_name} must resolve exactly once per required target from the canonical protocol manifest"
         )
-    dependency = matches[0]
-    required_fields = {
-        "name", "source", "kind", "rename", "optional", "uses_default_features",
-        "features", "target", "path",
-    }
-    missing = sorted(required_fields.difference(dependency))
-    if missing:
-        raise SystemExit(
-            f"cargo metadata dependency {dependency_name} is missing {', '.join(missing)}"
-        )
-    if dependency["name"] != dependency_name or dependency["rename"] is not None:
-        raise SystemExit(
-            f"protocol dependency provenance drifted: {dependency_name} must not be renamed"
-        )
-    if (
-        dependency["source"] is not None
-        or dependency["kind"] is not None
-        or dependency["target"] is not None
-        or dependency["optional"] is not False
-        or dependency["uses_default_features"] is not False
-    ):
-        raise SystemExit(
-            f"protocol dependency provenance drifted: {dependency_name} must be one normal non-target non-optional local dependency with default features disabled"
-        )
-    vendored_manifest = root / f"crates/protocol/vendor/{dependency_name}/Cargo.toml"
-    if not vendored_manifest.is_file():
-        raise SystemExit(
-            f"protocol dependency provenance drifted: {dependency_name} vendored path has no Cargo.toml"
-        )
-    dependency_path = dependency["path"]
-    if dependency_path is None or pathlib.Path(dependency_path).resolve() != vendored_manifest.parent.resolve():
-        raise SystemExit(
-            f"protocol dependency provenance drifted: {dependency_name} does not resolve to its canonical vendored path"
-        )
-    actual_features = dependency["features"]
-    if (
-        not isinstance(actual_features, list)
-        or len(actual_features) != len(expected_features)
-        or set(actual_features) != set(expected_features)
-    ):
-        raise SystemExit(
-            f"protocol dependency provenance drifted: {dependency_name} resolved feature set is not exact"
-        )
+    seen_targets = []
+    for dependency in matches:
+        required_fields = {
+            "name", "source", "kind", "rename", "optional", "uses_default_features",
+            "features", "target", "path",
+        }
+        missing = sorted(required_fields.difference(dependency))
+        if missing:
+            raise SystemExit(
+                f"cargo metadata dependency {dependency_name} is missing {', '.join(missing)}"
+            )
+        if dependency["name"] != dependency_name or dependency["rename"] is not None:
+            raise SystemExit(
+                f"protocol dependency provenance drifted: {dependency_name} must not be renamed"
+            )
+        if (
+            dependency["source"] is not None
+            or dependency["kind"] is not None
+            or dependency["target"] not in expected_targets
+            or dependency["target"] in seen_targets
+            or dependency["optional"] is not False
+            or dependency["uses_default_features"] is not False
+        ):
+            raise SystemExit(
+                f"protocol dependency provenance drifted: {dependency_name} must be one normal non-target or canonical native non-optional local dependency with default features disabled"
+            )
+        seen_targets.append(dependency["target"])
+        vendored_manifest = root / f"crates/protocol/vendor/{dependency_name}/Cargo.toml"
+        if not vendored_manifest.is_file():
+            raise SystemExit(
+                f"protocol dependency provenance drifted: {dependency_name} vendored path has no Cargo.toml"
+            )
+        dependency_path = dependency["path"]
+        if dependency_path is None or pathlib.Path(dependency_path).resolve() != vendored_manifest.parent.resolve():
+            raise SystemExit(
+                f"protocol dependency provenance drifted: {dependency_name} does not resolve to its canonical vendored path"
+            )
+        target_features = expected_features if dependency["target"] is not None else wire_features
+        actual_features = dependency["features"]
+        if (
+            not isinstance(actual_features, list)
+            or len(actual_features) != len(target_features)
+            or set(actual_features) != set(target_features)
+        ):
+            raise SystemExit(
+                f"protocol dependency provenance drifted: {dependency_name} resolved feature set is not exact"
+            )
 
 upstream = upstream_path.read_text(encoding="utf-8-sig")
 metadata_lines = [

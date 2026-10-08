@@ -393,6 +393,79 @@ impl SoundEventTables {
     }
 }
 
+/// Legacy door sound, which picks opening or closing at random.
+const DOOR_EVENT: i32 = 1003;
+
+/// Sound-only level events: `(id, individual event name, sound definition fallback)`.
+const LEVEL_EVENT_SOUNDS: &[(i32, &str, &str)] = &[
+    (1000, "block.click", "random.click"),
+    (1001, "block.click.fail", "random.click"),
+    (1002, "launch", "random.bow"),
+    (1004, "fizz", "random.fizz"),
+    (1005, "", "random.fuse"),
+    (1007, "", "mob.ghast.charge"),
+    (1008, "", "mob.ghast.fireball"),
+    (1009, "", "mob.blaze.shoot"),
+    (1010, "", "mob.zombie.wood"),
+    (1012, "", "mob.zombie.woodbreak"),
+    (1016, "unfect", "mob.zombie.unfect"),
+    (1017, "remedy", "mob.zombie.remedy"),
+    (1018, "", "mob.endermen.portal"),
+    (1020, "", "random.anvil_break"),
+    (1021, "", "random.anvil_use"),
+    (1022, "", "random.anvil_land"),
+    (1030, "", "random.pop"),
+    (1032, "", "mob.endermen.portal"),
+    (1040, "", "block.itemframe.add_item"),
+    (1041, "", "block.itemframe.break"),
+    (1042, "", "block.itemframe.place"),
+    (1043, "", "block.itemframe.remove_item"),
+    (1044, "", "block.itemframe.rotate_item"),
+    (1051, "", "random.orb"),
+    (1052, "random.totem", "random.totem"),
+    (1060, "", "mob.armor_stand.break"),
+    (1061, "", "mob.armor_stand.hit"),
+    (1062, "", "mob.armor_stand.land"),
+    (1063, "", "mob.armor_stand.place"),
+];
+
+/// Shared native/browser selection for sound-range LevelEvent packets.
+pub fn level_event_sound_route(
+    tables: &SoundEventTables,
+    event_id: i32,
+    roll: f32,
+) -> Option<SoundRoute> {
+    if event_id == DOOR_EVENT {
+        return Some(SoundRoute {
+            sound: if roll >= 0.5 {
+                "random.door_close"
+            } else {
+                "random.door_open"
+            }
+            .into(),
+            volume: FloatRange::ONE,
+            pitch: FloatRange::ONE,
+        });
+    }
+    let &(_, individual, fallback) = LEVEL_EVENT_SOUNDS
+        .iter()
+        .find(|(id, _, _)| *id == event_id)?;
+    let lookup = if individual.is_empty() {
+        RouteLookup::Absent
+    } else {
+        tables.individual_lookup(individual)
+    };
+    match lookup {
+        RouteLookup::Route(route) => Some(route),
+        RouteLookup::Silent => None,
+        RouteLookup::Absent => Some(SoundRoute {
+            sound: fallback.into(),
+            volume: FloatRange::ONE,
+            pitch: FloatRange::ONE,
+        }),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
@@ -558,78 +631,5 @@ mod tests {
             "custom.click"
         );
         assert!(base.block("stone", "break").is_some());
-    }
-}
-
-/// Legacy door sound, which picks opening or closing at random.
-const DOOR_EVENT: i32 = 1003;
-
-/// Sound-only level events: `(id, individual event name, sound definition fallback)`.
-const LEVEL_EVENT_SOUNDS: &[(i32, &str, &str)] = &[
-    (1000, "block.click", "random.click"),
-    (1001, "block.click.fail", "random.click"),
-    (1002, "launch", "random.bow"),
-    (1004, "fizz", "random.fizz"),
-    (1005, "", "random.fuse"),
-    (1007, "", "mob.ghast.charge"),
-    (1008, "", "mob.ghast.fireball"),
-    (1009, "", "mob.blaze.shoot"),
-    (1010, "", "mob.zombie.wood"),
-    (1012, "", "mob.zombie.woodbreak"),
-    (1016, "unfect", "mob.zombie.unfect"),
-    (1017, "remedy", "mob.zombie.remedy"),
-    (1018, "", "mob.endermen.portal"),
-    (1020, "", "random.anvil_break"),
-    (1021, "", "random.anvil_use"),
-    (1022, "", "random.anvil_land"),
-    (1030, "", "random.pop"),
-    (1032, "", "mob.endermen.portal"),
-    (1040, "", "block.itemframe.add_item"),
-    (1041, "", "block.itemframe.break"),
-    (1042, "", "block.itemframe.place"),
-    (1043, "", "block.itemframe.remove_item"),
-    (1044, "", "block.itemframe.rotate_item"),
-    (1051, "", "random.orb"),
-    (1052, "random.totem", "random.totem"),
-    (1060, "", "mob.armor_stand.break"),
-    (1061, "", "mob.armor_stand.hit"),
-    (1062, "", "mob.armor_stand.land"),
-    (1063, "", "mob.armor_stand.place"),
-];
-
-/// Shared native/browser selection for sound-range LevelEvent packets.
-pub fn level_event_sound_route(
-    tables: &SoundEventTables,
-    event_id: i32,
-    roll: f32,
-) -> Option<SoundRoute> {
-    if event_id == DOOR_EVENT {
-        return Some(SoundRoute {
-            sound: if roll >= 0.5 {
-                "random.door_close"
-            } else {
-                "random.door_open"
-            }
-            .into(),
-            volume: FloatRange::ONE,
-            pitch: FloatRange::ONE,
-        });
-    }
-    let &(_, individual, fallback) = LEVEL_EVENT_SOUNDS
-        .iter()
-        .find(|(id, _, _)| *id == event_id)?;
-    let lookup = if individual.is_empty() {
-        RouteLookup::Absent
-    } else {
-        tables.individual_lookup(individual)
-    };
-    match lookup {
-        RouteLookup::Route(route) => Some(route),
-        RouteLookup::Silent => None,
-        RouteLookup::Absent => Some(SoundRoute {
-            sound: fallback.into(),
-            volume: FloatRange::ONE,
-            pitch: FloatRange::ONE,
-        }),
     }
 }

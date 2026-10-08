@@ -371,7 +371,7 @@ mod tests {
         let poses = super::cape_pose(
             &cape,
             &["body".into(), "cape".into()],
-            &rest_accessor(&rest),
+            rest_accessor(&rest),
             &body,
         );
         assert!(
@@ -389,7 +389,7 @@ mod tests {
             let poses = super::cape_pose(
                 &cape,
                 &["body".into(), "cape".into()],
-                &rest_accessor(&fixture_poses(0.0, 0.0)),
+                rest_accessor(&fixture_poses(0.0, 0.0)),
                 &fixture_poses(tilt, 0.0),
             );
             let rotation = Quat::from_array(poses[1].rotation);
@@ -446,7 +446,7 @@ mod tests {
                 let poses = super::cape_pose(
                     &cape,
                     &["body".into(), "cape".into()],
-                    &rest_accessor(&fixture_poses(0.0, 0.0)),
+                    rest_accessor(&fixture_poses(0.0, 0.0)),
                     &body,
                 );
                 for (actual, expected) in poses[1]
@@ -499,7 +499,7 @@ mod tests {
             let poses = super::cape_pose(
                 &cape,
                 &["body".into(), "cape".into()],
-                &rest_accessor(&rest),
+                rest_accessor(&rest),
                 &body,
             );
             assert!((super::position(&poses[1]) - expected).length() < 1e-6);

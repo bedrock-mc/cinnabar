@@ -26,7 +26,7 @@ jolyne = { path = "vendor/jolyne", default-features = false, features = ["bedroc
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 bridge = { path = "../bridge" }
 tokio.workspace = true
-jolyne = { path = "vendor/jolyne", default-features = false, features = ["client", "bedrock_1_26_51"] }
+jolyne = { path = "vendor/jolyne", default-features = false, features = ["client"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 tokio = { version = "1", default-features = false, features = ["sync"] }

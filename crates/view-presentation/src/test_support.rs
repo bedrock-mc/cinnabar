@@ -25,11 +25,16 @@ pub fn fixture_font() -> Arc<RuntimeFontCatalog> {
     Arc::new(RuntimeFontCatalog::decode(&bytes, manifest).unwrap())
 }
 
+/// Admits nonempty nameplate lines in the same order as native extraction.
 pub fn anchor(name: &str) -> crate::nametags::NametagAnchor {
     crate::nametags::NametagAnchor {
         runtime_id: 1,
         position: bevy::math::Vec3::ZERO,
-        lines: vec![Arc::from(name)],
+        lines: name
+            .split('\n')
+            .filter(|line| !line.is_empty())
+            .map(Arc::from)
+            .collect(),
         depth_tested: false,
         text_alpha: 1.0,
         distance: 1.0,
