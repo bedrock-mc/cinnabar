@@ -18,6 +18,7 @@ chunk-pipeline = { path = "../chunk-pipeline" }
 client-world = { path = "../client-world" }
 render-api = { path = "../render-api" }
 render-model = { path = "../render-model" }
+view-presentation = { path = "../view-presentation" }
 player-state = { path = "../player-state" }
 launcher = { path = "../launcher" }
 inventory = { path = "../inventory" }

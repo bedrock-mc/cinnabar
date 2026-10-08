@@ -1,3 +1,5 @@
+use view_presentation::equipment_display::hand_camera_from_rig;
+use view_presentation::equipment_display::{FirstPersonArms, FirstPersonHand};
 mod commit;
 mod preparation;
 pub use preparation::{ActorFrameState, advance_actor_frame};
@@ -7,9 +9,9 @@ use equipment_layers::local_equipment;
 mod hand;
 mod java;
 pub use commit::{PreparedActorPublication, publish_actor_render_frame};
-use hand::{HandSource, hand_motion_matrix, publish_hand_rig};
 #[cfg(test)]
-use hand::{hand_camera_from_rig, hand_progress};
+use hand::hand_progress;
+use hand::{HandSource, hand_motion_matrix, publish_hand_rig};
 
 use std::sync::Arc;
 
@@ -35,11 +37,10 @@ use crate::{
     dropped_items::DroppedItemPublisher,
     presentation::actors::{
         ActorRigPresentation, local_actor_presentation_for_visibility,
-        local_diagnostic_presentation, rig_world_from_actor, select_actor_presentations_for_view,
+        local_diagnostic_presentation, select_actor_presentations_for_view,
     },
     presentation::equipment::{
-        EquipmentRuntime, FirstPersonArms, FirstPersonHand, FirstPersonItem, StagedSessionIcons,
-        remote_input,
+        EquipmentRuntime, FirstPersonItem, StagedSessionIcons, remote_input,
     },
 };
 use bevy::prelude::{Query, Transform, With};
@@ -199,7 +200,7 @@ pub struct ActorFramePublication<'w, 's> {
     artwork: Res<'w, render::ActorArtworkPages>,
     hand_builder: ResMut<'w, HandRigBuilder>,
     hand_scene: ResMut<'w, HandRigScene>,
-    hand_motion: Option<Res<'w, crate::camera::FirstPersonHandMotion>>,
+    hand_motion: Option<Res<'w, view_presentation::camera::FirstPersonHandMotion>>,
     equipment: Option<ResMut<'w, EquipmentRuntime>>,
     glint_settings: Option<Res<'w, render::UiGlintSettings>>,
     dropped_items: DroppedItemPublisher<'w, 's>,
@@ -667,7 +668,7 @@ pub fn prepare_actor_render_frame(
         for submission in &mut batch.submissions {
             let identity = submission.input.identity;
             if (identity.layer == render::ACTOR_LAYER_BODY
-                || identity.layer == crate::presentation::cape::ACTOR_LAYER_CAPE
+                || identity.layer == view_presentation::cape::ACTOR_LAYER_CAPE
                 || crate::presentation::skin_layers::is_skin_layer(identity.layer)
                 || identity.layer >= crate::presentation::entity_layers::ACTOR_LAYER_TEXTURE_BASE)
                 && stream

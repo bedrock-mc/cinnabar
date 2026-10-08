@@ -1,0 +1,88 @@
+name: Browser viewer artifact
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/web-spectator-release.yml'
+      - 'tools/web-spectator/wasm/**'
+      - 'crates/**'
+      - 'Cargo.lock'
+      - 'Cargo.toml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: replay-browser-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CARGO_BUILD_JOBS: '2'
+      CARGO_TARGET_DIR: target/replay-release-ci
+      RUSTFLAGS: '-C link-arg=--threads=2'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: dtolnay/rust-toolchain@1.93.1
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target/replay-release-ci
+          key: replay-release-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'Cargo.toml') }}
+      - name: Install the pinned browser binding tool
+        run: |
+          version="$(awk '/^name = "wasm-bindgen"$/ { getline; gsub(/version = |"/, ""); print; exit }' Cargo.lock)"
+          name="wasm-bindgen-${version}-x86_64-unknown-linux-musl"
+          curl --proto '=https' --tlsv1.2 -sSfL \
+            "https://github.com/wasm-bindgen/wasm-bindgen/releases/download/${version}/${name}.tar.gz" \
+            | tar xz -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/$name" >> "$GITHUB_PATH"
+      - name: Build optimized browser renderer away from the shared host
+        run: |
+          cargo build --locked --release -p web-spectator --lib --target wasm32-unknown-unknown
+          wasm-bindgen --target web --no-typescript --out-dir replay-browser \
+            "$CARGO_TARGET_DIR/wasm32-unknown-unknown/release/web_spectator.wasm"
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, re, shlex, subprocess, tomllib
+          root = pathlib.Path('replay-browser')
+          wasm = root / 'web_spectator_bg.wasm'
+          lock = pathlib.Path('Cargo.lock').read_text()
+          version = re.search(r'name = "wasm-bindgen"\nversion = "([^"]+)"', lock).group(1)
+          profile = tomllib.loads(pathlib.Path('Cargo.toml').read_text())['profile']['release']
+          source = {
+              'repository': 'https://github.com/bedrock-mc/cinnabar',
+              'branch': os.environ['GITHUB_HEAD_REF'],
+              'commit': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(),
+              'crate': 'tools/web-spectator/wasm',
+              'rust': tomllib.loads(pathlib.Path('rust-toolchain.toml').read_text())['toolchain']['channel'],
+              'wasmBindgen': version,
+              'wasmSHA256': hashlib.sha256(wasm.read_bytes()).hexdigest(),
+              'wasmBytes': wasm.stat().st_size,
+              'build': {
+                  'profile': 'release', 'target': 'wasm32-unknown-unknown',
+                  'settings': {'opt_level': profile.get('opt-level', 3),
+                               'debug': profile.get('debug', False),
+                               'lto': profile.get('lto', False),
+                               'codegen_units': profile.get('codegen-units', 16), 'debug_assertions': False,
+                               'overflow_checks': False, 'incremental': False},
+                  'rustflags': shlex.split(os.environ.get('RUSTFLAGS', '')),
+                  'cargoBuildJobs': int(os.environ['CARGO_BUILD_JOBS']),
+              },
+          }
+          (root / 'source.json').write_text(json.dumps(source, indent=2) + '\n')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: replay-browser-${{ github.event.pull_request.head.sha }}
+          path: replay-browser/
+          retention-days: 7
+          if-no-files-found: error

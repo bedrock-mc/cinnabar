@@ -27,6 +27,9 @@
     "type": "label",
     "layer": 2,
     "size": [ "default", 9 ],
+    // Override vanilla's inherited 100-GUI-pixel cap: server glyphs can be
+    // wider than that, and the Java sidebar sizes to their measured content.
+    "max_size": [ "100%c", 9 ],
     "text": "#player_name_sidebar",
     "anchor_from": "top_left",
     "anchor_to": "top_left",

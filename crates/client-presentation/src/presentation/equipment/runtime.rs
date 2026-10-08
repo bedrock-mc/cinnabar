@@ -2,15 +2,27 @@
 
 use std::{collections::BTreeMap, sync::Arc};
 
+use assets::DEFAULT_LEATHER_RGB;
 use assets::{
     ArmorSlot, EntityDependencyResolution, EquipmentCategory, IconSprite, RuntimeAssets,
     RuntimeBlockEntityAssets, RuntimeEntityAssets, RuntimeEquipmentCatalog, RuntimeIconCatalog,
 };
 use bevy::prelude::Resource;
+use render_model::equipment::{
+    ItemDisplay, attach_to_bone, held_block_display, held_sprite_display, is_hand_equipped, is_rod,
+};
+use view_presentation::armor_pose::{bone_map, hidden_bone, pack_tint, remap_pose};
+use view_presentation::equipment_display::{
+    FirstPersonArms, FirstPersonShape, LAYER_BOOTS, LAYER_CHESTPLATE, LAYER_HELMET, LAYER_LEGGINGS,
+    LAYER_MAIN_HAND, LAYER_OFF_HAND, first_person_display, head_block_display, view_bone,
+};
+use view_presentation::equipment_sprite_atlas::{Placement, SpriteAtlas};
+
 use render::{
     ACTOR_LAYER_BODY, ActorArtworkLocation, ActorArtworkPages, ActorRigRenderInput, ActorRigRoute,
-    ActorRigSubmission, BlockEntityAtlas, EquipmentRaster, SkullKind, skull_geometry,
+    ActorRigSubmission, BlockEntityAtlas, SkullKind, skull_geometry,
 };
+use render_model::equipment::EquipmentRaster;
 use render_model::{
     ActorRigGeometry, EntityRigId, RenderBoneTransform, equipment_rig_id, find_geometry_index,
     geometry_bone_binding_expressions, geometry_bone_names, geometry_bone_pivots,
@@ -31,22 +43,14 @@ pub use java::java_draws_attachable;
 pub use pack::PackEquipment;
 pub use session::StagedSessionIcons;
 pub use types::{
-    ActorEquipmentInput, EquipmentAnimation, EquipmentPresentation, FirstPersonArms,
-    FirstPersonItem, HeldKind, JavaGrip, WornItem,
+    ActorEquipmentInput, EquipmentAnimation, EquipmentPresentation, FirstPersonItem, HeldKind,
+    JavaGrip, WornItem,
 };
 use types::{ArmorGeometry, AttachableMeshKey, BodyBones, JavaRasterFrame, MeshKey};
 
 use super::{
-    armor::{DEFAULT_LEATHER_RGB, bone_map, hidden_bone, pack_tint, remap_pose},
-    atlas::{Placement, SpriteAtlas},
     attachable::{self, BoneChannels},
     blocks::{self, BlockSheets},
-    display::{
-        FirstPersonHand, FirstPersonShape, ItemDisplay, LAYER_BOOTS, LAYER_CHESTPLATE,
-        LAYER_HELMET, LAYER_LEGGINGS, LAYER_MAIN_HAND, LAYER_OFF_HAND, attach_to_bone,
-        first_person_display, head_block_display, held_block_display, held_sprite_display,
-        is_hand_equipped, is_rod, view_bone,
-    },
 };
 
 fn body_bones(names: Vec<Box<str>>) -> BodyBones {
@@ -400,16 +404,8 @@ impl EquipmentRuntime {
         {
             return None;
         }
-        let visible = |name: &str| {
-            let is = |wanted: &str| name.eq_ignore_ascii_case(wanted);
-            (arms.right && (is("rightArm") || is("rightSleeve")))
-                || (arms.left && (is("leftArm") || is("leftSleeve")))
-        };
         let mask = |pose: &[RenderBoneTransform]| {
-            pose.iter()
-                .zip(&bones.names)
-                .map(|(bone, name)| if visible(name) { *bone } else { hidden_bone() })
-                .collect::<Vec<_>>()
+            view_presentation::equipment_display::mask_first_person_bones(&bones.names, pose, arms)
         };
         let mut masked = body.clone();
         let (previous, current) = (
@@ -429,7 +425,7 @@ impl EquipmentRuntime {
         &mut self,
         body: &ActorRigSubmission,
         item: &WornItem,
-        hand: impl Into<FirstPersonHand>,
+        hand: impl super::IntoFirstPersonHand,
     ) -> Option<FirstPersonItem> {
         let (_, bones) = self.body_bones_for(body.input.rig)?;
         let pose_len = bones.names.len();
@@ -447,7 +443,7 @@ impl EquipmentRuntime {
                 mirrored_art: is_rod(&item.identifier),
             }
         };
-        let hand = hand.into();
+        let hand = hand.into_first_person_hand();
         let state = client_world::ItemAnimationState {
             attack_time: hand.swing,
             arm_height: hand.equip,

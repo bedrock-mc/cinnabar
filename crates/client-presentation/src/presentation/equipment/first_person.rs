@@ -3,11 +3,13 @@
 //! The mesh uses the native icon basis (X in [-1, 0], Y in [0, 1]); centering or
 //! mirroring it again would duplicate the correction already in held_sprite_vertices.
 
+use super::IntoFirstPersonHand;
 use bevy::math::{Mat4, Vec3};
 use client_world::ItemAnimationState;
 use render_model::RenderBoneTransform;
 
-use super::display::{FirstPersonShape, ItemDisplay, first_person_display, view_bone};
+use render_model::equipment::ItemDisplay;
+use view_presentation::equipment_display::{FirstPersonShape, first_person_display, view_bone};
 
 #[cfg(test)]
 mod tests;
@@ -105,6 +107,6 @@ fn pose(state: ItemAnimationState, shape: FirstPersonShape) -> Option<RenderBone
             attack_time: state.attack_time.clamp(0.0, 1.0),
             arm_height: state.arm_height.clamp(0.0, 1.0),
         }
-        .into(),
+        .into_first_person_hand(),
     ))
 }

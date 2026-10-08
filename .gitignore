@@ -3,6 +3,7 @@
 /.local/assets/block-data/
 /.local/assets/block-data.downloads/
 /.local/
+**/.local/
 /.superpowers/
 /.worktrees/
 /reports/

@@ -1,9 +1,10 @@
+use bevy::platform::time::Instant;
 use std::{
     sync::{
         Arc, Mutex,
         atomic::{AtomicU64, Ordering},
     },
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 use bevy::prelude::{Res, ResMut, Resource};
@@ -493,6 +494,7 @@ impl RuntimeStageProfiler {
     }
 
     /// Records a span measured outside a system, such as across the render handoff.
+    #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn record(&self, stage: RuntimeStage, started: Instant, elapsed: Duration) {
         if self.active() {
             record_elapsed(&self.state, stage, started, elapsed);

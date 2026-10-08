@@ -1,6 +1,9 @@
 //! Dropped-item model inputs built by presentation and drawn by the item renderer.
 use std::sync::Arc;
 
+mod build;
+pub use build::{dropped_item_block_cube, dropped_item_block_model};
+
 /// Packed RGBA8 multiplier that leaves a texel unchanged.
 pub const OPAQUE_WHITE: u32 = 0xffff_ffff;
 

@@ -19,9 +19,7 @@ mod tick_cache;
 pub use tick_cache::PoseConversions;
 use tick_cache::TickKey;
 pub(crate) use tick_cache::convert_bones;
-
-/// Damage tint blended over a hurt or dying actor.
-const HURT_OVERLAY_RGBA: [f32; 4] = [1.0, 0.0, 0.0, client_world::HURT_OVERLAY_ALPHA];
+use view_presentation::equipment_display::rig_world_from_actor;
 
 #[derive(Clone, Debug)]
 pub struct ActorRigPresentation {
@@ -289,7 +287,7 @@ fn tick_presentation(
             world_yaw_degrees: 0.0,
             head_over_body: 0.0,
         },
-        billboard: is_billboard(actor),
+        billboard: actor.is_billboard(),
     })
 }
 
@@ -329,7 +327,9 @@ fn place(
         glide_rotation(actor, alpha),
     );
     submission.overlay_rgba8 = if actor.hurt_overlay_active() {
-        pack_overlay_rgba8(HURT_OVERLAY_RGBA)
+        pack_overlay_rgba8(view_presentation::equipment_display::hurt_overlay_rgba(
+            client_world::HURT_OVERLAY_ALPHA,
+        ))
     } else {
         0
     };
@@ -578,17 +578,6 @@ pub fn light_bodies(batch: &mut ActorPresentationBatch, stream: &chunk_pipeline:
     }
 }
 
-/// Places a rig-frame model, which faces -Z with its right side at +X, so it faces the
-/// Minecraft `yaw_degrees` direction at `position`, scaled about the feet.
-pub fn rig_world_from_actor(position: [f32; 3], yaw_degrees: f32, scale: f32) -> [[f32; 4]; 3] {
-    let (sine, cosine) = yaw_degrees.to_radians().sin_cos();
-    [
-        [-cosine * scale, 0.0, sine * scale, position[0]],
-        [0.0, scale, 0.0, position[1]],
-        [-sine * scale, 0.0, -cosine * scale, position[2]],
-    ]
-}
-
 /// Scales the model's own axes (`scaleX`, `scaleY`, `scaleZ`) about its feet.
 fn scaled_axes(mut rows: [[f32; 4]; 3], axis_scale: [f32; 3]) -> [[f32; 4]; 3] {
     for row in &mut rows {
@@ -701,15 +690,6 @@ pub(crate) fn lerp_degrees(start: f32, end: f32, alpha: f32) -> f32 {
 
 pub(crate) fn wrap_degrees(degrees: f32) -> f32 {
     (degrees + 180.0).rem_euclid(360.0) - 180.0
-}
-
-/// Projectile bones carry absolute rotation; billboard bones carry the camera's rotation.
-fn is_billboard(actor: &ActorSnapshot) -> bool {
-    matches!(&actor.kind, ActorKind::Entity { identifier } if matches!(identifier.as_ref(),
-        "minecraft:xp_bottle" | "minecraft:ender_pearl" | "minecraft:xp_orb"
-        | "minecraft:dragon_fireball" | "minecraft:fireball" | "minecraft:snowball"
-        | "minecraft:small_fireball" | "minecraft:splash_potion" | "minecraft:egg"
-        | "minecraft:eye_of_ender_signal" | "minecraft:lingering_potion"))
 }
 
 fn quaternion_from_euler_degrees(rotation: [f32; 3]) -> [f32; 4] {

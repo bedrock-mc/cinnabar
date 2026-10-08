@@ -6564,6 +6564,21 @@ Orebits glyph. The user confirms the rebuilt client looks correct. Required
 touched-crate checks and the canonical developer-control build pass; release
 hardware budgets and matched-version pixel comparison remain incomplete.
 
+
+## Browser spectator rendering: parity checks still open
+
+The optional WASM viewer consumes host-supplied scene snapshots and compiled
+carriers through Cinnabar's native animation, terrain, equipment, cape, particle,
+item and HUD owners. The host owns networking, authentication and recording.
+Interpolation resets at host-supplied continuity and playback boundaries.
+
+The viewer preserves scene alpha beneath the inverted crosshair, uses a 110-degree
+horizontal POV field of view, and admits wide server-pack scoreboard glyphs.
+Browser fidelity checks remain open for cape/persona layers, terrain/item-textured
+particle variants and contextual particle collision. Sound loop-count semantics
+also require a pinned native reference. Rendered checks do not close native
+vanilla parity or hardware performance gates.
+
 ## Local placement prediction
 
 - Pillars, slab halves and matching doubles, trapdoors, hoppers, supported attachments,

@@ -1,4 +1,3 @@
-use super::*;
 use crate::test_support::{fixture_font, mini_carrier};
 use crate::ui_runtime::presentation::forms::{
     engine::{EngineInputs, EngineOutput, FormEngine, ScreenArt},
@@ -6,6 +5,8 @@ use crate::ui_runtime::presentation::forms::{
 };
 use crate::ui_runtime::presentation::{FONT_DESIGN_PIXEL_TEXELS, TextMetrics};
 use json_ui::{Catalog, Context, DataSource, ViewState};
+use ui::UiVisual;
+use ui::native_hud::{CROSSHAIR_SIDE, CROSSHAIR_TEXTURE, HudPaint, SheetSprite};
 use ui::{DpiScale, SafeArea, TextLayoutCache, UiNode};
 
 const FALLBACK: SheetSprite = SheetSprite {

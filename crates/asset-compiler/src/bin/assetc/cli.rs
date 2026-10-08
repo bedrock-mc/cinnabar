@@ -75,6 +75,12 @@ pub(super) enum Command {
         /// Outline font pinned by the source manifest, rasterized with its own advances.
         #[arg(long)]
         font: Option<PathBuf>,
+        /// Add the server pack's font/glyph_XX.png sheets using native glyph metrics.
+        #[arg(long)]
+        glyph_pack: Option<PathBuf>,
+        /// Remove unused atlas padding while retaining every glyph and its metrics.
+        #[arg(long)]
+        compact_pages: bool,
         /// Tracked manifest that pins the local resource-pack source.
         #[arg(long)]
         source_manifest: PathBuf,
@@ -245,6 +251,12 @@ pub(super) enum Command {
         /// Compile the primary font alone even when the manifest declares a fallback.
         #[arg(long)]
         primary_only: bool,
+        /// Add the server pack's font/glyph_XX.png sheets using native glyph metrics.
+        #[arg(long)]
+        glyph_pack: Option<PathBuf>,
+        /// Remove unused atlas padding while retaining every glyph and its metrics.
+        #[arg(long)]
+        compact_pages: bool,
         /// Tracked manifest pinning font URL, hash, license, and raster settings.
         #[arg(long)]
         source_manifest: PathBuf,

@@ -523,7 +523,7 @@ fn session_icons_pack_onto_the_last_dynamic_page() {
 fn session_glyph_sheets_extend_the_font_and_reset_with_the_session() {
     let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
     assert!(presentation.font.glyph('\u{e005}').is_none());
-    presentation.set_nametag_anchors(vec![super::super::nametags::NametagAnchor {
+    presentation.set_nametag_anchors(vec![view_presentation::nametags::NametagAnchor {
         runtime_id: 1,
         position: bevy::math::Vec3::new(0.0, 2.0, 0.0),
         lines: vec![Arc::from("\u{e005}")],

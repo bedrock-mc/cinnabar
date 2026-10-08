@@ -370,6 +370,28 @@ jobs:
         shell: powershell
         run: .\scripts\tests\acceptance.Tests.ps1
 
+  web-spectator:
+    name: Web spectator
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CARGO_BUILD_JOBS: "2"
+      CARGO_TARGET_DIR: target/web-spectator-ci
+      RAYON_NUM_THREADS: "2"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.93.1
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: web-spectator
+          save-if: false
+      - name: Compile browser viewer
+        run: cargo check --tests --locked -p web-spectator --target wasm32-unknown-unknown
+
   ci-ok:
     name: ci-ok
     if: always()
@@ -382,6 +404,7 @@ jobs:
       - packaging
       - macos-physics-bootstrap
       - powershell-harness
+      - web-spectator
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:

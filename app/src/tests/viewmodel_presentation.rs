@@ -128,7 +128,8 @@ fn cpu_hand_quad_is_retained_alongside_unchanged_held_items() {
     let player_runtime = PlayerRuntime::new(1);
 
     use crate::ui_runtime::presentation::tests::fixture_font;
-    use client_ui::ui_runtime::presentation::{IconRef, UiPresentationRuntime, refresh_hud_frame};
+    use client_ui::ui_runtime::presentation::{UiPresentationRuntime, refresh_hud_frame};
+    use ui::IconRef;
     let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
     let pixels = vec![255; 64 * 64 * 4];
     presentation.set_player_preview_skin(Some(&pixels), Default::default());

@@ -1,5 +1,3 @@
-use std::f32::consts::PI;
-
 use bevy::{
     core_pipeline::tonemapping::Tonemapping,
     input::{
@@ -9,7 +7,6 @@ use bevy::{
     prelude::*,
     window::{PrimaryWindow, Window},
 };
-use ui::UserSettings;
 
 use crate::local_player::{
     CameraPose, InteractionOriginSnapshot, LocalAvatarPresentation, LocalAvatarVisibilityCarrier,
@@ -17,7 +14,6 @@ use crate::local_player::{
 };
 
 pub mod antialiasing;
-mod bob;
 mod controls;
 mod easing;
 pub mod facts;
@@ -25,7 +21,6 @@ mod focus;
 pub mod fov;
 #[cfg(test)]
 mod freelook_tests;
-mod hurt;
 pub mod java;
 pub mod look;
 pub mod motion_blur;
@@ -41,20 +36,18 @@ mod shake;
 #[cfg(test)]
 mod spawn_tests;
 
-pub use bob::{HandSwayState, ViewEffect, WalkBobState, walk_bob_effect};
 pub use controls::{
     AutoFly, auto_fly_offset, input_is_active, look_angles, look_at_target, release_cursor,
     update_cursor_capture, update_look, update_movement, update_perspective,
 };
 pub use focus::CursorFocus;
 pub use fov::{CameraFovInputs, CameraFovState, SPYGLASS_FOV_MODIFIER};
-pub use hurt::{CameraHurtState, LocalHurtEvent};
 pub use overlay::{
     HeadMedium, OverlayKind, OverlayLayer, PortalProgress, ScreenEffectInputs, ScreenOverlays,
     VisionEffects, compute_overlays,
 };
 pub use portal_projection::{first_person_hand_fov, update_camera_fov};
-pub use presentation::{FirstPersonHandMotion, ScreenEffectFacts};
+pub use presentation::ScreenEffectFacts;
 pub use rig::{
     collision_safe_perspective_pose, collision_safe_rig_pose, perspective_pose, rig_pose,
     unavailable_world_perspective_pose,
@@ -63,14 +56,14 @@ pub use server_view::{ActorView, ServerCameraSkips, ServerCameraView, ViewContex
 pub use settings::{
     CameraFeelSettings, CameraRig, CameraSettingsAuthority, CameraSettingsError, next_perspective,
 };
+use view_presentation::camera::{
+    CameraHurtState, FirstPersonHandMotion, HandSwayState, WalkBobState, projection_fov_radians,
+};
 
 pub const PITCH_LIMIT: f32 = 89.9_f32.to_radians();
 /// Radius declared by the pinned `minecraft:camera_orbit` vanilla presets.
 pub const THIRD_PERSON_RADIUS_BLOCKS: f32 = 4.0;
 pub const THIRD_PERSON_COLLISION_RADIUS_BLOCKS: f32 = 0.1;
-const MIN_FOV_RADIANS: f32 = PI / 180.0;
-const MAX_FOV_RADIANS: f32 = PI - MIN_FOV_RADIANS;
-const DEFAULT_ASPECT_RATIO: f32 = 16.0 / 9.0;
 
 pub const AUTO_FLY_PERIOD_SECONDS: f32 = 24.0;
 pub const AUTO_FLY_MAX_HORIZONTAL_BLOCKS: f32 = 128.0;
@@ -92,27 +85,6 @@ impl Default for FlyCamera {
     }
 }
 
-/// Converts the full-window FOV to vertical radians; the projection handles pixel aspect.
-#[must_use]
-pub fn projection_fov_radians(fov_degrees: f32) -> f32 {
-    let degrees = if fov_degrees.is_finite() {
-        fov_degrees
-    } else {
-        UserSettings::default().video.horizontal_fov_degrees
-    };
-    degrees.to_radians().clamp(MIN_FOV_RADIANS, MAX_FOV_RADIANS)
-}
-
-/// Returns a finite positive projection aspect, including minimized windows.
-fn window_aspect(window: &Window) -> f32 {
-    let aspect = window.resolution.width() / window.resolution.height();
-    if aspect.is_finite() && aspect > 0.0 {
-        aspect
-    } else {
-        DEFAULT_ASPECT_RATIO
-    }
-}
-
 /// Spawns the camera with the selected perspective and portable anti-aliasing.
 pub fn spawn_fly_camera(
     mut commands: Commands,
@@ -127,7 +99,10 @@ pub fn spawn_fly_camera(
         support.msaa(settings.anti_aliasing_samples()),
         Projection::Perspective(PerspectiveProjection {
             fov: projection_fov_radians(settings.horizontal_fov_degrees()),
-            aspect_ratio: window_aspect(&window),
+            aspect_ratio: view_presentation::camera::projection_aspect(
+                window.resolution.width(),
+                window.resolution.height(),
+            ),
             near: render_api::CAMERA_NEAR_PLANE_BLOCKS,
             near_clip_plane: Vec4::new(0.0, 0.0, -1.0, -render_api::CAMERA_NEAR_PLANE_BLOCKS),
             ..default()

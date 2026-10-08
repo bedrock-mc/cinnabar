@@ -9,7 +9,8 @@ use protocol::{
 use sha2::Digest;
 
 use super::*;
-use crate::ui_runtime::gameplay_hud::{HeartVariant, MAX_HUD_EFFECTS};
+use crate::ui_runtime::gameplay_hud::MAX_HUD_EFFECTS;
+use ui::native_hud::HeartVariant;
 
 #[test]
 fn session_language_overrides_per_key_and_restores_the_immutable_base() {

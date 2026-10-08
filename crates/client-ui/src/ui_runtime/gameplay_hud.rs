@@ -16,12 +16,6 @@ const METADATA_KEY_AIR_SUPPLY: u32 = 7;
 const METADATA_KEY_MAX_AIR_SUPPLY: u32 = 42;
 const METADATA_KEY_FREEZING_EFFECT_STRENGTH: u32 = 120;
 
-/// Pinned vanilla Bedrock effect ids whose hearts recolor (poison family and
-/// wither). Fatal poison shares poison's presentation.
-const EFFECT_ID_POISON: i32 = 19;
-const EFFECT_ID_WITHER: i32 = 20;
-const EFFECT_ID_FATAL_POISON: i32 = 25;
-
 /// Pinned vanilla protocol-1001 effect ids the HUD can present. Instant
 /// effects (6, 7, 23) have no HUD surface; the presentation icon table pins
 /// exactly this set, witnessed for equivalence in the layout tests.
@@ -29,48 +23,7 @@ pub const fn is_renderable_effect_id(effect_id: i32) -> bool {
     matches!(effect_id, 1..=5 | 8..=22 | 24..=30)
 }
 
-/// One retained authoritative status effect.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct HudEffect {
-    pub effect_id: i32,
-    pub amplifier: i32,
-    pub ambient: bool,
-    pub particles: bool,
-    /// Server tick after which the effect is no longer presented. `None` is an
-    /// effectively infinite (negative wire duration) effect.
-    pub expires_at_tick: Option<u64>,
-}
-
-impl HudEffect {
-    #[must_use]
-    pub fn visible_at_tick(&self, now_tick: Option<u64>) -> bool {
-        match (self.expires_at_tick, now_tick) {
-            (None, _) => true,
-            // Without a server clock the effect stays visible until removed.
-            (Some(_), None) => true,
-            (Some(expires), Some(now)) => now < expires,
-        }
-    }
-
-    /// Remaining whole seconds, used for the Java expiry blink.
-    #[must_use]
-    pub fn remaining_ticks(&self, now_tick: Option<u64>) -> Option<u64> {
-        match (self.expires_at_tick, now_tick) {
-            (Some(expires), Some(now)) => Some(expires.saturating_sub(now)),
-            _ => None,
-        }
-    }
-}
-
-/// Heart row recolor derived from authoritative effects and freezing state.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub enum HeartVariant {
-    #[default]
-    Normal,
-    Poisoned,
-    Withered,
-    Frozen,
-}
+use ui::native_hud::{HeartVariant, HudEffect};
 
 /// The local player's worn armor stacks, helmet to boots.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -179,22 +132,7 @@ impl GameplayHudState {
     /// Poison wins over wither, and both win over freezing.
     #[must_use]
     pub fn heart_variant(&self, now_tick: Option<u64>) -> HeartVariant {
-        let mut variant = if self.freezing_strength >= 1.0 {
-            HeartVariant::Frozen
-        } else {
-            HeartVariant::Normal
-        };
-        for effect in &self.effects {
-            if !effect.visible_at_tick(now_tick) {
-                continue;
-            }
-            match effect.effect_id {
-                EFFECT_ID_WITHER => variant = HeartVariant::Withered,
-                EFFECT_ID_POISON | EFFECT_ID_FATAL_POISON => return HeartVariant::Poisoned,
-                _ => {}
-            }
-        }
-        variant
+        ui::native_hud::heart_variant(&self.effects, now_tick, self.freezing_strength)
     }
 
     pub fn set_hardcore(&mut self, hardcore: bool) {
@@ -242,17 +180,13 @@ impl GameplayHudState {
     /// Whether Regeneration (Bedrock effect 10) is active, which bobs the hearts.
     #[must_use]
     pub fn regeneration_active(&self, now_tick: Option<u64>) -> bool {
-        self.effects
-            .iter()
-            .any(|effect| effect.effect_id == 10 && effect.visible_at_tick(now_tick))
+        ui::native_hud::regeneration_active(&self.effects, now_tick)
     }
 
     /// Whether the pinned hunger-effect recolor applies (Bedrock effect 17).
     #[must_use]
     pub fn hunger_effect_active(&self, now_tick: Option<u64>) -> bool {
-        self.effects
-            .iter()
-            .any(|effect| effect.effect_id == 17 && effect.visible_at_tick(now_tick))
+        ui::native_hud::hunger_effect_active(&self.effects, now_tick)
     }
 
     pub fn apply_effect(&mut self, event: ActorEffectEvent) {

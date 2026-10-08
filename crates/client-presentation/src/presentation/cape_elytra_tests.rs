@@ -1,16 +1,35 @@
 //! Cape-backed wings keep their draw and glint while replacing only the texture source.
 
-use super::{ACTOR_LAYER_CAPE, apply_capes, tests::fixture_cape};
+use super::apply_capes;
 use crate::presentation::{actors::ActorPresentationBatch, equipment::ELYTRA_LAYER};
 use assets::EntityRenderMaterial;
 use client_world::PlayerProfile;
 use protocol::{CapeImage, PlayerSkin, StandardSkin};
 use render::{
     ACTOR_LAYER_BODY, ActorArtworkPages, ActorGlint, ActorMaterial, ActorRenderIdentity,
-    ActorRigRenderInput, ActorRigRoute, ActorRigSubmission, EquipmentRaster,
+    ActorRigRenderInput, ActorRigRoute, ActorRigSubmission,
 };
+use render_model::equipment::EquipmentRaster;
 use render_model::{EntityRigId, RenderBoneTransform, STANDARD_SKIN_BYTES, STANDARD_SKIN_SIDE};
 use std::{collections::HashMap, sync::Arc};
+use view_presentation::cape::{ACTOR_LAYER_CAPE, CapeRig};
+
+/// Worn wings bypass the separate cape geometry and pose.
+fn fixture_cape() -> CapeRig {
+    let geometry = render_model::diagnostic_geometry();
+    let bones = geometry
+        .bone_pivots
+        .iter()
+        .enumerate()
+        .map(|(index, _)| {
+            serde_json::from_value(serde_json::json!({
+                "name": format!("bone{index}"), "cubes": []
+            }))
+            .unwrap()
+        })
+        .collect::<Vec<assets::EntityGeometryBone>>();
+    CapeRig::from_geometry(geometry, &bones).unwrap()
+}
 
 /// Supplies a body and one enchanted wing draw with an ordinary equipment artwork route.
 fn batch() -> ActorPresentationBatch {

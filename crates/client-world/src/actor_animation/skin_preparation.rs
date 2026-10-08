@@ -8,20 +8,17 @@ impl ActorAnimationStore {
     }
 
     /// Receives bounded worker results without waiting for an unfinished job.
-    pub(crate) fn begin_skin_preparation(&mut self) {
+    pub fn begin_skin_preparation(&mut self) {
         self.skin_preparation.begin_frame();
     }
 
     /// Admits only a retained source pointer; all content work belongs to the worker.
-    pub(crate) fn request_skin_preparation(
-        &mut self,
-        source: &Arc<protocol::SkinGeometrySource>,
-    ) -> bool {
+    pub fn request_skin_preparation(&mut self, source: &Arc<protocol::SkinGeometrySource>) -> bool {
         self.request_replacing_skin_preparation(source, None)
     }
 
     /// The worker compares replacement bytes against the still-ready result, never against a main-thread hash.
-    pub(crate) fn request_replacing_skin_preparation(
+    pub fn request_replacing_skin_preparation(
         &mut self,
         source: &Arc<protocol::SkinGeometrySource>,
         previous: Option<&Arc<protocol::SkinGeometrySource>>,
@@ -69,8 +66,8 @@ impl ActorAnimationStore {
         }
     }
 
-    /// Dispatches one bounded batch through the existing Rayon pool, beside any still running.
-    pub(crate) fn submit_skin_preparation(&mut self) {
+    /// Dispatches one bounded preparation batch using the target's available execution path.
+    pub fn submit_skin_preparation(&mut self) {
         if let Some(assets) = &self.assets {
             self.skin_preparation.submit(assets);
         }
@@ -82,7 +79,8 @@ impl ActorAnimationStore {
         self.skin_preparation.finish_fixture_batch();
     }
 
-    pub(crate) fn skin_preparation_pending(&self) -> bool {
+    /// Whether admitted appearance work still needs to be polled.
+    pub fn skin_preparation_pending(&self) -> bool {
         self.skin_preparation.is_pending()
     }
 }

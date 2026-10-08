@@ -1,15 +1,13 @@
 //! Opt-in submitted UI work counters accompany the owned GPU pass timings.
 
 use crate::RuntimeStage;
+use bevy::platform::time::Instant;
 use bevy::{
     app::SubApp,
     prelude::*,
     render::{Render, RenderSystems, renderer::render_system},
 };
-use std::{
-    sync::Mutex,
-    time::{Duration, Instant},
-};
+use std::{sync::Mutex, time::Duration};
 
 /// Upload categories count submitted transfers through queue writes or staging.
 #[derive(Clone, Copy)]

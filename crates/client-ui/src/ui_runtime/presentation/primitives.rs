@@ -4,7 +4,7 @@ use std::{borrow::Cow, sync::Arc};
 
 use ui::{ChatMessage, ChatMessageKind, UiPoint, UiRect};
 
-use super::{MAX_PRESENTED_TEXT_BYTES, UiPresentationError};
+use super::UiPresentationError;
 
 /// The presented text for one chat row. `Translation`/command-output rows
 /// resolve their key against `translate` and splice their ordered parameters
@@ -41,17 +41,6 @@ pub(super) fn resolve_chat_line<'a>(
         },
         _ => Cow::Borrowed(node.message.as_ref()),
     }
-}
-
-pub(super) fn bounded_visible_text(value: &str) -> &str {
-    if value.len() <= MAX_PRESENTED_TEXT_BYTES {
-        return value;
-    }
-    let mut end = MAX_PRESENTED_TEXT_BYTES;
-    while !value.is_char_boundary(end) {
-        end -= 1;
-    }
-    &value[..end]
 }
 
 pub(super) fn rect(

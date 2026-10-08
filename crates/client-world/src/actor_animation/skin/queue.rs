@@ -31,6 +31,13 @@ const SOURCE_BYTES: usize = crate::actor_store::MAX_TRACKED_PLAYER_SKIN_BYTES * 
 const MESH_BYTES: usize = render_model::MAX_ACTOR_CATALOG_VERTEX_BYTES * 2;
 type Outcome = (Option<Arc<PreparedSkin>>, bool);
 
+fn run_appearance_task(task: impl FnOnce() + Send + 'static) {
+    #[cfg(target_arch = "wasm32")]
+    task();
+    #[cfg(not(target_arch = "wasm32"))]
+    rayon::spawn(task);
+}
+
 #[derive(Debug)]
 struct Entry {
     source: Arc<SkinGeometrySource>,
@@ -126,7 +133,7 @@ impl Drop for SkinPreparationQueue {
         {
             let (_, idle) = mpsc::channel();
             let receiver = std::mem::replace(&mut self.receiver, Mutex::new(idle));
-            rayon::spawn(move || {
+            run_appearance_task(move || {
                 let _span = tracing::info_span!("actor.skin_retire").entered();
                 drop((entries, allocations, cache, catalog, queued, receiver));
             });
@@ -175,7 +182,7 @@ impl SkinPreparationQueue {
             false
         });
         if !retired.is_empty() {
-            rayon::spawn(move || {
+            run_appearance_task(move || {
                 let _span = tracing::info_span!("actor.skin_retire").entered();
                 drop(retired);
             });
@@ -280,7 +287,7 @@ impl SkinPreparationQueue {
             .is_some_and(|identity| identity.as_ptr() == Arc::as_ptr(previous))
     }
 
-    /// Moves hashing, exact content comparison, parsing and mesh construction onto Rayon.
+    /// Dispatches bounded immutable preparation, inline on targets without worker threads.
     pub(in crate::actor_animation) fn submit(&mut self, assets: &Arc<RuntimeEntityAssets>) {
         if self.queued.is_empty() || self.in_flight >= MAX_SKIN_BATCHES_IN_FLIGHT {
             return;
@@ -291,7 +298,7 @@ impl SkinPreparationQueue {
         let cache = Arc::clone(&self.cache);
         let cancelled = Arc::clone(&self.cancelled);
         let send = self.sender.clone();
-        rayon::spawn(move || {
+        run_appearance_task(move || {
             let _batch =
                 tracing::info_span!("actor.skin_prepare_batch", sources = queued.len()).entered();
             let mut sources = Vec::with_capacity(queued.len());
@@ -352,7 +359,7 @@ impl SkinPreparationQueue {
             retired.extend(self.settle(source, outcome, previous, unchanged));
         }
         if !retired.is_empty() {
-            rayon::spawn(move || {
+            run_appearance_task(move || {
                 let _span = tracing::info_span!("actor.skin_retire").entered();
                 drop(retired);
             });

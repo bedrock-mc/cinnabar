@@ -9,53 +9,53 @@ mod cape_tests;
 
 /// Actor state beyond the snapshot that one tick's evaluation reads.
 #[derive(Clone, Debug, Default)]
-pub(crate) struct ActorTickContext {
+pub struct ActorTickContext {
     /// Frame fraction supplied only to scratch render-layer evaluation.
-    pub(crate) frame_alpha: f32,
+    pub frame_alpha: f32,
     /// Full elapsed visual interval; absent for an explicit single-tick evaluation.
-    pub(crate) animation_elapsed_ticks: Option<u32>,
-    pub(crate) is_riding: bool,
+    pub animation_elapsed_ticks: Option<u32>,
+    pub is_riding: bool,
     /// Namespaced identifiers of the equipped main-hand and off-hand items.
-    pub(crate) main_hand: Option<Arc<str>>,
-    pub(crate) off_hand: Option<Arc<str>>,
+    pub main_hand: Option<Arc<str>>,
+    pub off_hand: Option<Arc<str>>,
     /// The main-hand stack's data value.
-    pub(crate) main_hand_metadata: u32,
+    pub main_hand_metadata: u32,
     /// A positive network identity distinguishes mutation from replacement of the held stack.
-    pub(crate) main_hand_stack_id: Option<i32>,
+    pub main_hand_stack_id: Option<i32>,
     /// The selected hotbar slot, retained independently from the stack identity.
-    pub(crate) main_hand_slot: u8,
+    pub main_hand_slot: u8,
     /// Current local Bedrock duration; zero retains the duration of a remote swing.
-    pub(crate) bedrock_swing_ticks: i32,
+    pub bedrock_swing_ticks: i32,
     /// Current local Java swing length after haste and fatigue; remote swings use the default.
-    pub(crate) java_swing_ticks: i32,
+    pub java_swing_ticks: i32,
     /// A held crossbow is loaded.
-    pub(crate) hand_charged: bool,
+    pub hand_charged: bool,
     /// Ticks the main-hand item can be used for, or 0 when unknown.
-    pub(crate) main_hand_max_use_ticks: u32,
+    pub main_hand_max_use_ticks: u32,
     /// Namespaced identifier of the actor being ridden.
-    pub(crate) ridden: Option<Arc<str>>,
-    pub(crate) has_rider: bool,
-    pub(crate) has_player_rider: bool,
+    pub ridden: Option<Arc<str>>,
+    pub has_rider: bool,
+    pub has_player_rider: bool,
     /// The local player rendered from its own camera; selects the first-person render controller.
-    pub(crate) is_local_first_person: bool,
+    pub is_local_first_person: bool,
     /// Local view-bobbing preference; other actor contexts keep the native default.
-    pub(crate) view_bobbing: Option<bool>,
+    pub view_bobbing: Option<bool>,
     /// The client's own player.
-    pub(crate) is_local: bool,
+    pub is_local: bool,
     /// The client's own player is flying.
-    pub(crate) is_flying: bool,
+    pub is_flying: bool,
     /// Native HUD rendering uses a UI actor context without a first-person hand camera.
-    pub(crate) is_in_ui: bool,
+    pub is_in_ui: bool,
     /// `[pitch, yaw]` of the view in degrees, for camera-facing billboards.
-    pub(crate) camera_rotation: [f32; 2],
+    pub camera_rotation: [f32; 2],
     /// World position of the view, for camera-relative queries.
-    pub(crate) camera_position: [f32; 3],
+    pub camera_position: [f32; 3],
     /// Worn stacks in helmet, chestplate, leggings, boots, body order.
-    pub(crate) armor: [Option<WornArmor>; 5],
+    pub armor: [Option<WornArmor>; 5],
     /// The player's skin carries a cape image.
-    pub(crate) has_cape: bool,
+    pub has_cape: bool,
     /// The player's skin model inputs, when it may name its own geometry.
-    pub(crate) skin_geometry: Option<Arc<protocol::SkinGeometrySource>>,
+    pub skin_geometry: Option<Arc<protocol::SkinGeometrySource>>,
     /// The actor type's synced property definitions, in wire index order.
     pub(crate) properties: Option<Arc<[crate::actor_store::properties::PropertyDefinition]>>,
     /// Item-render query units and contexts differ from ordinary actor queries.
@@ -64,9 +64,9 @@ pub(crate) struct ActorTickContext {
 
 /// One worn armor stack as the armor queries read it.
 #[derive(Clone, Debug)]
-pub(crate) struct WornArmor {
-    pub(crate) item: Arc<str>,
-    pub(crate) dye_rgb: Option<u32>,
+pub struct WornArmor {
+    pub item: Arc<str>,
+    pub dye_rgb: Option<u32>,
 }
 
 // Fraction of full swim posture gained or lost per tick; needs independent measurement.

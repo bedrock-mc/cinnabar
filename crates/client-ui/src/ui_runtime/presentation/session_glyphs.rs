@@ -177,14 +177,14 @@ impl SessionGlyphPages {
         &self,
         runtime_dynamic_start: usize,
         page: usize,
-    ) -> Option<super::nametag_atlas::GlyphPage<'_>> {
+    ) -> Option<view_presentation::nametag_atlas::GlyphPage<'_>> {
         let page = self
             .pages
             .get(page.checked_sub(runtime_dynamic_start + FIRST_GLYPH_PAGE)?)?;
-        Some(super::nametag_atlas::GlyphPage {
+        Some(view_presentation::nametag_atlas::GlyphPage {
             width: PAGE_SIDE,
             height: PAGE_SIDE,
-            pixels: super::nametag_atlas::GlyphPixels::Rgba8(page.pixels()),
+            pixels: view_presentation::nametag_atlas::GlyphPixels::Rgba8(page.pixels()),
         })
     }
 }

@@ -271,7 +271,7 @@ fn missing_held_item_artwork_does_not_publish_an_empty_arm() {
 fn first_person_texture_lookup_rejects_a_layer_absent_from_its_page() {
     let mut source = source_for(Some(BOW), true);
     let (mut item, _) = source.items[0].take().unwrap();
-    let raster = render::EquipmentRaster {
+    let raster = render_model::equipment::EquipmentRaster {
         width: 16,
         height: 16,
         rgba8: vec![255; 16 * 16 * 4].into(),

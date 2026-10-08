@@ -1012,7 +1012,7 @@ fn paper_doll_keeps_vanilla_placement_under_the_java_hud_overlay() {
     };
     for java in [false, true] {
         if java {
-            for (path, _, bytes) in super::hud::JAVA_HUD_PACK {
+            for (path, _, bytes) in ui::native_hud::JAVA_HUD_PACK {
                 let text = std::str::from_utf8(bytes).unwrap();
                 if path.ends_with("_global_variables.json") {
                     catalog.overlay_globals_text(text);

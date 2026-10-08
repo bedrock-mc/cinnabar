@@ -437,7 +437,7 @@ fn prepared_actor_artwork_is_shared_and_stale_sources_fall_back() {
     let (base, _) = world
         .resource::<ActorArtworkPages>()
         .clone()
-        .with_equipment_rasters(&[render::EquipmentRaster {
+        .with_equipment_rasters(&[render_model::equipment::EquipmentRaster {
             width: 1,
             height: 1,
             rgba8: Arc::from([43; 4]),

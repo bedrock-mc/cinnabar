@@ -78,6 +78,12 @@ struct Component {
     destroyed: bool,
 }
 
+struct Removal {
+    /// The removed incarnation's named creation clock and its value.
+    clock: Option<(String, f64)>,
+    met: bool,
+}
+
 /// Retained animation state for the controls a caller paints.
 #[derive(Default)]
 pub struct Animator {
@@ -85,8 +91,8 @@ pub struct Animator {
     events: Vec<AnimEvent>,
     /// Button events fired this frame, replayed to components created after them.
     fired: Vec<String>,
-    /// Roots removed by `destroy_at_end`, and whether a paint met them this frame.
-    destroyed: BTreeMap<String, bool>,
+    /// Roots removed by `destroy_at_end`, retained while a paint meets them.
+    destroyed: BTreeMap<String, Removal>,
     /// Creation time of controls without their own clock, when fixed.
     origin: Option<f64>,
 }
@@ -183,15 +189,24 @@ impl Animator {
         self.destroyed.keys().any(|root| under(key, root))
     }
 
-    /// [`Animator::is_destroyed`] for a paint, which keeps the removal alive.
-    pub(crate) fn hides(&mut self, key: &str) -> bool {
+    /// Keep a painted removal alive until its named clock identifies a replacement.
+    pub(crate) fn hides(&mut self, key: &str, clocks: Option<&BTreeMap<String, f64>>) -> bool {
         let mut hidden = false;
-        for (root, met) in &mut self.destroyed {
-            if under(key, root) {
-                *met = true;
-                hidden = true;
+        self.destroyed.retain(|root, removal| {
+            if !under(key, root) {
+                return true;
             }
-        }
+            if let Some((clock, born)) = &removal.clock
+                && clocks
+                    .and_then(|clocks| clocks.get(clock))
+                    .is_some_and(|current| current != born)
+            {
+                return false;
+            }
+            removal.met = true;
+            hidden = true;
+            true
+        });
         hidden
     }
 
@@ -201,7 +216,7 @@ impl Animator {
         self.components
             .retain(|_, component| std::mem::replace(&mut component.touched, false));
         self.destroyed
-            .retain(|_, met| std::mem::replace(met, false));
+            .retain(|_, removal| std::mem::replace(&mut removal.met, false));
         self.fired.clear();
     }
 }
@@ -238,7 +253,7 @@ impl Component {
         &mut self,
         now: f64,
         events: &mut Vec<AnimEvent>,
-        destroyed: &mut BTreeMap<String, bool>,
+        destroyed: &mut BTreeMap<String, Removal>,
     ) -> Written {
         self.touched = true;
         let dt = now - self.last;
@@ -326,7 +341,7 @@ impl Component {
         &mut self,
         dt: f32,
         events: &mut Vec<AnimEvent>,
-        destroyed: &mut BTreeMap<String, bool>,
+        destroyed: &mut BTreeMap<String, Removal>,
     ) {
         if self.destroyed {
             return;
@@ -353,7 +368,13 @@ impl Component {
                         events.push(AnimEvent::End(end.clone()));
                     }
                     events.push(AnimEvent::Destroy(key.clone()));
-                    destroyed.insert(key, true);
+                    destroyed.insert(
+                        key,
+                        Removal {
+                            clock: self.anims.clock.clone().zip(self.born),
+                            met: true,
+                        },
+                    );
                     self.destroyed = true;
                     return;
                 }

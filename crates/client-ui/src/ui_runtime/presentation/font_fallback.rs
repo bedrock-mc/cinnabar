@@ -1,24 +1,9 @@
 //! Installs off-thread fallback results into stable reserved texture slots.
 
 use super::{UiPresentationRuntime, dynamic_textures, session_glyphs};
-use render_model::{
-    MAX_UI_FALLBACK_FONT_PAGES, UI_FALLBACK_FONT_PAGE_OFFSET, UI_FALLBACK_FONT_PAGE_SIDE,
-    UiTexturePage,
-};
-use std::sync::{Arc, OnceLock};
-
-pub(super) fn blank_page() -> UiTexturePage {
-    static BLANK: OnceLock<UiTexturePage> = OnceLock::new();
-    BLANK
-        .get_or_init(|| {
-            UiTexturePage::coverage(
-                [UI_FALLBACK_FONT_PAGE_SIDE; 2],
-                vec![0; (UI_FALLBACK_FONT_PAGE_SIDE * UI_FALLBACK_FONT_PAGE_SIDE) as usize].into(),
-            )
-            .expect("bounded fallback font extent")
-        })
-        .clone()
-}
+use render_model::{MAX_UI_FALLBACK_FONT_PAGES, UI_FALLBACK_FONT_PAGE_OFFSET, UiTexturePage};
+use std::sync::Arc;
+use view_presentation::ui_atlas::blank_fallback_font_page;
 
 impl UiPresentationRuntime {
     pub(super) fn poll_font_fallback(&mut self) {
@@ -51,8 +36,10 @@ impl UiPresentationRuntime {
         }
         let mut dynamic = self.textures.pages()[self.textures.dynamic_start()..].to_vec();
         for offset in 0..MAX_UI_FALLBACK_FONT_PAGES {
-            dynamic[UI_FALLBACK_FONT_PAGE_OFFSET + offset] =
-                pages.get(offset).cloned().unwrap_or_else(blank_page);
+            dynamic[UI_FALLBACK_FONT_PAGE_OFFSET + offset] = pages
+                .get(offset)
+                .cloned()
+                .unwrap_or_else(blank_fallback_font_page);
         }
         let Ok(textures) = self.textures.replace_dynamic(dynamic) else {
             return;
@@ -80,7 +67,7 @@ pub(super) fn pages(runtime: &UiPresentationRuntime) -> impl Iterator<Item = UiT
                     .then(|| UiTexturePage::font(Arc::clone(font), index).ok())
                     .flatten()
             })
-            .unwrap_or_else(blank_page)
+            .unwrap_or_else(blank_fallback_font_page)
     })
 }
 
@@ -91,6 +78,7 @@ mod tests {
         FontGlyphRequests, FontLineMetrics, FontPixels, FontRendering, FontTexturePage,
         GlyphMetrics, RuntimeFontCatalog, encode_font_catalog,
     };
+    use render_model::UI_FALLBACK_FONT_PAGE_SIDE;
     use sha2::{Digest, Sha256};
 
     fn fallback(ch: char) -> RuntimeFontCatalog {

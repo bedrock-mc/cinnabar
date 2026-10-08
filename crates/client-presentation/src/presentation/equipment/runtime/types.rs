@@ -85,35 +85,6 @@ pub struct FirstPersonItem {
     pub java_normal_axis: bevy::math::Vec3,
 }
 
-/// Which first-person arms the player render controller shows.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct FirstPersonArms {
-    pub right: bool,
-    pub left: bool,
-}
-
-const FILLED_MAP: &str = "minecraft:filled_map";
-const SHIELD: &str = "minecraft:shield";
-
-impl FirstPersonArms {
-    /// The right arm shows for an empty hand or a map; the left for a map in either hand (a shield
-    /// in the off hand keeps it hidden). The use-item conditions await the item-use queries.
-    pub fn for_hands(main: Option<&str>, off: Option<&str>) -> Self {
-        Self {
-            right: main.is_none_or(|main| main == FILLED_MAP),
-            left: (main == Some(FILLED_MAP) && off != Some(SHIELD)) || off == Some(FILLED_MAP),
-        }
-    }
-
-    /// Shows the right arm when the main-hand item drew nothing, so the rig still swings.
-    pub fn with_undrawn_main(self, main_drawn: bool) -> Self {
-        Self {
-            right: self.right || !main_drawn,
-            ..self
-        }
-    }
-}
-
 /// Tick-owned actor queries and the sampled render fraction for worn attachables.
 #[derive(Clone, Copy)]
 pub struct EquipmentAnimation<'a> {

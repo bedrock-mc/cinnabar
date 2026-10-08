@@ -1,6 +1,20 @@
 use super::*;
 
 #[test]
+fn model_fragment_interfaces_fit_webgpu_limits() {
+    for definitions in [
+        &[][..],
+        &["NATIVE_GAMMA_BLEND"][..],
+        &["ENHANCED"][..],
+        &["ENHANCED_SHADOW"][..],
+    ] {
+        let source =
+            crate::shader_source::standalone(include_str!("../../model.wgsl"), definitions);
+        crate::shader_test_support::assert_webgpu_fragment_inputs(&source);
+    }
+}
+
+#[test]
 fn vanilla_base_pipeline_construction_matches_baseline() {
     let (mut app, _) = crate::queue_review_support::app();
     let mut cache = app.world_mut().remove_resource::<PipelineCache>().unwrap();

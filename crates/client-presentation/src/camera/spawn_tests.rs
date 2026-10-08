@@ -1,5 +1,6 @@
 use super::*;
 use bevy::{camera::CameraProjection, window::WindowResolution};
+use ui::UserSettings;
 
 fn spawned_projection() -> PerspectiveProjection {
     let mut settings = UserSettings::default();

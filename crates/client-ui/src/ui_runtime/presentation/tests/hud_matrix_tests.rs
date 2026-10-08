@@ -122,7 +122,7 @@ fn build(
 #[test]
 fn the_renderable_effect_id_gate_matches_the_pinned_icon_table_exactly() {
     use crate::ui_runtime::gameplay_hud::is_renderable_effect_id;
-    use crate::ui_runtime::presentation::hud_layout::effect_icon_role;
+    use ui::native_hud::effect_icon_role;
     for effect_id in -8..=64 {
         assert_eq!(
             is_renderable_effect_id(effect_id),

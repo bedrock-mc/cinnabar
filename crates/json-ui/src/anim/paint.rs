@@ -131,7 +131,7 @@ impl DrawNode {
         let Some(anim) = &self.anim else {
             return out;
         };
-        if animator.hides(&self.key) {
+        if animator.hides(&self.key, clocks) {
             out.hidden = true;
             return out;
         }

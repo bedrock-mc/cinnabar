@@ -75,8 +75,9 @@ fn report(changing: bool, samples: &mut [Duration], passes: usize) {
 fn lobby_ui_publication_cost() {
     use super::super::super::forms::pack_harness;
     use crate::ui_runtime::presentation::{
-        PendingUiPublication, PreviewCapture, nametags::NametagAnchor, render_prepared_ui,
+        PendingUiPublication, PreviewCapture, render_prepared_ui,
     };
+    use view_presentation::nametags::NametagAnchor;
     if std::env::var_os("CINNABAR_LOBBY_BENCH").is_none() {
         eprintln!("LOBBY_PUBLICATION skipped: set CINNABAR_LOBBY_BENCH=1");
         return;

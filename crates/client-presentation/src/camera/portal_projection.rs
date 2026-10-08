@@ -6,11 +6,11 @@ use bevy::{
     prelude::*,
     window::PrimaryWindow,
 };
+use view_presentation::camera::{projection_aspect, projection_fov_radians};
 
 use super::{
     CameraSettingsAuthority, FlyCamera, ServerCameraView,
     fov::{CameraFovInputs, CameraFovState},
-    projection_fov_radians, window_aspect,
 };
 
 const MIN_GAMEPLAY_FOV_DEGREES: f32 = 5.0;
@@ -138,7 +138,8 @@ pub fn update_camera_fov(
         };
         if let Some(perspective) = perspective {
             perspective.fov = projection_fov_radians(fov_degrees);
-            perspective.aspect_ratio = window_aspect(&window);
+            perspective.aspect_ratio =
+                projection_aspect(window.resolution.width(), window.resolution.height());
         }
     }
 }

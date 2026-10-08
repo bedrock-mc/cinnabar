@@ -5,16 +5,16 @@ use std::{collections::HashMap, sync::Arc};
 use client_world::ActorRigSnapshot;
 use render::{
     ACTOR_LAYER_BODY, ActorArtworkLocation, ActorArtworkPages, ActorRigRoute, ActorRigSubmission,
-    EquipmentRaster,
 };
 use render_model::ActorRigGeometry;
+use render_model::equipment::EquipmentRaster;
 
 use super::{
     actors::ActorPresentationBatch, entity_layers::LayerPoseCache, skin_rig::SkinRigCache,
 };
 
 /// Animated skin layers follow the cape and precede generic render-controller layers.
-pub const SKIN_LAYER_BASE: u8 = super::cape::ACTOR_LAYER_CAPE + 1;
+pub const SKIN_LAYER_BASE: u8 = view_presentation::cape::ACTOR_LAYER_CAPE + 1;
 
 /// Whether an instance belongs to a player's animated skin, rather than equipment.
 pub fn is_skin_layer(layer: u8) -> bool {

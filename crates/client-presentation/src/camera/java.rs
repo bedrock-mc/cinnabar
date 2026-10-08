@@ -5,7 +5,7 @@ use bevy::math::DVec3;
 use bevy::prelude::{Mat4, Resource, Vec3};
 use render_model::java_animation::{java_cos, java_sin};
 
-use super::bob::{ViewEffect, shortest_degrees};
+use view_presentation::camera::{ViewEffect, bob::shortest_degrees};
 
 #[cfg(test)]
 mod reference_tests;

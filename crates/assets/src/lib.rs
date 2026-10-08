@@ -10,6 +10,7 @@ mod blob;
 mod block_entity;
 pub mod block_entity_geometry;
 mod block_names;
+mod block_visibility;
 pub mod carriers;
 mod compiled;
 mod encoding;
@@ -47,9 +48,12 @@ mod sound_events;
 mod stair;
 mod texture;
 mod ui;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod vanilla_pack;
 mod vanilla_refs;
 mod weather_textures;
+
+pub use block_visibility::is_default_invisible_block;
 
 pub use hud_extras::{
     HUD_EXTRA_SIDE, HUD_EXTRAS_MAGIC, HUD_EXTRAS_VERSION, HudExtraRole, HudExtras, HudExtrasError,
@@ -261,7 +265,9 @@ pub use sound_bank::{
     MAX_SOUND_BANK_FILES, MAX_SOUND_BANK_PATH_BYTES, MAX_SOUND_BANK_PREFIX_BYTES, SOUND_BANK_MAGIC,
     SoundBankEntry, SoundBankError, SoundBankIndex, encode_sound_bank, sound_bank_prefix_len,
 };
-pub use sound_events::{FloatRange, RouteLookup, SoundEventTables, SoundRoute};
+pub use sound_events::{
+    FloatRange, RouteLookup, SoundEventTables, SoundRoute, level_event_sound_route,
+};
 pub use stair::StairDirection;
 pub use texture::{
     MAX_TILE_SIZE, MIP_COUNT, TILE_SIZE, TextureArray, TextureMip, build_legacy_terrain_mip_chain,

@@ -248,3 +248,38 @@ fn name_table_is_bounded_terminated_and_not_used_as_audio_data() {
         assert!(decode_fsb5_fadpcm(&bad).is_err());
     }
 }
+
+#[test]
+fn loop_metadata_preserves_finite_pcm_and_rejects_invalid_ranges() {
+    let baseline = bank(1, 16, &block(0, 0, 0, 0, 0), None);
+    let mut encoded = baseline.clone();
+    word(&mut encoded, 12, 20);
+    let mode = u64::from_le_bytes(encoded[60..68].try_into().unwrap()) | 1;
+    encoded[60..68].copy_from_slice(&mode.to_le_bytes());
+    encoded.splice(
+        68..68,
+        [(3u32 << 25) | (8 << 1), 0, 15]
+            .into_iter()
+            .flat_map(u32::to_le_bytes),
+    );
+    assert_eq!(
+        decode_fsb5_fadpcm(&encoded).unwrap(),
+        decode_fsb5_fadpcm(&baseline).unwrap()
+    );
+    for (start, end) in [(16, 15), (0, 16), (u32::MAX, u32::MAX)] {
+        let mut invalid = encoded.clone();
+        word(&mut invalid, 72, start);
+        word(&mut invalid, 76, end);
+        assert!(decode_fsb5_fadpcm(&invalid).is_err());
+    }
+    let mut duplicate = encoded.clone();
+    word(&mut duplicate, 68, (3 << 25) | (8 << 1) | 1);
+    duplicate.splice(
+        80..80,
+        [(3u32 << 25) | (8 << 1), 0, 15]
+            .into_iter()
+            .flat_map(u32::to_le_bytes),
+    );
+    word(&mut duplicate, 12, 32);
+    assert!(decode_fsb5_fadpcm(&duplicate).is_err());
+}

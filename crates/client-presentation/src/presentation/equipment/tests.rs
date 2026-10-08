@@ -1,3 +1,10 @@
+use render_model::equipment::{ItemDisplay, attach_to_bone, held_block_display, is_rod};
+use view_presentation::armor_pose::{bone_map, hidden_bone, pack_tint, remap_pose};
+use view_presentation::equipment_display::FirstPersonArms;
+use view_presentation::equipment_display::{
+    FirstPersonHand, FirstPersonShape, first_person_display,
+};
+use view_presentation::equipment_sprite_atlas::{ATLAS_SIDE, SpriteAtlas};
 #[path = "runtime/elytra_tests.rs"]
 mod elytra_tests;
 
@@ -7,19 +14,12 @@ use assets::IconSprite;
 use bevy::math::{Quat, Vec3};
 use render::{
     ACTOR_LAYER_BODY, ActorArtworkPages, ActorRenderIdentity, ActorRigRenderInput, ActorRigRoute,
-    ActorRigSubmission, EquipmentRaster,
+    ActorRigSubmission,
 };
+use render_model::equipment::EquipmentRaster;
 use render_model::{EntityRigId, RenderBoneTransform};
 
-use super::{
-    armor::{bone_map, hidden_bone, pack_tint, remap_pose},
-    atlas::{ATLAS_SIDE, SpriteAtlas},
-    display::{
-        FirstPersonHand, FirstPersonShape, ItemDisplay, attach_to_bone, first_person_display,
-        held_block_display, is_rod,
-    },
-    runtime::{FirstPersonArms, layer_presentation},
-};
+use super::runtime::layer_presentation;
 
 fn sprite(side: u16, fill: u8) -> IconSprite {
     IconSprite {
