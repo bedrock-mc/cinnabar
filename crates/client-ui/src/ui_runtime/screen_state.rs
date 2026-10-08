@@ -107,6 +107,7 @@ impl ScreenState {
             self.beacon = (0, 0);
             self.search_focused = false;
             self.recipe_choice = None;
+            self.furnace_tab = None;
             self.loom_pattern = None;
             self.loom_row = 0;
             self.anvil_name.clear();

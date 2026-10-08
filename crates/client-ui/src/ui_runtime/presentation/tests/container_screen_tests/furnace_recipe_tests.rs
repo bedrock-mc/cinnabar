@@ -57,13 +57,14 @@ fn furnace_recipe_panel_lists_outputs_and_routes_filter_tabs_and_search() {
         }));
     let packet = CraftingDataPacket {
         shapeless_recipes: [
-            ("minecraft:raw_iron", 2),
-            ("minecraft:beef", 3),
-            ("minecraft:sand", 4),
+            ("minecraft:raw_iron", 2, "furnace"),
+            ("minecraft:beef", 3, "furnace"),
+            ("minecraft:sand", 4, "furnace"),
+            ("minecraft:beef", 3, "smoker"),
         ]
         .into_iter()
         .enumerate()
-        .map(|(index, (name, output))| ShapelessRecipePayload {
+        .map(|(index, (name, output, station))| ShapelessRecipePayload {
             ingredients: vec![CerealizerRecipeIngredientSerializedData {
                 descriptor: vec![CerealizerRecipeIngredientSerializedDataDescriptorItem {
                     key: "name".into(),
@@ -79,7 +80,7 @@ fn furnace_recipe_panel_lists_outputs_and_routes_filter_tabs_and_search() {
                 block_runtime_id: if output == 4 { 1 } else { 0 },
                 user_data_buffer: vec![],
             }],
-            tag: "furnace".into(),
+            tag: station.into(),
             net_id: TypedServerNetIdstructRecipeNetIdTag {
                 raw_id: index as u32 + 1,
             },
@@ -256,5 +257,32 @@ fn furnace_recipe_panel_lists_outputs_and_routes_filter_tabs_and_search() {
     assert!(
         !runtime.screen_state().text_focused(),
         "hidden furnace search must release the keyboard"
+    );
+    let generation = player.inventory.ledger().storage_generation();
+    runtime.screen_state_mut().observe_window(generation);
+    runtime.screen_state_mut().search.clear();
+    runtime.screen_state_mut().furnace_tab = Some(2);
+    assert_eq!(
+        recipe_book_entries(&player, &runtime)[0].stack().network_id,
+        2
+    );
+    runtime
+        .inventory_ledger_mut(&mut player)
+        .apply(&InventoryEvent::Open(ContainerOpenEvent {
+            container: ContainerIdentity::window(8),
+            window_type: ::protocol::WINDOW_TYPE_SMOKER,
+            position: [0, 64, 0],
+            runtime_entity_id: -1,
+        }));
+    let generation = player.inventory.ledger().storage_generation();
+    runtime.screen_state_mut().observe_window(generation);
+    runtime.screen_state_mut().recipe_filtering = Some(false);
+    assert_eq!(
+        recipe_book_entries(&player, &runtime)
+            .iter()
+            .map(|entry| entry.stack().network_id)
+            .collect::<Vec<_>>(),
+        [3],
+        "switching to a food-only station must not retain its hidden Items category"
     );
 }
