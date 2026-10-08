@@ -355,3 +355,55 @@ fn custom_cursor_preserves_camera_spectator_hidden_hud_and_menu_gates() {
     p.set_menu_view(Some(crate::menu::MenuView::new(true, "Fixture".into())));
     assert!(!p.mod_hud_visible(&player, &runtime));
 }
+
+#[test]
+fn progress_fill_stays_within_its_track_for_icon_rows_and_each_card_scale() {
+    fn mesh_bounds(presentation: &UiPresentationRuntime, color: [u8; 4]) -> Option<ui::UiRect> {
+        presentation
+            .last_frame
+            .as_ref()
+            .unwrap()
+            .nodes
+            .iter()
+            .find_map(|node| {
+                let ui::UiVisual::Mesh(mesh) = node.visual() else {
+                    return None;
+                };
+                mesh.vertices()
+                    .iter()
+                    .any(|vertex| vertex.color == color)
+                    .then(|| node.bounds())
+            })
+    }
+    for scale in [0.5, 1., 2.] {
+        for icon in [false, true] {
+            let mut presentation = presentation(false);
+            let mut hud = content();
+            hud.cards[0].scale = scale;
+            if !icon {
+                hud.cards[0].rows[0].item = None;
+            }
+            hud.cards[0].rows[0].color = [1., 0., 0., 1.];
+            for progress in [0., 0.5, 1.] {
+                hud.cards[0].rows[0].progress = Some(progress);
+                presentation.set_mod_hud(Some(&hud)).unwrap();
+                frame(&mut presentation, &UiRuntime::new(1), [1280, 720], 1.);
+                let track =
+                    mesh_bounds(&presentation, [255, 255, 255, 46]).expect("progress track");
+                let fill = mesh_bounds(&presentation, [255, 0, 0, 255]);
+                if progress == 0. {
+                    assert!(fill.is_none(), "zero progress draws no fill");
+                    continue;
+                }
+                let fill = fill.expect("positive progress fill");
+                let width = |bounds: ui::UiRect| bounds.max().x() - bounds.min().x();
+                assert_eq!(fill.min(), track.min());
+                assert!(fill.max().x() <= track.max().x());
+                assert!(
+                    (width(fill) - width(track) * progress).abs() < 0.01,
+                    "scale={scale}, icon={icon}, progress={progress}, fill={fill:?}, track={track:?}"
+                );
+            }
+        }
+    }
+}

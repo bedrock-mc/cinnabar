@@ -113,25 +113,20 @@ fn card(card: &Card, card_index: usize, row_index: &mut usize) -> Value {
         );
         controls.push(named(&format!("value_{index}"), value));
         if row.progress.is_some() {
-            controls.push(named(
-                &format!("track_{index}"),
-                rounded(
-                    [(WIDTH - left - 6.) * k, 2. * k],
-                    [left * k, y + 14. * k],
-                    0.,
-                    [1., 1., 1., 0.18],
-                ),
-            ));
-            let mut fill = rounded(
-                [(WIDTH - left - 6.) * k, 2. * k],
-                [left * k, y + 14. * k],
-                0.,
-                [1.; 4],
-            );
+            let size = [(WIDTH - left - 6.) * k, 2. * k];
+            let track = rounded(size, [0.; 2], 0., [1., 1., 1., 0.18]);
+            let mut fill = rounded(size, [0.; 2], 0., [1.; 4]);
             fill["bindings"] = json!([
                 {"binding_name":format!("#row_{index}_progress"),"binding_name_override":"#size_binding_x"},
                 {"binding_name":format!("#row_{index}_color"),"binding_name_override":"#color"}]);
-            controls.push(named(&format!("progress_{index}"), fill));
+            controls.push(named(
+                &format!("progress_{index}"),
+                json!({
+                    "type":"panel", "size":size, "offset":[left*k,y+14.*k],
+                    "anchor_from":"top_left", "anchor_to":"top_left",
+                    "controls":[named("track",track),named("fill",fill)]
+                }),
+            ));
         }
     }
     let anchor = match card.anchor {
