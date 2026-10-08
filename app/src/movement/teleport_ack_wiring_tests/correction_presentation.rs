@@ -199,7 +199,11 @@ fn pending_transport_correction_keeps_the_presented_view_without_advancing_autho
     }
     let physics = app.world().resource::<LocalPhysicsController>();
     assert_eq!(physics.state().unwrap().tick, tick + 1);
-    assert!((physics.tick_alpha() - 0.5).abs() < 1e-6);
+    assert!(
+        (physics.tick_alpha() - 0.5).abs() < 1.0e-6,
+        "{}",
+        physics.tick_alpha()
+    );
     let view = app.world().resource::<LocalViewPose>();
     assert!(view.eye_translation().x > before.eye_translation().x);
     assert!(view.eye_translation().x < position[0]);
