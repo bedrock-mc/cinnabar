@@ -3645,3 +3645,9 @@ Files: `docs/reference/held-block-placement.md`, `crates/gameplay/src/block_use.
   `geometry.the_entity`. A fixed 151-actor loopback scene keeps the late actor in
   its authored frustum while a camera turn admits the background crowd; the old
   128-body gates remove that otherwise visible actor.
+
+## crates/client-world/src/actor_store/appearance_preparation.rs; crates/client-world/src/actor_animation/skin/queue.rs
+
+- `1.26.50.26` AddPlayer handler `FUN_1414e8df0` (RVA 0x14e8df0) constructs the `RemotePlayer`, `moveTo`s it and adds it to the level synchronously; packets are handled every frame after the tick loop (`Minecraft::update` → `NetworkSystem::runEvents`, macOS ~1.26.30 0x10992bf20/0x105a32410), not inside a 20 Hz tick. `Player::Player` assigns the base player renderer, so the actor draws before its skin.
+- The skin goes through `PersonaNetworkHandlerDelegate::addSkinToQueue`/`onTick` (macOS 0x103580380/0x10357c2b0; classic queue dequeues while ≤4 in flight, persona ≤1) into `ClientSkinSystem::createOrUpdate` (`FUN_144c78540`, RVA 0x4c78540) with async geometry for remote players. `_updateClientSkin` (`FUN_144c748b0`, RVA 0x4c748b0) substitutes the vanilla pack's Custom/CustomSlim geometry for null geometry data and still processes it asynchronously on the shared Geometry `ResourceLoadTaskGroup`. `Player::updateSkin` (macOS 0x10a1e43e0) switches to the per-skin renderer only on completion; `initializeClientSkin` (`FUN_144c6a8e0`, RVA 0x4c6a8e0) builds it on a later `ClientSkinSystem::tick`.
+- Cinnabar resolves model-free sources against the catalog inline, which is faster than vanilla's queue; custom models stay hidden until prepared, where vanilla draws the base player meanwhile.

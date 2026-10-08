@@ -2,7 +2,7 @@
 use std::{
     collections::{HashMap, VecDeque},
     hash::{BuildHasher, Hash, Hasher},
-    sync::Arc,
+    sync::{Arc, Mutex, PoisonError},
 };
 
 use assets::{RuntimeEntityAssets, SkinGeometry, parse_skin_geometry};
@@ -71,13 +71,15 @@ impl SkinPreparationCache {
         self.entries.is_empty()
     }
 
-    /// Shares successful and rejected preparation without retaining more source bytes than actor admission.
-    pub(super) fn prepare(
-        &mut self,
+    /// Shares preparation across overlapping batches; hashing and model construction run unlocked.
+    pub(super) fn prepare_shared(
+        cache: &Mutex<Self>,
         source: &Arc<SkinGeometrySource>,
         assets: &RuntimeEntityAssets,
     ) -> (Option<Arc<PreparedSkin>>, bool) {
-        let mut hash = self.entries.hasher().build_hasher();
+        let lock = || cache.lock().unwrap_or_else(PoisonError::into_inner);
+        let hasher = lock().entries.hasher().clone();
+        let mut hash = hasher.build_hasher();
         source.resource_patch.hash(&mut hash);
         source.geometry_data.hash(&mut hash);
         source.animations.len().hash(&mut hash);
@@ -96,11 +98,24 @@ impl SkinPreparationCache {
             source: Arc::clone(source),
             hash: hash.finish(),
         };
-        if let Some(prepared) = self.entries.get(&key) {
+        if let Some(prepared) = lock().entries.get(&key) {
             return prepared.clone();
         }
         let prepared = prepare(source, assets);
-        let bytes = source.byte_len();
+        lock().insert(key, prepared)
+    }
+
+    /// Shares successful and rejected preparation without retaining more source bytes than actor admission.
+    fn insert(
+        &mut self,
+        key: SourceKey,
+        prepared: (Option<Arc<PreparedSkin>>, bool),
+    ) -> (Option<Arc<PreparedSkin>>, bool) {
+        // An overlapping batch may have prepared equal content first; keep sharing its result.
+        if let Some(existing) = self.entries.get(&key) {
+            return existing.clone();
+        }
+        let bytes = key.source.byte_len();
         let mesh_bytes = prepared
             .0
             .as_ref()
@@ -130,8 +145,13 @@ impl SkinPreparationCache {
     }
 }
 
+/// Sources without model data or animated layers resolve only against the vanilla catalog.
+pub(super) fn uses_catalog_model(source: &SkinGeometrySource) -> bool {
+    source.animations.is_empty() && matches!(source.geometry_data.trim(), "" | "null")
+}
+
 /// Resolves a source against the store's immutable vanilla catalog and composes its rest pose once.
-fn prepare(
+pub(super) fn prepare(
     source: &SkinGeometrySource,
     assets: &RuntimeEntityAssets,
 ) -> (Option<Arc<PreparedSkin>>, bool) {

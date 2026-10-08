@@ -137,33 +137,44 @@ fn an_equal_source_update_becomes_the_next_unchanged_pointer_fast_path() {
 
 /// Lists and spawns one independently allocated, original custom-model appearance.
 fn profile_store(byte: u8) -> crate::actor_store::ActorStore {
-    let mut store = crate::actor_store::ActorStore::new_with_entity_assets(
+    let mut store = player_store();
+    add_player(&mut store, 1, profile_skin(byte));
+    store
+}
+
+fn player_store() -> crate::actor_store::ActorStore {
+    crate::actor_store::ActorStore::new_with_entity_assets(
         1,
         0,
         super::super::render_frame::tests::counting_random_assets_for("minecraft:player"),
-    );
+    )
+}
+
+/// Lists then spawns player `id` as one wire batch would, with uuid, unique and runtime ids from `id`.
+fn add_player(store: &mut crate::actor_store::ActorStore, id: u8, skin: protocol::PlayerSkin) {
+    let sequence = u64::from(id) * 2;
     store.apply(
         1,
-        1,
+        sequence - 1,
         protocol::ActorEvent::PlayerList(protocol::PlayerListUpdateEvent {
             entries: Arc::from([protocol::PlayerListEntry::Add {
-                uuid: [1; 16],
-                unique_id: 1,
+                uuid: [id; 16],
+                unique_id: i64::from(id),
                 username: "fixture".into(),
                 verified: true,
-                skin: profile_skin(byte),
+                skin,
             }]),
         }),
     );
     store.apply(
         1,
-        2,
+        sequence,
         protocol::ActorEvent::Spawn(protocol::ActorSpawnEvent {
             dimension: 0,
-            unique_id: 1,
-            runtime_id: 1,
+            unique_id: i64::from(id),
+            runtime_id: u64::from(id),
             kind: ActorKind::Player {
-                uuid: [1; 16],
+                uuid: [id; 16],
                 username: "fixture".into(),
             },
             position: [0.0; 3],
@@ -179,7 +190,6 @@ fn profile_store(byte: u8) -> crate::actor_store::ActorStore {
             links: Arc::from([]),
         }),
     );
-    store
 }
 
 /// Distinct pixels, capes and geometry reveal an incomplete appearance replacement.
@@ -263,4 +273,50 @@ fn warm_source(store: &mut ActorAnimationStore, source: &Arc<SkinGeometrySource>
     store.request_skin_preparation(source);
     store.submit_skin_preparation();
     store.finish_skin_preparation_for_test();
+}
+
+/// A skin naming a catalog model, as classic skins do, has nothing to wait for.
+fn standard_skin() -> protocol::PlayerSkin {
+    let side = protocol::CLASSIC_SKIN_SIDE;
+    protocol::PlayerSkin::Standard(protocol::StandardSkin {
+        width: side as u32,
+        height: side as u32,
+        rgba8: vec![9; side * side * 4].into(),
+        cape: None,
+        geometry: Some(Arc::new(SkinGeometrySource {
+            resource_patch: r#"{"geometry":{"default":"geometry.item"}}"#.into(),
+            geometry_data: "".into(),
+            animations: Arc::from([]),
+        })),
+    })
+}
+
+#[test]
+fn standard_model_player_is_drawable_in_the_frame_it_is_added() {
+    let mut store = player_store();
+    add_player(&mut store, 1, standard_skin());
+    store.advance_interpolation_frame(0);
+    assert!(store.player_profile(1).is_some());
+    let rig = store
+        .actor_rigs()
+        .find(|rig| rig.actor.runtime_id == 1)
+        .expect("a standard-model player must not wait for a tick or a worker");
+    assert!(rig.skin_geometry.is_some(), "the catalog model is installed with the pixels");
+}
+
+#[test]
+fn custom_model_crowd_publishes_after_one_frame_per_admitted_batch() {
+    let batches = queue::MAX_SKIN_BATCHES_IN_FLIGHT;
+    let crowd = (queue::MAX_SKIN_PREPARATIONS_PER_PASS * batches) as u8;
+    let mut store = player_store();
+    for id in 1..=crowd {
+        add_player(&mut store, id, profile_skin(id));
+    }
+    // Every batch is admitted without waiting for an earlier one to finish.
+    for _ in 0..batches {
+        store.advance_interpolation_frame(0);
+    }
+    store.finish_appearance_preparation_for_test();
+    store.advance_interpolation_frame(0);
+    assert_eq!(store.actor_rigs().count(), usize::from(crowd));
 }
