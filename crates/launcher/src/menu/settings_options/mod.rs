@@ -26,7 +26,7 @@ pub use definitions::{
     THIRD_PERSON_CROSSHAIR_OPTION,
 };
 pub use emotes::EMOTE_SLOT_COUNT;
-pub use keybindings::{KEY_BINDINGS, key_name};
+pub use keybindings::{KEY_BINDINGS, OPEN_NOTIFICATION_KEY, key_name};
 pub use persistence::SETTINGS_FILE;
 
 pub const SHOW_EXACT_SERVER_PING: &str = "show_exact_server_ping";

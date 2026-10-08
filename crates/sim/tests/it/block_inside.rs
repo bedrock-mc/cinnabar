@@ -113,11 +113,17 @@ fn honey_under_the_feet_scales_the_jump_power() {
     let honey = facts(BlockPhysicsFlags::default(), SurfaceResponse::Honey);
     let sunk = Cells::floor(0.9375).with([0, 0, 0], honey);
     let mut state = grounded(Vec3::new(0.5, 0.9375, 0.5));
-    assert_eq!(tick(&sunk, &mut state, jump()).movement.y as f32, 0.42_f32 * 0.6);
+    assert_eq!(
+        tick(&sunk, &mut state, jump()).movement.y as f32,
+        0.42_f32 * 0.6
+    );
 
     let aligned = Cells::floor(1.0).with([0, 0, 0], honey);
     let mut state = grounded(Vec3::new(0.5, 1.0, 0.5));
-    assert_eq!(tick(&aligned, &mut state, jump()).movement.y as f32, 0.42_f32 * 0.6);
+    assert_eq!(
+        tick(&aligned, &mut state, jump()).movement.y as f32,
+        0.42_f32 * 0.6
+    );
 }
 
 /// Honey the body merely touches beside it leaves the ordinary jump.
@@ -257,7 +263,10 @@ fn stuck_blocks_slow_every_travel_mode_except_creative_flight() {
     for mode in [MovementMode::Gliding, MovementMode::Flying] {
         assert_eq!(moved(mode, false) as f32, open(mode, false) as f32 * 0.25);
     }
-    assert_eq!(moved(MovementMode::Flying, true), open(MovementMode::Flying, true));
+    assert_eq!(
+        moved(MovementMode::Flying, true),
+        open(MovementMode::Flying, true)
+    );
 }
 
 /// Bubble columns push once per cell after the move: inside the column, then at its surface.
@@ -285,7 +294,11 @@ fn bubble_columns_push_per_cell_inside_then_at_the_surface() {
         let up = settle(&column(SurfaceResponse::BubbleUp), mode);
         assert_eq!(up, ((still + 0.06).min(0.7) + 0.1).min(1.8), "{mode:?}");
         let down = settle(&column(SurfaceResponse::BubbleDown), mode);
-        assert_eq!(down, ((still - 0.03).max(-0.3) - 0.03).max(-0.9), "{mode:?}");
+        assert_eq!(
+            down,
+            ((still - 0.03).max(-0.3) - 0.03).max(-0.9),
+            "{mode:?}"
+        );
     }
     let flying = column(SurfaceResponse::BubbleUp);
     assert_eq!(

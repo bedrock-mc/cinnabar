@@ -50,6 +50,7 @@ assets = { path = "../crates/assets" }
 bevy.workspace = true
 crossbeam-channel = "0.5"
 ctrlc = { version = "3.4", features = ["termination"] }
+gilrs = "0.11.2"
 fontdue = { version = "0.9.3", default-features = false, features = ["std"] }
 chunk-pipeline = { path = "../crates/chunk-pipeline" }
 client-world = { path = "../crates/client-world" }

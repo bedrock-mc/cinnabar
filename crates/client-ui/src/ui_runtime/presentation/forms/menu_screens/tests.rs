@@ -211,6 +211,32 @@ fn pressed_buttons_map_to_menu_actions() {
 }
 
 #[test]
+fn the_pause_friends_drawer_invites_only_while_hosting() {
+    let press = |view: &MenuView| {
+        action_for(
+            view,
+            &region(HitKind::Button, Some("button.friends_drawer")),
+        )
+    };
+    let mut pause = view(MenuScreen::Pause);
+    assert_eq!(
+        press(&pause),
+        Some(MenuAction::Navigate(MenuScreen::Friends))
+    );
+    pause.hosting = true;
+    assert_eq!(
+        press(&pause),
+        Some(MenuAction::Invite(launcher::menu::invite::Action::Open))
+    );
+    let mut home = view(MenuScreen::Home);
+    home.hosting = true;
+    assert_eq!(
+        press(&home),
+        Some(MenuAction::Navigate(MenuScreen::Friends))
+    );
+}
+
+#[test]
 fn the_start_screen_marketplace_button_opens_the_store_and_its_presses_route_to_it() {
     let home = view(MenuScreen::Home);
     assert_eq!(
