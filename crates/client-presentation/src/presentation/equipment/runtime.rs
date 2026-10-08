@@ -100,6 +100,7 @@ pub struct EquipmentRuntime {
     placements: Vec<Option<Placement>>,
     /// Block visual id to its carried or fallback sheet's index in `placements`.
     block_sheets: BTreeMap<u32, usize>,
+    block_models: BTreeMap<u32, Vec<render_model::ActorRigVertex>>,
     block_alpha: BTreeMap<u32, render::HandItemAlphaMode>,
     atlas_locations: Vec<Option<ActorArtworkLocation>>,
     texture_locations: BTreeMap<Box<str>, ActorArtworkLocation>,
@@ -150,10 +151,15 @@ impl EquipmentRuntime {
         block_entities: Option<Arc<RuntimeBlockEntityAssets>>,
         artwork: ActorArtworkPages,
     ) -> (Self, ActorArtworkPages, Vec<u32>) {
-        let BlockSheets { sheets, by_visual } = world.as_deref().map_or_else(
+        let BlockSheets {
+            sheets,
+            by_visual,
+            models: block_models,
+        } = world.as_deref().map_or_else(
             || BlockSheets {
                 sheets: Vec::new(),
                 by_visual: BTreeMap::new(),
+                models: BTreeMap::new(),
             },
             |world| blocks::collect(world, &assets),
         );
@@ -170,6 +176,7 @@ impl EquipmentRuntime {
                     .block_sheets()
                     .iter()
                     .filter(|sheet| sheet.visual.0 < assets.block_visual_count())
+                    .filter(|sheet| !block_models.contains_key(&sheet.visual.0))
                     .map(|sheet| (sheet.visual.0, sheet.sprite as usize)),
             );
         }
@@ -258,6 +265,7 @@ impl EquipmentRuntime {
             icons,
             placements: atlas.placements,
             block_sheets,
+            block_models,
             block_alpha,
             atlas_locations: locations[..atlas_layers].to_vec(),
             texture_locations,
@@ -613,6 +621,21 @@ impl EquipmentRuntime {
             MeshKey::Block(_) | MeshKey::SessionBlock(_) => None,
         };
         let vertices = match (key, sprite) {
+            (MeshKey::Block(visual), _) if self.block_models.contains_key(&visual) => {
+                let rect = placement.uv_rect();
+                self.block_models[&visual]
+                    .iter()
+                    .copied()
+                    .map(|mut vertex| {
+                        for uv in [&mut vertex.uv, &mut vertex.back_uv] {
+                            for axis in 0..2 {
+                                uv[axis] = rect[axis] + uv[axis] * (rect[axis + 2] - rect[axis]);
+                            }
+                        }
+                        vertex
+                    })
+                    .collect()
+            }
             (MeshKey::Block(_) | MeshKey::SessionBlock(_), _) => {
                 textured_cube_vertices(blocks::face_rects(placement.uv_rect()))
             }

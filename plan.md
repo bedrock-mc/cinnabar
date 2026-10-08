@@ -6590,3 +6590,13 @@ hardware budgets and matched-version pixel comparison remain incomplete.
   its effective placement face are incomplete. Clicked-cell selection retains the existing rule.
 - Same-frame visibility and rendered neighbor/correction behavior still need headless captures;
   this work does not close a visual or frame-budget gate.
+
+## Entity interaction and emote starts
+
+Entity-use presses now send the selected stack and fresh actor hit in the input
+frame, with block occlusion and bounded queue retries. A live cow interaction
+produces a server-confirmed milk bucket. Selecting an equipped emote sends its
+catalog identifier and duration once in that frame; idle and cancellation send
+no start packet. Marketplace clip ownership/playback, remote custom-emote
+synchronization, and the complete villager trade UI remain incomplete. These
+producer fixes do not close those parity gates.
