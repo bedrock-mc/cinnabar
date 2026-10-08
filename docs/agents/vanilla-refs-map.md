@@ -3697,3 +3697,6 @@ Files: `docs/reference/held-block-placement.md`, `crates/gameplay/src/block_use.
   overlays preserve that admission through `CrackQuad`; their shared overlay
   vertex entry keeps the depth separation toward the camera on either side,
   while emitting each transparent leaf only once.
+## app/src/runtime/world.rs (committed control fence); app/src/tests/latency_fences.rs
+
+- Vanilla handles inbound packets in wire order every frame after the tick loop (`Minecraft::update` → `NetworkSystem::runEvents`, macOS ~1.26.30 0x10992bf20/0x105a32410). `LegacyClientNetworkHandler::handle(SetActorMotionPacket)` applies tick-zero motion immediately and `_onCorrectPlayerMovePredictionPacket` `0x04ae6670` feeds the correction into the replay frame when handled (entries above), so nothing ahead of a later NetworkStackLatency probe waits for that probe's reply. Cinnabar defers only the probe and later controls while older inputs drain, preserving the wire order input → reply → input reflecting post-probe state.
