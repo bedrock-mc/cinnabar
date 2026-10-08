@@ -690,6 +690,7 @@ pub(crate) struct ActorStore {
     /// Whether the local player's own rig should render first-person; set by each pose feed.
     local_first_person: bool,
     local_view_dirty: bool,
+    remote_motion_ahead: u32, // Remote motion ticks already applied before this frame's visuals.
     local_view_bobbing: bool,
     local_flying: bool,
     /// Held items of the client-fed local player, which the item store never tracks.

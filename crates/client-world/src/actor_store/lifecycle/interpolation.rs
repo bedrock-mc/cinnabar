@@ -44,6 +44,54 @@ impl ActorStore {
         self.advance_interpolation(ticks, true);
     }
 
+    /// Advances remote actors' motion ahead of the frame's visuals, so picks read this frame's poses.
+    pub(crate) fn advance_remote_motion(&mut self, ticks: u32) {
+        for _ in 0..ticks {
+            self.step_motion(true, false);
+            self.seat_riders();
+        }
+        self.remote_motion_ahead = self.remote_motion_ahead.saturating_add(ticks);
+    }
+
+    /// One tick of interpolated motion for the remote actors and/or the local actor.
+    fn step_motion(&mut self, remote: bool, local: bool) {
+        let local_runtime = self.remote_state_excluded_runtime_id;
+        for (runtime_id, actor) in &mut self.actors {
+            let is_local = local_runtime == Some(*runtime_id);
+            if !(if is_local { local } else { remote }) {
+                continue;
+            }
+            let current = actor.current_pose();
+            actor.previous_pose = current;
+            let mut next = if actor.interpolation_ticks_remaining == 0 && actor.is_dying_dragon() {
+                current
+            } else {
+                actor.received_pose
+            };
+            // Vanilla's interpolation tick clears velocity
+            // before decrementing any positive interpolation count, including its last tick.
+            if actor.interpolation_ticks_remaining > 0 {
+                actor.status.native_velocity = [0.0; 3];
+            }
+            // The final step lands exactly on the target.
+            if actor.interpolation_ticks_remaining > 1 {
+                // Each step closes 1/n of the remaining gap; angles take the short way.
+                let divisor = actor.interpolation_ticks_remaining as f32;
+                let target = actor.received_pose;
+                next.position = std::array::from_fn(|axis| {
+                    current.position[axis]
+                        + (target.position[axis] - current.position[axis]) / divisor
+                });
+            }
+            actor.interpolate_movement_rotation(current, &mut next);
+            actor.interpolation_ticks_remaining =
+                actor.interpolation_ticks_remaining.saturating_sub(1);
+            actor.set_current_pose(next);
+            actor.advance_movement_interpolation();
+            actor.status.tick();
+        }
+    }
+
     /// Keeps motion and status exact while separating frame and simulation evaluation cadence.
     fn advance_interpolation(&mut self, ticks: u32, frame: bool) {
         let refresh_view = frame && ticks == 0 && self.local_view_dirty;
@@ -51,39 +99,12 @@ impl ActorStore {
             self.local_view_dirty = false;
         }
         self.prepare_appearances(ticks > 0);
+        // Remote motion already applied for picking this frame is not applied again.
+        let ahead = self.remote_motion_ahead.min(ticks);
+        self.remote_motion_ahead -= ahead;
         for tick in 0..ticks.max(u32::from(refresh_view)) {
             if !refresh_view {
-                for actor in self.actors.values_mut() {
-                    let current = actor.current_pose();
-                    actor.previous_pose = current;
-                    let mut next =
-                        if actor.interpolation_ticks_remaining == 0 && actor.is_dying_dragon() {
-                            current
-                        } else {
-                            actor.received_pose
-                        };
-                    // Vanilla's interpolation tick clears velocity
-                    // before decrementing any positive interpolation count, including its last tick.
-                    if actor.interpolation_ticks_remaining > 0 {
-                        actor.status.native_velocity = [0.0; 3];
-                    }
-                    // The final step lands exactly on the target.
-                    if actor.interpolation_ticks_remaining > 1 {
-                        // Each step closes 1/n of the remaining gap; angles take the short way.
-                        let divisor = actor.interpolation_ticks_remaining as f32;
-                        let target = actor.received_pose;
-                        next.position = std::array::from_fn(|axis| {
-                            current.position[axis]
-                                + (target.position[axis] - current.position[axis]) / divisor
-                        });
-                    }
-                    actor.interpolate_movement_rotation(current, &mut next);
-                    actor.interpolation_ticks_remaining =
-                        actor.interpolation_ticks_remaining.saturating_sub(1);
-                    actor.set_current_pose(next);
-                    actor.advance_movement_interpolation();
-                    actor.status.tick();
-                }
+                self.step_motion(tick >= ahead, true);
                 self.seat_riders();
             }
             if !refresh_view {

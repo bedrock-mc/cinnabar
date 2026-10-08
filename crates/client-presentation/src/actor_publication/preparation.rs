@@ -19,6 +19,7 @@ pub struct ActorFrameState {
     pub(super) java_hand: java::HandCache,
     pub(super) input: Option<ActorFrameInput>,
     pub(super) step: Option<crate::actor_clock::ActorFrameStep>,
+    motion_step: Option<crate::actor_clock::ActorFrameStep>, // Taken by early remote motion.
     pub(super) hand_source: Option<HandSource>,
     pub(super) hand_key: Option<hand::SourceKey>,
     hand_ready: bool,
@@ -39,7 +40,31 @@ impl ActorFrameState {
     }
 }
 
-/// Captures inventory and advances the actor clock once, after interaction owners pick actors.
+/// Advances the actor clock and remote actor motion so interaction picks this frame's positions;
+/// the frame's [`advance_actor_frame`] then evaluates visuals for the same step.
+pub fn advance_actor_motion(
+    state: &mut ActorFrameState,
+    stream: Option<&mut WorldStream>,
+    delta: std::time::Duration,
+    sample_world: impl FnOnce(&mut WorldStream),
+) {
+    let session_id = stream
+        .as_ref()
+        .map(|stream| stream.authority().actor_session_id());
+    if state.published_session != session_id {
+        state.actor_clock.reset();
+    }
+    let step = state.actor_clock.advance(delta);
+    if let Some(stream) = stream {
+        if step.ticks > 0 {
+            sample_world(stream);
+        }
+        stream.advance_remote_actor_motion(step.ticks);
+    }
+    state.motion_step = Some(step);
+}
+
+/// Captures inventory and evaluates actor visuals once per frame.
 pub fn advance_actor_frame(
     mut client_world: ActorWorld<'_>,
     mut input: ActorFrameInput,
@@ -72,6 +97,7 @@ pub fn advance_actor_frame(
         pack_geometry_ready,
         published_items,
         actor_clock,
+        motion_step,
         session_artwork,
         skin_rigs,
         skin_layers,
@@ -163,7 +189,9 @@ pub fn advance_actor_frame(
         }
     }
     let artwork = session_artwork.as_ref().unwrap_or(&artwork);
-    let step = actor_clock.advance(time.delta());
+    // Early remote motion already advanced the clock and sampled the world this frame.
+    let early = motion_step.take();
+    let step = early.unwrap_or_else(|| actor_clock.advance(time.delta()));
     partial_tick.0 = step.partial_tick;
     skin_rigs.begin_frame();
     poses.begin_frame();
@@ -222,7 +250,7 @@ pub fn advance_actor_frame(
             .as_deref()
             .map(|profiler| profiler.time(render::RuntimeStage::ActorAnimation));
         // Fluid and bed state is tick state; a frame without a tick would resample the same.
-        if step.ticks > 0 {
+        if step.ticks > 0 && early.is_none() {
             sample_world(stream);
         }
         stream.advance_actor_interpolation_frame(step.ticks);

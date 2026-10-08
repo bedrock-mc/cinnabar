@@ -33,7 +33,26 @@ pub(crate) struct ActorObservations<'w> {
     profiler: Option<Res<'w, render::RuntimeStageProfiler>>,
 }
 
-/// Captures live owners and advances actors after this frame's sends, before UI preparation.
+/// Moves remote actors to this frame's tick positions before interaction picks them.
+pub(crate) fn advance_actor_motion(
+    mut world: ResMut<ClientWorld>,
+    mut state: ResMut<client_presentation::actor_publication::ActorFrameState>,
+    time: Res<Time<Real>>,
+    collisions: Option<Res<PhysicsCollisionRegistries>>,
+) {
+    client_presentation::actor_publication::advance_actor_motion(
+        &mut state,
+        world.stream.as_mut(),
+        time.delta(),
+        |stream| {
+            if let Some(collisions) = collisions.as_deref() {
+                client_presentation::actor_sampling::sample_actor_world_state(stream, collisions);
+            }
+        },
+    );
+}
+
+/// Captures live owners and evaluates actor visuals after this frame's sends.
 pub(crate) fn advance_actor_frame(
     observations: ActorObservations,
     params: client_presentation::actor_publication::ActorFramePublication,

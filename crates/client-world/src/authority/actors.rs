@@ -68,6 +68,11 @@ impl WorldAuthority {
         self.publish_actor_particles();
         self.publish_actor_audio();
     }
+    /// Moves remote actors through `ticks` ahead of the frame's visuals; the frame's
+    /// [`Self::advance_actor_interpolation_frame`] then skips that motion.
+    pub fn advance_remote_actor_motion(&mut self, ticks: u32) {
+        self.actors.advance_remote_motion(ticks);
+    }
     /// Advances elapsed tick state, evaluating animation once for this rendered frame.
     pub fn advance_actor_interpolation_frame(&mut self, ticks: u32) {
         self.actors.advance_interpolation_frame(ticks);

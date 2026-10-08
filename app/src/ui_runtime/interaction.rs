@@ -608,13 +608,18 @@ pub(crate) fn drive_chat_keyboard_input(
     chat_modifiers::capture(&mut modifiers, &keys);
     let routes_presses = !pointer_presses.is_empty();
     let mut router = PointerRouter::new(pointer_presses, runtime.inventory_open());
+    // Presses a screen consumed, and presses whose edge later owners still need.
+    let (mut consumed, mut kept) = (Vec::new(), Vec::new());
     for (arrival, input) in keyboard_messages.read().enumerate() {
         // Presses that arrived before this key meet the screen the earlier keys left.
-        let due: Vec<_> = router
-            .route_before_key(arrival, runtime.inventory_open())
-            .filter(|(_, route)| *route != PressRoute::Gameplay)
-            .map(|(button, _)| button)
-            .collect();
+        let mut due = Vec::new();
+        for (button, route) in router.route_before_key(arrival, runtime.inventory_open()) {
+            match route {
+                PressRoute::Gameplay => kept.push(button),
+                PressRoute::Screen { .. } => due.push(button),
+            }
+        }
+        consumed.extend_from_slice(&due);
         apply_screen_presses(
             &due,
             &mut player_runtime,
@@ -828,13 +833,16 @@ pub(crate) fn drive_chat_keyboard_input(
         dismissed |= !runtime.chat_focused();
     }
     if routes_presses {
-        let rest: Vec<_> = router.route_rest(runtime.inventory_open()).collect();
         // A screen opened this frame takes its presses now; its opening suppresses the buttons.
-        let opened: Vec<_> = rest
-            .iter()
-            .filter(|(_, route)| matches!(route, PressRoute::Screen { opening } if *opening > 0))
-            .map(|(button, _)| *button)
-            .collect();
+        let mut opened = Vec::new();
+        for (button, route) in router.route_rest(runtime.inventory_open()) {
+            match route {
+                PressRoute::Screen { opening } if opening > 0 => opened.push(button),
+                // Gameplay, and the screen open all frame, read the edge later.
+                _ => kept.push(button),
+            }
+        }
+        consumed.extend_from_slice(&opened);
         apply_screen_presses(
             &opened,
             &mut player_runtime,
@@ -845,13 +853,9 @@ pub(crate) fn drive_chat_keyboard_input(
             focus.as_deref_mut(),
             &time,
         );
-        // Only unrouted presses stay visible to later owners, so none is replayed.
-        let pressed: Vec<_> = mouse_buttons.get_just_pressed().copied().collect();
-        for button in pressed {
-            let kept = rest.iter().any(|(rest, route)| {
-                *rest == button && !matches!(route, PressRoute::Screen { opening } if *opening > 0)
-            });
-            if !kept {
+        // A press a screen consumed cannot be replayed; gameplay presses keep their edge.
+        for button in consumed {
+            if !kept.contains(&button) {
                 mouse_buttons.clear_just_pressed(button);
             }
         }

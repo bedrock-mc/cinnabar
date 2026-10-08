@@ -160,6 +160,10 @@ impl WorldStream {
     pub fn advance_actor_interpolation_ticks(&mut self, ticks: u32) {
         self.authority.advance_actor_interpolation_ticks(ticks)
     }
+    /// Moves remote actors ahead of the frame's visuals so picks read this frame's poses.
+    pub fn advance_remote_actor_motion(&mut self, ticks: u32) {
+        self.authority.advance_remote_actor_motion(ticks)
+    }
     /// Advances elapsed tick state, evaluating animation once for this rendered frame.
     pub fn advance_actor_interpolation_frame(&mut self, ticks: u32) {
         self.authority.advance_actor_interpolation_frame(ticks)

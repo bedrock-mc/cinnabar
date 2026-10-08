@@ -107,6 +107,7 @@ impl ActorStore {
             synthetic_local_revision: 0,
             local_first_person: false,
             local_view_dirty: false,
+            remote_motion_ahead: 0,
             local_view_bobbing: true,
             local_flying: false,
             local_hands: [None, None],
@@ -284,6 +285,7 @@ impl ActorStore {
     pub(crate) fn begin_session(&mut self, session_id: u64, dimension: i32) {
         self.session_id = session_id;
         self.local_flying = false;
+        self.remote_motion_ahead = 0;
         self.dimension = dimension;
         self.latest_sequence = 0;
         self.aim_actor_classes.clear();

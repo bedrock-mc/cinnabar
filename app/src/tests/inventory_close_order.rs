@@ -355,3 +355,21 @@ fn press_is_not_replayed_after_close_and_reopen() {
 
     assert_eq!(queued_batch(&app), queued_batch(&control));
 }
+
+/// A click that recaptures the cursor keeps its edge for gameplay even when a key follows it.
+#[test]
+fn gameplay_click_followed_by_a_key_keeps_its_edge() {
+    let (mut app, window) = app_with(false);
+    frame(
+        &mut app,
+        window,
+        &[Input::Click(MouseButton::Left), Input::Key(KeyCode::KeyQ)],
+    );
+    app.update();
+
+    assert!(
+        app.world()
+            .resource::<ButtonInput<MouseButton>>()
+            .just_pressed(MouseButton::Left)
+    );
+}
