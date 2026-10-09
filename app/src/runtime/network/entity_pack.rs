@@ -85,15 +85,32 @@ impl Default for EntityCache {
     }
 }
 
-/// Encodes and writes a disk entry on its own thread: nothing a session reads depends on it, so
-/// a join does not wait on encoding and writing a large pack. A write that never completes
-/// leaves a miss, never a damaged hit.
+/// Encodes and writes disk entries one at a time on a single background thread: nothing a session
+/// reads depends on them, so a join does not wait on encoding and writing a large pack. While one
+/// write runs, one more may wait; a write beyond that is skipped, leaving a later miss rather than
+/// another large pack held for writing. A write that never completes leaves a miss, never a
+/// damaged hit.
 fn store_in_background(write: Box<dyn FnOnce() + Send>) {
-    if let Err(error) = std::thread::Builder::new()
-        .name("entity-pack-store".to_owned())
-        .spawn(write)
-    {
-        bevy::log::debug!(%error, "compiled entity pack was not stored");
+    type Writes = std::sync::Mutex<std::sync::mpsc::SyncSender<Box<dyn FnOnce() + Send>>>;
+    static WRITER: std::sync::OnceLock<Option<Writes>> = std::sync::OnceLock::new();
+    let writer = WRITER.get_or_init(|| {
+        let (writes, pending) = std::sync::mpsc::sync_channel::<Box<dyn FnOnce() + Send>>(1);
+        std::thread::Builder::new()
+            .name("entity-pack-store".to_owned())
+            .spawn(move || pending.into_iter().for_each(|write| write()))
+            .map_err(|error| bevy::log::debug!(%error, "compiled entity packs are not stored"))
+            .ok()
+            .map(|_| std::sync::Mutex::new(writes))
+    });
+    let Some(writer) = writer else {
+        return;
+    };
+    let queued = writer
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .try_send(write);
+    if queued.is_err() {
+        bevy::log::debug!("a compiled entity pack was not stored while others were");
     }
 }
 
@@ -648,6 +665,36 @@ mod tests {
                 .map(|pack| pack.assets.encode().unwrap()),
             compiled.map(|pack| pack.assets.encode().unwrap())
         );
+    }
+
+    // Deferred writes run in order on one thread, never one thread per join; while one runs and
+    // another waits, a third is skipped rather than holding a third pack.
+    #[test]
+    fn deferred_writes_run_one_at_a_time_on_one_writer() {
+        use std::sync::mpsc::channel;
+        let timeout = std::time::Duration::from_secs(60);
+        let (ran, runs) = channel();
+        let (release, held) = channel::<()>();
+        let (started, running) = channel();
+        let report = |name: &'static str| {
+            let ran = ran.clone();
+            Box::new(move || ran.send((name, std::thread::current().id())).unwrap())
+                as Box<dyn FnOnce() + Send>
+        };
+        super::store_in_background(Box::new(move || {
+            started.send(()).unwrap();
+            held.recv().unwrap();
+        }));
+        running.recv_timeout(timeout).unwrap();
+        super::store_in_background(report("waiting"));
+        super::store_in_background(report("skipped"));
+        release.send(()).unwrap();
+        let waiting = runs.recv_timeout(timeout).unwrap();
+        super::store_in_background(report("later"));
+        let later = runs.recv_timeout(timeout).unwrap();
+        assert_eq!((waiting.0, later.0), ("waiting", "later"));
+        assert_eq!(waiting.1, later.1, "one writer thread");
+        assert_ne!(waiting.1, std::thread::current().id());
     }
 
     // A cancelled join stops its entity compile at the next step and keeps nothing, so a later
