@@ -5333,7 +5333,8 @@ separate from item-category cooldowns. The opt-in Item Use Delay Fix permits
 one use after a slot change even between frames sharing an upcoming tick.
 Pearl, wind-charge and chorus-fruit cooldowns stay in their own categories;
 chorus fruit starts its 20-tick cooldown when use begins. Deterministic tests
-cover rapid slot changes, delay boundaries and rejected sends. Live gameplay
+cover rapid slot changes, delay boundaries, rejected sends and hotbar cooldown
+publication. Live gameplay
 acceptance remains incomplete; this does not close the interaction gate.
 
 Owner-designated inventory reference (2026-09-06): use Lunar's inventory-management

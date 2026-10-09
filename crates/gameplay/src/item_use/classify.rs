@@ -130,6 +130,16 @@ pub fn pack_identifier(identifier: &str) -> Option<&'static str> {
         .map(|(_, pack)| *pack)
 }
 
+/// The vanilla item's shared cooldown, independent of its use duration or charge state.
+pub fn item_cooldown(identifier: &str) -> Option<Cooldown> {
+    match identifier.strip_prefix("minecraft:")? {
+        "ender_pearl" => Some(ENDER_PEARL_COOLDOWN),
+        "wind_charge" => Some(WIND_CHARGE_COOLDOWN),
+        "chorus_fruit" => Some(CHORUS_FRUIT_COOLDOWN),
+        _ => None,
+    }
+}
+
 /// The air use of `identifier`; `pack_ticks` is the use duration its pack or item components
 /// state. `None` sends only the click-air transaction.
 pub fn classify(
@@ -156,10 +166,10 @@ pub fn classify(
         "snowball" | "egg" | "blue_egg" | "brown_egg" | "experience_bottle" | "splash_potion"
         | "lingering_potion" => AirUse::Throw { cooldown: None },
         "ender_pearl" => AirUse::Throw {
-            cooldown: Some(ENDER_PEARL_COOLDOWN),
+            cooldown: item_cooldown(identifier),
         },
         "wind_charge" => AirUse::Throw {
-            cooldown: Some(WIND_CHARGE_COOLDOWN),
+            cooldown: item_cooldown(identifier),
         },
         // Placed with its block; its pack use duration is not an air use.
         "camera" => return None,
@@ -170,7 +180,7 @@ pub fn classify(
             cooldown: None,
         },
         "chorus_fruit" => AirUse::Hold {
-            cooldown: Some(CHORUS_FRUIT_COOLDOWN),
+            cooldown: item_cooldown(identifier),
             max_ticks: pack_ticks?,
             needs: Needs::Nothing,
             slowdown: DEFAULT_USE_SLOWDOWN,

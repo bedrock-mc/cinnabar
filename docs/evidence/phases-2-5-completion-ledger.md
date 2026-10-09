@@ -137,7 +137,7 @@
 | Field | Evidence |
 |---|---|
 | Owning plan/task | Partial local placement coverage; see the Local placement prediction section in plan.md. |
-| Deterministic tests | Gameplay direction, support, stacking and immediate-placement tables in both palette encodings; pipeline atomic pair, rollback and ordered publication tests. Item-use tests cover frame/tick slot changes, the native rearm boundary, category cooldowns and rejected-send rollback. |
+| Deterministic tests | Gameplay direction, support, stacking and immediate-placement tables in both palette encodings; pipeline atomic pair, rollback and ordered publication tests. Item-use tests cover frame/tick slot changes, the native rearm boundary, category cooldowns, rejected-send rollback and hotbar cooldown publication. |
 | Review commit | Recorded by the placement follow-up PR. |
 | Live/native witness | Headless stair comparison and door pair before server confirmation; broader family visual parity remains open. |
 | Performance/resource witness | Paused-server stair recording: first visible/staged +3 frames, observed upload +5; bounded late worker service. Click-frame and full hardware budgets remain open. |
