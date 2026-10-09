@@ -16,6 +16,10 @@ const SMOOTHING_PER_TICK: f32 = 0.5;
 const TICKS_PER_SECOND: f32 = 20.0;
 const MIN_MODIFIER: f32 = 0.05;
 const MAX_MODIFIER: f32 = 2.0;
+const DEATH_CAMERA_BASE_FOV: f32 = 60.0;
+const DEATH_CAMERA_FOV_INCREASE: f32 = 0.4;
+const DEATH_CAMERA_FOV_TICKS: f32 = 120.0;
+const PLAYER_DEATH_FOV_TICKS: f32 = 500.0;
 
 /// Gameplay facts that steer the FOV multiplier; the equipment lane owns `bow_draw_seconds` and `spyglass_scoping`.
 #[derive(Resource, Debug, Clone, Copy, PartialEq)]
@@ -31,6 +35,8 @@ pub struct CameraFovInputs {
     pub spyglass_scoping: bool,
     /// "FOV effects" scale: 0 disables speed-driven changes, 1 is full strength.
     pub fov_effects_scale: f32,
+    /// Signed actor death counter and the current actor tick fraction, absent while alive.
+    pub death_ticks: Option<f32>,
 }
 
 impl Default for CameraFovInputs {
@@ -43,11 +49,38 @@ impl Default for CameraFovInputs {
             bow_draw_seconds: None,
             spyglass_scoping: false,
             fov_effects_scale: 1.0,
+            death_ticks: None,
         }
     }
 }
 
 impl CameraFovInputs {
+    /// Samples actor-owned death time after its tick advance and clears it on recovery.
+    pub fn set_death_ticks(&mut self, ticks: Option<i16>, partial_tick: f32) {
+        let partial_tick = if partial_tick.is_finite() {
+            partial_tick.clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        self.death_ticks = ticks.map(|ticks| f32::from(ticks) + partial_tick);
+    }
+
+    /// Resolves player-state FOV for the selected camera without smoothing the death curve.
+    #[must_use]
+    pub fn death_fov_degrees(&self, current_fov: f32, death_camera: bool) -> f32 {
+        let Some(ticks) = self.death_ticks.filter(|ticks| ticks.is_finite()) else {
+            return current_fov;
+        };
+        if death_camera {
+            let progress = (ticks / DEATH_CAMERA_FOV_TICKS).clamp(0.0, 1.0);
+            DEATH_CAMERA_BASE_FOV
+                * (1.0 + DEATH_CAMERA_FOV_INCREASE * (progress * std::f32::consts::FRAC_PI_2).sin())
+        } else {
+            current_fov
+                / (1.0 + 2.0 * (1.0 - PLAYER_DEATH_FOV_TICKS / (ticks + PLAYER_DEATH_FOV_TICKS)))
+        }
+    }
+
     /// Unsmoothed FOV multiplier; spyglass zoom ignores the FOV-effects scale.
     ///
     /// Slowness replaces the movement-speed term rather than scaling it.
@@ -117,6 +150,32 @@ mod tests {
     use super::*;
 
     const SPRINTING_SPEED: f32 = 0.1 * 1.3;
+
+    #[test]
+    fn modern_death_fov_follows_actor_ticks_beyond_body_animation_and_clears_on_recovery() {
+        let mut inputs = CameraFovInputs::default();
+        inputs.set_death_ticks(Some(0), 0.0);
+        assert_eq!(inputs.death_fov_degrees(110.0, true), 60.0);
+        inputs.set_death_ticks(Some(59), 1.0);
+        assert!((inputs.death_fov_degrees(30.0, true) - 76.97056).abs() < 0.0001);
+        for ticks in [120, 125, 1000, i16::MAX] {
+            inputs.set_death_ticks(Some(ticks), 0.0);
+            assert_eq!(inputs.death_fov_degrees(70.0, true), 84.0);
+        }
+        inputs.set_death_ticks(Some(i16::MIN), 0.0);
+        assert_eq!(inputs.death_fov_degrees(70.0, true), 60.0);
+        inputs.set_death_ticks(None, 0.5);
+        assert_eq!(inputs.death_fov_degrees(110.0, true), 110.0);
+    }
+
+    #[test]
+    fn death_fov_without_the_death_camera_uses_the_current_fov() {
+        let mut inputs = CameraFovInputs::default();
+        inputs.set_death_ticks(Some(0), 0.0);
+        assert_eq!(inputs.death_fov_degrees(110.0, false), 110.0);
+        inputs.set_death_ticks(Some(500), 0.0);
+        assert_eq!(inputs.death_fov_degrees(110.0, false), 55.0);
+    }
 
     /// Vanilla widens the base view by its speed ratio: 1.1 walking, 1.28 sprinting.
     #[test]

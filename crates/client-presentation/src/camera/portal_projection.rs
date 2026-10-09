@@ -125,9 +125,13 @@ pub fn update_camera_fov(
     let base = settings.horizontal_fov_degrees();
     let gameplay_fov = (base * modifier).clamp(MIN_GAMEPLAY_FOV_DEGREES, MAX_GAMEPLAY_FOV_DEGREES);
     let rig_delta = settings.rig().map_or(0.0, |rig| rig.fov_delta_degrees);
-    let fov_degrees = server
-        .fov_override_degrees(base)
-        .unwrap_or(gameplay_fov + rig_delta);
+    let mut player_fov = gameplay_fov + rig_delta;
+    if server.player_effects_enabled() && inputs.death_ticks.is_some() {
+        player_fov = inputs
+            .death_fov_degrees(player_fov, !server.has_pose_override())
+            .clamp(MIN_GAMEPLAY_FOV_DEGREES, MAX_GAMEPLAY_FOV_DEGREES);
+    }
+    let fov_degrees = server.fov_override_degrees(base).unwrap_or(player_fov);
     for mut projection in &mut cameras {
         let perspective = match projection.as_mut() {
             Projection::Perspective(perspective) => Some(perspective),
@@ -289,6 +293,121 @@ mod tests {
             Projection::Perspective(projection) => projection.fov,
             Projection::Custom(custom) => custom.get::<PortalProjection>().unwrap().perspective.fov,
             Projection::Orthographic(_) => panic!("perspective expected"),
+        }
+    }
+
+    #[test]
+    fn death_fov_updates_the_live_portal_projection_and_clears_on_recovery() {
+        let (mut app, camera) = fov_app(
+            100.0,
+            CameraFovInputs {
+                death_ticks: Some(120.0),
+                ..Default::default()
+            },
+        );
+        apply_distortion(
+            app.world_mut()
+                .get_mut::<Projection>(camera)
+                .unwrap()
+                .as_mut(),
+            portal_distortion(1.0, 4.0, false, 1.0),
+        );
+        app.update();
+        assert!((world_fov(&app, camera).to_degrees() - 84.0).abs() < 1e-4);
+        app.world_mut()
+            .resource_mut::<CameraFovInputs>()
+            .death_ticks = None;
+        app.update();
+        assert!((world_fov(&app, camera).to_degrees() - 110.0).abs() < 1e-3);
+        assert!(matches!(
+            app.world().get::<Projection>(camera).unwrap(),
+            Projection::Custom(_)
+        ));
+    }
+
+    #[test]
+    fn death_fov_preserves_explicit_server_fov_overrides() {
+        use protocol::{CameraEvent, CameraFovInstruction, CameraInstructionEvent};
+        let (mut app, camera) = fov_app(
+            100.0,
+            CameraFovInputs {
+                death_ticks: Some(120.0),
+                ..Default::default()
+            },
+        );
+        app.world_mut().resource_mut::<ServerCameraView>().apply(
+            1,
+            &CameraEvent::Instruction(Box::new(CameraInstructionEvent {
+                fov: Some(CameraFovInstruction {
+                    degrees: 50.0,
+                    ease_time_seconds: 0.0,
+                    ease_type: Arc::from("linear"),
+                    clear: false,
+                }),
+                ..Default::default()
+            })),
+            &super::super::ViewContext {
+                base: Transform::IDENTITY,
+                subject: Transform::IDENTITY,
+                base_fov: 100.0,
+                actors: &|_| None,
+            },
+        );
+        app.update();
+        assert!((world_fov(&app, camera).to_degrees() - 50.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn death_fov_respects_a_free_cameras_player_effects_selector() {
+        use protocol::{CameraEvent, CameraInstructionEvent, CameraPreset, CameraSetInstruction};
+        for (player_effects, expected) in [(None, 100.0), (Some(true), 50.0)] {
+            let (mut app, camera) = fov_app(
+                100.0,
+                CameraFovInputs {
+                    death_ticks: Some(500.0),
+                    ..Default::default()
+                },
+            );
+            let context = super::super::ViewContext {
+                base: Transform::IDENTITY,
+                subject: Transform::IDENTITY,
+                base_fov: 100.0,
+                actors: &|_| None,
+            };
+            let mut server = app.world_mut().resource_mut::<ServerCameraView>();
+            server.apply(
+                1,
+                &CameraEvent::Presets(
+                    vec![CameraPreset {
+                        name: "free_death_effects".into(),
+                        inherit_from: "minecraft:free".into(),
+                        player_effects,
+                        ..Default::default()
+                    }]
+                    .into(),
+                ),
+                &context,
+            );
+            server.apply(
+                2,
+                &CameraEvent::Instruction(Box::new(CameraInstructionEvent {
+                    set: Some(CameraSetInstruction {
+                        preset_id: 0,
+                        ease: None,
+                        position: None,
+                        rotation_degrees: None,
+                        facing_position: None,
+                        view_offset: None,
+                        entity_offset: None,
+                        default_preset: None,
+                        remove_ignore_starting_values: false,
+                    }),
+                    ..Default::default()
+                })),
+                &context,
+            );
+            app.update();
+            assert!((world_fov(&app, camera).to_degrees() - expected).abs() < 1e-4);
         }
     }
 

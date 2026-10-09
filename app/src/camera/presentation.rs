@@ -36,6 +36,21 @@ pub(crate) fn collect_fov_inputs(
     );
 }
 
+/// Samples the local actor after tick preparation and clears death time when it leaves or recovers.
+pub(crate) fn collect_death_fov_inputs(
+    world: Option<Res<ClientWorld>>,
+    partial_tick: Option<Res<crate::runtime::network::ActorFramePartialTick>>,
+    mut inputs: ResMut<CameraFovInputs>,
+) {
+    let ticks = world
+        .as_deref()
+        .and_then(|world| world.stream.as_ref())
+        .and_then(|stream| stream.authority().actor(stream.local_player_runtime_id()))
+        .filter(|actor| actor.status.dead)
+        .map(|actor| actor.status.native_death_ticks());
+    inputs.set_death_ticks(ticks, partial_tick.map_or(0.0, |tick| tick.0));
+}
+
 /// Borrows current owner facts and forwards them at the existing system boundary.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn advance_presentation_state(

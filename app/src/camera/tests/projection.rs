@@ -155,3 +155,144 @@ fn a_rig_committed_during_camera_input_changes_the_fov_in_the_same_frame() {
     let expected = camera::projection_fov_radians(base + 10.0);
     assert!((projection(&mut app).fov - expected).abs() < 1.0e-6);
 }
+
+#[test]
+fn death_fov_samples_this_frames_actor_clock_and_clears_on_recovery_and_session_retirement() {
+    use crate::runtime::{network::ActorFramePartialTick, world::ClientWorld};
+    use chunk_pipeline::WorldStream;
+    use protocol::{
+        ActorAttribute, ActorEvent, ActorKind, ActorSpawnEvent, HudEvent, UiEvent, WorldBootstrap,
+        WorldEvent,
+    };
+    use std::sync::Arc;
+
+    /// Advances the actor clock at the production actor preparation boundary.
+    fn advance_death_clock(
+        mut world: ResMut<ClientWorld>,
+        mut partial: ResMut<ActorFramePartialTick>,
+    ) {
+        if let Some(stream) = &mut world.stream {
+            stream.advance_actor_interpolation_frame(125);
+        }
+        partial.0 = 0.25;
+    }
+
+    let (mut app, _) = camera_app(1280, 720);
+    let mut stream = WorldStream::new(WorldBootstrap {
+        dimension: 0,
+        local_player_runtime_id: 1,
+        local_player_unique_id: 1,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
+        block_network_ids_are_hashes: false,
+    });
+    stream
+        .submit(
+            1,
+            WorldEvent::Actor(ActorEvent::Spawn(ActorSpawnEvent {
+                dimension: 0,
+                unique_id: 1,
+                runtime_id: 1,
+                kind: ActorKind::Player {
+                    uuid: [0; 16],
+                    username: "Player".into(),
+                },
+                position: [0.0; 3],
+                velocity: [0.0; 3],
+                pitch: 0.0,
+                yaw: 0.0,
+                head_yaw: 0.0,
+                body_yaw: 0.0,
+                held_item: Default::default(),
+                metadata: Arc::from([]),
+                attributes: Arc::from([ActorAttribute {
+                    name: "minecraft:health".into(),
+                    min: 0.0,
+                    max: client_world::DEFAULT_PLAYER_HEALTH,
+                    current: 0.0,
+                    default: None,
+                    modifiers: Arc::from([]),
+                }]),
+                properties: Arc::from([]),
+                links: Arc::from([]),
+            })),
+        )
+        .unwrap();
+    stream
+        .submit(
+            2,
+            WorldEvent::Ui(UiEvent::Hud(HudEvent::Health { health: 0 })),
+        )
+        .unwrap();
+    assert!(stream.authority().actor(1).unwrap().status.dead);
+    app.insert_resource(ClientWorld {
+        stream: Some(stream),
+        ..Default::default()
+    })
+    .init_resource::<ActorFramePartialTick>()
+    .add_systems(
+        Update,
+        advance_death_clock.in_set(ClientFrameSet::ActorPreparation),
+    );
+    configure_client_frame_schedule(&mut app);
+    let mut settings = UserSettings::default();
+    settings.video.fov_effects_scale = 0.0;
+    app.world_mut()
+        .resource_mut::<RuntimeSettings>()
+        .replace_user_settings(settings);
+
+    app.update();
+    assert!((projection(&mut app).fov.to_degrees() - 84.0).abs() < 1e-4);
+    assert_eq!(
+        app.world()
+            .resource::<camera::CameraFovInputs>()
+            .death_ticks,
+        Some(125.25)
+    );
+
+    app.world_mut()
+        .resource_mut::<ClientWorld>()
+        .stream
+        .as_mut()
+        .unwrap()
+        .submit(
+            3,
+            WorldEvent::Ui(UiEvent::Hud(HudEvent::Health { health: 7 })),
+        )
+        .unwrap();
+    app.update();
+    let base = app
+        .world()
+        .resource::<CameraSettingsAuthority>()
+        .horizontal_fov_degrees();
+    assert!((projection(&mut app).fov.to_degrees() - base).abs() < 1e-4);
+    assert_eq!(
+        app.world()
+            .resource::<camera::CameraFovInputs>()
+            .death_ticks,
+        None
+    );
+
+    app.world_mut()
+        .resource_mut::<ClientWorld>()
+        .stream
+        .as_mut()
+        .unwrap()
+        .submit(
+            4,
+            WorldEvent::Ui(UiEvent::Hud(HudEvent::Health { health: 0 })),
+        )
+        .unwrap();
+    app.update();
+    assert!((projection(&mut app).fov.to_degrees() - 84.0).abs() < 1e-4);
+    app.world_mut().resource_mut::<ClientWorld>().stream = None;
+    app.update();
+    assert!((projection(&mut app).fov.to_degrees() - base).abs() < 1e-4);
+    assert_eq!(
+        app.world()
+            .resource::<camera::CameraFovInputs>()
+            .death_ticks,
+        None
+    );
+}

@@ -7,6 +7,7 @@ pub const DEFAULT_PLAYER_HEALTH: f32 = 20.0;
 
 impl ActorStore {
     /// Number of local health updates skipped for an unusable value, range, or attribute capacity.
+    #[cfg(test)]
     pub fn local_health_skips(&self) -> u64 {
         self.local_health_skips
     }
