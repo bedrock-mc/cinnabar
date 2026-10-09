@@ -879,7 +879,7 @@ pub(crate) fn drive_menu_input(
             &menu.settings_options,
             GamepadButton::South,
         )) {
-            sounds::activate_focused(&mut menu, &presentation);
+            sounds::activate_focused(&mut menu, &presentation, json_ui::InputMode::Gamepad);
         }
         if gamepad.just_pressed(super::settings_options::gamepad_button(
             &menu.settings_options,

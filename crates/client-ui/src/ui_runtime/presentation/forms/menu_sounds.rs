@@ -56,7 +56,7 @@ impl UiPresentationRuntime {
     }
 
     /// Plays one control interaction through the pack-aware named audio queue.
-    pub fn play_menu_sound(&self, action: MenuAction) {
+    pub fn play_menu_sound(&self, action: MenuAction, mode: json_ui::InputMode) {
         if self.uses_native_menu_sounds() {
             let scale_picker = self
                 .menu_view
@@ -72,9 +72,12 @@ impl UiPresentationRuntime {
                 .iter()
                 .find(|(candidate, _)| same_control(*candidate, action))
             {
-                state
-                    .menu_audio
-                    .activate(key, self.menu_seconds, crate::sound_requests::ui_sound);
+                state.menu_audio.activate(
+                    key,
+                    mode,
+                    self.menu_seconds,
+                    crate::sound_requests::ui_sound,
+                );
             }
         }
     }

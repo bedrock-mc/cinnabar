@@ -110,7 +110,9 @@ impl FrameSounds {
                     input.pointer(frame, point, true, InputMode::Touch, now, &mut receive);
                 }
             }
-            return;
+            if held {
+                return;
+            }
         }
         let Some(slot) = input
             .touches
@@ -136,25 +138,33 @@ impl FrameSounds {
     }
 
     /// Sounds one keyboard or gamepad activation of the identified control.
-    pub(super) fn activate(&self, key: &str, now: f64, mut receive: impl FnMut(&str, f32, f32)) {
+    pub(super) fn activate(
+        &self,
+        key: &str,
+        mode: InputMode,
+        now: f64,
+        mut receive: impl FnMut(&str, f32, f32),
+    ) {
         let Some(frame) = &self.frame else {
             return;
         };
         let Some(region) = frame.hits.iter().find(|region| region.key == key) else {
             return;
         };
-        let Some(mapping) = region
-            .input
-            .mappings
-            .iter()
-            .find(|mapping| Some(mapping.to.as_str()) == region.pressed.as_deref())
-        else {
+        let Some(mapping) = region.input.mappings.iter().find(|mapping| {
+            Some(mapping.to.as_str()) == region.pressed.as_deref()
+                && mapping.input_mode_condition.admits(mode)
+        }) else {
             return;
         };
         let mut input = self
             .input
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let point = (mode != InputMode::Gamepad).then_some([
+            region.rect.x + region.rect.w / 2.0,
+            region.rect.y + region.rect.h / 2.0,
+        ]);
         let SoundInput {
             dispatcher, view, ..
         } = &mut *input;
@@ -162,9 +172,9 @@ impl FrameSounds {
             &frame.hits,
             view,
             PointerInput {
-                point: None,
+                point,
                 held: false,
-                mode: InputMode::Gamepad,
+                mode,
                 now,
             },
         );
@@ -177,8 +187,8 @@ impl FrameSounds {
                     ButtonInput {
                         id: &mapping.from,
                         down,
-                        point: None,
-                        mode: InputMode::Gamepad,
+                        point,
+                        mode,
                         now,
                     },
                 ),
@@ -535,7 +545,7 @@ mod tests {
             .key
             .clone();
         let mut emitted = Vec::new();
-        sounds.activate(&key, 1.0, |name, volume, pitch| {
+        sounds.activate(&key, InputMode::Gamepad, 1.0, |name, volume, pitch| {
             emitted.push((name.to_owned(), volume, pitch))
         });
         assert_eq!(
@@ -558,7 +568,9 @@ mod tests {
         right.input.mappings[0].input_mode_condition = json_ui::InputModeCondition::NotGamepad;
         let key = right.key.clone();
         let mut emitted = Vec::new();
-        sounds.activate(&key, 1.0, |name, _, _| emitted.push(name.to_owned()));
+        sounds.activate(&key, InputMode::Mouse, 1.0, |name, _, _| {
+            emitted.push(name.to_owned())
+        });
         assert_eq!(emitted, ["right.click", "extra"]);
     }
 

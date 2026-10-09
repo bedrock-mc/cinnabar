@@ -59,7 +59,7 @@ impl MenuPressSounds {
         }
         if pressed && let Some(action) = pointer.and_then(|point| presentation.hit_test_menu(point))
         {
-            presentation.play_menu_sound(action);
+            presentation.play_menu_sound(action, json_ui::InputMode::Mouse);
         }
         for touch in touches.iter().chain(touches.iter_just_released()) {
             let position = touch.position();
@@ -75,7 +75,7 @@ impl MenuPressSounds {
                 now,
                 presentation.uses_native_menu_sounds(),
             ) {
-                presentation.play_menu_sound(action);
+                presentation.play_menu_sound(action, json_ui::InputMode::Touch);
             }
         }
         if touches.iter_just_canceled().next().is_some() {
@@ -96,9 +96,13 @@ pub(super) fn presses_while_held(action: launcher::menu::MenuAction) -> bool {
 }
 
 /// Sounds the focused control before its keyboard or gamepad activation.
-pub(super) fn activate_focused(menu: &mut MenuRuntime, presentation: &UiPresentationRuntime) {
+pub(super) fn activate_focused(
+    menu: &mut MenuRuntime,
+    presentation: &UiPresentationRuntime,
+    mode: json_ui::InputMode,
+) {
     if let Some(action) = menu.focus_actions().get(menu.focused).copied() {
-        presentation.play_menu_sound(menu.live_settings_action(action));
+        presentation.play_menu_sound(menu.live_settings_action(action), mode);
     }
     menu.activate_focused();
 }
@@ -112,7 +116,7 @@ pub(super) fn activate_key(
     if repeat {
         menu.activate_focused();
     } else {
-        activate_focused(menu, presentation);
+        activate_focused(menu, presentation, json_ui::InputMode::Mouse);
     }
 }
 

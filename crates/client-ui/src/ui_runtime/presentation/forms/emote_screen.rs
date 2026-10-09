@@ -193,7 +193,12 @@ impl UiPresentationRuntime {
                     )
             })
         }) {
-            audio.activate(&region.key, now, crate::sound_requests::ui_sound);
+            audio.activate(
+                &region.key,
+                self.form_presentation.emote.input_mode,
+                now,
+                crate::sound_requests::ui_sound,
+            );
         }
     }
 

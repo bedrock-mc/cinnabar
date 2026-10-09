@@ -21,8 +21,12 @@ impl UiPresentationRuntime {
             .iter()
             .find(|(candidate, _, _)| same_control(*candidate, hit))
         {
-            chat.audio
-                .activate(key, now, crate::sound_requests::ui_sound);
+            chat.audio.activate(
+                key,
+                json_ui::InputMode::Gamepad,
+                now,
+                crate::sound_requests::ui_sound,
+            );
         }
     }
 
