@@ -1,7 +1,7 @@
 .DEFAULT_GOAL := help
 
 CARGO ?= cargo
-# Cargo profile for `make play`/`make client`; PROFILE=release gives the shipped build.
+# Cargo profile for `make play`; PROFILE=release gives the shipped build.
 PROFILE ?= play
 # Cargo names the dev profile output directory debug.
 PROFILE_DIR = $(if $(filter dev,$(PROFILE)),debug,$(PROFILE))
@@ -13,8 +13,6 @@ endif
 GO ?= go
 POWERSHELL ?= powershell
 
-SOCKET_DIR ?= .local/run-zeqa
-AUTH_CACHE ?= .local/auth/microsoft-token.json
 NO_VSYNC ?= 0
 TRACY ?= 0
 CLIENT_FEATURES = $(if $(filter 1,$(TRACY)),--features tracy)
@@ -58,7 +56,6 @@ VANILLA_ASSET_FETCH = $(ASSETC) vanilla-pack --source-manifest "$(VANILLA_SOURCE
 ASSETS_PREPARE = $(ASSETC) prepare --accept-eula $(if $(strip $(CINNABAR_CLOUDS_PNG)),--clouds-override "$(CINNABAR_CLOUDS_PNG)")
 LOCAL_FONT_ASSET_COMPILE = $(ASSETC) font-assets --pack "$(FONT_PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --out "$(LOCAL_ASSET_DIR)/vanilla-v1.mcbefont" --report "$(LOCAL_ASSET_DIR)/font-assets.json"
 LOCAL_HUD_ASSET_COMPILE = $(ASSETC) hud-assets --pack "$(HUD_PACK_DIR)" --source-manifest "$(HUD_SOURCE_MANIFEST)" --out "$(LOCAL_ASSET_DIR)/vanilla-v1.mcbehud" --report "$(LOCAL_ASSET_DIR)/hud-assets.json"
-CLIENT_RUN = RUST_MCBE_BUILD_COMMIT="$(RUST_MCBE_BUILD_COMMIT)" $(CARGO) run --profile $(PROFILE) -p bedrock-client --locked $(CLIENT_FEATURES) -- --socket-dir "$(SOCKET_DIR)" $(if $(filter 1,$(NO_VSYNC)),--no-vsync)
 
 ifeq ($(OS),Windows_NT)
 # PowerShell single-quoted literals escape an embedded apostrophe only by
@@ -70,7 +67,7 @@ else
 PHYSICS_REGISTRY_INSTALL = mkdir -p "$(dir $(abspath $(PHYSICS_REGISTRY)))" && cp "$(abspath $(PHYSICS_REGISTRY_SOURCE))" "$(abspath $(PHYSICS_REGISTRY))"
 endif
 
-.PHONY: help vanilla-assets assets font-assets-local hud-assets-local physics-assets core local-server client play client-windows client-macos client-linux client-wayland client-x11 dist-local
+.PHONY: help vanilla-assets assets font-assets-local hud-assets-local physics-assets local-server play dist-local
 .PHONY: registry-foundation-check jsonui-editor
 
 help:
@@ -81,20 +78,12 @@ help:
 	@echo make font-assets-local - Compile a reviewed local bitmap font source via FONT_PACK_DIR
 	@echo make hud-assets-local - Compile from an explicitly selected matching pack via HUD_PACK_DIR
 	@echo make physics-assets  - Install and verify the pinned protocol-2193 physics registry
-	@echo make core            - Compile and run the Go networking/auth core
 	@echo make local-server    - Build the dragonfly local-world server and experience-runtime beside the core binary
 	@echo make play            - Refresh stale assets, build the core, and run the full game from the menu
 	@echo make play TRACY=1    - Run with opt-in Tracy frame attribution
-	@echo make client          - Refresh stale assets, then join the core at SOCKET_DIR directly
-	@echo make client-windows  - Run the client on Windows
-	@echo make client-macos    - Run the client on macOS
-	@echo make client-linux    - Run with automatic Wayland/X11 selection
-	@echo make client-wayland  - Run on Wayland
-	@echo make client-x11      - Run on X11/XWayland
 	@echo make dist-local      - Stage an unsigned local-development-only bundle under .local/dist
 	@echo make jsonui-editor   - Build the static JSON-UI editor site into JSONUI_EDITOR_OUT
-	@echo UPSTREAM=host:port is required for make core
-	@echo Override optional settings with SOCKET_DIR=..., AUTH_CACHE=..., and NO_VSYNC=1
+	@echo Override optional settings with NO_VSYNC=1
 	@echo Set CINNABAR_CLOUDS_PNG to the exact local-only Bedrock 1.26.33.1 clouds.png
 
 registry-foundation-check:
@@ -137,20 +126,12 @@ $(PACK_SENTINEL): $(VANILLA_SOURCE_MANIFEST)
 # A failed install or check leaves no target behind to look current.
 .DELETE_ON_ERROR:
 
-core:
-	$(if $(strip $(UPSTREAM)),,$(error UPSTREAM is required; run make core UPSTREAM=host:port))
-	@echo bedrock-core: build starting package=./core/cmd/bedrock-core
-	$(GO) run ./core/cmd/bedrock-core -socket-dir "$(SOCKET_DIR)" -upstream "$(UPSTREAM)" -auth-cache "$(AUTH_CACHE)"
-
 # Separate module: dragonfly needs a newer gophertunnel than the core, so it cannot join go.work.
 LOCAL_SERVER_OUT ?= target/release/bedrock-local-server$(if $(filter windows,$(DIST_PLATFORM)),.exe)
 
 local-server:
 	cd tools/localserver && GOWORK=off $(GO) build -o "$(abspath $(LOCAL_SERVER_OUT))" .
 	$(CARGO) build -p experience-runtime --release --locked
-
-client: assets physics-assets
-	$(CLIENT_RUN)
 
 # Full game from the launcher menu: refresh assets, build the core and local server beside the client, run it.
 play: assets physics-assets
@@ -161,14 +142,6 @@ endif
 	$(GO) build -o "$(abspath target/$(PROFILE_DIR)/bedrock-core$(EXE))" ./core/cmd/bedrock-core
 	-cd tools/localserver && GOWORK=off $(GO) build -o "$(abspath target/$(PROFILE_DIR)/bedrock-local-server$(EXE))" .
 	RUST_MCBE_BUILD_COMMIT="$(RUST_MCBE_BUILD_COMMIT)" $(CARGO) run --profile $(PROFILE) -p bedrock-client --locked $(CLIENT_FEATURES) -- $(if $(filter 1,$(NO_VSYNC)),--no-vsync)
-
-client-windows client-macos client-linux: client
-
-client-wayland:
-	env -u DISPLAY $(MAKE) client
-
-client-x11:
-	env -u WAYLAND_DISPLAY -u WAYLAND_SOCKET $(MAKE) client
 
 dist-local:
 	$(CARGO) run --locked -p dist-local -- --platform "$(DIST_PLATFORM)" --client "$(DIST_CLIENT)" --core "$(DIST_CORE)" --physics "$(PHYSICS_REGISTRY)" --notices "$(DIST_NOTICES)" --target "$(DIST_TARGET)" --git-commit "$(DIST_GIT_COMMIT)" --out "$(DIST_OUT)"

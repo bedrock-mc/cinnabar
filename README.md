@@ -31,13 +31,6 @@ uses a Microsoft device code. The token is cached in `.local/auth/`, so never sh
 that folder. `make play PROFILE=release` builds the fully optimised binary, and `make help` lists
 every target.
 
-To join one server directly, without the menus:
-
-```sh
-make core UPSTREAM=zeqa.net:19132   # terminal 1
-make client                         # terminal 2
-```
-
 On Debian/Ubuntu, install `libwayland-dev` and `libudev-dev` first.
 
 ## What's different
