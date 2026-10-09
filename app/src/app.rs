@@ -9,7 +9,7 @@ use crate::runtime::phase3_evidence::{
 };
 #[cfg(feature = "acceptance")]
 use crate::runtime::shutdown::finish_acceptance_run;
-use std::{ffi::OsStr, fs, sync::Arc};
+use std::{ffi::OsStr, fs, path::Path, sync::Arc};
 
 use anyhow::{Context, Result, bail};
 use bevy::{
@@ -98,7 +98,7 @@ use crate::{
         },
     },
 };
-use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
+use client_ui::ui_runtime::{UiRuntime, oreui_fonts, presentation::UiPresentationRuntime};
 use diagnostics::markers::SHUTDOWN_COMPLETED;
 use diagnostics::metrics::MetricsCollector;
 
@@ -564,13 +564,8 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     block_entity_scene.install_mob_assets(&entity_runtime, &actor_catalog);
     let font_runtime = loaded_assets.fonts.into_runtime();
     let block_entity_font = Arc::clone(&font_runtime);
-    let font_runtime = client_ui::ui_runtime::oreui_fonts::install(
-        font_runtime,
-        loaded_assets
-            .selected_path
-            .parent()
-            .unwrap_or_else(|| std::path::Path::new(".")),
-    );
+    let font_dir = loaded_assets.selected_path.parent();
+    let font_runtime = oreui_fonts::install(font_runtime, font_dir.unwrap_or(Path::new(".")));
     let mut ui_presentation = UiPresentationRuntime::with_hud_and_icons(
         font_runtime,
         hud_assets.into_runtime(),
