@@ -632,7 +632,6 @@ impl ActiveFrameProbe {
 
 #[allow(clippy::too_many_arguments)]
 pub(in crate::chunk) fn submit_presented_frame_probe(
-    render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
     frame_probe: Res<ActiveFrameProbe>,
     presented_frame_gate: Res<PresentedFrameGate>,
@@ -704,10 +703,6 @@ pub(in crate::chunk) fn submit_presented_frame_probe(
         return;
     }
     let present_returned_at = Instant::now();
-    let encoder = render_device.create_command_encoder(&CommandEncoderDescriptor {
-        label: Some("presented frame completion sentinel"),
-    });
-    let command_buffer = encoder.finish();
     let callback_gate = presented_frame_gate.clone();
     let callback_metrics = transparent_metrics.clone();
     let callback_transparent_fence = transparent_fence.clone();
@@ -715,7 +710,7 @@ pub(in crate::chunk) fn submit_presented_frame_probe(
     let callback_witness_evidence = witness_evidence.clone();
     let callback_visibility_diagnostics = visibility_diagnostics.clone();
     let callback_visibility_completion_fence = visibility_completion_fence.clone();
-    command_buffer.on_submitted_work_done(move || {
+    crate::device_poll::on_frame_complete(&render_queue, move || {
         #[cfg(feature = "tracy")]
         let _span = bevy::log::info_span!(
             "terrain.completion_callback",
@@ -746,9 +741,4 @@ pub(in crate::chunk) fn submit_presented_frame_probe(
             callback_witness_evidence.complete(token);
         }
     });
-    {
-        #[cfg(feature = "tracy")]
-        let _span = bevy::log::info_span!("terrain.completion_submit").entered();
-        render_queue.submit([command_buffer]);
-    }
 }
