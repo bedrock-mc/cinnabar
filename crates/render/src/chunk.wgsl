@@ -95,7 +95,8 @@ struct VertexOutput {
     @location(4) local_position: vec3<f32>,
     @location(5) @interpolate(flat) biome_record: u32,
     @location(6) @interpolate(flat) next_texture: u32,
-    @location(7) @interpolate(flat) frame_blend: f32,
+    // x: animation frame blend; yz: `greedy_uv_limit` of the face.
+    @location(7) @interpolate(flat) frame_blend_uv_limit: vec3<f32>,
     @location(8) world_position: vec3<f32>,
     @location(9) lighting: vec3<f32>,
 #ifdef ENHANCED
@@ -107,7 +108,6 @@ struct VertexOutput {
     @location(11) native_ao_face: f32,
     @location(12) @interpolate(flat) uniform_tint_gamma: vec4<f32>,
 #endif
-    @location(13) @interpolate(flat) uv_limit: vec2<f32>,
 }
 
 fn quad_corner(face: u32, corner: u32, origin: vec3<f32>, width: f32, height: f32) -> vec3<f32> {
@@ -263,16 +263,15 @@ const CUBE_SEAM_MIN_EDGE_SINE: f32 = 0.25;
 // along the view ray and moving along it barely changes the screen position.
 const CUBE_SEAM_MAX_STEP: f32 = 1.0 / 64.0;
 
-/// World distances to move a quad corner along `outward_u` and `outward_v`,
-/// unit axes pointing away from the quad along the two edges that meet there,
-/// so that both edges advance `seal_pixels` on screen, perpendicular to
-/// themselves. `clip` is the corner's clip position. Moving within the face's
-/// plane keeps the face's own depth on newly covered pixels. Corners behind
-/// the camera get the matching inward steps, which keeps edges sealed after
-/// near-plane clipping.
-fn seal_steps(clip: vec4<f32>, outward_u: vec3<f32>, outward_v: vec3<f32>, seal_pixels: f32) -> vec2<f32> {
-    let du = view.clip_from_world * vec4(outward_u, 0.0);
-    let dv = view.clip_from_world * vec4(outward_v, 0.0);
+/// World distances to move a quad corner along the two unit axes that point
+/// away from the quad along the edges meeting there, so that both edges
+/// advance `seal_pixels` on screen, perpendicular to themselves. `du` and
+/// `dv` are the clip-space motions of one block along those axes, and `clip`
+/// is the corner's clip position. Moving within the face's plane keeps the
+/// face's own depth on newly covered pixels. Corners behind the camera get
+/// the matching inward steps, which keeps edges sealed after near-plane
+/// clipping.
+fn seal_steps(clip: vec4<f32>, du: vec4<f32>, dv: vec4<f32>, seal_pixels: f32) -> vec2<f32> {
     // Screen pixels moved per world unit along each axis, times w squared.
     let half_viewport = 0.5 * view.viewport.zw;
     let screen_u = (du.xy * clip.w - clip.xy * du.w) * half_viewport;
@@ -331,14 +330,13 @@ fn sealed_cube_vertex(vertex_index: u32, instance_index: u32, seal_pixels: f32) 
     let uv_flags = material_uv_flags(material.flags, chunk_origin.value.xyz + vec3<i32>(local_origin));
     let corner_position = quad_position(face, local_position - local_origin);
     out.uv = greedy_uv(face, corner_position, width, height, uv_flags);
-    out.uv_limit = greedy_uv_limit(width, height, uv_flags);
+    out.frame_blend_uv_limit = vec3(animation_sample.blend, greedy_uv_limit(width, height, uv_flags));
     out.current_texture = animation_sample.current_texture;
     out.normal = face_normal(face);
     out.material_flags = material.flags;
     out.local_position = local_position;
     out.biome_record = u32(chunk_origin.value.w);
     out.next_texture = animation_sample.next_texture;
-    out.frame_blend = animation_sample.blend;
     out.world_position = world_position;
     let ao = material_ambient_occlusion(light_ao_factor((light_sample >> 8u) & 7u), material.flags);
     let dimming = material_face_shade(out.normal, (light_sample & 2048u) != 0u, material.flags);
@@ -372,12 +370,18 @@ fn sealed_cube_vertex(vertex_index: u32, instance_index: u32, seal_pixels: f32) 
     // Grow the face within its plane. Texture coordinates and positions follow
     // the moved corner, so the interior keeps its exact mapping; light keeps
     // the corner's samples.
-    let axes = quad_axes(face);
+    // The width and height axes are world axes, so a block along either moves
+    // the clip position by a column of `clip_from_world`.
     let outward = sign(2.0 * corner_position - vec2(width, height));
-    let steps = outward * seal_steps(out.clip_position, axes[0] * outward.x, axes[1] * outward.y, seal_pixels);
-    let shift = axes[0] * steps.x + axes[1] * steps.y;
-    out.clip_position += view.clip_from_world * vec4(shift, 0.0);
-    out.uv = greedy_uv(face, corner_position + steps, width, height, uv_flags);
+    let normal_axis = face / 2u;
+    let du = select(view.clip_from_world[0], view.clip_from_world[2], normal_axis == 0u) * outward.x;
+    let dv = select(view.clip_from_world[1], view.clip_from_world[2], normal_axis == 1u) * outward.y;
+    let steps = seal_steps(out.clip_position, du, dv, seal_pixels);
+    out.clip_position += du * steps.x + dv * steps.y;
+    let moved = outward * steps;
+    let axes = quad_axes(face);
+    let shift = axes[0] * moved.x + axes[1] * moved.y;
+    out.uv = greedy_uv(face, corner_position + moved, width, height, uv_flags);
     out.local_position += shift;
     out.world_position += shift;
 #endif
@@ -521,9 +525,12 @@ fn fragment(in: VertexOutput, @builtin(front_facing) front: bool) -> @location(0
 #ifdef ALPHA_TO_COVERAGE
     var coverage = 1.0;
     if ((in.material_flags & (1u << 8u)) != 0u) {
-        var cutout = cube_alpha_footprint(in.current_texture, in.uv, uv_dx, uv_dy, sampled, in.material_flags);
-        if (in.frame_blend > 0.0) {
-            cutout = cutout_mix(cutout, cube_alpha_footprint(in.next_texture, in.uv, uv_dx, uv_dy, sampled, in.material_flags), in.frame_blend);
+        // Same face-clamped coordinates as the colour sample, so sealed edges never reach outside the face.
+        let uv = clamp(in.uv, vec2(0.0), in.frame_blend_uv_limit.yz);
+        let frame_blend = in.frame_blend_uv_limit.x;
+        var cutout = cube_alpha_footprint(in.current_texture, uv, uv_dx, uv_dy, sampled, in.material_flags);
+        if (frame_blend > 0.0) {
+            cutout = cutout_mix(cutout, cube_alpha_footprint(in.next_texture, uv, uv_dx, uv_dy, sampled, in.material_flags), frame_blend);
         }
         coverage = cutout.coverage;
         if (sampled.a < TERRAIN_ALPHA_THRESHOLD && coverage > 0.0) { sampled = cutout.colour; }
@@ -577,12 +584,13 @@ fn fragment_solid(in: VertexOutput) -> @location(0) vec4<f32> {
 
 // Sealed quad edges extend past the face, so their pixels clamp to its edge texels.
 fn sample_cube_texture(in: VertexOutput, uv_dx: vec2<f32>, uv_dy: vec2<f32>) -> vec4<f32> {
-    let uv = clamp(in.uv, vec2(0.0), in.uv_limit);
+    let uv = clamp(in.uv, vec2(0.0), in.frame_blend_uv_limit.yz);
+    let frame_blend = in.frame_blend_uv_limit.x;
     let current_sample = sample_material_texture_ref(in.current_texture, uv, uv_dx, uv_dy, in.material_flags);
     var sampled = current_sample;
-    if (in.frame_blend > 0.0) {
+    if (frame_blend > 0.0) {
         let next_sample = sample_material_texture_ref(in.next_texture, uv, uv_dx, uv_dy, in.material_flags);
-        sampled = mix(current_sample, next_sample, in.frame_blend);
+        sampled = mix(current_sample, next_sample, frame_blend);
     }
     return sampled;
 }
@@ -650,8 +658,8 @@ fn fragment_shadow(in: VertexOutput, @builtin(front_facing) front: bool) {
     let dy = dpdy(in.uv);
     if (!material_face_is_visible(in.material_flags, front)) { discard; }
     var sampled = sample_material_texture_ref(in.current_texture, in.uv, dx, dy, in.material_flags);
-    if (in.frame_blend > 0.0) {
-        sampled = mix(sampled, sample_material_texture_ref(in.next_texture, in.uv, dx, dy, in.material_flags), in.frame_blend);
+    if (in.frame_blend_uv_limit.x > 0.0) {
+        sampled = mix(sampled, sample_material_texture_ref(in.next_texture, in.uv, dx, dy, in.material_flags), in.frame_blend_uv_limit.x);
     }
     if ((in.material_flags & (1u << 8u)) != 0u && sampled.a < TERRAIN_ALPHA_THRESHOLD) { discard; }
 }
