@@ -34,7 +34,11 @@ impl MenuRuntime {
         }
         if matches!(
             self.auth_process.as_ref().map(AuthSupervisor::state),
-            Some(AuthState::Checking | AuthState::AwaitingCode { .. })
+            Some(
+                AuthState::Checking
+                    | AuthState::AwaitingCode { .. }
+                    | AuthState::AwaitingXboxSignup { .. }
+            )
         ) || matches!(
             self.auth_process.as_ref().map(AuthSupervisor::state),
             Some(AuthState::Failed(_) | AuthState::SignedOut)
@@ -200,12 +204,12 @@ impl MenuRuntime {
             self.auth_process.as_ref().map(AuthSupervisor::state),
             self.control_auth.as_ref(),
         );
-        if let AuthState::AwaitingCode { code, .. } = state {
+        if state.awaiting_browser() {
             #[cfg(not(test))]
             self.sign_in_browser
-                .open(code, explicit, crate::desktop::open_sign_in_link);
+                .open(state, explicit, crate::desktop::open_sign_in_link);
             #[cfg(test)]
-            self.sign_in_browser.open(code, explicit, |_| true);
+            self.sign_in_browser.open(state, explicit, |_| true);
         }
     }
 
@@ -255,7 +259,7 @@ impl MenuRuntime {
             self.auth_process.as_ref().map(AuthSupervisor::state),
             Some(&state),
         );
-        let ready = matches!(next, AuthState::AwaitingCode { .. });
+        let ready = next.awaiting_browser();
         let finished = !self.auth_restart_requested
             && matches!(next, AuthState::Authenticated | AuthState::SignedOut);
         let prompt = ready
@@ -304,14 +308,14 @@ impl MenuRuntime {
         let auth = self.current_auth();
         if !self.sign_in_requested
             && !self.feeds.account_adding
-            && !matches!(auth.as_ref(), AuthState::AwaitingCode { .. })
+            && !auth.as_ref().awaiting_browser()
         {
             return None;
         }
         Some(match auth.as_ref() {
             AuthState::Checking => vec![MenuAction::CancelSignIn],
             AuthState::Authenticated if self.feeds.account_adding => vec![MenuAction::CancelSignIn],
-            AuthState::AwaitingCode { .. } => {
+            AuthState::AwaitingCode { .. } | AuthState::AwaitingXboxSignup { .. } => {
                 vec![MenuAction::OpenSignInLink, MenuAction::CancelSignIn]
             }
             AuthState::Failed(_) => vec![MenuAction::StartSignIn, MenuAction::CancelSignIn],
@@ -326,12 +330,14 @@ impl MenuRuntime {
         let was_authenticated = matches!(process.state(), AuthState::Authenticated);
         let before = std::mem::discriminant(process.state());
         process.poll();
-        if self.sign_in_cancelled && matches!(process.state(), AuthState::AwaitingCode { .. }) {
+        if self.sign_in_cancelled && process.state().awaiting_browser() {
             process.cancel_prompt();
         }
         if !self.auth_restart_requested {
             match process.state() {
-                AuthState::AwaitingCode { .. } => self.sign_in_requested = true,
+                AuthState::AwaitingCode { .. } | AuthState::AwaitingXboxSignup { .. } => {
+                    self.sign_in_requested = true
+                }
                 AuthState::Authenticated | AuthState::SignedOut => self.sign_in_requested = false,
                 _ => {}
             }
@@ -339,11 +345,10 @@ impl MenuRuntime {
         let reset_focus = !self.auth_restart_requested
             && (self.sign_in_requested || self.feeds.account_adding)
             && before != std::mem::discriminant(process.state())
-            && (matches!(
-                process.state(),
-                AuthState::Checking | AuthState::AwaitingCode { .. } | AuthState::Failed(_)
-            ) || (self.feeds.account_adding
-                && matches!(process.state(), AuthState::Authenticated)));
+            && (process.state().awaiting_browser()
+                || matches!(process.state(), AuthState::Checking | AuthState::Failed(_))
+                || (self.feeds.account_adding
+                    && matches!(process.state(), AuthState::Authenticated)));
         if process.cleanup_complete() && self.auth_restart_requested {
             self.auth_process = None;
             self.auth_restart_requested = false;
@@ -367,7 +372,12 @@ impl MenuRuntime {
         // create another helper after this point.
         if matches!(
             self.control_auth,
-            Some(AuthState::Checking | AuthState::AwaitingCode { .. } | AuthState::Failed(_))
+            Some(
+                AuthState::Checking
+                    | AuthState::AwaitingCode { .. }
+                    | AuthState::AwaitingXboxSignup { .. }
+                    | AuthState::Failed(_)
+            )
         ) {
             self.control_auth = None;
         }
@@ -451,15 +461,17 @@ mod tests {
         menu.feeds.account_adding = true;
         menu.auth_process = Some(AuthSupervisor::from_child(child).unwrap());
         let deadline = Instant::now() + Duration::from_secs(5);
-        while !matches!(menu.current_auth().as_ref(), AuthState::AwaitingCode { .. })
-            && Instant::now() < deadline
+        while !matches!(
+            menu.current_auth().as_ref(),
+            AuthState::AwaitingCode { .. } | AuthState::AwaitingXboxSignup { .. }
+        ) && Instant::now() < deadline
         {
             menu.poll_sign_in();
             thread::sleep(Duration::from_millis(5));
         }
         assert!(matches!(
             menu.current_auth().as_ref(),
-            AuthState::AwaitingCode { .. }
+            AuthState::AwaitingCode { .. } | AuthState::AwaitingXboxSignup { .. }
         ));
         menu.move_focus(1);
         assert_eq!(menu.focused, 1);

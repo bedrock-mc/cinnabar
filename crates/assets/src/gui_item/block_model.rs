@@ -2,9 +2,9 @@
 //! Connected shapes still use the provisional cube inventory projection.
 
 use crate::{
-    BlockFace, MATERIAL_FLAG_ALPHA_BLEND, MATERIAL_FLAG_ALPHA_CUTOUT, MATERIAL_FLAG_ISOTROPIC,
-    MODEL_TEMPLATE_FLAG_FENCE_NETHER, MODEL_TEMPLATE_FLAG_FENCE_WOOD, Material, ModelQuad,
-    ModelTemplate, TextureArray, VisualKind,
+    BlockFace, MATERIAL_FLAG_ALPHA_BLEND, MATERIAL_FLAG_ALPHA_CUTOUT, MATERIAL_FLAG_DISABLE_AO,
+    MATERIAL_FLAG_ISOTROPIC, MODEL_TEMPLATE_FLAG_FENCE_NETHER, MODEL_TEMPLATE_FLAG_FENCE_WOOD,
+    Material, ModelQuad, ModelTemplate, TextureArray, VisualKind,
 };
 
 use super::CUBE_FACES;
@@ -92,7 +92,7 @@ pub fn block_item_quads(
 }
 
 /// Reads a material's first-mip tile, side and alpha mode from its texture page.
-/// Tints, overlays and rotated UVs are refused; world isotropy preserves the authored tile.
+/// World isotropy and disabled ambient occlusion preserve isolated tiles; tints and rotated UVs do not.
 pub fn material_tile<'a>(
     materials: &[Material],
     id: u32,
@@ -103,7 +103,7 @@ pub fn material_tile<'a>(
     }
     let material = materials.get(id as usize).ok_or(GuiBlockReject::Material)?;
     let alpha = MATERIAL_FLAG_ALPHA_BLEND | MATERIAL_FLAG_ALPHA_CUTOUT;
-    if material.flags & !(alpha | MATERIAL_FLAG_ISOTROPIC) != 0 {
+    if material.flags & !(alpha | MATERIAL_FLAG_ISOTROPIC | MATERIAL_FLAG_DISABLE_AO) != 0 {
         return Err(GuiBlockReject::Material);
     }
     let array = array(material.texture.page()).ok_or(GuiBlockReject::Texture)?;
@@ -181,7 +181,7 @@ mod tests {
     use crate::{MATERIAL_FLAG_ISOTROPIC, MATERIAL_FLAG_ROTATE_UV, TextureMip, TextureRef};
 
     #[test]
-    fn isotropic_gui_materials_preserve_tiles_and_alpha_modes() {
+    fn gui_materials_preserve_tiles_and_alpha_modes() {
         let array = TextureArray {
             layers: 1,
             mips: vec![TextureMip {
@@ -191,25 +191,30 @@ mod tests {
             .into(),
         };
         for alpha in [0, MATERIAL_FLAG_ALPHA_BLEND, MATERIAL_FLAG_ALPHA_CUTOUT] {
-            let materials = [
-                Material::unvaried(),
-                Material {
-                    texture: TextureRef::new(0, 0).unwrap(),
-                    flags: alpha | MATERIAL_FLAG_ISOTROPIC,
-                    ..Material::unvaried()
-                },
-            ];
-            let (tile, side, blend) = material_tile(&materials, 1, |_| Some(&array))
-                .expect("world isotropy preserves GUI texture admission");
-            assert_eq!(tile, [20, 40, 60, 128]);
-            assert_eq!(side, 1);
-            assert_eq!(blend, alpha == MATERIAL_FLAG_ALPHA_BLEND);
-            let mut unsupported = materials;
-            unsupported[1].flags |= MATERIAL_FLAG_ROTATE_UV;
-            assert_eq!(
-                material_tile(&unsupported, 1, |_| Some(&array)),
-                Err(GuiBlockReject::Material)
-            );
+            for flags in [
+                MATERIAL_FLAG_ISOTROPIC,
+                MATERIAL_FLAG_ISOTROPIC | MATERIAL_FLAG_DISABLE_AO,
+            ] {
+                let materials = [
+                    Material::unvaried(),
+                    Material {
+                        texture: TextureRef::new(0, 0).unwrap(),
+                        flags: alpha | flags,
+                        ..Material::unvaried()
+                    },
+                ];
+                let (tile, side, blend) = material_tile(&materials, 1, |_| Some(&array))
+                    .expect("ambient occlusion does not affect isolated GUI tiles");
+                assert_eq!(tile, [20, 40, 60, 128]);
+                assert_eq!(side, 1);
+                assert_eq!(blend, alpha == MATERIAL_FLAG_ALPHA_BLEND);
+                let mut unsupported = materials;
+                unsupported[1].flags |= MATERIAL_FLAG_ROTATE_UV;
+                assert_eq!(
+                    material_tile(&unsupported, 1, |_| Some(&array)),
+                    Err(GuiBlockReject::Material)
+                );
+            }
         }
     }
 }

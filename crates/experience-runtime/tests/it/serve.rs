@@ -10,7 +10,9 @@ use std::sync::mpsc::{self, Receiver};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use common::{edit_manifest, interact, looping_register_dir, p, probe_dir, probe_dir_with, tell};
+use common::{
+    edit_manifest, interact, looping_register_dir, p, probe_dir, probe_dir_with, server_items, tell,
+};
 use experience_runtime::limits::{
     CALLBACK_FUEL, MAX_FRAME_BYTES, MAX_MANIFEST_BYTES, MAX_REASON_BYTES,
 };
@@ -140,10 +142,11 @@ impl Drop for Session {
     }
 }
 
-/// The `load` request for `dir`.
+/// The `load` request for `dir`, with the server items an adapter lists for the probe.
 fn load_request(dir: &Path) -> Request {
     Request::Load {
         dir: dir.to_str().expect("a UTF-8 path").to_owned(),
+        items: server_items(),
     }
 }
 
@@ -171,6 +174,7 @@ fn load_then_callback_round_trip() {
             id: loaded.manifest.id,
             version: loaded.manifest.version,
             blocks: loaded.blocks,
+            items: loaded.items,
             focus: loaded.focus,
         }
     );

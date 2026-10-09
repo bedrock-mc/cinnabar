@@ -17,7 +17,7 @@ import (
 
 // protocolVersion is the adapter protocol this package speaks. It must equal the Rust runtime's
 // PROTOCOL_VERSION, which TestFrameLimitMatchesRust checks against the limits fixture.
-const protocolVersion = 4
+const protocolVersion = 5
 
 // BlockPos is a block position.
 type BlockPos struct {
@@ -53,12 +53,14 @@ type Info struct {
 }
 
 // Cell is one snapshot cell. ID is empty when the cell is not loaded; Data is lowercase hex.
+// States are an owned block's state values.
 type Cell struct {
-	Pos    BlockPos `json:"pos"`
-	Loaded bool     `json:"loaded"`
-	ID     string   `json:"id"`
-	Owned  bool     `json:"owned"`
-	Data   *string  `json:"data"`
+	Pos    BlockPos    `json:"pos"`
+	Loaded bool        `json:"loaded"`
+	ID     string      `json:"id"`
+	Owned  bool        `json:"owned"`
+	Data   *string     `json:"data"`
+	States BlockStates `json:"states"`
 }
 
 // Cause is what made a block change.
@@ -158,9 +160,11 @@ type Request struct {
 	Shutdown *ShutdownRequest
 }
 
-// LoadRequest loads the artifact in Dir. It is the first request of a session.
+// LoadRequest loads the artifact in Dir. It is the first request of a session. Items are the
+// server's items, which the guest may make stacks of besides its own.
 type LoadRequest struct {
-	Dir string `json:"dir"`
+	Dir   string       `json:"dir"`
+	Items []ServerItem `json:"items"`
 }
 
 // CallbackRequest runs Call on a snapshot. Its result echoes Seq.
@@ -172,7 +176,11 @@ type CallbackRequest struct {
 	WorldMaxY  int32   `json:"world_max_y"`
 	DataBudget uint64  `json:"data_budget"`
 	Snapshot   []Cell  `json:"snapshot"`
-	Call       Call    `json:"call"`
+	// Network is the anchor's network, whose members Snapshot holds, when the anchor is a member.
+	Network *Network `json:"network"`
+	// Inventory is the actor's inventory, when the callback has an actor.
+	Inventory *Inventory `json:"inventory"`
+	Call      Call       `json:"call"`
 }
 
 // ShutdownRequest ends the session.
@@ -198,12 +206,19 @@ type Breakable struct {
 	Hardness float32 `json:"hardness"`
 }
 
-// BlockDef is a validated block of the Experience.
+// BlockDef is a validated block of the Experience: its 0.1 definition, then server WIT 0.5's
+// states, placement traits, look and network membership. A block with a Visual binds no
+// Textures.
 type BlockDef struct {
-	ID          string    `json:"id"`
-	DisplayName string    `json:"display_name"`
-	Textures    []Texture `json:"textures"`
-	Mining      Mining    `json:"mining"`
+	ID           string           `json:"id"`
+	DisplayName  string           `json:"display_name"`
+	Textures     []Texture        `json:"textures"`
+	Mining       Mining           `json:"mining"`
+	States       []StateDef       `json:"states"`
+	Placement    []PlacementState `json:"placement"`
+	Visual       *Visual          `json:"visual"`
+	Permutations []Permutation    `json:"permutations"`
+	Network      bool             `json:"network"`
 }
 
 // FailKind is why a callback failed.
@@ -224,10 +239,13 @@ func (k *FailKind) UnmarshalJSON(data []byte) error { return unmarshalEnum(data,
 
 // Op is a staged operation. Exactly one field is set.
 type Op struct {
-	SetBlock     *SetBlockOp
-	SetBlockData *SetBlockDataOp
-	Tell         *TellOp
-	SendClient   *SendClientOp
+	SetBlock      *SetBlockOp
+	SetBlockData  *SetBlockDataOp
+	Tell          *TellOp
+	SendClient    *SendClientOp
+	SetBlockState *SetBlockStateOp
+	SetSlot       *SetSlotOp
+	DropItem      *DropItemOp
 }
 
 // SetBlockOp sets the block at Pos to ID.
@@ -295,6 +313,7 @@ type Loaded struct {
 	ID       string     `json:"id"`
 	Version  string     `json:"version"`
 	Blocks   []BlockDef `json:"blocks"`
+	Items    []ItemDef  `json:"items"`
 	Focus    bool       `json:"focus"`
 }
 
@@ -712,6 +731,12 @@ func (o Op) MarshalJSON() ([]byte, error) {
 		return json.Marshal(tellWire{variantTag{typeTell}, o.Tell})
 	case o.SendClient != nil:
 		return json.Marshal(sendClientWire{variantTag{typeSendClient}, o.SendClient})
+	case o.SetBlockState != nil:
+		return json.Marshal(setBlockStateWire{variantTag{typeSetBlockState}, o.SetBlockState})
+	case o.SetSlot != nil:
+		return json.Marshal(setSlotWire{variantTag{typeSetSlot}, o.SetSlot})
+	case o.DropItem != nil:
+		return json.Marshal(dropItemWire{variantTag{typeDropItem}, o.DropItem})
 	}
 	return nil, errors.New("empty op")
 }
@@ -731,6 +756,12 @@ func (o *Op) UnmarshalJSON(data []byte) error {
 		return decodeStrict(data, &tellWire{TellOp: fresh(&o.Tell)})
 	case typeSendClient:
 		return decodeStrict(data, &sendClientWire{SendClientOp: fresh(&o.SendClient)})
+	case typeSetBlockState:
+		return decodeStrict(data, &setBlockStateWire{SetBlockStateOp: fresh(&o.SetBlockState)})
+	case typeSetSlot:
+		return decodeStrict(data, &setSlotWire{SetSlotOp: fresh(&o.SetSlot)})
+	case typeDropItem:
+		return decodeStrict(data, &dropItemWire{DropItemOp: fresh(&o.DropItem)})
 	}
 	return fmt.Errorf("unknown op type %q", tag)
 }

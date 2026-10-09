@@ -16,7 +16,7 @@ use crate::menu::{MenuAction, MenuScreen, MenuView, auth::AuthState};
 /// The picker for `view`, with account pictures from `images` once decoded.
 pub(super) fn modal<'a>(view: &'a MenuView, images: &HashMap<String, IconRef>) -> Modal<'a> {
     if view.feeds.account_adding
-        || matches!(view.auth_state, AuthState::AwaitingCode { .. })
+        || view.auth_state.awaiting_browser()
         || (view.sign_in_requested
             && matches!(view.auth_state, AuthState::Checking | AuthState::Failed(_)))
     {
@@ -72,6 +72,11 @@ pub(super) fn modal<'a>(view: &'a MenuView, images: &HashMap<String, IconRef>) -
 /// Device sign-in uses the same primary and secondary roles as other launcher modals.
 pub(super) fn sign_in_modal(view: &MenuView) -> Modal<'_> {
     let first = match view.auth_state {
+        AuthState::AwaitingXboxSignup { .. } => (
+            "Create Xbox profile".into(),
+            Variant::Primary,
+            Some(MenuAction::OpenSignInLink),
+        ),
         AuthState::AwaitingCode { .. } => (
             "Open link".into(),
             Variant::Primary,
@@ -86,7 +91,11 @@ pub(super) fn sign_in_modal(view: &MenuView) -> Modal<'_> {
         _ => ("Open link".into(), Variant::Primary, None),
     };
     Modal {
-        title: "Sign in with Microsoft",
+        title: if matches!(view.auth_state, AuthState::AwaitingXboxSignup { .. }) {
+            "Create your Xbox profile"
+        } else {
+            "Sign in with Microsoft"
+        },
         items: Vec::new(),
         body: status(view).into(),
         body_color: if matches!(view.auth_state, AuthState::Failed(_)) {
@@ -110,6 +119,12 @@ pub(super) fn sign_in_modal(view: &MenuView) -> Modal<'_> {
 fn status(view: &MenuView) -> String {
     use launcher::menu::sign_in::BrowserState;
     match &view.auth_state {
+        AuthState::AwaitingXboxSignup { .. } => match view.sign_in_browser {
+            BrowserState::Failed => "Your browser couldn't open. Select Create Xbox profile to try again.".into(),
+            BrowserState::Opened => "Your Microsoft account needs an Xbox profile. Finish creating it in your browser, then return to the game.".into(),
+            BrowserState::Opening => "Opening Xbox profile setup in your browser…".into(),
+            BrowserState::Waiting => "Select Create Xbox profile to finish setting up your account in your browser.".into(),
+        },
         AuthState::AwaitingCode { uri, code } => match view.sign_in_browser {
             BrowserState::Failed => format!(
                 "Your browser couldn't open. Try Open link again.\n\nOr visit {uri} and enter code {code}."

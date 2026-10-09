@@ -4,8 +4,8 @@ use std::path::PathBuf;
 use experience_runtime::hex;
 use experience_runtime::limits::MAX_FRAME_BYTES;
 use experience_runtime::protocol::{
-    Cause, Face, FailKind, Mining, Request, Response, Scalar, Texture, fixtures, read_frame,
-    write_frame,
+    Cause, Face, FailKind, Mining, PlacementState, RenderMethod, Request, Response, Scalar,
+    Texture, fixtures, read_frame, write_frame,
 };
 use serde::{Deserialize, Serialize};
 
@@ -16,6 +16,19 @@ struct Enums {
     faces: Vec<Face>,
     causes: Vec<Cause>,
     fail_kinds: Vec<FailKind>,
+    render_methods: Vec<RenderMethod>,
+    placement_states: Vec<PlacementState>,
+    placement_values: Vec<PlacementValues>,
+}
+
+/// A placement trait's state and its values, which must be the ones the protocol's
+/// [`PlacementState::state`] gives.
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PlacementValues {
+    placement: PlacementState,
+    state: String,
+    values: Vec<String>,
 }
 
 fn fixture_dir() -> PathBuf {
@@ -51,6 +64,11 @@ fn frame_round_trips_every_fixture() {
         }
         if name == "enums" {
             let enums: Enums = serde_json::from_str(&json).expect("enums fixture decodes");
+            for entry in &enums.placement_values {
+                let (state, values) = entry.placement.state();
+                assert_eq!(entry.state, state);
+                assert_eq!(entry.values, values);
+            }
             let pretty = serde_json::to_string_pretty(&enums).unwrap() + "\n";
             assert_eq!(pretty, json, "enums: round trip changed the fixture");
             saw_enums = true;
@@ -115,14 +133,15 @@ fn unknown_field_is_rejected() {
         frame.extend_from_slice(json.as_bytes());
         frame
     };
-    let known = frame_of(r#"{"type":"load","dir":"/srv/experiences/benergistics"}"#);
+    let known = frame_of(r#"{"type":"load","dir":"/srv/experiences/benergistics","items":[]}"#);
     assert!(
         read_frame::<Request>(&mut Cursor::new(known))
             .unwrap()
             .is_some()
     );
 
-    let extra = frame_of(r#"{"type":"load","dir":"/srv/experiences/benergistics","extra":1}"#);
+    let extra =
+        frame_of(r#"{"type":"load","dir":"/srv/experiences/benergistics","items":[],"extra":1}"#);
     let err = read_frame::<Request>(&mut Cursor::new(extra)).unwrap_err();
     assert_eq!(err.kind(), ErrorKind::InvalidData);
 

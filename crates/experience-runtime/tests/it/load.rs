@@ -5,7 +5,7 @@ use std::path::Path;
 
 use common::{
     client_message, current_api, edit_manifest, epoch, focused, hello_wasm, interact, p, probe_dir,
-    probe_dir_with, probe_wasm, rehash, send, tell, v0_1_dir, v0_2_dir, v0_3_dir,
+    probe_dir_with, probe_wasm, rehash, send, tell, v0_1_dir, v0_2_dir, v0_3_dir, v0_4_dir,
 };
 use experience_runtime::callback::run;
 use experience_runtime::limits::{MAX_COMPONENT_BYTES, MAX_MANIFEST_BYTES, MAX_VERSION_BYTES};
@@ -13,7 +13,9 @@ use experience_runtime::load::{engine, load};
 use experience_runtime::manifest::{
     ASSETS_DIR, CLIENT_TABLE, MANIFEST_FILE, SERVER_WASM, read_manifest,
 };
-use experience_runtime::protocol::{BlockDef, Mining, Outcome, Scalar, Texture};
+use experience_runtime::protocol::{
+    BlockDef, ItemDef, Mining, Outcome, PlacementState, Scalar, StateDef, StateValues, Texture,
+};
 use tempfile::TempDir;
 
 /// Loads `dir`, which must fail, and returns the error chain. Every load error names the
@@ -78,8 +80,8 @@ fn probe_registers_counter_block() {
     assert_eq!(loaded.manifest.version, "0.1.0");
     let texture = dir.path().join(ASSETS_DIR).join("counter.png");
     assert_eq!(
-        loaded.blocks,
-        vec![BlockDef {
+        loaded.blocks[..1],
+        [BlockDef {
             id: "probe:counter".to_owned(),
             display_name: "Probe Counter".to_owned(),
             textures: vec![Texture {
@@ -87,8 +89,49 @@ fn probe_registers_counter_block() {
                 path: texture.to_str().unwrap().to_owned(),
             }],
             mining: Mining::Breakable { hardness: 1.0 },
+            states: Vec::new(),
+            placement: Vec::new(),
+            visual: None,
+            permutations: Vec::new(),
+            network: false,
         }]
     );
+}
+
+/// The probe declares its cell, one to a stack, with the counter's texture for an icon.
+#[test]
+fn probe_registers_its_item() {
+    let dir = probe_dir();
+    let (engine, _ticker) = engine().unwrap();
+    let loaded = load(&engine, dir.path()).unwrap();
+    let icon = dir.path().join(ASSETS_DIR).join("counter.png");
+    assert_eq!(
+        loaded.items,
+        vec![ItemDef {
+            id: "probe:cell".to_owned(),
+            display_name: "Probe Cell".to_owned(),
+            icon: icon.to_str().unwrap().to_owned(),
+            max_stack: 1,
+        }]
+    );
+}
+
+/// The probe's second block, a cube with the facing trait and one bool state.
+#[test]
+fn probe_registers_lamp_with_states() {
+    let dir = probe_dir();
+    let (engine, _ticker) = engine().unwrap();
+    let loaded = load(&engine, dir.path()).unwrap();
+    let lamp = &loaded.blocks[1];
+    assert_eq!(lamp.id, "probe:lamp");
+    assert_eq!(
+        lamp.states,
+        vec![StateDef {
+            name: "probe:on".to_owned(),
+            values: StateValues::Bool,
+        }]
+    );
+    assert_eq!(lamp.placement, vec![PlacementState::FacingDirection]);
 }
 
 #[test]
@@ -294,6 +337,11 @@ fn v0_1_artifact_loads_and_runs() {
                 path: texture.to_str().unwrap().to_owned(),
             }],
             mining: Mining::Breakable { hardness: 1.0 },
+            states: Vec::new(),
+            placement: Vec::new(),
+            visual: None,
+            permutations: Vec::new(),
+            network: false,
         }]
     );
     assert_eq!(
@@ -392,17 +440,42 @@ fn v0_3_artifact_loads_and_runs() {
     }
 }
 
-/// The probe targets the current world, which takes a focus; every older one does not.
+/// The probe targets the current world; 0.4 and the current world take a focus, every older
+/// one does not.
 #[test]
-fn only_the_current_api_takes_a_focus() {
+fn worlds_from_0_4_on_take_a_focus() {
     let (engine, _ticker) = engine().unwrap();
     let probe = probe_dir();
     let loaded = load(&engine, probe.path()).unwrap();
     assert_eq!(loaded.manifest.api, current_api());
     assert!(loaded.focus);
-    for dir in [v0_1_dir(), v0_2_dir()] {
+    assert!(load(&engine, v0_4_dir().path()).unwrap().focus);
+    for dir in [v0_1_dir(), v0_2_dir(), v0_3_dir()] {
         assert!(!load(&engine, dir.path()).unwrap().focus);
     }
+}
+
+/// A 0.4 artifact runs against the frozen 0.4 world: its plain block loads as a stateless cube,
+/// and its callbacks keep their focus.
+#[test]
+fn v0_4_artifact_loads_and_runs() {
+    let dir = v0_4_dir();
+    let (engine, _ticker) = engine().unwrap();
+    let loaded = load(&engine, dir.path()).unwrap();
+    assert_eq!(loaded.manifest.api, "0.4");
+    assert_eq!(loaded.blocks.len(), 1);
+    let block = &loaded.blocks[0];
+    assert!(block.states.is_empty() && block.visual.is_none() && !block.network);
+    assert_eq!(
+        run(&engine, &loaded, &interact(0)),
+        Outcome::Committed {
+            ops: vec![tell("v0.4")]
+        }
+    );
+    assert_eq!(
+        run(&engine, &loaded, &focused(epoch(), p(0))),
+        Outcome::Committed { ops: vec![] }
+    );
 }
 
 /// The manifest's `api` names the world that `server.wasm` must target.
@@ -417,7 +490,9 @@ fn api_must_match_the_component() {
     for dir in [
         with_api(v0_1_dir(), "0.2"),
         with_api(v0_2_dir(), "0.3"),
-        with_api(v0_3_dir(), current_api()),
+        with_api(v0_3_dir(), "0.4"),
+        with_api(v0_4_dir(), current_api()),
+        with_api(probe_dir(), "0.4"),
         with_api(probe_dir(), "0.3"),
         with_api(probe_dir(), "0.2"),
         with_api(probe_dir(), "0.1"),

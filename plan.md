@@ -162,6 +162,10 @@
 
 ## Frame attribution and unchanged GPU uploads
 
+- Simulation reads the current admitted frame clock. Deterministic FIFO tests at 60 and
+  120 Hz and an uncapped test bound tick flush delay and 20 Hz send jitter to 3 ms;
+  manual recording clocks keep their requested steps. Live movement acceptance remains open.
+
 - Apple pipelined rendering keeps surface creation on the UI thread while render
   submission stays on the render thread. Main and extraction schedules retain
   single-thread execution; runtime startup checks do not close frame-budget gates.
@@ -609,6 +613,7 @@
 ## Flower-pot floor and lily-pad atlas tint
 
 - Flower pots now add the dirt surface four pixels above the block base, below the rim.
+- Pot bodies and lantern surfaces use double-sided alpha testing instead of fallback blending and rear-face culling.
 - The pot body remains provisional fallback geometry; full current-version visual parity is incomplete.
 - Literal lily-pad atlas tint survives raster-only resource-pack replacement. A higher catalog can replace or clear it.
 - The current vanilla pack supplies a fixed green atlas multiplier, rather than biome tint.
@@ -3011,7 +3016,9 @@ Current implementation state:
   passive retention, not effective permissions, Survival admission, or a mining
   sender; end-to-end handshake and native permission acceptance remain open.
 - Supervised first-run device-code authentication and cached-account validation have landed;
-  token bytes remain Go-owned. A cached-account authenticated Lifeboat join is evidenced; native
+  token bytes remain Go-owned. Accounts without an Xbox profile can open Microsoft's hosted
+  signup and resume sign-in with the same Microsoft login. Live Xbox account creation acceptance
+  remains open. A cached-account authenticated Lifeboat join is evidenced; native
   first-run/device-code UX acceptance remains open. Bounded named PlaySound, StopSound, and LevelSoundEvent ingress now reaches
   an app same-frame delivery seam; a bounded session-owned outcome queue resolves named plays through the
   optional compiled sound-definition catalog into finite-checked playback records (stops catalog-free,
@@ -5327,6 +5334,21 @@ unmeasured; a re-bind costs about 1.6 ms in the dev profile (steady frames about
 - [ ] **5.5 Interaction, hotbar, and inventory.** `P5.5-INTERACTION-COMBAT-INVENTORY` Implement server-authoritative break cracks,
   placement/use, selected slot, item stack/network-ID reconciliation, creative/survival
   inventory, and chest/furnace/crafting containers with rollback on rejected stack requests.
+
+Block-crack presentation now retains zero-speed starts and speed updates, waits
+for positive progress before drawing, and preserves the stage while paused.
+Focused stream and renderer regressions cover start, pause, resume, stop and
+completion. Duplicate-start lifecycle, expiry and matched-server mining acceptance
+remain incomplete; this correction does not close an interaction parity gate.
+
+**Throwable timing (2026-10-09):** the native 200 ms action delay remains
+separate from item-category cooldowns. The opt-in Item Use Delay Fix permits
+one use after a slot change even between frames sharing an upcoming tick.
+Pearl, wind-charge and chorus-fruit cooldowns stay in their own categories;
+chorus fruit starts its 20-tick cooldown when use begins. Deterministic tests
+cover rapid slot changes, delay boundaries, rejected sends and hotbar cooldown
+publication. Live gameplay
+acceptance remains incomplete; this does not close the interaction gate.
 
 Owner-designated inventory reference (2026-09-06): use Lunar's inventory-management
 implementation when establishing these contracts. Pin the inspected source revision

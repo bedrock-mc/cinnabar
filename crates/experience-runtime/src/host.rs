@@ -1,6 +1,6 @@
 //! The host side of the `server` world: generated bindings, per-store state and the imports.
-//! The current WIT is `crates/experience-sdk/wit/server/server.wit`; [`v0_1`], [`v0_2`] and
-//! [`v0_3`] keep the worlds that older artifacts target.
+//! The current WIT is `crates/experience-sdk/wit/server/server.wit`; [`v0_1`], [`v0_2`],
+//! [`v0_3`] and [`v0_4`] keep the worlds that older artifacts target.
 
 use std::fmt;
 use std::time::Duration;
@@ -18,6 +18,7 @@ use crate::manifest::SERVER_WASM;
 pub(crate) mod v0_1;
 pub(crate) mod v0_2;
 pub(crate) mod v0_3;
+pub(crate) mod v0_4;
 
 wasmtime::component::bindgen!({
     path: "../experience-sdk/wit/server",
@@ -26,7 +27,10 @@ wasmtime::component::bindgen!({
     with: { "cinnabar:experience-server/world-access/callback": crate::callback::CallbackRes },
 });
 
-use cinnabar::experience_server::types::{CallbackInfo, LogLevel, WorldError};
+use cinnabar::experience_server::types::{
+    BlockDef, BlockState, BlockType, CallbackInfo, Inventory, LogLevel, Network, NewStack,
+    PlacementStates, WorldError,
+};
 use cinnabar::experience_server::{diagnostics, types, world_access};
 
 use crate::callback::CallbackRes;
@@ -44,18 +48,20 @@ pub(crate) enum Api {
     V0_2,
     /// The 0.3 world: client messages and epochs without a focus.
     V0_3,
-    /// The current world.
+    /// The 0.4 world: plain cube blocks, and the player's focus.
     V0_4,
+    /// The current world.
+    V0_5,
 }
 
 impl Api {
-    pub(crate) const ALL: [Api; 4] = [Api::V0_1, Api::V0_2, Api::V0_3, Api::V0_4];
+    pub(crate) const ALL: [Api; 5] = [Api::V0_1, Api::V0_2, Api::V0_3, Api::V0_4, Api::V0_5];
 
     /// Whether this world's client messages and epochs take their player's focus.
     pub(crate) fn focus(self) -> bool {
         match self {
             Api::V0_1 | Api::V0_2 | Api::V0_3 => false,
-            Api::V0_4 => true,
+            Api::V0_4 | Api::V0_5 => true,
         }
     }
 
@@ -70,7 +76,8 @@ impl Api {
             Api::V0_1 => v0_1::WIT,
             Api::V0_2 => v0_2::WIT,
             Api::V0_3 => v0_3::WIT,
-            Api::V0_4 => WIT,
+            Api::V0_4 => v0_4::WIT,
+            Api::V0_5 => WIT,
         };
         wit.lines()
             .find_map(|line| line.strip_prefix("package ")?.strip_suffix(';'))
@@ -92,7 +99,8 @@ pub(crate) enum Pre {
     V0_1(v0_1::ServerPre<HostState>),
     V0_2(v0_2::ServerPre<HostState>),
     V0_3(v0_3::ServerPre<HostState>),
-    V0_4(ServerPre<HostState>),
+    V0_4(v0_4::ServerPre<HostState>),
+    V0_5(ServerPre<HostState>),
 }
 
 impl Pre {
@@ -112,37 +120,69 @@ impl Pre {
                 Self::V0_3(v0_3::ServerPre::new(linker.instantiate_pre(component)?)?)
             }
             Api::V0_4 => {
+                v0_4::Server::add_to_linker::<_, HasSelf<_>>(&mut linker, |state| state)?;
+                Self::V0_4(v0_4::ServerPre::new(linker.instantiate_pre(component)?)?)
+            }
+            Api::V0_5 => {
                 Server::add_to_linker::<_, HasSelf<_>>(&mut linker, |state| state)?;
-                Self::V0_4(ServerPre::new(linker.instantiate_pre(component)?)?)
+                Self::V0_5(ServerPre::new(linker.instantiate_pre(component)?)?)
             }
         })
     }
 
-    /// Runs `register` on a fresh instance in `store`.
+    /// Runs `register` on a fresh instance in `store`. Worlds before 0.5 declare plain blocks,
+    /// which become cube block types and no items.
     pub(crate) fn register(
         &self,
         store: &mut Store<HostState>,
-    ) -> Result<Result<Vec<BlockDef>, GuestError>> {
+    ) -> Result<Result<Registration, GuestError>> {
         let instantiating = || format!("instantiating {SERVER_WASM}");
+        let plain = |result: Result<Vec<BlockDef>, GuestError>| result.map(cube_registration);
         let result = match self {
             Self::V0_1(pre) => pre
                 .instantiate(&mut *store)
                 .with_context(instantiating)?
-                .call_register(store),
+                .call_register(store)
+                .map(plain),
             Self::V0_2(pre) => pre
                 .instantiate(&mut *store)
                 .with_context(instantiating)?
-                .call_register(store),
+                .call_register(store)
+                .map(plain),
             Self::V0_3(pre) => pre
                 .instantiate(&mut *store)
                 .with_context(instantiating)?
-                .call_register(store),
+                .call_register(store)
+                .map(plain),
             Self::V0_4(pre) => pre
+                .instantiate(&mut *store)
+                .with_context(instantiating)?
+                .call_register(store)
+                .map(plain),
+            Self::V0_5(pre) => pre
                 .instantiate(&mut *store)
                 .with_context(instantiating)?
                 .call_register(store),
         };
         result.context("register trapped")
+    }
+}
+
+/// The 0.5 registration of plain blocks: each a stateless cube, and no items.
+fn cube_registration(defs: Vec<BlockDef>) -> Registration {
+    Registration {
+        blocks: defs
+            .into_iter()
+            .map(|def| BlockType {
+                def,
+                states: Vec::new(),
+                placement: PlacementStates::empty(),
+                visual: None,
+                permutations: Vec::new(),
+                network: false,
+            })
+            .collect(),
+        items: Vec::new(),
     }
 }
 
@@ -379,6 +419,67 @@ impl world_access::HostCallback for HostState {
 
     fn focus(&mut self, ctx: Resource<CallbackRes>) -> Result<Option<BlockPos>> {
         Ok(self.table.get_mut(&ctx)?.focus()?.map(Into::into))
+    }
+
+    fn block_states(
+        &mut self,
+        ctx: Resource<CallbackRes>,
+        pos: BlockPos,
+    ) -> Result<Result<Vec<BlockState>, WorldError>> {
+        let states = self.table.get_mut(&ctx)?.block_states(pos.into())?;
+        Ok(states.map(|states| states.into_iter().map(Into::into).collect()))
+    }
+
+    fn set_block_state(
+        &mut self,
+        ctx: Resource<CallbackRes>,
+        pos: BlockPos,
+        states: Vec<BlockState>,
+    ) -> Result<Result<(), WorldError>> {
+        let states = states.into_iter().map(Into::into).collect();
+        self.table
+            .get_mut(&ctx)?
+            .set_block_state(pos.into(), states)
+    }
+
+    fn network(
+        &mut self,
+        ctx: Resource<CallbackRes>,
+    ) -> Result<Result<Option<Network>, WorldError>> {
+        let network = self.table.get_mut(&ctx)?.network()?;
+        Ok(network.map(|network| {
+            network.map(|network| Network {
+                blocks: network.blocks.into_iter().map(Into::into).collect(),
+                truncated: network.truncated,
+            })
+        }))
+    }
+
+    fn inventory(&mut self, ctx: Resource<CallbackRes>) -> Result<Result<Inventory, WorldError>> {
+        let inventory = self.table.get_mut(&ctx)?.inventory()?;
+        Ok(inventory.map(Into::into))
+    }
+
+    fn set_slot(
+        &mut self,
+        ctx: Resource<CallbackRes>,
+        slot: u32,
+        stack: Option<NewStack>,
+    ) -> Result<Result<(), WorldError>> {
+        self.table
+            .get_mut(&ctx)?
+            .set_slot(slot, stack.map(Into::into))
+    }
+
+    fn drop_item(
+        &mut self,
+        ctx: Resource<CallbackRes>,
+        pos: BlockPos,
+        stack: NewStack,
+    ) -> Result<Result<(), WorldError>> {
+        self.table
+            .get_mut(&ctx)?
+            .drop_item(pos.into(), stack.into())
     }
 
     /// Only reachable for an owned handle, and the guest is only ever lent a callback.

@@ -130,7 +130,8 @@ pub struct HitRegion {
     pub order: usize,
     /// Where `button.menu_select` routes when pressed (`$pressed_button_name`).
     pub pressed: Option<String>,
-    /// `toggle_name` / `slider_name` / `text_box_name` / `dropdown_name`.
+    /// `toggle_name` / `slider_name` / `text_box_name` / `dropdown_name`, and a scroll view's
+    /// `scroll_view_name`, which server Experiences' modals report.
     pub control_name: Option<String>,
     /// The nearest enclosing factory/grid instance index.
     pub collection_index: Option<usize>,
@@ -292,6 +293,7 @@ pub(crate) fn region(
         HitKind::Dropdown => text("dropdown_name").or_else(|| text("toggle_name")),
         HitKind::Slider => text("slider_name"),
         HitKind::EditBox => text("text_box_name"),
+        HitKind::ScrollView => text("scroll_view_name"),
         _ => None,
     };
     let pressed = input

@@ -258,6 +258,7 @@ impl UiPresentationRuntime {
                     .iter()
                     .all(|scene| matches!(scene, Scene::Gameplay | Scene::Crosshair | Scene::Hud));
             self.append_experience_modal(
+                player_runtime,
                 runtime,
                 &mut nodes,
                 &mut next_id,

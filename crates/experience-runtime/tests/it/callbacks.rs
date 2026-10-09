@@ -9,7 +9,8 @@ use common::{
 };
 use experience_runtime::limits::{MAX_REASON_BYTES, MAX_VALUE_DEPTH};
 use experience_runtime::protocol::{
-    Call, Cause, Cell, Change, Face, FailKind, Op, Outcome, Request, Scalar,
+    BlockState, Call, Cause, Cell, Change, Face, FailKind, ItemStack, Network, NewStack, Op,
+    Outcome, Request, Scalar, StateValue,
 };
 
 /// `request` with its snapshot cell at `new.pos` replaced by `new`.
@@ -101,6 +102,79 @@ fn read_outside_snapshot_is_denied() {
     assert_eq!(outcome(&interact(6)), committed(vec![tell("denied")]));
 }
 
+fn state(name: &str, value: StateValue) -> BlockState {
+    BlockState {
+        name: name.to_owned(),
+        value,
+    }
+}
+
+/// Server WIT 0.5's calls work: a lamp set above the counter starts with its default states, and
+/// a lit lamp stages one state op after its placement; `network` answers, none off a member; the
+/// inventory reads, and a slot and a drop are staged.
+#[test]
+fn wit_0_5_calls_work() {
+    let stone = NewStack {
+        id: "minecraft:stone".to_owned(),
+        metadata: 0,
+        count: 1,
+        data: None,
+    };
+    let lamp = |lit: bool| format!("minecraft:facing_direction=down,probe:on={lit}");
+    assert_eq!(
+        outcome(&interact(24)),
+        committed(vec![
+            Op::SetBlock {
+                pos: up(24),
+                id: "probe:lamp".to_owned(),
+            },
+            Op::SetBlockState {
+                pos: up(24),
+                states: vec![state("probe:on", StateValue::Bool(true))],
+            },
+            Op::SetSlot {
+                slot: 0,
+                stack: Some(stone.clone()),
+            },
+            Op::DropItem {
+                pos: p(24),
+                stack: stone,
+            },
+            tell(&format!(
+                "states {} set ok states {} network ok inventory ok set-slot ok drop-item ok",
+                lamp(false),
+                lamp(true),
+            )),
+        ])
+    );
+}
+
+/// A state change of an existing lamp keeps its data: the op names the state alone. The counter
+/// has no states, so it takes none.
+#[test]
+fn set_block_state_changes_states_alone() {
+    let facing = state(
+        "minecraft:facing_direction",
+        StateValue::Choice("north".to_owned()),
+    );
+    let mut lamp = cell(p(25), "probe:lamp", true, Some("01"));
+    lamp.states = vec![facing, state("probe:on", StateValue::Bool(false))];
+    assert_eq!(
+        outcome(&with_cell(interact(25), lamp)),
+        committed(vec![
+            Op::SetBlockState {
+                pos: p(25),
+                states: vec![state("probe:on", StateValue::Bool(true))],
+            },
+            tell("lamp minecraft:facing_direction=north,probe:on=true"),
+        ])
+    );
+    assert_eq!(
+        outcome(&interact(25)),
+        committed(vec![tell("error unsupported-state")])
+    );
+}
+
 /// The probe's `set-block(up)` fails too, so nothing but the tell is staged.
 #[test]
 fn unloaded_cell_is_unavailable() {
@@ -110,6 +184,7 @@ fn unloaded_cell_is_unavailable() {
         id: String::new(),
         owned: false,
         data: None,
+        states: Vec::new(),
     };
     assert_eq!(
         outcome(&with_cell(interact(5), unloaded)),
@@ -265,9 +340,16 @@ fn non_canonical_player_ids_are_rejected_unrun() {
         )
     };
     let with_actor = |mut request: Request, id: Option<String>| {
-        let Request::Callback { actor, .. } = &mut request else {
+        let Request::Callback {
+            actor, inventory, ..
+        } = &mut request
+        else {
             unreachable!("a callback request");
         };
+        // The adapter snapshots an inventory only for an actor.
+        if id.is_none() {
+            *inventory = None;
+        }
         *actor = id;
         request
     };
@@ -468,4 +550,75 @@ fn malformed_client_message_or_epoch_is_rejected_unrun() {
     }
     let outcome = outcome(&client_message("probe.echo", 1, vec![too_deep]));
     assert!(matches!(outcome, Outcome::Rejected { .. }), "{outcome:?}");
+}
+
+/// A node's network reaches past the anchor's chunk column: the probe writes the member count to
+/// every member, the far one included, and reads `network` as the adapter snapshotted it.
+#[test]
+fn network_members_take_data_beyond_the_column() {
+    let far = p(40);
+    let mut request = with_cell(interact(26), cell(p(26), "probe:node", true, None));
+    if let Request::Callback {
+        snapshot, network, ..
+    } = &mut request
+    {
+        snapshot.push(cell(far, "probe:node", true, Some("ff")));
+        *network = Some(Network {
+            blocks: vec![p(26), far],
+            truncated: false,
+        });
+    }
+    let mark = |pos| Op::SetBlockData {
+        pos,
+        data: Some("02".to_owned()),
+    };
+    assert_eq!(
+        outcome(&request),
+        committed(vec![
+            mark(p(26)),
+            mark(far),
+            tell("network 2 truncated false wrote 2")
+        ])
+    );
+    assert_eq!(
+        outcome(&interact(26)),
+        committed(vec![tell("network none")])
+    );
+}
+
+/// The probe reads the held stack, as plain with its most, and makes its own cell with data and a
+/// drop of stone; both are staged as made.
+#[test]
+fn stacks_are_read_and_made() {
+    let mut request = interact(27);
+    if let Request::Callback { inventory, .. } = &mut request {
+        inventory.as_mut().unwrap().slots[0] = Some(ItemStack {
+            id: "minecraft:stone".to_owned(),
+            metadata: 0,
+            count: 32,
+            max_count: 64,
+            data: None,
+            plain: true,
+        });
+    }
+    let stack = |id: &str, count, data: Option<&str>| NewStack {
+        id: id.to_owned(),
+        metadata: 0,
+        count,
+        data: data.map(str::to_owned),
+    };
+    assert_eq!(
+        outcome(&request),
+        committed(vec![
+            Op::SetSlot {
+                slot: 0,
+                stack: Some(stack("probe:cell", 1, Some("07"))),
+            },
+            Op::DropItem {
+                pos: up(27),
+                stack: stack("minecraft:stone", 2, None),
+            },
+            tell("held minecraft:stone 32/64 plain true cell ok drop ok"),
+        ])
+    );
 }

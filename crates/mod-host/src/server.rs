@@ -200,12 +200,15 @@ impl cinnabar::server_experience::media::Host for State {
 }
 
 /// The guest's callbacks. A component built against 1.0 exports only `init` and `dispatch`;
-/// 1.1 adds `action` and `epoch`, both or neither.
+/// 1.1 adds `action` and `epoch`, both or neither; 1.2 its three editing callbacks, all or none;
+/// 1.3 `scroll-changed`.
 struct Exports {
     dispatch: Func,
     events: Option<(Func, Func)>,
     /// 1.2's `modal-resized`, `text-changed` and `secondary-action`.
     editing: Option<(Func, Func, Func)>,
+    /// 1.3's `scroll-changed`.
+    scrolled: Option<Func>,
 }
 
 impl Exports {
@@ -223,6 +226,7 @@ impl Exports {
             find("text-changed"),
             find("secondary-action"),
         );
+        let scrolled = find("scroll-changed");
         let (Some(init), Some(dispatch)) = (init, dispatch) else {
             anyhow::bail!("component lacks init or dispatch");
         };
@@ -249,12 +253,16 @@ impl Exports {
                 "component exports only some of modal-resized, text-changed and secondary-action"
             ),
         };
+        if let Some(scrolled) = &scrolled {
+            scrolled.typed::<(&str, ScrollRange), ()>(&*store)?;
+        }
         Ok((
             init,
             Self {
                 dispatch,
                 events,
                 editing,
+                scrolled,
             },
         ))
     }
@@ -386,7 +394,8 @@ impl BundleHost {
         let state = self.store.data_mut();
         if let Event::Action { id, .. }
         | Event::SecondaryAction { id, .. }
-        | Event::Text { control: id, .. } = event
+        | Event::Text { control: id, .. }
+        | Event::Scrolled { view: id, .. } = event
         {
             ensure!(state.capabilities.may_deliver(id), "action not granted");
         }
@@ -486,6 +495,19 @@ impl BundleHost {
                     let secondary = secondary.typed::<(&str, Option<u32>), ()>(&*store)?;
                     secondary.call(&mut *store, (id, *index))?;
                     secondary.post_return(store)
+                }
+                None => Ok(()),
+            },
+            (Event::Scrolled { view, range }, _) => match &self.exports.scrolled {
+                Some(scrolled) => {
+                    let scrolled = scrolled.typed::<(&str, ScrollRange), ()>(&*store)?;
+                    let range = ScrollRange {
+                        offset: range.offset,
+                        viewport: range.viewport,
+                        content: range.content,
+                    };
+                    scrolled.call(&mut *store, (view, range))?;
+                    scrolled.post_return(store)
                 }
                 None => Ok(()),
             },

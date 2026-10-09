@@ -144,11 +144,15 @@ startup.
 ## WIT and semantics
 
 The contract is `crates/experience-sdk/wit/server/server.wit`, package
-`cinnabar:experience-server@0.4.0`, world `server`. The guest exports `register`, which runs once
-at startup and declares its blocks, the callbacks `on-place`, `on-break`, `on-interact` and
-`on-neighbor-changed`, `client-message` and `epoch`. Every world method goes through the borrowed
-`callback` resource, valid for one callback only. The runtime still runs older artifacts against
-their frozen worlds, by the manifest's `api`:
+`cinnabar:experience-server@0.5.0`, world `server`. The guest exports `register`, which runs once
+at startup and declares its blocks and items as a `registration`, the callbacks `on-place`,
+`on-break`, `on-interact` and `on-neighbor-changed`, `client-message` and `epoch`. Every world
+method goes through the borrowed `callback` resource, valid for one callback only. The runtime
+still runs older artifacts against their frozen worlds, by the manifest's `api`:
+
+- `api = "0.4"`, `crates/experience-runtime/wit/0.4/server.wit`: `register` declares plain
+  `block-def`s, which the runtime reads as cube block types and no items, and the callback has
+  none of 0.5's calls. 0.5 only added types, so the 0.4 world shares them.
 
 - `api = "0.3"`, `crates/experience-runtime/wit/0.3/server.wit`: no `callback.focus`, so client
   messages and epochs never have a snapshot. The adapter gives such an Experience no focus, and
@@ -163,8 +167,89 @@ their frozen worlds, by the manifest's `api`:
 WIT cannot express the rules below; the runtime (`crates/experience-runtime`) and the adapter
 (`tools/localserver/experience`) both enforce them.
 
-- **Blocks.** Stateless cubes registered at startup only: an opaque texture per material slot
-  (`*` or all six faces), full-cube collision and selection, and mining that is either
+- **0.5.** 0.5 declares block states and placement traits, visuals (geometry, material
+  instances with render methods and flipbooks, bone visibility, boxes, rotation, permutations
+  over structured conditions), network membership and items, and the callback calls
+  `block-states`, `set-block-state`, `network`, `inventory`, `set-slot` and `drop-item`; IPC
+  protocol 5 carries all of them (SP5 tasks C, E, F and G of the Applied Benergistics plan).
+- **Items (0.5).** `register` declares items: `<experience id>:<name>` like blocks and distinct
+  from them, with a display name, an indexed icon and 1 to `MAX_STACK_SIZE` to a stack, at most
+  `MAX_ITEMS`. The adapter registers each as a Dragonfly custom item in the Experience's creative
+  group, its icon in the pack under its whole id. A callback with an actor has the actor's
+  inventory: 37 slots, the hotbar's 9 first and the offhand last, and the selected hotbar slot.
+  Each stack is its id, metadata, count and the most one stack holds, which the adapter derives;
+  its data only on this Experience's own items; and `plain` when it carries nothing else (no
+  name, lore, enchantment, wear, anvil cost, block NBT or other value). The guest makes fresh
+  stacks only: of its own items, with data up to `MAX_ITEM_DATA_BYTES`, or of its blocks or the
+  server's items, without data, within the most one stack holds. The adapter lists the server's
+  vanilla metadata variants, each with that most, in `load`, so a guest learns an item's stack size by being
+  refused: an unknown item is `unknown-block`, a stack past its most or data past its bound
+  `too-large`, data on an item not its own `not-owned`, an empty stack or metadata on its own
+  item `unsupported-state`. `set-slot` stages a slot's new content, a slot written again
+  replacing its op, and `inventory` reads the staged slots back; commit discards the whole
+  result if a slot it writes changed since the snapshot. Vanilla stacks must match an exact
+  metadata variant listed by the adapter at load; unsupported variants are refused before staging.
+  Offhand writes also require the item eligibility reported by the adapter, and ineligible writes
+  reject the callback before any operations commit.
+  `drop-item` spawns an item entity at a position `set-block` may write. Own-item data is a Dragonfly stack value: it is saved with the
+  stack and, unlike block data, reaches clients in the stack's NBT, as AE2's cell contents do,
+  so guests decode it as untrusted. Staged vanilla stacks use the adapter's plain classification,
+  including its conservative exclusion of NBT-bearing item types.
+- **Network scope (0.5).** A block type may be a network member. A callback anchored on a member
+  (place, interact, neighbor, or a client message or epoch whose focus is one) has the anchor's
+  network: the adapter floods from the anchor through face-adjacent members of the Experience
+  over all six faces, and for the break of a member from its six neighbors, so both halves of a
+  split are in it. The guest applies its own rules about which faces connect. The flood stops at
+  unloaded positions, as an AE2 grid does, and at `MAX_NETWORK_BLOCKS` members or
+  `MAX_NETWORK_DATA_BYTES` of their data. The adapter also stops before a member would make
+  the encoded callback exceed the IPC frame limit, including its inventory and neighbors.
+  At any of these limits, `network` says truncated and the guest should treat it as unavailable.
+  The snapshot holds every member with its id, states, data and token; reads cover them and the anchor's neighbors, `set-block-data` and
+  `set-block-state` reach every member, and `set-block` keeps the anchor's chunk column. Commit
+  checks every member's token and rejected boundary positions for new members, so a foreign
+  change to the network or a new connection discards the whole
+  result; one Experience's callbacks run one at a time, so only foreign changes can. Neither
+  side keeps a grid: each callback recomputes from this snapshot. `network` is none off a
+  member.
+- **Block types (0.5).** The runtime checks every rule below at load and the adapter again at
+  registration; every bound is a constant in `limits.rs`, mirrored in `limits.go` and checked
+  against the limits fixture.
+  - States are `<experience id>:<name>`, the name `^[a-z0-9_]{1,MAX_NAME_BYTES}$`: a bool, or 1
+    to `MAX_STATE_VALUES` distinct string values of the same form. Placement traits add
+    Bedrock's `minecraft:cardinal_direction`, `minecraft:facing_direction`,
+    `minecraft:block_face` and `minecraft:vertical_half`, with the client's values in its order.
+    A block's axes are its traits' states, then its own, in that order everywhere (snapshots,
+    defaults, the client's permutation index); their combinations number at most
+    `MAX_STATE_COMBINATIONS`, which the client's own bound admits (a test in
+    `crates/protocol` checks it). The adapter registers every combination.
+  - A condition tests only the block's states, against values they take, at most
+    `MAX_CONDITION_TESTS` times; the adapter writes it as `q.block_state` Molang.
+  - A visual replaces the block's textures. Its geometry is an indexed `.geo.json` holding one
+    geometry identified `geometry.<experience id>.<name>`; one identifier is one file across the
+    Experience. Material instances are `*`, a face, or one the geometry draws with, once each,
+    and together cover every instance it draws with (or list `*`); at most `MAX_MATERIALS`. A
+    flipbook's strip is whole square frames, and it shows only frames there are, each for at
+    least a tick. Bone visibilities name bones of the geometry, at most `MAX_BONES`. Boxes are
+    non-empty, within 0 to 16 pixels; rotations 0 to 3 quarter turns per axis.
+  - At most `MAX_PERMUTATIONS` permutations, which need a visual; each holds sometimes and sets
+    something. A later one wins where two hold, so the adapter keeps their order. A permutation
+    geometry brings its own bones; the block's materials, unless it sets its own, must cover it.
+    A zero rotation cannot undo a turned visual or an earlier matching nonzero rotation,
+    since the client reads zero as none. Disjoint zero-rotation permutations remain supported.
+  - The adapter names each geometry file by the whole block id
+    (`models/blocks/<namespace>/<name>.geo.json`, a permutation's under
+    `models/blocks/<namespace>/<name>/`), gives each distinct texture and flipbook of a block its
+    own texture key, and writes `textures/flipbook_textures.json`.
+- **States.** A placed block's placement trait states follow the vanilla client's placement
+  callbacks (`BlockTrait::PlacementDirection` and `BlockTrait::PlacementPosition`); a block set
+  by a guest starts in its default states, the first value of each. Snapshots carry an own
+  block's states. `block-states` reads them like `get-block`; `set-block-state` writes where
+  `set-block-data` writes, only to this Experience's blocks (`not-owned`), each state once,
+  among the block's, at a value it takes (`unsupported-state`), and keeps the block's data and
+  generation. Writes to one block merge into one op; a later `set-block` drops it. Commit
+  discards a result whose snapshot cell changed state.
+- **Blocks.** Registered at startup only. Without a visual, a cube with an opaque texture per
+  material slot (`*` or all six faces) and full-cube collision and selection; mining that is either
   `unbreakable` or `breakable(hardness)`. Every block is harvestable by hand and drops itself.
   Block ids are `<experience id>:<name>`.
 - **Callbacks.**
@@ -177,13 +262,15 @@ WIT cannot express the rules below; the runtime (`crates/experience-runtime`) an
   staged; a rejected single operation leaves the staged state unchanged and the callback
   continues. Logs are not gameplay output and survive a discarded callback.
 - **Reads.** Reads see only the anchor (the event's block, or a client message's or an epoch's
-  focus) and its six orthogonal neighbors in the same dimension, as they were snapshotted.
+  focus), its six orthogonal neighbors in the same dimension and its network's members, as they
+  were snapshotted.
   - `get-block` returns a snapshot position's id with staged writes applied; an unloaded position
     is `unavailable`, one outside the snapshot `denied`, one outside the world height
     `out-of-bounds`.
   - `block-data` returns data only while the position holds this Experience's block (staged
     writes applied), else `not-owned`. No data and empty data are distinct.
-- **Writes.** Writes reach the anchor and the snapshot neighbors in the anchor's chunk column.
+- **Writes.** Writes reach the anchor and the snapshot neighbors in the anchor's chunk column;
+  data and states also reach the network's members.
   - `set-block`: the current block (staged writes applied) must be air or this Experience's own,
     else `not-owned`; the new id must be `minecraft:air` or this Experience's own, else
     `unknown-block`. Every replacement, even with the same id, clears the position's data and
@@ -365,7 +452,11 @@ does not. A staged client message is a
 `send_client` op. Their `scalar` values have the client wire protocol's form,
 `{"type": "integer", "value": 42}`, a list or record holding its values in an array,
 `{"type": "list", "value": [...]}`; the runtime turns them into and out of the guest's pre-order
-nodes.
+nodes. Protocol 5 adds server WIT 0.5's contract: each cell's `states`, a callback's `network`
+(the anchor's network, whose members the snapshot holds) and `inventory` (the actor's), each
+block's `states`, `placement`, `visual`, `permutations` and `network` and `loaded`'s `items`, with
+asset paths absolute as textures' are, and the ops `set_block_state`, `set_slot` and
+`drop_item`. State values have the scalar form, `{"type": "choice", "value": "online"}`.
 
 ## Private data store
 
@@ -418,8 +509,8 @@ These axes are versioned separately. Before 1.0, a breaking change bumps the min
 
 | Axis | Version | Source |
 |---|---|---|
-| Server WIT | 0.3; 0.2 and 0.1 still accepted | `crates/experience-sdk/wit/server/server.wit`; 0.2 and 0.1 in `crates/experience-runtime/wit/<version>/server.wit` |
-| IPC protocol | 3 | `PROTOCOL_VERSION` in `crates/experience-runtime/src/protocol.rs` |
+| Server WIT | 0.5; 0.4, 0.3, 0.2 and 0.1 still accepted | `crates/experience-sdk/wit/server/server.wit`; older ones in `crates/experience-runtime/wit/<version>/server.wit` |
+| IPC protocol | 5 | `PROTOCOL_VERSION` in `crates/experience-runtime/src/protocol.rs` |
 | Server manifest | `api`, `data-schema`; `[client]` is ignored | `crates/experience-runtime/src/manifest.rs` |
 | Client WIT | `cinnabar:server-experience@1.1.0`; 1.0 components still link | `crates/experience-sdk/wit/client/deps/server-experience/capabilities.wit`, world `server-bundle` in `crates/experience-sdk/wit/client/client.wit` |
 | Client wire protocol | 2, negotiated in Hello and Accept; 1 still accepted | `WIRE_VERSION`, `MAX_WIRE_VERSION` in `crates/server-experience/src/policy.rs` |

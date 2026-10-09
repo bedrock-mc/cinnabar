@@ -43,6 +43,7 @@ type event struct {
 	Version         int    `json:"v"`
 	Kind            string `json:"event"`
 	VerificationURI string `json:"verification_uri,omitempty"`
+	SignupURL       string `json:"signup_url,omitempty"`
 	UserCode        string `json:"user_code,omitempty"`
 	Method          string `json:"method,omitempty"`
 	Stage           string `json:"stage,omitempty"`
@@ -108,12 +109,8 @@ func Run(ctx context.Context, config Config) error {
 		method = "device_code"
 	}
 	if config.CompleteSignIn != nil {
-		exchange, cancel := context.WithTimeout(ctx, completeSignInTimeout)
-		_ = config.CompleteSignIn(exchange, config.Path, signedIn)
-		cancel()
-		// A completion failure leaves the exchange to the first join; a cancelled sign-in is not success.
-		if ctx.Err() != nil {
-			return fail(writer, "cancelled", "Sign-in was cancelled.")
+		if err := completeXboxSignIn(ctx, config, signedIn, writer); err != nil {
+			return err
 		}
 	}
 	return emit(writer, event{Version: 1, Kind: "authenticated", Method: method})

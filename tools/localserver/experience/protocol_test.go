@@ -23,6 +23,26 @@ type fixtureLimits struct {
 	MaxClientSends     int    `json:"max_client_sends"`
 	MaxClientSendBytes int    `json:"max_client_send_bytes"`
 	MaxValueDepth      int    `json:"max_value_depth"`
+	// The bounds on a block type, which the adapter checks again at registration.
+	MaxNameBytes         int `json:"max_name_bytes"`
+	MaxStateValues       int `json:"max_state_values"`
+	MaxStateCombinations int `json:"max_state_combinations"`
+	MaxBones             int `json:"max_bones"`
+	MaxPermutations      int `json:"max_permutations"`
+	MaxMaterials         int `json:"max_materials"`
+	MaxConditionTests    int `json:"max_condition_tests"`
+	MaxFlipbookFrames    int `json:"max_flipbook_frames"`
+	MaxGeometryBytes     int `json:"max_geometry_bytes"`
+	// The network bounds, which the adapter's flood keeps.
+	MaxNetworkBlocks    int `json:"max_network_blocks"`
+	MaxNetworkDataBytes int `json:"max_network_data_bytes"`
+	// The inventory's shape and the item bounds, which registration and the commit check keep.
+	InventorySlots   int `json:"inventory_slots"`
+	HotbarSlots      int `json:"hotbar_slots"`
+	MaxItems         int `json:"max_items"`
+	MaxStackSize     int `json:"max_stack_size"`
+	MaxItemDataBytes int `json:"max_item_data_bytes"`
+	MaxServerItems   int `json:"max_server_items"`
 }
 
 // rustLimits reads the limits fixture.
@@ -41,9 +61,30 @@ func rustLimits(t *testing.T) fixtureLimits {
 
 // fixtureEnums mirrors the enums fixture: every protocol enum string, in Rust's order.
 type fixtureEnums struct {
-	Faces     []Face     `json:"faces"`
-	Causes    []Cause    `json:"causes"`
-	FailKinds []FailKind `json:"fail_kinds"`
+	Faces           []Face           `json:"faces"`
+	Causes          []Cause          `json:"causes"`
+	FailKinds       []FailKind       `json:"fail_kinds"`
+	RenderMethods   []RenderMethod   `json:"render_methods"`
+	PlacementStates []PlacementState `json:"placement_states"`
+	PlacementValues []struct {
+		Placement PlacementState `json:"placement"`
+		State     string         `json:"state"`
+		Values    []string       `json:"values"`
+	} `json:"placement_values"`
+}
+
+// rustEnums reads the enums fixture.
+func rustEnums(t *testing.T) fixtureEnums {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join("testdata", "protocol", "enums.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rust fixtureEnums
+	if err := decodeStrict(data, &rust); err != nil {
+		t.Fatal(err)
+	}
+	return rust
 }
 
 // fixturePaths lists the golden fixtures that the Rust runtime writes.
@@ -132,6 +173,13 @@ func checkEnums(t *testing.T, rust *fixtureEnums) {
 	}
 	if !slices.Equal(failKinds, rust.FailKinds) {
 		t.Errorf("Go fail kinds %q, Rust fail kinds %q", failKinds, rust.FailKinds)
+	}
+	if !slices.Equal(renderMethods, rust.RenderMethods) {
+		t.Errorf("Go render methods %q, Rust render methods %q", renderMethods, rust.RenderMethods)
+	}
+	if !slices.Equal(placementStates, rust.PlacementStates) {
+		t.Errorf("Go placement states %q, Rust placement states %q", placementStates,
+			rust.PlacementStates)
 	}
 	for _, other := range []string{`"sideways"`, `"Up"`, `""`, `null`, `1`} {
 		var face Face
@@ -291,20 +339,20 @@ func TestFrameLimitMatchesRust(t *testing.T) {
 	})
 
 	t.Run("write", func(t *testing.T) {
-		const head, tail = `{"type":"load","dir":"`, `"}`
+		const head, tail = `{"type":"load","dir":"`, `","items":[]}`
 		dir := strings.Repeat("d", maxFrameBytes-len(head)-len(tail))
-		body, err := encodeFrame(Request{Load: &LoadRequest{Dir: dir}})
+		body, err := encodeFrame(Request{Load: &LoadRequest{Dir: dir, Items: []ServerItem{}}})
 		if err != nil || len(body) != maxFrameBytes {
 			t.Fatalf("a body of exactly maxFrameBytes: %d bytes, %v", len(body), err)
 		}
-		if _, err := encodeFrame(Request{Load: &LoadRequest{Dir: dir + "d"}}); err == nil {
+		if _, err := encodeFrame(Request{Load: &LoadRequest{Dir: dir + "d", Items: []ServerItem{}}}); err == nil {
 			t.Fatal("a body of maxFrameBytes+1 was encoded")
 		}
 	})
 }
 
 // The commit check enforces the runtime's op, block data, tell and client message limits again,
-// so Go shares them with Rust.
+// and registration its bounds on block types, so Go shares them with Rust.
 func TestCommitLimitsMatchRust(t *testing.T) {
 	rust := rustLimits(t)
 	for _, limit := range []struct {
@@ -316,6 +364,23 @@ func TestCommitLimitsMatchRust(t *testing.T) {
 		{"maxTells", maxTells, rust.MaxTells},
 		{"maxTellBytes", maxTellBytes, rust.MaxTellBytes},
 		{"maxClientSends", maxClientSends, rust.MaxClientSends},
+		{"maxNameBytes", maxNameBytes, rust.MaxNameBytes},
+		{"maxStateValues", maxStateValues, rust.MaxStateValues},
+		{"maxStateCombinations", maxStateCombinations, rust.MaxStateCombinations},
+		{"maxBones", maxBones, rust.MaxBones},
+		{"maxPermutations", maxPermutations, rust.MaxPermutations},
+		{"maxMaterials", maxMaterials, rust.MaxMaterials},
+		{"maxConditionTests", maxConditionTests, rust.MaxConditionTests},
+		{"maxFlipbookFrames", maxFlipbookFrames, rust.MaxFlipbookFrames},
+		{"maxGeometryBytes", maxGeometryBytes, rust.MaxGeometryBytes},
+		{"maxNetworkBlocks", maxNetworkBlocks, rust.MaxNetworkBlocks},
+		{"maxNetworkDataBytes", maxNetworkDataBytes, rust.MaxNetworkDataBytes},
+		{"inventorySlots", inventorySlots, rust.InventorySlots},
+		{"hotbarSlots", hotbarSlots, rust.HotbarSlots},
+		{"maxItems", maxItems, rust.MaxItems},
+		{"maxStackSize", maxStackSize, rust.MaxStackSize},
+		{"maxItemDataBytes", maxItemDataBytes, rust.MaxItemDataBytes},
+		{"maxServerItems", maxServerItems, rust.MaxServerItems},
 	} {
 		if limit.goV != limit.rust {
 			t.Errorf("%s = %d, Rust has %d", limit.name, limit.goV, limit.rust)

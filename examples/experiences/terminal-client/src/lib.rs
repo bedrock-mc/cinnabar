@@ -8,7 +8,8 @@
 //! - `terminal.size` binds what `ui.modal-size` reads as `#read`;
 //! - `modal-resized` binds its size as `#size` and reads it back as `#read`, and `text-changed`
 //!   in `terminal.search` sets `terminal.echo` to the text in capitals, and `secondary-action`
-//!   binds its action and row as `#secondary`;
+//!   binds its action and row as `#secondary`, and `scroll-changed` binds its view as
+//!   `#scrolled` and its range as `#scroll`;
 //! - anything else binds its item list (records of an id, a count and a display name) into the
 //!   `items` collection, one row per item, and binds nothing for any other record.
 
@@ -56,6 +57,15 @@ impl ClientPart for Terminal {
     fn secondary_action(id: String, collection_index: Option<u32>) {
         let row = collection_index.map_or_else(|| "none".to_owned(), |row| row.to_string());
         let _ = ui::set_value("#secondary", &ui::Value::Text(format!("{id} {row}")));
+    }
+
+    /// Binds the range a scroll view reports, with its name, as `#scroll` and `#scrolled`.
+    fn scroll_changed(view: String, range: ui::ScrollRange) {
+        let _ = ui::set_value("#scrolled", &ui::Value::Text(view));
+        let _ = ui::set_value(
+            "#scroll",
+            &ui::Value::Numbers(vec![range.offset, range.viewport, range.content]),
+        );
     }
 
     /// Answers text typed into `terminal.search` by setting `terminal.echo` to it in capitals.

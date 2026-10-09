@@ -1,4 +1,4 @@
-package cinnabar:experience-server@0.4.0;
+package cinnabar:experience-server@0.5.0;
 
 interface types {
     record block-pos { x: s32, y: s32, z: s32 }
@@ -28,10 +28,89 @@ interface types {
     /// its item count, followed by that many values, each a leaf or another header with its own
     /// items. The values left after a value's items are the record's next fields.
     variant value-node { leaf(scalar), %list(u32), %record(u32) }
+
+    // 0.5: block states and visuals, items and the player's inventory, and the network scope.
+    // Every 0.4 type above is unchanged, so the 0.4 world shares them.
+
+    /// A point in a block, in pixels: 0 to 16 on each axis, x east, y up, z south.
+    record pixel { x: f32, y: f32, z: f32 }
+    /// An axis-aligned box in a block, in pixels (`minecraft:collision_box`,
+    /// `minecraft:selection_box`).
+    record pixel-box { min: pixel, max: pixel }
+    /// How a material draws (`minecraft:material_instances` `render_method`).
+    enum render-method { opaque, alpha-test, blend, double-sided }
+    /// A texture animated as a vertical strip of square frames (`flipbook_textures.json`):
+    /// `frames` index the strip in play order, each shown for `ticks-per-frame`.
+    record flipbook { ticks-per-frame: u32, frames: list<u32>, blend-frames: bool }
+    /// One material instance: `instance` is "*", a face name, or an instance the geometry's faces
+    /// name; `path` is a PNG under assets/.
+    record material { instance: string, path: string, render-method: render-method, flipbook: option<flipbook> }
+    /// The values one state takes: a bool, or 1 to 16 strings.
+    variant state-values { %bool, choices(list<string>) }
+    /// A state a block declares; its name is namespaced by the Experience id.
+    record state-def { name: string, values: state-values }
+    /// One state's value.
+    variant state-value { %bool(bool), choice(string) }
+    /// A state and its value.
+    record block-state { name: string, value: state-value }
+    /// Bedrock's placement traits a block takes. Each adds its states, which the server sets when
+    /// the block is placed by the trait's rule: `minecraft:cardinal_direction` and
+    /// `minecraft:facing_direction` (`minecraft:placement_direction`),
+    /// `minecraft:block_face` and `minecraft:vertical_half` (`minecraft:placement_position`).
+    flags placement-states { cardinal-direction, facing-direction, block-face, vertical-half }
+    /// `state == value` when `equal`, else `state != value`.
+    record state-test { state: block-state, equal: bool }
+    /// True when any of its lists has only passing tests: an or of ands. An empty outer list is
+    /// never true; an empty inner list always is.
+    type condition = list<list<state-test>>;
+    /// Quarter turns about each axis, 0 to 3, applied x then y then z
+    /// (`minecraft:transformation`).
+    record quarter-turns { x: u8, y: u8, z: u8 }
+    /// A geometry bone that draws only while `visible` holds (`bone_visibility`).
+    record bone-visibility { bone: string, visible: condition }
+    /// What a block looks like. `geometry` is a `.geo.json` under assets/ holding one geometry
+    /// identified `geometry.<experience id>.<name>`; none is the full cube. `bones` name
+    /// bones of that geometry. Boxes default to the full cube.
+    record visual {
+        geometry: option<string>, materials: list<material>, bones: list<bone-visibility>,
+        collision: option<pixel-box>, selection: option<pixel-box>, rotation: option<quarter-turns>,
+    }
+    /// While `when` holds, each part it sets replaces the visual's; of several that hold, a later
+    /// one wins. A geometry brings its own bones.
+    record permutation {
+        when: condition, geometry: option<string>, materials: option<list<material>>,
+        bones: option<list<bone-visibility>>, collision: option<pixel-box>,
+        selection: option<pixel-box>, rotation: option<quarter-turns>,
+    }
+    /// A block of 0.5: its 0.4 definition, its states and placement traits, its look, and whether
+    /// it is a member of networks (`callback.network`). With a `visual`, `def.textures` is empty.
+    record block-type {
+        def: block-def, states: list<state-def>, placement: placement-states,
+        visual: option<visual>, permutations: list<permutation>, network: bool,
+    }
+    /// An item of this Experience, in its creative group; `icon` is a PNG under assets/.
+    record item-def { id: string, display-name: string, icon: string, max-stack: u8 }
+    /// What `register` declares.
+    record registration { blocks: list<block-type>, items: list<item-def> }
+    /// An item stack: its Bedrock id and metadata, count and the most one stack holds. `data` is
+    /// only on this Experience's items. `plain` when the stack carries nothing else (no
+    /// enchantments, name, damage or other data).
+    record item-stack { id: string, metadata: u16, count: u8, max-count: u8, data: option<list<u8>>, plain: bool }
+    /// A stack the guest puts somewhere: a plain vanilla item, or this Experience's with its data.
+    record new-stack { id: string, metadata: u16, count: u8, data: option<list<u8>> }
+    /// A player's inventory: `slots` 0 to 8 the hotbar, 9 to 35 the rest of the main inventory,
+    /// 36 the offhand; `selected` the hotbar slot in hand.
+    record inventory { selected: u8, slots: list<option<item-stack>> }
+    /// The network around a callback's anchor: every loaded member reachable through
+    /// face-adjacent members. `truncated` when its bounds cut it short.
+    record network { blocks: list<block-pos>, truncated: bool }
 }
 
 interface world-access {
-    use types.{block-pos, player-id, callback-info, world-error, value-node};
+    use types.{
+        block-pos, player-id, callback-info, world-error, value-node, block-state, network,
+        inventory, new-stack,
+    };
     /// Created only by the host, for one callback invocation.
     resource callback {
         info: func() -> callback-info;
@@ -51,6 +130,22 @@ interface world-access {
         /// was replaced, is unloaded, or is in another dimension than the player or out of range.
         /// None in every other callback.
         focus: func() -> option<block-pos>;
+        /// The states of the block at `pos`, with staged changes applied; read like `get-block`.
+        block-states: func(pos: block-pos) -> result<list<block-state>, world-error>;
+        /// Stages new values for some states of this Experience's block at `pos`, keeping its
+        /// data and generation; states it does not name keep theirs. Written where
+        /// `set-block-data` writes.
+        set-block-state: func(pos: block-pos, states: list<block-state>) -> result<_, world-error>;
+        /// The network the anchor belongs to; none when the anchor is not a network member.
+        network: func() -> result<option<network>, world-error>;
+        /// The actor's inventory as it was snapshotted, with staged slots applied;
+        /// `player-unavailable` without an actor.
+        inventory: func() -> result<inventory, world-error>;
+        /// Stages new content for one of the actor's inventory slots; none empties it.
+        set-slot: func(slot: u32, stack: option<new-stack>) -> result<_, world-error>;
+        /// Stages an item entity holding `stack`, spawned at `pos`, a position `set-block` may
+        /// write.
+        drop-item: func(pos: block-pos, stack: new-stack) -> result<_, world-error>;
     }
 }
 
@@ -63,8 +158,9 @@ world server {
     import world-access;
     import diagnostics;
     use world-access.{callback};
-    use types.{block-def, block-change, block-pos, player-id, face, guest-error, value-node};
-    export register: func() -> result<list<block-def>, guest-error>;
+    use types.{registration, block-change, block-pos, player-id, face, guest-error, value-node};
+    /// Declares the Experience's blocks and items; it runs once, at startup.
+    export register: func() -> result<registration, guest-error>;
     export on-place: func(ctx: borrow<callback>, change: block-change) -> result<_, guest-error>;
     export on-break: func(ctx: borrow<callback>, change: block-change) -> result<_, guest-error>;
     export on-interact: func(ctx: borrow<callback>, player: player-id, pos: block-pos, clicked-face: face) -> result<_, guest-error>;

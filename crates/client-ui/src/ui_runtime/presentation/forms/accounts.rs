@@ -195,4 +195,55 @@ mod tests {
             MenuAction::SwitchAccount(_) | MenuAction::AddAccount | MenuAction::DismissDialog
         )));
     }
+
+    #[test]
+    fn xbox_signup_shows_browser_actions_without_exposing_the_signed_url() {
+        let Some(mut presentation) = engine_presentation() else {
+            eprintln!("skipping Xbox signup popup test: missing local UI carrier; make assets");
+            return;
+        };
+        let player = player_state::PlayerState::new(1);
+        let mut view = manager_view();
+        view.feeds.account_adding = true;
+        view.auth_state = AuthState::AwaitingCode {
+            uri: "https://example.invalid/link".into(),
+            code: "TEST".into(),
+        };
+        draw_menu_actions(&player, &mut presentation, &view);
+        super::super::snapshot::write(
+            presentation.last_input.as_ref().unwrap(),
+            "xbox-signup-before",
+        );
+        view.auth_state = AuthState::AwaitingXboxSignup {
+            uri: "https://sisu.xboxlive.com/signup?signature=private-fixture".into(),
+        };
+        for (browser, name) in [
+            (
+                launcher::menu::sign_in::BrowserState::Opened,
+                "xbox-signup-opened",
+            ),
+            (
+                launcher::menu::sign_in::BrowserState::Failed,
+                "xbox-signup-browser-failed",
+            ),
+        ] {
+            view.sign_in_browser = browser;
+            let actions = draw_menu_actions(&player, &mut presentation, &view);
+            let texts = drawn_texts(menu_nodes(&presentation));
+            assert!(
+                texts.iter().any(|text| text.contains("Xbox profile")),
+                "{texts:?}"
+            );
+            assert!(
+                !texts
+                    .iter()
+                    .any(|text| text.contains("private-fixture")
+                        || text.contains("sisu.xboxlive.com")),
+                "{texts:?}"
+            );
+            assert!(actions.contains(&MenuAction::OpenSignInLink));
+            assert!(actions.contains(&MenuAction::CancelSignIn));
+            super::super::snapshot::write(presentation.last_input.as_ref().unwrap(), name);
+        }
+    }
 }
