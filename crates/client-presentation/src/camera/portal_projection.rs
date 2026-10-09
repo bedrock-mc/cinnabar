@@ -60,6 +60,24 @@ pub fn first_person_hand_fov(projection: &Projection) -> Option<f32> {
     perspective.then(|| crate::actor_publication::HAND_FOV_DEGREES.to_radians())
 }
 
+/// Updates a world perspective's FOV without replacing its portal distortion or aspect.
+pub fn set_camera_projection_fov(projection: &mut Projection, degrees: f32) {
+    if let Some(perspective) = perspective_mut(projection) {
+        perspective.fov = projection_fov_radians(degrees);
+    }
+}
+
+/// Returns the world perspective, including the one carried by portal distortion.
+fn perspective_mut(projection: &mut Projection) -> Option<&mut PerspectiveProjection> {
+    match projection {
+        Projection::Perspective(perspective) => Some(perspective),
+        Projection::Custom(custom) => custom
+            .get_mut::<PortalProjection>()
+            .map(|portal| &mut portal.perspective),
+        Projection::Orthographic(_) => None,
+    }
+}
+
 impl CameraProjection for PortalProjection {
     fn get_clip_from_view(&self) -> Mat4 {
         self.perspective.get_clip_from_view() * self.distortion
@@ -133,14 +151,7 @@ pub fn update_camera_fov(
     }
     let fov_degrees = server.fov_override_degrees(base).unwrap_or(player_fov);
     for mut projection in &mut cameras {
-        let perspective = match projection.as_mut() {
-            Projection::Perspective(perspective) => Some(perspective),
-            Projection::Custom(custom) => custom
-                .get_mut::<PortalProjection>()
-                .map(|portal| &mut portal.perspective),
-            Projection::Orthographic(_) => None,
-        };
-        if let Some(perspective) = perspective {
+        if let Some(perspective) = perspective_mut(&mut projection) {
             perspective.fov = projection_fov_radians(fov_degrees);
             perspective.aspect_ratio = window_aspect(&window);
         }
@@ -263,6 +274,28 @@ mod tests {
         apply_distortion(&mut projection, Mat4::IDENTITY);
         assert!(matches!(projection, Projection::Perspective(_)));
         assert_eq!(projection.get_clip_from_view(), original);
+    }
+
+    #[test]
+    fn explicit_fov_preserves_portal_distortion_and_the_window_aspect() {
+        let mut projection = Projection::Perspective(PerspectiveProjection {
+            aspect_ratio: 2.0,
+            ..Default::default()
+        });
+        let distortion = portal_distortion(1.0, 4.0, false, 1.0);
+        apply_distortion(&mut projection, distortion);
+        set_camera_projection_fov(&mut projection, 40.0);
+        let Projection::Custom(custom) = &projection else {
+            panic!("portal distortion must remain active");
+        };
+        let portal = custom.get::<PortalProjection>().unwrap();
+        assert_eq!(portal.distortion, distortion);
+        assert_eq!(portal.perspective.aspect_ratio, 2.0);
+        assert!((portal.perspective.fov.to_degrees() - 40.0).abs() < 0.001);
+        assert_eq!(
+            first_person_hand_fov(&projection),
+            Some(crate::actor_publication::HAND_FOV_DEGREES.to_radians())
+        );
     }
 
     fn fov_app(degrees: f32, inputs: CameraFovInputs) -> (App, Entity) {

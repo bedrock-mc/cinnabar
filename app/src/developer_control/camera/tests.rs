@@ -121,3 +121,58 @@ fn scripted_camera_loop_resets_motion_blur_only_for_discontinuous_wraps() {
         assert_eq!(blur(&app, camera).reset_epoch, wrapped.reset_epoch);
     }
 }
+
+#[test]
+fn scripted_fov_survives_gameplay_updates_and_release_restores_the_player_fov() {
+    use bevy::window::{CursorOptions, PrimaryWindow, WindowResolution};
+    let mut app = App::new();
+    crate::app::configure_client_frame_schedule(&mut app);
+    app.insert_resource(crate::player_runtime::PlayerRuntime::new(1));
+    app.init_resource::<Time>()
+        .add_plugins(crate::camera::FlyCameraPlugin::default());
+    configure(&mut app);
+    app.world_mut().spawn((
+        Window {
+            resolution: WindowResolution::new(1280, 720),
+            ..default()
+        },
+        CursorOptions::default(),
+        PrimaryWindow,
+    ));
+    app.update();
+    let mut path = CameraPath {
+        keyframes: vec![frame(0.0, 0.0), frame(2.0, 2.0)],
+        easing: Easing::Linear,
+        looping: false,
+        hide_hand: false,
+    };
+    path.keyframes[0].fov = Some(40.0);
+    path.keyframes[1].fov = Some(80.0);
+    start(app.world_mut(), path).unwrap();
+    app.update();
+    let read_fov = |app: &mut App| {
+        let projection = app
+            .world_mut()
+            .query_filtered::<&Projection, With<FlyCamera>>()
+            .single(app.world())
+            .unwrap();
+        let Projection::Perspective(perspective) = projection else {
+            panic!("expected a perspective camera");
+        };
+        perspective.fov.to_degrees()
+    };
+    assert!((read_fov(&mut app) - 40.0).abs() < 0.001);
+    advance(&mut app, 1.0);
+    assert!((read_fov(&mut app) - 60.0).abs() < 0.001);
+    release(app.world_mut()).unwrap();
+    app.update();
+    let expected = app
+        .world()
+        .resource::<CameraSettingsAuthority>()
+        .horizontal_fov_degrees()
+        * app
+            .world()
+            .resource::<client_presentation::camera::CameraFovState>()
+            .modifier();
+    assert!((read_fov(&mut app) - expected).abs() < 0.001);
+}

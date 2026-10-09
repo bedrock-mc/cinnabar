@@ -5,11 +5,7 @@ use bevy::prelude::*;
 use developer_control::camera::CameraPath;
 use serde_json::{Value, json};
 
-use crate::{
-    app::ClientFrameSet,
-    camera::{FlyCamera, projection_fov_radians},
-    runtime::telemetry::bedrock_camera_rotation,
-};
+use crate::{app::ClientFrameSet, camera::FlyCamera, runtime::telemetry::bedrock_camera_rotation};
 
 #[derive(Resource)]
 pub(super) struct ScriptedCamera {
@@ -42,10 +38,16 @@ impl ScriptedCamera {
 pub(super) fn configure(app: &mut App) {
     app.add_systems(
         Update,
-        drive_camera
-            .after(ClientFrameSet::Camera)
-            .before(client_presentation::camera::motion_blur::apply_camera_motion_blur)
-            .before(ClientFrameSet::Interaction),
+        (
+            drive_camera
+                .after(ClientFrameSet::Camera)
+                .before(client_presentation::camera::motion_blur::apply_camera_motion_blur)
+                .before(ClientFrameSet::Interaction),
+            drive_camera_fov
+                .after(drive_camera)
+                .after(client_presentation::camera::update_camera_fov)
+                .before(ClientFrameSet::UiPreparation),
+        ),
     );
 }
 
@@ -96,7 +98,7 @@ fn drive_camera(
     time: Res<Time>,
     scripted: Option<ResMut<ScriptedCamera>>,
     view: Option<ResMut<crate::local_player::LocalViewPose>>,
-    mut cameras: Query<(&mut Transform, &mut Projection), With<FlyCamera>>,
+    mut cameras: Query<&mut Transform, With<FlyCamera>>,
 ) {
     let Some(mut scripted) = scripted else {
         return;
@@ -113,12 +115,26 @@ fn drive_camera(
     {
         view.reanchor_camera();
     }
-    for (mut transform, mut projection) in &mut cameras {
+    for mut transform in &mut cameras {
         *transform = Transform::from_translation(Vec3::from_array(sample.position))
             .with_rotation(bedrock_camera_rotation(sample.yaw, sample.pitch));
-        if let (Some(fov), Projection::Perspective(perspective)) = (sample.fov, &mut *projection) {
-            perspective.fov = projection_fov_radians(fov);
-        }
+    }
+}
+
+/// Applies the sampled FOV after gameplay projection updates, preserving portal distortion.
+fn drive_camera_fov(
+    scripted: Option<Res<ScriptedCamera>>,
+    mut cameras: Query<&mut Projection, With<FlyCamera>>,
+) {
+    let Some(fov) = scripted
+        .as_ref()
+        .and_then(|scripted| scripted.path.sample(scripted.elapsed))
+        .and_then(|sample| sample.fov)
+    else {
+        return;
+    };
+    for mut projection in &mut cameras {
+        client_presentation::camera::set_camera_projection_fov(&mut projection, fov);
     }
 }
 
