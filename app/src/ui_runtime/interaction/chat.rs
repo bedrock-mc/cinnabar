@@ -19,10 +19,8 @@ pub(crate) fn drive_chat_ui_actions(
     mut runtime: ResMut<UiRuntime>,
     mut focus: Option<ResMut<client_presentation::camera::CursorFocus>>,
     driven: Option<Res<crate::camera::DrivenInput>>,
-    mut sounds: Local<chat_sounds::ChatPressSounds>,
 ) {
     if runtime.credits().owns_input() || runtime.server_forms().owns_input() {
-        sounds.clear(&presentation);
         return;
     }
     let input_available = driven.is_some()
@@ -34,14 +32,8 @@ pub(crate) fn drive_chat_ui_actions(
     let bed =
         !menu_visible && input_available && runtime.local_sleeping() && !runtime.chat_focused();
     presentation.set_bed_pointer(pointer.filter(|_| bed));
-    if bed {
-        match sounds.bed(
-            &presentation,
-            pointer,
-            mouse_buttons.just_pressed(MouseButton::Left),
-            &touches,
-            time.elapsed_secs_f64(),
-        ) {
+    if bed && mouse_buttons.just_pressed(MouseButton::Left) {
+        match pointer.and_then(|position| presentation.hit_test_bed(position)) {
             Some(BedHit::LeaveBed) => {
                 runtime.request_wake();
                 if let Some(focus) = focus.as_deref_mut() {
@@ -56,7 +48,6 @@ pub(crate) fn drive_chat_ui_actions(
         return;
     }
     if menu_visible || !runtime.chat_focused() || !input_available {
-        sounds.clear(&presentation);
         presentation.set_chat_pointer(None);
         return;
     }
@@ -69,15 +60,18 @@ pub(crate) fn drive_chat_ui_actions(
         presentation.scroll_chat(wheel.delta.y, wheel.unit == MouseScrollUnit::Pixel);
     }
 
-    let mut presses = Vec::new();
-    sounds.chat(
-        &presentation,
-        pointer,
-        mouse_buttons.just_pressed(MouseButton::Left),
-        &touches,
-        time.elapsed_secs_f64(),
-        &mut presses,
-    );
+    let mut presses: Vec<UiPoint> = Vec::new();
+    if mouse_buttons.just_pressed(MouseButton::Left)
+        && let Some(position) = pointer
+    {
+        presses.push(position);
+    }
+    for touch in touches.iter_just_pressed() {
+        let position = touch.position();
+        if let Ok(position) = UiPoint::new(position.x, position.y) {
+            presses.push(position);
+        }
+    }
     for position in presses {
         let hit = presentation.hit_test_chat(position);
         match hit {
@@ -148,30 +142,15 @@ pub(crate) fn drive_chat_ui_actions(
             if gamepad.just_pressed(button) {
                 if presentation.chat_link_confirmation_open() {
                     if button == GamepadButton::East {
-                        presentation.play_chat_sound(ChatHit::LinkCancel, time.elapsed_secs_f64());
                         presentation.cancel_chat_link();
                     }
                     continue;
                 }
                 if presentation.chat_settings_open() {
                     if button == GamepadButton::East {
-                        presentation
-                            .play_chat_sound(ChatHit::SettingsClose, time.elapsed_secs_f64());
                         presentation.set_chat_settings_open(false);
                     }
                     continue;
-                }
-                let hit = match button {
-                    GamepadButton::East => Some(ChatHit::Close),
-                    GamepadButton::South => Some(
-                        runtime
-                            .chat_selected_suggestion()
-                            .map_or(ChatHit::Send, ChatHit::Suggestion),
-                    ),
-                    _ => None,
-                };
-                if let Some(hit) = hit {
-                    presentation.play_chat_sound(hit, time.elapsed_secs_f64());
                 }
                 dispatch_chat_ui_action(
                     &mut runtime,

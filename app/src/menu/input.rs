@@ -5,7 +5,6 @@ mod preview;
 mod remapping;
 mod server_list;
 mod settings_pointer;
-mod sounds;
 
 use context::MenuInputContext;
 use settings_pointer::{native_release_action, update_slider};
@@ -134,7 +133,6 @@ pub(crate) struct GuiScaleDrag {
     touch_press: Option<(u64, super::MenuAction)>,
     preview_touch: Option<u64>,
     server_list_touch: Option<u64>,
-    sounds: sounds::MenuPressSounds,
 }
 
 impl MenuModifiers {
@@ -398,13 +396,11 @@ pub(crate) fn drive_menu_input(
         mut focus,
         driven,
     } = context;
-    let sound_seconds = time.as_deref().map_or(0.0, |time| time.elapsed_secs_f64());
     if let Some(time) = time {
         menu.advance_death_controls(time.delta_secs_f64());
     }
     menu.settings_slider_hovered = None;
     if consent.is_some_and(|consent| consent.0) {
-        gui_scale_drag.sounds.clear(&presentation);
         presentation.cancel_menu_player_preview_input();
         presentation.cancel_menu_server_list_input();
         gui_scale_drag.preview_touch = None;
@@ -468,7 +464,6 @@ pub(crate) fn drive_menu_input(
             || runtime.server_forms().owns_input()
                 && (!menu.is_visible() || runtime.server_forms().settings_form_active())
     }) {
-        gui_scale_drag.sounds.clear(&presentation);
         presentation.cancel_menu_player_preview_input();
         presentation.cancel_menu_server_list_input();
         gui_scale_drag.preview_touch = None;
@@ -486,7 +481,6 @@ pub(crate) fn drive_menu_input(
     if driven.is_none()
         && (!window.focused || focus.as_ref().is_some_and(|focus| !focus.available()))
     {
-        gui_scale_drag.sounds.clear(&presentation);
         presentation.cancel_menu_player_preview_input();
         presentation.cancel_menu_server_list_input();
         gui_scale_drag.preview_touch = None;
@@ -532,7 +526,6 @@ pub(crate) fn drive_menu_input(
         }
     }
     if !menu.is_visible() {
-        gui_scale_drag.sounds.clear(&presentation);
         presentation.cancel_menu_player_preview_input();
         presentation.cancel_menu_server_list_input();
         gui_scale_drag.preview_touch = None;
@@ -619,13 +612,6 @@ pub(crate) fn drive_menu_input(
     let pointer_pressed = mouse_buttons.pressed(MouseButton::Left) || gui_scale_drag.left_held;
     let pointer_just_pressed =
         mouse_buttons.just_pressed(MouseButton::Left) || (pointer_pressed && !menu.pointer_down);
-    gui_scale_drag.sounds.observe(
-        &presentation,
-        pointer,
-        pointer_just_pressed,
-        &touches,
-        sound_seconds,
-    );
     let server_list_owns_pointer = server_list::drive(
         &mut presentation,
         &mut menu,
@@ -702,6 +688,9 @@ pub(crate) fn drive_menu_input(
         } else {
             action
         };
+        if let Some(sound) = presentation.menu_sound(action) {
+            crate::audio::ui_control_sound(sound);
+        }
         menu.activate_from_input(action);
     };
     update_slider(
@@ -800,12 +789,9 @@ pub(crate) fn drive_menu_input(
                 } else {
                     gui_scale_drag.touch_press = Some((touch.id(), action));
                 }
-            } else if sounds::presses_while_held(action) {
+            } else {
                 press(&mut menu, action);
                 caret_press = action.text_field().map(|field| (position, field));
-            } else {
-                gui_scale_drag.touch_press = Some((touch.id(), action));
-                menu.pressed = Some(action);
             }
         }
     }
@@ -832,12 +818,16 @@ pub(crate) fn drive_menu_input(
         }
     }
     if let Some((id, action)) = gui_scale_drag.touch_press {
-        if touches.get_released(id).is_some() {
-            if let Some(action) = gui_scale_drag.sounds.released_action(id) {
+        if let Some(touch) = touches.get_released(id) {
+            let position = touch.position();
+            let hovered = UiPoint::new(position.x, position.y)
+                .ok()
+                .and_then(|point| presentation.hit_test_menu(point));
+            if native_settings && let Some(action) = native_release_action(action, hovered) {
                 press(&mut menu, action);
             }
             gui_scale_drag.touch_press = None;
-        } else if let Some(touch) = touches.get_pressed(id) {
+        } else if native_settings && let Some(touch) = touches.get_pressed(id) {
             let position = touch.position();
             let hovered = UiPoint::new(position.x, position.y)
                 .ok()
@@ -875,7 +865,7 @@ pub(crate) fn drive_menu_input(
             &menu.settings_options,
             GamepadButton::South,
         )) {
-            sounds::activate_focused(&mut menu, &presentation, json_ui::InputMode::Gamepad);
+            menu.activate_focused();
         }
         if gamepad.just_pressed(super::settings_options::gamepad_button(
             &menu.settings_options,
@@ -944,12 +934,8 @@ pub(crate) fn drive_menu_input(
                     launcher::dressing_room::Action::SaveRename,
                 ));
             }
-            KeyCode::Enter | KeyCode::NumpadEnter => {
-                sounds::activate_key(&mut menu, &presentation, input.repeat)
-            }
-            KeyCode::Space if native_settings => {
-                sounds::activate_key(&mut menu, &presentation, input.repeat)
-            }
+            KeyCode::Enter | KeyCode::NumpadEnter => menu.activate_focused(),
+            KeyCode::Space if native_settings => menu.activate_focused(),
             _ if menu.has_focused_field() && !modifiers.shortcut() => {
                 if let Some(text) = input.text.as_deref() {
                     menu.edit_text(text);

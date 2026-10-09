@@ -87,8 +87,6 @@ pub(super) struct ChatScreen {
     screen: CachedScreen,
     /// Window-logical hit rects and their layout keys, from the last frame.
     pub(super) hits: Vec<(ChatHit, UiRect, String)>,
-    pub(super) audio: super::frame_sounds::FrameSounds,
-    sound_scope: Option<(bool, bool)>,
     edit_box: Option<String>,
     /// The messages view's key and extents from the last frame.
     scroll: Option<(String, ScrollMetrics)>,
@@ -183,15 +181,10 @@ impl UiPresentationRuntime {
             )
         })?;
         chat.hits.clear();
-        chat.audio.clear_frame();
         chat.edit_box = None;
         let Some(frame) = frame else {
             return Ok(true);
         };
-        let scope = (chat.settings.open, chat.pending_link.is_some());
-        if chat.sound_scope.replace(scope) != Some(scope) {
-            chat.audio.reset_input();
-        }
         chat.scale = frame.scale;
         chat.scroll = frame
             .report
@@ -263,7 +256,6 @@ impl UiPresentationRuntime {
                 chat.hits.push((hit, bounds, region.key.clone()));
             }
         }
-        chat.audio.set_frame(frame);
         self.append_chat_link_dialog(runtime, nodes, next, metrics, content, now_millis)?;
         Ok(true)
     }
@@ -281,9 +273,6 @@ impl UiPresentationRuntime {
     pub(in super::super) fn close_chat_screen(&mut self) {
         let chat = &mut self.form_presentation.chat;
         chat.open = false;
-        chat.audio.clear_frame();
-        chat.audio.reset_input();
-        chat.sound_scope = None;
         chat.settings.open = false;
         chat.hits.clear();
         chat.links.clear();

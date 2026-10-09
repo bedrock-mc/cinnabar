@@ -30,7 +30,7 @@ const PLAYER: &str = "minecraft:player";
 const FEET_PROBE_BELOW: f64 = 0.2;
 const WATER_IDENTIFIERS: [&str; 2] = ["minecraft:water", "minecraft:flowing_water"];
 const THUNDER_GRACE_SECONDS: f32 = 0.3;
-pub use client_ui::sound_requests::ui_sound;
+pub use client_ui::sound_requests::{ui_control_sound, ui_sound};
 
 /// A local interface sound request by sound definition name; ECS callers may send this instead of
 /// using the named interface sound queue.
@@ -178,28 +178,30 @@ pub fn ingest_audio_events(
     mut engine: ResMut<AudioEngine>,
     mut state: Local<IngestState>,
 ) {
-    if let Some(stream) = world.stream.as_ref() {
-        state.bind(
-            stream.authority().actor_session_id(),
-            stream.form_dimension_epoch(),
-            &mut engine,
-        );
-    } else if state.stream != 0 {
-        state.stream = 0;
-        state.records.clear();
-        engine.stop_all();
-        engine.clear_server_if_current();
-    }
     for cue in cues.read() {
-        engine.enqueue(SoundRequest::new(cue.0));
+        if client_ui::sound_requests::interface_sound_enabled(cue.0) {
+            engine.enqueue(SoundRequest::new(cue.0));
+        }
     }
-    client_ui::sound_requests::drain_sounds(|name, volume, pitch| {
+    let sounds = client_ui::sound_requests::take_sounds();
+    for (name, volume, pitch) in sounds {
         engine.enqueue(SoundRequest::new(name).scaled(volume, pitch));
-    });
+    }
     let Some(stream) = world.stream.as_ref() else {
         messages.clear();
+        if state.stream != 0 {
+            state.stream = 0;
+            state.records.clear();
+            engine.stop_all();
+            engine.clear_server_if_current();
+        }
         return;
     };
+    state.bind(
+        stream.authority().actor_session_id(),
+        stream.form_dimension_epoch(),
+        &mut engine,
+    );
     let lookup = network_block_lookup(collisions, stream);
     for event in messages.read() {
         let synchronized_actor_alive = event.actor_synchronization.is_some_and(|owner| {
@@ -897,6 +899,3 @@ mod tests {
         );
     }
 }
-
-#[cfg(test)]
-mod ui_sound_tests;

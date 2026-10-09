@@ -286,13 +286,15 @@ fn play_tabs_do_not_inherit_sounds_from_the_previous_screen() {
     let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
     let mut view = MenuView::new(true, "Fixture".into());
     let tabs = [MenuScreen::Play, MenuScreen::Social, MenuScreen::Servers];
-    let frame = super::super::frame_sounds::fixtures::frame();
-    let key = frame.hits[0].key.clone();
-    presentation
-        .form_presentation
-        .menu_keys
-        .push((MenuAction::Navigate(MenuScreen::Profile), key));
-    presentation.form_presentation.menu_audio.set_frame(frame);
+    presentation.form_presentation.menu_sounds.push((
+        MenuAction::Navigate(MenuScreen::Profile),
+        json_ui::ControlSound {
+            name: "stale.screen.sound".into(),
+            volume: 0.5,
+            pitch: 0.5,
+            min_seconds: 1.0,
+        },
+    ));
     for screen in [
         MenuScreen::Play,
         MenuScreen::Servers,

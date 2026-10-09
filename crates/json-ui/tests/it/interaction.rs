@@ -3,5 +3,4 @@
 
 mod harness;
 mod mappings;
-mod sounds;
 mod widgets;

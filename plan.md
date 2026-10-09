@@ -5327,10 +5327,6 @@ unmeasured; a re-bind costs about 1.6 ms in the dev profile (steady frames about
   fonts/glyph metrics, implement bounded formatting-code-aware text layout, UI scaling/safe
   areas, focus/navigation, mouse/touch/controller input, and a shared retained draw pipeline.
   Prove no per-glyph mesh/material churn and exact cross-platform DPI behavior.
-  - Menu sound feedback restores authored JSON-UI sounds and native theme clicks, with
-    deterministic interaction, touch timing, drawer transition and pack-override coverage.
-    Native audio capture remains an open witness; this does not close the UI parity gate.
-
 - [ ] **5.2 Receive-only server text and HUD state.** `P5.2-HUD` Normalize bounded `Text`, title,
   actionbar, toast, player-status, health/hunger/armor/air, and related lifecycle packets into
   vendor-neutral stores. Render chat history, title/actionbar, and the survival HUD without

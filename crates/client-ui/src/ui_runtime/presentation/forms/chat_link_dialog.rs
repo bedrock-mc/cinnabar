@@ -23,12 +23,10 @@ impl UiPresentationRuntime {
     pub fn cancel_chat_link(&mut self) {
         self.form_presentation.chat.pending_link = None;
         self.form_presentation.chat.hits.clear();
-        self.form_presentation.chat.audio.clear_frame();
     }
     /// Call only after the popup's explicit Open action.
     pub fn take_confirmed_chat_link(&mut self) -> Option<String> {
         self.form_presentation.chat.hits.clear();
-        self.form_presentation.chat.audio.clear_frame();
         self.form_presentation.chat.pending_link.take()
     }
     #[allow(clippy::too_many_arguments)]
@@ -45,7 +43,6 @@ impl UiPresentationRuntime {
             return Ok(());
         };
         self.form_presentation.chat.hits.clear();
-        self.form_presentation.chat.audio.clear_frame();
         let Some(renderer) = self.form_presentation.engine.as_deref() else {
             return Ok(());
         };
@@ -103,7 +100,6 @@ impl UiPresentationRuntime {
                         .push((hit, rect, region.key.clone()));
                 }
             }
-            self.form_presentation.chat.audio.set_frame(frame);
         }
         Ok(())
     }

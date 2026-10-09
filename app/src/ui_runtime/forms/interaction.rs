@@ -224,9 +224,6 @@ pub(crate) fn drive_server_form_input(
             None
         };
         if let Some((identity, action)) = action {
-            if matches!(action, LocalFormAction::SubmitButton(_)) {
-                client_ui::sound_requests::ui_sound(client_ui::sound_requests::UI_CLICK, 1.0, 1.0);
-            }
             let _ = runtime.respond_to_server_form(identity, action);
         }
     } else {

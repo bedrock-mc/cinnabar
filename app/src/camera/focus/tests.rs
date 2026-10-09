@@ -466,15 +466,6 @@ fn touch_resume_returns_capture_after_focus_loss() {
         id: 1,
     });
     app.update();
-    assert!(app.world().resource::<MenuRuntime>().is_visible());
-    app.world_mut().write_message(TouchInput {
-        phase: TouchPhase::Ended,
-        position: Vec2::new(point.x(), point.y()),
-        window,
-        force: None,
-        id: 1,
-    });
-    app.update();
     assert!(!app.world().resource::<MenuRuntime>().is_visible());
     assert_eq!(
         app.world().get::<CursorOptions>(window).unwrap().grab_mode,

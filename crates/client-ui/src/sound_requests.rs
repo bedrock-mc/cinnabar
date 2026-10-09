@@ -1,57 +1,66 @@
 //! Bounded sound requests drained by the app audio adapter at its existing frame stage.
 
-/// Bounds captured UI touches without allocating during held frames.
-pub const MAX_UI_TOUCHES: usize = 16;
-
-mod press;
-pub use press::PressSounds;
-
-/// The native interface theme's click definition, resolved through the active pack stack.
+/// Click definition whose interface playback is disabled by the owner's preference.
 pub const UI_CLICK: &str = "random.click";
 
+/// Interface requests filter clicks while preserving other authored feedback.
+pub fn interface_sound_enabled(name: &str) -> bool {
+    name != UI_CLICK
+}
+
+/// Interface sounds JSON-UI sound components asked for: name, volume, pitch.
+static PENDING_UI_SOUNDS: std::sync::Mutex<Vec<(String, f32, f32)>> =
+    std::sync::Mutex::new(Vec::new());
 /// Bounds one frame's queued control sounds.
 const MAX_PENDING_UI_SOUNDS: usize = 16;
 
-#[derive(Default)]
-struct SoundQueue {
-    pending: Vec<(String, f32, f32)>,
-}
-
-impl SoundQueue {
-    /// Queues a named sound with its authored scalars, up to the frame budget.
-    fn push(&mut self, name: &str, volume: f32, pitch: f32) {
-        if self.pending.len() < MAX_PENDING_UI_SOUNDS {
-            self.pending.push((name.to_owned(), volume, pitch));
+/// Plays a pressed launcher control's sound, holding back a repeat inside its
+/// `min_seconds_between_plays`, as vanilla's sound component does.
+pub fn ui_control_sound(sound: &json_ui::ControlSound) {
+    if !interface_sound_enabled(&sound.name) {
+        return;
+    }
+    static LAST_PLAYED: std::sync::Mutex<Vec<(String, std::time::Instant)>> =
+        std::sync::Mutex::new(Vec::new());
+    if sound.min_seconds > 0.0 {
+        let mut played = LAST_PLAYED
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        let now = std::time::Instant::now();
+        match played.iter().position(|(name, _)| *name == sound.name) {
+            Some(index)
+                if now.duration_since(played[index].1).as_secs_f32() < sound.min_seconds =>
+            {
+                return;
+            }
+            Some(index) => played[index].1 = now,
+            None if played.len() < MAX_PENDING_UI_SOUNDS => played.push((sound.name.clone(), now)),
+            None => {}
         }
     }
-
-    /// Delivers queued sounds in order and retains storage for the next frame.
-    fn drain(&mut self, mut receive: impl FnMut(&str, f32, f32)) {
-        for (name, volume, pitch) in &self.pending {
-            receive(name, *volume, *pitch);
-        }
-        self.pending.clear();
-    }
+    ui_sound(&sound.name, sound.volume, sound.pitch);
 }
 
-static PENDING_UI_SOUNDS: std::sync::Mutex<SoundQueue> = std::sync::Mutex::new(SoundQueue {
-    pending: Vec::new(),
-});
-
-/// Requests an interface sound at its declared volume and pitch.
+/// Requests an interface sound a UI sound component names, at its volume and pitch.
 pub fn ui_sound(name: &str, volume: f32, pitch: f32) {
-    PENDING_UI_SOUNDS
+    if !interface_sound_enabled(name) {
+        return;
+    }
+    let mut pending = PENDING_UI_SOUNDS
         .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .push(name, volume, pitch);
+        .unwrap_or_else(|poison| poison.into_inner());
+    if pending.len() < MAX_PENDING_UI_SOUNDS {
+        pending.push((name.to_owned(), volume, pitch));
+    }
 }
 
-/// Delivers pending sounds without allocating on idle frames; the receiver must not requeue.
-pub fn drain_sounds(receive: impl FnMut(&str, f32, f32)) {
-    PENDING_UI_SOUNDS
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .drain(receive);
+/// Takes the queued named sounds in their original request order.
+pub fn take_sounds() -> Vec<(String, f32, f32)> {
+    std::mem::take(
+        &mut *PENDING_UI_SOUNDS
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner()),
+    )
 }
 
 #[cfg(test)]
@@ -59,40 +68,23 @@ mod tests {
     use super::*;
 
     #[test]
-    fn draining_retains_storage_and_idle_frames_do_not_allocate() {
-        let mut queue = SoundQueue::default();
-        queue.push(UI_CLICK, 1.0, 1.0);
-        let capacity = queue.pending.capacity();
-        let mut delivered = 0;
-        queue.drain(|name, volume, pitch| {
-            assert_eq!((name, volume, pitch), (UI_CLICK, 1.0, 1.0));
-            delivered += 1;
+    fn interface_clicks_are_silent_and_other_feedback_is_preserved() {
+        ui_sound(UI_CLICK, 1.0, 1.0);
+        ui_control_sound(&json_ui::ControlSound {
+            name: UI_CLICK.into(),
+            volume: 1.0,
+            pitch: 1.0,
+            min_seconds: 0.0,
         });
-        assert_eq!(delivered, 1);
-        assert_eq!(queue.pending.capacity(), capacity);
-        let (_, allocations) = crate::allocation_count::count(|| {
-            for _ in 0..100 {
-                queue.drain(|_, _, _| panic!("empty queue"));
-            }
-        });
-        assert_eq!(allocations, 0);
-    }
-
-    #[test]
-    fn interface_clicks_preserve_authored_volume_and_pitch() {
-        let mut queue = SoundQueue::default();
-        queue.push(UI_CLICK, 0.75, 1.2);
-        queue.push(UI_CLICK, 1.0, 1.0);
-        queue.push("ui.reject", 0.5, 1.25);
-        let mut sounds = Vec::new();
-        queue.drain(|name, volume, pitch| sounds.push((name.to_owned(), volume, pitch)));
-        assert_eq!(
-            sounds,
-            [
-                (UI_CLICK.to_owned(), 0.75, 1.2),
-                (UI_CLICK.to_owned(), 1.0, 1.0),
-                ("ui.reject".to_owned(), 0.5, 1.25)
-            ]
+        ui_sound("ui.reject", 0.5, 1.25);
+        let sounds = take_sounds();
+        assert!(!sounds.iter().any(|(name, _, _)| name == UI_CLICK));
+        assert!(
+            sounds
+                .iter()
+                .any(|(name, volume, pitch)| name == "ui.reject"
+                    && *volume == 0.5
+                    && *pitch == 1.25)
         );
     }
 }

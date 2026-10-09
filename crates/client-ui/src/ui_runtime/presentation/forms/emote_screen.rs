@@ -26,8 +26,7 @@ pub enum EmoteHit {
 #[derive(Default)]
 pub(super) struct EmoteScreen {
     screen: CachedScreen,
-    audio: super::frame_sounds::FrameSounds,
-    sound_scope: Option<bool>,
+    frame: Option<EngineFrame>,
     pointer: Option<UiPoint>,
     input_mode: InputMode,
 }
@@ -56,7 +55,7 @@ impl UiPresentationRuntime {
         let state = runtime.emotes();
         let emote = &mut self.form_presentation.emote;
         let hovered = emote.pointer.and_then(|point| {
-            let frame = emote.audio.frame()?;
+            let frame = emote.frame.as_ref()?;
             frame
                 .hits
                 .iter()
@@ -67,7 +66,7 @@ impl UiPresentationRuntime {
                 })
                 .map(|region| region.key.clone())
         });
-        let focused = emote.audio.frame().and_then(|frame| {
+        let focused = emote.frame.as_ref().and_then(|frame| {
             frame
                 .hits
                 .iter()
@@ -113,7 +112,7 @@ impl UiPresentationRuntime {
             EMOTE_SCREEN
         };
         let screen = &mut emote.screen;
-        let frame = renderer.draw(art, inputs, out, |env, root| {
+        emote.frame = renderer.draw(art, inputs, out, |env, root| {
             screen.render_with(
                 reference,
                 &catalog,
@@ -124,18 +123,11 @@ impl UiPresentationRuntime {
                 &view,
             )
         })?;
-        if emote.sound_scope.replace(state.is_equipping()) != Some(state.is_equipping()) {
-            emote.audio.reset_input();
-        }
-        emote.audio.clear_frame();
-        if let Some(frame) = frame {
-            emote.audio.set_frame(frame);
-        }
         Ok(())
     }
 
     pub fn hit_test_emote(&self, point: UiPoint) -> Option<EmoteHit> {
-        let frame = self.form_presentation.emote.audio.frame()?;
+        let frame = self.form_presentation.emote.frame.as_ref()?;
         for region in frame.hits.iter().rev().filter(|region| region.enabled) {
             if !window_rect(region, frame.scale, frame.origin)
                 .is_some_and(|bounds| bounds.contains(point))
@@ -168,40 +160,6 @@ impl UiPresentationRuntime {
         None
     }
 
-    /// Routes a wheel or popup mouse press through its authored JSON-UI feedback.
-    pub fn sound_emote_mouse(&self, point: UiPoint, now: f64) {
-        self.form_presentation
-            .emote
-            .audio
-            .mouse(point, now, crate::sound_requests::ui_sound);
-    }
-
-    /// Sounds a displayed cancel control for keyboard and gamepad dismissal.
-    pub fn sound_emote_cancel(&self, now: f64) {
-        let audio = &self.form_presentation.emote.audio;
-        if let Some(region) = audio.frame().and_then(|frame| {
-            frame.hits.iter().find(|region| {
-                region.enabled
-                    && matches!(
-                        region.pressed.as_deref(),
-                        Some(
-                            "button.menu_exit"
-                                | "button.emote_wheel_exit_non_gamepad"
-                                | "button.close_dialog"
-                                | "button.close_emote_popup"
-                        )
-                    )
-            })
-        }) {
-            audio.activate(
-                &region.key,
-                self.form_presentation.emote.input_mode,
-                now,
-                crate::sound_requests::ui_sound,
-            );
-        }
-    }
-
     pub fn set_emote_pointer(&mut self, pointer: Option<UiPoint>) {
         self.form_presentation.emote.pointer = pointer;
     }
@@ -210,13 +168,11 @@ impl UiPresentationRuntime {
         self.form_presentation.emote.input_mode = mode;
     }
     pub fn emote_frame(&self) -> Option<&EngineFrame> {
-        self.form_presentation.emote.audio.frame()
+        self.form_presentation.emote.frame.as_ref()
     }
 
     pub(in super::super) fn close_emote_screen(&mut self) {
-        self.form_presentation.emote.audio.clear_frame();
-        self.form_presentation.emote.audio.reset_input();
-        self.form_presentation.emote.sound_scope = None;
+        self.form_presentation.emote.frame = None;
         self.form_presentation.emote.pointer = None;
     }
 }

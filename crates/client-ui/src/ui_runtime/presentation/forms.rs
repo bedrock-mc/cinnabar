@@ -6,7 +6,6 @@ mod chat_link_dialog;
 mod chat_links;
 mod chat_position;
 pub mod chat_screen;
-mod chat_sounds;
 pub mod container_data;
 pub mod container_kinds;
 mod death_screen;
@@ -26,7 +25,6 @@ pub mod experience_modal;
 pub mod fallback;
 #[cfg(test)]
 mod formatting_tests;
-mod frame_sounds;
 pub mod global_resources;
 pub mod hud;
 #[cfg(test)]
@@ -43,7 +41,6 @@ pub(super) mod menu_caret;
 #[cfg(test)]
 pub mod menu_latency;
 pub mod menu_screens;
-mod menu_sounds;
 pub mod menus;
 pub mod mod_hud;
 pub mod mod_hud_editor;
@@ -147,11 +144,8 @@ pub(super) struct FormPresentation {
     pub(super) menu_focus_context: Option<(crate::menu::MenuScreen, bool)>,
     pub(super) menu_focus_geometry: Vec<crate::menu::view::SettingsFocusTarget>,
     pub(super) menu_focus_landmarks: Vec<crate::menu::view::SettingsFocusLandmark>,
-    /// Retained sound input and regions for the visible engine menu.
-    menu_audio: frame_sounds::FrameSounds,
-    menu_sound_scope: Option<(crate::menu::MenuScreen, bool)>,
-    native_menu_sounds: bool,
-    drawer_sounds: menu_sounds::DrawerSounds,
+    /// The engine menu's press sounds by action; carried across the per-frame reset.
+    menu_sounds: Vec<(crate::menu::MenuAction, json_ui::ControlSound)>,
     /// The form whose render path was last logged, so each form logs once.
     logged: Option<ServerFormIdentity>,
     /// The engine HUD's cached screens; carried across the per-frame reset.
@@ -414,21 +408,11 @@ impl UiPresentationRuntime {
 
     /// The sound the engine menu's control for `action` plays when pressed.
     pub fn menu_sound(&self, action: crate::menu::MenuAction) -> Option<&json_ui::ControlSound> {
-        let state = &self.form_presentation;
-        let key = state
-            .menu_keys
+        self.form_presentation
+            .menu_sounds
             .iter()
-            .find(|(candidate, _)| menu_sounds::same_control(*candidate, action))?
-            .1
-            .as_str();
-        state
-            .menu_audio
-            .frame()?
-            .hits
-            .iter()
-            .find(|region| region.key == key)?
-            .sound
-            .as_ref()
+            .find(|(candidate, _)| *candidate == action)
+            .map(|(_, sound)| sound)
     }
 
     /// The live catalog's screen settings; empty without the JSON-UI engine.
@@ -512,10 +496,7 @@ impl UiPresentationRuntime {
         self.form_presentation = FormPresentation {
             engine: state.engine,
             menu_keys: state.menu_keys,
-            menu_audio: state.menu_audio,
-            menu_sound_scope: state.menu_sound_scope,
-            native_menu_sounds: state.native_menu_sounds,
-            drawer_sounds: state.drawer_sounds,
+            menu_sounds: state.menu_sounds,
             logged: state.logged,
             hud: state.hud,
             mod_hud: state.mod_hud,
