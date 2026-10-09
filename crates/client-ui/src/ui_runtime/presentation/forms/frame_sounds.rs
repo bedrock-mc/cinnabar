@@ -548,6 +548,35 @@ mod tests {
     }
 
     #[test]
+    fn keyboard_activation_honors_non_gamepad_mappings() {
+        let mut sounds = sounds();
+        let frame = sounds.frame.as_mut().unwrap();
+        let right = std::sync::Arc::make_mut(&mut frame.hits)
+            .iter_mut()
+            .find(|hit| hit.name == "right")
+            .unwrap();
+        right.input.mappings[0].input_mode_condition = json_ui::InputModeCondition::NotGamepad;
+        let key = right.key.clone();
+        let mut emitted = Vec::new();
+        sounds.activate(&key, 1.0, |name, _, _| emitted.push(name.to_owned()));
+        assert_eq!(emitted, ["right.click", "extra"]);
+    }
+
+    #[test]
+    fn a_touch_pressed_and_released_in_one_frame_sounds_once() {
+        let sounds = sounds();
+        let mut emitted = Vec::new();
+        sounds.touch(1, Some(point(true)), true, false, 1.0, |name, _, _| {
+            emitted.push(name.to_owned())
+        });
+        assert_eq!(emitted, ["right.click", "extra"]);
+        sounds.touch(1, Some(point(true)), false, false, 1.1, |name, _, _| {
+            emitted.push(name.to_owned())
+        });
+        assert_eq!(emitted, ["right.click", "extra"]);
+    }
+
+    #[test]
     fn disabled_controls_are_silent_and_zero_volume_is_preserved() {
         let mut sounds = sounds();
         let frame = sounds.frame.as_mut().unwrap();
