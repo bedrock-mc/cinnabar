@@ -30,6 +30,7 @@ mod loading_screen_tests;
 mod menu_status_tests;
 mod paper_doll_tests;
 mod publication_split_tests;
+mod redraw_tests;
 mod retained_hud_tests;
 mod retained_menu_invalidations_tests;
 mod retained_menu_tests;

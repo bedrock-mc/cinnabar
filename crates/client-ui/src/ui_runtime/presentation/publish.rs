@@ -669,6 +669,11 @@ impl UiPresentationRuntime {
                 return previous.clone();
             }
         }
+        self.advance_revision(input)
+    }
+
+    /// Publishes `input`, known to differ from the last frame's, under the next revision.
+    pub(super) fn advance_revision(&mut self, mut input: UiRenderInput) -> UiRenderInput {
         self.revision = self.revision.saturating_add(1);
         input.revision = self.revision;
         self.last_input = Some(input.clone());

@@ -56,28 +56,7 @@ pub fn adapt_ui_draw_list(
     let vertices = draw_list
         .vertices
         .iter()
-        .map(|vertex| {
-            let position = [vertex.position[0] * scale, vertex.position[1] * scale];
-            if !position.iter().all(|value| value.is_finite()) {
-                return Err(UiRenderAdapterError::CoordinateOverflow);
-            }
-            Ok(UiRenderVertex {
-                position,
-                clip_z: vertex.clip_z,
-                clip_w: vertex.clip_w,
-                uv: vertex.uv,
-                color: vertex.color,
-                style_flags: u32::from(vertex.style_flags)
-                    | if vertex.alpha_test {
-                        render_model::UI_STYLE_ALPHA_TEST
-                    } else {
-                        0
-                    },
-                alpha_cutoff: vertex.alpha_cutoff,
-                model_light: vertex.model_light,
-                overlay_color: vertex.overlay_color,
-            })
-        })
+        .map(|vertex| adapt_vertex(vertex, scale))
         .collect::<Result<Vec<_>, _>>()?;
     let mut indices = Vec::with_capacity(draw_list.indices.len());
     let mut batches = Vec::with_capacity(draw_list.batches.len());
@@ -129,6 +108,63 @@ pub fn adapt_ui_draw_list(
         .validate()
         .map_err(UiRenderAdapterError::RenderInputRejected)?;
     Ok(input)
+}
+
+/// One logical vertex in physical pixels for the renderer.
+fn adapt_vertex(vertex: &ui::UiVertex, scale: f32) -> Result<UiRenderVertex, UiRenderAdapterError> {
+    let position = [vertex.position[0] * scale, vertex.position[1] * scale];
+    if !position.iter().all(|value| value.is_finite()) {
+        return Err(UiRenderAdapterError::CoordinateOverflow);
+    }
+    Ok(UiRenderVertex {
+        position,
+        clip_z: vertex.clip_z,
+        clip_w: vertex.clip_w,
+        uv: vertex.uv,
+        color: vertex.color,
+        style_flags: u32::from(vertex.style_flags)
+            | if vertex.alpha_test {
+                render_model::UI_STYLE_ALPHA_TEST
+            } else {
+                0
+            },
+        alpha_cutoff: vertex.alpha_cutoff,
+        model_light: vertex.model_light,
+        overlay_color: vertex.overlay_color,
+    })
+}
+
+/// `previous` with the vertices in `ranges` adapted again from `draw_list`, which must be the
+/// list `previous` was adapted from with only those vertices changed. Indices and batches stay
+/// shared. `None` when every rewritten vertex already matches, so `previous` stands.
+pub fn patch_ui_vertices(
+    previous: &UiRenderInput,
+    draw_list: &UiDrawList,
+    ranges: &[std::ops::Range<usize>],
+    dpi_scale: DpiScale,
+) -> Result<Option<UiRenderInput>, UiRenderAdapterError> {
+    let scale = dpi_scale.get();
+    let mut vertices: Option<Vec<UiRenderVertex>> = None;
+    for range in ranges {
+        for index in range.clone() {
+            let vertex = adapt_vertex(&draw_list.vertices[index], scale)?;
+            if vertices.is_none() && previous.vertices[index] == vertex {
+                continue;
+            }
+            vertices.get_or_insert_with(|| previous.vertices.to_vec())[index] = vertex;
+        }
+    }
+    let Some(vertices) = vertices else {
+        return Ok(None);
+    };
+    let input = UiRenderInput {
+        vertices: vertices.into(),
+        ..previous.clone()
+    };
+    input
+        .validate()
+        .map_err(UiRenderAdapterError::RenderInputRejected)?;
+    Ok(Some(input))
 }
 
 fn physical_scissor(

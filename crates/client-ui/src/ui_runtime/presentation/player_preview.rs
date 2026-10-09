@@ -48,17 +48,29 @@ impl UiPresentationRuntime {
         if preview_shown {
             self.player_preview_bob = bob_degrees(seconds);
         }
-        let hands_changed = self.player_preview_pose.is_none_or(|drawn| {
+        let hands_changed = self.player_preview_raster_pose.is_none_or(|drawn| {
             drawn.pitch_degrees != pose.pitch_degrees || drawn.sneaking != pose.sneaking
         });
         let wanted =
             preview_shown || (hands_shown && hands_changed) || self.player_preview_pixels.is_none();
         // A skin change still redraws, at the pose already drawn.
-        let pose = match self.player_preview_pose {
+        let model = match self.player_preview_pose {
             Some(drawn) if !wanted => drawn,
             _ => pose,
         };
-        self.set_player_preview_skin(skin, pose);
+        // Model geometry draws the preview itself, leaving the rasters only the hands, which
+        // follow the pose only while they show.
+        let raster = match self.player_preview_raster_pose {
+            Some(drawn)
+                if self.gui_models.enabled
+                    && self.player_preview_pixels.is_some()
+                    && !(hands_shown && hands_changed) =>
+            {
+                drawn
+            }
+            _ => model,
+        };
+        self.set_player_preview_poses(skin, model, raster);
     }
 
     /// Where worn armor textures come from; without it the model wears none.

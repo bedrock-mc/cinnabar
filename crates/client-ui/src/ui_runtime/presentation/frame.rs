@@ -1,6 +1,8 @@
 //! Scene painting and retained frame publication.
 
 use super::*;
+use crate::ui_runtime::render_adapter;
+use ui::RetainedDraw;
 
 impl UiPresentationRuntime {
     /// The Java-look surfaces outside the engine HUD, over the safe HUD geometry.
@@ -296,58 +298,74 @@ impl UiPresentationRuntime {
             self.append_oreui_motion(&mut nodes, &mut next_id, content)?;
             self.end_animation_frame();
             self.apply_gui_models(&mut nodes);
-            // Unchanged nodes build the same frame unless §k text re-rolls its glyphs, so tree,
-            // layout and draw-list construction are skipped.
-            if let (Some(last), Some(input)) = (&self.last_frame, &self.last_input)
-                && last.same(frame, &self.textures, &nodes)
-            {
+            let palette = self.formatting_palette().copied();
+            let effects = TextEffects {
+                palette: palette.as_ref(),
+                obfuscation_seed: now_millis,
+                obfuscation: Some(&self.obfuscation),
+            };
+            let render_viewport = UiRenderViewport {
+                physical_size,
+                dpi_scale,
+                safe_area,
+            };
+            // `§k` text re-rolls its glyphs every frame, so it never reuses a drawn frame.
+            let obfuscated = obfuscated(&nodes);
+            let redrawn = if obfuscated {
+                None
+            } else {
+                redraw_changed(
+                    self.last_frame.as_mut(),
+                    self.last_input.as_ref(),
+                    &self.textures,
+                    &nodes,
+                    frame,
+                    (viewport, render_viewport),
+                    effects,
+                )
+                .inspect_err(|_| self.last_frame = None)?
+            };
+            if redrawn.is_none() {
+                // A declined redraw leaves the retained frame stale.
+                self.last_frame = None;
+            }
+            if let Some(redrawn) = redrawn {
+                #[cfg(test)]
+                {
+                    self.redrawn_nodes += redrawn.emitted;
+                }
+                let input = match redrawn.input {
+                    Redrawn::Unchanged(input) => input,
+                    Redrawn::Vertices(input) => self.advance_revision(input),
+                    Redrawn::Rebuilt(input) => self.stabilize_revision(input),
+                };
                 self.menu_hit_targets = menu_hit_targets;
-                let input = input.clone();
                 self.remember_menu(runtime, frame);
                 return Ok(input);
             }
             #[cfg(feature = "tracy")]
             let _span = bevy::log::info_span!("ui.geometry_rebuild").entered();
-            self.last_frame = if obfuscated(&nodes) {
-                None
-            } else {
-                let mut retained = self.last_frame.take().unwrap_or_else(|| BuiltFrame {
-                    nodes: Vec::with_capacity(nodes.len()),
-                    frame,
-                    textures: Arc::clone(&self.textures),
-                });
-                retained.nodes.clear();
-                retained.nodes.extend_from_slice(&nodes);
-                retained.frame = frame;
-                retained.textures = Arc::clone(&self.textures);
-                Some(retained)
-            };
             #[cfg(test)]
             {
                 self.tree_builds += 1;
             }
             #[cfg(feature = "tracy")]
             let _layout_span = bevy::log::info_span!("ui.layout_publish").entered();
-            let mut tree = UiTree::new(nodes.clone()).map_err(UiPresentationError::Tree)?;
-            tree.layout(viewport, UiScale::default(), safe_area)
-                .map_err(UiPresentationError::Tree)?;
-            let draw_list = tree
-                .build_draw_list_with(TextEffects {
-                    palette: self.formatting_palette(),
-                    obfuscation_seed: now_millis,
-                    obfuscation: Some(&self.obfuscation),
-                })
-                .map_err(UiPresentationError::Tree)?;
+            let draw =
+                RetainedDraw::build(&nodes, viewport, UiScale::default(), safe_area, effects)
+                    .map_err(UiPresentationError::Tree)?;
             let input = adapt_ui_draw_list(
-                &draw_list,
+                draw.draw_list(),
                 Arc::clone(&self.textures),
-                UiRenderViewport {
-                    physical_size,
-                    dpi_scale,
-                    safe_area,
-                },
+                render_viewport,
             )
             .map_err(UiPresentationError::Adapter)?;
+            self.last_frame = (!obfuscated).then(|| BuiltFrame {
+                nodes: nodes.clone(),
+                frame,
+                textures: Arc::clone(&self.textures),
+                draw,
+            });
             let input = self.stabilize_revision(input);
             self.menu_hit_targets = menu_hit_targets;
             self.remember_menu(runtime, frame);
@@ -358,23 +376,80 @@ impl UiPresentationRuntime {
     }
 }
 
-/// A frame's inputs: its nodes, viewport and texture array.
+/// A frame's inputs: its nodes, viewport and texture array, and the draw list they made.
 pub(super) struct BuiltFrame {
     pub(super) nodes: Vec<UiNode>,
     frame: ([u32; 2], f32, SafeArea),
     textures: Arc<UiRenderTextureArray>,
+    /// The frame's draw list with each node's share of it.
+    draw: RetainedDraw,
 }
 
-impl BuiltFrame {
-    /// Matches the inputs while time cannot alter the drawn glyphs.
-    fn same(
-        &self,
-        frame: ([u32; 2], f32, SafeArea),
-        textures: &Arc<UiRenderTextureArray>,
-        nodes: &[UiNode],
-    ) -> bool {
-        self.frame == frame && Arc::ptr_eq(&self.textures, textures) && self.nodes == nodes
+/// A frame drawn from the last one's draw list.
+struct Redraw {
+    input: Redrawn,
+    /// Nodes emitted again.
+    emitted: usize,
+}
+
+enum Redrawn {
+    /// Every node matched: the last frame's input as published.
+    Unchanged(UiRenderInput),
+    /// Only vertices changed, and differ from the last frame's.
+    Vertices(UiRenderInput),
+    /// Indices or batches changed too.
+    Rebuilt(UiRenderInput),
+}
+
+/// Draws `nodes` by emitting only nodes that differ from the last frame's, when the frame keeps
+/// the last frame's tree shape, viewport and textures; `None` asks for a full build.
+fn redraw_changed(
+    last: Option<&mut BuiltFrame>,
+    previous: Option<&UiRenderInput>,
+    textures: &Arc<UiRenderTextureArray>,
+    nodes: &[UiNode],
+    frame: ([u32; 2], f32, SafeArea),
+    (viewport, render_viewport): (UiRect, UiRenderViewport),
+    effects: TextEffects<'_>,
+) -> Result<Option<Redraw>, UiPresentationError> {
+    let (Some(last), Some(previous)) = (last, previous) else {
+        return Ok(None);
+    };
+    if last.frame != frame || !Arc::ptr_eq(&last.textures, textures) {
+        return Ok(None);
     }
+    let Some(update) = last.draw.update(
+        &mut last.nodes,
+        nodes,
+        viewport,
+        UiScale::default(),
+        render_viewport.safe_area,
+        effects,
+    ) else {
+        return Ok(None);
+    };
+    let input = if update.rebuilt {
+        Redrawn::Rebuilt(
+            adapt_ui_draw_list(last.draw.draw_list(), Arc::clone(textures), render_viewport)
+                .map_err(UiPresentationError::Adapter)?,
+        )
+    } else {
+        match render_adapter::patch_ui_vertices(
+            previous,
+            last.draw.draw_list(),
+            &update.vertices,
+            render_viewport.dpi_scale,
+        )
+        .map_err(UiPresentationError::Adapter)?
+        {
+            Some(input) => Redrawn::Vertices(input),
+            None => Redrawn::Unchanged(previous.clone()),
+        }
+    };
+    Ok(Some(Redraw {
+        input,
+        emitted: update.emitted,
+    }))
 }
 
 /// Whether any text carries `§k`, whose glyphs change every frame.
