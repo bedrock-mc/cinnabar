@@ -603,6 +603,16 @@
 - Auth-input sprint flags remain derived from the completed physics state.
 - Windows official install: Keyboard & Mouse rendered at a 1280×720 client area; label and toggle are legible, aligned and unclipped. Enabled preference persisted during user interaction. Live user movement acceptance remains pending.
 
+## Remote session reconnect
+
+- Reconnect is a requested menu extension on remote disconnect and connection-failure screens.
+  It retries the selected destination through the normal join route and retains the originating
+  page. OK and Escape dismiss the failure. Account changes and local-world exits clear retry.
+- Behavioral regressions cover repeated attempts, teardown, transfers and account ownership.
+- macOS rendered input checks passed at 1280×720: keyboard and pointer retry completed
+  loopback joins after refusal and server disconnect; OK, Escape and loading Cancel worked.
+  This requested extension does not establish native UI parity.
+
 ## VSync video toggle
 
 - User-requested deviation: retail vanilla has no VSync menu control (it persists `gfx_vsync`,

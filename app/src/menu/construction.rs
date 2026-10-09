@@ -82,6 +82,7 @@ impl MenuRuntime {
                 history
             },
             session_origin: None,
+            retry_target: None,
             name: field_editor(MenuField::Name),
             address: field_editor(MenuField::Address),
             port: field_editor(MenuField::Port),

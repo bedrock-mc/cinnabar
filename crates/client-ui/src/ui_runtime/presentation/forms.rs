@@ -10,6 +10,7 @@ pub mod container_data;
 pub mod container_kinds;
 mod death_screen;
 mod debug_overlay;
+mod disconnect_retry;
 pub mod discord_presence_setting;
 pub mod furnace_book;
 pub(super) use container_kinds::supported_storage_slots;

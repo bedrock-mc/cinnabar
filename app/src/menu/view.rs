@@ -68,6 +68,7 @@ impl MenuRuntime {
             player_skin: Some(self.player_skin.standard_skin()),
             player_skin_model: self.player_skin.model(),
             disconnect_message: self.disconnect_message.clone(),
+            can_reconnect: self.can_reconnect(),
             editing: self.editing,
             local_worlds: self.local_worlds.clone(),
             local: self.local_view(),

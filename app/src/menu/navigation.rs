@@ -5,7 +5,7 @@ use super::{LocalWorldAction, MenuAction, MenuRuntime, MenuScreen};
 
 impl MenuRuntime {
     pub(super) fn remember_session_origin(&mut self) {
-        if self.over_world() || self.is_connecting() {
+        if self.over_world() || self.is_connecting() || self.disconnect_message.is_some() {
             return;
         }
         self.session_origin = self.history.screens().iter().rev().copied().find(|screen| {
@@ -28,6 +28,7 @@ impl MenuRuntime {
     /// Leaving a world reveals the Play page retained when it was joined.
     pub(crate) fn show_after_disconnect(&mut self) {
         self.reset_death();
+        self.retry_target = None;
         self.show_session_origin(MenuScreen::Home);
     }
 
@@ -129,6 +130,10 @@ impl MenuRuntime {
         }
         if self.dialog.is_some() {
             self.dismiss_accounts();
+            return;
+        }
+        if self.disconnect_message.is_some() && !self.is_connecting() {
+            self.dismiss_disconnect();
             return;
         }
         if self.screen == MenuScreen::Settings && self.settings_scale_picker {

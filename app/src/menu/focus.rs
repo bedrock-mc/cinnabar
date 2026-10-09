@@ -366,6 +366,13 @@ impl MenuRuntime {
         if let Some(actions) = self.join_request_focus_actions() {
             return actions;
         }
+        if self.disconnect_message.is_some() && !self.is_connecting() {
+            return if self.can_reconnect() {
+                vec![MenuAction::Reconnect, MenuAction::DismissDialog]
+            } else {
+                vec![MenuAction::DismissDialog]
+            };
+        }
         let nav = || {
             vec![
                 MenuAction::Navigate(MenuScreen::Home),
