@@ -367,3 +367,97 @@ fn borrowed_popup_ownership_matches_the_presented_prompt() {
         }
     }
 }
+
+/// Paints an event with an original badge and keeps its temporary image alive.
+fn event_fixture(test: &str) -> Option<(App, Entity, tempfile::TempDir)> {
+    let (mut app, window) = fixture(test)?;
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("badge.png");
+    image::RgbaImage::from_pixel(4, 4, image::Rgba([80, 220, 70, 255]))
+        .save(&path)
+        .unwrap();
+    let badge = path.to_string_lossy().into_owned();
+    app.world_mut()
+        .resource_mut::<MenuRuntime>()
+        .feeds
+        .home
+        .live_event = Some(launcher::menu::LiveEventCard {
+        button_text: "Live event".into(),
+        badge_path: badge.clone(),
+        ..Default::default()
+    });
+    {
+        let mut presentation = app.world_mut().resource_mut::<UiPresentationRuntime>();
+        presentation.sync_menu_artwork(vec![(badge, 512)]);
+        presentation.finish_menu_artwork();
+    }
+    draw(&mut app);
+    draw(&mut app);
+    assert_eq!(
+        app.world()
+            .resource::<UiPresentationRuntime>()
+            .visible_menu_actions()
+            .filter(|action| *action == MenuAction::OpenLiveEvent)
+            .count(),
+        2,
+        "fixture must paint both event link and loaded badge"
+    );
+    Some((app, window, directory))
+}
+
+#[test]
+fn a_loaded_event_badge_does_not_trap_keyboard_navigation() {
+    let Some((mut app, window, _badge)) =
+        event_fixture("a_loaded_event_badge_does_not_trap_keyboard_navigation")
+    else {
+        return;
+    };
+    {
+        let mut menu = app.world_mut().resource_mut::<MenuRuntime>();
+        menu.input_mode = MenuInputMode::Keyboard;
+        menu.focus_pointer(MenuAction::OpenLiveEvent);
+    }
+    key(&mut app, window, KeyCode::Tab);
+    let selected = app.world().resource::<MenuRuntime>().view().focused_action;
+    assert_ne!(selected, Some(MenuAction::OpenLiveEvent));
+    assert!(
+        app.world()
+            .resource::<UiPresentationRuntime>()
+            .visible_menu_actions()
+            .any(|action| Some(action) == selected)
+    );
+}
+
+#[test]
+fn a_loaded_event_badge_does_not_trap_gamepad_navigation() {
+    let Some((mut app, _, _badge)) =
+        event_fixture("a_loaded_event_badge_does_not_trap_gamepad_navigation")
+    else {
+        return;
+    };
+    app.world_mut()
+        .resource_mut::<MenuRuntime>()
+        .focus_pointer(MenuAction::OpenLiveEvent);
+    let pad = app.world_mut().spawn(Gamepad::default()).id();
+    app.world_mut()
+        .get_mut::<Gamepad>(pad)
+        .unwrap()
+        .digital_mut()
+        .press(GamepadButton::DPadDown);
+    app.update();
+    app.world_mut()
+        .get_mut::<Gamepad>(pad)
+        .unwrap()
+        .digital_mut()
+        .clear();
+    draw(&mut app);
+    let view = app.world().resource::<MenuRuntime>().view();
+    assert_ne!(view.focused_action, Some(MenuAction::OpenLiveEvent));
+    assert!(view.navigation_focus_visible && view.gamepad_input);
+    assert!(
+        app.world()
+            .resource::<UiPresentationRuntime>()
+            .visible_menu_actions()
+            .any(|action| Some(action) == view.focused_action)
+    );
+}

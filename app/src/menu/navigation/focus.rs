@@ -117,14 +117,23 @@ impl MenuRuntime {
         let visible: Vec<_> = presentation.visible_menu_actions().collect();
         if self.screen == MenuScreen::Home && !popup {
             let previous = self.focus_actions().get(self.focused).copied();
-            self.navigation_focus.home_actions = Some(visible.clone());
+            let mut home_actions = Vec::with_capacity(visible.len());
+            for action in visible.iter().copied() {
+                if !home_actions
+                    .iter()
+                    .any(|candidate| same_control(*candidate, action))
+                {
+                    home_actions.push(action);
+                }
+            }
             self.focused = previous
                 .and_then(|action| {
-                    visible
+                    home_actions
                         .iter()
                         .position(|candidate| same_control(*candidate, action))
                 })
                 .unwrap_or(0);
+            self.navigation_focus.home_actions = Some(home_actions);
         }
         if !self.navigation_focus.pending {
             return;
