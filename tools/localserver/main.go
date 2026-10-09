@@ -147,7 +147,6 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	srv := conf.New()
 	worlds := []*world.World{srv.World(), srv.Nether(), srv.End()}
 	cfg.applyTo(worlds...)
-	cfg.configureAnimals(srv.World())
 	if generator, ok := generators[world.Overworld]; firstWorld && ok {
 		srv.World().SetSpawn(generator.DefaultSpawn(world.Overworld))
 	}

@@ -50,12 +50,9 @@
   Normal supports saved overworld pre-generation and four chunk workers by default; see
   [generation measurements](docs/evidence/local-world-generation.md). Bedrock generation parity
   and join/streaming budgets remain incomplete.
-- Dragonfly Normal populates eligible grass habitats with persistent cows, pigs, sheep and
-  chickens through the owning world simulation. Reopening preserves saved actors and backend.
-  Exact material admission, continuous weather brightness, complete effect lifecycle and infinite-effect behavior,
-  native damage-immunity behavior across reload, complete animal AI, breeding,
-  climate variants, loot and other passive species remain incomplete; this does not close
-  the broader mob parity or performance gates.
+- Dragonfly passive animal simulation and natural population remain unsupported and incomplete.
+  Stored unsupported actors are preserved without becoming live entities. Mob parity and
+  performance gates remain open.
 - Dressing Room persists classic/slim skins and independent capes, imports and item edits. Home
   and Pause previews support rotation and pointer tracking. Cape attachment uses its own shoulders.
 - Cropped cape imports pad the 46×22 layout at supported texture scales with transparent pixels,
