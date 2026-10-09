@@ -41,6 +41,7 @@ Vanilla behaviour is the default. Everything below is extra:
 | --- | --- |
 | **Performance** | Frame pacing, latency and chunk streaming built to beat vanilla. |
 | **Live resource packs** | Add, remove or reorder packs without leaving the world. |
+| **Multi-account manager** | Sign in with several Microsoft accounts and switch between them from the launcher, no signing out. |
 | **Custom skins** | Import custom-geometry (4D/5D) skins and skin packs. See [docs/custom-skins.md](docs/custom-skins.md). |
 | **Discord** | Rich presence, plus joining and inviting friends through Discord. See [docs/discord.md](docs/discord.md). |
 | **Mods** *(preview)* | Sandboxed WebAssembly mods that hot-reload, for your own client and for servers. Servers can use it as a Roblox-style game engine, shipping client code that replaces the UI, rendering, input and game logic (in-world video included) to turn a server into an entirely different game. See [docs/modding-spike.md](docs/modding-spike.md) and [docs/server-experiences.md](docs/server-experiences.md). |
