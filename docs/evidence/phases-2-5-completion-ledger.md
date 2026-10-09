@@ -93,7 +93,7 @@
 | Field | Evidence |
 |---|---|
 | Owning plan/task | Not started |
-| Deterministic tests | Not started |
+| Deterministic tests | Menu sound edges, touch timing, drawer transitions and sound-pack overrides are covered; the remaining UI requirements are open. |
 | Review commit | Not started |
 | Live/native witness | Not started |
 | Performance/resource witness | Not started |

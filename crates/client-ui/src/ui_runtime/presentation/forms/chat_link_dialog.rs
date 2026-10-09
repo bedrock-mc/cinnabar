@@ -38,11 +38,15 @@ impl UiPresentationRuntime {
         metrics: TextMetrics,
         content: [f32; 2],
         now_millis: u64,
+        refresh_sounds: bool,
     ) -> Result<(), UiPresentationError> {
         let Some(url) = self.form_presentation.chat.pending_link.as_ref() else {
             return Ok(());
         };
         self.form_presentation.chat.hits.clear();
+        if refresh_sounds {
+            self.form_presentation.chat.sounds.clear();
+        }
         let Some(renderer) = self.form_presentation.engine.as_deref() else {
             return Ok(());
         };
@@ -94,6 +98,13 @@ impl UiPresentationRuntime {
                     _ => continue,
                 };
                 if let Some(rect) = window_rect(region, frame.scale, frame.origin) {
+                    if refresh_sounds {
+                        super::menu_sounds::collect(
+                            region,
+                            hit,
+                            &mut self.form_presentation.chat.sounds,
+                        );
+                    }
                     self.form_presentation
                         .chat
                         .hits

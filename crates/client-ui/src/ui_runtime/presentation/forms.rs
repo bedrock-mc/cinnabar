@@ -5,6 +5,7 @@ pub mod chat_coordinates;
 mod chat_link_dialog;
 mod chat_links;
 mod chat_position;
+mod chat_sounds;
 pub mod chat_screen;
 pub mod container_data;
 pub mod container_kinds;
@@ -41,6 +42,7 @@ pub(super) mod menu_caret;
 #[cfg(test)]
 pub mod menu_latency;
 pub mod menu_screens;
+mod menu_sounds;
 pub mod menus;
 pub mod mod_hud;
 pub mod mod_hud_editor;
@@ -146,6 +148,9 @@ pub(super) struct FormPresentation {
     pub(super) menu_focus_landmarks: Vec<crate::menu::view::SettingsFocusLandmark>,
     /// The engine menu's press sounds by action; carried across the per-frame reset.
     menu_sounds: Vec<(crate::menu::MenuAction, json_ui::ControlSound)>,
+    native_menu_sounds: bool,
+    drawer_sounds: menu_sounds::DrawerSounds,
+    menu_sound_times: std::sync::Mutex<menu_sounds::MenuSoundTimes>,
     /// The form whose render path was last logged, so each form logs once.
     logged: Option<ServerFormIdentity>,
     /// The engine HUD's cached screens; carried across the per-frame reset.
@@ -411,7 +416,7 @@ impl UiPresentationRuntime {
         self.form_presentation
             .menu_sounds
             .iter()
-            .find(|(candidate, _)| *candidate == action)
+            .find(|(candidate, _)| menu_sounds::same_control(*candidate, action))
             .map(|(_, sound)| sound)
     }
 
@@ -497,6 +502,9 @@ impl UiPresentationRuntime {
             engine: state.engine,
             menu_keys: state.menu_keys,
             menu_sounds: state.menu_sounds,
+            native_menu_sounds: state.native_menu_sounds,
+            drawer_sounds: state.drawer_sounds,
+            menu_sound_times: state.menu_sound_times,
             logged: state.logged,
             hud: state.hud,
             mod_hud: state.mod_hud,

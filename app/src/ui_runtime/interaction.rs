@@ -1,6 +1,7 @@
 mod chat;
 mod chat_coordinates;
 mod chat_modifiers;
+mod chat_sounds;
 pub(crate) use chat::drive_chat_ui_actions;
 
 use bevy::{

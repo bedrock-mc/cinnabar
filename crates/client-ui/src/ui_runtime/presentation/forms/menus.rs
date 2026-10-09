@@ -43,6 +43,7 @@ impl UiPresentationRuntime {
         {
             self.menu_preview.revoke_capture();
         }
+        self.form_presentation.native_menu_sounds = false;
         self.settings_slider_drag_targets.clear();
         self.form_presentation.menu_focus_context = None;
         self.form_presentation.menu_focus.clear();
@@ -71,6 +72,7 @@ impl UiPresentationRuntime {
         let result = match drawn {
             Ok(Some(hits)) => Ok(hits),
             Ok(None) | Err(_) => {
+                self.form_presentation.native_menu_sounds = true;
                 let owned_dialog = matches!(
                     shown.dialog,
                     Some(crate::menu::MenuDialog::Accounts | crate::menu::MenuDialog::Exit)
@@ -123,6 +125,14 @@ impl UiPresentationRuntime {
         }
         if result.is_ok() && shown.visible {
             self.form_presentation.menu_focus_context = Some((shown.screen, shown.popup_open()));
+        }
+        if result.is_ok() {
+            self.observe_menu_drawer(shown.visible.then_some(shown.screen));
+            self.form_presentation
+                .menu_sound_times
+                .get_mut()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .scope(shown.visible.then_some((shown.screen, shown.popup_open())));
         }
         self.menu_view = Some(view);
         result
@@ -384,6 +394,7 @@ impl UiPresentationRuntime {
                 );
                 for (step, bounds) in segments(region, actions.len(), frame.scale, origin) {
                     hits.push((actions[step], bounds));
+                    super::menu_sounds::collect(region, actions[step], &mut sounds);
                     if !region.takes_focus() {
                         keys.push((actions[step], region.key.clone()));
                     }
@@ -398,11 +409,12 @@ impl UiPresentationRuntime {
                 if !keys.iter().any(|(candidate, _)| *candidate == action) {
                     keys.push((action, region.key.clone()));
                 }
-                sounds.extend(region.sound.clone().map(|sound| (action, sound)));
+                super::menu_sounds::collect(region, action, &mut sounds);
                 spots.extend(text_spot(&frame, region, action, bounds, metrics));
             }
         }
         self.add_menu_text_spots(spots);
+        self.form_presentation.native_menu_sounds = false;
         self.form_presentation.menu_sounds = sounds;
         // An owned dialog or the join's trust question takes all input over its screen.
         if let Some(popup) =
@@ -441,7 +453,8 @@ impl UiPresentationRuntime {
             dialog,
             Some(crate::menu::MenuDialog::Accounts | crate::menu::MenuDialog::Exit)
         ) {
-            self.form_presentation.menu_sounds = Vec::new();
+            self.form_presentation.native_menu_sounds = true;
+            self.form_presentation.menu_sounds.clear();
             let rollback = (nodes.len(), *next);
             let drawn = if dialog == Some(crate::menu::MenuDialog::Exit) {
                 self.append_oreui_exit(view, nodes, next, metrics, [width, height], &|key| {
@@ -547,9 +560,10 @@ impl UiPresentationRuntime {
             if let Some(bounds) = window_rect(region, popup.scale, origin) {
                 hits.push((action, bounds));
                 keys.push((action, region.key.clone()));
-                sounds.extend(region.sound.clone().map(|sound| (action, sound)));
+                super::menu_sounds::collect(region, action, &mut sounds);
             }
         }
+        self.form_presentation.native_menu_sounds = false;
         self.form_presentation.menu_sounds = sounds;
         Some((hits, keys))
     }
