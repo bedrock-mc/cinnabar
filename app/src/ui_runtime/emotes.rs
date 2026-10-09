@@ -188,6 +188,11 @@ pub(crate) fn drive_emote_input(mut input: EmoteInput) {
         if let Some(slot) = slot_key(event.key_code) {
             started = input.runtime.emotes_mut().activate_slot(slot, now);
         } else if let Some(action) = wheel_key(event.key_code) {
+            if action == UiAction::Cancel
+                && let Some(presentation) = input.presentation.as_deref()
+            {
+                presentation.sound_emote_cancel(input.time.elapsed_secs_f64());
+            }
             started = input.runtime.emotes_mut().handle_action(action, now);
         }
         dismissed |= !input.runtime.emotes().is_open();
@@ -215,6 +220,9 @@ pub(crate) fn drive_emote_input(mut input: EmoteInput) {
         }
         input.observed.pointer = pointer;
         if input.mouse.just_pressed(MouseButton::Left) {
+            if let (Some(presentation), Some(point)) = (input.presentation.as_deref(), pointer) {
+                presentation.sound_emote_mouse(point, input.time.elapsed_secs_f64());
+            }
             match hit {
                 Some(EmoteHit::Slot(slot)) => {
                     started = input.runtime.emotes_mut().activate_slot(slot, now);
@@ -245,6 +253,11 @@ pub(crate) fn drive_emote_input(mut input: EmoteInput) {
                 if pad.just_pressed(button) {
                     if let Some(presentation) = input.presentation.as_deref_mut() {
                         presentation.set_emote_input_mode(json_ui::InputMode::Gamepad);
+                    }
+                    if action == UiAction::Cancel
+                        && let Some(presentation) = input.presentation.as_deref()
+                    {
+                        presentation.sound_emote_cancel(input.time.elapsed_secs_f64());
                     }
                     let was_open = input.runtime.emotes().is_open();
                     started = input.runtime.emotes_mut().handle_action(action, now);

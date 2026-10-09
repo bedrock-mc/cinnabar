@@ -23,10 +23,12 @@ impl UiPresentationRuntime {
     pub fn cancel_chat_link(&mut self) {
         self.form_presentation.chat.pending_link = None;
         self.form_presentation.chat.hits.clear();
+        self.form_presentation.chat.audio.clear_frame();
     }
     /// Call only after the popup's explicit Open action.
     pub fn take_confirmed_chat_link(&mut self) -> Option<String> {
         self.form_presentation.chat.hits.clear();
+        self.form_presentation.chat.audio.clear_frame();
         self.form_presentation.chat.pending_link.take()
     }
     #[allow(clippy::too_many_arguments)]
@@ -38,15 +40,12 @@ impl UiPresentationRuntime {
         metrics: TextMetrics,
         content: [f32; 2],
         now_millis: u64,
-        refresh_sounds: bool,
     ) -> Result<(), UiPresentationError> {
         let Some(url) = self.form_presentation.chat.pending_link.as_ref() else {
             return Ok(());
         };
         self.form_presentation.chat.hits.clear();
-        if refresh_sounds {
-            self.form_presentation.chat.sounds.clear();
-        }
+        self.form_presentation.chat.audio.clear_frame();
         let Some(renderer) = self.form_presentation.engine.as_deref() else {
             return Ok(());
         };
@@ -98,19 +97,13 @@ impl UiPresentationRuntime {
                     _ => continue,
                 };
                 if let Some(rect) = window_rect(region, frame.scale, frame.origin) {
-                    if refresh_sounds {
-                        super::menu_sounds::collect(
-                            region,
-                            hit,
-                            &mut self.form_presentation.chat.sounds,
-                        );
-                    }
                     self.form_presentation
                         .chat
                         .hits
                         .push((hit, rect, region.key.clone()));
                 }
             }
+            self.form_presentation.chat.audio.set_frame(frame);
         }
         Ok(())
     }

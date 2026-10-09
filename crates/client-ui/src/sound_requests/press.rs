@@ -5,7 +5,7 @@ use launcher::menu::MenuAction;
 /// OreUI waits before sounding a held touch; movement cancels that press.
 const TOUCH_PRESS_SECONDS: f64 = 0.150;
 const TOUCH_SLOP: f32 = 3.0;
-const MAX_TOUCHES: usize = 16;
+use super::MAX_UI_TOUCHES;
 
 #[derive(Clone, Copy, Debug)]
 struct TouchPress<A> {
@@ -13,20 +13,21 @@ struct TouchPress<A> {
     action: A,
     point: [f32; 2],
     started: f64,
+    oreui: bool,
     sounded: bool,
     cancelled: bool,
 }
 
 /// Tracks touch sounds without allocating or replaying held inputs.
 pub struct PressSounds<A = MenuAction> {
-    touches: [Option<TouchPress<A>>; MAX_TOUCHES],
+    touches: [Option<TouchPress<A>>; MAX_UI_TOUCHES],
 }
 
 impl<A: Copy> Default for PressSounds<A> {
     /// Starts with no captured touches.
     fn default() -> Self {
         Self {
-            touches: [None; MAX_TOUCHES],
+            touches: [None; MAX_UI_TOUCHES],
         }
     }
 }
@@ -41,8 +42,9 @@ impl<A: Copy + PartialEq> PressSounds<A> {
     pub fn released_action(&self, id: u64, point: [f32; 2]) -> Option<A> {
         let press = self.touches.iter().flatten().find(|press| press.id == id)?;
         (!press.cancelled
-            && (point[0] - press.point[0]).abs() <= TOUCH_SLOP
-            && (point[1] - press.point[1]).abs() <= TOUCH_SLOP)
+            && (!press.oreui
+                || ((point[0] - press.point[0]).abs() <= TOUCH_SLOP
+                    && (point[1] - press.point[1]).abs() <= TOUCH_SLOP)))
             .then_some(press.action)
     }
 
@@ -71,6 +73,7 @@ impl<A: Copy + PartialEq> PressSounds<A> {
                 action,
                 point,
                 started: now,
+                oreui,
                 sounded: false,
                 cancelled: false,
             });
@@ -80,9 +83,10 @@ impl<A: Copy + PartialEq> PressSounds<A> {
             .iter_mut()
             .find(|slot| slot.is_some_and(|press| press.id == id))?;
         let press = slot.as_mut()?;
-        press.cancelled |= (point[0] - press.point[0]).abs() > TOUCH_SLOP
-            || (point[1] - press.point[1]).abs() > TOUCH_SLOP;
-        let due = !held || (oreui && now - press.started >= TOUCH_PRESS_SECONDS);
+        press.cancelled |= press.oreui
+            && ((point[0] - press.point[0]).abs() > TOUCH_SLOP
+                || (point[1] - press.point[1]).abs() > TOUCH_SLOP);
+        let due = !held || (press.oreui && now - press.started >= TOUCH_PRESS_SECONDS);
         let accepted = held || action == Some(press.action);
         let emit = (!press.cancelled && !press.sounded && due && accepted).then_some(press.action);
         press.sounded |= emit.is_some();
@@ -163,6 +167,16 @@ mod tests {
         );
         assert_eq!(
             sounds.touch(1, Some(ACTION), [0.0; 2], false, false, 3.1, false),
+            Some(ACTION)
+        );
+    }
+
+    #[test]
+    fn json_ui_touch_uses_control_membership_instead_of_native_slop() {
+        let mut sounds = PressSounds::default();
+        sounds.touch(1, Some(ACTION), [0.0; 2], true, true, 1.0, false);
+        assert_eq!(
+            sounds.touch(1, Some(ACTION), [20.0, 0.0], false, false, 1.1, false),
             Some(ACTION)
         );
     }

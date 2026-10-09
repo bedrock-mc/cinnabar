@@ -14,7 +14,8 @@ pub(super) struct MenuPressSounds {
 
 impl MenuPressSounds {
     /// Revokes retained touch presses when a menu loses input ownership.
-    pub(super) fn clear(&mut self) {
+    pub(super) fn clear(&mut self, presentation: &UiPresentationRuntime) {
+        presentation.cancel_menu_sound_touches();
         self.context = None;
         self.touches.clear();
     }
@@ -37,6 +38,25 @@ impl MenuPressSounds {
         now: f64,
     ) {
         self.scope(presentation.drawn_menu_context());
+        if !presentation.uses_native_menu_sounds() {
+            if pressed && let Some(point) = pointer {
+                presentation.sound_menu_mouse(point, now);
+            }
+            for touch in touches.iter().chain(touches.iter_just_released()) {
+                let position = touch.position();
+                presentation.sound_menu_touch(
+                    touch.id(),
+                    UiPoint::new(position.x, position.y).ok(),
+                    touches.just_pressed(touch.id()),
+                    touches.get_pressed(touch.id()).is_some(),
+                    now,
+                );
+            }
+            if touches.iter_just_canceled().next().is_some() {
+                presentation.cancel_menu_sound_touches();
+            }
+            return;
+        }
         if pressed && let Some(action) = pointer.and_then(|point| presentation.hit_test_menu(point))
         {
             presentation.play_menu_sound(action);
@@ -64,12 +84,36 @@ impl MenuPressSounds {
     }
 }
 
+/// Text fields and legacy sliders apply their value while touch remains held.
+pub(super) fn presses_while_held(action: launcher::menu::MenuAction) -> bool {
+    use launcher::menu::{
+        MenuAction,
+        settings_options::{SETTINGS_OPTIONS, SettingKind},
+    };
+    action.text_field().is_some()
+        || matches!(action, MenuAction::SettingsScale(_))
+        || matches!(action, MenuAction::SettingsOption(index, _) if SETTINGS_OPTIONS.get(usize::from(index)).is_some_and(|option| matches!(option.kind, SettingKind::Slider)))
+}
+
 /// Sounds the focused control before its keyboard or gamepad activation.
 pub(super) fn activate_focused(menu: &mut MenuRuntime, presentation: &UiPresentationRuntime) {
     if let Some(action) = menu.focus_actions().get(menu.focused).copied() {
         presentation.play_menu_sound(menu.live_settings_action(action));
     }
     menu.activate_focused();
+}
+
+/// Keeps keyboard auto-repeat from replaying one physical press's feedback.
+pub(super) fn activate_key(
+    menu: &mut MenuRuntime,
+    presentation: &UiPresentationRuntime,
+    repeat: bool,
+) {
+    if repeat {
+        menu.activate_focused();
+    } else {
+        activate_focused(menu, presentation);
+    }
 }
 
 #[cfg(test)]

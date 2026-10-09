@@ -1,5 +1,8 @@
 //! Bounded sound requests drained by the app audio adapter at its existing frame stage.
 
+/// Bounds captured UI touches without allocating during held frames.
+pub(crate) const MAX_UI_TOUCHES: usize = 16;
+
 mod press;
 pub use press::PressSounds;
 

@@ -404,7 +404,7 @@ pub(crate) fn drive_menu_input(
     }
     menu.settings_slider_hovered = None;
     if consent.is_some_and(|consent| consent.0) {
-        gui_scale_drag.sounds.clear();
+        gui_scale_drag.sounds.clear(&presentation);
         presentation.cancel_menu_player_preview_input();
         presentation.cancel_menu_server_list_input();
         gui_scale_drag.preview_touch = None;
@@ -468,7 +468,7 @@ pub(crate) fn drive_menu_input(
             || runtime.server_forms().owns_input()
                 && (!menu.is_visible() || runtime.server_forms().settings_form_active())
     }) {
-        gui_scale_drag.sounds.clear();
+        gui_scale_drag.sounds.clear(&presentation);
         presentation.cancel_menu_player_preview_input();
         presentation.cancel_menu_server_list_input();
         gui_scale_drag.preview_touch = None;
@@ -486,7 +486,7 @@ pub(crate) fn drive_menu_input(
     if driven.is_none()
         && (!window.focused || focus.as_ref().is_some_and(|focus| !focus.available()))
     {
-        gui_scale_drag.sounds.clear();
+        gui_scale_drag.sounds.clear(&presentation);
         presentation.cancel_menu_player_preview_input();
         presentation.cancel_menu_server_list_input();
         gui_scale_drag.preview_touch = None;
@@ -532,7 +532,7 @@ pub(crate) fn drive_menu_input(
         }
     }
     if !menu.is_visible() {
-        gui_scale_drag.sounds.clear();
+        gui_scale_drag.sounds.clear(&presentation);
         presentation.cancel_menu_player_preview_input();
         presentation.cancel_menu_server_list_input();
         gui_scale_drag.preview_touch = None;
@@ -800,7 +800,7 @@ pub(crate) fn drive_menu_input(
                 } else {
                     gui_scale_drag.touch_press = Some((touch.id(), action));
                 }
-            } else if action.text_field().is_some() {
+            } else if sounds::presses_while_held(action) {
                 press(&mut menu, action);
                 caret_press = action.text_field().map(|field| (position, field));
             } else {
@@ -949,9 +949,11 @@ pub(crate) fn drive_menu_input(
                 ));
             }
             KeyCode::Enter | KeyCode::NumpadEnter => {
-                sounds::activate_focused(&mut menu, &presentation)
+                sounds::activate_key(&mut menu, &presentation, input.repeat)
             }
-            KeyCode::Space if native_settings => sounds::activate_focused(&mut menu, &presentation),
+            KeyCode::Space if native_settings => {
+                sounds::activate_key(&mut menu, &presentation, input.repeat)
+            }
             _ if menu.has_focused_field() && !modifiers.shortcut() => {
                 if let Some(text) = input.text.as_deref() {
                     menu.edit_text(text);

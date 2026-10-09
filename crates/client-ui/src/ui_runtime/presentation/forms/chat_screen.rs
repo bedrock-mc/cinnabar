@@ -87,9 +87,8 @@ pub(super) struct ChatScreen {
     screen: CachedScreen,
     /// Window-logical hit rects and their layout keys, from the last frame.
     pub(super) hits: Vec<(ChatHit, UiRect, String)>,
-    pub(super) sounds: Vec<(ChatHit, json_ui::ControlSound)>,
-    pub(super) sound_times: std::sync::Mutex<super::menu_sounds::ReplayTimes<ChatHit>>,
-    pub(super) sound_generation: Option<(usize, bool, bool)>,
+    pub(super) audio: super::frame_sounds::FrameSounds,
+    sound_scope: Option<(bool, bool)>,
     edit_box: Option<String>,
     /// The messages view's key and extents from the last frame.
     scroll: Option<(String, ScrollMetrics)>,
@@ -184,28 +183,14 @@ impl UiPresentationRuntime {
             )
         })?;
         chat.hits.clear();
+        chat.audio.clear_frame();
         chat.edit_box = None;
         let Some(frame) = frame else {
             return Ok(true);
         };
-        let generation = (
-            chat.screen.passes,
-            chat.settings.open,
-            chat.pending_link.is_some(),
-        );
-        let refresh_sounds = chat.sound_generation != Some(generation);
-        if refresh_sounds {
-            if chat
-                .sound_generation
-                .is_none_or(|previous| previous.1 != generation.1 || previous.2 != generation.2)
-            {
-                chat.sound_times
-                    .get_mut()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .clear();
-            }
-            chat.sounds.clear();
-            chat.sound_generation = Some(generation);
+        let scope = (chat.settings.open, chat.pending_link.is_some());
+        if chat.sound_scope.replace(scope) != Some(scope) {
+            chat.audio.reset_input();
         }
         chat.scale = frame.scale;
         chat.scroll = frame
@@ -254,13 +239,6 @@ impl UiPresentationRuntime {
                 for (step, bounds) in
                     super::menus::segments(region, actions.len(), frame.scale, frame.origin)
                 {
-                    if refresh_sounds {
-                        super::menu_sounds::collect(
-                            region,
-                            ChatHit::SettingsAction(actions[step]),
-                            &mut chat.sounds,
-                        );
-                    }
                     chat.hits.push((
                         ChatHit::SettingsAction(actions[step]),
                         bounds,
@@ -282,21 +260,11 @@ impl UiPresentationRuntime {
                 continue;
             }
             if let Some(bounds) = window_rect(region, frame.scale, frame.origin) {
-                if refresh_sounds {
-                    super::menu_sounds::collect(region, hit, &mut chat.sounds);
-                }
                 chat.hits.push((hit, bounds, region.key.clone()));
             }
         }
-        self.append_chat_link_dialog(
-            runtime,
-            nodes,
-            next,
-            metrics,
-            content,
-            now_millis,
-            refresh_sounds,
-        )?;
+        chat.audio.set_frame(frame);
+        self.append_chat_link_dialog(runtime, nodes, next, metrics, content, now_millis)?;
         Ok(true)
     }
 
@@ -313,12 +281,9 @@ impl UiPresentationRuntime {
     pub(in super::super) fn close_chat_screen(&mut self) {
         let chat = &mut self.form_presentation.chat;
         chat.open = false;
-        chat.sounds.clear();
-        chat.sound_generation = None;
-        chat.sound_times
-            .get_mut()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .clear();
+        chat.audio.clear_frame();
+        chat.audio.reset_input();
+        chat.sound_scope = None;
         chat.settings.open = false;
         chat.hits.clear();
         chat.links.clear();

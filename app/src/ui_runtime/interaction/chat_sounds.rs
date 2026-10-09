@@ -16,7 +16,8 @@ pub(super) struct ChatPressSounds {
 
 impl ChatPressSounds {
     /// Revokes touches when another screen owns input.
-    pub(super) fn clear(&mut self) {
+    pub(super) fn clear(&mut self, presentation: &UiPresentationRuntime) {
+        presentation.cancel_chat_sound_touches();
         self.context = None;
         self.chat.clear();
         self.bed.clear();
@@ -33,6 +34,7 @@ impl ChatPressSounds {
     ) -> Option<BedHit> {
         self.context = None;
         self.chat.clear();
+        presentation.cancel_chat_sound_touches();
         let mut activated = pressed
             .then(|| pointer.and_then(|point| presentation.hit_test_bed(point)))
             .flatten();
@@ -91,18 +93,24 @@ impl ChatPressSounds {
             self.chat.clear();
         }
         if pressed && let Some(point) = pointer {
-            if let Some(hit) = presentation.hit_test_chat(point) {
-                presentation.play_chat_sound(hit, now);
-            }
+            presentation.sound_chat_mouse(point, now);
             actions.push(point);
         }
         if touches.iter_just_canceled().next().is_some() {
             self.chat.clear();
+            presentation.cancel_chat_sound_touches();
         }
         for touch in touches.iter().chain(touches.iter_just_released()) {
             let position = touch.position();
             let point = UiPoint::new(position.x, position.y).ok();
             let hit = point.and_then(|point| presentation.hit_test_chat(point));
+            presentation.sound_chat_touch(
+                touch.id(),
+                point,
+                touches.just_pressed(touch.id()),
+                touches.get_pressed(touch.id()).is_some(),
+                now,
+            );
             if let Some(captured) = self.chat.touch(
                 touch.id(),
                 hit,
@@ -113,7 +121,6 @@ impl ChatPressSounds {
                 false,
             ) && hit == Some(captured)
             {
-                presentation.play_chat_sound(captured, now);
                 if let Some(point) = point {
                     actions.push(point);
                 }

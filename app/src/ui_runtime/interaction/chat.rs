@@ -22,7 +22,7 @@ pub(crate) fn drive_chat_ui_actions(
     mut sounds: Local<chat_sounds::ChatPressSounds>,
 ) {
     if runtime.credits().owns_input() || runtime.server_forms().owns_input() {
-        sounds.clear();
+        sounds.clear(&presentation);
         return;
     }
     let input_available = driven.is_some()
@@ -56,7 +56,7 @@ pub(crate) fn drive_chat_ui_actions(
         return;
     }
     if menu_visible || !runtime.chat_focused() || !input_available {
-        sounds.clear();
+        sounds.clear(&presentation);
         presentation.set_chat_pointer(None);
         return;
     }
