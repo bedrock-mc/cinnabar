@@ -19,7 +19,7 @@ pub(crate) use admission::{actor_within_render_distance, sample_candidate_scale}
 mod tick_cache;
 pub use tick_cache::PoseConversions;
 use tick_cache::TickKey;
-pub(crate) use tick_cache::convert_bones;
+pub(crate) use tick_cache::{convert_bones, convert_bones_with};
 
 /// Damage tint blended over a hurt or dying actor.
 const HURT_OVERLAY_RGBA: [f32; 4] = [1.0, 0.0, 0.0, client_world::HURT_OVERLAY_ALPHA];
