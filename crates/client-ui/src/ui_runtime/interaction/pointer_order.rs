@@ -65,13 +65,18 @@ impl PointerRouter {
         self.next_before_key(usize::MAX)
     }
 
-    /// Routes the press just taken to gameplay or the screen `open` reports; a screen that was
-    /// closed since the last press counts as a new opening.
-    pub fn route(&mut self, open: bool) -> PressRoute {
+    /// Records the screen state at an input boundary; a screen that was closed at the previous
+    /// observation and is open now counts as a new opening.
+    pub fn observe(&mut self, open: bool) {
         if open && !self.open {
             self.opening += 1;
         }
         self.open = open;
+    }
+
+    /// Routes the press just taken to gameplay or the screen `open` reports.
+    pub fn route(&mut self, open: bool) -> PressRoute {
+        self.observe(open);
         if open {
             PressRoute::Screen {
                 opening: self.opening,
@@ -132,6 +137,7 @@ pub fn route_frame_presses(
         FrameInput::Press(_) | FrameInput::BindingPress(_) => None,
     });
     for (arrival, key) in screen_keys.enumerate() {
+        router.observe(open);
         while let Some(button) = router.next_before_key(arrival) {
             route(&mut router, &mut open, button);
         }
@@ -141,6 +147,7 @@ pub fn route_frame_presses(
             ScreenKey::Other => open,
         };
     }
+    router.observe(open);
     while let Some(button) = router.next_rest() {
         route(&mut router, &mut open, button);
     }

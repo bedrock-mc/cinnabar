@@ -644,6 +644,7 @@ pub(crate) fn drive_chat_keyboard_input(
     let (mut consumed, mut kept) = (Vec::new(), Vec::new());
     for (arrival, input) in keyboard_messages.read().enumerate() {
         // Presses that arrived before this key meet the screen the earlier inputs left.
+        router.observe(runtime.inventory_open());
         while let Some(button) = router.next_before_key(arrival) {
             let (route, toggled_inventory) = route_press(
                 button,
