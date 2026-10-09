@@ -33,19 +33,21 @@ every target.
 
 On Debian/Ubuntu, install `libwayland-dev` and `libudev-dev` first.
 
-## What's different
+## Beyond vanilla
 
-Vanilla behaviour is the default. Everything below is extra:
+Vanilla parity is the default. On top of it, Cinnabar is growing into a platform. Everything
+below is opt-in and off unless you, or the server you join, turn it on.
 
-| | |
-| --- | --- |
-| **Performance** | Frame pacing, latency and chunk streaming built to beat vanilla. |
-| **Live resource packs** | Add, remove or reorder packs without leaving the world. |
-| **Custom skins** | Import custom-geometry (4D/5D) skins and skin packs. See [docs/custom-skins.md](docs/custom-skins.md). |
-| **Discord** | Rich presence, plus joining and inviting friends through Discord. See [docs/discord.md](docs/discord.md). |
-| **Experiences** *(preview)* | Servers can ship sandboxed client code that replaces UI, rendering, input and game logic, including in-world video. See [docs/server-experiences.md](docs/server-experiences.md). |
-| **Mods** *(developer preview)* | Sandboxed WebAssembly client mods that hot-reload. See [docs/modding-spike.md](docs/modding-spike.md). |
-| **JSON-UI editor** | Preview and edit pack UI exactly as Cinnabar renders it, at [bedrock-mc.github.io/cinnabar](https://bedrock-mc.github.io/cinnabar/). |
+| | What it is | Status |
+| --- | --- | --- |
+| **Cinnabar Experiences** | A Roblox-style engine. Servers ship sandboxed client code that can replace the UI, rendering, input and game logic, turning a server into an entirely different game. | Preview, off by default: [docs/server-experiences.md](docs/server-experiences.md) |
+| **Video streaming** | Servers can stream video with its own synced audio onto in-world screens, blocks, entities and UI. Video loads over HTTPS from any static host or CDN, not through the game connection. It's built into the client, so no server code is needed. | Preview, off by default: [docs/server-experiences.md](docs/server-experiences.md) |
+| **Mods** | Client mods as WebAssembly components with versioned, capability-scoped APIs. Each mod runs sandboxed with no file, network or account access, and hot-reloads. A crashing mod is disabled instead of taking down the client. | Developer preview: [docs/modding-spike.md](docs/modding-spike.md) |
+| **Mod marketplace** | Browse, install and update mods from inside Cinnabar. | Coming soon |
+| **Live resource packs** | Add, remove or reorder resource packs without leaving the world. | Available |
+| **Custom skins** | Import custom-geometry (4D/5D) skins and skin packs; servers and other players see the real model. | Available: [docs/custom-skins.md](docs/custom-skins.md) |
+| **Discord** | Rich presence, plus joining and inviting friends through Discord. | Available: [docs/discord.md](docs/discord.md) |
+| **JSON-UI editor** | Preview and edit pack UI exactly as Cinnabar renders it, in the browser. | Available: [bedrock-mc.github.io/cinnabar](https://bedrock-mc.github.io/cinnabar/) |
 
 ## How it works
 
