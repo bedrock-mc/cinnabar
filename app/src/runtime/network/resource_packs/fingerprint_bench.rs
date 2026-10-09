@@ -50,6 +50,7 @@ fn shared_stack_fingerprint_timing() {
         black_box(super::super::entity_pack::compile_session_entities(
             &fingerprint,
             &view,
+            &|| false,
         ));
         samples.push(started.elapsed().as_secs_f64() * 1000.0);
     }
@@ -263,7 +264,11 @@ fn join_part_timing() {
         compile_session_glyphs(view);
     });
     time("entities", &|view| {
-        super::super::entity_pack::compile_session_entities(&stack_fingerprint(&stack), view);
+        super::super::entity_pack::compile_session_entities(
+            &stack_fingerprint(&stack),
+            view,
+            &|| false,
+        );
     });
     time("artwork", &|view| {
         super::super::entity_texture_reload::prepare(view);

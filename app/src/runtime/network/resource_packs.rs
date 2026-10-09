@@ -253,6 +253,8 @@ fn compile_application(
     let (mut blocks, mut icons, mut language, mut glyphs) = (None, None, None, None);
     let (mut entities, mut artwork, mut ui, mut sounds) = (None, None, None, None);
     let mut aim_assist = None;
+    // The entity compile checks cancellation between its own steps, as it outlasts the rest.
+    let mut entities_stopped = false;
     rayon::scope(|scope| {
         scope.spawn(|_| {
             aim_assist = compile_part(
@@ -343,7 +345,15 @@ fn compile_application(
                 changes.entities,
                 Subscriber::Entities,
                 previous.and_then(|old| old.entities.clone()),
-                |view| super::entity_pack::compile_session_entities(fingerprint(), view),
+                |view| {
+                    let compiled = super::entity_pack::compile_session_entities(
+                        fingerprint(),
+                        view,
+                        cancelled,
+                    );
+                    entities_stopped = compiled.is_none();
+                    compiled.flatten()
+                },
             );
         });
         scope.spawn(|_| {
@@ -407,7 +417,7 @@ fn compile_application(
             .extend(inputs);
     }
     super::item_diagnostics::session_icons(icon_keys.len(), item_icons.as_deref());
-    if cancelled() {
+    if entities_stopped || cancelled() {
         return None;
     }
     #[cfg(feature = "developer-control")]

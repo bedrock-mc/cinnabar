@@ -99,18 +99,21 @@ fn store_in_background(write: Box<dyn FnOnce() + Send>) {
 
 impl EntityCache {
     /// Returns the cached pack for `inputs`, then a disk hit, compiling without holding the lock.
+    /// `None` once `cancelled` stopped the compile, which then records and stores nothing.
     fn get_or_compile(
         &self,
         inputs: EntityInputs,
         view: &LayeredPackView,
         disk: Option<&client_session::compile_cache::CompileCache>,
+        cancelled: &dyn Fn() -> bool,
         compile: impl FnOnce(
             &LayeredPackView,
             Option<&assets::VanillaEntityRefs>,
             Option<&std::path::Path>,
             bool,
-        ) -> Compiled,
-    ) -> Option<Arc<SessionEntityPack>> {
+            &dyn Fn() -> bool,
+        ) -> Option<Compiled>,
+    ) -> Option<Option<Arc<SessionEntityPack>>> {
         {
             let cache = self.lock();
             if let Some((cached, pack, files)) = cache.as_ref()
@@ -120,7 +123,7 @@ impl EntityCache {
                 if let (Some(dependencies), Some(files)) = (view.dependencies(), files) {
                     dependencies.extend(files.clone());
                 }
-                return pack.clone();
+                return Some(pack.clone());
             }
         }
         // Only a tracked compile knows its reads, which a reload diff of a disk hit needs.
@@ -145,7 +148,8 @@ impl EntityCache {
                 inputs.vanilla.as_deref(),
                 inputs.vanilla_pack_dir.as_deref(),
                 disk.is_some(),
-            );
+                cancelled,
+            )?;
             if let (Some(disk), Some(key), Some(files)) = (disk, key, view.dependencies()) {
                 let (disk, files, stored) = (disk.clone(), files.snapshot(), pack.clone());
                 (self.store)(Box::new(move || {
@@ -161,7 +165,7 @@ impl EntityCache {
             pack.clone(),
             view.dependencies().map(|files| files.snapshot()),
         ));
-        pack
+        Some(pack)
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Option<CachedEntities>> {
@@ -258,11 +262,13 @@ static ENTITY_CACHE: EntityCache = EntityCache {
     store: store_in_background,
 };
 
-/// Compiles the stack's entity files; `None` when it defines no usable entity.
+/// Compiles the stack's entity files: the inner `None` when it defines no usable entity, the
+/// outer `None` once `cancelled` stopped the compile between its steps.
 pub(super) fn compile_session_entities(
     fingerprint: &StackFingerprint,
     view: &LayeredPackView,
-) -> Option<Arc<SessionEntityPack>> {
+    cancelled: &dyn Fn() -> bool,
+) -> Option<Option<Arc<SessionEntityPack>>> {
     let inputs = EntityInputs {
         stack: fingerprint.clone(),
         vanilla: vanilla_refs(),
@@ -272,6 +278,7 @@ pub(super) fn compile_session_entities(
         inputs,
         view,
         super::resource_packs::compile_cache(),
+        cancelled,
         compile_encoded,
     )
 }
@@ -281,25 +288,37 @@ fn compile(
     view: &LayeredPackView,
     vanilla: Option<&assets::VanillaEntityRefs>,
 ) -> Option<Arc<SessionEntityPack>> {
-    compile_encoded(view, vanilla, vanilla_pack_dir().as_deref(), false).0
+    compile_encoded(view, vanilla, vanilla_pack_dir().as_deref(), false, &|| {
+        false
+    })
+    .expect("an uncancellable compile completes")
+    .0
 }
 
-/// `encode` also returns the entity blob, which only a disk-cached compile needs.
+/// `encode` also returns the entity blob, which only a disk-cached compile needs. Checks
+/// `cancelled` between its steps; `None` once it holds.
 fn compile_encoded(
     view: &LayeredPackView,
     vanilla: Option<&assets::VanillaEntityRefs>,
     vanilla_pack_dir: Option<&std::path::Path>,
     encode: bool,
-) -> Compiled {
+    cancelled: &dyn Fn() -> bool,
+) -> Option<Compiled> {
     let files = collect_files(view, vanilla, vanilla_pack_dir);
-    let compiled = match pack_compiler::compile_actor_pack(files) {
+    if cancelled() {
+        return None;
+    }
+    let compiled = match pack_compiler::compile_actor_pack_unless(files, cancelled)? {
         Ok(Some(compiled)) => compiled,
-        Ok(None) => return (None, None),
+        Ok(None) => return Some((None, None)),
         Err(error) => {
             bevy::log::warn!(%error, "server pack entities were not applied");
-            return (None, None);
+            return Some((None, None));
         }
     };
+    if cancelled() {
+        return None;
+    }
     let skipped = compiled.skipped;
     if skipped != pack_compiler::EntityPackSkips::default() || !compiled.fallbacks.is_empty() {
         bevy::log::warn!(
@@ -335,7 +354,7 @@ fn compile_encoded(
         Ok((assets, blob)) => (Arc::new(assets), blob),
         Err(error) => {
             bevy::log::warn!(%error, "server pack entity catalog was rejected");
-            return (None, None);
+            return Some((None, None));
         }
     };
     let pack = Arc::new(SessionEntityPack {
@@ -344,7 +363,7 @@ fn compile_encoded(
         bindings: compiled.bindings.into(),
         equipment,
     });
-    (Some(pack), blob)
+    Some((Some(pack), blob))
 }
 
 /// Property defaults of each `entities/*.json` behavior definition the stack carries, keyed by
@@ -473,9 +492,9 @@ mod tests {
             Some(assets::VanillaEntityRefs::new()),
             Some(refs_with_animation()),
         ] {
-            cache.get_or_compile(inputs(vanilla), &view, None, |_, _, _, _| {
+            cache.get_or_compile(inputs(vanilla), &view, None, &|| false, |_, _, _, _, _| {
                 compiles.set(compiles.get() + 1);
-                (None, None)
+                Some((None, None))
             });
         }
         assert_eq!(compiles.get(), 3);
@@ -488,9 +507,9 @@ mod tests {
         for directory in ["first", "first", "second"] {
             let mut input = inputs(None);
             input.vanilla_pack_dir = Some(directory.into());
-            cache.get_or_compile(input, &view, None, |_, _, _, _| {
+            cache.get_or_compile(input, &view, None, &|| false, |_, _, _, _, _| {
                 compiles.set(compiles.get() + 1);
-                (None, None)
+                Some((None, None))
             });
         }
         assert_eq!(compiles.get(), 2);
@@ -499,9 +518,9 @@ mod tests {
     #[test]
     fn entity_cache_compiles_without_holding_its_lock() {
         let (view, cache) = (empty_view(), super::EntityCache::default());
-        cache.get_or_compile(inputs(None), &view, None, |_, _, _, _| {
+        cache.get_or_compile(inputs(None), &view, None, &|| false, |_, _, _, _, _| {
             assert!(cache.last.try_lock().is_ok());
-            (None, None)
+            Some((None, None))
         });
     }
 
@@ -543,12 +562,13 @@ mod tests {
                 inputs(None),
                 &view,
                 Some(&disk),
-                |view, vanilla, vanilla_pack_dir, encode| {
+                &|| false,
+                |view, vanilla, vanilla_pack_dir, encode, cancelled| {
                     compiles.set(compiles.get() + 1);
-                    super::compile_encoded(view, vanilla, vanilla_pack_dir, encode)
+                    super::compile_encoded(view, vanilla, vanilla_pack_dir, encode, cancelled)
                 },
             );
-            let pack = pack.expect("the fixture defines an entity");
+            let pack = pack.flatten().expect("the fixture defines an entity");
             let reads = view.dependencies().unwrap().snapshot();
             // Catalog encoding excludes metadata about whether a carrier was decoded.
             (
@@ -606,8 +626,10 @@ mod tests {
             inputs(None),
             &resource_pack::LayeredPackView::tracked(stack.clone()),
             Some(&disk),
+            &|| false,
             super::compile_encoded,
         );
+        let compiled = compiled.flatten();
         assert!(compiled.is_some());
         assert_eq!(std::fs::read_dir(dir.path()).map_or(0, Iterator::count), 0);
         for write in std::mem::take(&mut *DEFERRED.lock().unwrap()) {
@@ -617,12 +639,52 @@ mod tests {
             inputs(None),
             &resource_pack::LayeredPackView::tracked(stack),
             Some(&disk),
-            |_, _, _, _| panic!("the deferred write stored the compile"),
+            &|| false,
+            |_, _, _, _, _| panic!("the deferred write stored the compile"),
         );
         assert_eq!(
-            relaunched.map(|pack| pack.assets.encode().unwrap()),
+            relaunched
+                .flatten()
+                .map(|pack| pack.assets.encode().unwrap()),
             compiled.map(|pack| pack.assets.encode().unwrap())
         );
+    }
+
+    // A cancelled join stops its entity compile at the next step and keeps nothing, so a later
+    // join compiles the stack afresh rather than reusing a partial result.
+    #[test]
+    fn a_cancelled_compile_stops_between_steps_and_keeps_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let disk = client_session::compile_cache::CompileCache::new(dir.path().into(), 1 << 30);
+        let stack = entity_stack();
+        let cache = super::EntityCache::default();
+        let checks = std::cell::Cell::new(0);
+        let stopped = cache.get_or_compile(
+            inputs(None),
+            &resource_pack::LayeredPackView::tracked(stack.clone()),
+            Some(&disk),
+            &|| {
+                checks.set(checks.get() + 1);
+                true
+            },
+            super::compile_encoded,
+        );
+        assert!(stopped.is_none());
+        assert_eq!(checks.get(), 1, "the compile stopped at its first check");
+        assert_eq!(std::fs::read_dir(dir.path()).map_or(0, Iterator::count), 0);
+        let compiles = std::cell::Cell::new(0);
+        let compiled = cache.get_or_compile(
+            inputs(None),
+            &resource_pack::LayeredPackView::tracked(stack),
+            Some(&disk),
+            &|| false,
+            |view, vanilla, vanilla_pack_dir, encode, cancelled| {
+                compiles.set(compiles.get() + 1);
+                super::compile_encoded(view, vanilla, vanilla_pack_dir, encode, cancelled)
+            },
+        );
+        assert!(compiled.flatten().is_some());
+        assert_eq!(compiles.get(), 1);
     }
 
     #[test]
