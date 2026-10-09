@@ -65,6 +65,7 @@ impl RuntimeAssets {
             animation_frames: decode_frames(sections[6])?,
             texture_pages: decode_pages(sections[8], &page_meta)?,
             overlay_texture_source_sizes: Box::new([]),
+            overlay_texture_source_grids: Box::new([]),
             biomes,
             provenance,
             missing: AtomicU64::new(0),

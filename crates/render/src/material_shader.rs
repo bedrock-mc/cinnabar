@@ -9,6 +9,9 @@ pub(crate) const CHUNK_SAMPLED_TEXTURE_BINDINGS: u32 =
 const TEXTURE_WIDTH_SHIFT: u32 = 11;
 const TEXTURE_HEIGHT_SHIFT: u32 = 21;
 const TEXTURE_DIMENSION_MASK: u32 = 1023;
+const TEXTURE_GRID_MARKER: u32 = 1 << 9;
+const TEXTURE_GRID_SHIFT: u32 = 4;
+const TEXTURE_SIZE_EXPONENT_MASK: u32 = 15;
 
 /// Encodes admitted image dimensions in GPU-only reference bits, preserving page and layer.
 pub(crate) fn gpu_texture_ref(
@@ -23,6 +26,21 @@ pub(crate) fn gpu_texture_ref(
             | (dimensions[0] << TEXTURE_WIDTH_SHIFT)
             | (dimensions[1] << TEXTURE_HEIGHT_SHIFT)
     }
+}
+
+/// Encodes the terrain entry's UV grid together with its source pixel dimensions.
+pub(crate) fn gpu_grid_texture_ref(
+    reference: assets::TextureRef,
+    dimensions: [u32; 2],
+    page_size: u32,
+    grid: u8,
+) -> u32 {
+    if grid == 0 {
+        return gpu_texture_ref(reference, dimensions, page_size);
+    }
+    let width =
+        TEXTURE_GRID_MARKER | (u32::from(grid) << TEXTURE_GRID_SHIFT) | dimensions[0].ilog2();
+    reference.raw() | (width << TEXTURE_WIDTH_SHIFT) | (dimensions[1] << TEXTURE_HEIGHT_SHIFT)
 }
 
 pub(crate) fn chunk_atlas_views_fit(limits: &wgpu::Limits) -> bool {
@@ -48,6 +66,10 @@ pub(crate) fn native_leaf_sampler_descriptor() -> wgpu::SamplerDescriptor<'stati
 
 pub(crate) fn source(source: &str) -> String {
     source
+        .replace("GPU_TEXTURE_GRID_MARKER", &format!("{TEXTURE_GRID_MARKER}u"))
+        .replace("GPU_TEXTURE_GRID_SHIFT", &format!("{TEXTURE_GRID_SHIFT}u"))
+        .replace("GPU_TEXTURE_SIZE_EXPONENT_MASK", &format!("{TEXTURE_SIZE_EXPONENT_MASK}u"))
+        .replace("TERRAIN_QUAD_SHIFT_MASK", &format!("{}u", assets::TERRAIN_QUAD_SHIFT_MASK))
         .replace("GPU_TEXTURE_WIDTH_SHIFT", &format!("{TEXTURE_WIDTH_SHIFT}u"))
         .replace("GPU_TEXTURE_HEIGHT_SHIFT", &format!("{TEXTURE_HEIGHT_SHIFT}u"))
         .replace("GPU_TEXTURE_DIMENSION_MASK", &format!("{TEXTURE_DIMENSION_MASK}u"))

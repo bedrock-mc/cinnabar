@@ -270,9 +270,9 @@ pub use sound_bank::{
 pub use sound_events::{FloatRange, RouteLookup, SoundEventTables, SoundRoute};
 pub use stair::StairDirection;
 pub use texture::{
-    MAX_TILE_SIZE, MIP_COUNT, TILE_SIZE, TextureArray, TextureMip, VANILLA_TERRAIN_MIP_COUNT,
-    build_legacy_terrain_mip_chain, build_texture_mip_chain, downsample_linear_premultiplied,
-    legacy_terrain_mip, rebuild_legacy_terrain_mips,
+    MAX_TILE_SIZE, MIP_COUNT, TERRAIN_QUAD_SHIFT_MASK, TILE_SIZE, TextureArray, TextureMip,
+    VANILLA_TERRAIN_MIP_COUNT, build_legacy_terrain_mip_chain, build_texture_mip_chain,
+    downsample_linear_premultiplied, legacy_terrain_mip, rebuild_legacy_terrain_mips,
 };
 pub use ui::{
     MAX_UI_ATLAS_PAGES, MAX_UI_ATLAS_SIDE, MAX_UI_CARRIER_BYTES, MAX_UI_FILE_BYTES, MAX_UI_FILES,

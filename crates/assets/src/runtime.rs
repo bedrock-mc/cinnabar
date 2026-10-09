@@ -133,6 +133,7 @@ pub struct RuntimeAssets {
     animation_frames: Box<[TextureRef]>,
     texture_pages: Box<[TexturePage]>,
     overlay_texture_source_sizes: Box<[[u16; 2]]>,
+    overlay_texture_source_grids: Box<[u8]>,
     biomes: CompiledBiomeAssets,
     provenance: BlobProvenance,
     missing: AtomicU64,
@@ -180,6 +181,7 @@ impl RuntimeAssets {
             texture_pages: vec![TexturePage::new(TextureArray { layers: 1, mips })]
                 .into_boxed_slice(),
             overlay_texture_source_sizes: Box::new([]),
+            overlay_texture_source_grids: Box::new([]),
             biomes: CompiledBiomeAssets::diagnostic(),
             provenance: BlobProvenance::ZEROED,
             missing: AtomicU64::new(0),
@@ -222,7 +224,7 @@ impl RuntimeAssets {
                 .all(|(a, b)| a.flags == b.flags)
     }
 
-    /// Admitted source pixels per layer, independently of the physical texture-array size.
+    /// Exposed source rectangle pixels, independently of the physical texture-array size.
     #[must_use]
     pub fn texture_source_size(&self, reference: TextureRef) -> [u32; 2] {
         if reference.page() == 1
@@ -238,6 +240,19 @@ impl RuntimeAssets {
             .and_then(|page| page.texture.mips.first())
             .map_or(crate::TILE_SIZE, |mip| mip.size);
         [size; 2]
+    }
+
+    /// Terrain UV-grid exponent for a session layer; carrier layers use their full rectangle.
+    #[must_use]
+    pub fn texture_source_grid(&self, reference: TextureRef) -> u8 {
+        if reference.page() == 1 {
+            self.overlay_texture_source_grids
+                .get(reference.layer() as usize)
+                .copied()
+                .unwrap_or(0)
+        } else {
+            0
+        }
     }
 
     /// Returns terrain mips in admitted source pixels, rebuilding legacy carrier art as needed.

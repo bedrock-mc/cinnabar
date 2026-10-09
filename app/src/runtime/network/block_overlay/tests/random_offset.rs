@@ -304,3 +304,99 @@ fn terrain_override_static_vertical_strip_admits_its_first_square() {
             .all(|pixel| pixel == [255, 0, 0, 255])
     );
 }
+
+#[test]
+fn random_offset_versioned_cubes_retain_bottom_texture_rotation() {
+    let blocks = CustomBlocks {
+        blocks: [
+            "minecraft:geometry.full_block",
+            "minecraft:geometry.full_block_v1",
+        ]
+        .into_iter()
+        .enumerate()
+        .map(|(i, geometry)| {
+            block(
+                &format!("test:offset_cube_{i}"),
+                1,
+                CustomBlockVisuals {
+                    base: CustomVisualComponents {
+                        geometry: Some(geometry.into()),
+                        random_offset: Some(Default::default()),
+                        materials: materials("lucky"),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+            )
+        })
+        .collect(),
+        ..Default::default()
+    };
+    let compiled = compile_block_overlay(&view(), &blocks, false, None).unwrap();
+    let down = |visual: &assets::BlockVisual| {
+        let part = compiled.overlay.model_templates[visual.model_template as usize];
+        compiled.overlay.model_quads[part.quad_start as usize..][..part.quad_count as usize]
+            .iter()
+            .find(|quad| {
+                quad.flags & assets::MODEL_QUAD_FLAG_FACE_MASK
+                    == assets::BlockFace::Down.model_quad_face_id()
+            })
+            .unwrap()
+            .uvs
+    };
+    let plain = down(&compiled.overlay.visuals[0]);
+    let versioned = down(&compiled.overlay.visuals[1]);
+    assert_eq!(
+        versioned,
+        std::array::from_fn(|corner| plain[(corner + 2) % 4]),
+        "versioned cube bottom keeps its half-turn when displaced model geometry is admitted"
+    );
+}
+
+#[test]
+fn terrain_override_quad_admits_the_declared_uv_pixel_rectangle() {
+    let view = view_with_catalog(
+        GEOMETRY.as_bytes(),
+        r#"{"texture_data": {
+        "lucky": {"quad": 1, "textures": "textures/blocks/lucky"},
+        "gen": {"textures": "textures/blocks/gen"}}}"#,
+    );
+    let compiled = compile_block_overlay(
+        &view,
+        &CustomBlocks {
+            blocks: Arc::from([block(
+                "test:grid",
+                1,
+                CustomBlockVisuals {
+                    base: CustomVisualComponents {
+                        materials: materials("lucky"),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+            )]),
+            ..Default::default()
+        },
+        false,
+        None,
+    )
+    .unwrap();
+    assert!(
+        compiled.overlay.texture_source_sizes.contains(&[8, 8]),
+        "a quad entry exposes half the source width and height without changing its pixels"
+    );
+}
+
+#[test]
+fn terrain_override_subtile_images_use_the_minimum_atlas_pixel_size() {
+    let overlay = overlay_images([super::super::DecodedTexture {
+        width: 8,
+        height: 8,
+        rgba8: vec![255; 8 * 8 * 4].into(),
+    }]);
+    assert_eq!(
+        overlay.texture_source_sizes,
+        vec![[16, 16]],
+        "a smaller raster expands before atlas UV pixel dimensions are admitted"
+    );
+}

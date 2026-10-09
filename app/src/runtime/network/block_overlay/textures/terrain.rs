@@ -2,12 +2,28 @@
 
 use super::{DecodedTexture, resample_square};
 
-/// Admits the first square of a vertical strip; horizontal rectangles retain their width.
+/// Admits the first square of a vertical strip and the minimum atlas pixel dimensions.
 pub(in super::super) fn admit_static_rectangle(texture: &mut DecodedTexture) {
     if texture.height > texture.width {
         texture.height = texture.width;
         let mut pixels = std::mem::take(&mut texture.rgba8).into_vec();
         pixels.truncate((texture.width * texture.height * 4) as usize);
+        texture.rgba8 = pixels.into_boxed_slice();
+    }
+    let width = texture.width.max(assets::TILE_SIZE);
+    let height = texture.height.max(assets::TILE_SIZE);
+    if [width, height] != [texture.width, texture.height] {
+        let mut pixels = Vec::with_capacity((width * height * 4) as usize);
+        for y in 0..height {
+            for x in 0..width {
+                let source_x = x * texture.width / width;
+                let source_y = y * texture.height / height;
+                let offset = ((source_y * texture.width + source_x) * 4) as usize;
+                pixels.extend_from_slice(&texture.rgba8[offset..offset + 4]);
+            }
+        }
+        texture.width = width;
+        texture.height = height;
         texture.rgba8 = pixels.into_boxed_slice();
     }
 }

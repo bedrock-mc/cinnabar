@@ -26,6 +26,7 @@ pub(super) struct Flipbook {
 pub(super) struct TextureCatalog<'a> {
     view: &'a LayeredPackView,
     terrain: HashMap<String, String>,
+    grids: HashMap<String, u8>,
     tints: HashMap<String, [u8; 3]>,
     server_keys: HashSet<String>,
     flipbooks: HashMap<String, Flipbook>,
@@ -82,6 +83,7 @@ impl<'a> TextureCatalog<'a> {
         Self {
             view,
             terrain,
+            grids: client_session::pack_textures::terrain_texture_grids(view),
             tints: tint::catalog_tints(view, base),
             server_keys,
             flipbooks,
@@ -95,6 +97,11 @@ impl<'a> TextureCatalog<'a> {
 
     pub(super) fn flipbook(&self, key: &str) -> Option<&Flipbook> {
         self.flipbooks.get(key)
+    }
+
+    /// Returns the winning terrain entry's normalized UV-grid exponent.
+    pub(super) fn grid(&self, key: &str) -> u8 {
+        self.grids.get(key).copied().unwrap_or(0)
     }
 
     /// Decodes the image a terrain key names.

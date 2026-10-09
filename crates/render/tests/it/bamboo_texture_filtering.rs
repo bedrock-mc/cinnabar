@@ -84,17 +84,30 @@ fn bamboo_tile_edges_and_distant_mips_preserve_the_admitted_rectangle() {
     let source = format!(
         "{}\n{}",
         shader_source::standalone(include_str!("../../src/model.wgsl"), &[]),
-        FIXTURE.replace(
-            "SMALL_TEXTURE_REFERENCE",
-            &format!(
-                "{}u",
-                material_shader::gpu_texture_ref(
-                    assets::TextureRef::new(1, 0).unwrap(),
-                    [8; 2],
-                    16
+        FIXTURE
+            .replace(
+                "SMALL_TEXTURE_REFERENCE",
+                &format!(
+                    "{}u",
+                    material_shader::gpu_texture_ref(
+                        assets::TextureRef::new(1, 0).unwrap(),
+                        [8; 2],
+                        16
+                    )
                 )
             )
-        )
+            .replace(
+                "GRID_TEXTURE_REFERENCE",
+                &format!(
+                    "{}u",
+                    material_shader::gpu_grid_texture_ref(
+                        assets::TextureRef::new(1, 0).unwrap(),
+                        [16; 2],
+                        16,
+                        1
+                    )
+                )
+            )
     );
     let pixels = gpu.render(
         &source,
@@ -124,11 +137,11 @@ fn bamboo_tile_edges_and_distant_mips_preserve_the_admitted_rectangle() {
             write_depth: true,
         }],
     );
-    for (column, expected) in [32_u8, 224, 128, 112, 224, 32, 32, 224, 96]
+    for (column, expected) in [32_u8, 224, 128, 112, 224, 32, 32, 224, 96, 32, 96]
         .into_iter()
         .enumerate()
     {
-        let offset = (128 * 256 + column * 28 + 14) * 4;
+        let offset = (128 * 256 + column * 23 + 11) * 4;
         assert!(
             pixels[offset].abs_diff(expected) <= 1,
             "case {column}: sampled {}, expected {expected}",
@@ -144,12 +157,81 @@ const FIXTURE: &str = r#"
     return vec4(points[index], 0.5, 1.0);
 }
 @fragment fn edge_fragment(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
-    let index = min(u32(position.x) / 28u, 8u);
+    let index = min(u32(position.x) / 23u, 10u);
     var vertex: VertexOutput;
     vertex.visible = MODEL_VISIBLE | select(MODEL_BOUNDED_TILE,0u,index == 4u || index == 5u);
-    vertex.uv = vec2(array(-0.001,1.0,0.5,0.5,-0.001,1.0,0.03125,13.0/16.0,0.5)[index],
+    vertex.uv = vec2(array(-0.001,1.0,0.5,0.5,-0.001,1.0,0.03125,13.0/16.0,0.5,0.0625,0.5)[index],
         select(0.25,0.53125,index == 6u));
-    let gradient = array(0.0,0.0,8.0,exp2(2.5)/16.0,0.0,0.0,0.0,0.0,0.5)[index];
-    return sample_model_ref(vertex,select(0u,SMALL_TEXTURE_REFERENCE,index == 8u),vec2(gradient,0.0),vec2(0.0,gradient));
+    let gradient = array(0.0,0.0,8.0,exp2(2.5)/16.0,0.0,0.0,0.0,0.0,0.5,0.0,0.5)[index];
+    let reference = select(select(0u,SMALL_TEXTURE_REFERENCE,index == 8u),GRID_TEXTURE_REFERENCE,index >= 9u);
+    return sample_model_ref(vertex,reference,vec2(gradient,0.0),vec2(0.0,gradient));
+}
+"#;
+
+#[test]
+fn gridded_cube_textures_repeat_per_block_with_native_mip_scale() {
+    let Some(gpu) = Gpu::for_fixture("gridded terrain repetition") else {
+        return;
+    };
+    let view = atlas(&gpu);
+    let sampler = gpu.device.create_sampler(&wgpu::SamplerDescriptor {
+        address_mode_u: wgpu::AddressMode::Repeat,
+        address_mode_v: wgpu::AddressMode::Repeat,
+        ..material_shader::native_leaf_sampler_descriptor()
+    });
+    let reference = material_shader::gpu_grid_texture_ref(
+        assets::TextureRef::new(1, 0).unwrap(),
+        [16; 2],
+        16,
+        1,
+    );
+    let source = format!(
+        "{}\n{}",
+        shader_source::standalone(include_str!("../../src/chunk.wgsl"), &[]),
+        CUBE_GRID_FIXTURE.replace("GRID_TEXTURE_REFERENCE", &format!("{reference}u"))
+    );
+    let pixels = gpu.render(
+        &source,
+        "grid_vertex",
+        &[Draw {
+            fragment: "grid_fragment",
+            vertices: 0..3,
+            bindings: &[
+                wgpu::BindGroupEntry {
+                    binding: 6,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: material_shader::NATIVE_LEAF_TEXTURE_BINDINGS[0],
+                    resource: wgpu::BindingResource::TextureView(&view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: material_shader::NATIVE_LEAF_TEXTURE_BINDINGS[1],
+                    resource: wgpu::BindingResource::TextureView(&view),
+                },
+            ],
+            blend: None,
+            write_depth: true,
+        }],
+    );
+    for (x, expected) in [(64, 32u8), (192, 96)] {
+        let sampled = pixels[(128 * 256 + x) * 4];
+        assert!(
+            sampled.abs_diff(expected) <= 1,
+            "gridded cube pixel {sampled}, expected {expected}"
+        );
+    }
+}
+
+const CUBE_GRID_FIXTURE: &str = r#"
+@vertex fn grid_vertex(@builtin(vertex_index) index: u32) -> @builtin(position) vec4<f32> {
+    let points = array(vec2(-1.0,-1.0), vec2(3.0,-1.0), vec2(-1.0,3.0));
+    return vec4(points[index], 0.5, 1.0);
+}
+@fragment fn grid_fragment(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
+    let distant = position.x >= 128.0;
+    let uv = vec2(select(1.0625,0.5,distant),0.25);
+    let gradient = select(0.0,0.5,distant);
+    return sample_texture_ref(GRID_TEXTURE_REFERENCE,uv,vec2(gradient,0.0),vec2(0.0,gradient));
 }
 "#;

@@ -35,7 +35,7 @@ use self::{
 
 const FULL_BLOCK: &str = "minecraft:geometry.full_block";
 const FULL_BLOCK_V1: &str = "minecraft:geometry.full_block_v1";
-const MIN_TILE: u32 = 16;
+const MIN_TILE: u32 = assets::TILE_SIZE;
 const MAX_TILE: u32 = 128;
 const MAX_OVERLAY_LAYERS: usize = 2048;
 const MAX_OVERLAY_TEXTURE_BYTES: usize = 64 * 1024 * 1024;
@@ -155,6 +155,7 @@ pub(super) fn compile_block_overlay(
 enum Source {
     Diagnostic,
     Image(DecodedTexture),
+    GridImage(DecodedTexture, u8),
 }
 
 #[derive(Clone)]
@@ -305,21 +306,17 @@ impl Builder<'_> {
             return invisible_visual();
         }
         for cube in shown {
-            for (face_quad, instance) in cube.quads() {
-                let uv_flags = if components.geometry.as_deref() == Some(FULL_BLOCK_V1)
+            for (mut face_quad, instance) in cube.quads() {
+                if components.geometry.as_deref() == Some(FULL_BLOCK_V1)
                     && face_quad.face == assets::BlockFace::Down as usize
                 {
-                    render::MATERIAL_UV_ROTATE_180
-                } else {
-                    0
-                };
-                let (material, _, two_sided) = self.face_material(
-                    components,
-                    FACE_NAMES[face_quad.face],
-                    instance,
-                    false,
-                    uv_flags,
-                );
+                    // Model surfaces carry their final UVs, including the versioned cube bottom.
+                    face_quad.uvs = face_quad.uvs.map(|uv| {
+                        std::array::from_fn(|axis| geometry.texture_size[axis] - uv[axis])
+                    });
+                }
+                let (material, _, two_sided) =
+                    self.face_material(components, FACE_NAMES[face_quad.face], instance, false, 0);
                 if material == DIAGNOSTIC_MATERIAL {
                     self.gaps.missing_textures += 1;
                     return diagnostic_visual();
@@ -458,6 +455,7 @@ impl Builder<'_> {
             return None;
         }
         let mut texture = self.catalog.decode(key)?;
+        let grid = self.catalog.grid(key);
         // Bound frame count before cutting copies, and shrink each to MAX_TILE.
         let frames = match self.catalog.flipbook(key) {
             Some(flipbook) => flipbook_frames(&texture, flipbook, available.min(256), MAX_TILE),
@@ -467,6 +465,12 @@ impl Builder<'_> {
             }
         };
         drop(texture);
+        if frames
+            .iter()
+            .any(|frame| frame.width >> grid == 0 || frame.height >> grid == 0)
+        {
+            return None;
+        }
         let added_bytes: usize = frames.iter().map(|frame| frame.rgba8.len()).sum();
         if frames.is_empty() || self.source_bytes + added_bytes > MAX_OVERLAY_SOURCE_BYTES {
             return None;
@@ -474,7 +478,13 @@ impl Builder<'_> {
         self.source_bytes += added_bytes;
         let first = self.sources.len() as u32;
         let frame_count = frames.len() as u32;
-        self.sources.extend(frames.into_iter().map(Source::Image));
+        self.sources.extend(frames.into_iter().map(|frame| {
+            if grid == 0 {
+                Source::Image(frame)
+            } else {
+                Source::GridImage(frame, grid)
+            }
+        }));
         let animation = match self.catalog.flipbook(key) {
             Some(flipbook) if frame_count > 1 => {
                 let frame_start = self.overlay.animation_frames.len() as u32;
@@ -504,7 +514,7 @@ impl Builder<'_> {
 
     fn finish(mut self) -> Option<CompiledBlockOverlay> {
         for source in &mut self.sources {
-            if let Source::Image(texture) = source {
+            if let Source::Image(texture) | Source::GridImage(texture, _) = source {
                 admit_static_rectangle(texture);
             }
         }
@@ -512,7 +522,9 @@ impl Builder<'_> {
             .sources
             .iter()
             .filter_map(|source| match source {
-                Source::Image(texture) => Some(texture.width.max(texture.height)),
+                Source::Image(texture) | Source::GridImage(texture, _) => {
+                    Some(texture.width.max(texture.height))
+                }
                 Source::Diagnostic => None,
             })
             .max()
@@ -530,9 +542,21 @@ impl Builder<'_> {
                     [tile as u16; 2],
                     assets::build_legacy_terrain_mip_chain(&diagnostic_pixels(tile), tile).ok()?,
                 ),
-                Source::Image(texture) => source_mip_chain(texture, tile)?,
+                Source::Image(texture) | Source::GridImage(texture, _) => {
+                    source_mip_chain(texture, tile)?
+                }
             };
+            let grid = if let Source::GridImage(_, grid) = source {
+                *grid
+            } else {
+                0
+            };
+            let dimensions = dimensions.map(|size| size >> grid);
+            if dimensions.contains(&0) {
+                return None;
+            }
             self.overlay.texture_source_sizes.push(dimensions);
+            self.overlay.texture_source_grids.push(grid);
             mips.resize(chain.len(), Vec::new());
             for (level, mip) in chain.iter().enumerate() {
                 mips[level].extend_from_slice(&mip.rgba8);

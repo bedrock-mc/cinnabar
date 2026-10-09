@@ -39,6 +39,8 @@ pub struct BlockOverlay {
     /// Source pixel dimensions per layer, with mips built before array expansion.
     /// Empty means the physical page size and legacy terrain mips are rebuilt at upload.
     pub texture_source_sizes: Vec<[u16; 2]>,
+    /// Per-layer terrain UV-grid exponents, parallel to source pixel dimensions.
+    pub texture_source_grids: Vec<u8>,
     /// Canonical network hashes parallel to `visuals`; incomplete state identities are absent.
     pub hashes: Vec<Option<u32>>,
     pub material_overrides: Vec<MaterialOverride>,
@@ -91,6 +93,30 @@ impl RuntimeAssets {
                     .any(|&size| !size.is_power_of_two() || u32::from(size) > base)
             {
                 return Err(invalid("overlay source pixel dimensions are invalid"));
+            }
+        }
+        if !overlay.texture_source_grids.is_empty() {
+            let base = overlay
+                .texture
+                .as_ref()
+                .and_then(|texture| texture.mips.first())
+                .map_or(0, |mip| mip.size);
+            if overlay.texture_source_grids.len() != layers as usize
+                || overlay.texture_source_sizes.len() != layers as usize
+                || overlay
+                    .texture_source_grids
+                    .iter()
+                    .zip(&overlay.texture_source_sizes)
+                    .any(|(&grid, size)| {
+                        u32::from(grid) > crate::TERRAIN_QUAD_SHIFT_MASK
+                            || size.iter().any(|&axis| {
+                                u32::from(axis)
+                                    .checked_mul(1u32 << grid)
+                                    .is_none_or(|full| full > base)
+                            })
+                    })
+            {
+                return Err(invalid("overlay source UV grids are invalid"));
             }
         }
         let material_base = offset(self.materials.len())?;
@@ -312,6 +338,7 @@ impl RuntimeAssets {
             animation_frames: animation_frames.into_boxed_slice(),
             texture_pages: texture_pages.into_boxed_slice(),
             overlay_texture_source_sizes: overlay.texture_source_sizes.clone().into_boxed_slice(),
+            overlay_texture_source_grids: overlay.texture_source_grids.clone().into_boxed_slice(),
             biomes: overlay
                 .biomes
                 .clone()
@@ -523,6 +550,18 @@ mod tests {
             [16, 8]
         );
         assert_eq!(session.texture_source_size(TextureRef::DIAGNOSTIC), [16; 2]);
+        overlay.texture_source_grids = vec![1];
+        let gridded = base.with_block_overlay(1, &overlay).unwrap();
+        assert_eq!(
+            gridded.texture_source_grid(TextureRef::new(1, 0).unwrap()),
+            1
+        );
+        assert_eq!(gridded.texture_source_grid(TextureRef::DIAGNOSTIC), 0);
+        for grids in [vec![1, 1], vec![3], vec![31], vec![32]] {
+            overlay.texture_source_grids = grids;
+            assert!(base.with_block_overlay(1, &overlay).is_err());
+        }
+        overlay.texture_source_grids.clear();
         for sizes in [
             vec![[0, 8]],
             vec![[128, 8]],

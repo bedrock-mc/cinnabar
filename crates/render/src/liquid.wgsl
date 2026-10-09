@@ -1,4 +1,4 @@
-#import cinnabar::material::{MaterialGpu, materials, positional_material, texture_gradient_scale}
+#import cinnabar::material::{MaterialGpu, materials, positional_material, texture_uv_scale, texture_gradient_scale}
 #import bevy_render::view::View
 #import cinnabar::biome_tint::blended_biome_tint
 #import cinnabar::lighting::{light_ao_factor, light_colour, face_shade, tint_to_gamma, tint_to_linear, terrain_light_levels, terrain_light_colour}
@@ -277,17 +277,17 @@ fn sample_texture_ref(texture_ref: u32, uv: vec2<f32>, dx: vec2<f32>, dy: vec2<f
 #ifdef ENHANCED
     if ((texture_ref >> 31u) == 0u) {
         let scale = texture_gradient_scale(texture_ref, textureDimensions(block_textures_page_0, 0));
-        return textureSampleGrad(block_textures_page_0, block_sampler, uv, layer, dx * scale, dy * scale);
+        return textureSampleGrad(block_textures_page_0, block_sampler, uv * texture_uv_scale(texture_ref), layer, dx * scale, dy * scale);
     }
     let scale = texture_gradient_scale(texture_ref, textureDimensions(block_textures_page_1, 0));
-    return textureSampleGrad(block_textures_page_1, block_sampler, uv, layer, dx * scale, dy * scale);
+    return textureSampleGrad(block_textures_page_1, block_sampler, uv * texture_uv_scale(texture_ref), layer, dx * scale, dy * scale);
 #else
     if ((texture_ref >> 31u) == 0u) {
         let scale = texture_gradient_scale(texture_ref, textureDimensions(terrain_gamma_page_0, 0));
-        return textureSampleGrad(terrain_gamma_page_0, block_sampler, uv, layer, dx * scale, dy * scale);
+        return textureSampleGrad(terrain_gamma_page_0, block_sampler, uv * texture_uv_scale(texture_ref), layer, dx * scale, dy * scale);
     }
     let scale = texture_gradient_scale(texture_ref, textureDimensions(terrain_gamma_page_1, 0));
-    return textureSampleGrad(terrain_gamma_page_1, block_sampler, uv, layer, dx * scale, dy * scale);
+    return textureSampleGrad(terrain_gamma_page_1, block_sampler, uv * texture_uv_scale(texture_ref), layer, dx * scale, dy * scale);
 #endif
 }
 

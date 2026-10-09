@@ -847,9 +847,13 @@ fn gpu_texture_reference(assets: &assets::RuntimeAssets, reference: assets::Text
         .texture
         .mips[0]
         .size;
-    crate::material_shader::gpu_texture_ref(
+    let grid = assets.texture_source_grid(reference);
+    crate::material_shader::gpu_grid_texture_ref(
         reference,
-        assets.texture_source_size(reference),
+        assets
+            .texture_source_size(reference)
+            .map(|axis| axis << grid),
         page_size,
+        grid,
     )
 }
