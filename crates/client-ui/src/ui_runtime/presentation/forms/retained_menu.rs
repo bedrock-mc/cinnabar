@@ -1,6 +1,6 @@
 //! Retains the complete launcher output after its input and finite motion settle.
 use super::super::*;
-use crate::menu::{MenuScreen, auth::AuthState};
+use crate::menu::MenuScreen;
 use std::{collections::HashMap, sync::Arc};
 
 pub(in crate::ui_runtime::presentation) struct RetainedMenu {
