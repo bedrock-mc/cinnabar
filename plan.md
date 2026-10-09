@@ -218,7 +218,7 @@
   Named and inline splines have independent progress/rotation tracks. Aim selection
   uses retained physics-tick poses, item categories, priorities and visibility,
   with separate interaction direction and action-triggered rotation.
-- Incomplete parity: animated attachment anchors, additional actor hitboxes,
+- Incomplete parity: animated attachment anchors, scaled or body-yaw actor hitboxes,
   complete native block tags, touch pick-range remapping, equal-score actor order,
   historical remote geometry during catch-up, and fire-resistance lava fog remain
   owner limitations. Legacy education photography output is unsupported. Packaged
@@ -2074,6 +2074,15 @@ Provisional, incomplete: zero scale currently produces a point box before pick-r
 inflation; the native positive minimum dimension remains unverified. Definition-specific
 collision defaults, authored picking-box collections and invalid-dimension behavior
 remain incomplete.
+
+2026-10-09 server hitboxes: the `HITBOX` actor data compound (id 118) replaces the
+collision box for crosshair, use and melee picks. Each `Hitboxes` entry is an
+axis-aligned box of its Min/Max extents centred on its pivot, which turns with the
+actor's yaw; an empty or unreadable compound restores the collision box, and
+malformed entries are skipped. Aim assist targets the box enclosing all hitboxes.
+Provisional, incomplete: the yaw source (movement yaw rather than body yaw), the
+absence of server scale on hitboxes, and the entry cap need a version-matched witness;
+collision, placement obstruction and F3 still use the collision box.
 
 2026-10-05 server HUD composition: partial server edits overlay the built-in HUD
 without withdrawing its whole namespace. Regressions reproduce top-left chat and

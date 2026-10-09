@@ -10,7 +10,7 @@ fn pick_ahead(world: Res<ClientWorld>, mut picked: ResMut<Picked>) {
     let authority = world.stream.as_ref().unwrap().authority();
     picked.0 = gameplay::melee::pick_actor_by(
         authority.remote_actors(),
-        |actor| authority.pick_bounding_box(actor),
+        |actor| authority.pick_hit_boxes(actor),
         None,
         [2.0, 65.0, 1.5],
         [0.0, 0.0, 1.0],
@@ -184,7 +184,7 @@ fn pick_prediction_reuses_its_buffer_across_frames() {
         stream.predict_remote_actor_motion(ticks);
         let authority = stream.authority();
         for actor in authority.remote_actors() {
-            std::hint::black_box(authority.pick_bounding_box(actor));
+            std::hint::black_box(authority.pick_hit_boxes(actor).last());
         }
     }
     assert_eq!(crate::tests::alloc_count::thread_allocations() - before, 0);

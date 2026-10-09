@@ -498,6 +498,7 @@ mod tests {
             float_properties: HashMap::new(),
             status: Default::default(),
             dragon_animation: None,
+            hitboxes: None,
         }
     }
 

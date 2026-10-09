@@ -110,6 +110,8 @@ pub struct ActorSnapshot {
     pub float_properties: HashMap<u32, f32>,
     pub status: ActorStatus,
     pub(crate) dragon_animation: Option<Box<dragon_animation::State>>,
+    /// Decoded [`HITBOX_METADATA_KEY`] boxes; `None` picks against the collision box.
+    pub(crate) hitboxes: Option<std::sync::Arc<[hitbox::HitBox]>>,
 }
 
 impl ActorSnapshot {
@@ -210,6 +212,7 @@ impl ActorSnapshot {
                 ..ActorStatus::default()
             },
             dragon_animation: None,
+            hitboxes: None,
         };
         snapshot.apply_metadata(&spawn.metadata);
         snapshot.apply_attributes(&spawn.attributes);
@@ -265,6 +268,7 @@ impl ActorSnapshot {
                 ..ActorStatus::default()
             },
             dragon_animation: None,
+            hitboxes: None,
         };
         snapshot.apply_local_flags(feed);
         snapshot
@@ -359,6 +363,22 @@ impl ActorSnapshot {
             [x - half_width, y, z - half_width],
             [x + half_width, y + height, z + half_width],
         ))
+    }
+
+    /// Interaction boxes at the actor's current pose.
+    #[must_use]
+    pub fn hit_boxes(&self) -> ActorHitBoxes<'_> {
+        self.hit_boxes_at(self.position, self.yaw)
+    }
+
+    /// The server's custom hitboxes with the feet at `position` facing `yaw` degrees, each
+    /// centred on its yaw-rotated pivot; the collision box when none are set.
+    #[must_use]
+    pub fn hit_boxes_at(&self, position: [f32; 3], yaw: f32) -> ActorHitBoxes<'_> {
+        match self.hitboxes.as_deref() {
+            Some(custom) => ActorHitBoxes::new(custom, position, yaw, None),
+            None => ActorHitBoxes::new(&[], position, yaw, self.bounding_box_at(position)),
+        }
     }
 
     /// Samples 0.66 of the body height above interpolated feet.
@@ -481,6 +501,12 @@ impl ActorSnapshot {
             }
             if metadata.key == FUSE_TIME_METADATA_KEY {
                 self.status.fuse_age_ticks = self.status.age_ticks;
+            }
+            if metadata.key == HITBOX_METADATA_KEY {
+                self.hitboxes = match &metadata.value {
+                    ActorMetadataValue::Compound(bytes) => hitbox::parse(bytes),
+                    _ => None,
+                };
             }
             self.metadata.insert(metadata.key, metadata.value.clone());
         }
@@ -747,6 +773,7 @@ mod dragon_particles;
 mod dropped;
 mod entities;
 mod fire;
+mod hitbox;
 mod hurt;
 mod local_health;
 pub use local_health::DEFAULT_PLAYER_HEALTH;
@@ -767,6 +794,7 @@ pub use entities::{
     BlockEntityCandidate, BlockEntityKind, BlockEntityView, RopeKind, RopeView, tnt_presentation,
 };
 pub use fire::FIRE_FADE_TICKS;
+pub use hitbox::{ActorHitBoxes, HITBOX_METADATA_KEY};
 pub use hurt::{
     ActorDamageState, ActorPickup, ActorStatus, ActorStatusNotice, DEATH_DURATION_TICKS,
     HURT_DURATION_TICKS, HURT_OVERLAY_ALPHA, MAX_STATUS_NOTICES, PICKUP_DURATION_TICKS,
@@ -838,6 +866,9 @@ mod scale_tests;
 
 #[cfg(test)]
 mod bounds_tests;
+
+#[cfg(test)]
+mod hitbox_tests;
 
 #[cfg(test)]
 mod movement_flags_tests;

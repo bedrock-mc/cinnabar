@@ -213,11 +213,16 @@ impl AimAssistFrame {
             let Some(priority) = priority else {
                 continue;
             };
-            let Some((minimum, maximum)) = world.pick_bounding_box(actor) else {
+            // Custom hitboxes aim at the box enclosing all of them.
+            let Some((minimum, maximum)) = world
+                .pick_hit_boxes(actor)
+                .map(|(min, max)| (Vec3::from_array(min), Vec3::from_array(max)))
+                .reduce(|(min, max), (other_min, other_max)| {
+                    (min.min(other_min), max.max(other_max))
+                })
+            else {
                 continue;
             };
-            let minimum = Vec3::from_array(minimum);
-            let maximum = Vec3::from_array(maximum);
             if !frustum.contains_box(minimum, maximum) {
                 continue;
             }
