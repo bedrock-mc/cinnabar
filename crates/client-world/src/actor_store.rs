@@ -696,9 +696,9 @@ pub(crate) struct ActorStore {
     /// Whether the local player's own rig should render first-person; set by each pose feed.
     local_first_person: bool,
     local_view_dirty: bool,
-    /// Remote `(runtime id, position, yaw)` this frame's due ticks reach, sorted by id and read
-    /// by picks until the frame advances the live actors; reused across frames.
-    pick_poses: Vec<(u64, [f32; 3], f32)>,
+    /// Remote motion this frame's due ticks reach, sorted by runtime id and read by picks until
+    /// the frame advances the live actors; reused across frames.
+    pick_states: Vec<(u64, movement_interpolation::MotionState)>,
     picks_ahead: bool,
     local_view_bobbing: bool,
     local_flying: bool,

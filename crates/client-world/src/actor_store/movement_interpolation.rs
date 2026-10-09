@@ -92,8 +92,8 @@ impl ActorSnapshot {
 #[derive(Debug, Clone, Copy)]
 pub(super) struct MotionState {
     pub(super) pose: ActorPose,
-    received: ActorPose,
-    remaining: u32,
+    pub(super) received: ActorPose,
+    pub(super) remaining: u32,
     interpolation: MovementInterpolation,
     dying_dragon: bool,
 }

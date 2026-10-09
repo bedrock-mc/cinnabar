@@ -52,21 +52,22 @@ impl ActorStore {
             return;
         }
         let local = self.remote_state_excluded_runtime_id;
-        self.pick_poses.clear();
-        for (runtime_id, actor) in &self.actors {
-            if local == Some(*runtime_id) {
-                continue;
-            }
-            let mut state = actor.motion_state();
-            for _ in 0..ticks {
+        self.pick_states.clear();
+        self.pick_states.extend(
+            self.actors
+                .iter()
+                .filter(|(runtime_id, _)| local != Some(**runtime_id))
+                .map(|(runtime_id, actor)| (*runtime_id, actor.motion_state())),
+        );
+        self.pick_states
+            .sort_unstable_by_key(|(runtime_id, _)| *runtime_id);
+        // The live loop's per-tick order: every actor's motion, then seating.
+        for _ in 0..ticks {
+            for (_, state) in &mut self.pick_states {
                 state.tick();
             }
-            self.pick_poses
-                .push((*runtime_id, state.pose.position, state.pose.yaw));
+            self.seat_pick_riders();
         }
-        self.pick_poses
-            .sort_unstable_by_key(|(runtime_id, ..)| *runtime_id);
-        self.seat_pick_riders();
     }
 
     /// The predicted pose picks read this frame, or `None` when the live pose is current.
@@ -74,13 +75,18 @@ impl ActorStore {
         if !self.picks_ahead {
             return None;
         }
-        self.pick_poses
-            .binary_search_by_key(&runtime_id, |(id, ..)| *id)
+        self.pick_state(runtime_id)
+            .map(|state| (state.pose.position, state.pose.yaw))
+    }
+
+    pub(in crate::actor_store) fn pick_state(
+        &self,
+        runtime_id: u64,
+    ) -> Option<&movement_interpolation::MotionState> {
+        self.pick_states
+            .binary_search_by_key(&runtime_id, |(id, _)| *id)
             .ok()
-            .map(|index| {
-                let (_, position, yaw) = self.pick_poses[index];
-                (position, yaw)
-            })
+            .map(|index| &self.pick_states[index].1)
     }
 
     /// One tick of interpolated motion for every actor.
