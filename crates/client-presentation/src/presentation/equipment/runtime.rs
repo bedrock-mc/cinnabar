@@ -347,7 +347,7 @@ impl EquipmentRuntime {
         ] {
             let Some(item) = item else { continue };
             let before = layers.len();
-            // Models with view/use-dependent poses cannot use the literal third-person grip.
+            // Authored item poses use the owning actor and the same sampled body as equipment.
             let animated = animation
                 .filter(|_| {
                     if layer == LAYER_MAIN_HAND
@@ -360,13 +360,18 @@ impl EquipmentRuntime {
                         .is_some_and(|(catalog, _)| {
                             catalog.binding(&item.identifier).is_some_and(|binding| {
                                 matches!(
-                                    binding.category,
+                                    self.effective_category(&item.identifier, binding.category),
                                     EquipmentCategory::Held | EquipmentCategory::Shield
-                                ) && binding.third_person.literal().is_none()
+                                ) && (input.java.is_none()
+                                    || binding.third_person.literal().is_none())
                             })
                         })
                 })
                 .and_then(|animation| {
+                    let elapsed = animation
+                        .owner
+                        .is_using_item()
+                        .then_some(animation.rig.hand[1].use_ticks);
                     self.held_attachable(
                         body,
                         item,
@@ -375,8 +380,13 @@ impl EquipmentRuntime {
                         input.attachable_input(client_world::AttachableAnimationInput {
                             off_hand: layer == LAYER_OFF_HAND,
                             frame_alpha: animation.frame_alpha,
-                            use_elapsed_ticks: (animation.rig.hand[1].use_ticks > 0)
-                                .then_some(animation.rig.hand[1].use_ticks),
+                            use_elapsed_ticks: elapsed,
+                            delta_seconds: Some(animation.delta_seconds),
+                            animation_frame: if item.identifier.as_ref() == "minecraft:bow" {
+                                inventory::ranged_animation_frame(elapsed)
+                            } else {
+                                0
+                            },
                             max_use_ticks: input
                                 .main
                                 .as_ref()
@@ -747,6 +757,39 @@ impl PoseMemo {
         self.frame += 1;
         let oldest = self.frame.saturating_sub(POSE_MEMO_RETENTION_FRAMES);
         self.entries.retain(|_, entry| entry.1 >= oldest);
+    }
+
+    /// Samples placed channels without allocating when the published pose is unchanged.
+    pub(super) fn sample_pair(
+        &mut self,
+        body: &ActorRigSubmission,
+        layer: u8,
+        len: usize,
+        mut transform: impl FnMut(usize, usize) -> Option<RenderBoneTransform>,
+    ) -> Option<[RenderPose; 2]> {
+        let key = (body.input.identity.runtime_id, layer);
+        let old = self.entries.get(&key).map(|entry| entry.0.clone());
+        let mut sampled: [Option<RenderPose>; 2] = [None, None];
+        for endpoint in 0..2 {
+            let retained = sampled[0]
+                .iter()
+                .chain(old.iter().flatten())
+                .find(|pose| {
+                    pose.len() == len
+                        && (0..len).all(|index| transform(endpoint, index) == Some(pose[index]))
+                })
+                .cloned();
+            sampled[endpoint] = Some(match retained {
+                Some(pose) => pose,
+                None => (0..len)
+                    .map(|index| transform(endpoint, index))
+                    .collect::<Option<Vec<_>>>()?
+                    .into(),
+            });
+        }
+        let poses = sampled.map(Option::unwrap);
+        self.entries.insert(key, (poses.clone(), self.frame));
+        Some(poses)
     }
 
     /// Shared allocations holding `poses` (previous, current) for `body`'s `layer`.

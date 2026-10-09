@@ -306,6 +306,17 @@ impl<'a> ActorAnimationVariables<'a> {
         self.life_tick
     }
 
+    /// Borrows one inherited value without constructing another variable layout.
+    pub(super) fn value(self, name: &str) -> Option<&'a MolangValue> {
+        let symbols = self.assets?.molang_symbols();
+        let first = symbols.partition_point(|symbol| symbol.kind < MolangSymbolKind::Variable);
+        let end = symbols.partition_point(|symbol| symbol.kind <= MolangSymbolKind::Variable);
+        let slot = symbols[first..end]
+            .binary_search_by(|symbol| symbol.identifier.as_ref().cmp(name))
+            .ok()?;
+        self.variables?.values.get(slot)?.as_ref()
+    }
+
     /// The catalog that owns these retained rig script values.
     pub(super) fn asset_catalog(self) -> Option<&'a RuntimeEntityAssets> {
         self.assets
@@ -539,6 +550,14 @@ impl Evaluator<'_> {
             .checked_add(expression.op_count as usize)
             .ok_or(EvalError::Invalid)?;
         let ops = self.ops().get(first..end).ok_or(EvalError::Invalid)?;
+        if let Some(cacheable) = budget.static_draw.as_mut() {
+            *cacheable &= self.program.is_none()
+                && super::attachable::static_draw::expression_is_static(
+                    self.assets,
+                    expression_index,
+                    false,
+                );
+        }
         // Temporaries last for one evaluation.
         variables.clear_temporaries();
         stack.reserve(expression.max_stack as usize);

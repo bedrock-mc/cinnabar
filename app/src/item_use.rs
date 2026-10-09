@@ -25,10 +25,9 @@ use crate::{
 use client_ui::ui_runtime::UiRuntime;
 
 pub(crate) use gameplay::item_use::UseFrame;
-pub(crate) use gameplay::item_use::{
-    AirUse, Needs, classify, crossbow_animation_frame, ranged_animation_frame,
-};
+pub(crate) use gameplay::item_use::{AirUse, Needs, classify, crossbow_animation_frame};
 use gameplay::item_use::{QUICK_CHARGE_ENCHANTMENT_ID, admit_on_tick};
+use inventory::ranged_animation_frame;
 
 /// A successful extension request is valid only in its originating world scope.
 #[derive(Resource, Debug, Default)]

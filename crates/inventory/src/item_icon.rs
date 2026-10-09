@@ -1,5 +1,16 @@
 //! Item-state projection shared by gameplay and UI.
 
+/// The ranged-weapon icon follows the quadratic draw-power curve,
+/// independently of the attachable's charge pose.
+pub fn ranged_animation_frame(elapsed: Option<u32>) -> u32 {
+    let Some(elapsed) = elapsed else {
+        return 0;
+    };
+    let seconds = elapsed as f32 / 20.0;
+    let power = ((seconds * seconds + 2.0 * seconds) / 3.0).min(1.0);
+    (3.0 * power * 0.99) as u32 + 1
+}
+
 /// Vanilla crossbow animation frame, including loaded projectile art.
 pub fn crossbow_animation_frame(
     elapsed: Option<u32>,

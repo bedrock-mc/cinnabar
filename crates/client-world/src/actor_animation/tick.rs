@@ -398,7 +398,16 @@ pub(super) fn evaluate_state(
         clips: Vec::new(),
     });
     if let Some(script) = rig.pre_animation {
+        let static_draw = budget.static_draw.take().map(|cacheable| {
+            cacheable
+                && super::attachable::static_draw::expression_is_static(
+                    assets,
+                    script as usize,
+                    true,
+                )
+        });
         evaluator.run(script as usize, &mut variables, 0.0, budget)?;
+        budget.static_draw = static_draw;
     }
     if state.complete_spear_variables {
         engine

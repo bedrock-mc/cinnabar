@@ -6606,6 +6606,16 @@ Lunge moves the fixed client without movement input. The complete matched-versio
 native comparison remains incomplete. See
 [spear actions](docs/reference/spear-actions.md).
 
+## Third-person held attachables
+
+Held models evaluate authored scripts and texture meshes against the owner's
+posed bones, including aiming skeleton bows. Third-person bow draws supply the
+owner's use duration, draw frame, and render delta through release. Unchanged
+controller poses proven independent of timing reuse their evaluation; dynamic
+channels and persistent scripts continue running. Matched native motion captures
+and frame budgets remain incomplete; this does not close the complete held-item
+parity gate.
+
 ## Local placement prediction
 
 - Pillars, slab halves and matching doubles, trapdoors, hoppers, supported attachments,

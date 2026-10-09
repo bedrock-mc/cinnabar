@@ -450,6 +450,7 @@ fn evaluate_job(
         transitions_left: MAX_CONTROLLER_TRANSITIONS_PER_TICK,
         used: 0,
         stack: STACK.with_borrow_mut(std::mem::take),
+        static_draw: None,
     };
     render::cache_layer_skeletons(assets, state);
     if job.refresh_view {

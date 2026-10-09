@@ -1,3 +1,4 @@
+use inventory::ranged_animation_frame;
 use std::sync::Arc;
 
 use protocol::{BedrockSession, NetworkItemStack, VerifiedNetworkItemStack};

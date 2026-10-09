@@ -1,6 +1,9 @@
 #[path = "runtime/elytra_tests.rs"]
 mod elytra_tests;
 
+#[path = "runtime/held_animation_tests.rs"]
+mod held_animation_tests;
+
 use std::sync::Arc;
 
 use assets::IconSprite;

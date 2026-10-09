@@ -215,7 +215,7 @@ pub fn prepare_actor_render_frame(
     params: ActorFramePublication,
 ) {
     let ActorFramePublication {
-        time: _,
+        time,
         mut state,
         mut scene,
         mut prepared,
@@ -576,7 +576,11 @@ pub fn prepare_actor_render_frame(
             local_runtime_id,
             &input.local_equipment,
             &java_posed,
-            (step.partial_tick, glint_settings.as_deref()),
+            (
+                step.partial_tick,
+                time.delta_secs(),
+                glint_settings.as_deref(),
+            ),
         );
     }
     if let (Some(stream), Some(cape)) = (

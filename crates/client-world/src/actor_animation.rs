@@ -360,6 +360,8 @@ struct EvalBudget<'a> {
     used: usize,
     /// Operand stack lent to each expression run, so runs reuse one allocation.
     stack: Vec<evaluation::MolangValue>,
+    /// Tracks whether an attachable result reads only explicitly memoized inputs.
+    static_draw: Option<bool>,
 }
 
 impl EvalBudget<'_> {

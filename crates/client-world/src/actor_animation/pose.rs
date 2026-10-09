@@ -83,6 +83,11 @@ pub(super) fn sample_clips(
             .animation_clips()
             .get(weighted.clip)
             .ok_or(EvalError::Invalid)?;
+        if let Some(cacheable) = budget.static_draw.as_mut() {
+            *cacheable &= weighted.blend.is_none()
+                && clip.loop_mode != EntityAnimationLoop::Once
+                && clip.anim_time_update.is_none();
+        }
         let length = clip.length_seconds.get();
         // A clip's own clock starts when its controller state was entered.
         let clip_tick = (if weighted.clock == super::clock::Basis::Lifetime {
@@ -118,6 +123,9 @@ pub(super) fn sample_clips(
             }
         }
         for channel in channels {
+            if let Some(cacheable) = budget.static_draw.as_mut() {
+                *cacheable &= channel.keyframe_count == 1;
+            }
             budget.charge_work()?;
             let Some(index) = channel_bone(channel, bone_names) else {
                 continue;

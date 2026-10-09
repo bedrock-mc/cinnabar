@@ -125,6 +125,7 @@ impl ActorAnimationStore {
             transitions_left: 0,
             used: 0,
             stack: Vec::new(),
+            static_draw: None,
         };
         let mut variables = frame.variables.clone();
         if let Some(swing) = swing {

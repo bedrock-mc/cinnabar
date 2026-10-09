@@ -194,6 +194,7 @@ fn layers(
             owner,
             rig: &rig,
             frame_alpha: 1.0,
+            delta_seconds: client_world::ACTOR_TICK_DURATION.as_secs_f32(),
         }),
     )
 }

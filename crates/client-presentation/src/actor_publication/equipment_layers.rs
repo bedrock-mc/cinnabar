@@ -11,9 +11,9 @@ pub(super) fn attach(
     local_runtime_id: u64,
     input: &ActorEquipmentInput,
     java_posed: &[java::Posed],
-    frame: (f32, Option<&render::UiGlintSettings>),
+    frame: (f32, f32, Option<&render::UiGlintSettings>),
 ) {
-    let (partial_tick, glint_settings) = frame;
+    let (partial_tick, delta_seconds, glint_settings) = frame;
     crate::presentation::actors::attach_layers(batch, |body| {
         let runtime_id = body.input.identity.runtime_id;
         let mut input = if runtime_id == local_runtime_id {
@@ -40,6 +40,7 @@ pub(super) fn attach(
                     owner,
                     rig,
                     frame_alpha: partial_tick,
+                    delta_seconds,
                 }
             }),
         );
