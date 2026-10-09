@@ -566,10 +566,9 @@ pub(crate) fn drive_world_stream(
         Res<client_presentation::local_player_camera_receipt::CameraPublicationAttempt>,
     >,
     profiler: Option<Res<RuntimeStageProfiler>>,
-    (frame, mut block_use, time, simulation_time): (
+    (frame, mut block_use, simulation_time): (
         Res<bevy::diagnostic::FrameCount>,
         ResMut<crate::block_use::BlockUseRuntime>,
-        Res<Time<Real>>,
         Res<Time<Virtual>>,
     ),
 ) {
@@ -582,6 +581,7 @@ pub(crate) fn drive_world_stream(
         mut movement,
         mut ui_runtime,
         clock,
+        time,
         ..
     } = state;
     let active_session = client_world
