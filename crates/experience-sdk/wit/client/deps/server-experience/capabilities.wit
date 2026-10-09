@@ -1,4 +1,4 @@
-package cinnabar:server-experience@1.2.0;
+package cinnabar:server-experience@1.3.0;
 
 /// Host-owned JSON-UI widgets and the bundle's signed modal screens.
 interface ui {
@@ -45,6 +45,16 @@ interface ui {
     /// `text-changed`. The text holds no control characters other than line breaks.
     @since(version = 1.2.0)
     set-text: func(control: string, text: string) -> result<_, string>;
+
+    /// What a scroll view shows along its scrolling axis, in GUI units: how far its content is
+    /// scrolled (`offset`, from 0 to `content` - `viewport`), the length of its viewport, and the
+    /// length of its content.
+    @since(version = 1.3.0)
+    record scroll-range {
+        offset: f64,
+        viewport: f64,
+        content: f64,
+    }
 }
 
 /// Named actions, available only while the host grants focus.

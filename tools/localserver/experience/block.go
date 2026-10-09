@@ -18,7 +18,7 @@ import (
 // ALL_FACES in the runtime's load.rs names it.
 const allFaces = "*"
 
-// fullCube is the collision and selection box of every Experience block.
+// fullCube is the collision and selection box of an Experience block without boxes of its own.
 var fullCube = cube.Box(0, 0, 0, 1, 1, 1)
 
 // blockType is one registered Experience block, shared by every Block of the type.
@@ -28,21 +28,44 @@ type blockType struct {
 	// hash is the base hash from block.NextHash, taken at registration.
 	hash uint64
 	// textures holds the decoded texture of each texture key, and slots the texture key of each
-	// bound material slot.
+	// bound material slot of a block without a visual.
 	textures map[string]image.Image
 	slots    map[string]string
 	// breakInfo is built once, so that BreakInfo allocates nothing.
 	breakInfo block.BreakInfo
+	// axes are the block's states, its placement traits' first; radix is the factor of each in
+	// a state index, and combinations the number of state indices.
+	axes         []axis
+	radix        []uint32
+	combinations uint32
+	// placement lists the placement traits' states, which a player's placement sets; traits are
+	// the fork's traits for them.
+	placement []PlacementState
+	traits    []customblock.Trait
+	// declared holds the values of each state the block declares itself.
+	declared map[string][]any
+	// visual is the block's look when it declares one; nil draws its textures on the full cube.
+	visual *visualType
+	// network is set for a network member, whose callbacks have the network around it.
+	network bool
 }
 
-// Block is an Experience block, in a world or as an item. It holds nothing but its type: an
-// Experience keeps a block's data in the Store, so the data never reaches chunk NBT, and every
-// Block of a type is equal and hashes alike.
-type Block struct{ t *blockType }
+// Block is an Experience block, in a world or as an item: its type and its state, an index of
+// the type's state combinations. An Experience keeps a block's data in the Store, so the data
+// never reaches chunk NBT, and two Blocks of a type in the same state are equal and hash alike.
+// The item is a Block in state 0, where every state has its first value.
+type Block struct {
+	t *blockType
+	s uint32
+}
 
 // The Dragonfly interfaces that Block implements; they keep its method signatures exact.
 var (
 	_ world.CustomBlockBuildable  = Block{}
+	_ world.CustomBlockAnimated   = Block{}
+	_ world.CustomBlockGeometries = Block{}
+	_ block.Permutable            = Block{}
+	_ block.Traited               = Block{}
 	_ world.CustomItem            = Block{}
 	_ block.Breakable             = Block{}
 	_ block.Activatable           = Block{}
@@ -50,24 +73,56 @@ var (
 	_ world.NeighbourUpdateTicker = Block{}
 )
 
-// EncodeBlock returns the block's id. An Experience block has no states.
+// EncodeBlock returns the block's id and the value of each of its states.
 func (b Block) EncodeBlock() (string, map[string]any) {
-	return b.t.id, map[string]any{}
+	properties := make(map[string]any, len(b.t.axes))
+	for i, a := range b.t.axes {
+		properties[a.name] = a.values[b.index(i)]
+	}
+	return b.t.id, properties
 }
 
-// Hash returns the type's base hash; there is no state to hash.
+// Hash returns the type's base hash and the state index.
 func (b Block) Hash() (uint64, uint64) {
-	return b.t.hash, 0
+	return b.t.hash, uint64(b.s)
 }
 
-// Model is a full solid cube.
-func (Block) Model() world.BlockModel {
+// Model is a full solid cube, unless the block's collision box in its state is another box.
+func (b Block) Model() world.BlockModel {
+	if box := b.collision(); box != fullCube {
+		return boxModel{box}
+	}
 	return model.Solid{}
 }
 
-// Properties make the block a full cube that collides and is selected as one, with an opaque
-// material for each bound slot.
+// collision is the block's collision box in its state: its visual's, as the last permutation
+// that holds and sets one replaces it.
+func (b Block) collision() cube.BBox {
+	if b.t.visual == nil {
+		return fullCube
+	}
+	box := b.t.visual.base.CollisionBox
+	for _, p := range b.t.visual.permutations {
+		if p.properties.CollisionBox != (cube.BBox{}) && holds(p.when, b) {
+			box = p.properties.CollisionBox
+		}
+	}
+	return box
+}
+
+// boxModel collides as one box smaller than the block, so none of its faces is solid.
+type boxModel struct{ box cube.BBox }
+
+func (m boxModel) BBox(cube.Pos, world.BlockSource) []cube.BBox { return []cube.BBox{m.box} }
+
+func (boxModel) FaceSolid(cube.Pos, cube.Face, world.BlockSource) bool { return false }
+
+// Properties are the block's visual without its permutations; without one, the block is a full
+// cube that collides and is selected as one, with an opaque material for each bound slot.
 func (b Block) Properties() customblock.Properties {
+	if b.t.visual != nil {
+		return b.t.visual.base
+	}
 	materials := make(map[string]customblock.Material, len(b.t.slots))
 	for slot, key := range b.t.slots {
 		materials[slot] = customblock.NewMaterial(key, customblock.OpaqueRenderMethod())
@@ -85,9 +140,51 @@ func (b Block) Name() string {
 	return b.t.name
 }
 
-// Geometry is nil: the block is the default cube.
-func (Block) Geometry() []byte {
-	return nil
+// Geometry is the geometry file of the block's visual; nil for the full cube.
+func (b Block) Geometry() []byte {
+	if b.t.visual == nil {
+		return nil
+	}
+	return b.t.visual.geometry
+}
+
+// Geometries are the further geometry files of the block's permutations, by name.
+func (b Block) Geometries() map[string][]byte {
+	if b.t.visual == nil {
+		return nil
+	}
+	return b.t.visual.further
+}
+
+// Flipbooks animates the block's textures by texture key.
+func (b Block) Flipbooks() map[string]customblock.Flipbook {
+	if b.t.visual == nil {
+		return nil
+	}
+	return b.t.visual.flipbooks
+}
+
+// States are the values of each state the block declares itself; its placement traits add
+// theirs.
+func (b Block) States() map[string][]any {
+	return b.t.declared
+}
+
+// Permutations are the block's permutations in order, each with its condition as Molang.
+func (b Block) Permutations() []customblock.Permutation {
+	if b.t.visual == nil {
+		return nil
+	}
+	permutations := make([]customblock.Permutation, len(b.t.visual.permutations))
+	for i, p := range b.t.visual.permutations {
+		permutations[i] = customblock.Permutation{Properties: p.properties, Condition: molang(p.when)}
+	}
+	return permutations
+}
+
+// Traits are the placement traits whose states the block takes.
+func (b Block) Traits() []customblock.Trait {
+	return b.t.traits
 }
 
 // Textures holds the decoded texture of each texture key, which the resource pack carries.
@@ -100,8 +197,12 @@ func (b Block) EncodeItem() (string, int16) {
 	return b.t.id, 0
 }
 
-// Texture is the item's texture: the "*" texture, else the "up" face's.
+// Texture is the item's texture: the "*" texture, else the "up" face's, or with a visual the
+// texture of its "*" material, else its first.
 func (b Block) Texture() image.Image {
+	if b.t.visual != nil {
+		return b.t.textures[b.t.visual.icon]
+	}
 	key, ok := b.t.slots[allFaces]
 	if !ok {
 		key = b.t.slots[string(FaceUp)]

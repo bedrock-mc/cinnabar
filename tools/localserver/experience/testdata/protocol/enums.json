@@ -17,5 +17,61 @@
     "fuel",
     "deadline",
     "limit"
+  ],
+  "render_methods": [
+    "opaque",
+    "alpha_test",
+    "blend",
+    "double_sided"
+  ],
+  "placement_states": [
+    "cardinal_direction",
+    "facing_direction",
+    "block_face",
+    "vertical_half"
+  ],
+  "placement_values": [
+    {
+      "placement": "cardinal_direction",
+      "state": "minecraft:cardinal_direction",
+      "values": [
+        "south",
+        "west",
+        "north",
+        "east"
+      ]
+    },
+    {
+      "placement": "facing_direction",
+      "state": "minecraft:facing_direction",
+      "values": [
+        "down",
+        "up",
+        "north",
+        "south",
+        "west",
+        "east"
+      ]
+    },
+    {
+      "placement": "block_face",
+      "state": "minecraft:block_face",
+      "values": [
+        "down",
+        "up",
+        "north",
+        "south",
+        "west",
+        "east"
+      ]
+    },
+    {
+      "placement": "vertical_half",
+      "state": "minecraft:vertical_half",
+      "values": [
+        "bottom",
+        "top"
+      ]
+    }
   ]
 }

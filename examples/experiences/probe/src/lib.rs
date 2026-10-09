@@ -12,8 +12,8 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 use experience_sdk::Value;
 use experience_sdk::server::{
-    BlockChange, BlockDef, BlockPos, Callback, Experience, Face, GuestError, LogLevel, Mining,
-    PlayerId, TextureBinding, WorldError, log, nodes,
+    BlockChange, BlockPos, Callback, Experience, Face, GuestError, LogLevel, PlayerId,
+    Registration, WorldError, log, nodes,
 };
 
 /// The declarations of `experience.toml`, which `build.rs` writes.
@@ -22,6 +22,8 @@ mod experience {
 }
 
 use experience::channels;
+
+mod contract;
 
 const COUNTER: &str = "probe:counter";
 const AIR: &str = "minecraft:air";
@@ -34,16 +36,9 @@ static MEMORY: AtomicU32 = AtomicU32::new(0);
 struct Probe;
 
 impl Experience for Probe {
-    fn register() -> Result<Vec<BlockDef>, GuestError> {
-        Ok(vec![BlockDef {
-            id: COUNTER.to_owned(),
-            display_name: "Probe Counter".to_owned(),
-            textures: vec![TextureBinding {
-                slot: "*".to_owned(),
-                path: "counter.png".to_owned(),
-            }],
-            mining: Mining::Breakable(1.0),
-        }])
+    /// The 0.5 export: the counter, the lamp and the node.
+    fn registration() -> Result<Registration, GuestError> {
+        Ok(contract::registration(COUNTER))
     }
 
     fn on_place(ctx: &Callback, change: BlockChange) -> Result<(), GuestError> {
@@ -134,8 +129,9 @@ fn interact(ctx: &Callback, player: &str, p: BlockPos) -> Result<(), GuestError>
                 std::hint::black_box(&mut hoard);
             }
         }
+        // More calls than any host call cap.
         4 => {
-            for _ in 0..300 {
+            for _ in 0..=u16::MAX {
                 let _ = ctx.get_block(p);
             }
         }
@@ -218,6 +214,10 @@ fn interact(ctx: &Callback, player: &str, p: BlockPos) -> Result<(), GuestError>
             tell(&format!("items {sent}"));
         }
         23 => tell(&format!("focus {}", describe(ctx.focus()))),
+        24 => tell(&contract::wit_0_5_calls(ctx, p, up)),
+        25 => tell(&contract::toggle_lamp(ctx, p)),
+        26 => tell(&contract::mark_network(ctx)),
+        27 => tell(&contract::make_stacks(ctx, up)),
         x => return Err(GuestError::Rejected(format!("no probe behavior for x={x}"))),
     }
     Ok(())

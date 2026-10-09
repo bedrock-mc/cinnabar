@@ -537,6 +537,64 @@ fn secondary_presses_reach_secondary_action() {
     assert!(host.dispatch(&press("terminal.other"), 1).is_err());
 }
 
+/// `scroll-changed` delivers a declared scroll view's range; an undeclared view, or a range
+/// that is not finite and non-negative, is refused before the guest runs, and a component
+/// built before 1.3 never sees it.
+#[test]
+fn scroll_changed_reaches_the_guest() {
+    let mut host = searching_terminal();
+    let scrolled = |view: &str, offset: f64| Event::Scrolled {
+        view: view.into(),
+        range: screen::ScrollRange {
+            offset,
+            viewport: 72.0,
+            content: 1800.0,
+        },
+    };
+    match host
+        .dispatch(&scrolled("terminal.search", 36.0), 1)
+        .unwrap()
+        .commands
+        .as_slice()
+    {
+        [
+            Command::Value {
+                name: view_name,
+                value: screen::Value::Text(view),
+            },
+            Command::Value {
+                name: range_name,
+                value: screen::Value::Numbers(range),
+            },
+        ] => {
+            assert_eq!(
+                (view_name.as_str(), view.as_str(), range_name.as_str()),
+                ("#scrolled", "terminal.search", "#scroll")
+            );
+            assert_eq!(range.as_slice(), &[36.0, 72.0, 1800.0]);
+        }
+        other => panic!("{other:?}"),
+    }
+    assert!(host.dispatch(&scrolled("terminal.other", 0.0), 1).is_err());
+    assert!(scrolled("terminal.search", f64::NAN).check().is_err());
+    assert!(scrolled("terminal.search", -1.0).check().is_err());
+
+    let mut old = BundleHost::launch(
+        guest_1_1("ui/terminal.json").as_bytes(),
+        owner(),
+        {
+            let mut capabilities = screen_capabilities(&[Permission::ModalUi, Permission::Input]);
+            capabilities.actions.insert("terminal.search".to_owned());
+            capabilities
+        },
+        1,
+    )
+    .unwrap();
+    old.take_transaction();
+    let skipped = old.dispatch(&scrolled("terminal.search", 0.0), 1).unwrap();
+    assert!(skipped.commands.is_empty());
+}
+
 /// `name` keyed by this worktree. Cargo judges freshness by modification time alone and its
 /// dep-info paths are relative to the workspace, so two worktrees building into one target would
 /// silently reuse each other's guests; keying the guests' target directory by worktree keeps

@@ -301,3 +301,193 @@ fn secondary_presses_fire_the_secondary_mapping() {
         None
     );
 }
+
+/// A list 100 GUI units wide whose 50-unit viewport scrolls 400 units of content, at the top
+/// left, named `demo.list`, beside an unnamed one; it needs nothing from the vanilla pack.
+const LIST: &str = r#"{"namespace": "demo",
+    "terminal": {"type": "panel", "size": ["100%", "100%"], "controls": [
+        {"list@demo.view": {"scroll_view_name": "demo.list"}},
+        {"other@demo.view": {"offset": [0, 100]}}]},
+    "view": {"type": "scroll_view", "size": [100, 50],
+        "anchor_from": "top_left", "anchor_to": "top_left",
+        "scroll_speed": 18, "always_handle_pointer": true,
+        "scroll_view_port": "viewport", "scroll_content": "content",
+        "scrollbar_track": "track", "scrollbar_box": "box", "scroll_box_and_track_panel": "bar",
+        "controls": [
+            {"viewport": {"type": "panel", "size": [90, 50],
+                "anchor_from": "top_left", "anchor_to": "top_left", "clips_children": true,
+                "controls": [{"content": {"type": "panel", "size": [90, 400],
+                    "anchor_from": "top_left", "anchor_to": "top_left"}}]}},
+            {"bar": {"type": "panel", "size": [10, 50], "offset": [90, 0],
+                "anchor_from": "top_left", "anchor_to": "top_left", "controls": [
+                {"track": {"type": "scroll_track", "size": [10, 50],
+                    "anchor_from": "top_left", "anchor_to": "top_left"}},
+                {"box": {"type": "scrollbar_box", "size": [10, 10], "draggable": "vertical",
+                    "anchor_from": "top_left", "anchor_to": "top_left"}}]}}]}}"#;
+
+/// A named scroll view reports its range when first drawn and each time it changes, and only
+/// then; an unnamed one reports nothing.
+#[test]
+fn named_scroll_views_report_their_range_on_change() {
+    let mut modal = screen::Modal::default();
+    modal.open(Some("ui/terminal.json".into()));
+    let files = Arc::new(files(&[("ui/terminal.json", LIST)]));
+    let mut presentation = drawn(&modal, &files, [1280, 720]);
+    let first = presentation.experience_modal_scrolls();
+    let [(view, range)] = first.as_slice() else {
+        panic!("{first:?}");
+    };
+    assert_eq!(view, "demo.list");
+    assert_eq!(
+        (range.offset, range.viewport, range.content),
+        (0.0, 50.0, 400.0)
+    );
+    presentation.accept_experience_modal_scroll(view, *range);
+    assert!(presentation.experience_modal_scrolls().is_empty());
+    let scale = presentation.experience_modal_size().unwrap().scale as f32;
+    presentation.hover_experience_modal(Some([10.0 * scale, 10.0 * scale]));
+    presentation.scroll_experience_modal(2.0);
+    redraw(&mut presentation, &modal, &files, [1280, 720]);
+    let scrolled = presentation.experience_modal_scrolls();
+    let [(view, range)] = scrolled.as_slice() else {
+        panic!("{scrolled:?}");
+    };
+    assert_eq!((view.as_str(), range.offset), ("demo.list", 36.0));
+}
+
+/// A hotbar of item renderers over the host's `hotbar_items`.
+const HOTBAR: &str = r##"{"namespace": "demo",
+    "terminal": {"type": "panel", "size": ["100%", "100%"], "controls": [
+        {"hotbar": {"type": "grid", "size": [180, 20], "grid_dimensions": [9, 1],
+            "anchor_from": "top_left", "anchor_to": "top_left",
+            "collection_name": "hotbar_items", "grid_item_template": "demo.cell"}}]},
+    "cell": {"type": "custom", "renderer": "inventory_item_renderer", "size": [20, 20],
+        "bindings": [{"binding_type": "collection", "binding_collection_name": "hotbar_items",
+            "binding_name": "#item_renderer_data"}]}}"##;
+
+/// A client part's modal reads the player's inventory as vanilla's container screens do: the
+/// host fills `inventory_items` and `hotbar_items` read-only, replacing rows the client part
+/// names the same, and their item renderers draw each occupied slot's icon.
+#[test]
+fn modal_item_renderers_draw_the_players_inventory() {
+    use protocol::{
+        ContainerIdentity, InventoryEvent, InventorySlotEvent, NetworkItemStack, SlotIdentity,
+    };
+    let mut modal = screen::Modal::default();
+    modal.open(Some("ui/terminal.json".into()));
+    // Rows the client part sends under the host's name point every cell at the first icon.
+    modal.set_collection(
+        "hotbar_items".into(),
+        vec![BTreeMap::from([("#item_renderer_data".to_owned(), screen::Value::Integer(0),)]); 9],
+    );
+    let files = Arc::new(files(&[("ui/terminal.json", HOTBAR)]));
+    let mut presentation = super::super::tests::mini_engine_presentation();
+    presentation.set_experience_modal(Some(ExperienceModal {
+        bundle: "demo",
+        files: &files,
+        modal: &modal,
+    }));
+    let mut player_runtime = player_state::PlayerState::new(1);
+    let stack = NetworkItemStack {
+        network_id: 2,
+        count: 5,
+        stack_network_id: 7,
+        ..NetworkItemStack::default()
+    };
+    player_runtime
+        .inventory
+        .ledger_mut()
+        .apply(&InventoryEvent::Slot(InventorySlotEvent {
+            identity: SlotIdentity {
+                container: ContainerIdentity::window(0),
+                slot: 3,
+            },
+            stack,
+            storage_item: None,
+        }));
+    let icon = super::super::super::IconRef {
+        page: 3,
+        uv: [16, 32, 48, 64],
+        glint: false,
+    };
+    presentation.hud_frame.inventory_icons.0[3] = Some(icon);
+    let runtime = UiRuntime::new(1);
+    let size = [1280, 720];
+    let dpi = ui::DpiScale::new(1.0).unwrap();
+    let (mut nodes, mut next) = (Vec::new(), 1);
+    presentation.append_experience_modal(
+        &player_runtime,
+        &runtime,
+        &mut nodes,
+        &mut next,
+        TextMetrics::for_viewport(size, dpi, None),
+        [1280.0, 720.0],
+        true,
+    );
+    let drawn: Vec<_> = nodes
+        .iter()
+        .filter_map(|node| match node.visual() {
+            ui::UiVisual::Sprite {
+                texture_page, uv, ..
+            } => Some((*texture_page, *uv)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(drawn, [(icon.page, icon.uv)]);
+}
+
+/// Undelivered ranges remain available, with only the latest drawn range retried.
+#[test]
+fn named_scroll_views_retry_the_latest_undelivered_range() {
+    let mut modal = screen::Modal::default();
+    modal.open(Some("ui/terminal.json".into()));
+    let files = Arc::new(files(&[("ui/terminal.json", LIST)]));
+    let mut presentation = drawn(&modal, &files, [1280, 720]);
+    let first = presentation.experience_modal_scrolls();
+    assert_eq!(first.len(), 1);
+    assert_eq!(
+        presentation.experience_modal_scrolls(),
+        first,
+        "an unaccepted initial range must be retried"
+    );
+    let scale = presentation.experience_modal_size().unwrap().scale as f32;
+    presentation.hover_experience_modal(Some([10.0 * scale, 10.0 * scale]));
+    presentation.scroll_experience_modal(2.0);
+    redraw(&mut presentation, &modal, &files, [1280, 720]);
+    let latest = presentation.experience_modal_scrolls();
+    assert_eq!(latest.len(), 1);
+    assert_eq!(latest[0].1.offset, 36.0);
+    assert_eq!(
+        presentation.experience_modal_scrolls(),
+        latest,
+        "a rejected changed range must replace the initial range on retry"
+    );
+    presentation.accept_experience_modal_scroll(&first[0].0, first[0].1);
+    assert_eq!(presentation.experience_modal_scrolls(), latest);
+    presentation.accept_experience_modal_scroll(&latest[0].0, latest[0].1);
+    assert!(presentation.experience_modal_scrolls().is_empty());
+}
+
+/// Repeated instances of one named view report their latest range without alternating callbacks.
+#[test]
+fn repeated_scroll_view_names_keep_one_stable_range() {
+    let template = LIST.replace(
+        r#""other@demo.view": {"offset": [0, 100]}"#,
+        r#""other@demo.view": {"offset": [0, 100], "scroll_view_name": "demo.list"}"#,
+    );
+    let mut modal = screen::Modal::default();
+    modal.open(Some("ui/terminal.json".into()));
+    let files = Arc::new(files(&[("ui/terminal.json", &template)]));
+    let mut presentation = drawn(&modal, &files, [1280, 720]);
+    let first = presentation.experience_modal_scrolls();
+    assert_eq!(first.len(), 1);
+    presentation.accept_experience_modal_scroll(&first[0].0, first[0].1);
+    let scale = presentation.experience_modal_size().unwrap().scale as f32;
+    presentation.hover_experience_modal(Some([10.0 * scale, 10.0 * scale]));
+    presentation.scroll_experience_modal(2.0);
+    redraw(&mut presentation, &modal, &files, [1280, 720]);
+    assert!(
+        presentation.experience_modal_scrolls().is_empty(),
+        "the latest instance still has its accepted range"
+    );
+}
