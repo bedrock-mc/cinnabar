@@ -200,8 +200,8 @@ pub const HAND_HEIGHT: u32 = 64;
 /// Raster pixels per block, and where the model's feet and centre line sit.
 pub const PREVIEW_PIXELS_PER_BLOCK: f32 = 48.0;
 pub const PREVIEW_FEET_Y: f32 = 106.0;
-/// A player's eye height above its feet, the point a live renderer centres.
-pub const PLAYER_EYE_HEIGHT: f32 = 1.62;
+/// A player's eye height above its feet, the pivot of the preview model's pitch.
+pub const PLAYER_EYE_HEIGHT: f32 = protocol::STANDING_PLAYER_EYE_HEIGHT;
 /// The player entity's render scale.
 pub(super) const PLAYER_MODEL_SCALE: f32 = 0.9375;
 /// The HUD translates its shared outer actor frame while swimming.
@@ -302,11 +302,11 @@ impl PreviewView {
 }
 
 /// A player renderer's pose request and its raster's logical rect. A live
-/// renderer centres the eyes on the control at
-/// `min(w, h)` pixels per block and turns toward the pointer; a paper doll
-/// centres the model at `min(w / 20, h / 39)`
-/// pixels per model pixel, turned by `starting_rotation` under
-/// `camera_tilt_degrees`.
+/// renderer centres the model at `min(w, h)` pixels per block and turns toward
+/// the pointer; a paper doll centres it at `min(w / 20, h / 39)` pixels per
+/// model pixel, turned by `starting_rotation` under `camera_tilt_degrees`. Each
+/// centres the UI model-part origin, not the eyes or feet; the paper doll first
+/// subtracts the inverse GUI scale in model pixels.
 pub fn renderer_frame(
     renderer: &str,
     data: &std::collections::BTreeMap<String, serde_json::Value>,
@@ -320,7 +320,9 @@ pub fn renderer_frame(
         let offset = pointer.map_or([0.0; 2], |point| {
             [centre[0] / px - point[0], centre[1] / px - point[1]]
         });
-        (PreviewView::Live { offset }, w.min(h), PLAYER_EYE_HEIGHT)
+        // The eye offset the live renderer applies cancels a player's eye-level actor
+        // position, leaving the actor's UI origin on the centre as the HUD's is.
+        (PreviewView::Live { offset }, w.min(h), PLAYER_UI_ORIGIN)
     } else if renderer == "hud_player_renderer" {
         (PreviewView::Hud, w, PLAYER_UI_ORIGIN)
     } else {

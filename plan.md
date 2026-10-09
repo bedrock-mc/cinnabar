@@ -6140,6 +6140,16 @@ matched pause/inventory pixel captures and complete Inbox settings/rich-message
 behavior remain incomplete. The owner's stretched-model bug has no reproduced
 failing geometry witness. These changes do not close any overall visual or live
 performance parity gate. No live server or remote machine was used.
+
+2026-10-09 preview armor and inventory framing (implemented; parity incomplete): inventory,
+pause and HUD previews resolve armor as the world player does and apply `customColor` only
+through a leather material, so team-dyed diamond armor keeps its diamond art. Session pack
+armor takes GUI model pages only for the worn textures, each placed on its own, so a server
+stack with more attachable art than the model atlas no longer disables all of it. The live
+inventory renderer centers the model-part origin instead of the eyes, as the HUD doll does.
+Incomplete: pack attachables with their own geometry still draw on the humanoid armor boxes;
+worn art longer than a 512-texel model page is box-reduced in the GUI although the world draws
+it at full resolution; the inventory placement has no matched vanilla capture.
 ### Burning camera and HUD doll (accepted fix; overall parity incomplete)
 
 The camera effect now uses vanilla's open fire cube, down-face sprite,
