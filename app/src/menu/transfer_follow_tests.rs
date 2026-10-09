@@ -65,7 +65,7 @@ fn missing_core_layout(root: &Path) -> InstallLayout {
 fn failed_automatic_replacement_cannot_return_to_the_old_pause_menu() {
     let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
 
-    failed_automatic_replacement(&mut player_runtime, true);
+    failed_automatic_replacement(&mut player_runtime, true, false);
 }
 
 #[test]
@@ -113,7 +113,13 @@ fn pointer_opened_dialogs_accept_keyboard_confirmation_and_navigation() {
 fn failed_automatic_replacement_from_gameplay_reopens_the_launcher() {
     let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
 
-    failed_automatic_replacement(&mut player_runtime, false);
+    failed_automatic_replacement(&mut player_runtime, false, false);
+}
+
+#[test]
+fn failed_remote_transfer_from_a_local_world_offers_retry_after_teardown() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+    failed_automatic_replacement(&mut player_runtime, false, true);
 }
 
 #[test]
@@ -340,6 +346,7 @@ fn a_core_that_exits_early_fails_the_join_promptly() {
 fn failed_automatic_replacement(
     player_runtime: &mut crate::player_runtime::PlayerRuntime,
     from_settings: bool,
+    from_local_world: bool,
 ) {
     let root = TempRoot::new();
     let mut menu = MenuRuntime::new_with_layout(
@@ -351,6 +358,13 @@ fn failed_automatic_replacement(
     );
     let controller = SessionController::default();
     let old_generation = controller.generation();
+    let mut local_worlds = crate::local_worlds::LocalWorlds::default();
+    if from_local_world {
+        menu.request_local_world_join("Local world".into(), true);
+        menu.sync_local_worlds(&mut local_worlds, false);
+        menu.take_join_intent().unwrap();
+        assert!(menu.local_world_active && menu.local_world_joined);
+    }
     menu.show_world();
     if from_settings {
         menu.open_pause();
@@ -408,6 +422,14 @@ fn failed_automatic_replacement(
             .as_deref()
             .is_some_and(|message| message.starts_with("Could not start transfer.example.net"))
     );
+    if from_local_world {
+        assert!(
+            !menu.view().can_reconnect,
+            "local teardown must finish first"
+        );
+        menu.sync_local_worlds(&mut local_worlds, false);
+        assert!(!menu.local_world_active && !menu.local_world_joined);
+    }
     assert!(menu.view().can_reconnect);
     menu.activate(MenuAction::Reconnect);
     assert_eq!(

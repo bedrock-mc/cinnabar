@@ -58,9 +58,9 @@ use core_process::{auth_cache_path, core_executable};
 pub(crate) use input::{MenuClipboard, drive_menu_input};
 use launcher::menu::view::{CatalogFile, MenuFeeds};
 #[cfg(test)]
-pub(crate) use launcher::menu::view::{InboxItem, JoinKind, JoinProgress, JoinStage, MenuHome};
+pub(crate) use launcher::menu::view::{InboxItem, JoinProgress, JoinStage, MenuHome};
 pub(crate) use launcher::menu::view::{
-    LocalWorldCard, MenuFriendCard, MenuRealmCard, MenuServerCard, MenuView, SavedServer,
+    JoinKind, LocalWorldCard, MenuFriendCard, MenuRealmCard, MenuServerCard, MenuView, SavedServer,
 };
 pub(crate) use launcher_core::LauncherCoreSlot;
 use servers::{ServerWriter, load_servers};
@@ -427,7 +427,7 @@ impl MenuRuntime {
     }
 
     pub(crate) fn show_join_failure(&mut self, message: String) {
-        if self.local_world_joined || !self.launcher {
+        if self.feeds.join.kind == JoinKind::Local || !self.launcher {
             self.message = Some(message);
         } else {
             self.message = None;

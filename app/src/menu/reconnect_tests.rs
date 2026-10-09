@@ -42,6 +42,21 @@ fn failed_connection_offers_retry_without_entering_a_world() {
 }
 
 #[test]
+fn local_join_failure_keeps_its_world_error_without_retry() {
+    let mut menu = MenuRuntime::new(true, 2, "Player".into());
+    menu.request_local_world_join("Local world".into(), false);
+    menu.take_join_intent().unwrap();
+    menu.begin_join_progress("Local world", true);
+    menu.show_join_failure("Could not open local world".into());
+    assert_eq!(
+        menu.view().message.as_deref(),
+        Some("Could not open local world")
+    );
+    assert!(menu.view().disconnect_message.is_none());
+    assert!(!menu.view().can_reconnect);
+}
+
+#[test]
 fn join_request_popup_keeps_input_priority_over_a_failure() {
     for answer in [Some(true), Some(false), None] {
         let mut menu = MenuRuntime::new(true, 2, "Player".into());
