@@ -107,6 +107,19 @@ wit-bindgen = "=0.57.1"
 wit-component = "=0.247.0"
 
 
+# wgpu comes from bedrock-mc/wgpu `cinnabar-v27`: upstream v27 (af91efa9, source-identical to
+# the published 27.0.x crates) plus changes no wgpu release usable by Bevy 0.18 has. The Vulkan
+# acquire fence wait applies only to FIFO on Windows (gfx-rs/wgpu#9559), consecutive indirect
+# draws are validated in runs, and filtered-out trace logging no longer builds its arguments.
+# Every crate comes from one commit, so the graph keeps a single wgpu-types. Drop the patch once
+# Bevy depends on a wgpu release with these changes.
+[patch.crates-io]
+naga = { git = "https://github.com/bedrock-mc/wgpu", rev = "295bf25607db043b5f8b2c8123e3ab6149a12e3e" }
+wgpu = { git = "https://github.com/bedrock-mc/wgpu", rev = "295bf25607db043b5f8b2c8123e3ab6149a12e3e" }
+wgpu-core = { git = "https://github.com/bedrock-mc/wgpu", rev = "295bf25607db043b5f8b2c8123e3ab6149a12e3e" }
+wgpu-hal = { git = "https://github.com/bedrock-mc/wgpu", rev = "295bf25607db043b5f8b2c8123e3ab6149a12e3e" }
+wgpu-types = { git = "https://github.com/bedrock-mc/wgpu", rev = "295bf25607db043b5f8b2c8123e3ab6149a12e3e" }
+
 [profile.dev]
 opt-level = 1
 
