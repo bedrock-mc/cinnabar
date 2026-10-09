@@ -175,6 +175,12 @@ pub(crate) fn apply_present_mode(
         .policy
         .publish_selection(runtime.policy.capabilities().map(|_| selected));
     set_present_mode_if_changed(&mut window, window_present_mode(selected));
+    let latency = Some(render::frame_latency_for_vsync(
+        runtime.intent() == PresentationIntent::Synchronized,
+    ));
+    if window.desired_maximum_frame_latency != latency {
+        window.desired_maximum_frame_latency = latency;
+    }
 }
 
 fn set_present_mode_if_changed(window: &mut Window, present_mode: PresentMode) -> bool {

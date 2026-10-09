@@ -135,7 +135,7 @@ impl SubChunkKey {
 pub struct Chunk {
     pub(crate) sub_chunks: Arc<BTreeMap<i32, Arc<SubChunk>>>,
     pub(crate) biomes: Option<DecodedBiomeColumn>,
-    pub(crate) block_entities: BTreeMap<BlockEntityKey, Arc<BlockEntityNbt>>,
+    pub(crate) block_entities: Arc<BTreeMap<BlockEntityKey, Arc<BlockEntityNbt>>>,
     pub(crate) block_entity_bytes: usize,
 }
 
@@ -173,5 +173,11 @@ impl Chunk {
         self.block_entities
             .iter()
             .map(|(&key, value)| (key, Arc::clone(value)))
+    }
+
+    /// Retains the immutable block entity index; any edit replaces it or detaches its weak
+    /// references, so a held `Weak` shows whether the column's block entities changed.
+    pub fn shared_block_entities(&self) -> Arc<BTreeMap<BlockEntityKey, Arc<BlockEntityNbt>>> {
+        Arc::clone(&self.block_entities)
     }
 }

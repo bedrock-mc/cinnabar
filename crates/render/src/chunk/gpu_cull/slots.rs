@@ -2,7 +2,7 @@
 
 use crate::chunk::*;
 
-use super::model::{CullRecord, CullRecordSource};
+use super::model::{CullRecord, CullRecordSource, STREAM_COUNT, slot_enabled};
 use crate::chunk::bounds::{FULL_BOUNDS, MODEL_BOUNDS};
 
 const SIDE: i32 = world::SUB_CHUNK_SIDE as i32;
@@ -22,6 +22,8 @@ pub(in crate::chunk) struct CullSlots {
     enabled_dirty: bool,
     dirty: Vec<u32>,
     tint_identity: Option<ChunkBiomeTintIdentity>,
+    /// Sum of [`CullRecord::max_draws`] over enabled slots.
+    draw_bounds: [u32; STREAM_COUNT],
 }
 
 impl CullSlots {
@@ -35,6 +37,12 @@ impl CullSlots {
 
     pub(in crate::chunk) fn enabled(&self) -> &[u32] {
         &self.enabled
+    }
+
+    /// Per-stream ceiling on the draws one cull phase emits; the kernels compact visible draws
+    /// to the front of each region, so drawing this many commands covers all of them.
+    pub(in crate::chunk) fn draw_bounds(&self) -> [u32; STREAM_COUNT] {
+        self.draw_bounds
     }
 
     pub(in crate::chunk) fn contains(&self, entity: Entity) -> bool {
@@ -69,7 +77,7 @@ impl CullSlots {
             self.records.resize(index + 1, CullRecord::default());
             self.owners.resize(index + 1, None);
         }
-        self.records[index] = record;
+        self.write_record(slot, record);
         self.owners[index] = Some(SlotOwner { entity, tint });
         self.dirty.push(slot);
         self.refresh(slot, hidden);
@@ -140,13 +148,33 @@ impl CullSlots {
         }
         let old = self.enabled[word];
         self.enabled[word] = if value { old | bit } else { old & !bit };
-        self.enabled_dirty |= old != self.enabled[word];
+        if old != self.enabled[word] {
+            self.enabled_dirty = true;
+            let draws = self.records[slot as usize].max_draws();
+            self.adjust_bounds(draws, value);
+        }
+    }
+
+    /// Replaces a slot's record, moving its draws in or out of the enabled bounds.
+    fn write_record(&mut self, slot: u32, record: CullRecord) {
+        let index = slot as usize;
+        if slot_enabled(&self.enabled, index) {
+            self.adjust_bounds(self.records[index].max_draws(), false);
+            self.adjust_bounds(record.max_draws(), true);
+        }
+        self.records[index] = record;
+    }
+
+    fn adjust_bounds(&mut self, draws: [u32; STREAM_COUNT], add: bool) {
+        for (bound, draws) in self.draw_bounds.iter_mut().zip(draws) {
+            *bound = if add { *bound + draws } else { *bound - draws };
+        }
     }
 
     fn clear_slot(&mut self, slot: u32, entity: Entity) {
         if self.owners[slot as usize].is_some_and(|owner| owner.entity == entity) {
             self.owners[slot as usize] = None;
-            self.records[slot as usize] = CullRecord::default();
+            self.write_record(slot, CullRecord::default());
             self.dirty.push(slot);
             self.set_enabled(slot, false);
         }

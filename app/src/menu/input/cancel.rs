@@ -1,4 +1,4 @@
-//! Back input first releases the active editor or selected control.
+//! Routes cancel input through selected controls before leaving the menu.
 
 use super::*;
 

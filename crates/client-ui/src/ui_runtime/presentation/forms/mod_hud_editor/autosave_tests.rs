@@ -189,3 +189,84 @@ fn completed_autosave_nudge_survives_escape_in_the_same_input_batch() {
         "dismissing the editor must deliver an uncollected completed nudge"
     );
 }
+
+#[test]
+fn supplied_editor_buttons_render_hover_and_captured_press_without_disrupting_autosave() {
+    let mut p = presentation(false);
+    let mut hud = content();
+    hud.autosave = true;
+    hud.cards[0].position = Some([0.2, 0.2]);
+    let state = |color| {
+        serde_json::json!({"type":"custom","renderer":"cinnabar_rounded_rectangle",
+            "size":["100%","100%"],"radius":0,"color":color})
+    };
+    hud.surface = Some(ui::mod_panel::Surface {
+        screen: "fixture.overlay".into(),
+        document: serde_json::json!({"namespace":"fixture","overlay":{
+            "type":"panel","size":["100%","100%"],"controls":[{"grid":{
+                "type":"button","size":[70,24],"offset":[230,80],
+                "anchor_from":"top_left","anchor_to":"top_left",
+                "default_control":"normal","hover_control":"hover","pressed_control":"pressed",
+                "button_mappings":[{"from_button_id":"button.menu_select",
+                    "to_button_id":"hud.grid","mapping_type":"pressed"}],
+                "controls":[{"normal":state([0,0,1,1])},{"hover":state([0,1,0,1])},
+                    {"pressed":state([1,0,0,1])}]
+            }}]
+        }})
+        .to_string(),
+        bindings: Default::default(),
+    });
+    p.set_mod_panel(Some(&panel())).unwrap();
+    p.set_mod_panel_open(true);
+    p.open_mod_hud_editor(&hud).unwrap();
+    frame(&mut p, &UiRuntime::new(1), [1280, 720], 1.);
+    let at = point(&p, "hud.grid");
+    let pixel = |p: &mut UiPresentationRuntime| {
+        let rendered = frame(p, &UiRuntime::new(1), [1280, 720], 1.);
+        super::super::snapshot::rasterize(&rendered)
+            .get_pixel(at[0] as u32, at[1] as u32)
+            .0
+    };
+    assert_eq!(pixel(&mut p), [0, 0, 255, 255]);
+    assert!(p.mod_panel_events(at, false, false).is_empty());
+    assert_eq!(pixel(&mut p), [0, 255, 0, 255]);
+    assert!(p.take_mod_hud_editor_result().is_none());
+    assert!(p.mod_panel_events(at, true, true).is_empty());
+    assert_eq!(pixel(&mut p), [255, 0, 0, 255]);
+    assert!(p.form_presentation.mod_hud_editor.as_ref().unwrap().snap);
+
+    p.mod_panel_events([-50.; 2], false, true);
+    assert_eq!(
+        pixel(&mut p),
+        [255, 0, 0, 255],
+        "press remains captured outside"
+    );
+    p.mod_panel_events([-50.; 2], false, false);
+    assert_eq!(pixel(&mut p), [0, 0, 255, 255]);
+    p.mod_panel_events(at, false, false);
+    assert_eq!(pixel(&mut p), [0, 255, 0, 255]);
+    p.mod_panel_events(at, true, true);
+    p.cancel_mod_panel_pointer_input();
+    assert_eq!(pixel(&mut p), [0, 0, 255, 255]);
+    p.mod_panel_events(at, false, false);
+    p.mod_panel_events([f32::NAN, at[1]], false, true);
+    assert_eq!(pixel(&mut p), [0, 0, 255, 255]);
+
+    let card = point(&p, "hud.card:0");
+    p.mod_panel_events(card, true, true);
+    p.mod_panel_events([card[0] + 40., card[1] + 30.], false, true);
+    assert!(p.take_mod_hud_editor_result().is_none());
+    p.mod_panel_events([card[0] + 40., card[1] + 30.], false, false);
+    let saved = p.take_mod_hud_editor_result().unwrap();
+    assert!(saved.saved && saved.placements[0].position != Some([0.2, 0.2]));
+    assert!(p.mod_hud_editor_open());
+    pixel(&mut p);
+    let card = point(&p, "hud.card:0");
+    p.mod_panel_events(card, true, true);
+    p.mod_panel_events([card[0] + 40., card[1] + 30.], false, true);
+    p.cancel_mod_panel_pointer_input();
+    let editor = p.form_presentation.mod_hud_editor.as_ref().unwrap();
+    assert_eq!(editor.draft.cards[0].position, saved.placements[0].position);
+    assert!(editor.view.hovered.is_none() && editor.view.pressed.is_none());
+    assert!(p.take_mod_hud_editor_result().is_none());
+}

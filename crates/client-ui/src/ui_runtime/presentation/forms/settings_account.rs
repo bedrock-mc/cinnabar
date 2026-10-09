@@ -17,6 +17,16 @@ pub(super) fn bind(view: &MenuView, data: &mut DataSource) {
     data.set_global("#player_name", Scalar::Text(view.display_name.clone()));
 }
 
+/// Route the pack's account button names to the existing launcher operations.
+pub(super) fn action(region: &HitRegion) -> Option<MenuAction> {
+    Some(match region.pressed.as_deref()? {
+        "sign_in_button" | "button.switch_accounts" => MenuAction::StartSignIn,
+        "sign_out_button" | "button.sign_out" => MenuAction::SignOut,
+        "realms_invites_button" => MenuAction::Navigate(MenuScreen::Social),
+        _ => return None,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -47,14 +57,4 @@ mod tests {
         let bound = json_ui::bind(&label, &data, &json_ui::EmptyLibrary);
         assert_eq!(bound.properties["text"], "Fixture player");
     }
-}
-
-/// Route the pack's account button names to the existing launcher operations.
-pub(super) fn action(region: &HitRegion) -> Option<MenuAction> {
-    Some(match region.pressed.as_deref()? {
-        "sign_in_button" | "button.switch_accounts" => MenuAction::StartSignIn,
-        "sign_out_button" | "button.sign_out" => MenuAction::SignOut,
-        "realms_invites_button" => MenuAction::Navigate(MenuScreen::Social),
-        _ => return None,
-    })
 }

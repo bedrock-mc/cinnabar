@@ -77,6 +77,14 @@ impl ChunkTextureReload {
             .clone()
     }
 
+    /// Drops a replacement set captured for chunks a session reset retired, so ordinary mesh
+    /// handoff resumes for the new session; the atlas request still completes and publishes.
+    pub(in crate::chunk) fn discard_geometry(&self) {
+        let mut state = self.0.lock().unwrap_or_else(|error| error.into_inner());
+        state.geometry = None;
+        state.holding_geometry = false;
+    }
+
     /// Releases the CPU replacement set after the render world publishes it.
     pub(in crate::chunk) fn published(&self) {
         let mut state = self.0.lock().unwrap_or_else(|error| error.into_inner());

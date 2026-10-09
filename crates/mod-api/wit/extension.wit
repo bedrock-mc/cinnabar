@@ -138,6 +138,23 @@ interface gameplay {
     }
     /// Requires the explicit players grant; none means gameplay does not own input.
     read-frame: func() -> result<option<snapshot>, string>;
+    /// Input-owned local physics state; velocity is blocks per simulation tick.
+    record movement-snapshot {
+        session: u64,
+        dimension: s32,
+        tick: u64,
+        velocity: vector3,
+        on-ground: bool,
+        jump-held: bool,
+        eligible: bool,
+        knockback-sequence: u64,
+    }
+    /// Requires movement authority; none means gameplay does not own input.
+    read-movement: func() -> result<option<movement-snapshot>, string>;
+    /// Stages one ordinary jump input for the next physics tick, with movement authority.
+    pulse-jump: func() -> result<_, string>;
+    /// Cancels pending local jump input after a successful callback, even outside gameplay.
+    cancel-jump: func() -> result<_, string>;
     /// Requires the camera grant and a current frame; commits only after frame returns.
     rotate: func(yaw-delta: f32, pitch-delta: f32) -> result<_, string>;
     /// Bounded local actor attack range; none restores ordinary game-mode rules.

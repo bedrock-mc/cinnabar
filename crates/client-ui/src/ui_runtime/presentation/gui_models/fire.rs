@@ -51,25 +51,45 @@ impl UiPresentationRuntime {
         }
         self.gui_models.fire.source = texture.filter(|texture| valid(texture)).cloned();
         self.install_gui_fire()?;
-        self.rebuild_dynamic_textures();
+        let pack = self.gui_models.pack_equipment.source.clone();
+        self.gui_models.pack_equipment = Default::default();
+        if pack.is_some() {
+            self.set_preview_pack_equipment(pack);
+        } else {
+            self.rebuild_dynamic_textures();
+        }
         Ok(())
     }
 
     pub(super) fn install_gui_fire(&mut self) -> Result<(), UiPresentationError> {
-        let start = self.gui_models.pages.len();
-        let first = (self.textures.dynamic_start() + MODEL_PAGE + start) as u16;
-        let mut atlas = atlas::Atlas::new(first, MODEL_PAGES.saturating_sub(start));
-        let fire = &mut self.gui_models.fire;
-        fire.frames.clear();
-        fire.pages_start = Some(start);
-        if let Some(texture) = &fire.source {
+        self.gui_models.fire.frames.clear();
+        let mut atlas = atlas::Atlas::new(0, MODEL_PAGES);
+        let mut frames = Vec::new();
+        if let Some(texture) = &self.gui_models.fire.source {
             let side = texture.width as u16;
             let frame_bytes = usize::from(side) * usize::from(side) * 4;
             for pixels in texture.rgba8.chunks_exact(frame_bytes) {
-                fire.frames.push(atlas.insert([side; 2], pixels)?);
+                frames.push(atlas.insert([side; 2], pixels)?);
             }
         }
         let (pages, _) = atlas.finish()?;
+        let mut start = self.gui_models.pages.len();
+        if start + pages.len() > MODEL_PAGES
+            && self
+                .gui_models
+                .discard_optional_models(self.textures.dynamic_start() + MODEL_PAGE)
+        {
+            start = self.gui_models.pages.len();
+        }
+        if start + pages.len() > MODEL_PAGES {
+            return Err(UiPresentationError::InvalidFontTexture);
+        }
+        let first = (self.textures.dynamic_start() + MODEL_PAGE + start) as u16;
+        for frame in &mut frames {
+            frame.page += first;
+        }
+        self.gui_models.fire.frames = frames;
+        self.gui_models.fire.pages_start = Some(start);
         self.gui_models.pages.extend(pages);
         Ok(())
     }

@@ -21,6 +21,8 @@ pub struct ModGrants {
     pub hud: bool,
     /// Allows bounded actor attack range and held-attack press requests.
     pub interaction: bool,
+    /// Allows local physics snapshots and ordinary one-shot jump input requests.
+    pub movement: bool,
     /// Allows the selected component's bounded companion settings file.
     pub settings: bool,
     /// Allows sandboxed post passes and bounded world primitives.

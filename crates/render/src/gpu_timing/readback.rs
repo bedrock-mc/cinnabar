@@ -140,7 +140,8 @@ pub(super) fn span_validity(begin: u64, end: u64) -> SpanValidity {
     }
 }
 
-/// Sums valid tick spans; frame bounds are emitted only when coverage spans the frame.
+/// Sums valid tick spans; frame bounds are emitted only when coverage spans the frame and no
+/// span already measured the whole frame.
 #[must_use]
 pub(crate) fn decode_spans(
     spans: impl IntoIterator<Item = (RuntimeStage, u64, u64)>,
@@ -149,10 +150,12 @@ pub(crate) fn decode_spans(
 ) -> GpuFrameTimes {
     let mut times = GpuFrameTimes::default();
     let mut bounds: Option<(u64, u64)> = None;
+    let mut complete_frame = complete_frame;
     for (stage, begin, end) in spans {
         if span_validity(begin, end) != SpanValidity::Valid {
             continue;
         }
+        complete_frame &= stage != RuntimeStage::GpuFrame;
         times.add(stage, ticks_to_duration(end - begin, period_ns));
         bounds = Some(bounds.map_or((begin, end), |(first, last)| {
             (first.min(begin), last.max(end))
@@ -274,6 +277,16 @@ mod tests {
             decode_spans([(RuntimeStage::GpuOpaque, 1, 1)], 1.0, true).get(RuntimeStage::GpuOpaque),
             Some(Duration::ZERO)
         );
+    }
+
+    #[test]
+    fn a_whole_frame_span_is_reported_once() {
+        let times = decode_spans([(RuntimeStage::GpuFrame, 100, 400)], 2.0, true);
+        assert_eq!(
+            times.get(RuntimeStage::GpuFrame),
+            Some(Duration::from_nanos(600))
+        );
+        assert_eq!(times.iter().count(), 1);
     }
 
     #[test]

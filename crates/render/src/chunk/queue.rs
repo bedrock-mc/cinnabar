@@ -715,6 +715,11 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
         .as_deref()
         .map(|profiler| profiler.time(RuntimeStage::RenderQueueApplication));
     if std::mem::take(&mut queue.session_reset_pending) {
+        // A held reload snapshot names the chunks despawned below; keeping the hold would
+        // stop every upload of the new session.
+        if let Some(reload) = &reload {
+            reload.discard_geometry();
+        }
         drop(gpu_removals.take_ready(usize::MAX, |_| true));
         acknowledgements.clear();
         for (_, entity) in entities.0.drain() {

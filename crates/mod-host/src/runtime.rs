@@ -1,6 +1,6 @@
 use crate::{
-    CameraDelta, FRAME_FUEL, GameplayCameraRig, GameplayMob, GameplaySnapshot, MAX_LABEL_BYTES,
-    MEMORY_BYTES, ModCue, ModGrants, PlayerStateSnapshot,
+    CameraDelta, FRAME_FUEL, GameplayCameraRig, GameplayMob, GameplayMovementSnapshot,
+    GameplaySnapshot, MAX_LABEL_BYTES, MEMORY_BYTES, ModCue, ModGrants, PlayerStateSnapshot,
 };
 use anyhow::{Result, bail};
 use wasmtime::{
@@ -45,6 +45,12 @@ struct State {
     pending_fullbright: Option<bool>,
     environment_writes: u32,
     snapshot: Option<GameplaySnapshot>,
+    movement: Option<GameplayMovementSnapshot>,
+    pending_jump: bool,
+    pending_jump_cancel: bool,
+    jump_cancel: bool,
+    jump_pulse: bool,
+    movement_writes: u32,
     gameplay_reads: u32,
     camera_writes: u32,
     pending_camera: Option<CameraDelta>,
@@ -86,6 +92,12 @@ impl State {
             pending_fullbright: None,
             environment_writes: 0,
             snapshot: None,
+            movement: None,
+            pending_jump: false,
+            pending_jump_cancel: false,
+            jump_cancel: false,
+            jump_pulse: false,
+            movement_writes: 0,
             gameplay_reads: 0,
             camera_writes: 0,
             pending_camera: None,
@@ -228,10 +240,17 @@ impl Instance {
         snapshot: Option<GameplaySnapshot>,
         mobs: Vec<GameplayMob>,
         player_state: Option<PlayerStateSnapshot>,
+        movement: Option<GameplayMovementSnapshot>,
         controls: crate::ControlFrame,
     ) -> Result<()> {
         let state = self.store.data_mut();
         state.snapshot = None;
+        state.movement = None;
+        state.pending_jump = false;
+        state.pending_jump_cancel = false;
+        state.jump_cancel = false;
+        state.jump_pulse = false;
+        state.movement_writes = 0;
         state.pending_camera = None;
         state.camera_delta = None;
         state.pending_packet_delay = None;
@@ -251,6 +270,7 @@ impl Instance {
         }
         let validation = gameplay::validate_snapshot(snapshot.as_ref())
             .and_then(|()| gameplay::validate_mobs(snapshot.as_ref(), &mobs))
+            .and_then(|()| gameplay::validate_movement(snapshot.as_ref(), movement.as_ref()))
             .and_then(|()| player_state::validate(player_state.as_ref()))
             .and_then(|()| controls::validate_frame(&controls));
         if let Err(error) = validation {
@@ -265,6 +285,7 @@ impl Instance {
         state.gameplay_reads = 0;
         state.camera_writes = 0;
         state.snapshot = snapshot;
+        state.movement = movement;
         state.world.advance_command_window(snapshot_seconds);
         state.world.mobs = mobs;
         state.player_state.set_snapshot(player_state)?;
@@ -283,6 +304,11 @@ impl Instance {
             self.store.data_mut().fullbright = false;
             self.store.data_mut().pending_fullbright = None;
             self.store.data_mut().snapshot = None;
+            self.store.data_mut().movement = None;
+            self.store.data_mut().pending_jump = false;
+            self.store.data_mut().pending_jump_cancel = false;
+            self.store.data_mut().jump_cancel = false;
+            self.store.data_mut().jump_pulse = false;
             self.store.data_mut().pending_camera = None;
             self.store.data_mut().camera_delta = None;
             self.store.data_mut().controls.revoke();
@@ -301,6 +327,7 @@ impl Instance {
         commit(&mut self.store);
         self.store.data_mut().snapshot = None;
         self.store.data_mut().player_state.begin_frame();
+        self.store.data_mut().movement = None;
         self.store.data_mut().world.mobs = Vec::new();
         self.store.data_mut().world.incoming = Vec::new();
         self.store.data_mut().controls.frame = crate::empty_controls();
@@ -318,6 +345,16 @@ impl Instance {
     /// Only a successful, focused gameplay callback publishes a view multiplier.
     pub(super) fn camera_view_scale(&self) -> Option<[f32; 2]> {
         self.store.data().camera_policy.committed_view_scale
+    }
+
+    /// Consumes the committed cancellation once.
+    pub(super) fn take_jump_cancel(&mut self) -> bool {
+        std::mem::take(&mut self.store.data_mut().jump_cancel)
+    }
+
+    /// Consumes the committed jump request once.
+    pub(super) fn take_jump_pulse(&mut self) -> bool {
+        std::mem::take(&mut self.store.data_mut().jump_pulse)
     }
 
     pub(super) fn camera_rig(&self) -> Option<GameplayCameraRig> {
@@ -420,6 +457,8 @@ impl Instance {
 fn commit(store: &mut Store<State>) {
     let state = store.data_mut();
     state.hud.commit();
+    state.jump_cancel = std::mem::take(&mut state.pending_jump_cancel);
+    state.jump_pulse = std::mem::take(&mut state.pending_jump) && !state.jump_cancel;
     state.controls.commit();
     state.render.commit();
     state.block_highlights.commit();

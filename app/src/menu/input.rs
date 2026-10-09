@@ -1,3 +1,4 @@
+mod cancel;
 mod context;
 mod death;
 mod preview;
@@ -962,8 +963,6 @@ pub(crate) fn drive_menu_input(
     keys.reset_all();
     mouse_buttons.reset_all();
 }
-
-mod back;
 
 #[cfg(test)]
 mod gui_scale_drag_tests;

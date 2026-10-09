@@ -480,16 +480,22 @@ impl RuntimeStageProfiler {
                 trace.slow_frame(event);
             }
         }
-        *self
-            .state
-            .latest_gpu
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(*frame);
+        if frame
+            .iter()
+            .any(|(stage, _)| stage != RuntimeStage::GpuFrame)
+        {
+            *self
+                .state
+                .latest_gpu
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(*frame);
+        }
     }
 
-    /// The most recent GPU frame read back, if the adapter supports timestamps.
+    /// The most recent read-back GPU frame that timed individual passes, if the adapter
+    /// supports timestamps. Frames that timed only the whole frame leave it unchanged.
     #[must_use]
-    pub fn latest_gpu_frame(&self) -> Option<crate::GpuFrameTimes> {
+    pub fn latest_pass_frame(&self) -> Option<crate::GpuFrameTimes> {
         *self
             .state
             .latest_gpu
@@ -684,14 +690,17 @@ mod tests {
     #[test]
     fn gpu_frames_feed_aggregates_and_the_latest_snapshot() {
         let profiler = RuntimeStageProfiler::for_gameplay(true, None);
-        assert_eq!(profiler.latest_gpu_frame(), None);
+        assert_eq!(profiler.latest_pass_frame(), None);
         let frame = crate::gpu_timing::decode_spans([(RuntimeStage::GpuOpaque, 10, 30)], 1.0, true);
         profiler.record_gpu_frame(&frame);
-        assert_eq!(profiler.latest_gpu_frame(), Some(frame));
+        assert_eq!(profiler.latest_pass_frame(), Some(frame));
+        // A whole-frame span updates aggregates but keeps the last per-pass breakdown.
+        let whole = crate::gpu_timing::decode_spans([(RuntimeStage::GpuFrame, 10, 50)], 1.0, true);
+        profiler.record_gpu_frame(&whole);
+        assert_eq!(profiler.latest_pass_frame(), Some(frame));
         let snapshot = profiler.take_snapshot_if_due(Duration::ZERO).unwrap();
-        for stage in [RuntimeStage::GpuOpaque, RuntimeStage::GpuFrame] {
-            assert_eq!(snapshot.samples[stage as usize].count, 1);
-        }
+        assert_eq!(snapshot.samples[RuntimeStage::GpuOpaque as usize].count, 1);
+        assert_eq!(snapshot.samples[RuntimeStage::GpuFrame as usize].count, 2);
     }
 
     #[test]

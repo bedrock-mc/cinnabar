@@ -12,7 +12,9 @@ use crate::chunk::*;
 use super::{
     GpuCullFrame, GpuCullSubmission,
     kernels::{CullKernels, CullStorage, HizPyramid, PyramidBindings},
-    model::{CullCamera, CullPhase, CullRecord, CullStream, CullViewInput, CullViewUniform},
+    model::{
+        CullCamera, CullPhase, CullRecord, CullStream, CullViewInput, CullViewUniform, STREAM_COUNT,
+    },
     slots::{CullSlots, cull_record},
 };
 
@@ -34,7 +36,8 @@ pub(super) struct PreparedCullDraws<'a> {
     pub(super) args: &'a Buffer,
     pub(super) counts: &'a Buffer,
     pub(super) capacity: u32,
-    pub(super) slots: u32,
+    /// Per-stream draw ceilings from [`CullSlots::draw_bounds`].
+    pub(super) draw_bounds: [u32; STREAM_COUNT],
     pub(super) submission: GpuCullSubmission,
 }
 
@@ -80,7 +83,7 @@ impl GpuCull {
             args: self.args.as_ref()?,
             counts: self.draw_counts.as_ref()?,
             capacity: self.storage.as_ref()?.capacity,
-            slots: self.slot_count(),
+            draw_bounds: self.table.draw_bounds(),
             submission: self.submission,
         })
     }

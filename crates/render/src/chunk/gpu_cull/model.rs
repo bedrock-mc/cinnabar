@@ -163,6 +163,26 @@ impl CullRecord {
         (self.solid_ends[slot / 2] >> (16 * (slot % 2))) & 0xffff
     }
 
+    /// Most draws the kernels can emit for this record in each stream, from any eye.
+    pub fn max_draws(&self) -> [u32; STREAM_COUNT] {
+        let solid_slots = (0..6)
+            .filter(|&slot| {
+                let start = if slot == 0 {
+                    0
+                } else {
+                    self.solid_end(slot - 1)
+                };
+                start != self.solid_end(slot)
+            })
+            .count() as u32;
+        [
+            solid_slots.min(MAX_SOLID_RUNS),
+            u32::from(!self.cutout().is_empty()),
+            u32::from(self.model_count != 0),
+            u32::from(self.liquid_count != 0),
+        ]
+    }
+
     /// Merged absolute solid runs whose face bit is in `facing`, as the CPU path draws them.
     pub fn solid_runs(&self, facing: u8) -> Vec<Range<u32>> {
         let mut runs: Vec<Range<u32>> = Vec::new();

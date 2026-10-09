@@ -37,7 +37,7 @@ mod entity_shadow_render;
 pub use enhanced::{EnhancedRenderPlugin, EnhancedRendering, MAX_SHADOW_CASCADES};
 pub use entity_shadow_render::{EntityShadowRenderPlugin, EntityShadowScene};
 mod gpu_timing;
-pub use gpu_timing::{GpuFrameTimes, GpuTimingPlugin};
+pub use gpu_timing::{DetailedGpuTiming, GpuFrameTimes, GpuTimingPlugin};
 
 mod dropped_item_render;
 mod hand_rig_render;
@@ -207,7 +207,8 @@ pub use panorama::{PANORAMA_WGSL, PanoramaScene};
 pub use panorama_render::PanoramaRenderPlugin;
 pub use present_mode::{
     PresentModePolicy, PresentModePolicyPlugin, PresentModePreference, PresentModeRemedy,
-    requested_present_mode_kind, resolve_dx12_present_mode_remedy, window_present_mode,
+    frame_latency_for_vsync, requested_present_mode_kind, resolve_dx12_present_mode_remedy,
+    window_present_mode,
 };
 pub use runtime_profile::{
     RuntimeStage, RuntimeStageProfileSnapshot, RuntimeStageProfiler, RuntimeStageSample,

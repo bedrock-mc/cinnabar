@@ -300,6 +300,74 @@ fn slot_table_tracks_moves_removals_cave_visibility_and_tint() {
     assert_eq!(table.take_dirty(), [1, 2, 3]);
 }
 
+/// Each phase submits only the draws its enabled records can emit, never one per slot and stream.
+#[test]
+fn fixed_draw_counts_cover_exactly_what_enabled_records_can_emit() {
+    let entity = |index: u32| Entity::from_raw_u32(index + 1).unwrap();
+    let tint = ChunkBiomeTintIdentity::default();
+    let every_stream = cull_record(
+        &allocation(CubeQuadLayout::from_solid_counts([1, 1, 2, 2, 1, 1]), 0),
+        None,
+    );
+    let mut solid_only = allocation(CubeQuadLayout::from_solid_counts([2, 0, 0, 3, 1, 0]), 2);
+    solid_only.model_draw_range = None;
+    solid_only.has_depth_liquid = false;
+    let solid_only = cull_record(&solid_only, None);
+    assert_eq!(every_stream.max_draws(), [3, 1, 1, 1]);
+    assert_eq!(solid_only.max_draws(), [3, 1, 0, 0]);
+
+    let mut hidden = HashSet::from([entity(3)]);
+    let mut table = CullSlots::default();
+    table.set_tint(tint, &hidden);
+    table.update(entity(0), 0, tint, every_stream, &hidden);
+    table.update(entity(2), 2, tint, solid_only, &hidden);
+    table.update(entity(3), 3, tint, every_stream, &hidden);
+    // Four slots used to submit [12, 4, 4, 4]; the empty slot and the cave-hidden one add nothing.
+    assert_eq!(table.draw_bounds(), [6, 2, 1, 1]);
+
+    let index_counts = [6, 6, 6, 6];
+    let offsets = [-7.5, 0.0, 0.25, 8.0, 15.0, 16.5, 40.0];
+    for x in offsets {
+        for y in offsets {
+            for z in offsets {
+                let camera = CullCamera::new(Some([x, 64.0 + y, z - 16.0]));
+                let args = reference_args(table.records(), camera, index_counts, |slot| {
+                    slot_enabled(table.enabled(), slot)
+                });
+                for (stream, args) in args.iter().enumerate() {
+                    assert!(args.len() as u32 <= table.draw_bounds()[stream]);
+                }
+            }
+        }
+    }
+
+    let recount = |table: &CullSlots| {
+        let mut bounds = [0; 4];
+        for (slot, record) in table.records().iter().enumerate() {
+            if slot_enabled(table.enabled(), slot) {
+                for (bound, draws) in bounds.iter_mut().zip(record.max_draws()) {
+                    *bound += draws;
+                }
+            }
+        }
+        bounds
+    };
+    hidden.clear();
+    table.refresh_entity(entity(3), &hidden);
+    assert_eq!(table.draw_bounds(), [9, 3, 2, 2]);
+    table.update(entity(2), 5, tint, every_stream, &hidden);
+    assert_eq!(table.draw_bounds(), [9, 3, 3, 3]);
+    table.remove(entity(0));
+    table.trim();
+    assert_eq!(table.draw_bounds(), [6, 2, 2, 2]);
+    assert_eq!(table.draw_bounds(), recount(&table));
+    let stale = ChunkBiomeTints::with_revision(Arc::from([]), 9).table_identity();
+    table.set_tint(stale, &hidden);
+    assert_eq!(table.draw_bounds(), [0; 4]);
+    table.set_tint(tint, &hidden);
+    assert_eq!(table.draw_bounds(), recount(&table));
+}
+
 /// Release timing: `cargo test --release -p render --lib gpu_cull_cpu_stage_bench -- --ignored --nocapture`.
 #[test]
 #[ignore = "offline CPU stage timing fixture"]

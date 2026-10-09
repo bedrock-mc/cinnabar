@@ -50,6 +50,12 @@
   Normal supports saved overworld pre-generation and four chunk workers by default; see
   [generation measurements](docs/evidence/local-world-generation.md). Bedrock generation parity
   and join/streaming budgets remain incomplete.
+- Dragonfly Normal populates eligible grass habitats with persistent cows, pigs, sheep and
+  chickens through the owning world simulation. Reopening preserves saved actors and backend.
+  Exact material admission, continuous weather brightness, complete effect lifecycle and infinite-effect behavior,
+  native damage-immunity behavior across reload, complete animal AI, breeding,
+  climate variants, loot and other passive species remain incomplete; this does not close
+  the broader mob parity or performance gates.
 - Dressing Room persists classic/slim skins and independent capes, imports and item edits. Home
   and Pause previews support rotation and pointer tracking. Cape attachment uses its own shoulders.
 - Cropped cape imports pad the 46×22 layout at supported texture scales with transparent pixels,
@@ -1604,6 +1610,11 @@ The reported flat held-thumbnail and plain-tooltip regressions passed fresh
 macOS/Metal Retina-2 rendered-frame checks against offline official BDS. The
 first live offhand Shield exposed a missing expression-bound ModelPart origin;
 the correction now passes both hand poses and real-carrier tests.
+2026-10-07 non-cube block items (slabs, stairs, walls, fences) also draw as GUI geometry at
+display resolution instead of a 32x32 thumbnail (icon carrier v3 names each thumbnail's world
+state). Incomplete: their GUI tessellation is still the provisional cube projection, blended
+materials (stained panes) keep the thumbnail, and the bamboo fence and fence gate items show
+misplaced quads, as their thumbnails already did.
 Integration retains upstream's gamma-space UI layer, font/animation paths and
 independently inherited image/sidecar overrides. Stateful inventory/HUD providers
 explicitly clear empty icon bindings so compact icon tables cannot leave duplicate

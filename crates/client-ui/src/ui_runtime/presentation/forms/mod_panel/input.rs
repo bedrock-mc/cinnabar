@@ -4,20 +4,25 @@ impl UiPresentationRuntime {
     /// Releases pointer capture while preserving the panel and its editor draft.
     pub fn cancel_mod_panel_pointer_input(&mut self) {
         if let Some(editor) = self.form_presentation.mod_hud_editor.as_mut() {
-            editor.cancel_drag();
+            editor.cancel_pointer_input();
         }
         if let Some(panel) = self.form_presentation.mod_panel.as_mut() {
-            panel.drag = None;
-            panel.pointer = None;
-            panel.held = false;
-            panel.view.hovered = None;
-            panel.view.pressed = None;
-            panel.view.pointer = None;
+            panel.cancel_pointer_input();
         }
     }
 }
 
 impl ModPanel {
+    /// Releases captured movement and visual pointer states without closing the panel.
+    fn cancel_pointer_input(&mut self) {
+        self.drag = None;
+        self.pointer = None;
+        self.held = false;
+        self.view.hovered = None;
+        self.view.pressed = None;
+        self.view.pointer = None;
+    }
+
     pub(super) fn pointer_events(
         &mut self,
         position: [f32; 2],
@@ -25,14 +30,17 @@ impl ModPanel {
         held: bool,
     ) -> Vec<Event> {
         if !self.open || !position.iter().all(|value| value.is_finite()) {
-            self.drag = None;
-            self.pointer = None;
+            self.cancel_pointer_input();
             return Vec::new();
         }
         let Some(frame) = self.frame.as_ref() else {
             return Vec::new();
         };
-        if !pressed && self.pointer == Some(position) && self.held == held {
+        if !pressed
+            && self.pointer == Some(position)
+            && self.held == held
+            && (held || self.view.pressed.is_none())
+        {
             return Vec::new();
         }
         self.pointer = Some(position);
@@ -48,6 +56,11 @@ impl ModPanel {
         let hovered = hit.map(|hit| hit.key.as_str());
         if self.view.hovered.as_deref() != hovered {
             self.view.hovered = hovered.map(str::to_owned);
+        }
+        if pressed {
+            self.view.pressed = hovered.map(str::to_owned);
+        } else if !held {
+            self.view.pressed = None;
         }
         if !held && !pressed {
             self.drag = None;
@@ -103,8 +116,7 @@ impl ModPanel {
             Some("mod.close") => {
                 self.open = false;
                 self.frame = None;
-                self.drag = None;
-                self.pointer = None;
+                self.cancel_pointer_input();
                 return Vec::new();
             }
             Some("mod.prev") | Some("mod.next") => {

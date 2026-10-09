@@ -1,6 +1,9 @@
 //! Native GUI geometry follows JSON-UI controls, not fixed-size baked thumbnails.
 
-use std::{collections::BTreeMap, sync::Arc};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 
 use assets::{ItemVisualDefinitionRoute, RuntimeAssets, RuntimeEntityAssets};
 use render_model::UiTexturePage;
@@ -9,6 +12,7 @@ use ui::{UiMesh, UiNode, UiVisual};
 use super::{IconRef, UiPresentationError, UiPresentationRuntime, item_gui, player_preview};
 
 mod atlas;
+mod block_models;
 mod fire;
 mod held;
 mod live_player;
@@ -26,6 +30,50 @@ pub(super) const SKIN_PAGE: usize = render_model::UI_PLAYER_SKIN_PAGE_OFFSET;
 pub(super) const MODEL_PAGE: usize = render_model::UI_MODEL_ATLAS_PAGE_OFFSET;
 pub(super) const MODEL_PAGES: usize = render_model::MAX_UI_MODEL_ATLAS_PAGES;
 
+/// Swaps sprites that have native models for their geometry. The player preview mesh is built
+/// at most once, and only when a node shows the preview icon. Translucent optional models
+/// retain their original sprite so faded controls keep a single layer.
+fn replace_model_icons<'a>(
+    nodes: &mut [UiNode],
+    preview: Option<IconKey>,
+    optional_models: &BTreeSet<IconKey>,
+    player: impl FnOnce() -> Option<Arc<UiMesh>>,
+    models: impl Fn(&IconKey) -> Option<&'a Arc<UiMesh>>,
+) {
+    let mut build_player = Some(player);
+    let mut player = None;
+    for node in nodes {
+        let (key, color, glint) = match node.visual() {
+            UiVisual::Sprite {
+                texture_page,
+                uv,
+                color,
+            } => ((*texture_page, *uv), *color, false),
+            UiVisual::GlintSprite {
+                texture_page,
+                uv,
+                color,
+            } => ((*texture_page, *uv), *color, true),
+            _ => continue,
+        };
+        if color[3] < u8::MAX && optional_models.contains(&key) {
+            continue;
+        }
+        let mesh = if preview == Some(key) {
+            if let Some(build) = build_player.take() {
+                player = build();
+            }
+            player.as_ref()
+        } else {
+            models(&key)
+        };
+        let Some(mesh) = mesh.and_then(|mesh| modulated(mesh, color, glint)) else {
+            continue;
+        };
+        *node = node.clone().with_visual(UiVisual::Mesh(mesh));
+    }
+}
+
 pub(super) type IconKey = (u16, [u16; 4]);
 pub(super) fn icon_key(icon: IconRef) -> IconKey {
     (icon.page, icon.uv)
@@ -39,9 +87,32 @@ pub(super) struct GuiModels {
     pub(super) pack_equipment: pack_equipment::PackEquipment,
     live_player: live_player::LivePlayer,
     models: BTreeMap<IconKey, Arc<UiMesh>>,
+    optional_models: BTreeSet<IconKey>,
+    required_pages: usize,
     textures: BTreeMap<atlas::TextureKey, IconRef>,
     held: BTreeMap<assets::ItemVisualKey, player_preview::PreviewHeldModel>,
     fire: fire::FireAtlas,
+}
+
+impl GuiModels {
+    /// Drops optional block meshes and restores required pages. Returns whether anything was dropped;
+    /// callers reinstall fire frames after a discard.
+    fn discard_optional_models(&mut self, first: usize) -> bool {
+        if self.optional_models.is_empty() {
+            return false;
+        }
+        self.pages.truncate(self.required_pages);
+        for key in std::mem::take(&mut self.optional_models) {
+            self.models.remove(&key);
+        }
+        self.textures.retain(|_, icon| {
+            let page = usize::from(icon.page);
+            page < first + self.required_pages || page >= first + MODEL_PAGES
+        });
+        self.fire.frames.clear();
+        self.fire.pages_start = None;
+        true
+    }
 }
 
 impl UiPresentationRuntime {
@@ -139,6 +210,19 @@ impl UiPresentationRuntime {
             self.equipment_catalog.as_deref(),
             &held_sources,
         )?;
+        let required_pages = atlas.page_count();
+        let mut optional_models = BTreeSet::new();
+        if let Some(refs) = self.icon_refs.as_deref() {
+            for thumbnail in icons.block_models() {
+                if let Some(icon) = refs.get(thumbnail.sprite as usize)
+                    && !models.contains_key(&icon_key(*icon))
+                    && let Some(mesh) = block_models::mesh(world, thumbnail.visual, &mut atlas)
+                {
+                    models.insert(icon_key(*icon), mesh);
+                    optional_models.insert(icon_key(*icon));
+                }
+            }
+        }
         let (pages, mut textures) = atlas.finish()?;
         if let Some(refs) = self.icon_refs.as_deref() {
             for (sprite, icon) in icons.sprites().iter().zip(refs) {
@@ -154,6 +238,8 @@ impl UiPresentationRuntime {
         );
         self.gui_models.pages = pages;
         self.gui_models.models = models;
+        self.gui_models.optional_models = optional_models;
+        self.gui_models.required_pages = required_pages;
         self.gui_models.textures = textures;
         self.gui_models.held = held;
         self.gui_models.fire.pages_start = None;
@@ -200,34 +286,18 @@ impl UiPresentationRuntime {
             return;
         }
         let preview = self.player_preview_icon.map(icon_key);
-        let player = self.gui_player_mesh();
-        for node in nodes {
-            let (key, color, glint) = match node.visual() {
-                UiVisual::Sprite {
-                    texture_page,
-                    uv,
-                    color,
-                } => ((*texture_page, *uv), *color, false),
-                UiVisual::GlintSprite {
-                    texture_page,
-                    uv,
-                    color,
-                } => ((*texture_page, *uv), *color, true),
-                _ => continue,
-            };
-            let mesh = if preview == Some(key) {
-                player.as_ref()
-            } else {
+        replace_model_icons(
+            nodes,
+            preview,
+            &self.gui_models.optional_models,
+            || self.gui_player_mesh(),
+            |key| {
                 self.gui_models
                     .models
-                    .get(&key)
-                    .or_else(|| self.session_icons.models.get(&key))
-            };
-            let Some(mesh) = mesh.and_then(|mesh| modulated(mesh, color, glint)) else {
-                continue;
-            };
-            *node = node.clone().with_visual(UiVisual::Mesh(mesh));
-        }
+                    .get(key)
+                    .or_else(|| self.session_icons.models.get(key))
+            },
+        );
     }
 
     fn gui_player_mesh(&self) -> Option<Arc<UiMesh>> {

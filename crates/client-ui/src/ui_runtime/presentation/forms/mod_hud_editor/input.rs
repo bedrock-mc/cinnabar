@@ -59,6 +59,13 @@ impl HudEditor {
             self.draft.cards[drag.index] = self.committed.cards[drag.index].clone();
         }
     }
+    /// Releases pointer feedback and rolls back an unfinished captured gesture.
+    pub(in super::super) fn cancel_pointer_input(&mut self) {
+        self.cancel_drag();
+        self.view.hovered = None;
+        self.view.pressed = None;
+        self.view.pointer = None;
+    }
     /// Converts a clamped GUI-pixel top-left into normalized available travel.
     fn move_card(&mut self, index: usize, at: [f64; 2]) {
         let card = &mut self.draft.cards[index];
@@ -86,7 +93,7 @@ impl HudEditor {
         controls: &[ui::mod_panel::Control],
     ) -> Vec<ui::mod_panel::Event> {
         if !self.open || !position.into_iter().all(f32::is_finite) {
-            self.cancel_drag();
+            self.cancel_pointer_input();
             return Vec::new();
         }
         let Some(frame) = self.frame.as_ref() else {
@@ -95,16 +102,23 @@ impl HudEditor {
         let point = std::array::from_fn(|axis| {
             f64::from((position[axis] - frame.origin[axis]) / frame.scale)
         });
+        let hit = frame
+            .hits
+            .iter()
+            .rev()
+            .find(|hit| hit.enabled && hit.pressed.is_some() && hit.contains(point));
+        let hovered = hit.map(|hit| hit.key.as_str());
+        if self.view.hovered.as_deref() != hovered {
+            self.view.hovered = hovered.map(str::to_owned);
+        }
+        if pressed {
+            self.view.pressed = hovered.map(str::to_owned);
+        } else if !held {
+            self.view.pressed = None;
+        }
         let action = pressed
-            .then(|| {
-                frame
-                    .hits
-                    .iter()
-                    .rev()
-                    .find(|hit| hit.enabled && hit.pressed.is_some() && hit.contains(point))
-            })
-            .flatten()
-            .and_then(|hit| hit.pressed.clone());
+            .then(|| hit.and_then(|hit| hit.pressed.clone()))
+            .flatten();
         if let Some(id) = action
             .as_deref()
             .and_then(|action| action.strip_prefix("hud.done:"))

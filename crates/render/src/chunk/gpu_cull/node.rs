@@ -58,7 +58,7 @@ impl<P: PhaseItem, const STREAM: usize, const LATE: bool> RenderCommand<P>
         } else {
             CullPhase::Early
         };
-        let max_draw_count = draws.slots.saturating_mul(stream.draws_per_record());
+        let max_draw_count = draws.draw_bounds[stream as usize];
         if max_draw_count == 0 {
             return RenderCommandResult::Skip;
         }

@@ -150,6 +150,52 @@ fn f3_toggles_rendered_overlay_and_hidden_frames_leave_presentation_untouched() 
     );
 }
 
+/// The overlay ranks GPU passes once per refresh, so it times passes in one frame per refresh.
+#[test]
+fn f3_requests_per_pass_gpu_timing_only_for_its_refreshes() {
+    let mut app = App::new();
+    app.insert_resource(ButtonInput::<KeyCode>::default())
+        .insert_resource(Time::<Real>::default())
+        .insert_resource(ClientWorld::default())
+        .insert_resource(LocalPlayerFrameCarrier::default())
+        .insert_resource(client_ui::test_support::mini_engine_presentation())
+        .init_resource::<render::DetailedGpuTiming>();
+    // The first clock update only anchors it; later updates carry their duration as delta.
+    app.world_mut()
+        .resource_mut::<Time<Real>>()
+        .update_with_duration(Duration::ZERO);
+    configure(&mut app);
+    let toggle = |app: &mut App| {
+        let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+        keys.release(KeyCode::F3);
+        keys.clear();
+        keys.press(KeyCode::F3);
+        app.update();
+        app.world().resource::<render::DetailedGpuTiming>().0
+    };
+    let detailed = |app: &App| app.world().resource::<render::DetailedGpuTiming>().0;
+    app.update();
+    assert!(!detailed(&app));
+    assert!(toggle(&mut app), "opening the overlay times one frame");
+    app.world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .clear();
+    app.update();
+    assert!(
+        !detailed(&app),
+        "frames between refreshes time only the frame"
+    );
+    app.world_mut()
+        .resource_mut::<Time<Real>>()
+        .update_with_duration(FRAME_TIMING_WINDOW);
+    app.update();
+    assert!(detailed(&app), "a refresh times one frame");
+    app.world_mut()
+        .resource_mut::<Time<Real>>()
+        .update_with_duration(FRAME_TIMING_WINDOW);
+    assert!(!toggle(&mut app), "a hidden overlay times nothing");
+}
+
 #[test]
 fn visible_frames_between_diagnostic_ticks_leave_presentation_untouched() {
     use bevy::ecs::system::{IntoSystem, System};

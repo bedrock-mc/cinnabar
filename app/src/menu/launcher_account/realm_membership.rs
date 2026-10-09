@@ -114,9 +114,7 @@ impl LauncherAccount {
     }
 
     /// Takes the latest response once, leaving stale-ticket rejection to the menu.
-    pub(super) fn realm_membership_control(
-        &mut self,
-    ) -> Option<(u64, bool, Result<(String, MenuRealmCard), ()>)> {
+    pub(super) fn realm_membership_control(&mut self) -> Option<RealmMembershipResponse> {
         self.with(|snapshot| snapshot.realm_membership.take())
     }
 }

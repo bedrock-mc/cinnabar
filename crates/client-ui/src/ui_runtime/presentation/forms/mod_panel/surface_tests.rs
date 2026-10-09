@@ -173,3 +173,88 @@ fn reference_size_keeps_bottom_control_visible_and_clickable_in_small_viewports(
     panel.reference_size = Some([600.0, 400.0]);
     assert!(!template::same_shape(&resized, &panel));
 }
+
+#[test]
+fn custom_panel_buttons_render_captured_press_and_clear_feedback_on_release_and_cancel() {
+    let mut panel = panel();
+    panel.controls = vec![Control::Button {
+        id: "continue".into(),
+        label: "Continue".into(),
+    }];
+    let state = |color| {
+        json!({"type":"custom","renderer":"cinnabar_rounded_rectangle",
+            "size":["100%","100%"],"radius":0,"color":color})
+    };
+    panel.surface = Some(Surface {
+        screen: "extension.screen".into(),
+        document: json!({"namespace":"extension","screen":{
+            "type":"panel","size":["100%","100%"],"controls":[{"continue":{
+                "type":"button","size":[80,24],"offset":[100,80],
+                "anchor_from":"top_left","anchor_to":"top_left",
+                "default_control":"normal","hover_control":"hover","pressed_control":"pressed",
+                "button_mappings":[{"from_button_id":"button.menu_select",
+                    "to_button_id":"mod.control:0","mapping_type":"pressed"}],
+                "controls":[{"normal":state([0,0,1,1])},{"hover":state([0,1,0,1])},
+                    {"pressed":state([1,0,0,1])}]
+            }}]
+        }})
+        .to_string(),
+        bindings: Default::default(),
+    });
+    let mut p = mini_engine_presentation();
+    p.set_mod_panel(Some(&panel)).unwrap();
+    p.set_mod_panel_open(true);
+    frame(&mut p, [1280, 720]);
+    let at = point(&p, "mod.control:0", 0.5);
+    let pixel = |p: &mut UiPresentationRuntime| {
+        let rendered = frame(p, [1280, 720]);
+        super::super::snapshot::rasterize(&rendered)
+            .get_pixel(at[0] as u32, at[1] as u32)
+            .0
+    };
+    assert_eq!(pixel(&mut p), [0, 0, 255, 255]);
+    assert!(p.mod_panel_events(at, false, false).is_empty());
+    assert_eq!(pixel(&mut p), [0, 255, 0, 255]);
+    assert_eq!(
+        p.mod_panel_events(at, true, true),
+        [Event {
+            id: "continue".into(),
+            value: 1.
+        }]
+    );
+    assert_eq!(pixel(&mut p), [255, 0, 0, 255]);
+    assert!(p.mod_panel_events([-50.; 2], false, true).is_empty());
+    assert_eq!(
+        pixel(&mut p),
+        [255, 0, 0, 255],
+        "press remains captured outside"
+    );
+    p.mod_panel_events([-50.; 2], false, false);
+    assert_eq!(pixel(&mut p), [0, 0, 255, 255]);
+    p.mod_panel_events(at, true, true);
+    p.mod_panel_events(at, false, false);
+    assert_eq!(pixel(&mut p), [0, 255, 0, 255]);
+    assert_eq!(
+        p.mod_panel_events(at, true, false),
+        [Event {
+            id: "continue".into(),
+            value: 1.
+        }]
+    );
+    assert_eq!(pixel(&mut p), [255, 0, 0, 255]);
+    assert!(p.mod_panel_events(at, false, false).is_empty());
+    assert_eq!(
+        pixel(&mut p),
+        [0, 255, 0, 255],
+        "a quick tap clears its press on the next stationary callback"
+    );
+    p.cancel_mod_panel_pointer_input();
+    assert_eq!(pixel(&mut p), [0, 0, 255, 255]);
+    p.mod_panel_events(at, true, true);
+    p.mod_panel_events([f32::NAN, at[1]], false, true);
+    assert_eq!(pixel(&mut p), [0, 0, 255, 255]);
+    p.mod_panel_events(at, true, true);
+    p.set_mod_panel_open(false);
+    p.set_mod_panel_open(true);
+    assert_eq!(pixel(&mut p), [0, 0, 255, 255]);
+}

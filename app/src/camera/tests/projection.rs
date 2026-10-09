@@ -406,11 +406,13 @@ fn world_hurt_rotation_samples_actor_ticks_and_clears_when_the_stream_retires() 
             "actor-driven right axis: {right:?}"
         );
         assert!(right.z.abs() < 1e-6);
-        let expected_portal = Mat4::from_quat(rotation)
-            * projection(&mut app).get_clip_from_view().inverse();
+        let expected_portal =
+            Mat4::from_quat(rotation) * projection(&mut app).get_clip_from_view().inverse();
         let overlay = app.world().resource::<render::ScreenOverlayScene>();
         assert!(
-            overlay.portal_from_clip().abs_diff_eq(expected_portal, 1e-6),
+            overlay
+                .portal_from_clip()
+                .abs_diff_eq(expected_portal, 1e-6),
             "portal directions must use this frame's rendered hurt rotation"
         );
     }

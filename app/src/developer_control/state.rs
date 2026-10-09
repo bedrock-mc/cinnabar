@@ -199,9 +199,27 @@ fn player_motion(world: &World) -> Option<Value> {
     let authority = stream.authority();
     let rig = authority.actor_rig(stream.local_player_runtime_id())?;
     let java = rig.java;
+    let state = physics.state();
+    let jump_held = world
+        .get_resource::<crate::semantic_controls::SemanticInputSnapshot>()
+        .and_then(|input| input.snapshot())
+        .map(|input| input.phases[semantic_input::Action::Jump as usize].held);
     Some(json!({
         "mode": format!("{:?}", physics.mode()),
-        "on_ground": physics.state().map(|state| state.on_ground),
+        "on_ground": state.map(|state| state.on_ground),
+        "tick": state.map(|state| state.tick),
+        "velocity": state.map(|state| [state.velocity.x, state.velocity.y, state.velocity.z]),
+        "jump_delay": state.map(|state| state.jump_delay),
+        "knockback_sequence": physics.knockback_sequence(),
+        "physics_authorized": world.get_resource::<crate::movement::MovementTicker>()
+            .map(|movement| movement.physics_is_authorized()),
+        "jump_eligible": physics.jump_pulse_eligible(),
+        "jump_held": jump_held,
+        "flying": player.facts.game_mode_capabilities().map(|abilities| abilities.flying),
+        "dimension_transfer": world.get_resource::<ClientWorld>()
+            .map(|world| world.dimension_transfer.active()),
+        "respawn_input_held": world.get_resource::<ClientWorld>()
+            .map(|world| world.respawn.input_held()),
         "mount_unique_id": player.facts.mount_unique_id(),
         "java": {
             "walked": java.walked,
@@ -241,6 +259,10 @@ pub(super) fn snapshot(world: &World) -> Value {
             "sign_in_fixture": menu.sign_in_fixture_state(),
         })
     });
+    #[cfg(feature = "local-mods")]
+    let local_mods = crate::modding::developer_state(world);
+    #[cfg(not(feature = "local-mods"))]
+    let local_mods: Option<Value> = None;
     json!({
         "in_world": stream.is_some(),
         "immobile": world.get_resource::<crate::player_runtime::PlayerRuntime>()
@@ -264,6 +286,7 @@ pub(super) fn snapshot(world: &World) -> Value {
         "actors": actors,
         "actor_draw": super::actors::snapshot(world),
         "player_motion": player_motion(world),
+        "local_mods": local_mods,
         "primitive_shapes": crate::primitive_shapes::snapshot(world),
         "sidebar": world.get_resource::<UiRuntime>()
             .and_then(|ui| super::scoreboards::snapshot(ui.scoreboards())),

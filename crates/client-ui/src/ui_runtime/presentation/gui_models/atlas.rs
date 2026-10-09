@@ -102,6 +102,42 @@ impl Atlas {
         Ok(icon)
     }
 
+    /// Inserts optional mesh textures, restoring atlas capacity when insertion or mesh building fails.
+    pub(super) fn try_insert<'a, T>(
+        &mut self,
+        sources: impl IntoIterator<Item = ([u16; 2], &'a [u8])>,
+        build: impl FnOnce(&[IconRef]) -> Option<T>,
+    ) -> Option<T> {
+        let (cursor, row, pages) = (self.cursor, self.row, self.pages.len());
+        let mut added = Vec::new();
+        let result = (|| {
+            let mut icons = Vec::new();
+            for (size, pixels) in sources {
+                let key = key(size, pixels);
+                let known = self.refs.contains_key(&key);
+                icons.push(self.insert(size, pixels).ok()?);
+                if !known {
+                    added.push(key);
+                }
+            }
+            build(&icons)
+        })();
+        if result.is_none() {
+            self.cursor = cursor;
+            self.row = row;
+            self.pages.truncate(pages);
+            for key in added {
+                self.refs.remove(&key);
+            }
+        }
+        result
+    }
+
+    /// Returns the pages already occupied by required model textures.
+    pub(super) fn page_count(&self) -> usize {
+        self.pages.len()
+    }
+
     pub(super) fn finish(
         self,
     ) -> Result<(Vec<UiTexturePage>, BTreeMap<TextureKey, IconRef>), UiPresentationError> {

@@ -19,7 +19,7 @@ use bevy::{
         App, ClearColor, Color, DefaultPlugins, First, IntoScheduleConfigs, Last, PluginGroup,
         Resource, SystemSet, Update, default,
     },
-    render::{diagnostic::RenderDiagnosticsPlugin, settings::Backends},
+    render::diagnostic::RenderDiagnosticsPlugin,
     window::WindowPlugin,
 };
 use chunk_pipeline::PublicationServiceConfig;
@@ -134,6 +134,7 @@ impl ClientBlobCacheOwner {
 }
 
 mod authority;
+mod executor;
 pub(crate) use authority::{configure_client_authority_systems, configure_client_frame_schedule};
 
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -403,23 +404,6 @@ pub(crate) fn configure_client_runtime_frame_systems(app: &mut App) {
                 .after(FlyCameraUpdateSet),
         )
         .add_systems(Last, arm_shutdown_watchdog);
-}
-
-pub(crate) fn preferred_render_backends(explicit: Option<&OsStr>) -> Option<Backends> {
-    if explicit.is_some() {
-        return None;
-    }
-    #[cfg(target_os = "windows")]
-    {
-        // Prefer Vulkan so capable Windows adapters can use count-driven GPU Hi-Z terrain
-        // culling. Keep DX12 admitted as the fallback for drivers without a usable Vulkan
-        // surface; an explicit WGPU_BACKEND still retains full operator control.
-        Some(Backends::VULKAN | Backends::DX12)
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        None
-    }
 }
 
 /// Binds the identity-checked session-directory owner for direct starts.
@@ -722,9 +706,13 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     };
     let shutdown_watchdog = ShutdownWatchdog::process(SHUTDOWN_WATCHDOG_TIMEOUT);
 
+    let startup_vsync = present_mode_runtime
+        .vsync_override()
+        .unwrap_or_else(|| saved_settings.user_settings().video.vsync);
     let primary_window = render_setup::primary_window(
         launcher::window_title(std::env::var("CINNABAR_WINDOW_TITLE").ok().as_deref()),
         present_mode,
+        render::frame_latency_for_vsync(startup_vsync),
     );
     #[cfg(feature = "developer-control")]
     let primary_window = crate::developer_control::primary_window(primary_window);
@@ -978,6 +966,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
 
     #[cfg(feature = "enhanced-diagnostics")]
     crate::enhanced_diagnostics::install(&mut app, diagnostic_budget);
+    executor::run_frame_schedules_on_one_thread(&mut app);
     let exit = app.run();
     crate::discord_presence::shutdown(&mut app);
     if let Some(mut network) = app.world_mut().remove_resource::<NetworkHandle>() {

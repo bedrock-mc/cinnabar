@@ -4,8 +4,9 @@ use std::sync::Arc;
 
 use assets::{
     BLOCK_ITEM_FACE_SIDE, BLOCK_ITEM_SHEET_GRID, BLOCK_ITEM_SHEET_SIZE, BlockVisualId,
-    IconBlockSheet, IconEntry, IconSprite, MAX_ICON_ENTRIES, MAX_ICON_SIDE, RuntimeIconCatalog,
-    compose_block_item_sheet, encode_icon_catalog, encode_icon_catalog_with_block_sheets,
+    IconBlockModel, IconBlockSheet, IconEntry, IconSprite, MAX_ICON_ENTRIES, MAX_ICON_SIDE,
+    RuntimeIconCatalog, compose_block_item_sheet, encode_icon_catalog,
+    encode_icon_catalog_with_block_sheets, encode_icon_catalog_with_blocks,
 };
 
 fn sprite(width: u16, height: u16, fill: u8) -> IconSprite {
@@ -196,4 +197,46 @@ fn carried_block_sheet_order_references_and_dimensions_fail_closed() {
     let mut tiles = std::array::from_fn(|_| sprite(BLOCK_ITEM_FACE_SIDE, BLOCK_ITEM_FACE_SIDE, 1));
     tiles[3].rgba8 = Arc::from([1; 4]);
     assert!(compose_block_item_sheet(&tiles).is_none());
+}
+
+#[test]
+fn block_model_thumbnails_round_trip_beside_carried_sheets() {
+    let model = |sprite, visual| IconBlockModel {
+        sprite,
+        visual: BlockVisualId(visual),
+    };
+    let sheet = sprite(BLOCK_ITEM_SHEET_SIZE[0], BLOCK_ITEM_SHEET_SIZE[1], 3);
+    let sprites = [sprite(32, 32, 1), sheet, sprite(32, 32, 2)];
+    let sheets = [IconBlockSheet {
+        visual: BlockVisualId(4),
+        sprite: 1,
+    }];
+    let models = [model(0, 40), model(2, 9)];
+    let entries = [entry("test:stairs", 0, 0), entry("test:wall", 0, 2)];
+    for sheets in [&sheets[..], &[]] {
+        let bytes =
+            encode_icon_catalog_with_blocks([7; 32], &sprites, &entries, sheets, &models).unwrap();
+        let decoded = RuntimeIconCatalog::decode(&bytes).unwrap();
+        assert_eq!(decoded.block_models(), models);
+        assert_eq!(decoded.block_sheets(), sheets);
+        assert_eq!(decoded.lookup("test:wall", 0).unwrap().rgba8[0], 2);
+    }
+    // Without models the earlier layouts are unchanged.
+    assert_eq!(
+        encode_icon_catalog_with_blocks([7; 32], &sprites, &entries, &sheets, &[]).unwrap(),
+        encode_icon_catalog_with_block_sheets([7; 32], &sprites, &entries, &sheets).unwrap()
+    );
+    let decoded =
+        RuntimeIconCatalog::decode(&encode_icon_catalog([7; 32], &sprites, &entries).unwrap())
+            .unwrap();
+    assert!(decoded.block_models().is_empty());
+    for invalid in [
+        vec![model(3, 1)],
+        vec![model(2, 1), model(0, 1)],
+        vec![model(0, 1), model(0, 2)],
+    ] {
+        assert!(
+            encode_icon_catalog_with_blocks([7; 32], &sprites, &entries, &[], &invalid).is_err()
+        );
+    }
 }

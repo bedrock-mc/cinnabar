@@ -1,3 +1,7 @@
+mod frame_latency;
+
+pub use frame_latency::frame_latency_for_vsync;
+
 use std::sync::{
     Arc,
     atomic::{AtomicU8, AtomicU16, Ordering},
@@ -215,6 +219,7 @@ impl Plugin for PresentModePolicyPlugin {
         render_app.insert_resource(self.policy.clone());
         crate::surface_lifecycle::install(render_app);
         crate::surface_capabilities::install(render_app);
+        frame_latency::install(render_app);
         #[cfg(target_os = "windows")]
         render_app.add_systems(
             Render,
@@ -411,6 +416,12 @@ fn apply_dx12_present_mode_policy(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn vsync_keeps_one_frame_in_flight_and_unpaced_presentation_keeps_two() {
+        assert_eq!(frame_latency_for_vsync(true).get(), 1);
+        assert_eq!(frame_latency_for_vsync(false).get(), 2);
+    }
 
     #[test]
     fn automatic_remedy_proof_requires_later_immediate_extraction_and_is_one_shot() {

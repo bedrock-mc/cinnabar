@@ -266,13 +266,12 @@ pub(in crate::chunk) fn prepare_chunk_texture_assets(
     {
         let (prepared, uploaded, geometry) =
             gpu_assets.staged.take().expect("matching staged atlas");
+        // Geometry built for chunks a session reset retired cannot publish. The main world
+        // already meshes against this atlas, so it still installs and the reload completes.
         if let Some(geometry) = geometry
             && !geometry.publish(&mut commands, &instances, &mut arena)
         {
-            reload.finish(identity, false);
-            gpu_assets.attempted_identity = Some(identity);
             bevy::log::warn!("discarding resource geometry with retired chunk keys");
-            return;
         }
         reload.published();
         gpu_assets.prepared = Some(prepared);

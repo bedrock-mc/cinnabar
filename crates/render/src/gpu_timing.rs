@@ -1,5 +1,7 @@
 //! Nonblocking GPU timing sums elapsed pass latencies, including overlap and gaps, not active work.
 //! Metal times owned passes and the stock opaque pass; whole-frame and shared draw categories stay absent.
+//! Elsewhere, frames that nothing inspects pass by pass record only the whole-frame span: each
+//! marker is its own pass, and two per frame cost far less than two per timed node.
 
 mod categories;
 mod health;
@@ -21,6 +23,8 @@ use bevy::{
     prelude::*,
     render::{
         Render, RenderApp, RenderStartup, RenderSystems,
+        extract_resource::{ExtractResource, ExtractResourcePlugin},
+        graph::CameraDriverLabel,
         render_graph::{
             EmptyNode, InternedRenderLabel, Node, NodeRunError, RenderGraph, RenderGraphContext,
             RenderLabel, SlotInfo,
@@ -34,7 +38,7 @@ use std::{
     marker::PhantomData,
     sync::{
         Arc,
-        atomic::{AtomicU8, AtomicU32, Ordering},
+        atomic::{AtomicBool, AtomicU8, AtomicU32, AtomicU64, Ordering},
     },
 };
 
@@ -50,6 +54,8 @@ const SLOT_SPANS: u32 = PASS_SPANS + DRAW_SPANS;
 const SLOT_BYTES: u64 = SLOT_SPANS as u64 * 2 * TIMESTAMP_BYTES;
 const TIMESTAMP_BYTES: u64 = 8;
 const NO_SLOT: u32 = u32::MAX;
+const NO_SPAN: u32 = u32::MAX;
+const NOT_RESOLVED: u64 = u64::MAX;
 
 const PENDING: u8 = 0;
 const MAPPED: u8 = 1;
@@ -63,6 +69,8 @@ impl Plugin for GpuTimingPlugin {
         let Some(profiler) = app.world().get_resource::<RuntimeStageProfiler>().cloned() else {
             return;
         };
+        app.init_resource::<DetailedGpuTiming>()
+            .add_plugins(ExtractResourcePlugin::<DetailedGpuTiming>::default());
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
             return;
         };
@@ -77,18 +85,26 @@ impl Plugin for GpuTimingPlugin {
             .insert_resource(profiler)
             // RenderStartup runs inside the render app after every plugin has built the graph,
             // and still reaches it after pipelined rendering moves the app to its own thread.
-            .add_systems(RenderStartup, (init_gpu_timestamps, wrap_timed_nodes))
+            .add_systems(
+                RenderStartup,
+                (init_gpu_timestamps, wrap_timed_nodes, add_readback_node),
+            )
             .add_systems(
                 Render,
                 (
                     begin_gpu_frame.in_set(RenderSystems::PrepareResources),
-                    submit_gpu_frame.in_set(crate::device_poll::FrameSubmissions),
+                    request_gpu_frame_readback.in_set(crate::device_poll::FrameSubmissions),
                 ),
             );
         #[cfg(feature = "tracy")]
         tracy::install(render_app);
     }
 }
+
+/// Asks for per-pass GPU spans in the next rendered frame when the stage profiler does not
+/// already record them, such as when a developer overlay refreshes its slowest passes.
+#[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq, ExtractResource)]
+pub struct DetailedGpuTiming(pub bool);
 
 /// The timed Core3d nodes; absent labels are skipped.
 fn timed_nodes() -> Vec<(InternedRenderLabel, RuntimeStage)> {
@@ -153,6 +169,54 @@ fn wrap_timed_nodes(world: &mut World) {
     }
 }
 
+/// Resolves the frame's spans at the end of its own graph, after every camera.
+fn add_readback_node(world: &mut World) {
+    let Some(mut graph) = world.get_resource_mut::<RenderGraph>() else {
+        return;
+    };
+    if graph.get_node_state(CameraDriverLabel).is_err() {
+        return;
+    }
+    graph.add_node(ReadbackLabel, ReadbackNode);
+    graph.add_node_edge(CameraDriverLabel, ReadbackLabel);
+}
+
+#[derive(Debug, Hash, PartialEq, Eq, Clone, RenderLabel)]
+struct ReadbackLabel;
+
+struct ReadbackNode;
+
+impl Node for ReadbackNode {
+    fn run<'w>(
+        &self,
+        _: &mut RenderGraphContext,
+        render_context: &mut RenderContext<'w>,
+        world: &'w World,
+    ) -> Result<(), NodeRunError> {
+        if let Some(timestamps) = world.get_resource::<GpuTimestamps>()
+            && timestamps.frame.slot.load(Ordering::Acquire) != NO_SLOT
+        {
+            if cfg!(target_os = "macos")
+                || timestamps.draw_spans
+                || world.contains_resource::<categories::CategoryProfiling>()
+            {
+                // Owned Metal passes, category passes and profiled draws allocate queries while
+                // recording deferred work. Finish that CPU work before choosing query ranges,
+                // retaining the buffers for one submission. Other frames keep their encoder.
+                let replacement = RenderContext::new(render_context.render_device().clone(), None);
+                let pending = std::mem::replace(render_context, replacement);
+                let (buffers, device, diagnostics) = pending.finish();
+                *render_context = RenderContext::new(device, diagnostics);
+                for buffer in buffers {
+                    render_context.add_command_buffer(buffer);
+                }
+            }
+            timestamps.encode_readback(render_context.command_encoder());
+        }
+        Ok(())
+    }
+}
+
 struct TimedNode {
     inner: Box<dyn Node>,
     stage: RuntimeStage,
@@ -177,18 +241,9 @@ impl Node for TimedNode {
         render_context: &mut RenderContext<'w>,
         world: &'w World,
     ) -> Result<(), NodeRunError> {
-        let span = world
-            .get_resource::<GpuTimestamps>()
-            .filter(|timestamps| timestamps.graph_span_enabled(self.stage))
-            .and_then(|timestamps| timestamps.open_pass(self.stage));
-        if let Some(span) = &span {
-            mark(render_context, span.queries, span.begin);
-        }
-        let result = self.inner.run(graph, render_context, world);
-        if let Some(span) = &span {
-            mark(render_context, span.queries, span.begin + 1);
-        }
-        result
+        timed(world, render_context, self.stage, |render_context| {
+            self.inner.run(graph, render_context, world)
+        })
     }
 }
 
@@ -201,30 +256,27 @@ pub(crate) fn timed<'w, R>(
 ) -> R {
     let span = world
         .get_resource::<GpuTimestamps>()
-        .filter(|timestamps| timestamps.graph_span_enabled(stage))
-        .and_then(|timestamps| timestamps.open_pass(stage));
-    if let Some(span) = &span {
-        mark(context, span.queries, span.begin);
+        .and_then(|timestamps| timestamps.open_graph_span(stage));
+    if let Some((span, _)) = &span {
+        mark(context.command_encoder(), span.queries, span.begin);
     }
     let result = record(context);
-    if let Some(span) = &span {
-        mark(context, span.queries, span.begin + 1);
+    if let Some((span, true)) = &span {
+        mark(context.command_encoder(), span.queries, span.begin + 1);
     }
     result
 }
 
 /// Writes one timestamp with an empty compute pass, valid between any two passes.
-fn mark(context: &mut RenderContext, queries: &wgpu::QuerySet, index: u32) {
-    context
-        .command_encoder()
-        .begin_compute_pass(&wgpu::ComputePassDescriptor {
-            label: Some("gpu timestamp"),
-            timestamp_writes: Some(wgpu::ComputePassTimestampWrites {
-                query_set: queries,
-                beginning_of_pass_write_index: None,
-                end_of_pass_write_index: Some(index),
-            }),
-        });
+fn mark(encoder: &mut wgpu::CommandEncoder, queries: &wgpu::QuerySet, index: u32) {
+    encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+        label: Some("gpu timestamp"),
+        timestamp_writes: Some(wgpu::ComputePassTimestampWrites {
+            query_set: queries,
+            beginning_of_pass_write_index: None,
+            end_of_pass_write_index: Some(index),
+        }),
+    });
 }
 
 /// Times draw command `C` as stage `STAGE` (a [`RuntimeStage`] index) inside its pass.
@@ -271,6 +323,12 @@ struct FrameSpans {
     passes: AtomicU32,
     draws: AtomicU32,
     stages: [AtomicU8; SLOT_SPANS as usize],
+    /// Whether the frame's first timed node has run.
+    started: AtomicBool,
+    /// Begin query of a whole-frame span that [`GpuTimestamps::encode_readback`] still has to close.
+    open_frame: AtomicU32,
+    /// Pass and draw span counts copied for readback, packed high and low, or `NOT_RESOLVED`.
+    resolved: AtomicU64,
 }
 
 struct ReadbackSlot {
@@ -290,6 +348,8 @@ pub(crate) struct GpuTimestamps {
     period_ns: f32,
     draw_spans: bool,
     ui_categories: bool,
+    /// Whether this frame times every timed node rather than only the whole frame.
+    pass_detail: bool,
     frame: FrameSpans,
     health: Option<health::QueryHealth>,
 }
@@ -337,11 +397,15 @@ impl GpuTimestamps {
             draw_spans: profiling
                 && features.contains(wgpu::Features::TIMESTAMP_QUERY_INSIDE_PASSES),
             ui_categories: ui_profiling_requested(),
+            pass_detail: profiling,
             frame: FrameSpans {
                 slot: AtomicU32::new(NO_SLOT),
                 passes: AtomicU32::new(0),
                 draws: AtomicU32::new(0),
                 stages: std::array::from_fn(|_| AtomicU8::new(0)),
+                started: AtomicBool::new(false),
+                open_frame: AtomicU32::new(NO_SPAN),
+                resolved: AtomicU64::new(NOT_RESOLVED),
             },
             health: health::QueryHealth::requested(),
         })
@@ -349,6 +413,23 @@ impl GpuTimestamps {
 
     fn open_pass(&self, stage: RuntimeStage) -> Option<Span<'_>> {
         self.open(stage, &self.frame.passes, 0, PASS_SPANS)
+    }
+
+    /// A timed node's span and whether the node closes it. With pass detail every node owns a
+    /// span; otherwise the first node opens the whole-frame span and later nodes record nothing.
+    fn open_graph_span(&self, stage: RuntimeStage) -> Option<(Span<'_>, bool)> {
+        if !self.graph_span_enabled(stage) {
+            return None;
+        }
+        if self.pass_detail {
+            return self.open_pass(stage).map(|span| (span, true));
+        }
+        if self.frame.started.swap(true, Ordering::AcqRel) {
+            return None;
+        }
+        let span = self.open_pass(RuntimeStage::GpuFrame)?;
+        self.frame.open_frame.store(span.begin, Ordering::Release);
+        Some((span, false))
     }
 
     fn open_draw(&self, stage: RuntimeStage) -> Option<Span<'_>> {
@@ -436,29 +517,32 @@ impl GpuTimestamps {
         }
         self.frame.passes.store(0, Ordering::Relaxed);
         self.frame.draws.store(0, Ordering::Relaxed);
+        self.frame.started.store(false, Ordering::Relaxed);
+        self.frame.open_frame.store(NO_SPAN, Ordering::Relaxed);
+        self.frame.resolved.store(NOT_RESOLVED, Ordering::Relaxed);
         self.frame.slot.store(slot, Ordering::Release);
     }
 
-    /// Resolves this frame's spans and maps them asynchronously; nothing waits on the GPU.
-    fn submit(&mut self, device: &RenderDevice, queue: &RenderQueue) {
+    /// Closes the whole-frame span and copies the frame's spans into its readback slot, inside the
+    /// frame's own submission so timing adds no queue submission.
+    fn encode_readback(&self, encoder: &mut wgpu::CommandEncoder) {
         #[cfg(feature = "tracy")]
-        let _zone = bevy::log::info_span!("gpu.timestamps.resolve_submit").entered();
-        let slot = self.frame.slot.swap(NO_SLOT, Ordering::AcqRel);
+        let _zone = bevy::log::info_span!("gpu.timestamps.resolve").entered();
+        let slot = self.frame.slot.load(Ordering::Acquire);
         if slot == NO_SLOT {
             return;
         }
         let passes = self.frame.passes.load(Ordering::Relaxed).min(PASS_SPANS);
         let draws = self.frame.draws.load(Ordering::Relaxed);
         let draws = if draws > DRAW_SPANS { 0 } else { draws };
-        let index = slot as usize;
         if passes == 0 && draws == 0 {
-            self.ring.release(index);
             return;
         }
+        let open_frame = self.frame.open_frame.swap(NO_SPAN, Ordering::AcqRel);
+        if open_frame != NO_SPAN {
+            mark(encoder, &self.queries, open_frame + 1);
+        }
         let base = slot * SLOT_SPANS * 2;
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("gpu timestamp readback"),
-        });
         if passes > 0 {
             encoder.resolve_query_set(&self.queries, base..base + passes * 2, &self.resolve, 0);
         }
@@ -471,14 +555,29 @@ impl GpuTimestamps {
                 u64::from(PASS_SPANS) * 2 * TIMESTAMP_BYTES,
             );
         }
-        let target = &mut self.slots[index];
+        let target = &self.slots[slot as usize];
         encoder.copy_buffer_to_buffer(&self.resolve, 0, &target.buffer, 0, SLOT_BYTES);
-        let command = encoder.finish();
-        {
-            #[cfg(feature = "tracy")]
-            let _zone = bevy::log::info_span!("gpu.timestamps.queue_submit", slot).entered();
-            queue.submit([command]);
+        self.frame.resolved.store(
+            u64::from(passes) << 32 | u64::from(draws),
+            Ordering::Release,
+        );
+    }
+
+    /// Maps the slot the submitted frame resolved into; nothing waits on the GPU. A frame whose
+    /// graph resolved nothing gives its slot back.
+    fn request_readback(&mut self) {
+        let slot = self.frame.slot.swap(NO_SLOT, Ordering::AcqRel);
+        if slot == NO_SLOT {
+            return;
         }
+        let index = slot as usize;
+        let resolved = self.frame.resolved.swap(NOT_RESOLVED, Ordering::AcqRel);
+        if resolved == NOT_RESOLVED {
+            self.ring.release(index);
+            return;
+        }
+        let (passes, draws) = ((resolved >> 32) as u32, resolved as u32);
+        let target = &mut self.slots[index];
         target.passes = passes;
         target.draws = draws;
         for span in (0..passes).chain(PASS_SPANS..PASS_SPANS + draws) {
@@ -518,20 +617,25 @@ fn init_gpu_timestamps(
     }
 }
 
-fn begin_gpu_frame(timestamps: Option<ResMut<GpuTimestamps>>, profiler: Res<RuntimeStageProfiler>) {
+fn begin_gpu_frame(
+    timestamps: Option<ResMut<GpuTimestamps>>,
+    profiler: Res<RuntimeStageProfiler>,
+    detail: Option<Res<DetailedGpuTiming>>,
+    categories: Option<Res<categories::CategoryProfiling>>,
+) {
     let Some(mut timestamps) = timestamps else {
         return;
     };
+    timestamps.pass_detail = profiler.enabled()
+        || timestamps.ui_categories
+        || categories.is_some()
+        || detail.is_some_and(|detail| detail.0);
     // Reads slots mapped by the previous frame's device poll.
     timestamps.begin(|frame| profiler.record_gpu_frame(frame));
 }
 
-fn submit_gpu_frame(
-    timestamps: Option<ResMut<GpuTimestamps>>,
-    device: Res<RenderDevice>,
-    queue: Res<RenderQueue>,
-) {
+fn request_gpu_frame_readback(timestamps: Option<ResMut<GpuTimestamps>>) {
     if let Some(mut timestamps) = timestamps {
-        timestamps.submit(&device, &queue);
+        timestamps.request_readback();
     }
 }

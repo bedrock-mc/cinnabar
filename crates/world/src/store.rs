@@ -297,7 +297,7 @@ impl ChunkStore {
         let replacement_bytes = retained_bytes.saturating_add(nbt.bytes().len());
         ensure_chunk_block_entity_bytes(replacement_bytes)?;
         let chunk = self.chunks.entry(key.chunk()).or_default();
-        chunk.block_entities.insert(key, Arc::new(nbt));
+        Arc::make_mut(&mut chunk.block_entities).insert(key, Arc::new(nbt));
         chunk.block_entity_bytes = replacement_bytes;
         Ok(true)
     }
@@ -329,7 +329,7 @@ impl ChunkStore {
             .values()
             .map(|entity| entity.bytes().len())
             .sum();
-        chunk.block_entities = replacement;
+        chunk.block_entities = Arc::new(replacement);
         if chunk.sub_chunks.is_empty() && chunk.biomes.is_none() && chunk.block_entities.is_empty()
         {
             self.chunks.remove(&key);
@@ -593,10 +593,9 @@ impl ChunkStore {
             return;
         }
         let chunk = self.chunks.entry(key.chunk()).or_default();
-        chunk
-            .block_entities
-            .retain(|entity, _| entity.sub_chunk() != key);
-        chunk.block_entities.extend(replacement);
+        let entities = Arc::make_mut(&mut chunk.block_entities);
+        entities.retain(|entity, _| entity.sub_chunk() != key);
+        entities.extend(replacement);
         chunk.block_entity_bytes = replacement_bytes;
         if chunk.sub_chunks.is_empty() && chunk.biomes.is_none() && chunk.block_entities.is_empty()
         {
@@ -645,7 +644,7 @@ impl ChunkStore {
             return;
         };
         let mut removed_bytes = 0_usize;
-        chunk.block_entities.retain(|entity, nbt| {
+        Arc::make_mut(&mut chunk.block_entities).retain(|entity, nbt| {
             let retain = entity.sub_chunk() != key;
             if !retain {
                 removed_bytes = removed_bytes.saturating_add(nbt.bytes().len());
@@ -736,7 +735,7 @@ impl ChunkStore {
         let mut block_entities = match block_entities {
             Some(replacement) => replacement.into_entities(),
             None => old
-                .map(|chunk| chunk.block_entities.clone())
+                .map(|chunk| std::collections::BTreeMap::clone(&chunk.block_entities))
                 .unwrap_or_default(),
         };
         if let Some(previous) = old {
@@ -807,7 +806,7 @@ impl ChunkStore {
                         .values()
                         .map(|entity| entity.bytes().len())
                         .sum(),
-                    block_entities,
+                    block_entities: Arc::new(block_entities),
                 },
             );
         }

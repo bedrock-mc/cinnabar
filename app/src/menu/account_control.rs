@@ -27,6 +27,9 @@ pub(crate) enum AccountEvent {
     Disconnected { reason: String },
 }
 
+/// A request ticket, acceptance flag, and result from the Realm membership worker.
+pub(crate) type RealmMembershipResponse = (u64, bool, Result<(String, MenuRealmCard), ()>);
+
 /// What the play and sign-in screens need from the core.
 pub(crate) trait AccountControl {
     /// `account_status.v1`: the current sign-in state, when known.
@@ -94,7 +97,7 @@ pub(crate) trait AccountControl {
     /// Cancels the pending preview, closing its control connection.
     fn cancel_realm_membership(&mut self) {}
     /// Delivers one request generation's result.
-    fn realm_membership(&mut self) -> Option<(u64, bool, Result<(String, MenuRealmCard), ()>)> {
+    fn realm_membership(&mut self) -> Option<RealmMembershipResponse> {
         None
     }
 }

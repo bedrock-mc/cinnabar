@@ -171,11 +171,18 @@ mod tests {
     const ESCAPE: FrameInput = Key(Close);
     const OTHER: FrameInput = Key(Other);
 
+    type PressCase<'a> = (
+        &'a str,
+        bool,
+        &'a [FrameInput],
+        &'a [(MouseButton, PressRoute)],
+    );
+
     #[test]
     fn each_press_is_routed_once_to_the_state_in_force_when_it_arrived() {
         let first = Screen { opening: 0 };
         let opened = Screen { opening: 1 };
-        let cases: &[(&str, bool, &[FrameInput], &[(MouseButton, PressRoute)])] = &[
+        let cases: &[PressCase<'_>] = &[
             (
                 "click then Escape",
                 true,

@@ -146,7 +146,7 @@ impl UiPresentationRuntime {
             editor.viewport = viewport;
             editor.catalog = None;
             editor.frame = None;
-            editor.cancel_drag();
+            editor.cancel_pointer_input();
         }
         if editor.catalog.is_none() {
             match template::catalog(editor, viewport) {

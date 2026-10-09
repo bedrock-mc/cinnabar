@@ -26,6 +26,21 @@ fn classify(id: u32) -> Option<BlockEntityKind> {
     (id == PORTAL).then_some(BlockEntityKind::EndPortal)
 }
 
+/// Collects one sub-chunk's cells and submits those near `eye`, as a frame does.
+fn submit_sub_chunk(
+    submissions: &mut Vec<BlockEntitySubmission>,
+    grid: [i32; 3],
+    sub_chunk: &SubChunk,
+    eye: Vec3,
+    classify: &mut impl FnMut(u32) -> Option<BlockEntityKind>,
+) {
+    submit(
+        submissions,
+        &sub_chunk_cells(grid, sub_chunk, classify),
+        eye,
+    );
+}
+
 #[test]
 fn primary_palette_portals_are_drawn_without_block_entity_nbt() {
     let side = SUB_CHUNK_SIDE as i32;

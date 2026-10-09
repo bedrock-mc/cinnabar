@@ -28,7 +28,7 @@ fn metal_device() -> Option<(RenderDevice, RenderQueue)> {
 }
 
 #[test]
-fn metal_pass_markers_emit_readable_timestamps() {
+fn metal_deferred_pass_markers_emit_readable_timestamps() {
     let Some((device, queue)) = metal_device() else {
         return;
     };
@@ -89,10 +89,11 @@ fn metal_pass_markers_emit_readable_timestamps() {
     let mut world = World::new();
     world.insert_resource(timestamps);
     let mut context = RenderContext::new(device.clone(), None);
-    {
-        let mut pass = context
-            .command_encoder()
-            .begin_render_pass(&wgpu::RenderPassDescriptor {
+    let render_world = &world;
+    context.add_command_buffer_generation_task(move |device| {
+        let mut encoder = device.create_command_encoder(&Default::default());
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("owned timestamp regression pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
@@ -104,16 +105,19 @@ fn metal_pass_markers_emit_readable_timestamps() {
                     },
                 })],
                 depth_stencil_attachment: None,
-                timestamp_writes: render_pass_timestamps(&world, RuntimeStage::GpuUi),
+                timestamp_writes: render_pass_timestamps(render_world, RuntimeStage::GpuOpaque),
                 occlusion_query_set: None,
             });
-        pass.set_pipeline(&pipeline);
-        pass.draw(0..3, 0..1);
-    }
+            pass.set_pipeline(&pipeline);
+            pass.draw(0..3, 0..1);
+        }
+        encoder.finish()
+    });
     bevy::tasks::ComputeTaskPool::get_or_init(bevy::tasks::TaskPool::default);
+    super::tests::run_readback_node(&world, &mut context);
     queue.submit(context.finish().0);
     let mut timestamps = world.remove_resource::<GpuTimestamps>().unwrap();
-    timestamps.submit(&device, &queue);
+    timestamps.request_readback();
     device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
     let index = timestamps.ring.oldest_in_flight().unwrap();
     let mapped = timestamps.slots[index].buffer.slice(..).get_mapped_range();
@@ -130,7 +134,7 @@ fn metal_pass_markers_emit_readable_timestamps() {
     let mut frames = Vec::new();
     timestamps.begin(|frame| frames.push(*frame));
     assert_eq!(frames.len(), 1);
-    assert!(frames[0].get(RuntimeStage::GpuUi).is_some());
+    assert!(frames[0].get(RuntimeStage::GpuOpaque).is_some());
     assert_eq!(frames[0].get(RuntimeStage::GpuFrame), None);
 }
 

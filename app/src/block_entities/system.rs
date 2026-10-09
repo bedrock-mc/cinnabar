@@ -2,7 +2,7 @@
 
 use std::{collections::HashMap, path::Path, sync::Arc};
 
-use assets::{BlockEntityRouteKind, RuntimeBlockEntityAssets, RuntimeFontCatalog};
+use assets::{RuntimeBlockEntityAssets, RuntimeFontCatalog};
 use bevy::prelude::*;
 use render::{
     AtlasRect, AtmosphereFrame, BeaconModel, BellModel, BlockEntityFrame, BlockEntityKind,
@@ -10,7 +10,7 @@ use render::{
     SignModel, StaticItemPlacement, StaticItemPlacements, item_frame_item_transform, matrix_rows,
 };
 use ui::TextLayoutCache;
-use world::{BlockEntityKey, BlockEntityNbt, ChunkKey, SUB_CHUNK_SIDE};
+use world::{ChunkKey, SUB_CHUNK_SIDE};
 
 use super::{
     containers::{ContainerKind, ContainerLids, cue_is_open},
@@ -35,6 +35,7 @@ const TEXT_CACHE_ENTRIES: usize = 256;
 const TEXT_CACHE_BYTES: usize = 2 * 1024 * 1024;
 
 mod bed;
+mod columns;
 mod crystal_beams;
 mod dragon_death;
 mod portals;
@@ -96,19 +97,12 @@ struct BlockInfo {
     state: BlockState,
 }
 
-struct Described {
-    nbt: Arc<BlockEntityNbt>,
-    runtime_id: u32,
-    template: Option<Template>,
-    /// The frame that last scanned this entity; older entries are dropped after the scan.
-    seen_frame: u64,
-}
-
 #[derive(Resource)]
 pub(crate) struct BlockEntityRuntime {
     cracks: CrackClock,
     lids: ContainerLids,
-    described: HashMap<BlockEntityKey, Described>,
+    /// Scan results per loaded column, rebuilt when the column changes.
+    columns: HashMap<ChunkKey, columns::ColumnScan>,
     frame: u64,
     blocks: HashMap<u32, Option<Arc<BlockInfo>>>,
     layouts: TextLayoutCache,
@@ -127,7 +121,7 @@ impl BlockEntityRuntime {
         Self {
             cracks: CrackClock::default(),
             lids: ContainerLids::default(),
-            described: HashMap::new(),
+            columns: HashMap::new(),
             frame: 0,
             blocks: HashMap::new(),
             layouts: TextLayoutCache::new(TEXT_CACHE_ENTRIES, TEXT_CACHE_BYTES),
@@ -149,7 +143,7 @@ impl BlockEntityRuntime {
         self.cracks = CrackClock::default();
         self.lids = ContainerLids::default();
         self.missing_maps.clear();
-        self.described.clear();
+        self.columns.clear();
         self.blocks.clear();
         self.shapes.clear();
         self.bell_rings.clear();
@@ -244,6 +238,21 @@ fn block_info(
         .clone()
 }
 
+/// The portal surface `runtime_id` draws, if any.
+fn portal_kind(
+    runtime: &mut BlockEntityRuntime,
+    collisions: &PhysicsCollisionRegistries,
+    mode: assets::NetworkIdMode,
+    runtime_id: u32,
+) -> Option<BlockEntityKind> {
+    let info = block_info(runtime, collisions, mode, runtime_id)?;
+    match info.name.as_ref() {
+        assets::END_PORTAL_IDENTIFIER => Some(BlockEntityKind::EndPortal),
+        assets::END_GATEWAY_IDENTIFIER => Some(BlockEntityKind::EndGateway),
+        _ => None,
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn update_block_entity_scene(
     client_world: Res<ClientWorld>,
@@ -324,7 +333,7 @@ pub(crate) fn update_block_entity_scene(
     runtime.frame = runtime.frame.wrapping_add(1);
     let frame_stamp = runtime.frame;
     // Moved out so `resolve` can borrow a template while mutating the rest of the runtime.
-    let mut described = std::mem::take(&mut runtime.described);
+    let mut scans = std::mem::take(&mut runtime.columns);
     let mut held: Vec<StaticItemPlacement> = Vec::new();
     runtime.lids.begin();
     let chunk_range = |center: f32| {
@@ -333,78 +342,46 @@ pub(crate) fn update_block_entity_scene(
     };
     'columns: for chunk_x in chunk_range(eye.x) {
         for chunk_z in chunk_range(eye.z) {
-            let Some(chunk) = store.chunk(ChunkKey::new(dimension, chunk_x, chunk_z)) else {
+            let chunk_key = ChunkKey::new(dimension, chunk_x, chunk_z);
+            let Some(chunk) = store.chunk(chunk_key) else {
                 continue;
             };
-            portals::submit(
-                &mut submissions,
-                ChunkKey::new(dimension, chunk_x, chunk_z),
-                chunk,
-                eye,
-                |id| {
-                    let info = block_info(runtime, &collisions, mode, id)?;
-                    match info.name.as_ref() {
-                        assets::END_PORTAL_IDENTIFIER => Some(BlockEntityKind::EndPortal),
-                        assets::END_GATEWAY_IDENTIFIER => Some(BlockEntityKind::EndGateway),
-                        _ => None,
-                    }
-                },
-            );
-            for (key, nbt) in chunk.block_entities() {
-                if submissions.len() >= MAX_SUBMISSIONS {
-                    break 'columns;
+            let mut scan = match scans.remove(&chunk_key) {
+                Some(scan) if scan.is_current(chunk) => scan,
+                previous => {
+                    let portals = portals::column_cells(chunk_key, chunk, |id| {
+                        portal_kind(runtime, &collisions, mode, id)
+                    });
+                    let entities = columns::routed_entities(
+                        chunk,
+                        previous,
+                        |id, runtime_id, nbt, position| {
+                            block_info(runtime, &collisions, mode, runtime_id)
+                                .zip(nbt.parse())
+                                .and_then(|(info, root)| {
+                                    describe(id, &info.name, &info.state, &root, position)
+                                })
+                        },
+                    );
+                    columns::ColumnScan::new(chunk, portals, entities)
                 }
-                let [x, y, z] = key.position();
+            };
+            scan.seen_frame = frame_stamp;
+            portals::submit(&mut submissions, &scan.portals, eye);
+            let mut full = false;
+            for entity in &scan.entities {
+                if submissions.len() >= MAX_SUBMISSIONS {
+                    full = true;
+                    break;
+                }
+                let Some(template) = entity.template.as_ref() else {
+                    continue;
+                };
+                let [x, y, z] = entity.key.position();
                 let center = Vec3::new(x as f32 + 0.5, y as f32 + 0.5, z as f32 + 0.5);
                 if center.distance_squared(eye) > SCAN_RADIUS_BLOCKS * SCAN_RADIUS_BLOCKS {
                     continue;
                 }
-                let Some(id) = nbt.id() else {
-                    continue;
-                };
-                if !matches!(
-                    assets::block_entity_route(id),
-                    Some(BlockEntityRouteKind::Model | BlockEntityRouteKind::TextOverlay)
-                ) {
-                    continue;
-                }
-                let Some(runtime_id) = store.sub_chunk(key.sub_chunk()).and_then(|sub_chunk| {
-                    sub_chunk.runtime_id(0, (x & 15) as u8, (y & 15) as u8, (z & 15) as u8)
-                }) else {
-                    continue;
-                };
-                let entry = match described.entry(key) {
-                    std::collections::hash_map::Entry::Occupied(entry)
-                        if Arc::ptr_eq(&entry.get().nbt, &nbt)
-                            && entry.get().runtime_id == runtime_id =>
-                    {
-                        entry.into_mut()
-                    }
-                    entry => {
-                        let template = block_info(runtime, &collisions, mode, runtime_id)
-                            .zip(nbt.parse())
-                            .and_then(|(info, root)| {
-                                describe(id, &info.name, &info.state, &root, [x, y, z])
-                            });
-                        let fresh = Described {
-                            nbt: Arc::clone(&nbt),
-                            runtime_id,
-                            template,
-                            seen_frame: frame_stamp,
-                        };
-                        match entry {
-                            std::collections::hash_map::Entry::Occupied(mut entry) => {
-                                entry.insert(fresh);
-                                entry.into_mut()
-                            }
-                            std::collections::hash_map::Entry::Vacant(entry) => entry.insert(fresh),
-                        }
-                    }
-                };
-                entry.seen_frame = frame_stamp;
-                let Some(template) = entry.template.as_ref() else {
-                    continue;
-                };
                 let (block_light, sky_light) = stream.light_level_at(center.to_array());
                 let context = FrameContext {
                     stream,
@@ -455,11 +432,15 @@ pub(crate) fn update_block_entity_scene(
                     });
                 }
             }
+            scans.insert(chunk_key, scan);
+            if full {
+                break 'columns;
+            }
         }
     }
     runtime.lids.finish();
-    described.retain(|_, entry| entry.seen_frame == frame_stamp);
-    runtime.described = described;
+    scans.retain(|_, scan| scan.seen_frame == frame_stamp);
+    runtime.columns = scans;
     prune_bell_rings(&mut runtime.bell_rings, now_seconds, |position| {
         stream
             .block_event_cue(*position)

@@ -605,6 +605,9 @@ fn clear_owned_state(world: &mut World) -> Option<ModHost> {
 }
 
 fn clear_presentation(world: &mut World) {
+    if let Some(mut physics) = world.get_resource_mut::<crate::movement::LocalPhysicsController>() {
+        physics.set_jump_pulse_scope(None);
+    }
     if let Some(mut policy) = world.get_resource_mut::<crate::item_use::ModItemUsePolicy>() {
         policy.scope = None;
     }

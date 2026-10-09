@@ -18,7 +18,7 @@ use protocol::launcher_control::{
     Home, Message, MessageEvent, Profile, Realm, ServerPing,
 };
 
-use super::account_control::{AccountControl, AccountEvent};
+use super::account_control::{AccountControl, AccountEvent, RealmMembershipResponse};
 use super::{AuthState, MenuFriendCard, MenuRealmCard, MenuServerCard};
 use launcher::menu::view::{
     ButtonArt, InboxItem, JoinStage, LiveEventCard, MenuGameCard, MenuHome, MenuProfile, PingInfo,
@@ -85,7 +85,7 @@ struct Snapshot {
     joining: bool,
     /// The invite screen's friends list, delivered once per request.
     people: Option<Result<Vec<launcher_control::Person>, ()>>,
-    realm_membership: Option<(u64, bool, Result<(String, MenuRealmCard), ()>)>,
+    realm_membership: Option<RealmMembershipResponse>,
 }
 
 impl Snapshot {
@@ -709,7 +709,7 @@ impl AccountControl for LauncherAccount {
     fn cancel_realm_membership(&mut self) {
         self.cancel_realm_membership_control();
     }
-    fn realm_membership(&mut self) -> Option<(u64, bool, Result<(String, MenuRealmCard), ()>)> {
+    fn realm_membership(&mut self) -> Option<RealmMembershipResponse> {
         self.realm_membership_control()
     }
 
