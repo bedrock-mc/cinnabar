@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use mod_host::{
     CameraDelta, ControlFrame, GameplayCameraRig, GameplayMob, GameplaySnapshot, MAX_LOADED_MODS,
-    ModCue, ModGrants, ModHost,
+    ModCue, ModGrants, ModHost, PlayerStateSnapshot,
 };
 use serde::Deserialize;
 
@@ -94,7 +94,16 @@ impl ModRuntime {
             .unwrap_or(0)
     }
 
-    /// Every loaded mod's reserved keys, kept away from ordinary gameplay.
+    /// The earliest card publisher owns the retained card surface.
+    pub(super) fn hud_owner(&self) -> Option<usize> {
+        (0..self.host_count()).find(|&index| self.host(index).hud().is_some())
+    }
+
+    /// The earliest cursor publisher owns the retained cursor replacement.
+    pub(super) fn crosshair_owner(&self) -> Option<usize> {
+        (0..self.host_count()).find(|&index| self.host(index).crosshair().is_some())
+    }
+
     /// Every mod's label in load order, joined and cut to the plain-text limit.
     pub(super) fn merged_label(&mut self) -> Option<&str> {
         if self.host_count() == 1 {
@@ -164,6 +173,8 @@ pub(super) struct FrameInput<'a> {
     pub controls: &'a ControlFrame,
     /// Every mod's committed cues from the previous frame.
     pub previous_cues: &'a [ModCue],
+    /// Captured once from the current local session, delivered only to granted components.
+    pub player_state: Option<&'a PlayerStateSnapshot>,
 }
 
 /// Runs each mod once in load order with its own grants and merges what they commit.
@@ -184,8 +195,14 @@ pub(super) fn run_frame(
         claimed.extend(runtime.host(index).reserved_keys().iter().cloned());
         let host = runtime.host_mut(index);
         host.deliver_cues(input.previous_cues.to_vec());
+        let player_state = host
+            .grants()
+            .player_state
+            .then(|| input.player_state.cloned())
+            .flatten();
         if host.is_active()
-            && let Err(error) = host.frame_with_world(input.pressed, snapshot, mobs, controls)
+            && let Err(error) =
+                host.frame_with_player_state(input.pressed, snapshot, mobs, player_state, controls)
         {
             failed(index, format!("{error:#}"));
         }
@@ -202,6 +219,7 @@ pub(super) fn run_frame(
 pub(super) struct Merged {
     pub rig: Option<GameplayCameraRig>,
     pub preserve_teleport_rotation: bool,
+    pub view_scale: Option<[f32; 2]>,
     pub item_use_delay_fix: Option<(u64, i32)>,
     pub delta: Option<CameraDelta>,
     pub time_override: Option<u32>,
@@ -221,6 +239,7 @@ impl Merged {
         self.delta = self.delta.or(delta);
         self.rig = self.rig.or(host.camera_rig());
         self.preserve_teleport_rotation |= host.preserves_teleport_rotation();
+        self.view_scale = self.view_scale.or(host.camera_view_scale());
         self.item_use_delay_fix = self.item_use_delay_fix.or(host.item_use_delay_fix());
         self.time_override = self.time_override.or(host.time_override());
         self.commands.extend(host.take_commands());

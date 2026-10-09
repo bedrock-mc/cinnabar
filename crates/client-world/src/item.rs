@@ -110,6 +110,7 @@ pub(crate) struct ItemStateStore {
     armor: BTreeMap<u64, ActorArmorSnapshot>,
     persistent_armor_runtime: Option<u64>,
     use_durations: Option<Arc<BTreeMap<Box<str>, u32>>>,
+    attack_timings: Option<Arc<BTreeMap<Box<str>, protocol::ItemAttackTiming>>>,
     notices: Vec<EquipmentNotice>,
 }
 
@@ -131,6 +132,7 @@ impl ItemStateStore {
             armor: BTreeMap::new(),
             persistent_armor_runtime: None,
             use_durations: None,
+            attack_timings: None,
             notices: Vec::new(),
         }
     }
@@ -176,6 +178,19 @@ impl ItemStateStore {
     /// Ticks the item can be used for, when the pack states it.
     pub(crate) fn max_use_ticks(&self, identifier: &str) -> Option<u32> {
         self.use_durations.as_ref()?.get(identifier).copied()
+    }
+
+    /// Replaces the session's effective compiled and server-defined attack facts.
+    pub(crate) fn set_attack_timings(
+        &mut self,
+        timings: Arc<BTreeMap<Box<str>, protocol::ItemAttackTiming>>,
+    ) {
+        self.attack_timings = Some(timings);
+    }
+
+    /// Shares the same selected-item facts with packet admission and animation.
+    pub(crate) fn attack_timing(&self, identifier: &str) -> Option<&protocol::ItemAttackTiming> {
+        self.attack_timings.as_ref()?.get(identifier)
     }
 
     /// Keeps this runtime's armor across actor removal and dimension resets (the local player).
@@ -542,17 +557,39 @@ fn built_in_registry() -> BTreeMap<i32, CanonicalItemRegistryRecord> {
         .collect()
 }
 
-/// Routes a stack that retained block runtime identity onto the explicit
-/// block-item marker, keeping compiled block-item geometry authoritative and
-/// leaving stacks without a retained identity exactly as resolved.
-///
-/// Classification reads only wire-retained fields; it never infers geometry,
-/// textures, or identity from item or file names.
+/// Keeps compiled item visuals authoritative, including sprites for items that place blocks.
+/// A retained block identity supplies geometry only when no compiled visual resolves.
 fn classify_retained_block(route: ItemVisualRoute, block_runtime_id: i32) -> ItemVisualRoute {
-    if block_runtime_id == 0 || matches!(route, ItemVisualRoute::BlockItem(_)) {
+    if block_runtime_id == 0
+        || matches!(
+            route,
+            ItemVisualRoute::Compiled(_) | ItemVisualRoute::BlockItem(_)
+        )
+    {
         return route;
     }
     ItemVisualRoute::RetainedBlock { block_runtime_id }
+}
+
+#[cfg(test)]
+mod visual_route_tests {
+    use super::*;
+
+    #[test]
+    fn sprite_items_keep_their_visual_when_the_stack_carries_a_placed_block() {
+        let sprite = ItemVisualRoute::Compiled(ItemVisualId(7));
+        for block_runtime_id in [1, i32::MIN] {
+            assert_eq!(classify_retained_block(sprite, block_runtime_id), sprite);
+        }
+        let block = ItemVisualRoute::BlockItem(BlockVisualId(3));
+        assert_eq!(classify_retained_block(block, 1), block);
+        assert_eq!(
+            classify_retained_block(ItemVisualRoute::Missing, i32::MIN),
+            ItemVisualRoute::RetainedBlock {
+                block_runtime_id: i32::MIN,
+            }
+        );
+    }
 }
 
 fn registry_record(entry: &ItemRegistryEntry) -> CanonicalItemRegistryRecord {

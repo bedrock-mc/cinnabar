@@ -88,11 +88,46 @@ pub(crate) fn draw_shadow_geometry<'w>(
     }
 }
 
-/// Keeps one extra block around a subchunk for waving and overhanging models.
+/// Uses the terrain visibility envelope for displaced and overhanging shadow casters.
 fn intersects(bounds: &CascadeBounds, allocation: &GpuChunkAllocation) -> bool {
     let origin = queue::chunk_origin(allocation.key);
-    let size = queue::chunk_origin(SubChunkKey::new(0, 1, 0, 0))[0] as f32;
-    let half = size * 0.5;
-    let center = Vec3::from_array(origin.map(|value| value as f32)) + Vec3::splat(half);
-    bounds.intersects_aabb(center, Vec3::splat(half + 1.0))
+    let aabb = crate::chunk::bounds::aabb(true);
+    let center = Vec3::from_array(origin.map(|value| value as f32)) + Vec3::from(aabb.center);
+    bounds.intersects_aabb(center, Vec3::from(aabb.half_extents))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn displaced_model_shadow_caster_survives_outer_cascade() {
+        let allocation = GpuChunkAllocation {
+            key: SubChunkKey::new(0, 0, 0, 0),
+            generation: 1,
+            tint_identity: ChunkBiomeTintIdentity::default(),
+            quad_range: 0..0,
+            cube_layout: CubeQuadLayout::default(),
+            cube_lighting_range: None,
+            model_range: Some(0..8),
+            model_lighting_range: Some(8..10),
+            model_draw_range: Some(0..1),
+            transparent_model_draw_range: None,
+            liquid_range: None,
+            liquid_lighting_range: None,
+            has_depth_liquid: false,
+            has_transparent_liquid: false,
+            depth_liquid_range: None,
+            metadata_index: 0,
+        };
+        let bounds = CascadeBounds {
+            light_from_world: Mat4::IDENTITY,
+            min: Vec3::new(17.25, 0.0, 0.0),
+            max: Vec3::new(17.4, 16.0, 16.0),
+        };
+        assert!(
+            intersects(&bounds, &allocation),
+            "shadow cascade retains the displaced overhang"
+        );
+    }
 }

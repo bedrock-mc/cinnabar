@@ -42,7 +42,7 @@ pub use gpu_timing::{GpuFrameTimes, GpuTimingPlugin};
 mod dropped_item_render;
 mod hand_rig_render;
 mod input_pacing;
-pub use input_pacing::InputPacingPlugin;
+pub use input_pacing::{FramePacing, InputPacingPlugin};
 mod lightning;
 mod lightning_render;
 mod media;
@@ -84,6 +84,7 @@ mod shader_safety;
 #[cfg(test)]
 #[path = "../tests/it/support/shader_source.rs"]
 mod shader_source;
+mod surface_capabilities;
 mod surface_lifecycle;
 mod ui_render;
 #[cfg(all(test, target_os = "macos"))]
@@ -126,7 +127,7 @@ pub use actor::{
     MAX_ACTOR_BONE_ARENA_BYTES, MAX_ACTOR_GPU_PIXEL_BYTES, MAX_ACTOR_PRESENTED_ACKNOWLEDGEMENTS,
     MAX_ACTOR_RENDER_DISTANCE_BLOCKS, MAX_ACTOR_RENDER_INSTANCES, MAX_ACTOR_TEXTURE_PAGES,
     ResidentSkin, actor_bounds_are_visible, actor_rig_submission_is_visible, pack_actor_light,
-    pack_overlay_rgba8, pack_skin_slot,
+    pack_actor_light_without_lightmap, pack_overlay_rgba8, pack_skin_slot,
 };
 pub use actor_render::ActorRenderPlugin;
 pub use atmosphere::{
@@ -205,8 +206,8 @@ pub use lightning::{
 pub use panorama::{PANORAMA_WGSL, PanoramaScene};
 pub use panorama_render::PanoramaRenderPlugin;
 pub use present_mode::{
-    Dx12PresentModePolicy, Dx12PresentModePolicyPlugin, PresentModePreference, PresentModeRemedy,
-    resolve_dx12_present_mode_remedy,
+    PresentModePolicy, PresentModePolicyPlugin, PresentModePreference, PresentModeRemedy,
+    requested_present_mode_kind, resolve_dx12_present_mode_remedy, window_present_mode,
 };
 pub use runtime_profile::{
     RuntimeStage, RuntimeStageProfileSnapshot, RuntimeStageProfiler, RuntimeStageSample,

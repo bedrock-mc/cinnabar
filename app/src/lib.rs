@@ -9,8 +9,11 @@ mod desktop;
 #[cfg(feature = "developer-control")]
 mod developer_control;
 mod discord_presence;
+#[cfg(feature = "enhanced-diagnostics")]
+mod enhanced_diagnostics;
 mod environment;
 mod first_run;
+mod frame_pacing;
 mod fullscreen;
 mod global_resources;
 mod hotbar;

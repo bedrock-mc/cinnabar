@@ -7,6 +7,9 @@ use world::{BlockUpdate, ChunkStore, SubChunkKey};
 use super::{bounds, shape};
 use crate::movement::PhysicsCollisionRegistries;
 
+#[path = "gateway_tests.rs"]
+mod gateway_tests;
+
 struct Fixture {
     records: Box<[RegistryRecord]>,
     registries: PhysicsCollisionRegistries,

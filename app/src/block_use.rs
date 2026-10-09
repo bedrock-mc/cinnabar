@@ -29,6 +29,8 @@ use crate::{
 };
 use client_ui::ui_runtime::UiRuntime;
 
+mod actor_use;
+
 pub(crate) use gameplay::block_use::{
     LocalUse, RepeatClock, UseSurroundings, placement_cell, use_packets,
 };
@@ -126,10 +128,12 @@ pub(crate) fn produce_block_use(
     if context.input.phase(Action::Use).pressed {
         runtime.forget_press_resolution();
     }
-    swings.sync_ticks(
+    swings.sync_ticks_for_item(
         movement.interaction_authority_identity(),
         movement.completed_tick(),
         &context.effects,
+        crate::melee::selected_attack_timing(&player_runtime, &context.client_world)
+            .and_then(|timing| timing.swing_duration_ticks),
     );
 
     runtime.synchronize(movement.interaction_authority_identity());
@@ -208,6 +212,19 @@ pub(crate) fn produce_block_use(
         return;
     }
     let input_mode = protocol_input_mode(input.input_mode);
+    if actor_use::produce(
+        &context,
+        &mut runtime,
+        &selection,
+        pick.expect("the current pick was checked above"),
+        &state,
+        input_mode,
+        trigger,
+        due,
+        clock,
+    ) {
+        return;
+    }
     let (Some(mut observed), Some(stream)) = (
         observe_use_target(
             &player_runtime,
@@ -419,27 +436,7 @@ fn use_surroundings(
     ];
     let half_width = sim::PLAYER_WIDTH * 0.5;
     let height = sim::MovementMode::Walking.hitbox_height(sneaking);
-    let placed_boxes = stream.and_then(|stream| {
-        let shapes = context
-            .collisions
-            .registry(stream.network_id_mode())
-            .collision_shapes(held_block_store_id(
-                stream,
-                observed.selection.item.block_runtime_id(),
-            )?)?;
-        Some(
-            shapes
-                .iter()
-                .map(|shape| {
-                    (
-                        [shape.min.x, shape.min.y, shape.min.z],
-                        [shape.max.x, shape.max.y, shape.max.z],
-                    )
-                })
-                .collect(),
-        )
-    });
-    UseSurroundings {
+    let mut surroundings = UseSurroundings {
         clicked_identifier: context
             .collisions
             .block_identifier(
@@ -478,8 +475,20 @@ fn use_surroundings(
             .map(|(min, max)| (min.map(f64::from), max.map(f64::from)))
             .collect(),
         sneaking,
-        placed_boxes,
+        placed_boxes: None,
+    };
+    if let Some((stream, held)) = stream.and_then(|stream| {
+        held_block_store_id(stream, observed.selection.item.block_runtime_id())
+            .map(|held| (stream, held))
+    }) {
+        surroundings.set_placed_collision_shapes(
+            context.collisions.registry(stream.network_id_mode()),
+            held,
+            observed.target.position,
+            observed.target.face,
+        );
     }
+    surroundings
 }
 
 mod target;

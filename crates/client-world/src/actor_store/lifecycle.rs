@@ -659,6 +659,7 @@ impl ActorStore {
         self.actors
             .insert(runtime_id, ActorSnapshot::from_spawn(spawn, sequence));
         self.unique_to_runtime.insert(unique_id, runtime_id);
+        self.adopt_spawned_unique_id(runtime_id);
         self.prune_unlisted_players();
         if let Some(actor) = self.actors.get(&runtime_id) {
             self.animation
@@ -798,6 +799,14 @@ impl ActorStore {
         durations: std::sync::Arc<std::collections::BTreeMap<Box<str>, u32>>,
     ) {
         self.items.set_use_durations(durations);
+    }
+
+    /// Installs effective item-directed attack and kinetic presentation facts.
+    pub(crate) fn set_item_attack_timings(
+        &mut self,
+        timings: std::sync::Arc<std::collections::BTreeMap<Box<str>, protocol::ItemAttackTiming>>,
+    ) {
+        self.items.set_attack_timings(timings);
     }
 
     /// Applies worn armor to a live remote actor, or to the client-owned local runtime even

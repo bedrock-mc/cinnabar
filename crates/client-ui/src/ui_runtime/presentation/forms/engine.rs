@@ -25,6 +25,7 @@ pub mod hud_renderers;
 mod item_renderer;
 mod menu_renderers;
 mod menu_title;
+mod mod_crosshair;
 #[cfg(test)]
 mod ownership_tests;
 mod pack_catalog;
@@ -579,6 +580,9 @@ fn edit_texts(
         .collect()
 }
 
+/// Advance an admitted hunger control and return its render-update count.
+type HungerUpdate<'a> = &'a dyn Fn(&str, Option<u64>) -> u64;
+
 /// Caller art the custom renderers draw: `#item_renderer_data` icons, the player preview,
 /// the tooltip pointer (virtual px), the fade clock (s), HUD state, artwork and gamerpic.
 #[derive(Clone, Copy, Default)]
@@ -604,6 +608,8 @@ pub(super) struct ScreenArt<'a> {
     /// Creation times that fades naming a clock read instead of their own.
     pub(super) clocks: Option<&'a std::collections::BTreeMap<String, f64>>,
     pub(super) hud: Option<&'a hud_renderers::HudPaint>,
+    /// Per-control updates advance only when a hunger renderer reaches painting.
+    pub(super) hunger_update: Option<HungerUpdate<'a>>,
     pub(super) images: Option<&'a std::collections::HashMap<String, IconRef>>,
     pub(super) portrait: Option<IconRef>,
     pub(super) splash: Option<&'a str>,
@@ -704,13 +710,14 @@ impl Painter<'_> {
     /// player preview, tooltips, and the HUD's native renderers. Others draw nothing yet.
     fn custom(
         &mut self,
+        key: &str,
         renderer: &str,
         data: &std::collections::BTreeMap<String, serde_json::Value>,
         dest: [f32; 4],
         alpha: impl Fn([u8; 4]) -> [u8; 4],
     ) -> Option<(UiVisual, [f32; 4])> {
         if let Some(hud) = self.art.hud
-            && hud_renderers::paint(self, hud, renderer, data, dest, &alpha)
+            && hud_renderers::paint(self, hud, key, renderer, data, dest, &alpha)
         {
             return None;
         }
@@ -762,6 +769,7 @@ impl Painter<'_> {
 
     /// A sprite of the texture at `path` (server pack first, then the carrier),
     /// sampling the normalised `uv`; `None` when neither holds it.
+    /// Maps source edges onto their atlas page without rounding fractional slice boundaries.
     fn sprite(
         &self,
         path: &str,
@@ -776,7 +784,14 @@ impl Painter<'_> {
                 color,
             });
         };
-        let pixel = |base: f32, span: f32, t: f32| (base + span * t).round() as u16;
+        let pixel = |base: f32, span: f32, t: f32| {
+            let value = base + span * t;
+            if value.is_nan() {
+                0.0
+            } else {
+                value.clamp(0.0, f32::from(u16::MAX))
+            }
+        };
         let uv = [
             pixel(x, w, uv.u0),
             pixel(y, h, uv.v0),
@@ -785,10 +800,10 @@ impl Painter<'_> {
         ];
         let style = (u8::from(filter.grayscale) * ui::UI_STYLE_GRAYSCALE)
             | (u8::from(filter.bilinear) * ui::UI_STYLE_BILINEAR);
-        Some(if style == 0 {
+        Some(if style == 0 && uv.iter().all(|edge| edge.fract() == 0.0) {
             UiVisual::Sprite {
                 texture_page: page,
-                uv,
+                uv: uv.map(|edge| edge as u16),
                 color,
             }
         } else {
@@ -948,10 +963,12 @@ impl Painter<'_> {
                     None => Ok(()),
                 };
             }
-            Draw::Custom { renderer, data } => match self.custom(renderer, data, dest, alpha) {
-                Some(visual) => visual,
-                None => return Ok(()),
-            },
+            Draw::Custom { renderer, data } => {
+                match self.custom(&node.key, renderer, data, dest, alpha) {
+                    Some(visual) => visual,
+                    None => return Ok(()),
+                }
+            }
         };
         self.push(visual, bounds)
     }

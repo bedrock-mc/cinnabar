@@ -7,10 +7,12 @@ mod chunk_metrics;
 mod dropped_item;
 mod entity_shadow;
 pub mod equipment;
+mod frame_pacing;
 mod item_geometry;
 pub mod java_animation;
 mod nametag;
 mod panorama;
+mod presentation;
 pub mod primitive_shapes;
 mod ui;
 mod ui_textures;
@@ -44,6 +46,10 @@ pub use entity_shadow::{
     SHADOW_VOLUME_TOP_RADIUS, SHADOW_VOLUME_TOP_Y, SHADOW_VOLUME_VERTICES, entity_shadow_colour,
     shadow_screen_rect, shadow_volume_mesh, unit_volume_contains,
 };
+pub use frame_pacing::{
+    Cadence, FrameRate, OCCLUDED_FRAME_RATE, UNFOCUSED_FRAME_RATE, WindowActivity,
+    effective_frame_rate,
+};
 pub use item_geometry::{extruded_sprite_vertices, held_sprite_vertices, textured_cube_vertices};
 pub use nametag::{
     MAX_NAMETAG_RECORDS, NAMETAG_ACOS_CUBIC, NAMETAG_ACOS_LINEAR, NAMETAG_ATLAS_SIDE,
@@ -51,6 +57,11 @@ pub use nametag::{
     NametagAtlasRect, NametagRecord, NametagScene,
 };
 pub use panorama::{MAX_PANORAMA_FACE_SIDE, PanoramaFaces, PanoramaView};
+pub use presentation::{
+    DisplayTiming, PresentModeKind, PresentationIntent, SurfacePresentModes, VrrStatus,
+    configured_present_mode, frame_rate_target, initial_present_mode, select_present_mode,
+    vrr_ceiling,
+};
 pub use ui::{
     MAX_UI_BATCHES, MAX_UI_DRAW_BYTES, MAX_UI_FIXED_TEXTURE_BYTES, MAX_UI_INDICES,
     MAX_UI_TEXTURE_BYTES, MAX_UI_TEXTURE_LAYERS, MAX_UI_TEXTURE_SIDE, MAX_UI_VERTICES,
@@ -72,5 +83,44 @@ pub use visibility::{
 };
 
 /// Enhanced is disabled until the GPU faults and system freezes are resolved.
-/// Settings, launch flags and camera components cannot override this switch.
+/// Ordinary settings, launch flags and camera components cannot override this switch.
 pub const ENHANCED_RENDERING_ENABLED: bool = false;
+
+#[cfg(feature = "enhanced-diagnostics")]
+static ENHANCED_DIAGNOSTIC: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// Maximum offscreen or hidden viewport admitted for development diagnostics.
+#[cfg(feature = "enhanced-diagnostics")]
+pub const ENHANCED_DIAGNOSTIC_MAX_VIEWPORT: [u32; 2] = [320, 240];
+
+/// Allows an explicitly configured, bounded diagnostic process to exercise the renderer.
+/// The caller must establish an offscreen or hidden target before creating render plugins.
+#[cfg(feature = "enhanced-diagnostics")]
+pub fn enable_enhanced_diagnostics(viewport: [u32; 2]) -> Result<(), &'static str> {
+    if viewport
+        .into_iter()
+        .zip(ENHANCED_DIAGNOSTIC_MAX_VIEWPORT)
+        .any(|(size, maximum)| size == 0 || size > maximum)
+    {
+        return Err("Enhanced diagnostics require a nonzero viewport within the diagnostic limit");
+    }
+    ENHANCED_DIAGNOSTIC.store(true, std::sync::atomic::Ordering::Release);
+    Ok(())
+}
+
+/// Reports whether this process explicitly admitted the bounded diagnostic path.
+#[cfg(feature = "enhanced-diagnostics")]
+#[must_use]
+pub fn enhanced_diagnostics_enabled() -> bool {
+    ENHANCED_DIAGNOSTIC.load(std::sync::atomic::Ordering::Acquire)
+}
+
+/// Resolves the production switch and the separately compiled diagnostic admission.
+pub fn enhanced_rendering_enabled() -> bool {
+    #[cfg(feature = "enhanced-diagnostics")]
+    if enhanced_diagnostics_enabled() {
+        return true;
+    }
+    ENHANCED_RENDERING_ENABLED
+}

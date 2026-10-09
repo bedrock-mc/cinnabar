@@ -17,11 +17,54 @@ fn slot_limit(cell: Cell) -> Option<u16> {
 }
 
 impl PlayerInventoryLedger {
+    pub(crate) fn begin_move_to_furnace_input(
+        &mut self,
+        source: InventoryTarget,
+    ) -> Result<i32, InventoryGestureError> {
+        if !self.confirmed.contains(Cell::Storage(0)) {
+            return Err(InventoryGestureError::InvalidRequest);
+        }
+        self.begin_quick_move_into(source, Some(&[Cell::Storage(0)]), None)
+    }
+
     /// Moves a hovered stack across every cell that accepts it: compatible
     /// partial stacks first, then empty cells, until nothing is left.
     pub fn begin_quick_move(
         &mut self,
         target: InventoryTarget,
+    ) -> Result<i32, InventoryGestureError> {
+        self.begin_quick_move_into(target, None, None)
+    }
+
+    pub(crate) fn begin_restore_furnace_source(
+        &mut self,
+        source: u8,
+        destination: u8,
+        amount: u16,
+    ) -> Result<i32, InventoryGestureError> {
+        self.begin_quick_move_into(
+            InventoryTarget::Storage(source),
+            Some(&[Cell::Inventory(destination)]),
+            Some(amount),
+        )
+    }
+
+    pub(crate) fn begin_return_furnace_cell(
+        &mut self,
+        source: u8,
+    ) -> Result<i32, InventoryGestureError> {
+        let destinations: Vec<_> = (0..protocol::PLAYER_INVENTORY_SLOTS)
+            .filter(|slot| self.known[usize::from(*slot)])
+            .map(Cell::Inventory)
+            .collect();
+        self.begin_quick_move_into(InventoryTarget::Storage(source), Some(&destinations), None)
+    }
+
+    pub(super) fn begin_quick_move_into(
+        &mut self,
+        target: InventoryTarget,
+        destinations: Option<&[Cell]>,
+        amount: Option<u16>,
     ) -> Result<i32, InventoryGestureError> {
         let source = target.cell();
         let personal_generation = self.gesture_preflight(!matches!(source, Cell::Storage(_)))?;
@@ -30,12 +73,15 @@ impl PlayerInventoryLedger {
             .movable(source)?
             .ok_or(InventoryGestureError::EmptyGesture)?;
         let address = self.window_address();
-        let candidates = self.quick_move_candidates(source, &from.stack);
+        let candidates = destinations.map_or_else(
+            || self.quick_move_candidates(source, &from.stack),
+            <[Cell]>::to_vec,
+        );
         let item_capacity = self
             .negotiated_item_entry(from.stack.network_id)
             .and_then(entry_capacity)
             .map(u16::from);
-        let mut remaining = from.stack.count;
+        let mut remaining = amount.map_or(from.stack.count, |amount| amount.min(from.stack.count));
         let mut actions = Vec::new();
         let mut groups = Vec::new();
         let (mut distinct, mut registry_bound) = (false, false);

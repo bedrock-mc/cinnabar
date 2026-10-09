@@ -15,7 +15,7 @@ pub const LEVEL_EVENT_PARTICLE_FLAG: i32 = 0x4000;
 pub const BLOCK_BREAK_PARTICLES: f32 = 100.0;
 /// One piece per vanilla hit-particle event.
 pub const BLOCK_CRACK_PARTICLES: f32 = 1.0;
-/// Default item crumb count for existing eating and icon-crack presentation.
+/// Default item fragment count for icon-crack presentation.
 pub const ITEM_ICON_PARTICLES: u32 = 6;
 /// Vanilla keeps hits this far from the edge and outside the selected face.
 const CRACK_FACE_INSET: f32 = 0.1;
@@ -118,6 +118,8 @@ pub fn legacy_particle_effect(particle_type: i32) -> Option<&'static str> {
 /// What a level event asks the particle system to do.
 #[derive(Clone, Debug, PartialEq)]
 pub enum LevelParticle {
+    /// Dragon egg teleport trail, with the packed source-to-destination block offset decoded.
+    DragonEggTeleport { displacement: [i32; 3] },
     Named {
         effect: &'static str,
         spell_color: Option<[f32; 4]>,
@@ -198,6 +200,19 @@ pub fn classify_level_event(event_id: i32, data: i32) -> Option<LevelParticle> {
             spell_color: Some(argb(data)),
         }),
         2003 => named("eyeofender_death_explode_particle"),
+        2010 => {
+            let bits = data as u32;
+            Some(LevelParticle::DragonEggTeleport {
+                displacement: std::array::from_fn(|axis| {
+                    let magnitude = ((bits >> (16 - axis * 8)) & 0xff) as i32;
+                    if bits & (1 << (24 + axis)) == 0 {
+                        -magnitude
+                    } else {
+                        magnitude
+                    }
+                }),
+            })
+        }
         2004 => named("mob_block_spawn_emitter"),
         2005 => named("crop_growth_emitter"),
         2007 => named("death_explosion_emitter"),
@@ -347,7 +362,7 @@ pub fn terrain_request(
     request
 }
 
-/// Item-icon pieces at `position` (item break, eating crumbs, snowball and egg impacts).
+/// Item-icon pieces at `position` (item break, snowball and egg impacts).
 #[must_use]
 pub fn item_icon_request(position: [f32; 3], tile: TileRequest, count: f32) -> SpawnRequest {
     SpawnRequest {
@@ -362,6 +377,20 @@ pub fn item_icon_request(position: [f32; 3], tile: TileRequest, count: f32) -> S
         tile: Some(tile),
         ..SpawnRequest::default()
     }
+}
+
+/// Item fragments produced by an actor's eating event.
+#[must_use]
+pub fn eating_item_request(position: [f32; 3], tile: TileRequest) -> SpawnRequest {
+    let mut request = item_icon_request(position, tile, 5.0);
+    for (name, value) in &mut request.variables {
+        match name.as_str() {
+            "size_modifier" => *value = 2.0 / 3.0,
+            "speed_modifier" => *value = 0.5,
+            _ => {}
+        }
+    }
+    request
 }
 
 /// Spawn request for crack pieces on `face` (0 down, 1 up, 2 north, 3 south, 4 west, 5 east).

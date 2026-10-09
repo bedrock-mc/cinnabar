@@ -26,6 +26,7 @@ pub struct CameraSettingsAuthority {
     game_sensitivity: super::look::GameSensitivity,
     rig: Option<CameraRig>,
     preserve_teleport_rotation: bool,
+    view_scale: [f32; 2],
 }
 
 /// A local mod's third-person boom: camera-local blocks (x right, y up, z back), roll and FOV change.
@@ -91,6 +92,7 @@ impl Default for CameraSettingsAuthority {
             game_sensitivity: Default::default(),
             rig: None,
             preserve_teleport_rotation: false,
+            view_scale: [1.0, 1.0],
         }
     }
 }
@@ -184,6 +186,32 @@ impl CameraSettingsAuthority {
         self.preserve_teleport_rotation = enabled;
     }
 
+    /// Applies ephemeral view multipliers without changing saved FOV, sensitivity or perspective.
+    /// Invalid native values restore the neutral view.
+    pub fn set_view_scale(&mut self, fov_scale: f32, look_scale: f32) {
+        self.view_scale = if fov_scale.is_finite()
+            && look_scale.is_finite()
+            && fov_scale > 0.0
+            && fov_scale <= 1.0
+            && look_scale > 0.0
+            && look_scale <= 1.0
+        {
+            [fov_scale, look_scale]
+        } else {
+            [1.0, 1.0]
+        };
+    }
+
+    /// Current-frame multiplier applied after ordinary FOV effects.
+    pub const fn fov_scale(&self) -> f32 {
+        self.view_scale[0]
+    }
+
+    /// Current-frame multiplier applied to calibrated look deltas for every input mode.
+    pub const fn look_scale(&self) -> f32 {
+        self.view_scale[1]
+    }
+
     /// Non-finite rigs are dropped; `None` restores the player's own perspective.
     pub fn set_rig(&mut self, rig: Option<CameraRig>) {
         self.rig = rig.filter(|rig| {
@@ -215,6 +243,7 @@ impl CameraSettingsAuthority {
         self.perspective = PerspectiveMode::FirstPerson;
         self.freelook = false;
         self.preserve_teleport_rotation = false;
+        self.view_scale = [1.0, 1.0];
     }
 }
 

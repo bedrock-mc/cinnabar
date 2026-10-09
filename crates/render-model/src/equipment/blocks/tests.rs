@@ -173,3 +173,102 @@ fn pinned_cube_items_have_sheets_when_carriers_are_available() {
         sheets.sheets.len()
     );
 }
+
+#[test]
+fn pinned_portal_frame_keeps_its_short_block_mesh_and_distinct_faces() {
+    let (Ok(world_path), Ok(pack_root)) = (
+        std::env::var("PINNED_WORLD_CARRIER"),
+        std::env::var("CINNABAR_VANILLA_RESOURCE_PACK"),
+    ) else {
+        eprintln!(
+            "missing portal-frame fixture: PINNED_WORLD_CARRIER and CINNABAR_VANILLA_RESOURCE_PACK"
+        );
+        return;
+    };
+    let world = RuntimeAssets::decode(&std::fs::read(world_path).unwrap()).unwrap();
+    let entities = RuntimeEntityAssets::from_compiled(
+        pack_compiler::compile_entity_assets(
+            std::path::Path::new(&pack_root),
+            assets::VANILLA_SOURCE_MANIFEST.as_bytes(),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let definition = entities
+        .item_visuals()
+        .iter()
+        .find(|entry| entry.key.identifier.as_ref() == assets::END_PORTAL_FRAME_IDENTIFIER)
+        .unwrap();
+    let ItemVisualDefinitionRoute::BlockItem { block_visual } = definition.route else {
+        panic!("portal frame requires a block route");
+    };
+    let sheets = collect(&world, &entities);
+    let vertices = sheets
+        .models
+        .get(&block_visual.0)
+        .expect("the held portal frame must retain its compiled block model");
+    assert_eq!(vertices.len(), 36);
+    let min = vertices
+        .iter()
+        .map(|vertex| vertex.position[1])
+        .fold(f32::INFINITY, f32::min);
+    let max = vertices
+        .iter()
+        .map(|vertex| vertex.position[1])
+        .fold(f32::NEG_INFINITY, f32::max);
+    assert_eq!(min, -0.5);
+    assert_eq!(max, 13.0 / 16.0 - 0.5);
+    for triangle in vertices.chunks_exact(3) {
+        let positions = triangle
+            .iter()
+            .map(|vertex| glam::Vec3::from_array(vertex.position))
+            .collect::<Vec<_>>();
+        assert!(
+            (positions[1] - positions[0])
+                .cross(positions[2] - positions[0])
+                .dot(glam::Vec3::from_array(triangle[0].normal))
+                > 0.0
+        );
+    }
+    let sheet = &sheets.sheets[sheets.by_visual[&block_visual.0]];
+    let tile_color = |face: BlockFace| {
+        let rect = face_rects([0.0, 0.0, 1.0, 1.0])[face as usize];
+        let x = (((rect[0] + rect[2]) * 0.5) * f32::from(sheet.width)) as usize;
+        let y = (((rect[1] + rect[3]) * 0.5) * f32::from(sheet.height)) as usize;
+        &sheet.rgba8[(y * usize::from(sheet.width) + x) * 4..][..4]
+    };
+    assert_ne!(tile_color(BlockFace::Up), tile_color(BlockFace::Down));
+}
+
+#[test]
+fn overlay_sheet_preserves_source_resolution_when_physical_page_is_larger() {
+    let mut source = overlay(BlockFlags::CUBE_GEOMETRY, 0, 64);
+    source.texture_source_sizes = vec![[16; 2]; 2];
+    let texture = source.texture.as_mut().unwrap();
+    for mip in &mut texture.mips {
+        for layer in 0..2usize {
+            let side = mip.size as usize;
+            for (pixel, rgba) in mip.rgba8[layer * side * side * 4..][..side * side * 4]
+                .chunks_exact_mut(4)
+                .enumerate()
+            {
+                rgba.copy_from_slice(if side == 64 {
+                    if (pixel % side / 4).is_multiple_of(2) {
+                        &[255, 0, 0, 255]
+                    } else {
+                        &[0, 0, 255, 255]
+                    }
+                } else {
+                    &[127, 0, 127, 255]
+                });
+            }
+        }
+    }
+    let sheet = overlay_sheet(&source, 0).unwrap();
+    assert_eq!(
+        &sheet.rgba8[..4],
+        &[255, 0, 0, 255],
+        "held texture preserves original source detail"
+    );
+    assert_eq!(&sheet.rgba8[4..8], &[0, 0, 255, 255]);
+}

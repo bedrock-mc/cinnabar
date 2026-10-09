@@ -4,8 +4,11 @@ use std::collections::HashSet;
 
 use serde::{Deserialize, Serialize};
 
-pub const MAX_PANEL_BYTES: usize = 16 * 1024;
-pub const MAX_PANEL_CONTROLS: usize = 24;
+mod surface;
+pub use surface::{Surface, SurfaceValue};
+
+pub const MAX_PANEL_BYTES: usize = 128 * 1024;
+pub const MAX_PANEL_CONTROLS: usize = 64;
 pub const MAX_PANEL_TEXT_BYTES: usize = 96;
 pub const MAX_PANEL_ID_BYTES: usize = 48;
 pub const MAX_PANEL_CHOICES: usize = 8;
@@ -43,6 +46,12 @@ pub enum Icon {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Panel {
+    /// Optional extension-authored JSON-UI; omitted panels keep native controls.
+    #[serde(default)]
+    pub surface: Option<Surface>,
+    /// Logical authored-surface dimensions to fit within smaller viewports.
+    #[serde(default)]
+    pub reference_size: Option<[f32; 2]>,
     #[serde(default)]
     pub theme: Theme,
     #[serde(default)]
@@ -139,6 +148,39 @@ impl Panel {
     /// Validates before retaining any guest-controlled text or input geometry.
     pub fn validate(&self) -> Result<(), String> {
         text(&self.title, "title")?;
+        if let Some(size) = self.reference_size
+            && (self.surface.is_none()
+                || !size
+                    .iter()
+                    .all(|value| value.is_finite() && *value > 0.0 && *value <= 1_000_000.0))
+        {
+            return Err(
+                "panel reference size requires a surface and bounded positive dimensions".into(),
+            );
+        }
+        if let Some(surface) = &self.surface {
+            surface.validate()?;
+            for action in surface.actions()? {
+                if action == "mod.close" {
+                    continue;
+                }
+                let valid = if let Some(index) = action.strip_prefix("mod.control:") {
+                    index
+                        .parse::<usize>()
+                        .ok()
+                        .is_some_and(|index| index < self.controls.len())
+                } else if let Some(index) = action.strip_prefix("mod.edit:") {
+                    index.parse::<usize>().ok().is_some_and(|index| {
+                        matches!(self.controls.get(index), Some(Control::Slider { .. }))
+                    })
+                } else {
+                    false
+                };
+                if !valid {
+                    return Err("panel surface action must reference a declared control".into());
+                }
+            }
+        }
         if self.toggle_key.is_empty()
             || self.toggle_key.len() > MAX_PANEL_ID_BYTES
             || !self

@@ -30,6 +30,8 @@ pub struct ActorStatusNotice {
     pub position: [f32; 3],
     /// Bounding-box height, when the actor streams one.
     pub height: Option<f32>,
+    /// Eating attachment for Feed; actor feet for other kinds.
+    pub eating_position: [f32; 3],
 }
 
 /// A dropped item flying to the actor that collected it.
@@ -43,6 +45,7 @@ pub struct ActorPickup {
 /// Client-derived damage and death presentation state, advanced per tick.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct ActorStatus {
+    pub(crate) creeper_swell: super::creeper::CreeperSwell,
     pub(super) terrain_interlock: super::terrain_interlock::TerrainInterlock,
     pub(super) movement_interpolation: super::movement_interpolation::MovementInterpolation,
     /// Vanilla velocity per tick, distinct from query-derived movement speed.
@@ -53,6 +56,8 @@ pub struct ActorStatus {
     pub hurt_time: u8,
     /// Signed native shake countdown, set verbatim by ActorEvent::Shake.
     pub shake_time: i32,
+    /// Completed ticks since a server-confirmed kinetic hit in the current item use.
+    pub(crate) kinetic_hit_ticks: Option<u32>,
     /// The current hurt came without damage, so it shows no red flash.
     pub skip_red_flash: bool,
     /// Server-streamed hurt direction, when the server provides one.
@@ -123,7 +128,17 @@ impl ActorStatus {
         }
     }
 
+    /// Advances confirmed impact timing only while the actor continues its item use.
+    pub(super) fn advance_kinetic_hit(&mut self, using_item: bool) {
+        self.kinetic_hit_ticks = if using_item {
+            self.kinetic_hit_ticks.map(|ticks| ticks.saturating_add(1))
+        } else {
+            None
+        };
+    }
+
     fn die(&mut self) {
+        self.creeper_swell.clear();
         self.dead = true;
         self.hurt_time = HURT_DURATION_TICKS;
         self.skip_red_flash = false;
@@ -139,6 +154,18 @@ impl ActorStatus {
 }
 
 impl ActorSnapshot {
+    fn eating_position(&self) -> [f32; 3] {
+        let mut position = self.position;
+        position[1] += self.network_position_offset();
+        if matches!(self.kind, protocol::ActorKind::Player { .. }) {
+            let offset = super::placement::seat_world_offset([0.0, -0.2, 0.2], self.head_yaw);
+            for (component, offset) in position.iter_mut().zip(offset) {
+                *component += offset;
+            }
+        }
+        position
+    }
+
     /// Marks the actor dead when its health attribute reaches zero and alive when it recovers.
     pub(super) fn sync_status_from_health(&mut self) {
         let Some(health) = self.attributes.get("minecraft:health") else {
@@ -178,6 +205,11 @@ impl ActorStore {
                 data: event.data,
                 position: actor.position,
                 height: actor.bounding_box().map(|(min, max)| max[1] - min[1]),
+                eating_position: if event.kind == ActorStatusKind::Feed {
+                    actor.eating_position()
+                } else {
+                    actor.position
+                },
             });
         }
         match event.kind {
@@ -199,6 +231,7 @@ impl ActorStore {
             ActorStatusKind::SpawnAlive => actor.status.revive(),
             // Entity event 39 (0x27) sets the shake countdown verbatim.
             ActorStatusKind::Shake => actor.status.shake_time = event.data,
+            ActorStatusKind::KineticDamageDealt => actor.status.kinetic_hit_ticks = Some(0),
             // Particle-only kinds have no retained actor state.
             _ => {}
         }
@@ -247,6 +280,38 @@ impl ActorStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn eating_attachment_follows_head_yaw_and_preserves_the_event_pose() {
+        for (yaw, horizontal) in [(0.0, [0.0, 0.2]), (90.0, [-0.2, 0.0]), (180.0, [0.0, -0.2])] {
+            let protocol::ActorEvent::Spawn(mut player) = spawn() else {
+                unreachable!()
+            };
+            player.kind = protocol::ActorKind::Player {
+                uuid: [0; 16],
+                username: "test".into(),
+            };
+            player.position = [1.0, 64.0, 3.0];
+            player.head_yaw = yaw;
+            player.pitch = 60.0;
+            let mut store = ActorStore::new(1, 0);
+            store.apply(1, 1, protocol::ActorEvent::Spawn(player));
+            store.apply(1, 2, status(ActorStatusKind::Feed));
+            store.actors.get_mut(&7).unwrap().position = [9.0; 3];
+            let notices = store.take_status_notices();
+            let expected = [
+                1.0 + horizontal[0],
+                64.0 + protocol::PLAYER_NETWORK_OFFSET - 0.2,
+                3.0 + horizontal[1],
+            ];
+            for (actual, expected) in notices[0].eating_position.into_iter().zip(expected) {
+                assert!(
+                    (actual - expected).abs() < 0.00001,
+                    "{actual} != {expected}"
+                );
+            }
+        }
+    }
 
     #[test]
     fn hurt_counts_down_and_death_saturates() {
@@ -410,5 +475,22 @@ mod tests {
         status.revive();
         assert_eq!(status.death_progress(0.0), None);
         assert!(!status.overlay_active());
+    }
+    #[test]
+    fn confirmed_kinetic_hit_counts_completed_ticks_and_clears_between_uses() {
+        let mut store = ActorStore::new(1, 0);
+        store.apply(1, 1, spawn());
+        assert_eq!(store.get(7).unwrap().status.kinetic_hit_ticks, None);
+        store.apply(1, 2, status(ActorStatusKind::KineticDamageDealt));
+        assert_eq!(store.get(7).unwrap().status.kinetic_hit_ticks, Some(0));
+        let actor = store.actors.get_mut(&7).unwrap();
+        actor.status.advance_kinetic_hit(true);
+        assert_eq!(actor.status.kinetic_hit_ticks, Some(1));
+        for _ in 0..5 {
+            actor.status.advance_kinetic_hit(true);
+        }
+        assert_eq!(actor.status.kinetic_hit_ticks, Some(6));
+        actor.status.advance_kinetic_hit(false);
+        assert_eq!(actor.status.kinetic_hit_ticks, None);
     }
 }

@@ -1,11 +1,14 @@
 use super::{evaluation::MolangValue, *};
 
+mod potion;
 mod wolf;
 
 #[cfg(test)]
 mod fish_tests;
 #[cfg(test)]
 mod pack_query_tests;
+#[cfg(test)]
+mod potion_tests;
 #[cfg(test)]
 mod tropical_fish_tests;
 
@@ -104,8 +107,7 @@ const KEY_SWELL: u32 = 19;
 pub(super) const FLAG_STANDING: u32 = 39;
 pub(super) const FLAG_SWIMMING: u32 = 57;
 
-// Fuse ticks a swell is normalised by; needs independent measurement.
-const SWELL_FULL_TICKS: f32 = 28.0;
+use crate::actor_store::creeper::SWELL_FULL_TICKS;
 
 // Actors that swim in place, so airborne means in water; without a fluid sample this stands in
 // for the fish-on-land flop.
@@ -139,6 +141,7 @@ pub(super) struct QueryInputs<'a> {
     pub(super) context: &'a ActorTickContext,
     pub(super) anim_tick: u64,
     pub(super) anim_time: Option<f32>,
+    pub(super) swell_amount: Option<f32>,
     pub(super) life_tick: u64,
     /// Whether all and any animations of the controller state being left have finished.
     pub(super) finished: (bool, bool),
@@ -298,8 +301,16 @@ fn number(evaluator: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) ->
     if name == "is_grazing" && actor.is_horse() {
         return truth(super::horse::is_grazing(actor));
     }
+    if name == "swelling_dir" && actor.is_creeper() {
+        return actor.creeper_swelling_direction();
+    }
     if let Some((_, bit)) = FLAG_QUERIES.iter().find(|(query, _)| *query == name) {
         return truth(actor_flag(actor, *bit));
+    }
+    if name == "variant"
+        && let Some(variant) = potion::variant(actor)
+    {
+        return variant;
     }
     if let Some(key) = integer_query_key(name) {
         return metadata_number(actor, key).unwrap_or(0.0);
@@ -385,14 +396,41 @@ fn number(evaluator: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) ->
                 .saturating_sub(input.item_use_ticks) as f32
                 * ACTOR_TICK_DURATION.as_secs_f32()
         }
-        "base_swing_duration" if arguments.is_empty() => {
-            // Item-component duration overrides are not retained by the actor item feed yet.
-            super::motion::ACTOR_SWING_TICKS as f32 * ACTOR_TICK_DURATION.as_secs_f32()
+        "base_swing_duration" if arguments.is_empty() => context
+            .main_hand_swing_seconds
+            .unwrap_or(super::motion::ACTOR_SWING_TICKS as f32 * ACTOR_TICK_DURATION.as_secs_f32()),
+        "equipped_item_any_tag" => truth(context.main_hand_is_spear
+            && matches!(arguments.first(), Some(MolangValue::String(slot)) if slot.as_ref() == "slot.weapon.mainhand")
+            && arguments.iter().skip(1).any(|tag| matches!(tag, MolangValue::String(tag) if tag.as_ref() == "minecraft:is_spear"))),
+        "kinetic_weapon_delay" => context
+            .main_hand_kinetic
+            .map_or(0.0, |timing| timing.delay_ticks as f32),
+        "kinetic_weapon_dismount_duration" => context
+            .main_hand_kinetic
+            .map_or(0.0, |timing| timing.dismount_ticks as f32),
+        "kinetic_weapon_knockback_duration" => context
+            .main_hand_kinetic
+            .map_or(0.0, |timing| timing.knockback_ticks as f32),
+        "kinetic_weapon_damage_duration" => context
+            .main_hand_kinetic
+            .map_or(0.0, |timing| timing.damage_ticks as f32),
+        "ticks_since_last_kinetic_weapon_hit" => {
+            if input.item_use_ticks > 0 {
+                actor
+                    .status
+                    .kinetic_hit_ticks
+                    .map_or(-1.0, |ticks| ticks as f32)
+            } else {
+                -1.0
+            }
         }
         "death_ticks" => f32::from(actor.status.death_ticks()),
         // Ticks stand in for the world clock; only the phase between actors differs.
         "time_stamp" => evaluator.life_tick as f32,
         "has_target" => truth(has_target(actor)),
+        "swell_amount" if actor.is_creeper() => evaluator
+            .swell_amount
+            .unwrap_or_else(|| actor.creeper_swell_amount(context.frame_alpha)),
         "swell_amount" => metadata_number(actor, KEY_SWELL)
             .map_or(0.0, |swell| (swell / SWELL_FULL_TICKS).max(0.0)),
         // Wither armor shows below half health.

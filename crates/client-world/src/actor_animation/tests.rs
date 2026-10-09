@@ -94,6 +94,7 @@ fn read_with(
         context,
         anim_tick: 0,
         anim_time: None,
+        swell_amount: None,
         life_tick,
         finished: (false, false),
         bones: &[],
@@ -342,6 +343,7 @@ fn operation_work_and_transition_budgets_are_aggregate() {
         transitions_left: MAX_CONTROLLER_TRANSITIONS_PER_TICK,
         used: 0,
         stack: Vec::new(),
+        static_draw: None,
     };
     assert_eq!(budget.charge(), Ok(()));
     assert_eq!(budget.charge(), Err(EvalError::WorldBudget));
@@ -677,6 +679,116 @@ fn state_queries_read_target_swell_shield_and_death() {
 }
 
 #[test]
+fn creeper_ignition_advances_and_reverses_swelling_without_swell_metadata() {
+    let mut store = crate::actor_store::ActorStore::new(1, 0);
+    store.apply(
+        1,
+        1,
+        protocol::ActorEvent::Spawn(protocol::ActorSpawnEvent {
+            dimension: 0,
+            unique_id: 1,
+            runtime_id: 1,
+            kind: ActorKind::Entity {
+                identifier: "minecraft:creeper".into(),
+            },
+            position: [0.0; 3],
+            velocity: [0.0; 3],
+            pitch: 0.0,
+            yaw: 0.0,
+            head_yaw: 0.0,
+            body_yaw: 0.0,
+            held_item: Default::default(),
+            metadata: Arc::from([protocol::ActorMetadata {
+                key: 0,
+                value: ActorMetadataValue::Flags(1 << 10),
+            }]),
+            attributes: Arc::from([]),
+            properties: Arc::from([]),
+            links: Arc::from([]),
+        }),
+    );
+    let input = ActorTickInput::default();
+    store.advance_interpolation_ticks(14);
+    let actor = store.get(1).unwrap();
+    assert_eq!(read(actor, &input, 0, "query.swell_amount"), 13.0 / 28.0);
+    assert_eq!(read(actor, &input, 0, "query.swelling_dir"), 1.0);
+    let context = ActorTickContext {
+        frame_alpha: 0.5,
+        ..Default::default()
+    };
+    assert_eq!(
+        read_with(actor, &input, &context, 0, "query.swell_amount", &[]).number(),
+        13.5 / 28.0
+    );
+    store.apply(
+        1,
+        2,
+        protocol::ActorEvent::Metadata(protocol::ActorMetadataUpdateEvent {
+            dimension: 0,
+            runtime_id: 1,
+            metadata: Arc::from([protocol::ActorMetadata {
+                key: 0,
+                value: ActorMetadataValue::Flags(0),
+            }]),
+            properties: Arc::from([]),
+            tick: 14,
+        }),
+    );
+    store.advance_interpolation_ticks(3);
+    let actor = store.get(1).unwrap();
+    assert_eq!(read(actor, &input, 0, "query.swell_amount"), 12.0 / 28.0);
+    assert_eq!(read(actor, &input, 0, "query.swelling_dir"), -1.0);
+    store.advance_interpolation_ticks(100);
+    assert_eq!(
+        read(store.get(1).unwrap(), &input, 0, "query.swell_amount"),
+        0.0
+    );
+    store.apply(
+        1,
+        3,
+        protocol::ActorEvent::Metadata(protocol::ActorMetadataUpdateEvent {
+            dimension: 0,
+            runtime_id: 1,
+            metadata: Arc::from([
+                protocol::ActorMetadata {
+                    key: 0,
+                    value: ActorMetadataValue::Flags(1 << 10),
+                },
+                protocol::ActorMetadata {
+                    key: 19,
+                    value: ActorMetadataValue::Int(5_000),
+                },
+                protocol::ActorMetadata {
+                    key: 21,
+                    value: ActorMetadataValue::Int(-5_000),
+                },
+            ]),
+            properties: Arc::from([]),
+            tick: 117,
+        }),
+    );
+    store.advance_interpolation_ticks(100);
+    assert_eq!(
+        read(store.get(1).unwrap(), &input, 0, "query.swell_amount"),
+        30.0 / 28.0
+    );
+    store.apply(
+        1,
+        4,
+        protocol::ActorEvent::Status(protocol::ActorStatusEvent {
+            runtime_id: 1,
+            kind: protocol::ActorStatusKind::Death,
+            data: 0,
+        }),
+    );
+    store.advance_interpolation_ticks(2);
+    assert_eq!(
+        read(store.get(1).unwrap(), &input, 0, "query.swell_amount"),
+        0.0
+    );
+}
+
+#[test]
 fn item_use_duration_counts_seconds_and_water_follows_swimming_or_aquatic_airborne() {
     let actor = actor_with_metadata(HashMap::new());
     let input = ActorTickInput {
@@ -885,6 +997,7 @@ fn default_bone_pivot_reads_the_authored_rest_pivot() {
         context: &context,
         anim_tick: 0,
         anim_time: None,
+        swell_amount: None,
         life_tick: 0,
         finished: (false, false),
         bones: &bones,

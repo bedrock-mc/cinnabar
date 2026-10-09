@@ -10,6 +10,7 @@ mod codec;
 mod credits;
 mod dimension;
 mod disconnect;
+mod emote;
 mod experience;
 mod interaction;
 mod inventory;
@@ -42,6 +43,7 @@ pub use experience::{
 };
 
 pub use credits::{ShowCreditsEvent, credits_finished_packet};
+pub use emote::emote_packet;
 
 pub use dimension::{LoadingScreenPhase, dimension_change_done_packet, loading_screen_packet};
 
@@ -96,6 +98,7 @@ pub use interaction::{
     click_block_packet, click_block_transaction_packet, destroy_block_packet,
     is_aim_assist_rotation_action, release_item_packet, start_item_use_on_packet,
     stop_item_use_on_packet, stop_sleeping_packet, swing_arm_packet, use_actor_packet,
+    use_item_as_attack_packet,
 };
 pub use inventory::recipes::{
     MAX_RECIPE_INGREDIENTS, RECIPE_ANY_AUX, RECIPE_OWNED_BYTES, RecipeCatalog, RecipeDefinition,
@@ -119,20 +122,20 @@ pub use inventory::{
     CONTAINER_NAME_ARMOR, CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY, CONTAINER_NAME_CRAFT_INPUT,
     CONTAINER_NAME_CURSOR, CONTAINER_NAME_DYNAMIC, CONTAINER_NAME_INVENTORY,
     CONTAINER_NAME_LEVEL_ENTITY, CONTAINER_NAME_OFFHAND, CanonicalCell, ContainerCloseEvent,
-    ContainerDataEvent, ContainerIdentity, ContainerOpenEvent, InventoryAuthority,
-    InventoryContentEvent, InventoryEvent, InventoryPacketError, InventorySlotEvent,
-    InventoryTransactionEvent, ItemStackResponseEvent, MAX_CONTAINER_SLOTS, MAX_FILTER_STRINGS,
-    MAX_ITEM_NBT_BYTES, MAX_RESPONSE_CONTAINERS, MAX_RESPONSE_NAME_BYTES, MAX_STACK_RESPONSES,
-    NormalInventoryChange, NormalInventorySource, OFFHAND_WINDOW_ID, PLAYER_INVENTORY_SLOTS,
-    PLAYER_INVENTORY_WINDOW_ID, SelectedSlotEvent, SlotIdentity, StackRequestAction,
-    StackRequestContainer, StackRequestSlot, StackResponse, StackResponseContainer,
-    StackResponseSlot, StackResponseStatus, UI_INVENTORY_WINDOW_ID, VerifiedNetworkItemStack,
-    container_close_packet, item_stack_request_batch, item_stack_request_packet,
-    item_stack_request_packet_filtered, normal_inventory_transaction_packet, normalize_authority,
-    normalize_container_close, normalize_container_data, normalize_container_open,
-    normalize_content, normalize_hotbar, normalize_response, normalize_slot, open_inventory_packet,
-    personal_craft_content_indices, personal_craft_slot_index, project_container_cell,
-    validate_item_nbt_size,
+    ContainerDataEvent, ContainerIdentity, ContainerOpenEvent, DYNAMIC_STORAGE_WINDOW_ID,
+    InventoryAuthority, InventoryContentEvent, InventoryEvent, InventoryPacketError,
+    InventorySlotEvent, InventoryTransactionEvent, ItemStackResponseEvent, MAX_CONTAINER_SLOTS,
+    MAX_FILTER_STRINGS, MAX_ITEM_NBT_BYTES, MAX_RESPONSE_CONTAINERS, MAX_RESPONSE_NAME_BYTES,
+    MAX_STACK_RESPONSES, NormalInventoryChange, NormalInventorySource, OFFHAND_WINDOW_ID,
+    PLAYER_INVENTORY_SLOTS, PLAYER_INVENTORY_WINDOW_ID, SelectedSlotEvent, SlotIdentity,
+    StackRequestAction, StackRequestContainer, StackRequestSlot, StackResponse,
+    StackResponseContainer, StackResponseSlot, StackResponseStatus, UI_INVENTORY_WINDOW_ID,
+    VerifiedNetworkItemStack, container_close_packet, item_stack_request_batch,
+    item_stack_request_packet, item_stack_request_packet_filtered,
+    normal_inventory_transaction_packet, normalize_authority, normalize_container_close,
+    normalize_container_data, normalize_container_open, normalize_content, normalize_hotbar,
+    normalize_response, normalize_slot, open_inventory_packet, personal_craft_content_indices,
+    personal_craft_slot_index, project_container_cell, validate_item_nbt_size,
 };
 pub use inventory::{
     CreativeCategory, CreativeContentEvent, CreativeGroup, CreativeItem, MAX_CREATIVE_GROUPS,
@@ -156,9 +159,10 @@ pub use inventory::{MineBlockRequest, MineBlockRequestError};
 pub use inventory::{RecipeRegistryError, RecipeRegistrySnapshot};
 pub use item::{
     ActorActionEvent, ActorActionKind, ActorHandedness, ArmorEquipmentEvent, EquipmentEvent,
-    HOTBAR_SLOT_COUNT, ItemActorEvent, ItemBook, ItemComponents, ItemDisplay, ItemPacketError,
-    ItemRegistryEntry, ItemRegistryEvent, ItemRegistryVersion, MAX_ACTION_IDENTIFIER_BYTES,
-    MAX_ANIMATE_ENTITY_IDS, MAX_ANIMATION_IDENTIFIER_BYTES, MAX_BOOK_PAGES, MAX_ITEM_EXTRA_BYTES,
+    HOTBAR_SLOT_COUNT, ItemActorEvent, ItemAttackCooldown, ItemAttackTiming, ItemBook,
+    ItemComponents, ItemDisplay, ItemPacketError, ItemRegistryEntry, ItemRegistryEvent,
+    ItemRegistryVersion, KineticWeaponTiming, MAX_ACTION_IDENTIFIER_BYTES, MAX_ANIMATE_ENTITY_IDS,
+    MAX_ANIMATION_IDENTIFIER_BYTES, MAX_BOOK_PAGES, MAX_ITEM_EXTRA_BYTES,
     MAX_ITEM_REGISTRY_ENTRIES, NetworkItemStack, item_book, item_bundle_id,
     item_charged_projectile, item_components, item_custom_color, item_display,
     item_enchantment_level, item_extra_damage, item_extra_unbreakable, item_has_enchantment_list,

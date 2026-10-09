@@ -5,6 +5,12 @@
 pub const BEDROCK_DAY_TICKS: u32 = 24_000;
 /// Maximum remote players exposed by one local gameplay snapshot.
 pub const MAX_GAMEPLAY_PLAYERS: usize = 128;
+/// Fixed player inventory and worn armor lengths in local player-state snapshots.
+pub const PLAYER_STATE_INVENTORY_SLOTS: usize = 36;
+pub const PLAYER_STATE_ARMOR_SLOTS: usize = 4;
+/// Bounds for read-only local player-state payloads.
+pub const MAX_PLAYER_STATE_EFFECTS: usize = 32;
+pub const MAX_ITEM_IDENTIFIER_BYTES: usize = 128;
 /// Maximum accumulated camera change per axis in one callback, in radians.
 pub const MAX_CAMERA_DELTA_RADIANS: f32 = 0.25;
 /// Personal attack overrides never extend actor selection beyond this local bound.
@@ -26,6 +32,9 @@ pub const MAX_RIG_VERTICAL_BLOCKS: f32 = 2.0;
 pub const MAX_RIG_BACK_BLOCKS: f32 = 8.0;
 pub const MAX_RIG_ROLL_RADIANS: f32 = 0.6;
 pub const MAX_RIG_FOV_DELTA_DEGREES: f32 = 30.0;
+/// Lower bounds for current-frame FOV and routed look multipliers; their upper bound is 1.
+pub const MIN_VIEW_FOV_SCALE: f32 = 0.1;
+pub const MIN_VIEW_LOOK_SCALE: f32 = 0.05;
 /// Granted command names, their byte bound, and per-frame command requests.
 pub const MAX_COMMAND_GRANTS: usize = 8;
 pub const MAX_COMMAND_BYTES: usize = 128;

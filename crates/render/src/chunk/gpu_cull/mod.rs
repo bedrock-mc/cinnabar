@@ -1,9 +1,9 @@
 //! GPU-driven opaque terrain culling: persistent per-slot records, a compute cull with
-//! two-phase Hi-Z occlusion, and count-driven multi-draw-indirect submission.
+//! two-phase Hi-Z occlusion, and compacted multi-draw-indirect submission.
 //!
-//! Direct-draw devices (Metal) instead read occlusion bits back for later frames to skip; see
-//! [`direct`]. DX12 count draws lose shader base offsets, so it keeps CPU culling, as do frames
-//! with an active presentation or visibility probe.
+//! Count-capable backends consume the compacted count directly. Other indirect backends
+//! submit cleared fixed-size regions whose unused commands draw zero instances. Direct-draw
+//! devices (Metal) instead read occlusion bits back for later frames to skip; see [`direct`].
 
 #[cfg(test)]
 pub(super) mod app_tests;
@@ -37,6 +37,11 @@ use prepare::{ChunkHiddenEntities, GpuCull, extract_hidden_chunks, prepare_gpu_c
 
 /// Forces the CPU culling path for A/B measurement.
 const CPU_CULLING_ENV: &str = "RUST_MCBE_CPU_CULLING";
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::chunk) enum GpuCullSubmission {
+    Count,
+    Fixed,
+}
 
 /// Whether opaque terrain is culled on the GPU on this device.
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -46,6 +51,30 @@ pub(in crate::chunk) struct GpuCullSupport(pub(in crate::chunk) bool);
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(in crate::chunk) struct DirectOcclusionSupport(pub(in crate::chunk) bool);
 
+pub(in crate::chunk) fn gpu_cull_submission(
+    draw_mode: ChunkDrawMode,
+    features: WgpuFeatures,
+    downlevel: DownlevelFlags,
+    backend: wgpu::Backend,
+    forced_cpu: bool,
+) -> Option<GpuCullSubmission> {
+    if forced_cpu
+        || draw_mode != ChunkDrawMode::MultiDrawIndirect
+        || !features.contains(WgpuFeatures::INDIRECT_FIRST_INSTANCE)
+        || !downlevel.contains(DownlevelFlags::COMPUTE_SHADERS)
+    {
+        return None;
+    }
+    if model::count_draw_offsets_supported(backend)
+        && features.contains(WgpuFeatures::MULTI_DRAW_INDIRECT_COUNT)
+    {
+        Some(GpuCullSubmission::Count)
+    } else {
+        Some(GpuCullSubmission::Fixed)
+    }
+}
+
+#[cfg(test)]
 pub(in crate::chunk) fn gpu_cull_supported(
     draw_mode: ChunkDrawMode,
     features: WgpuFeatures,
@@ -53,14 +82,7 @@ pub(in crate::chunk) fn gpu_cull_supported(
     backend: wgpu::Backend,
     forced_cpu: bool,
 ) -> bool {
-    !forced_cpu
-        && model::count_draw_offsets_supported(backend)
-        && draw_mode == ChunkDrawMode::MultiDrawIndirect
-        // Count-driven draws address quads through a non-zero `first_instance`.
-        && features.contains(
-            WgpuFeatures::MULTI_DRAW_INDIRECT_COUNT | WgpuFeatures::INDIRECT_FIRST_INSTANCE,
-        )
-        && downlevel.contains(DownlevelFlags::COMPUTE_SHADERS)
+    gpu_cull_submission(draw_mode, features, downlevel, backend, forced_cpu).is_some()
 }
 
 /// The view queued for GPU culling this frame, with the pipelines its late pass reuses.
@@ -179,15 +201,15 @@ pub(in crate::chunk) fn install(app: &mut App) {
         adapter.get_downlevel_capabilities().flags,
         device.features(),
         Backends::from(adapter.get_info().backend),
-        cfg!(debug_assertions),
     );
-    let support = GpuCullSupport(gpu_cull_supported(
+    let submission = gpu_cull_submission(
         draw_mode,
         device.features(),
         adapter.get_downlevel_capabilities().flags,
         adapter.get_info().backend,
         forced_cpu,
-    ));
+    );
+    let support = GpuCullSupport(submission.is_some());
     let direct = DirectOcclusionSupport(direct_occlusion_supported(
         draw_mode,
         adapter.get_downlevel_capabilities().flags,
@@ -207,11 +229,11 @@ pub(in crate::chunk) fn install(app: &mut App) {
         app.add_systems(Last, admit_depth_sampling);
         return;
     }
-    if !support.0 {
+    let Some(submission) = submission else {
         return;
-    }
+    };
     render_app
-        .insert_resource(GpuCull::new(&device))
+        .insert_resource(GpuCull::new(&device, submission))
         .init_resource::<ChunkHiddenEntities>()
         .add_systems(ExtractSchedule, extract_hidden_chunks)
         .add_systems(

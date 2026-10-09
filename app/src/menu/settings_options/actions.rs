@@ -85,8 +85,7 @@ impl MenuRuntime {
                     self.settings_dirty = true;
                     self.settings_apply = true;
                 } else {
-                    self.message =
-                        Some("The default key is assigned to another action.".to_owned());
+                    self.message = Some("That default control could not be restored.".to_owned());
                 }
             }
             _ => {}
@@ -102,7 +101,7 @@ impl MenuRuntime {
             self.settings_dirty = true;
             self.settings_apply = true;
         } else {
-            self.message = Some("That key is already assigned to another action.".to_owned());
+            self.message = Some("That control cannot be assigned to this action.".to_owned());
         }
     }
 }

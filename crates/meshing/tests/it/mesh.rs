@@ -9,6 +9,7 @@ include!("mesh/snow_grass.rs");
 include!("mesh/seasonal_leaves.rs");
 include!("mesh/leaf_layers.rs");
 include!("mesh/stained_glass.rs");
+include!("mesh/honey.rs");
 include!("mesh/copper_grates.rs");
 include!("mesh/bookshelves.rs");
 include!("mesh/selector_alias.rs");

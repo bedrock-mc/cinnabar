@@ -265,7 +265,7 @@ pub fn update_look(
         semantic_input::InputMode::Touch => {
             look_delta * look::analog_degrees_per_routed_unit(feel.touch_look_sensitivity)
         }
-    };
+    } * settings.look_scale();
     let (damping, facts) = spyglass;
     let degrees = look::spyglass_turn_delta(
         degrees,

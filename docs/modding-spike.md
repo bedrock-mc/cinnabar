@@ -79,6 +79,49 @@ subject to its current parity limits; this mod adds no native acceptance claim.
 
 ## Contract and implementation
 
+### Read-only local player state
+
+`player-state.read-snapshot()` exposes the local player's current presented
+inventory, worn armor, offhand and active status effects. It requires the separate
+default-denied `ModGrants.player_state` grant (`CINNABAR_MOD_PLAYER_STATE=1` for
+the explicitly selected developer component). It returns `ok(none)` without a
+connected world or when the network, player and UI session owners disagree.
+Screens may retain this read capability while they own input; the grant carries
+no camera, interaction, remote-player or outbound packet authority.
+
+The snapshot contains the network session generation, current dimension and
+selected hotbar cell. Inventory has exactly 36 cells, hotbar first, and armor has
+four cells in helmet-to-boots order. Every inventory/gear cell preserves unknown,
+empty and present states with `known` and an optional item. Items carry their
+negotiated identifier when available, wire metadata/count and canonical block
+classification. Unknown identifiers remain unknown and still carry their counts.
+Durability damage uses accepted response corrections before the retained Damage
+tag; missing damage remains absent. Durability maxima use the existing Bedrock
+vanilla table only for non-component items. Custom component maxima are unknown,
+without a guessed vanilla fallback.
+
+Effects use the existing authoritative UI effect store and estimated server
+clock. Remaining duration is in 20 Hz ticks, `none` means infinite, and expired
+effects are omitted even before the ordinary UI expiry pass. Effects are sorted
+by ID; wire amplifiers remain zero-based. Reads are limited to eight per callback.
+
+`player-state.read-revision()` shares that grant and read limit. It returns an
+opaque `u64` token only while the current callback has a valid snapshot. Equal
+tokens within one component instance mean every snapshot field is unchanged,
+including identifiers, session, dimension, exact effect ticks and flags. A guest
+may compare the token before importing the full snapshot and must release cached
+facts when it observes `none`. Tokens do not survive reloads. The host retains one
+exact comparison snapshot only when the guest imports it with `read-snapshot`.
+Current contents equal to that full read reuse its token, including after
+unavailable callbacks or unimported transient changes. Other contents receive a
+fresh token; returned tokens are opaque and need not increase. Comparison facts
+are never exposed without a current snapshot and are cleared on validation
+failure, revocation or callback failure. The allocation counter rejects
+theoretical exhaustion instead of wrapping.
+Current snapshots are cleared before and after callbacks and on quarantine; a reload
+starts without previous session data. This experimental API closes no vanilla
+parity or native acceptance gate.
+
 ### Opt-in gameplay API
 
 Personal developer components may request `gameplay.read-frame()` and
@@ -165,8 +208,7 @@ Three additional per-component grants are opt-in: `CINNABAR_MOD_CONTROLS=1`,
 They are developer extension capabilities and do not change the vanilla client.
 
 `panel.set-content` retains a bounded JSON panel of toggles, sliders, buttons and
-choices. It uses the host's JSON-UI engine; guests cannot provide templates or
-binding expressions. Optional `style: "compact"` renders a unified menu with up
+choices. It uses the host's JSON-UI engine. Optional `style: "compact"` renders a unified menu with up
 to three equal-height cards. Optional `theme: "monochrome"` selects an opaque neutral
 palette for either layout; omitting it preserves the existing dark/light theme.
 Sections can select a bounded `icon` (`pointer`,
@@ -185,6 +227,34 @@ gameplay. The panel's `toggle_key` opens or closes it before the ordinary input
 sample; Escape closes it. Other absorbing screens and lost focus close it, release
 input, and suppress gameplay output. Removing or quarantining a guest releases
 the panel and its reservations.
+
+`input.read-selected-controls(selection)` reads the same current frame with the
+same controls grant and shared read limit. Each optional pressed/held key list
+uses `none` for all keys, an empty list for none, or up to 64 physical names for
+exact matches in native order. Names follow the existing 32-byte alphanumeric
+key rule; repeated requested names do not duplicate observations. The `events`
+flag selects whether panel events are included; scalar flags are unchanged.
+Selection neither consumes input nor changes reservations or native sampling.
+
+An optional `surface` replaces the built-in panel presentation with extension-owned
+JSON-UI. It has `screen` (`namespace.name`), `document` (a JSON string containing
+that namespace and one root definition), and `bindings` (a map of `#name` to a
+boolean, finite number, bounded text or 2–4-number array). The private catalog
+accepts bounded screen, panel, button, label, stack-panel and rectangle/vector
+custom nodes; factories, inheritance and dynamic expansion are rejected. The
+whole panel is capped at 128 KiB; its document at 96 KiB, 1,024 nodes and depth 32.
+Bindings update without rebuilding unchanged catalog geometry. Host bindings
+`#surface_width` and `#surface_height` report the current logical viewport.
+With a surface, the optional panel `reference_size` pair declares positive logical
+dimensions up to 1,000,000. Smaller viewports proportionally reduce rendering and
+input geometry to fit that extent; larger viewports keep the normal scale.
+
+Authored buttons route `mod.control:N` to declared control index N, `mod.edit:N`
+to a declared slider's native number editor, or `mod.close` to dismiss the panel.
+Choice lists, keybind events, slider normalization and input ownership retain
+their native behavior. A guest can declare Button controls for navigation or
+search and process physical key edges while its `capture_key` flag is active;
+layout, branding and navigation state remain in that guest.
 
 `gameplay.set-attack-reach` requests a current-frame actor selection/admission
 range up to `mod_api::MAX_ENTITY_REACH_BLOCKS`. It preserves obstruction checks
@@ -260,6 +330,15 @@ request; any other command is refused, and requests are capped by
 cues in the app's `ModCueFeed`; `events.poll` returns last frame's cues, at most
 `MAX_INCOMING_CUES`. `input.read-controls` also reports held keys. All output commits
 only after a successful callback and is dropped on a trap or reload.
+
+`camera.set-view-scale` (camera grant) renews independent FOV and look multipliers
+each callback. FOV accepts `MIN_VIEW_FOV_SCALE..=1` and look accepts
+`MIN_VIEW_LOOK_SCALE..=1`; both must be finite. It applies only to focused,
+input-owned gameplay with no open extension panel. FOV updates in the current
+camera frame; look gain applies on the next look update. Neutral `1/1`, omission,
+focus loss, UI input ownership, traps and unload restore the player's view without
+changing saved FOV, sensitivity or perspective. In a mod set the earliest
+non-neutral publisher wins.
 
 ## Several mods at once
 
@@ -410,3 +489,95 @@ the executable's normal installation location. Relative and empty overrides fail
 at startup. This does not require changing HOME, LOCALAPPDATA or XDG variables.
 `CINNABAR_WINDOW_TITLE` optionally changes the game window title; absent, empty or
 whitespace-only values retain the product name.
+
+### Cosmetic HUD cards and crosshairs
+
+The separate `hud` grant permits `hud.set-content(json)` and
+`hud.set-crosshair(json)`. Select it with `CINNABAR_MOD_HUD=1`, or `"hud": true`
+in the component's registration/set grants. Neither operation reads player data,
+changes input, nor sends packets. Existing `set-label` remains available without
+this grant. All HUD writes share an eight-call callback budget.
+
+Card data contains `cards`, each with a unique `id`, `rows`, and optional
+`title`, `anchor`, `offset`, `scale`, `position`, and `background_opacity`. Anchors are `top_left`, `top_right`, `bottom_left`,
+and `bottom_right`; offsets are GUI pixels from that corner. Negative offsets
+move inward from right/bottom corners. Scale is 0.5–2 and scales card text, icons,
+and geometry together. Each row has `label`, `value`, and optional `item`
+(resource identifier), `metadata`, `effect_id` (canonical Bedrock effect icon),
+`progress` (0–1), and `color` (RGBA 0–1). Item and effect icons are mutually exclusive;
+unknown effect IDs leave the icon empty rather than guessing.
+Item art follows the current session's resource-pack icons and normal item atlas;
+unknown item identities draw no substituted item. Optional `row_layout` selects
+`standard` (default, inline text with a left icon), `stacked_text` (label above
+value beside a left icon), or `icon_right` (inline text before a right icon).
+`width`, `row_height`, and `icon_size` use unscaled GUI pixels and default to
+148, 20, and 16. Width is 48–512, row height is 12–64, and icon size is 4–48;
+icons must fit the row height and the width minus 12 pixels of padding.
+Optional `text_scale` (default 1, bounded to 0.5–2) multiplies the row label and
+value fonts independently of icons and card dimensions. Inline text bands expand
+within the row padding and progress-bar space; stacked rows retain separate line
+bands. Text stays clipped to its available band when the chosen row is too small.
+Card height is `(22 + row_height * rows) * scale` with a title, or
+`(4 + row_height * rows) * scale` without one. Gameplay rendering and layout
+editor bounds use the same dimensions. Background opacity
+is 0–1 (default 0.82) and affects only the card surface, preserving foreground
+text, icons and progress bars. An optional normalized `position: [x, y]` in
+0–1 overrides corner placement: each axis is a fraction of available travel
+(viewport minus scaled card size), keeping moved cards visible across resizing.
+Legacy anchor/offset placement remains exact until a card is moved.
+
+Crosshair data supports `shape` (`cross`, `dot`, `circle`), `size` (cross arm
+length or circle/dot radius), `gap` (cross center clearance), `thickness`, `color`,
+`outline`, and `outline_color`. Dimensions use GUI pixels. The host renders the
+replacement inside the ordinary JSON-UI cursor renderer, preserving its camera,
+spectator, pack, focus, and HUD visibility gates. Clearing the spec restores the
+player's existing cursor texture and blending preference.
+
+Both operations retain validated data only after a successful callback. Empty
+JSON clears that surface. A trap or unload revokes it; a rejected replacement
+keeps the old instance, and a successful reload starts with the new instance's
+published surfaces. Cards hide while a screen or personal panel owns input,
+during loading, and when the player or server hides the HUD. Text/value updates
+reuse the retained host JSON-UI template while its geometry is unchanged.
+The settings panel now accepts at most 64 controls; existing category and page
+navigation keeps controls reachable when they exceed the viewport.
+
+With both `hud` and `controls` grants, `hud.open-editor(json)` opens a native
+JSON-UI layout editor from the current focused personal panel. The request is
+bounded HUD preview data and can include cards disabled during gameplay.
+`editor_label` names a preview independently of its optional gameplay title.
+Optional `reset_anchor` and `reset_offset` supply factory placement without
+changing the current preview. These fields affect only the layout editor.
+
+The editor captures native pointer dragging, clamps cards to the available
+viewport, supports one-pixel arrow nudges, and offers optional eight-GUI-pixel
+grid snapping. Save (or Enter) returns all card IDs and their optional normalized
+positions through `hud.read-editor-result()`. The typed result has `saved`,
+`reset`, and `placements`; `reset` indicates that Reset was used in this draft.
+Reset clears positions and uses the supplied factory anchors/offsets while
+preserving scale and opacity. Cancel (or Escape) returns `saved: false` and no
+placements, so the guest leaves its preferences untouched. Save and Cancel return
+to the personal panel, which retains exclusive gameplay input ownership.
+
+An editor request may opt into `autosave: true`. Completed pointer drags, arrow
+nudges, and Reset then return incremental saved results while the editor stays
+open. A held or interrupted drag remains a draft. Escape closes the personal
+panel in this mode; completed placements have already been delivered, and the
+unfinished gesture is discarded. Omitting `autosave` preserves Save/Cancel.
+
+The optional editor `surface` has the same bounded document and bindings as a
+personal panel surface. Its client-authored chrome replaces the built-in shade,
+grid, toolbar, and help while native previews and drag bounds remain. Editor
+actions accept `hud.save`, `hud.cancel`, `hud.close`, `hud.reset`, `hud.grid`, and
+bounded `hud.card:N`. `hud.close` dismisses the whole panel, preserving completed
+autosave placements and discarding an unfinished drag. `hud.done:N` ends the editor and emits the declared Button
+control at panel index N through the ordinary control event queue. It retains panel
+input ownership so the component can choose its next surface. Other control
+types and undeclared indices cannot emit this event.
+
+A result stays stable for the callback and is consumed only after a successful
+callback reads it. The app delivers it only to the requesting component, even
+when another component publishes the gameplay HUD. Focus loss, a different live
+session, another screen, a guest trap, reload, or unload cancels pointer capture
+and the draft. The host has no preference-file authority through this API;
+components may persist accepted placements with the existing settings grant.

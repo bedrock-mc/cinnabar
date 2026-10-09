@@ -108,6 +108,7 @@ struct VisualCompiler {
     cross_templates: BTreeMap<([u32; 2], bool), u32>,
     kelp_templates: BTreeMap<[u32; 6], u32>,
     transparent_cube_templates: BTreeMap<[u32; 6], u32>,
+    honey_templates: BTreeMap<[u32; 6], u32>,
     portal_templates: BTreeMap<[u32; 6], u32>,
     dragon_egg_templates: BTreeMap<[u32; 6], u32>,
     anvil_templates: BTreeMap<super::anvil::TemplateKey, u32>,
@@ -130,6 +131,7 @@ struct VisualCompiler {
     lily_pad_templates: BTreeMap<u32, u32>,
     fire_templates: BTreeMap<[u32; 2], u32>,
     flower_pot_templates: BTreeMap<[u32; 7], u32>,
+    bamboo_templates: BTreeMap<(u32, u32, i16, u8), u32>,
     lantern_templates: BTreeMap<(u32, bool), u32>,
     flower_pot_soil: Option<u32>,
     chiseled_bookshelf_templates: BTreeMap<[u32; 5], u32>,
@@ -158,6 +160,15 @@ impl VisualCompiler {
             return Ok(CompileRuleResult::Compiled(visual));
         }
 
+        ordered_rule!(super::bamboo::compile_rule(
+            record,
+            inputs,
+            &mut self.bamboo_templates,
+            &mut ModelStorage {
+                templates: &mut self.model_templates,
+                quads: &mut self.model_quads
+            },
+        ));
         ordered_rule!(super::anvil::compile_rule(
             record,
             inputs,
@@ -235,6 +246,15 @@ impl VisualCompiler {
             record,
             inputs,
             &mut self.lantern_templates,
+            &mut ModelStorage {
+                templates: &mut self.model_templates,
+                quads: &mut self.model_quads,
+            },
+        ));
+        ordered_rule!(super::honey::compile_rule(
+            record,
+            inputs,
+            &mut self.honey_templates,
             &mut ModelStorage {
                 templates: &mut self.model_templates,
                 quads: &mut self.model_quads,

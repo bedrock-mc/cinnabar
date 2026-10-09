@@ -140,8 +140,7 @@ fn display_value(
 ) -> String {
     match option.name {
         "field_of_view" | "gui_scale" | "msaa" => value.to_string(),
-        "max_framerate" if value == 0 => translate("options.framerateLimit.max"),
-        "max_framerate" => value.to_string(),
+        "max_framerate" => super::vsync_setting::frame_rate_label(value, translate),
         "render_distance" => {
             translate("options.renderDistanceFormat").replace("%s", &value.to_string())
         }

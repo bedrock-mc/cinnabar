@@ -509,7 +509,7 @@ pub(crate) const fn pack_model_transform(local: [u8; 3], transform: u32) -> u32 
     (local[0] as u32)
         | ((local[1] as u32) << 4)
         | ((local[2] as u32) << 8)
-        | ((transform & 0x000f_ffff) << 12)
+        | ((transform << 12) & !crate::MODEL_REF_FLAG_RANDOM_OFFSET)
 }
 
 fn packed_palette_index(storage: &PalettedStorage, x: usize, y: usize, z: usize) -> Option<usize> {

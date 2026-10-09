@@ -57,6 +57,8 @@ pub const OFFHAND_WINDOW_ID: i32 = 119;
 pub const ARMOR_WINDOW_ID: i32 = 120;
 /// The player's fixed UI inventory, including the cursor and crafting cells.
 pub const UI_INVENTORY_WINDOW_ID: i32 = 124;
+/// The dynamic storage window whose full container name identifies its instance.
+pub const DYNAMIC_STORAGE_WINDOW_ID: i32 = 125;
 
 /// One canonical inventory cell in the explicit cross-surface address space.
 ///

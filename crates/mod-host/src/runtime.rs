@@ -1,6 +1,6 @@
 use crate::{
     CameraDelta, FRAME_FUEL, GameplayCameraRig, GameplayMob, GameplaySnapshot, MAX_LABEL_BYTES,
-    MEMORY_BYTES, ModCue, ModGrants,
+    MEMORY_BYTES, ModCue, ModGrants, PlayerStateSnapshot,
 };
 use anyhow::{Result, bail};
 use wasmtime::{
@@ -22,8 +22,12 @@ mod camera;
 mod controls;
 #[path = "gameplay.rs"]
 mod gameplay;
+#[path = "hud.rs"]
+mod hud;
 #[path = "item_use.rs"]
 mod item_use;
+#[path = "player_state.rs"]
+mod player_state;
 #[path = "render.rs"]
 mod render;
 
@@ -31,6 +35,7 @@ struct State {
     limits: StoreLimits,
     pressed: bool,
     label: Option<String>,
+    hud: hud::HudState,
     pending: Option<String>,
     writes: u32,
     grants: ModGrants,
@@ -53,6 +58,7 @@ struct State {
     world: gameplay::WorldState,
     camera_policy: camera::CameraPolicy,
     item_use_policy: item_use::ItemUsePolicy,
+    player_state: player_state::PlayerState,
     render: render::RenderState,
     block_highlights: block_highlights::HighlightState,
 }
@@ -70,6 +76,7 @@ impl State {
                 .build(),
             pressed: false,
             label: None,
+            hud: hud::HudState::default(),
             pending: None,
             writes: 0,
             grants,
@@ -92,6 +99,7 @@ impl State {
             world: gameplay::WorldState::default(),
             camera_policy: camera::CameraPolicy::default(),
             item_use_policy: item_use::ItemUsePolicy::default(),
+            player_state: player_state::PlayerState::default(),
             render: render::RenderState::new(),
             block_highlights: block_highlights::HighlightState::default(),
         }
@@ -99,6 +107,23 @@ impl State {
 }
 
 impl cinnabar::extension::hud::Host for State {
+    fn open_editor(&mut self, json: String) -> Result<Result<(), String>> {
+        hud::open_editor(self, json)
+    }
+
+    fn read_editor_result(
+        &mut self,
+    ) -> Result<Result<Option<cinnabar::extension::hud::EditorResult>, String>> {
+        hud::read_editor_result(self)
+    }
+    fn set_content(&mut self, json: String) -> Result<Result<(), String>> {
+        hud::set_content(self, json)
+    }
+
+    fn set_crosshair(&mut self, json: String) -> Result<Result<(), String>> {
+        hud::set_crosshair(self, json)
+    }
+
     /// Stages bounded plain text; nothing is published until the guest returns.
     fn set_label(&mut self, text: String) -> Result<Result<(), String>> {
         self.writes += 1;
@@ -153,6 +178,13 @@ impl cinnabar::extension::input::Host for State {
         controls::read(self)
     }
 
+    fn read_selected_controls(
+        &mut self,
+        selection: cinnabar::extension::input::Selection,
+    ) -> Result<Result<crate::ControlFrame, String>> {
+        controls::read_selected(self, selection)
+    }
+
     fn reserve_keys(&mut self, keys: Vec<String>) -> Result<Result<(), String>> {
         controls::reserve(self, keys)
     }
@@ -195,6 +227,7 @@ impl Instance {
         pressed: bool,
         snapshot: Option<GameplaySnapshot>,
         mobs: Vec<GameplayMob>,
+        player_state: Option<PlayerStateSnapshot>,
         controls: crate::ControlFrame,
     ) -> Result<()> {
         let state = self.store.data_mut();
@@ -209,14 +242,21 @@ impl Instance {
         state.render.begin_frame();
         state.block_highlights.begin_frame();
         state.world.begin_frame();
+        state.player_state.begin_frame();
         state.camera_policy = camera::CameraPolicy::default();
         state.item_use_policy = item_use::ItemUsePolicy::default();
         if !self.active {
+            state.player_state.revoke();
             return Ok(());
         }
-        gameplay::validate_snapshot(snapshot.as_ref())?;
-        gameplay::validate_mobs(snapshot.as_ref(), &mobs)?;
-        controls::validate_frame(&controls)?;
+        let validation = gameplay::validate_snapshot(snapshot.as_ref())
+            .and_then(|()| gameplay::validate_mobs(snapshot.as_ref(), &mobs))
+            .and_then(|()| player_state::validate(player_state.as_ref()))
+            .and_then(|()| controls::validate_frame(&controls));
+        if let Err(error) = validation {
+            state.player_state.revoke();
+            return Err(error);
+        }
         let snapshot_seconds = snapshot.as_ref().map_or(0.0, |frame| frame.frame_seconds);
         let state = self.store.data_mut();
         state.pressed = pressed;
@@ -227,12 +267,17 @@ impl Instance {
         state.snapshot = snapshot;
         state.world.advance_command_window(snapshot_seconds);
         state.world.mobs = mobs;
+        state.player_state.set_snapshot(player_state)?;
         state.controls.frame = controls;
-        self.store.set_fuel(FRAME_FUEL)?;
+        if let Err(error) = self.store.set_fuel(FRAME_FUEL) {
+            self.store.data_mut().player_state.revoke();
+            return Err(error);
+        }
         if let Err(error) = self.guest.call_frame(&mut self.store) {
             self.active = false;
             self.store.data_mut().pending = None;
             self.store.data_mut().label = None;
+            self.store.data_mut().hud = hud::HudState::default();
             self.store.data_mut().pending_time = None;
             self.store.data_mut().time_override = None;
             self.store.data_mut().fullbright = false;
@@ -244,6 +289,7 @@ impl Instance {
             self.store.data_mut().render.revoke();
             self.store.data_mut().block_highlights.revoke();
             self.store.data_mut().world = gameplay::WorldState::default();
+            self.store.data_mut().player_state.revoke();
             self.store.data_mut().camera_policy = camera::CameraPolicy::default();
             self.store.data_mut().item_use_policy = item_use::ItemUsePolicy::default();
             self.store.data_mut().packet_delay_ms = 0;
@@ -254,6 +300,7 @@ impl Instance {
         }
         commit(&mut self.store);
         self.store.data_mut().snapshot = None;
+        self.store.data_mut().player_state.begin_frame();
         self.store.data_mut().world.mobs = Vec::new();
         self.store.data_mut().world.incoming = Vec::new();
         self.store.data_mut().controls.frame = crate::empty_controls();
@@ -266,6 +313,11 @@ impl Instance {
 
     pub(super) fn preserves_teleport_rotation(&self) -> bool {
         self.store.data().camera_policy.committed
+    }
+
+    /// Only a successful, focused gameplay callback publishes a view multiplier.
+    pub(super) fn camera_view_scale(&self) -> Option<[f32; 2]> {
+        self.store.data().camera_policy.committed_view_scale
     }
 
     pub(super) fn camera_rig(&self) -> Option<GameplayCameraRig> {
@@ -312,6 +364,24 @@ impl Instance {
         self.store.data().label.as_deref()
     }
 
+    pub(super) fn hud(&self) -> Option<&ui::mod_hud::Hud> {
+        self.store.data().hud.content.as_ref()
+    }
+
+    /// Moves a committed preview into the native editor without a guest call.
+    pub(super) fn take_hud_editor_request(&mut self) -> Option<ui::mod_hud::Hud> {
+        self.store.data_mut().hud.editor_request.take()
+    }
+
+    /// Makes one host result available to this instance's next callback.
+    pub(super) fn deliver_hud_editor_result(&mut self, result: ui::mod_hud::EditorResult) {
+        self.store.data_mut().hud.editor_result = Some(result);
+    }
+
+    pub(super) fn crosshair(&self) -> Option<&ui::mod_hud::Crosshair> {
+        self.store.data().hud.crosshair.as_ref()
+    }
+
     pub(super) fn panel(&self) -> Option<&ui::mod_panel::Panel> {
         self.store.data().controls.panel.as_ref()
     }
@@ -349,11 +419,17 @@ impl Instance {
 /// Publishes retained presentation changes after the entire callback succeeds.
 fn commit(store: &mut Store<State>) {
     let state = store.data_mut();
+    state.hud.commit();
     state.controls.commit();
     state.render.commit();
     state.block_highlights.commit();
     state.world.commit();
     state.camera_policy.committed = state.camera_policy.pending && state.snapshot.is_some();
+    state.camera_policy.committed_view_scale = (state.snapshot.is_some()
+        && state.controls.frame.focused
+        && !state.controls.frame.panel_open)
+        .then_some(state.camera_policy.pending_view_scale)
+        .flatten();
     state.item_use_policy.commit(state.snapshot.as_ref());
     state.camera_delta = state.pending_camera.take();
     if let Some(delay) = state.pending_packet_delay.take() {

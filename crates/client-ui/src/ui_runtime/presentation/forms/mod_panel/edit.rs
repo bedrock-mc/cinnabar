@@ -20,6 +20,9 @@ pub(super) enum Editor {
 
 impl UiPresentationRuntime {
     pub fn mod_panel_editing(&self) -> bool {
+        if self.mod_hud_editor_open() {
+            return true;
+        }
         self.form_presentation
             .mod_panel
             .as_ref()
@@ -28,6 +31,19 @@ impl UiPresentationRuntime {
 
     /// Routes keyboard input exclusively to an open personal-panel editor.
     pub fn mod_panel_key(&mut self, key: &str, text: Option<&str>) -> Vec<Event> {
+        if let Some(editor) = self
+            .form_presentation
+            .mod_hud_editor
+            .as_mut()
+            .filter(|e| e.open)
+        {
+            let close_autosave = editor.autosave && key == "Escape";
+            editor.key(key);
+            if close_autosave {
+                self.set_mod_panel_open(false);
+            }
+            return Vec::new();
+        }
         self.form_presentation
             .mod_panel
             .as_mut()
@@ -35,6 +51,7 @@ impl UiPresentationRuntime {
     }
 
     pub fn cancel_mod_panel_edit(&mut self) {
+        self.cancel_mod_hud_editor();
         if let Some(panel) = self.form_presentation.mod_panel.as_mut() {
             panel.cancel_edit();
         }
@@ -101,7 +118,7 @@ impl ModPanel {
             id: id.clone(),
             value: selected as f32,
         };
-        self.data = Arc::new(control_data(&self.panel));
+        self.refresh_data();
         self.cancel_edit();
         vec![event]
     }
@@ -143,7 +160,7 @@ impl ModPanel {
             value: next,
         };
         *value = next;
-        self.data = Arc::new(control_data(&self.panel));
+        self.refresh_data();
         self.cancel_edit();
         vec![event]
     }

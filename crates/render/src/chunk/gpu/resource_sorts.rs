@@ -74,6 +74,7 @@ pub(super) fn prepare(
                 let (centroid, words) = transparent_model_draw_candidate(
                     instance.key,
                     &instance.model_refs,
+                    &instance.model_lighting,
                     *draw,
                     assets.assets().model_templates(),
                     assets.assets().model_quads(),

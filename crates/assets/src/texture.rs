@@ -3,10 +3,16 @@ use std::collections::BTreeSet;
 use crate::AssetError;
 
 mod legacy_terrain;
-pub use legacy_terrain::{build_legacy_terrain_mip_chain, rebuild_legacy_terrain_mips};
+pub use legacy_terrain::{
+    build_legacy_terrain_mip_chain, legacy_terrain_mip, rebuild_legacy_terrain_mips,
+};
 
 pub const TILE_SIZE: u32 = 16;
 pub const MIP_COUNT: u32 = 5;
+/// Mip levels admitted by the pinned vanilla terrain atlas, including its base.
+pub const VANILLA_TERRAIN_MIP_COUNT: u32 = 4;
+/// Terrain entry grid exponents use the low five shift bits.
+pub const TERRAIN_QUAD_SHIFT_MASK: u32 = 31;
 /// Largest square layer a runtime overlay page may use.
 pub const MAX_TILE_SIZE: u32 = 256;
 const ALPHA_TEST_THRESHOLD: u8 = 128;

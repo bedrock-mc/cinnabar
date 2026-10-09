@@ -69,6 +69,7 @@ pub enum BookEntry<'a> {
         expanded: bool,
     },
     Recipe(RecipeHandle),
+    Furnace(&'a protocol::ScreenRecipe),
 }
 
 impl BookEntry<'_> {
@@ -87,6 +88,7 @@ impl BookEntry<'_> {
                     ..NetworkItemStack::empty()
                 }
             }
+            Self::Furnace(recipe) => super::presentation::forms::furnace_book::output_stack(recipe),
         }
     }
 }
@@ -99,6 +101,12 @@ pub fn recipe_book_entries<'a>(
     player_runtime: &'a player_state::PlayerState,
     runtime: &UiRuntime,
 ) -> Vec<BookEntry<'a>> {
+    if super::presentation::forms::furnace_book::active(player_runtime) {
+        return super::presentation::forms::furnace_book::entries(player_runtime, runtime)
+            .iter()
+            .map(BookEntry::Furnace)
+            .collect();
+    }
     let ledger = runtime.inventory_ledger(player_runtime);
     let state = runtime.screen_state();
     if player_runtime.facts.player_game_mode() == Some(protocol::PlayerGameMode::Creative)
@@ -179,6 +187,7 @@ enum Clicked {
     Item(u32),
     Group(u32),
     Recipe(RecipeHandle),
+    Furnace(protocol::ScreenRecipe),
 }
 
 /// The catalog entries the creative screen currently lists, in grid order.
@@ -190,6 +199,17 @@ pub fn visible_creative_entries<'a>(
 }
 
 impl UiRuntime {
+    /// Releases the keyboard when the inventory search field cannot be shown.
+    pub fn observe_inventory_search_focus(&mut self, player: &player_state::PlayerState) {
+        if super::presentation::inventory_pointer::InventoryScreen::of_runtime(player, self)
+            != super::presentation::inventory_pointer::InventoryScreen::Creative
+            && !(super::presentation::forms::furnace_book::active(player)
+                && self.screen_state().furnace_book_open)
+        {
+            self.screen_state_mut().search_focused = false;
+        }
+    }
+
     /// Drops the hovered catalog entry without moving it through the cursor.
     pub(super) fn drop_creative_hit(
         &mut self,
@@ -207,6 +227,9 @@ impl UiRuntime {
                 entries.get(position).map(|item| item.creative_network_id)
             }
             InventoryCellHit::RecipeBook(index) => {
+                if super::presentation::forms::furnace_book::active(player_runtime) {
+                    return None;
+                }
                 match recipe_book_entries(player_runtime, self).get(usize::from(index))? {
                     BookEntry::Creative { item, .. } => Some(item.creative_network_id),
                     BookEntry::Group { index, group, .. } => self
@@ -224,7 +247,7 @@ impl UiRuntime {
                                 })
                         })
                         .map(|item| item.creative_network_id),
-                    BookEntry::Recipe(_) => return None,
+                    BookEntry::Recipe(_) | BookEntry::Furnace(_) => return None,
                 }
             }
             _ => return None,
@@ -657,6 +680,15 @@ impl UiRuntime {
             }
             Widget::CrafterSlot(slot) => self.set_crafter_slot(player_runtime, slot, false),
             Widget::InventoryLayout(layout) => {
+                if super::presentation::forms::furnace_book::active(player_runtime) {
+                    let state = self.screen_state_mut();
+                    state.furnace_book_open = layout == 2;
+                    if !state.furnace_book_open {
+                        state.search_focused = false;
+                    }
+                    state.container_scroll.clear();
+                    return Ok(0);
+                }
                 let creative = player_runtime.facts.player_game_mode()
                     == Some(protocol::PlayerGameMode::Creative);
                 let state = self.screen_state_mut();
@@ -671,6 +703,13 @@ impl UiRuntime {
                 let filtering = self.recipe_filtering(player_runtime);
                 self.screen_state_mut().recipe_filtering = Some(!filtering);
                 self.screen_state_mut().container_scroll.clear();
+                Ok(0)
+            }
+            Widget::FurnaceTab(tab) => {
+                let state = self.screen_state_mut();
+                state.furnace_tab = Some(tab);
+                state.search_focused = tab == 4;
+                state.container_scroll.clear();
                 Ok(0)
             }
             Widget::BookPage { next } => {
@@ -700,6 +739,9 @@ impl UiRuntime {
                 self.inventory_ledger_mut(player_runtime)
                     .begin_auto_craft(&recipe)
             }
+            Widget::FurnaceClearRecipe => self
+                .inventory_ledger_mut(player_runtime)
+                .begin_clear_furnace_recipe(),
         }
     }
 
@@ -711,6 +753,15 @@ impl UiRuntime {
         index: u16,
         into_inventory: bool,
     ) -> Outcome {
+        if super::presentation::forms::furnace_book::active(player_runtime) {
+            let recipe = super::presentation::forms::furnace_book::entries(player_runtime, self)
+                .get(usize::from(index))
+                .cloned()
+                .ok_or(InventoryGestureError::InvalidRequest)?;
+            return self
+                .inventory_ledger_mut(player_runtime)
+                .begin_furnace_recipe(&recipe);
+        }
         let entry = recipe_book_entries(player_runtime, self)
             .into_iter()
             .nth(usize::from(index))
@@ -718,6 +769,7 @@ impl UiRuntime {
                 BookEntry::Creative { item, .. } => Clicked::Item(item.creative_network_id),
                 BookEntry::Group { index, .. } => Clicked::Group(index),
                 BookEntry::Recipe(recipe) => Clicked::Recipe(recipe),
+                BookEntry::Furnace(recipe) => Clicked::Furnace(recipe.clone()),
             });
         match entry {
             Some(Clicked::Item(id)) => self.creative_take(player_runtime, id, into_inventory),
@@ -738,6 +790,9 @@ impl UiRuntime {
             Some(Clicked::Recipe(recipe)) => self
                 .inventory_ledger_mut(player_runtime)
                 .begin_auto_craft(&recipe),
+            Some(Clicked::Furnace(recipe)) => self
+                .inventory_ledger_mut(player_runtime)
+                .begin_furnace_recipe(&recipe),
             None if player_runtime.inventory.ledger().cursor_stack().is_some() => self
                 .inventory_ledger_mut(player_runtime)
                 .begin_destroy_cursor(),

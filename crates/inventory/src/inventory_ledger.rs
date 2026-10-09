@@ -196,6 +196,8 @@ pub struct PlayerInventoryLedger {
     /// Backing truth covered by active absolute sparse cells; `None` while idle.
     view: Option<Cells>,
     known: [bool; PLAYER_INVENTORY_SLOT_COUNT],
+    armor_known: [bool; cells::ARMOR_CELLS],
+    offhand_known: bool,
     slot_revisions: [u64; PLAYER_INVENTORY_SLOT_COUNT],
     item_registry: Option<std::sync::Arc<BTreeMap<i32, ItemRegistryEntry>>>,
     creative: Option<protocol::CreativeContentEvent>,
@@ -215,6 +217,7 @@ pub struct PlayerInventoryLedger {
     /// Acknowledged closes whose requests still await answers; they stay current.
     settling: VecDeque<SettlingWindow>,
     storage: Option<StorageWindow>,
+    pub(crate) furnace_selection: Option<crate::furnace_recipes::Selection>,
     pending_closes: VecDeque<PendingClose>,
     player_resync_required: bool,
     cursor_resync_required: bool,
@@ -235,6 +238,8 @@ impl Default for PlayerInventoryLedger {
             confirmed: Cells::default(),
             view: None,
             known: [false; PLAYER_INVENTORY_SLOT_COUNT],
+            armor_known: [false; cells::ARMOR_CELLS],
+            offhand_known: false,
             slot_revisions: [0; PLAYER_INVENTORY_SLOT_COUNT],
             item_registry: None,
             creative: None,
@@ -250,6 +255,7 @@ impl Default for PlayerInventoryLedger {
             held_open: None,
             settling: VecDeque::new(),
             storage: None,
+            furnace_selection: None,
             pending_closes: VecDeque::new(),
             player_resync_required: false,
             cursor_resync_required: false,
@@ -303,6 +309,21 @@ impl PlayerInventoryLedger {
     #[must_use]
     pub fn target_stack(&self, target: InventoryTarget) -> Option<&NetworkItemStack> {
         self.view_stack(target.cell())
+    }
+
+    /// Worn armor or offhand presentation, preserving unobserved versus empty cells.
+    /// Other surfaces and out-of-range armor addresses return `None`.
+    pub fn gear_slot_state(&self, target: InventoryTarget) -> Option<PlayerInventorySlot<'_>> {
+        let known = match target {
+            InventoryTarget::Armor(slot) => *self.armor_known.get(usize::from(slot))?,
+            InventoryTarget::Offhand => self.offhand_known,
+            _ => return None,
+        };
+        Some(match self.target_stack(target) {
+            Some(stack) => PlayerInventorySlot::Present(stack),
+            None if known => PlayerInventorySlot::Empty,
+            None => PlayerInventorySlot::Unknown,
+        })
     }
 
     #[must_use]
@@ -778,6 +799,7 @@ impl PlayerInventoryLedger {
 
     fn discard_storage_window(&mut self) {
         self.storage = None;
+        self.clear_furnace_recipe();
         self.enchant_options = None;
         self.confirmed.clear_storage();
     }

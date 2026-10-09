@@ -2,6 +2,12 @@
 
 Cinnabar is a Rust Bedrock client with a Go core. Match version-matched Bedrock behavior and output with original code. Use identified behavior references rather than memory or Java Edition assumptions. Label provisional approximations as incomplete in `plan.md`; they do not close a parity gate. Preserve accurate license notices and attribution.
 
+## Maintainer setup
+
+Before starting agent-assisted work, maintainers must clone [cinnabar-internal](https://github.com/bedrock-mc/cinnabar-internal#developer-setup) separately and follow its Developer setup for this Cinnabar clone. Read its `AGENTS.md` and `projects/cinnabar/AGENTS.md` alongside this file. The setup installs local agent instructions and publication checks; review hook trust, then restart agent sessions. Register each new clone; linked worktrees share its Git guards.
+
+Keep internal notes and agent reports in the private checkout. Public implementation, tests, and contributor documentation belong here. Contributors without private access can build, test, and contribute using the public instructions below.
+
 | Read | When |
 | --- | --- |
 | [Build workflow](docs/agents/multi-agent-workflow.md) | Worktrees, build limits, and verification |

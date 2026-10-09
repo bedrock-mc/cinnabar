@@ -405,6 +405,7 @@ impl Content<'_, '_> {
         let description = if name == "screen_animations" {
             "Smooth highlights, button presses and screen transitions. Turn off for an instant interface.".to_owned()
         } else if (name == "render_clouds"
+            || name == "max_framerate"
             || name == crate::menu::settings_options::SHOW_EXACT_SERVER_PING
             || name == crate::menu::settings_options::OREUI_DARK_MODE)
             && description.is_empty()
@@ -415,11 +416,12 @@ impl Content<'_, '_> {
         };
         match option.kind {
             SettingKind::Toggle => {
-                let enabled = name != "vsync" || self.view.vsync_override.is_none();
-                let on = if name == "vsync" {
-                    self.view.vsync_override.unwrap_or(value != 0)
-                } else {
-                    value != 0
+                let (on, enabled) = match name {
+                    "vsync" => (
+                        self.view.vsync_override.unwrap_or(value != 0),
+                        self.view.vsync_override.is_none(),
+                    ),
+                    _ => (value != 0, true),
                 };
                 self.boolean(
                     &title,
@@ -436,8 +438,12 @@ impl Content<'_, '_> {
                     "render_distance" => self
                         .word("options.renderDistanceFormat")
                         .replace("%s", &value.to_string()),
-                    "max_framerate" if value == 0 => self.word("options.framerateLimit.max"),
-                    "max_framerate" | "msaa" => value.to_string(),
+                    "max_framerate" => {
+                        super::super::vsync_setting::frame_rate_label(value, &|key: &str| {
+                            self.word(key)
+                        })
+                    }
+                    "msaa" => value.to_string(),
                     _ => format!("{value}%"),
                 };
                 let amount = self.canvas.measure(&shown, BODY)?;

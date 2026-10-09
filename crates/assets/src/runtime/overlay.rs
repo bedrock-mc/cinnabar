@@ -27,13 +27,22 @@ pub struct MaterialOverride {
 #[derive(Clone, Debug, Default)]
 pub struct BlockOverlay {
     pub visuals: Vec<BlockVisual>,
+    /// Carried unit-cube faces keyed by sorted session visual ids; independent of world offsets.
+    pub carried_cube_faces: Vec<(u32, [u32; 6])>,
     pub light_properties: Vec<LightProperties>,
     pub materials: Vec<Material>,
     pub model_templates: Vec<ModelTemplate>,
+    /// Sparse, overlay-local template components; no carrier-format change.
+    pub model_random_offsets: Vec<(u32, block_transform::random_offset::RandomOffsetComponent)>,
     pub model_quads: Vec<ModelQuad>,
     pub animations: Vec<Animation>,
     pub animation_frames: Vec<TextureRef>,
     pub texture: Option<TextureArray>,
+    /// Source pixel dimensions per layer, with mips built before array expansion.
+    /// Empty means the physical page size and legacy terrain mips are rebuilt at upload.
+    pub texture_source_sizes: Vec<[u16; 2]>,
+    /// Per-layer terrain UV-grid exponents, parallel to source pixel dimensions.
+    pub texture_source_grids: Vec<u8>,
     /// Canonical network hashes parallel to `visuals`; incomplete state identities are absent.
     pub hashes: Vec<Option<u32>>,
     pub material_overrides: Vec<MaterialOverride>,
@@ -71,6 +80,46 @@ impl RuntimeAssets {
         }
         if let Some(texture) = &overlay.texture {
             validate_texture(texture)?;
+        }
+        if !overlay.texture_source_sizes.is_empty() {
+            let base = overlay
+                .texture
+                .as_ref()
+                .and_then(|texture| texture.mips.first())
+                .map_or(0, |mip| mip.size);
+            if overlay.texture_source_sizes.len() != layers as usize
+                || overlay
+                    .texture_source_sizes
+                    .iter()
+                    .flatten()
+                    .any(|&size| !size.is_power_of_two() || u32::from(size) > base)
+            {
+                return Err(invalid("overlay source pixel dimensions are invalid"));
+            }
+        }
+        if !overlay.texture_source_grids.is_empty() {
+            let base = overlay
+                .texture
+                .as_ref()
+                .and_then(|texture| texture.mips.first())
+                .map_or(0, |mip| mip.size);
+            if overlay.texture_source_grids.len() != layers as usize
+                || overlay.texture_source_sizes.len() != layers as usize
+                || overlay
+                    .texture_source_grids
+                    .iter()
+                    .zip(&overlay.texture_source_sizes)
+                    .any(|(&grid, size)| {
+                        u32::from(grid) > crate::TERRAIN_QUAD_SHIFT_MASK
+                            || size.iter().any(|&axis| {
+                                u32::from(axis)
+                                    .checked_mul(1u32 << grid)
+                                    .is_none_or(|full| full > base)
+                            })
+                    })
+            {
+                return Err(invalid("overlay source UV grids are invalid"));
+            }
         }
         let material_base = offset(self.materials.len())?;
         let template_base = offset(self.model_templates.len())?;
@@ -178,6 +227,23 @@ impl RuntimeAssets {
                 ..*quad
             });
         }
+        let mut model_random_offsets = self.model_random_offsets.to_vec();
+        let mut seen = std::collections::HashSet::new();
+        for &(template, component) in &overlay.model_random_offsets {
+            if !component.is_valid() || !seen.insert(template) {
+                return Err(invalid(
+                    "overlay random-offset component is invalid or duplicated",
+                ));
+            }
+            let template = local(
+                template,
+                overlay.model_templates.len(),
+                template_base,
+                "offset template",
+            )?;
+            model_random_offsets.push((template, component));
+        }
+        model_random_offsets.sort_unstable_by_key(|entry| entry.0);
         let mut model_templates = self.model_templates.to_vec();
         let compound_tails = crate::blob::compiled_compound_tails(&overlay.model_templates)?;
         let mut covered = 0usize;
@@ -196,6 +262,39 @@ impl RuntimeAssets {
         }
         if covered != overlay.model_quads.len() {
             return Err(invalid("overlay templates do not cover quads"));
+        }
+        let mut previous_carried = None;
+        for &(index, faces) in &overlay.carried_cube_faces {
+            let visual = overlay
+                .visuals
+                .get(index as usize)
+                .ok_or_else(|| invalid("carried cube visual is out of bounds"))?;
+            let template = overlay
+                .model_templates
+                .get(visual.model_template as usize)
+                .ok_or_else(|| invalid("carried cube has no model template"))?;
+            if previous_carried.is_some_and(|previous| previous >= index)
+                || visual.kind != VisualKind::Model
+                || template.flags != 0
+                || template.quad_count != 6
+                || faces.iter().any(|&material| {
+                    material == crate::DIAGNOSTIC_MATERIAL
+                        || material as usize >= overlay.materials.len()
+                })
+                || overlay.model_quads[template.quad_start as usize..][..6]
+                    .iter()
+                    .enumerate()
+                    .any(|(face, quad)| {
+                        !crate::model::unit_cube_quad_geometry_is_valid(
+                            face,
+                            quad.positions,
+                            quad.flags,
+                        )
+                    })
+            {
+                return Err(invalid("carried cube geometry or faces are invalid"));
+            }
+            previous_carried = Some(index);
         }
         let mut visuals = self.visuals.to_vec();
         for visual in &overlay.visuals {
@@ -268,10 +367,13 @@ impl RuntimeAssets {
             hashed: hashed.into_boxed_slice(),
             materials: materials.into_boxed_slice(),
             model_templates: model_templates.into_boxed_slice(),
+            model_random_offsets: model_random_offsets.into_boxed_slice(),
             model_quads: model_quads.into_boxed_slice(),
             animations: animations.into_boxed_slice(),
             animation_frames: animation_frames.into_boxed_slice(),
             texture_pages: texture_pages.into_boxed_slice(),
+            overlay_texture_source_sizes: overlay.texture_source_sizes.clone().into_boxed_slice(),
+            overlay_texture_source_grids: overlay.texture_source_grids.clone().into_boxed_slice(),
             biomes: overlay
                 .biomes
                 .clone()
@@ -470,5 +572,64 @@ mod tests {
         let mut dangling = cube_overlay(page(16));
         dangling.visuals[0].faces[2] = 5;
         assert!(base.with_block_overlay(1, &dangling).is_err());
+    }
+
+    #[test]
+    fn source_pixel_dimensions_survive_overlay_admission() {
+        let base = RuntimeAssets::diagnostic();
+        let mut overlay = cube_overlay(page(64));
+        overlay.texture_source_sizes = vec![[16, 8]];
+        let session = base.with_block_overlay(1, &overlay).unwrap();
+        assert_eq!(
+            session.texture_source_size(TextureRef::new(1, 0).unwrap()),
+            [16, 8]
+        );
+        assert_eq!(session.texture_source_size(TextureRef::DIAGNOSTIC), [16; 2]);
+        overlay.texture_source_grids = vec![1];
+        let gridded = base.with_block_overlay(1, &overlay).unwrap();
+        assert_eq!(
+            gridded.texture_source_grid(TextureRef::new(1, 0).unwrap()),
+            1
+        );
+        assert_eq!(gridded.texture_source_grid(TextureRef::DIAGNOSTIC), 0);
+        for grids in [vec![1, 1], vec![3], vec![31], vec![32]] {
+            overlay.texture_source_grids = grids;
+            assert!(base.with_block_overlay(1, &overlay).is_err());
+        }
+        overlay.texture_source_grids.clear();
+        for sizes in [
+            vec![[0, 8]],
+            vec![[128, 8]],
+            vec![[15, 8]],
+            vec![[16, 8]; 2],
+        ] {
+            overlay.texture_source_sizes = sizes;
+            assert!(base.with_block_overlay(1, &overlay).is_err());
+        }
+    }
+
+    #[test]
+    fn expanded_layers_retain_their_source_mips_for_terrain_upload() {
+        let mut texture = page(64);
+        for (index, pixel) in texture.mips[0].rgba8.chunks_exact_mut(4).enumerate() {
+            pixel.copy_from_slice(if index % 8 < 4 {
+                &[255, 0, 0, 255]
+            } else {
+                &[0, 0, 255, 255]
+            });
+        }
+        for mip in &mut texture.mips[1..] {
+            for pixel in mip.rgba8.chunks_exact_mut(4) {
+                pixel.copy_from_slice(&[127, 0, 127, 255]);
+            }
+        }
+        let mut overlay = cube_overlay(texture);
+        overlay.texture_source_sizes = vec![[16; 2]];
+        let session = RuntimeAssets::diagnostic()
+            .with_block_overlay(1, &overlay)
+            .unwrap();
+        let uploaded = session.terrain_texture_page(1).unwrap();
+        assert_eq!(&uploaded.mips[1].rgba8[..4], &[127, 0, 127, 255]);
+        assert!(session.terrain_texture_page(2).is_err());
     }
 }

@@ -1,4 +1,5 @@
 pub(in crate::compiler) mod anvil;
+pub(in crate::compiler) mod bamboo;
 pub(in crate::compiler) mod bee_housing;
 pub(in crate::compiler) mod bookshelf;
 pub(in crate::compiler) mod button;
@@ -25,6 +26,7 @@ pub(in crate::compiler) mod flower_pot;
 pub(in crate::compiler) mod flowerbed;
 pub(in crate::compiler) mod gates;
 pub(in crate::compiler) mod geometry;
+pub(in crate::compiler) mod honey;
 pub(in crate::compiler) mod kelp;
 pub(in crate::compiler) mod ladders;
 pub(in crate::compiler) mod lantern;

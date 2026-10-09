@@ -19,9 +19,37 @@ pub(super) struct GameplayContext<'w> {
     auto_fly: Option<Res<'w, AutoFly>>,
     server_camera: Option<Res<'w, ServerCameraView>>,
     time: Option<Res<'w, Time>>,
+    real_time: Option<Res<'w, Time<Real>>>,
+    clock: Option<Res<'w, crate::environment::WorldClock>>,
 }
 
 impl GameplayContext<'_> {
+    /// Layout editing requires the same current connected world as player presentation.
+    pub(super) fn hud_editor_session(&self, ui: &client_ui::ui_runtime::UiRuntime) -> Option<u64> {
+        self.world.as_ref()?.stream.as_ref()?;
+        let session = self.clock.as_ref()?.session_generation();
+        (session == ui.session_id()).then_some(session)
+    }
+
+    /// Local facts stay readable while a screen owns input, but never without a live session.
+    pub(super) fn player_state(
+        &self,
+        enabled: bool,
+        player: &player_state::PlayerState,
+        ui: &client_ui::ui_runtime::UiRuntime,
+    ) -> Option<mod_host::PlayerStateSnapshot> {
+        if !enabled {
+            return None;
+        }
+        let authority = self.world.as_ref()?.stream.as_ref()?.authority();
+        let session = self.clock.as_ref()?.session_generation();
+        // Effect event anchors use real elapsed time; virtual time may pause or clamp long frames.
+        let now_millis = self.real_time.as_ref().map_or(0, |time| {
+            u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX)
+        });
+        super::player_state::snapshot(authority, session, player, ui, now_millis)
+    }
+
     /// No snapshot exists outside captured gameplay or without explicit grants.
     pub(super) fn snapshot(&self, allowed: bool, grants: &ModGrants) -> Option<GameplaySnapshot> {
         if !allowed

@@ -513,10 +513,12 @@ fn publisher_cohort_preserves_over_max_radius_while_runtime_scope_clamps() {
         air_network_id: 12_530,
         block_network_ids_are_hashes: false,
     });
+    let max = super::PHASE0_MAX_VIEW_RADIUS_CHUNKS;
+    let over_blocks = (max as u32 + 1) * 16;
     let target = super::ViewCohort {
         dimension: 0,
         center: [0, 0],
-        radius: 16,
+        radius: max,
         publisher_geometry: None,
     };
 
@@ -525,7 +527,7 @@ fn publisher_cohort_preserves_over_max_radius_while_runtime_scope_clamps() {
             1,
             WorldEvent::PublisherUpdate(PublisherUpdateEvent {
                 center: [0, 64, 0],
-                radius_blocks: 272,
+                radius_blocks: over_blocks,
             }),
         )
         .unwrap();
@@ -535,14 +537,14 @@ fn publisher_cohort_preserves_over_max_radius_while_runtime_scope_clamps() {
         Some(super::ViewCohort {
             dimension: 0,
             center: [0, 0],
-            radius: 17,
+            radius: max + 1,
             publisher_geometry: Some(client_world::PublisherViewGeometry {
                 center_blocks: [0, 0],
-                radius_blocks: 272,
+                radius_blocks: over_blocks,
             }),
         })
     );
-    assert_eq!(stream.stats().publisher_radius_chunks, Some(16));
+    assert_eq!(stream.stats().publisher_radius_chunks, Some(max));
 }
 
 #[test]
@@ -693,7 +695,8 @@ fn deferred_request_events_reserve_outbound_capacity_at_admission() {
             .unwrap();
     }
 
-    let error = stream
+    // Reservations fill the outbound FIFO, so the next request-creating column defers.
+    stream
         .submit(
             66,
             WorldEvent::LevelChunk(LevelChunkEvent {
@@ -704,11 +707,8 @@ fn deferred_request_events_reserve_outbound_capacity_at_admission() {
                 payload: biome_payload(0, 1),
             }),
         )
-        .unwrap_err();
-    assert!(matches!(
-        error,
-        super::WorldStreamError::OutboundFull { .. }
-    ));
+        .unwrap();
+    assert_eq!(stream.order.deferred_count(), 1);
     assert_eq!(stream.pending_request_count(), 62);
 
     complete_pending_decode_jobs(&mut stream);
@@ -716,6 +716,7 @@ fn deferred_request_events_reserve_outbound_capacity_at_admission() {
         stream.pending_request_count(),
         super::OUTBOUND_REQUEST_CAPACITY
     );
+    assert_eq!(stream.order.deferred_count(), 1);
 }
 
 #[test]
@@ -747,11 +748,21 @@ fn heavy_admission_is_bounded_before_rayon_and_retained_work_never_exceeds_const
             <= super::MAX_ADMITTED_HEAVY_EVENTS
     );
 
+    // Terrain past heavy admission is ordered without decode work, up to its own bound.
+    let heavy = super::MAX_ADMITTED_HEAVY_EVENTS as u64;
+    let deferred = client_world::ingestion::MAX_DEFERRED_WORLD_EVENTS as u64;
+    for sequence in heavy + 1..=heavy + deferred {
+        stream
+            .submit(sequence, inline_air_event(1000 + sequence as i32))
+            .unwrap();
+    }
+    assert_eq!(
+        stream.stats().queued_decode_jobs,
+        super::MAX_ADMITTED_HEAVY_EVENTS
+    );
+    assert_eq!(stream.remaining_admission_capacity(), 0);
     let error = stream
-        .submit(
-            super::MAX_ADMITTED_HEAVY_EVENTS as u64 + 1,
-            inline_air_event(999),
-        )
+        .submit(heavy + deferred + 1, inline_air_event(999))
         .unwrap_err();
     assert!(matches!(
         error,
@@ -940,11 +951,17 @@ fn old_dimension_and_out_of_radius_chunks_are_rejected_and_radii_are_clamped() {
     );
     let stats = format!("{:?}", stream.stats());
     assert!(
-        stats.contains("received_radius_chunks: Some(16)"),
+        stats.contains(&format!(
+            "received_radius_chunks: Some({})",
+            super::PHASE0_MAX_VIEW_RADIUS_CHUNKS
+        )),
         "{stats}"
     );
     assert!(
-        stats.contains("publisher_radius_chunks: Some(16)"),
+        stats.contains(&format!(
+            "publisher_radius_chunks: Some({})",
+            super::PHASE0_MAX_VIEW_RADIUS_CHUNKS
+        )),
         "{stats}"
     );
 

@@ -15,6 +15,8 @@ use crate::tree::Properties;
 struct Entry {
     owner: Weak<BTreeMap<String, Value>>,
     own: Bag,
+    incarnation: Option<u64>,
+    custom_instance: Option<u64>,
     native: BTreeMap<String, Value>,
     patch: Option<Arc<Patch>>,
     properties: Properties,
@@ -33,7 +35,9 @@ pub(super) fn get(node: &Node) -> Option<Properties> {
     CACHE.with(|cache| {
         let cache = cache.borrow();
         let entry = cache.get(&key)?;
-        (entry.own == node.own
+        (entry.incarnation == node.scope.incarnation
+            && entry.custom_instance == node.memory.custom_instance
+            && entry.own == node.own
             && entry.native == node.native.props
             && entry.patch == node.src.patch)
             .then(|| entry.properties.clone())
@@ -53,6 +57,8 @@ pub(super) fn put(node: &Node, properties: Properties) {
             Entry {
                 owner: node.src.get().properties.weak(),
                 own: node.own.clone(),
+                incarnation: node.scope.incarnation,
+                custom_instance: node.memory.custom_instance,
                 native: node.native.props.clone(),
                 patch: node.src.patch.clone(),
                 properties,

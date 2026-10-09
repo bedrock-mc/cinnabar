@@ -23,6 +23,9 @@ const FAST_COOK_TICKS: f32 = 100.0;
 const BREW_TICKS: f32 = 400.0;
 const DEFAULT_FUEL_TOTAL: f32 = 20.0;
 const TEXT_GUI_PX: f32 = 9.0;
+
+static EMPTY_FURNACE_ICONS: std::sync::LazyLock<Arc<[Option<IconRef>]>> =
+    std::sync::LazyLock::new(|| Arc::from([]));
 const UI_ICON_SLOTS: usize = protocol::UI_SLOT_COUNT;
 
 /// One tooltip line and its color.
@@ -55,6 +58,7 @@ pub struct WindowIcons {
     pub book_more: bool,
     /// Icons of the engine-drawn recipe book's entries, in list order.
     pub book_entries: Vec<Option<IconRef>>,
+    pub furnace_entries: Arc<[Option<IconRef>]>,
 }
 
 impl Default for WindowIcons {
@@ -72,6 +76,7 @@ impl Default for WindowIcons {
             book_button: None,
             book_more: false,
             book_entries: Vec::new(),
+            furnace_entries: Arc::clone(&EMPTY_FURNACE_ICONS),
         }
     }
 }
@@ -117,7 +122,7 @@ fn stack_of<'a>(
     let ledger = runtime.inventory_ledger(player_runtime);
     match hit {
         InventoryCellHit::Player(slot) => ledger.displayed_stack(slot),
-        InventoryCellHit::Storage(slot) => ledger.storage_stack(slot),
+        InventoryCellHit::Storage(slot) => ledger.furnace_visual_stack(slot),
         InventoryCellHit::Craft(slot) => ledger.target_stack(InventoryTarget::Craft(slot)),
         InventoryCellHit::CraftOutput => ledger.created_output_stack(),
         _ => None,
@@ -671,6 +676,8 @@ impl HudLayout<'_> {
                 | Widget::RecipeFilter
                 | Widget::CrafterSlot(_)
                 | Widget::InventoryLayout(_)
+                | Widget::FurnaceTab(_)
+                | Widget::FurnaceClearRecipe
                 | Widget::LoomPatternAt(_)
                 | Widget::BookRecipe(_)
                 | Widget::BookPage { .. }

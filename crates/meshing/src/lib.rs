@@ -1,5 +1,6 @@
 //! Pure CPU geometry construction for chunks, liquids, biomes, and clouds.
 
+pub mod bamboo;
 pub mod biome;
 pub mod biome_lattice;
 mod chunk;
@@ -46,6 +47,6 @@ pub use publication::{CHUNK_PUBLICATION_ORIGIN_BYTES, chunk_publication_byte_len
 pub use types::{
     ChunkMesh, ChunkMeshStreamError, ChunkMeshStreams, DiagnosticGeometryCount,
     DiagnosticGeometrySummary, Face, FaceConnectivity, MAX_DIAGNOSTIC_IDENTITIES_PER_MESH,
-    Neighbourhood, PackedLiquidQuad, PackedModelDrawRef, PackedModelRef, PackedQuad,
-    PackedQuadLighting,
+    MODEL_REF_FLAG_RANDOM_OFFSET, Neighbourhood, PackedLiquidQuad, PackedModelDrawRef,
+    PackedModelRef, PackedQuad, PackedQuadLighting,
 };

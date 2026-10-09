@@ -41,6 +41,8 @@ pub enum Widget {
     /// Picks the inventory layout by its radio index: survival, recipe book, or
     /// the creative wide list.
     InventoryLayout(u8),
+    FurnaceTab(u8),
+    FurnaceClearRecipe,
     /// Re-enables one disabled crafter slot.
     CrafterSlot(u8),
     /// One recipe cell by position on the visible page.

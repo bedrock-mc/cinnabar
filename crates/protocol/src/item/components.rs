@@ -6,11 +6,19 @@ use jolyne::GameData;
 
 use crate::nbt_tree::{Nbt, read_root};
 
-const MAX_TEXT_BYTES: usize = 256;
+pub(super) const MAX_TEXT_BYTES: usize = 256;
+
+/// Converts component seconds to the protocol's integral simulation duration.
+pub(super) fn duration_ticks(seconds: f64) -> Option<u32> {
+    (seconds.is_finite() && seconds >= 0.0)
+        .then(|| (seconds * 20.0).round().min(f64::from(u32::MAX)) as u32)
+}
 
 /// What the client presents from one item's components; absent facts stay `None`/`false`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ItemComponents {
+    /// Attack and kinetic presentation facts, when this item declares them.
+    pub attack: Option<super::ItemAttackTiming>,
     /// `item_texture.json` key from `minecraft:icon`.
     pub icon: Option<Arc<str>>,
     /// `minecraft:display_name` value: a localization key or literal text.
@@ -23,6 +31,8 @@ pub struct ItemComponents {
     /// `use_animation` by name (`eat`, `drink`, `bow`...); the legacy enum maps 1 and 2.
     pub use_animation: Option<Arc<str>>,
     pub use_duration_ticks: Option<u32>,
+    /// Whether `minecraft:food` is declared.
+    pub food: bool,
     /// `minecraft:wearable` slot, e.g. `slot.armor.head`.
     pub wearable_slot: Option<Arc<str>>,
     /// Block `minecraft:block_placer` places.
@@ -72,10 +82,10 @@ pub(super) fn parse_components(bytes: &[u8]) -> Option<ItemComponents> {
         component("minecraft:use_modifiers")
             .and_then(|modifiers| modifiers.field("use_duration"))
             .and_then(Nbt::number)
-            .filter(|seconds| seconds.is_finite() && *seconds >= 0.0)
-            .map(|seconds| (seconds * 20.0).round().min(f64::from(u32::MAX)) as u32)
+            .and_then(duration_ticks)
     });
     Some(ItemComponents {
+        attack: super::attack::parse_attack(components),
         icon: super::icons::icon_key(bytes),
         display_name: text(
             component("minecraft:display_name").and_then(|name| name.field("value")),
@@ -105,6 +115,7 @@ pub(super) fn parse_components(bytes: &[u8]) -> Option<ItemComponents> {
             }
         }),
         use_duration_ticks,
+        food: component("minecraft:food").is_some(),
         wearable_slot: text(
             component("minecraft:wearable").and_then(|wearable| wearable.field("slot")),
         ),
@@ -165,6 +176,26 @@ mod tests {
     }
 
     // Dragonfly's custom-item layout: properties nested under item_properties.
+    #[test]
+    fn food_classification_uses_the_food_component() {
+        let food = compound(
+            "",
+            &[compound("components", &[compound("minecraft:food", &[])])],
+        );
+        assert!(parse_components(&food).unwrap().food);
+        let animation = compound(
+            "",
+            &[compound(
+                "components",
+                &[compound(
+                    "minecraft:use_animation",
+                    &[string("value", "eat")],
+                )],
+            )],
+        );
+        assert!(!parse_components(&animation).unwrap().food);
+    }
+
     #[test]
     fn reads_the_item_properties_layout() {
         let nbt = compound(

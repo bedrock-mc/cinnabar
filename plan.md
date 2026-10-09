@@ -622,9 +622,15 @@
   default on; the three-way `vsync_dropdown` exists only in the non-publish Debug section).
 - Toggle follows Max Framerate in the advanced video options, labelled `options.vsync`, default
   on, persisted with the settings registry and applied live.
-- On keeps the automatic present-mode policy and its DX12 remedy; off requests AutoNoVsync
-  (Immediate, else Mailbox). `--vsync`, `--no-vsync` and evidence runs pin the session and show
-  the toggle locked to that state. Incomplete: rendered Video-screen acceptance pending.
+- On keeps FIFO and its DX12 remedy. Off, and `--no-vsync`, stay tear-free: FIFO, or Mailbox when
+  the frame-rate limit outpaces the display. No setting or flag requests tearing; only hidden
+  developer surfaces present unpaced. Every choice comes from the primary surface's probed modes.
+  `--vsync`, `--no-vsync` and evidence runs pin the session and show the toggle locked.
+- Max Framerate adds Automatic (the default for new settings) before 1–240 and moves Unlimited,
+  vanilla's 0, after them; saved files without a schema keep Unlimited. `--frame-cap` replaces
+  the saved limit for the session. Automatic lets the display pace FIFO and caps confirmed
+  variable refresh at 97% of its maximum. Incomplete: no platform reports active variable
+  refresh yet, so that cap never engages; rendered Video-screen acceptance pending.
 
 ## Unfilled sub-chunk slots light as air
 
@@ -957,6 +963,12 @@ and the ordinary value-band check pass. Fresh production Metal frames show all
 eleven crisp orb sprites with the actual live camera query. Exact between-tick
 billboard sampling, End lighting, beam AABB light sampling and the previously
 recorded identical-version gates remain open.
+
+Thrown splash and lingering potion appearance now reads each projectile's own
+short auxiliary value and shares the reviewed item sprite routes. Known potion
+routes agree with the pinned effect texture arrays; the current native potion
+table constructor and auxiliary values without reviewed routes remain incomplete.
+This correction does not close the broader actor parity gate.
 
 The canonical v21 debug build passes, along with focused snowball, explosion,
 credits, boss UI/wire/app/session, orb, portal overlay GPU and shader checks.
@@ -1443,7 +1455,9 @@ layers count every texel), unsampled ones are cleared, and the body route takes
 only the first unconditional controller's art. The pinned pack now binds the
 creeper and admits two NPC skins; blaze, spider, cave spider, enderman and drowned
 still fall back because sampled texels carry unverified fractional-alpha material
-semantics. Live visual acceptance of the creeper is pending.
+semantics. Creeper ignition/defuse visual acceptance remains incomplete pending
+rendered comparisons. The charged aura material fallback is provisional; exact
+target material equivalence remains incomplete.
 
 Ordinary terrain-blend model/water faces now share the current native perspective
 metric; ordinary Ice and water use
@@ -1635,6 +1649,8 @@ colour/alpha, hyphen chops, per-line alignment, `...` truncation) and UI blends
 in sRGB-encoded values through an offscreen layer. Not live-accepted.
 Provisional, labeled incomplete: `grayscale` uses Rec. 601 luma (retail
 material not inspected); placeholder hiding ignores focus; `enable_profanity_filter` reaches the host but selects nothing.
+Nine-slice geometry for controls smaller than their opposing borders remains
+incomplete: the current proportional fit needs a native overlap and clipping pass.
 2026-10-01 resource packs (in progress, not parity-accepted): Global Resources imports
 optional packs above the pinned base and below world/server packs. Applying resource
 changes in a live world is an intentional Cinnabar extension; vanilla forbids it.
@@ -1679,6 +1695,19 @@ and revocation UI, production API stability, native multiplayer acceptance and
 cross-platform runtime acceptance. Loaded player data is not line-of-sight or
 visibility evidence. No aim-assist algorithm is installed and no vanilla parity
 gate is closed; see `docs/modding-spike.md` for the contract and opt-in switches.
+Generic cosmetic HUD cards and crosshairs add a separate presentation-only grant,
+bounded retained JSON-UI data, ordinary cursor visibility gates, transactional
+revocation, and 64-control settings pagination. Target-platform rendered evidence
+remains required before this presentation addition is cleared to push.
+
+2026-10-08 local player-state extension: a separate default-denied, read-only
+grant exposes current-session presented inventory/gear and active status effects.
+Unknown cells, item identities and durability remain explicit; finite effect
+durations follow the existing estimated server clock. Host callback budgets and
+session fences clear stale payloads. Experimental, non-parity API; no vanilla
+gate is closed. Incomplete: custom component durability maxima, production API
+stability, server policy/grant UI and native cross-platform acceptance. See
+`docs/modding-spike.md` for the contract.
 
 2026-10-01 crouch, shield and crossbow follow-up: the local camera now consumes
 the native 0.35-block crouch offset, half-blended once per completed tick and
@@ -5173,6 +5202,10 @@ UI remain Bedrock/resource-pack-driven. The current text/panel renderer is an
 incomplete scaffold until the full state matrix and native/live comparison gates
 below are green. See `AGENTS.md` for the repository-wide gameplay-HUD exception.
 
+Hunger shakes use renderer-local updates and neutral/upward offsets, independent of
+food packet ticks. The complete native HUD motion gallery, including heart timing,
+remains incomplete; this correction does not close the Phase 5.7 parity gate.
+
 **Bounded native HUD tranche (2026-07-19):** the protocol-1001 carrier and
 retained presentation now provide provenance-pinned health, hunger, armor, air,
 hotbar, selected-slot, chat, and scoreboard data paths. Survival geometry is
@@ -5687,8 +5720,13 @@ filter. LP-05 remains incomplete: normal/render packet heightmaps, custom dimens
 bounds and initialization before the upper-neighbor readiness gate are still missing.
 
 RM-06 and GEO-01 remain partial as recorded in the continuations below. GEO-02–04
-remain open: isotropic face rotation, complete repeater/comparator geometry and
-per-species offsets are not implemented. The isotropic hash needs face-to-UV fixtures.
+remain open: complete repeater/comparator geometry and per-species offsets are not
+implemented. Ordinary cubes and dirt-path models consume authored per-face rotation
+masks with position-hashed quarter turns. Compiler and GPU regressions cover path
+top/bottom variation, upright side controls and unchanged carried icons; this does
+not close the full geometry parity gate.
+Static face-to-UV orientation for named cuboids remains incomplete, including the
+dirt-path underside. Existing template axes are retained by the rotation fix.
 RM-07, RM-09 and RM-10 retain their older-reference-only status. Offline tests and GPU
 captures are local evidence; they do not close native visual or shader-performance gates.
 
@@ -6577,6 +6615,27 @@ Orebits glyph. The user confirms the rebuilt client looks correct. Required
 touched-crate checks and the canonical developer-control build pass; release
 hardware budgets and matched-version pixel comparison remain incomplete.
 
+## Spear actions
+
+Spear bindings and pose inputs now consume authored swing and kinetic timings.
+Attacks at actors, air or blocks send the item-directed transaction with aim and cooldown state,
+allowing the server to apply damage and Lunge movement. Component, admission,
+catalog/reset and real-carrier animation regressions pass. Matched live captures
+show the jab, charged hold and default-Java third-person arm; server-confirmed
+Lunge moves the fixed client without movement input. The complete matched-version
+native comparison remains incomplete. See
+[spear actions](docs/reference/spear-actions.md).
+
+## Third-person held attachables
+
+Held models evaluate authored scripts and texture meshes against the owner's
+posed bones, including aiming skeleton bows. Third-person bow draws supply the
+owner's use duration, draw frame, and render delta through release. Unchanged
+controller poses proven independent of timing reuse their evaluation; dynamic
+channels and persistent scripts continue running. Matched native motion captures
+and frame budgets remain incomplete; this does not close the complete held-item
+parity gate.
+
 ## Local placement prediction
 
 - Pillars, slab halves and matching doubles, trapdoors, hoppers, supported attachments,
@@ -6589,3 +6648,43 @@ hardware budgets and matched-version pixel comparison remain incomplete.
   its effective placement face are incomplete. Clicked-cell selection retains the existing rule.
 - Same-frame visibility and rendered neighbor/correction behavior still need headless captures;
   this work does not close a visual or frame-budget gate.
+
+### Furnace recipe panel continuation (incomplete general parity)
+
+Furnace, blast furnace and smoker screens retain their server recipe catalogs and
+show result items through the pinned JSON-UI recipe panel. The toolbar, category
+tabs, search and supplied-ingredient filter reach the inventory controller; a
+selection chooses the alternative with the most matching fuel and inventory
+items and places them in the ingredient role. Ordinary window updates address
+the whole station by window ID. Unsupplied recipes preview their ingredient and
+result; repeat selection returns the ingredient before clearing the preview.
+Replacements return the previous
+ingredient to its source cells before other available inventory cells. Expanded
+ingredient groups, exact ghost rendering, saturated-inventory replacements,
+recipe discovery and server-persisted
+furnace UI options remain incomplete; the full furnace parity gate stays open.
+
+## Entity interaction and emote starts
+
+Entity-use presses now send the selected stack and fresh actor hit in the input
+frame, with block occlusion and bounded queue retries. A live cow interaction
+produces a server-confirmed milk bucket. Selecting an equipped emote sends its
+catalog identifier and duration once in that frame; idle and cancellation send
+no start packet. Marketplace clip ownership/playback, remote custom-emote
+synchronization, and the complete villager trade UI remain incomplete. These
+producer fixes do not close those parity gates.
+
+The pinned bamboo visual gate is covered for all twelve admitted states. Stalks,
+radial leaves, column UVs and offsets, selection and breaking overlays, picking,
+movement and camera collision, placement obstruction and overhang culling share
+the resolved column transform. Admitted random-offset components distinguish
+absence from explicit zero and reach both network ID spaces and compound models.
+Terrain sampling uses nearest minification/magnification, linear mip filtering,
+clamped source rectangles and byte-space RGBA mips; mixed texture sizes retain
+their own source-pixel gradients. Missing required face textures retain fallback
+support. Focused behavioral and Metal GPU regressions cover those contracts;
+fresh whole-client captures cover Vanilla and bounded Enhanced gallery views,
+selection and advancing cracks. Enhanced remains disabled for ordinary launches.
+Arbitrary runtime face-key remapping and non-power-of-two pack raster equivalence
+remain broader pack-stack work. Hidden debug captures do not close displayed-frame
+performance or the overall UI and performance gate.

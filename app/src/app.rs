@@ -56,7 +56,7 @@ use crate::{
         LocalMovementEffectTimeline, LocalMovementSpeedAuthority, LocalPhysicsController,
         PhysicsAuthorityGate, advance_local_physics, send_movement_prediction_sync,
     },
-    present_mode::{PresentModeRuntime, apply_runtime_vsync_setting},
+    present_mode::{PresentModeRuntime, apply_present_mode},
     runtime::{
         endpoint::{preflight_bridge_endpoint, resolve_socket_dir},
         network::{
@@ -67,8 +67,8 @@ use crate::{
         publication::{PublicationController, begin_publication_frame},
         shutdown::{exit_on_fatal_runtime_error, exit_on_window_close_requested},
         telemetry::{
-            AcceptanceRuntimeConfig, frame_limited_winit_settings, publish_runtime_stage_profile,
-            record_metrics, send_player_auth_inputs, update_visibility_diagnostics,
+            AcceptanceRuntimeConfig, publish_runtime_stage_profile, record_metrics,
+            send_player_auth_inputs, update_visibility_diagnostics,
         },
         visibility::{
             AppMetrics, CaveVisibilityCache, DiagnosticQuads, apply_added_chunk_visibility,
@@ -99,7 +99,7 @@ use crate::{
     },
 };
 use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
-use diagnostics::markers::{SHUTDOWN_COMPLETED, requested_present_mode};
+use diagnostics::markers::SHUTDOWN_COMPLETED;
 use diagnostics::metrics::MetricsCollector;
 
 #[cfg(feature = "acceptance")]
@@ -374,7 +374,7 @@ pub(crate) fn configure_client_runtime_frame_systems(app: &mut App) {
                 emit_world_ready,
                 #[cfg(feature = "acceptance")]
                 drive_model_witness,
-                apply_runtime_vsync_setting,
+                apply_present_mode,
                 record_metrics,
                 publish_runtime_stage_profile,
             )
@@ -390,7 +390,10 @@ pub(crate) fn preferred_render_backends(explicit: Option<&OsStr>) -> Option<Back
     }
     #[cfg(target_os = "windows")]
     {
-        Some(Backends::DX12)
+        // Prefer Vulkan so capable Windows adapters can use count-driven GPU Hi-Z terrain
+        // culling. Keep DX12 admitted as the fallback for drivers without a usable Vulkan
+        // surface; an explicit WGPU_BACKEND still retains full operator control.
+        Some(Backends::VULKAN | Backends::DX12)
     }
     #[cfg(not(target_os = "windows"))]
     {
@@ -430,6 +433,8 @@ fn bind_direct_session_directory(
 
 pub fn run(args: args::ClientArgs) -> Result<()> {
     args.validate_acceptance_support(cfg!(feature = "acceptance"))?;
+    #[cfg(feature = "enhanced-diagnostics")]
+    let diagnostic_budget = crate::enhanced_diagnostics::configure(&args)?;
     #[cfg(feature = "developer-control")]
     crate::developer_control::prepare_native_application(
         args.address.is_some() || args.socket_dir_explicit,
@@ -669,13 +674,22 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         NetworkHandle::disconnected()
     };
     let movement_ticker = network.movement_ticker();
-    let present_mode = requested_present_mode(args.no_vsync);
     let diagnostics_enabled = args.acceptance_seconds.is_some() || args.metrics_out.is_some();
     let stage_profile_enabled = std::env::var_os(crate::acceptance::markers::STAGE_PROFILE)
         .as_deref()
         == Some(OsStr::new("1"));
-    let present_mode_runtime =
-        PresentModeRuntime::from_startup(args.force_vsync, args.no_vsync, diagnostics_enabled);
+    #[cfg(feature = "developer-control")]
+    let hidden_surface = crate::developer_control::hidden_window_requested();
+    #[cfg(not(feature = "developer-control"))]
+    let hidden_surface = false;
+    let present_mode_runtime = PresentModeRuntime::from_startup(
+        args.force_vsync,
+        args.no_vsync,
+        diagnostics_enabled,
+        hidden_surface,
+    )
+    .with_launch_frame_cap(args.frame_cap);
+    let present_mode = present_mode_runtime.window_present_mode();
     let present_mode_policy = present_mode_runtime.policy();
     let vsync_override = present_mode_runtime.vsync_override();
     let runtime_config = AcceptanceRuntimeConfig {
@@ -708,13 +722,21 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         // OS default SIGINT action also preserves a real developer escape
         // hatch if graceful Bevy teardown is wedged.
         .disable::<TerminalCtrlCHandlerPlugin>();
-    #[cfg(feature = "tracy")]
     let plugins = plugins.set(bevy::log::LogPlugin {
+        // The presence library logs an error on every retry while Discord is closed; rich-presence reports it once.
+        filter: format!(
+            "{}discord_presence::connection=off",
+            bevy::log::DEFAULT_FILTER
+        ),
+        #[cfg(feature = "tracy")]
         custom_layer: crate::tracy::layer,
         ..default()
     });
     app.add_plugins(plugins);
-    app.add_plugins(render::InputPacingPlugin::default());
+    app.add_plugins(render::InputPacingPlugin::default())
+        .init_resource::<crate::present_mode::DisplayRefresh>()
+        .add_systems(First, crate::frame_pacing::track_display_refresh)
+        .add_systems(Last, crate::frame_pacing::update_frame_pacing);
     #[cfg(target_os = "macos")]
     crate::thread_budget::ThreadBudget::configure_render_thread(&mut app);
     app.add_systems(Update, crate::window_icon::apply);
@@ -725,9 +747,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     });
     // Account feeds also serve Profile in direct-address and external-socket runs.
     app.init_resource::<crate::menu::LauncherCoreSlot>();
-    app.add_plugins(render::Dx12PresentModePolicyPlugin::new(
-        present_mode_policy,
-    ));
+    app.add_plugins(render::PresentModePolicyPlugin::new(present_mode_policy));
     if diagnostics_enabled {
         app.add_plugins(RenderDiagnosticsPlugin);
     }
@@ -736,10 +756,11 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     } else {
         Color::srgb(0.035, 0.043, 0.059)
     };
-    app.insert_resource(frame_limited_winit_settings(
-        args.frame_cap,
-        args.acceptance_seconds.is_some(),
+    app.insert_resource(crate::frame_pacing::FramePacingRuntime::new(
+        hidden_surface || args.acceptance_seconds.is_some(),
     ))
+    // Every update passes the pacer's single admission wait, so input never adds frames.
+    .insert_resource(bevy::winit::WinitSettings::continuous())
     .insert_resource(ClearColor(clear_color))
     .insert_resource(shutdown_watchdog.clone())
     .insert_resource(TeardownWatchdog(shutdown_watchdog.clone()))
@@ -934,6 +955,8 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     crate::discord_presence::configure(&mut app);
     configure_acceptance_finish_system(&mut app);
 
+    #[cfg(feature = "enhanced-diagnostics")]
+    crate::enhanced_diagnostics::install(&mut app, diagnostic_budget);
     let exit = app.run();
     crate::discord_presence::shutdown(&mut app);
     if let Some(mut network) = app.world_mut().remove_resource::<NetworkHandle>() {

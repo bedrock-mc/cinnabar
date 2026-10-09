@@ -2,7 +2,6 @@
 
 use super::{
     Aabb, BlockPhysics, LenientSkipCounts, PaletteWorld, SubChunkKey, Vec3, WorldQueryError,
-    block_ceil, block_floor,
     raycast::{TraversalState, checked_offset, strictly_precedes},
     validate_collision_query,
 };
@@ -19,9 +18,7 @@ impl PaletteWorld<'_> {
         if query.min == query.max {
             return Ok(skipped);
         }
-        let grown = query.grown(1.0);
-        let min = block_floor(grown.min)?;
-        let max = block_ceil(grown.max)?;
+        let [min, max] = self.registry.query_bounds(query)?;
         for x in min[0]..=max[0] {
             for z in min[2]..=max[2] {
                 for y in min[1]..=max[1] {
@@ -144,7 +141,7 @@ impl PaletteWorld<'_> {
         touches: &impl Fn(Aabb) -> bool,
         visitor: &mut impl FnMut(Aabb),
     ) -> Result<(), WorldQueryError> {
-        let offset = Vec3::new(block[0] as f64, block[1] as f64, block[2] as f64);
+        let offset = physics.shape_offset(block);
         if physics.door.is_some() && !touches(Aabb::new(Vec3::ZERO, Vec3::ONE).translated(offset)) {
             return Ok(());
         }

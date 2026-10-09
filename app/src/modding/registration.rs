@@ -476,6 +476,8 @@ fn install(world: &mut World, update: Update) {
                         .set_mod_panel_font(candidate.font.clone())
                         .map_err(|error| error.to_string())?;
                     presentation.set_mod_label(candidate.host.label())?;
+                    presentation.set_mod_hud(candidate.host.hud())?;
+                    presentation.set_mod_crosshair(candidate.host.crosshair())?;
                     presentation.set_mod_panel(candidate.host.panel())?;
                     presentation.set_mod_panel_open(false);
                     Ok(())
@@ -499,6 +501,7 @@ fn install(world: &mut World, update: Update) {
                         registration_identity: Some(candidate.identity),
                         registration_request: Some((update.generation, update.request_id.clone())),
                         suspended: false,
+                        hud_editor_owner: None,
                     });
                     ("loaded", None, Some(candidate.identity))
                 }
@@ -614,11 +617,14 @@ fn clear_presentation(world: &mut World) {
     if let Some(mut camera) = world.get_resource_mut::<crate::camera::CameraSettingsAuthority>() {
         camera.set_rig(None);
         camera.set_preserve_teleport_rotation(false);
+        camera.set_view_scale(1.0, 1.0);
     }
     if let Some(mut presentation) = world.get_resource_mut::<UiPresentationRuntime>() {
         presentation.set_mod_panel_open(false);
         let _ = presentation.set_mod_panel(None);
         let _ = presentation.set_mod_label(None);
+        let _ = presentation.set_mod_hud(None);
+        let _ = presentation.set_mod_crosshair(None);
         if let Err(error) = presentation.set_mod_panel_font(None) {
             eprintln!("Personal-panel font could not be released: {error}");
         }

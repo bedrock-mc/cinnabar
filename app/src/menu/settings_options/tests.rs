@@ -36,7 +36,10 @@ fn camera_input_and_window_settings_read_the_saved_values() {
     assert_eq!(authority.feel().fov_effects_scale, 0.0);
     assert_eq!(user.controls.mouse_sensitivity, 0.75);
     assert!(user.controls.invert_mouse_y);
-    assert_eq!(user.video.frame_cap, Some(120));
+    assert_eq!(
+        user.video.frame_rate_limit,
+        render_api::FrameRateLimit::Fixed(std::num::NonZeroU16::new(120).unwrap())
+    );
     assert_eq!(
         authority.perspective(),
         semantic_input::PerspectiveMode::ThirdPersonFront
@@ -121,7 +124,7 @@ fn supplemental_bindings_drive_production_keyboard_and_mouse_helpers() {
 }
 
 #[test]
-fn chat_secondary_default_obeys_remapping_and_reset_conflicts() {
+fn chat_secondary_default_obeys_remapping_and_allows_a_shared_reset() {
     use super::{EXTRA_KEYS, binding_key, binding_pressed};
     use bevy::prelude::{ButtonInput, KeyCode};
     let mut menu = crate::menu::MenuRuntime::new(true, 2, "Bindings".to_owned());
@@ -146,16 +149,16 @@ fn chat_secondary_default_obeys_remapping_and_reset_conflicts() {
         &ButtonInput::default()
     ));
     let settings = std::sync::Arc::make_mut(&mut menu.settings_options);
-    assert!(!settings.remap(inventory, enter));
+    assert!(settings.remap(inventory, enter));
     assert!(settings.remap(chat, PhysicalControl::KeyboardUsage(0x1c)));
     assert!(settings.remap(inventory, enter));
-    assert!(!settings.reset_key(chat));
     assert!(!binding_key(Some(&menu), "key.chat", KeyCode::Enter));
     assert!(binding_key(Some(&menu), "key.chat", KeyCode::KeyY));
     let settings = std::sync::Arc::make_mut(&mut menu.settings_options);
-    assert!(settings.reset_key(inventory));
     assert!(settings.reset_key(chat));
     assert!(binding_key(Some(&menu), "key.chat", KeyCode::Enter));
+    assert!(binding_key(Some(&menu), "key.inventory", KeyCode::Enter));
+    assert!(std::sync::Arc::make_mut(&mut menu.settings_options).reset_key(inventory));
 }
 
 #[test]
@@ -370,15 +373,15 @@ fn session_overrides_apply_in_memory_but_are_never_saved() {
 
 #[test]
 fn inventory_hotbar_controls_follow_saved_keyboard_and_mouse_remaps() {
-    use super::hotbar_control_slot;
+    use super::hotbar_control_slots;
     let mut menu = crate::menu::MenuRuntime::new(true, 2, "Bindings".to_owned());
     let row = KEY_BINDINGS
         .iter()
         .position(|(action, _)| *action == semantic_input::Action::Hotbar1)
         .unwrap();
     assert_eq!(
-        hotbar_control_slot(Some(&menu), PhysicalControl::KeyboardUsage(0x1e)),
-        Some(0)
+        hotbar_control_slots(Some(&menu), PhysicalControl::KeyboardUsage(0x1e)).collect::<Vec<_>>(),
+        vec![0]
     );
     assert!(
         std::sync::Arc::make_mut(&mut menu.settings_options)
@@ -389,29 +392,192 @@ fn inventory_hotbar_controls_follow_saved_keyboard_and_mouse_remaps() {
             .unwrap(),
     );
     assert_eq!(
-        hotbar_control_slot(Some(&menu), PhysicalControl::KeyboardUsage(0x15)),
-        Some(0)
+        hotbar_control_slots(Some(&menu), PhysicalControl::KeyboardUsage(0x15)).collect::<Vec<_>>(),
+        vec![0]
     );
     assert_eq!(
-        hotbar_control_slot(Some(&menu), PhysicalControl::KeyboardUsage(0x1e)),
-        None
+        hotbar_control_slots(Some(&menu), PhysicalControl::KeyboardUsage(0x1e)).collect::<Vec<_>>(),
+        Vec::<u8>::new()
     );
     assert!(
         std::sync::Arc::make_mut(&mut menu.settings_options)
             .remap(row, PhysicalControl::MouseButton(4))
     );
     assert_eq!(
-        hotbar_control_slot(Some(&menu), PhysicalControl::MouseButton(4)),
-        Some(0)
+        hotbar_control_slots(Some(&menu), PhysicalControl::MouseButton(4)).collect::<Vec<_>>(),
+        vec![0]
     );
     assert_eq!(
-        hotbar_control_slot(Some(&menu), PhysicalControl::KeyboardUsage(0x15)),
-        None
+        hotbar_control_slots(Some(&menu), PhysicalControl::KeyboardUsage(0x15)).collect::<Vec<_>>(),
+        Vec::<u8>::new()
     );
     for (slot, usage) in (0x1f..=0x26).enumerate() {
         assert_eq!(
-            hotbar_control_slot(Some(&menu), PhysicalControl::KeyboardUsage(usage)),
-            Some(slot as u8 + 1)
+            hotbar_control_slots(Some(&menu), PhysicalControl::KeyboardUsage(usage))
+                .collect::<Vec<_>>(),
+            vec![slot as u8 + 1]
         );
+    }
+}
+
+#[test]
+fn shared_hotbar_press_swaps_each_bound_slot_in_order() {
+    use std::sync::Arc;
+
+    use client_ui::ui_runtime::presentation::inventory_pointer::InventoryCellHit;
+    use protocol::{ContainerIdentity, InventoryContentEvent, InventoryEvent, NetworkItemStack};
+    use semantic_input::{Action, PhysicalControl};
+
+    for control in [
+        PhysicalControl::KeyboardUsage(0x15),
+        PhysicalControl::MouseButton(4),
+    ] {
+        let mut menu = crate::menu::MenuRuntime::new(true, 2, "Bindings".into());
+        for action in [Action::Hotbar1, Action::Hotbar2] {
+            let row = crate::menu::settings_options::KEY_BINDINGS
+                .iter()
+                .position(|(candidate, _)| *candidate == action)
+                .unwrap();
+            assert!(Arc::make_mut(&mut menu.settings_options).remap(row, control));
+        }
+        let mut player = player_state::PlayerState::new(1);
+        let mut runtime = client_ui::test_support::inventory_session(&mut player);
+        let ledger = runtime.inventory_ledger_mut(&mut player);
+        assert!(ledger.request_personal_open(42));
+        assert!(ledger.mark_transport_enqueued(0));
+        ledger.apply(&InventoryEvent::Open(protocol::ContainerOpenEvent {
+            container: ContainerIdentity::window(2),
+            window_type: client_ui::ui_runtime::inventory_ledger::PERSONAL_INVENTORY_WINDOW_TYPE,
+            position: [0; 3],
+            runtime_entity_id: -1,
+        }));
+        let mut slots = vec![
+            NetworkItemStack::empty();
+            client_ui::ui_runtime::inventory_ledger::PLAYER_INVENTORY_SLOT_COUNT
+        ];
+        for (slot, network_id) in [(0, 745), (1, 846), (20, 947)] {
+            slots[slot] = NetworkItemStack {
+                network_id,
+                stack_network_id: network_id,
+                count: 1,
+                ..NetworkItemStack::empty()
+            };
+        }
+        runtime
+            .enqueue_inventory_event(
+                &mut player,
+                1,
+                1,
+                InventoryEvent::Content(InventoryContentEvent {
+                    container: ContainerIdentity::window(0),
+                    slots: slots.into(),
+                    storage_item: NetworkItemStack::empty(),
+                }),
+            )
+            .unwrap();
+        runtime.drain_pending_inventory(&mut player);
+        assert!(
+            crate::ui_runtime::interaction::dispatch_bound_inventory_hotbar(
+                Some(&menu),
+                control,
+                &mut player,
+                &mut runtime,
+                Some(InventoryCellHit::Player(20)),
+            )
+        );
+        let ledger = runtime.inventory_ledger(&player);
+        assert_eq!(ledger.displayed_stack(0).unwrap().network_id, 947);
+        assert_eq!(ledger.displayed_stack(1).unwrap().network_id, 745);
+        assert_eq!(ledger.displayed_stack(20).unwrap().network_id, 846);
+        assert_eq!(ledger.pending_request_count(), 2);
+    }
+}
+
+#[test]
+fn shared_use_and_drop_drops_an_ordinary_item_but_use_alone_does_not() {
+    use bevy::prelude::{App, ButtonInput, KeyCode, MouseButton, Update};
+    use bevy::window::{PrimaryWindow, Window};
+    use protocol::{ContainerIdentity, InventoryContentEvent, InventoryEvent, NetworkItemStack};
+
+    for control in [
+        PhysicalControl::KeyboardUsage(0x15),
+        PhysicalControl::MouseButton(4),
+    ] {
+        for shared in [true, false] {
+            let mut menu = crate::menu::MenuRuntime::new(false, 2, "Bindings".into());
+            for name in ["key.use", "key.drop"]
+                .into_iter()
+                .take(if shared { 2 } else { 1 })
+            {
+                let row = KEY_BINDINGS
+                    .iter()
+                    .map(|(_, name)| *name)
+                    .chain(EXTRA_KEYS.iter().map(|(name, _)| *name))
+                    .position(|candidate| candidate == name)
+                    .unwrap();
+                assert!(std::sync::Arc::make_mut(&mut menu.settings_options).remap(row, control));
+            }
+            let mut player = crate::player_runtime::PlayerRuntime::new(1);
+            let mut runtime = client_ui::test_support::inventory_session(&mut player);
+            let mut slots = vec![
+                    NetworkItemStack::empty();
+                    client_ui::ui_runtime::inventory_ledger::PLAYER_INVENTORY_SLOT_COUNT
+                ];
+            slots[0] = NetworkItemStack {
+                network_id: 745,
+                stack_network_id: 13,
+                count: 2,
+                ..NetworkItemStack::empty()
+            };
+            runtime
+                .enqueue_inventory_event(
+                    &mut player,
+                    1,
+                    1,
+                    InventoryEvent::Content(InventoryContentEvent {
+                        container: ContainerIdentity::window(0),
+                        slots: slots.into(),
+                        storage_item: NetworkItemStack::empty(),
+                    }),
+                )
+                .unwrap();
+            runtime.drain_pending_inventory(&mut player);
+            player.inventory.set_local_selected_slot(0);
+            let mut keys = ButtonInput::<KeyCode>::default();
+            let mut mouse = ButtonInput::<MouseButton>::default();
+            match control {
+                PhysicalControl::KeyboardUsage(_) => keys.press(KeyCode::KeyR),
+                PhysicalControl::MouseButton(_) => mouse.press(MouseButton::Back),
+                _ => unreachable!(),
+            }
+            let mut app = App::new();
+            app.insert_resource(player)
+                .insert_resource(runtime)
+                .insert_resource(menu)
+                .insert_resource(keys)
+                .insert_resource(mouse)
+                .add_systems(
+                    Update,
+                    crate::ui_runtime::interaction::drive_world_inventory_keys,
+                );
+            app.world_mut().spawn((
+                Window {
+                    focused: true,
+                    ..Window::default()
+                },
+                PrimaryWindow,
+            ));
+            app.update();
+            let player = app
+                .world()
+                .resource::<crate::player_runtime::PlayerRuntime>();
+            let runtime = app.world().resource::<client_ui::ui_runtime::UiRuntime>();
+            let ledger = runtime.inventory_ledger(player);
+            assert_eq!(
+                ledger.displayed_stack(0).unwrap().count,
+                if shared { 1 } else { 2 }
+            );
+            assert_eq!(ledger.pending_request_count(), usize::from(shared));
+        }
     }
 }

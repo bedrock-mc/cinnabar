@@ -15,7 +15,8 @@ use super::{
 
 /// Clips are geometry-specific instances and share the retained rig animation instance budget.
 pub const MAX_ENTITY_ANIMATION_CLIPS: usize = MAX_ENTITY_RIG_ANIMATIONS;
-pub const MAX_ENTITY_ANIMATION_CHANNELS: usize = 65_536;
+/// One channel per animated bone property of each clip; merged server packs reach six figures.
+pub const MAX_ENTITY_ANIMATION_CHANNELS: usize = 262_144;
 pub const MAX_ENTITY_ANIMATION_KEYFRAMES: usize = 524_288;
 pub const MAX_ENTITY_CONTROLLERS: usize = 2_048;
 pub const MAX_ENTITY_CONTROLLER_STATES: usize = 16_384;

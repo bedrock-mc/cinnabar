@@ -545,20 +545,41 @@ impl WorldStream {
         for index in 0..count {
             if self.mesh_changes.len() >= MAX_PENDING_MESH_CHANGES
                 || (index != 0 && self.poll_budget_exhausted())
+                || !self.retry_staged_front()
             {
                 break;
             }
-            let Some(completion) = self.staged_mesh_completions.pop_front() else {
-                break;
-            };
-            let bytes = chunk_publication_byte_len(&completion.mesh, &completion.biome);
-            self.staged_mesh_bytes -= bytes;
-            if let Some(denied) = self.publish_mesh_completion(completion) {
-                self.staged_mesh_bytes += bytes;
-                self.staged_mesh_completions.push_front(denied);
+        }
+    }
+
+    /// Retries at most `limit` urgent staged completions, which staging keeps at the front.
+    pub(in crate::stream) fn retry_urgent_staged_mesh_completions(&mut self, limit: usize) {
+        for _ in 0..limit {
+            if self.mesh_changes.len() >= MAX_PENDING_MESH_CHANGES
+                || !self
+                    .staged_mesh_completions
+                    .front()
+                    .is_some_and(|completion| completion.urgent)
+                || !self.retry_staged_front()
+            {
                 break;
             }
         }
+    }
+
+    /// Publishes the front staged completion; false when it is denied again or none is staged.
+    fn retry_staged_front(&mut self) -> bool {
+        let Some(completion) = self.staged_mesh_completions.pop_front() else {
+            return false;
+        };
+        let bytes = chunk_publication_byte_len(&completion.mesh, &completion.biome);
+        self.staged_mesh_bytes -= bytes;
+        if let Some(denied) = self.publish_mesh_completion(completion) {
+            self.staged_mesh_bytes += bytes;
+            self.staged_mesh_completions.push_front(denied);
+            return false;
+        }
+        true
     }
     /// Keeps a current mesh for a later permit instead of meshing it again;
     /// past the staging bound it falls back to rescheduling.

@@ -35,7 +35,7 @@ fn equipment_texture_large_raster_round_trips_the_cache_carrier() {
 #[test]
 fn equipment_texture_catalog_rejects_aggregate_pixel_overflow() {
     let rgba8: Arc<[u8]> = vec![0; 1024 * 1024 * 4].into();
-    let textures = (0..=crate::MAX_ACTOR_PIXEL_BYTES / rgba8.len())
+    let textures = (0..=crate::MAX_EQUIPMENT_PIXEL_BYTES / rgba8.len())
         .map(|index| EquipmentTexture {
             identifier: format!("textures/items/{index:03}").into(),
             width: 1024,

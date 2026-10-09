@@ -146,9 +146,8 @@ pub struct UiRuntime {
     last_block_crack_sequence: Option<u64>,
     last_local_millis: Option<u64>,
     last_server_tick: Option<u64>,
-    /// Local millis at which `last_server_tick` was observed, anchoring the
-    /// estimated session clock between packets.
-    last_tick_observed_millis: Option<u64>,
+    /// Presentation tick and real millis anchor, independent of packet ordering.
+    presentation_tick_anchor: Option<(u64, u64)>,
     chat_focused: bool,
     inventory_open: bool,
     hud: HudStore,
@@ -183,6 +182,7 @@ pub struct UiRuntime {
     inventory_pointer_gui: Option<[f32; 2]>,
     inventory_keys: interaction::InventoryKeys,
     screen: screen_state::ScreenState,
+    furnace_projection: Arc<std::sync::Mutex<presentation::forms::furnace_book::ProjectionCache>>,
     emotes: emotes::EmoteState,
     /// Client packets the screens queue for the network flush.
     client_packets: VecDeque<protocol::Packet>,
@@ -225,7 +225,7 @@ impl UiRuntime {
             last_block_crack_sequence: None,
             last_local_millis: None,
             last_server_tick: None,
-            last_tick_observed_millis: None,
+            presentation_tick_anchor: None,
             chat_focused: false,
             inventory_open: false,
             score_owner_names: std::collections::BTreeMap::new(),
@@ -280,6 +280,7 @@ impl UiRuntime {
             last_selected_identity_change_millis: None,
             last_selected_identity: None,
             mount_jump_hold_started_millis: None,
+            furnace_projection: Arc::default(),
             lang_catalog: None,
             active_lang: None,
             server_lang: None,
@@ -610,7 +611,7 @@ impl UiRuntime {
         self.last_block_crack_sequence = None;
         self.last_local_millis = None;
         self.last_server_tick = None;
-        self.last_tick_observed_millis = None;
+        self.presentation_tick_anchor = None;
         self.chat_source_name = Arc::from("");
         self.chat_xuid = Arc::from("");
         self.chat_focused = false;
@@ -872,7 +873,7 @@ impl UiRuntime {
         self.last_local_millis = Some(envelope.local_millis);
         if let Some(server_tick) = envelope.server_tick {
             self.last_server_tick = Some(server_tick);
-            self.last_tick_observed_millis = Some(envelope.local_millis);
+            self.observe_presentation_tick(server_tick, envelope.local_millis);
         }
         Ok(outcome)
     }

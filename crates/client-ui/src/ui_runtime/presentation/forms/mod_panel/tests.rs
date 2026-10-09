@@ -5,6 +5,8 @@ use ui::DpiScale;
 
 pub(super) fn panel() -> Panel {
     Panel {
+        surface: None,
+        reference_size: None,
         theme: Default::default(),
         style: Default::default(),
         title: "Personal controls".into(),

@@ -592,6 +592,7 @@ fn flowerbed_uses_packed_model_lighting_and_conservative_connectivity() {
 
 #[test]
 fn flowerbed_is_two_sided_alpha_cutout_on_the_shared_model_pipeline() {
+    let shader = include_str!("../../../src/model.wgsl");
     let assets = flowerbed_runtime_assets();
     for runtime_id in 0..3 {
         let template_id = assets
@@ -613,10 +614,9 @@ fn flowerbed_is_two_sided_alpha_cutout_on_the_shared_model_pipeline() {
     }
 
     let plugin = CHUNK_RENDERER_SOURCE;
-    let shader = shader_source::preprocess(include_str!("../../../src/model.wgsl"), &[]);
     assert!(plugin.contains("model_descriptor.primitive.cull_mode = None"));
     assert_eq!(
-        shader_source::alpha_discard_threshold(&shader, "fragment"),
+        shader_source::alpha_discard_threshold(shader, "fragment"),
         Some(0.5)
     );
 }

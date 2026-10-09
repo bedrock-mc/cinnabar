@@ -199,7 +199,7 @@ impl Specializer<RenderPipeline> for ChunkPipelineSpecializer {
             TextureFormat::bevy_default()
         };
         #[cfg(feature = "enhanced")]
-        if render_model::ENHANCED_RENDERING_ENABLED && key.enhanced {
+        if render_model::enhanced_rendering_enabled() && key.enhanced {
             descriptor
                 .layout
                 .push(crate::enhanced::enhanced_view_layout());

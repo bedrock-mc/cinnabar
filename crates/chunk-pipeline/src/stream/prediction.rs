@@ -4,13 +4,19 @@
 
 use super::*;
 
-/// Predictions made while a server batch prepared from older sub-chunks decodes.
+/// Predictions made inside the sub-chunks a decoding server batch snapshotted before them.
+/// Predictions elsewhere need no replay: the batch never writes there, and newer server
+/// terrain for those columns may commit while it decodes.
 #[derive(Debug, Default)]
-pub(super) struct DeferredPredictions(Vec<(SubChunkKey, BlockUpdate)>);
+pub(super) struct DeferredPredictions {
+    batch: BTreeSet<SubChunkKey>,
+    replay: Vec<(SubChunkKey, BlockUpdate)>,
+}
 
 impl DeferredPredictions {
-    pub(super) fn begin_server_batch(&mut self) {
-        self.0.clear();
+    pub(super) fn begin_server_batch(&mut self, keys: impl IntoIterator<Item = SubChunkKey>) {
+        self.batch = keys.into_iter().collect();
+        self.replay.clear();
     }
 }
 
@@ -60,16 +66,18 @@ impl WorldStream {
         if !self.commit_prediction(key, update) {
             return false;
         }
-        if self.order.blocking_block_updates().is_some() {
-            self.predictions.0.push((key, update));
+        if self.order.blocking_block_updates().is_some() && self.predictions.batch.contains(&key) {
+            self.predictions.replay.push((key, update));
         }
+        self.dispatch_urgent_work();
         true
     }
 
     /// Restores deferred predictions over the committed server batch, which
     /// was received first and so is older than each of them.
     pub(super) fn reapply_deferred_predictions(&mut self) {
-        for (key, update) in std::mem::take(&mut self.predictions.0) {
+        self.predictions.batch.clear();
+        for (key, update) in std::mem::take(&mut self.predictions.replay) {
             if key.dimension == self.authority.current_dimension()
                 && self.authority.terrain().is_sub_chunk_loaded(key)
             {

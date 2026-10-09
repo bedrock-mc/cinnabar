@@ -5,7 +5,7 @@ mod publication_markers;
 const WORLD_STREAM_COMPLETION_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[test]
-fn windows_defaults_to_dx12_without_overriding_an_explicit_wgpu_backend() {
+fn windows_prefers_vulkan_with_dx12_fallback_without_overriding_an_explicit_backend() {
     use std::ffi::OsStr;
 
     assert_eq!(
@@ -15,7 +15,7 @@ fn windows_defaults_to_dx12_without_overriding_an_explicit_wgpu_backend() {
     #[cfg(target_os = "windows")]
     assert_eq!(
         crate::app::preferred_render_backends(None),
-        Some(bevy::render::settings::Backends::DX12)
+        Some(bevy::render::settings::Backends::VULKAN | bevy::render::settings::Backends::DX12)
     );
     #[cfg(not(target_os = "windows"))]
     assert_eq!(crate::app::preferred_render_backends(None), None);
@@ -226,12 +226,6 @@ fn unavailable_visibility_digest_marker_fields_are_explicitly_invalid() {
         visibility_digest_marker_fields("submitted", None),
         "submitted_valid=false submitted_count=null submitted_hash=null"
     );
-}
-
-#[test]
-fn acceptance_present_mode_is_fifo_unless_no_vsync_is_explicit() {
-    assert_eq!(requested_present_mode(false), PresentMode::Fifo);
-    assert_eq!(requested_present_mode(true), PresentMode::Immediate);
 }
 
 #[test]

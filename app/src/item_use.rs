@@ -25,10 +25,9 @@ use crate::{
 use client_ui::ui_runtime::UiRuntime;
 
 pub(crate) use gameplay::item_use::UseFrame;
-pub(crate) use gameplay::item_use::{
-    AirUse, Needs, classify, crossbow_animation_frame, ranged_animation_frame,
-};
+pub(crate) use gameplay::item_use::{AirUse, Needs, classify, crossbow_animation_frame};
 use gameplay::item_use::{QUICK_CHARGE_ENCHANTMENT_ID, admit_on_tick};
+use inventory::ranged_animation_frame;
 
 /// A successful extension request is valid only in its originating world scope.
 #[derive(Resource, Debug, Default)]
@@ -105,7 +104,13 @@ impl ItemUseRuntime {
                 });
             crossbow_animation_frame(use_elapsed_ticks, max_use_ticks, projectile, firework)
         } else {
-            ranged_animation_frame(use_elapsed_ticks)
+            ranged_animation_frame(
+                selected
+                    .as_ref()
+                    .and_then(|item| item.identifier.as_deref()),
+                use_elapsed_ticks,
+                max_use_ticks,
+            )
         };
         client_world::AttachableAnimationInput {
             first_person: true,
@@ -312,10 +317,12 @@ pub(crate) fn produce_item_use(
     mut swings: ResMut<SwingTracker>,
     mut view: ResMut<crate::local_player::LocalViewPose>,
 ) {
-    swings.sync_ticks(
+    swings.sync_ticks_for_item(
         movement.interaction_authority_identity(),
         movement.completed_tick(),
         &context.effects,
+        crate::melee::selected_attack_timing(&player_runtime, &context.client_world)
+            .and_then(|timing| timing.swing_duration_ticks),
     );
 
     runtime.synchronize(context.ui.session_id());
@@ -348,14 +355,14 @@ pub(crate) fn produce_item_use(
         let authority = stream.authority();
         (authority.actor_session_id(), authority.current_dimension())
     });
-    runtime.set_delay_fix(
-        admitted
-            && scope.is_some()
-            && context
-                .delay_fix
-                .as_ref()
-                .is_some_and(|policy| policy.scope == scope),
-    );
+    let delay_fix_enabled = admitted
+        && scope.is_some()
+        && context
+            .delay_fix
+            .as_ref()
+            .is_some_and(|policy| policy.scope == scope);
+    runtime.set_delay_fix(delay_fix_enabled);
+    runtime.observe_selected_slot(player_runtime.selected_hotbar_slot());
     runtime.observe_press(admitted && use_phase.pressed);
     movement.send_held_release(|packets| context.network.send_inventory_packets(packets));
     if movement.has_held_release() {
@@ -413,7 +420,7 @@ pub(crate) fn produce_item_use(
         creative,
         inventory_revision,
         charge_projectile: loading_projectile(&player_runtime, stream, &context.ui, creative),
-        press_consumed: context.melee.blocks_use_at(now_millis)
+        press_consumed: (!delay_fix_enabled && context.melee.blocks_use_at(now_millis))
             || context.block_use.press_interacted(),
     };
     if let Some(reason) = runtime.press_drop_reason(&frame) {

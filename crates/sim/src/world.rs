@@ -6,6 +6,7 @@ use world::{ChunkCollisionRevision, ChunkKey, ChunkStore, SubChunkKey};
 
 use crate::{Aabb, Vec3};
 
+mod bamboo;
 mod camera_collision;
 mod contracts;
 mod current;
@@ -281,6 +282,10 @@ pub struct CollisionRegistry {
 
 #[derive(Debug, Clone)]
 struct BlockPhysics {
+    random_offset: Option<(
+        block_transform::random_offset::RandomOffsetComponent,
+        [f32; 3],
+    )>,
     door: Option<DoorState>,
     flow: Option<FlowBlockFacts>,
     shapes: Box<[Aabb]>,
@@ -419,16 +424,17 @@ impl CollisionRegistry {
         for shape in &shapes {
             for (axis, range) in self.collision_halo.iter_mut().enumerate() {
                 if shape.max[axis] > 1.0 {
-                    range.0 = -1;
+                    range.0 = range.0.min(-1);
                 }
                 if shape.min[axis] < 0.0 {
-                    range.1 = 1;
+                    range.1 = range.1.max(1);
                 }
             }
         }
         Arc::make_mut(&mut self.blocks).insert(
             runtime_id,
             BlockPhysics {
+                random_offset: None,
                 door: None,
                 flow: None,
                 shapes: shapes.into_boxed_slice(),
@@ -692,9 +698,7 @@ impl<'a> PaletteWorld<'a> {
                 identity: WorldCollisionIdentity::new(self.registry.identity(), [])?,
             });
         }
-        let grown = query.grown(1.0);
-        let min = block_floor(grown.min)?;
-        let max = block_ceil(grown.max)?;
+        let [min, max] = self.registry.query_bounds(query)?;
         let chunks = (min[0] >> 4..=max[0] >> 4)
             .flat_map(|x| {
                 (min[2] >> 4..=max[2] >> 4).map(move |z| ChunkKey::new(self.dimension, x, z))
@@ -707,7 +711,6 @@ impl<'a> PaletteWorld<'a> {
             for z in min[2]..=max[2] {
                 for y in min[1]..=max[1] {
                     let block = [x, y, z];
-                    let block_offset = Vec3::new(f64::from(x), f64::from(y), f64::from(z));
                     for runtime_id in self.runtime_ids_at(block)? {
                         let physics = self
                             .registry
@@ -718,7 +721,7 @@ impl<'a> PaletteWorld<'a> {
                             .iter()
                             .copied()
                         {
-                            let shape = shape.translated(block_offset);
+                            let shape = shape.translated(physics.shape_offset(block));
                             if shape.intersects(query) {
                                 instances.push(CollisionInstance {
                                     shape,

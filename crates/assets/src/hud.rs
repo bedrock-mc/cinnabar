@@ -16,6 +16,8 @@ const MAX_SOURCE_BYTES: usize = 1024 * 1024;
 const MAX_TEXTURE_SIDE: u32 = 256;
 /// The classic `textures/gui/icons.png` sheet several roles crop from.
 const CLASSIC_ICONS_SHEET: &str = "textures/gui/icons.png";
+/// Native dimensions of the classic icons sheet, before resource-pack scaling.
+pub const HUD_ICONS_SHEET_SIZE: [u32; 2] = [256, 256];
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[repr(u32)]

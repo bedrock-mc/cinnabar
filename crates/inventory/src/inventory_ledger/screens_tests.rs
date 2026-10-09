@@ -102,7 +102,7 @@ fn furnace_cells_are_addressed_by_role() {
         vec![stack(20, 2), stack(21, 3), NetworkItemStack::default()],
     ));
     assert_eq!(ledger.storage_slot_count(), Some(3));
-    ledger.apply(&slot_update(named(3, 26), 0, stack(22, 5)));
+    ledger.apply(&slot_update(named(3, 26), 2, stack(22, 5)));
     assert_eq!(ledger.storage_stack(2).unwrap().count, 5);
     ledger.begin_storage_click(1).unwrap();
     let Some(StackRequestAction::Take { source, .. }) = ledger.newest_action() else {
@@ -133,6 +133,74 @@ fn hopper_admits_five_generic_cells() {
     ));
     assert_eq!(ledger.storage_slot_count(), Some(5));
     assert_eq!(ledger.window_kind(), Some(WindowKind::Hopper));
+}
+
+/// Horse chest answers retain their admitted identity after window-based authority writes.
+#[test]
+fn horse_chest_accepted_response_settles_after_full_content() {
+    for dynamic_id in [None, Some(9)] {
+        let mut ledger = ledger_with(&[]);
+        open(&mut ledger, 4, protocol::WINDOW_TYPE_HORSE);
+        let identity = ContainerIdentity {
+            window_id: Some(4),
+            slot_type: Some(protocol::CONTAINER_NAME_LEVEL_ENTITY),
+            dynamic_id,
+        };
+        let length = WindowKind::Horse
+            .content_lengths()
+            .iter()
+            .copied()
+            .max()
+            .unwrap();
+        let mut cells = vec![NetworkItemStack::empty(); length];
+        cells[2] = stack(55, 5);
+        cells[3] = stack(56, 2);
+        ledger.apply(&content(identity, cells));
+        let request_id = ledger.begin_storage_click(2).unwrap();
+        let action = ledger.newest_action().unwrap();
+        assert!(ledger.mark_transport_enqueued(1));
+        let correction = |slot, count, item_stack_id| protocol::StackResponseSlot {
+            slot,
+            hotbar_slot: slot,
+            count,
+            item_stack_id,
+            custom_name: Arc::from(""),
+            filtered_custom_name: Arc::from(""),
+            durability_correction: 0,
+        };
+        ledger.apply(&InventoryEvent::Response(
+            protocol::ItemStackResponseEvent {
+                responses: Arc::from([protocol::StackResponse {
+                    request_id,
+                    status: protocol::StackResponseStatus::Accepted,
+                    containers: Arc::from([
+                        protocol::StackResponseContainer {
+                            container: ContainerIdentity {
+                                window_id: None,
+                                ..identity
+                            },
+                            slots: Arc::from([correction(2, 0, 0)]),
+                        },
+                        protocol::StackResponseContainer {
+                            container: ContainerIdentity {
+                                window_id: None,
+                                slot_type: Some(CONTAINER_NAME_CURSOR),
+                                dynamic_id: None,
+                            },
+                            slots: Arc::from([correction(0, 5, 9001)]),
+                        },
+                    ]),
+                }]),
+            },
+        ));
+        assert!(!ledger.resync_required());
+        assert_eq!(ledger.pending_request_count(), 0);
+        assert!(ledger.storage_stack(2).is_none());
+        assert_eq!(ledger.cursor_stack().unwrap().stack_network_id, 9001);
+        assert!(matches!(action, StackRequestAction::Take { source, .. }
+            if source.container == StackRequestContainer::LevelEntity { dynamic_id }));
+        assert!(ledger.begin_storage_click(3).is_ok());
+    }
 }
 
 /// ContainerSetData properties land on the open window only.

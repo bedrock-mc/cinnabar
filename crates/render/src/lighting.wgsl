@@ -145,9 +145,13 @@ fn actor_light_colour(sample: u32) -> vec3<f32> {
 // vertex stage, not with terrain's face coefficients. Overworld TileLightColor
 // W is +1; other dimension signs remain a separate gate.
 fn actor_lighting(sample: u32, normal: vec3<f32>, overlay_alpha: f32) -> vec3<f32> {
-    if ((sample & 0x80000000u) == 0u) { return vec3(1.0); }
+    if ((sample & (ACTOR_LIGHT_WORLD_FLAG | ACTOR_LIGHT_DIRECTIONAL_FLAG)) == 0u) { return vec3(1.0); }
+    var illumination = vec3(1.0);
+    if ((sample & ACTOR_LIGHT_WORLD_FLAG) != 0u) {
+        illumination = actor_light_colour(sample);
+    }
     let shade = (((1.0 + normal.y) * ACTOR_SHADE[0] + normal.x * normal.x * ACTOR_SHADE[1]) + normal.z * normal.z * ACTOR_SHADE[2]) + ACTOR_SHADE[3] + overlay_alpha * ACTOR_SHADE[4];
-    return actor_light_colour(sample) * shade;
+    return illumination * shade;
 }
 
 // Kept separate from the lightmap: AO shades geometry, not light coordinates.

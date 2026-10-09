@@ -1,4 +1,4 @@
-//! The real render app on a validating NOOP device with count-driven indirect draws.
+//! Real render apps on a validating NOOP device and native fallback backends.
 
 use bevy::{
     asset::{AssetPlugin, Assets},
@@ -34,6 +34,9 @@ pub(super) fn render_plugin(
     let adapter =
         bevy::tasks::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
             .ok()?;
+    if !adapter.features().contains(required_features) {
+        return None;
+    }
     let required_limits = if noop {
         wgpu::Limits {
             max_storage_buffers_per_shader_stage: required_vertex_storage_buffers(),
@@ -185,6 +188,7 @@ fn count_capable_devices_run_the_two_phase_cull_through_the_render_graph() {
         &GpuCullSupport(true)
     );
     let cull = render_world.resource::<GpuCull>();
+    assert_eq!(cull.submission, GpuCullSubmission::Count);
     assert_eq!(cull.slot_count(), 2);
     assert!(cull.table.records().iter().all(CullRecord::is_live));
     assert!(
@@ -206,4 +210,40 @@ fn count_capable_devices_run_the_two_phase_cull_through_the_render_graph() {
     frame(&mut app);
     let cull = app.sub_app(RenderApp).world().resource::<GpuCull>();
     assert_eq!(cull.slot_count(), 1);
+}
+
+/// DX12 cannot consume compacted draw counts without losing base vertex/instance constants.
+/// Cleared fixed-size indirect regions preserve those constants and still run the same Hi-Z cull.
+#[cfg(all(target_os = "windows", debug_assertions))]
+#[test]
+fn dx12_debug_runs_two_phase_fixed_count_gpu_culling() {
+    let Some(render) = render_plugin(wgpu::Backends::DX12, WgpuFeatures::INDIRECT_FIRST_INSTANCE)
+    else {
+        eprintln!("skipping DX12 fixed-count cull app: missing compatible native adapter");
+        return;
+    };
+    let (mut app, _) = chunk_app(render, Msaa::Off, camera_transform());
+    insert_meshes(&mut app, &KEYS);
+    for _ in 0..4 {
+        frame(&mut app);
+    }
+
+    let render_world = app.sub_app(RenderApp).world();
+    assert_eq!(
+        render_world.resource::<GpuCullSupport>(),
+        &GpuCullSupport(true)
+    );
+    assert_eq!(
+        render_world.resource::<DirectOcclusionSupport>(),
+        &DirectOcclusionSupport(false),
+        "DX12 MDI must not regress to per-section direct draws"
+    );
+    let cull = render_world.resource::<GpuCull>();
+    assert_eq!(cull.submission, GpuCullSubmission::Fixed);
+    assert_eq!(cull.slot_count(), 2);
+    assert!(cull.bind_groups.is_some(), "the culled view was prepared");
+    assert!(
+        cull.pyramid.is_some(),
+        "the DX12 depth target admits the late Hi-Z phase"
+    );
 }

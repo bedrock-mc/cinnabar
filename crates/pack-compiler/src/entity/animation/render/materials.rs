@@ -78,7 +78,10 @@ impl MaterialStates {
             match definition.parent.as_deref() {
                 Some(parent) => name = parent,
                 None => {
-                    state = builtin(name).unwrap_or_default();
+                    state = builtin(name).unwrap_or(EntityRenderMaterialState {
+                        disable_overlay: true,
+                        ..Default::default()
+                    });
                     break;
                 }
             }
@@ -86,6 +89,9 @@ impl MaterialStates {
         for fields in chain.into_iter().rev() {
             apply(fields, &mut state)?;
         }
+        // Native JSON actors select the transparent pass before legacy ALPHA_TEST;
+        // that Actor shader pass preserves sampled opacity without a cutout discard.
+        state.alpha_test &= !state.blend;
         Some(state)
     }
 }
@@ -93,7 +99,8 @@ impl MaterialStates {
 fn builtin(name: &str) -> Option<EntityRenderMaterialState> {
     let mut state = EntityRenderMaterialState::default();
     match name {
-        "entity" | "entity_static" => {}
+        "entity" => {}
+        "entity_static" => state.disable_overlay = true,
         "entity_nocull" => state.cull = false,
         "entity_alphatest" | "skeleton" => {
             state.alpha_test = true;
@@ -108,6 +115,20 @@ fn builtin(name: &str) -> Option<EntityRenderMaterialState> {
         }
         "experience_orb" => state.alpha_test = true,
         "entity_alphablend" | "slime_outer" => state.blend = true,
+        "breeze_wind" => {
+            state.alpha_test = true;
+            state.blend = true;
+            state.cull = false;
+            state.depth_write = false;
+            state.disable_overlay = true;
+        }
+        "charged_creeper" => {
+            state.alpha_test = true;
+            state.cull = false;
+            state.blend = true;
+            state.additive = true;
+            state.disable_overlay = true;
+        }
         _ => return None,
     }
     Some(state)
@@ -124,6 +145,7 @@ fn apply(fields: &Map<String, Value>, state: &mut EntityRenderMaterialState) -> 
     if replace_defines {
         state.alpha_test = false;
         state.emissive = false;
+        state.disable_overlay = true;
     }
     for (key, enabled) in [("states", true), ("+states", true), ("-states", false)] {
         if replace_states != (key == "states") {
@@ -152,6 +174,7 @@ fn apply(fields: &Map<String, Value>, state: &mut EntityRenderMaterialState) -> 
             match value.as_str()? {
                 "ALPHA_TEST" => state.alpha_test = enabled,
                 "USE_EMISSIVE" => state.emissive = enabled,
+                "USE_OVERLAY" => state.disable_overlay = !enabled,
                 _ => {}
             }
         }

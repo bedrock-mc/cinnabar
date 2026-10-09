@@ -1,8 +1,14 @@
 //! Experimental component host. Only the explicit WIT imports carry authority.
 
+#[cfg(feature = "execution")]
+mod grants;
 pub mod helper;
 #[cfg(feature = "execution")]
+pub use grants::ModGrants;
+#[cfg(feature = "execution")]
 mod load;
+#[cfg(feature = "execution")]
+mod outputs;
 #[cfg(feature = "execution")]
 mod runtime;
 #[cfg(feature = "execution")]
@@ -13,7 +19,8 @@ mod settings;
 #[cfg(feature = "execution")]
 pub use mod_api::{
     MAX_CAMERA_DELTA_RADIANS, MAX_CONTROL_KEYS, MAX_GAMEPLAY_MOBS, MAX_GAMEPLAY_PLAYERS,
-    MAX_LOADED_MODS, MAX_MOB_RANGE_BLOCKS, MAX_MOB_TYPE_BYTES,
+    MAX_ITEM_IDENTIFIER_BYTES, MAX_LOADED_MODS, MAX_MOB_RANGE_BLOCKS, MAX_MOB_TYPE_BYTES,
+    MAX_PLAYER_STATE_EFFECTS,
 };
 #[cfg(feature = "execution")]
 pub use mod_render;
@@ -21,6 +28,11 @@ pub use mod_render;
 pub use runtime::cinnabar::extension::gameplay::{
     CameraRig as GameplayCameraRig, Mob as GameplayMob, Player as GameplayPlayer,
     Snapshot as GameplaySnapshot, Vector3 as GameplayVector3,
+};
+#[cfg(feature = "execution")]
+pub use runtime::cinnabar::extension::player_state::{
+    Effect as PlayerStateEffect, Item as PlayerStateItem, Slot as PlayerStateSlot,
+    Snapshot as PlayerStateSnapshot,
 };
 #[cfg(feature = "execution")]
 pub use runtime::cinnabar::extension::{
@@ -59,42 +71,6 @@ pub const MAX_LABEL_BYTES: usize = 256;
 pub(crate) const FRAME_FUEL: u64 = 100_000;
 #[cfg(feature = "execution")]
 pub(crate) const MEMORY_BYTES: usize = 16 * 1024 * 1024;
-
-/// Explicit per-instance authority; optional capabilities are denied by default.
-/// Field names are the registration and set-file grant names.
-#[cfg(feature = "execution")]
-#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
-#[serde(default, deny_unknown_fields)]
-pub struct ModGrants {
-    /// Allows this instance to replace visual time only.
-    pub environment: bool,
-    /// Allows current-frame remote player and camera pose reads.
-    pub players: bool,
-    /// Allows bounded local camera rotation, rigs, and per-frame teleport aim preservation.
-    pub camera: bool,
-    /// Allows current-frame removal of the air-use rearm delay only.
-    pub item_use: bool,
-    /// Allows local key edges, reserved bindings and the retained settings panel.
-    pub controls: bool,
-    /// Allows bounded actor attack range and held-attack press requests.
-    pub interaction: bool,
-    /// Allows the selected component's bounded companion settings file.
-    pub settings: bool,
-    /// Allows sandboxed post passes and bounded world primitives.
-    pub render: bool,
-    /// Lets render passes read scene depth.
-    pub render_depth: bool,
-    /// Allows current-frame reads of nearby non-player actors.
-    pub entities: bool,
-    /// Command names this instance may request; empty denies command requests.
-    pub commands: Vec<String>,
-    /// Allows bounded post-login packet delay through the private core endpoint.
-    pub packet_delay: bool,
-    /// Allows retained full-block highlights of matching loaded blocks.
-    pub block_highlights: bool,
-    /// Allows retained local fullbright lighting, without altering server light data.
-    pub fullbright: bool,
-}
 
 /// A developer-selected component with transactional reload and trap quarantine.
 #[cfg(feature = "execution")]
@@ -142,7 +118,20 @@ impl ModHost {
         mobs: Vec<GameplayMob>,
         controls: ControlFrame,
     ) -> Result<()> {
-        self.instance.frame(pressed, snapshot, mobs, controls)?;
+        self.frame_with_player_state(pressed, snapshot, mobs, None, controls)
+    }
+
+    /// Supplies read-only local facts independently of captured gameplay input.
+    pub fn frame_with_player_state(
+        &mut self,
+        pressed: bool,
+        snapshot: Option<GameplaySnapshot>,
+        mobs: Vec<GameplayMob>,
+        player_state: Option<PlayerStateSnapshot>,
+        controls: ControlFrame,
+    ) -> Result<()> {
+        self.instance
+            .frame(pressed, snapshot, mobs, player_state, controls)?;
         self.queue_settings();
         Ok(())
     }
@@ -155,6 +144,11 @@ impl ModHost {
     /// Whether the last successful gameplay callback opted in to preserving teleport aim.
     pub fn preserves_teleport_rotation(&self) -> bool {
         self.instance.preserves_teleport_rotation()
+    }
+
+    /// Current-frame FOV and look multipliers; absence restores neutral 1/1.
+    pub fn camera_view_scale(&self) -> Option<[f32; 2]> {
+        self.instance.camera_view_scale()
     }
 
     /// The retained camera rig from the last successful callback.
@@ -213,40 +207,6 @@ impl ModHost {
     /// Retained request from a successful callback, independent of UI focus.
     pub fn packet_delay_ms(&self) -> u32 {
         self.instance.packet_delay_ms()
-    }
-    /// Successfully committed local lighting override.
-    pub fn fullbright(&self) -> bool {
-        self.instance.fullbright()
-    }
-
-    /// Committed selection; no raw block reads are exposed to the component.
-    pub fn block_highlights(&self) -> Option<&mod_api::BlockHighlightSpec> {
-        self.instance.block_highlights()
-    }
-
-    /// Explicit opt-in to the private core's last-relayed local position witness.
-    pub fn show_real_position(&self) -> bool {
-        self.instance.show_real_position()
-    }
-
-    /// Consumes the last successful frame's rotation once, without entering the guest.
-    pub fn take_camera_delta(&mut self) -> Option<CameraDelta> {
-        self.instance.take_camera_delta()
-    }
-
-    /// Committed render output and a process-unique generation that changes with it.
-    pub fn render(&self) -> (&mod_render::RenderOutput, u64) {
-        self.instance.render()
-    }
-
-    /// Returns only the last successfully committed plain-text label.
-    pub fn label(&self) -> Option<&str> {
-        self.instance.label()
-    }
-
-    /// Returns the committed visual override without entering the guest.
-    pub fn time_override(&self) -> Option<u32> {
-        self.instance.time_override()
     }
 
     /// Whether this guest can still receive callbacks.

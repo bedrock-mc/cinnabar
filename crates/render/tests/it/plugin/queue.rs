@@ -678,3 +678,48 @@ fn material_uv_flags_rotate_and_reflect_greedy_coordinates() {
         [4.0, 0.0]
     );
 }
+
+#[test]
+fn cpu_model_culling_keeps_overhangs_visible_across_geometry_updates() {
+    use bevy::{
+        camera::primitives::{Aabb, Frustum},
+        math::Mat4,
+    };
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins)
+        .add_plugins(ChunkRenderPlugin::new(1));
+    let key = SubChunkKey::new(0, 0, 0, 0);
+    let frustum =
+        Frustum::from_clip_from_world(&Mat4::orthographic_rh(-1.4, -1.25, 0.0, 16.0, -16.0, 16.0));
+    for models in [false, true, false, true] {
+        let cube = solid_mesh(1);
+        let mesh = if models {
+            meshing::ChunkMesh::from_streams(
+                cube.quads().to_vec(),
+                vec![meshing::PackedModelRef::new(0, 0, 0, 1)],
+                vec![meshing::PackedQuadLighting::new([0; 4])],
+                vec![meshing::PackedModelDrawRef::new(0, 0)],
+                vec![],
+                vec![],
+                cube.connectivity(),
+            )
+        } else {
+            cube
+        };
+        app.world_mut()
+            .resource_mut::<ChunkRenderQueue>()
+            .try_insert(key, mesh, ChunkUploadPriority::new(0.0))
+            .unwrap();
+        app.update();
+        let bounds = *app
+            .world_mut()
+            .query::<&Aabb>()
+            .single(app.world())
+            .unwrap();
+        assert_eq!(
+            frustum.intersects_obb_identity(&bounds),
+            models,
+            "displaced model overhang must survive a frustum excluding the whole cell, including cube/model replacement"
+        );
+    }
+}

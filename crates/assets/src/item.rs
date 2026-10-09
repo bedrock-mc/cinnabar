@@ -258,7 +258,7 @@ pub enum ItemVisualRoute {
     Compiled(ItemVisualId),
     /// Explicit fail-visible marker for a stack whose wire descriptor
     /// retained block runtime identity but which resolved to no compiled
-    /// block-item geometry. Presentation must not silently draw such a stack
+    /// item visual. Presentation must not silently draw such a stack
     /// through a flat sprite route; the retained id is carried verbatim and
     /// is never mapped through names or filenames. The dedicated block-item
     /// renderer remains separate work.

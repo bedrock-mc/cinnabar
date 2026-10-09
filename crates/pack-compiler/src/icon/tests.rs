@@ -1,9 +1,9 @@
 use super::*;
 use assets::*;
 
-fn cube_world(flags: u32) -> RuntimeAssets {
+fn cube_source(flags: u32) -> CompiledAssets {
     let side = u32::from(BLOCK_ITEM_FACE_SIDE);
-    let source = CompiledAssets {
+    CompiledAssets {
         visuals: vec![
             BlockVisual::diagnostic(BlockFlags::empty(), ContributorRole::Primary),
             BlockVisual {
@@ -55,8 +55,43 @@ fn cube_world(flags: u32) -> RuntimeAssets {
             light_registry_sha256: [3; 32],
             biome_registry_sha256: [4; 32],
         },
-    };
+    }
+}
+
+fn cube_world(flags: u32) -> RuntimeAssets {
+    let source = cube_source(flags);
     RuntimeAssets::decode(&encode_blob(&source).unwrap()).unwrap()
+}
+
+#[test]
+fn world_isotropy_preserves_short_model_icons() {
+    let mut source = cube_source(MATERIAL_FLAG_ALPHA_CUTOUT);
+    source.visuals[1].kind = VisualKind::Model;
+    source.visuals[1].flags = BlockFlags::empty();
+    source.visuals[1].model_template = 0;
+    source.model_templates = vec![ModelTemplate {
+        quad_start: 0,
+        quad_count: 1,
+        flags: 0,
+    }]
+    .into();
+    source.model_quads = vec![ModelQuad {
+        positions: [[0, 240, 0], [0, 240, 256], [256, 240, 256], [256, 240, 0]],
+        uvs: [[0, 0], [0, 4096], [4096, 4096], [4096, 0]],
+        material: 1,
+        flags: BlockFace::Up.model_quad_face_id(),
+    }]
+    .into();
+    let plain = RuntimeAssets::decode(&encode_blob(&source).unwrap()).unwrap();
+    let expected = model::Model::read(&plain, BlockVisualId(1))
+        .unwrap()
+        .raster();
+    source.materials[1].flags |= MATERIAL_FLAG_ISOTROPIC;
+    let isotropic = RuntimeAssets::decode(&encode_blob(&source).unwrap()).unwrap();
+    let actual = model::Model::read(&isotropic, BlockVisualId(1))
+        .unwrap()
+        .raster();
+    assert_eq!(actual.rgba8, expected.rgba8);
 }
 
 #[test]

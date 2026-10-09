@@ -60,16 +60,21 @@ impl UiRuntime {
         &self.gameplay_hud
     }
 
-    /// The estimated authoritative tick at `now_millis`: the last observed
-    /// server tick advanced by the local millis elapsed since it was
-    /// observed, at the fixed 20 tps wire cadence. This is the presentation
-    /// clock for effect expiry and blink phases, so finite durations keep
-    /// counting down during quiet sessions with no new packets; a server
-    /// Remove stays the final authority for early clears.
+    /// The presentation tick at `now_millis`, advancing at 20 tps from its real-time anchor.
+    /// Equal or lagging packet ticks never rewind this clock or discard fractional elapsed time.
+    /// Effect durations start when received; a server Remove remains authoritative for early clears.
     pub fn estimated_server_tick(&self, now_millis: u64) -> Option<u64> {
-        let tick = self.last_server_tick?;
-        let observed = self.last_tick_observed_millis?;
+        let (tick, observed) = self.presentation_tick_anchor?;
         Some(tick.saturating_add(now_millis.saturating_sub(observed) / MILLIS_PER_SERVER_TICK))
+    }
+
+    /// Accepts a forward clock observation while keeping packet-order fences independent.
+    pub(super) fn observe_presentation_tick(&mut self, tick: u64, now_millis: u64) -> u64 {
+        let estimated = self.estimated_server_tick(now_millis);
+        if estimated.is_none_or(|estimated| tick > estimated) {
+            self.presentation_tick_anchor = Some((tick, now_millis));
+        }
+        self.estimated_server_tick(now_millis).unwrap()
     }
 
     /// Drops effects that expired on the estimated session clock.
@@ -318,7 +323,7 @@ impl UiRuntime {
         self.last_fifo_sequence = Some(envelope.fifo_sequence);
         self.last_local_millis = Some(envelope.local_millis);
         self.last_server_tick = Some(envelope.server_tick);
-        self.last_tick_observed_millis = Some(envelope.local_millis);
+        self.observe_presentation_tick(envelope.server_tick, envelope.local_millis);
         Ok(())
     }
 
@@ -340,23 +345,22 @@ impl UiRuntime {
         Ok(())
     }
 
-    /// Applies a committed local-player MobEffect change. `local_millis`
-    /// anchors the event's server tick to the session clock so finite
-    /// durations expire without further packets.
+    /// Applies a committed local-player MobEffect change. Its duration starts at the
+    /// receive-time presentation tick, including packets with absent or lagging wire ticks.
     pub fn apply_local_effect(
         &mut self,
         session_id: u64,
         fifo_sequence: u64,
-        event: ActorEffectEvent,
+        mut event: ActorEffectEvent,
         local_millis: u64,
     ) -> Result<(), UiRuntimeError> {
         self.guard_local_apply(session_id, fifo_sequence)?;
         let event_tick = event.tick;
+        event.tick = self.observe_presentation_tick(event_tick, local_millis);
         self.gameplay_hud.apply_effect(event);
         self.last_fifo_sequence = Some(fifo_sequence);
         if event_tick >= self.last_server_tick.unwrap_or(0) {
             self.last_server_tick = Some(event_tick);
-            self.last_tick_observed_millis = Some(local_millis);
         }
         Ok(())
     }

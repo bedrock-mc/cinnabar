@@ -95,7 +95,7 @@ fn absent_confirmed_radius_preserves_existing_fallbacks() {
     let mut stream = stream();
     assert_eq!(
         stream.render_distance_blocks(),
-        (super::PHASE0_MAX_VIEW_RADIUS_CHUNKS * 16) as f32
+        (render_api::UNGRANTED_VIEW_RADIUS_CHUNKS * 16) as f32
     );
 
     submit_publisher(&mut stream, 1, 32);

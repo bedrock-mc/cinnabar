@@ -3,7 +3,7 @@ use assets::RuntimeAssets;
 use bevy::prelude::{
     App, AppExit, IntoScheduleConfigs, MinimalPlugins, Quat, Transform, Update, Vec3,
 };
-use bevy::window::{PresentMode, WindowCloseRequested};
+use bevy::window::WindowCloseRequested;
 use meshing::{
     ChunkBiomeTintIdentity, ChunkMesh, DiagnosticGeometryCount, DiagnosticGeometrySummary,
     FaceConnectivity, PackedBiomeRecord, PackedModelDrawRef, PackedModelRef, PackedQuadLighting,
@@ -64,7 +64,7 @@ use crate::acceptance::{
     AcceptanceExitDecision, AcceptanceRun, Phase3TerminalDrainDecision,
     TRANSPARENT_PRESENTATION_EXIT_GRACE,
     markers::{
-        acceptance_runtime_metadata_marker, cumulative_counter_delta, requested_present_mode,
+        acceptance_runtime_metadata_marker, cumulative_counter_delta,
         visibility_digest_marker_fields, world_publication_snapshot_marker,
     },
     mutation::{
@@ -95,10 +95,9 @@ use crate::runtime::{
         resolve_socket_dir_from,
     },
     network::{
-        ActorFrameClock, NETWORK_INGRESS_BUDGET_PER_FRAME, NetworkHandle,
-        OUTBOUND_SEND_BUDGET_PER_FRAME, WorldIngressDrain, acceptance_surface_anchor,
-        actor_render_source, drain_network_controls, drain_network_ingress,
-        update_actor_render_scene,
+        ActorFrameClock, NetworkHandle, OUTBOUND_SEND_BUDGET_PER_FRAME, WORLD_INGRESS_DRAIN_BUDGET,
+        WorldIngressDrain, acceptance_surface_anchor, actor_render_source, drain_network_controls,
+        drain_network_ingress, update_actor_render_scene,
     },
     shutdown::{
         exit_on_window_close_requested, fatal_runtime_exit, record_fatal_error, window_close_exit,

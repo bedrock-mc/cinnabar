@@ -28,6 +28,29 @@ fn allocation(layout: CubeQuadLayout, metadata_index: u32) -> GpuChunkAllocation
     }
 }
 
+#[test]
+fn displaced_model_cull_record_keeps_outer_geometry_visible() {
+    use bevy::{
+        camera::primitives::Aabb,
+        math::{Mat4, Vec3A},
+    };
+    let mut allocation = allocation(CubeQuadLayout::default(), 0);
+    allocation.key = SubChunkKey::new(0, 0, 0, 0);
+    let [low, high] = cull_record(&allocation, None).bounds();
+    let low = Vec3A::from_array(low.map(|value| value as f32));
+    let high = Vec3A::from_array(high.map(|value| value as f32));
+    let aabb = Aabb {
+        center: (low + high) * 0.5,
+        half_extents: (high - low) * 0.5,
+    };
+    let frustum =
+        Frustum::from_clip_from_world(&Mat4::orthographic_rh(-1.4, -1.25, 0.0, 16.0, -16.0, 16.0));
+    assert!(
+        frustum.intersects_obb_identity(&aabb),
+        "GPU culling retains component displacement beyond a model overhang"
+    );
+}
+
 fn cpu_args(allocation: &GpuChunkAllocation, camera: [f64; 3]) -> [Vec<[u32; 5]>; 4] {
     let words = |draw: DrawIndexedIndirectArgs| {
         [
@@ -174,51 +197,66 @@ fn args_regions_are_disjoint_and_fit_the_buffer() {
     assert_eq!(u64::from(regions.last().unwrap().1), args_words(capacity));
 }
 
-/// The GPU path is selected only where multi-draw-indirect-count is native.
+/// Count-capable backends consume compacted counts; the rest use cleared fixed regions.
 #[test]
-fn only_count_capable_indirect_devices_cull_on_the_gpu() {
+fn indirect_devices_select_the_best_gpu_cull_submission() {
     let count = WgpuFeatures::MULTI_DRAW_INDIRECT_COUNT | WgpuFeatures::INDIRECT_FIRST_INSTANCE;
+    let fixed = WgpuFeatures::INDIRECT_FIRST_INSTANCE;
     let compute = DownlevelFlags::COMPUTE_SHADERS;
     let mdi = ChunkDrawMode::MultiDrawIndirect;
-    let backend = wgpu::Backend::Vulkan;
-    assert!(gpu_cull_supported(mdi, count, compute, backend, false));
-    assert!(!gpu_cull_supported(
+    assert_eq!(
+        gpu_cull_submission(mdi, count, compute, wgpu::Backend::Vulkan, false),
+        Some(GpuCullSubmission::Count)
+    );
+    assert_eq!(
+        gpu_cull_submission(mdi, count, compute, wgpu::Backend::Dx12, false),
+        Some(GpuCullSubmission::Fixed)
+    );
+    assert_eq!(
+        gpu_cull_submission(mdi, fixed, compute, wgpu::Backend::Vulkan, false),
+        Some(GpuCullSubmission::Fixed)
+    );
+    assert!(gpu_cull_supported(
         mdi,
-        count,
+        fixed,
         compute,
         wgpu::Backend::Dx12,
         false
     ));
-    let no_first_instance = WgpuFeatures::MULTI_DRAW_INDIRECT_COUNT;
-    assert!(!gpu_cull_supported(
-        mdi,
-        no_first_instance,
-        compute,
-        backend,
-        false
-    ));
-    assert!(!gpu_cull_supported(mdi, count, compute, backend, true));
-    assert!(!gpu_cull_supported(
-        mdi,
-        WgpuFeatures::empty(),
-        compute,
-        backend,
-        false
-    ));
-    assert!(!gpu_cull_supported(
-        ChunkDrawMode::Direct,
-        count,
-        compute,
-        backend,
-        false
-    ));
-    assert!(!gpu_cull_supported(
-        mdi,
-        count,
-        DownlevelFlags::empty(),
-        backend,
-        false
-    ));
+    assert_eq!(
+        gpu_cull_submission(
+            mdi,
+            WgpuFeatures::MULTI_DRAW_INDIRECT_COUNT,
+            compute,
+            wgpu::Backend::Vulkan,
+            false
+        ),
+        None
+    );
+    assert_eq!(
+        gpu_cull_submission(mdi, count, compute, wgpu::Backend::Vulkan, true),
+        None
+    );
+    assert_eq!(
+        gpu_cull_submission(
+            ChunkDrawMode::Direct,
+            count,
+            compute,
+            wgpu::Backend::Vulkan,
+            false
+        ),
+        None
+    );
+    assert_eq!(
+        gpu_cull_submission(
+            mdi,
+            count,
+            DownlevelFlags::empty(),
+            wgpu::Backend::Vulkan,
+            false
+        ),
+        None
+    );
 }
 
 #[test]

@@ -56,6 +56,7 @@ pub(super) fn resolve_binding(
         transitions_left: MAX_CONTROLLER_TRANSITIONS_PER_TICK,
         used: 0,
         stack: Vec::new(),
+        static_draw: None,
     };
     let mut candidate_offset = 0;
     let input = ActorTickInput {
@@ -78,6 +79,9 @@ pub(super) fn resolve_binding(
         context: &context,
         anim_tick: 0,
         anim_time: None,
+        swell_amount: None,
+        presentation_alpha: None,
+        query_history: None,
         life_tick: 0,
         finished: (false, false),
         bones: &[],
@@ -131,6 +135,15 @@ pub(super) fn resolve_binding(
         geometry_binding,
         &controllers,
     );
+    let swell_sampling = actor.is_creeper().then(|| {
+        super::render_frame::swell::SwellSampling::new(
+            assets,
+            rig_binding,
+            geometry_binding,
+            &controllers,
+            &[],
+        )
+    });
     Some(ActorRigState {
         pack: false,
         // The renderer needs the resolved geometry candidate, not only the
@@ -172,10 +185,13 @@ pub(super) fn resolve_binding(
         skin_layers: Vec::new(),
         variables,
         replay: None,
+        complete_spear_variables: super::spear::needs_completion(assets, rig_binding),
         samples_render_frames: samples_camera_poses
             || super::render_frame::sampling::needs_frame_sampling(assets, rig_binding),
         samples_camera_poses,
         samples_swing_poses,
+        creeper: actor.is_creeper(),
+        swell_sampling,
         render_frame: None,
         clip_clocks: BTreeMap::new(),
         initialized: false,
@@ -459,6 +475,9 @@ fn reselect_geometry_with_checkpoint(
         context,
         anim_tick: 0,
         anim_time: None,
+        swell_amount: None,
+        presentation_alpha: None,
+        query_history: None,
         life_tick: 0,
         finished: (false, false),
         bones: &state.bones,
@@ -523,6 +542,15 @@ fn reselect_geometry_with_checkpoint(
         selected,
         &controllers,
     );
+    state.swell_sampling = actor.is_creeper().then(|| {
+        super::render_frame::swell::SwellSampling::new(
+            assets,
+            state.rig_binding,
+            selected,
+            &controllers,
+            &super::server_animation::dependency_clips(assets, selected, &state.server_animations),
+        )
+    });
     state.samples_render_frames = state.samples_camera_poses
         || super::render_frame::sampling::needs_frame_sampling(assets, state.rig_binding);
     state.geometry_binding = selected;

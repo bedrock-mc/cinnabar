@@ -10,6 +10,8 @@ use super::super::{EngineInputs, EngineOutput, FormEngine, ScreenArt};
 use super::{positioned, snapped};
 use crate::ui_runtime::presentation::{FONT_DESIGN_PIXEL_TEXELS, TextMetrics, tests::fixture_font};
 
+const PAINT_VIEWPORT: [u32; 2] = [1440, 813];
+
 /// Whether every edge of `rect` lies on a whole physical pixel at `dpi` physical pixels per
 /// logical pixel.
 fn whole(rect: [f32; 4], dpi: f32) -> bool {
@@ -111,6 +113,16 @@ fn nearest_sampling_stays_inside_the_uv_rect() {
 /// The nodes painted for `control`, centred by JSON-UI's default anchors in a 1440×813 window
 /// (GUI scale 3, a 480×271 unit screen, so odd free space on both axes) at `dpi`.
 fn paint(control: &str, dpi: f32) -> Vec<UiNode> {
+    paint_texture(control, dpi, [16, 16], None)
+}
+
+/// Paints an image with authored texture dimensions and optional slice metadata.
+fn paint_texture(
+    control: &str,
+    dpi: f32,
+    dimensions: [u32; 2],
+    sidecar: Option<&str>,
+) -> Vec<UiNode> {
     let page = UiAtlasPage {
         width: 1,
         height: 1,
@@ -120,13 +132,17 @@ fn paint(control: &str, dpi: f32) -> Vec<UiNode> {
     let assets = Arc::new(RuntimeUiAssets::decode(&bytes).unwrap());
     let mut engine = FormEngine::new(assets, Catalog::default(), 2);
     let mut png = Vec::new();
-    image::RgbaImage::from_pixel(16, 16, image::Rgba([22, 33, 44, 255]))
+    image::RgbaImage::from_pixel(dimensions[0], dimensions[1], image::Rgba([22, 33, 44, 255]))
         .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
         .unwrap();
-    engine.set_server_atlas(
-        ServerAtlas::new(&[("textures/snap/button.png".to_owned(), png)], None, 1),
-        3,
-    );
+    let mut files = vec![("textures/snap/button.png".to_owned(), png)];
+    if let Some(sidecar) = sidecar {
+        files.push((
+            "textures/snap/button.json".to_owned(),
+            sidecar.as_bytes().to_vec(),
+        ));
+    }
+    engine.set_server_atlas(ServerAtlas::new(&files, None, 1), 3);
     let screen = format!(
         r#"{{
             "namespace": "snap",
@@ -142,7 +158,7 @@ fn paint(control: &str, dpi: f32) -> Vec<UiNode> {
         ])
         .unwrap(),
     );
-    let physical = [1440, 813];
+    let physical = PAINT_VIEWPORT;
     let metrics = TextMetrics::for_viewport(physical, DpiScale::new(dpi).unwrap(), None);
     assert_eq!(metrics.gui_scale, 3.0);
     let px = metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
@@ -185,6 +201,52 @@ fn paint(control: &str, dpi: f32) -> Vec<UiNode> {
         .unwrap()
         .expect("the screen lays out");
     nodes
+}
+
+/// A one-texel sliced cap must sample its own column across both half-width pieces.
+#[test]
+fn thin_nine_slice_caps_do_not_sample_the_neighboring_atlas_column() {
+    let nodes = paint_texture(
+        r#"{"type":"image","texture":"textures/snap/button","size":[1,22]}"#,
+        1.0,
+        [1, 22],
+        Some(r#"{"base_size":[1,22],"nineslice_size":[1,1,1,1]}"#),
+    );
+    let mut tree = ui::UiTree::new(nodes).unwrap();
+    tree.layout(
+        ui::UiRect::new(
+            ui::UiPoint::new(0.0, 0.0).unwrap(),
+            ui::UiPoint::new(PAINT_VIEWPORT[0] as f32, PAINT_VIEWPORT[1] as f32).unwrap(),
+        )
+        .unwrap(),
+        ui::UiScale::default(),
+        SafeArea::ZERO,
+    )
+    .unwrap();
+    let draw = tree.build_draw_list().unwrap();
+    assert!(!draw.vertices.is_empty(), "the cap draws");
+    let column = draw
+        .vertices
+        .iter()
+        .map(|vertex| vertex.uv[0])
+        .reduce(f32::min)
+        .unwrap()
+        .floor();
+    for quad in draw.vertices.chunks_exact(4) {
+        let (left, right) = (quad[0].position[0], quad[1].position[0]);
+        for x in (left.ceil() as u32)..(right.ceil() as u32) {
+            let fraction = (x as f32 + 0.5 - left) / (right - left);
+            if !(0.0..1.0).contains(&fraction) {
+                continue;
+            }
+            let sampled = quad[0].uv[0] + (quad[1].uv[0] - quad[0].uv[0]) * fraction;
+            assert_eq!(
+                sampled.floor(),
+                column,
+                "cap pixel {x} samples foreign column {sampled}"
+            );
+        }
+    }
 }
 
 /// A 195×152 image's absolute logical bounds (see [`paint`]).

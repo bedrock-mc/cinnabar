@@ -539,6 +539,9 @@ pub(super) fn option_label(name: &str, default: &'static str) -> &'static str {
 pub(super) fn fallback(key: &str) -> &str {
     match key {
         "options.renderClouds" => "Render Clouds",
+        "options.framerateLimit.description" => {
+            "Automatic lets your display pace frames, with fresh input and no tearing. Unlimited renders as fast as it can."
+        }
         "options.showExactServerPing" => "Show exact server ping",
         "options.oreuiDarkMode" => "Dark Mode",
         "options.oreuiDarkMode.description" => "Use dark surfaces for menus, settings and dialogs.",

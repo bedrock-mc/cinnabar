@@ -10,7 +10,7 @@ use bevy::{
 use crate::chunk::*;
 
 use super::{
-    GpuCullFrame,
+    GpuCullFrame, GpuCullSubmission,
     kernels::{CullKernels, CullStorage, HizPyramid, PyramidBindings},
     model::{CullCamera, CullPhase, CullRecord, CullStream, CullViewInput, CullViewUniform},
     slots::{CullSlots, cull_record},
@@ -30,11 +30,19 @@ pub(super) struct PreparedPyramid {
     pub(super) depth: TextureViewId,
     pub(super) bindings: PyramidBindings,
 }
+pub(super) struct PreparedCullDraws<'a> {
+    pub(super) args: &'a Buffer,
+    pub(super) counts: &'a Buffer,
+    pub(super) capacity: u32,
+    pub(super) slots: u32,
+    pub(super) submission: GpuCullSubmission,
+}
 
 /// The record table plus the GPU state of the culled view.
 #[derive(Resource)]
 pub(in crate::chunk) struct GpuCull {
     pub(super) kernels: CullKernels,
+    pub(super) submission: GpuCullSubmission,
     storage: Option<CullStorage>,
     args: Option<Buffer>,
     draw_counts: Option<Buffer>,
@@ -46,9 +54,10 @@ pub(in crate::chunk) struct GpuCull {
 }
 
 impl GpuCull {
-    pub(super) fn new(device: &RenderDevice) -> Self {
+    pub(super) fn new(device: &RenderDevice, submission: GpuCullSubmission) -> Self {
         Self {
             kernels: CullKernels::new(device.wgpu_device()),
+            submission,
             storage: None,
             args: None,
             draw_counts: None,
@@ -64,14 +73,24 @@ impl GpuCull {
         self.table.slot_count()
     }
 
-    /// Args, counts and slot capacity when `view` was prepared this frame.
-    pub(in crate::chunk) fn prepared_draws(&self, view: Entity) -> Option<(&Buffer, &Buffer, u32)> {
+    /// Prepared indirect buffers and their live-slot/capacity bounds for `view`.
+    pub(super) fn prepared_draws(&self, view: Entity) -> Option<PreparedCullDraws<'_>> {
         (self.prepared_view == Some(view)).then_some(())?;
-        Some((
-            self.args.as_ref()?,
-            self.draw_counts.as_ref()?,
-            self.storage.as_ref()?.capacity,
-        ))
+        Some(PreparedCullDraws {
+            args: self.args.as_ref()?,
+            counts: self.draw_counts.as_ref()?,
+            capacity: self.storage.as_ref()?.capacity,
+            slots: self.slot_count(),
+            submission: self.submission,
+        })
+    }
+
+    pub(super) fn clear_fixed_args(&self, encoder: &mut wgpu::CommandEncoder) {
+        if self.submission == GpuCullSubmission::Fixed
+            && let Some(args) = &self.args
+        {
+            encoder.clear_buffer(args, 0, None);
+        }
     }
 }
 

@@ -159,6 +159,7 @@ impl Gpu {
         self.render_with_state(source, vertex, draws, RasterState::default())
     }
 
+    /// Applies the requested raster state, including sample count and alpha-to-coverage.
     pub fn render_with_state(
         &self,
         source: &str,
@@ -207,6 +208,32 @@ impl Gpu {
             wgpu::TextureFormat::Rgba8UnormSrgb,
             RasterConfiguration {
                 state: RasterState::default(),
+                pipelines: &[],
+            },
+        )
+    }
+
+    /// Resolves multisampled production draws before inspecting their final pixels.
+    pub fn render_with_samples(
+        &self,
+        source: &str,
+        vertex: &str,
+        draws: &[Draw<'_>],
+        samples: u32,
+    ) -> Vec<u8> {
+        self.render_to_format(
+            source,
+            vertex,
+            draws,
+            wgpu::TextureFormat::Rgba8Unorm,
+            RasterConfiguration {
+                state: RasterState {
+                    multisample: wgpu::MultisampleState {
+                        count: samples,
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
                 pipelines: &[],
             },
         )

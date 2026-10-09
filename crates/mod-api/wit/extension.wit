@@ -4,6 +4,69 @@ package cinnabar:extension@0.1.0;
 interface hud {
     /// Replaces this mod's label. Empty text removes it; invalid text is rejected.
     set-label: func(text: string) -> result<_, string>;
+    /// Bounded host-rendered HUD cards; requires hud authority. Empty clears them.
+    set-content: func(json: string) -> result<_, string>;
+    /// Replaces only a normally visible crosshair; requires hud authority. Empty restores it.
+    set-crosshair: func(json: string) -> result<_, string>;
+    record point { x: f32, y: f32 }
+    record placement { id: string, position: option<point> }
+    record editor-result { saved: bool, reset: bool, placements: list<placement> }
+    /// Opens a host-owned layout editor from an input-owning panel. Requires hud and controls.
+    /// JSON is bounded HUD preview data, including cards disabled during normal gameplay.
+    open-editor: func(json: string) -> result<_, string>;
+    /// Stable for this callback; consumed after a successful callback that reads it.
+    /// Save carries normalized placements; cancel carries no placements.
+    read-editor-result: func() -> result<option<editor-result>, string>;
+}
+
+/// Read-only, session-bound facts about the local player's presented inventory and effects.
+interface player-state {
+    record item {
+        /// None when the negotiated registry cannot resolve the item.
+        identifier: option<string>,
+        network-id: s32,
+        metadata: u32,
+        count: u16,
+        /// Canonical block-item route or a retained wire block identity.
+        block: bool,
+        /// Accepted response corrections take precedence over the stack's Damage tag.
+        damage: option<u32>,
+        /// None for items without a known durability maximum, including custom components.
+        max-durability: option<u32>,
+    }
+    record slot {
+        /// False until this inventory cell has authoritative or selected-equipment evidence.
+        known: bool,
+        item: option<item>,
+    }
+    record effect {
+        effect-id: s32,
+        /// The wire amplifier is zero-based and is not a display level.
+        amplifier: s32,
+        /// Remaining 20 Hz server ticks; none is an infinite effect.
+        remaining-ticks: option<u64>,
+        ambient: bool,
+        particles: bool,
+    }
+    record snapshot {
+        session: u64,
+        dimension: s32,
+        selected-slot: option<u8>,
+        /// Exactly 36 cells, with hotbar cells first, in the host's presented inventory order.
+        inventory: list<slot>,
+        /// Helmet, chestplate, leggings, boots, with unknown cells preserved.
+        armor: list<slot>,
+        offhand: slot,
+        /// Currently visible status effects, sorted by effect id, without expired entries.
+        effects: list<effect>,
+    }
+    /// Requires the player-state grant. None outside the current connected session.
+    /// Available while a screen owns input; carries no camera, interaction or packet authority.
+    read-snapshot: func() -> result<option<snapshot>, string>;
+    /// Exact content token for the current snapshot, scoped to this component instance.
+    /// None outside a current snapshot. Shares the read-snapshot grant and read budget.
+    /// Contents equal to the last full read reuse its token, even after unimported changes.
+    read-revision: func() -> result<option<u64>, string>;
 }
 
 /// An opt-in retained settings panel, rendered and hit-tested by the host.
@@ -33,9 +96,18 @@ interface input {
         keys-held: list<string>,
         events: list<event>,
     }
+    record selection {
+        /// None selects all keys; some(empty) selects none; names select exact matches.
+        keys-pressed: option<list<string>>,
+        keys-held: option<list<string>>,
+        events: bool,
+    }
     /// True only for the current frame's host-assigned action edge.
     demo-pressed: func() -> bool;
     read-controls: func() -> result<controls, string>;
+    /// Reads selected fields from the same current frame, preserving native key order.
+    /// Requires controls authority and shares the read-controls callback read budget.
+    read-selected-controls: func(selection: selection) -> result<controls, string>;
     /// Physical key names reserved before the ordinary gameplay router samples them.
     reserve-keys: func(keys: list<string>) -> result<_, string>;
 }
@@ -157,17 +229,23 @@ interface camera {
     /// Renew every frame. Only actual teleports preserve yaw/pitch; position and acknowledgments remain unchanged.
     /// Omission, no gameplay frame, or a failed callback restores server rotation.
     set-preserve-teleport-rotation: func(enabled: bool) -> result<_, string>;
+    /// Current-frame FOV and look multipliers, independently bounded to 0.1..1 and 0.05..1.
+    /// Renew only during focused, input-owned gameplay; 1/1 restores the player's view.
+    /// Omission, UI focus, unload, and failed callbacks restore both scales without changing saved settings or perspective.
+    set-view-scale: func(fov-scale: f32, look-scale: f32) -> result<_, string>;
 }
 
 /// Opt-in item-use policy; requires the explicit item-use grant.
 interface item-use {
-    /// Renew each gameplay frame. Skips only the air-use rearm delay; item cooldowns and tick admission remain intact.
+    /// Renew each gameplay frame. Allows one immediate air use after each slot change and air use while attacking.
+    /// Repeat timing, item cooldowns and tick admission remain intact.
     /// Omission, no gameplay frame, and failed callbacks restore vanilla timing.
     set-delay-fix: func(enabled: bool) -> result<_, string>;
 }
 
 /// Experimental developer contract; no WASI or ambient operating-system access.
 world extension {
+    import player-state;
     import item-use;
     import camera;
     import hud;
