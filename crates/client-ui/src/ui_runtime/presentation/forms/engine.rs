@@ -769,6 +769,7 @@ impl Painter<'_> {
 
     /// A sprite of the texture at `path` (server pack first, then the carrier),
     /// sampling the normalised `uv`; `None` when neither holds it.
+    /// Maps source edges onto their atlas page without rounding fractional slice boundaries.
     fn sprite(
         &self,
         path: &str,
@@ -783,7 +784,14 @@ impl Painter<'_> {
                 color,
             });
         };
-        let pixel = |base: f32, span: f32, t: f32| (base + span * t).round() as u16;
+        let pixel = |base: f32, span: f32, t: f32| {
+            let value = base + span * t;
+            if value.is_nan() {
+                0.0
+            } else {
+                value.clamp(0.0, f32::from(u16::MAX))
+            }
+        };
         let uv = [
             pixel(x, w, uv.u0),
             pixel(y, h, uv.v0),
@@ -792,10 +800,10 @@ impl Painter<'_> {
         ];
         let style = (u8::from(filter.grayscale) * ui::UI_STYLE_GRAYSCALE)
             | (u8::from(filter.bilinear) * ui::UI_STYLE_BILINEAR);
-        Some(if style == 0 {
+        Some(if style == 0 && uv.iter().all(|edge| edge.fract() == 0.0) {
             UiVisual::Sprite {
                 texture_page: page,
-                uv,
+                uv: uv.map(|edge| edge as u16),
                 color,
             }
         } else {
