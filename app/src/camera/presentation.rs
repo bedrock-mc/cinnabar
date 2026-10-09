@@ -51,6 +51,29 @@ pub(crate) fn collect_death_fov_inputs(
     inputs.set_death_ticks(ticks, partial_tick.map_or(0.0, |tick| tick.0));
 }
 
+/// Composes actor damage after this frame's counters advance and before UI publication.
+pub(crate) fn apply_actor_damage_camera_rotation(
+    settings: Res<CameraSettingsAuthority>,
+    hand: Res<FirstPersonHandMotion>,
+    server: Res<ServerCameraView>,
+    world: Option<Res<ClientWorld>>,
+    partial_tick: Option<Res<crate::runtime::network::ActorFramePartialTick>>,
+    cameras: Query<&mut Transform, With<FlyCamera>>,
+) {
+    client_presentation::camera::actor_effects::apply_actor_damage_camera_rotation(
+        settings,
+        hand,
+        server,
+        world.as_deref().map(
+            |world| client_presentation::observations::WorldObservation {
+                stream: world.stream.as_ref(),
+            },
+        ),
+        partial_tick.map_or(0.0, |tick| tick.0),
+        cameras,
+    );
+}
+
 /// Borrows current owner facts and forwards them at the existing system boundary.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn advance_presentation_state(

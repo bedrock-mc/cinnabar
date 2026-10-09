@@ -16,6 +16,7 @@ use crate::local_player::{
     LocalPlayerFrameCarrier, LocalViewPose,
 };
 
+pub mod actor_effects;
 pub mod antialiasing;
 mod bob;
 mod controls;

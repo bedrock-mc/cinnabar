@@ -6,7 +6,12 @@ use std::f32::consts::PI;
 use bevy::prelude::{Mat4, Resource, Vec3};
 
 const HURT_DURATION_SECONDS: f32 = 0.5;
-const HURT_TILT_DEGREES: f32 = 14.0;
+pub(super) const HURT_TILT_DEGREES: f32 = 14.0;
+
+/// Returns the camera death angle before the caller chooses its view or pose sign.
+pub(super) fn death_roll_degrees(ticks: f32) -> f32 {
+    40.0 - 8000.0 / (ticks + 200.0)
+}
 
 const KNOCKBACK_MEMORY_SECONDS: f32 = 1.0;
 const KNOCKBACK_LATE_UPGRADE_SECONDS: f32 = 0.1;

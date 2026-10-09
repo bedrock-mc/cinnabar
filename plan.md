@@ -6672,6 +6672,9 @@ Game menu returns to the same death presentation. Respawn retains progress until
 authoritative recovery; pending requests survive outbound backpressure. Forced
 death cancels hidden key capture, and formatted reason parameters remain literal.
 The legacy JSON-UI renderer retains literal reason handling for fallback controls.
+Ordinary first-person world damage rotation samples the actor's completed hurt
+and death counters independently of hand animation. Scripted captures retain
+their requested pose after those effects run.
 
 Incomplete parity: exact target-version route admission and animation constants,
 respawn retries, death camera/FOV, hurt and HUD flash timing, hardcore and secondary

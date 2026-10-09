@@ -47,6 +47,10 @@ pub(super) fn configure(app: &mut App) {
                 .after(drive_camera)
                 .after(client_presentation::camera::update_camera_fov)
                 .before(ClientFrameSet::UiPreparation),
+            drive_render_pose
+                .after(client_presentation::camera::actor_effects::ActorCameraEffects)
+                .after(drive_camera)
+                .before(ClientFrameSet::UiPreparation),
         ),
     );
 }
@@ -107,7 +111,7 @@ fn drive_camera(
     let started = *scripted.started.get_or_insert(now);
     let previous = scripted.elapsed;
     scripted.elapsed = now - started;
-    let Some(sample) = scripted.path.sample(scripted.elapsed) else {
+    let Some(pose) = sampled_pose(&scripted) else {
         return;
     };
     if scripted.path.crossed_cut(previous, scripted.elapsed)
@@ -116,8 +120,29 @@ fn drive_camera(
         view.reanchor_camera();
     }
     for mut transform in &mut cameras {
-        *transform = Transform::from_translation(Vec3::from_array(sample.position))
-            .with_rotation(bedrock_camera_rotation(sample.yaw, sample.pitch));
+        *transform = pose;
+    }
+}
+
+/// Converts the current cinematic sample to its complete rendered pose.
+fn sampled_pose(scripted: &ScriptedCamera) -> Option<Transform> {
+    let sample = scripted.path.sample(scripted.elapsed)?;
+    Some(
+        Transform::from_translation(Vec3::from_array(sample.position))
+            .with_rotation(bedrock_camera_rotation(sample.yaw, sample.pitch)),
+    )
+}
+
+/// Preserves the sampled capture pose after actor-clock camera effects finish.
+fn drive_render_pose(
+    scripted: Option<Res<ScriptedCamera>>,
+    mut cameras: Query<&mut Transform, With<FlyCamera>>,
+) {
+    let Some(pose) = scripted.as_deref().and_then(sampled_pose) else {
+        return;
+    };
+    for mut camera in &mut cameras {
+        *camera = pose;
     }
 }
 

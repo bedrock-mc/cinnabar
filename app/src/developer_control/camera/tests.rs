@@ -176,3 +176,54 @@ fn scripted_fov_survives_gameplay_updates_and_release_restores_the_player_fov() 
             .modifier();
     assert!((read_fov(&mut app) - expected).abs() < 0.001);
 }
+
+#[test]
+fn scripted_pose_survives_late_actor_camera_effects() {
+    use client_presentation::camera::{FirstPersonHandMotion, ViewEffect, actor_effects};
+
+    /// Exercises the production effect composer at the actor presentation boundary.
+    fn actor_effect(
+        settings: Res<CameraSettingsAuthority>,
+        hand: Res<FirstPersonHandMotion>,
+        server: Res<ServerCameraView>,
+        cameras: Query<&mut Transform, With<FlyCamera>>,
+    ) {
+        actor_effects::apply_actor_damage_camera_rotation(
+            settings, hand, server, None, 0.0, cameras,
+        );
+    }
+
+    let path = CameraPath {
+        keyframes: vec![frame(0.0, 0.0), frame(2.0, 2.0)],
+        easing: Easing::Linear,
+        looping: false,
+        hide_hand: false,
+    };
+    let (mut app, camera) = app(path);
+    app.insert_resource(FirstPersonHandMotion {
+        bob: ViewEffect {
+            translation: Vec3::new(0.1, -0.05, 0.0),
+            roll_radians: 0.1,
+            pitch_radians: 0.05,
+        },
+        ..Default::default()
+    });
+    crate::app::configure_client_frame_schedule(&mut app);
+    app.add_systems(
+        Update,
+        actor_effect
+            .in_set(actor_effects::ActorCameraEffects)
+            .after(ClientFrameSet::ActorPreparation)
+            .before(ClientFrameSet::UiPreparation),
+    );
+    advance(&mut app, 1.0);
+    let pose = app.world().get::<Transform>(camera).unwrap();
+    assert!(
+        pose.translation
+            .abs_diff_eq(Vec3::new(1.0, 64.0, 0.0), 1e-6)
+    );
+    assert!(
+        pose.rotation
+            .abs_diff_eq(bedrock_camera_rotation(10.0, 0.0), 1e-6)
+    );
+}

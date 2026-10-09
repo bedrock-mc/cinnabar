@@ -99,7 +99,12 @@ impl Plugin for FlyCameraPlugin {
                     .chain()
                     .after(ClientFrameSet::SemanticFinalize)
                     .before(FlyCameraUpdateSet),
-                (presentation::collect_death_fov_inputs, update_camera_fov)
+                (
+                    presentation::collect_death_fov_inputs,
+                    update_camera_fov,
+                    presentation::apply_actor_damage_camera_rotation
+                        .in_set(client_presentation::camera::actor_effects::ActorCameraEffects),
+                )
                     .chain()
                     .after(FlyCameraUpdateSet)
                     .after(ClientFrameSet::Camera)

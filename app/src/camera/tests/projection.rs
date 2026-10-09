@@ -296,3 +296,119 @@ fn death_fov_samples_this_frames_actor_clock_and_clears_on_recovery_and_session_
         None
     );
 }
+
+#[test]
+fn world_hurt_rotation_samples_actor_ticks_and_clears_when_the_stream_retires() {
+    use crate::runtime::{network::ActorFramePartialTick, world::ClientWorld};
+    use chunk_pipeline::WorldStream;
+    use protocol::{
+        ActorEvent, ActorKind, ActorSpawnEvent, ActorStatusEvent, ActorStatusKind, WorldBootstrap,
+        WorldEvent,
+    };
+    use std::sync::Arc;
+
+    /// Gives the rendered camera its ordinary pose before presentation each frame.
+    fn reset_pose(mut cameras: Query<&mut Transform, With<FlyCamera>>) {
+        for mut camera in &mut cameras {
+            camera.rotation = Quat::IDENTITY;
+        }
+    }
+
+    /// Completes five actor ticks once, independently of render time.
+    fn advance_actor(mut world: ResMut<ClientWorld>, mut advanced: Local<bool>) {
+        if !*advanced {
+            world
+                .stream
+                .as_mut()
+                .unwrap()
+                .advance_actor_interpolation_frame(5);
+            *advanced = true;
+        }
+    }
+
+    let (mut app, _) = camera_app(1280, 720);
+    let mut stream = WorldStream::new(WorldBootstrap {
+        dimension: 0,
+        local_player_runtime_id: 1,
+        local_player_unique_id: 1,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
+        block_network_ids_are_hashes: false,
+    });
+    stream
+        .submit(
+            1,
+            WorldEvent::Actor(ActorEvent::Spawn(ActorSpawnEvent {
+                dimension: 0,
+                unique_id: 1,
+                runtime_id: 1,
+                kind: ActorKind::Player {
+                    uuid: [0; 16],
+                    username: "Player".into(),
+                },
+                position: [0.0; 3],
+                velocity: [0.0; 3],
+                pitch: 0.0,
+                yaw: 0.0,
+                head_yaw: 0.0,
+                body_yaw: 0.0,
+                held_item: Default::default(),
+                metadata: Arc::from([]),
+                attributes: Arc::from([]),
+                properties: Arc::from([]),
+                links: Arc::from([]),
+            })),
+        )
+        .unwrap();
+    stream
+        .submit(
+            2,
+            WorldEvent::Actor(ActorEvent::Status(ActorStatusEvent {
+                runtime_id: 1,
+                kind: ActorStatusKind::Hurt,
+                data: 0,
+            })),
+        )
+        .unwrap();
+    app.insert_resource(ClientWorld {
+        stream: Some(stream),
+        ..Default::default()
+    })
+    .insert_resource(ActorFramePartialTick(0.0))
+    .add_systems(
+        Update,
+        advance_actor.in_set(ClientFrameSet::ActorPreparation),
+    )
+    .add_systems(
+        Update,
+        reset_pose
+            .in_set(ClientFrameSet::Camera)
+            .before(camera::presentation::apply_camera_presentation),
+    );
+    configure_client_frame_schedule(&mut app);
+    for _ in 0..2 {
+        app.update();
+        let rotation = app
+            .world_mut()
+            .query_filtered::<&Transform, With<FlyCamera>>()
+            .single(app.world())
+            .unwrap()
+            .rotation;
+        let right = rotation * Vec3::X;
+        assert!(
+            right.y > 0.047 && right.y < 0.048,
+            "actor-driven right axis: {right:?}"
+        );
+        assert!(right.z.abs() < 1e-6);
+    }
+    app.world_mut().resource_mut::<ClientWorld>().stream = None;
+    app.update();
+    let rotation = app
+        .world_mut()
+        .query_filtered::<&Transform, With<FlyCamera>>()
+        .single(app.world())
+        .unwrap()
+        .rotation;
+    assert!(rotation.abs_diff_eq(Quat::IDENTITY, 1e-6));
+}
