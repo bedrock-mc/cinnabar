@@ -17,6 +17,7 @@ fn read(
             anim_time: None,
             life_tick: 0,
             finished: (false, false),
+            swell_amount: None,
             bones: &[],
             bone_names: &[],
         },
