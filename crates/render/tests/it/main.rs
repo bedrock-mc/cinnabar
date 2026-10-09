@@ -70,3 +70,4 @@ mod terrain_seams;
 mod ui_textures;
 mod water_material;
 mod world_model_colour;
+mod world_seams;

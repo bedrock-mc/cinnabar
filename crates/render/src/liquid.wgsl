@@ -1,5 +1,6 @@
 #import cinnabar::material::{MaterialGpu, materials, positional_material, texture_uv_scale, texture_gradient_scale}
 #import bevy_render::view::View
+#import cinnabar::world_projection::{section_camera_offset, camera_offset_clip}
 #import cinnabar::biome_tint::blended_biome_tint
 #import cinnabar::lighting::{light_ao_factor, light_colour, face_shade, tint_to_gamma, tint_to_linear, terrain_light_levels, terrain_light_colour}
 #ifdef ENHANCED
@@ -218,6 +219,7 @@ fn vertex_for_ref(draw_ref: TransparentDrawRef, vertex_index: u32) -> VertexOutp
     let local_position = liquid_corner(geometry, height_word, corner, packed_material);
     let chunk_origin = chunk_origins[draw_ref.metadata_index];
     let world_position = vec3<f32>(chunk_origin.value.xyz) + local_position;
+    let camera_offset = section_camera_offset(chunk_origin.value.xyz, local_position, view.world_position);
     let block_coordinate = vec3<u32>(
         geometry & 15u,
         (geometry >> 4u) & 15u,
@@ -228,7 +230,7 @@ fn vertex_for_ref(draw_ref: TransparentDrawRef, vertex_index: u32) -> VertexOutp
     let frame = animation_sample(material);
 
     var out: VertexOutput;
-    out.clip_position = view.clip_from_world * vec4(world_position, 1.0);
+    out.clip_position = camera_offset_clip(view.clip_from_world, view.world_position, camera_offset);
     out.uv = liquid_uv(
         face,
         corner,
@@ -266,7 +268,11 @@ fn vertex_for_ref(draw_ref: TransparentDrawRef, vertex_index: u32) -> VertexOutp
     if ((out.surface_class & CLASS_WATER) != 0u) {
         out.world_position = waved_water_position(world_position, out.normal.y > 0.5
             || (abs(out.normal.y) < 0.5 && local_position.y > f32(block_coordinate.y)));
-        out.clip_position = view.clip_from_world * vec4(out.world_position, 1.0);
+        out.clip_position = camera_offset_clip(
+            view.clip_from_world,
+            view.world_position,
+            camera_offset + (out.world_position - world_position),
+        );
     }
 #endif
     return out;

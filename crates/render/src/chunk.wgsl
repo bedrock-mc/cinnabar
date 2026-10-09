@@ -4,6 +4,7 @@
 #endif
 #import bevy_render::view::View
 #import cinnabar::biome_tint::{blended_biome_tint, blended_biome_tint_gamma, uniform_biome_tint_gamma}
+#import cinnabar::world_projection::{section_camera_offset, camera_offset_clip}
 #import cinnabar::lighting::{light_ao_factor, light_colour, lit_colour, material_ambient_occlusion, material_face_shade, tint_to_gamma, tint_to_linear, terrain_light_levels, terrain_light_colour}
 #ifdef ALPHA_TO_COVERAGE
 #import cinnabar::lighting::{CutoutSample, cutout_alpha_array, cutout_mix}
@@ -262,23 +263,6 @@ const CUBE_SEAM_MIN_EDGE_SINE: f32 = 0.25;
 // along the view ray and moving along it barely changes the screen position.
 const CUBE_SEAM_MAX_STEP: f32 = 1.0 / 64.0;
 
-/// World position of a section-local point relative to the camera. Whole
-/// blocks are subtracted as integers first, so the same world corner is
-/// bit-identical from every section and stays precise far from the origin.
-fn camera_relative_position(section_origin: vec3<i32>, local_position: vec3<f32>) -> vec3<f32> {
-    let camera_block = vec3<i32>(floor(view.world_position));
-    let camera_offset = view.world_position - vec3<f32>(camera_block);
-    return vec3<f32>(section_origin - camera_block) + local_position - camera_offset;
-}
-
-/// Projects a camera-relative position with the view's `clip_from_world`,
-/// without the large world coordinates whose rounding moves each vertex
-/// independently.
-fn camera_relative_clip(relative: vec3<f32>) -> vec4<f32> {
-    let camera_clip = view.clip_from_world * vec4(view.world_position, 1.0);
-    return view.clip_from_world * vec4(relative, 0.0) + camera_clip;
-}
-
 /// World distances to move a quad corner along `outward_u` and `outward_v`,
 /// unit axes pointing away from the quad along the two edges that meet there,
 /// so that both edges advance `seal_pixels` on screen, perpendicular to
@@ -335,12 +319,12 @@ fn sealed_cube_vertex(vertex_index: u32, instance_index: u32, seal_pixels: f32) 
     );
     let local_position = quad_corner(face, corner, local_origin, width, height);
     let world_position = vec3<f32>(chunk_origin.value.xyz) + local_position;
-    let camera_relative = camera_relative_position(chunk_origin.value.xyz, local_position);
+    let camera_offset = section_camera_offset(chunk_origin.value.xyz, local_position, view.world_position);
     let material = positional_material(quad.material_id, chunk_origin.value.xyz + vec3<i32>(local_origin));
     let animation_sample = select_animation_frames_gpu(material);
 
     var out: VertexOutput;
-    out.clip_position = camera_relative_clip(camera_relative);
+    out.clip_position = camera_offset_clip(view.clip_from_world, view.world_position, camera_offset);
 #ifdef ENHANCED_SHADOW
     out.clip_position = caster_clip(world_position, quad.material_id, 1.0);
 #endif
@@ -378,7 +362,11 @@ fn sealed_cube_vertex(vertex_index: u32, instance_index: u32, seal_pixels: f32) 
 #ifdef ENHANCED
     out.surface_class = material_class(quad.material_id);
     out.world_position = waved_position(world_position, out.surface_class, 1.0);
-    out.clip_position = camera_relative_clip(camera_relative + (out.world_position - world_position));
+    out.clip_position = camera_offset_clip(
+        view.clip_from_world,
+        view.world_position,
+        camera_offset + (out.world_position - world_position),
+    );
 #endif
 #ifndef ENHANCED_SHADOW
     // Grow the face within its plane. Texture coordinates and positions follow

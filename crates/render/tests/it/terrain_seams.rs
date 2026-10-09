@@ -7,7 +7,7 @@ use meshing::{Face, PackedQuad};
 
 const SIDE: u8 = world::SUB_CHUNK_SIDE as u8;
 /// Brightest sky and block light, no AO, so every terrain pixel stays distinct from the clear colour.
-const FULL_LIGHT: u32 = 0xff | (0xff << 16);
+pub(crate) const FULL_LIGHT: u32 = 0xff | (0xff << 16);
 /// Jittered camera positions rendered per seam scene.
 const FRAMES: u32 = 48;
 
@@ -346,14 +346,14 @@ impl Fixture {
 }
 
 /// A perspective camera for one snapshot.
-struct View {
-    eye: Vec3,
-    clip_from_world: Mat4,
+pub(crate) struct View {
+    pub(crate) eye: Vec3,
+    pub(crate) clip_from_world: Mat4,
 }
 
 impl View {
     /// Looks from `eye`, turned by `yaw` from +Z and pitched down by `pitch` radians.
-    fn new(eye: Vec3, yaw: f32, pitch: f32, fov_y: f32) -> Self {
+    pub(crate) fn new(eye: Vec3, yaw: f32, pitch: f32, fov_y: f32) -> Self {
         let direction = Vec3::new(
             yaw.sin() * pitch.cos(),
             -pitch.sin(),
@@ -372,7 +372,7 @@ impl View {
 }
 
 /// Low-discrepancy camera jitter: sub-block translation plus a small yaw and pitch change.
-fn jitter(frame: u32) -> (Vec3, f32, f32) {
+pub(crate) fn jitter(frame: u32) -> (Vec3, f32, f32) {
     let fraction = |scale: f64| ((f64::from(frame) + 1.0) * scale).fract() as f32;
     (
         Vec3::new(
@@ -386,14 +386,14 @@ fn jitter(frame: u32) -> (Vec3, f32, f32) {
 }
 
 /// Reads one RGBA pixel of a snapshot.
-fn pixel(pixels: &[u8], x: usize, y: usize) -> &[u8] {
+pub(crate) fn pixel(pixels: &[u8], x: usize, y: usize) -> &[u8] {
     &pixels[4 * (y * SNAPSHOT_SIDE as usize + x)..][..4]
 }
 
 /// Background pixels that terrain should have covered. A full-frame view must
 /// show terrain everywhere; a horizon view must show terrain below its first
 /// terrain pixel in every column, because the camera looks down on a heightfield.
-fn uncovered_pixels(pixels: &[u8], background: &[u8], full_frame: bool) -> usize {
+pub(crate) fn uncovered_pixels(pixels: &[u8], background: &[u8], full_frame: bool) -> usize {
     let side = SNAPSHOT_SIDE as usize;
     let is_background = |x: usize, y: usize| pixel(pixels, x, y) == background;
     (0..side)
