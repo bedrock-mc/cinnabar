@@ -1,5 +1,6 @@
 use super::*;
 
+/// Evaluates a query with the supplied actor and animation context.
 fn read(
     actor: &ActorSnapshot,
     context: &ActorTickContext,
@@ -103,9 +104,6 @@ fn player_animation_armor_presence_uses_worn_slots_and_fire_uses_actor_state() {
         0.0
     );
     assert_eq!(read(&actor, &context, "query.is_on_fire", &[]), 0.0);
-    actor.metadata.insert(
-        0,
-        ActorMetadataValue::Flags(1),
-    );
+    actor.metadata.insert(0, ActorMetadataValue::Flags(1));
     assert_eq!(read(&actor, &context, "query.is_on_fire", &[]), 1.0);
 }
