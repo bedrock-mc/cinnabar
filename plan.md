@@ -6090,6 +6090,12 @@ The captured Spirit Bundle witness exercises late pack installation and texture
 residency, but the black rectangle, floating labels and live FPS loss remain
 unproven. No live visual/performance gate is closed; see
 `docs/reference/jsonui-review-fixes.md`.
+
+Tiny JSON-UI disabled frames preserve authored source slices when opposing
+insets overlap, including reversed center UVs. Original raster fixtures cover
+one-texel borders through the atlas at GUI scales 3 and 6. Exact-version authored
+frontend comparison and the broader UI visual parity gate remain incomplete.
+
 ## Go core simplification (2026-10-02)
 
 The core's packet-decoding diagnostic observers for cache boundaries, loading order,

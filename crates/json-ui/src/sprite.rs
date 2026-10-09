@@ -339,8 +339,8 @@ fn nine_slice_region(
             fit(a, b, size)
         }
     };
-    let (src_l, src_r) = fit(inset.left * scale[0], inset.right * scale[0], w);
-    let (src_t, src_b) = fit(inset.top * scale[1], inset.bottom * scale[1], h);
+    let (src_l, src_r) = (inset.left * scale[0], inset.right * scale[0]);
+    let (src_t, src_b) = (inset.top * scale[1], inset.bottom * scale[1]);
     let (dst_l, dst_r) = dest_inset(inset.left, inset.right, rect.w);
     let (dst_t, dst_b) = dest_inset(inset.top, inset.bottom, rect.h);
     let src_x = [0.0, src_l, w - src_r, w];
@@ -369,8 +369,8 @@ fn nine_slice_region(
             if dest.w <= 0.0 || dest.h <= 0.0 {
                 continue;
             }
-            // Insets meeting in the middle leave no source span; the stretched
-            // region samples the texel line there.
+            // Overlapping source insets reverse the center's UVs. Meeting insets
+            // sample the texel line there without changing either border.
             let (sx0, sx1) = texel_span(src_x[col], src_x[col + 1], w);
             let (sy0, sy1) = texel_span(src_y[row], src_y[row + 1], h);
             let piece = [u + sx0, v + sy0, sx1 - sx0, sy1 - sy0];
@@ -418,9 +418,9 @@ pub fn nine_slice(dest: Rect, meta: &TextureMeta) -> Vec<SpriteQuad> {
         .collect()
 }
 
-/// A source span, widened to the one texel at its position when empty.
+/// Preserves reversed source spans; widens an empty span to one texel at its position.
 fn texel_span(start: f64, end: f64, size: f64) -> (f64, f64) {
-    if end > start {
+    if end != start {
         return (start, end);
     }
     let low = (start - 0.5).clamp(0.0, (size - 1.0).max(0.0));
