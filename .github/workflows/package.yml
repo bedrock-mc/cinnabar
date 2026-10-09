@@ -1,6 +1,6 @@
 name: Package
 
-# A daily schedule refreshes `nightly` from the default branch; manual runs and v* tags publish stable releases.
+# A daily schedule or a manual `nightly` run refreshes `nightly` from the default branch; other manual runs and v* tags publish stable releases.
 # Signing and the update manifest are optional: missing secrets yield unsigned artifacts.
 on:
   schedule:
@@ -11,11 +11,11 @@ on:
   workflow_dispatch:
     inputs:
       bump:
-        description: Cinnabar app version (independent of the Minecraft protocol)
+        description: Cinnabar app version (independent of the Minecraft protocol), or nightly to refresh the nightly prerelease
         required: true
         default: current
         type: choice
-        options: [current, patch, minor, major, custom]
+        options: [current, patch, minor, major, custom, nightly]
       version:
         description: Custom app version X.Y.Z (only for custom)
         type: string
@@ -24,7 +24,7 @@ on:
         type: string
 
 concurrency:
-  group: ${{ (github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')) && 'package-release' || format('package-{0}', github.ref) }}
+  group: ${{ ((github.event_name == 'workflow_dispatch' && inputs.bump != 'nightly') || startsWith(github.ref, 'refs/tags/v')) && 'package-release' || format('package-{0}', github.ref) }}
   cancel-in-progress: ${{ github.event_name == 'schedule' }}
 
 permissions:
