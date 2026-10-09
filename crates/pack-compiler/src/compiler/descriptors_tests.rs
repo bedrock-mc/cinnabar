@@ -95,6 +95,13 @@ fn pots_and_lanterns_keep_cutout_materials_after_carrier_roundtrip() {
                     "{} {} needs alpha testing",
                     record.name, record.canonical_state
                 );
+                assert_ne!(
+                    quad.flags & MODEL_QUAD_FLAG_TWO_SIDED,
+                    0,
+                    "{} {} must draw both sides of alpha-tested surfaces",
+                    record.name,
+                    record.canonical_state
+                );
             }
         }
     }
