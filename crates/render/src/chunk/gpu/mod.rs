@@ -1,3 +1,5 @@
+#[cfg(test)]
+mod alpha_edge_tests;
 pub(in crate::chunk) mod arena;
 pub(in crate::chunk) mod bind_groups;
 pub(in crate::chunk) mod graphics_metadata;
@@ -7,5 +9,3 @@ mod resource_sorts;
 pub(in crate::chunk) mod telemetry;
 pub(in crate::chunk) mod types;
 pub(in crate::chunk) mod upload;
-#[cfg(test)]
-mod alpha_edge_tests;
