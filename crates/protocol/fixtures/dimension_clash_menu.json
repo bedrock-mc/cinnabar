@@ -1,0 +1,1737 @@
+{
+  "content": "bp:01:02:00000000:00020000:Player",
+  "elements": [
+    {
+      "image": null,
+      "text": "Close",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "Play",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "Store",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "Battle Pass",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "Inventory",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "Tutorial",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "Join Game",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "Featured",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "Weapons",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "Outfits",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "Token Store",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "Boosters",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "Kill Stones",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "Victory Effects",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "Call Cards",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "BP Prev Page",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "BP Next Page",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "BP Buy Premium",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "BP Item 1",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "BP Item 2",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "BP Item 3",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "BP Item 4",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "BP Item 5",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "BP Dialog Close",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "P",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "P",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "P",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "-",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "-",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "-",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "-",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "-",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "-",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "-",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "-",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "-",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "-",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "-",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "-",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "-",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "-",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "0",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "N-",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "N-",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "N-",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "GXT1T",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "NLT2T",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "GXT3T",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "NLT4T",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "M",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "Y",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "Y",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "-",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "-",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "-",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "-",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "-",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "-",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "Inv Equip",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "Inv Remove",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "Inv Preview",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "Loadout Overworld",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "Loadout Nether",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "Loadout End",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "Store Dialog Close",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "Store Buy",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "0",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "0",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "H",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "Claim All",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "Get Premium",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "None",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "None",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "None",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "None",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "None",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "None",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "Settings",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "Start",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "Back",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "H",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "Skip Tutorial",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "View Boosters",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "Back",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "Use",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "Use",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "Use",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "Use",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "Buy More",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "N",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "N",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "N",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "N",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "N",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "N",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "N",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "N",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "0",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "365",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "N",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "N",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "Inv Call Card",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "None",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "0",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "N",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "N",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "How to Play",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "A",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "0",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "0",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "—",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "Leaderboard",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "0",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "0%",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "0",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "0",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "0.00",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "0",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "0",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "0",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "0",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "Season",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "All-Time",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "Profile",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "0",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "TIER 1",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "0 / 0 XP",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "X",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "You are playing the Dimension Clash pre-release, you might experience bugs!",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "_",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "A",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "F",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "F",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "F",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "F",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "F",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "F",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "F",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "F",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "F",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "F",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "100%",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "A",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "F",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "F",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "F",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "F",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "F",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "F",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "F",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "F",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "F",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "F",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "100%",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "Y",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "Y",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "Y",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "Seasonal",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "Daily",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "Back",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "_",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "?",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "0",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "You",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "S",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "_",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "_",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "_",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "_",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "_",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "_",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "_",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "_",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "_",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "_",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "_",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "_",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "_",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "_",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "_",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "_",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "_",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "_",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "_",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "_",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "_",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "_",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "_",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "_",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "_",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "_",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "_",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "_",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "_",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "_",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "_",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "_",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "_",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "_",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "_",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "_",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "_",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "_",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "_",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "_",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "OK",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "N",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "_",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "Y",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "_",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "Play With Friends",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "Friends Next",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "Friends Back",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "Friends Got It",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "Y",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "T",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "E",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "N",
+      "type": "button"
+    },
+    {
+      "image": null,
+      "text": "P",
+      "type": "button"
+    }
+  ],
+  "title": "dc_menus:s1_c2_trial_of_champions__splash",
+  "type": "form"
+}

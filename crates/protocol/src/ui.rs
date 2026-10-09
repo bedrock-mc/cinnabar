@@ -26,11 +26,11 @@ pub use death::{DeathInfoEvent, DeathRules};
 
 pub use forms::{
     CustomForm, CustomFormElement, CustomFormValue, ElementMenuForm, FormButtonImage, FormKind,
-    FormNumber, FormRequestEvent, MAX_CUSTOM_FORM_ITEMS, MAX_FORM_JSON_DEPTH, MenuElement,
-    ModalDialogForm, ModalFormResponseSelection, NPC_DIALOGUE_FORM_ID, NpcButton, NpcDialogueForm,
-    NpcRequestKind, ServerFormModel, TextMenuForm, UnsupportedForm, custom_form_submit_response,
-    modal_form_busy_response, modal_form_cancel_response, modal_form_submit_response,
-    npc_request_packet, server_settings_request_packet,
+    FormNumber, FormRequestEvent, FormText, MAX_CUSTOM_FORM_ITEMS, MAX_FORM_JSON_DEPTH,
+    MenuElement, ModalDialogForm, ModalFormResponseSelection, NPC_DIALOGUE_FORM_ID, NpcButton,
+    NpcDialogueForm, NpcRequestKind, ServerFormModel, TextMenuForm, UnsupportedForm,
+    custom_form_submit_response, modal_form_busy_response, modal_form_cancel_response,
+    modal_form_submit_response, npc_request_packet, server_settings_request_packet,
 };
 pub(crate) use forms::{normalize_form, normalize_npc_dialogue, normalize_server_settings};
 pub use text::{RawTextEvent, TextCategory, TextEvent, TextKind, TitleAction, TitleEvent};

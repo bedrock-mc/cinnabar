@@ -39,6 +39,14 @@ impl UiRuntime {
         self.player_list_held
     }
 
+    /// Resolves a form label without treating literal strings as rawtext documents.
+    pub(super) fn resolve_form_text(&self, text: &protocol::FormText) -> String {
+        match text {
+            protocol::FormText::Literal(text) => text.to_string(),
+            protocol::FormText::Raw(document) => self.resolve_raw_text(document).text.to_string(),
+        }
+    }
+
     /// Resolves one typed rawtext document against the retained scoreboard
     /// state, the pinned localization catalog, and the local reader
     /// identity. Score owners resolve through the authoritative

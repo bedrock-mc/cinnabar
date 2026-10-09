@@ -14,7 +14,7 @@ use ui::{ChatClipboard, UiPoint};
 
 use super::engine_focus;
 use super::engine_scroll;
-use super::values::{EngineFrame, slider_value_at};
+use super::values::{EngineFrame, slider_fraction, slider_value_after_step, slider_value_at};
 use super::{FormValue, LocalFormAction};
 use crate::ui_runtime::{PlatformClipboard, UiRuntime};
 
@@ -356,7 +356,7 @@ fn controller(
                 button.down && button.interacted
             };
             if button.id == "button.dropdown_exit" && button.down {
-                close_dropdown(runtime, frame);
+                close_dropdown(runtime, frame, custom_parent(frame, &button.key));
             }
             let action = answers.then(|| mapped_action(model, button)).flatten();
             if let Some(action) = &action {
@@ -386,16 +386,56 @@ fn controller(
                 .hits
                 .iter()
                 .any(|region| region.key == *key && region.kind == HitKind::Dropdown);
-            if dropdown {
-                engine.open_dropdown = checked.then_some(index);
-            } else if name == "custom_dropdown_radio_toggle" {
-                // Choosing an option answers the open dropdown and closes it.
-                if *checked
-                    && let Some(open) = engine.open_dropdown
-                    && let Some(value) = engine.values.get_mut(open)
+            if name == "custom_multiselect" {
+                if *checked {
+                    engine.open_multiselects.insert(index);
+                } else {
+                    engine.open_multiselects.remove(&index);
+                }
+            } else if name == "custom_multiselect_checkbox" {
+                let parent = custom_parent(frame, key)?;
+                if let Some(FormValue::MultiSelect(selected)) = engine.values.get_mut(parent) {
+                    let ServerFormModel::Custom(form) = model else {
+                        return None;
+                    };
+                    let Some(CustomFormElement::MultiSelect { options, .. }) =
+                        form.elements.get(parent)
+                    else {
+                        return None;
+                    };
+                    if index >= options.len() {
+                        return None;
+                    }
+                    let option = index as i32;
+                    if *checked && !selected.contains(&option) {
+                        selected.push(option);
+                    } else if !*checked {
+                        selected.retain(|value| *value != option);
+                    }
+                    selected.retain(|value| *value >= 0 && (*value as usize) < options.len());
+                    selected.sort_unstable();
+                    selected.dedup();
+                }
+            } else if dropdown {
+                if *checked {
+                    engine.open_dropdowns.insert(index);
+                } else {
+                    engine.open_dropdowns.remove(&index);
+                }
+            } else if name == "custom_dropdown_radio_toggle" && *checked {
+                let parent = custom_parent(frame, key)?;
+                let ServerFormModel::Custom(form) = model else {
+                    return None;
+                };
+                let Some(CustomFormElement::Dropdown { options, .. }) = form.elements.get(parent)
+                else {
+                    return None;
+                };
+                if index < options.len()
+                    && let Some(value) = engine.values.get_mut(parent)
                 {
-                    *value = FormValue::Dropdown(index);
-                    close_dropdown(runtime, frame);
+                    *value = FormValue::Dropdown(index as i32);
+                    close_dropdown(runtime, frame, Some(parent));
                 }
             } else if let Some(FormValue::Toggle(on)) = engine.values.get_mut(index) {
                 *on = *checked;
@@ -403,9 +443,23 @@ fn controller(
             None
         }
         ScreenEvent::Slider {
-            index, value, step, ..
+            index,
+            value,
+            step,
+            directional,
+            key,
+            ..
         } => {
-            set_slider(runtime, model, (*index)?, *value, *step);
+            if let Some(position) =
+                set_slider(runtime, model, (*index)?, *value, *step, *directional)
+            {
+                runtime
+                    .server_forms_mut()
+                    .engine_mut()
+                    .view
+                    .components
+                    .set_slider_value(key, position);
+            }
             None
         }
         ScreenEvent::TextEdit { index, text, .. } => {
@@ -457,16 +511,31 @@ fn mapped_action(model: &ServerFormModel, button: &ButtonEvent) -> Option<LocalF
     }
 }
 
-/// `button.dropdown_exit`: the controller closes its dropdown and the dropdown
-/// toggles drop what they wrote, so their bound state shows again.
-fn close_dropdown(runtime: &mut UiRuntime, frame: &EngineFrame) {
-    let engine = runtime.server_forms_mut().engine_mut();
-    engine.open_dropdown = None;
-    for region in frame
+/// Finds the owning custom control, including for an option in its nested collection.
+fn custom_parent(frame: &EngineFrame, key: &str) -> Option<usize> {
+    frame
         .hits
         .iter()
-        .filter(|region| region.kind == HitKind::Dropdown)
-    {
+        .find(|region| region.key == key)?
+        .collections
+        .iter()
+        .find(|(name, _)| name == "custom_form")
+        .map(|(_, index)| *index)
+}
+
+/// Closes one dropdown, or every dropdown for an unscoped screen exit.
+fn close_dropdown(runtime: &mut UiRuntime, frame: &EngineFrame, parent: Option<usize>) {
+    let engine = runtime.server_forms_mut().engine_mut();
+    if let Some(parent) = parent {
+        engine.open_dropdowns.remove(&parent);
+    } else {
+        engine.open_dropdowns.clear();
+    }
+    for region in frame.hits.iter().filter(|region| {
+        region.kind == HitKind::Dropdown
+            && parent
+                .is_none_or(|parent| region.collections.contains(&("custom_form".into(), parent)))
+    }) {
         engine.view.components.forget(&region.key);
     }
 }
@@ -478,35 +547,49 @@ fn edit_region<'a>(frame: &'a EngineFrame, key: &str) -> Option<&'a HitRegion> {
         .find(|region| region.key == key && region.kind == HitKind::EditBox)
 }
 
-/// A slider event's `#slider_value` (a percentage, or a step index) as the element's value.
+/// Snaps the element value and returns the track position for subsequent input.
 fn set_slider(
     runtime: &mut UiRuntime,
     model: &ServerFormModel,
     index: usize,
     value: f64,
     step: Option<usize>,
-) {
+    directional: bool,
+) -> Option<f64> {
     let ServerFormModel::Custom(form) = model else {
-        return;
+        return None;
     };
-    let value = match form.elements.get(index) {
+    let engine = runtime.server_forms_mut().engine_mut();
+    let (value, position) = match form.elements.get(index) {
         Some(CustomFormElement::Slider {
             min,
             max,
             step: size,
             ..
-        }) => FormValue::Slider(slider_value_at(min.get(), max.get(), size.get(), value)),
-        Some(CustomFormElement::StepSlider { steps, .. }) if !steps.is_empty() => {
-            FormValue::Step(step.unwrap_or(value.max(0.0) as usize).min(steps.len() - 1))
+        }) => {
+            let previous_position = engine.position_sliders.remove(&index);
+            if !directional {
+                engine.position_sliders.insert(index);
+            }
+            let Some(FormValue::Slider(current)) = engine.values.get(index) else {
+                return None;
+            };
+            let current = if !directional || previous_position {
+                slider_value_at(min.get(), max.get(), size.get(), value)
+            } else {
+                slider_value_after_step(min.get(), max.get(), size.get(), value, *current)
+            };
+            (
+                FormValue::Slider(current),
+                slider_fraction(min.get(), max.get(), current),
+            )
         }
-        _ => return,
+        Some(CustomFormElement::StepSlider { steps, .. }) if !steps.is_empty() => {
+            let index = step.unwrap_or(value.max(0.0) as usize).min(steps.len() - 1) as i32;
+            (FormValue::Step(index), f64::from(index))
+        }
+        _ => return None,
     };
-    if let Some(slot) = runtime
-        .server_forms_mut()
-        .engine_mut()
-        .values
-        .get_mut(index)
-    {
-        *slot = value;
-    }
+    *engine.values.get_mut(index)? = value;
+    Some(position)
 }

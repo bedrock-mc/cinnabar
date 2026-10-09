@@ -56,6 +56,11 @@ impl Components {
         self.bags == other.bags
     }
 
+    /// Retains a controller's snapped slider position for subsequent directional input.
+    pub fn set_slider_value(&mut self, key: &str, value: f64) {
+        self.write(key, "#slider_value", Value::from(value));
+    }
+
     pub(crate) fn write(&mut self, key: &str, name: &str, value: Value) {
         self.bags
             .entry(key.to_owned())
@@ -174,6 +179,8 @@ pub enum ScreenEvent {
         value: f64,
         step: Option<usize>,
         finished: bool,
+        /// Whether directional input produced this move.
+        directional: bool,
     },
     /// An edit box's text changed or editing ended (`finished`).
     TextEdit {

@@ -487,7 +487,7 @@ impl Dispatcher {
                 {
                     let value = current_slider(member, components);
                     let step = meta.is_step().then_some(value.max(0.0) as usize);
-                    publish_slider(member, value, step, true, components, out);
+                    publish_slider(member, value, step, true, false, components, out);
                 }
             }
         }
@@ -745,7 +745,7 @@ fn set_slider_at(
     };
     let rect = [region.rect.x, region.rect.y, region.rect.w, region.rect.h];
     let (value, step) = meta.value_at(rect, point);
-    publish_slider(region, value, step, finished, components, out);
+    publish_slider(region, value, step, finished, false, components, out);
 }
 
 fn step_slider(
@@ -758,7 +758,7 @@ fn step_slider(
         return;
     };
     let (value, step) = meta.stepped(current_slider(region, components), direction);
-    publish_slider(region, value, step, true, components, out);
+    publish_slider(region, value, step, true, true, components, out);
 }
 
 fn publish_slider(
@@ -766,6 +766,7 @@ fn publish_slider(
     value: f64,
     step: Option<usize>,
     finished: bool,
+    directional: bool,
     components: &mut Components,
     out: &mut Dispatch,
 ) {
@@ -780,6 +781,7 @@ fn publish_slider(
         value,
         step,
         finished,
+        directional,
     });
 }
 

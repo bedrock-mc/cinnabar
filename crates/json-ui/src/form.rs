@@ -60,6 +60,7 @@ pub struct ModalForm {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct CustomForm {
     pub title: String,
+    pub icon: Option<ButtonImage>,
     pub elements: Vec<CustomElement>,
     pub submit_text: String,
     pub submit_visible: bool,
@@ -104,18 +105,27 @@ pub enum CustomElement {
         text: String,
         /// Normalized `0..=1` position.
         fraction: f64,
+        /// Seconds between repeated directional slider edits.
+        timeout: f64,
         tooltip: String,
     },
     StepSlider {
         text: String,
         steps: usize,
-        index: usize,
+        index: i32,
         tooltip: String,
     },
     Dropdown {
         text: String,
         options: Vec<String>,
-        index: usize,
+        index: i32,
+        open: bool,
+        tooltip: String,
+    },
+    MultiSelect {
+        text: String,
+        options: Vec<String>,
+        selected: Vec<i32>,
         open: bool,
         tooltip: String,
     },
@@ -226,6 +236,19 @@ pub fn form_context(model: &FormModel, base: &Context) -> Context {
 /// The popup panel `popup_dialog.modal_dialog_popup`'s text views read.
 const MODAL_SOURCE: &str = "modal_bg_buttons";
 
+const PACK_TEXTURE_FS: &str = "InUserPackage";
+const DOWNLOADED_TEXTURE_FS: &str = "RawPath";
+
+/// Returns the texture reference and its pack or downloaded-file source.
+fn image_bindings(image: Option<&ButtonImage>) -> (&str, &str) {
+    match image {
+        Some(ButtonImage::Path(path)) => (path, PACK_TEXTURE_FS),
+        Some(ButtonImage::Url(url)) => (url, DOWNLOADED_TEXTURE_FS),
+        Some(ButtonImage::Loading) => ("loading", PACK_TEXTURE_FS),
+        None => ("", PACK_TEXTURE_FS),
+    }
+}
+
 /// Map a form model onto the `#binding` names its template reads.
 pub fn form_data_source(model: &FormModel) -> DataSource {
     let mut data = DataSource::new();
@@ -265,17 +288,12 @@ fn long_form_source(data: &mut DataSource, form: &ActionForm) {
         .iter()
         .map(|element| match element {
             ActionElement::Button(button) => {
-                let (path, file_system) = match &button.image {
-                    Some(ButtonImage::Path(path)) => (path.clone(), String::new()),
-                    Some(ButtonImage::Url(url)) => (url.clone(), url.clone()),
-                    Some(ButtonImage::Loading) => ("loading".to_owned(), String::new()),
-                    None => (String::new(), String::new()),
-                };
+                let (path, file_system) = image_bindings(button.image.as_ref());
                 text_item("button", &button.text)
-                    .with("#form_button_texture", Scalar::Text(path))
+                    .with("#form_button_texture", Scalar::Text(path.to_owned()))
                     .with(
                         "#form_button_texture_file_system",
-                        Scalar::Text(file_system),
+                        Scalar::Text(file_system.to_owned()),
                     )
             }
             ActionElement::Label(text) => text_item("label", text),
@@ -299,6 +317,13 @@ fn long_form_source(data: &mut DataSource, form: &ActionForm) {
 }
 
 fn custom_form_source(data: &mut DataSource, form: &CustomForm) {
+    let (icon, file_system) = image_bindings(form.icon.as_ref());
+    data.set_global("#server_icon", Scalar::Text(icon.to_owned()));
+    data.set_global("#server_outline_icon", Scalar::Text(icon.to_owned()));
+    data.set_global(
+        "#server_icon_file_system",
+        Scalar::Text(file_system.to_owned()),
+    );
     data.set_creation_value("#title_text", Scalar::Text(form.title.clone()));
     data.set_global("#title_text", Scalar::Text(form.title.clone()));
     data.set_global(
@@ -309,32 +334,56 @@ fn custom_form_source(data: &mut DataSource, form: &CustomForm) {
     data.set_global("#submit_button_visible", Scalar::Bool(form.submit_visible));
     let items = form.elements.iter().map(custom_item).collect();
     data.set_collection("custom_form", items);
-    // Only one dropdown is open at a time; its options feed the shared radio list.
-    let options = form
-        .elements
+    for (parent, element) in form.elements.iter().enumerate() {
+        match element {
+            CustomElement::MultiSelect {
+                options, selected, ..
+            } => data.set_scoped_collection(
+                "custom_form",
+                parent,
+                "custom_multiselect",
+                option_items(
+                    options,
+                    "checkbox",
+                    "#custom_multiselect_text",
+                    "#custom_multiselect_toggled",
+                    |index| selected.contains(&(index as i32)),
+                ),
+            ),
+            CustomElement::Dropdown { options, index, .. } => data.set_scoped_collection(
+                "custom_form",
+                parent,
+                "custom_dropdown",
+                option_items(
+                    options,
+                    "radio",
+                    "#custom_radio_text",
+                    "#custom_radio_toggled",
+                    |position| position as i32 == *index,
+                ),
+            ),
+            _ => {}
+        }
+    }
+}
+
+/// Builds one parent's option rows with their display text and checked state.
+fn option_items(
+    options: &[String],
+    role: &str,
+    text: &str,
+    checked: &str,
+    selected: impl Fn(usize) -> bool,
+) -> Vec<CollectionItem> {
+    options
         .iter()
-        .find_map(|element| match element {
-            CustomElement::Dropdown {
-                options,
-                index,
-                open: true,
-                ..
-            } => Some((options, *index)),
-            _ => None,
+        .enumerate()
+        .map(|(index, option)| {
+            CollectionItem::new(role)
+                .with(text, Scalar::Text(option.clone()))
+                .with(checked, Scalar::Bool(selected(index)))
         })
-        .map(|(options, selected)| {
-            options
-                .iter()
-                .enumerate()
-                .map(|(index, option)| {
-                    CollectionItem::new("radio")
-                        .with("#custom_radio_text", Scalar::Text(option.clone()))
-                        .with("#custom_radio_toggled", Scalar::Bool(index == selected))
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-    data.set_collection("custom_dropdown", options);
+        .collect()
 }
 
 fn custom_item(element: &CustomElement) -> CollectionItem {
@@ -359,6 +408,7 @@ fn custom_item(element: &CustomElement) -> CollectionItem {
         CustomElement::Slider {
             text: label,
             fraction,
+            timeout,
             tooltip,
         } => CollectionItem::new("slider")
             .with("#custom_slider_text", text(label))
@@ -367,6 +417,7 @@ fn custom_item(element: &CustomElement) -> CollectionItem {
                 "#custom_slider_value",
                 Scalar::Num(fraction.clamp(0.0, 1.0)),
             )
+            .with("#custom_slider_timeout", Scalar::Num(*timeout))
             .with("#custom_slider_enabled", Scalar::Bool(true))
             .with("#custom_tooltip_text", text(tooltip)),
         CustomElement::StepSlider {
@@ -391,10 +442,25 @@ fn custom_item(element: &CustomElement) -> CollectionItem {
             .with("#custom_text", text(label))
             .with(
                 "#dropdown_option_text",
-                text(options.get(*index).map_or("", String::as_str)),
+                text(options.get(*index as usize).map_or("", String::as_str)),
             )
             .with("#custom_dropdown", Scalar::Bool(*open))
             .with("#custom_dropdown_length", Scalar::Num(options.len() as f64))
+            .with("#custom_toggle_enabled", Scalar::Bool(true))
+            .with("#custom_tooltip_text", text(tooltip)),
+        CustomElement::MultiSelect {
+            text: label,
+            options,
+            open,
+            tooltip,
+            ..
+        } => CollectionItem::new("multiselect")
+            .with("#custom_text", text(label))
+            .with("#custom_multiselect", Scalar::Bool(*open))
+            .with(
+                "#custom_multiselect_length",
+                Scalar::Num(options.len() as f64),
+            )
             .with("#custom_toggle_enabled", Scalar::Bool(true))
             .with("#custom_tooltip_text", text(tooltip)),
         CustomElement::Input {
@@ -546,7 +612,8 @@ pub fn bind_form_over(
         FormModel::Custom(form) => {
             form.elements.len() <= capacity
                 && form.elements.iter().all(|element| match element {
-                    CustomElement::Dropdown { options, .. } => options.len() <= capacity,
+                    CustomElement::Dropdown { options, .. }
+                    | CustomElement::MultiSelect { options, .. } => options.len() <= capacity,
                     _ => true,
                 })
         }
