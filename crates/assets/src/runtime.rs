@@ -127,6 +127,7 @@ pub struct RuntimeAssets {
     hashed: Box<[(u32, u32)]>,
     materials: Box<[Material]>,
     model_templates: Box<[ModelTemplate]>,
+    model_random_offsets: Box<[(u32, world::random_offset::RandomOffsetComponent)]>,
     model_quads: Box<[ModelQuad]>,
     animations: Box<[Animation]>,
     animation_frames: Box<[TextureRef]>,
@@ -171,6 +172,7 @@ impl RuntimeAssets {
             }]
             .into_boxed_slice(),
             model_templates: Box::new([]),
+            model_random_offsets: Box::new([]),
             model_quads: Box::new([]),
             animations: Box::new([]),
             animation_frames: Box::new([]),
@@ -208,6 +210,7 @@ impl RuntimeAssets {
         self.visuals == other.visuals
             && self.hashed == other.hashed
             && self.model_templates == other.model_templates
+            && self.model_random_offsets == other.model_random_offsets
             && self.model_quads == other.model_quads
             && self.materials.len() == other.materials.len()
             && self
@@ -306,6 +309,18 @@ impl RuntimeAssets {
     pub const fn materials(&self) -> &[Material] {
         &self.materials
     }
+    /// State-owned component for a template; ordinary carrier templates have no override.
+    #[must_use]
+    pub fn model_random_offset(
+        &self,
+        template: u32,
+    ) -> Option<world::random_offset::RandomOffsetComponent> {
+        self.model_random_offsets
+            .binary_search_by_key(&template, |entry| entry.0)
+            .ok()
+            .map(|index| self.model_random_offsets[index].1)
+    }
+
     #[must_use]
     pub const fn model_templates(&self) -> &[ModelTemplate] {
         &self.model_templates

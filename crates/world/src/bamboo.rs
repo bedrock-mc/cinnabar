@@ -10,23 +10,9 @@ const POSITION_Z_MULTIPLIER: u32 = 0x06eb_fff5;
 
 /// Packs X/Z offset indices and the stem's four-way UV selector.
 pub const fn column_transform(x: i32, z: i32) -> u32 {
-    let hash = ((z as i64).wrapping_mul(POSITION_Z_MULTIPLIER as i64)
-        ^ (x as i64).wrapping_mul(POSITION_X_MULTIPLIER as i64)) as u64;
-    let seed = ((hash
-        .wrapping_mul(0x0285_b825)
-        .wrapping_add(11)
-        .wrapping_mul(hash)
-        >> 16) as i32 as i64 as u64)
-        ^ 0x6a09_e667_f3bc_c909;
-    let mut a = mix(seed);
-    let mut b = mix(seed.wrapping_add(0x9e37_79b9_7f4a_7c15));
-    if a == 0 && b == 0 {
-        a = 0x9e37_79b9_7f4a_7c15;
-        b = 0x6a09_e667_f3bc_c909;
-    }
-    let offset_x = next(&mut a, &mut b) >> 60;
-    let _ = next(&mut a, &mut b);
-    let offset_z = next(&mut a, &mut b) >> 60;
+    let [x_random, _, z_random] = positional_random(x, z);
+    let offset_x = x_random >> 60;
+    let offset_z = z_random >> 60;
     let hash = (z as u32).wrapping_mul(POSITION_Z_MULTIPLIER)
         ^ (x as u32).wrapping_mul(POSITION_X_MULTIPLIER);
     let uv = (hash.wrapping_mul(37).wrapping_add(11).wrapping_mul(hash) >> 4) & 3;
@@ -48,6 +34,29 @@ pub const fn offset_from_transform(transform: u32) -> [f32; 3] {
         OFFSET_MIN + (transform & 15) as f32 * OFFSET_STEP,
         0.0,
         OFFSET_MIN + ((transform >> 4) & 15) as f32 * OFFSET_STEP,
+    ]
+}
+
+/// Supplies three coordinate-seeded draws, retaining the middle draw for fixed Y ranges.
+pub(crate) const fn positional_random(x: i32, z: i32) -> [u64; 3] {
+    let hash = ((z as i64).wrapping_mul(POSITION_Z_MULTIPLIER as i64)
+        ^ (x as i64).wrapping_mul(POSITION_X_MULTIPLIER as i64)) as u64;
+    let seed = ((hash
+        .wrapping_mul(0x0285_b825)
+        .wrapping_add(11)
+        .wrapping_mul(hash)
+        >> 16) as i32 as i64 as u64)
+        ^ 0x6a09_e667_f3bc_c909;
+    let mut a = mix(seed);
+    let mut b = mix(seed.wrapping_add(0x9e37_79b9_7f4a_7c15));
+    if a == 0 && b == 0 {
+        a = 0x9e37_79b9_7f4a_7c15;
+        b = 0x6a09_e667_f3bc_c909;
+    }
+    [
+        next(&mut a, &mut b),
+        next(&mut a, &mut b),
+        next(&mut a, &mut b),
     ]
 }
 

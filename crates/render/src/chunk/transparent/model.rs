@@ -312,6 +312,7 @@ pub(in crate::chunk) fn transparent_model_phase_distance(
 pub(in crate::chunk) fn transparent_model_draw_candidate(
     key: SubChunkKey,
     model_refs: &[PackedModelRef],
+    model_lighting: &[meshing::PackedQuadLighting],
     draw_ref: PackedModelDrawRef,
     model_templates: &[ModelTemplate],
     model_quads: &[assets::ModelQuad],
@@ -333,13 +334,31 @@ pub(in crate::chunk) fn transparent_model_draw_candidate(
                 f32::from(position[2]),
             )
     }) / (4.0 * 256.0);
-    let centered = centroid - Vec3::new(0.5, 0.0, 0.5);
-    centroid = match (model_ref[0] >> 12) & 3 {
-        1 => Vec3::new(-centered.z, centered.y, centered.x),
-        2 => Vec3::new(-centered.x, centered.y, -centered.z),
-        3 => Vec3::new(centered.z, centered.y, -centered.x),
-        _ => centered,
-    } + Vec3::new(0.5, 0.0, 0.5);
+    let has_offset = model_ref[0] & meshing::MODEL_REF_FLAG_RANDOM_OFFSET != 0;
+    if template.flags & assets::MODEL_TEMPLATE_FLAG_BAMBOO != 0 {
+        let transform = model_ref[0] >> 12;
+        let mut offset = meshing::bamboo::quad_offset(transform, quad_index);
+        if has_offset {
+            let default = world::bamboo::offset_from_transform(transform);
+            offset = std::array::from_fn(|axis| offset[axis] - default[axis]);
+        }
+        centroid += Vec3::from_array(offset);
+    } else {
+        let centered = centroid - Vec3::new(0.5, 0.0, 0.5);
+        centroid = match (model_ref[0] >> 12) & 3 {
+            1 => Vec3::new(-centered.z, centered.y, centered.x),
+            2 => Vec3::new(-centered.x, centered.y, -centered.z),
+            3 => Vec3::new(centered.z, centered.y, -centered.x),
+            _ => centered,
+        } + Vec3::new(0.5, 0.0, 0.5);
+    }
+    if has_offset {
+        let base = model_ref[2] as usize;
+        let records = model_lighting.get(base.checked_sub(2)?..base)?;
+        centroid += Vec3::from_array(meshing::PackedQuadLighting::offset_from_prefix([
+            records[0], records[1],
+        ]));
+    }
     let block = Vec3::new(
         (model_ref[0] & 15) as f32,
         ((model_ref[0] >> 4) & 15) as f32,
@@ -682,6 +701,7 @@ pub(in crate::chunk) fn prepare_transparent_model_sorts(
                 let Some((centroid, words)) = transparent_model_draw_candidate(
                     identity.key,
                     &instance.model_refs,
+                    &instance.model_lighting,
                     draw_ref,
                     texture_assets.assets().model_templates(),
                     texture_assets.assets().model_quads(),

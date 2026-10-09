@@ -71,6 +71,8 @@ pub struct EnhancedRendering {
 }
 
 pub const MAX_SHADOW_CASCADES: u32 = 3;
+/// Smallest shadow target admitted by frame preparation.
+pub(crate) const MIN_SHADOW_RESOLUTION: u32 = 256;
 
 impl Default for EnhancedRendering {
     fn default() -> Self {
@@ -93,7 +95,7 @@ impl EnhancedRendering {
     #[must_use]
     pub fn bounded_diagnostic() -> Self {
         Self {
-            shadow_resolution: 128,
+            shadow_resolution: MIN_SHADOW_RESOLUTION,
             shadow_distance: 24.0,
             waving: false,
             ..Self::default()

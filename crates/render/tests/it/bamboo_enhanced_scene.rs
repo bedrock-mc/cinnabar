@@ -304,6 +304,14 @@ fn enhanced_bamboo_uses_the_production_graph_under_changing_views_and_shadows() 
     )
     .unwrap();
     let bounds = [block.map(|v| v as f32), block.map(|v| v as f32 + 1.0)];
+    let original_view = *app.world().get::<Transform>(camera).unwrap();
+    let center = Vec3::from_array(block.map(|value| value as f32))
+        + Vec3::splat(0.5)
+        + Vec3::from_array(world::bamboo::column_offset(block));
+    *app.world_mut().get_mut::<Transform>(camera).unwrap() =
+        Transform::from_translation(center + Vec3::new(1.5, 0.4, 2.5)).looking_at(center, Vec3::Y);
+    let close = capture(&mut app);
+    save("bamboo-enhanced-close", &close);
     let target = render::BlockSelectionTarget {
         block,
         bounds,
@@ -314,7 +322,7 @@ fn enhanced_bamboo_uses_the_production_graph_under_changing_views_and_shadows() 
         .update(Some(&target), false);
     let highlighted = capture(&mut app);
     assert_ne!(
-        first, highlighted,
+        close, highlighted,
         "Enhanced model-face selection must reach the HDR scene"
     );
     save("bamboo-enhanced-highlight", &highlighted);
@@ -340,12 +348,13 @@ fn enhanced_bamboo_uses_the_production_graph_under_changing_views_and_shadows() 
     app.world_mut().insert_resource(cracked);
     let cracked = capture(&mut app);
     assert_ne!(
-        first, cracked,
+        close, cracked,
         "Enhanced destroy-stage faces must reach the HDR scene"
     );
     save("bamboo-enhanced-cracks", &cracked);
     app.world_mut()
         .insert_resource(render::BlockEntityFrame::default());
+    *app.world_mut().get_mut::<Transform>(camera).unwrap() = original_view;
     app.world_mut()
         .get_mut::<render::EnhancedRendering>(camera)
         .unwrap()

@@ -112,13 +112,15 @@ pub(super) fn compile_block_overlay(
             builder.gaps.incomplete_state_identities += 1;
         }
         if hashed {
-            for state in states {
+            for (index, state) in states.into_iter().enumerate() {
                 let mut visual = condition::state_visual(
                     block,
                     &expressions,
                     Some(&state.values),
                     &mut builder.gaps,
                 );
+                visual.components.random_offset =
+                    block.physics_for_state(index as u32).random_offset;
                 legacy.apply(&block.name, &mut visual.components);
                 builder.push_state(&visual);
                 builder.overlay.hashes.push(Some(state.hash));
@@ -129,6 +131,7 @@ pub(super) fn compile_block_overlay(
             let values = block.state_values(state);
             let mut visual =
                 condition::state_visual(block, &expressions, values.as_deref(), &mut builder.gaps);
+            visual.components.random_offset = block.physics_for_state(state).random_offset;
             legacy.apply(&block.name, &mut visual.components);
             builder.push_state(&visual);
             builder
@@ -210,7 +213,12 @@ impl Builder<'_> {
             return *visual;
         }
         let visual = match components.geometry.as_deref() {
-            None | Some(FULL_BLOCK | FULL_BLOCK_V1) => self.cube(components),
+            None | Some(FULL_BLOCK | FULL_BLOCK_V1) if components.random_offset.is_none() => {
+                self.cube(components)
+            }
+            None | Some(FULL_BLOCK | FULL_BLOCK_V1) => {
+                self.model(components, &geometry::Geometry::full_block(), &[])
+            }
             Some(identifier) => match self.geometries.get(identifier).cloned() {
                 Some(geometry) => self.model(components, &geometry, &state.hidden_bones),
                 None => {
@@ -295,8 +303,20 @@ impl Builder<'_> {
         }
         for cube in shown {
             for (face_quad, instance) in cube.quads() {
-                let (material, _, two_sided) =
-                    self.face_material(components, FACE_NAMES[face_quad.face], instance, false, 0);
+                let uv_flags = if components.geometry.as_deref() == Some(FULL_BLOCK_V1)
+                    && face_quad.face == assets::BlockFace::Down as usize
+                {
+                    render::MATERIAL_UV_ROTATE_180
+                } else {
+                    0
+                };
+                let (material, _, two_sided) = self.face_material(
+                    components,
+                    FACE_NAMES[face_quad.face],
+                    instance,
+                    false,
+                    uv_flags,
+                );
                 if material == DIAGNOSTIC_MATERIAL {
                     self.gaps.missing_textures += 1;
                     return diagnostic_visual();
@@ -315,6 +335,11 @@ impl Builder<'_> {
         let mut start = self.overlay.model_quads.len() as u32;
         let count = quads.len().div_ceil(assets::MAX_MODEL_TEMPLATE_QUADS);
         for (index, part) in quads.chunks(assets::MAX_MODEL_TEMPLATE_QUADS).enumerate() {
+            if let Some(component) = components.random_offset {
+                self.overlay
+                    .model_random_offsets
+                    .push((self.overlay.model_templates.len() as u32, component));
+            }
             self.overlay.model_templates.push(ModelTemplate {
                 quad_start: start,
                 quad_count: part.len() as u32,
@@ -493,7 +518,7 @@ impl Builder<'_> {
                 Source::Diagnostic => diagnostic_pixels(tile),
                 Source::Image(texture) => resample_square(texture, tile),
             };
-            let chain = assets::build_texture_mip_chain(base, tile).ok()?;
+            let chain = assets::build_legacy_terrain_mip_chain(&base, tile).ok()?;
             mips.resize(chain.len(), Vec::new());
             for (level, mip) in chain.iter().enumerate() {
                 mips[level].extend_from_slice(&mip.rgba8);

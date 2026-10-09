@@ -113,6 +113,7 @@ pub(super) fn state_visual(
     }
 }
 
+/// Applies only present fields; explicit zero displacement remains an override.
 fn apply(resolved: &mut CustomVisualComponents, components: &CustomVisualComponents) {
     if components.geometry.is_some() {
         // Bone visibility belongs to the geometry component it arrived with.
@@ -125,6 +126,9 @@ fn apply(resolved: &mut CustomVisualComponents, components: &CustomVisualCompone
     }
     if components.materials.is_some() {
         resolved.materials.clone_from(&components.materials);
+    }
+    if components.random_offset.is_some() {
+        resolved.random_offset = components.random_offset;
     }
     if components.transformation.is_some() {
         resolved.transformation = components.transformation;

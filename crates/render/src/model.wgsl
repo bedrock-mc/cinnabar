@@ -216,10 +216,13 @@ fn vertex(
     let origin = chunk_origins[metadata_index];
     let is_lily_pad = (model_templates[descriptor + 2u] & MODEL_LILY_PAD_FLAG) != 0u;
     let is_bamboo = (model_templates[descriptor + 2u] & MODEL_BAMBOO_FLAG) != 0u;
+    let has_offset = (packed_transform & MODEL_RANDOM_OFFSET_FLAG) != 0u;
     var rotation = packed_transform >> 12u;
     if (is_bamboo) {
-        template_position.x += BAMBOO_OFFSET_MIN + f32(rotation & 15u) * BAMBOO_OFFSET_STEP;
-        template_position.z += BAMBOO_OFFSET_MIN + f32((rotation >> 4u) & 15u) * BAMBOO_OFFSET_STEP;
+        if (!has_offset) {
+            template_position.x += BAMBOO_OFFSET_MIN + f32(rotation & 15u) * BAMBOO_OFFSET_STEP;
+            template_position.z += BAMBOO_OFFSET_MIN + f32((rotation >> 4u) & 15u) * BAMBOO_OFFSET_STEP;
+        }
         if (quad_index == BAMBOO_POSITIVE_X_LEAF_QUAD) { template_position.z += BAMBOO_LEAF_PLANE_INSET; }
         if (quad_index == BAMBOO_POSITIVE_Z_LEAF_QUAD) { template_position.x += BAMBOO_LEAF_PLANE_INSET; }
         rotation = 0u;
@@ -228,6 +231,12 @@ fn vertex(
         rotation = lily_pad_rotation(origin.value.xyz + vec3<i32>(block_position));
     }
     template_position = rotate_cross(template_position, rotation);
+    if (has_offset) {
+        if (lighting_base_index < 2u || lighting_base_index > geometry_word_count / 2u) { return invisible_vertex(); }
+        let offset_word = lighting_base_index * 2u - 4u;
+        template_position += vec3<f32>(bitcast<f32>(geometry_streams[offset_word]),
+            bitcast<f32>(geometry_streams[offset_word + 1u]), bitcast<f32>(geometry_streams[offset_word + 2u]));
+    }
     let local_position = block_position + template_position;
     let material_id = model_templates[template_quad_base + 10u];
     let quad_flags = model_templates[template_quad_base + 11u];

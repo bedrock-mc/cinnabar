@@ -70,6 +70,8 @@ pub struct CustomBlockVisuals {
 /// Visual components present in one component set; `None` means absent.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct CustomVisualComponents {
+    /// Position-dependent component; an explicit zero value overrides inherited displacement.
+    pub random_offset: Option<world::random_offset::RandomOffsetComponent>,
     pub geometry: Option<Arc<str>>,
     /// Geometry's legacy `useBlockTypeLightAbsorption` flag; absent means false.
     pub geometry_use_block_type_light_absorption: bool,
@@ -128,6 +130,7 @@ pub struct CustomPermutation {
 /// Collision and targeting components present in a permutation; absent fields inherit.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct CustomPhysicalComponents {
+    pub random_offset: Option<world::random_offset::RandomOffsetComponent>,
     pub collision: Option<CustomCollision>,
     pub selection: Option<CustomSelection>,
 }
@@ -141,6 +144,7 @@ pub struct CustomCollision {
 /// Effective physical components for one palette state.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CustomBlockPhysics {
+    pub random_offset: Option<world::random_offset::RandomOffsetComponent>,
     pub collides: bool,
     pub collision_boxes: Option<Arc<[CustomBox]>>,
     pub selection: CustomSelection,
@@ -180,6 +184,7 @@ impl CustomBlock {
     #[must_use]
     pub fn base_physics(&self) -> CustomBlockPhysics {
         CustomBlockPhysics {
+            random_offset: self.visual.base.random_offset,
             collides: self.collides,
             collision_boxes: self.collision_boxes.clone(),
             selection: self.selection,
@@ -508,7 +513,14 @@ fn parse_definition(root: &Nbt) -> Option<Definition> {
     let (tags, tag_skips) = block_tags(root);
     Some(Definition {
         tags,
-        skipped: tag_skips + collision_skips + permutation_skips,
+        skipped: tag_skips
+            + collision_skips
+            + permutation_skips
+            + usize::from(
+                components
+                    .and_then(|set| set.field("minecraft:random_offset"))
+                    .is_some_and(|value| random_offset_component(value).is_none()),
+            ),
         state_count: u32::try_from(states).ok()?,
         collides,
         collision_boxes,
@@ -555,6 +567,9 @@ fn physical_components(components: Option<&Nbt>) -> (CustomPhysicalComponents, u
     let (boxes, skipped) = collision_components(collision);
     (
         CustomPhysicalComponents {
+            random_offset: components
+                .and_then(|set| set.field("minecraft:random_offset"))
+                .and_then(random_offset_component),
             collision: collision.map(|component| CustomCollision {
                 enabled: collision_enabled(Some(component)),
                 boxes,
@@ -563,8 +578,45 @@ fn physical_components(components: Option<&Nbt>) -> (CustomPhysicalComponents, u
                 .and_then(|set| set.field("minecraft:selection_box"))
                 .map(|component| selection_component(Some(component))),
         },
-        skipped,
+        skipped
+            + usize::from(
+                components
+                    .and_then(|set| set.field("minecraft:random_offset"))
+                    .is_some_and(|value| random_offset_component(value).is_none()),
+            ),
     )
+}
+
+/// Decodes authored pixel ranges once, keeping absence distinct from an explicit zero component.
+fn random_offset_component(value: &Nbt) -> Option<world::random_offset::RandomOffsetComponent> {
+    use world::random_offset::{RandomOffsetAxis, RandomOffsetComponent};
+    if !matches!(value, Nbt::Compound(_)) {
+        return None;
+    }
+    let mut result = RandomOffsetComponent::default();
+    for (index, key) in ["x", "y", "z"].into_iter().enumerate() {
+        let Some(axis) = value.field(key) else {
+            continue;
+        };
+        if !matches!(axis, Nbt::Compound(_)) {
+            return None;
+        }
+        let range = match axis.field("range") {
+            None => [0.0; 2],
+            Some(range @ Nbt::Compound(_)) => {
+                let read = |key| range.field(key).map_or(Some(0.0), Nbt::number);
+                [read("min")? as f32, read("max")? as f32]
+            }
+            Some(_) => return None,
+        };
+        let steps = axis.field("steps").map_or(Some(0.0), Nbt::number)?;
+        if !steps.is_finite() || steps < 0.0 || steps > f64::from(u32::MAX) || steps.fract() != 0.0
+        {
+            return None;
+        }
+        result.axes[index] = RandomOffsetAxis::from_pixels(range, steps as u32);
+    }
+    result.is_valid().then_some(result)
 }
 
 fn collision_components(component: Option<&Nbt>) -> (Option<Arc<[CustomBox]>>, usize) {
@@ -785,6 +837,9 @@ fn visual_components(components: Option<&Nbt>) -> CustomVisualComponents {
             .map(|value| value.clamp(0.0, 15.0) as u8)
     };
     CustomVisualComponents {
+        random_offset: components
+            .field("minecraft:random_offset")
+            .and_then(random_offset_component),
         geometry,
         geometry_use_block_type_light_absorption: matches!(
             geometry_component.and_then(|geometry| geometry.field("useBlockTypeLightAbsorption")),
@@ -845,3 +900,6 @@ mod lighting_tests;
 
 #[cfg(test)]
 mod collision_tests;
+
+#[cfg(test)]
+mod random_offset_tests;

@@ -282,7 +282,7 @@ pub struct CollisionRegistry {
 
 #[derive(Debug, Clone)]
 struct BlockPhysics {
-    bamboo_offset: bool,
+    random_offset: Option<(world::random_offset::RandomOffsetComponent, [f32; 3])>,
     door: Option<DoorState>,
     flow: Option<FlowBlockFacts>,
     shapes: Box<[Aabb]>,
@@ -431,7 +431,7 @@ impl CollisionRegistry {
         Arc::make_mut(&mut self.blocks).insert(
             runtime_id,
             BlockPhysics {
-                bamboo_offset: false,
+                random_offset: None,
                 door: None,
                 flow: None,
                 shapes: shapes.into_boxed_slice(),

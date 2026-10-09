@@ -743,6 +743,7 @@ fn transparent_model_face_order_tracks_camera_position_not_rotation() {
                 let (centroid, words) = transparent_model_draw_candidate(
                     SubChunkKey::new(0, 0, 0, 0),
                     &model_refs,
+                    &[],
                     draw_ref,
                     &templates,
                     &quads,

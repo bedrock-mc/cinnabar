@@ -30,6 +30,8 @@ pub struct BlockOverlay {
     pub light_properties: Vec<LightProperties>,
     pub materials: Vec<Material>,
     pub model_templates: Vec<ModelTemplate>,
+    /// Sparse, overlay-local template components; no carrier-format change.
+    pub model_random_offsets: Vec<(u32, world::random_offset::RandomOffsetComponent)>,
     pub model_quads: Vec<ModelQuad>,
     pub animations: Vec<Animation>,
     pub animation_frames: Vec<TextureRef>,
@@ -178,6 +180,23 @@ impl RuntimeAssets {
                 ..*quad
             });
         }
+        let mut model_random_offsets = self.model_random_offsets.to_vec();
+        let mut seen = std::collections::HashSet::new();
+        for &(template, component) in &overlay.model_random_offsets {
+            if !component.is_valid() || !seen.insert(template) {
+                return Err(invalid(
+                    "overlay random-offset component is invalid or duplicated",
+                ));
+            }
+            let template = local(
+                template,
+                overlay.model_templates.len(),
+                template_base,
+                "offset template",
+            )?;
+            model_random_offsets.push((template, component));
+        }
+        model_random_offsets.sort_unstable_by_key(|entry| entry.0);
         let mut model_templates = self.model_templates.to_vec();
         let compound_tails = crate::blob::compiled_compound_tails(&overlay.model_templates)?;
         let mut covered = 0usize;
@@ -268,6 +287,7 @@ impl RuntimeAssets {
             hashed: hashed.into_boxed_slice(),
             materials: materials.into_boxed_slice(),
             model_templates: model_templates.into_boxed_slice(),
+            model_random_offsets: model_random_offsets.into_boxed_slice(),
             model_quads: model_quads.into_boxed_slice(),
             animations: animations.into_boxed_slice(),
             animation_frames: animation_frames.into_boxed_slice(),

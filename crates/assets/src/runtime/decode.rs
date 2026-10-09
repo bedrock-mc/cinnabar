@@ -59,6 +59,7 @@ impl RuntimeAssets {
             hashed: decode_hashes(sections[1]),
             materials,
             model_templates: decode_templates(sections[3]),
+            model_random_offsets: Box::new([]),
             model_quads: decode_quads(sections[4]),
             animations: decode_animations(sections[5]),
             animation_frames: decode_frames(sections[6])?,

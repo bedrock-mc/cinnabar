@@ -29,7 +29,16 @@ fn atlas(gpu: &Gpu) -> wgpu::TextureView {
                 } else {
                     [0, 64, 96, 128, 240][level as usize]
                 };
-                [red, 80, 40, 255]
+                [
+                    red,
+                    80,
+                    40,
+                    if level == 0 && pixel % size == 0 && pixel / size >= size / 2 {
+                        0
+                    } else {
+                        255
+                    },
+                ]
             })
             .collect();
         gpu.queue.write_texture(
@@ -67,6 +76,11 @@ fn bamboo_tile_edges_and_distant_mips_preserve_the_admitted_rectangle() {
     let sampler = gpu
         .device
         .create_sampler(&material_shader::native_leaf_sampler_descriptor());
+    let repeat = gpu.device.create_sampler(&wgpu::SamplerDescriptor {
+        address_mode_u: wgpu::AddressMode::Repeat,
+        address_mode_v: wgpu::AddressMode::Repeat,
+        ..material_shader::native_leaf_sampler_descriptor()
+    });
     let source = format!(
         "{}\n{FIXTURE}",
         shader_source::standalone(include_str!("../../src/model.wgsl"), &[])
@@ -78,6 +92,10 @@ fn bamboo_tile_edges_and_distant_mips_preserve_the_admitted_rectangle() {
             fragment: "edge_fragment",
             vertices: 0..3,
             bindings: &[
+                wgpu::BindGroupEntry {
+                    binding: 6,
+                    resource: wgpu::BindingResource::Sampler(&repeat),
+                },
                 wgpu::BindGroupEntry {
                     binding: material_shader::NATIVE_LEAF_SAMPLER_BINDING,
                     resource: wgpu::BindingResource::Sampler(&sampler),
@@ -95,14 +113,17 @@ fn bamboo_tile_edges_and_distant_mips_preserve_the_admitted_rectangle() {
             write_depth: true,
         }],
     );
-    for (column, expected) in [32_u8, 224, 128, 112].into_iter().enumerate() {
-        let offset = (128 * 256 + column * 64 + 32) * 4;
+    for (column, expected) in [32_u8, 224, 128, 112, 224, 32, 32, 224]
+        .into_iter()
+        .enumerate()
+    {
+        let offset = (128 * 256 + column * 32 + 16) * 4;
         assert!(
             pixels[offset].abs_diff(expected) <= 1,
             "case {column}: sampled {}, expected {expected}",
             pixels[offset]
         );
-        assert_eq!(pixels[offset + 3], 255);
+        assert_eq!(pixels[offset + 3], if column == 6 { 0 } else { 255 });
     }
 }
 
@@ -112,10 +133,12 @@ const FIXTURE: &str = r#"
     return vec4(points[index], 0.5, 1.0);
 }
 @fragment fn edge_fragment(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
-    let index = min(u32(position.x) / 64u, 3u);
-    let u = array(-0.001, 1.0, 0.5, 0.5)[index];
-    // The last case blends point-sampled mip2 and mip3, without bilinear texel filtering.
-    let gradient = array(0.0, 0.0, 8.0, exp2(2.5) / 16.0)[index];
-    return sample_ref(0u, vec2(u, 0.5), vec2(gradient, 0.0), vec2(0.0, gradient));
+    let index = min(u32(position.x) / 32u, 7u);
+    var vertex: VertexOutput;
+    vertex.visible = MODEL_VISIBLE | select(MODEL_BOUNDED_TILE,0u,index == 4u || index == 5u);
+    vertex.uv = vec2(array(-0.001,1.0,0.5,0.5,-0.001,1.0,0.03125,13.0/16.0)[index],
+        select(0.25,0.53125,index == 6u));
+    let gradient = array(0.0,0.0,8.0,exp2(2.5)/16.0,0.0,0.0,0.0,0.0)[index];
+    return sample_model_ref(vertex,0u,vec2(gradient,0.0),vec2(0.0,gradient));
 }
 "#;

@@ -101,17 +101,29 @@ pub fn crack_shape_from_template(
         let start = usize::try_from(part.quad_start).ok()?;
         let end = start.checked_add(usize::try_from(part.quad_count).ok()?)?;
         let transform = meshing::bamboo::transform_for_template(part.flags, variant, block);
+        let random_offset = assets
+            .model_random_offset(index as u32)
+            .map(|component| component.offset(block));
         for (quad_index, quad) in quads.get(start..end)?.iter().enumerate() {
             shape.push(CrackQuad {
                 two_sided: quad.flags & assets::MODEL_QUAD_FLAG_TWO_SIDED != 0,
                 corners: quad.positions.map(|corner| {
                     if part.flags & assets::MODEL_TEMPLATE_FLAG_BAMBOO != 0 {
-                        let offset = meshing::bamboo::quad_offset(transform, quad_index as u32);
+                        let mut offset = meshing::bamboo::quad_offset(transform, quad_index as u32);
+                        if let Some(custom) = random_offset {
+                            let default = world::bamboo::offset_from_transform(transform);
+                            offset = std::array::from_fn(|axis| {
+                                offset[axis] - default[axis] + custom[axis]
+                            });
+                        }
                         std::array::from_fn(|axis| {
                             f32::from(corner[axis]) / POSITION_UNITS + offset[axis]
                         })
                     } else {
-                        rotate_corner(corner, transform)
+                        let corner = rotate_corner(corner, transform);
+                        std::array::from_fn(|axis| {
+                            corner[axis] + random_offset.unwrap_or([0.0; 3])[axis]
+                        })
                     }
                 }),
                 uvs: quad.uvs.map(|uv| {

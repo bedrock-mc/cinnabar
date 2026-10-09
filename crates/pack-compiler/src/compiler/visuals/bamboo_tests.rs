@@ -124,6 +124,16 @@ fn bamboo_stem_uses_the_stem_selector_on_every_surface() {
                     .all(|quad| quad.material == quads[6].material)
             );
             let large = record.canonical_state.contains("large_leaves");
+            let material = compiled.materials[quads[6].material as usize];
+            assert_ne!(material.flags & assets::MATERIAL_FLAG_ALPHA_CUTOUT, 0);
+            let page = &compiled.texture_pages[material.texture.page() as usize];
+            let base = &page.texture.mips[0];
+            let offset = material.texture.layer() as usize * (base.size * base.size * 4) as usize;
+            assert_eq!(
+                base.rgba8[offset],
+                if large { 130 } else { 100 },
+                "leaf selector must follow the authored override"
+            );
             assert_eq!(
                 quads[6].positions[1][0],
                 128 + width + if large { 112 } else { 80 }

@@ -72,11 +72,23 @@ fn install_deadline(app: &mut bevy::prelude::App, budget: DiagnosticBudget) {
         .add_systems(bevy::prelude::Update, expire);
 }
 
-/// Requests orderly exit when the launch budget expires, including in the menu.
+/// Bounds resized surfaces and requests orderly exit when the launch budget expires.
 fn expire(
     budget: bevy::prelude::Res<DiagnosticBudget>,
     mut exit: bevy::prelude::MessageWriter<bevy::app::AppExit>,
+    mut windows: bevy::prelude::Query<&mut bevy::window::Window>,
 ) {
+    for mut window in &mut windows {
+        let size = window.resolution.physical_size().to_array();
+        let bounded: [u32; 2] = std::array::from_fn(|axis| {
+            size[axis].clamp(1, render_model::ENHANCED_DIAGNOSTIC_MAX_VIEWPORT[axis])
+        });
+        if size != bounded {
+            window
+                .resolution
+                .set_physical_resolution(bounded[0], bounded[1]);
+        }
+    }
     if std::time::Instant::now() >= budget.deadline {
         exit.write(bevy::app::AppExit::Success);
     }
@@ -105,6 +117,37 @@ mod tests {
         assert_eq!(
             app.world().resource::<Messages<bevy::app::AppExit>>().len(),
             1
+        );
+    }
+
+    #[test]
+    fn diagnostic_limits_bound_later_viewport_resizes() {
+        use bevy::prelude::*;
+        let mut app = App::new();
+        app.add_message::<bevy::app::AppExit>();
+        let entity = app
+            .world_mut()
+            .spawn(bevy::window::Window {
+                resolution: (1920, 1080).into(),
+                ..default()
+            })
+            .id();
+        install_deadline(
+            &mut app,
+            DiagnosticBudget {
+                deadline: std::time::Instant::now() + std::time::Duration::from_secs(MAX_LIFETIME),
+                frame_rate: render_model::FrameRate::from_hz(MAX_FRAME_CAP).unwrap(),
+            },
+        );
+        app.update();
+        assert_eq!(
+            app.world()
+                .get::<bevy::window::Window>(entity)
+                .unwrap()
+                .resolution
+                .physical_size()
+                .to_array(),
+            render_model::ENHANCED_DIAGNOSTIC_MAX_VIEWPORT
         );
     }
 

@@ -25,7 +25,17 @@ impl MeshOutputBounds {
             .map(|t| u64::from(t.quad_count))
             .max()
             .unwrap_or(0);
+        let offset_prefix = assets
+            .model_templates()
+            .iter()
+            .enumerate()
+            .any(|(id, _)| assets.model_random_offset(id as u32).is_some());
         let part = bytes::<PackedModelRef>(1)
+            + if offset_prefix {
+                bytes::<PackedQuadLighting>(2)
+            } else {
+                0
+            }
             + quads * (bytes::<PackedQuadLighting>(1) + bytes::<PackedModelDrawRef>(1));
         let mut chain = 0_u64;
         let mut max_parts = 1_u64;

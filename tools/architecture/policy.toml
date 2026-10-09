@@ -43,7 +43,7 @@ forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 [[crates]]
 name = "protocol"
 path = "crates/protocol"
-allowed_dependencies = ["bridge", "render-api"]
+allowed_dependencies = ["bridge", "render-api", "world"]
 forbidden_dependencies = ["asset-compiler", "assets", "bevy", "wgpu"]
 
 [[crates]]
@@ -61,7 +61,7 @@ forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 [[crates]]
 name = "assets"
 path = "crates/assets"
-allowed_dependencies = []
+allowed_dependencies = ["world"]
 forbidden_dependencies = ["asset-compiler", "bevy", "clap", "image", "wgpu"]
 
 [[crates]]

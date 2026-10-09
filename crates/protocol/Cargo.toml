@@ -10,6 +10,7 @@ publish = false
 wire-test-support = []
 
 [dependencies]
+world = { path = "../world" }
 render-api = { path = "../render-api" }
 anyhow.workspace = true
 bridge = { path = "../bridge" }

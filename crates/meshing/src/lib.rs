@@ -48,5 +48,5 @@ pub use types::{
     ChunkMesh, ChunkMeshStreamError, ChunkMeshStreams, DiagnosticGeometryCount,
     DiagnosticGeometrySummary, Face, FaceConnectivity, MAX_DIAGNOSTIC_IDENTITIES_PER_MESH,
     Neighbourhood, PackedLiquidQuad, PackedModelDrawRef, PackedModelRef, PackedQuad,
-    PackedQuadLighting,
+    PackedQuadLighting, MODEL_REF_FLAG_RANDOM_OFFSET,
 };
