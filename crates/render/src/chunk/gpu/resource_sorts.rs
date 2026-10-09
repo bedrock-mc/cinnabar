@@ -25,10 +25,8 @@ pub(super) fn prepare(
         .collect();
     let translation = view.transform.translation();
     let selection = select_sorted_residents(
-        world
-            .resource::<ChunkGpuArena>()
-            .transparent_liquids
-            .sortable(false),
+        &world.resource::<ChunkGpuArena>().transparent_liquids,
+        false,
         world.resource::<ChunkBiomeTints>().table_identity(),
         TransparentFaceMetric::new(translation).camera_chunk(),
         MAX_TRANSPARENT_DRAW_REFS,
@@ -39,6 +37,11 @@ pub(super) fn prepare(
         .iter()
         .map(|resident| resident.refs)
         .sum::<usize>();
+    let sorted_allocations = selection
+        .residents
+        .iter()
+        .map(|resident| resident.identity.clone())
+        .collect::<Vec<_>>();
     let (device, queue) = (
         world.resource::<RenderDevice>().clone(),
         world.resource::<RenderQueue>().clone(),
@@ -97,11 +100,7 @@ pub(super) fn prepare(
     validate_transparent_sort_ref_count(model_candidates.len()).ok()?;
     let key = ViewSortKey::try_new(
         translation.to_array(),
-        selection
-            .residents
-            .into_iter()
-            .map(|resident| resident.identity)
-            .collect(),
+        sorted_allocations,
         assets.identity(),
         tints.table_identity(),
     )

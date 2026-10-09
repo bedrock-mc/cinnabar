@@ -110,3 +110,50 @@ fn the_ref_ceiling_keeps_the_nearest_residents() {
     assert_eq!(keys(&moved), [3, 4, 5]);
     assert_eq!(built, 3);
 }
+
+/// The binary-searched near check agrees with testing every allocation.
+#[test]
+fn the_near_check_matches_a_full_scan() {
+    let mut arena = arena();
+    let mut entity = 1;
+    for dimension in [0, 2] {
+        for x in [-3, -1, 0, 2, 5] {
+            for y in [-4, 3, 4] {
+                for z in [-2, 0, 1, 7] {
+                    let key = SubChunkKey::new(dimension, x, y, z);
+                    let identity = TransparentAllocationIdentity::new(
+                        key,
+                        1,
+                        entity * 8..entity * 8 + 8,
+                        100_000 + entity * 4..100_004 + entity * 4,
+                        entity,
+                    );
+                    arena.transparent_liquids.record(
+                        Entity::from_bits(u64::from(entity)),
+                        &resident_transparent_allocation(&identity, TINT),
+                    );
+                    entity += 1;
+                }
+            }
+        }
+    }
+    let mut runtime = TransparentSortRuntime::default();
+    let metrics = TransparentSortMetrics::default();
+    let (allocations, _) = manifest(&mut runtime, &arena, [0; 3], &metrics);
+    let mut seed = 0x2545_f491_u32;
+    let mut next = move || {
+        seed ^= seed << 13;
+        seed ^= seed >> 17;
+        seed ^= seed << 5;
+        (seed % 20_000) as f32 / 100.0 - 100.0
+    };
+    for _ in 0..2_000 {
+        let metric = TransparentFaceMetric::new(Vec3::new(next(), next(), next()));
+        assert_eq!(
+            runtime.manifest_has_near(metric),
+            allocations
+                .iter()
+                .any(|identity| metric.is_near(identity.key))
+        );
+    }
+}

@@ -108,9 +108,8 @@ impl TransparentSortRuntime {
             return Arc::clone(&manifest.allocations);
         }
         let selection = select_sorted_residents(
-            arena
-                .transparent_liquids
-                .sortable(include_order_independent),
+            &arena.transparent_liquids,
+            include_order_independent,
             tint_identity,
             camera_chunk,
             self.ref_ceiling,
@@ -124,7 +123,7 @@ impl TransparentSortRuntime {
         let mut cursor = 0;
         let mut allocations = Vec::with_capacity(selection.residents.len());
         let mut groups = Vec::with_capacity(selection.residents.len());
-        for resident in &selection.residents {
+        for &resident in &selection.residents {
             let key = resident.identity.key;
             while cursor < previous_allocations.len() && previous_allocations[cursor].key < key {
                 cursor += 1;
@@ -178,7 +177,7 @@ impl TransparentSortRuntime {
             .map_or_else(|| Arc::from([]), |manifest| Arc::clone(&manifest.groups))
     }
 
-    /// Whether any manifest allocation is near `metric`'s camera, rescanned only when the
+    /// Whether any manifest allocation is near `metric`'s camera, rechecked only when the
     /// near box or the manifest changes.
     pub(in crate::chunk) fn manifest_has_near(&mut self, metric: TransparentFaceMetric) -> bool {
         let Some(manifest) = self.manifest.as_mut() else {
@@ -190,11 +189,30 @@ impl TransparentSortRuntime {
         {
             return near;
         }
-        let near = manifest
-            .allocations
-            .iter()
-            .any(|identity| metric.is_near(identity.key));
+        let near = any_key_in_box(&manifest.allocations, bounds);
         manifest.near = Some((bounds, near));
         near
     }
+}
+
+/// Whether any of the key-sorted `allocations` lies in the inclusive sub-chunk box `bounds`,
+/// in any dimension, found by binary searches over the box's few x and y columns.
+fn any_key_in_box(
+    allocations: &[TransparentAllocationIdentity],
+    (min, max): ([i32; 3], [i32; 3]),
+) -> bool {
+    let (Some(first), Some(last)) = (allocations.first(), allocations.last()) else {
+        return false;
+    };
+    (first.key.dimension..=last.key.dimension).any(|dimension| {
+        (min[0]..=max[0]).any(|x| {
+            (min[1]..=max[1]).any(|y| {
+                let start = SubChunkKey::new(dimension, x, y, min[2]);
+                let index = allocations.partition_point(|identity| identity.key < start);
+                allocations.get(index).is_some_and(|identity| {
+                    identity.key <= SubChunkKey::new(dimension, x, y, max[2])
+                })
+            })
+        })
+    })
 }

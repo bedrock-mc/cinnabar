@@ -51,12 +51,21 @@ impl TransparentLiquidResident {
     }
 }
 
+/// Refs resident under one tint table: all of them, and those whose faces need sorting.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct ResidentRefs {
+    all: usize,
+    order_dependent: usize,
+}
+
 /// Resident transparent water by sub-chunk, in key order.
 #[derive(Debug, Default)]
 pub(in crate::chunk) struct TransparentLiquidResidents {
     entries: BTreeMap<SubChunkKey, TransparentLiquidResident>,
-    /// Keys whose faces must be sorted.
-    order_dependent: BTreeSet<SubChunkKey>,
+    /// The residents whose faces must be sorted, iterated without key lookups.
+    order_dependent: BTreeMap<SubChunkKey, TransparentLiquidResident>,
+    /// Running ref totals per tint table, so the ref ceiling is checked without a scan.
+    refs: HashMap<ChunkBiomeTintIdentity, ResidentRefs>,
     /// Bumped by every change.
     revision: u64,
     /// Bumped by changes that add, replace or remove order-dependent water.
@@ -75,7 +84,7 @@ impl TransparentLiquidResidents {
                 None => return,
             },
         };
-        self.changed(allocation.key, previous.as_ref(), next.as_ref());
+        self.changed(allocation.key, previous, next);
     }
 
     /// Forgets `key`'s water once `entity`, its resident, has been removed.
@@ -88,7 +97,7 @@ impl TransparentLiquidResidents {
             return;
         }
         let previous = self.entries.remove(&key);
-        self.changed(key, previous.as_ref(), None);
+        self.changed(key, previous, None);
     }
 
     /// Rebuilds every entry from a whole arena, as when resource geometry replaces it.
@@ -98,10 +107,13 @@ impl TransparentLiquidResidents {
     ) {
         self.entries.clear();
         self.order_dependent.clear();
+        self.refs.clear();
         for (entity, allocation) in allocations {
             if let Some(resident) = TransparentLiquidResident::from_allocation(entity, allocation) {
+                self.count(&resident, true);
                 if !resident.order_independent {
-                    self.order_dependent.insert(allocation.key);
+                    self.order_dependent
+                        .insert(allocation.key, resident.clone());
                 }
                 self.entries.insert(allocation.key, resident);
             }
@@ -110,24 +122,58 @@ impl TransparentLiquidResidents {
         self.order_dependent_revision = self.order_dependent_revision.wrapping_add(1);
     }
 
-    /// Keeps the order-dependent key set and both revisions in step with one entry change.
+    /// Adds `resident`'s refs to its tint table's totals, or removes them.
+    fn count(&mut self, resident: &TransparentLiquidResident, add: bool) {
+        let totals = self.refs.entry(resident.tint_identity).or_default();
+        let dependent = if resident.order_independent {
+            0
+        } else {
+            resident.refs
+        };
+        if add {
+            totals.all += resident.refs;
+            totals.order_dependent += dependent;
+        } else {
+            totals.all -= resident.refs;
+            totals.order_dependent -= dependent;
+            if totals.all == 0 {
+                self.refs.remove(&resident.tint_identity);
+            }
+        }
+    }
+
+    /// Keeps the order-dependent map, the ref totals and both revisions in step with one
+    /// entry change.
     fn changed(
         &mut self,
         key: SubChunkKey,
-        previous: Option<&TransparentLiquidResident>,
-        next: Option<&TransparentLiquidResident>,
+        previous: Option<TransparentLiquidResident>,
+        next: Option<TransparentLiquidResident>,
     ) {
-        let dependent = |resident: Option<&TransparentLiquidResident>| {
-            resident.is_some_and(|resident| !resident.order_independent)
+        let dependent = |resident: &Option<TransparentLiquidResident>| {
+            resident
+                .as_ref()
+                .is_some_and(|resident| !resident.order_independent)
         };
-        if dependent(next) {
-            self.order_dependent.insert(key);
-        } else {
-            self.order_dependent.remove(&key);
+        if dependent(&previous) || dependent(&next) {
+            self.order_dependent_revision = self.order_dependent_revision.wrapping_add(1);
         }
         self.revision = self.revision.wrapping_add(1);
-        if dependent(previous) || dependent(next) {
-            self.order_dependent_revision = self.order_dependent_revision.wrapping_add(1);
+        if let Some(previous) = &previous {
+            self.count(previous, false);
+        }
+        match next {
+            Some(next) => {
+                self.count(&next, true);
+                if next.order_independent {
+                    self.order_dependent.remove(&key);
+                } else {
+                    self.order_dependent.insert(key, next);
+                }
+            }
+            None => {
+                self.order_dependent.remove(&key);
+            }
         }
     }
 
@@ -146,28 +192,42 @@ impl TransparentLiquidResidents {
         }
     }
 
+    /// Refs [`Self::sortable`] yields under `tint_identity`, kept as a running total.
+    fn sortable_refs(
+        &self,
+        include_order_independent: bool,
+        tint_identity: ChunkBiomeTintIdentity,
+    ) -> usize {
+        self.refs.get(&tint_identity).map_or(0, |totals| {
+            if include_order_independent {
+                totals.all
+            } else {
+                totals.order_dependent
+            }
+        })
+    }
+
     /// Residents that need sorting in key order, or every resident when views displace water.
     pub(in crate::chunk) fn sortable(
         &self,
         include_order_independent: bool,
-    ) -> Box<dyn Iterator<Item = &TransparentLiquidResident> + '_> {
-        if include_order_independent {
-            Box::new(self.entries.values())
+    ) -> impl Iterator<Item = &TransparentLiquidResident> {
+        let (all, dependent) = if include_order_independent {
+            (Some(self.entries.values()), None)
         } else {
-            Box::new(
-                self.order_dependent
-                    .iter()
-                    .filter_map(|key| self.entries.get(key)),
-            )
-        }
+            (None, Some(self.order_dependent.values()))
+        };
+        all.into_iter()
+            .flatten()
+            .chain(dependent.into_iter().flatten())
     }
 }
 
 /// The residents one snapshot sorts.
 #[derive(Debug, Default, PartialEq, Eq)]
-pub(in crate::chunk) struct TransparentResidentSelection {
+pub(in crate::chunk) struct TransparentResidentSelection<'a> {
     /// In key order.
-    pub(in crate::chunk) residents: Vec<TransparentLiquidResident>,
+    pub(in crate::chunk) residents: Vec<&'a TransparentLiquidResident>,
     /// Residents the ref ceiling left out; they are drawn unsorted.
     pub(in crate::chunk) excluded: usize,
     /// Whether the selection depends on the camera's sub-chunk.
@@ -176,18 +236,20 @@ pub(in crate::chunk) struct TransparentResidentSelection {
 
 /// Selects the residents to sort: all of them under `ceiling` refs, otherwise the nearest
 /// to `camera_chunk` that fit, so distant water is the part left unsorted.
-pub(in crate::chunk) fn select_sorted_residents<'a>(
-    residents: impl IntoIterator<Item = &'a TransparentLiquidResident>,
+///
+/// Running totals decide which case applies, so only a selection past the ceiling sorts.
+pub(in crate::chunk) fn select_sorted_residents(
+    residents: &TransparentLiquidResidents,
+    include_order_independent: bool,
     tint_identity: ChunkBiomeTintIdentity,
     camera_chunk: [i32; 3],
     ceiling: usize,
-) -> TransparentResidentSelection {
+) -> TransparentResidentSelection<'_> {
     let mut selected = residents
-        .into_iter()
+        .sortable(include_order_independent)
         .filter(|resident| resident.tint_identity == tint_identity)
-        .cloned()
         .collect::<Vec<_>>();
-    if selected.iter().map(|resident| resident.refs).sum::<usize>() <= ceiling {
+    if residents.sortable_refs(include_order_independent, tint_identity) <= ceiling {
         return TransparentResidentSelection {
             residents: selected,
             excluded: 0,
@@ -306,12 +368,12 @@ mod tests {
             );
         }
         let tint = ChunkBiomeTintIdentity::new(1, 1);
-        let all = select_sorted_residents(residents.sortable(false), tint, [0, 0, 0], 28);
+        let all = select_sorted_residents(&residents, false, tint, [0, 0, 0], 28);
         assert_eq!((all.residents.len(), all.excluded), (7, 0));
         assert!(!all.camera_dependent);
 
         // Each resident has four faces, so a twelve-ref ceiling admits three sub-chunks.
-        let near = select_sorted_residents(residents.sortable(false), tint, [2, 0, 0], 12);
+        let near = select_sorted_residents(&residents, false, tint, [2, 0, 0], 12);
         assert_eq!(
             near.residents
                 .iter()
@@ -324,9 +386,70 @@ mod tests {
 
         let other_tint = ChunkBiomeTintIdentity::new(9, 9);
         assert!(
-            select_sorted_residents(residents.sortable(false), other_tint, [0; 3], 12)
+            select_sorted_residents(&residents, false, other_tint, [0; 3], 12)
                 .residents
                 .is_empty()
         );
+    }
+
+    /// The running totals always equal a recount of the residents they describe.
+    #[test]
+    fn ref_totals_follow_every_upload_removal_and_rebuild() {
+        let recount = |residents: &TransparentLiquidResidents, all: bool, tint| {
+            residents
+                .sortable(all)
+                .filter(|resident| resident.tint_identity == tint)
+                .map(|resident| resident.refs)
+                .sum::<usize>()
+        };
+        let tints = [
+            ChunkBiomeTintIdentity::new(1, 1),
+            ChunkBiomeTintIdentity::new(5, 5),
+        ];
+        let mut residents = TransparentLiquidResidents::default();
+        let mut seed = 0x9e37_79b9_u32;
+        let mut next = move |bound: u32| {
+            seed ^= seed << 13;
+            seed ^= seed >> 17;
+            seed ^= seed << 5;
+            seed % bound
+        };
+        for step in 0..400_u64 {
+            let key = SubChunkKey::new(0, next(12) as i32, 0, next(3) as i32);
+            let entity = Entity::from_bits(u64::from(next(2)) + 1);
+            match next(4) {
+                0 => residents.forget(entity, key),
+                _ => {
+                    let mut upload = allocation(key, step, next(2) == 0);
+                    upload.tint_identity = tints[next(2) as usize];
+                    upload.has_transparent_liquid = next(5) != 0;
+                    residents.record(entity, &upload);
+                }
+            }
+            if step % 97 == 0 {
+                let snapshot = residents.entries.values().cloned().collect::<Vec<_>>();
+                let allocations = snapshot
+                    .iter()
+                    .map(|resident| {
+                        let mut upload = allocation(
+                            resident.identity.key,
+                            resident.identity.mesh_generation,
+                            resident.order_independent,
+                        );
+                        upload.tint_identity = resident.tint_identity;
+                        (resident.entity, upload)
+                    })
+                    .collect::<Vec<_>>();
+                residents.rebuild(allocations.iter().map(|(entity, upload)| (*entity, upload)));
+            }
+            for tint in tints {
+                for all in [false, true] {
+                    assert_eq!(
+                        residents.sortable_refs(all, tint),
+                        recount(&residents, all, tint)
+                    );
+                }
+            }
+        }
     }
 }
