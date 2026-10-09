@@ -5710,6 +5710,8 @@ implemented. Ordinary cubes and dirt-path models consume authored per-face rotat
 masks with position-hashed quarter turns. Compiler and GPU regressions cover path
 top/bottom variation, upright side controls and unchanged carried icons; this does
 not close the full geometry parity gate.
+Static face-to-UV orientation for named cuboids remains incomplete, including the
+dirt-path underside. Existing template axes are retained by the rotation fix.
 RM-07, RM-09 and RM-10 retain their older-reference-only status. Offline tests and GPU
 captures are local evidence; they do not close native visual or shader-performance gates.
 
