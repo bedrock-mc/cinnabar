@@ -75,3 +75,128 @@ fn a_low_ceiling_keeps_the_eye_crouched_without_a_held_sneak_button() {
     assert!(!frame.samples[0].input.sneak.held);
     assert!((physics.render_eye_position().unwrap()[1] - (standing - 0.0875)).abs() < 1.0e-6);
 }
+
+#[test]
+fn unavailable_collision_does_not_repeat_an_airborne_crouch_eye_transition() {
+    struct MissingTerrain;
+    impl CollisionWorld for MissingTerrain {
+        fn collision_boxes(
+            &self,
+            _query: Aabb,
+        ) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
+            Err(WorldQueryError::UnloadedChunk(world::ChunkKey::new(
+                0, 0, 0,
+            )))
+        }
+    }
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position([0.0, 1.0 + protocol::PLAYER_NETWORK_OFFSET, 0.0], 0, true);
+    let jump = MovementInput {
+        jumping: true,
+        ..Default::default()
+    };
+    assert_eq!(
+        physics
+            .advance(Duration::from_millis(50), jump, &Floor)
+            .completed_ticks,
+        1
+    );
+    let crouch = MovementInput {
+        sneaking: true,
+        ..Default::default()
+    };
+    let frame = physics.advance(Duration::from_millis(50), crouch, &Floor);
+    assert_eq!(frame.completed_ticks, 1);
+    assert!(!physics.state().unwrap().on_ground);
+    let before = physics.state().unwrap().clone();
+    assert_eq!(
+        physics
+            .advance(Duration::from_millis(50), crouch, &MissingTerrain)
+            .completed_ticks,
+        0
+    );
+    let held_eye = physics.render_eye_position().unwrap();
+    let held_feet = physics.render_feet_position().unwrap();
+    for _ in 0..12 {
+        for _ in 0..5 {
+            let frame = physics.advance(Duration::from_millis(10), crouch, &MissingTerrain);
+            assert_eq!(frame.completed_ticks, 0);
+            assert_eq!(physics.state(), Some(&before));
+            assert_eq!(physics.render_feet_position(), Some(held_feet));
+            assert_eq!(physics.render_eye_position(), Some(held_eye));
+        }
+    }
+    let resumed = physics.advance(Duration::from_millis(50), crouch, &Floor);
+    assert_eq!(resumed.completed_ticks, 1);
+    assert_eq!(physics.state().unwrap().tick, before.tick + 1);
+    assert_eq!(physics.render_eye_position(), Some(held_eye));
+}
+
+#[test]
+fn unavailable_collision_holds_replayed_correction_and_crouch_release_until_resumed() {
+    struct UnknownTerrain;
+    impl CollisionWorld for UnknownTerrain {
+        fn collision_boxes(
+            &self,
+            _query: Aabb,
+        ) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
+            Err(WorldQueryError::UnknownRuntimeId {
+                runtime_id: 99,
+                block: [0, 1, 0],
+            })
+        }
+    }
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position([0.0, 1.0 + protocol::PLAYER_NETWORK_OFFSET, 0.0], 0, true);
+    let crouch = MovementInput {
+        sneaking: true,
+        ..Default::default()
+    };
+    physics.advance(Duration::from_millis(200), crouch, &Floor);
+    let jumping = MovementInput {
+        jumping: true,
+        ..crouch
+    };
+    physics.advance(Duration::from_millis(50), jumping, &Floor);
+    let latest = physics.sample_at(physics.state().unwrap().tick).unwrap();
+    let mut corrected = latest.position;
+    corrected[0] += 2.0;
+    physics
+        .apply_correction(
+            crate::movement::PhysicsAnchor {
+                network_position: corrected,
+                tick: latest.tick,
+                on_ground: latest.grounded_after_tick,
+                velocity: Some(latest.velocity),
+            },
+            PhysicsCorrectionMode::ReplayIfRetained,
+            None,
+            &Floor,
+        )
+        .unwrap();
+    let released = MovementInput::default();
+    assert_eq!(
+        physics
+            .advance(Duration::from_millis(50), released, &Floor)
+            .completed_ticks,
+        1
+    );
+    let before = physics.state().unwrap().clone();
+    physics.advance(Duration::from_millis(50), released, &UnknownTerrain);
+    let feet = physics.render_feet_position();
+    let eye = physics.render_eye_position();
+    for _ in 0..20 {
+        let frame = physics.advance(Duration::from_millis(10), released, &UnknownTerrain);
+        assert_eq!(frame.completed_ticks, 0);
+        assert_eq!(physics.state(), Some(&before));
+        assert_eq!(physics.render_feet_position(), feet);
+        assert_eq!(physics.render_eye_position(), eye);
+    }
+    let resumed = physics.advance(Duration::from_millis(50), released, &Floor);
+    assert_eq!(resumed.completed_ticks, 1);
+    assert_eq!(physics.render_feet_position(), feet);
+    assert_eq!(physics.render_eye_position(), eye);
+    physics.advance(Duration::from_millis(25), released, &Floor);
+    assert_ne!(physics.render_feet_position(), feet);
+    assert_ne!(physics.render_eye_position(), eye);
+}

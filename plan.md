@@ -91,6 +91,10 @@
 - Physics uses the selected collision support for landing responses and the
   near-feet material for travel friction. Auto-climb, levitation, restitution
   thresholds and per-axis horizontal epsilon handling follow vanilla tick order.
+- When collision data pauses local ticks, the camera holds the completed crouch
+  and correction offsets alongside the feet position. Subtick rendering no longer
+  repeats an unfinished stance or correction transition. Missing-terrain recovery
+  and matched loading/stall behavior remain incomplete.
 - Prediction corrections replay regardless of distance. Nonzero future ticks
   attach to the current captured frame for a later rewind; zero ticks and ticks
   older than retained history are discarded. MovePlayer teleports keep their

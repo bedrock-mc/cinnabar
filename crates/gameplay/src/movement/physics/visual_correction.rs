@@ -16,6 +16,11 @@ pub(super) struct VisualCorrection {
 }
 
 impl VisualCorrection {
+    /// Holds the completed correction offset while movement cannot advance.
+    pub(super) fn finish_interpolation(&mut self) {
+        self.previous = self.current;
+    }
+
     /// Accumulates a bounded render offset without changing movement authority.
     pub(super) fn correct(&mut self, current: Vec3, previous: Vec3, motion: Vec3) {
         self.current = bounded(self.current + current);

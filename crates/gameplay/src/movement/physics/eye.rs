@@ -18,6 +18,11 @@ pub(super) struct LocalEyeOffset {
 }
 
 impl LocalEyeOffset {
+    /// Holds the completed eye offset when collision data pauses movement ticks.
+    pub(super) fn finish_interpolation(&mut self) {
+        self.previous = self.current;
+    }
+
     pub(super) fn tick(&mut self, mode: MovementMode, sneaking: bool) {
         let target = match mode {
             MovementMode::Swimming | MovementMode::Crawling | MovementMode::Gliding => {

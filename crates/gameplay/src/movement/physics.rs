@@ -753,6 +753,8 @@ impl LocalPhysicsController {
                         // or a large catch-up burst when collision data
                         // returns. New elapsed time starts a fresh tick.
                         self.previous_position = state.position;
+                        self.eye_offset.finish_interpolation();
+                        self.visual_correction.finish_interpolation();
                         self.accumulated_seconds = 0.0;
                         frame.dropped_ticks = 0;
                     } else {
