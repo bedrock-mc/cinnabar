@@ -5328,6 +5328,14 @@ unmeasured; a re-bind costs about 1.6 ms in the dev profile (steady frames about
   placement/use, selected slot, item stack/network-ID reconciliation, creative/survival
   inventory, and chest/furnace/crafting containers with rollback on rejected stack requests.
 
+**Throwable timing (2026-10-09):** the native 200 ms action delay remains
+separate from item-category cooldowns. The opt-in Item Use Delay Fix permits
+one use after a slot change even between frames sharing an upcoming tick.
+Pearl, wind-charge and chorus-fruit cooldowns stay in their own categories;
+chorus fruit starts its 20-tick cooldown when use begins. Deterministic tests
+cover rapid slot changes, delay boundaries and rejected sends. Live gameplay
+acceptance remains incomplete; this does not close the interaction gate.
+
 Owner-designated inventory reference (2026-09-06): use Lunar's inventory-management
 implementation when establishing these contracts. Pin the inspected source revision
 and verify Cinnabar's end-to-end request/response behavior; the reference designation

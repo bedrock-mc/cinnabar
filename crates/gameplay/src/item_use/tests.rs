@@ -168,6 +168,7 @@ fn crossbow_charge_follows_quick_charge_and_a_loaded_one_fires() {
         max_ticks: ticks,
         needs: Needs::ArrowOrOffhandRocket,
         slowdown: 0.35,
+        cooldown: None,
     };
     assert_eq!(
         classify("minecraft:crossbow", false, 0, None),
@@ -197,6 +198,7 @@ fn held_uses_follow_the_vanilla_item_rules() {
             max_ticks,
             needs,
             slowdown,
+            cooldown: None,
         })
     };
     assert_eq!(

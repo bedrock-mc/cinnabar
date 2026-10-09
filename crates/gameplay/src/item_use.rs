@@ -295,7 +295,7 @@ impl ItemUseRuntime {
         }
         if frame.press_consumed {
             Some("consumed_by_block_or_attack")
-        } else if self.delay_fix && self.last_air_use_tick == Some(frame.tick) {
+        } else if self.use_tick_already_admitted(frame) {
             Some("use_tick_already_admitted")
         } else if self.rearm_pending(frame) {
             Some("rearm_pending")
@@ -315,7 +315,7 @@ impl ItemUseRuntime {
     fn try_use(&mut self, frame: &UseFrame, pressed: bool, outcome: &mut UseOutcome) {
         let air_use = self.crossbows.air_use(frame);
         if frame.press_consumed
-            || (self.delay_fix && self.last_air_use_tick == Some(frame.tick))
+            || self.use_tick_already_admitted(frame)
             || self.rearm_pending(frame)
             || (!pressed
                 && (!self.repeat_armed
@@ -331,21 +331,19 @@ impl ItemUseRuntime {
         self.rearm_millis = Some(frame.now_millis.saturating_add(USE_REARM_MILLIS));
         // Vanilla opens a legacy request scope on every air use.
         let legacy_request_id = self.next_legacy_request_id();
-        let on_cooldown = air_use
-            .and_then(AirUse::cooldown)
-            .is_some_and(|cooldown| self.on_cooldown(cooldown.category));
+        let cooldown = air_use.and_then(AirUse::cooldown);
+        let on_cooldown = cooldown.is_some_and(|cooldown| self.on_cooldown(cooldown.category));
         let mut change = None;
         let mut active_use = None;
         let mut predicted_stack = None;
         let mut emptied_slot = None;
-        let mut throw_cooldown = None;
         let mut swung = false;
         match air_use {
             Some(AirUse::Hold {
                 max_ticks,
                 slowdown,
                 ..
-            }) if frame.ready => {
+            }) if frame.ready && !on_cooldown => {
                 active_use = Some(ActiveUse {
                     selection: selection.clone(),
                     started_tick: frame.tick,
@@ -354,11 +352,8 @@ impl ItemUseRuntime {
                     crossbow: crossbow::is_crossbow(air_use),
                 });
             }
-            Some(AirUse::Throw { cooldown }) if !on_cooldown => {
+            Some(AirUse::Throw { .. }) if !on_cooldown => {
                 swung = true;
-                if let Some(Cooldown { category, ticks }) = cooldown {
-                    throw_cooldown = Some((category, frame.tick.saturating_add(u64::from(ticks))));
-                }
                 if !frame.creative {
                     let to = selection.item.less_one(legacy_request_id);
                     if to.is_empty() {
@@ -386,8 +381,11 @@ impl ItemUseRuntime {
             outcome.started = active_use.is_some();
             self.active = active_use;
             outcome.swung = swung;
-            if let Some(cooldown) = throw_cooldown {
-                self.cooldowns.push(cooldown);
+            if (outcome.started || swung)
+                && let Some(Cooldown { category, ticks }) = cooldown
+            {
+                self.cooldowns
+                    .push((category, frame.tick.saturating_add(u64::from(ticks))));
             }
             if predicted_stack.is_some() {
                 self.predicted = predicted_stack;
@@ -400,6 +398,11 @@ impl ItemUseRuntime {
                     .predict(&selection, frame.inventory_revision, None);
             }
         }
+    }
+
+    /// Blocks repeated admissions in the same slot without swallowing a slot-change use.
+    fn use_tick_already_admitted(&self, frame: &UseFrame) -> bool {
+        self.delay_fix && self.last_air_use_tick == Some(frame.tick) && !self.slot_change_pending
     }
 
     /// Retains the normal repeat gate after the slot change's first admitted air use.
