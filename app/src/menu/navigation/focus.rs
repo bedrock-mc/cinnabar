@@ -7,6 +7,7 @@ use client_ui::ui_runtime::presentation::UiPresentationRuntime;
 pub(in crate::menu) struct NavigationFocus {
     retained: Vec<(MenuScreen, MenuAction)>,
     pending: bool,
+    requested_action: Option<MenuAction>,
     home_actions: Option<Vec<MenuAction>>,
 }
 
@@ -16,17 +17,50 @@ impl NavigationFocus {
         self.home_actions.as_deref()
     }
 
+    /// Newer explicit input updates the outstanding request before its validation.
+    pub(in crate::menu) fn record_input(&mut self, action: Option<MenuAction>) {
+        if self.pending {
+            self.requested_action = action;
+        }
+    }
+
     /// A fresh screen keeps its normal entry policy until explicitly returned to.
     pub(super) fn enter(&mut self) {
         self.pending = false;
+        self.requested_action = None;
         self.home_actions = None;
     }
 }
 
 impl MenuRuntime {
+    /// Reads popup ownership from borrowed runtime state without copying catalogs or feeds.
+    pub(in crate::menu) fn navigation_popup_open(&self) -> bool {
+        #[cfg(feature = "developer-control")]
+        if self.sign_in_fixture.is_some() {
+            return self.dialog.is_some();
+        }
+        if self.dialog.is_some()
+            || self.dressing_room.editor.is_some()
+            || (self.is_connecting() && self.feeds.server_trust.is_some())
+            || self.join_request_pending()
+        {
+            return true;
+        }
+        if self.presentation_accounts || !self.sign_in_prompt_layer_available() {
+            return false;
+        }
+        let auth = self.current_auth();
+        matches!(auth.as_ref(), super::super::AuthState::AwaitingCode { .. })
+            || (self.sign_in_requested
+                && matches!(
+                    auth.as_ref(),
+                    super::super::AuthState::Checking | super::super::AuthState::Failed(_)
+                ))
+    }
+
     /// Retains base-screen focus without treating modal controls as screen controls.
     pub(super) fn remember_navigation_focus(&mut self) {
-        if self.view().popup_open() {
+        if self.navigation_popup_open() {
             return;
         }
         if let Some(action) = self.focus_actions().get(self.focused).copied() {
@@ -43,6 +77,7 @@ impl MenuRuntime {
             .retained
             .retain(|(screen, _)| self.history.screens().contains(screen));
         self.navigation_focus.pending = true;
+        self.navigation_focus.requested_action = self.retained_navigation_action();
         if let Some(action) = self.retained_navigation_action() {
             self.focus_pointer(action);
         }
@@ -67,7 +102,7 @@ impl MenuRuntime {
         if screen != self.screen {
             return;
         }
-        let popup = self.view().popup_open();
+        let popup = self.navigation_popup_open();
         if popup {
             self.navigation_focus.pending = false;
         }
@@ -103,7 +138,9 @@ impl MenuRuntime {
                 .any(|candidate| same_control(*candidate, action))
         };
         let restored = self
-            .retained_navigation_action()
+            .navigation_focus
+            .requested_action
+            .take()
             .filter(|action| available(*action));
         let fallback = actions.iter().copied().find(|action| available(*action));
         if let Some(action) = restored.or(fallback) {

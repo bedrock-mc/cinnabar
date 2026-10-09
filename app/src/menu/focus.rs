@@ -21,6 +21,7 @@ impl MenuRuntime {
             }
         }) {
             self.focused = index;
+            self.navigation_focus.record_input(Some(action));
             self.settings_focus_geometry.reset_anchor();
             self.settings_focus_geometry.remember(action);
             self.retain_settings_slider_selection();
@@ -39,6 +40,8 @@ impl MenuRuntime {
             Some(field) => self.focus_field(field),
             None => self.field = None,
         }
+        self.navigation_focus
+            .record_input(Some(actions[self.focused]));
         self.settings_focus_geometry.remember(actions[self.focused]);
         self.retain_settings_slider_selection();
     }
@@ -216,6 +219,7 @@ impl MenuRuntime {
                 Some(field) => self.focus_field(field),
                 None => self.field = None,
             }
+            self.navigation_focus.record_input(Some(next));
             self.settings_focus_geometry.remember(next);
             self.retain_settings_slider_selection();
         }

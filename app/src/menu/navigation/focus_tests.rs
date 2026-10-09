@@ -282,3 +282,78 @@ fn home_entry_and_navigation_select_only_painted_enabled_controls() {
         assert!(actions.contains(&menu.view().focused_action.unwrap()));
     }
 }
+
+#[test]
+fn newer_keyboard_navigation_survives_the_deferred_return_validation() {
+    let Some((mut app, window)) =
+        fixture("newer_keyboard_navigation_survives_the_deferred_return_validation")
+    else {
+        return;
+    };
+    app.world_mut()
+        .resource_mut::<MenuRuntime>()
+        .activate(MenuAction::Navigate(MenuScreen::Settings));
+    draw(&mut app);
+    for key_code in [KeyCode::Escape, KeyCode::Tab] {
+        app.world_mut()
+            .write_message(bevy::input::keyboard::KeyboardInput {
+                key_code,
+                logical_key: Key::Unidentified(bevy::input::keyboard::NativeKey::Unidentified),
+                state: bevy::input::ButtonState::Pressed,
+                text: None,
+                repeat: false,
+                window,
+            });
+    }
+    app.update();
+    let selected = app.world().resource::<MenuRuntime>().view().focused_action;
+    assert_ne!(selected, Some(MenuAction::Navigate(MenuScreen::Settings)));
+    draw(&mut app);
+    assert_eq!(
+        app.world().resource::<MenuRuntime>().view().focused_action,
+        selected
+    );
+    assert!(
+        app.world()
+            .resource::<UiPresentationRuntime>()
+            .visible_menu_actions()
+            .any(|action| Some(action) == selected)
+    );
+}
+
+#[test]
+fn borrowed_popup_ownership_matches_the_presented_prompt() {
+    use crate::menu::{AuthState, MenuDialog};
+    for auth in [
+        AuthState::SignedOut,
+        AuthState::Checking,
+        AuthState::AwaitingCode {
+            uri: "https://example.invalid".into(),
+            code: "TEST-CODE".into(),
+        },
+        AuthState::Failed("Try again".into()),
+        AuthState::Authenticated,
+    ] {
+        for requested in [false, true] {
+            for context in 0..7 {
+                let mut menu = MenuRuntime::new(true, 2, "BugTest".into());
+                menu.control_auth = Some(auth.clone());
+                menu.sign_in_requested = requested;
+                match context {
+                    1 => menu.dialog = Some(MenuDialog::Exit),
+                    2 => menu.dialog = Some(MenuDialog::Accounts),
+                    3 => menu.session.connecting = true,
+                    4 => menu.disconnect_message = Some("Disconnected".into()),
+                    5 => menu.push_join_request(1, "Placeholder".into(), std::time::Duration::ZERO),
+                    6 => menu.presentation_accounts = true,
+                    _ => {}
+                }
+                assert_eq!(
+                    menu.navigation_popup_open(),
+                    menu.view().popup_open(),
+                    "auth={auth:?}, requested={requested}, context={context}"
+                );
+            }
+        }
+    }
+}

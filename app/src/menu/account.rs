@@ -289,7 +289,7 @@ impl MenuRuntime {
     }
 
     /// Progress and existing dialogs keep their input until the sign-in prompt is visible.
-    fn sign_in_prompt_layer_available(&self) -> bool {
+    pub(super) fn sign_in_prompt_layer_available(&self) -> bool {
         !self.is_connecting()
             && matches!(self.dialog, None | Some(MenuDialog::Accounts))
             && (self.dialog.is_some()

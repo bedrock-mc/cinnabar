@@ -94,6 +94,11 @@ impl MenuRuntime {
         });
     }
 
+    /// Whether a queued request contributes a popup to the menu presentation.
+    pub(super) fn join_request_pending(&self) -> bool {
+        self.join_requests.requests.current().is_some()
+    }
+
     /// Who sent the oldest open request, for the view.
     pub(super) fn join_request_view(&self) -> Option<String> {
         self.join_requests
