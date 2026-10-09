@@ -117,3 +117,66 @@ fn realm_membership_signed_out_open_and_late_acceptance_are_rejected() {
     menu.receive_realm_membership(ticket, true, Ok(("fixture-code".into(), realm())));
     assert!(menu.realms.is_empty());
 }
+
+/// An account whose identity may refresh while its authentication remains signed in.
+struct ChangingAccount {
+    generation: u64,
+    cancelled: bool,
+}
+impl AccountControl for ChangingAccount {
+    fn account_status(&mut self) -> Option<AuthState> {
+        Some(AuthState::Authenticated)
+    }
+    fn account_generation(&mut self) -> Option<u64> {
+        Some(self.generation)
+    }
+    fn realms(&mut self) -> Option<Vec<MenuRealmCard>> {
+        None
+    }
+    fn friends(&mut self) -> Option<Vec<super::super::MenuFriendCard>> {
+        None
+    }
+    fn sign_out(&mut self) -> bool {
+        false
+    }
+    fn poll_event(&mut self) -> Option<super::super::account_control::AccountEvent> {
+        None
+    }
+    fn request_realm_membership(&mut self, _: u64, _: String, _: bool) -> bool {
+        true
+    }
+    fn cancel_realm_membership(&mut self) {
+        self.cancelled = true;
+    }
+}
+
+#[test]
+fn realm_membership_identity_refresh_retires_both_busy_states() {
+    for accept in [false, true] {
+        let mut menu = menu();
+        let mut account = ChangingAccount {
+            generation: 1,
+            cancelled: false,
+        };
+        menu.activate_realm_membership(Action::Open);
+        menu.edit_text("invitation");
+        menu.activate_realm_membership(Action::Verify);
+        menu.sync_realm_membership(&mut account);
+        if accept {
+            let ticket = menu.realm_membership.ticket;
+            menu.receive_realm_membership(ticket, false, Ok(("invitation".into(), realm())));
+            menu.activate_realm_membership(Action::Accept);
+            menu.sync_realm_membership(&mut account);
+        }
+        let ticket = menu.realm_membership.ticket;
+        account.generation += 1;
+        menu.sync_realm_membership(&mut account);
+        assert!(
+            menu.realm_membership.state.is_none(),
+            "identity retirement must leave no busy dialog"
+        );
+        assert!(account.cancelled);
+        menu.receive_realm_membership(ticket, accept, Ok(("invitation".into(), realm())));
+        assert!(menu.realms.is_empty());
+    }
+}

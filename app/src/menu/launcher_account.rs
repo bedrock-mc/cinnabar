@@ -65,6 +65,8 @@ struct Snapshot {
     profile_wake: Option<Sender<()>>,
     account: Option<Account>,
     realms: Option<Vec<Realm>>,
+    /// Prevents a catalog request started before acceptance from removing the new membership.
+    realm_catalog_revision: u64,
     friends: Option<Vec<Friend>>,
     /// Delivered once per fetch.
     featured: Option<Vec<FeaturedServer>>,
@@ -574,6 +576,10 @@ impl AccountControl for LauncherAccount {
                 snapshot.answered_trust = None;
             }
         });
+    }
+
+    fn account_generation(&mut self) -> Option<u64> {
+        Some(self.with(|snapshot| snapshot.auth_generation))
     }
 
     fn realms(&mut self) -> Option<Vec<MenuRealmCard>> {

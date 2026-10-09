@@ -31,6 +31,10 @@ pub(crate) enum AccountEvent {
 pub(crate) trait AccountControl {
     /// `account_status.v1`: the current sign-in state, when known.
     fn account_status(&mut self) -> Option<AuthState>;
+    /// Changes whenever the account identity or sign-in state retires its data.
+    fn account_generation(&mut self) -> Option<u64> {
+        None
+    }
     /// `realms_list.v1`: joinable realms, or `None` while unavailable.
     fn realms(&mut self) -> Option<Vec<MenuRealmCard>>;
     /// `friends_list.v1`: friend worlds, or `None` while unavailable.

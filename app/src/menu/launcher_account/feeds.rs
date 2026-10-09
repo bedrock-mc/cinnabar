@@ -146,11 +146,17 @@ pub(super) async fn catalog_round(
     shared: &Mutex<Snapshot>,
     generation: u64,
 ) {
+    let revision = shared
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner())
+        .realm_catalog_revision;
     tokio::join!(
         async {
             if let Ok(realms) = source.realms().await {
                 publish_account(shared, generation, |snapshot| {
-                    snapshot.realms = Some(realms)
+                    if snapshot.realm_catalog_revision == revision {
+                        snapshot.realms = Some(realms);
+                    }
                 });
             }
         },
@@ -332,6 +338,29 @@ mod tests {
         feeds.featured.notify_one();
         assert_eq!(poll(featured.as_mut()), Poll::Ready(false));
         assert_eq!(shared.lock().unwrap().featured, Some(previous));
+    }
+
+    #[test]
+    fn realm_membership_rejects_a_catalog_reply_started_before_acceptance() {
+        let feeds = GatedFeeds::default();
+        let shared = Mutex::new(Snapshot::default());
+        let mut catalog = pin!(catalog_round(&feeds, &shared, 0));
+        assert!(poll(catalog.as_mut()).is_pending());
+        {
+            let mut snapshot = shared.lock().unwrap();
+            snapshot.realm_catalog_revision += 1;
+            snapshot.realms = Some(vec![
+                serde_json::from_value(serde_json::json!({
+                    "name": "Accepted Realm", "state": "OPEN", "target": "realm_id/7"
+                }))
+                .unwrap(),
+            ]);
+        }
+        feeds.realms.notify_one();
+        feeds.friends.notify_one();
+        assert!(poll(catalog.as_mut()).is_ready());
+        let snapshot = shared.lock().unwrap();
+        assert_eq!(snapshot.realms.as_ref().unwrap()[0].target, "realm_id/7");
     }
 
     #[test]

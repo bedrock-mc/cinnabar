@@ -13,6 +13,7 @@ pub(super) struct RealmUi {
     ticket: u64,
     request: Option<bool>,
     cancel: bool,
+    account_generation: Option<u64>,
 }
 
 impl Default for RealmUi {
@@ -23,6 +24,7 @@ impl Default for RealmUi {
             ticket: 0,
             request: None,
             cancel: false,
+            account_generation: None,
         }
     }
 }
@@ -37,6 +39,7 @@ impl MenuRuntime {
             self.enter(MenuScreen::Social);
             self.realm_membership.ticket = self.realm_membership.ticket.wrapping_add(1);
             self.realm_membership.code.clear();
+            self.realm_membership.account_generation = None;
             self.realm_membership.state = Some(State::default());
             self.focused = 0;
             self.focus_field(MenuField::RealmCode);
@@ -94,6 +97,7 @@ impl MenuRuntime {
             self.realm_membership.ticket = self.realm_membership.ticket.wrapping_add(1);
             self.realm_membership.request = None;
             self.realm_membership.cancel = true;
+            self.realm_membership.account_generation = None;
             self.field = None;
             self.focused = 0;
         }
@@ -101,8 +105,18 @@ impl MenuRuntime {
 
     /// Sends a queued request once and installs only the current signed-in flow's reply.
     pub(super) fn sync_realm_membership(&mut self, control: &mut dyn AccountControl) {
-        if self.current_auth().as_ref() != &AuthState::Authenticated {
+        let generation = control.account_generation();
+        if self.current_auth().as_ref() != &AuthState::Authenticated
+            || self
+                .realm_membership
+                .account_generation
+                .zip(generation)
+                .is_some_and(|(old, current)| old != current)
+        {
             self.close_realm_membership();
+        }
+        if self.realm_membership.state.is_some() {
+            self.realm_membership.account_generation = generation;
         }
         if std::mem::take(&mut self.realm_membership.cancel) {
             control.cancel_realm_membership();
