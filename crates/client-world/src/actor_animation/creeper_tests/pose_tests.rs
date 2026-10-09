@@ -1,6 +1,109 @@
 use super::*;
 
 #[test]
+fn swelling_uses_the_current_camera_for_both_pose_endpoints_after_a_tick() {
+    for alternate in [false, true] {
+        for query in ["query.camera_rotation", "query.rotation_to_camera"] {
+            let mut store = pack_swell_fixture_with(
+                AuthoredSwellChannel {
+                    pre_animation: false,
+                    property: assets::EntityAnimationProperty::Translation,
+                    variable: false,
+                },
+                None,
+                alternate,
+                3,
+                false,
+                |compiled| {
+                    let mut symbols = compiled.molang_symbols.to_vec();
+                    symbols.insert(
+                        1,
+                        assets::MolangSymbol {
+                            kind: assets::MolangSymbolKind::Query,
+                            identifier: query.into(),
+                        },
+                    );
+                    compiled.molang_symbols = symbols.into_boxed_slice();
+                    let mut ops = compiled.molang_ops.to_vec();
+                    ops[0] = MolangOp::LoadQuery(2);
+                    ops.extend([
+                        MolangOp::Push(assets::EntityGeometryScalar::new(1.0).unwrap()),
+                        MolangOp::CallQuery(assets::MolangCall {
+                            symbol: 1,
+                            arguments: 1,
+                        }),
+                    ]);
+                    compiled.molang_ops = ops.into_boxed_slice();
+                    let mut expressions = compiled.molang_expressions.to_vec();
+                    expressions.push(assets::CompiledMolangExpression {
+                        first_op: 1,
+                        op_count: 2,
+                        max_stack: 1,
+                    });
+                    compiled.molang_expressions = expressions.into_boxed_slice();
+                    let original = compiled.animation_channels.to_vec();
+                    let original_keys = compiled.animation_keyframes.to_vec();
+                    let mut channels = Vec::new();
+                    let mut keys = Vec::new();
+                    for clip in &mut compiled.animation_clips {
+                        let mut translation = original[clip.first_channel as usize].clone();
+                        let mut key = original_keys[translation.first_keyframe as usize];
+                        translation.first_keyframe = keys.len() as u32;
+                        keys.push(key);
+                        let mut rotation = translation.clone();
+                        rotation.property = assets::EntityAnimationProperty::Rotation;
+                        rotation.first_keyframe = keys.len() as u32;
+                        key.expressions = [None, Some(1), None];
+                        keys.push(key);
+                        clip.first_channel = channels.len() as u32;
+                        clip.channel_count = 2;
+                        channels.extend([translation, rotation]);
+                    }
+                    compiled.animation_channels = channels.into_boxed_slice();
+                    compiled.animation_keyframes = keys.into_boxed_slice();
+                },
+            );
+            store.set_camera_position([0.0, 0.0, 4.0]);
+            store.advance_interpolation_ticks(1);
+            if query == "query.camera_rotation" {
+                store.set_camera_rotation([0.0, 90.0]);
+            } else {
+                store.set_camera_position([4.0, 0.0, 0.0]);
+            }
+            store.advance_interpolation_ticks(1);
+            let tick = store.actor_rig(1).unwrap();
+            let completed_tick = tick.completed_tick;
+            let current_pose = tick.current.to_vec();
+            let completed = tick.render.to_vec();
+            let stats = store.animation_stats();
+            assert_ne!(tick.previous[0].rotation, current_pose[0].rotation);
+            for alpha in [0.0, 0.25, 0.75, 1.0] {
+                let layers = store.render_frame(alpha).layers(1).unwrap();
+                for (layer, completed) in layers.iter().zip(&completed) {
+                    let root = usize::from(layer.geometry.is_some());
+                    let expected = if layer.geometry.is_some() {
+                        completed.pose[root].rotation
+                    } else {
+                        current_pose[root].rotation
+                    };
+                    for sampled in [&layer.previous_pose[root], &layer.pose[root]] {
+                        for (actual, expected) in sampled.rotation.iter().zip(expected) {
+                            assert!(
+                                (actual - expected).abs() < 1e-5,
+                                "{query}: {actual} != {expected}"
+                            );
+                        }
+                    }
+                }
+            }
+            assert_eq!(store.actor_rig(1).unwrap().completed_tick, completed_tick);
+            assert_eq!(store.actor_rig(1).unwrap().render, completed);
+            assert_eq!(store.animation_stats(), stats);
+        }
+    }
+}
+
+#[test]
 fn direct_swell_channel_samples_fraction() {
     let store = compiled_swell_fixture(false);
     let rig = store.actor_rig(1).unwrap();

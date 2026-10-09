@@ -304,8 +304,12 @@ impl ActorAnimationStore {
         if !state.samples_render_frames && !swing_changed && !swell_changed {
             return Some(completed());
         }
-        let camera_inputs_changed = camera_rotation != frame.motion.context.camera_rotation
-            || camera_position != frame.motion.context.camera_position;
+        let camera_inputs_changed = std::iter::once(&frame.motion)
+            .chain(frame.previous_motion.iter())
+            .any(|motion| {
+                camera_rotation != motion.context.camera_rotation
+                    || camera_position != motion.context.camera_position
+            });
         let pose_inputs_changed =
             camera_inputs_changed || partial_tick != frame.motion.context.frame_alpha;
         let mut context = frame.motion.context.clone();
