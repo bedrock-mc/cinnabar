@@ -55,8 +55,9 @@ Directories with untracked inputs keep their current timestamps.
 Cache keys separate OS, architecture, compiler settings, and CI/release profiles.
 Each run gets a new key with a compatible fallback. Only runs on `dev`
 save caches; PR and tag runs restore them. After a successful save, older entries
-in that platform/profile bucket are removed. Go uses the version in `core/go.mod`
-and the same restore/save ownership, without timestamp restoration.
+in that platform/profile bucket are removed. Go workflows use `stable`, with the
+resolved compiler version included in cache keys. Go uses the same restore/save
+ownership, without timestamp restoration.
 
 The first run after a cache format change is cold. Check the restored-source count,
 Cargo build durations, and cache sizes on subsequent runs before claiming a speedup.

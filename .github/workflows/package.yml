@@ -114,7 +114,7 @@ jobs:
           lane: release
       - uses: actions/setup-go@v6
         with:
-          go-version-file: source/core/go.mod
+          go-version: 'stable'
           cache: false
       - name: Restore Go build cache
         id: go-cache
@@ -236,7 +236,7 @@ jobs:
           lane: release
       - uses: actions/setup-go@v6
         with:
-          go-version-file: source/core/go.mod
+          go-version: 'stable'
           cache: false
       - name: Restore Go build cache
         id: go-cache
@@ -353,7 +353,7 @@ jobs:
           lane: release
       - uses: actions/setup-go@v6
         with:
-          go-version-file: source/core/go.mod
+          go-version: 'stable'
           cache: false
       - name: Restore Go build cache
         id: go-cache
@@ -469,7 +469,7 @@ jobs:
       - uses: actions/setup-go@v6
         if: needs.prepare.outputs.channel == 'stable'
         with:
-          go-version-file: source/core/go.mod
+          go-version: 'stable'
           cache: false
       - name: Sign the update manifest
         if: needs.prepare.outputs.channel == 'stable'

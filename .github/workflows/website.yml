@@ -35,7 +35,7 @@ jobs:
           node-version: '22'
       - uses: actions/setup-go@v6
         with:
-          go-version-file: core/go.mod
+          go-version: 'stable'
           cache: false
       - name: Test website and deployment boundary
         run: |
