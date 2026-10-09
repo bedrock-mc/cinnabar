@@ -109,6 +109,11 @@ pub(super) struct WorldPool {
     size: PoolSize,
 }
 
+/// Threads the world pool runs on a machine with `cores` logical processors.
+pub fn world_worker_threads(cores: usize) -> usize {
+    PoolSize::for_cores(cores).threads()
+}
+
 pub(super) static WORKERS: LazyLock<WorldPool> = LazyLock::new(|| {
     let cores = std::thread::available_parallelism().map_or(1, usize::from);
     WorldPool::new(PoolSize::for_cores(cores))

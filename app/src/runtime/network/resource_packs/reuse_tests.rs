@@ -270,6 +270,38 @@ fn the_post_join_reload_publishes_the_join_outputs() {
     assert!(same(&world.pack_entities, &joined.entities));
 }
 
+// A join compiles on as many threads as the world workers, which idle until its world exists,
+// rather than on the two-thread shared pool gameplay uses.
+#[test]
+fn a_join_compiles_on_the_idle_world_cores() {
+    let _cache = overlay_cache();
+    let widths = std::sync::Mutex::new(Vec::new());
+    let probe = || {
+        widths.lock().unwrap().push(rayon::current_num_threads());
+        false
+    };
+    let game_data = game_data();
+    let preparation = preparation(&every_subscriber_archive(48, b"a=b"), &game_data);
+    crate::runtime::network::resource_packs::prepare_join(
+        &preparation,
+        &game_data,
+        &probe,
+        JoinBases::default(),
+    )
+    .unwrap()
+    .unwrap();
+    crate::runtime::network::resource_packs::release_compiled_stacks();
+    let cores = std::thread::available_parallelism().map_or(1, usize::from);
+    let widths = widths.into_inner().unwrap();
+    assert!(!widths.is_empty());
+    assert!(
+        widths
+            .iter()
+            .all(|&width| width == chunk_pipeline::world_worker_threads(cores)),
+        "{widths:?}"
+    );
+}
+
 // Leaving for the menu releases the kept archives and compiled outputs.
 #[test]
 fn taking_the_kept_stacks_releases_them() {

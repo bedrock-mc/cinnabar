@@ -100,16 +100,21 @@ pub(super) struct JoinBases<'a> {
     pub(super) ui_catalog: Option<&'a Arc<json_ui::Catalog>>,
 }
 
-/// A join's presentation from its validated pack inputs, prepared over `bases`. A stack that
-/// reads exactly like one joined recently reuses that compile; the result is kept for the next
-/// join. `None` once cancelled.
+/// A join's presentation from its validated pack inputs, prepared over `bases` on the cores
+/// world streaming will use once the join completes. A stack that reads exactly like one joined
+/// recently reuses that compile; the result is kept for the next join. `None` once cancelled.
 pub(super) fn prepare_join(
     preparation: &client_session::PackPreparation,
     game_data: &protocol::GameData,
     cancelled: &(dyn Fn() -> bool + Sync),
     bases: JoinBases<'_>,
 ) -> Option<Result<PackApplication, client_session::RequiredPackRejected>> {
-    prepare_join_with(&reuse::LATEST, preparation, game_data, cancelled, bases)
+    let prepare = || prepare_join_with(&reuse::LATEST, preparation, game_data, cancelled, bases);
+    if preparation.has_applied_packs() {
+        crate::thread_budget::ThreadBudget::on_join_compile_pool(prepare)
+    } else {
+        prepare()
+    }
 }
 
 /// [`prepare_join`] against an explicit set of kept stacks.

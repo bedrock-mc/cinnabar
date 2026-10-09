@@ -73,6 +73,27 @@ impl ThreadBudget {
         }
     }
 
+    /// Threads one join's pack compile may use: as many as world streaming runs, whose workers
+    /// idle until that join's world exists, leaving the frame threads their cores.
+    pub(crate) fn join_compile_threads(cores: usize) -> usize {
+        chunk_pipeline::world_worker_threads(cores)
+    }
+
+    /// Runs `compile` on a pool sized by [`Self::join_compile_threads`] that exists only for
+    /// this call, so its threads never compete with gameplay; on the caller's pool if the
+    /// threads cannot start.
+    pub(crate) fn on_join_compile_pool<T: Send>(compile: impl FnOnce() -> T + Send) -> T {
+        let cores = std::thread::available_parallelism().map_or(1, usize::from);
+        match rayon::ThreadPoolBuilder::new()
+            .num_threads(Self::join_compile_threads(cores))
+            .thread_name(|index| format!("pack-compile-{index}"))
+            .build()
+        {
+            Ok(pool) => pool.install(compile),
+            Err(_) => compile(),
+        }
+    }
+
     /// Must run before anything touches the global rayon pool.
     pub(crate) fn configure_global_rayon() {
         let threads = Self::current().rayon;
@@ -103,5 +124,20 @@ mod tests {
         assert_eq!(ThreadBudget::for_cores(8), budget(2, 4, 2));
         assert_eq!(ThreadBudget::for_cores(12), budget(2, 4, 2));
         assert_eq!(ThreadBudget::for_cores(1), budget(1, 2, 1));
+    }
+
+    /// A join compiles on as many threads as world streaming runs, more than the shared pool's.
+    #[test]
+    fn join_compiles_use_the_idle_world_cores() {
+        for cores in [4, 8, 12] {
+            assert!(
+                ThreadBudget::join_compile_threads(cores) > ThreadBudget::for_cores(cores).rayon
+            );
+        }
+        let cores = std::thread::available_parallelism().map_or(1, usize::from);
+        assert_eq!(
+            ThreadBudget::on_join_compile_pool(rayon::current_num_threads),
+            chunk_pipeline::world_worker_threads(cores)
+        );
     }
 }
