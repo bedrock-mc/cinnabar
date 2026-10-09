@@ -355,6 +355,9 @@ pub struct WorldStream {
     unsent_column_deadlines: HashMap<ChunkKey, Instant>,
     arrival_cohort: Option<residency::ArrivalCohort>,
     poll_deadline: Option<Instant>,
+    /// Test allocation for exercising an expired urgent pass without timing assertions.
+    #[cfg(test)]
+    urgent_pass_budget: Duration,
     frame_deadline: Option<Instant>,
     /// Camera the last poll ordered work by, reused by urgent passes between polls.
     last_camera_position: [f32; 3],

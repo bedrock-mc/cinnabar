@@ -33,6 +33,40 @@ impl CollisionRegistry {
 }
 
 impl PaletteWorld<'_> {
+    /// Resolves block-local collision shapes and position offsets without mutating the world.
+    /// Proposed primary cells are visible to paired lookups.
+    pub fn collision_shapes_with_updates(
+        &self,
+        position: [i32; 3],
+        runtime_id: u32,
+        updates: &[([i32; 3], u32)],
+    ) -> Result<Cow<'_, [Aabb]>, WorldQueryError> {
+        let physics =
+            self.registry
+                .physics(runtime_id)
+                .ok_or(WorldQueryError::UnknownRuntimeId {
+                    runtime_id,
+                    block: position,
+                })?;
+        let shapes: Cow<'_, [Aabb]> =
+            match self.resolved_door_shape_with_updates(position, physics, updates)? {
+                Some(shape) => Cow::Owned(vec![shape]),
+                None => Cow::Borrowed(&physics.shapes),
+            };
+        let cell_offset = Vec3::new(position[0] as f64, position[1] as f64, position[2] as f64);
+        let offset = physics.shape_offset(position) - cell_offset;
+        if offset == Vec3::ZERO {
+            Ok(shapes)
+        } else {
+            Ok(Cow::Owned(
+                shapes
+                    .iter()
+                    .map(|shape| shape.translated(offset))
+                    .collect(),
+            ))
+        }
+    }
+
     /// Resolves a door's lower facing/open state and upper hinge at query time.
     pub(super) fn block_collision_shapes<'a>(
         &self,
@@ -62,6 +96,16 @@ impl PaletteWorld<'_> {
         position: [i32; 3],
         physics: &BlockPhysics,
     ) -> Result<Option<Aabb>, WorldQueryError> {
+        self.resolved_door_shape_with_updates(position, physics, &[])
+    }
+
+    /// Uses proposed paired halves when present, otherwise reads the committed world.
+    fn resolved_door_shape_with_updates(
+        &self,
+        position: [i32; 3],
+        physics: &BlockPhysics,
+        updates: &[([i32; 3], u32)],
+    ) -> Result<Option<Aabb>, WorldQueryError> {
         let Some(door) = &physics.door else {
             return Ok(None);
         };
@@ -69,7 +113,10 @@ impl PaletteWorld<'_> {
         neighbor[1] = neighbor[1]
             .checked_add(if door.upper { -1 } else { 1 })
             .ok_or(WorldQueryError::CoordinateOutOfRange)?;
-        let runtime_id = self.primary_runtime_id(neighbor)?;
+        let runtime_id = match updates.iter().find(|(cell, _)| *cell == neighbor) {
+            Some((_, runtime_id)) => *runtime_id,
+            None => self.primary_runtime_id(neighbor)?,
+        };
         let paired = self
             .registry
             .physics(runtime_id)
