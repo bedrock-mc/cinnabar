@@ -140,6 +140,8 @@ pub(super) struct FormPresentation {
     menu_keys: Vec<(crate::menu::MenuAction, String)>,
     /// Keyboard controls include rows outside the pointer's clipped viewports.
     pub(super) menu_focus: Vec<crate::menu::MenuAction>,
+    /// Screen and popup context owning the painted menu controls.
+    pub(super) menu_focus_context: Option<(crate::menu::MenuScreen, bool)>,
     pub(super) menu_focus_geometry: Vec<crate::menu::view::SettingsFocusTarget>,
     pub(super) menu_focus_landmarks: Vec<crate::menu::view::SettingsFocusLandmark>,
     /// The engine menu's press sounds by action; carried across the per-frame reset.

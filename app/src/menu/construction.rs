@@ -81,6 +81,7 @@ impl MenuRuntime {
                 history.reset(initial.screen);
                 history
             },
+            navigation_focus: navigation::NavigationFocus::default(),
             session_origin: None,
             retry_target: None,
             name: field_editor(MenuField::Name),

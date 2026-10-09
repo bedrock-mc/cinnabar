@@ -1,6 +1,9 @@
 //! Menu screen navigation over a screen history, as vanilla's scene stack
 //! pushes and pops screens, and how the menu sits in the scene stack.
 
+mod focus;
+pub(super) use focus::NavigationFocus;
+
 use super::{LocalWorldAction, MenuAction, MenuRuntime, MenuScreen};
 
 impl MenuRuntime {
@@ -18,6 +21,7 @@ impl MenuRuntime {
 
     pub(super) fn show_session_origin(&mut self, fallback: MenuScreen) {
         let screen = self.session_origin.unwrap_or(fallback);
+        self.navigation_focus = NavigationFocus::default();
         self.history.reset(MenuScreen::Home);
         if screen != MenuScreen::Home {
             self.history.push(screen);
@@ -51,6 +55,8 @@ impl MenuRuntime {
     /// open below; a tab of an open vanilla screen takes that screen's place.
     pub(super) fn enter(&mut self, screen: MenuScreen) {
         use launcher::menu::menu_reference;
+        self.remember_navigation_focus();
+        let returning = screen != self.screen && self.history.screens().contains(&screen);
         let same = |open: MenuScreen| {
             open == screen
                 || menu_reference(open).is_some_and(|r| menu_reference(screen) == Some(r))
@@ -70,6 +76,9 @@ impl MenuRuntime {
             None => self.history.push(screen),
         }
         self.show_top();
+        if returning {
+            self.restore_navigation_focus();
+        }
     }
 
     /// Shows the history's top screen with fresh focus.
@@ -87,6 +96,7 @@ impl MenuRuntime {
             self.store_snapshot = None;
         }
         self.screen = screen;
+        self.navigation_focus.enter();
         if screen != MenuScreen::DressingRoom && self.dressing_room.editor.is_some() {
             std::sync::Arc::make_mut(&mut self.dressing_room).editor = None;
         }
@@ -171,8 +181,10 @@ impl MenuRuntime {
             _ if self.history.screens().len() > 1 => {
                 self.history.pop();
                 self.show_top();
+                self.restore_navigation_focus();
             }
             MenuScreen::Pause if self.death_shown => {
+                self.navigation_focus = NavigationFocus::default();
                 self.history.reset(MenuScreen::Death);
                 self.show_top();
             }
@@ -184,3 +196,6 @@ impl MenuRuntime {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod focus_tests;

@@ -60,6 +60,10 @@
   settings. Preview drag gain is provisional. The chosen normal generator targets Java-style
   terrain; Bedrock terrain, structures and mobs remain unverified. No performance gate closes.
 
+- Back navigation retains an available prior control and validates Home focus against painted
+  enabled controls. Keyboard/gamepad return and pointer outline admission have regression coverage.
+  Exact native Home restoration policy and full authored frontend parity remain incomplete.
+
 ## OreUI Unicode fallback
 
 - Native language labels and server text resolve missing glyphs from installed locale-specific Noto

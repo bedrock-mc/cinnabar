@@ -1,0 +1,284 @@
+//! Return navigation is exercised through the input system and painted controls.
+
+use crate::menu::{
+    MenuAction, MenuRuntime, MenuScreen,
+    input::{MenuClipboard, MenuInputMode, drive_menu_input},
+};
+use bevy::{
+    input::keyboard::Key,
+    prelude::*,
+    window::{CursorOptions, PrimaryWindow},
+};
+use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
+
+/// Paints the current screen and lets input consume its enabled controls.
+fn draw(app: &mut App) {
+    let view = app.world().resource::<MenuRuntime>().view();
+    app.world_mut()
+        .resource_scope(|world, mut presentation: Mut<UiPresentationRuntime>| {
+            presentation.set_menu_view(Some(view));
+            presentation
+                .build(
+                    world.resource::<crate::player_runtime::PlayerRuntime>(),
+                    &UiRuntime::new(1),
+                    0,
+                    [1280, 720],
+                    ui::DpiScale::new(1.0).unwrap(),
+                )
+                .unwrap();
+        });
+    app.update();
+}
+
+/// Creates an isolated menu with the installed carrier, or names the missing fixture.
+fn fixture(test: &str) -> Option<(App, Entity)> {
+    let Some(presentation) = client_ui::test_support::engine_presentation() else {
+        eprintln!("skipping {test}: missing installed UI carrier; make assets");
+        return None;
+    };
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins)
+        .add_message::<bevy::input::keyboard::KeyboardInput>()
+        .init_resource::<ButtonInput<KeyCode>>()
+        .init_resource::<ButtonInput<MouseButton>>()
+        .init_resource::<Touches>()
+        .init_resource::<MenuClipboard>()
+        .insert_resource(MenuRuntime::new(true, 2, "BugTest".into()))
+        .insert_resource(crate::player_runtime::PlayerRuntime::new(1))
+        .insert_resource(presentation)
+        .add_systems(Update, drive_menu_input);
+    let window = app
+        .world_mut()
+        .spawn((
+            Window {
+                focused: true,
+                ..Default::default()
+            },
+            CursorOptions::default(),
+            PrimaryWindow,
+        ))
+        .id();
+    draw(&mut app);
+    Some((app, window))
+}
+
+/// Sends a real menu keyboard event without OS input.
+fn key(app: &mut App, window: Entity, key_code: KeyCode) {
+    app.world_mut()
+        .write_message(bevy::input::keyboard::KeyboardInput {
+            key_code,
+            logical_key: Key::Unidentified(bevy::input::keyboard::NativeKey::Unidentified),
+            state: bevy::input::ButtonState::Pressed,
+            text: None,
+            repeat: false,
+            window,
+        });
+    app.update();
+    draw(app);
+}
+
+#[test]
+fn keyboard_back_restores_the_visible_home_control() {
+    let Some((mut app, window)) = fixture("keyboard_back_restores_the_visible_home_control") else {
+        return;
+    };
+    for screen in [MenuScreen::Settings, MenuScreen::Play] {
+        let action = MenuAction::Navigate(screen);
+        {
+            let mut menu = app.world_mut().resource_mut::<MenuRuntime>();
+            menu.input_mode = MenuInputMode::Keyboard;
+            menu.focus_pointer(action);
+        }
+        key(&mut app, window, KeyCode::Enter);
+        assert_eq!(app.world().resource::<MenuRuntime>().screen(), screen);
+        key(&mut app, window, KeyCode::Escape);
+        let view = app.world().resource::<MenuRuntime>().view();
+        assert_eq!(view.screen, MenuScreen::Home);
+        assert_eq!(view.focused_action, Some(action));
+        assert!(view.navigation_focus_visible);
+        assert!(
+            app.world()
+                .resource::<UiPresentationRuntime>()
+                .visible_menu_actions()
+                .any(|visible| Some(visible) == view.focused_action)
+        );
+    }
+}
+
+#[test]
+fn gamepad_back_restores_home_without_changing_pointer_outline_admission() {
+    let Some((mut app, window)) =
+        fixture("gamepad_back_restores_home_without_changing_pointer_outline_admission")
+    else {
+        return;
+    };
+    let action = MenuAction::Navigate(MenuScreen::Settings);
+    {
+        let mut menu = app.world_mut().resource_mut::<MenuRuntime>();
+        menu.input_mode = MenuInputMode::Mouse;
+        menu.activate(action);
+    }
+    draw(&mut app);
+    key(&mut app, window, KeyCode::Escape);
+    assert!(
+        !app.world()
+            .resource::<MenuRuntime>()
+            .view()
+            .navigation_focus_visible
+    );
+    let pad = app.world_mut().spawn(Gamepad::default()).id();
+    {
+        let mut menu = app.world_mut().resource_mut::<MenuRuntime>();
+        menu.input_mode = MenuInputMode::Gamepad;
+        menu.focus_pointer(action);
+    }
+    app.world_mut()
+        .get_mut::<Gamepad>(pad)
+        .unwrap()
+        .digital_mut()
+        .press(GamepadButton::South);
+    app.update();
+    app.world_mut()
+        .get_mut::<Gamepad>(pad)
+        .unwrap()
+        .digital_mut()
+        .clear();
+    draw(&mut app);
+    assert_eq!(
+        app.world().resource::<MenuRuntime>().screen(),
+        MenuScreen::Settings
+    );
+    app.world_mut()
+        .get_mut::<Gamepad>(pad)
+        .unwrap()
+        .digital_mut()
+        .press(GamepadButton::East);
+    app.update();
+    app.world_mut()
+        .get_mut::<Gamepad>(pad)
+        .unwrap()
+        .digital_mut()
+        .clear();
+    draw(&mut app);
+    let view = app.world().resource::<MenuRuntime>().view();
+    assert_eq!(view.focused_action, Some(action));
+    assert!(view.navigation_focus_visible && view.gamepad_input);
+}
+
+#[test]
+fn profile_return_preserves_available_focus_and_falls_back_when_removed() {
+    for available in [true, false] {
+        let mut menu = MenuRuntime::new(true, 2, "BugTest".into());
+        menu.control_auth = Some(crate::menu::AuthState::Authenticated);
+        menu.feeds.profile.loaded = true;
+        menu.feeds.profile.avatar_loaded = true;
+        menu.feeds.profile.featured_screenshot_loaded = true;
+        menu.activate(MenuAction::Navigate(MenuScreen::Profile));
+        menu.input_mode = MenuInputMode::Keyboard;
+        let action = MenuAction::Navigate(MenuScreen::DressingRoom);
+        menu.focus_pointer(action);
+        menu.activate_focused();
+        assert_eq!(menu.screen(), MenuScreen::DressingRoom);
+        menu.feeds.profile.loaded = available;
+        menu.activate(MenuAction::AddBack);
+        assert_eq!(menu.screen(), MenuScreen::Profile);
+        assert_eq!(
+            menu.view().focused_action,
+            Some(if available {
+                action
+            } else {
+                MenuAction::AddBack
+            })
+        );
+    }
+}
+
+#[test]
+fn first_settings_entry_keeps_its_painted_entry_focus() {
+    let Some((mut app, window)) = fixture("first_settings_entry_keeps_its_painted_entry_focus")
+    else {
+        return;
+    };
+    {
+        let mut menu = app.world_mut().resource_mut::<MenuRuntime>();
+        menu.input_mode = MenuInputMode::Keyboard;
+        menu.focus_pointer(MenuAction::Navigate(MenuScreen::Settings));
+    }
+    key(&mut app, window, KeyCode::Enter);
+    let view = app.world().resource::<MenuRuntime>().view();
+    assert!(matches!(
+        view.focused_action,
+        Some(MenuAction::SettingsSection(_))
+    ));
+    assert!(
+        app.world()
+            .resource::<UiPresentationRuntime>()
+            .visible_menu_actions()
+            .any(|action| Some(action) == view.focused_action)
+    );
+}
+
+#[test]
+fn changed_account_controls_and_modal_ownership_keep_focus_available() {
+    let Some((mut app, window)) =
+        fixture("changed_account_controls_and_modal_ownership_keep_focus_available")
+    else {
+        return;
+    };
+    {
+        let mut menu = app.world_mut().resource_mut::<MenuRuntime>();
+        menu.input_mode = MenuInputMode::Keyboard;
+        menu.focus_pointer(MenuAction::StartSignIn);
+    }
+    assert_eq!(
+        app.world().resource::<MenuRuntime>().view().focused_action,
+        Some(MenuAction::StartSignIn)
+    );
+    {
+        let mut menu = app.world_mut().resource_mut::<MenuRuntime>();
+        menu.enter(MenuScreen::Settings);
+        menu.control_auth = Some(crate::menu::AuthState::Authenticated);
+    }
+    draw(&mut app);
+    key(&mut app, window, KeyCode::Escape);
+    let view = app.world().resource::<MenuRuntime>().view();
+    assert_ne!(view.focused_action, Some(MenuAction::StartSignIn));
+    assert!(
+        app.world()
+            .resource::<UiPresentationRuntime>()
+            .visible_menu_actions()
+            .any(|action| Some(action) == view.focused_action)
+    );
+    {
+        let mut menu = app.world_mut().resource_mut::<MenuRuntime>();
+        menu.activate(MenuAction::Navigate(MenuScreen::Settings));
+        menu.go_back();
+        menu.activate(MenuAction::OpenExitDialog);
+    }
+    draw(&mut app);
+    let view = app.world().resource::<MenuRuntime>().view();
+    assert_eq!(view.focused_action, Some(MenuAction::ConfirmExit));
+}
+
+#[test]
+fn home_entry_and_navigation_select_only_painted_enabled_controls() {
+    let Some((mut app, _)) =
+        fixture("home_entry_and_navigation_select_only_painted_enabled_controls")
+    else {
+        return;
+    };
+    assert_eq!(
+        app.world().resource::<MenuRuntime>().view().focused_action,
+        Some(MenuAction::Navigate(MenuScreen::Play))
+    );
+    let actions: Vec<_> = app
+        .world()
+        .resource::<UiPresentationRuntime>()
+        .visible_menu_actions()
+        .collect();
+    for _ in 0..actions.len() * 2 {
+        let mut menu = app.world_mut().resource_mut::<MenuRuntime>();
+        menu.move_focus(1);
+        assert!(actions.contains(&menu.view().focused_action.unwrap()));
+    }
+}

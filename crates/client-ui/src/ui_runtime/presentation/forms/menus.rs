@@ -44,6 +44,7 @@ impl UiPresentationRuntime {
             self.menu_preview.revoke_capture();
         }
         self.settings_slider_drag_targets.clear();
+        self.form_presentation.menu_focus_context = None;
         self.form_presentation.menu_focus.clear();
         self.form_presentation.menu_focus_geometry.clear();
         self.form_presentation.menu_focus_landmarks.clear();
@@ -119,6 +120,9 @@ impl UiPresentationRuntime {
         if shown.popup_open() {
             self.menu_preview.control = None;
             self.menu_preview.revoke_capture();
+        }
+        if result.is_ok() && shown.visible {
+            self.form_presentation.menu_focus_context = Some((shown.screen, shown.popup_open()));
         }
         self.menu_view = Some(view);
         result
