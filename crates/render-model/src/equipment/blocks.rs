@@ -197,11 +197,23 @@ pub fn overlay_sheet(overlay: &BlockOverlay, visual: usize) -> Option<IconSprite
             }),
         _ => false,
     };
-    if !cube || block.support != VisualSupport::Exact || block.animation != NO_ANIMATION {
+    let carried = overlay
+        .carried_cube_faces
+        .binary_search_by_key(&(visual as u32), |entry| entry.0)
+        .ok()
+        .map(|index| overlay.carried_cube_faces[index].1);
+    let faces = if let Some(faces) = carried {
+        faces
+    } else if cube && block.support == VisualSupport::Exact {
+        block.faces
+    } else {
+        return None;
+    };
+    if block.animation != NO_ANIMATION {
         return None;
     }
     let mut tiles = Vec::with_capacity(BlockFace::ALL.len());
-    for id in block.faces {
+    for id in faces {
         // Overlay materials address the overlay's own array as page 1.
         let material = overlay
             .materials

@@ -253,7 +253,7 @@ fn overlay_sheet_preserves_source_resolution_when_physical_page_is_larger() {
                 .enumerate()
             {
                 rgba.copy_from_slice(if side == 64 {
-                    if (pixel % side / 4) % 2 == 0 {
+                    if (pixel % side / 4).is_multiple_of(2) {
                         &[255, 0, 0, 255]
                     } else {
                         &[0, 0, 255, 255]

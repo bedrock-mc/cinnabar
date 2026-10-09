@@ -27,6 +27,8 @@ pub struct MaterialOverride {
 #[derive(Clone, Debug, Default)]
 pub struct BlockOverlay {
     pub visuals: Vec<BlockVisual>,
+    /// Carried unit-cube faces keyed by sorted session visual ids; independent of world offsets.
+    pub carried_cube_faces: Vec<(u32, [u32; 6])>,
     pub light_properties: Vec<LightProperties>,
     pub materials: Vec<Material>,
     pub model_templates: Vec<ModelTemplate>,
@@ -260,6 +262,39 @@ impl RuntimeAssets {
         }
         if covered != overlay.model_quads.len() {
             return Err(invalid("overlay templates do not cover quads"));
+        }
+        let mut previous_carried = None;
+        for &(index, faces) in &overlay.carried_cube_faces {
+            let visual = overlay
+                .visuals
+                .get(index as usize)
+                .ok_or_else(|| invalid("carried cube visual is out of bounds"))?;
+            let template = overlay
+                .model_templates
+                .get(visual.model_template as usize)
+                .ok_or_else(|| invalid("carried cube has no model template"))?;
+            if previous_carried.is_some_and(|previous| previous >= index)
+                || visual.kind != VisualKind::Model
+                || template.flags != 0
+                || template.quad_count != 6
+                || faces.iter().any(|&material| {
+                    material == crate::DIAGNOSTIC_MATERIAL
+                        || material as usize >= overlay.materials.len()
+                })
+                || overlay.model_quads[template.quad_start as usize..][..6]
+                    .iter()
+                    .enumerate()
+                    .any(|(face, quad)| {
+                        !crate::model::unit_cube_quad_geometry_is_valid(
+                            face,
+                            quad.positions,
+                            quad.flags,
+                        )
+                    })
+            {
+                return Err(invalid("carried cube geometry or faces are invalid"));
+            }
+            previous_carried = Some(index);
         }
         let mut visuals = self.visuals.to_vec();
         for visual in &overlay.visuals {

@@ -148,7 +148,7 @@ fn material_words() -> Vec<u32> {
         .flat_map(|index| {
             [
                 if index % 2 == 0 { 0 } else { 1 << 31 },
-                flags[index % COLUMNS],
+                flags[index % COLUMNS] | assets::MATERIAL_FLAG_ALPHA_CUTOUT,
                 if index % 3 == 0 {
                     0
                 } else {

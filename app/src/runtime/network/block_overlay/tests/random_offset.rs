@@ -463,3 +463,58 @@ fn terrain_grid_budget_fallback_preserves_unrelated_texture_layers() {
     assert_eq!(compiled.gaps.missing_textures, 1);
     assert_eq!(compiled.overlay.texture_source_grids[0], 0);
 }
+
+#[test]
+fn random_offset_full_block_items_retain_their_cube_faces_in_both_id_spaces() {
+    let mut shifted = block_transform::random_offset::RandomOffsetComponent::default();
+    shifted.axes[0].range = [0.25; 2];
+    let blocks = CustomBlocks {
+        blocks: [None, Some(Default::default()), Some(shifted)]
+            .into_iter()
+            .enumerate()
+            .map(|(index, random_offset)| {
+                block(
+                    &format!("test:held_{index}"),
+                    1,
+                    CustomBlockVisuals {
+                        base: CustomVisualComponents {
+                            random_offset,
+                            materials: materials("lucky"),
+                            ..Default::default()
+                        },
+                        ..Default::default()
+                    },
+                )
+            })
+            .collect(),
+        ..Default::default()
+    };
+    let items: Vec<_> = blocks
+        .blocks
+        .iter()
+        .map(|block| (Arc::clone(&block.name), Arc::clone(&block.name)))
+        .collect();
+    for hashed in [false, true] {
+        let compiled = compile_block_overlay(&view(), &blocks, hashed, None).unwrap();
+        RuntimeAssets::diagnostic()
+            .with_block_overlay(1, &compiled.overlay)
+            .unwrap();
+        let icons = super::super::super::item_icons::custom_block_icons(
+            &compiled.overlay,
+            &blocks,
+            hashed,
+            &items,
+        );
+        assert_eq!(
+            icons.block_sheets.len(),
+            3,
+            "world displacement, including explicit zero, keeps a full cube held in hand"
+        );
+        for sheet in &icons.block_sheets[1..] {
+            assert_eq!(
+                sheet.rgba8, icons.block_sheets[0].rgba8,
+                "a carried cube does not inherit its world-column displacement"
+            );
+        }
+    }
+}

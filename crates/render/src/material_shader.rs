@@ -130,6 +130,10 @@ pub(crate) fn source(source: &str) -> String {
             &format!("{}u", assets::MATERIAL_FLAG_OVERLAY_MASK),
         )
         .replace(
+            "MATERIAL_ALPHA_CUTOUT_FLAG",
+            &format!("{}u", assets::MATERIAL_FLAG_ALPHA_CUTOUT),
+        )
+        .replace(
             "MATERIAL_ISOTROPIC_FLAG",
             &format!("{}u", assets::MATERIAL_FLAG_ISOTROPIC),
         )

@@ -53,6 +53,7 @@ mod liquid_raster;
 mod liquid_shader;
 mod material_variations;
 mod mod_render;
+mod model_alpha;
 mod model_tint_raster;
 mod model_uv_raster;
 mod native_sky;

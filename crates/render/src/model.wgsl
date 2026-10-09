@@ -436,7 +436,7 @@ fn fragment(
     if (in.frame_blend > 0.0) {
         sampled = mix(sampled, sample_model_ref(in, in.next_texture, dx, dy), in.frame_blend);
     }
-    if (sampled.a < 0.5) { discard; }
+    if ((in.material_flags & MATERIAL_ALPHA_CUTOUT_FLAG) != 0u && sampled.a < 0.5) { discard; }
 #ifdef OPAQUE_OVERDRAW
     return vec4(1.0);
 #else
@@ -506,6 +506,6 @@ fn fragment_shadow(in: VertexOutput) {
     if (in.frame_blend > 0.0) {
         sampled = mix(sampled, sample_model_ref(in, in.next_texture, dx, dy), in.frame_blend);
     }
-    if (sampled.a < 0.5 || in.visible == 0u) { discard; }
+    if (in.visible == 0u || ((in.material_flags & MATERIAL_ALPHA_CUTOUT_FLAG) != 0u && sampled.a < 0.5)) { discard; }
 }
 #endif

@@ -206,6 +206,19 @@ impl Builder<'_> {
     fn push_state(&mut self, state: &StateVisual) {
         let light = state_light(&state.components);
         let visual = self.visual(state);
+        if state.components.random_offset.is_some()
+            && matches!(
+                state.components.geometry.as_deref(),
+                None | Some(FULL_BLOCK | FULL_BLOCK_V1)
+            )
+        {
+            let carried = self.cube(&state.components);
+            if carried.support == VisualSupport::Exact {
+                self.overlay
+                    .carried_cube_faces
+                    .push((self.overlay.visuals.len() as u32, carried.faces));
+            }
+        }
         self.overlay.visuals.push(visual);
         self.overlay.light_properties.push(light);
     }

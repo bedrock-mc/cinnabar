@@ -8,7 +8,7 @@ use sha2::{Digest, Sha256};
 
 use crate::model::{
     MODEL_QUAD_FLAG_TWO_SIDED, covered_grass_variant_is_valid, model_template_flags_are_valid,
-    transparent_cube_quad_geometry_is_valid,
+    unit_cube_quad_geometry_is_valid,
 };
 use crate::{
     AssetError, BlockFlags, CompiledAssets, DIAGNOSTIC_MATERIAL, MATERIAL_FLAG_ALPHA_BLEND,
@@ -524,7 +524,7 @@ fn validate_compiled(compiled: &CompiledAssets) -> Result<(), AssetError> {
         let end = start + template.quad_count as usize;
         let mut expected_alpha_class = None;
         for (index, quad) in compiled.model_quads[start..end].iter().enumerate() {
-            if !transparent_cube_quad_geometry_is_valid(index, quad.positions, quad.flags)
+            if !unit_cube_quad_geometry_is_valid(index, quad.positions, quad.flags)
                 || quad.material == DIAGNOSTIC_MATERIAL
             {
                 return Err(invalid(
