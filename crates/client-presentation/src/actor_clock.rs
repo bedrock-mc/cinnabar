@@ -62,13 +62,17 @@ pub struct ActorFrameClock {
 }
 
 impl ActorFrameClock {
-    /// Advances the actor tick clock while retaining a fractional remainder.
+    /// Advances the actor tick clock while retaining a fractional remainder. Like vanilla's frame
+    /// timer, a frame further behind than [`world::MAX_TICKS_PER_FRAME`] discards the excess whole
+    /// ticks, so a stall is never replayed for every actor in the next frame.
     pub fn advance(&mut self, delta: Duration) -> ActorFrameStep {
         self.accumulated_nanos = self.accumulated_nanos.saturating_add(delta.as_nanos());
         let elapsed_ticks = self.accumulated_nanos / ACTOR_TICK_NANOS;
         self.accumulated_nanos %= ACTOR_TICK_NANOS;
         ActorFrameStep {
-            ticks: u32::try_from(elapsed_ticks).unwrap_or(u32::MAX),
+            ticks: u32::try_from(elapsed_ticks)
+                .unwrap_or(u32::MAX)
+                .min(world::MAX_TICKS_PER_FRAME),
             partial_tick: self.accumulated_nanos as f32 / ACTOR_TICK_NANOS as f32,
         }
     }
@@ -76,5 +80,21 @@ impl ActorFrameClock {
     /// Clears interpolation time when the actor session changes.
     pub fn reset(&mut self) {
         self.accumulated_nanos = 0;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_stalled_frame_replays_at_most_the_vanilla_tick_cap() {
+        let tick = client_world::ACTOR_TICK_DURATION;
+        let mut clock = ActorFrameClock::default();
+        let stalled = clock.advance(tick * 240 + tick / 2);
+        assert_eq!(stalled.ticks, world::MAX_TICKS_PER_FRAME);
+        assert_eq!(stalled.partial_tick, 0.5);
+        let next = clock.advance(tick / 2);
+        assert_eq!((next.ticks, next.partial_tick), (1, 0.0));
     }
 }
