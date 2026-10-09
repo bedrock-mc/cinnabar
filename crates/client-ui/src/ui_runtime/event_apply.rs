@@ -307,7 +307,7 @@ impl UiRuntime {
                 match u16::try_from(health) {
                     Ok(health) => {
                         let maximum = health.max(20);
-                        self.clear_death_reason_on_recovery(BoundedStat::new(health, maximum));
+                        self.publish_local_player_alive(health > 0);
                         self.hud.set_health(BoundedStat::new(health, maximum));
                     }
                     Err(_) => self.gameplay_hud.note_odd_hud_packet(),

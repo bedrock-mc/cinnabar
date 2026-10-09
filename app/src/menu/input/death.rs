@@ -11,10 +11,10 @@ impl GuiScaleDrag {
         presentation: &mut UiPresentationRuntime,
         keyboard: &mut MessageReader<KeyboardInput>,
     ) -> bool {
-        let Some(health) = runtime.and_then(|runtime| runtime.hud().health()) else {
+        let Some(alive) = runtime.and_then(|runtime| runtime.local_player_alive()) else {
             return false;
         };
-        if health.current() != 0 {
+        if alive {
             menu.note_player_alive();
             return false;
         }

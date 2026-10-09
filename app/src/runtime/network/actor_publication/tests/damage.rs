@@ -110,3 +110,40 @@ fn hud_health_uses_the_actors_attribute_range_after_a_health_packet() {
         actor_health.max
     );
 }
+
+#[test]
+fn local_actor_life_state_preserves_health_below_hud_precision_and_retires_with_the_stream() {
+    let mut world = custom_emotes::fixture();
+    world
+        .resource_mut::<ClientWorld>()
+        .stream
+        .as_mut()
+        .unwrap()
+        .submit(
+            3,
+            WorldEvent::Actor(protocol::ActorEvent::Attributes(
+                protocol::ActorAttributesUpdateEvent {
+                    dimension: 0,
+                    runtime_id: 1,
+                    tick: 1,
+                    attributes: vec![protocol::ActorAttribute {
+                        name: "minecraft:health".into(),
+                        min: 0.0,
+                        max: 20.0,
+                        current: 0.001,
+                        default: None,
+                        modifiers: std::sync::Arc::from([]),
+                    }]
+                    .into(),
+                },
+            )),
+        )
+        .unwrap();
+    world.run_system_cached(publish_local_actor_damage).unwrap();
+    let ui = world.resource::<UiRuntime>();
+    assert_eq!(ui.hud().health().unwrap().current(), 0);
+    assert_eq!(ui.local_player_alive(), Some(true));
+    world.resource_mut::<ClientWorld>().stream = None;
+    world.run_system_cached(publish_local_actor_damage).unwrap();
+    assert_eq!(world.resource::<UiRuntime>().local_player_alive(), None);
+}

@@ -6664,6 +6664,7 @@ presentation remain unverified; this work does not close the bamboo parity gate.
 The dedicated server death-information packet supplies the localized reason to
 the death screen independently of chat. Reasons survive either arrival order
 around zero health and clear on authoritative health recovery or session replacement.
+Recovery reads positive actor health independently of the rounded HUD values.
 The default death screen uses the owned OreUI renderer with a radial world overlay,
 centered title and literal wrapped reason, Respawn and Game menu actions, and the
 HUD beneath it. Message, button, backdrop and loading animations have separate
@@ -6675,8 +6676,9 @@ The legacy JSON-UI renderer retains literal reason handling for fallback control
 Ordinary first-person world damage rotation samples the actor's completed hurt
 and death counters independently of hand animation. Scripted captures retain
 their requested pose after those effects run.
+Portal and fire overlays sample the final rendered camera pose and projection.
 
-Incomplete parity: exact target-version route admission and animation constants,
+Incomplete parity: exact target-version animation constants,
 respawn retries, death camera/FOV, hurt and HUD flash timing, hardcore and secondary
 client variants, and matched native frames remain open. The modern implementation
 and its focused regressions do not close the full death-screen parity gate.

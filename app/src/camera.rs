@@ -104,6 +104,7 @@ impl Plugin for FlyCameraPlugin {
                     update_camera_fov,
                     presentation::apply_actor_damage_camera_rotation
                         .in_set(client_presentation::camera::actor_effects::ActorCameraEffects),
+                    overlay_publish::publish_screen_overlays,
                 )
                     .chain()
                     .after(FlyCameraUpdateSet)
@@ -123,7 +124,6 @@ impl Plugin for FlyCameraPlugin {
                     presentation::advance_presentation_state,
                     presentation::update_screen_overlays,
                     presentation::apply_camera_presentation,
-                    overlay_publish::publish_screen_overlays,
                     facts::diagnose_portal,
                 )
                     .chain()

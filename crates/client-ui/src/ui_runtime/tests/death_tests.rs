@@ -150,3 +150,43 @@ fn death_reason_clears_after_authoritative_health_attribute_recovery() {
         .unwrap();
     assert_eq!(runtime.death_reason(), "");
 }
+
+#[test]
+fn death_recovery_retains_positive_health_below_the_hud_precision() {
+    let mut player = player_state::PlayerState::new(1);
+    let mut runtime = UiRuntime::new(1);
+    runtime
+        .apply(
+            &mut player,
+            envelope(1, 1, UiEvent::Hud(HudEvent::Health { health: 0 })),
+        )
+        .unwrap();
+    runtime
+        .apply(&mut player, envelope(1, 2, reason("custom.reason", &[])))
+        .unwrap();
+    runtime
+        .apply_local_attributes(
+            &mut player,
+            SequencedLocalAttributes {
+                session_id: 1,
+                fifo_sequence: 3,
+                local_millis: 30,
+                server_tick: 1,
+                attributes: vec![protocol::ActorAttribute {
+                    name: Arc::from("minecraft:health"),
+                    min: 0.0,
+                    max: 20.0,
+                    current: 0.001,
+                    default: Some(20.0),
+                    modifiers: Arc::from([]),
+                }]
+                .into(),
+            },
+        )
+        .unwrap();
+    assert_eq!(runtime.hud().health().unwrap().current(), 0);
+    assert_eq!(runtime.death_reason(), "");
+    assert_eq!(runtime.local_player_alive(), Some(true));
+    runtime.begin_session(2);
+    assert_eq!(runtime.local_player_alive(), None);
+}

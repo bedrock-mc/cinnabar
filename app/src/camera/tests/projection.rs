@@ -146,6 +146,7 @@ fn a_rig_committed_during_camera_input_changes_the_fov_in_the_same_frame() {
         }));
     }
     let (mut app, _) = camera_app(1280, 720);
+    app.init_resource::<render::ScreenOverlayScene>();
     let base = app
         .world()
         .resource::<CameraSettingsAuthority>()
@@ -154,6 +155,9 @@ fn a_rig_committed_during_camera_input_changes_the_fov_in_the_same_frame() {
     app.update();
     let expected = camera::projection_fov_radians(base + 10.0);
     assert!((projection(&mut app).fov - expected).abs() < 1.0e-6);
+    let expected_half_height = (expected * 0.5).tan();
+    let overlay = app.world().resource::<render::ScreenOverlayScene>();
+    assert!((overlay.fire_projection()[1] - expected_half_height).abs() < 1.0e-6);
 }
 
 #[test]
@@ -327,6 +331,7 @@ fn world_hurt_rotation_samples_actor_ticks_and_clears_when_the_stream_retires() 
     }
 
     let (mut app, _) = camera_app(1280, 720);
+    app.init_resource::<render::ScreenOverlayScene>();
     let mut stream = WorldStream::new(WorldBootstrap {
         dimension: 0,
         local_player_runtime_id: 1,
@@ -401,6 +406,13 @@ fn world_hurt_rotation_samples_actor_ticks_and_clears_when_the_stream_retires() 
             "actor-driven right axis: {right:?}"
         );
         assert!(right.z.abs() < 1e-6);
+        let expected_portal = Mat4::from_quat(rotation)
+            * projection(&mut app).get_clip_from_view().inverse();
+        let overlay = app.world().resource::<render::ScreenOverlayScene>();
+        assert!(
+            overlay.portal_from_clip().abs_diff_eq(expected_portal, 1e-6),
+            "portal directions must use this frame's rendered hurt rotation"
+        );
     }
     app.world_mut().resource_mut::<ClientWorld>().stream = None;
     app.update();

@@ -84,6 +84,32 @@ fn death_discards_a_same_frame_pause_settings_click() {
         MenuScreen::Death,
         "held old input stays retired"
     );
+    app.world_mut()
+        .resource_scope(|world, mut runtime: Mut<UiRuntime>| {
+            let mut player = world.resource_mut::<crate::player_runtime::PlayerRuntime>();
+            runtime
+                .apply_local_attributes(
+                    &mut player,
+                    client_ui::ui_runtime::SequencedLocalAttributes {
+                        session_id: 1,
+                        fifo_sequence: 2,
+                        local_millis: 1,
+                        server_tick: 1,
+                        attributes: vec![protocol::ActorAttribute {
+                            name: "minecraft:health".into(),
+                            min: 0.0,
+                            max: 20.0,
+                            current: 0.001,
+                            default: None,
+                            modifiers: std::sync::Arc::from([]),
+                        }]
+                        .into(),
+                    },
+                )
+                .unwrap();
+        });
+    app.update();
+    assert!(!app.world().resource::<MenuRuntime>().is_visible());
 }
 
 #[test]

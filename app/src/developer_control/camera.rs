@@ -46,10 +46,12 @@ pub(super) fn configure(app: &mut App) {
             drive_camera_fov
                 .after(drive_camera)
                 .after(client_presentation::camera::update_camera_fov)
+                .before(client_presentation::camera::overlay_publish::publish_screen_overlays)
                 .before(ClientFrameSet::UiPreparation),
             drive_render_pose
                 .after(client_presentation::camera::actor_effects::ActorCameraEffects)
                 .after(drive_camera)
+                .before(client_presentation::camera::overlay_publish::publish_screen_overlays)
                 .before(ClientFrameSet::UiPreparation),
         ),
     );

@@ -128,12 +128,16 @@ impl UiRuntime {
     /// Projects health from its actor attribute range alongside the completed damage countdown.
     pub fn publish_local_actor_health(&mut self, actor: Option<&client_world::ActorSnapshot>) {
         self.publish_local_actor_damage(actor.map(|actor| actor.status.damage));
-        if let Some(health) = actor
+        if let Some((attribute, health)) = actor
             .and_then(|actor| actor.attributes.get("minecraft:health"))
-            .and_then(hud_adapter::attribute_stat)
+            .and_then(|attribute| {
+                hud_adapter::attribute_stat(attribute).map(|health| (attribute, health))
+            })
         {
-            self.clear_death_reason_on_recovery(Some(health));
+            self.publish_local_player_alive(attribute.current > 0.0);
             self.hud.set_health(Some(health));
+        } else if actor.is_none() {
+            self.local_player_alive = None;
         }
     }
 
@@ -289,7 +293,10 @@ impl UiRuntime {
                 // well-formed attribute skips that field, counted, keeping the
                 // previous authoritative value and the session alive.
                 "minecraft:health" => match hud_adapter::attribute_stat(attribute) {
-                    Some(stat) => health = Some(stat),
+                    Some(stat) => {
+                        self.publish_local_player_alive(attribute.current > 0.0);
+                        health = Some(stat);
+                    }
                     None => self.gameplay_hud.note_odd_attribute(),
                 },
                 "minecraft:player.hunger" => {
@@ -328,7 +335,6 @@ impl UiRuntime {
         {
             self.note_player_hurt();
         }
-        self.clear_death_reason_on_recovery(health);
         self.hud
             .set_stats(health, hunger, self.hud.armor(), self.hud.air());
         self.hud.set_absorption(absorption);
