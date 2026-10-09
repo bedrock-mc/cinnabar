@@ -3,6 +3,16 @@ use assets::{BlockFace, CompiledBiomeAssets, MATERIAL_FLAG_ISOTROPIC};
 
 #[test]
 fn grass_cube_faces_keep_the_pack_authored_isotropic_mask() {
+    check_face_mask("minecraft:grass_block", "grass", VisualKind::Cube);
+}
+
+#[test]
+fn dirt_path_model_faces_keep_the_pack_authored_isotropic_mask() {
+    check_face_mask("minecraft:grass_path", "grass_path", VisualKind::Model);
+}
+
+/// Compiles authored face rotation through base and variation materials for each geometry route.
+fn check_face_mask(name: &str, pack_key: &str, kind: VisualKind) {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let target: serde_json::Value =
         serde_json::from_slice(include_bytes!("../../../../../assets/bedrock-target.json"))
@@ -15,10 +25,8 @@ fn grass_cube_faces_keep_the_pack_authored_isotropic_mask() {
         .into_vec()
         .into_iter()
         .filter(|record| {
-            matches!(
-                record.name.as_ref(),
-                "minecraft:air" | "minecraft:grass_block"
-            )
+            matches!(record.name.as_ref(), "minecraft:air" | "minecraft:stone")
+                || record.name.as_ref() == name
         })
         .collect::<Vec<_>>();
     let span = records
@@ -29,15 +37,25 @@ fn grass_cube_faces_keep_the_pack_authored_isotropic_mask() {
     let directory = tempfile::tempdir().unwrap();
     write(
         directory.path().join("blocks.json"),
-        r#"{"grass":{"textures":{"side":"grass_side","up":"grass_top","down":"dirt"},"isotropic":{"up":true,"down":true}}}"#,
+        format!(
+            r#"{{"stone":{{"textures":"dirt"}},"{pack_key}":{{"textures":{{"side":"grass_side","up":"grass_top","down":"dirt"}},"isotropic":{{"up":true,"down":true}}}}}}"#
+        ),
     );
     write(
         directory.path().join("textures/terrain_texture.json"),
-        r#"{"texture_data":{
+        if kind == VisualKind::Cube {
+            r#"{"texture_data":{
             "grass_side":{"textures":"textures/blocks/grass_side"},
             "grass_top":{"textures":{"variations":[{"path":"textures/blocks/grass_top","weight":1},{"path":"textures/blocks/dirt","weight":3}]}},
             "dirt":{"textures":"textures/blocks/dirt"}
-        }}"#,
+        }}"#
+        } else {
+            r#"{"texture_data":{
+            "grass_side":{"textures":"textures/blocks/grass_side"},
+            "grass_top":{"textures":"textures/blocks/grass_top"},
+            "dirt":{"textures":"textures/blocks/dirt"}
+        }}"#
+        },
     );
     write(
         directory.path().join("textures/flipbook_textures.json"),
@@ -61,10 +79,10 @@ fn grass_cube_faces_keep_the_pack_authored_isotropic_mask() {
     .unwrap();
     let grass = records
         .iter()
-        .find(|record| record.name.as_ref() == "minecraft:grass_block")
+        .find(|record| record.name.as_ref() == name)
         .unwrap();
     let visual = compiled.visuals[grass.sequential_id as usize];
-    assert_eq!(visual.kind, VisualKind::Cube);
+    assert_eq!(visual.kind, kind);
     for face in BlockFace::ALL {
         let material = compiled.materials[visual.faces[face as usize] as usize];
         let expected = matches!(face, BlockFace::Down | BlockFace::Up);
@@ -83,5 +101,9 @@ fn grass_cube_faces_keep_the_pack_authored_isotropic_mask() {
             );
         }
     }
-    assert!(compiled.materials[visual.faces[BlockFace::Up as usize] as usize].variation_count > 1);
+    if kind == VisualKind::Cube {
+        assert!(
+            compiled.materials[visual.faces[BlockFace::Up as usize] as usize].variation_count > 1
+        );
+    }
 }

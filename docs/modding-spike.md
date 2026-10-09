@@ -104,7 +104,21 @@ Effects use the existing authoritative UI effect store and estimated server
 clock. Remaining duration is in 20 Hz ticks, `none` means infinite, and expired
 effects are omitted even before the ordinary UI expiry pass. Effects are sorted
 by ID; wire amplifiers remain zero-based. Reads are limited to eight per callback.
-Snapshots are cleared before and after callbacks and on quarantine; a reload
+
+`player-state.read-revision()` shares that grant and read limit. It returns an
+opaque `u64` token only while the current callback has a valid snapshot. Equal
+tokens within one component instance mean every snapshot field is unchanged,
+including identifiers, session, dimension, exact effect ticks and flags. A guest
+may compare the token before importing the full snapshot and must release cached
+facts when it observes `none`. Tokens do not survive reloads. The host retains one
+exact comparison snapshot only when the guest imports it with `read-snapshot`.
+Current contents equal to that full read reuse its token, including after
+unavailable callbacks or unimported transient changes. Other contents receive a
+fresh token; returned tokens are opaque and need not increase. Comparison facts
+are never exposed without a current snapshot and are cleared on validation
+failure, revocation or callback failure. The allocation counter rejects
+theoretical exhaustion instead of wrapping.
+Current snapshots are cleared before and after callbacks and on quarantine; a reload
 starts without previous session data. This experimental API closes no vanilla
 parity or native acceptance gate.
 
@@ -214,6 +228,14 @@ sample; Escape closes it. Other absorbing screens and lost focus close it, relea
 input, and suppress gameplay output. Removing or quarantining a guest releases
 the panel and its reservations.
 
+`input.read-selected-controls(selection)` reads the same current frame with the
+same controls grant and shared read limit. Each optional pressed/held key list
+uses `none` for all keys, an empty list for none, or up to 64 physical names for
+exact matches in native order. Names follow the existing 32-byte alphanumeric
+key rule; repeated requested names do not duplicate observations. The `events`
+flag selects whether panel events are included; scalar flags are unchanged.
+Selection neither consumes input nor changes reservations or native sampling.
+
 An optional `surface` replaces the built-in panel presentation with extension-owned
 JSON-UI. It has `screen` (`namespace.name`), `document` (a JSON string containing
 that namespace and one root definition), and `bindings` (a map of `#name` to a
@@ -308,6 +330,15 @@ request; any other command is refused, and requests are capped by
 cues in the app's `ModCueFeed`; `events.poll` returns last frame's cues, at most
 `MAX_INCOMING_CUES`. `input.read-controls` also reports held keys. All output commits
 only after a successful callback and is dropped on a trap or reload.
+
+`camera.set-view-scale` (camera grant) renews independent FOV and look multipliers
+each callback. FOV accepts `MIN_VIEW_FOV_SCALE..=1` and look accepts
+`MIN_VIEW_LOOK_SCALE..=1`; both must be finite. It applies only to focused,
+input-owned gameplay with no open extension panel. FOV updates in the current
+camera frame; look gain applies on the next look update. Neutral `1/1`, omission,
+focus loss, UI input ownership, traps and unload restore the player's view without
+changing saved FOV, sensitivity or perspective. In a mod set the earliest
+non-neutral publisher wins.
 
 ## Several mods at once
 
@@ -476,9 +507,19 @@ and geometry together. Each row has `label`, `value`, and optional `item`
 `progress` (0–1), and `color` (RGBA 0–1). Item and effect icons are mutually exclusive;
 unknown effect IDs leave the icon empty rather than guessing.
 Item art follows the current session's resource-pack icons and normal item atlas;
-unknown item identities draw no substituted item. Cards are 148 GUI pixels wide,
-and their height is `(22 + 20 * rows) * scale` with a title, or
-`(4 + 20 * rows) * scale` when the title is absent or empty. Background opacity
+unknown item identities draw no substituted item. Optional `row_layout` selects
+`standard` (default, inline text with a left icon), `stacked_text` (label above
+value beside a left icon), or `icon_right` (inline text before a right icon).
+`width`, `row_height`, and `icon_size` use unscaled GUI pixels and default to
+148, 20, and 16. Width is 48–512, row height is 12–64, and icon size is 4–48;
+icons must fit the row height and the width minus 12 pixels of padding.
+Optional `text_scale` (default 1, bounded to 0.5–2) multiplies the row label and
+value fonts independently of icons and card dimensions. Inline text bands expand
+within the row padding and progress-bar space; stacked rows retain separate line
+bands. Text stays clipped to its available band when the chosen row is too small.
+Card height is `(22 + row_height * rows) * scale` with a title, or
+`(4 + row_height * rows) * scale` without one. Gameplay rendering and layout
+editor bounds use the same dimensions. Background opacity
 is 0–1 (default 0.82) and affects only the card surface, preserving foreground
 text, icons and progress bars. An optional normalized `position: [x, y]` in
 0–1 overrides corner placement: each axis is a fraction of available travel

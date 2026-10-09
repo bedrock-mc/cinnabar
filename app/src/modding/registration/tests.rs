@@ -56,6 +56,19 @@ fn packet_delay_grant_is_opt_in_and_survives_registration_decode() {
     assert!(selected.packet_delay);
 }
 
+#[test]
+fn unloading_extensions_restores_view_scales_and_preserves_saved_fov() {
+    let mut world = World::new();
+    let mut camera = crate::camera::CameraSettingsAuthority::default();
+    let fov = camera.horizontal_fov_degrees();
+    camera.set_view_scale(0.25, 0.25);
+    world.insert_resource(camera);
+    clear_presentation(&mut world);
+    let camera = world.resource::<crate::camera::CameraSettingsAuthority>();
+    assert_eq!((camera.fov_scale(), camera.look_scale()), (1.0, 1.0));
+    assert_eq!(camera.horizontal_fov_degrees(), fov);
+}
+
 fn fixture(enabled: bool, frame: &str, text: &str) -> String {
     let package = include_str!("../../../../crates/mod-api/wit/extension.wit")
         .lines()

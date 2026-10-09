@@ -1,4 +1,4 @@
-//! Bounded, read-only local player facts, retained for exactly one callback.
+//! Bounded, read-only local player facts with callback-scoped reads and exact content tokens.
 
 use super::{MAX_IMPORT_WRITES, State, cinnabar};
 use crate::{PlayerStateItem, PlayerStateSlot, PlayerStateSnapshot};
@@ -11,14 +11,62 @@ use mod_api::{
 #[derive(Default)]
 pub(super) struct PlayerState {
     pub snapshot: Option<PlayerStateSnapshot>,
+    comparison_snapshot: Option<PlayerStateSnapshot>,
+    comparison_revision: u64,
+    current_revision: Option<u64>,
+    revision: u64,
     reads: u32,
 }
 
 impl PlayerState {
-    /// Revoke stale local facts before and after every callback, including inactive ones.
+    /// Clears current reads without discarding the exact observation used for change detection.
     pub fn begin_frame(&mut self) {
         self.snapshot = None;
+        self.current_revision = None;
         self.reads = 0;
+    }
+
+    /// Compares validated callback facts with the last snapshot imported by the guest.
+    pub fn set_snapshot(&mut self, snapshot: Option<PlayerStateSnapshot>) -> Result<()> {
+        let Some(snapshot) = snapshot else {
+            self.snapshot = None;
+            self.current_revision = None;
+            return Ok(());
+        };
+        let revision = if self.comparison_snapshot.as_ref() == Some(&snapshot) {
+            self.comparison_revision
+        } else {
+            self.advance_revision()?;
+            self.revision
+        };
+        self.current_revision = Some(revision);
+        self.snapshot = Some(snapshot);
+        Ok(())
+    }
+
+    /// Releases current and comparison facts after failure or loss of the instance.
+    pub fn revoke(&mut self) {
+        self.begin_frame();
+        self.comparison_snapshot = None;
+    }
+
+    /// Advances an instance-scoped content revision without wrapping the counter.
+    fn advance_revision(&mut self) -> Result<()> {
+        let Some(revision) = self.revision.checked_add(1) else {
+            self.revoke();
+            bail!("player-state revision exhausted");
+        };
+        self.revision = revision;
+        Ok(())
+    }
+
+    /// Full snapshot and revision imports consume the same callback read allowance.
+    fn read_budget(&mut self) -> Result<()> {
+        self.reads += 1;
+        if self.reads > MAX_IMPORT_WRITES {
+            bail!("player-state read budget exhausted");
+        }
+        Ok(())
     }
 }
 
@@ -70,14 +118,28 @@ pub(super) fn validate(snapshot: Option<&PlayerStateSnapshot>) -> Result<()> {
 
 impl cinnabar::extension::player_state::Host for State {
     fn read_snapshot(&mut self) -> Result<Result<Option<PlayerStateSnapshot>, String>> {
-        self.player_state.reads += 1;
-        if self.player_state.reads > MAX_IMPORT_WRITES {
-            bail!("player-state read budget exhausted");
-        }
+        self.player_state.read_budget()?;
         if !self.grants.player_state {
             return Ok(Err("player-state capability denied".into()));
         }
+        if let Some(snapshot) = self.player_state.snapshot.as_ref() {
+            if self.player_state.comparison_snapshot.as_ref() != Some(snapshot) {
+                self.player_state.comparison_snapshot = Some(snapshot.clone());
+            }
+            self.player_state.comparison_revision = self
+                .player_state
+                .current_revision
+                .expect("a current player-state snapshot has a revision");
+        }
         Ok(Ok(self.player_state.snapshot.clone()))
+    }
+
+    fn read_revision(&mut self) -> Result<Result<Option<u64>, String>> {
+        self.player_state.read_budget()?;
+        if !self.grants.player_state {
+            return Ok(Err("player-state capability denied".into()));
+        }
+        Ok(Ok(self.player_state.current_revision))
     }
 }
 

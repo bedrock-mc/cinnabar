@@ -146,6 +146,11 @@ impl ModHost {
         self.instance.preserves_teleport_rotation()
     }
 
+    /// Current-frame FOV and look multipliers; absence restores neutral 1/1.
+    pub fn camera_view_scale(&self) -> Option<[f32; 2]> {
+        self.instance.camera_view_scale()
+    }
+
     /// The retained camera rig from the last successful callback.
     pub fn camera_rig(&self) -> Option<GameplayCameraRig> {
         self.instance.camera_rig()

@@ -58,6 +58,35 @@ fn rig_forces_third_person_back_and_clearing_restores_the_player_choice() {
 }
 
 #[test]
+fn view_multipliers_leave_saved_settings_and_perspective_intact() {
+    let mut settings = CameraSettingsAuthority::default();
+    let mut user = ui::UserSettings::default();
+    user.video.horizontal_fov_degrees = 80.0;
+    user.controls.mouse_sensitivity = 0.8;
+    settings.replace(1, &user).unwrap();
+    let sensitivity = settings.game_sensitivity();
+    settings.set_view_scale(0.25, 0.25);
+    assert_eq!(settings.horizontal_fov_degrees(), 80.0);
+    assert_eq!(settings.game_sensitivity(), sensitivity);
+    assert_eq!(settings.perspective(), PerspectiveMode::FirstPerson);
+    assert_eq!(settings.rig(), None);
+    user.video.horizontal_fov_degrees = 100.0;
+    settings.replace(2, &user).unwrap();
+    assert_eq!(settings.horizontal_fov_degrees(), 100.0);
+    assert_eq!(settings.fov_scale(), 0.25);
+    settings.set_view_scale(1.0, 1.0);
+    assert_eq!((settings.fov_scale(), settings.look_scale()), (1.0, 1.0));
+    for (fov, look) in [(f32::NAN, 0.25), (0.25, 0.0), (2.0, 0.25)] {
+        settings.set_view_scale(fov, look);
+        assert_eq!((settings.fov_scale(), settings.look_scale()), (1.0, 1.0));
+    }
+    settings.set_view_scale(0.25, 0.25);
+    settings.reset_perspective();
+    assert_eq!((settings.fov_scale(), settings.look_scale()), (1.0, 1.0));
+    assert_eq!(settings.horizontal_fov_degrees(), 100.0);
+}
+
+#[test]
 fn rig_offset_follows_the_eye_look_in_camera_local_axes() {
     let eye = Vec3::new(10.0, 70.0, 10.0);
     let unturned = rig_pose(eye, Quat::IDENTITY, shoulder());

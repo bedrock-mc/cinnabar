@@ -149,7 +149,8 @@ pub fn update_camera_fov(
             .death_fov_degrees(player_fov, !server.has_pose_override())
             .clamp(MIN_GAMEPLAY_FOV_DEGREES, MAX_GAMEPLAY_FOV_DEGREES);
     }
-    let fov_degrees = server.fov_override_degrees(base).unwrap_or(player_fov);
+    let fov_degrees =
+        server.fov_override_degrees(base).unwrap_or(player_fov) * settings.fov_scale();
     for mut projection in &mut cameras {
         if let Some(perspective) = perspective_mut(&mut projection) {
             perspective.fov = projection_fov_radians(fov_degrees);
@@ -442,6 +443,41 @@ mod tests {
             app.update();
             assert!((world_fov(&app, camera).to_degrees() - expected).abs() < 1e-4);
         }
+    }
+
+    #[test]
+    fn current_view_scale_changes_projection_and_restores_latest_saved_fov() {
+        let (mut app, camera) = fov_app(
+            80.0,
+            CameraFovInputs {
+                fov_effects_scale: 0.0,
+                ..Default::default()
+            },
+        );
+        app.world_mut()
+            .resource_mut::<CameraSettingsAuthority>()
+            .set_view_scale(0.25, 0.25);
+        app.update();
+        assert!((world_fov(&app, camera).to_degrees() - 20.0).abs() < 1e-4);
+        assert_eq!(
+            app.world()
+                .resource::<CameraSettingsAuthority>()
+                .perspective(),
+            semantic_input::PerspectiveMode::FirstPerson
+        );
+        let mut user = ui::UserSettings::default();
+        user.video.horizontal_fov_degrees = 100.0;
+        app.world_mut()
+            .resource_mut::<CameraSettingsAuthority>()
+            .replace(2, &user)
+            .unwrap();
+        app.update();
+        assert!((world_fov(&app, camera).to_degrees() - 25.0).abs() < 1e-4);
+        app.world_mut()
+            .resource_mut::<CameraSettingsAuthority>()
+            .set_view_scale(1.0, 1.0);
+        app.update();
+        assert!((world_fov(&app, camera).to_degrees() - 100.0).abs() < 1e-4);
     }
 
     #[test]
