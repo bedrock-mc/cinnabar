@@ -832,12 +832,8 @@ pub(crate) fn drive_menu_input(
         }
     }
     if let Some((id, action)) = gui_scale_drag.touch_press {
-        if let Some(touch) = touches.get_released(id) {
-            let position = touch.position();
-            let hovered = UiPoint::new(position.x, position.y)
-                .ok()
-                .and_then(|point| presentation.hit_test_menu(point));
-            if let Some(action) = native_release_action(action, hovered) {
+        if touches.get_released(id).is_some() {
+            if let Some(action) = gui_scale_drag.sounds.released_action(id) {
                 press(&mut menu, action);
             }
             gui_scale_drag.touch_press = None;

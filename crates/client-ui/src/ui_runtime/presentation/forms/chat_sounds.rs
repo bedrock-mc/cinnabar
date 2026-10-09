@@ -40,7 +40,7 @@ impl UiPresentationRuntime {
             .mouse(point, now, crate::sound_requests::ui_sound);
     }
 
-    /// Sounds an accepted touch release on its captured JSON-UI control.
+    /// Returns an accepted chat release and forwards its declared feedback.
     pub fn sound_chat_touch(
         &self,
         id: u64,
@@ -48,7 +48,7 @@ impl UiPresentationRuntime {
         pressed: bool,
         held: bool,
         now: f64,
-    ) {
+    ) -> bool {
         self.form_presentation.chat.audio.touch(
             id,
             point,
@@ -56,7 +56,12 @@ impl UiPresentationRuntime {
             held,
             now,
             crate::sound_requests::ui_sound,
-        );
+        )
+    }
+
+    /// Revokes one cancelled chat touch while preserving other fingers.
+    pub fn cancel_chat_sound_touch(&self, id: u64) {
+        self.form_presentation.chat.audio.cancel_touch(id);
     }
 
     /// Cancels held chat touches when input ownership changes.

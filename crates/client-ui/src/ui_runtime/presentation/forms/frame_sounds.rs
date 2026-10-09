@@ -57,6 +57,24 @@ impl FrameSounds {
         }
     }
 
+    /// Revokes one touch without cancelling another finger or its replay history.
+    pub(super) fn cancel_touch(&self, id: u64) {
+        let mut input = self
+            .input
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(slot) = input
+            .touches
+            .iter_mut()
+            .find(|slot| slot.as_ref().is_some_and(|(captured, _)| *captured == id))
+        {
+            *slot = None;
+            if let Some(frame) = &self.frame {
+                input.cancel_pointer(frame);
+            }
+        }
+    }
+
     /// Dispatches a mouse press and its silent release through the rendered controls.
     pub(super) fn mouse(&self, point: UiPoint, now: f64, mut receive: impl FnMut(&str, f32, f32)) {
         let Some(frame) = &self.frame else {
@@ -71,7 +89,7 @@ impl FrameSounds {
         input.pointer(frame, point, false, InputMode::Mouse, now, &mut receive);
     }
 
-    /// Sounds an accepted touch release; holds only inspect identity and allocate nothing.
+    /// Returns acceptance of a captured release and sounds it; held frames allocate nothing.
     #[allow(clippy::too_many_arguments)]
     pub(super) fn touch(
         &self,
@@ -81,13 +99,14 @@ impl FrameSounds {
         held: bool,
         now: f64,
         mut receive: impl FnMut(&str, f32, f32),
-    ) {
+    ) -> bool {
         let Some(frame) = &self.frame else {
-            return;
+            return false;
         };
         let point = point.map(|point| frame.to_virtual(point));
         let key = point
             .and_then(|point| json_ui::hit_test(&frame.hits, point))
+            .filter(|hit| hit.enabled)
             .map(|hit| hit.key.as_str());
         let mut input = self
             .input
@@ -100,7 +119,7 @@ impl FrameSounds {
                 .flatten()
                 .any(|(captured, _)| *captured == id)
             {
-                return;
+                return false;
             }
             if let (Some(key), Some(slot)) =
                 (key, input.touches.iter_mut().find(|slot| slot.is_none()))
@@ -108,7 +127,7 @@ impl FrameSounds {
                 *slot = Some((id, key.to_owned()));
             }
             if held {
-                return;
+                return false;
             }
         }
         let Some(slot) = input
@@ -116,7 +135,7 @@ impl FrameSounds {
             .iter()
             .position(|slot| slot.as_ref().is_some_and(|(captured, _)| *captured == id))
         else {
-            return;
+            return false;
         };
         if input.touches[slot]
             .as_ref()
@@ -124,7 +143,7 @@ impl FrameSounds {
         {
             input.touches[slot] = None;
             input.cancel_pointer(frame);
-            return;
+            return false;
         }
         if !held {
             input.touches[slot] = None;
@@ -132,8 +151,10 @@ impl FrameSounds {
                 input.cancel_pointer(frame);
                 input.pointer(frame, point, true, InputMode::Touch, now, &mut receive);
                 input.pointer(frame, point, false, InputMode::Touch, now, &mut receive);
+                return true;
             }
         }
+        false
     }
 
     /// Sounds one keyboard or gamepad activation of the identified control.
@@ -515,6 +536,67 @@ mod tests {
             });
         }
         assert_eq!(emitted, ["left.click", "extra", "right.click", "extra"]);
+    }
+
+    #[test]
+    fn cancelling_one_touch_preserves_another_controls_release() {
+        let sounds = sounds();
+        for (id, right) in [(1, false), (2, true)] {
+            sounds.touch(id, Some(point(right)), true, true, 1.0, |_, _, _| {
+                panic!("press is silent")
+            });
+        }
+        sounds.cancel_touch(1);
+        assert!(
+            !sounds.touch(1, Some(point(false)), false, false, 1.1, |_, _, _| panic!(
+                "cancelled release is silent"
+            ))
+        );
+        let mut emitted = Vec::new();
+        assert!(
+            sounds.touch(2, Some(point(true)), false, false, 1.1, |name, _, _| {
+                emitted.push(name.to_owned())
+            })
+        );
+        assert_eq!(emitted, ["right.click", "extra"]);
+    }
+
+    #[test]
+    fn touch_acceptance_requires_an_enabled_control_but_not_sound_metadata() {
+        let mut sounds = sounds();
+        let frame = sounds.frame.as_mut().unwrap();
+        std::sync::Arc::make_mut(&mut frame.hits)
+            .iter_mut()
+            .find(|hit| hit.name == "right")
+            .unwrap()
+            .widget
+            .sounds = None;
+        assert!(
+            !sounds.touch(1, Some(point(true)), true, true, 1.0, |_, _, _| panic!(
+                "no declared sound"
+            ))
+        );
+        assert!(
+            sounds.touch(1, Some(point(true)), false, false, 1.1, |_, _, _| panic!(
+                "no declared sound"
+            ))
+        );
+        let frame = sounds.frame.as_mut().unwrap();
+        std::sync::Arc::make_mut(&mut frame.hits)
+            .iter_mut()
+            .find(|hit| hit.name == "right")
+            .unwrap()
+            .enabled = false;
+        assert!(
+            !sounds.touch(2, Some(point(true)), true, true, 2.0, |_, _, _| panic!(
+                "disabled"
+            ))
+        );
+        assert!(
+            !sounds.touch(2, Some(point(true)), false, false, 2.1, |_, _, _| panic!(
+                "disabled"
+            ))
+        );
     }
 
     #[test]

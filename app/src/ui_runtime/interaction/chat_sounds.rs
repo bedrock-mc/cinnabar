@@ -52,8 +52,18 @@ impl ChatPressSounds {
         if activated.is_some() {
             ui_sound(UI_CLICK, 1.0, 1.0);
         }
-        if touches.iter_just_canceled().next().is_some() {
-            self.bed.clear();
+        for touch in touches.iter_just_canceled() {
+            self.bed.cancel_touch(touch.id());
+        }
+        for touch in touches
+            .iter_just_pressed()
+            .filter(|touch| !touches.just_canceled(touch.id()))
+        {
+            let position = touch.position();
+            let hit = UiPoint::new(position.x, position.y)
+                .ok()
+                .and_then(|point| presentation.hit_test_bed(point));
+            self.bed_touch(touch.id(), hit, [position.x, position.y], true, true, now);
         }
         for touch in touches.iter().chain(touches.iter_just_released()) {
             let position = touch.position();
@@ -64,7 +74,7 @@ impl ChatPressSounds {
                 touch.id(),
                 hit,
                 [position.x, position.y],
-                touches.just_pressed(touch.id()),
+                false,
                 touches.get_pressed(touch.id()).is_some(),
                 now,
             );
@@ -139,18 +149,28 @@ impl ChatPressSounds {
             presentation.sound_chat_mouse(point, now);
             actions.push(point);
         }
-        if touches.iter_just_canceled().next().is_some() {
-            self.chat.clear();
-            presentation.cancel_chat_sound_touches();
+        for touch in touches.iter_just_canceled() {
+            self.chat.cancel_touch(touch.id());
+            presentation.cancel_chat_sound_touch(touch.id());
+        }
+        for touch in touches
+            .iter_just_pressed()
+            .filter(|touch| !touches.just_canceled(touch.id()))
+        {
+            let position = touch.position();
+            let point = UiPoint::new(position.x, position.y).ok();
+            let hit = point.and_then(|point| presentation.hit_test_chat(point));
+            presentation.sound_chat_touch(touch.id(), point, true, true, now);
+            self.chat_touch(touch.id(), hit, [position.x, position.y], true, true, now);
         }
         for touch in touches.iter().chain(touches.iter_just_released()) {
             let position = touch.position();
             let point = UiPoint::new(position.x, position.y).ok();
             let hit = point.and_then(|point| presentation.hit_test_chat(point));
-            presentation.sound_chat_touch(
+            let accepted = presentation.sound_chat_touch(
                 touch.id(),
                 point,
-                touches.just_pressed(touch.id()),
+                false,
                 touches.get_pressed(touch.id()).is_some(),
                 now,
             );
@@ -159,11 +179,12 @@ impl ChatPressSounds {
                     touch.id(),
                     hit,
                     [position.x, position.y],
-                    touches.just_pressed(touch.id()),
+                    false,
                     touches.get_pressed(touch.id()).is_some(),
                     now,
                 )
                 .is_some()
+                && accepted
                 && let Some(point) = point
             {
                 actions.push(point);

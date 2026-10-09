@@ -38,6 +38,17 @@ impl<A: Copy + PartialEq> PressSounds<A> {
         self.touches.fill(None);
     }
 
+    /// Revokes one cancelled finger while leaving other captured presses intact.
+    pub fn cancel_touch(&mut self, id: u64) {
+        if let Some(slot) = self
+            .touches
+            .iter_mut()
+            .find(|slot| slot.is_some_and(|press| press.id == id))
+        {
+            *slot = None;
+        }
+    }
+
     /// Returns an accepted release even when its held press has already sounded.
     pub fn released_action(&self, id: u64, point: [f32; 2]) -> Option<A> {
         let press = self.touches.iter().flatten().find(|press| press.id == id)?;
@@ -86,7 +97,7 @@ impl<A: Copy + PartialEq> PressSounds<A> {
         press.cancelled |= press.oreui
             && ((point[0] - press.point[0]).abs() > TOUCH_SLOP
                 || (point[1] - press.point[1]).abs() > TOUCH_SLOP);
-        let due = !held || (press.oreui && now - press.started >= TOUCH_PRESS_SECONDS);
+        let due = !held || (press.oreui && now >= press.started + TOUCH_PRESS_SECONDS);
         let accepted = held || action == Some(press.action);
         let emit = (!press.cancelled && !press.sounded && due && accepted).then_some(press.action);
         press.sounded |= emit.is_some();
@@ -133,6 +144,24 @@ mod tests {
         );
         assert_eq!(
             sounds.touch(2, Some(ACTION), [0.0; 2], false, false, 3.05, true),
+            Some(ACTION)
+        );
+    }
+
+    #[test]
+    fn native_touch_sounds_at_its_press_deadline() {
+        let mut sounds = PressSounds::default();
+        sounds.touch(1, Some(ACTION), [0.0; 2], true, true, 1.0, true);
+        assert_eq!(
+            sounds.touch(
+                1,
+                Some(ACTION),
+                [0.0; 2],
+                false,
+                true,
+                1.0 + TOUCH_PRESS_SECONDS,
+                true
+            ),
             Some(ACTION)
         );
     }
@@ -188,6 +217,23 @@ mod tests {
         assert_eq!(
             sounds.touch(1, None, [1.0, 0.0], false, false, 1.05, true),
             None
+        );
+    }
+
+    #[test]
+    fn cancelling_one_touch_preserves_other_presses() {
+        let mut sounds = PressSounds::default();
+        for id in [1, 2] {
+            sounds.touch(id, Some(ACTION), [0.0; 2], true, true, 1.0, true);
+        }
+        sounds.cancel_touch(1);
+        assert_eq!(
+            sounds.touch(1, Some(ACTION), [0.0; 2], false, false, 1.05, true),
+            None
+        );
+        assert_eq!(
+            sounds.touch(2, Some(ACTION), [0.0; 2], false, false, 1.05, true),
+            Some(ACTION)
         );
     }
 

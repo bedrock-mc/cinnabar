@@ -55,6 +55,18 @@ impl UiPresentationRuntime {
         self.form_presentation.native_menu_sounds
     }
 
+    /// Applies native button gesture limits while leaving sliders and text entry to their own handling.
+    pub fn menu_touch_uses_press_slop(&self, action: MenuAction) -> bool {
+        self.uses_native_menu_sounds()
+            && native_sound(
+                action,
+                self.menu_view
+                    .as_ref()
+                    .is_some_and(|view| view.settings_scale_picker),
+            )
+            .is_some()
+    }
+
     /// Plays one control interaction through the pack-aware named audio queue.
     pub fn play_menu_sound(&self, action: MenuAction, mode: json_ui::InputMode) {
         if self.uses_native_menu_sounds() {
@@ -89,7 +101,7 @@ impl UiPresentationRuntime {
             .mouse(point, now, crate::sound_requests::ui_sound);
     }
 
-    /// Retains JSON-UI touch identity and sounds only an accepted release.
+    /// Returns an accepted JSON-UI release and forwards its authored feedback.
     pub fn sound_menu_touch(
         &self,
         id: u64,
@@ -97,7 +109,7 @@ impl UiPresentationRuntime {
         pressed: bool,
         held: bool,
         now: f64,
-    ) {
+    ) -> bool {
         self.form_presentation.menu_audio.touch(
             id,
             point,
@@ -105,7 +117,12 @@ impl UiPresentationRuntime {
             held,
             now,
             crate::sound_requests::ui_sound,
-        );
+        )
+    }
+
+    /// Revokes one cancelled menu touch without cancelling the other fingers.
+    pub fn cancel_menu_sound_touch(&self, id: u64) {
+        self.form_presentation.menu_audio.cancel_touch(id);
     }
 
     /// Cancels touches when another input owner takes control.
