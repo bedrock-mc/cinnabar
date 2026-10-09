@@ -2,14 +2,23 @@
 use crate::gpu_snapshot;
 use crate::shader_source;
 
-use gpu_snapshot::{Draw, Gpu};
+use gpu_snapshot::{Draw, Gpu, SNAPSHOT_SIDE};
 
-const TEXELS: [[u8; 4]; 4] = [
+const TEXELS: [[u8; 4]; 5] = [
     [255, 255, 255, 255],
     [128, 192, 64, 255],
     [128, 192, 64, 128],
+    [128, 192, 64, 0],
     [64, 96, 32, 255],
 ];
+const NEXT_FRAME: usize = TEXELS.len() - 1;
+const CASE_COUNT: usize = NEXT_FRAME;
+
+/// Returns the centre pixel of a witness cell, including the undrawn final cell.
+fn witness_pixel_offset(cell: usize) -> usize {
+    let side = SNAPSHOT_SIDE as usize;
+    (side / 2 * side + (cell * 2 + 1) * side / (2 * (CASE_COUNT + 1))) * 4
+}
 
 /// Decodes the reference fog colour before the production shader restores gamma RGB.
 fn linear(value: f32) -> f32 {
@@ -59,7 +68,9 @@ fn snow_and_other_world_models_use_native_terrain_colour_at_day_and_night() {
         "{}\n{VERTEX}",
         shader_source::standalone(include_str!("../../src/model.wgsl"), &[])
     )
-    .replace("@group(1) @binding(0)", "@group(0) @binding(20)");
+    .replace("@group(1) @binding(0)", "@group(0) @binding(20)")
+    .replace("GRID_COLUMNS", &format!("{}.0", CASE_COUNT + 1))
+    .replace("NEXT_FRAME", &format!("{NEXT_FRAME}u"));
     let view = gpu.buffer(&[0.0; 104], wgpu::BufferUsages::UNIFORM);
     for (light, fog_amount, blend_frames, ao_face) in [
         ([1.0, 1.0, 1.0], 0.0, false, 1.0),
@@ -80,9 +91,9 @@ fn snow_and_other_world_models_use_native_terrain_colour_at_day_and_night() {
         atmosphere[20] = 100.0;
         let atmosphere = gpu.buffer(&atmosphere, wgpu::BufferUsages::UNIFORM);
         let mut words = Vec::new();
-        for layer in 0..3 {
+        for layer in 0..CASE_COUNT {
             words.extend(light);
-            words.push(f32::from_bits(layer));
+            words.push(f32::from_bits(layer as u32));
             words.extend([fog_amount * 100.0, f32::from(blend_frames), ao_face, 0.0]);
         }
         let cases = gpu.buffer(&words, wgpu::BufferUsages::STORAGE);
@@ -120,28 +131,48 @@ fn snow_and_other_world_models_use_native_terrain_colour_at_day_and_night() {
                 resource: lightmap.as_entire_binding(),
             },
         ];
-        for fragment in ["fragment", "fragment_blend"] {
+        for (material, fragment, flags) in [
+            ("opaque", "fragment", 0),
+            ("cutout", "fragment", assets::MATERIAL_FLAG_ALPHA_CUTOUT),
+            (
+                "blended",
+                "fragment_blend",
+                assets::MATERIAL_FLAG_ALPHA_BLEND,
+            ),
+        ] {
+            let source = source.replace("MATERIAL_FLAGS", &format!("{flags}u"));
             let pixels = gpu.render_srgb(
                 &source,
                 "model_witness_vertex",
                 &[Draw {
                     fragment,
-                    vertices: 0..18,
+                    vertices: 0..(CASE_COUNT as u32 * 6),
                     bindings: &bindings,
                     blend: None,
                     write_depth: true,
                 }],
             );
-            for (layer, texel) in TEXELS[..3].iter().enumerate() {
-                let offset = (128 * 256 + layer * 64 + 32) * 4;
-                if fragment == "fragment" && texel[3] < 128 {
+            let clear_offset = witness_pixel_offset(CASE_COUNT);
+            for (layer, texel) in TEXELS[..CASE_COUNT].iter().enumerate() {
+                let offset = witness_pixel_offset(layer);
+                let sampled_alpha = if blend_frames {
+                    (u16::from(texel[3]) + u16::from(TEXELS[NEXT_FRAME][3])).div_ceil(2) as u8
+                } else {
+                    texel[3]
+                };
+                if flags == assets::MATERIAL_FLAG_ALPHA_CUTOUT && sampled_alpha < 128 {
+                    assert_eq!(
+                        &pixels[offset..offset + 4],
+                        &pixels[clear_offset..clear_offset + 4],
+                        "{material}, layer {layer}, light {light:?}, fog {fog_amount}, frames {blend_frames}: cutout below half alpha leaves the clear colour untouched"
+                    );
                     continue;
                 }
                 for channel in 0..3 {
                     let texture_gamma = f32::from(texel[channel]) / 255.0;
                     let texture_gamma = if blend_frames {
                         // Native frames interpolate atlas RGB, not decoded sRGB.
-                        (texture_gamma + f32::from(TEXELS[3][channel]) / 255.0) * 0.5
+                        (texture_gamma + f32::from(TEXELS[NEXT_FRAME][channel]) / 255.0) * 0.5
                     } else {
                         texture_gamma
                     };
@@ -150,16 +181,16 @@ fn snow_and_other_world_models_use_native_terrain_colour_at_day_and_night() {
                         * 255.0;
                     assert!(
                         (f32::from(pixels[offset + channel]) - expected).abs() <= 2.0,
-                        "{fragment}, layer {layer}, light {light:?}, fog {fog_amount}, frames {blend_frames}, channel {channel}: got {}, native {expected}",
+                        "{material} {fragment}, layer {layer}, light {light:?}, fog {fog_amount}, frames {blend_frames}, channel {channel}: got {}, native {expected}",
                         pixels[offset + channel]
                     );
                 }
-                let alpha = if blend_frames {
-                    (u16::from(texel[3]) + 255).div_ceil(2) as u8
-                } else {
-                    texel[3]
-                };
-                assert!(pixels[offset + 3].abs_diff(alpha) <= 1);
+                let alpha = if flags == 0 { 255 } else { sampled_alpha };
+                assert!(
+                    pixels[offset + 3].abs_diff(alpha) <= 1,
+                    "{material} {fragment}, layer {layer}, light {light:?}, fog {fog_amount}, frames {blend_frames}: output alpha {}, expected {alpha}, sampled {sampled_alpha}",
+                    pixels[offset + 3]
+                );
             }
         }
     }
@@ -174,10 +205,11 @@ struct ModelWitnessCase { light_texture: vec4<f32>, distance_frames: vec4<f32> }
     let witness = model_witness_cases[case_index];
     let corner = corners[index % 6u];
     var out = invisible_vertex();
-    out.clip_position = vec4(-1.0 + (f32(case_index) + corner.x) * 0.5, -1.0 + corner.y * 2.0, 0.5, 1.0);
+    out.clip_position = vec4(-1.0 + (f32(case_index) + corner.x) * (2.0 / GRID_COLUMNS), -1.0 + corner.y * 2.0, 0.5, 1.0);
     out.uv = vec2(0.5);
     out.current_texture = bitcast<u32>(witness.light_texture.w);
-    out.next_texture = 3u;
+    out.next_texture = NEXT_FRAME;
+    out.material_flags = MATERIAL_FLAGS;
     out.frame_blend = witness.distance_frames.y * 0.5;
     out.normal = vec3(0.0, 1.0, 0.0);
     out.lighting = witness.light_texture.rgb;
