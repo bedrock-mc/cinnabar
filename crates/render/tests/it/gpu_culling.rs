@@ -651,6 +651,13 @@ fn slot_draws(terrain: &Terrain, slot: usize, eye: [f64; 3], stream: CullStream)
         .collect()
 }
 
+/// Draws cube quads exactly on the block grid. Sealed quads overlap coplanar
+/// neighbours by a sub-pixel sliver whose colour follows draw order, and the
+/// culling paths compared here legitimately draw sub-chunks in different orders.
+const UNSEALED_VERTEX: &str = "@vertex fn unsealed_vertex(\
+    @builtin(vertex_index) vertex_index: u32, @builtin(instance_index) instance_index: u32,\
+) -> VertexOutput { return sealed_cube_vertex(vertex_index, instance_index, 0.0); }";
+
 struct Raster {
     solid: wgpu::RenderPipeline,
     cutout: wgpu::RenderPipeline,
@@ -673,8 +680,11 @@ impl Raster {
         write_depth: bool,
         color: wgpu::TextureFormat,
     ) -> Self {
-        let source = shader_source::standalone(include_str!("../../src/chunk.wgsl"), &[])
-            .replace("@group(1) @binding(0)", "@group(0) @binding(20)");
+        let source = format!(
+            "{}\n{UNSEALED_VERTEX}",
+            shader_source::standalone(include_str!("../../src/chunk.wgsl"), &[])
+        )
+        .replace("@group(1) @binding(0)", "@group(0) @binding(20)");
         let module = gpu
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -688,7 +698,7 @@ impl Raster {
                     layout: None,
                     vertex: wgpu::VertexState {
                         module: &module,
-                        entry_point: Some("vertex"),
+                        entry_point: Some("unsealed_vertex"),
                         compilation_options: Default::default(),
                         buffers: &[],
                     },

@@ -106,6 +106,7 @@ struct VertexOutput {
     @location(11) native_ao_face: f32,
     @location(12) @interpolate(flat) uniform_tint_gamma: vec4<f32>,
 #endif
+    @location(13) @interpolate(flat) uv_limit: vec2<f32>,
 }
 
 fn quad_corner(face: u32, corner: u32, origin: vec3<f32>, width: f32, height: f32) -> vec3<f32> {
@@ -177,31 +178,16 @@ fn face_normal(face: u32) -> vec3<f32> {
     }
 }
 
-fn greedy_uv(face: u32, corner: u32, width: f32, height: f32, flags: u32) -> vec2<f32> {
+/// Texture coordinates at in-quad `position` (see `quad_position`). The map is
+/// affine, so positions just outside the quad continue its texture mapping.
+fn greedy_uv(face: u32, position: vec2<f32>, width: f32, height: f32, flags: u32) -> vec2<f32> {
     // Native cube UV axes: West +Z/-Y, East -Z/-Y, North -X/-Y,
     // South +X/-Y, Down +X/-Z, Up +X/+Z. Opposing cutout faces
     // must not share the same projected alpha mask.
-    let horizontal_standard = array<vec2<f32>, 4>(
-        vec2(0.0, height), vec2(width, height),
-        vec2(width, 0.0), vec2(0.0, 0.0),
-    );
-    let horizontal_transposed = array<vec2<f32>, 4>(
-        vec2(0.0, 0.0), vec2(0.0, height),
-        vec2(width, height), vec2(width, 0.0),
-    );
-    let vertical_standard = array<vec2<f32>, 4>(
-        vec2(0.0, height), vec2(width, height),
-        vec2(width, 0.0), vec2(0.0, 0.0),
-    );
-    let vertical_transposed = array<vec2<f32>, 4>(
-        vec2(width, height), vec2(width, 0.0),
-        vec2(0.0, 0.0), vec2(0.0, height),
-    );
-    var uv = horizontal_standard[corner];
+    var uv = vec2(position.x, height - position.y);
     switch face {
-        case 0u, 5u: { uv = vertical_standard[corner]; }
-        case 1u, 4u: { uv = vertical_transposed[corner]; }
-        case 3u: { uv = horizontal_transposed[corner]; }
+        case 1u, 4u: { uv = vec2(width - position.x, height - position.y); }
+        case 3u: { uv = position; }
         default: {}
     }
 
@@ -229,6 +215,32 @@ fn greedy_uv(face: u32, corner: u32, width: f32, height: f32, flags: u32) -> vec
     return uv;
 }
 
+/// The two in-plane world axes of a cube face: the quad's width axis, then its height axis.
+fn quad_axes(face: u32) -> array<vec3<f32>, 2> {
+    switch face / 2u {
+        case 0u: { return array<vec3<f32>, 2>(vec3(0.0, 0.0, 1.0), vec3(0.0, 1.0, 0.0)); }
+        case 1u: { return array<vec3<f32>, 2>(vec3(1.0, 0.0, 0.0), vec3(0.0, 0.0, 1.0)); }
+        default: { return array<vec3<f32>, 2>(vec3(1.0, 0.0, 0.0), vec3(0.0, 1.0, 0.0)); }
+    }
+}
+
+/// In-quad coordinates, in blocks along the width and height axes, of an
+/// offset from the quad's origin block corner such as `quad_corner` returns.
+fn quad_position(face: u32, offset: vec3<f32>) -> vec2<f32> {
+    let axes = quad_axes(face);
+    return vec2(dot(offset, axes[0]), dot(offset, axes[1]));
+}
+
+// Pulls clamped texture coordinates inside the quad's last texel, which
+// repeat addressing would otherwise wrap to the opposite edge.
+const CUBE_UV_EDGE_INSET: f32 = 1.0 / 16384.0;
+
+/// Largest texture coordinates that still sample a quad's own last texels.
+fn greedy_uv_limit(width: f32, height: f32, flags: u32) -> vec2<f32> {
+    let extents = select(vec2(width, height), vec2(height, width), (flags & 1u) != 0u);
+    return extents - vec2(CUBE_UV_EDGE_INSET);
+}
+
 @vertex
 fn vertex(
     @builtin(vertex_index) vertex_index: u32,
@@ -237,8 +249,69 @@ fn vertex(
     return cube_vertex(vertex_index, instance_index);
 }
 
-// `vertex_index / 4` selects the chunk origin and `instance_index` the packed quad.
+// Rasterizers snap vertices to a sub-pixel grid. Where a smaller cube quad's
+// corner lies on a greedy-merged quad's long edge (a T-junction), the snapped
+// edges no longer meet, and pixel centres in the sliver between them see
+// whatever lies behind the terrain. Every cube quad edge therefore advances
+// this many pixels outward within its own face before rasterization.
+const CUBE_SEAM_SEAL_PIXELS: f32 = 1.0 / 64.0;
+// Below this sine between a corner's two projected edges, those edges advance
+// proportionally less, so a face seen nearly edge-on barely lengthens.
+const CUBE_SEAM_MIN_EDGE_SINE: f32 = 0.25;
+// Largest in-plane step per unit of clip w, reached only when an edge points
+// along the view ray and moving along it barely changes the screen position.
+const CUBE_SEAM_MAX_STEP: f32 = 1.0 / 64.0;
+
+/// World position of a section-local point relative to the camera. Whole
+/// blocks are subtracted as integers first, so the same world corner is
+/// bit-identical from every section and stays precise far from the origin.
+fn camera_relative_position(section_origin: vec3<i32>, local_position: vec3<f32>) -> vec3<f32> {
+    let camera_block = vec3<i32>(floor(view.world_position));
+    let camera_offset = view.world_position - vec3<f32>(camera_block);
+    return vec3<f32>(section_origin - camera_block) + local_position - camera_offset;
+}
+
+/// Projects a camera-relative position with the view's `clip_from_world`,
+/// without the large world coordinates whose rounding moves each vertex
+/// independently.
+fn camera_relative_clip(relative: vec3<f32>) -> vec4<f32> {
+    let camera_clip = view.clip_from_world * vec4(view.world_position, 1.0);
+    return view.clip_from_world * vec4(relative, 0.0) + camera_clip;
+}
+
+/// World distances to move a quad corner along `outward_u` and `outward_v`,
+/// unit axes pointing away from the quad along the two edges that meet there,
+/// so that both edges advance `seal_pixels` on screen, perpendicular to
+/// themselves. `clip` is the corner's clip position. Moving within the face's
+/// plane keeps the face's own depth on newly covered pixels. Corners behind
+/// the camera get the matching inward steps, which keeps edges sealed after
+/// near-plane clipping.
+fn seal_steps(clip: vec4<f32>, outward_u: vec3<f32>, outward_v: vec3<f32>, seal_pixels: f32) -> vec2<f32> {
+    let du = view.clip_from_world * vec4(outward_u, 0.0);
+    let dv = view.clip_from_world * vec4(outward_v, 0.0);
+    // Screen pixels moved per world unit along each axis, times w squared.
+    let half_viewport = 0.5 * view.viewport.zw;
+    let screen_u = (du.xy * clip.w - clip.xy * du.w) * half_viewport;
+    let screen_v = (dv.xy * clip.w - clip.xy * dv.w) * half_viewport;
+    let length_u = length(screen_u);
+    let length_v = length(screen_v);
+    let spanned = abs(screen_u.x * screen_v.y - screen_u.y * screen_v.x);
+    let area = max(max(spanned, CUBE_SEAM_MIN_EDGE_SINE * length_u * length_v), 1e-30);
+    // A step along one axis moves the edge running along the other axis
+    // outward, perpendicular to itself, by the seal width.
+    let scale = seal_pixels * clip.w * abs(clip.w) / area;
+    let bound = CUBE_SEAM_MAX_STEP * abs(clip.w);
+    return clamp(scale * vec2(length_v, length_u), vec2(-bound), vec2(bound));
+}
+
+/// A cube quad corner with its seams sealed by `CUBE_SEAM_SEAL_PIXELS`.
 fn cube_vertex(vertex_index: u32, instance_index: u32) -> VertexOutput {
+    return sealed_cube_vertex(vertex_index, instance_index, CUBE_SEAM_SEAL_PIXELS);
+}
+
+// `vertex_index / 4` selects the chunk origin and `instance_index` the packed quad.
+// A `seal_pixels` of zero leaves the corner exactly on the block grid.
+fn sealed_cube_vertex(vertex_index: u32, instance_index: u32, seal_pixels: f32) -> VertexOutput {
     let quad = quads[instance_index];
     let geometry = quad.geometry;
     let local_origin = vec3<f32>(
@@ -262,16 +335,19 @@ fn cube_vertex(vertex_index: u32, instance_index: u32) -> VertexOutput {
     );
     let local_position = quad_corner(face, corner, local_origin, width, height);
     let world_position = vec3<f32>(chunk_origin.value.xyz) + local_position;
+    let camera_relative = camera_relative_position(chunk_origin.value.xyz, local_position);
     let material = positional_material(quad.material_id, chunk_origin.value.xyz + vec3<i32>(local_origin));
     let animation_sample = select_animation_frames_gpu(material);
 
     var out: VertexOutput;
-    out.clip_position = view.clip_from_world * vec4(world_position, 1.0);
+    out.clip_position = camera_relative_clip(camera_relative);
 #ifdef ENHANCED_SHADOW
     out.clip_position = caster_clip(world_position, quad.material_id, 1.0);
 #endif
     let uv_flags = material_uv_flags(material.flags, chunk_origin.value.xyz + vec3<i32>(local_origin));
-    out.uv = greedy_uv(face, corner, width, height, uv_flags);
+    let corner_position = quad_position(face, local_position - local_origin);
+    out.uv = greedy_uv(face, corner_position, width, height, uv_flags);
+    out.uv_limit = greedy_uv_limit(width, height, uv_flags);
     out.current_texture = animation_sample.current_texture;
     out.normal = face_normal(face);
     out.material_flags = material.flags;
@@ -302,7 +378,20 @@ fn cube_vertex(vertex_index: u32, instance_index: u32) -> VertexOutput {
 #ifdef ENHANCED
     out.surface_class = material_class(quad.material_id);
     out.world_position = waved_position(world_position, out.surface_class, 1.0);
-    out.clip_position = view.clip_from_world * vec4(out.world_position, 1.0);
+    out.clip_position = camera_relative_clip(camera_relative + (out.world_position - world_position));
+#endif
+#ifndef ENHANCED_SHADOW
+    // Grow the face within its plane. Texture coordinates and positions follow
+    // the moved corner, so the interior keeps its exact mapping; light keeps
+    // the corner's samples.
+    let axes = quad_axes(face);
+    let outward = sign(2.0 * corner_position - vec2(width, height));
+    let steps = outward * seal_steps(out.clip_position, axes[0] * outward.x, axes[1] * outward.y, seal_pixels);
+    let shift = axes[0] * steps.x + axes[1] * steps.y;
+    out.clip_position += view.clip_from_world * vec4(shift, 0.0);
+    out.uv = greedy_uv(face, corner_position + steps, width, height, uv_flags);
+    out.local_position += shift;
+    out.world_position += shift;
 #endif
     return out;
 }
@@ -498,11 +587,13 @@ fn fragment_solid(in: VertexOutput) -> @location(0) vec4<f32> {
 #endif
 }
 
+// Sealed quad edges extend past the face, so their pixels clamp to its edge texels.
 fn sample_cube_texture(in: VertexOutput, uv_dx: vec2<f32>, uv_dy: vec2<f32>) -> vec4<f32> {
-    let current_sample = sample_material_texture_ref(in.current_texture, in.uv, uv_dx, uv_dy, in.material_flags);
+    let uv = clamp(in.uv, vec2(0.0), in.uv_limit);
+    let current_sample = sample_material_texture_ref(in.current_texture, uv, uv_dx, uv_dy, in.material_flags);
     var sampled = current_sample;
     if (in.frame_blend > 0.0) {
-        let next_sample = sample_material_texture_ref(in.next_texture, in.uv, uv_dx, uv_dy, in.material_flags);
+        let next_sample = sample_material_texture_ref(in.next_texture, uv, uv_dx, uv_dy, in.material_flags);
         sampled = mix(current_sample, next_sample, in.frame_blend);
     }
     return sampled;
