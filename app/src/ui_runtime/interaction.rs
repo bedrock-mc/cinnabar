@@ -656,6 +656,8 @@ pub(crate) fn drive_chat_keyboard_input(
             match route {
                 PressRoute::Gameplay => kept.push(button),
                 PressRoute::Binding => {
+                    // The binding's transition holds for every later input.
+                    router.observe(runtime.inventory_open());
                     consumed.push(button);
                     consumed_gameplay = true;
                     if toggled_inventory {
@@ -881,6 +883,8 @@ pub(crate) fn drive_chat_keyboard_input(
         dismissed |= !runtime.chat_focused();
     }
     if routes_presses {
+        // The frame's last key changed the screen for every press after it.
+        router.observe(runtime.inventory_open());
         while let Some(button) = router.next_rest() {
             let (route, toggled_inventory) = route_press(
                 button,
@@ -891,6 +895,8 @@ pub(crate) fn drive_chat_keyboard_input(
             );
             match route {
                 PressRoute::Binding => {
+                    // The binding's transition holds for every later input.
+                    router.observe(runtime.inventory_open());
                     consumed.push(button);
                     consumed_gameplay = true;
                     if toggled_inventory {

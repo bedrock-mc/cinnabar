@@ -95,15 +95,25 @@ pub enum ScreenKey {
     Other,
 }
 
+/// Whether the screen is open after `key`.
+pub const fn screen_after(open: bool, key: ScreenKey) -> bool {
+    match key {
+        ScreenKey::Toggle => !open,
+        ScreenKey::Close => false,
+        ScreenKey::Other => open,
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FrameInput {
     Press(MouseButton),
-    /// A press bound to a screen toggle: it toggles the screen and is never also a click.
+    /// A press bound to the screen toggle: it toggles the screen and is never also a click.
     BindingPress(MouseButton),
     Key(ScreenKey),
 }
 
-/// Routes one frame's ordered inputs: every press goes once, to the state in force when it arrived.
+/// Routes one frame's ordered inputs: every event's transition is observed where it happens, and
+/// every press goes once, to the state in force when it arrived.
 pub fn route_frame_presses(
     inputs: &[FrameInput],
     open_at_start: bool,
@@ -126,7 +136,8 @@ pub fn route_frame_presses(
     let mut routed = Vec::new();
     let mut route = |router: &mut PointerRouter, open: &mut bool, button| {
         if bindings.next() == Some(true) {
-            *open = !*open;
+            *open = screen_after(*open, ScreenKey::Toggle);
+            router.observe(*open);
             routed.push((button, PressRoute::Binding));
         } else {
             routed.push((button, router.route(*open)));
@@ -137,17 +148,12 @@ pub fn route_frame_presses(
         FrameInput::Press(_) | FrameInput::BindingPress(_) => None,
     });
     for (arrival, key) in screen_keys.enumerate() {
-        router.observe(open);
         while let Some(button) = router.next_before_key(arrival) {
             route(&mut router, &mut open, button);
         }
-        open = match key {
-            ScreenKey::Toggle => !open,
-            ScreenKey::Close => false,
-            ScreenKey::Other => open,
-        };
+        open = screen_after(open, key);
+        router.observe(open);
     }
-    router.observe(open);
     while let Some(button) = router.next_rest() {
         route(&mut router, &mut open, button);
     }
@@ -273,5 +279,56 @@ mod tests {
             [(0, MouseButton::Right), (1, MouseButton::Left)]
         );
         assert!(iter.next().is_none());
+    }
+
+    /// Every short sequence: each click lands once, on the opening current when it arrived, or
+    /// on gameplay when no screen was open; binding presses are never clicks.
+    #[test]
+    fn every_short_sequence_matches_the_reference_model() {
+        const EVENTS: [FrameInput; 5] = [LEFT, ESCAPE, OPEN, BIND, OTHER];
+        fn reference(inputs: &[FrameInput], open_at_start: bool) -> Vec<(MouseButton, PressRoute)> {
+            let (mut open, mut opening) = (open_at_start, 0);
+            let mut routed = Vec::new();
+            for input in inputs {
+                let was_open = open;
+                match *input {
+                    Press(button) => {
+                        routed.push((button, if open { Screen { opening } } else { Gameplay }))
+                    }
+                    BindingPress(button) => {
+                        open = !open;
+                        routed.push((button, Binding));
+                    }
+                    Key(Toggle) => open = !open,
+                    Key(Close) => open = false,
+                    Key(Other) => {}
+                }
+                if open && !was_open {
+                    opening += 1;
+                }
+            }
+            routed
+        }
+        let mut sequence = Vec::new();
+        let mut checked = 0;
+        for length in 0..=5u32 {
+            for code in 0..EVENTS.len().pow(length) {
+                sequence.clear();
+                let mut rest = code;
+                for _ in 0..length {
+                    sequence.push(EVENTS[rest % EVENTS.len()]);
+                    rest /= EVENTS.len();
+                }
+                for open in [false, true] {
+                    assert_eq!(
+                        route_frame_presses(&sequence, open),
+                        reference(&sequence, open),
+                        "{sequence:?} starting open={open}"
+                    );
+                    checked += 1;
+                }
+            }
+        }
+        assert_eq!(checked, 2 * (1 + 5 + 25 + 125 + 625 + 3125));
     }
 }

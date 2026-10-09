@@ -333,6 +333,7 @@ pub fn suppress_gameplay_input_for_chat(
 mod pointer_order;
 pub use pointer_order::{
     FrameInput, PointerRouter, PressRoute, ScreenKey, ordered_pointer_presses, route_frame_presses,
+    screen_after,
 };
 
 #[cfg(test)]
