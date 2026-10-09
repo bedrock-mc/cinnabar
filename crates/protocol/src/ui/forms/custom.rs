@@ -10,7 +10,8 @@ use std::sync::Arc;
 use serde_json::{Map, Value};
 
 use super::{
-    MAX_CUSTOM_FORM_ITEMS, ServerFormModel, UnsupportedForm, optional_text, required_text_value,
+    FormButtonImage, FormText, MAX_CUSTOM_FORM_ITEMS, ServerFormModel, UnsupportedForm,
+    button_image, literal_value, optional_text, text_value,
 };
 
 /// A finite form number compared by bit pattern so the model stays `Eq`.
@@ -30,51 +31,61 @@ impl FormNumber {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CustomForm {
-    pub title: Arc<str>,
+    pub title: FormText,
+    /// Optional server-settings icon, shared with form image loading.
+    pub icon: Option<FormButtonImage>,
     pub elements: Arc<[CustomFormElement]>,
     /// The `submit` label; `None` keeps the template's own submit text.
-    pub submit: Option<Arc<str>>,
+    pub submit: Option<FormText>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CustomFormElement {
     Label {
-        text: Arc<str>,
+        text: FormText,
     },
     Header {
-        text: Arc<str>,
+        text: FormText,
     },
     Divider,
     Toggle {
-        text: Arc<str>,
+        text: FormText,
         default: bool,
-        tooltip: Option<Arc<str>>,
+        tooltip: Option<FormText>,
     },
     Slider {
-        text: Arc<str>,
+        text: FormText,
         min: FormNumber,
         max: FormNumber,
         step: FormNumber,
         default: FormNumber,
-        tooltip: Option<Arc<str>>,
+        /// Slider dispatch delay in seconds.
+        timeout: FormNumber,
+        tooltip: Option<FormText>,
     },
     StepSlider {
-        text: Arc<str>,
-        steps: Arc<[Arc<str>]>,
-        default: u32,
-        tooltip: Option<Arc<str>>,
+        text: FormText,
+        steps: Arc<[FormText]>,
+        default: i32,
+        tooltip: Option<FormText>,
     },
     Dropdown {
-        text: Arc<str>,
-        options: Arc<[Arc<str>]>,
-        default: u32,
-        tooltip: Option<Arc<str>>,
+        text: FormText,
+        options: Arc<[FormText]>,
+        default: i32,
+        tooltip: Option<FormText>,
+    },
+    MultiSelect {
+        text: FormText,
+        options: Arc<[FormText]>,
+        default: Arc<[i32]>,
+        tooltip: Option<FormText>,
     },
     Input {
-        text: Arc<str>,
-        placeholder: Arc<str>,
+        text: FormText,
+        placeholder: FormText,
         default: Arc<str>,
-        tooltip: Option<Arc<str>>,
+        tooltip: Option<FormText>,
     },
 }
 
@@ -96,11 +107,12 @@ fn parse(object: &Map<String, Value>) -> Result<CustomForm, UnsupportedForm> {
     }
     let submit = match object.get("submit") {
         None | Some(Value::Null) => None,
-        Some(value) => Some(Arc::from(required_text_value(value)?)),
+        Some(value) => Some(text_value(value)?),
     };
     let elements = content.iter().map(element).collect::<Result<Vec<_>, _>>()?;
     Ok(CustomForm {
-        title: Arc::from(title),
+        title,
+        icon: button_image(object.get("icon"))?,
         elements: elements.into(),
         submit,
     })
@@ -115,13 +127,10 @@ fn element(value: &Value) -> Result<CustomFormElement, UnsupportedForm> {
     if kind == "divider" {
         return Ok(CustomFormElement::Divider);
     }
-    let text: Arc<str> = match object.get("text") {
-        Some(value) => Arc::from(required_text_value(value)?),
-        None => return Err(UnsupportedForm::Controls),
-    };
+    let text = optional_text(object, "text")?;
     let tooltip = match object.get("tooltip") {
         None | Some(Value::Null) => None,
-        Some(value) => Some(Arc::from(required_text_value(value)?)),
+        Some(value) => Some(text_value(value)?),
     };
     let default = object.get("default").filter(|value| !value.is_null());
     Ok(match kind {
@@ -142,10 +151,7 @@ fn element(value: &Value) -> Result<CustomFormElement, UnsupportedForm> {
                 .and_then(Value::as_f64)
                 .filter(|step| *step > 0.0)
                 .unwrap_or(1.0);
-            let start = default
-                .and_then(Value::as_f64)
-                .unwrap_or(min)
-                .clamp(min, max);
+            let start = default.and_then(Value::as_f64).unwrap_or(min);
             let finite = |value: f64| FormNumber::new(value).ok_or(UnsupportedForm::Controls);
             CustomFormElement::Slider {
                 text,
@@ -153,6 +159,7 @@ fn element(value: &Value) -> Result<CustomFormElement, UnsupportedForm> {
                 max: finite(max)?,
                 step: finite(step)?,
                 default: finite(start)?,
+                timeout: finite(f64::from(number("timeout") as f32 / 1000.0_f32))?,
                 tooltip,
             }
         }
@@ -160,7 +167,7 @@ fn element(value: &Value) -> Result<CustomFormElement, UnsupportedForm> {
             let steps = string_list(object.get("steps"))?;
             CustomFormElement::StepSlider {
                 text,
-                default: index_default(default, steps.len()),
+                default: index_default(default),
                 steps,
                 tooltip,
             }
@@ -169,41 +176,56 @@ fn element(value: &Value) -> Result<CustomFormElement, UnsupportedForm> {
             let options = string_list(object.get("options"))?;
             CustomFormElement::Dropdown {
                 text,
-                default: index_default(default, options.len()),
+                default: index_default(default),
                 options,
                 tooltip,
             }
         }
+        "multiselect" => CustomFormElement::MultiSelect {
+            text,
+            options: string_list(object.get("options"))?,
+            default: default
+                .and_then(Value::as_array)
+                .map(|indexes| {
+                    indexes
+                        .iter()
+                        .filter_map(|value| {
+                            value.as_i64().and_then(|index| i32::try_from(index).ok())
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default()
+                .into(),
+            tooltip,
+        },
         "input" => CustomFormElement::Input {
             text,
-            placeholder: Arc::from(optional_text(object, "placeholder")?),
-            default: Arc::from(match default {
-                Some(value) => required_text_value(value)?,
-                None => "",
-            }),
+            placeholder: optional_text(object, "placeholder")?,
+            default: match default {
+                Some(value) => literal_value(value)?,
+                None => Arc::from(""),
+            },
             tooltip,
         },
         _ => return Err(UnsupportedForm::Controls),
     })
 }
 
-fn string_list(value: Option<&Value>) -> Result<Arc<[Arc<str>]>, UnsupportedForm> {
+/// Parses a bounded option list without converting display documents to JSON labels.
+fn string_list(value: Option<&Value>) -> Result<Arc<[FormText]>, UnsupportedForm> {
     let items = value
         .and_then(Value::as_array)
         .ok_or(UnsupportedForm::Controls)?;
     if items.len() > MAX_CUSTOM_FORM_ITEMS {
         return Err(UnsupportedForm::Limit);
     }
-    items
-        .iter()
-        .map(|item| required_text_value(item).map(Arc::<str>::from))
-        .collect()
+    items.iter().map(text_value).collect()
 }
 
-/// An integer default inside `0..len`, else index 0 (the vanilla start).
-fn index_default(default: Option<&Value>, len: usize) -> u32 {
+/// Retains an integer default even when no option currently has that index.
+fn index_default(default: Option<&Value>) -> i32 {
     default
-        .and_then(Value::as_u64)
-        .filter(|index| (*index as usize) < len)
-        .map_or(0, |index| index as u32)
+        .and_then(Value::as_i64)
+        .and_then(|index| i32::try_from(index).ok())
+        .unwrap_or(0)
 }

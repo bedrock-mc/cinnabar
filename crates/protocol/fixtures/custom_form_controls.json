@@ -1,0 +1,219 @@
+{
+  "type": "custom_form",
+  "title": {
+    "rawtext": [
+      {
+        "text": "Form controls"
+      }
+    ]
+  },
+  "submit": {
+    "rawtext": [
+      {
+        "translate": "gui.submit"
+      }
+    ]
+  },
+  "content": [
+    {
+      "type": "header",
+      "text": {
+        "rawtext": [
+          {
+            "text": "Display and input"
+          }
+        ]
+      }
+    },
+    {
+      "type": "label",
+      "text": {
+        "rawtext": [
+          {
+            "text": "Structured labels use the installed language catalog."
+          }
+        ]
+      }
+    },
+    {
+      "type": "divider"
+    },
+    {
+      "type": "toggle",
+      "text": {
+        "rawtext": [
+          {
+            "text": "Enabled"
+          }
+        ]
+      },
+      "default": true,
+      "tooltip": {
+        "rawtext": [
+          {
+            "text": "Toggle help"
+          }
+        ]
+      }
+    },
+    {
+      "type": "slider",
+      "text": {
+        "rawtext": [
+          {
+            "text": "Volume"
+          }
+        ]
+      },
+      "min": 0,
+      "max": 10,
+      "step": 2,
+      "default": 4,
+      "timeout": 250,
+      "tooltip": {
+        "rawtext": [
+          {
+            "text": "Slider help"
+          }
+        ]
+      }
+    },
+    {
+      "type": "step_slider",
+      "text": {
+        "rawtext": [
+          {
+            "text": "Speed"
+          }
+        ]
+      },
+      "steps": [
+        {
+          "rawtext": [
+            {
+              "text": "Slow"
+            }
+          ]
+        },
+        {
+          "rawtext": [
+            {
+              "text": "Fast"
+            }
+          ]
+        }
+      ],
+      "default": 1,
+      "tooltip": {
+        "rawtext": [
+          {
+            "text": "Step help"
+          }
+        ]
+      }
+    },
+    {
+      "type": "dropdown",
+      "text": {
+        "rawtext": [
+          {
+            "text": "Mode"
+          }
+        ]
+      },
+      "options": [
+        {
+          "rawtext": [
+            {
+              "text": "First"
+            }
+          ]
+        },
+        {
+          "rawtext": [
+            {
+              "text": "Second"
+            }
+          ]
+        }
+      ],
+      "default": 1,
+      "tooltip": {
+        "rawtext": [
+          {
+            "text": "Mode help"
+          }
+        ]
+      }
+    },
+    {
+      "type": "input",
+      "text": {
+        "rawtext": [
+          {
+            "text": "Name"
+          }
+        ]
+      },
+      "placeholder": {
+        "rawtext": [
+          {
+            "text": "Enter a name"
+          }
+        ]
+      },
+      "default": "Draft",
+      "tooltip": {
+        "rawtext": [
+          {
+            "text": "Name help"
+          }
+        ]
+      }
+    },
+    {
+      "type": "multiselect",
+      "text": {
+        "rawtext": [
+          {
+            "text": "Choose several"
+          }
+        ]
+      },
+      "options": [
+        {
+          "rawtext": [
+            {
+              "text": "Alpha"
+            }
+          ]
+        },
+        {
+          "rawtext": [
+            {
+              "text": "Beta"
+            }
+          ]
+        },
+        {
+          "rawtext": [
+            {
+              "text": "Gamma"
+            }
+          ]
+        }
+      ],
+      "default": [
+        2,
+        0
+      ],
+      "tooltip": {
+        "rawtext": [
+          {
+            "text": "Selection help"
+          }
+        ]
+      }
+    }
+  ]
+}

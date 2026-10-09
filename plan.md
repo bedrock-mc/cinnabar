@@ -5541,6 +5541,16 @@ gates.
   merge, `$screen_content` routing, expression, view-binding, and vanilla factory rules), with a resolve/layout cache and raw-edge pointer input. Checked only in
   tests against local pack fixtures, not against a live vanilla capture; the virtual-root scale
   constants, per-visual-line label alignment, and image aspect defaults remain unconfirmed.
+  Form display fields now retain structured text for language and live-state resolution,
+  including metadata, component precedence, nested text, and scalar display fallbacks.
+  Custom forms include multiselect checkboxes, ordered index-array responses, and slider
+  timeouts, scoped dropdown options, custom icons, and float slider edits with localized
+  value labels. Custom controls and option lists use the document byte budget instead of
+  a separate 256-item cap. Menu normalization prefers non-null buttons and ignores unused metadata.
+  Unselected edit boxes leave focused controls available through global button mappings.
+  A sanitized 346-button featured-menu capture guards complete selection indexes; that
+  menu already renders after the earlier button-limit fix. Broader visual parity remains
+  incomplete until matching native captures verify these controls at the supported scales.
 - [ ] **5.7 UI parity and performance acceptance.** `P5.7-PARITY-PERF` Compare matching vanilla reference views at
   supported scales/aspect ratios, test keyboard/mouse/controller/touch focus transitions, and
   prove bounded retained memory plus stable frame time with chat, scoreboard, boss bars,

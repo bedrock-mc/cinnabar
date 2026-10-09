@@ -12,6 +12,7 @@ mod credits;
 mod dimension_packets;
 mod disconnect_wire;
 mod fixtures;
+mod form_compatibility;
 mod form_element_images;
 mod form_menu_capacity;
 mod generated_reservations;

@@ -47,10 +47,10 @@ fn modal_buttons_answer_true_then_false() {
     for (button, choice) in [(0, true), (1, false)] {
         let mut runtime = admit(
             ServerFormModel::Modal(ModalDialogForm {
-                title: Arc::from("T"),
-                content: Arc::from("C"),
-                button1: Arc::from("Yes"),
-                button2: Arc::from("No"),
+                title: protocol::FormText::from("T"),
+                content: protocol::FormText::from("C"),
+                button1: protocol::FormText::from("Yes"),
+                button2: protocol::FormText::from("No"),
             }),
             FormKind::Modal,
         );
@@ -69,12 +69,12 @@ fn modal_buttons_answer_true_then_false() {
 fn element_menu_indexes_count_buttons_only() {
     let mut runtime = admit(
         ServerFormModel::ElementMenu(ElementMenuForm {
-            title: Arc::from("T"),
-            content: Arc::from("C"),
+            title: protocol::FormText::from("T"),
+            content: protocol::FormText::from("C"),
             elements: vec![
-                MenuElement::Label(Arc::from("L")),
+                MenuElement::Label(protocol::FormText::from("L")),
                 MenuElement::Button {
-                    text: Arc::from("A"),
+                    text: protocol::FormText::from("A"),
                     image: None,
                 },
             ]
@@ -103,19 +103,20 @@ fn element_menu_indexes_count_buttons_only() {
 fn custom_form_submits_the_edited_values_in_order() {
     let mut runtime = admit(
         ServerFormModel::Custom(CustomForm {
-            title: Arc::from("T"),
+            icon: None,
+            title: protocol::FormText::from("T"),
             elements: vec![
                 CustomFormElement::Label {
-                    text: Arc::from("L"),
+                    text: protocol::FormText::from("L"),
                 },
                 CustomFormElement::Toggle {
-                    text: Arc::from("On"),
+                    text: protocol::FormText::from("On"),
                     default: false,
                     tooltip: None,
                 },
                 CustomFormElement::Input {
-                    text: Arc::from("Name"),
-                    placeholder: Arc::from(""),
+                    text: protocol::FormText::from("Name"),
+                    placeholder: protocol::FormText::from(""),
                     default: Arc::from("Ste"),
                     tooltip: None,
                 },
