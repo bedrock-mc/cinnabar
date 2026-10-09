@@ -338,18 +338,25 @@ fn custom_form_source(data: &mut DataSource, form: &CustomForm) {
         match element {
             CustomElement::MultiSelect {
                 options, selected, ..
-            } => data.set_scoped_collection(
-                "custom_form",
-                parent,
-                "custom_multiselect",
-                option_items(
-                    options,
-                    "checkbox",
-                    "#custom_multiselect_text",
-                    "#custom_multiselect_toggled",
-                    |index| selected.contains(&(index as i32)),
-                ),
-            ),
+            } => {
+                let selected: std::collections::BTreeSet<_> = selected
+                    .iter()
+                    .copied()
+                    .filter(|index| *index >= 0 && (*index as usize) < options.len())
+                    .collect();
+                data.set_scoped_collection(
+                    "custom_form",
+                    parent,
+                    "custom_multiselect",
+                    option_items(
+                        options,
+                        "checkbox",
+                        "#custom_multiselect_text",
+                        "#custom_multiselect_toggled",
+                        |index| selected.contains(&(index as i32)),
+                    ),
+                );
+            }
             CustomElement::Dropdown { options, index, .. } => data.set_scoped_collection(
                 "custom_form",
                 parent,

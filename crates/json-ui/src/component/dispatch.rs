@@ -678,6 +678,23 @@ fn event(
     }
 }
 
+/// Returns a collection-backed radio's parent path; unscoped radios share a group.
+fn radio_parent(region: &HitRegion) -> &[(String, usize)] {
+    let Some(collection) = region
+        .widget
+        .toggle
+        .as_ref()
+        .and_then(|meta| meta.grid_collection.as_deref())
+    else {
+        return &[];
+    };
+    region
+        .collections
+        .iter()
+        .rposition(|(name, _)| name == collection)
+        .map_or(&[], |index| &region.collections[..index])
+}
+
 fn checked(region: &HitRegion, components: &Components) -> bool {
     components
         .bag(&region.key)
@@ -703,7 +720,10 @@ fn set_toggle(
     if meta.radio && state {
         for other in regions {
             let same_group = other.widget.toggle.as_ref().is_some_and(|candidate| {
-                candidate.radio && candidate.name == meta.name && other.key != region.key
+                candidate.radio
+                    && candidate.name == meta.name
+                    && other.key != region.key
+                    && radio_parent(other) == radio_parent(region)
             });
             if same_group {
                 components.write(&other.key, "#toggle_state", Value::Bool(false));

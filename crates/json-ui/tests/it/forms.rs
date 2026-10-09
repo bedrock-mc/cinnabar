@@ -32,10 +32,20 @@ fn env() -> LayoutEnv<'static> {
     }
 }
 
+/// Loads the installed UI fixture, reporting a named skip when it is absent.
 fn catalog() -> Option<Catalog> {
     let dir = support::vanilla_pack().join("ui");
-    dir.is_dir()
-        .then(|| Catalog::load_dir(&dir).expect("index files load"))
+    if !dir.is_dir() {
+        eprintln!(
+            "skipping {}: missing UI fixture {}",
+            std::thread::current()
+                .name()
+                .unwrap_or("server form rendering"),
+            dir.display()
+        );
+        return None;
+    }
+    Some(Catalog::load_dir(&dir).expect("index files load"))
 }
 
 /// Depth-first search for the first descendant (or self) with `name`.
