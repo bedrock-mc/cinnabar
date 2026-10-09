@@ -865,12 +865,8 @@ fn queue_blended(
             entity: (view_entity, *main_entity),
             pipeline: pipeline_id,
             draw_function,
-            // Surface cracks must compose before foreground sprites that do not write depth.
-            distance: if mode == PipelineMode::Crack {
-                f32::NEG_INFINITY
-            } else {
-                0.0
-            },
+            // Blended layers hug opaque geometry; drawing them last is enough.
+            distance: 0.0,
             batch_range: 0..1,
             extra_index: PhaseItemExtraIndex::None,
             indexed: false,

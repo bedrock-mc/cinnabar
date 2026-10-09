@@ -79,8 +79,8 @@ fn destroy_tiles_keep_their_pixels_tint_size_and_quarter_region() {
             })
             .collect();
         let lists = system.build_draw(&view(), &EmptyWorld);
-        assert_eq!(lists.blend.len(), 100, "native default destroy count");
-        for instance in lists.blend {
+        assert_eq!(lists.opaque.len(), 100, "native default destroy count");
+        for instance in lists.opaque {
             assert!(expected.iter().any(|uv| {
                 uv.iter()
                     .zip(instance.uv)

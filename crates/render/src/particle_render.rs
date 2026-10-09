@@ -1,5 +1,4 @@
-//! GPU side of the particle system: atlas upload, instance buffer, and two `Transparent3d`
-//! draws (alpha-blended and additive) over one storage buffer of quads.
+//! GPU particle atlas and instance uploads, with depth-writing, blended and additive draws.
 
 use std::{ops::Range, sync::Arc};
 
@@ -49,6 +48,10 @@ const MIN_CAPACITY: usize = 256;
 #[path = "particle_render/upload_tests.rs"]
 mod upload_tests;
 
+#[cfg(test)]
+#[path = "particle_render/tests.rs"]
+pub(crate) mod tests;
+
 /// The particle simulation as a Bevy resource.
 #[derive(Resource, Default, Deref, DerefMut)]
 pub struct ParticleSimulation(pub ParticleSystem);
@@ -59,6 +62,7 @@ pub struct ParticleGpuFrame {
     base: Option<Arc<[u8]>>,
     patch_seq: u64,
     patches: Arc<[AtlasPatch]>,
+    opaque: Arc<[ParticleInstance]>,
     blend: Arc<[ParticleInstance]>,
     add: Arc<[ParticleInstance]>,
     centroid: [f32; 3],
@@ -67,7 +71,7 @@ pub struct ParticleGpuFrame {
 impl ParticleGpuFrame {
     #[must_use]
     pub fn instance_count(&self) -> usize {
-        self.blend.len() + self.add.len()
+        self.opaque.len() + self.blend.len() + self.add.len()
     }
 
     fn set_lists(&mut self, lists: DrawLists, camera: [f32; 3]) {
@@ -84,6 +88,7 @@ impl ParticleGpuFrame {
         };
         self.blend = lists.blend.into();
         self.add = lists.add.into();
+        self.opaque = lists.opaque.into();
     }
 }
 
@@ -159,8 +164,9 @@ impl Plugin for ParticleRenderPlugin {
         };
         render_app
             .init_resource::<ParticlePipeline>()
-            .add_render_command::<Transparent3d, DrawParticles<false>>()
-            .add_render_command::<Transparent3d, DrawParticles<true>>()
+            .add_render_command::<Transparent3d, DrawParticles<{ ParticleMode::Opaque as u8 }>>()
+            .add_render_command::<Transparent3d, DrawParticles<{ ParticleMode::Blend as u8 }>>()
+            .add_render_command::<Transparent3d, DrawParticles<{ ParticleMode::Add as u8 }>>()
             .add_systems(RenderStartup, init_particle_gpu)
             .add_systems(
                 Render,
@@ -184,6 +190,7 @@ struct ParticleGpu {
     uploaded_seq: u64,
     buffer: Option<Buffer>,
     capacity: usize,
+    opaque_range: Range<u32>,
     blend_range: Range<u32>,
     add_range: Range<u32>,
     centroid: [f32; 3],
@@ -210,6 +217,7 @@ fn init_particle_gpu(mut commands: Commands, render_device: Res<RenderDevice>) {
         uploaded_seq: 0,
         buffer: None,
         capacity: 0,
+        opaque_range: 0..0,
         blend_range: 0..0,
         add_range: 0..0,
         centroid: [0.0; 3],
@@ -272,11 +280,12 @@ fn prepare_particle_resources(
         gpu.uploaded_seq = seq;
     }
 
-    let (blend, add) = (frame.blend.len(), frame.add.len());
+    let (opaque, blend, add) = (frame.opaque.len(), frame.blend.len(), frame.add.len());
     gpu.centroid = frame.centroid;
-    gpu.blend_range = 0..blend as u32;
-    gpu.add_range = blend as u32..(blend + add) as u32;
-    let total = blend + add;
+    gpu.opaque_range = 0..opaque as u32;
+    gpu.blend_range = opaque as u32..(opaque + blend) as u32;
+    gpu.add_range = (opaque + blend) as u32..(opaque + blend + add) as u32;
+    let total = opaque + blend + add;
     if total == 0 {
         return;
     }
@@ -304,10 +313,15 @@ fn prepare_particle_resources(
             &render_device,
             &render_queue,
             &[
-                (buffer, 0, bytemuck::cast_slice(&frame.blend[..])),
+                (buffer, 0, bytemuck::cast_slice(&frame.opaque[..])),
                 (
                     buffer,
-                    blend as u64 * INSTANCE_BYTES,
+                    opaque as u64 * INSTANCE_BYTES,
+                    bytemuck::cast_slice(&frame.blend[..]),
+                ),
+                (
+                    buffer,
+                    (opaque + blend) as u64 * INSTANCE_BYTES,
                     bytemuck::cast_slice(&frame.add[..]),
                 ),
             ],
@@ -350,6 +364,13 @@ fn write_rect(
 }
 
 struct ParticleSpecializer;
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+enum ParticleMode {
+    Opaque,
+    Blend,
+    Add,
+}
 
 #[derive(Resource)]
 struct ParticlePipeline {
@@ -415,7 +436,7 @@ impl FromWorld for ParticlePipeline {
                 targets: vec![Some(ColorTargetState {
                     format: TextureFormat::bevy_default(),
                     blend: Some(BlendState::ALPHA_BLENDING),
-                    write_mask: ColorWrites::ALL,
+                    write_mask: ColorWrites::COLOR,
                 })],
                 ..default()
             }),
@@ -439,7 +460,7 @@ impl FromWorld for ParticlePipeline {
 struct ParticlePipelineKey {
     msaa: Msaa,
     hdr: bool,
-    additive: bool,
+    material: ParticleMode,
 }
 
 impl Specializer<RenderPipeline> for ParticleSpecializer {
@@ -451,6 +472,11 @@ impl Specializer<RenderPipeline> for ParticleSpecializer {
         descriptor: &mut RenderPipelineDescriptor,
     ) -> Result<Canonical<Self::Key>, BevyError> {
         descriptor.multisample.count = key.msaa.samples();
+        descriptor
+            .depth_stencil
+            .as_mut()
+            .unwrap()
+            .depth_write_enabled = key.material == ParticleMode::Opaque;
         let target = descriptor.fragment.as_mut().unwrap().targets[0]
             .as_mut()
             .unwrap();
@@ -459,8 +485,9 @@ impl Specializer<RenderPipeline> for ParticleSpecializer {
         } else {
             TextureFormat::bevy_default()
         };
-        target.blend = Some(if key.additive {
-            BlendState {
+        target.blend = match key.material {
+            ParticleMode::Opaque => None,
+            ParticleMode::Add => Some(BlendState {
                 color: BlendComponent {
                     src_factor: BlendFactor::SrcAlpha,
                     dst_factor: BlendFactor::One,
@@ -471,10 +498,9 @@ impl Specializer<RenderPipeline> for ParticleSpecializer {
                     dst_factor: BlendFactor::One,
                     operation: BlendOperation::Add,
                 },
-            }
-        } else {
-            BlendState::ALPHA_BLENDING
-        });
+            }),
+            ParticleMode::Blend => Some(BlendState::ALPHA_BLENDING),
+        };
         Ok(key)
     }
 }
@@ -540,14 +566,15 @@ fn queue_particles(
     draw_functions: Res<DrawFunctions<Transparent3d>>,
     views: Query<(Entity, &MainEntity, &ExtractedView, &Msaa)>,
 ) {
-    if gpu.blend_range.is_empty() && gpu.add_range.is_empty() {
+    if gpu.opaque_range.is_empty() && gpu.blend_range.is_empty() && gpu.add_range.is_empty() {
         return;
     }
-    let (alpha_draw, add_draw) = {
+    let (opaque_draw, alpha_draw, add_draw) = {
         let functions = draw_functions.read();
         (
-            functions.id::<DrawParticles<false>>(),
-            functions.id::<DrawParticles<true>>(),
+            functions.id::<DrawParticles<{ ParticleMode::Opaque as u8 }>>(),
+            functions.id::<DrawParticles<{ ParticleMode::Blend as u8 }>>(),
+            functions.id::<DrawParticles<{ ParticleMode::Add as u8 }>>(),
         )
     };
     let centroid = Vec3::from_array(gpu.centroid);
@@ -556,9 +583,14 @@ fn queue_particles(
             continue;
         };
         let distance = view.rangefinder3d().distance(&centroid);
-        for (additive, draw_function, populated) in [
-            (false, alpha_draw, !gpu.blend_range.is_empty()),
-            (true, add_draw, !gpu.add_range.is_empty()),
+        for (material, draw_function, populated) in [
+            (
+                ParticleMode::Opaque,
+                opaque_draw,
+                !gpu.opaque_range.is_empty(),
+            ),
+            (ParticleMode::Blend, alpha_draw, !gpu.blend_range.is_empty()),
+            (ParticleMode::Add, add_draw, !gpu.add_range.is_empty()),
         ] {
             if !populated {
                 continue;
@@ -568,7 +600,7 @@ fn queue_particles(
                 ParticlePipelineKey {
                     msaa: *msaa,
                     hdr: view.hdr,
-                    additive,
+                    material,
                 },
             ) else {
                 continue;
@@ -577,7 +609,12 @@ fn queue_particles(
                 entity: (view_entity, *main_entity),
                 pipeline: pipeline_id,
                 draw_function,
-                distance,
+                // Depth-writing sprites must precede translucent terrain and surface overlays.
+                distance: if material == ParticleMode::Opaque {
+                    f32::NEG_INFINITY
+                } else {
+                    distance
+                },
                 batch_range: 0..1,
                 extra_index: PhaseItemExtraIndex::None,
                 indexed: false,
@@ -586,13 +623,13 @@ fn queue_particles(
     }
 }
 
-type DrawParticles<const ADDITIVE: bool> = crate::gpu_timing::GpuDrawSpan<
+type DrawParticles<const MATERIAL: u8> = crate::gpu_timing::GpuDrawSpan<
     { crate::RuntimeStage::GpuParticles as usize },
     (
         SetItemPipeline,
         SetParticleBindGroup<0>,
         crate::lighting::SetWorldLightmap,
-        DrawParticleRange<ADDITIVE>,
+        DrawParticleRange<MATERIAL>,
     ),
 >;
 
@@ -618,9 +655,9 @@ impl<P: PhaseItem, const I: usize> RenderCommand<P> for SetParticleBindGroup<I> 
     }
 }
 
-struct DrawParticleRange<const ADDITIVE: bool>;
+struct DrawParticleRange<const MATERIAL: u8>;
 
-impl<P: PhaseItem, const ADDITIVE: bool> RenderCommand<P> for DrawParticleRange<ADDITIVE> {
+impl<P: PhaseItem, const MATERIAL: u8> RenderCommand<P> for DrawParticleRange<MATERIAL> {
     type Param = SRes<ParticleGpu>;
     type ViewQuery = ();
     type ItemQuery = ();
@@ -633,8 +670,10 @@ impl<P: PhaseItem, const ADDITIVE: bool> RenderCommand<P> for DrawParticleRange<
         pass: &mut TrackedRenderPass<'w>,
     ) -> RenderCommandResult {
         let gpu = gpu.into_inner();
-        let range = if ADDITIVE {
+        let range = if MATERIAL == ParticleMode::Add as u8 {
             gpu.add_range.clone()
+        } else if MATERIAL == ParticleMode::Opaque as u8 {
+            gpu.opaque_range.clone()
         } else {
             gpu.blend_range.clone()
         };
@@ -653,13 +692,13 @@ impl crate::pipeline_warmup::PrewarmPipelines for ParticlePipeline {
         view: crate::pipeline_warmup::WarmView,
         ids: &mut crate::pipeline_warmup::WarmupIds,
     ) -> Result<(), BevyError> {
-        for additive in [false, true] {
+        for material in [ParticleMode::Opaque, ParticleMode::Blend, ParticleMode::Add] {
             ids.push(self.variants.specialize(
                 cache,
                 ParticlePipelineKey {
                     msaa: view.msaa,
                     hdr: view.hdr,
-                    additive,
+                    material,
                 },
             )?);
         }

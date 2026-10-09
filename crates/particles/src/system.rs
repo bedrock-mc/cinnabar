@@ -517,6 +517,7 @@ mod tests {
             new.tick(0.02, &EmptyWorld);
             let old_draw = old.build_draw(&view, &EmptyWorld);
             let new_draw = new.build_draw(&view, &EmptyWorld);
+            assert_eq!(old_draw.opaque, new_draw.opaque);
             assert_eq!(old_draw.blend, new_draw.blend);
             assert_eq!(old_draw.add, new_draw.add);
         }

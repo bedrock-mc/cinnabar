@@ -84,8 +84,8 @@ fn item_icon_defaults_preserve_the_supplied_sprite_rectangle() {
         },
         &EmptyWorld,
     );
-    assert_eq!(draw.blend.len(), 1);
-    let uv = draw.blend[0].uv;
+    assert_eq!(draw.opaque.len(), 1);
+    let uv = draw.opaque[0].uv;
     assert!(
         uv[2] > 0.0 && uv[3] > 0.0,
         "the supplied item UV must survive creation defaults"

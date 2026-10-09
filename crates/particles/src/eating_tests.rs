@@ -58,7 +58,7 @@ fn eating_draw_keeps_native_quad_extent_and_quarter_sprite() {
         },
         &EmptyWorld,
     );
-    for (instance, (extent, uv)) in draw.blend.iter().zip(expected) {
+    for (instance, (extent, uv)) in draw.opaque.iter().zip(expected) {
         for axis in [instance.axis_x, instance.axis_y] {
             let full_extent = 2.0 * axis[..3].iter().map(|x| x * x).sum::<f32>().sqrt();
             assert!((full_extent - extent).abs() < 1e-6);
@@ -72,7 +72,7 @@ fn eating_draw_keeps_native_quad_extent_and_quarter_sprite() {
         assert_eq!(instance.uv[2] * ATLAS_SIDE as f32, 4.0);
         assert_eq!(instance.uv[3] * ATLAS_SIDE as f32, 4.0);
     }
-    assert_eq!(draw.blend.len(), 5);
+    assert_eq!(draw.opaque.len(), 5);
 }
 
 #[test]
