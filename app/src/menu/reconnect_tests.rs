@@ -1,6 +1,30 @@
 use super::{MenuAction, MenuRuntime, MenuScreen};
 
 #[test]
+fn remote_join_failure_logs_its_complete_provisioning_diagnostic() {
+    let log = tempfile::NamedTempFile::new().unwrap();
+    let subscriber = bevy::log::tracing_subscriber::fmt()
+        .without_time()
+        .with_ansi(false)
+        .with_writer(log.as_file().try_clone().unwrap())
+        .finish();
+    let mut menu = MenuRuntime::new(true, 2, "Player".into());
+    menu.request_connect("127.0.0.1:19132".into());
+    menu.take_join_intent().unwrap();
+    let diagnostic = "Could not start 127.0.0.1:19132: missing core at /test/missing-core";
+    bevy::log::tracing::subscriber::with_default(subscriber, || {
+        bevy::log::tracing::callsite::rebuild_interest_cache();
+        menu.show_join_failure(diagnostic.into());
+    });
+    let logged = std::fs::read_to_string(log.path()).unwrap();
+    assert!(
+        logged.contains(diagnostic),
+        "complete cause must remain in the log"
+    );
+    assert!(menu.view().can_reconnect);
+}
+
+#[test]
 fn reconnect_retries_the_consumed_destination_twice_and_preserves_origin() {
     for (origin, address) in [
         (MenuScreen::Servers, "127.0.0.1:19132"),

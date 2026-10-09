@@ -426,10 +426,12 @@ impl MenuRuntime {
         self.show_session_origin(MenuScreen::Play);
     }
 
+    /// Shows local join errors in the world menu and remote errors on the disconnect screen.
     pub(crate) fn show_join_failure(&mut self, message: String) {
         if self.feeds.join.kind == JoinKind::Local || !self.launcher {
             self.message = Some(message);
         } else {
+            bevy::log::warn!(error = %message, "join failed");
             self.message = None;
             self.disconnect_message = Some(message);
             self.focused = 0;
