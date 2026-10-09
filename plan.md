@@ -158,6 +158,9 @@
 
 ## Frame attribution and unchanged GPU uploads
 
+- Apple pipelined rendering keeps surface creation on the UI thread while render
+  submission stays on the render thread. Main and extraction schedules retain
+  single-thread execution; runtime startup checks do not close frame-budget gates.
 - Idle native metadata publication no longer dispatches through the main thread.
   macOS frame workers use interactive scheduling; bounded-load diagnostics show
   more render-work headroom. Unloaded tail results remain adverse and unexplained:
