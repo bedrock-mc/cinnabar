@@ -649,7 +649,7 @@ fn custom_items_hold_their_session_icon_with_the_component_grip() {
         layers[0].submission.input.current_bones[0]
     };
     // Upright and flat grips place the icon differently.
-    assert_ne!(bone(&blade_layers).rotation, bone(&gem_layers).rotation);
+    assert_ne!(bone(&blade_layers).rotation, bone(gem_layers).rotation);
     assert_eq!(
         runtime.item_use_durations().get("test:blade").copied(),
         Some(24)

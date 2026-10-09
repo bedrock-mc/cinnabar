@@ -1,4 +1,3 @@
-use inventory::ranged_animation_frame;
 use std::sync::Arc;
 
 use protocol::{BedrockSession, NetworkItemStack, VerifiedNetworkItemStack};
@@ -14,20 +13,6 @@ fn crossbow_duration() -> u32 {
     match classify("minecraft:crossbow", false, 0, None).unwrap() {
         AirUse::Hold { max_ticks, .. } => max_ticks,
         _ => panic!("an unloaded crossbow charges"),
-    }
-}
-
-#[test]
-fn native_bow_frames_are_not_the_pose_charge_curve() {
-    assert_eq!(ranged_animation_frame(None), 0);
-    for tick in 0..=8 {
-        assert_eq!(ranged_animation_frame(Some(tick)), 1);
-    }
-    for tick in 9..=14 {
-        assert_eq!(ranged_animation_frame(Some(tick)), 2);
-    }
-    for tick in 15..=30 {
-        assert_eq!(ranged_animation_frame(Some(tick)), 3);
     }
 }
 

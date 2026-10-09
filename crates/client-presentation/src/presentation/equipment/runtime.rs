@@ -412,17 +412,11 @@ impl EquipmentRuntime {
                             frame_alpha: animation.frame_alpha,
                             use_elapsed_ticks: elapsed,
                             delta_seconds: Some(animation.delta_seconds),
-                            animation_frame: if input
-                                .main
-                                .as_ref()
-                                .is_some_and(|main| main.identifier.as_ref() == "minecraft:bow")
-                            {
-                                inventory::ranged_animation_frame(
-                                    elapsed.filter(|elapsed| *elapsed < duration),
-                                )
-                            } else {
-                                0
-                            },
+                            animation_frame: inventory::ranged_animation_frame(
+                                input.main.as_ref().map(|main| main.identifier.as_ref()),
+                                elapsed,
+                                duration,
+                            ),
                             max_use_ticks: duration,
                             ..Default::default()
                         }),

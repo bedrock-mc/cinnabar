@@ -104,7 +104,13 @@ impl ItemUseRuntime {
                 });
             crossbow_animation_frame(use_elapsed_ticks, max_use_ticks, projectile, firework)
         } else {
-            ranged_animation_frame(use_elapsed_ticks)
+            ranged_animation_frame(
+                selected
+                    .as_ref()
+                    .and_then(|item| item.identifier.as_deref()),
+                use_elapsed_ticks,
+                max_use_ticks,
+            )
         };
         client_world::AttachableAnimationInput {
             first_person: true,
