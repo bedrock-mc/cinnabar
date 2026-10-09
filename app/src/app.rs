@@ -390,7 +390,10 @@ pub(crate) fn preferred_render_backends(explicit: Option<&OsStr>) -> Option<Back
     }
     #[cfg(target_os = "windows")]
     {
-        Some(Backends::DX12)
+        // Prefer Vulkan so capable Windows adapters can use count-driven GPU Hi-Z terrain
+        // culling. Keep DX12 admitted as the fallback for drivers without a usable Vulkan
+        // surface; an explicit WGPU_BACKEND still retains full operator control.
+        Some(Backends::VULKAN | Backends::DX12)
     }
     #[cfg(not(target_os = "windows"))]
     {

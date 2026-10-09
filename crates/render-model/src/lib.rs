@@ -59,8 +59,8 @@ pub use nametag::{
 pub use panorama::{MAX_PANORAMA_FACE_SIDE, PanoramaFaces, PanoramaView};
 pub use presentation::{
     DisplayTiming, PresentModeKind, PresentationIntent, SurfacePresentModes, VrrStatus,
-    configured_present_mode, frame_rate_target, initial_present_mode, outpaces_display,
-    select_present_mode, vrr_ceiling,
+    configured_present_mode, frame_rate_target, initial_present_mode, select_present_mode,
+    vrr_ceiling,
 };
 pub use ui::{
     MAX_UI_BATCHES, MAX_UI_DRAW_BYTES, MAX_UI_FIXED_TEXTURE_BYTES, MAX_UI_INDICES,

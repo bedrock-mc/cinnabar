@@ -3,6 +3,37 @@
 use super::*;
 
 impl ActorStore {
+    /// The entity ID a remote player with `uuid` spawned with, if one is present.
+    ///
+    /// Bedrock links a roster appearance to its player by UUID. Some servers list a different
+    /// entity ID (such as the XUID) than the player spawns with, so the spawned ID wins.
+    pub(super) fn spawned_player_unique_id(&self, uuid: &[u8; 16]) -> Option<i64> {
+        self.actors.values().find_map(|actor| {
+            (self.remote_state_excluded_runtime_id != Some(actor.runtime_id)
+                && matches!(&actor.kind, ActorKind::Player { uuid: actor_uuid, .. } if actor_uuid == uuid))
+            .then_some(actor.unique_id)
+        })
+    }
+
+    /// Relinks the listed appearance of the remote player at `runtime_id` to its spawned ID.
+    pub(super) fn adopt_spawned_unique_id(&mut self, runtime_id: u64) {
+        if self.remote_state_excluded_runtime_id == Some(runtime_id) {
+            return;
+        }
+        let Some(actor) = self.actors.get(&runtime_id) else {
+            return;
+        };
+        let ActorKind::Player { uuid, .. } = &actor.kind else {
+            return;
+        };
+        let (uuid, unique_id) = (*uuid, actor.unique_id);
+        if let Some(profile) = self.players.get_mut(&uuid) {
+            profile.unique_id = unique_id;
+        } else if let Some(profile) = self.unlisted_players.get_mut(&uuid) {
+            profile.unique_id = unique_id;
+        }
+    }
+
     /// Removes the roster entry, keeping its appearance while the matching actor exists.
     pub(super) fn unlist_player(&mut self, uuid: &[u8; 16]) {
         let Some(profile) = self.players.remove(uuid) else {
@@ -66,6 +97,35 @@ mod tests {
                 }),
             }]),
         })
+    }
+
+    /// Lists the player under `unique_id` instead of the ID it spawns with.
+    fn add_listed_as(unique_id: i64) -> ActorEvent {
+        let ActorEvent::PlayerList(update) = add(9) else {
+            unreachable!()
+        };
+        let entries = update
+            .entries
+            .iter()
+            .cloned()
+            .map(|entry| match entry {
+                PlayerListEntry::Add {
+                    uuid,
+                    username,
+                    verified,
+                    skin,
+                    ..
+                } => PlayerListEntry::Add {
+                    uuid,
+                    unique_id,
+                    username,
+                    verified,
+                    skin,
+                },
+                other => other,
+            })
+            .collect();
+        ActorEvent::PlayerList(PlayerListUpdateEvent { entries })
     }
 
     /// Spawns the listed player under its current actor lifetime.
@@ -158,6 +218,26 @@ mod tests {
         store.reset_dimension(1, 7, 1);
         assert!(store.unlisted_players.is_empty());
         assert_eq!(store.retained_player_skin_bytes, 0);
+    }
+
+    #[test]
+    fn a_player_listed_under_another_entity_id_keeps_its_appearance() {
+        // Some servers list players by XUID rather than by the entity ID they spawn with.
+        const XUID: i64 = 2_535_468_296_790_551;
+        for spawn_first in [false, true] {
+            let mut store = ActorStore::new(1, 0);
+            let (first, second) = if spawn_first {
+                (spawn(), add_listed_as(XUID))
+            } else {
+                (add_listed_as(XUID), spawn())
+            };
+            store.apply(1, 1, first);
+            store.apply(1, 2, second);
+            let profile = store
+                .player_profile(2)
+                .unwrap_or_else(|| panic!("no appearance when spawn_first={spawn_first}"));
+            assert_eq!(&*profile.username, "player");
+        }
     }
 
     #[test]

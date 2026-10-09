@@ -26,6 +26,8 @@ mod light_multiplier;
 mod material_states;
 #[path = "actor/multitexture.rs"]
 mod multitexture;
+#[path = "actor/server_pack_budgets.rs"]
+mod server_pack_budgets;
 #[path = "actor/wind_charge.rs"]
 mod wind_charge;
 
