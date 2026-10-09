@@ -10,13 +10,13 @@ use super::runtime::{ActorEquipmentInput, HeldKind, WornItem};
 use client_ui::ui_runtime::UiRuntime;
 
 impl ActorEquipmentInput {
-    /// Native attachables run item-name queries against their owner's complete equipment,
-    /// not an artificial actor holding only the item currently being drawn.
+    /// Carries owner identity and complete equipment into attachable queries while retaining timing.
     pub fn attachable_input<'a>(
         &'a self,
         timing: AttachableAnimationInput<'a>,
     ) -> AttachableAnimationInput<'a> {
         AttachableAnimationInput {
+            is_local_player: self.is_local_player,
             owner_main_hand: self.main.as_ref().map(|item| item.identifier.as_ref()),
             owner_off_hand: self.off.as_ref().map(|item| item.identifier.as_ref()),
             ..timing
@@ -66,6 +66,7 @@ pub fn remote_input(stream: &WorldStream, runtime_id: u64) -> ActorEquipmentInpu
     };
     let actor = stream.authority().actor(runtime_id);
     ActorEquipmentInput {
+        is_local_player: false,
         main: held(ActorHandedness::Right),
         off: held(ActorHandedness::Left),
         armor: armor_slots(stream.authority().actor_armor(runtime_id)),
@@ -95,6 +96,7 @@ pub fn local_input(
         .map(|ui| ui.local_armor(player_runtime))
         .unwrap_or_default();
     ActorEquipmentInput {
+        is_local_player: true,
         main: ui
             .and_then(|_| player_runtime.selected_stack())
             .and_then(|stack| resolve(stack, None)),
@@ -120,6 +122,38 @@ pub fn local_input(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn local_equipment_ownership_is_independent_of_attachable_perspective() {
+        let stream = WorldStream::new(protocol::WorldBootstrap {
+            local_player_unique_id: 1,
+            local_player_runtime_id: 1,
+            dimension: 0,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 0,
+            block_network_ids_are_hashes: false,
+        });
+        let player = player_state::PlayerState::new(1);
+        let local = local_input(&player, &stream, None, 1);
+        let remote = remote_input(&stream, 2);
+        for worn in [false, true] {
+            let timing = AttachableAnimationInput {
+                worn,
+                ..Default::default()
+            };
+            let local = local.attachable_input(timing);
+            let remote = remote.attachable_input(timing);
+            assert!(
+                local.is_local_player,
+                "local held and worn items retain ownership"
+            );
+            assert!(!remote.is_local_player, "remote items remain remote");
+            assert!(!local.first_person && !remote.first_person);
+            assert_eq!(local.worn, worn);
+            assert_eq!(remote.worn, worn);
+        }
+    }
 
     #[test]
     fn local_attachable_input_retains_other_hand_and_render_timing() {

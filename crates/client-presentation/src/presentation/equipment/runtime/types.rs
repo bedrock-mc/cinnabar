@@ -51,6 +51,8 @@ pub(super) enum MeshKey {
 
 #[derive(Clone, Debug, Default)]
 pub struct ActorEquipmentInput {
+    /// The equipment belongs to the player in this game window.
+    pub is_local_player: bool,
     pub main: Option<WornItem>,
     pub off: Option<WornItem>,
     /// Helmet, chestplate, leggings, boots.
