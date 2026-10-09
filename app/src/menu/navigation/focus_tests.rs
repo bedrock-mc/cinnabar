@@ -290,6 +290,16 @@ fn newer_keyboard_navigation_survives_the_deferred_return_validation() {
     else {
         return;
     };
+    let home_actions: Vec<_> = app
+        .world()
+        .resource::<UiPresentationRuntime>()
+        .visible_menu_actions()
+        .collect();
+    let settings_at = home_actions
+        .iter()
+        .position(|action| *action == MenuAction::Navigate(MenuScreen::Settings))
+        .unwrap();
+    let next_control = home_actions[(settings_at + 1) % home_actions.len()];
     app.world_mut()
         .resource_mut::<MenuRuntime>()
         .activate(MenuAction::Navigate(MenuScreen::Settings));
@@ -307,7 +317,7 @@ fn newer_keyboard_navigation_survives_the_deferred_return_validation() {
     }
     app.update();
     let selected = app.world().resource::<MenuRuntime>().view().focused_action;
-    assert_ne!(selected, Some(MenuAction::Navigate(MenuScreen::Settings)));
+    assert_eq!(selected, Some(next_control));
     draw(&mut app);
     assert_eq!(
         app.world().resource::<MenuRuntime>().view().focused_action,

@@ -28,7 +28,6 @@ impl NavigationFocus {
     pub(super) fn enter(&mut self) {
         self.pending = false;
         self.requested_action = None;
-        self.home_actions = None;
     }
 }
 
