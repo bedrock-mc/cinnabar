@@ -84,4 +84,11 @@ fn bamboo_collision_and_camera_use_the_same_displaced_stalk() {
     let offset = registry.block_shape_offset(1, [1, 8, 0]).unwrap();
     let outline = registry.selection_shapes(1).unwrap()[0].translated(offset);
     assert_eq!(outline, collision.value[0]);
+    let proposed = world
+        .collision_shapes_with_updates([1, 8, 0], 1, &[([1, 8, 0], 1)])
+        .unwrap();
+    assert_eq!(
+        proposed[0].translated(Vec3::new(1.0, 8.0, 0.0)),
+        collision.value[0]
+    );
 }

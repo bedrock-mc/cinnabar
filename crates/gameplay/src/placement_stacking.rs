@@ -2,13 +2,46 @@
 
 use serde_json::{Map, Value};
 
-/// Adds a snow layer in the clicked cell; the caller checks actors against the whole cell.
+/// Adds one verified stack unit; snow requires a whole-cell actor check by the caller.
 pub(crate) fn stacked_placement_state(
     held_identifier: &str,
     existing_identifier: &str,
     existing_states: &Map<String, Value>,
     face: u8,
 ) -> Option<Map<String, Value>> {
+    if held_identifier == "minecraft:sea_pickle"
+        && held_identifier == existing_identifier
+        && (1..=5).contains(&face)
+        && crate::placement_state::only_keys(existing_states, &["cluster_count", "dead_bit"])
+    {
+        let count = crate::placement_state::value(existing_states, "cluster_count")?.as_u64()?;
+        if count >= 3 {
+            return None;
+        }
+        let mut states = existing_states.clone();
+        crate::placement_state::set_value(&mut states, "cluster_count", Value::from(count + 1))?;
+        crate::placement_state::set_bit(&mut states, "dead_bit", true)?;
+        return Some(states);
+    }
+    if held_identifier == existing_identifier
+        && crate::placement_support::is_candle(held_identifier)
+        && (1..=5).contains(&face)
+        && crate::placement_state::only_keys(existing_states, &["candles", "lit"])
+    {
+        let count = crate::placement_state::value(existing_states, "candles")?.as_u64()?;
+        if count >= 3 {
+            return None;
+        }
+        let mut states = existing_states.clone();
+        let lit = crate::placement_state::value(&states, "lit")?.clone();
+        crate::placement_state::set_bit(
+            &mut states,
+            "lit",
+            lit.as_bool().or_else(|| lit.as_u64().map(|v| v == 1))?,
+        )?;
+        crate::placement_state::set_value(&mut states, "candles", Value::from(count + 1))?;
+        return Some(states);
+    }
     if face > 5
         || held_identifier != "minecraft:snow_layer"
         || held_identifier != existing_identifier
@@ -54,6 +87,39 @@ pub(crate) fn stacked_placement_canonical(
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn candle_and_pickle_stacks_cover_every_count_face_and_flag() {
+        for (identifier, count_key, bit_key) in [
+            ("minecraft:candle", "candles", "lit"),
+            ("minecraft:red_candle", "candles", "lit"),
+            ("minecraft:sea_pickle", "cluster_count", "dead_bit"),
+        ] {
+            for count in 0..=3 {
+                for flag in 0..=1 {
+                    let original = serde_json::from_value(json!({
+                        count_key: {"type":"int","value":count},
+                        bit_key: {"type":"byte","value":flag}
+                    }))
+                    .unwrap();
+                    for face in 0..=6 {
+                        let result =
+                            stacked_placement_state(identifier, identifier, &original, face);
+                        if count == 3 || face == 0 || face == 6 {
+                            assert!(result.is_none());
+                        } else {
+                            let result = result.unwrap();
+                            assert_eq!(result[count_key]["value"], count + 1);
+                            assert_eq!(
+                                result[bit_key]["value"],
+                                if bit_key == "dead_bit" { 1 } else { flag }
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     /// Keeps the unrelated cover flag so a stack cannot silently replace its block state.
     fn states(height: u64) -> Map<String, Value> {
