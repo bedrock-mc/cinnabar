@@ -27,7 +27,13 @@ fn png(path: &Path, color: [u8; 4]) {
 /// A skin of one color, shaped like a starter skin.
 pub(super) fn fixture_skin(color: [u8; 4]) -> protocol::StandardSkin {
     let side = assets::STARTER_SKIN_SIDE;
-    standard_skin(side, side, color.repeat((side * side) as usize)).unwrap()
+    standard_skin(
+        side,
+        side,
+        color.repeat((side * side) as usize),
+        SkinModel::Classic,
+    )
+    .unwrap()
 }
 
 /// Writes a starter-skin carrier holding red Steve and blue Alex.
