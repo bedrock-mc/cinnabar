@@ -211,6 +211,7 @@ fn drive_owner(
         }
     }
     let up = state.layout.is_some();
+    let mut close_view = false;
     if up && focused {
         let modifiers = held_modifiers(&input.modifier_state);
         let pressed = pointer_events(presentation, cursor, modifiers, input, &mut events);
@@ -220,15 +221,7 @@ fn drive_owner(
             cursor,
             pressed,
         };
-        key_events(
-            host,
-            player_runtime,
-            ui,
-            presentation,
-            frame,
-            input,
-            &mut events,
-        );
+        close_view = key_events(player_runtime, ui, presentation, frame, input, &mut events);
     } else {
         input.modifiers(false);
         input.buttons.clear();
@@ -238,6 +231,9 @@ fn drive_owner(
         && let Err(error) = host.dispatch(events)
     {
         eprintln!("Cinnabar mod event refused: {error:#}");
+    }
+    if close_view && let Err(error) = host.close_view() {
+        eprintln!("Cinnabar mod view-closed failed: {error:#}");
     }
     publish(host, presentation);
 }
@@ -312,16 +308,15 @@ struct KeyFrame<'a> {
 }
 
 /// Typing into the mod's edit boxes, Escape (which deselects a box, else returns from the
-/// view), and the declared keys with the hovered slot's stack.
+/// view), and declared keys; returns whether to close the view after dispatch.
 fn key_events(
-    host: &mut ModHost,
     player_runtime: &player_state::PlayerState,
     ui: &UiRuntime,
     presentation: &mut UiPresentationRuntime,
     frame: KeyFrame<'_>,
     input: &mut ScreenInput,
     events: &mut Vec<ModEvent>,
-) {
+) -> bool {
     let KeyFrame {
         keys,
         menu,
@@ -346,15 +341,9 @@ fn key_events(
     for (control, text) in edits.edits {
         events.push(ModEvent::TextChanged { control, text });
     }
-    if escape
-        && !edits.escape_consumed
-        && presentation.mod_view_shown()
-        && let Err(error) = host.close_view()
-    {
-        eprintln!("Cinnabar mod view-closed failed: {error:#}");
-    }
+    let close_view = escape && !edits.escape_consumed && view;
     if text_focused || edits.escape_consumed || (!view && ui.screen_state().text_focused()) {
-        return;
+        return close_view;
     }
     for press in &presses {
         let key = &press.key;
@@ -378,6 +367,7 @@ fn key_events(
             row,
         });
     }
+    close_view
 }
 
 /// A declared key fires only with exactly its modifiers held.

@@ -233,7 +233,6 @@ fn draw_package_view(
 /// Delivers declared mod keys through the production adapter after vanilla input.
 fn observe_keys(
     mut input: ScreenInput,
-    mut host: ResMut<Host>,
     player: Res<crate::player_runtime::PlayerRuntime>,
     ui: Res<UiRuntime>,
     mut presentation: ResMut<UiPresentationRuntime>,
@@ -257,7 +256,6 @@ fn observe_keys(
         }]
     });
     key_events(
-        &mut host.0,
         &player,
         &ui,
         &mut presentation,
@@ -957,6 +955,105 @@ fn production_mod_driver_delivers_declared_keys_and_view_escape() {
     );
     let runtime = app.world().resource::<ModRuntime>();
     assert!(runtime.host.screens().view.is_none());
+    assert_eq!(
+        runtime.host.screens().data.values.get("#view_closed"),
+        Some(&server_experience::screen::Value::Integer(1))
+    );
+}
+
+#[test]
+fn escape_closes_a_view_after_same_frame_pointer_actions() {
+    use sha2::{Digest, Sha256};
+    let (mut app, window) = input_app();
+    let dir = tempfile::tempdir().unwrap();
+    write_transition_probe(dir.path(), "0.1.0");
+    let template = serde_json::to_vec(&serde_json::json!({"namespace":"probe","view":{
+        "type":"panel","size":["100%","100%"],"controls":[{"open":{
+            "type":"button","size":[80,20],"offset":[20,20],
+            "anchor_from":"top_left","anchor_to":"top_left",
+            "button_mappings":[{"from_button_id":"button.menu_select",
+                "to_button_id":"probe.view","mapping_type":"pressed"}]}}]}}))
+    .unwrap();
+    let old = std::fs::read(dir.path().join(VIEW)).unwrap();
+    std::fs::write(dir.path().join(VIEW), &template).unwrap();
+    let manifest_path = dir.path().join(mod_host::package::MANIFEST);
+    let manifest = std::fs::read_to_string(&manifest_path).unwrap().replace(
+        &format!("{:x}", Sha256::digest(old)),
+        &format!("{:x}", Sha256::digest(template)),
+    );
+    std::fs::write(manifest_path, manifest).unwrap();
+    let mut host = ModHost::load_package(dir.path(), mod_host::ModGrants::default()).unwrap();
+    let package = host.package().unwrap();
+    if !draw_package_view(&mut app, &package.id, &package.files) {
+        return;
+    }
+    let layout = app
+        .world()
+        .resource::<UiPresentationRuntime>()
+        .mod_screen_layout()
+        .cloned();
+    let scale = layout.as_ref().unwrap().size.scale as f32;
+    host.dispatch(vec![
+        ModEvent::ScreenChanged(layout),
+        ModEvent::Action {
+            id: "probe.view".into(),
+            index: None,
+        },
+        ModEvent::Action {
+            id: "probe.read_all".into(),
+            index: None,
+        },
+    ])
+    .unwrap();
+    assert!(host.screens().view.is_some());
+    let mut configured = App::new();
+    super::super::install(&mut configured, vec![host]);
+    app.insert_resource(
+        configured
+            .world_mut()
+            .remove_resource::<ModRuntime>()
+            .unwrap(),
+    )
+    .insert_resource(crate::environment::VisualTimeOverride(None))
+    .init_resource::<super::super::interaction::ModInteraction>()
+    .add_systems(
+        Update,
+        (drive_chat_keyboard_input, super::super::drive_mod).chain(),
+    );
+    app.world_mut()
+        .get_mut::<Window>(window)
+        .unwrap()
+        .set_cursor_position(Some(Vec2::new(30.0 * scale, 25.0 * scale)));
+    app.world_mut()
+        .resource_mut::<ButtonInput<MouseButton>>()
+        .press(MouseButton::Left);
+    app.world_mut().write_message(MouseButtonInput {
+        button: MouseButton::Left,
+        state: ButtonState::Pressed,
+        window,
+    });
+    app.world_mut()
+        .resource_mut::<ButtonInput<MouseButton>>()
+        .release(MouseButton::Left);
+    app.world_mut().write_message(MouseButtonInput {
+        button: MouseButton::Left,
+        state: ButtonState::Released,
+        window,
+    });
+    send(
+        &mut app,
+        window,
+        KeyCode::Escape,
+        ButtonState::Pressed,
+        None,
+    );
+    let runtime = app.world().resource::<ModRuntime>();
+    assert!(matches!(runtime.host.screens().data.values.get("#action"),
+        Some(server_experience::screen::Value::Text(action)) if action == "probe.view:None:Ok(())"));
+    assert!(
+        runtime.host.screens().view.is_none(),
+        "a queued pointer action reopened the escaped view"
+    );
     assert_eq!(
         runtime.host.screens().data.values.get("#view_closed"),
         Some(&server_experience::screen::Value::Integer(1))
