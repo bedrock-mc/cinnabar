@@ -686,7 +686,7 @@ fn field(
             bounds,
             left,
             factor,
-            font: Some(BODY.face.name().into()),
+            font: BODY.face.map(|face| face.name().into()),
             letter_spacing_64,
             metrics,
         });

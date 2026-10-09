@@ -438,10 +438,12 @@ impl<'a> Canvas<'a> {
     where
         'a: 't,
     {
-        let font = self.font.font_named_at_size(
-            style.face.name(),
-            self.r(style.size) * self.metrics.dpi_scale.get(),
-        );
+        let font = style.face.map_or(self.font, |face| {
+            self.font.font_named_at_size(
+                face.name(),
+                self.r(style.size) * self.metrics.dpi_scale.get(),
+            )
+        });
         let mut request = self.metrics.request(value, width_64, font);
         if let Some(source) = font.line_metrics() {
             request.scale = UiScale::new_display(self.r(style.size) * 64.0 / source.em_64 as f32)

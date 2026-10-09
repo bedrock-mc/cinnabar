@@ -210,7 +210,7 @@ fn action_panel(
         view,
         [x, y, right, y + canvas.r(6.4)],
         Variant::Hero,
-        "Play",
+        "PLAY",
         Some(MenuAction::Navigate(MenuScreen::Play)),
     )?;
     y += canvas.r(7.6);

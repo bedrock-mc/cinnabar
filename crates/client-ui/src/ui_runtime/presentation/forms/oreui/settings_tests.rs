@@ -222,7 +222,6 @@ fn settings_small_text_selects_native_rasters_by_physical_size() {
             FontRendering::NativeCoverage,
             8,
         ),
-        (1, 1.0, theme::HEADER5, FontRendering::NativeSdf, 52),
         (2, 2.0, theme::CAPTION, FontRendering::NativeSdf, 52),
     ] {
         let metrics =

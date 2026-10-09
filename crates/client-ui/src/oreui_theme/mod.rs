@@ -193,48 +193,49 @@ pub const HEADER_STRIP: Rgba = rgb(0xb1b2b5);
 pub const BEVEL_LIGHT: Rgba = white(26);
 pub const BEVEL_DARK: Rgba = black(77);
 
-/// A semantic face with its CSS em size and line height in rem.
+/// A semantic face with its CSS em size and line height in rem. `None` uses the
+/// bundled block face, keeping prominent menu text identical across platforms.
 #[derive(Clone, Copy)]
 pub struct Type {
     pub size: f32,
     pub line: f32,
-    pub face: OreUiFont,
+    pub face: Option<OreUiFont>,
 }
 
 pub const HEADER3: Type = Type {
     size: 3.2,
     line: 4.0,
-    face: OreUiFont::Ten,
+    face: None,
 };
 pub const HEADER5: Type = Type {
     size: 2.0,
     line: 2.4,
-    face: OreUiFont::Ten,
+    face: None,
 };
 pub const SECTION_HEADER: Type = Type {
     size: 1.6,
     line: 2.0,
-    face: OreUiFont::Ten,
+    face: Some(OreUiFont::Ten),
 };
 pub const BODY: Type = Type {
     size: 1.6,
     line: 2.0,
-    face: OreUiFont::Seven,
+    face: Some(OreUiFont::Seven),
 };
 pub const CAPTION: Type = Type {
     size: 1.4,
     line: 2.0,
-    face: OreUiFont::Seven,
+    face: Some(OreUiFont::Seven),
 };
 pub const PRIMARY_BUTTON: Type = Type {
     size: 2.0,
     line: 2.4,
-    face: OreUiFont::Ten,
+    face: None,
 };
 pub const SECONDARY_BUTTON: Type = Type {
     size: 1.6,
     line: 2.0,
-    face: OreUiFont::Seven,
+    face: Some(OreUiFont::Seven),
 };
 
 pub const LETTER_SPACING: f32 = 0.04;
