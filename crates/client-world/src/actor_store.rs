@@ -213,6 +213,7 @@ impl ActorSnapshot {
         };
         snapshot.apply_metadata(&spawn.metadata);
         snapshot.apply_attributes(&spawn.attributes);
+        snapshot.sync_status_from_health();
         snapshot.apply_properties(&spawn.properties);
         snapshot
     }

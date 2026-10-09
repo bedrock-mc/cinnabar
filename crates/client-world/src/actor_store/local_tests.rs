@@ -139,6 +139,41 @@ fn local_health_pending_a_pose_cannot_override_newer_spawn_health() {
 }
 
 #[test]
+fn spawn_health_initializes_death_time_and_replacement_clears_it() {
+    for local in [false, true] {
+        let mut store = ActorStore::new(1, 0);
+        if local {
+            store.exclude_remote_state_for(1);
+        }
+        let ActorEvent::Spawn(mut spawn) = super::tests::spawn(1, -1) else {
+            unreachable!();
+        };
+        spawn.attributes = Arc::from([protocol::ActorAttribute {
+            name: "minecraft:health".into(),
+            min: 0.0,
+            max: crate::DEFAULT_PLAYER_HEALTH,
+            current: 0.0,
+            default: None,
+            modifiers: Default::default(),
+        }]);
+        assert_eq!(
+            store.apply(1, 1, ActorEvent::Spawn(spawn.clone())),
+            ActorApplyResult::Inserted
+        );
+        assert!(store.get(1).unwrap().status.dead);
+        store.advance_interpolation_ticks(125);
+        assert_eq!(store.get(1).unwrap().status.native_death_ticks(), 125);
+        Arc::make_mut(&mut spawn.attributes)[0].current = 7.0;
+        assert_eq!(
+            store.apply(1, 2, ActorEvent::Spawn(spawn)),
+            ActorApplyResult::Replaced
+        );
+        assert!(!store.get(1).unwrap().status.dead);
+        assert_eq!(store.get(1).unwrap().status.native_death_ticks(), 0);
+    }
+}
+
+#[test]
 fn local_health_respects_retained_attribute_capacity_and_invalid_ranges() {
     let mut store = ActorStore::new(1, 0);
     store.exclude_remote_state_for(1);
