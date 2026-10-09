@@ -92,6 +92,38 @@ fn death_long_reasons_keep_actions_inside_the_viewport() {
 }
 
 #[test]
+fn death_multiline_reasons_preserve_the_modern_route_and_hardcore_actions() {
+    let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
+    let mut view = MenuView::new(true, "Player".into());
+    view.screen = MenuScreen::Death;
+    view.death_reason = "x\n".repeat(ui::MAX_WRAP_LINES);
+    for hardcore in [false, true] {
+        view.death_presentation.hardcore = hardcore;
+        for size in [[1280.0, 720.0], [640.0, 360.0]] {
+            let hits = append(&mut presentation, &view, size);
+            let primary = if hardcore {
+                MenuAction::DeathExitWorld
+            } else {
+                MenuAction::Respawn
+            };
+            let secondary = if hardcore {
+                MenuAction::Respawn
+            } else {
+                MenuAction::OpenDeathGameMenu
+            };
+            assert_eq!(
+                hits.iter().map(|(action, _)| *action).collect::<Vec<_>>(),
+                [primary, secondary]
+            );
+            assert!(
+                hits.iter()
+                    .all(|(_, bounds)| bounds.min().y() >= 0.0 && bounds.max().y() <= size[1])
+            );
+        }
+    }
+}
+
+#[test]
 fn death_immediate_respawn_finishes_the_backdrop_animation() {
     let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
     let mut view = MenuView::new(true, "Player".into());

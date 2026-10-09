@@ -104,9 +104,10 @@ pub(super) fn draw(
     let secondary_height = canvas.r(theme::BUTTON_HEIGHT);
     let gap = canvas.r(1.0);
     let action_height = primary_height + gap + secondary_height + canvas.r(3.0);
-    let reason_height = canvas
-        .measure_height(&view.death_reason, width, theme::BODY)?
-        .min((size[1] - title_height - action_height).max(0.0));
+    let reason_limit = (size[1] - title_height - action_height).max(0.0);
+    let reason_layout =
+        canvas.bounded_centered_layout(&view.death_reason, width, reason_limit, theme::BODY)?;
+    let reason_height = (reason_layout.size_64()[1] as f32 / 64.0).min(reason_limit);
     let free = (size[1] - title_height - reason_height - action_height).max(0.0);
     let message_top = free * 0.3;
     let action_top = message_top + title_height + reason_height + free * 0.5;
@@ -130,11 +131,10 @@ pub(super) fn draw(
         right,
         message_top + title_height + reason_height,
     ])?;
-    canvas.centered_wrapped_text_with_shadow(
-        &view.death_reason,
+    canvas.place_text(
+        reason_layout,
         [left, message_top + title_height],
         width,
-        theme::BODY,
         theme::TEXT,
         true,
     )?;

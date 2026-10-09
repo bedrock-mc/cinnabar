@@ -438,6 +438,29 @@ impl<'a> Canvas<'a> {
         self.place_text(layout, at, width, color, shadow)
     }
 
+    /// Centers wrapped text and limits layout work to lines visible within `height`.
+    pub(super) fn bounded_centered_layout(
+        &mut self,
+        value: &str,
+        width: f32,
+        height: f32,
+        style: Type,
+    ) -> Result<Arc<ui::TextLayout>, UiPresentationError> {
+        let mut request = self.text_request(value, (width.max(1.0) * 64.0) as u32, style)?;
+        let pitch = (request.line_height_64 as f32 * request.scale.get()
+            + request.wrap.line_padding_64 as f32)
+            .max(1.0);
+        request.wrap.align = ui::TextLineAlign::Center;
+        request.wrap.max_lines = Some(
+            (height.max(0.0) * 64.0 / pitch)
+                .ceil()
+                .clamp(1.0, ui::MAX_WRAP_LINES as f32) as u16,
+        );
+        self.layouts
+            .layout(request)
+            .map_err(UiPresentationError::Text)
+    }
+
     fn layout(
         &mut self,
         value: &str,
@@ -483,7 +506,7 @@ impl<'a> Canvas<'a> {
     }
 
     /// Draws a laid-out `layout` from `at` within `width`; returns its height.
-    fn place_text(
+    pub(super) fn place_text(
         &mut self,
         layout: std::sync::Arc<ui::TextLayout>,
         at: [f32; 2],

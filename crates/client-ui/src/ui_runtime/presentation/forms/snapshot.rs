@@ -6,7 +6,9 @@
 use std::path::Path;
 
 use image::{Rgba, RgbaImage};
-use render_model::{UI_BLEND_INVERT, UiRenderInput, UiRenderVertex, UiTextureFormat};
+use render_model::{
+    UI_BLEND_INVERT, UI_STYLE_RADIAL_GRADIENT, UiRenderInput, UiRenderVertex, UiTextureFormat,
+};
 
 const SNAPSHOT_ENV: &str = "CINNABAR_FORM_SNAPSHOT_DIR";
 
@@ -69,13 +71,26 @@ pub fn rasterize(input: &UiRenderInput) -> RgbaImage {
             fill(
                 &mut image,
                 corners,
-                |[u, v], color, x, y| {
+                |[u, v], color, overlay, x, y| {
                     if x < scissor.x
                         || y < scissor.y
                         || x >= scissor.x + scissor.width
                         || y >= scissor.y + scissor.height
                     {
                         return None;
+                    }
+                    if corners[0].style_flags & UI_STYLE_RADIAL_GRADIENT != 0 {
+                        let radius = u.hypot(v).clamp(0.0, 1.0);
+                        let inner = premultiply(color);
+                        let outer = [
+                            overlay[0] * overlay[3],
+                            overlay[1] * overlay[3],
+                            overlay[2] * overlay[3],
+                            overlay[3],
+                        ];
+                        return Some(std::array::from_fn(|channel| {
+                            inner[channel] * (1.0 - radius) + outer[channel] * radius
+                        }));
                     }
                     let (u, v) = (
                         (u.floor() as u32).min(page_width - 1),
@@ -93,9 +108,9 @@ pub fn rasterize(input: &UiRenderInput) -> RgbaImage {
                         .round() as u8;
                         texel = [luma, luma, luma, texel[3]];
                     }
-                    Some(std::array::from_fn(|channel| {
+                    Some(premultiply(std::array::from_fn(|channel| {
                         (u16::from(texel[channel]) * u16::from(color[channel]) / 255) as u8
-                    }))
+                    })))
                 },
                 batch.blend_mode == UI_BLEND_INVERT,
             );
@@ -104,14 +119,25 @@ pub fn rasterize(input: &UiRenderInput) -> RgbaImage {
     image
 }
 
-/// Fill one triangle, sampling `shade(uv, color, x, y)` at each covered pixel
-/// centre and blending the result over the image. A centre on an edge belongs
+/// Converts an RGBA byte color into normalized premultiplied color for composition.
+fn premultiply(color: [u8; 4]) -> [f32; 4] {
+    let alpha = f32::from(color[3]) / 255.0;
+    [
+        f32::from(color[0]) / 255.0 * alpha,
+        f32::from(color[1]) / 255.0 * alpha,
+        f32::from(color[2]) / 255.0 * alpha,
+        alpha,
+    ]
+}
+
+/// Fill one triangle, sampling premultiplied `shade(uv, color, overlay, x, y)` at
+/// each covered pixel centre and blending over the image. A centre on an edge belongs
 /// only to the triangle that edge is a top or left edge of, as GPUs rasterize,
 /// so a quad's shared diagonal is never blended twice.
 fn fill(
     image: &mut RgbaImage,
     mut corners: [UiRenderVertex; 3],
-    shade: impl Fn([f32; 2], [u8; 4], u32, u32) -> Option<[u8; 4]>,
+    shade: impl Fn([f32; 2], [u8; 4], [f32; 4], u32, u32) -> Option<[f32; 4]>,
     invert: bool,
 ) {
     let [a, b, c] = corners.map(|corner| corner.position);
@@ -154,20 +180,24 @@ fn fill(
                     + wc * f32::from(corners[2].color[channel]))
                 .round() as u8
             });
-            let Some(source) = shade(uv, color, x, y) else {
+            let overlay = std::array::from_fn(|channel| {
+                wa * corners[0].overlay_color[channel]
+                    + wb * corners[1].overlay_color[channel]
+                    + wc * corners[2].overlay_color[channel]
+            });
+            let Some(source) = shade(uv, color, overlay, x, y) else {
                 continue;
             };
             let target = image.get_pixel_mut(x, y);
-            let alpha = f32::from(source[3]) / 255.0;
+            let alpha = source[3];
             for channel in 0..3 {
                 let over = if invert {
-                    255 - target[channel]
+                    f32::from(255 - target[channel]) / 255.0 * alpha
                 } else {
                     source[channel]
                 };
-                target[channel] = (f32::from(over) * alpha
-                    + f32::from(target[channel]) * (1.0 - alpha))
-                    .round() as u8;
+                target[channel] =
+                    (over * 255.0 + f32::from(target[channel]) * (1.0 - alpha)).round() as u8;
             }
         }
     }
@@ -233,6 +263,70 @@ mod tests {
         assert_eq!(actual.get_pixel(1, 1).0, [100, 150, 200, 255]);
     }
 
+    #[test]
+    fn radial_snapshots_blend_premultiplied_stops_and_expanding_extent() {
+        use render_model::{
+            UI_BLEND_ALPHA, UI_STYLE_RADIAL_GRADIENT, UiRenderBatch, UiRenderTextureArray,
+            UiScissor, UiTexturePage,
+        };
+        use std::sync::Arc;
+
+        let render = |extent: f32| {
+            let vertices =
+                [[0., 0.], [3., 0.], [3., 1.], [0., 1.]].map(|position| UiRenderVertex {
+                    uv: [(position[0] - 0.5) / (2.0 * extent), 0.0],
+                    color: [240, 100, 60, 0],
+                    overlay_color: [0.2, 0.4, 0.6, 0.8],
+                    style_flags: UI_STYLE_RADIAL_GRADIENT,
+                    ..vertex(position[0], position[1])
+                });
+            rasterize(&UiRenderInput {
+                revision: 1,
+                viewport_size: [3, 1],
+                safe_area: [0; 4],
+                vertices: vertices.into(),
+                indices: [0, 1, 2, 0, 2, 3].into(),
+                batches: [UiRenderBatch::new(
+                    0,
+                    UiScissor::new(0, 0, 3, 1),
+                    0,
+                    6,
+                    UI_BLEND_ALPHA,
+                )]
+                .into(),
+                textures: Arc::new(
+                    UiRenderTextureArray::new(
+                        vec![UiTexturePage::owned([1, 1], vec![255; 4].into()).unwrap()],
+                        1,
+                    )
+                    .unwrap(),
+                ),
+            })
+        };
+        let settled = render(1.0);
+        assert_eq!(
+            settled.get_pixel(0, 0).0,
+            [70, 90, 110, 255],
+            "transparent inner stop preserves the world"
+        );
+        assert_eq!(
+            settled.get_pixel(1, 0).0,
+            [62, 95, 127, 255],
+            "midpoint mixes premultiplied stops"
+        );
+        assert_eq!(
+            settled.get_pixel(2, 0).0,
+            [55, 100, 144, 255],
+            "outer stop uses its own color and alpha"
+        );
+        let expanded = render(3.0);
+        assert_eq!(
+            expanded.get_pixel(1, 0).0,
+            [67, 92, 116, 255],
+            "expanded extent exposes more of the world"
+        );
+    }
+
     fn vertex(x: f32, y: f32) -> UiRenderVertex {
         UiRenderVertex {
             position: [x, y],
@@ -263,7 +357,7 @@ mod tests {
                 fill(
                     &mut image,
                     triangle.map(|index| quad[index]),
-                    |_, color, _, _| Some(color),
+                    |_, color, _, _, _| Some(premultiply(color)),
                     false,
                 );
             }
