@@ -5,7 +5,6 @@ mod systems;
 pub use client_presentation::audio::{
     AudioCategory, AudioEngine, AudioSettings, BLOCK_ECHO_SECONDS, EchoLedger, EchoOrigin,
     EchoSubject, LocalBlockCue, ServerSoundPack, SoundBank, publish_server_sounds, sound_bank_path,
-    ui_control_sound,
 };
 pub(crate) use systems::configure;
 

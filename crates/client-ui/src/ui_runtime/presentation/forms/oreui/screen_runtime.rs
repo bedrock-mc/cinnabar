@@ -433,7 +433,8 @@ impl UiPresentationRuntime {
         } else if let Some(entrance) = root_entrance {
             paint::apply_entrance(nodes, entrance, motion_rem, size)?;
         }
-        self.form_presentation.menu_sounds.clear();
+        self.form_presentation.native_menu_sounds = true;
+        self.form_presentation.menu_audio.clear_frame();
         Ok(Some(hits))
     }
 }

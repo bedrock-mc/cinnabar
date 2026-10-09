@@ -68,8 +68,11 @@ use a generic label. Terrain and dimension cards use a neutral edge and shadow. 
 treatment. Unknown progress uses the OreUI
 cube loader; pack downloads show their actual completion fraction. Pause has no decorative green
 stripe above its logo.
-Interface click sounds are disabled at the owner's request. Other authored interface feedback and
-gameplay sounds keep their existing playback path.
+Native buttons, switches, tabs and dropdowns play the theme click at volume and pitch 1.
+Mouse and navigation input sound on press; touch feedback waits 150 ms or an accepted tap.
+Ordinary sliders and text-field focus are silent. The friends drawer plays its open and close
+sounds once per transition. JSON-UI controls retain their authored sound names, volume, pitch
+and replay intervals. All requests resolve through the current resource-pack sound stack.
 
 The owner-requested home layout places the shipped logo above the Play and interactive character
 panels. Servers and Settings are secondary; Realms and Marketplace are quiet text actions without

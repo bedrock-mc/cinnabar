@@ -345,3 +345,49 @@ fn stop_named_cancels_matching_voices() {
     engine.stop_named("dig.stone");
     assert!(sources[0].next().is_none());
 }
+
+#[test]
+fn interface_definition_override_changes_the_played_sample_and_gain() {
+    let mut engine = engine(&[(client_ui::sound_requests::UI_CLICK, "ui")]);
+    engine.enqueue(SoundRequest::new(client_ui::sound_requests::UI_CLICK).scaled(0.5, 1.25));
+    let base = engine.pump(None, 0.0, &AudioSettings::default());
+    assert_eq!(base.len(), 1);
+    assert_eq!(engine.voices[0].gain, 0.5);
+    assert!(
+        base.into_iter()
+            .next()
+            .unwrap()
+            .take(128)
+            .any(|sample| sample > 0.0)
+    );
+    engine.stop_all();
+
+    let mut replacement = definition(client_ui::sound_requests::UI_CLICK, "ui");
+    replacement.volume = Some(0.25);
+    replacement.pitch = Some(2.0);
+    replacement.alternatives[0].name = "sounds/custom/click".into();
+    let mut pack = super::super::server::ServerSoundPack::default();
+    pack.definitions
+        .insert(client_ui::sound_requests::UI_CLICK.into(), replacement);
+    engine.install_server(Some(Arc::new(pack)));
+    engine.bank.as_mut().unwrap().insert_test_pcm(
+        "sounds/custom/click",
+        Arc::new(Pcm {
+            channels: 1,
+            rate: 48_000,
+            samples: vec![-2000; 4800].into(),
+        }),
+    );
+    engine.enqueue(SoundRequest::new(client_ui::sound_requests::UI_CLICK).scaled(0.5, 1.25));
+    let overridden = engine.pump(None, 0.0, &AudioSettings::default());
+    assert_eq!(overridden.len(), 1);
+    assert_eq!(engine.voices.last().unwrap().gain, 0.125);
+    let samples: Vec<_> = overridden.into_iter().next().unwrap().collect();
+    assert!(samples.iter().any(|sample| *sample < 0.0));
+    assert!(samples.iter().all(|sample| *sample <= 0.0));
+    assert_eq!(
+        samples.len(),
+        3840,
+        "the definition and request pitches multiply"
+    );
+}

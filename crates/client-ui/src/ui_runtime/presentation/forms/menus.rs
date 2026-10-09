@@ -43,6 +43,8 @@ impl UiPresentationRuntime {
         {
             self.menu_preview.revoke_capture();
         }
+        self.form_presentation.native_menu_sounds = false;
+        self.form_presentation.menu_audio.clear_frame();
         self.settings_slider_drag_targets.clear();
         self.form_presentation.menu_focus_context = None;
         self.form_presentation.menu_focus.clear();
@@ -71,6 +73,7 @@ impl UiPresentationRuntime {
         let result = match drawn {
             Ok(Some(hits)) => Ok(hits),
             Ok(None) | Err(_) => {
+                self.form_presentation.native_menu_sounds = true;
                 let owned_dialog = matches!(
                     shown.dialog,
                     Some(crate::menu::MenuDialog::Accounts | crate::menu::MenuDialog::Exit)
@@ -123,6 +126,14 @@ impl UiPresentationRuntime {
         }
         if result.is_ok() && shown.visible {
             self.form_presentation.menu_focus_context = Some((shown.screen, shown.popup_open()));
+        }
+        if result.is_ok() {
+            self.observe_menu_drawer(shown.visible.then_some(shown.screen));
+            let scope = shown.visible.then_some((shown.screen, shown.popup_open()));
+            if self.form_presentation.menu_sound_scope != scope {
+                self.form_presentation.menu_sound_scope = scope;
+                self.form_presentation.menu_audio.reset_input();
+            }
         }
         self.menu_view = Some(view);
         result
@@ -367,7 +378,6 @@ impl UiPresentationRuntime {
         });
         self.menu_scrolls
             .reveal_engine_focus(view.focused_action, focused_key, &frame);
-        let mut sounds = Vec::new();
         let mut spots = Vec::new();
         let origin = [self.safe_area.left(), self.safe_area.top()];
         self.menu_scrolls.set_areas(scroll_areas(&frame, origin));
@@ -398,12 +408,12 @@ impl UiPresentationRuntime {
                 if !keys.iter().any(|(candidate, _)| *candidate == action) {
                     keys.push((action, region.key.clone()));
                 }
-                sounds.extend(region.sound.clone().map(|sound| (action, sound)));
                 spots.extend(text_spot(&frame, region, action, bounds, metrics));
             }
         }
         self.add_menu_text_spots(spots);
-        self.form_presentation.menu_sounds = sounds;
+        self.form_presentation.native_menu_sounds = false;
+        self.form_presentation.menu_audio.set_frame(frame);
         // An owned dialog or the join's trust question takes all input over its screen.
         if let Some(popup) =
             self.append_dialog(runtime, view, &state, nodes, next, metrics, [width, height])
@@ -441,7 +451,8 @@ impl UiPresentationRuntime {
             dialog,
             Some(crate::menu::MenuDialog::Accounts | crate::menu::MenuDialog::Exit)
         ) {
-            self.form_presentation.menu_sounds = Vec::new();
+            self.form_presentation.native_menu_sounds = true;
+            self.form_presentation.menu_audio.clear_frame();
             let rollback = (nodes.len(), *next);
             let drawn = if dialog == Some(crate::menu::MenuDialog::Exit) {
                 self.append_oreui_exit(view, nodes, next, metrics, [width, height], &|key| {
@@ -532,7 +543,6 @@ impl UiPresentationRuntime {
         self.menu_scrolls.set_areas(scroll_areas(&popup, origin));
         let mut hits = Vec::new();
         let mut keys = Vec::new();
-        let mut sounds = Vec::new();
         for region in popup.hits.iter().filter(|region| region.enabled) {
             let action = match region.pressed.as_deref() {
                 Some("popup_dialog.left_button" | "button.rating_yes_button") => confirm,
@@ -547,10 +557,10 @@ impl UiPresentationRuntime {
             if let Some(bounds) = window_rect(region, popup.scale, origin) {
                 hits.push((action, bounds));
                 keys.push((action, region.key.clone()));
-                sounds.extend(region.sound.clone().map(|sound| (action, sound)));
             }
         }
-        self.form_presentation.menu_sounds = sounds;
+        self.form_presentation.native_menu_sounds = false;
+        self.form_presentation.menu_audio.set_frame(popup);
         Some((hits, keys))
     }
 }
