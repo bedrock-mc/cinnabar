@@ -54,6 +54,7 @@ mod liquid_shader;
 mod material_variations;
 mod mod_render;
 mod model_tint_raster;
+mod model_uv_raster;
 mod native_sky;
 mod oreui_font;
 mod plugin;

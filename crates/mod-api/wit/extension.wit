@@ -63,6 +63,10 @@ interface player-state {
     /// Requires the player-state grant. None outside the current connected session.
     /// Available while a screen owns input; carries no camera, interaction or packet authority.
     read-snapshot: func() -> result<option<snapshot>, string>;
+    /// Exact content token for the current snapshot, scoped to this component instance.
+    /// None outside a current snapshot. Shares the read-snapshot grant and read budget.
+    /// Contents equal to the last full read reuse its token, even after unimported changes.
+    read-revision: func() -> result<option<u64>, string>;
 }
 
 /// An opt-in retained settings panel, rendered and hit-tested by the host.
@@ -92,9 +96,18 @@ interface input {
         keys-held: list<string>,
         events: list<event>,
     }
+    record selection {
+        /// None selects all keys; some(empty) selects none; names select exact matches.
+        keys-pressed: option<list<string>>,
+        keys-held: option<list<string>>,
+        events: bool,
+    }
     /// True only for the current frame's host-assigned action edge.
     demo-pressed: func() -> bool;
     read-controls: func() -> result<controls, string>;
+    /// Reads selected fields from the same current frame, preserving native key order.
+    /// Requires controls authority and shares the read-controls callback read budget.
+    read-selected-controls: func(selection: selection) -> result<controls, string>;
     /// Physical key names reserved before the ordinary gameplay router samples them.
     reserve-keys: func(keys: list<string>) -> result<_, string>;
 }
@@ -216,6 +229,10 @@ interface camera {
     /// Renew every frame. Only actual teleports preserve yaw/pitch; position and acknowledgments remain unchanged.
     /// Omission, no gameplay frame, or a failed callback restores server rotation.
     set-preserve-teleport-rotation: func(enabled: bool) -> result<_, string>;
+    /// Current-frame FOV and look multipliers, independently bounded to 0.1..1 and 0.05..1.
+    /// Renew only during focused, input-owned gameplay; 1/1 restores the player's view.
+    /// Omission, UI focus, unload, and failed callbacks restore both scales without changing saved settings or perspective.
+    set-view-scale: func(fov-scale: f32, look-scale: f32) -> result<_, string>;
 }
 
 /// Opt-in item-use policy; requires the explicit item-use grant.

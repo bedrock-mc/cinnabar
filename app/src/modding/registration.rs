@@ -617,6 +617,7 @@ fn clear_presentation(world: &mut World) {
     if let Some(mut camera) = world.get_resource_mut::<crate::camera::CameraSettingsAuthority>() {
         camera.set_rig(None);
         camera.set_preserve_teleport_rotation(false);
+        camera.set_view_scale(1.0, 1.0);
     }
     if let Some(mut presentation) = world.get_resource_mut::<UiPresentationRuntime>() {
         presentation.set_mod_panel_open(false);

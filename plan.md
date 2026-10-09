@@ -5705,8 +5705,13 @@ filter. LP-05 remains incomplete: normal/render packet heightmaps, custom dimens
 bounds and initialization before the upper-neighbor readiness gate are still missing.
 
 RM-06 and GEO-01 remain partial as recorded in the continuations below. GEO-02–04
-remain open: isotropic face rotation, complete repeater/comparator geometry and
-per-species offsets are not implemented. The isotropic hash needs face-to-UV fixtures.
+remain open: complete repeater/comparator geometry and per-species offsets are not
+implemented. Ordinary cubes and dirt-path models consume authored per-face rotation
+masks with position-hashed quarter turns. Compiler and GPU regressions cover path
+top/bottom variation, upright side controls and unchanged carried icons; this does
+not close the full geometry parity gate.
+Static face-to-UV orientation for named cuboids remains incomplete, including the
+dirt-path underside. Existing template axes are retained by the rotation fix.
 RM-07, RM-09 and RM-10 retain their older-reference-only status. Offline tests and GPU
 captures are local evidence; they do not close native visual or shader-performance gates.
 

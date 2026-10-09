@@ -369,6 +369,8 @@ fn drive_mod(
     if let Some(mut camera) = camera {
         camera.set_rig(merged.rig.map(camera_rig));
         camera.set_preserve_teleport_rotation(merged.preserve_teleport_rotation);
+        let [fov_scale, look_scale] = merged.view_scale.unwrap_or([1.0, 1.0]);
+        camera.set_view_scale(fov_scale, look_scale);
     }
     if let Some(mut policy) = item_use {
         policy.scope = merged.item_use_delay_fix;
