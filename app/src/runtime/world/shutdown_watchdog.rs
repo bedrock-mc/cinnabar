@@ -6,6 +6,7 @@
 //! through the world-module re-export.
 
 use std::{
+    io::Write,
     sync::{
         Arc,
         atomic::{AtomicU8, Ordering},
@@ -86,6 +87,8 @@ impl ShutdownWatchdog {
                     )
                     .is_ok()
                 {
+                    // Queued log lines precede the marker that ends the process.
+                    diagnostics::console::flush_before_exit();
                     eprintln!(
                         "{SHUTDOWN_WATCHDOG_FIRED_MARKER} timeout_ms={} exit_code={exit_code}",
                         timeout.as_millis()
@@ -127,7 +130,8 @@ pub(crate) fn app_exit_code(exit: &AppExit) -> i32 {
 
 pub(crate) fn begin_bounded_shutdown(watchdog: &ShutdownWatchdog, exit: &AppExit) {
     if watchdog.arm(exit.clone()) {
-        eprintln!(
+        let _ = writeln!(
+            diagnostics::console::stderr(),
             "{SHUTDOWN_WATCHDOG_ARMED_MARKER} timeout_ms={} exit_code={}",
             watchdog.timeout.as_millis(),
             app_exit_code(exit)

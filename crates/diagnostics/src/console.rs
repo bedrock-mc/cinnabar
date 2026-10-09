@@ -5,12 +5,17 @@ use std::{
     io::Write,
     sync::{
         OnceLock,
-        mpsc::{Receiver, SyncSender, sync_channel},
+        mpsc::{Receiver, SyncSender, TrySendError, sync_channel},
     },
+    time::{Duration, Instant},
 };
 
 /// Writes queued before a writer waits; bounds memory while the console is stalled.
 const QUEUED_WRITES: usize = 4096;
+/// Pause between attempts to queue a bounded flush behind a full queue.
+const FULL_QUEUE_RETRY: Duration = Duration::from_millis(1);
+/// Longest a panic or forced exit waits for queued output.
+const EXIT_FLUSH_TIMEOUT: Duration = Duration::from_millis(500);
 
 /// Where a queued write goes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -86,6 +91,33 @@ impl Console {
             let _ = flushed.recv();
         }
     }
+
+    /// Like [`Console::flush`], but gives up after `timeout`, as a panic or forced exit must
+    /// not hang on a stalled console. Returns whether every earlier write reached its stream.
+    pub fn flush_within(&self, timeout: Duration) -> bool {
+        let Some(queue) = &self.queue else {
+            return true;
+        };
+        let deadline = Instant::now() + timeout;
+        let (done, flushed) = sync_channel(1);
+        let mut message = Message::Flush(done);
+        loop {
+            match queue.try_send(message) {
+                Ok(()) => break,
+                Err(TrySendError::Disconnected(_)) => return true,
+                Err(TrySendError::Full(returned)) => {
+                    if Instant::now() >= deadline {
+                        return false;
+                    }
+                    message = returned;
+                    std::thread::sleep(FULL_QUEUE_RETRY);
+                }
+            }
+        }
+        flushed
+            .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+            .is_ok()
+    }
 }
 
 /// The fallback when no writer thread runs.
@@ -108,6 +140,12 @@ pub fn console() -> &'static Console {
 /// Waits for queued console output, as before the process exits.
 pub fn flush() {
     console().flush();
+}
+
+/// Waits a bounded time for queued console output before a panic report or forced exit, so
+/// earlier lines precede it without a stalled console holding the exit.
+pub fn flush_before_exit() -> bool {
+    console().flush_within(EXIT_FLUSH_TIMEOUT)
 }
 
 /// A writer that hands what it collected to the console when flushed or dropped, so one
@@ -210,5 +248,23 @@ mod tests {
             String::from_utf8(written.lock().unwrap().clone()).unwrap(),
             expected
         );
+    }
+
+    /// A panic or forced exit gives up on a stalled console instead of hanging, and still sees
+    /// the output through once the console resumes.
+    #[test]
+    fn a_bounded_flush_gives_up_on_a_stalled_console() {
+        let (release, stalled) = mpsc::channel();
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let stdout = Stalled {
+            release: Some(stalled),
+            written: Arc::clone(&written),
+        };
+        let console = Console::spawn(stdout, std::io::sink());
+        console.write(Stream::Stdout, b"last line\n".to_vec());
+        assert!(!console.flush_within(Duration::from_millis(20)));
+        release.send(()).unwrap();
+        assert!(console.flush_within(Duration::from_secs(10)));
+        assert_eq!(written.lock().unwrap().as_slice(), b"last line\n");
     }
 }
