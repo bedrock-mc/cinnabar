@@ -279,6 +279,7 @@ impl MenuRuntime {
     }
 
     pub(super) fn request_local_world_join(&mut self, name: String, hosted: bool) {
+        self.retry_target = None;
         self.remember_session_origin();
         self.stop_catalog();
         self.local_world_joined = true;

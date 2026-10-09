@@ -404,6 +404,8 @@ pub struct MenuView {
     pub global_resources: std::sync::Arc<crate::global_resources::Snapshot>,
     /// Why the last session ended, shown until acknowledged.
     pub disconnect_message: Option<String>,
+    /// The failed remote destination can be retried by the current account.
+    pub can_reconnect: bool,
     /// The saved server the add screen is editing.
     pub editing: Option<usize>,
     pub local_worlds: Vec<LocalWorldCard>,
@@ -611,6 +613,7 @@ impl MenuView {
             player_skin_model: Default::default(),
             global_resources: Default::default(),
             disconnect_message: None,
+            can_reconnect: false,
             editing: None,
             local_worlds: Vec::new(),
             local: Default::default(),

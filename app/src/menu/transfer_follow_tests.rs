@@ -328,12 +328,12 @@ fn a_core_that_exits_early_fails_the_join_promptly() {
     // The exit is seen, not the start timeout (a new executable's first
     // launch can itself take seconds on macOS).
     assert!(
-        menu.message.as_deref().is_some_and(|message| {
+        menu.disconnect_message.as_deref().is_some_and(|message| {
             message.starts_with("Could not start 127.0.0.1")
                 && message.contains("exited before publishing")
         }),
         "{:?}",
-        menu.message
+        menu.disconnect_message
     );
 }
 
@@ -404,10 +404,18 @@ fn failed_automatic_replacement(
     assert_eq!(menu.view().screen, MenuScreen::Home);
     assert!(
         menu.view()
-            .message
+            .disconnect_message
             .as_deref()
             .is_some_and(|message| message.starts_with("Could not start transfer.example.net"))
     );
+    assert!(menu.view().can_reconnect);
+    menu.activate(MenuAction::Reconnect);
+    assert_eq!(
+        menu.take_join_intent().unwrap().address,
+        "transfer.example.net:19132"
+    );
+    menu.show_home();
+    menu.show_join_failure("Could not start transfer.example.net".into());
     menu.go_back();
     assert_eq!(menu.view().screen, MenuScreen::Home);
 }

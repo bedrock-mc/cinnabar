@@ -293,6 +293,13 @@ impl MenuRuntime {
 
     /// The actions keyboard and gamepad focus cycles through on the current screen.
     pub(super) fn focus_actions(&self) -> Vec<MenuAction> {
+        if self.disconnect_message.is_some() && !self.is_connecting() {
+            return if self.can_reconnect() {
+                vec![MenuAction::Reconnect, MenuAction::DismissDialog]
+            } else {
+                vec![MenuAction::DismissDialog]
+            };
+        }
         if self.is_connecting() && self.feeds.server_trust.is_some() {
             return vec![
                 MenuAction::ServerTrust(true),

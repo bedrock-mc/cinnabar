@@ -88,6 +88,7 @@ pub enum MenuAction {
     OpenExitDialog,
     ConfirmExit,
     DismissDialog,
+    Reconnect,
     SelectServerTab(MenuServerTab),
     ServerList(server_list::ServerListAction),
     SelectProfileTab(ProfileTab),

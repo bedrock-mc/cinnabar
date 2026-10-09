@@ -2,6 +2,17 @@ use super::*;
 use crate::menu::split_address;
 use json_ui::RectOut;
 
+#[test]
+fn reconnect_regions_require_a_retryable_failure() {
+    let mut shown = view(MenuScreen::Play);
+    let button = region(HitKind::Button, Some("button.cinnabar_reconnect"));
+    assert_eq!(action_for(&shown, &button), None);
+    shown.disconnect_message = Some("network session failed: closed".into());
+    assert_eq!(action_for(&shown, &button), None);
+    shown.can_reconnect = true;
+    assert_eq!(action_for(&shown, &button), Some(MenuAction::Reconnect));
+}
+
 fn view(screen: MenuScreen) -> MenuView {
     let mut view = crate::menu::MenuView::new(true, "Steve".to_owned());
     view.screen = screen;

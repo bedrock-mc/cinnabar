@@ -368,6 +368,7 @@ fn attempt_connect(
         auth_cache,
         local_world,
     } = intent;
+    menu.remember_retry_target(&address, auth_cache.as_deref(), local_world);
     // A replacement owns no route back into the old session, even when
     // provisioning the new endpoint fails before the connecting screen opens.
     menu.show_home();
@@ -649,6 +650,7 @@ fn follow_transfer(
         return;
     }
     let Some(address) = transfer_handoff_address(&notice.host, notice.port) else {
+        menu.clear_retry_target();
         end_transfer_without_follow(
             menu,
             session,
@@ -657,6 +659,7 @@ fn follow_transfer(
         return;
     };
     if !session.controller.consume_transfer_chain_hop() {
+        menu.clear_retry_target();
         end_transfer_without_follow(
             menu,
             session,

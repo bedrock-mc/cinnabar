@@ -145,6 +145,12 @@ pub(super) fn screen_data(view: &MenuView, translate: Translate<'_>) -> Option<M
             crate::menu::disconnect::DisconnectBody::Server(message) => message,
         };
         data.set_global("#disconnect_text", text(body));
+        if view.can_reconnect {
+            context = context.with_flag("cinnabar_reconnect", true).with_var(
+                "cinnabar_reconnect_text",
+                Value::String(translated(translate, "cinnabar.reconnect", "Reconnect")),
+            );
+        }
         "disconnect.disconnect_screen"
     } else {
         let reference = menu_reference(view.screen)?;
@@ -753,6 +759,9 @@ pub(super) fn action_for(view: &MenuView, region: &HitRegion) -> Option<MenuActi
         };
     }
     Some(match region.pressed.as_deref()? {
+        "button.cinnabar_reconnect" if view.disconnect_message.is_some() && view.can_reconnect => {
+            MenuAction::Reconnect
+        }
         // The local-world loading screen's Cancel closes the world.
         "button.menu_exit" if view.local.progress.is_some() => {
             MenuAction::LocalWorld(crate::menu::LocalWorldAction::Back)

@@ -27,6 +27,9 @@ mod launcher_core;
 pub(crate) use launcher_core::target_for;
 mod navigation;
 mod presence_targets;
+mod reconnect;
+#[cfg(test)]
+mod reconnect_tests;
 #[cfg(test)]
 mod server_input_tests;
 pub(crate) mod server_trust;
@@ -107,6 +110,7 @@ pub(crate) struct MenuRuntime {
     history: json_ui::ScreenNav<MenuScreen>,
     /// The Play page beneath the current session's loading and in-game screens.
     session_origin: Option<MenuScreen>,
+    retry_target: Option<reconnect::RetryTarget>,
     /// The Add/Edit Server boxes, each typed through the chat editor's caret model.
     name: ui::ChatEditor,
     address: ui::ChatEditor,
@@ -418,11 +422,20 @@ impl MenuRuntime {
     /// A cancelled join drops any queued join and returns to the play screen.
     pub(crate) fn cancel_join(&mut self) {
         self.intents.join = None;
+        self.retry_target = None;
         self.show_session_origin(MenuScreen::Play);
     }
 
     pub(crate) fn show_join_failure(&mut self, message: String) {
-        self.message = Some(message);
+        if self.local_world_joined || !self.launcher {
+            self.message = Some(message);
+        } else {
+            self.message = None;
+            self.disconnect_message = Some(message);
+            self.focused = 0;
+            self.hovered = None;
+            self.catalog_started = false;
+        }
     }
 
     pub(crate) fn show_transfer(&mut self, address: &str) {
@@ -443,12 +456,9 @@ impl MenuRuntime {
         if !self.launcher {
             return false;
         }
-        self.visible = true;
-        self.history.reset(MenuScreen::Home);
-        self.history.push(MenuScreen::Play);
-        self.screen = MenuScreen::Play;
-        self.dialog = None;
-        self.field = None;
+        self.show_session_origin(MenuScreen::Play);
+        self.hovered = None;
+        self.pressed = None;
         // The raw chain is for the log; the disconnect screen words it as vanilla does.
         bevy::log::warn!(error, "session ended");
         self.message = None;
@@ -484,6 +494,16 @@ impl MenuRuntime {
     }
 
     pub(crate) fn activate(&mut self, action: MenuAction) {
+        if action == MenuAction::Reconnect {
+            self.reconnect();
+            return;
+        }
+        if self.disconnect_message.is_some()
+            && matches!(action, MenuAction::DismissDialog | MenuAction::AddBack)
+        {
+            self.dismiss_disconnect();
+            return;
+        }
         #[cfg(feature = "developer-control")]
         if self.activate_sign_in_fixture(action) {
             return;
@@ -543,6 +563,9 @@ impl MenuRuntime {
                 self.intents.exit = true;
             }
             MenuAction::DismissDialog => self.dismiss_accounts(),
+            MenuAction::Reconnect => {
+                unreachable!("reconnect is handled before clearing the failure")
+            }
             MenuAction::OpenAccounts => self.open_accounts(),
             MenuAction::AddAccount => self.add_account(),
             MenuAction::SwitchAccount(index) => self.switch_account(index),
@@ -839,6 +862,7 @@ impl MenuRuntime {
         self.remember_session_origin();
         self.stop_catalog();
         let auth_cache = self.launcher_auth_cache();
+        self.remember_retry_target(&address, auth_cache.as_deref(), false);
         self.stop_sign_in();
         self.local_world_joined = false;
         self.intents.join = Some(JoinIntent {
