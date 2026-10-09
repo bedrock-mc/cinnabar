@@ -408,8 +408,10 @@ fn built_in_level_aligns_with_health_and_hunger() {
         let text = level.to_string();
         let label = nodes
             .iter()
-            .find(|node| matches!(&node.draw, Draw::Text { text: value, color, .. }
-                if value == &text && color[..3] != [0, 0, 0]))
+            .find(|node| {
+                matches!(&node.draw, Draw::Text { text: value, color, .. }
+                if value == &text && color[..3] != [0, 0, 0])
+            })
             .expect("visible level label");
         let hearts = custom(&nodes, "heart_renderer")[0];
         let hunger = custom(&nodes, "hunger_renderer")[0];

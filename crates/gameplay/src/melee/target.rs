@@ -69,7 +69,7 @@ pub fn pick_actor<'a>(
 }
 
 /// [`pick_actor`] against the `(min, max)` boxes `hit_boxes` places each actor at; the
-/// nearest box an actor's ray enters is its hit.
+/// first intersecting box in server order within reach supplies each actor's hit.
 pub fn pick_actor_by<'a, Boxes>(
     actors: impl Iterator<Item = &'a ActorSnapshot>,
     hit_boxes: impl Fn(&'a ActorSnapshot) -> Boxes,
@@ -94,15 +94,12 @@ where
     actors
         .filter(|actor| Some(actor.unique_id) != excluded_unique_id && pickable(actor))
         .filter_map(|actor| {
-            let distance = hit_boxes(actor)
-                .into_iter()
-                .filter_map(|(min, max)| {
-                    let min = min.map(|axis| f64::from(axis) - ACTOR_PICK_RADIUS);
-                    let max = max.map(|axis| f64::from(axis) + ACTOR_PICK_RADIUS);
-                    ray_box_entry(origin, direction, min, max)
-                })
-                .min_by(f64::total_cmp)?;
-            (distance <= reach).then(|| ActorHit {
+            let distance = hit_boxes(actor).into_iter().find_map(|(min, max)| {
+                let min = min.map(|axis| f64::from(axis) - ACTOR_PICK_RADIUS);
+                let max = max.map(|axis| f64::from(axis) + ACTOR_PICK_RADIUS);
+                ray_box_entry(origin, direction, min, max).filter(|distance| *distance <= reach)
+            })?;
+            Some(ActorHit {
                 runtime_id: actor.runtime_id,
                 distance,
                 point: [0, 1, 2].map(|axis| (origin[axis] + direction[axis] * distance) as f32),

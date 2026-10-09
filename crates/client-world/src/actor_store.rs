@@ -110,8 +110,8 @@ pub struct ActorSnapshot {
     pub float_properties: HashMap<u32, f32>,
     pub status: ActorStatus,
     pub(crate) dragon_animation: Option<Box<dragon_animation::State>>,
-    /// Decoded [`HITBOX_METADATA_KEY`] boxes; `None` picks against the collision box.
-    pub(crate) hitboxes: Option<std::sync::Arc<[hitbox::HitBox]>>,
+    /// Accumulated [`HITBOX_METADATA_KEY`] boxes; empty geometry uses the collision box.
+    pub(crate) hitboxes: Option<std::sync::Arc<hitbox::State>>,
 }
 
 impl ActorSnapshot {
@@ -368,17 +368,24 @@ impl ActorSnapshot {
     /// Interaction boxes at the actor's current pose.
     #[must_use]
     pub fn hit_boxes(&self) -> ActorHitBoxes<'_> {
-        self.hit_boxes_at(self.position, self.yaw)
+        self.hit_boxes_at(self.position)
     }
 
-    /// The server's custom hitboxes with the feet at `position` facing `yaw` degrees, each
-    /// centred on its yaw-rotated pivot; the collision box when none are set.
+    /// Interaction boxes with collision feet at `position`. Custom pivots are relative
+    /// to the native actor position and are independent of render scale and rotation.
     #[must_use]
-    pub fn hit_boxes_at(&self, position: [f32; 3], yaw: f32) -> ActorHitBoxes<'_> {
-        match self.hitboxes.as_deref() {
-            Some(custom) => ActorHitBoxes::new(custom, position, yaw, None),
-            None => ActorHitBoxes::new(&[], position, yaw, self.bounding_box_at(position)),
-        }
+    pub fn hit_boxes_at(&self, mut position: [f32; 3]) -> ActorHitBoxes<'_> {
+        let custom = self
+            .hitboxes
+            .as_ref()
+            .map_or(&[][..], |state| state.boxes.as_slice());
+        let fallback = if custom.is_empty() {
+            self.bounding_box_at(position)
+        } else {
+            None
+        };
+        position[1] += self.network_position_offset();
+        ActorHitBoxes::new(custom, position, fallback)
     }
 
     /// Samples 0.66 of the body height above interpolated feet.
@@ -503,10 +510,8 @@ impl ActorSnapshot {
                 self.status.fuse_age_ticks = self.status.age_ticks;
             }
             if metadata.key == HITBOX_METADATA_KEY {
-                self.hitboxes = match &metadata.value {
-                    ActorMetadataValue::Compound(bytes) => hitbox::parse(bytes),
-                    _ => None,
-                };
+                std::sync::Arc::make_mut(self.hitboxes.get_or_insert_with(Default::default))
+                    .apply(&metadata.value);
             }
             self.metadata.insert(metadata.key, metadata.value.clone());
         }

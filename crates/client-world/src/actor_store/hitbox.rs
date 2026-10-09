@@ -1,30 +1,21 @@
 //! Server-defined interaction hitboxes carried by the `HITBOX` actor data compound.
-use std::sync::Arc;
+use protocol::ActorMetadataValue;
+use world::{BlockEntityNbt, NbtCompound, NbtValue};
 
-use world::{BlockEntityNbt, NbtValue};
-
-/// Actor data id of the hitbox compound; an empty compound restores the collision box.
+/// Actor data id of the hitbox compound.
 pub const HITBOX_METADATA_KEY: u32 = 118;
-/// Boxes retained per actor; further entries are ignored.
-const MAX_HITBOXES: usize = 64;
 
-/// One axis-aligned hitbox centred on a pivot that turns with the actor's yaw.
+/// One axis-aligned interaction box relative to the actor's native position.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct HitBox {
-    /// Box centre relative to the feet, before yaw rotation.
     pivot: [f32; 3],
     half_extents: [f32; 3],
 }
 
 impl HitBox {
-    /// World `(min, max)` with the feet at `position`; `(sin, cos)` is the actor's yaw.
-    fn world_box(&self, position: [f32; 3], (sin, cos): (f32, f32)) -> ([f32; 3], [f32; 3]) {
-        let [x, y, z] = self.pivot;
-        let center = [
-            position[0] + x * cos - z * sin,
-            position[1] + y,
-            position[2] + z * cos + x * sin,
-        ];
+    /// Translates the box without applying render scale or rotation.
+    fn world_box(&self, position: [f32; 3]) -> ([f32; 3], [f32; 3]) {
+        let center: [f32; 3] = std::array::from_fn(|axis| position[axis] + self.pivot[axis]);
         (
             std::array::from_fn(|axis| center[axis] - self.half_extents[axis]),
             std::array::from_fn(|axis| center[axis] + self.half_extents[axis]),
@@ -32,57 +23,90 @@ impl HitBox {
     }
 }
 
-/// Decodes the `Hitboxes` list. `None` when the compound is unreadable or holds no usable box,
-/// leaving the actor on its collision box; malformed entries are skipped.
-pub(crate) fn parse(bytes: &[u8]) -> Option<Arc<[HitBox]>> {
-    let (nbt, _) = BlockEntityNbt::decode_prefix(bytes).ok()?;
-    let root = nbt.parse()?;
-    let boxes: Vec<_> = root
-        .list("Hitboxes")?
-        .iter()
-        .filter_map(|entry| {
-            let NbtValue::Compound(entry) = entry else {
-                return None;
-            };
-            let field = |name| entry.float(name).filter(|value| value.is_finite());
-            let min = [field("MinX")?, field("MinY")?, field("MinZ")?];
-            let max = [field("MaxX")?, field("MaxY")?, field("MaxZ")?];
-            let pivot = [field("PivotX")?, field("PivotY")?, field("PivotZ")?];
-            let half_extents: [f32; 3] = std::array::from_fn(|axis| (max[axis] - min[axis]) * 0.5);
-            half_extents
-                .iter()
-                .all(|half| half.is_finite() && *half >= 0.0)
-                .then_some(HitBox {
-                    pivot,
-                    half_extents,
-                })
-        })
-        .take(MAX_HITBOXES)
-        .collect();
-    (!boxes.is_empty()).then(|| boxes.into())
+/// Metadata updates append boxes; empty updates preserve the existing component.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(crate) struct State {
+    pub(super) boxes: Vec<HitBox>,
+    skipped: u64,
 }
 
-/// World `(min, max)` interaction boxes of one actor: its custom hitboxes, or else its
-/// collision box. Yielding allocates nothing.
+impl State {
+    /// Appends readable boxes and retains previous geometry when an update is unusable.
+    pub(super) fn apply(&mut self, value: &ActorMetadataValue) {
+        let ActorMetadataValue::Compound(bytes) = value else {
+            self.skip();
+            return;
+        };
+        let Some(root) = BlockEntityNbt::decode_prefix(bytes)
+            .ok()
+            .and_then(|(nbt, _)| nbt.parse())
+        else {
+            self.skip();
+            return;
+        };
+        let Some(entries) = root.list("Hitboxes") else {
+            return;
+        };
+        for entry in entries {
+            if let NbtValue::Compound(entry) = entry
+                && let Some(hitbox) = decode_box(entry)
+            {
+                self.boxes.push(hitbox);
+            } else {
+                self.skip();
+            }
+        }
+    }
+
+    /// Counts malformed data and limits repeated diagnostics to powers of two.
+    fn skip(&mut self) {
+        self.skipped = self.skipped.saturating_add(1);
+        if self.skipped.is_power_of_two() {
+            tracing::warn!(skipped = self.skipped, "Skipping invalid actor hitbox data");
+        }
+    }
+}
+
+/// Missing and differently typed fields have the same zero default as an empty compound.
+fn decode_box(entry: &NbtCompound) -> Option<HitBox> {
+    let field = |name| match entry.get(name) {
+        Some(NbtValue::Float(value)) => *value,
+        _ => 0.0,
+    };
+    let min = [field("MinX"), field("MinY"), field("MinZ")];
+    let max = [field("MaxX"), field("MaxY"), field("MaxZ")];
+    let pivot = [field("PivotX"), field("PivotY"), field("PivotZ")];
+    let half_extents = std::array::from_fn(|axis| (max[axis] - min[axis]).abs() * 0.5);
+    min.iter()
+        .chain(&max)
+        .chain(&pivot)
+        .chain(&half_extents)
+        .all(|value| value.is_finite())
+        .then_some(HitBox {
+            pivot,
+            half_extents,
+        })
+}
+
+/// World interaction boxes: the custom boxes, or the collision box when none are present.
+/// Yielding allocates nothing.
 #[derive(Debug, Clone)]
 pub struct ActorHitBoxes<'a> {
     custom: std::slice::Iter<'a, HitBox>,
     position: [f32; 3],
-    yaw: (f32, f32),
     fallback: Option<([f32; 3], [f32; 3])>,
 }
 
 impl<'a> ActorHitBoxes<'a> {
+    /// Borrows custom geometry and a collision fallback at the requested position.
     pub(super) fn new(
         custom: &'a [HitBox],
         position: [f32; 3],
-        yaw_degrees: f32,
         fallback: Option<([f32; 3], [f32; 3])>,
     ) -> Self {
         Self {
             custom: custom.iter(),
             position,
-            yaw: yaw_degrees.to_radians().sin_cos(),
             fallback,
         }
     }
@@ -93,7 +117,7 @@ impl Iterator for ActorHitBoxes<'_> {
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.custom.next() {
-            Some(hit_box) => Some(hit_box.world_box(self.position, self.yaw)),
+            Some(hit_box) => Some(hit_box.world_box(self.position)),
             None => self.fallback.take(),
         }
     }

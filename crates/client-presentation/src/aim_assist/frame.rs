@@ -16,13 +16,13 @@ const MAX_ENTITY_CANDIDATES: usize = 101;
 /// Finite hostile view parameters cannot create unbounded ray work.
 pub(super) const MAX_BLOCK_SAMPLE_RAYS: usize = 4096;
 
-/// Reusable two-tick candidate cache; mutation packets allocate outside evaluation.
+/// Reusable two-tick candidate cache; capacity grows only for larger admitted geometry.
 #[derive(Resource, Debug)]
 pub struct AimAssistFrame {
     pub target: Option<AimAssistTarget>,
     pub skipped_queries: u64,
     pub visibility_queries: u64,
-    pub(super) entities: [Option<AimAssistCandidate>; MAX_ENTITY_CANDIDATES],
+    pub(super) entities: Vec<AimAssistCandidate>,
     pub(super) blocks: Vec<sim::CameraBlockHit>,
     frustum: Option<AimAssistFrustum>,
     held_item: Option<Arc<str>>,
@@ -34,13 +34,13 @@ pub struct AimAssistFrame {
 }
 
 impl Default for AimAssistFrame {
-    /// Candidate capacity is committed before any frame is evaluated.
+    /// Reserves the usual candidate capacity before frames are evaluated.
     fn default() -> Self {
         Self {
             target: None,
             skipped_queries: 0,
             visibility_queries: 0,
-            entities: [None; MAX_ENTITY_CANDIDATES],
+            entities: Vec::with_capacity(MAX_ENTITY_CANDIDATES),
             blocks: Vec::with_capacity(MAX_BLOCK_SAMPLE_RAYS),
             frustum: None,
             held_item: None,
@@ -70,7 +70,7 @@ impl AimAssistFrame {
         if self.revision != state.revision() || state.settings().is_none() {
             self.target = None;
             self.frustum = None;
-            self.entities.fill(None);
+            self.entities.clear();
             self.blocks.clear();
             self.last_tick = None;
             self.aim_tick = 0;
@@ -117,7 +117,7 @@ impl AimAssistFrame {
                     }
                 };
             self.blocks.clear();
-            self.entities.fill(None);
+            self.entities.clear();
             self.capture_entities(state, world, local_actor);
             if self.target.is_some_and(|target| matches!(target.kind, TargetKind::Actor(id) if world.actor(id).is_none_or(|actor| actor.status.dead))) {
                 self.target = None;
@@ -134,10 +134,8 @@ impl AimAssistFrame {
         self.target = None;
         let preset_index = metadata_index(local_actor, AIM_ASSIST_PRESET_METADATA_KEY);
         let category_index = metadata_index(local_actor, AIM_ASSIST_CATEGORY_METADATA_KEY);
-        for index in 0..MAX_ENTITY_CANDIDATES {
-            let Some(mut candidate) = self.entities[index] else {
-                break;
-            };
+        for index in 0..self.entities.len() {
+            let mut candidate = self.entities[index];
             if let TargetKind::Actor(id) = candidate.kind {
                 candidate.priority = state.player_priority(
                     preset_index,
@@ -155,7 +153,7 @@ impl AimAssistFrame {
             candidate.obstructed = self.obstructed(blocks, frustum.origin, visibility_end);
             if !candidate.obstructed && settings.target_mode == CameraAimAssistTargetMode::Distance
             {
-                candidate.obstructed = self.entities.iter().flatten().any(|other| {
+                candidate.obstructed = self.entities.iter().any(|other| {
                     other.kind != candidate.kind
                         && segment_intersects(frustum.origin, delta, other.minimum, other.maximum)
                 });
@@ -191,8 +189,11 @@ impl AimAssistFrame {
         };
         let preset_index = metadata_index(local_actor, AIM_ASSIST_PRESET_METADATA_KEY);
         let category_index = metadata_index(local_actor, AIM_ASSIST_CATEGORY_METADATA_KEY);
-        let mut count = 0;
         for actor in world.remote_actors() {
+            // The threshold admits whole actors, including all of their custom boxes.
+            if self.entities.len() >= MAX_ENTITY_CANDIDATES {
+                break;
+            }
             if actor.status.dead {
                 continue;
             }
@@ -213,30 +214,20 @@ impl AimAssistFrame {
             let Some(priority) = priority else {
                 continue;
             };
-            // Custom hitboxes aim at the box enclosing all of them.
-            let Some((minimum, maximum)) = world
-                .pick_hit_boxes(actor)
-                .map(|(min, max)| (Vec3::from_array(min), Vec3::from_array(max)))
-                .reduce(|(min, max), (other_min, other_max)| {
-                    (min.min(other_min), max.max(other_max))
-                })
-            else {
-                continue;
-            };
-            if !frustum.contains_box(minimum, maximum) {
-                continue;
-            }
-            self.entities[count] = Some(AimAssistCandidate {
-                kind: TargetKind::Actor(actor.runtime_id),
-                minimum,
-                maximum,
-                point: (minimum + maximum) * 0.5,
-                priority,
-                obstructed: false,
-            });
-            count += 1;
-            if count == MAX_ENTITY_CANDIDATES {
-                break;
+            for (minimum, maximum) in world.pick_hit_boxes(actor) {
+                let minimum = Vec3::from_array(minimum);
+                let maximum = Vec3::from_array(maximum);
+                if !frustum.contains_box(minimum, maximum) {
+                    continue;
+                }
+                self.entities.push(AimAssistCandidate {
+                    kind: TargetKind::Actor(actor.runtime_id),
+                    minimum,
+                    maximum,
+                    point: (minimum + maximum) * 0.5,
+                    priority,
+                    obstructed: false,
+                });
             }
         }
     }

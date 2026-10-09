@@ -35,6 +35,7 @@ fn actor(
     actor_with(runtime_id, identifier, feet, metadata)
 }
 
+/// Spawns an actor with arbitrary metadata for picking tests.
 fn actor_with(
     runtime_id: u64,
     identifier: &str,
@@ -1048,4 +1049,17 @@ fn a_fresh_unpublished_press_still_obeys_the_half_duration_guard() {
         assert!(!runtime.observe_input(false, false));
         assert_eq!(swings.take_started(), None);
     }
+}
+
+#[test]
+fn ordered_hitboxes_use_the_first_intersection_within_reach() {
+    let actor = actor(9, "minecraft:pig", [0.0; 3], None);
+    let boxes = [
+        ([5.0, 0.0, -2.0], [6.0, 3.0, -1.0]),
+        ([-0.5, 0.0, -9.0], [0.5, 3.0, -8.0]),
+        ([-0.5, 0.0, -4.0], [0.5, 3.0, -3.0]),
+        ([-0.5, 0.0, -2.0], [0.5, 3.0, -1.0]),
+    ];
+    let hit = pick_actor_by([&actor].into_iter(), |_| boxes, None, EYE, NORTH, 5.0).unwrap();
+    assert!((hit.distance - 2.9).abs() < 1e-6, "{}", hit.distance);
 }
