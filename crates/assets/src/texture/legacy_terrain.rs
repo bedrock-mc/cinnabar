@@ -19,32 +19,47 @@ pub fn build_legacy_terrain_mip_chain(
         return Err(invalid("legacy terrain base has an invalid byte length"));
     }
     let mut mips = Vec::with_capacity(tile_size.trailing_zeros() as usize + 1);
-    let mut size = tile_size;
-    while size != 0 {
-        let span = tile_size / size;
-        let weight = 1.0 / (span * span) as f32;
-        let mut rgba8 = Vec::with_capacity((size * size * 4) as usize);
-        for y in 0..size {
-            for x in 0..size {
-                let mut sums = [0.0_f32; 4];
-                for dy in 0..span {
-                    for dx in 0..span {
-                        let offset = (((y * span + dy) * tile_size + x * span + dx) * 4) as usize;
-                        for channel in 0..sums.len() {
-                            sums[channel] += f32::from(base[offset + channel]) * (1.0 / 255.0);
-                        }
-                    }
-                }
-                rgba8.extend(sums.map(|sum| (sum * weight * 255.0) as u8));
-            }
-        }
-        mips.push(TextureMip {
-            size,
-            rgba8: rgba8.into_boxed_slice(),
-        });
-        size /= 2;
+    for level in 0..=tile_size.trailing_zeros() {
+        let (rgba8, [size, _]) = legacy_terrain_mip(base, [tile_size; 2], level)?;
+        mips.push(TextureMip { size, rgba8 });
     }
     Ok(mips.into_boxed_slice())
+}
+
+/// Averages an admitted rectangular terrain image directly into one byte-space mip.
+/// Each axis stops shrinking at one texel; RGB and alpha have equal weight.
+pub fn legacy_terrain_mip(
+    base: &[u8],
+    dimensions: [u32; 2],
+    level: u32,
+) -> Result<(Box<[u8]>, [u32; 2]), AssetError> {
+    if dimensions
+        .iter()
+        .any(|&size| !size.is_power_of_two() || size > MAX_TILE_SIZE)
+        || base.len() != (dimensions[0] * dimensions[1] * 4) as usize
+    {
+        return Err(invalid("legacy terrain rectangle is unsupported"));
+    }
+    let size = dimensions.map(|axis| axis.checked_shr(level).unwrap_or(0).max(1));
+    let span = [dimensions[0] / size[0], dimensions[1] / size[1]];
+    let weight = 1.0 / (span[0] * span[1]) as f32;
+    let mut pixels = Vec::with_capacity((size[0] * size[1] * 4) as usize);
+    for y in 0..size[1] {
+        for x in 0..size[0] {
+            let mut sums = [0.0_f32; 4];
+            for dy in 0..span[1] {
+                for dx in 0..span[0] {
+                    let offset =
+                        (((y * span[1] + dy) * dimensions[0] + x * span[0] + dx) * 4) as usize;
+                    for channel in 0..4 {
+                        sums[channel] += f32::from(base[offset + channel]) * (1.0 / 255.0);
+                    }
+                }
+            }
+            pixels.extend(sums.map(|sum| (sum * weight * 255.0) as u8));
+        }
+    }
+    Ok((pixels.into_boxed_slice(), size))
 }
 
 /// Rebuilds each terrain layer from its original bytes, leaving shared carried textures unchanged.

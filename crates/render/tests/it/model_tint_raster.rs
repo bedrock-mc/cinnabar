@@ -148,7 +148,7 @@ fn material_words() -> Vec<u32> {
         .flat_map(|index| {
             [
                 if index % 2 == 0 { 0 } else { 1 << 31 },
-                flags[index % COLUMNS],
+                flags[index % COLUMNS] | assets::MATERIAL_FLAG_ALPHA_CUTOUT,
                 if index % 3 == 0 {
                     0
                 } else {
@@ -415,6 +415,10 @@ fn model_tint_pixels_match_fragment_biome_reference() {
             crate::material_shader::NATIVE_LEAF_TEXTURE_BINDINGS[1],
             wgpu::BindingResource::TextureView(&atlas),
         ),
+        (
+            crate::material_shader::NATIVE_LEAF_SAMPLER_BINDING,
+            wgpu::BindingResource::Sampler(&sampler),
+        ),
         (6, wgpu::BindingResource::Sampler(&sampler)),
         (7, records.as_entire_binding()),
         (8, tints.as_entire_binding()),
@@ -531,15 +535,6 @@ fn ordinary_world_model_gamma_colour(in: VertexOutput, sampled_gamma: vec4<f32>)
 "#;
 
 const REFERENCE_FRAGMENT: &str = r#"
-// Each frame samples encoded gamma RGB before frame interpolation, retaining its alpha.
-fn reference_sample_ref(texture_ref: u32, uv: vec2<f32>, dx: vec2<f32>, dy: vec2<f32>) -> vec4<f32> {
-    let layer = i32(texture_ref & 0x7ffu);
-    if ((texture_ref >> 31u) == 0u) {
-        return textureSampleGrad(terrain_gamma_page_0, block_sampler, uv, layer, dx, dy);
-    }
-    return textureSampleGrad(terrain_gamma_page_1, block_sampler, uv, layer, dx, dy);
-}
-
 // Samples and mixes full frame colour before rejecting uncovered fragments.
 @fragment
 fn fragment(
@@ -550,9 +545,9 @@ fn fragment(
     if (!front_facing && in.two_sided == 0u) { discard; }
     let dx = dpdx(in.uv);
     let dy = dpdy(in.uv);
-    var sampled = reference_sample_ref(in.current_texture, in.uv, dx, dy);
+    var sampled = sample_model_ref(in, in.current_texture, dx, dy);
     if (in.frame_blend > 0.0) {
-        sampled = mix(sampled, reference_sample_ref(in.next_texture, in.uv, dx, dy), in.frame_blend);
+        sampled = mix(sampled, sample_model_ref(in, in.next_texture, dx, dy), in.frame_blend);
     }
     if (sampled.a < 0.5) { discard; }
     return ordinary_world_model_colour(in, sampled);

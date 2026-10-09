@@ -190,6 +190,9 @@ pub struct PackedQuad {
     material_id: u32,
 }
 
+/// Transform bit admitting two displacement records before this reference's lighting.
+pub const MODEL_REF_FLAG_RANDOM_OFFSET: u32 = 1 << 31;
+
 /// One compact reference to an immutable global model template.
 ///
 /// The first word contains the local position and transform selected by the
@@ -260,6 +263,35 @@ impl PackedModelDrawRef {
 pub struct PackedQuadLighting([u16; 4]);
 
 impl PackedQuadLighting {
+    /// Packs an admitted XYZ displacement in two preceding lighting-stream records.
+    #[must_use]
+    pub fn offset_prefix(offset: [f32; 3]) -> [Self; 2] {
+        let words = [
+            offset[0].to_bits(),
+            offset[1].to_bits(),
+            offset[2].to_bits(),
+            0,
+        ];
+        std::array::from_fn(|record| {
+            Self::new([
+                words[record * 2] as u16,
+                (words[record * 2] >> 16) as u16,
+                words[record * 2 + 1] as u16,
+                (words[record * 2 + 1] >> 16) as u16,
+            ])
+        })
+    }
+
+    /// Decodes the XYZ prefix carried by an admitted model reference.
+    #[must_use]
+    pub fn offset_from_prefix(records: [Self; 2]) -> [f32; 3] {
+        let words: [u32; 4] = std::array::from_fn(|word| {
+            let samples = records[word / 2].samples();
+            u32::from(samples[(word % 2) * 2]) | (u32::from(samples[(word % 2) * 2 + 1]) << 16)
+        });
+        std::array::from_fn(|axis| f32::from_bits(words[axis]))
+    }
+
     #[must_use]
     pub const fn new(samples: [u16; 4]) -> Self {
         Self(samples)

@@ -5707,8 +5707,13 @@ filter. LP-05 remains incomplete: normal/render packet heightmaps, custom dimens
 bounds and initialization before the upper-neighbor readiness gate are still missing.
 
 RM-06 and GEO-01 remain partial as recorded in the continuations below. GEO-02–04
-remain open: isotropic face rotation, complete repeater/comparator geometry and
-per-species offsets are not implemented. The isotropic hash needs face-to-UV fixtures.
+remain open: complete repeater/comparator geometry and per-species offsets are not
+implemented. Ordinary cubes and dirt-path models consume authored per-face rotation
+masks with position-hashed quarter turns. Compiler and GPU regressions cover path
+top/bottom variation, upright side controls and unchanged carried icons; this does
+not close the full geometry parity gate.
+Static face-to-UV orientation for named cuboids remains incomplete, including the
+dirt-path underside. Existing template axes are retained by the rotation fix.
 RM-07, RM-09 and RM-10 retain their older-reference-only status. Offline tests and GPU
 captures are local evidence; they do not close native visual or shader-performance gates.
 
@@ -6608,6 +6613,16 @@ Lunge moves the fixed client without movement input. The complete matched-versio
 native comparison remains incomplete. See
 [spear actions](docs/reference/spear-actions.md).
 
+## Third-person held attachables
+
+Held models evaluate authored scripts and texture meshes against the owner's
+posed bones, including aiming skeleton bows. Third-person bow draws supply the
+owner's use duration, draw frame, and render delta through release. Unchanged
+controller poses proven independent of timing reuse their evaluation; dynamic
+channels and persistent scripts continue running. Matched native motion captures
+and frame budgets remain incomplete; this does not close the complete held-item
+parity gate.
+
 ## Local placement prediction
 
 - Pillars, slab halves and matching doubles, trapdoors, hoppers, supported attachments,
@@ -6646,12 +6661,17 @@ no start packet. Marketplace clip ownership/playback, remote custom-emote
 synchronization, and the complete villager trade UI remain incomplete. These
 producer fixes do not close those parity gates.
 
-Bamboo visuals remain incomplete. Dedicated stalk and radial leaf geometry,
-column-dependent UVs and offsets, selection and breaking overlays, picking,
-movement and camera collision, and terrain overhang culling now share the same
-column transform. Placement obstruction samples the resolved destination column,
-including horizontal placements and custom build heights. Earlier rendered
-checks cover all twelve pinned states and the overlay/bounds fixes; fresh
-acceptance of the current integrated build remains pending. Exact target-version
-atlas filtering, random-offset component admission, and live Enhanced
-presentation remain unverified; this work does not close the bamboo parity gate.
+The pinned bamboo visual gate is covered for all twelve admitted states. Stalks,
+radial leaves, column UVs and offsets, selection and breaking overlays, picking,
+movement and camera collision, placement obstruction and overhang culling share
+the resolved column transform. Admitted random-offset components distinguish
+absence from explicit zero and reach both network ID spaces and compound models.
+Terrain sampling uses nearest minification/magnification, linear mip filtering,
+clamped source rectangles and byte-space RGBA mips; mixed texture sizes retain
+their own source-pixel gradients. Missing required face textures retain fallback
+support. Focused behavioral and Metal GPU regressions cover those contracts;
+fresh whole-client captures cover Vanilla and bounded Enhanced gallery views,
+selection and advancing cracks. Enhanced remains disabled for ordinary launches.
+Arbitrary runtime face-key remapping and non-power-of-two pack raster equivalence
+remain broader pack-stack work. Hidden debug captures do not close displayed-frame
+performance or the overall UI and performance gate.

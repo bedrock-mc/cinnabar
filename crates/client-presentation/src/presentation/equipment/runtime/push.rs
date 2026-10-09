@@ -38,7 +38,7 @@ impl EquipmentRuntime {
         let Some(binding) = catalog.binding(&item.identifier) else {
             return false;
         };
-        let channels = match binding.category {
+        let channels = match self.effective_category(&item.identifier, binding.category) {
             EquipmentCategory::Held => {
                 binding
                     .third_person
@@ -210,12 +210,7 @@ impl EquipmentRuntime {
             return;
         };
         // A custom item's `minecraft:wearable` slot names where its attachable is worn.
-        let category = match (binding.category, self.wearable_slot(&item.identifier)) {
-            (EquipmentCategory::Elytra | EquipmentCategory::Shield, _) | (_, None) => {
-                binding.category
-            }
-            (_, Some(worn)) => EquipmentCategory::Armor { slot: worn },
-        };
+        let category = self.effective_category(&item.identifier, binding.category);
         if category != (EquipmentCategory::Armor { slot }) {
             return;
         }

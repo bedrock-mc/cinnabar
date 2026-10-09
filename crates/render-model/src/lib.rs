@@ -83,5 +83,44 @@ pub use visibility::{
 };
 
 /// Enhanced is disabled until the GPU faults and system freezes are resolved.
-/// Settings, launch flags and camera components cannot override this switch.
+/// Ordinary settings, launch flags and camera components cannot override this switch.
 pub const ENHANCED_RENDERING_ENABLED: bool = false;
+
+#[cfg(feature = "enhanced-diagnostics")]
+static ENHANCED_DIAGNOSTIC: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// Maximum offscreen or hidden viewport admitted for development diagnostics.
+#[cfg(feature = "enhanced-diagnostics")]
+pub const ENHANCED_DIAGNOSTIC_MAX_VIEWPORT: [u32; 2] = [320, 240];
+
+/// Allows an explicitly configured, bounded diagnostic process to exercise the renderer.
+/// The caller must establish an offscreen or hidden target before creating render plugins.
+#[cfg(feature = "enhanced-diagnostics")]
+pub fn enable_enhanced_diagnostics(viewport: [u32; 2]) -> Result<(), &'static str> {
+    if viewport
+        .into_iter()
+        .zip(ENHANCED_DIAGNOSTIC_MAX_VIEWPORT)
+        .any(|(size, maximum)| size == 0 || size > maximum)
+    {
+        return Err("Enhanced diagnostics require a nonzero viewport within the diagnostic limit");
+    }
+    ENHANCED_DIAGNOSTIC.store(true, std::sync::atomic::Ordering::Release);
+    Ok(())
+}
+
+/// Reports whether this process explicitly admitted the bounded diagnostic path.
+#[cfg(feature = "enhanced-diagnostics")]
+#[must_use]
+pub fn enhanced_diagnostics_enabled() -> bool {
+    ENHANCED_DIAGNOSTIC.load(std::sync::atomic::Ordering::Acquire)
+}
+
+/// Resolves the production switch and the separately compiled diagnostic admission.
+pub fn enhanced_rendering_enabled() -> bool {
+    #[cfg(feature = "enhanced-diagnostics")]
+    if enhanced_diagnostics_enabled() {
+        return true;
+    }
+    ENHANCED_RENDERING_ENABLED
+}

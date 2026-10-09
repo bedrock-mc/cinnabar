@@ -343,6 +343,7 @@ fn operation_work_and_transition_budgets_are_aggregate() {
         transitions_left: MAX_CONTROLLER_TRANSITIONS_PER_TICK,
         used: 0,
         stack: Vec::new(),
+        static_draw: None,
     };
     assert_eq!(budget.charge(), Ok(()));
     assert_eq!(budget.charge(), Err(EvalError::WorldBudget));

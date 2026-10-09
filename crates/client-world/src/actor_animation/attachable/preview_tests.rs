@@ -219,6 +219,7 @@ fn seed_ui(runtime: &mut AttachablesRuntime, owner: &ActorSnapshot) {
         transitions_left: MAX_CONTROLLER_TRANSITIONS_PER_TICK,
         used: 0,
         stack: Vec::new(),
+        static_draw: None,
     };
     let tick = state.completed_tick;
     hud::evaluate(

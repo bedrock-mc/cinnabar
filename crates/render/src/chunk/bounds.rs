@@ -3,8 +3,11 @@ use bevy::{camera::primitives::Aabb, math::Vec3A};
 
 const SIDE: i32 = world::SUB_CHUNK_SIDE as i32;
 pub(in crate::chunk) const FULL_BOUNDS: [[i32; 3]; 2] = [[0; 3], [SIDE; 3]];
-/// Models may overhang their subchunk by one block.
-pub(in crate::chunk) const MODEL_BOUNDS: [[i32; 3]; 2] = [[-1; 3], [SIDE + 1; 3]];
+// Round outward after adding the admitted component to a one-block model overhang.
+const MODEL_PADDING: i32 = (1.0 + block_transform::random_offset::MAX_AXIS_OFFSET) as i32 + 1;
+/// Conservative model extents including admitted displacement and waving.
+pub(in crate::chunk) const MODEL_BOUNDS: [[i32; 3]; 2] =
+    [[-MODEL_PADDING; 3], [SIDE + MODEL_PADDING; 3]];
 
 pub(in crate::chunk) fn aabb(models: bool) -> Aabb {
     let [low, high] = if models { MODEL_BOUNDS } else { FULL_BOUNDS };

@@ -688,7 +688,7 @@ fn cpu_model_culling_keeps_overhangs_visible_across_geometry_updates() {
         .add_plugins(ChunkRenderPlugin::new(1));
     let key = SubChunkKey::new(0, 0, 0, 0);
     let frustum =
-        Frustum::from_clip_from_world(&Mat4::orthographic_rh(-0.2, -0.05, 0.0, 16.0, -16.0, 16.0));
+        Frustum::from_clip_from_world(&Mat4::orthographic_rh(-1.4, -1.25, 0.0, 16.0, -16.0, 16.0));
     for models in [false, true, false, true] {
         let cube = solid_mesh(1);
         let mesh = if models {
@@ -717,7 +717,7 @@ fn cpu_model_culling_keeps_overhangs_visible_across_geometry_updates() {
         assert_eq!(
             frustum.intersects_obb_identity(&bounds),
             models,
-            "leaf overhang must survive a frustum excluding the whole cell, including cube/model replacement"
+            "displaced model overhang must survive a frustum excluding the whole cell, including cube/model replacement"
         );
     }
 }

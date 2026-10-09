@@ -131,7 +131,7 @@ impl ViewNode for EnhancedHandCompositeNode {
         (target, scene, _): QueryItem<Self::ViewQuery>,
         world: &World,
     ) -> Result<(), NodeRunError> {
-        if !super::ENHANCED_RENDERING_ENABLED {
+        if !super::enhanced_rendering_enabled() {
             return Ok(());
         }
         let Some(layer) = world

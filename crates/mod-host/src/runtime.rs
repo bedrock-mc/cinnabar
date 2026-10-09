@@ -178,6 +178,13 @@ impl cinnabar::extension::input::Host for State {
         controls::read(self)
     }
 
+    fn read_selected_controls(
+        &mut self,
+        selection: cinnabar::extension::input::Selection,
+    ) -> Result<Result<crate::ControlFrame, String>> {
+        controls::read_selected(self, selection)
+    }
+
     fn reserve_keys(&mut self, keys: Vec<String>) -> Result<Result<(), String>> {
         controls::reserve(self, keys)
     }
@@ -239,12 +246,17 @@ impl Instance {
         state.camera_policy = camera::CameraPolicy::default();
         state.item_use_policy = item_use::ItemUsePolicy::default();
         if !self.active {
+            state.player_state.revoke();
             return Ok(());
         }
-        gameplay::validate_snapshot(snapshot.as_ref())?;
-        gameplay::validate_mobs(snapshot.as_ref(), &mobs)?;
-        player_state::validate(player_state.as_ref())?;
-        controls::validate_frame(&controls)?;
+        let validation = gameplay::validate_snapshot(snapshot.as_ref())
+            .and_then(|()| gameplay::validate_mobs(snapshot.as_ref(), &mobs))
+            .and_then(|()| player_state::validate(player_state.as_ref()))
+            .and_then(|()| controls::validate_frame(&controls));
+        if let Err(error) = validation {
+            state.player_state.revoke();
+            return Err(error);
+        }
         let snapshot_seconds = snapshot.as_ref().map_or(0.0, |frame| frame.frame_seconds);
         let state = self.store.data_mut();
         state.pressed = pressed;
@@ -255,9 +267,12 @@ impl Instance {
         state.snapshot = snapshot;
         state.world.advance_command_window(snapshot_seconds);
         state.world.mobs = mobs;
-        state.player_state.snapshot = player_state;
+        state.player_state.set_snapshot(player_state)?;
         state.controls.frame = controls;
-        self.store.set_fuel(FRAME_FUEL)?;
+        if let Err(error) = self.store.set_fuel(FRAME_FUEL) {
+            self.store.data_mut().player_state.revoke();
+            return Err(error);
+        }
         if let Err(error) = self.guest.call_frame(&mut self.store) {
             self.active = false;
             self.store.data_mut().pending = None;
@@ -274,7 +289,7 @@ impl Instance {
             self.store.data_mut().render.revoke();
             self.store.data_mut().block_highlights.revoke();
             self.store.data_mut().world = gameplay::WorldState::default();
-            self.store.data_mut().player_state.begin_frame();
+            self.store.data_mut().player_state.revoke();
             self.store.data_mut().camera_policy = camera::CameraPolicy::default();
             self.store.data_mut().item_use_policy = item_use::ItemUsePolicy::default();
             self.store.data_mut().packet_delay_ms = 0;
@@ -298,6 +313,11 @@ impl Instance {
 
     pub(super) fn preserves_teleport_rotation(&self) -> bool {
         self.store.data().camera_policy.committed
+    }
+
+    /// Only a successful, focused gameplay callback publishes a view multiplier.
+    pub(super) fn camera_view_scale(&self) -> Option<[f32; 2]> {
+        self.store.data().camera_policy.committed_view_scale
     }
 
     pub(super) fn camera_rig(&self) -> Option<GameplayCameraRig> {
@@ -405,6 +425,11 @@ fn commit(store: &mut Store<State>) {
     state.block_highlights.commit();
     state.world.commit();
     state.camera_policy.committed = state.camera_policy.pending && state.snapshot.is_some();
+    state.camera_policy.committed_view_scale = (state.snapshot.is_some()
+        && state.controls.frame.focused
+        && !state.controls.frame.panel_open)
+        .then_some(state.camera_policy.pending_view_scale)
+        .flatten();
     state.item_use_policy.commit(state.snapshot.as_ref());
     state.camera_delta = state.pending_camera.take();
     if let Some(delay) = state.pending_packet_delay.take() {

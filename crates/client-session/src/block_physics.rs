@@ -18,7 +18,10 @@ fn conditions(block: &CustomBlock) -> (Vec<Condition<'_>>, usize) {
         .iter()
         .filter_map(|permutation| {
             let physical = &permutation.physical;
-            if physical.collision.is_none() && physical.selection.is_none() {
+            if physical.collision.is_none()
+                && physical.selection.is_none()
+                && physical.random_offset.is_none()
+            {
                 return None;
             }
             match BlockMolang::parse(&permutation.condition) {
@@ -62,6 +65,9 @@ fn evaluate(
         if let Some(collision) = &physical.collision {
             physics.collides = collision.enabled;
             physics.collision_boxes.clone_from(&collision.boxes);
+        }
+        if let Some(offset) = physical.random_offset {
+            physics.random_offset = Some(offset);
         }
         if let Some(selection) = physical.selection {
             physics.selection = selection;

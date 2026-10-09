@@ -282,7 +282,10 @@ pub struct CollisionRegistry {
 
 #[derive(Debug, Clone)]
 struct BlockPhysics {
-    bamboo_offset: bool,
+    random_offset: Option<(
+        block_transform::random_offset::RandomOffsetComponent,
+        [f32; 3],
+    )>,
     door: Option<DoorState>,
     flow: Option<FlowBlockFacts>,
     shapes: Box<[Aabb]>,
@@ -421,17 +424,17 @@ impl CollisionRegistry {
         for shape in &shapes {
             for (axis, range) in self.collision_halo.iter_mut().enumerate() {
                 if shape.max[axis] > 1.0 {
-                    range.0 = -1;
+                    range.0 = range.0.min(-1);
                 }
                 if shape.min[axis] < 0.0 {
-                    range.1 = 1;
+                    range.1 = range.1.max(1);
                 }
             }
         }
         Arc::make_mut(&mut self.blocks).insert(
             runtime_id,
             BlockPhysics {
-                bamboo_offset: false,
+                random_offset: None,
                 door: None,
                 flow: None,
                 shapes: shapes.into_boxed_slice(),
@@ -695,9 +698,7 @@ impl<'a> PaletteWorld<'a> {
                 identity: WorldCollisionIdentity::new(self.registry.identity(), [])?,
             });
         }
-        let grown = query.grown(1.0);
-        let min = block_floor(grown.min)?;
-        let max = block_ceil(grown.max)?;
+        let [min, max] = self.registry.query_bounds(query)?;
         let chunks = (min[0] >> 4..=max[0] >> 4)
             .flat_map(|x| {
                 (min[2] >> 4..=max[2] >> 4).map(move |z| ChunkKey::new(self.dimension, x, z))

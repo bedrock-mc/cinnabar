@@ -14,6 +14,11 @@ owner bone inherits that bone's matrix. Unbound descendants inherit their root's
 including when a render controller selects alternate geometry. Expression-bound
 roots retain the existing item-slot route; arbitrary binding expressions are incomplete.
 
+Third-person held models evaluate with the owning actor's perspective, use timing,
+and render delta. Their placed poses follow both interpolation endpoints of the
+drawn body. Unchanged controller poses with bounded inputs retain their evaluation;
+time-dependent channels and persistent scripts continue running.
+
 The compiler now retains attachable scripts/controllers, bone bindings and
 `texture_meshes`, plus all referenced texture frames. Runtime evaluation reuses
 the actor animation engine with explicit first-person context, owner-variable
@@ -45,10 +50,13 @@ to the texture mesh, not a new global mirror for all held items. The serialized 
 
 Bow construction identifies use animation 4, not legacy branch 5.
 Its animation frame follows the ranged-weapon rule: for elapsed
-use seconds `s`, power is `min((s*s + 2*s)/3, 1)`. While using, the frame is
-`truncate(3 * power * 0.99) + 1`; otherwise it is zero. The transitions occur at
+use seconds `s`, power is `min((s*s + 2*s)/3, 1)`. While using with a nonzero remaining
+counter, the frame is `truncate(3 * power * 0.99) + 1`; otherwise it is zero,
+including when the counter reaches zero before the use flag clears. The transitions occur at
 elapsed ticks 9 and 15. This differs from the bow pack's ten-tick pose-charge
-expression: texture frame and pull-pose progress must not be conflated.
+expression: texture frame and pull-pose progress must not be conflated. The frame query
+reads the owner's main-hand item for either rendered hand; an offhand bow does not
+introduce an independent use counter or frame.
 
 The pack supplies standby/pulling geometries, all four texture frames, the
 first-person wield rotation/offset, pull rotation/offset and full-charge shake.

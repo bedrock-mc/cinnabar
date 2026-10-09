@@ -6,16 +6,15 @@ use assets::{BlockEntityRouteKind, RuntimeBlockEntityAssets, RuntimeFontCatalog}
 use bevy::prelude::*;
 use render::{
     AtlasRect, AtmosphereFrame, BeaconModel, BellModel, BlockEntityFrame, BlockEntityKind,
-    BlockEntityLight, BlockEntityScene, BlockEntitySubmission, ConduitModel, CrackShape,
-    SceneClock, SignFace, SignModel, StaticItemPlacement, StaticItemPlacements,
-    item_frame_item_transform, matrix_rows,
+    BlockEntityLight, BlockEntityScene, BlockEntitySubmission, ConduitModel, SceneClock, SignFace,
+    SignModel, StaticItemPlacement, StaticItemPlacements, item_frame_item_transform, matrix_rows,
 };
 use ui::TextLayoutCache;
 use world::{BlockEntityKey, BlockEntityNbt, ChunkKey, SUB_CHUNK_SIDE};
 
 use super::{
     containers::{ContainerKind, ContainerLids, cue_is_open},
-    cracks::{CrackClock, crack_shape},
+    cracks::{CachedCrackShape, CrackClock, crack_shape},
     describe::{HeldItem, Template, describe},
     sign_text,
     state::BlockState,
@@ -113,7 +112,7 @@ pub(crate) struct BlockEntityRuntime {
     frame: u64,
     blocks: HashMap<u32, Option<Arc<BlockInfo>>>,
     layouts: TextLayoutCache,
-    shapes: HashMap<(u32, u32), CrackShape>,
+    shapes: HashMap<(u32, u32), CachedCrackShape>,
     bell_rings: HashMap<[i32; 3], (u64, f64)>,
     /// Framed map ids seen this frame without an image.
     missing_maps: Vec<i64>,
@@ -955,7 +954,13 @@ mod tests {
         let mut runtime = BlockEntityRuntime::new();
         runtime.bind_session(Some((1, 0)));
         runtime.blocks.insert(7, None);
-        runtime.shapes.insert((7, 0), CrackShape::Cube);
+        runtime.shapes.insert(
+            (7, 0),
+            CachedCrackShape {
+                column: None,
+                shape: render::CrackShape::Cube,
+            },
+        );
         runtime.bell_rings.insert([0, 0, 0], (1, 0.0));
         runtime.bind_session(Some((1, 0)));
         assert_eq!(runtime.blocks.len(), 1);

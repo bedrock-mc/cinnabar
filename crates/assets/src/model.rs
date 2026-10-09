@@ -113,7 +113,8 @@ pub const END_GATEWAY_IDENTIFIER: &str = "minecraft:end_gateway";
 /// End portal frame state identity shared by compilation and presentation.
 pub const END_PORTAL_FRAME_IDENTIFIER: &str = "minecraft:end_portal_frame";
 
-pub(crate) fn transparent_cube_quad_geometry_is_valid(
+/// Checks the six outward unit-cube surfaces in canonical face order.
+pub(crate) fn unit_cube_quad_geometry_is_valid(
     index: usize,
     positions: [[i16; 3]; 4],
     flags: u32,

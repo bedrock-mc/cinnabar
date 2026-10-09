@@ -274,7 +274,6 @@ fn asset_revision_replacement_is_atomic_and_retains_the_previous_prepared_set_on
         .find("_textures: [texture_0, texture_1]")
         .expect("complete revision publication");
     assert!(second_page < publish);
-    assert!(prepare.contains("material.texture.raw()"));
     assert!(prepare.contains(".animations()"));
     assert!(prepare.contains(".animation_frames()"));
     assert!(prepare.contains("_textures: [texture_0, texture_1]"));

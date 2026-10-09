@@ -6,6 +6,7 @@ members = [
     "crates/asset-compiler",
     "crates/assets",
     "crates/bridge",
+    "crates/block-transform",
     "crates/client-world",
     "crates/gameplay",
     "crates/client-session",

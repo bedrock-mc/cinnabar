@@ -158,11 +158,11 @@
 
 | Field | Evidence |
 |---|---|
-| Owning plan/task | Not started |
-| Deterministic tests | Not started |
+| Owning plan/task | Bamboo geometry, column transforms, sampling and overlay consumers covered; wider parity and performance work remains open |
+| Deterministic tests | All twelve bamboo states, offset admission in both ID spaces, source-pixel mip selection, opaque/cutout consumers and populated Metal rendering graph |
 | Review commit | Not started |
-| Live/native witness | Not started |
-| Performance/resource witness | Not started |
+| Live/native witness | Fresh Vanilla and bounded Enhanced bamboo gallery, selection and timed breaking captures; screenshots accompany the change |
+| Performance/resource witness | No displayed-frame performance acceptance from hidden debug captures; ordinary Enhanced remains disabled |
 | Final status | Open |
 
 ## P5.8-SETTINGS

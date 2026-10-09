@@ -27,12 +27,15 @@ use resource_pack::LayeredPackView;
 use self::{
     condition::StateVisual,
     geometry::{FACE_NAMES, FaceQuad, Geometry, geometry_catalog},
-    textures::{DecodedTexture, TextureCatalog, flipbook_frames, resample_square, shrink_to_max},
+    textures::{
+        DecodedTexture, TextureCatalog, admit_static_rectangle, flipbook_frames, shrink_to_max,
+        source_mip_chain,
+    },
 };
 
 const FULL_BLOCK: &str = "minecraft:geometry.full_block";
 const FULL_BLOCK_V1: &str = "minecraft:geometry.full_block_v1";
-const MIN_TILE: u32 = 16;
+const MIN_TILE: u32 = assets::TILE_SIZE;
 const MAX_TILE: u32 = 128;
 const MAX_OVERLAY_LAYERS: usize = 2048;
 const MAX_OVERLAY_TEXTURE_BYTES: usize = 64 * 1024 * 1024;
@@ -112,13 +115,15 @@ pub(super) fn compile_block_overlay(
             builder.gaps.incomplete_state_identities += 1;
         }
         if hashed {
-            for state in states {
+            for (index, state) in states.into_iter().enumerate() {
                 let mut visual = condition::state_visual(
                     block,
                     &expressions,
                     Some(&state.values),
                     &mut builder.gaps,
                 );
+                visual.components.random_offset =
+                    block.physics_for_state(index as u32).random_offset;
                 legacy.apply(&block.name, &mut visual.components);
                 builder.push_state(&visual);
                 builder.overlay.hashes.push(Some(state.hash));
@@ -129,6 +134,7 @@ pub(super) fn compile_block_overlay(
             let values = block.state_values(state);
             let mut visual =
                 condition::state_visual(block, &expressions, values.as_deref(), &mut builder.gaps);
+            visual.components.random_offset = block.physics_for_state(state).random_offset;
             legacy.apply(&block.name, &mut visual.components);
             builder.push_state(&visual);
             builder
@@ -149,6 +155,7 @@ pub(super) fn compile_block_overlay(
 enum Source {
     Diagnostic,
     Image(DecodedTexture),
+    GridImage(DecodedTexture, u8),
 }
 
 #[derive(Clone)]
@@ -199,6 +206,19 @@ impl Builder<'_> {
     fn push_state(&mut self, state: &StateVisual) {
         let light = state_light(&state.components);
         let visual = self.visual(state);
+        if state.components.random_offset.is_some()
+            && matches!(
+                state.components.geometry.as_deref(),
+                None | Some(FULL_BLOCK | FULL_BLOCK_V1)
+            )
+        {
+            let carried = self.cube(&state.components);
+            if carried.support == VisualSupport::Exact {
+                self.overlay
+                    .carried_cube_faces
+                    .push((self.overlay.visuals.len() as u32, carried.faces));
+            }
+        }
         self.overlay.visuals.push(visual);
         self.overlay.light_properties.push(light);
     }
@@ -210,7 +230,12 @@ impl Builder<'_> {
             return *visual;
         }
         let visual = match components.geometry.as_deref() {
-            None | Some(FULL_BLOCK | FULL_BLOCK_V1) => self.cube(components),
+            None | Some(FULL_BLOCK | FULL_BLOCK_V1) if components.random_offset.is_none() => {
+                self.cube(components)
+            }
+            None | Some(FULL_BLOCK | FULL_BLOCK_V1) => {
+                self.model(components, &geometry::Geometry::full_block(), &[])
+            }
             Some(identifier) => match self.geometries.get(identifier).cloned() {
                 Some(geometry) => self.model(components, &geometry, &state.hidden_bones),
                 None => {
@@ -294,7 +319,15 @@ impl Builder<'_> {
             return invisible_visual();
         }
         for cube in shown {
-            for (face_quad, instance) in cube.quads() {
+            for (mut face_quad, instance) in cube.quads() {
+                if components.geometry.as_deref() == Some(FULL_BLOCK_V1)
+                    && face_quad.face == assets::BlockFace::Down as usize
+                {
+                    // Model surfaces carry their final UVs, including the versioned cube bottom.
+                    face_quad.uvs = face_quad.uvs.map(|uv| {
+                        std::array::from_fn(|axis| geometry.texture_size[axis] - uv[axis])
+                    });
+                }
                 let (material, _, two_sided) =
                     self.face_material(components, FACE_NAMES[face_quad.face], instance, false, 0);
                 if material == DIAGNOSTIC_MATERIAL {
@@ -315,6 +348,11 @@ impl Builder<'_> {
         let mut start = self.overlay.model_quads.len() as u32;
         let count = quads.len().div_ceil(assets::MAX_MODEL_TEMPLATE_QUADS);
         for (index, part) in quads.chunks(assets::MAX_MODEL_TEMPLATE_QUADS).enumerate() {
+            if let Some(component) = components.random_offset {
+                self.overlay
+                    .model_random_offsets
+                    .push((self.overlay.model_templates.len() as u32, component));
+            }
             self.overlay.model_templates.push(ModelTemplate {
                 quad_start: start,
                 quad_count: part.len() as u32,
@@ -429,13 +467,23 @@ impl Builder<'_> {
         if available == 0 {
             return None;
         }
-        let texture = self.catalog.decode(key)?;
+        let mut texture = self.catalog.decode(key)?;
+        let grid = self.catalog.grid(key);
         // Bound frame count before cutting copies, and shrink each to MAX_TILE.
         let frames = match self.catalog.flipbook(key) {
             Some(flipbook) => flipbook_frames(&texture, flipbook, available.min(256), MAX_TILE),
-            None => vec![shrink_to_max(&texture, MAX_TILE)],
+            None => {
+                admit_static_rectangle(&mut texture);
+                vec![shrink_to_max(&texture, MAX_TILE)]
+            }
         };
         drop(texture);
+        if frames
+            .iter()
+            .any(|frame| frame.width >> grid == 0 || frame.height >> grid == 0)
+        {
+            return None;
+        }
         let added_bytes: usize = frames.iter().map(|frame| frame.rgba8.len()).sum();
         if frames.is_empty() || self.source_bytes + added_bytes > MAX_OVERLAY_SOURCE_BYTES {
             return None;
@@ -443,7 +491,13 @@ impl Builder<'_> {
         self.source_bytes += added_bytes;
         let first = self.sources.len() as u32;
         let frame_count = frames.len() as u32;
-        self.sources.extend(frames.into_iter().map(Source::Image));
+        self.sources.extend(frames.into_iter().map(|frame| {
+            if grid == 0 {
+                Source::Image(frame)
+            } else {
+                Source::GridImage(frame, grid)
+            }
+        }));
         let animation = match self.catalog.flipbook(key) {
             Some(flipbook) if frame_count > 1 => {
                 let frame_start = self.overlay.animation_frames.len() as u32;
@@ -472,11 +526,18 @@ impl Builder<'_> {
     }
 
     fn finish(mut self) -> Option<CompiledBlockOverlay> {
+        for source in &mut self.sources {
+            if let Source::Image(texture) | Source::GridImage(texture, _) = source {
+                admit_static_rectangle(texture);
+            }
+        }
         let largest = self
             .sources
             .iter()
             .filter_map(|source| match source {
-                Source::Image(texture) => Some(texture.width.max(texture.height)),
+                Source::Image(texture) | Source::GridImage(texture, _) => {
+                    Some(texture.width.max(texture.height))
+                }
                 Source::Diagnostic => None,
             })
             .max()
@@ -489,11 +550,32 @@ impl Builder<'_> {
         }
         let mut mips: Vec<Vec<u8>> = Vec::new();
         for source in &self.sources {
-            let base = match source {
-                Source::Diagnostic => diagnostic_pixels(tile),
-                Source::Image(texture) => resample_square(texture, tile),
+            let (dimensions, chain) = match source {
+                Source::Diagnostic => (
+                    [tile as u16; 2],
+                    assets::build_legacy_terrain_mip_chain(&diagnostic_pixels(tile), tile).ok()?,
+                ),
+                Source::Image(texture) | Source::GridImage(texture, _) => {
+                    source_mip_chain(texture, tile)?
+                }
             };
-            let chain = assets::build_texture_mip_chain(base, tile).ok()?;
+            let grid = if let Source::GridImage(_, grid) = source {
+                *grid
+            } else {
+                0
+            };
+            let (dimensions, chain, grid) = if dimensions.iter().any(|&size| size >> grid == 0) {
+                self.gaps.missing_textures = self.gaps.missing_textures.saturating_add(1);
+                (
+                    [tile as u16; 2],
+                    assets::build_legacy_terrain_mip_chain(&diagnostic_pixels(tile), tile).ok()?,
+                    0,
+                )
+            } else {
+                (dimensions.map(|size| size >> grid), chain, grid)
+            };
+            self.overlay.texture_source_sizes.push(dimensions);
+            self.overlay.texture_source_grids.push(grid);
             mips.resize(chain.len(), Vec::new());
             for (level, mip) in chain.iter().enumerate() {
                 mips[level].extend_from_slice(&mip.rgba8);
@@ -675,7 +757,13 @@ fn quantize(
         .iter()
         .all(|corner| i32::from(corner[axis]) == boundary);
     let face_flag = MODEL_FACE_FLAGS[face];
-    let mut flags = face_flag | if on_boundary { face_flag << 4 } else { 0 };
+    // Displaced surfaces can be exposed beside an undisplaced neighbour.
+    let mut flags = face_flag
+        | if on_boundary && components.random_offset.is_none() {
+            face_flag << 4
+        } else {
+            0
+        };
     if two_sided {
         flags |= MODEL_QUAD_FLAG_TWO_SIDED;
     }

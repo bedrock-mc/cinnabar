@@ -25,8 +25,9 @@ pub(super) fn descriptor_for(
     } else {
         0
     };
-    if record.flags.contains(BlockFlags::CUBE_GEOMETRY)
-        && !record.flags.contains(BlockFlags::LEAF_MODEL)
+    if (record.flags.contains(BlockFlags::CUBE_GEOMETRY)
+        && !record.flags.contains(BlockFlags::LEAF_MODEL))
+        || record.name.as_ref() == "minecraft:grass_path"
     {
         flags |= pack.blocks.isotropic_face_flags(record)[face as usize];
     }

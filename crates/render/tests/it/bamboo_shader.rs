@@ -79,7 +79,7 @@ fn bamboo_offsets_do_not_rotate_enhanced_surface_normals() {
             view_formats: &[],
         })
         .create_view(&Default::default());
-    let bytes = (8 * 2 * size_of::<[f32; 4]>()) as u64;
+    let bytes = (10 * 3 * size_of::<[f32; 4]>()) as u64;
     let output = gpu.words(
         &vec![0; bytes as usize / 4],
         storage | wgpu::BufferUsages::COPY_SRC,
@@ -115,7 +115,7 @@ fn bamboo_offsets_do_not_rotate_enhanced_surface_normals() {
         let mut pass = encoder.begin_compute_pass(&Default::default());
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, &group, &[]);
-        pass.dispatch_workgroups(8, 1, 1);
+        pass.dispatch_workgroups(10, 1, 1);
     }
     encoder.copy_buffer_to_buffer(&output, 0, &readback, 0, bytes);
     gpu.queue.submit([encoder.finish()]);
@@ -135,7 +135,7 @@ fn bamboo_offsets_do_not_rotate_enhanced_surface_normals() {
             "normal_vertex",
             &[Draw {
                 fragment: "normal_fragment",
-                vertices: 0..48,
+                vertices: 0..60,
                 bindings: &bindings,
                 blend: None,
                 write_depth: false,
@@ -146,8 +146,8 @@ fn bamboo_offsets_do_not_rotate_enhanced_surface_normals() {
             .save(path)
             .unwrap();
     }
-    for case in 0..8 {
-        let expected = if case < 4 {
+    for case in 0..10 {
+        let expected = if case < 4 || case == 8 {
             [-1.0, 0.0, 0.0]
         } else {
             [
@@ -155,20 +155,41 @@ fn bamboo_offsets_do_not_rotate_enhanced_surface_normals() {
                 [0.0, 0.0, -1.0],
                 [1.0, 0.0, 0.0],
                 [0.0, 0.0, 1.0],
-            ][case - 4]
+            ][if case == 9 { 1 } else { case - 4 }]
         };
         assert_eq!(
-            &values[case * 2][..3],
+            &values[case * 3][..3],
             &expected,
             "case {case}: offset must not become rotation"
         );
-        assert_eq!(values[case * 2][3], 1.0, "fixture vertex must be visible");
+        assert_eq!(values[case * 3][3], 1.0, "fixture vertex must be visible");
+        assert_eq!(
+            values[case * 3 + 1][3],
+            if case < 4 || case == 8 { 1.0 } else { 0.0 },
+            "only admitted bamboo selects bounded tile sampling"
+        );
+        if case >= 8 {
+            let expected = if case == 8 {
+                [0.5, 0.0, 0.5]
+            } else {
+                [0.625, 0.25, 0.375]
+            };
+            assert_eq!(
+                &values[case * 3 + 1][..3],
+                &expected,
+                "explicit offset overrides default geometry"
+            );
+        }
         if case < 4 {
-            let x = world::bamboo::OFFSET_MIN
-                + case as f32 * world::bamboo::OFFSET_SPAN
-                    / (world::bamboo::OFFSET_STEPS - 1) as f32
+            assert_eq!(
+                values[case * 3 + 2][0],
+                case as f32 * meshing::bamboo::STEM_UV_STRIDE
+            );
+            let x = block_transform::bamboo::OFFSET_MIN
+                + case as f32 * block_transform::bamboo::OFFSET_SPAN
+                    / (block_transform::bamboo::OFFSET_STEPS - 1) as f32
                 + 0.5;
-            assert!((values[case * 2 + 1][0] - x).abs() < 1.0e-6);
+            assert!((values[case * 3 + 1][0] - x).abs() < 1.0e-6);
         }
     }
 }
@@ -187,16 +208,43 @@ fn template_words() -> Vec<u32> {
 }
 
 fn geometry_words() -> Vec<u32> {
-    let mut words: Vec<u32> = (0..8)
-        .flat_map(|case| meshing::PackedModelDrawRef::new(4 + case, 0).words())
+    let mut words: Vec<u32> = (0..10)
+        .flat_map(|case| meshing::PackedModelDrawRef::new(5 + case, 0).words())
         .collect();
-    for case in 0..8 {
-        let variant = if case < 4 { case | (4 << 4) } else { case - 4 };
-        words.extend(
-            meshing::PackedModelRef::new(variant << 12, u32::from(case >= 4), 24 + case, 1).words(),
-        );
+    words.resize(60, 0);
+    for case in 0..10 {
+        let variant = if case < 4 {
+            case | (4 << 4) | (case << 8)
+        } else if case < 8 {
+            case - 4
+        } else {
+            case - 8
+        };
+        let custom = case >= 8;
+        if custom {
+            let offset = if case == 8 {
+                [0.0; 3]
+            } else {
+                [0.125, 0.25, -0.125]
+            };
+            words.extend(offset.map(f32::to_bits));
+            words.push(0);
+        }
+        let reference = meshing::PackedModelRef::new(
+            (variant << 12)
+                | if custom {
+                    meshing::MODEL_REF_FLAG_RANDOM_OFFSET
+                } else {
+                    0
+                },
+            u32::from(case >= 4 && case != 8),
+            (words.len() / 2) as u32,
+            1,
+        )
+        .words();
+        words[20 + case as usize * 4..24 + case as usize * 4].copy_from_slice(&reference);
+        words.extend([0xffff_ffff; 2]);
     }
-    words.extend([0xffff_ffff; 16]);
     words
 }
 
@@ -204,15 +252,16 @@ const WITNESS: &str = r#"
 @group(0) @binding(31) var<storage, read_write> results: array<vec4<f32>>;
 @compute @workgroup_size(1) fn witness(@builtin(global_invocation_id) id: vec3<u32>) {
     let vertex = model_vertex(0u, id.x);
-    results[id.x * 2u] = vec4(vertex.normal, f32(vertex.visible));
-    results[id.x * 2u + 1u] = vec4(vertex.world_position, 1.0);
+    results[id.x * 3u] = vec4(vertex.normal, f32(vertex.visible & MODEL_VISIBLE));
+    results[id.x * 3u + 1u] = vec4(vertex.world_position, f32((vertex.visible & MODEL_BOUNDED_TILE) != 0u));
+    results[id.x * 3u + 2u] = vec4(vertex.uv,0.0,0.0);
 }
 @vertex fn normal_vertex(@builtin(vertex_index) index: u32) -> VertexOutput {
     let corners = array(vec2(0.0,0.0),vec2(1.0,0.0),vec2(1.0,1.0),vec2(0.0,1.0));
     let indices = array(0u,1u,2u,0u,2u,3u);
     let case_index = index / 6u;
     var out = model_vertex(0u, case_index);
-    let point = (vec2(f32(case_index),0.0) + corners[indices[index % 6u]]) / vec2(8.0,1.0);
+    let point = (vec2(f32(case_index),0.0) + corners[indices[index % 6u]]) / vec2(10.0,1.0);
     out.clip_position = vec4(point * vec2(2.0,-2.0) + vec2(-1.0,1.0),0.5,1.0);
     return out;
 }

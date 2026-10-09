@@ -26,9 +26,10 @@ pub(crate) struct FramePacingRuntime {
     /// Hidden developer surfaces and acceptance runs keep their requested cadence in the
     /// background, so window state never skews their measurements.
     ignore_window_state: bool,
-    /// Fixed-clock recordings advance time per frame and must not be throttled.
+    /// Fixed-clock recordings lift ordinary pacing while retaining required limits.
     suspended: bool,
     occluded: bool,
+    required_limit: Option<FrameRate>,
 }
 
 impl FramePacingRuntime {
@@ -37,7 +38,17 @@ impl FramePacingRuntime {
             ignore_window_state,
             suspended: false,
             occluded: false,
+            required_limit: None,
         }
+    }
+
+    /// Sets an immutable upper rate that remains active when recordings lift ordinary pacing.
+    #[cfg(any(test, feature = "enhanced-diagnostics"))]
+    pub(crate) fn require_limit(&mut self, rate: FrameRate) {
+        self.required_limit = Some(
+            self.required_limit
+                .map_or(rate, |current| current.min(rate)),
+        );
     }
 
     /// Lifts the cadence while a fixed-clock recording steps time per frame.
@@ -63,10 +74,15 @@ impl FramePacingRuntime {
             WindowActivity::Unfocused
         };
         let requested = frame_rate_target(intent, limit, display);
+        let ordinary = (!self.suspended)
+            .then(|| effective_frame_rate(requested, activity))
+            .flatten();
+        let rate = match (ordinary, self.required_limit) {
+            (Some(ordinary), Some(required)) => Some(ordinary.min(required)),
+            (ordinary, required) => ordinary.or(required),
+        };
         FramePacing {
-            rate: (!self.suspended)
-                .then(|| effective_frame_rate(requested, activity))
-                .flatten(),
+            rate,
             precise: activity == WindowActivity::Focused,
         }
     }

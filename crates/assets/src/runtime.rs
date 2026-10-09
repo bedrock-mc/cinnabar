@@ -127,10 +127,13 @@ pub struct RuntimeAssets {
     hashed: Box<[(u32, u32)]>,
     materials: Box<[Material]>,
     model_templates: Box<[ModelTemplate]>,
+    model_random_offsets: Box<[(u32, block_transform::random_offset::RandomOffsetComponent)]>,
     model_quads: Box<[ModelQuad]>,
     animations: Box<[Animation]>,
     animation_frames: Box<[TextureRef]>,
     texture_pages: Box<[TexturePage]>,
+    overlay_texture_source_sizes: Box<[[u16; 2]]>,
+    overlay_texture_source_grids: Box<[u8]>,
     biomes: CompiledBiomeAssets,
     provenance: BlobProvenance,
     missing: AtomicU64,
@@ -171,11 +174,14 @@ impl RuntimeAssets {
             }]
             .into_boxed_slice(),
             model_templates: Box::new([]),
+            model_random_offsets: Box::new([]),
             model_quads: Box::new([]),
             animations: Box::new([]),
             animation_frames: Box::new([]),
             texture_pages: vec![TexturePage::new(TextureArray { layers: 1, mips })]
                 .into_boxed_slice(),
+            overlay_texture_source_sizes: Box::new([]),
+            overlay_texture_source_grids: Box::new([]),
             biomes: CompiledBiomeAssets::diagnostic(),
             provenance: BlobProvenance::ZEROED,
             missing: AtomicU64::new(0),
@@ -208,6 +214,7 @@ impl RuntimeAssets {
         self.visuals == other.visuals
             && self.hashed == other.hashed
             && self.model_templates == other.model_templates
+            && self.model_random_offsets == other.model_random_offsets
             && self.model_quads == other.model_quads
             && self.materials.len() == other.materials.len()
             && self
@@ -215,6 +222,55 @@ impl RuntimeAssets {
                 .iter()
                 .zip(other.materials.iter())
                 .all(|(a, b)| a.flags == b.flags)
+    }
+
+    /// Exposed source rectangle pixels, independently of the physical texture-array size.
+    #[must_use]
+    pub fn texture_source_size(&self, reference: TextureRef) -> [u32; 2] {
+        if reference.page() == 1
+            && let Some(size) = self
+                .overlay_texture_source_sizes
+                .get(reference.layer() as usize)
+        {
+            return size.map(u32::from);
+        }
+        let size = self
+            .texture_pages
+            .get(reference.page() as usize)
+            .and_then(|page| page.texture.mips.first())
+            .map_or(crate::TILE_SIZE, |mip| mip.size);
+        [size; 2]
+    }
+
+    /// Terrain UV-grid exponent for a session layer; carrier layers use their full rectangle.
+    #[must_use]
+    pub fn texture_source_grid(&self, reference: TextureRef) -> u8 {
+        if reference.page() == 1 {
+            self.overlay_texture_source_grids
+                .get(reference.layer() as usize)
+                .copied()
+                .unwrap_or(0)
+        } else {
+            0
+        }
+    }
+
+    /// Returns terrain mips in admitted source pixels, rebuilding legacy carrier art as needed.
+    pub fn terrain_texture_page(
+        &self,
+        page: usize,
+    ) -> Result<std::borrow::Cow<'_, TextureArray>, crate::AssetError> {
+        let texture = &self
+            .texture_pages
+            .get(page)
+            .ok_or_else(|| crate::AssetError::InvalidCompiledAssets {
+                detail: "terrain texture page is out of range".into(),
+            })?
+            .texture;
+        if page == 1 && !self.overlay_texture_source_sizes.is_empty() {
+            return Ok(std::borrow::Cow::Borrowed(texture));
+        }
+        crate::rebuild_legacy_terrain_mips(texture).map(std::borrow::Cow::Owned)
     }
 
     /// Number of materials in the carrier's table.
@@ -306,6 +362,18 @@ impl RuntimeAssets {
     pub const fn materials(&self) -> &[Material] {
         &self.materials
     }
+    /// State-owned component for a template; ordinary carrier templates have no override.
+    #[must_use]
+    pub fn model_random_offset(
+        &self,
+        template: u32,
+    ) -> Option<block_transform::random_offset::RandomOffsetComponent> {
+        self.model_random_offsets
+            .binary_search_by_key(&template, |entry| entry.0)
+            .ok()
+            .map(|index| self.model_random_offsets[index].1)
+    }
+
     #[must_use]
     pub const fn model_templates(&self) -> &[ModelTemplate] {
         &self.model_templates

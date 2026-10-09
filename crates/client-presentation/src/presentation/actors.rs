@@ -572,18 +572,20 @@ pub fn select_actor_presentations_for_view(
 
 /// Appends the layers `layers_for` builds on each body already in the batch, reading the bodies
 /// in place rather than from a copy.
-pub fn attach_layers(
+pub fn attach_layers<Context>(
     batch: &mut ActorPresentationBatch,
-    mut layers_for: impl FnMut(
+    context: &mut Context,
+    mut layers_for: impl for<'a> FnMut(
+        &'a mut Context,
         &ActorRigSubmission,
-    ) -> Vec<crate::presentation::equipment::EquipmentPresentation>,
+    ) -> &'a mut [crate::presentation::equipment::EquipmentPresentation],
 ) {
     for index in 0..batch.submissions.len() {
-        for layer in layers_for(&batch.submissions[index]) {
+        for layer in layers_for(context, &batch.submissions[index]) {
             batch
                 .artwork
                 .insert(layer.submission.input.identity, layer.location);
-            batch.submissions.push(layer.submission);
+            batch.submissions.push(layer.submission.clone());
         }
     }
 }
@@ -893,13 +895,13 @@ mod layer_pass_tests {
             }),
         );
         let mut visited = Vec::new();
-        attach_layers(&mut batch, |body| {
+        attach_layers(&mut batch, &mut visited, |visited, body| {
             visited.push((
                 body.input.identity.runtime_id,
                 Arc::strong_count(&body.input.previous_bones),
                 Arc::strong_count(&body.input.current_bones),
             ));
-            Vec::new()
+            &mut []
         });
         assert_eq!(visited, [(1, 1, 1), (2, 1, 1), (3, 1, 1)]);
     }

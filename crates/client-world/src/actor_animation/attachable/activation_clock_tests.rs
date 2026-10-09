@@ -2,6 +2,9 @@ use super::*;
 
 fn fixture() -> Arc<RuntimeEntityAssets> {
     let mut compiled = owner_reference_tests::compiled_fixture(true);
+    compiled.molang_expressions[0].op_count = 3;
+    compiled.molang_expressions[0].max_stack = 1;
+    compiled.molang_ops = compiled.molang_ops[..3].into();
     let scalar = |value| assets::EntityGeometryScalar::new(value).unwrap();
     compiled.animation_clips[0].length_seconds = scalar(1.25);
     compiled.animation_clips[0].loop_mode = EntityAnimationLoop::HoldOnLastFrame;
@@ -88,4 +91,67 @@ fn direct_attachable_clock_uses_render_delta_even_when_owner_sample_is_unchanged
     assert!((sample(&mut runtime, 81, 0.2) + 0.32).abs() < 1.0e-5);
     assert!((sample(&mut runtime, 81, 0.4) + 0.48).abs() < 1.0e-5);
     assert!((sample(&mut runtime, 82, 0.0) + 0.64).abs() < 1.0e-5);
+}
+
+#[test]
+fn visible_held_crowd_retains_each_owners_authored_clock() {
+    let owner = crate::actor_animation::tests::actor_with_metadata(HashMap::from([(
+        0,
+        ActorMetadataValue::Flags(1 << 40),
+    )]));
+    let mut runtime = AttachablesRuntime::new(fixture());
+    let mut rig = tests::owner_rig();
+    let owners = 300;
+    for expected in [-0.16, -0.32] {
+        for runtime_id in 1..=owners {
+            rig.actor.runtime_id = runtime_id;
+            for off_hand in [false, true] {
+                let snapshot = runtime
+                    .evaluate(
+                        "minecraft:test_item",
+                        &owner,
+                        &rig,
+                        AttachableAnimationInput {
+                            off_hand,
+                            delta_seconds: Some(0.01),
+                            ..Default::default()
+                        },
+                    )
+                    .unwrap();
+                assert!(
+                    (snapshot.pose[0].translation_scale[0] - expected).abs() < 1.0e-5,
+                    "owner {runtime_id} hand {off_hand} restarted its animation clock"
+                );
+            }
+        }
+    }
+    let sample = |runtime: &mut AttachablesRuntime, rig: &ActorRigSnapshot<'_>| {
+        runtime
+            .evaluate(
+                "minecraft:test_item",
+                &owner,
+                rig,
+                AttachableAnimationInput {
+                    delta_seconds: Some(0.01),
+                    ..Default::default()
+                },
+            )
+            .unwrap()
+            .pose[0]
+            .translation_scale[0]
+    };
+    rig.actor.runtime_id = 2;
+    for _ in 0..10 {
+        sample(&mut runtime, &rig);
+    }
+    rig.actor.runtime_id = 1;
+    assert!((sample(&mut runtime, &rig) + 0.48).abs() < 1.0e-5);
+    rig.actor.spawn_revision += 1;
+    assert!((sample(&mut runtime, &rig) + 0.16).abs() < 1.0e-5);
+    assert!(runtime.states.keys().all(|(actor, _, _, _)| {
+        actor.runtime_id != 1 || actor.spawn_revision == rig.actor.spawn_revision
+    }));
+    rig.actor.session_id += 1;
+    assert!((sample(&mut runtime, &rig) + 0.16).abs() < 1.0e-5);
+    assert_eq!(runtime.states.len(), 1);
 }

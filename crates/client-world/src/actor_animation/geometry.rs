@@ -56,6 +56,7 @@ pub(super) fn resolve_binding(
         transitions_left: MAX_CONTROLLER_TRANSITIONS_PER_TICK,
         used: 0,
         stack: Vec::new(),
+        static_draw: None,
     };
     let mut candidate_offset = 0;
     let input = ActorTickInput {

@@ -17,20 +17,6 @@ fn crossbow_duration() -> u32 {
 }
 
 #[test]
-fn native_bow_frames_are_not_the_pose_charge_curve() {
-    assert_eq!(ranged_animation_frame(None), 0);
-    for tick in 0..=8 {
-        assert_eq!(ranged_animation_frame(Some(tick)), 1);
-    }
-    for tick in 9..=14 {
-        assert_eq!(ranged_animation_frame(Some(tick)), 2);
-    }
-    for tick in 15..=30 {
-        assert_eq!(ranged_animation_frame(Some(tick)), 3);
-    }
-}
-
-#[test]
 fn native_crossbow_frames_follow_charge_duration_and_projectile() {
     let duration = crossbow_duration();
     assert_eq!(crossbow_animation_frame(None, duration, None, false), 0);

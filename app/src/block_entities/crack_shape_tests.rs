@@ -92,3 +92,86 @@ fn bamboo_cracks_follow_columns_and_reuse_unchanged_geometry() {
         "position-independent shapes share one entry"
     );
 }
+
+#[test]
+fn custom_compound_cracks_follow_each_admitted_column_displacement() {
+    let quad = assets::ModelQuad {
+        positions: [[0, 0, 0], [256, 0, 0], [256, 256, 0], [0, 256, 0]],
+        uvs: [[0, 0]; 4],
+        material: 0,
+        flags: 0,
+    };
+    let overlay = assets::BlockOverlay {
+        visuals: vec![assets::BlockVisual {
+            faces: [0; 6],
+            flags: assets::BlockFlags::empty(),
+            kind: assets::VisualKind::Model,
+            support: assets::VisualSupport::VanillaFallback,
+            contributor_role: assets::ContributorRole::Primary,
+            model_template: 0,
+            animation: assets::NO_ANIMATION,
+            variant: 0,
+        }],
+        light_properties: vec![assets::LightProperties::default()],
+        materials: vec![assets::Material {
+            texture: assets::TextureRef::new(1, 0).unwrap(),
+            animation: assets::NO_ANIMATION,
+            ..assets::Material::unvaried()
+        }],
+        model_templates: vec![
+            assets::ModelTemplate {
+                quad_start: 0,
+                quad_count: 1,
+                flags: assets::MODEL_TEMPLATE_FLAG_COMPOUND_NEXT,
+            },
+            assets::ModelTemplate {
+                quad_start: 1,
+                quad_count: 1,
+                flags: 0,
+            },
+        ],
+        model_quads: vec![quad; 2],
+        model_random_offsets: vec![(1, block_transform::random_offset::BAMBOO)],
+        hashes: vec![Some(0xdead_beef)],
+        texture: Some(assets::TextureArray {
+            layers: 1,
+            mips: assets::build_texture_mip_chain(vec![255; 16 * 16 * 4].into(), 16).unwrap(),
+        }),
+        ..Default::default()
+    };
+    let assets = assets::RuntimeAssets::diagnostic()
+        .with_block_overlay(1, &overlay)
+        .unwrap();
+    for (mode, id) in [
+        (assets::NetworkIdMode::Sequential, 1),
+        (assets::NetworkIdMode::Hashed, 0xdead_beef),
+    ] {
+        let mut cache = HashMap::new();
+        let CrackShape::Quads(first) = crack_shape(&mut cache, &assets, mode, Some(id), [0, 2, 0])
+        else {
+            panic!("compound model");
+        };
+        let CrackShape::Quads(second) = crack_shape(&mut cache, &assets, mode, Some(id), [1, 2, 0])
+        else {
+            panic!("compound model");
+        };
+        assert_ne!(
+            first[1].corners, second[1].corners,
+            "different columns cannot reuse the first component displacement"
+        );
+        let CrackShape::Quads(same_column) =
+            crack_shape(&mut cache, &assets, mode, Some(id), [1, 7, 0])
+        else {
+            panic!("compound model");
+        };
+        assert!(
+            std::sync::Arc::ptr_eq(&second, &same_column),
+            "height changes reuse the same column shape"
+        );
+        assert_eq!(
+            cache.len(),
+            1,
+            "continuous column displacement keeps bounded cache entries per runtime transform"
+        );
+    }
+}
