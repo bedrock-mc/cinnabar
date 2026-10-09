@@ -113,7 +113,7 @@ impl WireEvidence {
         if let Some(row) = self.observe(session, envelope)
             && let Ok(json) = serde_json::to_string(row)
         {
-            write_marker(&mut std::io::stdout().lock(), &json);
+            write_marker(&mut diagnostics::console::stdout(), &json);
         }
     }
 }

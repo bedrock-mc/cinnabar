@@ -22,6 +22,8 @@ fn main() {
                 }
             }
             if let Err(error) = run(*args) {
+                // Queued log lines precede the failure that ends them.
+                diagnostics::console::flush();
                 eprintln!("bedrock-client failed: {error:#}");
                 std::process::exit(1);
             }

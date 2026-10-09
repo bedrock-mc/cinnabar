@@ -739,6 +739,14 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         ),
         #[cfg(feature = "tracy")]
         custom_layer: crate::tracy::layer,
+        // Log lines reach stderr through one ordered writer thread, so a slow or paused console
+        // never stalls the frame that logs.
+        fmt_layer: |_| {
+            Some(Box::new(
+                bevy::log::tracing_subscriber::fmt::Layer::default()
+                    .with_writer(diagnostics::console::stderr),
+            ))
+        },
         ..default()
     });
     app.add_plugins(plugins);
@@ -975,6 +983,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     }
     drop(app);
     shutdown_watchdog.complete();
+    diagnostics::console::flush();
     eprintln!("{SHUTDOWN_COMPLETED} exit_code={}", app_exit_code(&exit));
     if exit.is_error() {
         bail!("Bevy app exited after a fatal runtime error");

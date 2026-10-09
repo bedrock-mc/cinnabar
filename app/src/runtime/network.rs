@@ -875,7 +875,7 @@ pub(crate) fn receive_network_events(
             && let protocol::WorldEvent::MovePlayer(movement) = &sequenced.event
             && let Some(marker) = move_player_ingress_marker(sequenced.sequence, movement.position)
         {
-            let mut stdout = std::io::stdout().lock();
+            let mut stdout = diagnostics::console::stdout();
             write_stdout_marker(&mut stdout, &marker);
         }
         #[cfg(feature = "acceptance")]
@@ -895,7 +895,7 @@ pub(crate) fn receive_network_events(
                 sequenced.sequence,
                 &sequenced.event,
             ) {
-                let mut stdout = std::io::stdout().lock();
+                let mut stdout = diagnostics::console::stdout();
                 write_move_player_ingress_before_source_capture(
                     &mut stdout,
                     &ingress_marker,
