@@ -88,7 +88,10 @@ fn account(content: &mut Content<'_, '_>) -> Result<(), UiPresentationError> {
     content.heading("menu.account.tab.title", "menu.account.tab.description")?;
     let view = content.view;
     if matches!(view.auth_state, AuthState::Authenticated) {
-        content.label("menu.account.gamertag.title", &view.display_name)?;
+        content.label(
+            "menu.account.gamertag.title",
+            super::super::super::accounts::current_name(view),
+        )?;
         for (title, button, link) in [
             (
                 "menu.account.changeGamertag.title",
