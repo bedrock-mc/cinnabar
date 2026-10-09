@@ -162,6 +162,10 @@
 
 ## Frame attribution and unchanged GPU uploads
 
+- Simulation reads the current admitted frame clock. Deterministic FIFO tests at 60 and
+  120 Hz and an uncapped test bound tick flush delay and 20 Hz send jitter to 3 ms;
+  manual recording clocks keep their requested steps. Live movement acceptance remains open.
+
 - Apple pipelined rendering keeps surface creation on the UI thread while render
   submission stays on the render thread. Main and extraction schedules retain
   single-thread execution; runtime startup checks do not close frame-budget gates.
