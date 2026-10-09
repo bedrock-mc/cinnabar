@@ -14,6 +14,8 @@ const MAX_ATTACHABLE_STATES: usize = crate::actor_store::MAX_TRACKED_ACTORS * ST
 #[derive(Clone, Copy, Debug, Default)]
 pub struct AttachableAnimationInput<'a> {
     pub first_person: bool,
+    /// Whether the owner belongs to the current game window.
+    pub is_local_player: bool,
     pub off_hand: bool,
     /// A chest-slot model has independent controller state from either held item.
     pub worn: bool,
@@ -307,6 +309,7 @@ impl AttachablesRuntime {
             main_hand_swing_seconds,
             main_hand_is_spear: owner_rig.animation_variables.is_spear(),
             is_local_first_person: input.first_person,
+            is_local_player: input.is_local_player || input.first_person,
             hand_charged: input.hand_charged,
             main_hand_max_use_ticks: input.max_use_ticks,
             attachable: Some(query_context),

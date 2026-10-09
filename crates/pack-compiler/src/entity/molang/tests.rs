@@ -172,6 +172,19 @@ fn unknown_names_wrong_arity_and_vanilla_rejected_forms_fail_to_compile() {
 }
 
 #[test]
+fn player_animation_queries_compile_in_scripts_and_root_conditions() {
+    for expression in [
+        "q.approx_eq(v.previous_hurt_time, v.hurt_time)",
+        "q.is_local_player && !q.is_in_ui",
+        "q.has_armor_slot(1) && (q.armor_texture_slot(1) != 5)",
+        "q.is_alive && q.is_on_fire",
+        "t.speed = q.is_local_player ? v.modified_move_speed : q.modified_move_speed; return t.speed;",
+    ] {
+        assert!(compiles(expression), "{expression}");
+    }
+}
+
+#[test]
 fn coalesce_arrow_and_resource_references_compile() {
     let program = ops("v.offset ?? 2");
     assert!(program.iter().any(|op| matches!(op, MolangOp::Coalesce(_))));

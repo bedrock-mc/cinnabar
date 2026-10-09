@@ -114,6 +114,7 @@ impl ItemUseRuntime {
         };
         client_world::AttachableAnimationInput {
             first_person: true,
+            is_local_player: true,
             frame_alpha,
             use_elapsed_ticks,
             max_use_ticks,
