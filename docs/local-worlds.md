@@ -48,6 +48,10 @@ Never bundled or committed. `-bds-dir` (default `bds/` beside the worlds dir) ho
 - **Dragonfly terrain:** the core forwards the saved generator and signed seed to the local server. Normal uses
   the pinned `bedrock-mc/vanilla-gen` generators for Overworld, Nether and End. Its initial spawn comes from the
   generator; reopening preserves the saved spawn and chunks. Flat retains Dragonfly's default generators.
+- **Dragonfly animals:** Normal worlds populate suitable grass habitats with cows, pigs, sheep and chickens
+  around active players. They are saved world actors, retain their state on reopening, and are removed after
+  death. Flat and synthetic rendering fixtures retain their existing population behavior. Full animal AI,
+  breeding, climate variants, loot and other passive species remain incomplete.
 - **Downloads** name the agent `Cinnabar-local-worlds`; minecraft.net resets Go's default one.
 - **Exposure:** BDS cannot bind loopback only; it listens on all interfaces on a random port, offline, one slot.
   The container maps its port to `127.0.0.1` only.
