@@ -1,7 +1,8 @@
 //! Reset groups follow the controls authored in general_section.json.
 
 use super::{
-    INVERT_CROSSHAIR_OPTION, SETTINGS_OPTIONS, SettingsOptions, THIRD_PERSON_CROSSHAIR_OPTION,
+    INVERT_CROSSHAIR_OPTION, SETTINGS_OPTIONS, SMAA_OPTION, SettingsOptions,
+    THIRD_PERSON_CROSSHAIR_OPTION,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -20,6 +21,7 @@ impl SettingsGroup {
                 INVERT_CROSSHAIR_OPTION,
                 super::MOTION_BLUR_OPTION,
                 super::CHAT_POSITION_OPTION,
+                SMAA_OPTION,
             ]
             .iter()
             .any(|option| option.name == name)

@@ -92,7 +92,7 @@ fn bamboo_leaf_overlays_survive_front_and_reverse_depth_without_duplicate_quads(
     let bevy::shader::Source::Wgsl(source) = shader.source else {
         panic!("block overlay shader must retain WGSL");
     };
-    let source = shader_source::standalone_prepared(&source)
+    let source = shader_source::standalone(&source, &[])
         .replace("@group(1) @binding(0)", "@group(0) @binding(6)")
         .replace(
             "@vertex\nfn block_overlay_vertex(@builtin(vertex_index) vertex_index: u32)",
@@ -124,9 +124,10 @@ fn bamboo_leaf_overlays_survive_front_and_reverse_depth_without_duplicate_quads(
     gpu.device
         .poll(wgpu::PollType::wait_indefinitely())
         .unwrap();
+    let validation = bevy::tasks::block_on(validation);
     assert!(
-        bevy::tasks::block_on(validation).is_none(),
-        "production block-overlay pipeline must validate"
+        validation.is_none(),
+        "production block-overlay pipeline must validate: {validation:?}"
     );
     let words = gpu.words(bytemuck::cast_slice(&vertices), wgpu::BufferUsages::STORAGE);
     let lightmap = gpu.buffer(

@@ -166,6 +166,12 @@ impl Specializer<RenderPipeline> for ChunkPipelineSpecializer {
         descriptor: &mut RenderPipelineDescriptor,
     ) -> Result<Canonical<Self::Key>, BevyError> {
         descriptor.multisample.count = key.msaa.samples();
+        let cutout = descriptor.fragment.as_ref().is_some_and(|fragment| {
+            fragment.entry_point.as_deref() == Some("fragment")
+                && (fragment.shader == CHUNK_SHADER_HANDLE
+                    || fragment.shader == MODEL_SHADER_HANDLE)
+        });
+        crate::alpha_coverage::apply(descriptor, cutout);
         let native_gamma =
             super::super::transparent::gamma_pass::admitted(key.hdr, key.msaa, key.enhanced)
                 && descriptor

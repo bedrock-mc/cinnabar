@@ -31,6 +31,10 @@ pub(crate) enum AccountEvent {
 pub(crate) trait AccountControl {
     /// `account_status.v1`: the current sign-in state, when known.
     fn account_status(&mut self) -> Option<AuthState>;
+    /// Changes whenever the account identity or sign-in state retires its data.
+    fn account_generation(&mut self) -> Option<u64> {
+        None
+    }
     /// `realms_list.v1`: joinable realms, or `None` while unavailable.
     fn realms(&mut self) -> Option<Vec<MenuRealmCard>>;
     /// `friends_list.v1`: friend worlds, or `None` while unavailable.
@@ -83,6 +87,16 @@ pub(crate) trait AccountControl {
     }
     /// Sends each friend an invite to the hosted world through `world_invite.v1`, off the frame.
     fn send_invites(&mut self, _xuids: Vec<String>) {}
+    /// Queues invitation preview or acceptance on the dedicated account worker.
+    fn request_realm_membership(&mut self, _ticket: u64, _code: String, _accept: bool) -> bool {
+        false
+    }
+    /// Cancels the pending preview, closing its control connection.
+    fn cancel_realm_membership(&mut self) {}
+    /// Delivers one request generation's result.
+    fn realm_membership(&mut self) -> Option<(u64, bool, Result<(String, MenuRealmCard), ()>)> {
+        None
+    }
 }
 
 impl MenuRuntime {
@@ -246,6 +260,7 @@ impl MenuRuntime {
             self.finish_sign_out();
         }
         self.sync_invites(control);
+        self.sync_realm_membership(control);
     }
 
     /// Sign out without a launcher core: the saved tokens are removed here.

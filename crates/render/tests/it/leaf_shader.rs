@@ -24,9 +24,18 @@ fn native_leaf_face_policy_uses_the_carrier_flag_in_both_colour_and_depth() {
     // alpha at .5. SeasonsOn writes opaque alpha; SeasonsOff preserves the
     // sampled alpha. This test does not claim native MSAA/A2C coverage parity.
     // Deep leaves have no cutout flag.
-    assert_eq!(chunk.matches("sampled.a < 0.5").count(), 2);
     for definitions in [&[][..], &["ENHANCED_SHADOW"][..]] {
         let source = shader_source::standalone(chunk, definitions);
+        assert_eq!(
+            shader_source::alpha_discard_threshold(&source, "fragment"),
+            Some(0.5)
+        );
+        if definitions.contains(&"ENHANCED_SHADOW") {
+            assert_eq!(
+                shader_source::alpha_discard_threshold(&source, "fragment_shadow"),
+                Some(0.5)
+            );
+        }
         let module = naga::front::wgsl::parse_str(&source).unwrap();
         naga::valid::Validator::new(
             naga::valid::ValidationFlags::all(),

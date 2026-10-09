@@ -75,6 +75,7 @@ impl MenuRuntime {
     /// Shows the history's top screen with fresh focus.
     pub(super) fn show_top(&mut self) {
         let screen = self.history.top().unwrap_or(MenuScreen::Home);
+        self.close_realm_membership();
         if screen == MenuScreen::Death
             && self.screen != MenuScreen::Death
             && self.death_shown
@@ -105,6 +106,10 @@ impl MenuRuntime {
 
     /// Returns to the screen below; an in-game root closes the menu.
     pub(super) fn go_back(&mut self) {
+        if self.realm_membership.state.is_some() {
+            self.activate_realm_membership(launcher::menu::realm_membership::Action::Back);
+            return;
+        }
         if !self.is_connecting()
             && matches!(self.dialog, None | Some(super::MenuDialog::Accounts))
             && self.sign_in_focus().is_some()

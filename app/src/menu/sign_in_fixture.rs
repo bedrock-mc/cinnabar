@@ -107,7 +107,7 @@ impl MenuRuntime {
             MenuAction::StartSignIn | MenuAction::AddAccount => {
                 let _ = self.apply_sign_in_fixture(SignInFixtureState::Waiting);
             }
-            MenuAction::CancelSignIn | MenuAction::DismissDialog => {
+            MenuAction::CancelSignIn | MenuAction::CloseSignIn | MenuAction::DismissDialog => {
                 self.dialog = None;
                 self.feeds.account_adding = false;
                 self.sign_in_requested = false;

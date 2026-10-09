@@ -111,6 +111,8 @@ impl ActorStore {
             synthetic_local_revision: 0,
             local_first_person: false,
             local_view_dirty: false,
+            pick_states: Vec::new(),
+            picks_ahead: false,
             local_view_bobbing: true,
             local_flying: false,
             local_hands: [None, None],
@@ -294,6 +296,7 @@ impl ActorStore {
         self.local_health_skips = 0;
         self.local_player_spawned = false;
         self.local_flying = false;
+        self.picks_ahead = false;
         self.dimension = dimension;
         self.latest_sequence = 0;
         self.aim_actor_classes.clear();

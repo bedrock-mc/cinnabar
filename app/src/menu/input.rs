@@ -212,6 +212,7 @@ impl MenuRuntime {
 
     fn editor(&self, field: MenuField) -> &ChatEditor {
         match field {
+            MenuField::RealmCode => &self.realm_membership.code,
             MenuField::Name => &self.name,
             MenuField::Address => &self.address,
             MenuField::Port => &self.port,
@@ -223,6 +224,7 @@ impl MenuRuntime {
 
     fn editor_mut(&mut self, field: MenuField) -> &mut ChatEditor {
         match field {
+            MenuField::RealmCode => &mut self.realm_membership.code,
             MenuField::Name => &mut self.name,
             MenuField::Address => &mut self.address,
             MenuField::Port => &mut self.port,
@@ -261,6 +263,12 @@ impl MenuRuntime {
             return;
         }
         edit(self.editor_mut(field));
+        if field == MenuField::RealmCode
+            && let Some(state) = &mut self.realm_membership.state
+        {
+            state.code = self.realm_membership.code.as_str().to_owned();
+            state.error = None;
+        }
         self.caret_revision = self.caret_revision.wrapping_add(1);
         if field == MenuField::SkinName {
             self.sync_skin_name_draft();
@@ -351,6 +359,7 @@ impl MenuRuntime {
 /// A field's byte budget; world fields allow their vanilla character limits in any script.
 fn max_bytes(field: MenuField) -> usize {
     match field {
+        MenuField::RealmCode => MAX_SERVER_ADDRESS_BYTES,
         MenuField::Name => MAX_SERVER_NAME_BYTES,
         MenuField::Address => MAX_SERVER_ADDRESS_BYTES,
         MenuField::Port => MAX_SERVER_PORT_BYTES,

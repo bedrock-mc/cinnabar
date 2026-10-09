@@ -1,10 +1,9 @@
-use std::collections::VecDeque;
-
 use crate::LightChannel;
 
 use super::{
     cache::{CachedLightBlockAccess, CachedLightReadAccess, DensePositionSet},
     output::{LightSolveOutput, MutableOutput},
+    queue::IncreaseQueue,
     scratch::LightSolverScratch,
     types::{
         BlockPos, DimensionLightProfile, LightBlockAccess, LightBounds, LightReadAccess,
@@ -12,9 +11,11 @@ use super::{
     },
 };
 
+/// Queued positions retain the dense index already checked for the current solve.
 #[derive(Debug, Clone, Copy)]
 pub(super) struct IncreaseEntry {
     pub(super) position: BlockPos,
+    pub(super) index: usize,
     pub(super) direct_sky: bool,
 }
 
@@ -89,40 +90,42 @@ pub fn solve_light_with_scratch<A: LightBlockAccess, P: LightReadAccess>(
     // at values that no current source or neighbour can support; each entry
     // carries its old level and propagates removal through dependent values.
     scratch.darken.clear();
-    scratch.block_increase.clear();
-    scratch.sky_increase.clear();
+    scratch.block_increase.reset(volume);
+    scratch.sky_increase.reset(volume);
     let darken = &mut scratch.darken;
-    for position in bounds.positions() {
-        let sample = blocks.sample(position);
+    for (index, position) in bounds.positions().enumerate() {
+        let sample = blocks.sample_at_index(index);
         if sample.filter().is_none() {
             continue;
         }
         for channel in [LightChannel::Block, LightChannel::Sky] {
-            let old = read_prior(prior, bounds.dimension, position, channel)?;
-            output.set(position, channel, old);
+            let old = read_prior(prior, index, position, channel)?;
+            output.set_at_index(index, channel, old);
         }
     }
 
-    for position in bounds.positions() {
-        if blocks.sample(position).filter().is_none() {
+    for (index, position) in bounds.positions().enumerate() {
+        if blocks.sample_at_index(index).filter().is_none() {
             continue;
         }
         for channel in [LightChannel::Block, LightChannel::Sky] {
-            let old = output.get(position, channel);
-            let base = local_base(blocks, position, channel, profile)?;
+            let old = output.get_at_index(index, channel);
+            let base = local_base(blocks, index, channel, profile)?;
             if old == 0
-                || prior_supports_level(blocks, prior, bounds, position, channel, profile, old)?
+                || prior_supports_level(
+                    blocks, prior, bounds, position, index, channel, profile, old,
+                )?
             {
                 continue;
             }
-            output.set(position, channel, base);
+            output.set_at_index(index, channel, base);
             enqueue_counted(&mut queued_total, 1, limits.max_queue_entries)?;
             darken.push_back(DarkenEntry {
                 position,
                 channel,
                 old_level: old,
                 direct_sky: channel == LightChannel::Sky
-                    && prior.has_direct_sky_provenance(bounds.dimension, position),
+                    && prior.direct_sky_at_index(index, position),
             });
             stats.darken_seeded += 1;
         }
@@ -134,11 +137,14 @@ pub fn solve_light_with_scratch<A: LightBlockAccess, P: LightReadAccess>(
             let Some(next) = entry.position.checked_offset(offset) else {
                 continue;
             };
-            if !bounds.contains(next) || blocks.sample(next).filter().is_none() {
+            let Some(index) = output.index(next) else {
+                continue;
+            };
+            if blocks.sample_at_index(index).filter().is_none() {
                 continue;
             }
-            let current = output.get(next, entry.channel);
-            let base = local_base(blocks, next, entry.channel, profile)?;
+            let current = output.get_at_index(index, entry.channel);
+            let base = local_base(blocks, index, entry.channel, profile)?;
             let depended_on_removed = current < entry.old_level
                 || (entry.channel == LightChannel::Sky
                     && profile.direct_sky_down()
@@ -147,28 +153,28 @@ pub fn solve_light_with_scratch<A: LightBlockAccess, P: LightReadAccess>(
                     && current == 15
                     && entry.old_level == 15);
             if current > base && depended_on_removed {
-                output.set(next, entry.channel, base);
+                output.set_at_index(index, entry.channel, base);
                 enqueue_counted(&mut queued_total, 1, limits.max_queue_entries)?;
                 darken.push_back(DarkenEntry {
                     position: next,
                     channel: entry.channel,
                     old_level: current,
                     direct_sky: entry.channel == LightChannel::Sky
-                        && prior.has_direct_sky_provenance(bounds.dimension, next),
+                        && prior.direct_sky_at_index(index, next),
                 });
                 stats.queue_peak = stats.queue_peak.max(darken.len());
             }
         }
     }
 
-    for position in bounds.positions() {
-        if blocks.sample(position).filter().is_none() {
+    for index in 0..volume {
+        if blocks.sample_at_index(index).filter().is_none() {
             continue;
         }
         for channel in [LightChannel::Block, LightChannel::Sky] {
-            let base = local_base(blocks, position, channel, profile)?;
-            if base > output.get(position, channel) {
-                output.set(position, channel, base);
+            let base = local_base(blocks, index, channel, profile)?;
+            if base > output.get_at_index(index, channel) {
+                output.set_at_index(index, channel, base);
             }
         }
     }
@@ -176,15 +182,16 @@ pub fn solve_light_with_scratch<A: LightBlockAccess, P: LightReadAccess>(
     let block_increase = &mut scratch.block_increase;
     let sky_increase = &mut scratch.sky_increase;
     let mut direct_sky = DensePositionSet::new(bounds, volume);
-    for position in bounds.positions() {
-        let Some(filter) = blocks.sample(position).filter() else {
+    // The bounds iterator has the same dense order as the cache and output buffers.
+    for (index, position) in bounds.positions().enumerate() {
+        let Some(filter) = blocks.sample_at_index(index).filter() else {
             continue;
         };
         for (channel, queue) in [
             (LightChannel::Block, &mut *block_increase),
             (LightChannel::Sky, &mut *sky_increase),
         ] {
-            let level = output.get(position, channel);
+            let level = output.get_at_index(index, channel);
             if level == 0 {
                 continue;
             }
@@ -192,16 +199,20 @@ pub fn solve_light_with_scratch<A: LightBlockAccess, P: LightReadAccess>(
                 && profile.direct_sky_down()
                 && level == 15
                 && filter == 0
-                && (local_base(blocks, position, channel, profile)? == 15
-                    || prior.has_direct_sky_provenance(bounds.dimension, position));
+                && (local_base(blocks, index, channel, profile)? == 15
+                    || prior.direct_sky_at_index(index, position));
             if is_direct {
-                direct_sky.insert(position);
+                direct_sky.insert_at_index(index);
             }
-            enqueue_counted(&mut queued_total, 1, limits.max_queue_entries)?;
-            queue.push_back(IncreaseEntry {
-                position,
-                direct_sky: is_direct,
-            });
+            queue.push_back(
+                IncreaseEntry {
+                    position,
+                    index,
+                    direct_sky: is_direct,
+                },
+                &mut queued_total,
+                limits.max_queue_entries,
+            )?;
         }
     }
     propagate(
@@ -234,13 +245,14 @@ pub fn solve_light_with_scratch<A: LightBlockAccess, P: LightReadAccess>(
     Ok(output.freeze(direct_sky, stats))
 }
 
+/// Validates a lazily cached raw prior value at an already mapped interior cell.
 fn read_prior<P: LightReadAccess>(
-    prior: &P,
-    dimension: i32,
+    prior: &CachedLightReadAccess<'_, P>,
+    index: usize,
     position: BlockPos,
     channel: LightChannel,
 ) -> Result<u8, LightSolveError> {
-    let value = prior.read_light(dimension, position, channel);
+    let value = prior.read_at_index(index, position, channel);
     if value > 15 {
         Err(LightSolveError::LightValueOutOfRange { value })
     } else {
@@ -248,20 +260,21 @@ fn read_prior<P: LightReadAccess>(
     }
 }
 
+/// Reads local emission and validates sky seeds without remapping an interior cell.
 fn local_base<A: LightBlockAccess>(
-    blocks: &A,
-    position: BlockPos,
+    blocks: &CachedLightBlockAccess<'_, A>,
+    index: usize,
     channel: LightChannel,
     profile: DimensionLightProfile,
 ) -> Result<u8, LightSolveError> {
-    let sample = blocks.sample(position);
+    let sample = blocks.sample_at_index(index);
     let Some(filter) = sample.filter() else {
         return Ok(0);
     };
     match channel {
         LightChannel::Block => Ok(sample.emission()),
         LightChannel::Sky => {
-            let seed = blocks.sky_seed(position);
+            let seed = blocks.sky_seed_at_index(index);
             if seed > 15 {
                 return Err(LightSolveError::LightValueOutOfRange { value: seed });
             }
@@ -274,20 +287,22 @@ fn local_base<A: LightBlockAccess>(
     }
 }
 
+/// Stops once cached neighbour support reaches the retained light level.
 #[allow(clippy::too_many_arguments)]
 fn prior_supports_level<A: LightBlockAccess, P: LightReadAccess>(
-    blocks: &A,
-    prior: &P,
+    blocks: &CachedLightBlockAccess<'_, A>,
+    prior: &CachedLightReadAccess<'_, P>,
     bounds: LightBounds,
     position: BlockPos,
+    index: usize,
     channel: LightChannel,
     profile: DimensionLightProfile,
     required: u8,
 ) -> Result<bool, LightSolveError> {
-    let Some(filter) = blocks.sample(position).filter() else {
+    let Some(filter) = blocks.sample_at_index(index).filter() else {
         return Ok(false);
     };
-    if local_base(blocks, position, channel, profile)? >= required {
+    if local_base(blocks, index, channel, profile)? >= required {
         return Ok(true);
     }
     if channel == LightChannel::Sky && !profile.allows_sky() {
@@ -310,14 +325,18 @@ fn prior_supports_level<A: LightBlockAccess, P: LightReadAccess>(
         let Some(neighbour) = position.checked_offset(offset) else {
             continue;
         };
-        if blocks.sample(neighbour).filter().is_none() {
+        let neighbour_index = blocks.index(neighbour);
+        let sample = neighbour_index.map_or_else(
+            || blocks.sample(neighbour),
+            |index| blocks.sample_at_index(index),
+        );
+        if sample.filter().is_none() {
             continue;
         }
-        let (neighbour_level, direct_sky) = if bounds.contains(neighbour) {
+        let (neighbour_level, direct_sky) = if let Some(index) = neighbour_index {
             (
-                read_prior(prior, bounds.dimension, neighbour, channel)?,
-                channel == LightChannel::Sky
-                    && prior.has_direct_sky_provenance(bounds.dimension, neighbour),
+                read_prior(prior, index, neighbour, channel)?,
+                channel == LightChannel::Sky && prior.direct_sky_at_index(index, neighbour),
             )
         } else {
             let Some((level, direct_sky)) = prior
@@ -366,13 +385,13 @@ fn incoming_level(
 
 #[allow(clippy::too_many_arguments)]
 fn propagate<A: LightBlockAccess, P: LightReadAccess>(
-    blocks: &A,
+    blocks: &CachedLightBlockAccess<'_, A>,
     prior: &P,
     bounds: LightBounds,
     channel: LightChannel,
     profile: DimensionLightProfile,
     output: &mut MutableOutput,
-    queue: &mut VecDeque<IncreaseEntry>,
+    queue: &mut IncreaseQueue,
     direct_positions: &mut DensePositionSet,
     limits: SolverLimits,
     queued_total: &mut usize,
@@ -394,15 +413,15 @@ fn propagate<A: LightBlockAccess, P: LightReadAccess>(
 
     while let Some(entry) = queue.pop_front() {
         stats.increase_dequeued += 1;
-        let source = output.get(entry.position, channel);
+        let source = output.get_at_index(entry.index, channel);
         for offset in NEIGHBOURS {
             let Some(next) = entry.position.checked_offset(offset) else {
                 continue;
             };
-            if !bounds.contains(next) {
+            let Some(index) = output.index(next) else {
                 continue;
-            }
-            let Some(filter) = blocks.sample(next).filter() else {
+            };
+            let Some(filter) = blocks.sample_at_index(index).filter() else {
                 continue;
             };
             let continues_direct = channel == LightChannel::Sky
@@ -416,20 +435,24 @@ fn propagate<A: LightBlockAccess, P: LightReadAccess>(
             } else {
                 source.saturating_sub(filter.max(1))
             };
-            let current = output.get(next, channel);
-            let gains_direct = continues_direct && !direct_positions.contains(&next);
+            let current = output.get_at_index(index, channel);
+            let gains_direct = continues_direct && !direct_positions.contains_at_index(index);
             if candidate > current || (candidate == current && gains_direct) {
                 if candidate > current {
-                    output.set(next, channel, candidate);
+                    output.set_at_index(index, channel, candidate);
                 }
                 if continues_direct {
-                    direct_positions.insert(next);
+                    direct_positions.insert_at_index(index);
                 }
-                enqueue_counted(queued_total, 1, limits.max_queue_entries)?;
-                queue.push_back(IncreaseEntry {
-                    position: next,
-                    direct_sky: continues_direct,
-                });
+                queue.push_back(
+                    IncreaseEntry {
+                        position: next,
+                        index,
+                        direct_sky: continues_direct,
+                    },
+                    queued_total,
+                    limits.max_queue_entries,
+                )?;
                 stats.queue_peak = stats.queue_peak.max(queue.len());
             }
         }
@@ -445,7 +468,7 @@ pub(super) fn seed_boundary_from_halo<A: LightBlockAccess, P: LightReadAccess>(
     channel: LightChannel,
     profile: DimensionLightProfile,
     output: &mut MutableOutput,
-    queue: &mut VecDeque<IncreaseEntry>,
+    queue: &mut IncreaseQueue,
     direct_positions: &mut DensePositionSet,
     limits: SolverLimits,
     queued_total: &mut usize,
@@ -500,20 +523,27 @@ pub(super) fn seed_boundary_from_halo<A: LightBlockAccess, P: LightReadAccess>(
                 candidate_is_direct = direct;
             }
         }
-        let current = output.get(position, channel);
+        let index = output
+            .index(position)
+            .expect("boundary positions stay inside the solve bounds");
+        let current = output.get_at_index(index, channel);
         let gains_direct = candidate_is_direct && !direct_positions.contains(&position);
         if candidate > current || (candidate == current && candidate != 0 && gains_direct) {
             if candidate > current {
-                output.set(position, channel, candidate);
+                output.set_at_index(index, channel, candidate);
             }
             if candidate_is_direct {
                 direct_positions.insert(position);
             }
-            enqueue_counted(queued_total, 1, limits.max_queue_entries)?;
-            queue.push_back(IncreaseEntry {
-                position,
-                direct_sky: candidate_is_direct,
-            });
+            queue.push_back(
+                IncreaseEntry {
+                    position,
+                    index,
+                    direct_sky: candidate_is_direct,
+                },
+                queued_total,
+                limits.max_queue_entries,
+            )?;
         }
     }
     Ok(())

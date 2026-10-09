@@ -38,40 +38,44 @@ pub enum ChatFlushError<E> {
 
 pub use protocol::FastTransferAction;
 
+/// Hands queued messages to the transport in FIFO order, each in the frame it was queued.
+/// A transfer command waits for earlier sends to be acknowledged and holds back later ones.
 pub fn flush_chat_sends<E>(
     runtime: &mut UiRuntime,
     budget: usize,
     mut send: impl FnMut(u64, u64, Option<FastTransferAction>, Packet) -> Result<(), E>,
 ) -> Result<usize, ChatFlushError<E>> {
-    if budget == 0 || runtime.in_flight_chat_send().is_some() {
-        return Ok(0);
-    }
     let mut sent = 0;
-    for _ in 0..budget.min(1) {
-        let Some(request) = runtime.pending_chat_sends().front() else {
+    while sent < budget {
+        let in_flight = runtime.in_flight_chat_sends();
+        let pending = runtime.pending_chat_sends();
+        let Some(request) = pending.get(in_flight) else {
             break;
         };
-        if request.session != runtime.session_id() {
+        let action = FastTransferAction::classify(&request.message);
+        let transfer_in_flight = pending
+            .iter()
+            .take(in_flight)
+            .any(|request| FastTransferAction::classify(&request.message).is_some());
+        if transfer_in_flight || (action.is_some() && in_flight > 0) {
+            break;
+        }
+        let session = request.session;
+        if session != runtime.session_id() {
             return Err(ChatFlushError::SessionChanged {
                 expected: runtime.session_id(),
-                actual: request.session,
+                actual: session,
             });
         }
         let (sequence, packet) = runtime
-            .front_chat_packet()
+            .next_chat_packet()
             .map_err(ChatFlushError::Packet)?
-            .expect("the pending front was observed above");
-        send(
-            request.session,
-            sequence,
-            FastTransferAction::classify(&request.message),
-            packet,
-        )
-        .map_err(ChatFlushError::Transport)?;
-        let enqueued = runtime.mark_chat_send_enqueued(request.session, sequence);
+            .expect("the next unsent request was observed above");
+        send(session, sequence, action, packet).map_err(ChatFlushError::Transport)?;
+        let enqueued = runtime.mark_chat_send_enqueued(session, sequence);
         debug_assert!(
             enqueued,
-            "only the observed FIFO front can become in flight"
+            "only the observed next request can become in flight"
         );
         sent += 1;
     }
@@ -325,6 +329,12 @@ pub fn suppress_gameplay_input_for_chat(
     mouse_buttons.reset_all();
     mouse_motion.delta = bevy::math::Vec2::ZERO;
 }
+
+mod pointer_order;
+pub use pointer_order::{
+    FrameInput, PointerRouter, PressRoute, ScreenKey, ordered_pointer_presses, route_frame_presses,
+    screen_after,
+};
 
 #[cfg(test)]
 #[path = "interaction/modifier_tests.rs"]

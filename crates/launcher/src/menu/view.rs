@@ -64,6 +64,13 @@ pub struct MenuRealmCard {
     pub member: bool,
 }
 
+impl MenuRealmCard {
+    /// Closed or expired Realms may grant membership but cannot offer a game connection.
+    pub fn can_play(&self) -> bool {
+        !self.expired && self.state.eq_ignore_ascii_case("open")
+    }
+}
+
 /// Marks a featured address as an experience's ID, joined when selected.
 pub const EXPERIENCE_ADDRESS_PREFIX: &str = "gathering/";
 
@@ -438,6 +445,8 @@ pub struct MenuView {
     pub store: Option<std::sync::Arc<crate::store::StoreSnapshot>>,
     /// The open local world is hosted for Xbox friends, so the pause screen offers invites.
     pub hosting: bool,
+    /// The code invitation flow covering the Realms tab.
+    pub realm_membership: Option<super::realm_membership::State>,
     /// The invite screen's friends and picks while it is up.
     pub invite: Option<std::sync::Arc<super::invite::InviteState>>,
     /// Who sent the oldest open Discord join request.
@@ -644,6 +653,7 @@ impl MenuView {
             feeds: Default::default(),
             store: None,
             hosting: false,
+            realm_membership: None,
             invite: None,
             join_request: None,
         }

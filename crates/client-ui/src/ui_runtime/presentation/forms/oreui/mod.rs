@@ -33,6 +33,7 @@ pub(in crate::ui_runtime::presentation) use play_servers::animated_server_detail
 mod profile;
 mod progress;
 mod radio;
+mod realm_membership;
 #[cfg(test)]
 mod review_tests;
 #[cfg(test)]

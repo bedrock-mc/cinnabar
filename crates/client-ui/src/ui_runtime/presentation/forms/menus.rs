@@ -222,7 +222,8 @@ impl UiPresentationRuntime {
                     // Drawn by the OreUI create and edit screens, not JSON-UI.
                     crate::menu::MenuField::WorldName
                     | crate::menu::MenuField::WorldSeed
-                    | crate::menu::MenuField::SkinName => {
+                    | crate::menu::MenuField::SkinName
+                    | crate::menu::MenuField::RealmCode => {
                         return None;
                     }
                 }))

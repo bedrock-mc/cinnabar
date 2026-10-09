@@ -145,6 +145,23 @@ impl SeatDefaults {
     }
 }
 
+impl super::movement_interpolation::MotionState {
+    /// Holds a rider on its seat: position and body follow the mount, the head within the lock.
+    fn seat(&mut self, placement: &Placement) {
+        self.received.position = placement.position;
+        self.pose.position = placement.position;
+        self.pose.yaw = placement.body_yaw;
+        self.received.yaw = placement.body_yaw;
+        if let Some(limit) = placement.lock_degrees {
+            let head = placement.body_yaw
+                + wrap_degrees(self.pose.head_yaw - placement.body_yaw).clamp(-limit, limit);
+            self.pose.head_yaw = head;
+            self.received.head_yaw = head;
+        }
+        self.remaining = 0;
+    }
+}
+
 /// Where a rider sits and how its body and head are held.
 struct Placement {
     runtime_id: u64,
@@ -209,11 +226,13 @@ impl ActorStore {
         ))
     }
 
-    /// Places each linked rider at its seat and turns its body with the mount; riders with no
-    /// known seat keep their streamed pose. The local rig is client-fed and skipped.
-    pub(super) fn seat_riders(&mut self) {
-        let placements: Vec<Placement> = self
-            .rider_to_ridden
+    /// Seats for every linked rider from the mount poses `mount_pose` reports; the local rig is
+    /// client-fed and skipped.
+    fn rider_placements(
+        &self,
+        mount_pose: impl Fn(&super::ActorSnapshot) -> ([f32; 3], f32),
+    ) -> Vec<Placement> {
+        self.rider_to_ridden
             .iter()
             .filter_map(|(rider_unique_id, ridden)| {
                 let rider_id = *self.unique_to_runtime.get(rider_unique_id)?;
@@ -223,33 +242,55 @@ impl ActorStore {
                 let mount = self.actors.get(self.unique_to_runtime.get(ridden)?)?;
                 let rider = self.actors.get(&rider_id)?;
                 let seat = self.seat_for(*rider_unique_id, rider, mount)?;
-                let offset = seat_world_offset(seat.position, mount.yaw);
+                let (mount_position, mount_yaw) = mount_pose(mount);
+                let offset = seat_world_offset(seat.position, mount_yaw);
                 Some(Placement {
                     runtime_id: rider_id,
-                    position: std::array::from_fn(|axis| mount.position[axis] + offset[axis]),
-                    body_yaw: wrap_degrees(mount.yaw + seat.rotate_by.unwrap_or(0.0)),
+                    position: std::array::from_fn(|axis| mount_position[axis] + offset[axis]),
+                    body_yaw: wrap_degrees(mount_yaw + seat.rotate_by.unwrap_or(0.0)),
                     // A negative lock is odd server data and is skipped.
                     lock_degrees: seat
                         .lock_degrees
                         .filter(|degrees| (0.0..UNLOCKED_HEAD_DEGREES).contains(degrees)),
                 })
             })
-            .collect();
-        for placement in placements {
+            .collect()
+    }
+
+    /// Places each linked rider at its seat and turns its body with the mount; riders with no
+    /// known seat keep their streamed pose. The local rig is client-fed and skipped.
+    pub(super) fn seat_riders(&mut self) {
+        if self.rider_to_ridden.is_empty() {
+            return;
+        }
+        for placement in self.rider_placements(|mount| (mount.position, mount.yaw)) {
             let Some(rider) = self.actors.get_mut(&placement.runtime_id) else {
                 continue;
             };
-            rider.received_pose.position = placement.position;
-            rider.position = placement.position;
-            rider.yaw = placement.body_yaw;
-            rider.received_pose.yaw = placement.body_yaw;
-            if let Some(limit) = placement.lock_degrees {
-                let head = placement.body_yaw
-                    + wrap_degrees(rider.head_yaw - placement.body_yaw).clamp(-limit, limit);
-                rider.head_yaw = head;
-                rider.received_pose.head_yaw = head;
+            let mut state = rider.motion_state();
+            state.seat(&placement);
+            rider.apply_motion_state(state);
+        }
+    }
+
+    /// Seats predicted riders exactly as [`Self::seat_riders`] seats live ones.
+    pub(super) fn seat_pick_riders(&mut self) {
+        if self.rider_to_ridden.is_empty() {
+            return;
+        }
+        let placements = self.rider_placements(|mount| {
+            self.pick_state(mount.runtime_id)
+                .map_or((mount.position, mount.yaw), |state| {
+                    (state.pose.position, state.pose.yaw)
+                })
+        });
+        for placement in placements {
+            if let Ok(index) = self
+                .pick_states
+                .binary_search_by_key(&placement.runtime_id, |(runtime_id, _)| *runtime_id)
+            {
+                self.pick_states[index].1.seat(&placement);
             }
-            rider.interpolation_ticks_remaining = 0;
         }
     }
 
@@ -366,6 +407,60 @@ mod tests {
         assert_eq!(probes[0].runtime_id, 7);
         assert_eq!(probes[0].min, [0.8, 2.0, 2.8]);
         assert_eq!(probes[0].max, [1.2, 2.4, 3.2]);
+    }
+
+    /// A rider whose mount itself rides gets the predicted pick pose a multi-tick frame's live
+    /// per-tick seating gives it.
+    #[test]
+    fn nested_rider_pick_pose_matches_the_live_frame() {
+        use super::{KEY_SEAT_OFFSET, KEY_SEAT_ROTATION_DEGREES};
+        use crate::actor_store::{ActorStore, tests::spawn};
+        let mut store = ActorStore::new(1, 0);
+        for (sequence, runtime_id) in [(1, 7), (2, 8), (3, 9)] {
+            store.apply(1, sequence, spawn(runtime_id, runtime_id as i64 * 10));
+        }
+        // 90 rides 80, which rides 70; turned seats make every level depend on the one below.
+        store.rider_to_ridden.insert(80, 70);
+        store.rider_to_ridden.insert(90, 80);
+        for runtime_id in [8, 9] {
+            let rider = store.actors.get_mut(&runtime_id).unwrap();
+            rider
+                .metadata
+                .insert(KEY_SEAT_OFFSET, ActorMetadataValue::Vector([0.0, 1.0, 0.5]));
+            rider
+                .metadata
+                .insert(KEY_SEAT_ROTATION_DEGREES, ActorMetadataValue::Float(30.0));
+        }
+        store.apply(
+            1,
+            4,
+            protocol::ActorEvent::Move(protocol::ActorMoveEvent {
+                dimension: 0,
+                runtime_id: 7,
+                position: [Some(4.0), Some(2.0), Some(6.0)],
+                position_origin: protocol::ActorPositionOrigin::Feet,
+                pitch: None,
+                yaw: Some(90.0),
+                head_yaw: Some(90.0),
+                on_ground: None,
+                teleported: false,
+                player_mode: None,
+                source_tick: None,
+                interpolation: protocol::ActorInterpolation {
+                    ticks: 3,
+                    force_completion: false,
+                },
+            }),
+        );
+
+        store.predict_remote_motion(3);
+        let predicted = [8, 9].map(|runtime_id| store.pick_pose(runtime_id).unwrap());
+        store.advance_interpolation_ticks(3);
+        let live = [8, 9].map(|runtime_id| {
+            let actor = &store.actors[&runtime_id];
+            (actor.position, actor.yaw)
+        });
+        assert_eq!(predicted, live);
     }
 
     fn mount(flags: u64) -> ActorSnapshot {

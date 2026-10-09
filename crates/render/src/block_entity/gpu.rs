@@ -526,6 +526,7 @@ impl Specializer<RenderPipeline> for BlockEntitySpecializer {
         descriptor: &mut RenderPipelineDescriptor,
     ) -> Result<Canonical<Self::Key>, BevyError> {
         descriptor.multisample.count = key.msaa.samples();
+        crate::alpha_coverage::apply(descriptor, key.mode == PipelineMode::Solid);
         descriptor.primitive.cull_mode =
             matches!(key.mode, PipelineMode::Portal | PipelineMode::Additive)
                 .then_some(bevy::render::render_resource::Face::Back);

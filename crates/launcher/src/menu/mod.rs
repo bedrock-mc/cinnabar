@@ -8,6 +8,7 @@ pub mod invite;
 pub mod join_requests;
 pub mod profile;
 pub mod profile_achievements;
+pub mod realm_membership;
 pub mod server_list;
 pub mod settings_options;
 pub mod settings_storage;
@@ -78,6 +79,7 @@ pub enum MenuField {
     WorldName,
     WorldSeed,
     SkinName,
+    RealmCode,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -98,11 +100,15 @@ pub enum MenuAction {
     RefreshCatalog,
     StartSignIn,
     CancelSignIn,
+    /// The sign-in header's close control, with feedback independent of the cancel button.
+    CloseSignIn,
     OpenSignInLink,
     PlayAddServer,
     PlaySaved(usize),
     PlayFeatured(usize),
     PlayRealm(usize),
+    /// Opens or advances Realm membership through an invite link or code.
+    RealmMembership(realm_membership::Action),
     PlayFriend(usize),
     ToggleFavorite(usize),
     RemoveSavedDialog(usize),
@@ -173,6 +179,7 @@ impl MenuAction {
     /// The text field a press on this control focuses.
     pub fn text_field(self) -> Option<MenuField> {
         match self {
+            Self::RealmMembership(realm_membership::Action::EditCode) => Some(MenuField::RealmCode),
             Self::AddName => Some(MenuField::Name),
             Self::AddAddress => Some(MenuField::Address),
             Self::AddPort => Some(MenuField::Port),

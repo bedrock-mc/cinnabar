@@ -59,7 +59,7 @@ type PublishExtras<'w> = (
     ),
 );
 
-/// Observes UI authority and captures inventory before outbound actions mutate it.
+/// Observes UI authority and captures inventory, including this frame's outbound predictions.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn prepare_ui_runtime(
     player_runtime: bevy::prelude::Res<crate::player_runtime::PlayerRuntime>,

@@ -213,7 +213,7 @@ impl AimAssistFrame {
             let Some(priority) = priority else {
                 continue;
             };
-            let Some((minimum, maximum)) = actor.bounding_box() else {
+            let Some((minimum, maximum)) = world.pick_bounding_box(actor) else {
                 continue;
             };
             let minimum = Vec3::from_array(minimum);

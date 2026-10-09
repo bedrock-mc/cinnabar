@@ -51,6 +51,7 @@ pub mod motion_blur_setting;
 pub mod npc;
 pub mod oreui;
 mod retained_menu;
+pub mod smaa_setting;
 pub(super) use retained_menu::RetainedMenu;
 #[cfg(any(test, feature = "test-support"))]
 pub mod pack_harness;

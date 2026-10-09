@@ -75,7 +75,9 @@ fn shared_colour_retains_samples_until_one_discarding_resolve() {
             assert_eq!(resolves, 0);
             assert_eq!(
                 scene.texture.usage(),
-                TextureUsages::RENDER_ATTACHMENT | TextureUsages::COPY_SRC
+                TextureUsages::RENDER_ATTACHMENT
+                    | TextureUsages::COPY_SRC
+                    | TextureUsages::COPY_DST
             );
         }
         assert!(scene.matches(size(), format, samples));

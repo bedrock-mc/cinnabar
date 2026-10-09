@@ -1,5 +1,10 @@
 #import bevy_render::view::View
 #import cinnabar::lighting::{actor_light_colour, actor_distance_fog, tint_to_gamma, tint_to_linear}
+#ifdef ALPHA_TO_COVERAGE
+#import cinnabar::lighting::{CutoutSample, cutout_alpha_array}
+#endif
+
+const ITEM_ALPHA_THRESHOLD: f32 = 0.1;
 
 @group(0) @binding(0) var<uniform> view: View;
 @group(0) @binding(1) var sprites: texture_2d_array<f32>;
@@ -63,10 +68,18 @@ fn item_vertex(input: VertexInput) -> VertexOutput {
 
 @fragment
 fn item_fragment(input: VertexOutput) -> @location(0) vec4<f32> {
-    let color = tint_to_gamma(textureSample(sprites, sprite_sampler, input.uv, i32(input.layer))) * input.color;
-    if (color.a < 0.1) {
+    let texel = textureSample(sprites, sprite_sampler, input.uv, i32(input.layer));
+    var color = tint_to_gamma(texel) * input.color;
+#ifndef ALPHA_TO_COVERAGE
+    if (color.a < ITEM_ALPHA_THRESHOLD) {
         discard;
     }
+#else
+    let threshold = ITEM_ALPHA_THRESHOLD / max(input.color.a, 0.00001);
+    let cutout = cutout_alpha_array(sprites, input.uv, i32(input.layer), dpdx(input.uv), dpdy(input.uv), texel, false, threshold);
+    if (color.a < ITEM_ALPHA_THRESHOLD && cutout.coverage > 0.0) { color = tint_to_gamma(cutout.colour) * input.color; }
+    color.a = cutout.coverage;
+#endif
     // Native item materials compose gamma RGB with the actor /16 lightmap
     // lookup. Transfer the completed product once for Bevy's sRGB target.
     let lit = mix(color.rgb, input.overlay.rgb, input.overlay.a) * input.shade * actor_light_colour(input.levels.x | (input.levels.y << 4u));

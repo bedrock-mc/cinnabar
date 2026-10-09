@@ -136,12 +136,12 @@
 
 | Field | Evidence |
 |---|---|
-| Owning plan/task | Not started |
-| Deterministic tests | Not started |
-| Review commit | Not started |
-| Live/native witness | Not started |
-| Performance/resource witness | Not started |
-| Final status | Open |
+| Owning plan/task | Partial local placement coverage; see the Local placement prediction section in plan.md. |
+| Deterministic tests | Gameplay direction, support, stacking and immediate-placement tables in both palette encodings; pipeline atomic pair, rollback and ordered publication tests. |
+| Review commit | Recorded by the placement follow-up PR. |
+| Live/native witness | Headless stair comparison and door pair before server confirmation; broader family visual parity remains open. |
+| Performance/resource witness | Paused-server stair recording: first visible/staged +3 frames, observed upload +5; bounded late worker service. Click-frame and full hardware budgets remain open. |
+| Final status | Open: remaining placement families and the wider interaction/inventory gate are incomplete. |
 
 ## P5.6-FORMS
 

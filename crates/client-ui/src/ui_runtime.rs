@@ -172,7 +172,7 @@ pub struct UiRuntime {
     chat_tab_start: Option<usize>,
     pending_chat_autocomplete_request: Option<ChatAutocompleteRequest>,
     chat_sends: ChatSendQueue,
-    in_flight_chat_send: Option<(u64, u64)>,
+    in_flight_chat_sends: usize,
     chat_source_name: Arc<str>,
     chat_xuid: Arc<str>,
     dropped_unsent_chat_messages: u64,
@@ -267,7 +267,7 @@ impl UiRuntime {
                     .expect("the reviewed chat rate window is valid"),
             )
             .expect("the reviewed chat queue capacity is valid"),
-            in_flight_chat_send: None,
+            in_flight_chat_sends: 0,
             chat_source_name: Arc::from(""),
             chat_xuid: Arc::from(""),
             dropped_unsent_chat_messages: 0,
@@ -648,7 +648,7 @@ impl UiRuntime {
         self.wake_requested = false;
         self.sleep_status = None;
         self.pending_chat_autocomplete_request = None;
-        self.in_flight_chat_send = None;
+        self.in_flight_chat_sends = 0;
         let dropped = self.chat_sends.begin_session(session_id);
         self.dropped_unsent_chat_messages = self
             .dropped_unsent_chat_messages

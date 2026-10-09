@@ -31,6 +31,7 @@ pub struct RasterState {
     pub primitive: wgpu::PrimitiveState,
     pub depth_compare: wgpu::CompareFunction,
     pub write_mask: wgpu::ColorWrites,
+    pub multisample: wgpu::MultisampleState,
 }
 
 pub struct DrawPipeline<'a> {
@@ -41,7 +42,6 @@ pub struct DrawPipeline<'a> {
 struct RasterConfiguration<'a> {
     state: RasterState,
     pipelines: &'a [DrawPipeline<'a>],
-    samples: u32,
 }
 
 impl Default for RasterState {
@@ -50,6 +50,7 @@ impl Default for RasterState {
             primitive: Default::default(),
             depth_compare: wgpu::CompareFunction::GreaterEqual,
             write_mask: wgpu::ColorWrites::ALL,
+            multisample: Default::default(),
         }
     }
 }
@@ -158,6 +159,7 @@ impl Gpu {
         self.render_with_state(source, vertex, draws, RasterState::default())
     }
 
+    /// Applies the requested raster state, including sample count and alpha-to-coverage.
     pub fn render_with_state(
         &self,
         source: &str,
@@ -173,7 +175,6 @@ impl Gpu {
             RasterConfiguration {
                 state,
                 pipelines: &[],
-                samples: 1,
             },
         )
     }
@@ -194,7 +195,6 @@ impl Gpu {
             RasterConfiguration {
                 state: RasterState::default(),
                 pipelines,
-                samples: 1,
             },
         )
     }
@@ -209,7 +209,6 @@ impl Gpu {
             RasterConfiguration {
                 state: RasterState::default(),
                 pipelines: &[],
-                samples: 1,
             },
         )
     }
@@ -228,9 +227,14 @@ impl Gpu {
             draws,
             wgpu::TextureFormat::Rgba8Unorm,
             RasterConfiguration {
-                state: RasterState::default(),
+                state: RasterState {
+                    multisample: wgpu::MultisampleState {
+                        count: samples,
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
                 pipelines: &[],
-                samples,
             },
         )
     }
@@ -243,11 +247,7 @@ impl Gpu {
         target_format: wgpu::TextureFormat,
         configuration: RasterConfiguration<'_>,
     ) -> Vec<u8> {
-        let RasterConfiguration {
-            state,
-            pipelines,
-            samples,
-        } = configuration;
+        let RasterConfiguration { state, pipelines } = configuration;
         let shader = self
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -276,22 +276,22 @@ impl Gpu {
             wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
             1,
         );
-        let multisampled = (samples > 1).then(|| {
+        let multisampled = (state.multisample.count > 1).then(|| {
             texture(
                 target_format,
                 wgpu::TextureUsages::RENDER_ATTACHMENT,
-                samples,
+                state.multisample.count,
             )
         });
         let depth = texture(
             wgpu::TextureFormat::Depth32Float,
             wgpu::TextureUsages::RENDER_ATTACHMENT,
-            samples,
+            state.multisample.count,
         );
         let view = target.create_view(&Default::default());
         let multisampled_view = multisampled
             .as_ref()
-            .map(|target| target.create_view(&Default::default()));
+            .map(|texture| texture.create_view(&Default::default()));
         let depth_view = depth.create_view(&Default::default());
         let mut encoder = self.device.create_command_encoder(&Default::default());
         for (index, draw) in draws.iter().enumerate() {
@@ -319,10 +319,7 @@ impl Gpu {
                         stencil: Default::default(),
                         bias: Default::default(),
                     }),
-                    multisample: wgpu::MultisampleState {
-                        count: samples,
-                        ..Default::default()
-                    },
+                    multisample: state.multisample,
                     fragment: Some(wgpu::FragmentState {
                         module: &shader,
                         entry_point: Some(draw.fragment),

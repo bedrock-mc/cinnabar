@@ -84,6 +84,71 @@ fn native_video_settings_exposes_animation_choices_and_crosshair_preferences() {
     }
 }
 
+#[test]
+fn native_video_settings_exposes_smaa_and_supported_msaa_stops_together() {
+    use crate::menu::settings_options::SMAA_OPTION;
+    let mut view = settings_view("video_forced_index");
+    Arc::make_mut(&mut view.settings_options)
+        .set_anti_aliasing_support(ui::AntiAliasingSupport::from_counts([1, 4]));
+    let index = |name| {
+        SETTINGS_OPTIONS
+            .iter()
+            .position(|option| option.name == name)
+            .unwrap() as u16
+    };
+    let size = [1280.0, 720.0];
+    let mut frame = paint(&view, size, HashMap::new());
+    let mut scrolls = MenuScrolls::default();
+    for _ in 0..64 {
+        let viewport = panel(&frame, false).viewport;
+        let revealed = [
+            MenuAction::SettingsOption(index("msaa"), 1),
+            MenuAction::SettingsOption(index("msaa"), 4),
+            MenuAction::SettingsOption(index(SMAA_OPTION.name), ui::SmaaMode::Off as i32),
+            MenuAction::SettingsOption(index(SMAA_OPTION.name), ui::SmaaMode::Smaa as i32),
+        ]
+        .into_iter()
+        .all(|desired| {
+            frame
+                .hits
+                .iter()
+                .any(|(action, bounds)| *action == desired && contains(viewport, *bounds))
+        });
+        if revealed {
+            break;
+        }
+        scrolls.set_areas(frame.areas.clone());
+        assert!(
+            scrolls.wheel(centre(viewport), -1.0, false),
+            "anti-aliasing controls must be reachable by scrolling the Video pane"
+        );
+        frame = paint(&view, size, scrolls.offsets().clone());
+    }
+    let actions: Vec<_> = frame.hits.iter().map(|(action, _)| *action).collect();
+    for samples in [1, 4] {
+        assert!(actions.contains(&MenuAction::SettingsOption(index("msaa"), samples)));
+    }
+    for samples in [2, 3, 5, 6, 7, 8] {
+        assert!(!actions.contains(&MenuAction::SettingsOption(index("msaa"), samples)));
+    }
+    for mode in [ui::SmaaMode::Off, ui::SmaaMode::Smaa] {
+        assert!(actions.contains(&MenuAction::SettingsOption(
+            index(SMAA_OPTION.name),
+            mode as i32
+        )));
+    }
+    let viewport = panel(&frame, false).viewport;
+    for (action, bounds) in &frame.hits {
+        if matches!(action, MenuAction::SettingsOption(option, _) if *option == index("msaa") || *option == index(SMAA_OPTION.name))
+        {
+            assert!(
+                contains(viewport, *bounds),
+                "both anti-aliasing controls must be visible in the same Video pane"
+            );
+        }
+    }
+}
+
 fn centre(bounds: UiRect) -> UiPoint {
     let (min, max) = (bounds.min(), bounds.max());
     UiPoint::new((min.x() + max.x()) * 0.5, (min.y() + max.y()) * 0.5).unwrap()

@@ -3,7 +3,7 @@ use std::num::NonZeroU16;
 
 use super::{
     ANIMATIONS_OPTION, FRAME_RATE_AUTOMATIC, FRAME_RATE_UNLIMITED, MOTION_BLUR_OPTION,
-    MOUSE_SENSITIVITY_OPTION, SettingsOptions,
+    MOUSE_SENSITIVITY_OPTION, SMAA_OPTION, SettingsOptions,
 };
 use render_api::FrameRateLimit;
 use semantic_input::PerspectiveMode;
@@ -41,6 +41,7 @@ impl SettingsOptions {
         settings.video.anti_aliasing_samples = self.value("msaa") as u32;
         settings.video.motion_blur =
             ui::MotionBlurQuality::from_index(self.value(MOTION_BLUR_OPTION.name));
+        settings.video.smaa_mode = ui::SmaaMode::from_value(self.value(SMAA_OPTION.name));
         settings.video.render_distance_chunks = self.value("render_distance") as u8;
         settings.video.view_bobbing = self.value("view_bobbing") != 0;
         settings.video.java_animations = self.value(ANIMATIONS_OPTION.name) == 0;

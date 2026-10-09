@@ -46,10 +46,11 @@ impl UiRuntime {
         Ok(request)
     }
 
-    pub fn front_chat_packet(&self) -> Result<Option<(u64, Packet)>, ChatPacketError> {
+    /// The first queued message not yet handed to the transport.
+    pub fn next_chat_packet(&self) -> Result<Option<(u64, Packet)>, ChatPacketError> {
         self.chat_sends
             .pending()
-            .front()
+            .get(self.in_flight_chat_sends)
             .map(|request| {
                 chat_input_packet(&self.chat_source_name, &self.chat_xuid, &request.message)
                     .map(|packet| (request.sequence, packet))
@@ -61,38 +62,50 @@ impl UiRuntime {
         self.chat_sends.confirm_front(sequence)
     }
 
-    pub const fn in_flight_chat_send(&self) -> Option<(u64, u64)> {
-        self.in_flight_chat_send
+    /// Queued messages handed to the transport and awaiting its acknowledgement.
+    pub const fn in_flight_chat_sends(&self) -> usize {
+        self.in_flight_chat_sends
     }
 
     pub fn mark_chat_send_enqueued(&mut self, session: u64, sequence: u64) -> bool {
-        if self.in_flight_chat_send.is_some()
-            || session != self.session_id
+        if session != self.session_id
             || self
                 .chat_sends
                 .pending()
-                .front()
+                .get(self.in_flight_chat_sends)
                 .is_none_or(|request| request.session != session || request.sequence != sequence)
         {
             return false;
         }
-        self.in_flight_chat_send = Some((session, sequence));
+        self.in_flight_chat_sends += 1;
         true
     }
 
+    /// Acknowledgements arrive in send order, so only the oldest in-flight message confirms.
     pub fn acknowledge_chat_send(&mut self, session: u64, sequence: u64) -> bool {
-        if self.in_flight_chat_send != Some((session, sequence)) {
+        if self.in_flight_chat_sends == 0
+            || session != self.session_id
+            || !self.confirm_chat_send(sequence)
+        {
             return false;
         }
-        self.in_flight_chat_send = None;
-        self.confirm_chat_send(sequence)
+        self.in_flight_chat_sends -= 1;
+        true
     }
 
+    /// A failed write leaves every unacknowledged message queued for a later flush.
     pub fn fail_chat_send(&mut self, session: u64, sequence: u64) -> bool {
-        if self.in_flight_chat_send != Some((session, sequence)) {
+        if session != self.session_id
+            || !self
+                .chat_sends
+                .pending()
+                .iter()
+                .take(self.in_flight_chat_sends)
+                .any(|request| request.sequence == sequence)
+        {
             return false;
         }
-        self.in_flight_chat_send = None;
+        self.in_flight_chat_sends = 0;
         true
     }
 }

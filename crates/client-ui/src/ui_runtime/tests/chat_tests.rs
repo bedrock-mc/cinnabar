@@ -32,7 +32,7 @@ fn chat_packet_build_preserves_pending_request_until_transport_ack() {
     runtime.insert_chat_text("ordered").unwrap();
     runtime.queue_chat_send(0).unwrap();
 
-    let (sequence, _packet) = runtime.front_chat_packet().unwrap().unwrap();
+    let (sequence, _packet) = runtime.next_chat_packet().unwrap().unwrap();
     assert_eq!(sequence, 0);
     assert_eq!(runtime.pending_chat_sends().len(), 1);
     assert!(!runtime.confirm_chat_send(1));
@@ -47,7 +47,7 @@ fn slash_chat_submission_uses_command_transport_without_consuming_the_request() 
     runtime.insert_chat_text("/kill @s").unwrap();
     runtime.queue_chat_send(0).unwrap();
 
-    let (sequence, packet) = runtime.front_chat_packet().unwrap().unwrap();
+    let (sequence, packet) = runtime.next_chat_packet().unwrap().unwrap();
 
     assert_eq!(sequence, 0);
     assert_eq!(packet.header.id as u32, 77);
@@ -244,27 +244,30 @@ fn fifo_flush_retries_backpressure_and_confirms_only_accepted_packets() {
     .unwrap_err();
     assert_eq!(error, ChatFlushError::Transport("full"));
     assert_eq!(runtime.pending_chat_sends().len(), 2);
+    assert_eq!(runtime.in_flight_chat_sends(), 0);
 
-    let expected = [
-        chat_text_packet("Alex", "xuid", "one").unwrap(),
-        chat_text_packet("Alex", "xuid", "two").unwrap(),
-    ];
-    let mut sent = 0usize;
+    // The transport refuses the second message; only the first is in flight.
+    let mut attempts = 0;
+    assert_eq!(
+        flush_chat_sends(&mut runtime, 8, |_session, sequence, _action, _packet| {
+            attempts += 1;
+            if sequence == 0 { Ok(()) } else { Err("full") }
+        }),
+        Err(ChatFlushError::Transport("full"))
+    );
+    assert_eq!(attempts, 2);
+    assert_eq!(runtime.in_flight_chat_sends(), 1);
+
     assert_eq!(
         flush_chat_sends(&mut runtime, 8, |session, sequence, action, packet| {
-            assert_eq!(session, 9);
-            assert_eq!(sequence, sent as u64);
+            assert_eq!((session, sequence), (9, 1));
             assert_eq!(action, None);
-            assert_eq!(packet, expected[sent]);
-            sent += 1;
+            assert_eq!(packet, chat_text_packet("Alex", "xuid", "two").unwrap());
             Ok::<_, &str>(())
         })
         .unwrap(),
         1
     );
-    assert_eq!(sent, 1);
-    assert_eq!(runtime.pending_chat_sends().len(), 2);
-    assert_eq!(runtime.in_flight_chat_send(), Some((9, 0)));
     assert_eq!(
         flush_chat_sends(
             &mut runtime,
@@ -277,22 +280,84 @@ fn fifo_flush_retries_backpressure_and_confirms_only_accepted_packets() {
         0
     );
     assert!(!runtime.acknowledge_chat_send(8, 0));
+    assert!(
+        !runtime.acknowledge_chat_send(9, 1),
+        "acknowledgements arrive in send order"
+    );
     assert!(runtime.acknowledge_chat_send(9, 0));
+    assert!(runtime.acknowledge_chat_send(9, 1));
+    assert!(runtime.pending_chat_sends().is_empty());
+    assert_eq!(runtime.in_flight_chat_sends(), 0);
+}
 
+/// A burst of ordinary messages must not trickle out one per acknowledgement.
+#[test]
+fn queued_messages_all_leave_in_the_frame_they_are_submitted() {
+    let mut runtime = UiRuntime::new(4);
+    runtime.set_chat_identity(Arc::from("Alex"), Arc::from("xuid"));
+    for (message, at) in [("one", 0), ("/spawn", 1), ("three", 2)] {
+        runtime.insert_chat_text(message).unwrap();
+        runtime.queue_chat_send(at).unwrap();
+    }
+
+    let mut sent = Vec::new();
     assert_eq!(
         flush_chat_sends(&mut runtime, 8, |session, sequence, action, packet| {
-            assert_eq!((session, sequence), (9, 1));
-            assert_eq!(action, None);
-            assert_eq!(packet, expected[1]);
-            sent += 1;
+            assert_eq!((session, action), (4, None));
+            sent.push((sequence, packet));
             Ok::<_, &str>(())
         })
         .unwrap(),
-        1
+        3
     );
-    assert_eq!(sent, 2);
-    assert!(runtime.acknowledge_chat_send(9, 1));
+    assert_eq!(
+        sent.iter()
+            .map(|(sequence, _)| *sequence)
+            .collect::<Vec<_>>(),
+        [0, 1, 2]
+    );
+    assert_eq!(
+        sent[1].1.header.id as u32, 77,
+        "the command keeps its transport"
+    );
+    for sequence in 0..3 {
+        assert!(runtime.acknowledge_chat_send(4, sequence));
+    }
     assert!(runtime.pending_chat_sends().is_empty());
+}
+
+/// The transfer barrier needs its command alone on the wire until acknowledged.
+#[test]
+fn fast_transfer_messages_stay_serialized() {
+    let mut runtime = UiRuntime::new(5);
+    runtime.set_chat_identity(Arc::from("Alex"), Arc::from("xuid"));
+    for (message, at) in [("before", 0), ("/transfer sm3", 1), ("after", 2)] {
+        runtime.insert_chat_text(message).unwrap();
+        runtime.queue_chat_send(at).unwrap();
+    }
+    let flush = |runtime: &mut UiRuntime| {
+        let mut sent = Vec::new();
+        flush_chat_sends(runtime, 8, |_session, sequence, action, _packet| {
+            sent.push((sequence, action.is_some()));
+            Ok::<_, &str>(())
+        })
+        .unwrap();
+        sent
+    };
+
+    assert_eq!(flush(&mut runtime), [(0, false)]);
+    assert!(
+        flush(&mut runtime).is_empty(),
+        "the transfer waits for earlier sends"
+    );
+    assert!(runtime.acknowledge_chat_send(5, 0));
+    assert_eq!(flush(&mut runtime), [(1, true)]);
+    assert!(
+        flush(&mut runtime).is_empty(),
+        "later messages wait for the transfer"
+    );
+    assert!(runtime.acknowledge_chat_send(5, 1));
+    assert_eq!(flush(&mut runtime), [(2, false)]);
 }
 
 #[test]

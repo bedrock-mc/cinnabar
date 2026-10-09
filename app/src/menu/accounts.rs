@@ -130,6 +130,7 @@ impl MenuRuntime {
             }
             MenuAction::StartSignIn
             | MenuAction::CancelSignIn
+            | MenuAction::CloseSignIn
             | MenuAction::AddAccount
             | MenuAction::SignOut => true,
             _ => false,

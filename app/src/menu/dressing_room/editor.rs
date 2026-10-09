@@ -7,7 +7,10 @@ impl MenuRuntime {
     pub(in crate::menu) fn skin_editor_blocks(&self, action: MenuAction) -> bool {
         if matches!(
             action,
-            MenuAction::OpenSignInLink | MenuAction::CancelSignIn | MenuAction::StartSignIn
+            MenuAction::OpenSignInLink
+                | MenuAction::CancelSignIn
+                | MenuAction::CloseSignIn
+                | MenuAction::StartSignIn
         ) && self.sign_in_focus().is_some()
         {
             return false;

@@ -58,6 +58,25 @@ pub fn pick_actor<'a>(
     direction: [f32; 3],
     reach: f64,
 ) -> Option<ActorHit> {
+    pick_actor_by(
+        actors,
+        ActorSnapshot::bounding_box,
+        excluded_unique_id,
+        origin,
+        direction,
+        reach,
+    )
+}
+
+/// [`pick_actor`] against the boxes `bounding_box` places each actor at.
+pub fn pick_actor_by<'a>(
+    actors: impl Iterator<Item = &'a ActorSnapshot>,
+    bounding_box: impl Fn(&ActorSnapshot) -> Option<([f32; 3], [f32; 3])>,
+    excluded_unique_id: Option<i64>,
+    origin: [f32; 3],
+    direction: [f32; 3],
+    reach: f64,
+) -> Option<ActorHit> {
     let origin = origin.map(f64::from);
     let length = direction
         .into_iter()
@@ -71,7 +90,7 @@ pub fn pick_actor<'a>(
     actors
         .filter(|actor| Some(actor.unique_id) != excluded_unique_id && pickable(actor))
         .filter_map(|actor| {
-            let (min, max) = actor.bounding_box()?;
+            let (min, max) = bounding_box(actor)?;
             let min = min.map(|axis| f64::from(axis) - ACTOR_PICK_RADIUS);
             let max = max.map(|axis| f64::from(axis) + ACTOR_PICK_RADIUS);
             let distance = ray_box_entry(origin, direction, min, max)?;

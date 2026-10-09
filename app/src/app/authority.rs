@@ -13,10 +13,11 @@ pub(crate) fn configure_client_frame_schedule(app: &mut App) {
             ClientFrameSet::Physics,
             ClientFrameSet::Camera,
             ClientFrameSet::Interaction,
+            // Packets leave before world, actor and UI preparation, as vanilla flushes before render.
+            ClientFrameSet::NetworkSend,
             ClientFrameSet::WorldPublication,
             ClientFrameSet::ActorPreparation,
             ClientFrameSet::UiPreparation,
-            ClientFrameSet::NetworkSend,
             ClientFrameSet::ActorFinalization,
             ClientFrameSet::ActorPublication,
             ClientFrameSet::UiPublication,

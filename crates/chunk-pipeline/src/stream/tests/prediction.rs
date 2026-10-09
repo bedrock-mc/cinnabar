@@ -485,6 +485,172 @@ fn urgent_removal_is_not_overtaken_by_an_older_queued_upsert() {
     assert!(stream.is_mesh_clean(key));
 }
 
+/// A missing second cell leaves the valid first cell untouched.
+#[test]
+fn paired_prediction_rejects_every_cell_when_one_is_unloaded() {
+    let mut stream = fixture();
+    let first = [3, 200, 3];
+    let original = block(&stream, first);
+    assert!(!stream.predict_blocks(&[(first, 0, 1), ([40, 200, 3], 0, 1)]));
+    assert_eq!(block(&stream, first), original);
+}
+
+/// A late handoff can publish completed prediction workers without admitting another server batch.
+#[test]
+fn prediction_workers_publish_without_a_second_world_poll() {
+    let (mut stream, _) = loaded_neighbourhood();
+    let position: [i32; 3] = [3, 200, 3];
+    let key = SubChunkKey::new(0, 0, position[1].div_euclid(16), 0);
+    assert!(stream.predict_block(position, 0, 1));
+    let generation = stream.prediction_generation(position).unwrap().1;
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        stream.poll_prediction_jobs(position.map(|coordinate| coordinate as f32), 2);
+        if stream.take_mesh_changes().into_iter().any(|change| {
+            matches!(change,
+            WorldMeshChange::Upsert {key: actual, generation: revision, urgent: true, ..}
+                if actual == key && revision == generation)
+        }) {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "prediction mesh did not reach the late handoff"
+        );
+        std::thread::yield_now();
+    }
+}
+
+/// An expired urgent allocation leaves ordinary scheduler ingress queued while placement progresses.
+#[test]
+fn prediction_handoff_bounds_backlog_ingress_and_publishes_the_placement() {
+    let (mut stream, _, position, key, camera_position) = settled_neighbourhood();
+    stream.urgent_pass_budget = Duration::ZERO;
+    assert!(stream.predict_block(position, 0, 1));
+    let generation = stream.prediction_generation(position).unwrap().1;
+    let backlog = super::MAX_PENDING_MESH_QUEUE_WORK_PER_POLL * 4;
+    for index in 0..backlog {
+        let queued = SubChunkKey::new(0, 1_000 + index as i32, key.y, 0);
+        // These sections must wait for the requested section above before relighting.
+        stream
+            .authority
+            .commit_sub_chunk(queued, uniform_sub_chunk(1))
+            .unwrap();
+        super::light_scheduler::install_current_light(&mut stream, queued, 0, 0, false);
+        stream
+            .requests
+            .requested
+            .entry(queued.chunk())
+            .or_default()
+            .insert(queued.y + 1, Default::default());
+        stream.mark_light_dirty_exact(queued).unwrap();
+        stream.mark_dirty_exact(queued, Instant::now());
+    }
+    let queued_backlog =
+        |scan: &VecDeque<(SubChunkKey, u64)>| scan.iter().filter(|(key, _)| key.x >= 1_000).count();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        await_urgent_result(&stream);
+        let light_before = queued_backlog(&stream.lighting.jobs.scan);
+        let mesh_before = queued_backlog(&stream.mesh_jobs.scan);
+        assert_eq!(stream.poll_deadline, None);
+        stream.poll_prediction_jobs(camera_position, 2);
+        let light_after = queued_backlog(&stream.lighting.jobs.scan);
+        let mesh_after = queued_backlog(&stream.mesh_jobs.scan);
+        assert!(
+            light_before - light_after <= 1,
+            "late light ingress swept the backlog"
+        );
+        assert!(
+            mesh_before - mesh_after <= 1,
+            "late mesh ingress swept the backlog"
+        );
+        assert_eq!(stream.poll_deadline, None);
+        if present_queued_changes(&mut stream, key)
+            .is_some_and(|(published, is_upsert)| published == generation && is_upsert)
+        {
+            assert!(!stream.lighting.jobs.scan.is_empty());
+            assert!(!stream.mesh_jobs.scan.is_empty());
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "placement did not publish through the backlog"
+        );
+        std::thread::yield_now();
+    }
+}
+
+/// Both cells become readable together, and a server rollback replaces the whole pair.
+#[test]
+fn predicted_door_pair_commits_and_server_correction_rolls_back_both_cells() {
+    let mut stream = fixture();
+    let cells = [[3, 207, 3], [3, 208, 3]];
+    let records = assets::read_registry_for_protocol(
+        assets::pinned_block_registry_bytes(),
+        assets::active_content_registry_protocol(),
+    )
+    .unwrap();
+    let halves = [0, 1].map(|upper| {
+        records
+            .iter()
+            .find(|record| {
+                if record.name.as_ref() != "minecraft:wooden_door" {
+                    return false;
+                }
+                let state: serde_json::Value =
+                    serde_json::from_str(&record.canonical_state).unwrap();
+                state["upper_block_bit"]["value"] == upper
+                    && state["minecraft:cardinal_direction"]["value"] == "west"
+                    && state["open_bit"]["value"] == 0
+                    && state["door_hinge_bit"]["value"] == 0
+            })
+            .unwrap()
+            .sequential_id
+    });
+    assert!(stream.predict_blocks(&[(cells[0], 0, halves[0]), (cells[1], 0, halves[1])]));
+    assert_eq!(block(&stream, cells[0]), Some(halves[0]));
+    assert_eq!(block(&stream, cells[1]), Some(halves[1]));
+    let air = stream.air_block_id();
+    stream
+        .submit(
+            2,
+            WorldEvent::BlockUpdates(
+                cells
+                    .into_iter()
+                    .map(|position| BlockUpdateEvent {
+                        dimension: 0,
+                        position,
+                        layer: 0,
+                        network_id: air,
+                    })
+                    .collect(),
+            ),
+        )
+        .unwrap();
+    complete_pending_decode_jobs(&mut stream);
+    for cell in cells {
+        let key = SubChunkKey::new(0, 0, cell[1].div_euclid(16), 0);
+        assert!(stream.collision_store().is_sub_chunk_loaded(key));
+        assert_eq!(block(&stream, cell).unwrap_or(air), air);
+    }
+}
+
+/// The late worker handoff leaves authoritative corrections for the ordered world poll.
+#[test]
+fn prediction_handoff_does_not_commit_queued_server_corrections() {
+    let mut stream = fixture();
+    let position = [0, -64, 0];
+    assert!(stream.predict_block(position, 0, 0));
+    stream.submit(2, worker_block_batch(0, 1)).unwrap();
+    let job = stream.pending_decode.pop_front().unwrap();
+    stream.decode_tx.send(job.job.run(Instant::now())).unwrap();
+    stream.poll_prediction_jobs(position.map(|coordinate| coordinate as f32), 2);
+    assert_eq!(block(&stream, position), Some(0));
+    stream.poll(position.map(|coordinate| coordinate as f32), usize::MAX);
+    assert_eq!(block(&stream, position), Some(1));
+}
+
 /// Settles startup work around the fixture's air section so only a new change remains.
 fn settled_neighbourhood() -> (WorldStream, u64, [i32; 3], SubChunkKey, [f32; 3]) {
     let (mut stream, next_sequence) = loaded_neighbourhood();

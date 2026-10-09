@@ -563,6 +563,10 @@ pub(crate) fn drive_world_stream(
         Res<client_presentation::local_player_camera_receipt::CameraPublicationAttempt>,
     >,
     profiler: Option<Res<RuntimeStageProfiler>>,
+    (frame, mut block_use): (
+        Res<bevy::diagnostic::FrameCount>,
+        ResMut<crate::block_use::BlockUseRuntime>,
+    ),
 ) {
     let _timer = profiler
         .as_deref()
@@ -590,6 +594,15 @@ pub(crate) fn drive_world_stream(
         ui_runtime.clear_disconnected_block_cracks();
         return;
     };
+    let prediction_budget = block_use.prediction_frames.publication_budget(frame.0);
+    if prediction_budget != 0 {
+        let report =
+            stream.poll_prediction_jobs(view.eye_translation().to_array(), prediction_budget);
+        frame_poll.report.light_results += report.light_results;
+        frame_poll.report.light_jobs_dispatched += report.light_jobs_dispatched;
+        frame_poll.report.mesh_results += report.mesh_results;
+        frame_poll.report.mesh_jobs_dispatched += report.mesh_jobs_dispatched;
+    }
     local_retention::retain_completed_player_terrain(
         stream,
         &local_physics,
@@ -600,6 +613,11 @@ pub(crate) fn drive_world_stream(
     #[cfg(feature = "acceptance")]
     let mutation_cohort = frame_poll.cohort;
     for acknowledgement in acknowledgements.drain() {
+        block_use.prediction_frames.uploaded(
+            frame.0,
+            acknowledgement.key,
+            acknowledgement.token.generation,
+        );
         render_queue.record_gpu_upload_bytes(acknowledgement.uploaded_bytes);
         #[cfg(feature = "acceptance")]
         if let Some(latency) = acceptance.acknowledge_mutation(
@@ -706,6 +724,7 @@ pub(crate) fn drive_world_stream(
                         publication_permit,
                     ) {
                         Ok(()) => {
+                            block_use.prediction_frames.staged(frame.0, key, generation);
                             diagnostic_quads.0.upsert(key, diagnostic_geometry);
                             None
                         }

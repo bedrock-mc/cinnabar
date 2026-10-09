@@ -129,6 +129,8 @@ impl WorldStream {
             unsent_column_deadlines: HashMap::new(),
             arrival_cohort: None,
             poll_deadline: None,
+            #[cfg(test)]
+            urgent_pass_budget: URGENT_PASS_BUDGET,
             frame_deadline: None,
             poll_budget: commit_budget::WORLD_POLL_BUDGET,
             polling: false,

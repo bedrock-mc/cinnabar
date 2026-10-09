@@ -442,3 +442,32 @@ fn motion_blur_dropdown_binds_saved_presets_and_edits_the_registered_option() {
         assert_eq!(actual, expected);
     }
 }
+
+#[test]
+fn spatial_antialiasing_choices_bind_shared_labels_and_edit_the_saved_setting() {
+    use crate::menu::settings_options::{SETTINGS_OPTIONS, SMAA_CHOICES, SMAA_OPTION};
+    let mut view = view(MenuScreen::Settings);
+    let index = SETTINGS_OPTIONS
+        .iter()
+        .position(|option| option.name == SMAA_OPTION.name)
+        .unwrap();
+    for mode in [ui::SmaaMode::Off, ui::SmaaMode::Smaa] {
+        Arc::make_mut(&mut view.settings_options).set(index, mode as i32);
+        let mut actual = DataSource::default();
+        super::super::settings_controls::bind(&view, &mut actual, &str::to_owned);
+        let mut expected = actual.clone();
+        expected.set_global(
+            format!("#{}_dropdown_toggle_label", SMAA_OPTION.name),
+            Scalar::Text(mode.label().into()),
+        );
+        assert_eq!(actual, expected);
+        for (value, choice) in SMAA_CHOICES.iter().enumerate() {
+            let mut radio = region(HitKind::Toggle, None);
+            radio.control_name = Some(choice.name.into());
+            assert_eq!(
+                super::super::settings_controls::action(&view, &radio),
+                Some(MenuAction::SettingsOption(index as u16, value as i32))
+            );
+        }
+    }
+}

@@ -13,7 +13,7 @@ pub(super) fn configure(app: &mut App) {
         Update,
         publish
             .after(super::packet_delay::publish_packet_delay)
-            .after(ClientFrameSet::Camera)
+            .after(ClientFrameSet::NetworkSend)
             .before(ClientFrameSet::UiPreparation),
     );
 }

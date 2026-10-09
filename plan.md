@@ -1,3 +1,16 @@
+## Optional spatial anti-aliasing and cutout coverage
+
+- Capability-aware MSAA remains the primary setting with its existing default. Spatial
+  anti-aliasing is an independent Off/SMAA option, defaulting to Off.
+- Spatial SMAA uses world-depth discontinuities and continuous-slope rejection before world
+  text, hands and HUD drawing. It uses no temporal samples or colour edge detection.
+- Multisampled cutouts integrate nearest alpha contours across a one-pixel band. Covered RGB stays
+  nearest; newly covered transparent texels use the nearest covered neighbour's colour.
+  Single-sample thresholds, opaque/translucent passes, shadows and entity depth passes are unchanged.
+- Alpha-contour reconstruction is an extra visual policy, labelled incomplete for exact-version
+  vanilla coverage parity. Matched hardware performance and native foliage comparison remain
+  incomplete; no parity or performance gate closes from these changes.
+
 ## Optional camera motion blur
 
 - Video offers Off (default), Low, Medium and High camera exposure. This is an owner-authorized
@@ -1162,11 +1175,13 @@ Per-request diagnostics report fixed outcomes with rate limits and no account
 material. Native privacy/offline classification and a separate permissions
 facet remain incomplete; see `docs/profile-parity.md` for references.
 
-2026-10-03 Realms add/join: incomplete. The OreUI control has no action because
-the account control surface only lists and connects to existing Realms. Joining
-by invite or code and creating a Realm need a supported backend operation and a
-version-matched native flow reference before the button can perform that work.
-This does not close the Realm management parity gate.
+Realms add/join: invitation codes now have a signed-in launcher route, read-only
+verification, explicit membership confirmation, cancellable preview requests,
+retryable errors and a returned Realm that can be played. Real remote acceptance
+has not been verified. Incomplete parity: pending invitation acceptance, subscription
+creation, account multiplayer permission admission, service-specific error messages,
+and the full options and confirmation presentation. This does not close the Realm
+management parity gate.
 
 2026-10-03 overlapping crafting ingredients: native parity remains incomplete.
 Consume requests now find a complete assignment for recipes the existing matcher
@@ -6647,14 +6662,21 @@ parity gate.
 
 - Pillars, slab halves and matching doubles, trapdoors, hoppers, supported attachments,
   colored carpets, fence/pane connections and stacking existing snow resolve locally.
-- Placement parity remains incomplete for stairs, general directional blocks, two-cell blocks,
-  stacking candles/pickles, walls, rails, redstone, vines, signs and substrate-sensitive plants.
-  Unknown states and support shapes stay server-confirmed. See
-  [local placement rules](docs/reference/block-placement-prediction.md).
+- Stairs and changed stair corners, loom/glazed rotations, dispenser/piston facing, door pairs,
+  levers, ordinary signs, unlit torches, first dry vines/multiface attachments, conservative
+  first snow placement, and dry candle/pickle stacks now resolve locally.
+- Placement parity remains incomplete for directional types outside the verified table, beds,
+  walls, rails, redstone dust, plant substrates, wet/existing attachment masks and special supports.
+  Beds also need local block-entity visual publication. Unknown door-hinge materials defer.
+  See [local placement rules](docs/reference/block-placement-prediction.md).
 - Non-air replacement is server-confirmed; complete replacement-component classification and
   its effective placement face are incomplete. Clicked-cell selection retains the existing rule.
-- Same-frame visibility and rendered neighbor/correction behavior still need headless captures;
-  this work does not close a visual or frame-budget gate.
+- Local commit starts bounded worker work; the late render handoff services available completions
+  without another server poll. Frame receipts distinguish commit, staging and observed upload.
+  Headless stairs first render +3 frames after commit with the server paused; both door halves
+  also render before confirmation.
+  Asynchronous lighting/meshing keeps click-frame visibility incomplete. Full family visual parity
+  and hardware frame-budget gates remain open.
 
 ### Furnace recipe panel continuation (incomplete general parity)
 

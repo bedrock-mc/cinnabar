@@ -1,6 +1,6 @@
 mod commit;
 mod preparation;
-pub use preparation::{ActorFrameState, advance_actor_frame};
+pub use preparation::{ActorFrameState, advance_actor_frame, advance_actor_motion};
 mod emote_geometry;
 mod equipment_layers;
 use equipment_layers::local_equipment;

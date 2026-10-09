@@ -460,6 +460,15 @@ pub(crate) fn draw_function(world: &World) -> Option<DrawFunctionId> {
         .get_id::<DrawNametags>()
 }
 
+/// Enabled world filters postpone name text until the filtered scene is ready.
+pub(crate) fn deferred_by_world_filter(
+    enabled: bool,
+    nametag: Option<DrawFunctionId>,
+    draw: DrawFunctionId,
+) -> bool {
+    enabled && nametag == Some(draw)
+}
+
 struct SetNametagBindGroup<const I: usize>;
 
 impl<P: PhaseItem, const I: usize> RenderCommand<P> for SetNametagBindGroup<I> {

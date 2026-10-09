@@ -123,6 +123,7 @@ impl LauncherCoreSlot {
             let job = menu.account_operation_job();
             if let Some(mut old) = self.core.take() {
                 commands.remove_resource::<LauncherAccount>();
+                menu.close_realm_membership();
                 if let Some(worlds) = worlds.as_deref_mut() {
                     worlds.detach();
                 }
@@ -155,6 +156,7 @@ impl LauncherCoreSlot {
             if path_changed && self.core.is_some() && menu.accounts.pending_ready {
                 let mut old = self.core.take().expect("account core");
                 commands.remove_resource::<LauncherAccount>();
+                menu.close_realm_membership();
                 if let Some(worlds) = worlds.as_deref_mut() {
                     worlds.detach();
                 }
@@ -212,6 +214,7 @@ impl LauncherCoreSlot {
         if let Some(old) = self.core.take() {
             drop(old);
             commands.remove_resource::<LauncherAccount>();
+            menu.close_realm_membership();
             if let Some(worlds) = worlds {
                 worlds.detach();
             }

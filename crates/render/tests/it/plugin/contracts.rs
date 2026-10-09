@@ -449,6 +449,10 @@ fn crossed_model_pipeline_is_two_sided_and_uses_shared_bounded_bindings() {
         .expect("zero-quad templates require an early invisible return");
     assert!(zero_guard < shader.find("template_quad_base").unwrap());
     assert!(zero_guard < shader.find("let light_word").unwrap());
+    assert_eq!(
+        shader_source::alpha_discard_threshold(&shader, "fragment"),
+        Some(0.5)
+    );
     assert!(shader.contains("let quad_flags = model_templates[template_quad_base + 11u]"));
     assert!(shader.contains("@builtin(front_facing) front_facing: bool"));
     assert!(shader.contains("if (!front_facing && in.two_sided == 0u) { discard; }"));
@@ -482,8 +486,9 @@ fn transparent_model_pipeline_uses_native_depth_writes_without_alpha_cutoff() {
                 .contains("return vec4(sampled.rgb * blended_biome_tint(tint_kind, flags, record, position, world_origin).rgb, sampled.a);"),
         "biome tinting must preserve sampled alpha for the blend entry point"
     );
-    assert!(
-        !blend_body.contains("sampled.a < 0.5"),
+    assert_eq!(
+        shader_source::alpha_discard_threshold(&shader, "fragment_blend"),
+        None,
         "blend models must preserve fractional sampled alpha"
     );
 }
@@ -587,6 +592,7 @@ fn flowerbed_uses_packed_model_lighting_and_conservative_connectivity() {
 
 #[test]
 fn flowerbed_is_two_sided_alpha_cutout_on_the_shared_model_pipeline() {
+    let shader = include_str!("../../../src/model.wgsl");
     let assets = flowerbed_runtime_assets();
     for runtime_id in 0..3 {
         let template_id = assets
@@ -609,6 +615,10 @@ fn flowerbed_is_two_sided_alpha_cutout_on_the_shared_model_pipeline() {
 
     let plugin = CHUNK_RENDERER_SOURCE;
     assert!(plugin.contains("model_descriptor.primitive.cull_mode = None"));
+    assert_eq!(
+        shader_source::alpha_discard_threshold(shader, "fragment"),
+        Some(0.5)
+    );
 }
 
 #[test]

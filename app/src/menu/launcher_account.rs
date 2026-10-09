@@ -33,6 +33,7 @@ use feeds::{CoreFeeds, catalog_round};
 mod invites;
 mod message_reports;
 pub(super) mod profile_worker;
+mod realm_membership;
 
 #[cfg(all(test, unix))]
 mod profile_polling_tests;
@@ -64,6 +65,8 @@ struct Snapshot {
     profile_wake: Option<Sender<()>>,
     account: Option<Account>,
     realms: Option<Vec<Realm>>,
+    /// Prevents a catalog request started before acceptance from removing the new membership.
+    realm_catalog_revision: u64,
     friends: Option<Vec<Friend>>,
     /// Delivered once per fetch.
     featured: Option<Vec<FeaturedServer>>,
@@ -82,6 +85,7 @@ struct Snapshot {
     joining: bool,
     /// The invite screen's friends list, delivered once per request.
     people: Option<Result<Vec<launcher_control::Person>, ()>>,
+    realm_membership: Option<(u64, bool, Result<(String, MenuRealmCard), ()>)>,
 }
 
 impl Snapshot {
@@ -93,6 +97,7 @@ impl Snapshot {
         self.featured = None;
         self.profile = None;
         self.people = None;
+        self.realm_membership = None;
         self.home = None;
         if let Some(wake) = &self.catalog_wake {
             // A queued wake already covers the newest snapshot; never block a frame.
@@ -130,6 +135,7 @@ pub(crate) struct LauncherAccount {
     profile_refresh: Sender<()>,
     message_reports: Sender<MessageEvent>,
     invites: Sender<invites::Request>,
+    realm_membership: tokio::sync::mpsc::UnboundedSender<realm_membership::Request>,
     /// Dropping it stops the catalog and feed workers.
     _alive: Sender<()>,
     socket_dir: PathBuf,
@@ -155,6 +161,7 @@ impl LauncherAccount {
         let (alive, stop) = bounded(0);
         let message_reports = message_reports::start(socket_dir.clone(), stop.clone());
         let invites = invites::start(socket_dir.clone(), Arc::clone(&snapshot), stop.clone());
+        let realm_membership = realm_membership::start(socket_dir.clone(), Arc::clone(&snapshot));
         let shared = Arc::clone(&snapshot);
         let dir = socket_dir.clone();
         thread::spawn(move || poll_events(&dir, &shared, &requests));
@@ -172,6 +179,7 @@ impl LauncherAccount {
             profile_refresh,
             message_reports,
             invites,
+            realm_membership,
             _alive: alive,
             socket_dir,
         }
@@ -570,25 +578,16 @@ impl AccountControl for LauncherAccount {
         });
     }
 
+    fn account_generation(&mut self) -> Option<u64> {
+        Some(self.with(|snapshot| snapshot.auth_generation))
+    }
+
     fn realms(&mut self) -> Option<Vec<MenuRealmCard>> {
         self.with(|snapshot| {
-            snapshot.realms.as_ref().map(|realms| {
-                realms
-                    .iter()
-                    .map(|realm| MenuRealmCard {
-                        name: realm.name.clone(),
-                        state: realm.state.clone(),
-                        target: realm.target.clone(),
-                        address: realm.address.clone().unwrap_or_default(),
-                        owner: realm.owner.clone(),
-                        online_players: realm.online_players,
-                        max_players: realm.max_players,
-                        days_left: realm.days_left,
-                        expired: realm.expired,
-                        member: realm.member,
-                    })
-                    .collect()
-            })
+            snapshot
+                .realms
+                .as_ref()
+                .map(|realms| realms.iter().map(realm_membership::realm_card).collect())
         })
     }
 
@@ -704,6 +703,16 @@ impl AccountControl for LauncherAccount {
         })
     }
 
+    fn request_realm_membership(&mut self, ticket: u64, code: String, accept: bool) -> bool {
+        self.request_realm_membership_control(ticket, code, accept)
+    }
+    fn cancel_realm_membership(&mut self) {
+        self.cancel_realm_membership_control();
+    }
+    fn realm_membership(&mut self) -> Option<(u64, bool, Result<(String, MenuRealmCard), ()>)> {
+        self.realm_membership_control()
+    }
+
     fn request_people(&mut self) {
         let _ = self.invites.send(invites::Request::People);
     }
@@ -756,231 +765,4 @@ fn featured_card(server: &FeaturedServer) -> (MenuServerCard, ServerDetails) {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn review_ui_account_changes_wake_catalog_without_repeated_poll_wakes() {
-        let (wake, changes) = bounded(1);
-        let mut snapshot = Snapshot {
-            catalog_wake: Some(wake),
-            ..Default::default()
-        };
-        let account = Account {
-            state: CoreAuth::SignedIn,
-            gamertag: Some("Alex".into()),
-            verification_uri: None,
-            user_code: None,
-            reason: None,
-        };
-        snapshot.set_account(account.clone());
-        assert_eq!(
-            changes.try_recv(),
-            Ok(()),
-            "the first account must wake catalogs"
-        );
-        snapshot.set_account(account.clone());
-        assert_eq!(
-            changes.try_recv(),
-            Err(crossbeam_channel::TryRecvError::Empty)
-        );
-        snapshot.set_account(Account {
-            gamertag: Some("Steve".into()),
-            ..account
-        });
-        assert_eq!(
-            changes.try_recv(),
-            Ok(()),
-            "another identity must wake catalogs"
-        );
-        snapshot.retire_account_data();
-        assert_eq!(changes.try_recv(), Ok(()), "sign-out must wake catalogs");
-    }
-
-    #[test]
-    fn review_ui_catalog_wait_handles_wakes_and_shutdown() {
-        let (alive, stop) = bounded(0);
-        let (wake, changes) = bounded(1);
-        wake.try_send(()).unwrap();
-        assert!(wait_catalog(&stop, &changes));
-        drop(alive);
-        assert!(!wait_catalog(&stop, &changes));
-    }
-
-    // A pinged server that sent no pong reads offline instead of loading.
-    #[test]
-    fn a_round_answers_for_every_target() {
-        let pong = ServerPing {
-            address: "a:1".to_owned(),
-            online: true,
-            ping_ms: 40,
-            ..ServerPing::default()
-        };
-        let targets = ["a:1".to_owned(), "b:2".to_owned()];
-        let round = round_results(&targets, vec![pong.clone()]);
-        assert_eq!(round[0], pong);
-        assert_eq!(round[1].address, "b:2");
-        assert!(!round[1].online);
-        assert!(
-            round_results(&targets, Vec::new())
-                .iter()
-                .all(|ping| !ping.online)
-        );
-    }
-
-    #[test]
-    fn tile_images_sort_into_button_layers() {
-        let image = |id: &str| protocol::launcher_control::MessageImage {
-            id: id.into(),
-            url: String::new(),
-            path: format!("/art/{id}.img"),
-        };
-        let message = Message {
-            surface: "PlayButton".into(),
-            banner: "New".into(),
-            images: vec![
-                image("background"),
-                image("hoverForeground"),
-                image("hover"),
-            ],
-            ..Message::default()
-        };
-        let home = Home {
-            messages: vec![message],
-            realm_invites: 2,
-            ..Home::default()
-        };
-        let menu = menu_home(&home, 0);
-        let art = menu.play_art.expect("play art");
-        assert_eq!(art.default_background, "/art/background.img");
-        assert_eq!(art.hover_foreground, "/art/hoverForeground.img");
-        assert_eq!(art.hover_background, "/art/hover.img");
-        assert_eq!(art.banner, "New");
-        assert!(menu.store_art.is_none());
-        assert_eq!(menu.realm_invites, 2);
-    }
-
-    #[test]
-    fn featured_servers_split_into_cards_and_details() {
-        let server = FeaturedServer {
-            name: "S".into(),
-            player_count: Some(12_345),
-            address: "a.test:19132".into(),
-            news: "Update".into(),
-            background: protocol::launcher_control::Artwork {
-                url: "https://a.test/bg.png".into(),
-                path: "/art/bg.img".into(),
-            },
-            screenshots: vec![
-                protocol::launcher_control::Artwork {
-                    url: "https://a.test/s.png".into(),
-                    path: String::new(),
-                },
-                protocol::launcher_control::Artwork {
-                    url: "https://a.test/t.png".into(),
-                    path: "/art/t.img".into(),
-                },
-            ],
-            ..FeaturedServer::default()
-        };
-        let (card, details) = featured_card(&server);
-        assert_eq!(card.address, "a.test:19132");
-        assert_eq!(details.news, "Update");
-        assert_eq!(details.screenshots, vec!["/art/t.img".to_owned()]);
-        assert_eq!(details.banner, "/art/bg.img");
-        assert_eq!(details.player_count, Some(12_345));
-    }
-
-    #[test]
-    fn core_connect_stages_map_to_join_stages() {
-        let progress = |stage| ConnectProgress {
-            stage,
-            packs_done: 1,
-            packs_total: 2,
-            received_bytes: 3,
-            total_bytes: 4,
-        };
-        assert_eq!(join_stage(&progress(ConnectStage::Realm)), JoinStage::Realm);
-        assert_eq!(
-            join_stage(&progress(ConnectStage::Connecting)),
-            JoinStage::Connecting
-        );
-        assert_eq!(
-            join_stage(&progress(ConnectStage::Packs)),
-            JoinStage::Packs {
-                done: 1,
-                total: 2,
-                received_bytes: 3,
-                total_bytes: 4
-            }
-        );
-    }
-
-    #[test]
-    fn core_account_states_map_to_menu_sign_in_states() {
-        let account = |state| Account {
-            state,
-            verification_uri: Some("https://aka.ms/remoteconnect".into()),
-            user_code: Some("ABCD".into()),
-            gamertag: None,
-            reason: Some("expired".into()),
-        };
-        assert_eq!(auth_state(&account(CoreAuth::Offline)), None);
-        assert_eq!(
-            auth_state(&account(CoreAuth::SignedOut)),
-            Some(AuthState::SignedOut)
-        );
-        assert_eq!(
-            auth_state(&account(CoreAuth::AwaitingCode)),
-            Some(AuthState::AwaitingCode {
-                uri: "https://aka.ms/remoteconnect".into(),
-                code: "ABCD".into()
-            })
-        );
-        assert_eq!(
-            auth_state(&account(CoreAuth::SignedIn)),
-            Some(AuthState::Authenticated)
-        );
-        assert_eq!(
-            auth_state(&account(CoreAuth::Failed)),
-            Some(AuthState::Failed("expired".into()))
-        );
-    }
-    #[test]
-    fn duplicate_ping_targets_keep_the_same_online_result() {
-        let targets = vec!["server.test".into(), "server.test".into()];
-        let results = round_results(
-            &targets,
-            vec![ServerPing {
-                address: targets[0].clone(),
-                online: true,
-                ..Default::default()
-            }],
-        );
-        assert_eq!(results.len(), 2);
-        assert!(results.iter().all(|ping| ping.online));
-    }
-    #[test]
-    fn account_responses_from_before_sign_out_are_discarded() {
-        let snapshot = Arc::new(Mutex::new(Snapshot::default()));
-        let generation = auth_generation(&snapshot);
-        let (sign_out, _requests) = bounded(1);
-        let (alive, _stop) = bounded(0);
-        let mut account = LauncherAccount {
-            snapshot: Arc::clone(&snapshot),
-            sign_out,
-            profile_refresh: crossbeam_channel::bounded(1).0,
-            _alive: alive,
-            socket_dir: PathBuf::new(),
-            message_reports: crossbeam_channel::unbounded().0,
-            invites: crossbeam_channel::unbounded().0,
-        };
-        assert!(account.sign_out());
-        publish_account(&snapshot, generation, |snapshot| {
-            snapshot.realms = Some(Vec::new());
-            snapshot.friends = Some(Vec::new());
-        });
-        let retained = snapshot.lock().unwrap();
-        assert!(retained.realms.is_none() && retained.friends.is_none());
-    }
-}
+mod tests;
