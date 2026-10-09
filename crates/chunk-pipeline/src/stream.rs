@@ -86,7 +86,7 @@ mod sequencing;
 mod sign_edit;
 mod transfer_priority;
 mod workers;
-pub use workers::world_worker_threads;
+pub use workers::{on_idle_world_cores, world_worker_threads};
 
 pub use client_world::ingestion::WorldStreamError;
 use client_world::ingestion::{

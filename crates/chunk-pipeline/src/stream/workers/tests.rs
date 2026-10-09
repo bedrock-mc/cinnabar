@@ -145,3 +145,19 @@ fn dispatch_batch_publishes_independent_jobs_together() {
         (0..16).collect::<Vec<_>>()
     );
 }
+
+/// Work on the borrowed world cores runs as wide as the world pool, below frame priority, so a
+/// join's compile cannot crowd out the main and render threads.
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+#[test]
+fn borrowed_world_cores_run_as_wide_as_the_world_pool_below_frame_priority() {
+    let cores = std::thread::available_parallelism().map_or(1, usize::from);
+    let (threads, lowered) = on_idle_world_cores(|| {
+        (
+            rayon::current_num_threads(),
+            rayon::broadcast(|_| priority::is_lowered()),
+        )
+    });
+    assert_eq!(threads, PoolSize::for_cores(cores).threads());
+    assert!(lowered.iter().all(|lowered| *lowered), "{lowered:?}");
+}

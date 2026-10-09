@@ -55,6 +55,34 @@ pub(super) fn lower() -> std::io::Result<()> {
     Ok(())
 }
 
+/// Whether the calling thread runs below normal priority, as [`lower`] leaves it.
+#[cfg(all(test, windows))]
+pub(super) fn is_lowered() -> bool {
+    use windows_sys::Win32::System::Threading::{
+        GetCurrentThread, GetThreadPriority, THREAD_PRIORITY_NORMAL,
+    };
+    // The pseudo-handle is valid for the current thread and must not be closed.
+    unsafe { GetThreadPriority(GetCurrentThread()) < THREAD_PRIORITY_NORMAL }
+}
+
+/// Whether the calling thread runs below normal priority, as [`lower`] leaves it.
+#[cfg(all(test, target_os = "linux"))]
+pub(super) fn is_lowered() -> bool {
+    // These calls address the current task only.
+    unsafe { libc::getpriority(libc::PRIO_PROCESS, libc::gettid() as libc::id_t) > 0 }
+}
+
+/// Whether the calling thread runs below normal priority, as [`lower`] leaves it.
+#[cfg(all(test, target_os = "macos"))]
+pub(super) fn is_lowered() -> bool {
+    let mut class = libc::qos_class_t::QOS_CLASS_UNSPECIFIED;
+    let mut relative = 0;
+    // The output pointers stay valid throughout the call on this thread.
+    let status =
+        unsafe { libc::pthread_get_qos_class_np(libc::pthread_self(), &mut class, &mut relative) };
+    status == 0 && relative < 0
+}
+
 #[cfg(all(test, target_os = "macos"))]
 mod tests {
     /// Reads back the actual priority on an isolated thread so the test runner stays unchanged.

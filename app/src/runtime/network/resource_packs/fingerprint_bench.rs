@@ -199,7 +199,7 @@ fn join_preparation_timing() {
                 .build()
                 .unwrap()
                 .install(compile),
-            None => crate::thread_budget::ThreadBudget::on_join_compile_pool(compile),
+            None => chunk_pipeline::on_idle_world_cores(compile),
         }
         .unwrap();
         let elapsed = started.elapsed();

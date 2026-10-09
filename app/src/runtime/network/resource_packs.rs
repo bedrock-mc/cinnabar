@@ -111,7 +111,7 @@ pub(super) fn prepare_join(
 ) -> Option<Result<PackApplication, client_session::RequiredPackRejected>> {
     let prepare = || prepare_join_with(&reuse::LATEST, preparation, game_data, cancelled, bases);
     if preparation.has_applied_packs() {
-        crate::thread_budget::ThreadBudget::on_join_compile_pool(prepare)
+        chunk_pipeline::on_idle_world_cores(prepare)
     } else {
         prepare()
     }

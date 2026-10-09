@@ -114,6 +114,27 @@ pub fn world_worker_threads(cores: usize) -> usize {
     PoolSize::for_cores(cores).threads()
 }
 
+/// Runs `work` on as many threads as the world pool, for work that finishes before a world
+/// streams, such as a join's pack compile. The pool exists only for this call and its threads
+/// run below frame and network priority, as background world workers do; `work` runs on the
+/// caller's pool instead if those threads cannot start.
+pub fn on_idle_world_cores<T: Send>(work: impl FnOnce() -> T + Send) -> T {
+    let cores = std::thread::available_parallelism().map_or(1, usize::from);
+    match rayon::ThreadPoolBuilder::new()
+        .num_threads(world_worker_threads(cores))
+        .thread_name(|index| format!("world-borrowed-{index}"))
+        .start_handler(|index| {
+            if let Err(error) = priority::lower() {
+                eprintln!("world-borrowed-{index}: could not lower thread priority: {error}");
+            }
+        })
+        .build()
+    {
+        Ok(pool) => pool.install(work),
+        Err(_) => work(),
+    }
+}
+
 pub(super) static WORKERS: LazyLock<WorldPool> = LazyLock::new(|| {
     let cores = std::thread::available_parallelism().map_or(1, usize::from);
     WorldPool::new(PoolSize::for_cores(cores))

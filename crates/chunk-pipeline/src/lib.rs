@@ -21,7 +21,8 @@ pub use stream::{
     PublicationStageCounters, RequestClass, RequestClassDepth, RequestQueueEvidence,
     SUB_CHUNK_RESPONSE_TIMEOUT, StageDurations, SubChunkOutcomeCounters, ViewCohortStatus,
     WORK_RESULT_CAPACITY, WorldMeshChange, WorldStream, WorldStreamError, WorldStreamFatalError,
-    WorldStreamNormalizationStats, WorldStreamPoll, WorldStreamStats, world_worker_threads,
+    WorldStreamNormalizationStats, WorldStreamPoll, WorldStreamStats, on_idle_world_cores,
+    world_worker_threads,
 };
 #[cfg(feature = "publication-test-support")]
 pub use stream::{PublicationFixtureIdentity, PublicationFixtureSnapshot};
