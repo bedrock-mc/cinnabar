@@ -551,10 +551,16 @@ impl Builder<'_> {
             } else {
                 0
             };
-            let dimensions = dimensions.map(|size| size >> grid);
-            if dimensions.contains(&0) {
-                return None;
-            }
+            let (dimensions, chain, grid) = if dimensions.iter().any(|&size| size >> grid == 0) {
+                self.gaps.missing_textures = self.gaps.missing_textures.saturating_add(1);
+                (
+                    [tile as u16; 2],
+                    assets::build_legacy_terrain_mip_chain(&diagnostic_pixels(tile), tile).ok()?,
+                    0,
+                )
+            } else {
+                (dimensions.map(|size| size >> grid), chain, grid)
+            };
             self.overlay.texture_source_sizes.push(dimensions);
             self.overlay.texture_source_grids.push(grid);
             mips.resize(chain.len(), Vec::new());

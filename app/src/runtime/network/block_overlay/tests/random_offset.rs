@@ -361,29 +361,46 @@ fn terrain_override_quad_admits_the_declared_uv_pixel_rectangle() {
         "lucky": {"quad": 1, "textures": "textures/blocks/lucky"},
         "gen": {"textures": "textures/blocks/gen"}}}"#,
     );
-    let compiled = compile_block_overlay(
-        &view,
-        &CustomBlocks {
-            blocks: Arc::from([block(
-                "test:grid",
-                1,
-                CustomBlockVisuals {
-                    base: CustomVisualComponents {
-                        materials: materials("lucky"),
-                        ..Default::default()
-                    },
+    let blocks = CustomBlocks {
+        blocks: Arc::from([block(
+            "test:grid",
+            1,
+            CustomBlockVisuals {
+                base: CustomVisualComponents {
+                    materials: materials("lucky"),
                     ..Default::default()
                 },
-            )]),
-            ..Default::default()
-        },
-        false,
-        None,
-    )
-    .unwrap();
+                ..Default::default()
+            },
+        )]),
+        ..Default::default()
+    };
+    let compiled = compile_block_overlay(&view, &blocks, false, None).unwrap();
     assert!(
         compiled.overlay.texture_source_sizes.contains(&[8, 8]),
         "a quad entry exposes half the source width and height without changing its pixels"
+    );
+    let icons = super::super::super::item_icons::custom_block_icons(
+        &compiled.overlay,
+        &blocks,
+        false,
+        &[(Arc::from("test:grid"), Arc::from("test:grid"))],
+    );
+    assert_eq!(icons.icons.len(), 1);
+    assert!(
+        icons.icons[0]
+            .rgba8
+            .chunks_exact(4)
+            .all(|pixel| pixel[0] <= 112),
+        "inventory model samples only the exposed half-width grid rectangle"
+    );
+    assert_eq!(icons.block_sheets.len(), 1);
+    assert!(
+        icons.block_sheets[0]
+            .rgba8
+            .chunks_exact(4)
+            .all(|pixel| pixel[0] <= 112),
+        "held cube faces use the same grid rectangle as terrain"
     );
 }
 
@@ -399,4 +416,50 @@ fn terrain_override_subtile_images_use_the_minimum_atlas_pixel_size() {
         vec![[16, 16]],
         "a smaller raster expands before atlas UV pixel dimensions are admitted"
     );
+}
+
+#[test]
+fn terrain_grid_budget_fallback_preserves_unrelated_texture_layers() {
+    let view = view();
+    let mut builder = super::super::Builder {
+        catalog: super::super::textures::TextureCatalog::new(&view, None),
+        geometries: Default::default(),
+        overlay: Default::default(),
+        sources: Vec::new(),
+        source_bytes: 0,
+        textures: Default::default(),
+        materials: Default::default(),
+        visuals: Default::default(),
+        gaps: Default::default(),
+    };
+    builder.sources.push(super::super::Source::GridImage(
+        super::super::DecodedTexture {
+            width: 128,
+            height: 128,
+            rgba8: vec![255; 128 * 128 * 4].into(),
+        },
+        7,
+    ));
+    builder
+        .sources
+        .push(super::super::Source::Image(super::super::DecodedTexture {
+            width: 16,
+            height: 16,
+            rgba8: [23, 57, 91, 255].repeat(16 * 16).into(),
+        }));
+    builder
+        .sources
+        .extend((0..768).map(|_| super::super::Source::Diagnostic));
+    let compiled = builder
+        .finish()
+        .expect("one unsupported reduced grid cannot discard unrelated pack data");
+    let texture = compiled.overlay.texture.unwrap();
+    assert_eq!(texture.mips[0].size, 64);
+    let layer_bytes = (texture.mips[0].size * texture.mips[0].size * 4) as usize;
+    assert_eq!(
+        &texture.mips[0].rgba8[layer_bytes..][..4],
+        &[23, 57, 91, 255]
+    );
+    assert_eq!(compiled.gaps.missing_textures, 1);
+    assert_eq!(compiled.overlay.texture_source_grids[0], 0);
 }

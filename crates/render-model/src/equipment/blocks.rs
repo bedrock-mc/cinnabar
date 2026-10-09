@@ -200,9 +200,6 @@ pub fn overlay_sheet(overlay: &BlockOverlay, visual: usize) -> Option<IconSprite
     if !cube || block.support != VisualSupport::Exact || block.animation != NO_ANIMATION {
         return None;
     }
-    let texture = overlay.texture.as_ref()?;
-    // Overlay layers share the largest source's tile size; their 16-texel mip is the face.
-    let mip = texture.mips.iter().find(|mip| mip.size as usize == TILE)?;
     let mut tiles = Vec::with_capacity(BlockFace::ALL.len());
     for id in block.faces {
         // Overlay materials address the overlay's own array as page 1.
@@ -210,19 +207,77 @@ pub fn overlay_sheet(overlay: &BlockOverlay, visual: usize) -> Option<IconSprite
             .materials
             .get(id as usize)
             .filter(|material| id != DIAGNOSTIC_MATERIAL && material.texture.page() == 1)?;
-        tiles.push(face_tile(material, texture, mip)?);
+        tiles.push(overlay_face_tile(overlay, material)?);
     }
     compose_block_item_sheet(&tiles.try_into().ok()?)
 }
 
-/// Preserves face alpha; unresolved world tint and animation require authored carried faces.
-fn face_tile(material: &Material, texture: &TextureArray, mip: &TextureMip) -> Option<IconSprite> {
-    if material.flags
+/// Selects mips in exposed source pixels and resamples the admitted grid into a held face.
+fn overlay_face_tile(overlay: &BlockOverlay, material: &Material) -> Option<IconSprite> {
+    if !face_material_is_admitted(material) {
+        return None;
+    }
+    let texture = overlay.texture.as_ref()?;
+    let layer = material.texture.layer() as usize;
+    if layer >= texture.layers as usize {
+        return None;
+    }
+    let base = texture.mips.first()?;
+    let grid = overlay
+        .texture_source_grids
+        .get(layer)
+        .copied()
+        .unwrap_or(0);
+    let source_side = match overlay.texture_source_sizes.get(layer) {
+        Some(size) => u32::from(*size.iter().max()?),
+        None => base.size.checked_shr(u32::from(grid))?,
+    };
+    if source_side == 0 {
+        return None;
+    }
+    let level = source_side
+        .ilog2()
+        .saturating_sub(TILE.ilog2())
+        .min(assets::VANILLA_TERRAIN_MIP_COUNT - 1);
+    let mip = texture.mips.get(level as usize)?;
+    if mip.size == 0 || mip.size > assets::MAX_TILE_SIZE {
+        return None;
+    }
+    let side = mip.size as usize;
+    let exposed = side.checked_shr(u32::from(grid))?;
+    if exposed == 0 {
+        return None;
+    }
+    let bytes = side.checked_mul(side)?.checked_mul(4)?;
+    let start = layer.checked_mul(bytes)?;
+    let tile = mip.rgba8.get(start..start.checked_add(bytes)?)?;
+    let mut pixels = Vec::with_capacity(TILE * TILE * 4);
+    for y in 0..TILE {
+        for x in 0..TILE {
+            let offset = ((y * exposed / TILE) * side + x * exposed / TILE) * 4;
+            pixels.extend_from_slice(&tile[offset..offset + 4]);
+        }
+    }
+    Some(IconSprite {
+        width: BLOCK_ITEM_FACE_SIDE,
+        height: BLOCK_ITEM_FACE_SIDE,
+        rgba8: pixels.into(),
+    })
+}
+
+/// Unresolved tint and animation need authored carried faces instead of a static sheet.
+fn face_material_is_admitted(material: &Material) -> bool {
+    material.flags
         & !(assets::MATERIAL_FLAG_ALPHA_BLEND
             | assets::MATERIAL_FLAG_ALPHA_CUTOUT
             | assets::MATERIAL_FLAG_ISOTROPIC)
-        != 0
-        || material.animation != NO_ANIMATION
+        == 0
+        && material.animation == NO_ANIMATION
+}
+
+/// Preserves face alpha; unresolved world tint and animation require authored carried faces.
+fn face_tile(material: &Material, texture: &TextureArray, mip: &TextureMip) -> Option<IconSprite> {
+    if !face_material_is_admitted(material)
         || mip.size as usize != TILE
         || material.texture.layer() >= texture.layers
     {

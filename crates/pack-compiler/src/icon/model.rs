@@ -33,7 +33,7 @@ enum Textures<'a> {
     /// World carrier pages, indexed by each material's page.
     World(&'a [TexturePage]),
     /// A session overlay's one array, which its materials address as page 1.
-    Overlay(&'a TextureArray),
+    Overlay(&'a TextureArray, &'a [u8]),
 }
 
 #[derive(Clone, Copy)]
@@ -108,7 +108,7 @@ impl<'a> Model<'a> {
             materials: &overlay.materials,
             templates: &overlay.model_templates,
             quads: &overlay.model_quads,
-            textures: Textures::Overlay(texture),
+            textures: Textures::Overlay(texture, &overlay.texture_source_grids),
         };
         let template = (block.model_template != NO_MODEL_TEMPLATE).then_some(block.model_template);
         Self::build(parts, block.kind, block.faces, template)
@@ -125,10 +125,10 @@ impl<'a> Model<'a> {
             (VisualKind::Cube, _) => {
                 for face in BlockFace::ALL {
                     let (corners, uvs) = cube_face(face);
-                    let (tile, side, blend) = tile(parts, materials[face as usize])?;
+                    let (tile, side, blend, uv_scale) = tile(parts, materials[face as usize])?;
                     faces.push(Face {
                         corners,
-                        uvs,
+                        uvs: uvs.map(|uv| uv.map(|component| component * uv_scale)),
                         tile: Cow::Borrowed(tile),
                         size: [side; 2],
                         blend,
@@ -238,7 +238,7 @@ impl<'a> Model<'a> {
     }
 }
 
-fn tile(parts: Parts<'_>, id: u32) -> Result<(&[u8], usize, bool), Reject> {
+fn tile(parts: Parts<'_>, id: u32) -> Result<(&[u8], usize, bool, f32), Reject> {
     if id == assets::DIAGNOSTIC_MATERIAL {
         return Err(Reject::Material);
     }
@@ -248,15 +248,22 @@ fn tile(parts: Parts<'_>, id: u32) -> Result<(&[u8], usize, bool), Reject> {
     if material.flags & !(alpha | assets::MATERIAL_FLAG_ISOTROPIC) != 0 {
         return Err(Reject::Material);
     }
-    let array = match parts.textures {
-        Textures::World(pages) => {
+    let (array, grid) = match parts.textures {
+        Textures::World(pages) => (
             &pages
                 .get(material.texture.page() as usize)
                 .ok_or(Reject::Texture)?
-                .texture
-        }
-        Textures::Overlay(array) if material.texture.page() == 1 => array,
-        Textures::Overlay(_) => return Err(Reject::Texture),
+                .texture,
+            0,
+        ),
+        Textures::Overlay(array, grids) if material.texture.page() == 1 => (
+            array,
+            grids
+                .get(material.texture.layer() as usize)
+                .copied()
+                .unwrap_or(0),
+        ),
+        Textures::Overlay(_, _) => return Err(Reject::Texture),
     };
     let mip = array.mips.first().ok_or(Reject::Texture)?;
     let side = mip.size as usize;
@@ -266,11 +273,23 @@ fn tile(parts: Parts<'_>, id: u32) -> Result<(&[u8], usize, bool), Reject> {
     let bytes = side * side * 4;
     let start = material.texture.layer() as usize * bytes;
     let tile = mip.rgba8.get(start..start + bytes).ok_or(Reject::Texture)?;
-    Ok((tile, side, material.flags & MATERIAL_FLAG_ALPHA_BLEND != 0))
+    if side
+        .checked_shr(u32::from(grid))
+        .is_none_or(|size| size == 0)
+    {
+        return Err(Reject::Texture);
+    }
+    let uv_scale = 1.0 / (1u32 << grid) as f32;
+    Ok((
+        tile,
+        side,
+        material.flags & MATERIAL_FLAG_ALPHA_BLEND != 0,
+        uv_scale,
+    ))
 }
 
 fn model_face<'a>(parts: Parts<'a>, quad: &ModelQuad) -> Result<Face<'a>, Reject> {
-    let (tile, side, blend) = tile(parts, quad.material)?;
+    let (tile, side, blend, uv_scale) = tile(parts, quad.material)?;
     Ok(Face {
         tile: Cow::Borrowed(tile),
         size: [side; 2],
@@ -279,7 +298,7 @@ fn model_face<'a>(parts: Parts<'a>, quad: &ModelQuad) -> Result<Face<'a>, Reject
             .map(|point| point.map(|component| f32::from(component) / 256.0)),
         uvs: quad
             .uvs
-            .map(|uv| uv.map(|component| f32::from(component) / 4096.0)),
+            .map(|uv| uv.map(|component| f32::from(component) / 4096.0 * uv_scale)),
         blend,
     })
 }
