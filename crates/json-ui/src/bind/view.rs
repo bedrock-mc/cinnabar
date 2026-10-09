@@ -109,8 +109,9 @@ impl Binder<'_> {
     /// views reveal and hidden ones holding a control a view names.
     pub(super) fn settle_views(&mut self, root: &mut Node) {
         let mut tried = HashSet::new();
+        let mut settled = false;
         for _ in 0..EXPANSION_ROUNDS {
-            let missed = self.settle_round(root);
+            let (missed, converged) = self.settle_round(root);
             let mut expanded = false;
             for name in missed {
                 if tried.insert(name.clone()) {
@@ -119,9 +120,11 @@ impl Binder<'_> {
             }
             expanded |= self.expand_deferred(root, false);
             if !expanded {
+                settled = converged;
                 break;
             }
         }
+        self.state.views_settled = settled;
     }
 
     /// Build the hidden subtrees whose templates hold a control named `name`,
@@ -140,13 +143,14 @@ impl Binder<'_> {
         expanded
     }
 
-    /// Passes of view notifications; returns the source names that missed.
-    fn settle_round(&mut self, root: &mut Node) -> Vec<String> {
+    /// Passes of view notifications; returns the source names that missed and whether no
+    /// value changed in the last pass.
+    fn settle_round(&mut self, root: &mut Node) -> (Vec<String>, bool) {
         let mut list = Vec::new();
         views(root, &mut Path::new(), &mut list);
         let mut missed = Vec::new();
         if list.is_empty() {
-            return missed;
+            return (missed, true);
         }
         let wanted: HashSet<&str> = list
             .iter()
@@ -173,16 +177,49 @@ impl Binder<'_> {
                 source.ok()
             })
             .collect();
+        // Without a fixed point last bind, every view runs as if new.
+        let unchanged = self.state.views_settled;
         for _ in 0..VIEW_PASSES {
             let mut changed = false;
             for ((path, index), source) in list.iter().zip(&sources) {
+                if unchanged && self.stands(root, path, *index, source.as_deref()) {
+                    continue;
+                }
                 changed |= self.notify(root, path, *index, source.as_deref());
             }
             if !changed {
-                break;
+                return (missed, true);
             }
         }
-        missed
+        (missed, false)
+    }
+
+    /// Whether a view would observe what it last did: its control and its source stand as
+    /// the last bind left them, it reads the same source control, and no screen-controller
+    /// global its own control may answer changed. Skipping such a view writes nothing a run
+    /// would have written.
+    fn stands(&self, root: &Node, path: &Path, index: usize, source: Option<&[usize]>) -> bool {
+        let Some(changes) = &self.changes else {
+            return false;
+        };
+        let node = node_at(root, path);
+        let quiet = |node: &Node| !node.track.fresh && !node.track.touched;
+        let source_node = source.map(|source| node_at(root, source));
+        if !quiet(node)
+            || source_node.is_some_and(|source| !quiet(source))
+            || node.memory.view_sources.get(&index) != Some(&source_node.map(|source| source.key))
+        {
+            return false;
+        }
+        let Kind::View {
+            source: expression,
+            scope,
+            ..
+        } = &node.bindings[index].kind
+        else {
+            return false;
+        };
+        *scope != ViewScope::Own || !changes.globals(expression.properties())
     }
 
     /// The control a view reads, or the name that did not resolve.
@@ -245,10 +282,13 @@ impl Binder<'_> {
                 observe_in(expression, &answered, &self.env)
             })
         });
+        let source_key = source.map(|source| node_at(root, source).key);
         let node = node_at_mut(root, path);
         let Kind::View { target, .. } = &node.bindings[index].kind else {
             return false;
         };
+        node.memory.view_sources.insert(index, source_key);
+        self.state.views_run += 1;
         let first = node.memory.once.insert(index);
         let registered = node.memory.views.contains_key(&index);
         let mut wrote = false;
