@@ -6649,12 +6649,17 @@ no start packet. Marketplace clip ownership/playback, remote custom-emote
 synchronization, and the complete villager trade UI remain incomplete. These
 producer fixes do not close those parity gates.
 
-Bamboo visuals remain incomplete. Dedicated stalk and radial leaf geometry,
-column-dependent UVs and offsets, selection and breaking overlays, picking,
-movement and camera collision, and terrain overhang culling now share the same
-column transform. Placement obstruction samples the resolved destination column,
-including horizontal placements and custom build heights. Earlier rendered
-checks cover all twelve pinned states and the overlay/bounds fixes; fresh
-acceptance of the current integrated build remains pending. Exact target-version
-atlas filtering, random-offset component admission, and live Enhanced
-presentation remain unverified; this work does not close the bamboo parity gate.
+The pinned bamboo visual gate is covered for all twelve admitted states. Stalks,
+radial leaves, column UVs and offsets, selection and breaking overlays, picking,
+movement and camera collision, placement obstruction and overhang culling share
+the resolved column transform. Admitted random-offset components distinguish
+absence from explicit zero and reach both network ID spaces and compound models.
+Terrain sampling uses nearest minification/magnification, linear mip filtering,
+clamped source rectangles and byte-space RGBA mips; mixed texture sizes retain
+their own source-pixel gradients. Missing required face textures retain fallback
+support. Focused behavioral and Metal GPU regressions cover those contracts;
+fresh whole-client captures cover Vanilla and bounded Enhanced gallery views,
+selection and advancing cracks. Enhanced remains disabled for ordinary launches.
+Arbitrary runtime face-key remapping and non-power-of-two pack raster equivalence
+remain broader pack-stack work. Hidden debug captures do not close displayed-frame
+performance or the overall UI and performance gate.

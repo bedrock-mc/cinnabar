@@ -30,12 +30,10 @@ pub(in crate::compiler) fn compile_rule(
         assets::bamboo::LeafSize::Small => (1, BlockFace::South),
         assets::bamboo::LeafSize::Large => (2, BlockFace::Up),
     };
-    let stem = inputs
-        .material(record, BlockFace::North)
-        .unwrap_or(inputs.vanilla_fallback_material);
-    let leaf = inputs
-        .material(record, selector)
-        .unwrap_or(inputs.vanilla_fallback_material);
+    let stem_material = inputs.material(record, BlockFace::North);
+    let leaf_material = inputs.material(record, selector);
+    let stem = stem_material.unwrap_or(inputs.vanilla_fallback_material);
+    let leaf = leaf_material.unwrap_or(inputs.vanilla_fallback_material);
     let key = (stem, leaf, width, leaf_size);
     let template = if let Some(&template) = templates.get(&key) {
         template
@@ -51,7 +49,11 @@ pub(in crate::compiler) fn compile_rule(
     };
     let mut visual = diagnostic_visual(record);
     set_model_visual(&mut visual, [stem; 6], template);
-    visual.support = VisualSupport::VanillaFallback;
+    visual.support = if stem_material.is_some() && (leaf_size == 0 || leaf_material.is_some()) {
+        VisualSupport::Exact
+    } else {
+        VisualSupport::VanillaFallback
+    };
     Ok(CompileRuleResult::Compiled(visual))
 }
 
