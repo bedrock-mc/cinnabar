@@ -973,7 +973,7 @@ fn multi_draw_requires_indirect_execution_and_indirect_first_instance() {
         | WgpuFeatures::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES;
 
     assert_eq!(
-        select_chunk_draw_mode(indirect, first_instance, Backends::VULKAN, true),
+        select_chunk_draw_mode(indirect, first_instance, Backends::VULKAN),
         ChunkDrawMode::MultiDrawIndirect,
     );
     assert_eq!(
@@ -981,7 +981,6 @@ fn multi_draw_requires_indirect_execution_and_indirect_first_instance() {
             DownlevelFlags::BASE_VERTEX,
             first_instance,
             Backends::VULKAN,
-            true
         ),
         ChunkDrawMode::Direct,
     );
@@ -990,7 +989,6 @@ fn multi_draw_requires_indirect_execution_and_indirect_first_instance() {
             indirect,
             WgpuFeatures::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES,
             Backends::VULKAN,
-            true,
         ),
         ChunkDrawMode::Direct,
     );
@@ -999,7 +997,6 @@ fn multi_draw_requires_indirect_execution_and_indirect_first_instance() {
             DownlevelFlags::empty(),
             WgpuFeatures::empty(),
             Backends::VULKAN,
-            true
         ),
         ChunkDrawMode::Unsupported,
     );
@@ -1008,53 +1005,44 @@ fn multi_draw_requires_indirect_execution_and_indirect_first_instance() {
             DownlevelFlags::INDIRECT_EXECUTION,
             WgpuFeatures::INDIRECT_FIRST_INSTANCE,
             Backends::VULKAN,
-            true,
         ),
         ChunkDrawMode::Unsupported,
     );
 }
 
-#[cfg(debug_assertions)]
 #[test]
-fn debug_build_uses_direct_draws_when_indirect_validation_needs_extended_commands() {
+fn dx12_keeps_multi_draw_indirect_in_workspace_debug_builds() {
     let indirect = DownlevelFlags::INDIRECT_EXECUTION | DownlevelFlags::BASE_VERTEX;
-    let first_instance = WgpuFeatures::INDIRECT_FIRST_INSTANCE;
-
     assert_eq!(
-        select_chunk_draw_mode(indirect, first_instance, Backends::DX12, true),
-        ChunkDrawMode::Direct,
-        "debug DX12 validation expands indexed commands from 20 to 32 bytes, so wgpu 27 cannot batch them safely"
-    );
-    assert_eq!(
-        select_chunk_draw_mode(indirect, first_instance, Backends::DX12, false),
+        select_chunk_draw_mode(
+            indirect,
+            WgpuFeatures::INDIRECT_FIRST_INSTANCE,
+            Backends::DX12,
+        ),
         ChunkDrawMode::MultiDrawIndirect,
-        "release DX12 keeps the required multi-draw path after debug validation is compiled out"
+        "the workspace dev profile disables wgpu-core 27's faulty debug-only stride assertion"
     );
 }
 
 #[test]
-fn metal_uses_direct_draws_in_debug_and_release_even_with_indirect_capabilities() {
+fn metal_uses_direct_draws_even_with_indirect_capabilities() {
     let capabilities = DownlevelFlags::INDIRECT_EXECUTION | DownlevelFlags::BASE_VERTEX;
-    for debug in [false, true] {
-        assert_eq!(
-            select_chunk_draw_mode(
-                capabilities,
-                WgpuFeatures::INDIRECT_FIRST_INSTANCE,
-                Backends::METAL,
-                debug
-            ),
-            ChunkDrawMode::Direct,
-        );
-        assert_eq!(
-            select_chunk_draw_mode(
-                DownlevelFlags::INDIRECT_EXECUTION,
-                WgpuFeatures::INDIRECT_FIRST_INSTANCE,
-                Backends::METAL,
-                debug
-            ),
-            ChunkDrawMode::Unsupported,
-        );
-    }
+    assert_eq!(
+        select_chunk_draw_mode(
+            capabilities,
+            WgpuFeatures::INDIRECT_FIRST_INSTANCE,
+            Backends::METAL,
+        ),
+        ChunkDrawMode::Direct,
+    );
+    assert_eq!(
+        select_chunk_draw_mode(
+            DownlevelFlags::INDIRECT_EXECUTION,
+            WgpuFeatures::INDIRECT_FIRST_INSTANCE,
+            Backends::METAL,
+        ),
+        ChunkDrawMode::Unsupported,
+    );
 }
 
 #[test]

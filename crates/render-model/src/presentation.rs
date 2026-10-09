@@ -1,15 +1,14 @@
 //! Present-mode and frame-rate policy shared by window setup, pacing and telemetry, independent
 //! of the GPU backend.
 //!
-//! | Intent | Automatic limit | Mode, best first |
-//! | --- | --- | --- |
-//! | Synchronized (VSync on) | the display paces FIFO | FIFO |
-//! | LowLatency (VSync off) | the display paces FIFO | FIFO; Mailbox first when a limit outpaces the display |
-//! | Unpaced (hidden developer surfaces only) | none | Immediate, Mailbox, FIFO |
+//! | Intent | Mode, best first |
+//! | --- | --- |
+//! | Synchronized (VSync on) | FIFO |
+//! | LowLatency (VSync off) | Immediate, Mailbox, FIFO |
+//! | Unpaced (hidden developer surfaces only) | Immediate, Mailbox, FIFO |
 //!
-//! Player-facing presentation never tears. Mailbox without display timing beats against a
-//! refresh-rate cap, so low latency only uses it to render faster than the display. Confirmed
-//! variable refresh caps low-latency rendering just below the maximum refresh.
+//! VSync-off presentation may tear: Immediate is the only mode that cannot be backpressured by
+//! the display refresh. Mailbox remains the non-tearing fallback when Immediate is unavailable.
 
 use render_api::FrameRateLimit;
 
@@ -25,7 +24,7 @@ const VRR_ERROR_MARGIN_NANOS: u64 = 100_000;
 pub enum PresentationIntent {
     /// Display-paced, tear-free delivery.
     Synchronized,
-    /// Fresh input and the shortest queue without tearing.
+    /// Fresh input and the shortest queue, allowing tearing to avoid display-rate backpressure.
     LowLatency,
     /// Diagnostic only: a hidden developer surface never reaches a display, so it never waits
     /// for one. No setting selects it.
@@ -120,30 +119,11 @@ impl FromIterator<PresentModeKind> for SurfacePresentModes {
     }
 }
 
-/// True when the limit lets frames outpace the display, which FIFO would hold back.
-#[must_use]
-pub fn outpaces_display(limit: FrameRateLimit, display: DisplayTiming) -> bool {
-    match limit {
-        FrameRateLimit::Automatic => false,
-        FrameRateLimit::Unlimited => true,
-        FrameRateLimit::Fixed(fps) => display
-            .refresh
-            .is_none_or(|refresh| u64::from(fps.get()) * 1_000 > u64::from(refresh.millihertz())),
-    }
-}
-
 /// Modes to try, best first; each list ends in FIFO.
-const fn preference_order(
-    intent: PresentationIntent,
-    outpaces_display: bool,
-) -> &'static [PresentModeKind] {
+const fn preference_order(intent: PresentationIntent) -> &'static [PresentModeKind] {
     match intent {
         PresentationIntent::Synchronized => &[PresentModeKind::Fifo],
-        PresentationIntent::LowLatency if outpaces_display => {
-            &[PresentModeKind::Mailbox, PresentModeKind::Fifo]
-        }
-        PresentationIntent::LowLatency => &[PresentModeKind::Fifo],
-        PresentationIntent::Unpaced => &[
+        PresentationIntent::LowLatency | PresentationIntent::Unpaced => &[
             PresentModeKind::Immediate,
             PresentModeKind::Mailbox,
             PresentModeKind::Fifo,
@@ -164,11 +144,9 @@ pub const fn initial_present_mode(intent: PresentationIntent) -> PresentModeKind
 #[must_use]
 pub fn select_present_mode(
     intent: PresentationIntent,
-    limit: FrameRateLimit,
-    display: DisplayTiming,
     supported: SurfacePresentModes,
 ) -> PresentModeKind {
-    preference_order(intent, outpaces_display(limit, display))
+    preference_order(intent)
         .iter()
         .copied()
         .find(|mode| supported.contains(*mode))

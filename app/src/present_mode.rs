@@ -23,8 +23,7 @@ pub(crate) struct PresentModeRuntime {
     remedy_adopted: Option<Entity>,
     /// `--frame-cap`, which outranks the saved limit for the whole session.
     launch_limit: Option<FrameRateLimit>,
-    /// The session's effective limit, shared with the pacer's cadence; frames outpacing the
-    /// display choose Mailbox when tear-free.
+    /// The session's effective limit, shared with the pacer's cadence.
     limit: FrameRateLimit,
 }
 
@@ -103,24 +102,23 @@ impl PresentModeRuntime {
     /// remedy, or a request the renderer can fall back from before the probe completes.
     #[must_use]
     pub(crate) fn window_present_mode(&self) -> PresentMode {
-        window_present_mode(self.selected_mode(DisplayTiming::default()))
+        window_present_mode(self.selected_mode())
     }
 
     fn remedy_eligible(&self) -> bool {
         !self.hidden_surface && self.policy.preference() == PresentModePreference::Auto
     }
 
-    fn selected_mode(&self, display: DisplayTiming) -> PresentModeKind {
+    fn selected_mode(&self) -> PresentModeKind {
         if self.remedy_eligible()
             && (self.remedy_adopted.is_some()
                 || self.policy.remedy() == PresentModeRemedy::UseImmediate)
         {
             return PresentModeKind::Immediate;
         }
-        let intent = self.intent();
         self.policy.capabilities().map_or_else(
-            || initial_present_mode(intent),
-            |supported| select_present_mode(intent, self.limit, display, supported),
+            || initial_present_mode(self.intent()),
+            |supported| select_present_mode(self.intent(), supported),
         )
     }
 
@@ -139,7 +137,6 @@ impl PresentModeRuntime {
 pub(crate) fn apply_present_mode(
     settings: Res<RuntimeSettings>,
     mut runtime: ResMut<PresentModeRuntime>,
-    display: Option<Res<DisplayRefresh>>,
     mut windows: Query<(Entity, &mut Window), With<PrimaryWindow>>,
 ) {
     let Ok((entity, mut window)) = windows.single_mut() else {
@@ -173,7 +170,7 @@ pub(crate) fn apply_present_mode(
     if runtime.remedy_eligible() && runtime.policy.remedy() == PresentModeRemedy::UseImmediate {
         runtime.remedy_adopted = Some(entity);
     }
-    let selected = runtime.selected_mode(display.map(|display| display.0).unwrap_or_default());
+    let selected = runtime.selected_mode();
     runtime
         .policy
         .publish_selection(runtime.policy.capabilities().map(|_| selected));

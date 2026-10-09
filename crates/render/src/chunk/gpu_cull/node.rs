@@ -1,4 +1,4 @@
-//! Graph nodes that run the early and late cull, and the count-driven terrain draws.
+//! Graph nodes that run the early and late cull, then submit compacted terrain draws.
 
 use bevy::{
     camera::{MainPassResolutionOverride, Viewport},
@@ -13,7 +13,7 @@ use bevy::{
 };
 
 use super::{
-    GpuCull, GpuCullFrame,
+    GpuCull, GpuCullFrame, GpuCullSubmission,
     model::{CullPhase, CullStream, args_region, count_index},
 };
 use crate::chunk::*;
@@ -43,7 +43,7 @@ impl<P: PhaseItem, const STREAM: usize, const LATE: bool> RenderCommand<P>
         pass: &mut TrackedRenderPass<'w>,
     ) -> RenderCommandResult {
         let arena = arena.into_inner();
-        let Some((args, counts, capacity)) = cull
+        let Some(draws) = cull
             .map(|cull| cull.into_inner())
             .and_then(|cull| cull.prepared_draws(view_entity))
         else {
@@ -58,19 +58,29 @@ impl<P: PhaseItem, const STREAM: usize, const LATE: bool> RenderCommand<P>
         } else {
             CullPhase::Early
         };
+        let max_draw_count = draws.slots.saturating_mul(stream.draws_per_record());
+        if max_draw_count == 0 {
+            return RenderCommandResult::Skip;
+        }
         let indices = match stream {
             CullStream::Model => &arena.model_index_buffer,
             _ => &arena.index_buffer,
         };
         pass.set_bind_group(0, bind_group, &[view_offset.offset]);
         pass.set_index_buffer(indices.slice(..), IndexFormat::Uint32);
-        pass.multi_draw_indexed_indirect_count(
-            args,
-            u64::from(args_region(capacity, phase, stream)) * 4,
-            counts,
-            u64::from(count_index(phase, stream)) * 4,
-            capacity * stream.draws_per_record(),
-        );
+        let args_offset = u64::from(args_region(draws.capacity, phase, stream)) * 4;
+        match draws.submission {
+            GpuCullSubmission::Count => pass.multi_draw_indexed_indirect_count(
+                draws.args,
+                args_offset,
+                draws.counts,
+                u64::from(count_index(phase, stream)) * 4,
+                max_draw_count,
+            ),
+            GpuCullSubmission::Fixed => {
+                pass.multi_draw_indexed_indirect(draws.args, args_offset, max_draw_count);
+            }
+        }
         RenderCommandResult::Success
     }
 }
@@ -169,11 +179,10 @@ impl ViewNode for EarlyCullNode {
         let Some(groups) = &cull.bind_groups else {
             return Ok(());
         };
-        cull.kernels.encode_cull(
-            render_context.command_encoder(),
-            &groups[0],
-            cull.slot_count(),
-        );
+        let encoder = render_context.command_encoder();
+        cull.clear_fixed_args(encoder);
+        cull.kernels
+            .encode_cull(encoder, &groups[0], cull.slot_count());
         Ok(())
     }
 }

@@ -659,6 +659,7 @@ impl ActorStore {
         self.actors
             .insert(runtime_id, ActorSnapshot::from_spawn(spawn, sequence));
         self.unique_to_runtime.insert(unique_id, runtime_id);
+        self.adopt_spawned_unique_id(runtime_id);
         self.prune_unlisted_players();
         if let Some(actor) = self.actors.get(&runtime_id) {
             self.animation

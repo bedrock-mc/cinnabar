@@ -97,6 +97,9 @@ impl ActorStore {
         self.retained_player_skin_bytes = retained_player_skin_bytes;
 
         profile.skin = skin;
+        if let Some(unique_id) = self.spawned_player_unique_id(&uuid) {
+            profile.unique_id = unique_id;
+        }
         self.unlisted_players.remove(&uuid);
         self.players.insert(uuid, profile);
         true
