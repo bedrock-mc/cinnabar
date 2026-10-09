@@ -76,6 +76,60 @@ fn both_halves_use_lower_open_state_and_upper_hinge() {
 }
 
 #[test]
+fn proposed_door_pairs_use_the_same_geometry_before_and_after_commit() {
+    for upper in [2, 3] {
+        let (registry, _) = fixture();
+        let mut store = ChunkStore::new();
+        let key = SubChunkKey::new(0, 0, 0, 0);
+        store.mark_sub_chunk_loaded(key).unwrap();
+        let updates = [([8, 8, 8], 1), ([8, 9, 8], upper)];
+        let proposed = {
+            let world = PaletteWorld::new(&store, &registry, 0);
+            let mut shapes = Vec::new();
+            for &(position, runtime_id) in &updates {
+                let offset = Vec3::new(8.0, f64::from(position[1]), 8.0);
+                shapes.extend(
+                    world
+                        .collision_shapes_with_updates(position, runtime_id, &updates)
+                        .unwrap()
+                        .iter()
+                        .map(|shape| shape.translated(offset)),
+                );
+                assert_eq!(world.primary_runtime_id(position).unwrap(), 0);
+            }
+            shapes
+        };
+        for &(position, runtime_id) in &updates {
+            store
+                .update_block(
+                    key,
+                    BlockUpdate::new(8, position[1] as u8, 8, 0, runtime_id),
+                    0,
+                )
+                .unwrap();
+        }
+        let world = PaletteWorld::new(&store, &registry, 0);
+        let committed = world
+            .collision_boxes(Aabb::new(
+                Vec3::new(8.0, 8.0, 8.0),
+                Vec3::new(9.0, 10.0, 9.0),
+            ))
+            .unwrap();
+        assert_eq!(proposed, committed.value);
+        for &(position, runtime_id) in &updates {
+            assert_eq!(
+                world
+                    .collision_shapes_with_updates(position, runtime_id, &[])
+                    .unwrap(),
+                world
+                    .collision_shapes_with_updates(position, runtime_id, &updates)
+                    .unwrap(),
+            );
+        }
+    }
+}
+
+#[test]
 fn unpaired_door_uses_native_default_plane() {
     let (registry, mut store) = fixture();
     store

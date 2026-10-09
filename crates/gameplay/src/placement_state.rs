@@ -33,7 +33,68 @@ pub fn resolve_placement_state(
     if !identifier.starts_with("minecraft:") {
         return None;
     }
-    if only_keys(&states, &["pillar_axis"]) {
+    if identifier.ends_with("_stairs")
+        && only_keys(
+            &states,
+            &["weirdo_direction", "upside_down_bit", "minecraft:corner"],
+        )
+    {
+        integer_in(&states, "weirdo_direction", &[0, 1, 2, 3])?;
+        bit(&states, "upside_down_bit")?;
+        string_in(
+            &states,
+            "minecraft:corner",
+            &[
+                "none",
+                "inner_left",
+                "inner_right",
+                "outer_left",
+                "outer_right",
+            ],
+        )?;
+        set_value(
+            &mut states,
+            "weirdo_direction",
+            Value::from([2, 1, 3, 0][yaw_quadrant(input.yaw)?]),
+        )?;
+        if upper_half(input)? {
+            set_bit(&mut states, "upside_down_bit", true)?;
+        }
+        set_value(&mut states, "minecraft:corner", Value::from("none"))?;
+    } else if identifier == "minecraft:loom" && only_keys(&states, &["direction"]) {
+        integer_in(&states, "direction", &[0, 1, 2, 3])?;
+        set_value(
+            &mut states,
+            "direction",
+            Value::from([2, 3, 0, 1][yaw_quadrant(input.yaw)?]),
+        )?;
+    } else if identifier.ends_with("_glazed_terracotta")
+        && only_keys(&states, &["facing_direction"])
+    {
+        integer_in(&states, "facing_direction", &[0, 1, 2, 3, 4, 5])?;
+        set_value(
+            &mut states,
+            "facing_direction",
+            Value::from([2, 5, 3, 4][yaw_quadrant(input.yaw)?]),
+        )?;
+    } else if identifier == "minecraft:snow_layer" && only_keys(&states, &["height", "covered_bit"])
+    {
+        integer_in(&states, "height", &[0, 1, 2, 3, 4, 5, 6, 7])?;
+        set_value(&mut states, "height", Value::from(0))?;
+        set_bit(&mut states, "covered_bit", false)?;
+    } else if identifier == "minecraft:sea_pickle"
+        && only_keys(&states, &["cluster_count", "dead_bit"])
+    {
+        integer_in(&states, "cluster_count", &[0, 1, 2, 3])?;
+        set_value(&mut states, "cluster_count", Value::from(0))?;
+        set_bit(&mut states, "dead_bit", true)?;
+    } else if crate::placement_support::is_candle(identifier)
+        && only_keys(&states, &["candles", "lit"])
+    {
+        integer_in(&states, "candles", &[0, 1, 2, 3])?;
+        set_value(&mut states, "candles", Value::from(0))?;
+        set_bit(&mut states, "lit", false)?;
+    } else if only_keys(&states, &["pillar_axis"]) {
         string_in(&states, "pillar_axis", &["x", "y", "z"])?;
         let axis = ["y", "y", "z", "z", "x", "x"][usize::from(input.face)];
         set_value(&mut states, "pillar_axis", Value::from(axis))?;
@@ -135,12 +196,12 @@ fn double_slab_identifier(identifier: &str) -> Option<String> {
 }
 
 /// Reject state keys whose placement behavior has not been modeled.
-fn only_keys(states: &Map<String, Value>, allowed: &[&str]) -> bool {
+pub(crate) fn only_keys(states: &Map<String, Value>, allowed: &[&str]) -> bool {
     states.len() == allowed.len() && states.keys().all(|key| allowed.contains(&key.as_str()))
 }
 
 /// Read a state value in either canonical typed form or plain test form.
-fn value<'a>(states: &'a Map<String, Value>, key: &str) -> Option<&'a Value> {
+pub(crate) fn value<'a>(states: &'a Map<String, Value>, key: &str) -> Option<&'a Value> {
     let entry = states.get(key)?;
     match entry {
         Value::Object(typed) => {
@@ -167,7 +228,7 @@ fn string_in(states: &Map<String, Value>, key: &str, allowed: &[&str]) -> Option
 }
 
 /// Require an integer state to belong to its modeled domain.
-fn integer_in(states: &Map<String, Value>, key: &str, allowed: &[u64]) -> Option<()> {
+pub(crate) fn integer_in(states: &Map<String, Value>, key: &str, allowed: &[u64]) -> Option<()> {
     allowed
         .contains(&value(states, key)?.as_u64()?)
         .then_some(())
@@ -183,7 +244,11 @@ fn bit(states: &Map<String, Value>, key: &str) -> Option<()> {
 }
 
 /// Replace a state value while preserving the registry's type wrapper.
-fn set_value(states: &mut Map<String, Value>, key: &str, replacement: Value) -> Option<()> {
+pub(crate) fn set_value(
+    states: &mut Map<String, Value>,
+    key: &str,
+    replacement: Value,
+) -> Option<()> {
     let old = value(states, key)?;
     if !(old.is_string() && replacement.is_string()
         || old.is_boolean() && replacement.is_boolean()
@@ -201,7 +266,7 @@ fn set_value(states: &mut Map<String, Value>, key: &str, replacement: Value) -> 
 }
 
 /// Preserve boolean and byte representations when setting a state bit.
-fn set_bit(states: &mut Map<String, Value>, key: &str, enabled: bool) -> Option<()> {
+pub(crate) fn set_bit(states: &mut Map<String, Value>, key: &str, enabled: bool) -> Option<()> {
     bit(states, key)?;
     let replacement = match value(states, key)? {
         Value::Bool(_) => Value::from(enabled),
@@ -222,7 +287,7 @@ fn upper_half(input: PlacementInput) -> Option<bool> {
 }
 
 /// Quantize yaw to the nearest quarter turn, wrapping negative and repeated turns.
-fn yaw_quadrant(yaw: f32) -> Option<usize> {
+pub(crate) fn yaw_quadrant(yaw: f32) -> Option<usize> {
     yaw.is_finite()
         .then(|| (yaw / 90.0 + 0.5).floor().rem_euclid(4.0) as usize)
 }
@@ -493,6 +558,98 @@ mod tests {
                 )
                 .is_none()
             );
+        }
+    }
+    #[test]
+    fn stair_yaw_half_and_held_half_follow_the_placement_table() {
+        for (yaw, direction) in [(0.0, 2), (90.0, 1), (180.0, 3), (-90.0, 0)] {
+            for (face, y, upper) in [
+                (0, 0.0, 1),
+                (1, 1.0, 0),
+                (2, 0.5, 0),
+                (2, 0.5001, 1),
+                (3, 0.2, 0),
+                (4, 0.8, 1),
+                (5, 0.1, 0),
+            ] {
+                for held_upper in 0..=1 {
+                    let original = serde_json::json!({"weirdo_direction":{"type":"int","value":0},"upside_down_bit":{"type":"byte","value":held_upper},"minecraft:corner":{"type":"string","value":"outer_right"}}).to_string();
+                    let input = PlacementInput {
+                        face,
+                        click_position: [0.5, y, 0.5],
+                        yaw,
+                        pitch: 0.0,
+                    };
+                    let state =
+                        resolve_placement_state("minecraft:oak_stairs", &original, input).unwrap();
+                    assert_eq!(
+                        value(&state, "weirdo_direction"),
+                        Some(&Value::from(direction))
+                    );
+                    assert_eq!(
+                        value(&state, "upside_down_bit"),
+                        Some(&Value::from(upper | held_upper))
+                    );
+                    assert_eq!(
+                        value(&state, "minecraft:corner"),
+                        Some(&Value::from("none"))
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn legacy_direction_blocks_use_their_registered_rotation_tables() {
+        for (name, key, table) in [
+            ("minecraft:loom", "direction", [2, 3, 0, 1]),
+            (
+                "minecraft:white_glazed_terracotta",
+                "facing_direction",
+                [2, 5, 3, 4],
+            ),
+        ] {
+            for (index, yaw) in [0.0, 90.0, 180.0, -90.0].into_iter().enumerate() {
+                let original = serde_json::json!({key:{"type":"int","value":0}}).to_string();
+                let state = resolve_placement_state(
+                    name,
+                    &original,
+                    PlacementInput {
+                        face: 1,
+                        click_position: [0.5; 3],
+                        yaw,
+                        pitch: 0.0,
+                    },
+                )
+                .unwrap();
+                assert_eq!(value(&state, key), Some(&Value::from(table[index])));
+            }
+        }
+    }
+
+    #[test]
+    fn initial_stacks_reset_count_and_light_state() {
+        for (name, count, flag, expected_flag) in [
+            ("minecraft:snow_layer", "height", "covered_bit", 0),
+            ("minecraft:candle", "candles", "lit", 0),
+            ("minecraft:sea_pickle", "cluster_count", "dead_bit", 1),
+        ] {
+            let original =
+                serde_json::json!({count:{"type":"int","value":3},flag:{"type":"byte","value":1}})
+                    .to_string();
+            let state = resolve_placement_state(
+                name,
+                &original,
+                PlacementInput {
+                    face: 1,
+                    click_position: [0.5; 3],
+                    yaw: 0.0,
+                    pitch: 0.0,
+                },
+            )
+            .unwrap();
+            assert_eq!(value(&state, count), Some(&Value::from(0)));
+            assert_eq!(value(&state, flag), Some(&Value::from(expected_flag)));
         }
     }
 }
