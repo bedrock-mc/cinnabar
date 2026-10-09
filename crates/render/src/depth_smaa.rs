@@ -19,7 +19,6 @@ use bevy::{
         renderer::RenderDevice,
         view::{ViewDepthTexture, ViewTarget},
     },
-    shader::Shader,
 };
 use pipelines::DepthSmaaPipelines;
 
@@ -34,13 +33,13 @@ impl Plugin for DepthSmaaPlugin {
             app,
             pipelines::EDGE_SHADER,
             "depth_smaa/edge.wgsl",
-            Shader::from_wgsl
+            crate::shader_safety::from_wgsl
         );
         load_internal_asset!(
             app,
             pipelines::RESTORE_SHADER,
             "depth_smaa/restore.wgsl",
-            Shader::from_wgsl
+            crate::shader_safety::from_wgsl
         );
         crate::pipeline_warmup::register::<DepthSmaaPipelines>(app);
         if let Some(render) = app.get_sub_app_mut(RenderApp) {

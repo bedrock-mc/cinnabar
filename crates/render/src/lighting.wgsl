@@ -28,13 +28,18 @@ fn cutout_mix(first: CutoutSample, second: CutoutSample, blend: f32) -> CutoutSa
     return CutoutSample(coverage, colour);
 }
 
+// Minified cutouts cannot cover more samples than their stored mip alpha permits.
+fn cutout_mip_coverage(alpha: f32, threshold: f32) -> f32 {
+    return min(alpha, clamp(alpha - threshold + 0.5, 0.0, 1.0));
+}
+
 // Minification keeps mip coverage; magnification filters only the binary alpha contour.
 fn cutout_alpha_array(image: texture_2d_array<f32>, uv: vec2<f32>, layer: i32, dx: vec2<f32>, dy: vec2<f32>, sampled: vec4<f32>, repeat_uv: bool, threshold: f32) -> CutoutSample {
     let size = vec2<f32>(textureDimensions(image, 0));
     let texel_dx = dx * size;
     let texel_dy = dy * size;
     if (max(length(texel_dx), length(texel_dy)) >= 1.0) {
-        return CutoutSample(clamp(sampled.a - threshold + 0.5, 0.0, 1.0), sampled);
+        return CutoutSample(cutout_mip_coverage(sampled.a, threshold), sampled);
     }
     let position = uv * size - vec2(0.5);
     let base = vec2<i32>(floor(position));
@@ -58,7 +63,7 @@ fn cutout_alpha_2d(image: texture_2d<f32>, uv: vec2<f32>, dx: vec2<f32>, dy: vec
     let texel_dx = dx * size;
     let texel_dy = dy * size;
     if (max(length(texel_dx), length(texel_dy)) >= 1.0) {
-        return CutoutSample(clamp(sampled.a - threshold + 0.5, 0.0, 1.0), sampled);
+        return CutoutSample(cutout_mip_coverage(sampled.a, threshold), sampled);
     }
     let position = uv * size - vec2(0.5);
     let base = vec2<i32>(floor(position));

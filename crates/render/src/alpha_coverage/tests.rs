@@ -3,6 +3,9 @@ use crate::gpu_snapshot::{Draw, Gpu, RasterState, SNAPSHOT_SIDE};
 use bevy::math::{Mat4, Vec3};
 use wgpu::util::DeviceExt;
 
+#[path = "minification_tests.rs"]
+mod minification_tests;
+
 #[test]
 fn alpha_to_coverage_is_limited_to_multisampled_cutout_color_passes() {
     for samples in [1, 2, 4, 8] {
