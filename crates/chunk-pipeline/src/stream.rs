@@ -301,9 +301,9 @@ pub use block_cracks::{
     ActiveBlockCrack, BlockCrackSnapshot, BlockCrackStatus, MAX_ACTIVE_BLOCK_CRACKS,
 };
 pub use model::{
-    ForcedRemeshManifest, ForcedRemeshManifestState, PendingSubChunkRequest, ViewCohortStatus,
-    WorldMeshChange, WorldStreamFatalError, WorldStreamNormalizationStats, WorldStreamPoll,
-    WorldStreamStats,
+    CohortProgress, ForcedRemeshManifest, ForcedRemeshManifestState, PendingSubChunkRequest,
+    ViewCohortStatus, WorldMeshChange, WorldStreamFatalError, WorldStreamNormalizationStats,
+    WorldStreamPoll, WorldStreamStats,
 };
 
 /// Ordered Bedrock world ingestion and bounded background meshing.

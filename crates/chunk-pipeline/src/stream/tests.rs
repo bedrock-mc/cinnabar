@@ -961,6 +961,7 @@ mod cases_09;
 mod cases_10;
 mod cases_11;
 mod cases_12;
+mod cohort_progress;
 mod forced_remesh;
 mod inbound_lanes;
 mod inline_cohort;
