@@ -363,7 +363,7 @@ pub(crate) fn receive_network_events(
                 let session_assets = resource_packs::session_runtime_assets(
                     &client_world.runtime_assets,
                     overlay_ids.as_ref(),
-                    packs.block_overlay.as_deref(),
+                    packs.block_overlay.as_ref(),
                 );
                 if let Some(textures) = chunk_textures.as_mut() {
                     resource_packs::install_chunk_textures(textures, &session_assets);

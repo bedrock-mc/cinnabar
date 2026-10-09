@@ -551,3 +551,42 @@ fn cancellation_mid_compile_skips_the_remaining_parts() {
         .is_none()
     );
 }
+
+// A later session over the same carrier and compiled blocks shares the extended carrier, so the
+// chunk renderer keeps its texture identity instead of rebuilding the atlas.
+#[test]
+fn the_same_blocks_share_the_extended_carrier_and_its_texture_identity() {
+    use std::sync::Arc;
+    let base = Arc::new(assets::RuntimeAssets::diagnostic());
+    let compiled = || {
+        Arc::new(super::CompiledBlockOverlay {
+            overlay: Default::default(),
+            gaps: Default::default(),
+        })
+    };
+    let overlay = compiled();
+    let first_id = base.visual_count() as u32;
+    let carrier = super::OverlaidCarrier::new();
+    let first = carrier.extend(&base, first_id, &overlay).unwrap();
+    assert!(!Arc::ptr_eq(&first, &base));
+    let mut textures = render::ChunkTextureAssets::with_revision(Arc::clone(&base), 0);
+    super::install_chunk_textures(&mut textures, &first);
+    let identity = textures.identity();
+    let again = carrier.extend(&base, first_id, &overlay).unwrap();
+    super::install_chunk_textures(&mut textures, &again);
+    assert!(Arc::ptr_eq(&first, &again));
+    assert_eq!(textures.identity(), identity);
+    assert!(
+        !Arc::ptr_eq(
+            &carrier.extend(&base, first_id, &compiled()).unwrap(),
+            &first
+        ),
+        "recompiled blocks extend afresh"
+    );
+    let released = Arc::downgrade(&first);
+    drop((first, again, textures));
+    assert!(
+        released.upgrade().is_none(),
+        "the carrier pins no extension"
+    );
+}

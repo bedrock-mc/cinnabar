@@ -247,7 +247,7 @@ impl PackReload {
                         resource_packs::session_runtime_assets(
                             &base,
                             ids.as_ref(),
-                            application.block_overlay.as_deref(),
+                            application.block_overlay.as_ref(),
                         )
                     });
                     Prepared {

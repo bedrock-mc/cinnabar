@@ -536,7 +536,7 @@ fn cached_block_overlay(
 pub(super) fn session_runtime_assets(
     base: &Arc<assets::RuntimeAssets>,
     custom_ids: Option<&std::ops::Range<u32>>,
-    compiled: Option<&CompiledBlockOverlay>,
+    compiled: Option<&Arc<CompiledBlockOverlay>>,
 ) -> Arc<assets::RuntimeAssets> {
     let Some(compiled) = compiled else {
         return Arc::clone(base);
@@ -547,12 +547,65 @@ pub(super) fn session_runtime_assets(
         bevy::log::warn!("server block visuals do not match the custom block ids");
         return Arc::clone(base);
     }
-    match base.with_block_overlay(ids.start, &compiled.overlay) {
-        Ok(assets) => Arc::new(assets),
+    static LAST: OverlaidCarrier = OverlaidCarrier::new();
+    match LAST.extend(base, ids.start, compiled) {
+        Ok(assets) => assets,
         Err(error) => {
             bevy::log::warn!(%error, "server block visuals were not applied");
             Arc::clone(base)
         }
+    }
+}
+
+/// The last carrier extended with a block overlay. Weak, so it lives only while a session or the
+/// renderer holds it; a later session over the same carrier and compiled blocks then shares it,
+/// and the chunk renderer keeps the atlas it built for it.
+struct OverlaidCarrier(std::sync::Mutex<Option<Overlaid>>);
+
+struct Overlaid {
+    base: std::sync::Weak<assets::RuntimeAssets>,
+    overlay: std::sync::Weak<CompiledBlockOverlay>,
+    first_id: u32,
+    assets: std::sync::Weak<assets::RuntimeAssets>,
+}
+
+impl OverlaidCarrier {
+    const fn new() -> Self {
+        Self(std::sync::Mutex::new(None))
+    }
+
+    /// `base` extended with `compiled` from `first_id`. Shared with the last extension while
+    /// all three of its inputs are still the same live allocations, which are immutable; the
+    /// lock is not held while extending.
+    fn extend(
+        &self,
+        base: &Arc<assets::RuntimeAssets>,
+        first_id: u32,
+        compiled: &Arc<CompiledBlockOverlay>,
+    ) -> Result<Arc<assets::RuntimeAssets>, assets::AssetError> {
+        let lock = || self.0.lock().unwrap_or_else(|poison| poison.into_inner());
+        if let Some(last) = lock().as_ref()
+            && last.first_id == first_id
+            && last
+                .base
+                .upgrade()
+                .is_some_and(|last| Arc::ptr_eq(&last, base))
+            && last
+                .overlay
+                .upgrade()
+                .is_some_and(|last| Arc::ptr_eq(&last, compiled))
+            && let Some(assets) = last.assets.upgrade()
+        {
+            return Ok(assets);
+        }
+        let assets = Arc::new(base.with_block_overlay(first_id, &compiled.overlay)?);
+        *lock() = Some(Overlaid {
+            base: Arc::downgrade(base),
+            overlay: Arc::downgrade(compiled),
+            first_id,
+            assets: Arc::downgrade(&assets),
+        });
+        Ok(assets)
     }
 }
 
