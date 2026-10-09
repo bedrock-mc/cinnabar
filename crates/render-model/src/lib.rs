@@ -109,10 +109,17 @@ pub fn enable_enhanced_diagnostics(viewport: [u32; 2]) -> Result<(), &'static st
     Ok(())
 }
 
+/// Reports whether this process explicitly admitted the bounded diagnostic path.
+#[cfg(feature = "enhanced-diagnostics")]
+#[must_use]
+pub fn enhanced_diagnostics_enabled() -> bool {
+    ENHANCED_DIAGNOSTIC.load(std::sync::atomic::Ordering::Acquire)
+}
+
 /// Resolves the production switch and the separately compiled diagnostic admission.
 pub fn enhanced_rendering_enabled() -> bool {
     #[cfg(feature = "enhanced-diagnostics")]
-    if ENHANCED_DIAGNOSTIC.load(std::sync::atomic::Ordering::Acquire) {
+    if enhanced_diagnostics_enabled() {
         return true;
     }
     ENHANCED_RENDERING_ENABLED

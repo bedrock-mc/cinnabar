@@ -87,6 +87,20 @@ impl Default for EnhancedRendering {
     }
 }
 
+#[cfg(feature = "enhanced-diagnostics")]
+impl EnhancedRendering {
+    /// Bounds the actual Enhanced passes for hidden development captures.
+    #[must_use]
+    pub fn bounded_diagnostic() -> Self {
+        Self {
+            shadow_resolution: 128,
+            shadow_distance: 24.0,
+            waving: false,
+            ..Self::default()
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default)]
 pub struct EnhancedRenderPlugin;
 

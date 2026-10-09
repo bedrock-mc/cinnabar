@@ -203,8 +203,15 @@ fn apply_render_mode_to_cameras(
                 let original = camera.depth_texture_usages;
                 camera.depth_texture_usages =
                     (TextureUsages::from(original) | TextureUsages::TEXTURE_BINDING).into();
+                let enhanced_settings = EnhancedRendering::default();
+                #[cfg(feature = "enhanced-diagnostics")]
+                let enhanced_settings = if render_model::enhanced_diagnostics_enabled() {
+                    EnhancedRendering::bounded_diagnostic()
+                } else {
+                    enhanced_settings
+                };
                 commands.entity(entity).insert((
-                    EnhancedRendering::default(),
+                    enhanced_settings,
                     Hdr,
                     VanillaDepthUsage(original),
                 ));
