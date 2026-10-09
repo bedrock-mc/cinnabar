@@ -1,5 +1,22 @@
 use super::super::{MenuAction, MenuRuntime, MenuScreen};
 
+#[test]
+fn a_loaded_self_profile_can_open_dressing_room_from_keyboard_focus() {
+    let mut menu = MenuRuntime::new(true, 2, "BugTest".into());
+    menu.control_auth = Some(super::super::AuthState::Authenticated);
+    menu.feeds.profile.loaded = true;
+    menu.feeds.profile.avatar_loaded = true;
+    menu.feeds.profile.featured_screenshot_loaded = true;
+    menu.activate(MenuAction::Navigate(MenuScreen::Profile));
+    let action = MenuAction::Navigate(MenuScreen::DressingRoom);
+    menu.focus_pointer(action);
+    assert_eq!(menu.view().focused_action, Some(action));
+    menu.activate_focused();
+    assert_eq!(menu.screen(), MenuScreen::DressingRoom);
+    menu.activate(MenuAction::AddBack);
+    assert_eq!(menu.screen(), MenuScreen::Profile);
+}
+
 fn join_from(screen: MenuScreen) -> MenuRuntime {
     let mut menu = MenuRuntime::new(true, 2, "Player".into());
     menu.activate(MenuAction::Navigate(screen));

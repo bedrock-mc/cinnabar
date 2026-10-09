@@ -96,7 +96,7 @@ pub(super) fn draw(
     if let Some(icon) = character {
         let model_width = canvas.r(14.8);
         let model_height = canvas.r(19.6);
-        let left = b[0] + (banner_width - model_width) * 0.5 - canvas.r(4.0);
+        let left = b[0] - canvas.r(4.0);
         let bottom = b[1] + banner_height + canvas.r(7.6);
         canvas.icon_ref(
             icon,
@@ -144,7 +144,7 @@ pub(super) fn draw(
         ],
         Variant::Secondary,
         "Dressing room",
-        None,
+        Some(MenuAction::Navigate(crate::menu::MenuScreen::DressingRoom)),
     )?;
     Ok(end)
 }
@@ -175,6 +175,75 @@ mod tests {
     use super::*;
     use crate::ui_runtime::presentation::TextMetrics;
     use crate::ui_runtime::presentation::tests::fixture_font;
+
+    #[test]
+    fn wide_card_character_stays_beside_the_name_when_the_banner_widens() {
+        let view = MenuView::new(true, "BugTest".into());
+        let character = IconRef {
+            page: 7,
+            uv: [0, 0, 148, 196],
+            glint: false,
+        };
+        let mut positions = Vec::new();
+        for width in [300.0, 500.0] {
+            let (_, _, nodes) = super::super::super::review_tests::paint(
+                std::collections::HashMap::new(),
+                |canvas| {
+                    draw(
+                        canvas,
+                        &view,
+                        [100.0, 100.0, 100.0 + width, 700.0],
+                        None,
+                        Some(character),
+                        None,
+                        false,
+                    )
+                    .unwrap();
+                },
+            );
+            let image = nodes
+                .iter()
+                .find(|node| {
+                    matches!(
+                        node.visual(),
+                        ui::UiVisual::Sprite {
+                            texture_page: 7,
+                            ..
+                        }
+                    )
+                })
+                .unwrap();
+            positions.push(image.bounds().min().x());
+        }
+        assert_eq!(
+            positions[0], positions[1],
+            "wider banners must not move the character into the name column"
+        );
+    }
+
+    #[test]
+    fn self_card_offers_a_dressing_room_action_in_both_layouts() {
+        let view = MenuView::new(true, "BugTest".into());
+        for narrow in [false, true] {
+            let (_, hits, _) = super::super::super::review_tests::paint(
+                std::collections::HashMap::new(),
+                |canvas| {
+                    draw(
+                        canvas,
+                        &view,
+                        [0.0, 0.0, 600.0, 700.0],
+                        None,
+                        None,
+                        None,
+                        narrow,
+                    )
+                    .unwrap();
+                },
+            );
+            assert!(hits.iter().any(|(action, _)| *action
+                == MenuAction::Navigate(crate::menu::MenuScreen::DressingRoom)));
+        }
+    }
 
     #[test]
     fn narrow_card_ellipsizes_long_names_without_moving_its_button() {

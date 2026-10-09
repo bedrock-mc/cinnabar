@@ -464,6 +464,9 @@ impl MenuRuntime {
                     if profile.unavailable {
                         actions.push(MenuAction::RefreshProfile);
                     } else if profile.loaded {
+                        if profile.avatar_loaded && profile.featured_screenshot_loaded {
+                            actions.push(MenuAction::Navigate(MenuScreen::DressingRoom));
+                        }
                         actions.extend([
                             MenuAction::SelectProfileTab(launcher::menu::ProfileTab::Overview),
                             MenuAction::SelectProfileTab(launcher::menu::ProfileTab::Stats),
