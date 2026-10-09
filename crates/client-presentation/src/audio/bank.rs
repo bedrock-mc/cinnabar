@@ -43,7 +43,8 @@ pub struct MusicEntry {
 }
 
 pub struct SoundBank {
-    file: Option<File>,
+    /// Read only by decode workers, so a first play never waits on disk.
+    archive: Option<Arc<Mutex<File>>>,
     index: SoundBankIndex,
     tables: SoundEventTables,
     catalog: Option<Arc<RuntimeAudioCatalog>>,
@@ -63,7 +64,7 @@ pub struct SoundBank {
     ready_streams: HashMap<Box<str>, Arc<Pcm>>,
 }
 
-/// Where a sound's PCM stands; decoding never runs on the calling (main) thread.
+/// Where a sound's PCM stands; reading and decoding never run on the calling (main) thread.
 pub enum PcmLookup {
     Ready(Arc<Pcm>),
     Pending,
@@ -73,7 +74,8 @@ pub enum PcmLookup {
 }
 
 enum DecodeSource {
-    Bank(Vec<u8>),
+    /// A bank entry, read from the shared archive by the worker that decodes it.
+    Bank(Arc<Mutex<File>>, SoundBankEntry),
     Server,
 }
 
@@ -127,7 +129,8 @@ impl Decoder {
                             continue;
                         }
                         let pcm = match source {
-                            DecodeSource::Bank(bytes) => decode_pcm(&bytes, &path),
+                            DecodeSource::Bank(archive, entry) => read_entry(&archive, entry)
+                                .and_then(|bytes| decode_pcm(&bytes, &path)),
                             DecodeSource::Server => {
                                 let pack = {
                                     let current = server
@@ -170,6 +173,17 @@ impl Decoder {
             total: Arc::clone(&self.encoded_bytes),
         })
     }
+}
+
+/// Reads one compressed entry; only decode workers call this, never the frame thread.
+fn read_entry(archive: &Mutex<File>, entry: SoundBankEntry) -> Option<Vec<u8>> {
+    let mut bytes = vec![0_u8; entry.len as usize];
+    let mut file = archive
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    file.seek(SeekFrom::Start(entry.offset)).ok()?;
+    file.read_exact(&mut bytes).ok()?;
+    Some(bytes)
 }
 
 fn decode_pcm(bytes: &[u8], path: &str) -> Option<Pcm> {
@@ -229,7 +243,7 @@ impl SoundBank {
         let tables =
             SoundEventTables::from_json(&json(index.sounds_json()), &json(index.materials_json()));
         Ok(Some(Self {
-            file: Some(file),
+            archive: Some(Arc::new(Mutex::new(file))),
             music: parse_music(index.music_json()),
             index,
             tables,
@@ -328,7 +342,7 @@ impl SoundBank {
             self.failed.insert(path.into());
             return PcmLookup::Failed;
         }
-        // Only active workers retain an archive; queued jobs carry a path and generation.
+        // Only active workers retain a server pack; its queued jobs carry a path and generation.
         let size = if server {
             0
         } else {
@@ -354,8 +368,8 @@ impl SoundBank {
         let source = match server {
             true => Some(DecodeSource::Server),
             false => entry
-                .and_then(|entry| self.read_entry(entry))
-                .map(DecodeSource::Bank),
+                .zip(self.archive.as_ref())
+                .map(|(entry, archive)| DecodeSource::Bank(Arc::clone(archive), entry)),
         };
         let Some(source) = source else {
             self.failed.insert(path.into());
@@ -416,14 +430,6 @@ impl SoundBank {
         self.ready_streams.clear();
     }
 
-    fn read_entry(&mut self, entry: SoundBankEntry) -> Option<Vec<u8>> {
-        let file = self.file.as_mut()?;
-        let mut bytes = vec![0_u8; entry.len as usize];
-        file.seek(SeekFrom::Start(entry.offset)).ok()?;
-        file.read_exact(&mut bytes).ok()?;
-        Some(bytes)
-    }
-
     fn remember(&mut self, path: &str, pcm: &Arc<Pcm>) {
         let size = pcm.samples.len() * 2;
         if size > CACHE_BUDGET_BYTES {
@@ -455,7 +461,7 @@ impl SoundBank {
         catalog: Option<Arc<RuntimeAudioCatalog>>,
     ) -> Self {
         Self {
-            file: None,
+            archive: None,
             music: parse_music(index.music_json()),
             index,
             tables,
@@ -540,6 +546,40 @@ mod tests {
         fsb.extend(mode.to_le_bytes());
         fsb.extend([0, 0x40, 0, 0xc0]);
         fsb
+    }
+
+    // A first play must not read its compressed file on the frame thread that asked for it.
+    #[test]
+    fn a_first_play_reads_its_file_on_a_decode_worker() {
+        const LARGE: usize = 4 * 1024 * 1024;
+        let mut large = tone();
+        large.resize(LARGE, 0);
+        let files = [
+            ("sounds/warm".to_owned(), tone()),
+            ("sounds/large".to_owned(), large),
+        ];
+        let bytes = assets::encode_sound_bank(b"{}", b"{}", b"{}", &files).expect("encode");
+        let path = std::env::temp_dir().join(format!(
+            "cinnabar-bank-caller-{}.mcbesnd",
+            std::process::id()
+        ));
+        std::fs::write(&path, bytes).expect("write");
+        let mut bank = SoundBank::open(&path, None)
+            .expect("open")
+            .expect("present");
+        assert!(bank.pcm("sounds/warm", false).is_some(), "workers started");
+        let before = crate::test_allocations::bytes();
+        let lookup = bank.lookup("sounds/large", false);
+        let copied = crate::test_allocations::bytes() - before;
+        assert!(matches!(lookup, PcmLookup::Pending));
+        assert!(
+            copied < (LARGE / 16) as u64,
+            "the caller allocated {copied} bytes for a {LARGE}-byte file"
+        );
+        bank.pcm("sounds/large", false);
+        assert!(!bank.is_decoding("sounds/large"), "a worker finished it");
+        drop(bank);
+        let _ = std::fs::remove_file(&path);
     }
 
     // Distinct first plays must not queue every compressed file at once.
