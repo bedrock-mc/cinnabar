@@ -148,6 +148,331 @@ fn cards_update_values_without_rebuilding_the_json_ui_catalog_and_revoke_cleanly
     );
 }
 #[test]
+fn changed_card_layout_rebuilds_the_catalog_and_stacks_rendered_text() {
+    let mut p = presentation(false);
+    let runtime = UiRuntime::new(1);
+    let mut hud = content();
+    hud.cards[0].title.clear();
+    hud.cards[0].rows[0].item = None;
+    hud.cards[0].rows[0].progress = None;
+    hud.cards[0].rows[0].color = [1., 0., 0., 1.];
+    p.set_mod_hud(Some(&hud)).unwrap();
+    let catalog = Arc::clone(&p.form_presentation.mod_widgets.as_ref().unwrap().catalog);
+    let standard = frame(&mut p, &runtime, [1280, 720], 1.);
+    hud.cards[0].row_layout = ui::mod_hud::RowLayout::StackedText;
+    hud.cards[0].width = 128.;
+    hud.cards[0].row_height = 34.;
+    hud.cards[0].icon_size = 22.;
+    p.set_mod_hud(Some(&hud)).unwrap();
+    assert!(!Arc::ptr_eq(
+        &catalog,
+        &p.form_presentation.mod_widgets.as_ref().unwrap().catalog
+    ));
+    let stacked = frame(&mut p, &runtime, [1280, 720], 1.);
+    assert_ne!(
+        snapshot::rasterize(&standard),
+        snapshot::rasterize(&stacked)
+    );
+    let nodes = &p.last_frame.as_ref().unwrap().nodes;
+    // Node bounds are parent-local; compare the row runs in the card's world space.
+    let world_bounds = |node: &ui::UiNode| {
+        let bounds = node.bounds();
+        let mut offset = [0.; 2];
+        let mut parent = node.parent();
+        while let Some(id) = parent {
+            let ancestor = nodes.iter().find(|node| node.id() == id).unwrap();
+            offset[0] += ancestor.bounds().min().x();
+            offset[1] += ancestor.bounds().min().y();
+            parent = ancestor.parent();
+        }
+        ui::UiRect::new(
+            ui::UiPoint::new(bounds.min().x() + offset[0], bounds.min().y() + offset[1]).unwrap(),
+            ui::UiPoint::new(bounds.max().x() + offset[0], bounds.max().y() + offset[1]).unwrap(),
+        )
+        .unwrap()
+    };
+    let surface = nodes
+        .iter()
+        .find_map(|node| {
+            let ui::UiVisual::Mesh(mesh) = node.visual() else {
+                return None;
+            };
+            mesh.vertices()
+                .iter()
+                .any(|vertex| vertex.color == [11, 13, 17, 209])
+                .then(|| world_bounds(node))
+        })
+        .expect("rendered card surface");
+    let text_bounds = |color| {
+        let matching: Vec<_> = nodes
+            .iter()
+            .filter_map(|node| {
+                matches!(node.visual(), ui::UiVisual::Text {color:actual,..} if *actual == color)
+                    .then(|| world_bounds(node))
+                    .filter(|bounds| {
+                        bounds.min().x() >= surface.min().x()
+                            && bounds.max().x() <= surface.max().x()
+                            && bounds.min().y() >= surface.min().y()
+                            && bounds.max().y() <= surface.max().y()
+                    })
+            })
+            .collect();
+        assert_eq!(matching.len(), 1, "one rendered row run inside the card");
+        matching[0]
+    };
+    let name = text_bounds([255; 4]);
+    let value = text_bounds([255, 0, 0, 255]);
+    assert!(
+        name.max().y() <= value.min().y(),
+        "stacked text uses distinct lines"
+    );
+    assert_eq!(name.min().x(), value.min().x());
+    let catalog = Arc::clone(&p.form_presentation.mod_widgets.as_ref().unwrap().catalog);
+    hud.cards[0].rows[0].value = "37%".into();
+    p.set_mod_hud(Some(&hud)).unwrap();
+    assert!(
+        Arc::ptr_eq(
+            &catalog,
+            &p.form_presentation.mod_widgets.as_ref().unwrap().catalog
+        ),
+        "a changing value retains the selected row layout"
+    );
+}
+#[test]
+fn larger_row_text_rebuilds_the_catalog_and_fits_stacked_and_right_icon_bands() {
+    for (layout, width, height, icon) in [
+        (ui::mod_hud::RowLayout::StackedText, 128., 34., 22.),
+        (ui::mod_hud::RowLayout::IconRight, 72., 28., 20.),
+    ] {
+        let mut p = presentation(false);
+        let mut hud = content();
+        let card = &mut hud.cards[0];
+        card.title.clear();
+        card.row_layout = layout;
+        card.width = width;
+        card.row_height = height;
+        card.icon_size = icon;
+        card.rows[0].progress = None;
+        card.rows[0].value = "1234".into();
+        card.rows[0].color = [1., 0., 0., 1.];
+        if layout == ui::mod_hud::RowLayout::IconRight {
+            card.rows[0].label.clear();
+        }
+        let dimensions = template::dimensions(card);
+        p.set_mod_hud(Some(&hud)).unwrap();
+        let baseline = frame(&mut p, &UiRuntime::new(1), [1280, 720], 1.);
+        let baseline_nodes = &p.last_frame.as_ref().unwrap().nodes;
+        let (_, baseline_value) = contained_row_text(
+            baseline_nodes,
+            rendered_card_surface(baseline_nodes),
+            [255, 0, 0, 255],
+        );
+        let base_scale = baseline_value.key().scale_1024;
+        let catalog = Arc::clone(&p.form_presentation.mod_widgets.as_ref().unwrap().catalog);
+        hud.cards[0].text_scale = 1.75;
+        assert_eq!(template::dimensions(&hud.cards[0]), dimensions);
+        p.set_mod_hud(Some(&hud)).unwrap();
+        assert!(!Arc::ptr_eq(
+            &catalog,
+            &p.form_presentation.mod_widgets.as_ref().unwrap().catalog
+        ));
+        let enlarged = frame(&mut p, &UiRuntime::new(1), [1280, 720], 1.);
+        assert_ne!(
+            snapshot::rasterize(&baseline),
+            snapshot::rasterize(&enlarged)
+        );
+        let nodes = &p.last_frame.as_ref().unwrap().nodes;
+        let surface = rendered_card_surface(nodes);
+        let (value, value_layout) = contained_row_text(nodes, surface, [255, 0, 0, 255]);
+        assert!(value_layout.key().scale_1024 > base_scale);
+        assert_eq!(
+            value_layout.line_count(),
+            1,
+            "four digits fit the value band"
+        );
+        assert!(value.min().y() >= surface.min().y());
+        assert!(value.max().y() <= surface.max().y());
+        let glyph_bottom = value_layout
+            .glyphs()
+            .iter()
+            .map(|glyph| glyph.bounds_64[3])
+            .max()
+            .expect("value glyphs") as f32
+            / 64.;
+        assert!(
+            glyph_bottom <= value.max().y() - value.min().y() + 0.01,
+            "layout={layout:?}, glyph_bottom={glyph_bottom}, band={value:?}"
+        );
+        if layout == ui::mod_hud::RowLayout::StackedText {
+            let (name, _) = contained_row_text(nodes, surface, [255; 4]);
+            assert!(name.max().y() <= value.min().y());
+        }
+    }
+}
+
+/// Locates the card surface in the same world coordinates as its row text.
+fn rendered_card_surface(nodes: &[ui::UiNode]) -> ui::UiRect {
+    nodes
+        .iter()
+        .find_map(|node| match node.visual() {
+            ui::UiVisual::Mesh(mesh)
+                if mesh
+                    .vertices()
+                    .iter()
+                    .any(|vertex| vertex.color == [11, 13, 17, 209]) =>
+            {
+                Some(composed_bounds(nodes, node))
+            }
+            _ => None,
+        })
+        .expect("rendered card surface")
+}
+
+/// Requires exactly one matching row run inside the card's full world rectangle.
+fn contained_row_text(
+    nodes: &[ui::UiNode],
+    surface: ui::UiRect,
+    color: [u8; 4],
+) -> (ui::UiRect, &ui::TextLayout) {
+    let matches: Vec<_> = nodes
+        .iter()
+        .filter_map(|node| {
+            let ui::UiVisual::Text {
+                layout,
+                color: actual,
+                ..
+            } = node.visual()
+            else {
+                return None;
+            };
+            let bounds = composed_bounds(nodes, node);
+            (*actual == color
+                && bounds.min().x() >= surface.min().x()
+                && bounds.max().x() <= surface.max().x()
+                && bounds.min().y() >= surface.min().y()
+                && bounds.max().y() <= surface.max().y())
+            .then_some((bounds, layout.as_ref()))
+        })
+        .collect();
+    assert_eq!(matches.len(), 1, "one matching row run inside the card");
+    matches[0]
+}
+
+/// Composes ancestor offsets before comparing independently parented render nodes.
+fn composed_bounds(nodes: &[ui::UiNode], node: &ui::UiNode) -> ui::UiRect {
+    let bounds = node.bounds();
+    let mut offset = [0.; 2];
+    let mut parent = node.parent();
+    while let Some(id) = parent {
+        let ancestor = nodes.iter().find(|node| node.id() == id).unwrap();
+        offset[0] += ancestor.bounds().min().x();
+        offset[1] += ancestor.bounds().min().y();
+        parent = ancestor.parent();
+    }
+    ui::UiRect::new(
+        ui::UiPoint::new(bounds.min().x() + offset[0], bounds.min().y() + offset[1]).unwrap(),
+        ui::UiPoint::new(bounds.max().x() + offset[0], bounds.max().y() + offset[1]).unwrap(),
+    )
+    .unwrap()
+}
+
+#[test]
+fn compact_inline_rows_keep_progress_separate_from_rendered_text() {
+    for layout in [
+        ui::mod_hud::RowLayout::Standard,
+        ui::mod_hud::RowLayout::IconRight,
+    ] {
+        let maximum = if layout == ui::mod_hud::RowLayout::Standard {
+            20
+        } else {
+            23
+        };
+        for height in 12..=maximum {
+            let mut p = presentation(false);
+            let mut hud = content();
+            let card = &mut hud.cards[0];
+            card.title.clear();
+            card.row_layout = layout;
+            card.row_height = height as f32;
+            card.icon_size = 4.;
+            card.rows[0].item = None;
+            card.rows[0].color = [1., 0., 0., 1.];
+            p.set_mod_hud(Some(&hud)).unwrap();
+            frame(&mut p, &UiRuntime::new(1), [1280, 720], 1.);
+            let nodes = &p.last_frame.as_ref().unwrap().nodes;
+            let world_bounds = |node: &ui::UiNode| {
+                let bounds = node.bounds();
+                let mut offset = [0.; 2];
+                let mut parent = node.parent();
+                while let Some(id) = parent {
+                    let ancestor = nodes.iter().find(|node| node.id() == id).unwrap();
+                    offset[0] += ancestor.bounds().min().x();
+                    offset[1] += ancestor.bounds().min().y();
+                    parent = ancestor.parent();
+                }
+                ui::UiRect::new(
+                    ui::UiPoint::new(bounds.min().x() + offset[0], bounds.min().y() + offset[1])
+                        .unwrap(),
+                    ui::UiPoint::new(bounds.max().x() + offset[0], bounds.max().y() + offset[1])
+                        .unwrap(),
+                )
+                .unwrap()
+            };
+            let mesh_bounds = |color| {
+                nodes
+                    .iter()
+                    .find_map(|node| {
+                        let ui::UiVisual::Mesh(mesh) = node.visual() else {
+                            return None;
+                        };
+                        mesh.vertices()
+                            .iter()
+                            .any(|vertex| vertex.color == color)
+                            .then(|| world_bounds(node))
+                    })
+                    .expect("rendered row surface")
+            };
+            let surface = mesh_bounds([11, 13, 17, 209]);
+            let progress = mesh_bounds([255, 0, 0, 255]);
+            let unit = (surface.max().x() - surface.min().x()) / hud.cards[0].width;
+            let row_end = surface.min().y() + height as f32 * unit;
+            assert!(progress.max().y() <= row_end - 2. * unit + 0.01);
+            assert!((progress.max().y() - progress.min().y() - 2. * unit).abs() < 0.01);
+            let text: Vec<_> = nodes.iter().filter_map(|node| {
+                matches!(node.visual(), ui::UiVisual::Text {color,..} if *color == [255;4] || *color == [255,0,0,255])
+                    .then(|| world_bounds(node))
+                    .filter(|bounds| bounds.min().y() >= surface.min().y() && bounds.max().y() <= surface.max().y())
+            }).collect();
+            assert_eq!(text.len(), 2);
+            let legacy = layout == ui::mod_hud::RowLayout::Standard && height == 20;
+            let gap = if legacy { 0. } else { 2. * unit };
+            for bounds in text {
+                assert!(bounds.min().y() >= surface.min().y() + 2. * unit - 0.01);
+                assert!(
+                    bounds.max().y() <= progress.min().y() - gap + 0.01,
+                    "layout={layout:?}, row_height={height}, text={bounds:?}, progress={progress:?}"
+                );
+                if legacy {
+                    assert!((bounds.min().y() - surface.min().y() - 2. * unit).abs() < 0.01);
+                }
+            }
+            if legacy {
+                assert!((progress.min().y() - surface.min().y() - 14. * unit).abs() < 0.01);
+                let authored = template::card(&hud.cards[0], 0, &mut 0);
+                let label = authored["controls"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find_map(|control| control.get("label_0"))
+                    .unwrap();
+                assert_eq!(label["offset"][1], 2.);
+                assert_eq!(label["size"][1], 12.);
+                assert_eq!(label["font_scale_factor"], 0.8);
+            }
+        }
+    }
+}
+#[test]
 fn cards_cannot_bypass_inventory_chat_loading_server_or_player_hud_visibility() {
     for gate in 0..5 {
         let mut p = presentation(gate == 0);

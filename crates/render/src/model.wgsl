@@ -1,4 +1,4 @@
-#import cinnabar::material::{MaterialGpu, materials, positional_material}
+#import cinnabar::material::{MaterialGpu, materials, positional_material, material_uv_flags}
 #ifdef ENHANCED_SHADOW
 #import cinnabar::enhanced_caster::caster_clip
 #endif
@@ -246,6 +246,16 @@ fn vertex(
         f32(packed_u16(template_quad_base + 6u, uv_component)),
         f32(packed_u16(template_quad_base + 6u, uv_component + 1u)),
     ) / 4096.0;
+    // World rotation acts on the authored UV rectangle, independently of model geometry.
+    if ((material.flags & MATERIAL_ISOTROPIC_FLAG) != 0u) {
+        let uv_flags = material_uv_flags(material.flags, origin.value.xyz + vec3<i32>(block_position));
+        switch uv_flags & 3u {
+            case 1u: { out.uv = vec2(out.uv.y, 1.0 - out.uv.x); }
+            case 2u: { out.uv = vec2(1.0) - out.uv; }
+            case 3u: { out.uv = vec2(1.0 - out.uv.y, out.uv.x); }
+            default: {}
+        }
+    }
     if (is_bamboo && ((BAMBOO_STEM_SIDE_QUAD_MASK >> quad_index) & 1u) != 0u) {
         out.uv.x += f32((packed_transform >> 20u) & 3u) * BAMBOO_STEM_UV_STRIDE;
     }

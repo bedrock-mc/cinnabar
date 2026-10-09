@@ -242,3 +242,52 @@ fn mouse_look_turns_vanilla_degrees_for_window_width_and_sensitivity() {
     assert!((turned(1920, Some(0.8)) - expected(1920, game.value())).abs() < 1e-4);
     assert_eq!(turned(1920, Some(0.5)), turned(1920, None));
 }
+
+#[test]
+fn view_scale_reduces_calibrated_mouse_look_and_restores_without_changing_sensitivity() {
+    let mut router = SemanticInputRouter::default();
+    router
+        .route(DeviceFrame {
+            keyboard_mouse: Some(KeyboardMouseFrame {
+                activity_sequence: 1,
+                mouse_motion: [-30.0, 0.0],
+                ..Default::default()
+            }),
+            ..Default::default()
+        })
+        .unwrap();
+    let mut app = App::new();
+    app.insert_resource(CameraSettingsAuthority::default())
+        .insert_resource(LocalViewPose::new(Vec3::ZERO, Quat::IDENTITY))
+        .insert_resource(AutoFly::new(false))
+        .insert_resource(Routed(router.finalize().unwrap()))
+        .insert_resource(WindowWidth(1920))
+        .init_resource::<Time>()
+        .init_resource::<look::LookSmoother>()
+        .add_systems(Update, drive);
+    let sensitivity = app
+        .world()
+        .resource::<CameraSettingsAuthority>()
+        .game_sensitivity();
+    let ordinary = look::mouse_turn_degrees(Vec2::new(30.0, 0.0), 1920, sensitivity).x;
+    for scale in [0.25, 1.0] {
+        app.world_mut()
+            .resource_mut::<CameraSettingsAuthority>()
+            .set_view_scale(scale, scale);
+        *app.world_mut().resource_mut::<LocalViewPose>() =
+            LocalViewPose::new(Vec3::ZERO, Quat::IDENTITY);
+        app.update();
+        let (yaw, _, _) = app
+            .world()
+            .resource::<LocalViewPose>()
+            .rotation()
+            .to_euler(EulerRot::YXZ);
+        assert!((yaw.to_degrees() - ordinary * scale).abs() < 1e-4);
+        assert_eq!(
+            app.world()
+                .resource::<CameraSettingsAuthority>()
+                .game_sensitivity(),
+            sensitivity
+        );
+    }
+}

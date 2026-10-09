@@ -93,6 +93,71 @@ fn editor_drag_uses_real_scaled_hit_regions_and_retains_its_catalog() {
     }
 }
 #[test]
+fn custom_row_layout_drag_bounds_match_the_rendered_card_surface() {
+    for (layout, width, row_height, icon_size) in [
+        (ui::mod_hud::RowLayout::StackedText, 128., 34., 22.),
+        (ui::mod_hud::RowLayout::IconRight, 60., 28., 20.),
+    ] {
+        for scale in [0.5, 1., 2.] {
+            let mut p = presentation(false);
+            let mut hud = content();
+            let card = &mut hud.cards[0];
+            card.title.clear();
+            card.scale = scale;
+            card.row_layout = layout;
+            card.width = width;
+            card.row_height = row_height;
+            card.icon_size = icon_size;
+            editor(&mut p, &hud);
+            frame(&mut p, &UiRuntime::new(1), [1280, 720], 1.);
+            let editor = p.form_presentation.mod_hud_editor.as_ref().unwrap();
+            let rendered = editor.frame.as_ref().unwrap();
+            let hit = rendered
+                .hits
+                .iter()
+                .find(|hit| hit.pressed.as_deref() == Some("hud.card:0"))
+                .expect("native card drag region");
+            let surface = p
+                .last_frame
+                .as_ref()
+                .unwrap()
+                .nodes
+                .iter()
+                .find_map(|node| {
+                    let ui::UiVisual::Mesh(mesh) = node.visual() else {
+                        return None;
+                    };
+                    mesh.vertices()
+                        .iter()
+                        .any(|vertex| vertex.color == [11, 13, 17, 209])
+                        .then(|| node.bounds())
+                })
+                .expect("rendered card surface");
+            assert!(
+                (surface.max().x() - surface.min().x() - hit.rect.w as f32 * rendered.scale).abs()
+                    < 0.01
+            );
+            assert!(
+                (surface.max().y() - surface.min().y() - hit.rect.h as f32 * rendered.scale).abs()
+                    < 0.01
+            );
+            let at = point(&p, "hud.card:0");
+            p.mod_panel_events(at, true, true);
+            p.mod_panel_events([10000.; 2], false, false);
+            assert_eq!(
+                p.form_presentation
+                    .mod_hud_editor
+                    .as_ref()
+                    .unwrap()
+                    .draft
+                    .cards[0]
+                    .position,
+                Some([1., 1.])
+            );
+        }
+    }
+}
+#[test]
 fn editor_selection_preserves_legacy_placement_and_reset_is_a_draft() {
     let mut p = presentation(false);
     let mut hud = content();
