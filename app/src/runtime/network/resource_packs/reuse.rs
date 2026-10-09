@@ -104,10 +104,24 @@ impl CompiledStacks {
         stack: &ValidatedPackStack,
         environment: &CompileEnvironment,
     ) -> Option<(Arc<ValidatedPackStack>, PackApplication)> {
-        self.lock()
+        self.matching_by(stack, environment, ValidatedPackStack::same_contents)
+    }
+
+    /// [`Self::matching`] with `same` deciding whether two stacks read alike. Archives compare
+    /// outside the lock, so a release from the frame never waits behind a comparison.
+    fn matching_by(
+        &self,
+        stack: &ValidatedPackStack,
+        environment: &CompileEnvironment,
+        same: impl Fn(&ValidatedPackStack, &ValidatedPackStack) -> bool,
+    ) -> Option<(Arc<ValidatedPackStack>, PackApplication)> {
+        let candidates: Vec<_> = self
+            .lock()
             .iter()
-            .find(|kept| kept.environment == *environment && kept.stack.same_contents(stack))
+            .filter(|kept| kept.environment == *environment)
             .map(|kept| (Arc::clone(&kept.stack), kept.application.clone()))
+            .collect();
+        candidates.into_iter().find(|(kept, _)| same(kept, stack))
     }
 
     /// Keeps a join's application, newest first, replacing any entry for the same contents.
@@ -118,12 +132,36 @@ impl CompiledStacks {
         application: &PackApplication,
         source_ui: Option<Arc<ServerUiPack>>,
     ) {
+        self.remember_by(
+            environment,
+            application,
+            source_ui,
+            ValidatedPackStack::same_contents,
+        );
+    }
+
+    /// [`Self::remember`] with `same` deciding whether two stacks read alike. Archives compare,
+    /// and replaced entries drop, outside the lock.
+    fn remember_by(
+        &self,
+        environment: CompileEnvironment,
+        application: &PackApplication,
+        source_ui: Option<Arc<ServerUiPack>>,
+        same: impl Fn(&ValidatedPackStack, &ValidatedPackStack) -> bool,
+    ) {
         let PackAdmission::Validated(stack) = &application.admission else {
             return;
         };
-        let mut kept = self.lock();
-        kept.retain(|kept| !kept.stack.same_contents(stack));
-        kept.push_front(Kept {
+        let kept_stacks: Vec<_> = self
+            .lock()
+            .iter()
+            .map(|kept| Arc::clone(&kept.stack))
+            .collect();
+        let replaced: Vec<_> = kept_stacks
+            .into_iter()
+            .filter(|kept| same(kept, stack))
+            .collect();
+        let entry = Kept {
             environment,
             stack: Arc::clone(stack),
             _prepared_ui: application.server_ui.clone(),
@@ -131,8 +169,20 @@ impl CompiledStacks {
                 server_ui: source_ui,
                 ..application.clone()
             },
-        });
-        kept.truncate(KEPT_STACKS);
+        };
+        let evicted = {
+            let mut kept = self.lock();
+            let (mut evicted, retained): (Vec<Kept>, Vec<Kept>) = kept
+                .drain(..)
+                .partition(|kept| replaced.iter().any(|stack| Arc::ptr_eq(stack, &kept.stack)));
+            *kept = retained.into();
+            kept.push_front(entry);
+            if kept.len() > KEPT_STACKS {
+                evicted.extend(kept.split_off(KEPT_STACKS));
+            }
+            evicted
+        };
+        drop(evicted);
     }
 
     /// Takes every kept stack; dropping the result releases their archives and compiled outputs.

@@ -302,6 +302,32 @@ fn a_join_compiles_on_the_idle_world_cores() {
     );
 }
 
+// Comparing archives reads every byte; a release from the frame must not wait behind it.
+#[test]
+fn kept_stacks_compare_archives_without_holding_their_lock() {
+    let kept = CompiledStacks::new();
+    let archive = ResourcePackArchive::unencrypted(
+        "00000000-0000-0000-0000-00000000c0de".parse().unwrap(),
+        "1.0.0".into(),
+        String::new(),
+        vec![0; 32],
+    );
+    let stack = admitted(&archive);
+    kept.keep_for_test(Arc::clone(&stack));
+    let unlocked = |_: &ValidatedPackStack, _: &ValidatedPackStack| {
+        assert!(kept.0.try_lock().is_ok(), "compared under the lock");
+        true
+    };
+    let environment = CompileEnvironment::current();
+    assert!(kept.matching_by(&stack, &environment, unlocked).is_some());
+    let application = PackApplication {
+        admission: PackAdmission::Validated(admitted(&archive)),
+        ..Default::default()
+    };
+    kept.remember_by(environment, &application, None, unlocked);
+    assert_eq!(kept.len(), 1, "the same contents replace their entry");
+}
+
 // Leaving for the menu releases the kept archives and compiled outputs.
 #[test]
 fn taking_the_kept_stacks_releases_them() {
