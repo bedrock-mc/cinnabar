@@ -72,13 +72,22 @@ struct Kept {
 }
 
 /// The most recently joined stacks, newest first.
-pub(in crate::runtime::network) struct CompiledStacks(Mutex<VecDeque<Kept>>);
+pub(crate) struct CompiledStacks(Mutex<VecDeque<Kept>>);
+
+impl std::fmt::Debug for CompiledStacks {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("CompiledStacks")
+            .field("kept", &self.lock().len())
+            .finish()
+    }
+}
 
 /// Joins and the post-join reload share these; leaving for the menu releases them.
 pub(in crate::runtime::network) static LATEST: CompiledStacks = CompiledStacks::new();
 
 impl CompiledStacks {
-    pub(in crate::runtime::network) const fn new() -> Self {
+    pub(crate) const fn new() -> Self {
         Self(Mutex::new(VecDeque::new()))
     }
 
@@ -131,10 +140,30 @@ impl CompiledStacks {
         std::mem::take(&mut *self.lock())
     }
 
+    /// Releases every kept stack, as leaving for the menu releases the session's, freeing them
+    /// off the calling frame.
+    pub(crate) fn release(&self) {
+        let released = self.take();
+        rayon::spawn(move || drop(released));
+    }
+
     /// How many stacks are kept.
     #[cfg(test)]
-    pub(in crate::runtime::network) fn len(&self) -> usize {
+    pub(crate) fn len(&self) -> usize {
         self.lock().len()
+    }
+
+    /// Keeps `stack` as a join would, with nothing compiled from it.
+    #[cfg(test)]
+    pub(crate) fn keep_for_test(&self, stack: Arc<ValidatedPackStack>) {
+        self.remember(
+            CompileEnvironment::current(),
+            &PackApplication {
+                admission: PackAdmission::Validated(stack),
+                ..Default::default()
+            },
+            None,
+        );
     }
 }
 

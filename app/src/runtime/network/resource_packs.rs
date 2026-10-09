@@ -158,11 +158,9 @@ fn prepare_join_with(
     }))
 }
 
-/// Releases every recently compiled stack, as leaving for the menu releases the session's,
-/// freeing them off the calling frame.
-pub(crate) fn release_compiled_stacks() {
-    let released = reuse::LATEST.take();
-    rayon::spawn(move || drop(released));
+/// The recently compiled stacks joins and the post-join reload share.
+pub(crate) fn compiled_stacks() -> &'static reuse::CompiledStacks {
+    &reuse::LATEST
 }
 
 /// `block_items` pairs each custom block item with the block it draws as.

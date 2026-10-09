@@ -290,7 +290,7 @@ fn a_join_compiles_on_the_idle_world_cores() {
     )
     .unwrap()
     .unwrap();
-    crate::runtime::network::resource_packs::release_compiled_stacks();
+    crate::runtime::network::resource_packs::compiled_stacks().release();
     let cores = std::thread::available_parallelism().map_or(1, usize::from);
     let widths = widths.into_inner().unwrap();
     assert!(!widths.is_empty());

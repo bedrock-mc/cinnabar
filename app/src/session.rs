@@ -16,7 +16,7 @@ use crate::{
     movement::{LocalPhysicsController, MovementTicker},
     player_runtime::PlayerRuntime,
     runtime::{
-        network::{NetworkConfig, NetworkHandle, ResourcePackAdmissionState},
+        network::{CompiledStacks, NetworkConfig, NetworkHandle, ResourcePackAdmissionState},
         shutdown::record_fatal_error,
         world::{ClientWorld, TransferNotice},
     },
@@ -68,6 +68,8 @@ pub(crate) struct SessionController {
     connecting: bool,
     /// Polls the per-session core this join started for its server trust question.
     trust: Option<SessionTrust>,
+    /// Server packs recent joins compiled; released once no join follows.
+    kept_packs: &'static CompiledStacks,
 }
 
 impl Default for SessionController {
@@ -88,7 +90,15 @@ impl SessionController {
             transfer_hops_remaining: MAX_TRANSFER_CHAIN_HOPS,
             connecting: false,
             trust: None,
+            kept_packs: crate::runtime::network::compiled_stacks(),
         }
+    }
+
+    /// A controller that releases `kept` instead of the stacks joins share.
+    #[cfg(test)]
+    pub(crate) fn with_kept_packs(mut self, kept: &'static CompiledStacks) -> Self {
+        self.kept_packs = kept;
+        self
     }
 
     /// Names a direct `--address` session's destination.
@@ -135,9 +145,11 @@ impl SessionController {
         true
     }
 
+    /// Returns a failed join to the menu, where no join follows to reuse the kept packs.
     fn fail_join(&mut self, menu: &mut MenuRuntime, message: String) {
         menu.show_join_failure(message);
         self.connecting = false;
+        self.kept_packs.release();
     }
 
     /// Spawns a per-session core that dials `address` directly.
@@ -321,7 +333,7 @@ impl SessionResources<'_> {
     /// recently compiled server packs a following join would have reused.
     fn leave(&mut self) {
         self.retire();
-        crate::runtime::network::release_compiled_stacks();
+        self.controller.kept_packs.release();
     }
 
     /// Ends the live session and fences a fresh generation. The core stops off
