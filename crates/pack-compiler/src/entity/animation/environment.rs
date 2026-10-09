@@ -88,9 +88,8 @@ pub(super) fn collect(
                 _ => None,
             })
             .collect();
-        let animation_aliases = super::roots::animation_aliases(description)?;
-        let mut controller_aliases =
-            super::roots::legacy_controller_aliases(description.get("animation_controllers"))?;
+        let animation_aliases = super::roots::animation_aliases(&value)?;
+        let mut controller_aliases = super::roots::legacy_controller_aliases(&value)?;
         for (alias, target) in &animation_aliases {
             if target.starts_with("controller.animation.") {
                 match controller_aliases.get(alias) {

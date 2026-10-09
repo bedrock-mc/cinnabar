@@ -10,6 +10,7 @@ publish = false
 wire-test-support = []
 
 [dependencies]
+block-transform = { path = "../block-transform" }
 render-api = { path = "../render-api" }
 anyhow.workspace = true
 bridge = { path = "../bridge" }

@@ -108,6 +108,7 @@ fn render_edge(gpu: &Gpu, held: bool, samples: u32, back: bool) -> Vec<u8> {
     var out: VertexOutput;
     out.clip_position = edge_position(uv);
     out.uv = uv;
+    out.material_flags = MODEL_FIXTURE_CUTOUT;
     out.visible = 1u;
     out.two_sided = 1u;
     out.native_light_levels = vec2(15.0);
@@ -124,6 +125,10 @@ fn render_edge(gpu: &Gpu, held: bool, samples: u32, back: bool) -> Vec<u8> {
     let cutout_flag = crate::HandItemAlphaMode::Cutout.texture_layer_flag();
     let source = source
         .replace("EDGE_TARGET_SIDE", &format!("{SNAPSHOT_SIDE}.0"))
+        .replace(
+            "MODEL_FIXTURE_CUTOUT",
+            &format!("{}u", assets::MATERIAL_FLAG_ALPHA_CUTOUT),
+        )
         .replace(
             "HAND_FIXTURE_LAYER",
             &format!("{}u", item_flag | cutout_flag),
@@ -142,6 +147,9 @@ fn render_edge(gpu: &Gpu, held: bool, samples: u32, back: bool) -> Vec<u8> {
     } else {
         super::bind_groups::chunk_sampler_descriptor()
     });
+    let bounded_sampler = gpu
+        .device
+        .create_sampler(&crate::material_shader::native_leaf_sampler_descriptor());
     let mut atmosphere = [0.0; 32];
     atmosphere[19] = 100.0;
     atmosphere[20] = 200.0;
@@ -186,8 +194,12 @@ fn render_edge(gpu: &Gpu, held: bool, samples: u32, back: bool) -> Vec<u8> {
                 resource: wgpu::BindingResource::Sampler(&sampler),
             },
             buffer_entry(15, &atmosphere),
-            texture_entry(16),
-            texture_entry(17),
+            texture_entry(crate::material_shader::NATIVE_LEAF_TEXTURE_BINDINGS[0]),
+            texture_entry(crate::material_shader::NATIVE_LEAF_TEXTURE_BINDINGS[1]),
+            wgpu::BindGroupEntry {
+                binding: crate::material_shader::NATIVE_LEAF_SAMPLER_BINDING,
+                resource: wgpu::BindingResource::Sampler(&bounded_sampler),
+            },
             buffer_entry(20, &lightmap),
         ]
     };

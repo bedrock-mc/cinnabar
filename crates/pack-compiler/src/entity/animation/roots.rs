@@ -14,24 +14,29 @@ fn legacy_controller_alias(alias: &str) -> Box<str> {
     format!("controller__{alias}").into_boxed_str()
 }
 
+/// Converts controller aliases only for definitions using the legacy entity schema.
 pub(super) fn legacy_controller_aliases(
-    value: Option<&Value>,
+    value: &Value,
 ) -> Result<BTreeMap<Box<str>, Box<str>>, AssetError> {
-    Ok(super::environment::parse_aliases(value)?
+    if schema_version(value).is_none_or(|version| !((1, 8)..(1, 10)).contains(&version)) {
+        return Ok(BTreeMap::new());
+    }
+    let entries =
+        description(value).and_then(|description| description.get("animation_controllers"));
+    Ok(super::environment::parse_aliases(entries)?
         .into_iter()
         .map(|(alias, target)| (legacy_controller_alias(&alias), target))
         .collect())
 }
 
-pub(super) fn animation_aliases(
-    description: &serde_json::Map<String, Value>,
-) -> Result<BTreeMap<Box<str>, Box<str>>, AssetError> {
+/// Resolves animation aliases after the entity schema's legacy controller conversion.
+pub(super) fn animation_aliases(value: &Value) -> Result<BTreeMap<Box<str>, Box<str>>, AssetError> {
+    let description = description(value)
+        .ok_or_else(|| crate::entity::invalid("client entity description is absent"))?;
     let mut aliases = super::environment::parse_aliases(description.get("animations"))?;
     // The native conversion assigns the generated controller target into this dictionary,
     // replacing an existing generated-name alias rather than scheduling both targets.
-    aliases.extend(legacy_controller_aliases(
-        description.get("animation_controllers"),
-    )?);
+    aliases.extend(legacy_controller_aliases(value)?);
     Ok(aliases)
 }
 
@@ -52,9 +57,7 @@ pub(crate) struct ActivationRoot {
 /// Returns the aliases a rig plays each tick, or `None` for an unrecognized schema.
 pub(crate) fn activation_roots(value: &Value) -> Option<Vec<ActivationRoot>> {
     let description = description(value)?;
-    let version = value.get("format_version")?.as_str()?;
-    let mut parts = version.split('.').map(str::parse::<u32>);
-    let (major, minor) = (parts.next()?.ok()?, parts.next()?.ok()?);
+    let (major, minor) = schema_version(value)?;
     let mut roots = Vec::<ActivationRoot>::new();
     let mut push = |alias: &str, condition: Option<&str>| {
         if !roots.iter().any(|root| root.alias == alias) {
@@ -64,7 +67,9 @@ pub(crate) fn activation_roots(value: &Value) -> Option<Vec<ActivationRoot>> {
             });
         }
     };
-    if let Some(entries) = description.get("animation_controllers") {
+    if ((1, 8)..(1, 10)).contains(&(major, minor))
+        && let Some(entries) = description.get("animation_controllers")
+    {
         for entry in entries.as_array()? {
             for alias in entry.as_object()?.keys() {
                 push(&legacy_controller_alias(alias), None);
@@ -88,4 +93,11 @@ pub(crate) fn activation_roots(value: &Value) -> Option<Vec<ActivationRoot>> {
         return None;
     }
     Some(roots)
+}
+
+/// Reads the entity schema version used to select legacy controller conversion.
+fn schema_version(value: &Value) -> Option<(u32, u32)> {
+    let version = value.get("format_version")?.as_str()?;
+    let mut parts = version.split('.').map(str::parse::<u32>);
+    Some((parts.next()?.ok()?, parts.next()?.ok()?))
 }

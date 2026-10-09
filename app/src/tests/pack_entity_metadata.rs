@@ -145,7 +145,7 @@ const RENDER: &str = r#"{"format_version":"1.8.0","render_controllers":{
  "textures":["Array.digits[query.variant]"]},
  "controller.render.logo":{
  "geometry":"Geometry.default","materials":[{"*":"Material.default"}],
- "textures":["Texture.default"],"ignore_lighting":true,
+ "textures":["Texture.default"],"ignore_lighting":true,"light_color_multiplier":0.5,
  "uv_anim":{"offset":[0.0,"math.mod(math.floor(query.life_time * 120), 4) / 4"],
   "scale":[1.0,"1 / 4"]}}}}"#;
 
@@ -450,11 +450,11 @@ fn a_finished_once_animation_releases_the_pose_while_hold_keeps_it() {
     assert!((held - 8.0).abs() < 1e-4, "{held}");
 }
 
-// A controller with `ignore_lighting` draws unlit even where the world lights the body.
+// Ignoring environment illumination keeps face shading and the controller's light multiplier.
 #[test]
-fn ignore_lighting_controllers_draw_unlit_while_others_keep_world_light() {
+fn ignore_lighting_controllers_keep_face_shading_and_multiplier_without_world_light() {
     let (pack, artwork) = pack();
-    let light = |identifier: &str| {
+    let draw = |identifier: &str, block, sky| {
         let world = world(pack.clone(), identifier);
         let rig = world.authority().actor_rig(42).unwrap();
         let mut body = actors::entity_rig_presentation(
@@ -464,17 +464,36 @@ fn ignore_lighting_controllers_draw_unlit_while_others_keep_world_light() {
             0.5,
         )
         .unwrap();
-        body.submission.light = render::pack_actor_light(2, 9);
+        body.submission.light = render::pack_actor_light(block, sky);
         let mut batch = actors::select_actor_presentations(1, false, None, [body]);
         entity_layers::apply_render_layers(
             &mut batch,
             |id| world.authority().actor_rig(id),
             &artwork,
         );
-        batch.submissions[0].light
+        let mut scene = render::ActorRenderScene::default();
+        scene.replace_pack_entities(Some(&pack.0)).unwrap();
+        scene.configure_artwork(artwork.clone());
+        let frame =
+            scene.update_rigs_with_artwork(0.5, None, batch.submissions, &[], &batch.artwork);
+        assert_eq!(frame.rig.instances.len(), 1, "{:?}", frame.rig.rejects);
+        frame.rig.instances[0]
     };
-    assert_eq!(light("test:logo"), 0);
-    assert_eq!(light("test:counter"), render::pack_actor_light(2, 9));
+    let dark = draw("test:logo", 0, 0);
+    for (block, sky) in [(0, 0), (2, 9), (15, 15)] {
+        let ignored = draw("test:logo", block, sky);
+        assert_eq!(ignored.light & render_api::ACTOR_LIGHT_WORLD, 0);
+        assert_ne!(ignored.light & render_api::ACTOR_LIGHT_DIRECTIONAL, 0);
+        assert_eq!(
+            ignored.light, dark.light,
+            "world light does not affect this controller"
+        );
+        assert_eq!(ignored.light_color_multiplier, 0.5);
+
+        let lit = draw("test:counter", block, sky);
+        assert_eq!(lit.light, render::pack_actor_light(block, sky));
+        assert_eq!(lit.light_color_multiplier, 1.0);
+    }
 }
 
 // Authored scale expressions and axis scales size the model each tick.

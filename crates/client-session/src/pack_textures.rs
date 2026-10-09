@@ -28,6 +28,31 @@ pub fn texture_key_paths(view: &LayeredPackView, catalog: &str) -> HashMap<Strin
     paths
 }
 
+/// Reads terrain UV grids from valid winning entries, resetting omitted grids to zero.
+pub fn terrain_texture_grids(view: &LayeredPackView) -> HashMap<String, u8> {
+    let mut grids = HashMap::new();
+    for layer in view.read_layers("textures/terrain_texture.json") {
+        let Some(Value::Object(data)) =
+            parse_pack_json(&layer).map(|mut root| root["texture_data"].take())
+        else {
+            continue;
+        };
+        for (key, entry) in data {
+            if grids.len() >= MAX_CATALOG_ENTRIES && !grids.contains_key(&key) {
+                break;
+            }
+            if first_texture_path(&entry["textures"]).is_some() {
+                grids.insert(
+                    key,
+                    (entry["quad"].as_u64().unwrap_or(0) as u32 & assets::TERRAIN_QUAD_SHIFT_MASK)
+                        as u8,
+                );
+            }
+        }
+    }
+    grids
+}
+
 static BASE_TERRAIN_CATALOG: std::sync::OnceLock<HashMap<String, String>> =
     std::sync::OnceLock::new();
 

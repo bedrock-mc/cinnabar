@@ -9,6 +9,7 @@ publish = false
 test-support = []
 
 [dependencies]
+block-transform = { path = "../block-transform" }
 assets = { path = "../assets" }
 client-world = { path = "../client-world" }
 inventory = { path = "../inventory" }

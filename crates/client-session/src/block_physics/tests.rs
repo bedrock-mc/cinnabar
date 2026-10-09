@@ -130,6 +130,7 @@ fn preparation_materializes_state_physics_for_registry_consumers() {
         assert_eq!(
             block.physics_for_state(state),
             CustomBlockPhysics {
+                random_offset: None,
                 collides,
                 collision_boxes,
                 selection
@@ -200,3 +201,35 @@ fn aggregate_state_reservation_is_bounded_and_does_not_expand_for_rejected_block
 
 #[path = "tests/fixture.rs"]
 mod fixture;
+
+#[test]
+fn random_offset_state_overrides_are_prepared_once_in_palette_order() {
+    let mut block = slab();
+    let base = block_transform::random_offset::BAMBOO;
+    let zero = block_transform::random_offset::RandomOffsetComponent::default();
+    let visual = Arc::make_mut(&mut block.visual);
+    visual.base.random_offset = Some(base);
+    visual.permutations = Box::new([protocol::CustomPermutation {
+        condition: "q.block_state('minecraft:vertical_half') == 'top'".into(),
+        components: protocol::CustomVisualComponents {
+            random_offset: Some(zero),
+            ..Default::default()
+        },
+        physical: protocol::CustomPhysicalComponents {
+            random_offset: Some(zero),
+            ..Default::default()
+        },
+    }]);
+    let mut blocks = CustomBlocks {
+        blocks: Arc::from([block]),
+        ..Default::default()
+    };
+    resolve(&mut blocks);
+    assert_eq!(blocks.skipped, 0);
+    for (state, expected) in [(0, base), (1, zero), (2, base), (3, base)] {
+        assert_eq!(
+            blocks.blocks[0].physics_for_state(state).random_offset,
+            Some(expected)
+        );
+    }
+}

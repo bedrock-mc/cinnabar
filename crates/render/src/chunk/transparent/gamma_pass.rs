@@ -20,7 +20,7 @@ use bevy::{
 
 /// Encoded blending applies to ordinary LDR views at every sample count.
 pub(crate) fn admitted(hdr: bool, _msaa: Msaa, enhanced: bool) -> bool {
-    !(hdr || render_model::ENHANCED_RENDERING_ENABLED && enhanced)
+    !(hdr || render_model::enhanced_rendering_enabled() && enhanced)
 }
 
 /// Shares the main colour attachment with opaque geometry and later hand passes.

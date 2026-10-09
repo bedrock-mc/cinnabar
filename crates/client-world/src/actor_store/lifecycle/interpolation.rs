@@ -82,6 +82,7 @@ impl ActorStore {
                         actor.interpolation_ticks_remaining.saturating_sub(1);
                     actor.set_current_pose(next);
                     actor.advance_movement_interpolation();
+                    actor.advance_creeper_swell();
                     actor.status.tick();
                     let using_item = actor.is_using_item();
                     actor.status.advance_kinetic_hit(using_item);

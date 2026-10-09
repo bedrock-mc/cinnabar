@@ -187,15 +187,18 @@ fn layers(
 ) -> Vec<crate::presentation::equipment::runtime::EquipmentPresentation> {
     let names = [Box::<str>::from("body")];
     let rig = owner_rig(owner, &names, tick);
-    runtime.layers_for(
-        body,
-        input,
-        Some(EquipmentAnimation {
-            owner,
-            rig: &rig,
-            frame_alpha: 1.0,
-        }),
-    )
+    runtime
+        .layers_for(
+            body,
+            input,
+            Some(EquipmentAnimation {
+                owner,
+                rig: &rig,
+                frame_alpha: 1.0,
+                delta_seconds: client_world::ACTOR_TICK_DURATION.as_secs_f32(),
+            }),
+        )
+        .to_vec()
 }
 
 /// Resolves the selected artwork texel without depending on atlas page layout.

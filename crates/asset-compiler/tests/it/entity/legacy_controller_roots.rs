@@ -87,22 +87,41 @@ fn legacy_controller_same_named_clip_cannot_bypass_its_baby_gate() {
 }
 
 #[test]
-fn explicitly_animated_clip_and_same_named_legacy_controller_keep_separate_bindings() {
+fn legacy_schema_does_not_activate_the_modern_animate_script() {
+    let pack = collision_pack("1.8.0", true);
+    let compiled = compile_entity_assets(pack.path(), MANIFEST).unwrap();
+    let geometry = &compiled.rig_geometries[compiled.rig_bindings[0].first_geometry as usize];
+    assert_eq!(geometry.animation_count, 0);
+    assert_eq!(geometry.controller_count, 1);
+}
+
+#[test]
+fn modern_animate_plays_the_clip_without_activating_same_named_legacy_controller() {
     let pack = collision_pack("1.10.0", true);
     let compiled = compile_entity_assets(pack.path(), MANIFEST).unwrap();
     let geometry = &compiled.rig_geometries[compiled.rig_bindings[0].first_geometry as usize];
     assert_eq!(geometry.animation_count, 1);
-    assert_eq!(geometry.controller_count, 1);
-    let direct = &compiled.rig_animations[geometry.first_animation as usize];
-    let controller = &compiled.rig_controllers[geometry.first_controller as usize];
-    assert!(direct.weight.is_some());
-    assert_ne!(direct.name, controller.name);
+    assert_eq!(geometry.controller_count, 0);
+    assert!(
+        compiled.rig_animations[geometry.first_animation as usize]
+            .weight
+            .is_some()
+    );
 }
 
 #[test]
-#[ignore = "requires CINNABAR_VANILLA_ROOT pointing to the pinned downloaded resource pack"]
 fn pinned_polar_bear_geometries_only_activate_the_native_controller_not_the_move_clip() {
-    let root = std::path::PathBuf::from(std::env::var_os("CINNABAR_VANILLA_ROOT").unwrap());
+    let Some(root) = std::env::var_os("CINNABAR_VANILLA_ROOT") else {
+        eprintln!("missing fixture CINNABAR_VANILLA_ROOT: skipping pinned polar bear check");
+        return;
+    };
+    let root = std::path::PathBuf::from(root);
+    if !root.is_dir() {
+        eprintln!(
+            "missing fixture CINNABAR_VANILLA_ROOT={root:?}: skipping pinned polar bear check"
+        );
+        return;
+    }
     let compiled = compile_entity_assets(&root, MANIFEST).unwrap();
     let rig = compiled
         .rig_bindings

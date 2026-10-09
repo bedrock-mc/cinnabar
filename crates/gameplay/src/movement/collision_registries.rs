@@ -254,7 +254,7 @@ impl PhysicsCollisionRegistries {
                 sequential.set_door_state(record.sequential_id, door.clone());
                 hashed.set_door_state(record.network_hash, door);
             }
-            if record.name.as_ref() == "minecraft:bamboo" {
+            if assets::bamboo::BambooState::from_record(record).is_some() {
                 sequential.set_bamboo_column_offset(record.sequential_id);
                 hashed.set_bamboo_column_offset(record.network_hash);
             }
@@ -370,6 +370,9 @@ impl PhysicsCollisionRegistries {
                     )
                     .ok()?;
                 apply_selection(&mut self.sequential, next, effective.selection);
+                if let Some(offset) = effective.random_offset {
+                    self.sequential.set_random_offset(next, offset);
+                }
                 next = next.checked_add(1)?;
             }
         }
@@ -435,6 +438,9 @@ impl PhysicsCollisionRegistries {
                         },
                     );
                     apply_selection(&mut self.hashed, state.hash, effective.selection);
+                    if let Some(offset) = effective.random_offset {
+                        self.hashed.set_random_offset(state.hash, offset);
+                    }
                     self.session_hashes.push(state.hash);
                 }
             }

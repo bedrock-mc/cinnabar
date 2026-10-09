@@ -85,6 +85,7 @@ pub(super) fn collect_faces(
         let (centroid, expected) = transparent_model_draw_candidate(
             instance.key,
             &instance.model_refs,
+            &instance.model_lighting,
             PackedModelDrawRef::new(local, words[1]),
             assets.assets().model_templates(),
             assets.assets().model_quads(),

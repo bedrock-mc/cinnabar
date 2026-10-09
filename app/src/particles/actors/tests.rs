@@ -133,8 +133,8 @@ fn authored_controller_particles_reach_draws_once_and_stop_on_state_exit() {
         half_diagonal: 1.0,
     };
     let draws = system.build_draw(&view, &EmptyWorld);
-    assert!(!draws.blend.is_empty());
-    assert_eq!(draws.blend[0].color, [1.0, 146.0 / 255.0, 0.0, 1.0]);
+    assert!(!draws.opaque.is_empty());
+    assert_eq!(draws.opaque[0].color, [1.0, 146.0 / 255.0, 0.0, 1.0]);
     queue_actor_particles(&stream, &mut system, &mut queue);
     assert!(queue.is_empty(), "holding a state starts no extra emitter");
     variant(&mut stream, 2, 1);

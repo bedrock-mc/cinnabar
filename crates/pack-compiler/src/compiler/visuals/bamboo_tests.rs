@@ -7,6 +7,16 @@ use super::*;
 
 #[test]
 fn bamboo_stem_uses_the_stem_selector_on_every_surface() {
+    check_selector_pack(false);
+}
+
+#[test]
+fn bamboo_without_an_authored_stem_keeps_fallback_support() {
+    check_selector_pack(true);
+}
+
+/// Exercises all admitted states with distinct selectors and optional missing stem authority.
+fn check_selector_pack(missing_stem: bool) {
     let target: Value =
         serde_json::from_slice(include_bytes!("../../../../../assets/bedrock-target.json"))
             .unwrap();
@@ -27,9 +37,19 @@ fn bamboo_stem_uses_the_stem_selector_on_every_surface() {
     .collect::<Vec<_>>();
     let directory = tempfile::tempdir().unwrap();
     fs::create_dir_all(directory.path().join("textures/blocks")).unwrap();
+    let mut blocks: Value = serde_json::from_str(
+        r#"{"bamboo":{"textures":{"north":"stem","west":"stem","east":"single_leaf","south":"small_leaf","up":"leaf","down":"sapling"}},"stone":{"textures":"stem"}}"#,
+    )
+    .unwrap();
+    if missing_stem {
+        blocks["bamboo"]["textures"]
+            .as_object_mut()
+            .unwrap()
+            .remove("north");
+    }
     fs::write(
         directory.path().join("blocks.json"),
-        r#"{"bamboo":{"textures":{"north":"stem","west":"stem","east":"single_leaf","south":"small_leaf","up":"leaf","down":"sapling"}},"stone":{"textures":"stem"}}"#,
+        serde_json::to_vec(&blocks).unwrap(),
     )
     .unwrap();
     let mut texture_data = serde_json::Map::new();
@@ -84,7 +104,14 @@ fn bamboo_stem_uses_the_stem_selector_on_every_surface() {
         .filter(|record| record.name.as_ref() == "minecraft:bamboo")
     {
         let visual = compiled.visuals[record.sequential_id as usize];
-        assert_eq!(visual.support, VisualSupport::VanillaFallback);
+        assert_eq!(
+            visual.support,
+            if missing_stem {
+                VisualSupport::VanillaFallback
+            } else {
+                VisualSupport::Exact
+            }
+        );
         let stem = visual.faces[BlockFace::North as usize];
         assert!(
             visual.faces.iter().all(|&material| material == stem),
@@ -124,6 +151,16 @@ fn bamboo_stem_uses_the_stem_selector_on_every_surface() {
                     .all(|quad| quad.material == quads[6].material)
             );
             let large = record.canonical_state.contains("large_leaves");
+            let material = compiled.materials[quads[6].material as usize];
+            assert_ne!(material.flags & assets::MATERIAL_FLAG_ALPHA_CUTOUT, 0);
+            let page = &compiled.texture_pages[material.texture.page() as usize];
+            let base = &page.texture.mips[0];
+            let offset = material.texture.layer() as usize * (base.size * base.size * 4) as usize;
+            assert_eq!(
+                base.rgba8[offset],
+                if large { 130 } else { 100 },
+                "leaf selector must follow the authored override"
+            );
             assert_eq!(
                 quads[6].positions[1][0],
                 128 + width + if large { 112 } else { 80 }

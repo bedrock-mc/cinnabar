@@ -820,3 +820,50 @@ fn air_query_requires_every_layer_empty_and_a_loaded_block() {
         Err(WorldQueryError::UnloadedChunk(_))
     ));
 }
+
+#[test]
+fn random_offset_query_halo_covers_translated_extending_shapes() {
+    use sim::CollisionWorld;
+    let (mut store, _) = loaded_air_store(ChunkKey::new(0, 0, 0));
+    set_block(&mut store, [0, 0, 0], 0, 7);
+    let mut registry = CollisionRegistry::with_identity(identity());
+    registry.register(0, []).unwrap();
+    registry
+        .register(
+            7,
+            [Aabb::new(
+                Vec3::new(1.5, 0.0, 0.0),
+                Vec3::new(2.0, 1.0, 1.0),
+            )],
+        )
+        .unwrap();
+    let mut component = block_transform::random_offset::RandomOffsetComponent::default();
+    component.axes[0].range = [0.5; 2];
+    assert!(registry.set_random_offset(7, component));
+    registry
+        .register(8, [Aabb::new(Vec3::ZERO, Vec3::new(1.5, 1.0, 1.0))])
+        .unwrap();
+    let world = PaletteWorld::new(&store, &registry, 0);
+    let origin = Vec3::new(2.25, 0.5, 2.0);
+    let ray = world
+        .block_interaction_ray_current(origin, Vec3::new(0.0, 0.0, -1.0), 4.0)
+        .unwrap();
+    assert_eq!(ray.unwrap().block_pos, [0; 3]);
+    let query = Aabb::new(Vec3::new(2.2, 0.2, 0.2), Vec3::new(2.3, 0.8, 0.8));
+    assert_eq!(world.collision_boxes(query).unwrap().value.len(), 1);
+    assert_eq!(
+        world
+            .collision_boxes_camera_lenient(query)
+            .unwrap()
+            .value
+            .len(),
+        1
+    );
+    assert!(
+        world
+            .camera_segment_entry(origin, Vec3::new(0.0, 0.0, -3.0))
+            .unwrap()
+            .0
+            .is_some()
+    );
+}

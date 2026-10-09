@@ -156,6 +156,12 @@ fn terrain_fragments_sample_interpolated_levels_not_interpolated_light_rgb() {
                     resource: lightmap.as_entire_binding(),
                 },
             ];
+            if kind == "model" {
+                bindings.push(wgpu::BindGroupEntry {
+                    binding: material_shader::NATIVE_LEAF_SAMPLER_BINDING,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                });
+            }
             if kind == "cube" {
                 bindings.extend([
                     wgpu::BindGroupEntry {

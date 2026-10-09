@@ -6,6 +6,38 @@ use client_world::ItemAnimationState;
 use render::ActorRenderIdentity;
 use sha2::{Digest, Sha256};
 
+#[test]
+fn unchanged_authored_pose_sampling_allocates_nothing_and_keeps_matrix_identity() {
+    let (mut runtime, body, _) = block_fixture();
+    let transform = body.input.current_bones[0];
+    let translated = RenderBoneTransform {
+        translation_scale: [0.5, 0.0, 0.0, 1.0],
+        ..transform
+    };
+    for endpoints in [[transform, transform], [transform, translated]] {
+        let pose = runtime
+            .poses
+            .sample_pair(&body, LAYER_MAIN_HAND, 1, |endpoint, _| {
+                Some(endpoints[endpoint])
+            })
+            .unwrap();
+        let allocated = crate::test_allocations::count();
+        let repeated = runtime
+            .poses
+            .sample_pair(&body, LAYER_MAIN_HAND, 1, |endpoint, _| {
+                Some(endpoints[endpoint])
+            })
+            .unwrap();
+        assert_eq!(crate::test_allocations::count() - allocated, 0);
+        assert!(Arc::ptr_eq(&pose[0], &repeated[0]));
+        assert!(Arc::ptr_eq(&pose[1], &repeated[1]));
+        assert_eq!(
+            Arc::ptr_eq(&pose[0], &pose[1]),
+            endpoints[0] == endpoints[1]
+        );
+    }
+}
+
 /// The cube sheet is injected after atlas construction: these tests cover placement and
 /// routing, not block-carrier admission (which has separate asset tests).
 fn block_fixture() -> (EquipmentRuntime, ActorRigSubmission, WornItem) {
@@ -126,7 +158,7 @@ fn third_person(
     body: &ActorRigSubmission,
     item: &WornItem,
 ) -> EquipmentPresentation {
-    let mut layers = runtime.layers_for(
+    let layers = runtime.layers_for(
         body,
         &ActorEquipmentInput {
             main: Some(item.clone()),
@@ -135,7 +167,7 @@ fn third_person(
         None,
     );
     assert_eq!(layers.len(), 1);
-    layers.pop().unwrap()
+    layers[0].clone()
 }
 
 #[test]
@@ -484,9 +516,7 @@ fn review_render_pack_replacement_reclaims_mesh_slots_without_reusing_vanilla_id
     let retired = item_mesh_rig_id(MAX_ITEM_MESHES as u32 - 1);
     let placement = runtime.placements[0].unwrap();
     for _ in 0..8 {
-        runtime
-            .attachable_meshes
-            .insert((true, 0, "pack_texture".into()), retired);
+        runtime.attachable_meshes.insert((true, 0, 0), retired);
         runtime.set_pack_layer(None);
         assert_eq!(
             runtime.build_mesh(MeshKey::Block(7), 0, placement),

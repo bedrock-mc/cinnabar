@@ -9,7 +9,9 @@ pub mod primitive_shapes;
 mod publication;
 mod skin;
 
-pub use actor_lighting::{ACTOR_SHADE_COEFFICIENTS, fancy_actor_shade};
+pub use actor_lighting::{
+    ACTOR_LIGHT_DIRECTIONAL, ACTOR_LIGHT_WORLD, ACTOR_SHADE_COEFFICIENTS, fancy_actor_shade,
+};
 pub use frame_rate_limit::FrameRateLimit;
 pub use publication::{
     PublicationAllowance, PublicationPermit, PublicationPermitStage, PublicationServiceConfig,

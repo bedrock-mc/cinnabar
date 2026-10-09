@@ -1,7 +1,6 @@
 //! What each item does on an air use beyond the click-air transaction every item sends.
 
-/// Bow and trident maximum use duration.
-const LONG_USE_TICKS: u32 = 72_000;
+use inventory::LONG_WEAPON_USE_TICKS;
 const SPYGLASS_USE_TICKS: u32 = 1_200;
 /// Crossbow charge: 25 ticks less 5 per Quick Charge level.
 const CROSSBOW_CHARGE_TICKS: u32 = 25;
@@ -135,8 +134,8 @@ pub fn classify(
         return pack_ticks.map(|ticks| AirUse::hold(ticks, Needs::Nothing));
     };
     Some(match name {
-        "bow" => AirUse::hold(LONG_USE_TICKS, Needs::Arrow),
-        "trident" => AirUse::hold(LONG_USE_TICKS, Needs::Nothing),
+        "bow" => AirUse::hold(LONG_WEAPON_USE_TICKS, Needs::Arrow),
+        "trident" => AirUse::hold(LONG_WEAPON_USE_TICKS, Needs::Nothing),
         "spyglass" => AirUse::hold(SPYGLASS_USE_TICKS, Needs::Nothing),
         "crossbow" if charged => AirUse::Instant,
         "crossbow" => AirUse::hold(

@@ -23,7 +23,7 @@ mod snapshot;
 mod validation;
 
 #[cfg(feature = "enhanced")]
-use render_model::ENHANCED_RENDERING_ENABLED;
+use render_model::enhanced_rendering_enabled;
 
 use bevy::{
     asset::{load_internal_asset, uuid_handle},
@@ -71,6 +71,9 @@ pub struct EnhancedRendering {
 }
 
 pub const MAX_SHADOW_CASCADES: u32 = 3;
+/// Smallest shadow target admitted by frame preparation.
+#[cfg(feature = "enhanced")]
+pub(crate) const MIN_SHADOW_RESOLUTION: u32 = 256;
 
 impl Default for EnhancedRendering {
     fn default() -> Self {
@@ -83,6 +86,20 @@ impl Default for EnhancedRendering {
             light_shafts: true,
             waving: true,
             water_reflections: true,
+        }
+    }
+}
+
+#[cfg(feature = "enhanced-diagnostics")]
+impl EnhancedRendering {
+    /// Bounds the actual Enhanced passes for hidden development captures.
+    #[must_use]
+    pub fn bounded_diagnostic() -> Self {
+        Self {
+            shadow_resolution: MIN_SHADOW_RESOLUTION,
+            shadow_distance: 24.0,
+            waving: false,
+            ..Self::default()
         }
     }
 }
@@ -151,7 +168,7 @@ impl<P: bevy::render::render_phase::PhaseItem, const I: usize>
 #[cfg(feature = "enhanced")]
 impl Plugin for EnhancedRenderPlugin {
     fn build(&self, app: &mut App) {
-        if !ENHANCED_RENDERING_ENABLED {
+        if !enhanced_rendering_enabled() {
             return;
         }
         load_shader_imports(app);
@@ -176,7 +193,7 @@ impl Plugin for EnhancedRenderPlugin {
     }
 
     fn finish(&self, app: &mut App) {
-        if !ENHANCED_RENDERING_ENABLED {
+        if !enhanced_rendering_enabled() {
             return;
         }
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {

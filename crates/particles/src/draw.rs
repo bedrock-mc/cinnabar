@@ -38,7 +38,9 @@ pub struct ParticleView {
 
 #[derive(Clone, Debug, Default)]
 pub struct DrawLists {
-    /// Alpha, blend and opaque materials, sorted far to near.
+    /// Cutout and opaque materials that write depth, sorted far to near.
+    pub opaque: Vec<ParticleInstance>,
+    /// Blended materials, sorted far to near.
     pub blend: Vec<ParticleInstance>,
     pub add: Vec<ParticleInstance>,
 }
@@ -221,14 +223,13 @@ fn emit_emitter(
     view: &ParticleView,
     world: &dyn ParticleWorld,
     cos_limit: f32,
-    out: &mut Vec<(f32, ParticleInstance, bool)>,
+    out: &mut Vec<(f32, ParticleInstance, Material)>,
 ) {
     let def = std::sync::Arc::clone(&emitter.def);
     let local = def.emitter.local_position;
     let placement = emitter.texture.normalized();
     let (origin, basis, queries) = (emitter.pos, emitter.basis, emitter.queries);
-    let additive = def.material == Material::Add;
-    let opaque = if def.material == Material::Opaque {
+    let alpha_test = if def.material == Material::Alpha {
         1.0
     } else {
         0.0
@@ -321,7 +322,7 @@ fn emit_emitter(
                 right[0] * size[0],
                 right[1] * size[0],
                 right[2] * size[0],
-                opaque,
+                alpha_test,
             ],
             axis_y: [
                 up[0] * size[1],
@@ -337,7 +338,7 @@ fn emit_emitter(
                 color[3],
             ],
         };
-        out.push((distance_sq, instance, additive));
+        out.push((distance_sq, instance, def.material));
     }
 }
 
@@ -351,11 +352,11 @@ impl ParticleSystem {
         }
         collected.sort_unstable_by(|a, b| b.0.total_cmp(&a.0));
         let mut lists = DrawLists::default();
-        for (_, instance, additive) in collected {
-            if additive {
-                lists.add.push(instance);
-            } else {
-                lists.blend.push(instance);
+        for (_, instance, material) in collected {
+            match material {
+                Material::Alpha | Material::Opaque => lists.opaque.push(instance),
+                Material::Blend => lists.blend.push(instance),
+                Material::Add => lists.add.push(instance),
             }
         }
         lists
@@ -404,8 +405,8 @@ mod tests {
     fn instance_carries_size_uv_and_tint() {
         let mut system = system_with_particle(-5.0);
         let lists = system.build_draw(&view(), &EmptyWorld);
-        assert_eq!(lists.blend.len(), 1);
-        let instance = lists.blend[0];
+        assert_eq!(lists.opaque.len(), 1);
+        let instance = lists.opaque[0];
         assert_eq!(instance.axis_x[0], 0.5);
         assert_eq!(instance.axis_y[1], 0.25);
         assert_eq!(instance.color[3], 0.5);
@@ -416,6 +417,37 @@ mod tests {
         );
         // Missing texture falls back to the 1x1 white texel: u origin is half of a 1px placement.
         assert!(instance.uv[2] > 0.0);
+    }
+
+    #[test]
+    fn material_selects_depth_writing_and_translucent_draws() {
+        for (material, depth_writing, additive, alpha_test) in [
+            ("particles_alpha", true, false, 1.0),
+            ("particles_opaque", true, false, 0.0),
+            ("particles_blend", false, false, 0.0),
+            ("particles_add", false, true, 0.0),
+        ] {
+            let mut system = ParticleSystem::default();
+            assert!(system.register_effect(EFFECT.replace("particles_alpha", material).as_bytes()));
+            system.spawn(&SpawnRequest {
+                effect: "minecraft:quad".into(),
+                position: [0.0, 0.0, -5.0],
+                ..SpawnRequest::default()
+            });
+            system.tick(0.02, &EmptyWorld);
+            let lists = system.build_draw(&view(), &EmptyWorld);
+            assert_eq!(lists.opaque.len(), usize::from(depth_writing));
+            assert_eq!(lists.blend.len(), usize::from(!depth_writing && !additive));
+            assert_eq!(lists.add.len(), usize::from(additive));
+            let instance = lists
+                .opaque
+                .iter()
+                .chain(&lists.blend)
+                .chain(&lists.add)
+                .next()
+                .unwrap();
+            assert_eq!(instance.axis_x[3], alpha_test);
+        }
     }
 
     #[test]
@@ -444,7 +476,7 @@ mod tests {
         });
         system.tick(0.02, &EmptyWorld);
         for (block, sky) in [(0, 0), (0, 15), (10, 0), (7, 12), (255, 255)] {
-            let instance = system.build_draw(&view(), &CellLight(block, sky)).blend[0];
+            let instance = system.build_draw(&view(), &CellLight(block, sky)).opaque[0];
             assert_eq!(
                 instance.center_light[3],
                 f32::from(block.min(15) | (sky.min(15) << 4))
@@ -456,7 +488,7 @@ mod tests {
     #[test]
     fn particles_behind_the_camera_are_culled() {
         let mut system = system_with_particle(8.0);
-        assert!(system.build_draw(&view(), &EmptyWorld).blend.is_empty());
+        assert!(system.build_draw(&view(), &EmptyWorld).opaque.is_empty());
     }
 
     #[test]
@@ -464,7 +496,7 @@ mod tests {
         let mut system = system_with_particle(-100.0);
         let mut far = view();
         far.position = [0.0, 0.0, 100.0];
-        assert!(system.build_draw(&far, &EmptyWorld).blend.is_empty());
+        assert!(system.build_draw(&far, &EmptyWorld).opaque.is_empty());
     }
 
     #[test]

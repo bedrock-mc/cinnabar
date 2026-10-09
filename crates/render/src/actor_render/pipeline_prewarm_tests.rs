@@ -140,6 +140,11 @@ fn actor_pipeline_prewarm_reuses_descriptors_for_shader_only_flags() {
         emissive: true,
         ..state
     }));
+    let without_overlay = EntityRenderMaterial::Default.word(Some(EntityRenderMaterialState {
+        disable_overlay: true,
+        ..state
+    }));
+    assert_ne!(normal, without_overlay);
     assert_ne!(
         normal, dragon,
         "shader instances retain their full material words"
@@ -156,6 +161,11 @@ fn actor_pipeline_prewarm_reuses_descriptors_for_shader_only_flags() {
             pipeline.draw_variant(msaa, hdr, false, normal),
             pipeline.draw_variant(msaa, hdr, false, emissive),
             "emissive shader flags reuse the raster pipeline"
+        );
+        assert_eq!(
+            pipeline.draw_variant(msaa, hdr, false, normal),
+            pipeline.draw_variant(msaa, hdr, false, without_overlay),
+            "overlay admission reuses the raster pipeline"
         );
     });
 }

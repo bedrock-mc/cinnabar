@@ -1,7 +1,7 @@
 use super::RuntimeAssets;
 use crate::model::{
     MODEL_QUAD_FLAG_TWO_SIDED, covered_grass_variant_is_valid, model_template_flags_are_valid,
-    transparent_cube_quad_geometry_is_valid,
+    unit_cube_quad_geometry_is_valid,
 };
 use crate::{
     ANIMATION_FLAG_BLEND, Animation, AssetError, BLOB_MAGIC, BLOB_VERSION, BiomeRule, BlockFlags,
@@ -59,10 +59,13 @@ impl RuntimeAssets {
             hashed: decode_hashes(sections[1]),
             materials,
             model_templates: decode_templates(sections[3]),
+            model_random_offsets: Box::new([]),
             model_quads: decode_quads(sections[4]),
             animations: decode_animations(sections[5]),
             animation_frames: decode_frames(sections[6])?,
             texture_pages: decode_pages(sections[8], &page_meta)?,
+            overlay_texture_source_sizes: Box::new([]),
+            overlay_texture_source_grids: Box::new([]),
             biomes,
             provenance,
             missing: AtomicU64::new(0),
@@ -467,7 +470,7 @@ fn validate_fixed(
                 );
             }
             let material = u32_at(quad, 40) as usize;
-            if !transparent_cube_quad_geometry_is_valid(index, positions, u32_at(quad, 44))
+            if !unit_cube_quad_geometry_is_valid(index, positions, u32_at(quad, 44))
                 || material == DIAGNOSTIC_MATERIAL as usize
             {
                 return Err(invalid(

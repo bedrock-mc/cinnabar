@@ -376,13 +376,18 @@ fn build_chunk_texture_assets(
     };
     let mut upload_plans = Vec::with_capacity(2);
     let mut terrain_pages = Vec::with_capacity(2);
-    for texture in bound_pages {
+    for (binding, texture) in page_bindings.into_iter().zip(bound_pages) {
         let tile_size = texture.mips.first().map_or(0, |mip| mip.size);
         if let Err(error) = limits.validate(texture.layers, tile_size) {
             bevy::log::error!(?error, "chunk texture page exceeds adapter limits");
             return None;
         }
-        let texture = match assets::rebuild_legacy_terrain_mips(texture) {
+        let texture = match match binding {
+            TexturePageBinding::Asset(index) => assets.assets().terrain_texture_page(index),
+            TexturePageBinding::DiagnosticFallback => {
+                assets::rebuild_legacy_terrain_mips(texture).map(std::borrow::Cow::Owned)
+            }
+        } {
             Ok(texture) => texture,
             Err(error) => {
                 bevy::log::error!(?error, "invalid terrain mip source");
@@ -407,7 +412,7 @@ fn build_chunk_texture_assets(
         .materials()
         .iter()
         .map(|material| MaterialGpu {
-            texture: material.texture.raw(),
+            texture: gpu_texture_reference(assets.assets(), material.texture),
             flags: material.flags,
             animation: material.animation,
             variation_start: material.variation_start,
@@ -431,7 +436,7 @@ fn build_chunk_texture_assets(
         .assets()
         .animation_frames()
         .iter()
-        .map(|frame| frame.raw())
+        .map(|&frame| gpu_texture_reference(assets.assets(), frame))
         .collect::<Vec<_>>();
     let model_template_words = encode_model_template_words(assets.assets());
     let material_bytes = material_words
@@ -834,4 +839,21 @@ pub(in crate::chunk) fn prepare_chunk_bind_group(
     );
     arena.bind_group = Some(bind_group);
     arena.bind_group_buffers = Some(buffers);
+}
+
+/// Adds runtime source dimensions when a layer's physical page uses another pixel scale.
+fn gpu_texture_reference(assets: &assets::RuntimeAssets, reference: assets::TextureRef) -> u32 {
+    let page_size = assets.texture_pages()[reference.page() as usize]
+        .texture
+        .mips[0]
+        .size;
+    let grid = assets.texture_source_grid(reference);
+    crate::material_shader::gpu_grid_texture_ref(
+        reference,
+        assets
+            .texture_source_size(reference)
+            .map(|axis| axis << grid),
+        page_size,
+        grid,
+    )
 }

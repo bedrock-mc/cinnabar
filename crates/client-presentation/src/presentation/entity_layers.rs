@@ -7,7 +7,7 @@ use client_world::ActorRigSnapshot;
 use client_world::{BoneTransform, RenderTextureLayer};
 use render::{
     ACTOR_LAYER_BODY, ActorArtworkLocation, ActorArtworkPages, ActorRigSubmission,
-    pack_overlay_rgba8,
+    pack_actor_light_without_lightmap, pack_overlay_rgba8,
 };
 use render_model::{EntityRigId, RenderBoneTransform, layer_geometry_rig_id};
 
@@ -242,7 +242,7 @@ fn layered(
     submission.tint = layer.tint;
     submission.uv_anim = layer.uv_anim;
     if layer.ignore_lighting {
-        submission.light = 0;
+        submission.light = pack_actor_light_without_lightmap();
     }
     if let Some(overlay) = layer.overlay
         && !matches!(
@@ -278,7 +278,7 @@ pub fn apply_render_layers<'a>(
     );
 }
 
-/// [`apply_render_layers`] reusing `cache`'s conversions across frames.
+/// Applies sampled layer poses to bodies already placed and admitted at their frame scale.
 pub fn apply_render_layers_cached<'a>(
     batch: &mut ActorPresentationBatch,
     mut layers_of: impl FnMut(u64) -> Option<Cow<'a, [RenderTextureLayer]>>,
@@ -296,11 +296,11 @@ pub fn apply_render_layers_cached<'a>(
         let Some(layers) = layers_of(identity.runtime_id) else {
             continue;
         };
-        resolve(body, &layers, artwork, cache, &mut resolved);
+        let pristine = body.clone();
+        resolve(&pristine, &layers, artwork, cache, &mut resolved);
         if resolved.is_empty() {
             continue;
         }
-        let pristine = body.clone();
         for (layer_index, layer) in resolved.iter().enumerate() {
             let submission = layered(&pristine, layer, layer_index, cache);
             batch
