@@ -38,6 +38,7 @@ env:
   CINNABAR_UPDATE_URL: ${{ github.server_url }}/${{ github.repository }}/releases/latest/download/update-stable.json
   UPDATE_TRUSTED_KEYS: ${{ vars.UPDATE_TRUSTED_KEYS }}
   CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
   CINNABAR_SOURCE_ROOT: ${{ github.workspace }}/source
 
 jobs:
@@ -77,6 +78,9 @@ jobs:
         run: python3 "$GITHUB_WORKSPACE/release-tools/packaging/prepare-release.py"
 
   macos:
+    permissions:
+      contents: read
+      actions: write
     name: macOS ${{ matrix.arch }}
     needs: prepare
     runs-on: ${{ matrix.runner }}
@@ -102,17 +106,22 @@ jobs:
         run: python3 "$GITHUB_WORKSPACE/release-tools/packaging/release-downloads.py" env macos "${{ matrix.arch }}" >> "$GITHUB_ENV"
       - name: Install the pinned Rust toolchain
         run: rustup toolchain install
-      - uses: Swatinem/rust-cache@v2
+      - name: Restore Rust release build cache
+        id: rust-cache
+        uses: ./release-tools/.github/actions/build-cache
         with:
-          key: package-${{ matrix.arch }}
-          workspaces: source -> target
+          workspace: source
+          lane: release
       - uses: actions/setup-go@v6
         with:
           go-version-file: source/core/go.mod
-          cache-dependency-path: |
-            source/core/go.sum
-            source/tools/localserver/go.sum
-            source/go.work.sum
+          cache: false
+      - name: Restore Go build cache
+        id: go-cache
+        uses: ./release-tools/.github/actions/build-cache
+        with:
+          workspace: source
+          language: go
       - name: Install icon renderer
         run: brew install librsvg
       - name: Detect signing credentials
@@ -167,6 +176,26 @@ jobs:
           bash "$GITHUB_WORKSPACE/release-tools/packaging/check-payload.sh" macos "$mount" || status=$?
           hdiutil detach "$mount"
           exit "$status"
+      - name: Save Rust release build cache
+        if: ${{ !cancelled() && github.ref == 'refs/heads/dev' }}
+        uses: ./release-tools/.github/actions/build-cache
+        with:
+          phase: save
+          workspace: source
+          lane: release
+          key: ${{ steps.rust-cache.outputs.key }}
+          bucket: ${{ steps.rust-cache.outputs.bucket }}
+          paths: ${{ steps.rust-cache.outputs.paths }}
+      - name: Save Go build cache
+        if: ${{ !cancelled() && github.ref == 'refs/heads/dev' }}
+        uses: ./release-tools/.github/actions/build-cache
+        with:
+          phase: save
+          workspace: source
+          language: go
+          key: ${{ steps.go-cache.outputs.key }}
+          bucket: ${{ steps.go-cache.outputs.bucket }}
+          paths: ${{ steps.go-cache.outputs.paths }}
       - uses: actions/upload-artifact@v4
         with:
           name: macos-${{ matrix.arch }}
@@ -174,6 +203,9 @@ jobs:
           if-no-files-found: error
 
   windows:
+    permissions:
+      contents: read
+      actions: write
     needs: prepare
     runs-on: windows-2025
     timeout-minutes: 120
@@ -196,17 +228,22 @@ jobs:
         run: python "$GITHUB_WORKSPACE/release-tools/packaging/release-downloads.py" env windows x86_64 >> "$GITHUB_ENV"
       - name: Install the pinned Rust toolchain
         run: rustup toolchain install
-      - uses: Swatinem/rust-cache@v2
+      - name: Restore Rust release build cache
+        id: rust-cache
+        uses: ./release-tools/.github/actions/build-cache
         with:
-          key: package
-          workspaces: source -> target
+          workspace: source
+          lane: release
       - uses: actions/setup-go@v6
         with:
           go-version-file: source/core/go.mod
-          cache-dependency-path: |
-            source/core/go.sum
-            source/tools/localserver/go.sum
-            source/go.work.sum
+          cache: false
+      - name: Restore Go build cache
+        id: go-cache
+        uses: ./release-tools/.github/actions/build-cache
+        with:
+          workspace: source
+          language: go
       - name: Install WiX, ImageMagick and make
         shell: pwsh
         run: |
@@ -251,6 +288,26 @@ jobs:
           $process = Start-Process -FilePath $setup -ArgumentList @('/layout', ('"' + $layout + '"'),
             '/quiet', '/norestart', '/log', ('"' + $log + '"')) -WindowStyle Hidden -Wait -PassThru
           if ($process.ExitCode -ne 0) { Get-Content $log; throw "Setup layout failed: $($process.ExitCode)" }
+      - name: Save Rust release build cache
+        if: ${{ !cancelled() && github.ref == 'refs/heads/dev' }}
+        uses: ./release-tools/.github/actions/build-cache
+        with:
+          phase: save
+          workspace: source
+          lane: release
+          key: ${{ steps.rust-cache.outputs.key }}
+          bucket: ${{ steps.rust-cache.outputs.bucket }}
+          paths: ${{ steps.rust-cache.outputs.paths }}
+      - name: Save Go build cache
+        if: ${{ !cancelled() && github.ref == 'refs/heads/dev' }}
+        uses: ./release-tools/.github/actions/build-cache
+        with:
+          phase: save
+          workspace: source
+          language: go
+          key: ${{ steps.go-cache.outputs.key }}
+          bucket: ${{ steps.go-cache.outputs.bucket }}
+          paths: ${{ steps.go-cache.outputs.paths }}
       - uses: actions/upload-artifact@v4
         with:
           name: windows-x64
@@ -260,6 +317,9 @@ jobs:
           if-no-files-found: error
 
   linux:
+    permissions:
+      contents: read
+      actions: write
     needs: prepare
     runs-on: ubuntu-24.04
     timeout-minutes: 120
@@ -285,17 +345,22 @@ jobs:
         run: python3 "$GITHUB_WORKSPACE/release-tools/packaging/release-downloads.py" env linux x86_64 >> "$GITHUB_ENV"
       - name: Install the pinned Rust toolchain
         run: rustup toolchain install
-      - uses: Swatinem/rust-cache@v2
+      - name: Restore Rust release build cache
+        id: rust-cache
+        uses: ./release-tools/.github/actions/build-cache
         with:
-          key: package
-          workspaces: source -> target
+          workspace: source
+          lane: release
       - uses: actions/setup-go@v6
         with:
           go-version-file: source/core/go.mod
-          cache-dependency-path: |
-            source/core/go.sum
-            source/tools/localserver/go.sum
-            source/go.work.sum
+          cache: false
+      - name: Restore Go build cache
+        id: go-cache
+        uses: ./release-tools/.github/actions/build-cache
+        with:
+          workspace: source
+          language: go
       - name: Install build and packaging dependencies
         run: |
           sudo apt-get update
@@ -319,6 +384,26 @@ jobs:
           cd "$RUNNER_TEMP"
           "./$RELEASE_ASSET" --appimage-extract > /dev/null
           bash "$GITHUB_WORKSPACE/release-tools/packaging/check-payload.sh" linux "$RUNNER_TEMP/squashfs-root"
+      - name: Save Rust release build cache
+        if: ${{ !cancelled() && github.ref == 'refs/heads/dev' }}
+        uses: ./release-tools/.github/actions/build-cache
+        with:
+          phase: save
+          workspace: source
+          lane: release
+          key: ${{ steps.rust-cache.outputs.key }}
+          bucket: ${{ steps.rust-cache.outputs.bucket }}
+          paths: ${{ steps.rust-cache.outputs.paths }}
+      - name: Save Go build cache
+        if: ${{ !cancelled() && github.ref == 'refs/heads/dev' }}
+        uses: ./release-tools/.github/actions/build-cache
+        with:
+          phase: save
+          workspace: source
+          language: go
+          key: ${{ steps.go-cache.outputs.key }}
+          bucket: ${{ steps.go-cache.outputs.bucket }}
+          paths: ${{ steps.go-cache.outputs.paths }}
       - uses: actions/upload-artifact@v4
         with:
           name: linux-x86_64
@@ -385,7 +470,7 @@ jobs:
         if: needs.prepare.outputs.channel == 'stable'
         with:
           go-version-file: source/core/go.mod
-          cache-dependency-path: source/core/go.sum
+          cache: false
       - name: Sign the update manifest
         if: needs.prepare.outputs.channel == 'stable'
         env:

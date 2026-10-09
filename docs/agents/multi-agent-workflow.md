@@ -41,3 +41,23 @@ PowerShell-harness jobs run when their inputs change.
 The full three-platform matrix runs on `dev` every six hours and can be requested
 with `gh workflow run ci.yml --ref <branch>`. `ci-cache.yml` tests `dev` on Linux
 hourly. Fix failing scheduled checks promptly.
+
+### Build caches
+
+CI and packaging use `.github/actions/build-cache`. Rust caches keep workspace
+artifacts as well as dependencies. The action hashes tracked inputs and restores
+old file and directory timestamps only for identical tracked contents and
+permissions, so fresh checkouts do not force recompilation. Changed inputs get
+fresh timestamps after restoration. A source change
+during the build prevents saving artifacts against the wrong input snapshot.
+Directories with untracked inputs keep their current timestamps.
+
+Cache keys separate OS, architecture, compiler settings, and CI/release profiles.
+Each run gets a new key with a compatible fallback. Only runs on `dev`
+save caches; PR and tag runs restore them. After a successful save, older entries
+in that platform/profile bucket are removed. Go uses the version in `core/go.mod`
+and the same restore/save ownership, without timestamp restoration.
+
+The first run after a cache format change is cold. Check the restored-source count,
+Cargo build durations, and cache sizes on subsequent runs before claiming a speedup.
+Keep release optimization settings and test coverage unchanged when tuning caches.
