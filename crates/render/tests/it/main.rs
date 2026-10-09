@@ -49,6 +49,7 @@ mod leaf_uv;
 mod lightmap;
 mod lily_pad;
 mod liquid_geometry;
+mod liquid_order_raster;
 mod liquid_raster;
 mod liquid_shader;
 mod material_variations;

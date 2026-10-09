@@ -281,6 +281,60 @@ fn water_awaiting_its_first_sort_still_draws() {
     );
 }
 
+/// Past the ref ceiling the water nearest the camera stays sorted and the rest draws from
+/// its records, so no visible water is dropped, and the sorted set follows the camera.
+#[test]
+fn water_past_the_ref_ceiling_draws_and_the_nearest_stays_sorted() {
+    const SHORE_FACES: usize = 272;
+    let mut fixture = fixture_with(1);
+    // Every sub-chunk is a shore, so the ceiling admits the camera's 3x3 neighbourhood.
+    fixture
+        .app
+        .world_mut()
+        .resource_mut::<TransparentSortRuntime>()
+        .ref_ceiling = 9 * SHORE_FACES;
+    for centre in [0, 5] {
+        let camera = Vec3::new(16.0 * centre as f32 + 8.5, 64.6, 16.0 * centre as f32 + 8.5);
+        for _ in 0..8 {
+            fixture.frame_looking(camera, Vec3::Z);
+        }
+        let near = |key: SubChunkKey| (key.x - centre).abs() <= 1 && (key.z - centre).abs() <= 1;
+        let drawn = drawn_water(&fixture);
+        assert_eq!(
+            drawn.keys().copied().collect::<BTreeSet<_>>(),
+            fixture.visible_water(camera, Vec3::Z),
+            "visible water past the ceiling was dropped"
+        );
+        let mut sorted = 0;
+        for (key, water) in drawn {
+            match water {
+                Drawn::Sorted(refs) => {
+                    assert!(near(key), "{key:?} is sorted but not near the camera");
+                    assert_eq!(refs, expected_refs(&fixture, key, camera));
+                    sorted += 1;
+                }
+                Drawn::Direct => assert!(!near(key), "{key:?} is near the camera but unsorted"),
+            }
+        }
+        assert!(sorted >= 3, "only {sorted} nearby sub-chunks drew sorted");
+        let committed = fixture
+            .app
+            .world()
+            .resource::<TransparentSortRuntime>()
+            .state
+            .committed()
+            .unwrap()
+            .live_ref_count();
+        assert_eq!(committed, 9 * SHORE_FACES);
+    }
+    let metrics = fixture
+        .app
+        .world()
+        .resource::<TransparentSortMetrics>()
+        .snapshot();
+    assert!(metrics.ceiling_reject_count >= 2);
+}
+
 /// Streaming that changes the resident water every frame cannot starve a sort whose
 /// upload spans several frames: each staged upload finishes before the next request.
 #[test]
