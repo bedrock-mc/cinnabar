@@ -3,6 +3,7 @@ use super::*;
 pub(super) fn layout() -> InstallLayout {
     let mut layout = crate::install_layout::scratch("dressing-room-catalog");
     layout.resource_root = layout.user_data_root.join("runtime");
+    fs::create_dir_all(&layout.user_data_root).unwrap();
     layout
 }
 
