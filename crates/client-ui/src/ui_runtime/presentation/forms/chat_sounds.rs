@@ -2,13 +2,15 @@
 
 use super::{super::UiPresentationRuntime, chat_screen::ChatHit};
 
-/// Compares a settings control across changes to its value.
-fn same_control(a: ChatHit, b: ChatHit) -> bool {
-    match (a, b) {
-        (ChatHit::SettingsAction(a), ChatHit::SettingsAction(b)) => {
-            super::menu_sounds::same_control(a, b)
+impl ChatHit {
+    /// Compares the control identity without treating its current setting value as identity.
+    pub fn same_control(self, other: Self) -> bool {
+        match (self, other) {
+            (Self::SettingsAction(a), Self::SettingsAction(b)) => {
+                super::menu_sounds::same_control(a, b)
+            }
+            _ => self == other,
         }
-        _ => a == b,
     }
 }
 
@@ -19,7 +21,7 @@ impl UiPresentationRuntime {
         if let Some((_, _, key)) = chat
             .hits
             .iter()
-            .find(|(candidate, _, _)| same_control(*candidate, hit))
+            .find(|(candidate, _, _)| candidate.same_control(hit))
         {
             chat.audio.activate(
                 key,

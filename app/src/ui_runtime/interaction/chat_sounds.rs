@@ -7,10 +7,21 @@ use client_ui::{
 };
 use ui::UiPoint;
 
+/// Keeps a chat control's identity stable while its setting value changes.
+#[derive(Clone, Copy)]
+struct ChatControl(ChatHit);
+
+impl PartialEq for ChatControl {
+    /// Compares controls while preserving distinct settings and buttons.
+    fn eq(&self, other: &Self) -> bool {
+        self.0.same_control(other.0)
+    }
+}
+
 #[derive(Default)]
 pub(crate) struct ChatPressSounds {
     context: Option<(bool, bool)>,
-    chat: PressSounds<ChatHit>,
+    chat: PressSounds<ChatControl>,
     bed: PressSounds<BedHit>,
 }
 
@@ -90,6 +101,22 @@ impl ChatPressSounds {
         (activated, sounded)
     }
 
+    /// Returns the current action when the captured chat control accepts its release.
+    #[allow(clippy::too_many_arguments)]
+    fn chat_touch(
+        &mut self,
+        id: u64,
+        hit: Option<ChatHit>,
+        point: [f32; 2],
+        pressed: bool,
+        held: bool,
+        now: f64,
+    ) -> Option<ChatHit> {
+        self.chat
+            .touch(id, hit.map(ChatControl), point, pressed, held, now, false)
+            .and(hit)
+    }
+
     /// Sounds mouse presses and accepted JSON-UI touch releases before dispatch.
     pub(super) fn chat(
         &mut self,
@@ -127,19 +154,19 @@ impl ChatPressSounds {
                 touches.get_pressed(touch.id()).is_some(),
                 now,
             );
-            if let Some(captured) = self.chat.touch(
-                touch.id(),
-                hit,
-                [position.x, position.y],
-                touches.just_pressed(touch.id()),
-                touches.get_pressed(touch.id()).is_some(),
-                now,
-                false,
-            ) && hit == Some(captured)
+            if self
+                .chat_touch(
+                    touch.id(),
+                    hit,
+                    [position.x, position.y],
+                    touches.just_pressed(touch.id()),
+                    touches.get_pressed(touch.id()).is_some(),
+                    now,
+                )
+                .is_some()
+                && let Some(point) = point
             {
-                if let Some(point) = point {
-                    actions.push(point);
-                }
+                actions.push(point);
             }
         }
     }
@@ -148,6 +175,39 @@ impl ChatPressSounds {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_chat_slider_release_uses_its_new_value() {
+        use launcher::menu::{
+            MenuAction,
+            settings_options::{SETTINGS_OPTIONS, SettingKind},
+        };
+        let index = SETTINGS_OPTIONS
+            .iter()
+            .position(|option| matches!(option.kind, SettingKind::Slider))
+            .unwrap() as u16;
+        let start = Some(ChatHit::SettingsAction(MenuAction::SettingsOption(
+            index, 10,
+        )));
+        let end = Some(ChatHit::SettingsAction(MenuAction::SettingsOption(
+            index, 70,
+        )));
+        let mut sounds = ChatPressSounds::default();
+        assert_eq!(sounds.chat_touch(1, start, [0.0; 2], true, true, 1.0), None);
+        assert_eq!(
+            sounds.chat_touch(1, end, [20.0, 0.0], false, false, 1.1),
+            end
+        );
+        sounds.chat_touch(2, start, [0.0; 2], true, true, 2.0);
+        let other = Some(ChatHit::SettingsAction(MenuAction::SettingsOption(
+            index + 1,
+            70,
+        )));
+        assert_eq!(
+            sounds.chat_touch(2, other, [20.0, 0.0], false, false, 2.1),
+            None
+        );
+    }
 
     #[test]
     fn a_bed_tap_with_both_edges_activates_and_sounds_once() {

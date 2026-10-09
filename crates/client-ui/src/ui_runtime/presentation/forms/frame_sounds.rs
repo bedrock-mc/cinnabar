@@ -106,9 +106,6 @@ impl FrameSounds {
                 (key, input.touches.iter_mut().find(|slot| slot.is_none()))
             {
                 *slot = Some((id, key.to_owned()));
-                if let Some(point) = point {
-                    input.pointer(frame, point, true, InputMode::Touch, now, &mut receive);
-                }
             }
             if held {
                 return;
@@ -132,6 +129,8 @@ impl FrameSounds {
         if !held {
             input.touches[slot] = None;
             if let Some(point) = point {
+                input.cancel_pointer(frame);
+                input.pointer(frame, point, true, InputMode::Touch, now, &mut receive);
                 input.pointer(frame, point, false, InputMode::Touch, now, &mut receive);
             }
         }
@@ -482,6 +481,40 @@ mod tests {
             });
         }
         assert_eq!(emitted, ["right.click", "extra"]);
+    }
+
+    #[test]
+    fn independent_touches_share_only_the_controls_replay_deadline() {
+        let sounds = sounds();
+        let mut emitted = Vec::new();
+        for id in [1, 2] {
+            sounds.touch(id, Some(point(true)), true, true, 1.0, |_, _, _| {
+                panic!("press is silent")
+            });
+        }
+        for (id, now) in [(1, 1.1), (2, 1.2)] {
+            sounds.touch(id, Some(point(true)), false, false, now, |name, _, _| {
+                emitted.push(name.to_owned())
+            });
+        }
+        assert_eq!(emitted, ["right.click", "extra", "right.click"]);
+    }
+
+    #[test]
+    fn simultaneous_touches_keep_each_controls_feedback() {
+        let sounds = sounds();
+        let mut emitted = Vec::new();
+        for (id, right) in [(1, false), (2, true)] {
+            sounds.touch(id, Some(point(right)), true, true, 1.0, |_, _, _| {
+                panic!("press is silent")
+            });
+        }
+        for (id, right) in [(1, false), (2, true)] {
+            sounds.touch(id, Some(point(right)), false, false, 1.1, |name, _, _| {
+                emitted.push(name.to_owned())
+            });
+        }
+        assert_eq!(emitted, ["left.click", "extra", "right.click", "extra"]);
     }
 
     #[test]
