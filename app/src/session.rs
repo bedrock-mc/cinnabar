@@ -317,6 +317,13 @@ pub(crate) struct SessionResources<'w> {
 }
 
 impl SessionResources<'_> {
+    /// Retires the live session with no join to follow, also releasing the
+    /// recently compiled server packs a following join would have reused.
+    fn leave(&mut self) {
+        self.retire();
+        crate::runtime::network::release_compiled_stacks();
+    }
+
     /// Ends the live session and fences a fresh generation. The core stops off
     /// the frame, and its directories go only once it has exited.
     fn retire(&mut self) -> u64 {
@@ -570,7 +577,7 @@ fn drive_intents(
         let cancelled_join = menu.is_connecting();
         // Drop the old event receivers as well as stopping their worker: a
         // queued transfer must not undo this explicit disconnect later this frame.
-        session.retire();
+        session.leave();
         if cancelled_join {
             menu.cancel_join();
         } else {
@@ -605,7 +612,7 @@ pub(crate) fn recover_session_failure(
     if !menu.absorb_session_failure(&error) {
         return;
     }
-    session.retire();
+    session.leave();
     session.controller.publish(&mut menu);
 }
 
@@ -640,7 +647,7 @@ fn follow_transfer(
     if !menu.is_launcher() {
         // No launcher exists to re-enter, so the one-session run ends with
         // the server-directed move named explicitly instead of followed.
-        session.retire();
+        session.leave();
         record_fatal_error(
             &mut session.client_world.fatal_error,
             format!(
@@ -697,7 +704,7 @@ fn end_transfer_without_follow(
     session: &mut SessionResources<'_>,
     reason: String,
 ) {
-    session.retire();
+    session.leave();
     menu.absorb_session_failure(&reason);
 }
 

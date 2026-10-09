@@ -10,6 +10,7 @@ use super::{
 };
 use client_ui::ui_runtime::presentation::{ServerUiPack, SessionGlyphSheets, SessionIcons};
 
+pub(super) mod reuse;
 mod ui;
 pub(super) mod ui_catalog;
 use ui::collect_server_ui;
@@ -92,22 +93,45 @@ impl PackApplication {
 #[cfg(test)]
 use client_session::required_packs_applied;
 
-/// Compiles presentation from already validated session-owned pack inputs; `None` once cancelled.
-pub(super) fn prepare_session_presentation(
+/// The carrier snapshots a join's presentation is prepared over on the session worker.
+#[derive(Clone, Copy, Default)]
+pub(super) struct JoinBases<'a> {
+    pub(super) actor_artwork: Option<&'a render::ActorArtworkPages>,
+    pub(super) ui_catalog: Option<&'a Arc<json_ui::Catalog>>,
+}
+
+/// A join's presentation from its validated pack inputs, prepared over `bases`. A stack that
+/// reads exactly like one joined recently reuses that compile; the result is kept for the next
+/// join. `None` once cancelled.
+pub(super) fn prepare_join(
     preparation: &client_session::PackPreparation,
     game_data: &protocol::GameData,
     cancelled: &(dyn Fn() -> bool + Sync),
+    bases: JoinBases<'_>,
 ) -> Option<Result<PackApplication, client_session::RequiredPackRejected>> {
-    preparation.prepare_application(
+    prepare_join_with(&reuse::LATEST, preparation, game_data, cancelled, bases)
+}
+
+/// [`prepare_join`] against an explicit set of kept stacks.
+fn prepare_join_with(
+    kept: &reuse::CompiledStacks,
+    preparation: &client_session::PackPreparation,
+    game_data: &protocol::GameData,
+    cancelled: &(dyn Fn() -> bool + Sync),
+    bases: JoinBases<'_>,
+) -> Option<Result<PackApplication, client_session::RequiredPackRejected>> {
+    let environment = reuse::CompileEnvironment::current();
+    let packs = preparation.prepare_application(
         |preparation| match &preparation.admission {
             PackAdmission::None => Some(PackApplication {
                 inputs: Arc::clone(&preparation.inputs),
                 ..Default::default()
             }),
-            PackAdmission::Validated(stack) => compile_application(
+            PackAdmission::Validated(stack) => reuse::compile_reusing(
+                kept,
                 Arc::clone(stack),
                 Arc::clone(&preparation.inputs),
-                None,
+                &environment,
                 cancelled,
             ),
         },
@@ -115,7 +139,25 @@ pub(super) fn prepare_session_presentation(
             packs.item_components =
                 client_ui::ui_runtime::item_facts::SessionItemComponents::from_game_data(game_data);
         },
-    )
+    )?;
+    Some(packs.map(|mut packs| {
+        packs.prepare_actor_artwork(bases.actor_artwork);
+        let source_ui = packs.server_ui.clone();
+        packs.prepare_ui_catalog(bases.ui_catalog);
+        // A table that changed while compiling may have been read either way, and a cancelled
+        // join has left, which releases what joins keep.
+        if !cancelled() && reuse::CompileEnvironment::current() == environment {
+            kept.remember(environment, &packs, source_ui);
+        }
+        packs
+    }))
+}
+
+/// Releases every recently compiled stack, as leaving for the menu releases the session's,
+/// freeing them off the calling frame.
+pub(crate) fn release_compiled_stacks() {
+    let released = reuse::LATEST.take();
+    rayon::spawn(move || drop(released));
 }
 
 /// `block_items` pairs each custom block item with the block it draws as.
@@ -149,29 +191,44 @@ pub(super) fn prepare_validated_application(
     stack: Arc<resource_pack::ValidatedPackStack>,
     inputs: Arc<super::pack_reload::PackInputs>,
 ) -> PackApplication {
-    prepare_changed_application(stack, inputs, None)
+    prepare_changed_application(&reuse::CompiledStacks::new(), stack, inputs, None)
 }
 
-/// Reuses each compiled subscriber whose contributing files have not changed.
+/// Reuses each compiled subscriber whose contributing files have not changed. Without a
+/// previous application, a `kept` stack with the same contents stands in for it.
 pub(super) fn prepare_changed_application(
+    kept: &reuse::CompiledStacks,
     stack: Arc<resource_pack::ValidatedPackStack>,
     inputs: Arc<super::pack_reload::PackInputs>,
     previous: Option<&PackApplication>,
 ) -> PackApplication {
-    compile_application(stack, inputs, previous, &|| false)
-        .expect("an uncancellable compile completes")
+    let compiled = match previous {
+        Some(previous) => {
+            let changes = super::pack_reload_diff::Changes::between(&stack, Some(previous));
+            compile_application(stack, inputs, Some(previous), changes, &|| false)
+        }
+        None => reuse::compile_reusing(
+            kept,
+            stack,
+            inputs,
+            &reuse::CompileEnvironment::current(),
+            &|| false,
+        ),
+    };
+    compiled.expect("an uncancellable compile completes")
 }
 
-/// Compiles changed subscribers concurrently; icons follow blocks, whose thumbnails they use.
-/// Cancellation skips every part not yet started and yields `None`.
+/// Compiles the subscribers `changes` names concurrently and reuses the rest from `previous`;
+/// icons follow blocks, whose thumbnails they use. Cancellation skips every part not yet started
+/// and yields `None`.
 fn compile_application(
     stack: Arc<resource_pack::ValidatedPackStack>,
     inputs: Arc<super::pack_reload::PackInputs>,
     previous: Option<&PackApplication>,
+    changes: super::pack_reload_diff::Changes,
     cancelled: &(dyn Fn() -> bool + Sync),
 ) -> Option<PackApplication> {
-    use super::pack_reload_diff::{Changes, Subscriber, compile_part};
-    let changes = Changes::between(&stack, previous);
+    use super::pack_reload_diff::{Subscriber, compile_part};
     let mut dependencies = previous
         .map(|old| old.dependencies.clone())
         .unwrap_or_default();
@@ -186,7 +243,10 @@ fn compile_application(
         );
     }
     let view = LayeredPackView::new(Arc::clone(&stack));
-    let fingerprint = stack_fingerprint(&stack);
+    // Hashing every archive is needed only by the block and entity caches, so only when one of
+    // those subscribers compiles; whichever needs it first computes it.
+    let fingerprint = std::sync::OnceLock::new();
+    let fingerprint = || fingerprint.get_or_init(|| stack_fingerprint(&stack));
     let (mut blocks, mut icons, mut language, mut glyphs) = (None, None, None, None);
     let (mut entities, mut artwork, mut ui, mut sounds) = (None, None, None, None);
     let mut aim_assist = None;
@@ -212,7 +272,7 @@ fn compile_application(
                 previous.and_then(|old| old.block_overlay.clone()),
                 |view| {
                     cached_block_overlay(
-                        &fingerprint,
+                        fingerprint(),
                         view,
                         custom_blocks,
                         hashed_block_ids,
@@ -280,7 +340,7 @@ fn compile_application(
                 changes.entities,
                 Subscriber::Entities,
                 previous.and_then(|old| old.entities.clone()),
-                |view| super::entity_pack::compile_session_entities(&fingerprint, view),
+                |view| super::entity_pack::compile_session_entities(fingerprint(), view),
             );
         });
         scope.spawn(|_| {
@@ -349,14 +409,23 @@ fn compile_application(
     }
     #[cfg(feature = "developer-control")]
     capture::write(&view, server_ui.as_deref());
-    Some(PackApplication {
-        extension_marker: view
-            .read_capped(
+    // Whole-stack facts read every layer, so they carry over only from identical contents.
+    let (extension_marker, property_defaults) = match previous {
+        Some(old) if !changes.contents => {
+            (old.extension_marker.clone(), old.property_defaults.clone())
+        }
+        _ => (
+            view.read_capped(
                 server_experience::policy::MARKER_PATH,
                 server_experience::policy::MAX_MARKER_BYTES as u64,
             )
             .map(Arc::from),
-        property_defaults: super::entity_pack::pack_property_defaults(&view),
+            super::entity_pack::pack_property_defaults(&view),
+        ),
+    };
+    Some(PackApplication {
+        extension_marker,
+        property_defaults,
         prepared_actor_artwork: previous.and_then(|old| old.prepared_actor_artwork.clone()),
         inputs,
         server_lang,

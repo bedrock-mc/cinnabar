@@ -1,6 +1,6 @@
 //! Subscriber fingerprints preserve unchanged compiled resources across stack edits.
 
-use super::resource_packs::PackApplication;
+use super::{pack_reload::PackInputs, resource_packs::PackApplication};
 use resource_pack::{PackAdmission, PackDependency, ValidatedPackStack};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
@@ -57,6 +57,8 @@ pub(super) fn compile_part<T>(
 }
 
 pub(super) struct Changes {
+    /// Whether any file may read differently, so whole-stack facts are read again.
+    pub(super) contents: bool,
     pub(super) blocks: bool,
     pub(super) atmosphere: bool,
     pub(super) particles: bool,
@@ -70,6 +72,41 @@ pub(super) struct Changes {
 }
 
 impl Changes {
+    /// Every subscriber compiles from scratch.
+    pub(super) const fn all() -> Self {
+        Self {
+            contents: true,
+            blocks: true,
+            atmosphere: true,
+            particles: true,
+            icons: true,
+            glyphs: true,
+            entities: true,
+            ui: true,
+            sounds: true,
+            language: true,
+            aim_assist: true,
+        }
+    }
+
+    /// For a stack whose every read matches the one `previous` compiled: only the subscribers
+    /// that also read StartGame facts compile again, and only when those facts differ.
+    pub(super) fn for_inputs(previous: &PackInputs, next: &PackInputs) -> Self {
+        Self {
+            contents: false,
+            blocks: !next.same_blocks(previous),
+            atmosphere: false,
+            particles: false,
+            icons: !next.same_icons(previous),
+            glyphs: false,
+            entities: false,
+            ui: false,
+            sounds: false,
+            language: false,
+            aim_assist: false,
+        }
+    }
+
     /// Compares layer contents, including order, rather than pack names or timestamps.
     pub(super) fn between(stack: &ValidatedPackStack, previous: Option<&PackApplication>) -> Self {
         let prior = previous.and_then(|old| match &old.admission {
@@ -101,6 +138,7 @@ impl Changes {
         };
         let blocks = changed(Subscriber::Blocks);
         Self {
+            contents: true,
             blocks,
             atmosphere: changed(Subscriber::Atmosphere),
             particles: changed(Subscriber::Particles),

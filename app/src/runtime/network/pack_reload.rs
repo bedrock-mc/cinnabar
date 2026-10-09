@@ -48,6 +48,8 @@ pub(crate) struct PackReload {
     previous: Option<PackApplication>,
     aim_assist_textures: [Option<Arc<render::AimAssistTexture>>; 2],
     previous_assets: Option<Arc<assets::RuntimeAssets>>,
+    /// Recently joined stacks, which stand in for a missing previous application.
+    kept: &'static resource_packs::reuse::CompiledStacks,
 }
 
 impl Default for PackReload {
@@ -69,11 +71,21 @@ impl Default for PackReload {
             previous: None,
             aim_assist_textures: Default::default(),
             previous_assets: None,
+            kept: &resource_packs::reuse::LATEST,
         }
     }
 }
 
 impl PackReload {
+    /// A reload that consults `kept` instead of the stacks joins keep.
+    #[cfg(test)]
+    pub(super) fn with_kept_stacks(kept: &'static resource_packs::reuse::CompiledStacks) -> Self {
+        Self {
+            kept,
+            ..Self::default()
+        }
+    }
+
     /// Prepared texture overrides remain owned by the currently accepted pack application.
     pub(crate) fn aim_assist_textures(&self) -> &[Option<Arc<render::AimAssistTexture>>; 2] {
         &self.aim_assist_textures
@@ -148,6 +160,7 @@ impl PackReload {
         let items = self.items.clone();
         let previous = self.previous.clone();
         let previous_assets = self.previous_assets.clone();
+        let kept = self.kept;
         let revision = self.revision;
         let generation = self.generation;
         let (tx, rx) = mpsc::sync_channel(1);
@@ -172,6 +185,7 @@ impl PackReload {
                             prepare_environment(&view, base, changes.atmosphere, changes.particles)
                         });
                     let mut application = resource_packs::prepare_changed_application(
+                        kept,
                         stack,
                         inputs,
                         previous.as_ref(),
@@ -218,7 +232,8 @@ impl PackReload {
                             same_optional(&old.server_ui, &application.server_ui)
                         });
                         if !unchanged {
-                            application.server_ui = Some(pack.prepare_catalog(catalog));
+                            application.server_ui =
+                                Some(resource_packs::ui_catalog::prepare(pack, catalog));
                         }
                     }
                     let ids = application.block_overlay.as_ref().map(|overlay| {

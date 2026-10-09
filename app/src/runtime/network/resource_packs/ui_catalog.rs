@@ -54,7 +54,9 @@ impl CatalogCache {
     }
 }
 
-pub(super) fn prepare(
+/// `source` resolved against `base`, shared with the last caller that prepared the same pair
+/// while that result is still alive.
+pub(in crate::runtime::network) fn prepare(
     source: &Arc<ServerUiPack>,
     base: &Arc<json_ui::Catalog>,
 ) -> Arc<ServerUiPack> {

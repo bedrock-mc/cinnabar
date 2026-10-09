@@ -5,7 +5,7 @@ use super::ResourcePackAdmissionState;
 /// Serializes tests that go through the process-wide block overlay cache.
 static OVERLAY_CACHE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-fn overlay_cache() -> std::sync::MutexGuard<'static, ()> {
+pub(super) fn overlay_cache() -> std::sync::MutexGuard<'static, ()> {
     OVERLAY_CACHE_LOCK
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -436,12 +436,19 @@ fn png(width: u32, height: u32) -> Vec<u8> {
 }
 
 /// A stack exercising every subscriber; `id` keeps each copy out of the in-memory caches.
-fn every_subscriber(id: u128) -> std::sync::Arc<resource_pack::ValidatedPackStack> {
+pub(super) fn every_subscriber(id: u128) -> std::sync::Arc<resource_pack::ValidatedPackStack> {
+    resource_pack::validate_handoff(protocol::ResourcePackHandoff::from_archives(vec![
+        every_subscriber_archive(id, b"a=b"),
+    ]))
+}
+
+/// The archive behind [`every_subscriber`], with `lang` as its language file.
+pub(super) fn every_subscriber_archive(id: u128, lang: &[u8]) -> protocol::ResourcePackArchive {
     let (texture, sheet) = (png(1, 1), png(128, 128));
-    resource_pack::validate_handoff(protocol::ResourcePackHandoff::from_archives(vec![archive(
+    archive(
         id,
         &[
-            ("texts/en_US.lang", b"a=b"),
+            ("texts/en_US.lang", lang),
             ("ui/_ui_defs.json", br#"{"ui_defs":["ui/x.json"]}"#),
             ("ui/x.json", br#"{"namespace":"x","c":{"type":"label"}}"#),
             ("sounds/sound_definitions.json", br#"{"sound_definitions":{"x.beep":{"sounds":["sounds/beep"]}}}"#),
@@ -453,10 +460,10 @@ fn every_subscriber(id: u128) -> std::sync::Arc<resource_pack::ValidatedPackStac
             ("render_controllers/fixture.json", br#"{"format_version":"1.8.0","render_controllers":{"controller.render.fixture":{"geometry":"Geometry.default","materials":[{"*":"Material.default"}],"textures":["Texture.default"]}}}"#),
             ("textures/entity/fixture.png", &texture),
         ],
-    )]))
+    )
 }
 
-fn every_input() -> std::sync::Arc<super::super::pack_reload::PackInputs> {
+pub(super) fn every_input() -> std::sync::Arc<super::super::pack_reload::PackInputs> {
     std::sync::Arc::new(super::super::pack_reload::PackInputs {
         icons: vec![("x:gem".into(), "gem".into())],
         ..Default::default()
@@ -464,7 +471,7 @@ fn every_input() -> std::sync::Arc<super::super::pack_reload::PackInputs> {
 }
 
 /// Everything a subscriber produced, in a deterministic form.
-fn summary(application: &super::PackApplication) -> String {
+pub(super) fn summary(application: &super::PackApplication) -> String {
     let icons = application.item_icons.as_ref().map(|icons| {
         icons
             .icons
@@ -515,6 +522,7 @@ fn parallel_preparation_matches_a_serial_one() {
 // Cancellation that lands while a part compiles stops every later part and yields nothing.
 #[test]
 fn cancellation_mid_compile_skips_the_remaining_parts() {
+    use super::super::pack_reload_diff::Changes;
     let _cache = overlay_cache();
     let polls = std::sync::atomic::AtomicUsize::new(0);
     let cancel_after_first = || polls.fetch_add(1, std::sync::atomic::Ordering::Relaxed) > 0;
@@ -527,11 +535,19 @@ fn cancellation_mid_compile_skips_the_remaining_parts() {
                 every_subscriber(23),
                 every_input(),
                 None,
+                Changes::all(),
                 &cancel_after_first,
             )
         });
     assert!(prepared.is_none());
     assert!(
-        super::compile_application(every_subscriber(24), every_input(), None, &|| true).is_none()
+        super::compile_application(
+            every_subscriber(24),
+            every_input(),
+            None,
+            Changes::all(),
+            &|| true
+        )
+        .is_none()
     );
 }
