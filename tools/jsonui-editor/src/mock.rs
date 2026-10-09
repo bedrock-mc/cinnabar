@@ -105,13 +105,13 @@ pub enum MockElement {
         text: String,
         steps: usize,
         #[serde(default)]
-        index: usize,
+        index: i32,
     },
     Dropdown {
         text: String,
         options: Vec<String>,
         #[serde(default)]
-        index: usize,
+        index: i32,
     },
     Input {
         text: String,
@@ -298,6 +298,7 @@ impl MockForm {
                 elements,
                 submit,
             } => FormModel::Custom(CustomForm {
+                icon: None,
                 title: title.clone(),
                 elements: elements.iter().map(MockElement::model).collect(),
                 submit_text: submit.clone().unwrap_or_default(),
@@ -318,6 +319,7 @@ impl MockElement {
             MockElement::Slider { text, fraction } => CustomElement::Slider {
                 text,
                 fraction,
+                timeout: 0.0,
                 tooltip,
             },
             MockElement::StepSlider { text, steps, index } => CustomElement::StepSlider {

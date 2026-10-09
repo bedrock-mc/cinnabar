@@ -219,7 +219,7 @@ fn string_list(value: Option<&Value>) -> Result<Arc<[FormText]>, UnsupportedForm
     if items.len() > MAX_CUSTOM_FORM_ITEMS {
         return Err(UnsupportedForm::Limit);
     }
-    items.iter().map(|item| text_value(item)).collect()
+    items.iter().map(text_value).collect()
 }
 
 /// Retains an integer default even when no option currently has that index.

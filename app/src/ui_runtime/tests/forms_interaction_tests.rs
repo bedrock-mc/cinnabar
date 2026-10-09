@@ -665,11 +665,11 @@ fn a_release_after_the_next_page_arrives_does_not_click_it() {
                             title: Some(Arc::from("Next")),
                             json: Arc::from("{}"),
                             model: ServerFormModel::TextMenu(TextMenuForm {
-                                title: Arc::from("Next"),
-                                content: Arc::from(""),
+                                title: "Next".into(),
+                                content: "".into(),
                                 buttons: ["A", "B", "C"]
                                     .iter()
-                                    .map(|text| Arc::from(*text))
+                                    .map(|text| protocol::FormText::from(*text))
                                     .collect(),
                                 button_images: Vec::new().into(),
                                 omitted_images: 0,
@@ -781,16 +781,17 @@ fn custom_form_toggle_and_input_edit_their_values() {
                     title: Some(Arc::from("T")),
                     json: Arc::from("{}"),
                     model: ServerFormModel::Custom(CustomForm {
-                        title: Arc::from("T"),
+                        icon: None,
+                        title: "T".into(),
                         elements: vec![
                             CustomFormElement::Toggle {
-                                text: Arc::from("On"),
+                                text: "On".into(),
                                 default: false,
                                 tooltip: None,
                             },
                             CustomFormElement::Input {
-                                text: Arc::from("Name"),
-                                placeholder: Arc::from(""),
+                                text: "Name".into(),
+                                placeholder: "".into(),
                                 default: Arc::from(""),
                                 tooltip: None,
                             },
