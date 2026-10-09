@@ -153,7 +153,7 @@ pub(super) fn draw(
     )? + space(canvas, 1);
     let owner_tag = if realm.member { "Invited" } else { "Owner" };
     let mut x = tag(canvas, owner_tag, [left + pad, y], PRIMARY_TINT, TEXT_DARK)?;
-    let open = !realm.expired && realm.state.eq_ignore_ascii_case("open");
+    let open = realm.can_play();
     if !open {
         let state = if realm.expired { "Expired" } else { "Closed" };
         x = tag(canvas, state, [x + canvas.r(0.8), y], WARNING_TINT, TEXT)?;

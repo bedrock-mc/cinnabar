@@ -76,7 +76,7 @@ impl MenuRuntime {
                     self.close_realm_membership();
                 }
             }
-            Action::Play if state.stage == launcher::menu::realm_membership::Stage::Complete => {
+            Action::Play if state.can_play() => {
                 let target = state.realm.as_ref().map(|realm| realm.target.clone());
                 self.close_realm_membership();
                 if let Some(index) = self

@@ -180,3 +180,25 @@ fn realm_membership_identity_refresh_retires_both_busy_states() {
         assert!(menu.realms.is_empty());
     }
 }
+
+#[test]
+fn realm_membership_play_rejects_closed_or_expired_realms() {
+    for (realm_state, expired) in [("CLOSED", false), ("OPEN", true)] {
+        let mut menu = menu();
+        let mut realm = realm();
+        realm.state = realm_state.into();
+        realm.expired = expired;
+        menu.realms.push(realm.clone());
+        menu.realm_membership.state = Some(State {
+            stage: Stage::Complete,
+            realm: Some(realm),
+            ..Default::default()
+        });
+        menu.activate_realm_membership(Action::Play);
+        assert!(!menu.is_connecting());
+        assert!(
+            menu.realm_membership.state.is_some(),
+            "an unavailable Play action must preserve the completion dialog"
+        );
+    }
+}

@@ -115,7 +115,12 @@ pub(super) fn draw(
                 return Ok(());
             };
             let accepted = state.stage == Stage::Complete;
-            let body = if accepted {
+            let body = if accepted && !state.can_play() {
+                format!(
+                    "You joined {}. This Realm is currently unavailable.",
+                    realm.name
+                )
+            } else if accepted {
                 format!(
                     "You joined {}. You can play now or return to your Realms.",
                     realm.name
@@ -146,7 +151,7 @@ pub(super) fn draw(
                     (
                         (if accepted { "Play" } else { "Join Realm" }).into(),
                         Variant::Primary,
-                        Some(action(if accepted {
+                        (!accepted || state.can_play()).then_some(action(if accepted {
                             Action::Play
                         } else {
                             Action::Accept

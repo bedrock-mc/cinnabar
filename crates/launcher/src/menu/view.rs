@@ -64,6 +64,13 @@ pub struct MenuRealmCard {
     pub member: bool,
 }
 
+impl MenuRealmCard {
+    /// Closed or expired Realms may grant membership but cannot offer a game connection.
+    pub fn can_play(&self) -> bool {
+        !self.expired && self.state.eq_ignore_ascii_case("open")
+    }
+}
+
 /// Marks a featured address as an experience's ID, joined when selected.
 pub const EXPERIENCE_ADDRESS_PREFIX: &str = "gathering/";
 

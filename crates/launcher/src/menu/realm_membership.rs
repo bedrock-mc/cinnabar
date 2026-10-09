@@ -97,6 +97,11 @@ impl State {
         self.stage != Stage::Joining
     }
 
+    /// Successful membership offers a connection only while the returned Realm is available.
+    pub fn can_play(&self) -> bool {
+        self.stage == Stage::Complete && self.realm.as_ref().is_some_and(MenuRealmCard::can_play)
+    }
+
     /// The controls reachable by keyboard while this flow covers the Realms tab.
     pub fn actions(&self) -> Vec<Action> {
         match self.stage {
@@ -111,7 +116,33 @@ impl State {
             Stage::Verifying => vec![Action::Back],
             Stage::Confirm => vec![Action::Accept, Action::Back],
             Stage::Joining => Vec::new(),
-            Stage::Complete => vec![Action::Play, Action::Back],
+            Stage::Complete => [self.can_play().then_some(Action::Play), Some(Action::Back)]
+                .into_iter()
+                .flatten()
+                .collect(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn completed_membership_offers_play_only_for_available_realms() {
+        for (realm_state, expired, available) in [
+            ("OPEN", false, true),
+            ("CLOSED", false, false),
+            ("OPEN", true, false),
+        ] {
+            let realm = serde_json::from_value(serde_json::json!({"name":"Fixture Realm", "state":realm_state, "expired":expired, "target":"realm_id/7"})).unwrap();
+            let state = State {
+                stage: Stage::Complete,
+                realm: Some(realm),
+                ..Default::default()
+            };
+            assert_eq!(state.actions().contains(&Action::Play), available);
+            assert!(state.actions().contains(&Action::Back));
         }
     }
 }

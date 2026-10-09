@@ -954,3 +954,32 @@ fn realm_membership_busy_flow_excludes_underlying_tabs_and_duplicate_requests() 
         }
     }
 }
+
+#[test]
+fn realm_membership_completion_disables_unavailable_play() {
+    use launcher::menu::realm_membership::{Action, Stage, State};
+    for (realm_state, expired, available) in [
+        ("OPEN", false, true),
+        ("CLOSED", false, false),
+        ("OPEN", true, false),
+    ] {
+        let mut view = MenuView::new(true, "Fixture".into());
+        let realm = serde_json::from_value(serde_json::json!({"name":"Fixture Realm", "state":realm_state, "expired":expired, "target":"realm_id/7"})).unwrap();
+        view.realm_membership = Some(State {
+            stage: Stage::Complete,
+            realm: Some(realm),
+            ..Default::default()
+        });
+        let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
+        let hits = append(&mut presentation, &view, [1280.0, 720.0]);
+        assert_eq!(
+            hits.iter()
+                .any(|(action, _)| *action == MenuAction::RealmMembership(Action::Play)),
+            available
+        );
+        assert!(
+            hits.iter()
+                .any(|(action, _)| *action == MenuAction::RealmMembership(Action::Back))
+        );
+    }
+}
