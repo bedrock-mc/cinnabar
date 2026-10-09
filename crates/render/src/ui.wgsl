@@ -79,6 +79,8 @@ fn srgb_to_linear(srgb: vec3<f32>) -> vec3<f32> {
 }
 
 fn shade_ui(input: UiVertexOutput, direct: bool) -> vec4<f32> {
+    let uv_dx = dpdx(input.uv);
+    let uv_dy = dpdy(input.uv);
     if (input.style_flags & STYLE_RADIAL_GRADIENT) != 0u {
         let radius = clamp(length(input.uv), 0.0, 1.0);
         let inner = vec4<f32>(input.color.rgb * input.color.a, input.color.a);
@@ -100,8 +102,6 @@ fn shade_ui(input: UiVertexOutput, direct: bool) -> vec4<f32> {
     let normalized_uv = input.uv / dimensions;
     let native_font = (input.style_flags & STYLE_FONT_GAMMA) != 0u;
     let sdf_font = (input.style_flags & STYLE_FONT_SDF) != 0u;
-    let uv_dx = dpdx(input.uv);
-    let uv_dy = dpdy(input.uv);
     let texels_per_pixel = sqrt(abs(uv_dx.x * uv_dy.y - uv_dx.y * uv_dy.x));
     // Level 0 sampling keeps the per-vertex sampler choice legal in non-uniform flow.
     var sample: vec4<f32>;
