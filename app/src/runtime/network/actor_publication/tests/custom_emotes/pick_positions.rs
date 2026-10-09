@@ -10,7 +10,7 @@ fn pick_ahead(world: Res<ClientWorld>, mut picked: ResMut<Picked>) {
     let authority = world.stream.as_ref().unwrap().authority();
     picked.0 = gameplay::melee::pick_actor_by(
         authority.remote_actors(),
-        |actor| authority.pick_bounding_box(actor),
+        |actor| authority.pick_hit_boxes(actor),
         None,
         [2.0, 65.0, 1.5],
         [0.0, 0.0, 1.0],
@@ -178,13 +178,41 @@ fn pick_prediction_reuses_its_buffer_across_frames() {
     let mut world = fixture();
     let mut client = world.resource_mut::<ClientWorld>();
     let stream = client.stream.as_mut().unwrap();
+    let mut hitbox = world::NbtCompound::default();
+    for axis in ["X", "Y", "Z"] {
+        hitbox.insert(format!("Max{axis}"), world::NbtValue::Float(1.0));
+        hitbox.insert(format!("Pivot{axis}"), world::NbtValue::Float(2.0));
+    }
+    let mut root = world::NbtCompound::default();
+    root.insert(
+        "Hitboxes",
+        world::NbtValue::List(vec![world::NbtValue::Compound(hitbox)]),
+    );
+    stream
+        .submit(
+            3,
+            WorldEvent::Actor(ActorEvent::Metadata(protocol::ActorMetadataUpdateEvent {
+                dimension: 0,
+                runtime_id: 2,
+                metadata: Arc::from([protocol::ActorMetadata {
+                    key: client_world::HITBOX_METADATA_KEY,
+                    value: protocol::ActorMetadataValue::Compound(
+                        root.encode_root().unwrap().into(),
+                    ),
+                }]),
+                properties: Arc::from([]),
+                tick: 0,
+            })),
+        )
+        .unwrap();
+    stream.poll([0.0, 64.0, 0.0], 0);
     stream.predict_remote_actor_motion(1);
     let before = crate::tests::alloc_count::thread_allocations();
     for ticks in [1, 0, 2, 0, 1] {
         stream.predict_remote_actor_motion(ticks);
         let authority = stream.authority();
         for actor in authority.remote_actors() {
-            std::hint::black_box(authority.pick_bounding_box(actor));
+            std::hint::black_box(authority.pick_hit_boxes(actor).last());
         }
     }
     assert_eq!(crate::tests::alloc_count::thread_allocations() - before, 0);

@@ -1,3 +1,5 @@
+mod hitboxes;
+
 use std::sync::Arc;
 
 use bevy::prelude::Vec3;

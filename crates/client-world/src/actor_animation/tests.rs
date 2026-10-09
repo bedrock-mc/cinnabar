@@ -65,6 +65,7 @@ pub(super) fn actor_with_metadata(metadata: HashMap<u32, ActorMetadataValue>) ->
         float_properties: HashMap::new(),
         status: Default::default(),
         dragon_animation: None,
+        hitboxes: None,
     }
 }
 

@@ -50,7 +50,7 @@ pub enum Crosshair {
     Miss,
 }
 
-/// Nearest actor whose inflated box the ray enters within `reach`.
+/// Nearest actor with an inflated hitbox the ray enters within `reach`.
 pub fn pick_actor<'a>(
     actors: impl Iterator<Item = &'a ActorSnapshot>,
     excluded_unique_id: Option<i64>,
@@ -60,7 +60,7 @@ pub fn pick_actor<'a>(
 ) -> Option<ActorHit> {
     pick_actor_by(
         actors,
-        ActorSnapshot::bounding_box,
+        ActorSnapshot::hit_boxes,
         excluded_unique_id,
         origin,
         direction,
@@ -68,15 +68,19 @@ pub fn pick_actor<'a>(
     )
 }
 
-/// [`pick_actor`] against the boxes `bounding_box` places each actor at.
-pub fn pick_actor_by<'a>(
+/// [`pick_actor`] against the `(min, max)` boxes `hit_boxes` places each actor at; the
+/// first intersecting box in server order within reach supplies each actor's hit.
+pub fn pick_actor_by<'a, Boxes>(
     actors: impl Iterator<Item = &'a ActorSnapshot>,
-    bounding_box: impl Fn(&ActorSnapshot) -> Option<([f32; 3], [f32; 3])>,
+    hit_boxes: impl Fn(&'a ActorSnapshot) -> Boxes,
     excluded_unique_id: Option<i64>,
     origin: [f32; 3],
     direction: [f32; 3],
     reach: f64,
-) -> Option<ActorHit> {
+) -> Option<ActorHit>
+where
+    Boxes: IntoIterator<Item = ([f32; 3], [f32; 3])>,
+{
     let origin = origin.map(f64::from);
     let length = direction
         .into_iter()
@@ -90,11 +94,12 @@ pub fn pick_actor_by<'a>(
     actors
         .filter(|actor| Some(actor.unique_id) != excluded_unique_id && pickable(actor))
         .filter_map(|actor| {
-            let (min, max) = bounding_box(actor)?;
-            let min = min.map(|axis| f64::from(axis) - ACTOR_PICK_RADIUS);
-            let max = max.map(|axis| f64::from(axis) + ACTOR_PICK_RADIUS);
-            let distance = ray_box_entry(origin, direction, min, max)?;
-            (distance <= reach).then(|| ActorHit {
+            let distance = hit_boxes(actor).into_iter().find_map(|(min, max)| {
+                let min = min.map(|axis| f64::from(axis) - ACTOR_PICK_RADIUS);
+                let max = max.map(|axis| f64::from(axis) + ACTOR_PICK_RADIUS);
+                ray_box_entry(origin, direction, min, max).filter(|distance| *distance <= reach)
+            })?;
+            Some(ActorHit {
                 runtime_id: actor.runtime_id,
                 distance,
                 point: [0, 1, 2].map(|axis| (origin[axis] + direction[axis] * distance) as f32),
