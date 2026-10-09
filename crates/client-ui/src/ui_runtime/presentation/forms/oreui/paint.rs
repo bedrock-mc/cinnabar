@@ -445,6 +445,7 @@ impl<'a> Canvas<'a> {
             )
         });
         let mut request = self.metrics.request(value, width_64, font);
+        request.style.bold = style.bold;
         if let Some(source) = font.line_metrics() {
             request.scale = UiScale::new_display(self.r(style.size) * 64.0 / source.em_64 as f32)
                 .map_err(UiPresentationError::Geometry)?;

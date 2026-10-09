@@ -214,7 +214,7 @@ fn signed_out_home_has_a_direct_sign_in_action() {
 }
 
 #[test]
-fn home_headings_and_hero_action_use_the_bundled_block_face() {
+fn home_headings_and_hero_action_use_the_bold_bundled_block_face() {
     use crate::ui_runtime::oreui_fonts::OreUiFont;
 
     let base = crate::ui_runtime::presentation::tests::fixture_font();
@@ -240,7 +240,7 @@ fn home_headings_and_hero_action_use_the_bundled_block_face() {
         let mut canvas = Canvas::new(&mut nodes, &mut next, &mut layouts, &font, metrics, 0, None);
         draw(&mut canvas, &view(), [1280.0, 720.0], None, &|_| None).unwrap();
     }
-    let page_for = |text: &str| {
+    let glyph_for = |text: &str| {
         nodes
             .iter()
             .find_map(|node| match node.visual() {
@@ -256,14 +256,14 @@ fn home_headings_and_hero_action_use_the_bundled_block_face() {
                         .glyphs()
                         .iter()
                         .find(|glyph| !glyph.codepoint.is_whitespace())
-                        .map(|glyph| glyph.page)
+                        .map(|glyph| (glyph.page, glyph.style.bold))
                 }
                 _ => None,
             })
             .unwrap_or_else(|| panic!("missing home label {text:?}"))
     };
-    assert_eq!(page_for("LET'S PLAY"), block_page);
-    assert_eq!(page_for("PLAY"), block_page);
-    assert_eq!(page_for("Dressing Room"), regular_page);
+    assert_eq!(glyph_for("LET'S PLAY"), (block_page, true));
+    assert_eq!(glyph_for("PLAY"), (block_page, true));
+    assert_eq!(glyph_for("Dressing Room"), (regular_page, false));
     assert_ne!(block_page, regular_page);
 }
