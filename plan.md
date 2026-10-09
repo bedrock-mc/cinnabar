@@ -170,6 +170,17 @@
 - Unchanged hand and cloud uniforms, inactive portals and empty item scenes skip
   redundant staging work. Regression tests assert allocations, writes and retained
   buffers; hardware captures measure elapsed time separately.
+- UI publication re-emits only the nodes a frame changes into its retained draw list,
+  and HUD rebinds run only the view bindings a change reaches. The paper doll and the
+  inventory model turn as geometry without rebuilding a texture page. The pack worker
+  resolves server HUD screens and reads the pack textures they name, and large session
+  icon sets pack on a worker. Regression tests assert redrawn nodes, view runs, and
+  on-frame resolves, pack reads and icon packs.
+- Incomplete: the first in-world frame after joining (4.9 s), first server form opens
+  and chat-open freezes from live sessions did not reproduce offline at that size, and
+  large server art still decodes on the frame within its budget. A tree-shape change,
+  such as blinking hearts, builds the frame in full, and the first two HUD rebinds after
+  a cold bind rebuild most controls. Release-build hardware captures remain open.
 - Actor publication retains native skin pixels and unchanged GPU artwork. Bounded worker
   batches prepare custom models while replacements retain the last complete profile.
   Prepared meshes retain validation and vertex fingerprints across catalog publication.
