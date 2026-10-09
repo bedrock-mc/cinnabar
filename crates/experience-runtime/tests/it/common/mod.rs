@@ -11,8 +11,25 @@ use experience_runtime::callback::run;
 use experience_runtime::load::{EpochTicker, Loaded, engine, load};
 use experience_runtime::manifest::{ASSETS_DIR, MANIFEST_FILE, SERVER_WASM};
 use experience_runtime::protocol::{
-    BlockPos, Call, Cell, Face, Info, Op, Outcome, Request, Scalar,
+    BlockPos, Call, Cell, Face, INVENTORY_SLOTS, Info, Inventory, Op, Outcome, Request, Scalar,
+    ServerItem,
 };
+
+/// The server's items as an adapter lists them for the probe: stone, 64 to a stack, and ender
+/// pearls, 16.
+pub fn server_items() -> Vec<ServerItem> {
+    let item = |id: &str, max_count| ServerItem {
+        id: id.to_owned(),
+        metadata: 0,
+        max_count,
+        off_hand: false,
+        plain: true,
+    };
+    vec![
+        item("minecraft:stone", 64),
+        item("minecraft:ender_pearl", 16),
+    ]
+}
 use sha2::{Digest, Sha256};
 use tempfile::TempDir;
 use wasmtime::Engine;
@@ -33,6 +50,8 @@ const SERVER_WIT_0_1: &str = include_str!("../../../wit/0.1/server.wit");
 const SERVER_WIT_0_2: &str = include_str!("../../../wit/0.2/server.wit");
 /// The server WIT 0.3, which the runtime still accepts.
 const SERVER_WIT_0_3: &str = include_str!("../../../wit/0.3/server.wit");
+/// The server WIT 0.4, which the runtime still accepts.
+const SERVER_WIT_0_4: &str = include_str!("../../../wit/0.4/server.wit");
 
 /// A core module for the `server` world whose `register` spins forever and whose callbacks trap.
 /// Each export takes the canonical ABI's flattening of its WIT signature, and returns a pointer
@@ -181,6 +200,63 @@ const V0_3_GUEST: &str = r#"(module
     (data (i32.const 288) "*")
     (data (i32.const 296) "counter.png")
     (data (i32.const 320) "v0.3")
+    (func (export "cabi_realloc") (param i32 i32) (param $align i32) (param $size i32)
+        (result i32)
+        (local $at i32)
+        (local.set $at (i32.and
+            (i32.add (global.get $heap) (i32.sub (local.get $align) (i32.const 1)))
+            (i32.sub (i32.const 0) (local.get $align))))
+        (global.set $heap (i32.add (local.get $at) (local.get $size)))
+        (local.get $at))
+    (func (export "register") (result i32) (i32.const 32))
+    (func (export "on-place")
+        (param i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32) (result i32)
+        (call $drop (local.get 0))
+        (i32.const 0))
+    (func (export "on-break")
+        (param i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32) (result i32)
+        (call $drop (local.get 0))
+        (i32.const 0))
+    (func (export "on-interact")
+        (param $ctx i32) (param $player i32) (param $len i32) (param i32 i32 i32 i32) (result i32)
+        (call $tell (local.get $ctx) (local.get $player) (local.get $len)
+            (i32.const 320) (i32.const 4) (i32.const 16))
+        (call $drop (local.get $ctx))
+        (i32.const 0))
+    (func (export "on-neighbor-changed") (param i32 i32 i32 i32 i32 i32 i32) (result i32)
+        (call $drop (local.get 0))
+        (i32.const 0))
+    (func (export "client-message")
+        (param $ctx i32) (param i32 i32 i32 i32 i32 i32 i32) (result i32)
+        (call $send (local.get $ctx) (local.get 1) (local.get 2) (local.get 3) (local.get 4)
+            (local.get 5) (local.get 6) (local.get 7) (i32.const 16))
+        (call $drop (local.get $ctx))
+        (i32.const 0))
+    (func (export "epoch") (param i32 i32 i32) (result i32)
+        (call $drop (local.get 0))
+        (i32.const 0)))"#;
+
+/// A core module for the 0.4 `server` world, as a guest built before 0.5 would be: it is
+/// [`V0_3_GUEST`] through the 0.4 imports, telling "v0.4", and its `register` declares the plain
+/// block that every older guest does.
+const V0_4_GUEST: &str = r#"(module
+    (import "cinnabar:experience-server/world-access@0.4.0" "[method]callback.tell"
+        (func $tell (param i32 i32 i32 i32 i32 i32)))
+    (import "cinnabar:experience-server/world-access@0.4.0" "[method]callback.send-client"
+        (func $send (param i32 i32 i32 i32 i32 i32 i32 i32 i32)))
+    (import "cinnabar:experience-server/world-access@0.4.0" "[resource-drop]callback"
+        (func $drop (param i32)))
+    (memory (export "memory") 1)
+    (global $heap (mut i32) (i32.const 1024))
+    (data (i32.const 32) "\00\00\00\00\40\00\00\00\01\00\00\00")
+    (data (i32.const 64) "\00\01\00\00\0d\00\00\00\10\01\00\00\06\00\00\00")
+    (data (i32.const 80) "\80\00\00\00\01\00\00\00\01\00\00\00\00\00\80\3f")
+    (data (i32.const 128) "\20\01\00\00\01\00\00\00\28\01\00\00\0b\00\00\00")
+    (data (i32.const 256) "probe:counter")
+    (data (i32.const 272) "Legacy")
+    (data (i32.const 288) "*")
+    (data (i32.const 296) "counter.png")
+    (data (i32.const 320) "v0.4")
     (func (export "cabi_realloc") (param i32 i32) (param $align i32) (param $size i32)
         (result i32)
         (local $at i32)
@@ -368,6 +444,12 @@ pub fn v0_3_dir() -> TempDir {
     wat_dir(V0_3_GUEST, SERVER_WIT_0_3)
 }
 
+/// A probe artifact whose `server.wasm` is [`V0_4_GUEST`] with the 0.4 `server` world embedded,
+/// and whose manifest has `api = "0.4"`.
+pub fn v0_4_dir() -> TempDir {
+    wat_dir(V0_4_GUEST, SERVER_WIT_0_4)
+}
+
 /// The manifest `api` of a server WIT: its package's `major.minor`.
 fn api_of(wit: &str) -> &str {
     let package = wit
@@ -431,7 +513,10 @@ pub fn probe() -> &'static Probe {
         let (engine, ticker) = engine().unwrap();
         // The artifact is only read while loading.
         let dir = probe_dir();
-        let loaded = load(&engine, dir.path()).unwrap();
+        let loaded = load(&engine, dir.path())
+            .unwrap()
+            .with_server_items(server_items())
+            .unwrap();
         Probe {
             engine,
             loaded,
@@ -463,6 +548,7 @@ pub fn cell(pos: BlockPos, id: &str, owned: bool, data: Option<&str>) -> Cell {
         id: id.to_owned(),
         owned,
         data: data.map(str::to_owned),
+        states: Vec::new(),
     }
 }
 
@@ -498,6 +584,11 @@ pub fn callback(anchor: BlockPos, call: Call) -> Request {
         world_max_y: 319,
         data_budget: 1 << 20,
         snapshot,
+        network: None,
+        inventory: Some(Inventory {
+            selected: 0,
+            slots: vec![None; INVENTORY_SLOTS],
+        }),
         call,
     }
 }

@@ -2,16 +2,18 @@ package experience
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"image"
 	"image/png"
 	"io"
 	"os"
-	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/df-mc/dragonfly/server/block"
 	"github.com/df-mc/dragonfly/server/block/cube"
+	"github.com/df-mc/dragonfly/server/block/customblock"
 	"github.com/df-mc/dragonfly/server/item"
 	"github.com/df-mc/dragonfly/server/item/creative"
 	"github.com/df-mc/dragonfly/server/world"
@@ -36,26 +38,29 @@ var (
 // in it would collide with a vanilla block, which Dragonfly refuses with a panic, or pose as one.
 const vanillaNamespace = "minecraft"
 
-// Registry holds the registered Experience blocks.
+// Registry holds the registered Experience blocks and items.
 type Registry struct {
 	types map[string]*blockType // by block id
+	items map[string]*itemType  // by item id
 }
 
-// Register checks the blocks of every loaded Experience and decodes their textures. Then it
-// registers each block and its item with Dragonfly, and for each Experience a construction
-// creative group named after it, which holds its blocks and shows the first. A reserved or
-// repeated Experience id, or a bad definition or texture, fails before anything is registered,
-// with an error naming the Experience and the block or file.
+// Register checks the blocks and items of every loaded Experience and reads their textures,
+// geometries and icons. Then it registers every state of each block, its item and each item with
+// Dragonfly, and for each Experience a construction creative group named after it, which holds
+// its blocks, then its items, and shows the first. A reserved or repeated Experience id, or a bad
+// definition, texture, geometry or icon, fails before anything is registered, with an error
+// naming the Experience and the block, item or file.
 //
 // Dragonfly's registries are global: Register may succeed once per process, before
 // server.Config.New finalizes them and builds the resource pack from the registered blocks. It is
 // not safe for concurrent use.
 func Register(loaded []Loaded) (*Registry, error) {
-	r := &Registry{types: make(map[string]*blockType)}
+	r := &Registry{types: make(map[string]*blockType), items: make(map[string]*itemType)}
 	experiences := make(map[string]bool, len(loaded))
-	decoded := make(map[string]image.Image) // by file path, which several slots may bind
-	// blocks[i] holds the types of loaded[i]'s blocks in their order.
+	cache := newAssetCache() // several slots, materials and blocks may share a file
+	// blocks[i] and items[i] hold the types of loaded[i]'s blocks and items in their order.
 	blocks := make([][]*blockType, len(loaded))
+	items := make([][]*itemType, len(loaded))
 	for i, l := range loaded {
 		if l.ID == vanillaNamespace {
 			return nil, fmt.Errorf("experience id %q is reserved", l.ID)
@@ -64,59 +69,97 @@ func Register(loaded []Loaded) (*Registry, error) {
 			return nil, fmt.Errorf("experience %q is loaded twice", l.ID)
 		}
 		experiences[l.ID] = true
+		if len(l.Items) > maxItems {
+			return nil, fmt.Errorf("experience %q declares %d items; the limit is %d", l.ID, len(l.Items), maxItems)
+		}
 		for _, def := range l.Blocks {
 			if _, ok := r.types[def.ID]; ok {
 				return nil, fmt.Errorf("experience %q: block %q is declared twice", l.ID, def.ID)
 			}
-			t, err := newBlockType(l.ID, def, decoded)
+			t, err := newBlockType(l.ID, def, cache)
 			if err != nil {
 				return nil, err
 			}
 			r.types[def.ID] = t
 			blocks[i] = append(blocks[i], t)
 		}
+		for _, def := range l.Items {
+			if _, ok := r.items[def.ID]; ok {
+				return nil, fmt.Errorf("experience %q: item %q is declared twice", l.ID, def.ID)
+			}
+			t, err := newItemType(l.ID, def, l.Blocks, cache)
+			if err != nil {
+				return nil, err
+			}
+			r.items[def.ID] = t
+			items[i] = append(items[i], t)
+		}
 	}
 	// Every definition is valid; only now does anything reach Dragonfly.
 	for i, types := range blocks {
 		for _, t := range types {
 			t.hash = block.NextHash()
-			world.RegisterBlock(Block{t})
-			world.RegisterItem(Block{t})
+			for s := range t.combinations {
+				world.RegisterBlock(Block{t, s})
+			}
+			world.RegisterItem(Block{t, 0})
 		}
-		if len(types) == 0 {
+		for _, t := range items[i] {
+			world.RegisterItem(Item{t})
+		}
+		var stacks []item.Stack
+		for _, t := range types {
+			stacks = append(stacks, item.NewStack(Block{t: t}, 1))
+		}
+		for _, t := range items[i] {
+			stacks = append(stacks, item.NewStack(Item{t}, 1))
+		}
+		if len(stacks) == 0 {
 			continue
 		}
 		exp := loaded[i].ID
 		creative.RegisterGroup(creative.Group{
 			Category: creative.ConstructionCategory(),
 			Name:     exp,
-			Icon:     item.NewStack(Block{types[0]}, 1),
+			Icon:     stacks[0],
 		})
-		for _, t := range types {
-			creative.RegisterItem(creative.Item{Stack: item.NewStack(Block{t}, 1), Group: exp})
+		for _, stack := range stacks {
+			creative.RegisterItem(creative.Item{Stack: stack, Group: exp})
 		}
 	}
 	return r, nil
 }
 
-// Lookup returns the registered block with the id.
+// Lookup returns the registered block with the id, in its default state.
 func (r *Registry) Lookup(id string) (Block, bool) {
 	t, ok := r.types[id]
-	return Block{t}, ok
+	return Block{t: t}, ok
 }
 
-// newBlockType checks def, a block of the Experience exp, and decodes its textures, taking those
-// already in decoded from there and adding the rest. The type it returns is not registered and
-// has no hash yet.
-func newBlockType(exp string, def BlockDef, decoded map[string]image.Image) (*blockType, error) {
-	t := &blockType{
-		exp:      exp,
-		id:       def.ID,
-		name:     def.DisplayName,
-		textures: make(map[string]image.Image, len(def.Textures)),
-		slots:    make(map[string]string, len(def.Textures)),
+// newBlockType checks def, a block of the Experience exp, as the runtime does, and reads its
+// textures and geometries through cache. The type it returns is not registered and has no hash
+// yet.
+func newBlockType(exp string, def BlockDef, cache *assetCache) (*blockType, error) {
+	t, err := blockTypeOf(exp, def, cache)
+	if err != nil {
+		return nil, fmt.Errorf("experience %q: block %q: %w", exp, def.ID, err)
 	}
-	b := Block{t}
+	return t, nil
+}
+
+func blockTypeOf(exp string, def BlockDef, cache *assetCache) (*blockType, error) {
+	t := &blockType{
+		exp:       exp,
+		id:        def.ID,
+		name:      def.DisplayName,
+		textures:  make(map[string]image.Image, len(def.Textures)),
+		slots:     make(map[string]string, len(def.Textures)),
+		placement: def.Placement,
+		traits:    traitsOf(def.Placement),
+		declared:  make(map[string][]any, len(def.States)),
+		network:   def.Network,
+	}
+	b := Block{t: t}
 	info := block.BreakInfo{
 		Harvestable: harvestableByHand,
 		Effective:   effectiveWithNoTool,
@@ -136,27 +179,48 @@ func newBlockType(exp string, def BlockDef, decoded map[string]image.Image) (*bl
 		info.Hardness = unbreakableHardness
 		info.BlastResistance = unbreakableBlastResistance
 	default:
-		return nil, fmt.Errorf("experience %q: block %q has no mining", exp, def.ID)
+		return nil, errors.New("it has no mining")
 	}
 	t.breakInfo = info
 
+	axes, err := stateAxes(exp, def.States, t.traits)
+	if err != nil {
+		return nil, err
+	}
+	t.axes, t.radix, t.combinations = axes, make([]uint32, len(axes)), 1
+	for i, a := range axes {
+		t.radix[i] = t.combinations
+		t.combinations *= uint32(len(a.values))
+		if !slices.ContainsFunc(t.traits, func(trait customblock.Trait) bool {
+			return slices.ContainsFunc(trait.States(), func(s customblock.TraitState) bool { return s.Name == a.name })
+		}) {
+			t.declared[a.name] = a.values
+		}
+	}
+
+	if def.Visual != nil {
+		if len(def.Textures) > 0 {
+			return nil, errors.New("it binds textures and declares a visual, whose materials replace them")
+		}
+		if err := newVisual(exp, def, t, cache); err != nil {
+			return nil, err
+		}
+		return t, nil
+	}
+	if len(def.Permutations) > 0 {
+		return nil, errors.New("it declares permutations but no visual for them to change")
+	}
 	for _, texture := range def.Textures {
-		img, ok := decoded[texture.Path]
-		if !ok {
-			var err error
-			if img, err = loadTexture(texture.Path); err != nil {
-				return nil, fmt.Errorf("experience %q: block %q: texture %s: %w",
-					exp, def.ID, filepath.Base(texture.Path), err)
-			}
-			decoded[texture.Path] = img
+		img, err := cache.image(texture.Path)
+		if err != nil {
+			return nil, err
 		}
 		key := textureKey(def.ID, texture.Slot)
 		t.textures[key] = img
 		t.slots[texture.Slot] = key
 	}
 	if b.Texture() == nil {
-		return nil, fmt.Errorf("experience %q: block %q has no %q or %q texture for its item",
-			exp, def.ID, allFaces, FaceUp)
+		return nil, fmt.Errorf("it has no %q or %q texture for its item", allFaces, FaceUp)
 	}
 	return t, nil
 }

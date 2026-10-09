@@ -1,6 +1,6 @@
 {
   "type": "loaded",
-  "protocol": 4,
+  "protocol": 5,
   "id": "benergistics",
   "version": "0.1.0",
   "blocks": [
@@ -20,7 +20,12 @@
       "mining": {
         "type": "breakable",
         "hardness": 1.5
-      }
+      },
+      "states": [],
+      "placement": [],
+      "visual": null,
+      "permutations": [],
+      "network": true
     },
     {
       "id": "benergistics:creative_energy_cell",
@@ -33,7 +38,144 @@
       ],
       "mining": {
         "type": "unbreakable"
-      }
+      },
+      "states": [],
+      "placement": [],
+      "visual": null,
+      "permutations": [],
+      "network": true
+    },
+    {
+      "id": "benergistics:glass_cable",
+      "display_name": "ME Glass Cable",
+      "textures": [],
+      "mining": {
+        "type": "breakable",
+        "hardness": 0.5
+      },
+      "states": [
+        {
+          "name": "benergistics:north",
+          "values": {
+            "type": "bool"
+          }
+        },
+        {
+          "name": "benergistics:colour",
+          "values": {
+            "type": "choices",
+            "value": [
+              "fluix",
+              "white"
+            ]
+          }
+        }
+      ],
+      "placement": [
+        "facing_direction"
+      ],
+      "visual": {
+        "geometry": "/srv/experiences/benergistics/assets/glass_cable.geo.json",
+        "materials": [
+          {
+            "instance": "*",
+            "path": "/srv/experiences/benergistics/assets/glass_cable.png",
+            "render_method": "alpha_test",
+            "flipbook": {
+              "ticks_per_frame": 25,
+              "frames": [
+                0,
+                1,
+                2,
+                1
+              ],
+              "blend_frames": true
+            }
+          }
+        ],
+        "bones": [
+          {
+            "bone": "north",
+            "visible": [
+              [
+                {
+                  "state": {
+                    "name": "benergistics:north",
+                    "value": {
+                      "type": "bool",
+                      "value": true
+                    }
+                  },
+                  "equal": true
+                }
+              ]
+            ]
+          }
+        ],
+        "collision": {
+          "min": {
+            "x": 6.5,
+            "y": 6.5,
+            "z": 6.5
+          },
+          "max": {
+            "x": 9.5,
+            "y": 9.5,
+            "z": 9.5
+          }
+        },
+        "selection": null,
+        "rotation": null
+      },
+      "permutations": [
+        {
+          "when": [
+            [
+              {
+                "state": {
+                  "name": "benergistics:north",
+                  "value": {
+                    "type": "bool",
+                    "value": true
+                  }
+                },
+                "equal": true
+              }
+            ],
+            [
+              {
+                "state": {
+                  "name": "benergistics:colour",
+                  "value": {
+                    "type": "choice",
+                    "value": "white"
+                  }
+                },
+                "equal": false
+              }
+            ]
+          ],
+          "geometry": null,
+          "materials": null,
+          "bones": null,
+          "collision": null,
+          "selection": null,
+          "rotation": {
+            "x": 0,
+            "y": 1,
+            "z": 0
+          }
+        }
+      ],
+      "network": true
+    }
+  ],
+  "items": [
+    {
+      "id": "benergistics:item_storage_cell_1k",
+      "display_name": "1k ME Item Storage Cell",
+      "icon": "/srv/experiences/benergistics/assets/item_storage_cell_1k.png",
+      "max_stack": 1
     }
   ],
   "focus": true

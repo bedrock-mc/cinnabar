@@ -7,6 +7,7 @@ mod equipment;
 mod font;
 mod font_fallback;
 mod item_visuals;
+mod overlay_icon;
 mod pack;
 mod shield_icon;
 mod water_appearance;

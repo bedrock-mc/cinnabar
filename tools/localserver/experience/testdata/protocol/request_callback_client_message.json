@@ -12,6 +12,8 @@
   "world_max_y": 319,
   "data_budget": 4096,
   "snapshot": [],
+  "network": null,
+  "inventory": null,
   "call": {
     "type": "client_message",
     "player": "6f1c3c2e-5b7a-4d3e-9a51-0c8e2f4b7d10",

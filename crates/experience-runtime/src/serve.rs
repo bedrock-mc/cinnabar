@@ -13,8 +13,8 @@ use crate::callback;
 use crate::load::{self, EpochTicker, Loaded};
 use crate::manifest::Manifest;
 use crate::protocol::{
-    BlockDef, Call, FailKind, Outcome, PROTOCOL_VERSION, Request, Response, bounded_reason,
-    read_frame, write_frame,
+    BlockDef, Call, FailKind, ItemDef, Outcome, PROTOCOL_VERSION, Request, Response, ServerItem,
+    bounded_reason, read_frame, write_frame,
 };
 
 /// The session ended with `shutdown`, or with the end of input between frames.
@@ -36,8 +36,8 @@ const OVERSIZED_LOAD_FAILED: &str = "the load failure exceeds the frame limit";
 /// returns the process exit code. With `report_fuel`, each callback logs the fuel it consumed.
 /// An error is a frame that could not be written; the binary then exits with [`EXIT_PROTOCOL`].
 pub fn serve(mut input: impl Read, mut output: impl Write, report_fuel: bool) -> Result<i32> {
-    let dir = match read_frame(&mut input) {
-        Ok(Some(Request::Load { dir })) => dir,
+    let (dir, items) = match read_frame(&mut input) {
+        Ok(Some(Request::Load { dir, items })) => (dir, items),
         Ok(Some(Request::Callback { .. } | Request::Shutdown {})) => {
             return Ok(protocol_error("the first frame is not load"));
         }
@@ -45,14 +45,20 @@ pub fn serve(mut input: impl Read, mut output: impl Write, report_fuel: bool) ->
         Err(error) => return Ok(protocol_error(error)),
     };
     // The ticker drives every deadline, so it lives as long as the session.
-    let (engine, _ticker, loaded) = match start(Path::new(&dir)) {
+    let (engine, _ticker, loaded) = match start(Path::new(&dir), items) {
         Ok(started) => started,
         Err(error) => {
             answer_load_failed(&mut output, format!("{error:#}"))?;
             return Ok(EXIT_LOAD_FAILED);
         }
     };
-    if !answer_loaded(&mut output, &loaded.manifest, &loaded.blocks, loaded.focus)? {
+    if !answer_loaded(
+        &mut output,
+        &loaded.manifest,
+        &loaded.blocks,
+        &loaded.items,
+        loaded.focus,
+    )? {
         return Ok(EXIT_LOAD_FAILED);
     }
     loop {
@@ -74,20 +80,22 @@ pub fn serve(mut input: impl Read, mut output: impl Write, report_fuel: bool) ->
     }
 }
 
-/// The engine with its ticker, and the artifact in `dir` loaded on it.
-fn start(dir: &Path) -> Result<(Engine, EpochTicker, Loaded)> {
+/// The engine with its ticker, and the artifact in `dir` loaded on it, which may make stacks of
+/// the server's `items`.
+fn start(dir: &Path, items: Vec<ServerItem>) -> Result<(Engine, EpochTicker, Loaded)> {
     let (engine, ticker) = load::engine()?;
-    let loaded = load::load(&engine, dir)?;
+    let loaded = load::load(&engine, dir)?.with_server_items(items)?;
     Ok((engine, ticker, loaded))
 }
 
-/// Answers a load with what loaded: the manifest's id and version, the blocks, and whether its
-/// world takes a `focus`. An answer too large for a frame fails the load instead. Returns whether
-/// the load stands.
+/// Answers a load with what loaded: the manifest's id and version, the blocks and items, and
+/// whether its world takes a `focus`. An answer too large for a frame fails the load instead.
+/// Returns whether the load stands.
 fn answer_loaded(
     output: &mut impl Write,
     manifest: &Manifest,
     blocks: &[BlockDef],
+    items: &[ItemDef],
     focus: bool,
 ) -> io::Result<bool> {
     let response = Response::Loaded {
@@ -95,6 +103,7 @@ fn answer_loaded(
         id: manifest.id.clone(),
         version: manifest.version.clone(),
         blocks: blocks.to_vec(),
+        items: items.to_vec(),
         focus,
     };
     let failed = || Response::LoadFailed {
@@ -189,9 +198,14 @@ mod tests {
             display_name: "x".repeat(MAX_FRAME_BYTES),
             textures: Vec::new(),
             mining: Mining::Unbreakable {},
+            states: Vec::new(),
+            placement: Vec::new(),
+            visual: None,
+            permutations: Vec::new(),
+            network: false,
         };
         let mut output = Vec::new();
-        assert!(!answer_loaded(&mut output, &manifest, &[block], false).unwrap());
+        assert!(!answer_loaded(&mut output, &manifest, &[block], &[], false).unwrap());
         let mut frames = output.as_slice();
         let failed = Response::LoadFailed {
             reason: OVERSIZED_LOADED.to_owned(),

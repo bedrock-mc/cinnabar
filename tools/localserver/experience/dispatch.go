@@ -14,6 +14,7 @@ import (
 	"github.com/df-mc/dragonfly/server/block"
 	"github.com/df-mc/dragonfly/server/block/cube"
 	"github.com/df-mc/dragonfly/server/item"
+	"github.com/df-mc/dragonfly/server/player"
 	"github.com/df-mc/dragonfly/server/world"
 	"github.com/go-gl/mathgl/mgl64"
 	"github.com/google/uuid"
@@ -262,10 +263,10 @@ func (h *Host) resumed(ctx context.Context) bool {
 }
 
 // useOnBlock places b like a block item: on the clicked block if b may replace it, else beside
-// it, through the user's PlaceBlock. If b is then there, it starts a new generation in the store
-// and queues on-place.
+// it, through the user's PlaceBlock, with the states of its placement traits set by their vanilla
+// rules. If b is then there, it starts a new generation in the store and queues on-place.
 func (h *Host) useOnBlock(
-	b Block, pos cube.Pos, face cube.Face, _ mgl64.Vec3, tx *world.Tx, user item.User,
+	b Block, pos cube.Pos, face cube.Face, clickPos mgl64.Vec3, tx *world.Tx, user item.User,
 	ctx *item.UseContext,
 ) bool {
 	placer, ok := user.(block.Placer)
@@ -276,6 +277,7 @@ func (h *Host) useOnBlock(
 	if !ok {
 		return false
 	}
+	b = b.placed(user, target, face, clickPos)
 	before := blockID(tx.Block(target))
 	placer.PlaceBlock(target, b, ctx)
 	if tx.Block(target) != world.Block(b) {
@@ -468,6 +470,11 @@ func (h *Host) dispatch(ctx context.Context, d *dispatcher, ev event) {
 type snapshot struct {
 	req   CallbackRequest
 	cells []cellState
+	// networkBoundary holds rejected flood positions whose membership must stay false.
+	networkBoundary []cube.Pos
+	// slots are the actor's inventory slots as the snapshot holds them, which the commit checks
+	// again where it writes; nil without an actor.
+	slots []item.Stack
 }
 
 // cellState is the state of one snapshot cell that a commit must find unchanged, and the length
@@ -476,8 +483,10 @@ type cellState struct {
 	pos    cube.Pos
 	loaded bool
 	id     string
-	// owned is set for this Experience's own block with a store entry.
+	// owned is set for this Experience's own block with a store entry, which block holds with
+	// its states.
 	owned    bool
+	block    Block
 	token    Token
 	hasToken bool
 	dataLen  uint64
@@ -524,7 +533,8 @@ func await(ctx context.Context, task *world.Task) error {
 }
 
 // read builds the event's snapshot in tx: the anchor and its six neighbors within the world's
-// height, loaded or not, with the data of the owned ones; nothing for an unanchored call.
+// height, loaded or not, with the data of the owned ones, then the members of the anchor's
+// network; nothing for an unanchored call.
 func (h *Host) read(tx *world.Tx, d *dispatcher, ev event) snapshot {
 	r := tx.Range()
 	snap := snapshot{
@@ -544,6 +554,11 @@ func (h *Host) read(tx *world.Tx, d *dispatcher, ev event) snapshot {
 	if ev.actor != nil {
 		id := ev.actor.UUID().String()
 		snap.req.Actor = &id
+		if e, ok := ev.actor.Entity(tx); ok {
+			if p, ok := e.(*player.Player); ok {
+				snap.req.Inventory, snap.slots = inventoryOf(d.id, p)
+			}
+		}
 	}
 	var positions []cube.Pos
 	if ev.call.anchored() {
@@ -558,6 +573,7 @@ func (h *Host) read(tx *world.Tx, d *dispatcher, ev event) snapshot {
 		st := h.cellState(tx, d.id, ev.dim, pos)
 		cell := Cell{Pos: blockPos(pos), Loaded: st.loaded, ID: st.id, Owned: st.owned}
 		if st.owned {
+			cell.States = st.block.states()
 			if data, ok := h.store.Data(d.id, ev.dim.storeKey(pos)); ok {
 				s := hex.EncodeToString(data)
 				cell.Data = &s
@@ -567,6 +583,7 @@ func (h *Host) read(tx *world.Tx, d *dispatcher, ev event) snapshot {
 		snap.req.Snapshot = append(snap.req.Snapshot, cell)
 		snap.cells = append(snap.cells, st)
 	}
+	h.network(tx, d, ev, &snap)
 	return snap
 }
 
@@ -583,6 +600,9 @@ func (h *Host) cellState(tx *world.Tx, exp string, dim dimension, pos cube.Pos) 
 	st.id = blockID(b)
 	own, ok := b.(Block)
 	st.owned = ok && own.t.exp == exp && st.hasToken
+	if st.owned {
+		st.block = own
+	}
 	return st
 }
 

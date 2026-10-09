@@ -1,7 +1,7 @@
 //! One callback: a fresh instance of the guest runs one export against the request's snapshot.
 //! What the guest stages through its borrowed `callback` becomes the outcome, or nothing does.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io;
 use std::sync::Arc;
 
@@ -17,12 +17,13 @@ use crate::host::cinnabar::experience_server::types::{
 use crate::host::{HostState, LimitExceeded, Pre};
 use crate::limits::{
     CALLBACK_DEADLINE, CALLBACK_FUEL, MAX_BLOCK_DATA_BYTES, MAX_CLIENT_SEND_BYTES,
-    MAX_CLIENT_SENDS, MAX_HOST_CALLS, MAX_STAGED_DATA_BYTES, MAX_STAGED_OPS, MAX_TELL_BYTES,
-    MAX_TELLS, MAX_VALUE_DEPTH,
+    MAX_CLIENT_SENDS, MAX_HOST_CALLS, MAX_NETWORK_BLOCKS, MAX_NETWORK_DATA_BYTES,
+    MAX_STAGED_DATA_BYTES, MAX_STAGED_OPS, MAX_TELL_BYTES, MAX_TELLS, MAX_VALUE_DEPTH,
 };
-use crate::load::Loaded;
+use crate::load::{Catalog, Loaded, holds};
 use crate::protocol::{
-    self, BlockPos, Call, Cell, FailKind, Op, Outcome, Request, Scalar, bounded_reason,
+    self, BlockPos, BlockState, Call, Cell, FailKind, Inventory, Network, Op, Outcome, Request,
+    Scalar, StateDef, StateValue, StateValues, bounded_reason,
 };
 use crate::value::{self, Refusal};
 
@@ -41,7 +42,7 @@ pub fn run(engine: &Engine, loaded: &Loaded, request: &Request) -> Outcome {
 
 /// [`run`], which also returns the fuel that the callback consumed.
 pub fn run_metered(engine: &Engine, loaded: &Loaded, request: &Request) -> (Outcome, u64) {
-    let (res, export) = match prepare(&loaded.block_ids, request) {
+    let (res, export) = match prepare(&loaded.catalog, request) {
         Ok(prepared) => prepared,
         Err(reason) => {
             let reason = format!("malformed callback request: {reason}");
@@ -179,6 +180,29 @@ fn invoke(
                 Export::Epoch { player } => server.call_epoch(&mut *store, ctx, player),
             }
         }
+        Pre::V0_5(pre) => {
+            let server = pre.instantiate(&mut *store)?;
+            match export {
+                Export::Place(change) => server.call_on_place(&mut *store, ctx, change),
+                Export::Break(change) => server.call_on_break(&mut *store, ctx, change),
+                Export::Interact { player, pos, face } => {
+                    server.call_on_interact(&mut *store, ctx, player, *pos, *face)
+                }
+                Export::Neighbor { pos, neighbor } => {
+                    server.call_on_neighbor_changed(&mut *store, ctx, *pos, *neighbor)
+                }
+                Export::ClientMessage {
+                    player,
+                    channel,
+                    schema,
+                    payload,
+                } => {
+                    let nodes = value::encode(payload);
+                    server.call_client_message(&mut *store, ctx, player, channel, *schema, &nodes)
+                }
+                Export::Epoch { player } => server.call_epoch(&mut *store, ctx, player),
+            }
+        }
     }?;
     let res = store.data_mut().table.delete(owned)?;
     Ok((result, res.ops))
@@ -186,7 +210,7 @@ fn invoke(
 
 /// What the world of `pre` lacks to run `export`, `focused` when it has its player's focus, if
 /// anything: 0.1 has no client-message, 0.2 no list or record values, neither has epoch, and
-/// only 0.4 has a focus.
+/// only 0.4 and later have a focus.
 fn unsupported(pre: &Pre, export: &Export<'_>, focused: bool) -> Option<&'static str> {
     match (pre, export) {
         (Pre::V0_1(_), Export::ClientMessage { .. }) => Some("no client-message"),
@@ -223,9 +247,13 @@ pub struct CallbackRes {
     /// The actor's focus, which a client message or an epoch may have; its snapshot is the one
     /// its anchor would have.
     focus: Option<BlockPos>,
-    /// The ids of this Experience's blocks.
-    own: Arc<[String]>,
+    /// This Experience's blocks and items and the server's items.
+    own: Arc<Catalog>,
     snapshot: Snapshot,
+    /// The anchor's network when the anchor is a member, as the adapter snapshotted it.
+    network: Option<Network>,
+    /// The actor's inventory with the staged slots applied; none without an actor.
+    inventory: Option<Inventory>,
     /// In the order they commit. A position has at most one `SetBlockData`, and it comes after
     /// any `SetBlock` there.
     ops: Vec<Op>,
@@ -251,14 +279,27 @@ struct Snapshot {
     /// The anchor's chunk column, which writes stay inside; a callback without an anchor writes
     /// nothing.
     column: Option<(i32, i32)>,
+    /// The members of the anchor's network, whose data and states may be written wherever they
+    /// are.
+    members: HashSet<BlockPos>,
 }
 
-/// One snapshot cell. `owned` means it holds this Experience's block, which alone has data.
+/// Where a write may reach: blocks stay in the anchor's chunk column, data and states also reach
+/// the anchor's network.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Reach {
+    Column,
+    Network,
+}
+
+/// One snapshot cell. `owned` means it holds this Experience's block, which alone has data and
+/// states.
 struct Slot {
     loaded: bool,
     id: String,
     owned: bool,
     data: Option<Vec<u8>>,
+    states: Vec<BlockState>,
 }
 
 /// The export a callback calls, with its arguments.
@@ -286,13 +327,13 @@ enum Export<'a> {
     },
 }
 
-/// The callback's host value and export for `request`, an Experience whose block ids are `own`.
+/// The callback's host value and export for `request`, an Experience whose blocks are `own`.
 /// The anchor, whose chunk column bounds writes, is the call's position; a client message and an
 /// epoch have their player's focus, if any, and without one no snapshot. Hex is decoded and player ids are checked here, so a request
 /// that is not a callback, holds bad hex or a player id that is not canonical fails before
 /// anything runs.
 fn prepare<'a>(
-    own: &Arc<[String]>,
+    own: &Arc<Catalog>,
     request: &'a Request,
 ) -> Result<(CallbackRes, Export<'a>), String> {
     let Request::Callback {
@@ -302,6 +343,8 @@ fn prepare<'a>(
         world_max_y,
         data_budget,
         snapshot,
+        network,
+        inventory,
         call,
         ..
     } = request
@@ -372,10 +415,18 @@ fn prepare<'a>(
                 id: cell.id.clone(),
                 owned: cell.owned,
                 data,
+                states: cell.states.clone(),
             };
             Ok((cell.pos, slot))
         })
-        .collect::<Result<_, String>>()?;
+        .collect::<Result<HashMap<_, _>, String>>()?;
+    let members = match network {
+        Some(network) => members(network, &cells)?,
+        None => HashSet::new(),
+    };
+    if let Some(inventory) = inventory {
+        items::check_inventory(own, inventory, actor.as_deref())?;
+    }
     let res = CallbackRes {
         info: CallbackInfo {
             world_id: info.world_id.clone(),
@@ -391,7 +442,10 @@ fn prepare<'a>(
             min_y: *world_min_y,
             max_y: *world_max_y,
             column: anchor.map(column),
+            members,
         },
+        network: network.clone(),
+        inventory: inventory.clone(),
         ops: Vec::new(),
         budget: *data_budget,
         added: 0,
@@ -402,6 +456,38 @@ fn prepare<'a>(
         client_send_bytes: 0,
     };
     Ok((res, export))
+}
+
+/// The members of `network`, which the adapter builds from the snapshot's loaded own blocks
+/// within the network bounds; anything else is malformed.
+fn members(
+    network: &Network,
+    cells: &HashMap<BlockPos, Slot>,
+) -> Result<HashSet<BlockPos>, String> {
+    if network.blocks.len() > MAX_NETWORK_BLOCKS {
+        return Err(format!(
+            "the network has {} members; the limit is {MAX_NETWORK_BLOCKS}",
+            network.blocks.len()
+        ));
+    }
+    let mut data = 0;
+    for pos in &network.blocks {
+        let slot = cells
+            .get(pos)
+            .ok_or_else(|| format!("network member {pos:?} is not in the snapshot"))?;
+        if !slot.loaded || !slot.owned {
+            return Err(format!(
+                "network member {pos:?} is not a loaded block of its own"
+            ));
+        }
+        data += slot.data.as_ref().map_or(0, Vec::len);
+    }
+    if data > MAX_NETWORK_DATA_BYTES {
+        return Err(format!(
+            "the network holds {data} bytes of data; the limit is {MAX_NETWORK_DATA_BYTES}"
+        ));
+    }
+    Ok(network.blocks.iter().copied().collect())
 }
 
 fn block_change(change: &protocol::Change) -> Result<wit::BlockChange, String> {
@@ -468,10 +554,12 @@ impl Snapshot {
         }
     }
 
-    /// A cell the guest may read that is also in the anchor's chunk column, so it may write it.
-    fn write(&mut self, pos: BlockPos) -> Result<&mut Slot, WorldError> {
+    /// A cell the guest may read that is also in the anchor's chunk column, or with
+    /// [`Reach::Network`] a member of its network, so it may write it.
+    fn write(&mut self, pos: BlockPos, reach: Reach) -> Result<&mut Slot, WorldError> {
         self.within_height(pos)?;
-        if self.column != Some(column(pos)) {
+        let member = reach == Reach::Network && self.members.contains(&pos);
+        if self.column != Some(column(pos)) && !member {
             return Err(WorldError::Denied);
         }
         let slot = self.cells.get_mut(&pos).ok_or(WorldError::Denied)?;
@@ -510,28 +598,33 @@ impl CallbackRes {
         Ok(self.snapshot.read(pos).map(|slot| slot.id.clone()))
     }
 
-    /// Replaces air or an own block with air or an own block. The position loses its data, so
-    /// data staged for it is dropped, and it is owned exactly when the new block is this
-    /// Experience's.
+    /// Replaces air or an own block with air or an own block. The position loses its data and
+    /// states, so data and states staged for it are dropped; it is owned exactly when the new
+    /// block is this Experience's, which starts with its default states.
     pub(crate) fn set_block(
         &mut self,
         pos: BlockPos,
         id: String,
     ) -> Result<Result<(), WorldError>> {
         self.host_call()?;
-        let slot = match self.snapshot.write(pos) {
+        let slot = match self.snapshot.write(pos, Reach::Column) {
             Ok(slot) => slot,
             Err(error) => return Ok(Err(error)),
         };
         if slot.id != AIR && !slot.owned {
             return Ok(Err(WorldError::NotOwned));
         }
+        let axes = match self.own.blocks.get(&id) {
+            Some(axes) => axes.as_slice(),
+            None if id == AIR => &[],
+            None => return Ok(Err(WorldError::UnknownBlock)),
+        };
         let owned = id != AIR;
-        if owned && !self.own.contains(&id) {
-            return Ok(Err(WorldError::UnknownBlock));
-        }
         if let Some(index) = data_op(&self.ops, pos) {
             self.staged_data -= staged_len(&self.ops.remove(index));
+        }
+        if let Some(index) = state_op(&self.ops, pos) {
+            self.ops.remove(index);
         }
         stage(
             &mut self.ops,
@@ -541,9 +634,69 @@ impl CallbackRes {
             },
         )?;
         self.added -= len(slot.data.as_deref());
+        slot.states = default_states(axes);
         slot.id = id;
         slot.owned = owned;
         slot.data = None;
+        Ok(Ok(()))
+    }
+
+    /// The anchor's network, none when the anchor is not a member.
+    pub(crate) fn network(&mut self) -> Result<Result<Option<Network>, WorldError>> {
+        self.host_call()?;
+        Ok(Ok(self.network.clone()))
+    }
+
+    /// The states of the block at `pos`, which only this Experience's blocks have.
+    pub(crate) fn block_states(
+        &mut self,
+        pos: BlockPos,
+    ) -> Result<Result<Vec<BlockState>, WorldError>> {
+        self.host_call()?;
+        Ok(self.snapshot.read(pos).map(|slot| slot.states.clone()))
+    }
+
+    /// Sets some states of an own block, keeping its data and generation: each named once,
+    /// among the block's states, with a value it takes, else `unsupported-state`. Every write
+    /// to one position merges into the one op staged for it.
+    pub(crate) fn set_block_state(
+        &mut self,
+        pos: BlockPos,
+        states: Vec<BlockState>,
+    ) -> Result<Result<(), WorldError>> {
+        self.host_call()?;
+        let slot = match self.snapshot.write(pos, Reach::Network) {
+            Ok(slot) => slot,
+            Err(error) => return Ok(Err(error)),
+        };
+        let Some(axes) = self.own.blocks.get(&slot.id).filter(|_| slot.owned) else {
+            return Ok(Err(WorldError::NotOwned));
+        };
+        for (i, state) in states.iter().enumerate() {
+            let axis = axes.iter().find(|axis| axis.name == state.name);
+            let repeated = states[..i].iter().any(|earlier| earlier.name == state.name);
+            if repeated || !axis.is_some_and(|axis| holds(axis, &state.value)) {
+                return Ok(Err(WorldError::UnsupportedState));
+            }
+        }
+        if states.is_empty() {
+            return Ok(Ok(()));
+        }
+        match state_op(&self.ops, pos) {
+            Some(index) => {
+                if let Op::SetBlockState { states: staged, .. } = &mut self.ops[index] {
+                    merge(staged, &states);
+                }
+            }
+            None => stage(
+                &mut self.ops,
+                Op::SetBlockState {
+                    pos,
+                    states: states.clone(),
+                },
+            )?,
+        }
+        merge(&mut slot.states, &states);
         Ok(Ok(()))
     }
 
@@ -569,7 +722,7 @@ impl CallbackRes {
         data: Option<Vec<u8>>,
     ) -> Result<Result<(), WorldError>> {
         self.host_call()?;
-        let slot = match self.snapshot.write(pos) {
+        let slot = match self.snapshot.write(pos, Reach::Network) {
             Ok(slot) => slot,
             Err(error) => return Ok(Err(error)),
         };
@@ -695,6 +848,36 @@ fn stage(ops: &mut Vec<Op>, op: Op) -> Result<()> {
     Ok(())
 }
 
+/// The index of the staged `SetBlockState` at `pos`.
+fn state_op(ops: &[Op], pos: BlockPos) -> Option<usize> {
+    ops.iter()
+        .position(|op| matches!(op, Op::SetBlockState { pos: at, .. } if *at == pos))
+}
+
+/// Gives each state in `into` that `states` names its new value, and adds the others.
+fn merge(into: &mut Vec<BlockState>, states: &[BlockState]) {
+    for state in states {
+        match into.iter_mut().find(|current| current.name == state.name) {
+            Some(current) => current.value = state.value.clone(),
+            None => into.push(state.clone()),
+        }
+    }
+}
+
+/// A block's states when it is set without placement: the first value of each, `false` for a
+/// bool.
+fn default_states(axes: &[StateDef]) -> Vec<BlockState> {
+    axes.iter()
+        .map(|axis| BlockState {
+            name: axis.name.clone(),
+            value: match &axis.values {
+                StateValues::Bool => StateValue::Bool(false),
+                StateValues::Choices(choices) => StateValue::Choice(choices[0].clone()),
+            },
+        })
+        .collect()
+}
+
 /// The index of the staged `SetBlockData` at `pos`.
 fn data_op(ops: &[Op], pos: BlockPos) -> Option<usize> {
     ops.iter()
@@ -770,5 +953,6 @@ impl From<protocol::Cause> for ChangeCause {
     }
 }
 
+mod items;
 #[cfg(test)]
 mod tests;

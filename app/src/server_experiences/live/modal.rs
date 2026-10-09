@@ -139,6 +139,42 @@ impl<H: Worker> Live<H> {
         true
     }
 
+    /// Queues the open modal's scroll view `view` showing `range` for its bundle, only when the
+    /// manifest declares `view` as an action and `input` is granted; a later range of the same
+    /// view replaces one still waiting, so a fast scroll queues one callback, not one per frame.
+    pub(in crate::server_experiences) fn scroll_changed(
+        &mut self,
+        view: &str,
+        range: screen::ScrollRange,
+    ) -> bool {
+        let ready = self.ready;
+        let Some(instance) = self.open_instance() else {
+            return false;
+        };
+        if !ready || !instance.capabilities.may_deliver(view) || !range.valid() {
+            return false;
+        }
+        let waiting = instance.events.iter_mut().find_map(|event| match event {
+            Event::Scrolled {
+                view: pending,
+                range,
+            } if pending == view => Some(range),
+            _ => None,
+        });
+        if let Some(waiting) = waiting {
+            *waiting = range;
+            return true;
+        }
+        if instance.events.len() >= MAX_PENDING_EVENTS {
+            return false;
+        }
+        instance.events.push_back(Event::Scrolled {
+            view: view.to_owned(),
+            range,
+        });
+        true
+    }
+
     /// Queues a secondary press (a right click) of the open modal's control `id`, under the same
     /// rules as [`Live::press`].
     pub(in crate::server_experiences) fn press_secondary(
