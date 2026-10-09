@@ -41,7 +41,7 @@ use bevy::{
     ecs::system::SystemParam,
     log::info,
     prelude::{Local, MessageWriter, Query, Res, ResMut, Resource, Time, Transform, Vec3, With},
-    time::Real,
+    time::{Real, Virtual},
 };
 use chunk_pipeline::{ViewCohortStatus, WorldMeshChange, WorldStream, WorldStreamPoll};
 use client_world::CommittedControlEvent;
@@ -566,9 +566,11 @@ pub(crate) fn drive_world_stream(
         Res<client_presentation::local_player_camera_receipt::CameraPublicationAttempt>,
     >,
     profiler: Option<Res<RuntimeStageProfiler>>,
-    (frame, mut block_use): (
+    (frame, mut block_use, time, simulation_time): (
         Res<bevy::diagnostic::FrameCount>,
         ResMut<crate::block_use::BlockUseRuntime>,
+        Res<Time<Real>>,
+        Res<Time<Virtual>>,
     ),
 ) {
     let _timer = profiler
@@ -640,6 +642,11 @@ pub(crate) fn drive_world_stream(
         );
     }
     let poll_report = std::mem::take(&mut frame_poll.report);
+    stream.advance_block_cracks(if simulation_time.is_paused() {
+        0.0
+    } else {
+        time.delta_secs()
+    });
     reconcile_world_block_cracks(&mut ui_runtime, stream);
     let camera_position = view.eye_translation();
     let resolved_surface_spawn = client_world.pending_surface_spawn.and_then(|anchor| {

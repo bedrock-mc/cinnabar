@@ -14,7 +14,7 @@ use world::{ChunkKey, SUB_CHUNK_SIDE};
 
 use super::{
     containers::{ContainerKind, ContainerLids, cue_is_open},
-    cracks::{CachedCrackShape, CrackClock, crack_shape},
+    cracks::{CachedCrackShape, crack_instances, crack_shape},
     describe::{HeldItem, Template, describe},
     sign_text,
     state::BlockState,
@@ -99,7 +99,6 @@ struct BlockInfo {
 
 #[derive(Resource)]
 pub(crate) struct BlockEntityRuntime {
-    cracks: CrackClock,
     lids: ContainerLids,
     /// Scan results per loaded column, rebuilt when the column changes.
     columns: HashMap<ChunkKey, columns::ColumnScan>,
@@ -119,7 +118,6 @@ pub(crate) struct BlockEntityRuntime {
 impl BlockEntityRuntime {
     pub(crate) fn new() -> Self {
         Self {
-            cracks: CrackClock::default(),
             lids: ContainerLids::default(),
             columns: HashMap::new(),
             frame: 0,
@@ -140,7 +138,6 @@ impl BlockEntityRuntime {
             return;
         }
         self.session = session;
-        self.cracks = CrackClock::default();
         self.lids = ContainerLids::default();
         self.missing_maps.clear();
         self.columns.clear();
@@ -316,17 +313,15 @@ pub(crate) fn update_block_entity_scene(
         .map_or_else(Vec::new, |snapshot| {
             let assets = stream.runtime_assets();
             let shapes = &mut runtime.shapes;
-            runtime
-                .cracks
-                .instances(&snapshot.entries, now_seconds, |entry| {
-                    crack_shape(
-                        shapes,
-                        assets,
-                        mode,
-                        entry.layers.iter().flatten().next().copied(),
-                        entry.position,
-                    )
-                })
+            crack_instances(&snapshot.entries, |entry| {
+                crack_shape(
+                    shapes,
+                    assets,
+                    mode,
+                    entry.layers.iter().flatten().next().copied(),
+                    entry.position,
+                )
+            })
         });
 
     let mut submissions: Vec<BlockEntitySubmission> = Vec::new();

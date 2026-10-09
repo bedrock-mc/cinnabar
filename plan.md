@@ -5332,11 +5332,14 @@ unmeasured; a re-bind costs about 1.6 ms in the dev profile (steady frames about
   placement/use, selected slot, item stack/network-ID reconciliation, creative/survival
   inventory, and chest/furnace/crafting containers with rollback on rejected stack requests.
 
-Block-crack presentation now retains zero-speed starts and speed updates, waits
-for positive progress before drawing, and preserves the stage while paused.
-Focused stream and renderer regressions cover start, pause, resume, stop and
-completion. Duplicate-start lifecycle, expiry and matched-server mining acceptance
-remain incomplete; this correction does not close an interaction parity gate.
+Block cracks retain one ordered entry for their speed and rendered progress.
+Repeated starts keep the active crack, speed updates preserve progress (including
+zero speed), and completion removes the entry before later events. Progress uses
+the current speed and elapsed real time on each unpaused rendered frame; only
+positive progress draws the ten-stage overlay. Native rendered comparison remains
+open; this does not close the Phase 5.5 acceptance gate.
+Mining prediction uses single-precision accumulation and rounds each effect's
+multiplier separately.
 
 **Throwable timing (2026-10-09):** the native 200 ms action delay remains
 separate from item-category cooldowns. The opt-in Item Use Delay Fix permits

@@ -74,7 +74,7 @@ impl BlockCracks {
             active = status.active, server_value_sum = status.server_value_sum,
             consumed = status.consumed, orphan_updates = status.orphan_updates,
             capacity_rejections = status.capacity_rejections,
-            unsupported_values = status.unsupported_values,
+            completed = status.completed,
             unsupported_targets = status.unsupported_targets,
             retired_targets = status.retired_targets, "block crack state consumed");
     }

@@ -21,9 +21,8 @@ pub enum BlockBreakCue {
 
 /// Ticks between a completed destroy and the next start. Needs independent measurement.
 pub const DESTROY_DELAY_TICKS: u8 = 5;
-/// Progress at which a destroy completes, absorbing float accumulation. Needs
-/// independent measurement.
-const COMPLETION_THRESHOLD: f64 = 0.99999;
+/// Progress at which a non-instant destroy completes.
+const COMPLETION_THRESHOLD: f32 = 0.99999;
 /// Below this speed (blocks/s) a held Creative destroy waits out the delay;
 /// above it, it destroys once per block travelled.
 const CREATIVE_SLOW_SPEED: f32 = 0.5;
@@ -76,7 +75,8 @@ pub struct ToolWear {
 }
 
 impl DestroyTarget {
-    fn rate(&self, on_ground: bool) -> f64 {
+    /// Computes the current per-tick progress in the client's float precision.
+    fn rate(&self, on_ground: bool) -> f32 {
         let conditions = DestroyConditions {
             on_ground,
             ..self.conditions
@@ -84,7 +84,7 @@ impl DestroyTarget {
         self.block
             .as_ref()
             .and_then(|block| sim::destroy_progress_per_tick(block, &conditions))
-            .map_or(0.0, f64::from)
+            .unwrap_or(0.0)
     }
 }
 
@@ -165,7 +165,7 @@ pub enum DestroyInput<'a> {
 struct Destroying {
     position: [i32; 3],
     face: u8,
-    progress: f64,
+    progress: f32,
     /// The block broke; the destroy only waits for its next target.
     completed: bool,
 }

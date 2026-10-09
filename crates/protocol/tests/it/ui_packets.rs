@@ -558,6 +558,32 @@ fn block_crack_events_preserve_server_progress_rate_without_inventing_stage_or_a
     ));
 }
 
+/// Crack speeds preserve the signed wire value, including stationary and fast cracks.
+#[test]
+fn block_crack_events_preserve_the_full_wire_speed() {
+    for data in [i32::MIN, -1, 0, 65535, 65536, i32::MAX] {
+        let packet = LevelEventPacket {
+            event_id: LEVEL_EVENT_UPDATE_BLOCK_CRACKING,
+            position: Vec3 {
+                x: 1.0,
+                y: 64.0,
+                z: -2.0,
+            },
+            data,
+        };
+        let Some(WorldEvent::BlockCrack(event)) = into_world_event(packet.into(), 0).unwrap()
+        else {
+            panic!("expected block crack update")
+        };
+        assert_eq!(
+            event.action,
+            protocol::BlockCrackAction::UpdateSpeed {
+                progress_per_tick: data
+            }
+        );
+    }
+}
+
 fn form_event(json: &str) -> Result<protocol::FormRequestEvent, UiPacketError> {
     let packet = ModalFormRequestPacket {
         form_id: 3,
