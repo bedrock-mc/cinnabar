@@ -339,8 +339,17 @@ fn nine_slice_region(
             fit(a, b, size)
         }
     };
-    let (src_l, src_r) = (inset.left * scale[0], inset.right * scale[0]);
-    let (src_t, src_b) = (inset.top * scale[1], inset.bottom * scale[1]);
+    // Each cap stays inside its source region; opposing caps may still overlap.
+    let source_inset =
+        |inset: f64, scale: f64, size: f64| (inset * scale).max(0.0).min(size.max(0.0));
+    let (src_l, src_r) = (
+        source_inset(inset.left, scale[0], w),
+        source_inset(inset.right, scale[0], w),
+    );
+    let (src_t, src_b) = (
+        source_inset(inset.top, scale[1], h),
+        source_inset(inset.bottom, scale[1], h),
+    );
     let (dst_l, dst_r) = dest_inset(inset.left, inset.right, rect.w);
     let (dst_t, dst_b) = dest_inset(inset.top, inset.bottom, rect.h);
     let src_x = [0.0, src_l, w - src_r, w];

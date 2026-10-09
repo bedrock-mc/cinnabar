@@ -348,6 +348,27 @@ fn overlapping_source_slices_keep_a_tiny_disabled_frames_border_one_texel_wide()
     }
 }
 
+#[test]
+fn oversized_source_insets_do_not_sample_outside_the_texture() {
+    let meta = TextureMeta {
+        nineslice: Some(NineSlice {
+            left: 5.0,
+            top: 5.0,
+            right: 5.0,
+            bottom: 5.0,
+        }),
+        ..TextureMeta::plain([3.0, 3.0])
+    };
+    for quad in nine_slice(Rect::new(0.0, 0.0, 40.0, 20.0), &meta) {
+        for edge in [quad.uv.u0, quad.uv.v0, quad.uv.u1, quad.uv.v1] {
+            assert!(
+                (0.0..=1.0).contains(&edge),
+                "sampled outside the texture: {edge}"
+            );
+        }
+    }
+}
+
 // Insets are in `base_size` units: a 10px texture with base 5 samples 2×2 px borders.
 #[test]
 fn insets_scale_from_base_size_onto_pixels() {

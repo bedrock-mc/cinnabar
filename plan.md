@@ -6092,7 +6092,9 @@ unproven. No live visual/performance gate is closed; see
 `docs/reference/jsonui-review-fixes.md`.
 
 Tiny JSON-UI disabled frames preserve authored source slices when opposing
-insets overlap, including reversed center UVs. Original raster fixtures cover
+insets overlap, including reversed center UVs. Individual oversized insets stay
+inside the texture region as an atlas safety fallback; exact beyond-image native
+sampling remains incomplete. Original raster fixtures cover
 one-texel borders through the atlas at GUI scales 3 and 6. Exact-version authored
 frontend comparison and the broader UI visual parity gate remain incomplete.
 

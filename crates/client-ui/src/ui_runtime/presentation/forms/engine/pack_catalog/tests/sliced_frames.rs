@@ -6,7 +6,7 @@ use crate::ui_runtime::{
 };
 
 /// Builds an original tiny frame whose source slices overlap across its face.
-fn disabled_frame_pack() -> ServerUiPack {
+fn disabled_frame_pack(inset: u8) -> ServerUiPack {
     let mut pixels = vec![24; 3 * 3 * 4];
     for pixel in pixels.chunks_exact_mut(4) {
         pixel[3] = 255;
@@ -44,7 +44,9 @@ fn disabled_frame_pack() -> ServerUiPack {
             ("textures/ui/tiny_frame.png".into(), png),
             (
                 "textures/ui/tiny_frame.json".into(),
-                br#"{"nineslice_size":2,"base_size":[3,3]}"#.to_vec(),
+                serde_json::json!({"nineslice_size":inset,"base_size":[3,3]})
+                    .to_string()
+                    .into_bytes(),
             ),
         ],
         ..Default::default()
@@ -64,7 +66,7 @@ fn disabled_frame_pack() -> ServerUiPack {
 fn tiny_disabled_frame_keeps_one_texel_borders_through_the_atlas() {
     let player = player_state::PlayerState::new(1);
     let mut runtime = UiRuntime::new(1);
-    runtime.set_server_ui(Some(Arc::new(disabled_frame_pack())));
+    runtime.set_server_ui(Some(Arc::new(disabled_frame_pack(2))));
     for scale in [3, 6] {
         let mut presentation = crate::test_support::mini_engine_presentation();
         presentation.gui_scale_preference = Some(scale);
@@ -98,6 +100,35 @@ fn tiny_disabled_frame_keeps_one_texel_borders_through_the_atlas() {
                 image.get_pixel(x, y).0,
                 [expected, expected, expected, 255],
                 "frame pixel ({x}, {y}) at GUI scale {scale}"
+            );
+        }
+    }
+}
+
+#[test]
+fn oversized_disabled_frame_insets_do_not_sample_atlas_gutters() {
+    let player = player_state::PlayerState::new(1);
+    let mut runtime = UiRuntime::new(1);
+    runtime.set_server_ui(Some(Arc::new(disabled_frame_pack(5))));
+    let mut presentation = crate::test_support::mini_engine_presentation();
+    presentation.gui_scale_preference = Some(3);
+    let input = presentation
+        .build(
+            &player,
+            &runtime,
+            0,
+            [1200, 780],
+            ui::DpiScale::new(1.0).unwrap(),
+        )
+        .unwrap();
+    snapshot::write(&input, "oversized-disabled-frame");
+    let image = snapshot::rasterize(&input);
+    for y in 345..435 {
+        for x in 450..750 {
+            let color = image.get_pixel(x, y).0;
+            assert!(
+                color == [24, 24, 24, 255] || color == [120, 120, 120, 255],
+                "({x}, {y}) sampled outside the opaque frame: {color:?}"
             );
         }
     }
