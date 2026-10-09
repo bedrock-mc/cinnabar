@@ -22,15 +22,17 @@ pub fn ordered_pointer_presses<'a>(
     presses
 }
 
-/// Where a press went: gameplay, or the screen opening that was showing when it arrived
-/// (0 is the screen already open at the start of the frame).
+/// Where a press went: a screen binding it triggered, gameplay, or the screen opening that was
+/// showing when it arrived (0 is the screen already open at the start of the frame).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PressRoute {
+    Binding,
     Gameplay,
     Screen { opening: usize },
 }
 
-/// Hands each press out once, to the screen state the caller reports when it is due.
+/// Hands each press out once, in arrival order, for the caller to route against the screen
+/// state in force at that point.
 #[derive(Debug, Default)]
 pub struct PointerRouter {
     presses: Vec<(usize, MouseButton)>,
@@ -49,55 +51,38 @@ impl PointerRouter {
         }
     }
 
-    /// Routes presses that arrived before keyboard event `arrival` against the
-    /// screen state now in force (`open`), which the previous keys produced.
-    pub fn route_before_key(
-        &mut self,
-        arrival: usize,
-        open: bool,
-    ) -> impl Iterator<Item = (MouseButton, PressRoute)> + '_ {
-        self.route_while(open, move |keys| keys <= arrival)
+    /// The next press that arrived before keyboard event `arrival`, if any is left.
+    pub fn next_before_key(&mut self, arrival: usize) -> Option<MouseButton> {
+        let (keys, button) = *self.presses.get(self.next)?;
+        (keys <= arrival).then(|| {
+            self.next += 1;
+            button
+        })
     }
 
-    /// Routes every press left after the frame's last keyboard event.
-    pub fn route_rest(
-        &mut self,
-        open: bool,
-    ) -> impl Iterator<Item = (MouseButton, PressRoute)> + '_ {
-        self.route_while(open, |_| true)
+    /// The next press left after the frame's last keyboard event.
+    pub fn next_rest(&mut self) -> Option<MouseButton> {
+        self.next_before_key(usize::MAX)
     }
 
-    fn route_while(
-        &mut self,
-        open: bool,
-        due: impl Fn(usize) -> bool,
-    ) -> impl Iterator<Item = (MouseButton, PressRoute)> + '_ {
+    /// Routes the press just taken to gameplay or the screen `open` reports; a screen that was
+    /// closed since the last press counts as a new opening.
+    pub fn route(&mut self, open: bool) -> PressRoute {
         if open && !self.open {
             self.opening += 1;
         }
         self.open = open;
-        let route = if open {
+        if open {
             PressRoute::Screen {
                 opening: self.opening,
             }
         } else {
             PressRoute::Gameplay
-        };
-        let start = self.next;
-        while self
-            .presses
-            .get(self.next)
-            .is_some_and(|(keys, _)| due(*keys))
-        {
-            self.next += 1;
         }
-        self.presses[start..self.next]
-            .iter()
-            .map(move |(_, button)| (*button, route))
     }
 }
 
-/// How a key changes the screen in [`route_frame_presses`].
+/// How a key or binding press changes the screen in [`route_frame_presses`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ScreenKey {
     Toggle,
@@ -108,6 +93,8 @@ pub enum ScreenKey {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FrameInput {
     Press(MouseButton),
+    /// A press bound to a screen toggle: it toggles the screen and is never also a click.
+    BindingPress(MouseButton),
     Key(ScreenKey),
 }
 
@@ -118,28 +105,45 @@ pub fn route_frame_presses(
 ) -> Vec<(MouseButton, PressRoute)> {
     let mut keys = 0;
     let mut presses = Vec::new();
+    let mut bindings = Vec::new();
     for input in inputs {
         match input {
-            FrameInput::Press(button) => presses.push((keys, *button)),
+            FrameInput::Press(button) | FrameInput::BindingPress(button) => {
+                presses.push((keys, *button));
+                bindings.push(matches!(input, FrameInput::BindingPress(_)));
+            }
             FrameInput::Key(_) => keys += 1,
         }
     }
     let mut router = PointerRouter::new(presses, open_at_start);
+    let mut bindings = bindings.into_iter();
     let mut open = open_at_start;
     let mut routed = Vec::new();
+    let mut route = |router: &mut PointerRouter, open: &mut bool, button| {
+        if bindings.next() == Some(true) {
+            *open = !*open;
+            routed.push((button, PressRoute::Binding));
+        } else {
+            routed.push((button, router.route(*open)));
+        }
+    };
     let screen_keys = inputs.iter().filter_map(|input| match input {
         FrameInput::Key(key) => Some(*key),
-        FrameInput::Press(_) => None,
+        FrameInput::Press(_) | FrameInput::BindingPress(_) => None,
     });
     for (arrival, key) in screen_keys.enumerate() {
-        routed.extend(router.route_before_key(arrival, open));
+        while let Some(button) = router.next_before_key(arrival) {
+            route(&mut router, &mut open, button);
+        }
         open = match key {
             ScreenKey::Toggle => !open,
             ScreenKey::Close => false,
             ScreenKey::Other => open,
         };
     }
-    routed.extend(router.route_rest(open));
+    while let Some(button) = router.next_rest() {
+        route(&mut router, &mut open, button);
+    }
     routed
 }
 
@@ -148,6 +152,7 @@ mod tests {
     use super::{FrameInput::*, PressRoute::*, ScreenKey::*, *};
 
     const LEFT: FrameInput = Press(MouseButton::Left);
+    const BIND: FrameInput = BindingPress(MouseButton::Right);
     const RIGHT: FrameInput = Press(MouseButton::Right);
     const OPEN: FrameInput = Key(Toggle);
     const ESCAPE: FrameInput = Key(Close);
@@ -193,6 +198,24 @@ mod tests {
                 false,
                 &[OPEN, LEFT, ESCAPE, OPEN, ESCAPE],
                 &[(MouseButton::Left, opened)],
+            ),
+            (
+                "binding right-click opens, then Q",
+                false,
+                &[BIND, OTHER],
+                &[(MouseButton::Right, Binding)],
+            ),
+            (
+                "binding opens, then click, then Escape",
+                false,
+                &[BIND, LEFT, ESCAPE],
+                &[(MouseButton::Right, Binding), (MouseButton::Left, opened)],
+            ),
+            (
+                "click, then binding closes",
+                true,
+                &[LEFT, BIND, OTHER],
+                &[(MouseButton::Left, first), (MouseButton::Right, Binding)],
             ),
             (
                 "close, reopen, then press",

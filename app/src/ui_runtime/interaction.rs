@@ -25,7 +25,8 @@ use bevy::{
 };
 
 use crate::menu::settings_options::{
-    binding_gamepad, binding_key, binding_mouse, binding_pressed, hotbar_control_slot,
+    binding_gamepad, binding_key, binding_mouse, binding_mouse_button, binding_pressed,
+    hotbar_control_slot,
 };
 use ui::{ChatEditor, PointerPhase, UiAction, UiPoint};
 
@@ -195,6 +196,34 @@ pub(crate) fn drive_inventory_ui_actions(
         focus.as_deref_mut(),
         now_millis,
     );
+}
+
+/// Routes one press against the screen in force now. A press bound to a screen toggle triggers
+/// that binding and is consumed by it; the flag reports an inventory toggle.
+fn route_press(
+    button: MouseButton,
+    router: &mut PointerRouter,
+    menu: Option<&crate::menu::MenuRuntime>,
+    player_runtime: &mut crate::player_runtime::PlayerRuntime,
+    runtime: &mut UiRuntime,
+) -> (PressRoute, bool) {
+    if !runtime.chat_focused() && !runtime.screen_state().text_focused() {
+        if binding_mouse_button(menu, "key.inventory", button) {
+            runtime.toggle_inventory(player_runtime);
+            return (PressRoute::Binding, true);
+        }
+        if !runtime.inventory_open() {
+            let chat = binding_mouse_button(menu, "key.chat", button);
+            if chat || binding_mouse_button(menu, "key.command", button) {
+                runtime.open_chat(player_runtime);
+                if !chat {
+                    let _ = runtime.insert_chat_text("/");
+                }
+                return (PressRoute::Binding, false);
+            }
+        }
+    }
+    (router.route(runtime.inventory_open()), false)
 }
 
 /// Applies presses routed to the open inventory screen, after any keys already queued for it.
@@ -583,8 +612,10 @@ pub(crate) fn drive_chat_keyboard_input(
     let mut inventory_ownership_changed = false;
     let mut dismissed = false;
     let mut consumed_gameplay = runtime.ui_focused(&player_runtime);
+    // With ordered window events, mouse bindings act at their press's place in the sequence.
+    let mouse_bindings = pointer_presses.is_empty();
     if !runtime.chat_focused() && !runtime.screen_state().text_focused() {
-        if binding_mouse(menu.as_deref(), "key.inventory", &mouse_buttons)
+        if (mouse_bindings && binding_mouse(menu.as_deref(), "key.inventory", &mouse_buttons))
             || binding_gamepad(menu.as_deref(), "key.inventory", &gamepads)
         {
             runtime.toggle_inventory(&mut player_runtime);
@@ -592,12 +623,13 @@ pub(crate) fn drive_chat_keyboard_input(
             inventory_ownership_changed = true;
             consumed_gameplay = true;
         } else if !runtime.inventory_open()
-            && (binding_mouse(menu.as_deref(), "key.chat", &mouse_buttons)
+            && ((mouse_bindings && binding_mouse(menu.as_deref(), "key.chat", &mouse_buttons))
                 || binding_gamepad(menu.as_deref(), "key.chat", &gamepads))
         {
             runtime.open_chat(&mut player_runtime);
             consumed_gameplay = true;
         } else if !runtime.inventory_open()
+            && mouse_bindings
             && binding_mouse(menu.as_deref(), "key.command", &mouse_buttons)
         {
             runtime.open_chat(&mut player_runtime);
@@ -611,25 +643,40 @@ pub(crate) fn drive_chat_keyboard_input(
     // Presses a screen consumed, and presses whose edge later owners still need.
     let (mut consumed, mut kept) = (Vec::new(), Vec::new());
     for (arrival, input) in keyboard_messages.read().enumerate() {
-        // Presses that arrived before this key meet the screen the earlier keys left.
-        let mut due = Vec::new();
-        for (button, route) in router.route_before_key(arrival, runtime.inventory_open()) {
+        // Presses that arrived before this key meet the screen the earlier inputs left.
+        while let Some(button) = router.next_before_key(arrival) {
+            let (route, toggled_inventory) = route_press(
+                button,
+                &mut router,
+                menu.as_deref(),
+                &mut player_runtime,
+                &mut runtime,
+            );
             match route {
                 PressRoute::Gameplay => kept.push(button),
-                PressRoute::Screen { .. } => due.push(button),
+                PressRoute::Binding => {
+                    consumed.push(button);
+                    consumed_gameplay = true;
+                    if toggled_inventory {
+                        inventory_ownership_changed = true;
+                        dismissed |= !runtime.inventory_open();
+                    }
+                }
+                PressRoute::Screen { .. } => {
+                    consumed.push(button);
+                    apply_screen_presses(
+                        &[button],
+                        &mut player_runtime,
+                        &mut runtime,
+                        window,
+                        presentation.as_deref(),
+                        menu.as_deref(),
+                        focus.as_deref_mut(),
+                        &time,
+                    );
+                }
             }
         }
-        consumed.extend_from_slice(&due);
-        apply_screen_presses(
-            &due,
-            &mut player_runtime,
-            &mut runtime,
-            window,
-            presentation.as_deref(),
-            menu.as_deref(),
-            focus.as_deref_mut(),
-            &time,
-        );
         chat_modifiers::track(&mut modifiers, input);
         runtime.inventory_keys_mut().track_modifier(input);
         if input.state != ButtonState::Pressed {
@@ -833,26 +880,42 @@ pub(crate) fn drive_chat_keyboard_input(
         dismissed |= !runtime.chat_focused();
     }
     if routes_presses {
-        // A screen opened this frame takes its presses now; its opening suppresses the buttons.
-        let mut opened = Vec::new();
-        for (button, route) in router.route_rest(runtime.inventory_open()) {
+        while let Some(button) = router.next_rest() {
+            let (route, toggled_inventory) = route_press(
+                button,
+                &mut router,
+                menu.as_deref(),
+                &mut player_runtime,
+                &mut runtime,
+            );
             match route {
-                PressRoute::Screen { opening } if opening > 0 => opened.push(button),
+                PressRoute::Binding => {
+                    consumed.push(button);
+                    consumed_gameplay = true;
+                    if toggled_inventory {
+                        inventory_ownership_changed = true;
+                        dismissed |= !runtime.inventory_open();
+                    }
+                }
+                // A screen opened this frame takes its presses now; its opening suppresses the
+                // buttons.
+                PressRoute::Screen { opening } if opening > 0 => {
+                    consumed.push(button);
+                    apply_screen_presses(
+                        &[button],
+                        &mut player_runtime,
+                        &mut runtime,
+                        window,
+                        presentation.as_deref(),
+                        menu.as_deref(),
+                        focus.as_deref_mut(),
+                        &time,
+                    );
+                }
                 // Gameplay, and the screen open all frame, read the edge later.
-                _ => kept.push(button),
+                PressRoute::Gameplay | PressRoute::Screen { .. } => kept.push(button),
             }
         }
-        consumed.extend_from_slice(&opened);
-        apply_screen_presses(
-            &opened,
-            &mut player_runtime,
-            &mut runtime,
-            window,
-            presentation.as_deref(),
-            menu.as_deref(),
-            focus.as_deref_mut(),
-            &time,
-        );
         // A press a screen consumed cannot be replayed; gameplay presses keep their edge.
         for button in consumed {
             if !kept.contains(&button) {

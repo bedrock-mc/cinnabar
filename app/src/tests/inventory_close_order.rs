@@ -154,6 +154,7 @@ fn frame(app: &mut App, window: Entity, inputs: &[Input]) {
                     KeyCode::KeyT => (Key::Character("t".into()), Some("t".into())),
                     KeyCode::KeyQ => (Key::Character("q".into()), Some("q".into())),
                     KeyCode::KeyE => (Key::Character("e".into()), Some("e".into())),
+                    KeyCode::KeyU => (Key::Character("u".into()), Some("u".into())),
                     other => panic!("unmapped test key {other:?}"),
                 };
                 let input = KeyboardInput {
@@ -371,5 +372,75 @@ fn gameplay_click_followed_by_a_key_keeps_its_edge() {
         app.world()
             .resource::<ButtonInput<MouseButton>>()
             .just_pressed(MouseButton::Left)
+    );
+}
+
+/// A press that triggers the inventory binding opens the screen and is never also a click on it.
+#[test]
+fn inventory_binding_press_followed_by_a_key_is_not_a_click() {
+    use crate::menu::{
+        MenuAction,
+        settings_options::{EXTRA_KEYS, KEY_BINDINGS},
+    };
+    let (mut app, window) = app_with(false);
+    let row = |name: &str| {
+        (KEY_BINDINGS.iter().position(|(_, key)| *key == name))
+            .or_else(|| {
+                EXTRA_KEYS
+                    .iter()
+                    .position(|(key, _)| *key == name)
+                    .map(|index| KEY_BINDINGS.len() + index)
+            })
+            .unwrap() as u16
+    };
+    // Free the right button from use, then bind the inventory to it through the menu.
+    app.world_mut()
+        .resource_mut::<MenuRuntime>()
+        .set_visible(true);
+    let rebind = |app: &mut App, name: &str, control: Input| {
+        app.world_mut()
+            .resource_mut::<MenuRuntime>()
+            .activate(MenuAction::SettingsKey(row(name)));
+        frame(app, window, &[control]);
+        app.update();
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .reset_all();
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .reset_all();
+    };
+    rebind(&mut app, "key.use", Input::Key(KeyCode::KeyU));
+    rebind(&mut app, "key.inventory", Input::Click(MouseButton::Right));
+    {
+        let mut menu = app.world_mut().resource_mut::<MenuRuntime>();
+        assert_eq!(
+            menu.settings_snapshot()
+                .0
+                .named_key_control("key.inventory"),
+            Some(semantic_input::PhysicalControl::MouseButton(
+                crate::semantic_controls::physical::mouse_button_code(MouseButton::Right).unwrap()
+            )),
+            "the inventory is bound to the right button"
+        );
+        menu.set_visible(false);
+    }
+    app.update();
+    assert!(!app.world().resource::<UiRuntime>().inventory_open());
+
+    frame(
+        &mut app,
+        window,
+        &[Input::Click(MouseButton::Right), Input::Key(KeyCode::KeyQ)],
+    );
+    app.update();
+
+    assert!(app.world().resource::<UiRuntime>().inventory_open());
+    assert_eq!(requests(&app), 0, "no slot click and no drop");
+    assert!(
+        !app.world()
+            .resource::<ButtonInput<MouseButton>>()
+            .just_pressed(MouseButton::Right),
+        "the binding consumed its press"
     );
 }
