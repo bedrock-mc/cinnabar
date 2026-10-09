@@ -10,6 +10,7 @@ mod layout;
 mod palette;
 mod parse;
 mod single_line;
+mod units;
 
 pub use palette::FormattingPalette;
 
@@ -208,6 +209,12 @@ pub struct TextWrap {
     /// The grid, in 1/65536 output pixels, that alignment offsets truncate onto, as vanilla
     /// snaps each line to the pixel grid; zero keeps them exact.
     pub align_grid_65536: u32,
+    /// Device pixels per output pixel, in 1/65536 units; zero when the device is unknown.
+    ///
+    /// When every font texel then spans a whole number of half device pixels, as text at an
+    /// integer GUI scale does, the layout measures in exact device pixels. Glyphs keep whole
+    /// device-pixel strokes at fractional display scales instead of drifting off the grid.
+    pub device_scale_65536: u32,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

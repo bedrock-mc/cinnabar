@@ -5323,6 +5323,19 @@ pass yet; `font_size` steps and the text-background option default are
 unmeasured; a re-bind costs about 1.6 ms in the dev profile (steady frames about
 0.3 ms), unmeasured in release; boss-bar progress and XP changes re-bind.
 
+**Text on the device pixel grid (2026-10-09):** vanilla draws a font pixel over
+exactly GUI-scale device pixels and truncates text origins to whole device pixels.
+Text laid out at fractional display scales (Windows 125%, 150% and 175%) used to
+measure in logical 1/64 pixels with a rounded scale, so glyphs drifted off the
+device grid along a line. Nearest sampling then gave some letters' strokes one
+device pixel more or less than their neighbours'. Text from the frame's text
+metrics, and the Java-look book and window text, now measures in device pixels
+whenever each font texel spans whole half device pixels, as Cinnangles Sans does
+at every integer GUI scale. Display scales 1 and 2 lay out unchanged. Text at
+fractional font scales (`font_scale_factor` 0.8, `small` at odd GUI scales) and
+outline OreUI fonts keep logical-pixel layout. Incomplete: no live Windows
+rendered-frame pass at a fractional display scale yet.
+
 - [ ] **5.1 Bedrock UI foundation.** `P5.1-UI` Create `crates/ui`, ingest the pinned pack's bitmap
   fonts/glyph metrics, implement bounded formatting-code-aware text layout, UI scaling/safe
   areas, focus/navigation, mouse/touch/controller input, and a shared retained draw pipeline.
