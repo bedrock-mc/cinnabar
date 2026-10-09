@@ -1,33 +1,35 @@
-use super::groups::{build_transparent_group, spawn_transparent_sort};
+use super::groups::spawn_transparent_sort;
+use super::manifest::{build_resident_group, sorted_addresses_are_resident, view_displaces_water};
 use super::state::{
-    TransparentAllocationIdentity, TransparentOrderedSnapshot, TransparentSortError,
-    TransparentSortResult, TransparentSortRuntime, TransparentSortWork, ViewSortKey,
+    TransparentSortError, TransparentSortResult, TransparentSortRuntime, TransparentSortWork,
+    ViewSortKey,
 };
 use super::{
     MAX_TRANSPARENT_VIEWS, PackedTransparentDrawRef, ensure_transparent_ref_capacity,
     transparent_indirect_args, transparent_ref_offset,
 };
+use crate::chunk::transparent::face_metric::TransparentFaceMetric;
 use crate::chunk::*;
 use std::cell::RefCell;
 
+/// Whether every allocation `key` sorts is still readable from `resident_allocations`
+/// (containing it) or `retired_allocations` (matching it exactly).
 pub(in crate::chunk) fn transparent_snapshot_addresses_are_resident<'a, 'b>(
-    snapshot: &TransparentOrderedSnapshot,
+    key: &ViewSortKey,
     resident_allocations: impl IntoIterator<Item = &'a GpuChunkAllocation>,
     retired_allocations: impl IntoIterator<Item = &'b GpuChunkAllocation>,
     active_asset_identity: ChunkTextureAssetIdentity,
     active_tint_identity: ChunkBiomeTintIdentity,
 ) -> bool {
-    if snapshot.key.asset_identity != active_asset_identity
-        || snapshot.key.tint_identity != active_tint_identity
-    {
+    if key.asset_identity != active_asset_identity || key.tint_identity != active_tint_identity {
         return false;
     }
-    if snapshot.key.visible_allocations.is_empty() {
+    if key.sorted_allocations.is_empty() {
         return true;
     }
-    // `ViewSortKey` keeps visible identities sorted by key with each key at most once, so every
+    // `ViewSortKey` keeps identities sorted by key with each key at most once, so every
     // allocation can satisfy only the identity it binary-searches to.
-    let visible = &snapshot.key.visible_allocations;
+    let visible = &key.sorted_allocations;
     thread_local! {
         static SATISFIED: RefCell<Vec<bool>> = const { RefCell::new(Vec::new()) };
     }
@@ -87,7 +89,15 @@ fn write_transparent_refs(
 
 #[allow(clippy::too_many_arguments)]
 pub(in crate::chunk) fn prepare_transparent_sorts(
-    views: Query<(Entity, &ExtractedView, &RenderVisibleEntities), With<ExtractedCamera>>,
+    views: Query<
+        (
+            Entity,
+            &ExtractedView,
+            &RenderVisibleEntities,
+            Has<crate::EnhancedRendering>,
+        ),
+        With<ExtractedCamera>,
+    >,
     instances: Query<&ChunkRenderInstance>,
     diagnostic_instances: Query<(Entity, &ChunkRenderInstance)>,
     allocations: Query<&GpuChunkAllocation>,
@@ -229,14 +239,15 @@ pub(in crate::chunk) fn prepare_transparent_sorts(
     }
 
     let mut visible_views = views.iter().collect::<Vec<_>>();
-    visible_views.sort_by_key(|(entity, _, _)| *entity);
+    visible_views.sort_by_key(|(entity, ..)| *entity);
     if visible_views.len() > MAX_TRANSPARENT_VIEWS {
         bevy::log::warn!(
             "transparent chunk renderer supports one retained 3D view; extra views are rejected"
         );
         visible_views.truncate(MAX_TRANSPARENT_VIEWS);
     }
-    let Some((view_entity, view, visible_entities)) = visible_views.into_iter().next() else {
+    let Some((view_entity, view, visible_entities, enhanced)) = visible_views.into_iter().next()
+    else {
         if runtime.view_entity.is_some() {
             runtime.reset_for_view(None);
             clear_active_transparent_metrics(&metrics);
@@ -248,43 +259,44 @@ pub(in crate::chunk) fn prepare_transparent_sorts(
         clear_active_transparent_metrics(&metrics);
     }
 
-    let mut manifest = Vec::new();
-    for &(entity, _) in visible_entities.get::<ChunkRenderInstance>() {
-        let (Ok(instance), Ok(allocation)) = (instances.get(entity), allocations.get(entity))
-        else {
-            continue;
-        };
-        if !transparent_allocation_matches(instance, allocation, biome_tints.table_identity()) {
-            continue;
-        }
-        if allocation.has_transparent_liquid
-            && let (Some(liquid), Some(lighting)) = (
-                allocation.liquid_range.clone(),
-                allocation.liquid_lighting_range.clone(),
-            )
-        {
-            manifest.push(TransparentAllocationIdentity::new(
-                allocation.key,
-                allocation.generation,
-                liquid,
-                lighting,
-                allocation.metadata_index,
-            ));
-        }
-    }
     let camera = view.world_from_view.translation();
+    if !camera.is_finite() {
+        fail_closed_transparent_sort_key_error(
+            &mut runtime,
+            &metrics,
+            TransparentSortError::InvalidCameraTransform,
+        );
+        return;
+    }
     let texture_identity = texture_assets.identity();
     let tint_identity = biome_tints.table_identity();
-    let key =
-        match ViewSortKey::try_new(camera.to_array(), manifest, texture_identity, tint_identity) {
-            Ok(key) => key,
-            Err(error @ TransparentSortError::ConflictingAllocation { .. })
-            | Err(error @ TransparentSortError::InvalidCameraTransform) => {
-                fail_closed_transparent_sort_key_error(&mut runtime, &metrics, error);
-                return;
-            }
-            Err(TransparentSortError::ReferenceCeiling { .. }) => unreachable!(),
-        };
+    // Displaced water can overlap itself even when flat, so such views sort all of it.
+    let sort_order_independent = view_displaces_water(enhanced);
+    runtime.direct_order_independent = !sort_order_independent;
+    let metric = TransparentFaceMetric::new(camera);
+    let arena_view: &ChunkGpuArena = &arena;
+    let manifest = runtime.resident_manifest(
+        arena_view,
+        sort_order_independent,
+        tint_identity,
+        metric.camera_chunk(),
+        |resident| build_resident_group(resident, &instances, arena_view, &biome_tints),
+        &metrics,
+    );
+    let near = runtime.manifest_has_near(metric);
+    let key = match ViewSortKey::from_canonical(
+        camera,
+        manifest,
+        near,
+        texture_identity,
+        tint_identity,
+    ) {
+        Ok(key) => key,
+        Err(error) => {
+            fail_closed_transparent_sort_key_error(&mut runtime, &metrics, error);
+            return;
+        }
+    };
     if witness_request.enabled() {
         let visible = visible_entities
             .get::<ChunkRenderInstance>()
@@ -292,6 +304,13 @@ pub(in crate::chunk) fn prepare_transparent_sorts(
             .map(|&(entity, _)| entity)
             .collect::<BTreeSet<_>>();
         let committed = runtime.state.committed();
+        let drawn_directly = |key: SubChunkKey| {
+            runtime.direct_order_independent
+                && arena
+                    .transparent_liquids
+                    .get(key)
+                    .is_some_and(|resident| resident.order_independent)
+        };
         let records = witness_request
             .keys()
             .iter()
@@ -324,13 +343,10 @@ pub(in crate::chunk) fn prepare_transparent_sorts(
                             )
                         },
                     ),
-                    committed_member: committed.is_some_and(|snapshot| {
-                        snapshot
-                            .key()
-                            .visible_allocations
-                            .iter()
-                            .any(|allocation| allocation.key == required)
-                    }),
+                    // Water that blends the same in any order is drawn without the sort.
+                    committed_member: committed
+                        .is_some_and(|snapshot| snapshot.key().allocation(required).is_some())
+                        || drawn_directly(required),
                 }
             })
             .collect();
@@ -347,23 +363,21 @@ pub(in crate::chunk) fn prepare_transparent_sorts(
         && runtime.state.staged_ref_count() == 0;
     if !committed_matches {
         let had_committed = runtime.state.committed().is_some();
-        let committed_addresses_are_resident = runtime.state.committed().is_some_and(|snapshot| {
-            snapshot.key.address_identity_eq(&key)
-                || transparent_snapshot_addresses_are_resident(
-                    snapshot,
-                    arena.allocations.values().map(|allocation| &allocation.gpu),
-                    arena
-                        .retired_allocations
-                        .iter()
-                        .map(|allocation| &allocation.identity),
-                    texture_identity,
-                    tint_identity,
-                )
-        });
-        let canceled_staged = runtime.state.staged_generation();
-        let generation = runtime
+        let readable = |sorted: &ViewSortKey| {
+            sorted.address_identity_eq(&key)
+                || sorted_addresses_are_resident(sorted, &arena, texture_identity, tint_identity)
+        };
+        let committed_addresses_are_resident = runtime
             .state
-            .request_retaining_resident_snapshot(&key, committed_addresses_are_resident);
+            .committed()
+            .is_some_and(|snapshot| readable(&snapshot.key));
+        let staged_addresses_are_resident = runtime.state.staged_key().is_some_and(readable);
+        let canceled_staged = runtime.state.staged_generation();
+        let generation = runtime.state.request_retaining_resident_snapshot(
+            &key,
+            committed_addresses_are_resident,
+            staged_addresses_are_resident,
+        );
         if had_committed && runtime.state.committed().is_none() {
             runtime.committed_distinct_tint_count = 0;
             metrics.update(|snapshot| {
@@ -384,20 +398,16 @@ pub(in crate::chunk) fn prepare_transparent_sorts(
         metrics.update(|snapshot| snapshot.request_generation = generation.get());
         if runtime.generation_needs_sort_job(generation) {
             let requested_at = Instant::now();
-            let mut entities = None;
+            let arena_view: &ChunkGpuArena = &arena;
             match runtime.resolve_candidate_cache(&key, |identity| {
-                let entities = entities.get_or_insert_with(|| {
-                    visible_entities
-                        .get::<ChunkRenderInstance>()
-                        .iter()
-                        .filter_map(|&(entity, _)| Some((instances.get(entity).ok()?.key, entity)))
-                        .collect::<HashMap<_, _>>()
-                });
-                let instance = entities
-                    .get(&identity.key)
-                    .and_then(|&entity| instances.get(entity).ok())
-                    .ok_or(TransparentSortError::ConflictingAllocation { key: identity.key })?;
-                build_transparent_group(instance, identity.clone(), &biome_tints)
+                arena_view
+                    .transparent_liquids
+                    .get(identity.key)
+                    .filter(|resident| &resident.identity == identity)
+                    .and_then(|resident| {
+                        build_resident_group(resident, &instances, arena_view, &biome_tints)
+                    })
+                    .ok_or(TransparentSortError::ConflictingAllocation { key: identity.key })
             }) {
                 Ok((groups, distinct_tint_count)) => {
                     let cached = runtime.cached_group_orders(&groups);

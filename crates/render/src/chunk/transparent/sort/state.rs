@@ -1,4 +1,5 @@
 use super::groups::{TransparentGroupInput, TransparentGroupOrder, TransparentGroups};
+use super::manifest::TransparentManifest;
 use super::{
     MAX_TRANSPARENT_DRAW_REFS, PackedTransparentDrawRef, TransparentLiquidPhaseGroup,
     transparent_liquid_phase_groups,
@@ -186,58 +187,105 @@ impl TransparentAllocationIdentity {
 }
 
 /// Omits camera rotation: each sub-chunk is its own phase item and its faces sort by position.
+///
+/// The allocations are every resident group that needs sorting, not the frustum's, so a
+/// turn never changes the key and newly visible water is already in order.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ViewSortKey {
     pub(in crate::chunk) order_camera: FaceOrderCamera,
-    pub(in crate::chunk) visible_allocations: Arc<[TransparentAllocationIdentity]>,
+    /// Sorted by key, each key at most once.
+    pub(in crate::chunk) sorted_allocations: Arc<[TransparentAllocationIdentity]>,
     pub(in crate::chunk) asset_identity: ChunkTextureAssetIdentity,
     pub(in crate::chunk) tint_identity: ChunkBiomeTintIdentity,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(in crate::chunk) struct TransparentAddressIdentity {
-    pub(in crate::chunk) visible_allocations: Arc<[TransparentAllocationIdentity]>,
+    pub(in crate::chunk) sorted_allocations: Arc<[TransparentAllocationIdentity]>,
     pub(in crate::chunk) asset_identity: ChunkTextureAssetIdentity,
     pub(in crate::chunk) tint_identity: ChunkBiomeTintIdentity,
 }
 
 impl ViewSortKey {
-    /// Keys the camera only as far as some visible sub-chunk's face order depends on it.
+    /// Keys the camera only as far as some sorted sub-chunk's face order depends on it.
     pub fn try_new(
         camera_position: [f32; 3],
-        mut visible_allocations: Vec<TransparentAllocationIdentity>,
+        mut sorted_allocations: Vec<TransparentAllocationIdentity>,
         asset_identity: ChunkTextureAssetIdentity,
         tint_identity: ChunkBiomeTintIdentity,
     ) -> Result<Self, TransparentSortError> {
         if !camera_position.into_iter().all(f32::is_finite) {
             return Err(TransparentSortError::InvalidCameraTransform);
         }
-        visible_allocations.sort_by_key(TransparentAllocationIdentity::canonical_tuple);
-        visible_allocations.dedup();
-        for pair in visible_allocations.windows(2) {
+        sorted_allocations.sort_by_key(TransparentAllocationIdentity::canonical_tuple);
+        sorted_allocations.dedup();
+        for pair in sorted_allocations.windows(2) {
             if pair[0].key == pair[1].key {
                 return Err(TransparentSortError::ConflictingAllocation { key: pair[0].key });
             }
         }
         let order_camera = TransparentFaceMetric::new(Vec3::from_array(camera_position))
-            .order_camera(visible_allocations.iter().map(|identity| identity.key));
+            .order_camera(sorted_allocations.iter().map(|identity| identity.key));
         Ok(Self {
             order_camera,
-            visible_allocations: Arc::from(visible_allocations),
+            sorted_allocations: Arc::from(sorted_allocations),
             asset_identity,
             tint_identity,
         })
     }
 
+    /// Keys a manifest that is already canonical; `any_near` says whether some allocation
+    /// lies in the camera's near box.
+    pub(in crate::chunk) fn from_canonical(
+        camera_position: Vec3,
+        sorted_allocations: Arc<[TransparentAllocationIdentity]>,
+        any_near: bool,
+        asset_identity: ChunkTextureAssetIdentity,
+        tint_identity: ChunkBiomeTintIdentity,
+    ) -> Result<Self, TransparentSortError> {
+        if !camera_position.is_finite() {
+            return Err(TransparentSortError::InvalidCameraTransform);
+        }
+        debug_assert!(
+            sorted_allocations
+                .windows(2)
+                .all(|pair| pair[0].key < pair[1].key)
+        );
+        Ok(Self {
+            order_camera: TransparentFaceMetric::new(camera_position)
+                .order_camera_with_near(any_near),
+            sorted_allocations,
+            asset_identity,
+            tint_identity,
+        })
+    }
+
+    /// The allocation this key sorts for `key`, if any.
+    pub(in crate::chunk) fn allocation(
+        &self,
+        key: SubChunkKey,
+    ) -> Option<&TransparentAllocationIdentity> {
+        self.sorted_allocations
+            .binary_search_by(|identity| identity.key.cmp(&key))
+            .ok()
+            .map(|index| &self.sorted_allocations[index])
+    }
+
+    /// Whether this key's refs point into exactly `allocation`'s liquid records.
+    pub(in crate::chunk) fn references_exact(&self, allocation: &GpuChunkAllocation) -> bool {
+        self.allocation(allocation.key)
+            .is_some_and(|identity| transparent_allocation_is_exact(identity, allocation))
+    }
+
     pub(in crate::chunk) fn address_identity_eq(&self, other: &Self) -> bool {
-        self.visible_allocations == other.visible_allocations
+        self.sorted_allocations == other.sorted_allocations
             && self.asset_identity == other.asset_identity
             && self.tint_identity == other.tint_identity
     }
 
     pub(in crate::chunk) fn address_identity(&self) -> TransparentAddressIdentity {
         TransparentAddressIdentity {
-            visible_allocations: Arc::clone(&self.visible_allocations),
+            sorted_allocations: Arc::clone(&self.sorted_allocations),
             asset_identity: self.asset_identity,
             tint_identity: self.tint_identity,
         }
@@ -390,13 +438,19 @@ impl TransparentSortState {
     }
 
     pub fn request(&mut self, key: &ViewSortKey) -> ViewSortGeneration {
-        self.request_retaining_resident_snapshot(key, false)
+        self.request_retaining_resident_snapshot(key, false, false)
     }
 
+    /// Requests a sort for `key`, keeping each snapshot whose addresses stay readable.
+    ///
+    /// A staged upload that is still readable finishes and commits before any newer key is
+    /// requested, so neither camera motion nor streaming that changes the residents every
+    /// frame can starve the bounded inactive-slot upload.
     pub(in crate::chunk) fn request_retaining_resident_snapshot(
         &mut self,
         key: &ViewSortKey,
         committed_addresses_are_resident: bool,
+        staged_addresses_are_resident: bool,
     ) -> ViewSortGeneration {
         if let Some((generation, requested_key)) = &self.requested
             && requested_key == key
@@ -409,22 +463,12 @@ impl TransparentSortState {
         if !address_identity_is_safe {
             self.committed = None;
         }
-        // Exact camera bits may change every frame. Finish a safe inactive-slot
-        // upload before accepting another pose so bounded uploads cannot starve.
-        if let Some(staged) = self
-            .staged
-            .as_ref()
-            .filter(|snapshot| snapshot.key.address_identity_eq(key))
-        {
+        if let Some(staged) = self.staged.as_ref().filter(|snapshot| {
+            snapshot.key.address_identity_eq(key) || staged_addresses_are_resident
+        }) {
             return staged.generation;
         }
-        if self
-            .staged
-            .as_ref()
-            .is_some_and(|snapshot| !snapshot.key.address_identity_eq(key))
-        {
-            self.staged = None;
-        }
+        self.staged = None;
         self.next_generation = self.next_generation.wrapping_add(1).max(1);
         let generation = ViewSortGeneration(self.next_generation);
         self.requested = Some((generation, key.clone()));
@@ -566,6 +610,21 @@ impl TransparentSortState {
         self.staged.as_ref().map(|snapshot| snapshot.generation)
     }
 
+    /// The key of the snapshot being uploaded into the inactive slot, if any.
+    pub(in crate::chunk) fn staged_key(&self) -> Option<&ViewSortKey> {
+        self.staged.as_ref().map(|snapshot| &snapshot.key)
+    }
+
+    /// Keys whose refs a frame may draw: the committed snapshot's, and the staged one's,
+    /// which commits once its upload completes.
+    pub(in crate::chunk) fn retained_keys(&self) -> impl Iterator<Item = &ViewSortKey> {
+        self.committed
+            .as_ref()
+            .map(|snapshot| &snapshot.key)
+            .into_iter()
+            .chain(self.staged_key())
+    }
+
     pub fn reset_preserving_generation(&mut self) {
         self.requested = None;
         self.committed = None;
@@ -602,7 +661,7 @@ pub(in crate::chunk) struct TransparentSortWork {
     pub(in crate::chunk) requested_at: Instant,
     pub(in crate::chunk) key: ViewSortKey,
     pub(in crate::chunk) camera: Vec3,
-    /// In `key.visible_allocations` order, which is the committed layout.
+    /// In `key.sorted_allocations` order, which is the committed layout.
     pub(in crate::chunk) groups: TransparentGroups,
     /// Parallel to `groups`.
     pub(in crate::chunk) cached: Vec<Option<TransparentGroupOrder>>,
@@ -644,4 +703,9 @@ pub(in crate::chunk) struct TransparentSortRuntime {
     pub(in crate::chunk) candidate_cache: Option<TransparentCandidateCache>,
     pub(in crate::chunk) group_inputs: HashMap<SubChunkKey, Arc<TransparentGroupInput>>,
     pub(in crate::chunk) group_orders: HashMap<SubChunkKey, TransparentGroupOrder>,
+    pub(in crate::chunk) manifest: Option<TransparentManifest>,
+    pub(in crate::chunk) last_ceiling_log: Option<Instant>,
+    /// Whether the active view draws order-independent water from its records instead of
+    /// sorting it.
+    pub(in crate::chunk) direct_order_independent: bool,
 }

@@ -19,6 +19,9 @@ pub(in crate::chunk) struct GpuChunkAllocation {
     pub(in crate::chunk) has_depth_liquid: bool,
     pub(in crate::chunk) has_transparent_liquid: bool,
     pub(in crate::chunk) depth_liquid_range: Option<Range<u32>>,
+    /// Whether the transparent water blends the same in any face order and shares its
+    /// sub-chunk with no transparent model; such water is drawn without a sort.
+    pub(in crate::chunk) order_independent_liquid: bool,
     pub(in crate::chunk) metadata_index: u32,
 }
 
@@ -375,6 +378,36 @@ pub(in crate::chunk) fn depth_liquid_direct_draw_command(
     allocation: &GpuChunkAllocation,
 ) -> Option<DrawIndexedIndirectArgs> {
     depth_liquid_draw_command(allocation)
+}
+
+/// Draws the transparent water records in mesh order without the sorted ref buffer.
+///
+/// `first_instance` selects the first record, and `base_vertex / 4` is the metadata index
+/// plus one, which the liquid vertex shader reads instead of a ref.
+pub(in crate::chunk) fn transparent_liquid_direct_draw_command(
+    allocation: &GpuChunkAllocation,
+) -> Option<DrawIndexedIndirectArgs> {
+    if !allocation.has_transparent_liquid {
+        return None;
+    }
+    allocation.liquid_lighting_range.as_ref()?;
+    let liquid = allocation.liquid_range.as_ref()?;
+    if !liquid.start.is_multiple_of(4) || !liquid.end.is_multiple_of(4) {
+        return None;
+    }
+    let first_instance = liquid.start / 4;
+    let end = allocation
+        .depth_liquid_range
+        .as_ref()
+        .map_or(liquid.end / 4, |depth| depth.start);
+    let instance_count = end.checked_sub(first_instance)?;
+    (instance_count != 0).then_some(DrawIndexedIndirectArgs {
+        index_count: STATIC_QUAD_INDICES.len() as u32,
+        instance_count,
+        first_index: 0,
+        base_vertex: metadata_base_vertex(allocation.metadata_index.checked_add(1)?)?,
+        first_instance,
+    })
 }
 
 pub(in crate::chunk) fn depth_liquid_mdi_draw_command(

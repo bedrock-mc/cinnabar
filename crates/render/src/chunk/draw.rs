@@ -556,7 +556,9 @@ pub(in crate::chunk) fn queue_transparent_chunks(
     instances: Query<&ChunkRenderInstance>,
     model_runtime: Res<TransparentModelSortRuntime>,
     texture_assets: Res<ChunkTextureAssets>,
+    biome_tints: Res<ChunkBiomeTints>,
     mut mixed: ResMut<crate::chunk::transparent::mixed::MixedTerrainRuntime>,
+    mut unsorted: Local<UnsortedWaterDiagnostics>,
     profiler: Option<Res<RuntimeStageProfiler>>,
 ) {
     use crate::chunk::transparent::mixed::DrawMixedTerrainCommands;
@@ -575,6 +577,7 @@ pub(in crate::chunk) fn queue_transparent_chunks(
     let draw_functions = draw_functions.read();
     let transparent_model_draw = draw_functions.id::<DrawTransparentModelCommands>();
     let direct_draw = draw_functions.id::<DrawTransparentLiquidCommands>();
+    let record_draw = draw_functions.id::<DrawTransparentLiquidDirectCommands>();
     let mixed_draw = draw_functions.id::<DrawMixedTerrainCommands>();
     for (view_entity, main_entity, view, visible_entities, msaa, enhanced) in &views {
         if runtime.view_entity != Some(view_entity) {
@@ -593,75 +596,125 @@ pub(in crate::chunk) fn queue_transparent_chunks(
             .transparent_model_variants
             .specialize(&pipeline_cache, key)
             .ok();
-        let models = visible_entities
-            .get::<ChunkRenderInstance>()
-            .iter()
-            .filter_map(|&(entity, main)| {
-                let allocation = allocations.get(entity).ok()?;
-                transparent_model_direct_draw_command(allocation)?;
-                Some((allocation.key, (entity, main)))
-            })
-            .collect::<BTreeMap<_, _>>();
-        let mut merged = HashSet::new();
-        if let Some(snapshot) = runtime.state.committed()
-            && let Ok(water_pipeline_id) = pipeline.liquid_variants.specialize(&pipeline_cache, key)
-        {
-            if let Some(groups) = snapshot.phase_groups() {
-                let camera = view.world_from_view.translation();
-                for group in groups.iter() {
-                    // Native deferred water uses layer 2, not ordinary blend layer 3.
-                    if enhanced.is_none()
-                        && let Some(model_pipeline_id) = model_pipeline_id
-                        && let Some(&(entity, main)) = models.get(&group.key)
-                        && let (Ok(instance), Ok(allocation)) =
-                            (instances.get(entity), allocations.get(entity))
-                        && let Some(index) = mixed.plan(
-                            view_entity,
-                            camera,
-                            entity,
-                            instance,
-                            allocation,
-                            &model_runtime,
-                            &texture_assets,
-                            snapshot,
-                            group,
-                            water_pipeline_id,
-                            model_pipeline_id,
-                        )
-                    {
-                        merged.insert(entity);
-                        phase.add(Transparent3d {
-                            entity: (entity, main),
-                            pipeline: model_pipeline_id,
-                            draw_function: mixed_draw,
-                            distance: transparent_model_phase_distance(&rangefinder, group.key),
-                            batch_range: 0..1,
-                            extra_index: PhaseItemExtraIndex::IndirectParametersIndex {
-                                range: index..index + 1,
-                                batch_set_index: None,
-                            },
-                            indexed: true,
-                        });
-                        continue;
-                    }
-                    phase.add(Transparent3d {
-                        entity: (view_entity, *main_entity),
-                        pipeline: water_pipeline_id,
-                        draw_function: direct_draw,
-                        distance: transparent_liquid_phase_distance(&rangefinder, group.key),
-                        batch_range: 0..1,
-                        extra_index: PhaseItemExtraIndex::IndirectParametersIndex {
-                            range: group.ref_range.clone(),
-                            batch_set_index: None,
-                        },
-                        indexed: true,
-                    });
-                }
-            } else {
-                bevy::log::error!(
-                    "committed transparent-liquid snapshot is not an exact contiguous sub-chunk partition"
-                );
+        let mut models = BTreeMap::new();
+        let mut water = Vec::new();
+        for &(entity, main) in visible_entities.get::<ChunkRenderInstance>() {
+            let Ok(allocation) = allocations.get(entity) else {
+                continue;
+            };
+            if transparent_model_direct_draw_command(allocation).is_some() {
+                models.insert(allocation.key, (entity, main));
             }
+            // Like opaque terrain, water waits for its re-upload under a new tint table.
+            if transparent_liquid_direct_draw_command(allocation).is_some()
+                && chunk_tint_identity_is_active(
+                    allocation.tint_identity,
+                    biome_tints.table_identity(),
+                )
+            {
+                water.push((
+                    allocation.key,
+                    entity,
+                    main,
+                    allocation.order_independent_liquid,
+                ));
+            }
+        }
+        // Equal phase distances keep insertion order, so add water in key order.
+        water.sort_unstable_by_key(|&(key, entity, ..)| (key, entity));
+        water.dedup_by_key(|&mut (key, ..)| key);
+        // Displaced water can overlap itself even when flat, so such views sort all of it.
+        let direct_order_independent = !view_displaces_water(enhanced.is_some());
+        let mut merged = HashSet::new();
+        let water_pipeline_id = pipeline
+            .liquid_variants
+            .specialize(&pipeline_cache, key)
+            .ok();
+        let snapshot = runtime.state.committed();
+        let groups = snapshot.and_then(TransparentOrderedSnapshot::phase_groups);
+        if snapshot.is_some() && groups.is_none() {
+            bevy::log::error!(
+                "committed transparent-liquid snapshot is not an exact contiguous sub-chunk partition"
+            );
+        }
+        let camera = view.world_from_view.translation();
+        for (water_key, entity, main, order_independent) in water {
+            let Some(water_pipeline_id) = water_pipeline_id else {
+                break;
+            };
+            let direct = direct_order_independent && order_independent;
+            // Water that needs an order draws the committed snapshot's group for it; the
+            // frustum only chooses which of the groups appear.
+            let sorted = groups
+                .as_deref()
+                .zip(snapshot)
+                .filter(|_| !direct)
+                .and_then(|(groups, committed)| {
+                    let index = groups
+                        .binary_search_by(|group| group.key.cmp(&water_key))
+                        .ok()?;
+                    Some((committed, &groups[index]))
+                });
+            let Some((committed, group)) = sorted else {
+                unsorted.count += usize::from(!direct);
+                phase.add(Transparent3d {
+                    entity: (entity, main),
+                    pipeline: water_pipeline_id,
+                    draw_function: record_draw,
+                    distance: transparent_liquid_phase_distance(&rangefinder, water_key),
+                    batch_range: 0..1,
+                    extra_index: PhaseItemExtraIndex::None,
+                    indexed: true,
+                });
+                continue;
+            };
+            // Native deferred water uses layer 2, not ordinary blend layer 3.
+            if enhanced.is_none()
+                && let Some(model_pipeline_id) = model_pipeline_id
+                && let Some(&(entity, main)) = models.get(&group.key)
+                && let (Ok(instance), Ok(allocation)) =
+                    (instances.get(entity), allocations.get(entity))
+                && let Some(index) = mixed.plan(
+                    view_entity,
+                    camera,
+                    entity,
+                    instance,
+                    allocation,
+                    &model_runtime,
+                    &texture_assets,
+                    committed,
+                    group,
+                    water_pipeline_id,
+                    model_pipeline_id,
+                )
+            {
+                merged.insert(entity);
+                phase.add(Transparent3d {
+                    entity: (entity, main),
+                    pipeline: model_pipeline_id,
+                    draw_function: mixed_draw,
+                    distance: transparent_model_phase_distance(&rangefinder, group.key),
+                    batch_range: 0..1,
+                    extra_index: PhaseItemExtraIndex::IndirectParametersIndex {
+                        range: index..index + 1,
+                        batch_set_index: None,
+                    },
+                    indexed: true,
+                });
+                continue;
+            }
+            phase.add(Transparent3d {
+                entity: (view_entity, *main_entity),
+                pipeline: water_pipeline_id,
+                draw_function: direct_draw,
+                distance: transparent_liquid_phase_distance(&rangefinder, group.key),
+                batch_range: 0..1,
+                extra_index: PhaseItemExtraIndex::IndirectParametersIndex {
+                    range: group.ref_range.clone(),
+                    batch_set_index: None,
+                },
+                indexed: true,
+            });
         }
         if let Some(model_pipeline_id) = model_pipeline_id {
             for (&model_key, &(entity, main)) in &models {
@@ -681,4 +734,35 @@ pub(in crate::chunk) fn queue_transparent_chunks(
         }
     }
     mixed.finish_frame();
+    unsorted.finish_frame();
+}
+
+const UNSORTED_WATER_LOG_INTERVAL: Duration = Duration::from_secs(5);
+
+/// Counts visible water that needed a sort but drew in mesh order, because its sort had
+/// not committed yet or the ref ceiling left it out.
+#[derive(Default)]
+pub(in crate::chunk) struct UnsortedWaterDiagnostics {
+    count: usize,
+    last_log: Option<Instant>,
+}
+
+impl UnsortedWaterDiagnostics {
+    /// Logs a nonzero count at most once per interval, then starts the next frame's count.
+    fn finish_frame(&mut self) {
+        let count = std::mem::take(&mut self.count);
+        let now = Instant::now();
+        if count == 0
+            || self
+                .last_log
+                .is_some_and(|last| now.duration_since(last) < UNSORTED_WATER_LOG_INTERVAL)
+        {
+            return;
+        }
+        self.last_log = Some(now);
+        bevy::log::info!(
+            sub_chunks = count,
+            "transparent water drew unsorted while its sort was pending or over the ceiling"
+        );
+    }
 }

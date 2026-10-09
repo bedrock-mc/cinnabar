@@ -40,6 +40,24 @@ fn water(tint: ChunkBiomeTintIdentity) -> ChunkRenderInstance {
     }
 }
 
+/// Water with a top and a side face, which can overlap on screen and so is sorted.
+fn shore(tint: ChunkBiomeTintIdentity) -> ChunkRenderInstance {
+    let mut instance = water(tint);
+    let side = PackedLiquidQuad::try_pack(
+        [0; 3],
+        Face::NegativeX,
+        [0, 255, 255, 0],
+        0,
+        1,
+        [0; 2],
+        false,
+    )
+    .unwrap();
+    instance.liquid_quads = Arc::from([instance.liquid_quads[0], side]);
+    instance.liquid_lighting = Arc::from([PackedQuadLighting::new([0; 4]); 2]);
+    instance
+}
+
 #[derive(Resource)]
 struct Candidate(Option<PreparedResourceGeometry>);
 
@@ -71,7 +89,7 @@ fn publication_keeps_complete_transparent_addresses_and_biome_identity() {
         .id();
     let view = app.world_mut().spawn_empty().id();
     let tint = ChunkBiomeTintIdentity::new(4, 7);
-    let instance = water(tint);
+    let instance = shore(tint);
     let entity = app.world_mut().spawn(instance.clone()).id();
     let assets = ChunkTextureAssets::default();
     let candidate = PreparedResourceGeometry::build(
@@ -92,7 +110,7 @@ fn publication_keeps_complete_transparent_addresses_and_biome_identity() {
             .id(),
         old_buffer
     );
-    assert_eq!(candidate.liquids.state.committed().unwrap().refs().len(), 1);
+    assert_eq!(candidate.liquids.state.committed().unwrap().refs().len(), 2);
     app.insert_resource(Candidate(Some(candidate)));
     app.world_mut().run_system_once(publish).unwrap();
     let arena = app.world().resource::<ChunkGpuArena>();
@@ -107,7 +125,7 @@ fn publication_keeps_complete_transparent_addresses_and_biome_identity() {
     let liquids = app.world().resource::<TransparentSortRuntime>();
     assert_eq!(liquids.view_entity, Some(view));
     assert!(transparent_snapshot_addresses_are_resident(
-        liquids.state.committed().unwrap(),
+        liquids.state.committed().unwrap().key(),
         arena.allocations.values().map(|allocation| &allocation.gpu),
         std::iter::empty(),
         assets.identity(),
@@ -213,7 +231,7 @@ fn review_render_retained_liquid_snapshot_resolves_updated_active_generation() {
     let assets = ChunkTextureAssets::default();
     let identity = assets.identity();
     let candidate = PreparedResourceGeometry::build(
-        &[water(ChunkBiomeTintIdentity::default())],
+        &[shore(ChunkBiomeTintIdentity::default())],
         assets,
         RenderDevice::from(device),
         RenderQueue(Arc::new(WgpuWrapper::new(queue))),
@@ -229,7 +247,7 @@ fn review_render_retained_liquid_snapshot_resolves_updated_active_generation() {
         allocation.gpu.generation += 1;
     }
     assert!(transparent_snapshot_addresses_are_resident(
-        snapshot,
+        snapshot.key(),
         arena.allocations.values().map(|allocation| &allocation.gpu),
         std::iter::empty(),
         identity,
@@ -278,6 +296,7 @@ fn model_sort_app() -> (App, Entity, TransparentModelSortKey) {
         has_depth_liquid: false,
         has_transparent_liquid: false,
         depth_liquid_range: None,
+        order_independent_liquid: false,
         metadata_index: 0,
     };
     app.world_mut().entity_mut(entity).insert(allocation);
@@ -549,6 +568,7 @@ fn model_groups_app(
             has_depth_liquid: false,
             has_transparent_liquid: false,
             depth_liquid_range: None,
+            order_independent_liquid: false,
             metadata_index: index as u32,
         };
         let entity = app.world_mut().spawn((instance, gpu.clone())).id();

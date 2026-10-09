@@ -157,6 +157,7 @@ fn retirement_test_allocation() -> ArenaAllocation {
             has_depth_liquid: false,
             has_transparent_liquid: true,
             depth_liquid_range: None,
+            order_independent_liquid: false,
             metadata_index: 3,
         },
     }
@@ -192,6 +193,8 @@ mod transparent_incremental;
 mod transparent_residency;
 #[path = "transparent/strafe_tests.rs"]
 mod transparent_strafe;
+#[path = "transparent/turn_tests.rs"]
+mod transparent_turn;
 
 #[path = "resource_geometry_queue_tests.rs"]
 mod resource_geometry_review;

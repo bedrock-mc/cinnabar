@@ -6,7 +6,8 @@ pub(super) struct ResourceView {
     pub(super) transform: GlobalTransform,
 }
 
-/// Sorts all residents so camera movement cannot expose an unstaged transparent chunk.
+/// Sorts every resident that needs order, as the live sort does, so camera movement cannot
+/// expose an unstaged transparent chunk.
 pub(super) fn prepare(
     app: &mut App,
     view: Option<ResourceView>,
@@ -22,10 +23,21 @@ pub(super) fn prepare(
         .iter(world)
         .map(|(entity, instance)| (entity, instance.clone()))
         .collect();
-    // Liquid quads bound the sort's refs, so the fresh arena grows once before borrowing.
-    let liquid_refs = instances
+    let translation = view.transform.translation();
+    let selection = select_sorted_residents(
+        world
+            .resource::<ChunkGpuArena>()
+            .transparent_liquids
+            .sortable(false),
+        world.resource::<ChunkBiomeTints>().table_identity(),
+        TransparentFaceMetric::new(translation).camera_chunk(),
+        MAX_TRANSPARENT_DRAW_REFS,
+    );
+    // The selection bounds the sort's refs, so the fresh arena grows once before borrowing.
+    let liquid_refs = selection
+        .residents
         .iter()
-        .map(|(_, instance)| instance.liquid_quads.len())
+        .map(|resident| resident.refs)
         .sum::<usize>();
     let (device, queue) = (
         world.resource::<RenderDevice>().clone(),
@@ -41,24 +53,15 @@ pub(super) fn prepare(
     let arena = world.resource::<ChunkGpuArena>();
     let assets = world.resource::<ChunkTextureAssets>();
     let tints = world.resource::<ChunkBiomeTints>();
-    let (mut manifest, mut model_candidates, mut model_manifest) =
-        (Vec::new(), Vec::new(), Vec::new());
-    let mut liquid_instances = HashMap::new();
+    let (mut model_candidates, mut model_manifest) = (Vec::new(), Vec::new());
+    let liquid_instances = instances
+        .iter()
+        .map(|(_, instance)| (instance.key, instance))
+        .collect::<HashMap<_, _>>();
     for (entity, instance) in &instances {
         let Some(allocation) = arena.allocations.get(entity).map(|entry| &entry.gpu) else {
             continue;
         };
-        if allocation.has_transparent_liquid {
-            let range = allocation.liquid_range.clone()?;
-            manifest.push(TransparentAllocationIdentity::new(
-                instance.key,
-                allocation.generation,
-                range.clone(),
-                allocation.liquid_lighting_range.clone()?,
-                allocation.metadata_index,
-            ));
-            liquid_instances.insert(instance.key, instance);
-        }
         if let (Some(model_range), Some(draw_range)) = (
             &allocation.model_range,
             &allocation.transparent_model_draw_range,
@@ -92,23 +95,30 @@ pub(super) fn prepare(
         }
     }
     validate_transparent_sort_ref_count(model_candidates.len()).ok()?;
-    let translation = view.transform.translation();
     let key = ViewSortKey::try_new(
         translation.to_array(),
-        manifest,
+        selection
+            .residents
+            .into_iter()
+            .map(|resident| resident.identity)
+            .collect(),
         assets.identity(),
         tints.table_identity(),
     )
     .ok()?;
     let groups = key
-        .visible_allocations
+        .sorted_allocations
         .iter()
         .map(|identity| {
-            build_transparent_group(liquid_instances[&identity.key], identity.clone(), tints)
-                .map(Arc::new)
+            build_transparent_group(
+                liquid_instances.get(&identity.key)?,
+                identity.clone(),
+                tints,
+            )
+            .ok()
+            .map(Arc::new)
         })
-        .collect::<Result<Vec<_>, _>>()
-        .ok()?;
+        .collect::<Option<Vec<_>>>()?;
     validate_transparent_sort_ref_count(groups.iter().map(|group| group.centroids.len()).sum())
         .ok()?;
     liquids.view_entity = Some(view.entity);

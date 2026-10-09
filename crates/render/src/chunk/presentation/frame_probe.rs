@@ -665,7 +665,7 @@ pub(in crate::chunk) fn submit_presented_frame_probe(
     let has_releasable_retirement = arena.retired_allocations.iter().any(|retirement| {
         retirement.release_epoch.is_none()
             && transparent_retirement_can_arm(
-                transparent_runtime.state.committed(),
+                transparent_runtime.state.retained_keys(),
                 &retirement.identity,
             )
     });
@@ -676,7 +676,7 @@ pub(in crate::chunk) fn submit_presented_frame_probe(
         for retirement in &mut arena.retired_allocations {
             if retirement.release_epoch.is_none()
                 && transparent_retirement_can_arm(
-                    transparent_runtime.state.committed(),
+                    transparent_runtime.state.retained_keys(),
                     &retirement.identity,
                 )
             {
@@ -688,9 +688,19 @@ pub(in crate::chunk) fn submit_presented_frame_probe(
         .state
         .committed()
         .map_or(0, |snapshot| snapshot.generation().get());
-    let witness_missing = transparent_runtime.state.committed().map_or_else(
-        || witness_request.keys().to_vec(),
-        |snapshot| transparent_view_missing_witness_keys(snapshot.key(), &witness_request),
+    let witness_missing = transparent_view_missing_witness_keys(
+        transparent_runtime
+            .state
+            .committed()
+            .map(TransparentOrderedSnapshot::key),
+        &witness_request,
+        |key| {
+            transparent_runtime.direct_order_independent
+                && arena
+                    .transparent_liquids
+                    .get(key)
+                    .is_some_and(|resident| resident.order_independent)
+        },
     );
     let witness_token =
         witness_evidence.try_reserve_missing(&witness_request, witness_generation, witness_missing);

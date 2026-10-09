@@ -185,12 +185,20 @@ fn liquid_vertex_alpha(alpha: f32, camera_distance: f32, fade_distance: f32) -> 
     return alpha;
 }
 
+// Sorted draws use base vertex 0 and read their back-to-front refs. Water whose faces
+// cannot overlap draws its records directly: the instance is the record and
+// base_vertex / 4 is the metadata index plus one. Both share this one program, so
+// shared edges between them compute identical positions.
 @vertex
 fn vertex(
     @builtin(vertex_index) vertex_index: u32,
     @builtin(instance_index) instance_index: u32,
 ) -> VertexOutput {
-    return vertex_for_ref(transparent_refs[instance_index], vertex_index);
+    var draw_ref = TransparentDrawRef(instance_index, vertex_index / 4u - 1u);
+    if (vertex_index < 4u) {
+        draw_ref = transparent_refs[instance_index];
+    }
+    return vertex_for_ref(draw_ref, vertex_index);
 }
 
 @vertex

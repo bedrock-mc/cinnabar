@@ -585,6 +585,21 @@
 - An offscreen GPU test matches the culled path pixel-for-pixel against the discard path.
 - Incomplete live visual acceptance: a rendered-frame pass on the target platforms is pending.
 
+## Transparent water order across camera turns
+
+- The water sort covers every resident sub-chunk whose faces need an order, not the
+  frustum's, so turning never re-sorts; the frustum only picks which sorted groups draw.
+- Water whose faces share one plane and facing, one cell each (flat oceans and lakes),
+  blends the same in any order and draws from its records through the sorted path's
+  vertex program. Views that displace water (Enhanced) still sort it.
+- A staged sort that is still readable commits before the next request, so streaming
+  that changes residents every frame cannot starve it.
+- Past the 2,097,152-ref ceiling the nearest water is sorted. Farther water that needs an
+  order, and water awaiting its first sort, draws unsorted and is logged, never skipped.
+- Regression tests cover a turn, a rotation sweep, resident churn and order independence.
+- Incomplete: live RD 255 acceptance is pending; order-dependent water beyond the ceiling
+  draws unsorted; transparent models still sort only the visible set.
+
 ## Held cube item consistency
 
 - Cube admission now ignores unrelated gameplay flags and terrain occlusion.

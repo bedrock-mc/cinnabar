@@ -149,6 +149,9 @@ impl Default for TransparentSortRuntime {
             candidate_cache: None,
             group_inputs: HashMap::new(),
             group_orders: HashMap::new(),
+            manifest: None,
+            last_ceiling_log: None,
+            direct_order_independent: false,
         }
     }
 }
@@ -210,7 +213,7 @@ impl TransparentSortRuntime {
         self.candidate_cache = None;
         let mut total = 0_usize;
         let groups = key
-            .visible_allocations
+            .sorted_allocations
             .iter()
             .map(|identity| {
                 let group = match self.group_inputs.get(&identity.key).filter(|group| {

@@ -186,7 +186,7 @@ use gpu::types::{
     model_direct_draw_command, model_draw_command, model_mdi_draw_command,
     model_ref_count_for_witness, opaque_allocation_is_drawable, select_chunk_draw_mode,
     shared_stream_ranges_disjoint, solid_indirect_commands, summarize_model_workload,
-    transparent_model_direct_draw_command,
+    transparent_liquid_direct_draw_command, transparent_model_direct_draw_command,
 };
 #[allow(unused_imports)]
 use gpu::upload::{
@@ -201,7 +201,8 @@ use pipeline::commands::{
     DrawDepthLiquidIndirectCommands, DrawDepthLiquidsIndirect, DrawModelCommands,
     DrawModelIndirectCommands, DrawPackedChunk, DrawPackedChunksIndirect, DrawPackedModel,
     DrawPackedModelsIndirect, DrawPackedTransparentModel, DrawTransparentLiquid,
-    DrawTransparentLiquidCommands, DrawTransparentLiquidIndirect,
+    DrawTransparentLiquidCommands, DrawTransparentLiquidDirect,
+    DrawTransparentLiquidDirectCommands, DrawTransparentLiquidIndirect,
     DrawTransparentLiquidIndirectCommands, DrawTransparentModelCommands, OpaqueChunkViewQuery,
     drawable_allocation_identity, front_to_back_cube_entities, indirect_batch_draw_args,
     prepare_chunk_indirect_batches, prepare_depth_liquid_indirect_batch_draws,
@@ -264,6 +265,8 @@ use transparent::model::{
     transparent_model_draw_candidate, transparent_model_phase_distance,
     transparent_model_subchunk_center, transparent_request_to_commit_latency,
 };
+use transparent::planar::liquid_quads_are_order_independent;
+use transparent::residents::{TransparentLiquidResidents, select_sorted_residents};
 #[allow(unused_imports)]
 use transparent::retirement::{
     TransparentPresentationFence, TransparentRetirementBudget, TransparentRetirementFence,
@@ -291,7 +294,7 @@ use transparent::sort::{
     ensure_transparent_ref_capacity, prepare_transparent_sorts, sort_transparent_groups,
     spawn_transparent_sort, transparent_draw_args, transparent_draw_range_args,
     transparent_indirect_args, transparent_liquid_phase_groups, transparent_ref_buffer,
-    transparent_ref_offset, transparent_snapshot_addresses_are_resident,
+    transparent_ref_offset, transparent_snapshot_addresses_are_resident, view_displaces_water,
 };
 
 #[cfg(test)]

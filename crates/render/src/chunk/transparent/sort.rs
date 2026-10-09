@@ -156,8 +156,8 @@ pub(in crate::chunk) struct TransparentLiquidPhaseGroup {
 pub(in crate::chunk) fn transparent_liquid_phase_groups(
     snapshot: &TransparentOrderedSnapshot,
 ) -> Option<Vec<TransparentLiquidPhaseGroup>> {
-    let mut identities = HashMap::with_capacity(snapshot.key.visible_allocations.len());
-    for identity in snapshot.key.visible_allocations.iter() {
+    let mut identities = HashMap::with_capacity(snapshot.key.sorted_allocations.len());
+    for identity in snapshot.key.sorted_allocations.iter() {
         if !identity.liquid_range.start.is_multiple_of(4)
             || !identity.liquid_range.end.is_multiple_of(4)
             || identities
@@ -244,6 +244,7 @@ impl PackedTransparentDrawRef {
 pub(in crate::chunk) const _: () = assert!(std::mem::size_of::<PackedTransparentDrawRef>() == 8);
 
 mod groups;
+mod manifest;
 mod prepare;
 mod state;
 
@@ -251,6 +252,7 @@ pub(in crate::chunk) use groups::{
     TransparentGroupInput, TransparentGroupOrder, TransparentGroups, build_transparent_group,
     distinct_tint_count, sort_transparent_groups, spawn_transparent_sort,
 };
+pub(in crate::chunk) use manifest::view_displaces_water;
 pub(in crate::chunk) use prepare::{
     prepare_transparent_sorts, transparent_snapshot_addresses_are_resident,
 };

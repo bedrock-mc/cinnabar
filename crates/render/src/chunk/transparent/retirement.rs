@@ -191,20 +191,15 @@ pub(in crate::chunk) fn transparent_snapshot_references_resident_allocation(
     allocation.tint_identity == snapshot.key.tint_identity
         && snapshot
             .key
-            .visible_allocations
-            .iter()
-            .any(|identity| transparent_resident_allocation_contains(identity, allocation))
+            .allocation(allocation.key)
+            .is_some_and(|identity| transparent_resident_allocation_contains(identity, allocation))
 }
 
 pub(in crate::chunk) fn transparent_snapshot_references_allocation(
     snapshot: &TransparentOrderedSnapshot,
     allocation: &GpuChunkAllocation,
 ) -> bool {
-    snapshot
-        .key
-        .visible_allocations
-        .iter()
-        .any(|visible| transparent_allocation_is_exact(visible, allocation))
+    snapshot.key.references_exact(allocation)
 }
 
 /// Matches the exact mesh generation and liquid addresses a snapshot reference was sorted against.
@@ -225,32 +220,35 @@ pub(in crate::chunk) fn transparent_view_key_satisfies_witness(
     request: &TransparentWitnessRequest,
 ) -> bool {
     request.enabled()
-        && request.keys.iter().all(|required| {
-            key.visible_allocations
-                .iter()
-                .any(|allocation| allocation.key == *required)
-        })
+        && request
+            .keys
+            .iter()
+            .all(|required| key.allocation(*required).is_some())
 }
 
+/// Witness keys whose water is neither in `committed`'s sort nor drawn directly in any order.
 pub(in crate::chunk) fn transparent_view_missing_witness_keys(
-    key: &ViewSortKey,
+    committed: Option<&ViewSortKey>,
     request: &TransparentWitnessRequest,
+    drawn_directly: impl Fn(SubChunkKey) -> bool,
 ) -> Vec<SubChunkKey> {
     request
         .keys
         .iter()
         .copied()
-        .filter(|required| {
-            !key.visible_allocations
-                .iter()
-                .any(|allocation| allocation.key == *required)
+        .filter(|&required| {
+            committed.is_none_or(|key| key.allocation(required).is_none())
+                && !drawn_directly(required)
         })
         .collect()
 }
 
-pub(in crate::chunk) fn transparent_retirement_can_arm(
-    committed: Option<&TransparentOrderedSnapshot>,
+/// Whether no snapshot a frame may still draw, committed or staged, reads `retired`.
+pub(in crate::chunk) fn transparent_retirement_can_arm<'a>(
+    retained: impl IntoIterator<Item = &'a ViewSortKey>,
     retired: &GpuChunkAllocation,
 ) -> bool {
-    committed.is_none_or(|snapshot| !transparent_snapshot_references_allocation(snapshot, retired))
+    retained
+        .into_iter()
+        .all(|key| !key.references_exact(retired))
 }
