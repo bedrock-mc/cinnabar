@@ -106,7 +106,7 @@ pub(super) fn emit_visual(
                     [bounds.max().x(), bounds.max().y()],
                     [bounds.min().x(), bounds.max().y()],
                 ],
-                [[0, 0], [1, 0], [1, 1], [0, 1]],
+                [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]],
                 *texture_page,
                 corners,
                 0,
@@ -126,8 +126,13 @@ pub(super) fn emit_visual(
             if is_empty(bounds) {
                 return Ok(());
             }
-            emit_quad(
-                bounds,
+            emit_colored_quad(
+                [
+                    [bounds.min().x(), bounds.min().y()],
+                    [bounds.max().x(), bounds.min().y()],
+                    [bounds.max().x(), bounds.max().y()],
+                    [bounds.min().x(), bounds.max().y()],
+                ],
                 [
                     [uv[0], uv[1]],
                     [uv[2], uv[1]],
@@ -135,7 +140,7 @@ pub(super) fn emit_visual(
                     [uv[0], uv[3]],
                 ],
                 *texture_page,
-                *color,
+                [*color; 4],
                 *style,
                 UiBlendMode::Alpha,
                 clip,
@@ -512,7 +517,7 @@ fn emit_positioned_quad(
 ) -> Result<(), UiError> {
     emit_colored_quad(
         positions,
-        uv,
+        uv.map(|corner| corner.map(f32::from)),
         texture_page,
         [color; 4],
         style_flags,
@@ -528,7 +533,7 @@ fn emit_positioned_quad(
 #[allow(clippy::too_many_arguments)]
 fn emit_colored_quad(
     positions: [[f32; 2]; 4],
-    uv: [[u16; 2]; 4],
+    uv: [[f32; 2]; 4],
     texture_page: u16,
     colors: [[u8; 4]; 4],
     style_flags: u8,
@@ -570,7 +575,7 @@ fn emit_colored_quad(
             position,
             clip_z,
             clip_w,
-            uv: uv.map(f32::from),
+            uv,
             color,
             style_flags,
             alpha_test: clip
