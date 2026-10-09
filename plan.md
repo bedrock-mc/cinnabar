@@ -609,6 +609,7 @@
 ## Flower-pot floor and lily-pad atlas tint
 
 - Flower pots now add the dirt surface four pixels above the block base, below the rim.
+- Pot bodies and lantern surfaces use double-sided alpha testing instead of fallback blending and rear-face culling.
 - The pot body remains provisional fallback geometry; full current-version visual parity is incomplete.
 - Literal lily-pad atlas tint survives raster-only resource-pack replacement. A higher catalog can replace or clear it.
 - The current vanilla pack supplies a fixed green atlas multiplier, rather than biome tint.
