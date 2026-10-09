@@ -109,12 +109,14 @@ by ID; wire amplifiers remain zero-based. Reads are limited to eight per callbac
 opaque `u64` token only while the current callback has a valid snapshot. Equal
 tokens within one component instance mean every snapshot field is unchanged,
 including identifiers, session, dimension, exact effect ticks and flags. A guest
-may compare the token before importing the full snapshot; `none` releases retained
-facts, and reappearance gets a new token. Tokens do not survive reloads. The host
-retains one exact comparison snapshot and clears it on unavailable facts or
-callback failure; it rejects theoretical counter exhaustion instead of reusing
-a token.
-Snapshots are cleared before and after callbacks and on quarantine; a reload
+may compare the token before importing the full snapshot and must release cached
+facts when it observes `none`. Tokens do not survive reloads. The host retains one
+exact comparison snapshot across unavailable callbacks; identical contents can
+keep the token when they reappear, while any changed field advances it. Comparison
+facts are never exposed without a current snapshot and are cleared on validation
+failure, revocation or callback failure. The counter rejects theoretical
+exhaustion instead of wrapping.
+Current snapshots are cleared before and after callbacks and on quarantine; a reload
 starts without previous session data. This experimental API closes no vanilla
 parity or native acceptance gate.
 

@@ -63,8 +63,9 @@ interface player-state {
     /// Requires the player-state grant. None outside the current connected session.
     /// Available while a screen owns input; carries no camera, interaction or packet authority.
     read-snapshot: func() -> result<option<snapshot>, string>;
-    /// Exact change token for the current snapshot, scoped to this component instance.
+    /// Exact content token for the current snapshot, scoped to this component instance.
     /// None outside a current snapshot. Shares the read-snapshot grant and read budget.
+    /// Identical contents can keep the token across callbacks with no available snapshot.
     read-revision: func() -> result<option<u64>, string>;
 }
 

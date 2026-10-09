@@ -1,4 +1,4 @@
-//! Bounded, read-only local player facts with callback-scoped reads and exact change tokens.
+//! Bounded, read-only local player facts with callback-scoped reads and exact content tokens.
 
 use super::{MAX_IMPORT_WRITES, State, cinnabar};
 use crate::{PlayerStateItem, PlayerStateSlot, PlayerStateSnapshot};
@@ -26,11 +26,7 @@ impl PlayerState {
     /// Installs validated callback facts, retaining a comparison copy only when they change.
     pub fn set_snapshot(&mut self, snapshot: Option<PlayerStateSnapshot>) -> Result<()> {
         let Some(snapshot) = snapshot else {
-            if self.previous_snapshot.is_some() {
-                self.advance_revision()?;
-            }
             self.snapshot = None;
-            self.previous_snapshot = None;
             return Ok(());
         };
         if self.previous_snapshot.as_ref() != Some(&snapshot) {
@@ -47,7 +43,7 @@ impl PlayerState {
         self.previous_snapshot = None;
     }
 
-    /// Advances an instance-scoped token without ever reusing an earlier value.
+    /// Advances an instance-scoped content revision without wrapping the counter.
     fn advance_revision(&mut self) -> Result<()> {
         let Some(revision) = self.revision.checked_add(1) else {
             self.revoke();

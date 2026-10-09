@@ -177,7 +177,7 @@ fn revision_changes_for_exact_identifiers_scalars_ticks_and_session_owners() {
 }
 
 #[test]
-fn unavailable_or_revoked_facts_release_history_and_never_reuse_a_token() {
+fn unavailable_facts_hide_reads_and_equal_contents_keep_the_token_until_revocation() {
     let mut state = State::new(
         ModGrants {
             player_state: true,
@@ -187,19 +187,39 @@ fn unavailable_or_revoked_facts_release_history_and_never_reuse_a_token() {
     );
     state.player_state.set_snapshot(Some(snapshot())).unwrap();
     let first = state.read_revision().unwrap().unwrap().unwrap();
+    for _ in 0..2 {
+        state.player_state.begin_frame();
+        state.player_state.set_snapshot(None).unwrap();
+        assert_eq!(state.read_revision().unwrap().unwrap(), None);
+        assert_eq!(state.read_snapshot().unwrap().unwrap(), None);
+    }
+    state.player_state.begin_frame();
+    state.player_state.set_snapshot(Some(snapshot())).unwrap();
+    let reappeared = state.read_revision().unwrap().unwrap().unwrap();
+    assert_eq!(first, reappeared);
+    assert_eq!(state.read_snapshot().unwrap().unwrap(), Some(snapshot()));
+
     state.player_state.begin_frame();
     state.player_state.set_snapshot(None).unwrap();
     assert_eq!(state.read_revision().unwrap().unwrap(), None);
-    assert!(state.player_state.previous_snapshot.is_none());
-    state.player_state.set_snapshot(Some(snapshot())).unwrap();
-    let reappeared = state.read_revision().unwrap().unwrap().unwrap();
-    assert_ne!(first, reappeared);
+    let mut changed = snapshot();
+    changed.session += 1;
+    state
+        .player_state
+        .set_snapshot(Some(changed.clone()))
+        .unwrap();
+    let changed_revision = state.read_revision().unwrap().unwrap().unwrap();
+    assert_ne!(first, changed_revision);
+
     state.player_state.revoke();
     assert_eq!(state.read_snapshot().unwrap().unwrap(), None);
     assert_eq!(state.read_revision().unwrap().unwrap(), None);
     assert!(state.player_state.previous_snapshot.is_none());
-    state.player_state.set_snapshot(Some(snapshot())).unwrap();
-    assert_ne!(state.read_revision().unwrap().unwrap().unwrap(), reappeared);
+    state.player_state.set_snapshot(Some(changed)).unwrap();
+    assert_ne!(
+        state.read_revision().unwrap().unwrap().unwrap(),
+        changed_revision
+    );
 }
 
 #[test]
