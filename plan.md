@@ -39,7 +39,8 @@
   and join/streaming budgets remain incomplete.
 - Dragonfly Normal populates eligible grass habitats with persistent cows, pigs, sheep and
   chickens through the owning world simulation. Reopening preserves saved actors and backend.
-  Exact material admission, continuous weather brightness, complete animal AI, breeding,
+  Exact material admission, continuous weather brightness, native effect cadence and
+  damage-immunity behavior across reload, complete animal AI, breeding,
   climate variants, loot and other passive species remain incomplete; this does not close
   the broader mob parity or performance gates.
 - Dressing Room persists classic/slim skins and independent capes, imports and item edits. Home
