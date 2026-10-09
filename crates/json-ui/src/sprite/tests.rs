@@ -298,6 +298,77 @@ fn meeting_insets_stretch_the_middle_texel() {
     assert_eq!([centre.uv.u0, centre.uv.u1], [0.25, 0.75]);
 }
 
+/// Returns whether nearest-filtered quads sample the original frame's center texel.
+fn frame_pixel(quads: &[SpriteQuad], at: [f64; 2]) -> bool {
+    let quad = quads
+        .iter()
+        .find(|q| {
+            at[0] >= q.dest.x
+                && at[0] < q.dest.x + q.dest.w
+                && at[1] >= q.dest.y
+                && at[1] < q.dest.y + q.dest.h
+        })
+        .expect("the frame covers every destination pixel");
+    let u = f64::from(quad.uv.u0)
+        + f64::from(quad.uv.u1 - quad.uv.u0) * (at[0] - quad.dest.x) / quad.dest.w;
+    let v = f64::from(quad.uv.v0)
+        + f64::from(quad.uv.v1 - quad.uv.v0) * (at[1] - quad.dest.y) / quad.dest.h;
+    (u * 3.0).floor() == 1.0 && (v * 3.0).floor() == 1.0
+}
+
+#[test]
+fn overlapping_source_slices_keep_a_tiny_disabled_frames_border_one_texel_wide() {
+    let meta = TextureMeta {
+        nineslice: Some(NineSlice {
+            left: 2.0,
+            top: 2.0,
+            right: 2.0,
+            bottom: 2.0,
+        }),
+        ..TextureMeta::plain([3.0, 3.0])
+    };
+    let quads = nine_slice(Rect::new(0.0, 0.0, 40.0, 20.0), &meta);
+    for at in [
+        [1.1, 10.0],
+        [38.9, 10.0],
+        [20.0, 1.1],
+        [20.0, 18.9],
+        [20.0, 10.0],
+    ] {
+        assert!(
+            frame_pixel(&quads, at),
+            "{at:?} must sample the frame's face"
+        );
+    }
+    for at in [[0.9, 10.0], [39.1, 10.0], [20.0, 0.9], [20.0, 19.1]] {
+        assert!(
+            !frame_pixel(&quads, at),
+            "{at:?} must sample the frame's border"
+        );
+    }
+}
+
+#[test]
+fn oversized_source_insets_do_not_sample_outside_the_texture() {
+    let meta = TextureMeta {
+        nineslice: Some(NineSlice {
+            left: 5.0,
+            top: 5.0,
+            right: 5.0,
+            bottom: 5.0,
+        }),
+        ..TextureMeta::plain([3.0, 3.0])
+    };
+    for quad in nine_slice(Rect::new(0.0, 0.0, 40.0, 20.0), &meta) {
+        for edge in [quad.uv.u0, quad.uv.v0, quad.uv.u1, quad.uv.v1] {
+            assert!(
+                (0.0..=1.0).contains(&edge),
+                "sampled outside the texture: {edge}"
+            );
+        }
+    }
+}
+
 // Insets are in `base_size` units: a 10px texture with base 5 samples 2×2 px borders.
 #[test]
 fn insets_scale_from_base_size_onto_pixels() {

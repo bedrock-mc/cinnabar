@@ -7,6 +7,16 @@ A Bedrock client written in Rust (Bevy/wgpu), targeting vanilla parity with the 
 in `assets/bedrock-target.json`. A small Go core handles Microsoft sign-in and upstream
 networking.
 
+## License
+
+Except where otherwise noted, Cinnabar is licensed under the
+[PolyForm Noncommercial License 1.0.0](LICENSE). You may use, modify, and share it
+for the purposes permitted by that license. Contact the project maintainers for
+a separate commercial license for uses outside those permissions.
+
+Third-party code and assets retain their own licenses; see
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and the notices in their files.
+
 [![Discord](https://img.shields.io/badge/Discord-Join%20us-5865F2?logo=discord&logoColor=white)](https://discord.gg/MeEz7BEHcM)
 [![Website](https://img.shields.io/badge/Website-cinnabar.restartfu.com-B22222)](https://cinnabar.restartfu.com/)
 

@@ -28,6 +28,7 @@ Copy-Item (Join-Path $release "bedrock-client.exe"), (Join-Path $release "bedroc
 Copy-Item (Join-Path $release "assetc.exe") (Join-Path $kit "bin")
 Copy-Item (Join-Path $root "crates/assets/data/block-physics-v2193.bin") (Join-Path $resources "assets")
 Copy-Item (Join-Path $root "THIRD_PARTY_NOTICES.md") (Join-Path $resources "assets")
+Copy-Item (Join-Path $root "LICENSE") (Join-Path $resources "licenses/Cinnabar-LICENSE.md")
 Copy-Item (Join-Path $root "assets/licenses/*") (Join-Path $resources "licenses")
 $fontSource = Get-Content -Raw (Join-Path $root "assets/cinnangles-sans-source.json") | ConvertFrom-Json
 $font = Join-Path $root "assets/fonts/$($fontSource.font_file)"
