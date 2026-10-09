@@ -1,22 +1,27 @@
 use json_ui::{Catalog, DataSource, Scalar};
 use serde_json::{Value, json};
-use ui::mod_hud::{Anchor, Card, Hud};
+use ui::mod_hud::{Anchor, Card, DEFAULT_ROW_HEIGHT, Hud, RowLayout};
 
-const WIDTH: f64 = 148.;
-const ROW: f64 = 20.;
 const HEADER: f64 = 18.;
 
+/// Rebuilds only when row arrangement or icon topology changes.
 pub(super) fn same_shape(a: &Hud, b: &Hud) -> bool {
     a.cards.len() == b.cards.len()
-        && a.cards.iter().zip(&b.cards).all(|(a, b)| {
-            a.id == b.id
-                && a.scale == b.scale
-                && a.title.is_empty() == b.title.is_empty()
-                && a.rows.len() == b.rows.len()
-                && a.rows.iter().zip(&b.rows).all(|(a, b)| {
+        && a.cards.iter().zip(&b.cards).all(|(left, right)| {
+            left.id == right.id
+                && left.scale == right.scale
+                && left.row_layout == right.row_layout
+                && left.width == right.width
+                && left.row_height == right.row_height
+                && left.icon_size == right.icon_size
+                && left.title.is_empty() == right.title.is_empty()
+                && left.rows.len() == right.rows.len()
+                && left.rows.iter().zip(&right.rows).all(|(a, b)| {
                     a.effect_id == b.effect_id
                         && a.item.is_some() == b.item.is_some()
                         && a.progress.is_some() == b.progress.is_some()
+                        && (left.row_layout != RowLayout::IconRight
+                            || a.label.is_empty() == b.label.is_empty())
                 })
         })
 }
@@ -35,13 +40,16 @@ fn label(key: &str, size: [f64; 2], offset: [f64; 2], scale: f64, right: bool) -
 /// Shares card controls between gameplay publication and native previews.
 pub(in super::super) fn card(card: &Card, card_index: usize, row_index: &mut usize) -> Value {
     let k = f64::from(card.scale);
+    let width = f64::from(card.width);
+    let row_height = f64::from(card.row_height);
+    let icon_size = f64::from(card.icon_size);
     let header = if card.title.is_empty() { 0. } else { HEADER };
-    let height = header + ROW * card.rows.len() as f64 + 4.;
+    let size = dimensions(card);
     let mut controls = vec![
         named(
             "surface",
             rounded(
-                [WIDTH * k, height * k],
+                size,
                 [0.; 2],
                 3. * k,
                 [0.045, 0.05, 0.065, card.background_opacity],
@@ -51,7 +59,7 @@ pub(in super::super) fn card(card: &Card, card_index: usize, row_index: &mut usi
             "title",
             label(
                 &format!("#card_{card_index}_title"),
-                [(WIDTH - 12.) * k, 12. * k],
+                [(width - 12.) * k, 12. * k],
                 [6. * k, 5. * k],
                 k,
                 false,
@@ -60,7 +68,7 @@ pub(in super::super) fn card(card: &Card, card_index: usize, row_index: &mut usi
         named(
             "divider",
             rounded(
-                [(WIDTH - 12.) * k, 0.5 * k],
+                [(width - 12.) * k, 0.5 * k],
                 [6. * k, 15. * k],
                 0.,
                 [1., 1., 1., 0.16],
@@ -74,15 +82,21 @@ pub(in super::super) fn card(card: &Card, card_index: usize, row_index: &mut usi
     for (local, row) in card.rows.iter().enumerate() {
         let index = *row_index;
         *row_index += 1;
-        let y = (header + ROW * local as f64) * k;
-        let left = if row.item.is_some() || row.effect_id.is_some() {
-            26.
+        let y = (header + row_height * local as f64) * k;
+        let has_icon = row.item.is_some() || row.effect_id.is_some();
+        let icon_x = if card.row_layout == RowLayout::IconRight {
+            width - icon_size - 5.
         } else {
-            6.
+            5.
+        };
+        let icon_y = y + if card.row_layout == RowLayout::Standard {
+            0.
+        } else {
+            (row_height - icon_size) * k * 0.5
         };
         if row.item.is_some() {
             controls.push(named(&format!("icon_{index}"),json!({"type":"custom","renderer":"inventory_item_renderer",
-                "size":[16.*k,16.*k],"offset":[5.*k,y],"anchor_from":"top_left","anchor_to":"top_left",
+                "size":[icon_size*k,icon_size*k],"offset":[icon_x*k,icon_y],"anchor_from":"top_left","anchor_to":"top_left",
                 "bindings":[{"binding_name":format!("#row_{index}_icon"),"binding_name_override":"#item_renderer_data"}]})));
         }
         if let Some(role) = row
@@ -94,31 +108,80 @@ pub(in super::super) fn card(card: &Card, card_index: usize, row_index: &mut usi
                 .strip_suffix(".png")
                 .unwrap_or(role.source_path());
             controls.push(named(&format!("effect_{index}"), json!({"type":"image","texture":path,
-                "size":[16.*k,16.*k],"offset":[5.*k,y],"anchor_from":"top_left","anchor_to":"top_left"})));
+                "size":[icon_size*k,icon_size*k],"offset":[icon_x*k,icon_y],"anchor_from":"top_left","anchor_to":"top_left"})));
         }
+        let left = if has_icon && card.row_layout != RowLayout::IconRight {
+            icon_size + 10.
+        } else {
+            6.
+        };
+        let right = if has_icon && card.row_layout == RowLayout::IconRight {
+            icon_x - 4.
+        } else {
+            width - 6.
+        };
+        let text_width = (right - left).max(0.);
+        let stacked = card.row_layout == RowLayout::StackedText;
+        let value_width =
+            if stacked || card.row_layout == RowLayout::IconRight && row.label.is_empty() {
+                text_width
+            } else {
+                44_f64.min((text_width - 6.).max(0.))
+            };
+        let label_width = if stacked {
+            text_width
+        } else {
+            (text_width - value_width - 6.).max(0.)
+        };
+        // Reserve two pixels each for top/bottom padding, the bar and its gap.
+        // Standard rows at the original height keep their existing placement.
+        let reserve_progress = row.progress.is_some()
+            && !stacked
+            && (card.row_layout == RowLayout::IconRight
+                || row_height < f64::from(DEFAULT_ROW_HEIGHT));
+        let line_height = if stacked {
+            (row_height - if row.progress.is_some() { 8. } else { 4. }) * 0.5
+        } else if reserve_progress {
+            (row_height - 8.).min(12.)
+        } else {
+            (row_height - 4.).min(12.)
+        };
+        let text_scale = k * (line_height / 12.).min(1.);
+        let text_top = if card.row_layout == RowLayout::IconRight {
+            if reserve_progress {
+                2. + (row_height - 8. - line_height) * 0.5
+            } else {
+                (row_height - line_height) * 0.5
+            }
+        } else {
+            2.
+        };
         controls.push(named(
             &format!("label_{index}"),
             label(
                 &format!("#row_{index}_label"),
-                [(WIDTH - left - 56.) * k, 12. * k],
-                [left * k, y + 2. * k],
-                k,
+                [label_width * k, line_height * k],
+                [left * k, y + text_top * k],
+                text_scale,
                 false,
             ),
         ));
         let mut value = label(
             &format!("#row_{index}_value"),
-            [44. * k, 12. * k],
-            [(WIDTH - 50.) * k, y + 2. * k],
-            k,
-            true,
+            [value_width * k, line_height * k],
+            [
+                if stacked { left } else { right - value_width } * k,
+                y + (text_top + if stacked { line_height } else { 0. }) * k,
+            ],
+            text_scale,
+            !stacked,
         );
         value["bindings"].as_array_mut().unwrap().push(
             json!({"binding_name":format!("#row_{index}_color"),"binding_name_override":"#color"}),
         );
         controls.push(named(&format!("value_{index}"), value));
         if row.progress.is_some() {
-            let size = [(WIDTH - left - 6.) * k, 2. * k];
+            let size = [text_width * k, 2. * k];
             let track = rounded(size, [0.; 2], 0., [1., 1., 1., 0.18]);
             let mut fill = rounded(size, [0.; 2], 0., [1.; 4]);
             fill["bindings"] = json!([
@@ -127,14 +190,15 @@ pub(in super::super) fn card(card: &Card, card_index: usize, row_index: &mut usi
             controls.push(named(
                 &format!("progress_{index}"),
                 json!({
-                    "type":"panel", "size":size, "offset":[left*k,y+14.*k],
+                    "type":"panel", "size":size,
+                    "offset":[left*k,y+(row_height-if stacked || reserve_progress {4.} else {6.})*k],
                     "anchor_from":"top_left", "anchor_to":"top_left",
                     "controls":[named("track",track),named("fill",fill)]
                 }),
             ));
         }
     }
-    json!({"type":"panel","size":[WIDTH*k,height*k],"offset":[0,0],
+    json!({"type":"panel","size":size,"offset":[0,0],
         "anchor_from":"top_left","anchor_to":"top_left","controls":controls,
         "bindings":[{"binding_name":format!("#card_{card_index}_offset"),"binding_name_override":"#offset"}]})
 }
@@ -198,8 +262,8 @@ pub(in super::super) fn data(hud: &Hud, viewport: [f64; 2]) -> DataSource {
 pub(in super::super) fn dimensions(card: &Card) -> [f64; 2] {
     let header = if card.title.is_empty() { 0. } else { HEADER };
     [
-        WIDTH * f64::from(card.scale),
-        (header + ROW * card.rows.len() as f64 + 4.) * f64::from(card.scale),
+        f64::from(card.width) * f64::from(card.scale),
+        (header + f64::from(card.row_height) * card.rows.len() as f64 + 4.) * f64::from(card.scale),
     ]
 }
 /// Resolves normalized travel or the exact legacy corner offset.

@@ -300,6 +300,11 @@ impl Instance {
         self.store.data().camera_policy.committed
     }
 
+    /// Only a successful, focused gameplay callback publishes a view multiplier.
+    pub(super) fn camera_view_scale(&self) -> Option<[f32; 2]> {
+        self.store.data().camera_policy.committed_view_scale
+    }
+
     pub(super) fn camera_rig(&self) -> Option<GameplayCameraRig> {
         self.store.data().world.rig
     }
@@ -405,6 +410,11 @@ fn commit(store: &mut Store<State>) {
     state.block_highlights.commit();
     state.world.commit();
     state.camera_policy.committed = state.camera_policy.pending && state.snapshot.is_some();
+    state.camera_policy.committed_view_scale = (state.snapshot.is_some()
+        && state.controls.frame.focused
+        && !state.controls.frame.panel_open)
+        .then_some(state.camera_policy.pending_view_scale)
+        .flatten();
     state.item_use_policy.commit(state.snapshot.as_ref());
     state.camera_delta = state.pending_camera.take();
     if let Some(delay) = state.pending_packet_delay.take() {

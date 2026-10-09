@@ -32,6 +32,9 @@ pub const MAX_RIG_VERTICAL_BLOCKS: f32 = 2.0;
 pub const MAX_RIG_BACK_BLOCKS: f32 = 8.0;
 pub const MAX_RIG_ROLL_RADIANS: f32 = 0.6;
 pub const MAX_RIG_FOV_DELTA_DEGREES: f32 = 30.0;
+/// Lower bounds for current-frame FOV and routed look multipliers; their upper bound is 1.
+pub const MIN_VIEW_FOV_SCALE: f32 = 0.1;
+pub const MIN_VIEW_LOOK_SCALE: f32 = 0.05;
 /// Granted command names, their byte bound, and per-frame command requests.
 pub const MAX_COMMAND_GRANTS: usize = 8;
 pub const MAX_COMMAND_BYTES: usize = 128;

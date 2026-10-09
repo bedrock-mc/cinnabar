@@ -309,6 +309,15 @@ cues in the app's `ModCueFeed`; `events.poll` returns last frame's cues, at most
 `MAX_INCOMING_CUES`. `input.read-controls` also reports held keys. All output commits
 only after a successful callback and is dropped on a trap or reload.
 
+`camera.set-view-scale` (camera grant) renews independent FOV and look multipliers
+each callback. FOV accepts `MIN_VIEW_FOV_SCALE..=1` and look accepts
+`MIN_VIEW_LOOK_SCALE..=1`; both must be finite. It applies only to focused,
+input-owned gameplay with no open extension panel. FOV updates in the current
+camera frame; look gain applies on the next look update. Neutral `1/1`, omission,
+focus loss, UI input ownership, traps and unload restore the player's view without
+changing saved FOV, sensitivity or perspective. In a mod set the earliest
+non-neutral publisher wins.
+
 ## Several mods at once
 
 `CINNABAR_MOD_SET=/abs/mods.json` loads up to `mod_api::MAX_LOADED_MODS` components,
@@ -476,9 +485,15 @@ and geometry together. Each row has `label`, `value`, and optional `item`
 `progress` (0–1), and `color` (RGBA 0–1). Item and effect icons are mutually exclusive;
 unknown effect IDs leave the icon empty rather than guessing.
 Item art follows the current session's resource-pack icons and normal item atlas;
-unknown item identities draw no substituted item. Cards are 148 GUI pixels wide,
-and their height is `(22 + 20 * rows) * scale` with a title, or
-`(4 + 20 * rows) * scale` when the title is absent or empty. Background opacity
+unknown item identities draw no substituted item. Optional `row_layout` selects
+`standard` (default, inline text with a left icon), `stacked_text` (label above
+value beside a left icon), or `icon_right` (inline text before a right icon).
+`width`, `row_height`, and `icon_size` use unscaled GUI pixels and default to
+148, 20, and 16. Width is 48–512, row height is 12–64, and icon size is 4–48;
+icons must fit the row height and the width minus 12 pixels of padding.
+Card height is `(22 + row_height * rows) * scale` with a title, or
+`(4 + row_height * rows) * scale` without one. Gameplay rendering and layout
+editor bounds use the same dimensions. Background opacity
 is 0–1 (default 0.82) and affects only the card surface, preserving foreground
 text, icons and progress bars. An optional normalized `position: [x, y]` in
 0–1 overrides corner placement: each axis is a fraction of available travel

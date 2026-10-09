@@ -9,6 +9,9 @@ pub const MAX_HUD_ROWS: usize = 64;
 pub const MAX_CARD_ROWS: usize = 16;
 pub const MAX_TEXT_BYTES: usize = 96;
 pub const MAX_CROSSHAIR_BYTES: usize = 1024;
+pub const DEFAULT_CARD_WIDTH: f32 = 148.;
+pub const DEFAULT_ROW_HEIGHT: f32 = 20.;
+pub const DEFAULT_ICON_SIZE: f32 = 16.;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -18,6 +21,18 @@ pub enum Anchor {
     TopRight,
     BottomLeft,
     BottomRight,
+}
+
+/// Selects a bounded row arrangement without changing its cosmetic data.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RowLayout {
+    #[default]
+    Standard,
+    /// Places an optional icon left of the label and value on separate lines.
+    StackedText,
+    /// Places an optional icon at the right edge, after the inline text.
+    IconRight,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -51,6 +66,17 @@ pub struct Card {
     pub position: Option<[f32; 2]>,
     #[serde(default = "background_opacity")]
     pub background_opacity: f32,
+    #[serde(default)]
+    pub row_layout: RowLayout,
+    /// Unscaled GUI-pixel width, bounded to 48 through 512.
+    #[serde(default = "card_width")]
+    pub width: f32,
+    /// Unscaled GUI-pixel row height, bounded to 12 through 64.
+    #[serde(default = "row_height")]
+    pub row_height: f32,
+    /// Square icon size, bounded to 4 through 48 and to the row's height.
+    #[serde(default = "icon_size")]
+    pub icon_size: f32,
     /// Optional factory placement used only by the host-owned layout editor.
     #[serde(default)]
     pub reset_anchor: Option<Anchor>,
@@ -70,6 +96,10 @@ impl Default for Card {
             scale: unit(),
             position: None,
             background_opacity: background_opacity(),
+            row_layout: RowLayout::default(),
+            width: card_width(),
+            row_height: row_height(),
+            icon_size: icon_size(),
             reset_anchor: None,
             reset_offset: None,
             rows: Vec::new(),
@@ -152,6 +182,18 @@ fn unit() -> f32 {
 fn background_opacity() -> f32 {
     0.82
 }
+/// Keeps omitted dimensions identical to the original host-owned card template.
+fn card_width() -> f32 {
+    DEFAULT_CARD_WIDTH
+}
+/// Preserves the original row spacing for existing extension payloads.
+fn row_height() -> f32 {
+    DEFAULT_ROW_HEIGHT
+}
+/// Preserves the original item and effect icon size for existing payloads.
+fn icon_size() -> f32 {
+    DEFAULT_ICON_SIZE
+}
 fn white() -> [f32; 4] {
     [1.; 4]
 }
@@ -220,6 +262,14 @@ impl Hud {
                 || card.rows.len() > MAX_CARD_ROWS
                 || !card.background_opacity.is_finite()
                 || !(0. ..=1.).contains(&card.background_opacity)
+                || !card.width.is_finite()
+                || !(48. ..=512.).contains(&card.width)
+                || !card.row_height.is_finite()
+                || !(12. ..=64.).contains(&card.row_height)
+                || !card.icon_size.is_finite()
+                || !(4. ..=48.).contains(&card.icon_size)
+                || card.icon_size > card.row_height
+                || card.icon_size > card.width - 12.
                 || card.position.is_some_and(|p| {
                     p.into_iter()
                         .any(|v| !v.is_finite() || !(0. ..=1.).contains(&v))
@@ -312,6 +362,10 @@ mod tests {
         assert!(hud.cards[0].title.is_empty());
         assert_eq!(hud.cards[0].position, None);
         assert_eq!(hud.cards[0].background_opacity, 0.82);
+        assert_eq!(hud.cards[0].row_layout, RowLayout::Standard);
+        assert_eq!(hud.cards[0].width, DEFAULT_CARD_WIDTH);
+        assert_eq!(hud.cards[0].row_height, DEFAULT_ROW_HEIGHT);
+        assert_eq!(hud.cards[0].icon_size, DEFAULT_ICON_SIZE);
         assert!(hud.validate().is_ok());
         for opacity in [0., 0.35, 1.] {
             hud.cards[0].background_opacity = opacity;
@@ -332,6 +386,44 @@ mod tests {
         }
         hud.cards[0].editor_label = "Bad\nlabel".into();
         assert!(hud.validate().is_err());
+    }
+    #[test]
+    fn row_layout_dimensions_are_bounded_and_icons_fit_their_rows() {
+        for layout in ["standard", "stacked_text", "icon_right"] {
+            let mut hud: Hud = serde_json::from_value(serde_json::json!({"cards":[{
+                "id":"fixture","row_layout":layout,"width":64.,
+                "row_height":32.,"icon_size":24.,"rows":[]
+            }]}))
+            .unwrap();
+            assert!(hud.validate().is_ok());
+            for dimensions in [
+                [f32::NAN, 32., 24.],
+                [47., 32., 24.],
+                [513., 32., 24.],
+                [64., f32::INFINITY, 24.],
+                [64., 11., 4.],
+                [64., 65., 24.],
+                [64., 32., f32::NAN],
+                [64., 32., 3.],
+                [64., 64., 49.],
+                [64., 20., 24.],
+                [48., 48., 40.],
+            ] {
+                hud.cards[0].width = dimensions[0];
+                hud.cards[0].row_height = dimensions[1];
+                hud.cards[0].icon_size = dimensions[2];
+                assert!(
+                    hud.validate().is_err(),
+                    "layout={layout}, dimensions={dimensions:?}"
+                );
+            }
+        }
+        assert!(
+            serde_json::from_str::<Hud>(
+                r#"{"cards":[{"id":"fixture","row_layout":"unknown","rows":[]}]}"#
+            )
+            .is_err()
+        );
     }
     #[test]
     fn editor_results_are_bounded_and_cancellation_carries_no_changes() {
