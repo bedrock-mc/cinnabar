@@ -270,3 +270,67 @@ fn supplied_editor_buttons_render_hover_and_captured_press_without_disrupting_au
     assert!(editor.view.hovered.is_none() && editor.view.pressed.is_none());
     assert!(p.take_mod_hud_editor_result().is_none());
 }
+
+#[test]
+fn empty_editor_stays_open_and_closes_without_placements() {
+    let mut p = presentation(false);
+    let mut hud = content();
+    hud.cards.clear();
+    assert!(p.open_mod_hud_editor(&hud).is_err());
+    p.set_mod_panel(Some(&panel())).unwrap();
+    p.set_mod_panel_open(true);
+    p.open_mod_hud_editor(&hud).unwrap();
+    frame(&mut p, &UiRuntime::new(1), [1280, 720], 1.);
+    assert!(p.mod_hud_editor_open());
+    p.mod_panel_key("Escape", None);
+    assert!(!p.mod_hud_editor_open());
+    assert!(
+        p.take_mod_hud_editor_result()
+            .unwrap()
+            .placements
+            .is_empty()
+    );
+}
+
+#[test]
+fn dragging_near_viewport_axes_snaps_and_releases_guides() {
+    for fraction in [0., 0.5, 1.] {
+        let mut p = presentation(false);
+        autosave_editor(&mut p);
+        let at = point(&p, "hud.card:0");
+        p.mod_panel_events(at, true, true);
+        let editor = p.form_presentation.mod_hud_editor.as_ref().unwrap();
+        let origin = cards::origin(&editor.draft.cards[0], editor.viewport);
+        let size = cards::dimensions(&editor.draft.cards[0]);
+        let scale = f64::from(editor.frame.as_ref().unwrap().scale);
+        let destination = std::array::from_fn(|axis| {
+            let target = (editor.viewport[axis] - size[axis]).max(0.) * fraction;
+            (f64::from(at[axis]) + (target + 3. - origin[axis]) * scale) as f32
+        });
+        p.mod_panel_events(destination, false, true);
+        let editor = p.form_presentation.mod_hud_editor.as_ref().unwrap();
+        assert_eq!(editor.draft.cards[0].position, Some([fraction as f32; 2]));
+        assert!(
+            editor
+                .drag
+                .as_ref()
+                .unwrap()
+                .guides
+                .iter()
+                .all(Option::is_some)
+        );
+        p.mod_panel_events(destination, false, false);
+        assert!(
+            p.form_presentation
+                .mod_hud_editor
+                .as_ref()
+                .unwrap()
+                .drag
+                .is_none()
+        );
+        assert_eq!(
+            p.take_mod_hud_editor_result().unwrap().placements[0].position,
+            Some([fraction as f32; 2])
+        );
+    }
+}

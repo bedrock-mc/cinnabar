@@ -22,6 +22,8 @@ use ui::{
 };
 
 const SCREEN: &str = "cinnabar_hud_editor.layout";
+const GUIDE_WIDTH: f64 = 0.75;
+const AXIS_SNAP_DISTANCE: f64 = 6.;
 
 pub(super) struct HudEditor {
     draft: Hud,
@@ -46,8 +48,8 @@ impl UiPresentationRuntime {
     /// Opens bounded previews independently of whether their gameplay cards are enabled.
     pub fn open_mod_hud_editor(&mut self, preview: &Hud) -> Result<(), String> {
         preview.validate()?;
-        if preview.cards.is_empty() || !self.mod_panel_open() {
-            return Err("HUD editor requires preview cards and an open panel".into());
+        if !self.mod_panel_open() {
+            return Err("HUD editor requires an open panel".into());
         }
         self.cancel_mod_panel_edit();
         self.form_presentation.mod_hud_editor = Some(HudEditor {
@@ -227,6 +229,19 @@ impl HudEditor {
     fn data(&self) -> DataSource {
         let mut data = cards::data(&self.draft, self.viewport);
         data.set_global("#grid_visible", Scalar::Bool(self.snap));
+        for axis in 0..2 {
+            let guide = self.drag.as_ref().and_then(|drag| drag.guides[axis]);
+            data.set_global(
+                format!("#guide_{axis}_visible"),
+                Scalar::Bool(guide.is_some()),
+            );
+            let mut at = [0.; 2];
+            at[axis] = guide.unwrap_or(0.);
+            data.set_global(
+                format!("#guide_{axis}_offset"),
+                Scalar::Json(serde_json::json!(at)),
+            );
+        }
         if let Some(surface) = &self.draft.surface {
             super::mod_panel::surface::bind(surface, &mut data);
             super::mod_panel::surface::viewport(&mut data, self.viewport);

@@ -6,6 +6,7 @@ pub(in super::super) struct Drag {
     grab: [f64; 2],
     start: [f64; 2],
     moved: bool,
+    pub(super) guides: [Option<f64>; 2],
 }
 
 impl HudEditor {
@@ -72,7 +73,12 @@ impl HudEditor {
         let size = cards::dimensions(card);
         card.position = Some(std::array::from_fn(|axis| {
             let available = (self.viewport[axis] - size[axis]).max(0.);
-            let at = if self.snap {
+            let at = if self.snap
+                && !self
+                    .drag
+                    .as_ref()
+                    .is_some_and(|drag| drag.guides[axis].is_some())
+            {
                 (at[axis] / 8.).round() * 8.
             } else {
                 at[axis]
@@ -178,6 +184,7 @@ impl HudEditor {
                         grab: std::array::from_fn(|axis| point[axis] - at[axis]),
                         start: point,
                         moved: false,
+                        guides: [None; 2],
                     }
                 });
             self.selected = self.drag.as_ref().map(|drag| drag.index);
@@ -188,7 +195,28 @@ impl HudEditor {
             let at = std::array::from_fn(|axis| point[axis] - drag.grab[axis]);
             let moved = drag.moved;
             if !pressed && moved {
-                self.move_card(index, at);
+                let size = cards::dimensions(&self.draft.cards[index]);
+                let mut aligned = at;
+                for axis in 0..2 {
+                    let available = (self.viewport[axis] - size[axis]).max(0.);
+                    let target = [0., available * 0.5, available]
+                        .into_iter()
+                        .min_by(|a, b| (at[axis] - a).abs().total_cmp(&(at[axis] - b).abs()))
+                        .filter(|target| (at[axis] - target).abs() <= AXIS_SNAP_DISTANCE);
+                    drag.guides[axis] = target.map(|target| {
+                        if target == 0. {
+                            0.
+                        } else if target == available {
+                            self.viewport[axis] - GUIDE_WIDTH
+                        } else {
+                            self.viewport[axis] * 0.5
+                        }
+                    });
+                    if let Some(target) = target {
+                        aligned[axis] = target;
+                    }
+                }
+                self.move_card(index, aligned);
             }
         }
         if !held {

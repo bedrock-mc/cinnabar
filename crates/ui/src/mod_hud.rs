@@ -43,6 +43,9 @@ pub struct Hud {
     /// Editor requests persist completed gestures when explicitly enabled.
     #[serde(default)]
     pub autosave: bool,
+    /// Hides editor labels while preserving native draggable outlines.
+    #[serde(default)]
+    pub hide_editor_labels: bool,
     /// Optional client-authored JSON-UI chrome for a host-owned layout editor.
     #[serde(default)]
     pub surface: Option<crate::mod_panel::Surface>,
