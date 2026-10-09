@@ -65,7 +65,7 @@ interface player-state {
     read-snapshot: func() -> result<option<snapshot>, string>;
     /// Exact content token for the current snapshot, scoped to this component instance.
     /// None outside a current snapshot. Shares the read-snapshot grant and read budget.
-    /// Identical contents can keep the token across callbacks with no available snapshot.
+    /// Contents equal to the last full read reuse its token, even after unimported changes.
     read-revision: func() -> result<option<u64>, string>;
 }
 

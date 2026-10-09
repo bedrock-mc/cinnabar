@@ -94,7 +94,7 @@ fn observed_snapshot() -> PlayerStateSnapshot {
 }
 
 #[test]
-fn equal_current_facts_keep_the_revision_across_callbacks() {
+fn unimported_transient_facts_do_not_invalidate_the_last_full_snapshot_token() {
     let mut state = State::new(
         ModGrants {
             player_state: true,
@@ -107,16 +107,54 @@ fn equal_current_facts_keep_the_revision_across_callbacks() {
         .player_state
         .set_snapshot(Some(facts.clone()))
         .unwrap();
+    assert_eq!(state.read_snapshot().unwrap().unwrap(), Some(facts.clone()));
     let revision = state.read_revision().unwrap().unwrap().unwrap();
     state.player_state.begin_frame();
     assert_eq!(state.read_revision().unwrap().unwrap(), None);
     assert_eq!(state.read_snapshot().unwrap().unwrap(), None);
+
+    let mut transient = facts.clone();
+    transient.inventory[0].item.as_mut().unwrap().count += 1;
+    state
+        .player_state
+        .set_snapshot(Some(transient.clone()))
+        .unwrap();
+    let transient_revision = state.read_revision().unwrap().unwrap().unwrap();
+    assert_ne!(revision, transient_revision);
+    assert_eq!(
+        state.read_revision().unwrap().unwrap(),
+        Some(transient_revision),
+        "the token remains stable throughout its current callback"
+    );
+
+    state.player_state.begin_frame();
     state
         .player_state
         .set_snapshot(Some(facts.clone()))
         .unwrap();
     assert_eq!(state.read_revision().unwrap().unwrap(), Some(revision));
-    assert_eq!(state.read_snapshot().unwrap().unwrap(), Some(facts));
+    assert_eq!(state.read_snapshot().unwrap().unwrap(), Some(facts.clone()));
+
+    state.player_state.begin_frame();
+    state
+        .player_state
+        .set_snapshot(Some(transient.clone()))
+        .unwrap();
+    let imported_revision = state.read_revision().unwrap().unwrap().unwrap();
+    assert_ne!(imported_revision, revision);
+    assert_eq!(
+        state.read_snapshot().unwrap().unwrap(),
+        Some(transient.clone())
+    );
+    state.player_state.begin_frame();
+    state.player_state.set_snapshot(Some(transient)).unwrap();
+    assert_eq!(
+        state.read_revision().unwrap().unwrap(),
+        Some(imported_revision)
+    );
+    state.player_state.begin_frame();
+    state.player_state.set_snapshot(Some(facts)).unwrap();
+    assert_ne!(state.read_revision().unwrap().unwrap().unwrap(), revision);
 }
 
 #[test]
@@ -163,6 +201,7 @@ fn revision_changes_for_exact_identifiers_scalars_ticks_and_session_owners() {
             .player_state
             .set_snapshot(Some(facts.clone()))
             .unwrap();
+        assert_eq!(state.read_snapshot().unwrap().unwrap(), Some(facts.clone()));
         let before = state.read_revision().unwrap().unwrap().unwrap();
         change(&mut facts);
         assert!(validate(Some(&facts)).is_ok());
@@ -186,6 +225,7 @@ fn unavailable_facts_hide_reads_and_equal_contents_keep_the_token_until_revocati
         String::new(),
     );
     state.player_state.set_snapshot(Some(snapshot())).unwrap();
+    assert_eq!(state.read_snapshot().unwrap().unwrap(), Some(snapshot()));
     let first = state.read_revision().unwrap().unwrap().unwrap();
     for _ in 0..2 {
         state.player_state.begin_frame();
@@ -210,11 +250,15 @@ fn unavailable_facts_hide_reads_and_equal_contents_keep_the_token_until_revocati
         .unwrap();
     let changed_revision = state.read_revision().unwrap().unwrap().unwrap();
     assert_ne!(first, changed_revision);
+    assert_eq!(
+        state.read_snapshot().unwrap().unwrap(),
+        Some(changed.clone())
+    );
 
     state.player_state.revoke();
     assert_eq!(state.read_snapshot().unwrap().unwrap(), None);
     assert_eq!(state.read_revision().unwrap().unwrap(), None);
-    assert!(state.player_state.previous_snapshot.is_none());
+    assert!(state.player_state.comparison_snapshot.is_none());
     state.player_state.set_snapshot(Some(changed)).unwrap();
     assert_ne!(
         state.read_revision().unwrap().unwrap().unwrap(),
@@ -224,13 +268,22 @@ fn unavailable_facts_hide_reads_and_equal_contents_keep_the_token_until_revocati
 
 #[test]
 fn revision_exhaustion_releases_facts_instead_of_reusing_an_old_token() {
-    let mut facts = PlayerState::default();
-    facts.set_snapshot(Some(snapshot())).unwrap();
-    facts.revision = u64::MAX;
+    let mut state = State::new(
+        ModGrants {
+            player_state: true,
+            ..Default::default()
+        },
+        String::new(),
+    );
+    state.player_state.set_snapshot(Some(snapshot())).unwrap();
+    assert_eq!(state.read_snapshot().unwrap().unwrap(), Some(snapshot()));
+    state.player_state.revision = u64::MAX;
     let mut changed = snapshot();
     changed.session += 1;
-    assert!(facts.set_snapshot(Some(changed)).is_err());
-    assert!(facts.snapshot.is_none() && facts.previous_snapshot.is_none());
+    assert!(state.player_state.set_snapshot(Some(changed)).is_err());
+    assert!(state.player_state.snapshot.is_none());
+    assert!(state.player_state.current_revision.is_none());
+    assert!(state.player_state.comparison_snapshot.is_none());
 }
 
 #[test]

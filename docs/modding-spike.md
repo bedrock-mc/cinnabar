@@ -111,11 +111,13 @@ tokens within one component instance mean every snapshot field is unchanged,
 including identifiers, session, dimension, exact effect ticks and flags. A guest
 may compare the token before importing the full snapshot and must release cached
 facts when it observes `none`. Tokens do not survive reloads. The host retains one
-exact comparison snapshot across unavailable callbacks; identical contents can
-keep the token when they reappear, while any changed field advances it. Comparison
-facts are never exposed without a current snapshot and are cleared on validation
-failure, revocation or callback failure. The counter rejects theoretical
-exhaustion instead of wrapping.
+exact comparison snapshot only when the guest imports it with `read-snapshot`.
+Current contents equal to that full read reuse its token, including after
+unavailable callbacks or unimported transient changes. Other contents receive a
+fresh token; returned tokens are opaque and need not increase. Comparison facts
+are never exposed without a current snapshot and are cleared on validation
+failure, revocation or callback failure. The allocation counter rejects
+theoretical exhaustion instead of wrapping.
 Current snapshots are cleared before and after callbacks and on quarantine; a reload
 starts without previous session data. This experimental API closes no vanilla
 parity or native acceptance gate.
