@@ -499,6 +499,7 @@ impl MenuRuntime {
             return;
         }
         if self.disconnect_message.is_some()
+            && !self.is_connecting()
             && matches!(action, MenuAction::DismissDialog | MenuAction::AddBack)
         {
             self.dismiss_disconnect();
@@ -870,6 +871,7 @@ impl MenuRuntime {
             auth_cache,
             local_world: false,
         });
+        self.disconnect_message = None;
         self.show_connecting();
     }
 }

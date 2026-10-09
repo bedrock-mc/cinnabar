@@ -51,7 +51,6 @@ impl MenuRuntime {
         }
         let address = self.retry_target.as_ref().unwrap().address.clone();
         self.request_connect(address);
-        self.disconnect_message = None;
         self.focused = 0;
         self.hovered = None;
     }

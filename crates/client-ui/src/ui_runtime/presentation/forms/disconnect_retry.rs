@@ -6,6 +6,7 @@ pub(super) fn install(catalog: &mut json_ui::Catalog) {
     let route = serde_json::json!({
         "namespace": "disconnect",
         "disconnect_screen": {
+            "$cinnabar_reconnect|default": false,
             "variables": [{
                 "requires": "$cinnabar_reconnect",
                 "$button_layout": BUTTON_LAYOUT
@@ -30,7 +31,7 @@ const LAYOUT: &str = r##"{
         "$pressed_button_name": "button.cinnabar_reconnect",
         "$button_text": "$cinnabar_reconnect_text"
       }},
-      {"gap": {"type": "panel", "size": [128, 4]}},
+      {"gap": {"type": "panel", "size": ["100%", 4]}},
       {"dismiss@disconnect.ok_button": {}}
     ]
   }
@@ -87,5 +88,44 @@ mod tests {
             let texts = super::super::pack_harness::drawn_texts(&nodes);
             assert!(texts.iter().any(|text| text == "Reconnect"), "{texts:?}");
         }
+    }
+
+    #[test]
+    fn a_disconnect_without_a_retry_target_keeps_only_the_acknowledgement() {
+        let Some(mut presentation) = super::super::pack_harness::engine_presentation() else {
+            eprintln!(
+                "skipping a_disconnect_without_a_retry_target_keeps_only_the_acknowledgement: missing local UI carrier (make assets)"
+            );
+            return;
+        };
+        let mut view = MenuView::new(true, "Player".into());
+        view.disconnect_message = Some("network session failed: closed".into());
+        view.focused_action = Some(MenuAction::DismissDialog);
+        presentation.set_menu_view(Some(view));
+        let metrics = super::super::super::TextMetrics::for_viewport(
+            [1280, 720],
+            DpiScale::new(1.0).unwrap(),
+            None,
+        );
+        let mut nodes = Vec::new();
+        let hits = presentation
+            .append_menu(
+                &UiRuntime::new(1),
+                &mut nodes,
+                &mut 1,
+                metrics,
+                1280.0,
+                720.0,
+            )
+            .unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].0, MenuAction::DismissDialog);
+        let texts = super::super::pack_harness::drawn_texts(&nodes);
+        assert!(
+            !texts
+                .iter()
+                .any(|text| text.contains("Reconnect") || text.contains("cinnabar_reconnect")),
+            "{texts:?}"
+        );
     }
 }
