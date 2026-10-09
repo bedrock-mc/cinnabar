@@ -49,7 +49,7 @@ impl MenuRuntime {
             return false;
         }
         let auth = self.current_auth();
-        matches!(auth.as_ref(), super::super::AuthState::AwaitingCode { .. })
+        auth.as_ref().awaiting_browser()
             || (self.sign_in_requested
                 && matches!(
                     auth.as_ref(),

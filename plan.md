@@ -3011,7 +3011,9 @@ Current implementation state:
   passive retention, not effective permissions, Survival admission, or a mining
   sender; end-to-end handshake and native permission acceptance remain open.
 - Supervised first-run device-code authentication and cached-account validation have landed;
-  token bytes remain Go-owned. A cached-account authenticated Lifeboat join is evidenced; native
+  token bytes remain Go-owned. Accounts without an Xbox profile can open Microsoft's hosted
+  signup and resume sign-in with the same Microsoft login. Live Xbox account creation acceptance
+  remains open. A cached-account authenticated Lifeboat join is evidenced; native
   first-run/device-code UX acceptance remains open. Bounded named PlaySound, StopSound, and LevelSoundEvent ingress now reaches
   an app same-frame delivery seam; a bounded session-owned outcome queue resolves named plays through the
   optional compiled sound-definition catalog into finite-checked playback records (stops catalog-free,

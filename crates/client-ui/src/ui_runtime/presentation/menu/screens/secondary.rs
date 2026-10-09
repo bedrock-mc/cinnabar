@@ -73,6 +73,7 @@ pub(super) fn profile(
         AuthState::SignedOut => ("Not signed in", MUTED),
         AuthState::Checking => ("Checking saved account…", MUTED),
         AuthState::AwaitingCode { .. } => ("Waiting for Microsoft sign-in", MUTED),
+        AuthState::AwaitingXboxSignup { .. } => ("Waiting for Xbox profile setup", MUTED),
         AuthState::Authenticated => ("Microsoft account connected", SUCCESS),
         AuthState::Failed(message) => (message.as_str(), DANGER),
     };
@@ -101,13 +102,15 @@ pub(super) fn profile(
         status_color,
     )?;
     let action = match view.auth_state {
-        AuthState::AwaitingCode { .. } => MenuAction::OpenSignInLink,
+        AuthState::AwaitingCode { .. } | AuthState::AwaitingXboxSignup { .. } => {
+            MenuAction::OpenSignInLink
+        }
         AuthState::Checking => MenuAction::CancelSignIn,
         _ => MenuAction::StartSignIn,
     };
     let label = match &view.auth_state {
         AuthState::Checking => "Cancel account check",
-        AuthState::AwaitingCode { .. } => "Open link",
+        AuthState::AwaitingCode { .. } | AuthState::AwaitingXboxSignup { .. } => "Open link",
         AuthState::Authenticated => "Check account again",
         AuthState::Failed(_) => "Try sign-in again",
         AuthState::SignedOut => "Sign in with Microsoft",
@@ -130,7 +133,7 @@ pub(super) fn profile(
         CONTROL_HEIGHT,
         SafeArea::ZERO,
     )?;
-    if view.auth_state_awaiting_code() {
+    if view.auth_state_awaiting_browser() {
         button(
             view,
             nodes,
@@ -166,7 +169,7 @@ pub(super) fn profile(
             TEXT,
         )?;
     }
-    if !view.auth_state_awaiting_code() {
+    if !view.auth_state_awaiting_browser() {
         text(
             nodes,
             next_id,

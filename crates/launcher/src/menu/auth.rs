@@ -5,8 +5,19 @@ pub enum AuthState {
     SignedOut,
     Checking,
     AwaitingCode { uri: String, code: String },
+    AwaitingXboxSignup { uri: String },
     Authenticated,
     Failed(String),
+}
+
+impl AuthState {
+    /// Whether Microsoft sign-in or Xbox profile creation is waiting on the browser.
+    pub fn awaiting_browser(&self) -> bool {
+        matches!(
+            self,
+            Self::AwaitingCode { .. } | Self::AwaitingXboxSignup { .. }
+        )
+    }
 }
 
 /// An active helper owns its prompt; the launcher core owns completed account status.
@@ -19,6 +30,7 @@ pub fn select_auth<'a>(
             Some(
                 state @ (AuthState::Checking
                 | AuthState::AwaitingCode { .. }
+                | AuthState::AwaitingXboxSignup { .. }
                 | AuthState::Failed(_)),
             ),
             _,
@@ -39,6 +51,9 @@ mod tests {
             AuthState::AwaitingCode {
                 uri: "https://example.invalid".into(),
                 code: "TEST-CODE".into(),
+            },
+            AuthState::AwaitingXboxSignup {
+                uri: "https://sisu.xboxlive.com/signup".into(),
             },
             AuthState::Failed("Try again.".into()),
         ] {

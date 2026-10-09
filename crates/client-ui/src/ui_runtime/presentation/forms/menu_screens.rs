@@ -413,7 +413,7 @@ fn start_screen(view: &MenuView, data: &mut DataSource, translate: Translate<'_>
             );
         }
         AuthState::Authenticated => flags(data, &["#gamertag_pic_and_label_visible"]),
-        AuthState::AwaitingCode { .. } => {}
+        AuthState::AwaitingCode { .. } | AuthState::AwaitingXboxSignup { .. } => {}
     }
 }
 
@@ -829,8 +829,8 @@ pub(super) fn action_for(view: &MenuView, region: &HitRegion) -> Option<MenuActi
         }
         // The join progress screen's cancel; the menu drops it where vanilla cannot cancel.
         "button.menu_exit" if view.connecting => MenuAction::AddBack,
-        "button.menu_cancel" if view.auth_state_awaiting_code() => MenuAction::CancelSignIn,
-        "button.menu_exit" if view.auth_state_awaiting_code() => MenuAction::CancelSignIn,
+        "button.menu_cancel" if view.auth_state_awaiting_browser() => MenuAction::CancelSignIn,
+        "button.menu_exit" if view.auth_state_awaiting_browser() => MenuAction::CancelSignIn,
         "button.menu_exit" => match view.screen {
             MenuScreen::Home => MenuAction::OpenExitDialog,
             _ => MenuAction::AddBack,

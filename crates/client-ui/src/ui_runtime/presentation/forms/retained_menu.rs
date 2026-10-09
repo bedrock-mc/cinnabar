@@ -33,7 +33,7 @@ impl UiPresentationRuntime {
             && !view.connecting
             && view.local.progress.is_none()
             && view.disconnect_message.is_none()
-            && !matches!(view.auth_state, AuthState::AwaitingCode { .. })
+            && !view.auth_state.awaiting_browser()
             && !(view.screen == MenuScreen::Home
                 && view
                     .feeds
