@@ -3,6 +3,8 @@ use crate::gpu_snapshot::{Draw, Gpu, RasterState, SNAPSHOT_SIDE};
 use bevy::math::{Mat4, Vec3};
 use wgpu::util::DeviceExt;
 
+#[path = "grid_tests.rs"]
+mod grid_tests;
 #[path = "minification_tests.rs"]
 mod minification_tests;
 

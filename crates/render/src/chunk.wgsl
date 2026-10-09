@@ -465,15 +465,24 @@ fn fragment(in: VertexOutput, @builtin(front_facing) front: bool) -> @location(0
 }
 
 #ifdef ALPHA_TO_COVERAGE
-// Coverage reads the same page and layer as the nearest RGB texture sample.
+// Coverage shares color addressing and gradients for the source image on the selected page.
 fn cube_alpha_footprint(texture_ref: u32, uv: vec2<f32>, dx: vec2<f32>, dy: vec2<f32>, sampled: vec4<f32>, flags: u32) -> CutoutSample {
     let layer = i32(texture_ref & 0x7ffu);
+    let coordinate = texture_cube_uv(texture_ref, uv);
 #ifdef ENHANCED
-    if ((texture_ref >> 31u) == 0u) { return cutout_alpha_array(block_textures_page_0, uv, layer, dx, dy, sampled, true, TERRAIN_ALPHA_THRESHOLD); }
-    return cutout_alpha_array(block_textures_page_1, uv, layer, dx, dy, sampled, true, TERRAIN_ALPHA_THRESHOLD);
+    if ((texture_ref >> 31u) == 0u) {
+        let scale = texture_gradient_scale(texture_ref, textureDimensions(block_textures_page_0, 0));
+        return cutout_alpha_array(block_textures_page_0, coordinate, layer, dx * scale, dy * scale, sampled, true, TERRAIN_ALPHA_THRESHOLD);
+    }
+    let scale = texture_gradient_scale(texture_ref, textureDimensions(block_textures_page_1, 0));
+    return cutout_alpha_array(block_textures_page_1, coordinate, layer, dx * scale, dy * scale, sampled, true, TERRAIN_ALPHA_THRESHOLD);
 #else
-    if ((texture_ref >> 31u) == 0u) { return cutout_alpha_array(native_leaf_textures_page_0, uv, layer, dx, dy, sampled, !material_uses_native_leaf_colour(flags), TERRAIN_ALPHA_THRESHOLD); }
-    return cutout_alpha_array(native_leaf_textures_page_1, uv, layer, dx, dy, sampled, !material_uses_native_leaf_colour(flags), TERRAIN_ALPHA_THRESHOLD);
+    if ((texture_ref >> 31u) == 0u) {
+        let scale = texture_gradient_scale(texture_ref, textureDimensions(native_leaf_textures_page_0, 0));
+        return cutout_alpha_array(native_leaf_textures_page_0, coordinate, layer, dx * scale, dy * scale, sampled, !material_uses_native_leaf_colour(flags), TERRAIN_ALPHA_THRESHOLD);
+    }
+    let scale = texture_gradient_scale(texture_ref, textureDimensions(native_leaf_textures_page_1, 0));
+    return cutout_alpha_array(native_leaf_textures_page_1, coordinate, layer, dx * scale, dy * scale, sampled, !material_uses_native_leaf_colour(flags), TERRAIN_ALPHA_THRESHOLD);
 #endif
 }
 #endif

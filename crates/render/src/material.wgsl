@@ -75,6 +75,11 @@ fn texture_uv_scale(reference: u32) -> f32 {
     return exp2(-f32((width >> GPU_TEXTURE_GRID_SHIFT) & TERRAIN_QUAD_SHIFT_MASK));
 }
 
+// Models scale their authored UV rectangle without repeating greedy cube coordinates.
+fn texture_model_uv(reference: u32, uv: vec2<f32>) -> vec2<f32> {
+    return uv * texture_uv_scale(reference);
+}
+
 // Greedy cube faces repeat each exposed rectangle across individual blocks.
 fn texture_cube_uv(reference: u32, uv: vec2<f32>) -> vec2<f32> {
     let scale = texture_uv_scale(reference);

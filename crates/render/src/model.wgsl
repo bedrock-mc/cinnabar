@@ -1,4 +1,4 @@
-#import cinnabar::material::{MaterialGpu, materials, positional_material, material_uv_flags, texture_uv_scale, texture_gradient_scale}
+#import cinnabar::material::{MaterialGpu, materials, positional_material, material_uv_flags, texture_model_uv, texture_gradient_scale}
 #ifdef ENHANCED_SHADOW
 #import cinnabar::enhanced_caster::caster_clip
 #endif
@@ -361,17 +361,17 @@ fn sample_ref(texture_ref: u32, uv: vec2<f32>, dx: vec2<f32>, dy: vec2<f32>) -> 
 #ifdef ENHANCED
     if ((texture_ref >> 31u) == 0u) {
         let scale = texture_gradient_scale(texture_ref, textureDimensions(block_textures_page_0, 0));
-        return textureSampleGrad(block_textures_page_0, model_sampler, uv * texture_uv_scale(texture_ref), layer, dx * scale, dy * scale);
+        return textureSampleGrad(block_textures_page_0, model_sampler, texture_model_uv(texture_ref, uv), layer, dx * scale, dy * scale);
     }
     let scale = texture_gradient_scale(texture_ref, textureDimensions(block_textures_page_1, 0));
-    return textureSampleGrad(block_textures_page_1, model_sampler, uv * texture_uv_scale(texture_ref), layer, dx * scale, dy * scale);
+    return textureSampleGrad(block_textures_page_1, model_sampler, texture_model_uv(texture_ref, uv), layer, dx * scale, dy * scale);
 #else
     if ((texture_ref >> 31u) == 0u) {
         let scale = texture_gradient_scale(texture_ref, textureDimensions(terrain_gamma_page_0, 0));
-        return textureSampleGrad(terrain_gamma_page_0, model_sampler, uv * texture_uv_scale(texture_ref), layer, dx * scale, dy * scale);
+        return textureSampleGrad(terrain_gamma_page_0, model_sampler, texture_model_uv(texture_ref, uv), layer, dx * scale, dy * scale);
     }
     let scale = texture_gradient_scale(texture_ref, textureDimensions(terrain_gamma_page_1, 0));
-    return textureSampleGrad(terrain_gamma_page_1, model_sampler, uv * texture_uv_scale(texture_ref), layer, dx * scale, dy * scale);
+    return textureSampleGrad(terrain_gamma_page_1, model_sampler, texture_model_uv(texture_ref, uv), layer, dx * scale, dy * scale);
 #endif
 }
 
@@ -384,30 +384,39 @@ fn sample_model_ref(in: VertexOutput, texture_ref: u32, dx: vec2<f32>, dy: vec2<
 #ifdef ENHANCED
     if ((texture_ref >> 31u) == 0u) {
         let scale = texture_gradient_scale(texture_ref, textureDimensions(block_textures_page_0, 0));
-        return textureSampleGrad(block_textures_page_0, block_sampler, in.uv * texture_uv_scale(texture_ref), layer, dx * scale, dy * scale);
+        return textureSampleGrad(block_textures_page_0, block_sampler, texture_model_uv(texture_ref, in.uv), layer, dx * scale, dy * scale);
     }
     let scale = texture_gradient_scale(texture_ref, textureDimensions(block_textures_page_1, 0));
-    return textureSampleGrad(block_textures_page_1, block_sampler, in.uv * texture_uv_scale(texture_ref), layer, dx * scale, dy * scale);
+    return textureSampleGrad(block_textures_page_1, block_sampler, texture_model_uv(texture_ref, in.uv), layer, dx * scale, dy * scale);
 #else
     if ((texture_ref >> 31u) == 0u) {
         let scale = texture_gradient_scale(texture_ref, textureDimensions(terrain_gamma_page_0, 0));
-        return textureSampleGrad(terrain_gamma_page_0, block_sampler, in.uv * texture_uv_scale(texture_ref), layer, dx * scale, dy * scale);
+        return textureSampleGrad(terrain_gamma_page_0, block_sampler, texture_model_uv(texture_ref, in.uv), layer, dx * scale, dy * scale);
     }
     let scale = texture_gradient_scale(texture_ref, textureDimensions(terrain_gamma_page_1, 0));
-    return textureSampleGrad(terrain_gamma_page_1, block_sampler, in.uv * texture_uv_scale(texture_ref), layer, dx * scale, dy * scale);
+    return textureSampleGrad(terrain_gamma_page_1, block_sampler, texture_model_uv(texture_ref, in.uv), layer, dx * scale, dy * scale);
 #endif
 }
 
 #ifdef ALPHA_TO_COVERAGE
-// Coverage follows the world model's authored page and layer, independently of RGB filtering.
+// Coverage shares the authored UV rectangle and gradients for the source image with color.
 fn model_alpha_footprint(texture_ref: u32, uv: vec2<f32>, dx: vec2<f32>, dy: vec2<f32>, sampled: vec4<f32>) -> CutoutSample {
     let layer = i32(texture_ref & 0x7ffu);
+    let coordinate = texture_model_uv(texture_ref, uv);
 #ifdef ENHANCED
-    if ((texture_ref >> 31u) == 0u) { return cutout_alpha_array(block_textures_page_0, uv, layer, dx, dy, sampled, true, MODEL_ALPHA_THRESHOLD); }
-    return cutout_alpha_array(block_textures_page_1, uv, layer, dx, dy, sampled, true, MODEL_ALPHA_THRESHOLD);
+    if ((texture_ref >> 31u) == 0u) {
+        let scale = texture_gradient_scale(texture_ref, textureDimensions(block_textures_page_0, 0));
+        return cutout_alpha_array(block_textures_page_0, coordinate, layer, dx * scale, dy * scale, sampled, true, MODEL_ALPHA_THRESHOLD);
+    }
+    let scale = texture_gradient_scale(texture_ref, textureDimensions(block_textures_page_1, 0));
+    return cutout_alpha_array(block_textures_page_1, coordinate, layer, dx * scale, dy * scale, sampled, true, MODEL_ALPHA_THRESHOLD);
 #else
-    if ((texture_ref >> 31u) == 0u) { return cutout_alpha_array(terrain_gamma_page_0, uv, layer, dx, dy, sampled, true, MODEL_ALPHA_THRESHOLD); }
-    return cutout_alpha_array(terrain_gamma_page_1, uv, layer, dx, dy, sampled, true, MODEL_ALPHA_THRESHOLD);
+    if ((texture_ref >> 31u) == 0u) {
+        let scale = texture_gradient_scale(texture_ref, textureDimensions(terrain_gamma_page_0, 0));
+        return cutout_alpha_array(terrain_gamma_page_0, coordinate, layer, dx * scale, dy * scale, sampled, true, MODEL_ALPHA_THRESHOLD);
+    }
+    let scale = texture_gradient_scale(texture_ref, textureDimensions(terrain_gamma_page_1, 0));
+    return cutout_alpha_array(terrain_gamma_page_1, coordinate, layer, dx * scale, dy * scale, sampled, true, MODEL_ALPHA_THRESHOLD);
 #endif
 }
 #endif

@@ -111,11 +111,6 @@ pub fn standalone(source: &str, definitions: &[&str]) -> String {
     )
 }
 
-/// Inline imports after the production constructor has resolved its constants.
-pub fn standalone_prepared(source: &str) -> String {
-    imports(source, &mut BTreeSet::new())
-}
-
 /// Expand multiline imports recursively while retaining all selected module symbols.
 fn imports(source: &str, seen: &mut BTreeSet<String>) -> String {
     let mut output = String::new();
