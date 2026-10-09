@@ -54,9 +54,6 @@ pub(super) fn open_editor(state: &mut State, json: String) -> Result<Result<(), 
     if let Err(error) = preview.validate() {
         return Ok(Err(error));
     }
-    if preview.cards.is_empty() {
-        return Ok(Err("HUD editor requires preview cards".into()));
-    }
     state.hud.pending_editor = Some(preview);
     Ok(Ok(()))
 }
@@ -190,6 +187,13 @@ mod tests {
             state.hud.editor_request.as_ref().unwrap().cards[0].id,
             "equipment"
         );
+        assert!(
+            open_editor(&mut state, r#"{"cards":[]}"#.into())
+                .unwrap()
+                .is_ok()
+        );
+        state.hud.commit();
+        assert!(state.hud.editor_request.as_ref().unwrap().cards.is_empty());
     }
     #[test]
     fn editor_result_is_stable_during_callback_and_consumed_after_commit() {

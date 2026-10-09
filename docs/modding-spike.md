@@ -546,6 +546,10 @@ With both `hud` and `controls` grants, `hud.open-editor(json)` opens a native
 JSON-UI layout editor from the current focused personal panel. The request is
 bounded HUD preview data and can include cards disabled during gameplay.
 `editor_label` names a preview independently of its optional gameplay title.
+Set `hide_editor_labels: true` on the editor request to hide those labels while
+keeping draggable outlines. An empty card list can still open the editor and
+its optional extension surface. While dragging, cards snap within six GUI pixels
+of the screen edges or center; a temporary guide shows the aligned axis.
 Optional `reset_anchor` and `reset_offset` supply factory placement without
 changing the current preview. These fields affect only the layout editor.
 
