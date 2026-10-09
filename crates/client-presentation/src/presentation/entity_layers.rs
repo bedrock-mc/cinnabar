@@ -7,7 +7,7 @@ use client_world::ActorRigSnapshot;
 use client_world::{BoneTransform, RenderTextureLayer};
 use render::{
     ACTOR_LAYER_BODY, ActorArtworkLocation, ActorArtworkPages, ActorRigSubmission,
-    pack_overlay_rgba8,
+    pack_actor_light_without_lightmap, pack_overlay_rgba8,
 };
 use render_model::{EntityRigId, RenderBoneTransform, layer_geometry_rig_id};
 
@@ -242,7 +242,7 @@ fn layered(
     submission.tint = layer.tint;
     submission.uv_anim = layer.uv_anim;
     if layer.ignore_lighting {
-        submission.light = 0;
+        submission.light = pack_actor_light_without_lightmap();
     }
     if let Some(overlay) = layer.overlay
         && !matches!(

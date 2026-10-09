@@ -17,6 +17,48 @@ fn center(frame: &[u8]) -> &[u8] {
 }
 
 #[test]
+fn actor_ignoring_lightmap_keeps_directional_shading_and_authored_multiplier() {
+    let Some(gpu) = gpu_snapshot::Gpu::for_fixture(
+        "actor_ignoring_lightmap_keeps_directional_shading_and_authored_multiplier",
+    ) else {
+        return;
+    };
+    let material = crate::ActorMaterial {
+        state: Some(EntityRenderMaterialState {
+            disable_overlay: true,
+            ..Default::default()
+        }),
+        light_color_multiplier: 0.5,
+        ..Default::default()
+    };
+    for normal in [[0.0, 1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]] {
+        let mut plane = actor_raster::cube([16, 0, 16], true, false);
+        for vertex in &mut plane {
+            vertex.normal = normal;
+        }
+        let frame = actor_raster::raster_material_with_overlay(
+            &gpu,
+            &plane,
+            material,
+            false,
+            [[200, 120, 40, 255]; 2],
+            false,
+            true,
+            crate::pack_actor_light_without_lightmap(),
+            crate::pack_overlay_rgba8([1.0; 4]),
+        );
+        let shade = crate::fancy_actor_shade(normal, 0.0);
+        for (actual, source) in center(&frame)[..3].iter().zip([200, 120, 40]) {
+            let expected = (source as f32 * 0.5 * shade).round() as i32;
+            assert!(
+                (i32::from(*actual) - expected).abs() <= 1,
+                "ignoring the lightmap preserves face shading: {normal:?}, {actual} != {expected}"
+            );
+        }
+    }
+}
+
+#[test]
 fn additive_actor_without_overlay_keeps_authored_rgb_and_light_multiplier() {
     let Some(gpu) = gpu_snapshot::Gpu::for_fixture(
         "additive_actor_without_overlay_keeps_authored_rgb_and_light_multiplier",
@@ -37,7 +79,11 @@ fn additive_actor_without_overlay_keeps_authored_rgb_and_light_multiplier() {
             light_color_multiplier: 0.5,
             ..Default::default()
         };
-        for light in [0, crate::pack_actor_light(15, 15)] {
+        for light in [
+            0,
+            crate::pack_actor_light(15, 15),
+            crate::pack_actor_light_without_lightmap(),
+        ] {
             let clear = actor_raster::raster_material_with_overlay(
                 &gpu,
                 &plane,

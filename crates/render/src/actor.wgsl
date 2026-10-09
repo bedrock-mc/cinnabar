@@ -265,7 +265,7 @@ fn actor_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @l
         let second_uv = vec2(0.17364818 * centered_uv.x - 0.9848077 * centered_uv.y, 0.9848077 * centered_uv.x + 0.17364818 * centered_uv.y) + vec2(offsets.y + 0.5, 0.5);
         let first = tint_to_gamma(textureSampleLevel(actor_glint, glint_sampler, first_uv, 0.0)).rgb;
         let second = tint_to_gamma(textureSampleLevel(actor_glint, glint_sampler, second_uv, 0.0)).rgb;
-        let foil_light = select(vec3(1.0), actor_light_colour(input.light), (input.light & 0x80000000u) != 0u);
+        let foil_light = select(vec3(1.0), actor_light_colour(input.light), (input.light & ACTOR_LIGHT_WORLD_FLAG) != 0u);
         let foil = (first + second) * vec3(0.38, 0.19, 0.608) * strength * foil_light;
         lit_gamma += foil * foil;
     }

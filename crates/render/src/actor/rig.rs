@@ -93,7 +93,7 @@ pub struct ActorRigSubmission {
     pub overlay_rgba8: u32,
     /// Render-controller `uv_anim` `[offset u, offset v, scale u, scale v]`.
     pub uv_anim: [f32; 4],
-    /// World light from [`pack_actor_light`]; 0 draws unlit, as `ignore_lighting` asks.
+    /// World light or white illumination with face shading; 0 draws without shading.
     pub light: u32,
 }
 
@@ -124,7 +124,13 @@ impl Default for ActorMaterial {
 /// Packs independent block/sky nibbles and the lit-material bit; time belongs to the shared table.
 #[must_use]
 pub fn pack_actor_light(block: u8, sky: u8) -> u32 {
-    0x8000_0000 | (u32::from(sky.min(15)) << 4) | u32::from(block.min(15))
+    render_api::ACTOR_LIGHT_WORLD | (u32::from(sky.min(15)) << 4) | u32::from(block.min(15))
+}
+
+/// Keeps directional face shading while a controller ignores environment lighting.
+#[must_use]
+pub fn pack_actor_light_without_lightmap() -> u32 {
+    render_api::ACTOR_LIGHT_DIRECTIONAL
 }
 
 /// The `uv_anim` of a draw without one.
