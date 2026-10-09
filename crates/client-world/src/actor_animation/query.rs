@@ -4,6 +4,9 @@ mod potion;
 mod wolf;
 
 #[cfg(test)]
+mod player_tests;
+
+#[cfg(test)]
 mod fish_tests;
 #[cfg(test)]
 mod pack_query_tests;
@@ -322,6 +325,24 @@ fn number(evaluator: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) ->
         return *idle;
     }
     match name {
+        "approx_eq" => {
+            let Some((first, rest)) = arguments.split_first().filter(|(_, rest)| !rest.is_empty())
+            else {
+                return 0.0;
+            };
+            truth(
+                rest.iter()
+                    .all(|argument| first.number() == argument.number()),
+            )
+        }
+        "is_local_player" => truth(context.is_local_player),
+        "is_on_fire" => truth(actor.is_on_fire()),
+        "has_armor_slot" => truth(
+            arguments.len() == 1
+                && argument(0).is_some_and(|slot| {
+                    (0.0..4.0).contains(&slot) && worn_armor(context, slot).is_some()
+                }),
+        ),
         "frame_alpha" => context.frame_alpha,
         "anim_time" => evaluator.anim_tick as f32 * ACTOR_TICK_DURATION.as_secs_f32(),
         "life_time" => {
