@@ -50,6 +50,41 @@ fn start() -> BlockCrackAction {
     }
 }
 
+/// A stationary start must remain available for a later speed update.
+#[test]
+fn block_crack_zero_start_can_advance_pause_and_resume() {
+    let mut stream = fixture();
+    let position = [0, -64, 0];
+    crack(
+        &mut stream,
+        2,
+        position,
+        BlockCrackAction::Start {
+            progress_per_tick: 0,
+        },
+    );
+    let started = stream.block_crack_snapshot();
+    assert_eq!(started.entries.len(), 1);
+    assert_eq!(started.entries[0].server_value, 0);
+    for (sequence, rate) in [(3, 1_092), (4, 0), (5, 2_184)] {
+        crack(
+            &mut stream,
+            sequence,
+            position,
+            BlockCrackAction::UpdateSpeed {
+                progress_per_tick: rate,
+            },
+        );
+        let snapshot = stream.block_crack_snapshot();
+        assert_eq!(snapshot.entries[0].start_sequence, 2);
+        assert_eq!(snapshot.entries[0].server_value, rate);
+        assert_eq!(snapshot.status.orphan_updates, 0);
+        assert_eq!(snapshot.status.unsupported_values, 0);
+    }
+    crack(&mut stream, 6, position, BlockCrackAction::Stop);
+    assert!(stream.block_crack_snapshot().entries.is_empty());
+}
+
 fn update(stream: &mut WorldStream, sequence: u64, position: [i32; 3], network_id: u32) {
     stream
         .submit(
@@ -156,7 +191,18 @@ fn block_crack_capacity_retirement_then_new_start_has_one_admission_authority() 
     );
     let status = stream.block_crack_snapshot().status;
     assert_eq!(status.orphan_updates, 1);
-    assert_eq!(status.unsupported_values, 1);
+    assert_eq!(status.unsupported_values, 0);
+    assert_eq!(status.active, MAX_ACTIVE_BLOCK_CRACKS - 1);
+    assert_eq!(
+        stream
+            .block_crack_snapshot()
+            .entries
+            .iter()
+            .find(|entry| entry.position == new_position)
+            .unwrap()
+            .server_value,
+        0
+    );
     assert!(stream.take_fatal_error().is_none());
 }
 

@@ -113,18 +113,6 @@ impl WorldStream {
                     }
                 }
             }
-            client_world::ingestion::BlockCrackAction::Start {
-                progress_per_tick: 0,
-            }
-            | client_world::ingestion::BlockCrackAction::UpdateSpeed {
-                progress_per_tick: 0,
-            } => {
-                self.block_cracks.status.unsupported_values = self
-                    .block_cracks
-                    .status
-                    .unsupported_values
-                    .saturating_add(1);
-            }
             client_world::ingestion::BlockCrackAction::Start { progress_per_tick } => {
                 let Some(layers) = self.crack_layers(column, event.position) else {
                     self.block_cracks.status.unsupported_targets = self

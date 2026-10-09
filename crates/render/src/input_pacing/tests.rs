@@ -389,3 +389,6 @@ fn render_bound_frames_under_a_loose_cadence_still_sample_late() {
         );
     }
 }
+
+#[path = "tests/cadence.rs"]
+mod cadence;

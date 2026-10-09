@@ -10,6 +10,7 @@
 //! frame's input, so events arriving meanwhile are read fresh, and since every update passes
 //! through it, input events can wake the loop but never admit an extra frame.
 
+mod frame_time;
 mod wait;
 
 use std::{
@@ -419,6 +420,7 @@ impl Plugin for InputPacingPlugin {
         app.init_resource::<FramePacing>()
             .insert_resource(pacer.clone())
             .add_systems(FrameStart, mark_update_start);
+        frame_time::install(app);
         let inner = app
             .get_sub_app_mut(RenderExtractApp)
             .and_then(|extract_app| extract_app.take_extract());

@@ -159,6 +159,10 @@
 
 ## Frame attribution and unchanged GPU uploads
 
+- Simulation reads the current admitted frame clock. Deterministic FIFO tests at 60 and
+  120 Hz and an uncapped test bound tick flush delay and 20 Hz send jitter to 3 ms;
+  manual recording clocks keep their requested steps. Live movement acceptance remains open.
+
 - Apple pipelined rendering keeps surface creation on the UI thread while render
   submission stays on the render thread. Main and extraction schedules retain
   single-thread execution; runtime startup checks do not close frame-budget gates.
@@ -606,6 +610,7 @@
 ## Flower-pot floor and lily-pad atlas tint
 
 - Flower pots now add the dirt surface four pixels above the block base, below the rim.
+- Pot bodies and lantern surfaces use double-sided alpha testing instead of fallback blending and rear-face culling.
 - The pot body remains provisional fallback geometry; full current-version visual parity is incomplete.
 - Literal lily-pad atlas tint survives raster-only resource-pack replacement. A higher catalog can replace or clear it.
 - The current vanilla pack supplies a fixed green atlas multiplier, rather than biome tint.
@@ -5326,6 +5331,12 @@ unmeasured; a re-bind costs about 1.6 ms in the dev profile (steady frames about
 - [ ] **5.5 Interaction, hotbar, and inventory.** `P5.5-INTERACTION-COMBAT-INVENTORY` Implement server-authoritative break cracks,
   placement/use, selected slot, item stack/network-ID reconciliation, creative/survival
   inventory, and chest/furnace/crafting containers with rollback on rejected stack requests.
+
+Block-crack presentation now retains zero-speed starts and speed updates, waits
+for positive progress before drawing, and preserves the stage while paused.
+Focused stream and renderer regressions cover start, pause, resume, stop and
+completion. Duplicate-start lifecycle, expiry and matched-server mining acceptance
+remain incomplete; this correction does not close an interaction parity gate.
 
 **Throwable timing (2026-10-09):** the native 200 ms action delay remains
 separate from item-category cooldowns. The opt-in Item Use Delay Fix permits
