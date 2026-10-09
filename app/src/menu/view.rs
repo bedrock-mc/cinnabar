@@ -12,7 +12,9 @@ impl MenuRuntime {
         let auth_state = self.current_auth().into_owned();
         let catalog_loading = matches!(
             &auth_state,
-            AuthState::Checking | AuthState::AwaitingCode { .. }
+            AuthState::Checking
+                | AuthState::AwaitingCode { .. }
+                | AuthState::AwaitingXboxSignup { .. }
         ) || (auth_state == AuthState::Authenticated
             && (!self.catalog_started || self.catalog_process.is_some()));
         let auth_state = if self.presentation_accounts {

@@ -55,6 +55,12 @@ pub trait ClientPart {
     /// `id` from a modal screen control mapping `button.menu_secondary_select` to it, while the
     /// modal had focus; `collection_index` is as in [`ClientPart::action`].
     fn secondary_action(_id: String, _collection_index: Option<u32>) {}
+
+    /// Handles `scroll-changed`: the open modal's scroll view whose `scroll_view_name` is
+    /// `view`, a declared action, now shows `range`, because it scrolled or its viewport or
+    /// content changed length. Changes are coalesced, so this is the latest range. A client part
+    /// can bind only the rows a scroll view shows, and lay a fixed grid over it.
+    fn scroll_changed(_view: String, _range: ui::ScrollRange) {}
 }
 
 /// Sends `record` on the to-server `channel`. The host checks it against the channel's
@@ -113,6 +119,10 @@ macro_rules! export_client_part {
                 collection_index: ::core::option::Option<u32>,
             ) {
                 <$ty as $crate::client::ClientPart>::secondary_action(id, collection_index)
+            }
+
+            fn scroll_changed(view: ::std::string::String, range: $crate::client::ui::ScrollRange) {
+                <$ty as $crate::client::ClientPart>::scroll_changed(view, range)
             }
         }
 

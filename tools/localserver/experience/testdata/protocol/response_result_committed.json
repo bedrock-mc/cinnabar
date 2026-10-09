@@ -85,6 +85,52 @@
             "value": []
           }
         ]
+      },
+      {
+        "type": "set_block_state",
+        "pos": {
+          "x": 12,
+          "y": 64,
+          "z": -7
+        },
+        "states": [
+          {
+            "name": "benergistics:state",
+            "value": {
+              "type": "choice",
+              "value": "conflicted"
+            }
+          }
+        ]
+      },
+      {
+        "type": "set_slot",
+        "slot": 0,
+        "stack": {
+          "id": "minecraft:stone",
+          "metadata": 0,
+          "count": 32,
+          "data": null
+        }
+      },
+      {
+        "type": "set_slot",
+        "slot": 36,
+        "stack": null
+      },
+      {
+        "type": "drop_item",
+        "pos": {
+          "x": 13,
+          "y": 64,
+          "z": -7
+        },
+        "stack": {
+          "id": "benergistics:item_storage_cell_1k",
+          "metadata": 0,
+          "count": 1,
+          "data": "010000"
+        }
       }
     ]
   }

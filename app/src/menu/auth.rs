@@ -23,6 +23,9 @@ const AUTH_SUCCESS_EXIT_GRACE: Duration = Duration::from_millis(500);
 
 pub(crate) use launcher::menu::auth::AuthState;
 
+#[cfg(test)]
+mod signup_tests;
+
 #[derive(Debug, Deserialize)]
 #[serde(tag = "event", deny_unknown_fields)]
 enum WireEvent {
@@ -34,6 +37,8 @@ enum WireEvent {
         verification_uri: String,
         user_code: String,
     },
+    #[serde(rename = "xbox_signup")]
+    XboxSignup { v: u8, signup_url: String },
     #[serde(rename = "authenticated")]
     Authenticated { v: u8, method: AuthMethod },
     #[serde(rename = "error")]
@@ -57,6 +62,7 @@ enum ErrorStage {
     Configuration,
     Cache,
     DeviceCode,
+    XboxSignup,
     Cancelled,
 }
 
@@ -319,6 +325,7 @@ fn apply_event(state: &mut AuthState, terminal: &mut bool, checking_seen: &mut b
     let version = match &event {
         WireEvent::CheckingCache { v }
         | WireEvent::DeviceCode { v, .. }
+        | WireEvent::XboxSignup { v, .. }
         | WireEvent::Authenticated { v, .. }
         | WireEvent::Error { v, .. } => *v,
     };
@@ -352,12 +359,27 @@ fn apply_event(state: &mut AuthState, terminal: &mut bool, checking_seen: &mut b
                 };
             }
         }
+        WireEvent::XboxSignup { signup_url, .. }
+            if *checking_seen
+                && matches!(state, AuthState::Checking | AuthState::AwaitingCode { .. }) =>
+        {
+            if valid_https_uri(&signup_url) {
+                *state = AuthState::AwaitingXboxSignup { uri: signup_url };
+            } else {
+                fail_state(
+                    state,
+                    terminal,
+                    "Sign-in helper returned an unsafe Xbox signup link.",
+                );
+            }
+        }
         WireEvent::Authenticated { method, .. }
             if (*checking_seen
                 && *state == AuthState::Checking
                 && matches!(method, AuthMethod::Cached))
                 || (matches!(state, AuthState::AwaitingCode { .. })
-                    && matches!(method, AuthMethod::DeviceCode)) =>
+                    && matches!(method, AuthMethod::DeviceCode))
+                || (*checking_seen && matches!(state, AuthState::AwaitingXboxSignup { .. })) =>
         {
             *state = AuthState::Authenticated;
             *terminal = true;
@@ -365,9 +387,10 @@ fn apply_event(state: &mut AuthState, terminal: &mut bool, checking_seen: &mut b
         WireEvent::Error { stage, message, .. } => {
             let message = match stage {
                 ErrorStage::Cancelled => "Sign-in was cancelled.".to_owned(),
-                ErrorStage::Configuration | ErrorStage::Cache | ErrorStage::DeviceCode => {
-                    safe_message(&message)
-                }
+                ErrorStage::Configuration
+                | ErrorStage::Cache
+                | ErrorStage::DeviceCode
+                | ErrorStage::XboxSignup => safe_message(&message),
             };
             fail_state(state, terminal, &message);
         }

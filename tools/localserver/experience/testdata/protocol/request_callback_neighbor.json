@@ -21,7 +21,23 @@
       "loaded": true,
       "id": "benergistics:controller",
       "owned": true,
-      "data": "0100ff"
+      "data": "0100ff",
+      "states": [
+        {
+          "name": "benergistics:state",
+          "value": {
+            "type": "choice",
+            "value": "online"
+          }
+        },
+        {
+          "name": "benergistics:powered",
+          "value": {
+            "type": "bool",
+            "value": true
+          }
+        }
+      ]
     },
     {
       "pos": {
@@ -32,7 +48,8 @@
       "loaded": true,
       "id": "minecraft:stone",
       "owned": false,
-      "data": null
+      "data": null,
+      "states": []
     },
     {
       "pos": {
@@ -43,9 +60,12 @@
       "loaded": false,
       "id": "",
       "owned": false,
-      "data": null
+      "data": null,
+      "states": []
     }
   ],
+  "network": null,
+  "inventory": null,
   "call": {
     "type": "neighbor",
     "pos": {

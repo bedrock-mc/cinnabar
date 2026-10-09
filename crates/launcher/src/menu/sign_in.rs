@@ -1,6 +1,6 @@
-//! Device-code browser handoff, independent of the desktop launcher.
+//! Microsoft sign-in and Xbox signup browser handoff, independent of the desktop launcher.
 
-/// Whether the current device code reached the system browser.
+/// Whether the current sign-in prompt reached the system browser.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum BrowserState {
     #[default]
@@ -12,10 +12,10 @@ pub enum BrowserState {
 
 const SIGN_IN_PAGE: &str = "https://www.microsoft.com/link?otc=";
 
-/// Tracks one automatic handoff per device code and explicit user retries.
+/// Tracks one automatic handoff per sign-in prompt and explicit user retries.
 #[derive(Debug, Default)]
 pub struct SignInLink {
-    code: Option<String>,
+    target: Option<String>,
     attempted: std::collections::HashSet<String>,
     state: BrowserState,
     revision: u64,
@@ -24,17 +24,43 @@ pub struct SignInLink {
 impl SignInLink {
     /// Dispatches a pre-filled URL once per code, or again on an explicit press.
     pub fn open(&mut self, code: &str, explicit: bool, dispatch: impl FnOnce(String, u64) -> bool) {
-        if self.attempted.contains(code) && !explicit {
+        self.open_target(
+            code,
+            valid_code(code).then(|| format!("{SIGN_IN_PAGE}{code}")),
+            explicit,
+            dispatch,
+        );
+    }
+
+    /// Dispatches a validated HTTPS Xbox signup URL once, or again on an explicit press.
+    pub fn open_signup(
+        &mut self,
+        uri: &str,
+        explicit: bool,
+        dispatch: impl FnOnce(String, u64) -> bool,
+    ) {
+        self.open_target(uri, Some(uri.to_owned()), explicit, dispatch);
+    }
+
+    /// Orders handoffs for either prompt, retaining the one automatic attempt per target.
+    fn open_target(
+        &mut self,
+        target: &str,
+        url: Option<String>,
+        explicit: bool,
+        dispatch: impl FnOnce(String, u64) -> bool,
+    ) {
+        if self.attempted.contains(target) && !explicit {
             return;
         }
-        self.attempted.insert(code.to_owned());
-        self.code = Some(code.to_owned());
+        self.attempted.insert(target.to_owned());
+        self.target = Some(target.to_owned());
         self.revision += 1;
-        if !valid_code(code) {
+        let Some(url) = url else {
             self.state = BrowserState::Failed;
             return;
-        }
-        self.state = if dispatch(format!("{SIGN_IN_PAGE}{code}"), self.revision) {
+        };
+        self.state = if dispatch(url, self.revision) {
             BrowserState::Opening
         } else {
             BrowserState::Failed
@@ -52,9 +78,9 @@ impl SignInLink {
         }
     }
 
-    /// Returns the handoff status for this code, hiding stale attempts.
-    pub fn state_for(&self, code: &str) -> BrowserState {
-        if self.code.as_deref() == Some(code) {
+    /// Returns the handoff status for this device code or signup URL, hiding stale attempts.
+    pub fn state_for(&self, target: &str) -> BrowserState {
+        if self.target.as_deref() == Some(target) {
             self.state
         } else {
             BrowserState::Waiting
@@ -140,5 +166,27 @@ mod tests {
             link.open(code, true, |_, _| panic!("unsafe browser URL"));
             assert_eq!(link.state_for(code), BrowserState::Failed);
         }
+    }
+
+    #[test]
+    fn xbox_signup_keeps_its_signed_url_and_opens_once() {
+        let uri = "https://sisu.xboxlive.com/signup?signature=fixture";
+        let mut link = SignInLink::default();
+        let mut device_revision = 0;
+        link.open("DEVICE", false, |_, revision| {
+            device_revision = revision;
+            true
+        });
+        let mut signup_revision = 0;
+        link.open_signup(uri, false, |url, revision| {
+            assert_eq!(url, uri);
+            signup_revision = revision;
+            true
+        });
+        link.complete(device_revision, false);
+        assert_eq!(link.state_for(uri), BrowserState::Opening);
+        link.complete(signup_revision, true);
+        link.open_signup(uri, false, |_, _| panic!("repeated signup handoff"));
+        assert_eq!(link.state_for(uri), BrowserState::Opened);
     }
 }

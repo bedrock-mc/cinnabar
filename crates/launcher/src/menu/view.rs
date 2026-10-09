@@ -570,14 +570,14 @@ impl MenuView {
             && !self.connecting
             && self.local.progress.is_none()
             && self.disconnect_message.is_none()
-            && (matches!(self.auth_state, AuthState::AwaitingCode { .. })
+            && (self.auth_state.awaiting_browser()
                 || (self.sign_in_requested
                     && matches!(self.auth_state, AuthState::Checking | AuthState::Failed(_))))
     }
 
-    /// Whether the launcher is waiting for the player to complete device-code sign-in.
-    pub fn auth_state_awaiting_code(&self) -> bool {
-        matches!(self.auth_state, AuthState::AwaitingCode { .. })
+    /// Whether the launcher is waiting for Microsoft sign-in or Xbox signup in a browser.
+    pub fn auth_state_awaiting_browser(&self) -> bool {
+        self.auth_state.awaiting_browser()
     }
 
     /// Creates the empty home view used before host settings and service feeds are loaded.

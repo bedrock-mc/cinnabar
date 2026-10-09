@@ -11,9 +11,14 @@ pub(super) struct SignInBrowser {
 
 impl SignInBrowser {
     /// Starts a handoff without waiting for the desktop, using an injectable opener.
-    pub(super) fn open(&mut self, code: &str, explicit: bool, opener: fn(&str) -> bool) {
+    pub(super) fn open(
+        &mut self,
+        auth: &super::AuthState,
+        explicit: bool,
+        opener: fn(&str) -> bool,
+    ) {
         self.poll();
-        self.link.open(code, explicit, |url, revision| {
+        let dispatch = |url: String, revision| {
             let (sender, receiver) = bounded(1);
             let spawned = std::thread::Builder::new()
                 .name("sign-in-browser".into())
@@ -23,7 +28,14 @@ impl SignInBrowser {
                 .is_ok();
             self.pending = spawned.then_some(receiver);
             spawned
-        });
+        };
+        match auth {
+            super::AuthState::AwaitingCode { code, .. } => self.link.open(code, explicit, dispatch),
+            super::AuthState::AwaitingXboxSignup { uri } => {
+                self.link.open_signup(uri, explicit, dispatch)
+            }
+            _ => {}
+        }
     }
 
     /// Collects the OS handoff result without blocking the menu frame.
@@ -40,6 +52,7 @@ impl SignInBrowser {
     pub(super) fn state(&self, auth: &super::AuthState) -> BrowserState {
         match auth {
             super::AuthState::AwaitingCode { code, .. } => self.link.state_for(code),
+            super::AuthState::AwaitingXboxSignup { uri } => self.link.state_for(uri),
             _ => BrowserState::Waiting,
         }
     }
@@ -60,7 +73,7 @@ mod tests {
             ((|_: &str| false) as fn(&str) -> bool, BrowserState::Failed),
             ((|_: &str| true) as fn(&str) -> bool, BrowserState::Opened),
         ] {
-            browser.open("TEST-CODE", true, opener);
+            browser.open(&auth, true, opener);
             {
                 let mut completion = crossbeam_channel::Select::new();
                 completion.recv(
@@ -73,7 +86,7 @@ mod tests {
             }
             browser.poll();
             assert_eq!(browser.state(&auth), expected);
-            browser.open("TEST-CODE", false, |_| panic!("automatic retry"));
+            browser.open(&auth, false, |_| panic!("automatic retry"));
             assert_eq!(browser.state(&auth), expected);
         }
         assert_eq!(

@@ -1,7 +1,11 @@
 //! Loading a server artifact: verify it, compile it against the `server` world, run `register`
 //! and validate the blocks it declares.
 
-use std::collections::BTreeMap;
+mod block_type;
+mod geometry;
+mod items;
+
+use std::collections::{BTreeMap, HashMap};
 use std::fs::File;
 use std::io::{self, Read};
 use std::path::Path;
@@ -21,25 +25,39 @@ use crate::host::cinnabar::experience_server::types as wit;
 use crate::host::{Api, HostState, Pre};
 use crate::limits::{
     EPOCH_PERIOD, MAX_BLOCK_NAME_BYTES, MAX_BLOCKS, MAX_COMPONENT_BYTES, MAX_DISPLAY_NAME_BYTES,
-    MAX_WASM_STACK_BYTES, REGISTER_DEADLINE, REGISTER_FUEL,
+    MAX_NAME_BYTES, MAX_WASM_STACK_BYTES, REGISTER_DEADLINE, REGISTER_FUEL,
 };
 use crate::manifest::{ASSETS_DIR, Manifest, SERVER_WASM, read_manifest, resolve};
-use crate::protocol;
+use crate::protocol::{self, PlacementState, StateDef, StateValues};
 
-/// The texture slot for every face that a block does not bind on its own.
+pub(crate) use block_type::holds;
+
+/// The texture slot, or material instance, of every face that a block does not bind on its own.
 const ALL_FACES: &str = "*";
 /// The face texture slots. A block binds each slot at most once, and binds [`ALL_FACES`] unless
 /// it binds all of these.
 const FACES: [&str; 6] = ["up", "down", "north", "south", "east", "west"];
 
+/// What an Experience's callbacks may name: its blocks with their state axes ([`axes`] of their
+/// states), its items with the most one stack of each holds, and the server's items, which the
+/// adapter lists when it loads the Experience.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct Catalog {
+    pub blocks: HashMap<String, Vec<StateDef>>,
+    pub items: HashMap<String, u8>,
+    pub server: HashMap<String, HashMap<u16, protocol::ServerItem>>,
+}
+
 /// A verified artifact: its manifest, its validated blocks, and the component pre-linked against
 /// the `server` world of its `api`, ready for a fresh instance per callback.
 pub struct Loaded {
     pub manifest: Manifest,
-    /// Texture paths are absolute.
+    /// Asset paths are absolute.
     pub blocks: Vec<protocol::BlockDef>,
-    /// The ids of `blocks`, shared by every callback.
-    pub(crate) block_ids: Arc<[String]>,
+    /// Icon paths are absolute.
+    pub items: Vec<protocol::ItemDef>,
+    /// What callbacks may name, shared by every callback.
+    pub(crate) catalog: Arc<Catalog>,
     /// Whether the world of its `api` takes its player's focus in client messages and epochs.
     pub focus: bool,
     pub(crate) pre: Pre,
@@ -116,13 +134,24 @@ fn load_dir(engine: &Engine, dir: &Path) -> Result<Loaded> {
     let module = read_module(dir, &manifest)?;
     let pre = link(engine, &module, api)
         .with_context(|| format!("{SERVER_WASM} is not a {} server component", api.package()))?;
-    let defs = register(engine, &pre, &manifest.id)?;
-    let blocks = validate_blocks(dir, &manifest, defs)?;
-    let block_ids = blocks.iter().map(|block| block.id.clone()).collect();
+    let registration = register(engine, &pre, &manifest.id)?;
+    let (blocks, items) = validate_registration(dir, &manifest, registration)?;
+    let catalog = Catalog {
+        blocks: blocks
+            .iter()
+            .map(|block| (block.id.clone(), axes(&block.states, &block.placement)))
+            .collect(),
+        items: items
+            .iter()
+            .map(|item| (item.id.clone(), item.max_stack))
+            .collect(),
+        server: HashMap::new(),
+    };
     Ok(Loaded {
         manifest,
         blocks,
-        block_ids,
+        items,
+        catalog: Arc::new(catalog),
         focus: api.focus(),
         pre,
     })
@@ -165,37 +194,86 @@ fn link(engine: &Engine, module: &[u8], api: Api) -> Result<Pre> {
 }
 
 /// Runs `register` once on a fresh instance under the register fuel and deadline.
-fn register(engine: &Engine, pre: &Pre, id: &str) -> Result<Vec<wit::BlockDef>> {
+fn register(engine: &Engine, pre: &Pre, id: &str) -> Result<wit::Registration> {
     let mut store = HostState::store(engine, id, REGISTER_FUEL, REGISTER_DEADLINE)?;
     match pre.register(&mut store)? {
-        Ok(defs) => Ok(defs),
+        Ok(registration) => Ok(registration),
         Err(wit::GuestError::Rejected(reason) | wit::GuestError::Failed(reason)) => {
             bail!("register failed: {reason}")
         }
     }
 }
 
-/// Checks every declared block; texture paths become absolute under the artifact directory.
+/// A block's state axes as callbacks and the adapter order them: its placement traits' states,
+/// then its own states.
+pub(crate) fn axes(states: &[StateDef], placement: &[PlacementState]) -> Vec<StateDef> {
+    placement
+        .iter()
+        .map(|placement| {
+            let (name, values) = placement.state();
+            StateDef {
+                name: name.to_owned(),
+                values: StateValues::Choices(
+                    values.iter().map(|&value| value.to_owned()).collect(),
+                ),
+            }
+        })
+        .chain(states.iter().cloned())
+        .collect()
+}
+
+impl Loaded {
+    /// The loaded artifact whose callbacks may make stacks of the server's `items` besides its
+    /// own, as the adapter lists them at load.
+    pub fn with_server_items(mut self, items: Vec<protocol::ServerItem>) -> Result<Self> {
+        let mut catalog = (*self.catalog).clone();
+        catalog.server = items::server_items(items)?;
+        self.catalog = Arc::new(catalog);
+        Ok(self)
+    }
+}
+
+/// Checks what `register` declared, its blocks and then its items; asset paths become absolute
+/// under the artifact directory.
+fn validate_registration(
+    dir: &Path,
+    manifest: &Manifest,
+    registration: wit::Registration,
+) -> Result<(Vec<protocol::BlockDef>, Vec<protocol::ItemDef>)> {
+    let blocks = validate_blocks(dir, manifest, registration.blocks)?;
+    let root = std::path::absolute(dir).context("resolving the artifact directory")?;
+    let items = items::validate_items(
+        &root,
+        &manifest.files,
+        &manifest.id,
+        &blocks,
+        registration.items,
+    )?;
+    Ok((blocks, items))
+}
+
+/// Checks every declared block; asset paths become absolute under the artifact directory.
 fn validate_blocks(
     dir: &Path,
     manifest: &Manifest,
-    defs: Vec<wit::BlockDef>,
+    types: Vec<wit::BlockType>,
 ) -> Result<Vec<protocol::BlockDef>> {
     ensure!(
-        defs.len() <= MAX_BLOCKS,
+        types.len() <= MAX_BLOCKS,
         "register declared {} blocks; the limit is {MAX_BLOCKS}",
-        defs.len()
+        types.len()
     );
     let root = std::path::absolute(dir).context("resolving the artifact directory")?;
     let namespace = format!("{}:", manifest.id);
-    let mut blocks: Vec<protocol::BlockDef> = Vec::with_capacity(defs.len());
-    for def in defs {
-        let wit::BlockDef {
-            id,
-            display_name,
-            textures,
-            mining,
-        } = def;
+    let mut assets = block_type::Assets {
+        root: &root,
+        files: &manifest.files,
+        id: &manifest.id,
+        geometries: HashMap::new(),
+    };
+    let mut blocks: Vec<protocol::BlockDef> = Vec::with_capacity(types.len());
+    for block in types {
+        let id = &block.def.id;
         let Some(name) = id.strip_prefix(&namespace) else {
             bail!("block \"{id}\" is outside namespace \"{namespace}\"");
         };
@@ -205,74 +283,52 @@ fn validate_blocks(
              ^[a-z0-9_]{{1,{MAX_BLOCK_NAME_BYTES}}}$"
         );
         ensure!(
-            blocks.iter().all(|block| block.id != id),
+            blocks.iter().all(|block| block.id != *id),
             "block \"{id}\" is declared twice"
         );
-        let (textures, mining) =
-            validate_block(&root, &manifest.files, &display_name, textures, mining)
-                .with_context(|| format!("block \"{id}\""))?;
-        blocks.push(protocol::BlockDef {
-            id,
-            display_name,
-            textures,
-            mining,
-        });
+        let context = format!("block \"{id}\"");
+        blocks.push(validate_block(&mut assets, block).context(context)?);
     }
     Ok(blocks)
 }
 
 /// `^[a-z0-9_]{1,MAX_BLOCK_NAME_BYTES}$`, the part of a block id after `<id>:`.
 fn is_block_name(name: &str) -> bool {
-    (1..=MAX_BLOCK_NAME_BYTES).contains(&name.len())
-        && name
-            .bytes()
-            .all(|byte| matches!(byte, b'a'..=b'z' | b'0'..=b'9' | b'_'))
+    (1..=MAX_BLOCK_NAME_BYTES).contains(&name.len()) && is_lower_snake(name)
 }
 
-/// Checks one block's display name, texture bindings and mining.
+/// `^[a-z0-9_]{1,MAX_NAME_BYTES}$`: a state's name after `<id>:`, a string state value, a
+/// material instance that a geometry names, or a geometry's name.
+fn is_name(name: &str) -> bool {
+    (1..=MAX_NAME_BYTES).contains(&name.len()) && is_lower_snake(name)
+}
+
+fn is_lower_snake(name: &str) -> bool {
+    name.bytes()
+        .all(|byte| matches!(byte, b'a'..=b'z' | b'0'..=b'9' | b'_'))
+}
+
+/// Checks one block type: its display name and mining, its states and placement traits, and
+/// either textures on the full cube or a visual with its permutations.
 fn validate_block(
-    root: &Path,
-    files: &BTreeMap<String, String>,
-    display_name: &str,
-    bindings: Vec<wit::TextureBinding>,
-    mining: wit::Mining,
-) -> Result<(Vec<protocol::Texture>, protocol::Mining)> {
-    ensure!(
-        (1..=MAX_DISPLAY_NAME_BYTES).contains(&display_name.len()),
-        "display name has {} bytes; it needs 1 to {MAX_DISPLAY_NAME_BYTES}",
-        display_name.len()
-    );
-    ensure!(
-        !display_name.chars().any(char::is_control),
-        "display name {display_name:?} has a control character"
-    );
-    let mut textures: Vec<protocol::Texture> = Vec::new();
-    for wit::TextureBinding { slot, path } in bindings {
-        ensure!(
-            slot == ALL_FACES || FACES.contains(&slot.as_str()),
-            "texture slot \"{slot}\" is neither \"{ALL_FACES}\" nor one of {FACES:?}"
-        );
-        ensure!(
-            textures.iter().all(|texture| texture.slot != slot),
-            "texture slot \"{slot}\" is bound twice"
-        );
-        // Index keys are already confined to the artifact, so a listed key is safe to join.
-        let indexed = format!("{ASSETS_DIR}/{path}");
-        ensure!(
-            files.contains_key(&indexed),
-            "texture \"{path}\" is not an indexed file: [files] has no \"{indexed}\""
-        );
-        let path = resolve(root, &indexed)
-            .into_os_string()
-            .into_string()
-            .map_err(|path| anyhow!("{} is not a UTF-8 path", path.display()))?;
-        textures.push(protocol::Texture { slot, path });
-    }
-    let bound = |slot: &str| textures.iter().any(|texture| texture.slot == slot);
-    ensure!(
-        bound(ALL_FACES) || FACES.into_iter().all(bound),
-        "textures bind neither \"{ALL_FACES}\" nor all of {FACES:?}"
-    );
+    assets: &mut block_type::Assets<'_>,
+    block: wit::BlockType,
+) -> Result<protocol::BlockDef> {
+    let wit::BlockType {
+        def,
+        states,
+        placement,
+        visual,
+        permutations,
+        network,
+    } = block;
+    let wit::BlockDef {
+        id,
+        display_name,
+        textures,
+        mining,
+    } = def;
+    check_display_name(&display_name)?;
     let mining = match mining {
         wit::Mining::Unbreakable => protocol::Mining::Unbreakable {},
         wit::Mining::Breakable(hardness) => {
@@ -283,243 +339,95 @@ fn validate_block(
             protocol::Mining::Breakable { hardness }
         }
     };
-    Ok((textures, mining))
+    let (states, placement) = block_type::states(assets.id, states, placement)?;
+    let axes = axes(&states, &placement);
+    let (textures, visual, permutations) = match visual {
+        Some(visual) => {
+            ensure!(
+                textures.is_empty(),
+                "it binds textures and declares a visual, whose materials replace them"
+            );
+            let look = block_type::visual(assets, &axes, visual)?;
+            let permutations = block_type::permutations(assets, &axes, &look, permutations)?;
+            (Vec::new(), Some(look.visual), permutations)
+        }
+        None => {
+            ensure!(
+                permutations.is_empty(),
+                "it declares permutations but no visual for them to change"
+            );
+            let textures = validate_textures(assets.root, assets.files, textures)?;
+            (textures, None, Vec::new())
+        }
+    };
+    Ok(protocol::BlockDef {
+        id,
+        display_name,
+        textures,
+        mining,
+        states,
+        placement,
+        visual,
+        permutations,
+        network,
+    })
+}
+
+/// Checks a block's or an item's display name: 1 to [`MAX_DISPLAY_NAME_BYTES`] bytes without a
+/// control character.
+fn check_display_name(display_name: &str) -> Result<()> {
+    ensure!(
+        (1..=MAX_DISPLAY_NAME_BYTES).contains(&display_name.len()),
+        "display name has {} bytes; it needs 1 to {MAX_DISPLAY_NAME_BYTES}",
+        display_name.len()
+    );
+    ensure!(
+        !display_name.chars().any(char::is_control),
+        "display name {display_name:?} has a control character"
+    );
+    Ok(())
+}
+
+/// Checks a full cube's texture bindings: each slot once, covering every face.
+fn validate_textures(
+    root: &Path,
+    files: &BTreeMap<String, String>,
+    bindings: Vec<wit::TextureBinding>,
+) -> Result<Vec<protocol::Texture>> {
+    let mut textures: Vec<protocol::Texture> = Vec::new();
+    for wit::TextureBinding { slot, path } in bindings {
+        ensure!(
+            slot == ALL_FACES || FACES.contains(&slot.as_str()),
+            "texture slot \"{slot}\" is neither \"{ALL_FACES}\" nor one of {FACES:?}"
+        );
+        ensure!(
+            textures.iter().all(|texture| texture.slot != slot),
+            "texture slot \"{slot}\" is bound twice"
+        );
+        let path = asset_path(root, files, &path).context("texture")?;
+        textures.push(protocol::Texture { slot, path });
+    }
+    let bound = |slot: &str| textures.iter().any(|texture| texture.slot == slot);
+    ensure!(
+        bound(ALL_FACES) || FACES.into_iter().all(bound),
+        "textures bind neither \"{ALL_FACES}\" nor all of {FACES:?}"
+    );
+    Ok(textures)
+}
+
+/// The absolute path of `path`, a file under `assets/` that the manifest indexes.
+fn asset_path(root: &Path, files: &BTreeMap<String, String>, path: &str) -> Result<String> {
+    // Index keys are already confined to the artifact, so a listed key is safe to join.
+    let indexed = format!("{ASSETS_DIR}/{path}");
+    ensure!(
+        files.contains_key(&indexed),
+        "\"{path}\" is not an indexed file: [files] has no \"{indexed}\""
+    );
+    resolve(root, &indexed)
+        .into_os_string()
+        .into_string()
+        .map_err(|path| anyhow!("{} is not a UTF-8 path", path.display()))
 }
 
 #[cfg(test)]
-mod tests {
-    use std::time::{Duration, Instant};
-
-    use wasmtime::Trap;
-    use wasmtime::component::{Component, Linker};
-
-    use super::{engine, validate_blocks, wit};
-    use crate::host::{Api, HostState};
-    use crate::limits::{MAX_BLOCK_NAME_BYTES, MAX_BLOCKS, MAX_DISPLAY_NAME_BYTES};
-    use crate::manifest::{ASSETS_DIR, DATA_SCHEMA, Manifest, SERVER_WASM};
-
-    /// The ticker keeps the epoch on wall time, so a store with fuel to spare still stops at its
-    /// deadline, and not long before or after it.
-    #[test]
-    fn epoch_deadline_stops_a_store_with_fuel_left() {
-        const DEADLINE: Duration = Duration::from_millis(200);
-        // Seconds of spinning: a stalled epoch ends in a fuel trap instead of a hang.
-        const FUEL: u64 = 10_000_000_000;
-        let (engine, _ticker) = engine().unwrap();
-        let spin = r#"(component
-            (core module $m (func (export "spin") (loop (br 0))))
-            (core instance $i (instantiate $m))
-            (func (export "spin") (canon lift (core func $i "spin"))))"#;
-        let component = Component::new(&engine, spin).unwrap();
-        let mut store = HostState::store(&engine, "spin", FUEL, DEADLINE).unwrap();
-        let instance = Linker::new(&engine)
-            .instantiate(&mut store, &component)
-            .unwrap();
-        let spin = instance
-            .get_typed_func::<(), ()>(&mut store, "spin")
-            .unwrap();
-        let start = Instant::now();
-        let error = spin.call(&mut store, ()).unwrap_err();
-        let elapsed = start.elapsed();
-        assert_eq!(
-            error.downcast_ref::<Trap>(),
-            Some(&Trap::Interrupt),
-            "{error:#}"
-        );
-        assert!(
-            elapsed >= DEADLINE / 2 && elapsed < DEADLINE * 5,
-            "stopped after {elapsed:?}"
-        );
-    }
-
-    fn binding(slot: &str) -> wit::TextureBinding {
-        wit::TextureBinding {
-            slot: slot.to_owned(),
-            path: "counter.png".to_owned(),
-        }
-    }
-
-    /// A valid block: `probe:<name>` with the indexed texture bound to `*`.
-    fn block(name: &str) -> wit::BlockDef {
-        wit::BlockDef {
-            id: format!("probe:{name}"),
-            display_name: "Probe Counter".to_owned(),
-            textures: vec![binding("*")],
-            mining: wit::Mining::Breakable(1.0),
-        }
-    }
-
-    /// `count` valid blocks with distinct names.
-    fn blocks(count: usize) -> Vec<wit::BlockDef> {
-        (0..count).map(|i| block(&format!("b{i}"))).collect()
-    }
-
-    /// The valid block `probe:counter` after `edit`.
-    fn counter(edit: impl FnOnce(&mut wit::BlockDef)) -> Vec<wit::BlockDef> {
-        let mut def = block("counter");
-        edit(&mut def);
-        vec![def]
-    }
-
-    /// Each row changes a valid declaration in one way. `None` means it is still accepted;
-    /// otherwise the refusal must contain the cause and, for a single block, name that block.
-    #[test]
-    fn block_rules_accept_limits_and_refuse_violations() {
-        let faces = || ["up", "down", "north", "south", "east", "west"].map(binding);
-        let cases: Vec<(&str, Vec<wit::BlockDef>, Option<&str>)> = vec![
-            ("the baseline", counter(|_| {}), None),
-            ("MAX_BLOCKS blocks", blocks(MAX_BLOCKS), None),
-            (
-                "MAX_BLOCKS + 1 blocks",
-                blocks(MAX_BLOCKS + 1),
-                Some("the limit is"),
-            ),
-            (
-                "a duplicate id",
-                vec![block("counter"), block("counter")],
-                Some("declared twice"),
-            ),
-            (
-                "a foreign namespace",
-                counter(|def| def.id = "other:counter".to_owned()),
-                Some("outside namespace"),
-            ),
-            ("a name of digits and _", vec![block("cell_64k")], None),
-            (
-                "a name of MAX_BLOCK_NAME_BYTES",
-                vec![block(&"a".repeat(MAX_BLOCK_NAME_BYTES))],
-                None,
-            ),
-            (
-                "a name of MAX_BLOCK_NAME_BYTES + 1",
-                vec![block(&"a".repeat(MAX_BLOCK_NAME_BYTES + 1))],
-                Some("invalid name"),
-            ),
-            ("an empty name", vec![block("")], Some("invalid name")),
-            ("a name with /", vec![block("a/b")], Some("invalid name")),
-            ("the name ..", vec![block("..")], Some("invalid name")),
-            (
-                "an uppercase name",
-                vec![block("Counter")],
-                Some("invalid name"),
-            ),
-            (
-                "an empty display name",
-                counter(|def| def.display_name.clear()),
-                Some("display name has"),
-            ),
-            (
-                "a display name of MAX_DISPLAY_NAME_BYTES",
-                counter(|def| def.display_name = "a".repeat(MAX_DISPLAY_NAME_BYTES)),
-                None,
-            ),
-            (
-                "a display name of MAX_DISPLAY_NAME_BYTES + 1",
-                counter(|def| def.display_name = "a".repeat(MAX_DISPLAY_NAME_BYTES + 1)),
-                Some("display name has"),
-            ),
-            (
-                "a newline in the display name",
-                counter(|def| def.display_name = "Probe\nCounter".to_owned()),
-                Some("control character"),
-            ),
-            (
-                "the slot top",
-                counter(|def| def.textures.push(binding("top"))),
-                Some("slot \"top\""),
-            ),
-            (
-                "a repeated slot",
-                counter(|def| def.textures.push(binding("*"))),
-                Some("bound twice"),
-            ),
-            (
-                "an unindexed texture",
-                counter(|def| def.textures[0].path = "missing.png".to_owned()),
-                Some("not an indexed file"),
-            ),
-            (
-                "a texture outside assets/",
-                counter(|def| def.textures[0].path = "../server.wasm".to_owned()),
-                Some("not an indexed file"),
-            ),
-            (
-                "no textures",
-                counter(|def| def.textures.clear()),
-                Some("bind neither"),
-            ),
-            (
-                "five faces without *",
-                counter(|def| def.textures = faces().into_iter().take(5).collect()),
-                Some("bind neither"),
-            ),
-            (
-                "six faces without *",
-                counter(|def| def.textures = faces().into()),
-                None,
-            ),
-            (
-                "* and a face",
-                counter(|def| def.textures.push(binding("up"))),
-                None,
-            ),
-            (
-                "hardness 0",
-                counter(|def| def.mining = wit::Mining::Breakable(0.0)),
-                None,
-            ),
-            (
-                "unbreakable",
-                counter(|def| def.mining = wit::Mining::Unbreakable),
-                None,
-            ),
-            (
-                "hardness NaN",
-                counter(|def| def.mining = wit::Mining::Breakable(f32::NAN)),
-                Some("not a finite number"),
-            ),
-            (
-                "hardness inf",
-                counter(|def| def.mining = wit::Mining::Breakable(f32::INFINITY)),
-                Some("not a finite number"),
-            ),
-            (
-                "hardness -1",
-                counter(|def| def.mining = wit::Mining::Breakable(-1.0)),
-                Some("not a finite number"),
-            ),
-        ];
-        let dir = tempfile::tempdir().unwrap();
-        // `validate_blocks` consults only the index's paths, not the files or their hashes.
-        let manifest = Manifest {
-            id: "probe".to_owned(),
-            version: "0.1.0".to_owned(),
-            api: Api::V0_2.api().to_owned(),
-            data_schema: DATA_SCHEMA,
-            files: [format!("{ASSETS_DIR}/counter.png"), SERVER_WASM.to_owned()]
-                .into_iter()
-                .map(|path| (path, "0".repeat(64)))
-                .collect(),
-        };
-        let mut failures = Vec::new();
-        for (case, defs, refusal) in cases {
-            let culprit = match defs.as_slice() {
-                [def] => Some(format!("block \"{}\"", def.id)),
-                _ => None,
-            };
-            let outcome = validate_blocks(dir.path(), &manifest, defs);
-            match (outcome.map_err(|error| format!("{error:#}")), refusal) {
-                (Ok(_), None) => {}
-                (Ok(_), Some(cause)) => failures.push(format!("{case}: accepted, not {cause:?}")),
-                (Err(error), None) => failures.push(format!("{case}: refused: {error}")),
-                (Err(error), Some(cause)) => {
-                    let named = culprit.is_none_or(|culprit| error.contains(&culprit));
-                    if !named || !error.contains(cause) {
-                        failures.push(format!("{case}: {error:?} lacks the block or {cause:?}"));
-                    }
-                }
-            }
-        }
-        assert!(failures.is_empty(), "\n{}", failures.join("\n"));
-    }
-}
+mod tests;

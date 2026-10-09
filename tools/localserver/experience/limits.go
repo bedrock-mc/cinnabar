@@ -33,7 +33,7 @@ const shutdownGrace = time.Second
 
 // maxFrameBytes is the largest frame body. It must equal the Rust runtime's MAX_FRAME_BYTES,
 // which TestFrameLimitMatchesRust checks against the limits fixture.
-const maxFrameBytes = 1 << 20
+const maxFrameBytes = 4 << 20
 
 // stderrLineBytes is the longest helper stderr line that is logged; the rest of a longer line is
 // dropped.
@@ -80,4 +80,61 @@ const (
 	// maxClientSends is the most client messages one callback may send: Rust's
 	// MAX_CLIENT_SENDS.
 	maxClientSends = 8
+)
+
+// Registration checks a block type by the runtime's bounds again. Each must equal its Rust
+// constant, which TestCommitLimitsMatchRust checks against the limits fixture.
+const (
+	// maxNameBytes is the most bytes in a state's name after "<id>:", a string state value, a
+	// material instance and a geometry's name: Rust's MAX_NAME_BYTES.
+	maxNameBytes = 64
+	// maxStateValues is the most values of one string state: Rust's MAX_STATE_VALUES.
+	maxStateValues = 16
+	// maxStateCombinations is the most state combinations of one block: Rust's
+	// MAX_STATE_COMBINATIONS.
+	maxStateCombinations = 65_536
+	// maxBones is the most bones whose visibility one visual or permutation sets: Rust's
+	// MAX_BONES.
+	maxBones = 64
+	// maxPermutations is the most permutations of one block: Rust's MAX_PERMUTATIONS.
+	maxPermutations = 64
+	// maxMaterials is the most materials of one visual or permutation: Rust's MAX_MATERIALS.
+	maxMaterials = 32
+	// maxConditionTests is the most state tests of one condition: Rust's MAX_CONDITION_TESTS.
+	maxConditionTests = 64
+	// maxFlipbookFrames is the most frames one flipbook lists: Rust's MAX_FLIPBOOK_FRAMES.
+	maxFlipbookFrames = 256
+	// maxGeometryBytes is the largest geometry file: Rust's MAX_GEOMETRY_BYTES.
+	maxGeometryBytes = 1 << 20
+)
+
+// The network bounds, which the flood keeps. Each must equal its Rust constant, which
+// TestCommitLimitsMatchRust checks against the limits fixture.
+const (
+	// maxNetworkBlocks is the most members of one callback's network: Rust's
+	// MAX_NETWORK_BLOCKS.
+	maxNetworkBlocks = 1024
+	// maxNetworkDataBytes is the most data of one callback's network, summed over its members:
+	// Rust's MAX_NETWORK_DATA_BYTES.
+	maxNetworkDataBytes = 524_288
+)
+
+// The inventory's shape and the item bounds. Each must equal its Rust constant, which
+// TestCommitLimitsMatchRust checks against the limits fixture.
+const (
+	// inventorySlots is the slots of an actor's inventory: the 36 of the main inventory, the
+	// hotbar first, then the offhand. Rust's INVENTORY_SLOTS.
+	inventorySlots = 37
+	// hotbarSlots is the slots of the hotbar, of which one is selected: Rust's HOTBAR_SLOTS.
+	hotbarSlots = 9
+	// maxItems is the most items one Experience registers: Rust's MAX_ITEMS.
+	maxItems = 64
+	// maxStackSize is the most one stack of an Experience's item holds: Rust's MAX_STACK_SIZE.
+	maxStackSize = 64
+	// maxItemDataBytes is the most data of an Experience's own on one stack: Rust's
+	// MAX_ITEM_DATA_BYTES.
+	maxItemDataBytes = 8192
+	// maxServerItems is the most items the adapter lists as the server's: Rust's
+	// MAX_SERVER_ITEMS.
+	maxServerItems = 16_384
 )

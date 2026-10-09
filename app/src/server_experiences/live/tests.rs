@@ -777,6 +777,35 @@ fn text_edits_reach_the_open_bundle_for_declared_boxes_only() {
     assert!(!live.text_changed("bundle0.pick", "gold"));
 }
 
+/// A declared scroll view's range reaches the open bundle, the latest replacing one still
+/// waiting, so a fast scroll queues one callback; an undeclared view's does not.
+#[test]
+fn scroll_ranges_coalesce_for_declared_views_only() {
+    let mut live = opened();
+    let range = |offset| server_experience::screen::ScrollRange {
+        offset,
+        viewport: 72.0,
+        content: 900.0,
+    };
+    assert!(!live.scroll_changed("bundle0.other", range(0.0)));
+    assert!(live.scroll_changed("bundle0.pick", range(18.0)));
+    assert!(live.scroll_changed("bundle0.pick", range(36.0)));
+    assert!(!live.scroll_changed("bundle0.pick", range(f64::NAN)));
+    assert_eq!(
+        live.instances["bundle0"]
+            .events
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>(),
+        [Event::Scrolled {
+            view: "bundle0.pick".into(),
+            range: range(36.0)
+        }]
+    );
+    live.close_modal();
+    assert!(!live.scroll_changed("bundle0.pick", range(54.0)));
+}
+
 /// A secondary press (a right click) reaches the open bundle as its own event, only for a
 /// declared action, as primary presses do.
 #[test]

@@ -3,6 +3,7 @@ package experience
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"hash/crc32"
 	"image"
 	"image/png"
@@ -20,6 +21,7 @@ import (
 	"github.com/df-mc/dragonfly/server/item"
 	"github.com/df-mc/dragonfly/server/item/creative"
 	"github.com/df-mc/dragonfly/server/world"
+	"github.com/sandertv/gophertunnel/minecraft/resource"
 )
 
 // otherCounter is the block of "other", the probe artifact registered a second time under that id.
@@ -32,15 +34,18 @@ var registration struct {
 	reg  *Registry
 	// srv is the server whose New finalized the registries and built the resource pack.
 	srv *server.Server
-	err error
+	// pack is the resource pack that New built.
+	pack *resource.Pack
+	err  error
 }
 
-// registered registers the probe artifact and its copy "other", then creates an offline server,
-// which finalizes the registries and builds the resource pack. Only the first call does the work.
+// registered registers the probe artifact, its copy "other" and the visual Experiences "visual"
+// and "visual2", then creates an offline server, which finalizes the registries and builds the
+// resource pack. Only the first call does the work.
 func registered(t *testing.T) *Registry {
 	t.Helper()
 	registration.once.Do(func() {
-		registration.reg, registration.srv, registration.err = registerTestExperiences()
+		registration.reg, registration.srv, registration.pack, registration.err = registerTestExperiences()
 	})
 	if registration.err != nil {
 		t.Fatalf("registering the test Experiences: %v", registration.err)
@@ -48,26 +53,34 @@ func registered(t *testing.T) *Registry {
 	return registration.reg
 }
 
-func registerTestExperiences() (*Registry, *server.Server, error) {
+func registerTestExperiences() (*Registry, *server.Server, *resource.Pack, error) {
 	log := slog.New(slog.DiscardHandler)
 	sup, probe, err := StartSupervisor(runtimeBinary, probeDir, log)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	if err := sup.Close(); err != nil {
-		return nil, nil, err
-	}
-	reg, err := Register([]Loaded{probe, renamed(probe, "other")})
-	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	// The server reads its resource folder once, in Config, saves no world or players and listens
-	// nowhere.
+	// nowhere. Register reads the visual Experiences' files, so they may go once it is done.
 	dir, err := os.MkdirTemp("", "experience-server-")
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	defer os.RemoveAll(dir)
+	visual, err := visualExperience(filepath.Join(dir, "visual"), "visual", true)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	visual2, err := visualExperience(filepath.Join(dir, "visual2"), "visual2", false)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	reg, err := Register([]Loaded{probe, renamed(probe, "other"), visual, visual2})
+	if err != nil {
+		return nil, nil, nil, err
+	}
 	uc := server.DefaultConfig()
 	uc.Server.AuthEnabled = false
 	uc.World.SaveData = false
@@ -75,21 +88,46 @@ func registerTestExperiences() (*Registry, *server.Server, error) {
 	uc.Resources.Folder = filepath.Join(dir, "resources")
 	conf, err := uc.Config(log)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
-	conf.Listeners = nil
-	return reg, conf.New(), nil
+	// New hands its listener factories the config holding the pack it built; this one keeps the
+	// pack and creates no listener.
+	var pack *resource.Pack
+	conf.Listeners = []func(server.Config) (server.Listener, error){
+		func(c server.Config) (server.Listener, error) {
+			if len(c.Resources) > 0 {
+				pack = c.Resources[len(c.Resources)-1]
+			}
+			return nil, errors.New("the tests listen nowhere")
+		},
+	}
+	srv := conf.New()
+	return reg, srv, pack, nil
 }
 
-// renamed is loaded as the Experience id, its blocks moved into that namespace.
+// renamed is loaded as the Experience id, its blocks, their states and its items moved into that
+// namespace.
+// It renames no state in a visual, so it serves blocks without one.
 func renamed(loaded Loaded, id string) Loaded {
 	out := loaded
 	out.ID = id
 	out.Blocks = nil
+	move := func(name string) string {
+		_, short, _ := strings.Cut(name, ":")
+		return id + ":" + short
+	}
 	for _, def := range loaded.Blocks {
-		_, name, _ := strings.Cut(def.ID, ":")
-		def.ID = id + ":" + name
+		def.ID = move(def.ID)
+		def.States = slices.Clone(def.States)
+		for i := range def.States {
+			def.States[i].Name = move(def.States[i].Name)
+		}
 		out.Blocks = append(out.Blocks, def)
+	}
+	out.Items = nil
+	for _, def := range loaded.Items {
+		def.ID = move(def.ID)
+		out.Items = append(out.Items, def)
 	}
 	return out
 }
@@ -246,11 +284,11 @@ func TestMiningMapsToBreakInfo(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			def := testBlock("mining:block", path)
 			def.Mining = tc.mining
-			bt, err := newBlockType("mining", def, map[string]image.Image{})
+			bt, err := newBlockType("mining", def, newAssetCache())
 			if err != nil {
 				t.Fatalf("newBlockType: %v", err)
 			}
-			b := Block{bt}
+			b := Block{t: bt}
 			info := b.BreakInfo()
 			if info.Hardness != tc.hardness {
 				t.Errorf("hardness %v, want %v", info.Hardness, tc.hardness)

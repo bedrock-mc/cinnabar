@@ -1,6 +1,6 @@
 id = "probe"
 version = "0.1.0"
-api = "0.4"
+api = "0.5"
 data-schema = 1
 
 # The channels the probe sends on, as a client part of it would declare them. The runtime ignores

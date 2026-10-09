@@ -109,6 +109,25 @@ pub struct GuiSize {
     pub scale: f64,
 }
 
+/// What a modal's scroll view shows along its scrolling axis, in GUI units.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ScrollRange {
+    /// How far the content is scrolled, from 0 to `content` - `viewport`.
+    pub offset: f64,
+    pub viewport: f64,
+    pub content: f64,
+}
+
+impl ScrollRange {
+    /// Whether every length is finite and not negative.
+    pub fn valid(&self) -> bool {
+        [self.offset, self.viewport, self.content]
+            .iter()
+            .all(|value| value.is_finite() && *value >= 0.0)
+    }
+}
+
 impl GuiSize {
     /// Whether every dimension is finite and positive.
     pub fn valid(&self) -> bool {

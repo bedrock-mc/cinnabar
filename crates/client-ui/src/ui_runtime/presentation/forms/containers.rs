@@ -507,6 +507,38 @@ impl Cells<'_> {
     }
 }
 
+/// The player's main inventory (slots 9 to 35) and hotbar as vanilla's `inventory_items` and
+/// `hotbar_items` rows, pushing each drawn icon into `icons`.
+pub(super) fn player_rows(
+    player_runtime: &player_state::PlayerState,
+    runtime: &UiRuntime,
+    frame: &HudFrame,
+    icons: &mut Vec<IconRef>,
+) -> [Vec<CollectionItem>; 2] {
+    let ledger = runtime.inventory_ledger(player_runtime);
+    let mut cells = Cells { frame, icons };
+    let player_icon = |index: usize| frame.inventory_icons.0.get(index).copied().flatten();
+    let inventory = (9..36)
+        .map(|index| {
+            cells.cell(
+                ledger.displayed_stack(index as u8),
+                player_icon(index),
+                frame.durability.player[index],
+            )
+        })
+        .collect();
+    let hotbar = (0..9)
+        .map(|index| {
+            cells.cell(
+                ledger.displayed_stack(index as u8),
+                player_icon(index),
+                frame.hotbar_durability[index],
+            )
+        })
+        .collect();
+    [inventory, hotbar]
+}
+
 fn screen_data(
     player_runtime: &player_state::PlayerState,
     runtime: &UiRuntime,
@@ -524,28 +556,10 @@ fn screen_data(
     let mut data = DataSource::new();
     // Bindings the controller does not answer read as false, as in vanilla.
     data.set_strict(true);
-    let mut cells = Cells { frame, icons };
-    let player_icon = |index: usize| frame.inventory_icons.0.get(index).copied().flatten();
-    let inventory = (9..36)
-        .map(|index| {
-            cells.cell(
-                ledger.displayed_stack(index as u8),
-                player_icon(index),
-                frame.durability.player[index],
-            )
-        })
-        .collect();
+    let [inventory, hotbar] = player_rows(player_runtime, runtime, frame, icons);
     data.set_collection("inventory_items", inventory);
-    let hotbar = (0..9)
-        .map(|index| {
-            cells.cell(
-                ledger.displayed_stack(index as u8),
-                player_icon(index),
-                frame.hotbar_durability[index],
-            )
-        })
-        .collect();
     data.set_collection("hotbar_items", hotbar);
+    let mut cells = Cells { frame, icons };
     survival_globals(&mut data, title);
     match layout {
         ScreenLayout::Personal { book } | ScreenLayout::Workbench { book } => {
