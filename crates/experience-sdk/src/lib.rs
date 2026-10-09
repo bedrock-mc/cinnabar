@@ -27,6 +27,8 @@ mod value;
 pub mod client;
 #[cfg(feature = "declarations")]
 pub mod declarations;
+#[cfg(feature = "declarations")]
+pub mod mod_manifest;
 #[cfg(feature = "server")]
 pub mod server;
 

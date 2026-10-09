@@ -10,7 +10,7 @@ use serde::Deserialize;
 
 use super::ModRuntime;
 
-/// Selects an ordered set of components, each with its own grants.
+/// Selects an ordered set of components and packages, each with its own grants.
 pub(super) const SET_ENV: &str = "CINNABAR_MOD_SET";
 const MAX_SET_BYTES: usize = 16 * 1024;
 
@@ -26,16 +26,43 @@ struct ModSet {
     mods: Vec<SetEntry>,
 }
 
+/// One set entry names a bare component or a package directory, never both.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SetEntry {
-    component: PathBuf,
+    #[serde(default)]
+    component: Option<PathBuf>,
+    #[serde(default)]
+    package: Option<PathBuf>,
     #[serde(default)]
     grants: ModGrants,
 }
 
+/// Where a set entry's mod comes from.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) enum ModSource {
+    Component(PathBuf),
+    /// A package's permissions need both its manifest's ask and the entry's grant.
+    Package(PathBuf),
+}
+
+impl ModSource {
+    pub(super) fn path(&self) -> &Path {
+        match self {
+            Self::Component(path) | Self::Package(path) => path,
+        }
+    }
+
+    pub(super) fn load(&self, grants: ModGrants) -> anyhow::Result<ModHost> {
+        match self {
+            Self::Component(path) => ModHost::load_with_grants(path, grants),
+            Self::Package(dir) => ModHost::load_package_with_grants(dir, grants),
+        }
+    }
+}
+
 /// Reads a bounded set file; its order is the load order.
-pub(super) fn read_set(path: &Path) -> Result<Vec<(PathBuf, ModGrants)>, String> {
+pub(super) fn read_set(path: &Path) -> Result<Vec<(ModSource, ModGrants)>, String> {
     let mut bytes = Vec::new();
     std::fs::File::open(path)
         .and_then(|file| {
@@ -54,17 +81,23 @@ pub(super) fn read_set(path: &Path) -> Result<Vec<(PathBuf, ModGrants)>, String>
     if set.mods.is_empty() || set.mods.len() > MAX_LOADED_MODS {
         return Err(format!("a mod set lists 1 to {MAX_LOADED_MODS} components"));
     }
-    if let Some(entry) = set.mods.iter().find(|entry| !entry.component.is_absolute()) {
-        return Err(format!(
-            "mod set component {} must be absolute",
-            entry.component.display()
-        ));
-    }
-    Ok(set
-        .mods
+    set.mods
         .into_iter()
-        .map(|entry| (entry.component, entry.grants))
-        .collect())
+        .map(|entry| {
+            let source = match (entry.component, entry.package) {
+                (Some(path), None) => ModSource::Component(path),
+                (None, Some(dir)) => ModSource::Package(dir),
+                _ => return Err("a mod set entry names one component or one package".into()),
+            };
+            if !source.path().is_absolute() {
+                return Err(format!(
+                    "mod set entry {} must be absolute",
+                    source.path().display()
+                ));
+            }
+            Ok((source, entry.grants))
+        })
+        .collect()
 }
 
 impl ModRuntime {
@@ -102,6 +135,18 @@ impl ModRuntime {
     /// The earliest cursor publisher owns the retained cursor replacement.
     pub(super) fn crosshair_owner(&self) -> Option<usize> {
         (0..self.host_count()).find(|&index| self.host(index).crosshair().is_some())
+    }
+
+    /// The mod whose package draws beside the container screens and receives their input.
+    pub(super) fn screen_owner(&self) -> Option<usize> {
+        screen_owner((0..self.host_count()).map(|index| {
+            let host = self.host(index);
+            let screens = host.screens();
+            (
+                host.package().is_some() && host.is_active() && host.grants().screen,
+                screens.overlay.is_some() || screens.view.is_some(),
+            )
+        }))
     }
 
     /// Every mod's label in load order, joined and cut to the plain-text limit.
@@ -261,6 +306,17 @@ impl Merged {
         self.commands.extend(host.take_commands());
         self.cues.extend(host.take_cues());
     }
+}
+
+/// Of mods in load order, each `(may draw, draws)`: the earliest that draws an overlay or view,
+/// else the earliest that may draw one.
+fn screen_owner(mods: impl Iterator<Item = (bool, bool)> + Clone) -> Option<usize> {
+    let eligible = mods.enumerate().filter(|(_, (may, _))| *may);
+    eligible
+        .clone()
+        .find(|(_, (_, draws))| *draws)
+        .or_else(|| eligible.clone().next())
+        .map(|(index, _)| index)
 }
 
 /// Joins labels with a separator, cut at a char boundary within the plain-text limit.

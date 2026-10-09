@@ -502,6 +502,7 @@ fn install(world: &mut World, update: Update) {
                         registration_request: Some((update.generation, update.request_id.clone())),
                         suspended: false,
                         hud_editor_owner: None,
+                        screens: Default::default(),
                     });
                     ("loaded", None, Some(candidate.identity))
                 }

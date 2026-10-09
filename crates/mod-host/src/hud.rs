@@ -159,7 +159,7 @@ mod tests {
                 ..Default::default()
             },
         ] {
-            let mut state = State::new(grants, String::new());
+            let mut state = State::new(grants, String::new(), Default::default());
             state.controls.frame.focused = true;
             state.controls.frame.panel_open = true;
             assert!(open_editor(&mut state, preview.into()).unwrap().is_err());
@@ -173,6 +173,7 @@ mod tests {
                 ..Default::default()
             },
             String::new(),
+            Default::default(),
         );
         assert!(open_editor(&mut state, preview.into()).unwrap().is_err());
         state.controls.frame.focused = true;
@@ -204,6 +205,7 @@ mod tests {
                 ..Default::default()
             },
             String::new(),
+            Default::default(),
         );
         state.hud.editor_result = Some(EditorResult {
             saved: true,
@@ -232,6 +234,7 @@ mod tests {
                 ..Default::default()
             },
             String::new(),
+            Default::default(),
         );
         assert!(
             set_content(&mut state, "x".repeat(MAX_HUD_BYTES + 1))

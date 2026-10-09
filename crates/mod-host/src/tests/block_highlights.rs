@@ -47,7 +47,11 @@ fn block_highlights_reset_on_trap_and_successful_reload() {
     assert!(!host.is_active());
     assert!(host.block_highlights().is_none());
     let (_directory, mut host) = load("call $selection", "", true);
-    std::fs::write(&host.path, source("", "", false)).unwrap();
+    std::fs::write(
+        _directory.path().join("highlight.wat"),
+        source("", "", false),
+    )
+    .unwrap();
     assert!(host.reload_if_changed().unwrap());
     assert!(host.block_highlights().is_none());
 }

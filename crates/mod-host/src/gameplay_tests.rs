@@ -48,7 +48,7 @@ fn granted() -> ModGrants {
 }
 
 fn state(grants: ModGrants) -> State {
-    let mut state = State::new(grants, String::new());
+    let mut state = State::new(grants, String::new(), Default::default());
     state.snapshot = Some(snapshot());
     state.world.mobs = vec![mob(3.0)];
     state

@@ -1,0 +1,16 @@
+[package]
+name = "screen-probe-mod"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+experience-sdk = { path = "../../../crates/experience-sdk", default-features = false }
+mod-api = { path = "../../../crates/mod-api" }
+
+[build-dependencies]
+experience-sdk = { path = "../../../crates/experience-sdk", default-features = false, features = ["declarations"] }
