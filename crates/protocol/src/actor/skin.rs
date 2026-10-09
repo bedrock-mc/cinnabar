@@ -5,7 +5,7 @@ use valentine::bedrock::version::v1_26_51::SerializedSkinRef;
 use super::{MAX_PLAYER_LIST_SKIN_BYTES, MAX_STANDARD_SKIN_SIDE};
 
 mod alpha;
-pub use alpha::normalize_classic_skin_rgba8;
+pub use alpha::{normalize_classic_skin_rgba8, normalize_custom_skin_rgba8};
 mod animation;
 pub use animation::{SkinAnimation, SkinAnimationKind};
 pub use render_api::{

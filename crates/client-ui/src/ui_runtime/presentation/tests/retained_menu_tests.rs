@@ -223,6 +223,7 @@ fn publication_updates_changed_menu_icons_without_copying_unchanged_snapshots() 
         let prepared = PendingUiPublication {
             inventory: runtime.capture_presentation_inventory(&player),
             preview: PreviewCapture {
+                ready: true,
                 skin: None,
                 pose: Default::default(),
                 shown: false,
@@ -265,6 +266,7 @@ fn publication_updates_changed_menu_icons_without_copying_unchanged_snapshots() 
     let prepared = PendingUiPublication {
         inventory: runtime.capture_presentation_inventory(&player),
         preview: PreviewCapture {
+            ready: true,
             skin: None,
             pose: Default::default(),
             shown: false,

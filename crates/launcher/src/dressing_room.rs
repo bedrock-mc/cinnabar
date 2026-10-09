@@ -1,4 +1,4 @@
-//! Classic skin choices shared by the launcher and presentation.
+//! Skin choices shared by the launcher and presentation.
 
 use std::sync::Arc;
 
@@ -13,20 +13,23 @@ pub enum SkinModel {
     #[default]
     Classic,
     Slim,
+    Custom,
 }
 
 impl SkinModel {
     pub const fn arm_size(self) -> &'static str {
         match self {
-            Self::Classic => "wide",
+            Self::Classic | Self::Custom => "wide",
             Self::Slim => "slim",
         }
     }
 
+    /// Classic model identifiers; custom skins carry their own identifier in the source.
     pub const fn geometry(self) -> &'static str {
         match self {
             Self::Classic => "geometry.humanoid.custom",
             Self::Slim => "geometry.humanoid.customSlim",
+            Self::Custom => "",
         }
     }
 }
@@ -83,6 +86,8 @@ pub struct DressingRoomSkin {
     pub path: String,
     pub imported: bool,
     pub model: SkinModel,
+    /// Minimum engine version carried by the selected model.
+    pub engine_version: Arc<str>,
     pub skin: protocol::StandardSkin,
 }
 

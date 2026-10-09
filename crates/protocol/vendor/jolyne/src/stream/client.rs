@@ -138,6 +138,15 @@ pub struct ClientSkin {
     pub height: u32,
     pub arm_size: String,
     pub cape: Option<ClientCape>,
+    pub geometry: Option<ClientSkinGeometry>,
+}
+
+/// Client-authored model inputs; all strings are raw and encoded only when signing ClientData.
+#[derive(Debug, Clone)]
+pub struct ClientSkinGeometry {
+    pub resource_patch: String,
+    pub geometry_data: String,
+    pub engine_version: String,
 }
 
 #[derive(Debug, Clone)]

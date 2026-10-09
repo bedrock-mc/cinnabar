@@ -28,7 +28,10 @@ mod raw_text;
 mod respawn;
 mod settings;
 mod skin_change;
-pub use skin_change::{cape_content_id, player_skin_packet, set_skin_packet_uuid};
+pub use skin_change::{
+    DEFAULT_SKIN_GEOMETRY_ENGINE_VERSION, cape_content_id, player_skin_packet,
+    set_skin_packet_engine_version, set_skin_packet_uuid,
+};
 mod socket_transport;
 pub mod store_control;
 mod transfer;
@@ -62,6 +65,7 @@ pub use actor::{
     MAX_STANDARD_SKIN_SIDE, PlayerListEntry, PlayerListUpdateEvent, PlayerSkin,
     PlayerSkinUnavailable, SkinAnimation, SkinAnimationKind, SkinGeometrySource, SkinRgba8,
     StandardSkin, expand_legacy_skin_rgba8, normalize_classic_skin_rgba8,
+    normalize_custom_skin_rgba8,
 };
 pub use audio::{
     AudioEvent, LevelAudioEvent, LevelEventSound, MAX_AUDIO_IDENTIFIER_BYTES, PlayAudioEvent,
@@ -170,7 +174,7 @@ pub use item::{
 };
 pub use item_capacity::{ITEM_DEFAULT_MAX_STACK_SIZE, vanilla_item_capacity};
 pub use jolyne::GameData;
-pub use jolyne::stream::client::{ClientCape, ClientSkin};
+pub use jolyne::stream::client::{ClientCape, ClientSkin, ClientSkinGeometry};
 pub use jolyne::stream::{
     ResourcePackArchive, ResourcePackContentKey, ResourcePackHandoff, ResourcePackIdentity,
     ResourcePackStore,

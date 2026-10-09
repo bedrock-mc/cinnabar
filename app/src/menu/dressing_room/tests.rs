@@ -313,6 +313,7 @@ fn dressing_room_focus_excludes_selected_section_and_model_tabs() {
     let mut menu = MenuRuntime::new(false, 2, "focus tabs".to_owned());
     let view = launcher::dressing_room::DressingRoomView {
         skins: vec![launcher::dressing_room::DressingRoomSkin {
+            engine_version: protocol::DEFAULT_SKIN_GEOMETRY_ENGINE_VERSION.into(),
             id: "fixture".to_owned(),
             name: "Custom".to_owned(),
             path: "private.png".to_owned(),
@@ -412,4 +413,70 @@ fn busy_skin_name_cannot_receive_text_or_focus() {
         menu.dressing_room_focus(),
         vec![MenuAction::DressingRoom(Action::Cancel)]
     );
+}
+
+#[test]
+fn changing_only_the_skin_engine_version_updates_the_local_and_wire_selection() {
+    let mut view = DressingRoomView::default();
+    let skin = crate::player_skin::LocalPlayerSkin::generated_default("fixture").standard_skin();
+    view.skins = vec![launcher::dressing_room::DressingRoomSkin {
+        id: "fixture".into(),
+        name: "Fixture".into(),
+        path: String::new(),
+        imported: true,
+        model: SkinModel::Custom,
+        skin: skin.clone(),
+        engine_version: "1.12.0".into(),
+    }]
+    .into();
+    view.selected = Some(0);
+    let previous = Some((SkinModel::Custom, Arc::from("0.0.0")));
+    let outcome = Outcome::new(&view, Some(skin.clone()), previous, [9; 16], true);
+    assert!(outcome.changed);
+    let protocol::wire::valentine::bedrock::version::v1_26_51::McpePacketData::PlayerSkinPacket(
+        packet,
+    ) = outcome.packet.unwrap().data
+    else {
+        panic!("skin packet");
+    };
+    assert_eq!(
+        packet.serialized_skin.geometry_data_min_engine_version,
+        "1.12.0"
+    );
+    let unchanged = Outcome::new(
+        &view,
+        Some(skin),
+        Some((SkinModel::Custom, "1.12.0".into())),
+        [9; 16],
+        true,
+    );
+    assert!(!unchanged.changed);
+}
+
+#[test]
+fn custom_skin_focus_keeps_item_edits_without_classic_arm_choices() {
+    let mut menu = MenuRuntime::new(false, 2, "fixture custom focus".to_owned());
+    let selected = 0;
+    menu.dressing_room = Arc::new(DressingRoomView {
+        selected: Some(selected),
+        skins: vec![launcher::dressing_room::DressingRoomSkin {
+            id: "fixture".into(),
+            name: "Fixture".into(),
+            path: String::new(),
+            imported: true,
+            model: SkinModel::Custom,
+            skin: menu.player_skin.standard_skin(),
+            engine_version: protocol::DEFAULT_SKIN_GEOMETRY_ENGINE_VERSION.into(),
+        }]
+        .into(),
+        ..Default::default()
+    });
+    let actions = menu.dressing_room_focus();
+    assert!(
+        !actions
+            .iter()
+            .any(|action| matches!(action, MenuAction::DressingRoom(Action::SetModel(_))))
+    );
+    assert!(actions.contains(&MenuAction::DressingRoom(Action::BeginRename(selected))));
+    assert!(actions.contains(&MenuAction::DressingRoom(Action::BeginDelete(selected))));
 }

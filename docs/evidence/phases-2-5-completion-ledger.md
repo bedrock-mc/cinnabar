@@ -59,11 +59,11 @@
 
 | Field | Evidence |
 |---|---|
-| Owning plan/task | Not started |
-| Deterministic tests | Not started |
-| Review commit | Not started |
-| Live/native witness | Not started |
-| Performance/resource witness | Not started |
+| Owning plan/task | `plan.md`: local custom models; static imports reuse actor preparation. |
+| Deterministic tests | Focused custom-import, rollback, persistence, login/update encoding, preview-worker and shared first/third-person preparation tests pass. |
+| Review commit | The PR description records independent review of static imports; full parity review remains open. |
+| Live/native witness | Headless before/after preview and local-avatar frames, restart persistence and second-client login/update frames are attached to the PR; complete native parity remains open. |
+| Performance/resource witness | Worker preparation is bounded; hardware frame budgets remain open. |
 | Final status | Open |
 
 ## P4.4-LIVE-ACTOR
