@@ -678,6 +678,9 @@ pub(crate) struct ActorStore {
     items: ItemStateStore,
     actions: RemoteActionStore,
     remote_state_excluded_runtime_id: Option<u64>,
+    /// Health admitted before the client-fed local actor is created.
+    pending_local_health: Option<ActorAttribute>,
+    local_health_skips: u64,
     /// Key of the synthetic local-player profile, present only while the player list carries no
     /// self entry; cleared when a real echo takes over or the actor set is reset.
     synthetic_local_uuid: Option<[u8; 16]>,
@@ -730,6 +733,8 @@ mod dropped;
 mod entities;
 mod fire;
 mod hurt;
+mod local_health;
+pub use local_health::DEFAULT_PLAYER_HEALTH;
 mod lifecycle;
 mod lightning;
 mod mount;

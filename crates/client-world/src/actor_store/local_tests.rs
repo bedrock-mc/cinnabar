@@ -98,6 +98,111 @@ fn local_flight_fact_clears_when_the_actor_session_or_dimension_is_reset() {
 }
 
 #[test]
+fn local_health_pending_a_pose_cannot_cross_sessions() {
+    let mut store = ActorStore::new(1, 0);
+    store.exclude_remote_state_for(1);
+    store.set_local_health(1, 0);
+    store.begin_session(2, 0);
+    store.sync_local_player(1, -1, &local_feed(0.0, 0.0));
+    let actor = store.get(1).unwrap();
+    assert!(!actor.status.dead);
+    assert!(!actor.attributes.contains_key("minecraft:health"));
+}
+
+#[test]
+fn local_health_pending_a_pose_cannot_override_newer_spawn_health() {
+    let mut store = ActorStore::new(1, 0);
+    store.exclude_remote_state_for(1);
+    store.set_local_health(1, 0);
+    let ActorEvent::Spawn(mut spawn) = super::tests::spawn(1, -1) else {
+        unreachable!();
+    };
+    spawn.attributes = Arc::from([protocol::ActorAttribute {
+        name: "minecraft:health".into(),
+        min: 0.0,
+        max: crate::DEFAULT_PLAYER_HEALTH,
+        current: 7.0,
+        default: None,
+        modifiers: Default::default(),
+    }]);
+    store.apply(1, 1, ActorEvent::Spawn(spawn));
+    store.apply(
+        1,
+        2,
+        ActorEvent::Remove(protocol::ActorRemoveEvent {
+            dimension: 0,
+            unique_id: -1,
+        }),
+    );
+    store.sync_local_player(1, -1, &local_feed(0.0, 0.0));
+    assert!(!store.get(1).unwrap().status.dead);
+}
+
+#[test]
+fn local_health_respects_retained_attribute_capacity_and_invalid_ranges() {
+    let mut store = ActorStore::new(1, 0);
+    store.exclude_remote_state_for(1);
+    store.sync_local_player(1, -1, &local_feed(0.0, 0.0));
+    let actor = store.actors.get_mut(&1).unwrap();
+    for index in 0..protocol::MAX_ACTOR_ATTRIBUTES {
+        let name = format!("attribute{index}");
+        actor.attributes.insert(
+            name.clone().into(),
+            protocol::ActorAttribute {
+                name: name.into(),
+                min: 0.0,
+                max: 1.0,
+                current: 0.0,
+                default: None,
+                modifiers: Default::default(),
+            },
+        );
+    }
+    store.set_local_health(1, 0);
+    assert_eq!(
+        store.get(1).unwrap().attributes.len(),
+        protocol::MAX_ACTOR_ATTRIBUTES
+    );
+    assert!(!store.get(1).unwrap().status.dead);
+    assert_eq!(store.local_health_skips(), 1);
+    store.actors.get_mut(&1).unwrap().attributes.clear();
+    store.set_local_health(1, 7);
+    store
+        .actors
+        .get_mut(&1)
+        .unwrap()
+        .attributes
+        .get_mut("minecraft:health")
+        .unwrap()
+        .max = f32::NAN;
+    store.set_local_health(1, 0);
+    assert!(!store.get(1).unwrap().status.dead);
+    assert_eq!(store.local_health_skips(), 2);
+}
+
+#[test]
+fn local_health_survives_dimension_actor_recreation() {
+    let mut store = ActorStore::new(1, 0);
+    store.exclude_remote_state_for(1);
+    store.sync_local_player(1, -1, &local_feed(0.0, 0.0));
+    store.set_local_health(1, 7);
+    assert_eq!(store.reset_dimension(1, 1, 2), ActorApplyResult::Reset);
+    store.sync_local_player(1, -1, &local_feed(0.0, 0.0));
+    assert_eq!(
+        store.get(1).unwrap().attributes["minecraft:health"].current,
+        7.0
+    );
+    store.set_local_health(1, i32::MIN);
+    assert!(store.get(1).unwrap().status.dead);
+    store.set_local_health(1, i32::MAX);
+    assert_eq!(
+        store.get(1).unwrap().attributes["minecraft:health"].current,
+        crate::DEFAULT_PLAYER_HEALTH
+    );
+    assert!(!store.get(1).unwrap().status.dead);
+}
+
+#[test]
 fn local_player_sync_spawns_a_client_owned_player_actor_then_updates_it() {
     let mut store = ActorStore::new(1, 0);
     store.exclude_remote_state_for(1);

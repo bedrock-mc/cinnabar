@@ -296,6 +296,11 @@ impl WorldAuthority {
                 // A game-mode update changes the UI only when its unique ID matches
                 // the local player.
                 let event = match event {
+                    UiEvent::Hud(protocol::HudEvent::Health { health }) => {
+                        self.actors
+                            .set_local_health(self.local_player_runtime_id, health);
+                        UiEvent::Hud(protocol::HudEvent::Health { health })
+                    }
                     UiEvent::ShowCredits(event)
                         if event.runtime_id != self.local_player_runtime_id =>
                     {

@@ -101,6 +101,8 @@ impl ActorStore {
             items: crate::item::ItemStateStore::diagnostic(),
             actions: crate::action::RemoteActionStore::diagnostic(),
             remote_state_excluded_runtime_id: None,
+            pending_local_health: None,
+            local_health_skips: 0,
             synthetic_local_uuid: None,
             synthetic_local_skin: None,
             synthetic_local_skin_pending: false,
@@ -211,6 +213,7 @@ impl ActorStore {
             ActorSnapshot::local_player(unique_id, runtime_id, revision, uuid, username, feed);
         self.unique_to_runtime.insert(unique_id, runtime_id);
         self.actors.insert(runtime_id, actor);
+        self.apply_pending_local_health(runtime_id);
         if let Some(actor) = self.actors.get(&runtime_id) {
             self.animation
                 .insert(self.session_id, self.dimension, actor);
@@ -284,6 +287,8 @@ impl ActorStore {
     #[cfg(test)]
     pub(crate) fn begin_session(&mut self, session_id: u64, dimension: i32) {
         self.session_id = session_id;
+        self.pending_local_health = None;
+        self.local_health_skips = 0;
         self.local_flying = false;
         self.dimension = dimension;
         self.latest_sequence = 0;
@@ -321,6 +326,12 @@ impl ActorStore {
         }
         self.dimension = dimension;
         self.local_flying = false;
+        self.pending_local_health = self
+            .remote_state_excluded_runtime_id
+            .and_then(|runtime_id| self.actors.get(&runtime_id))
+            .and_then(|actor| actor.attributes.get("minecraft:health"))
+            .cloned()
+            .or_else(|| self.pending_local_health.take());
         self.actors.clear();
         self.unique_to_runtime.clear();
         self.rider_to_ridden.clear();
@@ -505,6 +516,7 @@ impl ActorStore {
                 }
             }
             ActorEvent::Attributes(update) => {
+                self.retain_unspawned_local_health(update.runtime_id, &update.attributes);
                 let Some(actor) = self.actors.get_mut(&update.runtime_id) else {
                     return ActorApplyResult::MissingActor;
                 };
@@ -658,6 +670,16 @@ impl ActorStore {
         let held_item = spawn.held_item.clone();
         self.actors
             .insert(runtime_id, ActorSnapshot::from_spawn(spawn, sequence));
+        if self.remote_state_excluded_runtime_id == Some(runtime_id) {
+            if self.actors[&runtime_id]
+                .attributes
+                .contains_key("minecraft:health")
+            {
+                self.pending_local_health = None;
+            } else {
+                self.apply_pending_local_health(runtime_id);
+            }
+        }
         self.unique_to_runtime.insert(unique_id, runtime_id);
         self.adopt_spawned_unique_id(runtime_id);
         self.prune_unlisted_players();
