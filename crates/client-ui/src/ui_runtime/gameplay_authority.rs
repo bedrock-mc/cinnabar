@@ -125,6 +125,18 @@ impl UiRuntime {
         self.local_actor_damage = damage;
     }
 
+    /// Projects health from its actor attribute range alongside the completed damage countdown.
+    pub fn publish_local_actor_health(&mut self, actor: Option<&client_world::ActorSnapshot>) {
+        self.publish_local_actor_damage(actor.map(|actor| actor.status.damage));
+        if let Some(health) = actor
+            .and_then(|actor| actor.attributes.get("minecraft:health"))
+            .and_then(hud_adapter::attribute_stat)
+        {
+            self.clear_death_reason_on_recovery(Some(health));
+            self.hud.set_health(Some(health));
+        }
+    }
+
     /// Millis timestamp when the selected slot or item identity last changed,
     /// for the selected-item label fade.
     pub const fn selected_item_changed_millis(&self) -> Option<u64> {

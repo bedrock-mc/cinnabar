@@ -20,13 +20,12 @@ pub(crate) fn publish_local_actor_damage(
     let Some(ui) = ui.as_deref_mut() else {
         return;
     };
-    let damage = world
+    let actor = world
         .stream
         .as_ref()
         .filter(|_| world.fatal_error.is_none() && world.transfer_notice.is_none())
-        .and_then(|stream| stream.authority().actor(stream.local_player_runtime_id()))
-        .map(|actor| actor.status.damage);
-    ui.publish_local_actor_damage(damage);
+        .and_then(|stream| stream.authority().actor(stream.local_player_runtime_id()));
+    ui.publish_local_actor_health(actor);
 }
 
 /// App-owned inputs borrowed only while this frame's presentation is prepared.
