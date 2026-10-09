@@ -31,7 +31,7 @@ impl<A: Copy> Default for PressSounds<A> {
     }
 }
 
-impl<A: Copy> PressSounds<A> {
+impl<A: Copy + PartialEq> PressSounds<A> {
     /// Revokes presses when their screen loses input ownership.
     pub fn clear(&mut self) {
         self.touches.fill(None);
@@ -83,7 +83,8 @@ impl<A: Copy> PressSounds<A> {
         press.cancelled |= (point[0] - press.point[0]).abs() > TOUCH_SLOP
             || (point[1] - press.point[1]).abs() > TOUCH_SLOP;
         let due = !held || (oreui && now - press.started >= TOUCH_PRESS_SECONDS);
-        let emit = (!press.cancelled && !press.sounded && due).then_some(press.action);
+        let accepted = held || action == Some(press.action);
+        let emit = (!press.cancelled && !press.sounded && due && accepted).then_some(press.action);
         press.sounded |= emit.is_some();
         if !held {
             *slot = None;
@@ -163,6 +164,16 @@ mod tests {
         assert_eq!(
             sounds.touch(1, Some(ACTION), [0.0; 2], false, false, 3.1, false),
             Some(ACTION)
+        );
+    }
+
+    #[test]
+    fn releasing_outside_the_control_does_not_sound() {
+        let mut sounds = PressSounds::default();
+        sounds.touch(1, Some(ACTION), [0.0; 2], true, true, 1.0, true);
+        assert_eq!(
+            sounds.touch(1, None, [1.0, 0.0], false, false, 1.05, true),
+            None
         );
     }
 

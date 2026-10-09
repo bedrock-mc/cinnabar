@@ -620,7 +620,6 @@ pub(crate) fn drive_menu_input(
     let pointer_just_pressed =
         mouse_buttons.just_pressed(MouseButton::Left) || (pointer_pressed && !menu.pointer_down);
     gui_scale_drag.sounds.observe(
-        &menu,
         &presentation,
         pointer,
         pointer_just_pressed,

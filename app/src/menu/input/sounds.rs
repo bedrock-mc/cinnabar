@@ -19,21 +19,24 @@ impl MenuPressSounds {
         self.touches.clear();
     }
 
+    /// Cancels old touches when a screen or popup takes ownership.
+    fn scope(&mut self, context: Option<(MenuScreen, bool)>) {
+        if self.context != context {
+            self.context = context;
+            self.touches.clear();
+        }
+    }
+
     /// Plays pointer press sounds without repeating on holds, releases or action dispatch.
-    #[allow(clippy::too_many_arguments)]
     pub(super) fn observe(
         &mut self,
-        menu: &MenuRuntime,
         presentation: &UiPresentationRuntime,
         pointer: Option<UiPoint>,
         pressed: bool,
         touches: &Touches,
         now: f64,
     ) {
-        let context = (menu.screen(), menu.dialog.is_some());
-        if self.context.replace(context) != Some(context) {
-            self.touches.clear();
-        }
+        self.scope(presentation.drawn_menu_context());
         if pressed && let Some(action) = pointer.and_then(|point| presentation.hit_test_menu(point))
         {
             presentation.play_menu_sound(action);
@@ -67,4 +70,27 @@ pub(super) fn activate_focused(menu: &mut MenuRuntime, presentation: &UiPresenta
         presentation.play_menu_sound(menu.live_settings_action(action));
     }
     menu.activate_focused();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use launcher::menu::MenuAction;
+
+    #[test]
+    fn popup_ownership_revokes_a_background_touch() {
+        let mut sounds = MenuPressSounds::default();
+        let action = MenuAction::Navigate(MenuScreen::Servers);
+        sounds.scope(Some((MenuScreen::Home, false)));
+        sounds
+            .touches
+            .touch(1, Some(action), [0.0; 2], true, true, 1.0, true);
+        sounds.scope(Some((MenuScreen::Home, true)));
+        assert_eq!(
+            sounds
+                .touches
+                .touch(1, Some(action), [0.0; 2], false, false, 1.05, true),
+            None
+        );
+    }
 }
