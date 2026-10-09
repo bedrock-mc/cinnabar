@@ -40,7 +40,7 @@ pub(crate) fn import(
             Some(
                 skin_import::parse_skin_geometry(
                     &read_bounded(
-                        &geometry_path,
+                        geometry_path,
                         protocol::MAX_SKIN_GEOMETRY_SOURCE_BYTES as u64,
                     )?,
                     None,
