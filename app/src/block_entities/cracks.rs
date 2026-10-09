@@ -128,9 +128,9 @@ impl CrackClock {
                     track.rate_per_tick = entry.server_value;
                     track.rate_since_seconds = now_seconds;
                 }
-                // Vanilla drops a crack once its progress completes.
+                // Cracks become visible after progress begins and disappear at completion.
                 let progress = track.progress(now_seconds);
-                (progress < 1.0).then(|| CrackInstance {
+                (progress > 0.0 && progress < 1.0).then(|| CrackInstance {
                     block: entry.position,
                     stage: stage_for_progress(progress),
                     shape: shape_of(entry),
@@ -162,8 +162,13 @@ mod tests {
         let mut clock = CrackClock::default();
         // 1/20 of the block per tick: half done after ten ticks (half a second).
         let entries = [crack([1, 2, 3], 7, 3_277)];
+        assert!(
+            clock
+                .instances(&entries, 0.0, |_| CrackShape::Cube)
+                .is_empty()
+        );
         assert_eq!(
-            clock.instances(&entries, 0.0, |_| CrackShape::Cube)[0].stage,
+            clock.instances(&entries, 0.01, |_| CrackShape::Cube)[0].stage,
             0
         );
         assert_eq!(
@@ -188,9 +193,14 @@ mod tests {
                 .is_empty()
         );
         let restarted = [crack([1, 2, 3], 8, 3_277)];
-        assert_eq!(
+        assert!(
             clock
                 .instances(&restarted, 100.0, |_| CrackShape::Cube)
+                .is_empty()
+        );
+        assert_eq!(
+            clock
+                .instances(&restarted, 100.01, |_| CrackShape::Cube)
                 .len(),
             1
         );
@@ -211,8 +221,13 @@ mod tests {
             5
         );
         let restarted = [crack([0; 3], 2, 3_277)];
+        assert!(
+            clock
+                .instances(&restarted, 0.6, |_| CrackShape::Cube)
+                .is_empty()
+        );
         assert_eq!(
-            clock.instances(&restarted, 0.6, |_| CrackShape::Cube)[0].stage,
+            clock.instances(&restarted, 0.61, |_| CrackShape::Cube)[0].stage,
             0
         );
     }
@@ -223,5 +238,53 @@ mod tests {
         clock.instances(&[crack([5; 3], 1, 100)], 0.0, |_| CrackShape::Cube);
         clock.instances(&[], 1.0, |_| CrackShape::Cube);
         assert!(clock.tracks.is_empty());
+    }
+
+    /// A zero-speed start has no visible progress; updates preserve a paused stage.
+    #[test]
+    fn stationary_cracks_wait_for_progress_and_pause_without_resetting() {
+        let mut clock = CrackClock::default();
+        let stationary = [crack([1, 2, 3], 7, 0)];
+        assert!(
+            clock
+                .instances(&stationary, 0.0, |_| CrackShape::Cube)
+                .is_empty()
+        );
+        assert!(
+            clock
+                .instances(&stationary, 5.0, |_| CrackShape::Cube)
+                .is_empty()
+        );
+        let moving = [crack([1, 2, 3], 7, 3_277)];
+        assert!(
+            clock
+                .instances(&moving, 5.0, |_| CrackShape::Cube)
+                .is_empty()
+        );
+        assert_eq!(
+            clock.instances(&moving, 5.5, |_| CrackShape::Cube)[0].stage,
+            5
+        );
+        assert_eq!(
+            clock.instances(&stationary, 5.5, |_| CrackShape::Cube)[0].stage,
+            5
+        );
+        assert_eq!(
+            clock.instances(&stationary, 10.0, |_| CrackShape::Cube)[0].stage,
+            5
+        );
+        assert_eq!(
+            clock.instances(&moving, 10.0, |_| CrackShape::Cube)[0].stage,
+            5
+        );
+        assert_eq!(
+            clock.instances(&moving, 10.4, |_| CrackShape::Cube)[0].stage,
+            9
+        );
+        assert!(
+            clock
+                .instances(&moving, 10.5, |_| CrackShape::Cube)
+                .is_empty()
+        );
     }
 }
