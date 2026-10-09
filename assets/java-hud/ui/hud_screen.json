@@ -19,28 +19,28 @@
         "heart_rend@hud.heart_renderer": {
           "anchor_from": "bottom_left",
           "anchor_to": "top_left",
-          "offset": [ 0, -39 ]
+          "offset": [ 0, "$cinnabar_status_row_y" ]
         }
       },
       {
         "armor_rend@hud.armor_renderer": {
           "anchor_from": "bottom_left",
           "anchor_to": "top_left",
-          "offset": [ 0, -39 ]
+          "offset": [ 0, "$cinnabar_status_row_y" ]
         }
       },
       {
         "hunger_rend@hud.hunger_renderer": {
           "anchor_from": "bottom_right",
           "anchor_to": "top_left",
-          "offset": [ -1, -39 ]
+          "offset": [ -1, "$cinnabar_status_row_y" ]
         }
       },
       {
         "horse_heart_rend@hud.horse_heart_renderer": {
           "anchor_from": "bottom_right",
           "anchor_to": "top_left",
-          "offset": [ -1, -39 ],
+          "offset": [ -1, "$cinnabar_status_row_y" ],
           "bindings": [
             {
               "binding_name": "#survival_horse_hearts",
@@ -126,13 +126,13 @@
     ]
   },
 
-  // Green level number outlined in black, its top 35 GUI px above the bottom.
+  // Green level number outlined in black, aligned with the survival status row.
   "java_level_number": {
     "type": "panel",
     "size": [ "100%cm", "100%cm" ],
     "anchor_from": "bottom_middle",
     "anchor_to": "top_middle",
-    "offset": [ 0, -35 ],
+    "offset": [ 0, "$cinnabar_status_row_y" ],
     "layer": 7,
     "controls": [
       { "outline_left@hud.java_level_label": { "offset": [ -1, 0 ], "color": [ 0.0, 0.0, 0.0 ] } },
