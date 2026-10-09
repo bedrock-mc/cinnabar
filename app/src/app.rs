@@ -909,6 +909,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
                 .chain()
                 .after(arm_shutdown_watchdog),
         );
+        render::install_main_phase_spans(&mut app);
     }
     app.add_plugins((
         ActorRenderPlugin,

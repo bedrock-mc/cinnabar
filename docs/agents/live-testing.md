@@ -149,8 +149,10 @@ suppressed slow frames and the violated budgets. `main_ms` covers `First` to
 `Last`; `between_updates_ms` covers the rest of the preceding start-to-start
 interval. `main_stages` lists spans completed during that update, and
 `window_stages` includes the intervening render work, both in descending
-milliseconds. These are overlapping wall-time spans, not additive CPU or GPU
-time. A worker span can begin in an earlier frame; its full duration appears in
+milliseconds. `main_pre_update`, `main_fixed_update`, `main_update` and
+`main_post_update` split `main_frame` by schedule phase, so work no named stage
+covers still shows which phase spent it. These are overlapping wall-time spans,
+not additive CPU or GPU time. A worker span can begin in an earlier frame; its full duration appears in
 the window where it completes. `surface_preparation` includes drawable
 acquisition and schedule overhead; `render_submission` includes CPU render
 graph execution, queue submission and presentation. A large interval with
