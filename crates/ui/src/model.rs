@@ -72,10 +72,11 @@ pub enum UiVisual {
         uv: [u16; 4],
         color: [u8; 4],
     },
-    /// A sprite whose vertices carry [`UI_STYLE_GRAYSCALE`]/[`UI_STYLE_BILINEAR`].
+    /// A sprite retaining fractional texel edges, optionally carrying
+    /// [`UI_STYLE_GRAYSCALE`]/[`UI_STYLE_BILINEAR`].
     StyledSprite {
         texture_page: u16,
-        uv: [u16; 4],
+        uv: [f32; 4],
         color: [u8; 4],
         style: u8,
     },

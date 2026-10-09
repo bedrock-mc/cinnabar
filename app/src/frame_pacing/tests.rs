@@ -154,7 +154,7 @@ fn an_unchanged_cadence_is_not_republished() {
     assert!(!app.world().resource_ref::<FramePacing>().is_changed());
 }
 
-/// Automatic adds no second clock: the display paces FIFO with VSync on or off.
+/// Automatic adds no application cadence; presentation or rendering determines the rate.
 #[test]
 fn automatic_limits_leave_pacing_to_the_display() {
     let (app, _) = pacing_app((None, false), FrameRateLimit::Automatic);
@@ -182,7 +182,7 @@ fn a_launch_cap_drives_both_the_present_mode_and_the_cadence() {
         (
             Some(30),
             FrameRateLimit::Unlimited,
-            PresentMode::Fifo,
+            PresentMode::Mailbox,
             hz(30),
         ),
     ] {

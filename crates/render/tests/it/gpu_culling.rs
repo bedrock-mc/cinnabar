@@ -838,15 +838,12 @@ impl Raster {
 /// The two-phase GPU path, from any stale history, draws exactly the CPU path's pixels.
 #[test]
 fn gpu_culled_terrain_rasterises_exactly_like_the_cpu_culled_path() {
-    // The args address quads through a non-zero `first_instance`, as production does.
-    let features =
-        wgpu::Features::MULTI_DRAW_INDIRECT_COUNT | wgpu::Features::INDIRECT_FIRST_INSTANCE;
+    // Fixed-count args address quads through a non-zero `first_instance`, as production does.
+    let features = wgpu::Features::INDIRECT_FIRST_INSTANCE;
     let Some(gpu) = Gpu::for_fixture_with("gpu culled terrain raster", features) else {
         return;
     };
-    // Replay args on backends whose count draws cannot preserve the shader's base offsets.
-    let indirect = gpu.device.features().contains(features)
-        && model::count_draw_offsets_supported(gpu.backend);
+    let indirect = gpu.device.features().contains(features);
     let terrain = terrain();
     let slots = terrain.records.len();
     let enabled = enabled_words(|slot| slot != 7, slots);
@@ -902,6 +899,9 @@ fn gpu_culled_terrain_rasterises_exactly_like_the_cpu_culled_path() {
         let mut pyramid_mips = 0;
         for phase in CullPhase::ALL {
             let mut encoder = gpu.device.create_command_encoder(&Default::default());
+            if indirect && phase == CullPhase::Early {
+                encoder.clear_buffer(&culler.storage.args, 0, None);
+            }
             let pyramid = (phase == CullPhase::Late)
                 .then(|| gpu_target.pyramid(&gpu, &culler.kernels, &mut encoder));
             if let Some(pyramid) = &pyramid {
@@ -913,12 +913,10 @@ fn gpu_culled_terrain_rasterises_exactly_like_the_cpu_culled_path() {
                 let mut pass = gpu_target.pass(&mut encoder, phase == CullPhase::Early);
                 for stream in [CullStream::Solid, CullStream::Cutout] {
                     raster.bind(&mut pass, stream);
-                    pass.multi_draw_indexed_indirect_count(
+                    pass.multi_draw_indexed_indirect(
                         &culler.storage.args,
                         u64::from(args_region(culler.storage.capacity, phase, stream)) * 4,
-                        &culler.storage.draw_counts,
-                        u64::from(count_index(phase, stream)) * 4,
-                        culler.storage.capacity * stream.draws_per_record(),
+                        slots as u32 * stream.draws_per_record(),
                     );
                 }
                 drop(pass);

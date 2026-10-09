@@ -131,7 +131,6 @@ pub(in crate::chunk) fn select_chunk_draw_mode(
     downlevel_flags: DownlevelFlags,
     features: WgpuFeatures,
     backend: Backends,
-    debug_assertions: bool,
 ) -> ChunkDrawMode {
     if !downlevel_flags.contains(DownlevelFlags::BASE_VERTEX) {
         ChunkDrawMode::Unsupported
@@ -141,12 +140,6 @@ pub(in crate::chunk) fn select_chunk_draw_mode(
         // WindowServer. Keep the equivalent CPU-validated direct draws on
         // Metal until indirect submission has passed a native stability gate.
         && !backend.contains(Backends::METAL)
-        // wgpu 27's DX12 indirect validator expands each indexed command
-        // from 20 to 32 bytes for special constants, but its debug batching
-        // assertion still assumes the unexpanded stride. Preserve MDI in
-        // release builds and use the equivalent direct path while that
-        // validator is active.
-        && !(debug_assertions && backend.contains(Backends::DX12))
     {
         ChunkDrawMode::MultiDrawIndirect
     } else {
