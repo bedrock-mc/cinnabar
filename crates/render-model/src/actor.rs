@@ -7,6 +7,7 @@ mod rig;
 mod skin;
 mod skin_poly_mesh;
 mod surface;
+mod texel_fit;
 mod texture_mesh;
 
 pub use asset_geometry::{
@@ -36,6 +37,7 @@ pub use skin::{
     prepare_actor_skin_cached,
 };
 pub use surface::ActorRigSurface;
+pub use texel_fit::fit_rgba_within;
 pub use texture_mesh::{attachable_geometry, attachable_raster_frame};
 
 mod slot_recency;
