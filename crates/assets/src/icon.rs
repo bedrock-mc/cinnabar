@@ -17,14 +17,17 @@ use crate::AssetError;
 
 mod block;
 pub use block::{
-    BLOCK_ITEM_FACE_SIDE, BLOCK_ITEM_SHEET_GRID, BLOCK_ITEM_SHEET_SIZE, IconBlockSheet,
-    MAX_ICON_BLOCK_SHEETS, compose_block_item_sheet,
+    BLOCK_ITEM_FACE_SIDE, BLOCK_ITEM_SHEET_GRID, BLOCK_ITEM_SHEET_SIZE, IconBlockModel,
+    IconBlockSheet, MAX_ICON_BLOCK_SHEETS, compose_block_item_sheet,
 };
 
 pub const ICON_CARRIER_MAGIC: [u8; 8] = *b"MCBEICO1";
 pub const ICON_CARRIER_VERSION: u32 = 1;
 const BLOCK_ICON_CARRIER_MAGIC: [u8; 8] = *b"MCBEICO2";
 const BLOCK_ICON_CARRIER_VERSION: u32 = 2;
+/// Adds the block model thumbnail table after the carried sheets.
+const MODEL_ICON_CARRIER_MAGIC: [u8; 8] = *b"MCBEICO3";
+const MODEL_ICON_CARRIER_VERSION: u32 = 3;
 /// One sprite per compiled item visual at most.
 pub const MAX_ICON_SPRITES: usize = crate::item::MAX_ITEM_VISUALS;
 /// One entry per item visual plus one per alias at most.
@@ -60,6 +63,7 @@ pub struct RuntimeIconCatalog {
     sprites: Arc<[IconSprite]>,
     entries: Arc<[IconEntry]>,
     block_sheets: Arc<[IconBlockSheet]>,
+    block_models: Arc<[IconBlockModel]>,
 }
 
 impl std::fmt::Debug for RuntimeIconCatalog {
@@ -69,6 +73,7 @@ impl std::fmt::Debug for RuntimeIconCatalog {
             .field("sprites", &self.sprites.len())
             .field("entries", &self.entries.len())
             .field("block_sheets", &self.block_sheets.len())
+            .field("block_models", &self.block_models.len())
             .finish_non_exhaustive()
     }
 }
@@ -81,11 +86,12 @@ impl RuntimeIconCatalog {
         if bytes.len() < HEADER_BYTES + HASH_BYTES {
             return Err(invalid("unsupported icon carrier header"));
         }
-        let carried = bytes[..8] == BLOCK_ICON_CARRIER_MAGIC
-            && read_u32(bytes, 8)? == BLOCK_ICON_CARRIER_VERSION;
-        if !carried
-            && (bytes[..8] != ICON_CARRIER_MAGIC || read_u32(bytes, 8)? != ICON_CARRIER_VERSION)
-        {
+        let version = read_u32(bytes, 8)?;
+        let modelled =
+            bytes[..8] == MODEL_ICON_CARRIER_MAGIC && version == MODEL_ICON_CARRIER_VERSION;
+        let carried = modelled
+            || (bytes[..8] == BLOCK_ICON_CARRIER_MAGIC && version == BLOCK_ICON_CARRIER_VERSION);
+        if !carried && (bytes[..8] != ICON_CARRIER_MAGIC || version != ICON_CARRIER_VERSION) {
             return Err(invalid("unsupported icon carrier header"));
         }
         let sprite_count = read_u32(bytes, 12)? as usize;
@@ -179,6 +185,23 @@ impl RuntimeIconCatalog {
             cursor += 8;
         }
         block::validate(&block_sheets, &sprites)?;
+        let mut block_models = Vec::new();
+        if modelled {
+            let count = read_u32(bytes, cursor)? as usize;
+            cursor += 4;
+            if count > MAX_ICON_SPRITES {
+                return Err(invalid("block model thumbnail count exceeds bound"));
+            }
+            block_models.reserve(count);
+            for _ in 0..count {
+                block_models.push(IconBlockModel {
+                    sprite: read_u32(bytes, cursor)?,
+                    visual: crate::BlockVisualId(read_u32(bytes, cursor + 4)?),
+                });
+                cursor += 8;
+            }
+            block::validate_models(&block_models, &sprites)?;
+        }
         if cursor != payload_end {
             return Err(invalid("trailing icon carrier payload"));
         }
@@ -187,6 +210,7 @@ impl RuntimeIconCatalog {
             sprites: sprites.into(),
             entries: entries.into(),
             block_sheets: block_sheets.into(),
+            block_models: block_models.into(),
         })
     }
 
@@ -209,6 +233,12 @@ impl RuntimeIconCatalog {
     #[must_use]
     pub fn block_sheets(&self) -> &[IconBlockSheet] {
         &self.block_sheets
+    }
+
+    /// Thumbnails rasterised from world block geometry, by sprite index.
+    #[must_use]
+    pub fn block_models(&self) -> &[IconBlockModel] {
+        &self.block_models
     }
 
     /// The sprite for one `(identifier, metadata)` item-visual key, falling
@@ -259,10 +289,23 @@ pub fn encode_icon_catalog_with_block_sheets(
     entries: &[IconEntry],
     block_sheets: &[IconBlockSheet],
 ) -> Result<Vec<u8>, AssetError> {
+    encode_icon_catalog_with_blocks(source_manifest_sha256, sprites, entries, block_sheets, &[])
+}
+
+/// Also binds block model thumbnails to the world states they were rasterised from. Empty
+/// tables keep the earlier layouts byte for byte.
+pub fn encode_icon_catalog_with_blocks(
+    source_manifest_sha256: [u8; 32],
+    sprites: &[IconSprite],
+    entries: &[IconEntry],
+    block_sheets: &[IconBlockSheet],
+    block_models: &[IconBlockModel],
+) -> Result<Vec<u8>, AssetError> {
     if sprites.len() > MAX_ICON_SPRITES || entries.len() > MAX_ICON_ENTRIES {
         return Err(invalid("icon sprite or entry count exceeds bound"));
     }
     block::validate(block_sheets, sprites)?;
+    block::validate_models(block_models, sprites)?;
     let mut payload = Vec::new();
     for sprite in sprites {
         if sprite.width == 0
@@ -353,12 +396,29 @@ pub fn encode_icon_catalog_with_block_sheets(
         )
         .ok_or_else(|| invalid("icon carrier exceeds bound"))?;
     }
+    if !block_models.is_empty() {
+        let mut table = Vec::with_capacity(4 + block_models.len() * 8);
+        table.extend_from_slice(&(block_models.len() as u32).to_le_bytes());
+        for model in block_models {
+            table.extend_from_slice(&model.sprite.to_le_bytes());
+            table.extend_from_slice(&model.visual.0.to_le_bytes());
+        }
+        crate::encoding::append_bounded(
+            &mut payload,
+            &table,
+            MAX_ICON_CARRIER_BYTES,
+            HEADER_BYTES + HASH_BYTES,
+        )
+        .ok_or_else(|| invalid("icon carrier exceeds bound"))?;
+    }
     let payload_end = HEADER_BYTES
         .checked_add(payload.len())
         .filter(|end| end + HASH_BYTES <= MAX_ICON_CARRIER_BYTES)
         .ok_or_else(|| invalid("icon carrier exceeds bound"))?;
     let mut bytes = vec![0u8; HEADER_BYTES];
-    let (magic, version) = if block_sheets.is_empty() {
+    let (magic, version) = if !block_models.is_empty() {
+        (MODEL_ICON_CARRIER_MAGIC, MODEL_ICON_CARRIER_VERSION)
+    } else if block_sheets.is_empty() {
         (ICON_CARRIER_MAGIC, ICON_CARRIER_VERSION)
     } else {
         (BLOCK_ICON_CARRIER_MAGIC, BLOCK_ICON_CARRIER_VERSION)

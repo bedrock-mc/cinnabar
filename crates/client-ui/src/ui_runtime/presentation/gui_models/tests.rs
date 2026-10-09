@@ -154,3 +154,70 @@ fn live_pose_changes_only_geometry_and_original_skin_keeps_its_density() {
     super::super::dynamic_textures::observe_session(&mut presentation, 2);
     assert!(presentation.gui_models.skin.is_none());
 }
+
+#[test]
+fn review_faded_block_models_keep_single_layer_thumbnail_opacity() {
+    use assets::gui_item::{GuiBlockQuad, cube_face};
+    use ui::{UiNodeId, UiPoint, UiRect};
+    let mut presentation = UiPresentationRuntime::new(super::super::tests::fixture_font()).unwrap();
+    let icon = IconRef {
+        page: 1,
+        uv: [0, 0, 16, 16],
+        glint: false,
+    };
+    let quads: Vec<_> = [assets::BlockFace::Down, assets::BlockFace::Up]
+        .map(|face| {
+            let (corners, uvs) = cube_face(face);
+            (
+                GuiBlockQuad {
+                    corners,
+                    uvs,
+                    material: 0,
+                },
+                icon,
+            )
+        })
+        .into();
+    presentation.gui_models.enabled = true;
+    presentation
+        .gui_models
+        .models
+        .insert(icon_key(icon), item_gui::block_model(&quads).unwrap());
+    presentation
+        .gui_models
+        .optional_models
+        .insert(icon_key(icon));
+    let bounds = UiRect::new(
+        UiPoint::new(0.0, 0.0).unwrap(),
+        UiPoint::new(32.0, 32.0).unwrap(),
+    )
+    .unwrap();
+    for alpha in [0, 127, 254, 255] {
+        for glint in [false, true] {
+            let visual = if glint {
+                UiVisual::GlintSprite {
+                    texture_page: icon.page,
+                    uv: icon.uv,
+                    color: [255, 255, 255, alpha],
+                }
+            } else {
+                UiVisual::Sprite {
+                    texture_page: icon.page,
+                    uv: icon.uv,
+                    color: [255, 255, 255, alpha],
+                }
+            };
+            let original = UiNode::new(UiNodeId::new(1), None, bounds).with_visual(visual);
+            let mut nodes = [original.clone()];
+            presentation.apply_gui_models(&mut nodes);
+            if alpha == 255 {
+                assert!(matches!(nodes[0].visual(), UiVisual::Mesh(_)));
+            } else {
+                assert_eq!(
+                    nodes[0], original,
+                    "faded block controls keep one thumbnail layer"
+                );
+            }
+        }
+    }
+}

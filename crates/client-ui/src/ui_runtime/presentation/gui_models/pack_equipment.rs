@@ -36,12 +36,7 @@ impl UiPresentationRuntime {
         };
         if let Some(catalog) = prepared.source.as_deref() {
             if self.gui_models.enabled {
-                let first =
-                    self.textures.dynamic_start() + MODEL_PAGE + self.gui_models.pages.len();
-                let mut atlas = atlas::Atlas::new(
-                    first as u16,
-                    MODEL_PAGES.saturating_sub(self.gui_models.pages.len()),
-                );
+                let mut atlas = atlas::Atlas::new(0, MODEL_PAGES);
                 let wanted = catalog
                     .bindings()
                     .iter()
@@ -60,10 +55,25 @@ impl UiPresentationRuntime {
                     })
                     .and_then(|()| atlas.finish());
                 match result {
-                    Ok((pages, textures)) => {
-                        prepared.pages = pages;
-                        prepared.textures = textures;
-                        prepared.usable = true;
+                    Ok((pages, mut textures)) => {
+                        let first = self.textures.dynamic_start() + MODEL_PAGE;
+                        if self.gui_models.pages.len() + pages.len() > MODEL_PAGES
+                            && self.gui_models.discard_optional_models(first)
+                            && let Err(error) = self.install_gui_fire()
+                        {
+                            bevy::log::warn!(%error, "actor flames exceed the GUI texture budget");
+                        }
+                        if self.gui_models.pages.len() + pages.len() <= MODEL_PAGES {
+                            let first = (first + self.gui_models.pages.len()) as u16;
+                            for icon in textures.values_mut() {
+                                icon.page += first;
+                            }
+                            prepared.pages = pages;
+                            prepared.textures = textures;
+                            prepared.usable = true;
+                        } else {
+                            bevy::log::warn!("pack armor exceeds the GUI texture budget");
+                        }
                     }
                     Err(error) => {
                         bevy::log::warn!(%error, "pack armor exceeds the GUI texture budget")
