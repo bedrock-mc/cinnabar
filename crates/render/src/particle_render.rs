@@ -65,7 +65,8 @@ pub struct ParticleGpuFrame {
     opaque: Arc<[ParticleInstance]>,
     blend: Arc<[ParticleInstance]>,
     add: Arc<[ParticleInstance]>,
-    centroid: [f32; 3],
+    blend_centroid: [f32; 3],
+    add_centroid: [f32; 3],
 }
 
 impl ParticleGpuFrame {
@@ -75,21 +76,26 @@ impl ParticleGpuFrame {
     }
 
     fn set_lists(&mut self, lists: DrawLists, camera: [f32; 3]) {
-        let mut sum = [0.0f32; 3];
-        for instance in &lists.blend {
-            for (axis, total) in sum.iter_mut().enumerate() {
-                *total += instance.center_light[axis];
-            }
-        }
-        self.centroid = if lists.blend.is_empty() {
-            camera
-        } else {
-            sum.map(|total| total / lists.blend.len() as f32)
-        };
+        self.blend_centroid = draw_centroid(&lists.blend, camera);
+        self.add_centroid = draw_centroid(&lists.add, camera);
         self.blend = lists.blend.into();
         self.add = lists.add.into();
         self.opaque = lists.opaque.into();
     }
+}
+
+/// Returns a draw list's centroid, falling back to the camera for an empty list.
+fn draw_centroid(instances: &[ParticleInstance], camera: [f32; 3]) -> [f32; 3] {
+    if instances.is_empty() {
+        return camera;
+    }
+    let mut sum = [0.0; 3];
+    for instance in instances {
+        for (axis, total) in sum.iter_mut().enumerate() {
+            *total += instance.center_light[axis];
+        }
+    }
+    sum.map(|total| total / instances.len() as f32)
 }
 
 /// Camera frustum basis from a Bevy camera transform and projection.
@@ -193,7 +199,8 @@ struct ParticleGpu {
     opaque_range: Range<u32>,
     blend_range: Range<u32>,
     add_range: Range<u32>,
-    centroid: [f32; 3],
+    blend_centroid: [f32; 3],
+    add_centroid: [f32; 3],
     bind_group: Option<BindGroup>,
     bound: (Option<BufferId>, Option<BufferId>, u64),
 }
@@ -220,7 +227,8 @@ fn init_particle_gpu(mut commands: Commands, render_device: Res<RenderDevice>) {
         opaque_range: 0..0,
         blend_range: 0..0,
         add_range: 0..0,
-        centroid: [0.0; 3],
+        blend_centroid: [0.0; 3],
+        add_centroid: [0.0; 3],
         bind_group: None,
         bound: (None, None, 0),
     });
@@ -281,7 +289,8 @@ fn prepare_particle_resources(
     }
 
     let (opaque, blend, add) = (frame.opaque.len(), frame.blend.len(), frame.add.len());
-    gpu.centroid = frame.centroid;
+    gpu.blend_centroid = frame.blend_centroid;
+    gpu.add_centroid = frame.add_centroid;
     gpu.opaque_range = 0..opaque as u32;
     gpu.blend_range = opaque as u32..(opaque + blend) as u32;
     gpu.add_range = (opaque + blend) as u32..(opaque + blend + add) as u32;
@@ -577,12 +586,10 @@ fn queue_particles(
             functions.id::<DrawParticles<{ ParticleMode::Add as u8 }>>(),
         )
     };
-    let centroid = Vec3::from_array(gpu.centroid);
     for (view_entity, main_entity, view, msaa) in &views {
         let Some(phase) = phases.get_mut(&view.retained_view_entity) else {
             continue;
         };
-        let distance = view.rangefinder3d().distance(&centroid);
         for (material, draw_function, populated) in [
             (
                 ParticleMode::Opaque,
@@ -605,16 +612,21 @@ fn queue_particles(
             ) else {
                 continue;
             };
+            let distance = match material {
+                ParticleMode::Opaque => f32::NEG_INFINITY,
+                ParticleMode::Blend => view
+                    .rangefinder3d()
+                    .distance(&Vec3::from_array(gpu.blend_centroid)),
+                ParticleMode::Add => view
+                    .rangefinder3d()
+                    .distance(&Vec3::from_array(gpu.add_centroid)),
+            };
             phase.add(Transparent3d {
                 entity: (view_entity, *main_entity),
                 pipeline: pipeline_id,
                 draw_function,
                 // Depth-writing sprites must precede translucent terrain and surface overlays.
-                distance: if material == ParticleMode::Opaque {
-                    f32::NEG_INFINITY
-                } else {
-                    distance
-                },
+                distance,
                 batch_range: 0..1,
                 extra_index: PhaseItemExtraIndex::None,
                 indexed: false,
