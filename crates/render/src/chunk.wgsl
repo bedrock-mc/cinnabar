@@ -257,8 +257,10 @@ fn vertex(
 // this many pixels outward within its own face before rasterization.
 const CUBE_SEAM_SEAL_PIXELS: f32 = 1.0 / 64.0;
 // Below this sine between a corner's two projected edges, those edges advance
-// proportionally less, so a face seen nearly edge-on barely lengthens.
-const CUBE_SEAM_MIN_EDGE_SINE: f32 = 0.25;
+// proportionally less, so a sliver-thin face lengthens by at most
+// CUBE_SEAM_SEAL_PIXELS / CUBE_SEAM_MIN_EDGE_SINE, a quarter pixel. Floors
+// seen at standing height along a diagonal reach sines near 0.03.
+const CUBE_SEAM_MIN_EDGE_SINE: f32 = 1.0 / 16.0;
 // Largest in-plane step per unit of clip w, reached only when an edge points
 // along the view ray and moving along it barely changes the screen position.
 const CUBE_SEAM_MAX_STEP: f32 = 1.0 / 64.0;

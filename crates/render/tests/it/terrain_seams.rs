@@ -413,9 +413,13 @@ struct Scene {
     name: &'static str,
     terrain: Vec<Section>,
     eye: Vec3,
+    yaw: f32,
     pitch: f32,
     fov_y: f32,
+    /// Scales the jittered eye translation.
     jitter: f32,
+    /// Scales the jittered yaw and pitch.
+    turn: f32,
     full_frame: bool,
 }
 
@@ -431,9 +435,11 @@ impl Scene {
             name,
             terrain: terrain([centre[0] - 96, 0, centre[1]], 12, 14, section),
             eye: Vec3::new(centre[0] as f32, 68.0, centre[1] as f32 - 20.0),
+            yaw: 0.0,
             pitch: 0.66,
             fov_y: 0.6,
             jitter: 1.0,
+            turn: 1.0,
             full_frame: true,
         }
     }
@@ -449,9 +455,11 @@ impl Scene {
             name,
             terrain: terrain([centre[0] - 96, 0, centre[1]], 12, 14, section),
             eye: Vec3::new(centre[0] as f32, 12.0, centre[1] as f32 + 8.0),
+            yaw: 0.0,
             pitch: 0.12,
             fov_y: 1.2,
             jitter: 1.0,
+            turn: 1.0,
             full_frame: false,
         }
     }
@@ -462,37 +470,83 @@ impl Scene {
             name,
             terrain: terrain([centre[0] - 48, 0, centre[1]], 6, 8, section),
             eye: Vec3::new(centre[0] as f32, 3.0, centre[1] as f32 + 32.0),
+            yaw: 0.0,
             pitch: 0.85,
             fov_y: 1.2,
             jitter: 0.25,
+            turn: 1.0,
             full_frame: true,
         }
     }
 
-    /// Renders jittered views and fails on any frame that leaves terrain
-    /// pixels uncovered, listing each such frame's uncovered pixel count.
+    /// A narrow view along the floor's diagonal from standing eye height,
+    /// 26 to 300 blocks away. The floor's two axes project almost opposite
+    /// there, so each quad is a thin sliver.
+    fn grazing(
+        name: &'static str,
+        section: fn([i32; 3], bool) -> Section,
+        centre: [i32; 2],
+    ) -> Self {
+        Self {
+            name,
+            terrain: terrain([centre[0], 0, centre[1]], 14, 14, section),
+            eye: Vec3::new(centre[0] as f32 + 2.0, 2.62, centre[1] as f32 + 2.0),
+            yaw: std::f32::consts::FRAC_PI_4,
+            pitch: (1.62_f32 / 150.0).atan(),
+            fov_y: 0.1,
+            jitter: 1.0,
+            turn: 0.05,
+            full_frame: false,
+        }
+    }
+
+    /// Frames, among jittered views drawn through `vertex`, that leave
+    /// terrain pixels uncovered, with their uncovered pixel counts.
+    fn cracks(
+        &self,
+        fixture: &Fixture,
+        streams: &Streams,
+        background: &[u8],
+        vertex: &str,
+    ) -> Vec<(u32, usize)> {
+        let mut cracked = Vec::new();
+        for frame in 0..FRAMES {
+            let (offset, yaw, pitch) = jitter(frame);
+            let view = View::new(
+                self.eye + offset * self.jitter,
+                self.yaw + yaw * self.turn,
+                self.pitch + pitch * self.turn,
+                self.fov_y,
+            );
+            let pixels = fixture.render(streams, &view, vertex, "fragment_solid");
+            let count = uncovered_pixels(&pixels, background, self.full_frame);
+            if count > 0 {
+                gpu_snapshot::save(&format!("{}-{vertex}-{frame}", self.name), &pixels);
+                cracked.push((frame, count));
+            }
+        }
+        cracked
+    }
+
+    /// Fails on any frame that leaves terrain pixels uncovered, after the
+    /// same views drawn unsealed show that this adapter opens the cracks.
     fn assert_sealed(&self) {
         let Some(fixture) = Fixture::new(self.name) else {
             return;
         };
         let streams = Streams::new(&fixture.gpu, &self.terrain);
         let background = fixture.background(&streams, self.eye);
-        let mut cracked = Vec::new();
-        for frame in 0..FRAMES {
-            let (offset, yaw, pitch) = jitter(frame);
-            let view = View::new(
-                self.eye + offset * self.jitter,
-                yaw,
-                self.pitch + pitch,
-                self.fov_y,
+        if self
+            .cracks(&fixture, &streams, &background, "unsealed_vertex")
+            .is_empty()
+        {
+            eprintln!(
+                "skipping {}: missing crack-reproducing adapter fixture (unsealed T-junctions left no gaps)",
+                self.name
             );
-            let pixels = fixture.render(&streams, &view, "seam_vertex", "fragment_solid");
-            let count = uncovered_pixels(&pixels, &background, self.full_frame);
-            if count > 0 {
-                gpu_snapshot::save(&format!("{}-{frame}", self.name), &pixels);
-                cracked.push((frame, count));
-            }
+            return;
         }
+        let cracked = self.cracks(&fixture, &streams, &background, "seam_vertex");
         assert!(
             cracked.is_empty(),
             "{}: the clear colour shows through terrain seams (frame, pixels): {cracked:?}",
@@ -514,6 +568,11 @@ fn distant_merged_terraces_leave_no_seam_pixels() {
 #[test]
 fn horizon_merged_floors_leave_no_seam_pixels() {
     Scene::horizon("horizon floor seams", flat_section, [0, 0]).assert_sealed();
+}
+
+#[test]
+fn grazing_diagonal_merged_floors_leave_no_seam_pixels() {
+    Scene::grazing("grazing floor seams", flat_section, [0, 0]).assert_sealed();
 }
 
 #[test]

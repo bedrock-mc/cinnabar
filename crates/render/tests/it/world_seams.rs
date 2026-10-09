@@ -458,18 +458,18 @@ fn far_from_origin_floors_of_cubes_slabs_and_water_leave_no_seam_pixels() {
         return;
     };
     let centres = [[5_000, -5_000], [-12_000, 9_000], [20_000, -20_000]];
-    let control = centres
-        .iter()
-        .map(|&centre| {
-            floor_cracks(
-                &fixture,
-                centre,
-                ["absolute_model_vertex", "absolute_liquid_vertex"],
-            )
-            .len()
-        })
-        .sum::<usize>();
-    if control == 0 {
+    let control = centres.map(|centre| {
+        floor_cracks(
+            &fixture,
+            centre,
+            ["absolute_model_vertex", "absolute_liquid_vertex"],
+        )
+        .len()
+    });
+    eprintln!(
+        "mixed world seams: world-coordinate control frames with cracks per centre {control:?}"
+    );
+    if control.iter().sum::<usize>() == 0 {
         eprintln!(
             "skipping mixed world seams: missing seam-reproducing adapter fixture (world-coordinate slabs and water left no cracks)"
         );
