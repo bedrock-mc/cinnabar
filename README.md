@@ -37,7 +37,7 @@ On Debian/Ubuntu, install `libwayland-dev` and `libudev-dev` first.
 
 Vanilla behaviour is the default. Everything below is extra:
 
-| | |
+| Feature | What it does |
 | --- | --- |
 | **Performance** | Frame pacing, latency and chunk streaming built to beat vanilla. |
 | **Live resource packs** | Add, remove or reorder packs without leaving the world. |
