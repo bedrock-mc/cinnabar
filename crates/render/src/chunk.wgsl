@@ -1,4 +1,4 @@
-#import cinnabar::material::{MaterialGpu, materials, positional_material, material_face_is_visible, material_uses_native_leaf_colour, material_uses_overlay_mask, material_uv_flags, material_leaf_shade}
+#import cinnabar::material::{MaterialGpu, materials, positional_material, texture_gradient_scale, material_face_is_visible, material_uses_native_leaf_colour, material_uses_overlay_mask, material_uv_flags, material_leaf_shade}
 #ifdef ENHANCED_SHADOW
 #import cinnabar::enhanced_caster::caster_clip
 #endif
@@ -339,15 +339,19 @@ fn sample_texture_ref(
     let layer = i32(texture_ref & 0x7ffu);
 #ifdef ENHANCED
     if (page == 0u) {
-        return textureSampleGrad(block_textures_page_0, block_sampler, uv, layer, uv_dx, uv_dy);
+        let scale = texture_gradient_scale(texture_ref, textureDimensions(block_textures_page_0, 0));
+        return textureSampleGrad(block_textures_page_0, block_sampler, uv, layer, uv_dx * scale, uv_dy * scale);
     }
-    return textureSampleGrad(block_textures_page_1, block_sampler, uv, layer, uv_dx, uv_dy);
+    let scale = texture_gradient_scale(texture_ref, textureDimensions(block_textures_page_1, 0));
+    return textureSampleGrad(block_textures_page_1, block_sampler, uv, layer, uv_dx * scale, uv_dy * scale);
 #else
     // Mips and animation frames interpolate the original encoded texture bytes.
     if (page == 0u) {
-        return textureSampleGrad(native_leaf_textures_page_0, block_sampler, uv, layer, uv_dx, uv_dy);
+        let scale = texture_gradient_scale(texture_ref, textureDimensions(native_leaf_textures_page_0, 0));
+        return textureSampleGrad(native_leaf_textures_page_0, block_sampler, uv, layer, uv_dx * scale, uv_dy * scale);
     }
-    return textureSampleGrad(native_leaf_textures_page_1, block_sampler, uv, layer, uv_dx, uv_dy);
+    let scale = texture_gradient_scale(texture_ref, textureDimensions(native_leaf_textures_page_1, 0));
+    return textureSampleGrad(native_leaf_textures_page_1, block_sampler, uv, layer, uv_dx * scale, uv_dy * scale);
 #endif
 }
 
@@ -363,9 +367,11 @@ fn sample_material_texture_ref(
     if (material_uses_native_leaf_colour(material_flags)) {
         let layer = i32(texture_ref & 0x7ffu);
         if ((texture_ref >> 31u) == 0u) {
-            return textureSampleGrad(native_leaf_textures_page_0, native_leaf_sampler, uv, layer, uv_dx, uv_dy);
+            let scale = texture_gradient_scale(texture_ref, textureDimensions(native_leaf_textures_page_0, 0));
+            return textureSampleGrad(native_leaf_textures_page_0, native_leaf_sampler, uv, layer, uv_dx * scale, uv_dy * scale);
         }
-        return textureSampleGrad(native_leaf_textures_page_1, native_leaf_sampler, uv, layer, uv_dx, uv_dy);
+        let scale = texture_gradient_scale(texture_ref, textureDimensions(native_leaf_textures_page_1, 0));
+        return textureSampleGrad(native_leaf_textures_page_1, native_leaf_sampler, uv, layer, uv_dx * scale, uv_dy * scale);
     }
 #endif
     return sample_texture_ref(texture_ref, uv, uv_dx, uv_dy);

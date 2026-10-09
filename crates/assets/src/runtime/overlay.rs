@@ -36,6 +36,9 @@ pub struct BlockOverlay {
     pub animations: Vec<Animation>,
     pub animation_frames: Vec<TextureRef>,
     pub texture: Option<TextureArray>,
+    /// Source pixel dimensions per layer, with mips built before array expansion.
+    /// Empty means the physical page size and legacy terrain mips are rebuilt at upload.
+    pub texture_source_sizes: Vec<[u16; 2]>,
     /// Canonical network hashes parallel to `visuals`; incomplete state identities are absent.
     pub hashes: Vec<Option<u32>>,
     pub material_overrides: Vec<MaterialOverride>,
@@ -73,6 +76,22 @@ impl RuntimeAssets {
         }
         if let Some(texture) = &overlay.texture {
             validate_texture(texture)?;
+        }
+        if !overlay.texture_source_sizes.is_empty() {
+            let base = overlay
+                .texture
+                .as_ref()
+                .and_then(|texture| texture.mips.first())
+                .map_or(0, |mip| mip.size);
+            if overlay.texture_source_sizes.len() != layers as usize
+                || overlay
+                    .texture_source_sizes
+                    .iter()
+                    .flatten()
+                    .any(|&size| !size.is_power_of_two() || u32::from(size) > base)
+            {
+                return Err(invalid("overlay source pixel dimensions are invalid"));
+            }
         }
         let material_base = offset(self.materials.len())?;
         let template_base = offset(self.model_templates.len())?;
@@ -292,6 +311,7 @@ impl RuntimeAssets {
             animations: animations.into_boxed_slice(),
             animation_frames: animation_frames.into_boxed_slice(),
             texture_pages: texture_pages.into_boxed_slice(),
+            overlay_texture_source_sizes: overlay.texture_source_sizes.clone().into_boxed_slice(),
             biomes: overlay
                 .biomes
                 .clone()
@@ -490,5 +510,52 @@ mod tests {
         let mut dangling = cube_overlay(page(16));
         dangling.visuals[0].faces[2] = 5;
         assert!(base.with_block_overlay(1, &dangling).is_err());
+    }
+
+    #[test]
+    fn source_pixel_dimensions_survive_overlay_admission() {
+        let base = RuntimeAssets::diagnostic();
+        let mut overlay = cube_overlay(page(64));
+        overlay.texture_source_sizes = vec![[16, 8]];
+        let session = base.with_block_overlay(1, &overlay).unwrap();
+        assert_eq!(
+            session.texture_source_size(TextureRef::new(1, 0).unwrap()),
+            [16, 8]
+        );
+        assert_eq!(session.texture_source_size(TextureRef::DIAGNOSTIC), [16; 2]);
+        for sizes in [
+            vec![[0, 8]],
+            vec![[128, 8]],
+            vec![[15, 8]],
+            vec![[16, 8]; 2],
+        ] {
+            overlay.texture_source_sizes = sizes;
+            assert!(base.with_block_overlay(1, &overlay).is_err());
+        }
+    }
+
+    #[test]
+    fn expanded_layers_retain_their_source_mips_for_terrain_upload() {
+        let mut texture = page(64);
+        for (index, pixel) in texture.mips[0].rgba8.chunks_exact_mut(4).enumerate() {
+            pixel.copy_from_slice(if index % 8 < 4 {
+                &[255, 0, 0, 255]
+            } else {
+                &[0, 0, 255, 255]
+            });
+        }
+        for mip in &mut texture.mips[1..] {
+            for pixel in mip.rgba8.chunks_exact_mut(4) {
+                pixel.copy_from_slice(&[127, 0, 127, 255]);
+            }
+        }
+        let mut overlay = cube_overlay(texture);
+        overlay.texture_source_sizes = vec![[16; 2]];
+        let session = RuntimeAssets::diagnostic()
+            .with_block_overlay(1, &overlay)
+            .unwrap();
+        let uploaded = session.terrain_texture_page(1).unwrap();
+        assert_eq!(&uploaded.mips[1].rgba8[..4], &[127, 0, 127, 255]);
+        assert!(session.terrain_texture_page(2).is_err());
     }
 }

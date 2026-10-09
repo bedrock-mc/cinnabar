@@ -27,7 +27,10 @@ use resource_pack::LayeredPackView;
 use self::{
     condition::StateVisual,
     geometry::{FACE_NAMES, FaceQuad, Geometry, geometry_catalog},
-    textures::{DecodedTexture, TextureCatalog, flipbook_frames, resample_square, shrink_to_max},
+    textures::{
+        DecodedTexture, TextureCatalog, admit_static_rectangle, flipbook_frames, shrink_to_max,
+        source_mip_chain,
+    },
 };
 
 const FULL_BLOCK: &str = "minecraft:geometry.full_block";
@@ -454,11 +457,14 @@ impl Builder<'_> {
         if available == 0 {
             return None;
         }
-        let texture = self.catalog.decode(key)?;
+        let mut texture = self.catalog.decode(key)?;
         // Bound frame count before cutting copies, and shrink each to MAX_TILE.
         let frames = match self.catalog.flipbook(key) {
             Some(flipbook) => flipbook_frames(&texture, flipbook, available.min(256), MAX_TILE),
-            None => vec![shrink_to_max(&texture, MAX_TILE)],
+            None => {
+                admit_static_rectangle(&mut texture);
+                vec![shrink_to_max(&texture, MAX_TILE)]
+            }
         };
         drop(texture);
         let added_bytes: usize = frames.iter().map(|frame| frame.rgba8.len()).sum();
@@ -497,6 +503,11 @@ impl Builder<'_> {
     }
 
     fn finish(mut self) -> Option<CompiledBlockOverlay> {
+        for source in &mut self.sources {
+            if let Source::Image(texture) = source {
+                admit_static_rectangle(texture);
+            }
+        }
         let largest = self
             .sources
             .iter()
@@ -514,11 +525,14 @@ impl Builder<'_> {
         }
         let mut mips: Vec<Vec<u8>> = Vec::new();
         for source in &self.sources {
-            let base = match source {
-                Source::Diagnostic => diagnostic_pixels(tile),
-                Source::Image(texture) => resample_square(texture, tile),
+            let (dimensions, chain) = match source {
+                Source::Diagnostic => (
+                    [tile as u16; 2],
+                    assets::build_legacy_terrain_mip_chain(&diagnostic_pixels(tile), tile).ok()?,
+                ),
+                Source::Image(texture) => source_mip_chain(texture, tile)?,
             };
-            let chain = assets::build_legacy_terrain_mip_chain(&base, tile).ok()?;
+            self.overlay.texture_source_sizes.push(dimensions);
             mips.resize(chain.len(), Vec::new());
             for (level, mip) in chain.iter().enumerate() {
                 mips[level].extend_from_slice(&mip.rgba8);
@@ -700,14 +714,9 @@ fn quantize(
         .iter()
         .all(|corner| i32::from(corner[axis]) == boundary);
     let face_flag = MODEL_FACE_FLAGS[face];
-    let displaced_fallback_cube = components.random_offset.is_some()
-        && matches!(
-            components.geometry.as_deref(),
-            None | Some(FULL_BLOCK | FULL_BLOCK_V1)
-        );
-    // A fallback cube's displaced surface is exposed beside an undisplaced neighbour.
+    // Displaced surfaces can be exposed beside an undisplaced neighbour.
     let mut flags = face_flag
-        | if on_boundary && !displaced_fallback_cube {
+        | if on_boundary && components.random_offset.is_none() {
             face_flag << 4
         } else {
             0

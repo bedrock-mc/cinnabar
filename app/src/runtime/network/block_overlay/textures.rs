@@ -7,11 +7,13 @@ use serde_json::Value;
 
 pub(super) use super::super::resource_packs::DecodedTexture;
 mod diagnostics;
+mod terrain;
 mod tint;
 use super::super::resource_packs::{
     MAX_CATALOG_ENTRIES, decode_pack_texture, parse_pack_json, texture_key_paths,
 };
 use diagnostics::TextureDiagnostics;
+pub(super) use terrain::{admit_static_rectangle, source_mip_chain};
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(super) struct Flipbook {

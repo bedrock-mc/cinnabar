@@ -840,6 +840,9 @@ fn random_offset_query_halo_covers_translated_extending_shapes() {
     let mut component = block_transform::random_offset::RandomOffsetComponent::default();
     component.axes[0].range = [0.5; 2];
     assert!(registry.set_random_offset(7, component));
+    registry
+        .register(8, [Aabb::new(Vec3::ZERO, Vec3::new(1.5, 1.0, 1.0))])
+        .unwrap();
     let world = PaletteWorld::new(&store, &registry, 0);
     let origin = Vec3::new(2.25, 0.5, 2.0);
     let ray = world

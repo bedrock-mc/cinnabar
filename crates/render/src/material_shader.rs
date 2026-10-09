@@ -6,6 +6,25 @@ pub(crate) const CHUNK_SAMPLER_COUNT: u32 = 2;
 pub(crate) const CHUNK_SAMPLED_TEXTURE_BINDINGS: u32 =
     (assets::MAX_TEXTURE_PAGES + NATIVE_LEAF_TEXTURE_BINDINGS.len()) as u32;
 
+const TEXTURE_WIDTH_SHIFT: u32 = 11;
+const TEXTURE_HEIGHT_SHIFT: u32 = 21;
+const TEXTURE_DIMENSION_MASK: u32 = 1023;
+
+/// Encodes admitted image dimensions in GPU-only reference bits, preserving page and layer.
+pub(crate) fn gpu_texture_ref(
+    reference: assets::TextureRef,
+    dimensions: [u32; 2],
+    page_size: u32,
+) -> u32 {
+    if dimensions == [page_size; 2] {
+        reference.raw()
+    } else {
+        reference.raw()
+            | (dimensions[0] << TEXTURE_WIDTH_SHIFT)
+            | (dimensions[1] << TEXTURE_HEIGHT_SHIFT)
+    }
+}
+
 pub(crate) fn chunk_atlas_views_fit(limits: &wgpu::Limits) -> bool {
     limits.max_sampled_textures_per_shader_stage >= CHUNK_SAMPLED_TEXTURE_BINDINGS
         && limits.max_samplers_per_shader_stage >= CHUNK_SAMPLER_COUNT
@@ -29,6 +48,9 @@ pub(crate) fn native_leaf_sampler_descriptor() -> wgpu::SamplerDescriptor<'stati
 
 pub(crate) fn source(source: &str) -> String {
     source
+        .replace("GPU_TEXTURE_WIDTH_SHIFT", &format!("{TEXTURE_WIDTH_SHIFT}u"))
+        .replace("GPU_TEXTURE_HEIGHT_SHIFT", &format!("{TEXTURE_HEIGHT_SHIFT}u"))
+        .replace("GPU_TEXTURE_DIMENSION_MASK", &format!("{TEXTURE_DIMENSION_MASK}u"))
         .replace("BLOCK_OVERLAY_FACE_OFFSET", &format!("{:?}", render_api::BLOCK_OVERLAY_FACE_OFFSET))
         .replace("ACTOR_MATERIAL_GLINT", &format!("{}u", assets::EntityRenderMaterial::Glint as u32))
         .replace("ACTOR_MATERIAL_DEFAULT", &format!("{}u", assets::EntityRenderMaterial::Default as u32))

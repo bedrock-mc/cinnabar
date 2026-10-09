@@ -424,10 +424,10 @@ impl CollisionRegistry {
         for shape in &shapes {
             for (axis, range) in self.collision_halo.iter_mut().enumerate() {
                 if shape.max[axis] > 1.0 {
-                    range.0 = -1;
+                    range.0 = range.0.min(-1);
                 }
                 if shape.min[axis] < 0.0 {
-                    range.1 = 1;
+                    range.1 = range.1.max(1);
                 }
             }
         }

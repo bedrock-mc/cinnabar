@@ -1,4 +1,4 @@
-#import cinnabar::material::{MaterialGpu, materials, positional_material}
+#import cinnabar::material::{MaterialGpu, materials, positional_material, texture_gradient_scale}
 #ifdef ENHANCED_SHADOW
 #import cinnabar::enhanced_caster::caster_clip
 #endif
@@ -344,14 +344,18 @@ fn sample_ref(texture_ref: u32, uv: vec2<f32>, dx: vec2<f32>, dy: vec2<f32>) -> 
     let layer = i32(texture_ref & 0x7ffu);
 #ifdef ENHANCED
     if ((texture_ref >> 31u) == 0u) {
-        return textureSampleGrad(block_textures_page_0, model_sampler, uv, layer, dx, dy);
+        let scale = texture_gradient_scale(texture_ref, textureDimensions(block_textures_page_0, 0));
+        return textureSampleGrad(block_textures_page_0, model_sampler, uv, layer, dx * scale, dy * scale);
     }
-    return textureSampleGrad(block_textures_page_1, model_sampler, uv, layer, dx, dy);
+    let scale = texture_gradient_scale(texture_ref, textureDimensions(block_textures_page_1, 0));
+    return textureSampleGrad(block_textures_page_1, model_sampler, uv, layer, dx * scale, dy * scale);
 #else
     if ((texture_ref >> 31u) == 0u) {
-        return textureSampleGrad(terrain_gamma_page_0, model_sampler, uv, layer, dx, dy);
+        let scale = texture_gradient_scale(texture_ref, textureDimensions(terrain_gamma_page_0, 0));
+        return textureSampleGrad(terrain_gamma_page_0, model_sampler, uv, layer, dx * scale, dy * scale);
     }
-    return textureSampleGrad(terrain_gamma_page_1, model_sampler, uv, layer, dx, dy);
+    let scale = texture_gradient_scale(texture_ref, textureDimensions(terrain_gamma_page_1, 0));
+    return textureSampleGrad(terrain_gamma_page_1, model_sampler, uv, layer, dx * scale, dy * scale);
 #endif
 }
 
@@ -363,14 +367,18 @@ fn sample_model_ref(in: VertexOutput, texture_ref: u32, dx: vec2<f32>, dy: vec2<
     let layer = i32(texture_ref & 0x7ffu);
 #ifdef ENHANCED
     if ((texture_ref >> 31u) == 0u) {
-        return textureSampleGrad(block_textures_page_0, block_sampler, in.uv, layer, dx, dy);
+        let scale = texture_gradient_scale(texture_ref, textureDimensions(block_textures_page_0, 0));
+        return textureSampleGrad(block_textures_page_0, block_sampler, in.uv, layer, dx * scale, dy * scale);
     }
-    return textureSampleGrad(block_textures_page_1, block_sampler, in.uv, layer, dx, dy);
+    let scale = texture_gradient_scale(texture_ref, textureDimensions(block_textures_page_1, 0));
+    return textureSampleGrad(block_textures_page_1, block_sampler, in.uv, layer, dx * scale, dy * scale);
 #else
     if ((texture_ref >> 31u) == 0u) {
-        return textureSampleGrad(terrain_gamma_page_0, block_sampler, in.uv, layer, dx, dy);
+        let scale = texture_gradient_scale(texture_ref, textureDimensions(terrain_gamma_page_0, 0));
+        return textureSampleGrad(terrain_gamma_page_0, block_sampler, in.uv, layer, dx * scale, dy * scale);
     }
-    return textureSampleGrad(terrain_gamma_page_1, block_sampler, in.uv, layer, dx, dy);
+    let scale = texture_gradient_scale(texture_ref, textureDimensions(terrain_gamma_page_1, 0));
+    return textureSampleGrad(terrain_gamma_page_1, block_sampler, in.uv, layer, dx * scale, dy * scale);
 #endif
 }
 

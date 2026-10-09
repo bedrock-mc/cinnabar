@@ -132,6 +132,7 @@ pub struct RuntimeAssets {
     animations: Box<[Animation]>,
     animation_frames: Box<[TextureRef]>,
     texture_pages: Box<[TexturePage]>,
+    overlay_texture_source_sizes: Box<[[u16; 2]]>,
     biomes: CompiledBiomeAssets,
     provenance: BlobProvenance,
     missing: AtomicU64,
@@ -178,6 +179,7 @@ impl RuntimeAssets {
             animation_frames: Box::new([]),
             texture_pages: vec![TexturePage::new(TextureArray { layers: 1, mips })]
                 .into_boxed_slice(),
+            overlay_texture_source_sizes: Box::new([]),
             biomes: CompiledBiomeAssets::diagnostic(),
             provenance: BlobProvenance::ZEROED,
             missing: AtomicU64::new(0),
@@ -218,6 +220,42 @@ impl RuntimeAssets {
                 .iter()
                 .zip(other.materials.iter())
                 .all(|(a, b)| a.flags == b.flags)
+    }
+
+    /// Admitted source pixels per layer, independently of the physical texture-array size.
+    #[must_use]
+    pub fn texture_source_size(&self, reference: TextureRef) -> [u32; 2] {
+        if reference.page() == 1
+            && let Some(size) = self
+                .overlay_texture_source_sizes
+                .get(reference.layer() as usize)
+        {
+            return size.map(u32::from);
+        }
+        let size = self
+            .texture_pages
+            .get(reference.page() as usize)
+            .and_then(|page| page.texture.mips.first())
+            .map_or(crate::TILE_SIZE, |mip| mip.size);
+        [size; 2]
+    }
+
+    /// Returns terrain mips in admitted source pixels, rebuilding legacy carrier art as needed.
+    pub fn terrain_texture_page(
+        &self,
+        page: usize,
+    ) -> Result<std::borrow::Cow<'_, TextureArray>, crate::AssetError> {
+        let texture = &self
+            .texture_pages
+            .get(page)
+            .ok_or_else(|| crate::AssetError::InvalidCompiledAssets {
+                detail: "terrain texture page is out of range".into(),
+            })?
+            .texture;
+        if page == 1 && !self.overlay_texture_source_sizes.is_empty() {
+            return Ok(std::borrow::Cow::Borrowed(texture));
+        }
+        crate::rebuild_legacy_terrain_mips(texture).map(std::borrow::Cow::Owned)
     }
 
     /// Number of materials in the carrier's table.

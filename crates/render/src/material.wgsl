@@ -67,3 +67,11 @@ fn positional_material(id: u32, position: vec3<i32>) -> MaterialGpu {
     }
     return base;
 }
+
+// Array-layer expansion must not change the admitted image's minification scale.
+fn texture_gradient_scale(reference: u32, page_dimensions: vec2<u32>) -> vec2<f32> {
+    let dimensions = vec2((reference >> GPU_TEXTURE_WIDTH_SHIFT) & GPU_TEXTURE_DIMENSION_MASK,
+        (reference >> GPU_TEXTURE_HEIGHT_SHIFT) & GPU_TEXTURE_DIMENSION_MASK);
+    if (any(dimensions == vec2(0u))) { return vec2(1.0); }
+    return vec2<f32>(dimensions) / vec2<f32>(page_dimensions);
+}
