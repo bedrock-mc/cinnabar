@@ -6,6 +6,7 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
+block-transform = { path = "../block-transform" }
 assets = { path = "../assets" }
 bytemuck = { version = "1", features = ["derive"] }
 world = { path = "../world" }

@@ -354,7 +354,7 @@ fn outgoing_main_use_is_idle_while_offhand_keeps_the_actual_owner_use() {
     assert_eq!(off.use_elapsed_ticks, timing.use_elapsed_ticks);
     assert_eq!(off.owner_main_hand, Some("minecraft:apple"));
     assert_eq!(off.owner_off_hand, Some("minecraft:shield"));
-    assert_eq!(off.animation_frame, 0);
+    assert_eq!(off.animation_frame, timing.animation_frame);
     assert!(!off.hand_charged);
     let adopted = super::super::hand::attachable_hand_input(&owner, &owner, timing, false);
     assert_eq!(adopted.animation_frame, timing.animation_frame);

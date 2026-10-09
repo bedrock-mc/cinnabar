@@ -45,6 +45,29 @@ pub(super) struct Geometry {
     pub(super) skipped_cubes: u32,
 }
 
+impl Geometry {
+    /// Full-block faces for a component that needs position-dependent model displacement.
+    pub(super) fn full_block() -> Self {
+        Self {
+            texture_size: [16.0; 2],
+            cubes: vec![Cube {
+                bone: String::new(),
+                min: [0.0; 3],
+                max: [16.0; 3],
+                faces: std::array::from_fn(|_| {
+                    Some(FaceUv {
+                        uv: [0.0; 2],
+                        size: [16.0; 2],
+                        material_instance: None,
+                    })
+                }),
+                rotations: Vec::new(),
+            }],
+            skipped_cubes: 0,
+        }
+    }
+}
+
 /// One face ready for quantization: corners in block-local pixels and texture
 /// pixel UVs, in the carrier's counter-clockwise corner order.
 pub(super) struct FaceQuad {

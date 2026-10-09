@@ -26,7 +26,7 @@ pub enum EntityRenderMaterial {
     Glint,
 }
 
-/// Independent raster states of an authored entity material.
+/// Independent raster and shader states of an authored entity material.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct EntityRenderMaterialState {
@@ -43,6 +43,10 @@ pub struct EntityRenderMaterialState {
     /// Additive source RGB and alpha are weighted by the source alpha.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub additive_alpha: bool,
+    /// Suppresses actor overlays and their effect on vertex lighting.
+    /// Absent in older carriers, which retain their overlay behavior.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub disable_overlay: bool,
 }
 
 impl Default for EntityRenderMaterialState {
@@ -55,6 +59,7 @@ impl Default for EntityRenderMaterialState {
             emissive: false,
             additive: false,
             additive_alpha: false,
+            disable_overlay: false,
         }
     }
 }
@@ -69,6 +74,7 @@ impl EntityRenderMaterialState {
     pub const EMISSIVE: u32 = 1 << 13;
     pub const ADDITIVE: u32 = 1 << 14;
     pub const ADDITIVE_ALPHA: u32 = 1 << 15;
+    pub const DISABLE_OVERLAY: u32 = 1 << 16;
 
     pub fn from_word(word: u32) -> Option<Self> {
         (word & Self::AUTHORED != 0).then_some(Self {
@@ -79,6 +85,7 @@ impl EntityRenderMaterialState {
             emissive: word & Self::EMISSIVE != 0,
             additive: word & Self::ADDITIVE != 0,
             additive_alpha: word & Self::ADDITIVE_ALPHA != 0,
+            disable_overlay: word & Self::DISABLE_OVERLAY != 0,
         })
     }
 }
@@ -123,6 +130,11 @@ impl EntityRenderMaterial {
                     }
                     | if state.additive_alpha {
                         EntityRenderMaterialState::ADDITIVE_ALPHA
+                    } else {
+                        0
+                    }
+                    | if state.disable_overlay {
+                        EntityRenderMaterialState::DISABLE_OVERLAY
                     } else {
                         0
                     }

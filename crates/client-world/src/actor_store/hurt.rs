@@ -67,6 +67,7 @@ impl ActorDamageState {
 /// Client-derived damage and death presentation state, advanced per tick.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct ActorStatus {
+    pub(crate) creeper_swell: super::creeper::CreeperSwell,
     pub(super) terrain_interlock: super::terrain_interlock::TerrainInterlock,
     pub(super) movement_interpolation: super::movement_interpolation::MovementInterpolation,
     /// Vanilla velocity per tick, distinct from query-derived movement speed.
@@ -170,6 +171,7 @@ impl ActorStatus {
     }
 
     fn die(&mut self) {
+        self.creeper_swell.clear();
         self.dead = true;
     }
 

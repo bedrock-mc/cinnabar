@@ -11,6 +11,7 @@ pub(super) enum Basis {
 #[derive(Clone, Copy, Debug)]
 pub(super) struct ClipClock {
     pub(super) time: f32,
+    baseline: f32,
     pub(super) finished: bool,
     sampled: Option<(u64, u32)>,
     active: bool,
@@ -100,6 +101,7 @@ pub(super) fn prepare(
                 key,
                 ClipClock {
                     time,
+                    baseline: old.map_or(0.0, |clock| clock.time),
                     finished,
                     sampled: Some(stamp),
                     active: true,
@@ -155,6 +157,51 @@ pub(super) fn sample(
             };
             wrapped_time(clip, time)
         };
+    }
+    Ok(())
+}
+
+/// Evaluates a presentation-dependent clock update on scratch clip data only.
+pub(super) fn sample_update(
+    evaluator: &Evaluator<'_>,
+    variables: &mut MolangVariables,
+    weighted: &mut WeightedClip,
+    clocks: &ClipClocks,
+    budget: &mut EvalBudget<'_>,
+) -> Result<(), EvalError> {
+    let clip = evaluator
+        .assets
+        .animation_clips()
+        .get(weighted.clip)
+        .ok_or(EvalError::Invalid)?;
+    if let Some(expression) = clip.anim_time_update {
+        let evaluator = Evaluator {
+            anim_time: Some(
+                clocks
+                    .get(&(weighted.clip, weighted.started_tick, weighted.clock))
+                    .map_or(0.0, |clock| {
+                        let stamp = (
+                            evaluator.anim_tick,
+                            evaluator
+                                .context
+                                .attachable
+                                .map_or(0.0, |input| input.frame_alpha)
+                                .to_bits(),
+                        );
+                        if clock.sampled == Some(stamp) {
+                            clock.baseline
+                        } else {
+                            clock.time
+                        }
+                    }),
+            ),
+            ..*evaluator
+        };
+        let time = evaluator.number(expression as usize, variables, 0.0, budget)?;
+        if !time.is_finite() {
+            return Err(EvalError::Invalid);
+        }
+        weighted.time = wrapped_time(clip, time);
     }
     Ok(())
 }

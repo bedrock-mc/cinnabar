@@ -245,7 +245,9 @@ pub(crate) fn build_frame(
 ) -> (EnhancedFrameGpu, Vec<CascadeFit>) {
     let light = light_state(atmosphere);
     let cascades = settings.shadow_cascades.clamp(2, MAX_SHADOW_CASCADES);
-    let resolution = settings.shadow_resolution.clamp(256, 4096);
+    let resolution = settings
+        .shadow_resolution
+        .clamp(super::MIN_SHADOW_RESOLUTION, 4096);
     let shadows = light.strength > 0.0 && settings.shadows;
     let distance = if settings.shadow_distance.is_finite() {
         settings.shadow_distance.clamp(16.0, 256.0)
@@ -386,6 +388,24 @@ mod tests {
                 .intersects_aabb(Vec3::new(8.0, -200.0, 0.0), half)
         );
         assert!(!fit.bounds.intersects_aabb(Vec3::new(500.0, 0.0, 0.0), half));
+    }
+
+    #[cfg(feature = "enhanced-diagnostics")]
+    #[test]
+    fn diagnostic_limits_preserve_the_requested_shadow_target_size() {
+        let settings = EnhancedRendering::bounded_diagnostic();
+        let inputs = ViewInputs {
+            clip_from_world: Mat4::IDENTITY,
+            world_from_clip: Mat4::IDENTITY,
+            camera: Vec3::ZERO,
+            forward: Vec3::NEG_Z,
+            slope: SLOPE,
+            near: 0.1,
+            viewport: render_model::ENHANCED_DIAGNOSTIC_MAX_VIEWPORT,
+            seconds: 0.0,
+        };
+        let (frame, _) = build_frame(&inputs, &settings, &AtmosphereFrame::default());
+        assert_eq!(frame.flags.z, settings.shadow_resolution);
     }
 
     #[test]

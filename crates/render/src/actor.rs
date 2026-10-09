@@ -42,7 +42,8 @@ pub use rig::{
     ActorRigGeometrySpan, ActorRigRejects, ActorRigRenderFrame, ActorRigRenderInput, ActorRigRoute,
     ActorRigSubmission, ActorRigVertexSegments, IDENTITY_UV_ANIM, MAX_ACTOR_BONE_ARENA_BYTES,
     MAX_ACTOR_POSE_BONES, MAX_ACTOR_RENDER_INSTANCES, actor_bounds_are_visible,
-    actor_rig_submission_is_visible, pack_actor_light, pack_overlay_rgba8,
+    actor_rig_submission_is_visible, pack_actor_light, pack_actor_light_without_lightmap,
+    pack_overlay_rgba8,
 };
 pub use skin_slots::{ActorSkinResidency, ResidentSkin, pack_skin_slot};
 pub(crate) use witness::{
@@ -93,6 +94,26 @@ pub struct ActorCullView {
     pub clip_from_world: Mat4,
     pub camera_position: Vec3,
     pub max_distance: f32,
+}
+
+impl ActorCullView {
+    /// Tests actor distance independently of model scale, failing open for invalid views.
+    pub fn contains_distance(&self, feet: [f32; 3]) -> bool {
+        if !self.is_valid() {
+            return true;
+        }
+        let distance = (Vec3::from_array(feet) + Vec3::Y).distance_squared(self.camera_position);
+        distance.partial_cmp(&(self.max_distance * self.max_distance))
+            != Some(std::cmp::Ordering::Greater)
+    }
+
+    /// Whether the view can safely reject an actor using distance or clip bounds.
+    fn is_valid(&self) -> bool {
+        self.clip_from_world.is_finite()
+            && self.camera_position.is_finite()
+            && self.max_distance.is_finite()
+            && self.max_distance > 0.0
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

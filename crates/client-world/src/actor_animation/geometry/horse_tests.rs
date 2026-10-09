@@ -107,6 +107,7 @@ fn query_flag(name: &str) -> u64 {
                 context: &context,
                 anim_tick: 0,
                 anim_time: None,
+                swell_amount: None,
                 life_tick: 0,
                 finished: (false, false),
                 bones: &[],

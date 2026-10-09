@@ -223,9 +223,8 @@ pub(super) fn compile_rigs(
             Some(GeometrySelection::Unsupported) => static_fallback = true,
             None => {}
         }
-        let animation_aliases = roots::animation_aliases(description)?;
-        let controller_aliases =
-            roots::legacy_controller_aliases(description.get("animation_controllers"))?;
+        let animation_aliases = roots::animation_aliases(&value)?;
+        let controller_aliases = roots::legacy_controller_aliases(&value)?;
         let roots = roots::activation_roots(&value);
         let root_condition = |name: &str| {
             roots.as_ref().and_then(|roots| {

@@ -28,6 +28,29 @@ fn allocation(layout: CubeQuadLayout, metadata_index: u32) -> GpuChunkAllocation
     }
 }
 
+#[test]
+fn displaced_model_cull_record_keeps_outer_geometry_visible() {
+    use bevy::{
+        camera::primitives::Aabb,
+        math::{Mat4, Vec3A},
+    };
+    let mut allocation = allocation(CubeQuadLayout::default(), 0);
+    allocation.key = SubChunkKey::new(0, 0, 0, 0);
+    let [low, high] = cull_record(&allocation, None).bounds();
+    let low = Vec3A::from_array(low.map(|value| value as f32));
+    let high = Vec3A::from_array(high.map(|value| value as f32));
+    let aabb = Aabb {
+        center: (low + high) * 0.5,
+        half_extents: (high - low) * 0.5,
+    };
+    let frustum =
+        Frustum::from_clip_from_world(&Mat4::orthographic_rh(-1.4, -1.25, 0.0, 16.0, -16.0, 16.0));
+    assert!(
+        frustum.intersects_obb_identity(&aabb),
+        "GPU culling retains component displacement beyond a model overhang"
+    );
+}
+
 fn cpu_args(allocation: &GpuChunkAllocation, camera: [f64; 3]) -> [Vec<[u32; 5]>; 4] {
     let words = |draw: DrawIndexedIndirectArgs| {
         [

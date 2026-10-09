@@ -237,7 +237,7 @@ fn animation_pack(reverse: bool) -> TempDir {
     let files: [(&str, &[u8]); 7] = [
         (
             "entity/test.entity.json",
-            br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"minecraft:test","textures":{"default":"textures/entity/test"},"geometry":{"default":"geometry.test"},"animations":{"walk":"animation.test.walk","attack":"animation.test.attack","main":"controller.animation.test"},"animation_controllers":[{"main":"controller.animation.test"}],"render_controllers":["controller.render.test"]}}}"#,
+            br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"minecraft:test","textures":{"default":"textures/entity/test"},"geometry":{"default":"geometry.test"},"animations":{"walk":"animation.test.walk","attack":"animation.test.attack","main":"controller.animation.test"},"animation_controllers":[{"main":"controller.animation.test"}],"scripts":{"animate":["main"]},"render_controllers":["controller.render.test"]}}}"#,
         ),
         (
             "models/entity/test.geo.json",
@@ -768,12 +768,12 @@ fn conflicting_animation_aliases_are_resolved_inside_each_entity_environment() {
 }
 
 #[test]
-fn real_layout_animation_controllers_bind_separately_from_animation_aliases() {
+fn legacy_animation_controllers_bind_separately_from_animation_aliases() {
     let pack = animation_pack(false);
     write(
         pack.path(),
         "entity/test.entity.json",
-        br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"minecraft:allay","textures":{"default":"textures/entity/test"},"geometry":{"default":"geometry.test"},"animations":{"move":"animation.test.walk"},"animation_controllers":[{"main":"controller.animation.test"}],"render_controllers":["controller.render.test"]}}}"#,
+        br#"{"format_version":"1.8.0","minecraft:client_entity":{"description":{"identifier":"minecraft:allay","textures":{"default":"textures/entity/test"},"geometry":{"default":"geometry.test"},"animations":{"move":"animation.test.walk"},"animation_controllers":[{"main":"controller.animation.test"}],"render_controllers":["controller.render.test"]}}}"#,
     );
 
     let compiled = compile_entity_assets_with_report(pack.path(), MANIFEST).unwrap();
@@ -910,7 +910,7 @@ fn selectable_geometries_own_specialized_clips_and_controllers() {
     write(
         pack.path(),
         "entity/test.entity.json",
-        br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"minecraft:test","geometry":{"default":"geometry.a","alternate":"geometry.b"},"animations":{"move":"animation.test.walk","attack":"animation.test.attack"},"animation_controllers":[{"main":"controller.animation.test"}],"render_controllers":["controller.render.test"],"scripts":{"animate":["move"]}}}}"#,
+        br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"minecraft:test","geometry":{"default":"geometry.a","alternate":"geometry.b"},"animations":{"move":"animation.test.walk","attack":"animation.test.attack","main":"controller.animation.test"},"render_controllers":["controller.render.test"],"scripts":{"animate":["move","main"]}}}}"#,
     );
     write(
         pack.path(),

@@ -6,7 +6,7 @@ use render::{ActorArtworkLocation, ActorRigSubmission};
 use render_model::EntityRigId;
 
 /// Source catalog, geometry, and selected image identify one attachable raster.
-pub(super) type AttachableMeshKey = (bool, u32, Box<str>);
+pub(super) type AttachableMeshKey = (bool, u32, u32);
 
 /// The immutable image frame and pose used by Java's independently placed raster draw.
 #[derive(Clone)]
@@ -69,6 +69,7 @@ pub struct JavaGrip {
 }
 
 /// One extra instance plus the artwork page/layer its texture lives on.
+#[derive(Clone)]
 pub struct EquipmentPresentation {
     pub submission: ActorRigSubmission,
     pub location: ActorArtworkLocation,
@@ -114,12 +115,13 @@ impl FirstPersonArms {
     }
 }
 
-/// Tick-owned actor queries and the sampled render fraction for worn attachables.
+/// Actor queries and sampled render timing for animated equipment.
 #[derive(Clone, Copy)]
 pub struct EquipmentAnimation<'a> {
     pub owner: &'a client_world::ActorSnapshot,
     pub rig: &'a client_world::ActorRigSnapshot<'a>,
     pub frame_alpha: f32,
+    pub delta_seconds: f32,
 }
 
 pub(super) struct BodyBones {

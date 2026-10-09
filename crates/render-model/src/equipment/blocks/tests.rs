@@ -239,3 +239,36 @@ fn pinned_portal_frame_keeps_its_short_block_mesh_and_distinct_faces() {
     };
     assert_ne!(tile_color(BlockFace::Up), tile_color(BlockFace::Down));
 }
+
+#[test]
+fn overlay_sheet_preserves_source_resolution_when_physical_page_is_larger() {
+    let mut source = overlay(BlockFlags::CUBE_GEOMETRY, 0, 64);
+    source.texture_source_sizes = vec![[16; 2]; 2];
+    let texture = source.texture.as_mut().unwrap();
+    for mip in &mut texture.mips {
+        for layer in 0..2usize {
+            let side = mip.size as usize;
+            for (pixel, rgba) in mip.rgba8[layer * side * side * 4..][..side * side * 4]
+                .chunks_exact_mut(4)
+                .enumerate()
+            {
+                rgba.copy_from_slice(if side == 64 {
+                    if (pixel % side / 4).is_multiple_of(2) {
+                        &[255, 0, 0, 255]
+                    } else {
+                        &[0, 0, 255, 255]
+                    }
+                } else {
+                    &[127, 0, 127, 255]
+                });
+            }
+        }
+    }
+    let sheet = overlay_sheet(&source, 0).unwrap();
+    assert_eq!(
+        &sheet.rgba8[..4],
+        &[255, 0, 0, 255],
+        "held texture preserves original source detail"
+    );
+    assert_eq!(&sheet.rgba8[4..8], &[0, 0, 255, 255]);
+}

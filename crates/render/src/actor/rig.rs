@@ -93,7 +93,7 @@ pub struct ActorRigSubmission {
     pub overlay_rgba8: u32,
     /// Render-controller `uv_anim` `[offset u, offset v, scale u, scale v]`.
     pub uv_anim: [f32; 4],
-    /// World light from [`pack_actor_light`]; 0 draws unlit, as `ignore_lighting` asks.
+    /// World light or white illumination with face shading; 0 draws without shading.
     pub light: u32,
 }
 
@@ -124,7 +124,13 @@ impl Default for ActorMaterial {
 /// Packs independent block/sky nibbles and the lit-material bit; time belongs to the shared table.
 #[must_use]
 pub fn pack_actor_light(block: u8, sky: u8) -> u32 {
-    0x8000_0000 | (u32::from(sky.min(15)) << 4) | u32::from(block.min(15))
+    render_api::ACTOR_LIGHT_WORLD | (u32::from(sky.min(15)) << 4) | u32::from(block.min(15))
+}
+
+/// Keeps directional face shading while a controller ignores environment lighting.
+#[must_use]
+pub fn pack_actor_light_without_lightmap() -> u32 {
+    render_api::ACTOR_LIGHT_DIRECTIONAL
 }
 
 /// The `uv_anim` of a draw without one.
@@ -667,18 +673,11 @@ pub fn actor_bounds_are_visible(
     bounds: assets::SkinGeometryBounds,
     view: Option<ActorCullView>,
 ) -> bool {
-    let Some(view) = view.filter(|view| {
-        view.clip_from_world.is_finite()
-            && view.camera_position.is_finite()
-            && view.max_distance.is_finite()
-            && view.max_distance > 0.0
-    }) else {
+    let Some(view) = view.filter(ActorCullView::is_valid) else {
         return true;
     };
     let feet = Vec3::from_array(feet);
-    if (feet + Vec3::Y).distance_squared(view.camera_position)
-        > view.max_distance * view.max_distance
-    {
+    if !view.contains_distance(feet.to_array()) {
         return false;
     }
     let (low, high) = bounds.at(feet.to_array(), scale);

@@ -1,16 +1,31 @@
 //! Authored clip and controller weights in their declared order.
 use super::*;
 
+pub(in crate::actor_animation) struct Input<'a> {
+    pub clocks: &'a super::super::clock::ClipClocks,
+    pub geometry: usize,
+    pub blink: Option<usize>,
+    pub journal: &'a mut super::controller::ControllerJournal,
+    pub replay: bool,
+    pub record: bool,
+}
+
 /// Collects authored weights; a zero transition budget preserves every controller's completed state.
 pub(in crate::actor_animation) fn select(
     evaluator: &Evaluator<'_>,
     variables: &mut MolangVariables,
     controllers: &mut [ControllerState],
-    clip_clocks: &super::super::clock::ClipClocks,
-    geometry_binding: usize,
-    blink_controller: Option<usize>,
+    input: Input<'_>,
     budget: &mut EvalBudget<'_>,
 ) -> Result<Vec<WeightedClip>, EvalError> {
+    let Input {
+        clocks: clip_clocks,
+        geometry: geometry_binding,
+        blink: blink_controller,
+        journal,
+        replay,
+        record,
+    } = input;
     let assets = evaluator.assets;
     let mut weighted_clips = Vec::new();
     let candidate = assets
@@ -56,6 +71,7 @@ pub(in crate::actor_animation) fn select(
                 });
             }
         } else {
+            let reference = next_controller;
             let binding = &bound[next_controller];
             next_controller += 1;
             let weight = blend_weight(evaluator, variables, binding.weight, 1.0, budget)?;
@@ -67,8 +83,15 @@ pub(in crate::actor_animation) fn select(
                     clip_clocks,
                     clips: &mut weighted_clips,
                     budget,
+                    journal,
+                    replay,
+                    record,
+                    reference,
+                    path: [0; assets::MAX_ENTITY_CONTROLLER_NESTING],
                 };
                 walk.evaluate(binding.controller as usize, weight, 0)?;
+            } else if replay {
+                journal.replay_inactive(reference, &[], controllers, variables)?;
             }
         }
     }
@@ -84,6 +107,11 @@ pub(in crate::actor_animation) fn select(
             clip_clocks,
             clips: &mut weighted_clips,
             budget,
+            journal,
+            replay,
+            record,
+            reference: bound.len(),
+            path: [0; assets::MAX_ENTITY_CONTROLLER_NESTING],
         }
         .evaluate(controller, 1.0, 0)?;
     }

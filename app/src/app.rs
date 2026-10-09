@@ -438,6 +438,8 @@ fn bind_direct_session_directory(
 
 pub fn run(args: args::ClientArgs) -> Result<()> {
     args.validate_acceptance_support(cfg!(feature = "acceptance"))?;
+    #[cfg(feature = "enhanced-diagnostics")]
+    let diagnostic_budget = crate::enhanced_diagnostics::configure(&args)?;
     #[cfg(feature = "developer-control")]
     crate::developer_control::prepare_native_application(
         args.address.is_some() || args.socket_dir_explicit,
@@ -957,6 +959,8 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     crate::discord_presence::configure(&mut app);
     configure_acceptance_finish_system(&mut app);
 
+    #[cfg(feature = "enhanced-diagnostics")]
+    crate::enhanced_diagnostics::install(&mut app, diagnostic_budget);
     let exit = app.run();
     crate::discord_presence::shutdown(&mut app);
     if let Some(mut network) = app.world_mut().remove_resource::<NetworkHandle>() {

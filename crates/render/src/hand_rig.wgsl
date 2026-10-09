@@ -50,10 +50,11 @@ struct HandMaterial {
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
-    @location(0) uv: vec2<f32>,
+    // Keep edge samples inside the item's atlas region under MSAA.
+    @location(0) @interpolate(perspective, centroid) uv: vec2<f32>,
     @location(1) @interpolate(flat) skin_layer: u32,
     @location(2) @interpolate(flat) valid: u32,
-    @location(3) back_uv: vec2<f32>,
+    @location(3) @interpolate(perspective, centroid) back_uv: vec2<f32>,
     @location(4) @interpolate(flat) shade: f32,
 }
 

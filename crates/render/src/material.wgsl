@@ -67,3 +67,27 @@ fn positional_material(id: u32, position: vec3<i32>) -> MaterialGpu {
     }
     return base;
 }
+
+// A grid exposes the upper-left rectangle while retaining its original neighbouring texels.
+fn texture_uv_scale(reference: u32) -> f32 {
+    let width = (reference >> GPU_TEXTURE_WIDTH_SHIFT) & GPU_TEXTURE_DIMENSION_MASK;
+    if ((width & GPU_TEXTURE_GRID_MARKER) == 0u) { return 1.0; }
+    return exp2(-f32((width >> GPU_TEXTURE_GRID_SHIFT) & TERRAIN_QUAD_SHIFT_MASK));
+}
+
+// Greedy cube faces repeat each exposed rectangle across individual blocks.
+fn texture_cube_uv(reference: u32, uv: vec2<f32>) -> vec2<f32> {
+    let scale = texture_uv_scale(reference);
+    return select(uv, fract(uv), scale < 1.0) * scale;
+}
+
+// Array-layer expansion must not change the exposed rectangle's minification scale.
+fn texture_gradient_scale(reference: u32, page_dimensions: vec2<u32>) -> vec2<f32> {
+    var dimensions = vec2((reference >> GPU_TEXTURE_WIDTH_SHIFT) & GPU_TEXTURE_DIMENSION_MASK,
+        (reference >> GPU_TEXTURE_HEIGHT_SHIFT) & GPU_TEXTURE_DIMENSION_MASK);
+    if ((dimensions.x & GPU_TEXTURE_GRID_MARKER) != 0u) {
+        dimensions.x = 1u << (dimensions.x & GPU_TEXTURE_SIZE_EXPONENT_MASK);
+    }
+    if (any(dimensions == vec2(0u))) { return vec2(1.0); }
+    return vec2<f32>(dimensions) / vec2<f32>(page_dimensions) * texture_uv_scale(reference);
+}

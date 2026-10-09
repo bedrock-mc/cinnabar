@@ -315,8 +315,18 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
                             if visible_quad_mask == 0 {
                                 continue;
                             }
-                            let Ok(lighting_base_index) = u32::try_from(model_lighting.len())
-                            else {
+                            let random_offset =
+                                visuals.model_random_offset(part_template).map(|component| {
+                                    let origin = neighbourhood.block_origin();
+                                    component.offset([
+                                        origin[0].wrapping_add(x as i32),
+                                        origin[1].wrapping_add(y as i32),
+                                        origin[2].wrapping_add(z as i32),
+                                    ])
+                                });
+                            let Ok(lighting_base_index) = u32::try_from(
+                                model_lighting.len() + if random_offset.is_some() { 2 } else { 0 },
+                            ) else {
                                 continue;
                             };
                             let emission = visuals
@@ -367,11 +377,18 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
                                             ],
                                         )
                                     },
-                                ),
+                                ) | if random_offset.is_some() {
+                                    crate::MODEL_REF_FLAG_RANDOM_OFFSET
+                                } else {
+                                    0
+                                },
                                 part_template,
                                 lighting_base_index,
                                 visible_quad_mask,
                             ));
+                            if let Some(offset) = random_offset {
+                                model_lighting.extend(PackedQuadLighting::offset_prefix(offset));
+                            }
                             model_lighting.extend(template_lighting);
                             let mut remaining = visible_quad_mask;
                             while remaining != 0 {

@@ -205,3 +205,13 @@ fn a_launch_cap_drives_both_the_present_mode_and_the_cadence() {
         assert_eq!(pacing(&app).rate, rate, "launch cap {launch_cap:?}");
     }
 }
+
+#[test]
+fn diagnostic_limits_survive_recording_and_unlimited_settings() {
+    let (mut app, _) = pacing_app((Some(30), true), FrameRateLimit::Unlimited);
+    let mut runtime = app.world_mut().resource_mut::<FramePacingRuntime>();
+    runtime.require_limit(hz(30).unwrap());
+    runtime.set_suspended(true);
+    app.update();
+    assert_eq!(pacing(&app).rate, hz(30));
+}

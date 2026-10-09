@@ -295,16 +295,16 @@ fn authored_attachable_runs_pre_animation_and_context_pose_at_render_alpha() {
     );
 }
 
-/// Owners from ended sessions and departed actors must not exhaust the bounded state table.
+/// Every admitted owner fits; ended sessions release their retained controller state.
 #[test]
-fn attachable_states_survive_more_owners_than_the_state_bound() {
+fn attachable_states_retain_admitted_owners_and_clear_ended_sessions() {
     let owner = crate::actor_animation::tests::actor_with_metadata(HashMap::new());
     let mut runtime = AttachablesRuntime::new(fixture());
     let input = AttachableAnimationInput {
         first_person: true,
         ..AttachableAnimationInput::default()
     };
-    let owners = MAX_ATTACHABLE_STATES as u64 * 2;
+    let owners = crate::actor_store::MAX_TRACKED_ACTORS as u64;
     // Distinct actors of one session, then one owner per reconnected session.
     for (session_id, runtime_id) in (0..owners)
         .map(|index| (1, 2 + index))
@@ -320,6 +320,9 @@ fn attachable_states_survive_more_owners_than_the_state_bound() {
             "session {session_id} owner {runtime_id} lost its attachable"
         );
         assert!(runtime.states.len() <= MAX_ATTACHABLE_STATES);
+        if session_id == 1 {
+            assert_eq!(runtime.states.len() as u64, runtime_id - 1);
+        }
     }
     assert_eq!(runtime.states.len(), 1, "ended sessions keep no state");
 }
@@ -510,6 +513,7 @@ fn attachable_queries_are_remaining_ticks_without_changing_entity_units() {
                     context,
                     anim_tick: 2,
                     anim_time: None,
+                    swell_amount: None,
                     life_tick: 10,
                     finished: (false, false),
                     bones: &[],
@@ -1048,7 +1052,7 @@ fn downloaded_shield_blocking_uses_authoritative_metadata_and_hand_priority() {
 }
 
 #[test]
-fn offhand_keeps_owner_bow_use_timing_without_main_hand_charge_frame() {
+fn offhand_keeps_owner_bow_queries_without_main_hand_charge_state() {
     let owner = AttachableAnimationInput {
         first_person: true,
         use_elapsed_ticks: Some(10),
@@ -1066,7 +1070,7 @@ fn offhand_keeps_owner_bow_use_timing_without_main_hand_charge_frame() {
     assert_eq!(off.owner_main_hand, owner.owner_main_hand);
     assert!(off.off_hand);
     assert!(!off.hand_charged);
-    assert_eq!(off.animation_frame, 0);
+    assert_eq!(off.animation_frame, owner.animation_frame);
 }
 
 /// Runs the pinned shield's bow-retraction script and authored keyframes offline.

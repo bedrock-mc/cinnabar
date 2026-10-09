@@ -41,6 +41,7 @@ pub struct DrawPipeline<'a> {
 struct RasterConfiguration<'a> {
     state: RasterState,
     pipelines: &'a [DrawPipeline<'a>],
+    samples: u32,
 }
 
 impl Default for RasterState {
@@ -172,6 +173,7 @@ impl Gpu {
             RasterConfiguration {
                 state,
                 pipelines: &[],
+                samples: 1,
             },
         )
     }
@@ -192,6 +194,7 @@ impl Gpu {
             RasterConfiguration {
                 state: RasterState::default(),
                 pipelines,
+                samples: 1,
             },
         )
     }
@@ -206,6 +209,28 @@ impl Gpu {
             RasterConfiguration {
                 state: RasterState::default(),
                 pipelines: &[],
+                samples: 1,
+            },
+        )
+    }
+
+    /// Resolves multisampled production draws before inspecting their final pixels.
+    pub fn render_with_samples(
+        &self,
+        source: &str,
+        vertex: &str,
+        draws: &[Draw<'_>],
+        samples: u32,
+    ) -> Vec<u8> {
+        self.render_to_format(
+            source,
+            vertex,
+            draws,
+            wgpu::TextureFormat::Rgba8Unorm,
+            RasterConfiguration {
+                state: RasterState::default(),
+                pipelines: &[],
+                samples,
             },
         )
     }
@@ -218,7 +243,11 @@ impl Gpu {
         target_format: wgpu::TextureFormat,
         configuration: RasterConfiguration<'_>,
     ) -> Vec<u8> {
-        let RasterConfiguration { state, pipelines } = configuration;
+        let RasterConfiguration {
+            state,
+            pipelines,
+            samples,
+        } = configuration;
         let shader = self
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -230,12 +259,12 @@ impl Gpu {
             height: SNAPSHOT_SIDE,
             depth_or_array_layers: 1,
         };
-        let texture = |format, usage| {
+        let texture = |format, usage, sample_count| {
             self.device.create_texture(&wgpu::TextureDescriptor {
                 label: None,
                 size,
                 mip_level_count: 1,
-                sample_count: 1,
+                sample_count,
                 dimension: wgpu::TextureDimension::D2,
                 format,
                 usage,
@@ -245,12 +274,24 @@ impl Gpu {
         let target = texture(
             target_format,
             wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            1,
         );
+        let multisampled = (samples > 1).then(|| {
+            texture(
+                target_format,
+                wgpu::TextureUsages::RENDER_ATTACHMENT,
+                samples,
+            )
+        });
         let depth = texture(
             wgpu::TextureFormat::Depth32Float,
             wgpu::TextureUsages::RENDER_ATTACHMENT,
+            samples,
         );
         let view = target.create_view(&Default::default());
+        let multisampled_view = multisampled
+            .as_ref()
+            .map(|target| target.create_view(&Default::default()));
         let depth_view = depth.create_view(&Default::default());
         let mut encoder = self.device.create_command_encoder(&Default::default());
         for (index, draw) in draws.iter().enumerate() {
@@ -278,7 +319,10 @@ impl Gpu {
                         stencil: Default::default(),
                         bias: Default::default(),
                     }),
-                    multisample: Default::default(),
+                    multisample: wgpu::MultisampleState {
+                        count: samples,
+                        ..Default::default()
+                    },
                     fragment: Some(wgpu::FragmentState {
                         module: &shader,
                         entry_point: Some(draw.fragment),
@@ -300,9 +344,9 @@ impl Gpu {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: None,
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
+                    view: multisampled_view.as_ref().unwrap_or(&view),
                     depth_slice: None,
-                    resolve_target: None,
+                    resolve_target: multisampled_view.as_ref().map(|_| &view),
                     ops: wgpu::Operations {
                         load: if index == 0 {
                             wgpu::LoadOp::Clear(wgpu::Color {

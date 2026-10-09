@@ -76,7 +76,10 @@ fn charged_stack() -> NetworkItemStack {
     }
 }
 
-fn fixture(player_runtime: &mut crate::player_runtime::PlayerRuntime) -> (WorldStream, UiRuntime) {
+fn fixture(
+    player_runtime: &mut crate::player_runtime::PlayerRuntime,
+    main_identifier: &str,
+) -> (WorldStream, UiRuntime) {
     let mut stream = WorldStream::new(protocol::WorldBootstrap {
         dimension: 0,
         local_player_runtime_id: 1,
@@ -89,7 +92,7 @@ fn fixture(player_runtime: &mut crate::player_runtime::PlayerRuntime) -> (WorldS
     assert!(
         stream.seed_item_registry(ItemRegistryEvent {
             entries: [
-                (BOW, "minecraft:crossbow"),
+                (BOW, main_identifier),
                 (ARROW, "minecraft:arrow"),
                 (FIREWORK, "minecraft:firework_rocket"),
             ]
@@ -162,7 +165,7 @@ fn use_frame(
 fn presentation_load_fire_and_authoritative_nbt_share_one_charge_state() {
     let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
 
-    let (stream, mut ui) = fixture(&mut player_runtime);
+    let (stream, mut ui) = fixture(&mut player_runtime, "minecraft:crossbow");
     let mut runtime = ItemUseRuntime::default();
     runtime.observe_press(true);
     runtime.step(&use_frame(&player_runtime, &stream, &ui, 10));
@@ -231,7 +234,7 @@ fn presentation_load_fire_and_authoritative_nbt_share_one_charge_state() {
 #[test]
 fn offhand_projectile_precedes_inventory_and_only_creative_synthesizes_ammo() {
     let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
-    let (stream, mut ui) = fixture(&mut player_runtime);
+    let (stream, mut ui) = fixture(&mut player_runtime, "minecraft:crossbow");
     assert_eq!(
         loading_projectile(&player_runtime, &stream, &ui, false),
         None
@@ -277,7 +280,7 @@ fn offhand_projectile_precedes_inventory_and_only_creative_synthesizes_ammo() {
 fn normal_transaction_clears_loaded_prediction_and_retains_charged_nbt_and_offhand() {
     let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
 
-    let (stream, mut ui) = fixture(&mut player_runtime);
+    let (stream, mut ui) = fixture(&mut player_runtime, "minecraft:crossbow");
     let mut runtime = ItemUseRuntime::default();
     runtime.observe_press(true);
     runtime.step(&use_frame(&player_runtime, &stream, &ui, 10));
@@ -369,4 +372,50 @@ fn kinds(outcome: &gameplay::item_use::UseOutcome) -> Vec<&'static str> {
             }
         })
         .collect()
+}
+
+#[test]
+fn owner_frame_is_admitted_only_for_the_selected_ranged_item() {
+    for (identifier, expected) in [
+        ("minecraft:apple", 0),
+        ("minecraft:trident", 0),
+        ("minecraft:bow", 1),
+    ] {
+        let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+        let (stream, ui) = fixture(&mut player_runtime, identifier);
+        let mut runtime = ItemUseRuntime::default();
+        runtime.observe_press(true);
+        let accepted = UseFrame {
+            air_use: classify(identifier, false, 0, Some(32)),
+            ..use_frame(&player_runtime, &stream, &ui, 10)
+        };
+        assert!(runtime.step(&accepted).started);
+        let input = runtime.render_input(&player_runtime, &stream, &ui, 15, 0.5);
+        assert_eq!(input.use_elapsed_ticks, Some(5));
+        assert_eq!(
+            input.animation_frame, expected,
+            "using {identifier} must select its own frame rule"
+        );
+        let off = input.for_hand(true);
+        assert_eq!(
+            off.animation_frame, expected,
+            "offhand models must see the selected {identifier} frame"
+        );
+        assert_eq!(off.use_elapsed_ticks, input.use_elapsed_ticks);
+        assert_eq!(off.max_use_ticks, input.max_use_ticks);
+        if identifier == "minecraft:bow" {
+            let complete = runtime.render_input(
+                &player_runtime,
+                &stream,
+                &ui,
+                10 + u64::from(input.max_use_ticks),
+                0.5,
+            );
+            assert_eq!(complete.use_elapsed_ticks, Some(input.max_use_ticks));
+            assert_eq!(
+                complete.animation_frame, 0,
+                "a completed main-hand bow counter must select standby"
+            );
+        }
+    }
 }

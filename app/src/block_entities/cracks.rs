@@ -5,9 +5,15 @@ use std::collections::{HashMap, HashSet};
 use chunk_pipeline::ActiveBlockCrack;
 use render::{CrackInstance, CrackShape, crack_shape_from_template};
 
-/// Caches model surfaces by runtime identity and transform, independent of column height.
+/// Retains one column per runtime identity and transform without growing with world positions.
+pub(super) struct CachedCrackShape {
+    pub(super) column: Option<[i32; 2]>,
+    pub(super) shape: CrackShape,
+}
+
+/// Caches model surfaces by runtime identity, transform and admitted column displacement.
 pub(super) fn crack_shape(
-    shapes: &mut HashMap<(u32, u32), CrackShape>,
+    shapes: &mut HashMap<(u32, u32), CachedCrackShape>,
     assets: &assets::RuntimeAssets,
     mode: assets::NetworkIdMode,
     runtime_id: Option<u32>,
@@ -23,17 +29,37 @@ pub(super) fn crack_shape(
         .map_or(visual.variant(), |template| {
             meshing::bamboo::transform_for_template(template.flags, visual.variant(), block)
         });
-    shapes
-        .entry((runtime_id, transform))
-        .or_insert_with(|| {
-            visual
-                .model_template()
-                .and_then(|template| {
-                    crack_shape_from_template(assets, template, visual.variant(), block)
-                })
-                .unwrap_or_default()
-        })
-        .clone()
+    let column = visual.model_template().and_then(|template| {
+        has_component_offset(assets, template).then_some([block[0], block[2]])
+    });
+    let build = || CachedCrackShape {
+        column,
+        shape: visual
+            .model_template()
+            .and_then(|template| {
+                crack_shape_from_template(assets, template, visual.variant(), block)
+            })
+            .unwrap_or_default(),
+    };
+    let cached = shapes.entry((runtime_id, transform)).or_insert_with(build);
+    if cached.column != column {
+        *cached = build();
+    }
+    cached.shape.clone()
+}
+
+/// Checks every part because a compound surface may admit displacement after its first part.
+fn has_component_offset(assets: &assets::RuntimeAssets, mut template: u32) -> bool {
+    while let Some(part) = assets.model_templates().get(template as usize) {
+        if assets.model_random_offset(template).is_some() {
+            return true;
+        }
+        if part.flags & assets::MODEL_TEMPLATE_FLAG_COMPOUND_NEXT == 0 {
+            break;
+        }
+        template += 1;
+    }
+    false
 }
 
 /// Server progress units for a fully broken block.

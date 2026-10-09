@@ -11,10 +11,10 @@ pub(super) fn attach(
     local_runtime_id: u64,
     input: &ActorEquipmentInput,
     java_posed: &[java::Posed],
-    frame: (f32, Option<&render::UiGlintSettings>),
+    frame: (f32, f32, Option<&render::UiGlintSettings>),
 ) {
-    let (partial_tick, glint_settings) = frame;
-    crate::presentation::actors::attach_layers(batch, |body| {
+    let (partial_tick, delta_seconds, glint_settings) = frame;
+    crate::presentation::actors::attach_layers(batch, equipment, |equipment, body| {
         let runtime_id = body.input.identity.runtime_id;
         let mut input = if runtime_id == local_runtime_id {
             local_equipment(stream, runtime_id, input)
@@ -32,7 +32,7 @@ pub(super) fn attach(
             .authority()
             .actor(runtime_id)
             .zip(stream.authority().actor_rig(runtime_id));
-        let mut layers = equipment.layers_for(
+        let layers = equipment.layers_for(
             body,
             &input,
             animation.as_ref().map(|(owner, rig)| {
@@ -40,11 +40,12 @@ pub(super) fn attach(
                     owner,
                     rig,
                     frame_alpha: partial_tick,
+                    delta_seconds,
                 }
             }),
         );
         if let Some(settings) = glint_settings {
-            for layer in &mut layers {
+            for layer in layers.iter_mut() {
                 layer.submission.material.glint.strength = settings.strength;
                 layer.submission.material.glint.speed = settings.speed;
             }

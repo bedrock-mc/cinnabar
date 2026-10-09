@@ -268,6 +268,9 @@ struct ActorRigState {
     samples_render_frames: bool,
     samples_camera_poses: bool,
     samples_swing_poses: bool,
+    /// Actor kind admits swelling independently of its initially bound clips.
+    creeper: bool,
+    swell_sampling: Option<Arc<render_frame::swell::SwellSampling>>,
     render_frame: Option<render_frame::FrameState>,
     initialized: bool,
     /// Outside the animation view at its last tick, holding its pose.
@@ -360,6 +363,8 @@ struct EvalBudget<'a> {
     used: usize,
     /// Operand stack lent to each expression run, so runs reuse one allocation.
     stack: Vec<evaluation::MolangValue>,
+    /// Tracks whether an attachable result reads only explicitly memoized inputs.
+    static_draw: Option<bool>,
 }
 
 impl EvalBudget<'_> {
@@ -703,7 +708,10 @@ impl ActorAnimationStore {
             )
             .with_input(state.history.back().copied())
             .with_item_context(
-                state.render_frame.as_ref().map(|frame| &frame.context),
+                state
+                    .render_frame
+                    .as_ref()
+                    .map(|frame| &frame.motion.context),
                 state.complete_spear_variables,
             ),
             java: state.java.motion,
@@ -849,7 +857,7 @@ pub use attachable::{
     AttachableAnimationInput, AttachableBoneParent, AttachableRigSnapshot, AttachablesRuntime,
 };
 pub use evaluation::ActorAnimationVariables;
-use evaluation::{EngineSlots, Evaluator, MolangVariables, VariableLayout};
+use evaluation::{EngineSlots, Evaluator, MolangValue, MolangVariables, VariableLayout};
 use geometry::{collect_controllers, resolve_binding, resolve_bones, skeleton};
 pub use motion::ACTOR_SWING_TICKS;
 use motion::{MotionInput, MotionState};
@@ -882,3 +890,6 @@ mod crystal_tests;
 
 #[cfg(test)]
 mod dragon_tests;
+
+#[cfg(test)]
+mod creeper_tests;
