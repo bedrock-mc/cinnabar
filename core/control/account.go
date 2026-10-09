@@ -113,7 +113,7 @@ type emptyResultV1 struct {
 
 func isServiceMethod(method string) bool {
 	switch method {
-	case methodRealmsList, methodFriendsList, methodFriendsPeople, methodConnect, methodAccountStatus, methodSignOut, methodEvents, methodServerTrust:
+	case methodRealmMembership, methodRealmsList, methodFriendsList, methodFriendsPeople, methodConnect, methodAccountStatus, methodSignOut, methodEvents, methodServerTrust:
 		return true
 	}
 	return isScreenMethod(method)
@@ -239,6 +239,18 @@ func (server *Server) serveService(conn net.Conn, id uint64, method string, raw 
 		return reply.fail(codeServiceFailed, "Service unavailable")
 	}
 	switch method {
+	case methodRealmMembership:
+		result, err := server.serveRealmMembership(conn, raw, services)
+		if errors.Is(err, errInvalidParams) {
+			return reply.invalid()
+		}
+		if errors.Is(err, errMembershipUnavailable) {
+			return reply.fail(codeServicesDisabled, "Realm membership unavailable")
+		}
+		if err != nil {
+			return failService(err)
+		}
+		return reply.ok(result)
 	case methodRealmsList:
 		if len(raw) != 0 {
 			return reply.invalid()

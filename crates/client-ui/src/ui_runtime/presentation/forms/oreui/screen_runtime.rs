@@ -132,6 +132,14 @@ impl UiPresentationRuntime {
                 .iter()
                 .map(|(action, _)| *action)
                 .collect();
+        } else if view.realm_membership.is_some() && !progress {
+            canvas.capture_focus = true;
+            super::realm_membership::draw(&mut canvas, view, size)?;
+            self.form_presentation.menu_focus = canvas
+                .focus_hits
+                .iter()
+                .map(|(action, _)| *action)
+                .collect();
         } else if progress {
             canvas.capture_focus = true;
             progress::join(&mut canvas, view, size, translate)?;

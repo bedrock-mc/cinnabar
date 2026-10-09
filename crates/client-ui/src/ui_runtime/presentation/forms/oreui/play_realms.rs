@@ -37,7 +37,9 @@ pub(super) fn draw(
         [menu_left + pad, y, menu_right - pad, y + add_height],
         Variant::Secondary,
         "Add/join Realm",
-        None,
+        (view.auth_state == crate::menu::auth::AuthState::Authenticated).then_some(
+            MenuAction::RealmMembership(launcher::menu::realm_membership::Action::Open),
+        ),
     )?;
     y += add_height;
     let invites = view.feeds.home.realm_invites;

@@ -177,6 +177,7 @@ impl MenuRuntime {
             local_world_active: false,
             feeds: initial.feeds,
             invite: Default::default(),
+            realm_membership: Default::default(),
             join_requests: Default::default(),
         }
     }

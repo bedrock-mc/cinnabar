@@ -954,3 +954,29 @@ mod tests {
         assert!(parse_response::<Empty>(neither).is_err());
     }
 }
+
+/// A verified or explicitly accepted Realm invitation returned by the core.
+#[derive(Clone, Debug, Deserialize)]
+pub struct RealmMembership {
+    pub code: String,
+    pub realm: Realm,
+}
+
+/// Previews an invitation, or accepts membership when the player explicitly confirms.
+pub async fn realm_membership(
+    socket_dir: &Path,
+    code: &str,
+    accept: bool,
+) -> Result<RealmMembership, BridgeError> {
+    #[derive(Serialize)]
+    struct Params<'a> {
+        code: &'a str,
+        accept: bool,
+    }
+    call(
+        socket_dir,
+        "realm_membership.v1",
+        Some(Params { code, accept }),
+    )
+    .await
+}

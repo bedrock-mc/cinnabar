@@ -293,6 +293,13 @@ impl MenuRuntime {
 
     /// The actions keyboard and gamepad focus cycles through on the current screen.
     pub(super) fn focus_actions(&self) -> Vec<MenuAction> {
+        if let Some(state) = &self.realm_membership.state {
+            return state
+                .actions()
+                .into_iter()
+                .map(MenuAction::RealmMembership)
+                .collect();
+        }
         if self.is_connecting() && self.feeds.server_trust.is_some() {
             return vec![
                 MenuAction::ServerTrust(true),
@@ -427,6 +434,11 @@ impl MenuRuntime {
             }
             MenuScreen::Social => {
                 let mut actions = nav();
+                if self.current_auth().as_ref() == &AuthState::Authenticated {
+                    actions.push(MenuAction::RealmMembership(
+                        launcher::menu::realm_membership::Action::Open,
+                    ));
+                }
                 actions.push(MenuAction::RefreshCatalog);
                 actions.extend((0..self.friends.len()).map(MenuAction::PlayFriend));
                 actions

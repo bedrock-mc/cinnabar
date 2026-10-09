@@ -903,3 +903,54 @@ fn death_actions_follow_stages_and_retire_during_respawn() {
     view.death_presentation.advance(10.0);
     assert!(append(&mut presentation, &view, [1280.0, 720.0]).is_empty());
 }
+
+#[test]
+fn signed_in_realms_offer_membership_without_an_existing_realm() {
+    let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
+    let mut view = MenuView::new(true, "Player".into());
+    view.screen = MenuScreen::Social;
+    view.auth_state = AuthState::Authenticated;
+    let action = MenuAction::RealmMembership(launcher::menu::realm_membership::Action::Open);
+    assert!(
+        append(&mut presentation, &view, [1280.0, 720.0])
+            .iter()
+            .any(|(hit, _)| *hit == action)
+    );
+    view.auth_state = AuthState::SignedOut;
+    assert!(
+        !append(&mut presentation, &view, [1280.0, 720.0])
+            .iter()
+            .any(|(hit, _)| *hit == action)
+    );
+}
+
+#[test]
+fn realm_membership_busy_flow_excludes_underlying_tabs_and_duplicate_requests() {
+    use launcher::menu::realm_membership::{Action, Stage, State};
+    let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
+    let mut view = MenuView::new(true, "Fixture".into());
+    view.screen = MenuScreen::Social;
+    view.auth_state = AuthState::Authenticated;
+    for stage in [Stage::Code, Stage::Verifying, Stage::Joining] {
+        view.realm_membership = Some(State {
+            stage,
+            ..Default::default()
+        });
+        for size in [[1280.0, 720.0], [640.0, 360.0]] {
+            let hits = append(&mut presentation, &view, size);
+            assert!(
+                hits.iter()
+                    .all(|(action, _)| matches!(action, MenuAction::RealmMembership(_)))
+            );
+            assert!(!hits.iter().any(|(action, _)| matches!(
+                action,
+                MenuAction::RealmMembership(Action::Verify | Action::Accept)
+            )));
+            assert_eq!(hits.is_empty(), stage == Stage::Joining);
+            assert!(
+                hits.iter()
+                    .all(|(_, rect)| rect.min().y() >= 0.0 && rect.max().y() <= size[1])
+            );
+        }
+    }
+}

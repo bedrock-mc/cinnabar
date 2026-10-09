@@ -15,10 +15,10 @@ pub use account::{
     Account, Artwork, AuthState, ConnectProgress, ConnectStage, ConnectTarget, Events,
     FeaturedGame, FeaturedServer, Friend, Home, Inbox, LiveEvent, Message, MessageButton,
     MessageEvent, MessageImage, Person, Profile, ProfileAchievement, ProfileAchievements,
-    ProfileStatistics, Realm, ServerDisconnect, ServerPing, ServerTrustPrompt, account_status,
-    answer_server_trust, connect_target, home, list_featured_servers,
+    ProfileStatistics, Realm, RealmMembership, ServerDisconnect, ServerPing, ServerTrustPrompt,
+    account_status, answer_server_trust, connect_target, home, list_featured_servers,
     list_featured_servers_with_counts, list_friends, list_people, list_realms, ping_servers,
-    poll_events, profile, report_message_event, sign_out,
+    poll_events, profile, realm_membership, report_message_event, sign_out,
 };
 pub use error::BridgeError;
 pub(crate) use framed::FramedStream;

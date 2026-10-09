@@ -88,6 +88,7 @@ impl MenuRuntime {
             store: self.store_snapshot.clone(),
             hosting: self.hosting_world(),
             invite: self.invite_view(),
+            realm_membership: self.realm_membership.state.clone(),
             join_request: self.join_request_view(),
             global_resources: self.global_resources.clone(),
         }

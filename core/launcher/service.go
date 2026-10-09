@@ -42,11 +42,12 @@ type Config struct {
 	StoreImageDir string
 
 	// Injectable for tests; nil selects the real implementation.
-	Realms   func(context.Context, *authcache.Account) ([]catalog.Realm, error)
-	Friends  func(context.Context, *authcache.Account) ([]catalog.Friend, error)
-	People   func(context.Context, *authcache.Account) ([]catalog.Person, error)
-	Gamertag func(context.Context, *authcache.Account) (string, error)
-	Remove   func(path string) error
+	RealmMembership func(context.Context, *authcache.Account, string, bool) (catalog.Realm, error)
+	Realms          func(context.Context, *authcache.Account) ([]catalog.Realm, error)
+	Friends         func(context.Context, *authcache.Account) ([]catalog.Friend, error)
+	People          func(context.Context, *authcache.Account) ([]catalog.Person, error)
+	Gamertag        func(context.Context, *authcache.Account) (string, error)
+	Remove          func(path string) error
 
 	Featured                  func(context.Context, *authcache.Account) ([]catalog.FeaturedServer, error)
 	ExperienceCounts          func(context.Context, *authcache.Account) ([]gatherings.ExperiencePlayerCount, error)
@@ -80,6 +81,9 @@ type Service struct {
 
 // New returns a Service; it fills unset injectables with the real implementations.
 func New(cfg Config) *Service {
+	if cfg.RealmMembership == nil {
+		cfg.RealmMembership = catalog.RealmMembership
+	}
 	if cfg.Realms == nil {
 		cfg.Realms = catalog.Realms
 	}

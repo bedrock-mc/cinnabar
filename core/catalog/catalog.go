@@ -242,23 +242,7 @@ func listRealms(ctx context.Context, client *realms.Client) ([]Realm, error) {
 	}
 	result := make([]Realm, 0, len(values))
 	for _, realm := range values {
-		entry := Realm{
-			Name:       displayName(realm.Name, "", "Realm"),
-			State:      realm.State,
-			Target:     fmt.Sprintf("realm_id/%d", realm.ID),
-			Owner:      strings.TrimSpace(realm.Owner),
-			MOTD:       strings.TrimSpace(realm.MOTD),
-			WorldType:  realm.WorldType,
-			MaxPlayers: realm.MaxPlayers,
-			DaysLeft:   realm.DaysLeft,
-			Expired:    realm.Expired,
-			Member:     realm.Member,
-		}
-		for _, player := range realm.Players {
-			if player.Online {
-				entry.OnlinePlayers++
-			}
-		}
+		entry := realmCard(realm)
 		result = append(result, entry)
 	}
 	return result, nil

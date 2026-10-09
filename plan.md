@@ -1156,11 +1156,13 @@ Per-request diagnostics report fixed outcomes with rate limits and no account
 material. Native privacy/offline classification and a separate permissions
 facet remain incomplete; see `docs/profile-parity.md` for references.
 
-2026-10-03 Realms add/join: incomplete. The OreUI control has no action because
-the account control surface only lists and connects to existing Realms. Joining
-by invite or code and creating a Realm need a supported backend operation and a
-version-matched native flow reference before the button can perform that work.
-This does not close the Realm management parity gate.
+Realms add/join: invitation codes now have a signed-in launcher route, read-only
+verification, explicit membership confirmation, cancellable preview requests,
+retryable errors and a returned Realm that can be played. Real remote acceptance
+has not been verified. Incomplete parity: pending invitation acceptance, subscription
+creation, account multiplayer permission admission, service-specific error messages,
+and the full options and confirmation presentation. This does not close the Realm
+management parity gate.
 
 2026-10-03 overlapping crafting ingredients: native parity remains incomplete.
 Consume requests now find a complete assignment for recipes the existing matcher
