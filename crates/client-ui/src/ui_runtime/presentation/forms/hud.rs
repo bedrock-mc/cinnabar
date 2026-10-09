@@ -587,10 +587,7 @@ fn hud_model(
 /// The position line (the `showcoordinates` rule or a held filled map) and the
 /// days-played line (`showdaysplayed`), both hidden while the player is dead.
 fn world_text_lines(runtime: &UiRuntime, frame: &HudFrame) -> (Option<String>, Option<String>) {
-    let alive = runtime
-        .hud()
-        .health()
-        .is_none_or(|health| health.current() > 0);
+    let alive = runtime.last_known_local_player_alive.unwrap_or(true);
     let rules = runtime.gameplay_hud();
     let translate = |key: &str, fallback: &str, arguments: &[String]| {
         let template = runtime
@@ -727,3 +724,7 @@ impl UiPresentationRuntime {
 #[cfg(test)]
 #[path = "hud/cache_tests.rs"]
 mod cache_tests;
+
+#[cfg(test)]
+#[path = "hud/life_state_tests.rs"]
+mod life_state_tests;

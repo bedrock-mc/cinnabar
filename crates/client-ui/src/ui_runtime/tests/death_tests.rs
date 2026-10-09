@@ -190,3 +190,27 @@ fn death_recovery_retains_positive_health_below_the_hud_precision() {
     runtime.begin_session(2);
     assert_eq!(runtime.local_player_alive(), None);
 }
+
+#[test]
+fn death_recovery_keeps_its_history_while_the_actor_is_temporarily_unavailable() {
+    let mut player = player_state::PlayerState::new(1);
+    let mut runtime = UiRuntime::new(1);
+    runtime
+        .apply(
+            &mut player,
+            envelope(1, 1, UiEvent::Hud(HudEvent::Health { health: 0 })),
+        )
+        .unwrap();
+    runtime
+        .apply(&mut player, envelope(1, 2, reason("custom.reason", &[])))
+        .unwrap();
+    runtime.publish_local_actor_health(None);
+    assert_eq!(runtime.local_player_alive(), None);
+    runtime
+        .apply(
+            &mut player,
+            envelope(1, 3, UiEvent::Hud(HudEvent::Health { health: 20 })),
+        )
+        .unwrap();
+    assert_eq!(runtime.death_reason(), "");
+}

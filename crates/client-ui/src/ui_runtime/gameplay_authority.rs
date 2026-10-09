@@ -137,7 +137,7 @@ impl UiRuntime {
             self.publish_local_player_alive(attribute.current > 0.0);
             self.hud.set_health(Some(health));
         } else if actor.is_none() {
-            self.local_player_alive = None;
+            self.local_player_health_available = false;
         }
     }
 

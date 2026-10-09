@@ -51,14 +51,19 @@ impl UiRuntime {
 
     /// Authoritative health availability and life state, independent of HUD rounding.
     pub const fn local_player_alive(&self) -> Option<bool> {
-        self.local_player_alive
+        if self.local_player_health_available {
+            self.last_known_local_player_alive
+        } else {
+            None
+        }
     }
 
     /// Recovery retires a reason once, preserving a new packet arriving before death.
     pub(super) fn publish_local_player_alive(&mut self, next: bool) {
-        if self.local_player_alive == Some(false) && next {
+        if self.last_known_local_player_alive == Some(false) && next {
             self.death_reason = Arc::from("");
         }
-        self.local_player_alive = Some(next);
+        self.last_known_local_player_alive = Some(next);
+        self.local_player_health_available = true;
     }
 }
