@@ -180,11 +180,11 @@ pub use equipment::{
 pub use error::AssetError;
 pub use font::{
     CompiledFontCatalog, FONT_CARRIER_MAGIC, FONT_CARRIER_SCHEMA, FONT_FALLBACK_ATLAS_SIDE,
-    FONT_STYLE_COVERAGE_GAMMA, FONT_STYLE_SDF, FontCatalogError, FontCatalogIdentity,
-    FontGlyphRequests, FontLineMetrics, FontPixels, FontRendering, FontTexturePage, GlyphMetrics,
-    MAX_FONT_FALLBACK_PAGES, MAX_FONT_GLYPHS, MAX_FONT_KERNING_PAIRS, MAX_FONT_PAGE_SIDE,
-    MAX_FONT_PAGES, MAX_FONT_PATH_BYTES, MAX_FONT_SOURCE_BYTES, RuntimeFontCatalog,
-    encode_font_catalog,
+    FONT_RASTER_EM_PIXELS, FONT_STYLE_COVERAGE_GAMMA, FONT_STYLE_SDF, FontCatalogError,
+    FontCatalogIdentity, FontGlyphRequests, FontLineMetrics, FontPixels, FontRendering,
+    FontTexturePage, GlyphMetrics, MAX_FONT_CARRIER_BYTES, MAX_FONT_FALLBACK_PAGES,
+    MAX_FONT_GLYPHS, MAX_FONT_KERNING_PAIRS, MAX_FONT_PAGE_SIDE, MAX_FONT_PAGES,
+    MAX_FONT_PATH_BYTES, MAX_FONT_SOURCE_BYTES, RuntimeFontCatalog, encode_font_catalog,
 };
 pub use fsb::{DecodedSound, FsbError, MAX_FSB_INPUT_BYTES, MAX_FSB_PCM_BYTES, decode_fsb5};
 pub use glyph_sheet::{

@@ -70,14 +70,19 @@ pub fn carrier() -> Option<Arc<RuntimeUiAssets>> {
     ))
 }
 
+/// Loads shipped carriers from the checkout, or an isolated snapshot fixture directory.
 pub fn font() -> Arc<RuntimeFontCatalog> {
+    let directory = std::env::var_os("CINNABAR_FONT_CARRIER_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| local("assets/compiled"));
     let manifest = assets::canonical_source_manifest_sha256(include_bytes!(
         "../../../../../../assets/cinnangles-sans-source.json"
     ));
-    std::fs::read(local("assets/compiled/ui-cinnangles-sans-v1.mcbefont"))
+    let base = std::fs::read(directory.join(assets::carriers::FONT.output))
         .ok()
         .and_then(|bytes| RuntimeFontCatalog::decode(&bytes, manifest).ok())
-        .map_or_else(fixture_font, Arc::new)
+        .map_or_else(fixture_font, |font| Arc::new(font.with_coverage_pages()));
+    crate::ui_runtime::oreui_fonts::install(base, &directory)
 }
 
 /// Every file of an unpacked pack directory as `(pack-relative path, bytes)`.

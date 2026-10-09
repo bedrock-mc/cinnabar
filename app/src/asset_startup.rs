@@ -16,7 +16,6 @@ use thiserror::Error;
 use diagnostics::metrics::AssetMetrics;
 
 mod font_fallback;
-pub(crate) mod oreui_fonts;
 use font_fallback::diagnostic_font_assets;
 mod optional_carriers;
 pub(crate) use optional_carriers::shell_quote_path;
@@ -161,10 +160,7 @@ impl LoadedFontAssets {
                 FONT_ASSETS_COMPILE_COMMAND
             );
         }
-        format!(
-            "loaded required font assets from {}",
-            self.selected_path.display()
-        )
+        format!("loaded font assets from {}", self.selected_path.display())
     }
 
     pub fn into_runtime(self) -> Arc<RuntimeFontCatalog> {

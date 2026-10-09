@@ -10,6 +10,11 @@ pub const STAMP_FILE: &str = "prepared.json";
 
 pub const VANILLA_MANIFEST: &str = "assets/vanilla-source.json";
 pub const FONT_MANIFEST: &str = "assets/cinnangles-sans-source.json";
+pub const FONT_TEN_MANIFEST: &str = "assets/cinnangles-ten-source.json";
+pub const FONT_SEVEN_MANIFEST: &str = "assets/cinnangles-seven-source.json";
+
+mod fonts;
+pub use fonts::FontFace;
 const HUD_MANIFEST: &str = "assets/hud-source-v2193.json";
 const BLOCK_REGISTRY: &str = "crates/assets/data/block-registry-v2193.bin";
 const LIGHT_REGISTRY: &str = "crates/assets/data/block-light-registry-v2193.bin";
@@ -59,6 +64,8 @@ pub struct Carrier {
     pub name: &'static str,
     pub label: &'static str,
     pub recipe: Recipe,
+    /// Optional semantic outline face and its pinned source metrics.
+    pub font_face: Option<FontFace>,
     /// File, or directory, below the output directory.
     pub output: &'static str,
     pub report: Option<&'static str>,
@@ -68,7 +75,7 @@ pub struct Carrier {
     pub installed: bool,
     pub inputs: &'static [Input],
     /// Carriers whose outputs this recipe reads.
-    pub reads: &'static [Recipe],
+    pub reads: &'static [&'static str],
 }
 
 const PACK: &[Input] = &[Input::Pack, Input::Manifest(VANILLA_MANIFEST)];
@@ -85,6 +92,7 @@ const fn carrier(
         name,
         label,
         recipe,
+        font_face: None,
         output,
         report,
         required,
@@ -138,7 +146,49 @@ pub const FONT: Carrier = Carrier {
         Recipe::Font,
         "ui-cinnangles-sans-v1.mcbefont",
         Some("ui-cinnangles-sans-font-assets.json"),
-        true,
+        false,
+    )
+};
+pub const FONT_TEN: Carrier = Carrier {
+    font_face: Some(FontFace {
+        name: "Cinnangles Ten",
+        manifest: include_bytes!("../../../assets/cinnangles-ten-source.json"),
+        units_per_em: 1280,
+        ascent: 1267,
+        descent: 320,
+    }),
+    inputs: &[
+        Input::Manifest(FONT_TEN_MANIFEST),
+        Input::FontFile(FONT_TEN_MANIFEST),
+    ],
+    ..carrier(
+        "font-ten",
+        "Compiling Cinnangles Ten",
+        Recipe::Font,
+        "ui-cinnangles-ten-v1.mcbefont",
+        Some("ui-cinnangles-ten-font-assets.json"),
+        false,
+    )
+};
+pub const FONT_SEVEN: Carrier = Carrier {
+    font_face: Some(FontFace {
+        name: "Cinnangles Seven",
+        manifest: include_bytes!("../../../assets/cinnangles-seven-source.json"),
+        units_per_em: 1280,
+        ascent: 1024,
+        descent: 128,
+    }),
+    inputs: &[
+        Input::Manifest(FONT_SEVEN_MANIFEST),
+        Input::FontFile(FONT_SEVEN_MANIFEST),
+    ],
+    ..carrier(
+        "font-seven",
+        "Compiling Cinnangles Seven",
+        Recipe::Font,
+        "ui-cinnangles-seven-v1.mcbefont",
+        Some("ui-cinnangles-seven-font-assets.json"),
+        false,
     )
 };
 pub const HUD: Carrier = Carrier {
@@ -169,7 +219,7 @@ pub const LANGUAGES: Carrier = carrier(
     false,
 );
 pub const ICON: Carrier = Carrier {
-    reads: &[Recipe::World],
+    reads: &[WORLD.name],
     ..carrier(
         "icon",
         "Compiling item icons",
@@ -281,7 +331,7 @@ pub const STARTER_SKINS: Carrier = Carrier {
 /// Development-only finite predecode of one reviewed sample.
 pub const AUDIO_PCM: Carrier = Carrier {
     installed: false,
-    reads: &[Recipe::Audio],
+    reads: &[AUDIO.name],
     ..carrier(
         "audio-pcm",
         "Compiling reviewed PCM sample",
@@ -298,6 +348,8 @@ pub const CARRIERS: &[Carrier] = &[
     ATMOSPHERE,
     ENTITY,
     FONT,
+    FONT_TEN,
+    FONT_SEVEN,
     HUD,
     LANG,
     LANGUAGES,
@@ -328,14 +380,6 @@ impl Carrier {
 #[must_use]
 pub fn by_name(name: &str) -> Option<&'static Carrier> {
     CARRIERS.iter().find(|carrier| carrier.name == name)
-}
-
-#[must_use]
-pub fn by_recipe(recipe: Recipe) -> &'static Carrier {
-    CARRIERS
-        .iter()
-        .find(|carrier| carrier.recipe == recipe)
-        .expect("every recipe has one carrier")
 }
 
 /// Every carrier packaged startup needs.
@@ -394,13 +438,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn names_outputs_and_recipes_are_unique() {
+    fn names_and_outputs_are_unique() {
         let mut names = HashSet::new();
         let mut files = HashSet::new();
-        let mut recipes = HashSet::new();
         for carrier in CARRIERS {
             assert!(names.insert(carrier.name), "{}", carrier.name);
-            assert!(recipes.insert(carrier.recipe), "{}", carrier.name);
             for file in std::iter::once(carrier.output).chain(carrier.report) {
                 assert!(files.insert(file), "{file}");
             }
@@ -411,10 +453,10 @@ mod tests {
     fn a_carrier_reads_only_earlier_carriers_built_in_the_same_scope() {
         for carrier in CARRIERS {
             for &read in carrier.reads {
-                let dependency = by_recipe(read);
-                let position = |recipe| CARRIERS.iter().position(|c| c.recipe == recipe);
+                let dependency = by_name(read).expect("every dependency names a carrier");
+                let position = |name| CARRIERS.iter().position(|c| c.name == name);
                 assert!(
-                    position(read) < position(carrier.recipe),
+                    position(read) < position(carrier.name),
                     "{} must follow {}, which it reads",
                     carrier.name,
                     dependency.name
@@ -438,6 +480,16 @@ mod tests {
     #[test]
     fn required_carriers_are_built_for_installs() {
         assert!(required().all(|carrier| carrier.installed));
+    }
+
+    #[test]
+    fn shipped_fonts_are_optional_and_independent_of_the_game_pack() {
+        for carrier in [FONT, FONT_SEVEN, FONT_TEN] {
+            assert!(!carrier.required);
+            assert!(carrier.installed);
+            assert_eq!(carrier.recipe, Recipe::Font);
+            assert!(!carrier.inputs.contains(&Input::Pack));
+        }
     }
 
     #[test]

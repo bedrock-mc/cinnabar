@@ -17,11 +17,13 @@ pub const MAX_FONT_GLYPHS: usize = 65_536;
 pub const MAX_FONT_KERNING_PAIRS: usize = 65_536;
 pub const MAX_FONT_PAGE_SIDE: u32 = 4_096;
 pub const MAX_FONT_PATH_BYTES: usize = 512;
+/// Em height used to compile the shipped outline font carriers.
+pub const FONT_RASTER_EM_PIXELS: u32 = 18;
 pub const FONT_FALLBACK_ATLAS_SIDE: u32 = 1024;
 pub const MAX_FONT_FALLBACK_PAGES: usize = 16;
 
 const MAX_FONT_DECODED_BYTES: usize = MAX_FONT_SOURCE_BYTES as usize;
-const MAX_FONT_CARRIER_BYTES: usize = 128 * 1024 * 1024;
+pub const MAX_FONT_CARRIER_BYTES: usize = 128 * 1024 * 1024;
 const HEADER_BYTES: usize = 96;
 const GLYPH_BYTES: usize = 24;
 const PAGE_BYTES: usize = 108;

@@ -564,8 +564,13 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     block_entity_scene.install_mob_assets(&entity_runtime, &actor_catalog);
     let font_runtime = loaded_assets.fonts.into_runtime();
     let block_entity_font = Arc::clone(&font_runtime);
-    let font_runtime =
-        crate::asset_startup::oreui_fonts::install(font_runtime, &layout.resource_root);
+    let font_runtime = client_ui::ui_runtime::oreui_fonts::install(
+        font_runtime,
+        loaded_assets
+            .selected_path
+            .parent()
+            .unwrap_or_else(|| std::path::Path::new(".")),
+    );
     let mut ui_presentation = UiPresentationRuntime::with_hud_and_icons(
         font_runtime,
         hud_assets.into_runtime(),

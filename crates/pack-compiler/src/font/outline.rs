@@ -11,12 +11,6 @@ use super::{CompiledFontCarrier, FontCompileError, FontCompileReport, invalid};
 
 mod providers;
 pub use providers::compile_outline_font_with_fallback;
-mod runtime;
-pub use runtime::{
-    NATIVE_SDF_EM_PIXELS, NATIVE_SDF_MIN_PIXELS, compile_native_fallback_fonts,
-    compile_native_outline_font, compile_native_outline_font_sizes, compile_runtime_outline_font,
-};
-
 const ATLAS_PADDING: u32 = 1;
 const FIXED_POINT_DENOMINATOR: i64 = 64;
 const REQUIRED_REPLACEMENT: char = '\u{fffd}';
@@ -71,7 +65,7 @@ impl Default for OutlineFontConfig {
             // The reviewed pixel grid uses 18 px/em so each design pixel lands
             // on a stable texel boundary. Off-grid heights split design pixels
             // across texels and render uneven stems.
-            pixel_height: 18,
+            pixel_height: assets::FONT_RASTER_EM_PIXELS,
             atlas_side: 1_024,
             replacement_codepoint: REQUIRED_REPLACEMENT,
             advances: GlyphAdvances::Source,
@@ -107,7 +101,6 @@ pub fn compile_outline_font(
         source_manifest_sha256,
         config,
         &font,
-        false,
     )
 }
 
@@ -117,7 +110,6 @@ fn compile_parsed_outline(
     source_manifest_sha256: [u8; 32],
     config: OutlineFontConfig,
     font: &Font,
-    runtime: bool,
 ) -> Result<CompiledFontCarrier, FontCompileError> {
     let mut codepoints = REVIEWED_RANGES
         .iter()
@@ -136,28 +128,12 @@ fn compile_parsed_outline(
             {
                 synthetic_replacement(config.pixel_height)
             } else {
-                let mut glyph = rasterize(font, codepoint, config.pixel_height, config.advances)?;
-                if runtime {
-                    let advance = font
-                        .metrics(codepoint, config.pixel_height as f32)
-                        .advance_width
-                        * 64.0;
-                    if !advance.is_finite() || advance < 0.0 || advance > i16::MAX as f32 {
-                        return Err(metric_error(codepoint, "advance"));
-                    }
-                    glyph.advance_64 = advance.round() as i16;
-                }
+                let glyph = rasterize(font, codepoint, config.pixel_height, config.advances)?;
                 Ok(glyph)
             }
         })
         .collect::<Result<Vec<_>, _>>()?;
-    let (glyphs, mut rgba8) = pack(&rasterized, config.atlas_side)?;
-    if runtime {
-        // Linear white-glyph sampling retains coverage without darkening transparent gutters.
-        for texel in rgba8.chunks_exact_mut(4) {
-            texel[..3].fill(255);
-        }
-    }
+    let (glyphs, rgba8) = pack(&rasterized, config.atlas_side)?;
     let source_sha256 = Sha256::digest(source_bytes).into();
     let pixels_sha256 = Sha256::digest(&rgba8).into();
     let page = FontTexturePage {
@@ -516,6 +492,29 @@ fn metric_error(codepoint: char, field: &'static str) -> FontCompileError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shipped_face_metrics_match_the_pinned_sources() {
+        for carrier in [assets::carriers::FONT_SEVEN, assets::carriers::FONT_TEN] {
+            let profile = carrier.font_face.unwrap();
+            let source: serde_json::Value = serde_json::from_slice(profile.manifest).unwrap();
+            let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../assets/fonts")
+                .join(source["font_file"].as_str().unwrap());
+            let bytes = std::fs::read(path).unwrap();
+            assert_eq!(
+                format!("{:x}", Sha256::digest(&bytes)),
+                source["font_sha256"].as_str().unwrap()
+            );
+            let font = Font::from_bytes(bytes, FontSettings::default()).unwrap();
+            let line = font
+                .horizontal_line_metrics(assets::FONT_RASTER_EM_PIXELS as f32)
+                .unwrap();
+            let metrics = profile.line_metrics();
+            assert_eq!(metrics.ascent_64, (line.ascent * 64.0).round() as u32);
+            assert_eq!(metrics.descent_64, (-line.descent * 64.0).round() as u32);
+        }
+    }
 
     #[test]
     fn synthetic_replacement_is_visible_bounded_tofu() {

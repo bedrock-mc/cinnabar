@@ -67,20 +67,18 @@
   enabled controls. Keyboard/gamepad return and pointer outline admission have regression coverage.
   Exact native Home restoration policy and full authored frontend parity remain incomplete.
 
-## OreUI Unicode fallback
+## Shipped OreUI fonts
 
-- Native language labels and server text resolve missing glyphs from installed locale-specific Noto
-  faces. Primary Latin glyph metrics and the HUD font remain unchanged. Mixed runs retain their
-  own sampling and em scale. Language names and common server symbols are warmed at startup.
-- Additional characters compile off-thread into shared bounded pages; requests deduplicate,
-  unsupported characters do not displace valid glyphs and failed updates preserve the valid cache.
-  Locale changes invalidate the fallback. Unchanged publications retain texture payload ownership.
-- Atlas bounds reject oversized glyphs and aggregate raster overflow before allocation. Multi-page
-  glyph/page order stays consistent. Reserved fallback storage leaves the ordinary UI budget available
-  for native controls and icons. Text coverage and opaque model color masks use independent flags.
-- Full script substitution, bidirectional shaping and low-size fallback raster parity remain open.
+- Body text uses Cinnangles Seven and headings use Cinnangles Ten, derived from the shipped
+  Cinnangles Sans. Optional font carriers compile before startup and use the default font when
+  missing or invalid. OreUI no longer reads installed game fonts or rasterizes them at startup.
+- Compiled Unicode ranges supply Latin, symbols and bounded CJK coverage. The installed Noto
+  chain and its worker cache have been removed. Full Unicode coverage, script substitution,
+  bidirectional shaping and small-text raster parity remain incomplete.
+- Game-bundle artwork remains a runtime input; this font change closes no native artwork,
+  responsive-layout or font-parity gate.
 
-## OreUI verification
+## Prior OreUI verification
 
 - The original Japanese-label failure, texture-budget rejection and colliding rendering flags were
   reproduced before their fixes. Regression checks cover language names, small-cap MOTDs, uncached
@@ -373,8 +371,8 @@
 - Controller uses its native category image; category selection plays the 500ms highlight.
   Account uses the authenticated gamerpic or the signed-out silhouette. Sidebar bevels and
   detail-row top/bottom edges now retain their native state roles and group boundaries.
-  The integrated Settings regressions and installed-font tests pass. The visible macOS client
-  runs with rebuilt block assets; fresh local-world frames confirm textured terrain. These
+  The integrated Settings control regressions pass. OreUI now uses shipped Cinnangles carriers.
+  The visible macOS client runs with rebuilt block assets; fresh local-world frames confirm textured terrain. These
   follow-up changes remain uncommitted, and matched Settings visual acceptance remains open.
 - Settings now uses the native OreUI shell, category sidebar, grouped descriptions, right-side
   switches, filled sliders, inline choices, and independent panel scrollbars.
@@ -385,10 +383,9 @@
   acceptance is pending; this does not close the Settings parity gate.
 - Incomplete: native options without a host model, controller binding glyphs, account management
   actions/confirmations, Touch/Party/subscription services, and native storage subroutes.
-  Runtime vanilla artwork and core font faces are integrated, with native metrics, tracking,
-  kerning, CPU distance-field rasterization, coverage shading, control states and
-  pointer/navigation timelines. Locale shaping and hidden-tab animation resumption still
-  need native witnesses; disabled narration focus awaits a UI narration host. Matched visual
+  Runtime vanilla artwork and shipped Cinnangles faces are integrated, with face metrics,
+  letter spacing, coverage shading, control states and pointer/navigation timelines. Locale shaping
+  and hidden-tab animation resumption still need native witnesses; disabled narration focus awaits a UI narration host. Matched visual
   acceptance remains open. Reference facts are tracked in
   [OreUI](docs/oreui.md).
 
