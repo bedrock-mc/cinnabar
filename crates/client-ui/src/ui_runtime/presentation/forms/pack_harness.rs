@@ -217,9 +217,12 @@ pub fn image_form(
                     title: Some(Arc::from(title)),
                     json: Arc::from("{}"),
                     model: ServerFormModel::TextMenu(TextMenuForm {
-                        title: Arc::from(title),
-                        content: Arc::from(""),
-                        buttons: buttons.iter().map(|text| Arc::from(*text)).collect(),
+                        title: protocol::FormText::from(title),
+                        content: protocol::FormText::from(""),
+                        buttons: buttons
+                            .iter()
+                            .map(|text| protocol::FormText::from(*text))
+                            .collect(),
                         button_images: images.into(),
                         omitted_images: 0,
                     }),

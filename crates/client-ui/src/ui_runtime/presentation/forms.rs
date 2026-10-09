@@ -53,6 +53,8 @@ pub mod oreui;
 mod retained_menu;
 pub mod smaa_setting;
 pub(super) use retained_menu::RetainedMenu;
+#[cfg(test)]
+pub(crate) mod compatibility_tests;
 #[cfg(any(test, feature = "test-support"))]
 pub mod pack_harness;
 pub mod pages;
@@ -592,7 +594,9 @@ impl UiPresentationRuntime {
                 let state = runtime.server_forms().engine();
                 let remote = renderer.textures.remote.clone();
                 let images = |url: &str| remote.state(url);
-                match model::engine_model(&entry.model, state, &translate, &images) {
+                match model::engine_model(&entry.model, state, &translate, &images, &|text| {
+                    runtime.resolve_form_text(text)
+                }) {
                     None => "form kind has no engine template".to_owned(),
                     Some(form) => {
                         let rollback = (nodes.len(), *next);

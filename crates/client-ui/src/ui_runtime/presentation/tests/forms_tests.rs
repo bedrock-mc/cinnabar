@@ -19,11 +19,14 @@ fn form_runtime(player_runtime: &mut player_state::PlayerState) -> UiRuntime {
                     title: Some(Arc::from("世界")),
                     json: Arc::from("{}"),
                     model: ServerFormModel::TextMenu(TextMenuForm {
-                        title: Arc::from("Unicode 世界 ✓"),
-                        content: Arc::from("long body α β\n".repeat(100)),
+                        title: protocol::FormText::from("Unicode 世界 ✓"),
+                        content: protocol::FormText::from("long body α β\n".repeat(100)),
                         buttons: (0..256)
                             .map(|index| {
-                                Arc::from(format!("Button {index} 世界 {}", "x".repeat(100)))
+                                protocol::FormText::from(format!(
+                                    "Button {index} 世界 {}",
+                                    "x".repeat(100)
+                                ))
                             })
                             .collect::<Vec<_>>()
                             .into(),

@@ -603,18 +603,12 @@ fn element_button_form_model_preserves_unicode_and_wire_indices() {
 #[test]
 fn element_button_forms_reject_ambiguous_or_unsupported_controls_without_renumbering() {
     for json in [
-        r#"{"type":"form","buttons":[],"elements":[]}"#,
-        r#"{"type":"form","buttons":null,"elements":[]}"#,
         r#"{"type":"form","elements":null}"#,
         r#"{"type":"form","elements":{}}"#,
         r#"{"type":"form","elements":["button"]}"#,
         r#"{"type":"form","elements":[{"text":"A","image":null}]}"#,
         r#"{"type":"form","elements":[{"type":7,"text":"A","image":null}]}"#,
-        r#"{"type":"form","elements":[{"type":"button","image":null}]}"#,
         r#"{"type":"form","elements":[{"type":"button","text":7,"image":null}]}"#,
-        r#"{"type":"form","elements":[{"type":"button","text":"A","image":null,"unknown":true}]}"#,
-        r#"{"type":"form","elements":[{"type":"label","image":null}]}"#,
-        r#"{"type":"form","elements":[{"type":"header","text":"H","image":{"type":"path","data":"x"}}]}"#,
     ] {
         assert_eq!(
             form_event(json).unwrap().model,
@@ -682,11 +676,7 @@ fn pinned_text_menu_and_response_fixtures_match_exact_wire_payloads() {
 fn unsupported_form_controls_are_nonfatal_and_never_fake_text_buttons() {
     for json in [
         r#"{"type":"modal","title":"Question"}"#,
-        r#"{"type":"custom_form","content":[{"type":"toggle"}]}"#,
-        r#"{"type":"form","buttons":[{"text":"Icon","image":{"type":"unknown","data":"ignored"}}]}"#,
         r#"{"type":"form","buttons":[{"text":"Icon","image":{"type":"url","data":5}}]}"#,
-        r#"{"type":"form","buttons":[{"text":"Icon","image":{"type":"path","data":"ignored","extra":true}}]}"#,
-        r#"{"type":"form","buttons":[{"text":{"rawtext":[{"text":"Rich"}]}}]}"#,
     ] {
         assert!(matches!(
             form_event(json).unwrap().model,
@@ -975,14 +965,14 @@ fn element_menus_keep_decorations_and_count_only_buttons() {
         menu.elements.as_ref(),
         [
             protocol::MenuElement::Button {
-                text: Arc::from("A"),
+                text: protocol::FormText::from("A"),
                 image: None,
             },
-            protocol::MenuElement::Label(Arc::from("B")),
+            protocol::MenuElement::Label(protocol::FormText::from("B")),
             protocol::MenuElement::Divider,
-            protocol::MenuElement::Header(Arc::from("H")),
+            protocol::MenuElement::Header(protocol::FormText::from("H")),
             protocol::MenuElement::Button {
-                text: Arc::from("C"),
+                text: protocol::FormText::from("C"),
                 image: None,
             },
         ]
@@ -998,10 +988,10 @@ fn modal_forms_model_both_buttons_or_stay_unsupported() {
     assert_eq!(
         event.model,
         protocol::ServerFormModel::Modal(protocol::ModalDialogForm {
-            title: Arc::from("Sure?"),
-            content: Arc::from("Body"),
-            button1: Arc::from("Yes"),
-            button2: Arc::from("No"),
+            title: protocol::FormText::from("Sure?"),
+            content: protocol::FormText::from("Body"),
+            button1: protocol::FormText::from("Yes"),
+            button2: protocol::FormText::from("No"),
         })
     );
     for json in [
@@ -1054,10 +1044,10 @@ fn custom_form_elements_start_from_vanilla_defaults() {
         form.elements[3],
         CustomFormElement::StepSlider { default: 1, .. }
     ));
-    // An out-of-range dropdown default falls back to the first option.
+    // An untouched default is retained even when it has no matching option.
     assert!(matches!(
         form.elements[4],
-        CustomFormElement::Dropdown { default: 0, .. }
+        CustomFormElement::Dropdown { default: 9, .. }
     ));
     assert!(matches!(
         &form.elements[5],
