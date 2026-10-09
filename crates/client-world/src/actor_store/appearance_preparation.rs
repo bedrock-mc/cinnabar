@@ -2,6 +2,11 @@
 use super::{ActorKind, ActorStore, PlayerProfile, PlayerSkin, retained_skin_bytes};
 use std::{collections::HashMap, sync::Arc};
 
+/// Appearances one frame may publish. Each becomes a drawable player with first-time skin,
+/// equipment and layer work, and finished preparation batches can release a lobby's worth at
+/// once; the rest publish on the following frames, the local player first.
+pub(crate) const MAX_APPEARANCES_PUBLISHED_PER_FRAME: usize = 8;
+
 #[derive(Debug, Default)]
 pub(super) struct ReadyAppearances {
     pub(super) profiles: HashMap<[u8; 16], PlayerProfile>,
@@ -11,6 +16,7 @@ pub(super) struct ReadyAppearances {
 impl ActorStore {
     /// Ready profiles have their own byte ceiling, including replacements retained during a job.
     /// First appearances publish on any frame; replacements wait for a tick so a visible pose never drops to rest.
+    /// At most [`MAX_APPEARANCES_PUBLISHED_PER_FRAME`] publish per call.
     pub(crate) fn prepare_appearances(&mut self, tick: bool) {
         if !self.animation.has_skin_preparation() {
             return;
@@ -40,6 +46,7 @@ impl ActorStore {
                     .values()
                     .filter(|actor| Some(actor.runtime_id) != local),
             );
+        let mut published = 0;
         for actor in actors {
             let ActorKind::Player { uuid, .. } = &actor.kind else {
                 continue;
@@ -59,6 +66,7 @@ impl ActorStore {
             });
             let previous = ready.profiles.get(uuid);
             if !prepared
+                || published >= MAX_APPEARANCES_PUBLISHED_PER_FRAME
                 || previous
                     .is_some_and(|previous| !tick || same_profile_allocation(previous, profile))
             {
@@ -80,6 +88,7 @@ impl ActorStore {
             ready.profiles.insert(*uuid, profile.clone());
             self.animation
                 .sync_skin_model(actor.runtime_id, geometry_source(profile));
+            published += 1;
         }
         self.animation.submit_skin_preparation();
     }

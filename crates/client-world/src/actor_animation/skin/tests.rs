@@ -352,12 +352,15 @@ fn standard_humanoid_skin_is_drawable_in_the_frame_it_is_added() {
     assert_eq!(prepared_on_this_thread(), prepared);
 }
 
+/// A crowd whose batches finish together is admitted without waiting for earlier batches, then
+/// becomes drawable a bounded number of players per frame rather than all in one frame.
 #[test]
-fn custom_model_crowd_publishes_after_one_frame_per_admitted_batch() {
+fn custom_model_crowd_publishes_a_bounded_number_per_frame() {
+    use crate::actor_store::MAX_APPEARANCES_PUBLISHED_PER_FRAME as PER_FRAME;
     let batches = queue::MAX_SKIN_BATCHES_IN_FLIGHT;
-    let crowd = (queue::MAX_SKIN_PREPARATIONS_PER_PASS * batches) as u8;
+    let crowd = queue::MAX_SKIN_PREPARATIONS_PER_PASS * batches;
     let mut store = player_store();
-    for id in 1..=crowd {
+    for id in 1..=crowd as u8 {
         add_player(&mut store, id, profile_skin(id));
     }
     // Every batch is admitted without waiting for an earlier one to finish.
@@ -365,8 +368,18 @@ fn custom_model_crowd_publishes_after_one_frame_per_admitted_batch() {
         store.advance_interpolation_frame(0);
     }
     store.finish_appearance_fixture_batch();
-    store.advance_interpolation_frame(0);
-    assert_eq!(store.actor_rigs().count(), usize::from(crowd));
+    let mut drawn = 0;
+    for frame in 1..=crowd.div_ceil(PER_FRAME) {
+        store.advance_interpolation_frame(0);
+        let now = store.actor_rigs().count();
+        assert!(
+            now - drawn <= PER_FRAME,
+            "{} players in frame {frame}",
+            now - drawn
+        );
+        drawn = now;
+    }
+    assert_eq!(drawn, crowd);
 }
 
 #[test]
