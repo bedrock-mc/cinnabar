@@ -91,6 +91,9 @@ pub(in crate::actor_animation) fn expression_is_static(
     else {
         return false;
     };
+    if preparation && !writes_are_unconditional(ops) {
+        return false;
+    }
     let symbol = |index: u32| {
         assets
             .molang_symbols()
@@ -142,6 +145,29 @@ pub(in crate::actor_animation) fn expression_is_static(
         | MolangOp::LoopNext(_)
         | MolangOp::LoopBreak(_) => false,
         _ => true,
+    })
+}
+
+/// A later dependent pose must refresh every preparation write before reading it.
+/// Forward branches may select assignment values but may not skip the assignments.
+fn writes_are_unconditional(ops: &[MolangOp]) -> bool {
+    ops.iter().enumerate().all(|(index, op)| {
+        let skipped = match *op {
+            MolangOp::Jump(target)
+            | MolangOp::JumpIfFalse(target)
+            | MolangOp::JumpIfTrue(target) => {
+                let target = target as usize;
+                if target <= index || target > ops.len() {
+                    return false;
+                }
+                &ops[index + 1..target]
+            }
+            MolangOp::Return => &ops[index + 1..],
+            _ => return true,
+        };
+        !skipped
+            .iter()
+            .any(|op| matches!(op, MolangOp::StoreVariable(_)))
     })
 }
 

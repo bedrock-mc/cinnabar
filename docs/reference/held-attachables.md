@@ -54,7 +54,9 @@ use seconds `s`, power is `min((s*s + 2*s)/3, 1)`. While using with a nonzero re
 counter, the frame is `truncate(3 * power * 0.99) + 1`; otherwise it is zero,
 including when the counter reaches zero before the use flag clears. The transitions occur at
 elapsed ticks 9 and 15. This differs from the bow pack's ten-tick pose-charge
-expression: texture frame and pull-pose progress must not be conflated.
+expression: texture frame and pull-pose progress must not be conflated. The frame query
+reads the owner's main-hand item for either rendered hand; an offhand bow does not
+introduce an independent use counter or frame.
 
 The pack supplies standby/pulling geometries, all four texture frames, the
 first-person wield rotation/offset, pull rotation/offset and full-charge shake.

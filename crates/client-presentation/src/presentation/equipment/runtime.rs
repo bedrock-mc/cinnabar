@@ -131,6 +131,8 @@ pub struct EquipmentRuntime {
     /// `(identifier, reason)` pairs already logged as drawing no layer.
     logged_misses: std::collections::HashSet<(Box<str>, &'static str)>,
     poses: PoseMemo,
+    /// Reused output storage for one actor, bounded by held and worn layer counts.
+    layers: Vec<EquipmentPresentation>,
     attachables: client_world::AttachablesRuntime,
     attachable_meshes: BTreeMap<AttachableMeshKey, EntityRigId>,
     /// Raster attachables' image-to-rig frame and rest pose under Java's hand, by mesh key.
@@ -305,6 +307,7 @@ impl EquipmentRuntime {
             pack: None,
             logged_misses: Default::default(),
             poses: PoseMemo::default(),
+            layers: Vec::new(),
         };
         (runtime, artwork, geometries)
     }
@@ -325,28 +328,42 @@ impl EquipmentRuntime {
         std::mem::take(&mut self.pending)
     }
 
-    /// Equipment layers for one drawn player body, riding the body's own pose and transform.
+    /// Builds held and worn layers into reusable storage, valid until the next runtime call.
     pub fn layers_for(
         &mut self,
         body: &ActorRigSubmission,
         input: &ActorEquipmentInput,
         animation: Option<EquipmentAnimation<'_>>,
-    ) -> Vec<EquipmentPresentation> {
-        let mut layers = Vec::new();
+    ) -> &mut [EquipmentPresentation] {
+        let mut layers = std::mem::take(&mut self.layers);
+        layers.clear();
+        self.fill_layers(body, input, animation, &mut layers);
+        self.layers = layers;
+        &mut self.layers
+    }
+
+    /// Appends one body's equipment while retaining the caller's output capacity.
+    fn fill_layers(
+        &mut self,
+        body: &ActorRigSubmission,
+        input: &ActorEquipmentInput,
+        animation: Option<EquipmentAnimation<'_>>,
+        layers: &mut Vec<EquipmentPresentation>,
+    ) {
         if !matches!(
             body.route,
             ActorRigRoute::Compiled | ActorRigRoute::StaticFallback
         ) || body.input.identity.layer != ACTOR_LAYER_BODY
         {
-            return layers;
+            return;
         }
         let Some((geometry, bones)) = self.body_bones_for(body.input.rig) else {
-            return layers;
+            return;
         };
         let pose_len = bones.names.len();
         if body.input.previous_bones.len() != pose_len || body.input.current_bones.len() != pose_len
         {
-            return layers;
+            return;
         }
         for (item, layer, bone) in [
             (&input.main, LAYER_MAIN_HAND, bones.right_item),
@@ -395,7 +412,11 @@ impl EquipmentRuntime {
                             frame_alpha: animation.frame_alpha,
                             use_elapsed_ticks: elapsed,
                             delta_seconds: Some(animation.delta_seconds),
-                            animation_frame: if item.identifier.as_ref() == "minecraft:bow" {
+                            animation_frame: if input
+                                .main
+                                .as_ref()
+                                .is_some_and(|main| main.identifier.as_ref() == "minecraft:bow")
+                            {
                                 inventory::ranged_animation_frame(
                                     elapsed.filter(|elapsed| *elapsed < duration),
                                 )
@@ -417,11 +438,11 @@ impl EquipmentRuntime {
             }
             match input.java.filter(|_| layer == LAYER_MAIN_HAND) {
                 Some(grip) => {
-                    if !self.push_attachable(body, item, layer, bone, false, &mut layers) {
-                        self.push_java_held(body, item, &bones, grip, &mut layers);
+                    if !self.push_attachable(body, item, layer, bone, false, layers) {
+                        self.push_java_held(body, item, &bones, grip, layers);
                     }
                 }
-                None => self.push_held(body, item, layer, bone, &mut layers),
+                None => self.push_held(body, item, layer, bone, layers),
             }
             if layers.len() == before {
                 self.note_missing_layer(item, None, bone);
@@ -443,7 +464,7 @@ impl EquipmentRuntime {
                 if slot == ArmorSlot::Helmet
                     && let Some(kind) = skull_kind(&item.identifier)
                 {
-                    self.push_skull(body, kind, layer, bones.head, &mut layers);
+                    self.push_skull(body, kind, layer, bones.head, layers);
                     continue;
                 }
                 // A block worn in the helmet slot (a carved pumpkin) sits on the head bone.
@@ -457,24 +478,23 @@ impl EquipmentRuntime {
                         layer,
                         bones.head,
                         Some(head_block_display()),
-                        &mut layers,
+                        layers,
                     );
                     continue;
                 }
                 if slot == ArmorSlot::Chestplate && self.is_elytra(&item.identifier) {
                     if let Some(animation) = animation {
-                        self.push_elytra(body, item, input, animation, &mut layers);
+                        self.push_elytra(body, item, input, animation, layers);
                     }
                     continue;
                 }
                 let before = layers.len();
-                self.push_armor(body, &bones, geometry, (slot, layer), item, &mut layers);
+                self.push_armor(body, &bones, geometry, (slot, layer), item, layers);
                 if layers.len() == before {
                     self.note_missing_layer(item, Some(slot), bones.head);
                 }
             }
         }
-        layers
     }
 
     /// The body pose with every bone but the visible arms (and their sleeves) zero-scaled, as

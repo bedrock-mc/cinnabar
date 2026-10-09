@@ -69,6 +69,7 @@ pub struct JavaGrip {
 }
 
 /// One extra instance plus the artwork page/layer its texture lives on.
+#[derive(Clone)]
 pub struct EquipmentPresentation {
     pub submission: ActorRigSubmission,
     pub location: ActorArtworkLocation,

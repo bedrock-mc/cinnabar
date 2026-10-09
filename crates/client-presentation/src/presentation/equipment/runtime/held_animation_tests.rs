@@ -180,43 +180,54 @@ fn warm_static_held_publication_retains_pose_without_evaluation_allocations() {
     .map(Box::from);
     let mut rig = owner_rig(&owner, &names);
     let input = held("test:held");
-    for _ in 0..3 {
-        assert_eq!(
-            runtime
-                .layers_for(
-                    &body,
-                    &input,
-                    Some(EquipmentAnimation {
-                        owner: &owner,
-                        rig: &rig,
-                        frame_alpha: 0.25,
-                        delta_seconds: 0.016,
-                    })
-                )
-                .len(),
-            1
-        );
+    let mut batch = crate::presentation::actors::ActorPresentationBatch {
+        submissions: vec![body],
+        skin_layers: Vec::new(),
+        artwork: Default::default(),
+    };
+    for tick in 0..3 {
+        rig.completed_tick = tick;
+        batch.submissions.truncate(1);
+        batch.artwork.clear();
+        crate::presentation::actors::attach_layers(&mut batch, &mut runtime, |runtime, body| {
+            runtime.layers_for(
+                body,
+                &input,
+                Some(EquipmentAnimation {
+                    owner: &owner,
+                    rig: &rig,
+                    frame_alpha: 0.25,
+                    delta_seconds: 0.016,
+                }),
+            )
+        });
+        assert_eq!(batch.submissions.len(), 2);
     }
     let allocations = crate::test_allocations::count();
-    for tick in 2..12 {
+    for tick in 3..13 {
         rig.completed_tick = tick;
         runtime.begin_frame();
-        let layers = runtime.layers_for(
-            &body,
-            &input,
-            Some(EquipmentAnimation {
-                owner: &owner,
-                rig: &rig,
-                frame_alpha: 0.75,
-                delta_seconds: 0.016,
-            }),
-        );
-        assert_eq!(layers.len(), 1);
+        batch.submissions.truncate(1);
+        batch.artwork.clear();
+        crate::presentation::actors::attach_layers(&mut batch, &mut runtime, |runtime, body| {
+            runtime.layers_for(
+                body,
+                &input,
+                Some(EquipmentAnimation {
+                    owner: &owner,
+                    rig: &rig,
+                    frame_alpha: 0.75,
+                    delta_seconds: 0.016,
+                }),
+            )
+        });
+        assert_eq!(batch.submissions.len(), 2);
+        assert_eq!(batch.artwork.len(), 1);
     }
     assert_eq!(
         crate::test_allocations::count() - allocations,
-        10,
-        "only the returned layer vector may allocate, not warm authored evaluation or placement"
+        0,
+        "unchanged held publication must reuse evaluation, placement, and output storage"
     );
 }
 
@@ -303,6 +314,55 @@ fn controller_held_publication_keeps_time_and_persistent_scripts_live() {
 }
 
 #[test]
+fn cached_blocking_pose_preserves_conditionally_saved_owner_pitch() {
+    let mut files = static_held_pack();
+    let mut attachable: serde_json::Value = serde_json::from_slice(&files[0].1).unwrap();
+    let description = &mut attachable["minecraft:attachable"]["description"];
+    description["animations"]["released"] = serde_json::json!("animation.released");
+    description["scripts"]["pre_animation"] = serde_json::json!([
+        "query.blocking ? { variable.saved_pitch = query.head_x_rotation(0); } : 0;"
+    ]);
+    files[0].1 = serde_json::to_vec(&attachable).unwrap();
+    let mut clips: serde_json::Value = serde_json::from_slice(&files[2].1).unwrap();
+    clips["animations"]["animation.released"] = serde_json::json!({
+        "loop": true, "bones": {"rightitem": {"position": ["variable.saved_pitch", 0, 0]}}
+    });
+    files[2].1 = serde_json::to_vec(&clips).unwrap();
+    let controller = files
+        .iter_mut()
+        .find(|(name, _)| name.as_ref() == "animation_controllers/held.json")
+        .unwrap();
+    controller.1 = serde_json::to_vec(&serde_json::json!({
+        "format_version": "1.10.0", "animation_controllers": {
+            "controller.animation.held": {"initial_state": "default", "states": {
+                "default": {"animations": [{"pose": "query.blocking"}, {"released": "!query.blocking"}]}
+            }}
+        }
+    })).unwrap();
+    let (mut runtime, _) = pack_runtime(files);
+    let body = player_body(&mut runtime);
+    let mut owner = owner();
+    let names = [Box::from("rightItem")];
+    owner
+        .metadata
+        .insert(92, protocol::ActorMetadataValue::FlagsExtended(1 << 8));
+    for pitch in [10.0, 10.0, 30.0, 30.0] {
+        owner.pitch = pitch;
+        let rig = owner_rig(&owner, &names);
+        assert!((authored_x(&mut runtime, &body, &owner, &rig, 0.016) - 2.0).abs() < 1e-6);
+    }
+    owner.pitch = 99.0;
+    owner
+        .metadata
+        .insert(92, protocol::ActorMetadataValue::FlagsExtended(0));
+    let rig = owner_rig(&owner, &names);
+    assert!(
+        (authored_x(&mut runtime, &body, &owner, &rig, 0.016) - 30.0).abs() < 1e-6,
+        "release must use the last pitch saved during blocking"
+    );
+}
+
+#[test]
 fn third_person_bow_publication_tracks_use_frames_duration_and_release() {
     let mut files = held_pack();
     files[0].1 = String::from_utf8(files[0].1.clone())
@@ -384,6 +444,59 @@ fn third_person_bow_publication_tracks_use_frames_duration_and_release() {
             "elapsed {elapsed:?} must expose remaining duration {remaining}"
         );
     }
+    let mut offhand = input.clone();
+    offhand.off = offhand.main.take();
+    offhand.main = Some(crate::presentation::equipment::WornItem {
+        identifier: "minecraft:trident".into(),
+        ..offhand.off.as_ref().unwrap().clone()
+    });
+    owner
+        .metadata
+        .insert(0, protocol::ActorMetadataValue::Flags(1 << 4));
+    let mut rig = owner_rig(&owner, &names);
+    rig.hand[1].use_ticks = 15;
+    let layers = runtime.layers_for(
+        &body,
+        &offhand,
+        Some(EquipmentAnimation {
+            owner: &owner,
+            rig: &rig,
+            frame_alpha: 0.5,
+            delta_seconds: 0.016,
+        }),
+    );
+    assert_eq!(layers.len(), 1);
+    let off_bone = layers[0].submission.input.current_bones[0];
+    assert!(
+        off_bone.translation_scale[0].abs() < 1e-6,
+        "an offhand bow must stay on frame zero while the main hand is using another item"
+    );
+    assert!(
+        (off_bone.translation_scale[1] - (inventory::LONG_WEAPON_USE_TICKS - 15) as f32 / 16.0)
+            .abs()
+            < 1e-3,
+        "offhand models retain the owner's shared remaining-use query"
+    );
+    let mut both = input.clone();
+    both.off = both.main.clone();
+    let layers = runtime.layers_for(
+        &body,
+        &both,
+        Some(EquipmentAnimation {
+            owner: &owner,
+            rig: &rig,
+            frame_alpha: 0.5,
+            delta_seconds: 0.016,
+        }),
+    );
+    assert_eq!(layers.len(), 2);
+    for layer in layers {
+        assert!(
+            (layer.submission.input.current_bones[0].translation_scale[0] + 3.0 / 16.0).abs()
+                < 1e-6,
+            "both held models must see the owner's main-hand animation frame"
+        );
+    }
 }
 
 #[test]
@@ -436,6 +549,8 @@ fn third_person_held_attachable_runs_authored_perspective_and_owner_bone_channel
     let placed = layers[0].submission.input.current_bones[0];
     assert!(Vec3::from_slice(&placed.translation_scale[..3]).abs_diff_eq(expected, 1e-5));
     assert!(Quat::from_array(placed.rotation).abs_diff_eq(Quat::from_array(parent.rotation), 1e-5));
+    let initial_rig = layers[0].submission.input.rig;
+    let initial_bones = Arc::clone(&layers[0].submission.input.current_bones);
     runtime.take_pending_geometries();
     let repeated = runtime.layers_for(
         &body,
@@ -447,20 +562,14 @@ fn third_person_held_attachable_runs_authored_perspective_and_owner_bone_channel
             delta_seconds: client_world::ACTOR_TICK_DURATION.as_secs_f32(),
         }),
     );
-    assert_eq!(
-        repeated[0].submission.input.rig,
-        layers[0].submission.input.rig
+    assert_eq!(repeated[0].submission.input.rig, initial_rig);
+    assert!(
+        Arc::ptr_eq(&repeated[0].submission.input.current_bones, &initial_bones),
+        "unchanged poses retain their matrix-cache key"
     );
     assert!(
         runtime.take_pending_geometries().is_empty(),
         "unchanged held geometry stays resident"
-    );
-    assert!(
-        Arc::ptr_eq(
-            &repeated[0].submission.input.current_bones,
-            &layers[0].submission.input.current_bones
-        ),
-        "unchanged poses retain their matrix-cache key"
     );
 }
 
@@ -536,7 +645,7 @@ fn worn_attachable_categories_do_not_become_held_models() {
 }
 
 #[test]
-fn installed_shield_and_trident_warm_draws_allocate_only_layer_vectors() {
+fn installed_shield_and_trident_warm_draws_reuse_output_storage() {
     let (Some(entities), Some(icons), Some(equipment)) = (
         local_carrier("vanilla-v1.mcbeent"),
         local_carrier("vanilla-v1.mcbeico"),
@@ -599,8 +708,8 @@ fn installed_shield_and_trident_warm_draws_allocate_only_layer_vectors() {
         }
         assert_eq!(
             crate::test_allocations::count() - allocations,
-            10,
-            "unchanged {identifier} publication must retain its authored evaluation"
+            0,
+            "unchanged {identifier} publication must retain evaluation and output storage"
         );
     }
 }

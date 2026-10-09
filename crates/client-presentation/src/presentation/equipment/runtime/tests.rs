@@ -158,7 +158,7 @@ fn third_person(
     body: &ActorRigSubmission,
     item: &WornItem,
 ) -> EquipmentPresentation {
-    let mut layers = runtime.layers_for(
+    let layers = runtime.layers_for(
         body,
         &ActorEquipmentInput {
             main: Some(item.clone()),
@@ -167,7 +167,7 @@ fn third_person(
         None,
     );
     assert_eq!(layers.len(), 1);
-    layers.pop().unwrap()
+    layers[0].clone()
 }
 
 #[test]

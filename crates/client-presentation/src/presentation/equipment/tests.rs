@@ -640,7 +640,9 @@ fn custom_items_hold_their_session_icon_with_the_component_grip() {
     let staged = StagedSessionIcons::stage(Some(&items)).unwrap();
     let (_, locations) = pages.with_equipment_rasters(staged.rasters());
     runtime.set_session_items(Some(&items), Some(staged), locations);
-    let blade_layers = runtime.layers_for(&body, &held("test:blade"), None);
+    let blade_layers = runtime
+        .layers_for(&body, &held("test:blade"), None)
+        .to_vec();
     let gem_layers = runtime.layers_for(&body, &held("test:gem"), None);
     assert_eq!((blade_layers.len(), gem_layers.len()), (1, 1));
     let bone = |layers: &[super::runtime::EquipmentPresentation]| {

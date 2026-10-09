@@ -1051,7 +1051,7 @@ fn downloaded_shield_blocking_uses_authoritative_metadata_and_hand_priority() {
 }
 
 #[test]
-fn offhand_keeps_owner_bow_use_timing_without_main_hand_charge_frame() {
+fn offhand_keeps_owner_bow_queries_without_main_hand_charge_state() {
     let owner = AttachableAnimationInput {
         first_person: true,
         use_elapsed_ticks: Some(10),
@@ -1069,7 +1069,7 @@ fn offhand_keeps_owner_bow_use_timing_without_main_hand_charge_frame() {
     assert_eq!(off.owner_main_hand, owner.owner_main_hand);
     assert!(off.off_hand);
     assert!(!off.hand_charged);
-    assert_eq!(off.animation_frame, 0);
+    assert_eq!(off.animation_frame, owner.animation_frame);
 }
 
 /// Runs the pinned shield's bow-retraction script and authored keyframes offline.

@@ -21,6 +21,7 @@ pub struct AttachableAnimationInput<'a> {
     pub frame_alpha: f32,
     /// Elapsed render time for clip application; absent inputs use the actor timestep.
     pub delta_seconds: Option<f32>,
+    /// Animation frame of the owner's main-hand item, visible to either rendered hand.
     pub animation_frame: u32,
     /// Owner's elapsed main-hand use ticks, also visible to offhand attachables.
     pub use_elapsed_ticks: Option<u32>,
@@ -39,7 +40,6 @@ impl AttachableAnimationInput<'_> {
         if off_hand {
             Self {
                 off_hand,
-                animation_frame: 0,
                 hand_charged: false,
                 ..self
             }
