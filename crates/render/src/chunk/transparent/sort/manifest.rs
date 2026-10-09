@@ -14,7 +14,8 @@ const CEILING_LOG_INTERVAL: Duration = Duration::from_secs(5);
 /// The last manifest and the inputs it was selected from.
 #[derive(Debug)]
 pub(in crate::chunk) struct TransparentManifest {
-    revision: u64,
+    /// The resident index revision it was selected at; `None` when seeded from elsewhere.
+    revision: Option<u64>,
     include_order_independent: bool,
     tint_identity: ChunkBiomeTintIdentity,
     /// The camera's sub-chunk, kept only while the ref ceiling makes the choice depend on it.
@@ -98,7 +99,7 @@ impl TransparentSortRuntime {
             .transparent_liquids
             .revision(include_order_independent);
         if let Some(manifest) = self.manifest.as_ref().filter(|manifest| {
-            manifest.revision == revision
+            manifest.revision == Some(revision)
                 && manifest.include_order_independent == include_order_independent
                 && manifest.tint_identity == tint_identity
                 && manifest
@@ -159,7 +160,7 @@ impl TransparentSortRuntime {
         }
         let allocations = Arc::<[TransparentAllocationIdentity]>::from(allocations);
         self.manifest = Some(TransparentManifest {
-            revision,
+            revision: Some(revision),
             include_order_independent,
             tint_identity,
             camera_chunk: selection.camera_dependent.then_some(camera_chunk),
@@ -168,6 +169,26 @@ impl TransparentSortRuntime {
             near: None,
         });
         allocations
+    }
+
+    /// Starts from sort inputs already built for `allocations`, so the next manifest
+    /// reuses them instead of building every input on the render thread.
+    pub(in crate::chunk) fn seed_manifest(
+        &mut self,
+        allocations: Arc<[TransparentAllocationIdentity]>,
+        groups: TransparentGroups,
+        include_order_independent: bool,
+        tint_identity: ChunkBiomeTintIdentity,
+    ) {
+        self.manifest = Some(TransparentManifest {
+            revision: None,
+            include_order_independent,
+            tint_identity,
+            camera_chunk: None,
+            allocations,
+            groups,
+            near: None,
+        });
     }
 
     /// The sort inputs of the current manifest, parallel to its allocations.

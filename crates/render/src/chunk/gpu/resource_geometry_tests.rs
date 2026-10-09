@@ -100,6 +100,7 @@ fn publication_keeps_complete_transparent_addresses_and_biome_identity() {
         Some(ResourceView {
             entity: view,
             transform: GlobalTransform::IDENTITY,
+            sort_order_independent: false,
         }),
     )
     .unwrap();
@@ -142,6 +143,85 @@ fn publication_keeps_complete_transparent_addresses_and_biome_identity() {
             .id(),
         current
     );
+}
+
+/// The first live manifest after a reload reuses the reload's sort inputs instead of
+/// building every order-dependent resident's input in one render frame.
+#[test]
+fn reload_seeds_the_live_sort_inputs() {
+    let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
+    let device = RenderDevice::from(device);
+    let queue = RenderQueue(Arc::new(WgpuWrapper::new(queue)));
+    let mut app = App::new();
+    app.insert_resource(ChunkGpuArena::new(&device));
+    let tint = ChunkBiomeTintIdentity::new(4, 7);
+    let instances = (0..3)
+        .map(|x| {
+            let mut instance = shore(tint);
+            instance.key = SubChunkKey::new(0, x, 0, 0);
+            instance.origin = chunk_origin(instance.key);
+            instance
+        })
+        .collect::<Vec<_>>();
+    for instance in &instances {
+        app.world_mut().spawn(instance.clone());
+    }
+    let view = app.world_mut().spawn_empty().id();
+    let candidate = PreparedResourceGeometry::build(
+        &instances,
+        ChunkTextureAssets::default(),
+        device,
+        queue,
+        Some(ResourceView {
+            entity: view,
+            transform: GlobalTransform::IDENTITY,
+            sort_order_independent: false,
+        }),
+    )
+    .unwrap();
+    app.insert_resource(Candidate(Some(candidate)));
+    app.world_mut().run_system_once(publish).unwrap();
+    app.world_mut()
+        .resource_scope(|world, mut liquids: Mut<TransparentSortRuntime>| {
+            let committed =
+                Arc::clone(&liquids.state.committed().unwrap().key().sorted_allocations);
+            let manifest = liquids.resident_manifest(
+                world.resource::<ChunkGpuArena>(),
+                false,
+                tint,
+                [0; 3],
+                |_| panic!("the reload's sort inputs were rebuilt on the render thread"),
+                &TransparentSortMetrics::default(),
+            );
+            assert_eq!(manifest.len(), 3);
+            assert_eq!(manifest, committed);
+        });
+}
+
+/// A view that displaces water sorts flat water after a reload as it does live.
+#[test]
+fn reload_sorts_flat_water_for_views_that_displace_it() {
+    for displaced in [false, true] {
+        let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
+        let candidate = PreparedResourceGeometry::build(
+            &[water(ChunkBiomeTintIdentity::default())],
+            ChunkTextureAssets::default(),
+            RenderDevice::from(device),
+            RenderQueue(Arc::new(WgpuWrapper::new(queue))),
+            Some(ResourceView {
+                entity: Entity::PLACEHOLDER,
+                transform: GlobalTransform::IDENTITY,
+                sort_order_independent: displaced,
+            }),
+        )
+        .unwrap();
+        let liquids = &candidate.liquids;
+        assert_eq!(
+            liquids.state.committed().unwrap().refs().len(),
+            usize::from(displaced)
+        );
+        assert_eq!(liquids.direct_order_independent, !displaced);
+    }
 }
 
 #[test]
@@ -238,6 +318,7 @@ fn review_render_retained_liquid_snapshot_resolves_updated_active_generation() {
         Some(ResourceView {
             entity: Entity::PLACEHOLDER,
             transform: GlobalTransform::IDENTITY,
+            sort_order_independent: false,
         }),
     )
     .unwrap();

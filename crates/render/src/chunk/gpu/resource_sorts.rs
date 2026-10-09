@@ -4,6 +4,8 @@ use crate::chunk::*;
 pub(super) struct ResourceView {
     pub(super) entity: Entity,
     pub(super) transform: GlobalTransform,
+    /// Whether the view displaces water, so flat water must be sorted too.
+    pub(super) sort_order_independent: bool,
 }
 
 /// Sorts every resident that needs order, as the live sort does, so camera movement cannot
@@ -26,7 +28,7 @@ pub(super) fn prepare(
     let translation = view.transform.translation();
     let selection = select_sorted_residents(
         &world.resource::<ChunkGpuArena>().transparent_liquids,
-        false,
+        view.sort_order_independent,
         world.resource::<ChunkBiomeTints>().table_identity(),
         TransparentFaceMetric::new(translation).camera_chunk(),
         MAX_TRANSPARENT_DRAW_REFS,
@@ -121,6 +123,14 @@ pub(super) fn prepare(
     validate_transparent_sort_ref_count(groups.iter().map(|group| group.centroids.len()).sum())
         .ok()?;
     liquids.view_entity = Some(view.entity);
+    liquids.direct_order_independent = !view.sort_order_independent;
+    // The live manifest starts from these inputs instead of rebuilding each one.
+    liquids.seed_manifest(
+        Arc::clone(&key.sorted_allocations),
+        groups.clone().into(),
+        view.sort_order_independent,
+        tints.table_identity(),
+    );
     let generation = liquids.state.request(&key);
     let output = plan_transparent_slot(
         translation,
