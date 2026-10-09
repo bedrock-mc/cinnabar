@@ -1,6 +1,7 @@
 use super::{MAX_IMPORT_WRITES, State, cinnabar};
 use crate::{
-    CameraDelta, GameplayCameraRig, GameplayMob, GameplaySnapshot, GameplayVector3, ModCue,
+    CameraDelta, GameplayCameraRig, GameplayMob, GameplayMovementSnapshot, GameplaySnapshot,
+    GameplayVector3, ModCue,
 };
 use anyhow::{Result, bail, ensure};
 use mod_api::{
@@ -182,7 +183,70 @@ pub(super) fn validate_snapshot(snapshot: Option<&GameplaySnapshot>) -> Result<(
     Ok(())
 }
 
+/// Movement and pose must refer to the same captured input authority.
+pub(super) fn validate_movement(
+    snapshot: Option<&GameplaySnapshot>,
+    movement: Option<&GameplayMovementSnapshot>,
+) -> Result<()> {
+    let Some(movement) = movement else {
+        return Ok(());
+    };
+    let Some(snapshot) = snapshot else {
+        bail!("movement requires a gameplay frame")
+    };
+    ensure!(
+        movement.session == snapshot.session && movement.dimension == snapshot.dimension,
+        "movement authority does not match the gameplay frame"
+    );
+    ensure!(finite(&movement.velocity), "invalid movement velocity");
+    Ok(())
+}
+
 impl cinnabar::extension::gameplay::Host for State {
+    fn read_movement(&mut self) -> Result<Result<Option<GameplayMovementSnapshot>, String>> {
+        self.gameplay_reads += 1;
+        if self.gameplay_reads > MAX_IMPORT_WRITES {
+            bail!("gameplay read budget exhausted");
+        }
+        if !self.grants.movement {
+            return Ok(Err("movement capability denied".into()));
+        }
+        Ok(Ok(self.movement))
+    }
+
+    fn cancel_jump(&mut self) -> Result<Result<(), String>> {
+        self.movement_writes += 1;
+        if self.movement_writes > MAX_IMPORT_WRITES {
+            bail!("movement import budget exhausted");
+        }
+        if !self.grants.movement {
+            return Ok(Err("movement capability denied".into()));
+        }
+        self.pending_jump_cancel = true;
+        Ok(Ok(()))
+    }
+
+    fn pulse_jump(&mut self) -> Result<Result<(), String>> {
+        self.movement_writes += 1;
+        if self.movement_writes > MAX_IMPORT_WRITES {
+            bail!("movement import budget exhausted");
+        }
+        if !self.grants.movement {
+            return Ok(Err("movement capability denied".into()));
+        }
+        if !self
+            .movement
+            .as_ref()
+            .is_some_and(|movement| movement.eligible && !movement.jump_held)
+        {
+            return Ok(Err(
+                "jump requires eligible captured gameplay without held jump".into(),
+            ));
+        }
+        self.pending_jump = true;
+        Ok(Ok(()))
+    }
+
     fn set_show_real_position(&mut self, enabled: bool) -> Result<Result<(), String>> {
         self.packet_delay_writes += 1;
         if self.packet_delay_writes > MAX_IMPORT_WRITES {

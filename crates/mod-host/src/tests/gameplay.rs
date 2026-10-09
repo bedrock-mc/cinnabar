@@ -327,3 +327,106 @@ fn reload_retains_grants_but_clears_pending_motion() {
         })
     );
 }
+
+#[test]
+fn jump_pulses_commit_once_and_are_revoked_after_guest_trap() {
+    let grants = ModGrants {
+        movement: true,
+        ..Default::default()
+    };
+    let movement = mod_host_movement();
+    let jump = "i32.const 0 call $jump i32.const 0 i32.load if unreachable end";
+    let (_directory, mut host) = load("", jump, grants.clone());
+    host.frame_with_movement(
+        false,
+        Some(snapshot()),
+        Vec::new(),
+        None,
+        Some(movement),
+        crate::empty_controls(),
+    )
+    .unwrap();
+    assert!(host.take_jump_pulse());
+    assert!(!host.take_jump_pulse());
+    host.frame_with_movement(
+        false,
+        Some(snapshot()),
+        Vec::new(),
+        None,
+        Some(movement),
+        crate::empty_controls(),
+    )
+    .unwrap();
+    host.frame(false).unwrap_err();
+    assert!(!host.take_jump_pulse());
+    assert!(!host.is_active());
+    let (_directory, mut trapped) = load("", &format!("{jump} unreachable"), grants);
+    assert!(
+        trapped
+            .frame_with_movement(
+                false,
+                Some(snapshot()),
+                Vec::new(),
+                None,
+                Some(movement),
+                crate::empty_controls()
+            )
+            .is_err()
+    );
+    assert!(!trapped.take_jump_pulse());
+    trapped.frame(false).unwrap();
+    assert!(!trapped.take_jump_pulse());
+}
+
+/// Builds a grounded movement snapshot in the gameplay fixture authority.
+fn mod_host_movement() -> crate::GameplayMovementSnapshot {
+    crate::GameplayMovementSnapshot {
+        session: 42,
+        dimension: -1,
+        tick: 20,
+        velocity: crate::GameplayVector3 {
+            x: 0.1,
+            y: -0.08,
+            z: 0.1,
+        },
+        on_ground: true,
+        jump_held: false,
+        eligible: true,
+        knockback_sequence: 1,
+    }
+}
+
+#[test]
+fn explicit_jump_cancellation_commits_once_without_gameplay_and_wins_over_pulse() {
+    let grants = ModGrants {
+        movement: true,
+        ..Default::default()
+    };
+    let cancel = "i32.const 0 call $cancel-jump i32.const 0 i32.load if unreachable end";
+    let (_directory, mut host) = load("", cancel, grants.clone());
+    host.frame(false).unwrap();
+    assert!(host.take_jump_cancel());
+    assert!(!host.take_jump_cancel());
+    let (_directory, mut denied) = load("", cancel, ModGrants::default());
+    assert!(denied.frame(false).is_err());
+    assert!(!denied.take_jump_cancel());
+    let (_directory, mut both) = load(
+        "",
+        &format!("i32.const 0 call $jump {cancel}"),
+        grants.clone(),
+    );
+    both.frame_with_movement(
+        false,
+        Some(snapshot()),
+        Vec::new(),
+        None,
+        Some(mod_host_movement()),
+        crate::empty_controls(),
+    )
+    .unwrap();
+    assert!(both.take_jump_cancel());
+    assert!(!both.take_jump_pulse());
+    let (_directory, mut trapped) = load("", &format!("{cancel} unreachable"), grants);
+    assert!(trapped.frame(false).is_err());
+    assert!(!trapped.take_jump_cancel());
+}

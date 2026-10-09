@@ -26,7 +26,8 @@ pub use mod_api::{
 pub use mod_render;
 #[cfg(feature = "execution")]
 pub use runtime::cinnabar::extension::gameplay::{
-    CameraRig as GameplayCameraRig, Mob as GameplayMob, Player as GameplayPlayer,
+    CameraRig as GameplayCameraRig, Mob as GameplayMob,
+    MovementSnapshot as GameplayMovementSnapshot, Player as GameplayPlayer,
     Snapshot as GameplaySnapshot, Vector3 as GameplayVector3,
 };
 #[cfg(feature = "execution")]
@@ -130,8 +131,21 @@ impl ModHost {
         player_state: Option<PlayerStateSnapshot>,
         controls: ControlFrame,
     ) -> Result<()> {
+        self.frame_with_movement(pressed, snapshot, mobs, player_state, None, controls)
+    }
+
+    /// Adds local physics state for this callback, under movement authority.
+    pub fn frame_with_movement(
+        &mut self,
+        pressed: bool,
+        snapshot: Option<GameplaySnapshot>,
+        mobs: Vec<GameplayMob>,
+        player_state: Option<PlayerStateSnapshot>,
+        movement: Option<GameplayMovementSnapshot>,
+        controls: ControlFrame,
+    ) -> Result<()> {
         self.instance
-            .frame(pressed, snapshot, mobs, player_state, controls)?;
+            .frame(pressed, snapshot, mobs, player_state, movement, controls)?;
         self.queue_settings();
         Ok(())
     }
@@ -149,6 +163,16 @@ impl ModHost {
     /// Current-frame FOV and look multipliers; absence restores neutral 1/1.
     pub fn camera_view_scale(&self) -> Option<[f32; 2]> {
         self.instance.camera_view_scale()
+    }
+
+    /// Consumes a successful callback's jump request once.
+    pub fn take_jump_pulse(&mut self) -> bool {
+        self.instance.take_jump_pulse()
+    }
+
+    /// Consumes an explicit cancellation of pending jump input once.
+    pub fn take_jump_cancel(&mut self) -> bool {
+        self.instance.take_jump_cancel()
     }
 
     /// The retained camera rig from the last successful callback.

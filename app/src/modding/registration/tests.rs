@@ -357,6 +357,64 @@ fn new_component_resets_state_and_retires_old_host_outside_world() {
 }
 
 #[test]
+fn replacing_a_registered_component_discards_its_pending_jump() {
+    struct Air;
+    impl sim::CollisionWorld for Air {
+        /// Supplies loaded empty terrain so the test can consume one movement tick.
+        fn collision_boxes(
+            &self,
+            _query: sim::Aabb,
+        ) -> Result<sim::CollisionQuery<Vec<sim::Aabb>>, sim::WorldQueryError> {
+            Ok(sim::CollisionQuery::synthetic(Vec::new()))
+        }
+    }
+    let directory = Scratch::new();
+    let (mut world, messages, _) = world();
+    install(
+        &mut world,
+        Update {
+            generation: 1,
+            request_id: "first".into(),
+            result: Ok(Action::Replace(candidate(&directory, true, "Hello"))),
+        },
+    );
+    messages.try_recv().unwrap();
+    let mut physics = crate::movement::LocalPhysicsController::default();
+    physics.reanchor_network_position([0.0; 3], 1, true);
+    physics.set_jump_pulse_scope(Some((1, 0)));
+    physics.request_jump_pulse();
+    assert_eq!(
+        physics
+            .advance(
+                std::time::Duration::ZERO,
+                sim::MovementInput::default(),
+                &Air
+            )
+            .completed_ticks,
+        0
+    );
+    world.insert_resource(physics);
+    install(
+        &mut world,
+        Update {
+            generation: 1,
+            request_id: "second".into(),
+            result: Ok(Action::Replace(candidate(&directory, false, "Other"))),
+        },
+    );
+    let mut physics = world.resource_mut::<crate::movement::LocalPhysicsController>();
+    physics.set_jump_pulse_scope(Some((1, 0)));
+    let frame = physics.advance(
+        std::time::Duration::from_secs_f64(1.0 / sim::TICKS_PER_SECOND as f64),
+        sim::MovementInput::default(),
+        &Air,
+    );
+    assert_eq!(frame.completed_ticks, 1);
+    assert!(!frame.samples[0].input.jump.held);
+    assert!(!frame.samples[0].input.jump.pressed);
+}
+
+#[test]
 fn disable_and_invalid_registration_revoke_all_owned_outputs() {
     for result in [Ok(Action::Disabled), Err("invalid registration".into())] {
         let directory = Scratch::new();

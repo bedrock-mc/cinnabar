@@ -23,6 +23,10 @@ schemas document every argument. Agents drive the client only through this endpo
 - `test_accounts` with `enabled: true` shows a signed-in launcher whose Accounts picker lists
   placeholder accounts, so recordings never show real gamertags; it never signs in or saves, and
   needs a signed-out install (an isolated `CINNABAR_USER_ROOT`).
+- `state.player_motion` includes the simulation tick, velocity, accepted motion sequence, jump
+  eligibility and physical jump state. With `local-mods`, `state.local_mods` also reports bounded
+  host status and validated panel controls, so tests can verify module toggles and settings
+  directly before sending a stimulus. These diagnostics do not grant movement authority.
 - `record_start` needs `ffmpeg` on PATH. Its default fixed clock steps game time exactly 1/fps per
   rendered frame, so it suits the local showcase server; record remote servers with
   `fixed_clock: false`. Audio is captured to a WAV and muxed in.

@@ -68,6 +68,7 @@ impl LocalPhysicsController {
         );
         if tick == 0 {
             self.state.as_mut()?.velocity = velocity;
+            self.knockback_sequence = self.knockback_sequence.saturating_add(1);
             return None;
         }
         let rewind = match self.timeline_slot(tick) {
@@ -90,6 +91,7 @@ impl LocalPhysicsController {
         if self.server_motions.len() >= self.history_capacity {
             self.server_motions.pop_front();
         }
+        self.knockback_sequence = self.knockback_sequence.saturating_add(1);
         self.server_motions.push_back(sim::MotionOverlay {
             tick: applies_before,
             velocity,

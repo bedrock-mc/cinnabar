@@ -581,3 +581,22 @@ when another component publishes the gameplay HUD. Focus loss, a different live
 session, another screen, a guest trap, reload, or unload cancels pointer capture
 and the draft. The host has no preference-file authority through this API;
 components may persist accepted placements with the existing settings grant.
+
+## Local movement input
+
+The separate `movement` grant (`CINNABAR_MOD_MOVEMENT=1`, or `"movement": true`
+in a component registration) exposes `gameplay.read-movement` and `pulse-jump`.
+The snapshot belongs to captured gameplay and contains its session, dimension,
+simulation tick, velocity in blocks per tick, ground contact, physical held jump,
+ordinary walking eligibility and local knockback sequence. No snapshot is retained
+across callbacks. Snapshot validation rejects mismatched authority and non-finite velocity.
+
+`pulse-jump` stages a single ordinary jump input only while walking is eligible and
+physical jump is released. The request commits after a successful callback and is
+consumed once by the next physics tick. Focus loss, menus and authority changes
+revoke pending input; no velocity or movement rule is changed. Jumping remains
+subject to the simulator's ground contact and jump cooldown rules.
+
+`cancel-jump` commits an explicit cancellation even outside gameplay, allowing a
+component to revoke a sub-tick pulse as soon as its module is disabled. Cancellation
+wins over jump pulses in the same callback and never clears physical jump input.

@@ -284,3 +284,71 @@ fn delivered_cues_are_filtered_bounded_and_polled_within_budget() {
     }
     assert!(state.poll().is_err(), "poll budget traps");
 }
+
+/// Builds eligible grounded movement for the current gameplay fixture.
+fn movement() -> GameplayMovementSnapshot {
+    GameplayMovementSnapshot {
+        session: 1,
+        dimension: 0,
+        tick: 20,
+        velocity: vector(0.1, -0.08, 0.1),
+        on_ground: true,
+        jump_held: false,
+        eligible: true,
+        knockback_sequence: 1,
+    }
+}
+
+#[test]
+fn movement_input_requires_explicit_grant_and_eligible_frame() {
+    let mut denied = state(ModGrants::default());
+    denied.movement = Some(movement());
+    assert!(denied.read_movement().unwrap().is_err());
+    assert!(denied.pulse_jump().unwrap().is_err());
+    assert!(!denied.pending_jump);
+    let mut granted = state(ModGrants {
+        movement: true,
+        ..Default::default()
+    });
+    assert_eq!(granted.read_movement().unwrap().unwrap(), None);
+    assert!(granted.pulse_jump().unwrap().is_err());
+    for (eligible, held) in [(false, false), (true, true)] {
+        granted.movement = Some(GameplayMovementSnapshot {
+            eligible,
+            jump_held: held,
+            ..movement()
+        });
+        assert!(granted.pulse_jump().unwrap().is_err());
+    }
+    granted.movement = Some(movement());
+    assert_eq!(granted.read_movement().unwrap().unwrap(), Some(movement()));
+    granted.pulse_jump().unwrap().unwrap();
+    assert!(granted.pending_jump);
+    assert!(!granted.jump_pulse, "not committed during guest callback");
+    for _ in granted.movement_writes..MAX_IMPORT_WRITES {
+        granted.pulse_jump().unwrap().unwrap();
+    }
+    assert!(granted.pulse_jump().is_err(), "bounded import budget traps");
+}
+
+#[test]
+fn movement_snapshot_rejects_nonfinite_or_foreign_authority() {
+    assert!(validate_movement(Some(&snapshot()), Some(&movement())).is_ok());
+    assert!(validate_movement(None, Some(&movement())).is_err());
+    for bad in [
+        GameplayMovementSnapshot {
+            session: 2,
+            ..movement()
+        },
+        GameplayMovementSnapshot {
+            dimension: 1,
+            ..movement()
+        },
+        GameplayMovementSnapshot {
+            velocity: vector(f32::NAN, 0.0, 0.0),
+            ..movement()
+        },
+    ] {
+        assert!(validate_movement(Some(&snapshot()), Some(&bad)).is_err());
+    }
+}
