@@ -28,6 +28,7 @@ stage_resources() {
     install -m 0644 "$repo_root/crates/assets/data/block-physics-v2193.bin" "$resources/assets/block-physics-v2193.bin"
     install -m 0644 "$repo_root/THIRD_PARTY_NOTICES.md" "$resources/assets/THIRD_PARTY_NOTICES.md"
     mkdir -p "$resources/licenses"
+    install -m 0644 "$repo_root/LICENSE" "$resources/licenses/Cinnabar-LICENSE.md"
     cp "$repo_root"/assets/licenses/* "$resources/licenses/"
     local font
     font="$(ui_font_path)"
@@ -53,7 +54,7 @@ resource_manifest() {
     [[ "$platform" != windows ]] || exe=.exe
     file="$(ui_font_path)"
     font_file="${file##*/}"
-    printf '%s\n' assets/block-physics-v2193.bin assets/THIRD_PARTY_NOTICES.md "fonts/${file##*/}" "prep-kit/bin/assetc$exe"
+    printf '%s\n' licenses/Cinnabar-LICENSE.md assets/block-physics-v2193.bin assets/THIRD_PARTY_NOTICES.md "fonts/${file##*/}" "prep-kit/bin/assetc$exe"
     for file in "$repo_root"/assets/licenses/*; do printf 'licenses/%s\n' "${file##*/}"; done
     for file in "$repo_root"/assets/*.json; do printf 'prep-kit/assets/%s\n' "${file##*/}"; done
     printf 'prep-kit/assets/fonts/%s\n' "$font_file"
