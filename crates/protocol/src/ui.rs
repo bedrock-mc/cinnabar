@@ -388,8 +388,8 @@ pub enum ChatAutocompleteAction {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BlockCrackAction {
-    Start { progress_per_tick: u16 },
-    UpdateSpeed { progress_per_tick: u16 },
+    Start { progress_per_tick: i32 },
+    UpdateSpeed { progress_per_tick: i32 },
     Stop,
 }
 
@@ -441,8 +441,6 @@ pub enum UiPacketError {
         "block crack position component {field} is not an exact i32 coordinate (wire bits {bits:#010x})"
     )]
     InvalidBlockCrackPosition { field: &'static str, bits: u32 },
-    #[error("block crack progress-per-tick value must be in 1..=65535, got {value}")]
-    InvalidBlockCrackSpeed { value: i32 },
 }
 
 fn bounded_text(value: String) -> Result<Arc<str>, UiPacketError> {
@@ -772,8 +770,8 @@ pub(crate) const LEVEL_EVENT_UPDATE_BLOCK_CRACKING: i32 = 3602;
 /// Normalizes block cracking without inventing a stage or actor ID.
 ///
 /// The wire `data` field is the server-authored progress rate (`65535 / break_ticks`).
-/// A downstream tick owner may derive the ten visual atlas stages from accumulated
-/// authoritative progress, but packet normalization preserves the exact rate.
+/// Presentation advances progress on rendered frames; normalization preserves
+/// the signed wire rate.
 pub(crate) fn normalize_block_crack(
     packet: LevelEventPacket,
 ) -> Result<BlockCrackEvent, UiPacketError> {
@@ -785,9 +783,7 @@ pub(crate) fn normalize_block_crack(
     let action = match packet.event_id {
         LEVEL_EVENT_STOP_BLOCK_CRACKING => BlockCrackAction::Stop,
         LEVEL_EVENT_START_BLOCK_CRACKING | LEVEL_EVENT_UPDATE_BLOCK_CRACKING => {
-            // Zero is a stationary crack, which vanilla stores as sent.
-            let progress_per_tick = u16::try_from(packet.data)
-                .map_err(|_| UiPacketError::InvalidBlockCrackSpeed { value: packet.data })?;
+            let progress_per_tick = packet.data;
             if packet.event_id == LEVEL_EVENT_START_BLOCK_CRACKING {
                 BlockCrackAction::Start { progress_per_tick }
             } else {
