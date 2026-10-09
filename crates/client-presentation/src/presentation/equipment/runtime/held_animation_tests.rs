@@ -351,6 +351,9 @@ fn third_person_bow_publication_tracks_use_frames_duration_and_release() {
         (Some(14), 2),
         (Some(15), 3),
         (Some(30), 3),
+        (Some(39), 3),
+        (Some(40), 0),
+        (Some(41), 0),
         (None, 0),
     ] {
         owner.metadata.insert(
@@ -375,7 +378,7 @@ fn third_person_bow_publication_tracks_use_frames_duration_and_release() {
             (bone.translation_scale[0] + frame as f32 / 16.0).abs() < 1e-6,
             "elapsed {elapsed:?} must select authored bow frame {frame}"
         );
-        let remaining = elapsed.map_or(0, |elapsed| duration - elapsed);
+        let remaining = elapsed.map_or(0, |elapsed| duration.saturating_sub(elapsed));
         assert!(
             (bone.translation_scale[1] - remaining as f32 / 16.0).abs() < 1e-6,
             "elapsed {elapsed:?} must expose remaining duration {remaining}"
@@ -623,7 +626,7 @@ fn installed_bow_third_person_uses_authored_texture_mesh_and_wield_pose() {
         render::ActorArtworkPages::default(),
     );
     let body = player_body(&mut runtime);
-    let owner = owner();
+    let mut owner = owner();
     let names = [
         "root",
         "body",
@@ -634,7 +637,7 @@ fn installed_bow_third_person_uses_authored_texture_mesh_and_wield_pose() {
         "leftItem",
     ]
     .map(Box::from);
-    let rig = owner_rig(&owner, &names);
+    let mut rig = owner_rig(&owner, &names);
     let input = held("minecraft:bow");
     let expected = runtime
         .first_person_attachable(
@@ -669,6 +672,47 @@ fn installed_bow_third_person_uses_authored_texture_mesh_and_wield_pose() {
         expected.presentation.submission.input.current_bones,
         "the third-person bow must retain its authored wield channels on the owner's hand"
     );
+    let standby = layers[0].submission.input.rig;
+    let duration = *runtime
+        .item_use_durations()
+        .get("minecraft:bow")
+        .expect("the installed bow must retain its authored use duration");
+    assert!(duration > 15);
+    let mut stages = Vec::new();
+    for (elapsed, pulling) in [(0, true), (9, true), (15, true), (duration, false)] {
+        owner
+            .metadata
+            .insert(0, protocol::ActorMetadataValue::Flags(1 << 4));
+        rig.hand[1].use_ticks = elapsed;
+        let layers = runtime.layers_for(
+            &body,
+            &input,
+            Some(EquipmentAnimation {
+                owner: &owner,
+                rig: &rig,
+                frame_alpha: 1.0,
+                delta_seconds: 0.016,
+            }),
+        );
+        assert_eq!(layers.len(), 1);
+        let selected = layers[0].submission.input.rig;
+        if pulling {
+            assert_ne!(
+                selected, standby,
+                "elapsed {elapsed} must draw a pulling texture mesh"
+            );
+            assert!(
+                !stages.contains(&selected),
+                "each draw stage must select its authored texture"
+            );
+            stages.push(selected);
+        } else {
+            assert_eq!(
+                selected, standby,
+                "a completed use counter must return the standby mesh"
+            );
+        }
+    }
 }
 
 #[test]

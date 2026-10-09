@@ -253,13 +253,20 @@ impl EquipmentRuntime {
             .collect::<Vec<_>>();
         geometries.sort_unstable();
         geometries.dedup();
-        let item_use: Arc<BTreeMap<Box<str>, u32>> = Arc::new(
+        let mut item_use = BTreeMap::from([
+            (Box::from("minecraft:bow"), inventory::LONG_WEAPON_USE_TICKS),
+            (
+                Box::from("minecraft:trident"),
+                inventory::LONG_WEAPON_USE_TICKS,
+            ),
+        ]);
+        item_use.extend(
             catalog
                 .iter()
                 .flat_map(|catalog| catalog.item_use())
-                .map(|entry| (entry.identifier.clone(), entry.ticks))
-                .collect(),
+                .map(|entry| (entry.identifier.clone(), entry.ticks)),
         );
+        let item_use = Arc::new(item_use);
         let item_attack: Arc<BTreeMap<Box<str>, protocol::ItemAttackTiming>> = Arc::new(
             catalog
                 .iter()
@@ -372,6 +379,12 @@ impl EquipmentRuntime {
                         .owner
                         .is_using_item()
                         .then_some(animation.rig.hand[1].use_ticks);
+                    let duration = input
+                        .main
+                        .as_ref()
+                        .and_then(|main| self.item_use.get(main.identifier.as_ref()))
+                        .copied()
+                        .unwrap_or_default();
                     self.held_attachable(
                         body,
                         item,
@@ -383,16 +396,13 @@ impl EquipmentRuntime {
                             use_elapsed_ticks: elapsed,
                             delta_seconds: Some(animation.delta_seconds),
                             animation_frame: if item.identifier.as_ref() == "minecraft:bow" {
-                                inventory::ranged_animation_frame(elapsed)
+                                inventory::ranged_animation_frame(
+                                    elapsed.filter(|elapsed| *elapsed < duration),
+                                )
                             } else {
                                 0
                             },
-                            max_use_ticks: input
-                                .main
-                                .as_ref()
-                                .and_then(|main| self.item_use.get(main.identifier.as_ref()))
-                                .copied()
-                                .unwrap_or_default(),
+                            max_use_ticks: duration,
                             ..Default::default()
                         }),
                         None,

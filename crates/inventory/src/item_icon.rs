@@ -1,5 +1,8 @@
 //! Item-state projection shared by gameplay and UI.
 
+/// Maximum held-use duration for native bows and tridents.
+pub const LONG_WEAPON_USE_TICKS: u32 = 72_000;
+
 /// The ranged-weapon icon follows the quadratic draw-power curve,
 /// independently of the attachable's charge pose.
 pub fn ranged_animation_frame(elapsed: Option<u32>) -> u32 {
