@@ -124,7 +124,7 @@ fn stack_armor_beyond_the_model_atlas_still_dresses_every_slot_with_pack_art() {
     let mut presentation = presentation();
     presentation.set_preview_pack_equipment(Some(stack_catalog()));
     assert!(
-        presentation.gui_models.pack_equipment.catalog().is_some(),
+        presentation.gui_models.pack_equipment.source.is_some(),
         "art the preview does not wear cannot disable the pack"
     );
     let worn = [[1024, 1024], [654, 576], [512, 512], [128, 64]].map(stack_index);
@@ -219,5 +219,5 @@ fn one_pack_texture_without_room_leaves_the_rest_of_the_pack_usable() {
     // The one free page holds the page-sized chestplate; the boots keep their vanilla diamond.
     assert_eq!(&gear[3].as_ref().unwrap().rgba[..4], &diamond);
     assert_eq!(gear[3].as_ref().unwrap().tint, None);
-    assert!(presentation.gui_models.pack_equipment.catalog().is_some());
+    assert!(presentation.gui_models.pack_equipment.source.is_some());
 }

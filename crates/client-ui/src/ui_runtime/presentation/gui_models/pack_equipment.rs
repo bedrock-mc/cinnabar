@@ -17,10 +17,6 @@ pub(in super::super) struct PackEquipment {
 }
 
 impl PackEquipment {
-    pub(in super::super) fn catalog(&self) -> Option<&assets::RuntimeEquipmentCatalog> {
-        self.source.as_deref()
-    }
-
     /// The GUI region of the pack texture armor slot `slot` wears, once placed.
     pub(in super::super) fn region(&self, slot: usize) -> Option<IconRef> {
         self.regions.get(self.worn.get(slot)?.as_deref()?).copied()
