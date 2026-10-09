@@ -127,6 +127,36 @@ fn different_id_overlap_is_busy_not_fifo_display_and_queue_is_bounded() {
     assert_eq!(identity(&runtime).form_id, 1);
 }
 
+/// Queued busy replies must not trickle out one per frame.
+#[test]
+fn every_queued_busy_reply_leaves_in_one_flush() {
+    let mut player_runtime = player_state::PlayerState::new(1);
+
+    let mut runtime = UiRuntime::new(1);
+    runtime.apply(&mut player_runtime, retained(1, 1)).unwrap();
+    for id in 2..=4 {
+        runtime
+            .apply(&mut player_runtime, retained(id, u64::from(id)))
+            .unwrap();
+    }
+    assert_eq!(runtime.server_forms().queued_busy_count(), 3);
+    let mut packets = Vec::new();
+    assert!(
+        flush_form_response(&mut runtime, |packet| {
+            packets.push(bytes(packet));
+            Ok(())
+        })
+        .unwrap()
+    );
+    assert_eq!(
+        packets,
+        (2..=4)
+            .map(|id| bytes(protocol::modal_form_busy_response(id)))
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(runtime.server_forms().queued_busy_count(), 0);
+}
+
 #[test]
 fn same_id_reissue_invalidates_full_answer_and_stale_actions() {
     let mut player_runtime = player_state::PlayerState::new(1);
@@ -208,7 +238,19 @@ fn new_displayed_revision_invalidates_queued_same_id_busy_reply() {
     runtime
         .respond_to_server_form(identity(&runtime), LocalFormAction::Dismiss)
         .unwrap();
-    assert!(flush_form_response(&mut runtime, |_| Ok(())).unwrap());
+    // The transport accepts the local answer and refuses the busy reply behind it.
+    let mut accepted = 0;
+    assert_eq!(
+        flush_form_response(&mut runtime, |_| {
+            accepted += 1;
+            if accepted == 1 {
+                Ok(())
+            } else {
+                Err(FormTransportError::Full)
+            }
+        }),
+        Err(FormTransportError::Full)
+    );
     assert_eq!(runtime.server_forms().queued_busy_count(), 1);
     runtime.apply(&mut player_runtime, retained(2, 3)).unwrap();
     assert_eq!(identity(&runtime).form_id, 2);

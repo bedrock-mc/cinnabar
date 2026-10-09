@@ -1,4 +1,4 @@
-use super::{Crosshair, MeleeContext, classify, pick_actor};
+use super::{Crosshair, MeleeContext, classify};
 #[cfg(feature = "local-mods")]
 use crate::modding::interaction::{block_pick_reach, effective_reach};
 use crate::{
@@ -67,8 +67,9 @@ pub(super) fn resolve_crosshair(
             .sum::<f64>()
             .sqrt()
     });
-    let actor = pick_actor(
-        stream.authority().remote_actors().filter(|actor| {
+    let authority = stream.authority();
+    let actor = gameplay::melee::pick_actor_by(
+        authority.remote_actors().filter(|actor| {
             match context.aim.target.map(|target| target.kind) {
                 Some(client_presentation::aim_assist::TargetKind::Actor(id)) => {
                     actor.runtime_id == id
@@ -77,6 +78,7 @@ pub(super) fn resolve_crosshair(
                 None => true,
             }
         }),
+        |actor| authority.pick_bounding_box(actor),
         context.ui.gameplay_hud().mount_unique_id(),
         origin,
         ray.direction().to_array(),

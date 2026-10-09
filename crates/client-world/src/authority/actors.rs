@@ -68,6 +68,11 @@ impl WorldAuthority {
         self.publish_actor_particles();
         self.publish_actor_audio();
     }
+    /// Predicts remote actors `ticks` ahead for [`Self::pick_bounding_box`], leaving the live
+    /// actors to [`Self::advance_actor_interpolation_frame`].
+    pub fn predict_remote_actor_motion(&mut self, ticks: u32) {
+        self.actors.predict_remote_motion(ticks);
+    }
     /// Advances elapsed tick state, evaluating animation once for this rendered frame.
     pub fn advance_actor_interpolation_frame(&mut self, ticks: u32) {
         self.actors.advance_interpolation_frame(ticks);
@@ -391,6 +396,13 @@ impl WorldAuthority {
         self.actors
             .actors()
             .filter(move |actor| actor.runtime_id != local)
+    }
+    /// The actor's box where this frame's due ticks put it, for interaction picks.
+    pub fn pick_bounding_box(&self, actor: &ActorSnapshot) -> Option<([f32; 3], [f32; 3])> {
+        match self.actors.pick_pose(actor.runtime_id) {
+            Some((position, _)) => actor.bounding_box_at(position),
+            None => actor.bounding_box(),
+        }
     }
     /// Counts retained actors in this session.
     pub fn actor_count(&self) -> usize {

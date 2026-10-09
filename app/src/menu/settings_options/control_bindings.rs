@@ -72,12 +72,19 @@ pub(crate) fn binding_mouse(
     name: &str,
     mouse: &bevy::prelude::ButtonInput<bevy::prelude::MouseButton>,
 ) -> bool {
-    let Some(PhysicalControl::MouseButton(code)) = named_control(menu, name) else {
-        return false;
-    };
     mouse
         .get_just_pressed()
-        .any(|button| crate::semantic_controls::physical::mouse_button_code(*button) == Some(code))
+        .any(|button| binding_mouse_button(menu, name, *button))
+}
+
+/// Whether the control named `name` is bound to `button`.
+pub(crate) fn binding_mouse_button(
+    menu: Option<&crate::menu::MenuRuntime>,
+    name: &str,
+    button: bevy::prelude::MouseButton,
+) -> bool {
+    matches!(named_control(menu, name), Some(PhysicalControl::MouseButton(code))
+        if crate::semantic_controls::physical::mouse_button_code(button) == Some(code))
 }
 
 /// Reads a gamepad UI action from the same persisted layout as the settings grid.

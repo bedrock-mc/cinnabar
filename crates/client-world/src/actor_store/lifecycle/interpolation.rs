@@ -44,6 +44,70 @@ impl ActorStore {
         self.advance_interpolation(ticks, true);
     }
 
+    /// Predicts where this frame's `ticks` move each remote actor, for picks, without touching
+    /// the live actors whose per-tick animation advances later in the frame.
+    pub(crate) fn predict_remote_motion(&mut self, ticks: u32) {
+        self.picks_ahead = ticks > 0;
+        if !self.picks_ahead {
+            return;
+        }
+        let local = self.remote_state_excluded_runtime_id;
+        self.pick_states.clear();
+        self.pick_states.extend(
+            self.actors
+                .iter()
+                .filter(|(runtime_id, _)| local != Some(**runtime_id))
+                .map(|(runtime_id, actor)| (*runtime_id, actor.motion_state())),
+        );
+        self.pick_states
+            .sort_unstable_by_key(|(runtime_id, _)| *runtime_id);
+        // The live loop's per-tick order: every actor's motion, then seating.
+        for _ in 0..ticks {
+            for (_, state) in &mut self.pick_states {
+                state.tick();
+            }
+            self.seat_pick_riders();
+        }
+    }
+
+    /// The predicted pose picks read this frame, or `None` when the live pose is current.
+    pub(crate) fn pick_pose(&self, runtime_id: u64) -> Option<([f32; 3], f32)> {
+        if !self.picks_ahead {
+            return None;
+        }
+        self.pick_state(runtime_id)
+            .map(|state| (state.pose.position, state.pose.yaw))
+    }
+
+    pub(in crate::actor_store) fn pick_state(
+        &self,
+        runtime_id: u64,
+    ) -> Option<&movement_interpolation::MotionState> {
+        self.pick_states
+            .binary_search_by_key(&runtime_id, |(id, _)| *id)
+            .ok()
+            .map(|index| &self.pick_states[index].1)
+    }
+
+    /// One tick of interpolated motion for every actor.
+    fn step_motion(&mut self) {
+        for actor in self.actors.values_mut() {
+            actor.previous_pose = actor.current_pose();
+            // Vanilla's interpolation tick clears velocity
+            // before decrementing any positive interpolation count, including its last tick.
+            if actor.interpolation_ticks_remaining > 0 {
+                actor.status.native_velocity = [0.0; 3];
+            }
+            let mut state = actor.motion_state();
+            state.tick();
+            actor.apply_motion_state(state);
+            actor.advance_creeper_swell();
+            actor.status.tick();
+            let using_item = actor.is_using_item();
+            actor.status.advance_kinetic_hit(using_item);
+        }
+    }
+
     /// Keeps motion and status exact while separating frame and simulation evaluation cadence.
     fn advance_interpolation(&mut self, ticks: u32, frame: bool) {
         let refresh_view = frame && ticks == 0 && self.local_view_dirty;
@@ -51,45 +115,14 @@ impl ActorStore {
             self.local_view_dirty = false;
         }
         self.prepare_appearances(ticks > 0);
+        // The live actors now reach the positions picks were reading.
+        self.picks_ahead = false;
         for tick in 0..ticks.max(u32::from(refresh_view)) {
             if !refresh_view {
                 if let Some(pending) = &mut self.pending_local_damage {
                     pending.tick();
                 }
-                for actor in self.actors.values_mut() {
-                    let current = actor.current_pose();
-                    actor.previous_pose = current;
-                    let mut next =
-                        if actor.interpolation_ticks_remaining == 0 && actor.is_dying_dragon() {
-                            current
-                        } else {
-                            actor.received_pose
-                        };
-                    // Vanilla's interpolation tick clears velocity
-                    // before decrementing any positive interpolation count, including its last tick.
-                    if actor.interpolation_ticks_remaining > 0 {
-                        actor.status.native_velocity = [0.0; 3];
-                    }
-                    // The final step lands exactly on the target.
-                    if actor.interpolation_ticks_remaining > 1 {
-                        // Each step closes 1/n of the remaining gap; angles take the short way.
-                        let divisor = actor.interpolation_ticks_remaining as f32;
-                        let target = actor.received_pose;
-                        next.position = std::array::from_fn(|axis| {
-                            current.position[axis]
-                                + (target.position[axis] - current.position[axis]) / divisor
-                        });
-                    }
-                    actor.interpolate_movement_rotation(current, &mut next);
-                    actor.interpolation_ticks_remaining =
-                        actor.interpolation_ticks_remaining.saturating_sub(1);
-                    actor.set_current_pose(next);
-                    actor.advance_movement_interpolation();
-                    actor.advance_creeper_swell();
-                    actor.status.tick();
-                    let using_item = actor.is_using_item();
-                    actor.status.advance_kinetic_hit(using_item);
-                }
+                self.step_motion();
                 self.seat_riders();
             }
             if !refresh_view {
