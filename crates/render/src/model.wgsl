@@ -437,6 +437,7 @@ fn fragment(
         sampled = mix(sampled, sample_model_ref(in, in.next_texture, dx, dy), in.frame_blend);
     }
     if ((in.material_flags & MATERIAL_ALPHA_CUTOUT_FLAG) != 0u && sampled.a < 0.5) { discard; }
+    let output_alpha = select(1.0, sampled.a, (in.material_flags & MATERIAL_ALPHA_CUTOUT_FLAG) != 0u);
 #ifdef OPAQUE_OVERDRAW
     return vec4(1.0);
 #else
@@ -452,9 +453,10 @@ fn fragment(
         in.ambient_occlusion,
         in.surface_class,
     );
-    return vec4(apply_distance_fog(shaded, in.world_position), colour.a);
+    return vec4(apply_distance_fog(shaded, in.world_position), output_alpha);
 #else
-    return ordinary_world_model_colour(in, sampled);
+    let colour = ordinary_world_model_colour(in, sampled);
+    return vec4(colour.rgb, output_alpha);
 #endif
 #endif
 }

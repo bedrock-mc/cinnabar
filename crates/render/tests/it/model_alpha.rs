@@ -122,6 +122,59 @@ fn displaced_models_preserve_opaque_texels_and_cutout_thresholds() {
             );
         }
     }
+    // Isolate colour conversion while retaining production sampling, discard and output alpha.
+    let mut production = shader_source::standalone(include_str!("../../src/model.wgsl"), &[])
+        .replace(
+            "fn ordinary_world_model_colour(",
+            "fn original_world_model_colour(",
+        );
+    production.push_str("\nfn ordinary_world_model_colour(in: VertexOutput, sampled: vec4<f32>) -> vec4<f32> { return sampled; }\n");
+    let source = format!(
+        "{production}\n{}",
+        VERTEX.replace(
+            "ALPHA_FLAG",
+            &format!("{}u", assets::MATERIAL_FLAG_ALPHA_CUTOUT)
+        )
+    );
+    let actual = gpu.render(
+        &source,
+        "alpha_vertex",
+        &[Draw {
+            fragment: "fragment",
+            vertices: 0..48,
+            bindings: &[
+                wgpu::BindGroupEntry {
+                    binding: material_shader::NATIVE_LEAF_TEXTURE_BINDINGS[0],
+                    resource: wgpu::BindingResource::TextureView(&view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: material_shader::NATIVE_LEAF_TEXTURE_BINDINGS[1],
+                    resource: wgpu::BindingResource::TextureView(&view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 6,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: material_shader::NATIVE_LEAF_SAMPLER_BINDING,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+            ],
+            blend: None,
+            write_depth: true,
+        }],
+    );
+    for case in [0, 1, 2, 3, 6, 7] {
+        let offset = ((SNAPSHOT_SIDE as usize / 2) * SNAPSHOT_SIDE as usize
+            + (case * 2 + 1) * SNAPSHOT_SIDE as usize / 16)
+            * 4;
+        assert_eq!(&actual[offset..offset + 3], &[80, 120, 160]);
+        assert_eq!(
+            actual[offset + 3],
+            if case == 6 { 128 } else { 255 },
+            "opaque model writes cube opacity, while the cutout threshold keeps its admitted alpha"
+        );
+    }
 }
 
 const VERTEX: &str = r#"
