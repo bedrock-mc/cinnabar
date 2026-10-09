@@ -66,9 +66,36 @@ type CachedEntities = (
 /// A compiled pack and, when asked for, the entity blob it was built from.
 type Compiled = (Option<Arc<SessionEntityPack>>, Option<Box<[u8]>>);
 
+/// Runs the encode and write of a fresh compile's disk entry.
+type StoreEntry = fn(Box<dyn FnOnce() + Send>);
+
 /// The previous compile, reused when the same inputs rejoin.
-#[derive(Default)]
-struct EntityCache(std::sync::Mutex<Option<CachedEntities>>);
+struct EntityCache {
+    last: std::sync::Mutex<Option<CachedEntities>>,
+    store: StoreEntry,
+}
+
+impl Default for EntityCache {
+    /// Writes disk entries before a compile returns.
+    fn default() -> Self {
+        Self {
+            last: std::sync::Mutex::new(None),
+            store: |write| write(),
+        }
+    }
+}
+
+/// Encodes and writes a disk entry on its own thread: nothing a session reads depends on it, so
+/// a join does not wait on encoding and writing a large pack. A write that never completes
+/// leaves a miss, never a damaged hit.
+fn store_in_background(write: Box<dyn FnOnce() + Send>) {
+    if let Err(error) = std::thread::Builder::new()
+        .name("entity-pack-store".to_owned())
+        .spawn(write)
+    {
+        bevy::log::debug!(%error, "compiled entity pack was not stored");
+    }
+}
 
 impl EntityCache {
     /// Returns the cached pack for `inputs`, then a disk hit, compiling without holding the lock.
@@ -119,11 +146,13 @@ impl EntityCache {
                 inputs.vanilla_pack_dir.as_deref(),
                 disk.is_some(),
             );
-            if let (Some(disk), Some(key), Some(files)) = (disk, &key, view.dependencies())
-                && let Some(entry) =
-                    encode_entry(&files.snapshot(), pack.as_deref(), blob.as_deref())
-            {
-                disk.store(key, &entry);
+            if let (Some(disk), Some(key), Some(files)) = (disk, key, view.dependencies()) {
+                let (disk, files, stored) = (disk.clone(), files.snapshot(), pack.clone());
+                (self.store)(Box::new(move || {
+                    if let Some(entry) = encode_entry(&files, stored.as_deref(), blob.as_deref()) {
+                        disk.store(&key, &entry);
+                    }
+                }));
             }
             pack
         };
@@ -136,7 +165,7 @@ impl EntityCache {
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Option<CachedEntities>> {
-        self.0
+        self.last
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
@@ -224,7 +253,10 @@ fn decode_entry(
     Some((pack, files))
 }
 
-static ENTITY_CACHE: EntityCache = EntityCache(std::sync::Mutex::new(None));
+static ENTITY_CACHE: EntityCache = EntityCache {
+    last: std::sync::Mutex::new(None),
+    store: store_in_background,
+};
 
 /// Compiles the stack's entity files; `None` when it defines no usable entity.
 pub(super) fn compile_session_entities(
@@ -468,7 +500,7 @@ mod tests {
     fn entity_cache_compiles_without_holding_its_lock() {
         let (view, cache) = (empty_view(), super::EntityCache::default());
         cache.get_or_compile(inputs(None), &view, None, |_, _, _, _| {
-            assert!(cache.0.try_lock().is_ok());
+            assert!(cache.last.try_lock().is_ok());
             (None, None)
         });
     }
@@ -555,6 +587,42 @@ mod tests {
             "recompilation preserves the catalog, artwork and tracked inputs"
         );
         assert_eq!(compiles.get(), 2, "a corrupt entry is a miss");
+    }
+
+    // A join gets a fresh compile before its disk entry is encoded and written; the deferred
+    // write then stores what a later launch reads back without compiling.
+    #[test]
+    fn a_fresh_compile_returns_before_its_disk_entry_is_written() {
+        type Write = Box<dyn FnOnce() + Send>;
+        static DEFERRED: std::sync::Mutex<Vec<Write>> = std::sync::Mutex::new(Vec::new());
+        let dir = tempfile::tempdir().unwrap();
+        let disk = client_session::compile_cache::CompileCache::new(dir.path().into(), 1 << 30);
+        let stack = entity_stack();
+        let deferring = super::EntityCache {
+            store: |write| DEFERRED.lock().unwrap().push(write),
+            ..super::EntityCache::default()
+        };
+        let compiled = deferring.get_or_compile(
+            inputs(None),
+            &resource_pack::LayeredPackView::tracked(stack.clone()),
+            Some(&disk),
+            super::compile_encoded,
+        );
+        assert!(compiled.is_some());
+        assert_eq!(std::fs::read_dir(dir.path()).map_or(0, Iterator::count), 0);
+        for write in std::mem::take(&mut *DEFERRED.lock().unwrap()) {
+            write();
+        }
+        let relaunched = super::EntityCache::default().get_or_compile(
+            inputs(None),
+            &resource_pack::LayeredPackView::tracked(stack),
+            Some(&disk),
+            |_, _, _, _| panic!("the deferred write stored the compile"),
+        );
+        assert_eq!(
+            relaunched.map(|pack| pack.assets.encode().unwrap()),
+            compiled.map(|pack| pack.assets.encode().unwrap())
+        );
     }
 
     #[test]
