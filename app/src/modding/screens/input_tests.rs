@@ -903,3 +903,62 @@ fn declared_keys_use_modifiers_at_each_press() {
         );
     }
 }
+
+#[test]
+fn production_mod_driver_delivers_declared_keys_and_view_escape() {
+    let (mut app, window) = input_app();
+    let dir = tempfile::tempdir().unwrap();
+    write_transition_probe(dir.path(), "0.1.0");
+    let mut host = ModHost::load_package(dir.path(), mod_host::ModGrants::default()).unwrap();
+    let package = host.package().unwrap();
+    if !draw_package_view(&mut app, &package.id, &package.files) {
+        return;
+    }
+    let layout = app
+        .world()
+        .resource::<UiPresentationRuntime>()
+        .mod_screen_layout()
+        .cloned();
+    assert!(layout.is_some());
+    host.dispatch(vec![
+        ModEvent::ScreenChanged(layout),
+        ModEvent::Action {
+            id: "probe.view".into(),
+            index: None,
+        },
+    ])
+    .unwrap();
+    assert!(host.screens().view.is_some());
+    let mut configured = App::new();
+    super::super::install(&mut configured, vec![host]);
+    app.insert_resource(
+        configured
+            .world_mut()
+            .remove_resource::<ModRuntime>()
+            .unwrap(),
+    )
+    .insert_resource(crate::environment::VisualTimeOverride(None))
+    .init_resource::<super::super::interaction::ModInteraction>()
+    .add_systems(
+        Update,
+        (drive_chat_keyboard_input, super::super::drive_mod).chain(),
+    );
+    send(&mut app, window, KeyCode::KeyR, ButtonState::Pressed, None);
+    assert!(matches!(
+        app.world().resource::<ModRuntime>().host.screens().data.values.get("#key"),
+        Some(server_experience::screen::Value::Text(key)) if key.starts_with("probe.show:")
+    ));
+    send(
+        &mut app,
+        window,
+        KeyCode::Escape,
+        ButtonState::Pressed,
+        None,
+    );
+    let runtime = app.world().resource::<ModRuntime>();
+    assert!(runtime.host.screens().view.is_none());
+    assert_eq!(
+        runtime.host.screens().data.values.get("#view_closed"),
+        Some(&server_experience::screen::Value::Integer(1))
+    );
+}

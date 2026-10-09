@@ -212,7 +212,7 @@ fn drive_owner(
     }
     let up = state.layout.is_some();
     if up && focused {
-        let modifiers = input.modifiers(true);
+        let modifiers = held_modifiers(&input.modifier_state);
         let pressed = pointer_events(presentation, cursor, modifiers, input, &mut events);
         let frame = KeyFrame {
             keys: &keys,
