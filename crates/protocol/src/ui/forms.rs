@@ -468,7 +468,7 @@ pub enum CustomFormValue {
     /// Dropdown selected option index.
     Dropdown(i32),
     Input(String),
-    /// Selected multiselect option indexes, in selection order.
+    /// Untouched defaults retain wire order; edited selections use ascending option order.
     MultiSelect(Arc<[i32]>),
     Null,
 }

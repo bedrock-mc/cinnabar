@@ -422,7 +422,10 @@ fn controller(
                 } else {
                     engine.open_dropdowns.remove(&index);
                 }
-            } else if name == "custom_dropdown_radio_toggle" && *checked {
+            } else if name == "custom_dropdown_radio_toggle" {
+                if !*checked {
+                    return None;
+                }
                 let parent = custom_parent(frame, key)?;
                 let ServerFormModel::Custom(form) = model else {
                     return None;

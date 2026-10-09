@@ -610,3 +610,47 @@ fn dropdown_edits_answer_and_close_only_the_enclosing_form_element() {
         [1]
     );
 }
+
+#[test]
+fn unchecked_dropdown_options_leave_toggle_answers_unchanged() {
+    let mut player = player_state::PlayerState::new(1);
+    let mut runtime = crate::ui_runtime::presentation::forms::compatibility_tests::replay(
+        &mut player,
+        r#"{"type":"custom_form","content":[
+            {"type":"toggle","text":"Enabled","default":true},
+            {"type":"dropdown","text":"Mode","options":["A","B"],"default":1}
+        ]}"#,
+        false,
+    );
+    let model = runtime.server_forms().active().unwrap().model.clone();
+    let frame = EngineFrame {
+        identity: Some(runtime.server_forms().active().unwrap().identity),
+        hits: std::sync::Arc::from([]),
+        report: Default::default(),
+        cancel_target: None,
+        origin: [0.0; 2],
+        scale: 1.0,
+        panel: None,
+        edit_texts: Vec::new(),
+    };
+    controller(
+        &mut runtime,
+        &frame,
+        &model,
+        &ScreenEvent::Toggle {
+            name: "custom_dropdown_radio_toggle".into(),
+            key: "dropdown/option".into(),
+            index: Some(0),
+            checked: false,
+            by_click: false,
+        },
+        None,
+    );
+    assert_eq!(
+        runtime.server_forms().engine().submission().as_ref(),
+        [
+            protocol::CustomFormValue::Toggle(true),
+            protocol::CustomFormValue::Dropdown(1)
+        ]
+    );
+}
