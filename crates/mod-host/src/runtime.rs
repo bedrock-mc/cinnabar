@@ -178,6 +178,13 @@ impl cinnabar::extension::input::Host for State {
         controls::read(self)
     }
 
+    fn read_selected_controls(
+        &mut self,
+        selection: cinnabar::extension::input::Selection,
+    ) -> Result<Result<crate::ControlFrame, String>> {
+        controls::read_selected(self, selection)
+    }
+
     fn reserve_keys(&mut self, keys: Vec<String>) -> Result<Result<(), String>> {
         controls::reserve(self, keys)
     }

@@ -228,6 +228,14 @@ sample; Escape closes it. Other absorbing screens and lost focus close it, relea
 input, and suppress gameplay output. Removing or quarantining a guest releases
 the panel and its reservations.
 
+`input.read-selected-controls(selection)` reads the same current frame with the
+same controls grant and shared read limit. Each optional pressed/held key list
+uses `none` for all keys, an empty list for none, or up to 64 physical names for
+exact matches in native order. Names follow the existing 32-byte alphanumeric
+key rule; repeated requested names do not duplicate observations. The `events`
+flag selects whether panel events are included; scalar flags are unchanged.
+Selection neither consumes input nor changes reservations or native sampling.
+
 An optional `surface` replaces the built-in panel presentation with extension-owned
 JSON-UI. It has `screen` (`namespace.name`), `document` (a JSON string containing
 that namespace and one root definition), and `bindings` (a map of `#name` to a

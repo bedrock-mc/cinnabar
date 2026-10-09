@@ -96,9 +96,18 @@ interface input {
         keys-held: list<string>,
         events: list<event>,
     }
+    record selection {
+        /// None selects all keys; some(empty) selects none; names select exact matches.
+        keys-pressed: option<list<string>>,
+        keys-held: option<list<string>>,
+        events: bool,
+    }
     /// True only for the current frame's host-assigned action edge.
     demo-pressed: func() -> bool;
     read-controls: func() -> result<controls, string>;
+    /// Reads selected fields from the same current frame, preserving native key order.
+    /// Requires controls authority and shares the read-controls callback read budget.
+    read-selected-controls: func(selection: selection) -> result<controls, string>;
     /// Physical key names reserved before the ordinary gameplay router samples them.
     reserve-keys: func(keys: list<string>) -> result<_, string>;
 }

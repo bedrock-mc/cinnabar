@@ -134,6 +134,54 @@ pub(super) fn read(state: &mut State) -> Result<Result<ControlFrame, String>> {
     Ok(Ok(state.controls.frame.clone()))
 }
 
+/// Imports only requested current keys and events without changing native input ownership.
+pub(super) fn read_selected(
+    state: &mut State,
+    selection: cinnabar::extension::input::Selection,
+) -> Result<Result<ControlFrame, String>> {
+    state.controls.budget(true)?;
+    if !state.grants.controls {
+        return Ok(Err("controls capability denied".into()));
+    }
+    if ![
+        selection.keys_pressed.as_deref(),
+        selection.keys_held.as_deref(),
+    ]
+    .into_iter()
+    .all(|names| {
+        names.is_none_or(|names| {
+            names.len() <= mod_api::MAX_CONTROL_KEYS && names.iter().all(|key| key_valid(key))
+        })
+    }) {
+        return Ok(Err("invalid controls selection".into()));
+    }
+    let frame = &state.controls.frame;
+    Ok(Ok(ControlFrame {
+        seconds: frame.seconds,
+        focused: frame.focused,
+        gameplay: frame.gameplay,
+        panel_open: frame.panel_open,
+        keys_pressed: selected_keys(&frame.keys_pressed, selection.keys_pressed.as_deref()),
+        keys_held: selected_keys(&frame.keys_held, selection.keys_held.as_deref()),
+        events: if selection.events {
+            frame.events.clone()
+        } else {
+            Vec::new()
+        },
+    }))
+}
+
+/// Retains matching physical key observations in their original native order.
+fn selected_keys(keys: &[String], selection: Option<&[String]>) -> Vec<String> {
+    let Some(names) = selection else {
+        return keys.to_vec();
+    };
+    keys.iter()
+        .filter(|key| names.contains(*key))
+        .cloned()
+        .collect()
+}
+
 pub(super) fn reserve(state: &mut State, keys: Vec<String>) -> Result<Result<(), String>> {
     state.controls.budget(false)?;
     if !state.grants.controls {
