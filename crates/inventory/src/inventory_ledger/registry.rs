@@ -32,6 +32,13 @@ impl PlayerInventoryLedger {
         self.item_registry.as_ref()?.get(&network_id)
     }
 
+    /// The negotiated item registry by network id; a resend that changes it replaces the `Arc`.
+    pub fn negotiated_item_registry(
+        &self,
+    ) -> Option<&std::sync::Arc<BTreeMap<i32, ItemRegistryEntry>>> {
+        self.item_registry.as_ref()
+    }
+
     pub fn apply_registry(&mut self, event: &ItemRegistryEvent) {
         let Some(next) = registry_map(event) else {
             return;

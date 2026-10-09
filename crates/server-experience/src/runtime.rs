@@ -13,6 +13,16 @@ use std::collections::{BTreeMap, BTreeSet};
 /// Fuel for one client part callback. Provisional: enough to decode a multi-fragment list record
 /// (SP3's terminal sends ~22 KB); matches the server runtime's per-callback budget.
 pub const CALLBACK_FUEL: u64 = 10_000_000;
+/// Fuel for a player mod's `init` and `data-changed`, which copy the whole session through the
+/// canonical ABI: one guest allocation per string and list, about 3,000 fuel per recipe and
+/// 2,500 to 5,000 per item. Twice vanilla's session at the target (4,000 items, 3,000
+/// three-by-three recipes) measured 27.7M in `examples/mods/screen-probe`'s `data-changed`
+/// (mod-host `a_twice_vanilla_session_loads_but_an_event_may_not_spend_that_much`), leaving
+/// room for a mod's own indexing. The precedent is the Experience runtime's `REGISTER_FUEL`
+/// (`crates/experience-runtime/src/limits.rs`), also 100M for its one-off registration. A
+/// session that outgrows this calls for a host-side query API (items and recipes on demand)
+/// rather than a larger copy.
+pub const LOAD_FUEL: u64 = 100_000_000;
 pub const SESSION_FUEL: u64 = CALLBACK_FUEL * 2;
 pub const CALLBACK_INTERVAL_MS: u64 = 34;
 pub const MAX_WIDGETS: usize = 128;

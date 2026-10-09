@@ -251,7 +251,7 @@ forbidden_transitive_dependencies = ["bevy", "bevy_*", "wgpu*"]
 [[crates]]
 name = "mod-host"
 path = "crates/mod-host"
-allowed_dependencies = ["mod-api", "mod-render", "server-experience", "ui"]
+allowed_dependencies = ["experience-sdk", "mod-api", "mod-render", "server-experience", "ui"]
 forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
 
 [[crates]]
@@ -270,6 +270,12 @@ forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
 name = "render-sample-mod"
 path = "examples/mods/render-sample"
 allowed_dependencies = ["mod-api"]
+forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
+
+[[crates]]
+name = "screen-probe-mod"
+path = "examples/mods/screen-probe"
+allowed_dependencies = ["experience-sdk", "mod-api"]
 forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
 
 [[crates]]

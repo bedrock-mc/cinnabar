@@ -12,6 +12,7 @@ pub mod policy;
 pub mod runtime;
 pub mod screen;
 pub mod session;
+pub mod session_data;
 pub mod trust;
 pub mod wire;
 

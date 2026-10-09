@@ -201,6 +201,18 @@ impl UiNode {
     pub const fn visual(&self) -> &UiVisual {
         &self.visual
     }
+
+    pub const fn clips_children(&self) -> bool {
+        self.clip_children
+    }
+
+    /// The same node under another id and parent, to reorder retained nodes: siblings draw in
+    /// id order.
+    pub fn renumbered(mut self, id: UiNodeId, parent: Option<UiNodeId>) -> Self {
+        self.id = id;
+        self.parent = parent;
+        self
+    }
 }
 
 #[derive(Clone, Debug, Default)]

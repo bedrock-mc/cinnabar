@@ -11,10 +11,10 @@ From the repository root, with the Rust toolchain pinned by the repository:
 ```sh
 rustup target add wasm32-unknown-unknown
 cargo build -p hello-mod --target wasm32-unknown-unknown --locked
-cargo run -p mod-host --locked -- pack \
+cargo run -p mod-host --bin mod-host --locked -- pack \
   target/wasm32-unknown-unknown/debug/hello_mod.wasm /tmp/cinnabar-hello.wasm
-cargo run -p mod-host --locked -- probe /tmp/cinnabar-hello.wasm
-cargo run -p mod-host --locked -- bench /tmp/cinnabar-hello.wasm
+cargo run -p mod-host --bin mod-host --locked -- probe /tmp/cinnabar-hello.wasm
+cargo run -p mod-host --bin mod-host --locked -- bench /tmp/cinnabar-hello.wasm
 CINNABAR_MOD_COMPONENT=/tmp/cinnabar-hello.wasm cargo run -p bedrock-client --features local-mods --locked
 ```
 
@@ -59,9 +59,9 @@ install it separately with `rustup target add wasm32-unknown-unknown`):
 
 ```sh
 cargo build -p time-changer-mod --target wasm32-unknown-unknown --locked
-cargo run -p mod-host --locked -- pack \
+cargo run -p mod-host --bin mod-host --locked -- pack \
   target/wasm32-unknown-unknown/debug/time_changer_mod.wasm /tmp/cinnabar-time-changer.wasm
-cargo run -p mod-host --locked -- probe-environment /tmp/cinnabar-time-changer.wasm
+cargo run -p mod-host --bin mod-host --locked -- probe-environment /tmp/cinnabar-time-changer.wasm
 CINNABAR_MOD_COMPONENT=/tmp/cinnabar-time-changer.wasm cargo run -p bedrock-client --features local-mods --locked
 ```
 
@@ -173,12 +173,18 @@ setting independently of rendering speed. Target selection and strength remain
 guest policy; this API does not install an aim-assist algorithm. No process memory,
 OS input synthesis or vision model is needed.
 
-`crates/mod-api/wit/extension.wit` is the single interface definition of player mods. (A
+`crates/mod-api/wit/extension.wit` (`cinnabar:extension@0.1.0`) is the single interface
+definition of player mods. It grows additively: a component built against an earlier 0.1
+links as long as every import it names still exists. Its world `extension` is the bare
+component's; world `player-mod` includes it and adds package screens, session data and event
+callbacks (see "Mod packages and screens" below). One host linker serves both. (A
 server Experience's client part is another world, `server-bundle`, which `experience-sdk`'s
 `client` feature builds; see [server-experiences.md](server-experiences.md).) The guest
 SDK uses `wit-bindgen`; the host independently generates Wasmtime bindings from
-that same file. Copy `examples/mods/hello` to start a mod, adjust its dependency
-path, and implement its generated `Guest` trait. `pack` converts the core WASM
+those same files. Copy `examples/mods/hello` to start a bare mod (`mod_api::bindings`) and
+implement its generated `Guest` trait, or `examples/mods/screen-probe` for a package: implement
+`mod_api::PlayerMod`, overriding only the events the mod uses, and export it with
+`mod_api::export_player_mod!`. Adjust the copy's dependency path. `pack` converts the core WASM
 module and embedded WIT metadata to a component. The guest's actual imports
 declare its requirements; unknown imports fail linking. The prototype's
 grant is HUD, the demo action and environment for the developer-selected mod,
@@ -306,9 +312,9 @@ pulsing ring at the player's feet:
 
 ```sh
 cargo build -p render-sample-mod --target wasm32-unknown-unknown --locked
-cargo run -p mod-host --locked -- pack \
+cargo run -p mod-host --bin mod-host --locked -- pack \
   target/wasm32-unknown-unknown/debug/render_sample_mod.wasm /tmp/cinnabar-render.wasm
-cargo run -p mod-host --locked -- probe-render /tmp/cinnabar-render.wasm
+cargo run -p mod-host --bin mod-host --locked -- probe-render /tmp/cinnabar-render.wasm
 CINNABAR_MOD_COMPONENT=/tmp/cinnabar-render.wasm CINNABAR_MOD_RENDER=1 CINNABAR_MOD_PLAYERS=1 \
   cargo run -p bedrock-client --features local-mods --locked
 ```
@@ -456,6 +462,127 @@ HUD-visible bindings and alpha. The spike suppresses its label for focus, menus,
 loading and a statically hidden underlying HUD, but does not yet follow vanilla
 hide-GUI, partial server HUD visibility or animated opacity. See `plan.md`; the
 hidden-HUD test is not full visibility parity evidence.
+
+## Mod packages and screens (world `player-mod`)
+
+A package is a directory: `mod.toml`, `mod.wasm` (a `player-mod` component), `ui/<name>.json`
+templates and `textures/`. `CINNABAR_MOD_PACKAGE=<dir>` loads it (with `--features
+local-mods`) and takes precedence over `CINNABAR_MOD_COMPONENT`. A set entry
+`{"package": "/abs/dir", "grants": {...}}` loads one beside other mods. Its settings companion
+sits beside the directory, `<dir>.settings.json`, outside the hashed files.
+`examples/mods/screen-probe` is a complete package; the host tests build it.
+
+Templates are the mod's own files, hashed in `mod.toml` and resolved against the vanilla catalog
+only, as a client part's modal templates are; guest strings still never become JSON. The panel
+above stays host-templated.
+
+```toml
+id = "bei"                  # lowercase name; also the templates' JSON-UI namespace
+version = "0.1.0"
+api = "0.1"                  # the cinnabar:extension version
+permissions = ["screen", "items", "recipes", "keys"]
+templates = ["ui/overlay.json", "ui/recipes.json"]
+textures = ["textures/arrow.png"]
+actions = ["bei.next_page"]  # control ids and edit box names, in the mod's namespace
+
+[[keys]]
+id = "bei.show_recipes"
+key = "r"                    # a-z, 0-9, f1-f12, backspace, page_up, page_down
+modifiers = []               # any of "ctrl", "shift", "alt"; must match exactly
+label = "key.bei.show_recipes"
+
+[files]                      # lowercase SHA-256 of mod.wasm, every template and texture
+"mod.wasm" = "<sha256>"
+```
+
+`experience_sdk::mod_manifest` is the one parser. The host refuses a package whose files miss
+their hashes or differ from them, that hashes a file it does not declare, that puts an action
+or key outside its namespace, repeats a key or binding, or ships a template of another
+namespace. A build script calls `experience_sdk::declarations::generate_mod("mod.toml")`
+(which ignores `[files]`, filled after the build) and the guest includes `actions::*`,
+`templates::*` and `keys::*` with `experience_sdk::include_declarations!()`.
+`CINNABAR_MOD_PACKAGE` grants what the manifest asks for, plus the environment opt-ins a bare
+component gets; in a set, each package permission needs both the manifest's ask and the entry's
+grant (`screen`, `items`, `recipes`, `keys`). `inventory` has no import yet. On reload, the new
+manifest narrows the original loader authorization again; an entry cannot gain an ungranted
+permission by changing its manifest.
+
+**Screens.** `screen.set-overlay(template)` draws one template beside every container screen.
+It is laid out over the whole root after the container screen. The host drops every node and
+control of it that meets the GUI rect (the union of vanilla's laid-out panels, an open recipe
+book included) or an exclusion area, so a mod cannot cover or intercept a vanilla slot, and
+vanilla's held stack and tooltips draw above it. A press on an overlay control is the mod's
+and never drops the held stack. `screen.open-view(template)` draws a template over the
+still-open container (no `ContainerClose`) and hides vanilla's screen and its keys. Escape
+(when no edit box is selected) or `open-view(none)` returns; the inventory key or closing the
+container closes both. When the host closes the view (Escape, the container closing) the mod
+gets `view-closed`. While the view is up the overlay is clipped against the view's drawn
+bounds (`screen-layout.view`) instead of the hidden screen's GUI rect, so it sits beside the
+view as JEI's list sits beside its recipes screen, and takes the pointer, wheel, edit boxes
+and key rows wherever it draws there. `screen.layout()` and `screen-changed`
+report the vanilla screen name, the root size and GUI scale, the GUI rect, the exclusions and
+the view's bounds, in GUI units; opening, closing or resizing the view delivers
+`screen-changed`. Templates,
+data binding (`set-collection`, `set-value`, `set-text`) and their limits are the client part
+modal's (server-experiences.md, Modal screens); `focus-text` selects an edit box. Rows bind
+`#item_id_aux` (network id << 16 | aux) and `item_renderer` draws the item. The mod's atlas
+has its own four dynamic texture pages. With several mods loaded, one owns the screens: the
+earliest in load order with an overlay or view, else the earliest granted `screen`. Only it
+draws and receives screen input and keys; every package granted `items` or `recipes` reads
+the session.
+
+**Session data.** `cinnabar:session@0.1.0` (`crates/experience-sdk/wit/session/session.wit`)
+is read-only. `items` gives the creative content in its order, then the registry's other
+items: identifier, aux, icon key, localized name, creative group and category, maximum stack
+and tags, plus `lookup` and `tag-members`. `recipes` gives shaped and shapeless crafting,
+stonecutter, cartography, smithing transform and trim, with ingredients as an item, any aux
+of an item, or a tag. Both page at `MAX_PAGE` (256) per call and carry a revision; a changed
+revision delivers `data-changed`. They are the facts vanilla's recipe book and creative
+screen show, with no packet, world or account access. Known gaps: CraftingData carries no
+smelting at the 1.26.x target, brewing is skipped, and a recipe with a Molang, complex,
+deferred or int-id ingredient is dropped by the decoder.
+
+This package is the one definition client parts use too. SP5's planned `items.lookup` for
+client WIT 1.2 is `cinnabar:session/items.lookup`: the `server-bundle` world imports
+`cinnabar:session/items@0.1.0` from this same file (as a further WIT path, the way mod-api
+reads `client/deps/server-experience`) instead of restating it in `capabilities.wit`.
+
+**Keys.** While a container screen or the view is up and no edit box is selected, a press of
+a declared key that vanilla's container screen does not use (the inventory and drop
+bindings, Escape, Q, 1 to 9, arrows, Page Up and Page Down; over the view only the inventory
+key and Escape) delivers `key(id, hovered, row)`. `hovered` is the vanilla slot's stack under
+the pointer; `row` is the collection name and index of the mod's control under it, by the
+rule `action` uses. Modifiers must match exactly, so `o` with `["ctrl"]` is Ctrl+O. No key
+reaches the mod during gameplay.
+
+**Callbacks.** `player-mod` exports `screen-changed`, `action`, `secondary-action`,
+`scrolled`, `text-changed`, `key`, `data-changed` and `view-closed` beside `init` and `frame`.
+Each event export is optional: the host type-checks every one a component exports (refusing
+one of another signature) and never calls one it lacks, so new events arrive as new exports
+without breaking built mods. `data-changed(sources)` lists what changed (`items`, `recipes`);
+that enum is closed, and a new kind of change arrives as a new export.
+`scrolled` reports wheel notches (a pixel wheel's pixels / 16), positive scrolling down, and
+the Ctrl, Shift and Alt held. An event callback commits the label, visual time, fullbright, panel,
+settings and screens; render, camera and command output is `frame`'s alone.
+
+`data-changed`, whose sources a mod copies whole across the ABI, and the `init` of a component
+exporting it get `LOAD_FUEL` (100,000,000; twice
+vanilla's session measured 27.7M in the probe), after the Experience runtime's
+`REGISTER_FUEL`. Every other event callback gets `CALLBACK_FUEL` (10,000,000) and `frame`
+keeps 100,000; any other component's instantiation and `init` keep the frame budget. A
+session that outgrows the load budget calls for a host-side query API
+(items and recipes on demand) rather than a larger copy. One frame's events are
+coalesced: the latest layout first, one data change naming every source, then the rest in order with the latest
+text per edit box. A trap or exhausted fuel quarantines the mod and removes its overlay and
+view; a refused template does too. An undeclared action or key is refused without
+quarantine. Reload re-reads the whole package and delivers the current layout and data to
+the new instance.
+
+Verification: `cargo test -p mod-host --locked --lib` (real components for every callback,
+fuel, traps, caps, revisions, permissions and reload), `cargo test -p experience-sdk --lib`
+(the manifest) and `cargo test -p client-ui --lib mod_screens session_data` (clipping, the
+lifted held stack, hit filtering, session data). The overlay has not been checked on a
+rendered frame yet; see `plan.md`.
 
 ## Loaded block highlights
 

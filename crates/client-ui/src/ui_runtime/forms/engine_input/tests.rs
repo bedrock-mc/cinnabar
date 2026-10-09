@@ -632,6 +632,7 @@ fn unchecked_dropdown_options_leave_toggle_answers_unchanged() {
         scale: 1.0,
         panel: None,
         edit_texts: Vec::new(),
+        top: Vec::new(),
     };
     controller(
         &mut runtime,

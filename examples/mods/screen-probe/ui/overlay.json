@@ -1,0 +1,7 @@
+{
+  "namespace": "probe",
+  "overlay": {
+    "type": "panel",
+    "controls": [{ "search@common.text_edit_box": { "$text_box_name": "probe.search" } }]
+  }
+}

@@ -74,11 +74,10 @@ impl TextureSet {
         self.full_res = full_res;
     }
 
-    /// A client part screen's sources: its bundle `files` over the carrier, the icon atlas and
-    /// the local vanilla pack, packed into the modal pages from `page`. The server pack, remote
+    /// A package screen's sources: its `files` over the carrier, the icon atlas and the local
+    /// vanilla pack, packed into the `pages` dynamic pages from `page`. The server pack, remote
     /// URLs and paths that leave `textures/` are out of reach.
-    pub(super) fn confined(&self, files: &[(String, Vec<u8>)], page: u16) -> Self {
-        let pages = super::super::dynamic_textures::MODAL_UI_PAGES;
+    pub(super) fn confined(&self, files: &[(String, Vec<u8>)], page: u16, pages: usize) -> Self {
         let atlas = ServerAtlas::new(files, None, pages)
             .with_fallbacks(self.vanilla.clone(), None)
             .with_carrier(self.carrier.clone());

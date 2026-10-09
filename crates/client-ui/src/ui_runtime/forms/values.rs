@@ -28,6 +28,9 @@ pub struct EngineFrame {
     pub panel: Option<[f64; 4]>,
     /// Where each edit box drew its text label.
     pub edit_texts: Vec<EditText>,
+    /// The ranges of the output nodes that must stay above anything drawn after the screen:
+    /// the held stack and hover tooltips.
+    pub top: Vec<std::ops::Range<usize>>,
 }
 
 /// Where an edit box's text label draws, for placing its caret under a press.

@@ -1,0 +1,103 @@
+// The one definition of the session's read-only data. Player mods (`cinnabar:extension`'s
+// `player-mod` world) import it, and a later client part world imports the same package
+// rather than its own copy.
+package cinnabar:session@0.1.0;
+
+/// The session's items as the vanilla creative screen and recipe book know them: the server's
+/// creative content in its order, then every other item the item registry names, by network id.
+/// Every function errs only when the `items` permission is denied.
+interface items {
+    /// An item by identifier and aux value (metadata).
+    record item-key {
+        identifier: string,
+        aux: u16,
+    }
+
+    /// A stack. `icon` is vanilla's `#item_id_aux` (network id << 16 | aux): bound as
+    /// `#item_id_aux` in a collection row, an `item_renderer` draws the item.
+    record stack {
+        key: item-key,
+        icon: s64,
+        count: u8,
+    }
+
+    /// The creative inventory tab an item's group belongs to.
+    enum category {
+        construction,
+        nature,
+        equipment,
+        items,
+        command-only,
+    }
+
+    record item {
+        key: item-key,
+        icon: s64,
+        /// The localized display name.
+        name: string,
+        /// The creative group's name (a language key), when the item is in a named group.
+        group: option<string>,
+        /// None for an item absent from the creative content.
+        category: option<category>,
+        max-stack: u8,
+        /// The registry's item tags.
+        tags: list<string>,
+    }
+
+    /// Changes whenever the creative content or the item registry is resent.
+    revision: func() -> result<u64, string>;
+    count: func() -> result<u32, string>;
+    /// Up to `count` items from `start`, cut to the host's per-call cap.
+    page: func(start: u32, count: u32) -> result<list<item>, string>;
+    lookup: func(key: item-key) -> result<option<item>, string>;
+    /// The identifiers in an item tag: the registry's, else the vanilla tag table's.
+    tag-members: func(tag: string) -> result<list<string>, string>;
+}
+
+/// The recipes the server sent that the client decodes, as the vanilla recipe book and the
+/// station screens use them. Every function errs only when the `recipes` permission is denied.
+interface recipes {
+    use items.{item-key, stack};
+
+    variant ingredient-kind {
+        item(item-key),
+        /// Any aux value of this identifier (aux 32767 on the wire).
+        any-aux(string),
+        /// Any member of this item tag.
+        tag(string),
+    }
+
+    record ingredient {
+        kind: ingredient-kind,
+        count: u8,
+    }
+
+    enum category {
+        crafting,
+        stonecutter,
+        cartography,
+        smithing-transform,
+        smithing-trim,
+    }
+
+    record recipe {
+        network-id: u32,
+        category: category,
+        shapeless: bool,
+        /// A shaped crafting recipe's size; zero otherwise.
+        width: u8,
+        height: u8,
+        /// Shaped: `width * height` cells, row-major, `none` for an empty cell. Otherwise the
+        /// inputs in order: stonecutter the input; cartography the map, then the modifier;
+        /// smithing the template, the base, then the addition.
+        ingredients: list<option<ingredient>>,
+        /// Empty for a smithing trim, which decorates its base.
+        outputs: list<stack>,
+    }
+
+    /// Changes whenever the server resends its recipes.
+    revision: func() -> result<u64, string>;
+    count: func() -> result<u32, string>;
+    /// Up to `count` recipes from `start`, cut to the host's per-call cap.
+    page: func(start: u32, count: u32) -> result<list<recipe>, string>;
+}

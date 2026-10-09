@@ -9,6 +9,7 @@ fn state() -> State {
             ..Default::default()
         },
         String::new(),
+        Default::default(),
     )
 }
 fn spec() -> wit::BlockHighlightSpec {
@@ -31,6 +32,7 @@ fn block_highlights_require_their_own_grant() {
             ..Default::default()
         },
         String::new(),
+        Default::default(),
     );
     assert!(state.set_block_highlights(Some(spec())).unwrap().is_err());
     assert!(state.set_block_highlights(None).unwrap().is_err());

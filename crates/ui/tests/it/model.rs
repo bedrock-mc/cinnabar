@@ -862,3 +862,24 @@ fn draw_list(visual: UiVisual) -> UiDrawList {
     .unwrap();
     tree.build_draw_list().unwrap()
 }
+
+#[test]
+fn a_renumbered_node_keeps_everything_but_its_id_and_parent() {
+    let bounds = UiRect::new(
+        UiPoint::new(1.0, 2.0).unwrap(),
+        UiPoint::new(5.0, 6.0).unwrap(),
+    )
+    .unwrap();
+    let node = UiNode::new(UiNodeId::new(3), Some(UiNodeId::new(1)), bounds)
+        .with_clip_children(true)
+        .with_focusable(true);
+    let moved = node.clone().renumbered(UiNodeId::new(9), None);
+    assert_eq!(moved.id(), UiNodeId::new(9));
+    assert_eq!(moved.parent(), None);
+    assert_eq!(moved.bounds(), bounds);
+    assert!(moved.clips_children());
+    assert_eq!(
+        moved.renumbered(UiNodeId::new(3), Some(UiNodeId::new(1))),
+        node
+    );
+}

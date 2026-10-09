@@ -342,6 +342,25 @@ impl Dispatcher {
         true
     }
 
+    /// Clears selection and its button edges without input events, preserving component writes.
+    pub fn clear_selection(&mut self, regions: &[HitRegion], view: &mut ViewState) {
+        let selected = view.components.selected().map(str::to_owned);
+        if let Some(key) = &selected {
+            self.last.retain(|(control, _), _| control != key);
+        }
+        if let Some(region) = selected
+            .as_ref()
+            .and_then(|key| regions.iter().find(|region| &region.key == key))
+        {
+            if region.widget.edit.is_some() {
+                deselect(region, &mut view.components, &mut Dispatch::default());
+            } else if region.widget.slider.is_some() {
+                set_slider_selected(region, false, &mut view.components);
+            }
+        }
+        view.components.set_selected(None);
+    }
+
     fn double_press(&mut self, region: &HitRegion, input: &ButtonInput<'_>) -> bool {
         let tracked =
             region.input.mappings.iter().any(|mapping| {

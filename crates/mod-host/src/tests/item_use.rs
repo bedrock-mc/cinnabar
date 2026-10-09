@@ -111,12 +111,12 @@ fn omission_traps_and_reload_revoke_item_use_policy() {
         .frame_with_gameplay(false, Some(snapshot()))
         .unwrap();
     assert!(trapped.item_use_delay_fix().is_none());
-    let (_dir, mut reloaded) = load(&call(true, false), true);
+    let (dir, mut reloaded) = load(&call(true, false), true);
     reloaded
         .frame_with_gameplay(false, Some(snapshot()))
         .unwrap();
     assert!(reloaded.item_use_delay_fix().is_some());
-    std::fs::write(&reloaded.path, source("")).unwrap();
+    std::fs::write(dir.path().join("item_use.wat"), source("")).unwrap();
     assert!(reloaded.reload_if_changed().unwrap());
     assert!(reloaded.item_use_delay_fix().is_none());
 }

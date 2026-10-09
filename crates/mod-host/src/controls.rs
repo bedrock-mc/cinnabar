@@ -43,9 +43,14 @@ impl ControlState {
         }
     }
 
-    pub fn begin_frame(&mut self) {
+    /// Starts a callback's import budget without changing retained controls or pending output.
+    pub(super) fn reset_budget(&mut self) {
         self.reads = 0;
         self.writes = 0;
+    }
+
+    pub fn begin_frame(&mut self) {
+        self.reset_budget();
         self.frame = empty_controls();
         self.interaction = InteractionOutput::default();
         self.pending_interaction = InteractionOutput::default();

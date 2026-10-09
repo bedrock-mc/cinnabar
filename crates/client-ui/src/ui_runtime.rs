@@ -36,6 +36,7 @@ pub mod scene_stack;
 pub mod scoreboard_adapter;
 pub mod screen_recipes;
 pub mod screen_state;
+pub mod session_data;
 pub mod sign_editor;
 pub mod use_on_identity_evidence;
 
