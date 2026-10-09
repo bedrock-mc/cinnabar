@@ -46,7 +46,7 @@ impl MenuRuntime {
 
     /// Queues another normal join without replacing its remembered launcher origin.
     pub(super) fn reconnect(&mut self) {
-        if !self.can_reconnect() {
+        if !self.can_reconnect() || !self.focus_actions().contains(&super::MenuAction::Reconnect) {
             return;
         }
         let address = self.retry_target.as_ref().unwrap().address.clone();

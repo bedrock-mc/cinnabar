@@ -494,12 +494,20 @@ impl MenuRuntime {
     }
 
     pub(crate) fn activate(&mut self, action: MenuAction) {
+        if self.disconnect_message.is_some() && self.join_request_prompted() {
+            if let MenuAction::JoinRequest(accept) = action {
+                self.answer_join_request(accept);
+            }
+            return;
+        }
         if action == MenuAction::Reconnect {
             self.reconnect();
             return;
         }
         if self.disconnect_message.is_some()
             && !self.is_connecting()
+            && self.dialog.is_none()
+            && self.sign_in_focus().is_none()
             && matches!(action, MenuAction::DismissDialog | MenuAction::AddBack)
         {
             self.dismiss_disconnect();

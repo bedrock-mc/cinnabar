@@ -97,10 +97,6 @@ impl MenuRuntime {
 
     /// Returns to the screen below; an in-game root closes the menu.
     pub(super) fn go_back(&mut self) {
-        if self.disconnect_message.is_some() && !self.is_connecting() {
-            self.dismiss_disconnect();
-            return;
-        }
         if !self.is_connecting()
             && matches!(self.dialog, None | Some(super::MenuDialog::Accounts))
             && self.sign_in_focus().is_some()
@@ -126,6 +122,10 @@ impl MenuRuntime {
         }
         if self.dialog.is_some() {
             self.dismiss_accounts();
+            return;
+        }
+        if self.disconnect_message.is_some() && !self.is_connecting() {
+            self.dismiss_disconnect();
             return;
         }
         if self.screen == MenuScreen::Settings && self.settings_scale_picker {

@@ -42,6 +42,44 @@ fn failed_connection_offers_retry_without_entering_a_world() {
 }
 
 #[test]
+fn join_request_popup_keeps_input_priority_over_a_failure() {
+    for answer in [Some(true), Some(false), None] {
+        let mut menu = MenuRuntime::new(true, 2, "Player".into());
+        menu.request_connect("127.0.0.1:19132".into());
+        menu.take_join_intent().unwrap();
+        menu.show_world();
+        menu.push_join_request(42, "Alex".into(), std::time::Duration::ZERO);
+        menu.absorb_session_failure("network session failed: closed");
+        assert_eq!(menu.view().join_request_prompt(), Some("Alex"));
+        assert_eq!(
+            menu.focus_actions(),
+            [
+                MenuAction::JoinRequest(true),
+                MenuAction::JoinRequest(false)
+            ]
+        );
+        for hidden in [MenuAction::Reconnect, MenuAction::DismissDialog] {
+            menu.activate(hidden);
+            assert!(menu.take_join_intent().is_none());
+            assert!(menu.view().disconnect_message.is_some());
+            assert_eq!(menu.view().join_request_prompt(), Some("Alex"));
+        }
+        match answer {
+            Some(true) => menu.activate_focused(),
+            Some(false) => menu.activate(MenuAction::JoinRequest(false)),
+            None => menu.go_back(),
+        }
+        assert_eq!(menu.take_join_reply(), Some((42, answer.unwrap_or(false))));
+        assert!(menu.view().join_request_prompt().is_none());
+        assert!(menu.view().disconnect_message.is_some());
+        assert!(menu.view().can_reconnect);
+        assert_eq!(menu.view().focused_action, Some(MenuAction::Reconnect));
+        menu.activate_focused();
+        assert_eq!(menu.take_join_intent().unwrap().address, "127.0.0.1:19132");
+    }
+}
+
+#[test]
 fn a_new_join_from_a_failure_still_accepts_loading_cancel() {
     for late_failure in [false, true] {
         let mut menu = MenuRuntime::new(true, 2, "Player".into());
