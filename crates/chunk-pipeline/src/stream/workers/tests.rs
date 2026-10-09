@@ -179,7 +179,7 @@ fn dispatch_batch_publishes_independent_jobs_together() {
 /// join's compile cannot crowd out the main and render threads.
 #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 #[test]
-fn borrowed_world_cores_run_as_wide_as_the_world_pool_below_frame_priority() {
+fn borrowed_world_cores_run_as_wide_as_the_world_pool_at_normal_priority() {
     let cores = std::thread::available_parallelism().map_or(1, usize::from);
     let (threads, lowered) = on_idle_world_cores(|| {
         (
@@ -188,5 +188,6 @@ fn borrowed_world_cores_run_as_wide_as_the_world_pool_below_frame_priority() {
         )
     });
     assert_eq!(threads, PoolSize::for_cores(cores).threads());
-    assert!(lowered.iter().all(|lowered| *lowered), "{lowered:?}");
+    // A join compile must not wait behind unrelated background processes.
+    assert!(lowered.iter().all(|lowered| !*lowered), "{lowered:?}");
 }
