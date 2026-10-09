@@ -187,6 +187,83 @@ fn different_start_game_items_recompile_only_icons() {
     assert_eq!(identifiers(&first), ["x:gem"]);
 }
 
+// Only blocks and icons read the custom block definitions: another block set recompiles those
+// two alone, as a transfer to a server adding a block does.
+#[test]
+fn different_custom_blocks_recompile_only_blocks_and_icons() {
+    let _cache = overlay_cache();
+    let kept = CompiledStacks::new();
+    let environment = CompileEnvironment::current();
+    let archive = every_subscriber_archive(50, b"a=b");
+    let first = compile_reusing(
+        &kept,
+        admitted(&archive),
+        every_input(),
+        &environment,
+        &|| false,
+    )
+    .unwrap();
+    kept.remember(environment.clone(), &first, first.server_ui.clone());
+    let with_block = Arc::new(PackInputs {
+        blocks: protocol::CustomBlocks {
+            blocks: vec![protocol::CustomBlock {
+                state_physics: Default::default(),
+                name: "reuse:block".into(),
+                tags: Default::default(),
+                state_count: 1,
+                collides: true,
+                collision_boxes: None,
+                selection: Default::default(),
+                visual: Default::default(),
+            }]
+            .into(),
+            vanilla_blocks: Default::default(),
+            skipped: 0,
+        },
+        ..(*every_input()).clone()
+    });
+    let second = compile_reusing(&kept, admitted(&archive), with_block, &environment, &|| {
+        false
+    })
+    .unwrap();
+    assert_shares_stack_outputs(&first, &second);
+    assert!(first.block_overlay.is_none());
+    let overlay = second
+        .block_overlay
+        .as_ref()
+        .expect("the new block compiles");
+    assert_eq!(overlay.overlay.visuals.len(), 1);
+    assert!(!same(&first.item_icons, &second.item_icons));
+}
+
+// A join that was cancelled, having left, or whose UI language changed while it compiled is not
+// kept: it may have read either language.
+#[test]
+fn only_an_uncancelled_join_under_unchanged_tables_is_kept() {
+    let kept = CompiledStacks::new();
+    let archive = ResourcePackArchive::unencrypted(
+        "00000000-0000-0000-0000-0000000c0ffe".parse().unwrap(),
+        "1.0.0".into(),
+        String::new(),
+        vec![0; 32],
+    );
+    let application = PackApplication {
+        admission: PackAdmission::Validated(admitted(&archive)),
+        ..Default::default()
+    };
+    let now = CompileEnvironment::current();
+    kept.keep_join(now.clone(), &now, &application, None, &|| true);
+    assert_eq!(kept.len(), 0, "cancelled");
+    let before_the_change = CompileEnvironment {
+        language: "xx_XX".into(),
+        ..now.clone()
+    };
+    kept.keep_join(before_the_change, &now, &application, None, &|| false);
+    assert_eq!(kept.len(), 0, "the language changed mid-compile");
+    kept.keep_join(now.clone(), &now, &application, None, &|| false);
+    assert_eq!(kept.len(), 1);
+}
+
 // A changed UI language or carrier table means nothing kept may stand in for a compile.
 #[test]
 fn another_environment_compiles_again() {

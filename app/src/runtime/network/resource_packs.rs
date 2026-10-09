@@ -149,11 +149,8 @@ fn prepare_join_with(
         packs.prepare_actor_artwork(bases.actor_artwork);
         let source_ui = packs.server_ui.clone();
         packs.prepare_ui_catalog(bases.ui_catalog);
-        // A table that changed while compiling may have been read either way, and a cancelled
-        // join has left, which releases what joins keep.
-        if !cancelled() && reuse::CompileEnvironment::current() == environment {
-            kept.remember(environment, &packs, source_ui);
-        }
+        let now = reuse::CompileEnvironment::current();
+        kept.keep_join(environment, &now, &packs, source_ui, cancelled);
         packs
     }))
 }

@@ -185,6 +185,21 @@ impl CompiledStacks {
         drop(evicted);
     }
 
+    /// Keeps a finished join compiled under `compiled_under` unless it was cancelled, having left
+    /// the server, or the tables are `now` different, so the compile may have read either value.
+    pub(in crate::runtime::network) fn keep_join(
+        &self,
+        compiled_under: CompileEnvironment,
+        now: &CompileEnvironment,
+        application: &PackApplication,
+        source_ui: Option<Arc<ServerUiPack>>,
+        cancelled: &dyn Fn() -> bool,
+    ) {
+        if !cancelled() && compiled_under == *now {
+            self.remember(compiled_under, application, source_ui);
+        }
+    }
+
     /// Takes every kept stack; dropping the result releases their archives and compiled outputs.
     pub(in crate::runtime::network) fn take(&self) -> impl Send + 'static {
         std::mem::take(&mut *self.lock())
