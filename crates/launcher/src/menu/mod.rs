@@ -98,6 +98,8 @@ pub enum MenuAction {
     RefreshCatalog,
     StartSignIn,
     CancelSignIn,
+    /// The sign-in header's close control, with feedback independent of the cancel button.
+    CloseSignIn,
     OpenSignInLink,
     PlayAddServer,
     PlaySaved(usize),

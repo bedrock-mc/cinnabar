@@ -22,6 +22,113 @@ fn device_prompt_releases_hidden_text_and_escape_cancels_first() {
 }
 
 #[test]
+fn sign_in_close_cancels_like_the_button_above_a_hidden_editor() {
+    use launcher::dressing_room::{SkinEditor, SkinEditorMode, SkinEditorTarget};
+    for adding_account in [false, true] {
+        for auth in [
+            AuthState::Checking,
+            AuthState::AwaitingCode {
+                uri: "https://example.invalid".into(),
+                code: "TEST-CODE".into(),
+            },
+            AuthState::Failed("Try again.".into()),
+            AuthState::Authenticated,
+        ] {
+            if !adding_account && auth == AuthState::Authenticated {
+                continue;
+            }
+            let mut menu = MenuRuntime::new(true, 2, "Offline Player".into());
+            menu.screen = MenuScreen::DressingRoom;
+            std::sync::Arc::make_mut(&mut menu.dressing_room).editor = Some(SkinEditor {
+                index: 0,
+                mode: SkinEditorMode::Rename,
+                target: SkinEditorTarget::Skin,
+                draft: "Saved draft".into(),
+            });
+            menu.dialog = Some(crate::menu::MenuDialog::Accounts);
+            menu.feeds.account_adding = adding_account;
+            menu.sign_in_requested = true;
+            menu.apply_control_auth(auth);
+            menu.activate(MenuAction::CloseSignIn);
+            assert!(menu.dialog.is_none());
+            assert!(menu.sign_in_cancelled);
+            assert!(!menu.view().sign_in_prompt_open());
+            assert!(menu.dressing_room.editor.is_some());
+            assert_eq!(
+                menu.accounts.operation.is_some(),
+                adding_account,
+                "closing an added account restores the prior session"
+            );
+        }
+    }
+}
+
+#[test]
+fn sign_in_close_pointer_keeps_the_existing_cancel_navigation_selection() {
+    let mut menu = MenuRuntime::new(true, 2, "Offline Player".into());
+    menu.apply_control_auth(AuthState::AwaitingCode {
+        uri: "https://example.invalid".into(),
+        code: "TEST-CODE".into(),
+    });
+    menu.hovered = Some(MenuAction::CloseSignIn);
+    menu.focus_pointer(MenuAction::CloseSignIn);
+    let view = menu.view();
+    assert_eq!(view.focused_action, Some(MenuAction::CancelSignIn));
+    assert_eq!(view.hovered, Some(MenuAction::CloseSignIn));
+    menu.move_focus(1);
+    assert_eq!(menu.view().focused_action, Some(MenuAction::OpenSignInLink));
+}
+
+#[test]
+fn gamepad_sign_in_focus_selects_the_cancel_button_and_cancels() {
+    use bevy::prelude::*;
+    let mut menu = MenuRuntime::new(true, 2, "Offline Player".into());
+    menu.apply_control_auth(AuthState::AwaitingCode {
+        uri: "https://example.invalid".into(),
+        code: "TEST-CODE".into(),
+    });
+    let mut app = App::new();
+    app.add_message::<KeyboardInput>()
+        .init_resource::<ButtonInput<KeyCode>>()
+        .init_resource::<ButtonInput<MouseButton>>()
+        .init_resource::<Touches>()
+        .init_resource::<MenuClipboard>()
+        .insert_resource(menu)
+        .insert_resource(crate::player_runtime::PlayerRuntime::new(1))
+        .insert_resource(
+            UiPresentationRuntime::new(client_ui::test_support::fixture_font()).unwrap(),
+        )
+        .add_systems(Update, drive_menu_input);
+    app.world_mut().spawn((
+        Window {
+            focused: true,
+            ..Default::default()
+        },
+        CursorOptions::default(),
+        PrimaryWindow,
+    ));
+    let pad = app.world_mut().spawn(Gamepad::default()).id();
+    app.world_mut()
+        .get_mut::<Gamepad>(pad)
+        .unwrap()
+        .digital_mut()
+        .press(GamepadButton::DPadDown);
+    app.update();
+    let view = app.world().resource::<MenuRuntime>().view();
+    assert_eq!(view.focused_action, Some(MenuAction::CancelSignIn));
+    assert!(view.navigation_focus_visible && view.gamepad_input);
+    {
+        let mut gamepad = app.world_mut().get_mut::<Gamepad>(pad).unwrap();
+        gamepad.digital_mut().clear();
+        gamepad.digital_mut().press(GamepadButton::South);
+    }
+    app.update();
+    let view = app.world().resource::<MenuRuntime>().view();
+    assert!(!view.sign_in_prompt_open());
+    assert_eq!(view.auth_state, AuthState::SignedOut);
+}
+
+#[test]
 fn device_prompt_back_precedes_hidden_inbox_controls() {
     let mut menu = MenuRuntime::new(true, 2, "Offline Player".into());
     menu.screen = MenuScreen::Inbox;

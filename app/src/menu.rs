@@ -602,7 +602,7 @@ impl MenuRuntime {
             }
             MenuAction::StartSignIn => self.start_sign_in(),
             MenuAction::OpenSignInLink => self.update_sign_in_browser(true),
-            MenuAction::CancelSignIn => {
+            MenuAction::CancelSignIn | MenuAction::CloseSignIn => {
                 if self.feeds.account_adding {
                     self.cancel_add_account();
                 } else {

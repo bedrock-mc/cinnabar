@@ -9,6 +9,10 @@ pub(super) use settings::SettingsFocusGeometry;
 
 impl MenuRuntime {
     pub(super) fn focus_pointer(&mut self, action: MenuAction) {
+        let action = match action {
+            MenuAction::CloseSignIn => MenuAction::CancelSignIn,
+            action => action,
+        };
         if let Some(index) = self.focus_actions().iter().position(|candidate| {
             if self.settings_dropdown.is_some() || self.settings_scale_picker {
                 *candidate == action

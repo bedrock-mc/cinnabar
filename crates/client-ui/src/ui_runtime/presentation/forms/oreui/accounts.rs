@@ -102,7 +102,7 @@ pub(super) fn sign_in_modal(view: &MenuView) -> Modal<'_> {
                 Some(MenuAction::CancelSignIn),
             ),
         ],
-        close: Some(MenuAction::CancelSignIn),
+        close: Some(MenuAction::CloseSignIn),
     }
 }
 
@@ -241,6 +241,60 @@ mod tests {
     }
 
     #[test]
+    fn sign_in_cancel_feedback_does_not_highlight_the_close_control() {
+        let mut view = manager_view();
+        view.feeds.account_adding = true;
+        view.auth_state = AuthState::AwaitingCode {
+            uri: "https://example.invalid".into(),
+            code: "TEST-CODE".into(),
+        };
+        let render = |view: &MenuView, control: MenuAction| {
+            let (_, hits, nodes) = paint(HashMap::new(), |canvas| {
+                super::super::modal::draw(canvas, view, SIZE, &sign_in_modal(view)).unwrap();
+            });
+            let bounds = hits
+                .iter()
+                .find(|(action, _)| *action == control)
+                .expect("sign-in control")
+                .1;
+            solids(&nodes)
+                .into_iter()
+                .filter(|(b, _)| {
+                    b[0] >= bounds.min().x()
+                        && b[1] >= bounds.min().y()
+                        && b[2] <= bounds.max().x()
+                        && b[3] <= bounds.max().y()
+                })
+                .collect::<Vec<_>>()
+        };
+        for (active, other) in [
+            (MenuAction::CancelSignIn, MenuAction::CloseSignIn),
+            (MenuAction::CloseSignIn, MenuAction::CancelSignIn),
+        ] {
+            view.hovered = None;
+            view.pressed = None;
+            view.navigation_focus_visible = false;
+            let idle = render(&view, other);
+            let idle_active = render(&view, active);
+            assert!(!idle.is_empty());
+            for state in 0..3 {
+                view.hovered = (state < 2).then_some(active);
+                view.pressed = (state == 1).then_some(active);
+                view.navigation_focus_visible = state == 2;
+                view.focused_action = Some(active);
+                assert_eq!(
+                    render(&view, other),
+                    idle,
+                    "{other:?} feedback changed for {active:?} in state {state}"
+                );
+                if state < 2 {
+                    assert_ne!(render(&view, active), idle_active);
+                }
+            }
+        }
+    }
+
+    #[test]
     fn device_prompt_prioritizes_open_link_and_hides_manual_details_until_failure() {
         let mut view = manager_view();
         view.feeds.account_adding = true;
@@ -287,7 +341,7 @@ mod tests {
             );
             assert!(hits.iter().all(|(action, _)| matches!(
                 action,
-                MenuAction::OpenSignInLink | MenuAction::CancelSignIn
+                MenuAction::OpenSignInLink | MenuAction::CancelSignIn | MenuAction::CloseSignIn
             )));
         }
     }
@@ -395,14 +449,8 @@ mod tests {
                 | MenuAction::DismissDialog
                 | MenuAction::Navigate(_)
         )));
-        // Both the X and the Cancel sign-in button cancel.
-        assert_eq!(
-            actions
-                .iter()
-                .filter(|action| **action == MenuAction::CancelSignIn)
-                .count(),
-            2
-        );
+        assert!(actions.contains(&MenuAction::CloseSignIn));
+        assert!(actions.contains(&MenuAction::CancelSignIn));
         let row = 4.8 * rem - EDGE * rem;
         assert!(
             !fills
