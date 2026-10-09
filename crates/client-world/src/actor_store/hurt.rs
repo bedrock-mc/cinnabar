@@ -1,8 +1,8 @@
-use protocol::{ActorMetadataValue, ActorStatusEvent, ActorStatusKind, ActorTakeItemEvent};
+use protocol::{ActorStatusEvent, ActorStatusKind, ActorTakeItemEvent};
 
 use super::{ActorApplyResult, ActorSnapshot, ActorStore};
 
-/// Ticks the hurt tint and hurt-driven animations stay active; needs independent measurement.
+/// Completed actor ticks the hurt tint and damage animations stay active.
 pub const HURT_DURATION_TICKS: u8 = 10;
 /// Alpha of the red damage overlay while hurt or dying; needs independent measurement.
 pub const HURT_OVERLAY_ALPHA: f32 = 0.4;
@@ -14,8 +14,6 @@ pub const PICKUP_DURATION_TICKS: u8 = 3;
 
 /// Sequences a knockback impulse stays attributable to a hurt event; needs measurement.
 const KNOCKBACK_FRESH_SEQUENCES: u64 = 32;
-
-const HURT_DIRECTION_METADATA_KEY: u32 = 12;
 
 /// Most undrained status notices retained; further ones are dropped.
 pub const MAX_STATUS_NOTICES: usize = 256;
@@ -42,6 +40,30 @@ pub struct ActorPickup {
     pub ticks: u8,
 }
 
+/// Previous health and the independent actor countdown consumed by the heart renderer.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ActorDamageState {
+    pub previous_health: f32,
+    pub remaining_ticks: u8,
+}
+
+impl Default for ActorDamageState {
+    fn default() -> Self {
+        Self {
+            previous_health: super::DEFAULT_PLAYER_HEALTH,
+            remaining_ticks: 0,
+        }
+    }
+}
+
+impl ActorDamageState {
+    /// Whether the previous-health and blinking-background layers draw on this tick.
+    #[must_use]
+    pub fn flash_active(self) -> bool {
+        self.remaining_ticks > 9 && (self.remaining_ticks / 3) % 2 == 1
+    }
+}
+
 /// Client-derived damage and death presentation state, advanced per tick.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct ActorStatus {
@@ -53,13 +75,14 @@ pub struct ActorStatus {
     pub fall_fly_ticks: u32,
     /// Ticks of hurt state remaining.
     pub hurt_time: u8,
+    pub damage: ActorDamageState,
     /// Signed native shake countdown, set verbatim by ActorEvent::Shake.
     pub shake_time: i32,
     /// Completed ticks since a server-confirmed kinetic hit in the current item use.
     pub(crate) kinetic_hit_ticks: Option<u32>,
     /// The current hurt came without damage, so it shows no red flash.
     pub skip_red_flash: bool,
-    /// Server-streamed hurt direction, when the server provides one.
+    /// Damage direction in degrees; network hurt events reset it to zero.
     pub hurt_direction: Option<f32>,
     /// Ticks elapsed since death, saturating at [`DEATH_DURATION_TICKS`].
     pub death_time: u8,
@@ -125,6 +148,7 @@ impl ActorStatus {
             pickup.ticks = pickup.ticks.saturating_add(1).min(PICKUP_DURATION_TICKS);
         }
         self.hurt_time = self.hurt_time.saturating_sub(1);
+        self.damage.remaining_ticks = self.damage.remaining_ticks.saturating_sub(1);
         // Vanilla's actor tick decrements only positive
         // shake values. Zero and well-formed negative server values stay unchanged.
         if self.shake_time > 0 {
@@ -147,8 +171,6 @@ impl ActorStatus {
 
     fn die(&mut self) {
         self.dead = true;
-        self.hurt_time = HURT_DURATION_TICKS;
-        self.skip_red_flash = false;
     }
 
     fn revive(&mut self) {
@@ -190,15 +212,6 @@ impl ActorSnapshot {
             self.status.revive();
         }
     }
-
-    fn streamed_hurt_direction(&self) -> Option<f32> {
-        match self.metadata.get(&HURT_DIRECTION_METADATA_KEY)? {
-            ActorMetadataValue::Byte(value) => Some(f32::from(*value)),
-            ActorMetadataValue::Short(value) => Some(f32::from(*value)),
-            ActorMetadataValue::Int(value) => Some(*value as f32),
-            _ => None,
-        }
-    }
 }
 
 impl ActorStore {
@@ -223,8 +236,9 @@ impl ActorStore {
         match event.kind {
             ActorStatusKind::Hurt | ActorStatusKind::HurtWithoutDamage => {
                 actor.status.hurt_time = HURT_DURATION_TICKS;
+                actor.status.damage.remaining_ticks = HURT_DURATION_TICKS;
                 actor.status.skip_red_flash = event.kind == ActorStatusKind::HurtWithoutDamage;
-                actor.status.hurt_direction = actor.streamed_hurt_direction();
+                actor.status.hurt_direction = Some(0.0);
                 self.animation.hurt_java_limbs(event.runtime_id);
             }
             ActorStatusKind::Death => {

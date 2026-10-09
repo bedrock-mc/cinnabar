@@ -12,10 +12,6 @@ pub(super) const HOTBAR_WIDTH: f32 = 182.0;
 /// Fixed height of the bottom-anchored HUD stack in GUI px, measured from the
 /// selected-item label zone top down to the hotbar's bottom edge.
 pub(super) const BOTTOM_STACK_HEIGHT: f32 = 59.0;
-/// Damage blink: hearts flash for one second, alternating every 150 ms
-/// (the reference alternates every 3 ticks for 20 ticks).
-pub(super) const DAMAGE_FLASH_WINDOW_MILLIS: u64 = 1_000;
-pub(super) const DAMAGE_FLASH_PHASE_MILLIS: u64 = 150;
 /// Effects blink through their final 10 s (200 ticks).
 pub(super) const EFFECT_BLINK_TICKS: u64 = 200;
 /// Row cap for pathological health maxima: six stacked rows (60 hearts).
@@ -76,16 +72,6 @@ pub fn effect_icon_role(effect_id: i32) -> Option<HudTextureRole> {
         30 => HudTextureRole::EffectIconDarkness,
         _ => return None,
     })
-}
-
-/// `Some(true)` while the damage blink shows the flash sprites, `Some(false)`
-/// during the off phase, `None` outside the blink window.
-pub(super) fn damage_flash_phase(drop_millis: Option<u64>, now_millis: u64) -> Option<bool> {
-    let elapsed = now_millis.saturating_sub(drop_millis?);
-    if elapsed >= DAMAGE_FLASH_WINDOW_MILLIS {
-        return None;
-    }
-    Some((elapsed / DAMAGE_FLASH_PHASE_MILLIS).is_multiple_of(2))
 }
 
 pub(super) fn heart_role(

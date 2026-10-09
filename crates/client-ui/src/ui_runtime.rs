@@ -191,7 +191,7 @@ pub struct UiRuntime {
     client_packets: VecDeque<protocol::Packet>,
     /// One complete book commit, bounded by the protocol page limit plus signing.
     book_packets: VecDeque<protocol::Packet>,
-    last_health_drop_millis: Option<u64>,
+    local_actor_damage: Option<client_world::ActorDamageState>,
     last_selected_identity_change_millis: Option<u64>,
     last_selected_identity: Option<(u8, i32, u32)>,
     /// Local millis at which the held jump began charging the mounted jump
@@ -281,7 +281,7 @@ impl UiRuntime {
             emotes: emotes::EmoteState::default(),
             client_packets: VecDeque::new(),
             book_packets: VecDeque::new(),
-            last_health_drop_millis: None,
+            local_actor_damage: None,
             last_selected_identity_change_millis: None,
             last_selected_identity: None,
             mount_jump_hold_started_millis: None,
@@ -655,7 +655,7 @@ impl UiRuntime {
         self.forms.clear();
         self.credits = credits::CreditsState::default();
         self.inventory_pointer_gui = None;
-        self.last_health_drop_millis = None;
+        self.local_actor_damage = None;
         self.hurt_pending = false;
         self.last_selected_identity_change_millis = None;
         self.last_selected_identity = None;

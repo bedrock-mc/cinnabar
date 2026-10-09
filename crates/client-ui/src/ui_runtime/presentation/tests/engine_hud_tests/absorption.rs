@@ -14,7 +14,6 @@ fn absorption_sprites_draw_and_clear_through_the_json_ui_heart_renderer() {
     full_stats(&mut player, &mut runtime, 1);
     let baseline = build(&player, &mut presentation, &runtime, 20);
     let passes = presentation.hud_passes();
-    runtime.last_health_drop_millis = Some(20);
     for (sequence, current, added_vertices) in [(2, 3.0, 16), (3, 0.0, 0)] {
         runtime
             .apply_local_attributes(

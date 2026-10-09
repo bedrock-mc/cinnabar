@@ -102,7 +102,9 @@ impl ActorStore {
             actions: crate::action::RemoteActionStore::diagnostic(),
             remote_state_excluded_runtime_id: None,
             pending_local_health: None,
+            pending_local_damage: None,
             local_health_skips: 0,
+            local_player_spawned: false,
             synthetic_local_uuid: None,
             synthetic_local_skin: None,
             synthetic_local_skin_pending: false,
@@ -288,7 +290,9 @@ impl ActorStore {
     pub(crate) fn begin_session(&mut self, session_id: u64, dimension: i32) {
         self.session_id = session_id;
         self.pending_local_health = None;
+        self.pending_local_damage = None;
         self.local_health_skips = 0;
+        self.local_player_spawned = false;
         self.local_flying = false;
         self.dimension = dimension;
         self.latest_sequence = 0;
@@ -332,6 +336,14 @@ impl ActorStore {
             .and_then(|actor| actor.attributes.get("minecraft:health"))
             .cloned()
             .or_else(|| self.pending_local_health.take());
+        self.pending_local_damage = self
+            .remote_state_excluded_runtime_id
+            .and_then(|runtime_id| self.actors.get(&runtime_id))
+            .map(|actor| super::local_health::PendingLocalDamage {
+                damage: actor.status.damage,
+                hurt_time: actor.status.hurt_time,
+            })
+            .or_else(|| self.pending_local_damage.take());
         self.actors.clear();
         self.unique_to_runtime.clear();
         self.rider_to_ridden.clear();
@@ -676,6 +688,7 @@ impl ActorStore {
                 .contains_key("minecraft:health")
             {
                 self.pending_local_health = None;
+                self.pending_local_damage = None;
             } else {
                 self.apply_pending_local_health(runtime_id);
             }

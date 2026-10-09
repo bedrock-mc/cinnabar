@@ -39,6 +39,81 @@ fn local_health_feed() -> crate::LocalPlayerFeed {
 }
 
 #[test]
+fn health_drops_animate_only_after_player_spawn_and_count_completed_actor_ticks() {
+    let mut authority = WorldAuthority::new(
+        WorldBootstrap {
+            local_player_unique_id: 1,
+            local_player_runtime_id: 1,
+            dimension: 0,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 0,
+            block_network_ids_are_hashes: false,
+        },
+        Arc::new(RuntimeAssets::diagnostic()),
+        None,
+        [0.0; 3],
+        None,
+    );
+    authority.sync_local_player_pose(&local_health_feed());
+    authority
+        .apply_ordered_event(
+            WorldEvent::Ui(UiEvent::Hud(protocol::HudEvent::Health { health: 16 })),
+            Some(1),
+        )
+        .unwrap();
+    assert_eq!(authority.actor(1).unwrap().status.hurt_time, 0);
+    authority
+        .apply_ordered_event(
+            WorldEvent::Ui(UiEvent::Hud(protocol::HudEvent::PlayerStatus(
+                protocol::PlayerStatus::PlayerSpawn,
+            ))),
+            Some(2),
+        )
+        .unwrap();
+    authority
+        .apply_ordered_event(
+            WorldEvent::Ui(UiEvent::Hud(protocol::HudEvent::Health { health: 7 })),
+            Some(3),
+        )
+        .unwrap();
+    assert_eq!(
+        authority.actor(1).unwrap().status.hurt_time,
+        crate::HURT_DURATION_TICKS
+    );
+    assert_eq!(
+        authority.actor(1).unwrap().status.damage.previous_health,
+        16.0
+    );
+    assert!(authority.actor(1).unwrap().status.damage.flash_active());
+    authority.advance_actor_interpolation_ticks(0);
+    assert_eq!(
+        authority.actor(1).unwrap().status.hurt_time,
+        crate::HURT_DURATION_TICKS
+    );
+    authority.advance_actor_interpolation_ticks(3);
+    assert_eq!(
+        authority.actor(1).unwrap().status.hurt_time,
+        crate::HURT_DURATION_TICKS - 3
+    );
+    assert!(!authority.actor(1).unwrap().status.damage.flash_active());
+    assert_eq!(
+        authority.actor(1).unwrap().status.damage.remaining_ticks,
+        crate::HURT_DURATION_TICKS - 3
+    );
+    authority
+        .apply_ordered_event(
+            WorldEvent::Ui(UiEvent::Hud(protocol::HudEvent::Health { health: 7 })),
+            Some(4),
+        )
+        .unwrap();
+    assert_eq!(
+        authority.actor(1).unwrap().status.hurt_time,
+        crate::HURT_DURATION_TICKS - 3
+    );
+}
+
+#[test]
 fn set_health_before_the_first_local_pose_survives_actor_creation() {
     let mut authority = WorldAuthority::new(
         WorldBootstrap {

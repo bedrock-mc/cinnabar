@@ -98,6 +98,49 @@ fn local_flight_fact_clears_when_the_actor_session_or_dimension_is_reset() {
 }
 
 #[test]
+fn health_animation_requires_player_spawn_each_session_and_survives_dimension_recreation() {
+    let mut store = ActorStore::new(1, 0);
+    store.exclude_remote_state_for(1);
+    store.sync_local_player(1, -1, &local_feed(0.0, 0.0));
+    store.set_local_health(1, 0);
+    assert!(store.get(1).unwrap().status.dead);
+    assert_eq!(store.get(1).unwrap().status.hurt_time, 0);
+    assert!(!store.get(1).unwrap().status.damage.flash_active());
+    store.set_local_health(1, 20);
+    store.mark_local_player_spawned(1);
+    store.set_local_health(1, 16);
+    assert_eq!(
+        store.get(1).unwrap().status.hurt_time,
+        crate::HURT_DURATION_TICKS
+    );
+    store.reset_dimension(1, 1, 1);
+    store.sync_local_player(1, -1, &local_feed(0.0, 0.0));
+    store.set_local_health(1, 7);
+    assert_eq!(
+        store.get(1).unwrap().status.hurt_time,
+        crate::HURT_DURATION_TICKS
+    );
+    store.begin_session(2, 1);
+    store.sync_local_player(1, -1, &local_feed(0.0, 0.0));
+    store.set_local_health(1, 0);
+    assert_eq!(store.get(1).unwrap().status.hurt_time, 0);
+    assert!(!store.get(1).unwrap().status.damage.flash_active());
+}
+
+#[test]
+fn health_drop_after_player_spawn_survives_the_first_local_pose() {
+    let mut store = ActorStore::new(1, 0);
+    store.exclude_remote_state_for(1);
+    store.mark_local_player_spawned(1);
+    store.set_local_health(1, 7);
+    store.sync_local_player(1, -1, &local_feed(0.0, 0.0));
+    let status = store.get(1).unwrap().status;
+    assert_eq!(status.hurt_time, crate::HURT_DURATION_TICKS);
+    assert_eq!(status.damage.previous_health, crate::DEFAULT_PLAYER_HEALTH);
+    assert!(status.damage.flash_active());
+}
+
+#[test]
 fn local_health_pending_a_pose_cannot_cross_sessions() {
     let mut store = ActorStore::new(1, 0);
     store.exclude_remote_state_for(1);

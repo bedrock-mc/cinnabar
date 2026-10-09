@@ -115,10 +115,14 @@ impl UiRuntime {
             .set_stats(self.hud.health(), self.hud.hunger(), armor, self.hud.air());
     }
 
-    /// Millis timestamp of the last authoritative health decrease, for the
-    /// Java-style damage heart blink.
-    pub const fn last_health_drop_millis(&self) -> Option<u64> {
-        self.last_health_drop_millis
+    /// Current local actor damage state, absent when its session has no player actor.
+    pub const fn local_actor_damage(&self) -> Option<client_world::ActorDamageState> {
+        self.local_actor_damage
+    }
+
+    /// Publishes the current local actor's damage snapshot after its completed ticks.
+    pub fn publish_local_actor_damage(&mut self, damage: Option<client_world::ActorDamageState>) {
+        self.local_actor_damage = damage;
     }
 
     /// Millis timestamp when the selected slot or item identity last changed,
@@ -305,12 +309,11 @@ impl UiRuntime {
                 _ => {}
             }
         }
-        // An authoritative health decrease drives the Java-style damage blink.
+        // An authoritative health decrease can dismiss screens that close when hurt.
         if let (Some(previous), Some(next)) = (self.hud.health(), health)
             && u32::from(next.current()) * u32::from(previous.scale())
                 < u32::from(previous.current()) * u32::from(next.scale())
         {
-            self.last_health_drop_millis = Some(envelope.local_millis);
             self.note_player_hurt();
         }
         self.clear_death_reason_on_recovery(health);
