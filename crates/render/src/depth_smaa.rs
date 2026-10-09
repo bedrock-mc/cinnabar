@@ -180,11 +180,11 @@ fn install_graph(world: &mut World) {
     }
 }
 
+/// Reuses the world-camera query across frames without allocating for unchanged views.
+type SmaaCameraQuery = QueryState<Entity, (With<Smaa>, With<Camera3d>)>;
+
 /// Disabled views have no SMAA graph node or pass, including on the launcher camera.
-fn sync_graph(
-    world: &mut World,
-    mut views: Local<Option<QueryState<Entity, (With<Smaa>, With<Camera3d>)>>>,
-) {
+fn sync_graph(world: &mut World, mut views: Local<Option<SmaaCameraQuery>>) {
     let enabled = views
         .get_or_insert_with(|| world.query_filtered())
         .iter(world)

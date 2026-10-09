@@ -38,7 +38,7 @@ pub(super) fn init(mut commands: Commands, server: Res<AssetServer>) {
             &BindGroupLayoutEntries::sequential(
                 ShaderStages::FRAGMENT,
                 (
-                    float.clone(),
+                    float,
                     uniform_buffer::<SmaaInfoUniform>(true)
                         .visibility(ShaderStages::VERTEX_FRAGMENT),
                 ),
@@ -48,19 +48,14 @@ pub(super) fn init(mut commands: Commands, server: Res<AssetServer>) {
             "SMAA blending weight calculation bind group layout",
             &BindGroupLayoutEntries::sequential(
                 ShaderStages::FRAGMENT,
-                (
-                    float.clone(),
-                    sampler(SamplerBindingType::Filtering),
-                    float.clone(),
-                    float.clone(),
-                ),
+                (float, sampler(SamplerBindingType::Filtering), float, float),
             ),
         ),
         blend_layout: BindGroupLayoutDescriptor::new(
             "SMAA neighborhood blending bind group layout",
             &BindGroupLayoutEntries::sequential(
                 ShaderStages::FRAGMENT,
-                (float.clone(), sampler(SamplerBindingType::Filtering)),
+                (float, sampler(SamplerBindingType::Filtering)),
             ),
         ),
         restore_layout: BindGroupLayoutDescriptor::new(
