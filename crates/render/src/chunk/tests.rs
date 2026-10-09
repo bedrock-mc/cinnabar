@@ -193,6 +193,8 @@ mod transparent_incremental;
 mod transparent_manifest;
 #[path = "transparent/residency_tests.rs"]
 mod transparent_residency;
+#[path = "transparent/scale_tests.rs"]
+mod transparent_scale;
 #[path = "transparent/strafe_tests.rs"]
 mod transparent_strafe;
 #[path = "transparent/streaming_tests.rs"]

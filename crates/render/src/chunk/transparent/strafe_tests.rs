@@ -97,6 +97,11 @@ pub(super) fn is_shore(key: SubChunkKey, shore_period: i32) -> bool {
 
 /// An ocean of flat surfaces, with shores placed as [`is_shore`] describes.
 pub(super) fn fixture_with(shore_period: i32) -> Fixture {
+    fixture_sized(OCEAN_RADIUS, shore_period)
+}
+
+/// A square ocean `radius` sub-chunks around the origin, uploaded and ready to draw.
+pub(super) fn fixture_sized(radius: i32, shore_period: i32) -> Fixture {
     let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
         backends: wgpu::Backends::NOOP,
         backend_options: wgpu::BackendOptions {
@@ -148,8 +153,8 @@ pub(super) fn fixture_with(shore_period: i32) -> Fixture {
         .add_render_command::<Transparent3d, DrawTransparentModelCommands>()
         .add_render_command::<Transparent3d, crate::chunk::transparent::mixed::DrawMixedTerrainCommands>();
     let mut surfaces = Vec::new();
-    for z in -OCEAN_RADIUS..=OCEAN_RADIUS {
-        for x in -OCEAN_RADIUS..=OCEAN_RADIUS {
+    for z in -radius..=radius {
+        for x in -radius..=radius {
             let key = SubChunkKey::new(0, x, SURFACE_SUBCHUNK_Y, z);
             let surface = ocean_surface(key, is_shore(key, shore_period));
             surfaces.push((app.world_mut().spawn(surface).id(), key));
@@ -197,6 +202,52 @@ pub(super) fn fixture_with(shore_period: i32) -> Fixture {
         jobs: 0,
         sorted_refs: 0,
     }
+}
+
+/// How one sub-chunk's water reached the phase this frame.
+#[derive(Debug)]
+pub(super) enum Drawn {
+    /// Refs from the committed back-to-front snapshot.
+    Sorted(Vec<PackedTransparentDrawRef>),
+    /// The allocation's records in mesh order.
+    Direct,
+}
+
+/// Maps every queued water draw to its sub-chunk, failing on a sub-chunk drawn twice.
+pub(super) fn drawn_water(fixture: &Fixture) -> BTreeMap<SubChunkKey, Drawn> {
+    let world = fixture.app.world();
+    let sorted = world
+        .resource::<DrawFunctions<Transparent3d>>()
+        .read()
+        .id::<DrawTransparentLiquidCommands>();
+    let phase = world
+        .resource::<ViewSortedRenderPhases<Transparent3d>>()
+        .get(&fixture.retained)
+        .unwrap();
+    let snapshot = world.resource::<TransparentSortRuntime>().state.committed();
+    let by_metadata = world
+        .resource::<ChunkGpuArena>()
+        .allocations
+        .values()
+        .map(|allocation| (allocation.gpu.metadata_index, allocation.gpu.key))
+        .collect::<HashMap<_, _>>();
+    let mut drawn = BTreeMap::new();
+    for item in &phase.items {
+        let (key, water) = if item.draw_function == sorted {
+            let PhaseItemExtraIndex::IndirectParametersIndex { range, .. } = &item.extra_index
+            else {
+                panic!("sorted water draw without a ref range");
+            };
+            let refs = snapshot.unwrap().refs()[range.start as usize..range.end as usize].to_vec();
+            (by_metadata[&refs[0].metadata_index()], Drawn::Sorted(refs))
+        } else if let Some(allocation) = world.get::<GpuChunkAllocation>(item.entity.0) {
+            (allocation.key, Drawn::Direct)
+        } else {
+            continue;
+        };
+        assert!(drawn.insert(key, water).is_none(), "{key:?} drawn twice");
+    }
+    drawn
 }
 
 impl Fixture {
@@ -271,11 +322,15 @@ impl Fixture {
         });
     }
 
-    /// Water sub-chunks the coarse frustum admits from `camera` looking along `forward`.
+    /// Uploaded water sub-chunks the coarse frustum admits from `camera` looking along
+    /// `forward`.
     pub(super) fn visible_water(&self, camera: Vec3, forward: Vec3) -> BTreeSet<SubChunkKey> {
+        let arena = self.app.world().resource::<ChunkGpuArena>();
         self.surfaces
             .iter()
-            .filter(|(_, key)| in_frustum(camera, forward, *key))
+            .filter(|(entity, key)| {
+                in_frustum(camera, forward, *key) && arena.allocations.contains_key(entity)
+            })
             .map(|&(_, key)| key)
             .collect()
     }
@@ -316,7 +371,7 @@ impl Fixture {
     }
 }
 
-const STAGES: [RuntimeStage; 3] = [
+pub(super) const STAGES: [RuntimeStage; 3] = [
     RuntimeStage::TransparentPreparation,
     RuntimeStage::TransparentWorker,
     RuntimeStage::TransparentQueue,

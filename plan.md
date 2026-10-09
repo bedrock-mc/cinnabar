@@ -594,9 +594,19 @@
   vertex program. Views that displace water (Enhanced) still sort it.
 - A staged sort that is still readable commits before the next request, so streaming
   that changes residents every frame cannot starve it.
+- Each sorted sub-chunk owns a range of the committed slot. A new, changed or removed
+  sub-chunk patches only its own range, so one new shore uploads only its refs; the slot
+  is repacked only when fragmented. Removed water is released once no committed or
+  staged snapshot reads it.
+- The resident index keeps running ref totals, and the sort inputs are rebuilt only for
+  residents that changed. A pack reload seeds them, sorted for the view's water mode.
+- Visible water keeps last frame's key order and merges in only new entries; a key
+  visible under two entities draws the upload the resident index holds.
 - Past the 2,097,152-ref ceiling the nearest water is sorted. Farther water that needs an
   order, and water awaiting its first sort, draws unsorted and is logged, never skipped.
-- Regression tests cover a turn, a rotation sweep, resident churn and order independence.
+- Regression tests cover a turn, a rotation sweep, resident churn, streaming, the ceiling
+  through the live prepare step, and an ocean past the ceiling. An offscreen GPU test
+  matches flat water drawn from its records pixel-for-pixel against any sorted order.
 - Incomplete: live RD 255 acceptance is pending; order-dependent water beyond the ceiling
   draws unsorted; transparent models still sort only the visible set.
 

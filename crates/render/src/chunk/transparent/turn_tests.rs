@@ -1,60 +1,15 @@
 //! Turning the camera over water draws every newly visible sub-chunk in order at once.
-use super::transparent_strafe::{Fixture, fixture_with, is_shore, ocean_surface};
+use super::transparent_strafe::{
+    Drawn, Fixture, drawn_water, fixture_with, is_shore, ocean_surface,
+};
 use super::*;
 use bevy::{
-    core_pipeline::core_3d::Transparent3d,
-    ecs::system::RunSystemOnce,
-    render::render_phase::{DrawFunctions, ViewSortedRenderPhases},
+    core_pipeline::core_3d::Transparent3d, ecs::system::RunSystemOnce,
+    render::render_phase::ViewSortedRenderPhases,
 };
 
 /// One in five sub-chunks has side faces, so the sorted path is exercised too.
 const SHORE_PERIOD: i32 = 5;
-
-/// How one sub-chunk's water reached the phase this frame.
-#[derive(Debug)]
-enum Drawn {
-    /// Refs from the committed back-to-front snapshot.
-    Sorted(Vec<PackedTransparentDrawRef>),
-    /// The allocation's records in mesh order.
-    Direct,
-}
-
-/// Maps every queued water draw to its sub-chunk, failing on a sub-chunk drawn twice.
-fn drawn_water(fixture: &Fixture) -> BTreeMap<SubChunkKey, Drawn> {
-    let world = fixture.app.world();
-    let sorted = world
-        .resource::<DrawFunctions<Transparent3d>>()
-        .read()
-        .id::<DrawTransparentLiquidCommands>();
-    let phase = world
-        .resource::<ViewSortedRenderPhases<Transparent3d>>()
-        .get(&fixture.retained)
-        .unwrap();
-    let snapshot = world.resource::<TransparentSortRuntime>().state.committed();
-    let by_metadata = world
-        .resource::<ChunkGpuArena>()
-        .allocations
-        .values()
-        .map(|allocation| (allocation.gpu.metadata_index, allocation.gpu.key))
-        .collect::<HashMap<_, _>>();
-    let mut drawn = BTreeMap::new();
-    for item in &phase.items {
-        let (key, water) = if item.draw_function == sorted {
-            let PhaseItemExtraIndex::IndirectParametersIndex { range, .. } = &item.extra_index
-            else {
-                panic!("sorted water draw without a ref range");
-            };
-            let refs = snapshot.unwrap().refs()[range.start as usize..range.end as usize].to_vec();
-            (by_metadata[&refs[0].metadata_index()], Drawn::Sorted(refs))
-        } else if let Some(allocation) = world.get::<GpuChunkAllocation>(item.entity.0) {
-            (allocation.key, Drawn::Direct)
-        } else {
-            continue;
-        };
-        assert!(drawn.insert(key, water).is_none(), "{key:?} drawn twice");
-    }
-    drawn
-}
 
 /// The back-to-front order of `key`'s faces for `camera`, as the worker computes it.
 fn expected_refs(
