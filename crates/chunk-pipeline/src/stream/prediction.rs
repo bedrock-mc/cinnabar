@@ -23,27 +23,30 @@ impl DeferredPredictions {
 impl WorldStream {
     /// Services bounded worker results after input without admitting newer server events.
     pub fn poll_prediction_jobs(&mut self, camera: [f32; 3], budget: usize) -> WorldStreamPoll {
-        let mut report = WorldStreamPoll::default();
-        for _ in 0..budget {
-            let Ok(completion) = self.lighting.rx.try_recv() else {
-                break;
-            };
-            self.accept_light_completion(completion);
-            report.light_results += 1;
-        }
-        report.light_jobs_dispatched = self.dispatch_light_jobs(camera, budget);
-        for _ in 0..budget {
-            if self.mesh_changes.len() >= MAX_PENDING_MESH_CHANGES {
-                break;
+        self.with_urgent_deadline(|stream| {
+            let mut report = WorldStreamPoll::default();
+            for _ in 0..budget {
+                let Ok(completion) = stream.lighting.rx.try_recv() else {
+                    break;
+                };
+                stream.accept_light_completion(completion);
+                report.light_results += 1;
             }
-            let Ok(completion) = self.mesh_rx.try_recv() else {
-                break;
-            };
-            self.accept_mesh_completion(completion);
-            report.mesh_results += 1;
-        }
-        report.mesh_jobs_dispatched = self.dispatch_mesh_jobs_with_limits(camera, budget, budget);
-        report
+            report.light_jobs_dispatched = stream.dispatch_light_jobs(camera, budget);
+            for _ in 0..budget {
+                if stream.mesh_changes.len() >= MAX_PENDING_MESH_CHANGES {
+                    break;
+                }
+                let Ok(completion) = stream.mesh_rx.try_recv() else {
+                    break;
+                };
+                stream.accept_mesh_completion(completion);
+                report.mesh_results += 1;
+            }
+            report.mesh_jobs_dispatched =
+                stream.dispatch_mesh_jobs_with_limits(camera, budget, budget);
+            report
+        })
     }
 
     /// Returns the current local mutation generation for a loaded placement cell.

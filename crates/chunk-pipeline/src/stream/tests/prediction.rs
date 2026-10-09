@@ -521,6 +521,66 @@ fn prediction_workers_publish_without_a_second_world_poll() {
     }
 }
 
+/// An expired urgent allocation leaves ordinary scheduler ingress queued while placement progresses.
+#[test]
+fn prediction_handoff_bounds_backlog_ingress_and_publishes_the_placement() {
+    let (mut stream, _, position, key, camera_position) = settled_neighbourhood();
+    stream.urgent_pass_budget = Duration::ZERO;
+    assert!(stream.predict_block(position, 0, 1));
+    let generation = stream.prediction_generation(position).unwrap().1;
+    let backlog = super::MAX_PENDING_MESH_QUEUE_WORK_PER_POLL * 4;
+    for index in 0..backlog {
+        let queued = SubChunkKey::new(0, 1_000 + index as i32, key.y, 0);
+        // These sections must wait for the requested section above before relighting.
+        stream
+            .authority
+            .commit_sub_chunk(queued, uniform_sub_chunk(1))
+            .unwrap();
+        super::light_scheduler::install_current_light(&mut stream, queued, 0, 0, false);
+        stream
+            .requests
+            .requested
+            .entry(queued.chunk())
+            .or_default()
+            .insert(queued.y + 1, Default::default());
+        stream.mark_light_dirty_exact(queued).unwrap();
+        stream.mark_dirty_exact(queued, Instant::now());
+    }
+    let queued_backlog =
+        |scan: &VecDeque<(SubChunkKey, u64)>| scan.iter().filter(|(key, _)| key.x >= 1_000).count();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        await_urgent_result(&stream);
+        let light_before = queued_backlog(&stream.lighting.jobs.scan);
+        let mesh_before = queued_backlog(&stream.mesh_jobs.scan);
+        assert_eq!(stream.poll_deadline, None);
+        stream.poll_prediction_jobs(camera_position, 2);
+        let light_after = queued_backlog(&stream.lighting.jobs.scan);
+        let mesh_after = queued_backlog(&stream.mesh_jobs.scan);
+        assert!(
+            light_before - light_after <= 1,
+            "late light ingress swept the backlog"
+        );
+        assert!(
+            mesh_before - mesh_after <= 1,
+            "late mesh ingress swept the backlog"
+        );
+        assert_eq!(stream.poll_deadline, None);
+        if present_queued_changes(&mut stream, key)
+            .is_some_and(|(published, is_upsert)| published == generation && is_upsert)
+        {
+            assert!(!stream.lighting.jobs.scan.is_empty());
+            assert!(!stream.mesh_jobs.scan.is_empty());
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "placement did not publish through the backlog"
+        );
+        std::thread::yield_now();
+    }
+}
+
 /// Both cells become readable together, and a server rollback replaces the whole pair.
 #[test]
 fn predicted_door_pair_commits_and_server_correction_rolls_back_both_cells() {

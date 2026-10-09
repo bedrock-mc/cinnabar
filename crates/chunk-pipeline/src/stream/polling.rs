@@ -185,11 +185,15 @@ impl WorldStream {
     }
 
     /// Runs urgent work under its own cooperative deadline unless a poll's already applies.
-    fn with_urgent_deadline<T>(&mut self, work: impl FnOnce(&mut Self) -> T) -> T {
+    pub(super) fn with_urgent_deadline<T>(&mut self, work: impl FnOnce(&mut Self) -> T) -> T {
         if self.poll_deadline.is_some() {
             return work(self);
         }
-        self.poll_deadline = Some(Instant::now() + URGENT_PASS_BUDGET);
+        #[cfg(test)]
+        let budget = self.urgent_pass_budget;
+        #[cfg(not(test))]
+        let budget = URGENT_PASS_BUDGET;
+        self.poll_deadline = Some(Instant::now() + budget);
         let result = work(self);
         self.poll_deadline = None;
         result
