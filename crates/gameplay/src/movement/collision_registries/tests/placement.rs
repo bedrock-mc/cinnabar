@@ -420,6 +420,99 @@ fn door_halves_are_resolved_together_and_refuse_an_obstructed_upper_cell() {
     }
 }
 
+#[test]
+fn actors_beside_the_resolved_door_plane_allow_both_halves() {
+    for mode in [NetworkIdMode::Sequential, NetworkIdMode::Hashed] {
+        for y in [9.1, 10.1] {
+            let store = store(mode);
+            let mut around = surroundings();
+            around
+                .actor_boxes
+                .push(([8.05, y, 8.4], [8.15, y + 0.6, 8.6]));
+            assert!(predict("minecraft:wooden_door", &store, mode, &context(&around)).is_some());
+        }
+    }
+}
+
+#[test]
+fn actors_inside_the_rotated_door_plane_refuse_both_halves() {
+    for mode in [NetworkIdMode::Sequential, NetworkIdMode::Hashed] {
+        for y in [9.1, 10.1] {
+            let store = store(mode);
+            let mut around = surroundings();
+            around
+                .actor_boxes
+                .push(([8.4, y, 8.05], [8.6, y + 0.6, 8.15]));
+            assert!(predict("minecraft:wooden_door", &store, mode, &context(&around)).is_none());
+        }
+    }
+}
+
+#[test]
+fn door_actor_checks_follow_every_rotation_in_either_half() {
+    for mode in [NetworkIdMode::Sequential, NetworkIdMode::Hashed] {
+        for (yaw, clear, inside) in [
+            (0.0, [8.05, 8.4], [8.4, 8.05]),
+            (90.0, [8.05, 8.4], [8.85, 8.4]),
+            (180.0, [8.4, 8.05], [8.4, 8.85]),
+            (-90.0, [8.85, 8.4], [8.05, 8.4]),
+        ] {
+            for y in [9.1, 10.1] {
+                for player in [false, true] {
+                    for (point, allowed) in [(clear, true), (inside, false)] {
+                        let store = store(mode);
+                        let mut around = surroundings();
+                        let bounds = (
+                            [point[0], y, point[1]],
+                            [point[0] + 0.1, y + 0.6, point[1] + 0.1],
+                        );
+                        if player {
+                            around.player_box = bounds;
+                        } else {
+                            around.actor_boxes.push(bounds);
+                        }
+                        let mut click = context(&around);
+                        click.input.yaw = yaw;
+                        assert_eq!(
+                            predict("minecraft:wooden_door", &store, mode, &click).is_some(),
+                            allowed,
+                            "yaw={yaw}, y={y}, player={player}, mode={mode:?}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn shaped_placements_check_collision_pieces_instead_of_the_whole_cell() {
+    for mode in [NetworkIdMode::Sequential, NetworkIdMode::Hashed] {
+        for (name, clear, inside) in [
+            ("minecraft:oak_stairs", [8.1, 9.7, 8.1], [8.1, 9.7, 8.8]),
+            ("minecraft:oak_fence", [8.1, 10.2, 8.1], [8.45, 10.2, 8.45]),
+            ("minecraft:trapdoor", [8.4, 9.7, 8.4], [8.4, 9.05, 8.4]),
+        ] {
+            for (min, allowed) in [(clear, true), (inside, false)] {
+                let store = store(mode);
+                let mut around = surroundings();
+                around
+                    .actor_boxes
+                    .push((min, min.map(|coordinate| coordinate + 0.05)));
+                assert_eq!(
+                    predict(name, &store, mode, &context(&around)).is_some(),
+                    allowed,
+                    "{name}"
+                );
+            }
+        }
+        let store = store(mode);
+        let mut around = surroundings();
+        around.actor_boxes.push(([8.1, 9.1, 8.1], [8.9, 9.9, 8.9]));
+        assert!(predict("minecraft:standing_sign", &store, mode, &context(&around)).is_some());
+    }
+}
+
 /// Defines independent family regressions against the pinned runtime palette.
 macro_rules! immediate_family {
     ($test:ident, $($name:literal),+ $(,)?) => {

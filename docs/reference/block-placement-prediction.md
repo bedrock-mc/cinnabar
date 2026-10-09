@@ -35,6 +35,8 @@ State lookup uses an index built when the collision registry loads.
 
 Every prediction requires loaded destination data, an air destination or verified merge,
 session build-height admission, and no player or blocking-actor overlap with the resolved shape.
+Collision checks see all proposed cells together, including both door halves and changed stair corners.
+They use the committed world's door resolver and each resolved state's collision pieces.
 Unknown support shapes defer attachment placement rather than selecting a later fallback.
 
 ## Incomplete parity

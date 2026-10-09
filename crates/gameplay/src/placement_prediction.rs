@@ -201,23 +201,6 @@ pub fn predicted_placement(
         }
         let (_, upper) = door_pair?;
         let upper_block = collisions.block_state_runtime_id(mode, &placed_identifier, &upper)?;
-        let shapes = collisions.registry(mode).collision_shapes(upper_block)?;
-        if shapes.iter().any(|shape| {
-            std::iter::once(&context.surroundings.player_box)
-                .chain(&context.surroundings.actor_boxes)
-                .any(|actor| {
-                    overlaps(
-                        upper_position,
-                        (
-                            [shape.min.x, shape.min.y, shape.min.z],
-                            [shape.max.x, shape.max.y, shape.max.z],
-                        ),
-                        *actor,
-                    )
-                })
-        }) {
-            return None;
-        }
         neighbors.push((upper_position, upper_block));
     }
     if placed_identifier.ends_with("_stairs") {
@@ -245,23 +228,30 @@ pub fn predicted_placement(
             }
         }
     }
-    let shapes = collisions.registry(mode).collision_shapes(block)?;
-    let actor_overlap = |local| {
+    let actor_overlap = |cell, local| {
         std::iter::once(&context.surroundings.player_box)
             .chain(&context.surroundings.actor_boxes)
-            .any(|actor| overlaps(position, local, *actor))
+            .any(|actor| overlaps(cell, local, *actor))
     };
-    if (full_cell && actor_overlap(([0.0; 3], [1.0; 3])))
-        || shapes.iter().any(|shape| {
+    if full_cell && actor_overlap(position, ([0.0; 3], [1.0; 3])) {
+        return None;
+    }
+    neighbors.push((position, block));
+    for &(cell, runtime_id) in &neighbors {
+        let shapes = world
+            .collision_shapes_with_updates(cell, runtime_id, &neighbors)
+            .ok()?;
+        if shapes.iter().any(|shape| {
             let local: BoxBounds = (
                 [shape.min.x, shape.min.y, shape.min.z],
                 [shape.max.x, shape.max.y, shape.max.z],
             );
-            actor_overlap(local)
-        })
-    {
-        return None;
+            actor_overlap(cell, local)
+        }) {
+            return None;
+        }
     }
+    neighbors.pop();
     Some(PredictedPlacement {
         position,
         block,
