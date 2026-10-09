@@ -11,10 +11,12 @@ use crate::{TextLayout, UiAction, UiLimits, UiPoint, UiRect, UiScale};
 mod draw;
 mod mesh;
 mod projection;
+mod retained;
 
 use draw::{emit_visual, is_empty};
 pub use mesh::{UiMesh, UiMeshBatch, UiMeshError, UiMeshVertex};
 pub use projection::UiWorldProjection;
+pub use retained::{DrawUpdate, RetainedDraw};
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct UiNodeId(u32);
@@ -625,27 +627,7 @@ impl UiTree {
             synthetic = self.synthetic_frame()?;
             &synthetic
         };
-        let (quad_count, vertex_count, index_count) = self.draw_counts()?;
-        let batch_capacity = quad_count.min(UiLimits::MAX_DRAW_BATCHES);
-        let reserved_bytes = vertex_count
-            .checked_mul(size_of::<UiVertex>())
-            .and_then(|bytes| {
-                index_count
-                    .checked_mul(size_of::<u32>())
-                    .and_then(|index_bytes| bytes.checked_add(index_bytes))
-            })
-            .and_then(|bytes| {
-                batch_capacity
-                    .checked_mul(size_of::<UiDrawBatch>())
-                    .and_then(|batch_bytes| bytes.checked_add(batch_bytes))
-            })
-            .ok_or(UiError::DrawIndexOverflow)?;
-        if reserved_bytes > UiLimits::MAX_DRAW_LIST_BYTES {
-            return Err(UiError::DrawByteLimitExceeded {
-                actual: reserved_bytes,
-                limit: UiLimits::MAX_DRAW_LIST_BYTES,
-            });
-        }
+        let (batch_capacity, vertex_count, index_count) = self.draw_budget()?;
         let mut vertices = Vec::new();
         let mut indices = Vec::new();
         let mut batches = Vec::new();
@@ -764,57 +746,91 @@ impl UiTree {
         })
     }
 
-    fn draw_counts(&self) -> Result<(usize, usize, usize), UiError> {
-        let mut mesh_vertices = 0usize;
-        let mut mesh_indices = 0usize;
-        let mut mesh_batches = 0usize;
-        let quads = self.nodes.values().try_fold(0usize, |total, node| {
-            let count = match &node.visual {
-                UiVisual::None => 0,
-                UiVisual::Mesh(mesh) => {
-                    mesh_vertices = mesh_vertices
-                        .checked_add(mesh.indices().len())
-                        .ok_or(UiError::DrawIndexOverflow)?;
-                    mesh_indices = mesh_indices
-                        .checked_add(mesh.indices().len())
-                        .ok_or(UiError::DrawIndexOverflow)?;
-                    mesh_batches = mesh_batches
-                        .checked_add(mesh.batches().len())
-                        .ok_or(UiError::DrawIndexOverflow)?;
-                    0
-                }
-                UiVisual::Solid { .. }
-                | UiVisual::Sprite { .. }
-                | UiVisual::GlintSprite { .. }
-                | UiVisual::StyledSprite { .. }
-                | UiVisual::Gradient { .. }
-                | UiVisual::RotatedSprite { .. }
-                | UiVisual::InvertedSprite { .. } => 1,
-                UiVisual::Text { layout, shadow, .. }
-                | UiVisual::RotatedText { layout, shadow, .. } => {
-                    let passes = match shadow {
-                        TextShadow::None => 1,
-                        TextShadow::Offset64(_) => 2,
-                    };
-                    // A bold glyph emits a second, offset copy per pass.
-                    let bold = layout
-                        .glyphs()
-                        .iter()
-                        .filter(|glyph| glyph.style.bold)
-                        .count();
-                    layout
-                        .glyphs()
-                        .len()
-                        .checked_add(bold)
-                        .and_then(|per_pass| per_pass.checked_mul(passes))
-                        .ok_or(UiError::DrawIndexOverflow)?
-                }
-            };
-            total.checked_add(count).ok_or(UiError::DrawIndexOverflow)
-        })?;
-        let vertices = quads
+    /// The `(batch, vertex, index)` capacities this tree's draw list reserves, within limits.
+    fn draw_budget(&self) -> Result<(usize, usize, usize), UiError> {
+        let mut total = DrawCounts::default();
+        for node in self.nodes.values() {
+            total = total.add(DrawCounts::of(&node.visual)?)?;
+        }
+        total.budget()
+    }
+}
+
+/// A node's share of the draw list's reserved capacity: quads, and mesh vertices, indices and
+/// batches.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub(super) struct DrawCounts {
+    quads: usize,
+    mesh_vertices: usize,
+    mesh_indices: usize,
+    mesh_batches: usize,
+}
+
+impl DrawCounts {
+    /// What one visual reserves, before clipping drops any of it.
+    pub(super) fn of(visual: &UiVisual) -> Result<Self, UiError> {
+        let quads = match visual {
+            UiVisual::None => 0,
+            UiVisual::Mesh(mesh) => {
+                return Ok(Self {
+                    quads: 0,
+                    mesh_vertices: mesh.indices().len(),
+                    mesh_indices: mesh.indices().len(),
+                    mesh_batches: mesh.batches().len(),
+                });
+            }
+            UiVisual::Solid { .. }
+            | UiVisual::Sprite { .. }
+            | UiVisual::GlintSprite { .. }
+            | UiVisual::StyledSprite { .. }
+            | UiVisual::Gradient { .. }
+            | UiVisual::RotatedSprite { .. }
+            | UiVisual::InvertedSprite { .. } => 1,
+            UiVisual::Text { layout, shadow, .. }
+            | UiVisual::RotatedText { layout, shadow, .. } => {
+                let passes = match shadow {
+                    TextShadow::None => 1,
+                    TextShadow::Offset64(_) => 2,
+                };
+                // A bold glyph emits a second, offset copy per pass.
+                let bold = layout
+                    .glyphs()
+                    .iter()
+                    .filter(|glyph| glyph.style.bold)
+                    .count();
+                layout
+                    .glyphs()
+                    .len()
+                    .checked_add(bold)
+                    .and_then(|per_pass| per_pass.checked_mul(passes))
+                    .ok_or(UiError::DrawIndexOverflow)?
+            }
+        };
+        Ok(Self {
+            quads,
+            ..Self::default()
+        })
+    }
+
+    /// Both shares together.
+    pub(super) fn add(self, other: Self) -> Result<Self, UiError> {
+        let sum =
+            |left: usize, right: usize| left.checked_add(right).ok_or(UiError::DrawIndexOverflow);
+        Ok(Self {
+            quads: sum(self.quads, other.quads)?,
+            mesh_vertices: sum(self.mesh_vertices, other.mesh_vertices)?,
+            mesh_indices: sum(self.mesh_indices, other.mesh_indices)?,
+            mesh_batches: sum(self.mesh_batches, other.mesh_batches)?,
+        })
+    }
+
+    /// The list's `(quads and mesh batches, vertices, indices)` capacity, rejecting a frame
+    /// beyond the vertex or index limit.
+    fn reserved(self) -> Result<(usize, usize, usize), UiError> {
+        let vertices = self
+            .quads
             .checked_mul(4)
-            .and_then(|count| count.checked_add(mesh_vertices))
+            .and_then(|count| count.checked_add(self.mesh_vertices))
             .ok_or(UiError::DrawIndexOverflow)?;
         if vertices > UiLimits::MAX_UI_VERTICES {
             return Err(UiError::VertexLimitExceeded {
@@ -822,9 +838,10 @@ impl UiTree {
                 limit: UiLimits::MAX_UI_VERTICES,
             });
         }
-        let indices = quads
+        let indices = self
+            .quads
             .checked_mul(6)
-            .and_then(|count| count.checked_add(mesh_indices))
+            .and_then(|count| count.checked_add(self.mesh_indices))
             .ok_or(UiError::DrawIndexOverflow)?;
         if indices > UiLimits::MAX_UI_INDICES {
             return Err(UiError::IndexLimitExceeded {
@@ -833,12 +850,39 @@ impl UiTree {
             });
         }
         Ok((
-            quads
-                .checked_add(mesh_batches)
+            self.quads
+                .checked_add(self.mesh_batches)
                 .ok_or(UiError::DrawIndexOverflow)?,
             vertices,
             indices,
         ))
+    }
+
+    /// Checks the whole list's reservation against the draw-list byte limit, returning the
+    /// `(batch, vertex, index)` capacities to reserve.
+    pub(super) fn budget(self) -> Result<(usize, usize, usize), UiError> {
+        let (quad_count, vertex_count, index_count) = self.reserved()?;
+        let batch_capacity = quad_count.min(UiLimits::MAX_DRAW_BATCHES);
+        let reserved_bytes = vertex_count
+            .checked_mul(size_of::<UiVertex>())
+            .and_then(|bytes| {
+                index_count
+                    .checked_mul(size_of::<u32>())
+                    .and_then(|index_bytes| bytes.checked_add(index_bytes))
+            })
+            .and_then(|bytes| {
+                batch_capacity
+                    .checked_mul(size_of::<UiDrawBatch>())
+                    .and_then(|batch_bytes| bytes.checked_add(batch_bytes))
+            })
+            .ok_or(UiError::DrawIndexOverflow)?;
+        if reserved_bytes > UiLimits::MAX_DRAW_LIST_BYTES {
+            return Err(UiError::DrawByteLimitExceeded {
+                actual: reserved_bytes,
+                limit: UiLimits::MAX_DRAW_LIST_BYTES,
+            });
+        }
+        Ok((batch_capacity, vertex_count, index_count))
     }
 }
 
