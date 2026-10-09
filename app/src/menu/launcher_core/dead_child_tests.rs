@@ -223,3 +223,22 @@ fn retired_account_control_paths_cannot_reach_a_new_core_or_game_session() {
         assert_ne!(second, game);
     }
 }
+
+#[test]
+fn realm_membership_core_exit_retires_the_pending_dialog() {
+    use launcher::menu::realm_membership::{Stage, State};
+    for stage in [Stage::Verifying, Stage::Joining] {
+        let (mut slot, mut menu, mut world, _) = fixture(true);
+        menu.control_auth = Some(AuthState::Authenticated);
+        menu.realm_membership.state = Some(State {
+            stage,
+            ..Default::default()
+        });
+        drive(&mut slot, &mut menu, &mut world, false);
+        assert!(!world.contains_resource::<LauncherAccount>());
+        assert!(
+            menu.realm_membership.state.is_none(),
+            "a detached account control cannot complete the dialog"
+        );
+    }
+}
