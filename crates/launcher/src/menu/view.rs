@@ -377,6 +377,8 @@ pub struct MenuView {
     pub death_reason: String,
     /// A respawn request is waiting for authoritative recovery.
     pub death_loading: bool,
+    /// Real-time OreUI death stages, independent of the simulation clock.
+    pub death_presentation: super::death::DeathPresentation,
     /// Ordinary death controls have completed their delay and may accept input.
     pub death_controls_visible: bool,
     pub gui_scale_offset: i8,
@@ -592,6 +594,7 @@ impl MenuView {
             message: None,
             death_reason: String::new(),
             death_loading: false,
+            death_presentation: super::death::DeathPresentation::default(),
             death_controls_visible: true,
             gui_scale_offset: 0,
             gui_scale_choices: ui::DesktopGuiScale::for_window([1, 1]).choices().collect(),

@@ -482,3 +482,60 @@ fn death_snapshots_immediate_respawn_when_opened() {
     assert!(menu.view().death_loading);
     assert!(menu.send_respawn_request(|| true));
 }
+
+#[test]
+fn death_respawn_retries_while_waiting_and_stops_on_recovery() {
+    let mut menu = MenuRuntime::new(false, 2, "Steve".into());
+    menu.open_death_with_rules(true);
+    assert!(menu.send_respawn_request(|| true));
+    menu.advance_death_controls(0.5);
+    assert!(!menu.send_respawn_request(|| panic!("progress wait is not a retry")));
+    menu.advance_death_controls(0.999);
+    assert!(!menu.send_respawn_request(|| panic!("retry interval has not elapsed")));
+    menu.advance_death_controls(0.001);
+    assert!(menu.send_respawn_request(|| true));
+    menu.advance_death_controls(1.0);
+    assert!(!menu.send_respawn_request(|| false));
+    assert!(menu.send_respawn_request(|| true));
+    menu.note_player_alive();
+    menu.advance_death_controls(10.0);
+    assert!(!menu.send_respawn_request(|| panic!("recovery cancels retries")));
+}
+
+#[test]
+fn death_game_menu_returns_to_the_same_ready_death() {
+    let mut menu = MenuRuntime::new(false, 2, "Steve".into());
+    menu.open_death();
+    menu.activate(MenuAction::OpenDeathGameMenu);
+    assert_eq!(menu.screen(), MenuScreen::Death);
+    menu.advance_death_controls(super::death::DEATH_CONTROLS_DELAY_SECONDS);
+    menu.activate(MenuAction::OpenDeathGameMenu);
+    assert_eq!(menu.screen(), MenuScreen::Pause);
+    assert!(menu.over_world());
+    assert!(!menu.take_disconnect_request());
+    menu.activate(MenuAction::PauseResume);
+    assert_eq!(menu.screen(), MenuScreen::Death);
+    assert!(menu.view().death_controls_visible);
+    assert!(!menu.view().death_loading);
+    assert_eq!(menu.view().death_presentation.return_seconds, Some(0.0));
+}
+
+#[test]
+fn death_hardcore_exit_retains_progress_and_never_queues_respawn() {
+    let mut menu = MenuRuntime::new(false, 2, "Steve".into());
+    menu.open_death();
+    menu.death_presentation.hardcore = true;
+    menu.activate(MenuAction::DeathExitWorld);
+    assert!(!menu.take_disconnect_request());
+    menu.advance_death_controls(super::death::DEATH_CONTROLS_DELAY_SECONDS);
+    assert_eq!(menu.view().focused_action, Some(MenuAction::DeathExitWorld));
+    menu.activate(MenuAction::DeathExitWorld);
+    assert!(menu.view().death_loading);
+    assert!(menu.view().death_presentation.exiting_world);
+    assert!(menu.is_visible());
+    assert!(menu.take_disconnect_request());
+    menu.advance_death_controls(10.0);
+    assert!(!menu.send_respawn_request(|| panic!("exit is not a respawn")));
+    menu.show_after_disconnect();
+    assert!(!menu.view().death_presentation.active);
+}

@@ -160,7 +160,8 @@ pub(crate) struct MenuRuntime {
     /// Death screen shown for the current death; cleared once alive again.
     death_shown: bool,
     death_loading: bool,
-    death_controls_remaining: f64,
+    death_presentation: launcher::menu::death::DeathPresentation,
+    death_retry_remaining: Option<std::time::Duration>,
     local_worlds: Vec<LocalWorldCard>,
     local_world_requested: Option<usize>,
     local_ui: worlds_tab::LocalWorldsUi,
@@ -526,6 +527,20 @@ impl MenuRuntime {
                 if self.death_controls_ready() {
                     self.dialog = Some(MenuDialog::DeathQuit);
                     self.focused = 0;
+                }
+            }
+            MenuAction::OpenDeathGameMenu => {
+                if self.death_controls_ready() {
+                    self.enter(MenuScreen::Pause);
+                }
+            }
+            MenuAction::DeathExitWorld => {
+                if self.death_controls_ready() && self.death_presentation.hardcore {
+                    self.death_loading = true;
+                    self.death_presentation.exiting_world = true;
+                    self.death_presentation.respawn_seconds = Some(0.0);
+                    self.intents.disconnect = true;
+                    self.dialog = None;
                 }
             }
             MenuAction::ConfirmDeathQuit => {

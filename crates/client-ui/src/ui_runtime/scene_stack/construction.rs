@@ -50,6 +50,17 @@ const fn gameplay_settings() -> ScreenSettings {
     }
 }
 
+/// The OreUI death overlay preserves world overlays while owning player input.
+pub(in crate::ui_runtime) fn death_settings() -> ScreenSettings {
+    ScreenSettings {
+        render_game_behind: true,
+        force_render_below: true,
+        absorbs_input: true,
+        should_steal_mouse: false,
+        ..ScreenSettings::default()
+    }
+}
+
 impl UiRuntime {
     /// Visits the authoritative scene construction without allocating a stack.
     pub(super) fn visit_scenes_in(
@@ -115,7 +126,12 @@ impl UiRuntime {
         }
         if let Some(screen) = host.menu {
             let reference = crate::ui_runtime::presentation::forms::menu_reference(screen);
-            visit(Scene::Menu(screen), json(reference));
+            let settings = if screen == MenuScreen::Death {
+                death_settings()
+            } else {
+                json(reference)
+            };
+            visit(Scene::Menu(screen), settings);
         }
         if let Some(entry) = form.filter(|_| settings_form) {
             visit(Scene::ServerSettingsForm, json(Some(form_screen(entry))));

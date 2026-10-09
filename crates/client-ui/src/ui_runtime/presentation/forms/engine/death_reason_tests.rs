@@ -65,6 +65,53 @@ fn death_reason_text_is_painted_without_a_second_translation() {
 }
 
 #[test]
+fn death_reason_variables_and_inherited_labels_remain_literal() {
+    let catalog = Catalog::from_files([
+        ("ui/_global_variables.json", b"{}".as_slice()),
+        ("ui/_ui_defs.json", br#"{"ui_defs":["ui/death_screen.json"]}"#.as_slice()),
+        ("ui/death_screen.json", br##"{"namespace":"death",
+            "reason_base":{"type":"label","size":[300,20],"text":"$reason","bindings":[{"binding_name":"#death_reason_text"}]},
+            "death_screen":{"type":"screen","$reason":"#death_reason_text","controls":[
+                {"variable":{"type":"label","size":[300,20],"text":"$reason","bindings":[{"binding_name":"#death_reason_text"}]}},
+                {"inherited@death.reason_base":{}}
+            ]}
+        }"##.as_slice()),
+    ]).unwrap();
+    let catalog = Arc::new(super::pack_catalog::layer_pack_catalog(&catalog, &[]));
+    let (context, view) = (Context::desktop(), ViewState::default());
+    let reason = "Player was slain using 100% Power %entity.zombie.name";
+    let mut data = DataSource::new();
+    data.set_global("#death_reason_text", Scalar::Text(reason.into()));
+    let rendered = ScreenCache::default()
+        .render(
+            ScreenKey {
+                reference: "death.death_screen",
+                catalog: &catalog,
+                context: &context,
+                data: &data,
+                view: &view,
+                root: [400.0, 300.0],
+                px: 1.0,
+                text: [0; 3],
+            },
+            &LayoutEnv {
+                text: &Measure,
+                textures: &Measure,
+            },
+        )
+        .unwrap();
+    let labels = rendered
+        .nodes
+        .iter()
+        .filter_map(|node| match &node.draw {
+            Draw::Text { text, localize, .. } => Some((text.as_str(), *localize)),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(labels, vec![(reason, false), (reason, false)]);
+}
+
+#[test]
 fn death_reveal_preserves_the_reason_and_loading_retires_the_controls() {
     use crate::menu::{MenuScreen, MenuView};
     let catalog = Arc::new(Catalog::from_files([
@@ -128,7 +175,7 @@ fn death_reveal_preserves_the_reason_and_loading_retires_the_controls() {
 }
 
 #[test]
-fn death_quit_popup_retains_the_death_screen_underneath() {
+fn death_quit_popup_retains_the_modern_overlay_underneath() {
     use crate::menu::{MenuDialog, MenuScreen, MenuView};
     use crate::ui_runtime::{
         UiRuntime,
@@ -167,10 +214,7 @@ fn death_quit_popup_retains_the_death_screen_underneath() {
         )
         .unwrap();
     let texts = super::super::pack_harness::drawn_texts(&nodes);
-    assert!(
-        texts.iter().any(|text| text == "death background"),
-        "{texts:?}"
-    );
+    assert!(texts.iter().any(|text| text == "YOU DIED!"), "{texts:?}");
     assert!(
         texts.iter().any(|text| text == "modal foreground"),
         "{texts:?}"

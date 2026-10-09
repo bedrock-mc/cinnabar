@@ -138,7 +138,10 @@ impl UiPresentationRuntime {
     ) -> Result<Option<Vec<(MenuAction, UiRect)>>, UiPresentationError> {
         // Without the UI carrier the programmatic launcher draws every screen.
         if self.form_presentation.engine.is_none()
-            && view.screen != crate::menu::MenuScreen::DressingRoom
+            && !matches!(
+                view.screen,
+                crate::menu::MenuScreen::DressingRoom | crate::menu::MenuScreen::Death
+            )
         {
             return Ok(None);
         }

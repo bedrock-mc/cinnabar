@@ -1,9 +1,11 @@
+mod context;
 mod death;
 mod preview;
 mod remapping;
 mod server_list;
 mod settings_pointer;
 
+use context::MenuInputContext;
 use settings_pointer::{native_release_action, update_slider};
 
 use bevy::{
@@ -16,8 +18,8 @@ use bevy::{
         touch::Touches,
     },
     prelude::{
-        ButtonInput, Entity, KeyCode, Local, MessageReader, MouseButton, Query, Real, Res, ResMut,
-        Resource, Single, Time, With,
+        ButtonInput, Entity, KeyCode, Local, MouseButton, Query, Res, ResMut, Resource, Single,
+        With,
     },
     window::{CursorGrabMode, CursorOptions, PrimaryWindow, Window},
 };
@@ -358,16 +360,6 @@ fn max_bytes(field: MenuField) -> usize {
     }
 }
 
-/// Groups the session and desktop authority read before menu actions.
-#[derive(bevy::ecs::system::SystemParam)]
-pub(crate) struct MenuInputContext<'w, 's> {
-    player_runtime: Res<'w, crate::player_runtime::PlayerRuntime>,
-    time: Option<Res<'w, Time<Real>>>,
-    keyboard_messages: MessageReader<'w, 's, KeyboardInput>,
-    focus: Option<ResMut<'w, client_presentation::camera::CursorFocus>>,
-    driven: Option<Res<'w, crate::camera::DrivenInput>>,
-}
-
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn drive_menu_input(
     context: MenuInputContext,
@@ -575,6 +567,7 @@ pub(crate) fn drive_menu_input(
     }
 
     let gameplay_pending = menu.gameplay_return_pending();
+    let respawn_pending = menu.death_loading;
     modifiers.capture_pressed(&keys);
     crate::camera::release_cursor(&mut cursor);
     // The join request popup takes the keyboard from any box focused beneath it.
@@ -945,6 +938,7 @@ pub(crate) fn drive_menu_input(
     }
     if (!menu.is_visible()
         || (!gameplay_pending && menu.gameplay_return_pending())
+        || (!respawn_pending && menu.death_loading)
         || menu.pressed == Some(super::MenuAction::ServerTrust(true)))
         && !menu.intents.disconnect
         && let Some(focus) = focus.as_deref_mut()

@@ -1,6 +1,7 @@
 //! Launcher actions and immutable menu views shared with presentation.
 
 pub mod auth;
+pub mod death;
 pub mod disconnect;
 pub mod inbox;
 pub mod invite;
@@ -132,6 +133,8 @@ pub enum MenuAction {
     PauseResume,
     PauseDisconnect,
     OpenDeathQuit,
+    OpenDeathGameMenu,
+    DeathExitWorld,
     ConfirmDeathQuit,
     PauseSettings,
     /// Load a saved server into the add/edit draft.

@@ -137,3 +137,59 @@ fn death_controls_advance_on_real_time_while_simulation_is_paused() {
     );
     assert!(app.world().resource::<Time<Virtual>>().is_paused());
 }
+
+#[test]
+fn death_respawn_retains_explicit_cursor_return_until_recovery() {
+    use client_presentation::camera::CursorFocus;
+
+    let mut app = App::new();
+    app.insert_resource(crate::player_runtime::PlayerRuntime::new(1))
+        .add_message::<KeyboardInput>()
+        .init_resource::<ButtonInput<KeyCode>>()
+        .init_resource::<ButtonInput<MouseButton>>()
+        .init_resource::<Touches>()
+        .insert_resource(
+            UiPresentationRuntime::new(client_ui::test_support::fixture_font()).unwrap(),
+        )
+        .insert_resource(MenuRuntime::new(false, 2, "Player".into()))
+        .insert_resource(MenuClipboard::with_access(|_| None, |_| {}))
+        .add_systems(Update, drive_menu_input);
+    let window = app
+        .world_mut()
+        .spawn((Window::default(), CursorOptions::default(), PrimaryWindow))
+        .id();
+    let mut focus = CursorFocus::default();
+    focus.begin_frame(false);
+    focus.begin_frame(true);
+    focus.record_activation(true);
+    app.insert_resource(focus);
+    app.world_mut().resource_mut::<MenuRuntime>().open_death();
+    let press = |app: &mut App| {
+        app.world_mut().write_message(KeyboardInput {
+            key_code: KeyCode::Enter,
+            logical_key: bevy::input::keyboard::Key::Enter,
+            state: ButtonState::Pressed,
+            text: None,
+            repeat: false,
+            window,
+        });
+        app.update();
+    };
+    press(&mut app);
+    assert!(!app.world().resource::<CursorFocus>().capture_allowed());
+    app.world_mut()
+        .resource_mut::<MenuRuntime>()
+        .advance_death_controls(crate::menu::death::DEATH_CONTROLS_DELAY_SECONDS);
+    press(&mut app);
+    assert!(app.world().resource::<MenuRuntime>().view().death_loading);
+    assert!(app.world().resource::<CursorFocus>().capture_allowed());
+    app.world_mut()
+        .resource_mut::<CursorFocus>()
+        .begin_frame(true);
+    app.world_mut()
+        .resource_mut::<MenuRuntime>()
+        .note_player_alive();
+    app.update();
+    assert!(!app.world().resource::<MenuRuntime>().is_visible());
+    assert!(app.world().resource::<CursorFocus>().capture_allowed());
+}

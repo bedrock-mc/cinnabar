@@ -25,6 +25,10 @@ pub(crate) fn source(raw: &str) -> String {
         &format!("{}u", render_model::UI_STYLE_COLOR_MASK),
     )
     .replace(
+        "UI_STYLE_RADIAL_GRADIENT",
+        &format!("{}u", render_model::UI_STYLE_RADIAL_GRADIENT),
+    )
+    .replace(
         "FONT_STYLE_COVERAGE_GAMMA",
         &format!("{}u", assets::FONT_STYLE_COVERAGE_GAMMA),
     )

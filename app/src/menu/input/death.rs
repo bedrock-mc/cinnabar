@@ -1,5 +1,6 @@
 //! Forced death routes retire input owned by the replaced menu.
 use super::*;
+use bevy::prelude::MessageReader;
 
 impl GuiScaleDrag {
     /// Advances authoritative death/recovery and cancels old menu capture on opening.
@@ -20,6 +21,8 @@ impl GuiScaleDrag {
         if !menu.open_death_with_rules(runtime.is_some_and(|runtime| runtime.immediate_respawn())) {
             return false;
         }
+        menu.death_presentation.hardcore =
+            runtime.is_some_and(|runtime| runtime.gameplay_hud().hardcore());
         presentation.cancel_menu_player_preview_input();
         presentation.cancel_menu_server_list_input();
         presentation.drag_menu_scroll(None, false);

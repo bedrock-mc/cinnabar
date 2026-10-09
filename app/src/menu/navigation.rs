@@ -74,6 +74,13 @@ impl MenuRuntime {
     /// Shows the history's top screen with fresh focus.
     pub(super) fn show_top(&mut self) {
         let screen = self.history.top().unwrap_or(MenuScreen::Home);
+        if screen == MenuScreen::Death
+            && self.screen != MenuScreen::Death
+            && self.death_shown
+            && self.death_presentation.controls_ready()
+        {
+            self.death_presentation.return_seconds = Some(0.0);
+        }
         if screen != MenuScreen::Store {
             self.store_snapshot = None;
         }
@@ -149,8 +156,7 @@ impl MenuRuntime {
             return;
         }
         match self.screen {
-            // Death has no way back; only respawn or leaving ends it.
-            MenuScreen::Death => {}
+            MenuScreen::Death => self.activate(MenuAction::OpenDeathGameMenu),
             MenuScreen::Store => self.store_actions.push(crate::store::StoreAction::Back),
             _ if self.history.screens().len() > 1 => {
                 self.history.pop();

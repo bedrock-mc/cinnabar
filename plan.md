@@ -6657,17 +6657,16 @@ presentation remain unverified; this work does not close the bamboo parity gate.
 The dedicated server death-information packet supplies the localized reason to
 the death screen independently of chat. Reasons survive either arrival order
 around zero health and clear on authoritative health recovery or session replacement.
-The death route now opens the installed JSON-UI screen, including its gradient,
-localized labels, wrapping reason and native button artwork. The separate OreUI
-approximation and its entrance animation are removed. The server death-message and
-immediate-respawn rules are retained from bootstrap and incremental packets.
-Respawn keeps the carrier loading state until authoritative recovery; Main menu
-opens the localized quit confirmation over the retained death background. Pending
-respawn requests survive outbound backpressure, forced death cancels hidden key
-capture, and formatted reason parameters remain literal through rendering.
-Immediate respawn is selected when the death route opens. Ordinary controls wait
-1.2 seconds on real time before appearing or accepting input; the reason remains
-visible during the wait. Scene lifecycle animations, the vanilla death camera and
-death FOV, exact readiness and respawn transitions, hardcore and secondary-client
-variants, and matched native frames remain incomplete. These changes do not close the
-broader death-screen parity gate.
+The default death screen uses the owned OreUI renderer with a radial world overlay,
+centered title and literal wrapped reason, Respawn and Game menu actions, and the
+HUD beneath it. Message, button, backdrop and loading animations have separate
+clocks. The prompt still waits before accepting actions when animations are disabled.
+Game menu returns to the same death presentation. Respawn retains progress until
+authoritative recovery; pending requests survive outbound backpressure. Forced
+death cancels hidden key capture, and formatted reason parameters remain literal.
+The legacy JSON-UI renderer retains literal reason handling for fallback controls.
+
+Incomplete parity: exact target-version route admission and animation constants,
+respawn retries, death camera/FOV, hurt and HUD flash timing, hardcore and secondary
+client variants, and matched native frames remain open. The modern implementation
+and its focused regressions do not close the full death-screen parity gate.

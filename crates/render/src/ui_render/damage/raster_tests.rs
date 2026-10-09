@@ -318,3 +318,53 @@ fn retained_damage_replay_matches_full_ui_raster_byte_for_byte() {
         );
     }
 }
+
+#[test]
+fn analytic_radial_gradient_interpolates_premultiplied_stops_and_extent() {
+    let mut input = scene();
+    input.vertices = Arc::from([]);
+    input.indices = Arc::from([]);
+    input.batches = Arc::from([]);
+    quad(
+        &mut input,
+        [0.0, 0.0, SIDE as f32, SIDE as f32],
+        [0, 0, 0, 102],
+        0,
+        None,
+    );
+    for vertex in Arc::make_mut(&mut input.vertices) {
+        vertex.uv = vertex.position.map(|value| value * 2.0 / SIDE as f32 - 1.0);
+        vertex.style_flags = render_model::UI_STYLE_RADIAL_GRADIENT;
+        vertex.overlay_color = [45.0 / 255.0, 4.0 / 255.0, 4.0 / 255.0, 0.8];
+    }
+    let Some(raster) = Raster::new(&input) else {
+        return;
+    };
+    let output = target(&raster.gpu, false);
+    for extent in [1.0, 3.0] {
+        let mut frame = input.clone();
+        for vertex in Arc::make_mut(&mut frame.vertices) {
+            vertex.uv = vertex.uv.map(|value| value / extent);
+        }
+        raster.draw(&frame, &output, None);
+        let pixels = raster.pixels(&output);
+        for [x, y] in [[32, 32], [0, 32], [0, 0], [16, 32]] {
+            let uv = [x, y].map(|value| ((value as f32 + 0.5) * 2.0 / SIDE as f32 - 1.0) / extent);
+            let radius = uv[0].hypot(uv[1]).min(1.0);
+            let expected = [
+                36.0 * radius,
+                3.2 * radius,
+                3.2 * radius,
+                102.0 + 102.0 * radius,
+            ];
+            let offset = ((y * SIDE + x) * 4) as usize;
+            for (actual, expected) in pixels[offset..offset + 4].iter().zip(expected) {
+                assert!(
+                    (f32::from(*actual) - expected).abs() <= 1.0,
+                    "pixel ({x},{y}), extent {extent}: {:?}",
+                    &pixels[offset..offset + 4]
+                );
+            }
+        }
+    }
+}
