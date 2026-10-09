@@ -351,10 +351,12 @@ impl SessionResources<'_> {
         let generation = controller.next_generation();
         self.resource_packs.begin_generation(generation);
         begin_session(&mut self.runtime, &mut self.player_runtime, generation);
-        self.client_world.stream = None;
-        self.client_world.pack_entities = None;
-        self.client_world.prepared_actor_artwork = None;
-        self.client_world.session_items = None;
+        release_off_frame((
+            self.client_world.stream.take(),
+            self.client_world.pack_entities.take(),
+            self.client_world.prepared_actor_artwork.take(),
+            self.client_world.session_items.take(),
+        ));
         self.client_world.pending_surface_spawn = None;
         self.client_world.fatal_error = None;
         self.client_world.transfer_notice = None;
@@ -365,6 +367,18 @@ impl SessionResources<'_> {
             &mut self.interaction,
         );
         generation
+    }
+}
+
+/// Drops a retired session's world and pack snapshots on a thread of their own, since freeing
+/// every column, actor and cache can take longer than a frame. They drop here only if no thread
+/// can start.
+fn release_off_frame(retired: impl Send + 'static) {
+    let spawned = std::thread::Builder::new()
+        .name("session-release".to_owned())
+        .spawn(move || drop(retired));
+    if let Err(error) = spawned {
+        bevy::log::warn!("session release thread unavailable, released on the frame: {error}");
     }
 }
 
@@ -807,6 +821,23 @@ mod tests {
         );
         assert!(transfer_handoff_address("", 19132).is_none());
         assert!(transfer_handoff_address("   ", 19132).is_none());
+    }
+
+    /// A retired world is freed on another thread, never by the frame that leaves the server.
+    #[test]
+    fn a_retired_session_is_released_off_the_calling_thread() {
+        struct Probe(std::sync::mpsc::Sender<std::thread::ThreadId>);
+        impl Drop for Probe {
+            fn drop(&mut self) {
+                let _ = self.0.send(std::thread::current().id());
+            }
+        }
+        let (dropped, dropper) = std::sync::mpsc::channel();
+        release_off_frame((Probe(dropped), vec![0_u8; 1024]));
+        let thread = dropper
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .expect("the retired session is released");
+        assert_ne!(thread, std::thread::current().id());
     }
 
     #[test]
