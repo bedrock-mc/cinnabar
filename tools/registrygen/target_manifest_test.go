@@ -151,16 +151,27 @@ func testBedrockTargetCarrierAutocrlfUpgrade(t *testing.T, attributeLineEnding s
 			t.Fatal(err)
 		}
 	}
+	// Copy every target carrier so this isolated checkout also works when a
+	// generation change updates carriers alongside the target manifest.
+	paths := []string{attributePath, carrierPath, manifestPath}
+	for name := range target.Hashes {
+		path := target.Artifacts[name]
+		if path == carrierPath {
+			continue
+		}
+		writeClone(path, readSource(path))
+		paths = append(paths, path)
+	}
 	writeClone(attributePath, baseAttributes)
 	writeClone(carrierPath, baseCarrier)
 	writeClone(manifestPath, baseManifest)
-	runGit("add", "--", attributePath, carrierPath, manifestPath)
+	runGit(append([]string{"add", "--"}, paths...)...)
 	runGit("commit", "--quiet", "-m", "synthetic pre-pin base")
 	baseCommit := runGit("rev-parse", "HEAD")
 	writeClone(attributePath, candidateAttributes)
 	writeClone(carrierPath, candidateCarrier)
 	writeClone(manifestPath, candidateManifest)
-	runGit("add", "--", attributePath, carrierPath, manifestPath)
+	runGit(append([]string{"add", "--"}, paths...)...)
 	runGit("commit", "--quiet", "-m", "synthetic candidate")
 	candidateCommit := runGit("rev-parse", "HEAD")
 

@@ -149,16 +149,22 @@ fn only_vanilla_tool_identifiers_classify() {
 
 #[test]
 fn table_header_pins_manifest_sources() {
-    let manifest = include_str!("../../../../assets/block-data-sources.json");
+    let tools = include_str!("../../../../assets/block-data-sources.json");
+    let catalog = include_str!("../../../../assets/block-projection-v2193.json");
     let pins = DESTROY_TABLE
         .lines()
         .take_while(|line| line.starts_with('#'))
-        .filter_map(|line| line.split_once("sha256=").map(|(_, digest)| digest))
+        .filter_map(|line| line.split_once("sha256="))
         .collect::<Vec<_>>();
     assert_eq!(pins.len(), 2);
-    for digest in pins {
+    for (source, digest) in pins {
+        let (manifest, field) = if source.starts_with("# hardness:") {
+            (catalog, "source_lock_sha256")
+        } else {
+            (tools, "sha256")
+        };
         assert!(
-            manifest.contains(&format!("\"sha256\": \"{digest}\"")),
+            manifest.contains(&format!("\"{field}\": \"{digest}\"")),
             "{digest}"
         );
     }

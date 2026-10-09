@@ -7,7 +7,7 @@
 
 use std::sync::OnceLock;
 
-const DESTROY_TABLE: &str = include_str!("../data/block_destroy_1_26_30.tsv");
+const DESTROY_TABLE: &str = include_str!("../data/block_destroy_1_26_50.tsv");
 
 /// Tool families that change destroy speed or harvestability.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

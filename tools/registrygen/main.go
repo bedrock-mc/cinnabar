@@ -341,13 +341,8 @@ func main() {
 	biomeV2193PMMP := flag.String("biome-v2193-pmmp", "", "pinned PMMP biome ID map")
 	biomeV2193Allowlist := flag.String("biome-v2193-allowlist", "", "reviewed retail biome allowlist")
 	biomeV2193Manifest := flag.String("biome-v2193-manifest", "", "path to write the v2193 projection manifest")
-	blockV2193Source := flag.String("block-v2193-source", "", "pinned Dragonfly block_states.nbt for protocol 2193")
 	blockV2193LegacyBREG := flag.String("block-v2193-legacy-breg", "", "reviewed protocol-1001 BREG used for conservative projection")
-	blockV2193LegacyLight := flag.String("block-v2193-legacy-light", "", "reviewed protocol-1001 LREG used for exact-key light projection")
 	blockV2193Allowlist := flag.String("block-v2193-allowlist", "", "reviewed retail item allowlist")
-	blockV2193Retail := flag.String("block-v2193-retail-light", "", "retail block_properties_table.json whose values replace unimplemented-block light defaults")
-	relightBREG := flag.String("relight-breg", "", "existing v2193 BREG for -relight mode")
-	relightLREG := flag.String("relight-lreg", "", "existing v2193 LREG rewritten by -relight mode")
 	blockV2193Manifest := flag.String("block-v2193-manifest", "", "path to write the v2193 block projection manifest")
 	pmmpRoot := flag.String("pmmp", "", "pinned PMMP BedrockData directory")
 	prismarineRoot := flag.String("prismarine", "", "pinned Prismarine minecraft-data directory")
@@ -373,7 +368,7 @@ func main() {
 			*biomeV2193Executable != "" || *biomeV2193PMMP != "" || *biomeV2193Allowlist != "" || *biomeV2193Manifest != "" ||
 			*pmmpRoot != "" || *prismarineRoot != "" || *coverageManifest != "" ||
 			*blockItemOut != "" || *blockItemBREG != "" ||
-			*blockV2193Source != "" || *blockV2193LegacyBREG != "" || *blockV2193LegacyLight != "" ||
+			*blockV2193LegacyBREG != "" ||
 			*blockV2193Allowlist != "" || *blockV2193Manifest != "" ||
 			*fallbackIn != "" || *fallbackOut != "" || *fallbackBREG != "" || *refreshBindings {
 			fmt.Fprintln(os.Stderr, "registrygen: fallback rekey mode requires only -fallback-rekey-in, -legacy-breg, -new-breg, and -fallback-rekey-out")
@@ -401,57 +396,35 @@ func main() {
 		return
 	}
 	if *physicsV2193Out != "" || *physicsV2193BREG != "" || *physicsV2193SHAOut != "" || *physicsV2193Manifest != "" {
-		if *physicsV2193Out == "" || *physicsV2193BREG == "" || *pmmpRoot == "" || *prismarineRoot == "" ||
+		if *physicsV2193Out == "" || *physicsV2193BREG == "" || *pmmpRoot != "" || *prismarineRoot != "" ||
 			*out != "" || *lightOut != "" || *lightBREG != "" || *biomeOut != "" || *biomeCoverage != "" ||
 			*biomeV2193Executable != "" || *biomeV2193PMMP != "" || *biomeV2193Allowlist != "" || *biomeV2193Manifest != "" ||
 			*coverageManifest != "" || *blockItemOut != "" || *blockItemBREG != "" ||
 			*fallbackIn != "" || *fallbackOut != "" || *fallbackBREG != "" || *refreshBindings ||
 			*physicsOut != "" || *physicsSHAOut != "" || *physicsBREG != "" ||
-			*blockV2193Source != "" || *blockV2193LegacyBREG != "" || *blockV2193LegacyLight != "" ||
+			*blockV2193LegacyBREG != "" ||
 			*blockV2193Allowlist != "" || *blockV2193Manifest != "" {
-			fmt.Fprintln(os.Stderr, "registrygen: v2193 physics mode requires only -physics-v2193-out, -physics-v2193-breg, -pmmp, and -prismarine")
-			fmt.Fprintf(os.Stderr, "example: go run ./tools/registrygen -physics-v2193-out %s -physics-v2193-breg %s [-physics-v2193-sha-out <path>] [-physics-v2193-manifest assets/block-projection-v2193.json] -pmmp <PINNED_PMMP> -prismarine <PINNED_PRISMARINE>\n", v2193PhysicsOutputPath, v2193PhysicsBREGInputPath)
+			fmt.Fprintln(os.Stderr, "registrygen: v2193 physics mode requires only -physics-v2193-out and -physics-v2193-breg")
+			fmt.Fprintf(os.Stderr, "example: go run ./tools/registrygen -physics-v2193-out %s -physics-v2193-breg %s [-physics-v2193-sha-out <path>] [-physics-v2193-manifest assets/block-projection-v2193.json]\n", v2193PhysicsOutputPath, v2193PhysicsBREGInputPath)
 			os.Exit(2)
 		}
-		if err := writeV2193PhysicsProjection(*physicsV2193BREG, *pmmpRoot, *prismarineRoot, *physicsV2193Out, *physicsV2193SHAOut, *physicsV2193Manifest); err != nil {
+		if err := writeV2193PhysicsProjection(*physicsV2193BREG, *physicsV2193Out, *physicsV2193SHAOut, *physicsV2193Manifest); err != nil {
 			fmt.Fprintf(os.Stderr, "registrygen: %v\n", err)
 			os.Exit(1)
 		}
 		return
 	}
-	if *relightBREG != "" || *relightLREG != "" {
-		if *relightBREG == "" || *relightLREG == "" || *blockV2193Retail == "" || *lightOut == "" {
-			fmt.Fprintln(os.Stderr, "registrygen: relight mode requires -relight-breg, -relight-lreg, -block-v2193-retail-light, and -light-out")
-			os.Exit(2)
-		}
-		light, changed, err := relightV2193(*relightBREG, *relightLREG, *blockV2193Retail)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "registrygen: %v\n", err)
-			os.Exit(1)
-		}
-		if err := os.WriteFile(*lightOut, light, 0o644); err != nil {
-			fmt.Fprintf(os.Stderr, "registrygen: %v\n", err)
-			os.Exit(1)
-		}
-		digest := sha256.Sum256(light)
-		if err := os.WriteFile(*lightOut+".sha256", []byte(fmt.Sprintf("%x  %s\n", digest, filepath.Base(*lightOut))), 0o644); err != nil {
-			fmt.Fprintf(os.Stderr, "registrygen: %v\n", err)
-			os.Exit(1)
-		}
-		fmt.Printf("relit %d states; LREG sha256 %x\n", changed, digest)
-		return
-	}
-	if *blockV2193Source != "" || *blockV2193LegacyBREG != "" || *blockV2193LegacyLight != "" || *blockV2193Allowlist != "" || *blockV2193Manifest != "" {
-		if *out == "" || *blockV2193Source == "" || *blockV2193LegacyBREG == "" || *blockV2193LegacyLight == "" ||
+	if *blockV2193LegacyBREG != "" || *blockV2193Allowlist != "" || *blockV2193Manifest != "" {
+		if *out == "" || *blockV2193LegacyBREG == "" ||
 			*blockV2193Allowlist == "" || *blockV2193Manifest == "" || *biomeOut != "" || *biomeCoverage != "" ||
 			*biomeV2193Executable != "" || *biomeV2193PMMP != "" || *biomeV2193Allowlist != "" || *biomeV2193Manifest != "" ||
 			*lightBREG != "" || *physicsOut != "" || *physicsSHAOut != "" || *physicsBREG != "" || *pmmpRoot != "" ||
-			*prismarineRoot == "" || *coverageManifest != "" || *blockItemOut != "" || *blockItemBREG != "" ||
+			*prismarineRoot != "" || *coverageManifest != "" || *blockItemOut != "" || *blockItemBREG != "" ||
 			*fallbackIn != "" || *fallbackOut != "" || *fallbackBREG != "" || *refreshBindings {
-			fmt.Fprintln(os.Stderr, "registrygen: v2193 block mode requires its source, legacy registries, allowlist, Prismarine collision source, output, and manifest flags")
+			fmt.Fprintln(os.Stderr, "registrygen: v2193 block mode requires its legacy render registry, retail allowlist, output, and manifest flags")
 			os.Exit(2)
 		}
-		if err := writeV2193BlockProjection(*blockV2193Source, *blockV2193LegacyBREG, *blockV2193LegacyLight, *blockV2193Allowlist, *out, *lightOut, *blockV2193Manifest, *blockV2193Retail, *prismarineRoot); err != nil {
+		if err := writeV2193BlockProjection(*blockV2193LegacyBREG, *blockV2193Allowlist, *out, *lightOut, *blockV2193Manifest); err != nil {
 			fmt.Fprintf(os.Stderr, "registrygen: %v\n", err)
 			os.Exit(1)
 		}
@@ -3279,7 +3252,7 @@ func resolveAuthoritativeLightProperties(records []Record, registry world.BlockR
 	sorted := append([]Record(nil), records...)
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i].SequentialID < sorted[j].SequentialID })
 	properties := make([]byte, len(sorted))
-	report := LightGenerationReport{DragonflyRevision: v2193BlockSourceCommit}
+	report := LightGenerationReport{DragonflyRevision: dragonflyVersion}
 	fallbackNames := make(map[string]bool, len(pmmpLightFallbackIdentifiers))
 	for _, name := range pmmpLightFallbackIdentifiers {
 		fallbackNames[name] = false
