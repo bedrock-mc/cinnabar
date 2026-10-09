@@ -491,6 +491,10 @@ value beside a left icon), or `icon_right` (inline text before a right icon).
 `width`, `row_height`, and `icon_size` use unscaled GUI pixels and default to
 148, 20, and 16. Width is 48–512, row height is 12–64, and icon size is 4–48;
 icons must fit the row height and the width minus 12 pixels of padding.
+Optional `text_scale` (default 1, bounded to 0.5–2) multiplies the row label and
+value fonts independently of icons and card dimensions. Inline text bands expand
+within the row padding and progress-bar space; stacked rows retain separate line
+bands. Text stays clipped to its available band when the chosen row is too small.
 Card height is `(22 + row_height * rows) * scale` with a title, or
 `(4 + row_height * rows) * scale` without one. Gameplay rendering and layout
 editor bounds use the same dimensions. Background opacity

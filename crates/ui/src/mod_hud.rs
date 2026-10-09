@@ -12,6 +12,7 @@ pub const MAX_CROSSHAIR_BYTES: usize = 1024;
 pub const DEFAULT_CARD_WIDTH: f32 = 148.;
 pub const DEFAULT_ROW_HEIGHT: f32 = 20.;
 pub const DEFAULT_ICON_SIZE: f32 = 16.;
+pub const DEFAULT_TEXT_SCALE: f32 = 1.;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -77,6 +78,9 @@ pub struct Card {
     /// Square icon size, bounded to 4 through 48 and to the row's height.
     #[serde(default = "icon_size")]
     pub icon_size: f32,
+    /// Row text multiplier, bounded to 0.5 through 2 independently of card geometry.
+    #[serde(default = "text_scale")]
+    pub text_scale: f32,
     /// Optional factory placement used only by the host-owned layout editor.
     #[serde(default)]
     pub reset_anchor: Option<Anchor>,
@@ -100,6 +104,7 @@ impl Default for Card {
             width: card_width(),
             row_height: row_height(),
             icon_size: icon_size(),
+            text_scale: text_scale(),
             reset_anchor: None,
             reset_offset: None,
             rows: Vec::new(),
@@ -194,6 +199,10 @@ fn row_height() -> f32 {
 fn icon_size() -> f32 {
     DEFAULT_ICON_SIZE
 }
+/// Leaves existing row fonts unchanged when the multiplier is omitted.
+fn text_scale() -> f32 {
+    DEFAULT_TEXT_SCALE
+}
 fn white() -> [f32; 4] {
     [1.; 4]
 }
@@ -270,6 +279,8 @@ impl Hud {
                 || !(4. ..=48.).contains(&card.icon_size)
                 || card.icon_size > card.row_height
                 || card.icon_size > card.width - 12.
+                || !card.text_scale.is_finite()
+                || !(0.5..=2.).contains(&card.text_scale)
                 || card.position.is_some_and(|p| {
                     p.into_iter()
                         .any(|v| !v.is_finite() || !(0. ..=1.).contains(&v))
@@ -366,6 +377,7 @@ mod tests {
         assert_eq!(hud.cards[0].width, DEFAULT_CARD_WIDTH);
         assert_eq!(hud.cards[0].row_height, DEFAULT_ROW_HEIGHT);
         assert_eq!(hud.cards[0].icon_size, DEFAULT_ICON_SIZE);
+        assert_eq!(hud.cards[0].text_scale, DEFAULT_TEXT_SCALE);
         assert!(hud.validate().is_ok());
         for opacity in [0., 0.35, 1.] {
             hud.cards[0].background_opacity = opacity;
@@ -424,6 +436,25 @@ mod tests {
             )
             .is_err()
         );
+    }
+    #[test]
+    fn row_text_scale_is_optional_and_bounded_independently_of_geometry() {
+        let mut hud: Hud =
+            serde_json::from_str(r#"{"cards":[{"id":"fixture","rows":[]}]}"#).unwrap();
+        assert_eq!(hud.cards[0].text_scale, 1.);
+        for scale in [0.5, 1., 1.75, 2.] {
+            hud.cards[0].text_scale = scale;
+            assert!(hud.validate().is_ok());
+        }
+        for scale in [f32::NAN, f32::INFINITY, 0.49, 2.01] {
+            hud.cards[0].text_scale = scale;
+            assert!(hud.validate().is_err(), "text_scale={scale}");
+        }
+        let explicit: Hud =
+            serde_json::from_str(r#"{"cards":[{"id":"fixture","text_scale":1.75,"rows":[]}]}"#)
+                .unwrap();
+        assert_eq!(explicit.cards[0].text_scale, 1.75);
+        assert!(explicit.validate().is_ok());
     }
     #[test]
     fn editor_results_are_bounded_and_cancellation_carries_no_changes() {

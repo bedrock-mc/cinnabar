@@ -4,7 +4,7 @@ use ui::mod_hud::{Anchor, Card, DEFAULT_ROW_HEIGHT, Hud, RowLayout};
 
 const HEADER: f64 = 18.;
 
-/// Rebuilds only when row arrangement or icon topology changes.
+/// Rebuilds only when card geometry, row font or icon topology changes.
 pub(super) fn same_shape(a: &Hud, b: &Hud) -> bool {
     a.cards.len() == b.cards.len()
         && a.cards.iter().zip(&b.cards).all(|(left, right)| {
@@ -14,6 +14,7 @@ pub(super) fn same_shape(a: &Hud, b: &Hud) -> bool {
                 && left.width == right.width
                 && left.row_height == right.row_height
                 && left.icon_size == right.icon_size
+                && left.text_scale == right.text_scale
                 && left.title.is_empty() == right.title.is_empty()
                 && left.rows.len() == right.rows.len()
                 && left.rows.iter().zip(&right.rows).all(|(a, b)| {
@@ -43,6 +44,7 @@ pub(in super::super) fn card(card: &Card, card_index: usize, row_index: &mut usi
     let width = f64::from(card.width);
     let row_height = f64::from(card.row_height);
     let icon_size = f64::from(card.icon_size);
+    let font_multiplier = f64::from(card.text_scale);
     let header = if card.title.is_empty() { 0. } else { HEADER };
     let size = dimensions(card);
     let mut controls = vec![
@@ -138,15 +140,21 @@ pub(in super::super) fn card(card: &Card, card_index: usize, row_index: &mut usi
         let reserve_progress = row.progress.is_some()
             && !stacked
             && (card.row_layout == RowLayout::IconRight
-                || row_height < f64::from(DEFAULT_ROW_HEIGHT));
-        let line_height = if stacked {
+                || row_height < f64::from(DEFAULT_ROW_HEIGHT)
+                || font_multiplier > 1.);
+        let base_line_height = if stacked {
             (row_height - if row.progress.is_some() { 8. } else { 4. }) * 0.5
         } else if reserve_progress {
             (row_height - 8.).min(12.)
         } else {
             (row_height - 4.).min(12.)
         };
-        let text_scale = k * (line_height / 12.).min(1.);
+        let line_height = if stacked {
+            base_line_height
+        } else {
+            (row_height - if reserve_progress { 8. } else { 4. }).min(12. * font_multiplier)
+        };
+        let text_scale = k * (base_line_height / 12.).min(1.) * font_multiplier;
         let text_top = if card.row_layout == RowLayout::IconRight {
             if reserve_progress {
                 2. + (row_height - 8. - line_height) * 0.5

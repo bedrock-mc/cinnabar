@@ -3,6 +3,11 @@ use crate::ui_runtime::presentation::forms::tests::mini_engine_presentation;
 use bevy::input::keyboard::Key;
 
 fn fixture() -> String {
+    fixture_with_capture(false)
+}
+
+/// Builds the same controls component with optional guest-owned keyboard capture.
+fn fixture_with_capture(capture_key: bool) -> String {
     let package = include_str!("../../../../crates/mod-api/wit/extension.wit")
         .lines()
         .next()
@@ -10,7 +15,9 @@ fn fixture() -> String {
         .trim_start_matches("package ")
         .trim_end_matches(';');
     let (name, version) = package.split_once('@').unwrap();
-    let panel = r#"{"title":"Local controls","toggle_key":"ShiftRight","dark":true,"controls":[{"kind":"slider","id":"strength","label":"Strength","value":35,"min":0,"max":100,"step":1}]}"#;
+    let panel = format!(
+        r#"{{"title":"Local controls","toggle_key":"ShiftRight","dark":true,"capture_key":{capture_key},"controls":[{{"kind":"slider","id":"strength","label":"Strength","value":35,"min":0,"max":100,"step":1}}]}}"#
+    );
     include_str!("../../../../crates/mod-host/src/tests/guest.wat")
         .replace("(component", &format!("(component (import \"{name}/panel@{version}\" (instance $panel (export \"set-content\" (func (param \"json\" string) (result (result (error string))))))) (alias export $panel \"set-content\" (func $set-panel))"))
         .replace("$HUD", &format!("{name}/hud@{version}"))
@@ -155,11 +162,16 @@ fn unfocused_stop_and_toggle_keys_preserve_editor_and_do_not_replay_on_regain() 
 }
 
 fn hud_editor_app() -> (App, Entity) {
+    personal_panel_app(true, false)
+}
+
+/// Opens either a native HUD editor or a guest keyboard-capturing personal panel.
+fn personal_panel_app(hud_editor: bool, capture_key: bool) -> (App, Entity) {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("hud-editor.component.wat");
     let mut host = mod_host::ModHost::load_snapshot_with_grants(
         &path,
-        fixture().as_bytes(),
+        fixture_with_capture(capture_key).as_bytes(),
         mod_host::ModGrants {
             hud: true,
             controls: true,
@@ -173,8 +185,10 @@ fn hud_editor_app() -> (App, Entity) {
     let mut presentation = mini_engine_presentation();
     presentation.set_mod_panel(host.panel()).unwrap();
     presentation.set_mod_panel_open(true);
-    let preview:ui::mod_hud::Hud=serde_json::from_str(r#"{"cards":[{"id":"equipment","position":[0.5,0.5],"rows":[{"label":"Helmet","value":"85%"}]}]}"#).unwrap();
-    presentation.open_mod_hud_editor(&preview).unwrap();
+    if hud_editor {
+        let preview:ui::mod_hud::Hud=serde_json::from_str(r#"{"cards":[{"id":"equipment","position":[0.5,0.5],"rows":[{"label":"Helmet","value":"85%"}]}]}"#).unwrap();
+        presentation.open_mod_hud_editor(&preview).unwrap();
+    }
     render(&mut presentation, &player, &ui);
     let mut app = App::new();
     app.add_message::<KeyboardInput>()
@@ -199,7 +213,7 @@ fn hud_editor_app() -> (App, Entity) {
             registration_identity: None,
             registration_request: None,
             suspended: false,
-            hud_editor_owner: Some(super::super::hud_editor::Owner {
+            hud_editor_owner: hud_editor.then_some(super::super::hud_editor::Owner {
                 host: 0,
                 session: 1,
             }),
@@ -215,6 +229,93 @@ fn hud_editor_app() -> (App, Entity) {
         .spawn((window, CursorOptions::default(), PrimaryWindow))
         .id();
     (app, entity)
+}
+
+#[test]
+fn personal_panel_keyboard_capture_and_native_editor_do_not_open_or_replay_world_ui() {
+    for hud_editor in [false, true] {
+        let (mut app, entity) = personal_panel_app(hud_editor, !hud_editor);
+        app.init_resource::<Time<bevy::time::Real>>().add_systems(
+            Update,
+            crate::ui_runtime::drive_chat_keyboard_input.after(prepare_mod_input),
+        );
+        for (key_code, logical_key) in [
+            (KeyCode::KeyT, Key::Character("t".into())),
+            (KeyCode::KeyE, Key::Character("e".into())),
+            (KeyCode::Enter, Key::Enter),
+        ] {
+            app.world_mut()
+                .resource_mut::<ButtonInput<KeyCode>>()
+                .press(key_code);
+            app.world_mut().write_message(KeyboardInput {
+                key_code,
+                logical_key,
+                state: ButtonState::Pressed,
+                text: None,
+                repeat: false,
+                window: entity,
+            });
+            app.update();
+            let runtime = app.world().resource::<ModRuntime>();
+            assert!(runtime.host.panel_open());
+            if hud_editor {
+                assert!(runtime.controls.keys_pressed.is_empty());
+            } else {
+                assert_eq!(runtime.controls.keys_pressed, [format!("{key_code:?}")]);
+            }
+            assert!(
+                app.world()
+                    .resource::<UiPresentationRuntime>()
+                    .mod_panel_open()
+            );
+            let ui = app.world().resource::<UiRuntime>();
+            assert!(!ui.chat_focused(), "personal-panel key opened chat");
+            assert!(!ui.inventory_open(), "personal-panel key opened inventory");
+            app.world_mut()
+                .resource_mut::<ButtonInput<KeyCode>>()
+                .release(key_code);
+            app.world_mut().write_message(KeyboardInput {
+                key_code,
+                logical_key: Key::Unidentified(bevy::input::keyboard::NativeKey::Unidentified),
+                state: ButtonState::Released,
+                text: None,
+                repeat: false,
+                window: entity,
+            });
+            app.update();
+        }
+        assert!(
+            !app.world()
+                .resource::<UiPresentationRuntime>()
+                .mod_hud_editor_open(),
+            "Enter still saves and closes the native HUD editor"
+        );
+        app.world_mut()
+            .resource_mut::<UiPresentationRuntime>()
+            .set_mod_panel_open(false);
+        app.world_mut()
+            .resource_mut::<ModRuntime>()
+            .host
+            .set_panel_open(false);
+        app.update();
+        assert!(!app.world().resource::<UiRuntime>().chat_focused());
+        assert!(!app.world().resource::<UiRuntime>().inventory_open());
+
+        // Fresh world input works after ownership ends; captured messages stay consumed.
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::Enter);
+        app.world_mut().write_message(KeyboardInput {
+            key_code: KeyCode::Enter,
+            logical_key: Key::Enter,
+            state: ButtonState::Pressed,
+            text: None,
+            repeat: false,
+            window: entity,
+        });
+        app.update();
+        assert!(app.world().resource::<UiRuntime>().chat_focused());
+    }
 }
 
 #[test]

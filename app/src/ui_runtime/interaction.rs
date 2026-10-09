@@ -516,6 +516,9 @@ pub(crate) fn drive_chat_keyboard_input(
     if runtime.server_forms().owns_input()
         || runtime.emotes().is_open()
         || emote_input.is_some_and(|consumed| consumed.0)
+        || presentation
+            .as_ref()
+            .is_some_and(|view| view.mod_panel_open())
     {
         modifiers.reset_all();
         keyboard_messages.clear();
