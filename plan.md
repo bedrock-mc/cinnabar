@@ -114,6 +114,9 @@
   and correction offsets alongside the feet position. Subtick rendering no longer
   repeats an unfinished stance or correction transition. Missing-terrain recovery
   and matched loading/stall behavior remain incomplete.
+- Cache responses retain valid requested columns when accompanied by repeated
+  verified blobs still in the cache. Late responses after eviction and the
+  remaining missing-terrain recovery behavior remain incomplete.
 - Prediction corrections replay regardless of distance. Nonzero future ticks
   attach to the current captured frame for a later rewind; zero ticks and ticks
   older than retained history are discarded. MovePlayer teleports keep their
