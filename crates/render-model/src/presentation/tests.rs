@@ -31,64 +31,55 @@ fn all_surfaces() -> impl Iterator<Item = SurfacePresentModes> {
     (0u8..16).map(SurfacePresentModes::from_bits)
 }
 
-fn all_limits() -> [FrameRateLimit; 5] {
-    [Automatic, Unlimited, fixed(30), fixed(120), fixed(240)]
-}
-
 #[test]
 fn selection_table_matches_backend_capability_sets() {
     let metal = modes(&[Fifo, Immediate]);
     let dx12_tearing = modes(&[Fifo, Mailbox, Immediate]);
     let dx12 = modes(&[Fifo, Mailbox]);
     let fifo_only = SurfacePresentModes::FIFO_ONLY;
-    let fixed_120 = display(120, VrrStatus::Unknown);
-    for (intent, limit, surface, expected) in [
-        (Synchronized, Unlimited, dx12_tearing, Fifo),
-        (Synchronized, Automatic, metal, Fifo),
-        (LowLatency, Automatic, dx12_tearing, Fifo),
-        (LowLatency, Automatic, metal, Fifo),
-        (LowLatency, fixed(120), dx12, Fifo),
-        (LowLatency, fixed(240), dx12, Mailbox),
-        (LowLatency, Unlimited, dx12_tearing, Mailbox),
-        (LowLatency, Unlimited, metal, Fifo),
-        (LowLatency, Unlimited, fifo_only, Fifo),
-        (Unpaced, Automatic, metal, Immediate),
-        (Unpaced, Automatic, dx12, Mailbox),
-        (Unpaced, Unlimited, modes(&[Fifo, FifoRelaxed]), Fifo),
+    for (intent, surface, expected) in [
+        (Synchronized, dx12_tearing, Fifo),
+        (Synchronized, metal, Fifo),
+        (LowLatency, dx12_tearing, Immediate),
+        (LowLatency, metal, Immediate),
+        (LowLatency, dx12, Mailbox),
+        (LowLatency, fifo_only, Fifo),
+        (Unpaced, metal, Immediate),
+        (Unpaced, dx12, Mailbox),
+        (Unpaced, modes(&[Fifo, FifoRelaxed]), Fifo),
     ] {
         assert_eq!(
-            select_present_mode(intent, limit, fixed_120, surface),
+            select_present_mode(intent, surface),
             expected,
-            "{intent:?} {limit:?} on {surface:?}"
+            "{intent:?} on {surface:?}"
         );
     }
 }
 
-/// Player-facing presentation never tears, whatever the surface, limit or display.
+/// Synchronized presentation never tears; VSync off prefers Immediate whenever advertised.
 #[test]
-fn player_intents_never_select_immediate() {
+fn presentation_intents_respect_the_tearing_boundary() {
     for surface in all_surfaces() {
-        for limit in all_limits() {
-            for vrr in [VrrStatus::Active, VrrStatus::Unknown] {
-                for intent in [Synchronized, LowLatency] {
-                    let mode = select_present_mode(intent, limit, display(60, vrr), surface);
-                    assert_ne!(mode, Immediate, "{intent:?} {limit:?} {surface:?}");
-                }
-            }
-        }
+        assert_ne!(
+            select_present_mode(Synchronized, surface),
+            Immediate,
+            "{surface:?}"
+        );
+        assert_eq!(
+            select_present_mode(LowLatency, surface) == Immediate,
+            surface.contains(Immediate),
+            "{surface:?}"
+        );
     }
 }
 
 #[test]
 fn selection_never_requests_an_unadvertised_mode_or_relies_on_fallback() {
     for surface in all_surfaces() {
-        for limit in all_limits() {
-            for intent in INTENTS {
-                let selected =
-                    select_present_mode(intent, limit, DisplayTiming::default(), surface);
-                assert!(surface.contains(selected), "{intent:?} on {surface:?}");
-                assert_eq!(configured_present_mode(selected, surface), selected);
-            }
+        for intent in INTENTS {
+            let selected = select_present_mode(intent, surface);
+            assert!(surface.contains(selected), "{intent:?} on {surface:?}");
+            assert_eq!(configured_present_mode(selected, surface), selected);
         }
     }
 }
@@ -107,18 +98,7 @@ fn unprobed_player_requests_start_on_fifo() {
     assert_eq!(configured_present_mode(FifoRelaxed, fifo_only), Fifo);
 }
 
-#[test]
-fn a_limit_outpaces_the_display_only_above_its_refresh() {
-    let known = display(144, VrrStatus::Unknown);
-    assert!(!outpaces_display(Automatic, known));
-    assert!(outpaces_display(Unlimited, known));
-    assert!(!outpaces_display(fixed(144), known));
-    assert!(outpaces_display(fixed(145), known));
-    assert!(outpaces_display(fixed(60), DisplayTiming::default()));
-}
-
-/// Automatic never adds a second clock: the display paces FIFO and Mailbox only serves a
-/// limit above refresh.
+/// Automatic and unlimited add no application cadence; presentation or rendering determines it.
 #[test]
 fn automatic_and_unlimited_leave_pacing_to_the_display_or_rendering() {
     let fixed_120 = display(120, VrrStatus::Unknown);
