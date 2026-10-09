@@ -12,6 +12,11 @@ const MIN_WORLD_THREADS: usize = 3;
 /// sustained mesh load cannot starve the decode and light work that mesh depends on.
 const DECODE_MAX_WAIT: Duration = Duration::from_millis(4);
 const LIGHT_MAX_WAIT: Duration = Duration::from_millis(16);
+/// Whether background workers run lowered only while a job runs, taking the queue lock at normal
+/// priority. Windows locks have no priority inheritance: a lowered holder preempted on a busy
+/// machine can wait seconds for its anti-starvation boost while the frame thread waits on the
+/// lock. Elsewhere a thread cannot raise its niceness back, so workers stay lowered for life.
+const LOWER_PER_JOB: bool = cfg!(windows);
 
 /// Work classes in scheduling order: mesh gates chunks appearing, decode feeds it, light trails.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -90,12 +95,20 @@ impl Queues {
 struct Shared {
     queues: Mutex<Queues>,
     ready: Condvar,
+    /// Queue locks taken by a thread running below normal priority.
+    #[cfg(all(test, windows))]
+    lowered_locks: std::sync::atomic::AtomicUsize,
 }
 
 impl Shared {
     fn lock(&self) -> MutexGuard<'_, Queues> {
         #[cfg(feature = "tracy")]
         let _zone = tracing::info_span!("stream.queue_lock").entered();
+        #[cfg(all(test, windows))]
+        if priority::is_lowered() {
+            self.lowered_locks
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
         self.queues
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -227,7 +240,10 @@ impl Drop for WorldPool {
 }
 
 fn work(shared: &Shared, name: &str, background: bool) {
-    if background && let Err(error) = priority::lower() {
+    if background
+        && !LOWER_PER_JOB
+        && let Err(error) = priority::lower()
+    {
         eprintln!("{name}: could not lower worker priority: {error}");
     }
     let mut scratch = world::LightSolverScratch::default();
@@ -246,9 +262,13 @@ fn work(shared: &Shared, name: &str, background: bool) {
             continue;
         };
         drop(queues);
+        let lowered = background && LOWER_PER_JOB && priority::lower().is_ok();
         // Matches rayon's default: a panicking world job aborts rather than losing its permits.
         if catch_unwind(AssertUnwindSafe(|| job(&mut scratch))).is_err() {
             std::process::abort();
+        }
+        if lowered && let Err(error) = priority::restore() {
+            eprintln!("{name}: could not restore worker priority: {error}");
         }
         queues = shared.lock();
     }

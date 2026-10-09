@@ -62,6 +62,35 @@ fn saturated_lighting_cannot_queue_ahead_of_mesh_or_decode() {
     assert!(completed, "lighting blocked another worker lane");
 }
 
+/// Light still runs below frame priority, but no lowered thread ever holds the queue lock the
+/// frame thread dispatches through, where a starved holder would stall the frame for seconds.
+#[cfg(windows)]
+#[test]
+fn lowered_workers_never_hold_the_queue_lock() {
+    const JOBS: usize = 64;
+    let pool = WorldPool::new(PoolSize {
+        foreground: 1,
+        background: 2,
+    });
+    let (done_tx, done_rx) = crossbeam_channel::unbounded();
+    for _ in 0..JOBS {
+        let done = done_tx.clone();
+        pool.spawn(Lane::Light, move || {
+            done.send(priority::is_lowered()).unwrap();
+        });
+    }
+    let lowered: Vec<bool> = (0..JOBS)
+        .map(|_| done_rx.recv_timeout(Duration::from_secs(5)).unwrap())
+        .collect();
+    assert!(lowered.iter().all(|lowered| *lowered), "{lowered:?}");
+    assert_eq!(
+        pool.shared
+            .lowered_locks
+            .load(std::sync::atomic::Ordering::Relaxed),
+        0
+    );
+}
+
 /// Pushes `queued` lanes at `queued_at` and drains them at `now` in worker order.
 fn take_order(background: bool, queued: &[Lane], queued_at: Instant, now: Instant) -> Vec<Lane> {
     let mut queues = Queues::default();

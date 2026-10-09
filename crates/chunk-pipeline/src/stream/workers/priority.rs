@@ -49,6 +49,27 @@ pub(super) fn lower() -> std::io::Result<()> {
     }
 }
 
+/// Returns a worker lowered by [`lower`] to normal priority, before it touches state the frame
+/// thread also locks.
+#[cfg(windows)]
+pub(super) fn restore() -> std::io::Result<()> {
+    use windows_sys::Win32::System::Threading::{
+        GetCurrentThread, SetThreadPriority, THREAD_PRIORITY_NORMAL,
+    };
+    // The pseudo-handle is valid for the current worker and must not be closed.
+    if unsafe { SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_NORMAL) } == 0 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
+/// Other targets keep background workers lowered for life; see [`super::LOWER_PER_JOB`].
+#[cfg(not(windows))]
+pub(super) fn restore() -> std::io::Result<()> {
+    Ok(())
+}
+
 /// Other targets retain queue isolation and bounded worker counts without an OS priority hint.
 #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
 pub(super) fn lower() -> std::io::Result<()> {
