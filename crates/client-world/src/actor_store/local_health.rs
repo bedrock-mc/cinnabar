@@ -6,13 +6,17 @@ use super::{ActorAttribute, ActorStore};
 pub const DEFAULT_PLAYER_HEALTH: f32 = 20.0;
 
 impl ActorStore {
-    /// Number of local health updates skipped for an invalid range or retained attribute capacity.
+    /// Number of local health updates skipped for an unusable value, range, or attribute capacity.
     pub fn local_health_skips(&self) -> u64 {
         self.local_health_skips
     }
 
     /// Applies SetHealth to the local actor, retaining it until the first pose when necessary.
     pub(crate) fn set_local_health(&mut self, runtime_id: u64, value: i32) {
+        let Ok(value) = u16::try_from(value) else {
+            self.skip_local_health();
+            return;
+        };
         let mut health = self
             .actors
             .get(&runtime_id)
@@ -31,7 +35,7 @@ impl ActorStore {
             self.skip_local_health();
             return;
         }
-        health.current = (value as f32).clamp(health.min, health.max);
+        health.current = f32::from(value).clamp(health.min, health.max);
         if let Some(actor) = self.actors.get_mut(&runtime_id) {
             self.pending_local_health = None;
             if actor.apply_attributes(&[health]) {

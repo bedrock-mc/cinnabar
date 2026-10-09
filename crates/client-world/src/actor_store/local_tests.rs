@@ -181,6 +181,26 @@ fn local_health_respects_retained_attribute_capacity_and_invalid_ranges() {
 }
 
 #[test]
+fn local_health_skips_values_rejected_by_the_hud_before_mutating_actor_or_pending_state() {
+    for has_pose in [false, true] {
+        let mut store = ActorStore::new(1, 0);
+        store.exclude_remote_state_for(1);
+        if has_pose {
+            store.sync_local_player(1, -1, &local_feed(0.0, 0.0));
+        }
+        store.set_local_health(1, 7);
+        for value in [-5, i32::MIN, i32::from(u16::MAX) + 1, i32::MAX] {
+            store.set_local_health(1, value);
+        }
+        store.sync_local_player(1, -1, &local_feed(0.0, 0.0));
+        let actor = store.get(1).unwrap();
+        assert!(!actor.status.dead);
+        assert_eq!(actor.attributes["minecraft:health"].current, 7.0);
+        assert_eq!(store.local_health_skips(), 4);
+    }
+}
+
+#[test]
 fn local_health_survives_dimension_actor_recreation() {
     let mut store = ActorStore::new(1, 0);
     store.exclude_remote_state_for(1);
@@ -192,9 +212,9 @@ fn local_health_survives_dimension_actor_recreation() {
         store.get(1).unwrap().attributes["minecraft:health"].current,
         7.0
     );
-    store.set_local_health(1, i32::MIN);
+    store.set_local_health(1, 0);
     assert!(store.get(1).unwrap().status.dead);
-    store.set_local_health(1, i32::MAX);
+    store.set_local_health(1, i32::from(u16::MAX));
     assert_eq!(
         store.get(1).unwrap().attributes["minecraft:health"].current,
         crate::DEFAULT_PLAYER_HEALTH
