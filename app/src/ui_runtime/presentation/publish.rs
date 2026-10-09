@@ -6,6 +6,7 @@ use client_ui::ui_runtime::inventory_ledger::PlayerInventorySlot;
 #[cfg(test)]
 mod camera_hand_tests;
 mod commit;
+mod cooldowns;
 mod loading;
 use client_ui::ui_runtime::presentation::{
     ItemIconFrames, PendingUiPublication, PreparedUiPublication, PreviewCapture, capture_hud_frame,
@@ -296,22 +297,13 @@ pub(crate) fn prepare_ui_runtime(
         now_millis,
         icon_frames,
     );
-    presentation.hud_frame_mut().hotbar_cooldowns = std::array::from_fn(|slot| {
-        let Some(stream) = client_world.stream.as_ref() else {
-            return 0.0;
-        };
-        let Some(cooldown) = runtime
-            .inventory_ledger(&player_runtime)
-            .displayed_stack(slot as u8)
-            .and_then(|stack| stream.authority().canonical_item_stack(stack))
-            .and_then(|item| item.identifier)
-            .and_then(|identifier| crate::item_use::classify(&identifier, false, 0, None))
-            .and_then(gameplay::item_use::AirUse::cooldown)
-        else {
-            return 0.0;
-        };
-        item_use.cooldown_progress(cooldown, movement.completed_tick())
-    });
+    presentation.hud_frame_mut().hotbar_cooldowns = cooldowns::hotbar_cooldowns(
+        &player_runtime,
+        &runtime,
+        client_world.stream.as_ref(),
+        &item_use,
+        movement.completed_tick(),
+    );
     // Floored feet position and absolute world tick for the HUD's position and days-played text.
     presentation.hud_frame_mut().player_block = local_frame.snapshot().map(|frame| {
         let feet = frame.pose().translation;
