@@ -296,6 +296,7 @@ use transparent::sort::{
     transparent_indirect_args, transparent_liquid_phase_groups, transparent_ref_buffer,
     transparent_ref_offset, transparent_snapshot_addresses_are_resident, view_displaces_water,
 };
+use transparent::visible_order::{VisibleWater, VisibleWaterOrder, each_visible_key};
 
 #[cfg(test)]
 mod tests;

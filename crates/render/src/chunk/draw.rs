@@ -558,7 +558,11 @@ pub(in crate::chunk) fn queue_transparent_chunks(
     texture_assets: Res<ChunkTextureAssets>,
     biome_tints: Res<ChunkBiomeTints>,
     mut mixed: ResMut<crate::chunk::transparent::mixed::MixedTerrainRuntime>,
-    mut unsorted: Local<UnsortedWaterDiagnostics>,
+    (arena, mut unsorted, mut water_order): (
+        Res<ChunkGpuArena>,
+        Local<UnsortedWaterDiagnostics>,
+        Local<VisibleWaterOrder>,
+    ),
     profiler: Option<Res<RuntimeStageProfiler>>,
 ) {
     use crate::chunk::transparent::mixed::DrawMixedTerrainCommands;
@@ -612,17 +616,16 @@ pub(in crate::chunk) fn queue_transparent_chunks(
                     biome_tints.table_identity(),
                 )
             {
-                water.push((
-                    allocation.key,
+                water.push(VisibleWater {
+                    key: allocation.key,
                     entity,
                     main,
-                    allocation.order_independent_liquid,
-                ));
+                    order_independent: allocation.order_independent_liquid,
+                });
             }
         }
-        // Equal phase distances keep insertion order, so add water in key order.
-        water.sort_unstable_by_key(|&(key, entity, ..)| (key, entity));
-        water.dedup_by_key(|&mut (key, ..)| key);
+        // Equal phase distances keep insertion order, so water enters in key order.
+        let water = water_order.update(water);
         // Displaced water can overlap itself even when flat, so such views sort all of it.
         let direct_order_independent = !view_displaces_water(enhanced.is_some());
         let mut merged = HashSet::new();
@@ -638,7 +641,13 @@ pub(in crate::chunk) fn queue_transparent_chunks(
             );
         }
         let camera = view.world_from_view.translation();
-        for (water_key, entity, main, order_independent) in water {
+        for VisibleWater {
+            key: water_key,
+            entity,
+            main,
+            order_independent,
+        } in each_visible_key(water, &arena.transparent_liquids)
+        {
             let Some(water_pipeline_id) = water_pipeline_id else {
                 break;
             };

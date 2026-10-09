@@ -7,3 +7,4 @@ pub(in crate::chunk) mod planar;
 pub(in crate::chunk) mod residents;
 pub(in crate::chunk) mod retirement;
 pub(in crate::chunk) mod sort;
+pub(in crate::chunk) mod visible_order;

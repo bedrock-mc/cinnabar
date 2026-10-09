@@ -1,8 +1,9 @@
 //! Turning the camera over water draws every newly visible sub-chunk in order at once.
-use super::transparent_strafe::{Fixture, fixture_with, is_shore};
+use super::transparent_strafe::{Fixture, fixture_with, is_shore, ocean_surface};
 use super::*;
 use bevy::{
     core_pipeline::core_3d::Transparent3d,
+    ecs::system::RunSystemOnce,
     render::render_phase::{DrawFunctions, ViewSortedRenderPhases},
 };
 
@@ -106,6 +107,68 @@ fn assert_drawn_in_order(fixture: &Fixture, camera: Vec3, forward: Vec3) {
             ),
         }
     }
+}
+
+/// When a reloaded sub-chunk is briefly visible under two entities, its water is drawn
+/// once, from the entity whose upload the resident index holds.
+#[test]
+fn a_duplicate_visible_key_draws_its_current_upload_once() {
+    let mut fixture = fixture_with(SHORE_PERIOD);
+    let camera = Vec3::new(8.5, 64.6, 8.5);
+    for _ in 0..4 {
+        fixture.frame_looking(camera, Vec3::Z);
+    }
+    let key = SubChunkKey::new(0, 1, 3, 1);
+    assert!(!is_shore(key, SHORE_PERIOD));
+    let older = fixture
+        .surfaces
+        .iter()
+        .find(|(_, surface)| *surface == key)
+        .unwrap()
+        .0;
+    fixture.spawn_surface(key, false);
+    let newer = fixture.surfaces.last().unwrap().0;
+    // Make the larger entity the current upload, so drawing the smaller one is wrong.
+    let current = if newer > older {
+        newer
+    } else {
+        let mut surface = ocean_surface(key, false);
+        surface.generation += 1;
+        let world = fixture.app.world_mut();
+        world.entity_mut(older).insert(surface);
+        while world.resource::<ChunkGpuArena>().allocations[&older]
+            .gpu
+            .generation
+            == 1
+        {
+            world.run_system_once(prepare_gpu_chunks).unwrap();
+        }
+        older
+    };
+    fixture.frame_looking(camera, Vec3::Z);
+    let world = fixture.app.world();
+    let resident = world
+        .resource::<ChunkGpuArena>()
+        .transparent_liquids
+        .get(key)
+        .unwrap()
+        .entity;
+    assert_eq!(resident, current);
+    let phase = world
+        .resource::<ViewSortedRenderPhases<Transparent3d>>()
+        .get(&fixture.retained)
+        .unwrap();
+    let drawn = phase
+        .items
+        .iter()
+        .map(|item| item.entity.0)
+        .filter(|&entity| {
+            world
+                .get::<GpuChunkAllocation>(entity)
+                .is_some_and(|allocation| allocation.key == key)
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(drawn, [current]);
 }
 
 /// The newest sort generation requested so far.
