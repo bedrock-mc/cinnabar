@@ -739,9 +739,9 @@ fn submit_form_id(app: &mut App, sequence: u64, form_id: u32) {
                 title: Some(Arc::from("Choose 世界")),
                 json: Arc::from("{}"),
                 model: ServerFormModel::TextMenu(TextMenuForm {
-                    title: Arc::from("Choose 世界"),
-                    content: Arc::from("Pick one"),
-                    buttons: vec![Arc::from("First ✓"), Arc::from("第二")].into(),
+                    title: "Choose 世界".into(),
+                    content: "Pick one".into(),
+                    buttons: vec!["First ✓".into(), "第二".into()].into(),
                     button_images: [].into(),
                     omitted_images: 0,
                 }),
