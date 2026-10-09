@@ -24,6 +24,7 @@ use crate::ui_runtime::UiRuntime;
 
 #[cfg(test)]
 mod hunger_control_tests;
+pub(super) mod prepared;
 #[cfg(test)]
 mod visibility_tests;
 
@@ -78,6 +79,9 @@ pub(super) struct CachedScreen {
     measures: json_ui::MeasureCache,
     /// Bind+layout passes run, for cache tests and profiling.
     pub(super) passes: usize,
+    /// Screens resolved on the frame rather than found prepared.
+    #[cfg(test)]
+    pub(super) resolves: usize,
 }
 
 struct ResolvedScreen {
@@ -192,7 +196,14 @@ impl CachedScreen {
                     && resolved.context == *context
             });
             if !current {
-                let tree = resolve(catalog, reference, context).control.map(Arc::new);
+                let found = prepared::find(catalog, reference, context);
+                let tree = found.unwrap_or_else(|| {
+                    #[cfg(test)]
+                    {
+                        self.resolves += 1;
+                    }
+                    resolve(catalog, reference, context).control.map(Arc::new)
+                });
                 self.resolved = Some(ResolvedScreen {
                     reference: reference.to_owned(),
                     catalog: Arc::clone(catalog),

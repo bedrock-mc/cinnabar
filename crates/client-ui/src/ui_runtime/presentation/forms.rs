@@ -240,6 +240,12 @@ impl UiPresentationRuntime {
             &pack.textures,
             pack.view.clone(),
             dynamic_textures::SERVER_UI_PAGES,
+        )
+        .with_preread(
+            pack.catalog
+                .as_ref()
+                .and_then(hud::prepared::take_textures)
+                .as_deref(),
         );
         bevy::log::info!(
             layers = pack.ui_layers.len(),
