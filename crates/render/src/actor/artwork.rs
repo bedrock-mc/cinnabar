@@ -24,8 +24,9 @@ pub const MAX_ACTOR_TEXTURE_PAGES: usize = ActorArtworkPageId::MAX as usize + 1;
 /// Layers per generic entity page, within every backend's array-layer limit.
 const MAX_ACTOR_PAGE_LAYERS: usize = 256;
 // Cinnabar declared RGBA allocation ceiling, not retail or measured driver memory: vanilla
-// startup art takes about 20 MiB. A page past it is downscaled to fit, never dropped.
-pub const MAX_ACTOR_GPU_PIXEL_BYTES: usize = 512 * 1024 * 1024;
+// startup art takes about 20 MiB. It covers full pack and equipment art; a page past it is
+// downscaled to fit, never dropped.
+pub const MAX_ACTOR_GPU_PIXEL_BYTES: usize = 2 * assets::MAX_ACTOR_PIXEL_BYTES;
 
 /// One equipment raster (item sprite or attachable texture) to place on a generic page.
 #[derive(Clone, Debug)]

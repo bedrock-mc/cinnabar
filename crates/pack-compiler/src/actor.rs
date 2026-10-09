@@ -603,4 +603,26 @@ mod tests {
         assert_eq!((textures[0].width, textures[0].height), (2, 1));
         assert_eq!(pixel_bytes, MAX_ACTOR_PIXEL_BYTES);
     }
+
+    // Past the budget the largest raster shrinks first; a small one is never starved.
+    #[test]
+    fn rasters_past_the_budget_halve_the_largest_first() {
+        let side = MAX_ACTOR_TEXTURE_SIDE;
+        let rasters = [(1, side, side), (2, 4096, 4096), (3, 16, 16)];
+        let halvings = plan_halvings(rasters);
+        let total: usize = rasters
+            .iter()
+            .map(|&(source, width, height)| {
+                let steps = halvings.get(&source).copied().unwrap_or(0);
+                let (mut width, mut height) = (width, height);
+                for _ in 0..steps {
+                    (width, height) = (width.div_ceil(2), height.div_ceil(2));
+                }
+                raster_bytes(width, height)
+            })
+            .sum();
+        assert!(total <= MAX_ACTOR_PIXEL_BYTES);
+        assert!(halvings.get(&1).copied().unwrap_or(0) > 0);
+        assert_eq!(halvings.get(&3), None);
+    }
 }

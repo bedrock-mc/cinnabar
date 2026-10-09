@@ -58,43 +58,22 @@ fn entity(name: &str, side: u32) -> Vec<(Box<str>, Vec<u8>)> {
 }
 
 #[test]
-fn an_oversized_texture_is_shrunk_so_every_entity_keeps_its_art() {
-    // 8192 x 8192 RGBA fills the whole pixel budget by itself.
-    let side = 8192;
-    assert_eq!(
-        side as usize * side as usize * 4,
-        assets::MAX_ACTOR_PIXEL_BYTES
-    );
-    let mut files = entity("a_billboard", side);
-    files.extend(entity("b_npc", 16));
+fn hundreds_of_megabytes_of_billboard_art_keep_full_resolution() {
+    // Five 4096 x 4096 billboards decode to 320 MiB, as large server hub art does.
+    let names = ["a", "b", "c", "d", "e"].map(|name| format!("billboard_{name}"));
+    let files = names
+        .iter()
+        .flat_map(|name| entity(name, 4096))
+        .collect::<Vec<_>>();
     let compiled = pack_compiler::compile_actor_pack(files)
         .unwrap()
-        .expect("both entities compile");
+        .expect("every billboard compiles");
 
-    for name in ["test:a_billboard", "test:b_npc"] {
-        assert!(
-            compiled.bindings.iter().any(|binding| {
-                let symbol = &compiled.entities.symbols[binding.entity_symbol as usize];
-                &*symbol.identifier == name
-            }),
-            "{name} has no artwork; fallbacks: {:?}",
-            compiled.fallbacks
-        );
+    assert!(compiled.fallbacks.is_empty(), "{:?}", compiled.fallbacks);
+    assert_eq!(compiled.textures.len(), names.len());
+    for texture in &compiled.textures {
+        assert_eq!((texture.width, texture.height), (4096, 4096));
     }
-    let total: usize = compiled
-        .textures
-        .iter()
-        .map(|texture| texture.rgba8.len())
-        .sum();
-    assert!(total <= assets::MAX_ACTOR_PIXEL_BYTES);
-    let small = compiled
-        .textures
-        .iter()
-        .find(|texture| (texture.width, texture.height) == (16, 16));
-    assert!(
-        small.is_some(),
-        "the small texture keeps its full resolution"
-    );
 }
 
 #[test]

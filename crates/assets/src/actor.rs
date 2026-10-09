@@ -24,8 +24,9 @@ pub const MAX_ACTOR_TEXTURE_SIDE: u16 = 16_384;
 // Engine safety ceilings, not retail constants.
 pub const MAX_ACTOR_TEXTURES: usize = 2048;
 pub const MAX_ACTOR_BINDINGS: usize = 4096;
-/// A server pack's entity art fits whole (Zeqa's is 47 MiB); past it rasters are halved.
-pub const MAX_ACTOR_PIXEL_BYTES: usize = 256 * 1024 * 1024;
+/// Server pack entity art loads at full resolution, as in Bedrock (Mineville's is about
+/// 340 MiB); only past it are the largest rasters halved.
+pub const MAX_ACTOR_PIXEL_BYTES: usize = 1024 * 1024 * 1024;
 pub const MAX_ACTOR_CARRIER_BYTES: usize = MAX_ACTOR_PIXEL_BYTES + 1024 * 1024;
 const MAX_ACTOR_MATERIAL_BYTES: usize = 128;
 const HEADER: usize = 128;
