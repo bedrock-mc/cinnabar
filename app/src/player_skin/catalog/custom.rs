@@ -98,6 +98,12 @@ pub(crate) fn import(
             if input.model == SkinModel::Slim {
                 hash.update(SkinModel::Slim.geometry().as_bytes());
             }
+            if input.model != SkinModel::Custom
+                && input.engine_version.as_ref() != protocol::DEFAULT_SKIN_GEOMETRY_ENGINE_VERSION
+            {
+                hash.update((input.engine_version.len() as u64).to_le_bytes());
+                hash.update(input.engine_version.as_bytes());
+            }
             let digest = format!("{:x}", hash.finalize());
             let id = format!("imported:{digest}");
             if let Some(index) = next.skins.iter().position(|entry| entry.id == id) {
@@ -176,7 +182,7 @@ pub(super) fn restore(
     layout: &InstallLayout,
     geometry: &ImportedGeometry,
 ) -> Result<Arc<protocol::SkinGeometrySource>, String> {
-    if !single_filename(&geometry.file) || !valid_engine_version(&geometry.engine_version) {
+    if !single_filename(&geometry.file) {
         return Err("The saved model path is invalid.".to_owned());
     }
     let bytes = read_bounded(
@@ -222,7 +228,7 @@ pub(super) fn alpha_model(
 }
 
 /// Saved engine versions contain exactly three bounded unsigned components.
-fn valid_engine_version(value: &str) -> bool {
+pub(super) fn valid_engine_version(value: &str) -> bool {
     let parts: Vec<_> = value.split('.').collect();
     parts.len() == 3
         && parts.iter().all(|part| {

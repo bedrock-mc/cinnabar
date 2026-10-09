@@ -47,6 +47,8 @@ struct Imported {
     name: String,
     file: String,
     model: SkinModel,
+    #[serde(default = "default_engine_version")]
+    engine_version: String,
     #[serde(default)]
     geometry: Option<ImportedGeometry>,
 }
@@ -55,7 +57,11 @@ struct Imported {
 struct ImportedGeometry {
     file: String,
     identifier: String,
-    engine_version: String,
+}
+
+/// Older PNG-only preferences retain the shared default engine version.
+fn default_engine_version() -> String {
+    protocol::DEFAULT_SKIN_GEOMETRY_ENGINE_VERSION.to_owned()
 }
 
 #[derive(Deserialize)]
@@ -124,7 +130,7 @@ pub(crate) fn load(layout: &InstallLayout, fallback: &LocalPlayerSkin) -> Dressi
         }
     }
     for entry in preferences.imported.into_iter().take(MAX_IMPORTED_ITEMS) {
-        if !single_filename(&entry.file) {
+        if !single_filename(&entry.file) || !custom::valid_engine_version(&entry.engine_version) {
             continue;
         }
         if (entry.model == SkinModel::Custom) != entry.geometry.is_some() {
@@ -152,13 +158,7 @@ pub(crate) fn load(layout: &InstallLayout, fallback: &LocalPlayerSkin) -> Dressi
         ) else {
             continue;
         };
-        let engine_version: Arc<str> = entry
-            .geometry
-            .as_ref()
-            .map_or(protocol::DEFAULT_SKIN_GEOMETRY_ENGINE_VERSION, |geometry| {
-                geometry.engine_version.as_str()
-            })
-            .into();
+        let engine_version: Arc<str> = entry.engine_version.into();
         skin.geometry = geometry;
         skins.push(DressingRoomSkin {
             id: entry.id,
@@ -277,6 +277,7 @@ fn save(layout: &InstallLayout, view: &DressingRoomView) -> Result<(), String> {
                 id: entry.id.clone(),
                 name: entry.name.clone(),
                 model: entry.model,
+                engine_version: entry.engine_version.to_string(),
                 geometry: (entry.model == SkinModel::Custom).then(|| ImportedGeometry {
                     file: Path::new(&entry.path)
                         .with_extension("json")
@@ -290,7 +291,6 @@ fn save(layout: &InstallLayout, view: &DressingRoomView) -> Result<(), String> {
                         .as_ref()
                         .and_then(|geometry| assets::skin_geometry_name(&geometry.resource_patch))
                         .unwrap_or_default(),
-                    engine_version: entry.engine_version.to_string(),
                 }),
                 file: Path::new(&entry.path)
                     .file_name()

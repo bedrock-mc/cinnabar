@@ -484,7 +484,7 @@ fn saved_custom_entries_with_missing_model_metadata_or_invalid_engine_versions_a
     import(&layout, &mut view, &source).unwrap();
     let mut preferences: serde_json::Value =
         serde_json::from_slice(&fs::read(layout.skin_selection_file()).unwrap()).unwrap();
-    preferences["imported"][0]["geometry"]["engine_version"] = "invalid".into();
+    preferences["imported"][0]["engine_version"] = "invalid".into();
     fs::write(layout.skin_selection_file(), preferences.to_string()).unwrap();
     assert!(
         load(&layout, &local)
@@ -541,5 +541,103 @@ fn saved_custom_models_without_drawable_geometry_are_skipped() {
             .skins
             .iter()
             .all(|entry| !entry.imported)
+    );
+}
+
+/// Builds an original static pack with a built-in model and an explicit minimum engine version.
+fn built_in_skin_pack(path: &Path, model: SkinModel, version: [u16; 3]) {
+    use std::io::Write;
+    let manifest = serde_json::json!({"modules":[{"type":"skin_pack"}],
+        "header":{"min_engine_version":version}})
+    .to_string();
+    let catalog = serde_json::json!({"skins":[{"localization_name":"Built-in",
+        "texture":"skin.png","geometry":model.geometry(),"type":"free"}]})
+    .to_string();
+    let mut png = Cursor::new(Vec::new());
+    image::RgbaImage::from_pixel(
+        protocol::CLASSIC_SKIN_SIDE as u32,
+        protocol::CLASSIC_SKIN_SIDE as u32,
+        image::Rgba([20, 160, 230, 255]),
+    )
+    .write_to(&mut png, image::ImageFormat::Png)
+    .unwrap();
+    let mut zip = zip::ZipWriter::new(fs::File::create(path).unwrap());
+    for (name, bytes) in [
+        ("manifest.json", manifest.as_bytes()),
+        ("skins.json", catalog.as_bytes()),
+        ("skin.png", png.get_ref().as_slice()),
+    ] {
+        zip.start_file(name, zip::write::SimpleFileOptions::default())
+            .unwrap();
+        zip.write_all(bytes).unwrap();
+    }
+    zip.finish().unwrap();
+}
+
+#[test]
+fn built_in_pack_engine_version_survives_restart() {
+    for model in [SkinModel::Classic, SkinModel::Slim] {
+        let layout = layout();
+        native_fixture(&layout);
+        let local = LocalPlayerSkin::generated_default("fixture");
+        let mut view = load(&layout, &local);
+        let source = layout.user_data_root.join("built-in.mcpack");
+        built_in_skin_pack(&source, model, [1, 21, 0]);
+        import(&layout, &mut view, &source).unwrap();
+        let selected = view.selected_skin().unwrap();
+        assert_eq!(selected.model, model);
+        assert_eq!(selected.engine_version.as_ref(), "1.21.0");
+        fs::remove_file(source).unwrap();
+        let restored = LocalPlayerSkin::load(&layout, "fixture");
+        assert_eq!(restored.model(), model);
+        assert_eq!(restored.engine_version.as_ref(), "1.21.0");
+        assert_eq!(
+            restored.to_client_skin().geometry.unwrap().engine_version,
+            "1.21.0"
+        );
+    }
+}
+
+#[test]
+fn built_in_pack_import_retains_distinct_engine_versions() {
+    let layout = layout();
+    native_fixture(&layout);
+    let local = LocalPlayerSkin::generated_default("fixture");
+    let mut view = load(&layout, &local);
+    let source = layout.user_data_root.join("built-in.mcpack");
+    let mut ids = Vec::new();
+    for (version, expected) in [([1, 21, 0], "1.21.0"), ([1, 22, 0], "1.22.0")] {
+        built_in_skin_pack(&source, SkinModel::Classic, version);
+        import(&layout, &mut view, &source).unwrap();
+        let selected = view.selected_skin().unwrap();
+        assert_eq!(selected.engine_version.as_ref(), expected);
+        ids.push(selected.id.clone());
+    }
+    assert_ne!(ids[0], ids[1]);
+}
+
+#[test]
+fn legacy_png_preferences_restore_without_engine_metadata() {
+    let layout = layout();
+    native_fixture(&layout);
+    let local = LocalPlayerSkin::generated_default("fixture");
+    let mut view = load(&layout, &local);
+    let source = layout.user_data_root.join("old.png");
+    png(&source, [10, 20, 30, 255]);
+    import(&layout, &mut view, &source).unwrap();
+    let selected = view.selected_skin().unwrap().skin.clone();
+    let path = layout.skin_selection_file();
+    let mut preferences: serde_json::Value =
+        serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    preferences["imported"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("engine_version");
+    fs::write(path, preferences.to_string()).unwrap();
+    let restored = LocalPlayerSkin::load(&layout, "fixture");
+    assert_eq!(restored.standard_skin(), selected);
+    assert_eq!(
+        restored.engine_version.as_ref(),
+        protocol::DEFAULT_SKIN_GEOMETRY_ENGINE_VERSION
     );
 }
