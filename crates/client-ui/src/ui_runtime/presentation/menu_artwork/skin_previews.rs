@@ -186,6 +186,7 @@ mod tests {
         view.player_skin = Some(skin.clone());
         view.dressing_room = std::sync::Arc::new(DressingRoomView {
             skins: vec![DressingRoomSkin {
+                engine_version: protocol::DEFAULT_SKIN_GEOMETRY_ENGINE_VERSION.into(),
                 id: "skin".into(),
                 name: "Skin".into(),
                 path: String::new(),
@@ -238,6 +239,7 @@ mod tests {
         view.dressing_room = std::sync::Arc::new(DressingRoomView {
             skins: (0..100)
                 .map(|index| DressingRoomSkin {
+                    engine_version: protocol::DEFAULT_SKIN_GEOMETRY_ENGINE_VERSION.into(),
                     id: format!("skin-{index}"),
                     name: format!("Skin {index}"),
                     skin: source.clone(),
@@ -305,6 +307,7 @@ mod tests {
         view.screen = MenuScreen::DressingRoom;
         view.dressing_room = std::sync::Arc::new(DressingRoomView {
             skins: vec![DressingRoomSkin {
+                engine_version: protocol::DEFAULT_SKIN_GEOMETRY_ENGINE_VERSION.into(),
                 id: "restored".into(),
                 name: "Skin".into(),
                 path: String::new(),

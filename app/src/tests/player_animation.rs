@@ -1112,3 +1112,87 @@ fn persona_face_blinks_with_the_pinned_runtime_controller() {
     }
     assert!(opened && closed, "face must publish both blink frames");
 }
+
+#[test]
+fn selected_custom_local_model_shares_preparation_in_first_and_third_person() {
+    let entities = entities();
+    let mut world = stream(Arc::clone(&entities));
+    let model = serde_json::json!({"format_version":"1.12.0","minecraft:geometry":[{
+        "description":{"identifier":"geometry.local.fixture","texture_width":64,"texture_height":64},
+        "bones":[
+            {"name":"root"},
+            {"name":"body","parent":"root","cubes":[{"origin":[-12,0,-4],"size":[24,8,8],"uv":[0,0]}]},
+            {"name":"rightArm","parent":"body","pivot":[-12,8,0],"cubes":[{"origin":[-20,0,-2],"size":[8,8,4],"uv":[0,20]}]}
+        ]
+    }]}).to_string();
+    let geometry = launcher::skin_import::parse_skin_geometry(model.as_bytes(), None).unwrap();
+    let skin = StandardSkin {
+        width: protocol::CLASSIC_SKIN_SIDE as u32,
+        height: protocol::CLASSIC_SKIN_SIDE as u32,
+        rgba8: vec![200; protocol::CLASSIC_SKIN_SIDE * protocol::CLASSIC_SKIN_SIDE * 4].into(),
+        cape: None,
+        geometry: Some(geometry.clone()),
+    };
+    let mut local = crate::player_skin::LocalPlayerSkin::generated_default("fixture");
+    local.set_selection(&skin, launcher::dressing_room::SkinModel::Custom);
+    assert_eq!(
+        local.to_client_skin().geometry.unwrap().geometry_data,
+        model
+    );
+    world
+        .submit(
+            1,
+            player_list_with(
+                200,
+                None,
+                Some((&geometry.resource_patch, &geometry.geometry_data)),
+            ),
+        )
+        .unwrap();
+    world.submit(2, spawn_player()).unwrap();
+    let mut feed = LocalPlayerFeed {
+        skin: local.player_skin(),
+        ..local_feed(None)
+    };
+    for first_person in [false, true] {
+        feed.first_person = first_person;
+        world.sync_local_player_pose(&feed);
+        world.prepare_actor_appearance_fixture();
+        world.advance_actor_interpolation_ticks(1);
+        let local = world.authority().actor_rig(1).unwrap();
+        let remote = world.authority().actor_rig(42).unwrap();
+        assert_eq!(
+            &*local.skin_geometry.unwrap().identifier,
+            "geometry.local.fixture"
+        );
+        assert!(
+            local
+                .bone_names
+                .iter()
+                .any(|name| name.eq_ignore_ascii_case("rightArm"))
+        );
+        assert!(
+            Arc::ptr_eq(local.skin_geometry.unwrap(), remote.skin_geometry.unwrap()),
+            "both camera modes reuse the remote worker's model cache"
+        );
+        assert!(Arc::ptr_eq(
+            &local.skin_mesh.unwrap().vertices,
+            &remote.skin_mesh.unwrap().vertices
+        ));
+        let mut cache = crate::presentation::skin_rig::SkinRigCache::default();
+        cache.begin_frame();
+        let mut registered = Vec::new();
+        let local_id = cache
+            .rig(local.skin_geometry.unwrap(), local.skin_mesh, |mesh| {
+                registered.push(mesh)
+            })
+            .unwrap();
+        let remote_id = cache
+            .rig(remote.skin_geometry.unwrap(), remote.skin_mesh, |mesh| {
+                registered.push(mesh)
+            })
+            .unwrap();
+        assert_eq!(local_id, remote_id);
+        assert_eq!(registered.len(), 1);
+    }
+}

@@ -30,8 +30,8 @@ shared-codec and Jolyne transport hardening.
 
 ## Local source patches
 
-Jolyne's classic-skin login resource patch selects the slim geometry when the supplied
-upload has slim arms, keeping reconnects consistent with the selected local model.
+Jolyne's login retains client-authored geometry, resource patches and minimum engine
+versions. Uploads without explicit geometry select the classic or slim resource patch.
 
 `DisconnectPacket` is hand-patched after generation to read
 `hide_disconnection_screen` and skip both message strings when it is set, as

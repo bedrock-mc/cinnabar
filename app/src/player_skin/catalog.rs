@@ -1,4 +1,4 @@
-//! Runtime classic skin catalog and private imported-image persistence.
+//! Runtime skin catalog and private imported-image and model persistence.
 
 use super::*;
 use launcher::dressing_room::{DressingRoomSkin, DressingRoomView, SkinModel};
@@ -7,11 +7,13 @@ use std::fs;
 use std::io::{Cursor, Read};
 use std::path::{Component, PathBuf};
 
-const MAX_PNG_BYTES: u64 = 4 * 1024 * 1024;
-const MAX_IMPORTED_ITEMS: usize = 256;
+const MAX_PNG_BYTES: u64 = resource_pack::MAX_PACK_TEXTURE_BYTES;
+const MAX_IMPORTED_ITEMS: usize = launcher::skin_import::MAX_IMPORTED_SKINS;
 const MAX_PREFERENCES_BYTES: u64 = 1024 * 1024;
 
 mod capes;
+mod custom;
+pub(crate) use custom::import;
 mod default_capes;
 mod default_capes_loader;
 mod edits;
@@ -45,6 +47,15 @@ struct Imported {
     name: String,
     file: String,
     model: SkinModel,
+    #[serde(default)]
+    geometry: Option<ImportedGeometry>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ImportedGeometry {
+    file: String,
+    identifier: String,
+    engine_version: String,
 }
 
 #[derive(Deserialize)]
@@ -107,6 +118,7 @@ pub(crate) fn load(layout: &InstallLayout, fallback: &LocalPlayerSkin) -> Dressi
                 path: path.to_string_lossy().into_owned(),
                 imported: false,
                 model,
+                engine_version: protocol::DEFAULT_SKIN_GEOMETRY_ENGINE_VERSION.into(),
                 skin,
             });
         }
@@ -115,15 +127,38 @@ pub(crate) fn load(layout: &InstallLayout, fallback: &LocalPlayerSkin) -> Dressi
         if !single_filename(&entry.file) {
             continue;
         }
+        if (entry.model == SkinModel::Custom) != entry.geometry.is_some() {
+            continue;
+        }
+        let geometry = if let Some(geometry) = &entry.geometry {
+            match custom::restore(layout, geometry) {
+                Ok(source) => Some(source),
+                Err(_) => continue,
+            }
+        } else {
+            match geometries.as_ref() {
+                Some(catalog) => Some(catalog[usize::from(entry.model == SkinModel::Slim)].clone()),
+                None if entry.model == SkinModel::Classic => None,
+                None => continue,
+            }
+        };
         let path = layout.dressing_room_dir().join(&entry.file);
-        let Ok(mut skin) = read_png(&path) else {
+        let Ok(bytes) = png_bytes(&path) else {
             continue;
         };
-        let geometry = match geometries.as_ref() {
-            Some(catalog) => Some(catalog[usize::from(entry.model == SkinModel::Slim)].clone()),
-            None if entry.model == SkinModel::Classic => None,
-            None => continue,
+        let Ok(mut skin) = decode_png_with_model(
+            &bytes,
+            custom::alpha_model(entry.model, geometry.as_deref()),
+        ) else {
+            continue;
         };
+        let engine_version: Arc<str> = entry
+            .geometry
+            .as_ref()
+            .map_or(protocol::DEFAULT_SKIN_GEOMETRY_ENGINE_VERSION, |geometry| {
+                geometry.engine_version.as_str()
+            })
+            .into();
         skin.geometry = geometry;
         skins.push(DressingRoomSkin {
             id: entry.id,
@@ -131,6 +166,7 @@ pub(crate) fn load(layout: &InstallLayout, fallback: &LocalPlayerSkin) -> Dressi
             path: path.to_string_lossy().into_owned(),
             imported: true,
             model: entry.model,
+            engine_version,
             skin,
         });
     }
@@ -165,6 +201,7 @@ pub(crate) fn load(layout: &InstallLayout, fallback: &LocalPlayerSkin) -> Dressi
             path: layout.player_skin_asset().to_string_lossy().into_owned(),
             imported: false,
             model: fallback.model(),
+            engine_version: fallback.engine_version.clone(),
             skin: fallback.standard_skin(),
         });
         Some(skins.len() - 1)
@@ -201,52 +238,6 @@ pub(crate) fn select(
     Ok(())
 }
 
-pub(crate) fn import(
-    layout: &InstallLayout,
-    view: &mut DressingRoomView,
-    source: &Path,
-) -> Result<(), String> {
-    let bytes = png_bytes(source)?;
-    let mut skin = decode_png(&bytes)?;
-    skin.geometry = geometry_for_view(layout, view, SkinModel::Classic)?;
-    let digest = Sha256::digest(&bytes);
-    let id = format!("imported:{digest:x}");
-    if let Some(index) = view.skins.iter().position(|entry| entry.id == id) {
-        return select(layout, view, index);
-    }
-    if view.skins.iter().filter(|entry| entry.imported).count() >= MAX_IMPORTED_ITEMS {
-        return Err(format!(
-            "The skin library already contains {MAX_IMPORTED_ITEMS} imported skins."
-        ));
-    }
-    let file = format!("{digest:x}.png");
-    fs::create_dir_all(layout.dressing_room_dir()).map_err(|error| error.to_string())?;
-    let path = layout.dressing_room_dir().join(file);
-    fs::write(&path, bytes).map_err(|error| error.to_string())?;
-    let entry = DressingRoomSkin {
-        id,
-        name: source
-            .file_stem()
-            .and_then(|name| name.to_str())
-            .unwrap_or("Imported skin")
-            .to_owned(),
-        path: path.to_string_lossy().into_owned(),
-        imported: true,
-        model: SkinModel::Classic,
-        skin,
-    };
-    let old = view.clone();
-    let mut skins = view.skins.to_vec();
-    skins.push(entry);
-    view.selected = Some(skins.len() - 1);
-    view.skins = skins.into();
-    if let Err(error) = save(layout, view) {
-        *view = old;
-        return Err(error);
-    }
-    Ok(())
-}
-
 pub(crate) fn set_model(
     layout: &InstallLayout,
     view: &mut DressingRoomView,
@@ -257,6 +248,9 @@ pub(crate) fn set_model(
     let entry = skins
         .get_mut(index)
         .ok_or("This skin is no longer available.")?;
+    if entry.model == SkinModel::Custom || model == SkinModel::Custom {
+        return Err("Custom models keep their authored geometry.".to_owned());
+    }
     if !entry.imported {
         return Err("Default skins keep their original model.".to_owned());
     }
@@ -283,6 +277,21 @@ fn save(layout: &InstallLayout, view: &DressingRoomView) -> Result<(), String> {
                 id: entry.id.clone(),
                 name: entry.name.clone(),
                 model: entry.model,
+                geometry: (entry.model == SkinModel::Custom).then(|| ImportedGeometry {
+                    file: Path::new(&entry.path)
+                        .with_extension("json")
+                        .file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .into_owned(),
+                    identifier: entry
+                        .skin
+                        .geometry
+                        .as_ref()
+                        .and_then(|geometry| assets::skin_geometry_name(&geometry.resource_patch))
+                        .unwrap_or_default(),
+                    engine_version: entry.engine_version.to_string(),
+                }),
                 file: Path::new(&entry.path)
                     .file_name()
                     .unwrap_or_default()
@@ -359,7 +368,7 @@ fn geometry_for_view(
     if let Some(source) = view
         .skins
         .iter()
-        .find(|entry| entry.model == model)
+        .find(|entry| entry.model == model && entry.model != SkinModel::Custom)
         .and_then(|entry| entry.skin.geometry.as_ref())
     {
         return Ok(Some(source.clone()));
@@ -437,7 +446,13 @@ fn read_png(path: &Path) -> Result<protocol::StandardSkin, String> {
     decode_png(&png_bytes(path)?)
 }
 
+/// Decodes a classic skin with the native image and alpha contract.
 fn decode_png(bytes: &[u8]) -> Result<protocol::StandardSkin, String> {
+    decode_png_with_model(bytes, SkinModel::Classic)
+}
+
+/// Decodes supported native image sizes without adding classic body coverage to custom models.
+fn decode_png_with_model(bytes: &[u8], model: SkinModel) -> Result<protocol::StandardSkin, String> {
     let mut reader = image::ImageReader::with_format(Cursor::new(bytes), image::ImageFormat::Png);
     let mut limits = image::Limits::default();
     limits.max_image_width = Some(protocol::MAX_CLASSIC_SKIN_SIDE as u32);
@@ -457,12 +472,17 @@ fn decode_png(bytes: &[u8]) -> Result<protocol::StandardSkin, String> {
         ));
     }
     let mut pixels = rgba.into_raw();
-    if height.checked_mul(2) == Some(width) {
+    let legacy =
+        width as usize == protocol::CLASSIC_SKIN_SIDE && height.checked_mul(2) == Some(width);
+    if legacy {
         pixels = protocol::expand_legacy_skin_rgba8(&pixels, width as usize);
     }
-    if (height != width && height.checked_mul(2) != Some(width))
-        || !protocol::normalize_classic_skin_rgba8(width, width, &mut pixels)
-    {
+    let normalize = if model == SkinModel::Custom {
+        protocol::normalize_custom_skin_rgba8
+    } else {
+        protocol::normalize_classic_skin_rgba8
+    };
+    if (height != width && !legacy) || !normalize(width, width, &mut pixels) {
         return Err(format!(
             "Unsupported skin dimensions {width}×{height}. Choose a classic skin PNG."
         ));

@@ -295,3 +295,251 @@ fn imported_skin_capacity_never_acknowledges_an_unrestorable_selection() {
         "an existing import can still be selected"
     );
 }
+
+#[test]
+fn importing_a_skin_with_geometry_keeps_the_custom_model_across_restarts() {
+    let layout = layout();
+    native_fixture(&layout);
+    let local = LocalPlayerSkin::generated_default("fixture");
+    let mut view = load(&layout, &local);
+    let source = layout.user_data_root.join("custom.png");
+    png(&source, [20, 160, 230, 255]);
+    let name = "geometry.import.fixture";
+    let data = serde_json::json!({
+        "format_version":"1.12.0",
+        "minecraft:geometry":[{
+            "description":{"identifier":name,"texture_width":64,"texture_height":64},
+            "bones":[{"name":"body","cubes":[{"origin":[-12,0,-4],"size":[24,8,8],"uv":[0,0]}]}]
+        }]
+    });
+    fs::write(source.with_extension("json"), data.to_string()).unwrap();
+    import(&layout, &mut view, &source).unwrap();
+    let selected = view.selected_skin().unwrap();
+    assert_eq!(
+        assets::skin_geometry_name(&selected.skin.geometry.as_ref().unwrap().resource_patch)
+            .as_deref(),
+        Some(name)
+    );
+    let restored = load(&layout, &local);
+    assert_eq!(
+        restored.selected_skin().unwrap().skin.geometry,
+        selected.skin.geometry
+    );
+}
+
+#[test]
+fn invalid_loose_geometry_does_not_replace_the_selection_or_preferences() {
+    let layout = layout();
+    native_fixture(&layout);
+    let local = LocalPlayerSkin::generated_default("fixture");
+    let mut view = load(&layout, &local);
+    select(&layout, &mut view, 0).unwrap();
+    let before = fs::read(layout.skin_selection_file()).unwrap();
+    let source = layout.user_data_root.join("broken.png");
+    png(&source, [20, 160, 230, 255]);
+    fs::write(source.with_extension("json"), b"{broken").unwrap();
+    assert!(import(&layout, &mut view, &source).is_err());
+    assert_eq!(view.selected, Some(0));
+    assert_eq!(fs::read(layout.skin_selection_file()).unwrap(), before);
+}
+
+#[test]
+fn native_import_sizes_exclude_128_by_64_and_custom_alpha_preserves_transparency() {
+    let mut bytes = Cursor::new(Vec::new());
+    image::RgbaImage::new(
+        protocol::MAX_CLASSIC_SKIN_SIDE as u32,
+        protocol::CLASSIC_SKIN_SIDE as u32,
+    )
+    .write_to(&mut bytes, image::ImageFormat::Png)
+    .unwrap();
+    assert!(decode_png_with_model(bytes.get_ref(), SkinModel::Classic).is_err());
+    assert!(decode_png_with_model(bytes.get_ref(), SkinModel::Custom).is_err());
+    let mut bytes = Cursor::new(Vec::new());
+    image::RgbaImage::from_pixel(
+        protocol::CLASSIC_SKIN_SIDE as u32,
+        protocol::CLASSIC_SKIN_SIDE as u32,
+        image::Rgba([10, 20, 30, 0]),
+    )
+    .write_to(&mut bytes, image::ImageFormat::Png)
+    .unwrap();
+    let skin = decode_png_with_model(bytes.get_ref(), SkinModel::Custom).unwrap();
+    assert!(skin.rgba8.chunks_exact(4).all(|pixel| pixel[3] == 0));
+}
+
+/// Builds an original two-entry skin pack, with an optional broken second texture.
+fn skin_pack(path: &Path, broken_second: bool) {
+    use std::io::Write;
+    let name = "geometry.pack.fixture";
+    let geometry = serde_json::json!({"format_version":"1.12.0","minecraft:geometry":[{
+        "description":{"identifier":name,"texture_width":64,"texture_height":64},
+        "bones":[{"name":"body","cubes":[{"origin":[-12,0,-4],"size":[24,8,8],"uv":[0,0]}]}]
+    }]})
+    .to_string();
+    let catalog = serde_json::json!({"skins":[
+        {"localization_name":"First","texture":"first.png","geometry":name,"type":"free"},
+        {"localization_name":"Second","texture":"second.png","geometry":name,"type":"free"}
+    ]})
+    .to_string();
+    let manifest = serde_json::json!({"modules":[{"type":"skin_pack"}],"header":{"min_engine_version":[1,21,0]}}).to_string();
+    let mut png = Cursor::new(Vec::new());
+    image::RgbaImage::from_pixel(64, 64, image::Rgba([20, 160, 230, 255]))
+        .write_to(&mut png, image::ImageFormat::Png)
+        .unwrap();
+    let mut zip = zip::ZipWriter::new(fs::File::create(path).unwrap());
+    for (name, bytes) in [
+        ("manifest.json", manifest.as_bytes()),
+        ("skins.json", catalog.as_bytes()),
+        ("geometry.json", geometry.as_bytes()),
+        ("first.png", png.get_ref().as_slice()),
+        (
+            "second.png",
+            if broken_second {
+                b"broken".as_slice()
+            } else {
+                png.get_ref().as_slice()
+            },
+        ),
+    ] {
+        zip.start_file(name, zip::write::SimpleFileOptions::default())
+            .unwrap();
+        zip.write_all(bytes).unwrap();
+    }
+    zip.finish().unwrap();
+}
+
+#[test]
+fn pack_import_keeps_custom_model_and_engine_version_for_startup_login_and_deletion() {
+    let layout = layout();
+    native_fixture(&layout);
+    let local = LocalPlayerSkin::generated_default("fixture");
+    let mut view = load(&layout, &local);
+    let source = layout.user_data_root.join("fixture.mcpack");
+    skin_pack(&source, false);
+    import(&layout, &mut view, &source).unwrap();
+    let selected = view.selected_skin().unwrap().clone();
+    assert_eq!(selected.model, SkinModel::Custom);
+    assert_eq!(selected.engine_version.as_ref(), "1.21.0");
+    assert!(set_model(&layout, &mut view, SkinModel::Slim).is_err());
+    fs::remove_file(source).unwrap();
+    let restored = LocalPlayerSkin::load(&layout, "fixture");
+    assert_eq!(restored.model(), SkinModel::Custom);
+    assert_eq!(restored.standard_skin(), selected.skin);
+    let upload = restored.to_client_skin();
+    let geometry = upload.geometry.unwrap();
+    assert_eq!(geometry.engine_version, selected.engine_version.as_ref());
+    assert_eq!(
+        geometry.geometry_data,
+        selected
+            .skin
+            .geometry
+            .as_ref()
+            .unwrap()
+            .geometry_data
+            .as_ref()
+    );
+    assert_eq!(
+        geometry.resource_patch,
+        selected
+            .skin
+            .geometry
+            .as_ref()
+            .unwrap()
+            .resource_patch
+            .as_ref()
+    );
+    let index = view.selected.unwrap();
+    delete(&layout, &mut view, index).unwrap();
+    assert!(!Path::new(&selected.path).exists());
+    assert!(!Path::new(&selected.path).with_extension("json").exists());
+}
+
+#[test]
+fn a_bad_pack_member_rolls_back_all_new_files_and_preserves_existing_imports() {
+    let layout = layout();
+    native_fixture(&layout);
+    let local = LocalPlayerSkin::generated_default("fixture");
+    let mut view = load(&layout, &local);
+    let source = layout.user_data_root.join("old.png");
+    png(&source, [180, 50, 80, 255]);
+    import(&layout, &mut view, &source).unwrap();
+    let before = view.clone();
+    let preferences = fs::read(layout.skin_selection_file()).unwrap();
+    let source = layout.user_data_root.join("broken.mcpack");
+    skin_pack(&source, true);
+    assert!(import(&layout, &mut view, &source).is_err());
+    assert_eq!(view, before);
+    assert_eq!(fs::read(layout.skin_selection_file()).unwrap(), preferences);
+    assert_eq!(fs::read_dir(layout.dressing_room_dir()).unwrap().count(), 1);
+    assert!(Path::new(&before.selected_skin().unwrap().path).exists());
+}
+
+#[test]
+fn saved_custom_entries_with_missing_model_metadata_or_invalid_engine_versions_are_skipped() {
+    let layout = layout();
+    native_fixture(&layout);
+    let local = LocalPlayerSkin::generated_default("fixture");
+    let mut view = load(&layout, &local);
+    let source = layout.user_data_root.join("fixture.mcpack");
+    skin_pack(&source, false);
+    import(&layout, &mut view, &source).unwrap();
+    let mut preferences: serde_json::Value =
+        serde_json::from_slice(&fs::read(layout.skin_selection_file()).unwrap()).unwrap();
+    preferences["imported"][0]["geometry"]["engine_version"] = "invalid".into();
+    fs::write(layout.skin_selection_file(), preferences.to_string()).unwrap();
+    assert!(
+        load(&layout, &local)
+            .skins
+            .iter()
+            .all(|entry| !entry.imported)
+    );
+    preferences["imported"][0]["geometry"] = serde_json::Value::Null;
+    fs::write(layout.skin_selection_file(), preferences.to_string()).unwrap();
+    assert!(
+        load(&layout, &local)
+            .skins
+            .iter()
+            .all(|entry| !entry.imported)
+    );
+}
+
+#[test]
+fn custom_models_without_a_renderable_mesh_do_not_replace_the_selection() {
+    let layout = layout();
+    native_fixture(&layout);
+    let local = LocalPlayerSkin::generated_default("fixture");
+    let mut view = load(&layout, &local);
+    select(&layout, &mut view, 0).unwrap();
+    let before = fs::read(layout.skin_selection_file()).unwrap();
+    let source = layout.user_data_root.join("hidden.png");
+    png(&source, [20, 160, 230, 255]);
+    let geometry = serde_json::json!({"format_version":"1.12.0","minecraft:geometry":[{
+        "description":{"identifier":"geometry.hidden.fixture","texture_width":64,"texture_height":64},
+        "bones":[{"name":"body","neverRender":true,"cubes":[{"origin":[0,0,0],"size":[8,8,8],"uv":[0,0]}]}]
+    }]}).to_string();
+    fs::write(source.with_extension("json"), geometry).unwrap();
+    assert!(import(&layout, &mut view, &source).is_err());
+    assert_eq!(view.selected, Some(0));
+    assert_eq!(fs::read(layout.skin_selection_file()).unwrap(), before);
+}
+
+#[test]
+fn saved_custom_models_without_drawable_geometry_are_skipped() {
+    let layout = layout();
+    native_fixture(&layout);
+    let local = LocalPlayerSkin::generated_default("fixture");
+    let mut view = load(&layout, &local);
+    let source = layout.user_data_root.join("fixture.mcpack");
+    skin_pack(&source, false);
+    import(&layout, &mut view, &source).unwrap();
+    let model_file = Path::new(&view.selected_skin().unwrap().path).with_extension("json");
+    let mut geometry: serde_json::Value =
+        serde_json::from_slice(&fs::read(&model_file).unwrap()).unwrap();
+    geometry["minecraft:geometry"][0]["bones"][0]["neverRender"] = true.into();
+    fs::write(model_file, geometry.to_string()).unwrap();
+    assert!(
+        load(&layout, &local)
+            .skins
+            .iter()
+            .all(|entry| !entry.imported)
+    );
+}

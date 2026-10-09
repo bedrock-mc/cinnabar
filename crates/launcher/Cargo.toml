@@ -16,4 +16,5 @@ ui = { path = "../ui" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2.workspace = true
+zip = { version = "7", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 thiserror.workspace = true

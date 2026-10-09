@@ -53,7 +53,7 @@
 - Dragonfly passive animal simulation and natural population remain unsupported and incomplete.
   Stored unsupported actors are preserved without becoming live entities. Mob parity and
   performance gates remain open.
-- Dressing Room persists classic/slim skins and independent capes, imports and item edits. Home
+- Dressing Room persists classic/slim and static custom-geometry skins, independent capes, imports and item edits. Home
   and Pause previews support rotation and pointer tracking. Cape attachment uses its own shoulders.
 - Cropped cape imports pad the 46×22 layout at supported texture scales with transparent pixels,
   preserving texels and private source files. This custom import extension leaves native cape
@@ -6797,3 +6797,17 @@ Incomplete parity: exact target-version animation constants,
 respawn retries, death camera/FOV, hurt and HUD flash timing, hardcore and secondary
 client variants, and matched native frames remain open. The modern implementation
 and its focused regressions do not close the full death-screen parity gate.
+
+### Local custom models (incomplete parity acceptance, 2026-10-09)
+
+The Dressing Room imports paired PNG/geometry JSON and free static skin packs.
+It retains authored geometry and the minimum engine version across restarts and
+sends them in login and skin updates. Custom models keep their authored shape;
+rename and delete remain available. Preview preparation runs on a worker, while
+local world presentation uses the shared actor preparation cache in both perspectives.
+
+Imported raster dimensions follow the native 64×32, 64×64 and 128×128 contract.
+Archive, geometry and library ceilings are Cinnabar resource limits. Pack minimum
+engine versions remain separate from geometry schema versions. Full native skin-pack
+import parity, animated imports, persona and Marketplace trust remain incomplete.
+No visual parity or hardware performance gate closes with this extension.

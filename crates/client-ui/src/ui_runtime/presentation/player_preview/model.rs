@@ -11,20 +11,45 @@ pub(crate) struct MenuPreviewModel {
     pub(crate) cape: Option<protocol::CapeImage>,
     pub(crate) cape_key: Option<String>,
     pub(super) bounds: Option<super::fitting::OrbitBounds>,
+    body_bounds: Option<super::fitting::OrbitBounds>,
+    pending: Option<PendingModel>,
+    completed: Option<PreparedModel>,
+    rejected: Option<Arc<protocol::SkinGeometrySource>>,
+}
+
+/// One changed source in flight; stale results are discarded before publication.
+struct PendingModel {
+    source: Option<Arc<protocol::SkinGeometrySource>>,
+    receiver: crossbeam_channel::Receiver<Option<PreparedModel>>,
+}
+
+struct PreparedModel {
+    source: Option<Arc<protocol::SkinGeometrySource>>,
+    vertices: Arc<[ActorVertex]>,
+    bounds: Option<super::fitting::OrbitBounds>,
+}
+
+/// Compares retained pointers without parsing or hashing on the frame thread.
+fn same_source(
+    a: Option<&Arc<protocol::SkinGeometrySource>>,
+    b: Option<&Arc<protocol::SkinGeometrySource>>,
+) -> bool {
+    match (a, b) {
+        (None, None) => true,
+        (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+        _ => false,
+    }
 }
 
 impl MenuPreviewModel {
+    /// Keeps the current model while only texture or cape inputs change.
     fn body_matches(&self, skin: &protocol::StandardSkin) -> bool {
-        match (&self.source, &skin.geometry) {
-            (None, None) => true,
-            (Some(old), Some(new)) => Arc::ptr_eq(old, new),
-            _ => false,
-        }
+        same_source(self.source.as_ref(), skin.geometry.as_ref())
     }
 }
 
 impl super::UiPresentationRuntime {
-    /// Retains the selected model without recompiling unchanged geometry or resampling its skin.
+    /// Publishes a worker-built model, retaining the previous preview while a changed source prepares.
     pub fn set_menu_preview_skin(&mut self, skin: &protocol::StandardSkin) -> bool {
         let cape = skin.cape.as_ref().filter(|cape| cape.is_valid());
         let body_matches = self.menu_preview_model.body_matches(skin);
@@ -32,18 +57,18 @@ impl super::UiPresentationRuntime {
         if body_matches && cape_matches {
             return true;
         }
-        let vertices = if body_matches && self.menu_preview_model.vertices.is_some() {
-            self.menu_preview_model.vertices.clone()
+        let (vertices, mut bounds) = if body_matches {
+            (
+                self.menu_preview_model.vertices.clone(),
+                self.menu_preview_model.body_bounds,
+            )
         } else {
-            model_vertices(skin)
+            let Some(prepared) = self.menu_preview_model.prepare(skin) else {
+                return false;
+            };
+            (Some(prepared.vertices), prepared.bounds)
         };
-        let Some(vertices) = vertices else {
-            return false;
-        };
-        let mut bounds = skin
-            .geometry
-            .as_ref()
-            .map(|_| super::fitting::OrbitBounds::new(&vertices));
+        let body_bounds = bounds;
         if cape.is_some() {
             bounds = Some(
                 bounds
@@ -60,7 +85,11 @@ impl super::UiPresentationRuntime {
             },
             cape: cape.cloned(),
             bounds,
-            vertices: skin.geometry.as_ref().map(|_| vertices),
+            body_bounds,
+            vertices,
+            pending: self.menu_preview_model.pending.take(),
+            completed: None,
+            rejected: None,
         };
         self.player_preview_source_hash = None;
         self.last_frame = None;
@@ -68,7 +97,65 @@ impl super::UiPresentationRuntime {
     }
 }
 
+impl MenuPreviewModel {
+    /// Admits one source at a time and never waits for an unfinished preparation.
+    fn prepare(&mut self, skin: &protocol::StandardSkin) -> Option<PreparedModel> {
+        if same_source(self.rejected.as_ref(), skin.geometry.as_ref()) && self.rejected.is_some() {
+            return None;
+        }
+        if let Some(pending) = &self.pending {
+            match pending.receiver.try_recv() {
+                Ok(prepared) => {
+                    if prepared.is_none() {
+                        self.rejected = pending.source.clone();
+                    }
+                    self.completed = prepared;
+                    self.pending = None;
+                }
+                Err(crossbeam_channel::TryRecvError::Empty) => return None,
+                Err(crossbeam_channel::TryRecvError::Disconnected) => {
+                    self.pending = None;
+                }
+            }
+        }
+        if let Some(prepared) = self.completed.take()
+            && same_source(prepared.source.as_ref(), skin.geometry.as_ref())
+        {
+            return Some(prepared);
+        }
+        if self.rejected.is_some() && same_source(self.rejected.as_ref(), skin.geometry.as_ref()) {
+            return None;
+        }
+        let source = skin.geometry.clone();
+        let skin = skin.clone();
+        let (sender, receiver) = crossbeam_channel::bounded(1);
+        if std::thread::Builder::new()
+            .name("menu-skin-model".into())
+            .spawn(move || {
+                let prepared = model_vertices(&skin).map(|vertices| PreparedModel {
+                    bounds: skin
+                        .geometry
+                        .as_ref()
+                        .map(|_| super::fitting::OrbitBounds::new(&vertices)),
+                    source: skin.geometry,
+                    vertices,
+                });
+                let _ = sender.send(prepared);
+            })
+            .is_err()
+        {
+            self.rejected = source;
+            return None;
+        }
+        self.pending = Some(PendingModel { source, receiver });
+        None
+    }
+}
+
+/// Builds immutable preview vertices only on a worker or in a synchronous fixture.
 fn model_vertices(skin: &protocol::StandardSkin) -> Option<Arc<[ActorVertex]>> {
+    #[cfg(test)]
+    BUILT_ON_THIS_THREAD.with(|built| built.set(built.get() + 1));
     let Some(source) = &skin.geometry else {
         let mut vertices = render_model::standard_biped_vertices();
         vertices.extend(render_model::standard_biped_overlay_vertices());
@@ -94,6 +181,7 @@ fn model_vertices(skin: &protocol::StandardSkin) -> Option<Arc<[ActorVertex]>> {
     )
 }
 
+/// Maps a custom bone to its nearest named player part for the preview pose.
 fn part(geometry: &assets::SkinGeometry, mut index: usize) -> u32 {
     for _ in 0..geometry.bones.len() {
         let bone = &geometry.bones[index];
@@ -167,6 +255,48 @@ mod tests {
         }
     }
 
+    /// Awaits this fixture's own model job without relying on frame timing.
+    fn select(runtime: &mut super::super::UiPresentationRuntime, skin: &protocol::StandardSkin) {
+        while !runtime.set_menu_preview_skin(skin) {
+            let pending = runtime
+                .menu_preview_model
+                .pending
+                .take()
+                .expect("model worker");
+            runtime.menu_preview_model.completed = pending.receiver.recv().unwrap();
+            assert!(runtime.set_menu_preview_skin(skin));
+        }
+    }
+
+    #[test]
+    fn changed_preview_models_prepare_off_the_frame_thread_and_keep_the_previous_model() {
+        let mut runtime =
+            super::super::UiPresentationRuntime::new(super::super::super::tests::fixture_font())
+                .unwrap();
+        let before = BUILT_ON_THIS_THREAD.with(std::cell::Cell::get);
+        let wide = skin(4.0);
+        select(&mut runtime, &wide);
+        let previous = runtime.menu_preview_model.vertices.clone().unwrap();
+        let slim = skin(3.0);
+        assert!(!runtime.set_menu_preview_skin(&slim));
+        assert!(Arc::ptr_eq(
+            &previous,
+            runtime.menu_preview_model.vertices.as_ref().unwrap()
+        ));
+        select(&mut runtime, &slim);
+        assert!(!Arc::ptr_eq(
+            &previous,
+            runtime.menu_preview_model.vertices.as_ref().unwrap()
+        ));
+        assert_eq!(BUILT_ON_THIS_THREAD.with(std::cell::Cell::get), before);
+        let ready = runtime.menu_preview_model.vertices.clone().unwrap();
+        select(&mut runtime, &slim);
+        assert!(Arc::ptr_eq(
+            &ready,
+            runtime.menu_preview_model.vertices.as_ref().unwrap()
+        ));
+    }
+
     #[test]
     fn selected_skin_geometry_changes_the_gallery_outline() {
         let wide = render_skin_thumbnail(&skin(4.0)).unwrap();
@@ -200,24 +330,24 @@ mod tests {
             super::super::UiPresentationRuntime::new(super::super::super::tests::fixture_font())
                 .expect("diagnostic presentation");
         let mut skin = skin(4.0);
-        assert!(runtime.set_menu_preview_skin(&skin));
+        select(&mut runtime, &skin);
         let body = runtime.menu_preview_model.vertices.clone().unwrap();
         skin.cape = Some(protocol::CapeImage {
             width: 64,
             height: 32,
             rgba8: vec![255; 64 * 32 * 4].into(),
         });
-        assert!(runtime.set_menu_preview_skin(&skin));
+        select(&mut runtime, &skin);
         assert!(Arc::ptr_eq(
             &body,
             runtime.menu_preview_model.vertices.as_ref().unwrap()
         ));
         assert!(runtime.menu_preview_model.cape_key.is_some());
         runtime.player_preview_source_hash = Some([17; 32]);
-        assert!(runtime.set_menu_preview_skin(&skin.clone()));
+        select(&mut runtime, &skin.clone());
         assert_eq!(runtime.player_preview_source_hash, Some([17; 32]));
         skin.cape = None;
-        assert!(runtime.set_menu_preview_skin(&skin));
+        select(&mut runtime, &skin);
         assert!(runtime.menu_preview_model.cape.is_none());
         assert!(runtime.menu_preview_model.cape_key.is_none());
         assert!(Arc::ptr_eq(
@@ -256,3 +386,6 @@ mod tests {
         assert_ne!(pitch, 0.0, "the head also follows the pointer vertically");
     }
 }
+
+#[cfg(test)]
+thread_local! { static BUILT_ON_THIS_THREAD: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }

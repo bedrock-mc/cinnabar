@@ -20,6 +20,7 @@ pub mod global_resources;
 pub mod install_layout;
 pub mod local_worlds;
 pub mod menu;
+pub mod skin_import;
 pub mod store;
 
 /// Embedders may supply a title without changing the client's installation identity.

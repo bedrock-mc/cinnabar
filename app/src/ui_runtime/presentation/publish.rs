@@ -157,7 +157,7 @@ pub(crate) fn prepare_ui_runtime(
     runtime.expire_gameplay_effects(now_millis);
     let stream = client_world.stream.as_ref();
     let menu_skin = menu_runtime.player_skin();
-    presentation.set_menu_preview_skin(&menu_skin.standard_skin());
+    let preview_ready = presentation.set_menu_preview_skin(&menu_skin.standard_skin());
     let own_pixels = render_model::ActorSkinPixels {
         width: menu_skin.width,
         height: menu_skin.height,
@@ -256,6 +256,7 @@ pub(crate) fn prepare_ui_runtime(
                 |rig| rig.java_equipped.is_some(),
             );
     let preview = PreviewCapture {
+        ready: preview_ready,
         skin,
         pose,
         shown: runtime.inventory_open()

@@ -18,9 +18,10 @@ pub(crate) struct LocalPlayerSkin {
     pub rgba8: protocol::SkinRgba8,
     pub width: u32,
     pub height: u32,
-    pub arm_size: Arc<str>,
+    pub skin_model: launcher::dressing_room::SkinModel,
     pub local_uuid: [u8; 16],
     pub geometry: Option<Arc<protocol::SkinGeometrySource>>,
+    pub engine_version: Arc<str>,
     pub cape: Option<protocol::CapeImage>,
 }
 
@@ -61,6 +62,7 @@ impl LocalPlayerSkin {
             let mut active = selected.skin.clone();
             active.cape = catalog.selected_cape().map(|entry| entry.cape.clone());
             skin.set_selection(&active, selected.model);
+            skin.engine_version = selected.engine_version.clone();
         }
         skin
     }
@@ -92,9 +94,10 @@ impl LocalPlayerSkin {
             rgba8: rgba8.into(),
             width: side as u32,
             height: side as u32,
-            arm_size: Arc::from(launcher::dressing_room::SkinModel::Classic.arm_size()),
+            skin_model: launcher::dressing_room::SkinModel::Classic,
             local_uuid: stable_local_uuid(display_name),
             geometry: None,
+            engine_version: protocol::DEFAULT_SKIN_GEOMETRY_ENGINE_VERSION.into(),
             cape: None,
         }
     }
@@ -116,11 +119,7 @@ impl LocalPlayerSkin {
     }
 
     pub(crate) fn model(&self) -> launcher::dressing_room::SkinModel {
-        if self.arm_size.as_ref() == launcher::dressing_room::SkinModel::Slim.arm_size() {
-            launcher::dressing_room::SkinModel::Slim
-        } else {
-            launcher::dressing_room::SkinModel::Classic
-        }
+        self.skin_model
     }
 
     pub(crate) fn set_selection(
@@ -133,7 +132,7 @@ impl LocalPlayerSkin {
         self.height = skin.height;
         self.geometry = skin.geometry.clone();
         self.cape = skin.cape.clone();
-        self.arm_size = Arc::from(model.arm_size());
+        self.skin_model = model;
     }
 
     /// Overrides only the rendered cape for developer recordings; login identity stays intact.
@@ -152,10 +151,18 @@ impl LocalPlayerSkin {
     #[must_use]
     pub fn to_client_skin(&self) -> protocol::ClientSkin {
         protocol::ClientSkin {
+            geometry: self
+                .geometry
+                .as_ref()
+                .map(|geometry| protocol::ClientSkinGeometry {
+                    resource_patch: geometry.resource_patch.to_string(),
+                    geometry_data: geometry.geometry_data.to_string(),
+                    engine_version: self.engine_version.to_string(),
+                }),
             rgba8: self.rgba8.to_vec(),
             width: self.width,
             height: self.height,
-            arm_size: self.arm_size.to_string(),
+            arm_size: self.skin_model.arm_size().to_string(),
             cape: self
                 .cape
                 .as_ref()
