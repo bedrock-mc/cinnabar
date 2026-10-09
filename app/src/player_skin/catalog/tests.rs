@@ -6,6 +6,11 @@ pub(super) fn layout() -> InstallLayout {
     layout
 }
 
+/// Decodes a PNG file as an imported classic skin.
+fn read_png(path: &Path) -> Result<protocol::StandardSkin, String> {
+    decode_png_with_model(&png_bytes(path)?, SkinModel::Classic)
+}
+
 fn png(path: &Path, color: [u8; 4]) {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).unwrap();
@@ -19,39 +24,43 @@ fn png(path: &Path, color: [u8; 4]) {
     .unwrap();
 }
 
-pub(super) fn native_fixture(layout: &InstallLayout) -> PathBuf {
-    let root = layout.resource_root.join("skin_packs/vanilla");
-    fs::create_dir_all(&root).unwrap();
+/// A skin of one color, shaped like a starter skin.
+pub(super) fn fixture_skin(color: [u8; 4]) -> protocol::StandardSkin {
+    let side = assets::STARTER_SKIN_SIDE;
+    standard_skin(side, side, color.repeat((side * side) as usize)).unwrap()
+}
+
+/// Writes a starter-skin carrier holding red Steve and blue Alex.
+pub(super) fn native_fixture(layout: &InstallLayout) {
     let models = [SkinModel::Classic, SkinModel::Slim].map(|model| serde_json::json!({
         "description":{"identifier":model.geometry(), "texture_width":protocol::CLASSIC_SKIN_SIDE,"texture_height":protocol::CLASSIC_SKIN_SIDE},
         "bones":[{"name":"body","pivot":[0,24,0],"cubes":[{"origin":[-4,12,-2],"size":[8,12,4],"uv":[16,16]}]}]
     }));
-    fs::write(
-        root.join("geometry.json"),
-        serde_json::json!({"format_version":"1.12.0","minecraft:geometry":models}).to_string(),
-    )
-    .unwrap();
-    fs::write(root.join("skins.json"), serde_json::json!({"skins":[
-        {"localization_name":launcher::dressing_room::STARTER_SKIN_NAMES[0],"geometry":SkinModel::Classic.geometry(),"texture":"first.png","type":"free"},
-        {"localization_name":"Ari","geometry":SkinModel::Classic.geometry(),"texture":"second.png","type":"free"},
-        {"localization_name":launcher::dressing_room::STARTER_SKIN_NAMES[1],"geometry":SkinModel::Slim.geometry(),"texture":"third.png","type":"free"},
-        {"localization_name":"Custom","geometry":SkinModel::Classic.geometry(),"texture":"custom.png","type":"custom"}
-    ]}).to_string()).unwrap();
-    for (file, color) in [
-        ("first.png", [255, 0, 0, 255]),
-        ("second.png", [0, 255, 0, 255]),
-        ("third.png", [0, 0, 255, 255]),
-    ] {
-        png(&root.join(file), color);
-    }
-    root
+    let side = assets::STARTER_SKIN_SIDE as usize;
+    let carrier = assets::StarterSkins {
+        geometry: serde_json::json!({"format_version":"1.12.0","minecraft:geometry":models})
+            .to_string()
+            .into(),
+        skins: assets::STARTER_SKIN_SOURCES
+            .iter()
+            .zip([[255, 0, 0, 255], [0, 0, 255, 255]])
+            .map(|(source, color)| assets::StarterSkin {
+                name: source.name.into(),
+                slim: source.slim,
+                rgba8: color.repeat(side * side).into(),
+            })
+            .collect(),
+    };
+    let path = layout.starter_skins_asset();
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(path, assets::encode_starter_skins(&carrier).unwrap()).unwrap();
 }
 
 #[test]
 fn native_roster_uses_declared_models_and_matches_existing_default_without_duplicate() {
     let layout = layout();
-    let root = native_fixture(&layout);
-    let skin = read_png(&root.join("first.png")).unwrap();
+    native_fixture(&layout);
+    let skin = fixture_skin([255, 0, 0, 255]);
     let mut local = LocalPlayerSkin::generated_default("fixture");
     local.set_selection(&skin, SkinModel::Classic);
     let view = load(&layout, &local);
@@ -71,7 +80,7 @@ fn native_roster_uses_declared_models_and_matches_existing_default_without_dupli
 #[test]
 fn removed_starter_selection_restores_steve_without_a_duplicate_current_entry() {
     let layout = layout();
-    let root = native_fixture(&layout);
+    native_fixture(&layout);
     fs::create_dir_all(&layout.user_config_root).unwrap();
     fs::write(
         layout.skin_selection_file(),
@@ -79,10 +88,7 @@ fn removed_starter_selection_restores_steve_without_a_duplicate_current_entry() 
     )
     .unwrap();
     let mut local = LocalPlayerSkin::generated_default("fixture");
-    local.set_selection(
-        &read_png(&root.join("second.png")).unwrap(),
-        SkinModel::Classic,
-    );
+    local.set_selection(&fixture_skin([0, 255, 0, 255]), SkinModel::Classic);
     let view = load(&layout, &local);
     assert_eq!(
         view.skins.len(),

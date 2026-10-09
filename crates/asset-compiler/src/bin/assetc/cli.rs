@@ -92,6 +92,13 @@ pub(super) enum Command {
         #[arg(long)]
         out: PathBuf,
     },
+    /// Compile the optional starter skin and skin geometry carrier.
+    StarterSkinAssets {
+        #[arg(long)]
+        pack: PathBuf,
+        #[arg(long)]
+        out: PathBuf,
+    },
     /// Compile the optional hardcore-heart sprite carrier.
     HudExtrasAssets {
         #[arg(long)]

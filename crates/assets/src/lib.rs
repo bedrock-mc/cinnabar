@@ -47,6 +47,7 @@ mod skin_geometry;
 mod sound_bank;
 mod sound_events;
 mod stair;
+mod starter_skins;
 mod texture;
 mod ui;
 pub mod vanilla_pack;
@@ -269,6 +270,12 @@ pub use sound_bank::{
 };
 pub use sound_events::{FloatRange, RouteLookup, SoundEventTables, SoundRoute};
 pub use stair::StairDirection;
+pub use starter_skins::{
+    CLASSIC_SKIN_GEOMETRY, MAX_STARTER_SKIN_GEOMETRY_BYTES, MAX_STARTER_SKINS_BYTES,
+    SLIM_SKIN_GEOMETRY, STARTER_SKIN_SIDE, STARTER_SKIN_SOURCES, STARTER_SKINS_MAGIC,
+    STARTER_SKINS_VERSION, StarterSkin, StarterSkinSource, StarterSkins, StarterSkinsError,
+    decode_starter_skins, encode_starter_skins,
+};
 pub use texture::{
     MAX_TILE_SIZE, MIP_COUNT, TERRAIN_QUAD_SHIFT_MASK, TILE_SIZE, TextureArray, TextureMip,
     VANILLA_TERRAIN_MIP_COUNT, build_legacy_terrain_mip_chain, build_texture_mip_chain,

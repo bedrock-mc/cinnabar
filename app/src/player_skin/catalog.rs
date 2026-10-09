@@ -64,18 +64,10 @@ fn default_engine_version() -> String {
     protocol::DEFAULT_SKIN_GEOMETRY_ENGINE_VERSION.to_owned()
 }
 
-#[derive(Deserialize)]
-struct NativeCatalog {
-    skins: Vec<NativeSkin>,
-}
-
-#[derive(Deserialize)]
-struct NativeSkin {
-    localization_name: String,
-    geometry: String,
-    texture: String,
-    #[serde(rename = "type")]
-    kind: String,
+/// The starter skins and the classic and slim geometry they share, read from the optional carrier.
+struct Starter {
+    skins: Vec<assets::StarterSkin>,
+    geometries: [Arc<protocol::SkinGeometrySource>; 2],
 }
 
 pub(crate) fn load(layout: &InstallLayout, fallback: &LocalPlayerSkin) -> DressingRoomView {
@@ -84,50 +76,30 @@ pub(crate) fn load(layout: &InstallLayout, fallback: &LocalPlayerSkin) -> Dressi
         .and_then(|bytes| serde_json::from_slice::<Preferences>(&bytes).ok())
         .unwrap_or_default();
     let mut skins = Vec::new();
-    let root = native_root(layout);
-    let geometries = root.as_deref().and_then(|root| geometry_catalog(root).ok());
-    if let Some(root) = root
-        && let Ok(bytes) = read_bounded(
-            &root.join("skins.json"),
-            protocol::MAX_SKIN_GEOMETRY_SOURCE_BYTES as u64,
-        )
-        && bytes.len() <= protocol::MAX_SKIN_GEOMETRY_SOURCE_BYTES
-        && let Ok(catalog) = serde_json::from_slice::<NativeCatalog>(&bytes)
-    {
-        for entry in catalog.skins.into_iter().take(256) {
-            let model = match entry.geometry.as_str() {
-                value if value == SkinModel::Classic.geometry() => SkinModel::Classic,
-                value if value == SkinModel::Slim.geometry() => SkinModel::Slim,
-                _ => continue,
-            };
-            if entry.kind != "free"
-                || !single_filename(&entry.texture)
-                || !launcher::dressing_room::STARTER_SKIN_NAMES
-                    .contains(&entry.localization_name.as_str())
-            {
-                continue;
-            }
-            let path = root.join(&entry.texture);
-            let Ok(mut skin) = read_png(&path) else {
-                continue;
-            };
-            let Some(geometry) = geometries
-                .as_ref()
-                .map(|catalog| catalog[usize::from(model == SkinModel::Slim)].clone())
-            else {
-                continue;
-            };
-            skin.geometry = Some(geometry);
-            skins.push(DressingRoomSkin {
-                id: format!("vanilla:{}", entry.localization_name),
-                name: entry.localization_name,
-                path: path.to_string_lossy().into_owned(),
-                imported: false,
-                model,
-                engine_version: protocol::DEFAULT_SKIN_GEOMETRY_ENGINE_VERSION.into(),
-                skin,
-            });
-        }
+    let starter = starter(layout);
+    let geometries = starter.as_ref().map(|starter| starter.geometries.clone());
+    for entry in starter.iter().flat_map(|starter| &starter.skins) {
+        let model = if entry.slim {
+            SkinModel::Slim
+        } else {
+            SkinModel::Classic
+        };
+        let side = assets::STARTER_SKIN_SIDE;
+        let Ok(mut skin) = standard_skin(side, side, entry.rgba8.to_vec(), model) else {
+            continue;
+        };
+        skin.geometry = geometries
+            .as_ref()
+            .map(|catalog| catalog[usize::from(entry.slim)].clone());
+        skins.push(DressingRoomSkin {
+            id: format!("vanilla:{}", entry.name),
+            name: entry.name.to_string(),
+            path: layout.starter_skins_asset().to_string_lossy().into_owned(),
+            imported: false,
+            model,
+            engine_version: protocol::DEFAULT_SKIN_GEOMETRY_ENGINE_VERSION.into(),
+            skin,
+        });
     }
     for entry in preferences.imported.into_iter().take(MAX_IMPORTED_ITEMS) {
         if !single_filename(&entry.file) || !custom::valid_engine_version(&entry.engine_version) {
@@ -334,25 +306,43 @@ fn single_filename(value: &str) -> bool {
     matches!(components.next(), Some(Component::Normal(_))) && components.next().is_none()
 }
 
-fn native_root(layout: &InstallLayout) -> Option<PathBuf> {
-    let local = layout.resource_root.join("skin_packs/vanilla");
-    if local.join("skins.json").is_file() {
-        return Some(local);
+fn starter(layout: &InstallLayout) -> Option<Starter> {
+    let path = layout.starter_skins_asset();
+    if !path.is_file() {
+        return None;
     }
-    let bundle = client_ui::ui_runtime::oreui_assets::bundle_dir()?;
-    bundle
-        .ancestors()
-        .take(6)
-        .map(|path| path.join("skin_packs/vanilla"))
-        .find(|path| path.join("skins.json").is_file())
+    let loaded = read_bounded(&path, assets::MAX_STARTER_SKINS_BYTES as u64)
+        .and_then(|bytes| assets::decode_starter_skins(&bytes).map_err(|error| error.to_string()))
+        .and_then(|carrier| {
+            Ok(Starter {
+                geometries: geometry_catalog(&carrier.geometry)?,
+                skins: carrier.skins,
+            })
+        });
+    match loaded {
+        Ok(starter) => Some(starter),
+        Err(reason) => {
+            bevy::log::warn!(
+                path = %path.display(),
+                reason = %reason,
+                "starter skins unavailable; rebuild with make skins-assets"
+            );
+            None
+        }
+    }
 }
 
 fn geometry(
     layout: &InstallLayout,
     model: SkinModel,
 ) -> Result<Option<Arc<protocol::SkinGeometrySource>>, String> {
-    match native_root(layout) {
-        Some(root) => geometry_from_root(&root, model).map(Some),
+    if model == SkinModel::Custom {
+        return Err("The selected skin model is unavailable.".to_owned());
+    }
+    match starter(layout) {
+        Some(starter) => Ok(Some(
+            starter.geometries[usize::from(model == SkinModel::Slim)].clone(),
+        )),
         None if model == SkinModel::Classic => Ok(None),
         None => Err(
             "The slim model is unavailable until the vanilla skin assets are installed.".to_owned(),
@@ -376,16 +366,11 @@ fn geometry_for_view(
     geometry(layout, model)
 }
 
-fn geometry_catalog(root: &Path) -> Result<[Arc<protocol::SkinGeometrySource>; 2], String> {
-    let data: Arc<str> = String::from_utf8(read_bounded(
-        &root.join("geometry.json"),
-        protocol::MAX_SKIN_GEOMETRY_SOURCE_BYTES as u64,
-    )?)
-    .map_err(|error| error.to_string())?
-    .into();
+fn geometry_catalog(data: &str) -> Result<[Arc<protocol::SkinGeometrySource>; 2], String> {
     if data.len() > protocol::MAX_SKIN_GEOMETRY_SOURCE_BYTES {
         return Err("Skin geometry is too large.".to_owned());
     }
+    let data: Arc<str> = data.into();
     let make = |model: SkinModel| -> Result<Arc<protocol::SkinGeometrySource>, String> {
         let patch = serde_json::json!({"geometry":{"default":model.geometry()}}).to_string();
         assets::parse_skin_geometry(&patch, &data)
@@ -398,27 +383,6 @@ fn geometry_catalog(root: &Path) -> Result<[Arc<protocol::SkinGeometrySource>; 2
         }))
     };
     Ok([make(SkinModel::Classic)?, make(SkinModel::Slim)?])
-}
-
-fn geometry_from_root(
-    root: &Path,
-    model: SkinModel,
-) -> Result<Arc<protocol::SkinGeometrySource>, String> {
-    let path = root.join("geometry.json");
-    let bytes = read_bounded(&path, protocol::MAX_SKIN_GEOMETRY_SOURCE_BYTES as u64)?;
-    if bytes.len() > protocol::MAX_SKIN_GEOMETRY_SOURCE_BYTES {
-        return Err("Skin geometry is too large.".to_owned());
-    }
-    let data = String::from_utf8(bytes).map_err(|error| error.to_string())?;
-    let patch = serde_json::json!({"geometry":{"default":model.geometry()}}).to_string();
-    assets::parse_skin_geometry(&patch, &data)
-        .map_err(|error| format!("The skin model could not be read: {error:?}"))?
-        .ok_or("The selected skin model is unavailable.")?;
-    Ok(Arc::new(protocol::SkinGeometrySource {
-        resource_patch: patch.into(),
-        geometry_data: data.into(),
-        animations: Arc::from([]),
-    }))
 }
 
 fn png_bytes(path: &Path) -> Result<Vec<u8>, String> {
@@ -442,15 +406,6 @@ fn read_bounded(path: &Path, limit: u64) -> Result<Vec<u8>, String> {
     Ok(bytes)
 }
 
-fn read_png(path: &Path) -> Result<protocol::StandardSkin, String> {
-    decode_png(&png_bytes(path)?)
-}
-
-/// Decodes a classic skin with the native image and alpha contract.
-fn decode_png(bytes: &[u8]) -> Result<protocol::StandardSkin, String> {
-    decode_png_with_model(bytes, SkinModel::Classic)
-}
-
 /// Decodes supported native image sizes without adding classic body coverage to custom models.
 fn decode_png_with_model(bytes: &[u8], model: SkinModel) -> Result<protocol::StandardSkin, String> {
     let mut reader = image::ImageReader::with_format(Cursor::new(bytes), image::ImageFormat::Png);
@@ -462,8 +417,16 @@ fn decode_png_with_model(bytes: &[u8], model: SkinModel) -> Result<protocol::Sta
         .decode()
         .map_err(|error| format!("The skin PNG could not be read: {error}"))?
         .to_rgba8();
-    let width = rgba.width();
-    let height = rgba.height();
+    standard_skin(rgba.width(), rgba.height(), rgba.into_raw(), model)
+}
+
+/// Normalizes RGBA8 pixels for `model`, expanding a legacy 2:1 skin to square.
+fn standard_skin(
+    width: u32,
+    height: u32,
+    mut pixels: Vec<u8>,
+    model: SkinModel,
+) -> Result<protocol::StandardSkin, String> {
     if !(width as usize == protocol::CLASSIC_SKIN_SIDE
         || width as usize == protocol::MAX_CLASSIC_SKIN_SIDE)
     {
@@ -471,7 +434,6 @@ fn decode_png_with_model(bytes: &[u8], model: SkinModel) -> Result<protocol::Sta
             "Unsupported skin dimensions {width}×{height}. Choose a classic skin PNG."
         ));
     }
-    let mut pixels = rgba.into_raw();
     let legacy =
         width as usize == protocol::CLASSIC_SKIN_SIDE && height.checked_mul(2) == Some(width);
     if legacy {

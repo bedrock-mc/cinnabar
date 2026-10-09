@@ -216,6 +216,13 @@ impl InstallLayout {
         self.compiled_assets.join(assets::carriers::WORLD.output)
     }
 
+    /// Optional Steve/Alex carrier compiled from the pinned vanilla pack.
+    #[must_use]
+    pub fn starter_skins_asset(&self) -> PathBuf {
+        self.compiled_assets
+            .join(assets::carriers::STARTER_SKINS.output)
+    }
+
     /// The local player's own skin PNG, shipped beside the other assets under `resources/assets`
     /// (installed) or `.local/assets` (development). Cosmetic: absence falls back to the default.
     #[must_use]

@@ -22,6 +22,7 @@ mod image;
 mod lang;
 mod pack;
 mod particle;
+mod starter_skins;
 mod ui;
 mod weather_textures;
 pub use pack::{apply_atlas_tint, parse_atlas_tint};
@@ -87,5 +88,6 @@ pub use particle::{
     CompiledParticleCarrier, ParticleCompileReport, compile_particle_assets,
     decode_particle_carrier,
 };
+pub use starter_skins::{compile_starter_skins, compile_starter_skins_to_file};
 pub use ui::{CompiledUiCarrier, UiCompileReport, compile_ui_assets, decode_ui_carrier};
 pub use weather_textures::{compile_weather_textures, compile_weather_textures_to_file};

@@ -35,6 +35,7 @@ pub enum Recipe {
     BlockEntity,
     Weather,
     HudExtras,
+    StarterSkins,
     AudioPcm,
 }
 
@@ -266,6 +267,17 @@ pub const HUD_EXTRAS: Carrier = Carrier {
         false,
     )
 };
+pub const STARTER_SKINS: Carrier = Carrier {
+    inputs: &[Input::Pack],
+    ..carrier(
+        "skins",
+        "Compiling starter skins",
+        Recipe::StarterSkins,
+        "vanilla-v1.mcbeskn",
+        None,
+        false,
+    )
+};
 /// Development-only finite predecode of one reviewed sample.
 pub const AUDIO_PCM: Carrier = Carrier {
     installed: false,
@@ -299,6 +311,7 @@ pub const CARRIERS: &[Carrier] = &[
     BLOCK_ENTITY,
     WEATHER,
     HUD_EXTRAS,
+    STARTER_SKINS,
     AUDIO_PCM,
 ];
 
