@@ -173,14 +173,53 @@ fn changed_card_layout_rebuilds_the_catalog_and_stacks_rendered_text() {
         snapshot::rasterize(&standard),
         snapshot::rasterize(&stacked)
     );
-    let text_bounds =
-        |color| {
-            p.last_frame.as_ref().unwrap().nodes.iter().find_map(|node| {
-            matches!(node.visual(), ui::UiVisual::Text {color:actual,..} if *actual == color)
-                .then(|| node.bounds())
-                .filter(|bounds| bounds.max().y() < 100.)
-        }).expect("rendered row text")
-        };
+    let nodes = &p.last_frame.as_ref().unwrap().nodes;
+    // Node bounds are parent-local; compare the row runs in the card's world space.
+    let world_bounds = |node: &ui::UiNode| {
+        let bounds = node.bounds();
+        let mut offset = [0.; 2];
+        let mut parent = node.parent();
+        while let Some(id) = parent {
+            let ancestor = nodes.iter().find(|node| node.id() == id).unwrap();
+            offset[0] += ancestor.bounds().min().x();
+            offset[1] += ancestor.bounds().min().y();
+            parent = ancestor.parent();
+        }
+        ui::UiRect::new(
+            ui::UiPoint::new(bounds.min().x() + offset[0], bounds.min().y() + offset[1]).unwrap(),
+            ui::UiPoint::new(bounds.max().x() + offset[0], bounds.max().y() + offset[1]).unwrap(),
+        )
+        .unwrap()
+    };
+    let surface = nodes
+        .iter()
+        .find_map(|node| {
+            let ui::UiVisual::Mesh(mesh) = node.visual() else {
+                return None;
+            };
+            mesh.vertices()
+                .iter()
+                .any(|vertex| vertex.color == [11, 13, 17, 209])
+                .then(|| world_bounds(node))
+        })
+        .expect("rendered card surface");
+    let text_bounds = |color| {
+        let matching: Vec<_> = nodes
+            .iter()
+            .filter_map(|node| {
+                matches!(node.visual(), ui::UiVisual::Text {color:actual,..} if *actual == color)
+                    .then(|| world_bounds(node))
+                    .filter(|bounds| {
+                        bounds.min().x() >= surface.min().x()
+                            && bounds.max().x() <= surface.max().x()
+                            && bounds.min().y() >= surface.min().y()
+                            && bounds.max().y() <= surface.max().y()
+                    })
+            })
+            .collect();
+        assert_eq!(matching.len(), 1, "one rendered row run inside the card");
+        matching[0]
+    };
     let name = text_bounds([255; 4]);
     let value = text_bounds([255, 0, 0, 255]);
     assert!(
