@@ -111,7 +111,7 @@ pub fn crack_shape_from_template(
                     if part.flags & assets::MODEL_TEMPLATE_FLAG_BAMBOO != 0 {
                         let mut offset = meshing::bamboo::quad_offset(transform, quad_index as u32);
                         if let Some(custom) = random_offset {
-                            let default = world::bamboo::offset_from_transform(transform);
+                            let default = block_transform::bamboo::offset_from_transform(transform);
                             offset = std::array::from_fn(|axis| {
                                 offset[axis] - default[axis] + custom[axis]
                             });

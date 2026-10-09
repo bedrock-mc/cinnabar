@@ -417,6 +417,7 @@ name = "assets"
 version = "0.1.12"
 dependencies = [
  "bitflags 2.13.0",
+ "block-transform",
  "lewton",
  "rayon",
  "rustix 1.1.4",
@@ -427,7 +428,6 @@ dependencies = [
  "thiserror 2.0.18",
  "windows-sys 0.61.2",
  "zip",
- "world",
 ]
 
 [[package]]
@@ -640,6 +640,7 @@ dependencies = [
  "assets",
  "async-io",
  "bevy",
+ "block-transform",
  "bytes",
  "chunk-pipeline",
  "client-presentation",
@@ -1615,6 +1616,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "block-transform"
+version = "0.1.12"
+
+[[package]]
 name = "block2"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2027,6 +2032,7 @@ name = "client-session"
 version = "0.1.12"
 dependencies = [
  "assets",
+ "block-transform",
  "bytes",
  "crossbeam-channel",
  "image",
@@ -3341,6 +3347,7 @@ name = "gameplay"
 version = "0.1.12"
 dependencies = [
  "assets",
+ "block-transform",
  "client-world",
  "inventory 0.1.12",
  "player-state",
@@ -4459,6 +4466,7 @@ name = "meshing"
 version = "0.1.12"
 dependencies = [
  "assets",
+ "block-transform",
  "bytemuck",
  "criterion",
  "image",
@@ -5590,6 +5598,7 @@ dependencies = [
  "aes",
  "anyhow",
  "base64",
+ "block-transform",
  "bridge",
  "bytes",
  "ctr",
@@ -5608,7 +5617,6 @@ dependencies = [
  "uuid",
  "valentine",
  "xxhash-rust",
- "world",
 ]
 
 [[package]]
@@ -5967,6 +5975,7 @@ version = "0.1.12"
 dependencies = [
  "assets",
  "bevy",
+ "block-transform",
  "bytemuck",
  "image",
  "libc",
@@ -6468,6 +6477,7 @@ dependencies = [
 name = "sim"
 version = "0.1.12"
 dependencies = [
+ "block-transform",
  "serde",
  "serde_json",
  "sha2",

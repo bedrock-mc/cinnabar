@@ -31,7 +31,7 @@ pub struct BlockOverlay {
     pub materials: Vec<Material>,
     pub model_templates: Vec<ModelTemplate>,
     /// Sparse, overlay-local template components; no carrier-format change.
-    pub model_random_offsets: Vec<(u32, world::random_offset::RandomOffsetComponent)>,
+    pub model_random_offsets: Vec<(u32, block_transform::random_offset::RandomOffsetComponent)>,
     pub model_quads: Vec<ModelQuad>,
     pub animations: Vec<Animation>,
     pub animation_frames: Vec<TextureRef>,

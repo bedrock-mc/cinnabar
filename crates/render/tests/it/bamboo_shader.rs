@@ -185,9 +185,9 @@ fn bamboo_offsets_do_not_rotate_enhanced_surface_normals() {
                 values[case * 3 + 2][0],
                 case as f32 * meshing::bamboo::STEM_UV_STRIDE
             );
-            let x = world::bamboo::OFFSET_MIN
-                + case as f32 * world::bamboo::OFFSET_SPAN
-                    / (world::bamboo::OFFSET_STEPS - 1) as f32
+            let x = block_transform::bamboo::OFFSET_MIN
+                + case as f32 * block_transform::bamboo::OFFSET_SPAN
+                    / (block_transform::bamboo::OFFSET_STEPS - 1) as f32
                 + 0.5;
             assert!((values[case * 3 + 1][0] - x).abs() < 1.0e-6);
         }

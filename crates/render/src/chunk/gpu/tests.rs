@@ -1003,6 +1003,48 @@ fn model_upload_validation_enforces_exact_material_partition() {
 }
 
 #[test]
+fn model_upload_validation_admits_displacement_prefixes_and_checks_coverage() {
+    let templates = [assets::ModelTemplate {
+        quad_start: 0,
+        quad_count: 1,
+        flags: 0,
+    }];
+    let quads = [assets::ModelQuad {
+        positions: [[0; 3]; 4],
+        uvs: [[0; 2]; 4],
+        material: assets::DIAGNOSTIC_MATERIAL,
+        flags: 0,
+    }];
+    let refs = [
+        PackedModelRef::new(meshing::MODEL_REF_FLAG_RANDOM_OFFSET, 0, 2, 1),
+        PackedModelRef::new(0, 0, 3, 1),
+        PackedModelRef::new(meshing::MODEL_REF_FLAG_RANDOM_OFFSET, 0, 6, 1),
+    ];
+    let mut lighting = Vec::from(PackedQuadLighting::offset_prefix([0.25, 0.0, -0.125]));
+    lighting.extend([PackedQuadLighting::default(); 2]);
+    lighting.extend(PackedQuadLighting::offset_prefix([0.0; 3]));
+    lighting.push(PackedQuadLighting::default());
+    let draws = std::array::from_fn::<_, 3, _>(|index| PackedModelDrawRef::new(index as u32, 0));
+    let valid = |lighting: &[PackedQuadLighting]| {
+        validate_partitioned_model_streams(&refs, lighting, &draws, &[], &templates, &quads, &[])
+            && validate_local_model_streams(&refs, lighting, &draws, &templates)
+    };
+    assert!(
+        valid(&lighting),
+        "mixed displaced and ordinary models must reach the GPU"
+    );
+    assert!(!valid(&lighting[..6]), "missing final lighting is rejected");
+    lighting.extend(PackedQuadLighting::offset_prefix([0.0; 3]));
+    assert!(!valid(&lighting), "unclaimed prefix records are rejected");
+    lighting.truncate(7);
+    lighting[..2].copy_from_slice(&PackedQuadLighting::offset_prefix([f32::NAN, 0.0, 0.0]));
+    assert!(
+        !valid(&lighting),
+        "non-finite shader positions are rejected"
+    );
+}
+
+#[test]
 fn origin_planning_reserves_one_slot_for_fresh_allocations() {
     let max_origin_items = 3;
     let first = plan_origin_allocation(0, 0, max_origin_items, false)

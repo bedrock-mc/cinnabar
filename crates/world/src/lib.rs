@@ -3,8 +3,6 @@
 //! Chunk block data remains palette + packed indices at runtime. The decoder
 //! intentionally never creates flat per-block arrays.
 
-pub mod bamboo;
-pub mod random_offset;
 mod biome;
 mod block_entity;
 mod block_highlights;

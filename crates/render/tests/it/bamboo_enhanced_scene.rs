@@ -80,7 +80,11 @@ fn fixture() -> Option<(
 }
 
 /// Meshes real stalk states and a receiving floor through the production mesher.
-fn mesh(records: &[assets::RegistryRecord], assets: &assets::RuntimeAssets) -> meshing::ChunkMesh {
+fn mesh(
+    records: &[assets::RegistryRecord],
+    assets: &assets::RuntimeAssets,
+    overrides: [u32; 2],
+) -> meshing::ChunkMesh {
     let air = records
         .iter()
         .find(|record| record.flags.contains(assets::BlockFlags::AIR))
@@ -129,6 +133,15 @@ fn mesh(records: &[assets::RegistryRecord], assets: &assets::RuntimeAssets) -> m
                 .unwrap();
         }
     }
+    for (index, id) in overrides.into_iter().enumerate() {
+        store
+            .update_block(
+                key,
+                world::BlockUpdate::new(1 + index as u8 * 2, 3, 8, 0, id),
+                air,
+            )
+            .unwrap();
+    }
     let mesh = meshing::mesh_sub_chunk(
         &meshing::BlockClassifier::new(air),
         assets,
@@ -136,9 +149,89 @@ fn mesh(records: &[assets::RegistryRecord], assets: &assets::RuntimeAssets) -> m
         &meshing::Neighbourhood::empty(),
         &store.sub_chunk(key).unwrap(),
     );
-    assert_eq!(mesh.model_refs().len(), stalks.len() * 4);
+    assert_eq!(mesh.model_refs().len(), stalks.len() * 4 + overrides.len());
+    assert_eq!(
+        mesh.model_refs()
+            .iter()
+            .filter(|reference| {
+                reference.words()[0] & meshing::MODEL_REF_FLAG_RANDOM_OFFSET != 0
+            })
+            .count(),
+        overrides.len()
+    );
     assert!(!mesh.model_draw_refs().is_empty());
     mesh
+}
+
+/// Adds real bamboo geometry and art with nonzero and explicit-zero session components.
+fn overridden_assets(
+    records: &[assets::RegistryRecord],
+    assets: &assets::RuntimeAssets,
+) -> (Arc<assets::RuntimeAssets>, [u32; 2]) {
+    let record = records
+        .iter()
+        .find(|record| {
+            assets::bamboo::BambooState::from_record(record)
+                .is_some_and(|state| state.leaves == assets::bamboo::LeafSize::Large)
+        })
+        .unwrap();
+    let visual = assets.resolve(assets::NetworkIdMode::Sequential, record.sequential_id);
+    let template = assets.model_templates()[visual.model_template().unwrap() as usize];
+    let mut overlay = assets::BlockOverlay {
+        texture: Some(assets.texture_pages()[0].texture.clone()),
+        ..Default::default()
+    };
+    let mut materials = std::collections::HashMap::new();
+    let mut remap = |id: u32| {
+        *materials.entry(id).or_insert_with(|| {
+            let mut material = assets.materials()[id as usize];
+            material.texture = assets::TextureRef::new(1, material.texture.layer()).unwrap();
+            assert_eq!(material.animation, assets::NO_ANIMATION);
+            let local = overlay.materials.len() as u32;
+            overlay.materials.push(material);
+            local
+        })
+    };
+    let faces = assets::BlockFace::ALL.map(|face| remap(visual.face(face).material_id()));
+    for quad in &assets.model_quads()
+        [template.quad_start as usize..(template.quad_start + template.quad_count) as usize]
+    {
+        overlay.model_quads.push(assets::ModelQuad {
+            material: remap(quad.material),
+            ..*quad
+        });
+    }
+    let quads = overlay.model_quads.clone();
+    for (index, component) in [block_transform::random_offset::BAMBOO, Default::default()]
+        .into_iter()
+        .enumerate()
+    {
+        if index != 0 {
+            overlay.model_quads.extend_from_slice(&quads);
+        }
+        overlay.model_templates.push(assets::ModelTemplate {
+            quad_start: index as u32 * template.quad_count,
+            quad_count: template.quad_count,
+            flags: 0,
+        });
+        overlay.model_random_offsets.push((index as u32, component));
+        overlay.visuals.push(assets::BlockVisual {
+            faces,
+            flags: visual.flags(),
+            kind: visual.kind(),
+            support: visual.support(),
+            contributor_role: visual.contributor_role(),
+            model_template: index as u32,
+            animation: assets::NO_ANIMATION,
+            variant: visual.variant(),
+        });
+        overlay.light_properties.push(visual.light_properties());
+    }
+    let first = records.len() as u32;
+    (
+        Arc::new(assets.with_block_overlay(first, &overlay).unwrap()),
+        [first, first + 1],
+    )
 }
 
 /// Builds the actual HDR, snapshot, shadow, post, hand and UI graph without a window.
@@ -260,7 +353,8 @@ fn enhanced_bamboo_uses_the_production_graph_under_changing_views_and_shadows() 
     if crate::gpu_snapshot::Gpu::for_fixture("Enhanced bamboo production graph").is_none() {
         return;
     }
-    let mesh = mesh(&records, &assets);
+    let (assets, overrides) = overridden_assets(&records, &assets);
+    let mesh = mesh(&records, &assets, overrides);
     let (mut app, camera) = app(Arc::clone(&assets));
     let empty = capture(&mut app);
     app.world_mut()
@@ -307,7 +401,7 @@ fn enhanced_bamboo_uses_the_production_graph_under_changing_views_and_shadows() 
     let original_view = *app.world().get::<Transform>(camera).unwrap();
     let center = Vec3::from_array(block.map(|value| value as f32))
         + Vec3::splat(0.5)
-        + Vec3::from_array(world::bamboo::column_offset(block));
+        + Vec3::from_array(block_transform::bamboo::column_offset(block));
     *app.world_mut().get_mut::<Transform>(camera).unwrap() =
         Transform::from_translation(center + Vec3::new(1.5, 0.4, 2.5)).looking_at(center, Vec3::Y);
     let close = capture(&mut app);

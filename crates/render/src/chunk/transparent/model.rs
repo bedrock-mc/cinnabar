@@ -339,7 +339,7 @@ pub(in crate::chunk) fn transparent_model_draw_candidate(
         let transform = model_ref[0] >> 12;
         let mut offset = meshing::bamboo::quad_offset(transform, quad_index);
         if has_offset {
-            let default = world::bamboo::offset_from_transform(transform);
+            let default = block_transform::bamboo::offset_from_transform(transform);
             offset = std::array::from_fn(|axis| offset[axis] - default[axis]);
         }
         centroid += Vec3::from_array(offset);

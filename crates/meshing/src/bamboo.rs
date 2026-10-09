@@ -10,7 +10,7 @@ pub const POSITIVE_Z_LEAF_QUAD: u32 = POSITIVE_X_LEAF_QUAD + 2;
 /// Resolves the packed variant shared by terrain and position-dependent overlays.
 pub fn transform_for_template(flags: u32, variant: u32, position: [i32; 3]) -> u32 {
     if flags & assets::MODEL_TEMPLATE_FLAG_BAMBOO != 0 {
-        world::bamboo::column_transform(position[0], position[2])
+        block_transform::bamboo::column_transform(position[0], position[2])
     } else {
         variant
     }
@@ -27,7 +27,7 @@ pub fn stem_uv_offset(transform: u32, quad: u32) -> f32 {
 
 /// Block-local displacement for a bamboo model quad, including its leaf plane inset.
 pub fn quad_offset(transform: u32, quad: u32) -> [f32; 3] {
-    let mut offset = world::bamboo::offset_from_transform(transform);
+    let mut offset = block_transform::bamboo::offset_from_transform(transform);
     if quad == POSITIVE_X_LEAF_QUAD {
         offset[2] += LEAF_PLANE_INSET;
     }

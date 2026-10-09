@@ -71,7 +71,7 @@ pub struct CustomBlockVisuals {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct CustomVisualComponents {
     /// Position-dependent component; an explicit zero value overrides inherited displacement.
-    pub random_offset: Option<world::random_offset::RandomOffsetComponent>,
+    pub random_offset: Option<block_transform::random_offset::RandomOffsetComponent>,
     pub geometry: Option<Arc<str>>,
     /// Geometry's legacy `useBlockTypeLightAbsorption` flag; absent means false.
     pub geometry_use_block_type_light_absorption: bool,
@@ -130,7 +130,7 @@ pub struct CustomPermutation {
 /// Collision and targeting components present in a permutation; absent fields inherit.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct CustomPhysicalComponents {
-    pub random_offset: Option<world::random_offset::RandomOffsetComponent>,
+    pub random_offset: Option<block_transform::random_offset::RandomOffsetComponent>,
     pub collision: Option<CustomCollision>,
     pub selection: Option<CustomSelection>,
 }
@@ -144,7 +144,7 @@ pub struct CustomCollision {
 /// Effective physical components for one palette state.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CustomBlockPhysics {
-    pub random_offset: Option<world::random_offset::RandomOffsetComponent>,
+    pub random_offset: Option<block_transform::random_offset::RandomOffsetComponent>,
     pub collides: bool,
     pub collision_boxes: Option<Arc<[CustomBox]>>,
     pub selection: CustomSelection,
@@ -588,8 +588,10 @@ fn physical_components(components: Option<&Nbt>) -> (CustomPhysicalComponents, u
 }
 
 /// Decodes authored pixel ranges once, keeping absence distinct from an explicit zero component.
-fn random_offset_component(value: &Nbt) -> Option<world::random_offset::RandomOffsetComponent> {
-    use world::random_offset::{RandomOffsetAxis, RandomOffsetComponent};
+fn random_offset_component(
+    value: &Nbt,
+) -> Option<block_transform::random_offset::RandomOffsetComponent> {
+    use block_transform::random_offset::{RandomOffsetAxis, RandomOffsetComponent};
     if !matches!(value, Nbt::Compound(_)) {
         return None;
     }

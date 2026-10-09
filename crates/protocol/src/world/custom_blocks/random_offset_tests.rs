@@ -1,5 +1,5 @@
 use super::{Nbt, random_offset_component};
-use world::random_offset::{RandomOffsetAxis, RandomOffsetComponent};
+use block_transform::random_offset::{RandomOffsetAxis, RandomOffsetComponent};
 
 /// Encodes an authored axis range without involving a visual geometry fixture.
 fn axis(min: f64, max: f64, steps: i64) -> Nbt {
@@ -47,4 +47,17 @@ fn random_offset_malformed_axes_are_skipped() {
     ] {
         assert!(random_offset_component(&Nbt::Compound(vec![("x".into(), invalid)])).is_none());
     }
+}
+
+#[test]
+fn random_offset_ranges_outside_authored_axis_bounds_are_skipped() {
+    for [min, max] in [[-8.01, 0.0], [0.0, 8.01], [32.0, 32.0]] {
+        assert!(
+            random_offset_component(&Nbt::Compound(vec![("x".into(), axis(min, max, 0)),]))
+                .is_none()
+        );
+    }
+    assert!(
+        random_offset_component(&Nbt::Compound(vec![("x".into(), axis(-8.0, 8.0, 0)),])).is_some()
+    );
 }

@@ -1,5 +1,8 @@
 //! State-owned coordinate displacement shared by model and physical shapes.
 
+/// Authored axis ranges span at most eight pixels in either direction.
+pub const MAX_AXIS_OFFSET: f32 = 0.5;
+
 /// One axis's block-unit range and equally spaced sample count; zero is continuous.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct RandomOffsetAxis {
@@ -21,13 +24,14 @@ impl RandomOffsetComponent {
         std::array::from_fn(|axis| self.axes[axis].sample(random[axis]))
     }
 
-    /// Rejects unordered or non-finite component ranges before admission.
+    /// Rejects unordered, non-finite or out-of-bounds authored ranges before admission.
     #[must_use]
     pub fn is_valid(self) -> bool {
         self.axes.iter().all(|axis| {
             axis.range.iter().all(|value| value.is_finite())
                 && axis.range[0] <= axis.range[1]
-                && (axis.range[1] - axis.range[0]).is_finite()
+                && axis.range[0] >= -MAX_AXIS_OFFSET
+                && axis.range[1] <= MAX_AXIS_OFFSET
         })
     }
 }

@@ -171,8 +171,8 @@ fn random_offset_state_overrides_reach_selection_and_collision_in_both_id_spaces
         values: [false, true].map(protocol::CustomStateValue::Bool).into(),
     }]);
     let components = [
-        world::random_offset::BAMBOO,
-        world::random_offset::RandomOffsetComponent::default(),
+        block_transform::random_offset::BAMBOO,
+        block_transform::random_offset::RandomOffsetComponent::default(),
     ];
     block.state_physics = components
         .map(|offset| {

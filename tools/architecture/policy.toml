@@ -43,7 +43,7 @@ forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 [[crates]]
 name = "protocol"
 path = "crates/protocol"
-allowed_dependencies = ["bridge", "render-api", "world"]
+allowed_dependencies = ["block-transform", "bridge", "render-api"]
 forbidden_dependencies = ["asset-compiler", "assets", "bevy", "wgpu"]
 
 [[crates]]
@@ -61,7 +61,7 @@ forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 [[crates]]
 name = "assets"
 path = "crates/assets"
-allowed_dependencies = ["world"]
+allowed_dependencies = ["block-transform"]
 forbidden_dependencies = ["asset-compiler", "bevy", "clap", "image", "wgpu"]
 
 [[crates]]
@@ -79,7 +79,7 @@ forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 [[crates]]
 name = "meshing"
 path = "crates/meshing"
-allowed_dependencies = ["assets", "world"]
+allowed_dependencies = ["assets", "block-transform", "world"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 
 [[crates]]
@@ -122,14 +122,14 @@ forbidden_transitive_dependencies = ["app", "bedrock-client", "launcher", "clien
 [[crates]]
 name = "gameplay"
 path = "crates/gameplay"
-allowed_dependencies = ["assets", "client-world", "inventory", "player-state", "protocol", "semantic-input", "sim", "world"]
+allowed_dependencies = ["assets", "block-transform", "client-world", "inventory", "player-state", "protocol", "semantic-input", "sim", "world"]
 forbidden_transitive_dependencies = ["app", "bedrock-client", "client-session", "client-runtime", "client-presentation", "acceptance", "launcher", "client-ui", "chunk-pipeline", "ui", "json-ui", "render", "asset-compiler", "pack-compiler", "bevy", "bevy_*", "wgpu*"]
 test_support_features = ["test-support"]
 
 [[crates]]
 name = "client-session"
 path = "crates/client-session"
-allowed_dependencies = ["assets", "pack-compiler", "protocol", "resource-pack", "server-experience", "world"]
+allowed_dependencies = ["assets", "block-transform", "pack-compiler", "protocol", "resource-pack", "server-experience", "world"]
 forbidden_transitive_dependencies = ["app", "bedrock-client", "gameplay", "client-runtime", "client-presentation", "acceptance", "launcher", "client-ui", "client-world", "chunk-pipeline", "inventory", "player-state", "semantic-input", "ui", "json-ui", "render", "asset-compiler", "bevy", "bevy_*", "wgpu*"]
 test_support_features = ["test-support"]
 
@@ -210,7 +210,7 @@ forbidden_transitive_dependencies = ["app", "bedrock-client", "render", "protoco
 name = "render"
 path = "crates/render"
 test_support_features = ["publication-test-support"]
-allowed_dependencies = ["assets", "meshing", "mod-api", "mod-render", "particles", "render-api", "render-model", "tracy-client", "world"]
+allowed_dependencies = ["assets", "block-transform", "meshing", "mod-api", "mod-render", "particles", "render-api", "render-model", "tracy-client", "world"]
 forbidden_dependencies = ["asset-compiler"]
 # Also reject game-state edges hidden behind another local crate or test dependency.
 forbidden_transitive_dependencies = ["client-world", "chunk-pipeline", "protocol"]
@@ -218,14 +218,14 @@ forbidden_transitive_dependencies = ["client-world", "chunk-pipeline", "protocol
 [[crates]]
 name = "app"
 path = "app"
-allowed_dependencies = ["acceptance", "assets", "chunk-pipeline", "client-presentation", "client-session", "client-ui", "client-world", "developer-control", "diagnostics", "gameplay", "gilrs", "inventory", "json-ui", "launcher", "libc", "rich-presence", "meshing", "mod-host", "objc2", "objc2-app-kit", "pack-compiler", "particles", "player-state", "protocol", "raw-window-handle", "render", "render-api", "render-model", "resource-pack", "semantic-input", "server-experience", "sim", "tracing-tracy", "ui", "world"]
+allowed_dependencies = ["acceptance", "assets", "block-transform", "chunk-pipeline", "client-presentation", "client-session", "client-ui", "client-world", "developer-control", "diagnostics", "gameplay", "gilrs", "inventory", "json-ui", "launcher", "libc", "meshing", "mod-host", "objc2", "objc2-app-kit", "pack-compiler", "particles", "player-state", "protocol", "raw-window-handle", "render", "render-api", "render-model", "resource-pack", "rich-presence", "semantic-input", "server-experience", "sim", "tracing-tracy", "ui", "world"]
 forbidden_dependencies = ["asset-compiler"]
 forbidden_transitive_dependencies = ["asset-compiler"]
 
 [[crates]]
 name = "sim"
 path = "crates/sim"
-allowed_dependencies = ["world"]
+allowed_dependencies = ["block-transform", "world"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 
 [[crates]]
@@ -734,3 +734,10 @@ name = "rich-presence"
 path = "crates/rich-presence"
 allowed_dependencies = ["launcher"]
 forbidden_dependencies = ["bevy", "wgpu"]
+
+# Coordinate-derived block component data stays independent of palette and render state.
+[[crates]]
+name = "block-transform"
+path = "crates/block-transform"
+allowed_dependencies = []
+dependency_free = true

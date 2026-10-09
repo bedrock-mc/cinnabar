@@ -205,8 +205,8 @@ mod fixture;
 #[test]
 fn random_offset_state_overrides_are_prepared_once_in_palette_order() {
     let mut block = slab();
-    let base = world::random_offset::BAMBOO;
-    let zero = world::random_offset::RandomOffsetComponent::default();
+    let base = block_transform::random_offset::BAMBOO;
+    let zero = block_transform::random_offset::RandomOffsetComponent::default();
     let visual = Arc::make_mut(&mut block.visual);
     visual.base.random_offset = Some(base);
     visual.permutations = Box::new([protocol::CustomPermutation {

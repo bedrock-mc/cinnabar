@@ -282,7 +282,10 @@ pub struct CollisionRegistry {
 
 #[derive(Debug, Clone)]
 struct BlockPhysics {
-    random_offset: Option<(world::random_offset::RandomOffsetComponent, [f32; 3])>,
+    random_offset: Option<(
+        block_transform::random_offset::RandomOffsetComponent,
+        [f32; 3],
+    )>,
     door: Option<DoorState>,
     flow: Option<FlowBlockFacts>,
     shapes: Box<[Aabb]>,
@@ -695,9 +698,7 @@ impl<'a> PaletteWorld<'a> {
                 identity: WorldCollisionIdentity::new(self.registry.identity(), [])?,
             });
         }
-        let grown = query.grown(1.0);
-        let min = block_floor(grown.min)?;
-        let max = block_ceil(grown.max)?;
+        let [min, max] = self.registry.query_bounds(query)?;
         let chunks = (min[0] >> 4..=max[0] >> 4)
             .flat_map(|x| {
                 (min[2] >> 4..=max[2] >> 4).map(move |z| ChunkKey::new(self.dimension, x, z))

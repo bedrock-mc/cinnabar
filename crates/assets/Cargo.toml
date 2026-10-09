@@ -6,7 +6,7 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
-world = { path = "../world" }
+block-transform = { path = "../block-transform" }
 bitflags = "2"
 lewton = "0.10.2"
 rayon.workspace = true

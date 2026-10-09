@@ -32,6 +32,7 @@ tracy = ["bevy/trace", "bevy/debug", "dep:tracing-tracy", "chunk-pipeline/tracy"
 reports = []
 
 [dependencies]
+block-transform = { path = "../crates/block-transform" }
 tracing-tracy = { version = "=0.11.4", default-features = false, features = ["enable", "only-localhost", "ondemand"], optional = true }
 acceptance = { path = "../crates/acceptance", optional = true }
 diagnostics = { path = "../crates/diagnostics" }

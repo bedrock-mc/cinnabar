@@ -700,7 +700,18 @@ fn quantize(
         .iter()
         .all(|corner| i32::from(corner[axis]) == boundary);
     let face_flag = MODEL_FACE_FLAGS[face];
-    let mut flags = face_flag | if on_boundary { face_flag << 4 } else { 0 };
+    let displaced_fallback_cube = components.random_offset.is_some()
+        && matches!(
+            components.geometry.as_deref(),
+            None | Some(FULL_BLOCK | FULL_BLOCK_V1)
+        );
+    // A fallback cube's displaced surface is exposed beside an undisplaced neighbour.
+    let mut flags = face_flag
+        | if on_boundary && !displaced_fallback_cube {
+            face_flag << 4
+        } else {
+            0
+        };
     if two_sided {
         flags |= MODEL_QUAD_FLAG_TWO_SIDED;
     }

@@ -750,7 +750,7 @@ pub(in crate::chunk) fn validate_local_model_streams(
         };
         if !(1..=32).contains(&template_quad_count)
             || visible_mask == 0
-            || lighting_base != expected_lighting_base
+            || !model_lighting_base_matches(words, model_lighting, expected_lighting_base)
         {
             return false;
         }
@@ -833,7 +833,7 @@ pub(in crate::chunk) fn validate_partitioned_model_streams(
         };
         if !(1..=32).contains(&template_quad_count)
             || visible_mask == 0
-            || lighting_base != expected_lighting_base
+            || !model_lighting_base_matches(words, model_lighting, expected_lighting_base)
         {
             return false;
         }
@@ -889,4 +889,26 @@ pub(in crate::chunk) fn validate_partitioned_model_streams(
     opaque_index == opaque_draw_refs.len()
         && blend_index == blend_draw_refs.len()
         && expected_lighting_base == model_lighting.len()
+}
+
+/// Requires contiguous lighting, with exactly two finite displacement records for flagged models.
+fn model_lighting_base_matches(
+    words: [u32; 4],
+    lighting: &[PackedQuadLighting],
+    expected: usize,
+) -> bool {
+    if words[0] & meshing::MODEL_REF_FLAG_RANDOM_OFFSET == 0 {
+        return words[2] as usize == expected;
+    }
+    let Some(base) = expected.checked_add(2) else {
+        return false;
+    };
+    let Some(prefix) = lighting.get(expected..base) else {
+        return false;
+    };
+    words[2] as usize == base
+        && prefix[1].samples()[2..] == [0, 0]
+        && PackedQuadLighting::offset_from_prefix([prefix[0], prefix[1]])
+            .iter()
+            .all(|value| value.is_finite())
 }

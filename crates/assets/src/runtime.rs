@@ -127,7 +127,7 @@ pub struct RuntimeAssets {
     hashed: Box<[(u32, u32)]>,
     materials: Box<[Material]>,
     model_templates: Box<[ModelTemplate]>,
-    model_random_offsets: Box<[(u32, world::random_offset::RandomOffsetComponent)]>,
+    model_random_offsets: Box<[(u32, block_transform::random_offset::RandomOffsetComponent)]>,
     model_quads: Box<[ModelQuad]>,
     animations: Box<[Animation]>,
     animation_frames: Box<[TextureRef]>,
@@ -314,7 +314,7 @@ impl RuntimeAssets {
     pub fn model_random_offset(
         &self,
         template: u32,
-    ) -> Option<world::random_offset::RandomOffsetComponent> {
+    ) -> Option<block_transform::random_offset::RandomOffsetComponent> {
         self.model_random_offsets
             .binary_search_by_key(&template, |entry| entry.0)
             .ok()

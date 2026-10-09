@@ -72,6 +72,7 @@ pub struct EnhancedRendering {
 
 pub const MAX_SHADOW_CASCADES: u32 = 3;
 /// Smallest shadow target admitted by frame preparation.
+#[cfg(feature = "enhanced")]
 pub(crate) const MIN_SHADOW_RESOLUTION: u32 = 256;
 
 impl Default for EnhancedRendering {
