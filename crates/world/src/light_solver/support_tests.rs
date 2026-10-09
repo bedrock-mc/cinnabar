@@ -23,6 +23,7 @@ impl LightReadAccess for Neighbours {
     }
 }
 
+/// Counts backing reads while using the production solver caches.
 fn supported(source: u8, neighbour: u8, required: u8) -> (bool, usize) {
     let position = BlockPos::new(0, 0, 0);
     let bounds = LightBounds::new(0, BlockPos::new(-1, -1, -1), BlockPos::new(1, 1, 1)).unwrap();
@@ -30,11 +31,17 @@ fn supported(source: u8, neighbour: u8, required: u8) -> (bool, usize) {
         reads: Cell::new(0),
         level: neighbour,
     };
+    let source = Source(source);
+    let mut scratch = LightSolverScratch::default();
+    let volume = bounds.volume().unwrap();
+    let blocks = CachedLightBlockAccess::new(&source, bounds, volume, &mut scratch.blocks);
+    let cached_prior = CachedLightReadAccess::new(&prior, bounds, volume, &mut scratch.prior);
     let result = prior_supports_level(
-        &Source(source),
-        &prior,
+        &blocks,
+        &cached_prior,
         bounds,
         position,
+        blocks.index(position).unwrap(),
         LightChannel::Block,
         DimensionLightProfile::Nether,
         required,
@@ -75,12 +82,19 @@ fn direct_sky_support_checks_above_before_lateral_neighbours() {
     let prior = DirectSky {
         reads: Cell::new(0),
     };
+    let source = Source(0);
+    let position = BlockPos::new(0, 0, 0);
+    let mut scratch = LightSolverScratch::default();
+    let volume = bounds.volume().unwrap();
+    let blocks = CachedLightBlockAccess::new(&source, bounds, volume, &mut scratch.blocks);
+    let cached_prior = CachedLightReadAccess::new(&prior, bounds, volume, &mut scratch.prior);
     assert!(
         prior_supports_level(
-            &Source(0),
-            &prior,
+            &blocks,
+            &cached_prior,
             bounds,
-            BlockPos::new(0, 0, 0),
+            position,
+            blocks.index(position).unwrap(),
             LightChannel::Sky,
             DimensionLightProfile::Overworld {
                 direct_sky_down: true

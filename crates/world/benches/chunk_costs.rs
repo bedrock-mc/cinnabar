@@ -1,6 +1,9 @@
+#[path = "chunk_costs/lighting_columns.rs"]
+mod lighting_columns;
+
 use std::hint::black_box;
 
-use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
+use criterion::{BenchmarkId, Criterion, Throughput, criterion_group};
 use world::{
     BLOCKS_PER_SUB_CHUNK, BlockPos, ChunkKey, ChunkStore, DecodedLevelChunk, DimensionLightProfile,
     DimensionSlots, EmptyLight, LightBlockAccess, LightBlockSample, LightBounds, LightChannel,
@@ -268,5 +271,18 @@ fn light_benches(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, decode_benches, light_benches);
-criterion_main!(benches);
+criterion_group!(
+    benches,
+    decode_benches,
+    light_benches,
+    lighting_columns::benches
+);
+/// Selects individual light samples or the regular Criterion benchmark groups.
+fn main() {
+    if std::env::args().any(|argument| argument == "--light-samples") {
+        lighting_columns::samples();
+        return;
+    }
+    benches();
+    Criterion::default().configure_from_args().final_summary();
+}
