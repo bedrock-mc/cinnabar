@@ -45,7 +45,7 @@ pub(super) fn background(
     size: [f32; 2],
 ) -> Result<(), UiPresentationError> {
     let age = if state.immediate_respawn {
-        state.respawn_seconds.unwrap_or(0.0) - STAGE_SECONDS
+        state.elapsed_seconds - STAGE_SECONDS
     } else {
         state.elapsed_seconds
     };
@@ -100,11 +100,13 @@ pub(super) fn draw(
     let left = (size[0] - width) * 0.5;
     let right = left + width;
     let title_height = canvas.r(theme::HEADER3.line);
-    let reason_height = canvas.measure_height(&view.death_reason, width, theme::BODY)?;
     let primary_height = canvas.r(theme::BUTTON_HEIGHT);
     let secondary_height = canvas.r(theme::BUTTON_HEIGHT);
     let gap = canvas.r(1.0);
     let action_height = primary_height + gap + secondary_height + canvas.r(3.0);
+    let reason_height = canvas
+        .measure_height(&view.death_reason, width, theme::BODY)?
+        .min((size[1] - title_height - action_height).max(0.0));
     let free = (size[1] - title_height - reason_height - action_height).max(0.0);
     let message_top = free * 0.3;
     let action_top = message_top + title_height + reason_height + free * 0.5;
@@ -122,6 +124,12 @@ pub(super) fn draw(
         theme::TEXT,
         true,
     )?;
+    let reason_clip = canvas.begin_clip([
+        left,
+        message_top + title_height,
+        right,
+        message_top + title_height + reason_height,
+    ])?;
     canvas.centered_wrapped_text_with_shadow(
         &view.death_reason,
         [left, message_top + title_height],
@@ -130,6 +138,7 @@ pub(super) fn draw(
         theme::TEXT,
         true,
     )?;
+    canvas.end_clip(reason_clip);
     let ready = view.death_controls_visible && state.controls_ready() && !view.death_loading;
     for (label, bounds, variant, action, opacity) in [
         (

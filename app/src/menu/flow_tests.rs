@@ -326,6 +326,27 @@ const KICK: &str =
     "server disconnected: We've detected movement cheats (network read failed: closed)";
 
 #[test]
+fn death_respawn_requests_cannot_cross_session_replacement() {
+    for transition in 0..3 {
+        let mut menu = MenuRuntime::new(true, 2, "Player".into());
+        menu.show_world();
+        assert!(menu.open_death_with_rules(true));
+        assert!(menu.send_respawn_request(|| true));
+        match transition {
+            0 => {
+                assert!(menu.absorb_session_failure("network session failed: closed"));
+            }
+            1 => menu.show_connecting(),
+            _ => menu.show_transfer("example.invalid"),
+        }
+        menu.advance_death_controls(10.0);
+        assert!(!menu.send_respawn_request(|| panic!("stale session request")));
+        assert!(!menu.death_shown);
+        assert!(!menu.death_loading);
+    }
+}
+
+#[test]
 fn launcher_shows_the_server_reason_on_the_disconnect_screen() {
     use super::disconnect::{DisconnectBody, describe};
     let mut menu = MenuRuntime::new(true, 2, "Player".to_owned());

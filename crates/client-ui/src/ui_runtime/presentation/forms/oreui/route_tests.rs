@@ -73,6 +73,58 @@ fn death_owns_oreui_actions_and_preserves_literal_reason() {
 }
 
 #[test]
+fn death_long_reasons_keep_actions_inside_the_viewport() {
+    let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
+    let mut view = MenuView::new(true, "Player".into());
+    view.screen = MenuScreen::Death;
+    view.death_reason = "A server-authored reason that wraps into several lines.\n".repeat(100);
+    for size in [[1280.0, 720.0], [640.0, 360.0]] {
+        let hits = append(&mut presentation, &view, size);
+        for action in [MenuAction::Respawn, MenuAction::OpenDeathGameMenu] {
+            let bounds = hits.iter().find(|(found, _)| *found == action).unwrap().1;
+            assert!(bounds.min().y() >= 0.0);
+            assert!(
+                bounds.max().y() <= size[1],
+                "{action:?} must remain reachable"
+            );
+        }
+    }
+}
+
+#[test]
+fn death_immediate_respawn_finishes_the_backdrop_animation() {
+    let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
+    let mut view = MenuView::new(true, "Player".into());
+    view.screen = MenuScreen::Death;
+    view.death_loading = true;
+    view.death_presentation = launcher::menu::death::DeathPresentation::new(true, true);
+    view.death_presentation.respawn_seconds = Some(0.0);
+    view.death_presentation.advance(6.0);
+    let metrics = TextMetrics::for_viewport([1280, 720], ui::DpiScale::new(1.0).unwrap(), Some(2));
+    let mut nodes = Vec::new();
+    presentation
+        .append_oreui_screen(
+            &view,
+            &mut nodes,
+            &mut 1,
+            metrics,
+            [1280.0, 720.0],
+            None,
+            &|_| None,
+        )
+        .unwrap();
+    let mesh = nodes
+        .iter()
+        .find_map(|node| match node.visual() {
+            ui::UiVisual::Mesh(mesh) => Some(mesh),
+            _ => None,
+        })
+        .expect("the backdrop remains visible while recovery is pending");
+    assert_eq!(mesh.vertices()[0].uv, [-1.0, -1.0]);
+    assert_eq!(mesh.vertices()[0].color[3], 102);
+}
+
+#[test]
 fn home_owns_oreui_actions_and_directional_focus() {
     let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
     presentation.player_preview_icon = Some(super::super::super::IconRef {

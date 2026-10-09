@@ -379,6 +379,7 @@ impl MenuRuntime {
     }
 
     pub(crate) fn show_connecting(&mut self) {
+        self.reset_death();
         self.visible = true;
         self.history.reset(MenuScreen::Home);
         self.history.push(MenuScreen::Play);
@@ -407,6 +408,7 @@ impl MenuRuntime {
     }
 
     pub(crate) fn show_transfer(&mut self, address: &str) {
+        self.reset_death();
         self.message = Some(format!("Transferring to {address}…"));
     }
 
@@ -421,6 +423,7 @@ impl MenuRuntime {
     /// Returns `false` when the client was started with `--address`, which has
     /// no launcher to fall back to and must still exit the process.
     pub(crate) fn absorb_session_failure(&mut self, error: &str) -> bool {
+        self.reset_death();
         if !self.launcher {
             return false;
         }

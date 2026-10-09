@@ -61,7 +61,13 @@ impl DeathPresentation {
         if !delta.is_finite() || delta <= 0.0 {
             return;
         }
-        self.elapsed_seconds = (self.elapsed_seconds + delta).min(BACKDROP_SECONDS);
+        let backdrop_end = BACKDROP_SECONDS
+            + if self.immediate_respawn {
+                STAGE_SECONDS
+            } else {
+                0.0
+            };
+        self.elapsed_seconds = (self.elapsed_seconds + delta).min(backdrop_end);
         if let Some(age) = &mut self.respawn_seconds {
             *age = (*age + delta).min(STAGE_SECONDS + CONTENT_FADE_SECONDS);
         }
