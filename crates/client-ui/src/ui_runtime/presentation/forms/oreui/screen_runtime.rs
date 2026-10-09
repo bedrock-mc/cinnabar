@@ -33,7 +33,6 @@ impl UiPresentationRuntime {
                 && !matches!(
                     screen,
                     MenuScreen::Home
-                        | MenuScreen::Death
                         | MenuScreen::DressingRoom
                         | MenuScreen::Settings
                         | MenuScreen::Profile
@@ -44,6 +43,7 @@ impl UiPresentationRuntime {
                         | MenuScreen::Servers
                         | MenuScreen::AddServer
                         | MenuScreen::Pause
+                        | MenuScreen::Death
                 ))
         {
             return Ok(None);
@@ -107,11 +107,15 @@ impl UiPresentationRuntime {
             self.menu_seconds,
         );
         canvas.transitions = Some(&mut self.form_presentation.oreui_transitions);
+        if screen == MenuScreen::Pause && view.death_presentation.active && !progress {
+            death::background(&mut canvas, view.death_presentation, size)?;
+        }
         let root_surface = motion::Surface::Screen(match screen {
             MenuScreen::Social | MenuScreen::Servers | MenuScreen::AddServer => MenuScreen::Play,
             screen => screen,
         });
-        let root_entrance = canvas.begin_entrance(root_surface);
+        let root_entrance =
+            (screen != MenuScreen::Death).then(|| canvas.begin_entrance(root_surface));
         let motion_rem = canvas.rem;
         let mut dressing_preview = None;
         let mut character_preview = None;
@@ -138,6 +142,15 @@ impl UiPresentationRuntime {
                 .collect();
         } else {
             match screen {
+                MenuScreen::Death => {
+                    canvas.capture_focus = true;
+                    death::draw(&mut canvas, view, size, translate)?;
+                    self.form_presentation.menu_focus = canvas
+                        .focus_hits
+                        .iter()
+                        .map(|(action, _)| *action)
+                        .collect();
+                }
                 MenuScreen::Home => {
                     canvas.capture_focus = true;
                     let rollback = (canvas.nodes.len(), *canvas.next);
@@ -191,12 +204,6 @@ impl UiPresentationRuntime {
                         .iter()
                         .map(|(action, _)| *action)
                         .collect();
-                }
-                MenuScreen::Death => {
-                    canvas.appearance =
-                        theme::Appearance::from_dark(self.form_presentation.oreui_dark_mode);
-                    canvas.bundle = theme::Bundle::Gameplay;
-                    death::draw(&mut canvas, view, size)?
                 }
                 MenuScreen::Profile => {
                     profile::draw(&mut canvas, view, size, portrait, &self.menu_artwork.refs)?
@@ -372,7 +379,9 @@ impl UiPresentationRuntime {
                     ..super::super::super::player_preview::MenuPreviewConfig::DRESSING_ROOM
                 },
             )?;
-            paint::apply_entrance(nodes, root_entrance, motion_rem, size)?;
+            if let Some(entrance) = root_entrance {
+                paint::apply_entrance(nodes, entrance, motion_rem, size)?;
+            }
             if view.dressing_room.editor.is_some() {
                 self.menu_preview.control = None;
                 self.cancel_menu_player_preview_input();
@@ -413,8 +422,8 @@ impl UiPresentationRuntime {
                 self.add_menu_text_spots(spots);
                 self.menu_scrolls.set_areas(Vec::new());
             }
-        } else {
-            paint::apply_entrance(nodes, root_entrance, motion_rem, size)?;
+        } else if let Some(entrance) = root_entrance {
+            paint::apply_entrance(nodes, entrance, motion_rem, size)?;
         }
         self.form_presentation.menu_sounds.clear();
         Ok(Some(hits))

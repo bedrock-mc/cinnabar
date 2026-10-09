@@ -233,6 +233,7 @@ pub(crate) fn receive_network_events(
                 rewind_history_size,
                 hardcore,
                 hud_rules,
+                death_rules,
                 packs,
                 terrain_before_spawn,
             } => {
@@ -312,6 +313,7 @@ pub(crate) fn receive_network_events(
                 );
                 ui_runtime.set_hardcore(hardcore);
                 ui_runtime.apply_hud_rules(hud_rules);
+                ui_runtime.apply_death_rules(death_rules);
                 if replacing_session {
                     debug!("replaced StartGame environment session");
                 }
@@ -938,7 +940,7 @@ mod resource_packs;
 pub(crate) mod session;
 pub(crate) use actor_publication::{
     ActorFramePartialTick, HandRigBuilder, advance_actor_frame, prepare_actor_render_frame,
-    publish_actor_render_frame, publish_entity_shadows,
+    publish_actor_render_frame, publish_entity_shadows, publish_local_actor_damage,
 };
 
 #[cfg(test)]

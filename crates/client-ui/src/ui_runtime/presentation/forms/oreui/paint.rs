@@ -286,6 +286,16 @@ impl<'a> Canvas<'a> {
         Ok(())
     }
 
+    /// Places caller-owned geometry in the canvas's current clipping scope.
+    pub(super) fn mesh(
+        &mut self,
+        bounds: Bounds,
+        mesh: Arc<ui::UiMesh>,
+    ) -> Result<(), UiPresentationError> {
+        self.push(bounds, UiVisual::Mesh(mesh))?;
+        Ok(())
+    }
+
     pub(super) fn gradient(
         &mut self,
         bounds: Bounds,
@@ -403,6 +413,19 @@ impl<'a> Canvas<'a> {
         style: Type,
         color: Rgba,
     ) -> Result<f32, UiPresentationError> {
+        self.centered_wrapped_text_with_shadow(value, at, width, style, color, false)
+    }
+
+    /// Centers each wrapped line and optionally draws its text shadow.
+    pub(super) fn centered_wrapped_text_with_shadow(
+        &mut self,
+        value: &str,
+        at: [f32; 2],
+        width: f32,
+        style: Type,
+        color: Rgba,
+        shadow: bool,
+    ) -> Result<f32, UiPresentationError> {
         if value.is_empty() {
             return Ok(0.0);
         }
@@ -412,7 +435,30 @@ impl<'a> Canvas<'a> {
             .layouts
             .layout(request)
             .map_err(UiPresentationError::Text)?;
-        self.place_text(layout, at, width, color, false)
+        self.place_text(layout, at, width, color, shadow)
+    }
+
+    /// Centers wrapped text and limits layout work to lines visible within `height`.
+    pub(super) fn bounded_centered_layout(
+        &mut self,
+        value: &str,
+        width: f32,
+        height: f32,
+        style: Type,
+    ) -> Result<Arc<ui::TextLayout>, UiPresentationError> {
+        let mut request = self.text_request(value, (width.max(1.0) * 64.0) as u32, style)?;
+        let pitch = (request.line_height_64 as f32 * request.scale.get()
+            + request.wrap.line_padding_64 as f32)
+            .max(1.0);
+        request.wrap.align = ui::TextLineAlign::Center;
+        request.wrap.max_lines = Some(
+            (height.max(0.0) * 64.0 / pitch)
+                .ceil()
+                .clamp(1.0, ui::MAX_WRAP_LINES as f32) as u16,
+        );
+        self.layouts
+            .layout(request)
+            .map_err(UiPresentationError::Text)
     }
 
     fn layout(
@@ -460,7 +506,7 @@ impl<'a> Canvas<'a> {
     }
 
     /// Draws a laid-out `layout` from `at` within `width`; returns its height.
-    fn place_text(
+    pub(super) fn place_text(
         &mut self,
         layout: std::sync::Arc<ui::TextLayout>,
         at: [f32; 2],

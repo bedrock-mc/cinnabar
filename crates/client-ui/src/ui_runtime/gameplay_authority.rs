@@ -115,10 +115,30 @@ impl UiRuntime {
             .set_stats(self.hud.health(), self.hud.hunger(), armor, self.hud.air());
     }
 
-    /// Millis timestamp of the last authoritative health decrease, for the
-    /// Java-style damage heart blink.
-    pub const fn last_health_drop_millis(&self) -> Option<u64> {
-        self.last_health_drop_millis
+    /// Current local actor damage state, absent when its session has no player actor.
+    pub const fn local_actor_damage(&self) -> Option<client_world::ActorDamageState> {
+        self.local_actor_damage
+    }
+
+    /// Publishes the current local actor's damage snapshot after its completed ticks.
+    pub fn publish_local_actor_damage(&mut self, damage: Option<client_world::ActorDamageState>) {
+        self.local_actor_damage = damage;
+    }
+
+    /// Projects health from its actor attribute range alongside the completed damage countdown.
+    pub fn publish_local_actor_health(&mut self, actor: Option<&client_world::ActorSnapshot>) {
+        self.publish_local_actor_damage(actor.map(|actor| actor.status.damage));
+        if let Some((attribute, health)) = actor
+            .and_then(|actor| actor.attributes.get("minecraft:health"))
+            .and_then(|attribute| {
+                hud_adapter::attribute_stat(attribute).map(|health| (attribute, health))
+            })
+        {
+            self.publish_local_player_alive(attribute.current > 0.0);
+            self.hud.set_health(Some(health));
+        } else if actor.is_none() {
+            self.local_player_health_available = false;
+        }
     }
 
     /// Millis timestamp when the selected slot or item identity last changed,
@@ -273,7 +293,10 @@ impl UiRuntime {
                 // well-formed attribute skips that field, counted, keeping the
                 // previous authoritative value and the session alive.
                 "minecraft:health" => match hud_adapter::attribute_stat(attribute) {
-                    Some(stat) => health = Some(stat),
+                    Some(stat) => {
+                        self.publish_local_player_alive(attribute.current > 0.0);
+                        health = Some(stat);
+                    }
                     None => self.gameplay_hud.note_odd_attribute(),
                 },
                 "minecraft:player.hunger" => {
@@ -305,12 +328,11 @@ impl UiRuntime {
                 _ => {}
             }
         }
-        // An authoritative health decrease drives the Java-style damage blink.
+        // An authoritative health decrease can dismiss screens that close when hurt.
         if let (Some(previous), Some(next)) = (self.hud.health(), health)
             && u32::from(next.current()) * u32::from(previous.scale())
                 < u32::from(previous.current()) * u32::from(next.scale())
         {
-            self.last_health_drop_millis = Some(envelope.local_millis);
             self.note_player_hurt();
         }
         self.hud

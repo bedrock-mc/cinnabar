@@ -151,6 +151,9 @@ pub(crate) fn validate_raw_ui_frame(frame: &Bytes) -> Result<(), ProtocolError> 
     let _declared = wire::read_var_u32(&mut probe)?;
     let header = wire::read_var_u32(&mut probe)?;
     let packet_id = header & 0x3ff;
+    if packet_id == McpePacketName::DeathInfoPacket as u32 {
+        return validate_raw_death_info(probe);
+    }
     if packet_id == McpePacketName::UpdateSoftEnumPacket as u32 {
         return validate_raw_soft_enum_packet(probe);
     }
@@ -173,6 +176,28 @@ pub(crate) fn validate_raw_ui_frame(frame: &Bytes) -> Result<(), ProtocolError> 
         });
     }
     validate_borrowed_ui_packet(&packet.data)?;
+    Ok(())
+}
+
+/// Validates reason strings and parameter count before the generated decoder allocates.
+fn validate_raw_death_info(mut payload: Bytes) -> Result<(), ProtocolError> {
+    let _message = take_raw_ui_text(&mut payload, "death_info.message")?;
+    let count = wire::read_var_u32(&mut payload)? as usize;
+    if count > MAX_CHAT_PARAMETERS {
+        return Err(UiPacketError::TooManyChatParameters {
+            count,
+            max: MAX_CHAT_PARAMETERS,
+        }
+        .into());
+    }
+    for _ in 0..count {
+        let _parameter = take_raw_ui_text(&mut payload, "death_info.parameter")?;
+    }
+    if payload.has_remaining() {
+        return Err(ProtocolError::TrailingPacketBytes {
+            remaining: payload.remaining(),
+        });
+    }
     Ok(())
 }
 

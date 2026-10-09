@@ -1,8 +1,11 @@
+mod context;
+mod death;
 mod preview;
 mod remapping;
 mod server_list;
 mod settings_pointer;
 
+use context::MenuInputContext;
 use settings_pointer::{native_release_action, update_slider};
 
 use bevy::{
@@ -15,8 +18,8 @@ use bevy::{
         touch::Touches,
     },
     prelude::{
-        ButtonInput, Entity, KeyCode, Local, MessageReader, MouseButton, Query, Res, ResMut,
-        Resource, Single, With,
+        ButtonInput, Entity, KeyCode, Local, MouseButton, Query, Res, ResMut, Resource, Single,
+        With,
     },
     window::{CursorGrabMode, CursorOptions, PrimaryWindow, Window},
 };
@@ -357,15 +360,6 @@ fn max_bytes(field: MenuField) -> usize {
     }
 }
 
-/// Groups the session and desktop authority read before menu actions.
-#[derive(bevy::ecs::system::SystemParam)]
-pub(crate) struct MenuInputContext<'w, 's> {
-    player_runtime: Res<'w, crate::player_runtime::PlayerRuntime>,
-    keyboard_messages: MessageReader<'w, 's, KeyboardInput>,
-    focus: Option<ResMut<'w, client_presentation::camera::CursorFocus>>,
-    driven: Option<Res<'w, crate::camera::DrivenInput>>,
-}
-
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn drive_menu_input(
     context: MenuInputContext,
@@ -387,10 +381,14 @@ pub(crate) fn drive_menu_input(
 ) {
     let MenuInputContext {
         player_runtime,
+        time,
         mut keyboard_messages,
         mut focus,
         driven,
     } = context;
+    if let Some(time) = time {
+        menu.advance_death_controls(time.delta_secs_f64());
+    }
     menu.settings_slider_hovered = None;
     if consent.is_some_and(|consent| consent.0) {
         presentation.cancel_menu_player_preview_input();
@@ -441,6 +439,18 @@ pub(crate) fn drive_menu_input(
                 .collect()
         })
         .unwrap_or_default();
+    if gui_scale_drag.observe_death(
+        runtime.as_deref(),
+        &mut menu,
+        &mut presentation,
+        &mut keyboard_messages,
+    ) {
+        *modifiers = MenuModifiers::default();
+        keys.reset_all();
+        mouse_buttons.reset_all();
+        crate::camera::release_cursor(&mut cursor);
+        return;
+    }
     if runtime.as_ref().is_some_and(|runtime| {
         runtime.credits().owns_input()
             || runtime.server_forms().owns_input()
@@ -489,14 +499,6 @@ pub(crate) fn drive_menu_input(
         keyboard_messages.clear();
         menu.pointer_down = false;
         return;
-    }
-    // Zero health in play opens the death screen; recovery closes it.
-    if let Some(health) = runtime.as_ref().and_then(|runtime| runtime.hud().health()) {
-        if health.current() == 0 {
-            menu.open_death();
-        } else {
-            menu.note_player_alive();
-        }
     }
     if !menu.is_visible()
         && runtime
@@ -565,6 +567,7 @@ pub(crate) fn drive_menu_input(
     }
 
     let gameplay_pending = menu.gameplay_return_pending();
+    let respawn_pending = menu.death_loading;
     modifiers.capture_pressed(&keys);
     crate::camera::release_cursor(&mut cursor);
     // The join request popup takes the keyboard from any box focused beneath it.
@@ -935,6 +938,7 @@ pub(crate) fn drive_menu_input(
     }
     if (!menu.is_visible()
         || (!gameplay_pending && menu.gameplay_return_pending())
+        || (!respawn_pending && menu.death_loading)
         || menu.pressed == Some(super::MenuAction::ServerTrust(true)))
         && !menu.intents.disconnect
         && let Some(focus) = focus.as_deref_mut()
@@ -987,3 +991,6 @@ mod settings_slider_tests;
 
 #[cfg(test)]
 mod sign_in_tests;
+
+#[cfg(test)]
+mod death_tests;

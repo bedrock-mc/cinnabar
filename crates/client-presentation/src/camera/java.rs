@@ -6,6 +6,7 @@ use bevy::prelude::{Mat4, Resource, Vec3};
 use render_model::java_animation::{java_cos, java_sin};
 
 use super::bob::{ViewEffect, shortest_degrees};
+use super::hurt::{HURT_TILT_DEGREES, death_roll_degrees};
 
 #[cfg(test)]
 mod reference_tests;
@@ -47,7 +48,6 @@ const ARM_FOLLOW: f32 = 0.5;
 const SWAY: f32 = 0.1;
 const TELEPORT_BLOCKS: f64 = 8.0;
 const MAX_CATCH_UP_TICKS: u64 = 20;
-const HURT_TILT_DEGREES: f32 = 14.0;
 const SNEAK_OFFSET_MINIMUM: f32 = 0.2;
 const SNEAK_OFFSET_KEEP: f32 = 0.4;
 
@@ -182,7 +182,7 @@ impl JavaCameraState {
             return Mat4::IDENTITY;
         }
         let ticks = f32::from(self.death_ticks) + alpha;
-        Mat4::from_rotation_z((40.0 - 8000.0 / (ticks + 200.0)).to_radians())
+        Mat4::from_rotation_z(death_roll_degrees(ticks).to_radians())
     }
 }
 

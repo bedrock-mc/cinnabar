@@ -330,6 +330,7 @@ fn clock_daylight_and_weather_commit_in_fifo_order_without_dirtying_world_meshes
             WorldEvent::GameRules(protocol::GameRulesEvent {
                 daylight_cycle: Some(DaylightCycleUpdateEvent { enabled: false }),
                 weather_cycle: None,
+                death: Default::default(),
                 hud: protocol::HudRules {
                     show_coordinates: Some(true),
                     show_days_played: None,
@@ -388,7 +389,7 @@ fn clock_daylight_and_weather_commit_in_fifo_order_without_dirtying_world_meshes
         event,
         super::CommittedUiEvent::Ui {
             sequence: 2,
-            event: protocol::UiEvent::HudRules(_),
+            event: protocol::UiEvent::GameRules { .. },
         }
     )));
     assert_eq!(stream.mesh_jobs.pending.len(), pending_mesh_count);

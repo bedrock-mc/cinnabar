@@ -757,6 +757,7 @@ fn decode_world_raw_with(
     if !matches!(
         raw.id,
         McpePacketName::TextPacket
+            | McpePacketName::DeathInfoPacket
             | McpePacketName::CommandOutputPacket
             | McpePacketName::PlayStatusPacket
             | McpePacketName::SetHealthPacket
@@ -918,6 +919,8 @@ mod experience_ingress_tests;
 mod generic_event_tests;
 #[cfg(test)]
 mod motion_tests;
+#[cfg(test)]
+mod packet_trace_tests;
 #[cfg(test)]
 mod raw_inventory_provenance_tests;
 #[cfg(test)]

@@ -121,3 +121,109 @@ fn scripted_camera_loop_resets_motion_blur_only_for_discontinuous_wraps() {
         assert_eq!(blur(&app, camera).reset_epoch, wrapped.reset_epoch);
     }
 }
+
+#[test]
+fn scripted_fov_survives_gameplay_updates_and_release_restores_the_player_fov() {
+    use bevy::window::{CursorOptions, PrimaryWindow, WindowResolution};
+    let mut app = App::new();
+    crate::app::configure_client_frame_schedule(&mut app);
+    app.insert_resource(crate::player_runtime::PlayerRuntime::new(1));
+    app.init_resource::<Time>()
+        .add_plugins(crate::camera::FlyCameraPlugin::default());
+    configure(&mut app);
+    app.world_mut().spawn((
+        Window {
+            resolution: WindowResolution::new(1280, 720),
+            ..default()
+        },
+        CursorOptions::default(),
+        PrimaryWindow,
+    ));
+    app.update();
+    let mut path = CameraPath {
+        keyframes: vec![frame(0.0, 0.0), frame(2.0, 2.0)],
+        easing: Easing::Linear,
+        looping: false,
+        hide_hand: false,
+    };
+    path.keyframes[0].fov = Some(40.0);
+    path.keyframes[1].fov = Some(80.0);
+    start(app.world_mut(), path).unwrap();
+    app.update();
+    let read_fov = |app: &mut App| {
+        let projection = app
+            .world_mut()
+            .query_filtered::<&Projection, With<FlyCamera>>()
+            .single(app.world())
+            .unwrap();
+        let Projection::Perspective(perspective) = projection else {
+            panic!("expected a perspective camera");
+        };
+        perspective.fov.to_degrees()
+    };
+    assert!((read_fov(&mut app) - 40.0).abs() < 0.001);
+    advance(&mut app, 1.0);
+    assert!((read_fov(&mut app) - 60.0).abs() < 0.001);
+    release(app.world_mut()).unwrap();
+    app.update();
+    let expected = app
+        .world()
+        .resource::<CameraSettingsAuthority>()
+        .horizontal_fov_degrees()
+        * app
+            .world()
+            .resource::<client_presentation::camera::CameraFovState>()
+            .modifier();
+    assert!((read_fov(&mut app) - expected).abs() < 0.001);
+}
+
+#[test]
+fn scripted_pose_survives_late_actor_camera_effects() {
+    use client_presentation::camera::{FirstPersonHandMotion, ViewEffect, actor_effects};
+
+    /// Exercises the production effect composer at the actor presentation boundary.
+    fn actor_effect(
+        settings: Res<CameraSettingsAuthority>,
+        hand: Res<FirstPersonHandMotion>,
+        server: Res<ServerCameraView>,
+        cameras: Query<&mut Transform, With<FlyCamera>>,
+    ) {
+        actor_effects::apply_actor_damage_camera_rotation(
+            settings, hand, server, None, 0.0, cameras,
+        );
+    }
+
+    let path = CameraPath {
+        keyframes: vec![frame(0.0, 0.0), frame(2.0, 2.0)],
+        easing: Easing::Linear,
+        looping: false,
+        hide_hand: false,
+    };
+    let (mut app, camera) = app(path);
+    app.insert_resource(FirstPersonHandMotion {
+        bob: ViewEffect {
+            translation: Vec3::new(0.1, -0.05, 0.0),
+            roll_radians: 0.1,
+            pitch_radians: 0.05,
+        },
+        ..Default::default()
+    });
+    crate::app::configure_client_frame_schedule(&mut app);
+    app.add_systems(
+        Update,
+        actor_effect
+            .in_set(actor_effects::ActorCameraEffects)
+            .after(ClientFrameSet::ActorPreparation)
+            .before(ClientFrameSet::UiPreparation),
+    );
+    advance(&mut app, 1.0);
+    let pose = app.world().get::<Transform>(camera).unwrap();
+    assert!(
+        pose.translation
+            .abs_diff_eq(Vec3::new(1.0, 64.0, 0.0), 1e-6)
+    );
+    assert!(
+        pose.rotation
+            .abs_diff_eq(bedrock_camera_rotation(10.0, 0.0), 1e-6)
+    );
+}

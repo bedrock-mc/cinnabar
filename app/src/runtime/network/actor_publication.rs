@@ -12,6 +12,22 @@ pub(crate) use client_presentation::actor_publication::{
 };
 use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
 
+/// Projects local damage only after actor ticking, clearing it when the session leaves gameplay.
+pub(crate) fn publish_local_actor_damage(
+    world: Res<ClientWorld>,
+    mut ui: Option<ResMut<UiRuntime>>,
+) {
+    let Some(ui) = ui.as_deref_mut() else {
+        return;
+    };
+    let actor = world
+        .stream
+        .as_ref()
+        .filter(|_| world.fatal_error.is_none() && world.transfer_notice.is_none())
+        .and_then(|stream| stream.authority().actor(stream.local_player_runtime_id()));
+    ui.publish_local_actor_health(actor);
+}
+
 /// App-owned inputs borrowed only while this frame's presentation is prepared.
 #[derive(SystemParam)]
 pub(crate) struct ActorObservations<'w> {
@@ -374,3 +390,7 @@ mod custom_emotes;
 #[cfg(test)]
 #[path = "actor_publication/tests/item_swing.rs"]
 mod item_swing;
+
+#[cfg(test)]
+#[path = "actor_publication/tests/damage.rs"]
+mod damage;

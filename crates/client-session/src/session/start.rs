@@ -108,6 +108,7 @@ pub fn spawn_network<P: Send + 'static>(
                 let environment = WorldEnvironmentBootstrap::from_game_data(&game_data);
                 let hardcore = protocol::is_hardcore(&game_data);
                 let hud_rules = protocol::HudRules::from_game_data(&game_data);
+                let death_rules = protocol::DeathRules::from_game_data(&game_data);
                 let inventory = start_game_inventory_authority(&game_data);
                 let item_registry = match start_game_item_registry(&game_data, bootstrap.dimension)
                 {
@@ -140,6 +141,7 @@ pub fn spawn_network<P: Send + 'static>(
                         rewind_history_size: protocol::rewind_history_size(&game_data),
                         hardcore,
                         hud_rules,
+                        death_rules,
                         packs,
                         terrain_before_spawn: session.terrain_before_spawn(),
                     },

@@ -994,6 +994,7 @@ fn partial_local_attributes_patch_without_clearing_authoritative_health() {
 
 mod chat_tests;
 mod container_address_tests;
+mod death_tests;
 mod forms_tests;
 mod gameplay_hud_tests;
 mod inventory_overlay_tests;

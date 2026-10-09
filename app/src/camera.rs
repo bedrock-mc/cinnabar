@@ -99,10 +99,18 @@ impl Plugin for FlyCameraPlugin {
                     .chain()
                     .after(ClientFrameSet::SemanticFinalize)
                     .before(FlyCameraUpdateSet),
-                // After camera input, so a rig committed this frame sets this frame's FOV.
-                update_camera_fov
+                (
+                    presentation::collect_death_fov_inputs,
+                    update_camera_fov,
+                    presentation::apply_actor_damage_camera_rotation
+                        .in_set(client_presentation::camera::actor_effects::ActorCameraEffects),
+                    overlay_publish::publish_screen_overlays,
+                )
+                    .chain()
                     .after(FlyCameraUpdateSet)
-                    .before(ClientFrameSet::Camera),
+                    .after(ClientFrameSet::Camera)
+                    .after(ClientFrameSet::ActorPreparation)
+                    .before(ClientFrameSet::UiPreparation),
                 (
                     update_cursor_capture,
                     update_perspective,
@@ -116,7 +124,6 @@ impl Plugin for FlyCameraPlugin {
                     presentation::advance_presentation_state,
                     presentation::update_screen_overlays,
                     presentation::apply_camera_presentation,
-                    overlay_publish::publish_screen_overlays,
                     facts::diagnose_portal,
                 )
                     .chain()

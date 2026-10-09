@@ -112,6 +112,18 @@ impl ScreenOverlayScene {
         };
     }
 
+    /// Perspective half-extents used to project this frame's fire overlay.
+    #[must_use]
+    pub const fn fire_projection(&self) -> [f32; 2] {
+        self.fire_projection
+    }
+
+    /// Maps this frame's clip coordinates to the portal overlay's world directions.
+    #[must_use]
+    pub const fn portal_from_clip(&self) -> Mat4 {
+        self.portal_from_clip
+    }
+
     #[must_use]
     pub fn layers(&self) -> &[ScreenOverlayLayer] {
         &self.layers

@@ -64,6 +64,9 @@ impl UiScissor {
 pub const UI_BLEND_ALPHA: u32 = 0;
 /// Wire value for the crosshair invert blend (src*(1-dst) + dst*(1-src)).
 pub const UI_BLEND_INVERT: u32 = 1;
+/// Elliptical gradient: UV is the centered radius coordinate, tint is the inner
+/// straight RGBA stop, and overlay_color is the outer straight RGBA stop.
+pub const UI_STYLE_RADIAL_GRADIENT: u32 = 1;
 /// Animated item glint; the only vertex style that changes pixels without a new revision.
 pub const UI_STYLE_GLINT: u32 = 1 << 1;
 /// Reject sampled texture alpha below one half before multiplying vertex alpha.

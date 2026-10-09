@@ -53,6 +53,9 @@ impl UiPresentationRuntime {
             return Ok(Vec::new());
         };
         self.begin_menu_caret(Arc::make_mut(&mut view));
+        if view.screen == crate::menu::MenuScreen::Death {
+            Arc::make_mut(&mut view).death_reason = runtime.death_reason().to_owned();
+        }
         let shown = view.as_ref();
         self.menu_scrolls.begin_frame(format!(
             "{:?}/{:?}/{:?}/{}",
@@ -135,7 +138,10 @@ impl UiPresentationRuntime {
     ) -> Result<Option<Vec<(MenuAction, UiRect)>>, UiPresentationError> {
         // Without the UI carrier the programmatic launcher draws every screen.
         if self.form_presentation.engine.is_none()
-            && view.screen != crate::menu::MenuScreen::DressingRoom
+            && !matches!(
+                view.screen,
+                crate::menu::MenuScreen::DressingRoom | crate::menu::MenuScreen::Death
+            )
         {
             return Ok(None);
         }
@@ -239,7 +245,11 @@ impl UiPresentationRuntime {
         for (index, layer) in layers.into_iter().enumerate() {
             if !renderer
                 .scene_settings(layer.reference, &layer.context)
-                .renders(index == top && !view.popup_open())
+                .renders(
+                    index == top
+                        && (!view.popup_open()
+                            || view.dialog == Some(crate::menu::MenuDialog::DeathQuit)),
+                )
             {
                 continue;
             }

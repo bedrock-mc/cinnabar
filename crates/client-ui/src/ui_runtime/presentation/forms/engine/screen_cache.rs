@@ -142,9 +142,15 @@ impl ScreenCache {
                 return None;
             }
             let tree = self.resolved(reference, catalog, context, || {
-                json_ui::resolve(catalog, reference, context).control
+                super::super::death_screen::literal_tree(
+                    json_ui::resolve(catalog, reference, context).control,
+                )
             })?;
-            let library = json_ui::CatalogLibrary { catalog, context };
+            let library =
+                super::super::death_screen::LiteralReasonLibrary(json_ui::CatalogLibrary {
+                    catalog,
+                    context,
+                });
             let bound = self.with_binding(reference, catalog, context, |state| {
                 json_ui::bind_stateful(&tree, data, &library, state).0
             });

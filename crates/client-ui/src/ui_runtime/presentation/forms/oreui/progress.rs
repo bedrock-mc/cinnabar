@@ -246,7 +246,7 @@ fn status_surface(progress: &Progress<'_>, view: Option<&MenuView>) -> super::mo
 }
 
 /// The installed cube loader supplies unknown progress; fallback dots never imply a percentage.
-fn loader(canvas: &mut Canvas<'_>, bounds: Bounds) -> Result<(), UiPresentationError> {
+pub(super) fn loader(canvas: &mut Canvas<'_>, bounds: Bounds) -> Result<(), UiPresentationError> {
     if canvas.loading_sprite(bounds)? {
         return Ok(());
     }

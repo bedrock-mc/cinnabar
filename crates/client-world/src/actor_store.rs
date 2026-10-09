@@ -213,6 +213,7 @@ impl ActorSnapshot {
         };
         snapshot.apply_metadata(&spawn.metadata);
         snapshot.apply_attributes(&spawn.attributes);
+        snapshot.sync_status_from_health();
         snapshot.apply_properties(&spawn.properties);
         snapshot
     }
@@ -678,6 +679,12 @@ pub(crate) struct ActorStore {
     items: ItemStateStore,
     actions: RemoteActionStore,
     remote_state_excluded_runtime_id: Option<u64>,
+    /// Health admitted before the client-fed local actor is created.
+    pending_local_health: Option<ActorAttribute>,
+    pending_local_damage: Option<local_health::PendingLocalDamage>,
+    local_health_skips: u64,
+    /// Server PlayerSpawn has enabled local health-drop animations in this session.
+    local_player_spawned: bool,
     /// Key of the synthetic local-player profile, present only while the player list carries no
     /// self entry; cleared when a real echo takes over or the actor set is reset.
     synthetic_local_uuid: Option<[u8; 16]>,
@@ -731,6 +738,8 @@ mod dropped;
 mod entities;
 mod fire;
 mod hurt;
+mod local_health;
+pub use local_health::DEFAULT_PLAYER_HEALTH;
 mod lifecycle;
 mod lightning;
 mod mount;
@@ -749,8 +758,8 @@ pub use entities::{
 };
 pub use fire::FIRE_FADE_TICKS;
 pub use hurt::{
-    ActorPickup, ActorStatus, ActorStatusNotice, DEATH_DURATION_TICKS, HURT_DURATION_TICKS,
-    HURT_OVERLAY_ALPHA, MAX_STATUS_NOTICES, PICKUP_DURATION_TICKS,
+    ActorDamageState, ActorPickup, ActorStatus, ActorStatusNotice, DEATH_DURATION_TICKS,
+    HURT_DURATION_TICKS, HURT_OVERLAY_ALPHA, MAX_STATUS_NOTICES, PICKUP_DURATION_TICKS,
 };
 pub use lightning::LightningBoltView;
 pub(crate) use placement::FLAG_BABY;

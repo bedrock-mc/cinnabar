@@ -90,6 +90,9 @@ impl UiPresentationRuntime {
 
     /// Resolves the menu and any popup above it; a popup cannot uncover an opaque parent.
     fn menu_settings(&self, runtime: &UiRuntime, view: &MenuView) -> ScreenSettings {
+        if view.screen == crate::menu::MenuScreen::Death {
+            return crate::ui_runtime::scene_stack::construction::death_settings();
+        }
         let Some(engine) = self.form_presentation.engine.as_deref() else {
             return ScreenSettings::default();
         };

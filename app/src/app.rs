@@ -159,7 +159,12 @@ pub(crate) fn configure_actor_render_systems(app: &mut App) {
     app.init_resource::<client_presentation::actor_publication::ActorFrameState>()
         .add_systems(
             Update,
-            advance_actor_frame.in_set(ClientFrameSet::ActorPreparation),
+            (
+                advance_actor_frame,
+                crate::runtime::network::publish_local_actor_damage,
+            )
+                .chain()
+                .in_set(ClientFrameSet::ActorPreparation),
         )
         .add_systems(
             Update,

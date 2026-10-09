@@ -389,14 +389,6 @@ pub fn apply_camera_presentation(
         changed = true;
     }
 
-    if server.renders_first_person(settings.perspective() == PerspectiveMode::FirstPerson) {
-        let effect = hand.hurt * hand.bob.matrix();
-        if effect != Mat4::IDENTITY && effect.is_finite() {
-            pose = Transform::from_matrix(pose.to_matrix() * effect.inverse());
-            changed = true;
-        }
-    }
-
     if let Some(mut projection) = projection {
         let distortion = portal
             .as_deref()
@@ -491,7 +483,7 @@ mod tests {
     }
 
     #[test]
-    fn hurt_tilt_rotates_the_first_person_camera() {
+    fn hand_hurt_does_not_drive_the_world_camera() {
         let mut app = camera_app();
         let mut hurt = CameraHurtState::default();
         hurt.register(LocalHurtEvent::default());
@@ -499,7 +491,7 @@ mod tests {
         app.world_mut().resource_mut::<FirstPersonHandMotion>().hurt = hurt.view_matrix(0.0);
         app.update();
         let transform = camera_transform(&mut app);
-        assert!(transform.rotation.angle_between(Quat::IDENTITY) > 0.05);
+        assert_eq!(transform.rotation, Quat::IDENTITY);
     }
 
     #[test]

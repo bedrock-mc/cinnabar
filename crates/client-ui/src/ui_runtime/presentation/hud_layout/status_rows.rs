@@ -9,8 +9,8 @@ use assets::HudTextureRole;
 use super::{
     HudFrame, HudTexturePages, UiRuntime,
     pinned::{
-        HARMFUL_EFFECT_IDS, MAX_HEART_ROWS, MAX_MOUNT_HEARTS, damage_flash_phase,
-        effect_blink_alpha, effect_icon_role, heart_role,
+        HARMFUL_EFFECT_IDS, MAX_HEART_ROWS, MAX_MOUNT_HEARTS, effect_blink_alpha, effect_icon_role,
+        heart_role,
     },
     status_motion::{heart_lift, hunger_shake_offset, hunger_shakes},
 };
@@ -53,6 +53,7 @@ const HEART_ROW_PITCH: f32 = 10.0;
 /// Health plus absorption in hearts, and the row pitch the stacked rows use.
 struct HeartRows {
     current: u32,
+    maximum: u32,
     absorption: u32,
     health_hearts: u32,
     total: u32,
@@ -80,6 +81,7 @@ fn heart_rows(runtime: &UiRuntime) -> Option<HeartRows> {
     let pitch = HEART_ROW_PITCH;
     Some(HeartRows {
         current,
+        maximum,
         absorption,
         health_hearts,
         total,
@@ -153,12 +155,13 @@ fn sheet_sprite(sheet: &HudTexturePages, role: HudTextureRole) -> SheetSprite {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct HeartPaint {
     current: u32,
+    previous: u32,
     absorption: u32,
     health_hearts: u32,
     total: u32,
     tick: u64,
     regenerating: bool,
-    sprites: [Option<Cell>; 5],
+    sprites: [Option<Cell>; 7],
 }
 
 impl HeartPaint {
@@ -181,6 +184,7 @@ impl HeartPaint {
     pub fn len(&self) -> usize {
         (self.total
             + self.current.div_ceil(2).min(self.health_hearts)
+            + self.previous.div_ceil(2).min(self.health_hearts)
             + self.absorption.div_ceil(2)) as usize
     }
 
@@ -207,7 +211,7 @@ impl HeartPaint {
         self.cells(indices)
     }
 
-    /// Produces the two possible layers of each selected heart container.
+    /// Produces background, previous-health flash and current fill for each selected container.
     fn cells(&self, indices: std::ops::Range<u32>) -> impl Iterator<Item = Cell> + '_ {
         indices.flat_map(|index| {
             let lift = heart_lift(
@@ -236,7 +240,16 @@ impl HeartPaint {
                 1 => self.sprites[half].as_ref(),
                 _ => self.sprites[full].as_ref(),
             };
-            [self.sprites[0].as_ref(), foreground]
+            let previous = if index < self.health_hearts {
+                match self.previous.saturating_sub(index * 2) {
+                    0 => None,
+                    1 => self.sprites[6].as_ref(),
+                    _ => self.sprites[5].as_ref(),
+                }
+            } else {
+                None
+            };
+            [self.sprites[0].as_ref(), previous, foreground]
                 .into_iter()
                 .flatten()
                 .map(move |sprite| {
@@ -256,7 +269,9 @@ fn hearts(
     now_tick: Option<u64>,
 ) -> HeartPaint {
     let variant = runtime.gameplay_hud().heart_variant(now_tick);
-    let flash = damage_flash_phase(runtime.last_health_drop_millis(), frame.now_millis);
+    let damage = runtime
+        .local_actor_damage
+        .filter(|damage| damage.flash_active());
     let hardcore = runtime.gameplay_hud().hardcore();
     let sprite = |role: HudTextureRole| {
         let mut cell = Cell::icon([0.0; 2], path(role));
@@ -276,6 +291,9 @@ fn hearts(
     };
     HeartPaint {
         current: rows.current,
+        previous: damage.map_or(0, |damage| {
+            (damage.previous_health.max(0.0).ceil() as u32).min(rows.maximum)
+        }),
         absorption: rows.absorption,
         health_hearts: rows.health_hearts,
         total: rows.total,
@@ -284,16 +302,22 @@ fn hearts(
         sprites: [
             Some(Cell::icon(
                 [0.0; 2],
-                if flash == Some(true) {
+                if damage.is_some() {
                     "textures/ui/heart_blink"
                 } else {
                     path(HudTextureRole::HeartBackground)
                 },
             )),
-            heart_role(variant, flash, 2).and_then(sprite),
-            heart_role(variant, flash, 1).and_then(sprite),
+            heart_role(variant, None, 2).and_then(sprite),
+            heart_role(variant, None, 1).and_then(sprite),
             sprite(abs_full),
             sprite(abs_half),
+            damage
+                .and_then(|_| heart_role(variant, Some(true), 2))
+                .and_then(sprite),
+            damage
+                .and_then(|_| heart_role(variant, Some(true), 1))
+                .and_then(sprite),
         ],
     }
 }

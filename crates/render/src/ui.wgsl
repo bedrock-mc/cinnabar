@@ -13,6 +13,7 @@ const STYLE_FONT_SDF: u32 = FONT_STYLE_SDF;
 // Injected from the renderer's single Rust style-bit definition.
 const STYLE_ALPHA_TEST: u32 = UI_STYLE_ALPHA_TEST;
 const STYLE_COLOR_MASK: u32 = UI_STYLE_COLOR_MASK;
+const STYLE_RADIAL_GRADIENT: u32 = UI_STYLE_RADIAL_GRADIENT;
 
 @group(0) @binding(0) var<uniform> viewport: UiViewport;
 @group(0) @binding(1) var ui_pages: texture_2d_array<f32>;
@@ -78,6 +79,18 @@ fn srgb_to_linear(srgb: vec3<f32>) -> vec3<f32> {
 }
 
 fn shade_ui(input: UiVertexOutput, direct: bool) -> vec4<f32> {
+    let uv_dx = dpdx(input.uv);
+    let uv_dy = dpdy(input.uv);
+    if (input.style_flags & STYLE_RADIAL_GRADIENT) != 0u {
+        let radius = clamp(length(input.uv), 0.0, 1.0);
+        let inner = vec4<f32>(input.color.rgb * input.color.a, input.color.a);
+        let outer = vec4<f32>(input.overlay_color.rgb * input.overlay_color.a, input.overlay_color.a);
+        let gradient = mix(inner, outer, radius);
+        if direct && gradient.a > 0.0 {
+            return vec4<f32>(srgb_to_linear(gradient.rgb / gradient.a) * gradient.a, gradient.a);
+        }
+        return gradient;
+    }
     let dimensions = vec2<f32>(textureDimensions(ui_pages));
     // Sprite/glyph UVs address texel *edges*: a glyph spans x0..x0+width. Linear
     // interpolation across the quad therefore already lands on texel centres,
@@ -89,8 +102,6 @@ fn shade_ui(input: UiVertexOutput, direct: bool) -> vec4<f32> {
     let normalized_uv = input.uv / dimensions;
     let native_font = (input.style_flags & STYLE_FONT_GAMMA) != 0u;
     let sdf_font = (input.style_flags & STYLE_FONT_SDF) != 0u;
-    let uv_dx = dpdx(input.uv);
-    let uv_dy = dpdy(input.uv);
     let texels_per_pixel = sqrt(abs(uv_dx.x * uv_dy.y - uv_dx.y * uv_dy.x));
     // Level 0 sampling keeps the per-vertex sampler choice legal in non-uniform flow.
     var sample: vec4<f32>;

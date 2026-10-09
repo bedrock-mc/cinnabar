@@ -1,5 +1,298 @@
 use super::*;
 
+/// Supplies a local pose without server-authored health attributes.
+fn local_health_feed() -> crate::LocalPlayerFeed {
+    crate::LocalPlayerFeed {
+        prefer_client_skin: false,
+        uuid: [0; 16],
+        username: "Player".into(),
+        skin: protocol::PlayerSkin::Standard(protocol::StandardSkin {
+            geometry: None,
+            cape: None,
+            width: 64,
+            height: 64,
+            rgba8: vec![0; 64 * 64 * 4].into(),
+        }),
+        position: [0.0; 3],
+        velocity: [0.0; 3],
+        on_ground: true,
+        flying: false,
+        gliding: false,
+        fall_fly_ticks: 0,
+        yaw: 0.0,
+        head_yaw: 0.0,
+        pitch: 0.0,
+        main_hand: None,
+        off_hand: None,
+        main_hand_metadata: 0,
+        main_hand_stack_id: None,
+        main_hand_slot: 0,
+        bedrock_swing_ticks: crate::ACTOR_SWING_TICKS,
+        java_swing_ticks: crate::ACTOR_SWING_TICKS,
+        teleported: false,
+        first_person: true,
+        view_bobbing: true,
+        sneaking: false,
+        sprinting: false,
+        item_use: Default::default(),
+    }
+}
+
+#[test]
+fn health_drops_animate_only_after_player_spawn_and_count_completed_actor_ticks() {
+    let mut authority = WorldAuthority::new(
+        WorldBootstrap {
+            local_player_unique_id: 1,
+            local_player_runtime_id: 1,
+            dimension: 0,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 0,
+            block_network_ids_are_hashes: false,
+        },
+        Arc::new(RuntimeAssets::diagnostic()),
+        None,
+        [0.0; 3],
+        None,
+    );
+    authority.sync_local_player_pose(&local_health_feed());
+    authority
+        .apply_ordered_event(
+            WorldEvent::Ui(UiEvent::Hud(protocol::HudEvent::Health { health: 16 })),
+            Some(1),
+        )
+        .unwrap();
+    assert_eq!(authority.actor(1).unwrap().status.hurt_time, 0);
+    authority
+        .apply_ordered_event(
+            WorldEvent::Ui(UiEvent::Hud(protocol::HudEvent::PlayerStatus(
+                protocol::PlayerStatus::PlayerSpawn,
+            ))),
+            Some(2),
+        )
+        .unwrap();
+    authority
+        .apply_ordered_event(
+            WorldEvent::Ui(UiEvent::Hud(protocol::HudEvent::Health { health: 7 })),
+            Some(3),
+        )
+        .unwrap();
+    assert_eq!(
+        authority.actor(1).unwrap().status.hurt_time,
+        crate::HURT_DURATION_TICKS
+    );
+    assert_eq!(
+        authority.actor(1).unwrap().status.damage.previous_health,
+        16.0
+    );
+    assert!(authority.actor(1).unwrap().status.damage.flash_active());
+    authority.advance_actor_interpolation_ticks(0);
+    assert_eq!(
+        authority.actor(1).unwrap().status.hurt_time,
+        crate::HURT_DURATION_TICKS
+    );
+    authority.advance_actor_interpolation_ticks(3);
+    assert_eq!(
+        authority.actor(1).unwrap().status.hurt_time,
+        crate::HURT_DURATION_TICKS - 3
+    );
+    assert!(!authority.actor(1).unwrap().status.damage.flash_active());
+    assert_eq!(
+        authority.actor(1).unwrap().status.damage.remaining_ticks,
+        crate::HURT_DURATION_TICKS - 3
+    );
+    authority
+        .apply_ordered_event(
+            WorldEvent::Ui(UiEvent::Hud(protocol::HudEvent::Health { health: 7 })),
+            Some(4),
+        )
+        .unwrap();
+    assert_eq!(
+        authority.actor(1).unwrap().status.hurt_time,
+        crate::HURT_DURATION_TICKS - 3
+    );
+}
+
+#[test]
+fn set_health_before_the_first_local_pose_survives_actor_creation() {
+    let mut authority = WorldAuthority::new(
+        WorldBootstrap {
+            local_player_unique_id: 1,
+            local_player_runtime_id: 1,
+            dimension: 0,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 0,
+            block_network_ids_are_hashes: false,
+        },
+        Arc::new(RuntimeAssets::diagnostic()),
+        None,
+        [0.0; 3],
+        None,
+    );
+    authority
+        .apply_ordered_event(
+            WorldEvent::Ui(UiEvent::Hud(protocol::HudEvent::Health { health: 0 })),
+            Some(1),
+        )
+        .unwrap();
+    authority.sync_local_player_pose(&local_health_feed());
+    assert!(authority.actor(1).unwrap().status.dead);
+    authority.advance_actor_interpolation_ticks(4);
+    assert_eq!(authority.actor(1).unwrap().status.native_death_ticks(), 4);
+    authority.sync_local_player_pose(&local_health_feed());
+    assert_eq!(authority.actor(1).unwrap().status.native_death_ticks(), 4);
+
+    authority.reset_dimension(2, 1);
+    authority
+        .apply_ordered_event(
+            WorldEvent::Actor(ActorEvent::Attributes(
+                protocol::ActorAttributesUpdateEvent {
+                    dimension: 1,
+                    runtime_id: 1,
+                    tick: 5,
+                    attributes: Arc::from([protocol::ActorAttribute {
+                        name: "minecraft:health".into(),
+                        min: 0.0,
+                        max: 40.0,
+                        current: 7.0,
+                        default: None,
+                        modifiers: Arc::from([]),
+                    }]),
+                },
+            )),
+            Some(3),
+        )
+        .unwrap();
+    authority.sync_local_player_pose(&local_health_feed());
+    let actor = authority.actor(1).unwrap();
+    assert!(!actor.status.dead);
+    assert_eq!(actor.attributes["minecraft:health"].current, 7.0);
+    assert_eq!(actor.attributes["minecraft:health"].max, 40.0);
+}
+
+#[test]
+fn set_health_updates_the_local_actor_death_clock_and_preserves_ui_delivery() {
+    let mut authority = WorldAuthority::new(
+        WorldBootstrap {
+            local_player_unique_id: 1,
+            local_player_runtime_id: 1,
+            dimension: 0,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 0,
+            block_network_ids_are_hashes: false,
+        },
+        Arc::new(RuntimeAssets::diagnostic()),
+        None,
+        [0.0; 3],
+        None,
+    );
+    authority
+        .apply_ordered_event(
+            WorldEvent::Actor(ActorEvent::Spawn(protocol::ActorSpawnEvent {
+                dimension: 0,
+                unique_id: 1,
+                runtime_id: 1,
+                kind: protocol::ActorKind::Player {
+                    uuid: [0; 16],
+                    username: "Player".into(),
+                },
+                position: [0.0; 3],
+                velocity: [0.0; 3],
+                pitch: 0.0,
+                yaw: 0.0,
+                head_yaw: 0.0,
+                body_yaw: 0.0,
+                held_item: Default::default(),
+                metadata: Arc::from([]),
+                attributes: Arc::from([protocol::ActorAttribute {
+                    name: "minecraft:health".into(),
+                    min: 0.0,
+                    max: crate::DEFAULT_PLAYER_HEALTH,
+                    current: crate::DEFAULT_PLAYER_HEALTH,
+                    default: None,
+                    modifiers: Arc::from([]),
+                }]),
+                properties: Arc::from([]),
+                links: Arc::from([]),
+            })),
+            Some(1),
+        )
+        .unwrap();
+    for (sequence, health) in [(2, 0), (3, 7)] {
+        authority
+            .apply_ordered_event(
+                WorldEvent::Ui(UiEvent::Hud(protocol::HudEvent::Health { health })),
+                Some(sequence),
+            )
+            .unwrap();
+        let actor = authority.actor(1).unwrap();
+        assert_eq!(actor.status.dead, health == 0);
+        assert_eq!(actor.attributes["minecraft:health"].current, health as f32);
+        assert_eq!(actor.status.native_death_ticks(), 0);
+        authority.advance_actor_interpolation_ticks(3);
+        assert_eq!(
+            authority.actor(1).unwrap().status.native_death_ticks(),
+            if health == 0 { 3 } else { 0 }
+        );
+    }
+    assert!(matches!(
+        authority.take_committed_ui().as_slice(),
+        [
+            CommittedUiEvent::Ui {
+                sequence: 2,
+                event: UiEvent::Hud(protocol::HudEvent::Health { health: 0 })
+            },
+            CommittedUiEvent::Ui {
+                sequence: 3,
+                event: UiEvent::Hud(protocol::HudEvent::Health { health: 7 })
+            },
+        ]
+    ));
+}
+
+#[test]
+fn death_and_hud_rules_commit_in_one_ui_envelope() {
+    let mut authority = WorldAuthority::new(
+        WorldBootstrap {
+            local_player_unique_id: 1,
+            local_player_runtime_id: 1,
+            dimension: 0,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 0,
+            block_network_ids_are_hashes: false,
+        },
+        Arc::new(RuntimeAssets::diagnostic()),
+        None,
+        [0.0; 3],
+        None,
+    );
+    let hud = protocol::HudRules {
+        show_coordinates: Some(true),
+        show_days_played: None,
+    };
+    let death = protocol::DeathRules {
+        show_messages: Some(false),
+        immediate_respawn: Some(true),
+    };
+    authority
+        .apply_ordered_event(
+            WorldEvent::GameRules(protocol::GameRulesEvent {
+                daylight_cycle: None,
+                weather_cycle: None,
+                hud,
+                death,
+            }),
+            Some(7),
+        )
+        .unwrap();
+    assert!(matches!(authority.take_committed_ui().as_slice(),
+        [CommittedUiEvent::Ui { sequence: 7, event: UiEvent::GameRules { hud: found_hud, death: found_death } }]
+        if *found_hud == hud && *found_death == death));
+}
+
 #[test]
 fn block_interactions_encode_the_current_session_palette() {
     for hashes in [false, true] {

@@ -51,6 +51,72 @@ fn painted(player: &player_state::PlayerState, runtime: &UiRuntime) -> HudPaint 
 }
 
 #[test]
+fn damage_hearts_draw_previous_and_current_health_on_the_actor_clock() {
+    let (player, mut runtime) = absorbed(0.0, 20.0);
+    runtime.hud.set_health(ui::BoundedStat::new(7, 20));
+    runtime.publish_local_actor_damage(Some(client_world::ActorDamageState {
+        previous_health: 20.0,
+        remaining_ticks: client_world::HURT_DURATION_TICKS,
+    }));
+    let hearts = painted(&player, &runtime).hearts;
+    assert_eq!(
+        hearts
+            .iter()
+            .filter(|cell| cell.texture == "textures/ui/heart_blink")
+            .count(),
+        10
+    );
+    assert_eq!(
+        hearts
+            .iter()
+            .filter(|cell| cell.texture == "textures/ui/heart_flash")
+            .count(),
+        10
+    );
+    assert_eq!(
+        hearts
+            .iter()
+            .filter(|cell| cell.texture == "textures/ui/heart")
+            .count(),
+        3
+    );
+    assert_eq!(
+        hearts
+            .iter()
+            .filter(|cell| cell.texture == "textures/ui/heart_half")
+            .count(),
+        1
+    );
+    let much_later = capture(
+        &player,
+        &runtime,
+        &HudFrame {
+            now_millis: 90_000,
+            ..Default::default()
+        },
+        None,
+        &Default::default(),
+    )
+    .hearts;
+    assert_eq!(
+        hearts.iter().collect::<Vec<_>>(),
+        much_later.iter().collect::<Vec<_>>()
+    );
+    runtime.publish_local_actor_damage(Some(client_world::ActorDamageState {
+        previous_health: 20.0,
+        remaining_ticks: client_world::HURT_DURATION_TICKS - 1,
+    }));
+    let hearts = painted(&player, &runtime).hearts;
+    assert!(
+        !hearts
+            .iter()
+            .any(|cell| cell.texture.contains("flash") || cell.texture.contains("blink"))
+    );
+    runtime.publish_local_actor_damage(None);
+    assert_eq!(painted(&player, &runtime).hearts, hearts);
+}
+
+#[test]
 fn absorption_uses_current_points_and_wraps_after_health() {
     for (points, expected) in [(0.001, 1), (3.0, 2), (4.0, 2), (41.0, 21), (61.0, 31)] {
         let (player, runtime) = absorbed(points, f32::MAX);
@@ -121,7 +187,10 @@ fn absorption_poison_wither_hardcore_and_damage_flash_match_vanilla() {
                 0,
             )
             .unwrap();
-        runtime.last_health_drop_millis = Some(0);
+        runtime.publish_local_actor_damage(Some(client_world::ActorDamageState {
+            remaining_ticks: client_world::HURT_DURATION_TICKS,
+            ..Default::default()
+        }));
         let cells = painted(&player, &runtime).hearts;
         assert_eq!(
             cells

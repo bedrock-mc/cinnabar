@@ -368,6 +368,7 @@ fn attempt_connect(
         auth_cache,
         local_world,
     } = intent;
+    menu.remember_retry_target(&address, auth_cache.as_deref(), local_world);
     // A replacement owns no route back into the old session, even when
     // provisioning the new endpoint fails before the connecting screen opens.
     menu.show_home();
@@ -549,13 +550,14 @@ fn drive_intents(
     cache: &BlobCache,
     session: &mut SessionResources<'_>,
 ) {
-    if menu.take_respawn_request()
-        && let Some(runtime_id) = session.runtime.local_runtime_id(&session.player_runtime)
-    {
+    menu.send_respawn_request(|| {
+        let Some(runtime_id) = session.runtime.local_runtime_id(&session.player_runtime) else {
+            return false;
+        };
         let generation = session.runtime.session_id();
         let packet = protocol::respawn_request_packet(runtime_id);
-        let _ = session.network.send_form_packet(generation, packet);
-    }
+        session.network.send_form_packet(generation, packet).is_ok()
+    });
     if menu.take_exit_request() {
         // Exit stops the core inline, inside the shutdown watchdog's envelope.
         session.controller.core.stop();
@@ -649,6 +651,7 @@ fn follow_transfer(
         return;
     }
     let Some(address) = transfer_handoff_address(&notice.host, notice.port) else {
+        menu.clear_retry_target();
         end_transfer_without_follow(
             menu,
             session,
@@ -657,6 +660,7 @@ fn follow_transfer(
         return;
     };
     if !session.controller.consume_transfer_chain_hop() {
+        menu.clear_retry_target();
         end_transfer_without_follow(
             menu,
             session,

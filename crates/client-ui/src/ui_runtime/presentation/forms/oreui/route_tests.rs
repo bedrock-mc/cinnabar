@@ -21,6 +21,142 @@ fn append(
 }
 
 #[test]
+fn death_owns_oreui_actions_and_preserves_literal_reason() {
+    let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
+    let mut view = MenuView::new(true, "Player".into());
+    view.screen = MenuScreen::Death;
+    view.death_reason = "Player fell with 100% luck %entity.zombie.name".into();
+    let metrics = TextMetrics::for_viewport([1280, 720], ui::DpiScale::new(1.0).unwrap(), Some(2));
+    let mut nodes = Vec::new();
+    let route = presentation
+        .append_oreui_screen(
+            &view,
+            &mut nodes,
+            &mut 1,
+            metrics,
+            [1280.0, 720.0],
+            None,
+            &|_| None,
+        )
+        .unwrap();
+    let hits = route.expect("death owns the modern OreUI route");
+    assert_eq!(
+        hits.iter().map(|(action, _)| *action).collect::<Vec<_>>(),
+        vec![MenuAction::Respawn, MenuAction::OpenDeathGameMenu]
+    );
+    let text: Vec<_> = nodes
+        .iter()
+        .filter_map(|node| match node.visual() {
+            ui::UiVisual::Text { layout, .. } => Some(
+                layout
+                    .glyphs()
+                    .iter()
+                    .map(|glyph| glyph.codepoint)
+                    .collect::<String>(),
+            ),
+            _ => None,
+        })
+        .collect();
+    let visible_reason: String = view
+        .death_reason
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect();
+    assert!(
+        text.iter().any(|value| value
+            .chars()
+            .filter(|c| !c.is_whitespace())
+            .collect::<String>()
+            == visible_reason),
+        "{text:?}"
+    );
+}
+
+#[test]
+fn death_long_reasons_keep_actions_inside_the_viewport() {
+    let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
+    let mut view = MenuView::new(true, "Player".into());
+    view.screen = MenuScreen::Death;
+    view.death_reason = "A server-authored reason that wraps into several lines.\n".repeat(100);
+    for size in [[1280.0, 720.0], [640.0, 360.0]] {
+        let hits = append(&mut presentation, &view, size);
+        for action in [MenuAction::Respawn, MenuAction::OpenDeathGameMenu] {
+            let bounds = hits.iter().find(|(found, _)| *found == action).unwrap().1;
+            assert!(bounds.min().y() >= 0.0);
+            assert!(
+                bounds.max().y() <= size[1],
+                "{action:?} must remain reachable"
+            );
+        }
+    }
+}
+
+#[test]
+fn death_multiline_reasons_preserve_the_modern_route_and_hardcore_actions() {
+    let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
+    let mut view = MenuView::new(true, "Player".into());
+    view.screen = MenuScreen::Death;
+    view.death_reason = "x\n".repeat(ui::MAX_WRAP_LINES);
+    for hardcore in [false, true] {
+        view.death_presentation.hardcore = hardcore;
+        for size in [[1280.0, 720.0], [640.0, 360.0]] {
+            let hits = append(&mut presentation, &view, size);
+            let primary = if hardcore {
+                MenuAction::DeathExitWorld
+            } else {
+                MenuAction::Respawn
+            };
+            let secondary = if hardcore {
+                MenuAction::Respawn
+            } else {
+                MenuAction::OpenDeathGameMenu
+            };
+            assert_eq!(
+                hits.iter().map(|(action, _)| *action).collect::<Vec<_>>(),
+                [primary, secondary]
+            );
+            assert!(
+                hits.iter()
+                    .all(|(_, bounds)| bounds.min().y() >= 0.0 && bounds.max().y() <= size[1])
+            );
+        }
+    }
+}
+
+#[test]
+fn death_immediate_respawn_finishes_the_backdrop_animation() {
+    let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
+    let mut view = MenuView::new(true, "Player".into());
+    view.screen = MenuScreen::Death;
+    view.death_loading = true;
+    view.death_presentation = launcher::menu::death::DeathPresentation::new(true, true);
+    view.death_presentation.respawn_seconds = Some(0.0);
+    view.death_presentation.advance(6.0);
+    let metrics = TextMetrics::for_viewport([1280, 720], ui::DpiScale::new(1.0).unwrap(), Some(2));
+    let mut nodes = Vec::new();
+    presentation
+        .append_oreui_screen(
+            &view,
+            &mut nodes,
+            &mut 1,
+            metrics,
+            [1280.0, 720.0],
+            None,
+            &|_| None,
+        )
+        .unwrap();
+    let mesh = nodes
+        .iter()
+        .find_map(|node| match node.visual() {
+            ui::UiVisual::Mesh(mesh) => Some(mesh),
+            _ => None,
+        })
+        .expect("the backdrop remains visible while recovery is pending");
+    assert_eq!(mesh.vertices()[0].uv, [-1.0, -1.0]);
+    assert_eq!(mesh.vertices()[0].color[3], 102);
+}
+
+#[test]
 fn home_owns_oreui_actions_and_directional_focus() {
     let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
     presentation.player_preview_icon = Some(super::super::super::IconRef {
@@ -729,4 +865,41 @@ fn pause_character_name_follows_the_current_account_and_profile() {
         assert!(labels.iter().any(|label| label == wanted), "{labels:?}");
         assert!(!labels.iter().any(|label| label == launcher::PRODUCT_NAME));
     }
+}
+
+#[test]
+fn death_hardcore_offers_exit_and_spectating() {
+    let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
+    let mut view = MenuView::new(true, "Player".into());
+    view.screen = MenuScreen::Death;
+    view.death_presentation.hardcore = true;
+    let hits = append(&mut presentation, &view, [1280.0, 720.0]);
+    assert_eq!(
+        hits.iter().map(|(action, _)| *action).collect::<Vec<_>>(),
+        [MenuAction::DeathExitWorld, MenuAction::Respawn]
+    );
+}
+
+#[test]
+fn death_actions_follow_stages_and_retire_during_respawn() {
+    for animations in [false, true] {
+        let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
+        let mut view = MenuView::new(true, "Player".into());
+        view.screen = MenuScreen::Death;
+        view.death_presentation = launcher::menu::death::DeathPresentation::new(animations, false);
+        view.death_presentation
+            .advance(view.death_presentation.controls_at() - 0.01);
+        assert!(append(&mut presentation, &view, [1280.0, 720.0]).is_empty());
+        view.death_presentation.advance(0.01);
+        assert_eq!(append(&mut presentation, &view, [1280.0, 720.0]).len(), 2);
+        view.death_loading = true;
+        view.death_presentation.respawn_seconds = Some(0.0);
+        assert!(append(&mut presentation, &view, [1280.0, 720.0]).is_empty());
+    }
+    let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
+    let mut view = MenuView::new(true, "Player".into());
+    view.screen = MenuScreen::Death;
+    view.death_presentation = launcher::menu::death::DeathPresentation::new(true, true);
+    view.death_presentation.advance(10.0);
+    assert!(append(&mut presentation, &view, [1280.0, 720.0]).is_empty());
 }

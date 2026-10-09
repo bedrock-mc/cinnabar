@@ -72,10 +72,13 @@ impl WorldAuthority {
                         enabled,
                     });
                 }
-                if !rules.hud.is_empty() {
+                if !rules.hud.is_empty() || !rules.death.is_empty() {
                     self.push_committed_ui(CommittedUiEvent::Ui {
                         sequence,
-                        event: UiEvent::HudRules(rules.hud),
+                        event: UiEvent::GameRules {
+                            hud: rules.hud,
+                            death: rules.death,
+                        },
                     });
                 }
             }
@@ -293,6 +296,20 @@ impl WorldAuthority {
                 // A game-mode update changes the UI only when its unique ID matches
                 // the local player.
                 let event = match event {
+                    UiEvent::Hud(protocol::HudEvent::PlayerStatus(
+                        protocol::PlayerStatus::PlayerSpawn,
+                    )) => {
+                        self.actors
+                            .mark_local_player_spawned(self.local_player_runtime_id);
+                        UiEvent::Hud(protocol::HudEvent::PlayerStatus(
+                            protocol::PlayerStatus::PlayerSpawn,
+                        ))
+                    }
+                    UiEvent::Hud(protocol::HudEvent::Health { health }) => {
+                        self.actors
+                            .set_local_health(self.local_player_runtime_id, health);
+                        UiEvent::Hud(protocol::HudEvent::Health { health })
+                    }
                     UiEvent::ShowCredits(event)
                         if event.runtime_id != self.local_player_runtime_id =>
                     {

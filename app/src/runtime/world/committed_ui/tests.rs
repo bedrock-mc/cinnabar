@@ -598,6 +598,7 @@ fn actual_stale_bootstrap_is_noop_but_current_failed_setup_retires_ability_evide
                 rewind_history_size: 20,
                 hardcore: false,
                 hud_rules: protocol::HudRules::default(),
+                death_rules: protocol::DeathRules::default(),
                 packs: crate::runtime::network::PackApplication::default(),
                 terrain_before_spawn: true,
             })

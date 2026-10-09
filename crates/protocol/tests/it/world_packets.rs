@@ -1027,6 +1027,7 @@ fn normalizes_only_boolean_daylight_cycle_rule_changes_case_insensitively() {
             daylight_cycle: Some(DaylightCycleUpdateEvent { enabled: false }),
             weather_cycle: None,
             hud: HudRules::default(),
+            death: Default::default(),
         }))
     );
 
@@ -1061,6 +1062,7 @@ fn normalizes_the_hud_text_rules_beside_the_daylight_cycle() {
                 show_coordinates: Some(true),
                 show_days_played: Some(false),
             },
+            death: Default::default(),
         }))
     );
     let mut game_data = game_data();

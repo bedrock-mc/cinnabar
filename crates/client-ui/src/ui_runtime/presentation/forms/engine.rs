@@ -33,6 +33,8 @@ mod pixel_snap;
 mod rounded;
 mod vector_icons;
 pub(super) use pack_catalog::layer_pack_catalog;
+#[cfg(test)]
+mod death_reason_tests;
 pub(super) mod host_edit;
 mod screen_cache;
 mod text_paint;

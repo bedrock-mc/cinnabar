@@ -2,6 +2,45 @@
 use super::{MenuAction, MenuRuntime, MenuScreen};
 
 #[test]
+fn death_controls_wait_before_accepting_input() {
+    let mut menu = MenuRuntime::new(false, 2, "Steve".into());
+    menu.open_death();
+    assert!(!menu.view().death_controls_visible);
+    assert_eq!(menu.view().focused_action, None);
+    menu.activate(MenuAction::Respawn);
+    assert!(!menu.send_respawn_request(|| true));
+    menu.activate(MenuAction::OpenDeathQuit);
+    assert_eq!(menu.view().dialog, None);
+    menu.advance_death_controls(super::death::DEATH_CONTROLS_DELAY_SECONDS / 2.0);
+    assert!(!menu.view().death_controls_visible);
+    menu.activate(MenuAction::Respawn);
+    assert!(!menu.send_respawn_request(|| panic!("controls are still hidden")));
+    menu.advance_death_controls(super::death::DEATH_CONTROLS_DELAY_SECONDS / 2.0);
+    assert!(menu.view().death_controls_visible);
+    assert_eq!(menu.view().focused_action, Some(MenuAction::Respawn));
+    menu.activate(MenuAction::Respawn);
+    assert!(menu.send_respawn_request(|| true));
+    assert!(!menu.view().death_controls_visible);
+    menu.activate(MenuAction::OpenDeathQuit);
+    assert_eq!(menu.view().dialog, None, "loading owns the route");
+}
+
+#[test]
+fn death_control_delay_ignores_invalid_time_and_restarts_for_a_later_death() {
+    let mut menu = MenuRuntime::new(false, 2, "Steve".into());
+    menu.open_death();
+    for delta in [f64::NAN, f64::INFINITY, -1.0, 0.0] {
+        menu.advance_death_controls(delta);
+        assert!(!menu.view().death_controls_visible);
+    }
+    menu.advance_death_controls(super::death::DEATH_CONTROLS_DELAY_SECONDS);
+    assert!(menu.view().death_controls_visible);
+    menu.note_player_alive();
+    menu.open_death();
+    assert!(!menu.view().death_controls_visible);
+}
+
+#[test]
 fn settings_background_follows_the_world_or_launcher_below() {
     let mut menu = MenuRuntime::new(true, 2, "Tester".into());
     menu.activate(MenuAction::Navigate(MenuScreen::Settings));
@@ -64,18 +103,77 @@ fn death_screen_opens_once_per_death_and_requests_respawn() {
     menu.open_death();
     assert!(menu.is_visible());
     assert_eq!(menu.view().screen, MenuScreen::Death);
+    menu.advance_death_controls(super::death::DEATH_CONTROLS_DELAY_SECONDS);
     menu.activate(MenuAction::Respawn);
-    assert!(!menu.is_visible());
-    assert!(menu.take_respawn_request());
-    assert!(!menu.take_respawn_request(), "the request is consumed once");
+    assert!(menu.is_visible());
+    assert!(menu.view().death_loading);
+    assert!(menu.send_respawn_request(|| true));
+    assert!(
+        !menu.send_respawn_request(|| true),
+        "the request is consumed once"
+    );
     menu.open_death();
     assert!(
-        !menu.is_visible(),
-        "the same death does not reopen the screen"
+        menu.view().death_loading,
+        "the same death cannot replace the loading state"
     );
     menu.note_player_alive();
+    assert!(!menu.is_visible());
     menu.open_death();
     assert!(menu.is_visible(), "a later death shows it again");
+}
+
+#[test]
+fn immediate_respawn_sends_once_and_waits_for_authoritative_recovery() {
+    let mut menu = MenuRuntime::new(false, 2, "Steve".into());
+    menu.open_death_with_rules(true);
+    assert!(menu.view().death_loading);
+    assert!(menu.send_respawn_request(|| true));
+    menu.open_death_with_rules(true);
+    assert!(!menu.send_respawn_request(|| true));
+    menu.note_player_alive();
+    menu.open_death_with_rules(false);
+    assert!(!menu.view().death_loading);
+    assert!(!menu.send_respawn_request(|| true));
+}
+
+#[test]
+fn death_replaces_a_world_menu_and_session_end_retires_pending_respawn() {
+    let mut menu = MenuRuntime::new(true, 2, "Steve".into());
+    menu.show_world();
+    menu.open_pause();
+    menu.open_death();
+    assert_eq!(menu.screen(), MenuScreen::Death);
+    menu.advance_death_controls(super::death::DEATH_CONTROLS_DELAY_SECONDS);
+    menu.activate(MenuAction::Respawn);
+    menu.show_after_disconnect();
+    assert!(!menu.send_respawn_request(|| true));
+    menu.show_world();
+    menu.open_death();
+    assert_eq!(menu.screen(), MenuScreen::Death);
+    assert!(!menu.view().death_loading);
+}
+
+#[test]
+fn death_main_menu_requires_confirmation_and_cancel_preserves_death() {
+    let mut menu = MenuRuntime::new(false, 2, "Steve".into());
+    menu.open_death();
+    menu.advance_death_controls(super::death::DEATH_CONTROLS_DELAY_SECONDS);
+    menu.activate(MenuAction::OpenDeathQuit);
+    assert_eq!(menu.view().dialog, Some(super::MenuDialog::DeathQuit));
+    assert!(!menu.take_disconnect_request());
+    menu.go_back();
+    assert_eq!(menu.view().dialog, None);
+    assert_eq!(menu.screen(), MenuScreen::Death);
+    assert!(menu.is_visible());
+    assert!(!menu.take_disconnect_request());
+    menu.activate(MenuAction::ConfirmDeathQuit);
+    assert!(!menu.take_disconnect_request());
+    menu.activate(MenuAction::OpenDeathQuit);
+    menu.activate(MenuAction::ConfirmDeathQuit);
+    assert!(menu.take_disconnect_request());
+    assert!(!menu.take_disconnect_request());
+    assert!(!menu.is_visible());
 }
 
 #[test]
@@ -228,6 +326,27 @@ const KICK: &str =
     "server disconnected: We've detected movement cheats (network read failed: closed)";
 
 #[test]
+fn death_respawn_requests_cannot_cross_session_replacement() {
+    for transition in 0..3 {
+        let mut menu = MenuRuntime::new(true, 2, "Player".into());
+        menu.show_world();
+        assert!(menu.open_death_with_rules(true));
+        assert!(menu.send_respawn_request(|| true));
+        match transition {
+            0 => {
+                assert!(menu.absorb_session_failure("network session failed: closed"));
+            }
+            1 => menu.show_connecting(),
+            _ => menu.show_transfer("example.invalid"),
+        }
+        menu.advance_death_controls(10.0);
+        assert!(!menu.send_respawn_request(|| panic!("stale session request")));
+        assert!(!menu.death_shown);
+        assert!(!menu.death_loading);
+    }
+}
+
+#[test]
 fn launcher_shows_the_server_reason_on_the_disconnect_screen() {
     use super::disconnect::{DisconnectBody, describe};
     let mut menu = MenuRuntime::new(true, 2, "Player".to_owned());
@@ -337,4 +456,107 @@ fn home_realms_and_marketplace_are_reachable_and_activate_their_routes() {
         menu.activate_focused();
         assert_eq!(menu.screen(), MenuScreen::Social);
     }
+}
+
+#[test]
+fn death_cancels_a_pending_settings_key_capture() {
+    let mut menu = MenuRuntime::new(true, 2, "Steve".into());
+    menu.show_world();
+    menu.open_pause();
+    menu.activate(MenuAction::Navigate(MenuScreen::Settings));
+    menu.key_remap = Some(0);
+    menu.open_death();
+    assert_eq!(menu.screen(), MenuScreen::Death);
+    assert!(
+        menu.key_remap.is_none(),
+        "death input cannot change a hidden binding"
+    );
+}
+
+#[test]
+fn death_retries_respawn_after_outbound_backpressure() {
+    let mut menu = MenuRuntime::new(false, 2, "Steve".into());
+    menu.open_death();
+    menu.advance_death_controls(super::death::DEATH_CONTROLS_DELAY_SECONDS);
+    menu.activate(MenuAction::Respawn);
+    assert!(!menu.send_respawn_request(|| false));
+    assert!(menu.view().death_loading);
+    assert!(
+        menu.send_respawn_request(|| true),
+        "a full queue must retain the request"
+    );
+    assert!(!menu.send_respawn_request(|| panic!("already enqueued")));
+}
+
+#[test]
+fn death_snapshots_immediate_respawn_when_opened() {
+    let mut menu = MenuRuntime::new(false, 2, "Steve".into());
+    menu.open_death_with_rules(false);
+    menu.open_death_with_rules(true);
+    assert!(
+        !menu.view().death_loading,
+        "rule changes apply to the next death"
+    );
+    assert!(!menu.send_respawn_request(|| panic!("no immediate request")));
+    menu.note_player_alive();
+    menu.open_death_with_rules(true);
+    assert!(menu.view().death_loading);
+    assert!(menu.send_respawn_request(|| true));
+}
+
+#[test]
+fn death_respawn_retries_while_waiting_and_stops_on_recovery() {
+    let mut menu = MenuRuntime::new(false, 2, "Steve".into());
+    menu.open_death_with_rules(true);
+    assert!(menu.send_respawn_request(|| true));
+    menu.advance_death_controls(0.5);
+    assert!(!menu.send_respawn_request(|| panic!("progress wait is not a retry")));
+    menu.advance_death_controls(0.999);
+    assert!(!menu.send_respawn_request(|| panic!("retry interval has not elapsed")));
+    menu.advance_death_controls(0.001);
+    assert!(menu.send_respawn_request(|| true));
+    menu.advance_death_controls(1.0);
+    assert!(!menu.send_respawn_request(|| false));
+    assert!(menu.send_respawn_request(|| true));
+    menu.note_player_alive();
+    menu.advance_death_controls(10.0);
+    assert!(!menu.send_respawn_request(|| panic!("recovery cancels retries")));
+}
+
+#[test]
+fn death_game_menu_returns_to_the_same_ready_death() {
+    let mut menu = MenuRuntime::new(false, 2, "Steve".into());
+    menu.open_death();
+    menu.activate(MenuAction::OpenDeathGameMenu);
+    assert_eq!(menu.screen(), MenuScreen::Death);
+    menu.advance_death_controls(super::death::DEATH_CONTROLS_DELAY_SECONDS);
+    menu.activate(MenuAction::OpenDeathGameMenu);
+    assert_eq!(menu.screen(), MenuScreen::Pause);
+    assert!(menu.over_world());
+    assert!(!menu.take_disconnect_request());
+    menu.activate(MenuAction::PauseResume);
+    assert_eq!(menu.screen(), MenuScreen::Death);
+    assert!(menu.view().death_controls_visible);
+    assert!(!menu.view().death_loading);
+    assert_eq!(menu.view().death_presentation.return_seconds, Some(0.0));
+}
+
+#[test]
+fn death_hardcore_exit_retains_progress_and_never_queues_respawn() {
+    let mut menu = MenuRuntime::new(false, 2, "Steve".into());
+    menu.open_death();
+    menu.death_presentation.hardcore = true;
+    menu.activate(MenuAction::DeathExitWorld);
+    assert!(!menu.take_disconnect_request());
+    menu.advance_death_controls(super::death::DEATH_CONTROLS_DELAY_SECONDS);
+    assert_eq!(menu.view().focused_action, Some(MenuAction::DeathExitWorld));
+    menu.activate(MenuAction::DeathExitWorld);
+    assert!(menu.view().death_loading);
+    assert!(menu.view().death_presentation.exiting_world);
+    assert!(menu.is_visible());
+    assert!(menu.take_disconnect_request());
+    menu.advance_death_controls(10.0);
+    assert!(!menu.send_respawn_request(|| panic!("exit is not a respawn")));
+    menu.show_after_disconnect();
+    assert!(!menu.view().death_presentation.active);
 }

@@ -317,6 +317,7 @@ pub struct GameRulesEvent {
     pub daylight_cycle: Option<DaylightCycleUpdateEvent>,
     pub weather_cycle: Option<bool>,
     pub hud: crate::HudRules,
+    pub death: crate::DeathRules,
 }
 
 /// Weather channel targeted by a normalized level event.

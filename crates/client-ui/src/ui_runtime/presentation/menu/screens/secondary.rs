@@ -463,7 +463,7 @@ pub(super) fn death(
 ) -> Result<(), UiPresentationError> {
     let items = [
         (MenuAction::Respawn, "Respawn"),
-        (MenuAction::PauseDisconnect, "Main menu"),
+        (MenuAction::OpenDeathQuit, "Main menu"),
     ];
     let out = (nodes, hits, next_id, layouts, font, metrics, solid_page);
     action_panel(view, out, area, "You died!", &items)

@@ -44,6 +44,31 @@ fn host(menu: Option<MenuScreen>) -> SceneHost {
 }
 
 #[test]
+fn death_overlay_keeps_the_hud_visible_and_absorbs_gameplay_input() {
+    let mut player = player_state::PlayerState::new(1);
+    let table = Arc::new(ScreenSettingsTable(HashMap::from([
+        (
+            json_ui::HUD_SCREEN,
+            settings(
+                json!({"absorbs_input":false,"is_showing_menu":false,"render_only_when_topmost":true}),
+            ),
+        ),
+        (
+            "death.death_screen",
+            settings(json!({"render_game_behind":false})),
+        ),
+    ])));
+    let runtime = in_world(&mut player, table);
+    let stack = runtime.scenes(&player, host(Some(MenuScreen::Death)));
+    assert_eq!(
+        stack.visible(false),
+        [Scene::Gameplay, Scene::Hud, Scene::Menu(MenuScreen::Death)]
+    );
+    assert!(stack.top().unwrap().settings.absorbs_input);
+    assert!(!stack.top().unwrap().settings.should_steal_mouse);
+}
+
+#[test]
 fn credits_own_gameplay_input_until_the_session_bound_completion_is_sent() {
     let mut player = player_state::PlayerState::new(1);
     let mut runtime = in_world(&mut player, vanilla_like_table());

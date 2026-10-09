@@ -603,6 +603,16 @@
 - Auth-input sprint flags remain derived from the completed physics state.
 - Windows official install: Keyboard & Mouse rendered at a 1280×720 client area; label and toggle are legible, aligned and unclipped. Enabled preference persisted during user interaction. Live user movement acceptance remains pending.
 
+## Remote session reconnect
+
+- Reconnect is a requested menu extension on remote disconnect and connection-failure screens.
+  It retries the selected destination through the normal join route and retains the originating
+  page. OK and Escape dismiss the failure. Account changes and local-world exits clear retry.
+- Behavioral regressions cover repeated attempts, teardown, transfers and account ownership.
+- macOS rendered input checks passed at 1280×720: keyboard and pointer retry completed
+  loopback joins after refusal and server disconnect; OK, Escape and loading Cancel worked.
+  This requested extension does not establish native UI parity.
+
 ## VSync video toggle
 
 - User-requested deviation: retail vanilla has no VSync menu control (it persists `gfx_vsync`,
@@ -6675,3 +6685,27 @@ selection and advancing cracks. Enhanced remains disabled for ordinary launches.
 Arbitrary runtime face-key remapping and non-power-of-two pack raster equivalence
 remain broader pack-stack work. Hidden debug captures do not close displayed-frame
 performance or the overall UI and performance gate.
+
+## Death-screen reasons
+
+The dedicated server death-information packet supplies the localized reason to
+the death screen independently of chat. Reasons survive either arrival order
+around zero health and clear on authoritative health recovery or session replacement.
+Recovery reads positive actor health independently of the rounded HUD values.
+The default death screen uses the owned OreUI renderer with a radial world overlay,
+centered title and literal wrapped reason, Respawn and Game menu actions, and the
+HUD beneath it. Message, button, backdrop and loading animations have separate
+clocks. The prompt still waits before accepting actions when animations are disabled.
+Game menu returns to the same death presentation. Respawn retains progress until
+authoritative recovery; pending requests survive outbound backpressure. Forced
+death cancels hidden key capture, and formatted reason parameters remain literal.
+The legacy JSON-UI renderer retains literal reason handling for fallback controls.
+Ordinary first-person world damage rotation samples the actor's completed hurt
+and death counters independently of hand animation. Scripted captures retain
+their requested pose after those effects run.
+Portal and fire overlays sample the final rendered camera pose and projection.
+
+Incomplete parity: exact target-version animation constants,
+respawn retries, death camera/FOV, hurt and HUD flash timing, hardcore and secondary
+client variants, and matched native frames remain open. The modern implementation
+and its focused regressions do not close the full death-screen parity gate.

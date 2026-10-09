@@ -53,6 +53,9 @@ impl ActorStore {
         self.prepare_appearances(ticks > 0);
         for tick in 0..ticks.max(u32::from(refresh_view)) {
             if !refresh_view {
+                if let Some(pending) = &mut self.pending_local_damage {
+                    pending.tick();
+                }
                 for actor in self.actors.values_mut() {
                     let current = actor.current_pose();
                     actor.previous_pose = current;

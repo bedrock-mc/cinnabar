@@ -373,6 +373,14 @@ pub struct MenuView {
     pub address: String,
     pub port: String,
     pub message: Option<String>,
+    /// Localized server-authored reason projected by the gameplay UI.
+    pub death_reason: String,
+    /// A respawn request is waiting for authoritative recovery.
+    pub death_loading: bool,
+    /// Real-time OreUI death stages, independent of the simulation clock.
+    pub death_presentation: super::death::DeathPresentation,
+    /// Ordinary death controls have completed their delay and may accept input.
+    pub death_controls_visible: bool,
     pub gui_scale_offset: i8,
     pub gui_scale_choices: Vec<ui::DesktopGuiScaleChoice>,
     pub fullscreen: bool,
@@ -404,6 +412,8 @@ pub struct MenuView {
     pub global_resources: std::sync::Arc<crate::global_resources::Snapshot>,
     /// Why the last session ended, shown until acknowledged.
     pub disconnect_message: Option<String>,
+    /// The failed remote destination can be retried by the current account.
+    pub can_reconnect: bool,
     /// The saved server the add screen is editing.
     pub editing: Option<usize>,
     pub local_worlds: Vec<LocalWorldCard>,
@@ -584,6 +594,10 @@ impl MenuView {
             address: String::new(),
             port: String::new(),
             message: None,
+            death_reason: String::new(),
+            death_loading: false,
+            death_presentation: super::death::DeathPresentation::default(),
+            death_controls_visible: true,
             gui_scale_offset: 0,
             gui_scale_choices: ui::DesktopGuiScale::for_window([1, 1]).choices().collect(),
             fullscreen: false,
@@ -611,6 +625,7 @@ impl MenuView {
             player_skin_model: Default::default(),
             global_resources: Default::default(),
             disconnect_message: None,
+            can_reconnect: false,
             editing: None,
             local_worlds: Vec::new(),
             local: Default::default(),
