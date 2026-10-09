@@ -505,8 +505,8 @@ fn repeated_directional_input_uses_the_snapped_slider_position() {
     {
         let engine = runtime.server_forms_mut().engine_mut();
         engine.view.focused = Some(slider.key.clone());
-        engine.dispatcher.button(
-            std::slice::from_ref(slider),
+        let dispatch = engine.dispatcher.button(
+            &frame.hits,
             &mut engine.view,
             EngineButton {
                 id: "button.menu_ok",
@@ -516,7 +516,11 @@ fn repeated_directional_input_uses_the_snapped_slider_position() {
                 now: -0.1,
             },
         );
-        assert_eq!(engine.view.components.selected(), Some(slider.key.as_str()));
+        assert_eq!(
+            engine.view.components.selected(),
+            Some(slider.key.as_str()),
+            "dispatch: {dispatch:?}"
+        );
     }
     for (now, expected) in [(0.0, 6.0), (0.25, 8.0)] {
         let events = {

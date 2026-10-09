@@ -695,3 +695,25 @@ fn host_sets_edit_box_text_by_name() {
         .text(&regions, &mut screen.view, "\u{8}", None);
     assert_eq!(text_of(&screen, "display"), "ston");
 }
+
+#[test]
+fn unselected_edit_global_mapping_leaves_focused_slider_input_available() {
+    let mut screen = Screen::new(page(vec![
+        slider(
+            json!({
+                "slider_selected_button": "button.choose",
+                "button_mappings": [{"from_button_id":"button.menu_ok","to_button_id":"button.choose","mapping_type":"focused"}]
+            }),
+            vec![],
+        ),
+        edit_box(json!({"button_mappings": [{
+            "from_button_id":"button.menu_ok","to_button_id":"button.text_edit_box_selected",
+            "mapping_type":"global","handle_select":false,"handle_deselect":true
+        }]})),
+    ]));
+    screen.view.focused = Some("/root/s".to_owned());
+    assert_eq!(screen.view.components.selected(), None);
+    let dispatched = screen.press("button.menu_ok", true, [150.0, 150.0], 0.0);
+    assert!(dispatched.consumed);
+    assert_eq!(screen.view.components.selected(), Some("/root/s"));
+}

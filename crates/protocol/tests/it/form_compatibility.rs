@@ -205,3 +205,101 @@ fn bounded_custom_forms_keep_controls_and_options_above_256() {
         );
     }
 }
+
+#[test]
+fn display_fields_use_boolean_and_empty_scalar_fallbacks() {
+    for (value, expected) in [
+        (serde_json::json!(true), "true"),
+        (serde_json::json!(false), "false"),
+        (serde_json::json!(12), ""),
+        (serde_json::json!([]), ""),
+        (serde_json::json!({"other":"unused"}), ""),
+        (
+            serde_json::json!({"rawtext":[{"text":"Metadata"}],"extra":true}),
+            "Metadata",
+        ),
+    ] {
+        let form = model(
+            serde_json::json!({"type":"form", "title":value, "content":value, "buttons":[{"text":value}]}),
+        );
+        let ServerFormModel::TextMenu(menu) = form else {
+            panic!("display scalar fell back: {form:?}");
+        };
+        assert_eq!(menu.title.as_ref(), expected);
+        assert_eq!(menu.content.as_ref(), expected);
+        assert_eq!(menu.buttons[0].as_ref(), expected);
+        let ServerFormModel::Modal(modal) = model(
+            json!({"type":"modal","title":value,"content":value,"button1":value,"button2":value}),
+        ) else {
+            panic!("modal display scalar");
+        };
+        assert_eq!(modal.title.as_ref(), expected);
+        assert_eq!(modal.content.as_ref(), expected);
+        assert_eq!(modal.button1.as_ref(), expected);
+        assert_eq!(modal.button2.as_ref(), expected);
+        let ServerFormModel::Custom(custom) = model(
+            json!({"type":"custom_form","title":value,"submit":value,"content":[{"type":"input","text":value,"placeholder":value,"tooltip":value,"default":"Draft"},{"type":"dropdown","text":value,"options":[value]}]}),
+        ) else {
+            panic!("custom display scalar");
+        };
+        assert_eq!(custom.title.as_ref(), expected);
+        assert_eq!(custom.submit.as_ref().unwrap().as_ref(), expected);
+        let protocol::CustomFormElement::Input {
+            text,
+            placeholder,
+            tooltip,
+            default,
+        } = &custom.elements[0]
+        else {
+            panic!("input");
+        };
+        assert_eq!(text.as_ref(), expected);
+        assert_eq!(placeholder.as_ref(), expected);
+        assert_eq!(tooltip.as_ref().unwrap().as_ref(), expected);
+        assert_eq!(default.as_ref(), "Draft");
+        let protocol::CustomFormElement::Dropdown { options, .. } = &custom.elements[1] else {
+            panic!("dropdown");
+        };
+        assert_eq!(options[0].as_ref(), expected);
+    }
+}
+
+#[test]
+fn structured_display_metadata_and_component_precedence_are_preserved() {
+    let resolver = protocol::RawTextResolver {
+        reader_name: "Player",
+        translate: &|key| (key == "arguments").then(|| std::sync::Arc::from("%1|%2")),
+        score: &|_, _| None,
+        selector: &|_| None,
+    };
+    for (component, expected) in [
+        (json!({"text":"Text","extra":true}), "Text"),
+        (
+            json!({"translate":"hello","text":"unused","score":{},"extra":true}),
+            "hello",
+        ),
+        (
+            json!({"text":"Prefix","rawtext":[{}, {"text":null}, {"text":"Tail","extra":true}]}),
+            "PrefixTail",
+        ),
+        (
+            json!({"translate":"arguments","with":[1,"First",{},"Last"]}),
+            "First|Last",
+        ),
+        (
+            json!({"translate":"arguments","with":{"rawtext":[{"text":"First","extra":true},{"text":"Last"}],"extra":true}}),
+            "First|Last",
+        ),
+    ] {
+        let ServerFormModel::TextMenu(menu) =
+            model(json!({"type":"form","buttons":[{"text":{"rawtext":[component]}}]}))
+        else {
+            panic!("text document");
+        };
+        let text = match &menu.buttons[0] {
+            protocol::FormText::Literal(text) => text.to_string(),
+            protocol::FormText::Raw(document) => document.resolve(&resolver).text,
+        };
+        assert_eq!(text, expected);
+    }
+}

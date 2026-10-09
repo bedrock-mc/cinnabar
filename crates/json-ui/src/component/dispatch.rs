@@ -106,6 +106,14 @@ impl Dispatcher {
                 mapping.scope,
             );
             let previous_down = previous == Some(true);
+            // An edit box consumes only interactions allowed by its selection flags.
+            let accepts = region.widget.edit.is_none()
+                || (fired.interacted
+                    && if view.components.selected() == Some(region.key.as_str()) {
+                        mapping.handle_deselect
+                    } else {
+                        mapping.handle_select
+                    });
             self.deliver(
                 regions,
                 region,
@@ -116,7 +124,7 @@ impl Dispatcher {
                 &mut out,
             );
             out.events.push(ScreenEvent::Button(fired));
-            if mapping.consume_event && region.widget.consume {
+            if accepts && mapping.consume_event && region.widget.consume {
                 out.consumed = true;
                 break;
             }

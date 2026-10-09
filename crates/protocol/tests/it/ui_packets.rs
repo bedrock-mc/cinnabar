@@ -634,7 +634,6 @@ fn element_button_forms_reject_ambiguous_or_unsupported_controls_without_renumbe
         r#"{"type":"form","elements":["button"]}"#,
         r#"{"type":"form","elements":[{"text":"A","image":null}]}"#,
         r#"{"type":"form","elements":[{"type":7,"text":"A","image":null}]}"#,
-        r#"{"type":"form","elements":[{"type":"button","text":7,"image":null}]}"#,
     ] {
         assert_eq!(
             form_event(json).unwrap().model,
@@ -1006,7 +1005,7 @@ fn element_menus_keep_decorations_and_count_only_buttons() {
 }
 
 #[test]
-fn modal_forms_model_both_buttons_or_stay_unsupported() {
+fn modal_forms_keep_required_buttons_and_display_fallbacks() {
     let event = form_event(
         r#"{"type":"modal","title":"Sure?","content":"Body","button1":"Yes","button2":"No"}"#,
     )
@@ -1020,15 +1019,29 @@ fn modal_forms_model_both_buttons_or_stay_unsupported() {
             button2: protocol::FormText::from("No"),
         })
     );
-    for json in [
-        r#"{"type":"modal","button1":"Yes"}"#,
-        r#"{"type":"modal","button1":"Yes","button2":5}"#,
-    ] {
+    for json in [r#"{"type":"modal","button1":"Yes"}"#] {
         assert_eq!(
             form_event(json).unwrap().model,
             protocol::ServerFormModel::Unsupported(protocol::UnsupportedForm::Controls)
         );
     }
+}
+
+#[test]
+fn numeric_element_button_labels_keep_their_wire_indices() {
+    let event = form_event(r#"{"type":"form","elements":[{"type":"button","text":"First"},{"type":"button","text":7},{"type":"button","text":"Last"}]}"#).unwrap();
+    let protocol::ServerFormModel::TextMenu(menu) = event.model else {
+        panic!("numeric display fallback");
+    };
+    assert_eq!(
+        menu.buttons.iter().map(AsRef::as_ref).collect::<Vec<_>>(),
+        ["First", "", "Last"]
+    );
+    let event = form_event(r#"{"type":"modal","button1":"Yes","button2":5}"#).unwrap();
+    let protocol::ServerFormModel::Modal(modal) = event.model else {
+        panic!("modal display fallback");
+    };
+    assert_eq!(modal.button2.as_ref(), "");
 }
 
 #[test]
