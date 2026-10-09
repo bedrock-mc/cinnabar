@@ -64,6 +64,58 @@ fn radio_groups_stay_exclusive() {
     );
 }
 
+#[test]
+fn nested_radio_groups_keep_other_parents_checked() {
+    let controls = [("a", true, 0), ("b", false, 50), ("c", true, 100)]
+        .into_iter()
+        .map(|(name, checked, x)| {
+            toggle(
+                name,
+                json!({"radio_toggle_group": true, "#toggle_state": checked, "offset": [x, 0]}),
+            )
+        })
+        .collect();
+    let mut screen = Screen::new(page(controls));
+    let mut regions = screen.regions();
+    for region in &mut regions {
+        let (parent, option) = match region.name.as_str() {
+            "a" => (0, 0),
+            "b" => (0, 1),
+            "c" => (1, 0),
+            _ => continue,
+        };
+        region.collections = vec![
+            ("custom_form".into(), parent),
+            ("custom_dropdown".into(), option),
+        ];
+    }
+    let second = regions.iter().find(|region| region.name == "b").unwrap();
+    screen.view.focused = Some(second.key.clone());
+    screen.dispatcher.button(
+        &regions,
+        &mut screen.view,
+        json_ui::ButtonInput {
+            id: "button.menu_select",
+            down: true,
+            point: None,
+            mode: InputMode::Gamepad,
+            now: 0.0,
+        },
+    );
+    for (name, expected) in [("a", false), ("b", true), ("c", true)] {
+        let region = regions.iter().find(|region| region.name == name).unwrap();
+        let checked = screen
+            .view
+            .components
+            .bag(&region.key)
+            .and_then(|bag| bag.get("#toggle_state"))
+            .and_then(serde_json::Value::as_bool)
+            .or(region.checked)
+            .unwrap_or(false);
+        assert_eq!(checked, expected, "radio {name}");
+    }
+}
+
 // T6: toggle_on_hover flips a plain toggle as the pointer enters.
 #[test]
 fn toggle_on_hover_flips_on_entry() {
