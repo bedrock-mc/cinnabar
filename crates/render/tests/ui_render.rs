@@ -2,6 +2,7 @@
 mod alloc_count;
 
 #[path = "../src/device_poll.rs"]
+#[allow(dead_code, reason = "frame completion helpers serve the library's own owners")]
 mod device_poll;
 #[path = "it/support/gpu_snapshot.rs"]
 mod gpu_snapshot;
